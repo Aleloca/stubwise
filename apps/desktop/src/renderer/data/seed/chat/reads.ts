@@ -29,7 +29,7 @@ const CHANNEL_READS: Record<string, Record<string, string>> = {
     "dm-launch-week": at(1, "00:00"),
   },
   "p-roberta": {
-    "ch-chit-chat": at(1, "16:00"),
+    "ch-chit-chat": at(1, "15:00"),
     "dm-giulia-roberta": at(1, "12:00"),
   },
 };

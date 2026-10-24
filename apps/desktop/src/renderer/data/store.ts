@@ -4,6 +4,13 @@ import { currentWeek } from "../domain/weeks";
 import type { FilterContext } from "../domain/filters";
 import { ACTIVITY } from "./seed/activity";
 import { BRIEFS } from "./seed/briefs";
+import {
+  CHAT_CHANNELS,
+  CHAT_MESSAGES,
+  CHAT_NOTIFY_PREFS,
+  CHAT_READ_STATES,
+  RELEASE_PAGES,
+} from "./seed/chat";
 import { CONVERSATION_EVENTS, CONVERSATIONS } from "./seed/conversations";
 import { TODAY } from "./seed/dates";
 import { DECISION_LOG } from "./seed/decisionLog";
@@ -21,6 +28,8 @@ import { DEFAULT_SESSION_PERSON_ID, getSessionPersonId, setSessionPersonId } fro
 import type {
   ActivityEntry,
   AppNotification,
+  Channel,
+  ChatMessage,
   Conversation,
   ConversationActivity,
   ConversationEvent,
@@ -40,7 +49,10 @@ import type {
   PrFact,
   PrRef,
   PullRequestEvent,
+  NotifyLevel,
   ReadOnlyReason,
+  ReadState,
+  ReleasePage,
   SavedFilter,
   StatusFamily,
   Task,
@@ -163,7 +175,39 @@ export type ApiFnName =
   | "resolveCitations"
   | "searchMentions"
   | "setConversationContext"
-  | "completeEditedProposal";
+  | "completeEditedProposal"
+  // Chat (area 4)
+  | "chat.listChannels"
+  | "chat.getChannel"
+  | "chat.listChannelMembers"
+  | "chat.listMessages"
+  | "chat.getMessage"
+  | "chat.listThread"
+  | "chat.listThreadsWithNews"
+  | "chat.listMentions"
+  | "chat.listQuestions"
+  | "chat.search"
+  | "chat.sendMessage"
+  | "chat.editMessage"
+  | "chat.deleteMessage"
+  | "chat.toggleReaction"
+  | "chat.markRead"
+  | "chat.markThreadRead"
+  | "chat.setThreadFollow"
+  | "chat.setNotifyLevel"
+  | "chat.joinChannel"
+  | "chat.leaveChannel"
+  | "chat.createChannel"
+  | "chat.updateChannel"
+  | "chat.setPublishedEvents"
+  | "chat.archiveChannel"
+  | "chat.deleteChannel"
+  | "chat.inviteMembers"
+  | "chat.removeMember"
+  | "chat.openDm"
+  | "chat.createTaskFromMessage"
+  | "chat.createRequestFromMessage"
+  | "chat.dismissQuestion";
 const failures = new Set<ApiFnName>();
 
 /** Fissa la latenza simulata (ms); `0` per i test, `null` per tornare a 150–400 ms. */
@@ -270,7 +314,24 @@ interface State {
   /** Per gli id delle righe create. */
   counter: number;
   slipped: boolean;
+  // --- Chat (area 4) ---
+  channels: Channel[];
+  /** Tutti i messaggi, radici e risposte, nell'ordine in cui sono arrivati. */
+  chatMessages: ChatMessage[];
+  /** Fin dove ognuno ha letto, per `chatKey(persona, canale)`. */
+  chatReads: Map<string, ReadState>;
+  /** Le preferenze di notifica diverse da «tutti», per `chatKey(persona, canale)`. */
+  chatNotify: Map<string, NotifyLevel>;
+  /** Le domande della Chat che una persona ha ignorato: `chatKey(persona, messaggio)`. */
+  chatDismissed: Set<string>;
+  /** Le pagine di Release (finte fino all'area 8). */
+  releasePages: ReleasePage[];
+  /** I secondi dopo «adesso» dati all'ultimo messaggio nuovo (`chatNow`). */
+  chatSeq: number;
 }
+
+/** La chiave di una coppia (persona, canale o messaggio) nelle mappe della Chat. */
+export const chatKey = (personId: string, id: string): string => `${personId}\u0000${id}`;
 
 function freshState(): State {
   return {
@@ -305,6 +366,13 @@ function freshState(): State {
     tasksById: new Map(),
     counter: 0,
     slipped: false,
+    channels: CHAT_CHANNELS.map(copy),
+    chatMessages: CHAT_MESSAGES.map(copy),
+    chatReads: new Map(CHAT_READ_STATES.map((r) => [chatKey(r.personId, r.channelId), copy(r)])),
+    chatNotify: new Map(CHAT_NOTIFY_PREFS.map((p) => [chatKey(p.personId, p.channelId), p.level])),
+    chatDismissed: new Set(),
+    releasePages: RELEASE_PAGES.map(copy),
+    chatSeq: 0,
   };
 }
 
@@ -357,6 +425,17 @@ export const newId = (prefix: string): string => `${prefix}-new-${++state.counte
 
 /** L'«adesso» del prototipo: nessuna logica legge l'orologio. */
 export const now = (): string => `${TODAY}T12:00:00Z`;
+
+/**
+ * L'ora di un messaggio nuovo della Chat: «adesso» più un secondo per ogni
+ * messaggio già scritto, così l'ordine e i non letti restano veri anche con
+ * l'orologio fisso (due messaggi alla stessa ora non si distinguerebbero).
+ * Stesso formato del seed (`…T12:00:05Z`), che si confronta come stringa.
+ */
+export function chatNow(): string {
+  const at = new Date(Date.parse(now()) + ++state.chatSeq * 1000);
+  return at.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
 
 export const familyOf = (task: Task): StatusFamily => state.statusById.get(task.statusId)!.family;
 

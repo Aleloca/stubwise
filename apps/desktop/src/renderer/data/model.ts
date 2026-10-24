@@ -60,6 +60,12 @@ export interface AppNotification {
   snoozedUntil: string | null;
   /** Route hash. */
   link: string;
+  /**
+   * Solo una menzione della Chat: il messaggio. Titolo e testo si derivano a
+   * lettura dal messaggio di adesso (eliminato o non più leggibile: la
+   * notifica non c'è più), mai salvati qui.
+   */
+  chatMessageId?: string;
 }
 
 export type StatusFamily = "todo" | "active" | "closed";
@@ -944,3 +950,20 @@ export interface ChannelNotifyPref {
   channelId: string;
   level: NotifyLevel;
 }
+
+/**
+ * Un passo del flusso di un canale o di un thread della Chat, eseguito dal
+ * motore dello stream (`runScript` su `chat:<canale>` o `chat:thread:<radice>`):
+ * l'unico modo in cui un messaggio entra nella Chat o cambia dal vivo.
+ * - `post`: un messaggio intero (con id e data), in fondo;
+ * - `patch`: cambia campi di un messaggio già scritto (mai id, canale o thread);
+ * - `say`: il testo di un messaggio (una risposta di @Claude) arriva a pezzi.
+ */
+export type ChatScriptStep =
+  | { step: "post"; message: ChatMessage }
+  | {
+      step: "patch";
+      messageId: string;
+      patch: Partial<Omit<ChatMessage, "id" | "channelId" | "threadOf">>;
+    }
+  | { step: "say"; messageId: string; text: string };

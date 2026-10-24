@@ -1,0 +1,520 @@
+import { PEOPLE } from "../seed/people";
+import { chatKey, copy, gate, now, state } from "../store";
+import type {
+  AppNotification,
+  Channel,
+  ChannelMember,
+  ChannelMessagesPage,
+  ChannelRow,
+  ChannelView,
+  ChatMessage,
+  ChatMessageHit,
+  ChatMessageView,
+  ChatQuestion,
+  ChatSearchFilters,
+  ReadState,
+  ThreadView,
+  ThreadWithNews,
+} from "../types";
+import { mentionKindFor } from "./mentions";
+import {
+  canReadChannel,
+  canSeeChannel,
+  channelPermissions,
+  membersOf,
+  notifyLevelOf,
+} from "./visibility";
+
+// Le letture della Chat. Ognuna parte da `canSeeChannel`/`canReadChannel`
+// (visibility.ts): un canale che non si vede risponde come uno che non
+// esiste (`null`), e i messaggi di un canale che non si legge non entrano in
+// nessun conteggio, elenco, ricerca, anteprima o notifica. Un messaggio
+// eliminato non ha testo in nessun posto; senza risposte, dopo un giorno
+// sparisce dal flusso, con risposte resta «Message deleted».
+
+const DAY_MS = 86_400_000;
+
+export const channelById = (id: string): Channel | undefined =>
+  state.channels.find((c) => c.id === id);
+
+export const messageById = (id: string): ChatMessage | undefined =>
+  state.chatMessages.find((m) => m.id === id);
+
+export const readStateOf = (personId: string, channelId: string): ReadState | undefined =>
+  state.chatReads.get(chatKey(personId, channelId));
+
+/** Nel flusso del canale: le radici e le risposte mandate «anche nel canale». */
+export const inChannelFlow = (m: ChatMessage): boolean =>
+  m.threadOf === null || m.alsoInChannel === true;
+
+const byTime = (a: ChatMessage, b: ChatMessage) => a.createdAt.localeCompare(b.createdAt);
+
+/** I messaggi di un canale con le risposte di ogni radice: il contesto di una lettura. */
+export interface ChannelData {
+  ch: Channel;
+  /** Tutti i messaggi del canale, nell'ordine in cui sono arrivati. */
+  messages: ChatMessage[];
+  replies: Map<string, ChatMessage[]>;
+}
+
+export function channelData(ch: Channel, messages?: ChatMessage[]): ChannelData {
+  const list = messages ?? state.chatMessages.filter((m) => m.channelId === ch.id);
+  const replies = new Map<string, ChatMessage[]>();
+  for (const m of list) {
+    if (m.threadOf === null) continue;
+    const thread = replies.get(m.threadOf) ?? [];
+    thread.push(m);
+    replies.set(m.threadOf, thread);
+  }
+  return { ch, messages: list, replies };
+}
+
+/** I messaggi per canale, in un passaggio (per le letture che guardano tutti i canali). */
+function messagesByChannel(): Map<string, ChatMessage[]> {
+  const out = new Map<string, ChatMessage[]>();
+  for (const m of state.chatMessages) {
+    const list = out.get(m.channelId) ?? [];
+    list.push(m);
+    out.set(m.channelId, list);
+  }
+  return out;
+}
+
+/**
+ * Un messaggio eliminato senza risposte visibili e più vecchio di un giorno
+ * non c'è più; con risposte resta («Message deleted» con il thread).
+ */
+export function isGone(m: ChatMessage, replies: readonly ChatMessage[] = []): boolean {
+  if (m.deletedAt === null) return false;
+  if (replies.some((r) => !isGone(r))) return false;
+  return Date.parse(now()) - Date.parse(m.deletedAt) >= DAY_MS;
+}
+
+/** Le risposte visibili di una radice, in ordine. */
+export function liveReplies(data: ChannelData, rootId: string): ChatMessage[] {
+  return (data.replies.get(rootId) ?? []).filter((r) => !isGone(r)).sort(byTime);
+}
+
+/** Il flusso del canale come si legge: radici e risposte «anche nel canale», senza gli spariti. */
+export function channelFlow(data: ChannelData): ChatMessage[] {
+  return data.messages
+    .filter((m) => inChannelFlow(m) && !isGone(m, data.replies.get(m.id) ?? []))
+    .sort(byTime);
+}
+
+/** Toglie a un messaggio eliminato tutto ciò che diceva. */
+export function scrubDeleted(m: ChatMessage): void {
+  m.text = "";
+  m.attachments = [];
+  m.citations = [];
+  m.reactions = [];
+  m.asksReplyOf = [];
+  if (m.claudeEvents) m.claudeEvents = [];
+}
+
+/**
+ * La persona ha risposto a `m` dopo che è stato scritto: nel suo thread o,
+ * per un messaggio nel canale, anche nel canale.
+ */
+function answered(m: ChatMessage, personId: string, data: ChannelData): boolean {
+  const thread = m.threadOf ?? m.id;
+  return data.messages.some(
+    (n) =>
+      n.authorId === personId &&
+      n.kind === "person" &&
+      n.deletedAt === null &&
+      n.createdAt > m.createdAt &&
+      (n.threadOf === thread || (m.threadOf === null && n.threadOf === null)),
+  );
+}
+
+/** Il messaggio come lo legge la persona: una copia, con il riassunto del thread. */
+export function presentMessage(
+  personId: string,
+  m: ChatMessage,
+  data: ChannelData = channelData(channelById(m.channelId)!),
+): ChatMessageView {
+  const base = copy(m);
+  if (m.deletedAt !== null) scrubDeleted(base);
+  const replies = m.threadOf === null ? liveReplies(data, m.id) : [];
+  const followedAt = readStateOf(personId, m.channelId)?.threadReads[m.id];
+  const last = replies.at(-1);
+  const participants: string[] = [];
+  for (const r of [...replies].reverse()) {
+    if (r.authorId !== null && !participants.includes(r.authorId)) participants.push(r.authorId);
+  }
+  return {
+    ...base,
+    thread: last
+      ? {
+          replyCount: replies.length,
+          lastReplyAt: last.createdAt,
+          lastReplyById: last.authorId,
+          participantIds: participants.slice(0, 3),
+          hasNews:
+            followedAt !== undefined &&
+            replies.some((r) => r.authorId !== personId && r.createdAt > followedAt),
+          following: followedAt !== undefined,
+        }
+      : null,
+    answeredIds: base.asksReplyOf.filter((id) => answered(m, id, data)),
+    mentionsViewer: mentionKindFor(m, personId, membersOf(data.ch)) !== null,
+  };
+}
+
+/** Il nome del canale come lo si legge: `AUD · general`, `# announcements`, i nomi del DM. */
+export function channelLabel(ch: Channel, personId: string): string {
+  if (ch.kind === "project") {
+    const code = ch.projectId ? (state.projectsById.get(ch.projectId)?.code ?? "") : "";
+    return `${code} · ${ch.name}`;
+  }
+  if (ch.kind === "general") return `# ${ch.name}`;
+  const others = membersOf(ch).filter((id) => id !== personId);
+  return others.map((id) => PEOPLE.find((p) => p.id === id)?.name ?? id).join(", ");
+}
+
+export function channelView(personId: string, ch: Channel): ChannelView {
+  return {
+    ...copy(ch),
+    memberIds: [...membersOf(ch)],
+    ...channelPermissions(personId, ch),
+    notifyLevel: notifyLevelOf(personId, ch.id),
+  };
+}
+
+/**
+ * I non letti e le menzioni di un canale per la persona. Non letti: i
+ * messaggi del flusso dopo la sua lettura, non suoi, mai in un silenziato.
+ * Menzioni: quelle dirette sempre (anche nelle risposte dei thread),
+ * `@channel` e reparto salvo silenziato, e in un DM ogni messaggio. I
+ * messaggi di sistema contano come non letti, mai come menzione.
+ */
+export function channelCounts(
+  personId: string,
+  data: ChannelData,
+): { unread: number; mentions: number } {
+  const read = readStateOf(personId, data.ch.id);
+  const members = membersOf(data.ch);
+  if (!read || !members.includes(personId) || !canReadChannel(personId, data.ch)) {
+    return { unread: 0, mentions: 0 };
+  }
+  const level = notifyLevelOf(personId, data.ch.id);
+  const dm = data.ch.kind === "dm";
+  let unread = 0;
+  let mentions = 0;
+  for (const m of data.messages) {
+    if (m.deletedAt !== null || m.authorId === personId) continue;
+    const flow = inChannelFlow(m);
+    const since = flow ? read.lastReadAt : (read.threadReads[m.threadOf!] ?? read.lastReadAt);
+    if (m.createdAt <= since) continue;
+    if (flow && level !== "muted") unread++;
+    const kind = mentionKindFor(m, personId, members);
+    const counts =
+      kind === "direct" || (level !== "muted" && (kind === "group" || (dm && m.kind !== "system")));
+    if (counts) mentions++;
+  }
+  return { unread, mentions };
+}
+
+function channelRow(personId: string, ch: Channel, messages: ChatMessage[]): ChannelRow {
+  const data = channelData(ch, messages);
+  const readable = canReadChannel(personId, ch);
+  const live = readable
+    ? data.messages.filter((m) => !isGone(m, data.replies.get(m.id) ?? []))
+    : [];
+  const latest = live.reduce<string | null>(
+    (max, m) => (max === null || m.createdAt > max ? m.createdAt : max),
+    null,
+  );
+  return {
+    ...channelView(personId, ch),
+    ...channelCounts(personId, data),
+    lastActivityAt: latest,
+  };
+}
+
+/** Il canale se la persona lo vede (anche senza leggerlo). */
+export function seenChannel(personId: string, id: string): Channel | null {
+  const ch = channelById(id);
+  return ch && canSeeChannel(personId, ch) ? ch : null;
+}
+
+/** Il canale se la persona ne legge i messaggi. */
+export function readableChannel(personId: string, id: string): Channel | null {
+  const ch = channelById(id);
+  return ch && canReadChannel(personId, ch) ? ch : null;
+}
+
+/** Il messaggio se la persona lo legge e c'è ancora (uno sparito non esiste). */
+export function readableMessage(
+  personId: string,
+  id: string,
+): { message: ChatMessage; data: ChannelData } | null {
+  const message = messageById(id);
+  if (!message) return null;
+  const ch = readableChannel(personId, message.channelId);
+  if (!ch) return null;
+  const data = channelData(ch);
+  if (isGone(message, data.replies.get(message.id) ?? [])) return null;
+  return { message, data };
+}
+
+/** Il messaggio prima di `m` nel suo flusso (il canale, o il thread con la radice). */
+function contextOf(personId: string, m: ChatMessage, data: ChannelData): ChatMessageView | null {
+  const flow =
+    m.threadOf === null || m.alsoInChannel
+      ? channelFlow(data)
+      : [data.messages.find((x) => x.id === m.threadOf)!, ...liveReplies(data, m.threadOf)];
+  const index = flow.findIndex((x) => x.id === m.id);
+  const previous = index > 0 ? flow[index - 1] : undefined;
+  return previous ? presentMessage(personId, previous, data) : null;
+}
+
+function hit(personId: string, m: ChatMessage, data: ChannelData): ChatMessageHit {
+  return {
+    channelId: m.channelId,
+    message: presentMessage(personId, m, data),
+    context: contextOf(personId, m, data),
+  };
+}
+
+// --- letture ------------------------------------------------------------------
+
+/**
+ * I canali che chi guarda vede, con non letti, menzioni e ultima attività:
+ * tutti (colonna e «Browse channels», con `isMember` e `archived`) o quelli
+ * di un progetto (gli stessi, con gli stessi conteggi). Un privato visto da
+ * chi gestisce senza esserne membro non rivela attività né conteggi.
+ */
+export async function listChannels(
+  options: { scope: "all" } | { scope: "project"; projectId: string } = { scope: "all" },
+): Promise<ChannelRow[]> {
+  const me = await gate("chat.listChannels");
+  const byChannel = messagesByChannel();
+  return state.channels
+    .filter(
+      (ch) =>
+        canSeeChannel(me, ch) && (options.scope === "all" || ch.projectId === options.projectId),
+    )
+    .map((ch) => channelRow(me, ch, byChannel.get(ch.id) ?? []));
+}
+
+/** Un canale con i permessi di chi guarda; `null` se non lo vede. */
+export async function getChannel(id: string): Promise<ChannelView | null> {
+  const me = await gate("chat.getChannel");
+  const ch = seenChannel(me, id);
+  return ch ? channelView(me, ch) : null;
+}
+
+/** I membri di un canale che chi guarda vede (anche un privato che gestisce). */
+export async function listChannelMembers(id: string): Promise<ChannelMember[] | null> {
+  const me = await gate("chat.listChannelMembers");
+  const ch = seenChannel(me, id);
+  if (!ch) return null;
+  return membersOf(ch).map((personId) => ({ personId, isCreator: personId === ch.createdById }));
+}
+
+/**
+ * Una pagina del flusso del canale (radici e risposte «anche nel canale»),
+ * le più recenti prima di `before` (l'id di un messaggio), al più `limit`.
+ * `null` se chi guarda non ne legge i messaggi.
+ */
+export async function listMessages(
+  channelId: string,
+  { before, limit = 50 }: { before?: string; limit?: number } = {},
+): Promise<ChannelMessagesPage | null> {
+  const me = await gate("chat.listMessages");
+  const ch = readableChannel(me, channelId);
+  if (!ch) return null;
+  const data = channelData(ch);
+  const flow = channelFlow(data);
+  const at = before === undefined ? -1 : flow.findIndex((m) => m.id === before);
+  const end = at >= 0 ? at : flow.length;
+  const start = Math.max(0, end - limit);
+  const read = readStateOf(me, ch.id);
+  return {
+    messages: flow.slice(start, end).map((m) => presentMessage(me, m, data)),
+    hasMore: start > 0,
+    lastReadAt: read && membersOf(ch).includes(me) ? read.lastReadAt : null,
+  };
+}
+
+/** Un messaggio (per un link, un'anteprima, un salto): `null` se non lo legge o non c'è più. */
+export async function getMessage(id: string): Promise<ChatMessageHit | null> {
+  const me = await gate("chat.getMessage");
+  const found = readableMessage(me, id);
+  return found ? hit(me, found.message, found.data) : null;
+}
+
+/** Il thread di un messaggio (la radice, anche da una risposta): `null` se non lo legge. */
+export async function listThread(messageId: string): Promise<ThreadView | null> {
+  const me = await gate("chat.listThread");
+  const found = readableMessage(me, messageId);
+  if (!found) return null;
+  const rootId = found.message.threadOf ?? found.message.id;
+  const root = found.data.messages.find((m) => m.id === rootId);
+  if (!root || isGone(root, found.data.replies.get(rootId) ?? [])) return null;
+  return {
+    channelId: root.channelId,
+    root: presentMessage(me, root, found.data),
+    replies: liveReplies(found.data, rootId).map((r) => presentMessage(me, r, found.data)),
+    lastReadAt: readStateOf(me, root.channelId)?.threadReads[rootId] ?? null,
+  };
+}
+
+/** I thread che chi guarda segue con risposte nuove (non sue), dal più recente. */
+export async function listThreadsWithNews(): Promise<ThreadWithNews[]> {
+  const me = await gate("chat.listThreadsWithNews");
+  const out: ThreadWithNews[] = [];
+  for (const read of state.chatReads.values()) {
+    if (read.personId !== me) continue;
+    const ch = readableChannel(me, read.channelId);
+    if (!ch || !membersOf(ch).includes(me)) continue;
+    const data = channelData(ch);
+    for (const [rootId, readAt] of Object.entries(read.threadReads)) {
+      const root = data.messages.find((m) => m.id === rootId);
+      if (!root) continue;
+      const replies = liveReplies(data, rootId);
+      const fresh = replies.filter((r) => r.authorId !== me && r.createdAt > readAt);
+      if (fresh.length === 0) continue;
+      out.push({
+        channelId: ch.id,
+        root: presentMessage(me, root, data),
+        latestReplies: replies.slice(-2).map((r) => presentMessage(me, r, data)),
+        newCount: fresh.length,
+      });
+    }
+  }
+  const latest = (t: ThreadWithNews) => t.latestReplies.at(-1)!.createdAt;
+  return out.sort((a, b) => latest(b).localeCompare(latest(a)));
+}
+
+/** Tutte le menzioni di chi guarda nei canali che legge (persona, reparto, @channel, domanda), dalla più recente. */
+export async function listMentions(): Promise<ChatMessageHit[]> {
+  const me = await gate("chat.listMentions");
+  const out: ChatMessageHit[] = [];
+  const byChannel = messagesByChannel();
+  for (const ch of state.channels) {
+    if (!canReadChannel(me, ch)) continue;
+    const data = channelData(ch, byChannel.get(ch.id) ?? []);
+    const members = membersOf(ch);
+    for (const m of data.messages) {
+      if (isGone(m, data.replies.get(m.id) ?? [])) continue;
+      if (mentionKindFor(m, me, members) !== null) out.push(hit(me, m, data));
+    }
+  }
+  return out.sort((a, b) => b.message.createdAt.localeCompare(a.message.createdAt));
+}
+
+/**
+ * Le domande rivolte a chi guarda (in «Da decidere»): i messaggi che gli
+ * chiedono una risposta, nei canali che legge, finché non risponde (nel
+ * thread o, per un messaggio nel canale, nel canale) o non le ignora. Un
+ * messaggio eliminato non chiede più nulla.
+ */
+export function chatQuestionsOf(personId: string): ChatQuestion[] {
+  const out: ChatQuestion[] = [];
+  const byChannel = messagesByChannel();
+  for (const ch of state.channels) {
+    if (!canReadChannel(personId, ch)) continue;
+    const data = channelData(ch, byChannel.get(ch.id) ?? []);
+    for (const m of data.messages) {
+      if (!m.asksReplyOf.includes(personId) || m.deletedAt !== null) continue;
+      if (state.chatDismissed.has(chatKey(personId, m.id))) continue;
+      if (answered(m, personId, data)) continue;
+      out.push({
+        id: `chat:${m.id}`,
+        channelId: ch.id,
+        messageId: m.id,
+        rootId: m.threadOf ?? m.id,
+        askedById: m.authorId!,
+        text: m.text,
+        createdAt: m.createdAt,
+      });
+    }
+  }
+  return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function listQuestions(): Promise<ChatQuestion[]> {
+  const me = await gate("chat.listQuestions");
+  return chatQuestionsOf(me);
+}
+
+/** Senza maiuscole né accenti. */
+const fold = (s: string): string => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+
+/** I codici di task e richieste citati come gettoni: un codice trova anche chi lo cita. */
+function citedCodes(m: ChatMessage): string[] {
+  return m.citations.flatMap((ref) => {
+    if (ref.kind === "task") return [state.tasksById.get(ref.id)?.code ?? ""];
+    if (ref.kind === "request") return [state.requests.find((r) => r.id === ref.id)?.code ?? ""];
+    return [];
+  });
+}
+
+/**
+ * Cerca nei messaggi dei canali che chi guarda legge (mai un privato di cui
+ * non è membro, nemmeno se lo gestisce, mai un DM altrui), archiviati
+ * compresi; mai i messaggi eliminati. Ogni parola della ricerca deve
+ * comparire (senza maiuscole né accenti) nel testo, nei nomi degli allegati
+ * o nei codici citati. Da 2 caratteri in su; dal più recente.
+ */
+export async function searchChat(
+  q: string,
+  filters: ChatSearchFilters = {},
+): Promise<ChatMessageHit[]> {
+  const me = await gate("chat.search");
+  const terms = fold(q).split(/\s+/).filter(Boolean);
+  if (q.trim().length < 2 || terms.length === 0) return [];
+  const out: ChatMessageHit[] = [];
+  const byChannel = messagesByChannel();
+  for (const ch of state.channels) {
+    if (filters.channelId !== undefined && ch.id !== filters.channelId) continue;
+    if (!canReadChannel(me, ch)) continue;
+    const data = channelData(ch, byChannel.get(ch.id) ?? []);
+    for (const m of data.messages) {
+      if (m.deletedAt !== null) continue;
+      if (filters.authorId !== undefined && m.authorId !== filters.authorId) continue;
+      if (filters.peopleOnly && m.kind === "system") continue;
+      if (filters.withAttachments && m.attachments.length === 0) continue;
+      if (filters.withCitations && m.citations.length === 0) continue;
+      const day = m.createdAt.slice(0, 10);
+      if (filters.from !== undefined && day < filters.from) continue;
+      if (filters.to !== undefined && day > filters.to) continue;
+      const haystack = fold(
+        [m.text, ...m.attachments.map((a) => a.name), ...citedCodes(m)].join(" "),
+      );
+      if (terms.every((t) => haystack.includes(t))) out.push(hit(me, m, data));
+    }
+  }
+  return out.sort((a, b) => b.message.createdAt.localeCompare(a.message.createdAt));
+}
+
+/**
+ * Una notifica di menzione della Chat come la legge il destinatario: titolo
+ * e testo dal messaggio di adesso. `null` se il messaggio è stato eliminato,
+ * non c'è più o il destinatario non legge più il canale.
+ */
+export function presentChatNotification(
+  personId: string,
+  n: AppNotification,
+): AppNotification | null {
+  const found = n.chatMessageId ? readableMessage(personId, n.chatMessageId) : null;
+  if (!found || found.message.deletedAt !== null) return null;
+  const { message, data } = found;
+  const author = PEOPLE.find((p) => p.id === message.authorId)?.name ?? "";
+  const label = channelLabel(data.ch, personId);
+  const asked = message.asksReplyOf.includes(personId);
+  const thread = message.threadOf;
+  return {
+    ...copy(n),
+    projectId: data.ch.projectId,
+    objectCode: label,
+    title: asked ? `${author} asked you in ${label}` : `${author} mentioned you in ${label}`,
+    body: message.text.length > 160 ? `${message.text.slice(0, 159)}…` : message.text,
+    link: thread
+      ? `#/chat/${data.ch.id}?thread=${thread}&message=${message.id}`
+      : `#/chat/${data.ch.id}?message=${message.id}`,
+  };
+}

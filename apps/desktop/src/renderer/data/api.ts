@@ -8,8 +8,8 @@ import { DOC_PAGES } from "./seed/docPages";
 import { daysFromToday, TODAY } from "./seed/dates";
 import { PEOPLE } from "./seed/people";
 import { projectOfRepo, REPO_FILES } from "./seed/repoFiles";
-import { RELEASE_PAGES } from "./seed/chat/releases";
 import { can, viewerFor } from "./viewer";
+import { presentChatNotification } from "./chat/reads";
 import {
   canSeeConversation,
   conversationPermissions,
@@ -90,6 +90,8 @@ export {
   whenIdle,
 } from "./stream";
 export type { ScriptStep, StreamConnection, StreamMode, SubscribeOptions } from "./stream";
+/** La Chat (area 4): `api.chat.listChannels()`, `api.chat.sendMessage(…)`… */
+export * as chat from "./chat";
 
 /** Ripristina lo stato (sessione, dati, errori iniettati) e porta le task scadute alla settimana corrente. */
 export function resetApi(): void {
@@ -492,7 +494,13 @@ export async function listNotifications(): Promise<AppNotification[]> {
   const visible = visibleProjectIds(me);
   return state.notifications
     .filter((n) => n.recipientIds.includes(me) && (!n.projectId || visible.has(n.projectId)))
-    .map(copy);
+    .flatMap((n) => {
+      // Una menzione della Chat si legge dal messaggio di adesso: eliminato o
+      // in un canale che non legge più, non c'è.
+      if (n.chatMessageId === undefined) return [copy(n)];
+      const shown = presentChatNotification(me, n);
+      return shown ? [shown] : [];
+    });
 }
 
 export async function markNotification(
@@ -1095,7 +1103,7 @@ export async function resolveCitations(refs: CitationRef[]): Promise<CitationVie
         };
       }
       case "release": {
-        const r = RELEASE_PAGES.find((x) => x.id === ref.id);
+        const r = state.releasePages.find((x) => x.id === ref.id);
         if (!r || !visible.has(r.projectId)) return hidden(ref);
         const project = projectCodeOf(r.projectId)!;
         return {

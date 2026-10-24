@@ -1,3 +1,8 @@
+// La Chat: `publishChatEvent` usa `runScript` di qui, ma solo dentro le
+// funzioni, quindi l'import circolare è innocuo (come `api-mutations` ↔ `api`).
+import { publishChatEvent } from "./chat/events";
+import { channelById, messageById, presentMessage } from "./chat/reads";
+import { canReadChannel } from "./chat/visibility";
 import { SCRIPTS } from "./seed/conversations";
 import { getSessionPersonId } from "./session";
 import {
@@ -15,6 +20,10 @@ import {
   syncTaskClaude,
 } from "./store";
 import type {
+  Channel,
+  ChatMessage,
+  ChatMessageView,
+  ChatScriptStep,
   Conversation,
   ConversationEvent,
   EventDraft,
@@ -74,6 +83,7 @@ const changeListeners = new Set<(conversationId: string) => void>();
 // fissa la generazione dello stato (`storeGeneration`) quando parte.
 onStoreReset(() => {
   subscribers.clear();
+  chatSubscribers.clear();
   queues.clear();
   started.clear();
   cuts.clear();
@@ -214,12 +224,26 @@ export function mergeStreamEvent(
  * adesso); se nel frattempo lo stato è stato ripristinato, non fa nulla.
  */
 export function runScript(
+  streamId: ChatStreamId,
+  steps: ChatScriptStep[] | (() => ChatScriptStep[]),
+  at?: number,
+): Promise<void>;
+export function runScript(
   conversationId: string,
   steps: ScriptStep[] | (() => ScriptStep[]),
+  at?: number,
+): Promise<void>;
+export function runScript(
+  conversationId: string,
+  steps: ScriptStep[] | ChatScriptStep[] | (() => ScriptStep[] | ChatScriptStep[]),
   at = storeGeneration(),
 ): Promise<void> {
   if (at !== storeGeneration()) return Promise.resolve();
-  if (!findConversation(conversationId)) return Promise.reject(new Error("not_found"));
+  // Un flusso della Chat (`chat:<canale>`, `chat:thread:<radice>`) usa la
+  // stessa coda, gli stessi «Ferma» e la stessa generazione dello stato.
+  const chat = isChatStream(conversationId);
+  const exists = chat ? channelOfStream(conversationId) : findConversation(conversationId);
+  if (!exists) return Promise.reject(new Error("not_found"));
   const cut = cuts.get(conversationId) ?? 0;
   const alive = () => at === storeGeneration() && (cuts.get(conversationId) ?? 0) === cut;
   const previous = queues.get(conversationId) ?? Promise.resolve();
@@ -228,9 +252,13 @@ export function runScript(
   // che il turno precedente ha già scritto).
   const next = previous
     .catch(() => undefined)
-    .then(() =>
-      alive() ? play(conversationId, typeof steps === "function" ? steps() : steps, alive) : undefined,
-    );
+    .then(() => {
+      if (!alive()) return undefined;
+      const built = typeof steps === "function" ? steps() : steps;
+      return chat
+        ? playChat(built as ChatScriptStep[], alive)
+        : play(conversationId, built as ScriptStep[], alive);
+    });
   queues.set(conversationId, next);
   return next;
 }
@@ -297,6 +325,19 @@ async function play(conversationId: string, steps: ScriptStep[], alive: () => bo
           applyRefinePatch(conversationId, step.event.requestPatch);
         }
         append(conversationId, step.event);
+        // La PR aperta da una sessione di lavoro arriva anche nei canali del
+        // progetto che pubblicano «PR opened».
+        if (step.event.type === "work_result" && step.event.kind === "pr_opened") {
+          const c = findConversation(conversationId);
+          if (c?.kind === "task_run" && c.projectId !== null && c.taskId !== null) {
+            void publishChatEvent(
+              c.projectId,
+              "pr_opened",
+              { kind: "task", id: c.taskId },
+              step.event.text,
+            );
+          }
+        }
         break;
       case "patch": {
         const event = state.conversationEvents
@@ -483,6 +524,190 @@ export function releaseHeld(conversationId: string, fromIndex: number): void {
     const readable = readableLength(subscriber.personId, conversation);
     for (let i = fromIndex; i < readable; i++) {
       subscriber.onEvent(presentEvent(log, i), "append");
+    }
+  }
+}
+
+// --- Chat (area 4) ------------------------------------------------------------
+//
+// I flussi della Chat passano dallo stesso motore: un messaggio nuovo entra
+// solo da `runScript` su `chat:<canale>` (radici) o `chat:thread:<radice>`
+// (risposte), con il passo `post`; ogni messaggio nuovo o cambiato arriva
+// agli iscritti da `emitChat`, l'unico punto che li avvisa. Chi si iscrive
+// non riceve lo storico (lo leggono `listMessages` e `listThread`, a
+// pagine), solo ciò che accade dopo: `append` per un messaggio nuovo,
+// `update` per uno cambiato (testo, reazioni, eliminazione, riassunto del
+// thread). Ogni iscritto riceve il messaggio come lo legge lui
+// (`presentMessage`), e chi non è più la persona della sessione o non legge
+// più il canale viene chiuso prima di ricevere qualunque cosa.
+
+/** L'id di un flusso della Chat: `chat:<canale>` o `chat:thread:<radice>`. */
+export type ChatStreamId = `chat:${string}`;
+
+export const isChatStream = (id: string): id is ChatStreamId => id.startsWith("chat:");
+
+/** Il flusso di un canale: le radici e le risposte «anche nel canale». */
+export const channelStream = (channelId: string): ChatStreamId => `chat:${channelId}`;
+
+/** Il flusso di un thread: la radice e le sue risposte. */
+export const threadStream = (rootId: string): ChatStreamId => `chat:thread:${rootId}`;
+
+const THREAD_PREFIX = "chat:thread:";
+
+/** Il canale di un flusso della Chat, se esiste ancora. */
+function channelOfStream(streamId: string): Channel | undefined {
+  if (streamId.startsWith(THREAD_PREFIX)) {
+    const root = messageById(streamId.slice(THREAD_PREFIX.length));
+    return root && root.threadOf === null ? channelById(root.channelId) : undefined;
+  }
+  return channelById(streamId.slice("chat:".length));
+}
+
+interface ChatSubscriber {
+  streamId: ChatStreamId;
+  personId: string;
+  onMessage: (m: ChatMessageView, mode: StreamMode) => void;
+  onConnection?: (connection: "closed") => void;
+}
+
+const chatSubscribers = new Set<ChatSubscriber>();
+const chatChangeListeners = new Set<(channelId: string) => void>();
+
+/**
+ * Avvisa che nella Chat qualcosa è cambiato in un canale (un messaggio
+ * nuovo o cambiato, un canale, i suoi membri, una lettura): chi ascolta
+ * rilegge con le letture, che filtrano per persona. Restituisce la
+ * disiscrizione.
+ */
+export function onChatChange(fn: (channelId: string) => void): () => void {
+  chatChangeListeners.add(fn);
+  return () => {
+    chatChangeListeners.delete(fn);
+  };
+}
+
+export function notifyChatChange(channelId: string): void {
+  for (const fn of [...chatChangeListeners]) fn(channelId);
+}
+
+/**
+ * Si iscrive a un flusso della Chat, a nome della persona della sessione.
+ * Un canale (o un thread) che non legge risponde come uno che non esiste
+ * (`Error("not_found")`). Restituisce la disiscrizione.
+ */
+export function subscribeChat(
+  streamId: ChatStreamId,
+  onMessage: (m: ChatMessageView, mode: StreamMode) => void,
+  options: { onConnection?: (connection: "closed") => void } = {},
+): () => void {
+  const personId = getSessionPersonId();
+  const ch = channelOfStream(streamId);
+  if (!ch || !canReadChannel(personId, ch)) throw new Error("not_found");
+  const subscriber: ChatSubscriber = { streamId, personId, onMessage };
+  if (options.onConnection) subscriber.onConnection = options.onConnection;
+  chatSubscribers.add(subscriber);
+  return () => {
+    chatSubscribers.delete(subscriber);
+  };
+}
+
+/** L'iscritto ha ancora diritto al suo flusso: è la persona della sessione e legge il canale. */
+function chatEntitled(subscriber: ChatSubscriber): boolean {
+  const ch = channelOfStream(subscriber.streamId);
+  return (
+    subscriber.personId === getSessionPersonId() &&
+    ch !== undefined &&
+    canReadChannel(subscriber.personId, ch)
+  );
+}
+
+/**
+ * Chiude subito gli iscritti che non leggono più il loro flusso (uscito dal
+ * canale, tolto, canale eliminato), senza aspettare il prossimo messaggio.
+ */
+export function recheckChatSubscribers(): void {
+  for (const subscriber of [...chatSubscribers]) {
+    if (chatEntitled(subscriber)) continue;
+    chatSubscribers.delete(subscriber);
+    subscriber.onConnection?.("closed");
+  }
+}
+
+/**
+ * Avvisa gli iscritti di un messaggio nuovo o cambiato: il flusso del
+ * thread e, per una radice o una risposta «anche nel canale», quello del
+ * canale. Una risposta aggiorna anche la sua radice (il riassunto del
+ * thread) in entrambi i flussi.
+ */
+function emitChat(m: ChatMessage, mode: StreamMode): void {
+  const targets: [ChatStreamId, ChatMessage, StreamMode][] = [];
+  if (m.threadOf === null) {
+    targets.push([channelStream(m.channelId), m, mode], [threadStream(m.id), m, mode]);
+  } else {
+    targets.push([threadStream(m.threadOf), m, mode]);
+    if (m.alsoInChannel) targets.push([channelStream(m.channelId), m, mode]);
+    const root = messageById(m.threadOf);
+    if (root) {
+      targets.push([channelStream(m.channelId), root, "update"]);
+      targets.push([threadStream(root.id), root, "update"]);
+    }
+  }
+  for (const [streamId, message, how] of targets) {
+    for (const subscriber of [...chatSubscribers]) {
+      if (subscriber.streamId !== streamId || !chatSubscribers.has(subscriber)) continue;
+      if (!chatEntitled(subscriber)) {
+        chatSubscribers.delete(subscriber);
+        subscriber.onConnection?.("closed");
+        continue;
+      }
+      subscriber.onMessage(presentMessage(subscriber.personId, message), how);
+    }
+  }
+  notifyChatChange(m.channelId);
+}
+
+/**
+ * Cambia un messaggio già scritto e lo annuncia, subito: modifica,
+ * eliminazione, reazioni, codici collegati. Non aspetta in coda dietro a
+ * una risposta di Claude che sta arrivando nello stesso thread (come il
+ * messaggio di chi scrive in una conversazione, `appendUserMessage`).
+ */
+export function patchChatMessage(
+  messageId: string,
+  patch: Extract<ChatScriptStep, { step: "patch" }>["patch"],
+): ChatMessage {
+  const message = messageById(messageId);
+  if (!message) throw new Error("not_found");
+  Object.assign(message, structuredClone(patch));
+  emitChat(message, "update");
+  return message;
+}
+
+async function playChat(steps: ChatScriptStep[], alive: () => boolean): Promise<void> {
+  for (const step of steps) {
+    await pause();
+    if (!alive()) return;
+    switch (step.step) {
+      case "post":
+        state.chatMessages.push(step.message);
+        emitChat(step.message, "append");
+        break;
+      case "patch":
+        patchChatMessage(step.messageId, step.patch);
+        break;
+      case "say": {
+        const message = messageById(step.messageId);
+        if (!message) throw new Error("not_found");
+        for (const [i, chunk] of chunksOf(step.text, message.id).entries()) {
+          if (i > 0) {
+            await pause();
+            if (!alive()) return;
+          }
+          message.text += chunk;
+          emitChat(message, "update");
+        }
+        break;
+      }
     }
   }
 }

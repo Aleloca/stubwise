@@ -11,7 +11,15 @@ import * as api from "./api";
 import { resolveHome } from "../domain/home";
 import type {
   Attachment,
+  ChannelPatch,
+  ChatEventKind,
+  ChatMessageInput,
+  ChatMessageView,
+  ChatSearchFilters,
   CitationRef,
+  NewChannelInput,
+  NewTaskInput,
+  NotifyLevel,
   ConversationEvent,
   ConversationFilter,
   DayArrangement,
@@ -105,7 +113,29 @@ export const queryKeys = {
   peopleActivity: (personId: string, date: string, departmentId?: string) =>
     ["as", personId, "peopleActivity", date, departmentId ?? null] as const,
   dailyReports: (personId: string, date: string) => ["as", personId, "dailyReports", date] as const,
+  // Chat (area 4)
+  chatChannels: (personId: string, scope: ChatChannelsScope) =>
+    ["as", personId, "chatChannels", scope] as const,
+  chatChannel: (personId: string, id: string) => ["as", personId, "chatChannel", id] as const,
+  chatMembers: (personId: string, channelId: string) =>
+    ["as", personId, "chatMembers", channelId] as const,
+  chatMessages: (personId: string, channelId: string, limit = CHAT_PAGE) =>
+    ["as", personId, "chatMessages", channelId, limit] as const,
+  chatMessage: (personId: string, id: string) => ["as", personId, "chatMessage", id] as const,
+  chatThread: (personId: string, messageId: string) =>
+    ["as", personId, "chatThread", messageId] as const,
+  chatThreads: (personId: string) => ["as", personId, "chatThreads"] as const,
+  chatMentions: (personId: string) => ["as", personId, "chatMentions"] as const,
+  chatQuestions: (personId: string) => ["as", personId, "chatQuestions"] as const,
+  chatSearch: (personId: string, q: string, filters: ChatSearchFilters) =>
+    ["as", personId, "chatSearch", q, filters] as const,
 };
+
+/** Quali canali: tutti (colonna, «Browse channels») o quelli di un progetto. */
+export type ChatChannelsScope = { scope: "all" } | { scope: "project"; projectId: string };
+
+/** Quanti messaggi del canale si leggono alla volta (spec: finestra di 50). */
+const CHAT_PAGE = 50;
 
 /** Chi sta guardando: la persona di tutte le chiavi. */
 export function useSessionPersonId(): string {
@@ -1397,4 +1427,378 @@ export function useConversationStream(
 
   if (stream.key !== key) return EMPTY_STREAM;
   return { events: stream.events, connection: stream.connection, error: stream.error };
+}
+
+// --- Chat (area 4) -------------------------------------------------------------
+
+/**
+ * Le aree della Chat che un messaggio nuovo o cambiato (dal vivo) può
+ * spostare: conteggi della colonna, Threads, Menzioni, domande, notifiche.
+ * Il flusso del canale e del thread aperti li porta lo stream
+ * (`useChannelStream`, `useThreadStream`), non una rilettura.
+ */
+const CHAT_LIVE_AREAS = [
+  "chatChannels",
+  "chatChannel",
+  "chatMembers",
+  "chatThreads",
+  "chatMentions",
+  "chatQuestions",
+  "chatMessage",
+  "notifications",
+] as const;
+/** Una scrittura della Chat: le aree dal vivo più i flussi letti a pagine e la ricerca. */
+const CHAT_AREAS = [...CHAT_LIVE_AREAS, "chatMessages", "chatThread", "chatSearch"] as const;
+/** «Create task/request» da un messaggio: la Chat e le aree delle task e delle richieste. */
+const CHAT_CREATE_AREAS = [...CHAT_AREAS, ...TASK_AREAS, ...REQUEST_AREAS] as const;
+
+const chatListeners = new Map<QueryClient, { users: number; stop: () => void }>();
+
+function listenToChatChanges(client: QueryClient): () => void {
+  let entry = chatListeners.get(client);
+  if (!entry) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const off = api.chat.onChatChange(() => {
+      if (timer !== undefined) return;
+      timer = setTimeout(() => {
+        timer = undefined;
+        void client.invalidateQueries(
+          {
+            predicate: (query) =>
+              query.queryKey[0] === "as" &&
+              (CHAT_LIVE_AREAS as readonly string[]).includes(query.queryKey[2] as string),
+          },
+          { cancelRefetch: false },
+        );
+      }, CHANGE_DEBOUNCE_MS);
+    });
+    entry = {
+      users: 0,
+      stop: () => {
+        clearTimeout(timer);
+        off();
+      },
+    };
+    chatListeners.set(client, entry);
+  }
+  const current = entry;
+  current.users += 1;
+  return () => {
+    current.users -= 1;
+    if (current.users === 0) {
+      current.stop();
+      chatListeners.delete(client);
+    }
+  };
+}
+
+/**
+ * Tiene fresche le letture della Chat quando qualcosa cambia dal vivo (un
+ * messaggio di un'altra persona, un evento di progetto): le rilegge per chi
+ * guarda. Un solo ascoltatore per app.
+ */
+function useChatChanges(): void {
+  const client = useQueryClient();
+  useEffect(() => listenToChatChanges(client), [client]);
+}
+
+export function useChatChannels(scope: ChatChannelsScope = { scope: "all" }) {
+  const me = useSessionPersonId();
+  useChatChanges();
+  return useQuery({
+    queryKey: queryKeys.chatChannels(me, scope),
+    queryFn: () => api.chat.listChannels(scope),
+  });
+}
+
+/** Un canale con i permessi di chi guarda; `null` se non lo vede. */
+export function useChatChannel(id: string) {
+  const me = useSessionPersonId();
+  useChatChanges();
+  return useQuery({
+    queryKey: queryKeys.chatChannel(me, id),
+    queryFn: () => api.chat.getChannel(id),
+  });
+}
+
+export function useChannelMembers(channelId: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.chatMembers(me, channelId),
+    queryFn: () => api.chat.listChannelMembers(channelId),
+  });
+}
+
+/**
+ * Gli ultimi `limit` messaggi del flusso del canale; `null` se chi guarda
+ * non ne legge i messaggi. I nuovi arrivano da `useChannelStream`.
+ */
+export function useChannelMessages(channelId: string, limit = CHAT_PAGE) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.chatMessages(me, channelId, limit),
+    queryFn: () => api.chat.listMessages(channelId, { limit }),
+  });
+}
+
+/** Un messaggio (link, anteprima, salto); `null` se non lo legge o non c'è più. */
+export function useChatMessage(id: string, { enabled = true }: { enabled?: boolean } = {}) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.chatMessage(me, id),
+    queryFn: () => api.chat.getMessage(id),
+    enabled,
+  });
+}
+
+export function useChatThread(messageId: string, { enabled = true }: { enabled?: boolean } = {}) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.chatThread(me, messageId),
+    queryFn: () => api.chat.listThread(messageId),
+    enabled,
+  });
+}
+
+export function useThreadsWithNews() {
+  const me = useSessionPersonId();
+  useChatChanges();
+  return useQuery({ queryKey: queryKeys.chatThreads(me), queryFn: api.chat.listThreadsWithNews });
+}
+
+export function useChatMentions() {
+  const me = useSessionPersonId();
+  useChatChanges();
+  return useQuery({ queryKey: queryKeys.chatMentions(me), queryFn: api.chat.listMentions });
+}
+
+/** Le domande della Chat rivolte a chi guarda, per «Da decidere». */
+export function useChatQuestions() {
+  const me = useSessionPersonId();
+  useChatChanges();
+  return useQuery({ queryKey: queryKeys.chatQuestions(me), queryFn: api.chat.listQuestions });
+}
+
+export function useChatSearch(q: string, filters: ChatSearchFilters = {}) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.chatSearch(me, q, filters),
+    queryFn: () => api.chat.searchChat(q, filters),
+    enabled: q.trim().length >= 2,
+    // Come la ricerca: i risultati di prima restano solo per la stessa persona.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
+  });
+}
+
+export function useSendChatMessage() {
+  return useWrite(
+    ({ channelId, input }: { channelId: string; input: ChatMessageInput }) =>
+      api.chat.sendMessage(channelId, input),
+    CHAT_AREAS,
+  );
+}
+
+export function useEditChatMessage() {
+  return useWrite(
+    ({ id, text }: { id: string; text: string }) => api.chat.editMessage(id, text),
+    CHAT_AREAS,
+  );
+}
+
+export function useDeleteChatMessage() {
+  return useWrite(api.chat.deleteMessage, CHAT_AREAS);
+}
+
+export function useToggleReaction() {
+  return useWrite(
+    ({ id, emoji }: { id: string; emoji: string }) => api.chat.toggleReaction(id, emoji),
+    CHAT_AREAS,
+  );
+}
+
+export function useMarkChannelRead() {
+  return useWrite(
+    ({ channelId, at }: { channelId: string; at?: string }) => api.chat.markRead(channelId, at),
+    CHAT_LIVE_AREAS,
+  );
+}
+
+export function useMarkThreadRead() {
+  return useWrite(
+    ({ rootId, at }: { rootId: string; at?: string }) => api.chat.markThreadRead(rootId, at),
+    [...CHAT_LIVE_AREAS, "chatThread", "chatMessages"],
+  );
+}
+
+export function useSetThreadFollow() {
+  return useWrite(
+    ({ rootId, following }: { rootId: string; following: boolean }) =>
+      api.chat.setThreadFollow(rootId, following),
+    CHAT_AREAS,
+  );
+}
+
+export function useSetNotifyLevel() {
+  return useWrite(
+    ({ channelId, level }: { channelId: string; level: NotifyLevel }) =>
+      api.chat.setNotifyLevel(channelId, level),
+    CHAT_LIVE_AREAS,
+  );
+}
+
+export function useDismissChatQuestion() {
+  return useWrite(api.chat.dismissQuestion, CHAT_LIVE_AREAS);
+}
+
+export function useJoinChannel() {
+  return useWrite(api.chat.joinChannel, CHAT_AREAS);
+}
+
+export function useLeaveChannel() {
+  return useWrite(api.chat.leaveChannel, CHAT_AREAS);
+}
+
+export function useCreateChannel() {
+  return useWrite((input: NewChannelInput) => api.chat.createChannel(input), CHAT_AREAS);
+}
+
+export function useUpdateChannel() {
+  return useWrite(
+    ({ id, patch }: { id: string; patch: ChannelPatch }) => api.chat.updateChannel(id, patch),
+    CHAT_AREAS,
+  );
+}
+
+export function useSetPublishedEvents() {
+  return useWrite(
+    ({ id, events }: { id: string; events: ChatEventKind[] }) =>
+      api.chat.setPublishedEvents(id, events),
+    CHAT_AREAS,
+  );
+}
+
+export function useArchiveChannel() {
+  return useWrite(
+    ({ id, archived }: { id: string; archived?: boolean }) => api.chat.archiveChannel(id, archived),
+    CHAT_AREAS,
+  );
+}
+
+export function useDeleteChannel() {
+  return useWrite(api.chat.deleteChannel, CHAT_AREAS);
+}
+
+export function useInviteMembers() {
+  return useWrite(
+    ({ id, personIds }: { id: string; personIds: string[] }) =>
+      api.chat.inviteMembers(id, personIds),
+    CHAT_AREAS,
+  );
+}
+
+export function useRemoveMember() {
+  return useWrite(
+    ({ id, personId }: { id: string; personId: string }) => api.chat.removeMember(id, personId),
+    CHAT_AREAS,
+  );
+}
+
+export function useOpenDm() {
+  return useWrite(api.chat.openDm, CHAT_AREAS);
+}
+
+export function useCreateTaskFromMessage() {
+  return useWrite(
+    ({ messageId, input }: { messageId: string; input: NewTaskInput }) =>
+      api.chat.createTaskFromMessage(messageId, input),
+    CHAT_CREATE_AREAS,
+  );
+}
+
+export function useCreateRequestFromMessage() {
+  return useWrite(
+    ({ messageId, input }: { messageId: string; input: api.NewRequestInput }) =>
+      api.chat.createRequestFromMessage(messageId, input),
+    CHAT_CREATE_AREAS,
+  );
+}
+
+export interface ChatStream {
+  /** I messaggi arrivati (o cambiati) dal vivo dopo l'iscrizione, per id: da unire alla pagina letta. */
+  messages: ChatMessageView[];
+  /** `not_found`: il canale (o il thread) non esiste o chi guarda non lo legge; `closed`: non lo legge più. */
+  error: string | null;
+}
+
+const EMPTY_CHAT_STREAM: ChatStream = { messages: [], error: null };
+
+/**
+ * Unisce un messaggio dello stream all'elenco: un id già presente si
+ * sostituisce (modifica, reazione, eliminazione, riassunto del thread), uno
+ * nuovo va in fondo. Mai doppi. Serve anche per unire lo stream alla pagina.
+ */
+export function mergeChatMessage(
+  messages: readonly ChatMessageView[],
+  message: ChatMessageView,
+): ChatMessageView[] {
+  const index = messages.findIndex((m) => m.id === message.id);
+  if (index === -1) return [...messages, message];
+  const next = messages.slice();
+  next[index] = message;
+  return next;
+}
+
+/** Iscrive chi guarda a un flusso della Chat, finché la persona e l'id restano gli stessi. */
+function useChatStream(streamId: api.chat.ChatStreamId): ChatStream {
+  const me = useSessionPersonId();
+  const key = `${me}\u0000${streamId}`;
+  const [stream, setStream] = useState<ChatStream & { key: string }>({
+    ...EMPTY_CHAT_STREAM,
+    key,
+  });
+  useEffect(() => {
+    let messages: ChatMessageView[] = [];
+    let active = true;
+    let unsubscribe: (() => void) | null = null;
+    try {
+      unsubscribe = api.chat.subscribeChat(
+        streamId,
+        (message) => {
+          messages = mergeChatMessage(messages, message);
+          if (active) setStream({ key, messages, error: null });
+        },
+        {
+          onConnection: () => {
+            unsubscribe = null;
+            if (active) setStream({ key, messages: [], error: "closed" });
+          },
+        },
+      );
+      setStream({ key, messages, error: null });
+    } catch (error) {
+      setStream({ key, messages, error: error instanceof Error ? error.message : String(error) });
+    }
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
+  }, [key, streamId]);
+  if (stream.key !== key) return EMPTY_CHAT_STREAM;
+  return { messages: stream.messages, error: stream.error };
+}
+
+/**
+ * I messaggi del canale che arrivano o cambiano dal vivo (radici, risposte
+ * «anche nel canale», riassunti dei thread): la pagina letta con
+ * `useChannelMessages` li unisce con `mergeChatMessage`. Cambiando persona o
+ * canale la vecchia iscrizione si chiude e nulla resta a schermo.
+ */
+export function useChannelStream(channelId: string): ChatStream {
+  return useChatStream(api.chat.channelStream(channelId));
+}
+
+/** Le risposte (e la radice aggiornata) di un thread, dal vivo. */
+export function useThreadStream(rootId: string): ChatStream {
+  return useChatStream(api.chat.threadStream(rootId));
 }

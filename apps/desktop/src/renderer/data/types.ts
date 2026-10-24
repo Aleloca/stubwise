@@ -1,7 +1,10 @@
 import type { InstancePermission, ProjectPermission } from "@stubwise/shared";
 import type {
+  Channel,
+  ChatMessage,
   CitationRef,
   CommitOfDay,
+  NotifyLevel,
   Conversation,
   ConversationEvent,
   ConversationKind,
@@ -385,4 +388,169 @@ export interface PersonDayActivity {
     at: string;
   }[];
   commits: CommitOfDay[];
+}
+
+// --- Chat (area 4) -------------------------------------------------------------
+
+/**
+ * Cosa una persona può fare in un canale che vede: la regola del livello
+ * dati (`channelPermissions`), che la UI legge invece di dedurla.
+ */
+export interface ChannelPermissions {
+  /** Legge i messaggi (`canReadChannel`): un privato di cui non si è membri no, nemmeno chi gestisce. */
+  canRead: boolean;
+  isMember: boolean;
+  /** Scrive: membro di un canale non archiviato. */
+  canWrite: boolean;
+  /** «Join channel»: aperto, non archiviato, non membro (mai il «general», che segue il progetto). */
+  canJoin: boolean;
+  /** Il «general» del progetto e un DM a due non si lasciano; un privato non resta senza membri. */
+  canLeave: boolean;
+  /** Nome e descrizione: il creatore o chi gestisce i canali di quell'ambito. */
+  canEditInfo: boolean;
+  /** L'argomento: qualunque membro (e chi può modificare il canale). */
+  canEditTopic: boolean;
+  /** Gli eventi pubblicati: solo canali di progetto, il creatore o chi gestisce. */
+  canEditEvents: boolean;
+  /** Aggiungere persone: in un privato il creatore o chi gestisce; in un aperto qualunque membro. */
+  canInvite: boolean;
+  /** Togliere persone: il creatore o chi gestisce (mai nel «general» né in un DM). */
+  canRemove: boolean;
+  /** Archiviare e ripristinare: il creatore o chi gestisce (mai il «general» né un DM). */
+  canArchive: boolean;
+  canDelete: boolean;
+}
+
+/** Un canale come lo legge una persona: i membri di adesso (il «general» segue il progetto). */
+export interface ChannelView extends Channel, ChannelPermissions {
+  notifyLevel: NotifyLevel;
+}
+
+/** Una riga della colonna della Chat (e di «Browse channels»). */
+export interface ChannelRow extends ChannelView {
+  /** Messaggi nuovi nel canale (0 se silenziato, non membro o non leggibile). */
+  unread: number;
+  /** Menzioni non lette (in un DM ogni messaggio conta come menzione). */
+  mentions: number;
+  /** L'ultimo messaggio leggibile; `null` se non si leggono i messaggi (nessuna attività rivelata). */
+  lastActivityAt: string | null;
+}
+
+/** Il riassunto del thread sotto la radice: «4 replies · last by Elena». */
+export interface ThreadSummary {
+  replyCount: number;
+  lastReplyAt: string;
+  lastReplyById: string | null;
+  /** Chi ha risposto (al più 3, dal più recente), per gli avatar impilati. */
+  participantIds: string[];
+  /** Ci sono risposte nuove per chi guarda (un thread che segue). */
+  hasNews: boolean;
+  /** Chi guarda segue il thread (ci ha scritto o è stato menzionato). */
+  following: boolean;
+}
+
+/**
+ * Un messaggio come lo legge una persona: eliminato = nessun testo, allegato,
+ * citazione, reazione o domanda (in nessun posto). Le radici portano il
+ * riassunto del thread.
+ */
+export interface ChatMessageView extends ChatMessage {
+  thread: ThreadSummary | null;
+  /** Di `asksReplyOf`, chi ha già risposto (nel thread o, per una radice, nel canale). */
+  answeredIds: string[];
+  /** Il messaggio nomina chi guarda (persona, reparto, @channel o domanda). */
+  mentionsViewer: boolean;
+}
+
+/** Un membro di un canale. */
+export interface ChannelMember {
+  personId: string;
+  isCreator: boolean;
+}
+
+/** Una pagina del flusso di un canale: i messaggi in ordine, dal più vecchio. */
+export interface ChannelMessagesPage {
+  messages: ChatMessageView[];
+  /** Ci sono messaggi più vecchi (`before` = id del primo). */
+  hasMore: boolean;
+  /** Fin dove chi guarda aveva letto (la riga «New»); `null` se non è membro. */
+  lastReadAt: string | null;
+}
+
+export interface ThreadView {
+  channelId: string;
+  root: ChatMessageView;
+  replies: ChatMessageView[];
+  /** Fin dove chi guarda aveva letto il thread (la riga «New replies»); `null` se non lo segue. */
+  lastReadAt: string | null;
+}
+
+/** Una riga della vista «Threads»: un thread seguito con risposte nuove. */
+export interface ThreadWithNews {
+  channelId: string;
+  root: ChatMessageView;
+  /** Le ultime due risposte. */
+  latestReplies: ChatMessageView[];
+  newCount: number;
+}
+
+/** Un messaggio ritrovato (menzione, ricerca, link): con il canale e il messaggio prima. */
+export interface ChatMessageHit {
+  channelId: string;
+  message: ChatMessageView;
+  /** Il messaggio precedente nello stesso flusso (contesto), se c'è. */
+  context: ChatMessageView | null;
+}
+
+export interface ChatSearchFilters {
+  channelId?: string;
+  authorId?: string;
+  /** Date ISO (giorno) incluse. */
+  from?: string;
+  to?: string;
+  withAttachments?: boolean;
+  withCitations?: boolean;
+  /** Esclude i messaggi di sistema. */
+  peopleOnly?: boolean;
+}
+
+/** Una domanda rivolta a chi guarda in un messaggio della Chat: in «Da decidere» finché non risponde. */
+export interface ChatQuestion {
+  /** `chat:<messaggio>`. */
+  id: string;
+  channelId: string;
+  messageId: string;
+  /** La radice del thread in cui rispondere (il messaggio stesso se è nel canale). */
+  rootId: string;
+  askedById: string;
+  text: string;
+  createdAt: string;
+}
+
+export interface NewChannelInput {
+  /** `null` = canale generale dell'azienda. */
+  projectId: string | null;
+  name: string;
+  description?: string;
+  visibility: "open" | "private";
+  /** Solo un privato: chi invitare subito (chi crea c'è sempre). */
+  memberIds?: string[];
+}
+
+export interface ChannelPatch {
+  name?: string;
+  description?: string;
+  topic?: string;
+}
+
+export interface ChatMessageInput {
+  text: string;
+  attachments?: ChatMessage["attachments"];
+  citations?: CitationRef[];
+  /** La radice del thread in cui rispondere. */
+  threadOf?: string;
+  /** Solo una risposta: «Rispondi anche nel canale». */
+  alsoInChannel?: boolean;
+  /** «Ask for a reply»: chiede risposta alle persone menzionate anche senza «?». */
+  asksReply?: boolean;
 }

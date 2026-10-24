@@ -4,6 +4,8 @@ import type { StallReason } from "../domain/stalled";
 import { stallOf } from "../domain/stalled";
 import { TEMPLATE_MODULES } from "../domain/templates";
 import { compareWeeks } from "../domain/weeks";
+import { chat, resetApi, setLatency } from "./api";
+import { setSessionPersonId } from "./session";
 import { ACTIVITY } from "./seed/activity";
 import { PLUGINS, PROJECT_PLUGINS, STUBWISE_COMMANDS, commandsFor } from "./seed/commands";
 import { COMMITS } from "./seed/commits";
@@ -1133,36 +1135,23 @@ describe("seed: Chat (area 4)", () => {
     }
   });
 
-  it("le cinque persone hanno non letti, menzioni e thread con novità diversi", () => {
-    const person = (id: string) => PEOPLE.find((p) => p.id === id)!;
-    const department = (id: string) =>
-      DEPARTMENTS.filter((d) => person(id).departmentIds.includes(d.id)).map((d) => d.name);
-    const mentions = (m: ChatMessage, id: string) =>
-      m.asksReplyOf.includes(id) ||
-      m.text.includes(`@${person(id).name}`) ||
-      m.text.includes("@channel") ||
-      department(id).some((d) => m.text.includes(`@${d}`));
-    const countsOf = (id: string) => {
-      let unread = 0;
-      let mentioned = 0;
-      let threads = 0;
-      for (const r of CHAT_READ_STATES.filter((x) => x.personId === id)) {
-        const list = messagesOf(r.channelId).filter((m) => !m.deletedAt && m.authorId !== id);
-        for (const m of list) {
-          const inChannel = m.threadOf === null || m.alsoInChannel;
-          if (inChannel && m.createdAt > r.lastReadAt) {
-            unread++;
-            if (mentions(m, id)) mentioned++;
-          }
-        }
-        for (const [rootId, readAt] of Object.entries(r.threadReads)) {
-          if (list.some((m) => m.threadOf === rootId && m.createdAt > readAt)) threads++;
-        }
-      }
-      return { unread, mentioned, threads };
+  it("le cinque persone hanno non letti, menzioni e thread con novità diversi", async () => {
+    // Contati dal livello dati (una sola regola: silenziati, menzioni, DM, sistema).
+    setLatency(0);
+    resetApi();
+    const countsOf = async (id: string) => {
+      setSessionPersonId(id);
+      const rows = await chat.listChannels();
+      return {
+        unread: rows.reduce((n, r) => n + r.unread, 0),
+        mentioned: rows.reduce((n, r) => n + r.mentions, 0),
+        threads: (await chat.listThreadsWithNews()).length,
+      };
     };
     const personas = ["p-giulia", "p-marco", "p-laura", "p-sara", "p-roberta"];
-    const counts = personas.map(countsOf);
+    const counts = [];
+    for (const id of personas) counts.push(await countsOf(id));
+    resetApi();
     for (const c of counts) {
       expect(c.unread).toBeGreaterThan(0);
       expect(c.mentioned).toBeGreaterThan(0);

@@ -7,6 +7,8 @@ import i18n from "../i18n";
 // solo dentro le funzioni, quindi l'import circolare con `api.ts` è innocuo.
 import * as reads from "./api";
 import * as scripts from "./conversation-scripts";
+import { publishChatEvent } from "./chat/events";
+import { DEFAULT_PUBLISHED_EVENTS } from "./seed/chat";
 import { COMMITS } from "./seed/commits";
 import { TODAY } from "./seed/dates";
 import { DEPARTMENTS } from "./seed/departments";
@@ -201,11 +203,16 @@ function addTask(task: Task): void {
   reindex();
 }
 
-export async function createTask(input: NewTaskInput): Promise<Task> {
-  const me = await gate("createTask");
+/** Crea una task a nome di `me` (anche «Create task» da un messaggio della Chat). */
+export function createTaskAs(me: string, input: NewTaskInput): Task {
   const task = buildTask(me, input);
   addTask(task);
-  return copy(task);
+  return task;
+}
+
+export async function createTask(input: NewTaskInput): Promise<Task> {
+  const me = await gate("createTask");
+  return copy(createTaskAs(me, input));
 }
 
 /** Il nome del campo come lo mostra la cronologia (lo stesso del seed). */
@@ -320,6 +327,9 @@ function commitTaskPatch(me: string, task: Task, diffs: Diff[]): void {
   }
   task.lastActivityAt = at;
   setClosedAt(task, oldFamily, at);
+  if (oldFamily !== "closed" && familyOf(task) === "closed") {
+    void publishChatEvent(task.projectId, "task_closed", { kind: "task", id: task.id });
+  }
   // Le sistemazioni nei giorni valevano per quella settimana e quell'assegnatario.
   if (diffs.some((d) => d.key === "plannedWeek" || d.key === "assigneeId")) {
     state.arrangements = state.arrangements.filter((a) => a.taskId !== task.id);
@@ -591,7 +601,7 @@ export async function withdrawDecision(id: string): Promise<DecisionRequest> {
 
 // --- richieste (backlog) ------------------------------------------------------
 
-interface NewRequestInput {
+export interface NewRequestInput {
   projectId: string;
   title: string;
   description?: string;
@@ -603,7 +613,8 @@ export async function createRequest(input: NewRequestInput): Promise<ProjectRequ
   return copy(createRequestAs(me, input));
 }
 
-function createRequestAs(me: string, input: NewRequestInput): ProjectRequest {
+/** Crea una richiesta a nome di `me` (anche «Create request» da un messaggio della Chat). */
+export function createRequestAs(me: string, input: NewRequestInput): ProjectRequest {
   const project = projectFor(me, input.projectId);
   need(me, "backlog.create", project.id);
   if (!input.title.trim()) throw invalid("title");
@@ -632,6 +643,7 @@ function createRequestAs(me: string, input: NewRequestInput): ProjectRequest {
     createdAt: now(),
   };
   state.requests.push(request);
+  void publishChatEvent(project.id, "request_new", { kind: "request", id: request.id });
   return request;
 }
 
@@ -920,6 +932,22 @@ export async function createProject(input: NewProjectInput): Promise<Project> {
   reindex();
   // Chi crea il progetto ne è il project lead.
   grantProjectRole(me, id, "project_lead");
+  // Ogni progetto nasce con il suo «general»: i membri sono quelli del progetto.
+  state.channels.push({
+    id: `ch-${input.code.toLowerCase()}-general`,
+    kind: "project",
+    projectId: id,
+    name: "general",
+    description: `Everything about ${project.name}.`,
+    topic: "",
+    visibility: "open",
+    createdById: me,
+    archived: false,
+    isGeneral: true,
+    memberIds: [],
+    publishedEvents: [...DEFAULT_PUBLISHED_EVENTS],
+    createdAt: now(),
+  });
   return copy(project);
 }
 
@@ -1105,7 +1133,14 @@ export async function updateMilestone(id: string, patch: MilestonePatch): Promis
   if (patch.name !== undefined) milestone.name = patch.name.trim();
   if (patch.description !== undefined) milestone.description = patch.description.trim();
   if (patch.dueDate !== undefined) milestone.dueDate = patch.dueDate || null;
+  const reached = patch.closed === true && !milestone.closed;
   if (patch.closed !== undefined) milestone.closed = patch.closed;
+  if (reached) {
+    void publishChatEvent(milestone.projectId, "milestone_reached", {
+      kind: "milestone",
+      id: milestone.id,
+    });
+  }
   return copy(milestone);
 }
 
