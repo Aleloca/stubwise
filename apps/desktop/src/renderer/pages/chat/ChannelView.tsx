@@ -14,6 +14,7 @@ import {
   useChannelStream,
   useChatChannel,
   useCitations,
+  useCodeCitations,
   useDeleteChatMessage,
   useDepartments,
   useEditChatMessage,
@@ -38,6 +39,8 @@ import { PageError } from "../../tasks-ui/PageStates";
 import { useToast } from "../../tasks-ui/Toast";
 import { formatDate } from "../../notifications/time";
 import { CitationProvider, indexCitations } from "../claude/conversation/citations";
+import { AttachmentChip } from "../claude/conversation/AttachmentChip";
+import { CODE_IN_TEXT } from "../claude/conversation/flow";
 import type { DraftAttachment } from "../claude/conversation/Composer";
 import { primaryButton, secondaryButton } from "../claude/conversation/parts";
 import { NewRequestDialog } from "../requests/NewRequestDialog";
@@ -59,10 +62,13 @@ import { SystemCard } from "./SystemCard";
 // riga «New», bozza, invii a metà).
 
 const PAGE = 50;
+const CODE_RE = new RegExp(CODE_IN_TEXT.source, "g");
 const MAX_ATTACHMENTS = 10;
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 /** Dopo quanto un invio che non ha ancora risposto dice «Sending…». */
 const SLOW_SEND_MS = 1000;
+/** Gli arrivi entro questo tempo si annunciano insieme (ms). */
+export const ANNOUNCE_MS = 600;
 
 /** Dove portano i link del canale (thread, messaggio): la Chat o la sezione del progetto. */
 export type ChannelHref = (params: { thread?: string; message?: string }) => string;
@@ -242,7 +248,17 @@ function ChannelBody({
     return out;
   }, [messages]);
   const citations = useCitations(refs);
-  const index = useMemo(() => indexCitations(citations.data), [citations.data]);
+  // I codici scritti a mano e non citati: anche loro si leggono per chi guarda.
+  const codes = useMemo(() => {
+    const found = new Set<string>();
+    for (const m of messages) for (const c of m.text.match(CODE_RE) ?? []) found.add(c);
+    return [...found].sort();
+  }, [messages]);
+  const codeViews = useCodeCitations(codes);
+  const index = useMemo(
+    () => indexCitations([...(codeViews.data ?? []), ...(citations.data ?? [])]),
+    [citations.data, codeViews.data],
+  );
 
   const mentionNames = useMemo(
     () => [
@@ -274,9 +290,14 @@ function ChannelBody({
     markRead.mutate({ channelId: channel.id });
   }, [channel.isMember, channel.id, latest, readAt, markRead]);
 
-  // --- arrivi dal vivo: annunciati insieme, mai uno per uno ---
+  // --- arrivi dal vivo: annunciati insieme, mai uno per uno. Il flusso
+  // (`role="log"`) ha `aria-live="off"`: parla solo questa regione, una volta
+  // per ondata (gli arrivi entro `ANNOUNCE_MS` si sommano) ---
   const [announce, setAnnounce] = useState("");
   const arrived = useRef<number | null>(null);
+  const pending = useRef(0);
+  const announceTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(announceTimer.current), []);
   useEffect(() => {
     const fresh = stream.messages.filter((m) => m.authorId !== me && m.threadOf === null).length;
     if (arrived.current === null) {
@@ -284,7 +305,12 @@ function ChannelBody({
       return;
     }
     if (fresh > arrived.current) {
-      setAnnounce(t("chat.flow.arrived", { count: fresh - arrived.current }));
+      pending.current += fresh - arrived.current;
+      clearTimeout(announceTimer.current);
+      announceTimer.current = setTimeout(() => {
+        setAnnounce(t("chat.flow.arrived", { count: pending.current }));
+        pending.current = 0;
+      }, ANNOUNCE_MS);
     }
     arrived.current = fresh;
   }, [stream.messages, me, t]);
@@ -462,9 +488,20 @@ function ChannelBody({
             <ChatAvatar person={me_} />
             <div className="flex min-w-0 flex-1 flex-col gap-0.5">
               <span className="text-sm font-semibold text-ink">{me_?.name ?? ""}</span>
-              <p className="min-w-0 max-w-[72ch] text-md whitespace-pre-wrap text-ink-muted [overflow-wrap:anywhere]">
-                {l.input.text}
-              </p>
+              {l.input.text && (
+                <p className="min-w-0 max-w-[72ch] text-md whitespace-pre-wrap text-ink-muted [overflow-wrap:anywhere]">
+                  {l.input.text}
+                </p>
+              )}
+              {l.input.attachments.length > 0 && (
+                <ul className="flex min-w-0 flex-wrap gap-1.5 pt-1 opacity-70">
+                  {l.input.attachments.map((a) => (
+                    <li key={a.id} className="min-w-0">
+                      <AttachmentChip attachment={a} />
+                    </li>
+                  ))}
+                </ul>
+              )}
               {l.state === "failed" ? (
                 <p className="text-xs">
                   <span className="font-semibold text-critical">{t("chat.message.notSent")}</span>
@@ -752,9 +789,9 @@ function ChannelHeader({
             className="flex items-center gap-1.5 text-sm text-ink-muted"
             aria-label={t("chat.channel.members", { count: channel.memberIds.length })}
           >
-            <span className="flex -space-x-1" aria-hidden="true">
+            <span className="flex gap-0.5" aria-hidden="true">
               {shown.map((id) => (
-                <span key={id} className="rounded-full bg-ground ring-2 ring-ground">
+                <span key={id} className="rounded-full">
                   <ChatAvatar person={people?.find((p) => p.id === id)} size={20} />
                 </span>
               ))}

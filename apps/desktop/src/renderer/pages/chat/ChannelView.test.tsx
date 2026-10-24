@@ -1,5 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { beforeEach, describe, expect, it } from "vitest";
 import * as api from "../../data/api";
 import { PEOPLE } from "../../data/seed/people";
@@ -34,6 +35,21 @@ function Harness({ id, to }: { id: string; to?: string }) {
 }
 
 const flow = () => screen.getByRole("log");
+/** Il messaggio subito dopo la riga «New». */
+const newLineBefore = () =>
+  flow().querySelector("[data-new-line]")?.nextElementSibling?.getAttribute("data-message") ?? null;
+
+/** Il primo messaggio non letto (non suo) di una persona in un canale, dal livello dati. */
+async function firstUnread(personId: string, channelId: string): Promise<string | null> {
+  setSessionPersonId(personId);
+  const page = (await api.chat.listMessages(channelId))!;
+  setSessionPersonId("p-giulia");
+  const read = page.lastReadAt;
+  return (
+    page.messages.find((m) => read !== null && m.createdAt > read && m.authorId !== personId)?.id ??
+    null
+  );
+}
 const composer = () => screen.getByRole("combobox", { name: /^Message / });
 
 /** Un messaggio scritto a mano nello stato, come il seme. */
@@ -114,6 +130,36 @@ describe("ChannelView: flusso", () => {
     const link = row.querySelector(`[data-citation="task:${mkx7.id}"]`)!;
     expect(link.tagName).toBe("A");
     expect(link.textContent).toBe(`MKX-7 ${mkx7.title}`);
+  });
+
+  it("i codici scritti a mano e non citati si risolvono per chi legge: link, tenue o testo", async () => {
+    const hidden = state.tasks.find((t) => !visibleProjectIds("p-giulia").has(t.projectId))!;
+    const mkx7 = state.tasks.find((t) => t.code === "MKX-7")!;
+    put({
+      id: "m-uncited",
+      channelId: "ch-mkx-general",
+      createdAt: "2026-10-23T11:00:00Z",
+      authorId: "p-paolo",
+      text: `MKX-7 waits on ${hidden.code}, as ISO-9001 asks`,
+      // Nessuna citazione: è testo scritto a mano.
+      citations: [],
+    });
+    renderWithData(<Harness id="ch-mkx-general" />, { personId: "p-giulia" });
+    const row = await waitFor(() => {
+      const el = flow().querySelector<HTMLElement>('[data-message="m-uncited"]');
+      expect(el?.querySelector('[data-citation="hidden"]')).toBeTruthy();
+      expect(el?.querySelector(`[data-citation="task:${mkx7.id}"]`)).toBeTruthy();
+      return el!;
+    });
+    expect(row.querySelector('[data-citation="hidden"]')!.textContent).toBe(hidden.code);
+    expect(row.querySelector(`[data-citation="task:${mkx7.id}"]`)!.tagName).toBe("A");
+    // Un codice di nessun oggetto resta testo: né link né tenue.
+    const iso = [...row.querySelectorAll("[data-citation]")].filter((el) =>
+      el.textContent?.includes("ISO-9001"),
+    );
+    expect(iso).toEqual([]);
+    expect(row.textContent).toContain("as ISO-9001 asks");
+    expect(row.textContent).not.toContain(hidden.title);
   });
 });
 
@@ -229,6 +275,90 @@ describe("ChannelView: reazioni, modifica, eliminazione", () => {
   });
 });
 
+describe("ChannelView: lettori di schermo e salti", () => {
+  it("il flusso non è una regione viva; gli arrivi si annunciano insieme, una volta", async () => {
+    renderWithData(<Harness id="ch-mkx-grafica" />, { personId: "p-giulia" });
+    await waitFor(() =>
+      expect(flow().querySelectorAll("[data-message]").length).toBeGreaterThan(0),
+    );
+    expect(flow()).toHaveAttribute("aria-live", "off");
+    const region = document.querySelector<HTMLElement>("[data-chat-announce]")!;
+    expect(region).toHaveAttribute("aria-live", "polite");
+    const said: string[] = [];
+    const observer = new MutationObserver(() => said.push(region.textContent ?? ""));
+    observer.observe(region, { childList: true, characterData: true, subtree: true });
+    // Due messaggi di Chiara arrivati dal vivo, uno dopo l'altro (dallo stesso
+    // motore dello stream, senza cambiare la persona della sessione).
+    const incoming = (id: string, text: string, at: string): ChatMessage => ({
+      id,
+      channelId: "ch-mkx-grafica",
+      threadOf: null,
+      authorId: "p-chiara",
+      kind: "person",
+      text,
+      attachments: [],
+      citations: [],
+      reactions: [],
+      asksReplyOf: [],
+      linkedCodes: [],
+      createdAt: at,
+      editedAt: null,
+      deletedAt: null,
+      deletedById: null,
+    });
+    // Ognuno al suo turno (un render a testa): l'annuncio li somma lo stesso.
+    api.setStreamLatency(80);
+    // Fuori da `act`: ogni messaggio è un render a sé, come dal vivo.
+    const script = api.runScript(api.chat.channelStream("ch-mkx-grafica"), [
+      {
+        step: "post",
+        message: incoming("m-live-1", "First proof is up", "2026-10-23T12:00:01Z"),
+      },
+      { step: "post", message: incoming("m-live-2", "Second proof too", "2026-10-23T12:00:02Z") },
+    ]);
+    await waitFor(() => expect(flow().textContent).toContain("First proof is up"));
+    await waitFor(() => expect(flow().textContent).toContain("Second proof too"));
+    await act(() => script);
+    await waitFor(() => expect(region.textContent).toBe("2 new messages"), { timeout: 3000 });
+    observer.disconnect();
+    expect(said.filter(Boolean)).toEqual(["2 new messages"]);
+  });
+
+  it("un `?message=` nuovo con il canale aperto porta in vista quel messaggio", async () => {
+    put({
+      id: "m-far",
+      channelId: "ch-mkx-grafica",
+      createdAt: "2026-09-01T09:00:00Z",
+      text: "Far",
+    });
+    function Focus() {
+      const [focus, setFocus] = useState<string | undefined>(undefined);
+      return (
+        <div style={{ height: 800 }}>
+          <button type="button" onClick={() => setFocus("m-far")}>
+            jump
+          </button>
+          <ChannelView channelId="ch-mkx-grafica" focusMessageId={focus} />
+        </div>
+      );
+    }
+    const user = userEvent.setup();
+    renderWithData(<Focus />, { personId: "p-giulia" });
+    const target = await waitFor(() => {
+      const el = flow().querySelector<HTMLElement>("#message-m-far");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    const el = flow();
+    Object.defineProperty(el, "scrollHeight", { configurable: true, get: () => 5000 });
+    Object.defineProperty(el, "clientHeight", { configurable: true, get: () => 600 });
+    Object.defineProperty(target, "offsetTop", { configurable: true, get: () => 1200 });
+    el.scrollTop = 4400;
+    await user.click(screen.getByRole("button", { name: "jump" }));
+    expect(el.scrollTop).toBe(1200 - 56);
+  });
+});
+
 describe("ChannelView: crea task dal messaggio", () => {
   it("la task nasce precompilata e il messaggio la mostra («→ codice»)", async () => {
     const user = userEvent.setup();
@@ -272,11 +402,17 @@ describe("ChannelView: casella e invio", () => {
     renderWithData(<Harness id="ch-mkx-grafica" />, { personId: "p-giulia" });
     await waitFor(() => expect(composer()).toBeInTheDocument());
     api.failNext("chat.sendMessage");
+    await user.upload(
+      document.querySelector<HTMLInputElement>("[data-chat-file-input]")!,
+      new File(["x"], "proof-v2.pdf", { type: "application/pdf" }),
+    );
     await user.type(composer(), "Proofs are on the drive{Enter}");
     const failed = await screen.findByText("Not sent");
     expect(composer()).toHaveValue("");
     const item = failed.closest("[data-local-send]") as HTMLElement;
     expect(item.textContent).toContain("Proofs are on the drive");
+    // Anche l'allegato resta visibile, con il suo nome.
+    expect(within(item).getByText("proof-v2.pdf")).toBeInTheDocument();
     await user.click(within(item).getByRole("button", { name: "Resend" }));
     await waitFor(() => expect(screen.queryByText("Not sent")).toBeNull());
     await waitFor(() =>
@@ -332,11 +468,16 @@ describe("ChannelView: casella e invio", () => {
 describe("ChannelView: Review Focus 2 — cambio di persona", () => {
   it("flusso, bozza e riga «New» di Giulia non restano a Marco", async () => {
     const user = userEvent.setup();
+    const giuliaFirst = await firstUnread("p-giulia", "ch-aud-general");
+    const marcoFirst = await firstUnread("p-marco", "ch-aud-general");
+    // Le due letture sono diverse: altrimenti il test non distinguerebbe nulla.
+    expect(giuliaFirst).not.toBeNull();
+    expect(marcoFirst).not.toBeNull();
+    expect(marcoFirst).not.toBe(giuliaFirst);
     renderWithData(<Harness id="ch-aud-general" to="p-marco" />, { personId: "p-giulia" });
     await waitFor(() => expect(flow().querySelector("[data-new-line]")).not.toBeNull());
-    const giuliaNew = flow()
-      .querySelector("[data-new-line]")!
-      .nextElementSibling!.getAttribute("data-message");
+    expect(newLineBefore()).toBe(giuliaFirst);
+    expect(flow().querySelectorAll("[data-new-line]").length).toBe(1);
     await user.type(composer(), "Giulia's private draft");
     expect(readDraft("p-giulia", "ch-aud-general")).toBe("Giulia's private draft");
 
@@ -349,10 +490,9 @@ describe("ChannelView: Review Focus 2 — cambio di persona", () => {
     await waitFor(() =>
       expect(flow().querySelectorAll("[data-message]").length).toBeGreaterThan(0),
     );
-    const marcoNew = flow()
-      .querySelector("[data-new-line]")
-      ?.nextElementSibling?.getAttribute("data-message");
-    expect(marcoNew).not.toBe(giuliaNew);
+    // La riga «New» è quella di Marco, una sola, prima del suo primo non letto.
+    await waitFor(() => expect(newLineBefore()).toBe(marcoFirst));
+    expect(flow().querySelectorAll("[data-new-line]").length).toBe(1);
   });
 
   it("un DM aperto non lascia nulla a chi non ne fa parte", async () => {

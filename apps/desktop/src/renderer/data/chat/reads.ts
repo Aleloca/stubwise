@@ -111,6 +111,8 @@ export function scrubDeleted(m: ChatMessage): void {
   m.citations = [];
   m.reactions = [];
   m.asksReplyOf = [];
+  // Le task nate dal messaggio restano, ma il messaggio non le annuncia più.
+  m.linkedCodes = [];
   if (m.claudeEvents) m.claudeEvents = [];
 }
 

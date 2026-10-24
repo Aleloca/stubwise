@@ -1,12 +1,4 @@
-import {
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ClipboardEvent,
-  type KeyboardEvent,
-} from "react";
+import { useEffect, useId, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useProjects, useSetConversationContext } from "../../../data/queries";
 import type { ConversationStream } from "../../../data/queries";
@@ -16,6 +8,7 @@ import { Chevron, MenuButton } from "../../tasks/controls";
 import { AttachmentChip } from "./AttachmentChip";
 import { useCommandSuggestions } from "./CommandMenu";
 import { flatten, SuggestionMenu, useMentionSuggestions, type Suggestion } from "./MentionMenu";
+import { picksWithKey, useComposerField } from "./useComposerField";
 import {
   AtGlyph,
   HashGlyph,
@@ -36,23 +29,8 @@ export interface DraftAttachment {
 
 /** Quante righe cresce il campo prima di scorrere. */
 const MAX_LINES = 8;
-const LINE_PX = 20;
 
-type Trigger = { char: "/" | "#" | "@"; query: string; start: number; end: number };
-
-/**
- * Il carattere di un menu appena prima del cursore: «/» solo all'inizio del
- * messaggio, «#» e «@» all'inizio di una parola.
- */
-export function triggerAt(text: string, caret: number): Trigger | null {
-  const before = text.slice(0, caret);
-  const slash = /^\/(\S{0,40})$/.exec(before);
-  if (slash) return { char: "/", query: slash[1]!, start: 0, end: caret };
-  const mention = /(^|\s)([#@])([^\s#@]{0,40})$/.exec(before);
-  if (!mention) return null;
-  const start = caret - mention[3]!.length - 1;
-  return { char: mention[2] as "#" | "@", query: mention[3]!, start, end: caret };
-}
+export { triggerAt } from "./useComposerField";
 
 /**
  * La casella in fondo alla conversazione: bordo `rule-strong`, cresce fino a
@@ -94,11 +72,13 @@ export function Composer({
 }) {
   const { t } = useTranslation();
   const [text, setText] = useState("");
-  const [caret, setCaret] = useState(0);
-  const [tokens, setTokens] = useState<string[]>([]);
-  const [active, setActive] = useState(0);
-  const [dismissed, setDismissed] = useState<number | null>(null);
-  const field = useRef<HTMLTextAreaElement>(null);
+  const composer = useComposerField({
+    text,
+    onText: setText,
+    maxLines: MAX_LINES,
+    allowSlash: true,
+  });
+  const { field, trigger, menuOpen, update, place } = composer;
   const fileInput = useRef<HTMLInputElement>(null);
   const menuId = useId();
   const hintId = useId();
@@ -106,8 +86,6 @@ export function Composer({
 
   const contextProjectId =
     detail.kind === "free" ? detail.contextProjectId : (detail.projectId ?? null);
-  const trigger = triggerAt(text, caret);
-  const menuOpen = trigger !== null && dismissed !== trigger.start;
   const mentions = useMentionSuggestions(
     trigger?.char === "@" ? "people" : "objects",
     trigger?.char === "/" ? "" : (trigger?.query ?? ""),
@@ -120,19 +98,11 @@ export function Composer({
   );
   const menu = trigger?.char === "/" ? commands : mentions;
   const options = menuOpen ? flatten(menu.groups) : [];
-  const activeIndex = Math.min(active, Math.max(0, options.length - 1));
+  const activeIndex = composer.activeIndex(options.length);
 
   const working = detail.canInterrupt;
   const reconnecting = connection === "reconnecting";
   const hasContent = text.trim().length > 0 || attachments.length > 0;
-
-  // Il campo cresce con il testo, fino a 8 righe.
-  useLayoutEffect(() => {
-    const el = field.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, MAX_LINES * LINE_PX + 16)}px`;
-  }, [text]);
 
   // ⌘. (Ctrl+. fuori dal Mac) ferma Claude, ovunque nella finestra.
   useEffect(() => {
@@ -155,27 +125,9 @@ export function Composer({
     return () => window.removeEventListener("keydown", onKey);
   }, [working, onStop]);
 
-  const update = (next: string, at: number) => {
-    setText(next);
-    setCaret(at);
-    setActive(0);
-    // Un gettone modificato a mano non è più un gettone.
-    setTokens((list) => list.filter((tok) => next.includes(tok)));
-  };
-
-  const place = (at: number) =>
-    requestAnimationFrame(() => {
-      field.current?.setSelectionRange(at, at);
-      field.current?.focus();
-    });
-
   const pick = (s: Suggestion) => {
     if (!trigger) return;
-    const insert = `${s.insert} `;
-    const next = text.slice(0, trigger.start) + insert + text.slice(trigger.end);
-    const at = trigger.start + insert.length;
-    update(next, at);
-    if (trigger.char !== "/") setTokens((list) => [...list, s.insert]);
+    composer.insert(s, trigger.char !== "/" ? { insert: s.insert } : null);
     // Citare un oggetto in una libera senza progetto ne fissa il contesto.
     if (
       detail.kind === "free" &&
@@ -186,7 +138,6 @@ export function Composer({
     ) {
       setContext.mutate({ id: detail.id, projectId: s.projectId });
     }
-    place(at);
   };
 
   const submit = () => {
@@ -195,54 +146,19 @@ export function Composer({
       text.trim(),
       attachments.map((a) => a.attachment),
     );
-    setText("");
-    setCaret(0);
-    setTokens([]);
+    composer.reset();
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (menuOpen && options.length > 0) {
-      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-        e.preventDefault();
-        const step = e.key === "ArrowDown" ? 1 : -1;
-        setActive((activeIndex + step + options.length) % options.length);
-        return;
-      }
-      if (e.key === "Enter" || e.key === "Tab") {
-        e.preventDefault();
-        pick(options[activeIndex]!);
-        return;
-      }
-    }
-    if (menuOpen && e.key === "Escape") {
+    if (picksWithKey(e, menuOpen, options)) {
       e.preventDefault();
-      e.stopPropagation();
-      setDismissed(trigger!.start);
+      pick(options[activeIndex]!);
       return;
     }
+    if (composer.handleKey(e, options)) return;
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       submit();
-      return;
-    }
-    if (e.key === "Backspace") {
-      const el = e.currentTarget;
-      if (el.selectionStart !== el.selectionEnd) return;
-      const before = text.slice(0, el.selectionStart);
-      const token = tokens.find((tok) => {
-        const trimmed = before.endsWith(`${tok} `) ? `${tok} ` : before.endsWith(tok) ? tok : null;
-        if (!trimmed) return false;
-        const at = before.length - trimmed.length;
-        return at === 0 || /\s/.test(before[at - 1]!);
-      });
-      if (token) {
-        e.preventDefault();
-        const length = before.endsWith(`${token} `) ? token.length + 1 : token.length;
-        const at = before.length - length;
-        update(text.slice(0, at) + text.slice(el.selectionStart), at);
-        setTokens((list) => list.filter((tok) => tok !== token));
-        place(at);
-      }
     }
   };
 
@@ -340,7 +256,7 @@ export function Composer({
               menuOpen && options.length > 0 ? `${menuId}-${activeIndex}` : undefined
             }
             onChange={(e) => update(e.target.value, e.target.selectionStart)}
-            onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+            onSelect={(e) => composer.setCaret(e.currentTarget.selectionStart)}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
             className="block max-h-[176px] min-h-9 w-full resize-none bg-transparent px-3 pt-2.5 pb-1 text-md text-ink outline-none placeholder:text-ink-faint focus-visible:outline-none"
@@ -410,9 +326,7 @@ export function Composer({
                   }
                   onClick={() => {
                     onStopAndSend(text.trim());
-                    setText("");
-                    setCaret(0);
-                    setTokens([]);
+                    composer.reset();
                   }}
                 >
                   {t("claude.conversation.composer.stopAndSend")}

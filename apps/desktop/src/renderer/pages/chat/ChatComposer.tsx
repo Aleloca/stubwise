@@ -1,18 +1,12 @@
-import {
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ClipboardEvent,
-  type KeyboardEvent,
-} from "react";
+import { useId, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useDepartments, usePeople } from "../../data/queries";
 import type { Attachment, CitationRef } from "../../data/types";
 import { CheckItem, itemClass, MenuGroup, MenuNote } from "../../tasks-ui/Menu";
 import { MenuButton } from "../tasks/controls";
 import { AttachmentChip } from "../claude/conversation/AttachmentChip";
-import { triggerAt, type DraftAttachment } from "../claude/conversation/Composer";
+import type { DraftAttachment } from "../claude/conversation/Composer";
+import { picksWithKey, useComposerField } from "../claude/conversation/useComposerField";
 import {
   flatten,
   SuggestionMenu,
@@ -38,7 +32,6 @@ import { readDraft, writeDraft } from "./drafts";
 // modifica il mio ultimo messaggio. La bozza resta per canale e persona.
 
 const MAX_LINES = 10;
-const LINE_PX = 20;
 
 export interface ChatSendInput {
   text: string;
@@ -133,12 +126,7 @@ export function ChatComposer({
 }) {
   const { t } = useTranslation();
   const [text, setTextState] = useState(() => readDraft(viewerId, channelId));
-  const [caret, setCaret] = useState(0);
-  const [tokens, setTokens] = useState<{ insert: string; ref: CitationRef }[]>([]);
-  const [active, setActive] = useState(0);
-  const [dismissed, setDismissed] = useState<number | null>(null);
   const [asksReply, setAsksReply] = useState(false);
-  const field = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const menuId = useId();
   const hintId = useId();
@@ -147,11 +135,14 @@ export function ChatComposer({
     setTextState(next);
     writeDraft(viewerId, channelId, next);
   };
-
-  const raw = triggerAt(text, caret);
   // Nessun «/» in chat: solo «#» e «@».
-  const trigger = raw && raw.char !== "/" ? raw : null;
-  const menuOpen = trigger !== null && dismissed !== trigger.start;
+  const composer = useComposerField({
+    text,
+    onText: setText,
+    maxLines: MAX_LINES,
+    allowSlash: false,
+  });
+  const { field, trigger, menuOpen, tokens } = composer;
   const objects = useMentionSuggestions(
     "objects",
     trigger?.query ?? "",
@@ -165,38 +156,12 @@ export function ChatComposer({
   );
   const menu = trigger?.char === "@" ? persons : objects;
   const options = menuOpen ? flatten(menu.groups) : [];
-  const activeIndex = Math.min(active, Math.max(0, options.length - 1));
+  const activeIndex = composer.activeIndex(options.length);
   const hasContent = text.trim().length > 0 || attachments.length > 0;
-
-  useLayoutEffect(() => {
-    const el = field.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, MAX_LINES * LINE_PX + 16)}px`;
-  }, [text]);
-
-  const update = (next: string, at: number) => {
-    setText(next);
-    setCaret(at);
-    setActive(0);
-    setTokens((list) => list.filter((tok) => next.includes(tok.insert)));
-  };
-
-  const place = (at: number) =>
-    requestAnimationFrame(() => {
-      field.current?.setSelectionRange(at, at);
-      field.current?.focus();
-    });
 
   const pick = (s: Suggestion) => {
     if (!trigger) return;
-    const insert = `${s.insert} `;
-    const next = text.slice(0, trigger.start) + insert + text.slice(trigger.end);
-    const at = trigger.start + insert.length;
-    update(next, at);
-    if (trigger.char === "#" && s.ref)
-      setTokens((list) => [...list, { insert: s.insert, ref: s.ref! }]);
-    place(at);
+    composer.insert(s, trigger.char === "#" && s.ref ? { insert: s.insert, ref: s.ref } : null);
   };
 
   const submit = () => {
@@ -204,35 +169,20 @@ export function ChatComposer({
     onSend({
       text: text.trim(),
       attachments: attachments.map((a) => a.attachment),
-      citations: tokens.filter((tok) => text.includes(tok.insert)).map((tok) => tok.ref),
+      citations: tokens.flatMap((tok) => (tok.ref && text.includes(tok.insert) ? [tok.ref] : [])),
       asksReply,
     });
-    setText("");
-    setCaret(0);
-    setTokens([]);
+    composer.reset();
     setAsksReply(false);
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (menuOpen && options.length > 0) {
-      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-        e.preventDefault();
-        const step = e.key === "ArrowDown" ? 1 : -1;
-        setActive((activeIndex + step + options.length) % options.length);
-        return;
-      }
-      if (e.key === "Enter" || e.key === "Tab") {
-        e.preventDefault();
-        pick(options[activeIndex]!);
-        return;
-      }
-    }
-    if (menuOpen && e.key === "Escape") {
+    if (picksWithKey(e, menuOpen, options)) {
       e.preventDefault();
-      e.stopPropagation();
-      setDismissed(trigger!.start);
+      pick(options[activeIndex]!);
       return;
     }
+    if (composer.handleKey(e, options)) return;
     if (e.key === "ArrowUp" && !text && attachments.length === 0) {
       if (onEditLast()) e.preventDefault();
       return;
@@ -240,32 +190,6 @@ export function ChatComposer({
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       submit();
-      return;
-    }
-    if (e.key === "Backspace") {
-      const el = e.currentTarget;
-      if (el.selectionStart !== el.selectionEnd) return;
-      const before = text.slice(0, el.selectionStart);
-      const token = tokens.find((tok) => {
-        const tail = before.endsWith(`${tok.insert} `)
-          ? `${tok.insert} `
-          : before.endsWith(tok.insert)
-            ? tok.insert
-            : null;
-        if (!tail) return false;
-        const at = before.length - tail.length;
-        return at === 0 || /\s/.test(before[at - 1]!);
-      });
-      if (token) {
-        e.preventDefault();
-        const length = before.endsWith(`${token.insert} `)
-          ? token.insert.length + 1
-          : token.insert.length;
-        const at = before.length - length;
-        update(text.slice(0, at) + text.slice(el.selectionStart), at);
-        setTokens((list) => list.filter((tok) => tok !== token));
-        place(at);
-      }
     }
   };
 
@@ -333,8 +257,8 @@ export function ChatComposer({
             aria-activedescendant={
               menuOpen && options.length > 0 ? `${menuId}-${activeIndex}` : undefined
             }
-            onChange={(e) => update(e.target.value, e.target.selectionStart)}
-            onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+            onChange={(e) => composer.update(e.target.value, e.target.selectionStart)}
+            onSelect={(e) => composer.setCaret(e.currentTarget.selectionStart)}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
             className="block max-h-[216px] min-h-9 w-full resize-none bg-transparent px-3 pt-2.5 pb-1 text-md text-ink outline-none placeholder:text-ink-faint focus-visible:outline-none"

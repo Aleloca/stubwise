@@ -399,6 +399,38 @@ describe("chat: scritture e permessi", () => {
     expect(edited.citations).toEqual([{ kind: "task", id: mkx7.id }]);
   });
 
+  it("modificando, le citazioni seguono il testo nuovo: un codice tolto non resta citato", async () => {
+    as("p-marco");
+    const aud9 = state.tasks.find((t) => t.code === "AUD-9")!;
+    const doc = { kind: "doc" as const, id: "doc-aud-callbacks" };
+    const sent = await chat.sendMessage("ch-aud-general", {
+      text: "AUD-9 Fix the timezone and Scheduled callbacks",
+      citations: [doc],
+    });
+    expect(sent.citations).toEqual([doc, { kind: "task", id: aud9.id }]);
+    // La pagina scelta con «#» resta finché il testo la nomina; il codice tolto se ne va.
+    expect((await chat.editMessage(sent.id, "See Scheduled callbacks")).citations).toEqual([doc]);
+    expect((await chat.editMessage(sent.id, "Never mind")).citations).toEqual([]);
+  });
+
+  it("eliminato, il messaggio non annuncia più le task che ne sono nate", async () => {
+    as("p-giulia");
+    const sent = await chat.sendMessage("ch-mkx-grafica", { text: "Banner copy review" });
+    const task = await chat.createTaskFromMessage(sent.id, {
+      projectId: "prj-mkx",
+      title: "Banner copy review",
+      requestId: null,
+    });
+    expect((await chat.getMessage(sent.id))!.message.linkedRefs).toEqual([
+      { kind: "task", id: task.id },
+    ]);
+    await chat.deleteMessage(sent.id);
+    const after = (await chat.getMessage(sent.id))!.message;
+    expect(after.linkedCodes).toEqual([]);
+    expect(after.linkedRefs).toEqual([]);
+    expect(state.chatMessages.find((m) => m.id === sent.id)!.linkedCodes).toEqual([]);
+  });
+
   it("niente ingresso silenzioso: in un aperto si scrive dopo «Join channel»", async () => {
     as("p-sara");
     const row = rowOf(await chat.listChannels(), "ch-marketing")!;

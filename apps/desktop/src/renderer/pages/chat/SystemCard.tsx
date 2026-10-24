@@ -23,7 +23,11 @@ function EventRow({ message }: { message: ChatMessageView }) {
         {view ? (
           <CitationLink view={view} />
         ) : (
-          <span className="text-ink-muted">{message.text}</span>
+          // Finché l'oggetto non è letto (o non c'è): il tipo dell'evento, mai il
+          // testo salvato, che porterebbe il titolo anche a chi non lo vede.
+          <span className="text-ink-muted" data-event-pending>
+            {t(`chat.system.kinds.${message.event?.kind ?? "release_page"}`)}
+          </span>
         )}
       </span>
       {view?.visible && view.route && (

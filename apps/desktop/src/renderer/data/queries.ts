@@ -108,6 +108,8 @@ export const queryKeys = {
   commands: (personId: string, contextProjectId: string | null) =>
     ["as", personId, "commands", contextProjectId] as const,
   citations: (personId: string, refs: string) => ["as", personId, "citations", refs] as const,
+  codeCitations: (personId: string, codes: string) =>
+    ["as", personId, "codeCitations", codes] as const,
   mentions: (personId: string, kind: "objects" | "people", q: string) =>
     ["as", personId, "mentions", kind, q] as const,
   peopleActivity: (personId: string, date: string, departmentId?: string) =>
@@ -578,6 +580,17 @@ export function useCitations(refs: readonly CitationRef[]) {
     queryKey: queryKeys.citations(me, key),
     queryFn: () => api.resolveCitations([...refs]),
     enabled: refs.length > 0,
+  });
+}
+
+/** I codici scritti a mano in un testo, come li legge chi guarda (visibile, nascosto, o niente). */
+export function useCodeCitations(codes: readonly string[]) {
+  const me = useSessionPersonId();
+  const key = codes.join("|");
+  return useQuery({
+    queryKey: queryKeys.codeCitations(me, key),
+    queryFn: () => api.resolveCodes([...codes]),
+    enabled: codes.length > 0,
   });
 }
 

@@ -104,6 +104,21 @@ export function MessageList({
     // Solo quando cambiano gli estremi del flusso o la coda.
   }, [firstId, lastId, tailKey, rows.length]);
 
+  // Un `?message=` nuovo con il canale già aperto (un'altra menzione, un
+  // link): si porta in vista quel messaggio, se è fra quelli letti.
+  const lastFocus = useRef(focusId);
+  useLayoutEffect(() => {
+    if (focusId === lastFocus.current) return;
+    lastFocus.current = focusId;
+    const el = scroller.current;
+    if (!el || !focusId || !placed.current) return;
+    const target = el.querySelector<HTMLElement>(`#message-${CSS.escape(focusId)}`);
+    if (!target) return;
+    el.scrollTop = Math.max(0, target.offsetTop - 56);
+    atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_SLACK;
+    if (!atBottom.current) setNewBelow(false);
+  }, [focusId]);
+
   const onScroll = () => {
     const el = scroller.current;
     if (!el) return;
@@ -136,6 +151,9 @@ export function MessageList({
         onScroll={onScroll}
         data-chat-scroll
         role="log"
+        // Il log annuncerebbe ogni messaggio (anche i 50 di «Load earlier»):
+        // gli arrivi li dice, raggruppati, la regione `announce` qui sotto.
+        aria-live="off"
         aria-label={label}
         className="relative min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto [overflow-anchor:none]"
       >
@@ -195,7 +213,7 @@ export function MessageList({
           </button>
         )}
       </div>
-      <div className="sr-only" aria-live="polite">
+      <div className="sr-only" aria-live="polite" data-chat-announce>
         {announce}
       </div>
     </div>

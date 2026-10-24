@@ -72,17 +72,13 @@ function mentionPattern(names: readonly string[]): RegExp | null {
 }
 
 /**
- * I codici nel testo: una citazione che chi legge vede diventa codice + nome
- * (il nome scritto subito dopo, come lo inserisce la casella, non si
- * ripete); una che non vede resta il solo codice tenue (R-E9) — il livello
- * dati non dà né nome né codice di ciò che non si vede, quindi un codice
- * senza vista visibile in un messaggio che cita qualcosa di invisibile è
- * quello. Le menzioni vanno in grassetto.
+ * I codici nel testo, risolti per chi legge (citati o scritti a mano): uno
+ * che vede diventa codice + nome (il nome scritto subito dopo, come lo
+ * inserisce la casella, non si ripete); uno che non vede resta il solo
+ * codice tenue (R-E9); uno che non è di nessun oggetto («ISO-9001») resta
+ * testo. Le menzioni vanno in grassetto.
  */
-export function useMessageDecorator(
-  mentionNames: readonly string[],
-  hasHidden: boolean,
-): TextDecorator {
+export function useMessageDecorator(mentionNames: readonly string[]): TextDecorator {
   const index = useCitationIndex();
   const mention = mentionPattern(mentionNames);
   return useCallback<TextDecorator>(
@@ -113,7 +109,7 @@ export function useMessageDecorator(
           // «AUD-88 Invoice export check»: il nome scritto dopo è già nel link.
           if (view.name && text.startsWith(` ${view.name}`, end)) end += view.name.length + 1;
           out.push(<CitationLink key={`${key}-c${i}`} view={view} />);
-        } else if (hasHidden) {
+        } else if (view) {
           out.push(<HiddenCode key={`${key}-c${i}`} code={code} />);
         } else {
           out.push(<Fragment key={`${key}-c${i}`}>{code}</Fragment>);
@@ -125,7 +121,7 @@ export function useMessageDecorator(
       pushMentions(text.slice(last), `${key}-${i}`);
       return out;
     },
-    [index, mention, hasHidden],
+    [index, mention],
   );
 }
 
@@ -156,8 +152,7 @@ export function MessageItem(props: MessageItemProps) {
   const people = usePeople().data;
   const author = people?.find((p) => p.id === m.authorId);
   const index = useCitationIndex();
-  const hasHidden = m.citations.some((ref) => index.byRef.get(refKey(ref))?.visible === false);
-  const decorate = useMessageDecorator(props.mentionNames, hasHidden);
+  const decorate = useMessageDecorator(props.mentionNames);
   const [picker, setPicker] = useState<false | "below" | "above">(false);
   const row = useRef<HTMLDivElement>(null);
   /** Il selettore si apre sopra nella metà bassa della finestra. */
@@ -405,9 +400,9 @@ function ThreadLine({
         <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-ink" />
       )}
       {thread.hasNews && <span className="sr-only">{t("chat.message.newReplies")}</span>}
-      <span className="flex shrink-0 -space-x-1">
+      <span className="flex shrink-0 gap-0.5">
         {thread.participantIds.map((id) => (
-          <span key={id} className="rounded-full bg-ground ring-2 ring-ground">
+          <span key={id} className="rounded-full">
             <ChatAvatar person={people?.find((p) => p.id === id)} size={20} />
           </span>
         ))}

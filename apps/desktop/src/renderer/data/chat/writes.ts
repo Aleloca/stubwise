@@ -2,6 +2,8 @@
 // funzioni: l'import circolare con `api-mutations` è innocuo.
 import { createRequestAs, createTaskAs, type NewRequestInput } from "../api-mutations";
 import { findCodes } from "../../domain/claude/parse";
+import { DOC_PAGES } from "../seed/docPages";
+import { REPO_FILES } from "../seed/repoFiles";
 import {
   chatKey,
   chatNow,
@@ -187,12 +189,46 @@ function deliverMentions(m: ChatMessage, ch: Channel): void {
 }
 
 /**
- * Le citazioni di un messaggio: quelle scelte nella casella più i codici
- * scritti a mano («AUD-88») di task e richieste che chi scrive vede — un
- * codice diventa link da sé. Un codice che chi scrive non vede resta testo.
+ * Il testo nomina ancora l'oggetto citato: il codice di una task, di una
+ * richiesta o di un progetto, il titolo di una pagina, il percorso di un
+ * file (come li inserisce «#»). Le schede degli eventi e le persone sì.
+ */
+function stillNamed(ref: CitationRef, text: string): boolean {
+  switch (ref.kind) {
+    case "task": {
+      const code = state.tasksById.get(ref.id)?.code;
+      return code !== undefined && text.includes(code);
+    }
+    case "request": {
+      const code = state.requests.find((r) => r.id === ref.id)?.code;
+      return code !== undefined && text.includes(code);
+    }
+    case "project": {
+      const code = state.projectsById.get(ref.id)?.code;
+      return code !== undefined && text.includes(code);
+    }
+    case "doc": {
+      const title = DOC_PAGES.find((d) => d.id === ref.id)?.title;
+      return title !== undefined && text.includes(title);
+    }
+    case "file": {
+      const path = REPO_FILES.find((f) => f.id === ref.id)?.path;
+      return path !== undefined && text.includes(path);
+    }
+    default:
+      return true;
+  }
+}
+
+/**
+ * Le citazioni di un messaggio: quelle scelte nella casella che il testo
+ * nomina ancora, più i codici scritti a mano («AUD-88») di task e richieste
+ * che chi scrive vede — un codice diventa link da sé. Un codice che chi
+ * scrive non vede resta testo. Alla modifica si ricalcolano dal testo nuovo:
+ * un codice tolto dal testo non resta citato.
  */
 function citationsOf(me: string, text: string, picked: readonly CitationRef[]): CitationRef[] {
-  const out = structuredClone([...picked]);
+  const out = structuredClone(picked.filter((ref) => stillNamed(ref, text)));
   const has = (ref: CitationRef) => out.some((r) => r.kind === ref.kind && r.id === ref.id);
   const visible = visibleProjectIds(me);
   for (const { code, kind } of findCodes(text)) {
@@ -332,6 +368,7 @@ export async function deleteMessage(id: string): Promise<void> {
     citations: scrubbed.citations,
     reactions: scrubbed.reactions,
     asksReplyOf: scrubbed.asksReplyOf,
+    linkedCodes: scrubbed.linkedCodes,
     ...(scrubbed.claudeEvents ? { claudeEvents: scrubbed.claudeEvents } : {}),
     deletedAt: chatNow(),
     deletedById: me,

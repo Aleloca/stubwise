@@ -972,6 +972,22 @@ export async function search(q: string): Promise<SearchResult[]> {
 const projectCodeOf = (projectId: string) => state.projectsById.get(projectId)?.code ?? null;
 
 /**
+ * I codici di task e richieste scritti a mano in un testo («AUD-88»), come li
+ * legge chi guarda: visibile (codice + nome, apribile), nascosto (il solo
+ * codice, R-E9). Un codice che non è di nessun oggetto («ISO-9001») non torna:
+ * resta testo.
+ */
+export async function resolveCodes(codes: string[]): Promise<CitationView[]> {
+  const refs = codes.flatMap((code): CitationRef[] => {
+    const task = state.tasks.find((t) => t.code === code);
+    if (task) return [{ kind: "task", id: task.id }];
+    const request = state.requests.find((r) => r.code === code);
+    return request ? [{ kind: "request", id: request.id }] : [];
+  });
+  return resolveCitations(refs);
+}
+
+/**
  * Gli oggetti citati in una conversazione, come li legge chi guarda: per
  * l'anteprima e per aprirli. Quello che non vede arriva con `visible: false`:
  * una task, una richiesta o un progetto col solo codice (R-E9: il testo si
