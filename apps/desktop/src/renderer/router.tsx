@@ -27,6 +27,7 @@ import { RequestsPage } from "./pages/requests/RequestsPage";
 import { OverviewPage } from "./pages/overview/OverviewPage";
 import { AllProjectsPage } from "./pages/projects/AllProjectsPage";
 import { ProjectSettingsPage } from "./pages/settings/ProjectSettingsPage";
+import { ClaudePage, ConversationPage } from "./pages/claude/ClaudePage";
 
 /** La ricerca che ogni route accetta (`?task=` apre il pannello, gli altri li montano i dialoghi). */
 export interface AppSearch {
@@ -41,6 +42,10 @@ export interface AppSearch {
   group?: string;
   /** Criteri di una pagina di task (oggetto JSON nell'indirizzo). */
   filters?: FilterCriteria;
+  /** Destinazione «Claude»: l'elenco aperto (`live`, `mine`, `public`, `finished`). */
+  scope?: string;
+  /** Destinazione «Claude»: la domanda scritta nella palette («Ask Claude…»), da rivedere e mandare. */
+  ask?: string;
 }
 
 const SEARCH_KEYS = [
@@ -52,6 +57,8 @@ const SEARCH_KEYS = [
   "brief",
   "view",
   "group",
+  "scope",
+  "ask",
 ] as const;
 
 /**
@@ -74,14 +81,19 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
     const shapeOk =
       key === "request" || key === "brief"
         ? /^[\w-]+$/.test(value)
-        : key === "view" || key === "group"
+        : key === "view" || key === "group" || key === "scope"
           ? /^[a-z-]+$/.test(value)
-          : false;
+          : key === "ask"
+            ? value.trim().length > 0 && value.length <= ASK_MAX
+            : false;
     if (shapeOk || isValidSearchParam("", key, value)) out[key] = value;
   }
   out.filters = parseCriteria(search.filters) ?? undefined;
   return out;
 }
+
+/** Quanto può essere lunga una domanda portata dalla palette. */
+const ASK_MAX = 2000;
 
 const rootRoute = createRootRoute({
   component: AppLayout,
@@ -140,12 +152,25 @@ function pageOf(name: (typeof APP_ROUTES)[number]) {
   if (name === "filters") return AllFiltersPage;
   if (name === "home") return HomeRoutePage;
   if (name === "projects") return ProjectsRoutePage;
+  if (name === "claude") return ClaudePage;
   return () => <Placeholder titleKey={`nav.${name}`} bodyKey={`placeholder.pages.${name}`} />;
 }
 
 const appRoutes = APP_ROUTES.map((name) =>
   createRoute({ getParentRoute: () => rootRoute, path: `/${name}`, component: pageOf(name) }),
 );
+
+function ConversationRoutePage() {
+  const { id } = conversationRoute.useParams();
+  return <ConversationPage id={id} />;
+}
+
+/** Una conversazione o una sessione di lavoro con Claude. */
+const conversationRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/claude/$id",
+  component: ConversationRoutePage,
+});
 
 const filterRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -246,6 +271,7 @@ const projectSectionRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   indexRoute,
   ...appRoutes,
+  conversationRoute,
   filterRoute,
   projectIndexRoute,
   projectSectionRoute,

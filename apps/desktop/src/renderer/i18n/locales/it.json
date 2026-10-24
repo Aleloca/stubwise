@@ -142,7 +142,10 @@
       },
       "viewAs": "Vedi come…",
       "newRequest": "Nuova richiesta",
-      "openFilter": "Apri filtro…"
+      "openFilter": "Apri filtro…",
+      "newConversation": "Nuova conversazione con Claude",
+      "askClaude": "Chiedi a Claude…",
+      "askClaudeWith": "Chiedi a Claude: «{{query}}»"
     },
     "filterPlaceholder": "Scegli un filtro"
   },
@@ -1866,6 +1869,186 @@
           "timed_out": "Questa sessione ha esaurito il tempo.",
           "stopped": "Questa sessione è stata fermata."
         }
+      }
+    },
+    "destination": {
+      "column": {
+        "label": "Viste di Claude",
+        "new": "Nuova conversazione",
+        "newShortcut": "Nuova conversazione (N)",
+        "live": "Al lavoro ora",
+        "mine": "Mie",
+        "public": "Pubbliche",
+        "finished": "Concluse",
+        "recent": "Recenti",
+        "waiting": "{{count}} aspettano te",
+        "working": "Claude sta lavorando",
+        "count": "{{count}} elementi"
+      },
+      "scopes": {
+        "live": "Al lavoro ora",
+        "mine": "Le mie conversazioni",
+        "public": "Conversazioni pubbliche",
+        "finished": "Sessioni concluse"
+      },
+      "intro": {
+        "live": "Cosa sta facendo Claude adesso nei progetti che puoi vedere.",
+        "mine": "Le tue conversazioni con Claude. Le leggi solo tu, finché non ne rendi pubblica una.",
+        "public": "Conversazioni che qualcuno ha scelto di condividere. Scrivendo in una la continui in una tua.",
+        "finished": "Sessioni terminate negli ultimi 14 giorni."
+      },
+      "kinds": {
+        "free": "Conversazione",
+        "task_run": "Esecuzione",
+        "refine": "Refine",
+        "pr_review": "Review PR",
+        "docs": "Docs",
+        "brief": "Brief",
+        "daily_report": "Report giornaliero",
+        "mail_classify": "Posta",
+        "intake": "Intake"
+      },
+      "status": {
+        "working": "Al lavoro",
+        "waitingOnYou": "Aspetta te",
+        "awaiting_answer": "Aspetta una risposta",
+        "awaiting_approval": "Aspetta l'approvazione",
+        "paused": "In pausa",
+        "public": "Pubblica",
+        "archived": "Archiviata"
+      },
+      "outcomes": {
+        "ok": "Fatta",
+        "failed": "Fallita",
+        "timed_out": "Tempo scaduto",
+        "stopped": "Fermata"
+      },
+      "activity": {
+        "question": "Sta facendo una domanda",
+        "plan": "Aspetta che il piano sia approvato",
+        "privateTail": "Il resto per ora è privato"
+      },
+      "filters": {
+        "label": "Filtri",
+        "project": "Progetto",
+        "type": "Tipo",
+        "outcome": "Esito",
+        "any": "Tutti",
+        "show": "Mostra",
+        "active": "Attive",
+        "archived": "Archiviate",
+        "showOlder": "Mostra più vecchie",
+        "olderShown": "Mostrate tutte"
+      },
+      "list": {
+        "count_one": "{{count}} conversazione",
+        "count_other": "{{count}} conversazioni",
+        "label": "{{scope}}: elenco",
+        "noProject": "Nessun progetto",
+        "headers": {
+          "type": "Tipo",
+          "title": "Conversazione",
+          "project": "Progetto",
+          "status": "Stato",
+          "when": "Aggiornata"
+        }
+      },
+      "states": {
+        "error": "Impossibile caricare le conversazioni",
+        "emptyLive": "Claude non sta lavorando a nulla che tu possa vedere",
+        "emptyLiveBody": "Le sessioni compaiono qui mentre Claude esegue una task, rifinisce una richiesta o rivede una pull request.",
+        "emptyMine": "Ancora nessuna conversazione",
+        "emptyMineBody": "Chiedi a Claude delle tue task, dei tuoi progetti o di qualunque altra cosa.",
+        "emptyArchived": "Nessuna conversazione archiviata",
+        "emptyPublic": "Nessuno ha ancora condiviso una conversazione",
+        "emptyFinished": "Nessuna sessione terminata negli ultimi 14 giorni",
+        "noMatch": "Nessun risultato",
+        "clear": "Togli i filtri"
+      },
+      "landing": {
+        "title": "Nuova conversazione",
+        "intro": "Claude legge ciò che puoi leggere tu e non cambia nulla senza la tua conferma.",
+        "label": "La tua domanda per Claude",
+        "placeholder": "Chiedi a Claude del tuo lavoro, di una task o di un progetto…",
+        "send": "Inizia la conversazione",
+        "sending": "Avvio…",
+        "failed": "Impossibile iniziare la conversazione. Il testo è ancora qui: riprova.",
+        "suggestions": "Suggerimenti",
+        "suggest": {
+          "today": "Cosa devo fare oggi?",
+          "projects": "A che punto sono i miei progetti?",
+          "explain": "Spiegami {{code}}",
+          "howto": "Come funziona {{topic}} in {{code}}?"
+        },
+        "topic": "la sincronizzazione Gmail",
+        "hint": "Invio per mandare · Maiusc+Invio per andare a capo"
+      },
+      "page": {
+        "untitled": "Nuova conversazione",
+        "private": "Conversazione privata",
+        "project": "Progetto: {{code}}",
+        "publicBy": "Pubblica · resa pubblica da {{name}} il {{date}}",
+        "makePublic": "Rendi pubblica",
+        "makePrivate": "Rendi privata",
+        "madePrivate": "La conversazione è di nuovo privata",
+        "madePublic": "La conversazione è pubblica",
+        "publishFailed": "Impossibile cambiare chi può leggere la conversazione. Riprova.",
+        "more": "Altre azioni",
+        "rename": "Rinomina",
+        "renameLabel": "Titolo della conversazione",
+        "renameFailed": "Impossibile rinominare la conversazione. È tornato il titolo di prima.",
+        "archive": "Archivia",
+        "restore": "Ripristina",
+        "archived": "Archiviata",
+        "restored": "Ripristinata",
+        "archiveFailed": "Impossibile archiviare la conversazione. Riprova.",
+        "undo": "Annulla",
+        "delete": "Elimina",
+        "deleteTitle": "Eliminare «{{title}}»?",
+        "deleteBody": "Non si può annullare. Le copie pubbliche che altri hanno continuato restano loro.",
+        "deleteFailed": "Impossibile eliminare la conversazione. Riprova.",
+        "deleted": "Conversazione eliminata",
+        "cancel": "Annulla",
+        "archivedNote": "Archiviata · non è fra le tue conversazioni né fra le recenti.",
+        "reconfirm": "I nuovi messaggi sono privati: Claude ha usato {{codes}}. Conferma per condividerli.",
+        "reconfirmAction": "Rivedi e condividi",
+        "openTask": "Apri la task",
+        "openRequest": "Apri la richiesta",
+        "objectTask": "Task {{code}}",
+        "objectRequest": "Richiesta {{code}}",
+        "objectLabel": "L'oggetto di questa sessione",
+        "closeObject": "Chiudi",
+        "objectMissing": "Non puoi aprire questo oggetto.",
+        "continueFailed": "Impossibile iniziare la tua conversazione. Riprova.",
+        "assignee": "Assegnatario",
+        "unassigned": "Non assegnata",
+        "status": "Stato",
+        "size": "Taglia",
+        "urgency": "Urgenza",
+        "requestedBy": "Chiesta da",
+        "back": "Torna a {{scope}}"
+      },
+      "publish": {
+        "title": "Rendere pubblica questa conversazione?",
+        "body": "Chiunque possa vedere le conversazioni pubbliche la leggerà, compreso ciò che Claude ha trovato.",
+        "projects": "Progetti che Claude ha letto o modificato",
+        "none": "Claude non ha usato nessun progetto.",
+        "note": "Chi non può vedere uno di questi progetti leggerà il testo, ma i suoi codici non si apriranno.",
+        "confirm": "Rendi pubblica, me ne assumo la responsabilità",
+        "reconfirmTitle": "Condividere i nuovi messaggi?",
+        "reconfirmBody": "Da quando l'hai resa pubblica, Claude ha usato un progetto che non hai ancora condiviso. Tutto ciò che segue resta privato finché non confermi.",
+        "newProjects": "Progetti nuovi",
+        "reconfirmConfirm": "Condividi, me ne assumo la responsabilità",
+        "checking": "Controllo dei progetti usati da Claude…"
+      },
+      "continue": {
+        "banner": "Ciò che scrivi apre una tua conversazione privata. Claude agirà come te.",
+        "placeholder": "Continua in una tua conversazione…",
+        "from": "Continua da",
+        "quoted": "«{{title}}»",
+        "gone": "La conversazione originale non è più disponibile.",
+        "originLabel": "La conversazione da cui questa continua",
+        "yoursStarts": "Qui comincia la tua conversazione"
       }
     }
   }

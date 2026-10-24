@@ -142,7 +142,10 @@
       },
       "viewAs": "View as…",
       "newRequest": "New request",
-      "openFilter": "Open filter…"
+      "openFilter": "Open filter…",
+      "newConversation": "New conversation with Claude",
+      "askClaude": "Ask Claude…",
+      "askClaudeWith": "Ask Claude: “{{query}}”"
     },
     "filterPlaceholder": "Choose a filter"
   },
@@ -1866,6 +1869,186 @@
           "timed_out": "This session ran out of time.",
           "stopped": "This session was stopped."
         }
+      }
+    },
+    "destination": {
+      "column": {
+        "label": "Claude views",
+        "new": "New conversation",
+        "newShortcut": "New conversation (N)",
+        "live": "Working now",
+        "mine": "Mine",
+        "public": "Public",
+        "finished": "Finished",
+        "recent": "Recent",
+        "waiting": "{{count}} waiting on you",
+        "working": "Claude is working",
+        "count": "{{count}} items"
+      },
+      "scopes": {
+        "live": "Working now",
+        "mine": "My conversations",
+        "public": "Public conversations",
+        "finished": "Finished sessions"
+      },
+      "intro": {
+        "live": "What Claude is doing right now in the projects you can see.",
+        "mine": "Your conversations with Claude. Only you can read them unless you make one public.",
+        "public": "Conversations people chose to share. Write in one to continue it in your own.",
+        "finished": "Sessions that ended in the last 14 days."
+      },
+      "kinds": {
+        "free": "Conversation",
+        "task_run": "Task run",
+        "refine": "Refine",
+        "pr_review": "PR review",
+        "docs": "Docs",
+        "brief": "Brief",
+        "daily_report": "Daily report",
+        "mail_classify": "Mail",
+        "intake": "Intake"
+      },
+      "status": {
+        "working": "Working",
+        "waitingOnYou": "Waiting on you",
+        "awaiting_answer": "Waiting for an answer",
+        "awaiting_approval": "Waiting for approval",
+        "paused": "Paused",
+        "public": "Public",
+        "archived": "Archived"
+      },
+      "outcomes": {
+        "ok": "Done",
+        "failed": "Failed",
+        "timed_out": "Timed out",
+        "stopped": "Stopped"
+      },
+      "activity": {
+        "question": "Asking a question",
+        "plan": "Waiting for the plan to be approved",
+        "privateTail": "The rest is private for now"
+      },
+      "filters": {
+        "label": "Filters",
+        "project": "Project",
+        "type": "Type",
+        "outcome": "Outcome",
+        "any": "Any",
+        "show": "Show",
+        "active": "Active",
+        "archived": "Archived",
+        "showOlder": "Show older",
+        "olderShown": "Showing everything"
+      },
+      "list": {
+        "count_one": "{{count}} conversation",
+        "count_other": "{{count}} conversations",
+        "label": "{{scope}}: list",
+        "noProject": "No project",
+        "headers": {
+          "type": "Type",
+          "title": "Conversation",
+          "project": "Project",
+          "status": "Status",
+          "when": "Updated"
+        }
+      },
+      "states": {
+        "error": "Couldn't load conversations",
+        "emptyLive": "Claude isn't working on anything you can see",
+        "emptyLiveBody": "Sessions show up here while Claude runs a task, refines a request or reviews a pull request.",
+        "emptyMine": "No conversations yet",
+        "emptyMineBody": "Ask Claude about your tasks, your projects or anything else.",
+        "emptyArchived": "No archived conversations",
+        "emptyPublic": "Nobody has shared a conversation yet",
+        "emptyFinished": "No sessions ended in the last 14 days",
+        "noMatch": "Nothing matches",
+        "clear": "Clear filters"
+      },
+      "landing": {
+        "title": "New conversation",
+        "intro": "Claude reads what you can read and changes nothing without your confirmation.",
+        "label": "Your question for Claude",
+        "placeholder": "Ask Claude about your work, a task or a project…",
+        "send": "Start conversation",
+        "sending": "Starting…",
+        "failed": "Couldn't start the conversation. Your text is still here: try again.",
+        "suggestions": "Suggestions",
+        "suggest": {
+          "today": "What should I do today?",
+          "projects": "Where do my projects stand?",
+          "explain": "Explain {{code}}",
+          "howto": "How does {{topic}} work in {{code}}?"
+        },
+        "topic": "Gmail sync",
+        "hint": "Enter to send · Shift+Enter for a new line"
+      },
+      "page": {
+        "untitled": "New conversation",
+        "private": "Private conversation",
+        "project": "Project: {{code}}",
+        "publicBy": "Public · made public by {{name}} on {{date}}",
+        "makePublic": "Make public",
+        "makePrivate": "Make private",
+        "madePrivate": "The conversation is private again",
+        "madePublic": "The conversation is public",
+        "publishFailed": "Couldn't change who can read this conversation. Try again.",
+        "more": "More actions",
+        "rename": "Rename",
+        "renameLabel": "Conversation title",
+        "renameFailed": "Couldn't rename the conversation. The old title is back.",
+        "archive": "Archive",
+        "restore": "Restore",
+        "archived": "Archived",
+        "restored": "Restored",
+        "archiveFailed": "Couldn't archive the conversation. Try again.",
+        "undo": "Undo",
+        "delete": "Delete",
+        "deleteTitle": "Delete “{{title}}”?",
+        "deleteBody": "This can't be undone. Public copies others continued stay theirs.",
+        "deleteFailed": "Couldn't delete the conversation. Try again.",
+        "deleted": "Conversation deleted",
+        "cancel": "Cancel",
+        "archivedNote": "Archived · it's not in your conversations or in Recent.",
+        "reconfirm": "New messages are private: Claude used {{codes}}. Confirm to share them.",
+        "reconfirmAction": "Review and share",
+        "openTask": "Open task",
+        "openRequest": "Open request",
+        "objectTask": "Task {{code}}",
+        "objectRequest": "Request {{code}}",
+        "objectLabel": "The object of this session",
+        "closeObject": "Close",
+        "objectMissing": "You can't open this object.",
+        "continueFailed": "Couldn't start your conversation. Try again.",
+        "assignee": "Assignee",
+        "unassigned": "Not assigned",
+        "status": "Status",
+        "size": "Size",
+        "urgency": "Urgency",
+        "requestedBy": "Requested by",
+        "back": "Back to {{scope}}"
+      },
+      "publish": {
+        "title": "Make this conversation public?",
+        "body": "Anyone who can see public conversations will read it, including what Claude found.",
+        "projects": "Projects Claude read or changed",
+        "none": "Claude didn't use any project.",
+        "note": "People who can't see one of these projects will read the text, but its codes won't open.",
+        "confirm": "Make public, I'm responsible",
+        "reconfirmTitle": "Share the new messages?",
+        "reconfirmBody": "Since you made it public, Claude used a project you haven't shared yet. Everything after that stays private until you confirm.",
+        "newProjects": "New projects",
+        "reconfirmConfirm": "Share, I'm responsible",
+        "checking": "Checking which projects Claude used…"
+      },
+      "continue": {
+        "banner": "What you write starts your own private conversation. Claude will act as you.",
+        "placeholder": "Continue in your own conversation…",
+        "from": "Continues from",
+        "quoted": "“{{title}}”",
+        "gone": "The original conversation is no longer available.",
+        "originLabel": "The conversation this one continues",
+        "yoursStarts": "Your conversation starts here"
       }
     }
   }

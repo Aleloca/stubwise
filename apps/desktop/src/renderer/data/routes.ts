@@ -71,10 +71,18 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
       return isTasksPath(path) && (GROUP_BYS as readonly string[]).includes(value);
     case "filters":
       return isTasksPath(path) && parseCriteria(parseJson(value)) !== null;
+    case "scope":
+      return path === "claude" && (CLAUDE_SCOPES as readonly string[]).includes(value);
+    case "ask":
+      return path === "claude" && value.trim().length > 0;
     default:
       return false;
   }
 }
+
+/** Gli elenchi della destinazione «Claude» (`#/claude?scope=`). */
+export const CLAUDE_SCOPES = ["live", "mine", "public", "finished"] as const;
+export type ClaudeScope = (typeof CLAUDE_SCOPES)[number];
 
 /** Le viste di un insieme di task (Tasks di progetto e filtri salvati). */
 export const TASK_VIEWS = ["list", "board", "timeline"] as const satisfies readonly TaskView[];
@@ -115,6 +123,7 @@ export function isAppRoute(route: string): boolean {
   }
   if ((APP_ROUTES as readonly string[]).includes(path)) return true;
   if (/^filters\/[\w-]+$/.test(path)) return true;
+  if (/^claude\/[\w-]+$/.test(path)) return true;
   const p = /^p\/([A-Z]{2,4})(?:\/([a-z]+))?$/.exec(path);
   if (!p) return false;
   return !p[2] || (PROJECT_SECTIONS_IDS as readonly string[]).includes(p[2]);

@@ -585,7 +585,15 @@ export function conversationRow(personId: string, c: Conversation): Conversation
     // Cosa fa Claude nel seguito privato non si dice a chi non è l'autore.
     activity: privateTail ? null : activityOf(c),
     privateTail,
+    waitsOnViewer: waitsOn(personId, c),
   };
+}
+
+/** Claude aspetta questa persona: una domanda a cui può rispondere o un piano che può decidere. */
+function waitsOn(personId: string, c: Conversation): boolean {
+  if (c.state !== "awaiting_answer" && c.state !== "awaiting_approval") return false;
+  const perms = conversationPermissions(personId, c);
+  return perms.canAnswer || perms.canDecidePlan;
 }
 
 /** Vero se per questa persona il seguito della pubblica è privato (R-E6). */

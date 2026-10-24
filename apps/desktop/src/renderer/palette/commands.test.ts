@@ -23,3 +23,30 @@ describe("comandi dell'area 2", () => {
     expect(ids(viewerWith([]))).toContain("filter.open");
   });
 });
+
+describe("comandi di Claude (area 3)", () => {
+  it("«New conversation with Claude» e «Ask Claude…» ci sono per tutti", () => {
+    expect(ids(viewerWith([]))).toEqual(expect.arrayContaining(["claude.new", "claude.ask"]));
+  });
+
+  it("«Ask Claude…» resta qualunque cosa si scriva: il testo è la domanda, non un filtro", () => {
+    const found = matchCommands("why does the import drop rows", viewerWith([]), (c) => c.id);
+    expect(found.map((c) => c.id)).toEqual(["claude.ask"]);
+  });
+
+  it("porta la domanda nella casella di una conversazione nuova", () => {
+    const cmd = matchCommands("", viewerWith([]), (c) => c.id).find((c) => c.id === "claude.ask")!;
+    const paths: string[] = [];
+    const ctx = {
+      navigate: (p: string) => paths.push(p),
+      setTheme: () => {},
+      setPersona: () => {},
+      pathname: "/home",
+      openViewAs: () => {},
+      openFilters: () => {},
+    };
+    cmd.run({ ...ctx, query: "  Explain AUD-3 " });
+    cmd.run(ctx);
+    expect(paths).toEqual(["/claude?ask=Explain%20AUD-3", "/claude"]);
+  });
+});

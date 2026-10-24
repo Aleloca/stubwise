@@ -1169,11 +1169,39 @@ function readsAs(me: string): ReadApi {
   };
 }
 
-/** Il titolo automatico di una libera: la prima riga della prima domanda. */
+/** Il titolo automatico di una libera: la prima riga della prima domanda, ~60 caratteri. */
 function titleFrom(text: string, attachments: Attachment[]): string {
   const line = text.split("\n")[0]!.trim();
   if (!line) return attachments[0]?.name ?? "";
-  return line.length > 80 ? `${line.slice(0, 79).trimEnd()}…` : line;
+  return line.length > 60 ? `${cutAtWord(line, 59)}…` : line;
+}
+
+/** Taglia a una parola intera entro `max` caratteri (o a `max` se la parola è una sola). */
+function cutAtWord(text: string, max: number): string {
+  const head = text.slice(0, max);
+  const space = head.lastIndexOf(" ");
+  return (space > max / 2 ? head.slice(0, space) : head).trimEnd().replace(/[,;:]$/, "");
+}
+
+/**
+ * Il titolo breve che sostituisce quello automatico dopo la prima risposta:
+ * la prima frase della domanda senza i convenevoli («Can you…», «Puoi…»),
+ * senza il punto di domanda, al più ~44 caratteri.
+ */
+function shortTitleFrom(text: string, attachments: Attachment[]): string {
+  const line = text.split("\n")[0]!.trim();
+  if (!line) return attachments[0]?.name ?? "";
+  let s = line.split(/(?<=[.?!])\s+/)[0]!;
+  s = s
+    .replace(/^(hi|hello|hey|ciao|buongiorno)\b[,!.]?\s*/i, "")
+    .replace(/^(please\s+)?(can|could|would|will)\s+you\s+(please\s+)?/i, "")
+    .replace(/^please,?\s+/i, "")
+    .replace(/^(per favore,?\s+)?(mi\s+)?(puoi|potresti)\s+/i, "")
+    .replace(/[?.!\s]+$/, "")
+    .trim();
+  if (!s) return titleFrom(text, attachments);
+  if (s.length > 44) s = `${cutAtWord(s, 43)}…`;
+  return s.charAt(0).toLocaleUpperCase() + s.slice(1);
 }
 
 /** I progetti che i passi di una risposta leggono o toccano: citazioni e proposte. */
@@ -1447,6 +1475,9 @@ async function freeTurn(
     event: { type: "user", authorId: me, text, attachments, delivery: "pending" },
   };
   const messageIndex = eventsOf(id).length;
+  // Il primo turno: dopo la risposta il titolo automatico (se nessuno l'ha
+  // cambiato) diventa un titolo breve.
+  const firstTurn = !eventsOf(id).some((e) => e.type === "user");
   // In una pubblica non si sa ancora se il messaggio tocca un progetto
   // nuovo (lo dice la risposta): finché non lo si sa resta privato, così
   // chi guarda non lo riceve né lo legge (R-E6). Se non tocca nulla di
@@ -1483,6 +1514,13 @@ async function freeTurn(
     await runScript(id, steps);
   } finally {
     replying.delete(id);
+  }
+  if (firstTurn && c.title === titleFrom(text, attachments)) {
+    const short = shortTitleFrom(text, attachments);
+    if (short && short !== c.title) {
+      c.title = short;
+      notifyConversationChange(id);
+    }
   }
 }
 

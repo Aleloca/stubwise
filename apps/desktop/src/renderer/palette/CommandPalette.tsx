@@ -41,6 +41,8 @@ interface Item {
   current?: boolean;
   /** Riga di ricerca (progetto, task, persona): può essere di una query vecchia. */
   fromSearch?: boolean;
+  /** «Ask Claude: “…”»: c'è per ogni testo, quindi non conta come risultato trovato. */
+  fallback?: boolean;
   select(): void;
 }
 
@@ -204,6 +206,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         setQuery("");
         setActive(0);
       },
+      query,
     };
     const run = (cmd: Command) => () => {
       cmd.run(ctx);
@@ -236,11 +239,22 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         });
       }
     }
-    byGroup.actions = matchCommands(query, viewer, (cmd) => t(cmd.labelKey))
-      .slice(0, query.trim() ? GROUP_LIMIT : undefined)
+    // Un comando che cita il testo («Ask Claude: “…”») va in fondo quando
+    // il testo non è il suo nome: prima ciò che il testo ha davvero trovato.
+    const needle = query.trim().toLowerCase();
+    const matched = matchCommands(query, viewer, (cmd) => t(cmd.labelKey));
+    const quoting = (cmd: Command) =>
+      !!needle && !!cmd.queryLabelKey && !t(cmd.labelKey).toLowerCase().includes(needle);
+    byGroup.actions = [
+      ...matched.filter((cmd) => !quoting(cmd)).slice(0, needle ? GROUP_LIMIT : undefined),
+      ...matched.filter(quoting),
+    ]
       .map((cmd) => ({
         key: `cmd-${cmd.id}`,
-        label: t(cmd.labelKey),
+        fallback: quoting(cmd),
+        label: quoting(cmd)
+          ? t(cmd.queryLabelKey!, { query: query.trim() })
+          : t(cmd.labelKey),
         shortcut: cmd.shortcut && shortcutLabel(cmd.shortcut),
         select: run(cmd),
       }));
@@ -276,7 +290,8 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
 
   const settled =
     query === debounced && search.isSuccess && !search.isPlaceholderData && !search.isFetching;
-  const showEmpty = step === "root" && searching && settled && items.length === 0;
+  const showEmpty =
+    step === "root" && searching && settled && items.every((item) => item.fallback);
   const showEmptySecond = step !== "root" && items.length === 0;
 
   // Finché la query digitata non è quella cercata, o i dati sono quelli della

@@ -22,6 +22,7 @@ import {
 } from "../../../data/queries";
 import type { Attachment, ConversationDetail, ConversationEvent } from "../../../data/types";
 import { PageError } from "../../../tasks-ui/PageStates";
+import { ContinueBanner, ContinuesFromLine } from "../ContinueBanner";
 import { CitationProvider, indexCitations } from "./citations";
 import { Composer, type DraftAttachment } from "./Composer";
 import { EventList, UserMessage, type DeliveryView } from "./EventList";
@@ -52,11 +53,35 @@ const BOTTOM_SLACK = 48;
  * Tutto ciò che è disegnato è della persona che guarda: cambiando «vedi
  * come» il componente rinasce da zero (chiave per persona), senza una riga
  * della persona di prima — né del flusso né della bozza.
+ *
+ * `onContinue`: in una pubblica di un altro (`canContinue`) la casella c'è
+ * lo stesso, sotto la fascia «What you write starts your own private
+ * conversation»; ciò che si scrive lo riceve il chiamante, che apre la
+ * continuazione. Senza, la pubblica altrui resta in sola lettura.
  */
-export function Conversation({ id, side }: { id: string; side?: ReactNode }) {
+export function Conversation({
+  id,
+  side,
+  onContinue,
+}: {
+  id: string;
+  side?: ReactNode;
+  onContinue?: ContinueHandler;
+}) {
   const me = useSessionPersonId();
-  return <ConversationView key={`${me}\u0000${id}`} id={id} side={side} viewerId={me} />;
+  return (
+    <ConversationView
+      key={`${me}\u0000${id}`}
+      id={id}
+      side={side}
+      viewerId={me}
+      onContinue={onContinue}
+    />
+  );
 }
+
+/** Scrive in una continuazione propria; rifiuta se non è riuscito (il testo resta, con «Resend»). */
+export type ContinueHandler = (text: string, attachments: Attachment[]) => Promise<void>;
 
 /** Libera le miniature delle immagini scelte (gli URL `blob:`). */
 function revokePreviews(drafts: readonly DraftAttachment[]): void {
@@ -77,10 +102,12 @@ function ConversationView({
   id,
   side,
   viewerId,
+  onContinue,
 }: {
   id: string;
   side?: ReactNode;
   viewerId: string;
+  onContinue?: ContinueHandler | undefined;
 }) {
   const { t } = useTranslation();
   const detailQuery = useConversation(id);
@@ -103,7 +130,15 @@ function ConversationView({
       </div>
     );
   }
-  return <ConversationBody detail={detail} stream={stream} side={side} viewerId={viewerId} />;
+  return (
+    <ConversationBody
+      detail={detail}
+      stream={stream}
+      side={side}
+      viewerId={viewerId}
+      onContinue={onContinue}
+    />
+  );
 }
 
 function ConversationSkeleton() {
@@ -130,11 +165,13 @@ function ConversationBody({
   stream,
   side,
   viewerId,
+  onContinue,
 }: {
   detail: ConversationDetail;
   stream: ReturnType<typeof useConversationStream>;
   side?: ReactNode;
   viewerId: string;
+  onContinue?: ContinueHandler | undefined;
 }) {
   const { t } = useTranslation();
   const root = useRef<HTMLDivElement>(null);
@@ -160,7 +197,13 @@ function ConversationBody({
   // non ha dato nulla vale quello letto col dettaglio.
   const events: ConversationEvent[] = stream.events.length > 0 ? stream.events : detail.events;
   const items = useMemo(() => flowItems(events), [events]);
-  const refs = useMemo(() => citedRefs(events), [events]);
+  // In una continuazione, in testa il flusso visibile dell'originale (R-E7),
+  // in sola lettura: si legge dal vivo con il dettaglio.
+  const origin = detail.continuesFrom;
+  const originEvents = origin?.available ? origin.events : NO_EVENTS;
+  const originItems = useMemo(() => flowItems(originEvents), [originEvents]);
+  const originDetail = useMemo(() => readOnlyOrigin(detail), [detail]);
+  const refs = useMemo(() => citedRefs([...originEvents, ...events]), [originEvents, events]);
   const citations = useCitations(refs);
   const index = useMemo(() => indexCitations(citations.data), [citations.data]);
   const hidden = Math.max(0, items.length - limit);
@@ -168,6 +211,9 @@ function ConversationBody({
 
   const projectCode =
     projects?.find((p) => p.id === (detail.projectId ?? detail.contextProjectId))?.code ?? null;
+  const continuing = detail.canContinue && onContinue !== undefined;
+  /** Si può scrivere qui: nella conversazione stessa o, in una pubblica altrui, in una continuazione. */
+  const canCompose = detail.canWrite || continuing;
 
   // --- pannello stretto: niente colonna avatar, gruppi sempre chiusi; il
   // lato si aggancia a destra solo se resta posto per leggere, altrimenti
@@ -254,6 +300,17 @@ function ConversationBody({
   ) => {
     setFailedSend(null);
     setStopFailed(false);
+    if (continuing && onContinue) {
+      // Nella pubblica di un altro non si scrive: nasce una continuazione
+      // propria, e ci si sposta lì (lo fa il chiamante).
+      setDrafts((list) => {
+        revokePreviews(list);
+        return [];
+      });
+      setAttachError(null);
+      onContinue(text, attachments).catch(() => setFailedSend({ text, attachments }));
+      return;
+    }
     const seq = (nextSeq.current += 1);
     const entry: LocalMessage = { seq, text, attachments, sameBefore: mine(text) };
     setLocal((list) => [...list, entry]);
@@ -283,7 +340,7 @@ function ConversationBody({
   // --- allegati: graffetta, incolla, trascina; 10 file da 20 MB ---
   const addFiles = useCallback(
     (files: File[]) => {
-      if (!detail.canWrite || files.length === 0) return;
+      if (!canCompose || files.length === 0) return;
       setAttachError(null);
       setDrafts((current) => {
         const next = [...current];
@@ -314,7 +371,7 @@ function ConversationBody({
         return next;
       });
     },
-    [detail.canWrite, t],
+    [canCompose, t],
   );
   const removeDraft = (attachmentId: string) =>
     setDrafts((list) => {
@@ -327,7 +384,7 @@ function ConversationBody({
   useEffect(() => () => revokePreviews(draftsRef.current), []);
 
   const onDrag = (e: DragEvent<HTMLDivElement>, over: boolean) => {
-    if (!detail.canWrite || !e.dataTransfer?.types.includes("Files")) return;
+    if (!canCompose || !e.dataTransfer?.types.includes("Files")) return;
     e.preventDefault();
     setDragging(over);
   };
@@ -409,7 +466,7 @@ function ConversationBody({
   }, [events, detail.canAnswer, detail.canDecidePlan, viewerId, t]);
 
   const working = detail.state === "working";
-  const readOnly = !detail.canWrite;
+  const readOnly = !canCompose;
 
   return (
     <CitationProvider value={index}>
@@ -425,7 +482,7 @@ function ConversationBody({
           setDragging(false);
         }}
         onDrop={(e) => {
-          if (!detail.canWrite) return;
+          if (!canCompose) return;
           e.preventDefault();
           setDragging(false);
           addFiles([...(e.dataTransfer?.files ?? [])]);
@@ -450,6 +507,31 @@ function ConversationBody({
                   <WorkingRing />
                   {t("claude.conversation.states.reconnecting")}
                 </p>
+              )}
+              {origin && (
+                <section
+                  aria-label={t("claude.destination.continue.originLabel")}
+                  data-continues-from={origin.id}
+                  className="flex min-w-0 flex-col gap-3"
+                >
+                  <ContinuesFromLine origin={origin} />
+                  {originItems.length > 0 && (
+                    <EventList
+                      items={originItems}
+                      detail={originDetail}
+                      viewerId={viewerId}
+                      compact={compact}
+                      projectCode={projectCode}
+                      deliveryOf={noDelivery}
+                      onResend={noop}
+                    />
+                  )}
+                  <p className="flex items-center gap-3 pt-1 text-xs text-ink-muted">
+                    <span className="h-px flex-1 bg-rule" aria-hidden="true" />
+                    {t("claude.destination.continue.yoursStarts")}
+                    <span className="h-px flex-1 bg-rule" aria-hidden="true" />
+                  </p>
+                </section>
               )}
               {detail.privateTail && (
                 <p className="text-sm text-ink-muted">
@@ -538,11 +620,15 @@ function ConversationBody({
               </button>
             )}
           </div>
+          {continuing && <ContinueBanner compact={compact} />}
           {readOnly ? (
             <ReadOnlyBand detail={detail} compact={compact} projectCode={projectCode} />
           ) : (
             <Composer
-              detail={detail}
+              detail={continuing ? continueDetail(detail) : detail}
+              {...(continuing
+                ? { placeholder: t("claude.destination.continue.placeholder") }
+                : {})}
               connection={stream.connection}
               compact={compact}
               attachments={drafts}
@@ -577,6 +663,40 @@ function ConversationBody({
       </div>
     </CitationProvider>
   );
+}
+
+const NO_EVENTS: ConversationEvent[] = [];
+const noDelivery = (): DeliveryView => null;
+const noop = () => {};
+
+/** Il flusso dell'originale si legge soltanto: nessuna scheda vi si decide da qui. */
+function readOnlyOrigin(detail: ConversationDetail): ConversationDetail {
+  const origin = detail.continuesFrom;
+  return {
+    ...detail,
+    id: origin?.id ?? detail.id,
+    ownerId: origin?.ownerId ?? detail.ownerId,
+    title: origin?.title ?? detail.title,
+    state: "idle",
+    isOwner: false,
+    canWrite: false,
+    canInterrupt: false,
+    canAnswer: false,
+    canDecidePlan: false,
+    canPreApprovePlan: false,
+    canRevokePlanApproval: false,
+    canContinue: false,
+    canManage: false,
+  };
+}
+
+/**
+ * La casella di una continuazione che ancora non c'è: si scrive come nella
+ * propria, ma senza «Stop» né contesto da cambiare (la conversazione nasce
+ * all'invio).
+ */
+function continueDetail(detail: ConversationDetail): ConversationDetail {
+  return { ...detail, canWrite: true, canInterrupt: false, canManage: false };
 }
 
 /** Al posto della casella, quando chi guarda non può scrivere: il motivo del «server». */

@@ -479,7 +479,8 @@ export async function listConversations(filter: ConversationFilter): Promise<Con
             if (c.kind === "free" || c.state === "finished") return false;
             break;
           case "mine":
-            if (c.kind !== "free" || c.ownerId !== me || c.archived) return false;
+            if (c.kind !== "free" || c.ownerId !== me) return false;
+            if (c.archived !== (filter.archived ?? false)) return false;
             break;
           case "public":
             if (c.kind !== "free" || c.visibility !== "public" || c.ownerId === me) return false;
@@ -536,12 +537,13 @@ function originOf(me: string, c: Conversation): ConversationDetail["continuesFro
   if (!c.continuesFromId) return null;
   const origin = state.conversations.find((x) => x.id === c.continuesFromId);
   if (!origin || !canSeeConversation(me, origin)) {
-    return { id: c.continuesFromId, available: false, title: null, events: [] };
+    return { id: c.continuesFromId, available: false, title: null, ownerId: null, events: [] };
   }
   return {
     id: origin.id,
     available: true,
     title: origin.title,
+    ownerId: origin.ownerId,
     events: readableEvents(me, origin),
   };
 }

@@ -76,6 +76,7 @@ export function Composer({
   onSend,
   onStop,
   onStopAndSend,
+  placeholder,
 }: {
   detail: ConversationDetail;
   connection: ConversationStream["connection"];
@@ -88,6 +89,8 @@ export function Composer({
   onSend: (text: string, attachments: Attachment[]) => void;
   onStop: () => void;
   onStopAndSend: (text: string) => void;
+  /** Il segnaposto della casella, se diverso da «Ask Claude…» (la continuazione). */
+  placeholder?: string;
 }) {
   const { t } = useTranslation();
   const [text, setText] = useState("");
@@ -324,9 +327,10 @@ export function Composer({
             aria-label={t("claude.conversation.composer.label")}
             aria-describedby={hintId}
             placeholder={
-              compact
+              placeholder ??
+              (compact
                 ? t("claude.conversation.composer.placeholder")
-                : t("claude.conversation.composer.placeholderHint")
+                : t("claude.conversation.composer.placeholderHint"))
             }
             role="combobox"
             aria-autocomplete="list"

@@ -94,6 +94,8 @@ export interface ConversationFilter {
   taskId?: string;
   requestId?: string;
   includeOlder?: boolean;
+  /** Solo in `mine`: vero = le archiviate (di base escluse). */
+  archived?: boolean;
 }
 
 /** Cosa sta facendo Claude adesso, per la riga dell'elenco. */
@@ -114,6 +116,8 @@ export interface ConversationRow extends Conversation {
    * è privato»). Gli eventi arrivano solo fino a lì.
    */
   privateTail: boolean;
+  /** Claude aspetta chi guarda: una domanda a cui può rispondere o un piano che può decidere. */
+  waitsOnViewer: boolean;
 }
 
 /** Perché chi guarda non può scrivere. */
@@ -152,8 +156,15 @@ export interface ConversationDetail extends ConversationRow, ConversationPermiss
    * senza titolo né eventi, e la continuazione resta utilizzabile.
    */
   continuesFrom:
-    | { id: string; available: true; title: string; events: ConversationEvent[] }
-    | { id: string; available: false; title: null; events: [] }
+    | {
+        id: string;
+        available: true;
+        title: string;
+        /** Chi l'ha aperta («Continues from … · Giulia Ferri»). */
+        ownerId: string;
+        events: ConversationEvent[];
+      }
+    | { id: string; available: false; title: null; ownerId: null; events: [] }
     | null;
 }
 

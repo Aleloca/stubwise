@@ -499,6 +499,7 @@ describe("pubbliche e continuazioni", () => {
       id: "cv-giulia-callbacks",
       available: true,
       title: original.title,
+      ownerId: "p-giulia",
       events: originalEvents,
     });
     expect(detail.events).toEqual([]);
@@ -551,6 +552,7 @@ describe("pubbliche e continuazioni", () => {
       id: "cv-giulia-callbacks",
       available: false,
       title: null,
+      ownerId: null,
       events: [],
     });
     expect(detail.canWrite).toBe(true);

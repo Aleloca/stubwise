@@ -16,6 +16,8 @@ export interface CommandContext {
   openViewAs(): void;
   /** Apre il secondo passo «Open filter…» dentro la palette. */
   openFilters(): void;
+  /** Il testo scritto nella palette (per «Ask Claude…»). */
+  query?: string;
 }
 
 export interface Command {
@@ -25,6 +27,11 @@ export interface Command {
   shortcut?: string[];
   /** Vero se il comando lascia la palette aperta (apre un passo successivo). */
   keepsOpen?: boolean;
+  /**
+   * Compare qualunque cosa sia scritta, con questa etichetta che la cita
+   * («Ask Claude: “…”»): il testo non è un filtro, è il contenuto.
+   */
+  queryLabelKey?: string;
   run(ctx: CommandContext): void;
   when?(viewer: Viewer): boolean;
 }
@@ -73,6 +80,21 @@ export const COMMANDS: readonly Command[] = [
     labelKey: "palette.commands.goProjects",
     run: (ctx) => ctx.navigate("/projects"),
   },
+  {
+    id: "claude.new",
+    labelKey: "palette.commands.newConversation",
+    run: (ctx) => ctx.navigate("/claude"),
+  },
+  {
+    id: "claude.ask",
+    labelKey: "palette.commands.askClaude",
+    queryLabelKey: "palette.commands.askClaudeWith",
+    // La domanda va nella casella di una conversazione nuova, da rivedere e mandare.
+    run: (ctx) => {
+      const q = ctx.query?.trim();
+      ctx.navigate(q ? `/claude?ask=${encodeURIComponent(q)}` : "/claude");
+    },
+  },
   themeCommand("light"),
   themeCommand("dark"),
   themeCommand("system"),
@@ -92,6 +114,8 @@ export function matchCommands(
 ): Command[] {
   const needle = query.trim().toLowerCase();
   return COMMANDS.filter(
-    (cmd) => (cmd.when?.(viewer) ?? true) && (!needle || label(cmd).toLowerCase().includes(needle)),
+    (cmd) =>
+      (cmd.when?.(viewer) ?? true) &&
+      (!needle || cmd.queryLabelKey !== undefined || label(cmd).toLowerCase().includes(needle)),
   );
 }

@@ -478,12 +478,16 @@ function useConversationChanges(): void {
   useEffect(() => listenToConversationChanges(client), [client]);
 }
 
-export function useConversations(filter: ConversationFilter) {
+export function useConversations(
+  filter: ConversationFilter,
+  { enabled = true }: { enabled?: boolean } = {},
+) {
   const me = useSessionPersonId();
   useConversationChanges();
   return useQuery({
     queryKey: queryKeys.conversations(me, filter),
     queryFn: () => api.listConversations(filter),
+    enabled,
   });
 }
 

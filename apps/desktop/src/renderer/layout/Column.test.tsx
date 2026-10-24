@@ -249,9 +249,14 @@ describe("PersonalColumn", () => {
     for (const name of APP_ROUTES) {
       await act(() => router.navigate({ to: `/${name}` }));
       const h1 = await screen.findByRole("heading", { level: 1 });
-      // `/filters` è «All filters», come la voce della colonna che ci porta.
+      // `/filters` è «All filters», come la voce della colonna che ci porta;
+      // `/claude` atterra su una conversazione nuova (shape claude-destination).
       expect(h1).toHaveTextContent(
-        name === "filters" ? i18n.t("filter.allTitle") : i18n.t(`nav.${name}`),
+        name === "filters"
+          ? i18n.t("filter.allTitle")
+          : name === "claude"
+            ? i18n.t("claude.destination.landing.title")
+            : i18n.t(`nav.${name}`),
       );
       expect(h1).toHaveClass("text-2xl");
       expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);

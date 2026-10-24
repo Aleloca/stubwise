@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { usePinnedFilters, useSavedFilters } from "../data/queries";
 import { APP_ROUTES } from "../data/routes";
 import { can, useViewer } from "../data/viewer";
+import { ClaudeColumn } from "../pages/claude/ClaudeColumn";
 import { ONE_LINE, columnItemClass } from "./ProjectColumn";
 
 export type Destination = (typeof APP_ROUTES)[number];
@@ -25,6 +26,7 @@ const SUBVIEWS: Partial<Record<Destination, readonly string[]>> = {
  */
 export function PersonalColumn({ destination }: { destination: Destination }) {
   if (destination === "home") return <HomeColumn />;
+  if (destination === "claude") return <ClaudeColumn />;
   return <GenericColumn destination={destination} />;
 }
 
