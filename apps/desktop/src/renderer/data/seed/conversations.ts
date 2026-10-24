@@ -81,6 +81,52 @@ export const SCRIPTS: Record<string, ScriptStep[]> = {
       text: "The drop is now announced once, from the live region, with the text from the locale files. Pushing the correction to pull request #411.",
     },
   ],
+  // Le misure dei banner di MKX: Claude raccoglie le misure e chiede a
+  // Giulia per quale uscita prepararle.
+  "cv-run-mkx-11": [
+    { step: "finish_action", result: "Print: half page 210 × 140 mm · web: 300 × 600" },
+    {
+      step: "action",
+      tool: "web.read",
+      label: "Reads the advertising kit of Il Mobile",
+      result: "Print: full page 240 × 320 mm · no web banners",
+    },
+    {
+      step: "say",
+      text: [
+        "I have the sizes of all three magazines:",
+        "",
+        "| Magazine | Print | Web |",
+        "| --- | --- | --- |",
+        "| Cucine Oggi | full page 230 × 297 mm | 300 × 250, 728 × 90 |",
+        "| Arredo & Design | half page 210 × 140 mm | 300 × 600 |",
+        "| Il Mobile | full page 240 × 320 mm | — |",
+        "",
+        "The media plan books print and web for April, but the budget line only mentions print.",
+      ].join("\n"),
+    },
+    {
+      step: "event",
+      event: {
+        type: "question",
+        questionId: "q-mkx-11-1",
+        text: "Which sizes should go in the task for the designers?",
+        options: [
+          {
+            label: "Print and web",
+            consequence: "Five formats to prepare; the web ones only run if the budget allows.",
+            recommended: true,
+          },
+          {
+            label: "Print only",
+            consequence: "Three formats; the web banners are left out of April.",
+          },
+        ],
+        answer: null,
+      },
+    },
+    { step: "state", state: "awaiting_answer" },
+  ],
   // Refine delle ore di silenzio: Claude finisce di scrivere il piano.
   "cv-refine-stw-4": [
     { step: "finish_action" },

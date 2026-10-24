@@ -158,7 +158,7 @@ const REFERENCE: Record<string, Spec[]> = {
     { title: "Book the photographer for the showroom", dept: M, family: "active", assignee: null, size: "XS", week: "2026-W43", ms: 2, lastDays: 3, createdDays: 8, type: "activity" },
     { title: "Newsletter for the showroom invitations", dept: M, family: "todo", assignee: "p-paolo", size: null, week: "2026-W46", ms: 2, lastDays: 2, createdDays: 4, type: "activity" },
     { title: "Leads report for the dealers", dept: S, family: "closed", assignee: "p-francesca", size: "S", week: "2026-W42", lastDays: 4, createdDays: 14, type: "activity" },
-    { title: "Banner sizes for the trade press", dept: M, family: "todo", assignee: "p-tommaso", size: "XS", week: "2026-W44", lastDays: 1, createdDays: 3, type: "activity" },
+    { title: "Banner sizes for the trade press", dept: M, family: "todo", assignee: "p-tommaso", size: "XS", week: "2026-W44", lastDays: 1, createdDays: 3, type: "activity", claude: "working" },
     { title: "Old autumn creatives", dept: M, family: "closed", nth: 1, assignee: "p-paolo", size: null, week: "2026-W41", lastDays: 13, createdDays: 35, type: "activity" },
   ],
 };

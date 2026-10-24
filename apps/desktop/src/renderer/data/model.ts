@@ -620,6 +620,16 @@ export type EventDraft = ConversationEvent extends infer E
   : never;
 
 /**
+ * Cosa cambia di un evento già nel flusso: porta il suo `type` e solo i
+ * campi di quel tipo (mai id, data o tipo diversi).
+ */
+export type EventPatch = ConversationEvent extends infer E
+  ? E extends ConversationEvent
+    ? { type: E["type"] } & Partial<Omit<E, "id" | "at" | "type">>
+    : never
+  : never;
+
+/**
  * Un passo di quello che Claude fa in una conversazione, come lo esegue il
  * motore dello stream (`data/stream.ts`, `runScript`): l'unico modo in cui
  * un evento entra nel flusso o cambia.
@@ -645,7 +655,7 @@ export type ScriptStep =
   | { step: "finish_action"; result?: string; outcome?: "done" | "failed" }
   | { step: "deliver" }
   | { step: "event"; event: EventDraft }
-  | { step: "patch"; eventId: string; patch: Partial<EventDraft> }
+  | { step: "patch"; eventId: string; patch: EventPatch }
   | { step: "state"; state: ConversationState; outcome?: Outcome | null };
 
 /** Un comando di «/»: di Stubwise o la skill di un plugin abilitato nel progetto. */

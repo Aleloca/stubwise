@@ -237,6 +237,42 @@ const stw3 = seeded(
   ],
 );
 
+// Al lavoro su MKX, dove Giulia è Project Lead: la sessione dal vivo che
+// la persona di default vede appena apre l'app (lo script finisce con una
+// domanda per lei).
+const mkx11 = seeded(
+  {
+    id: "cv-run-mkx-11",
+    kind: "task_run",
+    title: "Banner sizes for the trade press",
+    ownerId: "p-giulia",
+    projectId: "prj-mkx",
+    taskId: "t-mkx-11",
+    state: "working",
+  },
+  [
+    { at: at(0, "11:30"), type: "phase", phase: "execution", outcome: null },
+    asks(
+      at(0, "11:30"),
+      "p-giulia",
+      "Collect the banner sizes of the three trade magazines in the media plan and write them in the task.",
+    ),
+    done(at(0, "11:31"), "stubwise.read_task", "Reads MKX-3 · Media plan for April", {
+      result: "3 trade magazines: Cucine Oggi, Arredo & Design, Il Mobile",
+    }),
+    done(at(0, "11:33"), "web.read", "Reads the advertising kit of Cucine Oggi", {
+      result: "Print: full page 230 × 297 mm · web: 300 × 250, 728 × 90",
+    }),
+    {
+      at: at(0, "11:35"),
+      type: "action",
+      tool: "web.read",
+      label: "Reads the advertising kit of Arredo & Design",
+      state: "running",
+    },
+  ],
+);
+
 const aud4 = seeded(
   {
     id: "cv-run-aud-4",
@@ -549,6 +585,7 @@ export const WORK_CONVERSATIONS: Seeded[] = [
   aud3,
   aud5,
   stw3,
+  mkx11,
   aud4,
   stw1Stopped,
   stw1,

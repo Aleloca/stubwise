@@ -9,7 +9,9 @@ import { useEffect, useMemo, useState } from "react";
 import * as api from "./api";
 import { resolveHome } from "../domain/home";
 import type {
+  Attachment,
   ConversationEvent,
+  ConversationFilter,
   DayArrangement,
   DecisionDraft,
   DepartmentHome,
@@ -78,6 +80,13 @@ export const queryKeys = {
     ["as", personId, "latestBrief", projectId] as const,
   notifications: (personId: string) => ["as", personId, "notifications"] as const,
   search: (personId: string, q: string) => ["as", personId, "search", q] as const,
+  conversations: (personId: string, filter: ConversationFilter) =>
+    ["as", personId, "conversations", filter] as const,
+  conversation: (personId: string, id: string) => ["as", personId, "conversation", id] as const,
+  commands: (personId: string, contextProjectId: string | null) =>
+    ["as", personId, "commands", contextProjectId] as const,
+  peopleActivity: (personId: string, date: string, departmentId?: string) =>
+    ["as", personId, "peopleActivity", date, departmentId ?? null] as const,
 };
 
 /** Chi sta guardando: la persona di tutte le chiavi. */
@@ -382,6 +391,70 @@ export function useSearch(q: string) {
     // di ciò che vedeva l'altra.
     placeholderData: (previous, previousQuery) =>
       previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
+  });
+}
+
+// --- conversazioni con Claude ------------------------------------------------
+
+/** Le aree delle conversazioni: elenchi e dettaglio. */
+const CONVERSATION_AREAS = ["conversations", "conversation"] as const;
+/** Claude che lavora su una task ne cambia lo stato: anche le aree delle task. */
+const CONVERSATION_CHANGE_AREAS = [...CONVERSATION_AREAS, "task", "tasks", "pulse"] as const;
+
+/**
+ * Tiene fresche le letture delle conversazioni: quando una cambia (stato,
+ * evento nuovo, titolo, visibilità) le rilegge — sempre come chi guarda,
+ * quindi una conversazione che non vede non compare.
+ */
+function useConversationChanges(): void {
+  const client = useQueryClient();
+  const me = useSessionPersonId();
+  useEffect(
+    () =>
+      api.onConversationChange(() => {
+        void client.invalidateQueries({
+          predicate: (query) =>
+            query.queryKey[0] === "as" &&
+            query.queryKey[1] === me &&
+            (CONVERSATION_CHANGE_AREAS as readonly string[]).includes(query.queryKey[2] as string),
+        });
+      }),
+    [client, me],
+  );
+}
+
+export function useConversations(filter: ConversationFilter) {
+  const me = useSessionPersonId();
+  useConversationChanges();
+  return useQuery({
+    queryKey: queryKeys.conversations(me, filter),
+    queryFn: () => api.listConversations(filter),
+  });
+}
+
+/** Il dettaglio di una conversazione con i permessi di chi guarda; `null` se non la vede. */
+export function useConversation(id: string) {
+  const me = useSessionPersonId();
+  useConversationChanges();
+  return useQuery({
+    queryKey: queryKeys.conversation(me, id),
+    queryFn: () => api.getConversation(id),
+  });
+}
+
+export function useCommands(contextProjectId: string | null) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.commands(me, contextProjectId),
+    queryFn: () => api.listCommands(contextProjectId),
+  });
+}
+
+export function usePeopleActivity(date: string, departmentId?: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.peopleActivity(me, date, departmentId),
+    queryFn: () => api.listPeopleActivity(date, departmentId),
   });
 }
 
@@ -825,6 +898,180 @@ export function useSetStallThresholds() {
       api.setStallThresholds(projectId, thresholds),
     PROJECT_AREAS,
   );
+}
+
+// --- scritture delle conversazioni -------------------------------------------
+
+/** Una proposta confermata scrive task e richieste; una risposta o un piano il registro. */
+const PROPOSAL_AREAS = [
+  ...CONVERSATION_CHANGE_AREAS,
+  ...TASK_AREAS,
+  ...REQUEST_AREAS,
+  ...DECISION_AREAS,
+] as const;
+const DECIDE_AREAS = [...CONVERSATION_CHANGE_AREAS, ...DECISION_AREAS] as const;
+const RUN_AREAS = [...CONVERSATION_CHANGE_AREAS, ...TASK_AREAS] as const;
+const REFINE_AREAS = [...CONVERSATION_AREAS, ...REQUEST_AREAS] as const;
+
+export function useCreateConversation() {
+  return useWrite(
+    (input: { contextProjectId?: string | null } = {}) => api.createConversation(input),
+    CONVERSATION_AREAS,
+  );
+}
+
+export function useSendMessage() {
+  return useWrite(
+    ({ id, text, attachments }: { id: string; text: string; attachments?: Attachment[] }) =>
+      api.sendMessage(id, { text, ...(attachments ? { attachments } : {}) }),
+    CONVERSATION_CHANGE_AREAS,
+  );
+}
+
+export function useStopConversation() {
+  return useWrite(api.stop, CONVERSATION_CHANGE_AREAS);
+}
+
+export function useStopAndSend() {
+  return useWrite(
+    ({ id, text }: { id: string; text: string }) => api.stopAndSend(id, text),
+    CONVERSATION_CHANGE_AREAS,
+  );
+}
+
+export function useAnswerQuestion() {
+  return useWrite(
+    ({
+      id,
+      questionId,
+      answer,
+    }: {
+      id: string;
+      questionId: string;
+      answer: { optionIndex: number | null; text: string | null };
+    }) => api.answerQuestion(id, questionId, answer),
+    DECIDE_AREAS,
+  );
+}
+
+export function useDecidePlan() {
+  return useWrite(
+    ({
+      id,
+      decision,
+      instructions,
+    }: {
+      id: string;
+      decision: "approve" | "reject";
+      instructions?: string;
+    }) => api.decidePlan(id, decision, instructions),
+    DECIDE_AREAS,
+  );
+}
+
+export function usePreApprovePlan() {
+  return useWrite(api.preApprovePlan, CONVERSATION_AREAS);
+}
+
+export function useRevokePlanApproval() {
+  return useWrite(api.revokePlanApproval, CONVERSATION_AREAS);
+}
+
+export function useConfirmProposal() {
+  return useWrite(
+    ({ id, proposalId }: { id: string; proposalId: string }) => api.confirmProposal(id, proposalId),
+    PROPOSAL_AREAS,
+  );
+}
+
+export function useCancelProposal() {
+  return useWrite(
+    ({ id, proposalId }: { id: string; proposalId: string }) => api.cancelProposal(id, proposalId),
+    CONVERSATION_AREAS,
+  );
+}
+
+/** «Modifica»: gli argomenti per aprire il dialogo dell'azione; non scrive nulla. */
+export function useEditProposal() {
+  return useMutation({
+    mutationFn: ({
+      id,
+      proposalId,
+      actionIndex,
+    }: {
+      id: string;
+      proposalId: string;
+      actionIndex?: number;
+    }) => api.editProposal(id, proposalId, actionIndex),
+  });
+}
+
+export function useSetVisibility() {
+  return useWrite(
+    ({
+      id,
+      visibility,
+      confirmedProjectIds,
+    }: {
+      id: string;
+      visibility: "public" | "private";
+      confirmedProjectIds?: string[];
+    }) => api.setVisibility(id, visibility, confirmedProjectIds ? { confirmedProjectIds } : {}),
+    CONVERSATION_AREAS,
+  );
+}
+
+export function useContinueConversation() {
+  return useWrite(api.continueConversation, CONVERSATION_AREAS);
+}
+
+export function useRenameConversation() {
+  return useWrite(
+    ({ id, title }: { id: string; title: string }) => api.renameConversation(id, title),
+    CONVERSATION_AREAS,
+  );
+}
+
+export function useArchiveConversation() {
+  return useWrite(
+    ({ id, archived }: { id: string; archived?: boolean }) => api.archiveConversation(id, archived),
+    CONVERSATION_AREAS,
+  );
+}
+
+export function useDeleteConversation() {
+  return useWrite(api.deleteConversation, CONVERSATION_AREAS);
+}
+
+export function useStartRun() {
+  return useWrite(api.startRun, RUN_AREAS);
+}
+
+export function useRelaunchWithInstructions() {
+  return useWrite(
+    ({ taskId, instructions }: { taskId: string; instructions: string }) =>
+      api.relaunchWithInstructions(taskId, instructions),
+    RUN_AREAS,
+  );
+}
+
+export function useResumeCorrection() {
+  return useWrite(api.resumeCorrection, RUN_AREAS);
+}
+
+export function useRequestChanges() {
+  return useWrite(
+    ({ taskId, text }: { taskId: string; text: string }) => api.requestChanges(taskId, text),
+    RUN_AREAS,
+  );
+}
+
+export function useStartRefineConversation() {
+  return useWrite(api.startRefineConversation, REFINE_AREAS);
+}
+
+export function useCloseRefine() {
+  return useWrite(api.closeRefine, REFINE_AREAS);
 }
 
 // --- stream delle conversazioni ---------------------------------------------

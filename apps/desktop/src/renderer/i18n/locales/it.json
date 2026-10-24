@@ -1659,6 +1659,13 @@
         "summary": "Pianifica {{task}} · {{name}} · {{week}}",
         "nobody": "nessuno"
       }
+    },
+    "proposalFailed": {
+      "forbidden": "Non eseguita: non puoi più fare «{{action}}». Non è cambiato nulla.",
+      "not_found": "Non eseguita: «{{action}}» riguarda qualcosa che non esiste più o che non puoi vedere. Non è cambiato nulla.",
+      "invalid": "Non eseguita: «{{action}}» non si applica più alla situazione di adesso. Non è cambiato nulla.",
+      "conflict": "Non eseguita: Claude sta già lavorando a «{{action}}». Non è cambiato nulla.",
+      "other": "Non eseguita: «{{action}}» non è riuscita. Non è cambiato nulla."
     }
   }
 }

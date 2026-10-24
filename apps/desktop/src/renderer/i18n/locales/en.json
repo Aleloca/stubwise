@@ -1659,6 +1659,13 @@
         "summary": "Plan {{task}} · {{name}} · {{week}}",
         "nobody": "nobody"
       }
+    },
+    "proposalFailed": {
+      "forbidden": "Not done: you can no longer do “{{action}}”. Nothing was changed.",
+      "not_found": "Not done: “{{action}}” refers to something that no longer exists or that you can’t see. Nothing was changed.",
+      "invalid": "Not done: “{{action}}” no longer applies to how things are now. Nothing was changed.",
+      "conflict": "Not done: Claude is already working on “{{action}}”. Nothing was changed.",
+      "other": "Not done: “{{action}}” failed. Nothing was changed."
     }
   }
 }

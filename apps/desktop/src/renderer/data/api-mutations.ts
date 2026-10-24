@@ -1,11 +1,40 @@
 import { wouldCycle } from "../domain/decisionLog";
 import { findSimilarRequest } from "../domain/requests";
 import { TEMPLATE_MODULES, TEMPLATE_STATUSES } from "../domain/templates";
+import { respond, type ReadApi, type T } from "../domain/claude/intents";
+import i18n from "../i18n";
+// Le letture servono al motore di intenti (a nome di chi conversa): si usano
+// solo dentro le funzioni, quindi l'import circolare con `api.ts` è innocuo.
+import * as reads from "./api";
+import * as scripts from "./conversation-scripts";
 import { DEPARTMENTS } from "./seed/departments";
+import { DOC_PAGES } from "./seed/docPages";
 import { PEOPLE } from "./seed/people";
-import { copy, familyOf, gate, newId, now, reindex, state, visibleProjectIds } from "./store";
+import { getSessionPersonId, setSessionPersonId } from "./session";
+import {
+  canSeeConversation,
+  conversationPermissions,
+  copy,
+  currentPhase,
+  eventsOf,
+  familyOf,
+  gate,
+  newId,
+  now,
+  objectCodeOf,
+  onStoreReset,
+  pendingPlan,
+  proposalExpired,
+  reindex,
+  state,
+  visibleProjectIds,
+} from "./store";
+import { interruptScripts, notifyConversationChange, runScript } from "./stream";
 import type {
   ActivityEntry,
+  Attachment,
+  Conversation,
+  ConversationEvent,
   DecisionDraft,
   DecisionLogEntry,
   DecisionRequest,
@@ -19,9 +48,12 @@ import type {
   Project,
   ProjectRequest,
   ProjectStatus,
+  ProposedAction,
   RequestLevel,
   RequestPatch,
   SavedFilter,
+  ScriptStep,
+  SetVisibilityResult,
   StatusFamily,
   StatusInput,
   StoredLinkKind,
@@ -284,11 +316,15 @@ function setClosedAt(task: Task, oldFamily: StatusFamily, at: string): void {
   else if (newFamily !== "closed") task.closedAt = null;
 }
 
-export async function updateTask(id: string, patch: TaskPatch): Promise<Task> {
-  const me = await gate("updateTask");
+function updateTaskAs(me: string, id: string, patch: TaskPatch): Task {
   const task = taskFor(me, id);
   commitTaskPatch(me, task, prepareTaskPatch(me, task, patch));
-  return copy(task);
+  return task;
+}
+
+export async function updateTask(id: string, patch: TaskPatch): Promise<Task> {
+  const me = await gate("updateTask");
+  return copy(updateTaskAs(me, id, patch));
 }
 
 /** Tutto o niente: si controllano tutte prima di scriverne una. */
@@ -309,6 +345,14 @@ export async function planTask(
   plan: { assigneeId: string | null; week: string | null },
 ): Promise<Task> {
   const me = await gate("planTask");
+  return copy(planTaskAs(me, id, plan));
+}
+
+function planTaskAs(
+  me: string,
+  id: string,
+  plan: { assigneeId: string | null; week: string | null },
+): Task {
   const task = taskFor(me, id);
   const forOthers = can(viewerFor(me), "planning.others", task.projectId);
   const members = state.projectsById.get(task.projectId)!.memberIds;
@@ -351,7 +395,7 @@ export async function planTask(
       `${task.code} · ${task.title}: ${personName(me)} planned it for ${plan.week ?? "no week"}.`,
     );
   }
-  return copy(task);
+  return task;
 }
 
 /** Il giorno della settimana in cui l'assegnatario si mette una task: personale. */
@@ -383,6 +427,10 @@ export async function addComment(
   replyToId?: string,
 ): Promise<ActivityEntry> {
   const me = await gate("addComment");
+  return copy(addCommentAs(me, taskId, body, replyToId));
+}
+
+function addCommentAs(me: string, taskId: string, body: string, replyToId?: string): ActivityEntry {
   const task = taskFor(me, taskId);
   need(me, "tickets.comment", task.projectId);
   if (!body.trim()) throw invalid("body");
@@ -398,7 +446,7 @@ export async function addComment(
   };
   state.activity.push(entry);
   task.lastActivityAt = at;
-  return copy(entry);
+  return entry;
 }
 
 export async function editComment(id: string, body: string): Promise<ActivityEntry> {
@@ -526,13 +574,19 @@ export async function withdrawDecision(id: string): Promise<DecisionRequest> {
 
 // --- richieste (backlog) ------------------------------------------------------
 
-export async function createRequest(input: {
+interface NewRequestInput {
   projectId: string;
   title: string;
   description?: string;
   urgency?: ProjectRequest["urgency"];
-}): Promise<ProjectRequest> {
+}
+
+export async function createRequest(input: NewRequestInput): Promise<ProjectRequest> {
   const me = await gate("createRequest");
+  return copy(createRequestAs(me, input));
+}
+
+function createRequestAs(me: string, input: NewRequestInput): ProjectRequest {
   const project = projectFor(me, input.projectId);
   need(me, "backlog.create", project.id);
   if (!input.title.trim()) throw invalid("title");
@@ -561,16 +615,13 @@ export async function createRequest(input: {
     createdAt: now(),
   };
   state.requests.push(request);
-  return copy(request);
+  return request;
 }
 
 const LEVELS: RequestLevel[] = ["low", "medium", "high"];
 const SIZES: TaskSize[] = ["XS", "S", "M", "L", "XL"];
 
-export async function updateRequest(
-  id: string,
-  patch: RequestPatch,
-): Promise<ProjectRequest> {
+export async function updateRequest(id: string, patch: RequestPatch): Promise<ProjectRequest> {
   const me = await gate("updateRequest");
   const request = requestFor(me, id);
   need(me, "backlog.edit", request.projectId);
@@ -579,7 +630,9 @@ export async function updateRequest(
   if (patch.risk != null && !LEVELS.includes(patch.risk)) throw invalid("risk");
   if (patch.size != null && !SIZES.includes(patch.size)) throw invalid("size");
   // Trasformata o archiviata, la richiesta è in sola lettura: i metadati non si cambiano più.
-  const meta = (["urgency", "size", "risk", "riskNote"] as const).some((k) => patch[k] !== undefined);
+  const meta = (["urgency", "size", "risk", "riskNote"] as const).some(
+    (k) => patch[k] !== undefined,
+  );
   if (meta && (request.status === "converted" || request.status === "archived")) {
     throw invalid("status");
   }
@@ -588,7 +641,8 @@ export async function updateRequest(
   if (patch.urgency !== undefined) request.urgency = patch.urgency;
   if (patch.size !== undefined) request.size = patch.size;
   if (patch.risk !== undefined) request.risk = patch.risk;
-  if (patch.riskNote !== undefined) request.riskNote = patch.riskNote?.trim() ? patch.riskNote.trim() : null;
+  if (patch.riskNote !== undefined)
+    request.riskNote = patch.riskNote?.trim() ? patch.riskNote.trim() : null;
   return copy(request);
 }
 
@@ -668,13 +722,21 @@ export async function convertRequest(
   input: Omit<NewTaskInput, "projectId" | "requestId">,
 ): Promise<Task> {
   const me = await gate("convertRequest");
+  return copy(convertRequestAs(me, id, input));
+}
+
+function convertRequestAs(
+  me: string,
+  id: string,
+  input: Omit<NewTaskInput, "projectId" | "requestId">,
+): Task {
   const request = requestFor(me, id);
   if (request.status === "converted" || request.status === "archived") throw invalid("status");
   const task = buildTask(me, { ...input, projectId: request.projectId, requestId: id });
   addTask(task);
   request.taskIds = [...request.taskIds, task.id];
   request.status = "converted";
-  return copy(task);
+  return task;
 }
 
 // --- filtri salvati -----------------------------------------------------------
@@ -1030,4 +1092,893 @@ export async function deleteMilestone(id: string): Promise<void> {
   for (const task of state.tasks) {
     if (task.milestoneId === id) task.milestoneId = null;
   }
+}
+
+// --- conversazioni con Claude -------------------------------------------------
+//
+// Ogni evento nuovo o cambiato del flusso passa da `runScript` (R-E1): la
+// scrittura ne aspetta la promessa per i passi che la registrano (il
+// messaggio, la risposta, la decisione, lo stato della proposta); il lavoro
+// che Claude fa dopo (l'esecuzione dopo l'approvazione, una correzione) va in
+// coda dietro con `follow`, e non fa fallire la scrittura. I permessi sono
+// quelli del server di oggi, da `conversationPermissions` (store) o da
+// `need()`: la UI legge i flag, non li deduce.
+
+/** Chi ha già preso una risposta, una decisione o una conferma (chiave → persona). */
+const claims = new Map<string, string>();
+onStoreReset(() => claims.clear());
+
+function alreadyAnswered(byId: string | undefined): Error {
+  return Object.assign(new Error("already_answered"), { byId: byId ?? null });
+}
+
+const conflict = () => new Error("conflict");
+
+function conversationFor(me: string, id: string): Conversation {
+  const c = state.conversations.find((x) => x.id === id);
+  if (!c || !canSeeConversation(me, c)) throw notFound();
+  return c;
+}
+
+/** Una conversazione libera dell'autore: rinominare, archiviare, eliminare, pubblicare. */
+function ownFreeConversation(me: string, id: string): Conversation {
+  const c = conversationFor(me, id);
+  if (!conversationPermissions(me, c).canManage) throw forbidden();
+  return c;
+}
+
+/** Il seguito di Claude, in coda dietro ai passi della scrittura. */
+function follow(conversationId: string, steps: ScriptStep[], then?: () => void): void {
+  runScript(conversationId, steps)
+    .then(then)
+    .catch(() => undefined);
+}
+
+/**
+ * Le letture del livello dati a nome di `me`, per il motore di intenti:
+ * ogni lettura legge la persona della sessione in modo sincrono all'inizio
+ * (in `gate`), quindi la si fissa solo per quell'istante. Un cambio di
+ * «vedi come» mentre Claude risponde non gli fa leggere i dati di un altro.
+ */
+function readsAs(me: string): ReadApi {
+  const bind =
+    <A extends unknown[], R>(fn: (...args: A) => Promise<R>) =>
+    (...args: A): Promise<R> => {
+      const previous = getSessionPersonId();
+      setSessionPersonId(me);
+      try {
+        return fn(...args);
+      } finally {
+        setSessionPersonId(previous);
+      }
+    };
+  return {
+    listProjects: bind(reads.listProjects),
+    listPinnedProjectIds: bind(reads.listPinnedProjectIds),
+    listProjectPulses: bind(reads.listProjectPulses),
+    listProjectStatuses: bind(reads.listProjectStatuses),
+    getLatestBrief: bind(reads.getLatestBrief),
+    listPeople: bind(reads.listPeople),
+    listTasks: bind(reads.listTasks),
+    getTaskByCode: bind(reads.getTaskByCode),
+    getRequest: bind(reads.getRequest),
+    getRequestByCode: bind(reads.getRequestByCode),
+    listDecisionRequests: bind(reads.listDecisionRequests),
+    listDocPages: bind(reads.listDocPages),
+  };
+}
+
+/** Il titolo automatico di una libera: la prima riga della prima domanda. */
+function titleFrom(text: string, attachments: Attachment[]): string {
+  const line = text.split("\n")[0]!.trim();
+  if (!line) return attachments[0]?.name ?? "";
+  return line.length > 80 ? `${line.slice(0, 79).trimEnd()}…` : line;
+}
+
+/** I progetti che i passi di una risposta leggono o toccano: citazioni e proposte. */
+function projectsOfSteps(steps: ScriptStep[]): string[] {
+  const out = new Set<string>();
+  const ofTask = (id: unknown) => state.tasksById.get(id as string)?.projectId;
+  const ofRequest = (id: unknown) => state.requests.find((r) => r.id === id)?.projectId;
+  const add = (id: string | undefined) => {
+    if (id) out.add(id);
+  };
+  for (const step of steps) {
+    if (step.step !== "event") continue;
+    const e = step.event;
+    if (e.type === "citation") {
+      for (const ref of e.refs) {
+        if (ref.kind === "task") add(ofTask(ref.id));
+        else if (ref.kind === "request") add(ofRequest(ref.id));
+        else if (ref.kind === "project") add(ref.id);
+        else if (ref.kind === "doc") add(DOC_PAGES.find((d) => d.id === ref.id)?.projectId);
+      }
+    }
+    if (e.type === "proposal") {
+      for (const a of e.actions) {
+        add(a.args.projectId as string | undefined);
+        add(ofTask(a.args.taskId) ?? ofTask(a.args.id) ?? ofRequest(a.args.id));
+      }
+    }
+  }
+  return [...out];
+}
+
+/**
+ * Aggiunge i progetti toccati. Se una conversazione pubblica ne tocca uno
+ * nuovo torna privata: l'autore aveva confermato un altro elenco, e lo
+ * riconferma quando la rende di nuovo pubblica.
+ */
+function touchProjects(c: Conversation, projectIds: string[]): void {
+  const fresh = projectIds.filter((id) => !c.touchedProjectIds.includes(id));
+  if (fresh.length === 0) return;
+  c.touchedProjectIds = [...c.touchedProjectIds, ...fresh];
+  if (c.visibility === "public") {
+    c.visibility = "private";
+    c.publishedAt = null;
+    c.publishedById = null;
+  }
+  notifyConversationChange(c.id);
+}
+
+function newConversation(
+  me: string,
+  fields: Pick<Conversation, "kind" | "title"> & Partial<Conversation>,
+): Conversation {
+  const at = now();
+  const c: Conversation = {
+    id: newId("cv"),
+    ownerId: me,
+    projectId: null,
+    contextProjectId: null,
+    taskId: null,
+    requestId: null,
+    state: "idle",
+    outcome: null,
+    visibility: fields.kind === "free" ? "private" : "project",
+    publishedAt: null,
+    publishedById: null,
+    touchedProjectIds: [],
+    continuesFromId: null,
+    createdAt: at,
+    updatedAt: at,
+    archived: false,
+    ...fields,
+  };
+  state.conversations.push(c);
+  state.conversationEvents.set(c.id, []);
+  notifyConversationChange(c.id);
+  return c;
+}
+
+/** Una conversazione libera nuova, con un contesto di progetto facoltativo (visibile). */
+export async function createConversation(
+  input: { contextProjectId?: string | null } = {},
+): Promise<Conversation> {
+  const me = await gate("createConversation");
+  const contextProjectId = input.contextProjectId ?? null;
+  if (contextProjectId !== null) projectFor(me, contextProjectId);
+  return copy(newConversation(me, { kind: "free", title: "", contextProjectId }));
+}
+
+/**
+ * Scrive in una conversazione (`canWrite`). Nella libera Claude risponde col
+ * motore di intenti, leggendo come chi scrive; in una sessione di lavoro il
+ * messaggio entra nel turno (in attesa → consegnato). In una pubblica di un
+ * altro non si scrive: si continua (`continueConversation`).
+ */
+export async function sendMessage(
+  id: string,
+  message: { text: string; attachments?: Attachment[] },
+): Promise<void> {
+  const me = await gate("sendMessage");
+  const c = conversationFor(me, id);
+  if (!conversationPermissions(me, c).canWrite) throw forbidden();
+  const text = message.text.trim();
+  const attachments = (message.attachments ?? []).map(copy);
+  if (!text && attachments.length === 0) throw invalid("text");
+  const user: ScriptStep = {
+    step: "event",
+    event: { type: "user", authorId: me, text, attachments, delivery: "pending" },
+  };
+
+  if (c.kind === "free") {
+    if (!c.title) c.title = titleFrom(text, attachments);
+    await runScript(id, [user, { step: "state", state: "working" }]);
+    const steps = await respond(text, {
+      personId: me,
+      contextProjectId: c.contextProjectId,
+      read: readsAs(me),
+      t: i18n.t.bind(i18n) as T,
+      seed: `${id}-${eventsOf(id).length}`,
+    });
+    touchProjects(c, projectsOfSteps(steps));
+    await runScript(id, steps);
+    return;
+  }
+
+  const resuming = c.state === "paused";
+  await runScript(id, [user]);
+  if (c.kind === "refine") {
+    const code = objectCodeOf(c) ?? "";
+    await runScript(id, [
+      { step: "state", state: "working" },
+      { step: "deliver" },
+      { step: "action", tool: "stubwise.set_design", label: `Updates the design of ${code}` },
+      {
+        step: "event",
+        event: { type: "work_result", kind: "design_updated", text: `Design of ${code} updated` },
+      },
+      { step: "say", text: `I have added it to the design of ${code}. Anything else?` },
+      { step: "state", state: "idle" },
+    ]);
+    return;
+  }
+  await runScript(id, [
+    ...(resuming ? [{ step: "state", state: "working" } as const] : []),
+    { step: "deliver" },
+    { step: "say", text: "Got it, I am taking it into account in this step." },
+  ]);
+}
+
+function stopSteps(me: string, c: Conversation): ScriptStep[] {
+  return [
+    { step: "finish_action", outcome: "failed", result: "Stopped" },
+    {
+      step: "event",
+      event: {
+        type: "phase",
+        phase: currentPhase(eventsOf(c.id)) ?? "execution",
+        outcome: "stopped",
+        stoppedById: me,
+      },
+    },
+    { step: "state", state: c.kind === "refine" ? "idle" : "paused" },
+  ];
+}
+
+/** «Ferma» (`canInterrupt`): Claude si ferma al passo in corso; la task si ferma con lui. */
+export async function stop(id: string): Promise<void> {
+  const me = await gate("stop");
+  const c = conversationFor(me, id);
+  if (!conversationPermissions(me, c).canInterrupt) throw forbidden();
+  interruptScripts(id);
+  await runScript(id, stopSteps(me, c));
+}
+
+/** «Ferma e scrivi» (`canInterrupt`): Claude si ferma e riparte dal messaggio. */
+export async function stopAndSend(id: string, text: string): Promise<void> {
+  const me = await gate("stopAndSend");
+  const c = conversationFor(me, id);
+  if (!conversationPermissions(me, c).canInterrupt) throw forbidden();
+  if (!text.trim()) throw invalid("text");
+  interruptScripts(id);
+  await runScript(id, [
+    ...stopSteps(me, c),
+    {
+      step: "event",
+      event: {
+        type: "user",
+        authorId: me,
+        text: text.trim(),
+        attachments: [],
+        delivery: "delivered",
+      },
+    },
+    { step: "state", state: "working" },
+    { step: "say", text: "Stopped. I am starting again from your message." },
+  ]);
+}
+
+/**
+ * Risponde alla domanda di Claude: il richiedente o chi ha `plans.approve`
+ * nel progetto. Una seconda risposta (anche concorrente) riceve
+ * `already_answered` con chi ha risposto (`byId`). La risposta va nel
+ * registro decisioni con un testo fisso, mai scritto dall'AI.
+ */
+export async function answerQuestion(
+  id: string,
+  questionId: string,
+  answer: { optionIndex: number | null; text: string | null },
+): Promise<void> {
+  const me = await gate("answerQuestion");
+  const c = conversationFor(me, id);
+  const question = eventsOf(id).find((e) => e.type === "question" && e.questionId === questionId);
+  if (!question || question.type !== "question") throw notFound();
+  const key = `question:${id}:${questionId}`;
+  if (question.answer !== null || claims.has(key)) {
+    throw alreadyAnswered(question.answer?.byId ?? claims.get(key));
+  }
+  const allowed =
+    c.ownerId === me || (c.projectId !== null && can(viewerFor(me), "plans.approve", c.projectId));
+  if (!allowed || c.state === "finished") throw forbidden();
+  const text = answer.text?.trim() || null;
+  const option = answer.optionIndex === null ? undefined : question.options[answer.optionIndex];
+  if (answer.optionIndex !== null && !option) throw invalid("option");
+  if (!option && !text) throw invalid("answer");
+
+  claims.set(key, me);
+  const at = now();
+  const label = option?.label ?? text!;
+  try {
+    await runScript(id, [
+      {
+        step: "patch",
+        eventId: question.id,
+        patch: {
+          type: "question",
+          answer: { optionIndex: answer.optionIndex, text, byId: me, at },
+        },
+      },
+      { step: "state", state: "working" },
+    ]);
+  } catch (error) {
+    claims.delete(key);
+    throw error;
+  }
+  if (c.projectId !== null) {
+    state.decisionLog.push({
+      id: newId("dec"),
+      projectId: c.projectId,
+      source: "ask_user",
+      taskId: c.taskId,
+      title: question.text,
+      context: null,
+      decision: text && option ? `${option.label} — ${text}` : label,
+      decidedById: me,
+      decidedAt: at,
+      supersededById: null,
+    });
+  }
+  const task = c.taskId ? state.tasksById.get(c.taskId) : undefined;
+  if (!task) return;
+  // Il gate del piano è di chi ha avviato il lavoro, non di chi risponde.
+  const gateOf = can(viewerFor(c.ownerId), "plans.approve", task.projectId)
+    ? "approved"
+    : "awaiting";
+  follow(id, scripts.afterAnswer(task, currentPhase(eventsOf(id)), label, gateOf, c.ownerId));
+}
+
+/**
+ * Approva o rifiuta il piano che aspetta (`plans.approve` nel progetto: il
+ * primo dei due divieti dell'operatore). Approvato, Claude esegue; rifiutato
+ * con indicazioni, lo riscrive; rifiutato senza, la sessione si chiude.
+ */
+export async function decidePlan(
+  id: string,
+  decision: "approve" | "reject",
+  instructions?: string,
+): Promise<void> {
+  const me = await gate("decidePlan");
+  const c = conversationFor(me, id);
+  if (c.kind !== "task_run" || c.projectId === null) throw invalid("kind");
+  need(me, "plans.approve", c.projectId);
+  const plan = pendingPlan(eventsOf(id));
+  const key = `plan:${id}:${plan?.id ?? ""}`;
+  if (!plan || c.state !== "awaiting_approval" || claims.has(key)) throw invalid("status");
+  const task = state.tasksById.get(c.taskId!)!;
+  const note = instructions?.trim() || undefined;
+
+  claims.set(key, me);
+  const patch: ScriptStep = {
+    step: "patch",
+    eventId: plan.id,
+    patch: {
+      type: "plan",
+      status: decision === "approve" ? "approved" : "rejected",
+      decidedById: me,
+      ...(note ? { instructions: note } : {}),
+    },
+  };
+  try {
+    if (decision === "approve" || note) {
+      await runScript(id, [patch, { step: "state", state: "working" }]);
+    } else {
+      await runScript(id, [
+        patch,
+        {
+          step: "event",
+          event: { type: "phase", phase: "plan", outcome: "stopped", stoppedById: me },
+        },
+        { step: "state", state: "finished", outcome: "stopped" },
+      ]);
+    }
+  } catch (error) {
+    claims.delete(key);
+    throw error;
+  }
+  state.decisionLog.push({
+    id: newId("dec"),
+    projectId: c.projectId,
+    source: "plan_review",
+    taskId: c.taskId,
+    title: `Plan of ${task.code}`,
+    context: null,
+    decision: decision === "approve" ? "Approved" : note ? `Rejected: ${note}` : "Rejected",
+    decidedById: me,
+    decidedAt: now(),
+    supersededById: null,
+  });
+  if (decision === "approve") follow(id, scripts.execution(task));
+  else if (note) follow(id, scripts.replanning(task, note));
+}
+
+/**
+ * Approva in anticipo il piano che Claude sta scrivendo (`plans.approve`):
+ * arriverà già approvato e Claude proseguirà da solo. Allarga COSA si
+ * approva in anticipo, mai CHI approva.
+ */
+export async function preApprovePlan(id: string): Promise<void> {
+  const me = await gate("preApprovePlan");
+  const c = conversationFor(me, id);
+  if (c.kind !== "task_run" || c.projectId === null) throw invalid("kind");
+  need(me, "plans.approve", c.projectId);
+  if (!conversationPermissions(me, c).canPreApprovePlan) throw invalid("status");
+  state.preApprovedPlans.set(id, me);
+  notifyConversationChange(id);
+}
+
+/** Toglie l'approvazione in anticipo, finché il piano non è arrivato. */
+export async function revokePlanApproval(id: string): Promise<void> {
+  const me = await gate("revokePlanApproval");
+  const c = conversationFor(me, id);
+  if (c.kind !== "task_run" || c.projectId === null) throw invalid("kind");
+  need(me, "plans.approve", c.projectId);
+  if (!state.preApprovedPlans.delete(id)) throw invalid("status");
+  notifyConversationChange(id);
+}
+
+type ProposalEvent = Extract<ConversationEvent, { type: "proposal" }>;
+
+/** La proposta della conversazione: solo per chi l'ha chiesta, ancora aperta e non scaduta. */
+function openProposalFor(
+  me: string,
+  id: string,
+  proposalId: string,
+): { proposal: ProposalEvent; key: string } {
+  conversationFor(me, id);
+  const log = eventsOf(id);
+  const index = log.findIndex((e) => e.type === "proposal" && e.proposalId === proposalId);
+  const proposal = log[index];
+  if (!proposal || proposal.type !== "proposal") throw notFound();
+  if (proposal.requesterId !== me) throw forbidden();
+  const key = `proposal:${id}:${proposalId}`;
+  if (proposalExpired(log, index)) throw new Error("expired");
+  if (proposal.status !== "open" || claims.has(key)) throw invalid("status");
+  return { proposal, key };
+}
+
+/** L'esito di una conferma: i codici degli oggetti, o perché non è stata eseguita. */
+export type ProposalOutcome =
+  | { status: "confirmed"; resultCodes: string[]; runConversationIds: string[] }
+  | { status: "failed"; error: string };
+
+/**
+ * Conferma una proposta di Claude: solo chi l'ha chiesta. Le azioni girano
+ * in ordine con le mutazioni di oggi, a nome di chi conferma, e TUTTE o
+ * NESSUNA: se una fallisce (permesso perso, oggetto cambiato o sparito) lo
+ * stato torna com'era e la proposta diventa `failed` con il motivo. Le
+ * esecuzioni (`startRun`) partono solo dopo che tutto il resto è riuscito.
+ */
+export async function confirmProposal(id: string, proposalId: string): Promise<ProposalOutcome> {
+  const me = await gate("confirmProposal");
+  const { proposal, key } = openProposalFor(me, id, proposalId);
+  claims.set(key, me);
+  const result = applyActions(me, proposal.actions);
+  if (!result.ok) {
+    const error = i18n.t(`claude.proposalFailed.${result.code}`, {
+      action: proposal.actions[result.index]?.summary ?? "",
+    });
+    await runScript(id, [
+      { step: "patch", eventId: proposal.id, patch: { type: "proposal", status: "failed", error } },
+    ]);
+    return { status: "failed", error };
+  }
+  touchProjects(state.conversations.find((c) => c.id === id)!, result.projectIds);
+  await runScript(id, [
+    {
+      step: "patch",
+      eventId: proposal.id,
+      patch: { type: "proposal", status: "confirmed", resultCodes: result.codes },
+    },
+  ]);
+  const runConversationIds: string[] = [];
+  for (const task of result.runs) runConversationIds.push(await launchRun(me, task));
+  return { status: "confirmed", resultCodes: result.codes, runConversationIds };
+}
+
+type FailureCode = "forbidden" | "not_found" | "invalid" | "conflict" | "other";
+
+type Applied =
+  | { ok: true; codes: string[]; projectIds: string[]; runs: Task[] }
+  | { ok: false; index: number; code: FailureCode };
+
+/**
+ * Esegue le azioni di una proposta in una volta sola e senza attese (nessun
+ * altro può scrivere in mezzo): prima tiene una copia di ciò che le
+ * mutazioni toccano, e al primo errore la rimette.
+ */
+function applyActions(me: string, actions: ProposedAction[]): Applied {
+  const snapshot = structuredClone({
+    tasks: state.tasks,
+    activity: state.activity,
+    arrangements: state.arrangements,
+    notifications: state.notifications,
+    requests: state.requests,
+    counter: state.counter,
+  });
+  const created: (Task | undefined)[] = [];
+  const codes: string[] = [];
+  const projectIds = new Set<string>();
+  const runs: Task[] = [];
+  let index = 0;
+  try {
+    for (; index < actions.length; index++) {
+      const { fn, args } = actions[index]!;
+      let task: Task | undefined;
+      let request: ProjectRequest | undefined;
+      switch (fn) {
+        case "createTask":
+          task = buildTask(me, args as unknown as NewTaskInput);
+          addTask(task);
+          created[index] = task;
+          break;
+        case "updateTask":
+          task = updateTaskAs(me, args.id as string, args.patch as TaskPatch);
+          break;
+        case "planTask":
+          task = planTaskAs(
+            me,
+            args.id as string,
+            args.plan as { assigneeId: string | null; week: string | null },
+          );
+          break;
+        case "addComment":
+          addCommentAs(me, args.taskId as string, args.body as string);
+          task = state.tasksById.get(args.taskId as string);
+          break;
+        case "createRequest":
+          request = createRequestAs(me, args as unknown as NewRequestInput);
+          break;
+        case "convertRequest":
+          task = convertRequestAs(
+            me,
+            args.id as string,
+            args.input as Omit<NewTaskInput, "projectId" | "requestId">,
+          );
+          created[index] = task;
+          break;
+        case "archiveRequest":
+          request = setRequestStatus(
+            me,
+            args.id as string,
+            ["new", "refining", "ready"],
+            "archived",
+          );
+          break;
+        case "startRun": {
+          const from = args.taskFromAction;
+          task = typeof from === "number" ? created[from] : taskFor(me, args.taskId as string);
+          if (!task) throw invalid("taskFromAction");
+          prepareRun(me, task, runs);
+          runs.push(task);
+          break;
+        }
+        default:
+          throw invalid("fn");
+      }
+      const code = task?.code ?? request?.code;
+      if (code && !codes.includes(code)) codes.push(code);
+      const projectId = task?.projectId ?? request?.projectId;
+      if (projectId) projectIds.add(projectId);
+    }
+  } catch (error) {
+    Object.assign(state, snapshot);
+    reindex();
+    return { ok: false, index, code: failureCode(error) };
+  }
+  return { ok: true, codes, projectIds: [...projectIds], runs };
+}
+
+function failureCode(error: unknown): FailureCode {
+  const message = error instanceof Error ? error.message : "";
+  if (message === "forbidden" || message === "not_found" || message === "conflict") return message;
+  return message.startsWith("invalid") ? "invalid" : "other";
+}
+
+/** Annulla una proposta (solo chi l'ha chiesta): resta leggibile come annullata. */
+export async function cancelProposal(id: string, proposalId: string): Promise<void> {
+  const me = await gate("cancelProposal");
+  const { proposal, key } = openProposalFor(me, id, proposalId);
+  claims.set(key, me);
+  await runScript(id, [
+    { step: "patch", eventId: proposal.id, patch: { type: "proposal", status: "cancelled" } },
+  ]);
+}
+
+/**
+ * «Modifica» (solo chi l'ha chiesta): gli argomenti dell'azione, per aprire
+ * il dialogo della stessa azione precompilato. Non cambia la proposta: il
+ * dialogo salva con la sua mutazione.
+ */
+export async function editProposal(
+  id: string,
+  proposalId: string,
+  actionIndex = 0,
+): Promise<{ fn: ProposedAction["fn"]; args: Record<string, unknown> }> {
+  const me = await gate("editProposal");
+  const { proposal } = openProposalFor(me, id, proposalId);
+  const action = proposal.actions[actionIndex];
+  if (!action) throw notFound();
+  return { fn: action.fn, args: copy(action.args) };
+}
+
+/**
+ * Rende pubblica o privata una conversazione libera (l'autore). Pubblica
+ * chiede prima di confermare i progetti che Claude ha letto o toccato:
+ * senza `confirmedProjectIds` uguale all'elenco di adesso risponde
+ * `needs_confirmation` con l'elenco, e non cambia nulla.
+ */
+export async function setVisibility(
+  id: string,
+  visibility: "public" | "private",
+  options: { confirmedProjectIds?: string[] } = {},
+): Promise<SetVisibilityResult> {
+  const me = await gate("setVisibility");
+  const c = ownFreeConversation(me, id);
+  if (visibility === "private") {
+    c.visibility = "private";
+    c.publishedAt = null;
+    c.publishedById = null;
+  } else {
+    const touched = [...new Set(c.touchedProjectIds)].sort().join();
+    const confirmed = [...new Set(options.confirmedProjectIds ?? [])].sort().join();
+    if (options.confirmedProjectIds === undefined || touched !== confirmed) {
+      return {
+        status: "needs_confirmation",
+        touchedProjects: c.touchedProjectIds.flatMap((pid) => {
+          const p = state.projectsById.get(pid);
+          return p ? [{ id: p.id, code: p.code, name: p.name }] : [];
+        }),
+      };
+    }
+    c.visibility = "public";
+    c.publishedAt = now();
+    c.publishedById = me;
+  }
+  notifyConversationChange(id);
+  return { status: "done", conversation: copy(c) };
+}
+
+/**
+ * Continua una conversazione pubblica di un altro: nasce una conversazione
+ * privata di chi scrive, che parte da quella (`continuesFromId`). L'originale
+ * non cambia; da qui Claude legge e propone come il nuovo autore.
+ */
+export async function continueConversation(publicId: string): Promise<Conversation> {
+  const me = await gate("continueConversation");
+  const origin = conversationFor(me, publicId);
+  if (!conversationPermissions(me, origin).canContinue) throw invalid("not_public");
+  const context =
+    origin.contextProjectId !== null && visibleProjectIds(me).has(origin.contextProjectId)
+      ? origin.contextProjectId
+      : null;
+  return copy(
+    newConversation(me, {
+      kind: "free",
+      title: origin.title,
+      contextProjectId: context,
+      continuesFromId: origin.id,
+    }),
+  );
+}
+
+export async function renameConversation(id: string, title: string): Promise<Conversation> {
+  const me = await gate("renameConversation");
+  const c = ownFreeConversation(me, id);
+  if (!title.trim()) throw invalid("title");
+  c.title = title.trim();
+  notifyConversationChange(id);
+  return copy(c);
+}
+
+export async function archiveConversation(id: string, archived = true): Promise<Conversation> {
+  const me = await gate("archiveConversation");
+  const c = ownFreeConversation(me, id);
+  c.archived = archived;
+  notifyConversationChange(id);
+  return copy(c);
+}
+
+export async function deleteConversation(id: string): Promise<void> {
+  const me = await gate("deleteConversation");
+  ownFreeConversation(me, id);
+  interruptScripts(id);
+  state.conversations = state.conversations.filter((c) => c.id !== id);
+  state.conversationEvents.delete(id);
+  notifyConversationChange(id);
+}
+
+// --- sessioni di lavoro -------------------------------------------------------
+
+/** L'ultima sessione di lavoro della task (la più recente). */
+function latestRunOf(taskId: string): Conversation | undefined {
+  return state.conversations
+    .filter((c) => c.kind === "task_run" && c.taskId === taskId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))[0];
+}
+
+/**
+ * Controlla che Claude possa partire sulla task (`runs.start`): aperta, e
+ * senza un lavoro già vivo (anche fra quelli della stessa proposta). Non scrive.
+ */
+function prepareRun(me: string, task: Task, pending: Task[] = []): void {
+  need(me, "runs.start", task.projectId);
+  if (familyOf(task) === "closed") throw invalid("status");
+  const live = latestRunOf(task.id);
+  if ((live && live.state !== "finished") || pending.some((t) => t.id === task.id)) {
+    throw conflict();
+  }
+}
+
+/**
+ * Apre la sessione di lavoro di una task e la fa partire: la fase del piano
+ * (che la scrittura aspetta), poi in coda Claude legge e scrive il piano. Il
+ * gate si decide quando il piano arriva: chi ha avviato senza `plans.approve`
+ * aspetta l'approvazione, salvo un'approvazione in anticipo.
+ */
+async function launchRun(me: string, task: Task, instructions?: string): Promise<string> {
+  const c = newConversation(me, {
+    kind: "task_run",
+    title: task.title,
+    projectId: task.projectId,
+    taskId: task.id,
+    state: "working",
+  });
+  task.claude = "working";
+  await runScript(c.id, scripts.runOpening("plan", me, instructions));
+  follow(c.id, scripts.planReading(task), () => {
+    const preApprovedBy = state.preApprovedPlans.get(c.id);
+    if (can(viewerFor(me), "plans.approve", task.projectId)) {
+      follow(c.id, scripts.planGate(task, "approved", me));
+    } else if (preApprovedBy) {
+      follow(c.id, scripts.planGate(task, "pre_approved", preApprovedBy));
+    } else {
+      follow(c.id, scripts.planGate(task, "awaiting", me));
+    }
+  });
+  return c.id;
+}
+
+/** «Avvia»: Claude parte sulla task (`runs.start`). Restituisce la sessione. */
+export async function startRun(taskId: string): Promise<Conversation> {
+  const me = await gate("startRun");
+  const task = taskFor(me, taskId);
+  prepareRun(me, task);
+  const id = await launchRun(me, task);
+  return copy(state.conversations.find((c) => c.id === id)!);
+}
+
+/**
+ * «Rilancia con indicazioni» (`runs.start`): un lavoro nuovo che parte dalle
+ * indicazioni. Un lavoro in pausa si chiude come fermato; uno al lavoro o in
+ * attesa è un conflitto.
+ */
+export async function relaunchWithInstructions(
+  taskId: string,
+  instructions: string,
+): Promise<Conversation> {
+  const me = await gate("relaunchWithInstructions");
+  const task = taskFor(me, taskId);
+  need(me, "runs.start", task.projectId);
+  if (!instructions.trim()) throw invalid("instructions");
+  if (familyOf(task) === "closed") throw invalid("status");
+  const previous = latestRunOf(task.id);
+  if (previous && previous.state !== "finished" && previous.state !== "paused") throw conflict();
+  if (previous?.state === "paused") {
+    interruptScripts(previous.id);
+    await runScript(previous.id, [{ step: "state", state: "finished", outcome: "stopped" }]);
+  }
+  const id = await launchRun(me, task, instructions.trim());
+  return copy(state.conversations.find((c) => c.id === id)!);
+}
+
+/**
+ * «Riprendi la correzione» (`corrections.request`): la sessione in pausa
+ * nella fase di correzione riparte e finisce la correzione.
+ */
+export async function resumeCorrection(taskId: string): Promise<Conversation> {
+  const me = await gate("resumeCorrection");
+  const task = taskFor(me, taskId);
+  need(me, "corrections.request", task.projectId);
+  const run = latestRunOf(task.id);
+  if (!run || run.state !== "paused" || currentPhase(eventsOf(run.id)) !== "correction") {
+    throw invalid("status");
+  }
+  await runScript(run.id, [
+    { step: "event", event: { type: "phase", phase: "correction", outcome: null } },
+    { step: "state", state: "working" },
+  ]);
+  follow(run.id, [
+    { step: "say", text: "Resuming the correction where it stopped." },
+    ...scripts.correction(task),
+  ]);
+  return copy(run);
+}
+
+/**
+ * «Chiedi modifiche» (`corrections.request`) su una PR aperta da Claude: una
+ * correzione nuova, con la richiesta come primo messaggio. Senza una PR è
+ * `invalid`; con un lavoro vivo sulla task è un conflitto.
+ */
+export async function requestChanges(taskId: string, text: string): Promise<Conversation> {
+  const me = await gate("requestChanges");
+  const task = taskFor(me, taskId);
+  need(me, "corrections.request", task.projectId);
+  if (!text.trim()) throw invalid("text");
+  const hasPr = state.conversations.some(
+    (c) =>
+      c.kind === "task_run" &&
+      c.taskId === task.id &&
+      eventsOf(c.id).some((e) => e.type === "work_result" && e.kind === "pr_opened"),
+  );
+  if (!hasPr) throw invalid("no_pr");
+  const live = latestRunOf(task.id);
+  if (live && live.state !== "finished") throw conflict();
+  const c = newConversation(me, {
+    kind: "task_run",
+    title: task.title,
+    projectId: task.projectId,
+    taskId: task.id,
+    state: "working",
+  });
+  task.claude = "working";
+  await runScript(c.id, scripts.runOpening("correction", me, text.trim()));
+  follow(c.id, scripts.correction(task));
+  return copy(c);
+}
+
+/**
+ * «Rifinisci con Claude» (`backlog.edit`): apre la conversazione di refine
+ * della richiesta (o restituisce quella già aperta) e porta la richiesta in
+ * rifinitura.
+ */
+export async function startRefineConversation(requestId: string): Promise<Conversation> {
+  const me = await gate("startRefineConversation");
+  const request = requestFor(me, requestId);
+  need(me, "backlog.edit", request.projectId);
+  const open = state.conversations.find(
+    (c) => c.kind === "refine" && c.requestId === request.id && c.state !== "finished",
+  );
+  if (open) return copy(open);
+  if (!["new", "ready", "refining"].includes(request.status) || request.mergedIntoId !== null) {
+    throw invalid("status");
+  }
+  request.status = "refining";
+  const c = newConversation(me, {
+    kind: "refine",
+    title: request.title,
+    projectId: request.projectId,
+    requestId: request.id,
+    state: "working",
+  });
+  await runScript(c.id, scripts.refineOpening(request.code, request.title));
+  return copy(c);
+}
+
+/** «Chiudi la sessione» di refine (`backlog.edit`): la richiesta è pronta. */
+export async function closeRefine(id: string): Promise<void> {
+  const me = await gate("closeRefine");
+  const c = conversationFor(me, id);
+  if (c.kind !== "refine" || c.projectId === null) throw invalid("kind");
+  need(me, "backlog.edit", c.projectId);
+  if (c.state === "finished") throw invalid("status");
+  interruptScripts(id);
+  await runScript(id, [
+    { step: "finish_action" },
+    { step: "event", event: { type: "phase", phase: "refine", outcome: "ok" } },
+    { step: "state", state: "finished", outcome: "ok" },
+  ]);
+  const request = state.requests.find((r) => r.id === c.requestId);
+  if (request?.status === "refining") request.status = "ready";
 }

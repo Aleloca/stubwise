@@ -204,15 +204,21 @@ export function viewerFor(personId: string): Viewer {
 const undo: (() => void)[] = [];
 
 /**
- * Dà a una persona il ruolo (preset) su un progetto creato dopo il seed — chi
- * crea un progetto ne è il project lead. Diventare Project Lead dà anche
+ * Dà a una persona il ruolo (preset) su un progetto — chi crea un progetto ne
+ * è il project lead; i test lo usano anche per cambiare (o togliere) il ruolo
+ * di una persona del seed. Diventare Project Lead dà anche
  * `people.activity.view` (R-E2). Le concessioni si annullano con
  * `resetViewerGrants` (parte di `resetApi`).
  */
 export function grantProjectRole(personId: string, projectId: string, roleKey: string): void {
   const viewer = viewerFor(personId);
+  // Si annulla rimettendo il ruolo di prima (anche quello del seed), non togliendolo.
+  const previous = viewer.projectPermissions[projectId];
   viewer.projectPermissions[projectId] = projectPermsOf(roleKey);
-  undo.push(() => delete viewer.projectPermissions[projectId]);
+  undo.push(() => {
+    if (previous) viewer.projectPermissions[projectId] = previous;
+    else delete viewer.projectPermissions[projectId];
+  });
   if (roleKey === ACTIVITY_ROLE) grantInstancePermission(personId, "people.activity.view");
 }
 

@@ -1,5 +1,13 @@
 import type { InstancePermission, ProjectPermission } from "@stubwise/shared";
-import type { DepartmentPermission, Milestone } from "./model";
+import type {
+  CommitOfDay,
+  Conversation,
+  ConversationEvent,
+  ConversationKind,
+  DepartmentPermission,
+  Milestone,
+  Outcome,
+} from "./model";
 
 // I tipi del modello dell'area 2 stanno in `model.ts`; qui restano quelli
 // dell'ossatura e del livello dati (chi guarda, ricerca, letture derivate).
@@ -69,3 +77,115 @@ export type TimelineKind = TimelineEvent["kind"];
 
 /** Una voce dell'attività del portafoglio: un evento di cronologia col suo progetto. */
 export type PortfolioEvent = TimelineEvent & { projectId: string };
+
+// --- area 3: letture delle conversazioni con Claude --------------------------
+
+export interface ConversationFilter {
+  /**
+   * `live`: sessioni di lavoro non concluse; `mine`: le mie conversazioni
+   * libere; `public`: le pubbliche degli altri; `finished`: sessioni concluse
+   * (ultimi 14 giorni, salvo `includeOlder`).
+   */
+  scope: "live" | "mine" | "public" | "finished";
+  projectId?: string;
+  kind?: ConversationKind;
+  outcome?: Outcome;
+  taskId?: string;
+  requestId?: string;
+  includeOlder?: boolean;
+}
+
+/** Cosa sta facendo Claude adesso, per la riga dell'elenco. */
+export type ConversationActivity =
+  | { kind: "action"; label: string }
+  | { kind: "question" }
+  | { kind: "plan" }
+  | null;
+
+/** Una riga dell'elenco: la conversazione con il codice del suo oggetto e l'attività corrente. */
+export interface ConversationRow extends Conversation {
+  /** Il codice della task o della richiesta della sessione. */
+  objectCode: string | null;
+  activity: ConversationActivity;
+}
+
+/** Perché chi guarda non può scrivere. */
+export type ReadOnlyReason =
+  | "not_owner"
+  | "archived"
+  | "automatic"
+  | "finished"
+  | "not_interactive"
+  | "no_permission";
+
+/** Quello che chi guarda può fare in una conversazione: lo calcola il livello dati, mai la UI. */
+export interface ConversationPermissions {
+  isOwner: boolean;
+  canWrite: boolean;
+  canInterrupt: boolean;
+  canAnswer: boolean;
+  canDecidePlan: boolean;
+  canPreApprovePlan: boolean;
+  canRevokePlanApproval: boolean;
+  /** Pubblica di un altro: scrivendo nasce una continuazione propria. */
+  canContinue: boolean;
+  /** Rinominare, archiviare, eliminare, renderla pubblica o privata (l'autore, solo libere). */
+  canManage: boolean;
+  readOnlyReason: ReadOnlyReason | null;
+}
+
+export interface ConversationDetail extends ConversationRow, ConversationPermissions {
+  /** Il flusso com'è adesso (proposte scadute già `expired`); dal vivo arriva dallo stream. */
+  events: ConversationEvent[];
+  planPreApproved: boolean;
+  /** La pubblica da cui continua, se chi guarda la vede ancora. */
+  continuesFrom: { id: string; title: string } | null;
+}
+
+/** Il risultato di «Rendi pubblica»: la prima volta chiede di confermare i progetti toccati. */
+export type SetVisibilityResult =
+  | { status: "needs_confirmation"; touchedProjects: { id: string; code: string; name: string }[] }
+  | { status: "done"; conversation: Conversation };
+
+/** La rassegna del giorno di una persona (o di un autore di commit non collegato). */
+export interface PersonDayActivity {
+  /** `null`: autore di commit non collegato a nessuna persona. */
+  personId: string | null;
+  name: string;
+  departmentIds: string[];
+  tasksClosed: { taskId: string; code: string; title: string; projectId: string; at: string }[];
+  tasksMoved: {
+    taskId: string;
+    code: string;
+    title: string;
+    projectId: string;
+    field: string;
+    from: string | null;
+    to: string | null;
+    at: string;
+  }[];
+  comments: {
+    id: string;
+    taskId: string;
+    code: string;
+    projectId: string;
+    body: string;
+    at: string;
+  }[];
+  decisions: {
+    id: string;
+    source: "log" | "answer";
+    projectId: string;
+    taskId: string | null;
+    title: string;
+    at: string;
+  }[];
+  requestsCreated: {
+    requestId: string;
+    code: string;
+    title: string;
+    projectId: string;
+    at: string;
+  }[];
+  commits: CommitOfDay[];
+}

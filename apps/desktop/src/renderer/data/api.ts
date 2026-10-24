@@ -2,15 +2,22 @@ import { matches } from "../domain/filters";
 import type { Stall } from "../domain/stalled";
 import { DEPARTMENT_ROLES } from "./seed/departmentRoles";
 import { DEPARTMENTS } from "./seed/departments";
+import { commandsFor } from "./seed/commands";
+import { COMMITS } from "./seed/commits";
 import { DOC_PAGES } from "./seed/docPages";
-import { TODAY } from "./seed/dates";
+import { daysFromToday, TODAY } from "./seed/dates";
 import { PEOPLE } from "./seed/people";
 import { can, viewerFor } from "./viewer";
 import {
+  canSeeConversation,
+  conversationPermissions,
+  conversationRow,
   copy,
+  eventsOf,
   filterContext,
   gate,
   openDecisions,
+  presentEvent,
   resetStore,
   slipWeeks,
   stallScope,
@@ -23,6 +30,9 @@ import {
 import type {
   ActivityEntry,
   AppNotification,
+  ConversationDetail,
+  ConversationFilter,
+  ConversationRow,
   DayArrangement,
   DecisionLogEntry,
   DecisionRequest,
@@ -33,6 +43,7 @@ import type {
   FilterCriteria,
   Milestone,
   Person,
+  PersonDayActivity,
   PersonalHome,
   Project,
   PortfolioEvent,
@@ -41,6 +52,7 @@ import type {
   ProjectStatus,
   SavedFilter,
   SearchResult,
+  SlashCommand,
   Task,
   TimelineEvent,
   WeeklyBrief,
@@ -52,6 +64,7 @@ export { failNext, setLatency, slipWeeks, visibleProjectIds } from "./store";
 export * from "./api-mutations";
 export {
   mergeStreamEvent,
+  onConversationChange,
   reconnectDelay,
   runScript,
   simulateDisconnect,
@@ -437,6 +450,204 @@ export async function markNotification(
   state.notifications = state.notifications.map((n) =>
     n.id === id && n.recipientIds.includes(me) ? { ...n, ...change } : n,
   );
+}
+
+// --- conversazioni con Claude -----------------------------------------------
+
+const FINISHED_WINDOW_DAYS = 14;
+
+/**
+ * Le conversazioni che chi guarda vede, per sezione della destinazione
+ * «Claude», dalla più recente. La visibilità (`canSeeConversation`) viene
+ * prima di ogni filtro: la posta resta del solo titolare anche qui.
+ */
+export async function listConversations(filter: ConversationFilter): Promise<ConversationRow[]> {
+  const me = await gate("listConversations");
+  const since = daysFromToday(-FINISHED_WINDOW_DAYS);
+  return state.conversations
+    .filter((c) => {
+      if (!canSeeConversation(me, c)) return false;
+      switch (filter.scope) {
+        case "live":
+          if (c.kind === "free" || c.state === "finished") return false;
+          break;
+        case "mine":
+          if (c.kind !== "free" || c.ownerId !== me || c.archived) return false;
+          break;
+        case "public":
+          if (c.kind !== "free" || c.visibility !== "public" || c.ownerId === me) return false;
+          if (c.archived) return false;
+          break;
+        case "finished":
+          if (c.kind === "free" || c.state !== "finished") return false;
+          if (!filter.includeOlder && c.updatedAt.slice(0, 10) < since) return false;
+          break;
+      }
+      if (filter.projectId && (c.projectId ?? c.contextProjectId) !== filter.projectId)
+        return false;
+      if (filter.kind && c.kind !== filter.kind) return false;
+      if (filter.outcome && c.outcome !== filter.outcome) return false;
+      if (filter.taskId && c.taskId !== filter.taskId) return false;
+      if (filter.requestId && c.requestId !== filter.requestId) return false;
+      return true;
+    })
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id))
+    .map((c) => conversationRow(me, c));
+}
+
+/**
+ * Una conversazione con il suo flusso e ciò che chi guarda può farci (i
+ * permessi li calcola il livello dati). Invisibile o inesistente: `null`.
+ */
+export async function getConversation(id: string): Promise<ConversationDetail | null> {
+  const me = await gate("getConversation");
+  const c = state.conversations.find((x) => x.id === id);
+  if (!c || !canSeeConversation(me, c)) return null;
+  const log = eventsOf(id);
+  const origin = c.continuesFromId
+    ? state.conversations.find((x) => x.id === c.continuesFromId)
+    : undefined;
+  return {
+    ...conversationRow(me, c),
+    ...conversationPermissions(me, c),
+    events: log.map((_, i) => presentEvent(log, i)),
+    planPreApproved: state.preApprovedPlans.has(id),
+    continuesFrom:
+      origin && canSeeConversation(me, origin) ? { id: origin.id, title: origin.title } : null,
+  };
+}
+
+/**
+ * I comandi di «/» per il contesto di progetto della conversazione: quelli
+ * di Stubwise e le skill dei plugin abilitati nel progetto. Un progetto che
+ * chi guarda non vede vale come nessun contesto.
+ */
+export async function listCommands(contextProjectId: string | null): Promise<SlashCommand[]> {
+  const me = await gate("listCommands");
+  const visible = contextProjectId !== null && visibleProjectIds(me).has(contextProjectId);
+  return commandsFor(visible ? contextProjectId : null).map(copy);
+}
+
+/**
+ * La rassegna del giorno per persona (chi ha `people.activity.view`): task
+ * chiuse e spostate, commenti, decisioni, richieste create e commit, solo
+ * nei progetti che chi guarda vede. Solo eventi di Stubwise: posta e
+ * calendario non entrano. Con `departmentId`, solo le persone di quel
+ * reparto (gli autori di commit non collegati non ne hanno uno).
+ */
+export async function listPeopleActivity(
+  date: string,
+  departmentId?: string,
+): Promise<PersonDayActivity[]> {
+  const me = await gate("listPeopleActivity");
+  if (!can(viewerFor(me), "people.activity.view")) throw new Error("forbidden");
+  const visible = visibleProjectIds(me);
+  const onDay = (at: string | null | undefined) => at?.slice(0, 10) === date;
+  const byKey = new Map<string, PersonDayActivity>();
+  const row = (personId: string | null, name?: string): PersonDayActivity => {
+    const key = personId ?? `unlinked:${name}`;
+    let entry = byKey.get(key);
+    if (!entry) {
+      const person = PEOPLE.find((p) => p.id === personId);
+      entry = {
+        personId,
+        name: person?.name ?? name ?? "",
+        departmentIds: person ? [...person.departmentIds] : [],
+        tasksClosed: [],
+        tasksMoved: [],
+        comments: [],
+        decisions: [],
+        requestsCreated: [],
+        commits: [],
+      };
+      byKey.set(key, entry);
+    }
+    return entry;
+  };
+  const taskRef = (taskId: string) => {
+    const t = state.tasksById.get(taskId);
+    return t && visible.has(t.projectId) ? t : null;
+  };
+
+  for (const t of state.tasks) {
+    if (!visible.has(t.projectId) || !onDay(t.closedAt)) continue;
+    row(t.assigneeId ?? t.createdById).tasksClosed.push({
+      taskId: t.id,
+      code: t.code,
+      title: t.title,
+      projectId: t.projectId,
+      at: t.closedAt!,
+    });
+  }
+  for (const a of state.activity) {
+    if (!onDay(a.at) || a.authorId === null) continue;
+    const t = taskRef(a.taskId);
+    if (!t) continue;
+    if (a.kind === "field_change" && (a.field === "status" || a.field === "week")) {
+      row(a.authorId).tasksMoved.push({
+        taskId: t.id,
+        code: t.code,
+        title: t.title,
+        projectId: t.projectId,
+        field: a.field,
+        from: a.from ?? null,
+        to: a.to ?? null,
+        at: a.at,
+      });
+    } else if (a.kind === "comment" && !a.deletedAt) {
+      row(a.authorId).comments.push({
+        id: a.id,
+        taskId: t.id,
+        code: t.code,
+        projectId: t.projectId,
+        body: a.body ?? "",
+        at: a.at,
+      });
+    }
+  }
+  for (const d of state.decisionLog) {
+    if (!visible.has(d.projectId) || !onDay(d.decidedAt) || d.decidedById === null) continue;
+    row(d.decidedById).decisions.push({
+      id: d.id,
+      source: "log",
+      projectId: d.projectId,
+      taskId: d.taskId,
+      title: d.title,
+      at: d.decidedAt,
+    });
+  }
+  for (const d of state.decisions) {
+    if (!d.answer || !onDay(d.answer.at)) continue;
+    const t = taskRef(d.taskId);
+    if (!t) continue;
+    row(d.answer.byId).decisions.push({
+      id: d.id,
+      source: "answer",
+      projectId: t.projectId,
+      taskId: t.id,
+      title: d.question,
+      at: d.answer.at,
+    });
+  }
+  for (const r of state.requests) {
+    if (!visible.has(r.projectId) || !onDay(r.createdAt) || !r.requesterIds[0]) continue;
+    row(r.requesterIds[0]).requestsCreated.push({
+      requestId: r.id,
+      code: r.code,
+      title: r.title,
+      projectId: r.projectId,
+      at: r.createdAt,
+    });
+  }
+  for (const commit of COMMITS) {
+    if (!visible.has(commit.projectId) || !onDay(commit.at)) continue;
+    row(commit.authorId, commit.authorName).commits.push(copy(commit));
+  }
+
+  return [...byKey.values()]
+    .filter((p) => !p.personId || !PEOPLE.find((x) => x.id === p.personId)?.isClaude)
+    .filter((p) => !departmentId || p.departmentIds.includes(departmentId))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function search(q: string): Promise<SearchResult[]> {

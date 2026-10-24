@@ -2,9 +2,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { failNext, resetApi, setLatency, simulateDisconnect } from "./api";
+import { failNext, resetApi, runScript, setLatency, simulateDisconnect } from "./api";
 import {
+  useConversation,
   useConversationStream,
+  useConversations,
   useDayArrangements,
   usePinnedFilters,
   usePlanTask,
@@ -175,5 +177,28 @@ describe("useConversationStream", () => {
     await waitFor(() => expect(result.current.stream.error).toBe("not_found"));
     expect(result.current.stream.connection).toBe("closed");
     for (const s of seen.filter((x) => x.personId === "p-sara")) expect(s.count).toBe(0);
+  });
+});
+
+describe("conversazioni: lo stato si vede dal vivo (R-E5)", () => {
+  it("un passo `state` rilegge dettaglio, elenco e task senza ricaricare a mano", async () => {
+    const { result } = renderHook(
+      () => ({
+        detail: useConversation("cv-run-mkx-11"),
+        live: useConversations({ scope: "live" }),
+        task: useTask("MKX-11"),
+      }),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.detail.data?.state).toBe("working"));
+    await waitFor(() => expect(result.current.task.data?.claude).toBe("working"));
+    expect(result.current.live.data?.map((c) => c.id)).toContain("cv-run-mkx-11");
+
+    await act(() => runScript("cv-run-mkx-11", [{ step: "state", state: "finished" }]));
+    await waitFor(() => expect(result.current.detail.data?.state).toBe("finished"));
+    await waitFor(() =>
+      expect(result.current.live.data?.map((c) => c.id)).not.toContain("cv-run-mkx-11"),
+    );
+    await waitFor(() => expect(result.current.task.data?.claude).toBe("done"));
   });
 });

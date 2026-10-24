@@ -1,6 +1,15 @@
 import { SCRIPTS } from "./seed/conversations";
 import { getSessionPersonId } from "./session";
-import { canSeeConversation, copy, now, onStoreReset, state, streamDelay } from "./store";
+import {
+  canSeeConversation,
+  now,
+  onStoreReset,
+  presentEvent,
+  PROPOSAL_EXPIRY,
+  state,
+  streamDelay,
+  syncTaskClaude,
+} from "./store";
 import type { Conversation, ConversationEvent, EventDraft, ScriptStep } from "./types";
 
 export type { ScriptStep } from "./types";
@@ -41,13 +50,44 @@ const queues = new Map<string, Promise<void>>();
 const started = new Set<string>();
 /** Cambia a ogni `resetApi`: gli script di prima smettono di scrivere. */
 let generation = 0;
+/** Per conversazione: cambia a ogni «Ferma», e gli script già accodati smettono. */
+const cuts = new Map<string, number>();
+/** Chi vuole sapere che una conversazione è cambiata (stato, flusso, dati). */
+const changeListeners = new Set<(conversationId: string) => void>();
 
 onStoreReset(() => {
   generation += 1;
   subscribers.clear();
   queues.clear();
   started.clear();
+  cuts.clear();
 });
+
+/**
+ * Avvisa che una conversazione è cambiata: il suo stato, un evento nuovo o
+ * i suoi dati (titolo, visibilità…). Porta solo l'id — chi ascolta rilegge
+ * con le letture, che filtrano per persona. Restituisce la disiscrizione.
+ */
+export function onConversationChange(fn: (conversationId: string) => void): () => void {
+  changeListeners.add(fn);
+  return () => {
+    changeListeners.delete(fn);
+  };
+}
+
+export function notifyConversationChange(conversationId: string): void {
+  for (const fn of [...changeListeners]) fn(conversationId);
+}
+
+/**
+ * Interrompe gli script in corso o in coda della conversazione («Ferma»):
+ * smettono al passo successivo; quelli accodati DOPO partono normalmente.
+ */
+export function interruptScripts(conversationId: string): void {
+  cuts.set(conversationId, (cuts.get(conversationId) ?? 0) + 1);
+  // Lo script del seed non ancora partito non deve partire dopo il «Ferma».
+  started.add(conversationId);
+}
 
 const findConversation = (id: string): Conversation | undefined =>
   state.conversations.find((c) => c.id === id);
@@ -70,7 +110,7 @@ export function subscribe(
   const log = state.conversationEvents.get(conversationId) ?? [];
   const resumeAt =
     options.afterEventId === undefined ? -1 : log.findIndex((e) => e.id === options.afterEventId);
-  log.forEach((e, i) => onEvent(copy(e), i <= resumeAt ? "update" : "append"));
+  log.forEach((_, i) => onEvent(presentEvent(log, i), i <= resumeAt ? "update" : "append"));
 
   const subscriber: Subscriber = { conversationId, personId, onEvent };
   if (options.onConnection) subscriber.onConnection = options.onConnection;
@@ -121,10 +161,10 @@ export function mergeStreamEvent(
 export function runScript(conversationId: string, steps: ScriptStep[]): Promise<void> {
   if (!findConversation(conversationId)) return Promise.reject(new Error("not_found"));
   const gen = generation;
+  const cut = cuts.get(conversationId) ?? 0;
+  const alive = () => gen === generation && (cuts.get(conversationId) ?? 0) === cut;
   const previous = queues.get(conversationId) ?? Promise.resolve();
-  const next = previous
-    .catch(() => undefined)
-    .then(() => play(conversationId, steps, () => gen === generation));
+  const next = previous.catch(() => undefined).then(() => play(conversationId, steps, alive));
   queues.set(conversationId, next);
   return next;
 }
@@ -193,7 +233,10 @@ async function play(conversationId: string, steps: ScriptStep[], alive: () => bo
           .get(conversationId)
           ?.find((e) => e.id === step.eventId);
         if (!event) throw new Error("not_found");
-        Object.assign(event, step.patch);
+        // Un patch cambia solo i campi del suo tipo: mai id, data, né il tipo.
+        const { type, ...fields } = step.patch;
+        if (type !== event.type) throw new Error("invalid: patch type");
+        Object.assign(event, fields);
         update(conversationId, event);
         break;
       }
@@ -202,6 +245,8 @@ async function play(conversationId: string, steps: ScriptStep[], alive: () => bo
         conversation.state = step.state;
         conversation.outcome = step.state === "finished" ? (step.outcome ?? "ok") : null;
         conversation.updatedAt = now();
+        syncTaskClaude(conversation);
+        notifyConversationChange(conversationId);
         break;
       }
     }
@@ -280,6 +325,13 @@ function append(conversationId: string, draft: EventDraft): ConversationEvent {
   log.push(event);
   findConversation(conversationId)!.updatedAt = event.at;
   if (event.type !== "assistant") emit(conversationId, event, "append");
+  // La proposta che con questo evento ne ha 20 dopo di sé scade adesso: chi
+  // guarda la riceve aggiornata.
+  const crossing = log[log.length - 1 - PROPOSAL_EXPIRY.events];
+  if (crossing?.type === "proposal" && crossing.status === "open") {
+    emit(conversationId, crossing, "update");
+  }
+  notifyConversationChange(conversationId);
   return event;
 }
 
@@ -295,6 +347,8 @@ function update(conversationId: string, event: ConversationEvent): void {
  */
 function emit(conversationId: string, event: ConversationEvent, mode: StreamMode): void {
   const conversation = findConversation(conversationId);
+  const log = state.conversationEvents.get(conversationId) ?? [];
+  const index = log.indexOf(event);
   for (const subscriber of [...subscribers]) {
     if (subscriber.conversationId !== conversationId || !subscribers.has(subscriber)) continue;
     const entitled =
@@ -306,6 +360,6 @@ function emit(conversationId: string, event: ConversationEvent, mode: StreamMode
       subscriber.onConnection?.("closed");
       continue;
     }
-    subscriber.onEvent(copy(event), mode);
+    subscriber.onEvent(index >= 0 ? presentEvent(log, index) : structuredClone(event), mode);
   }
 }

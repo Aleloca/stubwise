@@ -67,7 +67,7 @@ const giuliaStatus = seeded(
       actions: [
         {
           fn: "planTask",
-          args: { taskId: "t-mkx-7", week: "2026-W45" },
+          args: { id: "t-mkx-7", plan: { assigneeId: "p-chiara", week: "2026-W45" } },
           summary: "Plan MKX-7 · Translate the landing page into German for week 45",
         },
       ],

@@ -21,7 +21,11 @@ import type {
   ActivityEntry,
   AppNotification,
   Conversation,
+  ConversationActivity,
   ConversationEvent,
+  ConversationKind,
+  ConversationPermissions,
+  ConversationRow,
   DailyReport,
   DayArrangement,
   DecisionLogEntry,
@@ -33,6 +37,7 @@ import type {
   ProjectRequest,
   ProjectStatus,
   PullRequestEvent,
+  ReadOnlyReason,
   SavedFilter,
   StatusFamily,
   Task,
@@ -119,7 +124,33 @@ export type ApiFnName =
   | "setDecisionSuperseded"
   | "createMilestone"
   | "updateMilestone"
-  | "deleteMilestone";
+  | "deleteMilestone"
+  | "listConversations"
+  | "getConversation"
+  | "listCommands"
+  | "listPeopleActivity"
+  | "createConversation"
+  | "sendMessage"
+  | "stop"
+  | "stopAndSend"
+  | "answerQuestion"
+  | "decidePlan"
+  | "preApprovePlan"
+  | "revokePlanApproval"
+  | "confirmProposal"
+  | "cancelProposal"
+  | "editProposal"
+  | "setVisibility"
+  | "continueConversation"
+  | "renameConversation"
+  | "archiveConversation"
+  | "deleteConversation"
+  | "startRun"
+  | "relaunchWithInstructions"
+  | "resumeCorrection"
+  | "requestChanges"
+  | "startRefineConversation"
+  | "closeRefine";
 const failures = new Set<ApiFnName>();
 
 /** Fissa la latenza simulata (ms); `0` per i test, `null` per tornare a 150–400 ms. */
@@ -194,6 +225,8 @@ interface State {
   conversations: Conversation[];
   /** Il flusso di ogni conversazione, per id: lo scrive solo il motore dello stream. */
   conversationEvents: Map<string, ConversationEvent[]>;
+  /** Le sessioni di task il cui piano è approvato in anticipo (prima che arrivi): da chi. */
+  preApprovedPlans: Map<string, string>;
   pinned: Map<string, string[]>;
   /** Filtri fissati, per persona. */
   pinnedFilters: Map<string, string[]>;
@@ -227,6 +260,7 @@ function freshState(): State {
     conversationEvents: new Map(
       Object.entries(CONVERSATION_EVENTS).map(([id, events]) => [id, events.map(copy)]),
     ),
+    preApprovedPlans: new Map(),
     pinned: initialPinned(),
     pinnedFilters: new Map(Object.entries(INITIAL_PINNED_FILTERS).map(([k, v]) => [k, [...v]])),
     projectsById: new Map(),
@@ -323,6 +357,196 @@ export function canSeeConversation(personId: string, c: Conversation): boolean {
     default:
       return c.projectId !== null && can(viewer, "repos.view", c.projectId);
   }
+}
+
+/** Una proposta aperta scade dopo 20 eventi successivi o 24 ore. */
+export const PROPOSAL_EXPIRY = { events: 20, ms: 24 * 60 * 60 * 1000 } as const;
+
+/**
+ * Vero se la proposta in posizione `index` del flusso è scaduta adesso: si
+ * calcola a lettura (orologio fisso del prototipo), non si salva.
+ */
+export function proposalExpired(log: readonly ConversationEvent[], index: number): boolean {
+  const event = log[index];
+  if (!event || event.type !== "proposal" || event.status !== "open") return false;
+  const later = log.length - 1 - index;
+  return (
+    later >= PROPOSAL_EXPIRY.events ||
+    Date.parse(now()) - Date.parse(event.at) >= PROPOSAL_EXPIRY.ms
+  );
+}
+
+/**
+ * Un evento del flusso come lo legge chi guarda: una copia, con la proposta
+ * scaduta già detta `expired`. Lo usano lo stream e le letture.
+ */
+export function presentEvent(log: readonly ConversationEvent[], index: number): ConversationEvent {
+  const event = copy(log[index]!);
+  if (event.type === "proposal" && proposalExpired(log, index)) event.status = "expired";
+  return event;
+}
+
+/**
+ * Lo stato di Claude sulla task segue la sua sessione di lavoro (come
+ * `task.claude` del seed): al lavoro, aspetta, fermata, fatta.
+ */
+export function syncTaskClaude(c: Conversation): void {
+  if (c.kind !== "task_run" || c.taskId === null) return;
+  const task = state.tasksById.get(c.taskId);
+  if (!task) return;
+  switch (c.state) {
+    case "finished":
+      task.claude = c.outcome === "ok" ? "done" : "stopped";
+      break;
+    case "paused":
+      task.claude = "stopped";
+      break;
+    case "working":
+    case "awaiting_answer":
+    case "awaiting_approval":
+      task.claude = c.state;
+      break;
+    case "idle":
+      break;
+  }
+}
+
+/** Le sessioni automatiche: si guardano, non si scrivono (come oggi). */
+const AUTOMATIC_KINDS: ReadonlySet<ConversationKind> = new Set([
+  "pr_review",
+  "docs",
+  "brief",
+  "daily_report",
+  "mail_classify",
+  "intake",
+]);
+
+export const eventsOf = (conversationId: string): ConversationEvent[] =>
+  state.conversationEvents.get(conversationId) ?? [];
+
+/** L'ultimo evento che soddisfa `test`, dal fondo del flusso. */
+export function lastEvent<E extends ConversationEvent>(
+  log: readonly ConversationEvent[],
+  test: (e: ConversationEvent) => e is E,
+): E | undefined {
+  for (let i = log.length - 1; i >= 0; i--) {
+    const e = log[i]!;
+    if (test(e)) return e;
+  }
+  return undefined;
+}
+
+type QuestionEvent = Extract<ConversationEvent, { type: "question" }>;
+type PlanEvent = Extract<ConversationEvent, { type: "plan" }>;
+
+/** La domanda ancora senza risposta (al più una per volta). */
+export const openQuestion = (log: readonly ConversationEvent[]) =>
+  lastEvent(log, (e): e is QuestionEvent => e.type === "question" && e.answer === null);
+
+/** Il piano che aspetta una decisione. */
+export const pendingPlan = (log: readonly ConversationEvent[]) =>
+  lastEvent(log, (e): e is PlanEvent => e.type === "plan" && e.status === "pending");
+
+/** La fase in cui si trova una sessione: l'ultima del flusso. */
+export function currentPhase(log: readonly ConversationEvent[]): string | null {
+  const phase = lastEvent(
+    log,
+    (e): e is Extract<ConversationEvent, { type: "phase" }> => e.type === "phase",
+  );
+  return phase?.phase ?? null;
+}
+
+/**
+ * Cosa può fare una persona in una conversazione che vede: la regola del
+ * server di oggi (`canWrite`/`canInterrupt`/`canAnswer`, gate del piano),
+ * in un posto solo. Scrivere in una sessione di task chiede
+ * `agent_sessions.intervene` e un passo interattivo (al lavoro o in pausa);
+ * nel refine `backlog.edit` finché la sessione è aperta. Rispondere: il
+ * richiedente o chi ha `plans.approve`. Una libera la scrive solo l'autore.
+ */
+export function conversationPermissions(
+  personId: string,
+  c: Conversation,
+): ConversationPermissions {
+  const viewer = viewerFor(personId);
+  const log = eventsOf(c.id);
+  const isOwner = c.ownerId === personId;
+  const inProject = (perm: Parameters<typeof can>[1]) =>
+    c.projectId !== null && can(viewer, perm, c.projectId);
+  const approver = c.kind === "task_run" && inProject("plans.approve");
+  const live = c.state !== "finished";
+  const planning = currentPhase(log) === "plan" && !log.some((e) => e.type === "plan");
+
+  let canWrite = false;
+  let canInterrupt = false;
+  let readOnlyReason: ReadOnlyReason | null = null;
+  if (c.kind === "free") {
+    canWrite = isOwner && !c.archived;
+    if (!canWrite) readOnlyReason = isOwner ? "archived" : "not_owner";
+  } else if (AUTOMATIC_KINDS.has(c.kind)) {
+    readOnlyReason = "automatic";
+  } else if (!live) {
+    readOnlyReason = "finished";
+  } else {
+    const allowed = inProject(c.kind === "refine" ? "backlog.edit" : "agent_sessions.intervene");
+    const interactive = c.kind === "refine" ? true : c.state === "working" || c.state === "paused";
+    canWrite = allowed && interactive;
+    canInterrupt = allowed && c.state === "working";
+    if (!canWrite) readOnlyReason = allowed ? "not_interactive" : "no_permission";
+  }
+
+  const question = openQuestion(log);
+  const plan = pendingPlan(log);
+  const preApproved = state.preApprovedPlans.has(c.id);
+  return {
+    isOwner,
+    canWrite,
+    canInterrupt,
+    canAnswer: question !== undefined && live && (isOwner || inProject("plans.approve")),
+    canDecidePlan: plan !== undefined && approver && c.state === "awaiting_approval",
+    canPreApprovePlan: approver && live && planning && !preApproved,
+    canRevokePlanApproval: approver && live && preApproved,
+    canContinue: c.kind === "free" && !isOwner && c.visibility === "public",
+    canManage: c.kind === "free" && isOwner,
+    readOnlyReason,
+  };
+}
+
+/** Il codice dell'oggetto della sessione (task o richiesta), se c'è. */
+export function objectCodeOf(c: Conversation): string | null {
+  if (c.taskId) return state.tasksById.get(c.taskId)?.code ?? null;
+  if (c.requestId) return state.requests.find((r) => r.id === c.requestId)?.code ?? null;
+  return null;
+}
+
+/** Cosa sta facendo Claude adesso: l'azione in corso, una domanda o un piano che aspettano. */
+export function activityOf(c: Conversation): ConversationActivity {
+  if (c.state === "awaiting_answer") return { kind: "question" };
+  if (c.state === "awaiting_approval") return { kind: "plan" };
+  if (c.state !== "working") return null;
+  const running = lastEvent(
+    eventsOf(c.id),
+    (e): e is Extract<ConversationEvent, { type: "action" }> =>
+      e.type === "action" && e.state === "running",
+  );
+  return running ? { kind: "action", label: running.label } : null;
+}
+
+/**
+ * La conversazione come la legge una persona: una copia, e i progetti toccati
+ * ridotti a quelli che vede (un progetto invisibile non si nomina, come un
+ * oggetto che non esiste).
+ */
+export function conversationRow(personId: string, c: Conversation): ConversationRow {
+  const visible = visibleProjectIds(personId);
+  const row = copy(c);
+  if (c.ownerId !== personId) {
+    row.touchedProjectIds = row.touchedProjectIds.filter((id) => visible.has(id));
+    if (row.contextProjectId !== null && !visible.has(row.contextProjectId)) {
+      row.contextProjectId = null;
+    }
+  }
+  return { ...row, objectCode: objectCodeOf(c), activity: activityOf(c) };
 }
 
 export const openDecisions = () =>
