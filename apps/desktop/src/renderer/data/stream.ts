@@ -1,0 +1,311 @@
+import { SCRIPTS } from "./seed/conversations";
+import { getSessionPersonId } from "./session";
+import { canSeeConversation, copy, now, onStoreReset, state, streamDelay } from "./store";
+import type { Conversation, ConversationEvent, EventDraft, ScriptStep } from "./types";
+
+export type { ScriptStep } from "./types";
+export { reconnectDelay } from "./store";
+
+// Lo stream finto delle conversazioni con Claude, come il relay del server:
+// chi si iscrive riceve prima il flusso già salvato, poi quello che accade.
+// Ogni evento nuovo o cambiato passa da `runScript` — anche quelli che il
+// Task 4 aggiunge — che scrive nel flusso dello store e avvisa gli iscritti.
+// «Adesso» è l'orologio fisso del prototipo (`now()`), mai quello vero.
+
+export type StreamMode = "append" | "update";
+export type StreamConnection = "live" | "reconnecting" | "closed";
+
+export interface SubscribeOptions {
+  /**
+   * Riprende dopo una disconnessione: l'ultimo evento ricevuto. Gli eventi
+   * fino a lui arrivano come `update` (il loro stato di adesso, che completa
+   * un messaggio interrotto a metà), i successivi come `append`.
+   */
+  afterEventId?: string;
+  /** La connessione cade (`reconnecting`) o la chiude il «server» (`closed`). */
+  onConnection?: (connection: Exclude<StreamConnection, "live">) => void;
+}
+
+interface Subscriber {
+  conversationId: string;
+  /** La persona che si è iscritta: lo stream è suo e di nessun altro. */
+  personId: string;
+  onEvent: (e: ConversationEvent, mode: StreamMode) => void;
+  onConnection?: SubscribeOptions["onConnection"];
+}
+
+const subscribers = new Set<Subscriber>();
+/** La coda degli script di ogni conversazione: uno alla volta, in ordine. */
+const queues = new Map<string, Promise<void>>();
+/** Le sessioni del seed il cui script è già partito. */
+const started = new Set<string>();
+/** Cambia a ogni `resetApi`: gli script di prima smettono di scrivere. */
+let generation = 0;
+
+onStoreReset(() => {
+  generation += 1;
+  subscribers.clear();
+  queues.clear();
+  started.clear();
+});
+
+const findConversation = (id: string): Conversation | undefined =>
+  state.conversations.find((c) => c.id === id);
+
+/**
+ * Si iscrive al flusso di una conversazione, a nome della persona della
+ * sessione. Una conversazione che non vede risponde come una che non esiste
+ * (`Error("not_found")`). Restituisce la disiscrizione.
+ */
+export function subscribe(
+  conversationId: string,
+  onEvent: (e: ConversationEvent, mode: StreamMode) => void,
+  options: SubscribeOptions = {},
+): () => void {
+  const personId = getSessionPersonId();
+  const conversation = findConversation(conversationId);
+  if (!conversation || !canSeeConversation(personId, conversation)) {
+    throw new Error("not_found");
+  }
+  const log = state.conversationEvents.get(conversationId) ?? [];
+  const resumeAt =
+    options.afterEventId === undefined ? -1 : log.findIndex((e) => e.id === options.afterEventId);
+  log.forEach((e, i) => onEvent(copy(e), i <= resumeAt ? "update" : "append"));
+
+  const subscriber: Subscriber = { conversationId, personId, onEvent };
+  if (options.onConnection) subscriber.onConnection = options.onConnection;
+  subscribers.add(subscriber);
+
+  const script = SCRIPTS[conversationId];
+  if (script && !started.has(conversationId)) {
+    started.add(conversationId);
+    void runScript(conversationId, script);
+  }
+  return () => {
+    subscribers.delete(subscriber);
+  };
+}
+
+/**
+ * Fa cadere la connessione di chi guarda una conversazione (per i test e per
+ * provarla a mano): gli iscritti ricevono `reconnecting` e devono iscriversi
+ * di nuovo con `afterEventId`. Lo script intanto va avanti.
+ */
+export function simulateDisconnect(conversationId: string): void {
+  for (const subscriber of [...subscribers]) {
+    if (subscriber.conversationId !== conversationId) continue;
+    subscribers.delete(subscriber);
+    subscriber.onConnection?.("reconnecting");
+  }
+}
+
+/**
+ * Unisce un evento dello stream all'elenco di chi guarda: un id già presente
+ * si sostituisce (aggiornamento o ripresa), uno nuovo va in fondo. Mai doppi.
+ */
+export function mergeStreamEvent(
+  events: ConversationEvent[],
+  event: ConversationEvent,
+): ConversationEvent[] {
+  const index = events.findIndex((e) => e.id === event.id);
+  if (index === -1) return [...events, event];
+  const next = events.slice();
+  next[index] = event;
+  return next;
+}
+
+/**
+ * Esegue i passi di Claude in una conversazione, in coda a quelli già
+ * avviati: l'unico punto da cui un evento entra nel flusso o cambia.
+ */
+export function runScript(conversationId: string, steps: ScriptStep[]): Promise<void> {
+  if (!findConversation(conversationId)) return Promise.reject(new Error("not_found"));
+  const gen = generation;
+  const previous = queues.get(conversationId) ?? Promise.resolve();
+  const next = previous
+    .catch(() => undefined)
+    .then(() => play(conversationId, steps, () => gen === generation));
+  queues.set(conversationId, next);
+  return next;
+}
+
+/** Si risolve quando gli script accodati della conversazione sono finiti. */
+export function whenIdle(conversationId: string): Promise<void> {
+  return (queues.get(conversationId) ?? Promise.resolve()).catch(() => undefined);
+}
+
+// --- esecuzione -------------------------------------------------------------
+
+/** L'attesa fra due pezzi; con latenza 0 basta un microtask. */
+function pause(): Promise<void> {
+  const ms = streamDelay();
+  return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
+}
+
+async function play(conversationId: string, steps: ScriptStep[], alive: () => boolean) {
+  for (const step of steps) {
+    await pause();
+    if (!alive()) return;
+    switch (step.step) {
+      case "say":
+        await say(conversationId, step.text, alive);
+        break;
+      case "action": {
+        const draft: EventDraft = {
+          type: "action",
+          tool: step.tool,
+          label: step.label,
+          state: "running",
+        };
+        if (step.input !== undefined) draft.input = step.input;
+        if (step.truncated !== undefined) draft.truncated = step.truncated;
+        const event = append(conversationId, draft);
+        await pause();
+        if (!alive()) return;
+        finishAction(event, step.outcome, step.result);
+        update(conversationId, event);
+        break;
+      }
+      case "finish_action": {
+        const log = state.conversationEvents.get(conversationId) ?? [];
+        const running = [...log]
+          .reverse()
+          .find((e) => e.type === "action" && e.state === "running");
+        if (running) {
+          finishAction(running, step.outcome, step.result);
+          update(conversationId, running);
+        }
+        break;
+      }
+      case "deliver":
+        for (const e of state.conversationEvents.get(conversationId) ?? []) {
+          if (e.type === "user" && e.delivery === "pending") {
+            e.delivery = "delivered";
+            update(conversationId, e);
+          }
+        }
+        break;
+      case "event":
+        append(conversationId, step.event);
+        break;
+      case "patch": {
+        const event = state.conversationEvents
+          .get(conversationId)
+          ?.find((e) => e.id === step.eventId);
+        if (!event) throw new Error("not_found");
+        Object.assign(event, step.patch);
+        update(conversationId, event);
+        break;
+      }
+      case "state": {
+        const conversation = findConversation(conversationId)!;
+        conversation.state = step.state;
+        conversation.outcome = step.state === "finished" ? (step.outcome ?? "ok") : null;
+        conversation.updatedAt = now();
+        break;
+      }
+    }
+  }
+}
+
+function finishAction(
+  event: ConversationEvent,
+  outcome: "done" | "failed" | undefined,
+  result: string | undefined,
+): void {
+  if (event.type !== "action") return;
+  event.state = outcome ?? "done";
+  if (result !== undefined) event.result = result;
+}
+
+/** Un messaggio di Claude, a pezzi di 3–12 parole sullo stesso evento. */
+async function say(conversationId: string, text: string, alive: () => boolean) {
+  const event = append(conversationId, { type: "assistant", text: "", done: false });
+  const chunks = chunksOf(text, event.id);
+  for (const [i, chunk] of chunks.entries()) {
+    if (i > 0) {
+      await pause();
+      if (!alive()) return;
+    }
+    if (event.type !== "assistant") return;
+    event.text += chunk;
+    event.done = i === chunks.length - 1;
+    // Il primo pezzo è la nascita dell'evento: chi guarda lo riceve come `append`.
+    if (i === 0) emit(conversationId, event, "append");
+    else update(conversationId, event);
+  }
+}
+
+/**
+ * Taglia un testo in pezzi di 3–12 parole (lo spazio dopo una parola resta
+ * con lei), deterministici per evento: uniti danno il testo esatto.
+ */
+export function chunksOf(text: string, seed: string): string[] {
+  const words = text.match(/^\s+|\S+\s*/g) ?? [];
+  if (words.length === 0) return [text];
+  let hash = 2166136261;
+  for (const ch of seed) hash = Math.imul(hash ^ ch.charCodeAt(0), 16777619) >>> 0;
+  const chunks: string[] = [];
+  let at = 0;
+  while (at < words.length) {
+    const left = words.length - at;
+    hash = (Math.imul(hash, 1103515245) + 12345) >>> 0;
+    let size = 3 + (hash % 10);
+    // L'ultimo pezzo non resta sotto le 3 parole: o si prende tutto, o se ne lasciano 3.
+    if (left - size < 3) size = left <= 12 ? left : left - 3;
+    chunks.push(words.slice(at, at + size).join(""));
+    at += size;
+  }
+  return chunks;
+}
+
+// --- scrittura nel flusso ---------------------------------------------------
+
+/**
+ * Aggiunge un evento al flusso; l'id continua la numerazione del seed. Un
+ * messaggio di Claude nasce vuoto e non si annuncia: lo annuncia il suo
+ * primo pezzo.
+ */
+function append(conversationId: string, draft: EventDraft): ConversationEvent {
+  let log = state.conversationEvents.get(conversationId);
+  if (!log) {
+    log = [];
+    state.conversationEvents.set(conversationId, log);
+  }
+  const event = {
+    ...draft,
+    id: `${conversationId}-e${log.length + 1}`,
+    at: now(),
+  } as ConversationEvent;
+  log.push(event);
+  findConversation(conversationId)!.updatedAt = event.at;
+  if (event.type !== "assistant") emit(conversationId, event, "append");
+  return event;
+}
+
+function update(conversationId: string, event: ConversationEvent): void {
+  findConversation(conversationId)!.updatedAt = now();
+  emit(conversationId, event, "update");
+}
+
+/**
+ * Avvisa gli iscritti. Chi non è più la persona della sessione (si è
+ * cambiato «vedi come») o non vede più la conversazione viene chiuso prima
+ * di ricevere qualunque cosa.
+ */
+function emit(conversationId: string, event: ConversationEvent, mode: StreamMode): void {
+  const conversation = findConversation(conversationId);
+  for (const subscriber of [...subscribers]) {
+    if (subscriber.conversationId !== conversationId || !subscribers.has(subscriber)) continue;
+    const entitled =
+      subscriber.personId === getSessionPersonId() &&
+      conversation !== undefined &&
+      canSeeConversation(subscriber.personId, conversation);
+    if (!entitled) {
+      subscribers.delete(subscriber);
+      subscriber.onConnection?.("closed");
+      continue;
+    }
+    subscriber.onEvent(copy(event), mode);
+  }
+}

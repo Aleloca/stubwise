@@ -2,8 +2,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { failNext, resetApi, setLatency } from "./api";
+import { failNext, resetApi, setLatency, simulateDisconnect } from "./api";
 import {
+  useConversationStream,
   useDayArrangements,
   usePinnedFilters,
   usePlanTask,
@@ -12,6 +13,8 @@ import {
   useUpdateTask,
 } from "./queries";
 import { getSessionPersonId } from "./session";
+import { state as storeState } from "./store";
+import type { ConversationEvent } from "./types";
 import { ViewerProvider, useViewer } from "./viewer";
 
 beforeEach(() => {
@@ -119,5 +122,58 @@ describe("mutazioni ottimistiche", () => {
     await waitFor(() =>
       expect(result.current.days.data?.some((a) => a.taskId === "t-aud-3")).toBe(false),
     );
+  });
+});
+
+describe("useConversationStream", () => {
+  const ID = "cv-run-aud-5";
+  // Marco è sviluppatore su AUD: vede la sessione (Giulia no).
+  function wrapper({ children }: { children: ReactNode }) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return (
+      <QueryClientProvider client={client}>
+        <ViewerProvider initialPersonId="p-marco">{children}</ViewerProvider>
+      </QueryClientProvider>
+    );
+  }
+  const isDone = (events: ConversationEvent[]) => {
+    const last = events.at(-1);
+    return (
+      last?.type === "action" && last.state === "done" && last.label === "Runs the full test suite"
+    );
+  };
+
+  it("arriva fino in fondo, cade, si riconnette senza doppi", async () => {
+    const { result } = renderHook(() => useConversationStream(ID), { wrapper });
+    await waitFor(() => expect(isDone(result.current.events)).toBe(true));
+    expect(result.current.connection).toBe("live");
+    expect(result.current.events).toEqual(storeState.conversationEvents.get(ID));
+
+    act(() => simulateDisconnect(ID));
+    expect(result.current.connection).toBe("reconnecting");
+    await waitFor(() => expect(result.current.connection).toBe("live"));
+    const ids = result.current.events.map((e) => e.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(result.current.events).toEqual(storeState.conversationEvents.get(ID));
+  });
+
+  it("cambiando persona il flusso della precedente sparisce; una conversazione invisibile è `not_found`", async () => {
+    const seen: { personId: string; count: number }[] = [];
+    const { result } = renderHook(
+      () => {
+        const viewer = useViewer();
+        const stream = useConversationStream(ID);
+        seen.push({ personId: viewer.viewer.personId, count: stream.events.length });
+        return { viewer, stream };
+      },
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.stream.events.length).toBeGreaterThan(0));
+
+    // Sara non è membro di AUD.
+    act(() => result.current.viewer.setPersona("p-sara"));
+    await waitFor(() => expect(result.current.stream.error).toBe("not_found"));
+    expect(result.current.stream.connection).toBe("closed");
+    for (const s of seen.filter((x) => x.personId === "p-sara")) expect(s.count).toBe(0);
   });
 });

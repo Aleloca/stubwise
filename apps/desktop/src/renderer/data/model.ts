@@ -612,6 +612,42 @@ export type ConversationEvent =
       link?: string;
     };
 
+/** Il contenuto di un evento senza id né data: li dà il motore dello stream quando lo emette. */
+export type EventDraft = ConversationEvent extends infer E
+  ? E extends ConversationEvent
+    ? Omit<E, "id" | "at">
+    : never
+  : never;
+
+/**
+ * Un passo di quello che Claude fa in una conversazione, come lo esegue il
+ * motore dello stream (`data/stream.ts`, `runScript`): l'unico modo in cui
+ * un evento entra nel flusso o cambia.
+ * - `say`: un messaggio, che arriva a pezzi di 3–12 parole sullo stesso evento;
+ * - `action`: un'azione, prima `running` poi `done` (o `failed`);
+ * - `finish_action`: chiude l'ultima azione rimasta `running` nel flusso;
+ * - `deliver`: i messaggi delle persone ancora `pending` diventano `delivered`;
+ * - `event`: un evento intero (fase, citazione, domanda, piano, proposta, risultato);
+ * - `patch`: cambia un evento già nel flusso (risposta, decisione, stato di una proposta);
+ * - `state`: lo stato della conversazione (e l'esito, quando finisce).
+ */
+export type ScriptStep =
+  | { step: "say"; text: string }
+  | {
+      step: "action";
+      tool: string;
+      label: string;
+      input?: string;
+      result?: string;
+      outcome?: "done" | "failed";
+      truncated?: boolean;
+    }
+  | { step: "finish_action"; result?: string; outcome?: "done" | "failed" }
+  | { step: "deliver" }
+  | { step: "event"; event: EventDraft }
+  | { step: "patch"; eventId: string; patch: Partial<EventDraft> }
+  | { step: "state"; state: ConversationState; outcome?: Outcome | null };
+
 /** Un comando di «/»: di Stubwise o la skill di un plugin abilitato nel progetto. */
 export interface SlashCommand {
   id: string;

@@ -48,6 +48,15 @@ export type { SearchResult } from "./types";
 export type { ApiFnName } from "./store";
 export { failNext, setLatency, slipWeeks, visibleProjectIds } from "./store";
 export * from "./api-mutations";
+export {
+  mergeStreamEvent,
+  reconnectDelay,
+  runScript,
+  simulateDisconnect,
+  subscribe,
+  whenIdle,
+} from "./stream";
+export type { ScriptStep, StreamConnection, StreamMode, SubscribeOptions } from "./stream";
 
 /** Ripristina lo stato (sessione, dati, errori iniettati) e porta le task scadute alla settimana corrente. */
 export function resetApi(): void {

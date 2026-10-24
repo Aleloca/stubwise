@@ -5,10 +5,11 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import * as api from "./api";
 import { resolveHome } from "../domain/home";
 import type {
+  ConversationEvent,
   DayArrangement,
   DecisionDraft,
   DepartmentHome,
@@ -824,4 +825,71 @@ export function useSetStallThresholds() {
       api.setStallThresholds(projectId, thresholds),
     PROJECT_AREAS,
   );
+}
+
+// --- stream delle conversazioni ---------------------------------------------
+
+export interface ConversationStream {
+  events: ConversationEvent[];
+  connection: api.StreamConnection;
+  /** `not_found`: la conversazione non esiste o chi guarda non la vede. */
+  error: string | null;
+}
+
+const EMPTY_STREAM: ConversationStream = { events: [], connection: "live", error: null };
+
+/**
+ * Il flusso di una conversazione, dal vivo. È della persona che guarda:
+ * cambiando persona (o conversazione) la vecchia iscrizione si chiude e
+ * nessun suo evento resta a schermo. Se la connessione cade mostra
+ * `reconnecting` e riprende dall'ultimo evento ricevuto, senza doppi.
+ */
+export function useConversationStream(id: string): ConversationStream {
+  const me = useSessionPersonId();
+  const key = `${me}\u0000${id}`;
+  const [stream, setStream] = useState<ConversationStream & { key: string }>({
+    ...EMPTY_STREAM,
+    key,
+  });
+
+  useEffect(() => {
+    let events: ConversationEvent[] = [];
+    let unsubscribe: (() => void) | null = null;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let active = true;
+    const publish = (connection: api.StreamConnection, error: string | null = null) => {
+      if (active) setStream({ key, events, connection, error });
+    };
+    const connect = () => {
+      try {
+        unsubscribe = api.subscribe(
+          id,
+          (event) => {
+            events = api.mergeStreamEvent(events, event);
+            publish("live");
+          },
+          {
+            ...(events.length > 0 ? { afterEventId: events.at(-1)!.id } : {}),
+            onConnection: (connection) => {
+              unsubscribe = null;
+              publish(connection);
+              if (connection === "reconnecting") retry = setTimeout(connect, api.reconnectDelay());
+            },
+          },
+        );
+        publish("live");
+      } catch (error) {
+        publish("closed", error instanceof Error ? error.message : String(error));
+      }
+    };
+    connect();
+    return () => {
+      active = false;
+      clearTimeout(retry);
+      unsubscribe?.();
+    };
+  }, [key, id]);
+
+  if (stream.key !== key) return EMPTY_STREAM;
+  return { events: stream.events, connection: stream.connection, error: stream.error };
 }

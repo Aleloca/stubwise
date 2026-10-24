@@ -3,6 +3,7 @@ import { currentWeek } from "../domain/weeks";
 import type { FilterContext } from "../domain/filters";
 import { ACTIVITY } from "./seed/activity";
 import { BRIEFS } from "./seed/briefs";
+import { CONVERSATION_EVENTS, CONVERSATIONS } from "./seed/conversations";
 import { TODAY } from "./seed/dates";
 import { DECISION_LOG } from "./seed/decisionLog";
 import { DECISION_REQUESTS } from "./seed/decisions";
@@ -19,6 +20,8 @@ import { DEFAULT_SESSION_PERSON_ID, getSessionPersonId, setSessionPersonId } fro
 import type {
   ActivityEntry,
   AppNotification,
+  Conversation,
+  ConversationEvent,
   DailyReport,
   DayArrangement,
   DecisionLogEntry,
@@ -45,6 +48,7 @@ import { can, resetViewerGrants, viewerFor } from "./viewer";
 
 let latencyOverride: number | null = null;
 let callCounter = 0;
+let chunkCounter = 0;
 export type ApiFnName =
   | "listDepartments"
   | "listPeople"
@@ -121,6 +125,19 @@ export function setLatency(ms: number | null): void {
   latencyOverride = ms;
 }
 
+/**
+ * L'attesa fra due pezzi dello stream di una conversazione (ms): la latenza
+ * fissata con `setLatency`, altrimenti 40–160 ms deterministici.
+ */
+export function streamDelay(): number {
+  return latencyOverride ?? 40 + ((chunkCounter++ * 53) % 121);
+}
+
+/** Quanto resta «Riconnessione…» dopo una disconnessione (ms): la latenza fissata, altrimenti 800 ms. */
+export function reconnectDelay(): number {
+  return latencyOverride ?? 800;
+}
+
 /** La prossima chiamata a `fnName` (e solo quella) viene rifiutata. */
 export function failNext(fnName: ApiFnName): void {
   failures.add(fnName);
@@ -172,6 +189,9 @@ interface State {
   personalHomes: PersonalHome[];
   arrangements: DayArrangement[];
   notifications: AppNotification[];
+  conversations: Conversation[];
+  /** Il flusso di ogni conversazione, per id: lo scrive solo il motore dello stream. */
+  conversationEvents: Map<string, ConversationEvent[]>;
   pinned: Map<string, string[]>;
   /** Filtri fissati, per persona. */
   pinnedFilters: Map<string, string[]>;
@@ -201,6 +221,10 @@ function freshState(): State {
     personalHomes: PERSONAL_HOMES.map(copy),
     arrangements: DAY_ARRANGEMENTS.map(copy),
     notifications: NOTIFICATIONS.map(copy),
+    conversations: CONVERSATIONS.map(copy),
+    conversationEvents: new Map(
+      Object.entries(CONVERSATION_EVENTS).map(([id, events]) => [id, events.map(copy)]),
+    ),
     pinned: initialPinned(),
     pinnedFilters: new Map(Object.entries(INITIAL_PINNED_FILTERS).map(([k, v]) => [k, [...v]])),
     projectsById: new Map(),
@@ -221,10 +245,22 @@ export function reindex(): void {
 }
 reindex();
 
+const resetHooks = new Set<() => void>();
+
+/**
+ * Lavoro da fermare quando lo stato si ripristina (es. gli stream in corso,
+ * che altrimenti continuerebbero a scrivere nello stato nuovo).
+ */
+export function onStoreReset(fn: () => void): void {
+  resetHooks.add(fn);
+}
+
 /** Ripristina lo stato (sessione, dati, errori iniettati). */
 export function resetStore(): void {
+  for (const fn of resetHooks) fn();
   failures.clear();
   callCounter = 0;
+  chunkCounter = 0;
   setSessionPersonId(DEFAULT_SESSION_PERSON_ID);
   resetViewerGrants();
   Object.assign(state, freshState());
@@ -263,6 +299,28 @@ export function visibleProjectIds(personId: string): Set<string> {
     return new Set(state.projects.map((p) => p.id));
   }
   return new Set(state.projects.filter((p) => p.memberIds.includes(personId)).map((p) => p.id));
+}
+
+/**
+ * Chi vede una conversazione con Claude — l'unica regola, per le letture e
+ * per lo stream. Libera privata: chi l'ha aperta; pubblica: anche chi ha
+ * `claude.public.view`. Sessioni di lavoro: `repos.view` nel progetto (il
+ * refine `backlog.edit`). Posta: solo il titolare, mai gli admin.
+ */
+export function canSeeConversation(personId: string, c: Conversation): boolean {
+  const viewer = viewerFor(personId);
+  switch (c.kind) {
+    case "free":
+      return (
+        c.ownerId === personId || (c.visibility === "public" && can(viewer, "claude.public.view"))
+      );
+    case "mail_classify":
+      return c.ownerId === personId;
+    case "refine":
+      return c.projectId !== null && can(viewer, "backlog.edit", c.projectId);
+    default:
+      return c.projectId !== null && can(viewer, "repos.view", c.projectId);
+  }
 }
 
 export const openDecisions = () =>
