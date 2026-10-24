@@ -13,6 +13,8 @@ All paths are under `/Users/aleloca/git/stubwise/.claude/worktrees/desktop-app/`
 
 **Strings.** UI strings are in `apps/web/src/i18n/locales/en.json` and `it.json` (namespaces listed in `apps/web/src/i18n/index.ts`). That file is the most complete list of labels and states.
 
+**Area 2 (task):** dove vive ora ogni voce di Tickets, Board, Backlog, Projects, Roadmap, brief, registro decisioni e Activity, e il test che la copre, sta in `area2-parity.md` (voci di aree successive marcate «area N»).
+
 ---
 
 ## Auth (public routes)
