@@ -56,13 +56,7 @@ import {
   scrubDeleted,
   seenChannel,
 } from "./reads";
-import {
-  canReadChannel,
-  channelPermissions,
-  isHuman,
-  membersOf,
-  notifyLevelOf,
-} from "./visibility";
+import { canReadChannel, channelPermissions, isHuman, membersOf } from "./visibility";
 
 // Le scritture della Chat, come le altre del «server» finto: ognuna passa da
 // `gate()` (quindi `failNext` la fa fallire), legge chi agisce dalla
@@ -165,19 +159,19 @@ const view = (me: string, ch: Channel): ChannelView => channelView(me, ch);
 // --- messaggi -------------------------------------------------------------------
 
 /**
- * Le menzioni di un messaggio nuovo: una notifica a chi è nominato e legge
- * il canale (@channel e @reparto solo a chi ha «tutti i messaggi»; le
- * dirette sempre), e chi è nominato
- * in un thread lo segue (con la sola risposta di adesso da leggere).
+ * Le menzioni di un messaggio nuovo: una notifica a chi è nominato
+ * direttamente (`@Nome Cognome`, o una domanda rivolta a lui) e legge il
+ * canale, a qualunque livello di notifica; chi è nominato in un thread lo
+ * segue (con la sola risposta di adesso da leggere). `@channel` e
+ * `@reparto` non avvisano mai nessuno, a nessun livello (R-G6): contano solo
+ * nel conteggio delle menzioni del canale (`channelCounts`).
  */
 function deliverMentions(m: ChatMessage, ch: Channel): void {
   const members = membersOf(ch);
   const candidates = new Set([...members, ...m.asksReplyOf]);
   for (const personId of candidates) {
     const kind = mentionKindFor(m, personId, members);
-    if (kind === null || !canReadChannel(personId, ch)) continue;
-    // @channel e @reparto avvisano solo chi ha «tutti i messaggi»; le dirette sempre.
-    if (kind === "group" && notifyLevelOf(personId, ch.id) !== "all") continue;
+    if (kind !== "direct" || !canReadChannel(personId, ch)) continue;
     state.notifications.push({
       id: newId("n-chat"),
       kind: m.asksReplyOf.includes(personId) ? "chat.question" : "chat.mention",

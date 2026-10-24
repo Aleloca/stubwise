@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as api from "../../../data/api";
 import { setSessionPersonId } from "../../../data/session";
-import { state } from "../../../data/store";
+import { now, state } from "../../../data/store";
 import type { ConversationEvent } from "../../../data/types";
 import { clearToasts } from "../../../tasks-ui/Toast";
 import { renderRoute } from "../../../test/renderRoute";
@@ -411,5 +411,37 @@ describe("Decide: domande della Chat", () => {
     await waitFor(() =>
       expect(within(decide).queryByRole("group", { name: WHO_TAKES })).toBeNull(),
     );
+  });
+
+  it("«Ignore» e poi una risposta durante l'«Undo»: nessun falso «è tornata»", async () => {
+    setUndoWindow(300);
+    const m = await marcoAsksGiulia();
+    renderRoute("/home", "p-giulia");
+    const decide = await decideBlock();
+    const actions = await within(decide).findByRole("group", { name: FROM_MARCO });
+    await userEvent.click(within(actions).getByRole("button", { name: "Ignore" }));
+    // Giulia risponde nel thread prima che l'«Ignore» parta: la domanda si chiude da sé.
+    await act(async () => {
+      setSessionPersonId("p-giulia");
+      await api.chat.sendMessage("ch-stw-desktop", { text: "Done", threadOf: m.id });
+    });
+    await act(() => new Promise((r) => setTimeout(r, 500)));
+    expect(screen.queryByText("Couldn't ignore the question. It's back in Decide.")).toBeNull();
+    expect(within(decide).queryByRole("group", { name: FROM_MARCO })).toBeNull();
+  });
+
+  it("@Claude: il link al thread rilegge il messaggio; sparito, un avviso e si resta qui", async () => {
+    const replyId = await claudeAsksGiulia();
+    const router = renderRoute("/home", "p-giulia");
+    const decide = await decideBlock();
+    const group = await within(decide).findByRole("group", { name: WHO_TAKES });
+    const item = group.closest("[data-chat-claude-question]") as HTMLElement;
+    // Eliminata senza che «Decide» lo sappia ancora (una lettura vecchia).
+    const stored = state.chatMessages.find((x) => x.id === replyId)!;
+    stored.deletedAt = now();
+    stored.deletedById = "p-giulia";
+    await userEvent.click(within(item).getByRole("link", { name: /AUD · general/ }));
+    expect(await screen.findByText("This message is no longer available")).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/home");
   });
 });

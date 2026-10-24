@@ -557,7 +557,8 @@ export function chatSignalOf(personId: string): boolean {
     if (ch.archived) continue;
     if (countsOf(personId, channelData(ch, byChannel.get(ch.id) ?? [])).toMe > 0) return true;
   }
-  return threadsWithNewsOf(personId).length > 0;
+  // Anche i thread: uno di un canale archiviato non accende il punto.
+  return threadsWithNewsOf(personId).some((t) => channelById(t.channelId)?.archived === false);
 }
 
 export async function hasNews(): Promise<boolean> {

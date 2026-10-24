@@ -70,21 +70,17 @@ const threadSearch = (q: { rootId: string; messageId: string }) => ({
   message: q.messageId,
 });
 
-/** Una domanda di una persona rivolta a chi guarda: «Reply» e «Ignore». */
-export function ChatQuestionItem({ question: q }: { question: ChatQuestion }) {
+/**
+ * Apre il thread sul messaggio, dopo averlo riletto: eliminato o non più
+ * leggibile, un avviso e si resta qui (nessun testo, R-G5). Con `focus` il
+ * fuoco va nella casella del thread («Reply»).
+ */
+function useGoToThread(q: { channelId: string; rootId: string; messageId: string }) {
   const { t } = useTranslation();
   const toast = useToast();
   const navigate = useNavigate();
   const reach = useReachChatMessage();
-  const dismissNow = useDismissChatQuestionNow();
-  const { data: people } = usePeople();
-  const asker = people?.find((p) => p.id === q.askedById);
-  const name = asker?.name ?? t("taskUi.stall.someone");
-
-  // Il messaggio si rilegge prima di andarci: eliminato o non più leggibile,
-  // un avviso e si resta qui (nessun testo, R-G5).
-  // «Reply» porta anche il fuoco nella casella del thread; il canale lo apre e basta.
-  const go = async (focus: boolean) => {
+  return async (focus: boolean) => {
     if (!(await reach(q.messageId))) {
       toast.error(t("home.decide.chat.unavailable"));
       return;
@@ -96,12 +92,56 @@ export function ChatQuestionItem({ question: q }: { question: ChatQuestion }) {
       search: threadSearch(q),
     } as never);
   };
+}
+
+/** Il canale come link al thread: il clic semplice rilegge prima (`useGoToThread`). */
+function ThreadLink({
+  q,
+  go,
+}: {
+  q: { channelId: string; rootId: string; messageId: string; channelLabel: string };
+  go: (focus: boolean) => Promise<void>;
+}) {
+  const { t } = useTranslation();
+  return (
+    <Link
+      to="/chat/$channelId"
+      params={{ channelId: q.channelId } as never}
+      search={threadSearch(q) as never}
+      aria-label={t("home.decide.chat.openThread", { channel: q.channelLabel })}
+      className={objectClass}
+      onClick={(e) => {
+        // Un clic con modificatore resta del browser.
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+        void go(false);
+      }}
+    >
+      <ChannelName label={q.channelLabel} />
+    </Link>
+  );
+}
+
+/** Una domanda di una persona rivolta a chi guarda: «Reply» e «Ignore». */
+export function ChatQuestionItem({ question: q }: { question: ChatQuestion }) {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const go = useGoToThread(q);
+  const dismissNow = useDismissChatQuestionNow();
+  const { data: people } = usePeople();
+  const asker = people?.find((p) => p.id === q.askedById);
+  const name = asker?.name ?? t("taskUi.stall.someone");
 
   const ignore = () => {
     const cancel = deferAnswer(
       q.id,
       () => dismissNow(q.messageId),
-      () => toast.error(t("home.decide.chat.ignoreFailed")),
+      (error) => {
+        // Chiusa nel frattempo (risposta durante l'«Undo», messaggio eliminato):
+        // la domanda non c'è più, che è ciò che si voleva. Nessun avviso.
+        if ((error as Error | null)?.message === "not_found") return;
+        toast.error(t("home.decide.chat.ignoreFailed"));
+      },
     );
     toast.show(t("home.decide.chat.ignored"), {
       action: { label: t("home.decide.undo"), run: cancel },
@@ -112,21 +152,7 @@ export function ChatQuestionItem({ question: q }: { question: ChatQuestion }) {
     <div data-chat-question={q.id} className={rowClass}>
       <Asker person={asker} heading={t("home.decide.chat.asksYou", { name })} at={q.createdAt} />
       <QuestionText text={q.text} />
-      <Link
-        to="/chat/$channelId"
-        params={{ channelId: q.channelId } as never}
-        search={threadSearch(q) as never}
-        aria-label={t("home.decide.chat.openThread", { channel: q.channelLabel })}
-        className={objectClass}
-        onClick={(e) => {
-          // Un clic con modificatore resta del browser; il clic semplice rilegge prima.
-          if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-          e.preventDefault();
-          void go(false);
-        }}
-      >
-        <ChannelName label={q.channelLabel} />
-      </Link>
+      <ThreadLink q={q} go={go} />
       <div
         role="group"
         aria-label={t("home.decide.chat.actions", { name, channel: q.channelLabel })}
@@ -148,6 +174,7 @@ export function ChatClaudeQuestionItem({ question: q }: { question: ChatClaudeQu
   const { t } = useTranslation();
   const toast = useToast();
   const answerNow = useAnswerChatClaudeQuestionNow();
+  const go = useGoToThread(q);
   const { data: people } = usePeople();
   const claude = people?.find((p) => p.isClaude);
   const channel = q.channelLabel;
@@ -173,15 +200,7 @@ export function ChatClaudeQuestionItem({ question: q }: { question: ChatClaudeQu
     <div data-chat-claude-question={q.id} className={rowClass}>
       <Asker person={claude} heading={t("home.decide.claude.asks")} at={q.createdAt} />
       <QuestionText text={q.text} />
-      <Link
-        to="/chat/$channelId"
-        params={{ channelId: q.channelId } as never}
-        search={threadSearch(q) as never}
-        aria-label={t("home.decide.chat.openThread", { channel })}
-        className={objectClass}
-      >
-        <ChannelName label={channel} />
-      </Link>
+      <ThreadLink q={q} go={go} />
       <ClaudeAnswers question={q.text} options={q.options} onAnswer={answer} />
     </div>
   );
