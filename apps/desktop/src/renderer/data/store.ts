@@ -556,10 +556,22 @@ export function conversationRow(personId: string, c: Conversation): Conversation
   const row = copy(c);
   const privateTail = hasPrivateTail(personId, c);
   if (c.ownerId !== personId) {
-    row.touchedProjectIds = row.touchedProjectIds.filter((id) => visible.has(id));
+    // Chi non è l'autore di una pubblica vede solo i progetti confermati
+    // (R-E6): uno toccato dopo resta dell'autore finché non lo riconferma.
+    const shown = c.visibility === "public" ? c.publishedProjectIds : c.touchedProjectIds;
+    row.touchedProjectIds = shown.filter((id) => visible.has(id));
+    row.publishedProjectIds = row.publishedProjectIds.filter((id) => visible.has(id));
     if (row.contextProjectId !== null && !visible.has(row.contextProjectId)) {
       row.contextProjectId = null;
     }
+  }
+  if (privateTail) {
+    // Nemmeno il movimento del seguito privato si vede: la riga resta
+    // com'era all'ultimo evento leggibile.
+    const lastReadable = eventsOf(c.id)[c.privateFromIndex! - 1];
+    row.state = "idle";
+    row.outcome = null;
+    row.updatedAt = lastReadable?.at ?? c.createdAt;
   }
   return {
     ...row,

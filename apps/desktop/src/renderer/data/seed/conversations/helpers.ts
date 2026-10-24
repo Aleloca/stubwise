@@ -40,12 +40,17 @@ export function seeded(meta: Meta, drafts: Draft[]): Seeded {
     publishedById: null,
     touchedProjectIds: [],
     privateFromIndex: null,
+    publishedProjectIds: [],
     continuesFromId: null,
     createdAt: events[0]!.at,
     updatedAt: events.at(-1)!.at,
     archived: false,
     ...meta,
   };
+  // Una pubblica del seed è stata confermata con i progetti che tocca.
+  if (conversation.visibility === "public" && !meta.publishedProjectIds) {
+    conversation.publishedProjectIds = [...conversation.touchedProjectIds];
+  }
   return { conversation, events };
 }
 

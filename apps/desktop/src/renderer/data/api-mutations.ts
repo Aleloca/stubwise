@@ -30,7 +30,7 @@ import {
   state,
   visibleProjectIds,
 } from "./store";
-import { interruptScripts, notifyConversationChange, runScript } from "./stream";
+import { interruptScripts, notifyConversationChange, releaseHeld, runScript } from "./stream";
 import type {
   ActivityEntry,
   Attachment,
@@ -1211,11 +1211,20 @@ function projectsOfSteps(steps: ScriptStep[]): string[] {
  * resta privato dell'autore finché non riconferma l'elenco (R-E6): la parte
  * già pubblica resta visibile.
  */
-function touchProjects(c: Conversation, projectIds: string[], fromIndex: number): void {
+function touchProjects(c: Conversation, projectIds: string[], fromIndex: number): boolean {
   const fresh = projectIds.filter((id) => !c.touchedProjectIds.includes(id));
-  if (fresh.length === 0) return;
+  if (fresh.length === 0) return false;
   c.touchedProjectIds = [...c.touchedProjectIds, ...fresh];
   if (c.visibility === "public" && c.privateFromIndex === null) c.privateFromIndex = fromIndex;
+  notifyConversationChange(c.id);
+  return true;
+}
+
+/** Il seguito trattenuto in via provvisoria è pubblico: si consegna a chi guarda. */
+function releaseHold(c: Conversation, fromIndex: number): void {
+  if (c.privateFromIndex !== fromIndex) return;
+  c.privateFromIndex = null;
+  releaseHeld(c.id, fromIndex);
   notifyConversationChange(c.id);
 }
 
@@ -1284,6 +1293,7 @@ function newConversation(
     publishedById: null,
     touchedProjectIds: [],
     privateFromIndex: null,
+    publishedProjectIds: [],
     continuesFromId: null,
     createdAt: at,
     updatedAt: at,
@@ -1330,15 +1340,28 @@ export async function sendMessage(
   if (c.kind === "free") {
     if (!c.title) c.title = titleFrom(text, attachments);
     const messageIndex = eventsOf(id).length;
-    await runScript(id, [user, { step: "state", state: "working" }]);
-    const steps = await respond(text, {
-      personId: me,
-      contextProjectId: c.contextProjectId,
-      read: readsAs(me),
-      t: i18n.t.bind(i18n) as T,
-      seed: `${id}-${eventsOf(id).length}`,
-    });
-    touchProjects(c, projectsOfSteps(steps), messageIndex);
+    // In una pubblica non si sa ancora se il messaggio tocca un progetto
+    // nuovo (lo dice la risposta): finché non lo si sa resta privato, così
+    // chi guarda non lo riceve né lo legge (R-E6). Se non tocca nulla di
+    // nuovo, gli eventi trattenuti si consegnano dopo.
+    const held = c.visibility === "public" && c.privateFromIndex === null;
+    if (held) c.privateFromIndex = messageIndex;
+    let steps: ScriptStep[];
+    try {
+      await runScript(id, [user, { step: "state", state: "working" }]);
+      steps = await respond(text, {
+        personId: me,
+        contextProjectId: c.contextProjectId,
+        read: readsAs(me),
+        t: i18n.t.bind(i18n) as T,
+        seed: `${id}-${eventsOf(id).length}`,
+      });
+    } catch (error) {
+      if (held) releaseHold(c, messageIndex);
+      throw error;
+    }
+    const touchedNew = touchProjects(c, projectsOfSteps(steps), messageIndex);
+    if (held && !touchedNew) releaseHold(c, messageIndex);
     await runScript(id, steps);
     return;
   }
@@ -1781,6 +1804,7 @@ export async function setVisibility(
     c.publishedAt = null;
     c.publishedById = null;
     c.privateFromIndex = null;
+    c.publishedProjectIds = [];
   } else {
     const touched = [...new Set(c.touchedProjectIds)].sort().join();
     const confirmed = [...new Set(options.confirmedProjectIds ?? [])].sort().join();
@@ -1798,6 +1822,7 @@ export async function setVisibility(
     c.visibility = "public";
     c.publishedById = me;
     c.privateFromIndex = null;
+    c.publishedProjectIds = [...c.touchedProjectIds];
   }
   notifyConversationChange(id);
   return { status: "done", conversation: copy(c) };

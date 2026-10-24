@@ -37,7 +37,7 @@ import {
   whenIdle,
 } from "./api";
 import { TODAY } from "./seed/dates";
-import { setSessionPersonId } from "./session";
+import { getSessionPersonId, setSessionPersonId } from "./session";
 import { state } from "./store";
 import type { ConversationEvent, ConversationFilter, ProposedAction } from "./types";
 import { grantInstancePermission, grantProjectRole, revokeInstancePermission } from "./viewer";
@@ -48,6 +48,20 @@ beforeEach(() => {
 });
 
 const as = (personId: string) => setSessionPersonId(personId);
+
+/**
+ * Una scrittura di Giulia mentre la sessione resta di chi guarda: la persona
+ * si legge all'inizio della chiamata, poi la sessione torna a chi c'era.
+ */
+function byOwner<R>(call: () => Promise<R>, ownerId = "p-giulia"): Promise<R> {
+  const viewer = getSessionPersonId();
+  setSessionPersonId(ownerId);
+  try {
+    return call();
+  } finally {
+    setSessionPersonId(viewer);
+  }
+}
 
 /** Aspetta che Claude abbia finito: anche il seguito accodato dopo uno script. */
 async function settle(id: string): Promise<void> {
@@ -551,15 +565,25 @@ describe("pubbliche e continuazioni", () => {
 
   it("una pubblica che tocca un progetto nuovo: il seguito resta privato, la parte pubblica no (R-E6)", async () => {
     const publicPart = eventsOf("cv-giulia-callbacks");
-    as("p-giulia");
-    expect(conv("cv-giulia-callbacks").touchedProjectIds).not.toContain("prj-mkx");
-    await sendMessage("cv-giulia-callbacks", { text: "Explain MKX-7" });
+    // Sara guarda dal vivo e resta la persona della sessione: Giulia scrive
+    // con `byOwner`, che fissa la sua sessione solo per la chiamata.
+    as("p-sara");
+    const streamed: ConversationEvent[] = [];
+    const off = subscribe("cv-giulia-callbacks", (e) => streamed.push(e));
+
+    await byOwner(() => sendMessage("cv-giulia-callbacks", { text: "Explain MKX-7" }));
+    await settle("cv-giulia-callbacks");
     expect(conv("cv-giulia-callbacks")).toMatchObject({
       visibility: "public",
       privateFromIndex: publicPart.length,
     });
     expect(conv("cv-giulia-callbacks").touchedProjectIds).toContain("prj-mkx");
+    // Né il messaggio che nomina MKX né la risposta sono arrivati a Sara.
+    expect(streamed.map((e) => e.id)).toEqual(publicPart.map((e) => e.id));
+    expect(JSON.stringify(streamed)).not.toContain("MKX");
+
     // L'autrice vede tutto.
+    as("p-giulia");
     const own = (await getConversation("cv-giulia-callbacks"))!;
     expect(own.events.length).toBeGreaterThan(publicPart.length);
     expect(own.privateTail).toBe(false);
@@ -569,13 +593,14 @@ describe("pubbliche e continuazioni", () => {
     const theirs = (await getConversation("cv-giulia-callbacks"))!;
     expect(theirs.privateTail).toBe(true);
     expect(theirs.events).toEqual(publicPart);
+    expect(theirs.updatedAt).toBe(publicPart.at(-1)!.at);
     expect(
       (await listConversations({ scope: "public" })).find((c) => c.id === "cv-giulia-callbacks"),
-    ).toMatchObject({ privateTail: true });
-    const streamed: ConversationEvent[] = [];
-    const off = subscribe("cv-giulia-callbacks", (e) => streamed.push(e));
-    as("p-giulia");
-    await sendMessage("cv-giulia-callbacks", { text: "And MKX-9?" });
+    ).toMatchObject({ privateTail: true, state: "idle" });
+
+    // Un altro messaggio, anche senza progetti nuovi, resta nel seguito privato.
+    await byOwner(() => sendMessage("cv-giulia-callbacks", { text: "And STW-3?" }));
+    await settle("cv-giulia-callbacks");
     off();
     expect(streamed.map((e) => e.id)).toEqual(publicPart.map((e) => e.id));
 
@@ -590,6 +615,47 @@ describe("pubbliche e continuazioni", () => {
     const after = (await getConversation("cv-giulia-callbacks"))!;
     expect(after.privateTail).toBe(false);
     expect(after.events).toEqual(eventsOf("cv-giulia-callbacks"));
+  });
+
+  it("un messaggio che non tocca progetti nuovi arriva a chi guarda, una volta, dopo la risposta", async () => {
+    const publicPart = eventsOf("cv-giulia-callbacks");
+    as("p-sara");
+    const streamed: { e: ConversationEvent; mode: string }[] = [];
+    const off = subscribe("cv-giulia-callbacks", (e, mode) => streamed.push({ e, mode }));
+    await byOwner(() => sendMessage("cv-giulia-callbacks", { text: "Explain STW-3" }));
+    await settle("cv-giulia-callbacks");
+    off();
+    expect(conv("cv-giulia-callbacks").privateFromIndex).toBeNull();
+    const appended = streamed.filter((x) => x.mode === "append").map((x) => x.e.id);
+    expect(new Set(appended).size).toBe(appended.length);
+    expect(appended).toEqual(eventsOf("cv-giulia-callbacks").map((e) => e.id));
+    expect(appended.length).toBeGreaterThan(publicPart.length);
+    const user = streamed.find((x) => x.e.type === "user" && x.e.text === "Explain STW-3");
+    expect(user).toBeDefined();
+  });
+
+  it("i progetti toccati dopo la pubblicazione non si vedono finché l'autore non li conferma", async () => {
+    as("p-roberta"); // vede MKX (full admin), ma la pubblica è di Giulia
+    const before = (await getConversation("cv-giulia-callbacks"))!;
+    expect(before.touchedProjectIds).not.toContain("prj-mkx");
+
+    as("p-giulia");
+    await sendMessage("cv-giulia-callbacks", { text: "Explain MKX-7" });
+    await settle("cv-giulia-callbacks");
+    as("p-roberta");
+    const during = (await getConversation("cv-giulia-callbacks"))!;
+    expect(during.touchedProjectIds).not.toContain("prj-mkx");
+    expect(
+      (await listConversations({ scope: "public" })).find((c) => c.id === "cv-giulia-callbacks")!
+        .touchedProjectIds,
+    ).not.toContain("prj-mkx");
+
+    as("p-giulia");
+    await setVisibility("cv-giulia-callbacks", "public", {
+      confirmedProjectIds: conv("cv-giulia-callbacks").touchedProjectIds,
+    });
+    as("p-roberta");
+    expect((await getConversation("cv-giulia-callbacks"))!.touchedProjectIds).toContain("prj-mkx");
   });
 });
 

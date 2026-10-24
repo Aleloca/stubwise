@@ -511,6 +511,12 @@ export interface Conversation {
    * non riconferma l'elenco. `null`: tutto il flusso segue `visibility`.
    */
   privateFromIndex: number | null;
+  /**
+   * I progetti che l'autore ha confermato rendendola pubblica: chi non è
+   * l'autore vede solo questi (un progetto toccato dopo resta suo finché
+   * non lo riconferma). Vuoto se non è mai stata pubblica.
+   */
+  publishedProjectIds: string[];
   /** La conversazione pubblica da cui questa continua. */
   continuesFromId: string | null;
   createdAt: string;

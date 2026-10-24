@@ -466,35 +466,39 @@ const FINISHED_WINDOW_DAYS = 14;
 export async function listConversations(filter: ConversationFilter): Promise<ConversationRow[]> {
   const me = await gate("listConversations");
   const since = daysFromToday(-FINISHED_WINDOW_DAYS);
-  return state.conversations
-    .filter((c) => {
-      if (!canSeeConversation(me, c)) return false;
-      switch (filter.scope) {
-        case "live":
-          if (c.kind === "free" || c.state === "finished") return false;
-          break;
-        case "mine":
-          if (c.kind !== "free" || c.ownerId !== me || c.archived) return false;
-          break;
-        case "public":
-          if (c.kind !== "free" || c.visibility !== "public" || c.ownerId === me) return false;
-          if (c.archived) return false;
-          break;
-        case "finished":
-          if (c.kind === "free" || c.state !== "finished") return false;
-          if (!filter.includeOlder && c.updatedAt.slice(0, 10) < since) return false;
-          break;
-      }
-      if (filter.projectId && (c.projectId ?? c.contextProjectId) !== filter.projectId)
-        return false;
-      if (filter.kind && c.kind !== filter.kind) return false;
-      if (filter.outcome && c.outcome !== filter.outcome) return false;
-      if (filter.taskId && c.taskId !== filter.taskId) return false;
-      if (filter.requestId && c.requestId !== filter.requestId) return false;
-      return true;
-    })
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id))
-    .map((c) => conversationRow(me, c));
+  return (
+    state.conversations
+      .filter((c) => {
+        if (!canSeeConversation(me, c)) return false;
+        switch (filter.scope) {
+          case "live":
+            if (c.kind === "free" || c.state === "finished") return false;
+            break;
+          case "mine":
+            if (c.kind !== "free" || c.ownerId !== me || c.archived) return false;
+            break;
+          case "public":
+            if (c.kind !== "free" || c.visibility !== "public" || c.ownerId === me) return false;
+            if (c.archived) return false;
+            break;
+          case "finished":
+            if (c.kind === "free" || c.state !== "finished") return false;
+            if (!filter.includeOlder && c.updatedAt.slice(0, 10) < since) return false;
+            break;
+        }
+        if (filter.projectId && (c.projectId ?? c.contextProjectId) !== filter.projectId)
+          return false;
+        if (filter.kind && c.kind !== filter.kind) return false;
+        if (filter.outcome && c.outcome !== filter.outcome) return false;
+        if (filter.taskId && c.taskId !== filter.taskId) return false;
+        if (filter.requestId && c.requestId !== filter.requestId) return false;
+        return true;
+      })
+      .map((c) => conversationRow(me, c))
+      // Sulla data della riga come la vede chi guarda: il seguito privato di
+      // una pubblica non la fa salire per gli altri.
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id))
+  );
 }
 
 /**

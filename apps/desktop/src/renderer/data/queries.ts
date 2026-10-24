@@ -426,7 +426,11 @@ function listenToConversationChanges(client: QueryClient): () => void {
               ),
           },
           // Una rilettura già in corso non si butta: arriverebbe un cambio
-          // dopo l'altro e nessuna lettura finirebbe mai.
+          // dopo l'altro e nessuna lettura finirebbe mai. Non perde dati
+          // perché ogni lettura legge lo store DOPO l'attesa di `gate`: una
+          // rilettura partita prima del cambio lo vede comunque, se il cambio
+          // arriva durante la sua latenza (il caso normale). Se mai una
+          // lettura leggesse prima dell'attesa, questo andrebbe rivisto.
           { cancelRefetch: false },
         );
       }, CHANGE_DEBOUNCE_MS);

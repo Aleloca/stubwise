@@ -6,6 +6,7 @@ import {
   onStoreReset,
   presentEvent,
   PROPOSAL_EXPIRY,
+  hasPrivateTail,
   readableLength,
   state,
   streamDelay,
@@ -368,7 +369,42 @@ function emit(conversationId: string, event: ConversationEvent, mode: StreamMode
       subscriber.onConnection?.("closed");
       continue;
     }
+    if (index < 0) {
+      // Un evento che non è (più) nel flusso: si manda così com'è, ma mai a
+      // chi ha un seguito privato da non vedere.
+      if (!hasPrivateTail(subscriber.personId, conversation)) {
+        subscriber.onEvent(structuredClone(event), mode);
+      }
+      continue;
+    }
     if (index >= readableLength(subscriber.personId, conversation)) continue;
     subscriber.onEvent(presentEvent(log, index), mode);
+  }
+}
+
+/**
+ * Consegna agli iscritti che non sono l'autore gli eventi trattenuti da
+ * `fromIndex` in poi, quando il seguito tenuto privato in via provvisoria
+ * risulta pubblico (R-E6): arrivano come `append`, nell'ordine, una volta.
+ */
+export function releaseHeld(conversationId: string, fromIndex: number): void {
+  const conversation = findConversation(conversationId);
+  if (!conversation) return;
+  const log = state.conversationEvents.get(conversationId) ?? [];
+  for (const subscriber of [...subscribers]) {
+    if (subscriber.conversationId !== conversationId) continue;
+    if (subscriber.personId === conversation.ownerId) continue;
+    if (
+      subscriber.personId !== getSessionPersonId() ||
+      !canSeeConversation(subscriber.personId, conversation)
+    ) {
+      subscribers.delete(subscriber);
+      subscriber.onConnection?.("closed");
+      continue;
+    }
+    const readable = readableLength(subscriber.personId, conversation);
+    for (let i = fromIndex; i < readable; i++) {
+      subscriber.onEvent(presentEvent(log, i), "append");
+    }
   }
 }
