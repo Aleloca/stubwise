@@ -46,7 +46,29 @@ export async function assign(text: string, ctx: IntentContext): Promise<Answer> 
   const found = await taskOf(text, ctx);
   if ("answer" in found) return found.answer;
   const { task, lookup } = found;
-  const person = findPerson(text, await read.listPeople(), personId);
+  const people = await read.listPeople();
+  const person = findPerson(text, people, personId);
+  if (!person && ctx.asks) {
+    // Dalla Chat: a chi chiama si chiede a chi, fra i membri del progetto
+    // (non l'assegnatario di adesso, non Claude): prima chi
+    // parla nel thread, poi in ordine di nome.
+    const project = (await read.listProjects()).find((p) => p.id === task.projectId);
+    const inThread = (name: string) =>
+      ctx.thread?.some((line) => line.startsWith(`${name}:`) || line.includes(name)) ? 0 : 1;
+    const options = people
+      .filter((p) => !p.isClaude && p.id !== task.assigneeId && project?.memberIds.includes(p.id))
+      .sort((a, b) => inThread(a.name) - inThread(b.name) || a.name.localeCompare(b.name))
+      .slice(0, 4)
+      .map((p) => ({ label: p.name }));
+    if (options.length > 0) {
+      return {
+        actions: [lookup],
+        text: "",
+        refs: [{ kind: "task", id: task.id }],
+        ask: { text: t("claude.answers.assign.ask", { task: named(task) }), options },
+      };
+    }
+  }
   if (!person) {
     return { actions: [lookup], text: t("claude.answers.assign.noPerson", { task: named(task) }) };
   }

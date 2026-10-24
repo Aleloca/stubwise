@@ -39,9 +39,10 @@ export function ChatAvatar({
   size = 32,
 }: {
   person: Person | null | undefined;
-  size?: 20 | 32;
+  size?: 20 | 24 | 32;
 }) {
-  const box = size === 32 ? "size-8 text-sm" : "size-[22px] text-xs";
+  const box =
+    size === 32 ? "size-8 text-sm" : size === 24 ? "size-6 text-xs" : "size-[22px] text-xs";
   if (!person)
     return (
       <span
@@ -149,6 +150,10 @@ export interface MessageItemProps {
   onCancelEdit: () => void;
   onConfirmDelete: () => Promise<void>;
   actions: Omit<MessageActions, "onQuickReact" | "onAddReaction" | "onDelete" | "replyHref">;
+  /** Nel pannello del thread: avatar 24px e colonna più stretta. */
+  compact?: boolean;
+  /** La radice del thread aperto nel pannello: tinta di selezione (ink 10%). */
+  selected?: boolean;
 }
 
 export function MessageItem(props: MessageItemProps) {
@@ -223,11 +228,12 @@ export function MessageItem(props: MessageItemProps) {
       ref={row}
       id={`message-${m.id}`}
       data-message={m.id}
-      className={`group/message relative flex min-w-0 gap-3 rounded-md px-2 transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/4 focus-within:bg-ink/4 ${head ? "mt-2 pt-1.5 pb-1" : "py-0.5"}`}
+      data-selected={props.selected ? "" : undefined}
+      className={`group/message relative flex min-w-0 rounded-md px-2 transition-colors duration-[var(--duration-fast)] ease-out ${props.selected ? "bg-ink/10" : "hover:bg-ink/4 focus-within:bg-ink/4"} ${props.compact ? "gap-2.5" : "gap-3"} ${head ? "mt-2 pt-1.5 pb-1" : "py-0.5"}`}
     >
-      <div className="flex w-8 shrink-0 justify-center">
+      <div className={`flex shrink-0 justify-center ${props.compact ? "w-6" : "w-8"}`}>
         {head && !deleted ? (
-          <ChatAvatar person={author} />
+          <ChatAvatar person={author} size={props.compact ? 24 : 32} />
         ) : (
           !deleted && (
             <span className="pt-0.5 text-xs leading-5 text-ink-faint opacity-0 group-hover/message:opacity-100 group-focus-within/message:opacity-100">
@@ -237,7 +243,7 @@ export function MessageItem(props: MessageItemProps) {
         )}
       </div>
       <div className="flex min-w-0 flex-1 flex-col">
-        {m.alsoInChannel && m.threadOf && (
+        {m.alsoInChannel && m.threadOf && !props.compact && (
           <a
             href={threadHref}
             className="truncate text-xs text-ink-muted hover:text-ink"
@@ -316,7 +322,7 @@ export function MessageItem(props: MessageItemProps) {
             />
           </span>
         )}
-        {m.thread && <ThreadLine message={m} href={threadHref} people={people} />}
+        {m.thread && !props.compact && <ThreadLine message={m} href={threadHref} people={people} />}
         {confirming && (
           <p role="alert" className="flex flex-wrap items-center gap-2 pt-1 text-sm text-ink">
             {deleteFailed ? t("chat.message.deleteFailed") : t("chat.message.deleteConfirm")}

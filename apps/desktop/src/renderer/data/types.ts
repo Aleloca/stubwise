@@ -468,6 +468,30 @@ export interface ChatMessageView extends ChatMessage {
    * risolve come ogni citazione (codice + nome, R-E9 per chi non li vede).
    */
   linkedRefs: CitationRef[];
+  /**
+   * Solo una risposta di @Claude: i codici delle righe d'azione e delle
+   * proposte che chi guarda NON vede. Il livello dati ne ha già tolto il
+   * nome; la UI li mostra tenui (R-E9).
+   */
+  hiddenCodes?: string[];
+}
+
+/**
+ * Una domanda di @Claude a chi l'ha chiamato in un thread della Chat
+ * (R-G4): aperta finché lui non risponde (nel thread o in «Da decidere»: è
+ * la stessa risposta), non ferma la risposta o non la elimina.
+ */
+export interface ChatClaudeQuestion {
+  /** `chat-claude:<risposta>:<domanda>`. */
+  id: string;
+  channelId: string;
+  /** La risposta di Claude che porta la domanda. */
+  messageId: string;
+  rootId: string;
+  questionId: string;
+  text: string;
+  options: { label: string; consequence?: string; recommended?: boolean }[];
+  createdAt: string;
 }
 
 /** Un membro di un canale. */

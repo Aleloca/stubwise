@@ -294,7 +294,9 @@ describe("@Claude: fermare, rifare, eliminare (solo chi chiama)", () => {
     await chat.sendMessage("ch-aud-general", { text: "@Claude explain AUD-4", threadOf: BILLING });
     const failed = await replyOf(BILLING, "p-giulia");
     expect(failed.claudeRun).toMatchObject({ state: "failed" });
-    expect(failed.claudeRun?.error).toContain("chat.claudeReply");
+    // Un codice, mai il testo grezzo dell'errore: la UI lo dice nella sua lingua.
+    expect(failed.claudeRun?.errorCode).toBe("other");
+    expect(JSON.stringify(failed.claudeRun)).not.toContain("Simulated");
     expect(failed.text).toBe("");
 
     as("p-marco");
@@ -374,5 +376,118 @@ describe("@Claude: ripristino dello stato", () => {
     const fresh = JSON.stringify(state.chatMessages);
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(JSON.stringify(state.chatMessages)).toBe(fresh);
+  });
+});
+
+describe("@Claude: la domanda a chi chiama (R-G4)", () => {
+  type Question = Extract<ConversationEvent, { type: "question" }>;
+  /** Giulia chiede di assegnare AUD-4 senza dire a chi: Claude le chiede a chi. */
+  async function ask(): Promise<{ reply: ChatMessage; question: Question }> {
+    as("p-giulia");
+    await chat.sendMessage("ch-aud-general", { text: "@Claude assign AUD-4", threadOf: BILLING });
+    const reply = await replyOf(BILLING, "p-giulia");
+    const question = reply.claudeEvents?.find((e): e is Question => e.type === "question");
+    expect(question).toBeDefined();
+    return { reply, question: question! };
+  }
+
+  it("la risposta aspetta chi ha chiamato; solo lui risponde, e la risposta continua il lavoro", async () => {
+    const { reply, question } = await ask();
+    expect(reply.claudeRun?.state).toBe("waiting");
+    expect(question.answer).toBeNull();
+    expect(question.options.map((o) => o.label)).toContain("Matteo Conti");
+    // La riga del thread non dice «Claude is replying…» mentre aspetta una persona.
+    expect((await chat.listThread(BILLING))!.root.thread?.claudeReplying).toBe(false);
+
+    // In «Da decidere» la vede solo chi ha chiamato.
+    expect(await chat.listClaudeQuestions()).toEqual([
+      expect.objectContaining({
+        messageId: reply.id,
+        questionId: question.questionId,
+        rootId: BILLING,
+      }),
+    ]);
+    const matteo = question.options.findIndex((o) => o.label === "Matteo Conti");
+    const pick = { optionIndex: matteo, text: null };
+    for (const other of ["p-marco", "p-roberta"]) {
+      as(other);
+      expect(await chat.listClaudeQuestions()).toEqual([]);
+      await expect(
+        chat.answerChatClaudeQuestion(reply.id, question.questionId, pick),
+      ).rejects.toThrow("forbidden");
+    }
+
+    as("p-giulia");
+    await chat.answerChatClaudeQuestion(reply.id, question.questionId, pick);
+    await chat.whenClaudeIdle(reply.id);
+    const done = byId(reply.id);
+    expect(done.claudeRun?.state).toBe("done");
+    expect(done.claudeEvents!.find((e) => e.type === "question")).toMatchObject({
+      answer: { optionIndex: matteo, byId: "p-giulia" },
+    });
+    expect(proposalOf(done)).toMatchObject({
+      status: "open",
+      requesterId: "p-giulia",
+      actions: [{ fn: "updateTask", args: { id: "t-aud-4", patch: { assigneeId: "p-matteo" } } }],
+    });
+    // La lettura di AUD-4 fatta prima della domanda non si ripete.
+    expect(
+      done.claudeEvents!.filter((e) => e.type === "action" && e.tool === "get_ticket"),
+    ).toHaveLength(1);
+    // Risposta in un posto, chiusa ovunque.
+    expect(await chat.listClaudeQuestions()).toEqual([]);
+    await expect(
+      chat.answerChatClaudeQuestion(reply.id, question.questionId, pick),
+    ).rejects.toThrow("already_answered");
+  });
+
+  it("fermare o eliminare la risposta chiude la domanda", async () => {
+    const first = await ask();
+    await chat.stopClaudeReply(first.reply.id);
+    expect(byId(first.reply.id).claudeRun?.state).toBe("stopped");
+    expect(await chat.listClaudeQuestions()).toEqual([]);
+    await expect(
+      chat.answerChatClaudeQuestion(first.reply.id, first.question.questionId, {
+        optionIndex: 0,
+        text: null,
+      }),
+    ).rejects.toThrow("invalid: status");
+
+    const second = await ask();
+    await chat.deleteMessage(second.reply.id);
+    expect(byId(second.reply.id)).toMatchObject({
+      claudeEvents: [],
+      claudeRun: { state: "stopped" },
+    });
+    expect(await chat.listClaudeQuestions()).toEqual([]);
+  });
+});
+
+describe("@Claude: righe d'azione e proposte per chi non vede (R-E9)", () => {
+  it("il nome di un codice che il lettore non vede non esce da riassunti, righe e argomenti", async () => {
+    as("p-giulia");
+    const call = await chat.sendMessage("ch-announcements", {
+      text: "@Claude plan AUD-4 for W45",
+    });
+    const reply = await replyOf(call.id, "p-giulia");
+    const title = state.tasksById.get("t-aud-4")!.title;
+    const view = async () =>
+      (await chat.listThread(call.id))!.replies.find((r) => r.id === reply.id)!;
+
+    const mine = await view();
+    expect(proposalOf(mine)!.actions[0]!.summary).toContain(`AUD-4 ${title}`);
+    expect(proposalOf(mine)!.actions[0]!.args).not.toEqual({});
+    expect(mine.hiddenCodes).toEqual([]);
+
+    // Sara non vede AUD: il codice resta, il nome no, gli argomenti nemmeno.
+    as("p-sara");
+    const hers = await view();
+    const summary = proposalOf(hers)!.actions[0]!.summary;
+    expect(summary).toContain("AUD-4");
+    expect(summary).not.toContain(title);
+    expect(proposalOf(hers)!.actions[0]!.args).toEqual({});
+    expect(hers.hiddenCodes).toEqual(["AUD-4"]);
+    const rows = JSON.stringify(hers.claudeEvents!.filter((e) => e.type === "action"));
+    expect(rows).not.toContain(title);
   });
 });

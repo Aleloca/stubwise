@@ -7,6 +7,7 @@ import {
   type DragEvent,
   type ReactNode,
 } from "react";
+import { useRouter } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import {
   useArchiveChannel,
@@ -46,7 +47,7 @@ import { primaryButton, secondaryButton } from "../claude/conversation/parts";
 import { NewRequestDialog } from "../requests/NewRequestDialog";
 import { NewTaskDialog } from "../task/NewTaskDialog";
 import { MenuButton } from "../tasks/controls";
-import { ChatComposer, type ChatSendInput } from "./ChatComposer";
+import { callsClaude, ChatComposer, type ChatSendInput } from "./ChatComposer";
 import { mostUsed } from "./emoji";
 import { flowDays, mergeFlow, type FlowRow } from "./flow";
 import { ChatAvatar, MessageItem } from "./MessageItem";
@@ -72,6 +73,22 @@ export const ANNOUNCE_MS = 600;
 
 /** Dove portano i link del canale (thread, messaggio): la Chat o la sezione del progetto. */
 export type ChannelHref = (params: { thread?: string; message?: string }) => string;
+
+/**
+ * Va a un link della Chat (`#/chat/…`) dalla cronologia del router (anche
+ * in memoria nei test); fuori da un router, dall'hash dell'indirizzo.
+ */
+function useOpenHref(): (href: string) => void {
+  const router = useRouter({ warn: false });
+  return useCallback(
+    (href: string) => {
+      const path = href.replace(/^#/, "");
+      if (router) router.history.push(path);
+      else window.location.hash = path;
+    },
+    [router],
+  );
+}
 
 export const chatHref =
   (channelId: string): ChannelHref =>
@@ -113,10 +130,13 @@ export function ChannelView({
   channelId,
   hrefFor = chatHref(channelId),
   focusMessageId,
+  openThreadId,
 }: {
   channelId: string;
   hrefFor?: ChannelHref;
   focusMessageId?: string | undefined;
+  /** La radice del thread aperto nel pannello (`?thread=`): prende la tinta di selezione. */
+  openThreadId?: string | undefined;
 }) {
   const { t } = useTranslation();
   const channel = useChatChannel(channelId);
@@ -136,7 +156,14 @@ export function ChannelView({
       </section>
     );
   }
-  return <ChannelBody channel={channel.data} hrefFor={hrefFor} focusMessageId={focusMessageId} />;
+  return (
+    <ChannelBody
+      channel={channel.data}
+      hrefFor={hrefFor}
+      focusMessageId={focusMessageId}
+      openThreadId={openThreadId}
+    />
+  );
 }
 
 function ChannelSkeleton() {
@@ -161,7 +188,7 @@ function ChannelSkeleton() {
 }
 
 /** Il nome del canale: «AUD · general» (codice tabellare muted), «# announcements», i nomi del DM. */
-function useChannelName(channel: ChannelData, me: string) {
+export function useChannelName(channel: ChannelData, me: string) {
   const projects = useProjects().data;
   const people = usePeople().data;
   if (channel.kind === "project") {
@@ -181,10 +208,12 @@ function ChannelBody({
   channel,
   hrefFor,
   focusMessageId,
+  openThreadId,
 }: {
   channel: ChannelData;
   hrefFor: ChannelHref;
   focusMessageId?: string | undefined;
+  openThreadId?: string | undefined;
 }) {
   const { t, i18n } = useTranslation();
   const me = useSessionPersonId();
@@ -219,6 +248,7 @@ function ChannelBody({
   const remove = useDeleteChatMessage();
   const react = useToggleReaction();
   const markRead = useMarkChannelRead();
+  const openHref = useOpenHref();
   const join = useJoinChannel();
   const leave = useLeaveChannel();
   const archive = useArchiveChannel();
@@ -379,7 +409,12 @@ function ChannelBody({
         },
       })
       .then(
-        () => setLocal((list) => list.filter((l) => l.key !== key)),
+        (sent) => {
+          setLocal((list) => list.filter((l) => l.key !== key));
+          // «@Claude» nel canale: la risposta nasce nel thread, e per chi
+          // l'ha chiamato il pannello si apre da solo su quel thread.
+          if (callsClaude(sent.text)) openHref(hrefFor({ thread: sent.id }));
+        },
         () =>
           setLocal((list) =>
             list.map((l) => (l.key === key ? { ...l, state: "failed", slow: false } : l)),
@@ -445,6 +480,7 @@ function ChannelBody({
         key={m.id}
         message={m}
         head={row.head}
+        selected={openThreadId !== undefined && m.id === openThreadId}
         viewerId={me}
         canWrite={channel.canWrite}
         member={channel.isMember}

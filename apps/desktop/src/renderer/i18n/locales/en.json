@@ -1966,7 +1966,8 @@
       "assign": {
         "noPerson": "Who should I assign **{{task}}** to?",
         "proposal": "I'd assign **{{task}}** to {{name}}. Confirm below.",
-        "summary": "Assign {{task}} to {{name}}"
+        "summary": "Assign {{task}} to {{name}}",
+        "ask": "Who should take {{task}}?"
       },
       "plan": {
         "proposal": "I'd plan **{{task}}** for {{week}}. Confirm below.",
@@ -2579,7 +2580,55 @@
         "people": "People",
         "departments": "Departments",
         "everyone": "Channel and Claude"
-      }
+      },
+      "claudeWarning": "Claude will act as you and reply here, visible to everyone in {{name}}.",
+      "alsoSend": "Also send to {{name}}"
+    },
+    "thread": {
+      "title": "Thread",
+      "label": "Thread in {{name}}",
+      "in": "in {{name}}",
+      "close": "Close thread",
+      "more": "Thread options",
+      "copyLink": "Copy link",
+      "follow": "Follow thread",
+      "unfollow": "Unfollow thread",
+      "markUnread": "Mark unread",
+      "replies_one": "{{count}} reply",
+      "replies_other": "{{count}} replies",
+      "noReplies": "No replies yet",
+      "newReplies": "New replies",
+      "loading": "Loading thread…",
+      "error": "Couldn't load this thread",
+      "notFound": "This thread doesn't exist or you can't see it",
+      "reply": "Reply…",
+      "replyLabel": "Reply in thread",
+      "joinToReply": "Join channel to reply",
+      "list": "Replies",
+      "followFailed": "Couldn't change following. Try again."
+    },
+    "claude": {
+      "calledBy": "called by {{name}}",
+      "thinking": "thinking…",
+      "waiting": "waiting for {{name}}",
+      "stop": "Stop",
+      "stopFailed": "Couldn't stop Claude. Try again.",
+      "stopped": "Stopped by {{name}}",
+      "failed": "Claude couldn't finish: {{reason}}",
+      "reasons": {
+        "forbidden": "the person who called it can no longer read this channel",
+        "not_found": "something it needed no longer exists",
+        "other": "something went wrong"
+      },
+      "tryAgain": "Try again",
+      "tryAgainFailed": "Couldn't try again.",
+      "delete": "Delete Claude's reply",
+      "deleteConfirm": "Delete Claude's reply?",
+      "replied": "Claude replied",
+      "asksYou": "Claude asks you",
+      "asks": "Claude asks {{name}}",
+      "waitingFor": "Waiting for {{name}}",
+      "questionClosed": "Not answered: the reply was stopped."
     }
   }
 }

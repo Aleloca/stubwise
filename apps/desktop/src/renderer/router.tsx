@@ -204,12 +204,13 @@ const conversationRoute = createRoute({
 function ChatChannelRoutePage() {
   const { channelId } = chatChannelRoute.useParams();
   const { viewer } = useViewer();
-  const search = useSearch({ strict: false }) as { message?: string };
+  const search = useSearch({ strict: false }) as { message?: string; thread?: string };
   return (
     <ChannelView
       key={`${viewer.personId}:${channelId}`}
       channelId={channelId}
       focusMessageId={search.message}
+      openThreadId={search.thread}
     />
   );
 }

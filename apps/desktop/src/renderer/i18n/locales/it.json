@@ -1966,7 +1966,8 @@
       "assign": {
         "noPerson": "A chi assegno **{{task}}**?",
         "proposal": "Assegnerei **{{task}}** a {{name}}. Conferma qui sotto.",
-        "summary": "Assegna {{task}} a {{name}}"
+        "summary": "Assegna {{task}} a {{name}}",
+        "ask": "A chi assegno {{task}}?"
       },
       "plan": {
         "proposal": "Pianificherei **{{task}}** per la {{week}}. Conferma qui sotto.",
@@ -2579,7 +2580,55 @@
         "people": "Persone",
         "departments": "Reparti",
         "everyone": "Canale e Claude"
-      }
+      },
+      "claudeWarning": "Claude agirà come te e risponderà qui, visibile a tutti in {{name}}.",
+      "alsoSend": "Invia anche in {{name}}"
+    },
+    "thread": {
+      "title": "Thread",
+      "label": "Thread in {{name}}",
+      "in": "in {{name}}",
+      "close": "Chiudi il thread",
+      "more": "Opzioni del thread",
+      "copyLink": "Copia link",
+      "follow": "Segui il thread",
+      "unfollow": "Smetti di seguire",
+      "markUnread": "Segna come da leggere",
+      "replies_one": "{{count}} risposta",
+      "replies_other": "{{count}} risposte",
+      "noReplies": "Ancora nessuna risposta",
+      "newReplies": "Nuove risposte",
+      "loading": "Caricamento del thread…",
+      "error": "Impossibile caricare il thread",
+      "notFound": "Questo thread non esiste o non puoi vederlo",
+      "reply": "Rispondi…",
+      "replyLabel": "Rispondi nel thread",
+      "joinToReply": "Entra nel canale per rispondere",
+      "list": "Risposte",
+      "followFailed": "Impossibile cambiare. Riprova."
+    },
+    "claude": {
+      "calledBy": "chiamato da {{name}}",
+      "thinking": "sta pensando…",
+      "waiting": "aspetta {{name}}",
+      "stop": "Ferma",
+      "stopFailed": "Impossibile fermare Claude. Riprova.",
+      "stopped": "Fermato da {{name}}",
+      "failed": "Claude non ha finito: {{reason}}",
+      "reasons": {
+        "forbidden": "chi l'ha chiamato non legge più questo canale",
+        "not_found": "qualcosa che gli serviva non c'è più",
+        "other": "qualcosa è andato storto"
+      },
+      "tryAgain": "Riprova",
+      "tryAgainFailed": "Impossibile riprovare.",
+      "delete": "Elimina la risposta di Claude",
+      "deleteConfirm": "Eliminare la risposta di Claude?",
+      "replied": "Claude ha risposto",
+      "asksYou": "Claude ti chiede",
+      "asks": "Claude chiede a {{name}}",
+      "waitingFor": "In attesa di {{name}}",
+      "questionClosed": "Senza risposta: la risposta è stata fermata."
     }
   }
 }

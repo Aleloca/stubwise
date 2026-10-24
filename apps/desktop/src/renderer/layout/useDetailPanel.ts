@@ -86,7 +86,8 @@ export function useDetailPanel(initialOpen = false): DetailPanelState {
 
 const MODE_CLASS: Record<DetailPanelMode, string> = {
   docked: "relative h-full shrink-0 border-l border-rule bg-surface",
-  overlay: "panel-enter fixed inset-y-0 right-0 z-40 max-w-[100vw] border-l border-rule-strong bg-surface",
+  overlay:
+    "panel-enter fixed inset-y-0 right-0 z-40 max-w-[100vw] border-l border-rule-strong bg-surface",
 };
 
 /** Un dialogo modale aperto (la palette ⌘K) ha la precedenza su Esc. */
@@ -117,17 +118,20 @@ export function DetailPanel({
   label,
   onClose,
   children,
+  defaultWidth,
 }: {
   mode: DetailPanelMode;
   label: string;
   onClose: () => void;
   children: ReactNode;
+  /** La larghezza di partenza, se non quella del dettaglio (il thread della Chat: 400). */
+  defaultWidth?: number;
 }) {
   const { t } = useTranslation();
   const personId = useViewer().viewer.personId;
   const storageKey = detailPanelWidthKey(personId);
   const [stored, setStored] = useState<number | null>(() => readWidth(storageKey));
-  const width = stored ?? DEFAULT_WIDTH[mode];
+  const width = stored ?? defaultWidth ?? DEFAULT_WIDTH[mode];
   const panel = useRef<HTMLElement>(null);
   const drag = useRef<{ x: number; width: number; pointerId: number } | null>(null);
 
@@ -234,10 +238,6 @@ export function DetailPanel({
       className: `flex min-h-0 flex-col outline-none ${MODE_CLASS[mode]}`,
     },
     handle,
-    createElement(
-      "div",
-      { className: "flex min-h-0 flex-1 flex-col overflow-auto" },
-      children,
-    ),
+    createElement("div", { className: "flex min-h-0 flex-1 flex-col overflow-auto" }, children),
   );
 }

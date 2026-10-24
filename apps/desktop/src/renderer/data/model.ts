@@ -937,17 +937,27 @@ export interface ChatMessage {
   claudeEvents?: ConversationEvent[];
   /**
    * Solo `claude` chiamato dal vivo (senza = una risposta finita del seme):
-   * il messaggio che l'ha chiamato e a che punto è. `stopped` = fermata da
-   * chi l'ha chiamato; `failed` con il motivo, e «Try again» per chi l'ha
-   * chiamato finché non l'ha già rifatta (`retried`).
+   * il messaggio che l'ha chiamato e a che punto è. `waiting` = Claude ha
+   * fatto una domanda a chi l'ha chiamato (una riga `question` aperta in
+   * `claudeEvents`) e aspetta la risposta; `stopped` = fermata da chi l'ha
+   * chiamato; `failed` con il codice del motivo (la UI lo dice nella sua
+   * lingua, mai un testo grezzo), e «Try again» per chi l'ha chiamato
+   * finché non l'ha già rifatta (`retried`).
    */
   claudeRun?: {
     callMessageId: string;
-    state: "working" | "done" | "stopped" | "failed";
-    error?: string;
+    state: "working" | "waiting" | "done" | "stopped" | "failed";
+    errorCode?: ChatClaudeFailure;
     retried?: boolean;
   };
 }
+
+/**
+ * Perché una risposta di @Claude non è finita: chi l'ha chiamato non legge
+ * più il canale (`forbidden`), qualcosa che serviva non c'è più
+ * (`not_found`), o un errore qualunque (`other`).
+ */
+export type ChatClaudeFailure = "forbidden" | "not_found" | "other";
 
 /** Fin dove una persona ha letto un canale e, per id della radice, i thread. */
 export interface ReadState {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChatMessageView } from "../../data/types";
-import { dayLabel, flowDays, mergeFlow } from "./flow";
+import { dayLabel, flowDays, mergeFlow, mergeThread, threadRows } from "./flow";
 
 function msg(id: string, at: string, extra: Partial<ChatMessageView> = {}): ChatMessageView {
   return {
@@ -103,5 +103,60 @@ describe("chat: il flusso del canale", () => {
     expect(dayLabel("2026-10-22", "2026-10-23", "en", words)).toBe("Yesterday");
     expect(dayLabel("2026-10-15", "2026-10-23", "en", words)).toBe("Thursday, Oct 15");
     expect(dayLabel("2025-10-02", "2026-10-23", "en", words)).toBe("Oct 2, 2025");
+  });
+});
+
+describe("threadRows / mergeThread", () => {
+  const r = (id: string, at: string, extra: Partial<ChatMessageView> = {}) =>
+    msg(id, at, { threadOf: "root", ...extra });
+
+  it("gruppi per autore entro 5 minuti; una risposta di Claude apre sempre un gruppo", () => {
+    const rows = threadRows(
+      [
+        r("a", "2026-10-23T10:00:00Z"),
+        r("b", "2026-10-23T10:02:00Z"),
+        r("c", "2026-10-23T10:03:00Z", { kind: "claude", authorId: "p-claude" }),
+        r("d", "2026-10-23T10:03:30Z", { kind: "claude", authorId: "p-claude" }),
+      ],
+      { viewerId: "p-giulia", lastReadAt: null },
+    );
+    expect(rows.map((x) => (x.kind === "message" ? x.head : null))).toEqual([
+      true,
+      false,
+      true,
+      true,
+    ]);
+  });
+
+  it("«New replies» prima della prima risposta non mia dopo la lettura", () => {
+    const rows = threadRows(
+      [
+        r("a", "2026-10-23T10:00:00Z"),
+        r("mine", "2026-10-23T10:10:00Z", { authorId: "p-giulia" }),
+        r("b", "2026-10-23T10:11:00Z"),
+      ],
+      { viewerId: "p-giulia", lastReadAt: "2026-10-23T10:05:00Z" },
+    );
+    expect(rows.map((x) => (x.kind === "message" ? x.message.id : x.kind))).toEqual([
+      "a",
+      "mine",
+      "new",
+      "b",
+    ]);
+  });
+
+  it("lo stream sostituisce radice e risposte per id e aggiunge le nuove in ordine; gli altri thread no", () => {
+    const merged = mergeThread(
+      msg("root", "2026-10-23T09:00:00Z"),
+      [r("a", "2026-10-23T10:00:00Z")],
+      [
+        msg("root", "2026-10-23T09:00:00Z", { text: "edited" }),
+        r("b", "2026-10-23T10:05:00Z"),
+        r("a", "2026-10-23T10:00:00Z", { text: "a2" }),
+        msg("x", "2026-10-23T10:01:00Z", { threadOf: "other" }),
+      ],
+    );
+    expect(merged.root.text).toBe("edited");
+    expect(merged.replies.map((m) => `${m.id}:${m.text}`)).toEqual(["a:a2", "b:b"]);
   });
 });

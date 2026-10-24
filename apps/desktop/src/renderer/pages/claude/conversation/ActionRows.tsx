@@ -89,7 +89,14 @@ function StateMark({ state }: { state: Action["state"] }) {
   );
 }
 
-export function ActionRow({ action }: { action: Action }) {
+export function ActionRow({
+  action,
+  renderText,
+}: {
+  action: Action;
+  /** Come si scrive l'etichetta per chi guarda (R-E9 nella Chat); senza, il testo. */
+  renderText?: ((text: string) => ReactNode) | undefined;
+}) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [all, setAll] = useState(false);
@@ -99,7 +106,7 @@ export function ActionRow({ action }: { action: Action }) {
     <>
       <StateMark state={action.state} />
       <span className="min-w-0 [overflow-wrap:anywhere]">
-        <Label text={actionLabel(t, action)} />
+        {renderText ? renderText(actionLabel(t, action)) : <Label text={actionLabel(t, action)} />}
         {action.state === "failed" && (
           <span className="ml-1.5 font-medium text-critical">
             {t("claude.conversation.actions.failed")}
@@ -176,7 +183,15 @@ function ActionBlock({ label, text, all }: { label: string; text: string; all: b
  * Le azioni consecutive: una riga sola se è una, altrimenti un gruppo.
  * `compact` (pannello stretto): il gruppo resta chiuso anche in corso.
  */
-export function ActionRows({ actions, compact = false }: { actions: Action[]; compact?: boolean }) {
+export function ActionRows({
+  actions,
+  compact = false,
+  renderText,
+}: {
+  actions: Action[];
+  compact?: boolean;
+  renderText?: (text: string) => ReactNode;
+}) {
   const { t } = useTranslation();
   const running = actions.some((a) => a.state === "running");
   const [choice, setChoice] = useState<boolean | null>(null);
@@ -187,7 +202,7 @@ export function ActionRows({ actions, compact = false }: { actions: Action[]; co
   if (actions.length === 1) {
     return (
       <ul className="event-enter flex min-w-0 flex-col">
-        <ActionRow action={actions[0]!} />
+        <ActionRow action={actions[0]!} renderText={renderText} />
       </ul>
     );
   }
@@ -217,7 +232,9 @@ export function ActionRows({ actions, compact = false }: { actions: Action[]; co
           </span>
         )}
         <span aria-hidden="true">·</span>
-        <span className="min-w-0 flex-1 truncate">{summary}</span>
+        <span className="min-w-0 flex-1 truncate">
+          {renderText ? renderText(summary) : summary}
+        </span>
       </button>
       {open && (
         <ul id={listId} className="flex min-w-0 flex-col border-l border-rule pl-2 ml-3">
@@ -233,7 +250,7 @@ export function ActionRows({ actions, compact = false }: { actions: Action[]; co
             </li>
           )}
           {actions.slice(hidden).map((a) => (
-            <ActionRow key={a.id} action={a} />
+            <ActionRow key={a.id} action={a} renderText={renderText} />
           ))}
         </ul>
       )}

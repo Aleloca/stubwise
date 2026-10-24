@@ -60,4 +60,11 @@ export interface IntentContext {
    * parla di AUD-4. Fuori dalla Chat non c'è.
    */
   thread?: readonly string[];
+  /**
+   * Chi chiama può rispondere a una domanda di Claude prima della proposta
+   * (una chiamata dalla Chat, R-G4): una richiesta a cui manca un pezzo
+   * («assegna AUD-4», senza a chi) diventa una domanda a scelta invece di
+   * una risposta di solo testo. Fuori dalla Chat non c'è.
+   */
+  asks?: boolean;
 }

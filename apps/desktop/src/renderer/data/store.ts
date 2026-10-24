@@ -214,7 +214,9 @@ export type ApiFnName =
   | "chat.confirmProposal"
   | "chat.cancelProposal"
   | "chat.editProposal"
-  | "chat.completeEditedProposal";
+  | "chat.completeEditedProposal"
+  | "chat.answerClaudeQuestion"
+  | "chat.listClaudeQuestions";
 const failures = new Set<ApiFnName>();
 
 /** Fissa la latenza simulata (ms); `0` per i test, `null` per tornare a 150–400 ms. */

@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   useCancelProposal,
@@ -30,17 +30,27 @@ export function routeOfCode(code: string): string {
   return /-R\d+$/.test(code) ? `#/p/${project}/requests` : `#/p/${project}/tasks?task=${code}`;
 }
 
-function ResultCodes({ codes }: { codes: readonly string[] }) {
+function ResultCodes({
+  codes,
+  renderCode,
+}: {
+  codes: readonly string[];
+  renderCode?: ((code: string) => ReactNode) | undefined;
+}) {
   return (
     <>
       {codes.map((code, i) => (
         <span key={code}>
-          <a
-            href={routeOfCode(code)}
-            className="num font-semibold text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
-          >
-            {code}
-          </a>
+          {renderCode ? (
+            renderCode(code)
+          ) : (
+            <a
+              href={routeOfCode(code)}
+              className="num font-semibold text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
+            >
+              {code}
+            </a>
+          )}
           {i < codes.length - 1 && ", "}
         </span>
       ))}
@@ -51,10 +61,21 @@ function ResultCodes({ codes }: { codes: readonly string[] }) {
 type EditState = { fn: ProposedAction["fn"]; args: Record<string, unknown> } | null;
 
 /**
- * Una modifica che Claude propone: la esegue solo la conferma di chi l'ha
- * chiesta (Confirm, Edit, Cancel; con più azioni una casella per riga e
- * «Confirm all» / «Confirm selected»). Chi non l'ha chiesta legge
- * «Proposal for …» e nessun bottone. L'esito prende il posto dei bottoni.
+ * Le operazioni di una proposta, ovunque stia: la conversazione le fa per
+ * id della conversazione, la Chat per id del messaggio (R-G1). Ognuna
+ * fallisce con l'errore del livello dati.
+ */
+export interface ProposalOps {
+  confirm: (actionIndexes: number[] | undefined) => Promise<unknown>;
+  cancel: () => Promise<unknown>;
+  edit: () => Promise<NonNullable<EditState>>;
+  complete: (code: string) => Promise<unknown>;
+  busy: boolean;
+}
+
+/**
+ * Una modifica che Claude propone nella conversazione (vedi
+ * `ProposalCardView`): le operazioni per id della conversazione.
  */
 export function ProposalCard({
   conversationId,
@@ -65,11 +86,49 @@ export function ProposalCard({
   event: Ev<"proposal">;
   viewerId: string;
 }) {
-  const { t } = useTranslation();
   const confirm = useConfirmProposal();
   const cancel = useCancelProposal();
   const edit = useEditProposal();
   const complete = useCompleteEditedProposal();
+  const target = { id: conversationId, proposalId: event.proposalId };
+  return (
+    <ProposalCardView
+      event={event}
+      viewerId={viewerId}
+      ops={{
+        confirm: (actionIndexes) =>
+          confirm.mutateAsync({ ...target, ...(actionIndexes ? { actionIndexes } : {}) }),
+        cancel: () => cancel.mutateAsync(target),
+        edit: () => edit.mutateAsync(target),
+        complete: (code) => complete.mutateAsync({ ...target, resultCodes: [code] }),
+        busy: confirm.isPending || cancel.isPending || edit.isPending || complete.isPending,
+      }}
+    />
+  );
+}
+
+/**
+ * Una modifica che Claude propone: la esegue solo la conferma di chi l'ha
+ * chiesta (Confirm, Edit, Cancel; con più azioni una casella per riga e
+ * «Confirm all» / «Confirm selected»). Chi non l'ha chiesta legge
+ * «Proposal for …» e nessun bottone. L'esito prende il posto dei bottoni.
+ * `renderText` / `renderCode`: come si scrivono riassunti e codici nati
+ * per chi guarda (la Chat li passa per R-E9); senza, testo e link.
+ */
+export function ProposalCardView({
+  event,
+  viewerId,
+  ops,
+  renderText,
+  renderCode,
+}: {
+  event: Ev<"proposal">;
+  viewerId: string;
+  ops: ProposalOps;
+  renderText?: (text: string) => ReactNode;
+  renderCode?: (code: string) => ReactNode;
+}) {
+  const { t } = useTranslation();
   const requester = usePersonName(event.requesterId);
   const [selected, setSelected] = useState<boolean[]>(() => event.actions.map(() => true));
   const [error, setError] = useState<string | null>(null);
@@ -82,7 +141,8 @@ export function ProposalCard({
   const many = event.actions.length > 1;
   const chosen = selected.flatMap((on, i) => (on ? [i] : []));
   const all = chosen.length === event.actions.length;
-  const busy = confirm.isPending || cancel.isPending || edit.isPending || complete.isPending;
+  const busy = ops.busy;
+  const summary = (text: string) => (renderText ? renderText(text) : text);
 
   const fail = (e: Error) =>
     setError(
@@ -95,32 +155,19 @@ export function ProposalCard({
 
   const doConfirm = () => {
     setError(null);
-    confirm.mutate(
-      {
-        id: conversationId,
-        proposalId: event.proposalId,
-        ...(all ? {} : { actionIndexes: chosen }),
-      },
-      { onError: fail },
-    );
+    ops.confirm(all ? undefined : chosen).catch(fail);
   };
   const doCancel = () => {
     setError(null);
-    cancel.mutate({ id: conversationId, proposalId: event.proposalId }, { onError: fail });
+    ops.cancel().catch(fail);
   };
   const doEdit = () => {
     setError(null);
-    edit.mutate(
-      { id: conversationId, proposalId: event.proposalId },
-      { onSuccess: (result) => setEditing(result), onError: fail },
-    );
+    ops.edit().then(setEditing, fail);
   };
   const edited = (code: string) => {
     setEditing(null);
-    complete.mutate(
-      { id: conversationId, proposalId: event.proposalId, resultCodes: [code] },
-      { onError: fail },
-    );
+    ops.complete(code).catch(fail);
   };
 
   const outcome = (() => {
@@ -143,7 +190,7 @@ export function ProposalCard({
             {partial && <span className="text-ink-muted">· {partial}</span>}
             {codes.length > 0 && (
               <span>
-                · <ResultCodes codes={codes} />
+                · <ResultCodes codes={codes} renderCode={renderCode} />
               </span>
             )}
           </p>
@@ -200,13 +247,15 @@ export function ProposalCard({
                   <span className="mt-[3px] rounded-[3px] outline-offset-2 peer-focus-visible:outline-2 peer-focus-visible:outline-focus">
                     <CheckBox checked={!!selected[i]} />
                   </span>
-                  <span className="min-w-0 [overflow-wrap:anywhere]">{action.summary}</span>
+                  <span className="min-w-0 [overflow-wrap:anywhere]">
+                    {summary(action.summary)}
+                  </span>
                 </label>
               ) : (
                 <span
                   className={`min-w-0 [overflow-wrap:anywhere] ${ran === false ? "text-ink-faint line-through decoration-ink/30" : ""}`}
                 >
-                  {action.summary}
+                  {summary(action.summary)}
                 </span>
               )}
             </li>

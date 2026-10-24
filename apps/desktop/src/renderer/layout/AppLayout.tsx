@@ -5,6 +5,7 @@ import { BriefPanelHost } from "../pages/overview/BriefCard";
 import { NewRequestHost } from "../pages/requests/NewRequestDialog";
 import { RequestDetailHost } from "../pages/requests/RequestDetail";
 import { NewTaskHost } from "../pages/task/NewTaskDialog";
+import { ThreadPanelHost } from "../pages/chat/ThreadPanel";
 import { TaskDetailHost } from "../pages/task/TaskDetail";
 import { CommandPalette } from "../palette/CommandPalette";
 import { applyPlatformAttribute } from "../platform/platform";
@@ -36,6 +37,7 @@ export function AppLayout() {
         <TaskDetailHost />
         <RequestDetailHost />
         <BriefPanelHost />
+        <ThreadPanelHost />
       </div>
       <NewTaskHost />
       <NewRequestHost />

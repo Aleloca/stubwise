@@ -39,7 +39,7 @@ import type {
   Task,
 } from "../types";
 import { can, viewerFor } from "../viewer";
-import { callClaudeIfAsked, haltReply } from "./claude";
+import { callClaudeIfAsked, haltReply, live } from "./claude";
 import { mentionKindFor, mentionsName, questionTargets } from "./mentions";
 import { PEOPLE } from "../seed/people";
 import {
@@ -377,7 +377,7 @@ export async function deleteMessage(id: string): Promise<void> {
   if (ch.archived) throw invalid("archived");
   // Una risposta di @Claude che sta ancora arrivando si ferma con lei: le
   // sue proposte aperte decadono con il testo (nessun esito da mostrare).
-  if (m.kind === "claude" && m.claudeRun?.state === "working") haltReply(m, "stopped");
+  if (m.kind === "claude" && live(m)) haltReply(m, "stopped");
   const scrubbed = structuredClone(m);
   scrubDeleted(scrubbed);
   patchChatMessage(m.id, {

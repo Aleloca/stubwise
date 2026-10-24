@@ -9,6 +9,7 @@ export {
   listChannels,
   listMentions,
   listMessages,
+  listClaudeQuestions,
   listQuestions,
   listThread,
   listThreadsWithNews,
@@ -41,6 +42,7 @@ export {
   updateChannel,
 } from "./writes";
 export {
+  answerChatClaudeQuestion,
   callText,
   cancelChatProposal,
   completeEditedChatProposal,

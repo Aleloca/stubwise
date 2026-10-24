@@ -129,6 +129,7 @@ export const queryKeys = {
   chatThreads: (personId: string) => ["as", personId, "chatThreads"] as const,
   chatMentions: (personId: string) => ["as", personId, "chatMentions"] as const,
   chatQuestions: (personId: string) => ["as", personId, "chatQuestions"] as const,
+  chatClaudeQuestions: (personId: string) => ["as", personId, "chatClaudeQuestions"] as const,
   chatSearch: (personId: string, q: string, filters: ChatSearchFilters) =>
     ["as", personId, "chatSearch", q, filters] as const,
 };
@@ -1457,6 +1458,7 @@ const CHAT_LIVE_AREAS = [
   "chatThreads",
   "chatMentions",
   "chatQuestions",
+  "chatClaudeQuestions",
   "chatMessage",
   "notifications",
 ] as const;
@@ -1734,6 +1736,92 @@ export function useCreateRequestFromMessage() {
     ({ messageId, input }: { messageId: string; input: api.NewRequestInput }) =>
       api.chat.createRequestFromMessage(messageId, input),
     CHAT_CREATE_AREAS,
+  );
+}
+
+// --- @Claude nei thread: fermare, rifare, la domanda, le proposte (R-G1, R-G4) ---
+
+/** Le domande di @Claude a chi guarda, nei thread in cui l'ha chiamato (per «Da decidere»). */
+export function useChatClaudeQuestions() {
+  const me = useSessionPersonId();
+  useChatChanges();
+  return useQuery({
+    queryKey: queryKeys.chatClaudeQuestions(me),
+    queryFn: api.chat.listClaudeQuestions,
+  });
+}
+
+export function useStopClaudeReply() {
+  return useWrite(api.chat.stopClaudeReply, CHAT_AREAS);
+}
+
+export function useRetryClaudeReply() {
+  return useWrite(api.chat.retryClaudeReply, CHAT_AREAS);
+}
+
+/** Risponde alla domanda di @Claude (solo chi l'ha chiamato): la risposta continua. */
+export function useAnswerChatClaudeQuestion() {
+  return useWrite(
+    ({
+      messageId,
+      questionId,
+      answer,
+    }: {
+      messageId: string;
+      questionId: string;
+      answer: { optionIndex: number | null; text: string | null };
+    }) => api.chat.answerChatClaudeQuestion(messageId, questionId, answer),
+    [...CHAT_AREAS, ...DECIDE_AREAS],
+  );
+}
+
+/** Le proposte di una risposta di @Claude: le stesse aree della conversazione, più la Chat. */
+const CHAT_PROPOSAL_AREAS = [...PROPOSAL_AREAS, ...CHAT_AREAS] as const;
+
+export function useConfirmChatProposal() {
+  return useWrite(
+    ({
+      messageId,
+      proposalId,
+      actionIndexes,
+    }: {
+      messageId: string;
+      proposalId: string;
+      actionIndexes?: number[];
+    }) =>
+      api.chat.confirmChatProposal(messageId, proposalId, actionIndexes ? { actionIndexes } : {}),
+    CHAT_PROPOSAL_AREAS,
+  );
+}
+
+export function useCancelChatProposal() {
+  return useWrite(
+    ({ messageId, proposalId }: { messageId: string; proposalId: string }) =>
+      api.chat.cancelChatProposal(messageId, proposalId),
+    CHAT_AREAS,
+  );
+}
+
+/** «Modifica»: gli argomenti per aprire il dialogo dell'azione; non scrive nulla. */
+export function useEditChatProposal() {
+  return useMutation({
+    mutationFn: ({ messageId, proposalId }: { messageId: string; proposalId: string }) =>
+      api.chat.editChatProposal(messageId, proposalId),
+  });
+}
+
+export function useCompleteEditedChatProposal() {
+  return useWrite(
+    ({
+      messageId,
+      proposalId,
+      resultCodes,
+    }: {
+      messageId: string;
+      proposalId: string;
+      resultCodes: string[];
+    }) => api.chat.completeEditedChatProposal(messageId, proposalId, resultCodes),
+    CHAT_PROPOSAL_AREAS,
   );
 }
 

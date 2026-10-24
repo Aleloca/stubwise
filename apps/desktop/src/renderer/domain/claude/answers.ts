@@ -19,6 +19,11 @@ export interface Answer {
   refs?: CitationRef[];
   /** Le modifiche proposte: mai eseguite qui, solo una scheda da confermare. */
   proposal?: ProposedAction[];
+  /** Una domanda a chi chiama (solo con `ctx.asks`): la risposta continua il lavoro. */
+  ask?: {
+    text: string;
+    options: { label: string; consequence?: string; recommended?: boolean }[];
+  };
 }
 
 /**
@@ -37,9 +42,22 @@ export function toSteps(answer: Answer, ctx: IntentContext, text: string): Scrip
     if (a.result !== undefined) step.result = a.result;
     steps.push(step);
   }
-  steps.push({ step: "say", text: answer.text });
+  // Con una domanda il testo può mancare: la domanda dice già tutto.
+  if (answer.text) steps.push({ step: "say", text: answer.text });
   const refs = dedupeRefs(answer.refs ?? []);
   if (refs.length > 0) steps.push({ step: "event", event: { type: "citation", refs } });
+  if (answer.ask) {
+    steps.push({
+      step: "event",
+      event: {
+        type: "question",
+        questionId: proposalId(ctx, `ask|${text}`).replace("prop-", "q-"),
+        text: answer.ask.text,
+        options: answer.ask.options,
+        answer: null,
+      },
+    });
+  }
   if (answer.proposal && answer.proposal.length > 0) {
     steps.push({
       step: "event",

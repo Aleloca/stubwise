@@ -108,6 +108,63 @@ export function flowDays(
   return days;
 }
 
+/**
+ * Le risposte di un thread come si disegnano nel pannello: stessi gruppi del
+ * canale (autore, 5 minuti), la riga «New replies» prima della prima
+ * risposta arrivata dopo la lettura di chi guarda (non sua). Una risposta di
+ * @Claude apre sempre un gruppo: ognuna dice chi l'ha chiamata.
+ */
+export function threadRows(
+  replies: readonly ChatMessageView[],
+  { viewerId, lastReadAt }: { viewerId: string; lastReadAt: string | null },
+): FlowRow[] {
+  const rows: FlowRow[] = [];
+  let newPlaced = lastReadAt === null;
+  let previous: ChatMessageView | null = null;
+  for (const m of replies) {
+    let separated = false;
+    if (!newPlaced && m.createdAt > lastReadAt! && m.authorId !== viewerId) {
+      rows.push({ kind: "new" });
+      newPlaced = true;
+      separated = true;
+    }
+    const continues =
+      !separated &&
+      previous !== null &&
+      m.kind === "person" &&
+      previous.kind === "person" &&
+      previous.authorId === m.authorId &&
+      previous.deletedAt === null &&
+      m.deletedAt === null &&
+      previous.createdAt.slice(0, 10) === m.createdAt.slice(0, 10) &&
+      minutes(previous.createdAt, m.createdAt) <= GROUP_MINUTES;
+    rows.push({ kind: "message", message: m, head: !continues });
+    previous = m;
+  }
+  return rows;
+}
+
+/**
+ * Unisce il thread letto con ciò che arriva dal vivo sul suo flusso: la
+ * radice aggiornata e le risposte (nuove o cambiate), in ordine e senza doppi.
+ */
+export function mergeThread(
+  root: ChatMessageView,
+  replies: readonly ChatMessageView[],
+  live: readonly ChatMessageView[],
+): { root: ChatMessageView; replies: ChatMessageView[] } {
+  const byId = new Map(replies.map((m) => [m.id, m]));
+  let current = root;
+  for (const m of live) {
+    if (m.id === root.id) current = m;
+    else if (m.threadOf === root.id) byId.set(m.id, m);
+  }
+  return {
+    root: current,
+    replies: [...byId.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+  };
+}
+
 /** «16:02»: l'ora di un messaggio (il giorno lo dice il separatore). */
 export function hm(iso: string, language: string): string {
   return new Intl.DateTimeFormat(language, {

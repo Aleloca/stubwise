@@ -1,5 +1,5 @@
 import { PEOPLE } from "../seed/people";
-import { chatKey, copy, gate, now, PROPOSAL_EXPIRY, state } from "../store";
+import { chatKey, copy, gate, now, PROPOSAL_EXPIRY, state, visibleProjectIds } from "../store";
 import type {
   AppNotification,
   Channel,
@@ -10,6 +10,7 @@ import type {
   ChatMessage,
   ChatMessageHit,
   ChatMessageView,
+  ChatClaudeQuestion,
   ChatQuestion,
   ChatSearchFilters,
   CitationRef,
@@ -175,7 +176,12 @@ export function presentMessage(
   // Una proposta scaduta si legge già `expired`, come nella conversazione.
   for (const e of base.claudeEvents ?? []) {
     if (e.type === "proposal" && chatProposalExpired(data, m, e)) e.status = "expired";
+    // Gli argomenti delle azioni (titoli, campi) sono solo di chi può confermarle.
+    if (e.type === "proposal" && e.requesterId !== personId) {
+      e.actions = e.actions.map((a) => ({ ...a, args: {} }));
+    }
   }
+  const hiddenCodes = base.claudeEvents ? redactClaudeEvents(personId, base.claudeEvents) : [];
   const replies = m.threadOf === null ? liveReplies(data, m.id) : [];
   const followedAt = readStateOf(personId, m.channelId)?.threadReads[m.id];
   const last = replies.at(-1);
@@ -203,7 +209,60 @@ export function presentMessage(
     answeredIds: base.asksReplyOf.filter((id) => answered(m, id, data)),
     mentionsViewer: mentionKindFor(m, personId, membersOf(data.ch)) !== null,
     linkedRefs: linkedRefsOf(base),
+    ...(m.kind === "claude" ? { hiddenCodes } : {}),
   };
+}
+
+const CODE_RE = /\b[A-Z]{2,4}-R?\d+\b/g;
+
+/**
+ * Le righe d'azione, le proposte e le domande di una risposta di @Claude
+ * come le legge `personId` (R-E9): il codice di una task o di una richiesta
+ * che non vede resta, il suo nome no — né nei riassunti delle proposte, né
+ * nelle etichette e nei risultati delle azioni, né nel testo di una
+ * domanda. Riscrive `events` (una copia) e restituisce quei codici, che la
+ * UI mostra tenui. Il testo di Claude no: lo legge uguale ogni lettore.
+ */
+function redactClaudeEvents(personId: string, events: ConversationEvent[]): string[] {
+  const visible = visibleProjectIds(personId);
+  const hidden = new Map<string, string>();
+  const scan = (text: string | undefined) => {
+    for (const code of text?.match(CODE_RE) ?? []) {
+      if (hidden.has(code)) continue;
+      const task = state.tasks.find((t) => t.code === code);
+      const request = task ? undefined : state.requests.find((r) => r.code === code);
+      const object = task ?? request;
+      if (object && !visible.has(object.projectId)) hidden.set(code, object.title);
+    }
+  };
+  for (const e of events) {
+    if (e.type === "action") [e.label, e.input, e.result].forEach(scan);
+    if (e.type === "proposal") {
+      e.actions.forEach((a) => scan(a.summary));
+      (e.resultCodes ?? []).forEach(scan);
+    }
+    if (e.type === "question") scan(e.text);
+  }
+  if (hidden.size === 0) return [];
+  const redact = (text: string): string => {
+    let out = text;
+    for (const [code, title] of hidden) {
+      if (title) out = out.split(`${code} ${title}`).join(code);
+    }
+    return out;
+  };
+  for (const e of events) {
+    if (e.type === "action") {
+      e.label = redact(e.label);
+      if (e.input !== undefined) e.input = redact(e.input);
+      if (e.result !== undefined) e.result = redact(e.result);
+    }
+    if (e.type === "proposal") {
+      e.actions = e.actions.map((a) => ({ ...a, summary: redact(a.summary) }));
+    }
+    if (e.type === "question") e.text = redact(e.text);
+  }
+  return [...hidden.keys()];
 }
 
 /** Il nome del canale come lo si legge: `AUD · general`, `# announcements`, i nomi del DM. */
@@ -487,6 +546,41 @@ export function chatQuestionsOf(personId: string): ChatQuestion[] {
 export async function listQuestions(): Promise<ChatQuestion[]> {
   const me = await gate("chat.listQuestions");
   return chatQuestionsOf(me);
+}
+
+/**
+ * Le domande di @Claude a chi guarda, nei thread in cui l'ha chiamato
+ * (R-G4): per «Da decidere», che le mostra accanto al thread. Solo quelle
+ * ancora aperte — risposte (in un posto o nell'altro), risposta fermata o
+ * eliminata, canale archiviato o non più letto: sparite da sole.
+ */
+export function chatClaudeQuestionsOf(personId: string): ChatClaudeQuestion[] {
+  const out: ChatClaudeQuestion[] = [];
+  for (const m of state.chatMessages) {
+    if (m.kind !== "claude" || m.calledById !== personId || m.deletedAt !== null) continue;
+    if (m.claudeRun?.state !== "waiting" || m.threadOf === null) continue;
+    const ch = channelById(m.channelId);
+    if (!ch || ch.archived || !canReadChannel(personId, ch)) continue;
+    for (const e of m.claudeEvents ?? []) {
+      if (e.type !== "question" || e.answer !== null) continue;
+      out.push({
+        id: `chat-claude:${m.id}:${e.questionId}`,
+        channelId: ch.id,
+        messageId: m.id,
+        rootId: m.threadOf,
+        questionId: e.questionId,
+        text: e.text,
+        options: copy(e.options),
+        createdAt: e.at,
+      });
+    }
+  }
+  return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function listClaudeQuestions(): Promise<ChatClaudeQuestion[]> {
+  const me = await gate("chat.listClaudeQuestions");
+  return chatClaudeQuestionsOf(me);
 }
 
 /** Senza maiuscole né accenti. */

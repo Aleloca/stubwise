@@ -38,7 +38,12 @@ export interface ChatSendInput {
   attachments: Attachment[];
   citations: CitationRef[];
   asksReply: boolean;
+  /** Solo nel thread: «Also send to …». */
+  alsoInChannel: boolean;
 }
+
+/** Il testo chiama Claude: «@Claude» intero (non «@Claudette»). */
+export const callsClaude = (text: string): boolean => /@Claude(?![\p{L}\p{N}_])/u.test(text);
 
 /** Le voci di «@»: persone (quelle del canale prima), reparti presenti nel canale, @channel, @Claude. */
 function usePeopleSuggestions(
@@ -110,6 +115,10 @@ export function ChatComposer({
   onRemoveAttachment,
   onSend,
   onEditLast,
+  draftKey = channelId,
+  placeholder,
+  alsoSendTo,
+  compact = false,
 }: {
   channelId: string;
   /** «AUD · general»: il segnaposto e il nome del campo. */
@@ -123,17 +132,27 @@ export function ChatComposer({
   onSend: (input: ChatSendInput) => void;
   /** ↑ nella casella vuota: modifica il mio ultimo messaggio (se c'è). */
   onEditLast: () => boolean;
+  /** Dove sta la bozza (di base il canale; il thread ha la sua). */
+  draftKey?: string;
+  /** Il segnaposto e il nome del campo, se non «Message AUD · general». */
+  placeholder?: string;
+  /** Nel thread: il canale di «Also send to …» (spenta di default e dopo ogni invio). */
+  alsoSendTo?: string;
+  /** Nel pannello del thread: margini stretti. */
+  compact?: boolean;
 }) {
   const { t } = useTranslation();
-  const [text, setTextState] = useState(() => readDraft(viewerId, channelId));
+  const [text, setTextState] = useState(() => readDraft(viewerId, draftKey));
   const [asksReply, setAsksReply] = useState(false);
+  const [alsoInChannel, setAlsoInChannel] = useState(false);
+  const alsoId = useId();
   const fileInput = useRef<HTMLInputElement>(null);
   const menuId = useId();
   const hintId = useId();
 
   const setText = (next: string) => {
     setTextState(next);
-    writeDraft(viewerId, channelId, next);
+    writeDraft(viewerId, draftKey, next);
   };
   // Nessun «/» in chat: solo «#» e «@».
   const composer = useComposerField({
@@ -171,9 +190,11 @@ export function ChatComposer({
       attachments: attachments.map((a) => a.attachment),
       citations: tokens.flatMap((tok) => (tok.ref && text.includes(tok.insert) ? [tok.ref] : [])),
       asksReply,
+      alsoInChannel: alsoSendTo !== undefined && alsoInChannel,
     });
     composer.reset();
     setAsksReply(false);
+    setAlsoInChannel(false);
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -201,7 +222,10 @@ export function ChatComposer({
   };
 
   return (
-    <div className="px-8 pt-2 pb-5 @max-[620px]:px-4" data-chat-composer>
+    <div
+      className={compact ? "px-3 pt-2 pb-3" : "px-8 pt-2 pb-5 @max-[620px]:px-4"}
+      data-chat-composer
+    >
       <div className="relative w-full max-w-[760px] min-w-0">
         {menuOpen && (
           <SuggestionMenu
@@ -247,9 +271,9 @@ export function ChatComposer({
             ref={field}
             rows={1}
             value={text}
-            aria-label={t("chat.composer.label", { name: channelLabel })}
+            aria-label={placeholder ?? t("chat.composer.label", { name: channelLabel })}
             aria-describedby={hintId}
-            placeholder={t("chat.composer.label", { name: channelLabel })}
+            placeholder={placeholder ?? t("chat.composer.label", { name: channelLabel })}
             role="combobox"
             aria-autocomplete="list"
             aria-expanded={menuOpen}
@@ -263,6 +287,24 @@ export function ChatComposer({
             onPaste={onPaste}
             className="block max-h-[216px] min-h-9 w-full resize-none bg-transparent px-3 pt-2.5 pb-1 text-md text-ink outline-none placeholder:text-ink-faint focus-visible:outline-none"
           />
+          {alsoSendTo !== undefined && (
+            <label
+              htmlFor={alsoId}
+              className="flex min-w-0 cursor-pointer items-center gap-2 px-3 pt-0.5 pb-1 text-sm text-ink-muted hover:text-ink"
+            >
+              <input
+                id={alsoId}
+                type="checkbox"
+                data-also-in-channel
+                checked={alsoInChannel}
+                onChange={(e) => setAlsoInChannel(e.target.checked)}
+                className="size-3.5 shrink-0 accent-ink"
+              />
+              <span className="min-w-0 truncate">
+                {t("chat.composer.alsoSend", { name: alsoSendTo })}
+              </span>
+            </label>
+          )}
           <div className="flex min-w-0 items-center gap-1 px-1.5 pb-1.5">
             <input
               ref={fileInput}
@@ -343,7 +385,11 @@ export function ChatComposer({
           </div>
         </div>
         <p id={hintId} className="min-h-4 pt-1.5 text-xs text-ink-muted" aria-live="polite">
-          {asksReply ? t("chat.composer.asksReplyOn") : ""}
+          {callsClaude(text)
+            ? t("chat.composer.claudeWarning", { name: channelLabel })
+            : asksReply
+              ? t("chat.composer.asksReplyOn")
+              : ""}
         </p>
       </div>
     </div>

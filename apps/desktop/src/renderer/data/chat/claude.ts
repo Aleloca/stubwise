@@ -33,6 +33,7 @@ import {
 import type {
   Channel,
   ChatMessage,
+  ChatClaudeFailure,
   ChatMessageView,
   ChatScriptStep,
   CitationRef,
@@ -207,19 +208,27 @@ async function work(caller: string, reply: ChatMessage, call: ChatMessage, gen: 
       t: i18n.t.bind(i18n) as T,
       seed: reply.id,
       thread,
+      asks: true,
     });
     if (!current(gen) || !working(reply)) return;
     await runScript(claudeReplyStream(reply.id), () => chatSteps(reply, thread.length, steps), gen);
   } catch (error) {
-    if (!current(gen) || !working(reply)) return;
-    patchChatMessage(reply.id, {
-      claudeRun: {
-        ...reply.claudeRun!,
-        state: "failed",
-        error: error instanceof Error ? error.message : String(error),
-      },
-    });
+    fail(reply, error, gen);
   }
+}
+
+/** Il codice del motivo di un errore: la UI lo dice nella sua lingua (mai il testo grezzo). */
+function failureOf(error: unknown): ChatClaudeFailure {
+  const message = error instanceof Error ? error.message : "";
+  return message === "forbidden" || message === "not_found" ? message : "other";
+}
+
+/** La risposta che lavorava resta «fallita» con il motivo (nulla dopo un ripristino o uno stop). */
+function fail(reply: ChatMessage, error: unknown, gen: number): void {
+  if (!current(gen) || !working(reply)) return;
+  patchChatMessage(reply.id, {
+    claudeRun: { ...reply.claudeRun!, state: "failed", errorCode: failureOf(error) },
+  });
 }
 
 /**
@@ -234,14 +243,17 @@ function chatSteps(
   steps: ScriptStep[],
 ): ChatScriptStep[] {
   const out: ChatScriptStep[] = [];
-  let events: ConversationEvent[] = [];
-  let citations: CitationRef[] = [];
-  let said = false;
+  // Una ripresa (dopo una risposta alla domanda) continua da ciò che c'è.
+  let events: ConversationEvent[] = [...(reply.claudeEvents ?? [])];
+  let citations: CitationRef[] = [...reply.citations];
+  let said = reply.text !== "";
+  const resumed = events.length > 0;
+  const at = resumed ? chatNow() : reply.createdAt;
   const event = (draft: EventDraft): ConversationEvent =>
     ({
       ...draft,
       id: `${reply.id}-e${events.length + 1}`,
-      at: reply.createdAt,
+      at,
     }) as ConversationEvent;
   const push = (e: ConversationEvent) => {
     events = [...events, e];
@@ -251,7 +263,7 @@ function chatSteps(
     events = events.map((x) => (x.id === e.id ? e : x));
     out.push({ step: "patch", messageId: reply.id, patch: { claudeEvents: events } });
   };
-  if (threadLength > 0) {
+  if (threadLength > 0 && !resumed) {
     push(
       event({
         type: "action",
@@ -265,6 +277,13 @@ function chatSteps(
   for (const step of steps) {
     switch (step.step) {
       case "action": {
+        // Ripresa: una lettura già fatta prima della domanda non si ripete.
+        if (
+          resumed &&
+          events.some((e) => e.type === "action" && e.tool === step.tool && e.label === step.label)
+        ) {
+          break;
+        }
         const draft: EventDraft = {
           type: "action",
           tool: step.tool,
@@ -297,10 +316,12 @@ function chatSteps(
         break;
     }
   }
+  // Una domanda aperta: la risposta aspetta chi l'ha chiamata, non è finita.
+  const asking = events.some((e) => e.type === "question" && e.answer === null);
   out.push({
     step: "patch",
     messageId: reply.id,
-    patch: { claudeRun: { ...reply.claudeRun!, state: "done" } },
+    patch: { claudeRun: { ...reply.claudeRun!, state: asking ? "waiting" : "done" } },
   });
   return out;
 }
@@ -335,8 +356,109 @@ export async function stopClaudeReply(id: string): Promise<ChatMessageView> {
   if (!current(gen)) throw new Error("reset");
   const { reply } = ownReply(me, id);
   if (reply.deletedAt !== null) throw invalid("deleted");
-  if (reply.claudeRun?.state !== "working") throw invalid("status");
+  if (!live(reply)) throw invalid("status");
   return presentMessage(me, haltReply(reply, "stopped"));
+}
+
+/** La risposta lavora o aspetta la risposta a una domanda: si può ancora fermare. */
+export const live = (reply: ChatMessage): boolean =>
+  reply.claudeRun?.state === "working" || reply.claudeRun?.state === "waiting";
+
+/**
+ * Risponde alla domanda che Claude ha fatto a chi l'ha chiamato (R-G4): solo
+ * lui (nessun altro, nemmeno un full admin: è la sua chiamata), una volta —
+ * una seconda risposta, anche concorrente, è `already_answered`. La risposta
+ * continua la stessa risposta di Claude, con i permessi di chi chiama. Vale
+ * dal thread come da «Da decidere»: è la stessa domanda.
+ */
+export async function answerChatClaudeQuestion(
+  messageId: string,
+  questionId: string,
+  answer: { optionIndex: number | null; text: string | null },
+): Promise<void> {
+  const gen = storeGeneration();
+  const me = await gate("chat.answerClaudeQuestion");
+  if (!current(gen)) throw new Error("reset");
+  const found = readableMessage(me, messageId);
+  if (!found || found.message.kind !== "claude" || found.message.deletedAt !== null) {
+    throw notFound();
+  }
+  const { message: reply, data } = found;
+  const question = reply.claudeEvents?.find(
+    (e) => e.type === "question" && e.questionId === questionId,
+  );
+  if (!question || question.type !== "question") throw notFound();
+  const key = `question:chat:${reply.id}:${questionId}`;
+  if (question.answer !== null || claims.has(key)) {
+    throw Object.assign(new Error("already_answered"), {
+      byId: question.answer?.byId ?? claims.get(key) ?? null,
+    });
+  }
+  if (reply.calledById !== me) throw forbidden();
+  if (reply.claudeRun?.state !== "waiting") throw invalid("status");
+  if (data.ch.archived) throw invalid("archived");
+  if (!channelPermissions(me, data.ch).isMember) throw forbidden();
+  const text = answer.text?.trim() || null;
+  const option = answer.optionIndex === null ? undefined : question.options[answer.optionIndex];
+  if (answer.optionIndex !== null && !option) throw invalid("option");
+  if (!option && !text) throw invalid("answer");
+  const call = messageById(reply.claudeRun.callMessageId);
+  if (!call) throw notFound();
+
+  claims.set(key, me);
+  const events = (reply.claudeEvents ?? []).map((e) =>
+    e.id === question.id
+      ? ({
+          ...e,
+          answer: { optionIndex: answer.optionIndex, text, byId: me, at: chatNow() },
+        } as ConversationEvent)
+      : e,
+  );
+  patchChatMessage(reply.id, {
+    claudeEvents: events,
+    claudeRun: { ...reply.claudeRun, state: "working" },
+  });
+  const label = option?.label ?? text!;
+  const job = resume(me, reply, call, label, gen).finally(() => {
+    if (jobs.get(reply.id) === job) jobs.delete(reply.id);
+  });
+  jobs.set(reply.id, job);
+}
+
+/** Le risposte già date (chiave → chi), contro due risposte concorrenti. */
+const claims = new Map<string, string>();
+onStoreReset(() => claims.clear());
+
+/**
+ * La ripresa dopo la risposta: la stessa chiamata con la risposta in coda
+ * («assign AUD-4» + «Marco Bellini»), senza poter chiedere di nuovo — se
+ * ancora non basta, Claude lo dice a parole.
+ */
+async function resume(
+  caller: string,
+  reply: ChatMessage,
+  call: ChatMessage,
+  label: string,
+  gen: number,
+) {
+  const ch = channelById(reply.channelId);
+  try {
+    await gate("chat.claudeReply");
+    if (!current(gen) || !working(reply)) return;
+    if (!ch || !canReadChannel(caller, ch)) throw forbidden();
+    const steps = await respond(`${callText(call.text)} ${label}`, {
+      personId: caller,
+      contextProjectId: ch.projectId,
+      read: readsAs(caller),
+      t: i18n.t.bind(i18n) as T,
+      seed: `${reply.id}:answer`,
+      thread: threadContext(caller, ch, call),
+    });
+    if (!current(gen) || !working(reply)) return;
+    await runScript(claudeReplyStream(reply.id), () => chatSteps(reply, 0, steps), gen);
+  } catch (error) {
+    fail(reply, error, gen);
+  }
 }
 
 /**

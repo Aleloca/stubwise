@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useAnswerQuestion } from "../../../data/queries";
 import { inputClass } from "../../../tasks-ui/Dialog";
@@ -42,13 +42,55 @@ export function QuestionCard({
   ownerId: string;
   projectCode: string | null;
 }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const answer = useAnswerQuestion();
+  const owner = usePersonName(ownerId);
+  return (
+    <QuestionCardView
+      event={event}
+      canAnswer={canAnswer}
+      pending={answer.isPending}
+      onAnswer={(payload) =>
+        answer.mutateAsync({ id: conversationId, questionId: event.questionId, answer: payload })
+      }
+      note={
+        projectCode
+          ? t("claude.conversation.question.whoCanAnswer", { name: owner, code: projectCode })
+          : t("claude.conversation.question.ownerAnswers", { name: owner })
+      }
+    />
+  );
+}
+
+/**
+ * La scheda della domanda, ovunque stia (conversazione, thread della Chat):
+ * `onAnswer` risponde, `title` sostituisce «Claude asks», `note` è la riga
+ * per chi non può rispondere. `renderText`: come si scrive il testo della
+ * domanda per chi guarda (R-E9 nella Chat).
+ */
+export function QuestionCardView({
+  event,
+  canAnswer,
+  pending,
+  onAnswer,
+  note,
+  title,
+  renderText,
+}: {
+  event: Ev<"question">;
+  canAnswer: boolean;
+  pending: boolean;
+  onAnswer: (payload: { optionIndex: number | null; text: string | null }) => Promise<unknown>;
+  note: string;
+  title?: string;
+  renderText?: (text: string) => ReactNode;
+}) {
+  const { t, i18n } = useTranslation();
   const [other, setOther] = useState<string | null>(null);
   const [lostTo, setLostTo] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
-  const owner = usePersonName(ownerId);
   const answeredBy = usePersonName(event.answer?.byId ?? lostTo);
+  const text = renderText ? renderText(event.text) : event.text;
   const otherId = useId();
   const headingId = useId();
   const resolvedRef = useFocusWhenResolved<HTMLParagraphElement>(event.answer !== null);
@@ -69,7 +111,7 @@ export function QuestionCard({
         tabIndex={-1}
         className="event-enter flex min-w-0 flex-wrap items-baseline gap-x-1.5 rounded-md text-sm text-ink-muted"
       >
-        <span className="text-ink">{event.text}</span>
+        <span className="text-ink">{text}</span>
         <span aria-hidden="true">—</span>
         <span>
           {t("claude.conversation.question.answeredBy", { name: answeredBy })}{" "}
@@ -85,18 +127,13 @@ export function QuestionCard({
 
   const send = (payload: { optionIndex: number | null; text: string | null }) => {
     setFailed(false);
-    answer.mutate(
-      { id: conversationId, questionId: event.questionId, answer: payload },
-      {
-        onError: (error) => {
-          if (error.message === "already_answered") {
-            setLostTo((error as Error & { byId?: string | null }).byId ?? "");
-          } else setFailed(true);
-        },
-      },
-    );
+    onAnswer(payload).catch((error: Error) => {
+      if (error.message === "already_answered") {
+        setLostTo((error as Error & { byId?: string | null }).byId ?? "");
+      } else setFailed(true);
+    });
   };
-  const disabled = !canAnswer || answer.isPending || lostTo !== null;
+  const disabled = !canAnswer || pending || lostTo !== null;
 
   return (
     <section
@@ -106,13 +143,13 @@ export function QuestionCard({
     >
       <header className="flex flex-wrap items-center justify-between gap-2">
         <h3 id={headingId} className="text-sm font-semibold text-ink">
-          {t("claude.conversation.question.title")}
+          {title ?? t("claude.conversation.question.title")}
         </h3>
         {canAnswer && lostTo === null && (
           <WaitingDot label={t("claude.conversation.waitingOnYou")} />
         )}
       </header>
-      <p className="max-w-[68ch] text-md text-ink">{event.text}</p>
+      <p className="max-w-[68ch] text-md text-ink">{text}</p>
       <ul className="flex flex-col gap-1.5">
         {options.map(({ option, index }) => {
           const content = (
@@ -206,13 +243,7 @@ export function QuestionCard({
           {t("claude.conversation.question.failed")}
         </p>
       )}
-      {!canAnswer && (
-        <p className="text-sm text-ink-muted">
-          {projectCode
-            ? t("claude.conversation.question.whoCanAnswer", { name: owner, code: projectCode })
-            : t("claude.conversation.question.ownerAnswers", { name: owner })}
-        </p>
-      )}
+      {!canAnswer && <p className="text-sm text-ink-muted">{note}</p>}
     </section>
   );
 }
