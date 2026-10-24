@@ -1,4 +1,4 @@
-import { useNavigate, useRouter, useRouterState, useSearch } from "@tanstack/react-router";
+import { Link, useNavigate, useRouter, useRouterState, useSearch } from "@tanstack/react-router";
 import {
   Fragment,
   useEffect,
@@ -121,21 +121,28 @@ const clean = (p: ChatSearchParams): ChatSearchParams =>
 export function ChatSearch() {
   const me = useSessionPersonId();
   const goSearch = useGoSearch();
+  const params = useSearchParams();
+  // Dal cambio di persona finché l'indirizzo non è svuotato: la pagina
+  // della persona nuova parte vuota, senza cercare la query di prima.
   const [viewer, setViewer] = useState(me);
+  const [resetting, setResetting] = useState(false);
   if (viewer !== me) {
     setViewer(me);
-    clearRecentSearches();
+    setResetting(true);
   }
-  const params = useSearchParams();
-  const shownTo = useRef(me);
   useEffect(() => {
-    if (shownTo.current === me) return;
-    shownTo.current = me;
+    if (!resetting) return;
+    clearRecentSearches();
     goSearch({}, true);
-    // Solo al cambio di persona.
-  }, [me]);
-  return <SearchPage key={me} params={params} />;
+  }, [resetting]);
+  const empty = !params.q && !hasFilters(params);
+  useEffect(() => {
+    if (resetting && empty) setResetting(false);
+  }, [resetting, empty]);
+  return <SearchPage key={me} params={resetting ? NO_PARAMS : params} />;
 }
+
+const NO_PARAMS: ChatSearchParams = {};
 
 function SearchPage({ params }: { params: ChatSearchParams }) {
   const { t } = useTranslation();
@@ -354,7 +361,11 @@ function SearchPage({ params }: { params: ChatSearchParams }) {
             >
               {visibleGroups.map((group) => {
                 const row = rows?.find((r) => r.id === group.channelId);
-                const name = label(row);
+                const name = label(row) ?? {
+                  code: null,
+                  name: t("chat.search.unknownChannel"),
+                  label: t("chat.search.unknownChannel"),
+                };
                 const open_ = expanded.has(group.channelId);
                 const shown = open_ ? group.hits : group.hits.slice(0, PER_GROUP);
                 const more = group.hits.length - shown.length;
@@ -1031,26 +1042,36 @@ function Result({
   const context = hit.context;
   const root = m.threadOf ? hit.root : null;
   const citations = m.citations.filter((ref) => ref.kind !== "person");
+  const id = useId();
+  // Un link, non un bottone: i figli di un bottone sono presentazionali, e
+  // il `<mark>` delle parole trovate non arriverebbe ai lettori di schermo.
+  // Il nome è «chi, in quale canale, quando: testo»; il contesto lo descrive.
   return (
-    <button
-      type="button"
+    <Link
+      to="/chat/$channelId"
+      params={{ channelId: hit.channelId }}
+      search={(m.threadOf ? { thread: m.threadOf, message: m.id } : { message: m.id }) as never}
       data-result={m.id}
       data-selected={selected || undefined}
       tabIndex={selected ? 0 : -1}
       onFocus={onSelect}
-      onClick={onOpen}
-      aria-label={t("chat.search.resultLabel", {
-        name,
-        channel: channelLabel,
-        date: formatDate(m.createdAt, i18n.language),
-        text: text.length > 160 ? `${text.slice(0, 159)}…` : text,
-      })}
+      onClick={(e) => {
+        // Prima si rilegge il messaggio: può non esserci più (toast, si resta qui).
+        e.preventDefault();
+        onOpen();
+      }}
+      aria-labelledby={`${id}-who ${id}-where${text ? ` ${id}-text` : ""}`}
+      aria-describedby={context ? `${id}-ctx` : undefined}
       className={`flex min-h-14 w-full min-w-0 flex-col gap-1 rounded-md px-4 py-2 text-left transition-colors duration-[var(--duration-fast)] ease-out ${
         selected ? "bg-ink/8" : "hover:bg-ink/4"
       }`}
     >
       {context && (
-        <span className="block truncate pl-9 text-xs text-ink-faint" data-result-context>
+        <span
+          id={`${id}-ctx`}
+          className="block truncate pl-9 text-xs text-ink-faint"
+          data-result-context
+        >
           <span className="sr-only">{t("chat.search.before")} </span>
           {authorName(context, people, system)}: {plainText(context.text)}
         </span>
@@ -1061,7 +1082,15 @@ function Result({
         </span>
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex min-w-0 items-baseline gap-1.5 text-sm">
-            <span className="shrink-0 font-semibold text-ink">{name}</span>
+            <span id={`${id}-who`} className="shrink-0 font-semibold text-ink">
+              {name}
+            </span>
+            <span id={`${id}-where`} className="sr-only">
+              {t("chat.search.resultWhere", {
+                channel: channelLabel,
+                date: formatDate(m.createdAt, i18n.language),
+              })}
+            </span>
             <span className="num shrink-0 text-xs text-ink-muted">· {when}</span>
             {m.threadOf && (
               <span className="min-w-0 truncate text-xs text-ink-muted">
@@ -1071,7 +1100,10 @@ function Result({
             )}
           </span>
           {text && (
-            <span className="line-clamp-3 text-md text-ink [overflow-wrap:anywhere]">
+            <span
+              id={`${id}-text`}
+              className="line-clamp-3 text-md text-ink [overflow-wrap:anywhere]"
+            >
               <Highlighted text={text} words={words} />
             </span>
           )}
@@ -1097,7 +1129,7 @@ function Result({
           )}
         </span>
       </span>
-    </button>
+    </Link>
   );
 }
 

@@ -49,7 +49,8 @@ type GroupId =
   | "viewAs"
   | "filters"
   | "channels"
-  | "messages";
+  | "messages"
+  | "more";
 
 interface Item {
   key: string;
@@ -296,6 +297,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       filters: [],
       channels: [],
       messages: [],
+      more: [],
     };
     if (searching) {
       for (const r of search.data ?? []) {
@@ -369,7 +371,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
           },
         };
       });
-      byGroup.messages.push({
+      byGroup.more.push({
         key: "messages-all",
         label: t("palette.searchAllMessages", { query: chatQuery }),
         fallback: true,
@@ -385,11 +387,11 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     const matched = matchCommands(query, viewer, (cmd) => t(cmd.labelKey));
     const quoting = (cmd: Command) =>
       !!needle && !!cmd.queryLabelKey && !t(cmd.labelKey).toLowerCase().includes(needle);
-    byGroup.actions = [
-      ...matched.filter((cmd) => !quoting(cmd)).slice(0, needle ? GROUP_LIMIT : undefined),
-      ...matched.filter(quoting),
-    ]
-      .map((cmd) => ({
+    // Le azioni il cui nome corrisponde vengono subito dopo gli oggetti (Enter
+    // su «new task» esegue il comando); le righe che citano il testo («Search
+    // all messages for “…”», «Ask Claude: “…”») ci sono per ogni testo e
+    // vanno in fondo, sotto Channels e Messages.
+    const toItem = (cmd: Command): Item => ({
         key: `cmd-${cmd.id}`,
         fallback: quoting(cmd),
         label: quoting(cmd)
@@ -397,8 +399,24 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
           : t(cmd.labelKey),
         shortcut: cmd.shortcut && shortcutLabel(cmd.shortcut),
         select: run(cmd, quoting(cmd) ? query.trim() : undefined),
-      }));
-    return (["projects", "tasks", "requests", "people", "channels", "messages", "actions"] as const)
+      });
+    byGroup.actions = matched
+      .filter((cmd) => !quoting(cmd))
+      .slice(0, needle ? GROUP_LIMIT : undefined)
+      .map(toItem);
+    byGroup.more.push(...matched.filter(quoting).map(toItem));
+    return (
+      [
+        "projects",
+        "tasks",
+        "requests",
+        "people",
+        "actions",
+        "channels",
+        "messages",
+        "more",
+      ] as const
+    )
       .map((id) => ({ id, items: byGroup[id] }))
       .filter((g) => g.items.length > 0);
   }, [
@@ -637,6 +655,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                     >
                       {group.id !== "actions" &&
                         group.id !== "messages" &&
+                        group.id !== "more" &&
                         group.id !== "viewAs" &&
                         group.id !== "filters" &&
                         (group.id !== "channels" || item.code) && (

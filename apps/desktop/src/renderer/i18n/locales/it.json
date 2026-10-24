@@ -118,7 +118,8 @@
       "viewAs": "Vedi come",
       "filters": "Filtri",
       "channels": "Canali",
-      "messages": "Messaggi"
+      "messages": "Messaggi",
+      "more": "Altro"
     },
     "noResults": "Nessun risultato per «{{query}}»",
     "noResultsHint": "Prova con un codice come {{example}} o con un nome.",
@@ -2863,7 +2864,6 @@
       "channels_one": "{{count}} canale",
       "channels_other": "{{count}} canali",
       "summary": "{{messages}} in {{channels}}",
-      "showMore": "Altri {{count}} in {{name}}",
       "moreChannels": "Altri canali",
       "minChars": "Scrivi almeno 2 caratteri",
       "recent": "Ricerche recenti",
@@ -2880,9 +2880,11 @@
       "archived": "Archiviato",
       "back": "Torna ai risultati",
       "results": "Risultati della ricerca",
-      "resultLabel": "{{name}} in {{channel}}, {{date}}: {{text}}",
       "before": "Prima:",
-      "deleted": "Messaggio eliminato"
+      "deleted": "Messaggio eliminato",
+      "resultWhere": "in {{channel}}, {{date}}",
+      "showMore_one": "Un altro in {{name}}",
+      "showMore_other": "Altri {{count}} in {{name}}"
     }
   }
 }

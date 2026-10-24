@@ -311,6 +311,51 @@ describe("ricerca: il salto, l'evidenza e il ritorno", () => {
     );
   });
 
+  it("un risultato è un link: nome «chi, dove, quando: testo» e le parole trovate esposte come <mark>", async () => {
+    put({
+      id: "l-1",
+      channelId: "ch-mkx-grafica",
+      createdAt: "2026-10-23T08:00:00Z",
+      text: "lynxword in the brief",
+    });
+    renderRoute("/chat?view=search&q=lynxword", "p-giulia");
+    await loaded();
+    const link = await screen.findByRole("link", {
+      name: "Marco Bellini in MKX · grafica, Oct 23 lynxword in the brief",
+    });
+    expect(link).toHaveAttribute("data-result", "l-1");
+    // Un link non rende presentazionali i figli: il <mark> arriva ai lettori di schermo.
+    expect(link.querySelector("mark")).toHaveTextContent("lynxword");
+  });
+
+  it("?message= di una risposta che sta solo nel thread: apre il thread, non sfoglia il canale", async () => {
+    put({
+      id: "r-root",
+      channelId: "ch-mkx-grafica",
+      createdAt: "2026-10-23T08:00:00Z",
+      text: "root",
+    });
+    put({
+      id: "r-reply",
+      channelId: "ch-mkx-grafica",
+      threadOf: "r-root",
+      createdAt: "2026-10-23T08:05:00Z",
+      text: "reply only in the thread",
+    });
+    const router = renderRoute("/chat/ch-mkx-grafica?message=r-reply", "p-giulia");
+    await waitFor(() =>
+      expect(searchOf(router)).toMatchObject({ thread: "r-root", message: "r-reply" }),
+    );
+    const panel = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>('[data-thread="r-root"]');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    await waitFor(() =>
+      expect(panel.querySelector('[data-message="r-reply"]')).toHaveAttribute("data-found"),
+    );
+  });
+
   it("J/K muovono fra i risultati, Enter apre; ↓ dal campo entra nei risultati", async () => {
     put({
       id: "n-1",
@@ -372,6 +417,13 @@ describe("ricerca: ingresso dalla colonna e persona", () => {
     const user = userEvent.setup();
     const router = renderRoute("/chat?view=search&q=swanword&att=1", "p-giulia");
     await loaded();
+    // Dal cambio di persona in poi, nessun risultato (la query vecchia non si cerca).
+    let leaked = false;
+    let switched = false;
+    const watch = new MutationObserver(() => {
+      if (switched && document.querySelector("[data-result]")) leaked = true;
+    });
+    watch.observe(document.body, { childList: true, subtree: true });
     await user.keyboard("{Control>}k{/Control}");
     const dialog = await screen.findByRole("dialog", { name: "Search and commands" });
     await user.type(within(dialog).getByRole("combobox"), "view as");
@@ -379,8 +431,17 @@ describe("ricerca: ingresso dalla colonna e persona", () => {
     await user.keyboard("{Enter}");
     await user.type(within(dialog).getByRole("combobox"), "marco");
     await within(dialog).findByRole("option", { name: /Marco/, selected: true });
+    // Da qui nessuna ricerca deve partire: la prima che parte consuma il
+    // guasto armato, e allora la chiamata di prova qui sotto non lo trova.
+    await new Promise((r) => setTimeout(r, 200));
+    api.failNext("chat.search");
+    switched = true;
     await user.keyboard("{Enter}");
     await waitFor(() => expect(searchOf(router).q).toBeUndefined());
+    await new Promise((r) => setTimeout(r, 50));
+    watch.disconnect();
+    expect(leaked).toBe(false);
+    await expect(api.chat.searchChat("probe")).rejects.toThrow("Simulated failure");
     expect(searchOf(router)).toMatchObject({ view: "search" });
     expect(searchOf(router).att).toBeUndefined();
     expect(pageField()).toHaveValue("");
@@ -428,18 +489,57 @@ describe("⌘K: Channels e Messages", () => {
     const group = await within(dialog).findByRole("group", { name: "Messages" });
     await waitFor(() => expect(group.querySelectorAll("[data-palette-message]")).toHaveLength(5));
     expect(group.textContent).not.toContain("private");
-    const all = within(group).getByRole("option", {
+    // Le righe che citano il testo stanno in fondo, sotto i messaggi trovati.
+    const more = within(dialog).getByRole("group", { name: "More" });
+    const all = within(more).getByRole("option", {
       name: "Search all messages for “pelicanword”",
     });
-    // L'ordine: i gruppi degli oggetti, poi Channels/Messages, poi le azioni.
-    const headings = [...dialog.querySelectorAll('[role="group"]')].map((g) =>
-      g.getAttribute("aria-labelledby") ? g.querySelector(".heading-group")?.textContent : null,
+    expect(
+      within(more).getByRole("option", { name: /Ask Claude: “pelicanword”/ }),
+    ).toBeInTheDocument();
+    const headings = [...dialog.querySelectorAll(".heading-group")].map((h) => h.textContent);
+    expect(headings.at(-1)).toBe("More");
+    expect(
+      headings.indexOf("Channels") < headings.indexOf("Messages") || !headings.includes("Channels"),
+    ).toBe(true);
+    // Selezionato di default: un messaggio trovato, non «Search all messages».
+    expect(within(dialog).getAllByRole("option", { selected: true })[0]).toHaveAttribute(
+      "data-palette-message",
     );
-    expect(headings.indexOf("Messages")).toBeLessThan(headings.indexOf("Actions"));
     await user.click(all);
     await waitFor(() =>
       expect(searchOf(router)).toMatchObject({ view: "search", q: "pelicanword" }),
     );
+  });
+
+  it("il nome di un comando, con messaggi che lo citano: Enter esegue il comando", async () => {
+    put({
+      id: "cmd-1",
+      channelId: "ch-mkx-grafica",
+      createdAt: "2026-10-23T08:00:00Z",
+      text: "let's go to all projects and check",
+    });
+    const user = userEvent.setup();
+    const router = renderRoute("/home", "p-giulia");
+    await screen.findByRole("heading", { name: "Home", level: 1 });
+    await user.keyboard("{Control>}k{/Control}");
+    const dialog = await screen.findByRole("dialog", { name: "Search and commands" });
+    await user.keyboard("go to all projects");
+    // Oltre l'attesa della ricerca (120 ms): i messaggi sono arrivati.
+    await within(dialog).findByRole("group", { name: "Messages" });
+    await waitFor(() =>
+      expect(
+        within(dialog)
+          .getByRole("group", { name: "Messages" })
+          .querySelector("[data-palette-message]"),
+      ).not.toBeNull(),
+    );
+    await new Promise((r) => setTimeout(r, 200));
+    expect(within(dialog).getByRole("option", { selected: true })).toHaveTextContent(
+      "Go to all projects",
+    );
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(router.state.location.pathname).toBe("/projects"));
   });
 
   it("un messaggio dalla palette salta al canale con l'evidenza; un canale per nome si apre", async () => {

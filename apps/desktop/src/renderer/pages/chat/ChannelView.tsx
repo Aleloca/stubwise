@@ -16,6 +16,7 @@ import {
   useChannelMessages,
   useChannelStream,
   useChatChannel,
+  useChatMessage,
   useCitations,
   useCodeCitations,
   useDeleteChatMessage,
@@ -270,12 +271,31 @@ function ChannelBody({
   // l'evidenza è nel pannello). Se è più vecchio della pagina letta si
   // caricano i precedenti finché arriva (la ricerca trova anche i vecchi).
   const reachId = openThreadId ?? focusMessageId;
+  // Senza `?thread=` prima si sa dov'è il messaggio: una risposta che sta
+  // solo nel thread apre il pannello (e lì si evidenzia) invece di far
+  // sfogliare al canale tutta la storia; uno che non si legge non si cerca.
+  const navigate = useNavigate();
+  const focusRead = useChatMessage(focusMessageId ?? "", {
+    enabled: !!focusMessageId && !openThreadId,
+  });
+  const focused = focusRead.data?.message;
+  const threadOnlyRoot =
+    focused && focused.threadOf !== null && !focused.alsoInChannel ? focused.threadOf : null;
+  useEffect(() => {
+    if (!threadOnlyRoot || openThreadId) return;
+    void navigate({
+      to: ".",
+      search: (prev: Record<string, unknown>) => ({ ...prev, thread: threadOnlyRoot }),
+      replace: true,
+    } as never);
+  }, [threadOnlyRoot, openThreadId, navigate]);
+  const inFlow = !!openThreadId || (!!focused && threadOnlyRoot === null);
   const fetching = query.isFetching;
   useEffect(() => {
-    if (!reachId || !page?.hasMore || fetching) return;
+    if (!reachId || !inFlow || !page?.hasMore || fetching) return;
     if (page.messages.some((m) => m.id === reachId)) return;
     setLimit((n) => n + PAGE);
-  }, [reachId, page, fetching]);
+  }, [reachId, inFlow, page, fetching]);
 
   const messages = useMemo(
     () => (page ? mergeFlow(page.messages, stream.messages, page.hasMore) : []),
