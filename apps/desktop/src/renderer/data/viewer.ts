@@ -11,24 +11,35 @@ import { DEPARTMENT_ROLES } from "./seed/departmentRoles";
 import { PEOPLE } from "./seed/people";
 import { GIULIA_LEAD_CODES, PROJECTS } from "./seed/projects";
 import { clearToasts } from "../tasks-ui/Toast";
-import {
-  DEFAULT_SESSION_PERSON_ID,
-  runBeforePersonaChange,
-  setSessionPersonId,
-} from "./session";
-import type { DepartmentPermission, LocalProjectPermission, Viewer } from "./types";
+import { DEFAULT_SESSION_PERSON_ID, runBeforePersonaChange, setSessionPersonId } from "./session";
+import type {
+  DepartmentPermission,
+  LocalInstancePermission,
+  LocalProjectPermission,
+  Viewer,
+} from "./types";
 
-export type { LocalProjectPermission } from "./types";
+export type { LocalInstancePermission, LocalProjectPermission } from "./types";
 
 export type Permission =
   | InstancePermission
+  | LocalInstancePermission
   | ProjectPermission
   | LocalProjectPermission
   | DepartmentPermission;
 
 type AnyProjectPermission = ProjectPermission | LocalProjectPermission;
 
-const INSTANCE_SET: ReadonlySet<string> = new Set(INSTANCE_PERMISSIONS);
+/** I permessi d'istanza del prototipo, nell'ordine in cui si mostrano. */
+export const LOCAL_INSTANCE_PERMISSIONS: readonly LocalInstancePermission[] = [
+  "claude.public.view",
+  "people.activity.view",
+];
+
+const INSTANCE_SET: ReadonlySet<string> = new Set<string>([
+  ...INSTANCE_PERMISSIONS,
+  ...LOCAL_INSTANCE_PERMISSIONS,
+]);
 const PROJECT_SET: ReadonlySet<string> = new Set(PROJECT_PERMISSIONS);
 
 /**
@@ -46,9 +57,16 @@ function roleKeys(key: string): readonly string[] {
   return role.permissions;
 }
 
-function instancePermsOf(key: string): InstancePermission[] {
-  return [...effectiveInstancePermissions(roleKeys(key))];
+function instancePermsOf(key: string): (InstancePermission | LocalInstancePermission)[] {
+  // «Vedere le conversazioni pubbliche con Claude»: di base ai preset User e Admin.
+  return [...effectiveInstancePermissions(roleKeys(key)), "claude.public.view"];
 }
+
+/**
+ * «Vedere l'attività delle persone» (R-E2): di base al full admin e a chi è
+ * Project Lead in almeno un progetto; si aggiunge alle concessioni locali.
+ */
+const ACTIVITY_ROLE = "project_lead";
 
 function projectPermsOf(key: string): AnyProjectPermission[] {
   return [
@@ -119,14 +137,21 @@ function specOf(personId: string): PersonaSpec | null {
 
 function buildViewer(spec: PersonaSpec): Viewer {
   const projectPermissions: Record<string, AnyProjectPermission[]> = {};
+  let leadSomewhere = false;
   // Un full admin non ha righe per progetto: `can` lo risolve dal permesso
   // d'istanza, come sul server.
   if (spec.instanceRole !== "admin") {
     for (const project of PROJECTS) {
       if (project.memberIds.includes(spec.personId)) {
-        projectPermissions[project.id] = projectPermsOf(spec.projectRole(project.code));
+        const role = spec.projectRole(project.code);
+        if (role === ACTIVITY_ROLE) leadSomewhere = true;
+        projectPermissions[project.id] = projectPermsOf(role);
       }
     }
+  }
+  const instancePermissions = instancePermsOf(spec.instanceRole);
+  if (spec.instanceRole === "admin" || leadSomewhere) {
+    instancePermissions.push("people.activity.view");
   }
   const departmentPermissions: Record<string, DepartmentPermission[]> = {};
   for (const role of DEPARTMENT_ROLES) {
@@ -136,7 +161,7 @@ function buildViewer(spec: PersonaSpec): Viewer {
   }
   return {
     personId: spec.personId,
-    instancePermissions: instancePermsOf(spec.instanceRole),
+    instancePermissions,
     projectPermissions,
     departmentPermissions,
   };
@@ -175,22 +200,46 @@ export function viewerFor(personId: string): Viewer {
   return viewer;
 }
 
-const grants: { personId: string; projectId: string }[] = [];
+/** Come annullare ogni concessione fatta dopo il seed, dalla più recente. */
+const undo: (() => void)[] = [];
 
 /**
  * Dà a una persona il ruolo (preset) su un progetto creato dopo il seed — chi
- * crea un progetto ne è il project lead. Le concessioni si annullano con
+ * crea un progetto ne è il project lead. Diventare Project Lead dà anche
+ * `people.activity.view` (R-E2). Le concessioni si annullano con
  * `resetViewerGrants` (parte di `resetApi`).
  */
 export function grantProjectRole(personId: string, projectId: string, roleKey: string): void {
-  viewerFor(personId).projectPermissions[projectId] = projectPermsOf(roleKey);
-  grants.push({ personId, projectId });
+  const viewer = viewerFor(personId);
+  viewer.projectPermissions[projectId] = projectPermsOf(roleKey);
+  undo.push(() => delete viewer.projectPermissions[projectId]);
+  if (roleKey === ACTIVITY_ROLE) grantInstancePermission(personId, "people.activity.view");
+}
+
+/** Concede un permesso d'istanza del prototipo (assegnabile a qualunque ruolo). */
+export function grantInstancePermission(personId: string, perm: LocalInstancePermission): void {
+  const perms = viewerFor(personId).instancePermissions;
+  if (perms.includes(perm)) return;
+  perms.push(perm);
+  undo.push(() => {
+    const i = perms.indexOf(perm);
+    if (i >= 0) perms.splice(i, 1);
+  });
+}
+
+/** Toglie un permesso d'istanza del prototipo, anche uno di base. */
+export function revokeInstancePermission(personId: string, perm: LocalInstancePermission): void {
+  const perms = viewerFor(personId).instancePermissions;
+  const i = perms.indexOf(perm);
+  if (i < 0) return;
+  perms.splice(i, 1);
+  undo.push(() => {
+    if (!perms.includes(perm)) perms.push(perm);
+  });
 }
 
 export function resetViewerGrants(): void {
-  for (const { personId, projectId } of grants.splice(0)) {
-    delete viewerFor(personId).projectPermissions[projectId];
-  }
+  for (const fn of undo.splice(0).reverse()) fn();
 }
 
 const isFullAdmin = (viewer: Viewer) => viewer.instancePermissions.includes("instance.full_admin");
@@ -199,7 +248,9 @@ const isFullAdmin = (viewer: Viewer) => viewer.instancePermissions.includes("ins
 export function can(viewer: Viewer, perm: Permission, projectId?: string): boolean {
   if (isFullAdmin(viewer)) return true;
   if (INSTANCE_SET.has(perm))
-    return viewer.instancePermissions.includes(perm as InstancePermission);
+    return viewer.instancePermissions.includes(
+      perm as InstancePermission | LocalInstancePermission,
+    );
   if (perm === "department.home.manage") {
     return Object.values(viewer.departmentPermissions).some((perms) => perms.includes(perm));
   }

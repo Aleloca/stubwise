@@ -457,3 +457,188 @@ export interface StatusInput {
   name: string;
   family: StatusFamily;
 }
+
+// --- area 3: Claude come collega ---------------------------------------------
+
+/**
+ * Il tipo di una conversazione con Claude: libera (aperta da una persona) o
+ * una sessione di lavoro — esecuzione di una task, refine di una richiesta,
+ * sessioni automatiche (review della PR, Docs, brief, report giornaliero,
+ * classificazione della posta, stima e merge dell'intake).
+ */
+export type ConversationKind =
+  | "free"
+  | "task_run"
+  | "refine"
+  | "pr_review"
+  | "docs"
+  | "brief"
+  | "daily_report"
+  | "mail_classify"
+  | "intake";
+export type ConversationState =
+  | "working"
+  | "awaiting_answer"
+  | "awaiting_approval"
+  | "paused"
+  | "idle"
+  | "finished";
+export type Outcome = "ok" | "failed" | "timed_out" | "stopped";
+
+export interface Conversation {
+  id: string;
+  kind: ConversationKind;
+  title: string;
+  /** Libera: chi l'ha aperta; sessione di lavoro: chi l'ha chiesta. */
+  ownerId: string;
+  projectId: string | null;
+  /** Solo per la libera: il contesto di progetto facoltativo (decide le skill in «/»). */
+  contextProjectId: string | null;
+  taskId: string | null;
+  requestId: string | null;
+  state: ConversationState;
+  /** Solo quando `state` è `finished`. */
+  outcome: Outcome | null;
+  /** Le sessioni di lavoro seguono il progetto (`project`); solo la libera diventa pubblica. */
+  visibility: "private" | "project" | "public";
+  publishedAt: string | null;
+  publishedById: string | null;
+  /** I progetti che Claude ha letto o toccato: l'autore li conferma quando la rende pubblica. */
+  touchedProjectIds: string[];
+  /** La conversazione pubblica da cui questa continua. */
+  continuesFromId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  archived: boolean;
+}
+
+export interface Attachment {
+  id: string;
+  name: string;
+  sizeBytes: number;
+  kind: "image" | "file";
+}
+
+/** Una modifica ai dati che Claude propone: la esegue la mutazione di oggi, a nome di chi conferma. */
+export type ProposedAction = {
+  fn:
+    | "createTask"
+    | "updateTask"
+    | "planTask"
+    | "addComment"
+    | "createRequest"
+    | "convertRequest"
+    | "startRun"
+    | "archiveRequest";
+  args: Record<string, unknown>;
+  summary: string;
+};
+
+/** Un oggetto citato nel flusso: `file` ha id `<repo>:<percorso>`, gli altri l'id dell'oggetto. */
+export type CitationRef = {
+  kind: "task" | "request" | "doc" | "file" | "project" | "person";
+  id: string;
+};
+
+export type ConversationEvent =
+  | {
+      id: string;
+      at: string;
+      type: "user";
+      authorId: string;
+      text: string;
+      attachments: Attachment[];
+      delivery: "pending" | "delivered" | "undelivered";
+      undeliveredReason?: string;
+    }
+  /** `text` cresce mentre arriva; `done` quando il messaggio è completo. */
+  | { id: string; at: string; type: "assistant"; text: string; done: boolean }
+  | {
+      id: string;
+      at: string;
+      type: "action";
+      tool: string;
+      label: string;
+      input?: string;
+      result?: string;
+      state: "running" | "done" | "failed";
+      truncated?: boolean;
+    }
+  | {
+      id: string;
+      at: string;
+      type: "phase";
+      phase: string;
+      outcome: Outcome | null;
+      stoppedById?: string;
+    }
+  | { id: string; at: string; type: "citation"; refs: CitationRef[] }
+  | {
+      id: string;
+      at: string;
+      type: "question";
+      questionId: string;
+      text: string;
+      options: { label: string; consequence?: string; recommended?: boolean }[];
+      answer: { optionIndex: number | null; text: string | null; byId: string; at: string } | null;
+    }
+  | {
+      id: string;
+      at: string;
+      type: "plan";
+      planText: string;
+      summary: string;
+      status: "pending" | "approved" | "rejected" | "pre_approved";
+      decidedById?: string;
+      instructions?: string;
+    }
+  | {
+      id: string;
+      at: string;
+      type: "proposal";
+      proposalId: string;
+      requesterId: string;
+      actions: ProposedAction[];
+      status: "open" | "confirmed" | "cancelled" | "expired" | "failed";
+      error?: string;
+      resultCodes?: string[];
+    }
+  | {
+      id: string;
+      at: string;
+      type: "work_result";
+      kind: "pr_opened" | "review" | "correction" | "design_updated" | "plan_updated";
+      text: string;
+      link?: string;
+    };
+
+/** Un comando di «/»: di Stubwise o la skill di un plugin abilitato nel progetto. */
+export interface SlashCommand {
+  id: string;
+  label: string;
+  description: string;
+  source: "stubwise" | { plugin: string; skill: string };
+}
+
+/** Un commit della giornata, per la rassegna per persona; `authorId` null = autore non collegato. */
+export interface CommitOfDay {
+  sha: string;
+  repo: string;
+  authorId: string | null;
+  authorName: string;
+  message: string;
+  /** Testo generato (come `commit_summaries`): la UI lo etichetta «Testo generato». */
+  aiSummary: string;
+  at: string;
+  projectId: string;
+}
+
+/** Una pagina dei Docs di un progetto, quanto basta per citarla e cercarla. */
+export interface DocPage {
+  id: string;
+  projectId: string;
+  title: string;
+  /** Dove sta nella sezione Docs, es. «Guide / Callbacks». */
+  path: string;
+  excerpt: string;
+}

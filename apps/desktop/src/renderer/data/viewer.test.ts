@@ -3,7 +3,17 @@ import { describe, expect, it } from "vitest";
 import { GIULIA_LEAD_CODES, PROJECTS } from "./seed/projects";
 import en from "../i18n/locales/en.json";
 import itLocale from "../i18n/locales/it.json";
-import { VIEW_AS_PERSONAS, can, canInDepartment, canSeeAdmin, viewerFor } from "./viewer";
+import {
+  VIEW_AS_PERSONAS,
+  can,
+  canInDepartment,
+  canSeeAdmin,
+  grantInstancePermission,
+  grantProjectRole,
+  resetViewerGrants,
+  revokeInstancePermission,
+  viewerFor,
+} from "./viewer";
 
 type Tree = { [key: string]: string | Tree };
 const lookup = (tree: Tree, key: string) =>
@@ -111,5 +121,44 @@ describe("viewer", () => {
     for (const project of PROJECTS) {
       expect(can(sara, "tickets.create", project.id)).toBe(project.memberIds.includes("p-sara"));
     }
+  });
+
+  describe("permessi d'istanza del prototipo (area 3)", () => {
+    it("claude.public.view: di base a tutti (preset User e Admin)", () => {
+      for (const id of ["p-giulia", "p-marco", "p-laura", "p-sara", "p-roberta", "p-irene"]) {
+        expect(can(byPerson(id), "claude.public.view")).toBe(true);
+      }
+    });
+
+    it("people.activity.view: al full admin e a chi è Project Lead in almeno un progetto", () => {
+      expect(can(byPerson("p-sara"), "claude.public.view")).toBe(true);
+      expect(can(byPerson("p-sara"), "people.activity.view")).toBe(false);
+      expect(can(byPerson("p-giulia"), "claude.public.view")).toBe(true);
+      expect(can(byPerson("p-giulia"), "people.activity.view")).toBe(true);
+      expect(can(byPerson("p-roberta"), "claude.public.view")).toBe(true);
+      expect(can(byPerson("p-roberta"), "people.activity.view")).toBe(true);
+      expect(can(byPerson("p-laura"), "people.activity.view")).toBe(true);
+      expect(can(byPerson("p-marco"), "people.activity.view")).toBe(false);
+      // Chi non è fra le persone «vedi come»: dal suo ruolo tipico.
+      expect(can(byPerson("p-matteo"), "people.activity.view")).toBe(true);
+      expect(can(byPerson("p-davide"), "people.activity.view")).toBe(false);
+    });
+
+    it("si possono concedere e togliere a qualunque ruolo; resetViewerGrants rimette i default", () => {
+      grantInstancePermission("p-marco", "people.activity.view");
+      expect(can(byPerson("p-marco"), "people.activity.view")).toBe(true);
+      revokeInstancePermission("p-sara", "claude.public.view");
+      expect(can(byPerson("p-sara"), "claude.public.view")).toBe(false);
+      resetViewerGrants();
+      expect(can(byPerson("p-marco"), "people.activity.view")).toBe(false);
+      expect(can(byPerson("p-sara"), "claude.public.view")).toBe(true);
+    });
+
+    it("diventare Project Lead di un progetto nuovo dà people.activity.view, fino al reset", () => {
+      grantProjectRole("p-sara", "prj-new", "project_lead");
+      expect(can(byPerson("p-sara"), "people.activity.view")).toBe(true);
+      resetViewerGrants();
+      expect(can(byPerson("p-sara"), "people.activity.view")).toBe(false);
+    });
   });
 });

@@ -5,7 +5,11 @@ import { stallOf } from "../domain/stalled";
 import { TEMPLATE_MODULES } from "../domain/templates";
 import { compareWeeks } from "../domain/weeks";
 import { ACTIVITY } from "./seed/activity";
-import { TODAY } from "./seed/dates";
+import { PLUGINS, PROJECT_PLUGINS, STUBWISE_COMMANDS, commandsFor } from "./seed/commands";
+import { COMMITS } from "./seed/commits";
+import { CONVERSATION_EVENTS, CONVERSATIONS } from "./seed/conversations";
+import { DOC_PAGES } from "./seed/docPages";
+import { TODAY, daysFromToday } from "./seed/dates";
 import { DECISION_REQUESTS } from "./seed/decisions";
 import { DEPARTMENT_ROLES } from "./seed/departmentRoles";
 import { DEPARTMENTS } from "./seed/departments";
@@ -28,7 +32,15 @@ import {
 import { REQUESTS } from "./seed/requests";
 import { PROJECT_STATUSES } from "./seed/statuses";
 import { TASKS } from "./seed/tasks";
-import type { StatusFamily, Task } from "./types";
+import type {
+  ClaudeWorkState,
+  Conversation,
+  ConversationEvent,
+  ConversationKind,
+  ConversationState,
+  StatusFamily,
+  Task,
+} from "./types";
 
 const projectsById = new Map(PROJECTS.map((p) => [p.id, p]));
 const tasksById = new Map(TASKS.map((t) => [t.id, t]));
@@ -320,13 +332,7 @@ describe("seed: decisioni, richieste, filtri, Home", () => {
 
   it("filtri pubblici con nomi inglesi e due privati di Giulia", () => {
     const publicNames = SAVED_FILTERS.filter((f) => f.visibility === "public").map((f) => f.name);
-    for (const name of [
-      "Open",
-      "Closed this month",
-      "Stalled",
-      "No estimate",
-      "Unassigned",
-    ]) {
+    for (const name of ["Open", "Closed this month", "Stalled", "No estimate", "Unassigned"]) {
       expect(publicNames).toContain(name);
     }
     expect(
@@ -426,5 +432,342 @@ describe("seed: notifiche", () => {
   it("nessuna notifica chiede una decisione: quelle vivono in Home e in Mail", () => {
     for (const n of NOTIFICATIONS)
       expect(DECISION_NOTIFICATION_KINDS as readonly string[]).not.toContain(n.kind);
+  });
+});
+
+describe("seed: conversazioni con Claude", () => {
+  const peopleIds = new Set(PEOPLE.map((p) => p.id));
+  const requestsById = new Map(REQUESTS.map((r) => [r.id, r]));
+  const docIds = new Set(DOC_PAGES.map((d) => d.id));
+  const conversationsById = new Map(CONVERSATIONS.map((c) => [c.id, c]));
+  const eventsOf = (c: Conversation): ConversationEvent[] => CONVERSATION_EVENTS[c.id] ?? [];
+  const allEvents = CONVERSATIONS.flatMap((c) => eventsOf(c).map((e) => ({ c, e })));
+  const endOfToday = `${TODAY}T23:59:59Z`;
+
+  it("ogni conversazione punta a persone, progetti, task e richieste esistenti", () => {
+    expect(new Set(CONVERSATIONS.map((c) => c.id)).size).toBe(CONVERSATIONS.length);
+    for (const c of CONVERSATIONS) {
+      expect(peopleIds.has(c.ownerId)).toBe(true);
+      expect(PEOPLE.find((p) => p.id === c.ownerId)!.isClaude).toBe(false);
+      if (c.projectId) expect(projectsById.has(c.projectId)).toBe(true);
+      if (c.contextProjectId) expect(projectsById.has(c.contextProjectId)).toBe(true);
+      if (c.taskId) expect(tasksById.get(c.taskId)?.projectId).toBe(c.projectId);
+      if (c.requestId) expect(requestsById.get(c.requestId)?.projectId).toBe(c.projectId);
+      for (const id of c.touchedProjectIds) expect(projectsById.has(id)).toBe(true);
+      if (c.continuesFromId) {
+        expect(conversationsById.get(c.continuesFromId)?.visibility).toBe("public");
+      }
+      if (c.publishedById) expect(peopleIds.has(c.publishedById)).toBe(true);
+      expect(c.createdAt <= c.updatedAt).toBe(true);
+      expect(c.updatedAt <= endOfToday).toBe(true);
+    }
+    // Ogni conversazione ha un flusso, e ogni flusso ha la sua conversazione.
+    for (const c of CONVERSATIONS) expect(eventsOf(c).length).toBeGreaterThan(0);
+    for (const id of Object.keys(CONVERSATION_EVENTS)) expect(conversationsById.has(id)).toBe(true);
+  });
+
+  it("la forma segue il tipo: libere senza progetto, sessioni legate al loro oggetto", () => {
+    for (const c of CONVERSATIONS) {
+      if (c.kind === "free") {
+        expect(c.projectId).toBeNull();
+        expect(c.taskId).toBeNull();
+        expect(["private", "public"]).toContain(c.visibility);
+        expect(c.publishedAt !== null).toBe(c.visibility === "public");
+        expect(c.publishedById !== null).toBe(c.visibility === "public");
+        if (c.visibility === "public") expect(c.publishedById).toBe(c.ownerId);
+        if (c.contextProjectId) expect(c.touchedProjectIds).toContain(c.contextProjectId);
+      } else {
+        expect(c.contextProjectId).toBeNull();
+        expect(c.continuesFromId).toBeNull();
+        expect(c.publishedAt).toBeNull();
+        // La posta resta del titolare; le altre sessioni seguono il progetto.
+        expect(c.visibility).toBe(c.kind === "mail_classify" ? "private" : "project");
+        if (c.kind !== "mail_classify") expect(c.projectId).not.toBeNull();
+      }
+      if (c.kind === "task_run" || c.kind === "pr_review") expect(c.taskId).not.toBeNull();
+      if (c.kind === "refine" || c.kind === "intake") expect(c.requestId).not.toBeNull();
+      // L'esito c'è solo a sessione conclusa.
+      expect(c.outcome !== null).toBe(c.state === "finished");
+    }
+  });
+
+  it("almeno una conversazione per tipo e per stato", () => {
+    const kinds: ConversationKind[] = [
+      "free",
+      "task_run",
+      "refine",
+      "pr_review",
+      "docs",
+      "brief",
+      "daily_report",
+      "mail_classify",
+      "intake",
+    ];
+    const states: ConversationState[] = [
+      "working",
+      "awaiting_answer",
+      "awaiting_approval",
+      "paused",
+      "idle",
+      "finished",
+    ];
+    for (const k of kinds) expect(CONVERSATIONS.some((c) => c.kind === k)).toBe(true);
+    for (const s of states) expect(CONVERSATIONS.some((c) => c.state === s)).toBe(true);
+    for (const o of ["ok", "failed", "timed_out", "stopped"] as const) {
+      expect(CONVERSATIONS.some((c) => c.outcome === o)).toBe(true);
+    }
+    // Sessioni di task in ogni stato, e un refine dal vivo.
+    const runs = CONVERSATIONS.filter((c) => c.kind === "task_run");
+    for (const s of ["working", "awaiting_answer", "awaiting_approval", "paused", "finished"]) {
+      expect(runs.some((c) => c.state === s)).toBe(true);
+    }
+    expect(runs.some((c) => c.outcome === "ok")).toBe(true);
+    expect(runs.some((c) => c.outcome === "failed")).toBe(true);
+    expect(CONVERSATIONS.some((c) => c.kind === "refine" && c.state !== "finished")).toBe(true);
+  });
+
+  it("libere di Giulia e Marco; una pubblica di Giulia tocca un progetto che Sara non vede", () => {
+    const free = CONVERSATIONS.filter((c) => c.kind === "free");
+    expect(free.some((c) => c.ownerId === "p-giulia")).toBe(true);
+    expect(free.some((c) => c.ownerId === "p-marco")).toBe(true);
+    const giuliaPublic = free.filter((c) => c.ownerId === "p-giulia" && c.visibility === "public");
+    expect(
+      giuliaPublic.some((c) =>
+        c.touchedProjectIds.some((id) => !projectsById.get(id)!.memberIds.includes("p-sara")),
+      ),
+    ).toBe(true);
+    // Le libere private dicono ciò che l'autore può vedere: solo progetti di cui è membro.
+    for (const c of free) {
+      for (const id of c.touchedProjectIds) {
+        expect(projectsById.get(id)!.memberIds).toContain(c.ownerId);
+      }
+    }
+  });
+
+  it("una sola sessione di classificazione della posta, di un titolare", () => {
+    const mail = CONVERSATIONS.filter((c) => c.kind === "mail_classify");
+    expect(mail).toHaveLength(1);
+    expect(mail[0]!.projectId).toBeNull();
+    expect(peopleIds.has(mail[0]!.ownerId)).toBe(true);
+  });
+
+  it("le sessioni di lavoro sono di membri del progetto; le task hanno lo stato di Claude coerente", () => {
+    const expected = (c: Conversation): ClaudeWorkState => {
+      if (c.state === "finished") return c.outcome === "ok" ? "done" : "stopped";
+      if (c.state === "paused") return "stopped";
+      return c.state as ClaudeWorkState;
+    };
+    const latestByTask = new Map<string, Conversation>();
+    for (const c of CONVERSATIONS.filter((x) => x.kind === "task_run")) {
+      expect(projectsById.get(c.projectId!)!.memberIds).toContain(c.ownerId);
+      expect(projectsById.get(c.projectId!)!.memberIds).toContain("p-claude");
+      const prev = latestByTask.get(c.taskId!);
+      if (!prev || prev.createdAt < c.createdAt) latestByTask.set(c.taskId!, c);
+    }
+    for (const [taskId, c] of latestByTask) {
+      expect({ taskId, claude: tasksById.get(taskId)!.claude }).toEqual({
+        taskId,
+        claude: expected(c),
+      });
+    }
+    // Un refine vivo è su una richiesta in rifinitura.
+    for (const c of CONVERSATIONS.filter((x) => x.kind === "refine" && x.state !== "finished")) {
+      expect(requestsById.get(c.requestId!)!.status).toBe("refining");
+    }
+  });
+
+  it("ogni evento ha un id unico, è in ordine e non sta nel futuro", () => {
+    for (const c of CONVERSATIONS) {
+      const events = eventsOf(c);
+      expect(new Set(events.map((e) => e.id)).size).toBe(events.length);
+      for (let i = 1; i < events.length; i++) {
+        expect(events[i - 1]!.at <= events[i]!.at).toBe(true);
+      }
+      expect(events[0]!.at >= c.createdAt).toBe(true);
+      expect(events.at(-1)!.at <= c.updatedAt).toBe(true);
+    }
+  });
+
+  it("i riferimenti degli eventi esistono", () => {
+    for (const { e } of allEvents) {
+      if (e.type === "user") expect(peopleIds.has(e.authorId)).toBe(true);
+      if (e.type === "phase" && e.stoppedById) expect(peopleIds.has(e.stoppedById)).toBe(true);
+      if (e.type === "citation") {
+        expect(e.refs.length).toBeGreaterThan(0);
+        for (const r of e.refs) {
+          if (r.kind === "task") expect(tasksById.has(r.id)).toBe(true);
+          if (r.kind === "request") expect(requestsById.has(r.id)).toBe(true);
+          if (r.kind === "project") expect(projectsById.has(r.id)).toBe(true);
+          if (r.kind === "person") expect(peopleIds.has(r.id)).toBe(true);
+          if (r.kind === "doc") expect(docIds.has(r.id)).toBe(true);
+          if (r.kind === "file") expect(r.id).toMatch(/^[a-z0-9-]+:[\w./-]+$/);
+        }
+      }
+    }
+    for (const d of DOC_PAGES) {
+      expect(projectsById.get(d.projectId)!.modules).toContain("docs");
+    }
+  });
+
+  it("domande, piani e proposte sono ben formati", () => {
+    const questionIds = new Set<string>();
+    const proposalIds = new Set<string>();
+    for (const { c, e } of allEvents) {
+      if (e.type === "question") {
+        expect(questionIds.has(e.questionId)).toBe(false);
+        questionIds.add(e.questionId);
+        expect(e.text.length).toBeGreaterThan(0);
+        expect(e.options.length).toBeGreaterThanOrEqual(2);
+        expect(e.options.filter((o) => o.recommended).length).toBeLessThanOrEqual(1);
+        if (e.answer) {
+          expect(peopleIds.has(e.answer.byId)).toBe(true);
+          expect(e.answer.optionIndex !== null || !!e.answer.text).toBe(true);
+          if (e.answer.optionIndex !== null) {
+            expect(e.answer.optionIndex).toBeLessThan(e.options.length);
+          }
+          expect(e.answer.at >= e.at).toBe(true);
+        }
+      }
+      if (e.type === "plan") {
+        expect(e.planText.length).toBeGreaterThan(100);
+        expect(e.summary.length).toBeGreaterThan(0);
+        expect(e.decidedById !== undefined).toBe(e.status !== "pending");
+        if (e.decidedById) expect(peopleIds.has(e.decidedById)).toBe(true);
+        if (e.instructions !== undefined) expect(e.status).toBe("rejected");
+      }
+      if (e.type === "proposal") {
+        expect(proposalIds.has(e.proposalId)).toBe(false);
+        proposalIds.add(e.proposalId);
+        // Le proposte stanno nelle libere, e le conferma solo chi le ha chieste.
+        expect(c.kind).toBe("free");
+        expect(e.requesterId).toBe(c.ownerId);
+        expect(e.actions.length).toBeGreaterThan(0);
+        for (const a of e.actions) expect(a.summary.length).toBeGreaterThan(0);
+        expect(e.resultCodes !== undefined).toBe(e.status === "confirmed");
+        expect(e.error !== undefined).toBe(e.status === "failed");
+      }
+    }
+    const proposals = allEvents.flatMap(({ e }) => (e.type === "proposal" ? [e] : []));
+    expect(proposals.some((p) => p.status === "confirmed")).toBe(true);
+    expect(proposals.some((p) => p.status === "open")).toBe(true);
+  });
+
+  it("lo stato dice cosa aspetta: domanda aperta, piano da approvare", () => {
+    for (const c of CONVERSATIONS) {
+      const events = eventsOf(c);
+      const openQuestion = events.some((e) => e.type === "question" && e.answer === null);
+      const pendingPlan = events.some((e) => e.type === "plan" && e.status === "pending");
+      expect({ id: c.id, openQuestion }).toEqual({
+        id: c.id,
+        openQuestion: c.state === "awaiting_answer",
+      });
+      expect({ id: c.id, pendingPlan }).toEqual({
+        id: c.id,
+        pendingPlan: c.state === "awaiting_approval",
+      });
+    }
+    // Un piano pendente con il riassunto «In breve».
+    const pending = allEvents.find(({ e }) => e.type === "plan" && e.status === "pending")!;
+    expect(pending.e.type === "plan" && pending.e.summary.length).toBeGreaterThan(20);
+  });
+
+  it("i flussi sono ricchi: markdown con elenchi e codice, citazioni, risultati di lavoro", () => {
+    const assistant = allEvents.flatMap(({ e }) => (e.type === "assistant" ? [e.text] : []));
+    expect(assistant.some((t) => /^- /m.test(t))).toBe(true);
+    expect(assistant.some((t) => t.includes("```"))).toBe(true);
+    expect(allEvents.some(({ e }) => e.type === "citation")).toBe(true);
+    const results = new Set(
+      allEvents.flatMap(({ e }) => (e.type === "work_result" ? [e.kind] : [])),
+    );
+    for (const k of ["pr_opened", "review", "correction", "design_updated", "plan_updated"]) {
+      expect(results.has(k as never)).toBe(true);
+    }
+    expect(allEvents.some(({ e }) => e.type === "user" && e.attachments.length > 0)).toBe(true);
+  });
+});
+
+describe("seed: comandi «/» e skill dei plugin", () => {
+  it("i comandi di Stubwise ci sono sempre, anche senza contesto", () => {
+    for (const label of [
+      "/status",
+      "/today",
+      "/explain",
+      "/plan-week",
+      "/new-task",
+      "/new-request",
+      "/run",
+    ]) {
+      expect(STUBWISE_COMMANDS.some((c) => c.label === label)).toBe(true);
+    }
+    expect(commandsFor(null)).toEqual(STUBWISE_COMMANDS);
+    for (const c of STUBWISE_COMMANDS) {
+      expect(c.source).toBe("stubwise");
+      expect(c.description.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("le skill compaiono solo nei progetti con il plugin abilitato, senza quelle spente", () => {
+    for (const [projectId, enabled] of Object.entries(PROJECT_PLUGINS)) {
+      expect(projectsById.get(projectId)!.template).toBe("software");
+      for (const e of enabled) {
+        const plugin = PLUGINS.find((p) => p.id === e.pluginId)!;
+        expect(plugin).toBeDefined();
+        for (const s of e.disabledSkills) expect(plugin.skills.map((k) => k.name)).toContain(s);
+      }
+    }
+    let someDisabled = false;
+    for (const project of PROJECTS) {
+      const commands = commandsFor(project.id);
+      const skills = commands.flatMap((c) => (c.source === "stubwise" ? [] : [c.source]));
+      const enabled = PROJECT_PLUGINS[project.id] ?? [];
+      expect(commands.filter((c) => c.source === "stubwise")).toEqual(STUBWISE_COMMANDS);
+      if (enabled.length === 0) expect(skills).toEqual([]);
+      for (const s of skills) {
+        const e = enabled.find((x) => PLUGINS.find((p) => p.id === x.pluginId)!.name === s.plugin);
+        expect(e).toBeDefined();
+        expect(e!.disabledSkills).not.toContain(s.skill);
+      }
+      for (const e of enabled) {
+        const plugin = PLUGINS.find((p) => p.id === e.pluginId)!;
+        expect(skills.filter((s) => s.plugin === plugin.name)).toHaveLength(
+          plugin.skills.length - e.disabledSkills.length,
+        );
+        if (e.disabledSkills.length > 0) someDisabled = true;
+      }
+    }
+    expect(someDisabled).toBe(true);
+    expect(Object.keys(PROJECT_PLUGINS)).toContain("prj-stw");
+    expect(Object.keys(PROJECT_PLUGINS)).toContain("prj-aud");
+    // Un progetto software senza plugin: solo i comandi di Stubwise.
+    expect(PROJECTS.some((p) => p.template === "software" && !PROJECT_PLUGINS[p.id])).toBe(true);
+    for (const p of PROJECTS) {
+      const own = commandsFor(p.id).map((c) => c.id);
+      expect(new Set(own).size).toBe(own.length);
+    }
+  });
+});
+
+describe("seed: commit del giorno", () => {
+  it("commit di oggi e di ieri per almeno 3 sviluppatori, uno di un autore non collegato", () => {
+    const developers = new Set(
+      PEOPLE.filter((p) => p.departmentIds.includes("dep-development")).map((p) => p.id),
+    );
+    for (const day of [TODAY, daysFromToday(-1)]) {
+      const authors = new Set(
+        COMMITS.filter((c) => c.at.startsWith(day) && c.authorId).map((c) => c.authorId!),
+      );
+      expect(authors.size).toBeGreaterThanOrEqual(3);
+      for (const a of authors) expect(developers.has(a)).toBe(true);
+    }
+    expect(COMMITS.some((c) => c.authorId === null)).toBe(true);
+    expect(new Set(COMMITS.map((c) => c.sha)).size).toBe(COMMITS.length);
+    for (const c of COMMITS) {
+      expect(c.sha).toMatch(/^[0-9a-f]{40}$/);
+      const project = projectsById.get(c.projectId)!;
+      expect(project.template).toBe("software");
+      if (c.authorId) expect(project.memberIds).toContain(c.authorId);
+      expect(c.aiSummary.length).toBeGreaterThan(0);
+      expect(c.at <= `${TODAY}T23:59:59Z`).toBe(true);
+    }
   });
 });

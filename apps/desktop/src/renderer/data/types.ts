@@ -8,9 +8,16 @@ export * from "./model";
 /** Permessi di progetto che vivono solo nel prototipo (non nel registro condiviso). */
 export type LocalProjectPermission = "planning.others";
 
+/**
+ * Permessi d'istanza che vivono solo nel prototipo (area 3): vedere le
+ * conversazioni pubbliche con Claude e l'attività delle persone. Entrano nel
+ * registro di `@stubwise/shared` quando si costruisce il backend.
+ */
+export type LocalInstancePermission = "claude.public.view" | "people.activity.view";
+
 export interface Viewer {
   personId: string;
-  instancePermissions: InstancePermission[];
+  instancePermissions: (InstancePermission | LocalInstancePermission)[];
   projectPermissions: Record<string, (ProjectPermission | LocalProjectPermission)[]>;
   /** Permessi di reparto, per id del reparto. */
   departmentPermissions: Record<string, DepartmentPermission[]>;
