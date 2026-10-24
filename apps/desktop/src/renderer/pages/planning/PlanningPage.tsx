@@ -41,7 +41,14 @@ import { formatDue } from "../../tasks-ui/TaskRow";
 import { queryState, useOpenTask } from "../home/blocks/BlockSection";
 import { Chevron, MenuButton, quietButton } from "../tasks/controls";
 import { shortWeek } from "../tasks/pickers";
-import { PlanningContext, spotOf, type PlanningContextValue, type Spot } from "./context";
+import {
+  PlanningContext,
+  chipKey,
+  dragTaskId,
+  spotOf,
+  type PlanningContextValue,
+  type Spot,
+} from "./context";
 import { GridSkeleton, PeopleGrid, type GridRow } from "./PeopleGrid";
 import { ChipBody, chipClass } from "./PlanChip";
 import { PlanMenu } from "./PlanMenu";
@@ -232,7 +239,8 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
   useEffect(() => {
     const onFocusIn = (e: FocusEvent) => {
       const chip = (e.target as Element | null)?.closest?.("[data-chip]");
-      if (chip?.getAttribute("data-chip") !== refocus.current) refocus.current = null;
+      const key = chip ? `${chip.getAttribute("data-spot")}|${chip.getAttribute("data-chip")}` : null;
+      if (key !== refocus.current) refocus.current = null;
     };
     document.addEventListener("focusin", onFocusIn);
     return () => document.removeEventListener("focusin", onFocusIn);
@@ -285,7 +293,7 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
   function onDragEnd(e: DragEndEvent) {
     setDragging(null);
     setOver(null);
-    const task = taskById(e.active.id);
+    const task = taskById(dragTaskId(e.active));
     const spot = spotOf(e.over?.id);
     if (!task || !spot) return;
     if (spot.kind === "pool") {
@@ -301,17 +309,18 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
       : spot.kind === "pool"
         ? t("planning.pool.title")
         : t("planning.spot", { person: personName(spot.personId), week: shortWeek(spot.week) });
-  const codeOf = (id: unknown) => taskById(id)?.code ?? "";
+  const codeOf = (active: Parameters<typeof dragTaskId>[0]) =>
+    taskById(dragTaskId(active))?.code ?? "";
   // Gli annunci del trascinamento col puntatore, coi nomi veri (codice, persona,
   // settimana) e mai con gli id; il rilascio lo dice `plan`.
   const announcements: Announcements = {
-    onDragStart: ({ active }) => t("planning.picked", { code: codeOf(active.id) }),
+    onDragStart: ({ active }) => t("planning.picked", { code: codeOf(active) }),
     onDragOver: ({ active, over: o }) => {
       const spot = spotOf(o?.id);
-      return spot ? t("planning.over", { code: codeOf(active.id), spot: spotName(spot) }) : undefined;
+      return spot ? t("planning.over", { code: codeOf(active), spot: spotName(spot) }) : undefined;
     },
     onDragEnd: () => undefined,
-    onDragCancel: ({ active }) => t("planning.cancelled", { code: codeOf(active.id) }),
+    onDragCancel: ({ active }) => t("planning.cancelled", { code: codeOf(active) }),
   };
 
   const openPlanMenu = useCallback((task: Task, anchor: HTMLElement) => setMenu({ task, anchor }), []);
@@ -466,7 +475,7 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
         <DndContext
           sensors={sensors}
           collisionDetection={collision}
-          onDragStart={(e) => setDragging(taskById(e.active.id) ?? null)}
+          onDragStart={(e) => setDragging(taskById(dragTaskId(e.active)) ?? null)}
           onDragOver={(e) => setOver(spotOf(e.over?.id))}
           onDragEnd={onDragEnd}
           onDragCancel={() => {
@@ -522,7 +531,12 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
             onPlan={(assigneeId, week) => {
               const task = menu.task;
               setMenu(null);
-              refocus.current = task.code;
+              // Il fuoco va alla copia nel posto d'arrivo (una slittata resta anche nella vasca).
+              const landing: Spot =
+                week === null || assigneeId === null
+                  ? { kind: "pool" }
+                  : { kind: "cell", personId: assigneeId, week };
+              refocus.current = chipKey(landing, task.code);
               plan(task, assigneeId, week);
             }}
           />

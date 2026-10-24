@@ -18,13 +18,17 @@ afterEach(() => clearToasts());
 
 const chip = (code: string) =>
   screen.findByRole("button", { name: new RegExp(`^${code} `) });
-/** La riga (persona) in cui sta la carta, o «pool» se è nella vasca. */
-const placeOf = (code: string) => {
-  const el = document.querySelector(`[data-chip="${code}"]`);
-  if (!el) return null;
-  if (el.closest("[data-pool]")) return "pool";
-  return el.closest<HTMLElement>("[data-person]")?.dataset.person ?? null;
-};
+/**
+ * Dove sta ogni copia della carta, nell'ordine del documento: «pool» per la
+ * vasca, la persona per una cella. Una slittata ancora nella settimana
+ * corrente ne ha due.
+ */
+const placesOf = (code: string) =>
+  [...document.querySelectorAll(`[data-chip="${code}"]`)].map((el) =>
+    el.closest("[data-pool]")
+      ? "pool"
+      : (el.closest<HTMLElement>("[data-person]")?.dataset.person ?? null),
+  );
 const taskOf = (code: string) => state.tasks.find((t) => t.code === code)!;
 
 /** «P» sulla carta, poi persona e settimana dal menu. */
@@ -49,8 +53,8 @@ describe("PlanningPage di progetto", () => {
     expect(people).toContain("p-paolo");
     // La slittata e la non assegnata stanno nella vasca.
     await chip("MKX-8");
-    expect(placeOf("MKX-8")).toBe("pool");
-    expect(placeOf("MKX-5")).toBe("pool");
+    expect(placesOf("MKX-8")).toEqual(["pool"]);
+    expect(placesOf("MKX-5")).toEqual(["pool", "p-matteo"]);
     // L'intestazione di riga: aperte qui · ovunque.
     const paolo = grid.querySelector<HTMLElement>('[data-row-head="p-paolo"]')!;
     expect(paolo).toHaveTextContent(/\d+ open here · \d+ everywhere/);
@@ -59,7 +63,7 @@ describe("PlanningPage di progetto", () => {
   it("Giulia pianifica (da tastiera) una task per Paolo questa settimana: la cella si aggiorna e Paolo è avvisato", async () => {
     renderRoute("/p/MKX/planning");
     await planViaKeyboard("MKX-8", "Paolo Gatti", /^W43 /);
-    await waitFor(() => expect(placeOf("MKX-8")).toBe("p-paolo"));
+    await waitFor(() => expect(placesOf("MKX-8")).toEqual(["p-paolo"]));
     expect(screen.getByTestId("planning-announcer")).toHaveTextContent("MKX-8 moved to Paolo Gatti, W43.");
     // Il fuoco resta sulla carta, rinata nella cella.
     await waitFor(() => expect(document.activeElement?.getAttribute("data-chip")).toBe("MKX-8"));
@@ -100,24 +104,51 @@ describe("PlanningPage di progetto", () => {
   it("uno spostamento che non riesce torna indietro e un messaggio lo dice", async () => {
     renderRoute("/p/MKX/planning");
     await chip("MKX-8");
+    // Con una latenza vera si vede l'ottimismo: la carta è già da Paolo prima della risposta.
+    setLatency(300);
     failNext("planTask");
     await planViaKeyboard("MKX-8", "Paolo Gatti", /^W43 /);
+    await waitFor(() => expect(placesOf("MKX-8")).toEqual(["p-paolo"]));
+    expect(screen.queryByText("Couldn't move MKX-8. It's back where it was.")).toBeNull();
     expect(
-      await screen.findByText("Couldn't move MKX-8. It's back where it was."),
+      await screen.findByText("Couldn't move MKX-8. It's back where it was.", {}, { timeout: 2000 }),
     ).toBeInTheDocument();
-    await waitFor(() => expect(placeOf("MKX-8")).toBe("pool"));
+    await waitFor(() => expect(placesOf("MKX-8")).toEqual(["pool"]));
     expect(taskOf("MKX-8").assigneeId).toBeNull();
+  });
+
+  it("una slittata sta in vasca e nella sua cella: la copia della vasca pianifica la task giusta", async () => {
+    renderRoute("/p/MKX/planning");
+    await waitFor(() => expect(placesOf("MKX-5")).toEqual(["pool", "p-matteo"]));
+    // Ogni copia ha il suo id di trascinamento, che porta la stessa task.
+    const copies = [...document.querySelectorAll<HTMLElement>('[data-chip="MKX-5"]')];
+    expect(copies.map((c) => c.dataset.spot)).toEqual(["pool", "cell:p-matteo:2026-W43"]);
+    const pool = copies[0]!;
+    pool.focus();
+    fireEvent.keyDown(pool, { key: "p" });
+    const menu = await screen.findByRole("menu", { name: "Plan MKX-5" });
+    fireEvent.click(within(menu).getByRole("menuitemradio", { name: /Paolo Gatti/ }));
+    const weeks = await screen.findByRole("menu", { name: "Plan MKX-5 for Paolo Gatti" });
+    fireEvent.click(within(weeks).getByRole("menuitemradio", { name: /^W43 / }));
+    // Resta slittata nella settimana corrente: in vasca e ora nella cella di Paolo.
+    await waitFor(() => expect(placesOf("MKX-5")).toEqual(["pool", "p-paolo"]));
+    await waitFor(() => expect(taskOf("MKX-5").assigneeId).toBe("p-paolo"));
+    // Il fuoco è sulla copia nella cella d'arrivo, non su quella in vasca.
+    await waitFor(() =>
+      expect((document.activeElement as HTMLElement | null)?.dataset.spot).toBe("cell:p-paolo:2026-W43"),
+    );
+    expect(document.activeElement?.getAttribute("data-chip")).toBe("MKX-5");
   });
 
   it("dalla cella alla vasca: toglie la settimana, tiene la persona", async () => {
     renderRoute("/p/MKX/planning");
     const mkx3 = await chip("MKX-3");
-    expect(placeOf("MKX-3")).toBe("p-paolo");
+    expect(placesOf("MKX-3")).toEqual(["p-paolo"]);
     mkx3.focus();
     fireEvent.keyDown(mkx3, { key: "p" });
     const menu = await screen.findByRole("menu", { name: "Plan MKX-3" });
     fireEvent.click(within(menu).getByRole("menuitem", { name: /Back to To plan/ }));
-    await waitFor(() => expect(placeOf("MKX-3")).toBe("pool"));
+    await waitFor(() => expect(placesOf("MKX-3")).toEqual(["pool"]));
     await waitFor(() => expect(taskOf("MKX-3").plannedWeek).toBeNull());
     expect(taskOf("MKX-3").assigneeId).toBe("p-paolo");
   });
@@ -141,7 +172,7 @@ describe("PlanningPage di progetto", () => {
   it("nella matrice le frecce passano fra le celle; Invio apre il dettaglio", async () => {
     const router = renderRoute("/p/MKX/planning");
     const mkx2 = await chip("MKX-2");
-    expect(placeOf("MKX-2")).toBe("p-chiara");
+    expect(placesOf("MKX-2")).toEqual(["p-chiara"]);
     mkx2.focus();
     // Chiara → Elena, stessa settimana.
     fireEvent.keyDown(mkx2, { key: "ArrowDown" });
@@ -192,7 +223,7 @@ describe("PlanningPage trasversale", () => {
     expect(grid.querySelector('[data-row-head="p-marco"]')).toBeNull();
     // STW-4 è di Elena in STW, dove Giulia non è Project Lead.
     const stw4 = await chip("STW-4");
-    expect(placeOf("STW-4")).toBe("p-elena");
+    expect(placesOf("STW-4")).toEqual(["p-elena"]);
     expect(stw4.getAttribute("title")).toMatch(/You can't plan tasks in /);
     stw4.focus();
     fireEvent.keyDown(stw4, { key: "p" });

@@ -42,6 +42,29 @@ export function spotId(spot: Spot): string {
   return spot.kind === "pool" ? "pool" : `cell:${spot.personId}:${spot.week}`;
 }
 
+/**
+ * L'id di trascinamento di una carta: posto + task. Una slittata ancora
+ * nella settimana corrente si vede due volte (vasca e cella della persona),
+ * e dnd-kit vuole id unici: con lo stesso id le due copie si sovrascrivono.
+ * La task si legge da `data.taskId`, mai dall'id.
+ */
+export function dragId(spot: Spot, taskId: string): string {
+  return `drag:${spotId(spot)}:${taskId}`;
+}
+
+/** La task di un trascinamento, dai dati del draggable (`useDraggable({ data })`). */
+export function dragTaskId(active: {
+  data: { current?: Record<string, unknown> | null };
+}): string | null {
+  const id = active.data.current?.taskId;
+  return typeof id === "string" ? id : null;
+}
+
+/** La chiave di una copia di carta: posto e codice, per riprendere il fuoco su quella giusta. */
+export function chipKey(spot: Spot, code: string): string {
+  return `${spotId(spot)}|${code}`;
+}
+
 export function spotOf(id: unknown): Spot | null {
   if (id === "pool") return { kind: "pool" };
   if (typeof id !== "string" || !id.startsWith("cell:")) return null;

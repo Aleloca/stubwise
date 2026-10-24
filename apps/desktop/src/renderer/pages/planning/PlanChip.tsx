@@ -8,7 +8,7 @@ import { DeptStrip, useDeptLabel } from "../../layout/DeptStrip";
 import { Avatar } from "../../tasks-ui/PersonChip";
 import { SizeMark } from "../../tasks-ui/SizeMark";
 import { SlipMark } from "../week/WeekBoard";
-import { usePlanning, type Spot } from "./context";
+import { chipKey, dragId, spotId, usePlanning, type Spot } from "./context";
 
 /** La riga compatta di una task, condivisa da carta e anteprima del trascinamento. */
 export function ChipBody({ task, withAssignee }: { task: Task; withAssignee: boolean }) {
@@ -62,9 +62,9 @@ export function PlanChip({
   const movable = canMove(task, ctx.rightsOf(task));
   const lock = movable ? null : ctx.lockReason(task);
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: task.id,
+    id: dragId(spot, task.id),
     disabled: !movable,
-    data: { spot },
+    data: { spot, taskId: task.id },
   });
   const node = useRef<HTMLDivElement | null>(null);
   const ref = useCallback(
@@ -75,9 +75,11 @@ export function PlanChip({
     [setNodeRef],
   );
   const { refocus } = ctx;
+  const key = chipKey(spot, task.code);
+  // Solo la copia nel posto d'arrivo riprende il fuoco (una slittata ne ha due).
   useLayoutEffect(() => {
-    if (refocus.current === task.code) node.current?.focus();
-  }, [refocus, task.code]);
+    if (refocus.current === key) node.current?.focus();
+  }, [refocus, key]);
 
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if (e.key === "Enter") {
@@ -100,6 +102,7 @@ export function PlanChip({
       ref={ref}
       {...dragProps}
       data-chip={task.code}
+      data-spot={spotId(spot)}
       data-locked={lock ? "true" : undefined}
       aria-label={t("planning.chipLabel", { code: task.code, title: task.title })}
       aria-current={current ? "true" : undefined}
