@@ -1671,6 +1671,9 @@
       "waitingOnYou": "Aspetta te",
       "cancel": "Annulla",
       "codeBlock": "Codice",
+      "table": "Tabella",
+      "stopFailed": "Non è stato possibile fermare Claude.",
+      "tryAgain": "Riprova",
       "loadEarlier": "Carica precedenti",
       "queued": "Messaggi in attesa del loro turno",
       "thinking": "Claude ci sta lavorando…",
@@ -1784,7 +1787,7 @@
         "undeliveredWith": "Non consegnato: {{reason}}",
         "resend": "Rimanda",
         "stoppedBeforeTurn": "hai fermato Claude prima che lo leggesse",
-        "sendFailed": "Il messaggio non è partito."
+        "didntGoThrough": "non è partito"
       },
       "attachments": {
         "attach": "Allega",

@@ -3,7 +3,14 @@ import { useTranslation } from "react-i18next";
 import { useAnswerQuestion } from "../../../data/queries";
 import { inputClass } from "../../../tasks-ui/Dialog";
 import type { Ev } from "./flow";
-import { cardClass, clock, primaryButton, quietButton, usePersonName } from "./parts";
+import {
+  cardClass,
+  clock,
+  primaryButton,
+  quietButton,
+  useFocusWhenResolved,
+  usePersonName,
+} from "./parts";
 
 /** Il pallino «ti aspetta» nell'intestazione di una scheda che chiede a me. */
 export function WaitingDot({ label }: { label: string }) {
@@ -44,6 +51,7 @@ export function QuestionCard({
   const answeredBy = usePersonName(event.answer?.byId ?? lostTo);
   const otherId = useId();
   const headingId = useId();
+  const resolvedRef = useFocusWhenResolved<HTMLParagraphElement>(event.answer !== null);
 
   // In ordine: la consigliata prima, poi le altre come le ha scritte Claude.
   const options = event.options
@@ -56,7 +64,11 @@ export function QuestionCard({
         ? (event.options[event.answer.optionIndex]?.label ?? "")
         : (event.answer.text ?? "");
     return (
-      <p className="event-enter flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-sm text-ink-muted">
+      <p
+        ref={resolvedRef}
+        tabIndex={-1}
+        className="event-enter flex min-w-0 flex-wrap items-baseline gap-x-1.5 rounded-md text-sm text-ink-muted"
+      >
         <span className="text-ink">{event.text}</span>
         <span aria-hidden="true">—</span>
         <span>

@@ -34,6 +34,8 @@ import {
   sendMessage,
   setConversationContext,
   setLatency,
+  setStreamLatency,
+  setVisibility,
   stop,
   stopAndSend,
   whenIdle,
@@ -173,6 +175,108 @@ describe("«Ferma» nella conversazione libera (coda dei turni)", () => {
   });
 });
 
+describe("«Ferma» in una pubblica: le regole della trattenuta (R-E6, R-E8)", () => {
+  const ID = "cv-giulia-week";
+  const CONFIRMED = ["prj-mkx", "prj-olv", "prj-stw"];
+  /** Quello che legge chi guarda la pubblica senza esserne l'autore. */
+  async function laura() {
+    setSessionPersonId("p-laura");
+    const detail = (await getConversation(ID))!;
+    setSessionPersonId("p-giulia");
+    return detail;
+  }
+  const texts = (events: ConversationEvent[]) =>
+    events.map((e) => (e.type === "user" || e.type === "assistant" ? e.text : e.type));
+
+  beforeEach(async () => {
+    setStreamLatency(null);
+    await setVisibility(ID, "public", { confirmedProjectIds: CONFIRMED });
+  });
+
+  it("fermata mentre Claude pensa: il messaggio trattenuto si consegna, poi la fase fermata", async () => {
+    const before = (await laura()).events.length;
+    const release = holdRespond();
+    const sending = sendMessage(ID, { text: "What should I do today?" });
+    await until(() =>
+      log(ID).some((e) => e.type === "user" && e.text === "What should I do today?"),
+    );
+    // Trattenuto: chi guarda non lo legge ancora.
+    expect((await laura()).events).toHaveLength(before);
+    const stopping = stop(ID);
+    await tick();
+    // La risposta (che toccherebbe AUD) arriva dopo «Ferma»: non conta.
+    release([
+      { step: "event", event: { type: "citation", refs: [{ kind: "task", id: "t-aud-3" }] } },
+      { step: "say", text: "LATE" },
+    ]);
+    await Promise.all([sending, stopping]);
+    await settle(ID);
+    const seen = await laura();
+    expect(seen.privateTail).toBe(false);
+    expect(texts(seen.events.slice(before))).toEqual(["What should I do today?", "phase"]);
+    expect(conv(ID).touchedProjectIds).not.toContain("prj-aud");
+  });
+
+  it("fermata mentre scrive una risposta che tocca un progetto nuovo: dal messaggio in poi resta privato", async () => {
+    setStreamLatency(5);
+    const before = (await laura()).events.length;
+    const release = holdRespond();
+    const sending = sendMessage(ID, { text: "Explain AUD-3" });
+    await until(() => log(ID).some((e) => e.type === "user" && e.text === "Explain AUD-3"));
+    release([
+      { step: "event", event: { type: "citation", refs: [{ kind: "task", id: "t-aud-3" }] } },
+      { step: "say", text: Array.from({ length: 60 }, (_, i) => `word${i}`).join(" ") },
+      { step: "state", state: "idle" },
+    ]);
+    await until(() => log(ID).some((e) => e.type === "citation" && e.refs[0]?.id === "t-aud-3"));
+    await stop(ID);
+    await sending;
+    await settle(ID);
+    // L'autore ha tutto, fase fermata compresa.
+    expect(log(ID).at(-1)).toMatchObject({ type: "phase", outcome: "stopped" });
+    // Chi guarda: niente dal messaggio in poi (né il messaggio, né AUD, né la fase).
+    const seen = await laura();
+    expect(seen.privateTail).toBe(true);
+    expect(seen.events).toHaveLength(before);
+  });
+
+  it("«Ferma e scrivi» in una pubblica: il messaggio nuovo segue la trattenuta", async () => {
+    const before = (await laura()).events.length;
+    const release = holdRespond();
+    const sending = sendMessage(ID, { text: "What should I do today?" });
+    await until(() => conv(ID).state === "working");
+    const both = stopAndSend(ID, "Explain MKX-7 instead");
+    await tick();
+    gate.hold = null;
+    release([{ step: "say", text: "LATE" }]);
+    await Promise.all([sending, both]);
+    await settle(ID);
+    // MKX è già confermato: il seguito è pubblico.
+    let seen = await laura();
+    expect(texts(seen.events.slice(before)).slice(0, 3)).toEqual([
+      "What should I do today?",
+      "phase",
+      "Explain MKX-7 instead",
+    ]);
+    expect(seen.events.some((e) => e.type === "assistant" && e.text.includes("LATE"))).toBe(false);
+
+    // Un «Ferma e scrivi» che tocca un progetto nuovo resta dell'autore.
+    const now = seen.events.length;
+    const second = holdRespond();
+    const again = sendMessage(ID, { text: "What should I do today?" });
+    await until(() => conv(ID).state === "working");
+    const third = stopAndSend(ID, "Explain AUD-3");
+    await tick();
+    gate.hold = null;
+    second([]);
+    await Promise.all([again, third]);
+    await settle(ID);
+    seen = await laura();
+    expect(texts(seen.events.slice(now))).not.toContain("Explain AUD-3");
+    expect(seen.privateTail).toBe(true);
+  });
+});
+
 describe("citazioni", () => {
   it("chi guarda vede codice e nome solo di ciò che può vedere", async () => {
     const refs = [
@@ -194,9 +298,22 @@ describe("citazioni", () => {
 
     setSessionPersonId("p-sara"); // AUD non lo vede
     const forSara = await resolveCitations([...refs]);
-    expect(forSara.slice(0, 3)).toEqual(
+    // R-E9: la task invisibile arriva col solo codice; mai titolo, stato, persona o link.
+    expect(forSara[0]).toEqual({
+      kind: "task",
+      id: "t-aud-3",
+      visible: false,
+      code: "AUD-3",
+      name: null,
+      projectCode: null,
+      status: null,
+      personId: null,
+      route: null,
+    });
+    // File e pagine dei Docs: nulla.
+    expect(forSara.slice(1, 3)).toEqual(
       refs
-        .slice(0, 3)
+        .slice(1, 3)
         .map(() => expect.objectContaining({ visible: false, code: null, name: null })),
     );
     expect(forSara[3]).toMatchObject({ visible: true, name: expect.any(String) });

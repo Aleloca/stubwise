@@ -30,9 +30,27 @@ export function indexCitations(views: readonly CitationView[] | undefined): Cita
   const byCode = new Map<string, CitationView>();
   for (const v of views ?? []) {
     byRef.set(refKey(v), v);
-    if (v.visible && v.code && (v.kind === "task" || v.kind === "request")) byCode.set(v.code, v);
+    if (v.code && (v.kind === "task" || v.kind === "request")) byCode.set(v.code, v);
   }
   return { byRef, byCode };
+}
+
+/**
+ * Il codice di un oggetto che chi guarda non può aprire (R-E9): inchiostro
+ * tenue, non un link, «You can't open this» al passaggio. Il nome non c'è:
+ * il livello dati non lo dà.
+ */
+export function HiddenCode({ code }: { code: string }) {
+  const { t } = useTranslation();
+  return (
+    <span
+      title={t("claude.conversation.citation.cantOpen")}
+      data-citation="hidden"
+      className="num font-semibold tracking-[0.02em] text-ink-faint"
+    >
+      {code}
+    </span>
+  );
 }
 
 const CitationContext = createContext<CitationIndex>(indexCitations([]));
@@ -55,7 +73,10 @@ export function CitationLink({ view }: { view: CitationView }) {
   useEffect(() => () => clearTimeout(timer.current), []);
 
   if (!view.visible) {
-    return (
+    // R-E9: il codice in inchiostro tenue, che non si apre; il nome no.
+    return view.code ? (
+      <HiddenCode code={view.code} />
+    ) : (
       <span
         title={t("claude.conversation.citation.cantOpen")}
         className="text-ink-faint"

@@ -738,8 +738,10 @@ const projectCodeOf = (projectId: string) => state.projectsById.get(projectId)?.
 
 /**
  * Gli oggetti citati in una conversazione, come li legge chi guarda: per
- * l'anteprima e per aprirli. Quello che non vede arriva con `visible: false`
- * e senza codice né nome — come un oggetto che non esiste.
+ * l'anteprima e per aprirli. Quello che non vede arriva con `visible: false`:
+ * una task, una richiesta o un progetto col solo codice (R-E9: il testo si
+ * legge, il codice non si apre), mai il titolo; pagine, file e il resto
+ * senza nulla.
  */
 export async function resolveCitations(refs: CitationRef[]): Promise<CitationView[]> {
   const me = await gate("resolveCitations");
@@ -760,7 +762,9 @@ export async function resolveCitations(refs: CitationRef[]): Promise<CitationVie
     switch (ref.kind) {
       case "task": {
         const t = state.tasksById.get(ref.id);
-        if (!t || !visible.has(t.projectId)) return hidden(ref);
+        if (!t) return hidden(ref);
+        // R-E9: chi non vede il progetto legge il codice, mai il titolo.
+        if (!visible.has(t.projectId)) return { ...hidden(ref), code: t.code };
         const project = projectCodeOf(t.projectId)!;
         return {
           ...hidden(ref),
@@ -775,7 +779,8 @@ export async function resolveCitations(refs: CitationRef[]): Promise<CitationVie
       }
       case "request": {
         const r = state.requests.find((x) => x.id === ref.id);
-        if (!r || !visible.has(r.projectId)) return hidden(ref);
+        if (!r) return hidden(ref);
+        if (!visible.has(r.projectId)) return { ...hidden(ref), code: r.code };
         const project = projectCodeOf(r.projectId)!;
         return {
           ...hidden(ref),
@@ -818,7 +823,8 @@ export async function resolveCitations(refs: CitationRef[]): Promise<CitationVie
       }
       case "project": {
         const p = state.projectsById.get(ref.id);
-        if (!p || !visible.has(p.id)) return hidden(ref);
+        if (!p) return hidden(ref);
+        if (!visible.has(p.id)) return { ...hidden(ref), code: p.code };
         return {
           ...hidden(ref),
           visible: true,

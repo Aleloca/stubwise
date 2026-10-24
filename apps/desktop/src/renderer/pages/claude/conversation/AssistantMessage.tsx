@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Markdown, type TextDecorator } from "../../../tasks-ui/Markdown";
 import { Avatar } from "../../../tasks-ui/PersonChip";
 import { usePeople } from "../../../data/queries";
-import { UsedLine, useCitationIndex } from "./citations";
+import { HiddenCode, UsedLine, useCitationIndex } from "./citations";
 import { CODE_IN_TEXT, type FlowItem } from "./flow";
 import { clock } from "./parts";
 
@@ -29,6 +29,7 @@ export function AssistantMessage({
       if (parts.length === 1) return text;
       return parts.map((part, i) => {
         const view = i % 2 === 1 ? index.byCode.get(part) : undefined;
+        if (view && !view.visible) return <HiddenCode key={`${key}-${i}`} code={part} />;
         if (!view?.route) return <Fragment key={`${key}-${i}`}>{part}</Fragment>;
         return (
           <a
@@ -54,6 +55,7 @@ export function AssistantMessage({
           className="[&>ol]:max-w-[68ch] [&>p]:max-w-[68ch] [&>ul]:max-w-[68ch]"
           decorate={decorate}
           codeLabel={t("claude.conversation.codeBlock")}
+          tableLabel={t("claude.conversation.table")}
           trailing={
             cursor && (
               <span

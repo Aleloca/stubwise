@@ -1671,6 +1671,9 @@
       "waitingOnYou": "Waiting on you",
       "cancel": "Cancel",
       "codeBlock": "Code",
+      "table": "Table",
+      "stopFailed": "Claude couldn't be stopped.",
+      "tryAgain": "Try again",
       "loadEarlier": "Load earlier",
       "queued": "Messages waiting for their turn",
       "thinking": "Claude is working on it…",
@@ -1784,7 +1787,7 @@
         "undeliveredWith": "Not delivered: {{reason}}",
         "resend": "Resend",
         "stoppedBeforeTurn": "you stopped Claude before it read this",
-        "sendFailed": "The message didn't go through."
+        "didntGoThrough": "it didn't go through"
       },
       "attachments": {
         "attach": "Attach",

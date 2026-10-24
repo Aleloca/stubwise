@@ -160,7 +160,8 @@ export interface ConversationDetail extends ConversationRow, ConversationPermiss
 /**
  * Un oggetto citato nel flusso come lo legge chi guarda: codice, nome, stato
  * e persona per l'anteprima, e dove si apre. Un oggetto che chi guarda non
- * vede arriva con `visible: false` e nient'altro (né codice né nome).
+ * vede arriva con `visible: false`: al più il codice (task, richiesta,
+ * progetto — R-E9), mai il nome né altro.
  */
 export interface CitationView {
   kind: CitationRef["kind"];

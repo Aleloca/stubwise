@@ -135,7 +135,15 @@ export function Composer({
   useEffect(() => {
     if (!working) return;
     const onKey = (e: globalThis.KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === ".") {
+      if (!(e.metaKey || e.ctrlKey) || e.key !== ".") return;
+      // Solo per questa conversazione: non con un dialogo aperto, e non se
+      // il fuoco è in un'altra parte della finestra (un'altra conversazione,
+      // un campo del pannello accanto).
+      if (document.querySelector('[aria-modal="true"]')) return;
+      const root = field.current?.closest("[data-conversation]");
+      const active = document.activeElement;
+      const here = !active || active === document.body || (root?.contains(active) ?? false);
+      if (here) {
         e.preventDefault();
         onStop();
       }

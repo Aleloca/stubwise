@@ -1,8 +1,9 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../../../data/api";
 import { setSessionPersonId } from "../../../data/session";
+import { state } from "../../../data/store";
 import { useViewer } from "../../../data/viewer";
 import { renderWithData } from "../../../test/renderWithData";
 import { Conversation } from "./Conversation";
@@ -94,6 +95,25 @@ describe("Conversation: flusso", () => {
   });
 });
 
+describe("Conversation: citazioni che chi guarda non può aprire (R-E9)", () => {
+  it("il codice in inchiostro tenue, non un link, «You can't open this»; il titolo no", async () => {
+    const { container } = renderWithData(<Harness id="cv-giulia-callbacks" />, {
+      personId: "p-sara",
+    });
+    const used = await screen.findByText("Used:");
+    const line = used.parentElement!;
+    await waitFor(() => expect(line.querySelector('[data-citation="hidden"]')).not.toBeNull());
+    const code = within(line).getByText("AUD-9");
+    expect(code.tagName).toBe("SPAN");
+    expect(code).toHaveAttribute("title", "You can't open this");
+    expect(code.className).toMatch(/text-ink-faint/);
+    expect(line.textContent).not.toMatch(/Fix the timezone/);
+    expect(within(line).queryByRole("link", { name: /AUD-9/ })).toBeNull();
+    // Nel testo di Claude il codice resta leggibile ma non si apre.
+    expect(container.querySelector('a[href*="AUD-9"]')).toBeNull();
+  });
+});
+
 describe("Conversation: proposte", () => {
   it("i bottoni solo per chi l'ha chiesta; chi guarda una pubblica legge «Proposal for»", async () => {
     await as("p-giulia", () =>
@@ -120,6 +140,8 @@ describe("Conversation: proposte", () => {
     expect(done).toHaveAttribute("href", expect.stringContaining("task=MKX-7"));
     expect(within(card).getByText("Done")).toBeInTheDocument();
     expect(within(card).queryByRole("button", { name: "Confirm" })).toBeNull();
+    // Il bottone col fuoco è sparito: il fuoco è sulla scheda, non sul body.
+    expect(document.activeElement).toBe(card);
   });
 });
 
@@ -132,8 +154,19 @@ describe("Conversation: domande e piani", () => {
     // La consigliata è la prima, con l'etichetta testuale.
     expect(options[0]).toHaveTextContent(/create a new contact.*recommended/i);
     await user.click(options[0]!);
-    await screen.findByText(/answered by marco/i);
+    const answered = await screen.findByText(/answered by marco/i);
     expect(screen.queryByRole("region", { name: /claude asks/i })).toBeNull();
+    // Il fuoco va alla riga che prende il posto della scheda.
+    expect(document.activeElement).toBe(answered.closest("p"));
+  });
+
+  it("approvato il piano, il fuoco va alla riga «Approved by …»", async () => {
+    const user = userEvent.setup();
+    renderWithData(<Harness id="cv-run-stw-13" />, { personId: "p-roberta" });
+    const card = await screen.findByRole("region", { name: /waiting for approval/i });
+    await user.click(within(card).getByRole("button", { name: "Approve" }));
+    const line = await screen.findByText(/approved by roberta/i);
+    expect(document.activeElement).toBe(line.closest("[data-plan]"));
   });
 
   it("i bottoni del piano seguono canDecidePlan del livello dati", async () => {
@@ -265,6 +298,107 @@ describe("Conversation: casella", () => {
     expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
   });
 
+  it("«Delivered» sparisce dopo 3 s anche mentre arrivano altri eventi", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      api.setStreamLatency(10);
+      // Un refine nuovo (senza lo script del seed): Claude risponde e torna ad aspettare.
+      const ID = (await as("p-laura", () => api.startRefineConversation("req-stw-1"))).id;
+      renderWithData(<Harness id={ID} />, { personId: "p-laura" });
+      const box = await screen.findByRole("combobox", { name: /message to claude/i });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      await user.type(box, "fade check{Enter}");
+      await screen.findByText("Delivered");
+      // Eventi che continuano ad arrivare, ognuno prima che scadano i 3 s.
+      for (let i = 0; i < 4; i++) {
+        await act(async () => {
+          await api.runScript(ID, [
+            {
+              step: "event",
+              event: { type: "work_result", kind: "design_updated", text: `tick ${i}` },
+            },
+          ]);
+          vi.advanceTimersByTime(900);
+        });
+      }
+      await waitFor(() => expect(screen.queryByText("Delivered")).toBeNull());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("⌘. ferma Claude, ma non con un dialogo aperto", async () => {
+    api.setStreamLatency(40);
+    const user = userEvent.setup();
+    const c = await as("p-giulia", () => api.createConversation({ contextProjectId: "prj-mkx" }));
+    renderWithData(<Harness id={c.id} />, { personId: "p-giulia" });
+    const box = await screen.findByRole("combobox", { name: /message to claude/i });
+    await user.type(box, "What should I do today?{Enter}");
+    await screen.findByRole("button", { name: "Stop" });
+    const modal = document.createElement("div");
+    modal.setAttribute("aria-modal", "true");
+    document.body.appendChild(modal);
+    fireEvent.keyDown(window, { key: ".", metaKey: true });
+    await new Promise((r) => setTimeout(r, 60));
+    expect(screen.queryByRole("separator", { name: /stopped by/i })).toBeNull();
+    modal.remove();
+    fireEvent.keyDown(window, { key: ".", metaKey: true });
+    expect(
+      await screen.findByRole("separator", { name: /stopped by giulia/i }, { timeout: 4000 }),
+    ).toBeInTheDocument();
+  });
+
+  it("«Stop» rifiutato: lo dice, con «Try again»", async () => {
+    api.setStreamLatency(25);
+    const user = userEvent.setup();
+    const c = await as("p-giulia", () => api.createConversation({ contextProjectId: "prj-mkx" }));
+    renderWithData(<Harness id={c.id} />, { personId: "p-giulia" });
+    const box = await screen.findByRole("combobox", { name: /message to claude/i });
+    await user.type(box, "What should I do today?{Enter}");
+    const stop = await screen.findByRole("button", { name: "Stop" });
+    api.failNext("stop");
+    await user.click(stop);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/claude couldn't be stopped/i);
+    expect(within(alert).getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
+
+  it("«Stop and send» rifiutato (rete o permesso tolto): il testo resta, con «Resend»", async () => {
+    api.setStreamLatency(25);
+    const user = userEvent.setup();
+    const c = await as("p-giulia", () => api.createConversation({ contextProjectId: "prj-mkx" }));
+    renderWithData(<Harness id={c.id} />, { personId: "p-giulia" });
+    const box = await screen.findByRole("combobox", { name: /message to claude/i });
+    await user.type(box, "What should I do today?{Enter}");
+    await screen.findByRole("button", { name: "Stop" });
+
+    // 1. La chiamata non passa.
+    api.failNext("stopAndSend");
+    await user.type(box, "first try");
+    await user.click(screen.getByRole("button", { name: "Stop and send" }));
+    const failed = await screen.findByRole("alert");
+    expect(within(failed).getByText("first try")).toBeInTheDocument();
+    expect(within(failed).getByText(/didn't go through/i)).toBeInTheDocument();
+    expect(within(failed).getByRole("button", { name: "Resend" })).toBeInTheDocument();
+  });
+
+  it("«Stop and send» con il permesso tolto nel frattempo: forbidden, il testo resta", async () => {
+    api.setStreamLatency(40);
+    const user = userEvent.setup();
+    const c = await as("p-giulia", () => api.createConversation({ contextProjectId: "prj-mkx" }));
+    renderWithData(<Harness id={c.id} />, { personId: "p-giulia" });
+    const box = await screen.findByRole("combobox", { name: /message to claude/i });
+    await user.type(box, "What should I do today?{Enter}");
+    await screen.findByRole("button", { name: "Stop" });
+    // Il «server» non concede più di fermare (archiviata altrove), la pagina non lo sa ancora.
+    state.conversations.find((x) => x.id === c.id)!.archived = true;
+    await user.type(box, "second try");
+    await user.click(screen.getByRole("button", { name: "Stop and send" }));
+    const failed = await screen.findByRole("alert");
+    expect(within(failed).getByText("second try")).toBeInTheDocument();
+    expect(within(failed).getByRole("button", { name: "Resend" })).toBeInTheDocument();
+  });
+
   it("sola lettura: al posto della casella il motivo del «server»", async () => {
     renderWithData(<Harness id="cv-review-stw-405" />, { personId: "p-roberta" });
     await screen.findByText(/this session runs on its own/i);
@@ -356,6 +490,41 @@ describe("Conversation: contenuti estremi (Review Focus 5)", () => {
 });
 
 describe("Conversation: cambio di persona (Review Focus 1)", () => {
+  it("due persone che scrivono entrambe: lo stato locale della prima non passa alla seconda", async () => {
+    const user = userEvent.setup();
+    api.setStreamLatency(15);
+    const ID = (await as("p-laura", () => api.startRefineConversation("req-stw-1"))).id;
+    // Precondizione: entrambe possono scrivere qui (lo dice il livello dati).
+    for (const personId of ["p-laura", "p-roberta"]) {
+      setSessionPersonId(personId);
+      expect((await api.getConversation(ID))!.canWrite, personId).toBe(true);
+    }
+    renderWithData(<Harness id={ID} to="p-roberta" />, { personId: "p-laura" });
+    const box = await screen.findByRole("combobox", { name: /message to claude/i });
+    // Un messaggio consegnato adesso: «Delivered» resta per 3 s.
+    await user.type(box, "first note of laura{Enter}");
+    await screen.findByText("Delivered", undefined, { timeout: 3000 });
+    // Un messaggio che non parte: resta nella riga con «Resend».
+    api.failNext("sendMessage");
+    await user.type(box, "second note of laura{Enter}");
+    await screen.findByText(/didn't go through/i);
+    // Una bozza con il menu «#» aperto.
+    await user.type(box, "draft of laura #STW");
+    await screen.findByRole("listbox", { name: "Objects to cite" });
+
+    await user.click(screen.getByRole("button", { name: "switch persona" }));
+    // Roberta scrive anche lei: la casella c'è, ma vuota.
+    const fresh = await screen.findByRole("combobox", { name: /message to claude/i });
+    expect(fresh).toHaveValue("");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(screen.queryByText("Delivered")).toBeNull();
+    expect(screen.queryByText("second note of laura")).toBeNull();
+    expect(screen.queryByText(/didn't go through/i)).toBeNull();
+    expect(screen.queryByDisplayValue(/draft of laura/)).toBeNull();
+    // Il messaggio consegnato è nel flusso: quello lo legge anche Roberta.
+    expect(await screen.findByText("first note of laura")).toBeInTheDocument();
+  });
+
   it("cambiando persona la vista si svuota: nessun testo della persona di prima", async () => {
     const user = userEvent.setup();
     renderWithData(<Harness id="cv-giulia-week" to="p-sara" />, { personId: "p-giulia" });

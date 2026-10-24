@@ -58,6 +58,12 @@ export function Conversation({ id, side }: { id: string; side?: ReactNode }) {
   return <ConversationView key={`${me}\u0000${id}`} id={id} side={side} viewerId={me} />;
 }
 
+/** Libera le miniature delle immagini scelte (gli URL `blob:`). */
+function revokePreviews(drafts: readonly DraftAttachment[]): void {
+  if (typeof URL.revokeObjectURL !== "function") return;
+  for (const d of drafts) if (d.previewUrl) URL.revokeObjectURL(d.previewUrl);
+}
+
 interface LocalMessage {
   /** In ordine d'invio. */
   seq: number;
@@ -141,7 +147,10 @@ function ConversationBody({
   const [drafts, setDrafts] = useState<DraftAttachment[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [local, setLocal] = useState<LocalMessage[]>([]);
-  const [failedSend, setFailedSend] = useState<string | null>(null);
+  const [failedSend, setFailedSend] = useState<{ text: string; attachments: Attachment[] } | null>(
+    null,
+  );
+  const [stopFailed, setStopFailed] = useState(false);
   const send = useSendMessage();
   const stop = useStopConversation();
   const stopAndSend = useStopAndSend();
@@ -181,6 +190,16 @@ function ConversationBody({
   // --- consegna: «Delivered» resta 3 s solo per ciò che ho visto partire ---
   const seenPending = useRef(new Set<string>());
   const [fresh, setFresh] = useState<ReadonlySet<string>>(new Set());
+  // Un timer per messaggio, che gli eventi successivi non cancellano: solo
+  // lo smontaggio li ferma.
+  const fadeTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const timers = fadeTimers.current;
+    return () => {
+      for (const timer of timers.values()) clearTimeout(timer);
+      timers.clear();
+    };
+  }, []);
   useEffect(() => {
     const justDelivered: string[] = [];
     for (const e of events) {
@@ -192,11 +211,15 @@ function ConversationBody({
     }
     if (justDelivered.length === 0) return;
     setFresh((s) => new Set([...s, ...justDelivered]));
-    const timer = setTimeout(
-      () => setFresh((s) => new Set([...s].filter((x) => !justDelivered.includes(x)))),
-      DELIVERED_FADE_MS,
-    );
-    return () => clearTimeout(timer);
+    for (const id of justDelivered) {
+      fadeTimers.current.set(
+        id,
+        setTimeout(() => {
+          fadeTimers.current.delete(id);
+          setFresh((s) => new Set([...s].filter((x) => x !== id)));
+        }, DELIVERED_FADE_MS),
+      );
+    }
   }, [events, viewerId]);
   const deliveryOf = useCallback(
     (e: Ev<"user">): DeliveryView => {
@@ -219,21 +242,42 @@ function ConversationBody({
   });
   const nextSeq = useRef(0);
 
-  const sendMessage = (text: string, attachments: Attachment[]) => {
+  /**
+   * Manda un messaggio (o «Ferma e scrivi»): resta in coda, «Delivering…»,
+   * finché il suo turno non lo mette nel flusso. Se la scrittura non passa,
+   * testo e allegati restano nella riga «didn't go through · Resend».
+   */
+  const sendMessage = (
+    text: string,
+    attachments: Attachment[],
+    via: "send" | "stopAndSend" = "send",
+  ) => {
     setFailedSend(null);
+    setStopFailed(false);
     const seq = (nextSeq.current += 1);
     const entry: LocalMessage = { seq, text, attachments, sameBefore: mine(text) };
     setLocal((list) => [...list, entry]);
-    setDrafts([]);
+    setDrafts((list) => {
+      revokePreviews(list);
+      return [];
+    });
     setAttachError(null);
     atBottom.current = true;
-    send.mutate(
-      { id: detail.id, text, ...(attachments.length ? { attachments } : {}) },
-      {
-        onSettled: () => setLocal((list) => list.filter((m) => m.seq !== seq)),
-        onError: () => setFailedSend(text),
-      },
-    );
+    const callbacks = {
+      onSettled: () => setLocal((list) => list.filter((m) => m.seq !== seq)),
+      onError: () => setFailedSend({ text, attachments }),
+    };
+    if (via === "stopAndSend") stopAndSend.mutate({ id: detail.id, text }, callbacks);
+    else {
+      send.mutate(
+        { id: detail.id, text, ...(attachments.length ? { attachments } : {}) },
+        callbacks,
+      );
+    }
+  };
+  const stopClaude = () => {
+    setStopFailed(false);
+    stop.mutate(detail.id, { onError: () => setStopFailed(true) });
   };
 
   // --- allegati: graffetta, incolla, trascina; 10 file da 20 MB ---
@@ -274,12 +318,13 @@ function ConversationBody({
   );
   const removeDraft = (attachmentId: string) =>
     setDrafts((list) => {
-      const gone = list.find((d) => d.attachment.id === attachmentId);
-      if (gone?.previewUrl && typeof URL.revokeObjectURL === "function") {
-        URL.revokeObjectURL(gone.previewUrl);
-      }
+      revokePreviews(list.filter((d) => d.attachment.id === attachmentId));
       return list.filter((d) => d.attachment.id !== attachmentId);
     });
+  // Le miniature si liberano anche allo smontaggio (cambio di persona compreso).
+  const draftsRef = useRef(drafts);
+  draftsRef.current = drafts;
+  useEffect(() => () => revokePreviews(draftsRef.current), []);
 
   const onDrag = (e: DragEvent<HTMLDivElement>, over: boolean) => {
     if (!detail.canWrite || !e.dataTransfer?.types.includes("Files")) return;
@@ -445,14 +490,30 @@ function ConversationBody({
                 </ol>
               )}
               {failedSend !== null && (
+                // Il messaggio che non è partito resta leggibile, con «Resend».
+                <div role="alert">
+                  <UserMessage
+                    authorId={viewerId}
+                    at={null}
+                    text={failedSend.text}
+                    attachments={failedSend.attachments}
+                    delivery={{
+                      kind: "undelivered",
+                      reason: t("claude.conversation.delivery.didntGoThrough"),
+                    }}
+                    onResend={() => sendMessage(failedSend.text, failedSend.attachments)}
+                  />
+                </div>
+              )}
+              {stopFailed && (
                 <p role="alert" className="text-sm text-critical">
-                  {t("claude.conversation.delivery.sendFailed")}{" "}
+                  {t("claude.conversation.stopFailed")}{" "}
                   <button
                     type="button"
                     className="font-semibold text-ink underline decoration-ink/30 underline-offset-2"
-                    onClick={() => sendMessage(failedSend, [])}
+                    onClick={stopClaude}
                   >
-                    {t("claude.conversation.delivery.resend")}
+                    {t("claude.conversation.tryAgain")}
                   </button>
                 </p>
               )}
@@ -489,8 +550,8 @@ function ConversationBody({
               onAddFiles={addFiles}
               onRemoveAttachment={removeDraft}
               onSend={sendMessage}
-              onStop={() => stop.mutate(detail.id)}
-              onStopAndSend={(text) => stopAndSend.mutate({ id: detail.id, text })}
+              onStop={stopClaude}
+              onStopAndSend={(text) => sendMessage(text, [], "stopAndSend")}
             />
           )}
           {dragging && (

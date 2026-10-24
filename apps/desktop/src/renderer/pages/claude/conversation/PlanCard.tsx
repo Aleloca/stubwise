@@ -5,7 +5,14 @@ import { inputClass } from "../../../tasks-ui/Dialog";
 import { Markdown } from "../../../tasks-ui/Markdown";
 import type { Ev } from "./flow";
 import { WaitingDot } from "./QuestionCard";
-import { cardClass, primaryButton, quietButton, secondaryButton, usePersonName } from "./parts";
+import {
+  cardClass,
+  primaryButton,
+  quietButton,
+  secondaryButton,
+  useFocusWhenResolved,
+  usePersonName,
+} from "./parts";
 
 /**
  * Il piano di Claude. In attesa: «In brief», «Read the full plan» che lo
@@ -31,12 +38,17 @@ export function PlanCard({
   const [failed, setFailed] = useState(false);
   const decidedBy = usePersonName(event.decidedById);
   const headingId = useId();
+  const resolvedRef = useFocusWhenResolved<HTMLDivElement>(event.status !== "pending");
   const planId = useId();
   const reasonId = useId();
 
   const fullPlan = full && (
     <div id={planId} className="event-enter min-w-0 rounded-md bg-ink/3 px-3 py-2.5">
-      <Markdown source={event.planText} codeLabel={t("claude.conversation.codeBlock")} />
+      <Markdown
+        source={event.planText}
+        codeLabel={t("claude.conversation.codeBlock")}
+        tableLabel={t("claude.conversation.table")}
+      />
     </div>
   );
   const toggle = (
@@ -68,7 +80,12 @@ export function PlanCard({
               })
             : t("claude.conversation.plan.rejectedBy", { name: decidedBy });
     return (
-      <div className="event-enter flex min-w-0 flex-col gap-1.5" data-plan={event.id}>
+      <div
+        ref={resolvedRef}
+        tabIndex={-1}
+        className="event-enter flex min-w-0 flex-col gap-1.5 rounded-md"
+        data-plan={event.id}
+      >
         <p className="flex flex-wrap items-baseline gap-x-2 text-sm text-ink-muted">
           <span className="font-semibold text-ink">{t("claude.conversation.plan.title")}</span>
           <span>{line}</span>

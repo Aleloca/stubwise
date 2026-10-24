@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { usePeople } from "../../../data/queries";
 import { NOW } from "../../../notifications/time";
 
@@ -15,6 +15,26 @@ export function clock(iso: string, language: string): string {
     hour12: false,
     timeZone: "UTC",
   }).format(new Date(iso));
+}
+
+/**
+ * Una scheda che si risolve (risposta, decisione, esito) smonta il bottone
+ * che aveva il fuoco: il fuoco va alla riga che ne prende il posto
+ * (`tabIndex={-1}`), se era nella scheda o è finito sul `body` — mai se chi
+ * guarda è altrove.
+ */
+export function useFocusWhenResolved<T extends HTMLElement>(resolved: boolean) {
+  const ref = useRef<T>(null);
+  const was = useRef(resolved);
+  useLayoutEffect(() => {
+    if (resolved && !was.current) {
+      const active = document.activeElement;
+      const lost = !active || active === document.body || ref.current?.contains(active);
+      if (lost) ref.current?.focus();
+    }
+    was.current = resolved;
+  }, [resolved]);
+  return ref;
 }
 
 /** Il nome di una persona (o niente finché le persone non sono lette). */

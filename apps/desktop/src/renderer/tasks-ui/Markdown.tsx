@@ -185,6 +185,7 @@ export function Markdown({
   className = "",
   decorate,
   codeLabel = "Code",
+  tableLabel = "Table",
   trailing,
 }: {
   source: string;
@@ -192,6 +193,8 @@ export function Markdown({
   decorate?: TextDecorator;
   /** Il nome accessibile di un blocco di codice (che si scorre da tastiera). */
   codeLabel?: string;
+  /** Il nome accessibile del contenitore di una tabella (che si scorre da tastiera). */
+  tableLabel?: string;
   /** In coda all'ultimo blocco di testo (il cursore di un messaggio che arriva). */
   trailing?: ReactNode;
 }) {
@@ -248,6 +251,8 @@ export function Markdown({
               <div
                 key={key}
                 data-table-scroll
+                role="region"
+                aria-label={tableLabel}
                 tabIndex={0}
                 className="max-w-full min-w-0 overflow-x-auto"
               >

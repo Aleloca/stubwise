@@ -36,6 +36,12 @@ const MARKS: Record<Ev<"work_result">["kind"], ReactElement> = {
   ),
 };
 
+/** Un link di un risultato si apre solo se è interno (`#/…`) o `https:`. */
+export function safeLink(link: string | undefined): string | null {
+  if (!link) return null;
+  return link.startsWith("#/") || /^https:\/\//i.test(link) ? link : null;
+}
+
 /**
  * Un prodotto del lavoro di Claude, già avvenuto (non una proposta): «PR
  * #142 opened», «Review: changes requested», «Correction 2 sent», «Updated
@@ -50,13 +56,13 @@ export function WorkResultRow({ event }: { event: Ev<"work_result"> }) {
     >
       <span className="text-ink-muted">{MARKS[event.kind]}</span>
       <span className="min-w-0 [overflow-wrap:anywhere]">{event.text}</span>
-      {event.link && (
+      {safeLink(event.link) && (
         <>
           <span aria-hidden="true" className="text-ink-faint">
             ·
           </span>
           <a
-            href={event.link}
+            href={safeLink(event.link)!}
             className="shrink-0 text-sm font-medium text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
           >
             {event.kind === "pr_opened"

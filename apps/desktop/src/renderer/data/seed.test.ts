@@ -692,7 +692,7 @@ describe("seed: comandi «/» e skill dei plugin", () => {
       "/status",
       "/today",
       "/explain",
-      "/plan-week",
+      "/plan",
       "/new-task",
       "/new-request",
       "/run",

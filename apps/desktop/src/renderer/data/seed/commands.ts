@@ -10,7 +10,7 @@ export const STUBWISE_COMMANDS: SlashCommand[] = (
     ["status", "Where the projects stand: pulse of your pinned projects"],
     ["today", "What you have to do today: decisions, late tasks, your week"],
     ["explain", "Explain a task or a request, by its code"],
-    ["plan-week", "Plan your next week from the open tasks"],
+    ["plan", "Plan your next week from the open tasks"],
     ["new-task", "Create a task, with a proposal to confirm"],
     ["new-request", "Open a request in a project"],
     ["run", "Start Claude's work on a task or a request"],

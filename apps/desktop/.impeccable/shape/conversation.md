@@ -99,6 +99,10 @@ confermare.
   riga «Used: …». Anteprima al passaggio (250ms): superficie flottante
   320px con codice, nome, stato, persona. Oggetto non visibile: codice e
   nome in ink-faint, non link, tooltip «You can't open this».
+  Ruling R-E9: per un oggetto che chi guarda non vede compare il solo
+  **codice** in ink-faint, non apribile, con il tooltip «You can't open
+  this»; il nome/titolo non compare (riservatezza) e il livello dati non lo
+  espone. Pagine dei Docs e file non visibili: «An item you can't open».
 - **Proposta**: intestazione «Claude proposes · N changes»; una riga per
   azione in forma catalogo («Create in AUD: “Banner copy review” · Marco
   Bellini · W44 · M»). Una: Edit · Cancel · **Confirm**. Più: casella per

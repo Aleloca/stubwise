@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useMentionSearch, usePeople } from "../../../data/queries";
 import type { CitationRef } from "../../../data/types";
@@ -102,10 +103,17 @@ export function SuggestionMenu({
   note?: string | null;
 }) {
   const people = usePeople().data;
+  const list = useRef<HTMLDivElement>(null);
+  // La riga attiva (scelta con le frecce) resta sempre in vista.
+  useEffect(() => {
+    const row = list.current ? document.getElementById(`${id}-${active}`) : null;
+    row?.scrollIntoView?.({ block: "nearest" });
+  }, [id, active, groups]);
   let index = -1;
   return (
     <div
       id={id}
+      ref={list}
       role="listbox"
       aria-label={label}
       className="menu-enter absolute bottom-full left-0 z-30 mb-2 flex max-h-80 w-[320px] max-w-full flex-col overflow-y-auto rounded-lg border border-rule-strong bg-surface p-1.5 shadow-[0_12px_32px_-8px_oklch(0_0_0/0.4)]"

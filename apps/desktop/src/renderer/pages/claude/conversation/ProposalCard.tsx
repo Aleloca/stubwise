@@ -12,7 +12,14 @@ import { NewRequestDialog } from "../../requests/NewRequestDialog";
 import { NewTaskDialog } from "../../task/NewTaskDialog";
 import type { Ev } from "./flow";
 import { WaitingDot } from "./QuestionCard";
-import { cardClass, primaryButton, quietButton, secondaryButton, usePersonName } from "./parts";
+import {
+  cardClass,
+  primaryButton,
+  quietButton,
+  secondaryButton,
+  useFocusWhenResolved,
+  usePersonName,
+} from "./parts";
 
 /** Le azioni che si possono rifare dal loro dialogo, precompilato («Edit»). */
 const EDITABLE: ReadonlySet<ProposedAction["fn"]> = new Set(["createTask", "createRequest"]);
@@ -68,6 +75,7 @@ export function ProposalCard({
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<EditState>(null);
   const headingId = useId();
+  const resolvedRef = useFocusWhenResolved<HTMLElement>(event.status !== "open");
 
   const mine = event.requesterId === viewerId;
   const open = event.status === "open";
@@ -163,6 +171,8 @@ export function ProposalCard({
   return (
     <section
       aria-labelledby={headingId}
+      ref={resolvedRef}
+      tabIndex={-1}
       data-proposal={event.proposalId}
       className={`${cardClass} gap-3 p-4 ${open ? "" : "border-rule"}`}
     >
