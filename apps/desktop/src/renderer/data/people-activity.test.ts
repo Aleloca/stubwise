@@ -21,7 +21,9 @@ beforeEach(() => {
 });
 afterEach(() => {
   resetViewerGrants();
-  process.env.TZ = TZ;
+  // Assegnare `undefined` scriverebbe la stringa "undefined": si toglie.
+  if (TZ === undefined) delete process.env.TZ;
+  else process.env.TZ = TZ;
 });
 
 describe("rassegna per persona — report giornalieri", () => {
@@ -112,5 +114,29 @@ describe("rassegna per persona — confini del giorno", () => {
     expect(
       before.find((p) => p.personId === "p-laura")?.comments.map((c) => c.id) ?? [],
     ).not.toContain("a-late");
+  });
+
+  it("in un fuso negativo un istante del mattino UTC resta sul giorno prima", async () => {
+    process.env.TZ = "America/Los_Angeles";
+    state.activity.push({
+      id: "a-early",
+      taskId: "t-stw-13",
+      kind: "comment",
+      authorId: "p-laura",
+      at: "2026-10-23T03:30:00Z", // 20:30 del 22 a Los Angeles
+      body: "Evening note.",
+    });
+    as("p-roberta");
+    const ids = async (date: string) =>
+      (await listPeopleActivity(date))
+        .find((p) => p.personId === "p-laura")
+        ?.comments.map((c) => c.id) ?? [];
+    expect(await ids("2026-10-22")).toContain("a-early");
+    expect(await ids(TODAY)).not.toContain("a-early");
+  });
+
+  it("senza fuso impostato i test girano in UTC", () => {
+    // Il fuso lo fissa vitest.config.ts: lo stesso istante dà lo stesso giorno ovunque.
+    expect(new Date("2026-10-22T23:30:00Z").getDate()).toBe(22);
   });
 });
