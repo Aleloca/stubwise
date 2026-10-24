@@ -18,7 +18,9 @@ import {
  * Il piano di Claude. In attesa: «In brief», «Read the full plan» che lo
  * apre dentro la scheda, e — solo con `canDecidePlan` (lo calcola il
  * livello dati) — Approve / Reject with instructions. Gli altri leggono chi
- * può approvare. Deciso: una riga, con «Show plan». `onReadFull`: nel
+ * può approvare. Una decisione arrivata prima da un altro dice chi (anche
+ * se nel frattempo Claude ha scritto un piano nuovo: la decisione vale
+ * solo per il piano letto). Deciso: una riga, con «Show plan». `onReadFull`: nel
  * pannello della task «Read the full plan» apre la sessione su quel punto
  * invece di aprirlo nella scheda stretta.
  */
@@ -40,7 +42,9 @@ export function PlanCard({
   const [full, setFull] = useState(false);
   const [rejecting, setRejecting] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const [lostTo, setLostTo] = useState<string | null>(null);
   const decidedBy = usePersonName(event.decidedById);
+  const lostToName = usePersonName(lostTo);
   const headingId = useId();
   const resolvedRef = useFocusWhenResolved<HTMLDivElement>(event.status !== "pending");
   const planId = useId();
@@ -103,8 +107,19 @@ export function PlanCard({
   const run = (decision: "approve" | "reject", instructions?: string) => {
     setFailed(false);
     decide.mutate(
-      { id: conversationId, decision, ...(instructions ? { instructions } : {}) },
-      { onError: () => setFailed(true) },
+      {
+        id: conversationId,
+        decision,
+        planId: event.id,
+        ...(instructions ? { instructions } : {}),
+      },
+      {
+        onError: (error) => {
+          if (error.message === "already_answered") {
+            setLostTo((error as Error & { byId?: string | null }).byId ?? "");
+          } else setFailed(true);
+        },
+      },
     );
   };
 
@@ -114,7 +129,9 @@ export function PlanCard({
         <h3 id={headingId} className="text-sm font-semibold text-ink">
           {t("claude.conversation.plan.waiting")}
         </h3>
-        {canDecidePlan && <WaitingDot label={t("claude.conversation.waitingOnYou")} />}
+        {canDecidePlan && lostTo === null && (
+          <WaitingDot label={t("claude.conversation.waitingOnYou")} />
+        )}
       </header>
       <div className="flex min-w-0 flex-col gap-1">
         <span className="text-xs font-semibold text-ink-muted">
@@ -130,7 +147,7 @@ export function PlanCard({
             <button
               type="button"
               className={secondaryButton}
-              disabled={decide.isPending}
+              disabled={decide.isPending || lostTo !== null}
               onClick={() => setRejecting("")}
             >
               {t("claude.conversation.plan.reject")}
@@ -138,7 +155,7 @@ export function PlanCard({
             <button
               type="button"
               className={primaryButton}
-              disabled={decide.isPending}
+              disabled={decide.isPending || lostTo !== null}
               onClick={() => run("approve")}
             >
               {t("claude.conversation.plan.approve")}
@@ -168,7 +185,11 @@ export function PlanCard({
               <button type="button" className={quietButton} onClick={() => setRejecting(null)}>
                 {t("claude.conversation.cancel")}
               </button>
-              <button type="submit" className={primaryButton} disabled={decide.isPending}>
+              <button
+                type="submit"
+                className={primaryButton}
+                disabled={decide.isPending || lostTo !== null}
+              >
                 {t("claude.conversation.plan.rejectAndSend")}
               </button>
             </div>
@@ -179,6 +200,11 @@ export function PlanCard({
           {projectCode
             ? t("claude.conversation.plan.whoCanApprove", { code: projectCode })
             : t("claude.conversation.plan.whoCanApproveAny")}
+        </p>
+      )}
+      {lostTo !== null && (
+        <p role="status" className="text-sm text-ink">
+          {t("claude.conversation.plan.alreadyDecided", { name: lostToName })}
         </p>
       )}
       {failed && (

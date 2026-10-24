@@ -166,14 +166,21 @@ function QuestionItem({ decision, claude, onOpenTask, defer, label }: ItemProps<
               <button
                 key={index}
                 type="button"
-                title={option.consequence}
-                className={`${smallSecondary} h-auto min-h-7 max-w-full gap-2 py-1 text-left [overflow-wrap:anywhere] ${option.recommended ? "border-ink/60" : ""}`}
+                className={`${smallSecondary} h-auto min-h-7 max-w-full flex-col items-start gap-0.5 py-1 text-left [overflow-wrap:anywhere] ${option.recommended ? "border-ink/60" : ""}`}
                 onClick={() => respond({ optionIndex: index, text: null })}
               >
-                <span>{option.label}</span>
-                {option.recommended && (
-                  <span className="shrink-0 text-xs font-semibold text-ink-muted">
-                    {t("home.decide.claude.recommended")}
+                <span className="flex flex-wrap items-baseline gap-x-2">
+                  <span>{option.label}</span>
+                  {option.recommended && (
+                    <span className="text-xs font-semibold text-ink-muted">
+                      {t("home.decide.claude.recommended")}
+                    </span>
+                  )}
+                </span>
+                {/* Cosa comporta, a vista come nella conversazione (non solo al passaggio). */}
+                {option.consequence && (
+                  <span className="max-w-[44ch] text-xs font-normal text-ink-muted">
+                    {option.consequence}
                   </span>
                 )}
               </button>
@@ -197,7 +204,7 @@ function PlanItem({ decision, claude, onOpenTask, defer, label }: ItemProps<Plan
 
   const decide = (choice: "approve" | "reject", instructions?: string) =>
     defer(
-      () => decideNow(decision.conversationId, choice, instructions),
+      () => decideNow(decision.conversationId, decision.planId, choice, instructions),
       t(choice === "approve" ? "home.decide.claude.approved" : "home.decide.claude.rejected", {
         code: label,
       }),

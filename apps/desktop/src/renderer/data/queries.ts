@@ -1068,11 +1068,14 @@ export function useDecidePlan() {
       id,
       decision,
       instructions,
+      planId,
     }: {
       id: string;
       decision: "approve" | "reject";
       instructions?: string;
-    }) => api.decidePlan(id, decision, instructions),
+      /** Il piano letto da chi decide: un piano diverso in attesa non si decide al buio. */
+      planId?: string;
+    }) => api.decidePlan(id, decision, instructions, planId),
     DECIDE_AREAS,
   );
 }
@@ -1111,12 +1114,21 @@ export function useAnswerQuestionNow() {
   };
 }
 
-/** Decidere un piano ADESSO (vedi `useAnswerQuestionNow`). */
+/**
+ * Decidere un piano ADESSO (vedi `useAnswerQuestionNow`), sul piano letto
+ * (`planId`): tenuta per l'«Undo», la decisione non cade su un piano
+ * riscritto nel frattempo.
+ */
 export function useDecidePlanNow() {
   const invalidate = useInvalidate(DECIDE_AREAS);
-  return async (id: string, decision: "approve" | "reject", instructions?: string) => {
+  return async (
+    id: string,
+    planId: string,
+    decision: "approve" | "reject",
+    instructions?: string,
+  ) => {
     try {
-      return await api.decidePlan(id, decision, instructions);
+      return await api.decidePlan(id, decision, instructions, planId);
     } finally {
       await invalidate();
     }

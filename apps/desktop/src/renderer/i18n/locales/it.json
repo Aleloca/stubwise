@@ -1914,6 +1914,7 @@
         "rejectedWith": "Rifiutato da {{name}}: «{{instructions}}»",
         "whoCanApprove": "Aspetta chi può approvare i piani in {{code}}",
         "whoCanApproveAny": "Aspetta chi può approvare i piani",
+        "alreadyDecided": "Ha già deciso {{name}}",
         "failed": "La decisione non è passata: il piano potrebbe essere cambiato. Riprova."
       },
       "proposal": {

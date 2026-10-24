@@ -197,6 +197,28 @@ describe("Conversation: domande e piani", () => {
     expect(document.activeElement).toBe(line.closest("[data-plan]"));
   });
 
+  it("piano deciso da un altro nel frattempo: «Already decided by …», non un errore", async () => {
+    const user = userEvent.setup();
+    renderWithData(<Harness id="cv-run-stw-13" />, { personId: "p-laura" });
+    const card = await screen.findByRole("region", { name: /waiting for approval/i });
+    // Sul «server» Roberta l'ha già approvato; la pagina di Laura non lo sa ancora.
+    // (Un evento nuovo al suo posto: quello che la pagina tiene non cambia.)
+    const log = state.conversationEvents.get("cv-run-stw-13")!;
+    const index = log.findIndex((e) => e.type === "plan");
+    log[index] = {
+      ...log[index]!,
+      status: "approved",
+      decidedById: "p-roberta",
+    } as (typeof log)[number];
+    await user.click(within(card).getByRole("button", { name: "Approve" }));
+    expect(await within(card).findByRole("status")).toHaveTextContent(
+      "Already decided by Roberta Fontana",
+    );
+    expect(within(card).queryByRole("alert")).toBeNull();
+    // Riletti i permessi, il piano non è più da decidere: niente bottoni.
+    await waitFor(() => expect(within(card).queryByRole("button", { name: "Approve" })).toBeNull());
+  });
+
   it("i bottoni del piano seguono canDecidePlan del livello dati", async () => {
     for (const personId of ["p-roberta", "p-marco"]) {
       setSessionPersonId(personId);

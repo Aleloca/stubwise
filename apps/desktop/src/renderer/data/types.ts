@@ -204,7 +204,12 @@ export type ClaudeDecision = {
       text: string;
       options: QuestionOfClaude["options"];
     }
-  | { kind: "plan"; summary: string }
+  | {
+      kind: "plan";
+      /** L'evento del piano: la decisione vale solo per questo piano. */
+      planId: string;
+      summary: string;
+    }
 );
 
 /** Perché chi guarda non può scrivere. */

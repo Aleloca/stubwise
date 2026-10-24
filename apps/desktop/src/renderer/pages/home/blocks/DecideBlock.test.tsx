@@ -55,6 +55,12 @@ describe("Decide: domande e piani di Claude", () => {
     // La consigliata per prima, e lo dice a parole.
     const options = within(group).getAllByRole("button");
     expect(options[0]).toHaveAccessibleName(/^Create a new contact.*Recommended/);
+    // Cosa comporta ogni opzione si legge a vista, come nella conversazione.
+    expect(
+      within(options[0]!).getByText(
+        "Nothing is overwritten; possible duplicates are listed for someone to merge.",
+      ),
+    ).toBeVisible();
     expect(within(group).getByRole("button", { name: "Other…" })).toBeInTheDocument();
     expect(within(decide).queryByRole("group", { name: PLAN_GROUP })).toBeNull();
   });
@@ -174,6 +180,30 @@ describe("Decide: domande e piani di Claude", () => {
     await userEvent.click(within(plan).getByRole("button", { name: "Approve" }));
     expect(await screen.findByText("Already decided by Roberta Fontana.")).toBeInTheDocument();
     expect(planOf("cv-run-stw-13").decidedById).toBe("p-roberta");
+  });
+
+  it("piano rifiutato e riscritto nel frattempo: l'approvazione resta sul piano letto", async () => {
+    renderRoute("/home", "p-laura");
+    const decide = await decideBlock();
+    const plan = await within(decide).findByRole("group", { name: PLAN_GROUP });
+    // Sul «server» Roberta ha rifiutato v1 e Claude ha scritto v2; la pagina non lo sa.
+    const v1 = planOf("cv-run-stw-13");
+    v1.status = "rejected";
+    v1.decidedById = "p-roberta";
+    v1.instructions = "Also cover 800 × 600.";
+    state.conversationEvents.get("cv-run-stw-13")!.push({
+      ...v1,
+      id: "cv-run-stw-13-v2",
+      status: "pending",
+      decidedById: undefined,
+      instructions: undefined,
+    });
+    await userEvent.click(within(plan).getByRole("button", { name: "Approve" }));
+    expect(await screen.findByText("Already decided by Roberta Fontana.")).toBeInTheDocument();
+    const v2 = state.conversationEvents
+      .get("cv-run-stw-13")!
+      .find((e) => e.id === "cv-run-stw-13-v2");
+    expect(v2).toMatchObject({ status: "pending" });
   });
 
   it("«Undo» entro la finestra: la risposta non parte e la domanda torna", async () => {

@@ -2,10 +2,19 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach, beforeEach } from "vitest";
 import "../i18n";
+import { clearToasts } from "../tasks-ui/Toast";
 
 // Senza i globals di vitest l'auto-cleanup di testing-library non si
 // registra da solo: lo si fa qui per ogni test.
 afterEach(cleanup);
+
+// I messaggi (toast) sono un archivio di modulo con un timer ciascuno (5–8 s):
+// uno lasciato da un test scattava dopo lo smontaggio dell'ambiente, sotto
+// carico, con «window is not defined» (successo con OverviewPage.test). Si
+// svuotano a ogni test, timer compresi.
+afterEach(() => {
+  if (typeof window !== "undefined") clearToasts();
+});
 
 // --- matchMedia mock controllabile ---------------------------------------
 // happy-dom espone `matchMedia`, ma il valore di `matches` deriva dal viewport

@@ -1914,6 +1914,7 @@
         "rejectedWith": "Rejected by {{name}}: “{{instructions}}”",
         "whoCanApprove": "Waiting for someone who can approve plans in {{code}}",
         "whoCanApproveAny": "Waiting for someone who can approve plans",
+        "alreadyDecided": "Already decided by {{name}}",
         "failed": "The decision didn't go through: the plan may have changed. Try again."
       },
       "proposal": {

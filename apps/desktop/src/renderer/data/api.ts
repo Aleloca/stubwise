@@ -214,7 +214,7 @@ export async function listClaudeDecisions(): Promise<ClaudeDecision[]> {
             text: event.text,
             options: copy(event.options),
           }
-        : { ...base, kind: "plan", summary: event.summary };
+        : { ...base, kind: "plan", planId: event.id, summary: event.summary };
     })
     .sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
 }

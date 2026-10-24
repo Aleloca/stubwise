@@ -1401,6 +1401,28 @@ describe("«Decide»: domande e piani di Claude per chi guarda (Review Focus 4)"
     expect(await ids()).toEqual([]);
   });
 
+  it("una decisione tenuta (Undo) non cade sul piano riscritto nel frattempo", async () => {
+    const v1 = eventsOf("cv-run-stw-13").find((e) => e.type === "plan")!.id;
+    // Roberta rifiuta v1 con indicazioni; Claude scrive v2 e torna al gate.
+    as("p-roberta");
+    await decidePlan("cv-run-stw-13", "reject", "Also cover 800 × 600.", v1);
+    await settle("cv-run-stw-13");
+    const plans = () => eventsOf("cv-run-stw-13").filter((e) => e.type === "plan");
+    expect(plans().map((p) => p.type === "plan" && p.status)).toEqual(["rejected", "pending"]);
+    // L'approvazione di Laura, letta su v1, parte adesso: non approva v2.
+    as("p-laura");
+    await expect(decidePlan("cv-run-stw-13", "approve", undefined, v1)).rejects.toMatchObject({
+      message: "already_answered",
+      byId: "p-roberta",
+    });
+    expect(plans().map((p) => p.type === "plan" && p.status)).toEqual(["rejected", "pending"]);
+    expect(conv("cv-run-stw-13").state).toBe("awaiting_approval");
+    // Sul piano nuovo, letto, sì.
+    const v2 = plans()[1]!.id;
+    await decidePlan("cv-run-stw-13", "approve", undefined, v2);
+    expect(plans()[1]).toMatchObject({ status: "approved", decidedById: "p-laura" });
+  });
+
   it("due decisioni sullo stesso piano insieme: una passa, l'altra sa da chi", async () => {
     as("p-laura");
     const a = decidePlan("cv-run-stw-13", "approve");

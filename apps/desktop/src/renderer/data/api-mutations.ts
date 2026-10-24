@@ -1764,21 +1764,31 @@ export async function decidePlan(
   id: string,
   decision: "approve" | "reject",
   instructions?: string,
+  planId?: string,
 ): Promise<void> {
   const me = await gate("decidePlan");
   const c = conversationFor(me, id);
   if (c.kind !== "task_run" || c.projectId === null) throw invalid("kind");
   need(me, "plans.approve", c.projectId);
   const log = eventsOf(id);
+  type PlanEvent = Extract<ConversationEvent, { type: "plan" }>;
+  // Il piano che chi decide ha letto (`planId`): se nel frattempo un altro
+  // l'ha deciso e Claude ne ha scritto un altro, la decisione NON passa sul
+  // piano nuovo, che nessuno ha ancora letto — dice chi ha deciso il suo.
+  if (planId !== undefined) {
+    const seen = log.find((e): e is PlanEvent => e.type === "plan" && e.id === planId);
+    if (!seen) throw notFound();
+    const seenKey = `plan:${id}:${seen.id}`;
+    if (seen.status !== "pending" || claims.has(seenKey)) {
+      throw alreadyAnswered(claims.get(seenKey) ?? seen.decidedById);
+    }
+  }
   const plan = pendingPlan(log);
   const key = `plan:${id}:${plan?.id ?? ""}`;
   // Deciso da un altro (anche nello stesso istante): dice chi, come per una
   // domanda già risposta. Lo stesso piano sta in conversazione e in «Decide».
   if (plan && claims.has(key)) throw alreadyAnswered(claims.get(key));
-  const decided = lastEvent(
-    log,
-    (e): e is Extract<ConversationEvent, { type: "plan" }> => e.type === "plan",
-  );
+  const decided = lastEvent(log, (e): e is PlanEvent => e.type === "plan");
   if (!plan && decided?.decidedById) throw alreadyAnswered(decided.decidedById);
   if (!plan || !conversationPermissions(me, c).canDecidePlan) {
     throw invalid("status");
