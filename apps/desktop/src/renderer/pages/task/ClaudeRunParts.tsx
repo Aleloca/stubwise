@@ -2,8 +2,9 @@ import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { usePeople } from "../../data/queries";
-import type { ConversationEvent, ModelUsage, PrCycleView, RunProvider } from "../../data/types";
-import type { PrLine } from "../../domain/claude/taskWork";
+import type { ConversationEvent, ModelUsage, RunProvider } from "../../data/types";
+import type { PrCycle, PrLine } from "../../domain/claude/taskWork";
+import { GeneratedTag } from "../overview/BriefCard";
 import { formatDate } from "../../notifications/time";
 import { ActionRow } from "../claude/conversation/ActionRows";
 import { DisclosureGlyph } from "../claude/conversation/parts";
@@ -48,10 +49,12 @@ export function FailureBlock({
   const label = t(`${K}.failure.logLabel`, { phase: phaseName(t, phase) });
   return (
     <div data-run-failure className="flex flex-col gap-1">
-      <p className="text-sm text-ink [overflow-wrap:anywhere]">
-        <span className="sr-only">{t(`${K}.failure.label`)}: </span>
-        {summary}
+      {/* Il riassunto lo scrive l'AI: si dice, come «In brief» del web. */}
+      <p className="flex items-center gap-2 text-xs text-ink-muted">
+        <span className="font-medium">{t(`${K}.failure.label`)}</span>
+        <GeneratedTag />
       </p>
+      <p className="text-sm text-ink [overflow-wrap:anywhere]">{summary}</p>
       <button
         type="button"
         aria-expanded={open}
@@ -90,10 +93,11 @@ export function lastPhaseActions(events: readonly ConversationEvent[]): Action[]
 }
 
 /** La riga del ciclo di una PR, nelle parole di oggi (`pr-cycle-row` del web). */
-function cycleText(t: TFunction, cycle: PrCycleView, name: (id: string | null) => string): string {
+function cycleText(t: TFunction, cycle: PrCycle, name: (id: string | null) => string): string {
   switch (cycle.state) {
     case "correcting":
-      return t(`${K}.cycle.correcting`, { round: cycle.round, max: cycle.maxRounds });
+    case "paused":
+      return t(`${K}.cycle.${cycle.state}`, { round: cycle.round, max: cycle.maxRounds });
     case "capped":
       return t(`${K}.cycle.capped`, { count: cycle.round });
     case "changes_requested":
@@ -110,7 +114,7 @@ function cycleText(t: TFunction, cycle: PrCycleView, name: (id: string | null) =
 }
 
 /** Il tono della riga del ciclo: colore solo dove dice qualcosa (fermo al tetto, fallito). */
-const CYCLE_TONE: Partial<Record<PrCycleView["state"], string>> = {
+const CYCLE_TONE: Partial<Record<PrCycle["state"], string>> = {
   capped: "text-warning",
   correction_failed: "text-critical",
 };
@@ -121,7 +125,7 @@ const CYCLE_TONE: Partial<Record<PrCycleView["state"], string>> = {
  * ciclo review → correzione e il blocco di un branch protetto. Con PR su più
  * repository, in testa «N repos».
  */
-export function PrRows({ prs, cycles }: { prs: PrLine[]; cycles: PrCycleView[] }) {
+export function PrRows({ prs, cycles }: { prs: PrLine[]; cycles: ReadonlyMap<string, PrCycle> }) {
   const { t, i18n } = useTranslation();
   const people = usePeople().data;
   const name = (id: string | null) => people?.find((p) => p.id === id)?.name ?? "";
@@ -138,17 +142,12 @@ export function PrRows({ prs, cycles }: { prs: PrLine[]; cycles: PrCycleView[] }
           </span>
         </li>
       )}
-      {prs.map((pr, i) => {
-        const cycle =
-          pr.number === null
-            ? undefined
-            : cycles.find(
-                (c) => c.number === pr.number && (pr.repo === null || c.repo === pr.repo),
-              );
+      {prs.map((pr) => {
+        const cycle = cycles.get(pr.key);
         const label = pr.number !== null ? t(`${K}.pr.number`, { n: pr.number }) : pr.text;
         return (
           <li
-            key={pr.number !== null ? `${pr.repo ?? ""}#${pr.number}` : `pr-${i}`}
+            key={pr.key}
             data-pr={pr.number ?? undefined}
             className="flex flex-col py-1 text-sm"
           >

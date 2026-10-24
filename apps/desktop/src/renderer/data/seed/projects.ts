@@ -140,5 +140,7 @@ export const PROJECTS: Project[] = ROWS.map(([code, name, clientName, template],
     signals: { claudeWorking: template === "software" && i % 2 === 0 },
   };
   if (clientName) project.clientName = clientName;
+  // Il tetto delle correzioni automatiche per PR: STW lo fissa a tre.
+  if (code === "STW") project.correctionCap = 3;
   return project;
 });

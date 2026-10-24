@@ -49,6 +49,7 @@ export const RUN_META: Record<
   },
   "cv-run-mkx-11": { provider: TEAM_ACCOUNT, usage: [sonnet(39_700, 5_200, 88_400, 0.39)] },
   "cv-run-aud-4": { provider: BILLING_KEY, usage: [sonnet(97_600, 9_800, 230_100, 1.07)] },
+  "cv-run-stw-3-guide": { provider: TEAM_ACCOUNT, usage: [sonnet(64_800, 7_300, 150_200, 0.71)] },
   "cv-run-stw-1-first": { provider: TEAM_ACCOUNT, usage: [sonnet(52_300, 4_100, 98_000, 0.44)] },
   "cv-run-stw-1": {
     provider: TEAM_ACCOUNT,

@@ -425,7 +425,9 @@ function ConversationBody({
   // sono voci (il seguito privato, una fascia che compare) lo allungano.
   useLayoutEffect(() => {
     const el = scroller.current;
-    if (el && atBottom.current && el.scrollTop !== el.scrollHeight) el.scrollTop = el.scrollHeight;
+    if (!el || !atBottom.current) return;
+    // Scrive solo se non è già in fondo (oltre un pixel): niente scritture a vuoto.
+    if (el.scrollHeight - el.clientHeight - el.scrollTop >= 1) el.scrollTop = el.scrollHeight;
   });
   // Il flusso cresce anche senza eventi nuovi (le citazioni lette dopo, una
   // scheda che si apre, un'immagine): chi è in fondo ci resta.

@@ -56,7 +56,7 @@ import type {
   FilterCriteria,
   MentionResult,
   ModelUsage,
-  PrCycleView,
+  PrFactView,
   Milestone,
   Person,
   PersonDayActivity,
@@ -643,25 +643,26 @@ export async function getTaskWork(taskId: string): Promise<TaskWork | null> {
       resume: availability(ready.resume, "corrections.request"),
       requestChanges: availability(ready.requestChanges, "corrections.request"),
     },
-    cycles: software
-      ? state.prCycles
-          .filter((cycle) => cycle.taskId === taskId)
+    prFacts: software
+      ? state.prFacts
+          .filter((f) => f.taskId === taskId)
           .map(
-            (c): PrCycleView => ({
-              number: c.number,
-              repo: c.repo,
-              state: c.state,
-              round: c.round,
-              maxRounds: c.maxRounds,
-              requestedById: c.requestedById,
-              requestedOn: c.requestedOn,
-              branchProtected: c.branchProtected,
+            (f): PrFactView => ({
+              repo: f.repo,
+              number: f.number,
+              review: f.review ? copy(f.review) : null,
+              branchProtected: f.branchProtected,
+              queued: f.queued,
             }),
           )
       : [],
+    correctionCap: state.projectsById.get(task.projectId)?.correctionCap ?? DEFAULT_CORRECTION_CAP,
     usage: usageOfTask(taskId),
   };
 }
+
+/** Il tetto delle correzioni automatiche per PR quando il progetto non ne fissa uno. */
+const DEFAULT_CORRECTION_CAP = 3;
 
 /**
  * I consumi AI di una task per modello, su tutte le sue sessioni di lavoro:

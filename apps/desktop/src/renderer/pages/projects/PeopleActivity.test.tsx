@@ -2,6 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failNext, resetApi, setLatency } from "../../data/api";
+import { state } from "../../data/store";
 import { grantInstancePermission, resetViewerGrants } from "../../data/viewer";
 import { clearToasts } from "../../tasks-ui/Toast";
 import { renderRoute } from "../../test/renderRoute";
@@ -158,7 +159,7 @@ describe("Activity → By person", () => {
     );
     // AUD non ha ancora il report: nessun avviso.
     expect(row("p-stefano").querySelector("[data-report-stale]")).toBeNull();
-    await userEvent.click(within(simone).getByRole("button", { name: "Regenerate" }));
+    await userEvent.click(within(simone).getByRole("button", { name: "Regenerate the daily report of STW" }));
     await waitFor(() => expect(row("p-simone").querySelector("[data-report-stale]")).toBeNull());
     expect(row("p-simone")).toHaveTextContent("Daily report: ready");
 
@@ -166,7 +167,21 @@ describe("Activity → By person", () => {
     resetApi();
     await review("p-laura"); // senza settings.manage: l'avviso sì, «Regenerate» no
     expect(row("p-simone").querySelector("[data-report-stale]")).not.toBeNull();
-    expect(within(row("p-simone")).queryByRole("button", { name: "Regenerate" })).toBeNull();
+    expect(within(row("p-simone")).queryByRole("button", { name: /^Regenerate/ })).toBeNull();
+  });
+
+  it("chi ha commit su più progetti: l'avviso dice di quale report, uno per progetto", async () => {
+    // Ieri Marco ha commit su STW e su AUD; il report di AUD è stato scritto alle 11:00.
+    const yesterday = state.dailyReports.find((r) => r.id === "rep-aud-1")!;
+    yesterday.generatedAt = `${yesterday.date}T11:00:00Z`;
+    await review("p-roberta", `&date=${yesterday.date}`);
+    const marco = row("p-marco");
+    const stale = [...marco.querySelectorAll("[data-report-stale]")];
+    expect(stale.map((s) => s.getAttribute("data-report-stale"))).toEqual(["AUD"]);
+    expect(stale[0]).toHaveTextContent("AUD 3 new commits not included");
+    expect(
+      within(marco).getByRole("button", { name: "Regenerate the daily report of AUD" }),
+    ).toBeInTheDocument();
   });
 
   it("la ricerca per nome lascia solo chi corrisponde; senza nessuno «Clear filters»", async () => {

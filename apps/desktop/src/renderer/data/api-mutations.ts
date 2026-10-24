@@ -25,6 +25,7 @@ import {
   hasOpenPr,
   hasRepository,
   lastEvent,
+  latestOpenPrOf,
   latestRunOf,
   newId,
   runPreconditions,
@@ -2326,13 +2327,28 @@ export async function resumeCorrection(taskId: string): Promise<Conversation> {
   if (!run || run.state !== "paused" || currentPhase(eventsOf(run.id)) !== "correction") {
     throw invalid("status");
   }
+  // La correzione ripresa è la stessa: stessa PR.
+  const pr =
+    eventsOf(run.id)
+      .filter((e) => e.type === "phase" && e.phase === "correction")
+      .map((e) => (e.type === "phase" ? e.pr : undefined))
+      .filter(Boolean)
+      .at(-1) ?? null;
   await runScript(run.id, [
-    { step: "event", event: { type: "phase", phase: "correction", outcome: null } },
+    {
+      step: "event",
+      event: {
+        type: "phase",
+        phase: "correction",
+        outcome: null,
+        ...(pr ? { pr: { ...pr } } : {}),
+      },
+    },
     { step: "state", state: "working" },
   ]);
   follow(run.id, [
     { step: "say", text: "Resuming the correction where it stopped." },
-    ...scripts.correction(task),
+    ...scripts.correction(task, pr),
   ]);
   return copy(run);
 }
@@ -2359,8 +2375,10 @@ export async function requestChanges(taskId: string, text: string): Promise<Conv
     state: "working",
   });
   task.claude = "working";
-  await runScript(c.id, scripts.runOpening("correction", me, text.trim()));
-  follow(c.id, scripts.correction(task));
+  // La correzione è di una PR: la più recente ancora aperta (il job la conosce).
+  const pr = latestOpenPrOf(task) ?? undefined;
+  await runScript(c.id, scripts.runOpening("correction", me, text.trim(), pr));
+  follow(c.id, scripts.correction(task, pr));
   return copy(c);
 }
 

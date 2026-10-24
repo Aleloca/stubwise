@@ -183,6 +183,57 @@ const aud5 = seeded(
   ],
 );
 
+// STW-3 sulla guida (repository a parte, PR #58 aperta a mano): il ciclo
+// automatico review → correzione è arrivato al tetto di STW (tre giri),
+// prima che la sessione sull'app ripartisse.
+const guideCorrection = (n: number, from: string, to: string) => [
+  {
+    at: at(3, from),
+    type: "phase" as const,
+    phase: "correction",
+    outcome: null,
+    pr: { repo: "stubwise/guide", number: 58 },
+  },
+  done(at(3, from), "repo.edit", "Edits docs/board/keyboard.md"),
+  {
+    at: at(3, to),
+    type: "work_result" as const,
+    kind: "correction" as const,
+    text: `Correction ${n} pushed to #58`,
+    link: "https://git.example.com/stubwise/guide/pull/58",
+  },
+  { at: at(3, to), type: "phase" as const, phase: "correction", outcome: "ok" as const },
+];
+
+const stw3Guide = seeded(
+  {
+    id: "cv-run-stw-3-guide",
+    kind: "task_run",
+    title: "Board view with keyboard drag and drop",
+    ownerId: "p-simone",
+    projectId: "prj-stw",
+    taskId: "t-stw-3",
+    state: "finished",
+    outcome: "ok",
+  },
+  [
+    { at: at(3, "13:00"), type: "phase", phase: "review", outcome: "ok" },
+    {
+      at: at(3, "13:10"),
+      type: "work_result",
+      kind: "review",
+      text: "Review: changes requested — the keyboard table misses the Escape key",
+    },
+    ...guideCorrection(1, "13:20", "13:40"),
+    ...guideCorrection(2, "14:30", "14:50"),
+    ...guideCorrection(3, "16:00", "16:20"),
+    says(
+      at(3, "16:21"),
+      "Third correction pushed to #58. That is the limit of automatic corrections for STW: if the review still asks for changes, someone has to look at it.",
+    ),
+  ],
+);
+
 const stw3 = seeded(
   {
     id: "cv-run-stw-3",
@@ -211,7 +262,13 @@ const stw3 = seeded(
       kind: "review",
       text: "Review: changes requested — the drop announcement is read twice by screen readers",
     },
-    { at: at(0, "08:30"), type: "phase", phase: "correction", outcome: null },
+    {
+      at: at(0, "08:30"),
+      type: "phase",
+      phase: "correction",
+      outcome: null,
+      pr: { repo: "stubwise/stubwise", number: 411 },
+    },
     done(at(0, "08:31"), "repo.read", "Reads apps/desktop/src/renderer/pages/board/announce.ts"),
     done(at(0, "08:34"), "repo.edit", "Edits apps/desktop/src/renderer/pages/board/announce.ts"),
     says(
@@ -406,7 +463,13 @@ const stw1 = seeded(
       kind: "review",
       text: "Review: changes requested — 2 findings",
     },
-    { at: at(3, "09:00"), type: "phase", phase: "correction", outcome: "ok" },
+    {
+      at: at(3, "09:00"),
+      type: "phase",
+      phase: "correction",
+      outcome: "ok",
+      pr: { repo: "stubwise/stubwise", number: 405 },
+    },
     done(at(3, "09:12"), "repo.edit", "Edits apps/desktop/src/renderer/data/queries.ts"),
     {
       at: at(3, "09:30"),
@@ -584,6 +647,7 @@ export const WORK_CONVERSATIONS: Seeded[] = [
   stw13,
   aud3,
   aud5,
+  stw3Guide,
   stw3,
   mkx11,
   aud4,

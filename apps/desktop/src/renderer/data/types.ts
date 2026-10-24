@@ -11,7 +11,7 @@ import type {
   Milestone,
   ModelUsage,
   Outcome,
-  PrCycle,
+  PrFact,
   PullRequestEvent,
   RunProvider,
 } from "./model";
@@ -119,8 +119,8 @@ export interface TaskRun {
   failureSummary: string | null;
 }
 
-/** Il ciclo di una PR, quanto ne legge la sezione: lo stato lo deriva il livello dati. */
-export type PrCycleView = Omit<PrCycle, "taskId">;
+/** I fatti esterni di una PR, quanto ne legge la sezione (il ciclo si deriva: `prCycles`). */
+export type PrFactView = Omit<PrFact, "taskId">;
 
 /** Un report giornaliero con i commit della giornata arrivati dopo che è stato scritto. */
 export interface DailyReportView extends DailyReport {
@@ -151,8 +151,9 @@ export interface TaskWork {
   hiddenRuns: boolean;
   /** Cosa può fare chi guarda, deciso dal livello dati con le precondizioni delle scritture. */
   actions: Record<RunAction, ActionAvailability>;
-  /** Il ciclo review → correzione di ogni PR che ne ha uno (solo progetti con repository). */
-  cycles: PrCycleView[];
+  /** I fatti esterni delle PR (review, branch protetto, coda) e il tetto del progetto: il ciclo lo deriva `prCycles`. */
+  prFacts: PrFactView[];
+  correctionCap: number;
   /**
    * I consumi AI della task per modello, sommati su tutte le sue sessioni
    * (come il pannello del web: li vede chi vede la task). Vuoto: nessun consumo.

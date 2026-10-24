@@ -47,7 +47,8 @@ function NextStepOfTask({
   const last = work?.runs.at(-1);
   const phase = last && last.state !== "finished" ? phaseOf(last.events) : null;
   const merged = work?.pullRequests.some((p) => p.kind === "pr_merged") ?? false;
-  const pr = work?.openPr ? "open" : merged ? "merged" : null;
+  const closedPr = work?.pullRequests.some((p) => p.kind === "pr_closed") ?? false;
+  const pr = work?.openPr ? "open" : merged ? "merged" : closedPr ? "closed" : null;
   return (
     <NextStepText
       request={request}
@@ -72,7 +73,7 @@ function NextStepText({
   task: Task | null;
   closed: boolean;
   phase: string | null;
-  pr: "open" | "merged" | null;
+  pr: "open" | "merged" | "closed" | null;
   onGoTask?: (code: string) => void;
 }) {
   const { t } = useTranslation();
@@ -90,7 +91,7 @@ function NextStepText({
         {t("requests.nextStep.label")}
       </dt>
       <dd className="flex min-h-8 min-w-0 flex-col items-start gap-0.5 py-1.5">
-        <span role="status" className="text-sm text-ink [overflow-wrap:anywhere]">
+        <span className="text-sm text-ink [overflow-wrap:anywhere]">
           {t(`requests.nextStep.${step}`)}
         </span>
         {task && onGoTask && (

@@ -1,6 +1,7 @@
 import type {
   ConversationEvent,
   Outcome,
+  PrRef,
   PullRequestEvent,
   RunProvider,
   TaskRun,
@@ -111,6 +112,8 @@ export function correctionHeld(run: TaskRun | undefined, events = run?.events ??
 // --- PR ----------------------------------------------------------------------
 
 export interface PrLine {
+  /** `repo#numero` (una task può avere PR su più repository); senza numero, l'id dell'evento. */
+  key: string;
   /** Il numero sulla piattaforma, se il flusso o la piattaforma lo dicono. */
   number: number | null;
   /** `owner/repo`, letto dal link della PR quando c'è. */
@@ -136,32 +139,45 @@ function numberIn(text: string): number | null {
  * e quelle che la piattaforma conosce, una riga per PR, con lo stato
  * dell'ultimo evento della piattaforma.
  */
+/** La chiave di una PR: `repo#numero` (il repository può non saperlo il flusso: ""). */
+export function prKey(repo: string | null, number: number): string {
+  return `${repo ?? ""}#${number}`;
+}
+
+/**
+ * Le PR della task, dalla più vecchia: quelle aperte da Claude (dal flusso)
+ * e quelle che la piattaforma conosce, una riga per PR (`repo#numero`), con
+ * lo stato dell'ultimo evento della piattaforma. Una PR del flusso senza
+ * link (repository ignoto) si aggancia a quella della piattaforma con lo
+ * stesso numero.
+ */
 export function pullRequestsOf(work: TaskWork, latest?: readonly ConversationEvent[]): PrLine[] {
   const lines: PrLine[] = [];
-  const byNumber = new Map<number, PrLine>();
   const opened = runsEvents(work, latest).flatMap((e) =>
     e.type === "work_result" && e.kind === "pr_opened" ? [e] : [],
   );
   for (const e of opened) {
     const number = numberIn(e.text);
-    if (number !== null && byNumber.has(number)) continue;
-    const line: PrLine = {
-      number,
-      repo: e.link ? (PR_LINK.exec(e.link)?.[1] ?? null) : null,
-      link: e.link ?? null,
-      text: e.text,
-      state: "open",
-      closedAt: null,
-    };
-    lines.push(line);
-    if (number !== null) byNumber.set(number, line);
+    const repo = e.link ? (PR_LINK.exec(e.link)?.[1] ?? null) : null;
+    const key = number !== null ? prKey(repo, number) : `event:${e.id}`;
+    if (lines.some((l) => l.key === key)) continue;
+    lines.push({ key, number, repo, link: e.link ?? null, text: e.text, state: "open", closedAt: null });
   }
   for (const pr of work.pullRequests) {
-    let line = byNumber.get(pr.number);
+    let line =
+      lines.find((l) => l.number === pr.number && l.repo === pr.repo) ??
+      lines.find((l) => l.number === pr.number && l.repo === null);
     if (!line) {
-      line = { number: pr.number, repo: pr.repo, link: null, text: "", state: "open", closedAt: null };
+      line = {
+        key: prKey(pr.repo, pr.number),
+        number: pr.number,
+        repo: pr.repo,
+        link: null,
+        text: "",
+        state: "open",
+        closedAt: null,
+      };
       lines.push(line);
-      byNumber.set(pr.number, line);
     }
     applyPlatform(line, pr);
   }
@@ -169,7 +185,10 @@ export function pullRequestsOf(work: TaskWork, latest?: readonly ConversationEve
 }
 
 function applyPlatform(line: PrLine, pr: PullRequestEvent): void {
-  line.repo ??= pr.repo;
+  if (line.repo === null) {
+    line.repo = pr.repo;
+    line.key = prKey(pr.repo, pr.number);
+  }
   if (pr.kind === "pr_opened") {
     line.state = "open";
     line.closedAt = null;
@@ -254,23 +273,36 @@ type CorrectionEntry = Extract<
   { kind: "correction_requested" | "correction_started" | "correction_resumed" }
 >;
 
-/** Una correzione: quando comincia, su quale PR, se è stata annullata (fermata e chiusa). */
-interface CorrectionRecord {
+/**
+ * Una correzione, come il ciclo di una PR la legge: quando comincia, su
+ * quale PR (`repo#numero`), a che punto è, se è stata annullata (fermata e
+ * chiusa). `ordinal`: il giro sulla sua PR, `null` se annullata.
+ */
+export interface CorrectionRecord {
   at: string;
   pr: string | null;
   cancelled: boolean;
+  /** `done`: finita senza un invio (niente da spingere). */
+  state: "running" | "paused" | "pushed" | "failed" | "done";
+  /** Da quando è in quello stato. */
+  stateAt: string;
+  ordinal: number | null;
 }
 
-/** Le aperture delle PR (flusso e piattaforma), in ordine: la chiave è `#n` o l'evento. */
+/**
+ * Le aperture delle PR (flusso e piattaforma), in ordine, con la chiave
+ * `repo#numero` (o l'evento): la PR di una correzione che non la dice.
+ */
 function prOpenings(work: TaskWork, latest?: readonly ConversationEvent[]) {
   const out: { at: string; key: string }[] = [];
   for (const e of runsEvents(work, latest)) {
     if (e.type !== "work_result" || e.kind !== "pr_opened") continue;
     const n = numberIn(e.text);
-    out.push({ at: e.at, key: n !== null ? `#${n}` : `event:${e.id}` });
+    const repo = e.link ? (PR_LINK.exec(e.link)?.[1] ?? null) : null;
+    out.push({ at: e.at, key: n !== null ? prKey(repo, n) : `event:${e.id}` });
   }
   for (const pr of work.pullRequests) {
-    if (pr.kind === "pr_opened") out.push({ at: pr.at, key: `#${pr.number}` });
+    if (pr.kind === "pr_opened") out.push({ at: pr.at, key: prKey(pr.repo, pr.number) });
   }
   return out.sort((a, b) => a.at.localeCompare(b.at));
 }
@@ -283,21 +315,44 @@ function prOpenings(work: TaskWork, latest?: readonly ConversationEvent[]) {
  * fallimenti; poi merge e chiusure delle PR dalla piattaforma.
  *
  * Le correzioni sono numerate PER PR (come la storia del ticket di oggi):
- * la PR di una correzione è l'ultima aperta prima che cominci; contano
- * quelle non annullate, nell'ordine in cui cominciano. Una correzione
- * ripresa dopo una pausa resta la stessa; una fermata in una sessione poi
- * chiusa è annullata e non prende numero.
+ * la PR di una correzione è quella che la sua fase dice (il job la conosce),
+ * altrimenti l'ultima aperta prima che cominci; contano quelle non
+ * annullate, nell'ordine in cui cominciano. Una correzione ripresa dopo una
+ * pausa resta la stessa; una fermata in una sessione poi chiusa è annullata
+ * e non prende numero.
  */
 export function workStory(work: TaskWork, latest?: readonly ConversationEvent[]): StoryEntry[] {
+  return analyze(work, latest).story;
+}
+
+/** Le correzioni della task, dalla più vecchia, con la loro PR, il giro e lo stato. */
+export function correctionsOf(
+  work: TaskWork,
+  latest?: readonly ConversationEvent[],
+): CorrectionRecord[] {
+  return analyze(work, latest).records;
+}
+
+function analyze(
+  work: TaskWork,
+  latest?: readonly ConversationEvent[],
+): { story: StoryEntry[]; records: CorrectionRecord[] } {
   const out: StoryEntry[] = [];
-  const openedPrs = new Set<number>();
+  const openedPrs = new Set<string>();
   const openings = prOpenings(work, latest);
   const prAt = (at: string) => openings.filter((o) => o.at <= at).at(-1)?.key ?? null;
   const records: CorrectionRecord[] = [];
   const recordOf = new Map<CorrectionEntry, CorrectionRecord>();
   const usedDecisions = new Set<number>();
-  const newRecord = (at: string) => {
-    const record: CorrectionRecord = { at, pr: prAt(at), cancelled: false };
+  const newRecord = (at: string, pr: PrRef | undefined) => {
+    const record: CorrectionRecord = {
+      at,
+      pr: pr ? prKey(pr.repo, pr.number) : prAt(at),
+      cancelled: false,
+      state: "running",
+      stateAt: at,
+      ordinal: null,
+    };
     records.push(record);
     return record;
   };
@@ -310,7 +365,7 @@ export function workStory(work: TaskWork, latest?: readonly ConversationEvent[])
     let current: CorrectionRecord | null = null;
     let stopped = false;
     if (first?.phase === "correction") {
-      current = newRecord(run.createdAt);
+      current = newRecord(run.createdAt, first.pr);
       const entry: CorrectionEntry = {
         kind: "correction_requested",
         key: `${run.id}:start`,
@@ -344,9 +399,11 @@ export function workStory(work: TaskWork, latest?: readonly ConversationEvent[])
                 ordinal: null,
               };
               recordOf.set(entry, current);
+              current.state = "running";
+              current.stateAt = e.at;
               out.push(entry);
             } else if (opens) {
-              current = newRecord(e.at);
+              current = newRecord(e.at, e.pr);
               const entry: CorrectionEntry = {
                 kind: "correction_started",
                 key: e.id,
@@ -360,6 +417,12 @@ export function workStory(work: TaskWork, latest?: readonly ConversationEvent[])
           if (e.phase === "correction") {
             correctionOpen = e.outcome === null;
             stopped = e.outcome === "stopped";
+            if (current && e.outcome !== null) {
+              if (e.outcome === "stopped") current.state = "paused";
+              else if (e.outcome !== "ok") current.state = "failed";
+              else if (current.state === "running") current.state = "done";
+              if (current.state !== "pushed") current.stateAt = e.at;
+            }
           }
           if (e.outcome !== null && e.outcome !== "ok") {
             out.push({
@@ -425,7 +488,13 @@ export function workStory(work: TaskWork, latest?: readonly ConversationEvent[])
         case "work_result": {
           if (e.kind === "pr_opened") {
             const n = numberIn(e.text);
-            if (n !== null) openedPrs.add(n);
+            const repo = e.link ? (PR_LINK.exec(e.link)?.[1] ?? null) : null;
+            if (n !== null) openedPrs.add(prKey(repo, n));
+          }
+          // L'invio di una correzione: quella in corso in questa sessione.
+          if (e.kind === "correction" && current && current.state === "running") {
+            current.state = "pushed";
+            current.stateAt = e.at;
           }
           out.push({
             kind: "result",
@@ -455,18 +524,89 @@ export function workStory(work: TaskWork, latest?: readonly ConversationEvent[])
     ordinals.set(record, n);
   }
   for (const [entry, record] of recordOf) entry.ordinal = ordinals.get(record) ?? null;
+  for (const record of records) record.ordinal = ordinals.get(record) ?? null;
 
   for (const pr of work.pullRequests) {
-    // Un'apertura che il flusso ha già raccontato non si ripete.
-    if (pr.kind === "pr_opened" && openedPrs.has(pr.number)) continue;
+    // Un'apertura che il flusso ha già raccontato non si ripete (anche senza link).
+    if (
+      pr.kind === "pr_opened" &&
+      (openedPrs.has(prKey(pr.repo, pr.number)) || openedPrs.has(prKey(null, pr.number)))
+    ) {
+      continue;
+    }
     out.push({ kind: "pr", key: pr.id, at: pr.at, event: pr.kind, number: pr.number });
   }
 
   // Stabile: a parità di istante resta l'ordine del flusso.
-  return out
+  const story = out
     .map((entry, i) => ({ entry, i }))
     .sort((a, b) => a.entry.at.localeCompare(b.entry.at) || a.i - b.i)
     .map(({ entry }) => entry);
+  return { story, records: [...records].sort((a, b) => a.at.localeCompare(b.at)) };
+}
+
+/**
+ * Lo stato del ciclo review → correzione di una PR aperta, DERIVATO (come
+ * `pr-cycle-row` del web legge quello del server): il giro dalle correzioni
+ * della PR, il «dove siamo» dall'ultima correzione e dall'ultima review, il
+ * tetto dal progetto. Dai fatti esterni solo ciò che Stubwise non produce:
+ * la review, il branch protetto, la coda.
+ */
+export type PrCycle = {
+  state:
+    | "reviewing"
+    | "idle"
+    | "correcting"
+    | "paused"
+    | "approved"
+    | "changes_requested"
+    | "capped"
+    | "correction_failed"
+    | "queued";
+  /** Il giro: le correzioni (non annullate) fatte o in corso su questa PR. */
+  round: number;
+  maxRounds: number;
+  requestedById: string | null;
+  requestedOn: "stubwise" | "platform" | null;
+  branchProtected: boolean;
+};
+
+export function prCycles(
+  work: TaskWork,
+  lines: readonly PrLine[],
+  latest?: readonly ConversationEvent[],
+): Map<string, PrCycle> {
+  const records = correctionsOf(work, latest);
+  const out = new Map<string, PrCycle>();
+  for (const line of lines) {
+    if (line.state !== "open" || line.number === null) continue;
+    const fact = work.prFacts.find((f) => f.number === line.number && f.repo === line.repo);
+    const mine = records.filter((r) => r.pr === line.key && !r.cancelled);
+    const last = mine.at(-1);
+    const round = mine.length;
+    const review = fact?.review ?? null;
+    // La review conta solo se è arrivata dopo l'ultima correzione.
+    const freshReview = review && (!last || review.at > last.stateAt) ? review : null;
+    let state: PrCycle["state"];
+    if (fact?.queued) state = "queued";
+    else if (last?.state === "running") state = "correcting";
+    else if (last?.state === "paused") state = "paused";
+    else if (last?.state === "failed") state = "correction_failed";
+    else if (freshReview?.verdict === "changes_requested") {
+      state = round >= work.correctionCap ? "capped" : "changes_requested";
+    } else if (freshReview?.verdict === "approved") state = "approved";
+    else if (freshReview?.verdict === "pending" || last) state = "reviewing";
+    else state = "idle";
+    out.set(line.key, {
+      state,
+      round,
+      maxRounds: work.correctionCap,
+      requestedById: freshReview?.byId ?? null,
+      requestedOn: freshReview?.on ?? null,
+      branchProtected: fact?.branchProtected ?? false,
+    });
+  }
+  return out;
 }
 
 /** La correzione più recente della task, come la mostra la riga «Correction N». */

@@ -738,7 +738,7 @@
         "label": "Provider: {{provider}}"
       },
       "failure": {
-        "label": "Cosa non è andato",
+        "label": "In breve",
         "showLog": "Mostra il log",
         "hideLog": "Nascondi il log",
         "logLabel": "Log della fase {{phase}}",
@@ -756,6 +756,7 @@
         "reviewing": "In attesa della review",
         "idle": "Ancora nessuna review",
         "correcting": "Giro {{round}} di {{max}} · correzione in corso",
+        "paused": "Giro {{round}} di {{max}} · correzione in pausa",
         "approved": "Approvata dalla review · pronta per il merge",
         "changes_requested": "La review chiede modifiche",
         "changesRequestedStubwise": "Modifiche chieste da {{name}} in Stubwise",
@@ -1395,7 +1396,9 @@
       "awaitingApproval": "Piano pronto, aspetta chi può approvarlo.",
       "executing": "In corso.",
       "prReady": "Modifica pronta: il merge spetta a chi può rilasciare.",
-      "done": "Fatto: la task è conclusa.",
+      "done": "Fatto: la task è chiusa.",
+      "merged": "Mergiata: la task si può chiudere.",
+      "workFinished": "Claude ha finito: la task si può chiudere.",
       "needsAttention": "Qualcosa nella task chiede attenzione.",
       "goToTask": "Vai a {{code}}"
     }
@@ -1743,7 +1746,8 @@
         "who": "Lo genera solo chi gestisce le impostazioni.",
         "stale_one": "{{count}} commit nuovo non incluso",
         "stale_other": "{{count}} commit nuovi non inclusi",
-        "regenerate": "Rigenera"
+        "regenerate": "Rigenera",
+        "regenerateOf": "Rigenera il report giornaliero di {{code}}"
       },
       "states": {
         "loading": "Caricamento della rassegna",

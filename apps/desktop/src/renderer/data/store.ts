@@ -15,7 +15,7 @@ import { INITIAL_PINNED_CODES, PROJECTS } from "./seed/projects";
 import { REQUESTS } from "./seed/requests";
 import { PROJECT_STATUSES } from "./seed/statuses";
 import { TASKS } from "./seed/tasks";
-import { DAILY_REPORTS, PR_CYCLES, PULL_REQUEST_EVENTS } from "./seed/timeline";
+import { DAILY_REPORTS, PR_FACTS, PULL_REQUEST_EVENTS } from "./seed/timeline";
 import { DEFAULT_SESSION_PERSON_ID, getSessionPersonId, setSessionPersonId } from "./session";
 import type {
   ActivityEntry,
@@ -36,7 +36,8 @@ import type {
   Project,
   ProjectRequest,
   ProjectStatus,
-  PrCycle,
+  PrFact,
+  PrRef,
   PullRequestEvent,
   ReadOnlyReason,
   SavedFilter,
@@ -242,8 +243,8 @@ interface State {
   /** Autori git dei commit collegati a una persona dopo il seed (nome git → id persona). */
   commitAuthorLinks: Map<string, string>;
   pullRequests: PullRequestEvent[];
-  /** Il ciclo review → correzione delle PR aperte (lo stato lo deriva il «server»). */
-  prCycles: PrCycle[];
+  /** I fatti esterni delle PR (review, branch protetto, coda): il ciclo si deriva dalle sessioni. */
+  prFacts: PrFact[];
   filters: SavedFilter[];
   departmentHomes: DepartmentHome[];
   personalHomes: PersonalHome[];
@@ -284,7 +285,7 @@ function freshState(): State {
     dailyReports: DAILY_REPORTS.map(copy),
     commitAuthorLinks: new Map(),
     pullRequests: PULL_REQUEST_EVENTS.map(copy),
-    prCycles: PR_CYCLES.map(copy),
+    prFacts: PR_FACTS.map(copy),
     filters: SAVED_FILTERS.map(copy),
     departmentHomes: DEPARTMENT_HOMES.map(copy),
     personalHomes: PERSONAL_HOMES.map(copy),
@@ -681,6 +682,40 @@ export function hasOpenPr(task: Task): boolean {
       ),
   ];
   return openings.some((at) => at > lastClose);
+}
+
+/**
+ * La PR aperta più recente della task (dalla pipeline o dalla piattaforma):
+ * quella su cui «Request changes» apre la correzione. `null` se nessuna è
+ * aperta o la PR della pipeline non dice il suo numero.
+ */
+export function latestOpenPrOf(task: Task): PrRef | null {
+  if (!hasRepository(task.projectId)) return null;
+  const platform = state.pullRequests.filter((pr) => pr.taskId === task.id);
+  const openings: (PrRef & { at: string })[] = [
+    ...platform
+      .filter((pr) => pr.kind === "pr_opened")
+      .map((pr) => ({ repo: pr.repo, number: pr.number, at: pr.at })),
+    ...state.conversations
+      .filter((c) => c.kind === "task_run" && c.taskId === task.id)
+      .flatMap((c) =>
+        eventsOf(c.id).flatMap((e) => {
+          if (e.type !== "work_result" || e.kind !== "pr_opened") return [];
+          const number = /#(\d+)/.exec(e.text)?.[1];
+          const repo = e.link ? /\/([^/]+\/[^/]+)\/pull\/\d+/.exec(e.link)?.[1] : undefined;
+          return number && repo ? [{ repo, number: Number(number), at: e.at }] : [];
+        }),
+      ),
+  ];
+  const open = openings.filter(
+    (o) =>
+      !platform.some(
+        (pr) =>
+          pr.kind !== "pr_opened" && pr.repo === o.repo && pr.number === o.number && pr.at > o.at,
+      ),
+  );
+  const latest = open.sort((a, b) => a.at.localeCompare(b.at)).at(-1);
+  return latest ? { repo: latest.repo, number: latest.number } : null;
 }
 
 /** L'ultima sessione di lavoro della task (la più recente), visibile o no. */

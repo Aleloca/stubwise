@@ -16,6 +16,8 @@ export type NextStep =
   | "executing"
   | "prReady"
   | "done"
+  | "merged"
+  | "workFinished"
   | "needsAttention";
 
 export interface NextStepInput {
@@ -24,8 +26,8 @@ export interface NextStepInput {
   task: { closed: boolean; claude: ClaudeWorkState } | null;
   /** La fase della sessione di Claude in corso, se chi guarda la vede. */
   phase: string | null;
-  /** La PR della task: aperta, mergiata, o nessuna (o non si sa). */
-  pr: "open" | "merged" | null;
+  /** La PR della task: una aperta, altrimenti mergiata, altrimenti chiusa senza merge; o nessuna. */
+  pr: "open" | "merged" | "closed" | null;
 }
 
 /** Le fasi in cui Claude sta ancora preparando il piano. */
@@ -49,7 +51,12 @@ export function requestNextStep(input: NextStepInput): NextStep | null {
     case "awaiting_answer":
     case "stopped":
       return "needsAttention";
+    // Claude ha finito ma la task è aperta: la riga non dice «fatto».
     case "done":
-      return input.pr === "open" ? "prReady" : "done";
+      if (input.pr === "open") return "prReady";
+      if (input.pr === "merged") return "merged";
+      // Una PR chiusa senza merge, e nessuna aperta: c'è da guardarci.
+      if (input.pr === "closed") return "needsAttention";
+      return "workFinished";
   }
 }

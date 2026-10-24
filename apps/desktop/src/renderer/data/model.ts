@@ -35,6 +35,8 @@ export interface Project {
   /** Giorni senza attività dopo i quali una task è ferma (`active`; `todo` già slittata). */
   stallThresholds: { activeDays: number; todoDays: number };
   signals: { claudeWorking: boolean };
+  /** Il tetto delle correzioni automatiche per PR (impostazione di progetto); assente = 3. */
+  correctionCap?: number;
 }
 
 export interface AppNotification {
@@ -230,40 +232,32 @@ export interface PullRequestEvent {
   repo: string;
 }
 
-/**
- * Lo stato del ciclo review → correzione di una PR, come lo deriva il
- * server oggi (`pr-cycle-row` del web): la sezione lo legge, non lo
- * ricostruisce.
- * - `reviewing`: la review è in corso; `idle`: nessuna review ancora;
- * - `correcting`: una correzione automatica al lavoro (giro `round` di `maxRounds`);
- * - `approved`: la review approva, pronta al merge;
- * - `changes_requested`: chieste da una persona, in Stubwise o sulla piattaforma;
- * - `capped`: il ciclo si è fermato al tetto delle correzioni automatiche;
- * - `correction_failed`: l'ultima correzione non è riuscita;
- * - `queued`: una correzione chiesta aspetta che finisca il lavoro in corso.
- * `branchProtected`: il branch della PR è protetto, Stubwise non ci scrive.
- */
-export interface PrCycle {
-  taskId: string;
-  /** La PR (numero + repository) a cui si riferisce. */
-  number: number;
+/** Una PR: repository (`owner/repo`) e numero. */
+export interface PrRef {
   repo: string;
-  state:
-    | "reviewing"
-    | "idle"
-    | "correcting"
-    | "approved"
-    | "changes_requested"
-    | "capped"
-    | "correction_failed"
-    | "queued";
-  /** Il giro di correzione in corso o l'ultimo fatto (da 1); 0 se nessuno. */
-  round: number;
-  /** Il tetto di correzioni automatiche del progetto. */
-  maxRounds: number;
-  requestedById: string | null;
-  requestedOn: "stubwise" | "platform" | null;
+  number: number;
+}
+
+/**
+ * I FATTI esterni di una PR che il ciclo review → correzione legge: l'esito
+ * dell'ultima review (del revisore o sulla piattaforma, con la sua data e
+ * chi ha chiesto le modifiche), se il branch è protetto, se una correzione
+ * chiesta è in coda. Il ciclo (giro, in corso, inviata, fallita, fermo al
+ * tetto) NON si salva: lo deriva `prCycles` dalle sessioni (invariante «il
+ * contatore dei giri si DERIVA, non si salva»).
+ */
+export interface PrFact extends PrRef {
+  taskId: string;
+  review: {
+    verdict: "pending" | "approved" | "changes_requested";
+    at: string;
+    /** Chi ha chiesto le modifiche, se una persona; `null` il revisore. */
+    byId: string | null;
+    on: "stubwise" | "platform" | null;
+  } | null;
   branchProtected: boolean;
+  /** Una correzione chiesta aspetta che finisca il lavoro in corso sulla task. */
+  queued: boolean;
 }
 
 /** Con chi gira una sessione di Claude: solo il NOME dell'account o della chiave, mai il segreto. */
@@ -684,6 +678,8 @@ export type ConversationEvent =
       closedById?: string;
       /** `item_closed`: il refine si è chiuso perché la richiesta è stata trasformata, archiviata o fusa. */
       reason?: "item_closed";
+      /** Solo una fase `correction`: la PR che corregge (il job del server la conosce). */
+      pr?: PrRef;
     }
   | { id: string; at: string; type: "citation"; refs: CitationRef[] }
   | {

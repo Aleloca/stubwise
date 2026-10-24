@@ -738,7 +738,7 @@
         "label": "Provider: {{provider}}"
       },
       "failure": {
-        "label": "What went wrong",
+        "label": "In brief",
         "showLog": "Show log",
         "hideLog": "Hide log",
         "logLabel": "Log of the {{phase}} phase",
@@ -756,6 +756,7 @@
         "reviewing": "Waiting for the review",
         "idle": "No review yet",
         "correcting": "Round {{round}} of {{max}} · correction in progress",
+        "paused": "Round {{round}} of {{max}} · correction paused",
         "approved": "Approved by the review · ready to merge",
         "changes_requested": "The review asks for changes",
         "changesRequestedStubwise": "Changes requested by {{name}} in Stubwise",
@@ -1395,7 +1396,9 @@
       "awaitingApproval": "Plan ready, waiting for someone who can approve it.",
       "executing": "In progress.",
       "prReady": "Change ready: merging it is up to someone who can release.",
-      "done": "Done: the task is finished.",
+      "done": "Done: the task is closed.",
+      "merged": "Merged: the task can be closed.",
+      "workFinished": "Claude finished: the task can be closed.",
       "needsAttention": "Something on the task needs attention.",
       "goToTask": "Go to {{code}}"
     }
@@ -1743,7 +1746,8 @@
         "who": "Only who manages the settings can generate it.",
         "stale_one": "{{count}} new commit not included",
         "stale_other": "{{count}} new commits not included",
-        "regenerate": "Regenerate"
+        "regenerate": "Regenerate",
+        "regenerateOf": "Regenerate the daily report of {{code}}"
       },
       "states": {
         "loading": "Loading the review",

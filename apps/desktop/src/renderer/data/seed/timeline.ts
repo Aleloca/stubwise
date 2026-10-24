@@ -1,4 +1,4 @@
-import type { DailyReport, PrCycle, PullRequestEvent } from "../types";
+import type { DailyReport, PrFact, PullRequestEvent } from "../types";
 import { daysFromToday } from "./dates";
 
 // Le voci della cronologia che non nascono da task, traguardi, decisioni o
@@ -66,7 +66,7 @@ const PRS: PrRow[] = [
   ["STW", 1, "pr_opened", 4, 405],
   ["STW", 1, "pr_merged", 2, 405],
   ["STW", 3, "pr_opened", 1, 411],
-  ["STW", 3, "pr_opened", 1, 58, "stubwise/guide"],
+  ["STW", 3, "pr_opened", 3, 58, "stubwise/guide"],
 ];
 
 export const PULL_REQUEST_EVENTS: PullRequestEvent[] = PRS.map(
@@ -82,31 +82,37 @@ export const PULL_REQUEST_EVENTS: PullRequestEvent[] = PRS.map(
 );
 
 /**
- * I cicli review → correzione delle PR ancora aperte (come li deriva il
- * server): la #411 di STW-3 è al primo giro di correzione su tre; la #58
- * sulla guida si è fermata al tetto dopo tre correzioni automatiche.
+ * I fatti esterni delle PR aperte (il ciclo NON si salva: lo deriva
+ * `prCycles` dalle sessioni). La #411 di STW-3: la review ha chiesto
+ * modifiche ieri, e la correzione è in corso. La #58 sulla guida: dopo la
+ * terza correzione automatica la review chiede ancora modifiche (con il
+ * tetto di STW a tre, il ciclo è fermo).
  */
-export const PR_CYCLES: PrCycle[] = [
+export const PR_FACTS: PrFact[] = [
   {
     taskId: "t-stw-3",
-    number: 411,
     repo: "stubwise/stubwise",
-    state: "correcting",
-    round: 1,
-    maxRounds: 3,
-    requestedById: null,
-    requestedOn: null,
+    number: 411,
+    review: {
+      verdict: "changes_requested",
+      at: `${daysFromToday(-1)}T12:10:00Z`,
+      byId: null,
+      on: null,
+    },
     branchProtected: false,
+    queued: false,
   },
   {
     taskId: "t-stw-3",
-    number: 58,
     repo: "stubwise/guide",
-    state: "capped",
-    round: 3,
-    maxRounds: 3,
-    requestedById: null,
-    requestedOn: null,
+    number: 58,
+    review: {
+      verdict: "changes_requested",
+      at: `${daysFromToday(-3)}T17:40:00Z`,
+      byId: null,
+      on: null,
+    },
     branchProtected: false,
+    queued: false,
   },
 ];

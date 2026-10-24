@@ -46,11 +46,12 @@ describe("requestNextStep", () => {
     );
   });
 
-  it("finito: con la PR aperta è pronta al merge, mergiata o chiusa la task è fatta", () => {
+  it("Claude ha finito: PR aperta pronta al merge, mergiata, chiusa senza merge; «fatto» solo a task chiusa", () => {
     const done = { closed: false, claude: "done" as const };
     expect(requestNextStep(input({ task: done, pr: "open" }))).toBe("prReady");
-    expect(requestNextStep(input({ task: done, pr: "merged" }))).toBe("done");
-    expect(requestNextStep(input({ task: done, pr: null }))).toBe("done");
+    expect(requestNextStep(input({ task: done, pr: "merged" }))).toBe("merged");
+    expect(requestNextStep(input({ task: done, pr: "closed" }))).toBe("needsAttention");
+    expect(requestNextStep(input({ task: done, pr: null }))).toBe("workFinished");
     // Una task chiusa è fatta, qualunque cosa dica il lavoro di Claude.
     expect(requestNextStep(input({ task: { closed: true, claude: "stopped" } }))).toBe("done");
   });

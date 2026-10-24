@@ -1,4 +1,4 @@
-import type { ScriptStep, Task } from "./types";
+import type { PrRef, ScriptStep, Task } from "./types";
 
 // I passi di Claude nelle sessioni di lavoro che le scritture del livello
 // dati avviano (avvio, rilancio, correzione, refine): il prototipo non
@@ -43,8 +43,15 @@ export function runOpening(
   phase: "plan" | "correction",
   authorId: string,
   instructions?: string,
+  /** La PR che una correzione corregge (il job la conosce: è la sua). */
+  pr?: PrRef,
 ): ScriptStep[] {
-  const steps: ScriptStep[] = [{ step: "event", event: { type: "phase", phase, outcome: null } }];
+  const steps: ScriptStep[] = [
+    {
+      step: "event",
+      event: { type: "phase", phase, outcome: null, ...(pr ? { pr: { ...pr } } : {}) },
+    },
+  ];
   if (instructions) {
     steps.push({
       step: "event",
@@ -194,7 +201,7 @@ export function replanning(task: Task, instructions: string): ScriptStep[] {
 }
 
 /** Una correzione sulla PR (solo con un repository): le modifiche, la PR aggiornata. */
-export function correction(task: Task): ScriptStep[] {
+export function correction(task: Task, pr?: PrRef | null): ScriptStep[] {
   return [
     { step: "action", tool: "repo.read", label: `Reads the review of ${task.code}` },
     { step: "action", tool: "repo.edit", label: `Applies the requested changes to ${task.code}` },
@@ -211,7 +218,7 @@ export function correction(task: Task): ScriptStep[] {
       event: {
         type: "work_result",
         kind: "correction",
-        text: `Correction pushed for ${task.code}`,
+        text: pr ? `Correction pushed to #${pr.number}` : `Correction pushed for ${task.code}`,
       },
     },
     { step: "event", event: { type: "phase", phase: "correction", outcome: "ok" } },

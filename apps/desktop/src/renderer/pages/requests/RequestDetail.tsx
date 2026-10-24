@@ -236,7 +236,10 @@ function RequestBody({
     : undefined;
   const related = all ? relatedRequests(request, all) : [];
   // La task nata dalla richiesta (la prima): la riga del prossimo passo parla di lei.
-  const linkedTask = projectTasks?.find((x) => request.taskIds.includes(x.id)) ?? null;
+  const linkedTask =
+    request.taskIds
+      .map((id) => projectTasks?.find((x) => x.id === id))
+      .find((x): x is Task => x !== undefined) ?? null;
 
   const goRequest = (id: string) =>
     void navigate({

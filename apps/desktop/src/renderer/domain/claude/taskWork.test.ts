@@ -4,6 +4,7 @@ import {
   correctionHeld,
   latestCorrection,
   openCard,
+  prCycles,
   pullRequestsOf,
   statusOf,
   workStory,
@@ -44,7 +45,8 @@ const work = (runs: TaskRun[], over: Partial<TaskWork> = {}): TaskWork => ({
     resume: "unavailable",
     requestChanges: "unavailable",
   },
-  cycles: [],
+  prFacts: [],
+  correctionCap: 3,
   usage: [],
   ...over,
 });
@@ -97,8 +99,8 @@ describe("workStory", () => {
     const story = workStory(
       work([first, second], {
         pullRequests: [
-          { id: "pr1", projectId: "x", taskId: "t", kind: "pr_opened", at: "2026-10-19T11:00:00Z", number: 405, repo: "stubwise/stubwise" },
-          { id: "pr2", projectId: "x", taskId: "t", kind: "pr_merged", at: "2026-10-22T08:00:00Z", number: 405, repo: "stubwise/stubwise" },
+          { id: "pr1", projectId: "x", taskId: "t", kind: "pr_opened", at: "2026-10-19T11:00:00Z", number: 405, repo: "acme/web" },
+          { id: "pr2", projectId: "x", taskId: "t", kind: "pr_merged", at: "2026-10-22T08:00:00Z", number: 405, repo: "acme/web" },
         ],
       }),
     );
@@ -194,7 +196,7 @@ describe("workStory", () => {
         ],
         {
           pullRequests: [
-            { id: "c", projectId: "x", taskId: "t", kind: "pr_closed", at: "2026-10-12T08:00:00Z", number: 401, repo: "stubwise/stubwise" },
+            { id: "c", projectId: "x", taskId: "t", kind: "pr_closed", at: "2026-10-12T08:00:00Z", number: 401, repo: "acme/web" },
           ],
         },
       ),
@@ -269,12 +271,13 @@ describe("stato, scheda aperta, PR", () => {
     const lines = pullRequestsOf(
       work([r], {
         pullRequests: [
-          { id: "a", projectId: "x", taskId: "t", kind: "pr_merged", at: "2026-10-22T08:00:00Z", number: 405, repo: "stubwise/stubwise" },
+          { id: "a", projectId: "x", taskId: "t", kind: "pr_merged", at: "2026-10-22T08:00:00Z", number: 405, repo: "acme/web" },
         ],
       }),
     );
     expect(lines).toEqual([
       {
+        key: "acme/web#405",
         number: 405,
         repo: "acme/web",
         link: "https://git.example.com/acme/web/pull/405",
@@ -309,5 +312,80 @@ describe("stato, scheda aperta, PR", () => {
       { provider: { kind: "api_key", name: "Billing key" } },
       { provider: null },
     ]);
+  });
+});
+
+describe("prCycles: il ciclo di una PR si DERIVA dalle sessioni", () => {
+  const REPO = "acme/web";
+  const PR = { repo: REPO, number: 7 };
+  const opened = { id: "o", projectId: "x", taskId: "t", kind: "pr_opened" as const, at: "2026-10-18T10:00:00Z", number: 7, repo: REPO };
+  /** Una sessione di correzione sulla PR #7: apre, poi (se dato) invia e chiude con `outcome`. */
+  const correctionRun = (
+    id: string,
+    day: number,
+    end: "running" | "pushed" | "failed" | "stopped",
+  ): TaskRun => {
+    const at = (h: string) => `2026-10-${day}T${h}:00Z`;
+    const events = [ev({ at: at("09:00"), type: "phase", phase: "correction", outcome: null, pr: PR })];
+    if (end === "pushed") {
+      events.push(ev({ at: at("09:30"), type: "work_result", kind: "correction", text: "Correction pushed to #7" }));
+      events.push(ev({ at: at("09:31"), type: "phase", phase: "correction", outcome: "ok" }));
+    } else if (end !== "running") {
+      events.push(ev({ at: at("09:30"), type: "phase", phase: "correction", outcome: end }));
+    }
+    return run(id, { state: end === "running" ? "working" : end === "stopped" ? "paused" : "finished", outcome: end === "failed" ? "failed" : end === "pushed" ? "ok" : null }, events);
+  };
+  const cycleOf = (runs: TaskRun[], over: Partial<TaskWork> = {}) => {
+    const w = work(runs, { pullRequests: [opened], ...over });
+    return prCycles(w, pullRequestsOf(w)).get("acme/web#7")!;
+  };
+  const review = (verdict: "pending" | "approved" | "changes_requested", at: string, byId: string | null = null) => ({
+    repo: REPO,
+    number: 7,
+    review: { verdict, at, byId, on: byId ? ("stubwise" as const) : null },
+    branchProtected: false,
+    queued: false,
+  });
+
+  it("nessuna review né correzione: idle; review in corso: reviewing; approvata: approved", () => {
+    expect(cycleOf([])).toMatchObject({ state: "idle", round: 0 });
+    expect(cycleOf([], { prFacts: [review("pending", "2026-10-19T08:00:00Z")] }).state).toBe("reviewing");
+    expect(cycleOf([], { prFacts: [review("approved", "2026-10-19T08:00:00Z")] }).state).toBe("approved");
+  });
+
+  it("il giro sale con le correzioni sulla PR; in corso, inviata (aspetta la review), fallita, in pausa", () => {
+    expect(cycleOf([correctionRun("a", 19, "running")])).toMatchObject({ state: "correcting", round: 1 });
+    expect(cycleOf([correctionRun("a", 19, "pushed")])).toMatchObject({ state: "reviewing", round: 1 });
+    expect(cycleOf([correctionRun("a", 19, "pushed"), correctionRun("b", 20, "running")])).toMatchObject({
+      state: "correcting",
+      round: 2,
+    });
+    expect(cycleOf([correctionRun("a", 19, "failed")]).state).toBe("correction_failed");
+    expect(cycleOf([correctionRun("a", 19, "stopped")]).state).toBe("paused");
+  });
+
+  it("una review vecchia non conta dopo una correzione; al tetto le modifiche chieste fermano il ciclo", () => {
+    const before = review("changes_requested", "2026-10-18T12:00:00Z");
+    expect(cycleOf([correctionRun("a", 19, "pushed")], { prFacts: [before] }).state).toBe("reviewing");
+    const after = review("changes_requested", "2026-10-19T12:00:00Z", "p-laura");
+    expect(cycleOf([correctionRun("a", 19, "pushed")], { prFacts: [after] })).toMatchObject({
+      state: "changes_requested",
+      requestedById: "p-laura",
+    });
+    expect(cycleOf([correctionRun("a", 19, "pushed")], { prFacts: [after], correctionCap: 1 })).toMatchObject({
+      state: "capped",
+      round: 1,
+      maxRounds: 1,
+    });
+  });
+
+  it("in coda e branch protetto vengono dai fatti esterni", () => {
+    expect(cycleOf([], { prFacts: [{ ...review("pending", "2026-10-19T08:00:00Z"), queued: true }] }).state).toBe("queued");
+    expect(cycleOf([], { prFacts: [{ ...review("pending", "2026-10-19T08:00:00Z"), branchProtected: true }] }).branchProtected).toBe(true);
+  });
+
+  it("le PR sono per repository: una correzione su un'altra PR con lo stesso numero non conta", () => {
+    const other = ev({ at: "2026-10-19T09:00:00Z", type: "phase", phase: "correction", outcome: null, pr: { repo: "acme/guide", number: 7 } });
+    expect(cycleOf([run("x", { state: "working", outcome: null }, [other])])).toMatchObject({ state: "idle", round: 0 });
   });
 });

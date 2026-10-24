@@ -1,7 +1,15 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
-import { getConversation, resetApi, setLatency } from "../../data/api";
+import {
+  getConversation,
+  resetApi,
+  setLatency,
+  setStreamLatency,
+  subscribe,
+  whenIdle,
+} from "../../data/api";
+import { setSessionPersonId } from "../../data/session";
 import { state } from "../../data/store";
 import { grantProjectRole } from "../../data/viewer";
 import { renderRoute } from "../../test/renderRoute";
@@ -29,6 +37,7 @@ async function claudeSection(taskId: string, me: string) {
 
 beforeEach(() => {
   setLatency(0);
+  setStreamLatency(null);
   resetApi();
 });
 
@@ -357,6 +366,8 @@ describe("sezione Claude: attività AI, cicli delle PR, consumi", () => {
     const section = await claudeSection("t-stw-7", "p-laura");
     const failure = section.querySelector<HTMLElement>("[data-run-failure]")!;
     expect(failure).toHaveTextContent(/filters page tests failed twice/);
+    // Il riassunto è testo generato, e lo dice (come «In brief» del web).
+    expect(failure).toHaveTextContent(/^In brief\s*Generated text/);
     expect(within(failure).queryByRole("list")).toBeNull();
     await userEvent.click(within(failure).getByRole("button", { name: "Show log" }));
     const log = within(failure).getByRole("list", { name: "Log of the Execution phase" });
@@ -386,18 +397,54 @@ describe("sezione Claude: attività AI, cicli delle PR, consumi", () => {
     expect(section).not.toHaveTextContent("Correction 1 · in progress");
   });
 
-  it("branch protetto e modifiche chieste da una persona: le parole del ciclo", async () => {
-    const [first, second] = state.prCycles;
+  it("branch protetto e review approvata vengono dai fatti esterni della PR", async () => {
+    const [first, second] = state.prFacts;
     first!.branchProtected = true;
-    second!.state = "changes_requested";
-    second!.requestedById = "p-laura";
-    second!.requestedOn = "platform";
+    second!.review = { verdict: "approved", at: new Date().toISOString(), byId: null, on: null };
     const section = await claudeSection("t-stw-3", "p-laura");
     expect(section.querySelector('[data-pr="411"] [data-pr-blocked]')).toHaveTextContent(
       "Blocked: this branch is protected, Stubwise doesn't push to it.",
     );
     expect(section.querySelector('[data-pr="58"]')).toHaveTextContent(
-      "Changes requested by Laura Costa on the PR",
+      "Approved by the review · ready to merge",
+    );
+  });
+
+  it("le parole del ciclo in coda e in attesa della review (tutti gli stati: `prCycles` nel dominio)", async () => {
+    state.prFacts[0]!.queued = true;
+    state.prFacts[1]!.review = { verdict: "pending", at: new Date().toISOString(), byId: null, on: null };
+    const section = await claudeSection("t-stw-3", "p-laura");
+    expect(section.querySelector('[data-pr="411"]')).toHaveTextContent(
+      "Correction queued · it starts when the current work on the task finishes",
+    );
+    expect(section.querySelector('[data-pr="58"]')).toHaveTextContent("Waiting for the review");
+  });
+
+  it("il ciclo si deriva: finita la correzione aspetta la review; «Request changes» apre il giro 2", async () => {
+    // La sessione dell'app finisce il suo copione: la correzione 1 è inviata alla #411.
+    setSessionPersonId("p-simone");
+    subscribe("cv-run-stw-3", () => {});
+    await whenIdle("cv-run-stw-3");
+    const section = await claudeSection("t-stw-3", "p-laura");
+    const pr411 = () => section.querySelector<HTMLElement>('[data-pr="411"]')!;
+    await waitFor(() => expect(pr411()).toHaveTextContent("Waiting for the review"));
+    expect(pr411()).not.toHaveTextContent("correction in progress");
+
+    setStreamLatency(40);
+    await userEvent.click(within(section).getByRole("button", { name: "Request changes" }));
+    await userEvent.type(
+      within(section).getByRole("textbox", { name: "What should change" }),
+      "Announce the column name too",
+    );
+    await userEvent.click(within(section).getByRole("button", { name: "Send to Claude" }));
+    await waitFor(() =>
+      expect(current().querySelector('[data-pr="411"]')).toHaveTextContent(
+        "Round 2 of 3 · correction in progress",
+      ),
+    );
+    // La #58 sulla guida non c'entra: resta ferma al tetto.
+    expect(current().querySelector('[data-pr="58"]')).toHaveTextContent(
+      "Cycle stopped after 3 automatic corrections",
     );
   });
 

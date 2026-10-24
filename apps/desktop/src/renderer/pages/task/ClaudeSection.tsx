@@ -20,6 +20,7 @@ import {
   lastReview,
   latestCorrection,
   openCard,
+  prCycles,
   pullRequestsOf,
   statusOf,
   workStory,
@@ -446,6 +447,8 @@ function WithRun({
   }, [work.waitsOnViewer]);
 
   const prs = work.software ? pullRequestsOf(work, events) : [];
+  // Il ciclo di ogni PR aperta si DERIVA dalle sessioni (anche dal vivo), mai salvato.
+  const cycles = prCycles(work, prs, events);
   const review = work.software ? lastReview(work, events) : null;
   const correction = work.software ? latestCorrection(work, events) : null;
   const story = workStory(work, events);
@@ -626,7 +629,7 @@ function WithRun({
 
       {(prs.length > 0 || review || correction) && (
         <ul className="flex flex-col border-t border-rule pt-1">
-          <PrRows prs={prs} cycles={work.cycles} />
+          <PrRows prs={prs} cycles={cycles} />
           {review && (
             <li className="flex min-h-8 items-center text-sm text-ink-muted">
               <span className="min-w-0 truncate" title={review}>
@@ -635,7 +638,7 @@ function WithRun({
             </li>
           )}
           {/* Il ciclo del «server», quando c'è, dice già a che giro è la correzione. */}
-          {correction && work.cycles.length === 0 && (
+          {correction && cycles.size === 0 && (
             <li className="flex min-h-8 items-center text-sm text-ink-muted">
               {t(`${K}.correction.${correction.ordinal === null ? "cancelled" : correction.state}`, {
                 n: correction.ordinal,
