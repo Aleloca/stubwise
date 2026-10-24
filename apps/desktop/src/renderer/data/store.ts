@@ -66,6 +66,8 @@ export type ApiFnName =
   | "listRequests"
   | "listRequestsToConvert"
   | "getRequest"
+  | "getRequestByCode"
+  | "listDocPages"
   | "listSavedFilters"
   | "getSavedFilter"
   | "listPinnedFilterIds"

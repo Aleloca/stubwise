@@ -1,0 +1,341 @@
+import i18n from "i18next";
+import { beforeEach, describe, expect, it } from "vitest";
+import * as api from "../../data/api";
+import { setSessionPersonId } from "../../data/session";
+import { state } from "../../data/store";
+import type { ProposedAction, ScriptStep } from "../../data/types";
+import { recognize, respond, type IntentContext, type ReadApi } from "./intents";
+
+// Il motore di intenti sui dati del seed, letto come le persone del «vedi
+// come»: legge solo con le funzioni del livello dati (della sessione) e non
+// scrive mai — le modifiche escono come proposte aperte.
+
+const en = i18n.getFixedT("en");
+const it_ = i18n.getFixedT("it");
+
+/** Solo le letture: se il motore chiamasse una mutazione, qui non la troverebbe. */
+const READ: ReadApi = {
+  listProjects: api.listProjects,
+  listPinnedProjectIds: api.listPinnedProjectIds,
+  listProjectPulses: api.listProjectPulses,
+  listProjectStatuses: api.listProjectStatuses,
+  getLatestBrief: api.getLatestBrief,
+  listPeople: api.listPeople,
+  listTasks: api.listTasks,
+  getTaskByCode: api.getTaskByCode,
+  getRequest: api.getRequest,
+  getRequestByCode: api.getRequestByCode,
+  listDecisionRequests: api.listDecisionRequests,
+  listDocPages: api.listDocPages,
+};
+
+function as(personId: string, t = en, contextProjectId: string | null = null): IntentContext {
+  setSessionPersonId(personId);
+  return { personId, contextProjectId, read: READ, t, seed: "conv-test-1" };
+}
+
+const said = (steps: ScriptStep[]) =>
+  steps.flatMap((s) => (s.step === "say" ? [s.text] : [])).join("\n");
+const actions = (steps: ScriptStep[]) =>
+  steps.flatMap((s) => (s.step === "action" ? [s.label] : []));
+const refs = (steps: ScriptStep[]) =>
+  steps.flatMap((s) =>
+    s.step === "event" && s.event.type === "citation" ? s.event.refs.map((r) => r.id) : [],
+  );
+function proposal(steps: ScriptStep[]) {
+  for (const s of steps) {
+    if (s.step === "event" && s.event.type === "proposal") return s.event;
+  }
+  return null;
+}
+const fns = (steps: ScriptStep[]) => proposal(steps)?.actions.map((a: ProposedAction) => a.fn);
+
+/** Una fotografia dei dati che una proposta cambierebbe: deve restare identica. */
+const snapshot = () =>
+  JSON.stringify({
+    tasks: state.tasks,
+    requests: state.requests,
+    events: [...state.conversationEvents],
+  });
+
+beforeEach(() => {
+  api.setLatency(0);
+  api.resetApi();
+});
+
+describe("riconoscimento", () => {
+  it.each([
+    ["Where are my projects?", "status"],
+    ["A che punto sono i progetti?", "status"],
+    ["What should I do today?", "today"],
+    ["Cosa devo fare oggi?", "today"],
+    ["Explain AUD-3", "explain"],
+    ["spiegami STW-R4", "explain"],
+    ["a che punto è AUD-3?", "explain"],
+    ["How do scheduled callbacks work in AUD?", "howto"],
+    ["Come funziona l'import dei contatti in AUD?", "howto"],
+    ["Run STW-R1", "run"],
+    ["Avvia STW-R1", "run"],
+    ["Create “Banner copy review” in MKX", "create"],
+    ["Crea «Revisione banner» in MKX", "create"],
+    ["Assign AUD-10 to Marco", "assign"],
+    ["Assegna AUD-10 a Marco", "assign"],
+    ["Plan AUD-10 for next week", "plan"],
+    ["Pianifica AUD-10 per la settimana prossima", "plan"],
+    ["What's the weather like in Milan?", "general"],
+    ["How are you?", "general"],
+    ["Qual è la capitale del Portogallo?", "general"],
+  ])("%s → %s", (text, intent) => {
+    expect(recognize(text)).toBe(intent);
+  });
+
+  it("«plan» senza una settimana non è una pianificazione: spiega la task", () => {
+    expect(recognize("What's the plan for AUD-3?")).toBe("explain");
+  });
+});
+
+describe("risposte come Giulia", () => {
+  it("ogni risposta: consegna, al lavoro, … , di nuovo in attesa", async () => {
+    const steps = await respond("What should I do today?", as("p-giulia"));
+    expect(steps[0]).toEqual({ step: "deliver" });
+    expect(steps[1]).toEqual({ step: "state", state: "working" });
+    expect(steps.at(-1)).toEqual({ step: "state", state: "idle" });
+  });
+
+  it("status: il polso dei progetti fissati, citati", async () => {
+    const steps = await respond("Where are my projects?", as("p-giulia"));
+    expect(actions(steps)).toEqual(["Read the pulse of 14 projects"]);
+    const text = said(steps);
+    expect(text).toMatch(/^Here's where your pinned projects stand:/);
+    expect(text).toContain("**AUD** Audin 2.0 — 5 to do, 4 in progress");
+    expect(text).toContain("waiting on you");
+    expect(text).toContain("…and 6 more");
+    expect(refs(steps)).toContain("prj-aud");
+    expect(proposal(steps)).toBeNull();
+  });
+
+  it("status di un progetto: polso e prima riga del brief (testo generato)", async () => {
+    const steps = await respond("a che punto sono i progetti di AUD?", as("p-giulia", it_));
+    expect(actions(steps)).toEqual(["Letto il polso di AUD"]);
+    expect(said(steps)).toContain("**AUD** Audin 2.0 — 5 da fare, 4 in corso");
+    expect(said(steps)).toContain("Il brief settimanale (testo generato) dice:");
+    expect(refs(steps)).toEqual(["prj-aud"]);
+  });
+
+  it("today: decisioni che la aspettano, in ritardo, settimana", async () => {
+    const steps = await respond("What should I do today?", as("p-giulia"));
+    const text = said(steps);
+    expect(text).toContain("**3 decisions waiting on you**");
+    expect(text).toContain("STW-4 Wording of the stalled reasons — Laura Costa asks:");
+    expect(text).toContain("**1 task overdue or due today**");
+    expect(text).toContain("FRL-2 Collect testimonials for the case study — overdue since Oct 18");
+    expect(text).toContain("more tasks planned this week**");
+    expect(refs(steps)).toContain("t-stw-4");
+    expect(proposal(steps)).toBeNull();
+  });
+
+  it("today in italiano", async () => {
+    const steps = await respond("Cosa devo fare oggi?", as("p-giulia", it_));
+    expect(said(steps)).toContain("**3 decisioni ti aspettano**");
+    expect(said(steps)).toContain("in ritardo dal 18 ott");
+  });
+
+  it("explain di una task: riassunto e citazione", async () => {
+    const steps = await respond("Explain AUD-3", as("p-giulia"));
+    expect(actions(steps)).toEqual(["Looked up AUD-3"]);
+    const text = said(steps);
+    expect(text).toContain(
+      "**AUD-3 Import contacts from CSV with duplicates check** is a task in AUD Audin 2.0",
+    );
+    expect(text).toContain("Assigned to Marco Bellini");
+    expect(text).toContain("Claude is waiting for an answer");
+    expect(refs(steps)).toEqual(["t-aud-3"]);
+  });
+
+  it("explain di una richiesta, in italiano", async () => {
+    const steps = await respond("spiegami STW-R4", as("p-giulia", it_));
+    expect(said(steps)).toContain(
+      "**STW-R4 Quiet hours for notifications** è una richiesta di STW Stubwise: in rifinitura.",
+    );
+    expect(said(steps)).toContain("Chiesta da Elena Moretti");
+    expect(refs(steps)).toEqual(["req-stw-4"]);
+  });
+
+  it("explain di un codice che non esiste: «non la trovo o non puoi vederla», niente citazioni", async () => {
+    const steps = await respond("Explain AUD-99", as("p-giulia"));
+    expect(said(steps)).toBe("I can't find AUD-99, or you can't see it.");
+    expect(refs(steps)).toEqual([]);
+  });
+
+  it("howto: cerca nei Docs del progetto e cita la pagina", async () => {
+    const steps = await respond("How do scheduled callbacks work in AUD?", as("p-giulia"));
+    expect(actions(steps)).toEqual(["Searched AUD docs for “scheduled callbacks”"]);
+    expect(said(steps)).toContain(
+      "From the AUD Docs, page **Scheduled callbacks** (Guide / Dialer):",
+    );
+    expect(said(steps)).toContain("> A callback is stored in UTC");
+    expect(refs(steps)).toEqual(["doc-aud-callbacks"]);
+  });
+
+  it("howto in italiano", async () => {
+    const steps = await respond("Come funziona l'import dei contatti in AUD?", as("p-giulia", it_));
+    expect(said(steps)).toContain("Dai Docs di AUD, pagina **Importing contacts**");
+    expect(refs(steps)).toEqual(["doc-aud-import"]);
+  });
+
+  it("howto con il progetto della conversazione come contesto", async () => {
+    const steps = await respond("How does weekly planning work?", as("p-giulia", en, "prj-stw"));
+    expect(refs(steps)).toEqual(["doc-stw-planning"]);
+  });
+
+  it("howto su un progetto senza Docs: lo dice, non inventa", async () => {
+    const steps = await respond("How does billing work in MKX?", as("p-giulia"));
+    expect(said(steps)).toBe(
+      "MKX has no Docs, so I have nothing to quote. I won't guess: you could ask the team with a request.",
+    );
+    expect(refs(steps)).toEqual([]);
+  });
+
+  it("howto che i Docs non coprono: lo dice", async () => {
+    const steps = await respond("How do refunds work in AUD?", as("p-giulia"));
+    expect(said(steps)).toContain("The AUD Docs don't cover “refunds”.");
+    expect(refs(steps)).toEqual([]);
+  });
+
+  it("run di una richiesta nuova: proposta convertRequest + startRun, nessuna esecuzione", async () => {
+    const before = snapshot();
+    const steps = await respond("Run STW-R1", as("p-giulia"));
+    expect(fns(steps)).toEqual(["convertRequest", "startRun"]);
+    const p = proposal(steps)!;
+    expect(p.status).toBe("open");
+    expect(p.requesterId).toBe("p-giulia");
+    expect(p.actions[0]!.args).toEqual({
+      id: "req-stw-1",
+      input: { title: "Show who moved a task to another week" },
+    });
+    expect(p.actions[1]!.args).toEqual({ taskFromAction: 0 });
+    expect(p.actions[0]!.summary).toBe(
+      "Turn STW-R1 into a task in STW: “Show who moved a task to another week”",
+    );
+    // Nulla è cambiato: la richiesta è ancora nuova, nessuna task nata.
+    expect(snapshot()).toBe(before);
+    expect(state.requests.find((r) => r.id === "req-stw-1")!.status).toBe("new");
+  });
+
+  it("run di una richiesta già trasformata: startRun sulla sua task", async () => {
+    const steps = await respond("Avvia STW-R2", as("p-giulia", it_));
+    expect(fns(steps)).toEqual(["startRun"]);
+    expect(proposal(steps)!.actions[0]!.args).toEqual({ taskId: "t-stw-3" });
+    expect(said(steps)).toContain(
+      "è già diventata **STW-3 Board view with keyboard drag and drop**",
+    );
+  });
+
+  it("run di una task: startRun; di una richiesta archiviata: nessuna proposta", async () => {
+    expect(fns(await respond("Start AUD-4", as("p-giulia")))).toEqual(["startRun"]);
+    const merged = await respond("Run STW-R3", as("p-giulia"));
+    expect(proposal(merged)).toBeNull();
+    expect(said(merged)).toContain("was merged into **STW-R2");
+  });
+
+  it("create: proposta createTask con persona, settimana e taglia", async () => {
+    const before = snapshot();
+    const steps = await respond(
+      "Create “Banner copy review” in MKX for Marco next week size M",
+      as("p-giulia"),
+    );
+    const p = proposal(steps)!;
+    expect(p.actions).toEqual([
+      {
+        fn: "createTask",
+        args: {
+          projectId: "prj-mkx",
+          title: "Banner copy review",
+          assigneeId: "p-marco",
+          plannedWeek: "2026-W44",
+          size: "M",
+        },
+        summary: "Create in MKX: “Banner copy review” · Marco Bellini · W44 · M",
+      },
+    ]);
+    expect(snapshot()).toBe(before);
+  });
+
+  it("create in italiano, con il progetto del contesto", async () => {
+    const steps = await respond("Crea «Revisione testi banner»", as("p-giulia", it_, "prj-mkx"));
+    expect(proposal(steps)!.actions[0]!.summary).toBe("Crea in MKX: «Revisione testi banner»");
+  });
+
+  it("create senza progetto né contesto: chiede dove, nessuna proposta", async () => {
+    const steps = await respond("Create “Banner copy review”", as("p-giulia"));
+    expect(proposal(steps)).toBeNull();
+    expect(said(steps)).toMatch(/^In which project/);
+  });
+
+  it("assign: proposta updateTask", async () => {
+    const steps = await respond("Assegna AUD-10 a Marco", as("p-giulia", it_));
+    expect(proposal(steps)!.actions).toEqual([
+      {
+        fn: "updateTask",
+        args: { id: "t-aud-10", patch: { assigneeId: "p-marco" } },
+        summary: "Assegna AUD-10 Store review notes for the mobile app a Marco Bellini",
+      },
+    ]);
+  });
+
+  it("plan: proposta planTask sulla settimana nominata", async () => {
+    const steps = await respond("Plan AUD-10 for next week for Marco", as("p-giulia"));
+    expect(proposal(steps)!.actions).toEqual([
+      {
+        fn: "planTask",
+        args: { id: "t-aud-10", plan: { assigneeId: "p-marco", week: "2026-W44" } },
+        summary: "Plan AUD-10 Store review notes for the mobile app · Marco Bellini · W44",
+      },
+    ]);
+  });
+
+  it("general: risposta generica, nessuna azione, nessuna proposta", async () => {
+    for (const [text, t] of [
+      ["What's the weather like in Milan?", en],
+      ["Qual è la capitale del Portogallo?", it_],
+    ] as const) {
+      const steps = await respond(text, as("p-giulia", t));
+      expect(actions(steps)).toEqual([]);
+      expect(proposal(steps)).toBeNull();
+      expect(refs(steps)).toEqual([]);
+      expect(said(steps)).toBe(t("claude.answers.general"));
+    }
+  });
+
+  it("stesso testo e stesso seme → stessa proposta (puro e deterministico)", async () => {
+    const a = await respond("Run STW-R1", as("p-giulia"));
+    const b = await respond("Run STW-R1", as("p-giulia"));
+    expect(a).toEqual(b);
+    const c = await respond("Run STW-R1", { ...as("p-giulia"), seed: "conv-test-2" });
+    expect(proposal(c)!.proposalId).not.toBe(proposal(a)!.proposalId);
+  });
+});
+
+describe("le letture sono di chi conversa (Sara non vede AUD)", () => {
+  it("explain di una task di AUD: la stessa frase di un codice inesistente, nessun dettaglio", async () => {
+    const hidden = await respond("Explain AUD-3", as("p-sara"));
+    const missing = await respond("Explain AUD-99", as("p-sara"));
+    expect(said(hidden)).toBe("I can't find AUD-3, or you can't see it.");
+    expect(said(missing)).toBe("I can't find AUD-99, or you can't see it.");
+    expect(JSON.stringify(hidden)).not.toContain("Import contacts");
+    expect(refs(hidden)).toEqual([]);
+    expect(proposal(hidden)).toBeNull();
+  });
+
+  it("run, assign, howto su AUD: nessuna proposta, nessuna pagina", async () => {
+    expect(proposal(await respond("Run AUD-R2", as("p-sara")))).toBeNull();
+    expect(proposal(await respond("Assign AUD-10 to Marco", as("p-sara")))).toBeNull();
+    const docs = await respond("How do scheduled callbacks work in AUD?", as("p-sara"));
+    expect(refs(docs)).toEqual([]);
+    expect(said(docs)).toBe("I can't find a project AUD, or you can't see it.");
+  });
+
+  it("la stessa domanda dà a Giulia la task", async () => {
+    expect(refs(await respond("Explain AUD-3", as("p-giulia")))).toEqual(["t-aud-3"]);
+  });
+});

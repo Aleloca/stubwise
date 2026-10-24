@@ -1533,5 +1533,131 @@
     "links": "Linked tasks",
     "loadFailed": "Couldn't prepare the export.",
     "retry": "Retry"
+  },
+  "claude": {
+    "answers": {
+      "date": "{{date, datetime(month: short; day: numeric; timeZone: UTC)}}",
+      "more_one": "…and {{count}} more",
+      "more_other": "…and {{count}} more",
+      "general": "I don't have anything in Stubwise about that, so I'd rather not guess. Here's what I can do for you: tell you where your projects stand, what's on your plate today, explain a task or a request (for example “explain AUD-3”), look something up in a project's Docs, and create, assign, plan or start work — always asking you to confirm before I change anything.",
+      "actions": {
+        "readPulses_one": "Read the pulse of {{count}} project",
+        "readPulses_other": "Read the pulse of {{count}} projects",
+        "readProject": "Read the pulse of {{code}}",
+        "readDecisions": "Looked for decisions waiting on you",
+        "readMyWeek": "Read your tasks and your week",
+        "lookup": "Looked up {{code}}",
+        "searchDocs": "Searched {{code}} docs for “{{topic}}”",
+        "searchAllDocs": "Searched the docs for “{{topic}}”",
+        "found_one": "{{count}} found",
+        "found_other": "{{count}} found",
+        "pages_one": "{{count}} page",
+        "pages_other": "{{count}} pages",
+        "notFound": "Not found"
+      },
+      "status": {
+        "intro": "Here's where your projects stand:",
+        "introPinned": "Here's where your pinned projects stand:",
+        "open": "{{todo}} to do, {{active}} in progress",
+        "stalled_one": "{{count}} stalled",
+        "stalled_other": "{{count}} stalled",
+        "waiting": "waiting on you",
+        "claude": "Claude at work",
+        "next": "next: {{name}} ({{date}})",
+        "nextUndated": "next: {{name}}",
+        "brief": "The weekly brief (generated text) says: _{{headline}}_",
+        "none": "You can't see any project yet, so there's nothing to report.",
+        "projectNotFound": "I can't find a project {{code}}, or you can't see it."
+      },
+      "today": {
+        "intro": "Here's what's on your plate today, {{name}}:",
+        "decisions_one": "{{count}} decision waiting on you",
+        "decisions_other": "{{count}} decisions waiting on you",
+        "decisionLine": "{{task}} — {{person}} asks: “{{question}}”",
+        "due_one": "{{count}} task overdue or due today",
+        "due_other": "{{count}} tasks overdue or due today",
+        "dueToday": "{{task}} — due today",
+        "overdue": "{{task}} — overdue since {{date}}",
+        "week_one": "{{count}} more task planned this week",
+        "week_other": "{{count}} more tasks planned this week",
+        "nothing": "Nothing is waiting on you today: no open decisions, nothing due and nothing planned this week."
+      },
+      "explain": {
+        "noCode": "Which task or request? Give me its code, like AUD-3 or STW-R1.",
+        "notFound": "I can't find {{code}}, or you can't see it.",
+        "task": "**{{task}}** is a task in {{project}} ({{type}}), in status *{{status}}*.",
+        "request": "**{{request}}** is a request in {{project}}: {{status}}.",
+        "assignee": "Assigned to {{name}}",
+        "unassigned": "Not assigned yet",
+        "week": "Planned for {{week}}",
+        "size": "Size {{size}}",
+        "due": "Due {{date}}",
+        "fromRequest": "Comes from the request {{request}}",
+        "decisions_one": "{{count}} open decision",
+        "decisions_other": "{{count}} open decisions",
+        "requesters": "Asked by {{names}}",
+        "urgency": "Urgency: {{level}}",
+        "tasks": "Became {{tasks}}",
+        "type": {
+          "bug": "bug",
+          "feature": "feature",
+          "activity": "activity"
+        },
+        "level": {
+          "low": "low",
+          "medium": "medium",
+          "high": "high"
+        },
+        "requestStatus": {
+          "new": "new, still to be looked at",
+          "refining": "being refined",
+          "ready": "ready to become a task",
+          "converted": "already turned into a task",
+          "archived": "archived"
+        },
+        "claude": {
+          "working": "Claude is working on it",
+          "awaiting_answer": "Claude is waiting for an answer",
+          "awaiting_approval": "Claude's plan is waiting for approval",
+          "stopped": "Claude's run was stopped",
+          "done": "Claude finished its run"
+        }
+      },
+      "howto": {
+        "noTopic": "What would you like to know? For example: “how do scheduled callbacks work in AUD”.",
+        "noDocs": "{{code}} has no Docs, so I have nothing to quote. I won't guess: you could ask the team with a request.",
+        "nothing": "The {{code}} Docs don't cover “{{topic}}”. I won't guess: try other words, or ask the team with a request.",
+        "nothingAll": "The Docs of your projects don't cover “{{topic}}”. I won't guess: try other words, or name the project.",
+        "found": "From the {{code}} Docs, page **{{title}}** ({{path}}):"
+      },
+      "run": {
+        "noCode": "Which request or task should I start? Give me its code, like STW-R1 or AUD-4.",
+        "runTask": "I can start the run on **{{task}}**. Confirm below: the plan still goes through approval as usual.",
+        "runConverted": "**{{request}}** already became **{{task}}**: I can start the run there. Confirm below.",
+        "convertedHidden": "**{{request}}** has already become a task, and you can't see it, so I can't start it from here.",
+        "convertAndRun": "**{{request}}** isn't a task yet. I can turn it into a task in {{project}} and start the run on it. Confirm below: the plan still goes through approval as usual.",
+        "archived": "**{{request}}** is archived, so there's nothing to start. Reopen it first.",
+        "merged": "**{{request}}** was merged into **{{into}}**: start from that one.",
+        "summaryConvert": "Turn {{request}} into a task in {{project}}: “{{title}}”",
+        "summaryRun": "Start the run on {{task}}",
+        "summaryRunNew": "Start the run on the new task"
+      },
+      "create": {
+        "noProject": "In which project should I create it? Tell me its code (for example “in AUD”) or set the project of the conversation.",
+        "noTitle": "What should the task in {{code}} be called? Put the title in quotes, for example: create “Banner copy review” in {{code}}.",
+        "proposal": "Here's the task I'd create in {{code}}. Confirm below, or edit it first.",
+        "summary": "Create in {{code}}: “{{title}}”"
+      },
+      "assign": {
+        "noPerson": "Who should I assign **{{task}}** to?",
+        "proposal": "I'd assign **{{task}}** to {{name}}. Confirm below.",
+        "summary": "Assign {{task}} to {{name}}"
+      },
+      "plan": {
+        "proposal": "I'd plan **{{task}}** for {{week}}. Confirm below.",
+        "summary": "Plan {{task}} · {{name}} · {{week}}",
+        "nobody": "nobody"
+      }
+    }
   }
 }

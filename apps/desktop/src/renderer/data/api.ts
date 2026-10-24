@@ -2,6 +2,7 @@ import { matches } from "../domain/filters";
 import type { Stall } from "../domain/stalled";
 import { DEPARTMENT_ROLES } from "./seed/departmentRoles";
 import { DEPARTMENTS } from "./seed/departments";
+import { DOC_PAGES } from "./seed/docPages";
 import { TODAY } from "./seed/dates";
 import { PEOPLE } from "./seed/people";
 import { can, viewerFor } from "./viewer";
@@ -28,6 +29,7 @@ import type {
   Department,
   DepartmentHome,
   DepartmentRole,
+  DocPage,
   FilterCriteria,
   Milestone,
   Person,
@@ -207,6 +209,26 @@ export async function getRequest(id: string): Promise<ProjectRequest | null> {
   const me = await gate("getRequest");
   const request = state.requests.find((r) => r.id === id);
   return request && visibleProjectIds(me).has(request.projectId) ? copy(request) : null;
+}
+
+/** Una richiesta per codice (`STW-R4`); invisibile o inesistente: `null`. */
+export async function getRequestByCode(code: string): Promise<ProjectRequest | null> {
+  const me = await gate("getRequestByCode");
+  const request = state.requests.find((r) => r.code === code.toUpperCase());
+  return request && visibleProjectIds(me).has(request.projectId) ? copy(request) : null;
+}
+
+/**
+ * Le pagine dei Docs di un progetto visibile; un progetto senza il modulo
+ * Docs (o invisibile) non ne ha.
+ */
+export async function listDocPages(projectId: string): Promise<DocPage[]> {
+  const me = await gate("listDocPages");
+  const project = state.projectsById.get(projectId);
+  if (!project || !visibleProjectIds(me).has(projectId) || !project.modules.includes("docs")) {
+    return [];
+  }
+  return DOC_PAGES.filter((d) => d.projectId === projectId).map(copy);
 }
 
 const canSeeFilter = (f: SavedFilter, me: string) => f.visibility === "public" || f.ownerId === me;

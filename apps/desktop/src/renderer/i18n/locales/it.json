@@ -1533,5 +1533,131 @@
     "links": "Task collegate",
     "loadFailed": "Non è stato possibile preparare l'esportazione.",
     "retry": "Riprova"
+  },
+  "claude": {
+    "answers": {
+      "date": "{{date, datetime(month: short; day: numeric; timeZone: UTC)}}",
+      "more_one": "…e ancora {{count}}",
+      "more_other": "…e altri {{count}}",
+      "general": "Su questo in Stubwise non ho nulla, e preferisco non tirare a indovinare. Ecco cosa posso fare per te: dirti a che punto sono i tuoi progetti, cosa hai da fare oggi, spiegarti una task o una richiesta (per esempio «spiegami AUD-3»), cercare qualcosa nei Docs di un progetto, e creare, assegnare, pianificare o avviare il lavoro — chiedendoti sempre conferma prima di cambiare qualcosa.",
+      "actions": {
+        "readPulses_one": "Letto il polso di {{count}} progetto",
+        "readPulses_other": "Letto il polso di {{count}} progetti",
+        "readProject": "Letto il polso di {{code}}",
+        "readDecisions": "Cercate le decisioni che aspettano te",
+        "readMyWeek": "Lette le tue task e la tua settimana",
+        "lookup": "Cercato {{code}}",
+        "searchDocs": "Cercato «{{topic}}» nei Docs di {{code}}",
+        "searchAllDocs": "Cercato «{{topic}}» nei Docs",
+        "found_one": "{{count}} trovata",
+        "found_other": "{{count}} trovate",
+        "pages_one": "{{count}} pagina",
+        "pages_other": "{{count}} pagine",
+        "notFound": "Non trovato"
+      },
+      "status": {
+        "intro": "Ecco a che punto sono i tuoi progetti:",
+        "introPinned": "Ecco a che punto sono i progetti che hai fissato:",
+        "open": "{{todo}} da fare, {{active}} in corso",
+        "stalled_one": "{{count}} ferma",
+        "stalled_other": "{{count}} ferme",
+        "waiting": "ti aspetta",
+        "claude": "Claude al lavoro",
+        "next": "prossimo: {{name}} ({{date}})",
+        "nextUndated": "prossimo: {{name}}",
+        "brief": "Il brief settimanale (testo generato) dice: _{{headline}}_",
+        "none": "Non vedi ancora nessun progetto, quindi non c'è nulla da riassumere.",
+        "projectNotFound": "Non trovo un progetto {{code}}, o non puoi vederlo."
+      },
+      "today": {
+        "intro": "Ecco cosa hai da fare oggi, {{name}}:",
+        "decisions_one": "{{count}} decisione ti aspetta",
+        "decisions_other": "{{count}} decisioni ti aspettano",
+        "decisionLine": "{{task}} — {{person}} chiede: «{{question}}»",
+        "due_one": "{{count}} task in ritardo o in scadenza oggi",
+        "due_other": "{{count}} task in ritardo o in scadenza oggi",
+        "dueToday": "{{task}} — scade oggi",
+        "overdue": "{{task}} — in ritardo dal {{date}}",
+        "week_one": "Ancora {{count}} task pianificata questa settimana",
+        "week_other": "Ancora {{count}} task pianificate questa settimana",
+        "nothing": "Oggi non ti aspetta nulla: nessuna decisione aperta, niente in scadenza e niente pianificato questa settimana."
+      },
+      "explain": {
+        "noCode": "Quale task o richiesta? Dimmi il codice, come AUD-3 o STW-R1.",
+        "notFound": "Non trovo {{code}}, o non puoi vederla.",
+        "task": "**{{task}}** è una task di {{project}} ({{type}}), nello stato *{{status}}*.",
+        "request": "**{{request}}** è una richiesta di {{project}}: {{status}}.",
+        "assignee": "Assegnata a {{name}}",
+        "unassigned": "Non ancora assegnata",
+        "week": "Pianificata per la {{week}}",
+        "size": "Taglia {{size}}",
+        "due": "Scade il {{date}}",
+        "fromRequest": "Nasce dalla richiesta {{request}}",
+        "decisions_one": "{{count}} decisione aperta",
+        "decisions_other": "{{count}} decisioni aperte",
+        "requesters": "Chiesta da {{names}}",
+        "urgency": "Urgenza: {{level}}",
+        "tasks": "È diventata {{tasks}}",
+        "type": {
+          "bug": "bug",
+          "feature": "funzionalità",
+          "activity": "attività"
+        },
+        "level": {
+          "low": "bassa",
+          "medium": "media",
+          "high": "alta"
+        },
+        "requestStatus": {
+          "new": "nuova, ancora da guardare",
+          "refining": "in rifinitura",
+          "ready": "pronta per diventare una task",
+          "converted": "già trasformata in task",
+          "archived": "archiviata"
+        },
+        "claude": {
+          "working": "Claude ci sta lavorando",
+          "awaiting_answer": "Claude aspetta una risposta",
+          "awaiting_approval": "Il piano di Claude aspetta l'approvazione",
+          "stopped": "L'esecuzione di Claude è stata fermata",
+          "done": "Claude ha finito la sua esecuzione"
+        }
+      },
+      "howto": {
+        "noTopic": "Cosa vuoi sapere? Per esempio: «come funzionano i callback programmati in AUD».",
+        "noDocs": "{{code}} non ha i Docs, quindi non ho nulla da citare. Non tiro a indovinare: puoi chiederlo al team con una richiesta.",
+        "nothing": "I Docs di {{code}} non parlano di «{{topic}}». Non tiro a indovinare: prova con altre parole, o chiedilo al team con una richiesta.",
+        "nothingAll": "I Docs dei tuoi progetti non parlano di «{{topic}}». Non tiro a indovinare: prova con altre parole, o dimmi il progetto.",
+        "found": "Dai Docs di {{code}}, pagina **{{title}}** ({{path}}):"
+      },
+      "run": {
+        "noCode": "Quale richiesta o task devo avviare? Dimmi il codice, come STW-R1 o AUD-4.",
+        "runTask": "Posso avviare l'esecuzione di **{{task}}**. Conferma qui sotto: il piano passa comunque dall'approvazione, come sempre.",
+        "runConverted": "**{{request}}** è già diventata **{{task}}**: posso avviare l'esecuzione lì. Conferma qui sotto.",
+        "convertedHidden": "**{{request}}** è già diventata una task che non puoi vedere, quindi da qui non posso avviarla.",
+        "convertAndRun": "**{{request}}** non è ancora una task. Posso trasformarla in una task di {{project}} e avviarne l'esecuzione. Conferma qui sotto: il piano passa comunque dall'approvazione, come sempre.",
+        "archived": "**{{request}}** è archiviata, quindi non c'è nulla da avviare. Prima riaprila.",
+        "merged": "**{{request}}** è stata fusa in **{{into}}**: parti da quella.",
+        "summaryConvert": "Trasforma {{request}} in una task di {{project}}: «{{title}}»",
+        "summaryRun": "Avvia l'esecuzione di {{task}}",
+        "summaryRunNew": "Avvia l'esecuzione della task nuova"
+      },
+      "create": {
+        "noProject": "In quale progetto la creo? Dimmi il codice (per esempio «in AUD») o imposta il progetto della conversazione.",
+        "noTitle": "Come si chiama la task di {{code}}? Metti il titolo fra virgolette, per esempio: crea «Revisione testi banner» in {{code}}.",
+        "proposal": "Ecco la task che creerei in {{code}}. Conferma qui sotto, o modificala prima.",
+        "summary": "Crea in {{code}}: «{{title}}»"
+      },
+      "assign": {
+        "noPerson": "A chi assegno **{{task}}**?",
+        "proposal": "Assegnerei **{{task}}** a {{name}}. Conferma qui sotto.",
+        "summary": "Assegna {{task}} a {{name}}"
+      },
+      "plan": {
+        "proposal": "Pianificherei **{{task}}** per la {{week}}. Conferma qui sotto.",
+        "summary": "Pianifica {{task}} · {{name}} · {{week}}",
+        "nobody": "nessuno"
+      }
+    }
   }
 }
