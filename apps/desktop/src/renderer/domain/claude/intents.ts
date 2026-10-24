@@ -36,15 +36,41 @@ export type Intent =
 // testa al messaggio (dopo un'eventuale cortesia, «please», «puoi»). Una
 // domanda che contiene lo stesso verbo («Chi ha assegnato AUD-10?», «AUD-10
 // è pianificata?», «Come si crea un preventivo?») non propone mai nulla.
+/** Un saluto in testa («Ciao,», «Hi»): non cambia cosa si chiede. */
+const GREETING = /^(ciao|salve|buongiorno|buonasera|hi|hello|hey)\b[,!.]?\s*/;
+/**
+ * Una cortesia in testa: dopo di lei il verbo può essere all'infinito
+ * («Puoi creare…», «Vorrei avviare…») e un «?» finale non fa una domanda.
+ */
 const POLITE =
-  /^(please|pls|can you|could you|would you|will you|per favore|per piacere|puoi|potresti|mi puoi|riesci a)\s+/;
+  /^(please|pls|kindly|per favore|per piacere|can you|could you|would you|will you|i'd like you to|i would like you to|i'd like to|i want to|puoi|mi puoi|ci puoi|potresti|mi potresti|riesci a|vorrei che|vorrei|ti chiedo di)\b[,!]?\s*/;
+// Imperativo (sempre) e infinito con i clitici (solo dopo una cortesia).
 const RUN = /^(run|start|launch|execute|avvia|avviala|avvialo|esegui|lancia|fai partire)\b/;
+const RUN_INF =
+  /^(avviare|avviarla|avviarlo|eseguire|eseguirla|eseguirlo|lanciare|lanciarla|lanciarlo|far partire)\b/;
 const PLAN =
   /^(plan|schedule|pianifica|pianificala|pianificalo|programma|programmala|programmalo)\b/;
+const PLAN_INF =
+  /^(pianificare|pianificarla|pianificarlo|pianificarmi|programmare|programmarla|programmarlo)\b/;
 const ASSIGN =
   /^(assign|reassign|give|assegna|assegnala|assegnalo|riassegna|riassegnala|riassegnalo)\b/;
+const ASSIGN_INF =
+  /^(assegnare|assegnarla|assegnarlo|assegnarmi|riassegnare|riassegnarla|riassegnarlo)\b/;
 const CREATE =
   /^(create|add|make|open|new task|crea|creami|creala|aggiungi|apri|nuova task|nuovo task)\b/;
+const CREATE_INF =
+  /^(creare|crearmi|crearla|crearne|aggiungere|aggiungermi|aggiungerla|aprire|aprirmi|aprirne)\b/;
+
+/** Toglie saluti e cortesie in testa (anche in fila: «Ciao, per favore, puoi…»). */
+function stripCourtesy(plain: string): { polite: boolean; command: string } {
+  let command = plain.replace(GREETING, "");
+  let polite = false;
+  for (let m = POLITE.exec(command); m && m[0].length > 0; m = POLITE.exec(command)) {
+    polite = true;
+    command = command.slice(m[0].length);
+  }
+  return { polite, command };
+}
 /** Una domanda: il punto interrogativo, o una parola interrogativa in testa. */
 const QUESTION =
   /(\?\s*$)|^(when|why|did|does|do|who|whom|whose|what|what's|how|is|are|was|were|has|have|had|which|where|quando|perche|chi|cosa|che cosa|come|e|era|sono|ha|hanno|quale|quali|dove)\b/;
@@ -76,14 +102,15 @@ export function recognize(text: string, visibleCodes?: ReadonlySet<string>): Int
   const plain = normalize(text);
   const codes = findCodes(text, visibleCodes);
   const hasTask = codes.some((c) => c.kind === "task");
-  const polite = POLITE.exec(plain);
-  const command = polite ? plain.slice(polite[0].length) : plain;
-  // «Can you run AUD-4?» è una richiesta cortese, non una domanda.
-  if (polite || !QUESTION.test(plain)) {
-    if (RUN.test(command) && (codes.length > 0 || OBJECT.test(command))) return "run";
-    if (hasTask && PLAN.test(command) && findWeek(text)) return "plan";
-    if (hasTask && ASSIGN.test(command)) return "assign";
-    if (CREATE.test(command) && !hasTask) return "create";
+  const { polite, command } = stripCourtesy(plain);
+  // «Can you run AUD-4?», «Puoi avviare STW-R3?» sono richieste cortesi, non domande.
+  if (polite || !QUESTION.test(command)) {
+    const verb = (imperative: RegExp, infinitive: RegExp) =>
+      imperative.test(command) || (polite && infinitive.test(command));
+    if (verb(RUN, RUN_INF) && (codes.length > 0 || OBJECT.test(command))) return "run";
+    if (hasTask && verb(PLAN, PLAN_INF) && findWeek(text)) return "plan";
+    if (hasTask && verb(ASSIGN, ASSIGN_INF)) return "assign";
+    if (verb(CREATE, CREATE_INF) && !hasTask) return "create";
   }
   if (codes.some((c) => c.known)) return "explain";
   if (STATUS.test(plain)) return "status";

@@ -97,10 +97,54 @@ describe("riconoscimento", () => {
     ["Can you run AUD-4?", "run"],
     ["Please create “Banner copy review” in MKX", "create"],
     ["Could you plan AUD-10 for next week?", "plan"],
-    // «assegnare» non è un imperativo: si legge e basta.
-    ["Potresti assegnare AUD-10 a Marco?", "explain"],
+    // Dopo una cortesia l'infinito vale come comando, anche con il «?» (fix round 2).
+    ["Potresti assegnare AUD-10 a Marco?", "assign"],
+    ["Puoi creare “Banner copy review” in MKX", "create"],
+    ["Puoi crearmi una task in MKX", "create"],
+    ["Vorrei creare “Banner copy review” in MKX", "create"],
+    ["Puoi avviare STW-R3", "run"],
+    ["Puoi avviare STW-R3?", "run"],
+    ["Puoi pianificare MKX-4 per la prossima settimana", "plan"],
+    ["Puoi assegnare MKX-4 a Paolo", "assign"],
+    ["Mi puoi aggiungere “Banner copy review” in MKX?", "create"],
+    ["Per favore, avvia STW-R1", "run"],
+    ["Please, run STW-R1", "run"],
+    ["Ciao, puoi avviare STW-R1?", "run"],
+    ["Hi, could you assign AUD-10 to Marco?", "assign"],
   ])("una richiesta cortese resta un comando: %s → %s", (text, intent) => {
     expect(recognize(text)).toBe(intent);
+  });
+
+  it.each([
+    ["Puoi dirmi quando è partita AUD-4?", "explain"],
+    ["Ciao, chi ha assegnato AUD-10 a Marco?", "explain"],
+    ["Hi, why did the run on AUD-4 fail?", "explain"],
+    // Un infinito senza cortesia non è un comando.
+    ["Avviare AUD-4 è stata una buona idea?", "explain"],
+  ])("una domanda resta una domanda anche con saluti e cortesie: %s → %s", (text, intent) => {
+    expect(recognize(text)).toBe(intent);
+  });
+
+  it("le proposte nate da richieste cortesi in italiano", async () => {
+    const created = await respond("Puoi creare “Banner copy review” in MKX?", as("p-giulia", it_));
+    expect(fns(created)).toEqual(["createTask"]);
+    const planned = await respond(
+      "Puoi pianificare MKX-4 per la prossima settimana?",
+      as("p-giulia", it_),
+    );
+    expect(proposal(planned)!.actions[0]!.args).toMatchObject({
+      id: "t-mkx-4",
+      plan: { week: "2026-W44" },
+    });
+    const assigned = await respond("Puoi assegnare MKX-4 a Paolo", as("p-giulia", it_));
+    expect(proposal(assigned)!.actions[0]!.args).toEqual({
+      id: "t-mkx-4",
+      patch: { assigneeId: "p-paolo" },
+    });
+    expect(fns(await respond("Ciao, puoi avviare STW-R1?", as("p-giulia", it_)))).toEqual([
+      "convertRequest",
+      "startRun",
+    ]);
   });
 });
 
