@@ -25,6 +25,8 @@ import { MyWeekPage } from "./pages/week/MyWeekPage";
 import { PlanningPage } from "./pages/planning/PlanningPage";
 import { RequestsPage } from "./pages/requests/RequestsPage";
 import { OverviewPage } from "./pages/overview/OverviewPage";
+import { AllProjectsPage } from "./pages/projects/AllProjectsPage";
+import { ProjectSettingsPage } from "./pages/settings/ProjectSettingsPage";
 
 /** La ricerca che ogni route accetta (`?task=` apre il pannello, gli altri li montano i dialoghi). */
 export interface AppSearch {
@@ -120,6 +122,12 @@ function HomeRoutePage() {
   return <HomePage key={viewer.personId} />;
 }
 
+/** Cambiare persona rimonta il portafoglio: filtri e dialoghi della persona di prima non restano. */
+function ProjectsRoutePage() {
+  const { viewer } = useViewer();
+  return <AllProjectsPage key={viewer.personId} />;
+}
+
 function AdminPage() {
   const { viewer } = useViewer();
   if (!canSeeAdmin(viewer)) return <Navigate to="/home" replace />;
@@ -131,6 +139,7 @@ function pageOf(name: (typeof APP_ROUTES)[number]) {
   if (name === "planning") return PlanningRoutePage;
   if (name === "filters") return AllFiltersPage;
   if (name === "home") return HomeRoutePage;
+  if (name === "projects") return ProjectsRoutePage;
   return () => <Placeholder titleKey={`nav.${name}`} />;
 }
 
@@ -203,6 +212,11 @@ function ProjectSectionPage() {
   }
   if (section === "requests") {
     return <RequestsPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />;
+  }
+  if (section === "settings") {
+    return (
+      <ProjectSettingsPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />
+    );
   }
   return <Placeholder titleKey={`project.sections.${section}`} />;
 }

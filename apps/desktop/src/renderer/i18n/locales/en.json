@@ -1238,5 +1238,164 @@
       "recorded": "Decision recorded",
       "failed": "Couldn't record the decision. Nothing was saved; try again."
     }
+  },
+  "projects": {
+    "new": "New project",
+    "count_one": "{{count}} project",
+    "count_other": "{{count}} projects",
+    "tabs": "Portfolio views",
+    "tab": {
+      "projects": "Projects",
+      "stalled": "Stalled",
+      "activity": "Activity"
+    },
+    "groups": {
+      "waiting": "Waiting on you",
+      "all": "All projects"
+    },
+    "internal": "Internal",
+    "pin": "Pin {{code}}",
+    "unpin": "Unpin {{code}}",
+    "pinFailed": "Couldn't pin {{code}}. It's back where it was.",
+    "unpinFailed": "Couldn't unpin {{code}}. It's still pinned.",
+    "templates": {
+      "software": "Software",
+      "marketing": "Marketing",
+      "client": "Client work",
+      "empty": "Blank"
+    },
+    "states": {
+      "error": "Couldn't load the projects.",
+      "emptyTitle": "You're not in any project yet",
+      "emptyBody": "Create the first one: it starts with the statuses and modules of the template you pick.",
+      "emptyWho": "Someone who can create projects, or a project lead, can add you to one.",
+      "noMatchTitle": "No projects match",
+      "noMatchBody": "Try fewer filters or a different search.",
+      "clear": "Clear filters"
+    },
+    "filter": {
+      "label": "Filter projects",
+      "search": "Code, name or client",
+      "kind": "Type",
+      "kinds": {
+        "all": "All",
+        "internal": "Internal",
+        "client": "Client work"
+      },
+      "department": "Department",
+      "departmentHint": "Projects with open tasks of this department",
+      "any": "Any",
+      "client": "Client",
+      "pinned": "Pinned"
+    },
+    "stalled": {
+      "error": "Couldn't load the stalled tasks.",
+      "emptyTitle": "Nothing is stalled",
+      "emptyBody": "Every open task in these projects is moving.",
+      "countLink_one": "{{count}} stalled task in {{code}}: open the list",
+      "countLink_other": "{{count}} stalled tasks in {{code}}: open the list"
+    },
+    "activity": {
+      "error": "Couldn't load the activity.",
+      "emptyTitle": "No activity yet",
+      "emptyBody": "Tasks opened and closed, decisions, briefs and pull requests appear here, day by day.",
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "showEarlier": "Show earlier days"
+    },
+    "newDialog": {
+      "title": "New project",
+      "description": "A product of yours or work for a client. You'll be its project lead.",
+      "submit": "Create project",
+      "name": "Name",
+      "namePlaceholder": "e.g. Brennero Logistics portal",
+      "nameMissing": "Give the project a name.",
+      "code": "Code",
+      "codeProposed": "The code prefixes every task (BRL-12). Proposed from the name; you can change it.",
+      "codeHint": "2 to 4 capital letters. It prefixes every task and can't be reused.",
+      "codeProblem": {
+        "required": "The project needs a code: 2 to 4 capital letters.",
+        "format": "Use 2 to 4 capital letters, no digits or spaces.",
+        "taken": "{{code}} is already used by another project. Try another code."
+      },
+      "kind": "Type",
+      "kinds": {
+        "internal": "Internal",
+        "client": "For a client"
+      },
+      "kindHints": {
+        "internal": "A product or initiative of the company",
+        "client": "Work delivered to a client"
+      },
+      "client": "Client",
+      "clientPlaceholder": "Company name",
+      "clientMissing": "Say which client the project is for.",
+      "template": "Template",
+      "templateHint": "The template sets the starting statuses and modules. You can change the statuses later in the project's settings.",
+      "failed": "Couldn't create the project. Nothing was created; try again.",
+      "created": "{{code}} {{name}} created."
+    }
+  },
+  "settings": {
+    "intro": "How {{project}} works: its statuses and when a task counts as stalled.",
+    "other": {
+      "title": "Members, modules and integrations"
+    },
+    "statuses": {
+      "title": "Statuses and stalled tasks",
+      "intro": "Each status belongs to a family: To do, In progress or Closed. Views that span several projects group by family; inside the project you see these names.",
+      "readOnly": "Only people who manage this project's settings can change them.",
+      "list": "Statuses, in order",
+      "instructions": "Press Space to pick up a status, the arrow keys to move it, Space to drop it, Escape to cancel.",
+      "handle": "Move {{name}}",
+      "picked": "Picked up {{name}}, position {{position}} of {{total}}.",
+      "moved": "{{name}}, position {{position}} of {{total}}.",
+      "dropped": "{{name}} dropped at position {{position}} of {{total}}.",
+      "cancelled": "Move cancelled. {{name}} is back at position {{position}}.",
+      "nameLabel": "Status name",
+      "namePlaceholder": "Name the status",
+      "untitled": "Untitled status",
+      "birth": "New tasks start here",
+      "family": "Family",
+      "familyOf": "Family of {{name}}",
+      "familyButton": "Family of {{name}}: {{family}}",
+      "lastFamilyNote": "This is the only {{family}} status. Add another before changing it.",
+      "tasks_one": "{{count}} task",
+      "tasks_other": "{{count}} tasks",
+      "noTasks": "No tasks",
+      "add": "Add status",
+      "delete": "Delete",
+      "deleteLabel": "Delete {{name}}",
+      "lastFamily": "{{name}} is the only {{family}} status, and every project needs one. Add another {{family}} status before deleting it.",
+      "deleteTitle": "Delete “{{name}}”?",
+      "deleteBody_one": "{{count}} task is in “{{name}}”. Choose where it goes.",
+      "deleteBody_other": "{{count}} tasks are in “{{name}}”. Choose where they go.",
+      "moveTo_one": "Move the task to",
+      "moveTo_other": "Move the tasks to",
+      "deleteConfirm_one": "Delete and move the task",
+      "deleteConfirm_other": "Delete and move {{count}} tasks",
+      "deleteNote": "Nothing changes until you save.",
+      "removed": "{{name}} removed.",
+      "removedMoved": "{{name}} removed. Its tasks go to {{into}}.",
+      "stalledTitle": "When a task counts as stalled",
+      "stalledIntro": "Without any activity for this many days, a task shows as stalled with the reason “Nobody has touched it for N days”.",
+      "threshold": {
+        "active": "In progress tasks",
+        "todo": "To-do tasks planned for a week that has passed"
+      },
+      "stalledAfter": "Stalled after",
+      "daysUnit_one": "day",
+      "daysUnit_other": "days",
+      "daysInvalid": "Use a whole number of days, from 1 to 365.",
+      "namesMissing": "Every status needs a name.",
+      "unsaved": "Unsaved changes.",
+      "allSaved": "All changes saved.",
+      "discard": "Discard",
+      "save": "Save changes",
+      "saved": "Statuses and thresholds saved.",
+      "saveFailed": "Couldn't save the statuses. Nothing changed; your edits are still here.",
+      "thresholdsFailed": "Couldn't save the thresholds. They're as they were; your edits are still here.",
+      "thresholdsFailedAfter": "Statuses saved, but the thresholds couldn't be saved. Your threshold edits are still here."
+    }
   }
 }

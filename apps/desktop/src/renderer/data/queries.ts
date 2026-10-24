@@ -65,8 +65,12 @@ export const queryKeys = {
   stalled: (personId: string, criteria?: FilterCriteria) =>
     ["as", personId, "stalled", criteria ?? null] as const,
   pulse: (personId: string, projectId: string) => ["as", personId, "pulse", projectId] as const,
+  // Il polso di tutti e l'attività del portafoglio stanno nelle aree «pulse» e
+  // «timeline»: le scritture che le toccano le ricaricano già.
+  pulses: (personId: string) => ["as", personId, "pulse", "*all"] as const,
   timeline: (personId: string, projectId: string) =>
     ["as", personId, "timeline", projectId] as const,
+  portfolioActivity: (personId: string) => ["as", personId, "timeline", "*portfolio"] as const,
   decisionLog: (personId: string, projectId: string) =>
     ["as", personId, "decisionLog", projectId] as const,
   latestBrief: (personId: string, projectId: string) =>
@@ -321,6 +325,21 @@ export function useProjectPulse(projectId: string) {
   });
 }
 
+/** Il polso di ogni progetto visibile (il portafoglio). */
+export function useProjectPulses() {
+  const me = useSessionPersonId();
+  return useQuery({ queryKey: queryKeys.pulses(me), queryFn: api.listProjectPulses });
+}
+
+/** L'attività di tutti i progetti visibili, dalla più recente. */
+export function usePortfolioActivity() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.portfolioActivity(me),
+    queryFn: api.listPortfolioActivity,
+  });
+}
+
 export function useTimeline(projectId: string) {
   const me = useSessionPersonId();
   return useQuery({
@@ -365,15 +384,6 @@ export function useSearch(q: string) {
   });
 }
 
-export function useSetPinned() {
-  const client = useQueryClient();
-  const me = useSessionPersonId();
-  return useMutation({
-    mutationFn: ({ projectId, pinned }: { projectId: string; pinned: boolean }) =>
-      api.setPinned(projectId, pinned),
-    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.pinned(me) }),
-  });
-}
 
 export function useMarkNotification() {
   const client = useQueryClient();
@@ -721,6 +731,22 @@ export function useSetDepartmentHome() {
 
 export function useMarkDepartmentHomeSeen() {
   return useWrite(api.markDepartmentHomeSeen, HOME_AREAS);
+}
+
+/**
+ * Fissa o sgancia un progetto. Ottimistica: la tessera compare (o sparisce)
+ * subito nel binario; su errore torna com'era e chi chiama lo dice.
+ */
+export function useSetPinned() {
+  return useOptimistic(
+    ({ project, pinned }: { project: Project; pinned: boolean }) =>
+      api.setPinned(project.id, pinned),
+    ["pinned"],
+    ({ project, pinned }, _area, old) => {
+      const rest = (old as Project[]).filter((p) => p.id !== project.id);
+      return pinned ? [...rest, project] : rest;
+    },
+  );
 }
 
 export function useCreateProject() {

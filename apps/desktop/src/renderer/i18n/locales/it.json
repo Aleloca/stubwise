@@ -1238,5 +1238,164 @@
       "recorded": "Decisione registrata",
       "failed": "Impossibile registrare la decisione. Non è stato salvato nulla; riprova."
     }
+  },
+  "projects": {
+    "new": "Nuovo progetto",
+    "count_one": "{{count}} progetto",
+    "count_other": "{{count}} progetti",
+    "tabs": "Viste del portafoglio",
+    "tab": {
+      "projects": "Progetti",
+      "stalled": "Ferme",
+      "activity": "Attività"
+    },
+    "groups": {
+      "waiting": "Ti aspettano",
+      "all": "Tutti i progetti"
+    },
+    "internal": "Interno",
+    "pin": "Fissa {{code}}",
+    "unpin": "Sgancia {{code}}",
+    "pinFailed": "Non è stato possibile fissare {{code}}. È tornato com'era.",
+    "unpinFailed": "Non è stato possibile sganciare {{code}}. È ancora fissato.",
+    "templates": {
+      "software": "Software",
+      "marketing": "Marketing",
+      "client": "Commessa cliente",
+      "empty": "Vuoto"
+    },
+    "states": {
+      "error": "Non è stato possibile caricare i progetti.",
+      "emptyTitle": "Non sei ancora in nessun progetto",
+      "emptyBody": "Crea il primo: parte con gli stati e i moduli del modello che scegli.",
+      "emptyWho": "Chi può creare progetti, o un project lead, può aggiungerti a uno.",
+      "noMatchTitle": "Nessun progetto corrisponde",
+      "noMatchBody": "Prova con meno filtri o con un'altra ricerca.",
+      "clear": "Togli i filtri"
+    },
+    "filter": {
+      "label": "Filtra i progetti",
+      "search": "Codice, nome o cliente",
+      "kind": "Tipo",
+      "kinds": {
+        "all": "Tutti",
+        "internal": "Interni",
+        "client": "Commesse"
+      },
+      "department": "Reparto",
+      "departmentHint": "Progetti con task aperte di questo reparto",
+      "any": "Qualsiasi",
+      "client": "Cliente",
+      "pinned": "Fissati"
+    },
+    "stalled": {
+      "error": "Non è stato possibile caricare le task ferme.",
+      "emptyTitle": "Niente è fermo",
+      "emptyBody": "Ogni task aperta di questi progetti si sta muovendo.",
+      "countLink_one": "{{count}} task ferma in {{code}}: apri l'elenco",
+      "countLink_other": "{{count}} task ferme in {{code}}: apri l'elenco"
+    },
+    "activity": {
+      "error": "Non è stato possibile caricare l'attività.",
+      "emptyTitle": "Ancora nessuna attività",
+      "emptyBody": "Task aperte e chiuse, decisioni, brief e pull request compaiono qui, giorno per giorno.",
+      "today": "Oggi",
+      "yesterday": "Ieri",
+      "showEarlier": "Mostra i giorni precedenti"
+    },
+    "newDialog": {
+      "title": "Nuovo progetto",
+      "description": "Un vostro prodotto o una commessa per un cliente. Ne sarai il project lead.",
+      "submit": "Crea il progetto",
+      "name": "Nome",
+      "namePlaceholder": "es. Portale Brennero Logistics",
+      "nameMissing": "Dai un nome al progetto.",
+      "code": "Codice",
+      "codeProposed": "Il codice precede ogni task (BRL-12). È proposto dal nome; puoi cambiarlo.",
+      "codeHint": "Da 2 a 4 lettere maiuscole. Precede ogni task e non si può riusare.",
+      "codeProblem": {
+        "required": "Il progetto ha bisogno di un codice: da 2 a 4 lettere maiuscole.",
+        "format": "Usa da 2 a 4 lettere maiuscole, senza cifre né spazi.",
+        "taken": "{{code}} è già usato da un altro progetto. Prova un altro codice."
+      },
+      "kind": "Tipo",
+      "kinds": {
+        "internal": "Interno",
+        "client": "Per un cliente"
+      },
+      "kindHints": {
+        "internal": "Un prodotto o un'iniziativa dell'azienda",
+        "client": "Lavoro consegnato a un cliente"
+      },
+      "client": "Cliente",
+      "clientPlaceholder": "Ragione sociale",
+      "clientMissing": "Indica per quale cliente è il progetto.",
+      "template": "Modello",
+      "templateHint": "Il modello decide gli stati e i moduli di partenza. Gli stati si cambiano poi nelle impostazioni del progetto.",
+      "failed": "Non è stato possibile creare il progetto. Non è stato creato nulla; riprova.",
+      "created": "{{code}} {{name}} creato."
+    }
+  },
+  "settings": {
+    "intro": "Come funziona {{project}}: i suoi stati e quando una task conta come ferma.",
+    "other": {
+      "title": "Membri, moduli e integrazioni"
+    },
+    "statuses": {
+      "title": "Stati e task ferme",
+      "intro": "Ogni stato appartiene a una famiglia: Da fare, In corso o Chiuse. Le viste che uniscono più progetti raggruppano per famiglia; dentro il progetto si vedono questi nomi.",
+      "readOnly": "Solo chi gestisce le impostazioni di questo progetto può cambiarli.",
+      "list": "Stati, in ordine",
+      "instructions": "Premi Spazio per prendere uno stato, le frecce per spostarlo, Spazio per lasciarlo, Esc per annullare.",
+      "handle": "Sposta {{name}}",
+      "picked": "{{name}} preso, posizione {{position}} di {{total}}.",
+      "moved": "{{name}}, posizione {{position}} di {{total}}.",
+      "dropped": "{{name}} lasciato in posizione {{position}} di {{total}}.",
+      "cancelled": "Spostamento annullato. {{name}} è tornato in posizione {{position}}.",
+      "nameLabel": "Nome dello stato",
+      "namePlaceholder": "Dai un nome allo stato",
+      "untitled": "Stato senza nome",
+      "birth": "Le task nuove partono da qui",
+      "family": "Famiglia",
+      "familyOf": "Famiglia di {{name}}",
+      "familyButton": "Famiglia di {{name}}: {{family}}",
+      "lastFamilyNote": "È l'unico stato «{{family}}». Aggiungine un altro prima di cambiarlo.",
+      "tasks_one": "{{count}} task",
+      "tasks_other": "{{count}} task",
+      "noTasks": "Nessuna task",
+      "add": "Aggiungi uno stato",
+      "delete": "Elimina",
+      "deleteLabel": "Elimina {{name}}",
+      "lastFamily": "{{name}} è l'unico stato «{{family}}», e ogni progetto ne ha bisogno. Aggiungi un altro stato «{{family}}» prima di eliminarlo.",
+      "deleteTitle": "Eliminare «{{name}}»?",
+      "deleteBody_one": "{{count}} task è in «{{name}}». Scegli dove va.",
+      "deleteBody_other": "{{count}} task sono in «{{name}}». Scegli dove vanno.",
+      "moveTo_one": "Sposta la task in",
+      "moveTo_other": "Sposta le task in",
+      "deleteConfirm_one": "Elimina e sposta la task",
+      "deleteConfirm_other": "Elimina e sposta {{count}} task",
+      "deleteNote": "Non cambia niente finché non salvi.",
+      "removed": "{{name}} tolto.",
+      "removedMoved": "{{name}} tolto. Le sue task vanno in {{into}}.",
+      "stalledTitle": "Quando una task conta come ferma",
+      "stalledIntro": "Senza nessuna attività per questi giorni, una task risulta ferma con il motivo «Nessuno la tocca da N giorni».",
+      "threshold": {
+        "active": "Task in corso",
+        "todo": "Task da fare pianificate in una settimana passata"
+      },
+      "stalledAfter": "Ferma dopo",
+      "daysUnit_one": "giorno",
+      "daysUnit_other": "giorni",
+      "daysInvalid": "Usa un numero intero di giorni, da 1 a 365.",
+      "namesMissing": "Ogni stato ha bisogno di un nome.",
+      "unsaved": "Modifiche non salvate.",
+      "allSaved": "Tutte le modifiche sono salvate.",
+      "discard": "Annulla le modifiche",
+      "save": "Salva le modifiche",
+      "saved": "Stati e soglie salvati.",
+      "saveFailed": "Non è stato possibile salvare gli stati. Non è cambiato niente; le tue modifiche sono ancora qui.",
+      "thresholdsFailed": "Non è stato possibile salvare le soglie. Sono come prima; le tue modifiche sono ancora qui.",
+      "thresholdsFailedAfter": "Stati salvati, ma le soglie no. Le modifiche alle soglie sono ancora qui."
+    }
   }
 }

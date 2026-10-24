@@ -774,7 +774,9 @@ const FAMILIES: StatusFamily[] = ["todo", "active", "closed"];
 /**
  * Sostituisce gli stati del progetto. Ogni famiglia deve restarne
  * rappresentata; le task di uno stato tolto vanno su quello indicato in
- * `reassign`. Se qualcosa non torna non si scrive niente.
+ * `reassign` — un id che resta, o la `key` di uno stato nuovo dello stesso
+ * elenco. Id e chiavi ripetuti sono rifiutati. Se qualcosa non torna non si
+ * scrive niente.
  */
 export async function setProjectStatuses(
   projectId: string,
@@ -787,12 +789,18 @@ export async function setProjectStatuses(
   const current = state.statuses.filter((s) => s.projectId === projectId);
   if (statuses.some((s) => !s.name.trim())) throw invalid("name");
   if (!FAMILIES.every((f) => statuses.some((s) => s.family === f))) throw invalid("family");
-  const keptIds = new Set(statuses.flatMap((s) => (s.id ? [s.id] : [])));
-  if ([...keptIds].some((id) => !current.some((s) => s.id === id))) throw invalid("status");
+  const ids = statuses.flatMap((s) => (s.id ? [s.id] : []));
+  const keptIds = new Set(ids);
+  if (keptIds.size !== ids.length) throw invalid("status");
+  if (ids.some((id) => !current.some((s) => s.id === id))) throw invalid("status");
+  const keys = statuses.flatMap((s) => (!s.id && s.key ? [s.key] : []));
+  const newKeys = new Set(keys);
+  if (newKeys.size !== keys.length || keys.some((k) => keptIds.has(k))) throw invalid("status");
   const removed = current.filter((s) => !keptIds.has(s.id));
   for (const status of removed) {
     const inUse = state.tasks.some((t) => t.statusId === status.id);
-    if (inUse && !keptIds.has(reassign[status.id] ?? "")) throw invalid("reassign");
+    const target = reassign[status.id] ?? "";
+    if (inUse && !keptIds.has(target) && !newKeys.has(target)) throw invalid("reassign");
   }
 
   const at = now();
@@ -806,11 +814,16 @@ export async function setProjectStatuses(
     family: s.family,
     order,
   }));
+  // La chiave di uno stato nuovo diventa il suo id appena creato.
+  const idOfKey = new Map(
+    statuses.flatMap((s, i) => (!s.id && s.key ? [[s.key, next[i]!.id] as const] : [])),
+  );
   state.statuses = [...state.statuses.filter((s) => s.projectId !== projectId), ...next];
   reindex();
   for (const task of state.tasks) {
     if (task.projectId !== projectId) continue;
-    const target = reassign[task.statusId];
+    const raw = reassign[task.statusId];
+    const target = raw ? (idOfKey.get(raw) ?? raw) : undefined;
     if (!state.statusById.has(task.statusId) && target) task.statusId = target;
     setClosedAt(task, oldFamilies.get(task.id)!, at);
   }

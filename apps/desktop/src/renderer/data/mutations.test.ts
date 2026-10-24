@@ -703,6 +703,42 @@ describe("progetti", () => {
     expect((await taskOf(used.code)).statusId).toBe(withTarget.id);
   });
 
+  it("setProjectStatuses: un id ripetuto è rifiutato, stato intatto", async () => {
+    as("p-roberta");
+    const statuses = await listProjectStatuses("prj-stw");
+    await expect(
+      setProjectStatuses("prj-stw", [...statuses, { ...statuses[0]!, name: "Copy" }], {}),
+    ).rejects.toThrow(/invalid: status/);
+    expect(await listProjectStatuses("prj-stw")).toEqual(statuses);
+  });
+
+  it("setProjectStatuses: le task di uno stato tolto vanno su uno stato creato nello stesso salvataggio", async () => {
+    as("p-roberta");
+    const statuses = await listProjectStatuses("prj-stw");
+    const used = (await listTasks({ projectIds: ["prj-stw"] })).at(0)!;
+    const rest = statuses.filter((s) => s.id !== used.statusId);
+    const family = statuses.find((s) => s.id === used.statusId)!.family;
+    const added = [...rest, { key: "new-1", name: "Fresh", family }];
+    const result = await setProjectStatuses("prj-stw", added, { [used.statusId]: "new-1" });
+    const fresh = result.find((s) => s.name === "Fresh")!;
+    expect(fresh.id).not.toBe("new-1");
+    expect((await taskOf(used.code)).statusId).toBe(fresh.id);
+    // Una chiave che non è di nessuno stato nuovo non vale come bersaglio.
+    const again = await listProjectStatuses("prj-stw");
+    const keep = again.filter((s) => s.id !== fresh.id);
+    await expect(
+      setProjectStatuses("prj-stw", keep, { [fresh.id]: "new-9" }),
+    ).rejects.toThrow(/invalid: reassign/);
+    // Due stati nuovi con la stessa chiave: rifiutato.
+    await expect(
+      setProjectStatuses(
+        "prj-stw",
+        [...again, { key: "k", name: "A", family: "todo" }, { key: "k", name: "B", family: "todo" }],
+        {},
+      ),
+    ).rejects.toThrow(/invalid: status/);
+  });
+
   it("setProjectStatuses / setStallThresholds senza project.settings.manage → forbidden", async () => {
     as("p-sara");
     const statuses = await listProjectStatuses("prj-stw");

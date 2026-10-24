@@ -397,9 +397,15 @@ export type MilestonePatch = Partial<
   Pick<Milestone, "name" | "description" | "dueDate" | "closed">
 >;
 
-/** Uno stato nell'elenco che sostituisce quello del progetto: con `id` se esiste già. */
+/**
+ * Uno stato nell'elenco che sostituisce quello del progetto: con `id` se
+ * esiste già. Uno stato nuovo può portare una `key` scelta da chi salva: in
+ * `reassign` vale come bersaglio, così uno stesso salvataggio può togliere
+ * uno stato e spostarne le task su uno appena aggiunto.
+ */
 export interface StatusInput {
   id?: string;
+  key?: string;
   name: string;
   family: StatusFamily;
 }

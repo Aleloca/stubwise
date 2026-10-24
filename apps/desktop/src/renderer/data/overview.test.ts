@@ -6,8 +6,12 @@ import {
   getLatestBrief,
   listDecisionLog,
   listMilestones,
+  listPortfolioActivity,
+  listProjectPulses,
+  listProjects,
   listTasks,
   listTimeline,
+  projectPulse,
   recordDecision,
   resetApi,
   setLatency,
@@ -135,5 +139,30 @@ describe("traguardi (R-A6)", () => {
     failNext("deleteMilestone");
     await expect(deleteMilestone("ms-mkx-1")).rejects.toThrow();
     expect(state.milestones.some((x) => x.id === "ms-mkx-1")).toBe(true);
+  });
+});
+
+describe("portafoglio (R-A7)", () => {
+  it("listPortfolioActivity: le voci di cronologia dei soli progetti visibili, già successe, dalla più recente", async () => {
+    setSessionPersonId("p-sara");
+    const visible = new Set((await listProjects()).map((p) => p.id));
+    const events = await listPortfolioActivity();
+    expect(events.length).toBeGreaterThan(0);
+    expect(events.every((e) => visible.has(e.projectId))).toBe(true);
+    expect(events.some((e) => e.projectId === "prj-aud")).toBe(false);
+    expect(events.every((e) => e.at.slice(0, 10) <= "2026-10-23")).toBe(true);
+    const ats = events.map((e) => e.at);
+    expect(ats).toEqual([...ats].sort().reverse());
+    // Le stesse voci della cronologia del progetto.
+    const stw = (await listTimeline("prj-stw")).filter((e) => e.at.slice(0, 10) <= "2026-10-23");
+    expect(events.filter((e) => e.projectId === "prj-stw").length).toBe(stw.length);
+  });
+
+  it("listProjectPulses: lo stesso polso di projectPulse, per ogni progetto visibile", async () => {
+    setSessionPersonId("p-giulia");
+    const pulses = await listProjectPulses();
+    expect(pulses.length).toBe((await listProjects()).length);
+    const mkx = pulses.find((p) => p.projectId === "prj-mkx")!;
+    expect(mkx).toEqual(await projectPulse("prj-mkx"));
   });
 });

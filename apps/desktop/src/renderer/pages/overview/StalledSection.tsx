@@ -89,7 +89,7 @@ export function StalledSection({
  * (il bottone si estende sotto le celle); la frase intera — motivo e da
  * quanto — è il nome accessibile, così i giorni non si leggono due volte.
  */
-function StalledRow({
+export function StalledRow({
   task,
   stall,
   names,

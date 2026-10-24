@@ -71,6 +71,8 @@ export type ApiFnName =
   | "listDayArrangements"
   | "listStalled"
   | "projectPulse"
+  | "listProjectPulses"
+  | "listPortfolioActivity"
   | "listTimeline"
   | "listDecisionLog"
   | "getLatestBrief"

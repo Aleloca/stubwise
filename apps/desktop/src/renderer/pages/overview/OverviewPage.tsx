@@ -9,8 +9,8 @@ import { OpenSection } from "./OpenSection";
 import { ProgressSection } from "./ProgressSection";
 import { ProjectTimeline } from "./ProjectTimeline";
 import { pulseParts } from "./pulseLine";
-import { STALLED, StalledSection } from "./StalledSection";
-import { TasksLink, numberLink } from "./links";
+import { PulseText } from "./PulseText";
+import { StalledSection } from "./StalledSection";
 
 /**
  * L'Overview di un progetto (shape overview.md): un resoconto dall'alto in
@@ -37,26 +37,7 @@ export function OverviewPage({ projectCode }: { projectCode: string }) {
           <h1 className="text-2xl font-semibold text-ink">{t("project.sections.overview")}</h1>
           {parts ? (
             <p data-pulse-line className="text-md text-ink-muted">
-              {parts.map((part, i) => (
-                <span key={part.kind} className="inline-block">
-                  {i > 0 && (
-                    <span aria-hidden="true" className="px-1.5 text-ink-faint">
-                      ·
-                    </span>
-                  )}
-                  {part.kind === "stalled" && project ? (
-                    <TasksLink
-                      projectCode={project.code}
-                      criteria={STALLED}
-                      className={`${numberLink} ${i === 0 ? "" : "text-ink-muted hover:text-ink"}`}
-                    >
-                      {part.text}
-                    </TasksLink>
-                  ) : (
-                    <span className={i === 0 ? "text-ink" : undefined}>{part.text}</span>
-                  )}
-                </span>
-              ))}
+              <PulseText parts={parts} projectCode={projectCode} />
             </p>
           ) : pulse.isError ? (
             <p className="text-md text-ink-muted">{t("overview.pulse.error")}</p>

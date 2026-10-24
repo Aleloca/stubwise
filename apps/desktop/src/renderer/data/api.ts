@@ -2,6 +2,7 @@ import { matches } from "../domain/filters";
 import type { Stall } from "../domain/stalled";
 import { DEPARTMENT_ROLES } from "./seed/departmentRoles";
 import { DEPARTMENTS } from "./seed/departments";
+import { TODAY } from "./seed/dates";
 import { PEOPLE } from "./seed/people";
 import { can, viewerFor } from "./viewer";
 import {
@@ -32,6 +33,7 @@ import type {
   Person,
   PersonalHome,
   Project,
+  PortfolioEvent,
   ProjectPulse,
   ProjectRequest,
   ProjectStatus,
@@ -266,8 +268,23 @@ export async function projectPulse(projectId: string): Promise<ProjectPulse | nu
   const me = await gate("projectPulse");
   const project = state.projectsById.get(projectId);
   if (!project || !visibleProjectIds(me).has(projectId)) return null;
-  const tasks = state.tasks.filter((t) => t.projectId === projectId);
+  return pulseOf(me, project, openDecisions());
+}
+
+/**
+ * Il polso di ogni progetto visibile (il portafoglio): la stessa formula di
+ * `projectPulse`, in una chiamata sola invece di una per riga.
+ */
+export async function listProjectPulses(): Promise<ProjectPulse[]> {
+  const me = await gate("listProjectPulses");
+  const visible = visibleProjectIds(me);
   const open = openDecisions();
+  return state.projects.filter((p) => visible.has(p.id)).map((p) => pulseOf(me, p, open));
+}
+
+function pulseOf(me: string, project: Project, open: DecisionRequest[]): ProjectPulse {
+  const projectId = project.id;
+  const tasks = state.tasks.filter((t) => t.projectId === projectId);
   const nextMilestone =
     state.milestones
       .filter((m) => m.projectId === projectId && !m.closed && m.dueDate)
@@ -294,6 +311,26 @@ export async function projectPulse(projectId: string): Promise<ProjectPulse | nu
 export async function listTimeline(projectId: string): Promise<TimelineEvent[]> {
   const me = await gate("listTimeline");
   if (!visibleProjectIds(me).has(projectId)) return [];
+  return timelineOf(projectId);
+}
+
+/**
+ * L'attività di tutti i progetti visibili (la «Activity» del portafoglio),
+ * dalla più recente: le stesse voci della cronologia di ogni progetto, con
+ * il progetto accanto. Solo ciò che è già successo: i traguardi futuri non
+ * sono attività.
+ */
+export async function listPortfolioActivity(): Promise<PortfolioEvent[]> {
+  const me = await gate("listPortfolioActivity");
+  const visible = visibleProjectIds(me);
+  return state.projects
+    .filter((p) => visible.has(p.id))
+    .flatMap((p) => timelineOf(p.id).map((e) => ({ ...e, projectId: p.id })))
+    .filter((e) => e.at.slice(0, 10) <= TODAY)
+    .sort((a, b) => b.at.localeCompare(a.at));
+}
+
+function timelineOf(projectId: string): TimelineEvent[] {
   const events: TimelineEvent[] = [];
   for (const t of state.tasks) {
     if (t.projectId !== projectId) continue;

@@ -59,3 +59,6 @@ export type TimelineEvent =
     };
 
 export type TimelineKind = TimelineEvent["kind"];
+
+/** Una voce dell'attività del portafoglio: un evento di cronologia col suo progetto. */
+export type PortfolioEvent = TimelineEvent & { projectId: string };
