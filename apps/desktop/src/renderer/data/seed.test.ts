@@ -32,7 +32,20 @@ import {
 import { REQUESTS } from "./seed/requests";
 import { PROJECT_STATUSES } from "./seed/statuses";
 import { TASKS } from "./seed/tasks";
+import { BRIEFS } from "./seed/briefs";
+import {
+  CHAT_CHANNELS,
+  CHAT_MESSAGES,
+  CHAT_NOTIFY_PREFS,
+  CHAT_READ_STATES,
+  RELEASE_PAGES,
+} from "./seed/chat";
+import { REPO_FILES, projectOfRepo } from "./seed/repoFiles";
 import type {
+  Channel,
+  ChatEventKind,
+  ChatMessage,
+  CitationRef,
   ClaudeWorkState,
   Conversation,
   ConversationEvent,
@@ -769,5 +782,401 @@ describe("seed: commit del giorno", () => {
       expect(c.aiSummary.length).toBeGreaterThan(0);
       expect(c.at <= `${TODAY}T23:59:59Z`).toBe(true);
     }
+  });
+});
+
+describe("seed: Chat (area 4)", () => {
+  const NOW = `${TODAY}T12:00:00Z`;
+  const channelById = new Map(CHAT_CHANNELS.map((c) => [c.id, c]));
+  const messageById = new Map(CHAT_MESSAGES.map((m) => [m.id, m]));
+  const humanIds = (ids: string[]) =>
+    ids.filter((id) => !PEOPLE.find((p) => p.id === id)!.isClaude);
+  const channelOf = (m: ChatMessage) => channelById.get(m.channelId)!;
+  const messagesOf = (id: string) => CHAT_MESSAGES.filter((m) => m.channelId === id);
+  const named = (projectCode: string, name: string) =>
+    CHAT_CHANNELS.find(
+      (c) => c.projectId === `prj-${projectCode.toLowerCase()}` && c.name === name,
+    );
+  const DAY = 86_400_000;
+
+  /** Il progetto di un oggetto citato (`null` = di nessun progetto: una persona). */
+  function projectOfRef(ref: CitationRef): string | null {
+    switch (ref.kind) {
+      case "task":
+        return tasksById.get(ref.id)!.projectId;
+      case "request":
+        return REQUESTS.find((r) => r.id === ref.id)!.projectId;
+      case "doc":
+        return DOC_PAGES.find((d) => d.id === ref.id)!.projectId;
+      case "file":
+        return projectOfRepo(ref.id.split(":")[0]!);
+      case "project":
+        return ref.id;
+      case "milestone":
+        return MILESTONES.find((m) => m.id === ref.id)!.projectId;
+      case "brief":
+        return BRIEFS.find((b) => b.id === ref.id)!.projectId;
+      case "release":
+        return RELEASE_PAGES.find((r) => r.id === ref.id)!.projectId;
+      case "person":
+        return null;
+    }
+  }
+
+  function exists(ref: CitationRef): boolean {
+    switch (ref.kind) {
+      case "task":
+        return tasksById.has(ref.id);
+      case "request":
+        return REQUESTS.some((r) => r.id === ref.id);
+      case "doc":
+        return DOC_PAGES.some((d) => d.id === ref.id);
+      case "file":
+        return REPO_FILES.some((f) => f.id === ref.id);
+      case "project":
+        return projectsById.has(ref.id);
+      case "person":
+        return PEOPLE.some((p) => p.id === ref.id);
+      case "milestone":
+        return MILESTONES.some((m) => m.id === ref.id);
+      case "brief":
+        return BRIEFS.some((b) => b.id === ref.id);
+      case "release":
+        return RELEASE_PAGES.some((r) => r.id === ref.id);
+    }
+  }
+
+  it("ogni progetto ha un solo «general», aperto, con i membri del progetto (Claude escluso)", () => {
+    for (const p of PROJECTS) {
+      const generals = CHAT_CHANNELS.filter((c) => c.projectId === p.id && c.isGeneral);
+      expect(generals).toHaveLength(1);
+      const g = generals[0]!;
+      expect(g).toMatchObject({ kind: "project", name: "general", visibility: "open" });
+      expect([...g.memberIds].sort()).toEqual(humanIds(p.memberIds).sort());
+      expect(g.memberIds).toContain(g.createdById);
+    }
+    expect(CHAT_CHANNELS.filter((c) => c.isGeneral).every((c) => c.kind === "project")).toBe(true);
+  });
+
+  it("canali tematici, generali dell'azienda e messaggi diretti", () => {
+    expect(named("AUD", "releases")).toMatchObject({ visibility: "open", isGeneral: false });
+    expect(named("MKX", "grafica")).toMatchObject({ visibility: "open", isGeneral: false });
+    expect(CHAT_CHANNELS.some((c) => c.kind === "project" && c.visibility === "private")).toBe(
+      true,
+    );
+    expect(CHAT_CHANNELS.some((c) => c.kind === "project" && c.archived)).toBe(true);
+    for (const name of ["announcements", "marketing", "chit-chat"]) {
+      expect(CHAT_CHANNELS.find((c) => c.kind === "general" && c.name === name)).toMatchObject({
+        projectId: null,
+      });
+    }
+    const dms = CHAT_CHANNELS.filter((c) => c.kind === "dm");
+    for (const d of dms) {
+      expect(d).toMatchObject({ visibility: "private", projectId: null, name: "" });
+      expect(d.memberIds.length).toBeGreaterThanOrEqual(2);
+      expect(d.memberIds.length).toBeLessThanOrEqual(8);
+      expect(new Set(d.memberIds).size).toBe(d.memberIds.length);
+    }
+    expect(
+      dms.some(
+        (d) =>
+          d.memberIds.length === 2 &&
+          ["p-giulia", "p-marco"].every((id) => d.memberIds.includes(id)),
+      ),
+    ).toBe(true);
+    expect(dms.some((d) => d.memberIds.length > 2)).toBe(true);
+    // Fuori dai canali di progetto non si pubblicano eventi.
+    for (const c of CHAT_CHANNELS.filter((x) => x.kind !== "project")) {
+      expect(c.publishedEvents).toEqual([]);
+    }
+  });
+
+  it("Roberta (full admin) non è in un privato di progetto né in un DM di gruppo", () => {
+    expect(
+      CHAT_CHANNELS.some(
+        (c) =>
+          c.kind === "project" && c.visibility === "private" && !c.memberIds.includes("p-roberta"),
+      ),
+    ).toBe(true);
+    expect(
+      CHAT_CHANNELS.some(
+        (c) => c.kind === "dm" && c.memberIds.length > 2 && !c.memberIds.includes("p-roberta"),
+      ),
+    ).toBe(true);
+    // …e i loro messaggi esistono (c'è qualcosa che non deve vedere).
+    for (const c of CHAT_CHANNELS.filter(
+      (x) =>
+        x.visibility === "private" && x.kind === "project" && !x.memberIds.includes("p-roberta"),
+    )) {
+      expect(messagesOf(c.id).length).toBeGreaterThan(0);
+    }
+  });
+
+  it("i membri di un canale di progetto sono membri del progetto; id univoci", () => {
+    expect(new Set(CHAT_CHANNELS.map((c) => c.id)).size).toBe(CHAT_CHANNELS.length);
+    expect(new Set(CHAT_MESSAGES.map((m) => m.id)).size).toBe(CHAT_MESSAGES.length);
+    for (const c of CHAT_CHANNELS) {
+      expect(new Set(c.memberIds).size).toBe(c.memberIds.length);
+      for (const id of c.memberIds) expect(PEOPLE.find((p) => p.id === id)?.isClaude).toBe(false);
+      if (c.kind === "project") {
+        const project = projectsById.get(c.projectId!)!;
+        for (const id of c.memberIds) expect(project.memberIds).toContain(id);
+      }
+    }
+  });
+
+  it("i messaggi sono coerenti: autore membro, thread sulla radice, ordine, eliminati senza testo", () => {
+    for (const m of CHAT_MESSAGES) {
+      const c = channelOf(m);
+      expect(c).toBeDefined();
+      expect(m.createdAt < NOW).toBe(true);
+      expect(m.createdAt >= c.createdAt).toBe(true);
+      if (m.kind === "person") expect(c.memberIds).toContain(m.authorId);
+      if (m.kind === "system") {
+        expect(m.authorId).toBeNull();
+        expect(m.event).toBeDefined();
+        expect(m.threadOf).toBeNull();
+      } else {
+        expect(m.event).toBeUndefined();
+      }
+      if (m.kind === "claude") {
+        expect(PEOPLE.find((p) => p.id === m.authorId)?.isClaude).toBe(true);
+        expect(c.memberIds).toContain(m.calledById);
+        // Sempre nel thread.
+        expect(m.threadOf).not.toBeNull();
+      }
+      for (const r of m.reactions) {
+        expect(r.personIds.length).toBeGreaterThan(0);
+        for (const id of r.personIds) expect(c.memberIds).toContain(id);
+      }
+      for (const id of m.asksReplyOf) expect(c.memberIds).toContain(id);
+      if (m.threadOf) {
+        const root = messageById.get(m.threadOf)!;
+        expect(root.threadOf).toBeNull();
+        expect(root.channelId).toBe(m.channelId);
+        expect(m.createdAt > root.createdAt).toBe(true);
+      } else {
+        expect(m.alsoInChannel).toBeUndefined();
+      }
+      if (m.editedAt) expect(m.editedAt > m.createdAt).toBe(true);
+      if (m.deletedAt) {
+        expect(m).toMatchObject({ text: "", attachments: [], citations: [], asksReplyOf: [] });
+        expect(m.deletedById).toBe(m.authorId);
+      } else if (m.kind !== "system") {
+        expect(m.text.length).toBeGreaterThan(0);
+      }
+    }
+    // Radici e risposte di ogni thread in ordine di tempo.
+    for (const c of CHAT_CHANNELS) {
+      const roots = messagesOf(c.id).filter((m) => m.threadOf === null);
+      expect(roots.map((m) => m.createdAt)).toEqual(roots.map((m) => m.createdAt).sort());
+      for (const root of roots) {
+        const replies = messagesOf(c.id).filter((m) => m.threadOf === root.id);
+        expect(replies.map((m) => m.createdAt)).toEqual(replies.map((m) => m.createdAt).sort());
+      }
+    }
+  });
+
+  it("le menzioni nel testo nominano persone del canale", () => {
+    const names = new Map(PEOPLE.map((p) => [p.name, p.id]));
+    const groups = new Set(["channel", "Claude", ...DEPARTMENTS.map((d) => d.name)]);
+    for (const m of CHAT_MESSAGES) {
+      for (const [, mention] of m.text.matchAll(/@([A-Z][a-z]+(?: [A-Z][a-z]+)?|channel)/g)) {
+        if (groups.has(mention!) || groups.has(mention!.split(" ")[0]!)) continue;
+        const id = names.get(mention!);
+        expect(id, mention).toBeDefined();
+        expect(channelOf(m).memberIds).toContain(id);
+      }
+    }
+  });
+
+  it("citazioni ed eventi puntano a oggetti che esistono, del progetto del canale", () => {
+    const refKindOf: Record<ChatEventKind, CitationRef["kind"]> = {
+      release_page: "release",
+      pr_opened: "task",
+      pr_merged: "task",
+      milestone_reached: "milestone",
+      brief_ready: "brief",
+      request_new: "request",
+      task_closed: "task",
+    };
+    for (const m of CHAT_MESSAGES) {
+      for (const ref of m.citations)
+        expect(exists(ref), `${m.id} ${ref.kind}:${ref.id}`).toBe(true);
+      for (const code of m.linkedCodes) expect(TASKS.some((t) => t.code === code)).toBe(true);
+      if (m.event) {
+        const c = channelOf(m);
+        expect(c.kind).toBe("project");
+        expect(c.publishedEvents).toContain(m.event.kind);
+        expect(m.event.ref.kind).toBe(refKindOf[m.event.kind]);
+        expect(exists(m.event.ref)).toBe(true);
+        expect(projectOfRef(m.event.ref)).toBe(c.projectId);
+      }
+    }
+    // L'evento arriva dopo il fatto: traguardo chiuso, task chiusa, richiesta creata.
+    for (const m of CHAT_MESSAGES.filter((x) => x.event)) {
+      const ref = m.event!.ref;
+      if (m.event!.kind === "milestone_reached") {
+        expect(MILESTONES.find((x) => x.id === ref.id)!.closed).toBe(true);
+      }
+      if (m.event!.kind === "task_closed") {
+        expect(familyOf(tasksById.get(ref.id)!)).toBe("closed");
+      }
+      if (m.event!.kind === "request_new") {
+        expect(m.createdAt >= REQUESTS.find((r) => r.id === ref.id)!.createdAt).toBe(true);
+      }
+      if (m.event!.kind === "brief_ready") {
+        expect(m.createdAt >= BRIEFS.find((b) => b.id === ref.id)!.createdAt).toBe(true);
+      }
+    }
+    // Ogni pagina di Release finta è citata da una scheda.
+    for (const r of RELEASE_PAGES) {
+      expect(
+        CHAT_MESSAGES.some((m) => m.event?.ref.kind === "release" && m.event.ref.id === r.id),
+      ).toBe(true);
+    }
+  });
+
+  it("igiene: un canale di progetto cita solo oggetti del suo progetto", () => {
+    for (const m of CHAT_MESSAGES.filter((x) => channelOf(x).kind === "project")) {
+      const c = channelOf(m);
+      for (const ref of m.citations) {
+        const projectId = projectOfRef(ref);
+        if (projectId === null) continue;
+        expect(projectId, `${m.id} cita ${ref.kind}:${ref.id}`).toBe(c.projectId);
+      }
+    }
+  });
+
+  it("settimane di storico con thread, reazioni, citazioni, allegati ed eventi", () => {
+    const span = (ids: string[]) => {
+      const times = CHAT_MESSAGES.filter((m) => ids.includes(m.channelId)).map((m) =>
+        Date.parse(m.createdAt),
+      );
+      return (Math.max(...times) - Math.min(...times)) / DAY;
+    };
+    for (const code of ["AUD", "STW", "MKX"]) {
+      expect(span([`ch-${code.toLowerCase()}-general`])).toBeGreaterThanOrEqual(21);
+    }
+    for (const id of ["ch-aud-releases", "ch-mkx-grafica", "ch-announcements", "ch-chit-chat"]) {
+      expect(span([id])).toBeGreaterThanOrEqual(14);
+    }
+    // Thread di lunghezze diverse.
+    const lengths = new Set(
+      CHAT_MESSAGES.filter((m) => m.threadOf === null)
+        .map((root) => CHAT_MESSAGES.filter((m) => m.threadOf === root.id).length)
+        .filter((n) => n > 0),
+    );
+    expect(lengths.size).toBeGreaterThanOrEqual(3);
+    const cited = new Set(CHAT_MESSAGES.flatMap((m) => m.citations.map((r) => r.kind)));
+    for (const kind of ["task", "request", "doc", "file", "project"] as const) {
+      expect(cited.has(kind)).toBe(true);
+    }
+    expect(CHAT_MESSAGES.filter((m) => m.reactions.length > 0).length).toBeGreaterThanOrEqual(10);
+    expect(CHAT_MESSAGES.some((m) => m.attachments.some((a) => a.kind === "image"))).toBe(true);
+    expect(CHAT_MESSAGES.some((m) => m.attachments.some((a) => a.kind === "file"))).toBe(true);
+    expect(CHAT_MESSAGES.some((m) => m.editedAt)).toBe(true);
+    expect(CHAT_MESSAGES.some((m) => m.deletedAt)).toBe(true);
+    expect(CHAT_MESSAGES.some((m) => m.linkedCodes.length > 0)).toBe(true);
+    expect(CHAT_MESSAGES.some((m) => m.alsoInChannel)).toBe(true);
+    expect(CHAT_MESSAGES.some((m) => m.asksReplyOf.length > 0)).toBe(true);
+    const events = new Set(CHAT_MESSAGES.flatMap((m) => (m.event ? [m.event.kind] : [])));
+    expect(events.size).toBe(7);
+  });
+
+  it("una risposta di @Claude con una proposta ancora aperta, di chi l'ha chiamato", () => {
+    const withProposal = CHAT_MESSAGES.filter(
+      (m) => m.kind === "claude" && m.claudeEvents?.some((e) => e.type === "proposal"),
+    );
+    expect(withProposal).toHaveLength(1);
+    const reply = withProposal[0]!;
+    const proposal = reply.claudeEvents!.find((e) => e.type === "proposal")!;
+    if (proposal.type !== "proposal") throw new Error("unreachable");
+    expect(proposal).toMatchObject({ status: "open", requesterId: reply.calledById });
+    // Chiamato da un messaggio di chi l'ha chiamato, poco prima, nello stesso thread.
+    const thread = CHAT_MESSAGES.filter(
+      (m) => m.threadOf === reply.threadOf || m.id === reply.threadOf,
+    );
+    const call = thread.filter((m) => m.createdAt < reply.createdAt).at(-1)!;
+    expect(call.authorId).toBe(reply.calledById);
+    expect(call.text).toContain("@Claude");
+    // Non ancora scaduta (area 3: 20 messaggi del thread o 24 ore).
+    expect(thread.length).toBeLessThanOrEqual(20);
+    expect(Date.parse(NOW) - Date.parse(reply.createdAt)).toBeLessThan(DAY);
+    // Ogni risposta di Claude segue una chiamata «@Claude» di chi la firma.
+    for (const m of CHAT_MESSAGES.filter((x) => x.kind === "claude")) {
+      const before = CHAT_MESSAGES.filter(
+        (x) =>
+          (x.threadOf === m.threadOf || x.id === m.threadOf) &&
+          x.createdAt < m.createdAt &&
+          x.authorId === m.calledById,
+      );
+      expect(before.some((x) => x.text.includes("@Claude"))).toBe(true);
+    }
+  });
+
+  it("una lettura per membro e canale; nessuna per chi non è membro", () => {
+    const key = (personId: string, channelId: string) => `${personId}|${channelId}`;
+    const keys = new Set(CHAT_READ_STATES.map((r) => key(r.personId, r.channelId)));
+    expect(keys.size).toBe(CHAT_READ_STATES.length);
+    for (const c of CHAT_CHANNELS) {
+      for (const id of c.memberIds) expect(keys.has(key(id, c.id))).toBe(true);
+    }
+    for (const r of CHAT_READ_STATES) {
+      expect(channelById.get(r.channelId)!.memberIds).toContain(r.personId);
+      for (const rootId of Object.keys(r.threadReads)) {
+        expect(messageById.get(rootId)?.channelId).toBe(r.channelId);
+      }
+    }
+    for (const p of CHAT_NOTIFY_PREFS) {
+      expect(channelById.get(p.channelId)!.memberIds).toContain(p.personId);
+    }
+  });
+
+  it("le cinque persone hanno non letti, menzioni e thread con novità diversi", () => {
+    const person = (id: string) => PEOPLE.find((p) => p.id === id)!;
+    const department = (id: string) =>
+      DEPARTMENTS.filter((d) => person(id).departmentIds.includes(d.id)).map((d) => d.name);
+    const mentions = (m: ChatMessage, id: string) =>
+      m.asksReplyOf.includes(id) ||
+      m.text.includes(`@${person(id).name}`) ||
+      m.text.includes("@channel") ||
+      department(id).some((d) => m.text.includes(`@${d}`));
+    const countsOf = (id: string) => {
+      let unread = 0;
+      let mentioned = 0;
+      let threads = 0;
+      for (const r of CHAT_READ_STATES.filter((x) => x.personId === id)) {
+        const list = messagesOf(r.channelId).filter((m) => !m.deletedAt && m.authorId !== id);
+        for (const m of list) {
+          const inChannel = m.threadOf === null || m.alsoInChannel;
+          if (inChannel && m.createdAt > r.lastReadAt) {
+            unread++;
+            if (mentions(m, id)) mentioned++;
+          }
+        }
+        for (const [rootId, readAt] of Object.entries(r.threadReads)) {
+          if (list.some((m) => m.threadOf === rootId && m.createdAt > readAt)) threads++;
+        }
+      }
+      return { unread, mentioned, threads };
+    };
+    const personas = ["p-giulia", "p-marco", "p-laura", "p-sara", "p-roberta"];
+    const counts = personas.map(countsOf);
+    for (const c of counts) {
+      expect(c.unread).toBeGreaterThan(0);
+      expect(c.mentioned).toBeGreaterThan(0);
+    }
+    expect(new Set(counts.map((c) => `${c.unread}/${c.mentioned}`)).size).toBe(personas.length);
+    expect(counts.filter((c) => c.threads > 0).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("ogni canale ha un tipo coerente coi suoi campi", () => {
+    const check: Record<Channel["kind"], (c: Channel) => boolean> = {
+      project: (c) => c.projectId !== null && projectsById.has(c.projectId),
+      general: (c) => c.projectId === null && !c.isGeneral,
+      dm: (c) => c.projectId === null && !c.isGeneral && c.visibility === "private",
+    };
+    for (const c of CHAT_CHANNELS) expect(check[c.kind](c), c.id).toBe(true);
   });
 });

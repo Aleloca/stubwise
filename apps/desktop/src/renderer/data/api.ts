@@ -8,6 +8,7 @@ import { DOC_PAGES } from "./seed/docPages";
 import { daysFromToday, TODAY } from "./seed/dates";
 import { PEOPLE } from "./seed/people";
 import { projectOfRepo, REPO_FILES } from "./seed/repoFiles";
+import { RELEASE_PAGES } from "./seed/chat/releases";
 import { can, viewerFor } from "./viewer";
 import {
   canSeeConversation,
@@ -611,7 +612,8 @@ export async function getTaskWork(taskId: string): Promise<TaskWork | null> {
       outcome: c.outcome,
       events: readableEvents(me, c),
       provider: c.provider ? copy(c.provider) : null,
-      failureSummary: c.state === "finished" && c.outcome !== "ok" ? (c.failureSummary ?? null) : null,
+      failureSummary:
+        c.state === "finished" && c.outcome !== "ok" ? (c.failureSummary ?? null) : null,
     }));
   const software = hasRepository(task.projectId);
   const viewer = viewerFor(me);
@@ -1063,6 +1065,48 @@ export async function resolveCitations(refs: CitationRef[]): Promise<CitationVie
         const p = PEOPLE.find((x) => x.id === ref.id);
         if (!p) return hidden(ref);
         return { ...hidden(ref), visible: true, name: p.name, personId: p.id };
+      }
+      // Le schede degli eventi della Chat (area 4): visibili a chi vede il progetto.
+      case "milestone": {
+        const m = state.milestones.find((x) => x.id === ref.id);
+        if (!m || !visible.has(m.projectId)) return hidden(ref);
+        const project = projectCodeOf(m.projectId)!;
+        return {
+          ...hidden(ref),
+          visible: true,
+          code: project,
+          name: m.name,
+          projectCode: project,
+          route: `#/p/${project}`,
+        };
+      }
+      case "brief": {
+        const b = state.briefs.find((x) => x.id === ref.id);
+        if (!b || !visible.has(b.projectId)) return hidden(ref);
+        const project = projectCodeOf(b.projectId)!;
+        return {
+          ...hidden(ref),
+          visible: true,
+          code: project,
+          // La prima frase del «dove siamo»: il brief non ha un titolo.
+          name: b.headline.split(/(?<=\.)\s/)[0]!,
+          projectCode: project,
+          route: `#/p/${project}`,
+        };
+      }
+      case "release": {
+        const r = RELEASE_PAGES.find((x) => x.id === ref.id);
+        if (!r || !visible.has(r.projectId)) return hidden(ref);
+        const project = projectCodeOf(r.projectId)!;
+        return {
+          ...hidden(ref),
+          visible: true,
+          code: project,
+          name: `${r.version} · ${r.title}`,
+          projectCode: project,
+          personId: r.publishedById,
+          route: `#/p/${project}/releases`,
+        };
       }
     }
   });

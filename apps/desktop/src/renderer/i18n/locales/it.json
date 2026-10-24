@@ -2000,7 +2000,10 @@
           "doc": "Pagina dei Docs",
           "file": "File",
           "project": "Progetto",
-          "person": "Persona"
+          "person": "Persona",
+          "milestone": "Traguardo",
+          "brief": "Brief settimanale",
+          "release": "Pagina di Release"
         }
       },
       "actions": {

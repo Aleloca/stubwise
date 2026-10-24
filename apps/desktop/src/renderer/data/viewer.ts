@@ -34,6 +34,8 @@ type AnyProjectPermission = ProjectPermission | LocalProjectPermission;
 export const LOCAL_INSTANCE_PERMISSIONS: readonly LocalInstancePermission[] = [
   "claude.public.view",
   "people.activity.view",
+  "chat.general.create",
+  "chat.general.manage",
 ];
 
 const INSTANCE_SET: ReadonlySet<string> = new Set<string>([
@@ -45,10 +47,13 @@ const PROJECT_SET: ReadonlySet<string> = new Set(PROJECT_PERMISSIONS);
 /**
  * Permessi di progetto che vivono solo nel prototipo, per preset: entrano nel
  * registro di `@stubwise/shared` quando si costruisce il backend.
- * `planning.others` è del Project Lead (e implicito per il full admin).
+ * `planning.others` è del Project Lead (e implicito per il full admin); i
+ * canali della Chat (area 4) li crea il Project Lead o il Developer e li
+ * gestisce il Project Lead.
  */
 const LOCAL_PROJECT_PERMISSIONS: Record<string, LocalProjectPermission[]> = {
-  project_lead: ["planning.others"],
+  project_lead: ["planning.others", "chat.channels.create", "chat.channels.manage"],
+  developer: ["chat.channels.create"],
 };
 
 function roleKeys(key: string): readonly string[] {
@@ -58,8 +63,14 @@ function roleKeys(key: string): readonly string[] {
 }
 
 function instancePermsOf(key: string): (InstancePermission | LocalInstancePermission)[] {
-  // «Vedere le conversazioni pubbliche con Claude»: di base ai preset User e Admin.
-  return [...effectiveInstancePermissions(roleKeys(key)), "claude.public.view"];
+  // «Vedere le conversazioni pubbliche con Claude» e «creare canali generali»:
+  // di base ai preset User e Admin; «gestire i canali generali» all'Admin.
+  return [
+    ...effectiveInstancePermissions(roleKeys(key)),
+    "claude.public.view",
+    "chat.general.create",
+    ...(key === "admin" ? (["chat.general.manage"] as const) : []),
+  ];
 }
 
 /**
@@ -220,6 +231,39 @@ export function grantProjectRole(personId: string, projectId: string, roleKey: s
     else delete viewer.projectPermissions[projectId];
   });
   if (roleKey === ACTIVITY_ROLE) grantInstancePermission(personId, "people.activity.view");
+}
+
+/**
+ * Concede un permesso di progetto del prototipo (assegnabile a qualunque
+ * ruolo) su un progetto di cui la persona ha già un ruolo.
+ */
+export function grantProjectPermission(
+  personId: string,
+  projectId: string,
+  perm: LocalProjectPermission,
+): void {
+  const perms = viewerFor(personId).projectPermissions[projectId];
+  if (!perms || perms.includes(perm)) return;
+  perms.push(perm);
+  undo.push(() => {
+    const i = perms.indexOf(perm);
+    if (i >= 0) perms.splice(i, 1);
+  });
+}
+
+/** Toglie un permesso di progetto del prototipo su un progetto, anche uno di base. */
+export function revokeProjectPermission(
+  personId: string,
+  projectId: string,
+  perm: LocalProjectPermission,
+): void {
+  const perms = viewerFor(personId).projectPermissions[projectId];
+  const i = perms?.indexOf(perm) ?? -1;
+  if (!perms || i < 0) return;
+  perms.splice(i, 1);
+  undo.push(() => {
+    if (!perms.includes(perm)) perms.push(perm);
+  });
 }
 
 /** Concede un permesso d'istanza del prototipo (assegnabile a qualunque ruolo). */

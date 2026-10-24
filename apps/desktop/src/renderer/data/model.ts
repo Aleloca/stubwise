@@ -643,9 +643,22 @@ export type ProposedAction = {
   summary: string;
 };
 
-/** Un oggetto citato nel flusso: `file` ha id `<repo>:<percorso>`, gli altri l'id dell'oggetto. */
+/**
+ * Un oggetto citato nel flusso: `file` ha id `<repo>:<percorso>`, gli altri
+ * l'id dell'oggetto. `milestone`, `brief` e `release` (area 4) li citano le
+ * schede degli eventi di progetto nella Chat.
+ */
 export type CitationRef = {
-  kind: "task" | "request" | "doc" | "file" | "project" | "person";
+  kind:
+    | "task"
+    | "request"
+    | "doc"
+    | "file"
+    | "project"
+    | "person"
+    | "milestone"
+    | "brief"
+    | "release";
   id: string;
 };
 
@@ -814,4 +827,120 @@ export interface DocPage {
   /** Dove sta nella sezione Docs, es. «Guide / Callbacks». */
   path: string;
   excerpt: string;
+}
+
+/**
+ * Una pagina di Release, quanto basta perché la scheda di un evento della
+ * Chat la citi. Le pagine vere arrivano con l'area 8: fino ad allora sono
+ * finte, del seme.
+ */
+export interface ReleasePage {
+  id: string;
+  projectId: string;
+  /** Es. «0.9.0». */
+  version: string;
+  title: string;
+  /** Il riassunto in una riga, per la scheda. */
+  summary: string;
+  publishedAt: string;
+  publishedById: string;
+}
+
+// --- Chat (area 4) -----------------------------------------------------------
+
+/**
+ * Di progetto (appartiene a un progetto), generale (dell'azienda) o messaggio
+ * diretto (2–8 persone, privato per costruzione).
+ */
+export type ChannelKind = "project" | "general" | "dm";
+
+/** Gli eventi di progetto che un canale può pubblicare come messaggi di sistema. */
+export type ChatEventKind =
+  | "release_page"
+  | "pr_opened"
+  | "pr_merged"
+  | "milestone_reached"
+  | "brief_ready"
+  | "request_new"
+  | "task_closed";
+
+export interface Channel {
+  id: string;
+  kind: ChannelKind;
+  /** Solo i canali di progetto. */
+  projectId: string | null;
+  /** Senza «#» né codice: la UI mostra `AUD · general`. Vuoto per un DM (lo dicono i membri). */
+  name: string;
+  description: string;
+  topic: string;
+  /** Un DM è sempre `private`. */
+  visibility: "open" | "private";
+  createdById: string;
+  /** Archiviato: resta leggibile a chi lo vedeva, in sola lettura. */
+  archived: boolean;
+  /** Il «general» di un progetto: ne comprende tutti i membri e non si lascia. */
+  isGeneral: boolean;
+  memberIds: string[];
+  /** Quali eventi del progetto arrivano qui (vuoto fuori dai canali di progetto). */
+  publishedEvents: ChatEventKind[];
+  createdAt: string;
+}
+
+/**
+ * Un messaggio della Chat: di una persona, di sistema (un evento di
+ * progetto, con la scheda dell'oggetto) o una risposta di @Claude (sempre
+ * nel thread; `calledById` = chi l'ha chiamato, con i suoi permessi).
+ * Eliminato: `text` vuoto, senza allegati né citazioni (stessa regola dei
+ * commenti: il testo sparisce ovunque).
+ */
+export interface ChatMessage {
+  id: string;
+  channelId: string;
+  /** Il messaggio radice del thread; `null` = nel canale. */
+  threadOf: string | null;
+  /** `null` = sistema; una risposta di Claude ha l'id di Claude. */
+  authorId: string | null;
+  kind: "person" | "system" | "claude";
+  /** Solo `claude`: chi l'ha chiamato. */
+  calledById?: string;
+  /**
+   * Markdown; le menzioni come le scrive la casella: `@Nome Cognome`,
+   * `@channel`, `@<Reparto>`, `@Claude`.
+   */
+  text: string;
+  attachments: Attachment[];
+  citations: CitationRef[];
+  reactions: { emoji: string; personIds: string[] }[];
+  /** Le persone a cui il messaggio chiede una risposta (vanno in «Da decidere»). */
+  asksReplyOf: string[];
+  /** Una risposta del thread mostrata anche nel canale («Rispondi anche nel canale»). */
+  alsoInChannel?: boolean;
+  /** Solo `system`: l'evento e l'oggetto della scheda. */
+  event?: { kind: ChatEventKind; ref: CitationRef };
+  /** Task e richieste nate da questo messaggio («→ AUD-14»). */
+  linkedCodes: string[];
+  createdAt: string;
+  editedAt: string | null;
+  deletedAt: string | null;
+  deletedById: string | null;
+  /** Solo `claude`: le righe d'azione e le schede (proposte) della risposta. */
+  claudeEvents?: ConversationEvent[];
+}
+
+/** Fin dove una persona ha letto un canale e, per id della radice, i thread. */
+export interface ReadState {
+  personId: string;
+  channelId: string;
+  lastReadAt: string;
+  threadReads: Record<string, string>;
+}
+
+/** Le notifiche di un canale per una persona: tutti i messaggi, solo menzioni, silenziato. */
+export type NotifyLevel = "all" | "mentions" | "muted";
+
+/** La preferenza di una persona su un canale; senza riga vale `all`. */
+export interface ChannelNotifyPref {
+  personId: string;
+  channelId: string;
+  level: NotifyLevel;
 }

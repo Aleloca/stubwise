@@ -9,9 +9,11 @@ import {
   canInDepartment,
   canSeeAdmin,
   grantInstancePermission,
+  grantProjectPermission,
   grantProjectRole,
   resetViewerGrants,
   revokeInstancePermission,
+  revokeProjectPermission,
   viewerFor,
 } from "./viewer";
 
@@ -123,7 +125,47 @@ describe("viewer", () => {
     }
   });
 
-  describe("permessi d'istanza del prototipo (area 3)", () => {
+  describe("permessi di progetto della Chat (area 4)", () => {
+    const aud = PROJECTS.find((p) => p.code === "AUD")!;
+    const mkx = PROJECTS.find((p) => p.code === "MKX")!;
+    const stw = PROJECTS.find((p) => p.code === "STW")!;
+
+    it("chat.channels.create: Project Lead e Developer, non il Contributor", () => {
+      expect(can(byPerson("p-laura"), "chat.channels.create", aud.id)).toBe(true);
+      expect(can(byPerson("p-marco"), "chat.channels.create", aud.id)).toBe(true);
+      expect(can(byPerson("p-giulia"), "chat.channels.create", mkx.id)).toBe(true);
+      // Giulia è Contributor su AUD e STW.
+      expect(can(byPerson("p-giulia"), "chat.channels.create", aud.id)).toBe(false);
+      expect(can(byPerson("p-sara"), "chat.channels.create", stw.id)).toBe(false);
+      // Solo dove si è membri.
+      expect(can(byPerson("p-marco"), "chat.channels.create", mkx.id)).toBe(false);
+    });
+
+    it("chat.channels.manage: solo il Project Lead (e il full admin ovunque)", () => {
+      expect(can(byPerson("p-laura"), "chat.channels.manage", aud.id)).toBe(true);
+      expect(can(byPerson("p-giulia"), "chat.channels.manage", mkx.id)).toBe(true);
+      expect(can(byPerson("p-giulia"), "chat.channels.manage", aud.id)).toBe(false);
+      expect(can(byPerson("p-marco"), "chat.channels.manage", aud.id)).toBe(false);
+      expect(can(byPerson("p-sara"), "chat.channels.manage", stw.id)).toBe(false);
+      for (const project of PROJECTS) {
+        expect(can(byPerson("p-roberta"), "chat.channels.manage", project.id)).toBe(true);
+      }
+    });
+
+    it("si concedono e si tolgono a qualunque ruolo su un progetto, fino al reset", () => {
+      grantProjectPermission("p-sara", stw.id, "chat.channels.manage");
+      expect(can(byPerson("p-sara"), "chat.channels.manage", stw.id)).toBe(true);
+      expect(can(byPerson("p-sara"), "tickets.create", stw.id)).toBe(true);
+      revokeProjectPermission("p-marco", aud.id, "chat.channels.create");
+      expect(can(byPerson("p-marco"), "chat.channels.create", aud.id)).toBe(false);
+      expect(can(byPerson("p-marco"), "runs.start", aud.id)).toBe(true);
+      resetViewerGrants();
+      expect(can(byPerson("p-sara"), "chat.channels.manage", stw.id)).toBe(false);
+      expect(can(byPerson("p-marco"), "chat.channels.create", aud.id)).toBe(true);
+    });
+  });
+
+  describe("permessi d'istanza del prototipo (aree 3 e 4)", () => {
     it("claude.public.view: di base a tutti (preset User e Admin)", () => {
       for (const id of ["p-giulia", "p-marco", "p-laura", "p-sara", "p-roberta", "p-irene"]) {
         expect(can(byPerson(id), "claude.public.view")).toBe(true);
@@ -152,6 +194,26 @@ describe("viewer", () => {
       resetViewerGrants();
       expect(can(byPerson("p-marco"), "people.activity.view")).toBe(false);
       expect(can(byPerson("p-sara"), "claude.public.view")).toBe(true);
+    });
+
+    it("chat.general.create a tutti gli utenti; chat.general.manage solo all'admin", () => {
+      for (const id of ["p-giulia", "p-marco", "p-laura", "p-sara", "p-roberta", "p-irene"]) {
+        expect(can(byPerson(id), "chat.general.create")).toBe(true);
+      }
+      for (const id of ["p-giulia", "p-marco", "p-laura", "p-sara", "p-irene"]) {
+        expect(can(byPerson(id), "chat.general.manage")).toBe(false);
+      }
+      expect(can(byPerson("p-roberta"), "chat.general.manage")).toBe(true);
+    });
+
+    it("i permessi della Chat d'istanza si concedono e si tolgono a qualunque ruolo", () => {
+      grantInstancePermission("p-sara", "chat.general.manage");
+      expect(can(byPerson("p-sara"), "chat.general.manage")).toBe(true);
+      revokeInstancePermission("p-marco", "chat.general.create");
+      expect(can(byPerson("p-marco"), "chat.general.create")).toBe(false);
+      resetViewerGrants();
+      expect(can(byPerson("p-sara"), "chat.general.manage")).toBe(false);
+      expect(can(byPerson("p-marco"), "chat.general.create")).toBe(true);
     });
 
     it("diventare Project Lead di un progetto nuovo dà people.activity.view, fino al reset", () => {

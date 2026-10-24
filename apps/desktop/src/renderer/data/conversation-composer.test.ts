@@ -318,6 +318,37 @@ describe("citazioni", () => {
     );
     expect(forSara[3]).toMatchObject({ visible: true, name: expect.any(String) });
   });
+
+  it("traguardi, brief e pagine di Release (schede della Chat) seguono il progetto", async () => {
+    const refs = [
+      { kind: "milestone", id: "ms-aud-1" },
+      { kind: "brief", id: "brief-aud-2026-10-19" },
+      { kind: "release", id: "rel-aud-2" },
+    ] as const;
+    setSessionPersonId("p-marco");
+    const forMarco = await resolveCitations([...refs]);
+    expect(forMarco[0]).toMatchObject({
+      visible: true,
+      code: "AUD",
+      name: "Private beta",
+      projectCode: "AUD",
+      route: "#/p/AUD",
+    });
+    expect(forMarco[1]).toMatchObject({ visible: true, code: "AUD", route: "#/p/AUD" });
+    expect(forMarco[1]!.name).toEqual(expect.any(String));
+    expect(forMarco[2]).toMatchObject({
+      visible: true,
+      code: "AUD",
+      name: "0.10.0 · Callbacks and import preview",
+      route: "#/p/AUD/releases",
+    });
+
+    setSessionPersonId("p-sara"); // AUD non lo vede: nulla, nemmeno il codice
+    const forSara = await resolveCitations([...refs]);
+    for (const c of forSara) {
+      expect(c).toMatchObject({ visible: false, code: null, name: null, route: null });
+    }
+  });
 });
 
 describe("menu della casella", () => {

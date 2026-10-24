@@ -2000,7 +2000,10 @@
           "doc": "Docs page",
           "file": "File",
           "project": "Project",
-          "person": "Person"
+          "person": "Person",
+          "milestone": "Milestone",
+          "brief": "Weekly brief",
+          "release": "Release page"
         }
       },
       "actions": {

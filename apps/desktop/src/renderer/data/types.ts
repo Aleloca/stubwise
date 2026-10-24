@@ -20,15 +20,27 @@ import type {
 // dell'ossatura e del livello dati (chi guarda, ricerca, letture derivate).
 export * from "./model";
 
-/** Permessi di progetto che vivono solo nel prototipo (non nel registro condiviso). */
-export type LocalProjectPermission = "planning.others";
+/**
+ * Permessi di progetto che vivono solo nel prototipo (non nel registro
+ * condiviso): pianificare per altri e, dall'area 4, creare e gestire i
+ * canali della Chat del progetto.
+ */
+export type LocalProjectPermission =
+  | "planning.others"
+  | "chat.channels.create"
+  | "chat.channels.manage";
 
 /**
- * Permessi d'istanza che vivono solo nel prototipo (area 3): vedere le
- * conversazioni pubbliche con Claude e l'attività delle persone. Entrano nel
- * registro di `@stubwise/shared` quando si costruisce il backend.
+ * Permessi d'istanza che vivono solo nel prototipo: vedere le conversazioni
+ * pubbliche con Claude e l'attività delle persone (area 3), creare e gestire
+ * i canali generali della Chat (area 4). Entrano nel registro di
+ * `@stubwise/shared` quando si costruisce il backend.
  */
-export type LocalInstancePermission = "claude.public.view" | "people.activity.view";
+export type LocalInstancePermission =
+  | "claude.public.view"
+  | "people.activity.view"
+  | "chat.general.create"
+  | "chat.general.manage";
 
 export interface Viewer {
   personId: string;
