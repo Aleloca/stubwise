@@ -165,7 +165,7 @@ describe("workStory", () => {
     const story = workStory(
       work([run("r", {}, [plan])], {
         planDecisions: [
-          { decidedById: "p-laura", decidedAt: "2026-10-19T14:05:00Z", decision: "Approved" },
+          { decidedById: "p-laura", decidedAt: "2026-10-19T14:05:00Z", decision: "Approved", status: "approved" },
         ],
       }),
     );
@@ -284,8 +284,29 @@ describe("stato, scheda aperta, PR", () => {
         text: "Pull request #405 opened",
         state: "merged",
         closedAt: "2026-10-22T08:00:00Z",
+        openedAt: "2026-10-19T11:00:00Z",
       },
     ]);
+  });
+
+  it("una chiusura più vecchia di una riapertura dal flusso non chiude la PR", () => {
+    const r = run("r", {}, [
+      ev({
+        at: "2026-10-22T11:00:00Z",
+        type: "work_result",
+        kind: "pr_opened",
+        text: "Pull request #405 opened",
+        link: "https://git.example.com/acme/web/pull/405",
+      }),
+    ]);
+    const lines = pullRequestsOf(
+      work([r], {
+        pullRequests: [
+          { id: "a", projectId: "x", taskId: "t", kind: "pr_closed", at: "2026-10-22T08:00:00Z", number: 405, repo: "acme/web" },
+        ],
+      }),
+    );
+    expect(lines).toMatchObject([{ key: "acme/web#405", state: "open", closedAt: null }]);
   });
 
   it("una PR che conosce solo la piattaforma prende il repository dalla piattaforma", () => {

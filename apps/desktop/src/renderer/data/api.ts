@@ -516,6 +516,10 @@ const FINISHED_WINDOW_DAYS = 14;
 export async function listConversations(filter: ConversationFilter): Promise<ConversationRow[]> {
   const me = await gate("listConversations");
   const since = daysFromToday(-FINISHED_WINDOW_DAYS);
+  // Il filtro per progetto vale solo per un progetto che chi guarda vede: uno
+  // invisibile non trova nulla, come uno che non esiste — altrimenti direbbe
+  // quali pubbliche altrui hanno come contesto un progetto che non vede.
+  if (filter.projectId && !visibleProjectIds(me).has(filter.projectId)) return [];
   return (
     state.conversations
       .filter((c) => {
@@ -632,7 +636,13 @@ export async function getTaskWork(taskId: string): Promise<TaskWork | null> {
         : state.decisionLog
             .filter((d) => d.taskId === taskId && d.source === "plan_review")
             .sort((a, b) => a.decidedAt.localeCompare(b.decidedAt))
-            .map((d) => ({ decidedById: d.decidedById, decidedAt: d.decidedAt, decision: d.decision })),
+            .map((d) => ({
+              decidedById: d.decidedById,
+              decidedAt: d.decidedAt,
+              decision: d.decision,
+              // Le righe del seed (in inglese) non portano l'esito: lo dice il loro testo.
+              status: d.planOutcome ?? (/\brejected\b/i.test(d.decision) ? "rejected" : "approved"),
+            })),
     waitsOnViewer: latest ? conversationRow(me, latest).waitsOnViewer : false,
     hiddenRuns: state.conversations.some(
       (c) => c.kind === "task_run" && c.taskId === taskId && !canSeeConversation(me, c),

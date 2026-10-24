@@ -1,3 +1,4 @@
+import { prLines, type PrLine } from "../domain/claude/taskWork";
 import { stallOf, type Stall } from "../domain/stalled";
 import { currentWeek } from "../domain/weeks";
 import type { FilterContext } from "../domain/filters";
@@ -319,6 +320,16 @@ reindex();
 
 const resetHooks = new Set<() => void>();
 
+/** Cambia a ogni ripristino: il lavoro partito prima sa che lo stato non è più il suo. */
+let generation = 0;
+
+/**
+ * La generazione dello stato di adesso. Chi la fissa all'inizio di una
+ * scrittura sa se nel frattempo c'è stato un ripristino, e smette di
+ * scrivere (nei test: mai nello stato del test dopo).
+ */
+export const storeGeneration = (): number => generation;
+
 /**
  * Lavoro da fermare quando lo stato si ripristina (es. gli stream in corso,
  * che altrimenti continuerebbero a scrivere nello stato nuovo).
@@ -329,6 +340,7 @@ export function onStoreReset(fn: () => void): void {
 
 /** Ripristina lo stato (sessione, dati, errori iniettati). */
 export function resetStore(): void {
+  generation += 1;
   for (const fn of resetHooks) fn();
   failures.clear();
   streamLatencyOverride = null;
@@ -396,8 +408,22 @@ export function canSeeConversation(personId: string, c: Conversation): boolean {
   }
 }
 
-/** Una proposta aperta scade dopo 20 eventi successivi o 24 ore. */
-export const PROPOSAL_EXPIRY = { events: 20, ms: 24 * 60 * 60 * 1000 } as const;
+/**
+ * Una proposta aperta scade dopo 20 messaggi successivi — di chi scrive e di
+ * Claude: azioni, fasi e risultati non contano — o dopo 24 ore (spec §2).
+ */
+export const PROPOSAL_EXPIRY = { messages: 20, ms: 24 * 60 * 60 * 1000 } as const;
+
+/** Un messaggio della conversazione: quello che conta per la scadenza di una proposta. */
+export const isMessage = (e: ConversationEvent): boolean =>
+  e.type === "user" || e.type === "assistant";
+
+/** Quanti messaggi seguono nel flusso l'evento in posizione `index`. */
+export function messagesAfter(log: readonly ConversationEvent[], index: number): number {
+  let count = 0;
+  for (let i = index + 1; i < log.length; i++) if (isMessage(log[i]!)) count++;
+  return count;
+}
 
 /**
  * Vero se la proposta in posizione `index` del flusso è scaduta adesso: si
@@ -406,9 +432,8 @@ export const PROPOSAL_EXPIRY = { events: 20, ms: 24 * 60 * 60 * 1000 } as const;
 export function proposalExpired(log: readonly ConversationEvent[], index: number): boolean {
   const event = log[index];
   if (!event || event.type !== "proposal" || event.status !== "open") return false;
-  const later = log.length - 1 - index;
   return (
-    later >= PROPOSAL_EXPIRY.events ||
+    messagesAfter(log, index) >= PROPOSAL_EXPIRY.messages ||
     Date.parse(now()) - Date.parse(event.at) >= PROPOSAL_EXPIRY.ms
   );
 }
@@ -537,6 +562,15 @@ export function conversationPermissions(
   const question = openQuestion(log);
   const plan = pendingPlan(log);
   const preApproved = state.preApprovedPlans.has(c.id);
+  // Il refine: lo chiude e ne avvia uno nuovo chi ha `backlog.edit`; uno
+  // nuovo solo se la richiesta si può ancora rifinire (`startRefineConversation`).
+  const refiner = c.kind === "refine" && inProject("backlog.edit");
+  const request =
+    c.kind === "refine" ? state.requests.find((r) => r.id === c.requestId) : undefined;
+  const refinable =
+    request !== undefined &&
+    ["new", "ready", "refining"].includes(request.status) &&
+    request.mergedIntoId === null;
   return {
     isOwner,
     canWrite,
@@ -548,6 +582,8 @@ export function conversationPermissions(
     canRevokePlanApproval: approver && live && planning && preApproved,
     canContinue: c.kind === "free" && !isOwner && c.visibility === "public",
     canManage: c.kind === "free" && isOwner,
+    canClose: refiner && live,
+    canStartNew: refiner && !live && refinable,
     readOnlyReason,
   };
 }
@@ -661,61 +697,39 @@ export function hasRepository(projectId: string): boolean {
 }
 
 /**
- * La task ha una PR ancora aperta: solo un progetto con un repository, e
- * l'ultima apertura (della pipeline o della piattaforma) è più recente
- * dell'ultimo merge o chiusura.
+ * Le PR della task con il loro stato, PR per PR (`repo#numero`): la stessa
+ * derivazione della sezione «Claude» (`prLines`), sui flussi di tutte le
+ * sessioni di lavoro e sugli eventi della piattaforma. Solo un progetto con
+ * un repository ha PR.
  */
+function prLinesOf(task: Task): PrLine[] {
+  if (!hasRepository(task.projectId)) return [];
+  const events = state.conversations
+    .filter((c) => c.kind === "task_run" && c.taskId === task.id)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+    .flatMap((c) => eventsOf(c.id));
+  const platform = state.pullRequests
+    .filter((pr) => pr.taskId === task.id)
+    .sort((a, b) => a.at.localeCompare(b.at));
+  return prLines(events, platform);
+}
+
+/** La task ha almeno una PR ancora aperta (una chiusura di un'altra PR non la chiude). */
 export function hasOpenPr(task: Task): boolean {
-  if (!hasRepository(task.projectId)) return false;
-  const prs = state.pullRequests.filter((pr) => pr.taskId === task.id);
-  const lastClose = prs
-    .filter((pr) => pr.kind !== "pr_opened")
-    .reduce((max, pr) => (pr.at > max ? pr.at : max), "");
-  const openings = [
-    ...prs.filter((pr) => pr.kind === "pr_opened").map((pr) => pr.at),
-    ...state.conversations
-      .filter((c) => c.kind === "task_run" && c.taskId === task.id)
-      .flatMap((c) =>
-        eventsOf(c.id).flatMap((e) =>
-          e.type === "work_result" && e.kind === "pr_opened" ? [e.at] : [],
-        ),
-      ),
-  ];
-  return openings.some((at) => at > lastClose);
+  return prLinesOf(task).some((line) => line.state === "open");
 }
 
 /**
  * La PR aperta più recente della task (dalla pipeline o dalla piattaforma):
  * quella su cui «Request changes» apre la correzione. `null` se nessuna è
- * aperta o la PR della pipeline non dice il suo numero.
+ * aperta o la PR aperta non dice numero e repository.
  */
 export function latestOpenPrOf(task: Task): PrRef | null {
-  if (!hasRepository(task.projectId)) return null;
-  const platform = state.pullRequests.filter((pr) => pr.taskId === task.id);
-  const openings: (PrRef & { at: string })[] = [
-    ...platform
-      .filter((pr) => pr.kind === "pr_opened")
-      .map((pr) => ({ repo: pr.repo, number: pr.number, at: pr.at })),
-    ...state.conversations
-      .filter((c) => c.kind === "task_run" && c.taskId === task.id)
-      .flatMap((c) =>
-        eventsOf(c.id).flatMap((e) => {
-          if (e.type !== "work_result" || e.kind !== "pr_opened") return [];
-          const number = /#(\d+)/.exec(e.text)?.[1];
-          const repo = e.link ? /\/([^/]+\/[^/]+)\/pull\/\d+/.exec(e.link)?.[1] : undefined;
-          return number && repo ? [{ repo, number: Number(number), at: e.at }] : [];
-        }),
-      ),
-  ];
-  const open = openings.filter(
-    (o) =>
-      !platform.some(
-        (pr) =>
-          pr.kind !== "pr_opened" && pr.repo === o.repo && pr.number === o.number && pr.at > o.at,
-      ),
-  );
-  const latest = open.sort((a, b) => a.at.localeCompare(b.at)).at(-1);
-  return latest ? { repo: latest.repo, number: latest.number } : null;
+  const latest = prLinesOf(task)
+    .filter((line) => line.state === "open" && line.number !== null && line.repo !== null)
+    .sort((a, b) => a.openedAt.localeCompare(b.openedAt))
+    .at(-1);
+  return latest ? { repo: latest.repo!, number: latest.number! } : null;
 }
 
 /** L'ultima sessione di lavoro della task (la più recente), visibile o no. */

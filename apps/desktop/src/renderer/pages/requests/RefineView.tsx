@@ -11,6 +11,7 @@ import {
 import { useTranslation } from "react-i18next";
 import {
   useCloseRefine,
+  useConversation,
   useConversationStream,
   usePatchRequestCache,
   usePeople,
@@ -83,7 +84,10 @@ export function RefineView({ requestId, projectCode }: { requestId: string; proj
   const patchCache = usePatchRequestCache();
 
   const canEdit = request !== null && can(viewer, "backlog.edit", request.projectId);
-  const live = refine !== null && refine.state !== "finished";
+  // «Close session» e «Start new» li decide il «server» (i flag della
+  // conversazione), come il resto della pagina: la vista li legge, non li deduce.
+  const flagsQuery = useConversation(refine?.id ?? "");
+  const flags = refine && flagsQuery.data?.id === refine.id ? flagsQuery.data : null;
 
   // --- i campi appena scritti da Claude: l'etichetta resta qualche secondo,
   // la tinta sfuma in 2 s (rimontata a ogni scrittura) ---
@@ -269,12 +273,12 @@ export function RefineView({ requestId, projectCode }: { requestId: string; proj
                   )}
                 </button>
               )}
-              {canEdit && live && (
+              {flags?.canClose && (
                 <button type="button" className={secondaryButton} onClick={() => setClosing(true)}>
                   {t("requests.refine.close")}
                 </button>
               )}
-              {canEdit && refine && !live && request.status !== "converted" && request.status !== "archived" && (
+              {flags?.canStartNew && (
                 <button
                   type="button"
                   className={secondaryButton}

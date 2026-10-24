@@ -6,9 +6,11 @@ import {
   onStoreReset,
   presentEvent,
   PROPOSAL_EXPIRY,
-  hasPrivateTail,
+  isMessage,
+  messagesAfter,
   readableLength,
   state,
+  storeGeneration,
   streamDelay,
   syncTaskClaude,
 } from "./store";
@@ -63,15 +65,14 @@ const subscribers = new Set<Subscriber>();
 const queues = new Map<string, Promise<void>>();
 /** Le sessioni del seed il cui script è già partito. */
 const started = new Set<string>();
-/** Cambia a ogni `resetApi`: gli script di prima smettono di scrivere. */
-let generation = 0;
 /** Per conversazione: cambia a ogni «Ferma», e gli script già accodati smettono. */
 const cuts = new Map<string, number>();
 /** Chi vuole sapere che una conversazione è cambiata (stato, flusso, dati). */
 const changeListeners = new Set<(conversationId: string) => void>();
 
+// Gli script partiti prima di un `resetApi` smettono di scrivere: ognuno
+// fissa la generazione dello stato (`storeGeneration`) quando parte.
 onStoreReset(() => {
-  generation += 1;
   subscribers.clear();
   queues.clear();
   started.clear();
@@ -100,11 +101,41 @@ export function notifyConversationChange(conversationId: string): void {
 /**
  * Interrompe gli script in corso o in coda della conversazione («Ferma»):
  * smettono al passo successivo; quelli accodati DOPO partono normalmente.
+ * Un messaggio di chi scrive ancora «in attesa» non lo consegnerà più
+ * nessuno: con `reason` resta nel flusso «non consegnato», con il motivo e
+ * «Resend» — mai perso.
  */
-export function interruptScripts(conversationId: string): void {
+export function interruptScripts(conversationId: string, reason?: string): void {
   cuts.set(conversationId, (cuts.get(conversationId) ?? 0) + 1);
   // Lo script del seed non ancora partito non deve partire dopo il «Ferma».
   started.add(conversationId);
+  if (reason === undefined) return;
+  for (const e of state.conversationEvents.get(conversationId) ?? []) {
+    if (e.type === "user" && e.delivery === "pending") {
+      e.delivery = "undelivered";
+      e.undeliveredReason = reason;
+      update(conversationId, e);
+    }
+  }
+}
+
+/**
+ * Il messaggio di chi scrive in una sessione di lavoro entra SUBITO nel
+ * flusso, «in attesa», anche mentre Claude sta lavorando: non aspetta in coda
+ * dietro allo script in corso (spec §1, il messaggio è assorbito nel turno).
+ * Passa dallo stesso `append`, quindi dallo stesso unico punto di emissione;
+ * lo consegna il passo `deliver` accodato dopo, e se la coda viene interrotta
+ * prima resta «non consegnato» (`interruptScripts`). `at`: la generazione
+ * dello stato all'inizio della scrittura — dopo un ripristino non scrive.
+ */
+export function appendUserMessage(
+  conversationId: string,
+  draft: Extract<EventDraft, { type: "user" }>,
+  at = storeGeneration(),
+): ConversationEvent {
+  if (at !== storeGeneration()) throw new Error("reset");
+  if (!findConversation(conversationId)) throw new Error("not_found");
+  return append(conversationId, draft);
 }
 
 const findConversation = (id: string): Conversation | undefined =>
@@ -178,15 +209,28 @@ export function mergeStreamEvent(
 
 /**
  * Esegue i passi di Claude in una conversazione, in coda a quelli già
- * avviati: l'unico punto da cui un evento entra nel flusso o cambia.
+ * avviati: l'unico punto da cui un evento entra nel flusso o cambia. `at`:
+ * la generazione dello stato in cui la scrittura è partita (di default
+ * adesso); se nel frattempo lo stato è stato ripristinato, non fa nulla.
  */
-export function runScript(conversationId: string, steps: ScriptStep[]): Promise<void> {
+export function runScript(
+  conversationId: string,
+  steps: ScriptStep[] | (() => ScriptStep[]),
+  at = storeGeneration(),
+): Promise<void> {
+  if (at !== storeGeneration()) return Promise.resolve();
   if (!findConversation(conversationId)) return Promise.reject(new Error("not_found"));
-  const gen = generation;
   const cut = cuts.get(conversationId) ?? 0;
-  const alive = () => gen === generation && (cuts.get(conversationId) ?? 0) === cut;
+  const alive = () => at === storeGeneration() && (cuts.get(conversationId) ?? 0) === cut;
   const previous = queues.get(conversationId) ?? Promise.resolve();
-  const next = previous.catch(() => undefined).then(() => play(conversationId, steps, alive));
+  // Passi dati come funzione: si costruiscono quando arriva il loro turno,
+  // dopo quelli accodati prima (es. la risposta del refine parte dal design
+  // che il turno precedente ha già scritto).
+  const next = previous
+    .catch(() => undefined)
+    .then(() =>
+      alive() ? play(conversationId, typeof steps === "function" ? steps() : steps, alive) : undefined,
+    );
   queues.set(conversationId, next);
   return next;
 }
@@ -367,11 +411,18 @@ function append(conversationId: string, draft: EventDraft): ConversationEvent {
   log.push(event);
   findConversation(conversationId)!.updatedAt = event.at;
   if (event.type !== "assistant") emit(conversationId, event, "append");
-  // La proposta che con questo evento ne ha 20 dopo di sé scade adesso: chi
-  // guarda la riceve aggiornata.
-  const crossing = log[log.length - 1 - PROPOSAL_EXPIRY.events];
-  if (crossing?.type === "proposal" && crossing.status === "open") {
-    emit(conversationId, crossing, "update");
+  // La proposta aperta che con questo messaggio ne ha 20 dopo di sé scade
+  // adesso: chi guarda la riceve aggiornata (una volta, quando passa la soglia).
+  if (isMessage(event)) {
+    log.forEach((e, i) => {
+      if (
+        e.type === "proposal" &&
+        e.status === "open" &&
+        messagesAfter(log, i) === PROPOSAL_EXPIRY.messages
+      ) {
+        emit(conversationId, e, "update");
+      }
+    });
   }
   return event;
 }
@@ -390,6 +441,9 @@ function emit(conversationId: string, event: ConversationEvent, mode: StreamMode
   const conversation = findConversation(conversationId);
   const log = state.conversationEvents.get(conversationId) ?? [];
   const index = log.indexOf(event);
+  // Ogni evento che si annuncia è già nel flusso (`append` lo mette prima,
+  // gli altri lo prendono da lì): uno che non c'è non si manda a nessuno.
+  if (index < 0) return;
   for (const subscriber of [...subscribers]) {
     if (subscriber.conversationId !== conversationId || !subscribers.has(subscriber)) continue;
     const entitled =
@@ -399,14 +453,6 @@ function emit(conversationId: string, event: ConversationEvent, mode: StreamMode
     if (!entitled) {
       subscribers.delete(subscriber);
       subscriber.onConnection?.("closed");
-      continue;
-    }
-    if (index < 0) {
-      // Un evento che non è (più) nel flusso: si manda così com'è, ma mai a
-      // chi ha un seguito privato da non vedere.
-      if (!hasPrivateTail(subscriber.personId, conversation)) {
-        subscriber.onEvent(structuredClone(event), mode);
-      }
       continue;
     }
     if (index >= readableLength(subscriber.personId, conversation)) continue;

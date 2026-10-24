@@ -21,6 +21,7 @@ import {
   archiveRequest,
   convertRequest,
   getRefineOf,
+  getTaskWork,
   mergeRequest,
   onConversationChange,
   preApprovePlan,
@@ -33,6 +34,7 @@ import {
   runScript,
   sendMessage,
   setLatency,
+  setStreamLatency,
   setVisibility,
   startRefineConversation,
   startRun,
@@ -42,10 +44,16 @@ import {
   subscribe,
   whenIdle,
 } from "./api";
+import i18n from "../i18n";
 import { TODAY } from "./seed/dates";
 import { getSessionPersonId, setSessionPersonId } from "./session";
 import { state } from "./store";
-import type { ConversationEvent, ConversationFilter, ProposedAction } from "./types";
+import type {
+  ConversationEvent,
+  ConversationFilter,
+  ProposedAction,
+  ScriptStep,
+} from "./types";
 import { grantInstancePermission, grantProjectRole, revokeInstancePermission } from "./viewer";
 
 beforeEach(() => {
@@ -399,22 +407,48 @@ describe("proposte", () => {
     expect(task("t-mkx-7").plannedWeek).not.toBe("2026-W45");
   });
 
-  it("scade dopo 20 eventi successivi: letta `expired`, non si conferma", async () => {
+  it("scade dopo 20 messaggi successivi (le azioni non contano): letta `expired`, non si conferma", async () => {
     as("p-giulia");
     const received: ConversationEvent[] = [];
     const unsubscribe = subscribe("cv-giulia-week", (e) => received.push(e));
-    await runScript(
-      "cv-giulia-week",
-      Array.from({ length: 19 }, (_, i) => ({
+    const log = state.conversationEvents.get("cv-giulia-week")!;
+    const at = log.findIndex((e) => e.type === "proposal");
+    const already = log
+      .slice(at + 1)
+      .filter((e) => e.type === "user" || e.type === "assistant").length;
+    const message = (i: number): ScriptStep =>
+      i % 2 === 0
+        ? {
+            step: "event",
+            event: {
+              type: "user",
+              authorId: "p-giulia",
+              text: `Message ${i}`,
+              attachments: [],
+              delivery: "delivered",
+            },
+          }
+        : { step: "say", text: `Reply number ${i} from Claude.` };
+    // Trenta azioni, fasi e risultati: nessuno è un messaggio, la proposta resta aperta.
+    await runScript("cv-giulia-week", [
+      ...Array.from({ length: 30 }, (_, i) => ({
         step: "action" as const,
         tool: "noop",
         label: `Step ${i}`,
       })),
-    );
+      { step: "event", event: { type: "phase", phase: "reply", outcome: null } },
+    ]);
     let detail = (await getConversation("cv-giulia-week"))!;
     expect(detail.events.find((e) => e.type === "proposal")).toMatchObject({ status: "open" });
 
-    await runScript("cv-giulia-week", [{ step: "action", tool: "noop", label: "Step 20" }]);
+    await runScript(
+      "cv-giulia-week",
+      Array.from({ length: 19 - already }, (_, i) => message(i)),
+    );
+    detail = (await getConversation("cv-giulia-week"))!;
+    expect(detail.events.find((e) => e.type === "proposal")).toMatchObject({ status: "open" });
+
+    await runScript("cv-giulia-week", [message(19)]);
     detail = (await getConversation("cv-giulia-week"))!;
     expect(detail.events.find((e) => e.type === "proposal")).toMatchObject({ status: "expired" });
     // Chi guarda la riceve aggiornata, senza ricaricare.
@@ -843,7 +877,12 @@ describe("piano", () => {
     await settle("cv-run-stw-13");
     expect(conv("cv-run-stw-13")).toMatchObject({ state: "finished", outcome: "ok" });
     expect(task("t-stw-13").claude).toBe("done");
-    expect(state.decisionLog.at(-1)).toMatchObject({ source: "plan_review", decision: "Approved" });
+    expect(state.decisionLog.at(-1)).toMatchObject({
+      source: "plan_review",
+      title: "Plan for STW-13: approved",
+      decision: "Plan approved.",
+      planOutcome: "approved",
+    });
     // Già deciso: chi lo ritenta sa da chi (la stessa risposta di una domanda già risposta).
     await expect(decidePlan("cv-run-stw-13", "approve")).rejects.toMatchObject({
       message: "already_answered",
@@ -858,6 +897,26 @@ describe("piano", () => {
     const plans = eventsOf("cv-run-stw-13").filter((e) => e.type === "plan");
     expect(plans.map((p) => p.type === "plan" && p.status)).toEqual(["rejected", "pending"]);
     expect(conv("cv-run-stw-13").state).toBe("awaiting_approval");
+  });
+
+  it("il registro si scrive con i template nella lingua di chi decide, mai con testo libero", async () => {
+    await i18n.changeLanguage("it");
+    try {
+      as("p-laura");
+      await decidePlan("cv-run-stw-13", "reject", "Copri anche 800 × 600.");
+      expect(state.decisionLog.at(-1)).toMatchObject({
+        source: "plan_review",
+        title: "Piano di STW-13: rifiutato con indicazioni",
+        decision: "Piano rifiutato: Copri anche 800 × 600.",
+        planOutcome: "rejected",
+      });
+      // La storia del lavoro riconosce l'esito dal campo, non dal testo italiano.
+      await settle("cv-run-stw-13");
+      const work = (await getTaskWork("t-stw-13"))!;
+      expect(work.planDecisions.at(-1)).toMatchObject({ status: "rejected" });
+    } finally {
+      await i18n.changeLanguage("en");
+    }
   });
 
   it("approvazione in anticipo e revoca: solo con plans.approve, mentre Claude pianifica", async () => {
@@ -1104,6 +1163,193 @@ describe("sessioni di lavoro", () => {
     expect(state.requests.find((r) => r.id === "req-stw-1")!.status).toBe("ready");
     const closing = eventsOf(refine.id).filter((e) => e.type === "phase").at(-1);
     expect(closing).toMatchObject({ phase: "refine", outcome: "ok", closedById: "p-laura" });
+  });
+
+  it("refine: «Close» e «Start new» sono flag calcolati, con le regole delle scritture", async () => {
+    as("p-laura");
+    const refine = await startRefineConversation("req-stw-1");
+    expect(await getConversation(refine.id)).toMatchObject({ canClose: true, canStartNew: false });
+    grantProjectRole("p-marco", "prj-stw", "viewer"); // vede il progetto, non backlog.edit
+    as("p-marco");
+    expect(await getConversation(refine.id)).toBeNull();
+
+    as("p-laura");
+    await closeRefine(refine.id);
+    expect(await getConversation(refine.id)).toMatchObject({ canClose: false, canStartNew: true });
+    await expect(closeRefine(refine.id)).rejects.toThrow("invalid");
+    // Archiviata: la richiesta non si rifinisce più, e il flag lo dice.
+    await archiveRequest("req-stw-1");
+    expect(await getConversation(refine.id)).toMatchObject({ canClose: false, canStartNew: false });
+    await expect(startRefineConversation("req-stw-1")).rejects.toThrow("invalid");
+    // Una sessione di lavoro non ha né l'uno né l'altro.
+    expect(await getConversation("cv-run-stw-13")).toMatchObject({
+      canClose: false,
+      canStartNew: false,
+    });
+  });
+});
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+async function until(check: () => boolean): Promise<void> {
+  for (let i = 0; i < 200 && !check(); i++) await tick();
+  expect(check()).toBe(true);
+}
+const usersOf = (id: string) =>
+  (state.conversationEvents.get(id) ?? []).filter(
+    (e): e is Extract<ConversationEvent, { type: "user" }> => e.type === "user",
+  );
+
+describe("un messaggio mentre Claude lavora (spec §1)", () => {
+  it("entra subito nel flusso «in attesa»; «Ferma» lo lascia non consegnato, con il motivo", async () => {
+    setStreamLatency(5);
+    as("p-laura");
+    const received: ConversationEvent[] = [];
+    // Lo script del seed parte con chi guarda: Claude sta lavorando.
+    const unsubscribe = subscribe("cv-run-aud-5", (e) => received.push(e));
+    await until(() => (state.conversationEvents.get("cv-run-aud-5") ?? []).length > 0);
+    const outcome = sendMessage("cv-run-aud-5", { text: "Keep the old columns too." }).then(
+      () => "delivered",
+      (error: Error) => error.message,
+    );
+    // Visibile subito, non in coda dietro allo script in corso.
+    await until(() => usersOf("cv-run-aud-5").some((e) => e.text === "Keep the old columns too."));
+    expect(usersOf("cv-run-aud-5").at(-1)).toMatchObject({ delivery: "pending" });
+    expect(received.filter((e) => e.type === "user").at(-1)).toMatchObject({
+      text: "Keep the old columns too.",
+      delivery: "pending",
+    });
+    expect(conv("cv-run-aud-5").state).toBe("working");
+
+    await stop("cv-run-aud-5");
+    // Mai perso: resta nel flusso, non consegnato e con il motivo; la scrittura fallisce.
+    expect(await outcome).toBe("undelivered");
+    expect(usersOf("cv-run-aud-5").at(-1)).toMatchObject({
+      text: "Keep the old columns too.",
+      delivery: "undelivered",
+      undeliveredReason: "you stopped Claude before it read this",
+    });
+    expect(received.filter((e) => e.type === "user").at(-1)).toMatchObject({
+      delivery: "undelivered",
+    });
+    expect(conv("cv-run-aud-5").state).toBe("paused");
+    unsubscribe();
+  });
+
+  it("senza «Ferma» il turno lo consegna", async () => {
+    setStreamLatency(2);
+    as("p-laura");
+    const unsubscribe = subscribe("cv-run-aud-5", () => {});
+    await until(() => (state.conversationEvents.get("cv-run-aud-5") ?? []).length > 0);
+    await sendMessage("cv-run-aud-5", { text: "Keep the old columns too." });
+    expect(usersOf("cv-run-aud-5").at(-1)).toMatchObject({ delivery: "delivered" });
+    unsubscribe();
+  });
+
+  it("chiudere il refine lascia non consegnati i messaggi che Claude non ha letto", async () => {
+    setStreamLatency(5);
+    as("p-laura");
+    const refine = await startRefineConversation("req-stw-1");
+    const first = sendMessage(refine.id, { text: "Show the old week too." }).catch(
+      (error: Error) => error.message,
+    );
+    const second = sendMessage(refine.id, { text: "And the next one." }).then(
+      () => "delivered",
+      (error: Error) => error.message,
+    );
+    await until(() => usersOf(refine.id).length === 2);
+    expect(usersOf(refine.id).map((e) => e.delivery)).toContain("pending");
+
+    await closeRefine(refine.id);
+    await first;
+    expect(await second).toBe("undelivered");
+    expect(usersOf(refine.id).some((e) => e.delivery === "pending")).toBe(false);
+    expect(usersOf(refine.id).at(-1)).toMatchObject({
+      text: "And the next one.",
+      delivery: "undelivered",
+      undeliveredReason: "the session was closed before Claude read this",
+    });
+  });
+});
+
+describe("elenco filtrato per progetto", () => {
+  it("un progetto che chi guarda non vede non trova nulla (nemmeno le pubbliche con quel contesto)", async () => {
+    as("p-sara"); // vede le pubbliche, non AUD
+    expect(await ids({ scope: "public" })).toContain("cv-giulia-callbacks");
+    expect(await ids({ scope: "public", projectId: "prj-aud" })).toEqual([]);
+    as("p-giulia");
+    expect(
+      await ids({ scope: "mine", projectId: "prj-aud", includeOlder: true }),
+    ).toContain("cv-giulia-callbacks");
+  });
+});
+
+describe("PR aperte, PR per PR", () => {
+  it("il merge di una PR non chiude l'altra della stessa task (un'altra repository)", async () => {
+    as("p-marco");
+    await runScript("cv-run-stw-3", [{ step: "state", state: "finished", outcome: "ok" }]);
+    // La #411 (app) si mergia; la #58 (guida) resta aperta.
+    state.pullRequests.push({
+      id: "pr-test-merge-411",
+      projectId: "prj-stw",
+      taskId: "t-stw-3",
+      kind: "pr_merged",
+      at: `${TODAY}T11:00:00Z`,
+      number: 411,
+      repo: "stubwise/stubwise",
+    });
+    expect((await getTaskWork("t-stw-3"))!.openPr).toBe(true);
+    const run = await requestChanges("t-stw-3", "Fix the guide link");
+    expect(eventsOf(run.id)[0]).toMatchObject({
+      type: "phase",
+      phase: "correction",
+      pr: { repo: "stubwise/guide", number: 58 },
+    });
+  });
+});
+
+describe("scritture concorrenti e reset", () => {
+  it("una proposta che avvia Claude e un «Avvia» insieme: un solo lavoro vivo", async () => {
+    as("p-giulia"); // Project Lead in MKX
+    await propose("cv-giulia-week", "p-giulia", [
+      { fn: "startRun", args: { taskId: "t-mkx-2" }, summary: "Start Claude on MKX-2" },
+    ]);
+    const [confirmed, started] = await Promise.allSettled([
+      confirmProposal("cv-giulia-week", "prop-test"),
+      startRun("t-mkx-2"),
+    ]);
+    expect(confirmed).toMatchObject({ status: "fulfilled", value: { status: "confirmed" } });
+    expect(started).toMatchObject({ status: "rejected", reason: new Error("conflict") });
+    const runs = state.conversations.filter((c) => c.kind === "task_run" && c.taskId === "t-mkx-2");
+    expect(runs).toHaveLength(1);
+  });
+
+  it("dopo un reset il seguito di una scrittura non scrive nello stato nuovo", async () => {
+    setStreamLatency(5);
+    as("p-laura");
+    const deciding = decidePlan("cv-run-stw-13", "approve").catch((error: Error) => error);
+    await until(
+      () =>
+        eventsOf("cv-run-stw-13").find((e) => e.type === "plan" && e.status === "approved") !==
+        undefined,
+    );
+    resetApi();
+    setStreamLatency(5);
+    const fresh = eventsOf("cv-run-stw-13");
+    const decisions = state.decisionLog.length;
+    await deciding;
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(eventsOf("cv-run-stw-13")).toEqual(fresh);
+    expect(conv("cv-run-stw-13").state).toBe("awaiting_approval");
+    expect(state.decisionLog).toHaveLength(decisions);
+  });
+
+  it("un reset durante l'attesa della chiamata: la scrittura non parte", async () => {
+    setLatency(20);
+    as("p-laura");
+    const sending = sendMessage("cv-run-aud-5", { text: "Late message" });
+    resetApi();
+    await expect(sending).rejects.toThrow("reset");
+    expect(usersOf("cv-run-aud-5").some((e) => e.text === "Late message")).toBe(false);
   });
 });
 

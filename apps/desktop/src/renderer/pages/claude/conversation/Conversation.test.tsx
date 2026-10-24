@@ -457,6 +457,28 @@ describe("Conversation: casella", () => {
     await screen.findByText(/this session runs on its own/i);
     expect(screen.queryByRole("combobox")).toBeNull();
   });
+
+  it("un messaggio mentre Claude lavora: subito nel flusso; «Stop» lo lascia «Not delivered», con «Resend»", async () => {
+    const user = userEvent.setup();
+    api.setStreamLatency(40);
+    renderWithData(<Harness id="cv-run-aud-5" />, { personId: "p-laura" });
+    const box = await screen.findByRole("combobox", { name: /message to claude/i });
+    const stopButton = await screen.findByRole("button", { name: "Stop" });
+    await user.type(box, "Keep the old columns too.{Enter}");
+    const message = await screen.findByText("Keep the old columns too.");
+    const row = message.closest("li") ?? message.parentElement!.parentElement!;
+    expect(within(row).getByText("Delivering…")).toBeInTheDocument();
+    await user.click(stopButton);
+    expect(
+      await within(row).findByText(/not delivered: you stopped claude before it read this/i),
+    ).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "Resend" })).toBeInTheDocument();
+    // La scrittura fallisce («undelivered») dopo che la riga è cambiata: la si aspetta.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 200)));
+    // Una riga sola: niente seconda copia «didn't go through».
+    expect(screen.getAllByText("Keep the old columns too.")).toHaveLength(1);
+    expect(screen.queryByText(/didn't go through/i)).toBeNull();
+  });
 });
 
 describe("Conversation: contenuti estremi (Review Focus 5)", () => {

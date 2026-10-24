@@ -11,16 +11,19 @@ import {
   simulateDisconnect,
 } from "./api";
 import {
+  useConfirmProposal,
   useConversation,
   useConversationStream,
   useConversations,
   useDayArrangements,
+  usePeopleActivity,
   usePinnedFilters,
   usePlanTask,
   useSetFilterPinned,
   useTask,
   useUpdateTask,
 } from "./queries";
+import { TODAY } from "./seed/dates";
 import { getSessionPersonId } from "./session";
 import { state as storeState } from "./store";
 import type { ConversationEvent, ScriptStep } from "./types";
@@ -248,5 +251,42 @@ describe("conversazioni: lo stato si vede dal vivo (R-E5)", () => {
     // Si è visto prima che lo stream finisse: le riletture non si sono affamate.
     expect(streamDone).toBe(false);
     await act(() => running);
+  });
+});
+
+describe("conferma di una proposta", () => {
+  it("rilegge anche la rassegna del giorno per persona (i fatti nuovi di oggi)", async () => {
+    await runScript("cv-giulia-week", [
+      {
+        step: "event",
+        event: {
+          type: "proposal",
+          proposalId: "prop-areas",
+          requesterId: "p-giulia",
+          actions: [
+            {
+              fn: "createRequest",
+              args: { projectId: "prj-mkx", title: "Leaflet for the fair" },
+              summary: "New request",
+            },
+          ],
+          status: "open",
+        },
+      },
+    ]);
+    const { result } = renderHook(
+      () => ({ activity: usePeopleActivity(TODAY), confirm: useConfirmProposal() }),
+      { wrapper },
+    );
+    const mine = () =>
+      result.current.activity.data
+        ?.find((p) => p.personId === "p-giulia")
+        ?.requestsCreated.map((r) => r.title) ?? [];
+    await waitFor(() => expect(result.current.activity.data).toBeDefined());
+    expect(mine()).not.toContain("Leaflet for the fair");
+    await act(() =>
+      result.current.confirm.mutateAsync({ id: "cv-giulia-week", proposalId: "prop-areas" }),
+    );
+    await waitFor(() => expect(mine()).toContain("Leaflet for the fair"));
   });
 });

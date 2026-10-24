@@ -2101,7 +2101,8 @@
         "undeliveredWith": "Non consegnato: {{reason}}",
         "resend": "Rimanda",
         "stoppedBeforeTurn": "hai fermato Claude prima che lo leggesse",
-        "didntGoThrough": "non è partito"
+        "didntGoThrough": "non è partito",
+        "closedBeforeTurn": "la sessione è stata chiusa prima che Claude lo leggesse"
       },
       "attachments": {
         "attach": "Allega",
@@ -2366,6 +2367,15 @@
         "originLabel": "La conversazione da cui questa continua",
         "yoursStarts": "Qui comincia la tua conversazione"
       }
+    },
+    "decisionLog": {
+      "planTitleApproved": "Piano di {{code}}: approvato",
+      "planTitleRejected": "Piano di {{code}}: rifiutato",
+      "planTitleRejectedWith": "Piano di {{code}}: rifiutato con indicazioni",
+      "planApproved": "Piano approvato.",
+      "planRejected": "Piano rifiutato.",
+      "planRejectedWith": "Piano rifiutato: {{instructions}}",
+      "answerWithNote": "{{option}} — {{note}}"
     }
   }
 }

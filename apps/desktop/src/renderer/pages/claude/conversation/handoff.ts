@@ -1,3 +1,5 @@
+import { onBeforePersonaChange } from "../../../data/session";
+import { onStoreReset } from "../../../data/store";
 import type { Attachment } from "../../../data/types";
 
 // Il primo messaggio di una conversazione appena nata (l'atterraggio, una
@@ -11,6 +13,11 @@ export interface PendingSend {
 }
 
 const pending = new Map<string, PendingSend>();
+
+// Un messaggio affidato è di chi l'ha scritto e dello stato in cui è nato:
+// cambiando persona o ripristinando lo stato nessuno lo manda più.
+onBeforePersonaChange(() => pending.clear());
+onStoreReset(() => pending.clear());
 
 /** Affida il primo messaggio alla conversazione `id`, che lo manderà appena aperta. */
 export function handOffFirstMessage(id: string, message: PendingSend): void {

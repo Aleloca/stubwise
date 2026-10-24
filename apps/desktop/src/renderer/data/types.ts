@@ -164,8 +164,10 @@ export interface TaskWork {
 export interface PlanDecision {
   decidedById: string | null;
   decidedAt: string;
-  /** Il testo del registro: «Approved», «Rejected», «Rejected: …». */
+  /** Il testo del registro (un template nella lingua di chi ha deciso). */
   decision: string;
+  /** L'esito: si confronta con il piano, mai leggendo il testo. */
+  status: "approved" | "rejected";
 }
 
 export type RunAction = "start" | "relaunch" | "resume" | "requestChanges";
@@ -258,6 +260,13 @@ export interface ConversationPermissions {
   canContinue: boolean;
   /** Rinominare, archiviare, eliminare, renderla pubblica o privata (l'autore, solo libere). */
   canManage: boolean;
+  /** Refine: «Close session» (`backlog.edit`, sessione aperta). */
+  canClose: boolean;
+  /**
+   * Refine concluso: «Start new» (`backlog.edit`, e la richiesta si può
+   * ancora rifinire — non trasformata, archiviata o fusa).
+   */
+  canStartNew: boolean;
   readOnlyReason: ReadOnlyReason | null;
 }
 

@@ -323,7 +323,11 @@ function ConversationBody({
     atBottom.current = true;
     const callbacks = {
       onSettled: () => setLocal((list) => list.filter((m) => m.seq !== seq)),
-      onError: () => setFailedSend({ text, attachments }),
+      // «Non consegnato»: il messaggio è già nel flusso, con il motivo e
+      // «Resend» — una seconda riga lo ripeterebbe.
+      onError: (error: Error) => {
+        if (error.message !== "undelivered") setFailedSend({ text, attachments });
+      },
     };
     if (via === "stopAndSend") stopAndSend.mutate({ id: detail.id, text }, callbacks);
     else {
@@ -711,6 +715,8 @@ function readOnlyOrigin(detail: ConversationDetail): ConversationDetail {
     canRevokePlanApproval: false,
     canContinue: false,
     canManage: false,
+    canClose: false,
+    canStartNew: false,
   };
 }
 
@@ -720,7 +726,14 @@ function readOnlyOrigin(detail: ConversationDetail): ConversationDetail {
  * all'invio).
  */
 function continueDetail(detail: ConversationDetail): ConversationDetail {
-  return { ...detail, canWrite: true, canInterrupt: false, canManage: false };
+  return {
+    ...detail,
+    canWrite: true,
+    canInterrupt: false,
+    canManage: false,
+    canClose: false,
+    canStartNew: false,
+  };
 }
 
 /** Al posto della casella, quando chi guarda non può scrivere: il motivo del «server». */

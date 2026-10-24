@@ -124,6 +124,8 @@ export interface PrLine {
   state: "open" | "merged" | "closed";
   /** Quando è stata mergiata o chiusa (dalla piattaforma). */
   closedAt: string | null;
+  /** L'ultima apertura (dal flusso o dalla piattaforma): la PR aperta più recente. */
+  openedAt: string;
 }
 
 const PR_NUMBER = /#(\d+)/;
@@ -134,11 +136,6 @@ function numberIn(text: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
-/**
- * Le PR della task, dalla più vecchia: quelle aperte da Claude (dal flusso)
- * e quelle che la piattaforma conosce, una riga per PR, con lo stato
- * dell'ultimo evento della piattaforma.
- */
 /** La chiave di una PR: `repo#numero` (il repository può non saperlo il flusso: ""). */
 export function prKey(repo: string | null, number: number): string {
   return `${repo ?? ""}#${number}`;
@@ -152,18 +149,46 @@ export function prKey(repo: string | null, number: number): string {
  * stesso numero.
  */
 export function pullRequestsOf(work: TaskWork, latest?: readonly ConversationEvent[]): PrLine[] {
+  return prLines(runsEvents(work, latest), work.pullRequests);
+}
+
+/**
+ * La derivazione unica delle PR di una task, una riga per PR (`repo#numero`):
+ * dai flussi delle sessioni (in ordine) e dagli eventi della piattaforma
+ * (dal più vecchio). La usano la sezione «Claude» (`pullRequestsOf`) e il
+ * livello dati (`hasOpenPr`, `latestOpenPrOf`): una PR è aperta o no per
+ * tutti allo stesso modo. Una chiusura della piattaforma più vecchia di una
+ * riapertura dal flusso non la chiude.
+ */
+export function prLines(
+  events: readonly ConversationEvent[],
+  platform: readonly PullRequestEvent[],
+): PrLine[] {
   const lines: PrLine[] = [];
-  const opened = runsEvents(work, latest).flatMap((e) =>
+  const opened = events.flatMap((e) =>
     e.type === "work_result" && e.kind === "pr_opened" ? [e] : [],
   );
   for (const e of opened) {
     const number = numberIn(e.text);
     const repo = e.link ? (PR_LINK.exec(e.link)?.[1] ?? null) : null;
     const key = number !== null ? prKey(repo, number) : `event:${e.id}`;
-    if (lines.some((l) => l.key === key)) continue;
-    lines.push({ key, number, repo, link: e.link ?? null, text: e.text, state: "open", closedAt: null });
+    const seen = lines.find((l) => l.key === key);
+    if (seen) {
+      if (e.at > seen.openedAt) seen.openedAt = e.at;
+      continue;
+    }
+    lines.push({
+      key,
+      number,
+      repo,
+      link: e.link ?? null,
+      text: e.text,
+      state: "open",
+      closedAt: null,
+      openedAt: e.at,
+    });
   }
-  for (const pr of work.pullRequests) {
+  for (const pr of platform) {
     let line =
       lines.find((l) => l.number === pr.number && l.repo === pr.repo) ??
       lines.find((l) => l.number === pr.number && l.repo === null);
@@ -176,6 +201,7 @@ export function pullRequestsOf(work: TaskWork, latest?: readonly ConversationEve
         text: "",
         state: "open",
         closedAt: null,
+        openedAt: pr.at,
       };
       lines.push(line);
     }
@@ -192,7 +218,8 @@ function applyPlatform(line: PrLine, pr: PullRequestEvent): void {
   if (pr.kind === "pr_opened") {
     line.state = "open";
     line.closedAt = null;
-  } else {
+    if (pr.at > line.openedAt) line.openedAt = pr.at;
+  } else if (pr.at >= line.openedAt) {
     line.state = pr.kind === "pr_merged" ? "merged" : "closed";
     line.closedAt = pr.at;
   }
@@ -444,7 +471,7 @@ function analyze(
                   !usedDecisions.has(i) &&
                   d.decidedAt >= e.at &&
                   d.decidedById === (e.decidedById ?? null) &&
-                  (e.status === "rejected") === /\brejected\b/i.test(d.decision),
+                  d.status === e.status,
               )
             : -1;
           out.push({

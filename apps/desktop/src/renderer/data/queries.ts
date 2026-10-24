@@ -1039,12 +1039,18 @@ export function useSetStallThresholds() {
 
 // --- scritture delle conversazioni -------------------------------------------
 
-/** Una proposta confermata scrive task e richieste; una risposta o un piano il registro. */
+/**
+ * Una proposta confermata scrive task e richieste; una risposta o un piano il
+ * registro. Task chiuse o spostate, commenti e richieste sono anche i fatti
+ * della rassegna del giorno per persona: si rileggono anche quelli.
+ */
 const PROPOSAL_AREAS = [
   ...CONVERSATION_CHANGE_AREAS,
   ...TASK_AREAS,
   ...REQUEST_AREAS,
   ...DECISION_AREAS,
+  "peopleActivity",
+  "dailyReports",
 ] as const;
 const DECIDE_AREAS = [...CONVERSATION_CHANGE_AREAS, ...DECISION_AREAS] as const;
 const RUN_AREAS = [...CONVERSATION_CHANGE_AREAS, ...TASK_AREAS] as const;

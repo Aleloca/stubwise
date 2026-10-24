@@ -2101,7 +2101,8 @@
         "undeliveredWith": "Not delivered: {{reason}}",
         "resend": "Resend",
         "stoppedBeforeTurn": "you stopped Claude before it read this",
-        "didntGoThrough": "it didn't go through"
+        "didntGoThrough": "it didn't go through",
+        "closedBeforeTurn": "the session was closed before Claude read this"
       },
       "attachments": {
         "attach": "Attach",
@@ -2366,6 +2367,15 @@
         "originLabel": "The conversation this one continues",
         "yoursStarts": "Your conversation starts here"
       }
+    },
+    "decisionLog": {
+      "planTitleApproved": "Plan for {{code}}: approved",
+      "planTitleRejected": "Plan for {{code}}: rejected",
+      "planTitleRejectedWith": "Plan for {{code}}: rejected with instructions",
+      "planApproved": "Plan approved.",
+      "planRejected": "Plan rejected.",
+      "planRejectedWith": "Plan rejected: {{instructions}}",
+      "answerWithNote": "{{option}} — {{note}}"
     }
   }
 }

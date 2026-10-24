@@ -36,9 +36,16 @@ import {
   proposalExpired,
   reindex,
   state,
+  storeGeneration,
   visibleProjectIds,
 } from "./store";
-import { interruptScripts, notifyConversationChange, releaseHeld, runScript } from "./stream";
+import {
+  appendUserMessage,
+  interruptScripts,
+  notifyConversationChange,
+  releaseHeld,
+  runScript,
+} from "./stream";
 import type {
   ActivityEntry,
   Attachment,
@@ -1146,10 +1153,33 @@ function ownFreeConversation(me: string, id: string): Conversation {
   return c;
 }
 
-/** Il seguito di Claude, in coda dietro ai passi della scrittura. */
-function follow(conversationId: string, steps: ScriptStep[], then?: () => void): void {
-  runScript(conversationId, steps)
-    .then(then)
+/**
+ * Una scrittura in conversazione fissa la generazione dello stato quando
+ * parte (`storeGeneration`, prima di `gate`) e la passa a tutto il suo
+ * seguito — gli script, i turni accodati, le continuazioni: dopo un
+ * ripristino (`resetApi`) niente di quel seguito scrive nello stato nuovo.
+ * `afterGate` lo controlla dopo l'attesa, `current` prima di ogni scrittura
+ * fuori dagli script.
+ */
+const current = (gen: number): boolean => gen === storeGeneration();
+
+async function afterGate(fnName: Parameters<typeof gate>[0], gen: number): Promise<string> {
+  const me = await gate(fnName);
+  if (!current(gen)) throw new Error("reset");
+  return me;
+}
+
+/** Il seguito di Claude, in coda dietro ai passi della scrittura (della stessa generazione). */
+function follow(
+  conversationId: string,
+  steps: ScriptStep[] | (() => ScriptStep[]),
+  gen: number,
+  then?: () => void,
+): void {
+  runScript(conversationId, steps, gen)
+    .then(() => {
+      if (current(gen)) then?.();
+    })
     .catch(() => undefined);
 }
 
@@ -1321,16 +1351,16 @@ function planGateFor(c: Conversation, task: Task): scripts.PlanGate {
  * coerente (in attesa dell'approvazione, o concluso): dopo una risposta, un
  * messaggio che riprende una pausa, «Ferma e scrivi».
  */
-function continueWork(c: Conversation, task: Task, ack: string): void {
+function continueWork(c: Conversation, task: Task, ack: string, gen: number): void {
   const phase = currentPhase(eventsOf(c.id));
   const software = hasRepository(task.projectId);
   if (phase === "plan") {
-    follow(c.id, [{ step: "say", text: ack }], () =>
-      follow(c.id, scripts.planGate(task, planGateFor(c, task), software)),
+    follow(c.id, [{ step: "say", text: ack }], gen, () =>
+      follow(c.id, scripts.planGate(task, planGateFor(c, task), software), gen),
     );
     return;
   }
-  follow(c.id, scripts.resume(task, phase, ack, software));
+  follow(c.id, scripts.resume(task, phase, ack, software), gen);
 }
 
 /** Il piano che Claude scrive nel refine quando la richiesta non ne ha uno (mai approvato). */
@@ -1475,40 +1505,59 @@ async function sendMessageNow(
   id: string,
   message: { text: string; attachments?: Attachment[] },
 ): Promise<void> {
-  const me = await gate("sendMessage");
+  const gen = storeGeneration();
+  const me = await afterGate("sendMessage", gen);
   const c = conversationFor(me, id);
   if (!conversationPermissions(me, c).canWrite) throw forbidden();
   const text = message.text.trim();
   const attachments = (message.attachments ?? []).map(copy);
   if (!text && attachments.length === 0) throw invalid("text");
-  const user: ScriptStep = {
-    step: "event",
-    event: { type: "user", authorId: me, text, attachments, delivery: "pending" },
-  };
 
   if (c.kind === "free") {
-    await sendFree(me, c, text, attachments);
+    await sendFree(me, c, text, attachments, gen);
     return;
   }
 
+  // In una sessione di lavoro il messaggio entra SUBITO nel flusso, «in
+  // attesa», anche se Claude sta ancora scrivendo: non aspetta in coda dietro
+  // al lavoro in corso, dove un «Ferma» lo perderebbe. Lo consegna il
+  // `deliver` accodato; se la coda viene fermata o chiusa prima, resta nel
+  // flusso «non consegnato» con il motivo, e la scrittura fallisce.
   const resuming = c.state === "paused";
-  await runScript(id, [user]);
+  const user = appendUserMessage(
+    id,
+    { type: "user", authorId: me, text, attachments, delivery: "pending" },
+    gen,
+  );
+  const delivered = () => {
+    if (!current(gen)) throw new Error("reset");
+    if (user.type === "user" && user.delivery !== "delivered") {
+      throw Object.assign(new Error("undelivered"), { eventId: user.id });
+    }
+  };
   if (c.kind === "refine") {
-    await runScript(id, refineReply(c, text));
+    await runScript(id, () => refineReply(c, text), gen);
+    delivered();
     return;
   }
   const task = c.taskId ? state.tasksById.get(c.taskId) : undefined;
   if (resuming && task) {
     // Il messaggio riprende la pausa: Claude riparte dalla fase in cui era.
-    await runScript(id, [{ step: "state", state: "working" }, { step: "deliver" }]);
-    continueWork(c, task, "Got it. I am resuming from your message.");
+    await runScript(id, [{ step: "state", state: "working" }, { step: "deliver" }], gen);
+    delivered();
+    continueWork(c, task, "Got it. I am resuming from your message.", gen);
     return;
   }
   // Al lavoro: il messaggio entra nel turno, e il lavoro in corso prosegue.
-  await runScript(id, [
-    { step: "deliver" },
-    { step: "say", text: "Got it, I am taking it into account in this step." },
-  ]);
+  await runScript(
+    id,
+    [
+      { step: "deliver" },
+      { step: "say", text: "Got it, I am taking it into account in this step." },
+    ],
+    gen,
+  );
+  delivered();
 }
 
 function stopSteps(me: string, c: Conversation): ScriptStep[] {
@@ -1538,8 +1587,10 @@ async function freeTurn(
   text: string,
   attachments: Attachment[],
   cut: number,
+  gen: number,
 ) {
   const id = c.id;
+  if (!current(gen)) throw new Error("reset");
   // Nel frattempo poteva essere archiviata o eliminata.
   if (!state.conversations.includes(c) || !conversationPermissions(me, c).canWrite) {
     throw forbidden();
@@ -1547,19 +1598,23 @@ async function freeTurn(
   if (freeCut(id) !== cut) {
     // «Ferma» è arrivato mentre il messaggio aspettava il suo turno: resta
     // nel flusso (nulla di scritto si perde), non consegnato e con il motivo.
-    await runScript(id, [
-      {
-        step: "event",
-        event: {
-          type: "user",
-          authorId: me,
-          text,
-          attachments,
-          delivery: "undelivered",
-          undeliveredReason: i18n.t("claude.conversation.delivery.stoppedBeforeTurn"),
+    await runScript(
+      id,
+      [
+        {
+          step: "event",
+          event: {
+            type: "user",
+            authorId: me,
+            text,
+            attachments,
+            delivery: "undelivered",
+            undeliveredReason: i18n.t("claude.conversation.delivery.stoppedBeforeTurn"),
+          },
         },
-      },
-    ]);
+      ],
+      gen,
+    );
     return;
   }
   const user: ScriptStep = {
@@ -1578,7 +1633,7 @@ async function freeTurn(
   if (held) c.privateFromIndex = messageIndex;
   let steps: ScriptStep[];
   try {
-    await runScript(id, [user, { step: "state", state: "working" }]);
+    await runScript(id, [user, { step: "state", state: "working" }], gen);
     steps = await respond(text, {
       personId: me,
       contextProjectId: c.contextProjectId,
@@ -1590,11 +1645,12 @@ async function freeTurn(
     if (held) releaseHold(c, messageIndex);
     throw error;
   }
+  if (!current(gen)) throw new Error("reset");
   if (freeCut(id) !== cut) {
     // Fermata mentre Claude pensava: il messaggio l'aveva ricevuto, la
     // risposta calcolata dopo «Ferma» non entra nel flusso.
     if (held) releaseHold(c, messageIndex);
-    await runScript(id, [{ step: "deliver" }]);
+    await runScript(id, [{ step: "deliver" }], gen);
     return;
   }
   const touchedNew = touchProjects(c, projectsOfSteps(steps));
@@ -1603,10 +1659,11 @@ async function freeTurn(
   if (held && !touchedNew) releaseHold(c, messageIndex);
   replying.add(id);
   try {
-    await runScript(id, steps);
+    await runScript(id, steps, gen);
   } finally {
     replying.delete(id);
   }
+  if (!current(gen)) return;
   if (firstTurn && c.title === titleFrom(text, attachments)) {
     const short = shortTitleFrom(text, attachments);
     if (short && short !== c.title) {
@@ -1623,20 +1680,24 @@ async function freeTurn(
  * mentre la fase «fermata» entra nella coda dei turni, dopo di loro: nessun
  * evento di un turno fermato può arrivare dopo.
  */
-async function stopFree(me: string, c: Conversation): Promise<void> {
+async function stopFree(me: string, c: Conversation, gen: number): Promise<void> {
   freeCuts.set(c.id, freeCut(c.id) + 1);
   // Si interrompe lo stream solo se un turno sta scrivendo la risposta: il
   // messaggio di chi scrive (che entra prima) non va mai tagliato.
   if (replying.has(c.id)) interruptScripts(c.id);
   await inTurn(c.id, () =>
-    runScript(c.id, [
-      { step: "finish_action", outcome: "failed", result: "Stopped" },
-      {
-        step: "event",
-        event: { type: "phase", phase: "reply", outcome: "stopped", stoppedById: me },
-      },
-      { step: "state", state: "idle" },
-    ]),
+    runScript(
+      c.id,
+      [
+        { step: "finish_action", outcome: "failed", result: "Stopped" },
+        {
+          step: "event",
+          event: { type: "phase", phase: "reply", outcome: "stopped", stoppedById: me },
+        },
+        { step: "state", state: "idle" },
+      ],
+      gen,
+    ),
   );
 }
 
@@ -1646,59 +1707,68 @@ async function sendFree(
   c: Conversation,
   text: string,
   attachments: Attachment[],
+  gen: number,
 ): Promise<void> {
   if (!c.title) c.title = titleFrom(text, attachments);
   const cut = freeCut(c.id);
-  await inTurn(c.id, () => freeTurn(me, c, text, attachments, cut));
+  await inTurn(c.id, () => freeTurn(me, c, text, attachments, cut, gen));
 }
 
 /** «Ferma» (`canInterrupt`): Claude si ferma al passo in corso; la task si ferma con lui. */
 export async function stop(id: string): Promise<void> {
-  const me = await gate("stop");
+  const gen = storeGeneration();
+  const me = await afterGate("stop", gen);
   const c = conversationFor(me, id);
   if (!conversationPermissions(me, c).canInterrupt) throw forbidden();
   if (c.kind === "free") {
-    await stopFree(me, c);
+    await stopFree(me, c, gen);
     return;
   }
-  interruptScripts(id);
-  await runScript(id, stopSteps(me, c));
+  // Un messaggio ancora in attesa non lo legge più nessuno: resta, non consegnato.
+  interruptScripts(id, i18n.t("claude.conversation.delivery.stoppedBeforeTurn"));
+  await runScript(id, stopSteps(me, c), gen);
 }
 
 /** «Ferma e scrivi» (`canInterrupt`): Claude si ferma e riparte dal messaggio. */
 export async function stopAndSend(id: string, text: string): Promise<void> {
-  const me = await gate("stopAndSend");
+  const gen = storeGeneration();
+  const me = await afterGate("stopAndSend", gen);
   const c = conversationFor(me, id);
   if (!conversationPermissions(me, c).canInterrupt) throw forbidden();
   if (!text.trim()) throw invalid("text");
   if (c.kind === "free") {
     // Ferma, poi un messaggio come un altro: in coda, con le regole della
     // pubblica (trattenuto finché non si sa cosa tocca).
-    await stopFree(me, c);
-    await sendFree(me, c, text.trim(), []);
+    await stopFree(me, c, gen);
+    await sendFree(me, c, text.trim(), [], gen);
     return;
   }
-  interruptScripts(id);
-  await runScript(id, [
-    ...stopSteps(me, c),
-    {
-      step: "event",
-      event: {
-        type: "user",
-        authorId: me,
-        text: text.trim(),
-        attachments: [],
-        delivery: "delivered",
+  interruptScripts(id, i18n.t("claude.conversation.delivery.stoppedBeforeTurn"));
+  await runScript(
+    id,
+    [
+      ...stopSteps(me, c),
+      {
+        step: "event",
+        event: {
+          type: "user",
+          authorId: me,
+          text: text.trim(),
+          attachments: [],
+          delivery: "delivered",
+        },
       },
-    },
-  ]);
+    ],
+    gen,
+  );
   const task = c.taskId ? state.tasksById.get(c.taskId) : undefined;
   if (c.kind === "refine" || !task) {
-    follow(id, refineReply(c, text));
+    follow(id, () => refineReply(c, text), gen);
     return;
   }
-  await runScript(id, [{ step: "state", state: "working" }]);
-  continueWork(c, task, "Stopped. I am starting again from your message.");
+  await runScript(id, [{ step: "state", state: "working" }], gen);
+  if (!current(gen)) return;
+  continueWork(c, task, "Stopped. I am starting again from your message.", gen);
 }
 
 /**
@@ -1712,7 +1782,8 @@ export async function answerQuestion(
   questionId: string,
   answer: { optionIndex: number | null; text: string | null },
 ): Promise<void> {
-  const me = await gate("answerQuestion");
+  const gen = storeGeneration();
+  const me = await afterGate("answerQuestion", gen);
   const c = conversationFor(me, id);
   const question = eventsOf(id).find((e) => e.type === "question" && e.questionId === questionId);
   if (!question || question.type !== "question") throw notFound();
@@ -1730,21 +1801,26 @@ export async function answerQuestion(
   const at = now();
   const label = option?.label ?? text!;
   try {
-    await runScript(id, [
-      {
-        step: "patch",
-        eventId: question.id,
-        patch: {
-          type: "question",
-          answer: { optionIndex: answer.optionIndex, text, byId: me, at },
+    await runScript(
+      id,
+      [
+        {
+          step: "patch",
+          eventId: question.id,
+          patch: {
+            type: "question",
+            answer: { optionIndex: answer.optionIndex, text, byId: me, at },
+          },
         },
-      },
-      { step: "state", state: "working" },
-    ]);
+        { step: "state", state: "working" },
+      ],
+      gen,
+    );
   } catch (error) {
     claims.delete(key);
     throw error;
   }
+  if (!current(gen)) return;
   if (c.projectId !== null) {
     state.decisionLog.push({
       id: newId("dec"),
@@ -1753,7 +1829,11 @@ export async function answerQuestion(
       taskId: c.taskId,
       title: question.text,
       context: null,
-      decision: text && option ? `${option.label} — ${text}` : label,
+      // Un template, mai un testo dell'AI: la scelta e la nota di chi risponde.
+      decision:
+        text && option
+          ? i18n.t("claude.decisionLog.answerWithNote", { option: option.label, note: text })
+          : label,
       decidedById: me,
       decidedAt: at,
       supersededById: null,
@@ -1761,7 +1841,7 @@ export async function answerQuestion(
   }
   const task = c.taskId ? state.tasksById.get(c.taskId) : undefined;
   // Il gate del piano è di chi ha avviato il lavoro (o dell'anticipo), non di chi risponde.
-  if (task) continueWork(c, task, `Thanks: “${label}”. Continuing from there.`);
+  if (task) continueWork(c, task, `Thanks: “${label}”. Continuing from there.`, gen);
 }
 
 /**
@@ -1775,7 +1855,8 @@ export async function decidePlan(
   instructions?: string,
   planId?: string,
 ): Promise<void> {
-  const me = await gate("decidePlan");
+  const gen = storeGeneration();
+  const me = await afterGate("decidePlan", gen);
   const c = conversationFor(me, id);
   if (c.kind !== "task_run" || c.projectId === null) throw invalid("kind");
   need(me, "plans.approve", c.projectId);
@@ -1818,35 +1899,55 @@ export async function decidePlan(
   };
   try {
     if (decision === "approve" || note) {
-      await runScript(id, [patch, { step: "state", state: "working" }]);
+      await runScript(id, [patch, { step: "state", state: "working" }], gen);
     } else {
-      await runScript(id, [
-        patch,
-        {
-          step: "event",
-          event: { type: "phase", phase: "plan", outcome: "stopped", stoppedById: me },
-        },
-        { step: "state", state: "finished", outcome: "stopped" },
-      ]);
+      await runScript(
+        id,
+        [
+          patch,
+          {
+            step: "event",
+            event: { type: "phase", phase: "plan", outcome: "stopped", stoppedById: me },
+          },
+          { step: "state", state: "finished", outcome: "stopped" },
+        ],
+        gen,
+      );
     }
   } catch (error) {
     claims.delete(key);
     throw error;
   }
+  if (!current(gen)) return;
+  // Il registro si scrive con un template (la lingua di chi decide), mai con
+  // un testo dell'AI; l'esito sta anche in un campo, per chi lo confronta.
+  const title =
+    decision === "approve"
+      ? "planTitleApproved"
+      : note
+        ? "planTitleRejectedWith"
+        : "planTitleRejected";
   state.decisionLog.push({
     id: newId("dec"),
     projectId: c.projectId,
     source: "plan_review",
     taskId: c.taskId,
-    title: `Plan of ${task.code}`,
+    title: i18n.t(`claude.decisionLog.${title}`, { code: task.code }),
     context: null,
-    decision: decision === "approve" ? "Approved" : note ? `Rejected: ${note}` : "Rejected",
+    decision:
+      decision === "approve"
+        ? i18n.t("claude.decisionLog.planApproved")
+        : note
+          ? i18n.t("claude.decisionLog.planRejectedWith", { instructions: note })
+          : i18n.t("claude.decisionLog.planRejected"),
     decidedById: me,
     decidedAt: now(),
     supersededById: null,
+    planOutcome: decision === "approve" ? "approved" : "rejected",
   });
-  if (decision === "approve") follow(id, scripts.execution(task, hasRepository(task.projectId)));
-  else if (note) follow(id, scripts.replanning(task, note));
+  if (decision === "approve") {
+    follow(id, scripts.execution(task, hasRepository(task.projectId)), gen);
+  } else if (note) follow(id, scripts.replanning(task, note), gen);
 }
 
 /**
@@ -1914,7 +2015,8 @@ export async function confirmProposal(
   proposalId: string,
   options: { actionIndexes?: number[] } = {},
 ): Promise<ProposalOutcome> {
-  const me = await gate("confirmProposal");
+  const gen = storeGeneration();
+  const me = await afterGate("confirmProposal", gen);
   const { proposal, key } = openProposalFor(me, id, proposalId);
   const chosen = selectActions(proposal.actions, options.actionIndexes);
   claims.set(key, me);
@@ -1923,27 +2025,46 @@ export async function confirmProposal(
     const error = i18n.t(`claude.proposalFailed.${result.code}`, {
       action: chosen.actions[result.index]?.summary ?? "",
     });
-    await runScript(id, [
-      { step: "patch", eventId: proposal.id, patch: { type: "proposal", status: "failed", error } },
-    ]);
+    await runScript(
+      id,
+      [
+        {
+          step: "patch",
+          eventId: proposal.id,
+          patch: { type: "proposal", status: "failed", error },
+        },
+      ],
+      gen,
+    );
     return { status: "failed", error };
   }
   touchProjects(state.conversations.find((c) => c.id === id)!, result.projectIds);
-  await runScript(id, [
-    {
-      step: "patch",
-      eventId: proposal.id,
-      patch: {
-        type: "proposal",
-        status: "confirmed",
-        resultCodes: result.codes,
-        ...(chosen.indexes ? { confirmedActions: chosen.indexes } : {}),
+  // Le sessioni di lavoro nascono adesso, insieme al resto e prima di
+  // qualunque attesa: un «Avvia» concorrente sulla stessa task trova già il
+  // lavoro vivo (conflict) invece di aprirne un secondo. Partono dopo.
+  const runs = result.runs.map((task) => ({ task, c: openRun(me, task) }));
+  await runScript(
+    id,
+    [
+      {
+        step: "patch",
+        eventId: proposal.id,
+        patch: {
+          type: "proposal",
+          status: "confirmed",
+          resultCodes: result.codes,
+          ...(chosen.indexes ? { confirmedActions: chosen.indexes } : {}),
+        },
       },
-    },
-  ]);
-  const runConversationIds: string[] = [];
-  for (const task of result.runs) runConversationIds.push(await launchRun(me, task));
-  return { status: "confirmed", resultCodes: result.codes, runConversationIds };
+    ],
+    gen,
+  );
+  for (const run of runs) await playRun(me, run.c, run.task, gen);
+  return {
+    status: "confirmed",
+    resultCodes: result.codes,
+    runConversationIds: runs.map((run) => run.c.id),
+  };
 }
 
 /**
@@ -1984,7 +2105,8 @@ export async function completeEditedProposal(
   proposalId: string,
   resultCodes: string[],
 ): Promise<void> {
-  const me = await gate("completeEditedProposal");
+  const gen = storeGeneration();
+  const me = await afterGate("completeEditedProposal", gen);
   const { proposal, key } = openProposalFor(me, id, proposalId);
   const visible = visibleProjectIds(me);
   const known = (code: string) =>
@@ -1992,13 +2114,22 @@ export async function completeEditedProposal(
     state.requests.some((r) => r.code === code && visible.has(r.projectId));
   if (resultCodes.length === 0 || !resultCodes.every(known)) throw invalid("resultCodes");
   claims.set(key, me);
-  await runScript(id, [
-    {
-      step: "patch",
-      eventId: proposal.id,
-      patch: { type: "proposal", status: "confirmed", edited: true, resultCodes: [...resultCodes] },
-    },
-  ]);
+  await runScript(
+    id,
+    [
+      {
+        step: "patch",
+        eventId: proposal.id,
+        patch: {
+          type: "proposal",
+          status: "confirmed",
+          edited: true,
+          resultCodes: [...resultCodes],
+        },
+      },
+    ],
+    gen,
+  );
 }
 
 /**
@@ -2121,12 +2252,15 @@ function failureCode(error: unknown): FailureCode {
 
 /** Annulla una proposta (solo chi l'ha chiesta): resta leggibile come annullata. */
 export async function cancelProposal(id: string, proposalId: string): Promise<void> {
-  const me = await gate("cancelProposal");
+  const gen = storeGeneration();
+  const me = await afterGate("cancelProposal", gen);
   const { proposal, key } = openProposalFor(me, id, proposalId);
   claims.set(key, me);
-  await runScript(id, [
-    { step: "patch", eventId: proposal.id, patch: { type: "proposal", status: "cancelled" } },
-  ]);
+  await runScript(
+    id,
+    [{ step: "patch", eventId: proposal.id, patch: { type: "proposal", status: "cancelled" } }],
+    gen,
+  );
 }
 
 /**
@@ -2257,12 +2391,10 @@ function prepareRun(me: string, task: Task, pending: Task[] = []): void {
 }
 
 /**
- * Apre la sessione di lavoro di una task e la fa partire: la fase del piano
- * (che la scrittura aspetta), poi in coda Claude legge e scrive il piano. Il
- * gate si decide quando il piano arriva: chi ha avviato senza `plans.approve`
- * aspetta l'approvazione, salvo un'approvazione in anticipo.
+ * Apre la sessione di lavoro di una task, senza attese: da qui la task ha un
+ * lavoro vivo, e un secondo «Avvia» è un conflitto (`prepareRun`).
  */
-async function launchRun(me: string, task: Task, instructions?: string): Promise<string> {
+function openRun(me: string, task: Task): Conversation {
   const c = newConversation(me, {
     kind: "task_run",
     provider: { ...TEAM_ACCOUNT },
@@ -2272,21 +2404,38 @@ async function launchRun(me: string, task: Task, instructions?: string): Promise
     state: "working",
   });
   task.claude = "working";
-  await runScript(c.id, scripts.runOpening("plan", me, instructions));
+  return c;
+}
+
+/**
+ * Fa partire la sessione aperta: la fase del piano (che la scrittura
+ * aspetta), poi in coda Claude legge e scrive il piano. Il gate si decide
+ * quando il piano arriva: chi ha avviato senza `plans.approve` aspetta
+ * l'approvazione, salvo un'approvazione in anticipo.
+ */
+async function playRun(
+  me: string,
+  c: Conversation,
+  task: Task,
+  gen: number,
+  instructions?: string,
+): Promise<void> {
+  await runScript(c.id, scripts.runOpening("plan", me, instructions), gen);
   const software = hasRepository(task.projectId);
-  follow(c.id, scripts.planReading(task, software), () =>
-    follow(c.id, scripts.planGate(task, planGateFor(c, task), software)),
+  follow(c.id, scripts.planReading(task, software), gen, () =>
+    follow(c.id, scripts.planGate(task, planGateFor(c, task), software), gen),
   );
-  return c.id;
 }
 
 /** «Avvia»: Claude parte sulla task (`runs.start`). Restituisce la sessione. */
 export async function startRun(taskId: string): Promise<Conversation> {
-  const me = await gate("startRun");
+  const gen = storeGeneration();
+  const me = await afterGate("startRun", gen);
   const task = taskFor(me, taskId);
   prepareRun(me, task);
-  const id = await launchRun(me, task);
-  return copy(state.conversations.find((c) => c.id === id)!);
+  const c = openRun(me, task);
+  await playRun(me, c, task, gen);
+  return copy(c);
 }
 
 /**
@@ -2298,7 +2447,8 @@ export async function relaunchWithInstructions(
   taskId: string,
   instructions: string,
 ): Promise<Conversation> {
-  const me = await gate("relaunchWithInstructions");
+  const gen = storeGeneration();
+  const me = await afterGate("relaunchWithInstructions", gen);
   const task = taskFor(me, taskId);
   need(me, "runs.start", task.projectId);
   if (!instructions.trim()) throw invalid("instructions");
@@ -2308,11 +2458,17 @@ export async function relaunchWithInstructions(
   // La PR è già mergiata: il lavoro è chiuso, non si rilancia (`runPreconditions`).
   if (!runPreconditions(task).relaunch) throw invalid("status");
   if (previous?.state === "paused") {
-    interruptScripts(previous.id);
-    await runScript(previous.id, [{ step: "state", state: "finished", outcome: "stopped" }]);
+    // Finché la pausa non si chiude, un «Avvia» concorrente la trova viva (conflict).
+    interruptScripts(previous.id, i18n.t("claude.conversation.delivery.stoppedBeforeTurn"));
+    await runScript(previous.id, [{ step: "state", state: "finished", outcome: "stopped" }], gen);
+    if (!current(gen)) throw new Error("reset");
+    // Nell'attesa un'altra scrittura può aver già aperto il lavoro nuovo.
+    const live = latestRunOf(task.id);
+    if (live && live.state !== "finished") throw conflict();
   }
-  const id = await launchRun(me, task, instructions.trim());
-  return copy(state.conversations.find((c) => c.id === id)!);
+  const c = openRun(me, task);
+  await playRun(me, c, task, gen, instructions.trim());
+  return copy(c);
 }
 
 /**
@@ -2320,7 +2476,8 @@ export async function relaunchWithInstructions(
  * nella fase di correzione riparte e finisce la correzione.
  */
 export async function resumeCorrection(taskId: string): Promise<Conversation> {
-  const me = await gate("resumeCorrection");
+  const gen = storeGeneration();
+  const me = await afterGate("resumeCorrection", gen);
   const task = taskFor(me, taskId);
   need(me, "corrections.request", task.projectId);
   const run = latestRunOf(task.id);
@@ -2334,22 +2491,30 @@ export async function resumeCorrection(taskId: string): Promise<Conversation> {
       .map((e) => (e.type === "phase" ? e.pr : undefined))
       .filter(Boolean)
       .at(-1) ?? null;
-  await runScript(run.id, [
-    {
-      step: "event",
-      event: {
-        type: "phase",
-        phase: "correction",
-        outcome: null,
-        ...(pr ? { pr: { ...pr } } : {}),
+  await runScript(
+    run.id,
+    [
+      {
+        step: "event",
+        event: {
+          type: "phase",
+          phase: "correction",
+          outcome: null,
+          ...(pr ? { pr: { ...pr } } : {}),
+        },
       },
-    },
-    { step: "state", state: "working" },
-  ]);
-  follow(run.id, [
-    { step: "say", text: "Resuming the correction where it stopped." },
-    ...scripts.correction(task, pr),
-  ]);
+      { step: "state", state: "working" },
+    ],
+    gen,
+  );
+  follow(
+    run.id,
+    [
+      { step: "say", text: "Resuming the correction where it stopped." },
+      ...scripts.correction(task, pr),
+    ],
+    gen,
+  );
   return copy(run);
 }
 
@@ -2359,7 +2524,8 @@ export async function resumeCorrection(taskId: string): Promise<Conversation> {
  * `invalid`; con un lavoro vivo sulla task è un conflitto.
  */
 export async function requestChanges(taskId: string, text: string): Promise<Conversation> {
-  const me = await gate("requestChanges");
+  const gen = storeGeneration();
+  const me = await afterGate("requestChanges", gen);
   const task = taskFor(me, taskId);
   need(me, "corrections.request", task.projectId);
   if (!text.trim()) throw invalid("text");
@@ -2377,8 +2543,8 @@ export async function requestChanges(taskId: string, text: string): Promise<Conv
   task.claude = "working";
   // La correzione è di una PR: la più recente ancora aperta (il job la conosce).
   const pr = latestOpenPrOf(task) ?? undefined;
-  await runScript(c.id, scripts.runOpening("correction", me, text.trim(), pr));
-  follow(c.id, scripts.correction(task, pr));
+  await runScript(c.id, scripts.runOpening("correction", me, text.trim(), pr), gen);
+  follow(c.id, scripts.correction(task, pr), gen);
   return copy(c);
 }
 
@@ -2388,7 +2554,8 @@ export async function requestChanges(taskId: string, text: string): Promise<Conv
  * rifinitura.
  */
 export async function startRefineConversation(requestId: string): Promise<Conversation> {
-  const me = await gate("startRefineConversation");
+  const gen = storeGeneration();
+  const me = await afterGate("startRefineConversation", gen);
   const request = requestFor(me, requestId);
   need(me, "backlog.edit", request.projectId);
   const open = state.conversations.find(
@@ -2406,23 +2573,30 @@ export async function startRefineConversation(requestId: string): Promise<Conver
     requestId: request.id,
     state: "working",
   });
-  await runScript(c.id, scripts.refineOpening(request.code, request.title));
+  await runScript(c.id, scripts.refineOpening(request.code, request.title), gen);
   return copy(c);
 }
 
 /** «Chiudi la sessione» di refine (`backlog.edit`): la richiesta è pronta. */
 export async function closeRefine(id: string): Promise<void> {
-  const me = await gate("closeRefine");
+  const gen = storeGeneration();
+  const me = await afterGate("closeRefine", gen);
   const c = conversationFor(me, id);
   if (c.kind !== "refine" || c.projectId === null) throw invalid("kind");
   need(me, "backlog.edit", c.projectId);
-  if (c.state === "finished") throw invalid("status");
-  interruptScripts(id);
-  await runScript(id, [
-    { step: "finish_action" },
-    { step: "event", event: { type: "phase", phase: "refine", outcome: "ok", closedById: me } },
-    { step: "state", state: "finished", outcome: "ok" },
-  ]);
+  if (!conversationPermissions(me, c).canClose) throw invalid("status");
+  // Un messaggio ancora in attesa non lo legge più nessuno: resta, non consegnato.
+  interruptScripts(id, i18n.t("claude.conversation.delivery.closedBeforeTurn"));
+  await runScript(
+    id,
+    [
+      { step: "finish_action" },
+      { step: "event", event: { type: "phase", phase: "refine", outcome: "ok", closedById: me } },
+      { step: "state", state: "finished", outcome: "ok" },
+    ],
+    gen,
+  );
+  if (!current(gen)) return;
   const request = state.requests.find((r) => r.id === c.requestId);
   if (request?.status === "refining") request.status = "ready";
 }
@@ -2438,7 +2612,7 @@ function closeRefineOfRequest(requestId: string): void {
     (x) => x.kind === "refine" && x.requestId === requestId && x.state !== "finished",
   );
   if (!c) return;
-  interruptScripts(c.id);
+  interruptScripts(c.id, i18n.t("claude.conversation.delivery.closedBeforeTurn"));
   c.state = "finished";
   c.outcome = "ok";
   void runScript(c.id, [

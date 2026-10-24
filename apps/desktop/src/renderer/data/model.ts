@@ -202,6 +202,12 @@ export interface DecisionLogEntry {
   decidedAt: string;
   /** La voce che l'ha superata: una scelta cambiata resta un fatto accaduto. */
   supersededById: string | null;
+  /**
+   * Una decisione su un piano (`plan_review`) scritta dal prototipo: l'esito,
+   * che il testo — un template nella lingua di chi decide — non dice a una
+   * macchina. Le righe del seed non lo hanno: lo dice il loro testo.
+   */
+  planOutcome?: "approved" | "rejected";
 }
 
 /** Il report giornaliero di un progetto: narrativa generata, come il brief. */
