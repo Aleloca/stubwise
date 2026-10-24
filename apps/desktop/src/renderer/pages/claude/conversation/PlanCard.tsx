@@ -18,18 +18,22 @@ import {
  * Il piano di Claude. In attesa: «In brief», «Read the full plan» che lo
  * apre dentro la scheda, e — solo con `canDecidePlan` (lo calcola il
  * livello dati) — Approve / Reject with instructions. Gli altri leggono chi
- * può approvare. Deciso: una riga, con «Show plan».
+ * può approvare. Deciso: una riga, con «Show plan». `onReadFull`: nel
+ * pannello della task «Read the full plan» apre la sessione su quel punto
+ * invece di aprirlo nella scheda stretta.
  */
 export function PlanCard({
   conversationId,
   event,
   canDecidePlan,
   projectCode,
+  onReadFull,
 }: {
   conversationId: string;
   event: Ev<"plan">;
   canDecidePlan: boolean;
   projectCode: string | null;
+  onReadFull?: () => void;
 }) {
   const { t } = useTranslation();
   const decide = useDecidePlan();
@@ -54,9 +58,9 @@ export function PlanCard({
   const toggle = (
     <button
       type="button"
-      aria-expanded={full}
-      aria-controls={planId}
-      onClick={() => setFull((f) => !f)}
+      aria-expanded={onReadFull ? undefined : full}
+      aria-controls={onReadFull ? undefined : planId}
+      onClick={() => (onReadFull ? onReadFull() : setFull((f) => !f))}
       className="-ml-1.5 self-start rounded-md px-1.5 py-0.5 text-sm font-medium text-ink-muted hover:bg-ink/6 hover:text-ink"
     >
       {full

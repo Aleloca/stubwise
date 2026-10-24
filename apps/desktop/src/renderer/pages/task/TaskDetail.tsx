@@ -1,5 +1,5 @@
-import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
-import { useCallback } from "react";
+import { Link, useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
+import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useStalled, useTask } from "../../data/queries";
 import type { Task } from "../../data/types";
@@ -12,6 +12,7 @@ import {
 } from "../../layout/useDetailPanel";
 import { useMediaQuery } from "../../layout/useMediaQuery";
 import { PageError } from "../../tasks-ui/PageStates";
+import { Conversation } from "../claude/conversation/Conversation";
 import { ActivityFeed } from "./ActivityFeed";
 import { ClaudeSection } from "./ClaudeSection";
 import { DecisionSection } from "./DecisionSection";
@@ -144,6 +145,90 @@ export function TaskDetail({ code, onClose }: { code: string; onClose: () => voi
 }
 
 function TaskBody({ task, onClose }: { task: Task; onClose: () => void }) {
+  // «Follow here»: il pannello diventa la conversazione della sessione, finché non si torna.
+  const [following, setFollowing] = useState<string | null>(null);
+  if (following) {
+    return (
+      <FollowSession
+        task={task}
+        conversationId={following}
+        onBack={() => setFollowing(null)}
+        onClose={onClose}
+      />
+    );
+  }
+  return <TaskSections task={task} onClose={onClose} onFollow={setFollowing} />;
+}
+
+/**
+ * La sessione di Claude seguita nel pannello: testata «AUD-91 · Claude
+ * session» con «← Task» e «Open full page», sotto la conversazione nella
+ * sua forma stretta (casella in fondo al pannello).
+ */
+function FollowSession({
+  task,
+  conversationId,
+  onBack,
+  onClose,
+}: {
+  task: Task;
+  conversationId: string;
+  onBack: () => void;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div data-follow-session={conversationId} className="flex min-h-0 flex-1 flex-col">
+      <div className="page-header box-content flex h-12 shrink-0 items-center gap-1 border-b border-rule pl-2 [--page-header-pr:8px]">
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label={t("taskDetail.claude.follow.backLabel", { code: task.code })}
+          className={`${ghostButton} shrink-0`}
+        >
+          <span aria-hidden="true">←</span>
+          {t("taskDetail.claude.follow.back")}
+        </button>
+        <h2 className="min-w-0 flex-1 truncate px-1 text-sm font-semibold text-ink">
+          <span className="num">{task.code}</span>
+          <span aria-hidden="true" className="px-1.5 text-ink-faint">
+            ·
+          </span>
+          {t("taskDetail.claude.follow.title")}
+        </h2>
+        <Link
+          to="/claude/$id"
+          params={{ id: conversationId }}
+          className={`${ghostButton} shrink-0`}
+        >
+          {t("taskDetail.claude.follow.openFull")}
+        </Link>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label={t("taskDetail.close")}
+          title={t("taskDetail.close")}
+          className={`${ghostButton} w-8 shrink-0 justify-center px-0`}
+        >
+          <CloseIcon />
+        </button>
+      </div>
+      <div className="min-h-0 flex-1">
+        <Conversation id={conversationId} />
+      </div>
+    </div>
+  );
+}
+
+function TaskSections({
+  task,
+  onClose,
+  onFollow,
+}: {
+  task: Task;
+  onClose: () => void;
+  onFollow: (conversationId: string) => void;
+}) {
   const { viewer } = useViewer();
   const canEdit = can(viewer, "tickets.edit", task.projectId);
   const canComment = can(viewer, "tickets.comment", task.projectId);
@@ -161,7 +246,7 @@ function TaskBody({ task, onClose }: { task: Task; onClose: () => void }) {
       <DecisionSection task={task} canComment={canComment} />
       <DescriptionSection task={task} canEdit={canEdit} />
       <TechnicalSection task={task} />
-      <ClaudeSection task={task} canEdit={canEdit} />
+      <ClaudeSection task={task} canEdit={canEdit} onFollow={onFollow} />
       <LinksSection task={task} canEdit={canEdit} />
       <ActivityFeed task={task} canComment={canComment} />
     </article>

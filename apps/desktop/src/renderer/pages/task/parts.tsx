@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from "react";
+import { useId, type ReactNode, type Ref } from "react";
 
 // I pezzi comuni delle sezioni del pannello della task: intestazione di
 // gruppo, bottoni leggeri, conferma in linea.
@@ -29,17 +29,20 @@ export function Section({
   count,
   action,
   empty,
+  sectionRef,
   children,
 }: {
   title: string;
   count?: number;
   action?: ReactNode;
   empty?: string;
+  /** Per portare la sezione in vista (Claude che aspetta chi guarda). */
+  sectionRef?: Ref<HTMLElement>;
   children?: ReactNode;
 }) {
   const id = useId();
   return (
-    <section aria-labelledby={id} className="flex flex-col gap-2 border-t border-rule px-4 py-3">
+    <section ref={sectionRef} aria-labelledby={id} className="flex flex-col gap-2 border-t border-rule px-4 py-3">
       <div className="flex min-h-7 items-center gap-2">
         <h3 id={id} className="heading-group shrink-0">
           {title}

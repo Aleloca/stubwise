@@ -5,9 +5,11 @@ import type {
   Conversation,
   ConversationEvent,
   ConversationKind,
+  ConversationState,
   DepartmentPermission,
   Milestone,
   Outcome,
+  PullRequestEvent,
 } from "./model";
 
 // I tipi del modello dell'area 2 stanno in `model.ts`; qui restano quelli
@@ -96,6 +98,31 @@ export interface ConversationFilter {
   includeOlder?: boolean;
   /** Solo in `mine`: vero = le archiviate (di base escluse). */
   archived?: boolean;
+}
+
+/** Una sessione di lavoro della task, quanto serve alla sezione «Claude» e alla storia del lavoro. */
+export interface TaskRun {
+  id: string;
+  ownerId: string;
+  createdAt: string;
+  state: ConversationState;
+  outcome: Outcome | null;
+  /** Il flusso che chi guarda può leggere. */
+  events: ConversationEvent[];
+}
+
+/**
+ * Il lavoro di Claude su una task come lo vede chi guarda: le sessioni di
+ * lavoro (dalla più vecchia; l'ultima è «la» sessione della task), gli
+ * eventi delle PR dalla piattaforma, e se il progetto ha un repository (solo
+ * lì ci sono PR e correzioni).
+ */
+export interface TaskWork {
+  runs: TaskRun[];
+  pullRequests: PullRequestEvent[];
+  software: boolean;
+  /** Una PR ancora aperta: «Request changes» ha qualcosa da correggere. */
+  openPr: boolean;
 }
 
 /** Cosa sta facendo Claude adesso, per la riga dell'elenco. */

@@ -17,6 +17,8 @@ import {
   eventsOf,
   filterContext,
   gate,
+  hasOpenPr,
+  hasRepository,
   openDecisions,
   presentEvent,
   readableLength,
@@ -58,6 +60,7 @@ import type {
   ProjectStatus,
   SavedFilter,
   SearchResult,
+  TaskWork,
   SlashCommand,
   Task,
   TimelineEvent,
@@ -524,6 +527,40 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
     events: readableEvents(me, c),
     planPreApproved: state.preApprovedPlans.has(id),
     continuesFrom: originOf(me, c),
+  };
+}
+
+/**
+ * Il lavoro di Claude su una task (la sezione «Claude» del dettaglio): le
+ * sessioni di lavoro che chi guarda vede, dalla più vecchia, con il flusso
+ * leggibile; le PR della task dalla piattaforma. Task invisibile: `null`.
+ */
+export async function getTaskWork(taskId: string): Promise<TaskWork | null> {
+  const me = await gate("getTaskWork");
+  const task = state.tasksById.get(taskId);
+  if (!task || !visibleProjectIds(me).has(task.projectId)) return null;
+  const runs = state.conversations
+    .filter((c) => c.kind === "task_run" && c.taskId === taskId && canSeeConversation(me, c))
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+    .map((c) => ({
+      id: c.id,
+      ownerId: c.ownerId,
+      createdAt: c.createdAt,
+      state: c.state,
+      outcome: c.outcome,
+      events: readableEvents(me, c),
+    }));
+  const software = hasRepository(task.projectId);
+  return {
+    runs,
+    pullRequests: software
+      ? state.pullRequests
+          .filter((pr) => pr.taskId === taskId)
+          .sort((a, b) => a.at.localeCompare(b.at))
+          .map(copy)
+      : [],
+    software,
+    openPr: hasOpenPr(task),
   };
 }
 

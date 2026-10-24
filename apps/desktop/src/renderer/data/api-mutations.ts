@@ -19,6 +19,7 @@ import {
   eventsOf,
   familyOf,
   gate,
+  hasOpenPr,
   hasRepository,
   newId,
   now,
@@ -2143,30 +2144,6 @@ export async function deleteConversation(id: string): Promise<void> {
 }
 
 // --- sessioni di lavoro -------------------------------------------------------
-
-/**
- * La task ha una PR ancora aperta: solo un progetto con un repository, e
- * l'ultima apertura (della pipeline o della piattaforma) è più recente
- * dell'ultimo merge o chiusura.
- */
-function hasOpenPr(task: Task): boolean {
-  if (!hasRepository(task.projectId)) return false;
-  const prs = state.pullRequests.filter((pr) => pr.taskId === task.id);
-  const lastClose = prs
-    .filter((pr) => pr.kind !== "pr_opened")
-    .reduce((max, pr) => (pr.at > max ? pr.at : max), "");
-  const openings = [
-    ...prs.filter((pr) => pr.kind === "pr_opened").map((pr) => pr.at),
-    ...state.conversations
-      .filter((c) => c.kind === "task_run" && c.taskId === task.id)
-      .flatMap((c) =>
-        eventsOf(c.id).flatMap((e) =>
-          e.type === "work_result" && e.kind === "pr_opened" ? [e.at] : [],
-        ),
-      ),
-  ];
-  return openings.some((at) => at > lastClose);
-}
 
 /** L'ultima sessione di lavoro della task (la più recente). */
 function latestRunOf(taskId: string): Conversation | undefined {

@@ -85,6 +85,9 @@ export const queryKeys = {
   conversations: (personId: string, filter: ConversationFilter) =>
     ["as", personId, "conversations", filter] as const,
   conversation: (personId: string, id: string) => ["as", personId, "conversation", id] as const,
+  /** Nell'area delle conversazioni: si rilegge quando una sessione della task cambia. */
+  taskWork: (personId: string, taskId: string) =>
+    ["as", personId, "conversations", "task-work", taskId] as const,
   commands: (personId: string, contextProjectId: string | null) =>
     ["as", personId, "commands", contextProjectId] as const,
   citations: (personId: string, refs: string) => ["as", personId, "citations", refs] as const,
@@ -498,6 +501,16 @@ export function useConversation(id: string) {
   return useQuery({
     queryKey: queryKeys.conversation(me, id),
     queryFn: () => api.getConversation(id),
+  });
+}
+
+/** Il lavoro di Claude su una task (sessioni, PR); `null` se la task non si vede. */
+export function useTaskWork(taskId: string) {
+  const me = useSessionPersonId();
+  useConversationChanges();
+  return useQuery({
+    queryKey: queryKeys.taskWork(me, taskId),
+    queryFn: () => api.getTaskWork(taskId),
   });
 }
 
