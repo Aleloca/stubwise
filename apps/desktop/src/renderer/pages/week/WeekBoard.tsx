@@ -149,8 +149,12 @@ export function WeekLoad({ tasks, busiest }: { tasks: Task[]; busiest: number })
   );
 }
 
-/** «Slipped ×N»: la task è arrivata qui da settimane precedenti, N volte. */
-function SlipMark({ count }: { count: number }) {
+/**
+ * «Slipped ×N»: la task è arrivata qui da settimane precedenti, N volte.
+ * `compact` (le celle di Planning) mostra solo il segno e «×N»; la frase
+ * intera resta per i lettori di schermo e nel `title`.
+ */
+export function SlipMark({ count, compact = false }: { count: number; compact?: boolean }) {
   const { t } = useTranslation();
   return (
     <span
@@ -173,7 +177,14 @@ function SlipMark({ count }: { count: number }) {
         <path d="M3 5h7.5a2.5 2.5 0 0 1 0 5H5" />
         <path d="m6.5 8-2 2 2 2" />
       </svg>
-      {t("week.slipped", { count })}
+      {compact ? (
+        <>
+          <span aria-hidden="true">×{count}</span>
+          <span className="sr-only">{t("week.slipped", { count })}</span>
+        </>
+      ) : (
+        t("week.slipped", { count })
+      )}
     </span>
   );
 }

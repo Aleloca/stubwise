@@ -27,6 +27,7 @@ import { AllFiltersPage } from "./pages/filters/AllFiltersPage";
 import { FilterPage } from "./pages/filters/FilterPage";
 import { HomePage } from "./pages/home/HomePage";
 import { MyWeekPage } from "./pages/week/MyWeekPage";
+import { PlanningPage } from "./pages/planning/PlanningPage";
 
 /** La ricerca che ogni route accetta (`?task=` apre il pannello, gli altri li montano i dialoghi). */
 export interface AppSearch {
@@ -94,11 +95,12 @@ const indexRoute = createRoute({
   },
 });
 
-function PlanningPage() {
+/** Cambiare persona rimonta la pagina: nessuna carta presa né menu a metà resta aperto. */
+function PlanningRoutePage() {
   const { viewer } = useViewer();
   // «Planning» trasversale: solo a chi ha `planning.others` in almeno un progetto.
   if (!can(viewer, "planning.others")) return <Navigate to="/home" replace />;
-  return <Placeholder titleKey="nav.planning" />;
+  return <PlanningPage key={viewer.personId} />;
 }
 
 function FilterRoutePage() {
@@ -126,7 +128,7 @@ function AdminPage() {
 
 function pageOf(name: (typeof APP_ROUTES)[number]) {
   if (name === "admin") return AdminPage;
-  if (name === "planning") return PlanningPage;
+  if (name === "planning") return PlanningRoutePage;
   if (name === "filters") return AllFiltersPage;
   if (name === "home") return HomeRoutePage;
   return () => <Placeholder titleKey={`nav.${name}`} />;
@@ -163,6 +165,7 @@ const projectIndexRoute = createRoute({
 function ProjectSectionPage() {
   const { code, section } = projectSectionRoute.useParams();
   const { t } = useTranslation();
+  const { viewer } = useViewer();
   const { data: project, isPending, isError, refetch } = useProject(code);
   if (isError) {
     return (
@@ -192,6 +195,9 @@ function ProjectSectionPage() {
     return <Navigate to="/p/$code/$section" params={{ code, section: "overview" }} replace />;
   }
   if (section === "tasks") return <TasksPage projectCode={project.code} />;
+  if (section === "planning") {
+    return <PlanningPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />;
+  }
   return <Placeholder titleKey={`project.sections.${section}`} />;
 }
 

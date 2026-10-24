@@ -15,8 +15,8 @@ export function contextOf(pathname: string): string {
   const project = /^\/p\/([^/]+)/.exec(pathname);
   if (project) return `p/${project[1]!.toUpperCase()}`;
   const first = pathname.split("/")[1] ?? "";
-  // I filtri vivono nella colonna della Home (fissati e «All filters»).
-  if (first === "filters") return "home";
+  // I filtri (fissati e «All filters») e la Planning trasversale vivono nella colonna della Home.
+  if (first === "filters" || first === "planning") return "home";
   return (APP_ROUTES as readonly string[]).includes(first) ? first : "home";
 }
 

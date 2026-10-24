@@ -1,10 +1,15 @@
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useStalled, useTask } from "../../data/queries";
 import type { Task } from "../../data/types";
 import { can, useViewer } from "../../data/viewer";
-import { DETAIL_PANEL_MIN_WIDTH, DOCKED_PANEL_QUERY, DetailPanel } from "../../layout/useDetailPanel";
+import {
+  DETAIL_PANEL_MIN_WIDTH,
+  DOCKED_PANEL_QUERY,
+  DetailPanel,
+  forcesOverlay,
+} from "../../layout/useDetailPanel";
 import { useMediaQuery } from "../../layout/useMediaQuery";
 import { PageError } from "../../tasks-ui/PageStates";
 import { ActivityFeed } from "./ActivityFeed";
@@ -19,13 +24,15 @@ import { TaskHeader } from "./TaskHeader";
 /**
  * Il pannello della task, montato dal layout su `?task=<CODE-n>` in ogni
  * route: si apre sopra la vista senza cambiare pagina. Affiancato da 1200 px,
- * sovrapposto sotto. Chiuderlo toglie `task` dall'indirizzo e lascia il resto.
+ * sovrapposto sotto (e sempre in Planning). Chiuderlo toglie `task` dall'indirizzo e lascia il resto.
  */
 export function TaskDetailHost() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const search = useSearch({ strict: false }) as { task?: string };
-  const docked = useMediaQuery(DOCKED_PANEL_QUERY);
+  const wide = useMediaQuery(DOCKED_PANEL_QUERY);
+  const overlayOnly = useRouterState({ select: (s) => forcesOverlay(s.location.pathname) });
+  const docked = wide && !overlayOnly;
   const code = search.task;
   const close = useCallback(() => {
     void navigate({

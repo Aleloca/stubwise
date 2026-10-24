@@ -356,10 +356,13 @@ export function FilterBar({
   value,
   onChange,
   lockedProjectId,
+  compact = false,
 }: {
   value: FilterCriteria;
   onChange: (criteria: FilterCriteria) => void;
   lockedProjectId?: string;
+  /** In una colonna stretta (la vasca di Planning): la ricerca in testa, a tutta larghezza. */
+  compact?: boolean;
 }) {
   const { t, i18n } = useTranslation();
   const summary = useSummary();
@@ -643,7 +646,7 @@ export function FilterBar({
           )}
         </div>
       )}
-      <div className="ml-auto flex items-center gap-2">
+      <div className={`flex items-center gap-2 ${compact ? "order-first w-full" : "ml-auto"}`}>
         {anySet && (
           <button
             type="button"
@@ -656,7 +659,7 @@ export function FilterBar({
             {t("taskUi.filters.clear")}
           </button>
         )}
-        <span className="relative">
+        <span className={`relative ${compact ? "order-first min-w-0 flex-1" : ""}`}>
           <SearchSign />
           <input
             type="search"
@@ -664,7 +667,7 @@ export function FilterBar({
             onChange={(e) => update({ text: e.target.value || undefined })}
             aria-label={t("taskUi.filters.search")}
             placeholder={t("taskUi.filters.searchPlaceholder")}
-            className="h-7 w-48 rounded-md border border-rule bg-transparent pr-2 pl-8 text-sm text-ink transition-colors duration-[var(--duration-fast)] ease-out placeholder:text-ink-faint hover:border-rule-strong focus:border-rule-strong"
+            className={`h-7 ${compact ? "w-full" : "w-48"} rounded-md border border-rule bg-transparent pr-2 pl-8 text-sm text-ink transition-colors duration-[var(--duration-fast)] ease-out placeholder:text-ink-faint hover:border-rule-strong focus:border-rule-strong`}
           />
         </span>
       </div>

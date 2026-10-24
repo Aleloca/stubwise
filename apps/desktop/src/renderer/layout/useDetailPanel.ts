@@ -18,6 +18,15 @@ export type DetailPanelMode = "docked" | "overlay";
 /** Da questa larghezza in su il pannello sta accanto all'area di lavoro. */
 export const DOCKED_PANEL_QUERY = "(min-width: 1200px)";
 
+/**
+ * Le route in cui il pannello si apre sempre sovrapposto, a ogni larghezza:
+ * Planning (progetto e trasversale), perché affiancato stringerebbe la
+ * matrice (shape planning.md §6).
+ */
+export function forcesOverlay(pathname: string): boolean {
+  return /^\/(p\/[^/]+\/)?planning\/?$/.test(pathname);
+}
+
 export const DETAIL_PANEL_MIN_WIDTH = 320;
 export const DETAIL_PANEL_MAX_WIDTH = 640;
 /** Larghezza di partenza, finché chi guarda non l'ha cambiata. */
