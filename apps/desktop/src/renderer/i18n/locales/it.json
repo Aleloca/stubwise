@@ -1378,8 +1378,8 @@
       "size": "Taglia",
       "risk": "Rischio",
       "riskNote": "Nota rischio",
-      "was": "era {{value}}",
-      "wasEmpty": "era vuoto",
+      "was": "era: «{{value}}»",
+      "wasEmpty": "era: vuoto",
       "accept": "Accetta tutto",
       "dismiss": "Scarta",
       "listLabel": "Modifiche proposte",
@@ -2014,7 +2014,45 @@
         "failedCount_one": "{{count}} non riuscita",
         "failedCount_other": "{{count}} non riuscite",
         "showEarlier_one": "Mostra {{count}} azione precedente",
-        "showEarlier_other": "Mostra {{count}} azioni precedenti"
+        "showEarlier_other": "Mostra {{count}} azioni precedenti",
+        "verbs": {
+          "read": {
+            "running": "Legge",
+            "done": "Letto"
+          },
+          "run": {
+            "running": "Esegue",
+            "done": "Eseguito"
+          },
+          "edit": {
+            "running": "Modifica",
+            "done": "Modificato"
+          },
+          "search": {
+            "running": "Cerca",
+            "done": "Cercato"
+          },
+          "write": {
+            "running": "Scrive",
+            "done": "Scritto"
+          },
+          "update": {
+            "running": "Aggiorna",
+            "done": "Aggiornato"
+          },
+          "estimate": {
+            "running": "Stima",
+            "done": "Stimato"
+          },
+          "apply": {
+            "running": "Applica",
+            "done": "Applicato"
+          },
+          "prepare": {
+            "running": "Prepara",
+            "done": "Preparato"
+          }
+        }
       },
       "phase": {
         "triage": "Triage",
@@ -2064,8 +2102,8 @@
         "preApprovedBy": "Approvato in anticipo da {{name}}",
         "rejectedBy": "Rifiutato da {{name}}",
         "rejectedWith": "Rifiutato da {{name}}: «{{instructions}}»",
-        "whoCanApprove": "Aspetta chi può approvare i piani in {{code}}",
-        "whoCanApproveAny": "Aspetta chi può approvare i piani",
+        "whoCanApprove": "Decide chi può approvare i piani in {{code}}",
+        "whoCanApproveAny": "Decide chi può approvare i piani",
         "alreadyDecided": "Ha già deciso {{name}}",
         "failed": "La decisione non è passata: il piano potrebbe essere cambiato. Riprova."
       },

@@ -147,7 +147,7 @@ function ConversationSkeleton() {
   return (
     <div
       aria-busy="true"
-      className="skeleton-breathe mx-auto flex w-full max-w-[784px] flex-col gap-4 px-8 py-8"
+      className="skeleton-breathe flex w-full max-w-[784px] flex-col gap-4 px-8 py-8"
     >
       <span role="status" className="sr-only">
         {t("claude.conversation.states.loading")}
@@ -527,7 +527,7 @@ function ConversationBody({
             )}
             <div
               ref={content}
-              className={`mx-auto flex w-full min-w-0 flex-col gap-3 ${compact ? "max-w-[752px] px-4 py-4" : "max-w-[784px] px-8 py-6"}`}
+              className={`flex w-full min-w-0 flex-col gap-3 ${compact ? "mx-auto max-w-[752px] px-4 py-4" : "max-w-[784px] px-8 py-6"}`}
             >
               {stream.connection === "reconnecting" && (
                 <p role="status" className="flex items-center gap-2 text-sm text-ink-muted">
@@ -785,7 +785,7 @@ function ReadOnlyBand({
     <div className={compact ? "px-4 pt-2 pb-3" : "px-8 pt-2 pb-5"}>
       <p
         data-read-only={reason ?? "not_interactive"}
-        className="mx-auto w-full max-w-[720px] rounded-lg bg-ink/5 px-4 py-3 text-sm text-ink-muted"
+        className={`w-full max-w-[720px] rounded-lg bg-ink/5 px-4 py-3 text-sm text-ink-muted ${compact ? "mx-auto" : ""}`}
       >
         {text}
       </p>

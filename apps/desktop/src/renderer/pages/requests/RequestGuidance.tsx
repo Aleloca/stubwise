@@ -162,15 +162,12 @@ export function SuggestionsSection({
               className="grid grid-cols-[88px_minmax(0,1fr)] gap-x-3 py-1 text-sm"
             >
               <span className="text-ink-muted">{t(`requests.suggestions.${f}`)}</span>
-              {/* Una nota è una frase: il valore di prima va a capo, in grigio. */}
-              <span
-                className={`min-w-0 [overflow-wrap:anywhere] ${f === "riskNote" ? "flex flex-col gap-0.5" : ""}`}
-              >
+              {/* Il valore proposto, poi sotto, in grigio, quello di prima. */}
+              <span className="flex min-w-0 flex-col gap-0.5 [overflow-wrap:anywhere]">
                 <span className={f === "riskNote" ? "text-ink" : "font-medium text-ink"}>
                   {value(f, suggestions[f])}
                 </span>
-                <span className="text-ink-muted">
-                  {f === "riskNote" ? "" : " · "}
+                <span className="text-xs text-ink-muted">
                   {was === null
                     ? t("requests.suggestions.wasEmpty")
                     : t("requests.suggestions.was", { value: was })}

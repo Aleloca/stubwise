@@ -68,7 +68,7 @@ const stw13 = seeded(
       summary: STW13_SUMMARY,
       status: "pending",
     },
-    says(at(0, "07:35"), "The plan is ready and waits for someone who can approve plans in STW."),
+    says(at(0, "07:35"), "Once the plan is approved I fix the count and add a test at the minimum window size."),
   ],
 );
 

@@ -100,10 +100,10 @@ describe("Conversation: flusso", () => {
     renderWithData(<Harness id="cv-giulia-week" />, { personId: "p-giulia" });
     const group = await screen.findByRole("button", { name: /3 actions/i });
     expect(group).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByText("Reads the open tasks of MKX")).toBeNull();
+    expect(screen.queryByText("Read the open tasks of MKX")).toBeNull();
     await user.click(group);
     expect(group).toHaveAttribute("aria-expanded", "true");
-    const row = screen.getByRole("button", { name: "Reads the open tasks of MKX" });
+    const row = screen.getByRole("button", { name: "Read the open tasks of MKX" });
     await user.click(row);
     expect(screen.getByText("project: MKX · status: open")).toBeInTheDocument();
   });
@@ -250,7 +250,7 @@ describe("Conversation: domande e piani", () => {
       } else {
         expect(within(card).queryByRole("button", { name: "Approve" })).toBeNull();
         expect(
-          within(card).getByText(/waiting for someone who can approve plans in stw/i),
+          within(card).getByText(/someone who can approve plans in stw decides/i),
         ).toBeInTheDocument();
       }
       view.unmount();

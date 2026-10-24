@@ -87,7 +87,7 @@ export function planGate(task: Task, gate: PlanGate, software: boolean): ScriptS
   if (gate.status === "awaiting") {
     return [
       { step: "event", event: { type: "plan", planText, summary, status: "pending" } },
-      { step: "say", text: "The plan waits for someone who can approve plans in this project." },
+      { step: "say", text: "Once the plan is approved I start from the first step." },
       { step: "state", state: "awaiting_approval" },
     ];
   }

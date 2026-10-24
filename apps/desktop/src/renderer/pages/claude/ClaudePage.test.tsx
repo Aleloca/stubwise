@@ -218,6 +218,28 @@ describe("destinazione Claude: elenchi per persona", () => {
     expect(rowIds().some((id) => id?.startsWith("cv-giulia"))).toBe(false);
   });
 
+  it("Mine: testate delle colonne, il progetto con codice e nome, «Public» detto una volta sola", async () => {
+    renderRoute("/claude?scope=mine", "p-giulia");
+    await waitFor(() => rowOf("cv-giulia-callbacks"));
+    const header = document.querySelector("[data-list-header]")!;
+    expect([...header.children].map((c) => c.textContent).filter(Boolean)).toEqual([
+      "Conversation",
+      "Project",
+      "Status",
+      "Updated",
+    ]);
+    const row = rowOf("cv-giulia-callbacks");
+    const project = row.querySelector("[data-row-project]")!;
+    expect(project.textContent).toMatch(/^AUD\S/);
+    expect(project.textContent!.length).toBeGreaterThan("AUD".length + 3);
+    // Pubblica: la parola nella colonna dello stato, e nessun globo in più davanti.
+    const visiblePublic = [...row.querySelectorAll("span")].filter(
+      (s) => s.textContent === "Public" && !s.className.includes("sr-only"),
+    );
+    expect(visiblePublic).toHaveLength(1);
+    expect(row.querySelector("svg")).toBeNull();
+  });
+
   it("Working now: tipo, codice e titolo, progetto, attività in parole; chi aspetta me va in testa", async () => {
     renderRoute("/claude?scope=live", "p-marco");
     await waitFor(() => rowOf("cv-run-aud-3"));

@@ -14,7 +14,7 @@ export function ContinueBanner({ compact }: { compact: boolean }) {
     <div className={compact ? "px-4 pt-2" : "px-8 pt-2"}>
       <p
         data-continue-banner
-        className="mx-auto flex w-full max-w-[720px] items-start gap-2 text-sm text-ink-muted"
+        className={`flex w-full max-w-[720px] items-start gap-2 text-sm text-ink-muted ${compact ? "mx-auto" : ""}`}
       >
         <BranchGlyph />
         <span className="min-w-0">{t("claude.destination.continue.banner")}</span>

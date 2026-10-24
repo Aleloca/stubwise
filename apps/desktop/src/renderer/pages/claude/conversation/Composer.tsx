@@ -276,7 +276,7 @@ export function Composer({
 
   return (
     <div className={compact ? "px-4 pt-2 pb-3" : "px-8 pt-2 pb-5"}>
-      <div className="relative mx-auto w-full max-w-[720px] min-w-0">
+      <div className={`relative w-full max-w-[720px] min-w-0 ${compact ? "mx-auto" : ""}`}>
         {menuOpen && (
           <SuggestionMenu
             id={menuId}

@@ -85,7 +85,8 @@ export function ConversationList({ scope }: { scope: ClaudeScope }) {
     const ids = new Set(all.map((r) => r.projectId ?? r.contextProjectId).filter(Boolean));
     return (projects ?? []).filter((p) => ids.has(p.id));
   }, [all, projects]);
-  const codeOf = (id: string | null) => projects?.find((p) => p.id === id)?.code ?? null;
+  const projectFor = (id: string | null) => projects?.find((p) => p.id === id) ?? null;
+  const codeOf = (id: string | null) => projectFor(id)?.code ?? null;
   const filtering = filters.projectId !== null || filters.kind !== null || filters.outcome !== null;
 
   // J/K fra le righe; Invio la apre (è un link). Niente scrivendo, né con
@@ -137,21 +138,25 @@ export function ConversationList({ scope }: { scope: ClaudeScope }) {
       />
     );
   } else {
+    // In Mine e Public sono tutte conversazioni: il tipo non distingue nulla.
+    const showKind = scope === "live" || scope === "finished";
     body = (
-      <div role="list" aria-label={title} data-scope={scope}>
-        {rows.map((row) => (
-          <ConversationListRow
-            key={row.id}
-            row={row}
-            live={scope === "live"}
-            // In Mine e Public sono tutte conversazioni: il tipo non distingue nulla.
-            showKind={scope === "live" || scope === "finished"}
-            projectCode={codeOf(projectOf(row))}
-            kind={kindWord(row.kind)}
-            when={relativeTime(row.updatedAt, t, i18n.language)}
-          />
-        ))}
-      </div>
+      <>
+        <ColumnHeader showKind={showKind} />
+        <div role="list" aria-label={title} data-scope={scope}>
+          {rows.map((row) => (
+            <ConversationListRow
+              key={row.id}
+              row={row}
+              live={scope === "live"}
+              showKind={showKind}
+              project={projectFor(projectOf(row))}
+              kind={kindWord(row.kind)}
+              when={relativeTime(row.updatedAt, t, i18n.language)}
+            />
+          ))}
+        </div>
+      </>
     );
   }
 
@@ -323,18 +328,46 @@ function FilterMenu<V extends string>({
  * attività o esito · tempo. Tutta la riga è il link alla conversazione.
  * Sotto 1280 px il tipo cade nel `title` e il tempo si accorcia.
  */
+/**
+ * Le testate delle colonne, come negli altri elenchi del catalogo: dicono
+ * cosa c'è in ogni colonna, non ordinano. Stesse larghezze e stessi punti di
+ * rottura delle righe; ferme in alto mentre l'elenco scorre.
+ */
+function ColumnHeader({ showKind }: { showKind: boolean }) {
+  const { t } = useTranslation();
+  const cell = "shrink-0 truncate text-xs font-medium text-ink-faint";
+  const h = (key: string) => t(`claude.destination.list.headers.${key}`);
+  return (
+    <div
+      aria-hidden="true"
+      data-list-header
+      className="sticky top-0 z-10 flex h-8 items-center gap-3 border-b border-rule bg-ground pr-4 pl-4"
+    >
+      <span className="w-3 shrink-0" />
+      {showKind && <span className={`${cell} hidden w-[104px] min-[1280px]:block`}>{h("type")}</span>}
+      <span className={`${cell} min-w-0 flex-1`}>{h("title")}</span>
+      <span className={`${cell} ${PROJECT_COLUMN}`}>{h("project")}</span>
+      <span className={`${cell} hidden w-[200px] min-[1100px]:block`}>{h("status")}</span>
+      <span className={`${cell} w-[72px] text-right`}>{h("when")}</span>
+    </div>
+  );
+}
+
+/** La colonna del progetto: codice e nome, come ovunque si cita un progetto. */
+const PROJECT_COLUMN = "w-[132px] min-[1280px]:w-[168px]";
+
 function ConversationListRow({
   row,
   live,
   showKind,
-  projectCode,
+  project,
   kind,
   when,
 }: {
   row: ConversationRow;
   live: boolean;
   showKind: boolean;
-  projectCode: string | null;
+  project: { code: string; name: string } | null;
   kind: string;
   when: string;
 }) {
@@ -344,7 +377,8 @@ function ConversationListRow({
   const activity = activityText(row, t);
   const title = row.title || t("claude.destination.page.untitled");
   // A destra: in «Working now» lo stato (l'attività sta sotto il titolo);
-  // altrove l'attività se Claude lavora, se no lo stato o l'esito.
+  // altrove l'attività se Claude lavora, se no lo stato o l'esito. «Public» lo
+  // dice la parola nella colonna dello stato: un segno solo, niente globo davanti.
   const right = live ? stateLabel : (activity ?? stateLabel);
   const tone =
     state === "failed"
@@ -366,11 +400,13 @@ function ConversationListRow({
       >
         <span className="flex w-full min-w-0 items-center gap-3">
           <span className="grid w-3 shrink-0 place-items-center">
-            <StateSign state={state} />
+            <StateSign state={state === "public" ? null : state} />
           </span>
           {/* Sotto 1100 px la colonna dello stato non c'è: la parola resta qui. */}
           {stateLabel && !live && (
-            <span className="sr-only min-[1100px]:hidden">{stateLabel}</span>
+            <span className="sr-only min-[1100px]:hidden">
+              {stateLabel}
+            </span>
           )}
           {showKind && (
             <span className="hidden w-[104px] shrink-0 truncate text-sm text-ink-muted min-[1280px]:block">
@@ -385,8 +421,19 @@ function ConversationListRow({
             )}
             <span className="min-w-0 truncate text-md text-ink">{title}</span>
           </span>
-          <span className="num w-12 shrink-0 text-xs font-semibold tracking-[0.02em] text-ink-muted">
-            {projectCode ?? ""}
+          <span
+            data-row-project
+            title={project ? `${project.code} · ${project.name}` : undefined}
+            className={`flex min-w-0 shrink-0 items-baseline gap-1.5 ${PROJECT_COLUMN}`}
+          >
+            {project && (
+              <>
+                <span className="num shrink-0 text-xs font-semibold tracking-[0.02em] text-ink-muted">
+                  {project.code}
+                </span>
+                <span className="min-w-0 truncate text-sm text-ink-muted">{project.name}</span>
+              </>
+            )}
           </span>
           {right && (
             <span

@@ -7,6 +7,7 @@ import type { Ev } from "./flow";
 import { WaitingDot } from "./QuestionCard";
 import {
   cardClass,
+  DisclosureGlyph,
   primaryButton,
   quietButton,
   secondaryButton,
@@ -22,7 +23,9 @@ import {
  * se nel frattempo Claude ha scritto un piano nuovo: la decisione vale
  * solo per il piano letto). Deciso: una riga, con «Show plan». `onReadFull`: nel
  * pannello della task «Read the full plan» apre la sessione su quel punto
- * invece di aprirlo nella scheda stretta.
+ * invece di aprirlo nella scheda stretta. `statusShown`: chi la ospita dice
+ * già che il piano aspetta (la riga di stato della task), e la scheda non
+ * lo ripete — si intitola solo «Plan».
  */
 export function PlanCard({
   conversationId,
@@ -30,12 +33,14 @@ export function PlanCard({
   canDecidePlan,
   projectCode,
   onReadFull,
+  statusShown = false,
 }: {
   conversationId: string;
   event: Ev<"plan">;
   canDecidePlan: boolean;
   projectCode: string | null;
   onReadFull?: () => void;
+  statusShown?: boolean;
 }) {
   const { t } = useTranslation();
   const decide = useDecidePlan();
@@ -59,19 +64,22 @@ export function PlanCard({
       />
     </div>
   );
+  // Un'apertura come quella dei gruppi d'azione: in inchiostro, con la freccia
+  // che gira (o che porta alla sessione, nel pannello della task).
   const toggle = (
     <button
       type="button"
       aria-expanded={onReadFull ? undefined : full}
       aria-controls={onReadFull ? undefined : planId}
       onClick={() => (onReadFull ? onReadFull() : setFull((f) => !f))}
-      className="-ml-1.5 self-start rounded-md px-1.5 py-0.5 text-sm font-medium text-ink-muted hover:bg-ink/6 hover:text-ink"
+      className="-ml-1.5 inline-flex min-h-7 items-center gap-1.5 self-start rounded-md px-1.5 py-0.5 text-sm font-medium text-ink hover:bg-ink/6"
     >
       {full
         ? t("claude.conversation.plan.hide")
         : event.status === "pending"
           ? t("claude.conversation.plan.readFull")
           : t("claude.conversation.plan.show")}
+      <DisclosureGlyph open={full} />
     </button>
   );
 
@@ -127,9 +135,9 @@ export function PlanCard({
     <section aria-labelledby={headingId} data-plan={event.id} className={`${cardClass} gap-3 p-4`}>
       <header className="flex flex-wrap items-center justify-between gap-2">
         <h3 id={headingId} className="text-sm font-semibold text-ink">
-          {t("claude.conversation.plan.waiting")}
+          {t(`claude.conversation.plan.${statusShown ? "title" : "waiting"}`)}
         </h3>
-        {canDecidePlan && lostTo === null && (
+        {canDecidePlan && lostTo === null && !statusShown && (
           <WaitingDot label={t("claude.conversation.waitingOnYou")} />
         )}
       </header>
@@ -196,7 +204,8 @@ export function PlanCard({
           </form>
         )
       ) : (
-        <p className="text-sm text-ink-muted">
+        // Al posto di Approve, dove chi può decidere trova i bottoni: chi decide.
+        <p data-plan-who className="text-right text-sm text-ink-muted">
           {projectCode
             ? t("claude.conversation.plan.whoCanApprove", { code: projectCode })
             : t("claude.conversation.plan.whoCanApproveAny")}

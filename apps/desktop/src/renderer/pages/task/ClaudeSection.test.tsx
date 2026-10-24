@@ -73,16 +73,20 @@ describe("sezione Claude", () => {
     expect(card).toHaveTextContent(/can answer/i);
   });
 
-  it("il piano si approva solo con plans.approve", async () => {
+  it("il piano si approva solo con plans.approve; lo stato si dice una volta sola", async () => {
     const dev = await claudeSection("t-stw-13", "p-marco");
-    const plan = within(dev).getByRole("region", { name: "Plan · waiting for approval" });
+    // La riga di stato dice che aspetta; la scheda si intitola solo «Plan».
+    const plan = within(dev).getByRole("region", { name: "Plan" });
     expect(within(plan).queryByRole("button", { name: "Approve" })).toBeNull();
-    expect(plan).toHaveTextContent(/approve plans in STW/);
+    expect(plan).toHaveTextContent(/Someone who can approve plans in STW decides/);
+    expect(dev.textContent!.match(/waiting for/gi) ?? []).toHaveLength(1);
+    // Con la scheda in attesa l'ultimo messaggio di Claude non si ripete sotto.
+    expect(dev).not.toHaveTextContent(/Once the plan is approved/);
   });
 
   it("chi ha plans.approve approva il piano dalla sezione", async () => {
     const section = await claudeSection("t-stw-13", "p-laura");
-    const plan = within(section).getByRole("region", { name: "Plan · waiting for approval" });
+    const plan = within(section).getByRole("region", { name: "Plan" });
     await userEvent.click(within(plan).getByRole("button", { name: "Approve" }));
     await waitFor(async () => {
       const detail = await getConversation("cv-run-stw-13");
@@ -372,8 +376,8 @@ describe("sezione Claude: attività AI, cicli delle PR, consumi", () => {
     await userEvent.click(within(failure).getByRole("button", { name: "Show log" }));
     const log = within(failure).getByRole("list", { name: "Log of the Execution phase" });
     expect(within(log).getAllByRole("listitem")).toHaveLength(3);
-    expect(log).toHaveTextContent("Edits apps/desktop/src/renderer/data/api-mutations.ts");
-    expect(log).toHaveTextContent(/Runs the desktop tests\s*failed/);
+    expect(log).toHaveTextContent("Edited apps/desktop/src/renderer/data/api-mutations.ts");
+    expect(log).toHaveTextContent(/Ran the desktop tests\s*failed/);
     await userEvent.click(within(failure).getByRole("button", { name: "Hide log" }));
     expect(within(failure).queryByRole("list")).toBeNull();
   });

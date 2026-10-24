@@ -1,5 +1,6 @@
 import { Fragment, useId, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { BreakablePath } from "../../../tasks-ui/Markdown";
 import type { Ev } from "./flow";
 import { CheckGlyph, CrossGlyph, DisclosureGlyph, WorkingRing } from "./parts";
@@ -15,6 +16,45 @@ import { CheckGlyph, CrossGlyph, DisclosureGlyph, WorkingRing } from "./parts";
 export const ACTION_WINDOW = 50;
 
 type Action = Ev<"action">;
+
+/**
+ * Il verbo con cui comincia l'etichetta del «server» (in inglese, al presente
+ * o al passato), riportato a una chiave: la riga lo dice nella lingua di chi
+ * guarda, al presente solo mentre l'azione è in corso.
+ */
+const VERBS: Record<string, string> = {
+  Reads: "read",
+  Read: "read",
+  Runs: "run",
+  Ran: "run",
+  Edits: "edit",
+  Edited: "edit",
+  Searches: "search",
+  Searched: "search",
+  Writes: "write",
+  Wrote: "write",
+  Updates: "update",
+  Updated: "update",
+  Estimates: "estimate",
+  Estimated: "estimate",
+  Applies: "apply",
+  Applied: "apply",
+  Prepares: "prepare",
+  Prepared: "prepare",
+};
+
+/**
+ * L'etichetta di un'azione come la legge chi guarda: «Read MKX-3», «Ran the
+ * desktop tests» quando è finita (anche non riuscita), «Reads MKX-3» solo
+ * mentre è in corso. Un verbo che non si conosce resta com'è.
+ */
+export function actionLabel(t: TFunction, action: Action): string {
+  const match = /^(\S+)(\s.*)?$/s.exec(action.label);
+  const key = match ? VERBS[match[1]!] : undefined;
+  if (!key) return action.label;
+  const tense = action.state === "running" ? "running" : "done";
+  return `${t(`claude.conversation.actions.verbs.${key}.${tense}`)}${match![2] ?? ""}`;
+}
 
 /** Un'etichetta con dentro un percorso: il percorso va a capo dopo ogni «/». */
 function Label({ text }: { text: string }) {
@@ -59,7 +99,7 @@ export function ActionRow({ action }: { action: Action }) {
     <>
       <StateMark state={action.state} />
       <span className="min-w-0 [overflow-wrap:anywhere]">
-        <Label text={action.label} />
+        <Label text={actionLabel(t, action)} />
         {action.state === "failed" && (
           <span className="ml-1.5 font-medium text-critical">
             {t("claude.conversation.actions.failed")}
@@ -154,12 +194,8 @@ export function ActionRows({ actions, compact = false }: { actions: Action[]; co
 
   const failed = actions.filter((a) => a.state === "failed").length;
   const last = actions.at(-1)!;
-  const summary = running
-    ? last.label
-    : actions
-        .slice(0, 2)
-        .map((a) => a.label)
-        .join(", ") + (actions.length > 2 ? ", …" : "");
+  // Un solo separatore: il conteggio, poi l'ultima azione (in corso o fatta).
+  const summary = actionLabel(t, last);
   const hidden = Math.max(0, actions.length - shown);
 
   return (

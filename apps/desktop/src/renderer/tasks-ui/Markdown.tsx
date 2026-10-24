@@ -12,6 +12,7 @@ import { Fragment, type ReactNode } from "react";
 
 type Block =
   | { kind: "p"; text: string }
+  | { kind: "quote"; text: string }
   | { kind: "h"; text: string }
   | { kind: "ul" | "ol"; items: string[] }
   | { kind: "code"; lang: string; text: string }
@@ -20,6 +21,7 @@ type Block =
 const UL = /^\s*[-*]\s+(.*)$/;
 const OL = /^\s*\d+[.)]\s+(.*)$/;
 const H = /^#{1,6}\s+(.*)$/;
+const QUOTE = /^\s*>\s?(.*)$/;
 const FENCE = /^\s*```\s*([\w+-]*)\s*$/;
 const TABLE_ROW = /^\s*\|.*\|\s*$/;
 const TABLE_RULE = /^\s*\|?(\s*:?-{2,}:?\s*\|)+\s*:?-{0,}:?\s*\|?\s*$/;
@@ -32,7 +34,13 @@ const cells = (line: string) =>
     .split("|")
     .map((c) => c.trim());
 
-function blocks(source: string): Block[] {
+/**
+ * I blocchi del testo. `streaming`: il testo sta ancora arrivando, e la sua
+ * ultima riga può essere a metà — una tabella si mostra solo quando la sua
+ * prima riga del corpo è arrivata intera (prima resta testo, e il cursore
+ * segue il testo vero invece di stare sotto una testata vuota).
+ */
+function blocks(source: string, streaming = false): Block[] {
   const out: Block[] = [];
   let para: string[] = [];
   const flush = () => {
@@ -54,13 +62,26 @@ function blocks(source: string): Block[] {
       continue;
     }
     if (TABLE_ROW.test(line) && TABLE_RULE.test(lines[i + 1] ?? "")) {
-      flush();
-      const header = cells(line);
+      // Mentre arriva, l'ultima riga può essere a metà: non entra nella tabella.
+      const complete = streaming ? lines.length - 1 : lines.length;
       const rows: string[][] = [];
       let j = i + 2;
-      while (j < lines.length && TABLE_ROW.test(lines[j]!)) rows.push(cells(lines[j++]!));
-      out.push({ kind: "table", header, rows });
-      i = j - 1;
+      while (j < complete && TABLE_ROW.test(lines[j]!)) rows.push(cells(lines[j++]!));
+      if (!streaming || rows.length > 0) {
+        flush();
+        out.push({ kind: "table", header: cells(line), rows });
+        i = j - 1;
+        continue;
+      }
+    }
+    const quote = QUOTE.exec(line);
+    if (quote) {
+      flush();
+      const body = [quote[1]!];
+      while (i + 1 < lines.length && QUOTE.test(lines[i + 1]!)) {
+        body.push(QUOTE.exec(lines[++i]!)![1]!);
+      }
+      out.push({ kind: "quote", text: body.join("\n") });
       continue;
     }
     if (!line.trim()) {
@@ -198,7 +219,8 @@ export function Markdown({
   /** In coda all'ultimo blocco di testo (il cursore di un messaggio che arriva). */
   trailing?: ReactNode;
 }) {
-  const list = blocks(source);
+  // Con il cursore il testo sta arrivando: le tabelle aspettano la prima riga intera.
+  const list = blocks(source, trailing !== undefined && trailing !== null);
   const last = list.length - 1;
   const tail = (i: number) => (i === last ? trailing : null);
   // Dopo un blocco di codice o una tabella (o senza testo) il cursore va a capo.
@@ -216,6 +238,17 @@ export function Markdown({
                 {inline(block.text, key, decorate)}
                 {tail(i)}
               </p>
+            );
+          case "quote":
+            // Una citazione: rientrata, con il filo a sinistra (mai un bordo colorato).
+            return (
+              <blockquote
+                key={key}
+                className="border-l border-rule-strong pl-3 whitespace-pre-line text-ink-muted"
+              >
+                {inline(block.text, key, decorate)}
+                {tail(i)}
+              </blockquote>
             );
           case "ul":
           case "ol": {

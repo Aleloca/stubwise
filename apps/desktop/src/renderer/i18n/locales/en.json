@@ -1378,8 +1378,8 @@
       "size": "Size",
       "risk": "Risk",
       "riskNote": "Risk note",
-      "was": "was {{value}}",
-      "wasEmpty": "was empty",
+      "was": "was: “{{value}}”",
+      "wasEmpty": "was: empty",
       "accept": "Accept all",
       "dismiss": "Dismiss",
       "listLabel": "Suggested changes",
@@ -2014,7 +2014,45 @@
         "failedCount_one": "{{count}} failed",
         "failedCount_other": "{{count}} failed",
         "showEarlier_one": "Show {{count}} earlier action",
-        "showEarlier_other": "Show {{count}} earlier actions"
+        "showEarlier_other": "Show {{count}} earlier actions",
+        "verbs": {
+          "read": {
+            "running": "Reads",
+            "done": "Read"
+          },
+          "run": {
+            "running": "Runs",
+            "done": "Ran"
+          },
+          "edit": {
+            "running": "Edits",
+            "done": "Edited"
+          },
+          "search": {
+            "running": "Searches",
+            "done": "Searched"
+          },
+          "write": {
+            "running": "Writes",
+            "done": "Wrote"
+          },
+          "update": {
+            "running": "Updates",
+            "done": "Updated"
+          },
+          "estimate": {
+            "running": "Estimates",
+            "done": "Estimated"
+          },
+          "apply": {
+            "running": "Applies",
+            "done": "Applied"
+          },
+          "prepare": {
+            "running": "Prepares",
+            "done": "Prepared"
+          }
+        }
       },
       "phase": {
         "triage": "Triage",
@@ -2064,8 +2102,8 @@
         "preApprovedBy": "Approved in advance by {{name}}",
         "rejectedBy": "Rejected by {{name}}",
         "rejectedWith": "Rejected by {{name}}: “{{instructions}}”",
-        "whoCanApprove": "Waiting for someone who can approve plans in {{code}}",
-        "whoCanApproveAny": "Waiting for someone who can approve plans",
+        "whoCanApprove": "Someone who can approve plans in {{code}} decides",
+        "whoCanApproveAny": "Someone who can approve plans decides",
         "alreadyDecided": "Already decided by {{name}}",
         "failed": "The decision didn't go through: the plan may have changed. Try again."
       },

@@ -599,10 +599,13 @@ function WithRun({
           canDecidePlan={detail?.canDecidePlan ?? false}
           projectCode={code || null}
           onReadFull={toSession}
+          statusShown
         />
       )}
 
-      {message && (
+      {/* Con una domanda o un piano in attesa, la scheda è lo stato: l'ultimo
+          messaggio di Claude (che lo racconta a parole) non si ripete sotto. */}
+      {message && !pending && (
         <p className="line-clamp-2 text-sm text-ink-muted [overflow-wrap:anywhere]">
           <span className="sr-only">{t(`${K}.lastMessage`)}: </span>
           {plain(message.text)}

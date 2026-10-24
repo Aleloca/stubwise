@@ -157,6 +157,8 @@ describe("Activity → By person", () => {
     expect(simone.querySelector("[data-report-stale]")).toHaveTextContent(
       "2 new commits not included",
     );
+    // Nessun separatore staccato davanti all'avviso.
+    expect(simone.querySelector("[data-report-stale]")!.textContent).not.toMatch(/^\s*·/);
     // AUD non ha ancora il report: nessun avviso.
     expect(row("p-stefano").querySelector("[data-report-stale]")).toBeNull();
     await userEvent.click(within(simone).getByRole("button", { name: "Regenerate the daily report of STW" }));

@@ -709,9 +709,6 @@ function ReportCell({
       {/* Per progetto: con più progetti il codice dice di quale report si parla. */}
       {stale.map((id) => (
         <span key={id} data-report-stale={projects.get(id)?.code} className="flex items-center gap-1">
-          <span aria-hidden="true" className="text-ink-faint">
-            ·
-          </span>
           <span className="text-warning">
             {projectIds.length > 1 && (
               <span className="num font-semibold">{projects.get(id)?.code} </span>

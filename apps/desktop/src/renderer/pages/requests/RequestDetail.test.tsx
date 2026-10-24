@@ -34,8 +34,8 @@ describe("richiesta: proposte dell'intake", () => {
       "listitem",
     );
     expect(rows.map((r) => r.textContent)).toEqual([
-      "SizeL · was M",
-      "Risk noteThe showroom date is fixed and the page needs the booking form: no room to slip.was The showroom date is fixed: no room to slip.",
+      "SizeLwas: “M”",
+      "Risk noteThe showroom date is fixed and the page needs the booking form: no room to slip.was: “The showroom date is fixed: no room to slip.”",
     ]);
     expect(box).toHaveTextContent(/booking form and a map/);
     await userEvent.click(within(box).getByRole("button", { name: "Accept all" }));
@@ -50,13 +50,13 @@ describe("richiesta: proposte dell'intake", () => {
     expect(within(dialog).getByRole("button", { name: "Size: L. Change" })).toBeInTheDocument();
   });
 
-  it("un campo vuoto dice «was empty»; «Dismiss» le toglie senza cambiare i metadati", async () => {
+  it("un campo vuoto dice «was: empty»; «Dismiss» le toglie senza cambiare i metadati", async () => {
     renderRoute("/p/STW/requests?request=req-stw-1", "p-laura");
     const dialog = await panel();
     const box = await within(dialog).findByRole("region", { name: "Suggested by the intake" });
-    expect(box).toHaveTextContent("UrgencyLow · was Medium");
-    expect(box).toHaveTextContent("SizeS · was empty");
-    expect(box).toHaveTextContent("RiskLow · was empty");
+    expect(box).toHaveTextContent("UrgencyLowwas: “Medium”");
+    expect(box).toHaveTextContent("SizeSwas: empty");
+    expect(box).toHaveTextContent("RiskLowwas: empty");
     await userEvent.click(within(box).getByRole("button", { name: "Dismiss" }));
     await waitFor(() => expect(request("req-stw-1").suggestions ?? null).toBeNull());
     expect(request("req-stw-1").size ?? null).toBeNull();
