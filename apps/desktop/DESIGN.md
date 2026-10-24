@@ -204,6 +204,8 @@ A near-monochrome neutral field (cool, hue 265, chroma under 0.01) with eight de
 
 **The Group-Heading-Only Rule.** Spaced, expanded, uppercase text is for short group headings (Overdue, Today, palette groups, menu groups), never for body or buttons.
 
+**The Conversations-Have-No-Code Exception.** Conversations with Claude are the one kind of entry without a catalog code (maintainer decision in the ossatura design: "le conversazioni no: si citano col link al messaggio"). A conversation row leads with its title; when it belongs to a task or request, that object's code sits beside the title, and the project column shows the project code with its name. A conversation is cited by the link to its message, never by an invented code.
+
 **The Tabular Figures Rule.** Codes, dates and counts use tabular figures (`num`).
 
 ## Layout
