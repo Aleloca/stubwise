@@ -44,6 +44,7 @@ import type {
   ConversationDetail,
   ConversationFilter,
   ConversationRow,
+  DailyReport,
   DayArrangement,
   DecisionLogEntry,
   DecisionRequest,
@@ -690,7 +691,7 @@ export async function listPeopleActivity(
   const me = await gate("listPeopleActivity");
   if (!can(viewerFor(me), "people.activity.view")) throw new Error("forbidden");
   const visible = visibleProjectIds(me);
-  const onDay = (at: string | null | undefined) => at?.slice(0, 10) === date;
+  const onDay = (at: string | null | undefined) => !!at && localDay(at) === date;
   const byKey = new Map<string, PersonDayActivity>();
   const row = (personId: string | null, name?: string): PersonDayActivity => {
     const key = personId ?? `unlinked:${name}`;
@@ -789,13 +790,43 @@ export async function listPeopleActivity(
   }
   for (const commit of COMMITS) {
     if (!visible.has(commit.projectId) || !onDay(commit.at)) continue;
-    row(commit.authorId, commit.authorName).commits.push(copy(commit));
+    // Un autore collegato dopo il seed («Link a person») passa sotto la persona.
+    const authorId = commit.authorId ?? state.commitAuthorLinks.get(commit.authorName) ?? null;
+    row(authorId, commit.authorName).commits.push({ ...copy(commit), authorId });
   }
 
   return [...byKey.values()]
     .filter((p) => !p.personId || !PEOPLE.find((x) => x.id === p.personId)?.isClaude)
     .filter((p) => !departmentId || p.departmentIds.includes(departmentId))
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Il giorno locale (YYYY-MM-DD) di un istante, nel fuso di chi guarda: la
+ * rassegna conta i fatti sulla giornata di chi la legge. Nel prototipo
+ * «server» e finestra stanno sulla stessa macchina, quindi è il fuso del
+ * processo; il server vero lo riceverà dal client.
+ */
+function localDay(at: string): string {
+  const d = new Date(at);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/**
+ * I report giornalieri di un giorno, dei progetti che chi guarda vede, per la
+ * rassegna per persona (stesso permesso). Il report è sul giorno UTC, come
+ * oggi: la rassegna lo mostra sul giorno scelto senza ricalcolarlo. Un
+ * progetto senza riga non l'ha ancora; `summary: null` è fallito.
+ */
+export async function listDailyReports(date: string): Promise<DailyReport[]> {
+  const me = await gate("listDailyReports");
+  if (!can(viewerFor(me), "people.activity.view")) throw new Error("forbidden");
+  const visible = visibleProjectIds(me);
+  return state.dailyReports
+    .filter((r) => r.date === date && visible.has(r.projectId))
+    .sort((a, b) => a.projectId.localeCompare(b.projectId))
+    .map(copy);
 }
 
 export async function search(q: string): Promise<SearchResult[]> {

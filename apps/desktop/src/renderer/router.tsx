@@ -48,6 +48,10 @@ export interface AppSearch {
   scope?: string;
   /** Destinazione «Claude»: la domanda scritta nella palette («Ask Claude…»), da rivedere e mandare. */
   ask?: string;
+  /** All projects → Activity, per persona: il giorno (YYYY-MM-DD). */
+  date?: string;
+  /** All projects → Activity, per persona: il reparto. */
+  dept?: string;
 }
 
 const SEARCH_KEYS = [
@@ -62,6 +66,8 @@ const SEARCH_KEYS = [
   "group",
   "scope",
   "ask",
+  "date",
+  "dept",
 ] as const;
 
 /**
@@ -82,15 +88,17 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
     if (typeof value !== "string") continue;
     // `request` e `view` dipendono dal percorso: qui si controlla la forma, la route decide.
     const shapeOk =
-      key === "request" || key === "brief"
+      key === "request" || key === "brief" || key === "dept"
         ? /^[\w-]+$/.test(value)
-        : key === "view" || key === "group" || key === "scope"
-          ? /^[a-z-]+$/.test(value)
-          : key === "ask"
-            ? value.trim().length > 0 && value.length <= ASK_MAX
-            : key === "refine"
-              ? value === "1"
-              : false;
+        : key === "date"
+          ? /^\d{4}-\d{2}-\d{2}$/.test(value)
+          : key === "view" || key === "group" || key === "scope"
+            ? /^[a-z-]+$/.test(value)
+            : key === "ask"
+              ? value.trim().length > 0 && value.length <= ASK_MAX
+              : key === "refine"
+                ? value === "1"
+                : false;
     if (shapeOk || isValidSearchParam("", key, value)) out[key] = value;
   }
   out.filters = parseCriteria(search.filters) ?? undefined;

@@ -132,6 +132,9 @@ export type ApiFnName =
   | "getTaskWork"
   | "listCommands"
   | "listPeopleActivity"
+  | "listDailyReports"
+  | "generateDailyReport"
+  | "linkCommitAuthor"
   | "createConversation"
   | "sendMessage"
   | "stop"
@@ -235,6 +238,8 @@ interface State {
   briefs: WeeklyBrief[];
   decisionLog: DecisionLogEntry[];
   dailyReports: DailyReport[];
+  /** Autori git dei commit collegati a una persona dopo il seed (nome git → id persona). */
+  commitAuthorLinks: Map<string, string>;
   pullRequests: PullRequestEvent[];
   filters: SavedFilter[];
   departmentHomes: DepartmentHome[];
@@ -274,6 +279,7 @@ function freshState(): State {
     briefs: BRIEFS.map(copy),
     decisionLog: DECISION_LOG.map(copy),
     dailyReports: DAILY_REPORTS.map(copy),
+    commitAuthorLinks: new Map(),
     pullRequests: PULL_REQUEST_EVENTS.map(copy),
     filters: SAVED_FILTERS.map(copy),
     departmentHomes: DEPARTMENT_HOMES.map(copy),

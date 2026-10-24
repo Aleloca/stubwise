@@ -47,7 +47,8 @@ export const TASK_CODE_RE = /^[A-Z]{2,4}-\d+$/;
  * vale OVUNQUE; `newTask`/`project`/`newRequest` li scrive la palette (⌘K) e
  * li montano i dialoghi; `request` solo sulle richieste di un progetto; `view`
  * sulla Home (`week`) e, con `group` e `filters` (criteri in JSON), sulle
- * pagine di task (Tasks di progetto, filtro salvato). Fonte unica: la usa
+ * pagine di task (Tasks di progetto, filtro salvato); su All projects `view`
+ * (`person`), `date` e `dept` sono la rassegna per persona. Fonte unica: la usa
  * anche il router per validare.
  */
 export function isValidSearchParam(path: string, key: string, value: string): boolean {
@@ -68,7 +69,12 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
       return /^p\/[A-Z]{2,4}\/overview$/.test(path) && /^[\w-]+$/.test(value);
     case "view":
       if (path === "home") return value === "week";
+      if (path === "projects") return value === "person";
       return isTasksPath(path) && (TASK_VIEWS as readonly string[]).includes(value);
+    case "date":
+      return path === "projects" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+    case "dept":
+      return path === "projects" && /^[\w-]+$/.test(value);
     case "group":
       return isTasksPath(path) && (GROUP_BYS as readonly string[]).includes(value);
     case "filters":

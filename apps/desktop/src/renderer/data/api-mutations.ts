@@ -7,6 +7,8 @@ import i18n from "../i18n";
 // solo dentro le funzioni, quindi l'import circolare con `api.ts` è innocuo.
 import * as reads from "./api";
 import * as scripts from "./conversation-scripts";
+import { COMMITS } from "./seed/commits";
+import { TODAY } from "./seed/dates";
 import { DEPARTMENTS } from "./seed/departments";
 import { DOC_PAGES } from "./seed/docPages";
 import { PEOPLE } from "./seed/people";
@@ -40,6 +42,7 @@ import type {
   Attachment,
   Conversation,
   ConversationEvent,
+  DailyReport,
   DecisionDraft,
   DecisionLogEntry,
   DecisionRequest,
@@ -2421,4 +2424,47 @@ function closeRefineOfRequest(requestId: string): void {
     },
     { step: "state", state: "finished", outcome: "ok" },
   ]).catch(() => undefined);
+}
+
+// --- rassegna del giorno per persona -----------------------------------------
+
+/**
+ * «Generate report» / «Retry»: (ri)genera il report giornaliero di un
+ * progetto per un giorno, con lo stesso permesso del web (`settings.manage`).
+ * Nel prototipo la sintesi mette in fila i riassunti generati dei commit del
+ * giorno; un report fallito si sostituisce, mai uno del futuro.
+ */
+export async function generateDailyReport(projectId: string, date: string): Promise<DailyReport> {
+  const me = await gate("generateDailyReport");
+  projectFor(me, projectId);
+  need(me, "settings.manage");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > TODAY) throw invalid("date");
+  const summaries = COMMITS.filter(
+    (c) => c.projectId === projectId && c.at.slice(0, 10) === date,
+  ).map((c) => c.aiSummary);
+  const report: DailyReport = {
+    id: `rep-${projectId}-${date}`,
+    projectId,
+    date,
+    summary: summaries.length > 0 ? summaries.join(" ") : i18n.t("projects.people.report.quiet"),
+  };
+  state.dailyReports = state.dailyReports.filter(
+    (r) => !(r.projectId === projectId && r.date === date),
+  );
+  state.dailyReports.push(report);
+  return copy(report);
+}
+
+/**
+ * «Link a person»: collega un autore git non collegato a una persona; da lì i
+ * suoi commit passano sotto di lei. Lo stesso permesso del web (`users.manage`).
+ */
+export async function linkCommitAuthor(authorName: string, personId: string): Promise<void> {
+  const me = await gate("linkCommitAuthor");
+  need(me, "users.manage");
+  const unlinked = COMMITS.some((c) => c.authorId === null && c.authorName === authorName);
+  if (!unlinked || state.commitAuthorLinks.has(authorName)) throw notFound();
+  const person = PEOPLE.find((p) => p.id === personId);
+  if (!person || person.isClaude) throw notFound();
+  state.commitAuthorLinks.set(authorName, personId);
 }

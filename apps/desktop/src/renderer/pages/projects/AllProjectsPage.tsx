@@ -1,4 +1,4 @@
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -20,6 +20,7 @@ import { PulseText } from "../overview/PulseText";
 import { Chevron, MenuButton, primaryButton, secondaryButton } from "../tasks/controls";
 import { ActivityFeed } from "./ActivityFeed";
 import { NewProjectDialog } from "./NewProjectDialog";
+import { PeopleActivity, PeopleActivityBar, PeopleActivityForbidden } from "./PeopleActivity";
 import { PortfolioStalled } from "./PortfolioStalled";
 import {
   NO_FILTERS,
@@ -65,7 +66,12 @@ export function AllProjectsPage() {
   const pinned = usePinnedProjects();
   const departments = useDepartments().data;
   const setPinned = useSetPinned();
-  const [tab, setTab] = useState<Tab>("projects");
+  const search = useSearch({ strict: false }) as { view?: string };
+  // «By person» nella scheda Activity: dall'indirizzo, così un link la apre.
+  const personView = search.view === "person";
+  const canPeople = can(viewer, "people.activity.view");
+  const [tab, setTab] = useState<Tab>(personView ? "activity" : "projects");
+  const [personQuery, setPersonQuery] = useState("");
   const [filters, setFilters] = useState<PortfolioFilters>(NO_FILTERS);
   const [creating, setCreating] = useState(false);
   const searchId = useId();
@@ -73,7 +79,10 @@ export function AllProjectsPage() {
   const canCreate = can(viewer, "projects.create");
 
   const deptTasks = useTasks(
-    { departmentIds: filters.departmentId ? [filters.departmentId] : [], families: [...OPEN_FAMILIES] },
+    {
+      departmentIds: filters.departmentId ? [filters.departmentId] : [],
+      families: [...OPEN_FAMILIES],
+    },
     { enabled: !!filters.departmentId },
   );
   const departmentProjectIds = useMemo(
@@ -163,6 +172,17 @@ export function AllProjectsPage() {
     (e.currentTarget.querySelector(`[data-tab="${next}"]`) as HTMLElement | null)?.focus();
   };
 
+  const setView = (view: "project" | "person") =>
+    void navigate({
+      to: ".",
+      search: (prev: Record<string, unknown>) =>
+        view === "person"
+          ? { ...prev, view: "person" }
+          : { ...prev, view: undefined, date: undefined, dept: undefined },
+      replace: true,
+    } as never);
+  const showPeople = tab === "activity" && personView;
+
   const clear = () => setFilters(NO_FILTERS);
   const noMatch = (
     <PageEmpty
@@ -184,7 +204,14 @@ export function AllProjectsPage() {
   const failed = [projects, pulses, pinned, deptTasks].filter((q) => q.isError);
 
   let body;
-  if (failed.length > 0) {
+  if (showPeople) {
+    // La rassegna per persona non dipende dai filtri del portafoglio: ha i suoi.
+    body = canPeople ? (
+      <PeopleActivity query={personQuery} onClearQuery={() => setPersonQuery("")} />
+    ) : (
+      <PeopleActivityForbidden onByProject={() => setView("project")} />
+    );
+  } else if (failed.length > 0) {
     body = (
       <PageError
         message={t("projects.states.error")}
@@ -301,128 +328,137 @@ export function AllProjectsPage() {
         </div>
         <div
           role="toolbar"
-          aria-label={t("projects.filter.label")}
+          aria-label={t(showPeople ? "projects.people.bar" : "projects.filter.label")}
           className="flex flex-wrap items-center gap-x-1 gap-y-2"
         >
-          <label htmlFor={searchId} className="sr-only">
-            {t("projects.filter.search")}
-          </label>
-          <span className="mr-2 flex w-52 min-w-0 min-[1280px]:w-60">
-            <input
-              id={searchId}
-              type="search"
-              value={filters.text}
-              placeholder={t("projects.filter.search")}
-              onChange={(e) => set({ text: e.target.value })}
-              className={`${inputClass} h-8 py-0 text-sm`}
-            />
-          </span>
-          <MenuButton
-            menuLabel={t("projects.filter.kind")}
-            className={chipClass}
-            label={
-              <>
-                <span>{t("projects.filter.kind")}:</span>
-                <span className="font-medium text-ink">
-                  {t(`projects.filter.kinds.${filters.kind}`)}
-                </span>
-                <Chevron />
-              </>
-            }
-          >
-            {(close) => (
-              <MenuGroup>
-                {(["all", "internal", "client"] as const).map((k) => (
-                  <RadioItem
-                    key={k}
-                    checked={filters.kind === k}
-                    onSelect={() => {
-                      close();
-                      set({ kind: k });
-                    }}
-                  >
-                    {t(`projects.filter.kinds.${k}`)}
-                  </RadioItem>
-                ))}
-              </MenuGroup>
-            )}
-          </MenuButton>
-          <MenuButton
-            menuLabel={t("projects.filter.department")}
-            className={chipClass}
-            title={t("projects.filter.departmentHint")}
-            label={
-              <>
-                <span>{t("projects.filter.department")}:</span>
-                <span className="max-w-40 truncate font-medium text-ink">
-                  {departmentName ?? t("projects.filter.any")}
-                </span>
-                <Chevron />
-              </>
-            }
-          >
-            {(close) => (
-              <MenuGroup label={t("projects.filter.departmentHint")}>
-                {[null, ...(departments ?? []).map((d) => d.id)].map((id) => (
-                  <RadioItem
-                    key={id ?? "any"}
-                    checked={filters.departmentId === id}
-                    onSelect={() => {
-                      close();
-                      set({ departmentId: id });
-                    }}
-                  >
-                    {id
-                      ? departments!.find((d) => d.id === id)!.name
-                      : t("projects.filter.any")}
-                  </RadioItem>
-                ))}
-              </MenuGroup>
-            )}
-          </MenuButton>
-          <MenuButton
-            menuLabel={t("projects.filter.client")}
-            className={chipClass}
-            label={
-              <>
-                <span>{t("projects.filter.client")}:</span>
-                <span className="max-w-48 truncate font-medium text-ink">
-                  {filters.clientName ?? t("projects.filter.any")}
-                </span>
-                <Chevron />
-              </>
-            }
-          >
-            {(close) => (
-              <MenuGroup>
-                {[null, ...clients].map((c) => (
-                  <RadioItem
-                    key={c ?? "any"}
-                    checked={filters.clientName === c}
-                    onSelect={() => {
-                      close();
-                      set({ clientName: c });
-                    }}
-                  >
-                    <span className="min-w-0 truncate">{c ?? t("projects.filter.any")}</span>
-                  </RadioItem>
-                ))}
-              </MenuGroup>
-            )}
-          </MenuButton>
-          <button
-            type="button"
-            aria-pressed={filters.pinnedOnly}
-            className={chipClass}
-            onClick={() => set({ pinnedOnly: !filters.pinnedOnly })}
-          >
-            <PinIcon filled={filters.pinnedOnly} />
-            {t("projects.filter.pinned")}
-          </button>
-          {hasFilters(filters) && (
-            <button type="button" className={chipClass} onClick={clear}>
-              {t("projects.states.clear")}
-            </button>
+          {tab === "activity" && canPeople && (
+            <ActivityViewSwitch view={personView ? "person" : "project"} onChange={setView} />
+          )}
+          {showPeople ? (
+            canPeople && <PeopleActivityBar query={personQuery} onQuery={setPersonQuery} />
+          ) : (
+            <>
+              <label htmlFor={searchId} className="sr-only">
+                {t("projects.filter.search")}
+              </label>
+              <span className="mr-2 flex w-52 min-w-0 min-[1280px]:w-60">
+                <input
+                  id={searchId}
+                  type="search"
+                  value={filters.text}
+                  placeholder={t("projects.filter.search")}
+                  onChange={(e) => set({ text: e.target.value })}
+                  className={`${inputClass} h-8 py-0 text-sm`}
+                />
+              </span>
+              <MenuButton
+                menuLabel={t("projects.filter.kind")}
+                className={chipClass}
+                label={
+                  <>
+                    <span>{t("projects.filter.kind")}:</span>
+                    <span className="font-medium text-ink">
+                      {t(`projects.filter.kinds.${filters.kind}`)}
+                    </span>
+                    <Chevron />
+                  </>
+                }
+              >
+                {(close) => (
+                  <MenuGroup>
+                    {(["all", "internal", "client"] as const).map((k) => (
+                      <RadioItem
+                        key={k}
+                        checked={filters.kind === k}
+                        onSelect={() => {
+                          close();
+                          set({ kind: k });
+                        }}
+                      >
+                        {t(`projects.filter.kinds.${k}`)}
+                      </RadioItem>
+                    ))}
+                  </MenuGroup>
+                )}
+              </MenuButton>
+              <MenuButton
+                menuLabel={t("projects.filter.department")}
+                className={chipClass}
+                title={t("projects.filter.departmentHint")}
+                label={
+                  <>
+                    <span>{t("projects.filter.department")}:</span>
+                    <span className="max-w-40 truncate font-medium text-ink">
+                      {departmentName ?? t("projects.filter.any")}
+                    </span>
+                    <Chevron />
+                  </>
+                }
+              >
+                {(close) => (
+                  <MenuGroup label={t("projects.filter.departmentHint")}>
+                    {[null, ...(departments ?? []).map((d) => d.id)].map((id) => (
+                      <RadioItem
+                        key={id ?? "any"}
+                        checked={filters.departmentId === id}
+                        onSelect={() => {
+                          close();
+                          set({ departmentId: id });
+                        }}
+                      >
+                        {id
+                          ? departments!.find((d) => d.id === id)!.name
+                          : t("projects.filter.any")}
+                      </RadioItem>
+                    ))}
+                  </MenuGroup>
+                )}
+              </MenuButton>
+              <MenuButton
+                menuLabel={t("projects.filter.client")}
+                className={chipClass}
+                label={
+                  <>
+                    <span>{t("projects.filter.client")}:</span>
+                    <span className="max-w-48 truncate font-medium text-ink">
+                      {filters.clientName ?? t("projects.filter.any")}
+                    </span>
+                    <Chevron />
+                  </>
+                }
+              >
+                {(close) => (
+                  <MenuGroup>
+                    {[null, ...clients].map((c) => (
+                      <RadioItem
+                        key={c ?? "any"}
+                        checked={filters.clientName === c}
+                        onSelect={() => {
+                          close();
+                          set({ clientName: c });
+                        }}
+                      >
+                        <span className="min-w-0 truncate">{c ?? t("projects.filter.any")}</span>
+                      </RadioItem>
+                    ))}
+                  </MenuGroup>
+                )}
+              </MenuButton>
+              <button
+                type="button"
+                aria-pressed={filters.pinnedOnly}
+                className={chipClass}
+                onClick={() => set({ pinnedOnly: !filters.pinnedOnly })}
+              >
+                <PinIcon filled={filters.pinnedOnly} />
+                {t("projects.filter.pinned")}
+              </button>
+              {hasFilters(filters) && (
+                <button type="button" className={chipClass} onClick={clear}>
+                  {t("projects.states.clear")}
+                </button>
+              )}
+            </>
           )}
         </div>
       </header>
@@ -445,6 +481,51 @@ export function AllProjectsPage() {
         />
       )}
     </section>
+  );
+}
+
+/**
+ * Il segmentato della scheda Activity: «By project» (l'attività per giorno)
+ * e «By person» (la rassegna), il secondo solo con `people.activity.view`.
+ */
+function ActivityViewSwitch({
+  view,
+  onChange,
+}: {
+  view: "project" | "person";
+  onChange: (view: "project" | "person") => void;
+}) {
+  const { t } = useTranslation();
+  const views = ["project", "person"] as const;
+  const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    e.preventDefault();
+    const next = view === "project" ? "person" : "project";
+    onChange(next);
+    (e.currentTarget.querySelector(`[data-view="${next}"]`) as HTMLElement | null)?.focus();
+  };
+  return (
+    <div
+      role="radiogroup"
+      aria-label={t("projects.people.views")}
+      onKeyDown={onKey}
+      className="mr-3 flex h-8 items-center gap-0.5 rounded-md border border-rule p-0.5"
+    >
+      {views.map((v) => (
+        <button
+          key={v}
+          type="button"
+          role="radio"
+          data-view={v}
+          aria-checked={view === v}
+          tabIndex={view === v ? 0 : -1}
+          onClick={() => onChange(v)}
+          className={`inline-flex h-full items-center rounded-[4px] px-2.5 text-sm transition-colors duration-[var(--duration-fast)] ease-out ${view === v ? "bg-ink/10 font-semibold text-ink" : "text-ink-muted hover:bg-ink/6 hover:text-ink"}`}
+        >
+          {t(`projects.people.view.${v}`)}
+        </button>
+      ))}
+    </div>
   );
 }
 

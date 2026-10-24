@@ -104,6 +104,7 @@ export const queryKeys = {
     ["as", personId, "mentions", kind, q] as const,
   peopleActivity: (personId: string, date: string, departmentId?: string) =>
     ["as", personId, "peopleActivity", date, departmentId ?? null] as const,
+  dailyReports: (personId: string, date: string) => ["as", personId, "dailyReports", date] as const,
 };
 
 /** Chi sta guardando: la persona di tutte le chiavi. */
@@ -568,6 +569,34 @@ export function usePeopleActivity(date: string, departmentId?: string) {
     queryKey: queryKeys.peopleActivity(me, date, departmentId),
     queryFn: () => api.listPeopleActivity(date, departmentId),
   });
+}
+
+/** I report giornalieri di un giorno, per la rassegna (stesso permesso). */
+export function useDailyReports(date: string, { enabled = true }: { enabled?: boolean } = {}) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.dailyReports(me, date),
+    queryFn: () => api.listDailyReports(date),
+    enabled,
+  });
+}
+
+/** Un report rigenerato cambia anche la cronologia dei progetti. */
+export function useGenerateDailyReport() {
+  return useWrite(
+    ({ projectId, date }: { projectId: string; date: string }) =>
+      api.generateDailyReport(projectId, date),
+    ["dailyReports", "timeline"],
+  );
+}
+
+/** Collegato l'autore, i suoi commit passano sotto la persona. */
+export function useLinkCommitAuthor() {
+  return useWrite(
+    ({ authorName, personId }: { authorName: string; personId: string }) =>
+      api.linkCommitAuthor(authorName, personId),
+    ["peopleActivity"],
+  );
 }
 
 export function useMarkNotification() {
