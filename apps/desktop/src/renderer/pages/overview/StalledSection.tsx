@@ -1,15 +1,18 @@
 import { useTranslation } from "react-i18next";
 import { usePeople, useStalled, useTasks } from "../../data/queries";
-import type { Task } from "../../data/types";
+import type { FilterCriteria, Task } from "../../data/types";
 import type { Stall } from "../../domain/stalled";
 import { DeptLegend, DeptStrip, useDeptLabel } from "../../layout/DeptStrip";
 import { StallSign, stallReason, stallText, type StallNames } from "../../tasks-ui/StallMark";
 import { ghostButton } from "../task/parts";
 import { BlockSection, queryState, useOpenTask } from "../home/blocks/BlockSection";
-import { TasksLink } from "./links";
+import { TasksLink, countLinkClass } from "./links";
 
 /** Quante ferme si vedono prima di «Show all N» (shape overview.md §5). */
 export const STALLED_CAP = 5;
+
+/** Le Tasks filtrate sulle ferme: il conteggio, «Show all N» e il polso ci portano. */
+export const STALLED: FilterCriteria = { stalled: true };
 
 /**
  * «Stalled»: in cima all'Overview, e SOLO se qualcosa è fermo (nessuna
@@ -43,6 +46,16 @@ export function StalledSection({
     <BlockSection
       title={t("overview.stalled.title")}
       count={rows.length}
+      countLink={(n) => (
+        <TasksLink
+          projectCode={projectCode}
+          criteria={STALLED}
+          label={t("overview.stalled.countLink", { count: rows.length })}
+          className={countLinkClass}
+        >
+          {n}
+        </TasksLink>
+      )}
       state={queryState([stalled])}
       action={<DeptLegend departmentIds={shown.map((r) => r.task.departmentId)} />}
     >
@@ -60,7 +73,7 @@ export function StalledSection({
       {rows.length > STALLED_CAP && (
         <TasksLink
           projectCode={projectCode}
-          criteria={{ stalled: true }}
+          criteria={STALLED}
           className={`${ghostButton} mt-1 ml-2`}
         >
           {t("overview.stalled.showAll", { count: rows.length })}
@@ -105,7 +118,7 @@ function StalledRow({
       <button
         type="button"
         onClick={onOpen}
-        aria-label={`${task.code} ${task.title} · ${stallText(stall, t, names)}`}
+        aria-label={`${task.code} ${task.title} · ${stallText(stall, t, names)}${note ? ` · ${t("overview.stalled.note", { note })}` : ""}`}
         className="flex min-w-0 items-baseline gap-3 text-left outline-none after:absolute after:inset-0 focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-focus"
       >
         <span className="num shrink-0 text-xs font-semibold tracking-[0.02em] text-ink-muted">

@@ -40,7 +40,6 @@ export function DecisionLog({ projectId }: { projectId: string }) {
     <>
       <BlockSection
         title={t("overview.decisions.title")}
-        count={entries.length}
         state={state}
         action={
           canRecord ? (

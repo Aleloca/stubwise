@@ -1087,7 +1087,9 @@
     "stalled": {
       "title": "Ferme",
       "showAll": "Mostra tutte e {{count}}",
-      "note": "«{{note}}»"
+      "note": "«{{note}}»",
+      "countLink_one": "{{count}} task ferma: apri l'elenco",
+      "countLink_other": "{{count}} task ferme: apri l'elenco"
     },
     "progress": {
       "title": "A che punto è",
@@ -1131,7 +1133,8 @@
       "deleteConfirmEmpty": "Eliminare {{name}}?",
       "done": "Fatto",
       "failed": "Non è andata a buon fine, nulla è cambiato. Riprova.",
-      "error": "Impossibile caricare i traguardi."
+      "error": "Impossibile caricare i traguardi.",
+      "noneOpen": "Nessun traguardo aperto"
     },
     "brief": {
       "title": "Brief settimanale",
@@ -1161,6 +1164,14 @@
       "summary": {
         "todo": "da fare",
         "active": "in corso"
+      },
+      "totalLink_one": "{{count}} task aperta: apri l'elenco",
+      "totalLink_other": "{{count}} task aperte: apri l'elenco",
+      "summaryLink": {
+        "todo_one": "{{count}} da fare: apri l'elenco",
+        "todo_other": "{{count}} da fare: apri l'elenco",
+        "active_one": "{{count}} in corso: apri l'elenco",
+        "active_other": "{{count}} in corso: apri l'elenco"
       }
     },
     "timeline": {

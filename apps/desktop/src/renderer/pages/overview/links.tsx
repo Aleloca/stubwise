@@ -46,3 +46,7 @@ const DAY_MS = 86_400_000;
 /** Una data ISO a `days` giorni da `date` (negativi = prima). */
 export const shiftDate = (date: string, days: number): string =>
   new Date(Date.parse(`${date.slice(0, 10)}T00:00:00Z`) + days * DAY_MS).toISOString().slice(0, 10);
+
+/** Il conteggio di una sezione come link: tenue come il numero accanto al titolo, inchiostro al passaggio. */
+export const countLinkClass =
+  "rounded-sm text-ink-faint underline-offset-4 decoration-ink/40 transition-colors duration-[var(--duration-fast)] ease-out hover:text-ink hover:underline";

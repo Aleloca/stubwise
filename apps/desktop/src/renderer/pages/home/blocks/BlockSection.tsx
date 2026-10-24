@@ -19,6 +19,7 @@ export type BlockState =
 export function BlockSection({
   title,
   count,
+  countLink,
   meta,
   action,
   state,
@@ -27,6 +28,11 @@ export function BlockSection({
   title: string;
   /** Quante voci ha il blocco (si mostra solo se > 0 e il blocco è pronto). */
   count?: number;
+  /**
+   * Il conteggio come link (l'Overview: ogni numero apre l'elenco filtrato).
+   * Riceve il numero già formattato e lo avvolge.
+   */
+  countLink?: (count: ReactNode) => ReactNode;
   /** Una riga breve accanto al titolo (es. la settimana). */
   meta?: ReactNode;
   action?: ReactNode;
@@ -41,9 +47,14 @@ export function BlockSection({
         <h2 id={id} className="min-w-0 truncate text-xl font-semibold text-ink">
           {title}
         </h2>
-        {state.status === "ready" && count !== undefined && count > 0 && (
-          <span className="num text-md text-ink-faint">{count}</span>
-        )}
+        {state.status === "ready" &&
+          count !== undefined &&
+          count > 0 &&
+          (countLink ? (
+            countLink(<span className="num text-md">{count}</span>)
+          ) : (
+            <span className="num text-md text-ink-faint">{count}</span>
+          ))}
         {meta && <span className="min-w-0 truncate text-sm text-ink-muted">{meta}</span>}
         {action && <span className="ml-auto flex shrink-0 items-center gap-1">{action}</span>}
       </div>

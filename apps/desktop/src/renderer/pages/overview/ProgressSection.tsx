@@ -75,7 +75,11 @@ export function ProgressSection({
       >
         {open.length === 0 ? (
           <div className="flex flex-wrap items-baseline gap-x-2 border-t border-rule py-3 pl-4">
-            <p className="text-md text-ink">{t("overview.milestones.none")}</p>
+            <p className="text-md text-ink">
+              {(milestones.data ?? []).length > 0
+                ? t("overview.milestones.noneOpen")
+                : t("overview.milestones.none")}
+            </p>
             {canEdit ? (
               <button
                 type="button"

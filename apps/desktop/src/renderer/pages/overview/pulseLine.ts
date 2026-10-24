@@ -12,27 +12,41 @@ import { formatDue } from "../../tasks-ui/TaskRow";
  * chi ha poco spazio li accorcia dalla coda — il traguardo cade per primo,
  * «3 stalled» resta. Un progetto senza nulla da dire ha un pezzo solo, quieto.
  */
-export function pulseParts(pulse: ProjectPulse, t: TFunction, language: string): string[] {
-  const parts: string[] = [];
-  if (pulse.waitingOnMe) parts.push(t("overview.pulse.waitingOnYou"));
-  if (pulse.claudeWorking) parts.push(t("overview.pulse.claudeWorking"));
-  if (pulse.stalled > 0) parts.push(t("overview.pulse.stalled", { count: pulse.stalled }));
+export function pulseParts(pulse: ProjectPulse, t: TFunction, language: string): PulsePart[] {
+  const parts: PulsePart[] = [];
+  if (pulse.waitingOnMe) parts.push({ kind: "waiting", text: t("overview.pulse.waitingOnYou") });
+  if (pulse.claudeWorking) parts.push({ kind: "claude", text: t("overview.pulse.claudeWorking") });
+  if (pulse.stalled > 0) {
+    parts.push({ kind: "stalled", text: t("overview.pulse.stalled", { count: pulse.stalled }) });
+  }
   const next = pulse.nextMilestone;
   if (next) {
-    parts.push(
-      next.dueDate
+    parts.push({
+      kind: "next",
+      text: next.dueDate
         ? t("overview.pulse.nextDated", {
             name: next.name,
             date: formatDue(next.dueDate, language),
           })
         : t("overview.pulse.next", { name: next.name }),
-    );
+    });
   }
-  if (parts.length === 0) parts.push(t("overview.pulse.quiet"));
+  if (parts.length === 0) parts.push({ kind: "quiet", text: t("overview.pulse.quiet") });
   return parts;
+}
+
+/**
+ * Un pezzo della riga: `kind` dice a chi la mostra cosa è, così può farne un
+ * link (le ferme aprono le Tasks filtrate) senza rileggere il testo.
+ */
+export interface PulsePart {
+  kind: "waiting" | "claude" | "stalled" | "next" | "quiet";
+  text: string;
 }
 
 /** I pezzi uniti dal punto mediano: la riga intera. */
 export function pulseLine(pulse: ProjectPulse, t: TFunction, language: string): string {
-  return pulseParts(pulse, t, language).join(" · ");
+  return pulseParts(pulse, t, language)
+    .map((p) => p.text)
+    .join(" · ");
 }

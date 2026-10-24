@@ -82,6 +82,41 @@ describe("OverviewPage — Stalled", () => {
   });
 });
 
+describe("OverviewPage — ogni numero apre le Tasks filtrate", () => {
+  it("con meno di sei ferme, il conteggio di «Stalled» apre le Tasks sulle ferme", async () => {
+    const router = await overview("AUD", "p-giulia");
+    expect(await stalledRows()).toHaveLength(4);
+    expect(screen.queryByRole("link", { name: /^Show all/ })).toBeNull();
+    await userEvent.click(screen.getByRole("link", { name: "4 stalled tasks: open the list" }));
+    await waitFor(() => expect(path(router)).toBe("/p/AUD/tasks"));
+    expect(search(router).filters).toEqual({ stalled: true });
+  });
+
+  it("«N stalled» nella riga di polso apre le Tasks sulle ferme", async () => {
+    const router = await overview("MKX", "p-giulia");
+    const pulse = document.querySelector<HTMLElement>("[data-pulse-line]")!;
+    await userEvent.click(within(pulse).getByRole("link", { name: "5 stalled" }));
+    await waitFor(() => expect(path(router)).toBe("/p/MKX/tasks"));
+    expect(search(router).filters).toEqual({ stalled: true });
+  });
+
+  it("il totale di «What's open» apre le aperte", async () => {
+    const router = await overview("AUD", "p-giulia");
+    await userEvent.click(await screen.findByRole("link", { name: "9 open tasks: open the list" }));
+    await waitFor(() => expect(path(router)).toBe("/p/AUD/tasks"));
+    expect(search(router).filters).toEqual({ families: ["todo", "active"] });
+  });
+
+  it("la nota di una ferma manuale è nel nome accessibile della riga", async () => {
+    await overview("MKX", "p-giulia");
+    const rows = await stalledRows();
+    const row = rows.find((r) => r.getAttribute("data-task-row") === "MKX-5")!;
+    expect(within(row).getByRole("button")).toHaveAccessibleName(
+      /Waiting on the client · 6 days · “Mix Cucine has to confirm/,
+    );
+  });
+});
+
 describe("OverviewPage — Where it stands", () => {
   it("l'avanzamento di un traguardo con task senza stima lo dichiara", async () => {
     await overview("AUD", "p-giulia");
@@ -123,6 +158,13 @@ describe("OverviewPage — Where it stands", () => {
     expect(within(panel).getByText("Generated text")).toBeInTheDocument();
   });
 
+  it("solo traguardi chiusi: «No open milestones»", async () => {
+    for (const m of state.milestones) if (m.projectId === "prj-mkx") m.closed = true;
+    await overview("MKX", "p-giulia");
+    expect(await screen.findByText("No open milestones")).toBeInTheDocument();
+    expect(screen.queryByText("No milestones")).toBeNull();
+  });
+
   it("«Manage milestones» solo con tickets.edit", async () => {
     await overview("AUD", "p-giulia");
     await screen.findByRole("list", { name: "Open milestones" });
@@ -149,10 +191,11 @@ describe("OverviewPage — Where it stands", () => {
 describe("OverviewPage — What's open", () => {
   it("clic su «N in progress» apre le Tasks filtrate sulla famiglia active", async () => {
     const router = await overview("AUD", "p-giulia");
-    // Due link portano lì: il riassunto accanto al titolo e la riga «In progress».
-    const links = await screen.findAllByRole("link", { name: "4 in progress" });
-    expect(links).toHaveLength(2);
-    await userEvent.click(links[1]!);
+    // La riga ha il suo nome; il riassunto accanto al titolo un altro, distinto.
+    expect(
+      await screen.findByRole("link", { name: "4 in progress: open the list" }),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("link", { name: "4 in progress" }));
     await waitFor(() => expect(path(router)).toBe("/p/AUD/tasks"));
     expect(search(router).filters).toEqual({ families: ["active"] });
   });

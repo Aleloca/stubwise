@@ -1087,7 +1087,9 @@
     "stalled": {
       "title": "Stalled",
       "showAll": "Show all {{count}}",
-      "note": "“{{note}}”"
+      "note": "“{{note}}”",
+      "countLink_one": "{{count}} stalled task: open the list",
+      "countLink_other": "{{count}} stalled tasks: open the list"
     },
     "progress": {
       "title": "Where it stands",
@@ -1131,7 +1133,8 @@
       "deleteConfirmEmpty": "Delete {{name}}?",
       "done": "Done",
       "failed": "That didn't go through, nothing was changed. Try again.",
-      "error": "Couldn't load the milestones."
+      "error": "Couldn't load the milestones.",
+      "noneOpen": "No open milestones"
     },
     "brief": {
       "title": "Weekly brief",
@@ -1161,6 +1164,14 @@
       "summary": {
         "todo": "to do",
         "active": "in progress"
+      },
+      "totalLink_one": "{{count}} open task: open the list",
+      "totalLink_other": "{{count}} open tasks: open the list",
+      "summaryLink": {
+        "todo_one": "{{count}} to do: open the list",
+        "todo_other": "{{count}} to do: open the list",
+        "active_one": "{{count}} in progress: open the list",
+        "active_other": "{{count}} in progress: open the list"
       }
     },
     "timeline": {

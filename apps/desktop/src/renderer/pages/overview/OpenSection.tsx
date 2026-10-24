@@ -5,7 +5,7 @@ import type { FilterCriteria, Person } from "../../data/types";
 import { Avatar } from "../../tasks-ui/PersonChip";
 import { ghostButton } from "../task/parts";
 import { BlockSection, queryState } from "../home/blocks/BlockSection";
-import { TasksLink } from "./links";
+import { TasksLink, countLinkClass } from "./links";
 
 const OPEN: FilterCriteria["families"] = ["todo", "active"];
 /** Quante persone si vedono prima di «Show N more». */
@@ -71,6 +71,7 @@ export function OpenSection({
             <TasksLink
               projectCode={projectCode}
               criteria={{ families: [family] }}
+              label={t(`overview.open.summaryLink.${family}`, { count })}
               className="rounded-sm underline-offset-4 decoration-ink/40 hover:text-ink hover:underline"
             >
               <span className="num font-semibold text-ink">{count}</span>{" "}
@@ -82,7 +83,22 @@ export function OpenSection({
     ) : undefined;
 
   return (
-    <BlockSection title={t("overview.open.title")} count={total} state={state} meta={summary}>
+    <BlockSection
+      title={t("overview.open.title")}
+      count={total}
+      countLink={(n) => (
+        <TasksLink
+          projectCode={projectCode}
+          criteria={{ families: OPEN }}
+          label={t("overview.open.totalLink", { count: total })}
+          className={countLinkClass}
+        >
+          {n}
+        </TasksLink>
+      )}
+      state={state}
+      meta={summary}
+    >
       <div className="@container border-t border-rule">
         <div className="grid grid-cols-1 gap-x-10 @min-[880px]:grid-cols-2">
           <div>
