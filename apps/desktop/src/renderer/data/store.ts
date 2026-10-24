@@ -243,6 +243,11 @@ interface State {
   conversationEvents: Map<string, ConversationEvent[]>;
   /** Le sessioni di task il cui piano è approvato in anticipo (prima che arrivi): da chi. */
   preApprovedPlans: Map<string, string>;
+  /**
+   * Le conversazioni con un invio in corso (quanti): una libera ancora senza
+   * messaggi resta fra le proprie solo finché il primo invio è in viaggio.
+   */
+  sendingTo: Map<string, number>;
   pinned: Map<string, string[]>;
   /** Filtri fissati, per persona. */
   pinnedFilters: Map<string, string[]>;
@@ -277,6 +282,7 @@ function freshState(): State {
       Object.entries(CONVERSATION_EVENTS).map(([id, events]) => [id, events.map(copy)]),
     ),
     preApprovedPlans: new Map(),
+    sendingTo: new Map(),
     pinned: initialPinned(),
     pinnedFilters: new Map(Object.entries(INITIAL_PINNED_FILTERS).map(([k, v]) => [k, [...v]])),
     projectsById: new Map(),

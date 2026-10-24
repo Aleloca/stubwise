@@ -40,7 +40,8 @@ export function PublishDialog({
   const listId = useId();
   const { mutate } = setVisibility;
 
-  useEffect(() => {
+  const load = () => {
+    setFailed(false);
     mutate(
       { id: detail.id, visibility: "public" },
       {
@@ -52,7 +53,10 @@ export function PublishDialog({
         onError: () => setFailed(true),
       },
     );
-    // Una lettura sola all'apertura.
+  };
+  useEffect(() => {
+    load();
+    // Una lettura sola all'apertura («Retry» la rifà).
   }, []);
 
   const confirm = () => {
@@ -79,7 +83,9 @@ export function PublishDialog({
   return (
     <Dialog
       title={t(
-        reconfirm ? "claude.destination.publish.reconfirmTitle" : "claude.destination.publish.title",
+        reconfirm
+          ? "claude.destination.publish.reconfirmTitle"
+          : "claude.destination.publish.title",
       )}
       description={t(
         reconfirm ? "claude.destination.publish.reconfirmBody" : "claude.destination.publish.body",
@@ -111,11 +117,26 @@ export function PublishDialog({
           {heading}
         </p>
         {touched === null ? (
-          <p role="status" className="text-sm text-ink-muted">
-            {failed ? t("claude.destination.page.publishFailed") : t("claude.destination.publish.checking")}
-          </p>
+          failed ? (
+            <div role="alert" className="flex flex-wrap items-center gap-3">
+              <p className="text-sm text-critical">{t("claude.destination.publish.loadFailed")}</p>
+              <button type="button" className={secondaryButton} onClick={load}>
+                {t("claude.destination.publish.retry")}
+              </button>
+            </div>
+          ) : (
+            <p role="status" className="text-sm text-ink-muted">
+              {t("claude.destination.publish.checking")}
+            </p>
+          )
         ) : shown.length === 0 ? (
-          <p className="text-sm text-ink-muted">{t("claude.destination.publish.none")}</p>
+          <p className="text-sm text-ink-muted">
+            {t(
+              reconfirm
+                ? "claude.destination.publish.nothingNew"
+                : "claude.destination.publish.none",
+            )}
+          </p>
         ) : (
           <ul aria-labelledby={listId} className="flex max-h-60 flex-col overflow-y-auto">
             {shown.map((p) => (

@@ -206,10 +206,11 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         setQuery("");
         setActive(0);
       },
-      query,
     };
-    const run = (cmd: Command) => () => {
-      cmd.run(ctx);
+    // Il testo arriva al comando solo quando l'etichetta lo cita: «ask
+    // claude» scritto per trovare il comando non è la domanda.
+    const run = (cmd: Command, quoted?: string) => () => {
+      cmd.run(quoted === undefined ? ctx : { ...ctx, query: quoted });
       if (!cmd.keepsOpen) onClose();
     };
 
@@ -256,7 +257,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
           ? t(cmd.queryLabelKey!, { query: query.trim() })
           : t(cmd.labelKey),
         shortcut: cmd.shortcut && shortcutLabel(cmd.shortcut),
-        select: run(cmd),
+        select: run(cmd, quoting(cmd) ? query.trim() : undefined),
       }));
     return (["projects", "tasks", "requests", "people", "actions"] as const)
       .map((id) => ({ id, items: byGroup[id] }))

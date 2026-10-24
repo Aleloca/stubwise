@@ -1383,6 +1383,23 @@ export async function sendMessage(
   id: string,
   message: { text: string; attachments?: Attachment[] },
 ): Promise<void> {
+  // Finché l'invio è in viaggio la conversazione conta come «con un
+  // messaggio» negli elenchi (una nuova, vuota, non si nasconde a metà).
+  const sendingTo = state.sendingTo;
+  sendingTo.set(id, (sendingTo.get(id) ?? 0) + 1);
+  try {
+    await sendMessageNow(id, message);
+  } finally {
+    const left = (sendingTo.get(id) ?? 1) - 1;
+    if (left > 0) sendingTo.set(id, left);
+    else sendingTo.delete(id);
+  }
+}
+
+async function sendMessageNow(
+  id: string,
+  message: { text: string; attachments?: Attachment[] },
+): Promise<void> {
   const me = await gate("sendMessage");
   const c = conversationFor(me, id);
   if (!conversationPermissions(me, c).canWrite) throw forbidden();

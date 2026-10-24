@@ -1926,7 +1926,7 @@
       "activity": {
         "question": "Asking a question",
         "plan": "Waiting for the plan to be approved",
-        "privateTail": "The rest is private for now"
+        "privateTail": "The rest of this conversation is private for now"
       },
       "filters": {
         "label": "Filters",
@@ -2039,7 +2039,10 @@
         "reconfirmBody": "Since you made it public, Claude used a project you haven't shared yet. Everything after that stays private until you confirm.",
         "newProjects": "New projects",
         "reconfirmConfirm": "Share, I'm responsible",
-        "checking": "Checking which projects Claude used…"
+        "checking": "Checking which projects Claude used…",
+        "loadFailed": "Couldn't check which projects Claude used.",
+        "retry": "Retry",
+        "nothingNew": "Claude didn't use any project you haven't shared already: the new messages can be shared as they are."
       },
       "continue": {
         "banner": "What you write starts your own private conversation. Claude will act as you.",

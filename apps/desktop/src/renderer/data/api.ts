@@ -481,6 +481,10 @@ export async function listConversations(filter: ConversationFilter): Promise<Con
           case "mine":
             if (c.kind !== "free" || c.ownerId !== me) return false;
             if (c.archived !== (filter.archived ?? false)) return false;
+            // Una conversazione senza nemmeno un messaggio non è fra le proprie
+            // (il primo invio non è riuscito, o non è mai partito), salvo
+            // mentre il primo invio è in viaggio.
+            if (eventsOf(c.id).length === 0 && !state.sendingTo.has(c.id)) return false;
             break;
           case "public":
             if (c.kind !== "free" || c.visibility !== "public" || c.ownerId === me) return false;

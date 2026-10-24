@@ -94,31 +94,33 @@ export function ClaudeColumn() {
           </li>
         ))}
       </ul>
-      <div className="mt-3 border-t border-rule pt-1">
-        <p id={recentId} className="heading-group px-2.5 pt-3 pb-1.5">
-          {t("claude.destination.column.recent")}
-        </p>
-        <ul aria-labelledby={recentId} className="flex flex-col gap-px">
-          {recent.map((c) => (
-            <li key={c.id}>
-              <Link
-                to="/claude/$id"
-                params={{ id: c.id }}
-                title={c.title || t("claude.destination.page.untitled")}
-                style={{ whiteSpace: "nowrap" }}
-                className={columnItemClass}
-              >
-                <span style={ONE_LINE} className="min-w-0 flex-1">
-                  {c.title || t("claude.destination.page.untitled")}
-                </span>
-                {c.state === "working" && (
-                  <WorkingRing label={t("claude.destination.column.working")} size={10} />
-                )}
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </div>
+      {recent.length > 0 && (
+        <div className="mt-3 border-t border-rule pt-1">
+          <p id={recentId} className="heading-group px-2.5 pt-3 pb-1.5">
+            {t("claude.destination.column.recent")}
+          </p>
+          <ul aria-labelledby={recentId} className="flex flex-col gap-px">
+            {recent.map((c) => (
+              <li key={c.id}>
+                <Link
+                  to="/claude/$id"
+                  params={{ id: c.id }}
+                  title={c.title || t("claude.destination.page.untitled")}
+                  style={{ whiteSpace: "nowrap" }}
+                  className={columnItemClass}
+                >
+                  <span style={ONE_LINE} className="min-w-0 flex-1">
+                    {c.title || t("claude.destination.page.untitled")}
+                  </span>
+                  {c.state === "working" && (
+                    <WorkingRing label={t("claude.destination.column.working")} size={10} />
+                  )}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </nav>
   );
 }

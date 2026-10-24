@@ -1926,7 +1926,7 @@
       "activity": {
         "question": "Sta facendo una domanda",
         "plan": "Aspetta che il piano sia approvato",
-        "privateTail": "Il resto per ora è privato"
+        "privateTail": "Il resto della conversazione per ora è privato"
       },
       "filters": {
         "label": "Filtri",
@@ -2039,7 +2039,10 @@
         "reconfirmBody": "Da quando l'hai resa pubblica, Claude ha usato un progetto che non hai ancora condiviso. Tutto ciò che segue resta privato finché non confermi.",
         "newProjects": "Progetti nuovi",
         "reconfirmConfirm": "Condividi, me ne assumo la responsabilità",
-        "checking": "Controllo dei progetti usati da Claude…"
+        "checking": "Controllo dei progetti usati da Claude…",
+        "loadFailed": "Impossibile controllare quali progetti ha usato Claude.",
+        "retry": "Riprova",
+        "nothingNew": "Claude non ha usato progetti che non hai già condiviso: i nuovi messaggi si possono condividere così come sono."
       },
       "continue": {
         "banner": "Ciò che scrivi apre una tua conversazione privata. Claude agirà come te.",

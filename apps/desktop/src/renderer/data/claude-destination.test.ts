@@ -10,6 +10,7 @@ import {
   setLatency,
 } from "./api";
 import { setSessionPersonId } from "./session";
+import { state } from "./store";
 
 // Le letture che servono alla destinazione «Claude» (Task 6): archiviate
 // dentro «Mine», chi aspetta chi, il titolo breve dopo la prima risposta.
@@ -31,6 +32,19 @@ describe("destinazione Claude: letture", () => {
     const archived = await listConversations({ scope: "mine", archived: true });
     expect(archived.map((r) => r.id)).toContain("cv-giulia-week");
     expect(archived.every((r) => r.archived && r.ownerId === "p-giulia")).toBe(true);
+  });
+
+  it("una conversazione senza messaggi non è fra le mie, salvo mentre il primo invio è in viaggio", async () => {
+    as("p-giulia");
+    const c = await createConversation();
+    expect(await ids({ scope: "mine" })).not.toContain(c.id);
+    // Il primo invio in viaggio (registrato da `sendMessage` prima dell'attesa).
+    state.sendingTo.set(c.id, 1);
+    expect(await ids({ scope: "mine" })).toContain(c.id);
+    state.sendingTo.delete(c.id);
+    await sendMessage(c.id, { text: "Explain MKX-7" });
+    expect(await ids({ scope: "mine" })).toContain(c.id);
+    expect(state.sendingTo.has(c.id)).toBe(false);
   });
 
   it("`waitsOnViewer`: aspetta chi può rispondere o decidere, non chi guarda soltanto", async () => {

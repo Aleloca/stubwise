@@ -361,13 +361,17 @@ function ConversationListRow({
         to="/claude/$id"
         params={{ id: row.id }}
         data-conversation-link
-        title={`${kind} · ${title}`}
+        title={[kind, title, stateLabel].filter(Boolean).join(" · ")}
         className={`group relative flex min-w-0 border-b border-rule pr-4 pl-4 outline-offset-[-2px] transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/4 focus-visible:bg-ink/6 ${live ? "h-14 flex-col justify-center gap-0.5" : "h-11 items-center"}`}
       >
         <span className="flex w-full min-w-0 items-center gap-3">
           <span className="grid w-3 shrink-0 place-items-center">
             <StateSign state={state} />
           </span>
+          {/* Sotto 1100 px la colonna dello stato non c'è: la parola resta qui. */}
+          {stateLabel && !live && (
+            <span className="sr-only min-[1100px]:hidden">{stateLabel}</span>
+          )}
           {showKind && (
             <span className="hidden w-[104px] shrink-0 truncate text-sm text-ink-muted min-[1280px]:block">
               {kind}

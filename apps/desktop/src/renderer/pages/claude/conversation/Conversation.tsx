@@ -23,6 +23,7 @@ import {
 import type { Attachment, ConversationDetail, ConversationEvent } from "../../../data/types";
 import { PageError } from "../../../tasks-ui/PageStates";
 import { ContinueBanner, ContinuesFromLine } from "../ContinueBanner";
+import { takeFirstMessage } from "./handoff";
 import { CitationProvider, indexCitations } from "./citations";
 import { Composer, type DraftAttachment } from "./Composer";
 import { EventList, UserMessage, type DeliveryView } from "./EventList";
@@ -336,6 +337,17 @@ function ConversationBody({
     setStopFailed(false);
     stop.mutate(detail.id, { onError: () => setStopFailed(true) });
   };
+
+  // Il primo messaggio affidato da chi l'ha aperta (atterraggio,
+  // continuazione): parte da qui, così se non va resta con «Resend».
+  const firstTaken = useRef(false);
+  useEffect(() => {
+    if (firstTaken.current) return;
+    firstTaken.current = true;
+    const first = takeFirstMessage(detail.id);
+    if (first) sendMessage(first.text, first.attachments);
+    // Solo all'apertura.
+  }, []);
 
   // --- allegati: graffetta, incolla, trascina; 10 file da 20 MB ---
   const addFiles = useCallback(

@@ -66,6 +66,13 @@ describe("destinazione Claude: colonna e atterraggio", () => {
     expect(within(recent).queryByRole("link", { name: /CSV import/ })).toBeNull();
   });
 
+  it("senza conversazioni proprie il gruppo «Recent» non c'è", async () => {
+    renderRoute("/claude", "p-sara");
+    await screen.findByRole("heading", { level: 1, name: "New conversation" });
+    await within(column()).findByRole("link", { name: /^Mine/ });
+    expect(within(column()).queryByText("Recent")).toBeNull();
+  });
+
   it("senza `claude.public.view` la voce Public non c'è", async () => {
     revokeInstancePermission("p-sara", "claude.public.view");
     renderRoute("/claude", "p-sara");
@@ -100,6 +107,62 @@ describe("destinazione Claude: colonna e atterraggio", () => {
   });
 });
 
+describe("destinazione Claude: il primo messaggio che non va", () => {
+  it("atterraggio: se l'invio fallisce la domanda resta con «Resend», e la conversazione vuota non è fra le mie", async () => {
+    const user = userEvent.setup();
+    const router = renderRoute("/claude", "p-giulia");
+    const box = await screen.findByRole("textbox", { name: "Your question for Claude" });
+    api.failNext("sendMessage");
+    await user.type(box, "Explain MKX-7{Enter}");
+    await waitFor(() => expect(path(router)).toMatch(/^\/claude\/cv-/));
+    const id = path(router).split("/")[2]!;
+    const failed = await screen.findByText(/it didn't go through/);
+    const row = failed.closest("[data-user-message]") as HTMLElement;
+    expect(row).toHaveTextContent("Explain MKX-7");
+    const mine = async () =>
+      (await as("p-giulia", () => api.listConversations({ scope: "mine" }))).map((r) => r.id);
+    expect(await mine()).not.toContain(id);
+    await waitFor(() =>
+      expect(
+        within(within(column()).getByRole("list", { name: "Recent" })).queryByRole("link", {
+          name: /New conversation|Explain MKX-7/,
+        }),
+      ).toBeNull(),
+    );
+    await user.click(within(row).getByRole("button", { name: "Resend" }));
+    await waitFor(() =>
+      expect(
+        (state.conversationEvents.get(id) ?? []).some(
+          (e) => e.type === "user" && e.text === "Explain MKX-7",
+        ),
+      ).toBe(true),
+    );
+    expect(await mine()).toContain(id);
+  });
+
+  it("continuazione: se l'invio fallisce il testo resta con «Resend» nella nuova, che non è fra le mie", async () => {
+    const user = userEvent.setup();
+    const router = renderRoute("/claude/cv-giulia-callbacks", "p-sara");
+    const box = await screen.findByRole("combobox", { name: "Message to Claude" });
+    api.failNext("sendMessage");
+    await user.type(box, "Where do my projects stand?{Enter}");
+    await waitFor(() => expect(path(router)).not.toBe("/claude/cv-giulia-callbacks"));
+    const id = path(router).split("/")[2]!;
+    expect(state.conversations.find((c) => c.id === id)).toMatchObject({
+      ownerId: "p-sara",
+      continuesFromId: "cv-giulia-callbacks",
+    });
+    const failed = await screen.findByText(/it didn't go through/);
+    const row = failed.closest("[data-user-message]") as HTMLElement;
+    expect(row).toHaveTextContent("Where do my projects stand?");
+    const mine = async () =>
+      (await as("p-sara", () => api.listConversations({ scope: "mine" }))).map((r) => r.id);
+    expect(await mine()).not.toContain(id);
+    await user.click(within(row).getByRole("button", { name: "Resend" }));
+    await waitFor(async () => expect(await mine()).toContain(id));
+  });
+});
+
 describe("destinazione Claude: palette", () => {
   it("«Ask Claude…» dalla palette mette la domanda nella casella, da rivedere", async () => {
     const before = state.conversations.length;
@@ -109,6 +172,19 @@ describe("destinazione Claude: palette", () => {
     // La domanda non resta nell'indirizzo, e nulla parte da solo.
     await waitFor(() => expect(router.state.location.search).toEqual({}));
     expect(state.conversations).toHaveLength(before);
+  });
+
+  it("«ask claude» scritto per trovare il comando non diventa la domanda", async () => {
+    const user = userEvent.setup();
+    const router = renderRoute("/home", "p-giulia");
+    await screen.findByRole("heading", { level: 1 });
+    await user.keyboard("{Control>}k{/Control}");
+    await user.type(await screen.findByRole("combobox"), "ask claude");
+    await user.click(await screen.findByRole("option", { name: /^Ask Claude…/ }));
+    await waitFor(() => expect(path(router)).toBe("/claude"));
+    expect(
+      await screen.findByRole("textbox", { name: "Your question for Claude" }),
+    ).toHaveValue("");
   });
 
   it("dalla palette: «Ask Claude: “…”» con il testo scritto", async () => {
@@ -233,6 +309,22 @@ describe("destinazione Claude: pubblica, privata, continuazione", () => {
     await user.click(within(dialog).getByRole("button", { name: "Share, I'm responsible" }));
     await waitFor(() => expect(c().privateFromIndex).toBeNull());
     expect(c().publishedProjectIds).toContain("prj-mkx");
+  });
+
+  it("se l'elenco dei progetti non si legge, il dialogo lo dice e offre «Retry»", async () => {
+    const user = userEvent.setup();
+    renderRoute("/claude/cv-giulia-week", "p-giulia");
+    const button = await screen.findByRole("button", { name: "Make public" });
+    api.failNext("setVisibility");
+    await user.click(button);
+    const dialog = await screen.findByRole("dialog", { name: "Make this conversation public?" });
+    expect(await within(dialog).findByText("Couldn't check which projects Claude used.")).toBeTruthy();
+    expect(
+      within(dialog).getByRole("button", { name: "Make public, I'm responsible" }),
+    ).toBeDisabled();
+    await user.click(within(dialog).getByRole("button", { name: "Retry" }));
+    const list = await within(dialog).findByRole("list", { name: "Projects Claude read or changed" });
+    expect(list).toHaveTextContent("MKX");
   });
 
   it("«Cancel» non cambia nulla", async () => {

@@ -10,7 +10,6 @@ import {
   usePeople,
   useProjects,
   useRenameConversation,
-  useSendMessage,
   useSetVisibility,
   useTasks,
 } from "../../data/queries";
@@ -25,6 +24,8 @@ import { MenuGroup, RadioItem, itemClass } from "../../tasks-ui/Menu";
 import { useToast } from "../../tasks-ui/Toast";
 import { Chevron, MenuButton, primaryButton, quietButton, secondaryButton } from "../tasks/controls";
 import { Conversation, type ContinueHandler } from "./conversation/Conversation";
+import { handOffFirstMessage } from "./conversation/handoff";
+import { dangerButton } from "../task/parts";
 import { ConversationList } from "./ConversationList";
 import { StateSign, rowStateLabel, rowStateOf, useKindWord } from "./marks";
 import { ObjectSide, hasObject } from "./ObjectSide";
@@ -101,7 +102,6 @@ function NewConversation({ initial }: { initial: string }) {
   const [failed, setFailed] = useState(false);
   const field = useRef<HTMLTextAreaElement>(null);
   const create = useCreateConversation();
-  const send = useSendMessage();
   const projects = useProjects().data ?? [];
   const mine = useTasks({ assigneeIds: [viewer.personId] }).data;
   const hintId = useId();
@@ -131,7 +131,8 @@ function NewConversation({ initial }: { initial: string }) {
     setFailed(false);
     create.mutate(projectId ? { contextProjectId: projectId } : {}, {
       onSuccess: (c) => {
-        send.mutate({ id: c.id, text: question });
+        // La domanda la manda la conversazione: se non va, resta lì con «Resend».
+        handOffFirstMessage(c.id, { text: question, attachments: [] });
         void navigate({ to: "/claude/$id", params: { id: c.id } });
       },
       onError: () => setFailed(true),
@@ -303,7 +304,6 @@ function ConversationPageBody({ id }: { id: string }) {
   const docked = useMediaQuery(SIDE_DOCK_QUERY);
   const [sideOpen, setSideOpen] = useState(false);
   const continueConversation = useContinueConversation();
-  const send = useSendMessage();
   useNewConversationKey();
 
   // Esc: chiude il pannello dell'oggetto, se no torna all'elenco.
@@ -330,7 +330,7 @@ function ConversationPageBody({ id }: { id: string }) {
 
   const onContinue: ContinueHandler = async (text: string, attachments: Attachment[]) => {
     const next = await continueConversation.mutateAsync(id);
-    send.mutate({ id: next.id, text, ...(attachments.length ? { attachments } : {}) });
+    handOffFirstMessage(next.id, { text, attachments });
     void navigate({ to: "/claude/$id", params: { id: next.id } });
   };
 
@@ -352,7 +352,7 @@ function ConversationPageBody({ id }: { id: string }) {
           onContinue={onContinue}
         />
         {withSide && !docked && sideOpen && (
-          <div className="panel-enter absolute inset-y-0 right-0 z-20 w-[360px] max-w-full overflow-y-auto border-l border-rule-strong bg-surface shadow-[0_12px_32px_-8px_oklch(0_0_0/0.4)]">
+          <div className="panel-enter absolute inset-y-0 right-0 z-20 w-[360px] max-w-full overflow-y-auto border-l border-rule-strong bg-surface">
             <ObjectSide detail={detail} onClose={() => setSideOpen(false)} />
           </div>
         )}
@@ -654,7 +654,7 @@ function PageHeader({
               </button>
               <button
                 type="button"
-                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-critical px-3 text-sm font-semibold text-ground transition-opacity duration-[var(--duration-fast)] ease-out hover:opacity-90 active:opacity-80 disabled:opacity-40"
+                className={`${dangerButton} h-8 px-3 disabled:opacity-40`}
                 disabled={remove.isPending}
                 onClick={confirmDelete}
               >
