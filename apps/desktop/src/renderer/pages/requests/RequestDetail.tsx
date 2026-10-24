@@ -7,6 +7,7 @@ import {
   useProjects,
   useProjectStatuses,
   useReopenRequest,
+  useRestoreRequest,
   useRequest,
   useRequests,
   useStartRefine,
@@ -35,7 +36,7 @@ import { MergeDialog } from "./MergeDialog";
 import { RequestStatusLabel, RequestStatusSign, UrgencyMark } from "./marks";
 
 /** Le richieste di un progetto: l'unica route su cui si apre il pannello della richiesta. */
-const REQUESTS_PATH = /^\/p\/[^/]+\/requests\/?$/;
+const REQUESTS_PATH = /^\/p\/([^/]+)\/requests\/?$/;
 
 /**
  * Il pannello della richiesta, montato dal layout su `?request=<id>` nella
@@ -47,7 +48,10 @@ export function RequestDetailHost() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const search = useSearch({ strict: false }) as { request?: string; task?: string };
-  const onRequests = useRouterState({ select: (s) => REQUESTS_PATH.test(s.location.pathname) });
+  // Il codice del progetto della route: una richiesta di un altro progetto qui non c'è.
+  const routeCode = useRouterState({
+    select: (s) => REQUESTS_PATH.exec(s.location.pathname)?.[1] ?? null,
+  });
   const docked = useMediaQuery(DOCKED_PANEL_QUERY);
   const close = useCallback(() => {
     void navigate({
@@ -56,14 +60,14 @@ export function RequestDetailHost() {
     } as never);
   }, [navigate]);
   const id = search.request;
-  if (!id || !onRequests || search.task) return null;
+  if (!id || !routeCode || search.task) return null;
   return (
     <DetailPanel
       mode={docked ? "docked" : "overlay"}
       label={t("requests.detail.label")}
       onClose={close}
     >
-      <RequestDetail key={id} id={id} onClose={close} />
+      <RequestDetail key={id} id={id} projectCode={routeCode} onClose={close} />
     </DetailPanel>
   );
 }
@@ -100,10 +104,20 @@ function TopBar({ project, onClose }: { project?: Project; onClose: () => void }
  * seguono i permessi: «Turn into task» con `tickets.create`, il resto con
  * `backlog.edit`; senza nessuna delle due una riga dice chi decide.
  */
-export function RequestDetail({ id, onClose }: { id: string; onClose: () => void }) {
+export function RequestDetail({
+  id,
+  projectCode,
+  onClose,
+}: {
+  id: string;
+  /** Il progetto della route: una richiesta di un altro progetto vale «non trovata». */
+  projectCode?: string;
+  onClose: () => void;
+}) {
   const { t } = useTranslation();
   const { data: request, isPending, isError, refetch } = useRequest(id);
-  const project = useProjects().data?.find((p) => p.id === request?.projectId);
+  const projects = useProjects().data;
+  const project = projects?.find((p) => p.id === request?.projectId);
   if (isError) {
     return (
       <>
@@ -112,7 +126,8 @@ export function RequestDetail({ id, onClose }: { id: string; onClose: () => void
       </>
     );
   }
-  if (isPending) {
+  // Il progetto dice se la richiesta è di questa route: finché non c'è, si aspetta.
+  if (isPending || (request && projectCode && !projects)) {
     return (
       <>
         <TopBar onClose={onClose} />
@@ -127,7 +142,7 @@ export function RequestDetail({ id, onClose }: { id: string; onClose: () => void
       </>
     );
   }
-  if (!request) {
+  if (!request || (projectCode && project?.code !== projectCode)) {
     return (
       <>
         <TopBar onClose={onClose} />
@@ -166,6 +181,7 @@ function RequestBody({
   const all = useRequests(request.projectId).data;
   const archive = useArchiveRequest();
   const reopen = useReopenRequest();
+  const restore = useRestoreRequest();
   const refine = useStartRefine();
   const [converting, setConverting] = useState(false);
   const [merging, setMerging] = useState(false);
@@ -189,14 +205,24 @@ function RequestBody({
       search: (prev: Record<string, unknown>) => ({ ...prev, request: undefined, task: code }),
     } as never);
 
-  const doArchive = () =>
+  // L'«Undo» rimette lo stato di prima (pronta resta pronta, in rifinitura resta in rifinitura).
+  const doArchive = () => {
+    const before = request.status as "new" | "refining" | "ready";
     archive.mutate(request.id, {
       onSuccess: () =>
         toast.show(t("requests.detail.toast.archived"), {
-          action: { label: t("requests.detail.undo"), run: () => reopen.mutate(request.id) },
+          action: {
+            label: t("requests.detail.undo"),
+            run: () =>
+              restore.mutate(
+                { id: request.id, status: before },
+                { onError: () => toast.error(t("requests.detail.toast.undoFailed")) },
+              ),
+          },
         }),
       onError: () => toast.error(t("requests.detail.toast.archiveFailed")),
     });
+  };
   const doReopen = () =>
     reopen.mutate(request.id, {
       onSuccess: () => toast.show(t("requests.detail.toast.reopened")),
@@ -208,7 +234,7 @@ function RequestBody({
       onError: () => toast.error(t("requests.detail.toast.refineFailed")),
     });
 
-  const busy = archive.isPending || reopen.isPending || refine.isPending;
+  const busy = archive.isPending || reopen.isPending || restore.isPending || refine.isPending;
   const actions: ReactNode[] = [];
   if (open && canConvert) {
     actions.push(
@@ -265,7 +291,8 @@ function RequestBody({
       </MenuButton>,
     );
   }
-  if (canEdit && request.status === "archived") {
+  // Una fusa non si riapre da qui: segue la richiesta in cui è confluita.
+  if (canEdit && request.status === "archived" && !request.mergedIntoId) {
     actions.push(
       <button key="reopen" type="button" className={smallSecondary} disabled={busy} onClick={doReopen}>
         {t("requests.detail.actions.reopen")}

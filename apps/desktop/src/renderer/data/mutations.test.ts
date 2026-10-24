@@ -31,6 +31,7 @@ import {
   mergeRequest,
   planTask,
   reopenRequest,
+  restoreRequest,
   resetApi,
   resetPersonalHome,
   saveFilter,
@@ -439,6 +440,18 @@ describe("richieste", () => {
     expect(similar.similarToId).toBe("req-stw-4");
     const alone = await createRequest({ projectId: "prj-stw", title: "Dark mode" });
     expect(alone.similarToId).toBeNull();
+  });
+
+  it("restoreRequest rimette lo stato aperto di prima; non su una fusa né senza backlog.edit", async () => {
+    as("p-laura");
+    await archiveRequest("req-aud-2");
+    expect((await restoreRequest("req-aud-2", "ready")).status).toBe("ready");
+    await expect(restoreRequest("req-aud-2", "ready")).rejects.toThrow(/invalid/);
+    await expect(restoreRequest("req-stw-3", "new")).rejects.toThrow(/invalid/);
+    await archiveRequest("req-stw-4");
+    as("p-sara");
+    await expect(restoreRequest("req-stw-4", "refining")).rejects.toThrow(forbiddenError);
+    expect((await getRequest("req-stw-4"))!.status).toBe("archived");
   });
 
   it("update / archive / reopen / startRefine: serve backlog.edit", async () => {

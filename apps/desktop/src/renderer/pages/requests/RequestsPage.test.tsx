@@ -161,7 +161,7 @@ describe("pannello della richiesta", () => {
         name: "Merged into “Landing page for the showroom event”",
       }),
     ).toBeInTheDocument();
-    expect(within(after).getByRole("button", { name: "Reopen" })).toBeInTheDocument();
+    expect(within(after).queryByRole("button", { name: "Reopen" })).toBeNull();
   });
 
   it("Sara (contributor): «New request» sì, «Merge», «Archive» e «Refine» no", async () => {
@@ -190,6 +190,52 @@ describe("pannello della richiesta", () => {
     ).toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "Turn into task" })).toBeNull();
     expect(screen.queryByRole("button", { name: "New request" })).toBeNull();
+  });
+
+  async function archiveThenUndo(id: string, personId: string, code: string) {
+    renderRoute(`/p/${code}/requests?request=${id}`, personId);
+    const dialog = await panel();
+    await userEvent.click(await within(dialog).findByRole("button", { name: "More actions" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Archive" }));
+    await waitFor(() => expect(request(id).status).toBe("archived"));
+    await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+  }
+
+  it("Archive → Undo: una richiesta in rifinitura torna in rifinitura, con la sua riga", async () => {
+    await archiveThenUndo("req-stw-4", "p-roberta", "STW");
+    await waitFor(() => expect(request("req-stw-4").status).toBe("refining"));
+    const dialog = await panel();
+    expect(await within(dialog).findByText(/Refinement with Claude has started/)).toBeInTheDocument();
+  });
+
+  it("Archive → Undo: una richiesta pronta torna pronta", async () => {
+    await archiveThenUndo("req-mkx-3", "p-giulia", "MKX");
+    await waitFor(() => expect(request("req-mkx-3").status).toBe("ready"));
+  });
+
+  it("Undo che non riesce: lo dice, e la richiesta resta archiviata", async () => {
+    failNext("restoreRequest");
+    await archiveThenUndo("req-mkx-3", "p-giulia", "MKX");
+    expect(
+      await screen.findByText("Couldn't undo: the request is still archived."),
+    ).toBeInTheDocument();
+    expect(request("req-mkx-3").status).toBe("archived");
+  });
+
+  it("una richiesta fusa non offre «Reopen»", async () => {
+    renderRoute("/p/STW/requests?request=req-stw-3", "p-roberta");
+    const dialog = await panel();
+    await within(dialog).findByRole("button", { name: /Merged into/ });
+    expect(within(dialog).queryByRole("button", { name: "Reopen" })).toBeNull();
+  });
+
+  it("una richiesta di un altro progetto: il pannello la tratta come non trovata", async () => {
+    renderRoute("/p/MKX/requests?request=req-stw-1", "p-roberta");
+    const dialog = await panel();
+    expect(
+      await within(dialog).findByText("This request doesn't exist or you can't see it"),
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByRole("heading", { name: /Show who moved/ })).toBeNull();
   });
 
   it("una richiesta che non c'è: il pannello lo dice", async () => {

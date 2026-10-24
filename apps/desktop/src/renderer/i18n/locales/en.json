@@ -1063,6 +1063,7 @@
         "refineFailed": "Couldn't start the refinement. Nothing changed.",
         "archived": "Request archived.",
         "archiveFailed": "Couldn't archive the request. Nothing changed.",
+        "undoFailed": "Couldn't undo: the request is still archived.",
         "reopened": "Request reopened.",
         "reopenFailed": "Couldn't reopen the request. Nothing changed.",
         "merged": "Merged into “{{title}}”."

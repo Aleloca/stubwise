@@ -568,6 +568,24 @@ export async function reopenRequest(id: string): Promise<ProjectRequest> {
   return copy(request);
 }
 
+/**
+ * L'«Undo» di un'archiviazione: la richiesta torna allo stato aperto che
+ * aveva prima (nuova, in rifinitura, pronta), non a «nuova» come con
+ * «Reopen». Solo una richiesta archiviata a mano: una fusa si riapre.
+ */
+export async function restoreRequest(
+  id: string,
+  status: "new" | "refining" | "ready",
+): Promise<ProjectRequest> {
+  const me = await gate("restoreRequest");
+  const request = requestFor(me, id);
+  need(me, "backlog.edit", request.projectId);
+  if (!["new", "refining", "ready"].includes(status)) throw invalid("status");
+  if (request.status !== "archived" || request.mergedIntoId !== null) throw invalid("status");
+  request.status = status;
+  return copy(request);
+}
+
 export async function startRefine(id: string): Promise<ProjectRequest> {
   const me = await gate("startRefine");
   return copy(setRequestStatus(me, id, ["new", "ready"], "refining"));

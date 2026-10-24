@@ -605,6 +605,14 @@ export function useReopenRequest() {
   return useWrite(api.reopenRequest, REQUEST_AREAS);
 }
 
+export function useRestoreRequest() {
+  return useWrite(
+    ({ id, status }: { id: string; status: Parameters<typeof api.restoreRequest>[1] }) =>
+      api.restoreRequest(id, status),
+    REQUEST_AREAS,
+  );
+}
+
 export function useStartRefine() {
   return useWrite(api.startRefine, REQUEST_AREAS);
 }

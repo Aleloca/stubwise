@@ -1063,6 +1063,7 @@
         "refineFailed": "Non è stato possibile avviare la rifinitura. Non è cambiato nulla.",
         "archived": "Richiesta archiviata.",
         "archiveFailed": "Non è stato possibile archiviare la richiesta. Non è cambiato nulla.",
+        "undoFailed": "Non è stato possibile annullare: la richiesta resta archiviata.",
         "reopened": "Richiesta riaperta.",
         "reopenFailed": "Non è stato possibile riaprire la richiesta. Non è cambiato nulla.",
         "merged": "Fusa in «{{title}}»."

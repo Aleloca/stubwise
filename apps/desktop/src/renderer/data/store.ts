@@ -84,6 +84,7 @@ export type ApiFnName =
   | "mergeRequest"
   | "archiveRequest"
   | "reopenRequest"
+  | "restoreRequest"
   | "startRefine"
   | "convertRequest"
   | "saveFilter"
