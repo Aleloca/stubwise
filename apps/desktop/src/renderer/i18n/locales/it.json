@@ -1638,6 +1638,7 @@
         "convertAndRun": "**{{request}}** non è ancora una task. Posso trasformarla in una task di {{project}} e avviarne l'esecuzione. Conferma qui sotto: il piano passa comunque dall'approvazione, come sempre.",
         "archived": "**{{request}}** è archiviata, quindi non c'è nulla da avviare. Prima riaprila.",
         "merged": "**{{request}}** è stata fusa in **{{into}}**: parti da quella.",
+        "mergedHidden": "**{{request}}** è stata fusa in un'altra richiesta che non puoi vedere, quindi da qui non c'è nulla da avviare.",
         "summaryConvert": "Trasforma {{request}} in una task di {{project}}: «{{title}}»",
         "summaryRun": "Avvia l'esecuzione di {{task}}",
         "summaryRunNew": "Avvia l'esecuzione della task nuova"

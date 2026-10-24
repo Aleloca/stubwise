@@ -21,17 +21,41 @@ export interface CodeRef {
   code: string;
   projectCode: string;
   kind: "task" | "request";
+  /**
+   * Il prefisso è un progetto che la persona vede. Un codice maiuscolo di un
+   * prefisso ignoto resta un codice («AUD-3» per chi non vede AUD: «non la
+   * trovo»), ma può anche essere una sigla («UTF-8»): chi riconosce l'intento
+   * lo pesa meno di un codice noto.
+   */
+  known: boolean;
 }
 
-/** I codici di catalogo nel testo (`[A-Z]{2,4}-R?\d+`), nell'ordine, senza doppi. */
-export function findCodes(text: string): CodeRef[] {
+/**
+ * I codici di catalogo nel testo (`[A-Z]{2,4}-R?\d+`), nell'ordine, senza
+ * doppi. Maiuscoli, come li scrive il Catalogo; in minuscolo («aud-3») solo
+ * se il prefisso è un progetto visibile (`visibleCodes`), così «utf-8» o
+ * «e-mail-2» non diventano codici. Senza `visibleCodes` ogni codice
+ * maiuscolo conta come noto.
+ */
+export function findCodes(text: string, visibleCodes?: ReadonlySet<string>): CodeRef[] {
   const out: CodeRef[] = [];
   for (const m of text.matchAll(/\b([a-z]{2,4})-(r?)(\d+)\b/gi)) {
+    const projectCode = m[1]!.toUpperCase();
+    const upper = m[1] === projectCode && (m[2] === "" || m[2] === "R");
+    const known = visibleCodes ? visibleCodes.has(projectCode) : upper;
+    if (!upper && !known) continue;
     const code = m[0].toUpperCase();
     if (out.some((c) => c.code === code)) continue;
-    out.push({ code, projectCode: m[1]!.toUpperCase(), kind: m[2] ? "request" : "task" });
+    out.push({ code, projectCode, kind: m[2] ? "request" : "task", known });
   }
   return out;
+}
+
+/** Il testo con i codici in minuscolo di progetti visibili riscritti in maiuscolo («aud-3» → «AUD-3»). */
+export function canonicalCodes(text: string, visibleCodes: ReadonlySet<string>): string {
+  return text.replace(/\b([a-z]{2,4})-(r?)(\d+)\b/gi, (match, prefix: string) =>
+    visibleCodes.has(prefix.toUpperCase()) ? match.toUpperCase() : match,
+  );
 }
 
 /** Le parole di un nome che bastano a riconoscerlo: lunghe e di un solo progetto. */
@@ -53,8 +77,12 @@ export function findProject(
   contextProjectId: string | null,
 ): { project: Project | null; named: string | null } {
   const byCode = (code: string) => projects.find((p) => p.code === code) ?? null;
-  const codes = findCodes(text);
-  if (codes[0]) return { project: byCode(codes[0].projectCode), named: codes[0].projectCode };
+  // Solo il codice di un progetto visibile dice il progetto: «UTF-8» non è
+  // un progetto, e un progetto invisibile si riconosce dalla preposizione.
+  for (const c of findCodes(text)) {
+    const project = byCode(c.projectCode);
+    if (project) return { project, named: c.projectCode };
+  }
   for (const m of text.matchAll(/\b[A-Z]{2,4}\b/g)) {
     const project = byCode(m[0]);
     if (project) return { project, named: m[0] };

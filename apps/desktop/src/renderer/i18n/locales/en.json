@@ -1638,6 +1638,7 @@
         "convertAndRun": "**{{request}}** isn't a task yet. I can turn it into a task in {{project}} and start the run on it. Confirm below: the plan still goes through approval as usual.",
         "archived": "**{{request}}** is archived, so there's nothing to start. Reopen it first.",
         "merged": "**{{request}}** was merged into **{{into}}**: start from that one.",
+        "mergedHidden": "**{{request}}** was merged into another request that you can't see, so there's nothing to start here.",
         "summaryConvert": "Turn {{request}} into a task in {{project}}: “{{title}}”",
         "summaryRun": "Start the run on {{task}}",
         "summaryRunNew": "Start the run on the new task"

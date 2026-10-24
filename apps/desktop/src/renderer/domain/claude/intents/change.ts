@@ -11,16 +11,17 @@ import { findCodes, findPerson, findProject, findSize, findTitle, findWeek } fro
 export async function create(text: string, ctx: IntentContext): Promise<Answer> {
   const { read, t, personId } = ctx;
   const projects = await read.listProjects();
-  const { project, named: wanted } = findProject(text, projects, ctx.contextProjectId);
+  // Progetto, persona, settimana e taglia si cercano fuori dal titolo:
+  // «Report for AUD» non crea in AUD, «Call Marco back» non assegna a Marco.
+  const title = findTitle(text);
+  const rest = title ? text.replace(title, " ") : text;
+  const { project, named: wanted } = findProject(rest, projects, ctx.contextProjectId);
   if (wanted && !project) {
     return { actions: [], text: t("claude.answers.status.projectNotFound", { code: wanted }) };
   }
   if (!project) return { actions: [], text: t("claude.answers.create.noProject") };
-  const title = findTitle(text);
   if (!title)
     return { actions: [], text: t("claude.answers.create.noTitle", { code: project.code }) };
-  // Persona, settimana e taglia si cercano fuori dal titolo («Call Marco back» non assegna a Marco).
-  const rest = text.replace(title, " ");
   const person = findPerson(rest, await read.listPeople(), personId);
   const week = findWeek(rest);
   const size = findSize(rest);

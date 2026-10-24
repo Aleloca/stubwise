@@ -52,10 +52,10 @@ export async function run(text: string, ctx: IntentContext): Promise<Answer> {
     const into = await read.getRequest(request.mergedIntoId);
     return {
       actions: [lookup],
-      text: t("claude.answers.run.merged", {
-        request: named(request),
-        into: into ? named(into) : "",
-      }),
+      // Una richiesta di destinazione che non vedo non si nomina: frase a sé.
+      text: into
+        ? t("claude.answers.run.merged", { request: named(request), into: named(into) })
+        : t("claude.answers.run.mergedHidden", { request: named(request) }),
       refs: into ? [...refs, { kind: "request", id: into.id }] : refs,
     };
   }

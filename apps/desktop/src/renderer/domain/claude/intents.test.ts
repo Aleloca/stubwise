@@ -92,6 +92,66 @@ describe("riconoscimento", () => {
   it("«plan» senza una settimana non è una pianificazione: spiega la task", () => {
     expect(recognize("What's the plan for AUD-3?")).toBe("explain");
   });
+
+  it.each([
+    ["Can you run AUD-4?", "run"],
+    ["Please create “Banner copy review” in MKX", "create"],
+    ["Could you plan AUD-10 for next week?", "plan"],
+    // «assegnare» non è un imperativo: si legge e basta.
+    ["Potresti assegnare AUD-10 a Marco?", "explain"],
+  ])("una richiesta cortese resta un comando: %s → %s", (text, intent) => {
+    expect(recognize(text)).toBe(intent);
+  });
+});
+
+describe("una domanda non diventa mai una proposta (fix round 1)", () => {
+  it.each([
+    ["When did AUD-4 start?", "explain"],
+    ["Why did the run on AUD-4 fail?", "explain"],
+    ["AUD-10 è pianificata per la settimana prossima?", "explain"],
+    ["Chi ha assegnato AUD-10 a Marco?", "explain"],
+    ["Is AUD-10 planned for next week?", "explain"],
+    ["How do I add contacts in AUD?", "howto"],
+    ["Come si crea un preventivo in AUD?", "howto"],
+    ["How does UTF-8 import work in AUD?", "howto"],
+  ])("%s → %s, nessuna proposta", async (text, intent) => {
+    const ctx = as("p-giulia");
+    const visible = new Set((await api.listProjects()).map((p) => p.code));
+    expect(recognize(text, visible)).toBe(intent);
+    expect(proposal(await respond(text, ctx))).toBeNull();
+  });
+
+  it("«UTF-8» non è un codice: cerca nei Docs di AUD", async () => {
+    const steps = await respond("How does UTF-8 import work in AUD?", as("p-giulia"));
+    expect(actions(steps)).toEqual(["Searched AUD docs for “UTF-8 import”"]);
+    expect(refs(steps)).toEqual(["doc-aud-import"]);
+  });
+
+  it("un codice in minuscolo vale solo se il prefisso è un progetto visibile", async () => {
+    expect(refs(await respond("explain aud-3", as("p-giulia")))).toEqual(["t-aud-3"]);
+    // Sara non vede AUD: «aud-3» non è un codice per lei, quindi nessuna lettura di AUD.
+    const sara = await respond("explain aud-3", as("p-sara"));
+    expect(refs(sara)).toEqual([]);
+    expect(actions(sara)).toEqual([]);
+  });
+
+  it("create: il progetto nel titolo fra virgolette non conta", async () => {
+    const steps = await respond("Create “Report for AUD” in MKX", as("p-giulia"));
+    expect(proposal(steps)!.actions[0]!.args).toEqual({
+      projectId: "prj-mkx",
+      title: "Report for AUD",
+    });
+  });
+
+  it("run di una richiesta fusa in una che non vedo: frase a sé, nessun «****»", async () => {
+    const read: ReadApi = { ...READ, getRequest: async () => null };
+    const steps = await respond("Run STW-R3", { ...as("p-giulia"), read });
+    expect(said(steps)).toBe(
+      "**STW-R3 Drag and drop on the board** was merged into another request that you can't see, so there's nothing to start here.",
+    );
+    expect(said(steps)).not.toContain("****");
+    expect(proposal(steps)).toBeNull();
+  });
 });
 
 describe("risposte come Giulia", () => {
