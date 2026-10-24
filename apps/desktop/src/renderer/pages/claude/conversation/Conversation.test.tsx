@@ -38,6 +38,34 @@ async function as<R>(personId: string, call: () => Promise<R>): Promise<R> {
 const noRawKeys = (container: HTMLElement) =>
   expect(container.textContent ?? "").not.toMatch(/claude\.conversation\./);
 
+/**
+ * Una libera di Giulia con Claude a metà risposta, ferma lì: nessuno script
+ * in coda, quindi la risposta non finisce mentre il test scrive. Con la
+ * risposta vera in streaming (latenza a orologio) i test della casella
+ * correvano contro di lei: sotto il carico della suite intera la digitazione
+ * durava più della risposta, Claude finiva prima del clic e «Stop and send»
+ * non c'era più. Fermare uno stream vero è provato nel livello dati
+ * (`conversation-composer.test.ts`).
+ */
+async function claudeMidReply(): Promise<string> {
+  const c = await as("p-giulia", () => api.createConversation({ contextProjectId: "prj-mkx" }));
+  await api.runScript(c.id, [
+    {
+      step: "event",
+      event: {
+        type: "user",
+        authorId: "p-giulia",
+        text: "What should I do today?",
+        attachments: [],
+        delivery: "delivered",
+      },
+    },
+    { step: "state", state: "working" },
+    { step: "event", event: { type: "assistant", text: "Let me look at your week", done: false } },
+  ]);
+  return c.id;
+}
+
 describe("Conversation: flusso", () => {
   it("il testo di Claude arriva a pezzi nello stesso messaggio, e una volta sola", async () => {
     api.setStreamLatency(15);
@@ -266,12 +294,10 @@ describe("Conversation: casella", () => {
   });
 
   it("mentre Claude risponde: Stop, poi con del testo Send e «Stop and send»", async () => {
-    api.setStreamLatency(20);
     const user = userEvent.setup();
-    const c = await as("p-giulia", () => api.createConversation({ contextProjectId: "prj-mkx" }));
-    renderWithData(<Harness id={c.id} />, { personId: "p-giulia" });
+    const id = await claudeMidReply();
+    renderWithData(<Harness id={id} />, { personId: "p-giulia" });
     const box = await screen.findByRole("combobox", { name: /message to claude/i });
-    await user.type(box, "What should I do today?{Enter}");
     await screen.findByRole("button", { name: "Stop" });
     await user.type(box, "and tomorrow");
     expect(screen.getByRole("button", { name: "Stop and send" })).toBeInTheDocument();
@@ -280,12 +306,10 @@ describe("Conversation: casella", () => {
   });
 
   it("«Stop» ferma la risposta: la fase dice chi l'ha fermata e la casella torna a Send", async () => {
-    api.setStreamLatency(25);
     const user = userEvent.setup();
-    const c = await as("p-giulia", () => api.createConversation({ contextProjectId: "prj-mkx" }));
-    renderWithData(<Harness id={c.id} />, { personId: "p-giulia" });
-    const box = await screen.findByRole("combobox", { name: /message to claude/i });
-    await user.type(box, "What should I do today?{Enter}");
+    const id = await claudeMidReply();
+    renderWithData(<Harness id={id} />, { personId: "p-giulia" });
+    await screen.findByRole("combobox", { name: /message to claude/i });
     await user.click(await screen.findByRole("button", { name: "Stop" }));
     expect(
       await screen.findByRole(
@@ -328,12 +352,9 @@ describe("Conversation: casella", () => {
   });
 
   it("⌘. ferma Claude, ma non con un dialogo aperto", async () => {
-    api.setStreamLatency(40);
-    const user = userEvent.setup();
-    const c = await as("p-giulia", () => api.createConversation({ contextProjectId: "prj-mkx" }));
-    renderWithData(<Harness id={c.id} />, { personId: "p-giulia" });
-    const box = await screen.findByRole("combobox", { name: /message to claude/i });
-    await user.type(box, "What should I do today?{Enter}");
+    const id = await claudeMidReply();
+    renderWithData(<Harness id={id} />, { personId: "p-giulia" });
+    await screen.findByRole("combobox", { name: /message to claude/i });
     await screen.findByRole("button", { name: "Stop" });
     const modal = document.createElement("div");
     modal.setAttribute("aria-modal", "true");
@@ -349,12 +370,10 @@ describe("Conversation: casella", () => {
   });
 
   it("«Stop» rifiutato: lo dice, con «Try again»", async () => {
-    api.setStreamLatency(25);
     const user = userEvent.setup();
-    const c = await as("p-giulia", () => api.createConversation({ contextProjectId: "prj-mkx" }));
-    renderWithData(<Harness id={c.id} />, { personId: "p-giulia" });
-    const box = await screen.findByRole("combobox", { name: /message to claude/i });
-    await user.type(box, "What should I do today?{Enter}");
+    const id = await claudeMidReply();
+    renderWithData(<Harness id={id} />, { personId: "p-giulia" });
+    await screen.findByRole("combobox", { name: /message to claude/i });
     const stop = await screen.findByRole("button", { name: "Stop" });
     api.failNext("stop");
     await user.click(stop);
@@ -364,12 +383,10 @@ describe("Conversation: casella", () => {
   });
 
   it("«Stop and send» rifiutato (rete o permesso tolto): il testo resta, con «Resend»", async () => {
-    api.setStreamLatency(25);
     const user = userEvent.setup();
-    const c = await as("p-giulia", () => api.createConversation({ contextProjectId: "prj-mkx" }));
-    renderWithData(<Harness id={c.id} />, { personId: "p-giulia" });
+    const id = await claudeMidReply();
+    renderWithData(<Harness id={id} />, { personId: "p-giulia" });
     const box = await screen.findByRole("combobox", { name: /message to claude/i });
-    await user.type(box, "What should I do today?{Enter}");
     await screen.findByRole("button", { name: "Stop" });
 
     // 1. La chiamata non passa.
@@ -383,15 +400,13 @@ describe("Conversation: casella", () => {
   });
 
   it("«Stop and send» con il permesso tolto nel frattempo: forbidden, il testo resta", async () => {
-    api.setStreamLatency(40);
     const user = userEvent.setup();
-    const c = await as("p-giulia", () => api.createConversation({ contextProjectId: "prj-mkx" }));
-    renderWithData(<Harness id={c.id} />, { personId: "p-giulia" });
+    const id = await claudeMidReply();
+    renderWithData(<Harness id={id} />, { personId: "p-giulia" });
     const box = await screen.findByRole("combobox", { name: /message to claude/i });
-    await user.type(box, "What should I do today?{Enter}");
     await screen.findByRole("button", { name: "Stop" });
     // Il «server» non concede più di fermare (archiviata altrove), la pagina non lo sa ancora.
-    state.conversations.find((x) => x.id === c.id)!.archived = true;
+    state.conversations.find((x) => x.id === id)!.archived = true;
     await user.type(box, "second try");
     await user.click(screen.getByRole("button", { name: "Stop and send" }));
     const failed = await screen.findByRole("alert");
