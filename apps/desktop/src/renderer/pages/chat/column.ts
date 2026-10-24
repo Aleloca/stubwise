@@ -38,6 +38,8 @@ export function chatColumnModel(
   rows: readonly ChannelRow[],
   projects: readonly Project[],
   pinnedIds: readonly string[],
+  /** Il canale aperto: il suo progetto resta in vista (non sparisce mai dalla colonna). */
+  currentId?: string,
 ): ChatColumnModel {
   const mine = rows.filter(inColumn);
   const byProject = new Map<string, ChannelRow[]>();
@@ -69,7 +71,10 @@ export function chatColumnModel(
   // I messaggi diretti: dal più recente; senza messaggi, dalla nascita.
   const last = (r: ChannelRow) => r.lastActivityAt ?? r.createdAt;
   const dms = mine.filter((r) => r.kind === "dm").sort((a, b) => last(b).localeCompare(last(a)));
-  const listed = (g: ProjectGroup) => pinnedIds.includes(g.project.id) || g.channels.some(hasNews);
+  const listed = (g: ProjectGroup) =>
+    pinnedIds.includes(g.project.id) ||
+    g.channels.some(hasNews) ||
+    g.channels.some((c) => c.id === currentId);
   return {
     projects: groups.filter(listed),
     quiet: groups.filter((g) => !listed(g)),

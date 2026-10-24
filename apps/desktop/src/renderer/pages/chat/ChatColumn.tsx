@@ -256,8 +256,9 @@ export function ChatColumn() {
         channels.data ?? [],
         projects ?? [],
         (pinned ?? []).map((p) => p.id),
+        current,
       ),
-    [channels.data, projects, pinned],
+    [channels.data, projects, pinned, current],
   );
   const order = useMemo(() => columnOrder(model), [model]);
   useChatKeys(order, (row) => chatTo(row.id));
@@ -541,8 +542,8 @@ const OTHERS = "others";
  * I progetti né fissati né con qualcosa di nuovo, in una riga chiusa
  * «Other projects · N» (approvata dal maintainer il 24 ott 2026): la
  * colonna resta corta e i messaggi diretti sopra la piega. Si apre a mano
- * (e se lo ricorda per persona) o da sola sul canale aperto che ci sta
- * dentro; un progetto che riceve qualcosa di nuovo ne esce da sé.
+ * (e se lo ricorda per persona); un progetto che riceve qualcosa di nuovo,
+ * o il cui canale è quello aperto, ne esce da sé.
  */
 function OtherProjects({
   groups,
@@ -557,8 +558,10 @@ function OtherProjects({
 }) {
   const { t } = useTranslation();
   const [chosen, setChosen] = useState<boolean | undefined>(() => groupOpenOf(me, OTHERS));
+  // Il canale aperto vince anche su una chiusura a mano (di norma il suo
+  // progetto è già in vista: `chatColumnModel` lo tiene fuori di qui).
   const holdsCurrent = groups.some((g) => g.channels.some((c) => c.id === current));
-  const open = chosen ?? holdsCurrent;
+  const open = holdsCurrent || (chosen ?? false);
   const listId = useId();
   return (
     <li data-other-projects>

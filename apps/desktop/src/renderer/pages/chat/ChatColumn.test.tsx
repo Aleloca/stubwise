@@ -120,6 +120,27 @@ describe("colonna della Chat: per persona", () => {
     expect(nav.querySelector(`[data-project-group="${hidden}"]`)).not.toBeNull();
   });
 
+  it("il canale aperto non sparisce mai dalla colonna: il suo progetto resta in vista, anche con «Other projects» chiusa", async () => {
+    const model = await modelOf("p-laura");
+    const group = model.quiet[0]!;
+    const channel = group.channels[0]!;
+    // Chiusa a mano «Other projects» prima: il canale aperto vince lo stesso.
+    const first = renderRoute("/chat/ch-announcements", "p-laura");
+    const user = userEvent.setup();
+    const nav = await chatNav();
+    const others = await within(nav).findByRole("button", { name: /^Other projects · / });
+    await user.click(others);
+    await user.click(others);
+    expect(others).toHaveAttribute("aria-expanded", "false");
+    await first.navigate({ to: "/chat/$channelId", params: { channelId: channel.id } } as never);
+    await waitFor(() =>
+      expect(nav.querySelector(`[data-channel-row="${channel.id}"]`)).not.toBeNull(),
+    );
+    expect(within(nav).getByRole("button", { name: /^Other projects · / })).toHaveAccessibleName(
+      `Other projects · ${model.quiet.length - 1}`,
+    );
+  });
+
   it("i gruppi senza nulla di nuovo sono chiusi; aperto o chiuso si ricorda per persona", async () => {
     const user = userEvent.setup();
     renderRoute("/chat/ch-announcements", "p-laura");

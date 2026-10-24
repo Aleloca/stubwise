@@ -611,4 +611,22 @@ describe("@Claude: revisione finale dell'area", () => {
       process.off("unhandledRejection", onRejection);
     }
   });
+
+  it("il titolo di una task da creare in un progetto che il lettore non vede non esce, né nel riassunto né nella frase", async () => {
+    as("p-giulia");
+    const call = await chat.sendMessage("ch-announcements", {
+      text: "@Claude create “Secret pricing page” in AUD",
+    });
+    const reply = await replyOf(call.id, "p-giulia");
+    const view = async () =>
+      (await chat.listThread(call.id))!.replies.find((r) => r.id === reply.id)!;
+    const mine = proposalOf(await view())!.actions[0]!;
+    expect(mine.summary).toContain("Secret pricing page");
+    expect(mine.summaryText?.params?.title).toBe("Secret pricing page");
+    as("p-sara");
+    expect(visibleProjectIds("p-sara").has("prj-aud")).toBe(false);
+    const hers = proposalOf(await view())!.actions[0]!;
+    expect(hers.summary).toContain("AUD");
+    expect(JSON.stringify(hers)).not.toContain("Secret pricing page");
+  });
 });

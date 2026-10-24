@@ -212,9 +212,11 @@ I buchi di parità stanno in `area4-parity.md`, «Buchi». L'elenco per task:
   `search.ts`, `BrowseChannels.tsx`, `PeoplePicker.tsx`).
 - Prestazioni: `emitChat` → `presentMessage` con il `channelData` di default
   riscandisce tutti i messaggi per ogni iscritto a ogni pezzo di Claude.
-- Una domanda rivolta a chi legge un canale aperto senza esserne membro crea
-  la notifica (`chat.question`) ma non entra in «Da decidere», che come le
-  domande di @Claude chiede di essere membro: per rispondere si entra nel canale.
+- Una domanda rivolta a chi legge un canale aperto senza esserne membro gli
+  arriva come menzione semplice (`chat.mention`), non come domanda: «Da
+  decidere», come per le domande di @Claude, chiede di essere membro, e la
+  notifica non promette una voce che non c'è. Per rispondere si entra nel
+  canale (scelta del costruttore, da confermare se serve di più).
 
 ### Dati e flusso (Task 1–3)
 

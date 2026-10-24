@@ -175,7 +175,12 @@ function deliverMentions(m: ChatMessage, ch: Channel): void {
     if (kind !== "direct" || !canReadChannel(personId, ch)) continue;
     state.notifications.push({
       id: newId("n-chat"),
-      kind: m.asksReplyOf.includes(personId) ? "chat.question" : "chat.mention",
+      // Una domanda solo a un membro: è lui che la trova in «Da decidere» e può
+      // rispondere; a chi legge senza esserne membro arriva come menzione.
+      kind:
+        m.asksReplyOf.includes(personId) && members.includes(personId)
+          ? "chat.question"
+          : "chat.mention",
       projectId: ch.projectId,
       objectCode: "",
       departmentId: null,
@@ -605,6 +610,8 @@ export async function updateChannel(channelId: string, patch: ChannelPatch): Pro
   const editsInfo = patch.name !== undefined || patch.description !== undefined;
   if (editsInfo && !perms.canEditInfo) throw forbidden();
   if (patch.topic !== undefined && !perms.canEditTopic) throw forbidden();
+  // La descrizione non la legge chi gestisce senza leggere il canale: non la riscrive alla cieca.
+  if (patch.description !== undefined && !perms.canRead) throw forbidden();
   let name: string | undefined;
   if (patch.name !== undefined) {
     name = normalizeChannelName(patch.name);

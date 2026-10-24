@@ -247,34 +247,52 @@ function redactClaudeEvents(
     if (ref.kind === "task") consider(task(ref.id));
     if (ref.kind === "request") consider(request(ref.id));
   }
+  // Il titolo di un oggetto che il lettore non vede e che la proposta scrive
+  // da solo (non dopo il suo codice): la richiesta da trasformare, la task o
+  // la richiesta da creare in un progetto che non vede. Per proposta e azione.
+  const hiddenTitles = new Map<string, string>();
   for (const e of recorded.claudeEvents ?? []) {
     if (e.type !== "proposal") continue;
-    for (const { fn, args } of e.actions) {
+    e.actions.forEach(({ fn, args }, i) => {
       if (["updateTask", "planTask"].includes(fn)) consider(task(args.id));
       if (["addComment", "startRun"].includes(fn)) consider(task(args.taskId));
-      if (["convertRequest", "archiveRequest"].includes(fn)) consider(request(args.id));
-    }
+      if (["convertRequest", "archiveRequest"].includes(fn)) {
+        const r = request(args.id);
+        consider(r);
+        if (r && !visible.has(r.projectId)) hiddenTitles.set(`${e.id}:${i}`, r.title);
+      }
+      if (["createTask", "createRequest"].includes(fn)) {
+        const { projectId, title } = args;
+        if (typeof projectId === "string" && typeof title === "string" && !visible.has(projectId)) {
+          hiddenTitles.set(`${e.id}:${i}`, title);
+        }
+      }
+    });
     for (const code of e.resultCodes ?? []) {
       consider(
         state.tasks.find((t) => t.code === code) ?? state.requests.find((r) => r.code === code),
       );
     }
   }
-  if (hidden.size === 0) return [];
-  const redact = (text: string): string => {
+  if (hidden.size === 0 && hiddenTitles.size === 0) return [];
+  const redact = (text: string, elided?: string): string => {
     let out = text;
     for (const [code, title] of hidden) {
       if (title) out = out.split(`${code} ${title}`).join(code);
     }
-    return out;
+    // Un titolo scritto da solo non ha un codice che resti: si legge «…».
+    return elided ? out.split(elided).join("…") : out;
   };
   // Le frasi registrate (chiave e parametri): i parametri sono i dati da riscrivere.
-  const redactText = (text: Utterance | undefined): Utterance | undefined =>
+  const redactText = (text: Utterance | undefined, elided?: string): Utterance | undefined =>
     text?.params
       ? {
           key: text.key,
           params: Object.fromEntries(
-            Object.entries(text.params).map(([k, v]) => [k, typeof v === "string" ? redact(v) : v]),
+            Object.entries(text.params).map(([k, v]) => [
+              k,
+              typeof v === "string" ? redact(v, elided) : v,
+            ]),
           ),
         }
       : text;
@@ -287,11 +305,15 @@ function redactClaudeEvents(
       if (e.resultText) e.resultText = redactText(e.resultText);
     }
     if (e.type === "proposal") {
-      e.actions = e.actions.map((a) => ({
-        ...a,
-        summary: redact(a.summary),
-        ...(a.summaryText ? { summaryText: redactText(a.summaryText)! } : {}),
-      }));
+      const id = e.id;
+      e.actions = e.actions.map((a, i) => {
+        const elided = hiddenTitles.get(`${id}:${i}`);
+        return {
+          ...a,
+          summary: redact(a.summary, elided),
+          ...(a.summaryText ? { summaryText: redactText(a.summaryText, elided)! } : {}),
+        };
+      });
     }
     if (e.type === "question") e.text = redact(e.text);
   }
@@ -309,10 +331,13 @@ export function channelLabel(ch: Channel, personId: string): string {
 }
 
 export function channelView(personId: string, ch: Channel): ChannelView {
+  const readable = canReadChannel(personId, ch);
   return {
     ...copy(ch),
-    // Chi vede un privato senza leggerlo (chi gestisce) ne sa nome e membri, non l'argomento.
-    topic: canReadChannel(personId, ch) ? ch.topic : "",
+    // Chi vede un privato senza leggerlo (chi gestisce) ne sa nome e membri:
+    // né l'argomento né la descrizione.
+    topic: readable ? ch.topic : "",
+    description: readable ? ch.description : "",
     memberIds: [...membersOf(ch)],
     ...channelPermissions(personId, ch),
     notifyLevel: notifyLevelOf(personId, ch.id),

@@ -1018,9 +1018,18 @@ describe("chat: chiavi delle query per persona", () => {
 describe("chat: revisione finale dell'area", () => {
   it("chi gestisce un privato senza esserne membro ne legge nome e membri, mai l'argomento", async () => {
     channel("ch-aud-pricing").topic = "Resellers keep 15% until March";
+    channel("ch-aud-pricing").description = "Discounts for the reseller network";
     as("p-roberta");
-    expect(rowOf(await chat.listChannels(), "ch-aud-pricing")?.topic).toBe("");
-    expect((await chat.getChannel("ch-aud-pricing"))?.topic).toBe("");
+    expect(rowOf(await chat.listChannels(), "ch-aud-pricing")).toMatchObject({
+      topic: "",
+      description: "",
+    });
+    expect(await chat.getChannel("ch-aud-pricing")).toMatchObject({ topic: "", description: "" });
+    // Né la riscrive alla cieca: la descrizione è di chi legge il canale.
+    await rejects(chat.updateChannel("ch-aud-pricing", { description: "x" }), "forbidden");
+    expect((await chat.updateChannel("ch-aud-pricing", { name: "pricing-eu" })).name).toBe(
+      "pricing-eu",
+    );
     as("p-laura");
     expect((await chat.getChannel("ch-aud-pricing"))?.topic).toBe(
       "Resellers keep 15% until March",
@@ -1034,10 +1043,14 @@ describe("chat: revisione finale dell'area", () => {
     as("p-laura");
     const direct = await chat.sendMessage("ch-stw-desktop", { text: "@Marco Bellini have a look" });
     const group = await chat.sendMessage("ch-stw-desktop", { text: "@channel demo moved" });
+    // Una domanda a chi non è membro: una menzione semplice, che non promette «Da decidere».
+    const question = await chat.sendMessage("ch-stw-desktop", { text: "@Marco Bellini ready?" });
     as("p-marco");
     const mine = await listNotifications();
     expect(mine.find((n) => n.chatMessageId === direct.id)?.kind).toBe("chat.mention");
     expect(mine.some((n) => n.chatMessageId === group.id)).toBe(false);
+    expect(mine.find((n) => n.chatMessageId === question.id)?.kind).toBe("chat.mention");
+    expect((await chat.listQuestions()).some((q) => q.messageId === question.id)).toBe(false);
   });
 
   it("le scelte di «#» che chi scrive non vede non diventano citazioni", async () => {

@@ -178,13 +178,16 @@ function SettingsBody({ channel, onClose }: { channel: ChannelView; onClose: () 
             normalize={(v) => v.toLowerCase().replace(/\s+/g, "-")}
             validate={(v) => (CHANNEL_NAME_RE.test(v) ? null : t("chat.newChannel.nameRule"))}
           />
-          <EditableField
-            label={t("chat.settings.description")}
-            value={channel.description}
-            canEdit={channel.canEditInfo}
-            onSave={(v) => save({ description: v })}
-            empty={t("chat.settings.noDescription")}
-          />
+          {/* Descrizione e argomento solo a chi legge il canale (il livello dati li dà vuoti agli altri). */}
+          {channel.canRead && (
+            <EditableField
+              label={t("chat.settings.description")}
+              value={channel.description}
+              canEdit={channel.canEditInfo}
+              onSave={(v) => save({ description: v })}
+              empty={t("chat.settings.noDescription")}
+            />
+          )}
           {channel.canRead && (
             <EditableField
               label={t("chat.settings.topic")}
