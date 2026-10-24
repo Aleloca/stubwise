@@ -1,7 +1,8 @@
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { usePinnedProjects } from "../data/queries";
 import { hasModKey } from "../platform/platform";
+import { typing } from "../pages/tasks/useTaskKeys";
 
 /** Evento che apre la palette dei comandi (la palette arriva in un task successivo). */
 export const PALETTE_EVENT = "stubwise:palette";
@@ -30,6 +31,7 @@ export function openNotifications(): void {
  */
 export function useShortcuts(): void {
   const navigate = useNavigate();
+  const router = useRouter();
   const { data: pinned } = usePinnedProjects();
   // Il listener resta uno solo: legge i progetti fissati correnti da qui.
   const pinnedRef = useRef(pinned);
@@ -54,7 +56,13 @@ export function useShortcuts(): void {
         return;
       }
       if (key === "n") {
-        // «New message» della Chat, sopra la pagina (come la palette).
+        // «New message» della Chat, sopra la pagina (come la palette). Non
+        // dove ⌘N è già di qualcun altro: la destinazione Claude (conversazione
+        // nuova; il suo ascoltatore arriva dopo questo, quindi qui non basta
+        // `defaultPrevented`), un dialogo o un menu aperto, un campo in cui si scrive.
+        if (e.defaultPrevented || typing(e.target)) return;
+        if (document.querySelector('[aria-modal="true"], [role="menu"]')) return;
+        if (/^\/claude(\/|$)/.test(router.state.location.pathname)) return;
         e.preventDefault();
         void navigate({
           to: ".",
@@ -71,5 +79,5 @@ export function useShortcuts(): void {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [navigate]);
+  }, [navigate, router]);
 }

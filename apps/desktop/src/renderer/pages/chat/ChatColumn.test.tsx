@@ -245,6 +245,33 @@ describe("tastiera della Chat: mai mentre si scrive", () => {
   });
 });
 
+describe("⌘N globale: solo dove non è già di qualcun altro", () => {
+  it("su #/claude resta «New conversation»; con un dialogo aperto o scrivendo non fa nulla", async () => {
+    const claude = renderRoute("/claude?scope=mine", "p-giulia");
+    await screen.findByRole("heading", { level: 1 });
+    fireEvent.keyDown(window, { key: "n", ctrlKey: true });
+    await waitFor(() => expect(searchOf(claude).scope).toBeUndefined());
+    expect(claude.state.location.pathname).toBe("/claude");
+    expect(searchOf(claude).newMessage).toBeUndefined();
+    expect(screen.queryByRole("dialog", { name: "New message" })).toBeNull();
+
+    cleanup();
+    const dialog = renderRoute("/chat/ch-mkx-general?newChannel=1", "p-giulia");
+    await screen.findByRole("dialog", { name: "New channel" });
+    fireEvent.keyDown(window, { key: "n", ctrlKey: true });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(searchOf(dialog).newMessage).toBeUndefined();
+
+    cleanup();
+    const typingAt = renderRoute("/chat/ch-mkx-general", "p-giulia");
+    const composer = await screen.findByRole("combobox", { name: "Message MKX · general" });
+    composer.focus();
+    fireEvent.keyDown(composer, { key: "n", ctrlKey: true });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(searchOf(typingAt).newMessage).toBeUndefined();
+  });
+});
+
 describe("gruppi per persona e «New channel» nel gruppo", () => {
   it("cambiando «vedi come» un gruppo non eredita la scelta di chi guardava prima", async () => {
     const user = userEvent.setup();
