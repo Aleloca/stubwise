@@ -634,6 +634,104 @@ describe("pubbliche e continuazioni", () => {
     expect(user).toBeDefined();
   });
 
+  describe("due messaggi di fila in una pubblica (R-E8)", () => {
+    const ID = "cv-giulia-callbacks";
+    /** Gli id che Sara ha ricevuto, nell'ordine del primo arrivo, e quante volte come `append`. */
+    function watch() {
+      const firstSeen: string[] = [];
+      const appends = new Map<string, number>();
+      as("p-sara");
+      const off = subscribe(ID, (e, mode) => {
+        if (!firstSeen.includes(e.id)) firstSeen.push(e.id);
+        if (mode === "append") appends.set(e.id, (appends.get(e.id) ?? 0) + 1);
+      });
+      return { firstSeen, appends, off };
+    }
+    const indexOfText = (text: string) =>
+      eventsOf(ID).findIndex((e) => e.type === "user" && e.text === text);
+
+    async function sendBoth(first: string, second: string) {
+      const a = byOwner(() => sendMessage(ID, { text: first }));
+      const b = byOwner(() => sendMessage(ID, { text: second }));
+      await Promise.all([a, b]);
+      await settle(ID);
+    }
+
+    it("prima senza progetti nuovi, poi con MKX: Sara ha il primo turno e niente dal secondo", async () => {
+      const seen = watch();
+      await sendBoth("Explain STW-3", "Explain MKX-7");
+      seen.off();
+      const cut = indexOfText("Explain MKX-7");
+      // Claude ha risposto a un messaggio alla volta: il secondo dopo la risposta al primo.
+      expect(cut).toBeGreaterThan(indexOfText("Explain STW-3") + 1);
+      expect(conv(ID).privateFromIndex).toBe(cut);
+      const log = eventsOf(ID);
+      expect(seen.firstSeen).toEqual(log.slice(0, cut).map((e) => e.id));
+      expect(JSON.stringify(log.slice(0, cut))).not.toContain("MKX");
+      expect([...seen.appends.values()].every((n) => n === 1)).toBe(true);
+      // Letture e stream dicono la stessa cosa.
+      as("p-sara");
+      expect((await getConversation(ID))!.events.map((e) => e.id)).toEqual(seen.firstSeen);
+    });
+
+    it("prima con MKX, poi senza progetti nuovi: Sara non riceve nulla dopo la parte pubblica", async () => {
+      const publicPart = eventsOf(ID).map((e) => e.id);
+      const seen = watch();
+      await sendBoth("Explain MKX-7", "Explain STW-3");
+      seen.off();
+      expect(conv(ID).privateFromIndex).toBe(publicPart.length);
+      expect(seen.firstSeen).toEqual(publicPart);
+      as("p-sara");
+      expect((await getConversation(ID))!.events.map((e) => e.id)).toEqual(publicPart);
+    });
+
+    it("riconferma durante un turno trattenuto: ciò che è stato consegnato non torna privato", async () => {
+      vi.useFakeTimers();
+      setLatency(10); // il turno: messaggio a ~30 ms, poi le letture di Claude, 10 ms l'una
+      try {
+        const seen = watch();
+        const sending = byOwner(() => sendMessage(ID, { text: "Explain MKX-7" }));
+        await vi.advanceTimersByTimeAsync(35); // il messaggio è nel flusso, trattenuto
+        const cut = indexOfText("Explain MKX-7");
+        expect(cut).toBeGreaterThan(0);
+        expect(seen.firstSeen).not.toContain(eventsOf(ID)[cut]!.id);
+        // Giulia riconferma l'elenco di adesso (MKX non c'è ancora): il
+        // messaggio arriva a Sara.
+        const confirming = byOwner(() =>
+          setVisibility(ID, "public", { confirmedProjectIds: conv(ID).touchedProjectIds }),
+        );
+        await vi.advanceTimersByTimeAsync(10);
+        await confirming;
+        expect(seen.firstSeen).toContain(eventsOf(ID)[cut]!.id);
+        // Poi la risposta tocca MKX: privata da lì, non da prima.
+        await vi.advanceTimersByTimeAsync(5_000);
+        await sending;
+        seen.off();
+        expect(conv(ID).privateFromIndex).toBe(cut + 1);
+        as("p-sara");
+        const reads = getConversation(ID);
+        await vi.advanceTimersByTimeAsync(10);
+        expect((await reads)!.events.map((e) => e.id)).toEqual(seen.firstSeen);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("la riconferma consegna il seguito a chi sta già guardando, una volta", async () => {
+      const seen = watch();
+      await sendBoth("Explain MKX-7", "Explain STW-3");
+      await byOwner(() =>
+        setVisibility(ID, "public", { confirmedProjectIds: conv(ID).touchedProjectIds }),
+      );
+      // E da qui in poi arriva dal vivo, senza iscriversi di nuovo.
+      await byOwner(() => sendMessage(ID, { text: "Explain STW-1" }));
+      await settle(ID);
+      seen.off();
+      expect(seen.firstSeen).toEqual(eventsOf(ID).map((e) => e.id));
+      expect([...seen.appends.values()].every((n) => n === 1)).toBe(true);
+    });
+  });
+
   it("i progetti toccati dopo la pubblicazione non si vedono finché l'autore non li conferma", async () => {
     as("p-roberta"); // vede MKX (full admin), ma la pubblica è di Giulia
     const before = (await getConversation("cv-giulia-callbacks"))!;

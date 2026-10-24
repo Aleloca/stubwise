@@ -1207,17 +1207,37 @@ function projectsOfSteps(steps: ScriptStep[]): string[] {
 
 /**
  * Aggiunge i progetti toccati. Se una conversazione pubblica ne tocca uno
- * nuovo, da `fromIndex` (il primo evento che lo riguarda) in poi il flusso
- * resta privato dell'autore finché non riconferma l'elenco (R-E6): la parte
- * già pubblica resta visibile.
+ * nuovo, il flusso resta privato dell'autore finché non riconferma l'elenco
+ * (R-E6): la parte già pubblica resta visibile. Se il seguito è già
+ * trattenuto (il turno in corso) resta da lì; altrimenti diventa privato da
+ * ADESSO — mai più indietro, perché gli eventi fino a qui chi guarda li ha
+ * già ricevuti.
  */
-function touchProjects(c: Conversation, projectIds: string[], fromIndex: number): boolean {
+function touchProjects(c: Conversation, projectIds: string[]): boolean {
   const fresh = projectIds.filter((id) => !c.touchedProjectIds.includes(id));
   if (fresh.length === 0) return false;
   c.touchedProjectIds = [...c.touchedProjectIds, ...fresh];
-  if (c.visibility === "public" && c.privateFromIndex === null) c.privateFromIndex = fromIndex;
+  if (c.visibility === "public" && c.privateFromIndex === null) {
+    c.privateFromIndex = eventsOf(c.id).length;
+  }
   notifyConversationChange(c.id);
   return true;
+}
+
+/** I turni della conversazione libera, uno alla volta (R-E8). */
+const turns = new Map<string, Promise<unknown>>();
+onStoreReset(() => turns.clear());
+
+/**
+ * Esegue un turno dopo quelli già in coda nella stessa conversazione:
+ * Claude risponde a un messaggio alla volta, e il messaggio dopo aspetta
+ * (la sua scrittura resta in corso) finché il precedente non ha la risposta.
+ */
+function inTurn<R>(conversationId: string, turn: () => Promise<R>): Promise<R> {
+  const previous = turns.get(conversationId) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(turn);
+  turns.set(conversationId, next);
+  return next;
 }
 
 /** Il seguito trattenuto in via provvisoria è pubblico: si consegna a chi guarda. */
@@ -1339,30 +1359,7 @@ export async function sendMessage(
 
   if (c.kind === "free") {
     if (!c.title) c.title = titleFrom(text, attachments);
-    const messageIndex = eventsOf(id).length;
-    // In una pubblica non si sa ancora se il messaggio tocca un progetto
-    // nuovo (lo dice la risposta): finché non lo si sa resta privato, così
-    // chi guarda non lo riceve né lo legge (R-E6). Se non tocca nulla di
-    // nuovo, gli eventi trattenuti si consegnano dopo.
-    const held = c.visibility === "public" && c.privateFromIndex === null;
-    if (held) c.privateFromIndex = messageIndex;
-    let steps: ScriptStep[];
-    try {
-      await runScript(id, [user, { step: "state", state: "working" }]);
-      steps = await respond(text, {
-        personId: me,
-        contextProjectId: c.contextProjectId,
-        read: readsAs(me),
-        t: i18n.t.bind(i18n) as T,
-        seed: `${id}-${eventsOf(id).length}`,
-      });
-    } catch (error) {
-      if (held) releaseHold(c, messageIndex);
-      throw error;
-    }
-    const touchedNew = touchProjects(c, projectsOfSteps(steps), messageIndex);
-    if (held && !touchedNew) releaseHold(c, messageIndex);
-    await runScript(id, steps);
+    await inTurn(id, () => freeTurn(me, c, text, user));
     return;
   }
 
@@ -1400,6 +1397,45 @@ function stopSteps(me: string, c: Conversation): ScriptStep[] {
     },
     { step: "state", state: c.kind === "refine" ? "idle" : "paused" },
   ];
+}
+
+/**
+ * Un turno della conversazione libera: il messaggio, la risposta del motore
+ * di intenti, i passi. Gira in coda (`inTurn`), quindi nessun altro turno
+ * aggiunge eventi in mezzo.
+ */
+async function freeTurn(me: string, c: Conversation, text: string, user: ScriptStep) {
+  const id = c.id;
+  // Nel frattempo poteva essere archiviata o eliminata.
+  if (!state.conversations.includes(c) || !conversationPermissions(me, c).canWrite) {
+    throw forbidden();
+  }
+  const messageIndex = eventsOf(id).length;
+  // In una pubblica non si sa ancora se il messaggio tocca un progetto
+  // nuovo (lo dice la risposta): finché non lo si sa resta privato, così
+  // chi guarda non lo riceve né lo legge (R-E6). Se non tocca nulla di
+  // nuovo, gli eventi trattenuti si consegnano dopo.
+  const held = c.visibility === "public" && c.privateFromIndex === null;
+  if (held) c.privateFromIndex = messageIndex;
+  let steps: ScriptStep[];
+  try {
+    await runScript(id, [user, { step: "state", state: "working" }]);
+    steps = await respond(text, {
+      personId: me,
+      contextProjectId: c.contextProjectId,
+      read: readsAs(me),
+      t: i18n.t.bind(i18n) as T,
+      seed: `${id}-${eventsOf(id).length}`,
+    });
+  } catch (error) {
+    if (held) releaseHold(c, messageIndex);
+    throw error;
+  }
+  const touchedNew = touchProjects(c, projectsOfSteps(steps));
+  // Si consegna solo la trattenuta di QUESTO turno, se c'è ancora (una
+  // riconferma nel frattempo l'ha già consegnata).
+  if (held && !touchedNew) releaseHold(c, messageIndex);
+  await runScript(id, steps);
 }
 
 /** «Ferma» (`canInterrupt`): Claude si ferma al passo in corso; la task si ferma con lui. */
@@ -1643,11 +1679,7 @@ export async function confirmProposal(id: string, proposalId: string): Promise<P
     ]);
     return { status: "failed", error };
   }
-  touchProjects(
-    state.conversations.find((c) => c.id === id)!,
-    result.projectIds,
-    eventsOf(id).length,
-  );
+  touchProjects(state.conversations.find((c) => c.id === id)!, result.projectIds);
   await runScript(id, [
     {
       step: "patch",
@@ -1819,10 +1851,14 @@ export async function setVisibility(
     }
     // Riconfermare l'elenco rende pubblico anche il seguito che era privato.
     if (c.visibility !== "public" || c.privateFromIndex === null) c.publishedAt = now();
+    const heldFrom = c.visibility === "public" ? c.privateFromIndex : null;
     c.visibility = "public";
     c.publishedById = me;
     c.privateFromIndex = null;
     c.publishedProjectIds = [...c.touchedProjectIds];
+    // Chi sta già guardando riceve il seguito che era privato, senza
+    // doversi iscrivere di nuovo.
+    if (heldFrom !== null) releaseHeld(id, heldFrom);
   }
   notifyConversationChange(id);
   return { status: "done", conversation: copy(c) };
