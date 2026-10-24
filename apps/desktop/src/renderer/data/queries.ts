@@ -10,9 +10,12 @@ import * as api from "./api";
 import { resolveHome } from "../domain/home";
 import type {
   DayArrangement,
+  DecisionDraft,
   DepartmentHome,
   FilterCriteria,
   HomeBlockRef,
+  MilestoneInput,
+  MilestonePatch,
   Person,
   PersonalHome,
   Project,
@@ -64,6 +67,10 @@ export const queryKeys = {
   pulse: (personId: string, projectId: string) => ["as", personId, "pulse", projectId] as const,
   timeline: (personId: string, projectId: string) =>
     ["as", personId, "timeline", projectId] as const,
+  decisionLog: (personId: string, projectId: string) =>
+    ["as", personId, "decisionLog", projectId] as const,
+  latestBrief: (personId: string, projectId: string) =>
+    ["as", personId, "latestBrief", projectId] as const,
   notifications: (personId: string) => ["as", personId, "notifications"] as const,
   search: (personId: string, q: string) => ["as", personId, "search", q] as const,
 };
@@ -161,7 +168,10 @@ export function useMilestones(projectId?: string) {
 }
 
 /** `enabled: false` aspetta (es. l'id del progetto della pagina, non ancora letto). */
-export function useTasks(criteria?: FilterCriteria, { enabled = true }: { enabled?: boolean } = {}) {
+export function useTasks(
+  criteria?: FilterCriteria,
+  { enabled = true }: { enabled?: boolean } = {},
+) {
   const me = useSessionPersonId();
   return useQuery({
     queryKey: queryKeys.tasks(me, criteria),
@@ -319,6 +329,23 @@ export function useTimeline(projectId: string) {
   });
 }
 
+export function useDecisionLog(projectId: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.decisionLog(me, projectId),
+    queryFn: () => api.listDecisionLog(projectId),
+  });
+}
+
+/** L'ultimo brief settimanale (`null` = non ce n'è ancora uno). */
+export function useLatestBrief(projectId: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.latestBrief(me, projectId),
+    queryFn: () => api.getLatestBrief(projectId),
+  });
+}
+
 export function useNotifications() {
   const me = useSessionPersonId();
   return useQuery({ queryKey: queryKeys.notifications(me), queryFn: api.listNotifications });
@@ -400,6 +427,10 @@ const PROJECT_AREAS = [
   "stalled",
   "pulse",
 ] as const;
+
+const DECISION_AREAS = ["decisionLog", "timeline"] as const;
+/** Un traguardo cambiato sposta avanzamenti, polso, cronologia e le task che lo portano. */
+const MILESTONE_AREAS = ["milestones", "tasks", "task", "pulse", "timeline"] as const;
 
 /** Ricarica le aree indicate, ma solo di chi sta guardando. */
 function useInvalidate(areas: readonly string[]) {
@@ -666,9 +697,7 @@ export function useSetPersonalHome() {
     ["personalHome"],
     (blocks, _area, old): PersonalHome => {
       if (old) return { ...(old as PersonalHome), blocks };
-      const person = client
-        .getQueryData<Person[]>(queryKeys.people(me))
-        ?.find((p) => p.id === me);
+      const person = client.getQueryData<Person[]>(queryKeys.people(me))?.find((p) => p.id === me);
       const seen: Record<string, string> = {};
       for (const h of client.getQueryData<DepartmentHome[]>(queryKeys.departmentHomes(me)) ?? []) {
         if (person?.departmentIds.includes(h.departmentId)) seen[h.departmentId] = h.updatedAt;
@@ -711,6 +740,33 @@ export function useSetProjectStatuses() {
     }) => api.setProjectStatuses(projectId, statuses, reassign),
     PROJECT_AREAS,
   );
+}
+
+export function useRecordDecision() {
+  return useWrite(
+    ({ projectId, draft }: { projectId: string; draft: DecisionDraft }) =>
+      api.recordDecision(projectId, draft),
+    DECISION_AREAS,
+  );
+}
+
+export function useCreateMilestone() {
+  return useWrite(
+    ({ projectId, input }: { projectId: string; input: MilestoneInput }) =>
+      api.createMilestone(projectId, input),
+    MILESTONE_AREAS,
+  );
+}
+
+export function useUpdateMilestone() {
+  return useWrite(
+    ({ id, patch }: { id: string; patch: MilestonePatch }) => api.updateMilestone(id, patch),
+    MILESTONE_AREAS,
+  );
+}
+
+export function useDeleteMilestone() {
+  return useWrite(api.deleteMilestone, MILESTONE_AREAS);
 }
 
 export function useSetStallThresholds() {

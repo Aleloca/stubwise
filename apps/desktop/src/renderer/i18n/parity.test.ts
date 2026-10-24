@@ -39,6 +39,7 @@ describe("parità delle chiavi en/it", () => {
         "week",
         "planning",
         "requests",
+        "overview",
       ].sort(),
     );
   });

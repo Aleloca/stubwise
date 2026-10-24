@@ -17,6 +17,19 @@ const firstName = (name: string) => name.split(/\s+/)[0] ?? name;
  * dentro la frase; il motivo manuale è il testo di chi l'ha segnata.
  */
 export function stallText(stall: Stall, t: TFunction, names: StallNames = {}): string {
+  const reason = stallReason(stall, t, names);
+  if (stall.reason.kind === "idle") return reason;
+  const since =
+    stall.days === 0 ? t("taskUi.stall.today") : t("taskUi.stall.days", { count: stall.days });
+  return `${reason} · ${since}`;
+}
+
+/**
+ * Solo il motivo, senza «da quanto» (chi lo mostra ha già i giorni in
+ * cifre accanto, come l'Overview). «Nessuno la tocca» resta con i suoi giorni:
+ * sono il motivo stesso.
+ */
+export function stallReason(stall: Stall, t: TFunction, names: StallNames = {}): string {
   const r = stall.reason;
   if (r.kind === "idle") return t("taskUi.stall.idle", { count: stall.days });
   let reason: string;
@@ -36,22 +49,18 @@ export function stallText(stall: Stall, t: TFunction, names: StallNames = {}): s
       break;
     case "blocked_by": {
       const code = names.taskCode?.(r.taskId);
-      reason = code
-        ? t("taskUi.stall.blockedBy", { code })
-        : t("taskUi.stall.blockedByUnknown");
+      reason = code ? t("taskUi.stall.blockedBy", { code }) : t("taskUi.stall.blockedByUnknown");
       break;
     }
     case "unassigned":
       reason = t("taskUi.stall.unassigned");
       break;
   }
-  const since =
-    stall.days === 0 ? t("taskUi.stall.today") : t("taskUi.stall.days", { count: stall.days });
-  return `${reason} · ${since}`;
+  return reason;
 }
 
 /** Il segno «ferma»: un cerchio con la pausa, in ambra (stato «a rischio»). */
-function StallSign() {
+export function StallSign() {
   return (
     <svg
       viewBox="0 0 16 16"

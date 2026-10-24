@@ -38,7 +38,24 @@ export interface ProjectPulse {
   nextMilestone: Milestone | null;
 }
 
-/** Un evento della cronologia di progetto (il Task 13 aggiunge gli altri tipi). */
+/**
+ * Un evento della cronologia di progetto (la Roadmap del web). Le voci che
+ * non sono task né traguardi portano con sé ciò che serve a dirle, come
+ * `projectTimelineEntrySchema`: il titolo della decisione, la prima riga del
+ * brief, la sintesi del report.
+ */
 export type TimelineEvent =
   | { kind: "task_opened" | "task_closed"; at: string; taskId: string }
-  | { kind: "milestone"; at: string; milestoneId: string };
+  | { kind: "milestone"; at: string; milestoneId: string }
+  | { kind: "decision"; at: string; decisionId: string; title: string }
+  | { kind: "brief"; at: string; briefId: string; headline: string }
+  | { kind: "daily_report"; at: string; reportId: string; summary: string | null }
+  | {
+      kind: "pr_opened" | "pr_merged" | "pr_closed";
+      at: string;
+      prId: string;
+      taskId: string;
+      number: number;
+    };
+
+export type TimelineKind = TimelineEvent["kind"];

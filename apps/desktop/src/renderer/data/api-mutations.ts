@@ -5,8 +5,13 @@ import { PEOPLE } from "./seed/people";
 import { copy, familyOf, gate, newId, now, reindex, state, visibleProjectIds } from "./store";
 import type {
   ActivityEntry,
+  DecisionDraft,
+  DecisionLogEntry,
   DecisionRequest,
   HomeBlockRef,
+  Milestone,
+  MilestoneInput,
+  MilestonePatch,
   NewProjectInput,
   NewTaskInput,
   PersonalHome,
@@ -823,4 +828,105 @@ export async function setStallThresholds(
   if (!ok(thresholds.activeDays) || !ok(thresholds.todoDays)) throw invalid("thresholds");
   project.stallThresholds = { ...thresholds };
   return copy(project);
+}
+
+// --- registro decisioni ---------------------------------------------------------
+
+/**
+ * Registra a mano una decisione (`decisions.record`): una voce `manual`, di
+ * chi la scrive, con il testo che ha scritto — nessun testo generato entra
+ * qui. Se ne supera un'altra dello stesso progetto, quella resta nel
+ * registro con il suo «superata da».
+ */
+export async function recordDecision(
+  projectId: string,
+  draft: DecisionDraft,
+): Promise<DecisionLogEntry> {
+  const me = await gate("recordDecision");
+  projectFor(me, projectId);
+  need(me, "decisions.record", projectId);
+  if (!draft.title.trim()) throw invalid("title");
+  if (!draft.decision.trim()) throw invalid("decision");
+  if (draft.taskId) {
+    const task = taskFor(me, draft.taskId);
+    if (task.projectId !== projectId) throw invalid("task");
+  }
+  const superseded = draft.supersedesId
+    ? state.decisionLog.find((d) => d.id === draft.supersedesId && d.projectId === projectId)
+    : null;
+  if (draft.supersedesId && !superseded) throw invalid("supersedes");
+  const entry: DecisionLogEntry = {
+    id: newId("dl"),
+    projectId,
+    source: "manual",
+    taskId: draft.taskId ?? null,
+    title: draft.title.trim(),
+    context: draft.context?.trim() ? draft.context.trim() : null,
+    decision: draft.decision.trim(),
+    decidedById: me,
+    decidedAt: now(),
+    supersededById: null,
+  };
+  state.decisionLog.push(entry);
+  if (superseded) superseded.supersededById = entry.id;
+  return copy(entry);
+}
+
+// --- traguardi --------------------------------------------------------------------
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function milestoneFor(me: string, id: string): Milestone {
+  const milestone = state.milestones.find((m) => m.id === id);
+  if (!milestone || !visibleProjectIds(me).has(milestone.projectId)) throw notFound();
+  return milestone;
+}
+
+function checkMilestone(input: { name?: string; dueDate?: string | null }): void {
+  if (input.name !== undefined && !input.name.trim()) throw invalid("name");
+  if (input.dueDate && !DATE_RE.test(input.dueDate)) throw invalid("dueDate");
+}
+
+export async function createMilestone(
+  projectId: string,
+  input: MilestoneInput,
+): Promise<Milestone> {
+  const me = await gate("createMilestone");
+  projectFor(me, projectId);
+  need(me, "tickets.edit", projectId);
+  checkMilestone(input);
+  const milestone: Milestone = {
+    id: newId("ms"),
+    projectId,
+    name: input.name.trim(),
+    description: input.description?.trim() ?? "",
+    dueDate: input.dueDate || null,
+    closed: false,
+  };
+  state.milestones.push(milestone);
+  return copy(milestone);
+}
+
+/** Modifica, chiude o riapre un traguardo (`tickets.edit`). */
+export async function updateMilestone(id: string, patch: MilestonePatch): Promise<Milestone> {
+  const me = await gate("updateMilestone");
+  const milestone = milestoneFor(me, id);
+  need(me, "tickets.edit", milestone.projectId);
+  checkMilestone(patch);
+  if (patch.name !== undefined) milestone.name = patch.name.trim();
+  if (patch.description !== undefined) milestone.description = patch.description.trim();
+  if (patch.dueDate !== undefined) milestone.dueDate = patch.dueDate || null;
+  if (patch.closed !== undefined) milestone.closed = patch.closed;
+  return copy(milestone);
+}
+
+/** Elimina un traguardo (`tickets.edit`): le sue task restano, senza traguardo. */
+export async function deleteMilestone(id: string): Promise<void> {
+  const me = await gate("deleteMilestone");
+  const milestone = milestoneFor(me, id);
+  need(me, "tickets.edit", milestone.projectId);
+  state.milestones = state.milestones.filter((m) => m.id !== id);
+  for (const task of state.tasks) {
+    if (task.milestoneId === id) task.milestoneId = null;
+  }
 }

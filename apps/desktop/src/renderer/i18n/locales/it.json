@@ -1069,5 +1069,163 @@
         "merged": "Fusa in «{{title}}»."
       }
     }
+  },
+  "overview": {
+    "generated": "Testo generato",
+    "cancel": "Annulla",
+    "optional": "Facoltativo",
+    "pulse": {
+      "waitingOnYou": "Aspetta te",
+      "claudeWorking": "Claude al lavoro",
+      "stalled_one": "{{count}} ferma",
+      "stalled_other": "{{count}} ferme",
+      "nextDated": "prossimo: {{name}} · {{date}}",
+      "next": "prossimo: {{name}}",
+      "quiet": "Niente in attesa, niente di fermo",
+      "error": "Impossibile caricare il polso del progetto."
+    },
+    "stalled": {
+      "title": "Ferme",
+      "showAll": "Mostra tutte e {{count}}",
+      "note": "«{{note}}»"
+    },
+    "progress": {
+      "title": "A che punto è",
+      "recent": "Chiuse nelle ultime 2 settimane",
+      "recentLink_one": "{{count}} task chiusa nelle ultime 2 settimane",
+      "recentLink_other": "{{count}} task chiuse nelle ultime 2 settimane"
+    },
+    "milestones": {
+      "label": "Traguardi aperti",
+      "manage": "Gestisci traguardi",
+      "none": "Nessun traguardo",
+      "addOne": "Aggiungine uno",
+      "whoCan": "Li aggiunge chi può modificare le task.",
+      "noDate": "Senza data",
+      "noTasks": "Ancora nessuna task",
+      "progress": "{{name}}: {{percent}}% del lavoro stimato chiuso",
+      "progressShort": "{{percent}}% del lavoro stimato chiuso",
+      "progressUnknown": "{{name}}: nessuna task ha ancora una stima",
+      "progressUnknownShort": "Nessuna task ha ancora una stima",
+      "unsized_one": "{{count}} senza stima",
+      "unsized_other": "{{count}} senza stima",
+      "dialogTitle": "Traguardi",
+      "dialogDescription": "Date e obiettivi del progetto. Chiudere un traguardo non tocca le sue task.",
+      "openGroup": "Aperti",
+      "closedGroup": "Chiusi",
+      "closed": "Chiuso",
+      "new": "Nuovo traguardo",
+      "name": "Nome",
+      "nameMissing": "Dai un nome al traguardo.",
+      "due": "Scadenza",
+      "description": "Descrizione",
+      "create": "Aggiungi traguardo",
+      "save": "Salva",
+      "actions": "Azioni per {{name}}",
+      "edit": "Modifica",
+      "close": "Chiudi traguardo",
+      "reopen": "Riapri traguardo",
+      "delete": "Elimina",
+      "deleteConfirm_one": "Eliminare {{name}}? La sua task resta, senza traguardo.",
+      "deleteConfirm_other": "Eliminare {{name}}? Le sue {{count}} task restano, senza traguardo.",
+      "deleteConfirmEmpty": "Eliminare {{name}}?",
+      "done": "Fatto",
+      "failed": "Non è andata a buon fine, nulla è cambiato. Riprova.",
+      "error": "Impossibile caricare i traguardi."
+    },
+    "brief": {
+      "title": "Brief settimanale",
+      "panel": "Brief settimanale",
+      "read": "Leggi il brief",
+      "none": "Ancora nessun brief",
+      "firstOnMonday": "Il primo arriva lunedì",
+      "error": "Impossibile caricare il brief settimanale.",
+      "gone": "Questo brief non è più l'ultimo. Apri l'ultimo dall'Overview.",
+      "generatedNote": "Scritto da Claude a partire da task, decisioni e report della settimana. Verificalo prima di citarlo.",
+      "period": "Settimana dal {{from}} al {{to}}",
+      "close": "Chiudi il brief"
+    },
+    "open": {
+      "title": "Cosa è aperto",
+      "empty": "Niente di aperto in questo progetto",
+      "byFamily": "Per stato",
+      "byPerson": "Per persona",
+      "familyLink": {
+        "todo_one": "{{count}} da fare",
+        "todo_other": "{{count}} da fare",
+        "active_one": "{{count}} in corso",
+        "active_other": "{{count}} in corso"
+      },
+      "personLink_one": "{{name}}: {{count}} task aperta",
+      "personLink_other": "{{name}}: {{count}} task aperte",
+      "summary": {
+        "todo": "da fare",
+        "active": "in corso"
+      }
+    },
+    "timeline": {
+      "title": "Cronologia",
+      "type": "Tipo",
+      "types": {
+        "all": "Tutti i tipi",
+        "tasks": "Task",
+        "milestones": "Traguardi",
+        "decisions": "Decisioni",
+        "briefs": "Brief settimanali",
+        "reports": "Report giornalieri",
+        "prs": "Pull request"
+      },
+      "kinds": {
+        "task_opened": "Task aperta",
+        "task_closed": "Task chiusa",
+        "milestone": "Scadenza traguardo",
+        "decision": "Decisione registrata",
+        "brief": "Brief settimanale",
+        "daily_report": "Report giornaliero",
+        "pr_opened": "PR aperta",
+        "pr_merged": "PR mergiata",
+        "pr_closed": "PR chiusa senza merge"
+      },
+      "upcoming": "In arrivo",
+      "thisWeek": "Questa settimana",
+      "lastWeek": "La settimana scorsa",
+      "weekOf": "Settimana del {{date}}",
+      "showEarlier": "Mostra prima",
+      "prNumber": "#{{number}}",
+      "noSummary": "Nessuna sintesi per questo giorno",
+      "empty": "Ancora non è successo nulla in questo progetto",
+      "emptyType": "Ancora niente di questo tipo"
+    },
+    "decisions": {
+      "title": "Registro decisioni",
+      "record": "Registra una decisione",
+      "empty": "Ancora nessuna decisione registrata",
+      "whoCan": "Le registrano qui i project lead e chi ha il permesso di farlo.",
+      "supersededBy": "Superata da «{{title}}»",
+      "superseded": "Superata",
+      "someone": "Una persona non più presente",
+      "sources": {
+        "manual": "Registrata a mano",
+        "ask_user": "Risposta a una domanda di Claude",
+        "plan_review": "Revisione del piano",
+        "pulse": "Proposta accettata",
+        "email": "Confermata dalla posta"
+      },
+      "recordTitle": "Registra una decisione",
+      "recordDescription": "Un fatto che il team potrà citare: cosa si è deciso e perché. Resta registrato col tuo nome.",
+      "fieldTitle": "Titolo",
+      "titlePlaceholder": "Cosa si è deciso, in una riga",
+      "titleMissing": "Dai un titolo alla decisione.",
+      "fieldDecision": "Decisione",
+      "decisionMissing": "Scrivi cosa si è deciso.",
+      "fieldContext": "Contesto",
+      "contextHint": "Facoltativo: le alternative e perché questa.",
+      "fieldSupersedes": "Cambia una decisione precedente",
+      "supersedesNone": "Nessuna",
+      "supersedesValue": "Cambia una decisione precedente: {{title}}",
+      "submit": "Registra",
+      "recorded": "Decisione registrata",
+      "failed": "Impossibile registrare la decisione. Non è stato salvato nulla; riprova."
+    }
   }
 }

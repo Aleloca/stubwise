@@ -13,12 +13,7 @@ import { NotFound } from "./pages/NotFound";
 import { ProjectNotFound } from "./pages/ProjectNotFound";
 import { useTranslation } from "react-i18next";
 import { useProject } from "./data/queries";
-import {
-  APP_ROUTES,
-  PROJECT_SECTIONS,
-  isProjectSection,
-  isValidSearchParam,
-} from "./data/routes";
+import { APP_ROUTES, PROJECT_SECTIONS, isProjectSection, isValidSearchParam } from "./data/routes";
 import { can, canSeeAdmin, useViewer } from "./data/viewer";
 import type { FilterCriteria } from "./data/types";
 import { parseCriteria } from "./domain/filters";
@@ -29,6 +24,7 @@ import { HomePage } from "./pages/home/HomePage";
 import { MyWeekPage } from "./pages/week/MyWeekPage";
 import { PlanningPage } from "./pages/planning/PlanningPage";
 import { RequestsPage } from "./pages/requests/RequestsPage";
+import { OverviewPage } from "./pages/overview/OverviewPage";
 
 /** La ricerca che ogni route accetta (`?task=` apre il pannello, gli altri li montano i dialoghi). */
 export interface AppSearch {
@@ -37,6 +33,8 @@ export interface AppSearch {
   project?: string;
   newRequest?: string;
   request?: string;
+  /** Il brief settimanale aperto nel pannello (Overview). */
+  brief?: string;
   view?: string;
   group?: string;
   /** Criteri di una pagina di task (oggetto JSON nell'indirizzo). */
@@ -49,6 +47,7 @@ const SEARCH_KEYS = [
   "project",
   "newRequest",
   "request",
+  "brief",
   "view",
   "group",
 ] as const;
@@ -71,7 +70,7 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
     if (typeof value !== "string") continue;
     // `request` e `view` dipendono dal percorso: qui si controlla la forma, la route decide.
     const shapeOk =
-      key === "request"
+      key === "request" || key === "brief"
         ? /^[\w-]+$/.test(value)
         : key === "view" || key === "group"
           ? /^[a-z-]+$/.test(value)
@@ -198,6 +197,9 @@ function ProjectSectionPage() {
   if (section === "tasks") return <TasksPage projectCode={project.code} />;
   if (section === "planning") {
     return <PlanningPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />;
+  }
+  if (section === "overview") {
+    return <OverviewPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />;
   }
   if (section === "requests") {
     return <RequestsPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />;

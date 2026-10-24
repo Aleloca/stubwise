@@ -130,6 +130,69 @@ export interface Milestone {
   closed: boolean;
 }
 
+/**
+ * Il brief settimanale di un progetto: **narrativa generata** (la scrive il
+ * worker con l'AI), e la UI lo dice sempre. Forma di
+ * `projectBriefWeeklySchema` di `@stubwise/shared`, ridotta ai brief pronti:
+ * `summary` è il markdown intero, `headline` la prima sezione («dove siamo»).
+ */
+export interface WeeklyBrief {
+  id: string;
+  projectId: string;
+  /** Estremi inclusi del periodo coperto (YYYY-MM-DD). */
+  periodStart: string;
+  periodEnd: string;
+  headline: string;
+  summary: string;
+  createdAt: string;
+}
+
+/**
+ * Da dove viene una voce del registro (`decisionSourceSchema`). Non esiste —
+ * e non deve esistere — una sorgente «ai»: il registro dice ciò che hanno
+ * deciso delle PERSONE; le voci automatiche hanno il testo di un template.
+ */
+export type DecisionSource = "ask_user" | "plan_review" | "pulse" | "manual" | "email";
+
+/** Una voce del registro decisioni del progetto (`projectDecisionSchema`): un fatto. */
+export interface DecisionLogEntry {
+  id: string;
+  projectId: string;
+  source: DecisionSource;
+  /** La task da cui è nata, se ce n'era una. */
+  taskId: string | null;
+  title: string;
+  /** In che contesto è stata presa (le alternative, il perché). */
+  context: string | null;
+  decision: string;
+  /** Chi ha deciso; `null` se la persona non c'è più. */
+  decidedById: string | null;
+  decidedAt: string;
+  /** La voce che l'ha superata: una scelta cambiata resta un fatto accaduto. */
+  supersededById: string | null;
+}
+
+/** Il report giornaliero di un progetto: narrativa generata, come il brief. */
+export interface DailyReport {
+  id: string;
+  projectId: string;
+  /** Il giorno (YYYY-MM-DD). */
+  date: string;
+  /** `null` se la sintesi della giornata non è riuscita. */
+  summary: string | null;
+}
+
+/** Un evento di una pull request aperta per una task (dalla pipeline di Claude o da una persona). */
+export interface PullRequestEvent {
+  id: string;
+  projectId: string;
+  taskId: string;
+  kind: "pr_opened" | "pr_merged" | "pr_closed";
+  at: string;
+  /** Il numero della PR sulla piattaforma git. */
+  number: number;
+}
+
 export interface ActivityEntry {
   id: string;
   taskId: string;
@@ -313,6 +376,26 @@ export interface NewProjectInput {
   clientName?: string;
   modules?: ProjectModule[];
 }
+
+/** Una decisione registrata a mano (`decisionDraftSchema`), con chi supera. */
+export interface DecisionDraft {
+  title: string;
+  decision: string;
+  context?: string;
+  taskId?: string | null;
+  /** La voce che questa supera (ne diventa il «superata da»). */
+  supersedesId?: string | null;
+}
+
+export interface MilestoneInput {
+  name: string;
+  description?: string;
+  dueDate?: string | null;
+}
+
+export type MilestonePatch = Partial<
+  Pick<Milestone, "name" | "description" | "dueDate" | "closed">
+>;
 
 /** Uno stato nell'elenco che sostituisce quello del progetto: con `id` se esiste già. */
 export interface StatusInput {

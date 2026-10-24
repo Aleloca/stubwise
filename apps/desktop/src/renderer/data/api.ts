@@ -22,6 +22,7 @@ import type {
   ActivityEntry,
   AppNotification,
   DayArrangement,
+  DecisionLogEntry,
   DecisionRequest,
   Department,
   DepartmentHome,
@@ -38,6 +39,7 @@ import type {
   SearchResult,
   Task,
   TimelineEvent,
+  WeeklyBrief,
 } from "./types";
 
 export type { SearchResult } from "./types";
@@ -284,7 +286,11 @@ export async function projectPulse(projectId: string): Promise<ProjectPulse | nu
   };
 }
 
-/** Cronologia del progetto: task aperte e chiuse, traguardi; dalla più recente. */
+/**
+ * Cronologia del progetto (la Roadmap del web), dalla più recente: task
+ * aperte e chiuse, traguardi (alla loro data, anche futura), decisioni del
+ * registro, brief settimanali, report giornalieri, pull request.
+ */
 export async function listTimeline(projectId: string): Promise<TimelineEvent[]> {
   const me = await gate("listTimeline");
   if (!visibleProjectIds(me).has(projectId)) return [];
@@ -299,7 +305,50 @@ export async function listTimeline(projectId: string): Promise<TimelineEvent[]> 
       events.push({ kind: "milestone", at: m.dueDate, milestoneId: m.id });
     }
   }
+  for (const d of state.decisionLog) {
+    if (d.projectId !== projectId) continue;
+    events.push({ kind: "decision", at: d.decidedAt, decisionId: d.id, title: d.title });
+  }
+  for (const b of state.briefs) {
+    if (b.projectId !== projectId) continue;
+    events.push({ kind: "brief", at: b.createdAt, briefId: b.id, headline: b.headline });
+  }
+  for (const r of state.dailyReports) {
+    if (r.projectId !== projectId) continue;
+    // Il report di un giorno si colloca a fine giornata.
+    events.push({
+      kind: "daily_report",
+      at: `${r.date}T20:00:00Z`,
+      reportId: r.id,
+      summary: r.summary,
+    });
+  }
+  for (const pr of state.pullRequests) {
+    if (pr.projectId !== projectId) continue;
+    events.push({ kind: pr.kind, at: pr.at, prId: pr.id, taskId: pr.taskId, number: pr.number });
+  }
   return events.sort((a, b) => b.at.localeCompare(a.at));
+}
+
+/** Il registro decisioni del progetto, dalla più recente (superate comprese). */
+export async function listDecisionLog(projectId: string): Promise<DecisionLogEntry[]> {
+  const me = await gate("listDecisionLog");
+  if (!visibleProjectIds(me).has(projectId)) return [];
+  return state.decisionLog
+    .filter((d) => d.projectId === projectId)
+    .sort((a, b) => b.decidedAt.localeCompare(a.decidedAt) || b.id.localeCompare(a.id))
+    .map(copy);
+}
+
+/** L'ultimo brief settimanale del progetto; `null` se non ce n'è ancora uno. */
+export async function getLatestBrief(projectId: string): Promise<WeeklyBrief | null> {
+  const me = await gate("getLatestBrief");
+  if (!visibleProjectIds(me).has(projectId)) return null;
+  const latest = state.briefs
+    .filter((b) => b.projectId === projectId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .at(0);
+  return latest ? copy(latest) : null;
 }
 
 /** Le notifiche di cui chi guarda è destinatario, nei progetti che vede. */

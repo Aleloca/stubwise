@@ -1069,5 +1069,163 @@
         "merged": "Merged into “{{title}}”."
       }
     }
+  },
+  "overview": {
+    "generated": "Generated text",
+    "cancel": "Cancel",
+    "optional": "Optional",
+    "pulse": {
+      "waitingOnYou": "Waiting on you",
+      "claudeWorking": "Claude working",
+      "stalled_one": "{{count}} stalled",
+      "stalled_other": "{{count}} stalled",
+      "nextDated": "next: {{name}} · {{date}}",
+      "next": "next: {{name}}",
+      "quiet": "Nothing waiting, nothing stalled",
+      "error": "Couldn't load the project's pulse."
+    },
+    "stalled": {
+      "title": "Stalled",
+      "showAll": "Show all {{count}}",
+      "note": "“{{note}}”"
+    },
+    "progress": {
+      "title": "Where it stands",
+      "recent": "Closed in the last 2 weeks",
+      "recentLink_one": "{{count}} task closed in the last 2 weeks",
+      "recentLink_other": "{{count}} tasks closed in the last 2 weeks"
+    },
+    "milestones": {
+      "label": "Open milestones",
+      "manage": "Manage milestones",
+      "none": "No milestones",
+      "addOne": "Add one",
+      "whoCan": "People who can edit tasks add them.",
+      "noDate": "No date",
+      "noTasks": "No tasks yet",
+      "progress": "{{name}}: {{percent}}% of the estimated work closed",
+      "progressShort": "{{percent}}% of the estimated work closed",
+      "progressUnknown": "{{name}}: no task has an estimate yet",
+      "progressUnknownShort": "No task has an estimate yet",
+      "unsized_one": "{{count}} without estimate",
+      "unsized_other": "{{count}} without estimate",
+      "dialogTitle": "Milestones",
+      "dialogDescription": "Dates and goals of this project. Closing a milestone keeps its tasks.",
+      "openGroup": "Open",
+      "closedGroup": "Closed",
+      "closed": "Closed",
+      "new": "New milestone",
+      "name": "Name",
+      "nameMissing": "Give the milestone a name.",
+      "due": "Due date",
+      "description": "Description",
+      "create": "Add milestone",
+      "save": "Save",
+      "actions": "Actions for {{name}}",
+      "edit": "Edit",
+      "close": "Close milestone",
+      "reopen": "Reopen milestone",
+      "delete": "Delete",
+      "deleteConfirm_one": "Delete {{name}}? Its task stays, without a milestone.",
+      "deleteConfirm_other": "Delete {{name}}? Its {{count}} tasks stay, without a milestone.",
+      "deleteConfirmEmpty": "Delete {{name}}?",
+      "done": "Done",
+      "failed": "That didn't go through, nothing was changed. Try again.",
+      "error": "Couldn't load the milestones."
+    },
+    "brief": {
+      "title": "Weekly brief",
+      "panel": "Weekly brief",
+      "read": "Read the brief",
+      "none": "No brief yet",
+      "firstOnMonday": "The first one arrives on Monday",
+      "error": "Couldn't load the weekly brief.",
+      "gone": "This brief is no longer the latest one. Open the latest from the Overview.",
+      "generatedNote": "Written by Claude from the week's tasks, decisions and reports. Check it before quoting it.",
+      "period": "Week of {{from}} – {{to}}",
+      "close": "Close the brief"
+    },
+    "open": {
+      "title": "What's open",
+      "empty": "Nothing open in this project",
+      "byFamily": "By status",
+      "byPerson": "By person",
+      "familyLink": {
+        "todo_one": "{{count}} to do",
+        "todo_other": "{{count}} to do",
+        "active_one": "{{count}} in progress",
+        "active_other": "{{count}} in progress"
+      },
+      "personLink_one": "{{name}}: {{count}} open task",
+      "personLink_other": "{{name}}: {{count}} open tasks",
+      "summary": {
+        "todo": "to do",
+        "active": "in progress"
+      }
+    },
+    "timeline": {
+      "title": "Timeline",
+      "type": "Type",
+      "types": {
+        "all": "All types",
+        "tasks": "Tasks",
+        "milestones": "Milestones",
+        "decisions": "Decisions",
+        "briefs": "Weekly briefs",
+        "reports": "Daily reports",
+        "prs": "Pull requests"
+      },
+      "kinds": {
+        "task_opened": "Task opened",
+        "task_closed": "Task closed",
+        "milestone": "Milestone due",
+        "decision": "Decision recorded",
+        "brief": "Weekly brief",
+        "daily_report": "Daily report",
+        "pr_opened": "PR opened",
+        "pr_merged": "PR merged",
+        "pr_closed": "PR closed unmerged"
+      },
+      "upcoming": "Upcoming",
+      "thisWeek": "This week",
+      "lastWeek": "Last week",
+      "weekOf": "Week of {{date}}",
+      "showEarlier": "Show earlier",
+      "prNumber": "#{{number}}",
+      "noSummary": "No summary for this day",
+      "empty": "Nothing has happened in this project yet",
+      "emptyType": "Nothing of this type yet"
+    },
+    "decisions": {
+      "title": "Decision log",
+      "record": "Record a decision",
+      "empty": "No decisions recorded yet",
+      "whoCan": "Project leads and people allowed to record decisions add them here.",
+      "supersededBy": "Superseded by “{{title}}”",
+      "superseded": "Superseded",
+      "someone": "Someone no longer here",
+      "sources": {
+        "manual": "Recorded by hand",
+        "ask_user": "Answer to Claude's question",
+        "plan_review": "Plan review",
+        "pulse": "Proposal accepted",
+        "email": "Confirmed from email"
+      },
+      "recordTitle": "Record a decision",
+      "recordDescription": "A fact the team can quote later: what was decided and why. It is recorded with your name.",
+      "fieldTitle": "Title",
+      "titlePlaceholder": "What was decided, in a line",
+      "titleMissing": "Give the decision a title.",
+      "fieldDecision": "Decision",
+      "decisionMissing": "Write what was decided.",
+      "fieldContext": "Context",
+      "contextHint": "Optional: the alternatives and why this one.",
+      "fieldSupersedes": "Changes an earlier decision",
+      "supersedesNone": "None",
+      "supersedesValue": "Changes an earlier decision: {{title}}",
+      "submit": "Record",
+      "recorded": "Decision recorded",
+      "failed": "Couldn't record the decision. Nothing was saved; try again."
+    }
   }
 }

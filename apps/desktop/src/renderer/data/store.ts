@@ -2,7 +2,9 @@ import { stallOf, type Stall } from "../domain/stalled";
 import { currentWeek } from "../domain/weeks";
 import type { FilterContext } from "../domain/filters";
 import { ACTIVITY } from "./seed/activity";
+import { BRIEFS } from "./seed/briefs";
 import { TODAY } from "./seed/dates";
+import { DECISION_LOG } from "./seed/decisionLog";
 import { DECISION_REQUESTS } from "./seed/decisions";
 import { INITIAL_PINNED_FILTERS, SAVED_FILTERS } from "./seed/filters";
 import { DAY_ARRANGEMENTS, DEPARTMENT_HOMES, PERSONAL_HOMES } from "./seed/homes";
@@ -12,11 +14,14 @@ import { INITIAL_PINNED_CODES, PROJECTS } from "./seed/projects";
 import { REQUESTS } from "./seed/requests";
 import { PROJECT_STATUSES } from "./seed/statuses";
 import { TASKS } from "./seed/tasks";
+import { DAILY_REPORTS, PULL_REQUEST_EVENTS } from "./seed/timeline";
 import { DEFAULT_SESSION_PERSON_ID, getSessionPersonId, setSessionPersonId } from "./session";
 import type {
   ActivityEntry,
   AppNotification,
+  DailyReport,
   DayArrangement,
+  DecisionLogEntry,
   DecisionRequest,
   DepartmentHome,
   Milestone,
@@ -24,9 +29,11 @@ import type {
   Project,
   ProjectRequest,
   ProjectStatus,
+  PullRequestEvent,
   SavedFilter,
   StatusFamily,
   Task,
+  WeeklyBrief,
 } from "./types";
 import { can, resetViewerGrants, viewerFor } from "./viewer";
 
@@ -65,6 +72,8 @@ export type ApiFnName =
   | "listStalled"
   | "projectPulse"
   | "listTimeline"
+  | "listDecisionLog"
+  | "getLatestBrief"
   | "listNotifications"
   | "markNotification"
   | "search"
@@ -97,7 +106,11 @@ export type ApiFnName =
   | "markDepartmentHomeSeen"
   | "createProject"
   | "setProjectStatuses"
-  | "setStallThresholds";
+  | "setStallThresholds"
+  | "recordDecision"
+  | "createMilestone"
+  | "updateMilestone"
+  | "deleteMilestone";
 const failures = new Set<ApiFnName>();
 
 /** Fissa la latenza simulata (ms); `0` per i test, `null` per tornare a 150–400 ms. */
@@ -147,6 +160,10 @@ interface State {
   decisions: DecisionRequest[];
   requests: ProjectRequest[];
   milestones: Milestone[];
+  briefs: WeeklyBrief[];
+  decisionLog: DecisionLogEntry[];
+  dailyReports: DailyReport[];
+  pullRequests: PullRequestEvent[];
   filters: SavedFilter[];
   departmentHomes: DepartmentHome[];
   personalHomes: PersonalHome[];
@@ -172,6 +189,10 @@ function freshState(): State {
     decisions: DECISION_REQUESTS.map(copy),
     requests: REQUESTS.map(copy),
     milestones: MILESTONES.map(copy),
+    briefs: BRIEFS.map(copy),
+    decisionLog: DECISION_LOG.map(copy),
+    dailyReports: DAILY_REPORTS.map(copy),
+    pullRequests: PULL_REQUEST_EVENTS.map(copy),
     filters: SAVED_FILTERS.map(copy),
     departmentHomes: DEPARTMENT_HOMES.map(copy),
     personalHomes: PERSONAL_HOMES.map(copy),

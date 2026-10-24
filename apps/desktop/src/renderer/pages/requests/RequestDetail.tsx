@@ -30,7 +30,14 @@ import { PersonChip } from "../../tasks-ui/PersonChip";
 import { StatusLabel } from "../../tasks-ui/StatusLabel";
 import { useToast } from "../../tasks-ui/Toast";
 import { NewTaskDialog } from "../task/NewTaskDialog";
-import { CloseIcon, Section, ghostButton, smallPrimary, smallSecondary } from "../task/parts";
+import {
+  CloseIcon,
+  MoreIcon,
+  Section,
+  ghostButton,
+  smallPrimary,
+  smallSecondary,
+} from "../task/parts";
 import { MenuButton } from "../tasks/controls";
 import { MergeDialog } from "./MergeDialog";
 import { RequestStatusLabel, RequestStatusSign, UrgencyMark } from "./marks";
@@ -529,15 +536,5 @@ function TaskLine({ task, onOpen }: { task: Task; onOpen: (code: string) => void
         <StatusLabel status={status} />
       </span>
     </button>
-  );
-}
-
-function MoreIcon() {
-  return (
-    <svg viewBox="0 0 16 16" width={16} height={16} fill="currentColor" aria-hidden="true" focusable="false">
-      <circle cx="3.5" cy="8" r="1.25" />
-      <circle cx="8" cy="8" r="1.25" />
-      <circle cx="12.5" cy="8" r="1.25" />
-    </svg>
   );
 }
