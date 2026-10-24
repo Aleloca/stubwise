@@ -9,7 +9,14 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { useMarkNotification, useNotifications, useProjects } from "../data/queries";
+import {
+  useMarkNotification,
+  useNotifications,
+  useProjects,
+  useReachChatMessage,
+} from "../data/queries";
+import type { AppNotification } from "../data/types";
+import { useToast } from "../tasks-ui/Toast";
 import { useRestoreFocus } from "../layout/useRestoreFocus";
 import { NOTIFICATIONS_EVENT } from "../layout/useShortcuts";
 import { DeptLegend } from "../layout/DeptStrip";
@@ -53,6 +60,8 @@ function Panel({ onClose }: { onClose: () => void }) {
   const notifications = useNotifications();
   const projects = useProjects();
   const mark = useMarkNotification();
+  const reach = useReachChatMessage();
+  const toast = useToast();
   const tabRefs = useRef<Record<Tab, HTMLButtonElement | null>>({
     new: null,
     snoozed: null,
@@ -83,9 +92,18 @@ function Panel({ onClose }: { onClose: () => void }) {
 
   const visible = grouped[tab];
 
-  function openLink(id: string, link: string) {
-    mark.mutate({ id, change: { read: true } });
-    router.history.push(link.replace(/^#/, ""));
+  async function openLink(n: AppNotification) {
+    // Una menzione della Chat si rilegge prima di andarci: il messaggio può
+    // essere stato eliminato, o il canale non più leggibile, da quando la
+    // lista è stata letta. Allora un avviso, si resta qui, e la lista si
+    // aggiorna (la notifica sparisce, senza testo).
+    if (n.chatMessageId !== undefined && !(await reach(n.chatMessageId))) {
+      toast.error(t("chat.search.unavailable"));
+      void notifications.refetch();
+      return;
+    }
+    mark.mutate({ id: n.id, change: { read: true } });
+    router.history.push(n.link.replace(/^#/, ""));
     onClose();
   }
 
@@ -218,7 +236,7 @@ function Panel({ onClose }: { onClose: () => void }) {
                 key={n.id}
                 notification={n}
                 project={n.projectId ? projectsById.get(n.projectId) : undefined}
-                onOpen={() => openLink(n.id, n.link)}
+                onOpen={() => void openLink(n)}
                 onChange={(change: Change) => mark.mutate({ id: n.id, change })}
               />
             ))}

@@ -82,7 +82,9 @@ describe("Decide: domande e piani di Claude", () => {
     expect(link).toHaveAttribute("href", expect.stringContaining("/claude/cv-run-stw-13"));
     await userEvent.click(link);
     await waitFor(() => expect(router.state.location.pathname).toBe("/claude/cv-run-stw-13"));
-    expect(await screen.findByRole("region", { name: /Plan · waiting for approval/ })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("region", { name: /Plan · waiting for approval/ }),
+    ).toBeInTheDocument();
   });
 
   it("Sara non vede né la domanda né il piano", async () => {
@@ -247,5 +249,167 @@ describe("Decide: domande e piani di Claude", () => {
     await waitFor(() => expect(tile()!.querySelector('[data-signal="waiting"]')).not.toBeNull());
     const decide = await decideBlock();
     expect(await within(decide).findByText("Claude asks")).toBeInTheDocument();
+  });
+});
+
+// Task 8: le domande della Chat rivolte a te («Reply» apre il thread,
+// «Ignore» la toglie per te, rispondere la chiude) e quelle di @Claude a chi
+// l'ha chiamato (R-G4: rispondere qui o nel thread chiude l'altra).
+describe("Decide: domande della Chat", () => {
+  const ASK = "@Giulia Ferri can you check the desktop build?";
+  const FROM_MARCO = /^Question from Marco Bellini/;
+  const WHO_TAKES = /^Answer: Who should take AUD-4/;
+
+  // Le richieste di decisione e da trasformare del seme riempirebbero le
+  // prime cinque voci: qui contano solo le domande.
+  beforeEach(() => {
+    state.decisions = [];
+    state.requests = [];
+  });
+
+  async function marcoAsksGiulia() {
+    setSessionPersonId("p-marco");
+    const m = await api.chat.sendMessage("ch-stw-desktop", { text: ASK });
+    setSessionPersonId("p-giulia");
+    return m;
+  }
+
+  /** Giulia chiede a @Claude di assegnare AUD-4 senza dire a chi: Claude le chiede a chi. */
+  async function claudeAsksGiulia() {
+    api.setStreamLatency(0);
+    setSessionPersonId("p-giulia");
+    await api.chat.sendMessage("ch-aud-general", {
+      text: "@Claude assign AUD-4",
+      threadOf: "ch-aud-general-m17",
+    });
+    const reply = state.chatMessages.filter((x) => x.calledById === "p-giulia").at(-1)!;
+    await api.chat.whenClaudeIdle(reply.id);
+    return reply.id;
+  }
+
+  it("compare con chi chiede e il canale; «Reply» apre il thread con la casella a fuoco", async () => {
+    const m = await marcoAsksGiulia();
+    const router = renderRoute("/home", "p-giulia");
+    const decide = await decideBlock();
+    const actions = await within(decide).findByRole("group", {
+      name: "Question from Marco Bellini in STW · desktop-app",
+    });
+    const item = actions.closest("[data-chat-question]") as HTMLElement;
+    expect(within(item).getByText("Marco Bellini asks you")).toBeInTheDocument();
+    expect(within(item).getByText(ASK)).toBeInTheDocument();
+    await userEvent.click(within(actions).getByRole("button", { name: "Reply" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/chat/ch-stw-desktop"));
+    expect(router.state.location.search).toMatchObject({ thread: m.id, message: m.id });
+    // Agganciato (region) o sovrapposto (dialog), secondo la larghezza.
+    const panel = await waitFor(() => {
+      const found =
+        screen.queryByRole("region", { name: "Thread" }) ??
+        screen.queryByRole("dialog", { name: "Thread" });
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    const box = await within(panel).findByRole("combobox", { name: "Reply…" });
+    await waitFor(() => expect(box).toHaveFocus());
+  });
+
+  it("rispondere nel thread la chiude, dal vivo", async () => {
+    const m = await marcoAsksGiulia();
+    renderRoute("/home", "p-giulia");
+    const decide = await decideBlock();
+    await within(decide).findByRole("group", { name: FROM_MARCO });
+    await act(async () => {
+      await api.chat.sendMessage("ch-stw-desktop", { text: "On it", threadOf: m.id });
+    });
+    await waitFor(() =>
+      expect(within(decide).queryByRole("group", { name: FROM_MARCO })).toBeNull(),
+    );
+  });
+
+  it("«Ignore» la toglie solo per chi la ignora", async () => {
+    const m = await marcoAsksGiulia();
+    renderRoute("/home", "p-giulia");
+    const decide = await decideBlock();
+    const actions = await within(decide).findByRole("group", { name: FROM_MARCO });
+    await userEvent.click(within(actions).getByRole("button", { name: "Ignore" }));
+    await waitFor(() =>
+      expect(within(decide).queryByRole("group", { name: FROM_MARCO })).toBeNull(),
+    );
+    expect(screen.getByText("Question ignored")).toBeInTheDocument();
+    await waitFor(async () => {
+      setSessionPersonId("p-giulia");
+      expect((await api.chat.listQuestions()).some((q) => q.messageId === m.id)).toBe(false);
+    });
+    // Il messaggio resta lì, per tutti.
+    expect((await api.chat.getMessage(m.id))?.message.text).toBe(ASK);
+  });
+
+  it("cambiare persona cambia le domande: quelle di Giulia non restano a Laura", async () => {
+    await marcoAsksGiulia();
+    const LAURA = "@Laura Costa is the release note ready?";
+    setSessionPersonId("p-marco");
+    await api.chat.sendMessage("ch-stw-desktop", { text: LAURA });
+    renderRoute("/home", "p-giulia");
+    const decide = await decideBlock();
+    await within(decide).findByRole("group", { name: FROM_MARCO });
+    expect(within(decide).queryByText(LAURA)).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Profile and settings" }));
+    const menu = await screen.findByRole("dialog", { name: "Profile and settings" });
+    await userEvent.click(within(menu).getByRole("radio", { name: /Laura Costa/ }));
+    const after = await decideBlock();
+    expect(await within(after).findByText(LAURA)).toBeInTheDocument();
+    expect(within(after).queryByText(ASK)).toBeNull();
+  });
+
+  it("una domanda il cui messaggio viene eliminato sparisce, senza testo", async () => {
+    const m = await marcoAsksGiulia();
+    renderRoute("/home", "p-giulia");
+    const decide = await decideBlock();
+    await within(decide).findByText(ASK);
+    await act(async () => {
+      setSessionPersonId("p-marco");
+      await api.chat.deleteMessage(m.id);
+      setSessionPersonId("p-giulia");
+    });
+    await waitFor(() => expect(within(decide).queryByText(ASK)).toBeNull());
+  });
+
+  it("@Claude: la domanda al chiamante è anche qui; rispondere qui la chiude nel thread", async () => {
+    const replyId = await claudeAsksGiulia();
+    renderRoute("/home", "p-giulia");
+    const decide = await decideBlock();
+    const group = await within(decide).findByRole("group", { name: WHO_TAKES });
+    const item = group.closest("[data-chat-claude-question]") as HTMLElement;
+    expect(within(item).getByText("Claude asks")).toBeInTheDocument();
+    expect(within(item).getByRole("link", { name: /AUD · general/ })).toBeInTheDocument();
+    await userEvent.click(within(group).getByRole("button", { name: /^Matteo Conti/ }));
+    await waitFor(() => {
+      const q = state.chatMessages
+        .find((x) => x.id === replyId)!
+        .claudeEvents!.find((e) => e.type === "question") as Extract<
+        ConversationEvent,
+        { type: "question" }
+      >;
+      expect(q.answer).toMatchObject({ byId: "p-giulia" });
+    });
+    await waitFor(() =>
+      expect(within(decide).queryByRole("group", { name: WHO_TAKES })).toBeNull(),
+    );
+  });
+
+  it("@Claude: rispondere nel thread la toglie da qui", async () => {
+    await claudeAsksGiulia();
+    renderRoute("/home", "p-giulia");
+    const decide = await decideBlock();
+    await within(decide).findByRole("group", { name: WHO_TAKES });
+    const [q] = await api.chat.listClaudeQuestions();
+    await act(async () => {
+      await api.chat.answerChatClaudeQuestion(q!.messageId, q!.questionId, {
+        optionIndex: 0,
+        text: null,
+      });
+    });
+    await waitFor(() =>
+      expect(within(decide).queryByRole("group", { name: WHO_TAKES })).toBeNull(),
+    );
   });
 });

@@ -313,15 +313,29 @@ export function channelCounts(
   personId: string,
   data: ChannelData,
 ): { unread: number; mentions: number } {
+  const { unread, mentions } = countsOf(personId, data);
+  return { unread, mentions };
+}
+
+/**
+ * I conteggi di `channelCounts` più `toMe`: le menzioni rivolte proprio alla
+ * persona (dirette, o un DM non silenziato), senza `@channel` né reparto. È
+ * ciò che accende il punto della Chat sul binario.
+ */
+function countsOf(
+  personId: string,
+  data: ChannelData,
+): { unread: number; mentions: number; toMe: number } {
   const read = readStateOf(personId, data.ch.id);
   const members = membersOf(data.ch);
   if (!read || !members.includes(personId) || !canReadChannel(personId, data.ch)) {
-    return { unread: 0, mentions: 0 };
+    return { unread: 0, mentions: 0, toMe: 0 };
   }
   const level = notifyLevelOf(personId, data.ch.id);
   const dm = data.ch.kind === "dm";
   let unread = 0;
   let mentions = 0;
+  let mine = 0;
   for (const m of data.messages) {
     if (m.deletedAt !== null || m.authorId === personId) continue;
     const flow = inChannelFlow(m);
@@ -334,8 +348,9 @@ export function channelCounts(
     const counts =
       kind === "direct" || (level !== "muted" && toMe) || (level === "all" && kind === "group");
     if (counts) mentions++;
+    if (kind === "direct" || (level !== "muted" && toMe)) mine++;
   }
-  return { unread, mentions };
+  return { unread, mentions, toMe: mine };
 }
 
 function channelRow(personId: string, ch: Channel, messages: ChatMessage[]): ChannelRow {
@@ -501,6 +516,10 @@ export async function listThread(messageId: string): Promise<ThreadView | null> 
 /** I thread che chi guarda segue con risposte nuove (non sue), dal più recente. */
 export async function listThreadsWithNews(): Promise<ThreadWithNews[]> {
   const me = await gate("chat.listThreadsWithNews");
+  return threadsWithNewsOf(me);
+}
+
+function threadsWithNewsOf(me: string): ThreadWithNews[] {
   const out: ThreadWithNews[] = [];
   for (const read of state.chatReads.values()) {
     if (read.personId !== me) continue;
@@ -523,6 +542,27 @@ export async function listThreadsWithNews(): Promise<ThreadWithNews[]> {
   }
   const latest = (t: ThreadWithNews) => t.latestReplies.at(-1)!.createdAt;
   return out.sort((a, b) => latest(b).localeCompare(latest(a)));
+}
+
+/**
+ * Il punto della Chat sul binario: c'è qualcosa rivolto proprio a chi guarda
+ * — una menzione diretta non letta, un DM non letto (non silenziato), un
+ * thread che segue con risposte nuove. Il traffico normale dei canali e
+ * `@channel`/reparto no: con 50 progetti il punto sarebbe sempre acceso
+ * (shape chat.md §6). Solo i canali della colonna (membro, non archiviati).
+ */
+export function chatSignalOf(personId: string): boolean {
+  const byChannel = messagesByChannel();
+  for (const ch of state.channels) {
+    if (ch.archived) continue;
+    if (countsOf(personId, channelData(ch, byChannel.get(ch.id) ?? [])).toMe > 0) return true;
+  }
+  return threadsWithNewsOf(personId).length > 0;
+}
+
+export async function hasNews(): Promise<boolean> {
+  const me = await gate("chat.hasNews");
+  return chatSignalOf(me);
 }
 
 /** Tutte le menzioni di chi guarda nei canali che legge (persona, reparto, @channel, domanda), dalla più recente. */
@@ -563,6 +603,7 @@ export function chatQuestionsOf(personId: string): ChatQuestion[] {
         channelId: ch.id,
         messageId: m.id,
         rootId: m.threadOf ?? m.id,
+        channelLabel: channelLabel(ch, personId),
         askedById: m.authorId!,
         text: m.text,
         createdAt: m.createdAt,
@@ -599,6 +640,7 @@ export function chatClaudeQuestionsOf(personId: string): ChatClaudeQuestion[] {
         channelId: ch.id,
         messageId: m.id,
         rootId: m.threadOf,
+        channelLabel: channelLabel(ch, personId),
         questionId: e.questionId,
         text: e.text,
         options: copy(e.options),

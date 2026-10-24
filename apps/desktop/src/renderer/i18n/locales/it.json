@@ -46,7 +46,8 @@
       "p-laura": "Sviluppo · Project Lead",
       "p-sara": "Assistenza · Contributor",
       "p-roberta": "Amministrazione · amministratore completo"
-    }
+    },
+    "chatNews": "Menzioni o risposte per te"
   },
   "column": {
     "projectSections": "Sezioni del progetto",
@@ -967,6 +968,18 @@
         "planFailed": "Impossibile inviare la decisione su {{code}}. È tornata in Da decidere.",
         "alreadyAnswered": "Ha già risposto {{name}}.",
         "alreadyDecided": "Ha già deciso {{name}}."
+      },
+      "chat": {
+        "asksYou": "{{name}} ti chiede",
+        "actions": "Domanda di {{name}} in {{channel}}",
+        "reply": "Rispondi",
+        "ignore": "Ignora",
+        "ignored": "Domanda ignorata",
+        "ignoreFailed": "Impossibile ignorare la domanda. È tornata in Da decidere.",
+        "openThread": "Apri il thread in {{channel}}",
+        "unavailable": "Questo messaggio non è più disponibile",
+        "answered": "Risposta inviata in {{channel}}",
+        "answerFailed": "Impossibile inviare la risposta in {{channel}}. È tornata in Da decidere."
       }
     },
     "myTasks": {

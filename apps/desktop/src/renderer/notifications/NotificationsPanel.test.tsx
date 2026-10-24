@@ -3,7 +3,16 @@ import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { failNext, listNotifications, markNotification, resetApi, setLatency } from "../data/api";
+import {
+  chat,
+  failNext,
+  listNotifications,
+  markNotification,
+  resetApi,
+  setLatency,
+} from "../data/api";
+import { setSessionPersonId } from "../data/session";
+import { now, state } from "../data/store";
 import { DEPARTMENTS } from "../data/seed/departments";
 import { PROJECTS } from "../data/seed/projects";
 import { ViewerProvider } from "../data/viewer";
@@ -322,5 +331,73 @@ describe("pannello", () => {
     const retry = await within(panel).findByRole("button", { name: "Try again" });
     await userEvent.setup().click(retry);
     expect(await within(panel).findAllByRole("listitem")).not.toHaveLength(0);
+  });
+});
+
+// Task 8: una menzione diretta della Chat nelle notifiche. Si apre sul
+// messaggio (nel thread, se è una risposta), dopo averlo riletto: se nel
+// frattempo non c'è più, un avviso e nessun testo (R-G5).
+describe("menzioni della Chat", () => {
+  const TEXT = "@Giulia Ferri the desktop build is red";
+
+  async function marcoMentionsGiulia(threadOf?: string) {
+    setSessionPersonId("p-marco");
+    const m = await chat.sendMessage("ch-stw-desktop", { text: TEXT, threadOf });
+    setSessionPersonId("p-giulia");
+    return m;
+  }
+
+  it("aprirla porta al messaggio nel canale", async () => {
+    const m = await marcoMentionsGiulia();
+    const user = userEvent.setup();
+    const router = renderAt("/home");
+    const panel = await openPanel(user);
+    const item = await within(panel).findByText("Marco Bellini mentioned you in STW · desktop-app");
+    expect(within(panel).getByText(TEXT)).toBeInTheDocument();
+    await user.click(item);
+    await waitFor(() => expect(router.state.location.pathname).toBe("/chat/ch-stw-desktop"));
+    expect(router.state.location.search).toMatchObject({ message: m.id });
+  });
+
+  it("una risposta in un thread apre il thread sul messaggio", async () => {
+    setSessionPersonId("p-giulia");
+    const root = await chat.sendMessage("ch-stw-desktop", { text: "Build status?" });
+    const m = await marcoMentionsGiulia(root.id);
+    const user = userEvent.setup();
+    const router = renderAt("/home");
+    const panel = await openPanel(user);
+    await user.click(
+      await within(panel).findByText("Marco Bellini mentioned you in STW · desktop-app"),
+    );
+    await waitFor(() => expect(router.state.location.pathname).toBe("/chat/ch-stw-desktop"));
+    expect(router.state.location.search).toMatchObject({ thread: root.id, message: m.id });
+  });
+
+  it("un messaggio sparito nel frattempo: avviso, si resta qui", async () => {
+    const m = await marcoMentionsGiulia();
+    const user = userEvent.setup();
+    const router = renderAt("/home");
+    const panel = await openPanel(user);
+    const item = await within(panel).findByText("Marco Bellini mentioned you in STW · desktop-app");
+    // Eliminato senza che la lista lo sappia ancora (una lettura vecchia).
+    const stored = state.chatMessages.find((x) => x.id === m.id)!;
+    stored.deletedAt = now();
+    stored.deletedById = "p-marco";
+    stored.text = "";
+    await user.click(item);
+    expect(await screen.findByText("This message is no longer available")).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/home");
+  });
+
+  it("chi non legge il canale non la riceve", async () => {
+    setSessionPersonId("p-laura");
+    await chat.sendMessage("ch-aud-pricing", { text: "@Giulia Ferri do you agree on 15%?" });
+    setSessionPersonId("p-giulia");
+    const user = userEvent.setup();
+    renderAt("/home");
+    const panel = await openPanel(user);
+    await within(panel).findAllByRole("listitem");
+    expect(within(panel).queryByText(/15%/)).toBeNull();
+    expect(within(panel).queryByText(/Laura Costa mentioned you/)).toBeNull();
   });
 });

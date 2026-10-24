@@ -3,6 +3,8 @@ import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   useAnswerDecisionNow,
+  useChatClaudeQuestions,
+  useChatQuestions,
   useClaudeDecisions,
   useDecisionRequests,
   usePeople,
@@ -12,6 +14,8 @@ import {
   useTasks,
 } from "../../../data/queries";
 import type {
+  ChatClaudeQuestion,
+  ChatQuestion,
   ClaudeDecision,
   DecisionRequest,
   Person,
@@ -27,11 +31,14 @@ import { NewTaskDialog } from "../../task/NewTaskDialog";
 import { ghostButton, smallPrimary, smallSecondary } from "../../task/parts";
 import { deferAnswer, usePendingAnswers } from "../pendingAnswers";
 import { BlockSection, Capped, queryState, useOpenTask } from "./BlockSection";
+import { ChatClaudeQuestionItem, ChatQuestionItem } from "./ChatDecisionItems";
 import { ClaudeDecisionItem } from "./ClaudeDecisionItem";
 
 type Item =
   | { kind: "decision"; id: string; decision: DecisionRequest; task: Task | undefined }
   | { kind: "claude"; id: string; claude: ClaudeDecision }
+  | { kind: "chat"; id: string; question: ChatQuestion }
+  | { kind: "chatClaude"; id: string; question: ChatClaudeQuestion }
   | { kind: "request"; id: string; request: ProjectRequest; project: Project | undefined };
 
 /**
@@ -39,7 +46,9 @@ type Item =
  * richieste di decisione rivolte a me (le opzioni come bottoni, più
  * «Other…» a testo libero) e le domande e i piani di Claude che aspettano
  * me (gli stessi della conversazione, nella stessa forma), dalla più
- * vecchia; poi le richieste nuove nei progetti dove posso creare task, con
+ * vecchia, insieme alle domande della Chat rivolte a me («Reply» apre il
+ * thread, «Ignore» la toglie) e a quelle di @Claude a chi l'ha chiamato;
+ * poi le richieste nuove nei progetti dove posso creare task, con
  * «Turn into task». Una risposta
  * chiude subito la voce (collassa in 200 ms) e parte dopo la finestra
  * dell'«Undo»; se non riesce, la voce torna e un messaggio lo dice.
@@ -49,6 +58,8 @@ export function DecideBlock() {
   const me = useSessionPersonId();
   const decisions = useDecisionRequests({ askedOfId: me, open: true });
   const claude = useClaudeDecisions();
+  const chatQuestions = useChatQuestions();
+  const chatClaude = useChatClaudeQuestions();
   const tasks = useTasks();
   const requests = useRequestsToConvert();
   const projects = useProjects();
@@ -73,6 +84,14 @@ export function DecideBlock() {
       at: c.at,
       item: { kind: "claude", id: c.id, claude: c } satisfies Item,
     })),
+    ...(chatQuestions.data ?? []).map((q) => ({
+      at: q.createdAt,
+      item: { kind: "chat", id: q.id, question: q } satisfies Item,
+    })),
+    ...(chatClaude.data ?? []).map((q) => ({
+      at: q.createdAt,
+      item: { kind: "chatClaude", id: q.id, question: q } satisfies Item,
+    })),
   ];
   const items: Item[] = [
     ...asked.sort((a, b) => a.at.localeCompare(b.at)).map((a) => a.item),
@@ -88,11 +107,14 @@ export function DecideBlock() {
       ),
   ];
   const visible = items.filter((i) => !pending.has(i.id));
-  const state = queryState([decisions, claude, tasks, requests, projects], {
-    when: visible.length === 0,
-    text: t("home.decide.empty"),
-    body: t("home.decide.emptyBody"),
-  });
+  const state = queryState(
+    [decisions, claude, chatQuestions, chatClaude, tasks, requests, projects],
+    {
+      when: visible.length === 0,
+      text: t("home.decide.empty"),
+      body: t("home.decide.emptyBody"),
+    },
+  );
   const person = (id: string) => people.data?.find((p) => p.id === id);
 
   return (
@@ -101,7 +123,15 @@ export function DecideBlock() {
         items={items}
         closing={(item) => pending.has(item.id)}
         render={(item) =>
-          item.kind === "claude" ? (
+          item.kind === "chat" ? (
+            <Collapsible key={item.id} closed={pending.has(item.id)}>
+              <ChatQuestionItem question={item.question} />
+            </Collapsible>
+          ) : item.kind === "chatClaude" ? (
+            <Collapsible key={item.id} closed={pending.has(item.id)}>
+              <ChatClaudeQuestionItem question={item.question} />
+            </Collapsible>
+          ) : item.kind === "claude" ? (
             <Collapsible key={item.id} closed={pending.has(item.id)}>
               <ClaudeDecisionItem decision={item.claude} onOpenTask={openTask} />
             </Collapsible>

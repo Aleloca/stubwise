@@ -1,7 +1,12 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { useRef, type ReactNode } from "react";
+import { useId, useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { useNotifications, usePinnedProjects, useWaitingOnMe } from "../data/queries";
+import {
+  useChatSignal,
+  useNotifications,
+  usePinnedProjects,
+  useWaitingOnMe,
+} from "../data/queries";
 import type { Project } from "../data/types";
 import { getPlatform, shortcutLabel } from "../platform/platform";
 import {
@@ -40,16 +45,40 @@ function RailLink({
   label,
   icon,
   shortcut,
+  signal,
 }: {
   to: string;
   label: string;
   icon: ReactNode;
-  shortcut?: string;
+  shortcut?: string | undefined;
+  /**
+   * Un segnale per chi guarda (la Chat: c'è qualcosa per te): il punto delle
+   * tessere, e le stesse parole nella descrizione accessibile e nel tooltip.
+   */
+  signal?: string | undefined;
 }) {
+  const signalId = useId();
   return (
-    <Tooltip label={label} shortcut={shortcut}>
-      <Link to={to} aria-label={label} className={`${controlClass} ${currentClass}`}>
+    <Tooltip label={signal ? `${label} · ${signal}` : label} shortcut={shortcut}>
+      <Link
+        to={to}
+        aria-label={label}
+        aria-describedby={signal ? signalId : undefined}
+        className={`${controlClass} ${currentClass} relative`}
+      >
         {icon}
+        {signal && (
+          <>
+            <span
+              aria-hidden="true"
+              data-signal="chat"
+              className="pointer-events-none absolute top-1.5 right-1.5 size-2.5 rounded-full border-2 border-rail bg-ink"
+            />
+            <span id={signalId} className="sr-only">
+              {signal}
+            </span>
+          </>
+        )}
       </Link>
     </Tooltip>
   );
@@ -153,6 +182,8 @@ export function Rail() {
   const { shown, hidden } = splitPinned(pinned, slots, activeCode);
   const { data: notifications } = useNotifications();
   const unread = notifications ? unreadCount(notifications) : 0;
+  // Solo ciò che è rivolto a chi guarda: menzioni dirette, DM, thread seguiti.
+  const chatNews = useChatSignal().data === true;
 
   return (
     <nav
@@ -177,6 +208,7 @@ export function Rail() {
               label={t(d.key)}
               icon={d.icon}
               shortcut={"shortcut" in d ? shortcutLabel([...d.shortcut]) : undefined}
+              signal={d.to === "/chat" && chatNews ? t("rail.chatNews") : undefined}
             />
           </li>
         ))}

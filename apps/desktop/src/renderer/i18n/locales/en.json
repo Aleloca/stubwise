@@ -46,7 +46,8 @@
       "p-laura": "Development · Project Lead",
       "p-sara": "Support · Contributor",
       "p-roberta": "Administration · Full admin"
-    }
+    },
+    "chatNews": "Mentions or replies for you"
   },
   "column": {
     "projectSections": "Project sections",
@@ -967,6 +968,18 @@
         "planFailed": "Couldn't send your decision on {{code}}. It's back in Decide.",
         "alreadyAnswered": "Already answered by {{name}}.",
         "alreadyDecided": "Already decided by {{name}}."
+      },
+      "chat": {
+        "asksYou": "{{name}} asks you",
+        "actions": "Question from {{name}} in {{channel}}",
+        "reply": "Reply",
+        "ignore": "Ignore",
+        "ignored": "Question ignored",
+        "ignoreFailed": "Couldn't ignore the question. It's back in Decide.",
+        "openThread": "Open the thread in {{channel}}",
+        "unavailable": "This message is no longer available",
+        "answered": "Answered in {{channel}}",
+        "answerFailed": "Couldn't send your answer in {{channel}}. It's back in Decide."
       }
     },
     "myTasks": {

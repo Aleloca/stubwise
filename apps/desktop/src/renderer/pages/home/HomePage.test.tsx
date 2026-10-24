@@ -108,6 +108,8 @@ describe("HomePage", () => {
   it("«Turn into task» apre la nuova task dalla richiesta e la richiesta esce da Decide", async () => {
     const router = renderRoute("/home", "p-giulia");
     const decide = await block("Decide");
+    // Le domande della Chat a Giulia vengono prima: la richiesta è oltre le prime cinque.
+    await userEvent.click(await within(decide).findByRole("button", { name: /^Show \d+ more$/ }));
     const turn = await within(decide).findByRole("button", {
       name: "Turn into task: Landing page for the showroom event",
     });

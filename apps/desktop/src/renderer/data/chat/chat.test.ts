@@ -138,7 +138,10 @@ describe("chat: Review Focus 1 — privato e DM per Roberta (full admin)", () =>
       text: "@Roberta Fontana can we keep 15% for resellers?",
     });
     as("p-roberta");
-    expect((await listNotifications()).filter((n) => n.chatMessageId)).toEqual([]);
+    // Le menzioni del seme non c'entrano: nulla da questo privato.
+    expect(
+      (await listNotifications()).filter((n) => n.chatMessageId?.startsWith("ch-aud-pricing")),
+    ).toEqual([]);
     expect(await chat.listQuestions()).toEqual(
       expect.not.arrayContaining([expect.objectContaining({ channelId: "ch-aud-pricing" })]),
     );
@@ -191,7 +194,9 @@ describe("chat: Review Focus 3 — un messaggio eliminato non ha più testo, da 
     });
     as("p-marco");
     expect((await chat.listQuestions()).map((q) => q.messageId)).toContain(root.id);
-    expect((await listNotifications()).filter((n) => n.chatMessageId).length).toBe(2);
+    const ours = (n: { chatMessageId?: string }) =>
+      n.chatMessageId === root.id || n.chatMessageId === reply.id;
+    expect((await listNotifications()).filter(ours).length).toBe(2);
 
     as("p-giulia");
     await chat.deleteMessage(root.id);

@@ -5,6 +5,7 @@
 export {
   getChannel,
   getMessage,
+  hasNews,
   listChannelMembers,
   listChannels,
   listMentions,

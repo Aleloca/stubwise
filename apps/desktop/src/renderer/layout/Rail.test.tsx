@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  chat as chatApi,
   listPinnedProjectIds,
   listWaitingOnMeProjectIds,
   resetApi,
@@ -12,6 +13,7 @@ import {
 } from "../data/api";
 import { PROJECTS } from "../data/seed/projects";
 import { setSessionPersonId } from "../data/session";
+import { now, state } from "../data/store";
 import { ViewerProvider } from "../data/viewer";
 import { setLanguage } from "../i18n";
 import { createAppRouter } from "../router";
@@ -342,6 +344,59 @@ describe("Rail", () => {
       await userEvent.click(bell);
       await settle();
       expect(bell).toHaveFocus();
+    });
+  });
+
+  describe("punto della Chat", () => {
+    const chatLink = () => screen.findByRole("link", { name: "Chat" });
+    const dotOf = (el: HTMLElement) => el.querySelector('[data-signal="chat"]');
+
+    /** Tutto letto per la persona, fino ad «adesso». */
+    function readEverything(personId: string) {
+      for (const r of state.chatReads.values()) {
+        if (r.personId !== personId) continue;
+        r.lastReadAt = now();
+        for (const root of Object.keys(r.threadReads)) r.threadReads[root] = now();
+      }
+    }
+
+    it("acceso per le menzioni dirette del seme, detto a parole e nel tooltip", async () => {
+      renderAt("/home", "p-giulia");
+      const link = await chatLink();
+      await waitFor(() => expect(dotOf(link)).not.toBeNull());
+      expect(link).toHaveAccessibleDescription("Mentions or replies for you");
+      await userEvent.hover(link);
+      expect(await screen.findByRole("tooltip")).toHaveTextContent(
+        "Chat · Mentions or replies for you",
+      );
+    });
+
+    it("spento per il traffico normale dei canali; si accende con una menzione, dal vivo", async () => {
+      readEverything("p-giulia");
+      setSessionPersonId("p-marco");
+      await chatApi.sendMessage("ch-stw-desktop", { text: "Build is green" });
+      renderAt("/home", "p-giulia");
+      const link = await chatLink();
+      await settle();
+      expect(dotOf(link)).toBeNull();
+      expect(link).not.toHaveAccessibleDescription();
+      await act(async () => {
+        setSessionPersonId("p-marco");
+        await chatApi.sendMessage("ch-stw-desktop", { text: "@Giulia Ferri can you look?" });
+        setSessionPersonId("p-giulia");
+      });
+      await waitFor(() => expect(dotOf(link)).not.toBeNull());
+    });
+
+    it("cambiare persona rilegge il punto per la persona nuova", async () => {
+      readEverything("p-marco");
+      renderAt("/home", "p-giulia");
+      const link = await chatLink();
+      await waitFor(() => expect(dotOf(link)).not.toBeNull());
+      await userEvent.click(screen.getByRole("button", { name: "Profile and settings" }));
+      const menu = await screen.findByRole("dialog", { name: "Profile and settings" });
+      await userEvent.click(within(menu).getByRole("radio", { name: /Marco Bellini/ }));
+      await waitFor(async () => expect(dotOf(await chatLink())).toBeNull());
     });
   });
 

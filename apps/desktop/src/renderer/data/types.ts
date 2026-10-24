@@ -488,6 +488,8 @@ export interface ChatClaudeQuestion {
   /** La risposta di Claude che porta la domanda. */
   messageId: string;
   rootId: string;
+  /** Il canale come lo legge chi guarda (`AUD · general`, i nomi del DM). */
+  channelLabel: string;
   questionId: string;
   text: string;
   options: { label: string; consequence?: string; recommended?: boolean }[];
@@ -556,6 +558,8 @@ export interface ChatQuestion {
   messageId: string;
   /** La radice del thread in cui rispondere (il messaggio stesso se è nel canale). */
   rootId: string;
+  /** Il canale come lo legge chi guarda (`AUD · general`, i nomi del DM). */
+  channelLabel: string;
   askedById: string;
   text: string;
   createdAt: string;

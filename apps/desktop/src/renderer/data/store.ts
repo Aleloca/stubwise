@@ -7,6 +7,7 @@ import { BRIEFS } from "./seed/briefs";
 import {
   CHAT_CHANNELS,
   CHAT_MESSAGES,
+  CHAT_NOTIFICATIONS,
   CHAT_NOTIFY_PREFS,
   CHAT_READ_STATES,
   RELEASE_PAGES,
@@ -186,6 +187,7 @@ export type ApiFnName =
   | "chat.listThreadsWithNews"
   | "chat.listMentions"
   | "chat.listQuestions"
+  | "chat.hasNews"
   | "chat.search"
   | "chat.sendMessage"
   | "chat.editMessage"
@@ -361,7 +363,7 @@ function freshState(): State {
     departmentHomes: DEPARTMENT_HOMES.map(copy),
     personalHomes: PERSONAL_HOMES.map(copy),
     arrangements: DAY_ARRANGEMENTS.map(copy),
-    notifications: NOTIFICATIONS.map(copy),
+    notifications: [...NOTIFICATIONS, ...CHAT_NOTIFICATIONS].map(copy),
     conversations: CONVERSATIONS.map(copy),
     conversationEvents: new Map(
       Object.entries(CONVERSATION_EVENTS).map(([id, events]) => [id, events.map(copy)]),

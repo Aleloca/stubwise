@@ -83,115 +83,140 @@ interface ItemProps<D> {
   /** Il codice dell'oggetto, o il titolo della libera: nei messaggi. */
   label: string;
 }
-
 function QuestionItem({ decision, claude, onOpenTask, defer, label }: ItemProps<Question>) {
   const { t } = useTranslation();
   const answerNow = useAnswerQuestionNow();
-  // Senza opzioni si risponde solo a parole: il campo è già aperto.
-  const free = decision.options.length === 0;
-  const [other, setOther] = useState(free);
-  const [text, setText] = useState("");
-  const textId = useId();
-  // In ordine: la consigliata prima, come nella conversazione.
-  const options = decision.options
-    .map((option, index) => ({ option, index }))
-    .sort((a, b) => Number(!!b.option.recommended) - Number(!!a.option.recommended));
-
-  const respond = (answer: { optionIndex: number | null; text: string | null }) =>
-    defer(
-      () => answerNow(decision.conversationId, decision.questionId, answer),
-      t("home.decide.answered", { code: label }),
-      t("home.decide.answerFailed", { code: label }),
-    );
-
   return (
     <Shell
       decision={decision}
       claude={claude}
       heading={t("home.decide.claude.asks")}
       onOpenTask={onOpenTask}
-      content={
-        <p
-          title={decision.text}
-          className="line-clamp-2 max-w-[72ch] text-lg font-medium text-ink [overflow-wrap:anywhere]"
-        >
-          {decision.text}
-        </p>
-      }
+      content={<QuestionText text={decision.text} />}
       actions={
-        other ? (
-          <form
-            className="flex max-w-[72ch] flex-col gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (text.trim()) respond({ optionIndex: null, text: text.trim() });
-            }}
-          >
-            <label htmlFor={textId} className="sr-only">
-              {t("home.decide.yourAnswer")}
-            </label>
-            <textarea
-              id={textId}
-              rows={2}
-              autoFocus={!free}
-              value={text}
-              placeholder={t("home.decide.yourAnswer")}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape" && !free) {
-                  e.stopPropagation();
-                  setOther(false);
-                }
-              }}
-              className={`${inputClass} resize-y`}
-            />
-            <div className="flex gap-2">
-              <button type="submit" className={smallPrimary} disabled={!text.trim()}>
-                {t("home.decide.send")}
-              </button>
-              {!free && (
-                <button type="button" className={ghostButton} onClick={() => setOther(false)}>
-                  {t("home.decide.cancel")}
-                </button>
-              )}
-            </div>
-          </form>
-        ) : (
-          <div
-            role="group"
-            aria-label={t("home.decide.options", { question: decision.text })}
-            className="flex flex-wrap gap-2"
-          >
-            {options.map(({ option, index }) => (
-              <button
-                key={index}
-                type="button"
-                className={`${smallSecondary} h-auto min-h-7 max-w-full flex-col items-start gap-0.5 py-1 text-left [overflow-wrap:anywhere] ${option.recommended ? "border-ink/60" : ""}`}
-                onClick={() => respond({ optionIndex: index, text: null })}
-              >
-                <span className="flex flex-wrap items-baseline gap-x-2">
-                  <span>{option.label}</span>
-                  {option.recommended && (
-                    <span className="text-xs font-semibold text-ink-muted">
-                      {t("home.decide.claude.recommended")}
-                    </span>
-                  )}
-                </span>
-                {/* Cosa comporta, a vista come nella conversazione (non solo al passaggio). */}
-                {option.consequence && (
-                  <span className="max-w-[44ch] text-xs font-normal text-ink-muted">
-                    {option.consequence}
-                  </span>
-                )}
-              </button>
-            ))}
-            <button type="button" className={ghostButton} onClick={() => setOther(true)}>
-              {t("home.decide.other")}
-            </button>
-          </div>
-        )
+        <ClaudeAnswers
+          question={decision.text}
+          options={decision.options}
+          onAnswer={(answer) =>
+            defer(
+              () => answerNow(decision.conversationId, decision.questionId, answer),
+              t("home.decide.answered", { code: label }),
+              t("home.decide.answerFailed", { code: label }),
+            )
+          }
+        />
       }
     />
+  );
+}
+
+/** Il testo di una domanda in «Decide»: due righe al più, intero nel `title`. */
+export function QuestionText({ text }: { text: string }) {
+  return (
+    <p
+      title={text}
+      className="line-clamp-2 max-w-[72ch] text-lg font-medium text-ink [overflow-wrap:anywhere]"
+    >
+      {text}
+    </p>
+  );
+}
+
+/**
+ * Le risposte a una domanda di Claude sul posto: le opzioni come bottoni (la
+ * consigliata prima, con cosa comporta a vista), più «Other…» a testo
+ * libero. La stessa forma per la conversazione e per @Claude nella Chat.
+ */
+export function ClaudeAnswers({
+  question,
+  options: given,
+  onAnswer,
+}: {
+  question: string;
+  options: Question["options"];
+  onAnswer: (answer: { optionIndex: number | null; text: string | null }) => void;
+}) {
+  const { t } = useTranslation();
+  // Senza opzioni si risponde solo a parole: il campo è già aperto.
+  const free = given.length === 0;
+  const [other, setOther] = useState(free);
+  const [text, setText] = useState("");
+  const textId = useId();
+  // In ordine: la consigliata prima, come nella conversazione.
+  const options = given
+    .map((option, index) => ({ option, index }))
+    .sort((a, b) => Number(!!b.option.recommended) - Number(!!a.option.recommended));
+
+  return other ? (
+    <form
+      className="flex max-w-[72ch] flex-col gap-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (text.trim()) onAnswer({ optionIndex: null, text: text.trim() });
+      }}
+    >
+      <label htmlFor={textId} className="sr-only">
+        {t("home.decide.yourAnswer")}
+      </label>
+      <textarea
+        id={textId}
+        rows={2}
+        autoFocus={!free}
+        value={text}
+        placeholder={t("home.decide.yourAnswer")}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape" && !free) {
+            e.stopPropagation();
+            setOther(false);
+          }
+        }}
+        className={`${inputClass} resize-y`}
+      />
+      <div className="flex gap-2">
+        <button type="submit" className={smallPrimary} disabled={!text.trim()}>
+          {t("home.decide.send")}
+        </button>
+        {!free && (
+          <button type="button" className={ghostButton} onClick={() => setOther(false)}>
+            {t("home.decide.cancel")}
+          </button>
+        )}
+      </div>
+    </form>
+  ) : (
+    <div
+      role="group"
+      aria-label={t("home.decide.options", { question })}
+      className="flex flex-wrap gap-2"
+    >
+      {options.map(({ option, index }) => (
+        <button
+          key={index}
+          type="button"
+          className={`${smallSecondary} h-auto min-h-7 max-w-full flex-col items-start gap-0.5 py-1 text-left [overflow-wrap:anywhere] ${option.recommended ? "border-ink/60" : ""}`}
+          onClick={() => onAnswer({ optionIndex: index, text: null })}
+        >
+          <span className="flex flex-wrap items-baseline gap-x-2">
+            <span>{option.label}</span>
+            {option.recommended && (
+              <span className="text-xs font-semibold text-ink-muted">
+                {t("home.decide.claude.recommended")}
+              </span>
+            )}
+          </span>
+          {/* Cosa comporta, a vista come nella conversazione (non solo al passaggio). */}
+          {option.consequence && (
+            <span className="max-w-[44ch] text-xs font-normal text-ink-muted">
+              {option.consequence}
+            </span>
+          )}
+        </button>
+      ))}
+      <button type="button" className={ghostButton} onClick={() => setOther(true)}>
+        {t("home.decide.other")}
+      </button>
+    </div>
   );
 }
 

@@ -130,6 +130,7 @@ export const queryKeys = {
   chatMentions: (personId: string) => ["as", personId, "chatMentions"] as const,
   chatQuestions: (personId: string) => ["as", personId, "chatQuestions"] as const,
   chatClaudeQuestions: (personId: string) => ["as", personId, "chatClaudeQuestions"] as const,
+  chatSignal: (personId: string) => ["as", personId, "chatSignal"] as const,
   chatSearch: (personId: string, q: string, filters: ChatSearchFilters) =>
     ["as", personId, "chatSearch", q, filters] as const,
 };
@@ -584,7 +585,10 @@ export function useCitations(refs: readonly CitationRef[]) {
   });
 }
 
-/** I codici scritti a mano in un testo, come li legge chi guarda (visibile, nascosto, o niente). */
+/**
+ * I codici scritti a mano in un testo che chi guarda vede (codice + nome);
+ * uno nascosto e uno inesistente non tornano, nello stesso modo (R-G5).
+ */
 export function useCodeCitations(codes: readonly string[]) {
   const me = useSessionPersonId();
   const key = codes.join("|");
@@ -1459,6 +1463,7 @@ const CHAT_LIVE_AREAS = [
   "chatMentions",
   "chatQuestions",
   "chatClaudeQuestions",
+  "chatSignal",
   "chatMessage",
   "notifications",
 ] as const;
@@ -1596,6 +1601,44 @@ export function useChatQuestions() {
   const me = useSessionPersonId();
   useChatChanges();
   return useQuery({ queryKey: queryKeys.chatQuestions(me), queryFn: api.chat.listQuestions });
+}
+
+/**
+ * Il punto della Chat sul binario: menzioni dirette, DM non letti, thread
+ * seguiti con risposte nuove (mai il traffico normale dei canali).
+ */
+export function useChatSignal() {
+  const me = useSessionPersonId();
+  useChatChanges();
+  return useQuery({ queryKey: queryKeys.chatSignal(me), queryFn: api.chat.hasNews });
+}
+
+/** Ignora una domanda della Chat ADESSO (vedi `useAnswerDecisionNow`): per l'«Undo» di «Decide». */
+export function useDismissChatQuestionNow() {
+  const invalidate = useInvalidate(CHAT_LIVE_AREAS);
+  return async (messageId: string) => {
+    try {
+      return await api.chat.dismissQuestion(messageId);
+    } finally {
+      await invalidate();
+    }
+  };
+}
+
+/** Risponde ADESSO alla domanda di @Claude da «Decide» (vedi `useAnswerQuestionNow`). */
+export function useAnswerChatClaudeQuestionNow() {
+  const invalidate = useInvalidate([...CHAT_AREAS, ...DECIDE_AREAS]);
+  return async (
+    messageId: string,
+    questionId: string,
+    answer: { optionIndex: number | null; text: string | null },
+  ) => {
+    try {
+      return await api.chat.answerChatClaudeQuestion(messageId, questionId, answer);
+    } finally {
+      await invalidate();
+    }
+  };
 }
 
 export function useChatSearch(q: string, filters: ChatSearchFilters = {}) {
