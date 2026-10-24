@@ -1,7 +1,7 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useCreateRequest, useProjects } from "../../data/queries";
+import { useCreateRequest, useCreateRequestFromMessage, useProjects } from "../../data/queries";
 import type { Project, ProjectRequest } from "../../data/types";
 import { can, useViewer } from "../../data/viewer";
 import { Dialog, DialogField, inputClass, selectButtonClass } from "../../tasks-ui/Dialog";
@@ -23,15 +23,19 @@ function useRequestableProjects(): Project[] | undefined {
  * ticket («What do you need?», «Why it matters…»). Il progetto è quello
  * passato se chi guarda ci può mandare richieste; altrimenti (o fuori da un
  * progetto) si sceglie fra quelli con `backlog.create`. Il resto (simili,
- * fusioni, urgenza) lo decide il team dopo.
+ * fusioni, urgenza) lo decide il team dopo. `fromMessageId`: la richiesta
+ * nasce da un messaggio della Chat, che la mostra («→ AUD-R14»).
  */
 export function NewRequestDialog({
   projectId,
+  fromMessageId,
   initial,
   onCreated,
   onClose,
 }: {
   projectId?: string;
+  /** Il messaggio della Chat da cui nasce («Create request»). */
+  fromMessageId?: string;
   /** I valori di partenza (la proposta di Claude aperta con «Edit»). */
   initial?: { title?: string; description?: string };
   onCreated: (request: ProjectRequest, project: Project) => void;
@@ -41,6 +45,7 @@ export function NewRequestDialog({
   const { viewer } = useViewer();
   const projects = useRequestableProjects();
   const create = useCreateRequest();
+  const fromMessage = useCreateRequestFromMessage();
   const titleId = useId();
   const descriptionId = useId();
   const allowed = projectId && can(viewer, "backlog.create", projectId) ? projectId : null;
@@ -56,10 +61,13 @@ export function NewRequestDialog({
     setTried(true);
     if (!project || !title.trim()) return;
     setFailed(false);
-    create.mutate(
-      { projectId: project.id, title: title.trim(), description: description.trim() },
-      { onSuccess: (request) => onCreated(request, project), onError: () => setFailed(true) },
-    );
+    const input = { projectId: project.id, title: title.trim(), description: description.trim() };
+    const callbacks = {
+      onSuccess: (request: ProjectRequest) => onCreated(request, project),
+      onError: () => setFailed(true),
+    };
+    if (fromMessageId) fromMessage.mutate({ messageId: fromMessageId, input }, callbacks);
+    else create.mutate(input, callbacks);
   };
 
   return (

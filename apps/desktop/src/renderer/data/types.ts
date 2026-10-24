@@ -463,6 +463,11 @@ export interface ChatMessageView extends ChatMessage {
   answeredIds: string[];
   /** Il messaggio nomina chi guarda (persona, reparto, @channel o domanda). */
   mentionsViewer: boolean;
+  /**
+   * Gli oggetti di `linkedCodes` («→ AUD-14»), derivati a lettura: la UI li
+   * risolve come ogni citazione (codice + nome, R-E9 per chi non li vede).
+   */
+  linkedRefs: CitationRef[];
 }
 
 /** Un membro di un canale. */

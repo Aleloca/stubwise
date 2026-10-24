@@ -16,7 +16,7 @@ import {
 } from "../api";
 import { queryKeys } from "../queries";
 import { setSessionPersonId } from "../session";
-import { familyOf, state } from "../store";
+import { familyOf, state, visibleProjectIds } from "../store";
 import type { ChannelRow, ChatMessageView } from "../types";
 import { grantProjectPermission, revokeInstancePermission } from "../viewer";
 import { canReadChannel, canSeeChannel } from "./visibility";
@@ -387,6 +387,18 @@ describe("chat: non letti e menzioni", () => {
 });
 
 describe("chat: scritture e permessi", () => {
+  it("un codice scritto a mano diventa una citazione, solo se chi scrive lo vede", async () => {
+    as("p-giulia");
+    const hidden = state.tasks.find((t) => !visibleProjectIds("p-giulia").has(t.projectId))!;
+    const mkx7 = state.tasks.find((t) => t.code === "MKX-7")!;
+    const sent = await chat.sendMessage("ch-mkx-general", {
+      text: `Can someone look at MKX-7 and ${hidden.code}?`,
+    });
+    expect(sent.citations).toEqual([{ kind: "task", id: mkx7.id }]);
+    const edited = await chat.editMessage(sent.id, "Only MKX-7 then, and MKX-7 again.");
+    expect(edited.citations).toEqual([{ kind: "task", id: mkx7.id }]);
+  });
+
   it("niente ingresso silenzioso: in un aperto si scrive dopo «Join channel»", async () => {
     as("p-sara");
     const row = rowOf(await chat.listChannels(), "ch-marketing")!;

@@ -28,6 +28,7 @@ import { OverviewPage } from "./pages/overview/OverviewPage";
 import { AllProjectsPage } from "./pages/projects/AllProjectsPage";
 import { ProjectSettingsPage } from "./pages/settings/ProjectSettingsPage";
 import { ClaudePage, ConversationPage } from "./pages/claude/ClaudePage";
+import { ChannelView } from "./pages/chat/ChannelView";
 
 /** La ricerca che ogni route accetta (`?task=` apre il pannello, gli altri li montano i dialoghi). */
 export interface AppSearch {
@@ -52,6 +53,10 @@ export interface AppSearch {
   date?: string;
   /** All projects → Activity, per persona: il reparto. */
   dept?: string;
+  /** Chat: il thread aperto nel pannello (l'id della radice). */
+  thread?: string;
+  /** Chat: il messaggio da portare in vista (link, menzione, ricerca). */
+  message?: string;
 }
 
 const SEARCH_KEYS = [
@@ -68,6 +73,8 @@ const SEARCH_KEYS = [
   "ask",
   "date",
   "dept",
+  "thread",
+  "message",
 ] as const;
 
 /**
@@ -88,7 +95,11 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
     if (typeof value !== "string") continue;
     // `request` e `view` dipendono dal percorso: qui si controlla la forma, la route decide.
     const shapeOk =
-      key === "request" || key === "brief" || key === "dept"
+      key === "request" ||
+      key === "brief" ||
+      key === "dept" ||
+      key === "thread" ||
+      key === "message"
         ? /^[\w-]+$/.test(value)
         : key === "date"
           ? /^\d{4}-\d{2}-\d{2}$/.test(value)
@@ -183,6 +194,30 @@ const conversationRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/claude/$id",
   component: ConversationRoutePage,
+});
+
+/**
+ * Un canale della Chat. Cambiare persona (o canale) lo rimonta: nessun
+ * messaggio, bozza, riga «New» o invio a metà di chi guardava prima resta.
+ * La colonna e l'atterraggio di `/chat` arrivano con la destinazione.
+ */
+function ChatChannelRoutePage() {
+  const { channelId } = chatChannelRoute.useParams();
+  const { viewer } = useViewer();
+  const search = useSearch({ strict: false }) as { message?: string };
+  return (
+    <ChannelView
+      key={`${viewer.personId}:${channelId}`}
+      channelId={channelId}
+      focusMessageId={search.message}
+    />
+  );
+}
+
+const chatChannelRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/chat/$channelId",
+  component: ChatChannelRoutePage,
 });
 
 const filterRoute = createRoute({
@@ -285,6 +320,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   ...appRoutes,
   conversationRoute,
+  chatChannelRoute,
   filterRoute,
   projectIndexRoute,
   projectSectionRoute,

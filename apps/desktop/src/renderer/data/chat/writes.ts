@@ -1,7 +1,17 @@
 // Le scritture usano `createTaskAs`/`createRequestAs` solo dentro le
 // funzioni: l'import circolare con `api-mutations` è innocuo.
 import { createRequestAs, createTaskAs, type NewRequestInput } from "../api-mutations";
-import { chatKey, chatNow, gate, newId, state, storeGeneration, visibleProjectIds } from "../store";
+import { findCodes } from "../../domain/claude/parse";
+import {
+  chatKey,
+  chatNow,
+  gate,
+  newId,
+  state,
+  storeGeneration,
+  visibleProjectIds,
+  visibleTasks,
+} from "../store";
 import {
   channelStream,
   notifyChatChange,
@@ -12,6 +22,7 @@ import {
 } from "../stream";
 import type {
   Channel,
+  CitationRef,
   ChannelPatch,
   ChannelView,
   ChatEventKind,
@@ -175,6 +186,25 @@ function deliverMentions(m: ChatMessage, ch: Channel): void {
   }
 }
 
+/**
+ * Le citazioni di un messaggio: quelle scelte nella casella più i codici
+ * scritti a mano («AUD-88») di task e richieste che chi scrive vede — un
+ * codice diventa link da sé. Un codice che chi scrive non vede resta testo.
+ */
+function citationsOf(me: string, text: string, picked: readonly CitationRef[]): CitationRef[] {
+  const out = structuredClone([...picked]);
+  const has = (ref: CitationRef) => out.some((r) => r.kind === ref.kind && r.id === ref.id);
+  const visible = visibleProjectIds(me);
+  for (const { code, kind } of findCodes(text)) {
+    const id =
+      kind === "task"
+        ? visibleTasks(me).find((t) => t.code === code)?.id
+        : state.requests.find((r) => r.code === code && visible.has(r.projectId))?.id;
+    if (id && !has({ kind, id })) out.push({ kind, id });
+  }
+  return out;
+}
+
 /** La persona segue il thread di `m` (se non lo seguiva, con `m` da leggere). */
 function follow(personId: string, ch: Channel, m: ChatMessage): void {
   const read = ensureReadState(personId, ch);
@@ -217,7 +247,7 @@ export async function sendMessage(
     kind: "person",
     text,
     attachments: structuredClone(attachments),
-    citations: structuredClone(input.citations ?? []),
+    citations: citationsOf(me, text, input.citations ?? []),
     reactions: [],
     asksReplyOf: questionTargets(text, me, input.asksReply === true),
     linkedCodes: [],
@@ -273,6 +303,7 @@ export async function editMessage(id: string, text: string): Promise<ChatMessage
   const kept = m.asksReplyOf.filter((p) => questionTargets(trimmed, me, true).includes(p));
   const updated = patchChatMessage(m.id, {
     text: trimmed,
+    citations: citationsOf(me, trimmed, m.citations),
     editedAt: chatNow(),
     asksReplyOf: [...new Set([...kept, ...asked])],
   });

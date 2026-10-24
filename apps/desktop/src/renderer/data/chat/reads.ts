@@ -12,6 +12,7 @@ import type {
   ChatMessageView,
   ChatQuestion,
   ChatSearchFilters,
+  CitationRef,
   ConversationEvent,
   ReadState,
   ThreadView,
@@ -151,6 +152,16 @@ export function chatProposalExpired(
   );
 }
 
+/** Le task e le richieste nate dal messaggio, per codice (`resolveCitations` decide chi le vede). */
+function linkedRefsOf(m: ChatMessage): CitationRef[] {
+  return m.linkedCodes.flatMap((code): CitationRef[] => {
+    const task = state.tasks.find((t) => t.code === code);
+    if (task) return [{ kind: "task", id: task.id }];
+    const request = state.requests.find((r) => r.code === code);
+    return request ? [{ kind: "request", id: request.id }] : [];
+  });
+}
+
 /** Il messaggio come lo legge la persona: una copia, con il riassunto del thread. */
 export function presentMessage(
   personId: string,
@@ -189,6 +200,7 @@ export function presentMessage(
       : null,
     answeredIds: base.asksReplyOf.filter((id) => answered(m, id, data)),
     mentionsViewer: mentionKindFor(m, personId, membersOf(data.ch)) !== null,
+    linkedRefs: linkedRefsOf(base),
   };
 }
 

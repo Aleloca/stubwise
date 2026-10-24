@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import {
   useConvertRequest,
   useCreateTask,
+  useCreateTaskFromMessage,
   useDepartments,
   useMilestones,
   usePeople,
@@ -90,17 +91,21 @@ function SelectField({
  * ultimi dipendono dal progetto: cambiarlo li riporta al loro default.
  * `fromRequestId` lega la task alla richiesta da cui nasce: titolo,
  * descrizione e progetto partono dalla richiesta (il progetto resta quello),
- * e creare la task porta la richiesta a «trasformata».
+ * e creare la task porta la richiesta a «trasformata». `fromMessageId`: la
+ * task nasce da un messaggio della Chat, che la mostra («→ AUD-14»).
  */
 export function NewTaskDialog({
   projectId,
   fromRequestId,
+  fromMessageId,
   initial,
   onCreated,
   onClose,
 }: {
   projectId?: string;
   fromRequestId?: string;
+  /** Il messaggio della Chat da cui nasce («Create task»). */
+  fromMessageId?: string;
   /** I valori di partenza (la proposta di Claude aperta con «Edit»). */
   initial?: Partial<
     Pick<
@@ -125,6 +130,7 @@ export function NewTaskDialog({
   const me = usePeople().data?.find((p) => p.id === viewer.personId);
   const create = useCreateTask();
   const convert = useConvertRequest();
+  const fromMessage = useCreateTaskFromMessage();
   const request = useRequest(fromRequestId ?? "", { enabled: !!fromRequestId }).data;
   const titleId = useId();
   const descriptionId = useId();
@@ -151,7 +157,7 @@ export function NewTaskDialog({
     setSize(request.size ?? null);
     if (can(viewer, "tickets.create", request.projectId)) setProject(request.projectId);
   }
-  const pending = create.isPending || convert.isPending;
+  const pending = create.isPending || convert.isPending || fromMessage.isPending;
 
   const project = projects?.find((p) => p.id === chosenProject);
   const statuses = useProjectStatuses(project?.id ?? "").data;
@@ -189,6 +195,11 @@ export function NewTaskDialog({
     const callbacks = { onSuccess: onCreated, onError: () => setFailed(true) };
     if (fromRequestId) {
       convert.mutate({ id: fromRequestId, input }, callbacks);
+    } else if (fromMessageId) {
+      fromMessage.mutate(
+        { messageId: fromMessageId, input: { ...input, projectId: project.id, requestId: null } },
+        callbacks,
+      );
     } else {
       create.mutate({ ...input, projectId: project.id, requestId: null }, callbacks);
     }
