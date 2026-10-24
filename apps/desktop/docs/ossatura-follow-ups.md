@@ -128,3 +128,12 @@ per riga. I buchi di parità sono in `area2-parity.md`.
 
 - Un admin che rende privato il filtro pubblico di un altro lo perde (nascondere la scelta a chi non è l'autore, o avvisare).
 - La guardia di J/K non vede i popover `role=dialog` non modali (ProfileMenu).
+
+### Residui della revisione dell'ondata finale
+
+- Seed: Giulia (persona di default) non ha settimane passate sufficienti, quindi non vede la barra «settimana tipica» di La mia settimana; seminarle almeno 2 settimane passate con taglie.
+- Seed: la descrizione del traguardo STW «Desktop prototype» dice «with fake data»: togliere la frase.
+- Colonna: `column.coming.filters` e `column.coming.planning` promettono «sarà elencato qui» accanto a pagine che già esistono.
+- ⌘K: i risultati di ricerca in cache non si invalidano dopo una creazione (task, richiesta).
+- `createTask` non valida `departmentId` contro i reparti esistenti (le patch sì).
+- `a2-tasks-list-sara.png` da solo non mostra uno stato in sola lettura.
