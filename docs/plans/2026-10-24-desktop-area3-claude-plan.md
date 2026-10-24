@@ -50,7 +50,7 @@ domande/piani, refinement, Activity).
 
 ### Task 0 (controller): shape di Impeccable
 
-Prima dei task con UI il controller fa produrre con Impeccable `shape` i brief di: conversazione (flusso, righe d'azione, schede proposta/domanda/piano, casella con allegati, «#», «@», «/»), destinazione Claude (colonna, elenco, pagina, pubblica/continua), sezione Claude della task, refine, rassegna per persona; li sottopone al maintainer e li salva in `apps/desktop/.impeccable/shape/{conversation,claude,task-claude,refine,people-activity}.md`. Nessun codice.
+Prima dei task con UI il controller fa produrre con Impeccable `shape` i brief di: conversazione (flusso, righe d'azione, schede proposta/domanda/piano, casella con allegati, «#», «@», «/»), destinazione Claude (colonna, elenco, pagina, pubblica/continua), sezione Claude della task, refine, rassegna per persona; li sottopone al maintainer e li salva in `apps/desktop/.impeccable/shape/{conversation,claude-destination,task-claude,refine,people-activity}.md`. Nessun codice.
 
 ### Task 1: Modello, permessi e seed delle conversazioni
 
@@ -135,7 +135,7 @@ export interface CommitOfDay { sha: string; repo: string; authorId: string | nul
 
 **Files:** Create `pages/claude/{ClaudePage,ClaudeColumn,ConversationList,PublishDialog,ContinueBanner}.tsx` (+tests); Modify `router.tsx` (`/claude`, `/claude/$id`), `layout/PersonalColumn.tsx`, `palette/commands.ts` («New conversation with Claude», «Ask Claude…»).
 
-Comportamenti dallo spec §4–§5 e `shape/claude.md`: colonna con Nuova conversazione, Al lavoro ora, Le mie conversazioni, Pubbliche, Concluse; filtri progetto/tipo/esito; riga con tipo, titolo, progetto e codice, stato o esito, tempo, attività corrente; pagina = `Conversation` + lato oggetto per le sessioni di lavoro; «Rendi pubblica» con elenco dei progetti toccati e conferma; «Rendi privata»; in una pubblica altrui la casella scrive in una continuazione (`ContinueBanner`: «Continuerai in una tua conversazione privata»); rinomina, archivia, elimina (con conferma).
+Comportamenti dallo spec §4–§5 e `shape/claude-destination.md`: colonna con Nuova conversazione, Al lavoro ora, Le mie conversazioni, Pubbliche, Concluse; filtri progetto/tipo/esito; riga con tipo, titolo, progetto e codice, stato o esito, tempo, attività corrente; pagina = `Conversation` + lato oggetto per le sessioni di lavoro; «Rendi pubblica» con elenco dei progetti toccati e conferma; «Rendi privata»; in una pubblica altrui la casella scrive in una continuazione (`ContinueBanner`: «Continuerai in una tua conversazione privata»); rinomina, archivia, elimina (con conferma).
 - [ ] **Step 1: Tests:** list scopes per persona (Sara sees Giulia's public one, not her private ones); publish shows touched projects and confirm; Sara writing in Giulia's public conversation lands in a new private conversation with «Continues from …» and Giulia doesn't see it (Review Focus 2); codes of projects Sara can't see aren't openable; mail session visible only to its owner.
 - [ ] **Step 2–5:** FAIL → implement (Impeccable) → PASS → commit `feat(desktop): destinazione Claude`.
 
