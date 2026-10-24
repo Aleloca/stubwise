@@ -51,10 +51,11 @@ Task 15 sono chiusi dal Task 16 (in fondo, il riepilogo).
 | Voce | Dove | Test |
 |---|---|---|
 | Elenco con titolo, stato, urgenza, taglia, «richiesta N volte», simili, task collegate; filtri testo/stato | `pages/requests/RequestsPage.tsx`, `marks.tsx` | `RequestsPage.test.tsx` |
+| Codice di catalogo `<PROGETTO>-R<n>` (R-D1, nuovo rispetto al web): sequenza per progetto data alla creazione, mai riusata, tenuta da fuse e archiviate; nella colonna fissa dell'elenco (con le intestazioni delle colonne), nel pannello, nell'export (titolo e nome del file `STW-R3.md`), in ⌘K (per codice e titolo, solo progetti visibili, apre `?request=`) e nel blocco «New requests» della Home | `data/model.ts` (`ProjectRequest.code`), `data/seed/requests.ts`, `data/api-mutations.ts` (`createRequest`), `data/api.ts` (`search`), `RequestsPage.tsx`, `RequestDetail.tsx`, `domain/export.ts`, `palette/CommandPalette.tsx`, `pages/home/blocks/DecideBlock.tsx` (`RequestItem`) | `data/mutations.test.ts`, `data/api.test.ts`, `data/seed.test.ts`, `RequestsPage.test.tsx`, `CommandPalette.test.tsx`, `HomePage.test.tsx`, `domain/export.test.ts` |
 | Nuova richiesta | `NewRequestDialog.tsx` | `RequestsPage.test.tsx`, `data/mutations.test.ts` |
 | Voce: stato, urgenza, richiedenti, simili, task nate | `RequestDetail.tsx` | `RequestsPage.test.tsx` |
 | Metadati: urgenza modificabile, taglia XS–XL (al posto dello sforzo E1–E5), rischio, nota sul rischio (`backlog.edit`; sola lettura senza; trasformata o archiviata: rifiutati anche dal «server») | `RequestDetail.tsx` (`Metadata`), `marks.tsx` (`RiskMark`), `data/api-mutations.ts` (`updateRequest`) | `RequestsPage.test.tsx`, `data/mutations.test.ts` |
-| Esporta come Markdown: «Copy as Markdown», «Download .md» | `RequestDetail.tsx` (menu «More actions», per tutti), `domain/export.ts` (`requestToMarkdown`) | `domain/export.test.ts`, `RequestsPage.test.tsx` |
+| Esporta come Markdown: «Copy as Markdown», «Download .md» (titolo «STW-R3 · …», file `STW-R3.md`) | `RequestDetail.tsx` (menu «More actions», per tutti), `domain/export.ts` (`requestToMarkdown`) | `domain/export.test.ts`, `RequestsPage.test.tsx` |
 | Converti in task (la task nasce con la taglia della richiesta) | `RequestDetail.tsx` + `NewTaskDialog` | `RequestsPage.test.tsx`, `data/mutations.test.ts` |
 | Fondi in… (simili per prime) | `MergeDialog.tsx` | `MergeDialog.test.tsx`, `RequestsPage.test.tsx` |
 | Archivia / Riapri (con Annulla) | `RequestDetail.tsx` | `RequestsPage.test.tsx` |
