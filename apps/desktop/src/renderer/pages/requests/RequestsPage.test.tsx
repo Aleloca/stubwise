@@ -48,6 +48,9 @@ describe("RequestsPage", () => {
     expect(row).toHaveTextContent("Turned into task");
     expect(row).toHaveTextContent("High");
     expect(row).toHaveTextContent("1 task");
+    expect(row.querySelector("[data-size]")).toHaveAttribute("data-size", "L");
+    const unsized = document.querySelector('[data-request-row="req-stw-1"]') as HTMLElement;
+    expect(within(unsized).getByRole("img", { name: "No estimate" })).toBeInTheDocument();
     const merged = document.querySelector('[data-request-row="req-stw-3"]') as HTMLElement;
     expect(merged).toHaveTextContent("Merged into “Move tasks on a board with the keyboard”");
   });
@@ -169,9 +172,135 @@ describe("pannello della richiesta", () => {
     expect(await screen.findByRole("button", { name: "New request" })).toBeInTheDocument();
     const dialog = await panel();
     await within(dialog).findByRole("heading", { name: "Show who moved a task to another week" });
-    expect(within(dialog).queryByRole("button", { name: "More actions" })).toBeNull();
     expect(within(dialog).queryByRole("button", { name: "Refine with Claude" })).toBeNull();
-    expect(screen.queryByText("Merge into…")).toBeNull();
+    // «More actions» c'è (l'esportazione è per tutti), ma senza Merge né Archive.
+    await userEvent.click(within(dialog).getByRole("button", { name: "More actions" }));
+    const menu = await screen.findByRole("menu", { name: "More actions" });
+    expect(within(menu).getByRole("menuitem", { name: "Copy as Markdown" })).toBeInTheDocument();
+    expect(within(menu).queryByRole("menuitem", { name: "Merge into…" })).toBeNull();
+    expect(within(menu).queryByRole("menuitem", { name: "Archive" })).toBeNull();
+    // I metadati si leggono e basta.
+    expect(within(dialog).getByText("Medium")).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: /^Urgency: .*Change$/ })).toBeNull();
+    expect(within(dialog).queryByRole("button", { name: /^Size: .*Change$/ })).toBeNull();
+    expect(within(dialog).queryByRole("button", { name: /^Risk: .*Change$/ })).toBeNull();
+  });
+
+  it("metadati con backlog.edit: urgenza, taglia, rischio e nota si cambiano dal pannello", async () => {
+    renderRoute("/p/MKX/requests?request=req-mkx-3", "p-giulia");
+    const dialog = await panel();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Urgency: Medium. Change" }));
+    await userEvent.click(
+      within(await screen.findByRole("menu", { name: "Urgency of this request" })).getByRole(
+        "menuitemradio",
+        { name: /High/ },
+      ),
+    );
+    await waitFor(() => expect(request("req-mkx-3").urgency).toBe("high"));
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Size: L. Change" }));
+    await userEvent.click(
+      within(await screen.findByRole("menu", { name: "Size of this request" })).getByRole(
+        "menuitemradio",
+        { name: "XS" },
+      ),
+    );
+    await waitFor(() => expect(request("req-mkx-3").size).toBe("XS"));
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Risk: Low. Change" }));
+    await userEvent.click(
+      within(await screen.findByRole("menu", { name: "Risk of this request" })).getByRole(
+        "menuitemradio",
+        { name: /High/ },
+      ),
+    );
+    await waitFor(() => expect(request("req-mkx-3").risk).toBe("high"));
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Add a note" }));
+    await userEvent.type(within(dialog).getByRole("textbox", { name: "Risk note" }), "Video crew booked late{Enter}");
+    await waitFor(() => expect(request("req-mkx-3").riskNote).toBe("Video crew booked late"));
+    expect(await within(dialog).findByText("Video crew booked late")).toBeInTheDocument();
+  });
+
+  it("un cambio di metadati che non riesce lo dice, e la richiesta resta com'era", async () => {
+    failNext("updateRequest");
+    renderRoute("/p/MKX/requests?request=req-mkx-3", "p-giulia");
+    const dialog = await panel();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Size: L. Change" }));
+    await userEvent.click(await screen.findByRole("menuitemradio", { name: "S" }));
+    expect(
+      await screen.findByText("Couldn't save the change. The request is as it was."),
+    ).toBeInTheDocument();
+    expect(request("req-mkx-3").size).toBe("L");
+  });
+
+  it("Copy as Markdown e Download .md esportano la richiesta", async () => {
+    const writes: string[] = [];
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: (s: string) => (writes.push(s), Promise.resolve()) },
+    });
+    const blobs: Blob[] = [];
+    const created = URL.createObjectURL;
+    const revoked = URL.revokeObjectURL;
+    URL.createObjectURL = (b: Blob) => (blobs.push(b), "blob:fake");
+    URL.revokeObjectURL = () => {};
+    let downloaded = "";
+    const click = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {
+      downloaded = this.download;
+    };
+    try {
+      renderRoute("/p/MKX/requests?request=req-mkx-2", "p-giulia");
+      const dialog = await panel();
+      await userEvent.click(within(dialog).getByRole("button", { name: "More actions" }));
+      await userEvent.click(await screen.findByRole("menuitem", { name: "Copy as Markdown" }));
+      await waitFor(() => expect(writes).toHaveLength(1));
+      expect(writes[0]).toContain("# Landing page for the showroom event");
+      expect(writes[0]).toContain("- **Risk:** High — The showroom date is fixed: no room to slip.");
+      expect(writes[0]).toContain("- **Requested by:** Francesca");
+      expect(await screen.findByText(/Copied Landing page for the showroom event as Markdown/)).toBeInTheDocument();
+
+      await userEvent.click(within(dialog).getByRole("button", { name: "More actions" }));
+      await userEvent.click(await screen.findByRole("menuitem", { name: "Download .md" }));
+      expect(downloaded).toBe("request-landing-page-for-the-showroom-event.md");
+      expect(await blobs[0]!.text()).toContain("# Landing page for the showroom event");
+    } finally {
+      URL.createObjectURL = created;
+      URL.revokeObjectURL = revoked;
+      HTMLAnchorElement.prototype.click = click;
+      Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
+  it("appunti non disponibili: lo dice e propone Download", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: () => Promise.reject(new Error("denied")) },
+    });
+    try {
+      renderRoute("/p/MKX/requests?request=req-mkx-2", "p-giulia");
+      const dialog = await panel();
+      await userEvent.click(within(dialog).getByRole("button", { name: "More actions" }));
+      await userEvent.click(await screen.findByRole("menuitem", { name: "Copy as Markdown" }));
+      expect(
+        await screen.findByText("Couldn't copy to the clipboard. Use Download .md instead."),
+      ).toBeInTheDocument();
+    } finally {
+      Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
+  it("Turn into task: la task nasce con la taglia della richiesta", async () => {
+    renderRoute("/p/MKX/requests?request=req-mkx-2", "p-giulia");
+    const dialog = await panel();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Turn into task" }));
+    const form = await screen.findByRole("dialog", { name: "New task" });
+    expect(await within(form).findByRole("button", { name: /^Size: M/ })).toBeInTheDocument();
+    await userEvent.click(within(form).getByRole("button", { name: "Create task" }));
+    await waitFor(() => expect(request("req-mkx-2").status).toBe("converted"));
+    const task = state.tasks.find((t) => t.id === request("req-mkx-2").taskIds[0])!;
+    expect(task.size).toBe("M");
   });
 
   it("Irene (viewer): niente «New request» né «Turn into task»; una riga dice chi decide", async () => {

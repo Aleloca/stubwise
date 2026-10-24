@@ -14,9 +14,11 @@ import {
   projectPulse,
   recordDecision,
   resetApi,
+  setDecisionSuperseded,
   setLatency,
   updateMilestone,
 } from "./api";
+import { supersedeCandidates } from "../domain/decisionLog";
 import { BRIEFS } from "./seed/briefs";
 import { DECISION_LOG } from "./seed/decisionLog";
 import { setSessionPersonId } from "./session";
@@ -108,6 +110,53 @@ describe("brief e registro decisioni", () => {
     await expect(recordDecision("prj-mkx", { title: "x", decision: "" })).rejects.toThrow(
       "invalid: decision",
     );
+  });
+});
+
+describe("setDecisionSuperseded", () => {
+  const entry = (id: string) => state.decisionLog.find((d) => d.id === id)!;
+
+  it("con decisions.record cambia e toglie il «superata da»", async () => {
+    setSessionPersonId("p-giulia");
+    const saved = await setDecisionSuperseded("dl-mkx-2", "dl-mkx-3");
+    expect(saved.supersededById).toBe("dl-mkx-3");
+    expect(entry("dl-mkx-2").supersededById).toBe("dl-mkx-3");
+    await setDecisionSuperseded("dl-mkx-2", null);
+    expect(entry("dl-mkx-2").supersededById).toBeNull();
+  });
+
+  it("senza decisions.record: forbidden, niente cambia", async () => {
+    setSessionPersonId("p-giulia");
+    await expect(setDecisionSuperseded("dl-aud-1", "dl-aud-5")).rejects.toThrow("forbidden");
+    expect(entry("dl-aud-1").supersededById).toBeNull();
+  });
+
+  it("rifiuta sé stessa, un altro progetto e i giri", async () => {
+    setSessionPersonId("p-giulia");
+    await expect(setDecisionSuperseded("dl-mkx-2", "dl-mkx-2")).rejects.toThrow("invalid");
+    await expect(setDecisionSuperseded("dl-mkx-2", "dl-aud-1")).rejects.toThrow("invalid");
+    // dl-mkx-1 è superata da dl-mkx-3: dl-mkx-3 superata da dl-mkx-1 farebbe un giro.
+    await expect(setDecisionSuperseded("dl-mkx-3", "dl-mkx-1")).rejects.toThrow("invalid: cycle");
+    expect(entry("dl-mkx-3").supersededById).toBeNull();
+    // Un giro più lungo: 2 → 3, poi 3 → … → 2.
+    await setDecisionSuperseded("dl-mkx-2", "dl-mkx-3");
+    await expect(setDecisionSuperseded("dl-mkx-3", "dl-mkx-2")).rejects.toThrow("invalid: cycle");
+    await expect(setDecisionSuperseded("dl-mkx-nope", null)).rejects.toThrow("not_found");
+  });
+
+  it("supersedeCandidates esclude sé stessa e chi farebbe un giro", () => {
+    const log = state.decisionLog.filter((d) => d.projectId === "prj-mkx");
+    const ids = supersedeCandidates(log, "dl-mkx-3").map((d) => d.id);
+    expect(ids).not.toContain("dl-mkx-3");
+    expect(ids).not.toContain("dl-mkx-1");
+    expect(ids).toContain("dl-mkx-2");
+  });
+
+  it("una scrittura rifiutata dal simulatore non tocca niente", async () => {
+    setSessionPersonId("p-giulia");
+    failNext("setDecisionSuperseded");
+    await expect(setDecisionSuperseded("dl-mkx-2", "dl-mkx-3")).rejects.toThrow();
+    expect(entry("dl-mkx-2").supersededById).toBeNull();
   });
 });
 

@@ -6,6 +6,7 @@ import type {
   Task,
   TaskPriority,
   TaskSize,
+  TaskSource,
   TaskType,
 } from "../types";
 import { daysFromToday } from "./dates";
@@ -109,6 +110,9 @@ interface Spec {
   createdDays: number;
   createdBy?: string;
   followers?: string[];
+  source?: TaskSource;
+  occurrences?: number;
+  technical?: Record<string, string>;
 }
 
 // Una riga per task: la tabella si legge meglio di oggetti a capo.
@@ -120,7 +124,7 @@ const REFERENCE: Record<string, Spec[]> = {
     { title: "Import contacts from CSV with duplicates check", dept: D, family: "active", nth: 1, assignee: "p-marco", size: "M", week: "2026-W43", ms: 2, claude: "awaiting_answer", lastDays: 3, createdDays: 18, priority: "high" },
     { title: "Billing emails with the new invoice layout", dept: D, family: "todo", assignee: "p-marco", size: "S", week: "2026-W44", ms: 2, lastDays: 2, createdDays: 14 },
     { title: "Export the call history as a spreadsheet", dept: D, family: "active", assignee: "p-stefano", size: "M", week: "2026-W43", ms: 2, requestId: "req-aud-1", lastDays: 0, createdDays: 9, claude: "working" },
-    { title: "Speed up the dashboard of large accounts", dept: D, family: "active", assignee: "p-alessia", size: "XL", week: "2026-W42", slip: 1, ms: 2, lastDays: 13, createdDays: 25, type: "bug" },
+    { title: "Speed up the dashboard of large accounts", dept: D, family: "active", assignee: "p-alessia", size: "XL", week: "2026-W42", slip: 1, ms: 2, lastDays: 13, createdDays: 25, type: "bug", source: "widget", occurrences: 3, technical: { widget: "Audin help (fake)", page: "/dashboard?account=large", browser: "Chrome 130 on Windows 11", "load time": "14.2 s" } },
     { title: "Write the help pages for the dialer", dept: C, family: "todo", assignee: "p-alessia", size: "S", week: "2026-W45", ms: 3, lastDays: 4, createdDays: 10, type: "activity" },
     { title: "Launch announcement for existing customers", dept: M, family: "todo", assignee: "p-elena", size: null, week: "2026-W46", ms: 2, due: 20, lastDays: 5, createdDays: 6, type: "activity" },
     { title: "Fix the timezone of scheduled callbacks", dept: D, family: "closed", assignee: "p-marco", size: "S", week: "2026-W42", ms: 1, lastDays: 3, createdDays: 16, type: "bug", priority: "urgent", claude: "done" },
@@ -137,18 +141,18 @@ const REFERENCE: Record<string, Spec[]> = {
     { title: "Help article: how stalled tasks work", dept: C, family: "active", assignee: "p-sara", size: "S", week: "2026-W43", ms: 1, lastDays: 1, createdDays: 6, type: "activity" },
     { title: "Saved filters shared with the team", dept: D, family: "todo", assignee: "p-federico", size: "M", week: "2026-W45", ms: 2, lastDays: 4, createdDays: 8 },
     { title: "Upgrade guide for self-hosted instances", dept: C, family: "todo", assignee: "p-davide", size: "M", week: "2026-W42", slip: 2, ms: 2, lastDays: 16, createdDays: 30, type: "activity" },
-    { title: "Fix the focus ring in the notifications panel", dept: D, family: "closed", assignee: "p-federico", size: "XS", week: "2026-W42", lastDays: 6, createdDays: 10, type: "bug" },
+    { title: "Fix the focus ring in the notifications panel", dept: D, family: "closed", assignee: "p-federico", size: "XS", week: "2026-W42", lastDays: 6, createdDays: 10, type: "bug", source: "slack" },
     { title: "Department homes: what each team sees first", dept: M, family: "active", assignee: "p-giulia", size: "M", week: "2026-W43", ms: 2, lastDays: 0, createdDays: 5, type: "activity" },
     { title: "Release notes for the desktop preview", dept: M, family: "todo", assignee: null, size: "S", week: "2026-W43", slip: 1, lastDays: 5, createdDays: 11, type: "activity" },
     { title: "Timeline view of planned weeks", dept: D, family: "todo", assignee: "p-simone", size: null, week: "2026-W46", ms: 2, lastDays: 3, createdDays: 3 },
-    { title: "Crash when the window is resized to the minimum", dept: D, family: "active", assignee: "p-marco", size: "S", week: "2026-W43", lastDays: 0, createdDays: 2, type: "bug", priority: "high", claude: "awaiting_approval" },
+    { title: "Crash when the window is resized to the minimum", dept: D, family: "active", assignee: "p-marco", size: "S", week: "2026-W43", lastDays: 0, createdDays: 2, type: "bug", priority: "high", claude: "awaiting_approval", source: "sdk", occurrences: 12, technical: { error: "RangeError: Invalid array length", where: "layout/useFitSlots.ts:42", release: "desktop 0.4.2 (fake)", os: "macOS 15.1", window: "1024 × 680", "first seen": "2026-10-21 08:14 UTC" } },
   ],
   MKX: [
     { title: "Spring campaign brief", dept: M, family: "closed", assignee: "p-giulia", size: "M", week: "2026-W41", ms: 1, requestId: "req-mkx-1", lastDays: 9, createdDays: 28, type: "activity" },
     { title: "Pick the hero photo for the kitchens line", dept: M, family: "active", nth: 1, assignee: "p-chiara", size: "S", week: "2026-W43", ms: 1, lastDays: 1, createdDays: 12, type: "activity" },
     { title: "Media plan for April", dept: M, family: "active", assignee: "p-paolo", size: "L", week: "2026-W43", ms: 1, due: 6, lastDays: 2, createdDays: 15, type: "activity", priority: "high" },
     { title: "Social posts for the showroom week", dept: M, family: "todo", assignee: "p-tommaso", size: "M", week: "2026-W45", ms: 2, lastDays: 3, createdDays: 7, type: "activity" },
-    { title: "Price list for the dealers' leaflet", dept: S, family: "active", nth: 1, assignee: "p-matteo", size: "S", week: "2026-W42", slip: 1, ms: 1, manual: { reason: "Waiting on the client", note: "Mix Cucine has to confirm the spring discounts.", byId: "p-giulia", sinceDays: 6 }, lastDays: 6, createdDays: 18, type: "activity" },
+    { title: "Price list for the dealers' leaflet", dept: S, family: "active", nth: 1, assignee: "p-matteo", size: "S", week: "2026-W42", slip: 1, ms: 1, manual: { reason: "Waiting on the client", note: "Mix Cucine has to confirm the spring discounts.", byId: "p-giulia", sinceDays: 6 }, lastDays: 6, createdDays: 18, type: "activity", source: "email" },
     { title: "Landing page copy for the campaign", dept: M, family: "active", assignee: "p-elena", size: "M", week: "2026-W43", ms: 1, lastDays: 1, createdDays: 10, type: "activity" },
     { title: "Translate the landing page into German", dept: M, family: "todo", assignee: "p-chiara", size: "S", week: "2026-W44", ms: 1, blockedBy: 6, lastDays: 4, createdDays: 9, type: "activity" },
     { title: "Book the photographer for the showroom", dept: M, family: "active", assignee: null, size: "XS", week: "2026-W43", ms: 2, lastDays: 3, createdDays: 8, type: "activity" },
@@ -208,6 +212,9 @@ function referenceTasks(project: Project, specs: Spec[]): Task[] {
       createdAt: at(-s.createdDays, 8),
       closedAt: closed ? lastActivityAt : null,
       lastActivityAt,
+      source: s.source ?? "manual",
+      occurrences: s.occurrences ?? 1,
+      technical: s.technical ?? null,
     } satisfies Task;
   });
 }
@@ -295,6 +302,8 @@ function generatedTasks(project: Project, pi: number): Task[] {
       createdAt: at(-(lastDays + 5 + (seq % 25)), 8),
       closedAt: closed ? lastActivityAt : null,
       lastActivityAt,
+      source: "manual",
+      occurrences: 1,
     } satisfies Task;
   });
 }

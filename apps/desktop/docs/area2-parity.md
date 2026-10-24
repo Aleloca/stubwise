@@ -1,9 +1,11 @@
-# Area 2 — parità con il web (23 ott 2026)
+# Area 2 — parità con il web (23 ott 2026, aggiornato il 24 ott)
 
 Una riga per voce dell'inventario (`web-inventory.md`) coperta dall'area 2.
 Percorsi relativi a `src/renderer/`. «area N» = voce che il design assegna a
 un'area successiva (spec «Non obiettivi» / «Dettaglio della task»), non un
-buco. I **buchi** veri stanno in fondo.
+buco. Ogni test citato esercita davvero quella voce; dove una voce non ha un
+test lo si scrive («nessun test»), senza citare un file. I buchi trovati dal
+Task 15 sono chiusi dal Task 16 (in fondo, il riepilogo).
 
 ## Tickets → Tasks
 
@@ -11,6 +13,7 @@ buco. I **buchi** veri stanno in fondo.
 |---|---|---|
 | Elenco: riga con codice, titolo, stato, taglia, scadenza, segno «ferma» | `pages/tasks/TaskList.tsx`, `tasks-ui/TaskRow.tsx` | `TaskList.test.tsx`, `tasks-ui/TaskRow.test.tsx` |
 | Filtri: testo, progetto, stato, traguardo (e in più reparto, assegnatario, taglia, periodo, ferma) nell'indirizzo | `tasks-ui/FilterBar.tsx`, `domain/filters.ts` | `tasks-ui/FilterBar.test.tsx`, `domain/filters.test.ts`, `TasksPage.test.tsx` |
+| Filtri per tipo e priorità | `tasks-ui/FilterBar.tsx` (chip «Type», «Priority»), `domain/filters.ts` (`matches`, `parseCriteria`) | `tasks-ui/FilterBar.test.tsx`, `domain/filters.test.ts` |
 | Raggruppamento, ordinamento, selezione multipla e azioni in blocco | `pages/tasks/grouping.ts`, `BulkBar.tsx` | `grouping.test.ts`, `TaskList.test.tsx` |
 | Viste salvate: salva (nome, «condividi» = pubblico), applica, modifica/elimina le proprie, le altrui solo applicabili | `pages/filters/*`, `SaveFilterDialog.tsx` | `SaveFilterDialog.test.tsx`, `FilterPage.test.tsx`, `AllFiltersPage.test.tsx`, `data/mutations.test.ts` |
 | Nuovo ticket (titolo, progetto, tipo, priorità, descrizione; permesso `tickets.create`) | `pages/task/NewTaskDialog.tsx` | `NewTaskDialog.test.tsx` |
@@ -23,15 +26,22 @@ buco. I **buchi** veri stanno in fondo.
 
 | Voce | Dove | Test |
 |---|---|---|
-| Testata: codice, titolo, stato, priorità, tipo, progetto, traguardo (taglia al posto dello sforzo 1–5) | `pages/task/TaskHeader.tsx` | `TaskDetail.test.tsx` |
-| Descrizione (markdown) | `DescriptionSection.tsx` | `TaskDetail.test.tsx` |
-| Richiesta d'origine | `DescriptionSection.tsx` / `parts.tsx` | `TaskDetail.test.tsx` |
-| Task collegate (blocca, bloccata da, correlata, padre), aggiungi/rimuovi | `LinksSection.tsx` | `TaskDetail.test.tsx`, `data/mutations.test.ts` |
-| Allegati (elenco, aggiungi, rimuovi) | `LinksSection.tsx` (`Attachments`) | `TaskDetail.test.tsx` |
-| Feed attività: commenti, risposte, modifica, eliminazione («Comment deleted · by»), cambi di campo | `ActivityFeed.tsx` | `TaskDetail.test.tsx`, `data/mutations.test.ts` |
-| Barra laterale: stato, priorità, assegnatario, traguardo, etichette (patch con `tickets.edit`) | `TaskHeader.tsx` | `TaskDetail.test.tsx`, `data/mutations.test.ts` |
-| Segui | `TaskHeader.tsx` | `data/mutations.test.ts` |
-| Ferma e motivo | `StallControl.tsx`, `domain/stalled.ts` | `domain/stalled.test.ts` |
+| Testata: codice, titolo, stato, priorità, tipo, progetto, traguardo (taglia al posto dello sforzo 1–5) | `pages/task/TaskHeader.tsx` | `TaskDetail.test.tsx` (apertura, stato), `TaskDetailSections.test.tsx` (campi) |
+| Esporta come Markdown: «Copy as Markdown», «Download `<CODE>.md`» (campi, descrizione, decisioni aperte/chiuse, commenti; eliminati come «Comment deleted») | `pages/task/TaskMoreMenu.tsx`, `domain/export.ts` (`taskToMarkdown`), `tasks-ui/exportFile.ts` | `domain/export.test.ts`, `TaskDetailSections.test.tsx` |
+| Origine (SDK, API, Slack, Webhook, Widget, Email, Automazione) con segno e parola, ×occorrenze | `TaskHeader.tsx` (campo «Source»), `tasks-ui/SourceMark.tsx` | `TaskDetailSections.test.tsx` |
+| Payload tecnico (richiudibile) | `pages/task/TechnicalSection.tsx` | `TaskDetailSections.test.tsx` |
+| «View conversation» delle task del widget | — | **area 8** (Support): nessun link morto |
+| Descrizione (markdown): modifica e salvataggio | `DescriptionSection.tsx` | `TaskDetailSections.test.tsx` |
+| Richiesta d'origine: si mostra e apre la richiesta | `LinksSection.tsx` (`OriginRequest`) | `TaskDetailSections.test.tsx` |
+| Task collegate (blocca, bloccata da, correlata, padre), aggiungi/rimuovi | `LinksSection.tsx` | `TaskDetailSections.test.tsx`, `data/mutations.test.ts` |
+| Allegati (elenco, aggiungi finto, rimuovi con conferma) | `LinksSection.tsx` (`Attachments`) | `TaskDetailSections.test.tsx`, `data/mutations.test.ts` |
+| Feed attività: commenti e risposte | `ActivityFeed.tsx` | `TaskDetailSections.test.tsx`, `data/mutations.test.ts` |
+| Feed attività: modifica di un commento | `ActivityFeed.tsx` | `data/mutations.test.ts` (UI: nessun test) |
+| Feed attività: eliminazione («Comment deleted · by») | `ActivityFeed.tsx` | `TaskDetail.test.tsx`, `data/mutations.test.ts` |
+| Feed attività: cambi di campo | `ActivityFeed.tsx` | `TaskDetail.test.tsx`, `data/mutations.test.ts` |
+| Barra laterale: stato, priorità, tipo, assegnatario, traguardo, etichette (patch con `tickets.edit`; sola lettura senza) | `TaskHeader.tsx` | `TaskDetail.test.tsx`, `TaskDetailSections.test.tsx`, `data/mutations.test.ts` |
+| Segui | `TaskHeader.tsx` | `data/mutations.test.ts` (UI: nessun test) |
+| Ferma e motivo: «Mark as stalled» con motivo e nota, «Not stalled anymore» | `StallControl.tsx`, `domain/stalled.ts` | `TaskDetailSections.test.tsx`, `domain/stalled.test.ts` |
 | Richieste di decisione (nuove dell'area) | `DecisionSection.tsx`, `AskDecisionDialog.tsx` | `TaskDetail.test.tsx` |
 | Piano, approvazione, domande dell'agente, avvio AI, storia del lavoro, attività AI, uso AI, correzioni, PR/cicli, adozione PR | `ClaudeSection.tsx` (solo lo stato) | **area 3** |
 | Repository / PR / «N repos» | — | **area 3** |
@@ -40,10 +50,12 @@ buco. I **buchi** veri stanno in fondo.
 
 | Voce | Dove | Test |
 |---|---|---|
-| Elenco con titolo, stato, urgenza, «richiesta N volte», simili, task collegate; filtri testo/stato | `pages/requests/RequestsPage.tsx`, `marks.tsx` | `RequestsPage.test.tsx` |
+| Elenco con titolo, stato, urgenza, taglia, «richiesta N volte», simili, task collegate; filtri testo/stato | `pages/requests/RequestsPage.tsx`, `marks.tsx` | `RequestsPage.test.tsx` |
 | Nuova richiesta | `NewRequestDialog.tsx` | `RequestsPage.test.tsx`, `data/mutations.test.ts` |
 | Voce: stato, urgenza, richiedenti, simili, task nate | `RequestDetail.tsx` | `RequestsPage.test.tsx` |
-| Converti in task | `RequestDetail.tsx` + `NewTaskDialog` | `RequestsPage.test.tsx`, `data/mutations.test.ts` |
+| Metadati: urgenza modificabile, taglia XS–XL (al posto dello sforzo E1–E5), rischio, nota sul rischio (`backlog.edit`; sola lettura senza) | `RequestDetail.tsx` (`Metadata`), `marks.tsx` (`RiskMark`), `data/api-mutations.ts` (`updateRequest`) | `RequestsPage.test.tsx`, `data/mutations.test.ts` |
+| Esporta come Markdown: «Copy as Markdown», «Download .md» | `RequestDetail.tsx` (menu «More actions», per tutti), `domain/export.ts` (`requestToMarkdown`) | `domain/export.test.ts`, `RequestsPage.test.tsx` |
+| Converti in task (la task nasce con la taglia della richiesta) | `RequestDetail.tsx` + `NewTaskDialog` | `RequestsPage.test.tsx`, `data/mutations.test.ts` |
 | Fondi in… (simili per prime) | `MergeDialog.tsx` | `MergeDialog.test.tsx`, `RequestsPage.test.tsx` |
 | Archivia / Riapri (con Annulla) | `RequestDetail.tsx` | `RequestsPage.test.tsx` |
 | Refinement: avvio e stato | `RequestDetail.tsx` (`useStartRefine`) | `RequestsPage.test.tsx`, `data/mutations.test.ts` |
@@ -62,19 +74,27 @@ buco. I **buchi** veri stanno in fondo.
 | Traguardi: elenco, progresso, scadenza e «in ritardo», crea, modifica, chiudi/riapri, elimina | `overview/ProgressSection.tsx`, `MilestonesDialog.tsx` | `OverviewPage.test.tsx`, `data/overview.test.ts` |
 | Roadmap: cronologia per settimana, filtro per tipo, apre brief e PR | `overview/ProjectTimeline.tsx` | `OverviewPage.test.tsx`, `data/overview.test.ts` |
 | Brief settimanale: periodo, data, testo (etichettato «Generated text»), lettura | `overview/BriefCard.tsx` | `OverviewPage.test.tsx`, `data/overview.test.ts` |
+| Brief: «Copy as text» (sulla carta e nel pannello; il testo copiato dice ancora «Generated text») | `overview/BriefCard.tsx` (`CopyBriefButton`), `domain/export.ts` (`markdownToText`) | `OverviewPage.test.tsx`, `domain/export.test.ts` |
 | Brief: «Rigenera» | — | **area 3** (genera con AI) |
 | Registro decisioni: lettura, fonti, superata da | `overview/DecisionLog.tsx` | `OverviewPage.test.tsx`, `data/overview.test.ts` |
 | Registro decisioni: registra a mano (`decisions.record`) | `DecisionLog.tsx` | `OverviewPage.test.tsx`, `data/overview.test.ts` |
+| Registro decisioni: «Superseded by» modificabile su una voce esistente (stesso progetto, non sé stessa, niente giri) | `DecisionLog.tsx` (`EntryMenu`), `domain/decisionLog.ts`, `data/api-mutations.ts` (`setDecisionSuperseded`) | `OverviewPage.test.tsx`, `data/overview.test.ts` |
 | Attività trasversale per giorno | `projects/ActivityFeed.tsx` | `AllProjectsPage.test.tsx`, `data/overview.test.ts` |
-| Conversazioni del widget | — | **area N** (Support) |
+| Activity «standup giornaliero»: selettore data, schede per progetto/sviluppatore, commit con descrizione AI, stato del report, «Generate report», «Link team member» | — | **area 3** (dipende da repository e AI) |
+| Conversazioni del widget | — | **area 8** (Support) |
 
-## Buchi (nessun posto nell'area 2, non assegnati a un'area successiva)
+## Buchi
 
-1. **Esporta la task come Markdown** (dettaglio ticket → Header: «Copy .md», «Download .md»).
-2. **Esporta la richiesta come Markdown** (voce di backlog → menu: «Copy Markdown», «Download .md»).
-3. **Brief: «Copy as text»** (Weekly brief → Actions).
-4. **Metadati della richiesta**: sforzo E1–E5, rischio, nota di rischio, urgenza modificabile (voce di backlog → Metadata). L'urgenza è solo mostrata; sforzo e rischio non esistono nel modello (le taglie sostituiscono lo sforzo, il rischio no).
-5. **Filtri per tipo e priorità** (Tickets list → filtri): `FilterCriteria` non li ha, benché `type` e `priority` esistano e si modifichino sulla task.
-6. **Origine e dati tecnici del ticket**: badge di origine (SDK, API, Slack, Webhook, Widget), ×occorrenze, payload tecnico, «View conversation». Probabilmente area N (SDK/Support/Servers), ma il design non lo dice: serve una decisione.
-7. **Activity «standup giornaliero»**: selettore data, schede per progetto/sviluppatore, commit con descrizione AI, stato del report, «Generate report», «Link team member». L'area 2 porta solo il flusso trasversale (spec §8). Dipende da repository e AI: probabile area 3, da confermare.
-8. **«Superseded by» modificabile** su voci già nel registro: oggi la sostituzione avviene solo registrando una voce nuova che ne supera un'altra.
+Nessuno. I buchi trovati dal Task 15 sono stati chiusi dal Task 16
+(regole R-C1–R-C4 del controller) e stanno ora nelle tabelle sopra:
+
+1. Esporta la task come Markdown → «Dettaglio ticket».
+2. Esporta la richiesta come Markdown → «Backlog → Requests».
+3. Brief «Copy as text» → «Projects».
+4. Metadati della richiesta (R-C1: taglia al posto dello sforzo E1–E5,
+   rischio, nota, urgenza modificabile) → «Backlog → Requests».
+5. Filtri per tipo e priorità → «Tickets → Tasks».
+6. Origine, ×occorrenze e dati tecnici (R-C2) → «Dettaglio ticket»;
+   «View conversation» → **area 8**.
+7. Activity «standup giornaliero» → **area 3**.
+8. «Superseded by» modificabile → «Projects».

@@ -5,6 +5,8 @@ import type {
   RelativePeriod,
   StatusFamily,
   Task,
+  TaskPriority,
+  TaskType,
 } from "../data/model";
 import { weekDays } from "./weeks";
 
@@ -85,6 +87,8 @@ export function matches(task: Task, c: FilterCriteria, ctx: FilterContext): bool
   if (c.families?.length && !c.families.includes(ctx.familyOf(task))) return false;
   if (c.statusIds?.length && !c.statusIds.includes(task.statusId)) return false;
   if (c.sizes?.length && !c.sizes.includes(task.size ?? "none")) return false;
+  if (c.types?.length && !c.types.includes(task.type)) return false;
+  if (c.priorities?.length && !c.priorities.includes(task.priority)) return false;
   if (c.milestoneIds?.length && (!task.milestoneId || !c.milestoneIds.includes(task.milestoneId))) {
     return false;
   }
@@ -108,6 +112,8 @@ export function canUseStatusIds(c: FilterCriteria): boolean {
 
 const FAMILIES: readonly StatusFamily[] = ["todo", "active", "closed"];
 const SIZES_OR_NONE: readonly string[] = ["XS", "S", "M", "L", "XL", "none"];
+const TYPES: readonly TaskType[] = ["bug", "feature", "activity"];
+const PRIORITIES: readonly TaskPriority[] = ["low", "medium", "high", "urgent"];
 const PERIOD_FIELDS: readonly PeriodField[] = ["created", "closed", "plannedWeek", "due"];
 const PRESETS: readonly RelativePeriod[] = [
   "last7",
@@ -163,6 +169,8 @@ export function parseCriteria(raw: unknown): FilterCriteria | null {
     families: strings(raw.families, FAMILIES) as StatusFamily[] | undefined,
     statusIds: strings(raw.statusIds),
     sizes: strings(raw.sizes, SIZES_OR_NONE) as FilterCriteria["sizes"],
+    types: strings(raw.types, TYPES) as TaskType[] | undefined,
+    priorities: strings(raw.priorities, PRIORITIES) as TaskPriority[] | undefined,
     milestoneIds: strings(raw.milestoneIds),
     stalled: typeof raw.stalled === "boolean" ? raw.stalled : undefined,
     text: typeof raw.text === "string" && raw.text !== "" ? raw.text : undefined,

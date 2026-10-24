@@ -27,6 +27,7 @@ import {
   itemClass,
 } from "./Menu";
 import { Avatar } from "./PersonChip";
+import { PRIORITIES, PriorityValue, TASK_TYPES } from "./PriorityMark";
 import { FamilySign } from "./StatusLabel";
 import { formatDue } from "./TaskRow";
 
@@ -37,6 +38,8 @@ type Criterion =
   | "department"
   | "size"
   | "milestone"
+  | "type"
+  | "priority"
   | "stalled"
   | "period";
 
@@ -47,6 +50,8 @@ const ALL: Criterion[] = [
   "department",
   "size",
   "milestone",
+  "type",
+  "priority",
   "stalled",
   "period",
 ];
@@ -73,6 +78,8 @@ const KEYS: Record<Criterion, (keyof FilterCriteria)[]> = {
   department: ["departmentIds"],
   size: ["sizes"],
   milestone: ["milestoneIds"],
+  type: ["types"],
+  priority: ["priorities"],
   stalled: ["stalled"],
   period: ["period"],
 };
@@ -440,6 +447,8 @@ export function FilterBar({
     milestone: summary(
       (value.milestoneIds ?? []).map((id) => milestones?.find((m) => m.id === id)?.name),
     ),
+    type: summary((value.types ?? []).map((x) => t(`taskDetail.types.${x}`))),
+    priority: summary((value.priorities ?? []).map((x) => t(`taskDetail.priorities.${x}`))),
     stalled:
       value.stalled === undefined
         ? null
@@ -538,6 +547,32 @@ export function FilterBar({
               </span>
             )}
             <span className="truncate">{m.name}</span>
+          </CheckItem>
+        ))}
+      </MenuGroup>
+    ),
+    type: () => (
+      <MenuGroup>
+        {TASK_TYPES.map((x) => (
+          <CheckItem
+            key={x}
+            checked={value.types?.includes(x) ?? false}
+            onToggle={() => update({ types: toggle(value.types, x) })}
+          >
+            {t(`taskDetail.types.${x}`)}
+          </CheckItem>
+        ))}
+      </MenuGroup>
+    ),
+    priority: () => (
+      <MenuGroup>
+        {PRIORITIES.map((x) => (
+          <CheckItem
+            key={x}
+            checked={value.priorities?.includes(x) ?? false}
+            onToggle={() => update({ priorities: toggle(value.priorities, x) })}
+          >
+            <PriorityValue priority={x} />
           </CheckItem>
         ))}
       </MenuGroup>

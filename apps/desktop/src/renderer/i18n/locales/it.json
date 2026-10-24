@@ -247,7 +247,9 @@
         "size": "Taglia",
         "milestone": "Traguardo",
         "stalled": "Ferme",
-        "period": "Periodo"
+        "period": "Periodo",
+        "type": "Tipo",
+        "priority": "Priorità"
       },
       "statusFamilies": "Famiglia",
       "statusesIn": "Stato preciso in {{code}}",
@@ -662,6 +664,31 @@
         "links": "task collegate",
         "attachments": "allegati"
       }
+    },
+    "more": "Altre azioni per {{code}}",
+    "source": {
+      "label": "Origine",
+      "value": "{{source}}, segnalata {{count}} volte",
+      "occurrences_one": "Segnalata una volta",
+      "occurrences_other": "Segnalata {{count}} volte",
+      "kinds": {
+        "manual": "A mano",
+        "sdk": "SDK",
+        "api": "API",
+        "slack": "Slack",
+        "webhook": "Webhook",
+        "widget": "Widget",
+        "email": "Email",
+        "automation": "Automazione"
+      }
+    },
+    "technical": {
+      "title": "Dettagli tecnici",
+      "show": "Mostra",
+      "hide": "Nascondi",
+      "showLabel": "Mostra i dettagli tecnici",
+      "hideLabel": "Nascondi i dettagli tecnici",
+      "note": "Ciò che {{source}} ha inviato con la task, così come è arrivato."
     }
   },
   "newTask": {
@@ -1029,7 +1056,11 @@
       "fields": {
         "status": "Stato",
         "urgency": "Urgenza",
-        "sent": "Mandata"
+        "sent": "Mandata",
+        "size": "Taglia",
+        "risk": "Rischio",
+        "riskNote": "Nota rischio",
+        "change": "{{field}}: {{value}}. Cambia"
       },
       "description": "Descrizione",
       "noDescription": "Nessuna descrizione",
@@ -1067,7 +1098,24 @@
         "reopened": "Richiesta riaperta.",
         "reopenFailed": "Non è stato possibile riaprire la richiesta. Non è cambiato nulla.",
         "merged": "Fusa in «{{title}}»."
-      }
+      },
+      "more": "Altre azioni per questa richiesta",
+      "urgencyMenu": "Urgenza di questa richiesta",
+      "sizeMenu": "Taglia di questa richiesta",
+      "riskMenu": "Rischio di questa richiesta",
+      "noRiskNote": "Nessuna nota",
+      "addRiskNote": "Aggiungi una nota",
+      "editRiskNote": "Modifica la nota sul rischio",
+      "riskNotePlaceholder": "Perché è rischiosa, in una riga",
+      "saveFailed": "Non è stato possibile salvare. La richiesta è com'era."
+    },
+    "risk": {
+      "label": "Rischio",
+      "aria": "Rischio: {{name}}",
+      "low": "Basso",
+      "medium": "Medio",
+      "high": "Alto",
+      "none": "Non valutato"
     }
   },
   "overview": {
@@ -1146,7 +1194,10 @@
       "gone": "Questo brief non è più l'ultimo. Apri l'ultimo dall'Overview.",
       "generatedNote": "Scritto da Claude a partire da task, decisioni e report della settimana. Verificalo prima di citarlo.",
       "period": "Settimana dal {{from}} al {{to}}",
-      "close": "Chiudi il brief"
+      "close": "Chiudi il brief",
+      "copy": "Copia come testo",
+      "copied": "Brief copiato come testo.",
+      "copyFailed": "Non è stato possibile copiare il brief. Aprilo e seleziona il testo per copiarlo a mano."
     },
     "open": {
       "title": "Cosa è aperto",
@@ -1236,7 +1287,12 @@
       "supersedesValue": "Cambia una decisione precedente: {{title}}",
       "submit": "Registra",
       "recorded": "Decisione registrata",
-      "failed": "Impossibile registrare la decisione. Non è stato salvato nulla; riprova."
+      "failed": "Impossibile registrare la decisione. Non è stato salvato nulla; riprova.",
+      "actions": "Azioni per «{{title}}»",
+      "supersededByGroup": "Superata da",
+      "supersededNone": "Nessuna, è ancora valida",
+      "supersededSaved": "Registro decisioni aggiornato.",
+      "supersededFailed": "Non è stato possibile cambiarla. Il registro è com'era."
     }
   },
   "projects": {
@@ -1397,5 +1453,21 @@
       "thresholdsFailed": "Non è stato possibile salvare le soglie. Sono come prima; le tue modifiche sono ancora qui.",
       "thresholdsFailedAfter": "Stati salvati, ma le soglie no. Le modifiche alle soglie sono ancora qui."
     }
+  },
+  "export": {
+    "project": "Progetto",
+    "decisions": "Decisioni",
+    "open": "Aperte",
+    "closed": "Chiuse",
+    "comments": "Commenti",
+    "options": "Opzioni: {{options}}",
+    "group": "Esporta",
+    "copy": "Copia come Markdown",
+    "download": "Scarica .md",
+    "preparing": "Preparo l'esportazione…",
+    "copied": "{{name}} copiata come Markdown.",
+    "downloaded": "Scaricato {{file}}.",
+    "copyFailed": "Non è stato possibile copiare negli appunti. Usa Scarica .md.",
+    "downloadFailed": "Non è stato possibile scaricare il file. Prova con Copia come Markdown."
   }
 }

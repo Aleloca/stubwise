@@ -158,6 +158,35 @@ describe("task", () => {
     expect(unfollowed.followerIds).not.toContain("p-sara");
   });
 
+  it("updateTask: collegamenti e allegati si aggiungono e si tolgono, con la riga nell'attività", async () => {
+    as("p-giulia");
+    const task = await taskOf("MKX-2");
+    const linked = await updateTask(task.id, { links: [{ kind: "relates", taskId: "t-mkx-4" }] });
+    expect(linked.links).toEqual([{ kind: "relates", taskId: "t-mkx-4" }]);
+    const unlinked = await updateTask(task.id, { links: [] });
+    expect(unlinked.links).toEqual([]);
+    const file = { id: "att-x", name: "Brief.pdf", sizeBytes: 1 };
+    expect((await updateTask(task.id, { attachments: [file] })).attachments).toEqual([file]);
+    expect((await updateTask(task.id, { attachments: [] })).attachments).toEqual([]);
+    const fields = (await listActivity(task.id))
+      .filter((a) => a.kind === "field_change")
+      .map((a) => [a.field, a.to]);
+    expect(fields).toEqual(
+      expect.arrayContaining([
+        ["links", "relates:t-mkx-4"],
+        ["links", ""],
+        ["attachments", "Brief.pdf"],
+      ]),
+    );
+    // Senza tickets.edit: forbidden, collegamenti invariati.
+    as("p-sara");
+    const stw = await taskOf("STW-6");
+    await expect(
+      updateTask(stw.id, { links: [...stw.links, { kind: "relates", taskId: "t-stw-1" }] }),
+    ).rejects.toThrow(forbiddenError);
+    expect((await taskOf("STW-6")).links).toEqual(stw.links);
+  });
+
   it("bulkUpdateTasks: tutto o niente", async () => {
     as("p-giulia");
     const mkx = (await listTasks({ projectIds: ["prj-mkx"] }))[0]!;
@@ -467,6 +496,28 @@ describe("richieste", () => {
     expect((await startRefine(mine.id)).status).toBe("refining");
     expect((await archiveRequest(mine.id)).status).toBe("archived");
     expect((await reopenRequest(mine.id)).status).toBe("new");
+  });
+
+  it("updateRequest: urgenza, taglia, rischio e nota (backlog.edit), valori controllati", async () => {
+    as("p-laura");
+    const r = await createRequest({ projectId: "prj-stw", title: "Meta" });
+    const saved = await updateRequest(r.id, {
+      urgency: "high",
+      size: "L",
+      risk: "medium",
+      riskNote: "  Touches billing  ",
+    });
+    expect(saved).toMatchObject({ urgency: "high", size: "L", risk: "medium", riskNote: "Touches billing" });
+    const cleared = await updateRequest(r.id, { size: null, risk: null, riskNote: "  " });
+    expect(cleared).toMatchObject({ size: null, risk: null, riskNote: null });
+    await expect(
+      updateRequest(r.id, { size: "XXL" as never }),
+    ).rejects.toThrow("invalid: size");
+    await expect(updateRequest(r.id, { risk: "extreme" as never })).rejects.toThrow("invalid: risk");
+    await expect(updateRequest(r.id, { urgency: "now" as never })).rejects.toThrow("invalid: urgency");
+    as("p-sara");
+    await expect(updateRequest(r.id, { size: "XS" })).rejects.toThrow(forbiddenError);
+    expect((await getRequest(r.id))!.size).toBeNull();
   });
 
   it("mergeRequest unisce i richiedenti senza duplicati e archivia la fusa", async () => {

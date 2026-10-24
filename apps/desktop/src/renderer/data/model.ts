@@ -82,6 +82,21 @@ export type ClaudeWorkState =
   | "done";
 export type TaskLinkKind = "blocks" | "blocked_by" | "relates" | "parent" | "child";
 
+/**
+ * Da dove è arrivata una task: a mano, da un'integrazione (SDK, API, Slack,
+ * webhook, widget), dalla posta o da un'automazione. Al posto di `source` del
+ * ticket del web (dove l'SDK distingue errore e feedback).
+ */
+export type TaskSource =
+  | "manual"
+  | "sdk"
+  | "api"
+  | "slack"
+  | "webhook"
+  | "widget"
+  | "email"
+  | "automation";
+
 export interface ManualStall {
   reason: string;
   note: string;
@@ -119,6 +134,12 @@ export interface Task {
   createdAt: string;
   closedAt: string | null;
   lastActivityAt: string;
+  /** Assente = «manual». */
+  source?: TaskSource;
+  /** Quante volte è arrivata la stessa segnalazione (un errore dell'SDK ripetuto): di base 1. */
+  occurrences: number;
+  /** Il payload dell'integrazione (chiave → valore), quando c'è. */
+  technical?: Record<string, string> | null;
 }
 
 export interface Milestone {
@@ -223,6 +244,7 @@ export interface DecisionRequest {
 }
 
 export type RequestStatus = "new" | "refining" | "ready" | "converted" | "archived";
+export type RequestLevel = "low" | "medium" | "high";
 
 export interface ProjectRequest {
   id: string;
@@ -231,7 +253,12 @@ export interface ProjectRequest {
   description: string;
   requesterIds: string[];
   status: RequestStatus;
-  urgency: "low" | "medium" | "high";
+  urgency: RequestLevel;
+  /** La stima, con le stesse taglie delle task (al posto dello sforzo E1–E5 del web). */
+  size?: TaskSize | null;
+  risk?: RequestLevel | null;
+  /** Il perché del rischio, in una riga. */
+  riskNote?: string | null;
   similarToId: string | null;
   mergedIntoId: string | null;
   taskIds: string[];
@@ -255,6 +282,8 @@ export interface FilterCriteria {
   statusIds?: string[];
   sizes?: (TaskSize | "none")[];
   milestoneIds?: string[];
+  types?: TaskType[];
+  priorities?: TaskPriority[];
   stalled?: boolean;
   text?: string;
   period?: { field: PeriodField } & (
@@ -366,6 +395,11 @@ export type TaskPatch = Partial<
     | "manualStall"
     | "attachments"
   >
+>;
+
+/** I campi di una richiesta che si cambiano col dettaglio (`backlog.edit`). */
+export type RequestPatch = Partial<
+  Pick<ProjectRequest, "title" | "description" | "urgency" | "size" | "risk" | "riskNote">
 >;
 
 export interface NewProjectInput {

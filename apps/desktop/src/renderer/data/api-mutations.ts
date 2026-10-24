@@ -1,3 +1,4 @@
+import { wouldCycle } from "../domain/decisionLog";
 import { findSimilarRequest } from "../domain/requests";
 import { TEMPLATE_MODULES, TEMPLATE_STATUSES } from "../domain/templates";
 import { DEPARTMENTS } from "./seed/departments";
@@ -18,11 +19,14 @@ import type {
   Project,
   ProjectRequest,
   ProjectStatus,
+  RequestLevel,
+  RequestPatch,
   SavedFilter,
   StatusFamily,
   StatusInput,
   Task,
   TaskPatch,
+  TaskSize,
 } from "./types";
 import { can, canInDepartment, grantProjectRole, viewerFor, type Permission } from "./viewer";
 
@@ -136,6 +140,8 @@ function buildTask(me: string, input: NewTaskInput): Task {
     createdAt: at,
     closedAt: status.family === "closed" ? at : null,
     lastActivityAt: at,
+    source: "manual",
+    occurrences: 1,
   };
 }
 
@@ -510,6 +516,9 @@ export async function createRequest(input: {
     requesterIds: [me],
     status: "new",
     urgency: input.urgency ?? "medium",
+    size: null,
+    risk: null,
+    riskNote: null,
     similarToId: similar?.id ?? null,
     mergedIntoId: null,
     taskIds: [],
@@ -519,17 +528,26 @@ export async function createRequest(input: {
   return copy(request);
 }
 
+const LEVELS: RequestLevel[] = ["low", "medium", "high"];
+const SIZES: TaskSize[] = ["XS", "S", "M", "L", "XL"];
+
 export async function updateRequest(
   id: string,
-  patch: Partial<Pick<ProjectRequest, "title" | "description" | "urgency">>,
+  patch: RequestPatch,
 ): Promise<ProjectRequest> {
   const me = await gate("updateRequest");
   const request = requestFor(me, id);
   need(me, "backlog.edit", request.projectId);
   if (patch.title !== undefined && !patch.title.trim()) throw invalid("title");
+  if (patch.urgency !== undefined && !LEVELS.includes(patch.urgency)) throw invalid("urgency");
+  if (patch.risk != null && !LEVELS.includes(patch.risk)) throw invalid("risk");
+  if (patch.size != null && !SIZES.includes(patch.size)) throw invalid("size");
   if (patch.title !== undefined) request.title = patch.title.trim();
   if (patch.description !== undefined) request.description = patch.description;
   if (patch.urgency !== undefined) request.urgency = patch.urgency;
+  if (patch.size !== undefined) request.size = patch.size;
+  if (patch.risk !== undefined) request.risk = patch.risk;
+  if (patch.riskNote !== undefined) request.riskNote = patch.riskNote?.trim() ? patch.riskNote.trim() : null;
   return copy(request);
 }
 
@@ -882,6 +900,28 @@ export async function recordDecision(
   };
   state.decisionLog.push(entry);
   if (superseded) superseded.supersededById = entry.id;
+  return copy(entry);
+}
+
+/**
+ * Cambia il «superata da» di una voce già nel registro (`decisions.record`):
+ * un'altra voce dello stesso progetto, o `null` se vale di nuovo. Non si
+ * riscrive il fatto, solo il legame: niente sé stessa, niente giri.
+ */
+export async function setDecisionSuperseded(
+  id: string,
+  supersededById: string | null,
+): Promise<DecisionLogEntry> {
+  const me = await gate("setDecisionSuperseded");
+  const entry = state.decisionLog.find((d) => d.id === id);
+  if (!entry || !visibleProjectIds(me).has(entry.projectId)) throw notFound();
+  need(me, "decisions.record", entry.projectId);
+  if (supersededById !== null) {
+    const by = state.decisionLog.find((d) => d.id === supersededById);
+    if (!by || by.projectId !== entry.projectId || by.id === id) throw invalid("supersededBy");
+    if (wouldCycle(state.decisionLog, id, supersededById)) throw invalid("cycle");
+  }
+  entry.supersededById = supersededById;
   return copy(entry);
 }
 

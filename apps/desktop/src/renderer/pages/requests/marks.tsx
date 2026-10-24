@@ -1,5 +1,44 @@
 import { useTranslation } from "react-i18next";
-import type { ProjectRequest, RequestStatus } from "../../data/types";
+import type { ProjectRequest, RequestLevel, RequestStatus } from "../../data/types";
+
+/**
+ * Il rischio: un triangolo vuoto (basso), pieno per metà (medio), pieno
+ * (alto), e la parola accanto. Forma diversa dalle barre dell'urgenza: le due
+ * si leggono una accanto all'altra senza confondersi.
+ */
+export function RiskMark({ risk }: { risk: RequestLevel | null | undefined }) {
+  const { t } = useTranslation();
+  if (!risk) {
+    return <span className="truncate text-sm text-ink-faint">{t("requests.risk.none")}</span>;
+  }
+  const name = t(`requests.risk.${risk}`);
+  // La parte piena del triangolo, dal basso: niente, metà, tutto.
+  const fillFrom = risk === "low" ? 14 : risk === "medium" ? 7.5 : 0;
+  return (
+    <span
+      data-risk={risk}
+      title={t("requests.risk.aria", { name })}
+      className="flex min-w-0 items-center gap-1.5 text-sm text-ink-muted"
+    >
+      <svg viewBox="0 0 14 14" width={13} height={13} aria-hidden="true" focusable="false" className="shrink-0">
+        <path
+          d="M7 1.75 12.75 12H1.25L7 1.75Z"
+          fill="currentColor"
+          style={{ clipPath: `inset(${fillFrom}px 0 0 0)` }}
+        />
+        <path
+          d="M7 1.75 12.75 12H1.25L7 1.75Z"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.25}
+          strokeLinejoin="round"
+        />
+      </svg>
+      <span className="sr-only">{t("requests.risk.label")}: </span>
+      <span className="truncate">{name}</span>
+    </span>
+  );
+}
 
 // I segni di una richiesta: lo stato e l'urgenza. Lo stato di una richiesta
 // non è uno stato di task (non ha famiglia): ha i suoi cinque segni,

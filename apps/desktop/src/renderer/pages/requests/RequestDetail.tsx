@@ -12,8 +12,10 @@ import {
   useRequests,
   useStartRefine,
   useTasks,
+  useUpdateRequest,
 } from "../../data/queries";
-import type { Project, ProjectRequest, Task } from "../../data/types";
+import type { Project, ProjectRequest, RequestLevel, RequestPatch, Task } from "../../data/types";
+import { requestFileName, requestToMarkdown } from "../../domain/export";
 import { can, useViewer } from "../../data/viewer";
 import { isRequestOpen, relatedRequests } from "../../domain/requests";
 import {
@@ -24,7 +26,8 @@ import {
 import { useMediaQuery } from "../../layout/useMediaQuery";
 import { formatDate } from "../../notifications/time";
 import { Markdown } from "../../tasks-ui/Markdown";
-import { MenuGroup, itemClass } from "../../tasks-ui/Menu";
+import { copyText, downloadText } from "../../tasks-ui/exportFile";
+import { MenuGroup, RadioItem, itemClass } from "../../tasks-ui/Menu";
 import { PageError } from "../../tasks-ui/PageStates";
 import { PersonChip } from "../../tasks-ui/PersonChip";
 import { StatusLabel } from "../../tasks-ui/StatusLabel";
@@ -38,9 +41,11 @@ import {
   smallPrimary,
   smallSecondary,
 } from "../task/parts";
+import { fieldButton, hoverChevron } from "../task/TaskHeader";
 import { MenuButton } from "../tasks/controls";
+import { SizeOptions } from "../tasks/pickers";
 import { MergeDialog } from "./MergeDialog";
-import { RequestStatusLabel, RequestStatusSign, UrgencyMark } from "./marks";
+import { RequestStatusLabel, RequestStatusSign, RiskMark, UrgencyMark } from "./marks";
 
 /** Le richieste di un progetto: l'unica route su cui si apre il pannello della richiesta. */
 const REQUESTS_PATH = /^\/p\/([^/]+)\/requests\/?$/;
@@ -186,6 +191,9 @@ function RequestBody({
   const navigate = useNavigate();
   const toast = useToast();
   const all = useRequests(request.projectId).data;
+  const people = usePeople().data;
+  const projectTasks = useTasks({ projectIds: [request.projectId] }).data;
+  const statuses = useProjectStatuses(request.projectId).data;
   const archive = useArchiveRequest();
   const reopen = useReopenRequest();
   const restore = useRestoreRequest();
@@ -241,6 +249,40 @@ function RequestBody({
       onError: () => toast.error(t("requests.detail.toast.refineFailed")),
     });
 
+  // L'esportazione: le etichette nella lingua di chi esporta, i nomi risolti adesso.
+  const markdown = () =>
+    requestToMarkdown(
+      request,
+      {
+        language: i18n.language,
+        projectCode: project?.code ?? "",
+        projectName: project?.name ?? "",
+        personName: (id) => people?.find((p) => p.id === id)?.name ?? null,
+        tasks: (projectTasks ?? [])
+          .filter((x) => request.taskIds.includes(x.id))
+          .map((x) => ({
+            code: x.code,
+            title: x.title,
+            statusName: statuses?.find((s) => s.id === x.statusId)?.name ?? null,
+          })),
+      },
+      t,
+    );
+  const copyMarkdown = () =>
+    copyText(markdown()).then(
+      () => toast.show(t("export.copied", { name: request.title })),
+      () => toast.error(t("export.copyFailed")),
+    );
+  const downloadMarkdown = () => {
+    const file = requestFileName(request);
+    try {
+      downloadText(file, markdown());
+      toast.show(t("export.downloaded", { file }));
+    } catch {
+      toast.error(t("export.downloadFailed"));
+    }
+  };
+
   const busy = archive.isPending || reopen.isPending || restore.isPending || refine.isPending;
   const actions: ReactNode[] = [];
   if (open && canConvert) {
@@ -257,47 +299,6 @@ function RequestBody({
       </button>,
     );
   }
-  if (canEdit && open) {
-    actions.push(
-      <MenuButton
-        key="more"
-        menuLabel={t("requests.detail.actions.more")}
-        ariaLabel={t("requests.detail.actions.more")}
-        title={t("requests.detail.actions.more")}
-        className={`${ghostButton} w-7 justify-center px-0 aria-expanded:bg-ink/8`}
-        label={<MoreIcon />}
-      >
-        {(close) => (
-          <MenuGroup>
-            <button
-              type="button"
-              role="menuitem"
-              tabIndex={-1}
-              className={itemClass}
-              onClick={() => {
-                close();
-                setMerging(true);
-              }}
-            >
-              {t("requests.detail.actions.merge")}
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              tabIndex={-1}
-              className={itemClass}
-              onClick={() => {
-                close();
-                doArchive();
-              }}
-            >
-              {t("requests.detail.actions.archive")}
-            </button>
-          </MenuGroup>
-        )}
-      </MenuButton>,
-    );
-  }
   // Una fusa non si riapre da qui: segue la richiesta in cui è confluita.
   if (canEdit && request.status === "archived" && !request.mergedIntoId) {
     actions.push(
@@ -306,6 +307,77 @@ function RequestBody({
       </button>,
     );
   }
+  // «Altre azioni» c'è per tutti: l'esportazione non chiede permessi.
+  actions.push(
+    <MenuButton
+      key="more"
+      menuLabel={t("requests.detail.actions.more")}
+      align="right"
+      ariaLabel={t("requests.detail.actions.more")}
+      title={t("requests.detail.actions.more")}
+      className={`${ghostButton} w-7 justify-center px-0 aria-expanded:bg-ink/8`}
+      label={<MoreIcon />}
+    >
+      {(close) => (
+        <>
+          {canEdit && open && (
+            <MenuGroup>
+              <button
+                type="button"
+                role="menuitem"
+                tabIndex={-1}
+                className={itemClass}
+                onClick={() => {
+                  close();
+                  setMerging(true);
+                }}
+              >
+                {t("requests.detail.actions.merge")}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                tabIndex={-1}
+                className={itemClass}
+                onClick={() => {
+                  close();
+                  doArchive();
+                }}
+              >
+                {t("requests.detail.actions.archive")}
+              </button>
+            </MenuGroup>
+          )}
+          <MenuGroup label={t("export.group")}>
+            <button
+              type="button"
+              role="menuitem"
+              tabIndex={-1}
+              className={itemClass}
+              onClick={() => {
+                close();
+                void copyMarkdown();
+              }}
+            >
+              {t("export.copy")}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              tabIndex={-1}
+              className={itemClass}
+              onClick={() => {
+                close();
+                downloadMarkdown();
+              }}
+            >
+              {t("export.download")}
+            </button>
+          </MenuGroup>
+        </>
+      )}
+    </MenuButton>,
+  );
 
   return (
     <article
@@ -325,9 +397,7 @@ function RequestBody({
             <RequestStatusLabel status={request.status} />
           </span>
         </Field>
-        <Field label={t("requests.detail.fields.urgency")}>
-          <UrgencyMark urgency={request.urgency} />
-        </Field>
+        <Metadata request={request} canEdit={canEdit && open} />
         <Field label={t("requests.detail.fields.sent")}>
           <span className="num text-sm text-ink">{formatDate(request.createdAt, i18n.language)}</span>
         </Field>
@@ -349,13 +419,10 @@ function RequestBody({
         </p>
       )}
 
-      {actions.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-1.5 px-4 pb-4">{actions}</div>
-      ) : (
-        open && (
-          <p className="px-4 pb-4 text-sm text-ink-muted">{t("requests.detail.whoDecides")}</p>
-        )
+      {open && !canEdit && !canConvert && (
+        <p className="px-4 pb-3 text-sm text-ink-muted">{t("requests.detail.whoDecides")}</p>
       )}
+      <div className="flex flex-wrap items-center gap-1.5 px-4 pb-4">{actions}</div>
 
       <Section
         title={t("requests.detail.description")}
@@ -421,6 +488,193 @@ function RequestBody({
       )}
     </article>
   );
+}
+
+/**
+ * Urgenza, taglia, rischio e nota sul rischio: con `backlog.edit` (e la
+ * richiesta ancora aperta) ognuno si cambia dal suo menu, la nota con un
+ * campo in linea; altrimenti si leggono e basta. La taglia è quella delle
+ * task: convertendo la richiesta, la task nasce con la stessa.
+ */
+function Metadata({ request, canEdit }: { request: ProjectRequest; canEdit: boolean }) {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const update = useUpdateRequest();
+  const save = (patch: RequestPatch) =>
+    update.mutate(
+      { id: request.id, patch },
+      { onError: () => toast.error(t("requests.detail.saveFailed")) },
+    );
+  const f = (key: string) => t(`requests.detail.fields.${key}`);
+  const menuField = (
+    label: string,
+    name: string,
+    value: ReactNode,
+    menuLabel: string,
+    options: (close: () => void) => ReactNode,
+  ) => (
+    <Field label={label}>
+      {canEdit ? (
+        <MenuButton
+          menuLabel={menuLabel}
+          ariaLabel={t("requests.detail.fields.change", { field: label, value: name })}
+          wrapperClassName="flex min-w-0 max-w-full"
+          className={fieldButton}
+          label={
+            <>
+              {value}
+              {hoverChevron}
+            </>
+          }
+        >
+          {(close) => <MenuGroup>{options(close)}</MenuGroup>}
+        </MenuButton>
+      ) : (
+        <span className="flex min-w-0 items-center">{value}</span>
+      )}
+    </Field>
+  );
+  const levelOptions = (current: RequestLevel | null, onPick: (v: RequestLevel) => void, mark: (v: RequestLevel) => ReactNode) =>
+    LEVELS.map((level) => (
+      <RadioItem key={level} checked={level === current} onSelect={() => onPick(level)}>
+        {mark(level)}
+      </RadioItem>
+    ));
+
+  return (
+    <>
+      {menuField(
+        f("urgency"),
+        t(`requests.urgency.${request.urgency}`),
+        <UrgencyMark urgency={request.urgency} />,
+        t("requests.detail.urgencyMenu"),
+        (close) =>
+          levelOptions(
+            request.urgency,
+            (urgency) => {
+              close();
+              if (urgency !== request.urgency) save({ urgency });
+            },
+            (level) => <UrgencyMark urgency={level} />,
+          ),
+      )}
+      {menuField(
+        f("size"),
+        request.size ?? t("taskUi.size.none"),
+        request.size ? (
+          <span className="num text-sm font-semibold text-ink">{request.size}</span>
+        ) : (
+          <span className="text-sm text-ink-faint">{t("taskUi.size.none")}</span>
+        ),
+        t("requests.detail.sizeMenu"),
+        (close) => (
+          <SizeOptions
+            current={request.size ?? null}
+            onPick={(size) => {
+              close();
+              if (size !== (request.size ?? null)) save({ size });
+            }}
+          />
+        ),
+      )}
+      {menuField(
+        f("risk"),
+        request.risk ? t(`requests.risk.${request.risk}`) : t("requests.risk.none"),
+        <RiskMark risk={request.risk} />,
+        t("requests.detail.riskMenu"),
+        (close) => (
+          <>
+            <RadioItem
+              checked={!request.risk}
+              onSelect={() => {
+                close();
+                if (request.risk) save({ risk: null });
+              }}
+            >
+              <span className="text-ink-muted">{t("requests.risk.none")}</span>
+            </RadioItem>
+            {levelOptions(
+              request.risk ?? null,
+              (risk) => {
+                close();
+                if (risk !== request.risk) save({ risk });
+              },
+              (level) => <RiskMark risk={level} />,
+            )}
+          </>
+        ),
+      )}
+      {(canEdit || request.riskNote) && (
+        <RiskNoteField note={request.riskNote ?? null} canEdit={canEdit} onSave={(riskNote) => save({ riskNote })} />
+      )}
+    </>
+  );
+}
+
+const LEVELS: RequestLevel[] = ["low", "medium", "high"];
+
+/** La nota sul rischio: una riga; un clic la rende un campo, Invio salva, Esc annulla. */
+function RiskNoteField({
+  note,
+  canEdit,
+  onSave,
+}: {
+  note: string | null;
+  canEdit: boolean;
+  onSave: (note: string | null) => void;
+}) {
+  const { t } = useTranslation();
+  const [draft, setDraft] = useState<string | null>(null);
+  const label = t("requests.detail.fields.riskNote");
+  const commit = () => {
+    const next = draft?.trim() || null;
+    setDraft(null);
+    if (next !== note) onSave(next);
+  };
+  let value: ReactNode;
+  if (draft !== null) {
+    value = (
+      <input
+        autoFocus
+        aria-label={label}
+        value={draft}
+        maxLength={160}
+        placeholder={t("requests.detail.riskNotePlaceholder")}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commit();
+          } else if (e.key === "Escape") {
+            // Esc annulla la modifica, non chiude il pannello.
+            e.preventDefault();
+            e.stopPropagation();
+            setDraft(null);
+          }
+        }}
+        className="-mx-1.5 h-8 w-[calc(100%+12px)] rounded-md border border-rule-strong bg-transparent px-1.5 text-sm text-ink placeholder:text-ink-faint"
+      />
+    );
+  } else if (canEdit) {
+    value = (
+      <button
+        type="button"
+        onClick={() => setDraft(note ?? "")}
+        aria-label={note ? `${t("requests.detail.editRiskNote")}: ${note}` : t("requests.detail.addRiskNote")}
+        className={`${fieldButton} h-auto min-h-8 py-1 text-left`}
+      >
+        {note ? (
+          <span className="min-w-0 [overflow-wrap:anywhere]">{note}</span>
+        ) : (
+          <span className="text-ink-faint">{t("requests.detail.addRiskNote")}</span>
+        )}
+      </button>
+    );
+  } else {
+    value = <span className="py-1.5 text-sm text-ink [overflow-wrap:anywhere]">{note}</span>;
+  }
+  return <Field label={label}>{value}</Field>;
 }
 
 /** Trasformata, archiviata o fusa: un riquadro che dice perché qui non si cambia più niente. */

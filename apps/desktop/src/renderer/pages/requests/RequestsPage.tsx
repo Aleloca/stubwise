@@ -10,6 +10,7 @@ import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
 import { PageEmpty, PageError, PageSkeleton } from "../../tasks-ui/PageStates";
 import { Avatar } from "../../tasks-ui/PersonChip";
 import { Chevron, MenuButton, primaryButton, secondaryButton } from "../tasks/controls";
+import { SizeMark } from "../../tasks-ui/SizeMark";
 import { RequestStatusLabel, UrgencyMark } from "./marks";
 
 /** L'ordine dei gruppi dell'elenco: prima ciò su cui si lavora ancora. */
@@ -304,6 +305,9 @@ function RequestRow({
         </span>
         <span className="relative flex w-[76px] shrink-0 @max-[560px]:w-3">
           <UrgencyMark urgency={request.urgency} nameClassName="@max-[560px]:sr-only" />
+        </span>
+        <span className="relative flex w-7 shrink-0 justify-center">
+          <SizeMark size={request.size ?? null} />
         </span>
         <span className="relative w-16 shrink-0 text-right text-sm text-ink-muted @max-[820px]:hidden">
           {tasks > 0 ? (

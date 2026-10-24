@@ -96,6 +96,27 @@ describe("FilterBar", () => {
     expect(onChange).toHaveBeenLastCalledWith({});
   });
 
+  it("tipo e priorità si aggiungono da «+ Filter» e scrivono i criteri", async () => {
+    const onChange = vi.fn();
+    renderWithData(<Harness initial={{}} lockedProjectId="prj-mkx" onChange={onChange} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Add a filter" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Type" }));
+    const types = await screen.findByRole("menu", { name: "Type" });
+    await userEvent.click(within(types).getByRole("menuitemcheckbox", { name: "Bug" }));
+    expect(onChange).toHaveBeenLastCalledWith({ types: ["bug"] });
+    await userEvent.keyboard("{Escape}");
+    expect(screen.getByRole("button", { name: /^Type: ?Bug/ })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Add a filter" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Priority" }));
+    const priorities = await screen.findByRole("menu", { name: "Priority" });
+    await userEvent.click(within(priorities).getByRole("menuitemcheckbox", { name: /Urgent/ }));
+    expect(onChange).toHaveBeenLastCalledWith({ types: ["bug"], priorities: ["urgent"] });
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(screen.getByRole("button", { name: "Remove the Type filter" }));
+    expect(onChange).toHaveBeenLastCalledWith({ priorities: ["urgent"] });
+  });
+
   it("togliere i progetti fino a più di uno toglie gli stati precisi scelti", async () => {
     const onChange = vi.fn();
     renderWithData(

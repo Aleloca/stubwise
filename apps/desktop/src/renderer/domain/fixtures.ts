@@ -29,6 +29,7 @@ export function makeTask(over: Partial<Task> = {}): Task {
     createdAt: "2026-10-01T09:00:00Z",
     closedAt: null,
     lastActivityAt: "2026-10-22T09:00:00Z",
+    occurrences: 1,
     ...over,
   };
 }

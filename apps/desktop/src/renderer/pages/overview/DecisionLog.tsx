@@ -1,13 +1,21 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useDecisionLog, usePeople, useRecordDecision, useTasks } from "../../data/queries";
+import {
+  useDecisionLog,
+  usePeople,
+  useRecordDecision,
+  useSetDecisionSuperseded,
+  useTasks,
+} from "../../data/queries";
 import type { DecisionLogEntry, Task } from "../../data/types";
 import { can, useViewer } from "../../data/viewer";
+import { supersedeCandidates } from "../../domain/decisionLog";
 import { formatDate } from "../../notifications/time";
 import { Dialog, DialogField, inputClass, selectButtonClass } from "../../tasks-ui/Dialog";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
 import { useToast } from "../../tasks-ui/Toast";
 import { BlockSection, Capped, queryState, useOpenTask } from "../home/blocks/BlockSection";
+import { MoreIcon, ghostButton } from "../task/parts";
 import { Chevron, MenuButton, primaryButton, secondaryButton } from "../tasks/controls";
 
 /**
@@ -59,6 +67,7 @@ export function DecisionLog({ projectId }: { projectId: string }) {
               supersededBy={d.supersededById ? byId.get(d.supersededById) : undefined}
               task={tasks.data?.find((x) => x.id === d.taskId)}
               who={people.data?.find((p) => p.id === d.decidedById)?.name}
+              entries={canRecord ? entries : undefined}
             />
           )}
         />
@@ -79,11 +88,14 @@ function DecisionRow({
   supersededBy,
   task,
   who,
+  entries,
 }: {
   entry: DecisionLogEntry;
   supersededBy: DecisionLogEntry | undefined;
   task: Task | undefined;
   who: string | undefined;
+  /** Il registro del progetto, solo per chi ha `decisions.record`: apre il menu della voce. */
+  entries?: DecisionLogEntry[];
 }) {
   const { t, i18n } = useTranslation();
   const openTask = useOpenTask();
@@ -92,9 +104,11 @@ function DecisionRow({
     <li
       data-decision={entry.id}
       data-superseded={superseded ? "true" : undefined}
-      className="flex flex-col gap-1 border-b border-rule py-3 pr-3 pl-4"
+      className="relative flex flex-col gap-1 border-b border-rule py-3 pr-3 pl-4"
     >
-      <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+      <div
+        className={`flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1 ${entries ? "pr-9" : ""}`}
+      >
         <h3
           className={`min-w-0 text-md font-semibold ${superseded ? "text-ink-muted" : "text-ink"}`}
         >
@@ -108,6 +122,11 @@ function DecisionRow({
           </span>
         )}
       </div>
+      {entries && (
+        <span className="absolute top-2 right-2">
+          <EntryMenu entry={entry} entries={entries} />
+        </span>
+      )}
       <p className={`max-w-[72ch] text-md ${superseded ? "text-ink-muted" : "text-ink"}`}>
         {entry.decision}
       </p>
@@ -133,6 +152,68 @@ function DecisionRow({
         )}
       </p>
     </li>
+  );
+}
+
+/**
+ * Il menu di una voce (`decisions.record`): «Superseded by» si cambia
+ * scegliendo un'altra voce dello stesso progetto, o «None» se vale di
+ * nuovo. Le voci che chiuderebbero un giro non si offrono.
+ */
+function EntryMenu({ entry, entries }: { entry: DecisionLogEntry; entries: DecisionLogEntry[] }) {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const set = useSetDecisionSuperseded();
+  const candidates = supersedeCandidates(entries, entry.id);
+  const pick = (supersededById: string | null) => {
+    if (supersededById === entry.supersededById) return;
+    set.mutate(
+      { id: entry.id, supersededById },
+      {
+        onSuccess: () => toast.show(t("overview.decisions.supersededSaved")),
+        onError: () => toast.error(t("overview.decisions.supersededFailed")),
+      },
+    );
+  };
+  const label = t("overview.decisions.actions", { title: entry.title });
+  return (
+    <MenuButton
+      menuLabel={label}
+      ariaLabel={label}
+      title={label}
+      align="right"
+      disabled={set.isPending}
+      className={`${ghostButton} w-7 justify-center px-0 aria-expanded:bg-ink/8`}
+      label={<MoreIcon />}
+    >
+      {(close) => (
+        <MenuGroup label={t("overview.decisions.supersededByGroup")}>
+          <RadioItem
+            checked={entry.supersededById === null}
+            onSelect={() => {
+              close();
+              pick(null);
+            }}
+          >
+            {t("overview.decisions.supersededNone")}
+          </RadioItem>
+          {candidates.map((d) => (
+            <RadioItem
+              key={d.id}
+              checked={d.id === entry.supersededById}
+              onSelect={() => {
+                close();
+                pick(d.id);
+              }}
+            >
+              <span className="min-w-0 truncate" title={d.title}>
+                {d.title}
+              </span>
+            </RadioItem>
+          ))}
+        </MenuGroup>
+      )}
+    </MenuButton>
   );
 }
 

@@ -133,6 +133,7 @@ export function NewTaskDialog({
     setSeeded(true);
     setTitle(request.title);
     setDescription(request.description);
+    setSize(request.size ?? null);
     if (can(viewer, "tickets.create", request.projectId)) setProject(request.projectId);
   }
   const pending = create.isPending || convert.isPending;

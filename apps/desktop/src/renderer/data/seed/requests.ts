@@ -32,6 +32,17 @@ const ROWS: Row[] = [
   ["req-cbv-1", "CBV", "Gift-box option in the store", ["p-elena"], "refining", "high", null, null, [], 4],
 ];
 
+// Stima e rischio, dove il team li ha già dati (le altre restano «No estimate» / «Not assessed»).
+const META: Record<string, Pick<ProjectRequest, "size" | "risk" | "riskNote">> = {
+  "req-aud-1": { size: "M", risk: "low", riskNote: null },
+  "req-aud-2": { size: "S", risk: "medium", riskNote: "Depends on the sending limits of the mail provider." },
+  "req-stw-2": { size: "L", risk: "medium", riskNote: "Keyboard dragging must work with screen readers too." },
+  "req-stw-4": { size: "S", risk: null, riskNote: null },
+  "req-mkx-2": { size: "M", risk: "high", riskNote: "The showroom date is fixed: no room to slip." },
+  "req-mkx-3": { size: "L", risk: "low", riskNote: null },
+  "req-cbv-1": { size: "XS", risk: "low", riskNote: null },
+};
+
 /** Richieste dei progetti, in ogni stato; due fuse in un'altra dello stesso progetto. */
 export const REQUESTS: ProjectRequest[] = ROWS.map(
   ([id, code, title, requesterIds, status, urgency, similarToId, mergedIntoId, taskIds, days]) => ({
@@ -42,6 +53,9 @@ export const REQUESTS: ProjectRequest[] = ROWS.map(
     requesterIds,
     status,
     urgency,
+    size: META[id]?.size ?? null,
+    risk: META[id]?.risk ?? null,
+    riskNote: META[id]?.riskNote ?? null,
     similarToId,
     mergedIntoId,
     taskIds,

@@ -55,6 +55,16 @@ describe("matches", () => {
     expect(ok(makeTask({ size: null }), { sizes: ["S"] })).toBe(false);
   });
 
+  it("tipo e priorità: OR dentro l'elenco, AND fra i due", () => {
+    const t = makeTask({ type: "bug", priority: "high" });
+    expect(ok(t, { types: ["bug", "activity"] })).toBe(true);
+    expect(ok(t, { types: ["feature"] })).toBe(false);
+    expect(ok(t, { priorities: ["high", "urgent"] })).toBe(true);
+    expect(ok(t, { priorities: ["low"] })).toBe(false);
+    expect(ok(t, { types: ["bug"], priorities: ["low"] })).toBe(false);
+    expect(ok(t, { types: [], priorities: [] })).toBe(true);
+  });
+
   it("milestone: una task senza milestone non corrisponde mai a un elenco", () => {
     expect(ok(makeTask({ milestoneId: "m1" }), { milestoneIds: ["m1"] })).toBe(true);
     expect(ok(makeTask({ milestoneId: "m2" }), { milestoneIds: ["m1"] })).toBe(false);
@@ -173,6 +183,8 @@ describe("parseCriteria", () => {
         families: ["todo", "nope"],
         assigneeIds: ["p-1", "none", 3],
         sizes: ["XS", "XXL", "none"],
+        types: ["bug", "task"],
+        priorities: ["urgent", "critical", 2],
         stalled: true,
         text: "invoice",
         period: { field: "due", kind: "relative", preset: "thisWeek" },
@@ -182,6 +194,8 @@ describe("parseCriteria", () => {
       families: ["todo"],
       assigneeIds: ["p-1", "none"],
       sizes: ["XS", "none"],
+      types: ["bug"],
+      priorities: ["urgent"],
       stalled: true,
       text: "invoice",
       period: { field: "due", kind: "relative", preset: "thisWeek" },

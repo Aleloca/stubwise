@@ -776,6 +776,14 @@ export function useRecordDecision() {
   );
 }
 
+export function useSetDecisionSuperseded() {
+  return useWrite(
+    ({ id, supersededById }: { id: string; supersededById: string | null }) =>
+      api.setDecisionSuperseded(id, supersededById),
+    DECISION_AREAS,
+  );
+}
+
 export function useCreateMilestone() {
   return useWrite(
     ({ projectId, input }: { projectId: string; input: MilestoneInput }) =>

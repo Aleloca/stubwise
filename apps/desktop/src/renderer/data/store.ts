@@ -110,6 +110,7 @@ export type ApiFnName =
   | "setProjectStatuses"
   | "setStallThresholds"
   | "recordDecision"
+  | "setDecisionSuperseded"
   | "createMilestone"
   | "updateMilestone"
   | "deleteMilestone";

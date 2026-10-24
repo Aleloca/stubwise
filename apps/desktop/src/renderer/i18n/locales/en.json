@@ -247,7 +247,9 @@
         "size": "Size",
         "milestone": "Milestone",
         "stalled": "Stalled",
-        "period": "Period"
+        "period": "Period",
+        "type": "Type",
+        "priority": "Priority"
       },
       "statusFamilies": "Family",
       "statusesIn": "Exact status in {{code}}",
@@ -662,6 +664,31 @@
         "links": "linked tasks",
         "attachments": "attachments"
       }
+    },
+    "more": "More actions for {{code}}",
+    "source": {
+      "label": "Source",
+      "value": "{{source}}, reported {{count}} times",
+      "occurrences_one": "Reported once",
+      "occurrences_other": "Reported {{count}} times",
+      "kinds": {
+        "manual": "Manual",
+        "sdk": "SDK",
+        "api": "API",
+        "slack": "Slack",
+        "webhook": "Webhook",
+        "widget": "Widget",
+        "email": "Email",
+        "automation": "Automation"
+      }
+    },
+    "technical": {
+      "title": "Technical details",
+      "show": "Show",
+      "hide": "Hide",
+      "showLabel": "Show the technical details",
+      "hideLabel": "Hide the technical details",
+      "note": "What {{source}} sent with the task, as it arrived."
     }
   },
   "newTask": {
@@ -1029,7 +1056,11 @@
       "fields": {
         "status": "Status",
         "urgency": "Urgency",
-        "sent": "Sent"
+        "sent": "Sent",
+        "size": "Size",
+        "risk": "Risk",
+        "riskNote": "Risk note",
+        "change": "{{field}}: {{value}}. Change"
       },
       "description": "Description",
       "noDescription": "No description",
@@ -1067,7 +1098,24 @@
         "reopened": "Request reopened.",
         "reopenFailed": "Couldn't reopen the request. Nothing changed.",
         "merged": "Merged into “{{title}}”."
-      }
+      },
+      "more": "More actions for this request",
+      "urgencyMenu": "Urgency of this request",
+      "sizeMenu": "Size of this request",
+      "riskMenu": "Risk of this request",
+      "noRiskNote": "No note",
+      "addRiskNote": "Add a note",
+      "editRiskNote": "Edit the risk note",
+      "riskNotePlaceholder": "Why it's risky, in a line",
+      "saveFailed": "Couldn't save the change. The request is as it was."
+    },
+    "risk": {
+      "label": "Risk",
+      "aria": "Risk: {{name}}",
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "none": "Not assessed"
     }
   },
   "overview": {
@@ -1146,7 +1194,10 @@
       "gone": "This brief is no longer the latest one. Open the latest from the Overview.",
       "generatedNote": "Written by Claude from the week's tasks, decisions and reports. Check it before quoting it.",
       "period": "Week of {{from}} – {{to}}",
-      "close": "Close the brief"
+      "close": "Close the brief",
+      "copy": "Copy as text",
+      "copied": "Brief copied as text.",
+      "copyFailed": "Couldn't copy the brief. Open it and select the text to copy it by hand."
     },
     "open": {
       "title": "What's open",
@@ -1236,7 +1287,12 @@
       "supersedesValue": "Changes an earlier decision: {{title}}",
       "submit": "Record",
       "recorded": "Decision recorded",
-      "failed": "Couldn't record the decision. Nothing was saved; try again."
+      "failed": "Couldn't record the decision. Nothing was saved; try again.",
+      "actions": "Actions for “{{title}}”",
+      "supersededByGroup": "Superseded by",
+      "supersededNone": "None, still valid",
+      "supersededSaved": "Decision log updated.",
+      "supersededFailed": "Couldn't change it. The decision log is as it was."
     }
   },
   "projects": {
@@ -1397,5 +1453,21 @@
       "thresholdsFailed": "Couldn't save the thresholds. They're as they were; your edits are still here.",
       "thresholdsFailedAfter": "Statuses saved, but the thresholds couldn't be saved. Your threshold edits are still here."
     }
+  },
+  "export": {
+    "project": "Project",
+    "decisions": "Decisions",
+    "open": "Open",
+    "closed": "Closed",
+    "comments": "Comments",
+    "options": "Options: {{options}}",
+    "group": "Export",
+    "copy": "Copy as Markdown",
+    "download": "Download .md",
+    "preparing": "Preparing the export…",
+    "copied": "Copied {{name}} as Markdown.",
+    "downloaded": "Downloaded {{file}}.",
+    "copyFailed": "Couldn't copy to the clipboard. Use Download .md instead.",
+    "downloadFailed": "Couldn't download the file. Try Copy as Markdown instead."
   }
 }

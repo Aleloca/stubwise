@@ -6,8 +6,11 @@ import type { WeeklyBrief } from "../../data/types";
 import { DOCKED_PANEL_QUERY, DetailPanel } from "../../layout/useDetailPanel";
 import { useMediaQuery } from "../../layout/useMediaQuery";
 import { formatDate } from "../../notifications/time";
+import { markdownToText } from "../../domain/export";
 import { Markdown } from "../../tasks-ui/Markdown";
 import { PageError, PageSkeleton } from "../../tasks-ui/PageStates";
+import { useToast } from "../../tasks-ui/Toast";
+import { copyText } from "../../tasks-ui/exportFile";
 import { CloseIcon, ghostButton, smallSecondary } from "../task/parts";
 
 /**
@@ -22,6 +25,59 @@ export function GeneratedTag() {
     <span className="inline-flex h-5 shrink-0 items-center rounded-[4px] border border-dashed border-ink/45 px-1.5 text-xs font-medium whitespace-nowrap text-ink-muted">
       {t("overview.generated")}
     </span>
+  );
+}
+
+/**
+ * «Copy as text»: il brief in testo semplice, con in testa il periodo e
+ * «Generated text» — incollato altrove, dice ancora che l'ha scritto l'AI.
+ */
+function CopyBriefButton({ brief }: { brief: WeeklyBrief }) {
+  const { t, i18n } = useTranslation();
+  const toast = useToast();
+  const text = () =>
+    [
+      `${t("overview.brief.title")} · ${t("overview.brief.period", {
+        from: formatDate(brief.periodStart, i18n.language),
+        to: formatDate(brief.periodEnd, i18n.language),
+      })}`,
+      t("overview.generated"),
+      markdownToText(brief.summary),
+    ].join("\n\n");
+  return (
+    <button
+      type="button"
+      className={ghostButton}
+      onClick={() =>
+        void copyText(text()).then(
+          () => toast.show(t("overview.brief.copied")),
+          () => toast.error(t("overview.brief.copyFailed")),
+        )
+      }
+    >
+      <CopyIcon />
+      {t("overview.brief.copy")}
+    </button>
+  );
+}
+
+function CopyIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width={14}
+      height={14}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+      className="shrink-0"
+    >
+      <rect x="5.25" y="5.25" width="8" height="8" rx="1.5" />
+      <path d="M10.75 5.25V3.75c0-.83-.67-1.5-1.5-1.5h-5.5c-.83 0-1.5.67-1.5 1.5v5.5c0 .83.67 1.5 1.5 1.5h1.5" />
+    </svg>
   );
 }
 
@@ -72,9 +128,12 @@ export function BriefCard({ projectId }: { projectId: string }) {
     body = (
       <div className="flex flex-col items-start gap-1.5">
         <p className="line-clamp-2 max-w-[72ch] text-md text-ink-muted">{b.headline}</p>
-        <button type="button" className={`${ghostButton} -ml-2`} onClick={() => open(b)}>
-          {t("overview.brief.read")}
-        </button>
+        <div className="-ml-2 flex flex-wrap items-center gap-x-1">
+          <button type="button" className={ghostButton} onClick={() => open(b)}>
+            {t("overview.brief.read")}
+          </button>
+          <CopyBriefButton brief={b} />
+        </div>
       </div>
     );
   }
@@ -160,6 +219,9 @@ function BriefReader({
         <div className="flex flex-wrap items-center gap-2">
           <GeneratedTag />
           <span className="text-sm text-ink-muted">{t("overview.brief.generatedNote")}</span>
+        </div>
+        <div className="-ml-2">
+          <CopyBriefButton brief={b} />
         </div>
         <h2 className="text-xl font-semibold text-ink">
           {t("overview.brief.period", {

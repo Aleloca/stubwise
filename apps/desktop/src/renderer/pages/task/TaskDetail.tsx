@@ -20,6 +20,7 @@ import { LinksSection } from "./LinksSection";
 import { CloseIcon, ghostButton } from "./parts";
 import { StallControl } from "./StallControl";
 import { TaskHeader } from "./TaskHeader";
+import { TechnicalSection } from "./TechnicalSection";
 
 /**
  * Il pannello della task, montato dal layout su `?task=<CODE-n>` in ogni
@@ -159,6 +160,7 @@ function TaskBody({ task, onClose }: { task: Task; onClose: () => void }) {
       <StallControl task={task} stall={stall ?? null} canEdit={canEdit} />
       <DecisionSection task={task} canComment={canComment} />
       <DescriptionSection task={task} canEdit={canEdit} />
+      <TechnicalSection task={task} />
       <ClaudeSection task={task} canEdit={canEdit} />
       <LinksSection task={task} canEdit={canEdit} />
       <ActivityFeed task={task} canComment={canComment} />

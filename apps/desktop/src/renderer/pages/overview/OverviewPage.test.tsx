@@ -158,6 +158,54 @@ describe("OverviewPage — Where it stands", () => {
     expect(within(panel).getByText("Generated text")).toBeInTheDocument();
   });
 
+  it("«Copy as text» copia il brief senza markdown, col periodo e «Generated text»", async () => {
+    const writes: string[] = [];
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: (s: string) => (writes.push(s), Promise.resolve()) },
+    });
+    try {
+      await overview("AUD", "p-giulia");
+      const card = document.querySelector<HTMLElement>("[data-brief-card]")!;
+      await userEvent.click(await within(card).findByRole("button", { name: "Copy as text" }));
+      await waitFor(() => expect(writes).toHaveLength(1));
+      const text = writes[0]!;
+      expect(text.startsWith("Weekly brief · Week of")).toBe(true);
+      expect(text).toContain("Generated text");
+      expect(text).toContain("Public launch is four weeks out");
+      expect(text).not.toMatch(/^#/m);
+      expect(text).not.toContain("**");
+      expect(await screen.findByText("Brief copied as text.")).toBeInTheDocument();
+      // Il segno «Generated text» resta sulla carta.
+      expect(card).toHaveTextContent("Generated text");
+    } finally {
+      Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
+  it("«Copy as text» c'è anche nel pannello di lettura; se gli appunti mancano lo dice", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: () => Promise.reject(new Error("denied")) },
+    });
+    try {
+      await overview("STW", "p-giulia");
+      await userEvent.click(await screen.findByRole("button", { name: "Read the brief" }));
+      const panel = await screen
+        .findByRole("region", { name: "Weekly brief" })
+        .catch(() => screen.findByRole("dialog", { name: "Weekly brief" }));
+      await within(panel).findByText("What's blocking");
+      await userEvent.click(within(panel).getByRole("button", { name: "Copy as text" }));
+      expect(
+        await screen.findByText(
+          "Couldn't copy the brief. Open it and select the text to copy it by hand.",
+        ),
+      ).toBeInTheDocument();
+    } finally {
+      Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
   it("solo traguardi chiusi: «No open milestones»", async () => {
     for (const m of state.milestones) if (m.projectId === "prj-mkx") m.closed = true;
     await overview("MKX", "p-giulia");
@@ -258,6 +306,75 @@ describe("OverviewPage — Timeline e registro decisioni", () => {
       await userEvent.click(within(list.parentElement!).getByRole("button", { name: /^Show/ }));
     const row = document.querySelector<HTMLElement>('[data-decision="dl-mkx-1"]')!;
     expect(row).toHaveTextContent("Superseded by “Kitchens and living get separate creatives”");
+  });
+
+  it("«Superseded by» si cambia dal menu della voce; «None» la rende di nuovo valida", async () => {
+    await overview("MKX", "p-giulia");
+    const list = await screen.findByRole("list", { name: "Decision log" });
+    const row = await waitFor(() => list.querySelector<HTMLElement>('[data-decision="dl-mkx-2"]')!);
+    await userEvent.click(
+      within(row).getByRole("button", { name: "Actions for “Print stays in the media plan”" }),
+    );
+    const menu = await screen.findByRole("menu", {
+      name: "Actions for “Print stays in the media plan”",
+    });
+    expect(within(menu).getByRole("menuitemradio", { name: "None, still valid" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    // Sé stessa non c'è.
+    expect(
+      within(menu).queryByRole("menuitemradio", { name: "Print stays in the media plan" }),
+    ).toBeNull();
+    await userEvent.click(
+      within(menu).getByRole("menuitemradio", { name: "Restart from the showroom newsletter" }),
+    );
+    await waitFor(() =>
+      expect(row).toHaveTextContent("Superseded by “Restart from the showroom newsletter”"),
+    );
+    expect(state.decisionLog.find((d) => d.id === "dl-mkx-2")!.supersededById).toBe("dl-mkx-4");
+
+    await userEvent.click(
+      within(row).getByRole("button", { name: "Actions for “Print stays in the media plan”" }),
+    );
+    await userEvent.click(await screen.findByRole("menuitemradio", { name: "None, still valid" }));
+    await waitFor(() => expect(row).not.toHaveTextContent("Superseded"));
+  });
+
+  it("il menu della voce non offre le voci che chiuderebbero un giro", async () => {
+    await overview("MKX", "p-giulia");
+    const list = await screen.findByRole("list", { name: "Decision log" });
+    const row = await waitFor(() => list.querySelector<HTMLElement>('[data-decision="dl-mkx-3"]')!);
+    await userEvent.click(
+      within(row).getByRole("button", { name: /^Actions for “Kitchens and living/ }),
+    );
+    const menu = await screen.findByRole("menu", { name: /^Actions for “Kitchens and living/ });
+    // dl-mkx-1 è superata da dl-mkx-3: non può a sua volta superarla.
+    expect(
+      within(menu).queryByRole("menuitemradio", { name: "One campaign line for kitchens and living" }),
+    ).toBeNull();
+  });
+
+  it("senza decisions.record nessun menu sulle voci", async () => {
+    await overview("AUD", "p-giulia");
+    const list = await screen.findByRole("list", { name: "Decision log" });
+    await waitFor(() => expect(list.querySelector("[data-decision]")).not.toBeNull());
+    expect(within(list).queryByRole("button", { name: /^Actions for/ })).toBeNull();
+  });
+
+  it("un cambio non riuscito lo dice e lascia il registro com'era", async () => {
+    await overview("MKX", "p-giulia");
+    failNext("setDecisionSuperseded");
+    const list = await screen.findByRole("list", { name: "Decision log" });
+    const row = await waitFor(() => list.querySelector<HTMLElement>('[data-decision="dl-mkx-2"]')!);
+    await userEvent.click(within(row).getByRole("button", { name: /^Actions for/ }));
+    await userEvent.click(
+      await screen.findByRole("menuitemradio", { name: "Restart from the showroom newsletter" }),
+    );
+    expect(
+      await screen.findByText("Couldn't change it. The decision log is as it was."),
+    ).toBeInTheDocument();
+    expect(state.decisionLog.find((d) => d.id === "dl-mkx-2")!.supersededById).toBeNull();
   });
 
   it("un errore del registro resta nel registro: le ferme ci sono comunque", async () => {

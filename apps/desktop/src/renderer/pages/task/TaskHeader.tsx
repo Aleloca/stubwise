@@ -7,11 +7,13 @@ import {
   useProjects,
   useProjectStatuses,
 } from "../../data/queries";
-import type { Task, TaskPriority, TaskType } from "../../data/types";
+import type { Task } from "../../data/types";
 import { useViewer } from "../../data/viewer";
 import { weekLabel } from "../../domain/weeks";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
 import { PersonChip } from "../../tasks-ui/PersonChip";
+import { PRIORITIES, PriorityValue, TASK_TYPES } from "../../tasks-ui/PriorityMark";
+import { SourceMark } from "../../tasks-ui/SourceMark";
 import { StatusLabel } from "../../tasks-ui/StatusLabel";
 import { DueDate, formatDue } from "../../tasks-ui/TaskRow";
 import { useToast } from "../../tasks-ui/Toast";
@@ -27,15 +29,13 @@ import {
   useProjectMembers,
 } from "../tasks/pickers";
 import { CloseIcon, PlusIcon, ghostButton } from "./parts";
-
-export const TASK_TYPES: TaskType[] = ["feature", "bug", "activity"];
-export const PRIORITIES: TaskPriority[] = ["low", "medium", "high", "urgent"];
+import { TaskMoreMenu } from "./TaskMoreMenu";
 
 /** Il bottone-valore di un campo modificabile: il valore com'è, tinta e freccia al passaggio. */
-const fieldButton =
+export const fieldButton =
   "group/field -mx-1.5 flex h-8 max-w-[calc(100%+12px)] min-w-0 items-center gap-1.5 rounded-md px-1.5 text-sm text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 aria-expanded:bg-ink/8";
 
-const hoverChevron = (
+export const hoverChevron = (
   <span className="opacity-0 transition-opacity duration-[var(--duration-fast)] group-hover/field:opacity-100 group-aria-expanded/field:opacity-100">
     <Chevron />
   </span>
@@ -372,6 +372,13 @@ export function TaskHeader({
           <EyeIcon filled={following} />
           {following ? t("taskDetail.following") : t("taskDetail.follow")}
         </button>
+        <TaskMoreMenu
+          task={task}
+          project={project}
+          status={status}
+          department={department}
+          milestone={milestone}
+        />
         <button
           type="button"
           onClick={onClose}
@@ -610,34 +617,14 @@ export function TaskHeader({
         </MenuField>
 
         <LabelsField task={task} canEdit={canEdit} />
+
+        {(task.source && task.source !== "manual") || task.occurrences > 1 ? (
+          <Field label={t("taskDetail.source.label")}>
+            <SourceMark source={task.source ?? "manual"} occurrences={task.occurrences} />
+          </Field>
+        ) : null}
       </dl>
     </header>
-  );
-}
-
-/** La priorità: barre crescenti (forma) e il nome; «urgent» in rosso, col nome che lo dice. */
-export function PriorityValue({ priority }: { priority: TaskPriority }) {
-  const { t } = useTranslation();
-  const level = PRIORITIES.indexOf(priority) + 1;
-  const urgent = priority === "urgent";
-  return (
-    <span className={`flex items-center gap-1.5 ${urgent ? "font-semibold text-critical" : ""}`}>
-      <svg viewBox="0 0 14 14" width={14} height={14} aria-hidden="true" focusable="false" className="shrink-0">
-        {[0, 1, 2, 3].map((i) => (
-          <rect
-            key={i}
-            x={1 + i * 3.25}
-            y={10 - i * 2.5}
-            width={2.25}
-            height={3 + i * 2.5}
-            rx={0.5}
-            fill="currentColor"
-            opacity={i < level ? 1 : 0.2}
-          />
-        ))}
-      </svg>
-      {t(`taskDetail.priorities.${priority}`)}
-    </span>
   );
 }
 
