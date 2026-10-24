@@ -225,7 +225,8 @@ function failureOf(error: unknown): ChatClaudeFailure {
 
 /** La risposta che lavorava resta «fallita» con il motivo (nulla dopo un ripristino o uno stop). */
 function fail(reply: ChatMessage, error: unknown, gen: number): void {
-  if (!current(gen) || !working(reply)) return;
+  // Anche dopo l'eliminazione del canale: la risposta non c'è più, nulla da dire.
+  if (!current(gen) || !working(reply) || !messageById(reply.id)) return;
   patchChatMessage(reply.id, {
     claudeRun: { ...reply.claudeRun!, state: "failed", errorCode: failureOf(error) },
   });
@@ -511,6 +512,8 @@ function chatProposalPlace(me: string, messageId: string, proposalId: string): P
   if (!found) throw notFound();
   const { message: m, data } = found;
   if (m.kind !== "claude" || m.deletedAt !== null) throw notFound();
+  // Come rispondere alla domanda o «Try again»: chi è uscito dal canale non decide più.
+  if (!channelPermissions(me, data.ch).isMember) throw forbidden();
   const event = m.claudeEvents?.find((e) => e.type === "proposal" && e.proposalId === proposalId);
   const key = `proposal:chat:${data.ch.id}:${m.id}:${proposalId}`;
   const proposal = checkOpenProposal(

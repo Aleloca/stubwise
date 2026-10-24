@@ -1,3 +1,4 @@
+import { channelName } from "../../domain/chatLabel";
 import { PEOPLE } from "../seed/people";
 import { chatKey, copy, gate, now, PROPOSAL_EXPIRY, state, visibleProjectIds } from "../store";
 import type {
@@ -282,18 +283,19 @@ function redactClaudeEvents(
 
 /** Il nome del canale come lo si legge: `AUD · general`, `# announcements`, i nomi del DM. */
 export function channelLabel(ch: Channel, personId: string): string {
-  if (ch.kind === "project") {
-    const code = ch.projectId ? (state.projectsById.get(ch.projectId)?.code ?? "") : "";
-    return `${code} · ${ch.name}`;
-  }
-  if (ch.kind === "general") return `# ${ch.name}`;
-  const others = membersOf(ch).filter((id) => id !== personId);
-  return others.map((id) => PEOPLE.find((p) => p.id === id)?.name ?? id).join(", ");
+  return channelName(
+    { ...ch, memberIds: membersOf(ch) },
+    personId,
+    (id) => state.projectsById.get(id)?.code,
+    (id) => PEOPLE.find((p) => p.id === id)?.name,
+  ).label;
 }
 
 export function channelView(personId: string, ch: Channel): ChannelView {
   return {
     ...copy(ch),
+    // Chi vede un privato senza leggerlo (chi gestisce) ne sa nome e membri, non l'argomento.
+    topic: canReadChannel(personId, ch) ? ch.topic : "",
     memberIds: [...membersOf(ch)],
     ...channelPermissions(personId, ch),
     notifyLevel: notifyLevelOf(personId, ch.id),
@@ -593,7 +595,9 @@ export function chatQuestionsOf(personId: string): ChatQuestion[] {
   const out: ChatQuestion[] = [];
   const byChannel = messagesByChannel();
   for (const ch of state.channels) {
-    if (!canReadChannel(personId, ch)) continue;
+    // Come le domande di @Claude: solo dove può ancora rispondere (membro, non archiviato).
+    if (ch.archived || !canReadChannel(personId, ch)) continue;
+    if (!membersOf(ch).includes(personId)) continue;
     const data = channelData(ch, byChannel.get(ch.id) ?? []);
     for (const m of data.messages) {
       if (!m.asksReplyOf.includes(personId) || m.deletedAt !== null) continue;
@@ -634,7 +638,10 @@ export function chatClaudeQuestionsOf(personId: string): ChatClaudeQuestion[] {
     // Solo dove può ancora rispondere: membro di un canale non archiviato.
     if (!ch || ch.archived || !canReadChannel(personId, ch)) continue;
     if (!membersOf(ch).includes(personId)) continue;
-    for (const e of m.claudeEvents ?? []) {
+    // Il testo della domanda come nel thread (R-E9): un titolo che non vede più non esce.
+    const events = copy(m.claudeEvents ?? []);
+    redactClaudeEvents(personId, m, events);
+    for (const e of events) {
       if (e.type !== "question" || e.answer !== null) continue;
       out.push({
         id: `chat-claude:${m.id}:${e.questionId}`,

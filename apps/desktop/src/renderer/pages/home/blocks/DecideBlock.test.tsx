@@ -297,6 +297,9 @@ describe("Decide: domande della Chat", () => {
     const item = actions.closest("[data-chat-question]") as HTMLElement;
     expect(within(item).getByText("Marco Bellini asks you")).toBeInTheDocument();
     expect(within(item).getByText(ASK)).toBeInTheDocument();
+    // Il canale si legge come nella Chat: «STW · desktop-app», «·» compreso.
+    const channelLink = item.querySelector("a[href*='/chat/ch-stw-desktop']") as HTMLElement;
+    expect(channelLink.textContent).toBe("STW · desktop-app");
     await userEvent.click(within(actions).getByRole("button", { name: "Reply" }));
     await waitFor(() => expect(router.state.location.pathname).toBe("/chat/ch-stw-desktop"));
     expect(router.state.location.search).toMatchObject({ thread: m.id, message: m.id });

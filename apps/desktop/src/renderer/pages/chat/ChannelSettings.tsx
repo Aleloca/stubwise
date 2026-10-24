@@ -174,7 +174,7 @@ function SettingsBody({ channel, onClose }: { channel: ChannelView; onClose: () 
             value={channel.name}
             canEdit={channel.canEditInfo && !channel.isGeneral}
             onSave={(v) => save({ name: v })}
-            prefix={code ? `${code} · ` : "# "}
+            prefix={name.prefix}
             normalize={(v) => v.toLowerCase().replace(/\s+/g, "-")}
             validate={(v) => (CHANNEL_NAME_RE.test(v) ? null : t("chat.newChannel.nameRule"))}
           />

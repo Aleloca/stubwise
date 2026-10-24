@@ -142,7 +142,10 @@ export function DetailPanel({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || e.defaultPrevented || modalOpen(panel.current)) return;
+      // Maiusc+Esc è un'altra scorciatoia (nella Chat: segna tutto letto), non «chiudi».
+      if (e.key !== "Escape" || e.shiftKey || e.defaultPrevented || modalOpen(panel.current)) {
+        return;
+      }
       e.preventDefault();
       onClose();
     };

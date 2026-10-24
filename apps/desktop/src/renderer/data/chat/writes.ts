@@ -40,7 +40,7 @@ import type {
 } from "../types";
 import { can, viewerFor } from "../viewer";
 import { callClaudeIfAsked, haltReply, live } from "./claude";
-import { mentionKindFor, mentionsName, questionTargets } from "./mentions";
+import { directMentionIds, mentionKindFor, mentionsName, questionTargets } from "./mentions";
 import { PEOPLE } from "../seed/people";
 import {
   channelById,
@@ -161,14 +161,15 @@ const view = (me: string, ch: Channel): ChannelView => channelView(me, ch);
 /**
  * Le menzioni di un messaggio nuovo: una notifica a chi è nominato
  * direttamente (`@Nome Cognome`, o una domanda rivolta a lui) e legge il
- * canale, a qualunque livello di notifica; chi è nominato in un thread lo
- * segue (con la sola risposta di adesso da leggere). `@channel` e
- * `@reparto` non avvisano mai nessuno, a nessun livello (R-G6): contano solo
- * nel conteggio delle menzioni del canale (`channelCounts`).
+ * canale, membro o no, a qualunque livello di notifica; un membro nominato
+ * in un thread lo segue (con la sola risposta di adesso da leggere).
+ * `@channel` e `@reparto` non avvisano mai nessuno, a nessun livello
+ * (R-G6): contano solo nel conteggio delle menzioni del canale
+ * (`channelCounts`).
  */
 function deliverMentions(m: ChatMessage, ch: Channel): void {
   const members = membersOf(ch);
-  const candidates = new Set([...members, ...m.asksReplyOf]);
+  const candidates = new Set([...directMentionIds(m.text), ...m.asksReplyOf]);
   for (const personId of candidates) {
     const kind = mentionKindFor(m, personId, members);
     if (kind !== "direct" || !canReadChannel(personId, ch)) continue;
@@ -243,16 +244,49 @@ function stillNamed(ref: CitationRef, text: string): boolean {
 }
 
 /**
- * Le citazioni di un messaggio: quelle scelte nella casella che il testo
- * nomina ancora, più i codici scritti a mano («AUD-88») di task e richieste
- * che chi scrive vede — un codice diventa link da sé. Un codice che chi
- * scrive non vede resta testo. Alla modifica si ricalcolano dal testo nuovo:
- * un codice tolto dal testo non resta citato.
+ * Un oggetto che chi scrive può citare con «#»/«@»: le stesse regole del
+ * menu della casella (`searchMentions`) — il progetto lo vede, un file anche
+ * con `repos.view`. Il client non decide: una scelta che non vede non entra.
+ */
+function canCite(me: string, ref: CitationRef, visible: ReadonlySet<string>): boolean {
+  const seen = (projectId: string | undefined) => projectId !== undefined && visible.has(projectId);
+  switch (ref.kind) {
+    case "task":
+      return seen(state.tasksById.get(ref.id)?.projectId);
+    case "request":
+      return seen(state.requests.find((r) => r.id === ref.id)?.projectId);
+    case "project":
+      return visible.has(ref.id);
+    case "doc":
+      return seen(DOC_PAGES.find((d) => d.id === ref.id)?.projectId);
+    case "file": {
+      const projectId = REPO_FILES.find((f) => f.id === ref.id)?.projectId;
+      return seen(projectId) && can(viewerFor(me), "repos.view", projectId);
+    }
+    case "person":
+      return isHuman(ref.id);
+    case "milestone":
+      return seen(state.milestones.find((m) => m.id === ref.id)?.projectId);
+    case "release":
+      return seen(state.releasePages.find((r) => r.id === ref.id)?.projectId);
+    case "brief":
+      return seen(state.briefs.find((b) => b.id === ref.id)?.projectId);
+  }
+}
+
+/**
+ * Le citazioni di un messaggio: quelle scelte nella casella che chi scrive
+ * vede e che il testo nomina ancora, più i codici scritti a mano («AUD-88»)
+ * di task e richieste che chi scrive vede — un codice diventa link da sé.
+ * Un codice che chi scrive non vede resta testo. Alla modifica si
+ * ricalcolano dal testo nuovo: un codice tolto dal testo non resta citato.
  */
 function citationsOf(me: string, text: string, picked: readonly CitationRef[]): CitationRef[] {
-  const out = structuredClone(picked.filter((ref) => stillNamed(ref, text)));
-  const has = (ref: CitationRef) => out.some((r) => r.kind === ref.kind && r.id === ref.id);
   const visible = visibleProjectIds(me);
+  const out = structuredClone(
+    picked.filter((ref) => canCite(me, ref, visible) && stillNamed(ref, text)),
+  );
+  const has = (ref: CitationRef) => out.some((r) => r.kind === ref.kind && r.id === ref.id);
   for (const { code, kind } of findCodes(text)) {
     const id =
       kind === "task"
@@ -626,6 +660,10 @@ export async function deleteChannel(channelId: string): Promise<void> {
   const me = await gate("chat.deleteChannel");
   const ch = seen(me, channelId);
   if (!channelPermissions(me, ch).canDelete) throw forbidden();
+  // Le risposte di @Claude ancora al lavoro si fermano prima: nessun passo dopo.
+  for (const m of state.chatMessages) {
+    if (m.channelId === ch.id && m.kind === "claude" && live(m)) haltReply(m, "stopped");
+  }
   state.channels = state.channels.filter((c) => c.id !== ch.id);
   state.chatMessages = state.chatMessages.filter((m) => m.channelId !== ch.id);
   for (const [key, read] of state.chatReads) {

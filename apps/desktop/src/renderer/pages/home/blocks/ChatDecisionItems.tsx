@@ -7,6 +7,7 @@ import {
   useReachChatMessage,
 } from "../../../data/queries";
 import type { ChatClaudeQuestion, ChatQuestion, Person } from "../../../data/types";
+import { splitChannelLabel } from "../../../domain/chatLabel";
 import { relativeTime } from "../../../notifications/time";
 import { Avatar } from "../../../tasks-ui/PersonChip";
 import { useToast } from "../../../tasks-ui/Toast";
@@ -55,13 +56,14 @@ function Asker({
  * il nome («AUD · general»), un generale col suo «#», un DM coi nomi.
  */
 function ChannelName({ label }: { label: string }) {
-  const [code, ...rest] = label.split(" · ");
-  if (rest.length === 0) return <span className="min-w-0 truncate">{label}</span>;
+  const name = splitChannelLabel(label);
+  if (name.code === null) return <span className="min-w-0 truncate">{label}</span>;
   return (
-    <>
-      <span className="num shrink-0 text-xs font-semibold tracking-[0.02em] text-ink">{code}</span>
-      <span className="min-w-0 truncate">{rest.join(" · ")}</span>
-    </>
+    <span className="min-w-0 truncate">
+      <span className="num text-xs font-semibold tracking-[0.02em] text-ink">{name.code}</span>
+      {name.prefix.slice(name.code.length)}
+      {name.name}
+    </span>
   );
 }
 

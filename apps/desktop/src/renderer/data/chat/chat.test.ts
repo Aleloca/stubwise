@@ -18,7 +18,13 @@ import { queryKeys } from "../queries";
 import { setSessionPersonId } from "../session";
 import { familyOf, state, visibleProjectIds } from "../store";
 import type { ChannelRow, ChatMessageView } from "../types";
-import { grantProjectPermission, revokeInstancePermission } from "../viewer";
+import {
+  can,
+  grantProjectPermission,
+  grantProjectRole,
+  revokeInstancePermission,
+  viewerFor,
+} from "../viewer";
 import { canReadChannel, canSeeChannel } from "./visibility";
 
 const as = (personId: string) => setSessionPersonId(personId);
@@ -1006,5 +1012,71 @@ describe("chat: chiavi delle query per persona", () => {
     ];
     for (const key of keys) expect(key.slice(0, 2)).toEqual(["as", "p-giulia"]);
     expect(new Set(keys.map((k) => k[2])).size).toBe(keys.length);
+  });
+});
+
+describe("chat: revisione finale dell'area", () => {
+  it("chi gestisce un privato senza esserne membro ne legge nome e membri, mai l'argomento", async () => {
+    channel("ch-aud-pricing").topic = "Resellers keep 15% until March";
+    as("p-roberta");
+    expect(rowOf(await chat.listChannels(), "ch-aud-pricing")?.topic).toBe("");
+    expect((await chat.getChannel("ch-aud-pricing"))?.topic).toBe("");
+    as("p-laura");
+    expect((await chat.getChannel("ch-aud-pricing"))?.topic).toBe(
+      "Resellers keep 15% until March",
+    );
+  });
+
+  it("una menzione diretta avvisa chi legge il canale anche se non ne è membro; @channel no (R-G6)", async () => {
+    const ch = channel("ch-stw-desktop");
+    ch.memberIds = ch.memberIds.filter((id) => id !== "p-marco");
+    expect(canReadChannel("p-marco", ch)).toBe(true);
+    as("p-laura");
+    const direct = await chat.sendMessage("ch-stw-desktop", { text: "@Marco Bellini have a look" });
+    const group = await chat.sendMessage("ch-stw-desktop", { text: "@channel demo moved" });
+    as("p-marco");
+    const mine = await listNotifications();
+    expect(mine.find((n) => n.chatMessageId === direct.id)?.kind).toBe("chat.mention");
+    expect(mine.some((n) => n.chatMessageId === group.id)).toBe(false);
+  });
+
+  it("le scelte di «#» che chi scrive non vede non diventano citazioni", async () => {
+    as("p-sara");
+    const hidden = state.tasks.find((t) => t.code === "AUD-4")!;
+    expect(visibleProjectIds("p-sara").has(hidden.projectId)).toBe(false);
+    const sent = await chat.sendMessage("ch-announcements", {
+      text: "About AUD-4",
+      citations: [{ kind: "task", id: hidden.id }],
+    });
+    expect(sent.citations).toEqual([]);
+
+    as("p-laura");
+    // Contributor in STW: vede il progetto, non i repository.
+    grantProjectRole("p-laura", "prj-stw", "contributor");
+    expect(can(viewerFor("p-laura"), "repos.view", "prj-stw")).toBe(false);
+    const file = "stubwise:apps/server/src/services/stalled.ts";
+    const withFile = await chat.sendMessage("ch-stw-desktop", {
+      text: "See apps/server/src/services/stalled.ts",
+      citations: [{ kind: "file", id: file }],
+    });
+    expect(withFile.citations).toEqual([]);
+  });
+
+  it("«Da decidere» lascia fuori le domande dei canali archiviati e di quelli lasciati", async () => {
+    as("p-laura");
+    const inDesktop = await chat.sendMessage("ch-stw-desktop", { text: "@Marco Bellini ready?" });
+    const inReleases = await chat.sendMessage("ch-aud-releases", {
+      text: "@Marco Bellini shipped?",
+    });
+    as("p-marco");
+    let open = (await chat.listQuestions()).map((q) => q.messageId);
+    expect(open).toEqual(expect.arrayContaining([inDesktop.id, inReleases.id]));
+    await chat.leaveChannel("ch-stw-desktop");
+    as("p-laura");
+    await chat.archiveChannel("ch-aud-releases");
+    as("p-marco");
+    open = (await chat.listQuestions()).map((q) => q.messageId);
+    expect(open).not.toContain(inDesktop.id);
+    expect(open).not.toContain(inReleases.id);
   });
 });

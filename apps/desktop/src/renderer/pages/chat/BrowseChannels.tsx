@@ -13,6 +13,7 @@ import { inputClass } from "../../tasks-ui/Dialog";
 import { PageEmpty, PageError, PageSkeleton } from "../../tasks-ui/PageStates";
 import { useToast } from "../../tasks-ui/Toast";
 import { secondaryButton } from "../claude/conversation/parts";
+import type { ChannelName } from "../../domain/chatLabel";
 import { rowLabel } from "./ChatPage";
 import { useCanCreateChannel, useOpenChatDialog } from "./ChatColumn";
 import { HashGlyph, LockGlyph } from "./glyphs";
@@ -115,7 +116,7 @@ export function BrowseChannels() {
         ) : (
           <ul aria-label={t("chat.browse.title")} className="flex flex-col">
             {rows.map(({ row, name }) => (
-              <BrowseRow key={row.id} row={row} label={name.label} code={name.code} />
+              <BrowseRow key={row.id} row={row} name={name} />
             ))}
           </ul>
         )}
@@ -124,7 +125,8 @@ export function BrowseChannels() {
   );
 }
 
-function BrowseRow({ row, label, code }: { row: ChannelRow; label: string; code: string | null }) {
+function BrowseRow({ row, name }: { row: ChannelRow; name: ChannelName }) {
+  const { label, code, prefix } = name;
   const { t } = useTranslation();
   const join = useJoinChannel();
   const toast = useToast();
@@ -151,8 +153,7 @@ function BrowseRow({ row, label, code }: { row: ChannelRow; label: string; code:
         >
           {code && (
             <span className="num text-ink-muted">
-              {code}
-              {row.kind === "project" ? " · " : " "}
+              {prefix}
             </span>
           )}
           {row.name}

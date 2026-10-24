@@ -723,8 +723,9 @@ async function playChat(steps: ChatScriptStep[], alive: () => boolean): Promise<
         break;
       }
       case "say": {
+        // Come per «patch»: un messaggio sparito (canale eliminato) ferma lo script.
         const message = messageById(step.messageId);
-        if (!message) throw new Error("not_found");
+        if (!message) return;
         for (const [i, chunk] of chunksOf(step.text, message.id).entries()) {
           if (i > 0) {
             await pause();

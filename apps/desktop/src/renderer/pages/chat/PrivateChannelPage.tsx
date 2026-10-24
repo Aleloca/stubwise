@@ -46,8 +46,7 @@ export function PrivateChannelPage({ channel }: { channel: ChannelView }) {
           <span className="min-w-0 truncate">
             {name.code && (
               <span className="num text-ink-muted">
-                {name.code}
-                {channel.kind === "project" ? " · " : " "}
+                {name.prefix}
               </span>
             )}
             {name.name}

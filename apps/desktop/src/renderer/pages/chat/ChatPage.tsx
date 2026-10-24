@@ -8,9 +8,9 @@ import {
   useSessionPersonId,
 } from "../../data/queries";
 import type { ChannelRow, Person, Project } from "../../data/types";
+import { channelName, type ChannelName } from "../../domain/chatLabel";
 import { PageEmpty } from "../../tasks-ui/PageStates";
 import { BrowseChannels } from "./BrowseChannels";
-import { dmName } from "./ChatColumn";
 import { chatColumnModel, columnOrder, lastChannelOf } from "./column";
 import { ChatSearch } from "./ChatSearch";
 import { MentionsView } from "./MentionsView";
@@ -24,16 +24,15 @@ import { ThreadsView } from "./ThreadsView";
 export function rowLabel(
   row: Pick<ChannelRow, "kind" | "name" | "projectId" | "memberIds">,
   me: string,
-  projects: Project[] | undefined,
-  people: Person[] | undefined,
-): { code: string | null; name: string; label: string } {
-  if (row.kind === "project") {
-    const code = projects?.find((p) => p.id === row.projectId)?.code ?? "";
-    return { code, name: row.name, label: `${code} · ${row.name}` };
-  }
-  if (row.kind === "general") return { code: "#", name: row.name, label: `# ${row.name}` };
-  const names = dmName(row, me, people).full;
-  return { code: null, name: names, label: names };
+  projects: readonly Project[] | undefined,
+  people: readonly Person[] | undefined,
+): ChannelName {
+  return channelName(
+    row,
+    me,
+    (id) => projects?.find((p) => p.id === id)?.code,
+    (id) => people?.find((p) => p.id === id)?.name,
+  );
 }
 
 /**

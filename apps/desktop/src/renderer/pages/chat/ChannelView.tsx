@@ -58,6 +58,7 @@ import { MessageList } from "./MessageList";
 import { PrivateChannelPage } from "./PrivateChannelPage";
 import { BackToResults } from "./ChatSearch";
 import { SystemCard } from "./SystemCard";
+import { channelName, type ChannelName } from "../../domain/chatLabel";
 
 // Il canale: testata (nome, aperto/privato, membri, argomento, «People
 // only», «⋯»), il flusso e la casella — o, al posto della casella, la
@@ -202,20 +203,15 @@ function ChannelSkeleton() {
 }
 
 /** Il nome del canale: «AUD · general» (codice tabellare muted), «# announcements», i nomi del DM. */
-export function useChannelName(channel: ChannelData, me: string) {
+export function useChannelName(channel: ChannelData, me: string): ChannelName {
   const projects = useProjects().data;
   const people = usePeople().data;
-  if (channel.kind === "project") {
-    const code = projects?.find((p) => p.id === channel.projectId)?.code ?? "";
-    return { code, name: channel.name, label: `${code} · ${channel.name}` };
-  }
-  if (channel.kind === "general")
-    return { code: "#", name: channel.name, label: `# ${channel.name}` };
-  const names = channel.memberIds
-    .filter((id) => id !== me)
-    .map((id) => people?.find((p) => p.id === id)?.name ?? "")
-    .join(", ");
-  return { code: null, name: names, label: names };
+  return channelName(
+    channel,
+    me,
+    (id) => projects?.find((p) => p.id === id)?.code,
+    (id) => people?.find((p) => p.id === id)?.name,
+  );
 }
 
 function ChannelBody({
@@ -851,7 +847,7 @@ function ChannelHeader({
   onLeave,
 }: {
   channel: ChannelData;
-  name: { code: string | null; name: string; label: string };
+  name: ChannelName;
   peopleOnly: boolean;
   onPeopleOnly: () => void;
   onCopyLink: () => void;
@@ -887,8 +883,7 @@ function ChannelHeader({
           >
             {name.code && (
               <span className="num text-ink-muted">
-                {name.code}
-                {channel.kind === "project" ? " · " : " "}
+                {name.prefix}
               </span>
             )}
             {name.name}

@@ -63,8 +63,7 @@ export function ChannelTag({
     <span className="min-w-0 truncate text-sm text-ink-muted" title={name.label}>
       {name.code && (
         <span className="num font-semibold">
-          {name.code}
-          {row.kind === "project" ? " · " : " "}
+          {name.prefix}
         </span>
       )}
       {name.name}

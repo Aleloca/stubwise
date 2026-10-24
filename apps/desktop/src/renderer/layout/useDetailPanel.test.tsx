@@ -59,6 +59,18 @@ describe("DetailPanel — Esc", () => {
     await userEvent.keyboard("{Escape}");
     expect(panelEl()).not.toBeNull();
   });
+
+  it("Maiusc+Esc non lo chiude: è «segna tutto letto» della Chat", async () => {
+    setMatchMedia("(min-width: 1200px)", true);
+    render(<Harness />);
+    await userEvent.click(screen.getByRole("button", { name: "open" }));
+    act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", shiftKey: true, cancelable: true }),
+      );
+    });
+    expect(panelEl()).not.toBeNull();
+  });
 });
 
 describe("DetailPanel — fuoco in modalità sovrapposta", () => {

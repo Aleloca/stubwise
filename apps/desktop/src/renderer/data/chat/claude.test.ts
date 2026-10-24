@@ -553,4 +553,59 @@ describe("@Claude: righe d'azione e proposte per chi non vede (R-E9)", () => {
     const rows = JSON.stringify(hers.claudeEvents!.filter((e) => e.type === "action"));
     expect(rows).not.toContain(title);
   });
+
+  it("la domanda in «Da decidere» passa dalla stessa riscrittura del thread", async () => {
+    as("p-giulia");
+    const call = await chat.sendMessage("ch-announcements", { text: "@Claude assign AUD-4" });
+    const reply = await replyOf(call.id, "p-giulia");
+    const title = state.tasksById.get("t-aud-4")!.title;
+    const question = reply.claudeEvents!.find((e) => e.type === "question")!;
+    // Il testo registrato nomina il titolo; Giulia poi smette di vedere AUD.
+    if (question.type === "question") question.text = `Who should take AUD-4 ${title}?`;
+    const project = state.projectsById.get("prj-aud")!;
+    project.memberIds = project.memberIds.filter((id) => id !== "p-giulia");
+    expect(visibleProjectIds("p-giulia").has("prj-aud")).toBe(false);
+    const [listed] = await chat.listClaudeQuestions();
+    expect(listed?.text).toContain("AUD-4");
+    expect(listed?.text).not.toContain(title);
+  });
+});
+
+describe("@Claude: revisione finale dell'area", () => {
+  it("chi non è più membro non conferma, annulla né modifica una proposta", async () => {
+    as("p-giulia");
+    const call = await chat.sendMessage("ch-announcements", { text: "@Claude plan AUD-4 for W45" });
+    const reply = await replyOf(call.id, "p-giulia");
+    const proposal = proposalOf(reply)!;
+    expect(proposal.status).toBe("open");
+    await chat.leaveChannel("ch-announcements");
+    for (const attempt of [
+      () => chat.confirmChatProposal(reply.id, proposal.proposalId),
+      () => chat.cancelChatProposal(reply.id, proposal.proposalId),
+      () => chat.editChatProposal(reply.id, proposal.proposalId),
+      () => chat.completeEditedChatProposal(reply.id, proposal.proposalId, []),
+    ]) {
+      await expect(attempt()).rejects.toThrow("forbidden");
+    }
+    expect(proposalOf(byId(reply.id))?.status).toBe("open");
+  });
+
+  it("eliminare il canale mentre Claude risponde ferma la risposta, senza errori lasciati in giro", async () => {
+    const rejections: unknown[] = [];
+    const onRejection = (reason: unknown) => rejections.push(reason);
+    process.on("unhandledRejection", onRejection);
+    try {
+      setStreamLatency(5);
+      as("p-roberta");
+      const call = await chat.sendMessage("ch-announcements", { text: "@Claude explain AUD-4" });
+      const [reply] = claudeReplies(call.id);
+      await chat.deleteChannel("ch-announcements");
+      await expect(chat.whenClaudeIdle(reply!.id)).resolves.toBeUndefined();
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      expect(state.chatMessages.some((m) => m.channelId === "ch-announcements")).toBe(false);
+      expect(rejections).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onRejection);
+    }
+  });
 });

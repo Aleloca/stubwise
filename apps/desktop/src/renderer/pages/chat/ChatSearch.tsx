@@ -379,8 +379,7 @@ function SearchPage({ params }: { params: ChatSearchParams }) {
                       <span className="min-w-0 truncate" title={name?.label}>
                         {name?.code && (
                           <span className="num font-semibold text-ink">
-                            {name.code}
-                            {row?.kind === "project" ? " · " : " "}
+                            {name.prefix}
                           </span>
                         )}
                         <span className="text-ink-muted">{name?.name}</span>
@@ -913,8 +912,7 @@ function ChannelMenu({
               <span className="min-w-0 truncate" title={name.label}>
                 {name.code && (
                   <span className="num font-semibold">
-                    {name.code}
-                    {r.kind === "project" ? " · " : " "}
+                    {name.prefix}
                   </span>
                 )}
                 {name.name}
