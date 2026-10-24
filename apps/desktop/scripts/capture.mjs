@@ -232,6 +232,40 @@ async function main() {
         await context.close();
       }
     }
+    // Area 4: la Chat. Il thread con @Claude si apre dal suo conteggio di
+    // risposte; il privato lo guarda Roberta (full admin: nome e membri, mai i messaggi).
+    const AREA4 = [
+      ["channel", "/chat/ch-aud-releases", { persona: "Laura" }],
+      ["thread-claude", "/chat/ch-aud-general", {
+        persona: "Marco",
+        steps: async (p) => {
+          await p.getByText(/^\d+ (replies|reply|risposte|risposta)$/).last().click();
+          await p.waitForTimeout(500);
+        },
+      }],
+      ["private-roberta", "/chat/ch-aud-pricing", { persona: "Roberta" }],
+      ["channel-settings", "/chat/ch-aud-releases?settings=1", { persona: "Laura" }],
+      ["search", "/chat?view=search&q=invoice", { persona: "Marco", narrow: true }],
+      ["decide-chat", "/home", { persona: "Marco" }],
+    ];
+    for (const [name, hash, o] of AREA4) {
+      if (only && !only.test(name)) continue;
+      const variants = [];
+      for (const scheme of ["light", "dark"]) {
+        for (const lang of ["en", "it"]) variants.push([scheme, lang, WIDE, `a4-${name}-${scheme}-${lang}.png`]);
+      }
+      variants.push(["dark", "en", NARROW, `a4-${name}-narrow.png`]);
+      for (const [scheme, lang, viewport, file] of variants) {
+        const { page, context } = await open(scheme, viewport, hash, {
+          lang,
+          persona: o.persona,
+          viaHome: Boolean(o.persona),
+        });
+        if (o.steps) await o.steps(page);
+        await shot(page, file);
+        await context.close();
+      }
+    }
     if (only) return; // revisione mirata: salta il resto
 
     for (const scheme of ["light", "dark"]) {

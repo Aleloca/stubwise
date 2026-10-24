@@ -180,3 +180,37 @@ per task: `.superpowers/sdd/2026-10-24-desktop-area3-claude-plan/deferred-minors
 - Seme: l'esito delle decisioni sui piani si legge dal testo inglese (tre righe).
 - Verbi d'azione sconosciuti restano come scritti.
 - Contratto visivo: `seed:1d874331d6e60edc` della direzione «Catalogo numerato» non risulta a `impeccable concept-seed --check-seed` su questa macchina (eredità dell'ossatura): da verificare contro il roll originale.
+
+## Area 4 — minori aperti
+
+Chiuso dall'area 4 (Task 9): `useCodeCitations` ha il commento aggiornato
+(R-G5, Task 8) e Shift+Esc segna tutto come letto (`ChatColumn.tsx`, Task 6).
+I buchi di parità stanno in `area4-parity.md`, «Buchi». L'elenco per task:
+`.superpowers/sdd/2026-10-25-desktop-area4-chat-plan/progress.md`.
+
+### Da confermare con il maintainer
+
+- Palette ⌘K: il titolo del gruppo «More» / «Altro» (messaggi della Chat dopo
+  gli oggetti e i comandi) è parola dell'implementatore, da confermare (`i18n/locales/{en,it}.json`).
+- R-G6: avvisano **solo** le menzioni dirette `@persona`; `@canale` e `@reparto`
+  contano per il distintivo del canale ma non creano notifica (`data/chat/writes.ts`). Costo: chi non è nel canale può non vedere un `@canale`.
+
+### Dati e flusso (Task 1–3)
+
+- `data/api.ts`: un riformattamento prettier estraneo; nessun esempio seed di una risposta di Claude eliminata; il test `countsOf` rifà la logica dei non letti.
+- Eventi: il testo dell'evento porta il titolo della task (rischio di fuga se arrivasse una visibilità per task); ogni pezzo di Claude riemette e notifica; `channelOfStream` accetta qualunque cosa dopo `chat:`; un post scartato dice sempre «forbidden» (motivo fuorviante); gli eventi verso canali archiviati si scartano (voluto).
+- Test: il test di Roberta sull'eliminazione usa un `toThrow` nudo (stringere a `forbidden`); la risposta di Claude al chiamante conta come non letta per lui; il percorso dei 24 h è senza test in chat; gli enclitici («spiegami») non sono riconosciuti.
+
+### Canale, thread, colonna (Task 4–6)
+
+- Canale: la fascia «archiviato» non dice chi e quando (nessun campo nel modello); le bozze tengono solo il testo (i token scelti si perdono); la barra degli strumenti non ha roving; le reazioni disattivate non prendono il fuoco; il selettore non rende il fuoco; l'elenco `@` taglia prima di ordinare; misura di `ChatAvatar`; la pila di avatar è cambiata.
+- Annunci: due conteggi consecutivi uguali non riattivano la regione viva; il lotto in attesa si perde al cambio canale.
+- `#` nelle menzioni: la ricerca non è stata verificata contro un oracolo di esistenza (da rivedere).
+- Thread: la sovrapposizione della task non ha velo né trappola del fuoco come il pannello del thread; la domanda di Claude parte solo da «assegna senza persona»; le domande non scadono; `requestReplyFocus` può restare in sospeso; l'apertura automatica ignora la ricerca; da verificare che ogni via di rimozione di un membro passi da `forgetMember`.
+- Colonna: la conferma di «Elimina» non dice quanti messaggi (condivisa con chi gestisce senza leggere); l'atterraggio di `/chat` per Roberta non è su STW; il conteggio di «Mentions» è dei non letti mentre la vista mostra tutto; ⌥⇧ senza test; ⌘N di pagina riconosciuto da una regex di rotta (spostare il gestore di pagina in fase di cattura così `defaultPrevented` copre ogni proprietario).
+
+### Ricerca e menzioni (Task 7–8)
+
+- Ricerca: il clic con modificatore sui risultati viene inghiottito; `toItem` ha un'indentazione da sistemare.
+- Notifiche: il titolo ripete il canale (testo del Task 2); lo scatto della domanda di @Claude non è catturato (serve una chiamata dal vivo).
+
