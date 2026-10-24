@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import * as api from "../../data/api";
@@ -7,7 +7,7 @@ import { state } from "../../data/store";
 import { INITIAL_PINNED_CODES } from "../../data/seed/projects";
 import type { ChatMessage } from "../../data/types";
 import { renderRoute } from "../../test/renderRoute";
-import { chatColumnModel, clearChatColumnPrefs, rememberLastChannel } from "./column";
+import { chatColumnModel, clearChatColumnPrefs, hasNews, rememberLastChannel } from "./column";
 import { clearDrafts } from "./drafts";
 
 // La destinazione Chat (Task 6): la colonna per persona, l'atterraggio, la
@@ -117,7 +117,7 @@ describe("colonna della Chat: per persona", () => {
     expect(within(quiet).getAllByRole("link").length).toBeGreaterThan(0);
     // Rimontata, la colonna se lo ricorda.
     const code = quiet.getAttribute("data-project-group");
-    document.body.innerHTML = "";
+    cleanup();
     renderRoute("/chat/ch-announcements", "p-laura");
     const again = await chatNav();
     await waitFor(() =>
@@ -210,6 +210,93 @@ describe("sezione Chat del progetto", () => {
   it("un canale di un altro ambito aperto dal progetto si riapre nella Chat", async () => {
     const router = renderRoute("/p/AUD/chat/ch-announcements", "p-laura");
     await waitFor(() => expect(router.state.location.pathname).toBe("/chat/ch-announcements"));
+  });
+});
+
+describe("tastiera della Chat: mai mentre si scrive", () => {
+  it("nella casella ⌥↓ e Maiusc+Esc non fanno nulla; ⌘N apre «New message» anche fuori dalla Chat", async () => {
+    const router = renderRoute("/chat/ch-mkx-general", "p-giulia");
+    const nav = await chatNav();
+    await waitFor(() =>
+      expect(nav.querySelectorAll("[data-channel-row][data-unread]").length).toBeGreaterThan(0),
+    );
+    const unreadElsewhere = async () => {
+      setSessionPersonId("p-giulia");
+      const rows = await api.chat.listChannels();
+      return rows.filter((r) => r.isMember && r.unread > 0 && r.id !== "ch-mkx-general").length;
+    };
+    const before = await unreadElsewhere();
+    expect(before).toBeGreaterThan(0);
+    const composer = await screen.findByRole("combobox", { name: "Message MKX · general" });
+    composer.focus();
+    fireEvent.keyDown(composer, { key: "ArrowDown", altKey: true });
+    fireEvent.keyDown(composer, { key: "ArrowDown", altKey: true, shiftKey: true });
+    fireEvent.keyDown(composer, { key: "Escape", shiftKey: true });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(router.state.location.pathname).toBe("/chat/ch-mkx-general");
+    expect(await unreadElsewhere()).toBe(before);
+
+    cleanup();
+    const home = renderRoute("/home", "p-giulia");
+    await screen.findByRole("heading", { level: 1, name: "Home" });
+    fireEvent.keyDown(window, { key: "n", ctrlKey: true });
+    await waitFor(() => expect(searchOf(home).newMessage).toBe("1"));
+    expect(home.state.location.pathname).toBe("/home");
+  });
+});
+
+describe("gruppi per persona e «New channel» nel gruppo", () => {
+  it("cambiando «vedi come» un gruppo non eredita la scelta di chi guardava prima", async () => {
+    const user = userEvent.setup();
+    // STW: Laura e Giulia ne sono entrambe membri. Laura lo vuole aperto,
+    // Giulia chiuso; tornando a Laura (dati già in cache, nessun
+    // caricamento che rimonti la colonna) il gruppo è di nuovo aperto.
+    renderRoute("/chat/ch-announcements", "p-laura");
+    const toggle = async () => {
+      const nav = await chatNav();
+      return waitFor(() => {
+        const g = nav.querySelector<HTMLElement>('[data-project-group="STW"]');
+        expect(g).not.toBeNull();
+        return within(g!).getAllByRole("button")[0]!;
+      });
+    };
+    const setOpen = async (open: boolean) => {
+      const button = await toggle();
+      if ((button.getAttribute("aria-expanded") === "true") !== open) await user.click(button);
+      expect(button).toHaveAttribute("aria-expanded", String(open));
+    };
+    const viewAs = async (name: RegExp) => {
+      await user.click(screen.getByRole("button", { name: /^Profile and settings/ }));
+      await user.click(await screen.findByRole("radio", { name }));
+      await user.keyboard("{Escape}");
+    };
+    await setOpen(true);
+    await viewAs(/Giulia/);
+    await setOpen(false);
+    await viewAs(/Laura/);
+    await waitFor(async () => expect(await toggle()).toHaveAttribute("aria-expanded", "true"));
+    await viewAs(/Giulia/);
+    await waitFor(async () => expect(await toggle()).toHaveAttribute("aria-expanded", "false"));
+  });
+
+  it("il «+» del gruppo apre «New channel» con il progetto già scelto (solo con il permesso)", async () => {
+    const user = userEvent.setup();
+    const router = renderRoute("/chat/ch-announcements", "p-laura");
+    const nav = await chatNav();
+    await user.click(await within(nav).findByRole("button", { name: "New channel in AUD" }));
+    await waitFor(() => expect(searchOf(router).newChannel).toBe("AUD"));
+    expect(await screen.findByRole("dialog", { name: "New channel" })).toBeInTheDocument();
+    cleanup();
+    renderRoute("/chat/ch-announcements", "p-sara");
+    const sara = await chatNav();
+    await waitFor(() => expect(sara.querySelector("[data-project-group]")).not.toBeNull());
+    expect(within(sara).queryByRole("button", { name: /^New channel in / })).toBeNull();
+  });
+
+  it("un silenziato non chiede attenzione (hasNews)", () => {
+    const row = { notifyLevel: "muted", unread: 0, mentions: 2 } as Parameters<typeof hasNews>[0];
+    expect(hasNews(row)).toBe(false);
+    expect(hasNews({ ...row, notifyLevel: "all" })).toBe(true);
   });
 });
 

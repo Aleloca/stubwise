@@ -71,8 +71,12 @@ export function columnOrder(model: ChatColumnModel): ChannelRow[] {
   return [...model.projects.flatMap((g) => g.channels), ...model.company, ...model.dms];
 }
 
-/** Il canale da segnalare: non letti o menzioni (un silenziato con una menzione diretta sì). */
-export const hasNews = (row: ChannelRow): boolean => row.unread > 0 || row.mentions > 0;
+/**
+ * Il canale chiede attenzione: non letti o menzioni, mai da silenziato (non
+ * diventa grassetto, non apre il suo gruppo, ⌥⇧↑/⌥⇧↓ lo saltano).
+ */
+export const hasNews = (row: ChannelRow): boolean =>
+  row.notifyLevel !== "muted" && (row.unread > 0 || row.mentions > 0);
 
 // --- ciò che la colonna ricorda, per persona ---------------------------------
 //

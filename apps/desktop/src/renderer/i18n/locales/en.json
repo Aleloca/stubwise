@@ -2453,13 +2453,12 @@
       "notMember": "You're not in this channel.",
       "join": "Join channel",
       "joinFailed": "Couldn't join the channel. Try again.",
-      "cantRead": "This channel is private: only its members read its messages.",
       "archivedBandBy": "This channel was archived by {{name}} on {{date}}. You can read it, not write in it.",
       "details": "Details",
       "settings": "Settings",
-      "settingsOf": "{{name}}: channel settings",
       "membersOpen_one": "{{count}} member · settings",
-      "membersOpen_other": "{{count}} members · settings"
+      "membersOpen_other": "{{count}} members · settings",
+      "openSettings": "Opens the channel settings"
     },
     "flow": {
       "today": "Today",
@@ -2658,7 +2657,8 @@
       "unread_other": "{{count}} unread",
       "mentions_one": "{{count}} mention",
       "mentions_other": "{{count}} mentions",
-      "projectChannels": "{{code}} channels"
+      "projectChannels": "{{code}} channels",
+      "newChannelIn": "New channel in {{code}}"
     },
     "landing": {
       "emptyTitle": "You're not in any channel yet",

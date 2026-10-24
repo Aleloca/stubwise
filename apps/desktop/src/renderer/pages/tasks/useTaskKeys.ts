@@ -18,7 +18,7 @@ function codeOf(el: Element): string | null {
 }
 
 /** Si sta scrivendo: la lettera va al campo, non alla pagina. */
-function typing(target: EventTarget | null): boolean {
+export function typing(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable) return true;
   if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) return true;

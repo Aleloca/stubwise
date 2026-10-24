@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import * as api from "../../data/api";
@@ -143,6 +143,36 @@ describe("impostazioni del canale: con i permessi", () => {
     expect(searchOf(router).view).toBe("browse");
   });
 
+  it("il nome segue la regola del server già nel campo; l'h1 resta il nome del canale", async () => {
+    const user = userEvent.setup();
+    renderRoute("/chat/ch-aud-releases?settings=1", "p-laura");
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 1 })).toHaveAccessibleName("AUD · releases"),
+    );
+    const panel = await settings();
+    await user.click(await within(panel).findByRole("button", { name: /^Name: / }));
+    const input = within(panel).getByRole("textbox", { name: "Name" });
+    await user.clear(input);
+    await user.type(input, "bad_name!{Enter}");
+    expect(await within(panel).findByRole("alert")).toHaveTextContent(
+      "Lowercase letters, numbers and dashes, up to 40 characters.",
+    );
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(state.channels.find((c) => c.id === "ch-aud-releases")!.name).toBe("releases");
+  });
+
+  it("lasciare un privato porta via dalla pagina che non si vede più", async () => {
+    const user = userEvent.setup();
+    const router = renderRoute("/chat/ch-aud-pricing?settings=1", "p-laura");
+    const panel = await settings();
+    await user.click(await within(panel).findByRole("button", { name: "Leave channel" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/chat"));
+    expect(searchOf(router).view).toBe("browse");
+    expect(state.channels.find((c) => c.id === "ch-aud-pricing")!.memberIds).not.toContain(
+      "p-laura",
+    );
+  });
+
   it("il general del progetto: membri del progetto, non si archivia né si elimina", async () => {
     renderRoute("/chat/ch-aud-general?settings=1", "p-laura");
     const panel = await settings();
@@ -184,18 +214,17 @@ describe("Review Focus 1: Roberta (full admin) e la privacy", () => {
     expect(nav.querySelector('[data-channel-row="ch-aud-pricing"]')).toBeNull();
   });
 
-  it("nelle impostazioni del privato non può aggiungere se stessa", async () => {
-    const user = userEvent.setup();
+  it("nelle impostazioni del privato: né argomento né «Add people», come sulla pagina", async () => {
     renderRoute("/chat/ch-aud-pricing?settings=1", "p-roberta");
     const panel = await settings();
-    await user.click(await within(panel).findByRole("button", { name: "Add people" }));
-    const self = await waitFor(() => {
-      const el = panel.querySelector<HTMLElement>('[data-person-option="p-roberta"]');
-      expect(el).not.toBeNull();
-      return el!;
-    });
-    expect(within(self).getByRole("checkbox")).toBeDisabled();
-    expect(self).toHaveTextContent("Ask a member to add you");
+    await waitFor(() => expect(panel.querySelectorAll("[data-member]")).toHaveLength(3));
+    expect(within(panel).queryByText("Topic")).toBeNull();
+    expect(within(panel).queryByRole("button", { name: "Add people" })).toBeNull();
+    // Il livello dati lo rifiuta comunque (chat.test: «non aggiungersi»).
+    setSessionPersonId("p-roberta");
+    await expect(api.chat.inviteMembers("ch-aud-pricing", ["p-roberta"])).rejects.toThrow(
+      "forbidden",
+    );
   });
 
   it("i DM altrui: assenti dalla colonna e irraggiungibili dall'indirizzo", async () => {
@@ -210,7 +239,7 @@ describe("Review Focus 1: Roberta (full admin) e la privacy", () => {
     // Il suo DM con Giulia invece c'è.
     expect(nav.querySelector('[data-channel-row="dm-giulia-roberta"]')).not.toBeNull();
     // Nemmeno le impostazioni lo aprono.
-    document.body.innerHTML = "";
+    cleanup();
     renderRoute("/chat/dm-launch-week?settings=1", "p-roberta");
     const panel = await settings();
     expect(

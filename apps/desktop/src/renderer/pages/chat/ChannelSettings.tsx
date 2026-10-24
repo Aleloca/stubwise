@@ -54,6 +54,9 @@ import { PeoplePicker } from "./PeoplePicker";
 
 const SETTINGS_WIDTH = 400;
 
+/** La regola del nome di un canale, la stessa del livello dati. */
+const CHANNEL_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
 /** Un'azione distruttiva prima del suo dialogo: testo critico, mai pieno. */
 const dangerText =
   "inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-sm font-medium text-critical transition-colors duration-[var(--duration-fast)] ease-out hover:bg-critical/10 active:bg-critical/15";
@@ -173,6 +176,7 @@ function SettingsBody({ channel, onClose }: { channel: ChannelView; onClose: () 
             onSave={(v) => save({ name: v })}
             prefix={code ? `${code} · ` : "# "}
             normalize={(v) => v.toLowerCase().replace(/\s+/g, "-")}
+            validate={(v) => (CHANNEL_NAME_RE.test(v) ? null : t("chat.newChannel.nameRule"))}
           />
           <EditableField
             label={t("chat.settings.description")}
@@ -181,13 +185,15 @@ function SettingsBody({ channel, onClose }: { channel: ChannelView; onClose: () 
             onSave={(v) => save({ description: v })}
             empty={t("chat.settings.noDescription")}
           />
-          <EditableField
-            label={t("chat.settings.topic")}
-            value={channel.topic}
-            canEdit={channel.canEditTopic}
-            onSave={(v) => save({ topic: v })}
-            empty={t("chat.settings.noTopic")}
-          />
+          {channel.canRead && (
+            <EditableField
+              label={t("chat.settings.topic")}
+              value={channel.topic}
+              canEdit={channel.canEditTopic}
+              onSave={(v) => save({ topic: v })}
+              empty={t("chat.settings.noTopic")}
+            />
+          )}
           {!channel.canEditInfo && (
             <p className="text-xs text-ink-muted">
               {code
@@ -234,6 +240,7 @@ function EditableField({
   empty,
   prefix,
   normalize = (v) => v,
+  validate = () => null,
 }: {
   label: string;
   value: string;
@@ -242,12 +249,15 @@ function EditableField({
   empty?: string;
   prefix?: string;
   normalize?: (value: string) => string;
+  /** Il motivo per cui il valore non va (`null` = va): resta in riga, il campo aperto. */
+  validate?: (value: string) => string | null;
 }) {
   const { t } = useTranslation();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const [failed, setFailed] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [invalid, setInvalid] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const id = useId();
   useEffect(() => {
@@ -257,8 +267,16 @@ function EditableField({
   const commit = (next: string) => {
     if (next.trim() === value) {
       setEditing(false);
+      setInvalid(null);
       return;
     }
+    const problem = validate(next.trim());
+    if (problem) {
+      setInvalid(problem);
+      setEditing(true);
+      return;
+    }
+    setInvalid(null);
     setSaving(true);
     onSave(next.trim()).then(
       () => {
@@ -283,6 +301,7 @@ function EditableField({
       e.preventDefault();
       e.stopPropagation();
       setDraft(value);
+      setInvalid(null);
       setEditing(false);
     }
   };
@@ -298,12 +317,16 @@ function EditableField({
           aria-labelledby={id}
           value={draft}
           disabled={saving}
-          onChange={(e) => setDraft(normalize(e.target.value))}
+          aria-invalid={invalid ? true : undefined}
+          onChange={(e) => {
+            setDraft(normalize(e.target.value));
+            setInvalid(null);
+          }}
           onKeyDown={onKeyDown}
           onBlur={() => {
             if (!saving) commit(draft);
           }}
-          className={`${inputClass} h-8 py-0`}
+          className={`${inputClass} h-8 py-0 ${invalid ? "border-critical" : ""}`}
         />
       ) : canEdit ? (
         <button
@@ -335,6 +358,11 @@ function EditableField({
           ) : (
             empty
           )}
+        </p>
+      )}
+      {invalid && (
+        <p role="alert" className="text-xs text-critical">
+          {invalid}
         </p>
       )}
       {failed !== null && (
@@ -488,6 +516,8 @@ export function MembersSection({
       action={
         !readOnly &&
         channel.canInvite &&
+        // Chi gestisce un privato senza leggerlo vede chi c'è, non lo popola.
+        channel.canRead &&
         !adding && (
           <button type="button" className={ghostButton} onClick={() => setAdding(true)}>
             {t("chat.settings.addPeople")}
@@ -648,7 +678,18 @@ function DangerZone({
   const toast = useToast();
   const leave = useLeaveChannel();
   const join = useJoinChannel();
+  const navigate = useNavigate();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
   const dm = channel.kind === "dm";
+  // Da un privato o da un gruppo non si rientra da soli: la pagina non c'è più.
+  const goAway = () => {
+    const code = /^\/p\/([^/]+)\/chat\//.exec(pathname)?.[1];
+    void navigate(
+      code
+        ? { to: "/p/$code/$section", params: { code, section: "chat" } }
+        : { to: "/chat", search: { view: "browse" } },
+    );
+  };
   const anything =
     channel.canLeave || channel.canArchive || channel.canDelete || channel.isGeneral || dm;
   if (!anything) return null;
@@ -661,7 +702,8 @@ function DangerZone({
           onClick={() =>
             leave.mutate(channel.id, {
               onSuccess: () => {
-                onClose();
+                if (dm || channel.visibility === "private") goAway();
+                else onClose();
                 // Un aperto si ritrova con «Join»; da un privato non si rientra da soli.
                 toast.show(t("chat.settings.left", { name: label }), {
                   ...(channel.visibility === "open" && !dm

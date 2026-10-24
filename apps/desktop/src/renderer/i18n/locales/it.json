@@ -2453,13 +2453,12 @@
       "notMember": "Non fai parte di questo canale.",
       "join": "Entra nel canale",
       "joinFailed": "Non è stato possibile entrare nel canale. Riprova.",
-      "cantRead": "Questo canale è privato: solo i suoi membri ne leggono i messaggi.",
       "archivedBandBy": "Questo canale è stato archiviato da {{name}} il {{date}}. Puoi leggerlo, non scriverci.",
       "details": "Dettagli",
       "settings": "Impostazioni",
-      "settingsOf": "{{name}}: impostazioni del canale",
       "membersOpen_one": "{{count}} membro · impostazioni",
-      "membersOpen_other": "{{count}} membri · impostazioni"
+      "membersOpen_other": "{{count}} membri · impostazioni",
+      "openSettings": "Apre le impostazioni del canale"
     },
     "flow": {
       "today": "Oggi",
@@ -2658,7 +2657,8 @@
       "unread_other": "{{count}} non letti",
       "mentions_one": "{{count}} menzione",
       "mentions_other": "{{count}} menzioni",
-      "projectChannels": "Canali di {{code}}"
+      "projectChannels": "Canali di {{code}}",
+      "newChannelIn": "Nuovo canale in {{code}}"
     },
     "landing": {
       "emptyTitle": "Non sei ancora in nessun canale",

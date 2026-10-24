@@ -14,6 +14,7 @@ import type { ChannelRow, Person } from "../../data/types";
 import { can, useViewer } from "../../data/viewer";
 import { ONE_LINE, columnItemClass } from "../../layout/ProjectColumn";
 import { hasModKey, shortcutLabel } from "../../platform/platform";
+import { typing } from "../tasks/useTaskKeys";
 import {
   chatColumnModel,
   columnOrder,
@@ -189,32 +190,30 @@ function Count({ value }: { value: number }) {
 
 /**
  * La tastiera della Chat, dove c'è la sua colonna (destinazione o sezione
- * del progetto): ⌘N nuovo messaggio, ⌥↑/⌥↓ canale precedente/successivo,
- * ⌥⇧↑/⌥⇧↓ non letto precedente/successivo, Maiusc+Esc segna tutto letto.
+ * del progetto): ⌥↑/⌥↓ canale precedente/successivo, ⌥⇧↑/⌥⇧↓ non letto
+ * precedente/successivo, Maiusc+Esc segna tutto letto. Mai mentre si
+ * scrive (casella, campi, ricerche): lì ⌥↑/⌥↓ muovono il cursore e Maiusc+Esc
+ * non deve segnare letto nulla. ⌘N (nuovo messaggio) è globale (`useShortcuts`).
  */
 export function useChatKeys(order: readonly ChannelRow[], hrefOf: (row: ChannelRow) => ChannelTo) {
   const navigate = useNavigate();
-  const openDialog = useOpenChatDialog();
   const markRead = useMarkChannelRead();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const current = channelIdOf(pathname);
-  const latest = useRef({ order, hrefOf, current, openDialog, markRead, navigate });
-  latest.current = { order, hrefOf, current, openDialog, markRead, navigate };
+  const latest = useRef({ order, hrefOf, current, markRead, navigate });
+  latest.current = { order, hrefOf, current, markRead, navigate };
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.defaultPrevented) return;
       // Un dialogo aperto (palette, nuovo canale…) tiene i suoi tasti.
       if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
-      const { order, hrefOf, current, openDialog, markRead, navigate } = latest.current;
-      if (hasModKey(e) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "n") {
-        e.preventDefault();
-        openDialog("newMessage");
-        return;
-      }
+      if (typing(e.target)) return;
+      const { order, hrefOf, current, markRead, navigate } = latest.current;
       if (e.key === "Escape" && e.shiftKey && !e.altKey && !hasModKey(e)) {
+        // Tutto letto: anche un silenziato con una menzione diretta.
         for (const row of order) {
-          if (hasNews(row)) markRead.mutate({ channelId: row.id });
+          if (row.unread > 0 || row.mentions > 0) markRead.mutate({ channelId: row.id });
         }
         return;
       }
@@ -360,7 +359,8 @@ export function ChatColumn() {
           <ul aria-labelledby={channelsId} className="flex flex-col gap-px">
             {model.projects.map((group) => (
               <ProjectGroupItem
-                key={group.project.id}
+                // Per persona: cambiando «vedi come» ogni gruppo rilegge la sua scelta.
+                key={`${me}:${group.project.id}`}
                 group={group}
                 me={me}
                 people={people}
@@ -446,8 +446,11 @@ function ProjectGroupItem({
   current: string | undefined;
 }) {
   const { t } = useTranslation();
+  const { viewer } = useViewer();
+  const openDialog = useOpenChatDialog();
   const { project } = group;
   const news = group.channels.some(hasNews);
+  const canCreate = can(viewer, "chat.channels.create", project.id);
   const [chosen, setChosen] = useState<boolean | undefined>(() => groupOpenOf(me, project.id));
   const holdsCurrent = group.channels.some((c) => c.id === current);
   const open = chosen ?? (news || holdsCurrent);
@@ -461,7 +464,7 @@ function ProjectGroupItem({
     .filter(Boolean)
     .join(", ");
   return (
-    <li data-project-group={project.code}>
+    <li data-project-group={project.code} className="group/project relative">
       <button
         type="button"
         aria-expanded={open}
@@ -473,7 +476,7 @@ function ProjectGroupItem({
           setChosen(next);
           rememberGroupOpen(me, project.id, next);
         }}
-        className="flex h-7 w-full min-w-0 items-center gap-1.5 rounded-md px-2.5 text-left text-sm transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6"
+        className={`flex h-7 w-full min-w-0 items-center gap-1.5 rounded-md px-2.5 text-left text-sm transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 ${canCreate ? "pr-8" : ""}`}
       >
         <DisclosureGlyph open={open} />
         <span
@@ -495,6 +498,18 @@ function ProjectGroupItem({
           />
         )}
       </button>
+      {canCreate && (
+        // «New channel» del progetto, già scelto (shape chat-manage.md §3).
+        <button
+          type="button"
+          aria-label={t("chat.column.newChannelIn", { code: project.code })}
+          title={t("chat.column.newChannelIn", { code: project.code })}
+          onClick={() => openDialog("newChannel", project.code)}
+          className="absolute top-0.5 right-1 grid size-6 place-items-center rounded-md text-ink-muted opacity-0 transition-opacity duration-[var(--duration-fast)] ease-out group-hover/project:opacity-100 hover:bg-ink/6 hover:text-ink focus-visible:opacity-100"
+        >
+          <PlusGlyph size={12} />
+        </button>
+      )}
       {open && (
         <ul id={listId} className="flex flex-col gap-px">
           {group.channels.map((row) => (

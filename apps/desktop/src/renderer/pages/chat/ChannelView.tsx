@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -653,9 +654,7 @@ function ChannelBody({
             leave.mutate(channel.id, { onError: () => toast.error(t("chat.channel.leaveFailed")) })
           }
         />
-        {!channel.canRead ? (
-          <p className="px-8 py-6 text-md text-ink-muted">{t("chat.channel.cantRead")}</p>
-        ) : query.isError && !page ? (
+        {query.isError && !page ? (
           <div className="px-4">
             <PageError message={t("chat.channel.error")} onRetry={() => void query.refetch()} />
           </div>
@@ -828,6 +827,7 @@ function ChannelHeader({
   const { t } = useTranslation();
   const people = usePeople().data;
   const openSettings = useOpenChannelSettings();
+  const settingsHintId = useId();
   const shown = channel.memberIds.slice(0, 3);
   const meta = [
     channel.archived
@@ -847,7 +847,8 @@ function ChannelHeader({
           <button
             type="button"
             onClick={openSettings}
-            aria-label={t("chat.channel.settingsOf", { name: name.label })}
+            title={t("chat.channel.settings")}
+            aria-describedby={settingsHintId}
             className="max-w-full truncate rounded-md text-left transition-colors duration-[var(--duration-fast)] ease-out hover:text-ink/80"
           >
             {name.code && (
@@ -859,6 +860,10 @@ function ChannelHeader({
             {name.name}
           </button>
         </h1>
+        {/* Fuori dall'h1: il titolo resta il solo nome del canale. */}
+        <span id={settingsHintId} className="sr-only">
+          {t("chat.channel.openSettings")}
+        </span>
         <div className="flex shrink-0 items-center gap-2 pt-1">
           <button
             type="button"
