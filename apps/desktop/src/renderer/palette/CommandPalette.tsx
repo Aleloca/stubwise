@@ -12,12 +12,18 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import {
   useChatChannels,
+  useChatSearch,
   usePeople,
   useProjects,
+  useReachChatMessage,
   useSavedFilters,
   useSearch,
 } from "../data/queries";
 import { rowLabel } from "../pages/chat/ChatPage";
+import { Highlighted } from "../pages/chat/ChatSearch";
+import { fold, MIN_QUERY, plainText, searchWords } from "../pages/chat/search";
+import { formatDate } from "../notifications/time";
+import { useToast } from "../tasks-ui/Toast";
 import type { SearchResult } from "../data/types";
 import { VIEW_AS_PERSONAS, useViewer } from "../data/viewer";
 import { DeptLegend, DeptStrip, useDepartmentName } from "../layout/DeptStrip";
@@ -42,7 +48,8 @@ type GroupId =
   | "actions"
   | "viewAs"
   | "filters"
-  | "channels";
+  | "channels"
+  | "messages";
 
 interface Item {
   key: string;
@@ -58,6 +65,8 @@ interface Item {
   fromSearch?: boolean;
   /** «Ask Claude: “…”»: c'è per ogni testo, quindi non conta come risultato trovato. */
   fallback?: boolean;
+  /** Un messaggio della Chat: chi, dove e quando sopra, il testo con le parole trovate sotto. */
+  message?: { meta: string; text: string; words: string[] };
   select(): void;
 }
 
@@ -143,7 +152,7 @@ export function CommandPalette() {
 }
 
 function PaletteDialog({ onClose }: { onClose: () => void }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const router = useRouter();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { viewer, setPersona } = useViewer();
@@ -156,9 +165,18 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   const debounced = useDebounced(query, SEARCH_DEBOUNCE_MS);
   const searching = step === "root" && debounced.trim().length > 0;
   const search = useSearch(step === "root" ? debounced : "");
+  // I messaggi della Chat (da 2 caratteri): la stessa ricerca della pagina dei risultati.
+  const chatQuery = step === "root" ? debounced.trim() : "";
+  const chatSearching = chatQuery.length >= MIN_QUERY;
+  const chatSearch = useChatSearch(chatQuery);
+  const reachMessage = useReachChatMessage();
+  const toast = useToast();
   const savedFilters = useSavedFilters();
-  // «Go to channel…»: i canali si leggono solo in quel passo.
-  const channels = useChatChannels({ scope: "all" }, { enabled: step === "channels" });
+  // I canali si leggono per «Go to channel…» e, da 2 caratteri, per il gruppo «Channels».
+  const channels = useChatChannels(
+    { scope: "all" },
+    { enabled: step === "channels" || chatSearching },
+  );
   const projectList = useProjects().data;
   const people = usePeople().data;
   const input = useRef<HTMLInputElement>(null);
@@ -277,6 +295,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       viewAs: [],
       filters: [],
       channels: [],
+      messages: [],
     };
     if (searching) {
       for (const r of search.data ?? []) {
@@ -294,6 +313,71 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
           },
         });
       }
+    }
+    // Dopo gli oggetti, la Chat: i canali leggibili il cui nome corrisponde,
+    // poi i messaggi (al più 5) e «Search all messages for “…”».
+    if (chatSearching) {
+      const needle = fold(chatQuery);
+      byGroup.channels = (channels.data ?? [])
+        .filter((c) => c.canRead && c.kind !== "dm")
+        .map((c) => ({ c, name: rowLabel(c, viewer.personId, projectList, people) }))
+        .filter(({ name }) => fold(name.label).includes(needle))
+        .sort((a, b) => Number(a.c.archived) - Number(b.c.archived) || a.name.label.localeCompare(b.name.label))
+        .slice(0, GROUP_LIMIT)
+        .map(({ c, name }): Item => ({
+          key: `chat-channel-${c.id}`,
+          ...(name.code ? { code: name.code } : {}),
+          label: c.kind === "project" ? c.name : name.name,
+          detail: c.archived ? t("chat.search.archived") : t("palette.goToChannel"),
+          fromSearch: true,
+          select: () => {
+            router.history.push(`/chat/${c.id}`);
+            onClose();
+          },
+        }));
+      const words = searchWords(chatQuery);
+      const rows = channels.data;
+      byGroup.messages = (chatSearch.data ?? []).slice(0, GROUP_LIMIT).map((hit): Item => {
+        const m = hit.message;
+        const row = rows?.find((r) => r.id === hit.channelId);
+        const channel = row ? rowLabel(row, viewer.personId, projectList, people).label : "";
+        const author = m.authorId
+          ? (people?.find((p) => p.id === m.authorId)?.name ?? "")
+          : t("chat.views.system");
+        const meta = t("palette.messageMeta", {
+          name: author,
+          channel,
+          date: formatDate(m.createdAt, i18n.language),
+        });
+        const text = plainText(m.text);
+        return {
+          key: `message-${m.id}`,
+          label: `${meta}: ${text}`,
+          message: { meta, text, words },
+          fromSearch: true,
+          select: () => {
+            onClose();
+            void reachMessage(m.id).then((found) => {
+              if (!found) return toast.error(t("chat.search.unavailable"));
+              const at = found.message;
+              router.history.push(
+                at.threadOf
+                  ? `/chat/${found.channelId}?thread=${at.threadOf}&message=${at.id}`
+                  : `/chat/${found.channelId}?message=${at.id}`,
+              );
+            });
+          },
+        };
+      });
+      byGroup.messages.push({
+        key: "messages-all",
+        label: t("palette.searchAllMessages", { query: chatQuery }),
+        fallback: true,
+        select: () => {
+          router.history.push(`/chat?view=search&q=${encodeURIComponent(chatQuery)}`);
+          onClose();
+        },
+      });
     }
     // Un comando che cita il testo («Ask Claude: “…”») va in fondo quando
     // il testo non è il suo nome: prima ciò che il testo ha davvero trovato.
@@ -314,7 +398,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         shortcut: cmd.shortcut && shortcutLabel(cmd.shortcut),
         select: run(cmd, quoting(cmd) ? query.trim() : undefined),
       }));
-    return (["projects", "tasks", "requests", "people", "actions"] as const)
+    return (["projects", "tasks", "requests", "people", "channels", "messages", "actions"] as const)
       .map((id) => ({ id, items: byGroup[id] }))
       .filter((g) => g.items.length > 0);
   }, [
@@ -322,6 +406,12 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     query,
     searching,
     search.data,
+    chatQuery,
+    chatSearching,
+    chatSearch.data,
+    reachMessage,
+    toast,
+    i18n.language,
     viewer,
     setPersona,
     setPreference,
@@ -347,8 +437,15 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     document.getElementById(activeOptionId)?.scrollIntoView?.({ block: "nearest" });
   }, [activeOptionId]);
 
+  const chatSettled =
+    !chatSearching ||
+    (chatSearch.isSuccess && !chatSearch.isPlaceholderData && !chatSearch.isFetching);
   const settled =
-    query === debounced && search.isSuccess && !search.isPlaceholderData && !search.isFetching;
+    query === debounced &&
+    search.isSuccess &&
+    !search.isPlaceholderData &&
+    !search.isFetching &&
+    chatSettled;
   const showEmpty =
     step === "root" && searching && settled && items.every((item) => item.fallback);
   const showEmptySecond = step !== "root" && items.length === 0;
@@ -356,7 +453,10 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   // Finché la query digitata non è quella cercata, o i dati sono quelli della
   // ricerca precedente, le righe di ricerca sono vecchie: si vedono (niente
   // sfarfallio) ma non si scelgono. Le azioni sono sempre valide.
-  const stale = step === "root" && searching && (query !== debounced || search.isPlaceholderData);
+  const stale =
+    step === "root" &&
+    searching &&
+    (query !== debounced || search.isPlaceholderData || chatSearch.isPlaceholderData);
   const choose = (item: Item | undefined) => {
     if (!item || (stale && item.fromSearch)) return;
     item.select();
@@ -482,6 +582,39 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                 {group.items.map((item) => {
                   const selected = item === activeItem;
                   const dimmed = stale && item.fromSearch;
+                  if (item.message) {
+                    // Un messaggio: 52px, chi/dove/quando sopra, il testo con le parole trovate sotto.
+                    return (
+                      <div
+                        key={item.key}
+                        id={optionId(item.key)}
+                        role="option"
+                        aria-selected={selected}
+                        aria-label={item.label}
+                        data-palette-message
+                        onMouseMove={() => {
+                          if (!selected) setActive(items.indexOf(item));
+                        }}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => choose(item)}
+                        className={`relative mx-1.5 flex h-13 cursor-pointer items-center gap-3 rounded-md px-2.5 text-ink transition-opacity duration-[var(--duration-fast)] aria-selected:bg-ink/8 ${
+                          dimmed ? "opacity-50" : ""
+                        }`}
+                      >
+                        <span className="flex min-w-0 flex-1 flex-col">
+                          <span className="truncate text-xs text-ink-muted">{item.message.meta}</span>
+                          <span className="truncate text-md">
+                            <Highlighted text={item.message.text} words={item.message.words} />
+                          </span>
+                        </span>
+                        <span
+                          className={`shrink-0 text-ink-muted ${selected ? "visible" : "invisible"}`}
+                        >
+                          <EnterIcon />
+                        </span>
+                      </div>
+                    );
+                  }
                   return (
                     <div
                       key={item.key}
@@ -503,6 +636,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                       }`}
                     >
                       {group.id !== "actions" &&
+                        group.id !== "messages" &&
                         group.id !== "viewAs" &&
                         group.id !== "filters" &&
                         (group.id !== "channels" || item.code) && (

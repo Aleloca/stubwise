@@ -530,8 +530,10 @@ export interface ThreadWithNews {
 export interface ChatMessageHit {
   channelId: string;
   message: ChatMessageView;
-  /** Il messaggio precedente nello stesso flusso (contesto), se c'è. */
+  /** Il messaggio vivo precedente nello stesso flusso (contesto), se c'è. */
   context: ChatMessageView | null;
+  /** Una risposta: la radice del suo thread («in a thread: …»), nello stesso canale. */
+  root?: ChatMessageView | null;
 }
 
 export interface ChatSearchFilters {

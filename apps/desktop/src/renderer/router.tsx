@@ -31,6 +31,7 @@ import { ClaudePage, ConversationPage } from "./pages/claude/ClaudePage";
 import { ChannelView, chatHref, type ChannelHref } from "./pages/chat/ChannelView";
 import { ChatPage } from "./pages/chat/ChatPage";
 import { rememberLastChannel } from "./pages/chat/column";
+import { SEARCH_PARAM_KEYS, isSearchParamValue } from "./pages/chat/search";
 import { useChatChannel } from "./data/queries";
 import { useEffect } from "react";
 
@@ -67,6 +68,16 @@ export interface AppSearch {
   newMessage?: string;
   /** Chat: il dialogo «New channel» (`1`, `company` o il codice del progetto). */
   newChannel?: string;
+  /** Chat → ricerca: la query e i filtri (`pages/chat/search.ts`). */
+  q?: string;
+  in?: string;
+  by?: string;
+  when?: string;
+  since?: string;
+  until?: string;
+  att?: string;
+  cit?: string;
+  ppl?: string;
 }
 
 const SEARCH_KEYS = [
@@ -88,6 +99,7 @@ const SEARCH_KEYS = [
   "settings",
   "newMessage",
   "newChannel",
+  ...SEARCH_PARAM_KEYS,
 ] as const;
 
 /**
@@ -108,7 +120,9 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
     if (typeof value !== "string") continue;
     // `request` e `view` dipendono dal percorso: qui si controlla la forma, la route decide.
     const shapeOk =
-      key === "request" ||
+      (SEARCH_PARAM_KEYS as readonly string[]).includes(key)
+        ? isSearchParamValue(key, value)
+        : key === "request" ||
       key === "brief" ||
       key === "dept" ||
       key === "thread" ||

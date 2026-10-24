@@ -117,7 +117,8 @@
       "actions": "Azioni",
       "viewAs": "Vedi come",
       "filters": "Filtri",
-      "channels": "Canali"
+      "channels": "Canali",
+      "messages": "Messaggi"
     },
     "noResults": "Nessun risultato per «{{query}}»",
     "noResultsHint": "Prova con un codice come {{example}} o con un nome.",
@@ -148,7 +149,10 @@
       "goToChannel": "Vai al canale…"
     },
     "filterPlaceholder": "Scegli un filtro",
-    "channelPlaceholder": "Vai a un canale o a un messaggio diretto…"
+    "channelPlaceholder": "Vai a un canale o a un messaggio diretto…",
+    "searchAllMessages": "Cerca «{{query}}» in tutti i messaggi",
+    "messageMeta": "{{name}} in {{channel}} · {{date}}",
+    "goToChannel": "Vai"
   },
   "notifications": {
     "title": "Notifiche",
@@ -2658,7 +2662,8 @@
       "mentions_one": "{{count}} menzione",
       "mentions_other": "{{count}} menzioni",
       "projectChannels": "Canali di {{code}}",
-      "newChannelIn": "Nuovo canale in {{code}}"
+      "newChannelIn": "Nuovo canale in {{code}}",
+      "search": "Cerca nei messaggi"
     },
     "landing": {
       "emptyTitle": "Non sei ancora in nessun canale",
@@ -2823,6 +2828,61 @@
       "cantRead": "Non puoi leggere i messaggi di questo canale.",
       "why": "I canali privati li leggono solo i loro membri. Gestisci i canali di {{code}}: puoi vedere chi c'è, archiviarlo o eliminarlo.",
       "whyCompany": "I canali privati li leggono solo i loro membri. Gestisci i canali dell'azienda: puoi vedere chi c'è, archiviarlo o eliminarlo."
+    },
+    "search": {
+      "title": "Cerca nei messaggi",
+      "placeholder": "Cerca nei messaggi",
+      "clear": "Svuota la ricerca",
+      "filters": "Filtri della ricerca",
+      "in": "In",
+      "from": "Da",
+      "date": "Data",
+      "anyTime": "Sempre",
+      "today": "Oggi",
+      "last7": "Ultimi 7 giorni",
+      "last30": "Ultimi 30 giorni",
+      "custom": "Intervallo…",
+      "customRange": "{{from}} – {{to}}",
+      "since": "Dal",
+      "until": "Al",
+      "anyDay": "qualunque giorno",
+      "anyChannel": "Qualunque canale",
+      "anyone": "Chiunque",
+      "findChannel": "Trova un canale",
+      "findPerson": "Trova una persona",
+      "noMatch": "Nessuna corrispondenza",
+      "unknownChannel": "Canale sconosciuto",
+      "unknownPerson": "Persona sconosciuta",
+      "withAttachments": "Con allegati",
+      "withCitations": "Con citazioni",
+      "peopleOnly": "Solo persone",
+      "moreFilters": "Altri filtri",
+      "clearFilters": "Togli i filtri",
+      "messages_one": "{{count}} messaggio",
+      "messages_other": "{{count}} messaggi",
+      "channels_one": "{{count}} canale",
+      "channels_other": "{{count}} canali",
+      "summary": "{{messages}} in {{channels}}",
+      "showMore": "Altri {{count}} in {{name}}",
+      "moreChannels": "Altri canali",
+      "minChars": "Scrivi almeno 2 caratteri",
+      "recent": "Ricerche recenti",
+      "clearRecent": "Cancella",
+      "emptyTitle": "Cerca in tutta la Chat",
+      "emptyBody": "Messaggi, nomi dei file e task citate, in ogni canale che puoi leggere.",
+      "noResults": "Nessun messaggio corrisponde a «{{query}}»",
+      "noResultsHint": "Prova con meno parole o un'altra grafia.",
+      "noResultsFiltered": "Forse i filtri nascondono quello che cerchi.",
+      "error": "Non è stato possibile cercare nei messaggi",
+      "loading": "Ricerca nei messaggi…",
+      "unavailable": "Questo messaggio non è più disponibile",
+      "inThread": "in un thread:",
+      "archived": "Archiviato",
+      "back": "Torna ai risultati",
+      "results": "Risultati della ricerca",
+      "resultLabel": "{{name}} in {{channel}}, {{date}}: {{text}}",
+      "before": "Prima:",
+      "deleted": "Messaggio eliminato"
     }
   }
 }

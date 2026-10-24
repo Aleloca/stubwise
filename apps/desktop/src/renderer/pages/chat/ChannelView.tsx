@@ -55,6 +55,7 @@ import { flowDays, mergeFlow, type FlowRow } from "./flow";
 import { ChatAvatar, MessageItem } from "./MessageItem";
 import { MessageList } from "./MessageList";
 import { PrivateChannelPage } from "./PrivateChannelPage";
+import { BackToResults } from "./ChatSearch";
 import { SystemCard } from "./SystemCard";
 
 // Il canale: testata (nome, aperto/privato, membri, argomento, «People
@@ -264,6 +265,17 @@ function ChannelBody({
   const join = useJoinChannel();
   const leave = useLeaveChannel();
   const archive = useArchiveChannel();
+
+  // Il messaggio da raggiungere (la radice, se il thread è aperto: lì
+  // l'evidenza è nel pannello). Se è più vecchio della pagina letta si
+  // caricano i precedenti finché arriva (la ricerca trova anche i vecchi).
+  const reachId = openThreadId ?? focusMessageId;
+  const fetching = query.isFetching;
+  useEffect(() => {
+    if (!reachId || !page?.hasMore || fetching) return;
+    if (page.messages.some((m) => m.id === reachId)) return;
+    setLimit((n) => n + PAGE);
+  }, [reachId, page, fetching]);
 
   const messages = useMemo(
     () => (page ? mergeFlow(page.messages, stream.messages, page.hasMore) : []),
@@ -654,6 +666,7 @@ function ChannelBody({
             leave.mutate(channel.id, { onError: () => toast.error(t("chat.channel.leaveFailed")) })
           }
         />
+        <BackToResults messageId={focusMessageId} />
         {query.isError && !page ? (
           <div className="px-4">
             <PageError message={t("chat.channel.error")} onRetry={() => void query.refetch()} />
@@ -668,7 +681,8 @@ function ChannelBody({
             onLoadEarlier={() => setLimit((n) => n + PAGE)}
             renderRow={renderRow}
             onAtBottom={onAtBottom}
-            focusId={focusMessageId}
+            focusId={reachId}
+            flashFocus={!openThreadId}
             tail={tail}
             intro={intro}
             label={t("chat.flow.label", { name: name.label })}

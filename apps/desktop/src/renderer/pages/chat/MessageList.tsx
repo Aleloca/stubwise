@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { TODAY } from "../../data/dates";
 import { ArrowDownGlyph } from "../claude/conversation/parts";
 import { dayLabel, type FlowDay, type FlowRow } from "./flow";
+import { flashMessage } from "./search";
 
 // Il flusso del canale: una colonna di lettura allineata a sinistra con 32px
 // di margine, larga fino a 760px; scorre solo in verticale (un blocco di
@@ -26,6 +27,7 @@ export function MessageList({
   renderRow,
   onAtBottom,
   focusId,
+  flashFocus = true,
   tail,
   intro,
   label,
@@ -40,6 +42,8 @@ export function MessageList({
   onAtBottom: () => void;
   /** Un messaggio da portare in vista entrando (`?message=`). */
   focusId?: string | undefined;
+  /** Il messaggio portato in vista si evidenzia (no quando l'evidenza è nel thread). */
+  flashFocus?: boolean;
   /** In coda al flusso: i messaggi in invio o non inviati. */
   tail?: ReactNode;
   /** In testa, quando non c'è altro prima: «This is the start of …». */
@@ -60,6 +64,21 @@ export function MessageList({
   const lastId = lastMessageId(rows);
   const tailKey = tail ? "tail" : "";
   const seen = useRef<{ first: string | null; last: string | null }>({ first: null, last: null });
+  // Un messaggio richiesto ma non ancora fra quelli letti (vecchio): si porta
+  // in vista quando arriva (il canale carica i più vecchi finché c'è).
+  const pendingFocus = useRef<string | null>(null);
+
+  /** Porta `id` al centro e lo evidenzia; `false` se non è (ancora) nel flusso. */
+  const reach = (id: string): boolean => {
+    const el = scroller.current;
+    const target = el?.querySelector<HTMLElement>(`#message-${CSS.escape(id)}`);
+    if (!el || !target) return false;
+    el.scrollTop = Math.max(0, target.offsetTop - (el.clientHeight - target.offsetHeight) / 2);
+    atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_SLACK;
+    if (!atBottom.current) setNewBelow(false);
+    if (flashFocus) flashMessage(target);
+    return true;
+  };
 
   const loadEarlier = () => {
     const el = scroller.current;
@@ -77,9 +96,12 @@ export function MessageList({
     if (!placed.current) {
       // Entrando: il messaggio richiesto, se no la riga «New», se no il fondo.
       placed.current = true;
-      const target =
-        (focusId ? el.querySelector<HTMLElement>(`#message-${CSS.escape(focusId)}`) : null) ??
-        el.querySelector<HTMLElement>("[data-new-line]");
+      if (focusId && reach(focusId)) {
+        if (atBottom.current) onAtBottom();
+        return;
+      }
+      if (focusId) pendingFocus.current = focusId;
+      const target = el.querySelector<HTMLElement>("[data-new-line]");
       if (target) {
         el.scrollTop = Math.max(0, target.offsetTop - 56);
         atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_SLACK;
@@ -88,6 +110,11 @@ export function MessageList({
         atBottom.current = true;
       }
       if (atBottom.current) onAtBottom();
+      return;
+    }
+    if (pendingFocus.current && before.first !== firstId && reach(pendingFocus.current)) {
+      pendingFocus.current = null;
+      anchor.current = null;
       return;
     }
     if (anchor.current !== null && before.first !== firstId) {
@@ -110,13 +137,9 @@ export function MessageList({
   useLayoutEffect(() => {
     if (focusId === lastFocus.current) return;
     lastFocus.current = focusId;
-    const el = scroller.current;
-    if (!el || !focusId || !placed.current) return;
-    const target = el.querySelector<HTMLElement>(`#message-${CSS.escape(focusId)}`);
-    if (!target) return;
-    el.scrollTop = Math.max(0, target.offsetTop - 56);
-    atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_SLACK;
-    if (!atBottom.current) setNewBelow(false);
+    pendingFocus.current = null;
+    if (!focusId || !placed.current) return;
+    if (!reach(focusId)) pendingFocus.current = focusId;
   }, [focusId]);
 
   const onScroll = () => {

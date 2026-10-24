@@ -126,6 +126,41 @@ export function groupOpenOf(personId: string, projectId: string): boolean | unde
 export const rememberGroupOpen = (personId: string, projectId: string, open: boolean): void =>
   write(`group.${personId}.${projectId}`, open ? "1" : "0");
 
+// Le ultime ricerche della Chat (shape chat-search.md §5, §7): solo su questo
+// dispositivo, di una persona sola — chi le legge da un'altra persona le
+// trova vuote e le cancella (cambio di persona).
+
+const RECENT = "recentSearches";
+/** Quante ricerche recenti si tengono. */
+export const RECENT_LIMIT = 5;
+
+export function recentSearchesOf(personId: string): string[] {
+  const raw = read(RECENT);
+  if (raw === null) return [];
+  try {
+    const parsed = JSON.parse(raw) as { personId?: unknown; items?: unknown };
+    if (parsed.personId === personId && Array.isArray(parsed.items)) {
+      return parsed.items.filter((q): q is string => typeof q === "string").slice(0, RECENT_LIMIT);
+    }
+  } catch {
+    // Un valore rotto vale come nessuno.
+  }
+  write(RECENT, null);
+  return [];
+}
+
+export function rememberSearch(personId: string, q: string): void {
+  const text = q.trim();
+  if (text.length < 2) return;
+  const items = [
+    text,
+    ...recentSearchesOf(personId).filter((x) => x.toLowerCase() !== text.toLowerCase()),
+  ].slice(0, RECENT_LIMIT);
+  write(RECENT, JSON.stringify({ personId, items }));
+}
+
+export const clearRecentSearches = (): void => write(RECENT, null);
+
 /** Dimentica tutto (test, reset del prototipo). */
 export function clearChatColumnPrefs(): void {
   memory.clear();

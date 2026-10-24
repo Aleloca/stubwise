@@ -375,7 +375,9 @@ describe("ChannelView: lettori di schermo e salti", () => {
     Object.defineProperty(target, "offsetTop", { configurable: true, get: () => 1200 });
     el.scrollTop = 4400;
     await user.click(screen.getByRole("button", { name: "jump" }));
-    expect(el.scrollTop).toBe(1200 - 56);
+    // Al centro (shape chat-search.md §6) ed evidenziato.
+    expect(el.scrollTop).toBe(1200 - 600 / 2);
+    expect(target).toHaveAttribute("data-found");
   });
 });
 

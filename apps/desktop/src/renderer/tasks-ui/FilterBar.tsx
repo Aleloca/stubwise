@@ -109,7 +109,7 @@ function toggle<T>(list: T[] | undefined, item: T): T[] {
 
 // --- chip ----------------------------------------------------------------------
 
-function Cross() {
+export function Cross() {
   return (
     <svg
       viewBox="0 0 16 16"
@@ -132,7 +132,7 @@ function Cross() {
  * impostato (contorno più forte e fondo d'inchiostro al 6%), con la × per
  * toglierlo. Il menu si apre sotto.
  */
-function Chip({
+export function Chip({
   name,
   summary,
   open,

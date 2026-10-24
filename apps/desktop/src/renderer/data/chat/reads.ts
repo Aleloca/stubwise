@@ -381,14 +381,20 @@ export function readableMessage(
   return { message, data };
 }
 
-/** Il messaggio prima di `m` nel suo flusso (il canale, o il thread con la radice). */
+/**
+ * Il messaggio vivo prima di `m` nel suo flusso (il canale, o il thread con
+ * la radice): un eliminato non fa da contesto, nemmeno vuoto (Review Focus 3).
+ */
 function contextOf(personId: string, m: ChatMessage, data: ChannelData): ChatMessageView | null {
   const flow =
     m.threadOf === null || m.alsoInChannel
       ? channelFlow(data)
       : [data.messages.find((x) => x.id === m.threadOf)!, ...liveReplies(data, m.threadOf)];
   const index = flow.findIndex((x) => x.id === m.id);
-  const previous = index > 0 ? flow[index - 1] : undefined;
+  const previous = flow
+    .slice(0, Math.max(0, index))
+    .reverse()
+    .find((x) => x !== undefined && x.deletedAt === null);
   return previous ? presentMessage(personId, previous, data) : null;
 }
 
@@ -397,7 +403,15 @@ function hit(personId: string, m: ChatMessage, data: ChannelData): ChatMessageHi
     channelId: m.channelId,
     message: presentMessage(personId, m, data),
     context: contextOf(personId, m, data),
+    root: rootOf(personId, m, data),
   };
+}
+
+/** La radice del thread di una risposta (eliminata: senza testo, come ovunque). */
+function rootOf(personId: string, m: ChatMessage, data: ChannelData): ChatMessageView | null {
+  if (m.threadOf === null) return null;
+  const root = data.messages.find((x) => x.id === m.threadOf);
+  return root ? presentMessage(personId, root, data) : null;
 }
 
 // --- letture ------------------------------------------------------------------

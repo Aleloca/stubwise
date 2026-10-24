@@ -23,6 +23,7 @@ import {
   rememberGroupOpen,
   type ProjectGroup,
 } from "./column";
+import { ColumnSearchField } from "./ChatSearch";
 import { useHasDraft } from "./drafts";
 import {
   ComposeGlyph,
@@ -284,6 +285,7 @@ export function ChatColumn() {
           {shortcutLabel(["mod", "N"])}
         </kbd>
       </button>
+      <ColumnSearchField />
       <ul className="mt-2 flex flex-col gap-px">
         <li>
           <Link

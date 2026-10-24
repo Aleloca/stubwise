@@ -12,11 +12,12 @@ import { PageEmpty } from "../../tasks-ui/PageStates";
 import { BrowseChannels } from "./BrowseChannels";
 import { dmName } from "./ChatColumn";
 import { chatColumnModel, columnOrder, lastChannelOf } from "./column";
+import { ChatSearch } from "./ChatSearch";
 import { MentionsView } from "./MentionsView";
 import { ThreadsView } from "./ThreadsView";
 
 // `#/chat`: con `?view=` le viste della colonna (Threads, Mentions, Browse
-// channels); senza, l'atterraggio — l'ultimo canale aperto dalla persona,
+// channels, la ricerca); senza, l'atterraggio — l'ultimo canale aperto dalla persona,
 // la prima volta il «general» del primo progetto fissato (shape chat.md §6).
 
 /** Il nome di un canale in un elenco: «AUD · general», «# announcements», i nomi del DM. */
@@ -63,6 +64,8 @@ export function ChatPage() {
   if (search.view === "threads") return <ThreadsView key={viewer} />;
   if (search.view === "mentions") return <MentionsView key={viewer} />;
   if (search.view === "browse") return <BrowseChannels key={viewer} />;
+  // La ricerca si svuota da sé al cambio di persona (query compresa).
+  if (search.view === "search") return <ChatSearch />;
   return <ChatLanding key={viewer} />;
 }
 

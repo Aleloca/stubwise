@@ -58,6 +58,7 @@ import { ClaudeReply } from "./ClaudeReply";
 import { onReplyFocus, takeReplyFocus } from "./drafts";
 import { mostUsed } from "./emoji";
 import { mergeThread, threadRows } from "./flow";
+import { flashMessage } from "./search";
 import { ChatAvatar, MessageItem } from "./MessageItem";
 
 // Il pannello del thread (`?thread=<radice>`): lo stesso posto del dettaglio
@@ -335,8 +336,24 @@ function ThreadBody({
   const nextKey = useRef(0);
   const all = useMemo(() => [root, ...replies], [root, replies]);
 
-  // «Reply in thread» (shape §6): il fuoco nella casella, aprendo o a pannello già aperto.
   const body = useRef<HTMLDivElement>(null);
+  // `?message=` (ricerca, menzione, link a una risposta): il messaggio si
+  // porta al centro del pannello e si evidenzia, qui e non nel canale.
+  const { message: reached } = useSearch({ strict: false }) as { message?: string };
+  const present = !!reached && (root.id === reached || replies.some((r) => r.id === reached));
+  useEffect(() => {
+    if (!reached || !present) return;
+    const frame = requestAnimationFrame(() => {
+      const el = body.current?.querySelector<HTMLElement>(
+        `[data-message="${CSS.escape(reached)}"]`,
+      );
+      if (!el) return;
+      el.scrollIntoView?.({ block: "center" });
+      flashMessage(el);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [reached, present]);
+  // «Reply in thread» (shape §6): il fuoco nella casella, aprendo o a pannello già aperto.
   useEffect(() => {
     const focus = () =>
       body.current?.querySelector<HTMLTextAreaElement>("[data-chat-composer] textarea")?.focus();

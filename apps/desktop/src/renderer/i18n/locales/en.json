@@ -117,7 +117,8 @@
       "actions": "Actions",
       "viewAs": "View as",
       "filters": "Filters",
-      "channels": "Channels"
+      "channels": "Channels",
+      "messages": "Messages"
     },
     "noResults": "No results for “{{query}}”",
     "noResultsHint": "Try a code like {{example}} or a name.",
@@ -148,7 +149,10 @@
       "goToChannel": "Go to channel…"
     },
     "filterPlaceholder": "Choose a filter",
-    "channelPlaceholder": "Go to a channel or direct message…"
+    "channelPlaceholder": "Go to a channel or direct message…",
+    "searchAllMessages": "Search all messages for “{{query}}”",
+    "messageMeta": "{{name}} in {{channel}} · {{date}}",
+    "goToChannel": "Go to"
   },
   "notifications": {
     "title": "Notifications",
@@ -2658,7 +2662,8 @@
       "mentions_one": "{{count}} mention",
       "mentions_other": "{{count}} mentions",
       "projectChannels": "{{code}} channels",
-      "newChannelIn": "New channel in {{code}}"
+      "newChannelIn": "New channel in {{code}}",
+      "search": "Search messages"
     },
     "landing": {
       "emptyTitle": "You're not in any channel yet",
@@ -2823,6 +2828,61 @@
       "cantRead": "You can't read this channel's messages.",
       "why": "Private channels can be read only by their members. You manage channels in {{code}}, so you can see who's in it, archive it or delete it.",
       "whyCompany": "Private channels can be read only by their members. You manage company channels, so you can see who's in it, archive it or delete it."
+    },
+    "search": {
+      "title": "Search messages",
+      "placeholder": "Search messages",
+      "clear": "Clear search",
+      "filters": "Search filters",
+      "in": "In",
+      "from": "From",
+      "date": "Date",
+      "anyTime": "Any time",
+      "today": "Today",
+      "last7": "Last 7 days",
+      "last30": "Last 30 days",
+      "custom": "Custom range…",
+      "customRange": "{{from}} – {{to}}",
+      "since": "From",
+      "until": "To",
+      "anyDay": "any day",
+      "anyChannel": "Any channel",
+      "anyone": "Anyone",
+      "findChannel": "Find a channel",
+      "findPerson": "Find a person",
+      "noMatch": "Nothing matches",
+      "unknownChannel": "Unknown channel",
+      "unknownPerson": "Unknown person",
+      "withAttachments": "With attachments",
+      "withCitations": "With citations",
+      "peopleOnly": "People only",
+      "moreFilters": "More filters",
+      "clearFilters": "Clear filters",
+      "messages_one": "{{count}} message",
+      "messages_other": "{{count}} messages",
+      "channels_one": "{{count}} channel",
+      "channels_other": "{{count}} channels",
+      "summary": "{{messages}} in {{channels}}",
+      "showMore": "Show {{count}} more in {{name}}",
+      "moreChannels": "Show more channels",
+      "minChars": "Type at least 2 characters",
+      "recent": "Recent searches",
+      "clearRecent": "Clear",
+      "emptyTitle": "Search the whole Chat",
+      "emptyBody": "Messages, file names and cited tasks, in every channel you can read.",
+      "noResults": "No messages match “{{query}}”",
+      "noResultsHint": "Try fewer words or another spelling.",
+      "noResultsFiltered": "The filters may be hiding what you're looking for.",
+      "error": "Couldn't search messages",
+      "loading": "Searching messages…",
+      "unavailable": "This message is no longer available",
+      "inThread": "in a thread:",
+      "archived": "Archived",
+      "back": "Back to results",
+      "results": "Search results",
+      "resultLabel": "{{name}} in {{channel}}, {{date}}: {{text}}",
+      "before": "Before:",
+      "deleted": "Message deleted"
     }
   }
 }

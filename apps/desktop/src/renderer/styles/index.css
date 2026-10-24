@@ -87,6 +87,26 @@
   }
 }
 
+/* Un messaggio della Chat raggiunto da ricerca, menzione o link: fondo
+   d'inchiostro al 10% che svanisce in 2 s. Con movimento ridotto resta 2 s
+   fermo e sparisce senza dissolvenza (l'attributo lo toglie `flashMessage`). */
+@keyframes chat-found-out {
+  from {
+    background-color: color-mix(in oklch, var(--ink) 10%, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+[data-found] {
+  animation: chat-found-out 2s var(--ease) both;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    background-color: color-mix(in oklch, var(--ink) 10%, transparent);
+  }
+}
+
 /* Il cursore sottile d'inchiostro in coda a un messaggio che arriva: fermo
    (e pieno) con movimento ridotto. */
 @keyframes stream-caret {

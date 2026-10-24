@@ -1610,6 +1610,26 @@ export function useChatSearch(q: string, filters: ChatSearchFilters = {}) {
   });
 }
 
+/**
+ * Rilegge un messaggio al momento del salto (ricerca, palette): `null` se
+ * chi guarda non lo legge più o è stato eliminato nel frattempo.
+ */
+export function useReachChatMessage() {
+  const me = useSessionPersonId();
+  const client = useQueryClient();
+  return useCallback(
+    async (id: string) => {
+      const found = await client.fetchQuery({
+        queryKey: queryKeys.chatMessage(me, id),
+        queryFn: () => api.chat.getMessage(id),
+        staleTime: 0,
+      });
+      return found && found.message.deletedAt === null ? found : null;
+    },
+    [client, me],
+  );
+}
+
 export function useSendChatMessage() {
   return useWrite(
     ({ channelId, input }: { channelId: string; input: ChatMessageInput }) =>

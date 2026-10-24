@@ -1,4 +1,5 @@
 import { parseCriteria } from "../domain/filters";
+import { isSearchParamValue } from "../pages/chat/search";
 import type { GroupBy, ProjectModule, TaskView } from "./types";
 
 /** Grammatica delle route hash dell'app: un'unica fonte, riusata dal router. */
@@ -71,6 +72,17 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
     case "thread":
     case "message":
       return isChannelPath(path) && /^[\w-]+$/.test(value);
+    // La ricerca della Chat (`#/chat?view=search&q=…`): la query e i filtri.
+    case "q":
+    case "in":
+    case "by":
+    case "when":
+    case "since":
+    case "until":
+    case "att":
+    case "cit":
+    case "ppl":
+      return path === "chat" && isSearchParamValue(key, value);
     case "request":
       return /^p\/[A-Z]{2,4}\/requests$/.test(path) && /^[\w-]+$/.test(value);
     case "refine":
@@ -100,7 +112,7 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
 }
 
 /** Le viste della colonna della Chat (`#/chat?view=`). */
-export const CHAT_VIEWS = ["threads", "mentions", "browse"] as const;
+export const CHAT_VIEWS = ["threads", "mentions", "browse", "search"] as const;
 
 /** Un canale della Chat, nella Chat o nella sezione del progetto. */
 function isChannelPath(path: string): boolean {
