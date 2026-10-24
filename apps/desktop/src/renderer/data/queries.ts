@@ -1517,12 +1517,16 @@ function useChatChanges(): void {
   useEffect(() => listenToChatChanges(client), [client]);
 }
 
-export function useChatChannels(scope: ChatChannelsScope = { scope: "all" }) {
+export function useChatChannels(
+  scope: ChatChannelsScope = { scope: "all" },
+  { enabled = true }: { enabled?: boolean } = {},
+) {
   const me = useSessionPersonId();
   useChatChanges();
   return useQuery({
     queryKey: queryKeys.chatChannels(me, scope),
     queryFn: () => api.chat.listChannels(scope),
+    enabled,
   });
 }
 

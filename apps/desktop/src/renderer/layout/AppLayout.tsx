@@ -5,6 +5,8 @@ import { BriefPanelHost } from "../pages/overview/BriefCard";
 import { NewRequestHost } from "../pages/requests/NewRequestDialog";
 import { RequestDetailHost } from "../pages/requests/RequestDetail";
 import { NewTaskHost } from "../pages/task/NewTaskDialog";
+import { ChannelSettingsHost } from "../pages/chat/ChannelSettings";
+import { ChatDialogsHost } from "../pages/chat/ChatDialogsHost";
 import { ThreadPanelHost } from "../pages/chat/ThreadPanel";
 import { TaskDetailHost } from "../pages/task/TaskDetail";
 import { CommandPalette } from "../palette/CommandPalette";
@@ -38,9 +40,11 @@ export function AppLayout() {
         <RequestDetailHost />
         <BriefPanelHost />
         <ThreadPanelHost />
+        <ChannelSettingsHost />
       </div>
       <NewTaskHost />
       <NewRequestHost />
+      <ChatDialogsHost />
       <CommandPalette />
       <NotificationsPanel />
       <ToastRegion />

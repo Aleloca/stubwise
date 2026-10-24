@@ -1,10 +1,19 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useRouterState } from "@tanstack/react-router";
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
-import { useProject } from "../data/queries";
+import { useChatChannels, usePeople, useProject } from "../data/queries";
 import { PROJECT_SECTIONS } from "../data/routes";
-import type { Project } from "../data/types";
+import type { ChannelRow, Project } from "../data/types";
 import { can, useViewer } from "../data/viewer";
+import {
+  ChannelLink,
+  MentionPill,
+  projectChatTo,
+  useChatKeys,
+  useOpenChatDialog,
+} from "../pages/chat/ChatColumn";
+import { inColumn } from "../pages/chat/column";
+import { PlusGlyph } from "../pages/chat/glyphs";
 
 /** Una riga, ellissi in fondo. Inline perché il test la legge dallo stile calcolato. */
 export const ONE_LINE: CSSProperties = {
@@ -55,16 +64,39 @@ function Header({ code, project }: { code: string; project?: Project | null }) {
  * «Settings» c'è sempre; senza `project.settings.manage` è in sola lettura.
  */
 export function ProjectColumn({ code }: { code: string }) {
-  const { t } = useTranslation();
   const { viewer } = useViewer();
   const { data: project, isPending } = useProject(code);
 
   if (isPending || !project) return <Header code={code} project={isPending ? undefined : null} />;
 
   const canManage = can(viewer, "project.settings.manage", project.id);
+  return <ProjectSections project={project} canManage={canManage} />;
+}
+
+/**
+ * La sezione «Chat» porta le menzioni del progetto; da corrente si apre in
+ * sottovoci rientrate con i canali del progetto in cui si è — gli stessi
+ * della Chat, con gli stessi segnali (shape chat.md §6).
+ */
+function ProjectSections({
+  project,
+  canManage,
+}: {
+  project: Project;
+  canManage: boolean;
+}) {
+  const { t } = useTranslation();
+  const chat = useChatChannels({ scope: "project", projectId: project.id });
+  const onChat = useRouterState({
+    select: (s) => new RegExp(`^/p/${project.code}/chat(/|$)`).test(s.location.pathname),
+  });
+  const channels = (chat.data ?? []).filter(inColumn).sort(
+    (a, b) => Number(b.isGeneral) - Number(a.isGeneral) || a.name.localeCompare(b.name),
+  );
+  const mentions = channels.reduce((n, c) => n + c.mentions, 0);
   return (
     <>
-      <Header code={code} project={project} />
+      <Header code={project.code} project={project} />
       <nav
         aria-label={t("column.projectSections")}
         className="min-h-0 flex-1 overflow-y-auto px-2 py-2"
@@ -79,22 +111,66 @@ export function ProjectColumn({ code }: { code: string }) {
                 to="/p/$code/$section"
                 params={{ code: project.code, section: s.id }}
                 data-section={s.id}
+                // Nella Chat il canale aperto è la sottovoce corrente, non la sezione.
+                activeOptions={{ exact: s.id === "chat" }}
                 style={{ whiteSpace: "nowrap" }}
                 className={columnItemClass}
               >
                 <span style={ONE_LINE} className="min-w-0">
                   {t(`project.sections.${s.id}`)}
                 </span>
+                {s.id === "chat" && mentions > 0 && (
+                  <span className="ml-auto flex">
+                    <span className="sr-only">
+                      {t("chat.column.mentions", { count: mentions })}
+                    </span>
+                    <MentionPill count={mentions} />
+                  </span>
+                )}
                 {s.id === "settings" && !canManage && (
                   <span className="ml-auto shrink-0 text-xs font-normal text-ink-faint">
                     {t("column.viewOnly")}
                   </span>
                 )}
               </Link>
+              {s.id === "chat" && onChat && (
+                <ProjectChatChannels project={project} channels={channels} />
+              )}
             </li>
           ))}
         </ul>
       </nav>
     </>
+  );
+}
+
+function ProjectChatChannels({ project, channels }: { project: Project; channels: ChannelRow[] }) {
+  const { t } = useTranslation();
+  const { viewer } = useViewer();
+  const people = usePeople().data;
+  const openDialog = useOpenChatDialog();
+  useChatKeys(channels, (row) => projectChatTo(project.code, row.id));
+  return (
+    <ul aria-label={t("chat.column.projectChannels", { code: project.code })} className="mt-px flex flex-col gap-px">
+      {channels.map((row) => (
+        <li key={row.id}>
+          <ChannelLink row={row} to={projectChatTo(project.code, row.id)} people={people} nested />
+        </li>
+      ))}
+      {can(viewer, "chat.channels.create", project.id) && (
+        <li>
+          <button
+            type="button"
+            onClick={() => openDialog("newChannel", project.code)}
+            className={`${columnItemClass} h-7 w-full pl-7 text-sm`}
+          >
+            <PlusGlyph size={13} />
+            <span style={ONE_LINE} className="min-w-0">
+              {t("chat.column.newChannel")}
+            </span>
+          </button>
+        </li>
+      )}
+    </ul>
   );
 }

@@ -57,10 +57,6 @@
       "home": {
         "home": "Home",
         "week": "La mia settimana"
-      },
-      "chat": {
-        "channels": "Canali",
-        "direct": "Messaggi diretti"
       }
     },
     "viewsOf": "Viste di {{name}}",
@@ -120,7 +116,8 @@
       "people": "Persone",
       "actions": "Azioni",
       "viewAs": "Vedi come",
-      "filters": "Filtri"
+      "filters": "Filtri",
+      "channels": "Canali"
     },
     "noResults": "Nessun risultato per «{{query}}»",
     "noResultsHint": "Prova con un codice come {{example}} o con un nome.",
@@ -145,9 +142,13 @@
       "openFilter": "Apri filtro…",
       "newConversation": "Nuova conversazione con Claude",
       "askClaude": "Chiedi a Claude…",
-      "askClaudeWith": "Chiedi a Claude: «{{query}}»"
+      "askClaudeWith": "Chiedi a Claude: «{{query}}»",
+      "newMessage": "Nuovo messaggio",
+      "newChannel": "Nuovo canale",
+      "goToChannel": "Vai al canale…"
     },
-    "filterPlaceholder": "Scegli un filtro"
+    "filterPlaceholder": "Scegli un filtro",
+    "channelPlaceholder": "Vai a un canale o a un messaggio diretto…"
   },
   "notifications": {
     "title": "Notifiche",
@@ -2452,7 +2453,13 @@
       "notMember": "Non fai parte di questo canale.",
       "join": "Entra nel canale",
       "joinFailed": "Non è stato possibile entrare nel canale. Riprova.",
-      "cantRead": "Questo canale è privato: solo i suoi membri ne leggono i messaggi."
+      "cantRead": "Questo canale è privato: solo i suoi membri ne leggono i messaggi.",
+      "archivedBandBy": "Questo canale è stato archiviato da {{name}} il {{date}}. Puoi leggerlo, non scriverci.",
+      "details": "Dettagli",
+      "settings": "Impostazioni",
+      "settingsOf": "{{name}}: impostazioni del canale",
+      "membersOpen_one": "{{count}} membro · impostazioni",
+      "membersOpen_other": "{{count}} membri · impostazioni"
     },
     "flow": {
       "today": "Oggi",
@@ -2628,6 +2635,194 @@
       "waitingFor": "In attesa di {{name}}",
       "questionClosed": "Senza risposta: la risposta è stata fermata.",
       "cantAct": "Qui non puoi più agire: non sei nel canale o è archiviato."
+    },
+    "column": {
+      "newMessage": "Nuovo messaggio",
+      "newChannel": "Nuovo canale",
+      "threads": "Thread",
+      "threadsNew_one": "{{count}} con risposte nuove",
+      "threadsNew_other": "{{count}} con risposte nuove",
+      "mentionsView": "Menzioni",
+      "channels": "Canali",
+      "company": "Azienda",
+      "direct": "Messaggi diretti",
+      "browse": "Sfoglia i canali",
+      "empty": "Non sei ancora in nessun canale.",
+      "noDms": "Ancora nessun messaggio diretto.",
+      "loading": "Caricamento dei canali…",
+      "private": "privato",
+      "muted": "silenziato",
+      "draft": "bozza",
+      "hasUnread": "messaggi non letti",
+      "unread_one": "{{count}} non letto",
+      "unread_other": "{{count}} non letti",
+      "mentions_one": "{{count}} menzione",
+      "mentions_other": "{{count}} menzioni",
+      "projectChannels": "Canali di {{code}}"
+    },
+    "landing": {
+      "emptyTitle": "Non sei ancora in nessun canale",
+      "emptyBody": "Sfoglia i canali dei tuoi progetti e dell'azienda, o scrivi un messaggio diretto."
+    },
+    "project": {
+      "noChannels": "Non sei ancora in nessun canale di questo progetto."
+    },
+    "views": {
+      "threadsTitle": "Thread",
+      "threadsLede": "I thread che segui con risposte che non hai letto.",
+      "threadsEmpty": "Nessuna risposta nuova",
+      "threadsEmptyBody": "I thread in cui scrivi o vieni menzionato compaiono qui quando qualcuno risponde.",
+      "threadsError": "Impossibile caricare i thread",
+      "newReplies_one": "{{count}} risposta nuova",
+      "newReplies_other": "{{count}} risposte nuove",
+      "mentionsTitle": "Menzioni",
+      "mentionsLede": "I messaggi che nominano te, il tuo reparto o tutto il canale.",
+      "mentionsEmpty": "Nessuna menzione",
+      "mentionsEmptyBody": "Quando qualcuno ti menziona in un canale che leggi, compare qui.",
+      "mentionsError": "Impossibile caricare le menzioni",
+      "inThread": "in un thread",
+      "system": "Stubwise"
+    },
+    "browse": {
+      "title": "Sfoglia i canali",
+      "filter": "Mostra",
+      "filters": {
+        "all": "Tutti",
+        "project": "Progetto",
+        "company": "Azienda",
+        "archived": "Archiviati"
+      },
+      "search": "Cerca i canali",
+      "joined": "Ci sei",
+      "notMember": "Non sei membro",
+      "noMatch": "Nessun canale corrisponde",
+      "error": "Impossibile caricare i canali",
+      "empty": {
+        "all": "Ancora nessun canale",
+        "project": "Nessun canale di progetto che puoi vedere",
+        "company": "Ancora nessun canale dell'azienda",
+        "archived": "Nessun canale archiviato"
+      }
+    },
+    "people": {
+      "search": "Cerca per nome o reparto",
+      "noMatch": "Nessuno corrisponde"
+    },
+    "newChannel": {
+      "title": "Nuovo canale",
+      "where": "Dove",
+      "company": "Tutta l'azienda",
+      "name": "Nome",
+      "namePlaceholder": "es. listino-prezzi",
+      "nameRule": "Lettere minuscole, numeri e trattini, al massimo 40 caratteri.",
+      "preview": "Comparirà come",
+      "taken": "{{code}} ha già un canale con questo nome.",
+      "takenCompany": "Esiste già un canale dell'azienda con questo nome.",
+      "description": "Descrizione (facoltativa)",
+      "descriptionPlaceholder": "A cosa serve il canale, in una riga",
+      "visibility": "Visibilità",
+      "open": "Aperto",
+      "private": "Privato",
+      "openProject": "Chiunque veda {{code}} può trovarlo ed entrarci.",
+      "openCompany": "Chiunque nell'azienda può trovarlo ed entrarci.",
+      "privateHint": "Solo le persone che inviti possono vederlo e leggerlo.",
+      "members": "Aggiungi membri",
+      "onlyMembers": "Si possono aggiungere solo i membri di {{code}}.",
+      "youAreIn": "Tu ci sei da subito.",
+      "submit": "Crea canale",
+      "cancel": "Annulla",
+      "failed": "Impossibile creare il canale. Riprova.",
+      "discard": "Buttare questo canale?",
+      "keep": "Continua a scrivere",
+      "discardAction": "Butta"
+    },
+    "newDm": {
+      "title": "Nuovo messaggio",
+      "to": "A",
+      "chosen": "Persone scelte",
+      "count": "{{count}} di {{max}} persone",
+      "max": "Un messaggio di gruppo può avere al massimo {{max}} persone, te compreso.",
+      "remove": "Togli {{name}}",
+      "exists": "Hai già una conversazione con queste persone.",
+      "message": "Messaggio",
+      "messagePlaceholder": "Scrivi il primo messaggio (facoltativo)",
+      "start": "Inizia la conversazione",
+      "open": "Apri la conversazione",
+      "failed": "Impossibile aprire la conversazione. Riprova.",
+      "discard": "Buttare questo messaggio?"
+    },
+    "settings": {
+      "title": "Impostazioni del canale",
+      "close": "Chiudi le impostazioni",
+      "loading": "Caricamento delle impostazioni…",
+      "about": "Informazioni",
+      "name": "Nome",
+      "description": "Descrizione",
+      "topic": "Argomento",
+      "noDescription": "Nessuna descrizione",
+      "noTopic": "Nessun argomento",
+      "edit": "Modifica",
+      "saveFailed": "Impossibile salvare la modifica.",
+      "whoCanEdit": "Solo chi ha creato il canale o chi gestisce i canali di {{code}} può cambiarne nome e descrizione.",
+      "whoCanEditCompany": "Solo chi ha creato il canale o chi gestisce i canali dell'azienda può cambiarne nome e descrizione.",
+      "generalName": "Il canale general tiene il suo nome.",
+      "openProject": "Aperto · chiunque veda {{code}} può trovarlo ed entrarci",
+      "openCompany": "Aperto · chiunque nell'azienda può trovarlo ed entrarci",
+      "private": "Privato · solo i membri possono vederlo e leggerlo",
+      "notifications": "Notifiche",
+      "levels": {
+        "all": "Tutti i messaggi",
+        "mentions": "Solo le menzioni",
+        "muted": "Silenziato · le menzioni ti arrivano comunque"
+      },
+      "events": "Eventi pubblicati",
+      "eventKinds": {
+        "release_page": "Pagine di release",
+        "milestone_reached": "Traguardi raggiunti",
+        "brief_ready": "Brief settimanale",
+        "pr_opened": "PR aperte",
+        "pr_merged": "PR unite",
+        "request_new": "Richieste nuove",
+        "task_closed": "Task chiuse"
+      },
+      "noEvents": "Questo canale non pubblica eventi del progetto.",
+      "moreRules": "Altre regole stanno nelle Automazioni.",
+      "members": "Membri",
+      "participants": "Partecipanti",
+      "you": "(tu)",
+      "generalMembers": "Tutti i membri di {{code}} sono in questo canale.",
+      "addPeople": "Aggiungi persone",
+      "add_one": "Aggiungi {{count}} persona",
+      "add_other": "Aggiungi {{count}} persone",
+      "addFailed": "Impossibile aggiungerle. Riprova.",
+      "alreadyIn": "Già dentro",
+      "askMember": "Chiedi a un membro di aggiungerti",
+      "remove": "Togli",
+      "removeNamed": "Togli {{name}}",
+      "removeConfirm": "Togliere {{name}}? Non potrà più leggere questo canale.",
+      "removeFailed": "Impossibile toglierla. Riprova.",
+      "leaveDm": "Lascia la conversazione",
+      "left": "Hai lasciato {{name}}",
+      "undo": "Annulla",
+      "archive": "Archivia il canale",
+      "archiveTitle": "Archiviare {{name}}?",
+      "archiveBody": "I membri possono ancora leggerlo e cercarci dentro. Nessuno può scriverci.",
+      "archiveAction": "Archivia",
+      "archived": "{{name}} archiviato",
+      "archiveFailed": "Impossibile archiviare il canale. Riprova.",
+      "delete": "Elimina il canale",
+      "deleteTitle": "Eliminare {{name}}?",
+      "deleteBody": "Tutti i suoi messaggi vengono eliminati per tutti. Link e citazioni smettono di aprirsi. Non si può annullare.",
+      "typeName": "Scrivi il nome del canale per confermare: {{name}}",
+      "deleted": "{{name}} eliminato",
+      "deleteFailed": "Impossibile eliminare il canale. Riprova.",
+      "generalFixed": "Il canale general di un progetto non si archivia né si elimina.",
+      "dmFixed": "Un messaggio diretto fra due persone non si lascia né si archivia."
+    },
+    "private": {
+      "cantRead": "Non puoi leggere i messaggi di questo canale.",
+      "why": "I canali privati li leggono solo i loro membri. Gestisci i canali di {{code}}: puoi vedere chi c'è, archiviarlo o eliminarlo.",
+      "whyCompany": "I canali privati li leggono solo i loro membri. Gestisci i canali dell'azienda: puoi vedere chi c'è, archiviarlo o eliminarlo."
     }
   }
 }

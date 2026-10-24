@@ -7,7 +7,7 @@ import {
   type DragEvent,
   type ReactNode,
 } from "react";
-import { useRouter } from "@tanstack/react-router";
+import { useNavigate, useRouter } from "@tanstack/react-router";
 import { getSessionPersonId } from "../../data/session";
 import { useTranslation } from "react-i18next";
 import {
@@ -53,6 +53,7 @@ import { mostUsed } from "./emoji";
 import { flowDays, mergeFlow, type FlowRow } from "./flow";
 import { ChatAvatar, MessageItem } from "./MessageItem";
 import { MessageList } from "./MessageList";
+import { PrivateChannelPage } from "./PrivateChannelPage";
 import { SystemCard } from "./SystemCard";
 
 // Il canale: testata (nome, aperto/privato, membri, argomento, «People
@@ -164,6 +165,8 @@ export function ChannelView({
       </section>
     );
   }
+  // Un privato che si gestisce senza esserne membri: esiste, non si legge.
+  if (!channel.data.canRead) return <PrivateChannelPage channel={channel.data} />;
   return (
     <ChannelBody
       channel={channel.data}
@@ -677,7 +680,14 @@ function ChannelBody({
           <>
             {channel.archived ? (
               <Band>
-                <span>{t("chat.channel.archivedBand")}</span>
+                <span>
+                  {channel.archivedById && channel.archivedAt
+                    ? t("chat.channel.archivedBandBy", {
+                        name: people?.find((p) => p.id === channel.archivedById)?.name ?? "",
+                        date: formatDate(channel.archivedAt, i18n.language),
+                      })
+                    : t("chat.channel.archivedBand")}
+                </span>
                 {channel.canArchive && (
                   <button
                     type="button"
@@ -788,6 +798,16 @@ function Band({ children }: { children: ReactNode }) {
   );
 }
 
+/** Apre le impostazioni del canale (`?settings=1`): chiudono il thread, se era aperto. */
+export function useOpenChannelSettings(): () => void {
+  const navigate = useNavigate();
+  return () =>
+    void navigate({
+      to: ".",
+      search: (prev: Record<string, unknown>) => ({ ...prev, thread: undefined, settings: "1" }),
+    } as never);
+}
+
 function ChannelHeader({
   channel,
   name,
@@ -807,6 +827,7 @@ function ChannelHeader({
 }) {
   const { t } = useTranslation();
   const people = usePeople().data;
+  const openSettings = useOpenChannelSettings();
   const shown = channel.memberIds.slice(0, 3);
   const meta = [
     channel.archived
@@ -822,18 +843,28 @@ function ChannelHeader({
     <header className="page-header flex min-w-0 flex-col gap-1 border-b border-rule pb-3 pl-8 [--page-header-pr:32px] [--page-header-pt:24px] @max-[620px]:pl-4">
       <div className="flex min-w-0 items-start gap-4">
         <h1 className="min-w-0 flex-1 truncate text-2xl font-semibold text-ink" title={name.label}>
-          {name.code && (
-            <span className="num text-ink-muted">
-              {name.code}
-              {channel.kind === "project" ? " · " : " "}
-            </span>
-          )}
-          {name.name}
+          {/* Il nome apre le impostazioni (shape chat-manage.md §3), restando il titolo. */}
+          <button
+            type="button"
+            onClick={openSettings}
+            aria-label={t("chat.channel.settingsOf", { name: name.label })}
+            className="max-w-full truncate rounded-md text-left transition-colors duration-[var(--duration-fast)] ease-out hover:text-ink/80"
+          >
+            {name.code && (
+              <span className="num text-ink-muted">
+                {name.code}
+                {channel.kind === "project" ? " · " : " "}
+              </span>
+            )}
+            {name.name}
+          </button>
         </h1>
         <div className="flex shrink-0 items-center gap-2 pt-1">
-          <span
-            className="flex items-center gap-1.5 text-sm text-ink-muted"
-            aria-label={t("chat.channel.members", { count: channel.memberIds.length })}
+          <button
+            type="button"
+            onClick={openSettings}
+            className="flex h-8 items-center gap-1.5 rounded-md px-1.5 text-sm text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink"
+            aria-label={t("chat.channel.membersOpen", { count: channel.memberIds.length })}
           >
             <span className="flex gap-0.5" aria-hidden="true">
               {shown.map((id) => (
@@ -845,7 +876,7 @@ function ChannelHeader({
             <span className="num" aria-hidden="true">
               {channel.memberIds.length}
             </span>
-          </span>
+          </button>
           {channel.kind !== "dm" && (
             <button
               type="button"
@@ -882,6 +913,17 @@ function ChannelHeader({
           >
             {(close) => (
               <MenuGroup>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={itemClass}
+                  onClick={() => {
+                    close();
+                    openSettings();
+                  }}
+                >
+                  {channel.kind === "dm" ? t("chat.channel.details") : t("chat.channel.settings")}
+                </button>
                 <button
                   type="button"
                   role="menuitem"
@@ -929,9 +971,20 @@ function ChannelHeader({
         {channel.topic && (
           <>
             <span aria-hidden="true">·</span>
-            <span className="min-w-0 truncate" title={channel.topic}>
-              {t("chat.channel.topic", { topic: channel.topic })}
-            </span>
+            {channel.canEditTopic ? (
+              <button
+                type="button"
+                onClick={openSettings}
+                title={channel.topic}
+                className="min-w-0 truncate text-left underline decoration-ink/20 underline-offset-2 hover:text-ink hover:decoration-ink/60"
+              >
+                {t("chat.channel.topic", { topic: channel.topic })}
+              </button>
+            ) : (
+              <span className="min-w-0 truncate" title={channel.topic}>
+                {t("chat.channel.topic", { topic: channel.topic })}
+              </span>
+            )}
           </>
         )}
       </p>

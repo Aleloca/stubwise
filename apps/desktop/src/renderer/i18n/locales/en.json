@@ -57,10 +57,6 @@
       "home": {
         "home": "Home",
         "week": "My week"
-      },
-      "chat": {
-        "channels": "Channels",
-        "direct": "Direct messages"
       }
     },
     "viewsOf": "{{name}} views",
@@ -120,7 +116,8 @@
       "people": "People",
       "actions": "Actions",
       "viewAs": "View as",
-      "filters": "Filters"
+      "filters": "Filters",
+      "channels": "Channels"
     },
     "noResults": "No results for “{{query}}”",
     "noResultsHint": "Try a code like {{example}} or a name.",
@@ -145,9 +142,13 @@
       "openFilter": "Open filter…",
       "newConversation": "New conversation with Claude",
       "askClaude": "Ask Claude…",
-      "askClaudeWith": "Ask Claude: “{{query}}”"
+      "askClaudeWith": "Ask Claude: “{{query}}”",
+      "newMessage": "New message",
+      "newChannel": "New channel",
+      "goToChannel": "Go to channel…"
     },
-    "filterPlaceholder": "Choose a filter"
+    "filterPlaceholder": "Choose a filter",
+    "channelPlaceholder": "Go to a channel or direct message…"
   },
   "notifications": {
     "title": "Notifications",
@@ -2452,7 +2453,13 @@
       "notMember": "You're not in this channel.",
       "join": "Join channel",
       "joinFailed": "Couldn't join the channel. Try again.",
-      "cantRead": "This channel is private: only its members read its messages."
+      "cantRead": "This channel is private: only its members read its messages.",
+      "archivedBandBy": "This channel was archived by {{name}} on {{date}}. You can read it, not write in it.",
+      "details": "Details",
+      "settings": "Settings",
+      "settingsOf": "{{name}}: channel settings",
+      "membersOpen_one": "{{count}} member · settings",
+      "membersOpen_other": "{{count}} members · settings"
     },
     "flow": {
       "today": "Today",
@@ -2628,6 +2635,194 @@
       "waitingFor": "Waiting for {{name}}",
       "questionClosed": "Not answered: the reply was stopped.",
       "cantAct": "You can no longer act on this here: you're not in the channel or it's archived."
+    },
+    "column": {
+      "newMessage": "New message",
+      "newChannel": "New channel",
+      "threads": "Threads",
+      "threadsNew_one": "{{count}} with new replies",
+      "threadsNew_other": "{{count}} with new replies",
+      "mentionsView": "Mentions",
+      "channels": "Channels",
+      "company": "Company",
+      "direct": "Direct messages",
+      "browse": "Browse channels",
+      "empty": "You're not in any channel yet.",
+      "noDms": "No direct messages yet.",
+      "loading": "Loading channels…",
+      "private": "private",
+      "muted": "muted",
+      "draft": "draft",
+      "hasUnread": "unread messages",
+      "unread_one": "{{count}} unread",
+      "unread_other": "{{count}} unread",
+      "mentions_one": "{{count}} mention",
+      "mentions_other": "{{count}} mentions",
+      "projectChannels": "{{code}} channels"
+    },
+    "landing": {
+      "emptyTitle": "You're not in any channel yet",
+      "emptyBody": "Browse the channels of your projects and the company, or start a direct message."
+    },
+    "project": {
+      "noChannels": "You're not in any channel of this project yet."
+    },
+    "views": {
+      "threadsTitle": "Threads",
+      "threadsLede": "Threads you follow with replies you haven't read.",
+      "threadsEmpty": "No new replies",
+      "threadsEmptyBody": "Threads you write in or are mentioned in show up here when someone replies.",
+      "threadsError": "Couldn't load threads",
+      "newReplies_one": "{{count}} new reply",
+      "newReplies_other": "{{count}} new replies",
+      "mentionsTitle": "Mentions",
+      "mentionsLede": "Messages that mention you, your department or the whole channel.",
+      "mentionsEmpty": "No mentions",
+      "mentionsEmptyBody": "When someone mentions you in a channel you read, it shows up here.",
+      "mentionsError": "Couldn't load mentions",
+      "inThread": "in a thread",
+      "system": "Stubwise"
+    },
+    "browse": {
+      "title": "Browse channels",
+      "filter": "Show",
+      "filters": {
+        "all": "All",
+        "project": "Project",
+        "company": "Company",
+        "archived": "Archived"
+      },
+      "search": "Search channels",
+      "joined": "Joined",
+      "notMember": "Not a member",
+      "noMatch": "No channels match",
+      "error": "Couldn't load channels",
+      "empty": {
+        "all": "No channels yet",
+        "project": "No project channels you can see",
+        "company": "No company channels yet",
+        "archived": "No archived channels"
+      }
+    },
+    "people": {
+      "search": "Search by name or department",
+      "noMatch": "No one matches"
+    },
+    "newChannel": {
+      "title": "New channel",
+      "where": "Where",
+      "company": "Company-wide",
+      "name": "Name",
+      "namePlaceholder": "e.g. price-list",
+      "nameRule": "Lowercase letters, numbers and dashes, up to 40 characters.",
+      "preview": "Will appear as",
+      "taken": "{{code}} already has a channel with this name.",
+      "takenCompany": "There's already a company channel with this name.",
+      "description": "Description (optional)",
+      "descriptionPlaceholder": "What the channel is for, in one line",
+      "visibility": "Visibility",
+      "open": "Open",
+      "private": "Private",
+      "openProject": "Anyone who can see {{code}} can find and join it.",
+      "openCompany": "Everyone in the company can find and join it.",
+      "privateHint": "Only people you invite can see it and read it.",
+      "members": "Add members",
+      "onlyMembers": "Only {{code}} members can be added.",
+      "youAreIn": "You're in it from the start.",
+      "submit": "Create channel",
+      "cancel": "Cancel",
+      "failed": "Couldn't create the channel. Try again.",
+      "discard": "Discard this channel?",
+      "keep": "Keep editing",
+      "discardAction": "Discard"
+    },
+    "newDm": {
+      "title": "New message",
+      "to": "To",
+      "chosen": "Chosen people",
+      "count": "{{count}} of {{max}} people",
+      "max": "A group message can have up to {{max}} people, you included.",
+      "remove": "Remove {{name}}",
+      "exists": "You already have a conversation with these people.",
+      "message": "Message",
+      "messagePlaceholder": "Write the first message (optional)",
+      "start": "Start conversation",
+      "open": "Open conversation",
+      "failed": "Couldn't open the conversation. Try again.",
+      "discard": "Discard this message?"
+    },
+    "settings": {
+      "title": "Channel settings",
+      "close": "Close settings",
+      "loading": "Loading settings…",
+      "about": "About",
+      "name": "Name",
+      "description": "Description",
+      "topic": "Topic",
+      "noDescription": "No description",
+      "noTopic": "No topic",
+      "edit": "Edit",
+      "saveFailed": "Couldn't save the change.",
+      "whoCanEdit": "Only the channel's creator or someone who manages channels in {{code}} can change the name and description.",
+      "whoCanEditCompany": "Only the channel's creator or someone who manages company channels can change the name and description.",
+      "generalName": "The general channel keeps its name.",
+      "openProject": "Open · anyone who can see {{code}} can find and join it",
+      "openCompany": "Open · everyone in the company can find and join it",
+      "private": "Private · only its members can see and read it",
+      "notifications": "Notifications",
+      "levels": {
+        "all": "All messages",
+        "mentions": "Mentions only",
+        "muted": "Muted · mentions still reach you"
+      },
+      "events": "Published events",
+      "eventKinds": {
+        "release_page": "Release pages",
+        "milestone_reached": "Milestones reached",
+        "brief_ready": "Weekly brief",
+        "pr_opened": "PRs opened",
+        "pr_merged": "PRs merged",
+        "request_new": "New requests",
+        "task_closed": "Tasks closed"
+      },
+      "noEvents": "This channel publishes no project events.",
+      "moreRules": "More rules live in Automations.",
+      "members": "Members",
+      "participants": "Participants",
+      "you": "(you)",
+      "generalMembers": "Everyone in {{code}} is in this channel.",
+      "addPeople": "Add people",
+      "add_one": "Add {{count}} person",
+      "add_other": "Add {{count}} people",
+      "addFailed": "Couldn't add them. Try again.",
+      "alreadyIn": "Already in",
+      "askMember": "Ask a member to add you",
+      "remove": "Remove",
+      "removeNamed": "Remove {{name}}",
+      "removeConfirm": "Remove {{name}}? They won't be able to read this channel.",
+      "removeFailed": "Couldn't remove them. Try again.",
+      "leaveDm": "Leave conversation",
+      "left": "You left {{name}}",
+      "undo": "Undo",
+      "archive": "Archive channel",
+      "archiveTitle": "Archive {{name}}?",
+      "archiveBody": "Members can still read it and search it. Nobody can write in it.",
+      "archiveAction": "Archive",
+      "archived": "Archived {{name}}",
+      "archiveFailed": "Couldn't archive the channel. Try again.",
+      "delete": "Delete channel",
+      "deleteTitle": "Delete {{name}}?",
+      "deleteBody": "All its messages are deleted for everyone. Links and citations to them stop opening. This can't be undone.",
+      "typeName": "Type the channel name to confirm: {{name}}",
+      "deleted": "Deleted {{name}}",
+      "deleteFailed": "Couldn't delete the channel. Try again.",
+      "generalFixed": "The general channel of a project can't be archived or deleted.",
+      "dmFixed": "A direct message between two people can't be left or archived."
+    },
+    "private": {
+      "cantRead": "You can't read this channel's messages.",
+      "why": "Private channels can be read only by their members. You manage channels in {{code}}, so you can see who's in it, archive it or delete it.",
+      "whyCompany": "Private channels can be read only by their members. You manage company channels, so you can see who's in it, archive it or delete it."
     }
   }
 }

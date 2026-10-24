@@ -293,6 +293,31 @@ describe("CommandPalette", () => {
     await waitFor(() => expect(pathname(router)).toBe("/filters/flt-closed-month"));
   });
 
+  it("«Go to channel…» elenca i canali di chi guarda; «New message» apre il dialogo sopra la pagina", async () => {
+    const user = userEvent.setup();
+    const router = renderAt("/home");
+    await screen.findByRole("heading", { name: "Home", level: 1 });
+    let dialog = await openWithShortcut(user);
+    await user.type(within(dialog).getByRole("combobox"), "go to channel");
+    await within(dialog).findByRole("option", { name: /Go to channel…/, selected: true });
+    await user.keyboard("{Enter}");
+    const group = await within(dialog).findByRole("group", { name: "Channels" });
+    await user.type(within(dialog).getByRole("combobox"), "grafica");
+    await within(group).findByRole("option", { name: /grafica/ });
+    // Un DM altrui non c'è (Giulia non è nel DM fra Davide e Sara).
+    expect(within(group).queryByRole("option", { name: /Davide/ })).toBeNull();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(pathname(router)).toBe("/chat/ch-mkx-grafica"));
+
+    dialog = await openWithShortcut(user);
+    await user.type(within(dialog).getByRole("combobox"), "new message");
+    await within(dialog).findByRole("option", { name: /New message/, selected: true });
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(validSearch(router).newMessage).toBe("1"));
+    expect(pathname(router)).toBe("/chat/ch-mkx-grafica");
+    expect(await screen.findByRole("dialog", { name: "New message" })).toBeInTheDocument();
+  });
+
   it("un risultato task porta a #/p/<CODE>/tasks?task=<CODE-n>", async () => {
     const user = userEvent.setup();
     const router = renderAt("/home");

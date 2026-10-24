@@ -58,8 +58,8 @@ describe("router", () => {
     await screen.findByRole("heading", { level: 1, name: "Home" });
     expect(router.state.location.search).toEqual({ task: "AUD-1" });
     cleanup();
-    const bad = renderAt("/chat?task=nope");
-    await screen.findByRole("heading", { level: 1, name: "Chat" });
+    const bad = renderAt("/mail?task=nope");
+    await screen.findByRole("heading", { level: 1, name: "Mail" });
     // `location.search` è la ricerca grezza; quella validata sta nei match.
     expect(bad.state.matches.at(-1)!.search).toEqual({});
   });

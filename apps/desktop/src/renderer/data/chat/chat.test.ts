@@ -162,7 +162,14 @@ describe("chat: Review Focus 1 — privato e DM per Roberta (full admin)", () =>
     as("p-roberta");
     await rejects(chat.inviteMembers("ch-aud-pricing", ["p-roberta"]), "forbidden");
     const archived = await chat.archiveChannel("ch-aud-pricing");
-    expect(archived).toMatchObject({ archived: true, canRead: false });
+    expect(archived).toMatchObject({ archived: true, canRead: false, archivedById: "p-roberta" });
+    expect(archived.archivedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    // Ripristinato, non dice più chi l'aveva archiviato.
+    expect(await chat.archiveChannel("ch-aud-pricing", false)).toMatchObject({
+      archived: false,
+      archivedById: null,
+      archivedAt: null,
+    });
     await chat.deleteChannel("ch-aud-pricing");
     expect(state.chatMessages.some((m) => m.channelId === "ch-aud-pricing")).toBe(false);
     as("p-laura");

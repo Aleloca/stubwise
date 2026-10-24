@@ -44,6 +44,7 @@ describe("comandi di Claude (area 3)", () => {
       pathname: "/home",
       openViewAs: () => {},
       openFilters: () => {},
+      openChannels: () => {},
     };
     cmd.run({ ...ctx, query: "  Explain AUD-3 " });
     cmd.run(ctx);

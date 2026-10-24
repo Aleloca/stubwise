@@ -16,6 +16,8 @@ export interface CommandContext {
   openViewAs(): void;
   /** Apre il secondo passo «Open filter…» dentro la palette. */
   openFilters(): void;
+  /** Apre il secondo passo «Go to channel…» dentro la palette. */
+  openChannels(): void;
   /** Il testo scritto nella palette (per «Ask Claude…»). */
   query?: string;
 }
@@ -62,6 +64,26 @@ export const COMMANDS: readonly Command[] = [
     // `1` = il dialogo chiede il progetto; dentro un progetto porta il suo codice.
     run: (ctx) => ctx.navigate(`${ctx.pathname}?newRequest=${ctx.projectCode ?? "1"}`),
     when: (viewer) => can(viewer, "backlog.create"),
+  },
+  {
+    id: "chat.newMessage",
+    labelKey: "palette.commands.newMessage",
+    shortcut: ["mod", "N"],
+    // Il dialogo lo monta il layout su `newMessage`: la pagina resta dov'è.
+    run: (ctx) => ctx.navigate(`${ctx.pathname}?newMessage=1`),
+  },
+  {
+    id: "chat.newChannel",
+    labelKey: "palette.commands.newChannel",
+    // Dentro un progetto, il progetto è già scelto (se ci si possono creare canali).
+    run: (ctx) => ctx.navigate(`${ctx.pathname}?newChannel=${ctx.projectCode ?? "1"}`),
+    when: (viewer) => can(viewer, "chat.general.create") || can(viewer, "chat.channels.create"),
+  },
+  {
+    id: "chat.goTo",
+    labelKey: "palette.commands.goToChannel",
+    keepsOpen: true,
+    run: (ctx) => ctx.openChannels(),
   },
   {
     id: "filter.open",

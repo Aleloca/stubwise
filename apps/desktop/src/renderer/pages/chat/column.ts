@@ -1,0 +1,136 @@
+import type { ChannelRow, Project } from "../../data/types";
+
+// La colonna della Chat come dato: i canali in cui la persona è, raggruppati
+// per progetto (prima i fissati nel binario, nel loro ordine, poi gli altri
+// per codice), poi i generali dell'azienda, poi i messaggi diretti. Un
+// archiviato non c'è (si raggiunge da Browse e dalla ricerca); un privato
+// che si gestisce senza esserne membro nemmeno. Lo stesso ordine serve a
+// ⌥↑/⌥↓ e ⌥⇧↑/⌥⇧↓. Qui anche ciò che la colonna ricorda per persona: i
+// gruppi aperti o chiusi e l'ultimo canale aperto (l'atterraggio di `/chat`).
+
+export interface ProjectGroup {
+  project: Project;
+  channels: ChannelRow[];
+  unread: number;
+  mentions: number;
+}
+
+export interface ChatColumnModel {
+  projects: ProjectGroup[];
+  company: ChannelRow[];
+  dms: ChannelRow[];
+}
+
+/** I canali di un gruppo: il «general» prima, poi per nome. */
+const byGeneralThenName = (a: ChannelRow, b: ChannelRow) =>
+  Number(b.isGeneral) - Number(a.isGeneral) || a.name.localeCompare(b.name);
+
+/** Nella colonna: i canali in cui la persona è, non archiviati. */
+export const inColumn = (row: ChannelRow): boolean => row.isMember && !row.archived;
+
+export function chatColumnModel(
+  rows: readonly ChannelRow[],
+  projects: readonly Project[],
+  pinnedIds: readonly string[],
+): ChatColumnModel {
+  const mine = rows.filter(inColumn);
+  const byProject = new Map<string, ChannelRow[]>();
+  for (const row of mine) {
+    if (row.kind !== "project" || row.projectId === null) continue;
+    const list = byProject.get(row.projectId) ?? [];
+    list.push(row);
+    byProject.set(row.projectId, list);
+  }
+  const rank = (p: Project) => {
+    const i = pinnedIds.indexOf(p.id);
+    return i < 0 ? Number.MAX_SAFE_INTEGER : i;
+  };
+  const groups = projects
+    .filter((p) => byProject.has(p.id))
+    .sort((a, b) => rank(a) - rank(b) || a.code.localeCompare(b.code))
+    .map((project): ProjectGroup => {
+      const channels = byProject.get(project.id)!.sort(byGeneralThenName);
+      return {
+        project,
+        channels,
+        unread: channels.reduce((n, c) => n + c.unread, 0),
+        mentions: channels.reduce((n, c) => n + c.mentions, 0),
+      };
+    });
+  const company = mine
+    .filter((r) => r.kind === "general")
+    .sort((a, b) => a.name.localeCompare(b.name));
+  // I messaggi diretti: dal più recente; senza messaggi, dalla nascita.
+  const last = (r: ChannelRow) => r.lastActivityAt ?? r.createdAt;
+  const dms = mine.filter((r) => r.kind === "dm").sort((a, b) => last(b).localeCompare(last(a)));
+  return { projects: groups, company, dms };
+}
+
+/** L'ordine della colonna, per la tastiera: progetti, azienda, diretti. */
+export function columnOrder(model: ChatColumnModel): ChannelRow[] {
+  return [...model.projects.flatMap((g) => g.channels), ...model.company, ...model.dms];
+}
+
+/** Il canale da segnalare: non letti o menzioni (un silenziato con una menzione diretta sì). */
+export const hasNews = (row: ChannelRow): boolean => row.unread > 0 || row.mentions > 0;
+
+// --- ciò che la colonna ricorda, per persona ---------------------------------
+//
+// In memoria e, se c'è, in `localStorage`: una preferenza di comodo, che può
+// sparire senza danni (finestra privata, dati cancellati).
+
+const memory = new Map<string, string>();
+const PREFIX = "stubwise.chat.";
+
+function read(key: string): string | null {
+  try {
+    const stored = window.localStorage.getItem(PREFIX + key);
+    if (stored !== null) return stored;
+  } catch {
+    // Senza localStorage resta la memoria.
+  }
+  return memory.get(key) ?? null;
+}
+
+function write(key: string, value: string | null): void {
+  if (value === null) memory.delete(key);
+  else memory.set(key, value);
+  try {
+    if (value === null) window.localStorage.removeItem(PREFIX + key);
+    else window.localStorage.setItem(PREFIX + key, value);
+  } catch {
+    // Idem.
+  }
+}
+
+/** L'ultimo canale aperto dalla persona (`null` la prima volta). */
+export const lastChannelOf = (personId: string): string | null => read(`last.${personId}`);
+
+export const rememberLastChannel = (personId: string, channelId: string): void =>
+  write(`last.${personId}`, channelId);
+
+/**
+ * Aperto o chiuso, scelto a mano, per un gruppo di progetto: `undefined` se
+ * la persona non l'ha mai toccato (allora decide la colonna: aperto solo
+ * con qualcosa di non letto).
+ */
+export function groupOpenOf(personId: string, projectId: string): boolean | undefined {
+  const value = read(`group.${personId}.${projectId}`);
+  return value === null ? undefined : value === "1";
+}
+
+export const rememberGroupOpen = (personId: string, projectId: string, open: boolean): void =>
+  write(`group.${personId}.${projectId}`, open ? "1" : "0");
+
+/** Dimentica tutto (test, reset del prototipo). */
+export function clearChatColumnPrefs(): void {
+  memory.clear();
+  try {
+    for (let i = window.localStorage.length - 1; i >= 0; i--) {
+      const key = window.localStorage.key(i);
+      if (key?.startsWith(PREFIX)) window.localStorage.removeItem(key);
+    }
+  } catch {
+    // Idem.
+  }
+}

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { usePinnedFilters, useSavedFilters } from "../data/queries";
 import { APP_ROUTES } from "../data/routes";
 import { can, useViewer } from "../data/viewer";
+import { ChatColumn } from "../pages/chat/ChatColumn";
 import { ClaudeColumn } from "../pages/claude/ClaudeColumn";
 import { ONE_LINE, columnItemClass } from "./ProjectColumn";
 
@@ -15,9 +16,7 @@ export type Destination = (typeof APP_ROUTES)[number];
  * segnaposto. La prima è quella di default, senza parametro. La Home ha la
  * sua colonna (`HomeColumn`).
  */
-const SUBVIEWS: Partial<Record<Destination, readonly string[]>> = {
-  chat: ["channels", "direct"],
-};
+const SUBVIEWS: Partial<Record<Destination, readonly string[]>> = {};
 
 /**
  * Colonna di una destinazione personale: solo le sottoviste, se ci sono. Il
@@ -27,6 +26,7 @@ const SUBVIEWS: Partial<Record<Destination, readonly string[]>> = {
 export function PersonalColumn({ destination }: { destination: Destination }) {
   if (destination === "home") return <HomeColumn />;
   if (destination === "claude") return <ClaudeColumn />;
+  if (destination === "chat") return <ChatColumn />;
   return <GenericColumn destination={destination} />;
 }
 

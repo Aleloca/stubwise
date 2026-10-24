@@ -250,14 +250,21 @@ describe("PersonalColumn", () => {
       await act(() => router.navigate({ to: `/${name}` }));
       const h1 = await screen.findByRole("heading", { level: 1 });
       // `/filters` è «All filters», come la voce della colonna che ci porta;
-      // `/claude` atterra su una conversazione nuova (shape claude-destination).
-      expect(h1).toHaveTextContent(
-        name === "filters"
-          ? i18n.t("filter.allTitle")
-          : name === "claude"
-            ? i18n.t("claude.destination.landing.title")
-            : i18n.t(`nav.${name}`),
-      );
+      // `/claude` atterra su una conversazione nuova (shape claude-destination);
+      // `/chat` sul «general» del primo progetto fissato (shape chat.md §6).
+      if (name === "chat") {
+        await waitFor(() =>
+          expect(screen.getByRole("heading", { level: 1 }).textContent).toMatch(/^[A-Z]+ · general$/),
+        );
+      } else {
+        expect(h1).toHaveTextContent(
+          name === "filters"
+            ? i18n.t("filter.allTitle")
+            : name === "claude"
+              ? i18n.t("claude.destination.landing.title")
+              : i18n.t(`nav.${name}`),
+        );
+      }
       expect(h1).toHaveClass("text-2xl");
       expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     }
@@ -290,14 +297,13 @@ describe("PersonalColumn", () => {
     ).toHaveTextContent("Qui compariranno i tuoi calendari.");
   });
 
-  it("Chat ha Channels e Direct messages; Mail nessuna sottovista e nessun titolo", async () => {
+  it("Chat ha la sua colonna (canali e messaggi diretti); Mail nessuna sottovista e nessun titolo", async () => {
     const router = await renderAt("/chat");
     const nav = await within(column()).findByRole("navigation", { name: "Chat views" });
-    expect(
-      within(nav)
-        .getAllByRole("link")
-        .map((l) => l.textContent),
-    ).toEqual(["Channels", "Direct messages"]);
+    expect(within(nav).getByRole("button", { name: "New message" })).toBeInTheDocument();
+    expect(await within(nav).findByRole("list", { name: "Channels" })).toBeInTheDocument();
+    expect(within(nav).getByRole("list", { name: "Direct messages" })).toBeInTheDocument();
+    expect(within(column()).queryByRole("heading")).toBeNull();
     await act(() => router.navigate({ to: "/mail" }));
     await waitFor(() =>
       expect(column().querySelector("[data-context]")).toHaveAttribute("data-context", "mail"),

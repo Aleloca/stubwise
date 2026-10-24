@@ -12,7 +12,7 @@ import { Placeholder } from "./pages/Placeholder";
 import { NotFound } from "./pages/NotFound";
 import { ProjectNotFound } from "./pages/ProjectNotFound";
 import { useTranslation } from "react-i18next";
-import { useProject } from "./data/queries";
+import { useChatChannels, useProject } from "./data/queries";
 import { APP_ROUTES, PROJECT_SECTIONS, isProjectSection, isValidSearchParam } from "./data/routes";
 import { can, canSeeAdmin, useViewer } from "./data/viewer";
 import type { FilterCriteria } from "./data/types";
@@ -28,7 +28,11 @@ import { OverviewPage } from "./pages/overview/OverviewPage";
 import { AllProjectsPage } from "./pages/projects/AllProjectsPage";
 import { ProjectSettingsPage } from "./pages/settings/ProjectSettingsPage";
 import { ClaudePage, ConversationPage } from "./pages/claude/ClaudePage";
-import { ChannelView } from "./pages/chat/ChannelView";
+import { ChannelView, chatHref, type ChannelHref } from "./pages/chat/ChannelView";
+import { ChatPage } from "./pages/chat/ChatPage";
+import { rememberLastChannel } from "./pages/chat/column";
+import { useChatChannel } from "./data/queries";
+import { useEffect } from "react";
 
 /** La ricerca che ogni route accetta (`?task=` apre il pannello, gli altri li montano i dialoghi). */
 export interface AppSearch {
@@ -57,6 +61,12 @@ export interface AppSearch {
   thread?: string;
   /** Chat: il messaggio da portare in vista (link, menzione, ricerca). */
   message?: string;
+  /** Chat: le impostazioni del canale aperte nel pannello (`1`). */
+  settings?: string;
+  /** Chat: il dialogo «New message» (`1`). */
+  newMessage?: string;
+  /** Chat: il dialogo «New channel» (`1`, `company` o il codice del progetto). */
+  newChannel?: string;
 }
 
 const SEARCH_KEYS = [
@@ -75,6 +85,9 @@ const SEARCH_KEYS = [
   "dept",
   "thread",
   "message",
+  "settings",
+  "newMessage",
+  "newChannel",
 ] as const;
 
 /**
@@ -107,7 +120,7 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
             ? /^[a-z-]+$/.test(value)
             : key === "ask"
               ? value.trim().length > 0 && value.length <= ASK_MAX
-              : key === "refine"
+              : key === "refine" || key === "settings"
                 ? value === "1"
                 : false;
     if (shapeOk || isValidSearchParam("", key, value)) out[key] = value;
@@ -177,6 +190,7 @@ function pageOf(name: (typeof APP_ROUTES)[number]) {
   if (name === "home") return HomeRoutePage;
   if (name === "projects") return ProjectsRoutePage;
   if (name === "claude") return ClaudePage;
+  if (name === "chat") return ChatPage;
   return () => <Placeholder titleKey={`nav.${name}`} bodyKey={`placeholder.pages.${name}`} />;
 }
 
@@ -205,6 +219,8 @@ function ChatChannelRoutePage() {
   const { channelId } = chatChannelRoute.useParams();
   const { viewer } = useViewer();
   const search = useSearch({ strict: false }) as { message?: string; thread?: string };
+  // L'atterraggio di `#/chat` riapre l'ultimo canale aperto (shape chat.md §6).
+  useEffect(() => rememberLastChannel(viewer.personId, channelId), [viewer.personId, channelId]);
   return (
     <ChannelView
       key={`${viewer.personId}:${channelId}`}
@@ -219,6 +235,87 @@ const chatChannelRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/chat/$channelId",
   component: ChatChannelRoutePage,
+});
+
+/** I link del canale dentro la sezione Chat del progetto: restano nel progetto. */
+const projectChatHref =
+  (code: string, channelId: string): ChannelHref =>
+  (params) =>
+    chatHref(channelId)(params).replace(/^#\/chat\//, `#/p/${code}/chat/`);
+
+/**
+ * La sezione Chat del progetto (`/p/<CODE>/chat`): atterra sul «general»
+ * del progetto. Lo stesso `ChannelView` e gli stessi letti della Chat.
+ */
+function ProjectChatLanding({ projectId, code }: { projectId: string; code: string }) {
+  const { t } = useTranslation();
+  const { data } = useChatChannels({ scope: "project", projectId });
+  if (!data) {
+    return (
+      <p role="status" className="p-8 text-sm text-ink-muted">
+        {t("chat.channel.loading")}
+      </p>
+    );
+  }
+  const general = data.find((c) => c.isGeneral) ?? data.find((c) => c.isMember && !c.archived);
+  if (!general) {
+    return (
+      <Placeholder titleKey="project.sections.chat" bodyKey="chat.project.noChannels" />
+    );
+  }
+  return (
+    <Navigate
+      to="/p/$code/chat/$channelId"
+      params={{ code, channelId: general.id }}
+      replace
+    />
+  );
+}
+
+function ProjectChatChannelRoutePage() {
+  const { code, channelId } = projectChatChannelRoute.useParams();
+  const { viewer } = useViewer();
+  const search = useSearch({ strict: false }) as { message?: string; thread?: string };
+  const { data: project, isPending } = useProject(code);
+  const channel = useChatChannel(channelId);
+  if (isPending) return null;
+  if (!project) return <ProjectNotFound />;
+  // Un canale di un altro ambito si apre nella Chat, non qui.
+  if (channel.data && channel.data.projectId !== project.id) {
+    return (
+      <Navigate
+        to="/chat/$channelId"
+        params={{ channelId }}
+        search={(prev: Record<string, unknown>) => prev}
+        replace
+      />
+    );
+  }
+  return (
+    <ChannelView
+      key={`${viewer.personId}:${channelId}`}
+      channelId={channelId}
+      hrefFor={projectChatHref(project.code, channelId)}
+      focusMessageId={search.message}
+      openThreadId={search.thread}
+    />
+  );
+}
+
+const projectChatChannelRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/p/$code/chat/$channelId",
+  beforeLoad: ({ params }) => {
+    if (upperCaseCode(params.code)) {
+      throw redirect({
+        to: "/p/$code/chat/$channelId",
+        params: { code: params.code.toUpperCase(), channelId: params.channelId },
+        search: (prev) => prev,
+        replace: true,
+      });
+    }
+  },
+  component: ProjectChatChannelRoutePage,
 });
 
 const filterRoute = createRoute({
@@ -287,6 +384,7 @@ function ProjectSectionPage() {
   if (section === "requests") {
     return <RequestsPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />;
   }
+  if (section === "chat") return <ProjectChatLanding projectId={project.id} code={project.code} />;
   if (section === "settings") {
     return (
       <ProjectSettingsPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />
@@ -325,6 +423,7 @@ const routeTree = rootRoute.addChildren([
   filterRoute,
   projectIndexRoute,
   projectSectionRoute,
+  projectChatChannelRoute,
 ]);
 
 export function createAppRouter(history: RouterHistory) {

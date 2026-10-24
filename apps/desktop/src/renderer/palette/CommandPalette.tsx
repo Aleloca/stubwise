@@ -10,7 +10,14 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { useSavedFilters, useSearch } from "../data/queries";
+import {
+  useChatChannels,
+  usePeople,
+  useProjects,
+  useSavedFilters,
+  useSearch,
+} from "../data/queries";
+import { rowLabel } from "../pages/chat/ChatPage";
 import type { SearchResult } from "../data/types";
 import { VIEW_AS_PERSONAS, useViewer } from "../data/viewer";
 import { DeptLegend, DeptStrip, useDepartmentName } from "../layout/DeptStrip";
@@ -26,8 +33,16 @@ export const GROUP_LIMIT = 5;
 /** Attesa dopo l'ultimo tasto prima di cercare. */
 export const SEARCH_DEBOUNCE_MS = 120;
 
-type Step = "root" | "viewAs" | "filters";
-type GroupId = "projects" | "tasks" | "requests" | "people" | "actions" | "viewAs" | "filters";
+type Step = "root" | "viewAs" | "filters" | "channels";
+type GroupId =
+  | "projects"
+  | "tasks"
+  | "requests"
+  | "people"
+  | "actions"
+  | "viewAs"
+  | "filters"
+  | "channels";
 
 interface Item {
   key: string;
@@ -142,6 +157,10 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   const searching = step === "root" && debounced.trim().length > 0;
   const search = useSearch(step === "root" ? debounced : "");
   const savedFilters = useSavedFilters();
+  // «Go to channel…»: i canali si leggono solo in quel passo.
+  const channels = useChatChannels({ scope: "all" }, { enabled: step === "channels" });
+  const projectList = useProjects().data;
+  const people = usePeople().data;
   const input = useRef<HTMLInputElement>(null);
   const baseId = useId();
   const listboxId = `${baseId}-listbox`;
@@ -190,6 +209,36 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       return [{ id: "filters", items }];
     }
 
+    if (step === "channels") {
+      const needle = query.trim().toLowerCase();
+      // I canali in cui si è (non archiviati) e i messaggi diretti, come nella colonna.
+      const items = (channels.data ?? [])
+        .filter((c) => c.isMember && !c.archived)
+        .map((c) => ({ c, name: rowLabel(c, viewer.personId, projectList, people) }))
+        .filter(({ name }) => name.label.toLowerCase().includes(needle))
+        .sort(
+          (a, b) =>
+            Number(a.c.kind === "dm") - Number(b.c.kind === "dm") ||
+            a.name.label.localeCompare(b.name.label),
+        )
+        .slice(0, 50)
+        .map(
+          ({ c, name }): Item => ({
+            key: `channel-${c.id}`,
+            ...(c.kind === "project" && name.code ? { code: name.code } : {}),
+            label: c.kind === "project" ? c.name : name.label,
+            ...(c.mentions > 0
+              ? { detail: t("chat.column.mentions", { count: c.mentions }) }
+              : {}),
+            select: () => {
+              router.history.push(`/chat/${c.id}`);
+              onClose();
+            },
+          }),
+        );
+      return [{ id: "channels", items }];
+    }
+
     const ctx: CommandContext = {
       navigate: (path) => router.history.push(path),
       setTheme: setPreference,
@@ -203,6 +252,11 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       },
       openFilters: () => {
         setStep("filters");
+        setQuery("");
+        setActive(0);
+      },
+      openChannels: () => {
+        setStep("channels");
         setQuery("");
         setActive(0);
       },
@@ -222,6 +276,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       actions: [],
       viewAs: [],
       filters: [],
+      channels: [],
     };
     if (searching) {
       for (const r of search.data ?? []) {
@@ -274,6 +329,9 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     projectCode,
     pathname,
     savedFilters.data,
+    channels.data,
+    projectList,
+    people,
     onClose,
     t,
   ]);
@@ -392,7 +450,9 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                 ? t("palette.viewAsPlaceholder")
                 : step === "filters"
                   ? t("palette.filterPlaceholder")
-                  : t("palette.placeholder")
+                  : step === "channels"
+                    ? t("palette.channelPlaceholder")
+                    : t("palette.placeholder")
             }
             spellCheck={false}
             autoComplete="off"
@@ -444,7 +504,8 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                     >
                       {group.id !== "actions" &&
                         group.id !== "viewAs" &&
-                        group.id !== "filters" && (
+                        group.id !== "filters" &&
+                        (group.id !== "channels" || item.code) && (
                         <span className="num w-16 shrink-0 text-sm font-semibold text-ink-muted">
                           {item.code}
                         </span>

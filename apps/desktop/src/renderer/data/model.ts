@@ -884,6 +884,9 @@ export interface Channel {
   createdById: string;
   /** Archiviato: resta leggibile a chi lo vedeva, in sola lettura. */
   archived: boolean;
+  /** Chi l'ha archiviato e quando (la fascia «archived by X on date»); `null` se non archiviato. */
+  archivedById: string | null;
+  archivedAt: string | null;
   /** Il «general» di un progetto: ne comprende tutti i membri e non si lascia. */
   isGeneral: boolean;
   memberIds: string[];

@@ -61,6 +61,16 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
       return /^[A-Z]{2,4}$/.test(value);
     case "newRequest":
       return value === "1" || /^[A-Z]{2,4}$/.test(value);
+    // I dialoghi della Chat (nuovo messaggio diretto, nuovo canale) e le impostazioni di un canale.
+    case "newMessage":
+      return value === "1";
+    case "newChannel":
+      return value === "1" || value === "company" || /^[A-Z]{2,4}$/.test(value);
+    case "settings":
+      return isChannelPath(path) && value === "1";
+    case "thread":
+    case "message":
+      return isChannelPath(path) && /^[\w-]+$/.test(value);
     case "request":
       return /^p\/[A-Z]{2,4}\/requests$/.test(path) && /^[\w-]+$/.test(value);
     case "refine":
@@ -70,6 +80,7 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
     case "view":
       if (path === "home") return value === "week";
       if (path === "projects") return value === "person";
+      if (path === "chat") return (CHAT_VIEWS as readonly string[]).includes(value);
       return isTasksPath(path) && (TASK_VIEWS as readonly string[]).includes(value);
     case "date":
       return path === "projects" && /^\d{4}-\d{2}-\d{2}$/.test(value);
@@ -86,6 +97,14 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
     default:
       return false;
   }
+}
+
+/** Le viste della colonna della Chat (`#/chat?view=`). */
+export const CHAT_VIEWS = ["threads", "mentions", "browse"] as const;
+
+/** Un canale della Chat, nella Chat o nella sezione del progetto. */
+function isChannelPath(path: string): boolean {
+  return /^chat\/[\w-]+$/.test(path) || /^p\/[A-Z]{2,4}\/chat\/[\w-]+$/.test(path);
 }
 
 /** Gli elenchi della destinazione «Claude» (`#/claude?scope=`). */
@@ -132,6 +151,7 @@ export function isAppRoute(route: string): boolean {
   if ((APP_ROUTES as readonly string[]).includes(path)) return true;
   if (/^filters\/[\w-]+$/.test(path)) return true;
   if (/^claude\/[\w-]+$/.test(path)) return true;
+  if (isChannelPath(path)) return true;
   const p = /^p\/([A-Z]{2,4})(?:\/([a-z]+))?$/.exec(path);
   if (!p) return false;
   return !p[2] || (PROJECT_SECTIONS_IDS as readonly string[]).includes(p[2]);

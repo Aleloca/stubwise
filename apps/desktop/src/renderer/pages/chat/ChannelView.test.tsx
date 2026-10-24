@@ -472,7 +472,7 @@ describe("ChannelView: casella e invio", () => {
   it("archiviato: sola lettura; aperto non membro: «Join channel» al posto della casella", async () => {
     const user = userEvent.setup();
     const { unmount } = renderWithData(<Harness id="ch-mkx-autumn" />, { personId: "p-giulia" });
-    expect(await screen.findByText(/This channel is archived/)).toBeInTheDocument();
+    expect(await screen.findByText(/This channel was archived by Paolo Gatti on/)).toBeInTheDocument();
     expect(screen.queryByRole("combobox")).toBeNull();
     unmount();
     renderWithData(<Harness id="ch-marketing" />, { personId: "p-sara" });

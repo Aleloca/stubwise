@@ -545,6 +545,8 @@ export async function createChannel(input: NewChannelInput): Promise<ChannelView
     visibility: input.visibility,
     createdById: me,
     archived: false,
+    archivedById: null,
+    archivedAt: null,
     isGeneral: false,
     memberIds: [...new Set([me, ...invited])],
     publishedEvents: input.projectId ? ["release_page", "milestone_reached", "brief_ready"] : [],
@@ -616,6 +618,8 @@ export async function archiveChannel(channelId: string, archived = true): Promis
   const ch = seen(me, channelId);
   if (!channelPermissions(me, ch).canArchive) throw forbidden();
   ch.archived = archived;
+  ch.archivedById = archived ? me : null;
+  ch.archivedAt = archived ? chatNow() : null;
   notifyChatChange(ch.id);
   return view(me, ch);
 }
@@ -705,6 +709,8 @@ export async function openDm(personIds: string[]): Promise<ChannelView> {
     visibility: "private",
     createdById: me,
     archived: false,
+    archivedById: null,
+    archivedAt: null,
     isGeneral: false,
     memberIds: people,
     publishedEvents: [],

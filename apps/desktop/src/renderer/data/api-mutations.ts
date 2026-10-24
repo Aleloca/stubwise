@@ -944,6 +944,8 @@ export async function createProject(input: NewProjectInput): Promise<Project> {
     visibility: "open",
     createdById: me,
     archived: false,
+    archivedById: null,
+    archivedAt: null,
     isGeneral: true,
     memberIds: [],
     publishedEvents: [...DEFAULT_PUBLISHED_EVENTS],
