@@ -18,6 +18,7 @@ type Ev<T extends ConversationEvent["type"]> = Extract<ConversationEvent, { type
 export type WorkStatus =
   | { kind: "none" }
   | { kind: "working"; action: string | null; at: string }
+  | { kind: "idle"; at: string }
   | { kind: "awaiting_answer"; at: string }
   | { kind: "awaiting_approval"; at: string }
   | { kind: "paused"; phase: string | null; byId: string | null; at: string }
@@ -45,8 +46,10 @@ export function statusOf(run: TaskRun | undefined, events = run?.events ?? []): 
   if (!run) return { kind: "none" };
   const lastAt = events.at(-1)?.at ?? run.createdAt;
   switch (run.state) {
-    case "working":
-    case "idle": {
+    case "idle":
+      // Né al lavoro né fermo: aspetta il seguito (niente anello che pulsa).
+      return { kind: "idle", at: lastAt };
+    case "working": {
       const action = lastOf(events, "action", (e) => e.state === "running");
       return { kind: "working", action: action?.label ?? null, at: action?.at ?? lastAt };
     }
@@ -190,19 +193,37 @@ function runsEvents(work: TaskWork, latest?: readonly ConversationEvent[]): Conv
   );
 }
 
+
 // --- storia del lavoro -----------------------------------------------------------
 
 export type StoryEntry =
   | { kind: "run_started"; key: string; at: string; byId: string }
-  | { kind: "correction_requested"; key: string; at: string; byId: string; ordinal: number }
-  | { kind: "correction_started"; key: string; at: string; ordinal: number }
-  | { kind: "correction_resumed"; key: string; at: string; ordinal: number }
+  /** `ordinal` per PR; `null` per una correzione fermata (annullata), che non prende numero. */
+  | { kind: "correction_requested"; key: string; at: string; byId: string; ordinal: number | null }
+  | { kind: "correction_started"; key: string; at: string; ordinal: number | null }
+  | { kind: "correction_resumed"; key: string; at: string; ordinal: number | null }
+  /**
+   * Il piano scritto, all'ora in cui è arrivato. Se il registro ha la riga
+   * della decisione, questa è a parte (`plan_decision`, con la sua data) e
+   * qui `folded` è falso; senza riga la decisione sta nella stessa voce,
+   * senza un'ora che Stubwise non conosce. Approvato in anticipo: arriva già
+   * approvato, una voce sola.
+   */
   | {
       kind: "plan";
       key: string;
       at: string;
       status: Ev<"plan">["status"];
       decidedById: string | null;
+      instructions: string | null;
+      folded: boolean;
+    }
+  | {
+      kind: "plan_decision";
+      key: string;
+      at: string;
+      status: "approved" | "rejected";
+      byId: string | null;
       instructions: string | null;
     }
   | { kind: "question"; key: string; at: string; text: string }
@@ -225,56 +246,111 @@ export type StoryEntry =
       byId: string | null;
     };
 
+type CorrectionEntry = Extract<
+  StoryEntry,
+  { kind: "correction_requested" | "correction_started" | "correction_resumed" }
+>;
+
+/** Una correzione: quando comincia, su quale PR, se è stata annullata (fermata e chiusa). */
+interface CorrectionRecord {
+  at: string;
+  pr: string | null;
+  cancelled: boolean;
+}
+
+/** Le aperture delle PR (flusso e piattaforma), in ordine: la chiave è `#n` o l'evento. */
+function prOpenings(work: TaskWork, latest?: readonly ConversationEvent[]) {
+  const out: { at: string; key: string }[] = [];
+  for (const e of runsEvents(work, latest)) {
+    if (e.type !== "work_result" || e.kind !== "pr_opened") continue;
+    const n = numberIn(e.text);
+    out.push({ at: e.at, key: n !== null ? `#${n}` : `event:${e.id}` });
+  }
+  for (const pr of work.pullRequests) {
+    if (pr.kind === "pr_opened") out.push({ at: pr.at, key: `#${pr.number}` });
+  }
+  return out.sort((a, b) => a.at.localeCompare(b.at));
+}
+
 /**
  * La storia del lavoro di Claude sulla task, dalla più vecchia. Per
  * sessione: l'avvio (o la correzione chiesta, se la sessione nasce da
- * «Request changes») con chi l'ha chiesto, i piani con la loro decisione, le
+ * «Request changes») con chi l'ha chiesto, i piani e le loro decisioni, le
  * domande e le risposte, i risultati con il loro testo, gli arresti e i
- * fallimenti; poi merge e chiusure delle PR dalla piattaforma. Le
- * correzioni sono numerate sulla task, nell'ordine in cui cominciano; una
- * correzione ripresa dopo una pausa resta la stessa.
+ * fallimenti; poi merge e chiusure delle PR dalla piattaforma.
+ *
+ * Le correzioni sono numerate PER PR (come la storia del ticket di oggi):
+ * la PR di una correzione è l'ultima aperta prima che cominci; contano
+ * quelle non annullate, nell'ordine in cui cominciano. Una correzione
+ * ripresa dopo una pausa resta la stessa; una fermata in una sessione poi
+ * chiusa è annullata e non prende numero.
  */
 export function workStory(work: TaskWork, latest?: readonly ConversationEvent[]): StoryEntry[] {
   const out: StoryEntry[] = [];
-  let corrections = 0;
   const openedPrs = new Set<number>();
+  const openings = prOpenings(work, latest);
+  const prAt = (at: string) => openings.filter((o) => o.at <= at).at(-1)?.key ?? null;
+  const records: CorrectionRecord[] = [];
+  const recordOf = new Map<CorrectionEntry, CorrectionRecord>();
+  const usedDecisions = new Set<number>();
+  const newRecord = (at: string) => {
+    const record: CorrectionRecord = { at, pr: prAt(at), cancelled: false };
+    records.push(record);
+    return record;
+  };
 
   work.runs.forEach((run, runIndex) => {
     const events =
       runIndex === work.runs.length - 1 && latest && latest.length > 0 ? latest : run.events;
     const first = events.find((e) => e.type === "phase");
+    // La correzione di questa sessione e se la sua ultima fase si è fermata.
+    let current: CorrectionRecord | null = null;
+    let stopped = false;
     if (first?.phase === "correction") {
-      corrections += 1;
-      out.push({
+      current = newRecord(run.createdAt);
+      const entry: CorrectionEntry = {
         kind: "correction_requested",
         key: `${run.id}:start`,
         at: run.createdAt,
         byId: run.ownerId,
-        ordinal: corrections,
-      });
+        ordinal: null,
+      };
+      recordOf.set(entry, current);
+      out.push(entry);
     } else {
       out.push({ kind: "run_started", key: `${run.id}:start`, at: run.createdAt, byId: run.ownerId });
     }
-    // La fase di correzione aperta (o fermata) in questa sessione.
     let correctionOpen = first?.phase === "correction";
-    let correctionStopped = false;
 
     for (const e of events) {
       switch (e.type) {
         case "phase": {
           if (e.phase === "correction" && e !== first) {
             const opens = e.outcome === null || !correctionOpen;
-            if (opens && correctionStopped) {
-              out.push({ kind: "correction_resumed", key: e.id, at: e.at, ordinal: corrections });
+            if (opens && current && stopped) {
+              const entry: CorrectionEntry = {
+                kind: "correction_resumed",
+                key: e.id,
+                at: e.at,
+                ordinal: null,
+              };
+              recordOf.set(entry, current);
+              out.push(entry);
             } else if (opens) {
-              corrections += 1;
-              out.push({ kind: "correction_started", key: e.id, at: e.at, ordinal: corrections });
+              current = newRecord(e.at);
+              const entry: CorrectionEntry = {
+                kind: "correction_started",
+                key: e.id,
+                at: e.at,
+                ordinal: null,
+              };
+              recordOf.set(entry, current);
+              out.push(entry);
             }
+          }
+          if (e.phase === "correction") {
             correctionOpen = e.outcome === null;
-            correctionStopped = e.outcome === "stopped";
-          } else if (e.phase === "correction") {
-            correctionOpen = e.outcome === null;
-            correctionStopped = e.outcome === "stopped";
+            stopped = e.outcome === "stopped";
           }
           if (e.outcome !== null && e.outcome !== "ok") {
             out.push({
@@ -288,7 +364,17 @@ export function workStory(work: TaskWork, latest?: readonly ConversationEvent[])
           }
           break;
         }
-        case "plan":
+        case "plan": {
+          const decided = e.status === "approved" || e.status === "rejected";
+          const index = decided
+            ? work.planDecisions.findIndex(
+                (d, i) =>
+                  !usedDecisions.has(i) &&
+                  d.decidedAt >= e.at &&
+                  d.decidedById === (e.decidedById ?? null) &&
+                  (e.status === "rejected") === /\brejected\b/i.test(d.decision),
+              )
+            : -1;
           out.push({
             kind: "plan",
             key: e.id,
@@ -296,8 +382,21 @@ export function workStory(work: TaskWork, latest?: readonly ConversationEvent[])
             status: e.status,
             decidedById: e.decidedById ?? null,
             instructions: e.instructions ?? null,
+            folded: decided && index < 0,
           });
+          if (index >= 0) {
+            usedDecisions.add(index);
+            out.push({
+              kind: "plan_decision",
+              key: `${e.id}:decision`,
+              at: work.planDecisions[index]!.decidedAt,
+              status: e.status as "approved" | "rejected",
+              byId: e.decidedById ?? null,
+              instructions: e.instructions ?? null,
+            });
+          }
           break;
+        }
         case "question":
           out.push({ kind: "question", key: e.id, at: e.at, text: e.text });
           if (e.answer) {
@@ -333,7 +432,20 @@ export function workStory(work: TaskWork, latest?: readonly ConversationEvent[])
           break;
       }
     }
+    // Fermata e mai ripresa in una sessione chiusa: la correzione è annullata.
+    if (current && stopped && run.state === "finished") current.cancelled = true;
   });
+
+  // I numeri, per PR, sulle correzioni non annullate in ordine d'inizio.
+  const ordinals = new Map<CorrectionRecord, number>();
+  const perPr = new Map<string | null, number>();
+  for (const record of [...records].sort((a, b) => a.at.localeCompare(b.at))) {
+    if (record.cancelled) continue;
+    const n = (perPr.get(record.pr) ?? 0) + 1;
+    perPr.set(record.pr, n);
+    ordinals.set(record, n);
+  }
+  for (const [entry, record] of recordOf) entry.ordinal = ordinals.get(record) ?? null;
 
   for (const pr of work.pullRequests) {
     // Un'apertura che il flusso ha già raccontato non si ripete.
@@ -350,7 +462,8 @@ export function workStory(work: TaskWork, latest?: readonly ConversationEvent[])
 
 /** La correzione più recente della task, come la mostra la riga «Correction N». */
 export type CorrectionLine = {
-  ordinal: number;
+  /** `null`: annullata (fermata), senza numero. */
+  ordinal: number | null;
   state: "running" | "paused" | "pushed" | "ended";
   at: string;
 };
@@ -359,7 +472,8 @@ export function latestCorrection(
   work: TaskWork,
   latest?: readonly ConversationEvent[],
 ): CorrectionLine | null {
-  let ordinal = 0;
+  let seen = false;
+  let ordinal: number | null = null;
   let state: CorrectionLine["state"] = "running";
   let at = "";
   for (const entry of workStory(work, latest)) {
@@ -368,18 +482,19 @@ export function latestCorrection(
       entry.kind === "correction_started" ||
       entry.kind === "correction_resumed"
     ) {
+      seen = true;
       ordinal = entry.ordinal;
       state = "running";
       at = entry.at;
-    } else if (ordinal > 0 && entry.kind === "result" && entry.result === "correction") {
+    } else if (seen && entry.kind === "result" && entry.result === "correction") {
       state = "pushed";
       at = entry.at;
-    } else if (ordinal > 0 && entry.kind === "ended" && entry.phase === "correction") {
+    } else if (seen && entry.kind === "ended" && entry.phase === "correction") {
       state = entry.outcome === "stopped" ? "paused" : "ended";
       at = entry.at;
     }
   }
-  if (ordinal === 0) return null;
+  if (!seen) return null;
   // Una correzione fermata in una sessione già chiusa non è in pausa: è finita lì.
   if (state === "paused" && work.runs.at(-1)?.state === "finished") state = "ended";
   return { ordinal, state, at };

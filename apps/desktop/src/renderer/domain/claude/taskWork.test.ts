@@ -33,8 +33,20 @@ const work = (runs: TaskRun[], over: Partial<TaskWork> = {}): TaskWork => ({
   pullRequests: [],
   software: true,
   openPr: false,
+  planDecisions: [],
+  waitsOnViewer: false,
+  hiddenRuns: false,
+  actions: {
+    start: "unavailable",
+    relaunch: "unavailable",
+    resume: "unavailable",
+    requestChanges: "unavailable",
+  },
   ...over,
 });
+
+const prEvent = (n: number, at: string, text = `Pull request #${n} opened`) =>
+  ev({ at, type: "work_result", kind: "pr_opened", text });
 
 describe("workStory", () => {
   it("racconta in ordine solo ciò che il flusso e la piattaforma dimostrano", () => {
@@ -103,7 +115,8 @@ describe("workStory", () => {
     expect(story[1]).toMatchObject({ outcome: "stopped", byId: "p-marco" });
     expect(story[2]).toMatchObject({ byId: "p-laura" });
     expect(story[4]).toMatchObject({ label: "CSV", byId: "p-laura", at: "2026-10-19T09:30:00Z" });
-    expect(story[5]).toMatchObject({ status: "approved", decidedById: "p-laura" });
+    // Nessuna riga nel registro: la decisione sta nella voce del piano, senza un'ora sua.
+    expect(story[5]).toMatchObject({ status: "approved", decidedById: "p-laura", folded: true });
     expect(story[8]).toMatchObject({ ordinal: 1 });
     // L'apertura #405 della piattaforma è già nel flusso: c'è solo il merge.
     expect(story[10]).toMatchObject({ event: "pr_merged", number: 405 });
@@ -131,6 +144,79 @@ describe("workStory", () => {
     expect(story.filter((s) => s.kind.startsWith("correction"))).toMatchObject([
       { kind: "correction_requested", ordinal: 1 },
       { kind: "correction_resumed", ordinal: 1 },
+    ]);
+  });
+
+  it("la decisione sul piano ha la data del registro, a parte dal piano scritto", () => {
+    const plan = ev({
+      at: "2026-10-19T09:40:00Z",
+      type: "plan",
+      planText: "p",
+      summary: "s",
+      status: "approved",
+      decidedById: "p-laura",
+    });
+    const story = workStory(
+      work([run("r", {}, [plan])], {
+        planDecisions: [
+          { decidedById: "p-laura", decidedAt: "2026-10-19T14:05:00Z", decision: "Approved" },
+        ],
+      }),
+    );
+    expect(story.slice(1)).toMatchObject([
+      { kind: "plan", at: "2026-10-19T09:40:00Z", folded: false },
+      { kind: "plan_decision", at: "2026-10-19T14:05:00Z", status: "approved", byId: "p-laura" },
+    ]);
+  });
+
+  it("le correzioni si numerano per PR: una PR nuova riparte da 1", () => {
+    const story = workStory(
+      work(
+        [
+          run("r1", {}, [
+            ev({ at: "2026-10-10T09:00:00Z", type: "phase", phase: "execution", outcome: "ok" }),
+            prEvent(401, "2026-10-10T10:00:00Z"),
+            ev({ at: "2026-10-11T09:00:00Z", type: "phase", phase: "correction", outcome: null }),
+            ev({ at: "2026-10-11T10:00:00Z", type: "phase", phase: "correction", outcome: "ok" }),
+          ]),
+          // La #401 è chiusa; il rilancio apre la #402.
+          run("r2", { createdAt: "2026-10-15T09:00:00Z" }, [
+            ev({ at: "2026-10-15T09:00:00Z", type: "phase", phase: "execution", outcome: null }),
+            prEvent(402, "2026-10-15T11:00:00Z"),
+          ]),
+          run("r3", { ownerId: "p-laura", createdAt: "2026-10-16T09:00:00Z", state: "working", outcome: null }, [
+            ev({ at: "2026-10-16T09:00:00Z", type: "phase", phase: "correction", outcome: null }),
+          ]),
+        ],
+        {
+          pullRequests: [
+            { id: "c", projectId: "x", taskId: "t", kind: "pr_closed", at: "2026-10-12T08:00:00Z", number: 401 },
+          ],
+        },
+      ),
+    );
+    expect(story.filter((s) => s.kind.startsWith("correction"))).toMatchObject([
+      { kind: "correction_started", ordinal: 1 },
+      { kind: "correction_requested", byId: "p-laura", ordinal: 1 },
+    ]);
+  });
+
+  it("una correzione fermata in una sessione chiusa è annullata e non prende numero", () => {
+    const story = workStory(
+      work([
+        run("r1", {}, [prEvent(401, "2026-10-10T10:00:00Z")]),
+        run("r2", { createdAt: "2026-10-11T09:00:00Z", outcome: "stopped" }, [
+          ev({ at: "2026-10-11T09:00:00Z", type: "phase", phase: "correction", outcome: null }),
+          ev({ at: "2026-10-11T09:05:00Z", type: "phase", phase: "correction", outcome: "stopped" }),
+        ]),
+        run("r3", { createdAt: "2026-10-12T09:00:00Z", state: "working", outcome: null }, [
+          ev({ at: "2026-10-12T09:00:00Z", type: "phase", phase: "correction", outcome: null }),
+        ]),
+      ]),
+    );
+    expect(story.filter((s) => s.kind === "correction_requested")).toMatchObject([
+      { ordinal: null },
+      { ordinal: 1 },
     ]);
   });
 });

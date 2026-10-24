@@ -650,7 +650,8 @@
         "failed": "Non riuscito · {{phase}}",
         "stopped": "Fermato · {{phase}}",
         "stoppedBy": "Fermato da {{name}}",
-        "timed_out": "Tempo scaduto · {{phase}}"
+        "timed_out": "Tempo scaduto · {{phase}}",
+        "idle": "In attesa"
       },
       "states": {
         "none": "Claude non sta lavorando su questa task.",
@@ -691,7 +692,8 @@
         "running": "Correzione {{n}} · in corso",
         "paused": "Correzione {{n}} · in pausa",
         "pushed": "Correzione {{n}} · inviata · {{time}}",
-        "ended": "Correzione {{n}} · fermata"
+        "ended": "Correzione {{n}} · fermata",
+        "cancelled": "Correzione fermata"
       },
       "story": {
         "title": "Storia del lavoro",
@@ -701,7 +703,7 @@
         "correction_resumed": "Correzione {{n}} ripresa",
         "plan_pending": "Piano scritto, aspetta l'approvazione",
         "plan_approved": "Piano approvato da {{name}}",
-        "plan_pre_approved": "Piano approvato in anticipo da {{name}}",
+        "plan_pre_approved": "Piano scritto, approvato in anticipo da {{name}}",
         "plan_rejected": "Piano rifiutato da {{name}}",
         "plan_rejectedWith": "Piano rifiutato da {{name}}: «{{instructions}}»",
         "question": "Claude ha chiesto: «{{text}}»",
@@ -712,14 +714,23 @@
         "stoppedBy": "Fermato da {{name}} · {{phase}}",
         "stopped": "Fermato · {{phase}}",
         "failed": "Non riuscito · {{phase}}",
-        "timed_out": "Tempo scaduto · {{phase}}"
+        "timed_out": "Tempo scaduto · {{phase}}",
+        "correction_requestedCancelled": "Correzione chiesta da {{name}}",
+        "correction_startedCancelled": "Correzione cominciata",
+        "correction_resumedCancelled": "Correzione ripresa",
+        "plan_written": "Piano scritto",
+        "plan_written_approved": "Piano scritto · approvato da {{name}}",
+        "plan_written_rejected": "Piano scritto · rifiutato da {{name}}",
+        "plan_writtenRejectedWith": "Piano scritto · rifiutato da {{name}}: «{{instructions}}»"
       },
       "follow": {
-        "title": "Sessione di Claude",
+        "title": "Claude",
         "back": "Task",
         "backLabel": "Torna a {{code}}",
         "openFull": "Apri a pagina intera"
-      }
+      },
+      "hiddenRuns": "Solo chi vede il codice di {{code}} può aprire le sessioni di Claude.",
+      "waitingHint": "Claude aspetta te"
     },
     "links": {
       "origin": "Richiesta d'origine",

@@ -650,7 +650,8 @@
         "failed": "Failed · {{phase}}",
         "stopped": "Stopped · {{phase}}",
         "stoppedBy": "Stopped by {{name}}",
-        "timed_out": "Timed out · {{phase}}"
+        "timed_out": "Timed out · {{phase}}",
+        "idle": "Waiting"
       },
       "states": {
         "none": "Claude isn't working on this task.",
@@ -691,7 +692,8 @@
         "running": "Correction {{n}} · in progress",
         "paused": "Correction {{n}} · paused",
         "pushed": "Correction {{n}} · sent · {{time}}",
-        "ended": "Correction {{n}} · stopped"
+        "ended": "Correction {{n}} · stopped",
+        "cancelled": "Correction stopped"
       },
       "story": {
         "title": "Work story",
@@ -701,7 +703,7 @@
         "correction_resumed": "Correction {{n}} resumed",
         "plan_pending": "Plan written, waiting for approval",
         "plan_approved": "Plan approved by {{name}}",
-        "plan_pre_approved": "Plan approved in advance by {{name}}",
+        "plan_pre_approved": "Plan written, approved in advance by {{name}}",
         "plan_rejected": "Plan rejected by {{name}}",
         "plan_rejectedWith": "Plan rejected by {{name}}: “{{instructions}}”",
         "question": "Claude asked: “{{text}}”",
@@ -712,14 +714,23 @@
         "stoppedBy": "Stopped by {{name}} · {{phase}}",
         "stopped": "Stopped · {{phase}}",
         "failed": "Failed · {{phase}}",
-        "timed_out": "Timed out · {{phase}}"
+        "timed_out": "Timed out · {{phase}}",
+        "correction_requestedCancelled": "Correction requested by {{name}}",
+        "correction_startedCancelled": "Correction started",
+        "correction_resumedCancelled": "Correction resumed",
+        "plan_written": "Plan written",
+        "plan_written_approved": "Plan written · approved by {{name}}",
+        "plan_written_rejected": "Plan written · rejected by {{name}}",
+        "plan_writtenRejectedWith": "Plan written · rejected by {{name}}: “{{instructions}}”"
       },
       "follow": {
-        "title": "Claude session",
+        "title": "Claude",
         "back": "Task",
         "backLabel": "Back to {{code}}",
         "openFull": "Open full page"
-      }
+      },
+      "hiddenRuns": "Only people who can see the code in {{code}} can open Claude's sessions.",
+      "waitingHint": "Claude is waiting on you"
     },
     "links": {
       "origin": "Origin request",

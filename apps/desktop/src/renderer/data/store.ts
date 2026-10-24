@@ -646,6 +646,52 @@ export function hasOpenPr(task: Task): boolean {
   return openings.some((at) => at > lastClose);
 }
 
+/** L'ultima sessione di lavoro della task (la più recente), visibile o no. */
+export function latestRunOf(taskId: string): Conversation | undefined {
+  return state.conversations
+    .filter((c) => c.kind === "task_run" && c.taskId === taskId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))[0];
+}
+
+/** L'ultimo evento delle PR della task sulla piattaforma è un merge, e nessuna è aperta. */
+export function lastPrMerged(task: Task): boolean {
+  if (!hasRepository(task.projectId)) return false;
+  const last = state.pullRequests
+    .filter((pr) => pr.taskId === task.id)
+    .sort((a, b) => a.at.localeCompare(b.at))
+    .at(-1);
+  return last?.kind === "pr_merged" && !hasOpenPr(task);
+}
+
+/**
+ * Le precondizioni di stato delle azioni sul lavoro di Claude (i permessi
+ * a parte): le stesse che controllano le scritture (`startRun`,
+ * `relaunchWithInstructions`, `resumeCorrection`, `requestChanges`), in un
+ * posto solo, così la sezione della task le legge invece di dedurle.
+ * - avviare: task aperta, nessun lavoro vivo;
+ * - rilanciare: task aperta, l'ultimo lavoro concluso o in pausa, la PR
+ *   non è già mergiata;
+ * - riprendere la correzione: l'ultimo lavoro è in pausa nella correzione;
+ * - chiedere modifiche: una PR aperta e nessun lavoro vivo.
+ */
+export function runPreconditions(task: Task): {
+  start: boolean;
+  relaunch: boolean;
+  resume: boolean;
+  requestChanges: boolean;
+} {
+  const open = familyOf(task) !== "closed";
+  const latest = latestRunOf(task.id);
+  const live = latest !== undefined && latest.state !== "finished";
+  const settled = !latest || latest.state === "finished" || latest.state === "paused";
+  return {
+    start: open && !live,
+    relaunch: open && settled && !lastPrMerged(task),
+    resume: latest?.state === "paused" && currentPhase(eventsOf(latest.id)) === "correction",
+    requestChanges: hasOpenPr(task) && !live,
+  };
+}
+
 export const openDecisions = () =>
   state.decisions.filter((d) => d.answer === null && d.withdrawnAt === null);
 

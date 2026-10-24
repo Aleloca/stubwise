@@ -312,10 +312,13 @@ export function TaskHeader({
   task,
   canEdit,
   onClose,
+  notice,
 }: {
   task: Task;
   canEdit: boolean;
   onClose: () => void;
+  /** Una riga sotto la barra, sopra il titolo («Claude is waiting on you ↓»). */
+  notice?: ReactNode;
 }) {
   const { t, i18n } = useTranslation();
   const { viewer } = useViewer();
@@ -390,6 +393,7 @@ export function TaskHeader({
         </button>
       </div>
 
+      {notice}
       <div className="px-4 pt-1 pb-3">
         <TitleEditor task={task} canEdit={canEdit} />
       </div>

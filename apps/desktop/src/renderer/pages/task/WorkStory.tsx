@@ -17,20 +17,37 @@ function line(t: TFunction, entry: StoryEntry, name: (id: string | null) => stri
   switch (entry.kind) {
     case "run_started":
       return t(`${s}.run_started`, { name: name(entry.byId) });
+    // Una correzione annullata (fermata) non ha numero: la frase lo omette.
     case "correction_requested":
-      return t(`${s}.correction_requested`, { n: entry.ordinal, name: name(entry.byId) });
+      return entry.ordinal === null
+        ? t(`${s}.correction_requestedCancelled`, { name: name(entry.byId) })
+        : t(`${s}.correction_requested`, { n: entry.ordinal, name: name(entry.byId) });
     case "correction_started":
     case "correction_resumed":
-      return t(`${s}.${entry.kind}`, { n: entry.ordinal });
-    case "plan":
+      return entry.ordinal === null
+        ? t(`${s}.${entry.kind}Cancelled`)
+        : t(`${s}.${entry.kind}`, { n: entry.ordinal });
+    case "plan": {
+      // L'ora della voce è quella in cui il piano è arrivato; la decisione
+      // ci sta dentro solo se il registro non ne ha la data.
       if (entry.status === "pending") return t(`${s}.plan_pending`);
+      if (entry.status === "pre_approved") {
+        return t(`${s}.plan_pre_approved`, { name: name(entry.decidedById) });
+      }
+      if (!entry.folded) return t(`${s}.plan_written`);
       if (entry.status === "rejected" && entry.instructions) {
-        return t(`${s}.plan_rejectedWith`, {
+        return t(`${s}.plan_writtenRejectedWith`, {
           name: name(entry.decidedById),
           instructions: entry.instructions,
         });
       }
-      return t(`${s}.plan_${entry.status}`, { name: name(entry.decidedById) });
+      return t(`${s}.plan_written_${entry.status}`, { name: name(entry.decidedById) });
+    }
+    case "plan_decision":
+      if (entry.status === "rejected" && entry.instructions) {
+        return t(`${s}.plan_rejectedWith`, { name: name(entry.byId), instructions: entry.instructions });
+      }
+      return t(`${s}.plan_${entry.status}`, { name: name(entry.byId) });
     case "question":
       return t(`${s}.question`, { text: entry.text });
     case "answer":

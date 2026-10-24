@@ -123,7 +123,35 @@ export interface TaskWork {
   software: boolean;
   /** Una PR ancora aperta: «Request changes» ha qualcosa da correggere. */
   openPr: boolean;
+  /**
+   * Le decisioni sui piani della task dal registro decisioni (`plan_review`),
+   * con la loro data: la storia del lavoro dice quando un piano è stato
+   * deciso solo se c'è la riga che lo dimostra.
+   */
+  planDecisions: PlanDecision[];
+  /** Claude aspetta chi guarda: una domanda a cui può rispondere o un piano che può decidere. */
+  waitsOnViewer: boolean;
+  /** Ci sono sessioni di lavoro della task che chi guarda non vede (`repos.view`). */
+  hiddenRuns: boolean;
+  /** Cosa può fare chi guarda, deciso dal livello dati con le precondizioni delle scritture. */
+  actions: Record<RunAction, ActionAvailability>;
 }
+
+export interface PlanDecision {
+  decidedById: string | null;
+  decidedAt: string;
+  /** Il testo del registro: «Approved», «Rejected», «Rejected: …». */
+  decision: string;
+}
+
+export type RunAction = "start" | "relaunch" | "resume" | "requestChanges";
+
+/**
+ * `allowed`: si può fare; `forbidden`: lo stato lo consente ma chi guarda
+ * non ha il permesso (la sezione dice chi può); `unavailable`: lo stato non
+ * lo consente (nessuna azione, nessuna frase).
+ */
+export type ActionAvailability = "allowed" | "forbidden" | "unavailable";
 
 /** Cosa sta facendo Claude adesso, per la riga dell'elenco. */
 export type ConversationActivity =

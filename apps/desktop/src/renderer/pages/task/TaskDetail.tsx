@@ -1,5 +1,5 @@
 import { Link, useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
-import { useCallback, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useStalled, useTask } from "../../data/queries";
 import type { Task } from "../../data/types";
@@ -14,7 +14,7 @@ import { useMediaQuery } from "../../layout/useMediaQuery";
 import { PageError } from "../../tasks-ui/PageStates";
 import { Conversation } from "../claude/conversation/Conversation";
 import { ActivityFeed } from "./ActivityFeed";
-import { ClaudeSection } from "./ClaudeSection";
+import { ClaudeSection, ClaudeWaitingNotice, scrollPanelTo } from "./ClaudeSection";
 import { DecisionSection } from "./DecisionSection";
 import { DescriptionSection } from "./DescriptionSection";
 import { LinksSection } from "./LinksSection";
@@ -147,17 +147,29 @@ export function TaskDetail({ code, onClose }: { code: string; onClose: () => voi
 function TaskBody({ task, onClose }: { task: Task; onClose: () => void }) {
   // «Follow here»: il pannello diventa la conversazione della sessione, finché non si torna.
   const [following, setFollowing] = useState<string | null>(null);
+  // Tornando dalla sessione il fuoco torna su «Follow here».
+  const [returned, setReturned] = useState(false);
   if (following) {
     return (
       <FollowSession
         task={task}
         conversationId={following}
-        onBack={() => setFollowing(null)}
+        onBack={() => {
+          setFollowing(null);
+          setReturned(true);
+        }}
         onClose={onClose}
       />
     );
   }
-  return <TaskSections task={task} onClose={onClose} onFollow={setFollowing} />;
+  return (
+    <TaskSections
+      task={task}
+      onClose={onClose}
+      onFollow={setFollowing}
+      focusFollowHere={returned}
+    />
+  );
 }
 
 /**
@@ -177,6 +189,9 @@ function FollowSession({
   onClose: () => void;
 }) {
   const { t } = useTranslation();
+  // Entrando, il fuoco va alla testata della sessione (il bottone che l'ha aperta non c'è più).
+  const heading = useRef<HTMLHeadingElement>(null);
+  useLayoutEffect(() => heading.current?.focus({ preventScroll: true }), []);
   return (
     <div data-follow-session={conversationId} className="flex min-h-0 flex-1 flex-col">
       <div className="page-header box-content flex h-12 shrink-0 items-center gap-1 border-b border-rule pl-2 [--page-header-pr:8px]">
@@ -189,7 +204,11 @@ function FollowSession({
           <span aria-hidden="true">←</span>
           {t("taskDetail.claude.follow.back")}
         </button>
-        <h2 className="min-w-0 flex-1 truncate px-1 text-sm font-semibold text-ink">
+        <h2
+          ref={heading}
+          tabIndex={-1}
+          className="min-w-0 flex-1 truncate rounded-md px-1 text-sm font-semibold text-ink"
+        >
           <span className="num">{task.code}</span>
           <span aria-hidden="true" className="px-1.5 text-ink-faint">
             ·
@@ -224,11 +243,24 @@ function TaskSections({
   task,
   onClose,
   onFollow,
+  focusFollowHere,
 }: {
   task: Task;
   onClose: () => void;
   onFollow: (conversationId: string) => void;
+  /** Si torna dalla sessione seguita: il fuoco su «Follow here», la sezione in vista. */
+  focusFollowHere: boolean;
 }) {
+  const article = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    if (!focusFollowHere) return;
+    const button = article.current?.querySelector<HTMLElement>("[data-follow-here]");
+    const section = button?.closest("section");
+    if (!button || !section) return;
+    scrollPanelTo(section);
+    button.focus({ preventScroll: true });
+    // Solo al ritorno: rimontando per altri motivi il fuoco resta dov'è.
+  }, [focusFollowHere]);
   const { viewer } = useViewer();
   const canEdit = can(viewer, "tickets.edit", task.projectId);
   const canComment = can(viewer, "tickets.comment", task.projectId);
@@ -237,11 +269,17 @@ function TaskSections({
   )?.stall;
   return (
     <article
+      ref={article}
       data-task-detail={task.code}
       className="flex flex-col pb-6"
       style={{ minWidth: DETAIL_PANEL_MIN_WIDTH - 1 }}
     >
-      <TaskHeader task={task} canEdit={canEdit} onClose={onClose} />
+      <TaskHeader
+        task={task}
+        canEdit={canEdit}
+        onClose={onClose}
+        notice={<ClaudeWaitingNotice task={task} />}
+      />
       <StallControl task={task} stall={stall ?? null} canEdit={canEdit} />
       <DecisionSection task={task} canComment={canComment} />
       <DescriptionSection task={task} canEdit={canEdit} />

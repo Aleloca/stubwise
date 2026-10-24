@@ -35,6 +35,13 @@ export interface SubscribeOptions {
   afterEventId?: string;
   /** La connessione cade (`reconnecting`) o la chiude il «server» (`closed`). */
   onConnection?: (connection: Exclude<StreamConnection, "live">) => void;
+  /**
+   * Solo ascolto: legge il flusso dal vivo senza far partire ciò che la
+   * sessione del seed fa da qui in avanti. Lo usa chi riassume una sessione
+   * (la sezione «Claude» della task); lo script parte quando qualcuno apre
+   * la conversazione o con un'azione.
+   */
+  passive?: boolean;
 }
 
 interface Subscriber {
@@ -126,7 +133,7 @@ export function subscribe(
   subscribers.add(subscriber);
 
   const script = SCRIPTS[conversationId];
-  if (script && !started.has(conversationId)) {
+  if (script && !options.passive && !started.has(conversationId)) {
     started.add(conversationId);
     void runScript(conversationId, script);
   }

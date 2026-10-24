@@ -80,6 +80,19 @@ describe("sezione Claude", () => {
       const p = detail!.events.find((e) => e.type === "plan");
       expect(p?.type === "plan" && p.status).toBe("approved");
     });
+    // La storia dice quando il piano è arrivato e, a parte, quando è stato
+    // approvato (la data del registro decisioni), non la stessa ora per tutt'e due.
+    await userEvent.click(within(current()).getByRole("button", { name: /Work story/ }));
+    const items = within(within(current()).getByRole("list", { name: "Work story" })).getAllByRole(
+      "listitem",
+    );
+    const written = items.find((li) => /^.*Plan written$/.test(li.textContent ?? ""))!;
+    const approved = items.find((li) => /Plan approved by Laura Costa/.test(li.textContent ?? ""))!;
+    expect(written.querySelector("time")!.dateTime).not.toBe(
+      approved.querySelector("time")!.dateTime,
+    );
+    const row = state.decisionLog.find((d) => d.taskId === "t-stw-13" && d.source === "plan_review")!;
+    expect(approved.querySelector("time")!.dateTime).toBe(row.decidedAt);
   });
 
   it("«Assign to Claude» con tickets.edit, e non avvia il lavoro", async () => {
@@ -199,9 +212,132 @@ describe("sezione Claude", () => {
       .map((li) => li.textContent ?? "");
     expect(items[0]).toMatch(/Run started by Marco Bellini/);
     expect(items[1]).toMatch(/Stopped by Marco Bellini/);
-    expect(items.findIndex((s) => /Plan approved by Laura Costa/.test(s))).toBeLessThan(
+    // Il registro non ha la data di questa decisione: sta nella voce del piano, senza un'ora sua.
+    expect(items.findIndex((s) => /Plan written · approved by Laura Costa/.test(s))).toBeLessThan(
       items.findIndex((s) => /Pull request #405 opened/.test(s)),
     );
     expect(items.at(-1)).toMatch(/PR #405 merged/);
+  });
+
+  it("task chiusa con la PR mergiata: nessuna azione, nemmeno nel menu", async () => {
+    const section = await claudeSection("t-stw-1", "p-laura");
+    expect(within(section).queryByRole("button", { name: "Relaunch with instructions" })).toBeNull();
+    await userEvent.click(within(section).getByRole("button", { name: "More actions for Claude" }));
+    const menu = await screen.findByRole("menu", { name: "More actions for Claude" });
+    expect(within(menu).queryByRole("menuitem", { name: "Relaunch with instructions" })).toBeNull();
+    expect(within(menu).getByRole("menuitem", { name: "Open session" })).toBeInTheDocument();
+  });
+
+  it("senza tickets.edit niente «Assign to Claude»", async () => {
+    grantProjectRole("p-sara", "prj-stw", "viewer");
+    const t = state.tasks.find(
+      (x) => x.projectId === "prj-stw" && x.claude === "none" && x.closedAt === null && x.assigneeId !== CLAUDE,
+    )!;
+    const section = await claudeSection(t.id, "p-sara");
+    expect(section).toHaveTextContent("Claude isn't on this task.");
+    expect(within(section).queryByRole("button", { name: "Assign to Claude" })).toBeNull();
+  });
+
+  it("senza corrections.request niente «Resume correction», ma chi può farlo", async () => {
+    state.conversationEvents.get("cv-run-aud-4")!.push({
+      id: "x-corr",
+      at: "2026-10-23T10:00:00Z",
+      type: "phase",
+      phase: "correction",
+      outcome: "stopped",
+    });
+    grantProjectRole("p-giulia", "prj-aud", "viewer");
+    const section = await claudeSection("t-aud-4", "p-giulia");
+    expect(within(section).queryByRole("button", { name: "Resume correction" })).toBeNull();
+    expect(section).toHaveTextContent(/request corrections in AUD can resume it/);
+  });
+
+  it("l'approvazione in anticipo è nel menu solo con plans.approve", async () => {
+    // Una sessione che sta scrivendo il piano (nessun piano ancora).
+    const t = state.tasks.find(
+      (x) => x.projectId === "prj-stw" && x.claude === "none" && x.closedAt === null,
+    )!;
+    state.conversations.push({
+      ...state.conversations.find((c) => c.id === "cv-run-stw-13")!,
+      id: "cv-planning",
+      taskId: t.id,
+      state: "working",
+      createdAt: "2026-10-24T08:00:00Z",
+    });
+    state.conversationEvents.set("cv-planning", [
+      { id: "p1", at: "2026-10-24T08:00:00Z", type: "phase", phase: "plan", outcome: null },
+    ]);
+    const dev = await claudeSection(t.id, "p-marco");
+    await userEvent.click(within(dev).getByRole("button", { name: "More actions for Claude" }));
+    const devMenu = await screen.findByRole("menu", { name: "More actions for Claude" });
+    expect(within(devMenu).queryByRole("menuitem", { name: "Approve the plan in advance" })).toBeNull();
+  });
+
+  it("chi ha plans.approve approva in anticipo dal menu", async () => {
+    const t = state.tasks.find(
+      (x) => x.projectId === "prj-stw" && x.claude === "none" && x.closedAt === null,
+    )!;
+    state.conversations.push({
+      ...state.conversations.find((c) => c.id === "cv-run-stw-13")!,
+      id: "cv-planning",
+      taskId: t.id,
+      state: "working",
+      createdAt: "2026-10-24T08:00:00Z",
+    });
+    state.conversationEvents.set("cv-planning", [
+      { id: "p1", at: "2026-10-24T08:00:00Z", type: "phase", phase: "plan", outcome: null },
+    ]);
+    const lead = await claudeSection(t.id, "p-laura");
+    await userEvent.click(within(lead).getByRole("button", { name: "More actions for Claude" }));
+    const menu = await screen.findByRole("menu", { name: "More actions for Claude" });
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "Approve the plan in advance" }));
+    await waitFor(() => expect(state.preApprovedPlans.has("cv-planning")).toBe(true));
+  });
+
+  it("sessioni che chi guarda non vede: stato neutro, nessuna sessione né azione", async () => {
+    const section = await claudeSection("t-aud-3", "p-giulia");
+    expect(section.querySelector("[data-claude-status]")).toHaveAttribute(
+      "data-claude-status",
+      "neutral",
+    );
+    expect(within(section).queryByRole("link", { name: "Open session" })).toBeNull();
+    expect(within(section).queryByRole("button", { name: "Follow here" })).toBeNull();
+    expect(within(section).queryByRole("region", { name: "Claude asks" })).toBeNull();
+    expect(section).toHaveTextContent(/can see the code in AUD/);
+  });
+
+  it("progetto senza repository: niente PR, il lavoro si segue lo stesso", async () => {
+    const section = await claudeSection("t-mkx-11", "p-giulia");
+    expect(section).not.toHaveTextContent(/PR #/);
+    expect(within(section).queryByRole("button", { name: "Request changes" })).toBeNull();
+    expect(within(section).getByRole("button", { name: "Follow here" })).toBeInTheDocument();
+  });
+
+  it("«Follow here»: la sessione nel pannello, e «← Task» riporta il fuoco dov'era", async () => {
+    const section = await claudeSection("t-aud-3", "p-laura");
+    await userEvent.click(within(section).getByRole("button", { name: "Follow here" }));
+    const panel = screen.getByRole("dialog");
+    const heading = await within(panel).findByRole("heading", { name: /AUD-3.*Claude/ });
+    expect(heading).toHaveFocus();
+    expect(panel.querySelector('[data-conversation="cv-run-aud-3"]')).not.toBeNull();
+    expect(within(panel).queryByRole("region", { name: "Description" })).toBeNull();
+    await userEvent.click(within(panel).getByRole("button", { name: "Back to AUD-3" }));
+    await waitFor(() =>
+      expect(within(current()).getByRole("button", { name: "Follow here" })).toHaveFocus(),
+    );
+  });
+
+  it("Claude che aspetta chi guarda: la testata lo dice", async () => {
+    await claudeSection("t-aud-3", "p-laura");
+    expect(
+      within(screen.getByRole("dialog")).getByRole("button", { name: /Claude is waiting on you/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("leggere la sezione non fa partire la sessione del seed", async () => {
+    const before = state.conversationEvents.get("cv-run-aud-5")!.length;
+    await claudeSection("t-aud-5", "p-laura");
+    await new Promise((r) => setTimeout(r, 300));
+    expect(state.conversationEvents.get("cv-run-aud-5")!.length).toBe(before);
   });
 });

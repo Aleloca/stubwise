@@ -15,9 +15,7 @@ import {
   useTaskWork,
 } from "../../data/queries";
 import type { ConversationDetail, ConversationEvent, Task, TaskRun, TaskWork } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
 import {
-  correctionHeld,
   lastMessage,
   lastReview,
   latestCorrection,
@@ -40,6 +38,48 @@ import { MoreIcon, Section, ghostButton, smallPrimary, smallSecondary } from "./
 import { WorkStory, phaseName } from "./WorkStory";
 
 const K = "taskDetail.claude";
+
+/**
+ * Porta un elemento in cima al pannello della task. Solo il pannello
+ * scorre: `scrollIntoView` porterebbe con sé anche la pagina.
+ */
+export function scrollPanelTo(el: HTMLElement): void {
+  const scroller = el.closest<HTMLElement>("[data-detail-panel] > .overflow-auto");
+  if (!scroller) return;
+  scroller.scrollTop += el.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+}
+
+/**
+ * Sotto la barra del pannello, quando Claude aspetta chi guarda: «Claude is
+ * waiting on you ↓», che porta alla sezione (e alla sua scheda).
+ */
+export function ClaudeWaitingNotice({ task }: { task: Task }) {
+  const { t } = useTranslation();
+  const work = useTaskWork(task.id).data;
+  if (!work?.waitsOnViewer) return null;
+  const jump = (e: { currentTarget: HTMLElement }) => {
+    const status = e.currentTarget
+      .closest("[data-detail-panel]")
+      ?.querySelector<HTMLElement>("[data-claude-status]");
+    const section = status?.closest("section");
+    if (!status || !section) return;
+    scrollPanelTo(section);
+    status.focus({ preventScroll: true });
+  };
+  return (
+    <div className="px-4 pb-1">
+      <button
+        type="button"
+        onClick={jump}
+        className="-ml-1.5 inline-flex h-7 items-center gap-2 rounded-md px-1.5 text-sm font-medium text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6"
+      >
+        <span aria-hidden="true" className="size-2 rounded-full bg-ink" />
+        {t(`${K}.waitingHint`)}
+        <span aria-hidden="true">↓</span>
+      </button>
+    </div>
+  );
+}
 
 /**
  * Claude sulla task: il riassunto operativo del suo lavoro, in un ordine
@@ -92,7 +132,7 @@ export function ClaudeSection({
     );
   }
   const latest = work.data.runs.at(-1);
-  if (!latest) return <NoRun task={task} canEdit={canEdit} />;
+  if (!latest) return <NoRun task={task} work={work.data} canEdit={canEdit} />;
   return <WithRun key={latest.id} task={task} work={work.data} run={latest} onFollow={onFollow} />;
 }
 
@@ -127,7 +167,11 @@ function StatusRow({
   const { t, i18n } = useTranslation();
   const claude = useClaudePerson();
   return (
-    <div data-claude-status={state} className="flex min-h-7 items-center gap-3 pl-0.5">
+    <div
+      data-claude-status={state}
+      tabIndex={-1}
+      className="flex min-h-7 items-center gap-3 rounded-md pl-0.5"
+    >
       <span className="relative grid size-[22px] shrink-0 place-items-center">
         <Avatar person={claude} />
         {working && (
@@ -237,9 +281,8 @@ function useFailure() {
  * Claude non ha ancora lavorato sulla task: «Assign to Claude» (se è nel
  * progetto) e, assegnata, «Ready to start» con «Start».
  */
-function NoRun({ task, canEdit }: { task: Task; canEdit: boolean }) {
+function NoRun({ task, work, canEdit }: { task: Task; work: TaskWork; canEdit: boolean }) {
   const { t } = useTranslation();
-  const { viewer } = useViewer();
   const change = useInlineUpdate();
   const start = useStartRun();
   const failed = useFailure();
@@ -247,28 +290,37 @@ function NoRun({ task, canEdit }: { task: Task; canEdit: boolean }) {
   const members = useProjectMembers(task.projectId);
   const claude = members?.find((p) => p.isClaude);
   const assigned = !!claude && task.assigneeId === claude.id;
-  const canStart = can(viewer, "runs.start", task.projectId);
 
-  // Una task che dice uno stato di Claude senza una sessione visibile: si
-  // dice lo stato e basta (nessuna sessione da aprire).
-  if (task.claude !== "none") {
+  // Una task che dice uno stato di Claude senza una sessione visibile (chi
+  // guarda non le vede, o non ce ne sono): lo stato della task, in neutro,
+  // senza anello, sessioni né azioni.
+  if (task.claude !== "none" || work.hiddenRuns) {
     return (
       <Section title={t(`${K}.title`)}>
         <StatusRow
-          state={task.claude}
+          state="neutral"
           text={t(`${K}.states.${task.claude}`)}
           at={null}
-          working={task.claude === "working"}
+          working={false}
           waiting={false}
         />
+        {work.hiddenRuns && <Who>{t(`${K}.hiddenRuns`, { code })}</Who>}
       </Section>
     );
   }
   if (assigned) {
+    // Chiusa (o con un lavoro vivo che non vede): assegnata, ma non si avvia.
+    const ready = work.actions.start !== "unavailable";
     return (
       <Section title={t(`${K}.title`)}>
-        <StatusRow state="ready" text={t(`${K}.status.ready`)} at={null} working={false} waiting={false} />
-        {canStart ? (
+        <StatusRow
+          state={ready ? "ready" : "none"}
+          text={ready ? t(`${K}.status.ready`) : t(`${K}.states.none`)}
+          at={null}
+          working={false}
+          waiting={false}
+        />
+        {!ready ? null : work.actions.start === "allowed" ? (
           <button
             type="button"
             className={`${smallPrimary} self-start`}
@@ -322,6 +374,8 @@ function statusText(
       return status.action
         ? t(`${K}.status.workingOn`, { action: status.action })
         : t(`${K}.status.working`);
+    case "idle":
+      return t(`${K}.status.idle`);
     case "awaiting_answer":
       return t(`${K}.status.${detail?.canAnswer ? "yourAnswer" : "answer"}`);
     case "awaiting_approval":
@@ -355,9 +409,8 @@ function WithRun({
 }) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
-  const { viewer } = useViewer();
   const detail = useConversation(run.id).data ?? null;
-  const stream = useConversationStream(run.id);
+  const stream = useConversationStream(run.id, { passive: true });
   const people = usePeople().data;
   const code = useProjectCode(task.projectId);
   const failed = useFailure();
@@ -384,15 +437,10 @@ function WithRun({
   // Il pannello si apre già sulla scheda che aspetta chi guarda (una volta).
   const scrolled = useRef(false);
   useEffect(() => {
-    if (scrolled.current || !detail?.waitsOnViewer) return;
+    if (scrolled.current || !work.waitsOnViewer) return;
     scrolled.current = true;
-    // Solo il pannello scorre: `scrollIntoView` porterebbe con sé anche la pagina.
-    const el = sectionRef.current;
-    const scroller = el?.closest<HTMLElement>("[data-detail-panel] > .overflow-auto");
-    if (el && scroller) {
-      scroller.scrollTop += el.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
-    }
-  }, [detail?.waitsOnViewer]);
+    if (sectionRef.current) scrollPanelTo(sectionRef.current);
+  }, [work.waitsOnViewer]);
 
   const prs = work.software ? pullRequestsOf(work, events) : [];
   const review = work.software ? lastReview(work, events) : null;
@@ -400,18 +448,17 @@ function WithRun({
   const story = workStory(work, events);
   const message = lastMessage(events);
 
-  const canStart = can(viewer, "runs.start", task.projectId);
-  const canCorrect = can(viewer, "corrections.request", task.projectId);
-  const held = correctionHeld(current, events);
+  // Le azioni le decide il livello dati (stato della task, lavoro vivo, PR,
+  // permessi); qui si sceglie solo quale va in evidenza.
+  const { actions } = work;
   const stopped = status.kind === "paused" || status.kind === "ended";
-  const openPr = work.software && work.openPr && prs.some((p) => p.state === "open");
 
   const toSession = () => void navigate({ to: "/claude/$id", params: { id: run.id } });
 
   // L'azione in evidenza: una sola, secondo lo stato.
   let primary: ReactNode = null;
-  if (held) {
-    primary = canCorrect ? (
+  if (actions.resume !== "unavailable") {
+    primary = actions.resume === "allowed" ? (
       <button
         type="button"
         className={`${smallPrimary} self-start`}
@@ -423,8 +470,8 @@ function WithRun({
     ) : (
       <Who>{t(`${K}.whoCanResume`, { code })}</Who>
     );
-  } else if (stopped) {
-    primary = canStart ? (
+  } else if (stopped && actions.relaunch !== "unavailable") {
+    primary = actions.relaunch === "allowed" ? (
       form === "relaunch" ? null : (
         <button type="button" className={`${smallPrimary} self-start`} onClick={() => setForm("relaunch")}>
           {t(`${K}.relaunch`)}
@@ -433,8 +480,8 @@ function WithRun({
     ) : (
       <Who>{t(`${K}.whoCanRelaunch`, { code })}</Who>
     );
-  } else if (status.kind === "done" && openPr) {
-    primary = canCorrect ? (
+  } else if (actions.requestChanges !== "unavailable") {
+    primary = actions.requestChanges === "allowed" ? (
       form === "request" ? null : (
         <button type="button" className={`${smallPrimary} self-start`} onClick={() => setForm("request")}>
           {t(`${K}.requestChanges`)}
@@ -447,7 +494,7 @@ function WithRun({
 
   // «⋯»: approvazione in anticipo e revoca (`plans.approve`, dal livello
   // dati), il rilancio quando non è già l'azione in evidenza, la sessione.
-  const relaunchInMenu = canStart && status.kind === "done";
+  const relaunchInMenu = actions.relaunch === "allowed" && !stopped;
   const menu = (
     <MenuButton
       menuLabel={t(`${K}.more`)}
@@ -520,7 +567,7 @@ function WithRun({
         )}
         at={"at" in status ? status.at : null}
         working={working}
-        waiting={detail?.waitsOnViewer ?? false}
+        waiting={work.waitsOnViewer}
       />
       {detail?.planPreApproved && detail.canRevokePlanApproval && (
         <p className="text-sm text-ink-muted">{t(`${K}.preApproved`)}</p>
@@ -546,10 +593,8 @@ function WithRun({
       )}
 
       {message && (
-        <p
-          aria-label={t(`${K}.lastMessage`)}
-          className="line-clamp-2 text-sm text-ink-muted [overflow-wrap:anywhere]"
-        >
+        <p className="line-clamp-2 text-sm text-ink-muted [overflow-wrap:anywhere]">
+          <span className="sr-only">{t(`${K}.lastMessage`)}: </span>
           {plain(message.text)}
         </p>
       )}
@@ -562,7 +607,12 @@ function WithRun({
           {t(`${K}.openSession`)}
           <span aria-hidden="true">→</span>
         </Link>
-        <button type="button" className={`${ghostButton} ml-auto`} onClick={() => onFollow(run.id)}>
+        <button
+          type="button"
+          data-follow-here
+          className={`${ghostButton} ml-auto`}
+          onClick={() => onFollow(run.id)}
+        >
           {t(`${K}.followHere`)}
         </button>
       </p>
@@ -608,7 +658,7 @@ function WithRun({
           )}
           {correction && (
             <li className="flex min-h-8 items-center text-sm text-ink-muted">
-              {t(`${K}.correction.${correction.state}`, {
+              {t(`${K}.correction.${correction.ordinal === null ? "cancelled" : correction.state}`, {
                 n: correction.ordinal,
                 time: relativeTime(correction.at, t, i18n.language),
               })}

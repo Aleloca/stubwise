@@ -1212,7 +1212,10 @@ const EMPTY_STREAM: ConversationStream = { events: [], connection: "live", error
  * nessun suo evento resta a schermo. Se la connessione cade mostra
  * `reconnecting` e riprende dall'ultimo evento ricevuto, senza doppi.
  */
-export function useConversationStream(id: string): ConversationStream {
+export function useConversationStream(
+  id: string,
+  { passive = false }: { passive?: boolean } = {},
+): ConversationStream {
   const me = useSessionPersonId();
   const key = `${me}\u0000${id}`;
   const [stream, setStream] = useState<ConversationStream & { key: string }>({
@@ -1238,6 +1241,7 @@ export function useConversationStream(id: string): ConversationStream {
           },
           {
             ...(events.length > 0 ? { afterEventId: events.at(-1)!.id } : {}),
+            passive,
             onConnection: (connection) => {
               unsubscribe = null;
               publish(connection);
@@ -1256,7 +1260,7 @@ export function useConversationStream(id: string): ConversationStream {
       clearTimeout(retry);
       unsubscribe?.();
     };
-  }, [key, id]);
+  }, [key, id, passive]);
 
   if (stream.key !== key) return EMPTY_STREAM;
   return { events: stream.events, connection: stream.connection, error: stream.error };

@@ -20,6 +20,7 @@ import {
   hasOpenPr,
   hasRepository,
   openDecisions,
+  runPreconditions,
   presentEvent,
   readableLength,
   resetStore,
@@ -551,6 +552,11 @@ export async function getTaskWork(taskId: string): Promise<TaskWork | null> {
       events: readableEvents(me, c),
     }));
   const software = hasRepository(task.projectId);
+  const viewer = viewerFor(me);
+  const ready = runPreconditions(task);
+  const availability = (stateAllows: boolean, perm: "runs.start" | "corrections.request") =>
+    !stateAllows ? "unavailable" : can(viewer, perm, task.projectId) ? "allowed" : "forbidden";
+  const latest = state.conversations.find((c) => c.id === runs.at(-1)?.id);
   return {
     runs,
     pullRequests: software
@@ -561,6 +567,24 @@ export async function getTaskWork(taskId: string): Promise<TaskWork | null> {
       : [],
     software,
     openPr: hasOpenPr(task),
+    // Solo se chi guarda vede le sessioni: le decisioni sui piani le raccontano.
+    planDecisions:
+      runs.length === 0
+        ? []
+        : state.decisionLog
+            .filter((d) => d.taskId === taskId && d.source === "plan_review")
+            .sort((a, b) => a.decidedAt.localeCompare(b.decidedAt))
+            .map((d) => ({ decidedById: d.decidedById, decidedAt: d.decidedAt, decision: d.decision })),
+    waitsOnViewer: latest ? conversationRow(me, latest).waitsOnViewer : false,
+    hiddenRuns: state.conversations.some(
+      (c) => c.kind === "task_run" && c.taskId === taskId && !canSeeConversation(me, c),
+    ),
+    actions: {
+      start: availability(ready.start, "runs.start"),
+      relaunch: availability(ready.relaunch, "runs.start"),
+      resume: availability(ready.resume, "corrections.request"),
+      requestChanges: availability(ready.requestChanges, "corrections.request"),
+    },
   };
 }
 

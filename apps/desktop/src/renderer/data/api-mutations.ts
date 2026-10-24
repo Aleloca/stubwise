@@ -21,7 +21,9 @@ import {
   gate,
   hasOpenPr,
   hasRepository,
+  latestRunOf,
   newId,
+  runPreconditions,
   now,
   objectCodeOf,
   onStoreReset,
@@ -2145,13 +2147,6 @@ export async function deleteConversation(id: string): Promise<void> {
 
 // --- sessioni di lavoro -------------------------------------------------------
 
-/** L'ultima sessione di lavoro della task (la più recente). */
-function latestRunOf(taskId: string): Conversation | undefined {
-  return state.conversations
-    .filter((c) => c.kind === "task_run" && c.taskId === taskId)
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))[0];
-}
-
 /**
  * Controlla che Claude possa partire sulla task (`runs.start`): aperta, e
  * senza un lavoro già vivo (anche fra quelli della stessa proposta). Non scrive.
@@ -2213,6 +2208,8 @@ export async function relaunchWithInstructions(
   if (familyOf(task) === "closed") throw invalid("status");
   const previous = latestRunOf(task.id);
   if (previous && previous.state !== "finished" && previous.state !== "paused") throw conflict();
+  // La PR è già mergiata: il lavoro è chiuso, non si rilancia (`runPreconditions`).
+  if (!runPreconditions(task).relaunch) throw invalid("status");
   if (previous?.state === "paused") {
     interruptScripts(previous.id);
     await runScript(previous.id, [{ step: "state", state: "finished", outcome: "stopped" }]);
