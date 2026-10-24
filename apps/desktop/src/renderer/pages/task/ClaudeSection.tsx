@@ -25,7 +25,7 @@ import {
   workStory,
   type WorkStatus,
 } from "../../domain/claude/taskWork";
-import { formatDate, relativeTime } from "../../notifications/time";
+import { relativeTime } from "../../notifications/time";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { itemClass, MenuGroup } from "../../tasks-ui/Menu";
 import { Avatar } from "../../tasks-ui/PersonChip";
@@ -35,6 +35,7 @@ import { QuestionCard } from "../claude/conversation/QuestionCard";
 import { MenuButton } from "../tasks/controls";
 import { useInlineUpdate, useProjectMembers } from "../tasks/pickers";
 import { MoreIcon, Section, ghostButton, smallPrimary, smallSecondary } from "./parts";
+import { FailureBlock, PrRows, ProviderLine, UsageDisclosure } from "./ClaudeRunParts";
 import { WorkStory, phaseName } from "./WorkStory";
 
 const K = "taskDetail.claude";
@@ -305,6 +306,8 @@ function NoRun({ task, work, canEdit }: { task: Task; work: TaskWork; canEdit: b
           waiting={false}
         />
         {work.hiddenRuns && <Who>{t(`${K}.hiddenRuns`, { code })}</Who>}
+        {/* I consumi li vede chi vede la task, anche senza vederne le sessioni (come il web). */}
+        <UsageDisclosure usage={work.usage} />
       </Section>
     );
   }
@@ -569,6 +572,10 @@ function WithRun({
         working={working}
         waiting={work.waitsOnViewer}
       />
+      {run.provider && <ProviderLine provider={run.provider} />}
+      {status.kind === "ended" && status.outcome !== "stopped" && run.failureSummary && (
+        <FailureBlock summary={run.failureSummary} phase={status.phase} events={events} />
+      )}
       {detail?.planPreApproved && detail.canRevokePlanApproval && (
         <p className="text-sm text-ink-muted">{t(`${K}.preApproved`)}</p>
       )}
@@ -619,36 +626,7 @@ function WithRun({
 
       {(prs.length > 0 || review || correction) && (
         <ul className="flex flex-col border-t border-rule pt-1">
-          {prs.map((pr, i) => (
-            <li key={pr.number ?? `pr-${i}`} className="flex min-h-8 items-center gap-1.5 text-sm">
-              {pr.link ? (
-                <a
-                  href={pr.link}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="num font-semibold text-ink underline decoration-ink/30 underline-offset-4 hover:decoration-ink"
-                >
-                  {pr.number !== null ? t(`${K}.pr.number`, { n: pr.number }) : pr.text}
-                </a>
-              ) : (
-                <span className="num font-semibold text-ink">
-                  {pr.number !== null ? t(`${K}.pr.number`, { n: pr.number }) : pr.text}
-                </span>
-              )}
-              {pr.repo && (
-                <>
-                  <span aria-hidden="true" className="text-ink-faint">·</span>
-                  <span className="min-w-0 truncate text-ink-muted">{pr.repo}</span>
-                </>
-              )}
-              <span aria-hidden="true" className="text-ink-faint">·</span>
-              <span className="shrink-0 text-ink-muted">
-                {pr.state === "open"
-                  ? t(`${K}.pr.open`)
-                  : t(`${K}.pr.${pr.state}`, { date: formatDate(pr.closedAt!, i18n.language) })}
-              </span>
-            </li>
-          ))}
+          <PrRows prs={prs} cycles={work.cycles} />
           {review && (
             <li className="flex min-h-8 items-center text-sm text-ink-muted">
               <span className="min-w-0 truncate" title={review}>
@@ -656,7 +634,8 @@ function WithRun({
               </span>
             </li>
           )}
-          {correction && (
+          {/* Il ciclo del «server», quando c'è, dice già a che giro è la correzione. */}
+          {correction && work.cycles.length === 0 && (
             <li className="flex min-h-8 items-center text-sm text-ink-muted">
               {t(`${K}.correction.${correction.ordinal === null ? "cancelled" : correction.state}`, {
                 n: correction.ordinal,
@@ -697,6 +676,7 @@ function WithRun({
       )}
 
       <WorkStory entries={story} />
+      <UsageDisclosure usage={work.usage} />
     </Section>
   );
 }

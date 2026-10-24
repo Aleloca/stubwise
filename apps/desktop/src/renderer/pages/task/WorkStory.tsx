@@ -2,7 +2,7 @@ import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { usePeople } from "../../data/queries";
-import type { Person } from "../../data/types";
+import type { Person, RunProvider } from "../../data/types";
 import type { StoryEntry } from "../../domain/claude/taskWork";
 import { DisclosureGlyph, clock } from "../claude/conversation/parts";
 
@@ -12,11 +12,22 @@ export function phaseName(t: TFunction, phase: string | null): string {
   return t(`claude.conversation.phase.${phase}`, { defaultValue: phase });
 }
 
+/** L'account o la chiave API di una sessione, per nome: «Team Max (account)». */
+export function providerLabel(t: TFunction, provider: RunProvider): string {
+  return t(`taskDetail.claude.provider.${provider.kind}`, { name: provider.name });
+}
+
 function line(t: TFunction, entry: StoryEntry, name: (id: string | null) => string): string {
   const s = "taskDetail.claude.story";
   switch (entry.kind) {
     case "run_started":
-      return t(`${s}.run_started`, { name: name(entry.byId) });
+      // Con chi ha girato: il NOME dell'account o della chiave, mai altro.
+      return entry.provider
+        ? t(`${s}.run_startedVia`, {
+            name: name(entry.byId),
+            provider: providerLabel(t, entry.provider),
+          })
+        : t(`${s}.run_started`, { name: name(entry.byId) });
     // Una correzione annullata (fermata) non ha numero: la frase lo omette.
     case "correction_requested":
       return entry.ordinal === null

@@ -47,6 +47,7 @@ import { MenuButton } from "../tasks/controls";
 import { SizeOptions } from "../tasks/pickers";
 import { MergeDialog } from "./MergeDialog";
 import { RequestStatusLabel, RequestStatusSign, RiskMark, UrgencyMark } from "./marks";
+import { NextStepLine, SuggestionsSection } from "./RequestGuidance";
 
 /** Le richieste di un progetto: l'unica route su cui si apre il pannello della richiesta. */
 const REQUESTS_PATH = /^\/p\/([^/]+)\/requests\/?$/;
@@ -234,6 +235,8 @@ function RequestBody({
     ? all?.find((r) => r.id === request.mergedIntoId)
     : undefined;
   const related = all ? relatedRequests(request, all) : [];
+  // La task nata dalla richiesta (la prima): la riga del prossimo passo parla di lei.
+  const linkedTask = projectTasks?.find((x) => request.taskIds.includes(x.id)) ?? null;
 
   const goRequest = (id: string) =>
     void navigate({
@@ -444,6 +447,7 @@ function RequestBody({
         <Field label={t("requests.detail.fields.sent")}>
           <span className="num text-sm text-ink">{formatDate(request.createdAt, i18n.language)}</span>
         </Field>
+        <NextStepLine request={request} task={linkedTask} onGoTask={goTask} />
       </dl>
 
       <ReadOnlyBanner
@@ -472,6 +476,9 @@ function RequestBody({
         <p className="px-4 pb-3 text-sm text-ink-muted">{t("requests.detail.whoDecides")}</p>
       )}
       <div className="flex flex-wrap items-center gap-1.5 px-4 pb-4">{actions}</div>
+
+      {/* Una richiesta chiusa è in sola lettura: le proposte non contano più. */}
+      {open && <SuggestionsSection request={request} canEdit={canEdit} />}
 
       <Section
         title={t("requests.detail.description")}

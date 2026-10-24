@@ -606,4 +606,96 @@ describe("Conversation: cambio di persona (Review Focus 1)", () => {
     expect(screen.queryByDisplayValue("draft of giulia")).toBeNull();
     expect(screen.queryByRole("combobox")).toBeNull();
   });
+
+  it("dopo il cambio di persona la conversazione si apre in fondo, anche quando il flusso arriva dopo", async () => {
+    // happy-dom non impagina: l'altezza del contenuto la dice il numero di
+    // voci del flusso, come farebbe il browser (48 px ciascuna).
+    const proto = HTMLElement.prototype;
+    const height = Object.getOwnPropertyDescriptor(proto, "scrollHeight");
+    const client = Object.getOwnPropertyDescriptor(proto, "clientHeight");
+    Object.defineProperty(proto, "scrollHeight", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.hasAttribute("data-conversation-scroll")
+          ? this.querySelectorAll("li, [role='separator'], p").length * 48
+          : 0;
+      },
+    });
+    Object.defineProperty(proto, "clientHeight", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.hasAttribute("data-conversation-scroll") ? 300 : 0;
+      },
+    });
+    try {
+      const user = userEvent.setup();
+      await as("p-giulia", () => api.sendMessage("cv-giulia-callbacks", { text: "Explain MKX-3" }));
+      await api.whenIdle("cv-giulia-callbacks");
+      renderWithData(<Harness id="cv-giulia-callbacks" to="p-marco" />, { personId: "p-giulia" });
+      await screen.findByText("Explain MKX-3");
+      await user.click(screen.getByRole("button", { name: "switch persona" }));
+      await screen.findByText("The rest of this conversation is private for now.");
+      const scroller = () =>
+        document.querySelector<HTMLElement>("[data-conversation-scroll]")!;
+      await waitFor(() => {
+        const el = scroller();
+        expect(el.scrollHeight).toBeGreaterThan(el.clientHeight);
+        expect(el.scrollTop).toBe(el.scrollHeight);
+      });
+      expect(screen.queryByRole("button", { name: /new messages/i })).toBeNull();
+    } finally {
+      if (height) Object.defineProperty(proto, "scrollHeight", height);
+      if (client) Object.defineProperty(proto, "clientHeight", client);
+    }
+  });
+});
+
+describe("Conversation: pillola «New messages»", () => {
+  it("chi ha scorso in su non viene tirato giù: la pillola lo dice, e il clic porta in fondo", async () => {
+    const proto = HTMLElement.prototype;
+    const height = Object.getOwnPropertyDescriptor(proto, "scrollHeight");
+    const client = Object.getOwnPropertyDescriptor(proto, "clientHeight");
+    Object.defineProperty(proto, "scrollHeight", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.hasAttribute("data-conversation-scroll")
+          ? this.querySelectorAll("li, [role='separator'], p").length * 48
+          : 0;
+      },
+    });
+    Object.defineProperty(proto, "clientHeight", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.hasAttribute("data-conversation-scroll") ? 300 : 0;
+      },
+    });
+    try {
+      const user = userEvent.setup();
+      renderWithData(<Harness id="cv-giulia-week" />, { personId: "p-giulia" });
+      await screen.findByText(/here is the week in your pinned projects/i);
+      const scroller = document.querySelector<HTMLElement>("[data-conversation-scroll]")!;
+      await waitFor(() => expect(scroller.scrollTop).toBe(scroller.scrollHeight));
+      // In fondo arriva un messaggio: chi è in fondo ci resta, senza pillola.
+      await act(() =>
+        api.runScript("cv-giulia-week", [{ step: "say", text: "One more thing about MKX." }]),
+      );
+      await screen.findAllByText("One more thing about MKX.");
+      expect(screen.queryByRole("button", { name: /new messages/i })).toBeNull();
+      // Scorre in su e ne arriva un altro: resta dov'è, e la pillola compare.
+      scroller.scrollTop = 0;
+      fireEvent.scroll(scroller);
+      await act(() =>
+        api.runScript("cv-giulia-week", [{ step: "say", text: "And a last note on STW." }]),
+      );
+      await screen.findAllByText("And a last note on STW.");
+      const pill = await screen.findByRole("button", { name: /new messages/i });
+      expect(scroller.scrollTop).toBe(0);
+      await user.click(pill);
+      await waitFor(() => expect(screen.queryByRole("button", { name: /new messages/i })).toBeNull());
+      expect(scroller.scrollTop).toBe(scroller.scrollHeight);
+    } finally {
+      if (height) Object.defineProperty(proto, "scrollHeight", height);
+      if (client) Object.defineProperty(proto, "clientHeight", client);
+    }
+  });
 });

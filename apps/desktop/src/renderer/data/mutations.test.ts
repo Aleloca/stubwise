@@ -616,6 +616,18 @@ describe("richieste", () => {
     expect((await getRequest(r.id))!.size).toBeNull();
   });
 
+  it("updateRequest: le proposte dell'intake si tolgono e basta (backlog.edit), mai si scrivono", async () => {
+    as("p-sara");
+    await expect(updateRequest("req-stw-1", { suggestions: null })).rejects.toThrow(forbiddenError);
+    as("p-laura");
+    await expect(
+      updateRequest("req-stw-1", { suggestions: { reason: "made up", size: "XL" } }),
+    ).rejects.toThrow("invalid: suggestions");
+    expect((await getRequest("req-stw-1"))!.suggestions).toMatchObject({ size: "S" });
+    const accepted = await updateRequest("req-stw-1", { size: "S", suggestions: null });
+    expect(accepted).toMatchObject({ size: "S", suggestions: null });
+  });
+
   it("updateRequest: una richiesta trasformata o archiviata non cambia più i metadati", async () => {
     as("p-laura");
     const converted = (await getRequest("req-stw-2"))!;

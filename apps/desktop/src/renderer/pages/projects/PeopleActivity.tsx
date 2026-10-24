@@ -14,7 +14,7 @@ import {
 } from "../../data/queries";
 import type {
   CommitOfDay,
-  DailyReport,
+  DailyReportView,
   Person,
   PersonDayActivity,
   Project,
@@ -243,6 +243,8 @@ type ReportState = "ready" | "failed" | "missing" | "generating";
 /** Lo stato del report di un progetto e il modo di (ri)generarlo. */
 interface Reports {
   stateOf: (projectId: string) => ReportState;
+  /** I commit del giorno arrivati dopo che il report è stato scritto (0: nessun avviso). */
+  newCommitsOf: (projectId: string) => number;
   canGenerate: boolean;
   generate: (projectIds: string[]) => void;
 }
@@ -331,7 +333,7 @@ export function PeopleActivity({
     [projects.data],
   );
   const reportsApi: Reports = useMemo(() => {
-    const byProject = new Map<string, DailyReport>(
+    const byProject = new Map<string, DailyReportView>(
       (reports.data ?? []).map((r) => [r.projectId, r]),
     );
     return {
@@ -342,6 +344,8 @@ export function PeopleActivity({
         if (!report) return "missing";
         return report.summary === null ? "failed" : "ready";
       },
+      newCommitsOf: (projectId) =>
+        generating.has(projectId) ? 0 : (byProject.get(projectId)?.newCommits ?? 0),
       generate: (projectIds) => {
         setGenerating((s) => new Set([...s, ...projectIds]));
         for (const projectId of projectIds) {
@@ -664,6 +668,9 @@ function ReportCell({
     return s === "missing" || s === "failed";
   });
   const single = projectIds.length === 1 ? projects.get(projectIds[0]!) : undefined;
+  // Un report scritto prima degli ultimi commit del giorno: lo dice, e si rigenera.
+  const stale = projectIds.filter((id) => reports.newCommitsOf(id) > 0);
+  const newCommits = stale.reduce((sum, id) => sum + reports.newCommitsOf(id), 0);
   return (
     <span className="flex items-center gap-1 text-sm whitespace-nowrap" data-report-state={state}>
       {state === "generating" && (
@@ -690,6 +697,21 @@ function ReportCell({
         >
           {t("projects.people.report.open")}
         </Link>
+      )}
+      {state === "ready" && stale.length > 0 && (
+        <>
+          <span aria-hidden="true" className="text-ink-faint">
+            ·
+          </span>
+          <span data-report-stale className="text-warning">
+            {t("projects.people.report.stale", { count: newCommits })}
+          </span>
+          {reports.canGenerate && (
+            <button type="button" className={ghostButton} onClick={() => reports.generate(stale)}>
+              {t("projects.people.report.regenerate")}
+            </button>
+          )}
+        </>
       )}
       {reports.canGenerate && (state === "missing" || state === "failed") && (
         <button type="button" className={ghostButton} onClick={() => reports.generate(todo)}>

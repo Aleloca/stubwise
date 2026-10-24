@@ -721,7 +721,8 @@
         "plan_written": "Plan written",
         "plan_written_approved": "Plan written · approved by {{name}}",
         "plan_written_rejected": "Plan written · rejected by {{name}}",
-        "plan_writtenRejectedWith": "Plan written · rejected by {{name}}: “{{instructions}}”"
+        "plan_writtenRejectedWith": "Plan written · rejected by {{name}}: “{{instructions}}”",
+        "run_startedVia": "Run started by {{name}} · {{provider}}"
       },
       "follow": {
         "title": "Claude",
@@ -730,7 +731,41 @@
         "openFull": "Open full page"
       },
       "hiddenRuns": "Only people who can see the code in {{code}} can open Claude's sessions.",
-      "waitingHint": "Claude is waiting on you"
+      "waitingHint": "Claude is waiting on you",
+      "provider": {
+        "account": "{{name}} (account)",
+        "api_key": "{{name}} (API key)",
+        "label": "Provider: {{provider}}"
+      },
+      "failure": {
+        "label": "What went wrong",
+        "showLog": "Show log",
+        "hideLog": "Hide log",
+        "logLabel": "Log of the {{phase}} phase",
+        "noLog": "No actions were recorded in this phase."
+      },
+      "usage": {
+        "title": "AI usage",
+        "summary": "{{tokens}} tokens · {{cost}}",
+        "listLabel": "AI usage by model",
+        "detail": "In {{input}} · out {{output}} · cache {{cache}}"
+      },
+      "repos_one": "{{count}} repo",
+      "repos_other": "{{count}} repos",
+      "cycle": {
+        "reviewing": "Waiting for the review",
+        "idle": "No review yet",
+        "correcting": "Round {{round}} of {{max}} · correction in progress",
+        "approved": "Approved by the review · ready to merge",
+        "changes_requested": "The review asks for changes",
+        "changesRequestedStubwise": "Changes requested by {{name}} in Stubwise",
+        "changesRequestedPlatform": "Changes requested by {{name}} on the PR",
+        "capped_one": "Cycle stopped after {{count}} automatic correction",
+        "capped_other": "Cycle stopped after {{count}} automatic corrections",
+        "correction_failed": "The last correction failed",
+        "queued": "Correction queued · it starts when the current work on the task finishes",
+        "blocked": "Blocked: this branch is protected, Stubwise doesn't push to it."
+      }
     },
     "links": {
       "origin": "Origin request",
@@ -1335,6 +1370,34 @@
         "close": "Close the request",
         "task": "Became {{code}}"
       }
+    },
+    "suggestions": {
+      "title": "Suggested by the intake",
+      "urgency": "Urgency",
+      "size": "Size",
+      "risk": "Risk",
+      "riskNote": "Risk note",
+      "was": "was {{value}}",
+      "wasEmpty": "was empty",
+      "accept": "Accept all",
+      "dismiss": "Dismiss",
+      "listLabel": "Suggested changes",
+      "reason": "Why",
+      "accepted": "Suggestions accepted.",
+      "failed": "That didn't go through. Try again."
+    },
+    "nextStep": {
+      "label": "Next step",
+      "clarify": "Still to clarify: keep refining it.",
+      "readyToConvert": "Ready: turn it into a task.",
+      "convertedNoRun": "Task created: start the work from there.",
+      "preparingPlan": "Work started: Claude is preparing the plan.",
+      "awaitingApproval": "Plan ready, waiting for someone who can approve it.",
+      "executing": "In progress.",
+      "prReady": "Change ready: merging it is up to someone who can release.",
+      "done": "Done: the task is finished.",
+      "needsAttention": "Something on the task needs attention.",
+      "goToTask": "Go to {{code}}"
     }
   },
   "overview": {
@@ -1677,7 +1740,10 @@
         "retry": "Retry",
         "generateFailed": "Couldn't generate the daily report of {{code}}. Try again.",
         "quiet": "A quiet day: no commits on the linked repositories.",
-        "who": "Only who manages the settings can generate it."
+        "who": "Only who manages the settings can generate it.",
+        "stale_one": "{{count}} new commit not included",
+        "stale_other": "{{count}} new commits not included",
+        "regenerate": "Regenerate"
       },
       "states": {
         "loading": "Loading the review",

@@ -1,4 +1,4 @@
-import type { ProjectRequest, RequestStatus } from "../types";
+import type { ProjectRequest, RequestStatus, RequestSuggestions } from "../types";
 import { daysFromToday } from "./dates";
 
 // [id, codice progetto, titolo, richiedenti, stato, urgenza, simile a, fusa in, task nate, giorni fa]
@@ -70,6 +70,25 @@ const WRITTEN: Record<string, Pick<ProjectRequest, "design" | "plan">> = {
   },
 };
 
+// Le proposte dell'intake (AI) sui metadati: solo i campi che cambierebbero,
+// col perché. Restano proposte finché qualcuno con `backlog.edit` non le
+// accetta o le scarta.
+const SUGGESTIONS: Record<string, RequestSuggestions> = {
+  "req-stw-1": {
+    urgency: "low",
+    size: "S",
+    risk: "low",
+    reason:
+      "Only the task activity and the week view change, and nobody else asked for it in the last two weeks.",
+  },
+  "req-mkx-2": {
+    size: "L",
+    riskNote: "The showroom date is fixed and the page needs the booking form: no room to slip.",
+    reason:
+      "The event page needs a booking form and a map, not only text and photos: more than a medium page.",
+  },
+};
+
 /** Richieste dei progetti, in ogni stato; due fuse in un'altra dello stesso progetto. */
 export const REQUESTS: ProjectRequest[] = ROWS.map(
   ([id, code, title, requesterIds, status, urgency, similarToId, mergedIntoId, taskIds, days]) => ({
@@ -91,5 +110,6 @@ export const REQUESTS: ProjectRequest[] = ROWS.map(
     mergedIntoId,
     taskIds,
     createdAt: `${daysFromToday(-days)}T11:00:00Z`,
+    suggestions: SUGGESTIONS[id] ?? null,
   }),
 );

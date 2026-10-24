@@ -72,6 +72,18 @@ describe("rassegna per persona — report giornalieri", () => {
     expect(same[0]!.summary).toBeTruthy();
     await expect(generateDailyReport("prj-aud", "2026-10-30")).rejects.toThrow("invalid");
   });
+
+  it("i commit arrivati dopo il report si contano; rigenerato, li comprende", async () => {
+    as("p-roberta");
+    const stw = () => listDailyReports(TODAY).then((list) => list.find((r) => r.projectId === "prj-stw")!);
+    // Scritto alle 10:00: dopo, il commit di Federico (10:31) e quello di Simone (11:05).
+    expect((await stw()).newCommits).toBe(2);
+    await generateDailyReport("prj-stw", TODAY);
+    expect((await stw()).newCommits).toBe(0);
+    // Un report di cui non si sa quando è stato scritto non avvisa.
+    state.dailyReports.find((r) => r.projectId === "prj-stw" && r.date === TODAY)!.generatedAt = null;
+    expect((await stw()).newCommits).toBe(0);
+  });
 });
 
 describe("rassegna per persona — autori non collegati", () => {

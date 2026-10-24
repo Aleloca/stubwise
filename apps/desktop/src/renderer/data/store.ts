@@ -15,7 +15,7 @@ import { INITIAL_PINNED_CODES, PROJECTS } from "./seed/projects";
 import { REQUESTS } from "./seed/requests";
 import { PROJECT_STATUSES } from "./seed/statuses";
 import { TASKS } from "./seed/tasks";
-import { DAILY_REPORTS, PULL_REQUEST_EVENTS } from "./seed/timeline";
+import { DAILY_REPORTS, PR_CYCLES, PULL_REQUEST_EVENTS } from "./seed/timeline";
 import { DEFAULT_SESSION_PERSON_ID, getSessionPersonId, setSessionPersonId } from "./session";
 import type {
   ActivityEntry,
@@ -36,6 +36,7 @@ import type {
   Project,
   ProjectRequest,
   ProjectStatus,
+  PrCycle,
   PullRequestEvent,
   ReadOnlyReason,
   SavedFilter,
@@ -241,6 +242,8 @@ interface State {
   /** Autori git dei commit collegati a una persona dopo il seed (nome git → id persona). */
   commitAuthorLinks: Map<string, string>;
   pullRequests: PullRequestEvent[];
+  /** Il ciclo review → correzione delle PR aperte (lo stato lo deriva il «server»). */
+  prCycles: PrCycle[];
   filters: SavedFilter[];
   departmentHomes: DepartmentHome[];
   personalHomes: PersonalHome[];
@@ -281,6 +284,7 @@ function freshState(): State {
     dailyReports: DAILY_REPORTS.map(copy),
     commitAuthorLinks: new Map(),
     pullRequests: PULL_REQUEST_EVENTS.map(copy),
+    prCycles: PR_CYCLES.map(copy),
     filters: SAVED_FILTERS.map(copy),
     departmentHomes: DEPARTMENT_HOMES.map(copy),
     personalHomes: PERSONAL_HOMES.map(copy),

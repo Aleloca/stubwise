@@ -7,9 +7,13 @@ import type {
   ConversationKind,
   ConversationState,
   DepartmentPermission,
+  DailyReport,
   Milestone,
+  ModelUsage,
   Outcome,
+  PrCycle,
   PullRequestEvent,
+  RunProvider,
 } from "./model";
 
 // I tipi del modello dell'area 2 stanno in `model.ts`; qui restano quelli
@@ -109,6 +113,18 @@ export interface TaskRun {
   outcome: Outcome | null;
   /** Il flusso che chi guarda può leggere. */
   events: ConversationEvent[];
+  /** L'account o la chiave API con cui gira (solo il nome); `null` se non si sa. */
+  provider: RunProvider | null;
+  /** Fallita: il riassunto del fallimento in una riga; altrimenti `null`. */
+  failureSummary: string | null;
+}
+
+/** Il ciclo di una PR, quanto ne legge la sezione: lo stato lo deriva il livello dati. */
+export type PrCycleView = Omit<PrCycle, "taskId">;
+
+/** Un report giornaliero con i commit della giornata arrivati dopo che è stato scritto. */
+export interface DailyReportView extends DailyReport {
+  newCommits: number;
 }
 
 /**
@@ -135,6 +151,13 @@ export interface TaskWork {
   hiddenRuns: boolean;
   /** Cosa può fare chi guarda, deciso dal livello dati con le precondizioni delle scritture. */
   actions: Record<RunAction, ActionAvailability>;
+  /** Il ciclo review → correzione di ogni PR che ne ha uno (solo progetti con repository). */
+  cycles: PrCycleView[];
+  /**
+   * I consumi AI della task per modello, sommati su tutte le sue sessioni
+   * (come il pannello del web: li vede chi vede la task). Vuoto: nessun consumo.
+   */
+  usage: ModelUsage[];
 }
 
 export interface PlanDecision {

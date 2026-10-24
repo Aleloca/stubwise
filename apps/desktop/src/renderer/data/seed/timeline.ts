@@ -1,4 +1,4 @@
-import type { DailyReport, PullRequestEvent } from "../types";
+import type { DailyReport, PrCycle, PullRequestEvent } from "../types";
 import { daysFromToday } from "./dates";
 
 // Le voci della cronologia che non nascono da task, traguardi, decisioni o
@@ -27,16 +27,32 @@ const REPORTS: ReportRow[] = [
   ["STW", 13, "Icons for the rail and the project tiles."],
 ];
 
+/**
+ * Quando è stato scritto un report: dal giro notturno, alle 02:00 (UTC) del
+ * giorno dopo. Quello di oggi di STW è stato generato a mano a metà mattina,
+ * e due commit sono arrivati dopo: la rassegna lo dice («2 new commits not
+ * included»).
+ */
+function generatedAtOf(code: string, days: number): string {
+  if (code === "STW" && days === 0) return `${daysFromToday(0)}T10:00:00Z`;
+  return `${daysFromToday(-days + 1)}T02:00:00Z`;
+}
+
 export const DAILY_REPORTS: DailyReport[] = REPORTS.map(([code, days, summary]) => ({
   id: `rep-${code.toLowerCase()}-${days}`,
   projectId: `prj-${code.toLowerCase()}`,
   date: daysFromToday(-days),
   summary,
+  generatedAt: generatedAtOf(code, days),
 }));
 
-// [codice, numero della task, evento, giorni fa, numero della PR]
-type PrRow = [string, number, PullRequestEvent["kind"], number, number];
+/** Il repository principale di ogni progetto con un repository. */
+const MAIN_REPO: Record<string, string> = { AUD: "audin/audin-app", STW: "stubwise/stubwise" };
 
+// [codice, numero della task, evento, giorni fa, numero della PR, repository (assente = il principale)]
+type PrRow = [string, number, PullRequestEvent["kind"], number, number, string?];
+
+// STW-3 tocca due repository: la PR #411 sull'app e la #58 sulla guida.
 // prettier-ignore
 const PRS: PrRow[] = [
   ["AUD", 12, "pr_opened", 17, 214],
@@ -50,15 +66,47 @@ const PRS: PrRow[] = [
   ["STW", 1, "pr_opened", 4, 405],
   ["STW", 1, "pr_merged", 2, 405],
   ["STW", 3, "pr_opened", 1, 411],
+  ["STW", 3, "pr_opened", 1, 58, "stubwise/guide"],
 ];
 
 export const PULL_REQUEST_EVENTS: PullRequestEvent[] = PRS.map(
-  ([code, task, kind, days, number], i) => ({
+  ([code, task, kind, days, number, repo], i) => ({
     id: `pr-${code.toLowerCase()}-${i + 1}`,
     projectId: `prj-${code.toLowerCase()}`,
     taskId: `t-${code.toLowerCase()}-${task}`,
     kind,
     at: `${daysFromToday(-days)}T${String(11 + (i % 5)).padStart(2, "0")}:30:00Z`,
     number,
+    repo: repo ?? MAIN_REPO[code]!,
   }),
 );
+
+/**
+ * I cicli review → correzione delle PR ancora aperte (come li deriva il
+ * server): la #411 di STW-3 è al primo giro di correzione su tre; la #58
+ * sulla guida si è fermata al tetto dopo tre correzioni automatiche.
+ */
+export const PR_CYCLES: PrCycle[] = [
+  {
+    taskId: "t-stw-3",
+    number: 411,
+    repo: "stubwise/stubwise",
+    state: "correcting",
+    round: 1,
+    maxRounds: 3,
+    requestedById: null,
+    requestedOn: null,
+    branchProtected: false,
+  },
+  {
+    taskId: "t-stw-3",
+    number: 58,
+    repo: "stubwise/guide",
+    state: "capped",
+    round: 3,
+    maxRounds: 3,
+    requestedById: null,
+    requestedOn: null,
+    branchProtected: false,
+  },
+];

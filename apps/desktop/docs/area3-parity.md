@@ -19,14 +19,15 @@ richieste; l'Activity per sviluppatore è «By person» in All projects.
 |---|---|---|
 | Elenco: «Working now» e «Finished» (al posto di live/ultimi 14 giorni: anche Mine e Public) con tipo, titolo, progetto e codice, stato o esito, ora dell'ultimo evento, attività in parole; chi aspetta me in testa | `pages/claude/ClaudeColumn.tsx`, `ConversationList.tsx`, `marks.tsx` | `pages/claude/ClaudePage.test.tsx` («Working now: tipo, codice e titolo…», «elenchi per persona»), `data/claude-destination.test.ts` |
 | Filtro per tipo | `ConversationList.tsx` | `pages/claude/ClaudePage.test.tsx` («filtro per tipo; senza risultati…») |
-| Filtro per progetto e per esito (le concluse) | `ConversationList.tsx` | nessun test |
+| Filtro per progetto e per esito (le concluse) | `ConversationList.tsx` | `pages/claude/ClaudePage.test.tsx` («le concluse si filtrano per esito e per progetto…») |
 | Stato vuoto («live» e «recenti»), elenco filtrato senza risultati | `ConversationList.tsx` | `pages/claude/ClaudePage.test.tsx` («senza conversazioni proprie…», «Nothing matches») |
 | «Non disponibile su questa istanza» (rotta mancante) | non serve: dati locali | — |
-| Sessione: testata con tipo, titolo, progetto, link alla task, stato o esito | `pages/claude/ClaudePage.tsx` (testata), `ObjectSide.tsx` | `pages/claude/ClaudePage.test.tsx` («una sessione di lavoro non ha “Make public”… a lato la task con “Open task”») |
+| Sessione: testata con tipo, titolo, progetto, link alla task, stato o esito | `pages/claude/ClaudePage.tsx` (testata), `ObjectSide.tsx` (gli stati si leggono col progetto della sessione, insieme alla task; mentre arrivano un segnaposto, uno stato sconosciuto toglie la riga) | `pages/claude/ClaudePage.test.tsx` («una sessione di lavoro non ha “Make public”… a lato la task con “Open task”», «a lato lo stato della task: mentre gli stati arrivano aspetta, poi lo dice», «uno stato che il lato non sa nominare: la riga “Status” non c'è…») |
 | Trascrizione dal vivo in stream: testo di Claude a pezzi, azioni con ingresso e risultato (troncato), citazioni | `pages/claude/conversation/*` (`EventList`, `AssistantMessage`, `ActionRows`, `citations`), `data/stream.ts` | `pages/claude/conversation/Conversation.test.tsx` («il testo di Claude arriva a pezzi…», «azioni consecutive…», «citazioni…», «200+ azioni…»), `data/stream.test.ts`, `pages/claude/conversation/flow.test.ts` |
 | Segmenti (fasi) con esito: ok, fallito, scaduto, «Stopped by {nome}» | `conversation/PhaseDivider.tsx`, `flow.ts` | `Conversation.test.tsx` («“Stop” ferma la risposta: la fase dice chi l'ha fermata»), `flow.test.ts` («le fasi: durata…»), `data/seed.test.ts` (i quattro esiti) |
 | Messaggi dell'utente con consegna: in attesa, consegnato, non consegnato col motivo | `conversation/parts.tsx`, `Composer.tsx` | `Conversation.test.tsx` («“Delivered” sparisce dopo 3 s…»), `data/conversation-composer.test.ts` |
-| «Load earlier», pillola «New messages», «Reconnecting…» | `conversation/Conversation.tsx` | `Conversation.test.tsx` («riconnessione a metà messaggio», «200+ azioni…» per la finestra), `data/stream.test.ts`; la pillola «New messages»: nessun test |
+| «Load earlier», pillola «New messages», «Reconnecting…» | `conversation/Conversation.tsx` | `Conversation.test.tsx` («riconnessione a metà messaggio», «200+ azioni…» per la finestra, «chi ha scorso in su non viene tirato giù: la pillola lo dice…»), `data/stream.test.ts` |
+| In fondo all'apertura, anche dopo un cambio di persona (chi è in fondo ci resta a ogni disegno, e se il riquadro si accorcia) | `conversation/Conversation.tsx` | `Conversation.test.tsx` («dopo il cambio di persona la conversazione si apre in fondo…») |
 | Casella: Invia, «Stop and send», Stop, Reinvia un messaggio non consegnato | `conversation/Composer.tsx` | `Conversation.test.tsx` («mentre Claude risponde: Stop…», «“Stop” rifiutato…», «“Stop and send” rifiutato…», «…permesso tolto nel frattempo»), `data/conversation-composer.test.ts` |
 | Domanda dell'agente sul posto (a scelta, «consigliata», «Other…») | `conversation/QuestionCard.tsx` | `Conversation.test.tsx` («una domanda risposta si riduce a “Answered by …”»), `pages/home/blocks/DecideBlock.test.tsx` |
 | Piano nella conversazione (in breve, piano intero, approva/rifiuta con indicazioni, «già deciso da») | `conversation/PlanCard.tsx` | `Conversation.test.tsx` («approvato il piano…», «piano deciso da un altro…», «i bottoni del piano seguono canDecidePlan») |
@@ -53,12 +54,15 @@ palette «Ask Claude…» (`ClaudePage.test.tsx`), «Follow here»
 | Approva in anticipo / revoca (`plans.approve`) | menu «More actions for Claude» | `ClaudeSection.test.tsx` («l'approvazione in anticipo è nel menu solo con plans.approve», «…approva in anticipo dal menu») |
 | Storia del lavoro (richiesta, piano, domanda e risposta, PR, correzioni, stop) | `pages/task/WorkStory.tsx`, `domain/claude/taskWork.ts` | `ClaudeSection.test.tsx` («la storia del lavoro è chiusa, e aperta va dalla più vecchia»), `domain/claude/taskWork.test.ts` |
 | Attività AI: stato del lavoro, «Open session» / «Follow here», ultimo messaggio di Claude | `ClaudeSection.tsx` | `ClaudeSection.test.tsx` («Follow here: la sessione nel pannello…», «Claude che aspetta chi guarda»), `Conversation`/`ClaudePage` per la sessione |
+| Attività AI: provider dell'esecuzione (account o chiave API, solo il nome) sotto lo stato e in ogni «Run started» della storia | `pages/task/ClaudeRunParts.tsx` (`ProviderLine`), `WorkStory.tsx`, `data/seed/runs.ts` | `ClaudeSection.test.tsx` («con quale account gira la sessione…»), `domain/claude/taskWork.test.ts` («la storia dice con quale account o chiave…») |
+| Attività AI: riassunto del fallimento e «Show/Hide log» (le azioni della fase in cui la sessione è finita, con ingresso e risultato) | `ClaudeRunParts.tsx` (`FailureBlock`), `data/api.ts` (`failureSummary`) | `ClaudeSection.test.tsx` («fallita: il riassunto del fallimento e “Show log”…», «una sessione riuscita non ha né riassunto né log») |
+| Uso AI: token e costo totali, per modello (ingresso, uscita, cache, costo); li vede chi vede la task, come `GET /api/tickets/:id/usage` (non `project.usage.view`, che sul server governa i consumi di progetto) | `ClaudeRunParts.tsx` (`UsageDisclosure`), `data/api.ts` (`usageOfTask`) | `ClaudeSection.test.tsx` («consumi AI: chiusi il totale, aperti una riga per modello», «i consumi li vede chi vede la task…», «senza consumi nessuna riga…») |
 | Azioni sull'ultimo job: «Start» (`runs.start`), «Relaunch with instructions», in attesa di approvazione, in attesa di risposta | `ClaudeSection.tsx` | `ClaudeSection.test.tsx` («“Start” solo con runs.start», «fallita: “Relaunch with instructions”…», «…il rilancio parte dalle indicazioni») |
 | «Resume correction» (`corrections.request`) | `ClaudeSection.tsx` | `ClaudeSection.test.tsx` («correzione ferma…», «senza corrections.request niente “Resume correction”») |
 | «Request changes» su PR aperta, con nota; PR mergiata: nessuna azione | `ClaudeSection.tsx` | `ClaudeSection.test.tsx` («PR aperta: “Request changes”…», «…diventa una correzione», «PR mergiata…», «task chiusa con la PR mergiata…») |
 | Assegna a Claude (nuovo: non avvia) | `ClaudeSection.tsx` | `ClaudeSection.test.tsx` («“Assign to Claude” con tickets.edit…», «senza tickets.edit niente…») |
-| Righe PR e ciclo di revisione (stato della PR, revisione) | `ClaudeSection.tsx` (righe PR) | `ClaudeSection.test.tsx` («PR aperta…»); lo stato fine del ciclo (round X di N, tetto, protetto, in coda): nessun test |
-| Repository / PR del ticket | `ClaudeSection.tsx` (solo dove il progetto ha un repository) | `ClaudeSection.test.tsx` («progetto senza repository: niente PR…») |
+| Righe PR e ciclo di revisione: stato della PR, revisione, e sotto ogni PR aperta lo stato del ciclo come lo deriva il «server» (giro X di N, in attesa della review, approvata, modifiche chieste da chi e dove, fermo al tetto, correzione fallita, in coda) e «Blocked: this branch is protected» | `ClaudeRunParts.tsx` (`PrRows`), `data/seed/timeline.ts` (`PR_CYCLES`), `data/api.ts` (`cycles`) | `ClaudeSection.test.tsx` («PR aperta…», «PR su due repository: “2 repos”, e sotto ogni PR il suo ciclo…», «branch protetto e modifiche chieste da una persona…», «una PR sola: niente “N repos”…») |
+| Repository / PR del ticket, badge «N repos» per una task su più repository | `ClaudeRunParts.tsx` (solo dove il progetto ha un repository; il repository viene dalla piattaforma) | `ClaudeSection.test.tsx` («progetto senza repository: niente PR…», «PR su due repository…»), `domain/claude/taskWork.test.ts` («una PR che conosce solo la piattaforma prende il repository…») |
 | Domande passate («round, domanda, risposta, chi»), domanda aperta con «Waiting for an answer from …» | storia del lavoro; domanda aperta in `ClaudeSection.tsx` | `ClaudeSection.test.tsx` («la domanda si risponde qui…», «chi non può rispondere legge la domanda e chi può farlo») |
 
 ## Inbox → Home «Decide»
@@ -68,7 +72,7 @@ palette «Ask Claude…» (`ClaudePage.test.tsx`), «Follow here»
 | Domanda dell'agente (`job.awaiting_input`): scelta singola, «consigliata», «Other…», chi può rispondere (richiedente o `plans.approve`) | `pages/home/blocks/ClaudeDecisionItem.tsx`, `DecideBlock.tsx` | `DecideBlock.test.tsx` («Marco (richiedente) ha la domanda…», «Sara non vede né la domanda né il piano», «rispondere qui la chiude nella conversazione…», «risposta concorrente…», «“Undo”…») |
 | Piano da approvare (`job.plan_review`): Approva, Rifiuta con indicazioni, «già deciso da» | `ClaudeDecisionItem.tsx` | `DecideBlock.test.tsx` («Laura (plans.approve) ha anche il piano…», «Laura approva il piano da qui…», «“Reject…” con le indicazioni…», «piano deciso da un altro…», «piano rifiutato e riscritto…») |
 | Il punto «ti aspetta» sulla tessera del progetto quando Claude arriva a una domanda | tessera del rail (`data-signal="waiting"`), `data/api.ts` (`waitsOnViewer`) | `DecideBlock.test.tsx` («il punto “ti aspetta” sulla tessera…») |
-| «Read the full plan» / apertura della conversazione dalla voce | `ClaudeDecisionItem.tsx` | nessun test |
+| «Read the full plan» / apertura della conversazione dalla voce | `ClaudeDecisionItem.tsx` | `DecideBlock.test.tsx` («“Read the full plan” apre la sessione del piano, col piano intero») |
 | Schede di Inbox, snooze, «Handled», tab Snoozed/Handled, altre tipologie (`job.failed`, `project.pulse`, Google…) | — | **area 1** (notifiche) / **area 6** (posta) |
 
 ## Backlog → sessione di refinement
@@ -79,8 +83,8 @@ palette «Ask Claude…» (`ClaudePage.test.tsx`), «Follow here»
 | Conversazione di refinement e piano scritto da Claude («Not approved») | `RefineView.tsx`, `ObjectSide.tsx` | `RefineView.test.tsx` |
 | Chiusura per richiesta trasformata o archiviata | `RefineView.tsx` | `RefineView.test.tsx` («archiviata altrove mentre è viva…») |
 | Chi può scrivere (`backlog.edit`) | `RefineView.tsx` | `RefineView.test.tsx` («Sara (senza backlog.edit)…») |
-| Suggerimenti AI su taglia/rischio/urgenza («was X», Accept all / Dismiss) | — | **buco** (vedi sotto) |
-| Riga «prossimo passo» (chiarire, pronta, in esecuzione, PR pronta…) | — | **buco** (vedi sotto) |
+| Suggerimenti AI su urgenza, taglia, rischio e nota («was X» / «was empty», il perché etichettato «Generated text»; Accept all / Dismiss con `backlog.edit`, che passano da `updateRequest`; le proposte si tolgono, non si scrivono dal client) | `pages/requests/RequestGuidance.tsx` (`SuggestionsSection`), `data/seed/requests.ts` (STW-R1, MKX-R2), `data/api-mutations.ts` | `pages/requests/RequestDetail.test.tsx` («dicono campo, valore proposto, “was” e perché; “Accept all” le scrive», «… “Dismiss” le toglie…», «senza backlog.edit si leggono…», «“Accept all” che non riesce…»), `data/mutations.test.ts` («le proposte dell'intake si tolgono e basta…») |
+| Riga «prossimo passo» (da chiarire, pronta, task creata senza lavoro, piano in preparazione, piano da approvare, in corso, modifica pronta, fatto, serve attenzione) con «Go to <task>» | `domain/requestNextStep.ts` (puro, come `deriveNextStep` di `@stubwise/shared`), `RequestGuidance.tsx` (`NextStepLine`, una riga dei fatti della richiesta) | `domain/requestNextStep.test.ts`, `RequestDetail.test.tsx` («nuova: da chiarire», «pronta…», «trasformata con Claude al lavoro: “In progress” e “Go to STW-3”…», «Claude ha finito e la PR è aperta…», «archiviata: nessuna riga») |
 
 ## Activity per sviluppatore → All projects ▸ Activity ▸ «By person»
 
@@ -93,10 +97,10 @@ palette «Ask Claude…» (`ClaudePage.test.tsx`), «Follow here»
 | Stato del report: pronto, in generazione, fallito, mancante | `PeopleActivity.tsx` | `PeopleActivity.test.tsx` («“Generate report” con settings.manage…»), `data/people-activity.test.ts` |
 | «Generate report» / rigenera (`settings.manage`) | `PeopleActivity.tsx` | `PeopleActivity.test.tsx`, `data/people-activity.test.ts` |
 | «Link team member» per un'identità git non risolta («Unknown author»), `users.manage` | `PeopleActivity.tsx` | `PeopleActivity.test.tsx` («“Link a person” con users.manage…»), `data/people-activity.test.ts` |
-| Filtro per reparto, ricerca di una persona (in più rispetto al web) | `PeopleActivity.tsx` | `PeopleActivity.test.tsx` («il filtro reparto sta nell'indirizzo…»); la ricerca per nome: nessun test |
+| Filtro per reparto, ricerca di una persona (in più rispetto al web) | `PeopleActivity.tsx` | `PeopleActivity.test.tsx` («il filtro reparto sta nell'indirizzo…», «la ricerca per nome lascia solo chi corrisponde; senza nessuno “Clear filters”») |
 | Permesso `people.activity.view` | `data/viewer.ts` | `PeopleActivity.test.tsx` («senza il permesso “By person” non c'è…»), `data/viewer.test.ts` |
-| Avviso «N nuovi commit non inclusi» (report vecchio) | — | **buco** (vedi sotto) |
-| Stati: nessun report, nessun progetto abilitato, nessuna attività, errore di caricamento | `PeopleActivity.tsx` | errore: nessun test; «nessuna attività» («No activity»): nessun test |
+| Avviso «N new commits not included» sul report del giorno (commit arrivati dopo che è stato scritto) e «Regenerate» (`settings.manage`) | `PeopleActivity.tsx` (`ReportCell`), `data/api.ts` (`newCommits` in `listDailyReports`), `data/seed/timeline.ts` (il report di oggi di STW, delle 10:00) | `PeopleActivity.test.tsx` («report scritto prima degli ultimi commit…»), `data/people-activity.test.ts` («i commit arrivati dopo il report si contano…») |
+| Stati: nessun report, nessun progetto abilitato, nessuna attività, errore di caricamento | `PeopleActivity.tsx` | `PeopleActivity.test.tsx` («un giorno senza attività lo dice, e porta al giorno prima», «errore di caricamento: lo dice, e “Retry” ricarica») |
 
 ## Voci delle tabelle dell'area 2 che puntavano qui
 
@@ -104,42 +108,46 @@ Aggiornate in `area2-parity.md` al loro posto nuovo:
 
 - «Piano, approvazione, domande dell'agente, avvio AI, storia del lavoro,
   attività AI, uso AI, correzioni, PR/cicli, adozione PR» → «Dettaglio
-  ticket — parti AI» sopra (uso AI e adozione PR: buchi).
-- «Repository / PR / “N repos”» → righe PR della sezione Claude (il badge
-  «N repos»: buco).
+  ticket — parti AI» sopra (adozione PR: area 8, vedi «Riassegnate»).
+- «Repository / PR / “N repos”» → righe PR della sezione Claude, con il
+  ciclo e il badge «N repos».
 - «Conversazione di refinement, suggerimenti AI, prossimo passo,
-  design/piano» → «Backlog → sessione di refinement» (suggerimenti AI e
-  prossimo passo: buchi).
+  design/piano» → «Backlog → sessione di refinement» sopra.
 - «Activity “standup giornaliero”» → «Activity per sviluppatore» sopra.
-- «Brief: “Rigenera”» → buco.
+- «Brief: “Rigenera”» → deciso: no (vedi «Riassegnate»).
+
+## Chiusi dal Task 12
+
+I buchi trovati dal Task 11 sono stati costruiti, ciascuno con il suo test
+nelle tabelle sopra: uso AI della task; provider, riassunto del fallimento e
+«Show/Hide log»; stato fine del ciclo della PR e «N repos»; suggerimenti AI
+sui metadati della richiesta; riga «prossimo passo»; avviso «N new commits
+not included» (ruling R-F3: sta nell'Activity per persona, sulla cella del
+report); i test che mancavano (filtri di progetto ed esito delle sessioni,
+pillola «New messages», ricerca per nome, vuoto ed errore di By person,
+«Read the full plan» da Decide). Corretti anche i due difetti trovati dagli
+scatti: la riga «Status» vuota nel lato delle sessioni (gli stati si
+leggevano dopo la task) e la conversazione che dopo un cambio di persona non
+restava in fondo.
+
+Limite noto: una correzione ferma per budget non chiede ancora
+`plans.approve` per riprendere (già registrato fra i minori aperti dei Task
+7–9: il budget fermo non è modellato), quindi le righe «held» del ciclo non
+sono nel seed.
 
 ## Buchi
 
-Voci dell'inventario senza un posto nel prototipo. Non costruite, come da
-regola; vanno nel backlog del prototipo o in una decisione di prodotto.
+Nessuno.
 
-1. **Uso AI** del ticket (token e costo totali, per modello) — «Ticket detail →
-   AI usage panel», inventario riga 243. Dato che il prototipo non modella.
-2. **Adozione delle PR aperte da altri** («Let Stubwise fix it», «Stop
-   correcting», stati non adottabili) — «Corrections by Stubwise»
-   (`prs.adopt`), inventario righe 235–238.
-3. **Provider dell'esecuzione** (account o chiave API, riassunto del
-   fallimento, «Show/hide log») nella riga di attività AI — «AI activity»,
-   inventario riga 223. Resta «Open session», che porta al racconto in
-   conversazione.
-4. **Stato fine del ciclo della PR** (round X di N, tetto, protetta, in coda,
-   «blocked on a protected branch») e badge «N repos» — «Repository / PR
-   rows», inventario righe 239–242. Il prototipo mostra PR e revisione, non il
-   ciclo.
-5. **Suggerimenti AI su metadati della richiesta** («was X», Accept all /
-   Dismiss) — «Backlog item → AI suggestions», inventario riga 289. In
-   refinement è Claude a scrivere i metadati, e la richiesta a lato cambia.
-6. **Riga «prossimo passo»** della richiesta (chiarire, pronta,
-   in esecuzione, PR pronta, serve attenzione) — inventario riga 283.
-7. **Brief «Rigenera»** — voce di «Projects» già segnata dall'area 2.
-8. **Avviso «N nuovi commit non inclusi»** sul report del giorno — «Activity →
-   Stale warning», inventario riga 513.
-9. **Filtro per progetto e per esito** nell'elenco delle sessioni: costruiti,
-   ma senza test (vedi la tabella Agents).
-10. Inbox: le altre tipologie di scheda (pulse, brief, avvisi di sicurezza,
-    monitor) non sono area 3: **aree 1, 6 e 9**.
+## Riassegnate
+
+Voci dell'inventario che non sono dell'area 3, o su cui c'è una decisione:
+
+1. **Adozione delle PR aperte da altri** («Let Stubwise fix it», «Stop
+   correcting», stati non adottabili, `prs.adopt`) — «Corrections by
+   Stubwise», inventario righe 235–238 → **area 8** (Rilasci e PR).
+2. **Brief «Rigenera»** — voce di «Projects» → **deciso: no**. Il maintainer
+   ha accettato l'assunzione della forma della Overview: il brief non si
+   rigenera dalla Overview.
+3. Inbox: le altre tipologie di scheda (pulse, brief, avvisi di sicurezza,
+   monitor) → **aree 1, 6 e 9**.

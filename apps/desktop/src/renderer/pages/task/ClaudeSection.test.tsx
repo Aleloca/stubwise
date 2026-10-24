@@ -341,3 +341,96 @@ describe("sezione Claude", () => {
     expect(state.conversationEvents.get("cv-run-aud-5")!.length).toBe(before);
   });
 });
+
+describe("sezione Claude: attività AI, cicli delle PR, consumi", () => {
+  it("con quale account gira la sessione: sotto lo stato e nella storia, solo il nome", async () => {
+    const section = await claudeSection("t-stw-7", "p-laura");
+    expect(section.querySelector("[data-run-provider]")).toHaveTextContent(
+      "Provider: Team Max (account)",
+    );
+    await userEvent.click(within(section).getByRole("button", { name: /Work story/ }));
+    const story = within(section).getByRole("list", { name: "Work story" });
+    expect(story).toHaveTextContent("Run started by Federico Sartori · Team Max (account)");
+  });
+
+  it("fallita: il riassunto del fallimento e «Show log» con le azioni della fase", async () => {
+    const section = await claudeSection("t-stw-7", "p-laura");
+    const failure = section.querySelector<HTMLElement>("[data-run-failure]")!;
+    expect(failure).toHaveTextContent(/filters page tests failed twice/);
+    expect(within(failure).queryByRole("list")).toBeNull();
+    await userEvent.click(within(failure).getByRole("button", { name: "Show log" }));
+    const log = within(failure).getByRole("list", { name: "Log of the Execution phase" });
+    expect(within(log).getAllByRole("listitem")).toHaveLength(3);
+    expect(log).toHaveTextContent("Edits apps/desktop/src/renderer/data/api-mutations.ts");
+    expect(log).toHaveTextContent(/Runs the desktop tests\s*failed/);
+    await userEvent.click(within(failure).getByRole("button", { name: "Hide log" }));
+    expect(within(failure).queryByRole("list")).toBeNull();
+  });
+
+  it("una sessione riuscita non ha né riassunto né log", async () => {
+    const section = await claudeSection("t-stw-1", "p-laura");
+    expect(section.querySelector("[data-run-failure]")).toBeNull();
+    expect(within(section).queryByRole("button", { name: "Show log" })).toBeNull();
+  });
+
+  it("PR su due repository: «2 repos», e sotto ogni PR il suo ciclo (giro, tetto)", async () => {
+    const section = await claudeSection("t-stw-3", "p-laura");
+    expect(section.querySelector("[data-repo-count]")).toHaveTextContent("2 repos");
+    const pr411 = section.querySelector<HTMLElement>('[data-pr="411"]')!;
+    expect(pr411).toHaveTextContent("stubwise/stubwise");
+    expect(pr411).toHaveTextContent("Round 1 of 3 · correction in progress");
+    const pr58 = section.querySelector<HTMLElement>('[data-pr="58"]')!;
+    expect(pr58).toHaveTextContent("stubwise/guide");
+    expect(pr58).toHaveTextContent("Cycle stopped after 3 automatic corrections");
+    // Il ciclo dice già a che giro è: niente seconda riga «Correction 1 · in progress».
+    expect(section).not.toHaveTextContent("Correction 1 · in progress");
+  });
+
+  it("branch protetto e modifiche chieste da una persona: le parole del ciclo", async () => {
+    const [first, second] = state.prCycles;
+    first!.branchProtected = true;
+    second!.state = "changes_requested";
+    second!.requestedById = "p-laura";
+    second!.requestedOn = "platform";
+    const section = await claudeSection("t-stw-3", "p-laura");
+    expect(section.querySelector('[data-pr="411"] [data-pr-blocked]')).toHaveTextContent(
+      "Blocked: this branch is protected, Stubwise doesn't push to it.",
+    );
+    expect(section.querySelector('[data-pr="58"]')).toHaveTextContent(
+      "Changes requested by Laura Costa on the PR",
+    );
+  });
+
+  it("una PR sola: niente «N repos»; senza ciclo resta la riga della correzione", async () => {
+    const section = await claudeSection("t-stw-1", "p-laura");
+    expect(section.querySelector("[data-repo-count]")).toBeNull();
+    expect(section.querySelector("[data-pr-cycle]")).toBeNull();
+    expect(section).toHaveTextContent(/Correction 1 · sent/);
+  });
+
+  it("consumi AI: chiusi il totale, aperti una riga per modello", async () => {
+    const section = await claudeSection("t-stw-1", "p-laura");
+    const toggle = within(section).getByRole("button", { name: /AI usage/ });
+    // Le due sessioni di STW-1, sommate per modello.
+    expect(toggle).toHaveTextContent("427.7K tokens · $4.19");
+    await userEvent.click(toggle);
+    const list = within(section).getByRole("list", { name: "AI usage by model" });
+    expect(within(list).getAllByRole("listitem").map((r) => r.textContent)).toEqual([
+      "claude-sonnet-4-5$4.15In 363.3K · out 39K · cache 918.4K",
+      "claude-haiku-4-5$0.04In 22.8K · out 2.6K · cache 0",
+    ]);
+  });
+
+  it("i consumi li vede chi vede la task, anche senza vederne le sessioni (come il web)", async () => {
+    const section = await claudeSection("t-aud-3", "p-giulia");
+    expect(within(section).getByRole("button", { name: /AI usage/ })).toHaveTextContent(
+      "66.2K tokens · $0.52",
+    );
+  });
+
+  it("senza consumi nessuna riga dei consumi", async () => {
+    state.conversations.find((c) => c.id === "cv-run-mkx-11")!.usage = [];
+    const section = await claudeSection("t-mkx-11", "p-giulia");
+    expect(section.querySelector("[data-ai-usage]")).toBeNull();
+  });
+});

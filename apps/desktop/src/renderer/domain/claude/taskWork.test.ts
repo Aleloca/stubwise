@@ -25,6 +25,8 @@ const run = (id: string, over: Partial<TaskRun>, events: ConversationEvent[]): T
   state: "finished",
   outcome: "ok",
   events,
+  provider: null,
+  failureSummary: null,
   ...over,
 });
 
@@ -42,6 +44,8 @@ const work = (runs: TaskRun[], over: Partial<TaskWork> = {}): TaskWork => ({
     resume: "unavailable",
     requestChanges: "unavailable",
   },
+  cycles: [],
+  usage: [],
   ...over,
 });
 
@@ -93,8 +97,8 @@ describe("workStory", () => {
     const story = workStory(
       work([first, second], {
         pullRequests: [
-          { id: "pr1", projectId: "x", taskId: "t", kind: "pr_opened", at: "2026-10-19T11:00:00Z", number: 405 },
-          { id: "pr2", projectId: "x", taskId: "t", kind: "pr_merged", at: "2026-10-22T08:00:00Z", number: 405 },
+          { id: "pr1", projectId: "x", taskId: "t", kind: "pr_opened", at: "2026-10-19T11:00:00Z", number: 405, repo: "stubwise/stubwise" },
+          { id: "pr2", projectId: "x", taskId: "t", kind: "pr_merged", at: "2026-10-22T08:00:00Z", number: 405, repo: "stubwise/stubwise" },
         ],
       }),
     );
@@ -190,7 +194,7 @@ describe("workStory", () => {
         ],
         {
           pullRequests: [
-            { id: "c", projectId: "x", taskId: "t", kind: "pr_closed", at: "2026-10-12T08:00:00Z", number: 401 },
+            { id: "c", projectId: "x", taskId: "t", kind: "pr_closed", at: "2026-10-12T08:00:00Z", number: 401, repo: "stubwise/stubwise" },
           ],
         },
       ),
@@ -265,7 +269,7 @@ describe("stato, scheda aperta, PR", () => {
     const lines = pullRequestsOf(
       work([r], {
         pullRequests: [
-          { id: "a", projectId: "x", taskId: "t", kind: "pr_merged", at: "2026-10-22T08:00:00Z", number: 405 },
+          { id: "a", projectId: "x", taskId: "t", kind: "pr_merged", at: "2026-10-22T08:00:00Z", number: 405, repo: "stubwise/stubwise" },
         ],
       }),
     );
@@ -278,6 +282,32 @@ describe("stato, scheda aperta, PR", () => {
         state: "merged",
         closedAt: "2026-10-22T08:00:00Z",
       },
+    ]);
+  });
+
+  it("una PR che conosce solo la piattaforma prende il repository dalla piattaforma", () => {
+    const lines = pullRequestsOf(
+      work([run("r", {}, [])], {
+        pullRequests: [
+          { id: "a", projectId: "x", taskId: "t", kind: "pr_opened", at: "2026-10-22T08:00:00Z", number: 58, repo: "acme/guide" },
+        ],
+      }),
+    );
+    expect(lines).toMatchObject([{ number: 58, repo: "acme/guide", state: "open" }]);
+  });
+
+  it("la storia dice con quale account o chiave è partita ogni sessione", () => {
+    const story = workStory(
+      work([
+        run("r1", { provider: { kind: "api_key", name: "Billing key" } }, [
+          ev({ at: "2026-10-20T09:00:00Z", type: "phase", phase: "plan", outcome: null }),
+        ]),
+        run("r2", {}, [ev({ at: "2026-10-21T09:00:00Z", type: "phase", phase: "plan", outcome: null })]),
+      ]),
+    );
+    expect(story.filter((e) => e.kind === "run_started")).toMatchObject([
+      { provider: { kind: "api_key", name: "Billing key" } },
+      { provider: null },
     ]);
   });
 });

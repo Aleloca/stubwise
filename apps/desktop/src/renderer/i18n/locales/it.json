@@ -721,7 +721,8 @@
         "plan_written": "Piano scritto",
         "plan_written_approved": "Piano scritto · approvato da {{name}}",
         "plan_written_rejected": "Piano scritto · rifiutato da {{name}}",
-        "plan_writtenRejectedWith": "Piano scritto · rifiutato da {{name}}: «{{instructions}}»"
+        "plan_writtenRejectedWith": "Piano scritto · rifiutato da {{name}}: «{{instructions}}»",
+        "run_startedVia": "Lavoro avviato da {{name}} · {{provider}}"
       },
       "follow": {
         "title": "Claude",
@@ -730,7 +731,41 @@
         "openFull": "Apri a pagina intera"
       },
       "hiddenRuns": "Solo chi vede il codice di {{code}} può aprire le sessioni di Claude.",
-      "waitingHint": "Claude aspetta te"
+      "waitingHint": "Claude aspetta te",
+      "provider": {
+        "account": "{{name}} (account)",
+        "api_key": "{{name}} (chiave API)",
+        "label": "Provider: {{provider}}"
+      },
+      "failure": {
+        "label": "Cosa non è andato",
+        "showLog": "Mostra il log",
+        "hideLog": "Nascondi il log",
+        "logLabel": "Log della fase {{phase}}",
+        "noLog": "In questa fase non è stata registrata nessuna azione."
+      },
+      "usage": {
+        "title": "Consumi AI",
+        "summary": "{{tokens}} token · {{cost}}",
+        "listLabel": "Consumi AI per modello",
+        "detail": "Ingresso {{input}} · uscita {{output}} · cache {{cache}}"
+      },
+      "repos_one": "{{count}} repository",
+      "repos_other": "{{count}} repository",
+      "cycle": {
+        "reviewing": "In attesa della review",
+        "idle": "Ancora nessuna review",
+        "correcting": "Giro {{round}} di {{max}} · correzione in corso",
+        "approved": "Approvata dalla review · pronta per il merge",
+        "changes_requested": "La review chiede modifiche",
+        "changesRequestedStubwise": "Modifiche chieste da {{name}} in Stubwise",
+        "changesRequestedPlatform": "Modifiche chieste da {{name}} sulla PR",
+        "capped_one": "Ciclo fermo dopo {{count}} correzione automatica",
+        "capped_other": "Ciclo fermo dopo {{count}} correzioni automatiche",
+        "correction_failed": "L'ultima correzione non è riuscita",
+        "queued": "Correzione in coda · parte quando finisce il lavoro in corso sulla task",
+        "blocked": "Bloccata: il branch è protetto, Stubwise non ci scrive."
+      }
     },
     "links": {
       "origin": "Richiesta d'origine",
@@ -1335,6 +1370,34 @@
         "close": "Chiudi la richiesta",
         "task": "Diventata {{code}}"
       }
+    },
+    "suggestions": {
+      "title": "Proposte dell'intake",
+      "urgency": "Urgenza",
+      "size": "Taglia",
+      "risk": "Rischio",
+      "riskNote": "Nota rischio",
+      "was": "era {{value}}",
+      "wasEmpty": "era vuoto",
+      "accept": "Accetta tutto",
+      "dismiss": "Scarta",
+      "listLabel": "Modifiche proposte",
+      "reason": "Perché",
+      "accepted": "Proposte accettate.",
+      "failed": "Non è andato a buon fine. Riprova."
+    },
+    "nextStep": {
+      "label": "Prossimo passo",
+      "clarify": "Ancora da chiarire: continua a rifinirla.",
+      "readyToConvert": "Pronta: trasformala in una task.",
+      "convertedNoRun": "Task creata: il lavoro parte da lì.",
+      "preparingPlan": "Lavoro avviato: Claude sta preparando il piano.",
+      "awaitingApproval": "Piano pronto, aspetta chi può approvarlo.",
+      "executing": "In corso.",
+      "prReady": "Modifica pronta: il merge spetta a chi può rilasciare.",
+      "done": "Fatto: la task è conclusa.",
+      "needsAttention": "Qualcosa nella task chiede attenzione.",
+      "goToTask": "Vai a {{code}}"
     }
   },
   "overview": {
@@ -1677,7 +1740,10 @@
         "retry": "Riprova",
         "generateFailed": "Non è stato possibile generare il report giornaliero di {{code}}. Riprova.",
         "quiet": "Una giornata tranquilla: nessun commit sui repository collegati.",
-        "who": "Lo genera solo chi gestisce le impostazioni."
+        "who": "Lo genera solo chi gestisce le impostazioni.",
+        "stale_one": "{{count}} commit nuovo non incluso",
+        "stale_other": "{{count}} commit nuovi non inclusi",
+        "regenerate": "Rigenera"
       },
       "states": {
         "loading": "Caricamento della rassegna",

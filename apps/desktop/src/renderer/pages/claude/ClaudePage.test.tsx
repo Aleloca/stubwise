@@ -263,6 +263,32 @@ describe("destinazione Claude: elenchi per persona", () => {
     await user.click(screen.getByRole("button", { name: "Clear filters" }));
     await waitFor(() => rowOf("cv-run-stw-3"));
   });
+
+  it("le concluse si filtrano per esito e per progetto, e «Clear filters» le riporta tutte", async () => {
+    const user = userEvent.setup();
+    renderRoute("/claude?scope=finished", "p-laura");
+    await waitFor(() => rowOf("cv-run-stw-7"));
+    const all = await as("p-laura", () => api.listConversations({ scope: "finished" }));
+    const failed = all.filter((c) => c.outcome === "failed").map((c) => c.id);
+    expect(failed).toContain("cv-run-stw-7");
+    expect(failed.length).toBeLessThan(all.length);
+
+    await user.click(screen.getByRole("button", { name: /^Outcome/ }));
+    await user.click(screen.getByRole("menuitemradio", { name: "Failed" }));
+    await waitFor(() => expect(rowIds().sort()).toEqual([...failed].sort()));
+    expect(screen.getByRole("button", { name: /^Outcome/ })).toHaveTextContent("Failed");
+
+    await user.click(screen.getByRole("button", { name: /^Outcome/ }));
+    await user.click(screen.getByRole("menuitemradio", { name: "Any" }));
+    await user.click(screen.getByRole("button", { name: /^Project/ }));
+    await user.click(screen.getByRole("menuitemradio", { name: /^AUD · / }));
+    const aud = all.filter((c) => (c.projectId ?? c.contextProjectId) === "prj-aud").map((c) => c.id);
+    expect(aud.length).toBeGreaterThan(0);
+    await waitFor(() => expect(rowIds().sort()).toEqual([...aud].sort()));
+
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
+    await waitFor(() => expect(rowIds()).toHaveLength(all.length));
+  });
 });
 
 describe("destinazione Claude: pubblica, privata, continuazione", () => {
@@ -465,6 +491,29 @@ describe("destinazione Claude: rinomina, archivia, elimina", () => {
     const side = await screen.findByRole("complementary", { name: "The object of this session" });
     expect(within(side).getByText("AUD-3")).toBeInTheDocument();
     expect(within(side).getByRole("link", { name: "Open task" })).toBeInTheDocument();
+  });
+
+  it("a lato lo stato della task: mentre gli stati arrivano aspetta, poi lo dice", async () => {
+    setMatchMedia("(min-width: 1200px)", true);
+    renderRoute("/claude/cv-run-stw-13", "p-marco");
+    const side = await screen.findByRole("complementary", { name: "The object of this session" });
+    await within(side).findByText("STW-13");
+    const status = () => within(side).getByText("Status").nextElementSibling as HTMLElement;
+    // Mai una riga col solo nome: o lo stato, o il segnaposto che aspetta.
+    expect(status().textContent?.trim() || status().querySelector("[aria-busy]")).toBeTruthy();
+    await waitFor(() => expect(status()).toHaveTextContent("In progress"));
+  });
+
+  it("uno stato che il lato non sa nominare: la riga «Status» non c'è, invece di restare vuota", async () => {
+    setMatchMedia("(min-width: 1200px)", true);
+    state.statuses = state.statuses.filter((s) => s.projectId !== "prj-stw");
+    renderRoute("/claude/cv-run-stw-13", "p-marco");
+    const side = await screen.findByRole("complementary", { name: "The object of this session" });
+    await within(side).findByText("STW-13");
+    await within(side).findByText("Marco Bellini");
+    await waitFor(() => expect(side.querySelector("[aria-busy]")).toBeNull());
+    expect(within(side).queryByText("Status")).toBeNull();
+    expect(within(side).getByText("Assignee")).toBeInTheDocument();
   });
 
   it("sotto 1200 px il lato diventa un bottone in testata che apre il pannello", async () => {

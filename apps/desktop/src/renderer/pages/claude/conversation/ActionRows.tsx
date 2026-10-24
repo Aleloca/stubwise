@@ -49,7 +49,7 @@ function StateMark({ state }: { state: Action["state"] }) {
   );
 }
 
-function ActionRow({ action }: { action: Action }) {
+export function ActionRow({ action }: { action: Action }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [all, setAll] = useState(false);

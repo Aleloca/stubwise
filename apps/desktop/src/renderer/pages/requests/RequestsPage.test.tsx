@@ -148,7 +148,7 @@ describe("pannello della richiesta", () => {
     expect(await within(after).findByText(/Turned into a task/)).toBeInTheDocument();
     expect(within(after).queryByRole("button", { name: "Turn into task" })).toBeNull();
     const link = await waitFor(() =>
-      within(after).getByRole("button", { name: new RegExp(task.code) }),
+      within(after).getByRole("button", { name: new RegExp(`${task.code}.*Landing page`) }),
     );
     await userEvent.click(link);
     expect(search(router).task).toBe(task.code);

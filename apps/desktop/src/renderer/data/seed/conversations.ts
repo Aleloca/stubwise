@@ -3,6 +3,7 @@ import { AUTOMATIC_CONVERSATIONS } from "./conversations/automatic";
 import { FREE_CONVERSATIONS } from "./conversations/free";
 import type { Seeded } from "./conversations/helpers";
 import { WORK_CONVERSATIONS } from "./conversations/work";
+import { RUN_META } from "./runs";
 
 // Le conversazioni con Claude del seed: libere, sessioni di lavoro (task e
 // refine) e sessioni automatiche, ognuna col suo flusso di eventi già
@@ -10,7 +11,10 @@ import { WORK_CONVERSATIONS } from "./conversations/work";
 
 const ALL: Seeded[] = [...FREE_CONVERSATIONS, ...WORK_CONVERSATIONS, ...AUTOMATIC_CONVERSATIONS];
 
-export const CONVERSATIONS: Conversation[] = ALL.map((s) => s.conversation);
+export const CONVERSATIONS: Conversation[] = ALL.map((s) => ({
+  ...s.conversation,
+  ...RUN_META[s.conversation.id],
+}));
 
 /** Il flusso di ogni conversazione, per id, in ordine di tempo. */
 export const CONVERSATION_EVENTS: Record<string, ConversationEvent[]> = Object.fromEntries(

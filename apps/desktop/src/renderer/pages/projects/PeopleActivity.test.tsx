@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resetApi, setLatency } from "../../data/api";
+import { failNext, resetApi, setLatency } from "../../data/api";
 import { grantInstancePermission, resetViewerGrants } from "../../data/viewer";
 import { clearToasts } from "../../tasks-ui/Toast";
 import { renderRoute } from "../../test/renderRoute";
@@ -146,5 +146,60 @@ describe("Activity → By person", () => {
     resetApi();
     await review("p-laura");
     expect(screen.queryByRole("button", { name: /Link a person/ })).toBeNull();
+  });
+
+  it("report scritto prima degli ultimi commit: «N new commits not included», e «Regenerate»", async () => {
+    await review("p-roberta");
+    // Il report di oggi di STW è delle 10:00: dopo sono arrivati due commit.
+    const simone = row("p-simone");
+    expect(simone).toHaveTextContent("Daily report: ready");
+    expect(simone.querySelector("[data-report-stale]")).toHaveTextContent(
+      "2 new commits not included",
+    );
+    // AUD non ha ancora il report: nessun avviso.
+    expect(row("p-stefano").querySelector("[data-report-stale]")).toBeNull();
+    await userEvent.click(within(simone).getByRole("button", { name: "Regenerate" }));
+    await waitFor(() => expect(row("p-simone").querySelector("[data-report-stale]")).toBeNull());
+    expect(row("p-simone")).toHaveTextContent("Daily report: ready");
+
+    document.body.innerHTML = "";
+    resetApi();
+    await review("p-laura"); // senza settings.manage: l'avviso sì, «Regenerate» no
+    expect(row("p-simone").querySelector("[data-report-stale]")).not.toBeNull();
+    expect(within(row("p-simone")).queryByRole("button", { name: "Regenerate" })).toBeNull();
+  });
+
+  it("la ricerca per nome lascia solo chi corrisponde; senza nessuno «Clear filters»", async () => {
+    await review("p-roberta");
+    const box = screen.getByRole("searchbox", { name: "Find a person" });
+    await userEvent.type(box, "simo");
+    await waitFor(() => expect(personRows()).toEqual(["p-simone"]));
+    await userEvent.clear(box);
+    await userEvent.type(box, "nobody at all");
+    expect(await screen.findByRole("heading", { name: "Nobody matches" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    await waitFor(() => expect(personRows().length).toBeGreaterThan(1));
+    expect(box).toHaveValue("");
+  });
+
+  it("un giorno senza attività lo dice, e porta al giorno prima", async () => {
+    const router = renderRoute("/projects?view=person&date=2026-09-06", "p-roberta");
+    expect(
+      await screen.findByRole("heading", { name: /^Nothing happened on / }),
+    ).toBeInTheDocument();
+    // Quello del vuoto, con la parola (nella barra c'è la freccia con lo stesso nome).
+    const previous = screen
+      .getAllByRole("button", { name: "Previous day" })
+      .find((b) => b.textContent === "Previous day")!;
+    await userEvent.click(previous);
+    await waitFor(() => expect(search(router).date).toBe("2026-09-05"));
+  });
+
+  it("errore di caricamento: lo dice, e «Retry» ricarica", async () => {
+    failNext("listPeopleActivity");
+    renderRoute("/projects?view=person", "p-roberta");
+    expect(await screen.findByText("Couldn't load the review.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByRole("list", { name: /^Development/ })).toBeInTheDocument();
   });
 });

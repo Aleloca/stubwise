@@ -29,7 +29,7 @@ export function ObjectSide({ detail, onClose }: { detail: ConversationDetail; on
       className="flex min-w-0 flex-col gap-5 px-5 pt-6 pb-6"
     >
       {detail.taskId !== null ? (
-        <TaskBrief code={detail.objectCode ?? ""} />
+        <TaskBrief code={detail.objectCode ?? ""} projectId={detail.projectId} />
       ) : (
         <RequestBrief id={detail.requestId ?? ""} refine={detail.kind === "refine"} />
       )}
@@ -69,20 +69,31 @@ function Missing() {
   return <p className="text-sm text-ink-muted">{t("claude.destination.page.objectMissing")}</p>;
 }
 
-function TaskBrief({ code }: { code: string }) {
+/**
+ * `projectId`: il progetto della sessione, così gli stati si leggono insieme
+ * alla task e non dopo (la riga «Status» restava vuota finché la seconda
+ * lettura non arrivava). Uno stato che non si sa nominare (stati non letti,
+ * o non più del progetto) toglie la riga: mai un'etichetta senza valore.
+ */
+function TaskBrief({ code, projectId }: { code: string; projectId: string | null }) {
   const { t } = useTranslation();
   const task = useTask(code);
-  const statuses = useProjectStatuses(task.data?.projectId ?? "").data;
+  const statuses = useProjectStatuses(projectId ?? task.data?.projectId ?? "");
   const projectCode = useProjects().data?.find((p) => p.id === task.data?.projectId)?.code;
   if (task.isPending) return <SideSkeleton />;
   if (!task.data) return <Missing />;
-  const status = statuses?.find((s) => s.id === task.data!.statusId);
+  const status = statuses.data?.find((s) => s.id === task.data!.statusId);
+  const statusRow: [string, ReactNode][] = statuses.isPending
+    ? [[t("claude.destination.page.status"), <ValueSkeleton key="s" />]]
+    : status
+      ? [[t("claude.destination.page.status"), <StatusLabel key="s" status={status} />]]
+      : [];
   return (
     <>
       <Heading code={task.data.code} title={task.data.title} />
       <Facts
         rows={[
-          [t("claude.destination.page.status"), <StatusLabel key="s" status={status} />],
+          ...statusRow,
           [
             t("claude.destination.page.assignee"),
             <PersonChip key="a" personId={task.data.assigneeId} />,
@@ -137,6 +148,17 @@ function RequestBrief({ id, refine }: { id: string; refine: boolean }) {
         </Link>
       )}
     </>
+  );
+}
+
+/** Il valore di una riga che sta arrivando: una barra che respira, non uno spazio vuoto. */
+function ValueSkeleton() {
+  const { t } = useTranslation();
+  return (
+    <span aria-busy="true" className="skeleton-breathe flex items-center">
+      <span className="sr-only">{t("taskUi.states.loading")}</span>
+      <span className="h-2.5 w-20 rounded-sm bg-ink/8" />
+    </span>
   );
 }
 

@@ -12,6 +12,7 @@ import { TODAY } from "./seed/dates";
 import { DEPARTMENTS } from "./seed/departments";
 import { DOC_PAGES } from "./seed/docPages";
 import { PEOPLE } from "./seed/people";
+import { TEAM_ACCOUNT } from "./seed/runs";
 import { getSessionPersonId, setSessionPersonId } from "./session";
 import {
   canSeeConversation,
@@ -637,8 +638,11 @@ export async function updateRequest(id: string, patch: RequestPatch): Promise<Pr
   if (patch.urgency !== undefined && !LEVELS.includes(patch.urgency)) throw invalid("urgency");
   if (patch.risk != null && !LEVELS.includes(patch.risk)) throw invalid("risk");
   if (patch.size != null && !SIZES.includes(patch.size)) throw invalid("size");
+  // Le proposte dell'intake le scrive l'AI: da qui si possono solo togliere
+  // (accettate insieme ai campi, o scartate).
+  if (patch.suggestions !== undefined && patch.suggestions !== null) throw invalid("suggestions");
   // Trasformata o archiviata, la richiesta è in sola lettura: i metadati non si cambiano più.
-  const meta = (["urgency", "size", "risk", "riskNote"] as const).some(
+  const meta = (["urgency", "size", "risk", "riskNote", "suggestions"] as const).some(
     (k) => patch[k] !== undefined,
   );
   if (meta && (request.status === "converted" || request.status === "archived")) {
@@ -651,6 +655,7 @@ export async function updateRequest(id: string, patch: RequestPatch): Promise<Pr
   if (patch.risk !== undefined) request.risk = patch.risk;
   if (patch.riskNote !== undefined)
     request.riskNote = patch.riskNote?.trim() ? patch.riskNote.trim() : null;
+  if (patch.suggestions === null) request.suggestions = null;
   return copy(request);
 }
 
@@ -2259,6 +2264,7 @@ function prepareRun(me: string, task: Task, pending: Task[] = []): void {
 async function launchRun(me: string, task: Task, instructions?: string): Promise<string> {
   const c = newConversation(me, {
     kind: "task_run",
+    provider: { ...TEAM_ACCOUNT },
     title: task.title,
     projectId: task.projectId,
     taskId: task.id,
@@ -2346,6 +2352,7 @@ export async function requestChanges(taskId: string, text: string): Promise<Conv
   if (live && live.state !== "finished") throw conflict();
   const c = newConversation(me, {
     kind: "task_run",
+    provider: { ...TEAM_ACCOUNT },
     title: task.title,
     projectId: task.projectId,
     taskId: task.id,
@@ -2432,21 +2439,23 @@ function closeRefineOfRequest(requestId: string): void {
  * «Generate report» / «Retry»: (ri)genera il report giornaliero di un
  * progetto per un giorno, con lo stesso permesso del web (`settings.manage`).
  * Nel prototipo la sintesi mette in fila i riassunti generati dei commit del
- * giorno; un report fallito si sostituisce, mai uno del futuro.
+ * giorno; un report fallito si sostituisce, mai uno del futuro. Rigenerato,
+ * comprende tutti i commit del giorno fino all'ultimo (l'avviso dei commit
+ * nuovi sparisce).
  */
 export async function generateDailyReport(projectId: string, date: string): Promise<DailyReport> {
   const me = await gate("generateDailyReport");
   projectFor(me, projectId);
   need(me, "settings.manage");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > TODAY) throw invalid("date");
-  const summaries = COMMITS.filter(
-    (c) => c.projectId === projectId && c.at.slice(0, 10) === date,
-  ).map((c) => c.aiSummary);
+  const commits = COMMITS.filter((c) => c.projectId === projectId && c.at.slice(0, 10) === date);
+  const summaries = commits.map((c) => c.aiSummary);
   const report: DailyReport = {
     id: `rep-${projectId}-${date}`,
     projectId,
     date,
     summary: summaries.length > 0 ? summaries.join(" ") : i18n.t("projects.people.report.quiet"),
+    generatedAt: commits.reduce((max, c) => (c.at > max ? c.at : max), `${date}T00:00:00Z`),
   };
   state.dailyReports = state.dailyReports.filter(
     (r) => !(r.projectId === projectId && r.date === date),

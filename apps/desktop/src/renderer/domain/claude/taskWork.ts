@@ -2,6 +2,7 @@ import type {
   ConversationEvent,
   Outcome,
   PullRequestEvent,
+  RunProvider,
   TaskRun,
   TaskWork,
 } from "../../data/types";
@@ -158,7 +159,7 @@ export function pullRequestsOf(work: TaskWork, latest?: readonly ConversationEve
   for (const pr of work.pullRequests) {
     let line = byNumber.get(pr.number);
     if (!line) {
-      line = { number: pr.number, repo: null, link: null, text: "", state: "open", closedAt: null };
+      line = { number: pr.number, repo: pr.repo, link: null, text: "", state: "open", closedAt: null };
       lines.push(line);
       byNumber.set(pr.number, line);
     }
@@ -168,6 +169,7 @@ export function pullRequestsOf(work: TaskWork, latest?: readonly ConversationEve
 }
 
 function applyPlatform(line: PrLine, pr: PullRequestEvent): void {
+  line.repo ??= pr.repo;
   if (pr.kind === "pr_opened") {
     line.state = "open";
     line.closedAt = null;
@@ -197,7 +199,8 @@ function runsEvents(work: TaskWork, latest?: readonly ConversationEvent[]): Conv
 // --- storia del lavoro -----------------------------------------------------------
 
 export type StoryEntry =
-  | { kind: "run_started"; key: string; at: string; byId: string }
+  /** `provider`: l'account o la chiave con cui la sessione ha girato (il nome). */
+  | { kind: "run_started"; key: string; at: string; byId: string; provider: RunProvider | null }
   /** `ordinal` per PR; `null` per una correzione fermata (annullata), che non prende numero. */
   | { kind: "correction_requested"; key: string; at: string; byId: string; ordinal: number | null }
   | { kind: "correction_started"; key: string; at: string; ordinal: number | null }
@@ -318,7 +321,13 @@ export function workStory(work: TaskWork, latest?: readonly ConversationEvent[])
       recordOf.set(entry, current);
       out.push(entry);
     } else {
-      out.push({ kind: "run_started", key: `${run.id}:start`, at: run.createdAt, byId: run.ownerId });
+      out.push({
+        kind: "run_started",
+        key: `${run.id}:start`,
+        at: run.createdAt,
+        byId: run.ownerId,
+        provider: run.provider ?? null,
+      });
     }
     let correctionOpen = first?.phase === "correction";
 

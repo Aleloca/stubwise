@@ -420,6 +420,13 @@ function ConversationBody({
     if (atBottom.current) el.scrollTop = el.scrollHeight;
     else if (grew) setNewBelow(true);
   }, [count, tailText]);
+  // Chi è in fondo ci resta a ogni disegno, non solo quando arrivano voci:
+  // dopo un cambio di persona il flusso si riapre da zero, e righe che non
+  // sono voci (il seguito privato, una fascia che compare) lo allungano.
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (el && atBottom.current && el.scrollTop !== el.scrollHeight) el.scrollTop = el.scrollHeight;
+  });
   // Il flusso cresce anche senza eventi nuovi (le citazioni lette dopo, una
   // scheda che si apre, un'immagine): chi è in fondo ci resta.
   const content = useRef<HTMLDivElement>(null);
@@ -431,6 +438,8 @@ function ConversationBody({
       if (atBottom.current) el.scrollTop = el.scrollHeight;
     });
     observer.observe(inner);
+    // Anche il riquadro: una fascia che compare sotto (continuazione, sola lettura) lo accorcia.
+    observer.observe(el);
     return () => observer.disconnect();
   }, []);
   const toBottom = () => {

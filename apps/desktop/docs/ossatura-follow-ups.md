@@ -158,8 +158,8 @@ per task: `.superpowers/sdd/2026-10-24-desktop-area3-claude-plan/deferred-minors
 - La finestra di 120 voci scorre mentre si legge (non è virtualizzazione); «Stop» ripetuti prendono ordinali; `completeEditedProposal` accetta qualunque codice visibile (rischio di doppia creazione); «stoppedBeforeTurn» in lingua fissa; test debole sullo streaming (`startsWith`); «Edit» solo per `createTask`/`createRequest`.
 - Fuoco: solo il piano ha il test «il fuoco va alla riga»; domanda e proposta no; chi ha il fuoco sul body lo perde quando un altro risolve una carta; effetto collaterale dentro l'updater di `setDrafts`.
 - Una continuazione eredita il titolo dell'origine (righe identiche in Mine); tetto di lunghezza di `ask` solo nel router; manca la voce di menu Electron «New conversation»; voce di handoff orfana se la navigazione non monta mai; una conversazione vuota per primo invio fallito è raggiungibile solo dalla pagina.
-- Pannello laterale delle sessioni (`ObjectSide`): il campo «Status» resta vuoto per una task «In progress» (STW-13, in `a3-session-plan-*.png`) e a metà stream (`a3-session-live-*.png`): da verificare se è la lettura o lo stato.
-- Dopo un cambio di persona la lista della conversazione non scorre da sola in fondo (lo scatto lo fa a mano).
+- ~~Pannello laterale delle sessioni (`ObjectSide`): «Status» vuoto per STW-13 e a metà stream~~ — chiuso dal Task 12: gli stati si leggevano solo dopo la task (seconda lettura in cascata); ora col progetto della sessione, con un segnaposto mentre arrivano e senza la riga se lo stato non si sa nominare.
+- ~~Dopo un cambio di persona la conversazione non scorre da sola in fondo~~ — chiuso dal Task 12: chi è in fondo ci resta a ogni disegno e quando il riquadro si accorcia; lo scatto non scorre più a mano.
 
 ### Sezione Claude della task, refinement, Decide (Task 7–9)
 

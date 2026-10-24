@@ -210,6 +210,11 @@ export interface DailyReport {
   date: string;
   /** `null` se la sintesi della giornata non è riuscita. */
   summary: string | null;
+  /**
+   * Quando è stato scritto: i commit della giornata arrivati dopo non ci
+   * sono («N new commits not included»). `null`: non si sa (nessun avviso).
+   */
+  generatedAt: string | null;
 }
 
 /** Un evento di una pull request aperta per una task (dalla pipeline di Claude o da una persona). */
@@ -221,6 +226,59 @@ export interface PullRequestEvent {
   at: string;
   /** Il numero della PR sulla piattaforma git. */
   number: number;
+  /** Il repository (`owner/repo`): una task può avere PR su più repository. */
+  repo: string;
+}
+
+/**
+ * Lo stato del ciclo review → correzione di una PR, come lo deriva il
+ * server oggi (`pr-cycle-row` del web): la sezione lo legge, non lo
+ * ricostruisce.
+ * - `reviewing`: la review è in corso; `idle`: nessuna review ancora;
+ * - `correcting`: una correzione automatica al lavoro (giro `round` di `maxRounds`);
+ * - `approved`: la review approva, pronta al merge;
+ * - `changes_requested`: chieste da una persona, in Stubwise o sulla piattaforma;
+ * - `capped`: il ciclo si è fermato al tetto delle correzioni automatiche;
+ * - `correction_failed`: l'ultima correzione non è riuscita;
+ * - `queued`: una correzione chiesta aspetta che finisca il lavoro in corso.
+ * `branchProtected`: il branch della PR è protetto, Stubwise non ci scrive.
+ */
+export interface PrCycle {
+  taskId: string;
+  /** La PR (numero + repository) a cui si riferisce. */
+  number: number;
+  repo: string;
+  state:
+    | "reviewing"
+    | "idle"
+    | "correcting"
+    | "approved"
+    | "changes_requested"
+    | "capped"
+    | "correction_failed"
+    | "queued";
+  /** Il giro di correzione in corso o l'ultimo fatto (da 1); 0 se nessuno. */
+  round: number;
+  /** Il tetto di correzioni automatiche del progetto. */
+  maxRounds: number;
+  requestedById: string | null;
+  requestedOn: "stubwise" | "platform" | null;
+  branchProtected: boolean;
+}
+
+/** Con chi gira una sessione di Claude: solo il NOME dell'account o della chiave, mai il segreto. */
+export interface RunProvider {
+  kind: "account" | "api_key";
+  name: string;
+}
+
+/** I consumi di una sessione per modello (token e costo in USD). */
+export interface ModelUsage {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  costUsd: number;
 }
 
 export interface ActivityEntry {
@@ -283,6 +341,21 @@ export interface ProjectRequest {
   mergedIntoId: string | null;
   taskIds: string[];
   createdAt: string;
+  /**
+   * Ciò che l'intake (AI) propone di cambiare nei metadati, col perché: resta
+   * una proposta finché chi ha `backlog.edit` non la accetta o la scarta.
+   * Assente o `null`: nessuna proposta.
+   */
+  suggestions?: RequestSuggestions | null;
+}
+
+/** I metadati proposti dall'intake: solo quelli che cambierebbero, e il perché. */
+export interface RequestSuggestions {
+  urgency?: RequestLevel;
+  size?: TaskSize;
+  risk?: RequestLevel;
+  riskNote?: string;
+  reason: string;
 }
 
 export type PeriodField = "created" | "closed" | "plannedWeek" | "due";
@@ -428,7 +501,10 @@ export type RefinePatch = Partial<
 
 /** I campi di una richiesta che si cambiano col dettaglio (`backlog.edit`). */
 export type RequestPatch = Partial<
-  Pick<ProjectRequest, "title" | "description" | "urgency" | "size" | "risk" | "riskNote">
+  Pick<
+    ProjectRequest,
+    "title" | "description" | "urgency" | "size" | "risk" | "riskNote" | "suggestions"
+  >
 >;
 
 export interface NewProjectInput {
@@ -537,6 +613,12 @@ export interface Conversation {
   createdAt: string;
   updatedAt: string;
   archived: boolean;
+  /** Solo sessione di lavoro: con quale account o chiave gira (il nome). */
+  provider?: RunProvider | null;
+  /** Solo sessione di lavoro: i consumi per modello. */
+  usage?: ModelUsage[];
+  /** Solo sessione di lavoro fallita: il riassunto del fallimento, in una riga. */
+  failureSummary?: string | null;
 }
 
 export interface Attachment {

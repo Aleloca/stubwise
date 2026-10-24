@@ -74,6 +74,17 @@ describe("Decide: domande e piani di Claude", () => {
     expect(within(plan).getByRole("button", { name: "Reject…" })).toBeInTheDocument();
   });
 
+  it("«Read the full plan» apre la sessione del piano, col piano intero", async () => {
+    const router = renderRoute("/home", "p-laura");
+    const decide = await decideBlock();
+    const plan = await within(decide).findByRole("group", { name: PLAN_GROUP });
+    const link = within(plan).getByRole("link", { name: "Read the full plan" });
+    expect(link).toHaveAttribute("href", expect.stringContaining("/claude/cv-run-stw-13"));
+    await userEvent.click(link);
+    await waitFor(() => expect(router.state.location.pathname).toBe("/claude/cv-run-stw-13"));
+    expect(await screen.findByRole("region", { name: /Plan · waiting for approval/ })).toBeInTheDocument();
+  });
+
   it("Sara non vede né la domanda né il piano", async () => {
     renderRoute("/home", "p-sara");
     const decide = await decideBlock();

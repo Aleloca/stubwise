@@ -45,6 +45,7 @@ import type {
   ConversationFilter,
   ConversationRow,
   DailyReport,
+  DailyReportView,
   DayArrangement,
   DecisionLogEntry,
   DecisionRequest,
@@ -54,6 +55,8 @@ import type {
   DocPage,
   FilterCriteria,
   MentionResult,
+  ModelUsage,
+  PrCycleView,
   Milestone,
   Person,
   PersonDayActivity,
@@ -603,6 +606,8 @@ export async function getTaskWork(taskId: string): Promise<TaskWork | null> {
       state: c.state,
       outcome: c.outcome,
       events: readableEvents(me, c),
+      provider: c.provider ? copy(c.provider) : null,
+      failureSummary: c.state === "finished" && c.outcome !== "ok" ? (c.failureSummary ?? null) : null,
     }));
   const software = hasRepository(task.projectId);
   const viewer = viewerFor(me);
@@ -638,7 +643,52 @@ export async function getTaskWork(taskId: string): Promise<TaskWork | null> {
       resume: availability(ready.resume, "corrections.request"),
       requestChanges: availability(ready.requestChanges, "corrections.request"),
     },
+    cycles: software
+      ? state.prCycles
+          .filter((cycle) => cycle.taskId === taskId)
+          .map(
+            (c): PrCycleView => ({
+              number: c.number,
+              repo: c.repo,
+              state: c.state,
+              round: c.round,
+              maxRounds: c.maxRounds,
+              requestedById: c.requestedById,
+              requestedOn: c.requestedOn,
+              branchProtected: c.branchProtected,
+            }),
+          )
+      : [],
+    usage: usageOfTask(taskId),
   };
+}
+
+/**
+ * I consumi AI di una task per modello, su tutte le sue sessioni di lavoro:
+ * come `GET /api/tickets/:id/usage` di oggi, li vede chi vede la task (non
+ * chi vede le sessioni), dal costo più alto.
+ */
+function usageOfTask(taskId: string): ModelUsage[] {
+  const byModel = new Map<string, ModelUsage>();
+  for (const c of state.conversations) {
+    if (c.kind !== "task_run" || c.taskId !== taskId) continue;
+    for (const u of c.usage ?? []) {
+      const sum = byModel.get(u.model) ?? {
+        model: u.model,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        costUsd: 0,
+      };
+      sum.inputTokens += u.inputTokens;
+      sum.outputTokens += u.outputTokens;
+      sum.cacheReadTokens += u.cacheReadTokens;
+      // Al centesimo: le somme di decimali non lasciano code di virgola mobile.
+      sum.costUsd = Math.round((sum.costUsd + u.costUsd) * 100) / 100;
+      byModel.set(u.model, sum);
+    }
+  }
+  return [...byModel.values()].sort((a, b) => b.costUsd - a.costUsd);
 }
 
 /** Il flusso che una persona può leggere (senza il seguito privato di una pubblica). */
@@ -819,14 +869,28 @@ function localDay(at: string): string {
  * oggi: la rassegna lo mostra sul giorno scelto senza ricalcolarlo. Un
  * progetto senza riga non l'ha ancora; `summary: null` è fallito.
  */
-export async function listDailyReports(date: string): Promise<DailyReport[]> {
+export async function listDailyReports(date: string): Promise<DailyReportView[]> {
   const me = await gate("listDailyReports");
   if (!can(viewerFor(me), "people.activity.view")) throw new Error("forbidden");
   const visible = visibleProjectIds(me);
   return state.dailyReports
     .filter((r) => r.date === date && visible.has(r.projectId))
     .sort((a, b) => a.projectId.localeCompare(b.projectId))
-    .map(copy);
+    .map((r) => ({ ...copy(r), newCommits: commitsAfterReport(r) }));
+}
+
+/**
+ * I commit della giornata del report (giorno UTC, come il report) arrivati
+ * dopo che è stato scritto: l'avviso «N new commits not included».
+ */
+function commitsAfterReport(report: DailyReport): number {
+  if (report.generatedAt === null || report.summary === null) return 0;
+  return COMMITS.filter(
+    (c) =>
+      c.projectId === report.projectId &&
+      c.at.slice(0, 10) === report.date &&
+      c.at > report.generatedAt!,
+  ).length;
 }
 
 export async function search(q: string): Promise<SearchResult[]> {

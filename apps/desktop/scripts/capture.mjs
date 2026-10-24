@@ -151,13 +151,8 @@ async function main() {
           await p.keyboard.press("Enter");
           await p.waitForTimeout(3500);
           await asPerson(p, "Marco", "/claude/cv-giulia-callbacks");
-          await p.waitForTimeout(900);
-          // Dopo il cambio di persona la lista non scorre da sola fino in fondo.
-          await p.evaluate(() => {
-            const el = document.querySelector("[data-conversation-scroll]");
-            if (el) el.scrollTop = el.scrollHeight;
-          });
-          await p.waitForTimeout(300);
+          // Dopo il cambio di persona la conversazione si riapre in fondo da sola.
+          await p.waitForTimeout(1200);
         },
       }],
       ["conversation-continuation", "/claude/cv-giulia-callbacks", {
@@ -193,8 +188,30 @@ async function main() {
         // La sessione scrive da sé: si aspetta che la conversazione sia in pagina.
         steps: (p) => p.waitForTimeout(2500),
       }],
+      // Due PR su due repository, ognuna col suo ciclo (giro, tetto).
+      ["task-claude-cycles", "/p/STW/tasks?task=STW-3", {
+        persona: "Laura",
+        narrow: true,
+        steps: async (p) => {
+          await p.locator('[data-pr="58"]').evaluate((el) => el.scrollIntoView({ block: "end" }));
+          await p.waitForTimeout(300);
+        },
+      }],
+      // Fallita: il riassunto e il log della fase; i consumi aperti.
+      ["task-claude-failed", "/p/STW/tasks?task=STW-7", {
+        persona: "Laura",
+        steps: async (p) => {
+          await p.getByRole("button", { name: /^(Show log|Mostra il log)$/ }).click();
+          await p.getByRole("button", { name: /^(AI usage|Consumi AI)/ }).click();
+          await p.locator("[data-ai-usage]").evaluate((el) => el.scrollIntoView({ block: "end" }));
+          await p.waitForTimeout(300);
+        },
+      }],
+      // La richiesta: il prossimo passo e le proposte dell'intake.
+      ["request-suggestions", "/p/MKX/requests?request=req-mkx-2", { narrow: true }],
       ["home-decide", "/home", { persona: "Laura" }],
-      ["by-person", "/projects?view=person", {}],
+      // Il report di oggi di STW è più vecchio degli ultimi commit: l'avviso.
+      ["by-person", "/projects?view=person", { persona: "Roberta" }],
     ];
     for (const [name, hash, o] of AREA3) {
       if (only && !only.test(name)) continue;
