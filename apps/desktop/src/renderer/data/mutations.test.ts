@@ -430,6 +430,17 @@ describe("richieste", () => {
     );
   });
 
+  it("createRequest segna la richiesta simile dello stesso progetto (parole del titolo)", async () => {
+    as("p-sara");
+    const similar = await createRequest({
+      projectId: "prj-stw",
+      title: "Quiet hours for my notifications",
+    });
+    expect(similar.similarToId).toBe("req-stw-4");
+    const alone = await createRequest({ projectId: "prj-stw", title: "Dark mode" });
+    expect(alone.similarToId).toBeNull();
+  });
+
   it("update / archive / reopen / startRefine: serve backlog.edit", async () => {
     as("p-sara");
     const mine = await createRequest({ projectId: "prj-stw", title: "Mine" });

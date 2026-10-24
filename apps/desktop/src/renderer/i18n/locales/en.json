@@ -944,5 +944,129 @@
     "emptyMembersBody": "People appear here once they're members of the project.",
     "emptyDepartment": "No one in this department",
     "emptyDepartmentBody": "Pick another department, or ask an administrator to add people to this one."
+  },
+  "requests": {
+    "intro": "Ideas and needs for {{project}}. Anyone on the project can send one; the team decides what becomes a task.",
+    "count_one": "{{count}} request",
+    "count_other": "{{count}} requests",
+    "new": "New request",
+    "commands": "Request commands",
+    "filter": {
+      "label": "Status",
+      "open": "Open",
+      "all": "All",
+      "search": "Search requests"
+    },
+    "status": {
+      "new": "New",
+      "refining": "Being refined",
+      "ready": "Ready",
+      "converted": "Turned into task",
+      "archived": "Archived"
+    },
+    "statusLabel": "Status: {{name}}",
+    "urgency": {
+      "label": "Urgency",
+      "prefix": "Urgency:",
+      "aria": "Urgency: {{name}}",
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High"
+    },
+    "requestedBy": "Requested by {{names}}",
+    "requestedTimes_one": "Requested once",
+    "requestedTimes_other": "Requested {{count}} times",
+    "tasks_one": "{{count}} task",
+    "tasks_other": "{{count}} tasks",
+    "noTasks": "No task yet",
+    "similarTo": "Similar to “{{title}}”",
+    "mergedInto": "Merged into “{{title}}”",
+    "states": {
+      "error": "Couldn't load requests.",
+      "emptyTitle": "No requests yet",
+      "emptyBody": "Requests are how anyone proposes something new for {{project}}: an idea, a need, a problem to solve. The team reviews each one and decides what becomes a task.",
+      "emptyWho": "Only people who can send requests to {{project}} can add one.",
+      "noMatchTitle": "No requests match",
+      "noMatchBody": "Try another word, or show requests in every status.",
+      "clear": "Clear filters"
+    },
+    "newDialog": {
+      "title": "New request",
+      "description": "Propose something new: an idea, a need, a problem. The team reviews it and decides whether it becomes a task.",
+      "project": "Project",
+      "chooseProject": "Choose a project",
+      "noProjects": "You can't send requests to any project",
+      "projectMissing": "Choose the project this request is for.",
+      "fieldTitle": "What do you need?",
+      "titlePlaceholder": "e.g. Export the call history to a spreadsheet",
+      "titleMissing": "Say what you need in a few words.",
+      "fieldDescription": "Details",
+      "descriptionHint": "Optional. Why it matters, who it's for, how you manage today.",
+      "submit": "Send request",
+      "failed": "Couldn't send the request. Nothing was sent; try again.",
+      "sent": "Request sent to {{project}}.",
+      "sentSimilar": "Request sent to {{project}}. It looks similar to another request: the team may merge them."
+    },
+    "merge": {
+      "title": "Merge into another request",
+      "description": "“{{title}}” will be archived, and the people who asked for it will follow the request you choose.",
+      "search": "Search requests",
+      "list": "Requests in {{project}}",
+      "similarTag": "Similar",
+      "none": "There are no other open requests in this project.",
+      "noMatch": "No requests match.",
+      "choose": "Choose the request to merge into.",
+      "submit": "Merge",
+      "failed": "Couldn't merge the requests. Nothing changed."
+    },
+    "detail": {
+      "label": "Request",
+      "kind": "Request",
+      "close": "Close",
+      "error": "Couldn't load this request.",
+      "notFound": "This request doesn't exist or you can't see it",
+      "notFoundBody": "It may have been removed, or it belongs to a project you're not in.",
+      "fields": {
+        "status": "Status",
+        "urgency": "Urgency",
+        "sent": "Sent"
+      },
+      "description": "Description",
+      "noDescription": "No description",
+      "requesters": "Requested by",
+      "similar": "Similar requests",
+      "noSimilar": "No similar requests",
+      "mergedHere": "Merged here",
+      "tasks": "Tasks from this request",
+      "noTasks": "No task yet",
+      "whoDecides": "The team reviews requests and decides what becomes a task.",
+      "refining": "Refinement with Claude has started. The conversation with Claude isn't part of this prototype yet.",
+      "undo": "Undo",
+      "banner": {
+        "converted": "Turned into a task. This request is now read-only: follow the work in the task below.",
+        "archived": "Archived. This request is read-only.",
+        "reopenHint": "Reopen it to work on it again.",
+        "mergedTail": "The people who asked for it now follow that request.",
+        "mergedMissing": "Merged into another request"
+      },
+      "actions": {
+        "convert": "Turn into task",
+        "refine": "Refine with Claude",
+        "more": "More actions",
+        "merge": "Merge into…",
+        "archive": "Archive",
+        "reopen": "Reopen"
+      },
+      "toast": {
+        "converted": "{{code}} created from this request.",
+        "refining": "Refinement with Claude started.",
+        "refineFailed": "Couldn't start the refinement. Nothing changed.",
+        "archived": "Request archived.",
+        "archiveFailed": "Couldn't archive the request. Nothing changed.",
+        "reopened": "Request reopened.",
+        "reopenFailed": "Couldn't reopen the request. Nothing changed.",
+        "merged": "Merged into “{{title}}”."
+      }
+    }
   }
 }

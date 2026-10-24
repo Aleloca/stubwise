@@ -1,3 +1,4 @@
+import { findSimilarRequest } from "../domain/requests";
 import { TEMPLATE_MODULES, TEMPLATE_STATUSES } from "../domain/templates";
 import { DEPARTMENTS } from "./seed/departments";
 import { PEOPLE } from "./seed/people";
@@ -494,6 +495,8 @@ export async function createRequest(input: {
   const project = projectFor(me, input.projectId);
   need(me, "backlog.create", project.id);
   if (!input.title.trim()) throw invalid("title");
+  // Al posto dell'intake: la richiesta aperta dello stesso progetto con più parole in comune.
+  const similar = findSimilarRequest(input.title, project.id, state.requests);
   const request: ProjectRequest = {
     id: newId("req"),
     projectId: project.id,
@@ -502,7 +505,7 @@ export async function createRequest(input: {
     requesterIds: [me],
     status: "new",
     urgency: input.urgency ?? "medium",
-    similarToId: null,
+    similarToId: similar?.id ?? null,
     mergedIntoId: null,
     taskIds: [],
     createdAt: now(),

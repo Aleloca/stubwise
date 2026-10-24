@@ -944,5 +944,129 @@
     "emptyMembersBody": "Le persone compaiono qui quando sono membri del progetto.",
     "emptyDepartment": "Nessuno in questo reparto",
     "emptyDepartmentBody": "Scegli un altro reparto, o chiedi a un amministratore di aggiungere persone a questo."
+  },
+  "requests": {
+    "intro": "Idee e bisogni per {{project}}. Chiunque nel progetto può mandarne una; il team decide cosa diventa una task.",
+    "count_one": "{{count}} richiesta",
+    "count_other": "{{count}} richieste",
+    "new": "Nuova richiesta",
+    "commands": "Comandi delle richieste",
+    "filter": {
+      "label": "Stato",
+      "open": "Aperte",
+      "all": "Tutte",
+      "search": "Cerca nelle richieste"
+    },
+    "status": {
+      "new": "Nuova",
+      "refining": "In rifinitura",
+      "ready": "Pronta",
+      "converted": "Diventata task",
+      "archived": "Archiviata"
+    },
+    "statusLabel": "Stato: {{name}}",
+    "urgency": {
+      "label": "Urgenza",
+      "prefix": "Urgenza:",
+      "aria": "Urgenza: {{name}}",
+      "low": "Bassa",
+      "medium": "Media",
+      "high": "Alta"
+    },
+    "requestedBy": "Chiesta da {{names}}",
+    "requestedTimes_one": "Chiesta una volta",
+    "requestedTimes_other": "Chiesta {{count}} volte",
+    "tasks_one": "{{count}} task",
+    "tasks_other": "{{count}} task",
+    "noTasks": "Ancora nessuna task",
+    "similarTo": "Simile a «{{title}}»",
+    "mergedInto": "Fusa in «{{title}}»",
+    "states": {
+      "error": "Non è stato possibile caricare le richieste.",
+      "emptyTitle": "Ancora nessuna richiesta",
+      "emptyBody": "Con le richieste chiunque propone qualcosa di nuovo per {{project}}: un'idea, un bisogno, un problema da risolvere. Il team le esamina una per una e decide cosa diventa una task.",
+      "emptyWho": "Solo chi può mandare richieste a {{project}} può aggiungerne una.",
+      "noMatchTitle": "Nessuna richiesta corrisponde",
+      "noMatchBody": "Prova con un'altra parola, o mostra le richieste in ogni stato.",
+      "clear": "Togli i filtri"
+    },
+    "newDialog": {
+      "title": "Nuova richiesta",
+      "description": "Proponi qualcosa di nuovo: un'idea, un bisogno, un problema. Il team la esamina e decide se diventa una task.",
+      "project": "Progetto",
+      "chooseProject": "Scegli un progetto",
+      "noProjects": "Non puoi mandare richieste a nessun progetto",
+      "projectMissing": "Scegli il progetto a cui è rivolta la richiesta.",
+      "fieldTitle": "Di cosa hai bisogno?",
+      "titlePlaceholder": "es. Esportare lo storico delle chiamate in un foglio di calcolo",
+      "titleMissing": "Scrivi in poche parole di cosa hai bisogno.",
+      "fieldDescription": "Dettagli",
+      "descriptionHint": "Facoltativo. Perché conta, per chi è, come fai oggi.",
+      "submit": "Manda la richiesta",
+      "failed": "Non è stato possibile mandare la richiesta. Non è partito nulla: riprova.",
+      "sent": "Richiesta mandata a {{project}}.",
+      "sentSimilar": "Richiesta mandata a {{project}}. Somiglia a un'altra richiesta: il team potrebbe fonderle."
+    },
+    "merge": {
+      "title": "Fondi in un'altra richiesta",
+      "description": "«{{title}}» verrà archiviata, e chi l'aveva chiesta seguirà la richiesta che scegli.",
+      "search": "Cerca nelle richieste",
+      "list": "Richieste di {{project}}",
+      "similarTag": "Simile",
+      "none": "Non ci sono altre richieste aperte in questo progetto.",
+      "noMatch": "Nessuna richiesta corrisponde.",
+      "choose": "Scegli la richiesta in cui fonderla.",
+      "submit": "Fondi",
+      "failed": "Non è stato possibile fondere le richieste. Non è cambiato nulla."
+    },
+    "detail": {
+      "label": "Richiesta",
+      "kind": "Richiesta",
+      "close": "Chiudi",
+      "error": "Non è stato possibile caricare la richiesta.",
+      "notFound": "Questa richiesta non esiste o non puoi vederla",
+      "notFoundBody": "Potrebbe essere stata tolta, o appartiene a un progetto di cui non fai parte.",
+      "fields": {
+        "status": "Stato",
+        "urgency": "Urgenza",
+        "sent": "Mandata"
+      },
+      "description": "Descrizione",
+      "noDescription": "Nessuna descrizione",
+      "requesters": "Chiesta da",
+      "similar": "Richieste simili",
+      "noSimilar": "Nessuna richiesta simile",
+      "mergedHere": "Fusa qui",
+      "tasks": "Task derivate",
+      "noTasks": "Ancora nessuna task",
+      "whoDecides": "Il team esamina le richieste e decide cosa diventa una task.",
+      "refining": "La rifinitura con Claude è partita. La conversazione con Claude non fa ancora parte di questo prototipo.",
+      "undo": "Annulla",
+      "banner": {
+        "converted": "Diventata una task. Questa richiesta ora è in sola lettura: segui il lavoro nella task qui sotto.",
+        "archived": "Archiviata. Questa richiesta è in sola lettura.",
+        "reopenHint": "Riaprila per lavorarci di nuovo.",
+        "mergedTail": "Chi l'aveva chiesta ora segue quella richiesta.",
+        "mergedMissing": "Fusa in un'altra richiesta"
+      },
+      "actions": {
+        "convert": "Trasforma in task",
+        "refine": "Rifinisci con Claude",
+        "more": "Altre azioni",
+        "merge": "Fondi in…",
+        "archive": "Archivia",
+        "reopen": "Riapri"
+      },
+      "toast": {
+        "converted": "{{code}} creata da questa richiesta.",
+        "refining": "Rifinitura con Claude partita.",
+        "refineFailed": "Non è stato possibile avviare la rifinitura. Non è cambiato nulla.",
+        "archived": "Richiesta archiviata.",
+        "archiveFailed": "Non è stato possibile archiviare la richiesta. Non è cambiato nulla.",
+        "reopened": "Richiesta riaperta.",
+        "reopenFailed": "Non è stato possibile riaprire la richiesta. Non è cambiato nulla.",
+        "merged": "Fusa in «{{title}}»."
+      }
+    }
   }
 }

@@ -1,6 +1,8 @@
 import { Outlet } from "@tanstack/react-router";
 import { useLayoutEffect } from "react";
 import { NotificationsPanel } from "../notifications/NotificationsPanel";
+import { NewRequestHost } from "../pages/requests/NewRequestDialog";
+import { RequestDetailHost } from "../pages/requests/RequestDetail";
 import { NewTaskHost } from "../pages/task/NewTaskDialog";
 import { TaskDetailHost } from "../pages/task/TaskDetail";
 import { CommandPalette } from "../palette/CommandPalette";
@@ -14,7 +16,8 @@ import { useMenuEvents } from "./useMenuEvents";
  * Tre zone: binario | colonna | area di lavoro. Nella terza, accanto alla
  * pagina, il pannello della task (`?task=`): affiancato occupa la sua
  * larghezza, sovrapposto copre la pagina. Il dialogo «New task» (`?newTask=1`)
- * si apre sopra qualunque route.
+ * si apre sopra qualunque route, come «New request» (`?newRequest=`). Nelle richieste di
+ * un progetto, `?request=` apre il pannello della richiesta al posto di quello della task.
  */
 export function AppLayout() {
   useMenuEvents();
@@ -29,8 +32,10 @@ export function AppLayout() {
           <Outlet />
         </main>
         <TaskDetailHost />
+        <RequestDetailHost />
       </div>
       <NewTaskHost />
+      <NewRequestHost />
       <CommandPalette />
       <NotificationsPanel />
       <ToastRegion />

@@ -28,6 +28,7 @@ import { FilterPage } from "./pages/filters/FilterPage";
 import { HomePage } from "./pages/home/HomePage";
 import { MyWeekPage } from "./pages/week/MyWeekPage";
 import { PlanningPage } from "./pages/planning/PlanningPage";
+import { RequestsPage } from "./pages/requests/RequestsPage";
 
 /** La ricerca che ogni route accetta (`?task=` apre il pannello, gli altri li montano i dialoghi). */
 export interface AppSearch {
@@ -197,6 +198,9 @@ function ProjectSectionPage() {
   if (section === "tasks") return <TasksPage projectCode={project.code} />;
   if (section === "planning") {
     return <PlanningPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />;
+  }
+  if (section === "requests") {
+    return <RequestsPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />;
   }
   return <Placeholder titleKey={`project.sections.${section}`} />;
 }
