@@ -55,6 +55,20 @@ describe("RequestsPage", () => {
     expect(merged).toHaveTextContent("Merged into “Move tasks on a board with the keyboard”");
   });
 
+  it("ogni riga comincia col codice della richiesta, sotto le intestazioni delle colonne; il pannello lo ripete", async () => {
+    renderRoute("/p/STW/requests", "p-giulia");
+    await waitFor(() => rowOf("req-stw-4"));
+    expect(rowOf("req-stw-4")).toHaveTextContent(/^STW-R4Quiet hours for notifications/);
+    const header = document.querySelector("[data-requests-body] [aria-hidden='true']") as HTMLElement;
+    expect(header).toHaveTextContent(/Code.*Title.*Requested by.*Status.*Urgency.*Size/);
+    // La ricerca trova anche il codice.
+    await userEvent.type(screen.getByRole("searchbox", { name: "Search requests" }), "stw-r4");
+    await waitFor(() => expect(() => rowOf("req-stw-1")).toThrow());
+    await userEvent.click(within(rowOf("req-stw-4")).getByRole("button", { name: /Quiet hours/ }));
+    const p = await panel();
+    expect(await within(p).findByText("STW-R4")).toBeInTheDocument();
+  });
+
   it("filtra per testo; senza risultati offre di togliere i filtri", async () => {
     renderRoute("/p/STW/requests", "p-giulia");
     const box = await screen.findByRole("searchbox", { name: "Search requests" });
@@ -256,15 +270,15 @@ describe("pannello della richiesta", () => {
       await userEvent.click(within(dialog).getByRole("button", { name: "More actions" }));
       await userEvent.click(await screen.findByRole("menuitem", { name: "Copy as Markdown" }));
       await waitFor(() => expect(writes).toHaveLength(1));
-      expect(writes[0]).toContain("# Landing page for the showroom event");
+      expect(writes[0]).toContain("# MKX-R2 · Landing page for the showroom event");
       expect(writes[0]).toContain("- **Risk:** High — The showroom date is fixed: no room to slip.");
       expect(writes[0]).toContain("- **Requested by:** Francesca");
       expect(await screen.findByText(/Copied Landing page for the showroom event as Markdown/)).toBeInTheDocument();
 
       await userEvent.click(within(dialog).getByRole("button", { name: "More actions" }));
       await userEvent.click(await screen.findByRole("menuitem", { name: "Download .md" }));
-      expect(downloaded).toBe("request-landing-page-for-the-showroom-event.md");
-      expect(await blobs[0]!.text()).toContain("# Landing page for the showroom event");
+      expect(downloaded).toBe("MKX-R2.md");
+      expect(await blobs[0]!.text()).toContain("# MKX-R2 · Landing page for the showroom event");
     } finally {
       URL.createObjectURL = created;
       URL.revokeObjectURL = revoked;

@@ -36,6 +36,21 @@ describe("MyWeekBlock", () => {
     expect(await within(week).findByText("+2 no estimate")).toBeInTheDocument();
   });
 
+  it("la barra dice il confronto con la settimana solita; senza storia non c'è", async () => {
+    renderRoute("/home", "p-marco");
+    const marco = await block();
+    expect(
+      await within(marco).findByRole("img", { name: /^My load: \d+% of your usual week$/ }),
+    ).toHaveAttribute("title", "Compared to your usual week");
+  });
+
+  it("senza settimane passate da confrontare, il blocco mostra solo le taglie", async () => {
+    renderRoute("/home", "p-giulia");
+    const giulia = await block();
+    expect(await within(giulia).findByTitle(/^Sizes this week\./)).toBeInTheDocument();
+    expect(within(giulia).queryByRole("img", { name: /^My load/ })).toBeNull();
+  });
+
   it("«Open my week» apre la pagina intera", async () => {
     const router = renderRoute("/home", "p-marco");
     const week = await block();

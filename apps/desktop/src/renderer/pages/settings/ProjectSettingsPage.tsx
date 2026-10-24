@@ -4,8 +4,8 @@ import { ProjectStatusesSettings } from "./ProjectStatusesSettings";
 
 /**
  * Le impostazioni di un progetto. In quest'area c'è solo «Statuses and
- * stalled tasks»; membri, moduli e integrazioni sono dell'area 9 e qui
- * restano nello stato neutro dell'ossatura (titolo e una riga).
+ * stalled tasks»; membri, moduli e integrazioni arriveranno più avanti e qui
+ * restano un titolo e una frase che dice cosa ci starà.
  */
 export function ProjectSettingsPage({ projectCode }: { projectCode: string }) {
   const { t } = useTranslation();
@@ -26,7 +26,7 @@ export function ProjectSettingsPage({ projectCode }: { projectCode: string }) {
           <h2 id="settings-other" className="text-xl font-semibold text-ink">
             {t("settings.other.title")}
           </h2>
-          <p className="pt-2 text-md text-ink-muted">{t("placeholder.body")}</p>
+          <p className="pt-2 text-md text-ink-muted">{t("settings.other.body")}</p>
         </section>
       </div>
     </section>

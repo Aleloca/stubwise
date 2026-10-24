@@ -31,8 +31,8 @@ import {
   useTasks,
 } from "../../data/queries";
 import type { DayArrangement, Task } from "../../data/types";
-import { SIZE_WEIGHT, load } from "../../domain/load";
-import { weekDays, weekLabel } from "../../domain/weeks";
+import { load, usualWeekWeight } from "../../domain/load";
+import { currentWeek, weekDays, weekLabel } from "../../domain/weeks";
 import { DeptStrip, useDeptLabel } from "../../layout/DeptStrip";
 import { LoadBar } from "../../tasks-ui/LoadBar";
 import { SizeMark } from "../../tasks-ui/SizeMark";
@@ -73,16 +73,19 @@ export interface MyWeek {
   tasks: Task[];
   /** Le stesse, per colonna (`SLOTS`). */
   bySlot: Task[][];
-  /** Il peso della mia settimana più carica: la barra è relativa a quella. */
-  busiest: number;
+  /**
+   * Il peso della mia settimana solita (`usualWeekWeight`, le 6 prima di
+   * questa): la barra si confronta con quella. `null` senza storia.
+   */
+  usual: number | null;
 }
 
 /**
  * Le mie task della settimana, sistemate nei giorni. Una sistemazione vale
  * solo per la settimana in cui la task sta: se la task ne è uscita, conta
- * «in settimana». La settimana più carica si misura su tutte le mie
- * settimane pianificate (aperte e chiuse), così la barra di due settimane
- * diverse si confronta.
+ * «in settimana». La settimana solita si misura sulle mie settimane prima
+ * di quella di oggi, non di quella in vista: è la stessa misura per ogni
+ * settimana che si sfoglia, così due barre si confrontano.
  */
 export function useMyWeek(week: string): MyWeek {
   const me = useSessionPersonId();
@@ -96,16 +99,11 @@ export function useMyWeek(week: string): MyWeek {
     );
     const bySlot: Task[][] = SLOTS.map(() => []);
     for (const task of inWeek) bySlot[days.get(task.id) ?? 0]!.push(task);
-    const perWeek = new Map<string, number>();
-    for (const t of mine) {
-      if (!t.plannedWeek || !t.size) continue;
-      perWeek.set(t.plannedWeek, (perWeek.get(t.plannedWeek) ?? 0) + SIZE_WEIGHT[t.size]);
-    }
     return {
       queries: [tasks, arrangements],
       tasks: inWeek,
       bySlot,
-      busiest: Math.max(0, ...perWeek.values()),
+      usual: usualWeekWeight(mine, currentWeek()),
     };
   }, [tasks, arrangements, me, week]);
 }
@@ -126,21 +124,52 @@ export function dayName(date: string, language: string, width: "short" | "long")
   );
 }
 
+const SIZES_DESC = ["XL", "L", "M", "S", "XS"] as const;
+
 /**
  * Il mio carico della settimana, in taglie e mai in numero: le aperte a
- * inchiostro pieno, le chiuse al 30%, relative alla mia settimana più
- * carica. Le senza stima non pesano e non valgono zero: si contano a parte,
+ * inchiostro pieno, le chiuse al 30%, confrontate con la mia settimana
+ * solita (R-D2): la traccia vale il doppio della solita e un filetto segna
+ * «solita», così una settimana normale arriva a metà e una pesante si vede.
+ * Senza storia (`usual` null) niente barra: solo le taglie della settimana.
+ * Le senza stima non pesano e non valgono zero: si contano a parte,
  * «+N no estimate».
  */
-export function WeekLoad({ tasks, busiest }: { tasks: Task[]; busiest: number }) {
+export function WeekLoad({ tasks, usual }: { tasks: Task[]; usual: number | null }) {
   const { t } = useTranslation();
   const open = load(tasks.filter((x) => !isClosed(x)));
   const done = load(tasks.filter(isClosed));
+  const unsized = open.unsized + done.unsized;
+  if (usual === null) {
+    const counts = SIZES_DESC.map((size) => ({
+      size,
+      count: tasks.filter((x) => x.size === size).length,
+    })).filter((c) => c.count > 0);
+    const parts = counts.map((c) => t("week.sizeCount", { count: c.count, size: c.size }));
+    return (
+      <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-xs text-ink-muted">
+        {parts.length > 0 && (
+          <span
+            className="num font-medium whitespace-nowrap"
+            title={t("week.noUsual")}
+          >
+            {parts.join(" · ")}
+          </span>
+        )}
+        {unsized > 0 && (
+          <span className="whitespace-nowrap">{t("taskUi.load.unsized", { count: unsized })}</span>
+        )}
+      </span>
+    );
+  }
   return (
     <LoadBar
-      max={busiest}
-      unsized={open.unsized + done.unsized}
+      max={usual * 2}
+      marker={{ weight: usual, label: t("week.usual") }}
+      unsized={unsized}
       label={t("week.load")}
+      relativeLabel={(percent) => t("week.loadUsual", { label: t("week.load"), percent })}
+      title={t("week.usualTitle")}
       segments={[
         { weight: open.weight, tone: "strong", label: t("week.loadOpen") },
         { weight: done.weight, tone: "faint", label: t("week.loadDone") },

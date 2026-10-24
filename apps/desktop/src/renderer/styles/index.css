@@ -146,6 +146,23 @@
   }
 }
 
+/*
+ * Timeline: le linee di oggi e dei traguardi corrono dietro le righe e si
+ * interrompono dietro etichette e barre. Il fondo è quello della riga sotto
+ * (pagina, poi la tinta del passaggio o della riga aperta), opaco: la linea
+ * non attraversa il testo. Le barre sono la stessa tinta d'inchiostro della
+ * versione trasparente, mescolata col fondo.
+ */
+@utility timeline-knockout {
+  background: var(--ground);
+  [data-timeline-row]:hover & {
+    background: color-mix(in oklab, var(--ink) 4%, var(--ground));
+  }
+  [data-timeline-row][data-current] & {
+    background: color-mix(in oklab, var(--ink) 6%, var(--ground));
+  }
+}
+
 /* Pannello notifiche: entra da destra di 16 px con dissolvenza, entro --duration. */
 @keyframes panel-in {
   from {

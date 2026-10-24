@@ -440,6 +440,19 @@ export async function search(q: string): Promise<SearchResult[]> {
       });
     }
   }
+  // Le richieste dei progetti visibili, per codice e titolo: aprono il pannello.
+  for (const r of state.requests) {
+    if (visible.has(r.projectId) && has(r.code, r.title)) {
+      const code = state.projectsById.get(r.projectId)!.code;
+      results.push({
+        kind: "request",
+        id: r.id,
+        code: r.code,
+        label: r.title,
+        route: `#/p/${code}/requests?request=${r.id}`,
+      });
+    }
+  }
   for (const p of PEOPLE) {
     if (!p.isClaude && has(p.name)) {
       results.push({ kind: "person", id: p.id, label: p.name, route: "#/chat" });

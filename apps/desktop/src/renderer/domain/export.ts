@@ -192,7 +192,7 @@ export function requestToMarkdown(
         .join("\n")}`
     : null;
   return sections([
-    `# ${request.title}`,
+    `# ${request.code} · ${request.title}`,
     [
       field(t("export.project"), `${ctx.projectCode} · ${ctx.projectName}`),
       field(f("status"), t(`requests.status.${request.status}`)),
@@ -209,18 +209,8 @@ export function requestToMarkdown(
 
 export const taskFileName = (task: Pick<Task, "code">) => `${task.code}.md`;
 
-/** «request-callback-reminders-by-email.md»: il titolo senza accenti né segni. */
-export function requestFileName(request: Pick<ProjectRequest, "title">): string {
-  const slug = request.title
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60)
-    .replace(/-+$/, "");
-  return slug ? `request-${slug}.md` : "request.md";
-}
+/** «STW-R3.md»: il codice, come per le task. */
+export const requestFileName = (request: Pick<ProjectRequest, "code">) => `${request.code}.md`;
 
 /**
  * Il testo semplice di un markdown (il sottoinsieme di `Markdown.tsx`):

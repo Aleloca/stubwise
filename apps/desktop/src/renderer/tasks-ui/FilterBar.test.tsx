@@ -43,6 +43,15 @@ async function openStatusMenu() {
 }
 
 describe("FilterBar", () => {
+  it("il chip dello stato nomina la scelta: «Open» per le due famiglie aperte, altrimenti l'elenco", async () => {
+    const { unmount } = renderWithData(<Harness initial={{ families: ["todo", "active"] }} />);
+    expect(await screen.findByRole("button", { name: /^Status: Open/ })).toBeInTheDocument();
+    unmount();
+    renderWithData(<Harness initial={{ families: ["todo", "closed"] }} />);
+    expect(await screen.findByRole("button", { name: /^Status: To do, Closed/ })).toBeInTheDocument();
+    expect(screen.queryByText(/\+1/)).toBeNull();
+  });
+
   it("con due progetti offre solo le famiglie, non gli stati precisi", async () => {
     renderWithData(<Harness initial={{ projectIds: ["prj-mkx", "prj-aud"] }} />);
     const menu = await openStatusMenu();

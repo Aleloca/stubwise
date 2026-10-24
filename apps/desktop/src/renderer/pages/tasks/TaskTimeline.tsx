@@ -132,6 +132,7 @@ function TimelineItem({
   return (
     <div
       data-timeline-row={task.code}
+      data-current={current ? "" : undefined}
       title={deptLabel}
       className={`group/row relative h-9 border-b border-rule/60 ${current ? "bg-ink/6" : "hover:bg-ink/4"}`}
     >
@@ -148,13 +149,13 @@ function TimelineItem({
         title={outside ? `${task.title} · ${outside}` : task.title}
         onClick={() => onOpen(task)}
         style={{ left, width: inside ? width : undefined, minWidth: width }}
-        className={`absolute top-1.5 flex h-6 items-center gap-2 text-left outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus ${tone}`}
+        className={`absolute top-1.5 z-[3] flex h-6 items-center gap-2 text-left outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus ${tone}`}
       >
         {shape.kind === "bar" ? (
           <span
             aria-hidden="true"
             style={{ width }}
-            className={`absolute inset-y-0 left-0 ${closed ? "bg-ink/8" : "bg-ink/22 group-hover/row:bg-ink/30"} ${before ? "rounded-r-md" : after ? "rounded-l-md" : "rounded-md"}`}
+            className={`absolute inset-y-0 left-0 ${closed ? "bg-[color-mix(in_oklab,var(--ink)_8%,var(--ground))]" : "bg-[color-mix(in_oklab,var(--ink)_22%,var(--ground))] group-hover/row:bg-[color-mix(in_oklab,var(--ink)_30%,var(--ground))]"} ${before ? "rounded-r-md" : after ? "rounded-l-md" : "rounded-md"}`}
           />
         ) : (
           <span
@@ -164,16 +165,16 @@ function TimelineItem({
         )}
         <span
           aria-hidden="true"
-          style={inside ? undefined : { marginLeft: width + 8 }}
-          className={`relative flex min-w-0 items-center gap-2 whitespace-nowrap ${inside ? "pr-2 pl-2.5" : ""}`}
+          style={inside ? undefined : { marginLeft: width + 4 }}
+          className={`relative flex min-w-0 items-center gap-2 whitespace-nowrap ${inside ? "pr-2 pl-2.5" : "timeline-knockout rounded-sm px-1"}`}
         >
           {label}
         </span>
       </button>
       {stall && (
         <span
-          className="absolute top-2"
-          style={{ left: left + Math.max(width, inside ? width : width + labelWidth(task)) + 12 }}
+          className="timeline-knockout absolute top-2 z-[3] rounded-sm px-1"
+          style={{ left: left + Math.max(width, inside ? width : width + labelWidth(task)) + 8 }}
         >
           <StallMark stall={stall} />
         </span>

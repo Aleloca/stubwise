@@ -542,6 +542,20 @@ describe("richieste", () => {
     );
   });
 
+  it("createRequest dà il codice successivo del progetto; fuse e archiviate tengono il loro", async () => {
+    as("p-sara");
+    // STW ha già STW-R1…R4 (una fusa, archiviata): la nuova è la R5, poi la R6.
+    const first = await createRequest({ projectId: "prj-stw", title: "Dark mode" });
+    expect(first.code).toBe("STW-R5");
+    expect((await createRequest({ projectId: "prj-stw", title: "Bigger avatars" })).code).toBe("STW-R6");
+    expect((await getRequest("req-stw-3"))!.code).toBe("STW-R3");
+    as("p-laura");
+    await mergeRequest(first.id, "req-stw-1");
+    expect((await getRequest(first.id))!.code).toBe("STW-R5");
+    as("p-sara");
+    expect((await createRequest({ projectId: "prj-stw", title: "Calmer toasts" })).code).toBe("STW-R7");
+  });
+
   it("createRequest segna la richiesta simile dello stesso progetto (parole del titolo)", async () => {
     as("p-sara");
     const similar = await createRequest({

@@ -1,4 +1,5 @@
 import type { StatusFamily, Task, TaskSize } from "../data/model";
+import { addWeeks } from "./weeks";
 
 /** Il peso delle taglie; nella UI non compare mai come numero. */
 export const SIZE_WEIGHT: Record<TaskSize, number> = { XS: 1, S: 2, M: 3, L: 5, XL: 8 };
@@ -32,4 +33,27 @@ export function progress(
     if (familyOf(t) === "closed") doneWeight += w;
   }
   return { doneWeight, totalWeight, unsized };
+}
+
+/** Quante settimane passate fanno «la settimana solita». */
+export const USUAL_WEEKS = 6;
+
+/**
+ * La settimana solita di una persona: la mediana del peso pianificato
+ * (aperte e chiuse) nelle `USUAL_WEEKS` settimane prima di `week`, esclusa
+ * `week`, contando solo le settimane con lavoro stimato. Con meno di due
+ * settimane così non c'è una storia da cui dire «solita»: `null`, e la UI non
+ * disegna la barra. `tasks` sono le task della persona.
+ */
+export function usualWeekWeight(tasks: Task[], week: string): number | null {
+  const window = new Set(Array.from({ length: USUAL_WEEKS }, (_, i) => addWeeks(week, -(i + 1))));
+  const perWeek = new Map<string, number>();
+  for (const t of tasks) {
+    if (!t.size || !t.plannedWeek || !window.has(t.plannedWeek)) continue;
+    perWeek.set(t.plannedWeek, (perWeek.get(t.plannedWeek) ?? 0) + SIZE_WEIGHT[t.size]);
+  }
+  const weights = [...perWeek.values()].sort((a, b) => a - b);
+  if (weights.length < 2) return null;
+  const mid = Math.floor(weights.length / 2);
+  return weights.length % 2 ? weights[mid]! : (weights[mid - 1]! + weights[mid]!) / 2;
 }

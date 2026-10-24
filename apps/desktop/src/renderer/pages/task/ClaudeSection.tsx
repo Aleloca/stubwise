@@ -73,7 +73,7 @@ export function ClaudeSection({ task, canEdit }: { task: Task; canEdit: boolean 
               <Link to="/claude" className="font-medium text-ink underline underline-offset-4">
                 {t("taskDetail.claude.openSession")}
               </Link>
-              <span className="text-ink-muted">{t("taskDetail.claude.area3")}</span>
+              <span className="text-ink-muted">{t("taskDetail.claude.sessionLater")}</span>
             </p>
           )}
         </div>

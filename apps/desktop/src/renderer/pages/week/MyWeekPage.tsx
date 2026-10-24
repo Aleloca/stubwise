@@ -147,7 +147,7 @@ export function MyWeekPage() {
           {range(week)}
         </p>
         <div className="max-w-[320px] min-w-[160px] flex-1">
-          {state.status === "ready" && <WeekLoad tasks={data.tasks} busiest={data.busiest} />}
+          {state.status === "ready" && <WeekLoad tasks={data.tasks} usual={data.usual} />}
         </div>
         <span className="ml-auto flex shrink-0 items-center gap-4">
           {state.status === "ready" && <DeptLegend departmentIds={data.tasks.map((x) => x.departmentId)} />}

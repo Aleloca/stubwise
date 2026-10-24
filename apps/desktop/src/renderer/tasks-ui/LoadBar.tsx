@@ -17,6 +17,10 @@ const pct = (n: number) => `${Math.round(n * 100) / 100}%`;
  * ha più tratti nella stessa traccia — Planning: questo progetto (pieno) e
  * gli altri progetti (al 30%), senza un colore nuovo. I tratti oltre `max`
  * vengono tagliati: la barra non esce mai dalla sua traccia.
+ *
+ * Con `marker` la barra si confronta con un riferimento (la settimana solita,
+ * My week): un filetto d'inchiostro alto quanto la traccia lo segna, e
+ * `relativeLabel` riceve la percentuale rispetto al riferimento, non a `max`.
  */
 export function LoadBar({
   weight = 0,
@@ -24,12 +28,19 @@ export function LoadBar({
   unsized,
   segments,
   label,
+  marker,
+  relativeLabel,
+  title,
 }: {
   weight?: number;
   max: number;
   unsized: number;
   segments?: LoadSegment[];
   label?: string;
+  marker?: { weight: number; label: string };
+  relativeLabel?: (percent: number) => string;
+  /** Il `title` della traccia (cosa confronta la barra). */
+  title?: string;
 }) {
   const { t } = useTranslation();
   const parts: LoadSegment[] = segments ?? [{ weight, tone: "strong" }];
@@ -39,26 +50,42 @@ export function LoadBar({
     used += share;
     return share * 100;
   });
-  const total = Math.round(used * 100);
+  const sum = parts.reduce((acc, s) => acc + Math.max(0, s.weight), 0);
+  const percent =
+    marker && marker.weight > 0 ? Math.round((sum / marker.weight) * 100) : Math.round(used * 100);
+  const markerAt = marker && max > 0 ? Math.min(1, marker.weight / max) * 100 : null;
   return (
     <span className="flex min-w-0 items-center gap-2">
       <span
         role="img"
-        aria-label={t("taskUi.load.relative", {
-          label: label ?? t("taskUi.load.label"),
-          percent: total,
-        })}
-        className="flex h-1.5 min-w-8 flex-1 overflow-hidden rounded-full bg-ink/8"
+        title={title}
+        aria-label={
+          relativeLabel
+            ? relativeLabel(percent)
+            : t("taskUi.load.relative", { label: label ?? t("taskUi.load.label"), percent })
+        }
+        className="relative flex h-1.5 min-w-8 flex-1 rounded-full bg-ink/8"
       >
-        {parts.map((s, i) => (
+        <span className="flex h-full w-full overflow-hidden rounded-full">
+          {parts.map((s, i) => (
+            <span
+              key={i}
+              data-load-segment={s.tone}
+              title={s.label}
+              style={{ width: pct(widths[i]!) }}
+              className={`h-full transition-[width] duration-[var(--duration)] ease-out ${s.tone === "strong" ? "bg-ink" : "bg-ink/30"}`}
+            />
+          ))}
+        </span>
+        {markerAt !== null && (
+          // Il filetto della «solita» sporge di 2 px sopra e sotto la traccia.
           <span
-            key={i}
-            data-load-segment={s.tone}
-            title={s.label}
-            style={{ width: pct(widths[i]!) }}
-            className={`h-full transition-[width] duration-[var(--duration)] ease-out ${s.tone === "strong" ? "bg-ink" : "bg-ink/30"}`}
+            data-load-marker
+            title={marker!.label}
+            style={{ left: pct(markerAt) }}
+            className="absolute -top-0.5 -bottom-0.5 w-px -translate-x-1/2 bg-ink-muted"
           />
-        ))}
+        )}
       </span>
       {unsized > 0 && (
         <span className="shrink-0 text-xs whitespace-nowrap text-ink-muted">

@@ -157,9 +157,9 @@ export function TaskRow({
         <span className="relative flex w-[140px] shrink-0 @max-[560px]:w-4">
           {statusCell ?? <StatusLabel status={status} nameClassName="@max-[560px]:sr-only" />}
         </span>
-        <span className="relative flex w-[120px] shrink-0 @max-[700px]:w-[22px]">
+        <span className="relative flex w-[120px] shrink-0 @max-[760px]:w-[22px]">
           {assigneeCell ?? (
-            <PersonChip personId={task.assigneeId} nameClassName="@max-[700px]:sr-only" />
+            <PersonChip personId={task.assigneeId} nameClassName="@max-[760px]:sr-only" />
           )}
         </span>
         <span className="relative flex w-8 shrink-0 justify-center @max-[560px]:hidden">

@@ -211,6 +211,7 @@ describe("taskToMarkdown", () => {
 describe("requestToMarkdown", () => {
   const request: ProjectRequest = {
     id: "req-1",
+    code: "AUD-R2",
     projectId: "p1",
     title: "Callback reminders by email",
     description: "Send a reminder the day before.",
@@ -235,7 +236,7 @@ describe("requestToMarkdown", () => {
 
   it("titolo, metadati, richiedenti, descrizione, task nate", () => {
     const md = requestToMarkdown(request, ctx, en);
-    expect(md.startsWith("# Callback reminders by email\n")).toBe(true);
+    expect(md.startsWith("# AUD-R2 · Callback reminders by email\n")).toBe(true);
     for (const line of [
       "- **Project:** AUD · Audin 2.0",
       "- **Status:** Ready",
@@ -262,10 +263,8 @@ describe("requestToMarkdown", () => {
     expect(md).not.toContain("## Tasks from this request");
   });
 
-  it("il nome del file viene dal titolo", () => {
-    expect(requestFileName(request)).toBe("request-callback-reminders-by-email.md");
-    expect(requestFileName({ ...request, title: "Où? ¿Qué!" })).toBe("request-ou-que.md");
-    expect(requestFileName({ ...request, title: "!!!" })).toBe("request.md");
+  it("il nome del file è il codice", () => {
+    expect(requestFileName(request)).toBe("AUD-R2.md");
   });
 });
 

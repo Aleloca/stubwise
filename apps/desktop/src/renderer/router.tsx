@@ -131,7 +131,7 @@ function ProjectsRoutePage() {
 function AdminPage() {
   const { viewer } = useViewer();
   if (!canSeeAdmin(viewer)) return <Navigate to="/home" replace />;
-  return <Placeholder titleKey="nav.admin" />;
+  return <Placeholder titleKey="nav.admin" bodyKey="placeholder.pages.admin" />;
 }
 
 function pageOf(name: (typeof APP_ROUTES)[number]) {
@@ -140,7 +140,7 @@ function pageOf(name: (typeof APP_ROUTES)[number]) {
   if (name === "filters") return AllFiltersPage;
   if (name === "home") return HomeRoutePage;
   if (name === "projects") return ProjectsRoutePage;
-  return () => <Placeholder titleKey={`nav.${name}`} />;
+  return () => <Placeholder titleKey={`nav.${name}`} bodyKey={`placeholder.pages.${name}`} />;
 }
 
 const appRoutes = APP_ROUTES.map((name) =>
@@ -218,7 +218,12 @@ function ProjectSectionPage() {
       <ProjectSettingsPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />
     );
   }
-  return <Placeholder titleKey={`project.sections.${section}`} />;
+  return (
+    <Placeholder
+      titleKey={`project.sections.${section}`}
+      bodyKey={`placeholder.sections.${section}`}
+    />
+  );
 }
 
 const projectSectionRoute = createRoute({

@@ -9,7 +9,7 @@ const REFERENCE: Row[] = [
   ["AUD", "Private beta", "The first customers use Audin 2.0 every day.", -9, true],
   ["AUD", "Public launch", "Pricing page, onboarding and billing are live.", 18, false],
   ["AUD", "Mobile app", "The companion app is on both stores.", null, false],
-  ["STW", "Desktop prototype", "Area 2 of the desktop app, with fake data.", 6, false],
+  ["STW", "Desktop prototype", "Tasks, planning and requests in the desktop app, with fake data.", 6, false],
   ["STW", "Planning", "Weekly planning across projects.", 27, false],
   ["STW", "Self-hosted 1.0", "Install guide and upgrade path for customers.", -20, true],
   ["MKX", "Spring campaign", "Brief, creatives and media plan approved.", 11, false],

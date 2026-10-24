@@ -11,6 +11,7 @@ import {
 function req(id: string, title: string, patch: Partial<ProjectRequest> = {}): ProjectRequest {
   return {
     id,
+    code: `ABC-R${id}`,
     projectId: "prj-a",
     title,
     description: "",

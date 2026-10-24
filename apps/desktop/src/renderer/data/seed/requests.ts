@@ -47,6 +47,8 @@ const META: Record<string, Pick<ProjectRequest, "size" | "risk" | "riskNote">> =
 export const REQUESTS: ProjectRequest[] = ROWS.map(
   ([id, code, title, requesterIds, status, urgency, similarToId, mergedIntoId, taskIds, days]) => ({
     id,
+    // Il numero dell'id è l'ordine di creazione nel progetto: «req-stw-3» → STW-R3.
+    code: `${code}-R${id.split("-").at(-1)}`,
     projectId: `prj-${code.toLowerCase()}`,
     title,
     description: `${title}. Asked by the team; details in the conversation.`,

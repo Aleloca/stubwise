@@ -201,10 +201,13 @@ export function TaskList({
             <SortHeader column="title" sort={sort} onSort={onSort} className="min-w-0" />
           </span>
           <SortHeader column="status" sort={sort} onSort={onSort} className="w-[140px] @max-[560px]:w-4 @max-[560px]:invisible" />
-          <SortHeader column="assignee" sort={sort} onSort={onSort} className="w-[120px] @max-[700px]:w-[22px] @max-[700px]:invisible" />
+          <SortHeader column="assignee" sort={sort} onSort={onSort} className="w-[120px] @max-[760px]:w-[22px] @max-[760px]:invisible" />
           <SortHeader column="size" sort={sort} onSort={onSort} align="center" className="w-8 @max-[560px]:hidden" />
           <SortHeader column="due" sort={sort} onSort={onSort} align="right" className="w-16 @max-[820px]:hidden" />
-          <span className="w-12 shrink-0" />
+          {/* La colonna dei segni di ferma ha il suo nome: «Due» non le sta sopra. */}
+          <span className="w-12 shrink-0 truncate text-xs font-medium text-ink-faint">
+            {t("tasks.list.columns.stalled")}
+          </span>
         </div>
       </div>
       {groups.map((group) => (

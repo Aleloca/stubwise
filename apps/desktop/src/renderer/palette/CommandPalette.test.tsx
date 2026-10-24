@@ -308,6 +308,18 @@ describe("CommandPalette", () => {
     expect(pathname(router)).toBe(`/p/${code.split("-")[0]}/tasks`);
   });
 
+  it("una richiesta si trova per codice e apre il suo pannello (?request=)", async () => {
+    const user = userEvent.setup();
+    const router = renderAt("/home");
+    await screen.findByRole("heading", { name: "Home", level: 1 });
+    const dialog = await openWithShortcut(user);
+    await user.type(within(dialog).getByRole("combobox"), "STW-R2");
+    const group = await within(dialog).findByRole("group", { name: "Requests" });
+    await user.click(await within(group).findByRole("option", { name: /^STW-R2/ }));
+    await waitFor(() => expect(validSearch(router)).toMatchObject({ request: "req-stw-2" }));
+    expect(pathname(router)).toBe("/p/STW/requests");
+  });
+
   it("«View as…» apre il secondo passo; Esc torna indietro, poi chiude", async () => {
     const user = userEvent.setup();
     renderAt("/home");

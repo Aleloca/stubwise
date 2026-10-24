@@ -17,7 +17,7 @@ export interface Viewer {
 }
 
 export interface SearchResult {
-  kind: "project" | "task" | "person";
+  kind: "project" | "task" | "request" | "person";
   id: string;
   code?: string;
   label: string;

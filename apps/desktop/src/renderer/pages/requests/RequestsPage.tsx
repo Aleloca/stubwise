@@ -35,7 +35,7 @@ function matchesStatus(request: ProjectRequest, filter: StatusFilter): boolean {
 function matchesText(request: ProjectRequest, text: string): boolean {
   const q = text.trim().toLowerCase();
   if (!q) return true;
-  return `${request.title}\n${request.description}`.toLowerCase().includes(q);
+  return `${request.code}\n${request.title}\n${request.description}`.toLowerCase().includes(q);
 }
 
 /**
@@ -114,7 +114,7 @@ export function RequestsPage({ projectCode }: { projectCode: string }) {
       />
     );
   } else {
-    body = REQUEST_STATUSES.map((s) => {
+    const groups = REQUEST_STATUSES.map((s) => {
       const rows = filtered
         .filter((r) => r.status === s)
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -140,6 +140,12 @@ export function RequestsPage({ projectCode }: { projectCode: string }) {
         </section>
       );
     });
+    body = (
+      <>
+        <ColumnHeader />
+        {groups}
+      </>
+    );
   }
 
   const title = t("project.sections.requests");
@@ -224,12 +230,43 @@ export function RequestsPage({ projectCode }: { projectCode: string }) {
   );
 }
 
+/**
+ * Le intestazioni delle colonne, come quelle di Tasks (stesse larghezze di
+ * `RequestRow`, stessi punti di rottura): qui non ordinano, dicono solo cosa
+ * c'è in ogni colonna. Ferme in alto mentre l'elenco scorre.
+ */
+function ColumnHeader() {
+  const { t } = useTranslation();
+  const cell = "shrink-0 truncate text-xs font-medium text-ink-faint";
+  return (
+    <div aria-hidden="true" className="@container sticky top-0 z-10 border-b border-rule bg-ground">
+      <div className="flex h-8 items-center gap-3 pr-3 pl-4">
+        <span className="flex min-w-0 flex-1 items-center gap-3">
+          <span className={`${cell} w-16`}>{t("requests.columns.code")}</span>
+          <span className={`${cell} min-w-0`}>{t("requests.columns.title")}</span>
+        </span>
+        <span className={`${cell} w-[168px] @max-[700px]:w-11 @max-[700px]:invisible`}>
+          {t("requests.columns.requestedBy")}
+        </span>
+        <span className={`${cell} w-[132px] @max-[560px]:w-4 @max-[560px]:invisible`}>
+          {t("requests.columns.status")}
+        </span>
+        <span className={`${cell} w-[76px] @max-[560px]:w-3 @max-[560px]:invisible`}>
+          {t("requests.columns.urgency")}
+        </span>
+        <span className={`${cell} w-10 text-center`}>{t("requests.columns.size")}</span>
+        <span className="w-16 shrink-0 @max-[820px]:hidden" />
+      </div>
+    </div>
+  );
+}
+
 function filterName(t: (key: string) => string, f: StatusFilter): string {
   return f === "open" || f === "all" ? t(`requests.filter.${f}`) : t(`requests.status.${f}`);
 }
 
 /**
- * Una richiesta nell'elenco, colonne fisse a destra come `TaskRow`: titolo
+ * Una richiesta nell'elenco, colonne fisse a destra come `TaskRow`: codice e titolo
  * (con «Similar to …» o «Merged into …» accanto, se c'è) · chi l'ha chiesta
  * · stato · urgenza · task nate. Stretta, la riga lascia prima il conteggio
  * delle task, poi i nomi (restano le iniziali e i segni).
@@ -274,8 +311,11 @@ function RequestRow({
           aria-current={current ? "true" : undefined}
           title={request.title}
           onClick={() => onOpen(request)}
-          className="flex min-w-0 flex-1 items-baseline gap-2.5 text-left outline-none after:absolute after:inset-0"
+          className="flex min-w-0 flex-1 items-baseline gap-3 text-left outline-none after:absolute after:inset-0"
         >
+          <span className="num w-16 shrink-0 text-xs font-semibold tracking-[0.02em] text-ink">
+            {request.code}
+          </span>
           <span className="min-w-0 truncate text-md text-ink">{request.title}</span>
           {note && (
             <span
@@ -289,7 +329,7 @@ function RequestRow({
         </button>
         <span
           title={t("requests.requestedBy", { names: names.join(", ") })}
-          className="relative flex w-[168px] shrink-0 items-center gap-2 @max-[700px]:w-auto"
+          className="relative flex w-[168px] shrink-0 items-center gap-2 @max-[700px]:w-11"
         >
           {/* Una persona sola per riga: i dischi sovrapposti si confondono; tutti i nomi sono nel `title` e nel pannello. */}
           <Avatar person={requesters[0]} />
@@ -306,7 +346,7 @@ function RequestRow({
         <span className="relative flex w-[76px] shrink-0 @max-[560px]:w-3">
           <UrgencyMark urgency={request.urgency} nameClassName="@max-[560px]:sr-only" />
         </span>
-        <span className="relative flex w-7 shrink-0 justify-center">
+        <span className="relative flex w-10 shrink-0 justify-center">
           <SizeMark size={request.size ?? null} />
         </span>
         <span className="relative w-16 shrink-0 text-right text-sm text-ink-muted @max-[820px]:hidden">

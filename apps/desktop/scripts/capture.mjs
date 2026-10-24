@@ -178,9 +178,31 @@ async function main() {
       await shot(page, `a2-${name}-narrow.png`);
       await context.close();
     }
-    // Senza permessi: Sara (Contributor) su Tasks, Requests e Settings.
+    // Overview sotto la piega: cronologia e registro delle decisioni.
+    for (const scheme of ["light", "dark"]) {
+      const { page, context } = await open(scheme, WIDE, "/p/STW/overview");
+      await page.mouse.move(900, 600);
+      await page.mouse.wheel(0, 4000);
+      await page.waitForTimeout(400);
+      await shot(page, `a2-overview-below-${scheme}-en.png`);
+      await context.close();
+    }
+    // La mia settimana con una storia (Marco: la barra contro la settimana solita).
+    for (const scheme of ["light", "dark"]) {
+      const { page, context } = await open(scheme, WIDE, "/home?view=week");
+      await page.getByRole("button", { name: /^Profile and settings/ }).click();
+      await page.getByRole("radio", { name: /Marco/ }).click();
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(900);
+      await shot(page, `a2-myweek-marco-${scheme}-en.png`);
+      await context.close();
+    }
+    // Senza permessi: Sara (Contributor, senza tickets.edit) su Tasks — il
+    // pannello coi campi in sola lettura, la board che non si sposta —,
+    // Requests e Settings.
     for (const [name, hash] of [
-      ["tasks-list", "/p/STW/tasks"],
+      ["tasks-list", "/p/STW/tasks?task=STW-3"],
+      ["tasks-board", "/p/STW/tasks?view=board"],
       ["requests", "/p/STW/requests?request=req-stw-1"],
       ["settings-statuses", "/p/STW/settings"],
     ]) {

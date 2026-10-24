@@ -248,10 +248,21 @@ function ExactStatusNames({ ids, projectId }: { ids: string[]; projectId: string
   return <>{ids.map((id) => statuses?.find((s) => s.id === id)?.name).filter(Boolean).join(", ")}</>;
 }
 
+/**
+ * Lo stato si nomina per intero, mai «To do +1»: «To do» e «In progress»
+ * sono famiglie che contengono più stati, e «+1» nasconderebbe quali. Le due
+ * famiglie aperte insieme sono «Open»; le altre combinazioni si elencano.
+ */
 function useStatusSummary(value: FilterCriteria, singleProjectId: string | undefined): ReactNode {
   const { t } = useTranslation();
-  const summary = useSummary();
-  const families = summary((value.families ?? []).map((f) => t(`taskUi.families.${f}`)));
+  const chosen = FAMILIES.filter((f) => value.families?.includes(f));
+  const open = chosen.length === 2 && !chosen.includes("closed");
+  const families =
+    chosen.length === 0
+      ? null
+      : open
+        ? t("taskUi.filters.openFamilies")
+        : chosen.map((f) => t(`taskUi.families.${f}`)).join(", ");
   const statusIds = value.statusIds ?? [];
   if (statusIds.length > 0 && singleProjectId) {
     return (

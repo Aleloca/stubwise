@@ -228,7 +228,7 @@ export function InlineAssignee({ task }: { task: Task }) {
       ariaLabel={t("tasks.list.changeAssignee", { code: task.code, name })}
       wrapperClassName="flex w-full min-w-0"
       className={`${cellButton} w-[calc(100%+12px)] max-w-none`}
-      label={<PersonChip personId={task.assigneeId} nameClassName="@max-[700px]:sr-only" />}
+      label={<PersonChip personId={task.assigneeId} nameClassName="@max-[760px]:sr-only" />}
     >
       {(close) => (
         <MenuGroup>

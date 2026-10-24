@@ -152,7 +152,14 @@ describe("HomePage", () => {
 
   it("verifica col seed: Sara (Contributor, quindi con tickets.create) ha «New requests»; Irene (Viewer) no, né nel catalogo", async () => {
     renderRoute("/home", "p-sara");
-    expect(await block("New requests")).toBeInTheDocument();
+    const requests = await block("New requests");
+    // Ogni richiesta col suo codice di catalogo accanto al titolo.
+    const first = await waitFor(() => {
+      const el = requests.querySelector<HTMLElement>("[data-request]");
+      if (!el) throw new Error("no request yet");
+      return el;
+    });
+    expect(first.textContent).toMatch(/^[A-Z]{2,4}-R\d+/);
     cleanup();
 
     renderRoute("/home", "p-irene");

@@ -257,6 +257,11 @@ export type RequestLevel = "low" | "medium" | "high";
 
 export interface ProjectRequest {
   id: string;
+  /**
+   * Il codice di catalogo, `<PROGETTO>-R<n>` (R-D1): sequenza per progetto,
+   * dato alla creazione e mai riusato; fuse e archiviate tengono il loro.
+   */
+  code: string;
   projectId: string;
   title: string;
   description: string;

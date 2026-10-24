@@ -1,4 +1,5 @@
 import { Link, useLinkProps, useRouterState } from "@tanstack/react-router";
+import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { usePinnedFilters, useSavedFilters } from "../data/queries";
 import { APP_ROUTES } from "../data/routes";
@@ -75,6 +76,7 @@ function HomeColumn() {
     const f = filters.data?.find((x) => x.id === id);
     return f ? [f] : [];
   });
+  const pinnedId = useId();
   return (
     <nav
       aria-label={t("column.viewsOf", { name: t("nav.home") })}
@@ -89,20 +91,34 @@ function HomeColumn() {
             {t("column.subviews.home.week")}
           </ViewLink>
         </li>
-        {pinnedFilters.map((f) => (
-          <li key={f.id}>
-            <Link
-              to="/filters/$id"
-              params={{ id: f.id }}
-              style={{ whiteSpace: "nowrap" }}
-              className={columnItemClass}
-            >
-              <span style={ONE_LINE} className="min-w-0">
-                {f.name}
-              </span>
-            </Link>
-          </li>
-        ))}
+      </ul>
+      {/* I filtri fissati sotto il loro titolo di gruppo (shape home.md): si
+          distinguono dalle viste fisse sopra e da «All filters» sotto. */}
+      {pinnedFilters.length > 0 && (
+        <>
+          {/* Non un titolo (la colonna non ne ha: il nome è l'h1); dà il nome al gruppo. */}
+          <p id={pinnedId} className="heading-group px-2.5 pt-4 pb-1.5">
+            {t("column.pinned")}
+          </p>
+          <ul aria-labelledby={pinnedId} className="flex flex-col gap-px">
+            {pinnedFilters.map((f) => (
+              <li key={f.id}>
+                <Link
+                  to="/filters/$id"
+                  params={{ id: f.id }}
+                  style={{ whiteSpace: "nowrap" }}
+                  className={columnItemClass}
+                >
+                  <span style={ONE_LINE} className="min-w-0">
+                    {f.name}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      <ul className={`flex flex-col gap-px ${pinnedFilters.length > 0 ? "mt-3 border-t border-rule pt-3" : ""}`}>
         <li>
           <Link
             to="/filters"
@@ -138,11 +154,11 @@ function GenericColumn({ destination }: { destination: Destination }) {
   const views = SUBVIEWS[destination];
   const label = t("column.viewsOf", { name: t(`nav.${destination}`) });
   if (!views) {
-    // Stato neutro: la colonna resta larga uguale e dice, in tono minore, che
-    // le viste non ci sono ancora (niente titolo: il nome è già l'h1).
+    // Stato neutro: la colonna resta larga uguale e dice, in tono minore, cosa
+    // ci comparirà (niente titolo: il nome è già l'h1).
     return (
       <nav aria-label={label} data-no-views className="min-h-0 flex-1 px-4 pt-4 pb-2">
-        <p className="text-sm text-ink-muted">{t("column.noViews")}</p>
+        <p className="text-sm text-ink-muted">{t(`column.coming.${destination}`)}</p>
       </nav>
     );
   }

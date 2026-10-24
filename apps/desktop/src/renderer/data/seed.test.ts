@@ -296,6 +296,15 @@ describe("seed: decisioni, richieste, filtri, Home", () => {
     }
   });
 
+  it("ogni richiesta ha un codice <PROGETTO>-R<n> unico, del suo progetto", () => {
+    const codes = REQUESTS.map((r) => r.code);
+    expect(new Set(codes).size).toBe(codes.length);
+    for (const r of REQUESTS) {
+      const project = PROJECTS.find((p) => p.id === r.projectId)!;
+      expect(r.code).toMatch(new RegExp(`^${project.code}-R\\d+$`));
+    }
+  });
+
   it("richieste trasformate e task si puntano a vicenda", () => {
     for (const r of REQUESTS) {
       for (const id of r.taskIds) {

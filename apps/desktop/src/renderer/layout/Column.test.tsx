@@ -177,6 +177,14 @@ describe("PersonalColumn", () => {
       "href",
       "/filters/flt-open",
     );
+    // I fissati sono un gruppo col suo nome, «Pinned».
+    const group = within(nav).getByRole("list", { name: "Pinned" });
+    expect(within(group).getAllByRole("link").map((l) => l.textContent)).toEqual([
+      "Marketing this week",
+      "No estimate",
+      "Unassigned",
+      "Open",
+    ]);
   });
 
   it("«Planning» compare solo a chi ha planning.others in almeno un progetto", async () => {
@@ -259,7 +267,7 @@ describe("PersonalColumn", () => {
     cleanup();
     await renderAt("/mail");
     const nav = await within(column()).findByRole("navigation", { name: "Mail views" });
-    expect(nav).toHaveTextContent("Views for this area haven’t been designed yet");
+    expect(nav).toHaveTextContent("Mailboxes and labels will be listed here.");
     expect(within(column()).queryByRole("heading")).toBeNull();
     expect(within(nav).queryByRole("link")).toBeNull();
     // Stesso contenitore e stessa colonna di griglia a 240 px: niente collasso.
@@ -274,7 +282,7 @@ describe("PersonalColumn", () => {
     await renderAt("/calendar");
     expect(
       await within(column()).findByRole("navigation", { name: "Viste di Calendario" }),
-    ).toHaveTextContent("Le viste di quest’area non sono ancora progettate");
+    ).toHaveTextContent("Qui compariranno i tuoi calendari.");
   });
 
   it("Chat ha Channels e Direct messages; Mail nessuna sottovista e nessun titolo", async () => {

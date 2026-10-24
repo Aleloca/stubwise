@@ -27,7 +27,7 @@ export const GROUP_LIMIT = 5;
 export const SEARCH_DEBOUNCE_MS = 120;
 
 type Step = "root" | "viewAs" | "filters";
-type GroupId = "projects" | "tasks" | "people" | "actions" | "viewAs" | "filters";
+type GroupId = "projects" | "tasks" | "requests" | "people" | "actions" | "viewAs" | "filters";
 
 interface Item {
   key: string;
@@ -52,6 +52,7 @@ interface Group {
 const KIND_GROUP: Record<SearchResult["kind"], GroupId> = {
   project: "projects",
   task: "tasks",
+  request: "requests",
   person: "people",
 };
 
@@ -212,6 +213,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     const byGroup: Record<GroupId, Item[]> = {
       projects: [],
       tasks: [],
+      requests: [],
       people: [],
       actions: [],
       viewAs: [],
@@ -242,7 +244,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         shortcut: cmd.shortcut && shortcutLabel(cmd.shortcut),
         select: run(cmd),
       }));
-    return (["projects", "tasks", "people", "actions"] as const)
+    return (["projects", "tasks", "requests", "people", "actions"] as const)
       .map((id) => ({ id, items: byGroup[id] }))
       .filter((g) => g.items.length > 0);
   }, [

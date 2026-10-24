@@ -117,6 +117,23 @@ describe("visibilità per chi guarda", () => {
     expect((await search("Audin")).some((r) => r.code === "AUD")).toBe(true);
   });
 
+  it("search trova le richieste per codice e titolo, solo nei progetti visibili, e apre ?request=", async () => {
+    setSessionPersonId("p-giulia");
+    const byCode = await search("stw-r2");
+    expect(byCode).toContainEqual({
+      kind: "request",
+      id: "req-stw-2",
+      code: "STW-R2",
+      label: "Move tasks on a board with the keyboard",
+      route: "#/p/STW/requests?request=req-stw-2",
+    });
+    expect((await search("call history")).some((r) => r.code === "AUD-R1")).toBe(true);
+    // Sara non vede AUD: né per codice né per titolo.
+    setSessionPersonId("p-sara");
+    expect((await search("AUD-R1")).filter((r) => r.kind === "request")).toEqual([]);
+    expect((await search("call history")).filter((r) => r.kind === "request")).toEqual([]);
+  });
+
   it("listNotifications dà solo le notifiche di cui la persona è destinataria", async () => {
     setSessionPersonId("p-sara");
     const mine = await listNotifications();

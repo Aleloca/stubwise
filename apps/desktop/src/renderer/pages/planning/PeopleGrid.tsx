@@ -298,7 +298,7 @@ export function PeopleGrid({
       <div role="rowgroup" className="sticky top-0 z-20 bg-ground">
         <div role="row" className="grid border-b border-rule" style={template}>
           <div role="columnheader" className="flex items-end py-2 pl-4">
-            <span className="heading-group">{t("planning.person")}</span>
+            <span className="text-xs font-medium text-ink-faint">{t("planning.person")}</span>
           </div>
           {weeks.map((week, i) => (
             <div

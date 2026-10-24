@@ -538,8 +538,14 @@ export async function createRequest(input: {
   if (!input.title.trim()) throw invalid("title");
   // Al posto dell'intake: la richiesta aperta dello stesso progetto con più parole in comune.
   const similar = findSimilarRequest(input.title, project.id, state.requests);
+  // Il numero dopo il più alto del progetto: le richieste non si cancellano,
+  // quindi un codice non torna mai libero.
+  const last = state.requests
+    .filter((r) => r.projectId === project.id)
+    .reduce((m, r) => Math.max(m, Number(r.code.split("-R").at(-1)) || 0), 0);
   const request: ProjectRequest = {
     id: newId("req"),
+    code: `${project.code}-R${last + 1}`,
     projectId: project.id,
     title: input.title.trim(),
     description: input.description ?? "",

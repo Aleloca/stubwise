@@ -84,16 +84,38 @@ export function RequestDetailHost() {
   );
 }
 
-function TopBar({ project, onClose }: { project?: Project; onClose: () => void }) {
+/**
+ * La barra in alto del pannello: il codice della richiesta (come quello della
+ * task nel suo pannello), poi il progetto. Finché la richiesta non è caricata
+ * (o non si vede) al posto del codice c'è «Request».
+ */
+function TopBar({
+  project,
+  code,
+  onClose,
+}: {
+  project?: Project;
+  code?: string;
+  onClose: () => void;
+}) {
   const { t } = useTranslation();
   return (
     <div className="page-header box-content flex h-12 shrink-0 items-center gap-2 pl-4 [--page-header-pr:8px]">
-      <span className="shrink-0 text-xs font-semibold text-ink-muted">
-        {t("requests.detail.kind")}
-      </span>
+      {code ? (
+        <span className="num shrink-0 text-xs font-semibold tracking-[0.02em] text-ink-muted">
+          <span className="sr-only">{t("requests.detail.kind")} </span>
+          {code}
+        </span>
+      ) : (
+        <span className="shrink-0 text-xs font-semibold text-ink-muted">
+          {t("requests.detail.kind")}
+        </span>
+      )}
       {project && (
         <span className="min-w-0 truncate text-xs text-ink-faint" title={project.name}>
-          <span className="num">{project.code}</span> {project.name}
+          {/* Col codice della richiesta (STW-R3) il codice del progetto è già detto. */}
+          {!code && <span className="num">{project.code} </span>}
+          {project.name}
         </span>
       )}
       <button
@@ -385,7 +407,7 @@ function RequestBody({
       className="flex flex-col pb-6"
       style={{ minWidth: DETAIL_PANEL_MIN_WIDTH - 1 }}
     >
-      <TopBar project={project} onClose={onClose} />
+      <TopBar project={project} code={request.code} onClose={onClose} />
       <div className="px-4 pt-1 pb-3">
         <h2 className="text-xl font-semibold text-balance text-ink [overflow-wrap:anywhere]">
           {request.title}

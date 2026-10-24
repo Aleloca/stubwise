@@ -167,6 +167,8 @@ describe("router", () => {
     expect(
       await screen.findByRole("heading", { level: 1, name: "Administration" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("This area hasn't been designed yet")).toBeInTheDocument();
+    expect(
+      screen.getByText("Members, roles, AI providers and integrations will be managed here."),
+    ).toBeInTheDocument();
   });
 });

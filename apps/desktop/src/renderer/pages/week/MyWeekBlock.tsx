@@ -72,7 +72,7 @@ export function MyWeekBlock() {
           })}
         </ul>
         <div className="ml-auto max-w-[280px] min-w-[160px] flex-1">
-          <WeekLoad tasks={data.tasks} busiest={data.busiest} />
+          <WeekLoad tasks={data.tasks} usual={data.usual} />
         </div>
       </div>
       {/* Niente per oggi: lo dice già il conteggio («Today —»), senza una sezione vuota. */}

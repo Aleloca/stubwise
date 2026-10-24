@@ -64,8 +64,21 @@
       }
     },
     "viewsOf": "Viste di {{name}}",
-    "noViews": "Le viste di quest’area non sono ancora progettate",
+    "coming": {
+      "mail": "Qui compariranno caselle ed etichette.",
+      "calendar": "Qui compariranno i tuoi calendari.",
+      "claude": "Qui compariranno le sessioni dal vivo e quelle passate.",
+      "automations": "Qui compariranno regole, sorgenti ed esecuzioni passate.",
+      "projects": "Qui compariranno i gruppi di progetti.",
+      "preferences": "Qui compariranno le sezioni delle tue preferenze.",
+      "admin": "Qui compariranno le sezioni dell'amministrazione.",
+      "chat": "Qui compariranno canali e messaggi diretti.",
+      "filters": "Qui compariranno i tuoi filtri.",
+      "planning": "Qui compariranno le viste della pianificazione.",
+      "home": "Qui compariranno le tue viste."
+    },
     "allFilters": "Tutti i filtri",
+    "pinned": "Fissati",
     "planning": "Pianificazione",
     "pinnedFilters": "Filtri fissati"
   },
@@ -103,6 +116,7 @@
     "groups": {
       "projects": "Progetti",
       "tasks": "Task",
+      "requests": "Richieste",
       "people": "Persone",
       "actions": "Azioni",
       "viewAs": "Vedi come",
@@ -184,7 +198,31 @@
     }
   },
   "placeholder": {
-    "body": "Quest'area non è ancora stata progettata"
+    "pages": {
+      "chat": "Qui vivranno i canali dei progetti, quelli generali e i messaggi diretti.",
+      "mail": "Qui si leggerà la tua posta collegata, con le task che propone.",
+      "calendar": "Qui comparirà il tuo calendario collegato, con le task che propongono i suoi eventi.",
+      "claude": "Qui si seguiranno le sessioni dal vivo di Claude: cosa sta facendo e cosa chiede.",
+      "automations": "Qui si costruiranno le regole che trasformano gli eventi in arrivo in task.",
+      "projects": "Qui compariranno tutti i progetti che vedi.",
+      "filters": "Qui compariranno i tuoi filtri salvati.",
+      "planning": "Qui si pianificherà fra i tuoi progetti.",
+      "preferences": "Qui si imposteranno notifiche, lingua e account collegati.",
+      "admin": "Qui si gestiranno membri, ruoli, provider AI e integrazioni."
+    },
+    "sections": {
+      "docs": "Qui si leggeranno e cercheranno i documenti del progetto, anche quelli generati dai suoi repository.",
+      "drive": "Qui si terranno i file del progetto.",
+      "chat": "Qui vivranno i canali del progetto.",
+      "releases": "Qui si seguiranno le pull request in attesa di rilascio e gli ambienti del progetto.",
+      "support": "Qui si gestiranno le conversazioni del servizio clienti arrivate dal widget.",
+      "servers": "Qui si terranno d'occhio i server monitorati del progetto.",
+      "overview": "Qui comparirà il progetto in sintesi.",
+      "tasks": "Qui compariranno le task del progetto.",
+      "planning": "Qui si pianificherà il progetto.",
+      "requests": "Qui compariranno le richieste del progetto.",
+      "settings": "Qui si gestiranno le impostazioni del progetto."
+    }
   },
   "prefs": {},
   "common": {
@@ -238,6 +276,7 @@
       "searchPlaceholder": "Codice o titolo",
       "summary": "{{criterion}}: {{value}}",
       "more": "{{first}} +{{count}}",
+      "openFamilies": "Aperte",
       "loading": "Caricamento…",
       "criteria": {
         "project": "Progetto",
@@ -404,7 +443,8 @@
         "status": "Stato",
         "assignee": "Assegnatario",
         "size": "Taglia",
-        "due": "Scadenza"
+        "due": "Scadenza",
+        "stalled": "Ferma"
       },
       "sortBy": "Ordina per {{column}}",
       "sortedAsc": "{{column}}, crescente",
@@ -532,7 +572,7 @@
     },
     "decisions": {
       "title": "Decisioni",
-      "none": "Nessuna decisione chiesta",
+      "none": "Nessuna",
       "ask": "Chiedi una decisione",
       "closed": "Decisioni chiuse",
       "decides": "Decide {{name}}",
@@ -584,7 +624,7 @@
       "assign": "Assegna a Claude",
       "notMember": "Claude non è membro di questo progetto.",
       "openSession": "Apri la sessione",
-      "area3": "La sessione dal vivo arriva con l'area 3.",
+      "sessionLater": "Si apre quando le sessioni dal vivo sono disponibili",
       "states": {
         "none": "Claude non sta lavorando su questa task.",
         "working": "Claude ci sta lavorando.",
@@ -619,7 +659,7 @@
     "attachments": {
       "title": "Allegati",
       "none": "Nessun allegato",
-      "fake": "Aggiunge un file d'esempio (prototipo)",
+      "fake": "Aggiunge un file di esempio",
       "removeLabel": "Togli {{name}}",
       "confirm": "Togliere {{name}} da questa task?",
       "remove": "Togli"
@@ -875,6 +915,11 @@
     "load": "Il mio carico",
     "loadOpen": "Ancora aperte",
     "loadDone": "Chiuse",
+    "loadUsual": "{{label}}: {{percent}}% della tua settimana solita",
+    "usualTitle": "Confrontato con la tua settimana solita",
+    "usual": "La tua settimana solita",
+    "noUsual": "Le taglie di questa settimana. Il confronto compare dopo due settimane di lavoro pianificato.",
+    "sizeCount": "{{count}} {{size}}",
     "done": "Chiusa",
     "slipped": "Slittata ×{{count}}",
     "slippedTitle_one": "Arrivata qui da una settimana precedente una volta",
@@ -985,6 +1030,14 @@
     "count_other": "{{count}} richieste",
     "new": "Nuova richiesta",
     "commands": "Comandi delle richieste",
+    "columns": {
+      "code": "Codice",
+      "title": "Titolo",
+      "requestedBy": "Chiesta da",
+      "status": "Stato",
+      "urgency": "Urgenza",
+      "size": "Taglia"
+    },
     "filter": {
       "label": "Stato",
       "open": "Aperte",
@@ -1078,7 +1131,7 @@
       "tasks": "Task derivate",
       "noTasks": "Ancora nessuna task",
       "whoDecides": "Il team esamina le richieste e decide cosa diventa una task.",
-      "refining": "La rifinitura con Claude è partita. La conversazione con Claude non fa ancora parte di questo prototipo.",
+      "refining": "La rifinitura con Claude è cominciata. La conversazione si aprirà qui quando le sessioni dal vivo saranno disponibili.",
       "undo": "Annulla",
       "banner": {
         "converted": "Diventata una task. Questa richiesta ora è in sola lettura: segui il lavoro nella task qui sotto.",
@@ -1402,7 +1455,8 @@
   "settings": {
     "intro": "Come funziona {{project}}: i suoi stati e quando una task conta come ferma.",
     "other": {
-      "title": "Membri, moduli e integrazioni"
+      "title": "Membri, moduli e integrazioni",
+      "body": "Qui si gestiranno membri, moduli e integrazioni."
     },
     "statuses": {
       "title": "Stati e task ferme",

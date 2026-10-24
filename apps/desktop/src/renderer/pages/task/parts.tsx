@@ -47,7 +47,12 @@ export function Section({
         {count !== undefined && count > 0 && (
           <span className="num text-xs text-ink-faint">{count}</span>
         )}
-        {empty && <span className="min-w-0 flex-1 text-sm text-ink-faint">{empty}</span>}
+        {/* Una riga sola anche nel pannello stretto: il resto nel `title`. */}
+        {empty && (
+          <span title={empty} className="min-w-0 flex-1 truncate text-sm whitespace-nowrap text-ink-faint">
+            {empty}
+          </span>
+        )}
         {action && <span className="ml-auto flex items-center gap-1">{action}</span>}
       </div>
       {children}

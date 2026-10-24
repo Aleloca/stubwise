@@ -295,11 +295,10 @@ export function RequestItem({
       )}
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="flex min-w-0 items-baseline gap-2">
-          {project && (
-            <span className="num shrink-0 text-xs font-semibold tracking-[0.02em] text-ink-muted">
-              {project.code}
-            </span>
-          )}
+          {/* Il codice della richiesta porta già quello del progetto (STW-R3). */}
+          <span className="num shrink-0 text-xs font-semibold tracking-[0.02em] text-ink">
+            {request.code}
+          </span>
           {project ? (
             <Link
               to="/p/$code/$section"

@@ -113,7 +113,29 @@ describe("MyWeekPage", () => {
     await card("AUD-3");
     expect(screen.getByText("+2 no estimate")).toBeInTheDocument();
     // Nessun numero di peso a schermo: la barra dice solo una proporzione.
-    expect(screen.getByRole("img", { name: /^My load: \d+% of the busiest$/ })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /^My load: \d+% of your usual week$/ })).toBeInTheDocument();
+  });
+
+  it("la barra si confronta con la settimana solita: traccia al doppio, filetto a metà", async () => {
+    // Marco ha lavoro stimato in W41 e W42: la sua settimana solita esiste.
+    renderRoute("/home?view=week", "p-marco");
+    await card("AUD-3");
+    const bar = screen.getByRole("img", { name: /^My load: \d+% of your usual week$/ });
+    expect(bar).toHaveAttribute("title", "Compared to your usual week");
+    const marker = bar.querySelector<HTMLElement>("[data-load-marker]")!;
+    expect(marker.style.left).toBe("50%");
+    expect(marker).toHaveAttribute("title", "Your usual week");
+  });
+
+  it("senza storia (meno di due settimane passate) niente barra: le taglie e «+N no estimate»", async () => {
+    // Giulia ha lavoro stimato solo in W41 fra le sei settimane prima.
+    taskOf("STW-10").size = null;
+    renderRoute("/home?view=week", "p-giulia");
+    await card("STW-10");
+    expect(screen.queryByRole("img", { name: /^My load/ })).toBeNull();
+    expect(screen.getByTitle(/^Sizes this week\./)).toHaveTextContent(/^\d+ (XL|L|M|S|XS)( · \d+ (XL|L|M|S|XS))*$/);
+    // STW-10 senza stima si aggiunge a quelle che già non ne avevano.
+    expect(screen.getByText(/^\+\d+ no estimate$/)).toBeInTheDocument();
   });
 
   it("un nome di task lungo è troncato, intero nel `title` (Review Focus 5)", async () => {
