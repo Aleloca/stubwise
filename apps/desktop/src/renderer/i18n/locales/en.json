@@ -612,7 +612,9 @@
         "relates": "Related",
         "parent": "Parent",
         "child": "Child"
-      }
+      },
+      "confirm": "Remove the link «{{kind}} {{code}}»? It goes from both tasks.",
+      "removeConfirm": "Remove link"
     },
     "attachments": {
       "title": "Attachments",
@@ -1468,6 +1470,9 @@
     "copied": "Copied {{name}} as Markdown.",
     "downloaded": "Downloaded {{file}}.",
     "copyFailed": "Couldn't copy to the clipboard. Use Download .md instead.",
-    "downloadFailed": "Couldn't download the file. Try Copy as Markdown instead."
+    "downloadFailed": "Couldn't download the file. Try Copy as Markdown instead.",
+    "links": "Linked tasks",
+    "loadFailed": "Couldn't prepare the export.",
+    "retry": "Retry"
   }
 }

@@ -612,7 +612,9 @@
         "relates": "Correlata",
         "parent": "Padre",
         "child": "Figlia"
-      }
+      },
+      "confirm": "Togliere il collegamento «{{kind}} {{code}}»? Sparisce da entrambe le task.",
+      "removeConfirm": "Togli collegamento"
     },
     "attachments": {
       "title": "Allegati",
@@ -1468,6 +1470,9 @@
     "copied": "{{name}} copiata come Markdown.",
     "downloaded": "Scaricato {{file}}.",
     "copyFailed": "Non è stato possibile copiare negli appunti. Usa Scarica .md.",
-    "downloadFailed": "Non è stato possibile scaricare il file. Prova con Copia come Markdown."
+    "downloadFailed": "Non è stato possibile scaricare il file. Prova con Copia come Markdown.",
+    "links": "Task collegate",
+    "loadFailed": "Non è stato possibile preparare l'esportazione.",
+    "retry": "Riprova"
   }
 }

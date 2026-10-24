@@ -158,7 +158,11 @@ describe("seed: stati e task", () => {
       expect(DEPARTMENTS.some((d) => d.id === t.departmentId)).toBe(true);
       if (t.assigneeId) expect(project!.memberIds).toContain(t.assigneeId);
       expect(PEOPLE.some((p) => p.id === t.createdById)).toBe(true);
-      for (const l of t.links) expect(tasksById.get(l.taskId)?.projectId).toBe(t.projectId);
+      for (const l of t.links) {
+        expect(tasksById.get(l.taskId)?.projectId).toBe(t.projectId);
+        // Si salva una riga sola: gli inversi («blocked_by», «child») si ricavano.
+        expect(["blocks", "relates", "parent"]).toContain(l.kind);
+      }
       if (t.milestoneId) {
         expect(MILESTONES.find((m) => m.id === t.milestoneId)?.projectId).toBe(t.projectId);
       }

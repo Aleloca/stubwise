@@ -171,8 +171,7 @@ function referenceTasks(project: Project, specs: Spec[]): Task[] {
     const closed = s.family === "closed";
     const lastActivityAt = at(-s.lastDays, 10 + (n % 7));
     const links: Task["links"] = [];
-    if (s.blockedBy) links.push({ kind: "blocked_by", taskId: idOf(s.blockedBy) });
-    // Il legame inverso: chi blocca lo dice anche lui.
+    // Una riga sola, sulla bloccante (`blockedBy` della task bloccata): «bloccata da» si ricava.
     specs.forEach((other, j) => {
       if (other.blockedBy === n) links.push({ kind: "blocks", taskId: idOf(j + 1) });
     });

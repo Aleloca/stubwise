@@ -80,7 +80,15 @@ export type ClaudeWorkState =
   | "awaiting_approval"
   | "stopped"
   | "done";
-export type TaskLinkKind = "blocks" | "blocked_by" | "relates" | "parent" | "child";
+/**
+ * Un collegamento si salva UNA volta, come sul web (una riga di relazione):
+ * sulla task che «blocca», che «è correlata» o che ha un «padre». Gli inversi
+ * («bloccata da», «figlia», la correlazione vista dall'altra parte) si
+ * ricavano in lettura (`domain/links.ts`): non si scrivono mai.
+ */
+export type StoredLinkKind = "blocks" | "relates" | "parent";
+/** Come si vede un collegamento da una task: le righe sue più gli inversi ricavati. */
+export type TaskLinkKind = StoredLinkKind | "blocked_by" | "child";
 
 /**
  * Da dove è arrivata una task: a mano, da un'integrazione (SDK, API, Slack,
@@ -127,7 +135,8 @@ export interface Task {
   type: TaskType;
   priority: TaskPriority;
   requestId: string | null;
-  links: { kind: TaskLinkKind; taskId: string }[];
+  /** Le righe salvate su questa task; gli inversi stanno sulle altre. */
+  links: { kind: StoredLinkKind; taskId: string }[];
   attachments: { id: string; name: string; sizeBytes: number }[];
   manualStall: ManualStall | null;
   claude: ClaudeWorkState;

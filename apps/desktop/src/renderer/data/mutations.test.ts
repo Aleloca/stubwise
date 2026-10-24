@@ -25,6 +25,7 @@ import {
   listProjects,
   listRequests,
   listSavedFilters,
+  listStalled,
   listTasks,
   getPersonalHome,
   markDepartmentHomeSeen,
@@ -185,6 +186,46 @@ describe("task", () => {
       updateTask(stw.id, { links: [...stw.links, { kind: "relates", taskId: "t-stw-1" }] }),
     ).rejects.toThrow(forbiddenError);
     expect((await taskOf("STW-6")).links).toEqual(stw.links);
+  });
+
+  it("un collegamento si salva una volta: «blocks» ferma l'altra finché la bloccante è aperta", async () => {
+    as("p-giulia");
+    const blocker = await taskOf("MKX-2");
+    const blocked = await taskOf("MKX-4");
+    const reasonOf = async (id: string) =>
+      (await listStalled({ projectIds: ["prj-mkx"] })).find((r) => r.task.id === id)?.stall.reason;
+    expect(await reasonOf(blocked.id)).toBeUndefined();
+    await updateTask(blocker.id, { links: [{ kind: "blocks", taskId: blocked.id }] });
+    // Nessuna riga inversa scritta sulla bloccata: «blocked_by» si ricava.
+    expect((await taskOf("MKX-4")).links).toEqual([]);
+    expect(await reasonOf(blocked.id)).toEqual({ kind: "blocked_by", taskId: blocker.id });
+    // Chiusa la bloccante, l'altra non è più ferma.
+    const closed = (await listProjectStatuses("prj-mkx")).find((s) => s.family === "closed")!;
+    await updateTask(blocker.id, { statusId: closed.id });
+    expect(await reasonOf(blocked.id)).toBeUndefined();
+    // Riaperta e tolta la riga: sparisce da entrambe le parti.
+    await updateTask(blocker.id, { statusId: blocker.statusId });
+    expect(await reasonOf(blocked.id)).toEqual({ kind: "blocked_by", taskId: blocker.id });
+    await updateTask(blocker.id, { links: [] });
+    expect(await reasonOf(blocked.id)).toBeUndefined();
+  });
+
+  it("updateTask rifiuta righe inverse, verso sé stessa, verso task che non ci sono o doppie", async () => {
+    as("p-giulia");
+    const task = await taskOf("MKX-2");
+    for (const links of [
+      [{ kind: "blocked_by", taskId: "t-mkx-4" }],
+      [{ kind: "child", taskId: "t-mkx-4" }],
+      [{ kind: "relates", taskId: task.id }],
+      [{ kind: "relates", taskId: "t-nope" }],
+      [
+        { kind: "relates", taskId: "t-mkx-4" },
+        { kind: "relates", taskId: "t-mkx-4" },
+      ],
+    ]) {
+      await expect(updateTask(task.id, { links: links as never })).rejects.toThrow("invalid: links");
+    }
+    expect((await taskOf("MKX-2")).links).toEqual([]);
   });
 
   it("bulkUpdateTasks: tutto o niente", async () => {
@@ -518,6 +559,19 @@ describe("richieste", () => {
     as("p-sara");
     await expect(updateRequest(r.id, { size: "XS" })).rejects.toThrow(forbiddenError);
     expect((await getRequest(r.id))!.size).toBeNull();
+  });
+
+  it("updateRequest: una richiesta trasformata o archiviata non cambia più i metadati", async () => {
+    as("p-laura");
+    const converted = (await getRequest("req-stw-2"))!;
+    await expect(updateRequest("req-stw-2", { risk: "high" })).rejects.toThrow("invalid: status");
+    expect((await getRequest("req-stw-2"))!.risk).toBe(converted.risk);
+    await archiveRequest((await createRequest({ projectId: "prj-stw", title: "Old" })).id);
+    const archived = (await listRequests("prj-stw")).find((x) => x.title === "Old")!;
+    await expect(updateRequest(archived.id, { urgency: "high", riskNote: "x" })).rejects.toThrow(
+      "invalid: status",
+    );
+    expect((await getRequest(archived.id))!.urgency).toBe("medium");
   });
 
   it("mergeRequest unisce i richiedenti senza duplicati e archivia la fusa", async () => {

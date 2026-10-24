@@ -1,5 +1,6 @@
 import { TODAY } from "../data/seed/dates";
 import type { DecisionRequest, Project, StatusFamily, Task } from "../data/model";
+import { blockerIdsOf } from "./links";
 import { compareWeeks, currentWeek } from "./weeks";
 
 export type StallReason =
@@ -23,6 +24,7 @@ export interface StallContext {
   family: StatusFamily;
   /** Richieste di decisione: si considerano solo quelle aperte della task. */
   openDecisions: DecisionRequest[];
+  /** Le task fra cui cercare chi blocca (le righe «blocks» stanno su di loro). */
   tasksById: Map<string, Task>;
   familyOf(task: Task): StatusFamily;
   thresholds: Project["stallThresholds"];
@@ -63,11 +65,11 @@ export function stallOf(task: Task, ctx: StallContext): Stall | null {
     return stall({ kind: "claude_question" }, task.lastActivityAt);
   }
 
-  for (const link of task.links) {
-    if (link.kind !== "blocked_by") continue;
-    const blocker = ctx.tasksById.get(link.taskId);
-    if (blocker && ctx.familyOf(blocker) !== "closed") {
-      return stall({ kind: "blocked_by", taskId: link.taskId }, task.lastActivityAt);
+  // Le bloccanti sono le task che tengono una riga «blocks» verso questa (`domain/links.ts`).
+  for (const blockerId of blockerIdsOf(task.id, ctx.tasksById.values())) {
+    const blocker = ctx.tasksById.get(blockerId)!;
+    if (ctx.familyOf(blocker) !== "closed") {
+      return stall({ kind: "blocked_by", taskId: blockerId }, task.lastActivityAt);
     }
   }
 

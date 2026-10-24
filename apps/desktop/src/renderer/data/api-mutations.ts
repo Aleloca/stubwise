@@ -24,6 +24,7 @@ import type {
   SavedFilter,
   StatusFamily,
   StatusInput,
+  StoredLinkKind,
   Task,
   TaskPatch,
   TaskSize,
@@ -198,6 +199,8 @@ interface Diff {
   to: unknown;
 }
 
+const STORED_LINK_KINDS: StoredLinkKind[] = ["blocks", "relates", "parent"];
+
 /** Controlla chi può cambiare cosa e ricava i campi che cambiano davvero; non scrive. */
 function prepareTaskPatch(me: string, task: Task, patch: TaskPatch): Diff[] {
   const keys = (Object.keys(patch) as (keyof TaskPatch)[]).filter((k) => patch[k] !== undefined);
@@ -214,6 +217,17 @@ function prepareTaskPatch(me: string, task: Task, patch: TaskPatch): Diff[] {
       return changed.every((id) => id === me);
     });
   if (!followOnly) need(me, "tickets.edit", task.projectId);
+  // Un collegamento si salva una volta, sulla task che lo tiene: niente inversi, niente sé stessa.
+  const linksDiff = diffs.find((d) => d.key === "links");
+  if (linksDiff) {
+    const rows = linksDiff.to as Task["links"];
+    const keys = rows.map((l) => `${l.kind}:${l.taskId}`);
+    const ok = rows.every(
+      (l) =>
+        STORED_LINK_KINDS.includes(l.kind) && l.taskId !== task.id && state.tasksById.has(l.taskId),
+    );
+    if (!ok || new Set(keys).size !== keys.length) throw invalid("links");
+  }
   const statusDiff = diffs.find((d) => d.key === "statusId");
   if (statusDiff) {
     const status = state.statusById.get(statusDiff.to as string);
@@ -542,6 +556,11 @@ export async function updateRequest(
   if (patch.urgency !== undefined && !LEVELS.includes(patch.urgency)) throw invalid("urgency");
   if (patch.risk != null && !LEVELS.includes(patch.risk)) throw invalid("risk");
   if (patch.size != null && !SIZES.includes(patch.size)) throw invalid("size");
+  // Trasformata o archiviata, la richiesta è in sola lettura: i metadati non si cambiano più.
+  const meta = (["urgency", "size", "risk", "riskNote"] as const).some((k) => patch[k] !== undefined);
+  if (meta && (request.status === "converted" || request.status === "archived")) {
+    throw invalid("status");
+  }
   if (patch.title !== undefined) request.title = patch.title.trim();
   if (patch.description !== undefined) request.description = patch.description;
   if (patch.urgency !== undefined) request.urgency = patch.urgency;

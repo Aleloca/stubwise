@@ -55,6 +55,7 @@ function taskCtx(over: Partial<TaskExportContext> = {}): TaskExportContext {
     personName: (id) => (id ? (NAMES[id] ?? null) : null),
     decisions: [],
     activity: [],
+    links: [],
     ...over,
   };
 }
@@ -175,6 +176,24 @@ describe("taskToMarkdown", () => {
     const md = taskToMarkdown(makeTask({ source: "sdk", occurrences: 4 }), taskCtx(), en);
     expect(md).toContain("- **Source:** SDK · ×4");
     expect(taskToMarkdown(makeTask(), taskCtx(), en)).not.toContain("**Source:**");
+  });
+
+  it("le task collegate, nei due versi, dopo la descrizione", () => {
+    const md = taskToMarkdown(
+      task,
+      taskCtx({
+        links: [
+          { kind: "blocks", code: "AUD-7", title: "Help pages" },
+          { kind: "blocked_by", code: "AUD-2", title: "Onboarding" },
+        ],
+      }),
+      en,
+    );
+    expect(md).toContain(
+      "## Linked tasks\n\n- Blocks: AUD-7 · Help pages\n- Blocked by: AUD-2 · Onboarding",
+    );
+    expect(md.indexOf("## Linked tasks")).toBeGreaterThan(md.indexOf("## Description"));
+    expect(taskToMarkdown(task, taskCtx(), en)).not.toContain("## Linked tasks");
   });
 
   it("nella lingua di chi esporta", () => {

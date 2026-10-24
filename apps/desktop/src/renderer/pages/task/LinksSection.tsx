@@ -2,14 +2,18 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useProjects, useRequest, useTasks } from "../../data/queries";
-import type { Task, TaskLinkKind } from "../../data/types";
+import type { StoredLinkKind, Task } from "../../data/types";
+import { can, useViewer } from "../../data/viewer";
+import { linksOf, withoutLink, type LinkView } from "../../domain/links";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
 import { Chevron, MenuButton } from "../tasks/controls";
 import { useInlineUpdate } from "../tasks/pickers";
 import { CloseIcon, InlineConfirm, PlusIcon, Section, ghostButton, smallSecondary } from "./parts";
 
-const LINK_KINDS: TaskLinkKind[] = ["blocked_by", "blocks", "relates", "parent", "child"];
+// Si salva solo il verso «diretto», come sul web: «bloccata da» e «figlia» si vedono
+// dall'altra task, e aggiungerli da qui chiederebbe di poter modificare quella.
+const LINK_KINDS: StoredLinkKind[] = ["blocks", "relates", "parent"];
 
 /** «Report.pdf · 240 KB». */
 export function formatBytes(bytes: number, language: string): string {
@@ -67,11 +71,19 @@ function OriginRequest({ task, requestId }: { task: Task; requestId: string }) {
   );
 }
 
+/**
+ * Le task collegate, viste da questa: le righe sue e gli inversi ricavati
+ * dalle altre (`linksOf`), solo fra le task che chi guarda vede. Togliere un
+ * collegamento chiede conferma e modifica la task che tiene la riga: lo può
+ * fare chi ha `tickets.edit` sul progetto di quella task.
+ */
 function LinkedTasks({ task, canEdit }: { task: Task; canEdit: boolean }) {
   const { t } = useTranslation();
+  const { viewer } = useViewer();
   const navigate = useNavigate();
   const change = useInlineUpdate();
   const [adding, setAdding] = useState(false);
+  const [confirming, setConfirming] = useState<string | null>(null);
   const { data: tasks } = useTasks();
   const byId = useMemo(() => new Map((tasks ?? []).map((x) => [x.id, x])), [tasks]);
   const open = (code: string) =>
@@ -79,16 +91,21 @@ function LinkedTasks({ task, canEdit }: { task: Task; canEdit: boolean }) {
       to: ".",
       search: (prev: Record<string, unknown>) => ({ ...prev, task: code }),
     } as never);
+  // La task del pannello è la più fresca: prende il posto della sua copia nell'elenco.
+  const all = [task, ...(tasks ?? []).filter((x) => x.id !== task.id)];
   // Un collegamento a una task che chi guarda non vede non si mostra.
-  const links = task.links.filter((l) => byId.has(l.taskId));
-  const add = (
-    canEdit &&
-    !adding && (
-      <button type="button" className={ghostButton} onClick={() => setAdding(true)}>
-        <PlusIcon />
-        {t("taskDetail.add")}
-      </button>
-    )
+  const links = linksOf(task, all).filter((l) => byId.has(l.taskId));
+  const keyOf = (l: LinkView) => `${l.holderId}:${l.row.kind}:${l.row.taskId}`;
+  const holderOf = (l: LinkView) => (l.holderId === task.id ? task : byId.get(l.holderId));
+  const canRemove = (l: LinkView) => {
+    const holder = holderOf(l);
+    return !!holder && can(viewer, "tickets.edit", holder.projectId);
+  };
+  const add = canEdit && !adding && (
+    <button type="button" className={ghostButton} onClick={() => setAdding(true)}>
+      <PlusIcon />
+      {t("taskDetail.add")}
+    </button>
   );
   return (
     <Section
@@ -101,31 +118,45 @@ function LinkedTasks({ task, canEdit }: { task: Task; canEdit: boolean }) {
         <ul className="flex flex-col">
           {links.map((l) => {
             const other = byId.get(l.taskId)!;
+            const kind = t(`taskDetail.links.kinds.${l.kind}`);
+            if (confirming === keyOf(l)) {
+              return (
+                <li key={keyOf(l)} className="py-1">
+                  <InlineConfirm
+                    message={t("taskDetail.links.confirm", { kind, code: other.code })}
+                    confirm={t("taskDetail.links.removeConfirm")}
+                    cancelLabel={t("taskDetail.cancel")}
+                    onCancel={() => setConfirming(null)}
+                    onConfirm={() => {
+                      setConfirming(null);
+                      const holder = holderOf(l);
+                      if (holder) change(holder, { links: withoutLink(holder, l.row) });
+                    }}
+                  />
+                </li>
+              );
+            }
             return (
-              <li key={`${l.kind}-${l.taskId}`} className="group/link flex min-h-8 items-center gap-2">
-                <span className="w-20 shrink-0 text-xs text-ink-muted">
-                  {t(`taskDetail.links.kinds.${l.kind}`)}
-                </span>
+              <li key={keyOf(l)} className="group/link flex min-h-8 items-center gap-2">
+                <span className="w-20 shrink-0 text-xs text-ink-muted">{kind}</span>
                 <button
                   type="button"
                   onClick={() => open(other.code)}
                   className="-mx-1.5 flex min-h-7 min-w-0 flex-1 items-baseline gap-2 rounded-md px-1.5 text-left hover:bg-ink/6"
                 >
-                  <span className="num shrink-0 text-xs font-semibold text-ink-muted">{other.code}</span>
+                  <span className="num shrink-0 text-xs font-semibold text-ink-muted">
+                    {other.code}
+                  </span>
                   <span className="min-w-0 truncate text-sm text-ink" title={other.title}>
                     {other.title}
                   </span>
                 </button>
-                {canEdit && (
+                {canRemove(l) && (
                   <button
                     type="button"
                     aria-label={t("taskDetail.links.remove", { code: other.code })}
                     title={t("taskDetail.links.remove", { code: other.code })}
-                    onClick={() =>
-                      change(task, {
-                        links: task.links.filter((x) => !(x.kind === l.kind && x.taskId === l.taskId)),
-                      })
-                    }
+                    onClick={() => setConfirming(keyOf(l))}
                     className={`${ghostButton} w-7 justify-center px-0 opacity-60 group-hover/link:opacity-100 focus-visible:opacity-100`}
                   >
                     <CloseIcon size={12} />
@@ -140,6 +171,7 @@ function LinkedTasks({ task, canEdit }: { task: Task; canEdit: boolean }) {
         <AddLink
           task={task}
           candidates={tasks ?? []}
+          linkedIds={new Set(links.map((l) => l.taskId))}
           onAdd={(kind, taskId) => {
             change(task, { links: [...task.links, { kind, taskId }] });
             setAdding(false);
@@ -155,26 +187,28 @@ function LinkedTasks({ task, canEdit }: { task: Task; canEdit: boolean }) {
 function AddLink({
   task,
   candidates,
+  linkedIds,
   onAdd,
   onCancel,
 }: {
   task: Task;
   candidates: Task[];
-  onAdd: (kind: TaskLinkKind, taskId: string) => void;
+  /** Le task già collegate, in un verso o nell'altro. */
+  linkedIds: Set<string>;
+  onAdd: (kind: StoredLinkKind, taskId: string) => void;
   onCancel: () => void;
 }) {
   const { t } = useTranslation();
-  const [kind, setKind] = useState<TaskLinkKind>("relates");
+  const [kind, setKind] = useState<StoredLinkKind>("relates");
   const [query, setQuery] = useState("");
   const inputId = useId();
   const q = query.trim().toLowerCase();
-  const linked = new Set(task.links.map((l) => l.taskId));
   const results = q
     ? candidates
         .filter(
           (c) =>
             c.id !== task.id &&
-            !linked.has(c.id) &&
+            !linkedIds.has(c.id) &&
             (c.code.toLowerCase().includes(q) || c.title.toLowerCase().includes(q)),
         )
         // Prima le task dello stesso progetto.

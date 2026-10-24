@@ -1,7 +1,8 @@
 import { useTranslation } from "react-i18next";
-import { useActivity, useDecisionRequests, usePeople } from "../../data/queries";
+import { useActivity, useDecisionRequests, usePeople, useTasks } from "../../data/queries";
 import type { Department, Milestone, Project, ProjectStatus, Task } from "../../data/types";
 import { taskFileName, taskToMarkdown } from "../../domain/export";
+import { linksOf } from "../../domain/links";
 import { copyText, downloadText } from "../../tasks-ui/exportFile";
 import { MenuGroup, MenuNote, itemClass } from "../../tasks-ui/Menu";
 import { useToast } from "../../tasks-ui/Toast";
@@ -29,10 +30,26 @@ export function TaskMoreMenu({
 }) {
   const { t, i18n } = useTranslation();
   const toast = useToast();
-  const people = usePeople().data;
-  const activity = useActivity(task.id).data;
-  const decisions = useDecisionRequests({ taskId: task.id }).data;
-  const ready = !!people && !!activity && !!decisions && !!project;
+  const peopleQ = usePeople();
+  const activityQ = useActivity(task.id);
+  const decisionsQ = useDecisionRequests({ taskId: task.id });
+  const tasksQ = useTasks();
+  const reads = [peopleQ, activityQ, decisionsQ, tasksQ];
+  const people = peopleQ.data;
+  const activity = activityQ.data;
+  const decisions = decisionsQ.data;
+  const tasks = tasksQ.data;
+  const ready = !!people && !!activity && !!decisions && !!tasks && !!project;
+  const failed = reads.some((q) => q.isError);
+  // I collegamenti come li vede la task: anche gli inversi, fra le task visibili.
+  const links = () => {
+    const byId = new Map(tasks!.map((x) => [x.id, x]));
+    const all = [task, ...tasks!.filter((x) => x.id !== task.id)];
+    return linksOf(task, all).flatMap((l) => {
+      const other = byId.get(l.taskId);
+      return other ? [{ kind: l.kind, code: other.code, title: other.title }] : [];
+    });
+  };
 
   const markdown = () =>
     taskToMarkdown(
@@ -47,6 +64,7 @@ export function TaskMoreMenu({
         personName: (id) => people!.find((p) => p.id === id)?.name ?? null,
         decisions: decisions!,
         activity: activity!,
+        links: links(),
       },
       t,
     );
@@ -77,7 +95,22 @@ export function TaskMoreMenu({
     >
       {(close) => (
         <MenuGroup label={t("export.group")}>
-          {ready ? (
+          {failed ? (
+            <>
+              <MenuNote>{t("export.loadFailed")}</MenuNote>
+              <button
+                type="button"
+                role="menuitem"
+                tabIndex={-1}
+                className={itemClass}
+                onClick={() => {
+                  for (const q of reads) if (q.isError) void q.refetch();
+                }}
+              >
+                {t("export.retry")}
+              </button>
+            </>
+          ) : ready ? (
             <>
               <button
                 type="button"

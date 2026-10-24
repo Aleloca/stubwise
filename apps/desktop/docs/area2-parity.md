@@ -27,13 +27,13 @@ Task 15 sono chiusi dal Task 16 (in fondo, il riepilogo).
 | Voce | Dove | Test |
 |---|---|---|
 | Testata: codice, titolo, stato, priorità, tipo, progetto, traguardo (taglia al posto dello sforzo 1–5) | `pages/task/TaskHeader.tsx` | `TaskDetail.test.tsx` (apertura, stato), `TaskDetailSections.test.tsx` (campi) |
-| Esporta come Markdown: «Copy as Markdown», «Download `<CODE>.md`» (campi, descrizione, decisioni aperte/chiuse, commenti; eliminati come «Comment deleted») | `pages/task/TaskMoreMenu.tsx`, `domain/export.ts` (`taskToMarkdown`), `tasks-ui/exportFile.ts` | `domain/export.test.ts`, `TaskDetailSections.test.tsx` |
+| Esporta come Markdown: «Copy as Markdown», «Download `<CODE>.md`» (campi, descrizione, task collegate nei due versi, decisioni aperte/chiuse, commenti; eliminati come «Comment deleted»); letture fallite → messaggio e «Retry» nel menu | `pages/task/TaskMoreMenu.tsx`, `domain/export.ts` (`taskToMarkdown`), `tasks-ui/exportFile.ts` | `domain/export.test.ts`, `TaskDetailSections.test.tsx` |
 | Origine (SDK, API, Slack, Webhook, Widget, Email, Automazione) con segno e parola, ×occorrenze | `TaskHeader.tsx` (campo «Source»), `tasks-ui/SourceMark.tsx` | `TaskDetailSections.test.tsx` |
 | Payload tecnico (richiudibile) | `pages/task/TechnicalSection.tsx` | `TaskDetailSections.test.tsx` |
 | «View conversation» delle task del widget | — | **area 8** (Support): nessun link morto |
 | Descrizione (markdown): modifica e salvataggio | `DescriptionSection.tsx` | `TaskDetailSections.test.tsx` |
 | Richiesta d'origine: si mostra e apre la richiesta | `LinksSection.tsx` (`OriginRequest`) | `TaskDetailSections.test.tsx` |
-| Task collegate (blocca, bloccata da, correlata, padre), aggiungi/rimuovi | `LinksSection.tsx` | `TaskDetailSections.test.tsx`, `data/mutations.test.ts` |
+| Task collegate: una riga salvata (blocca, correlata, padre, come la relazione del web), inversi ricavati in lettura (bloccata da, figlia, correlata dall'altra parte); aggiungi dai tre versi salvati, rimuovi con conferma (chi può modificare la task che tiene la riga) | `LinksSection.tsx`, `domain/links.ts` (`linksOf`) | `TaskDetailSections.test.tsx`, `domain/links.test.ts`, `data/mutations.test.ts`, `data/seed.test.ts` |
 | Allegati (elenco, aggiungi finto, rimuovi con conferma) | `LinksSection.tsx` (`Attachments`) | `TaskDetailSections.test.tsx`, `data/mutations.test.ts` |
 | Feed attività: commenti e risposte | `ActivityFeed.tsx` | `TaskDetailSections.test.tsx`, `data/mutations.test.ts` |
 | Feed attività: modifica di un commento | `ActivityFeed.tsx` | `data/mutations.test.ts` (UI: nessun test) |
@@ -41,7 +41,7 @@ Task 15 sono chiusi dal Task 16 (in fondo, il riepilogo).
 | Feed attività: cambi di campo | `ActivityFeed.tsx` | `TaskDetail.test.tsx`, `data/mutations.test.ts` |
 | Barra laterale: stato, priorità, tipo, assegnatario, traguardo, etichette (patch con `tickets.edit`; sola lettura senza) | `TaskHeader.tsx` | `TaskDetail.test.tsx`, `TaskDetailSections.test.tsx`, `data/mutations.test.ts` |
 | Segui | `TaskHeader.tsx` | `data/mutations.test.ts` (UI: nessun test) |
-| Ferma e motivo: «Mark as stalled» con motivo e nota, «Not stalled anymore» | `StallControl.tsx`, `domain/stalled.ts` | `TaskDetailSections.test.tsx`, `domain/stalled.test.ts` |
+| Ferma e motivo: «Mark as stalled» con motivo e nota, «Not stalled anymore»; «bloccata da» ricavato dalle righe «blocks» delle altre task (si sblocca quando la bloccante si chiude) | `StallControl.tsx`, `domain/stalled.ts` | `TaskDetailSections.test.tsx`, `domain/stalled.test.ts`, `data/mutations.test.ts` |
 | Richieste di decisione (nuove dell'area) | `DecisionSection.tsx`, `AskDecisionDialog.tsx` | `TaskDetail.test.tsx` |
 | Piano, approvazione, domande dell'agente, avvio AI, storia del lavoro, attività AI, uso AI, correzioni, PR/cicli, adozione PR | `ClaudeSection.tsx` (solo lo stato) | **area 3** |
 | Repository / PR / «N repos» | — | **area 3** |
@@ -53,7 +53,7 @@ Task 15 sono chiusi dal Task 16 (in fondo, il riepilogo).
 | Elenco con titolo, stato, urgenza, taglia, «richiesta N volte», simili, task collegate; filtri testo/stato | `pages/requests/RequestsPage.tsx`, `marks.tsx` | `RequestsPage.test.tsx` |
 | Nuova richiesta | `NewRequestDialog.tsx` | `RequestsPage.test.tsx`, `data/mutations.test.ts` |
 | Voce: stato, urgenza, richiedenti, simili, task nate | `RequestDetail.tsx` | `RequestsPage.test.tsx` |
-| Metadati: urgenza modificabile, taglia XS–XL (al posto dello sforzo E1–E5), rischio, nota sul rischio (`backlog.edit`; sola lettura senza) | `RequestDetail.tsx` (`Metadata`), `marks.tsx` (`RiskMark`), `data/api-mutations.ts` (`updateRequest`) | `RequestsPage.test.tsx`, `data/mutations.test.ts` |
+| Metadati: urgenza modificabile, taglia XS–XL (al posto dello sforzo E1–E5), rischio, nota sul rischio (`backlog.edit`; sola lettura senza; trasformata o archiviata: rifiutati anche dal «server») | `RequestDetail.tsx` (`Metadata`), `marks.tsx` (`RiskMark`), `data/api-mutations.ts` (`updateRequest`) | `RequestsPage.test.tsx`, `data/mutations.test.ts` |
 | Esporta come Markdown: «Copy as Markdown», «Download .md» | `RequestDetail.tsx` (menu «More actions», per tutti), `domain/export.ts` (`requestToMarkdown`) | `domain/export.test.ts`, `RequestsPage.test.tsx` |
 | Converti in task (la task nasce con la taglia della richiesta) | `RequestDetail.tsx` + `NewTaskDialog` | `RequestsPage.test.tsx`, `data/mutations.test.ts` |
 | Fondi in… (simili per prime) | `MergeDialog.tsx` | `MergeDialog.test.tsx`, `RequestsPage.test.tsx` |

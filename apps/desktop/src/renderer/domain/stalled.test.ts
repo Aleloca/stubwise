@@ -93,19 +93,30 @@ describe("stallOf", () => {
     });
   });
 
-  it("bloccata da una task aperta sì, da una chiusa o inesistente no", () => {
-    const blocker = makeTask({ id: "b1", statusId: "s-active" });
-    const closed = makeTask({ id: "b2", statusId: "s-closed" });
-    const t = makeTask({ links: [{ kind: "blocked_by", taskId: "b1" }] });
-    expect(stallOf(t, ctx({}, [blocker]))?.reason).toEqual({ kind: "blocked_by", taskId: "b1" });
-    const t2 = makeTask({
+  it("bloccata da una task aperta sì, da una chiusa no; la riga sta sulla bloccante", () => {
+    const t = makeTask({ id: "t1" });
+    const blocker = makeTask({
+      id: "b1",
+      statusId: "s-active",
+      links: [{ kind: "blocks", taskId: "t1" }],
+    });
+    expect(stallOf(t, ctx({}, [t, blocker]))?.reason).toEqual({ kind: "blocked_by", taskId: "b1" });
+    const closed = makeTask({
+      id: "b2",
+      statusId: "s-closed",
+      links: [{ kind: "blocks", taskId: "t1" }],
+    });
+    expect(stallOf(t, ctx({}, [t, closed]))).toBeNull();
+    // Chi blocca un'altra non è per questo bloccata; correlata e padre non bloccano.
+    const other = makeTask({
+      id: "b3",
       links: [
-        { kind: "blocked_by", taskId: "b2" },
-        { kind: "blocked_by", taskId: "nope" },
-        { kind: "blocks", taskId: "b1" },
+        { kind: "relates", taskId: "t1" },
+        { kind: "parent", taskId: "t1" },
       ],
     });
-    expect(stallOf(t2, ctx({}, [blocker, closed]))).toBeNull();
+    expect(stallOf(blocker, ctx({}, [t, blocker]))).toBeNull();
+    expect(stallOf(t, ctx({}, [t, other]))).toBeNull();
   });
 
   it("senza assegnatario: ferma se attiva o pianificata entro questa settimana", () => {
@@ -149,12 +160,11 @@ describe("stallOf", () => {
   });
 
   it("precedenza: manual > decision > claude_question > blocked_by > unassigned > idle", () => {
-    const blocker = makeTask({ id: "b1" });
+    const blocker = makeTask({ id: "b1", links: [{ kind: "blocks", taskId: "t1" }] });
     const all = makeTask({
       assigneeId: null,
       claude: "awaiting_answer",
       lastActivityAt: "2026-10-01T09:00:00Z",
-      links: [{ kind: "blocked_by", taskId: "b1" }],
       manualStall: { reason: "r", note: "n", since: "2026-10-10", byId: "u1" },
     });
     const c = ctx({ openDecisions: [decision()] }, [blocker]);
@@ -168,13 +178,15 @@ describe("stallOf", () => {
         .kind,
     ).toBe("blocked_by");
     expect(
-      stallOf({ ...all, manualStall: null, claude: "none", links: [] }, { ...c, openDecisions: [] })
-        ?.reason.kind,
+      stallOf(
+        { ...all, manualStall: null, claude: "none" },
+        { ...c, openDecisions: [], tasksById: new Map() },
+      )?.reason.kind,
     ).toBe("unassigned");
     expect(
       stallOf(
-        { ...all, manualStall: null, claude: "none", links: [], assigneeId: "u1" },
-        { ...c, openDecisions: [] },
+        { ...all, manualStall: null, claude: "none", assigneeId: "u1" },
+        { ...c, openDecisions: [], tasksById: new Map() },
       )?.reason.kind,
     ).toBe("idle");
   });

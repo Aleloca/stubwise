@@ -1,7 +1,14 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getTaskByCode, listStalled, listTasks, resetApi, setLatency } from "../../data/api";
+import {
+  failNext,
+  getTaskByCode,
+  listStalled,
+  listTasks,
+  resetApi,
+  setLatency,
+} from "../../data/api";
 import { setSessionPersonId } from "../../data/session";
 import { state } from "../../data/store";
 import { renderRoute } from "../../test/renderRoute";
@@ -60,12 +67,21 @@ afterEach(() => {
 });
 
 describe("task collegate", () => {
-  it("si aggiunge un collegamento cercando la task, e si toglie con la ×", async () => {
+  it("si aggiunge un collegamento cercando la task, e si toglie con conferma", async () => {
     renderRoute("/home?task=MKX-2", "p-giulia");
     const panel = await panelOf("MKX-2");
     const linked = await waitFor(() => region(panel, "Linked tasks"));
     expect(linked).toHaveTextContent("No linked tasks");
     await userEvent.click(within(linked).getByRole("button", { name: "Add" }));
+    // Si offrono solo i versi che si salvano, come sul web.
+    await userEvent.click(within(linked).getByRole("button", { name: "Link type: Related" }));
+    const kinds = await screen.findByRole("menu", { name: "Link type" });
+    expect(
+      within(kinds)
+        .getAllByRole("menuitemradio")
+        .map((i) => i.textContent),
+    ).toEqual(["Blocks", "Related", "Parent"]);
+    await userEvent.keyboard("{Escape}");
     await userEvent.type(
       within(linked).getByRole("textbox", { name: "Find a task" }),
       "Social posts",
@@ -83,8 +99,54 @@ describe("task collegate", () => {
     ).toBeInTheDocument();
 
     await userEvent.click(within(linked).getByRole("button", { name: "Remove the link to MKX-4" }));
+    expect(
+      within(linked).getByText("Remove the link «Related MKX-4»? It goes from both tasks."),
+    ).toBeInTheDocument();
+    await userEvent.click(within(linked).getByRole("button", { name: "Cancel" }));
+    expect(task("MKX-2").links).toHaveLength(1);
+    await userEvent.click(within(linked).getByRole("button", { name: "Remove the link to MKX-4" }));
+    await userEvent.click(within(linked).getByRole("button", { name: "Remove link" }));
     await waitFor(() => expect(task("MKX-2").links).toEqual([]));
     expect(await within(linked).findByText("No linked tasks")).toBeInTheDocument();
+  });
+
+  it("«Blocks MKX-4» su MKX-2: MKX-4 mostra «Blocked by MKX-2» ed è ferma; togliere la riga da MKX-4 la toglie ovunque", async () => {
+    const router = renderRoute("/home?task=MKX-2", "p-giulia");
+    let panel = await panelOf("MKX-2");
+    let linked = await waitFor(() => region(panel, "Linked tasks"));
+    await userEvent.click(within(linked).getByRole("button", { name: "Add" }));
+    await userEvent.click(within(linked).getByRole("button", { name: "Link type: Related" }));
+    await userEvent.click(await screen.findByRole("menuitemradio", { name: "Blocks" }));
+    await userEvent.type(
+      within(linked).getByRole("textbox", { name: "Find a task" }),
+      "Social posts",
+    );
+    await userEvent.click(
+      within(within(linked).getByRole("list", { name: "Tasks to link" })).getByRole("button", {
+        name: /Social posts/,
+      }),
+    );
+    await waitFor(() =>
+      expect(task("MKX-2").links).toEqual([{ kind: "blocks", taskId: "t-mkx-4" }]),
+    );
+    expect(task("MKX-4").links).toEqual([]);
+
+    // Dall'altra parte: l'inverso ricavato, e il motivo «ferma».
+    await userEvent.click(within(linked).getByRole("button", { name: /^MKX-4\s?Social posts/ }));
+    await waitFor(() => expect(router.state.location.search).toMatchObject({ task: "MKX-4" }));
+    panel = await panelOf("MKX-4");
+    linked = await waitFor(() => region(panel, "Linked tasks"));
+    expect(await within(linked).findByText("Blocked by")).toBeInTheDocument();
+    expect(
+      within(linked).getByRole("button", { name: /^MKX-2\s?Pick the hero/ }),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(region(panel, "Stalled")).toHaveTextContent("Blocked by MKX-2"));
+
+    await userEvent.click(within(linked).getByRole("button", { name: "Remove the link to MKX-2" }));
+    await userEvent.click(within(linked).getByRole("button", { name: "Remove link" }));
+    await waitFor(() => expect(task("MKX-2").links).toEqual([]));
+    expect(await within(linked).findByText("No linked tasks")).toBeInTheDocument();
+    await waitFor(() => expect(region(panel, "Stalled")).toHaveTextContent("Not stalled"));
   });
 
   it("senza tickets.edit i collegamenti si leggono e basta", async () => {
@@ -321,6 +383,33 @@ describe("esportazione in Markdown", () => {
       await within(panel).findByRole("button", { name: "More actions for STW-6" }),
     );
     expect(await screen.findByRole("menuitem", { name: "Copy as Markdown" })).toBeInTheDocument();
+  });
+
+  it("l'esportazione porta anche i collegamenti ricavati («Blocked by»)", async () => {
+    const fake = fakeExport();
+    restoreExport = fake.restore;
+    renderRoute("/home?task=MKX-7", "p-giulia");
+    const panel = await panelOf("MKX-7");
+    await waitFor(() => expect(region(panel, "Linked tasks")).toHaveTextContent("Blocked by"));
+    await userEvent.click(within(panel).getByRole("button", { name: "More actions for MKX-7" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Copy as Markdown" }));
+    await waitFor(() => expect(fake.writes).toHaveLength(1));
+    expect(fake.writes[0]).toContain("## Linked tasks\n\n- Blocked by: MKX-6 · ");
+  });
+
+  it("se le letture dell'esportazione non riescono lo dice, e «Retry» le rifà", async () => {
+    failNext("listActivity");
+    renderRoute("/home?task=MKX-2", "p-giulia");
+    const panel = await panelOf("MKX-2");
+    await within(panel).findByText("Couldn't load the activity.");
+    await userEvent.click(within(panel).getByRole("button", { name: "More actions for MKX-2" }));
+    const menu = await screen.findByRole("menu", { name: "More actions for MKX-2" });
+    expect(within(menu).getByText("Couldn't prepare the export.")).toBeInTheDocument();
+    expect(within(menu).queryByRole("menuitem", { name: "Copy as Markdown" })).toBeNull();
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "Retry" }));
+    expect(
+      await within(menu).findByRole("menuitem", { name: "Copy as Markdown" }),
+    ).toBeInTheDocument();
   });
 });
 

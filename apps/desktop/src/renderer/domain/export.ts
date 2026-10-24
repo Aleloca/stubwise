@@ -1,4 +1,10 @@
-import type { ActivityEntry, DecisionRequest, ProjectRequest, Task } from "../data/model";
+import type {
+  ActivityEntry,
+  DecisionRequest,
+  ProjectRequest,
+  Task,
+  TaskLinkKind,
+} from "../data/model";
 import { weekLabel } from "./weeks";
 
 // L'esportazione in Markdown di una task e di una richiesta («Copy as
@@ -20,6 +26,8 @@ export interface TaskExportContext {
   personName: (id: string | null) => string | null;
   decisions: DecisionRequest[];
   activity: ActivityEntry[];
+  /** I collegamenti come li vede la task (righe sue e inversi, `linksOf`), con l'altra task. */
+  links: { kind: TaskLinkKind; code: string; title: string }[];
 }
 
 export interface RequestExportContext {
@@ -151,6 +159,11 @@ export function taskToMarkdown(task: Task, ctx: TaskExportContext, t: T): string
     `# ${task.code} · ${task.title}`,
     fields.join("\n"),
     `## ${t("taskDetail.description.title")}\n\n${description}`,
+    ctx.links.length
+      ? `## ${t("export.links")}\n\n${ctx.links
+          .map((l) => `- ${t(`taskDetail.links.kinds.${l.kind}`)}: ${l.code} · ${l.title}`)
+          .join("\n")}`
+      : null,
     decisionsSection(ctx, t),
     commentsSection(ctx.activity, ctx, t),
   ]);
