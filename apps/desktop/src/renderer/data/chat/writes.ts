@@ -300,9 +300,16 @@ function canCite(me: string, ref: CitationRef, visible: ReadonlySet<string>): bo
  */
 function citationsOf(me: string, text: string, picked: readonly CitationRef[]): CitationRef[] {
   const visible = visibleProjectIds(me);
-  const out = structuredClone(
-    picked.filter((ref) => canCite(me, ref, visible) && stillNamed(ref, text)),
-  );
+  // Il codice di un file citato (R-H5) lo decide il server, non chi scrive:
+  // un codice mandato dal client non si conserva mai così com'è.
+  const out = picked
+    .filter((ref) => canCite(me, ref, visible) && stillNamed(ref, text))
+    .map((sent): CitationRef => {
+      const ref: CitationRef = { kind: sent.kind, id: sent.id };
+      const code =
+        ref.kind === "drive" ? state.driveFiles.find((f) => f.id === ref.id)?.code : undefined;
+      return code ? { ...ref, code } : ref;
+    });
   const has = (ref: CitationRef) => out.some((r) => r.kind === ref.kind && r.id === ref.id);
   for (const { code, kind } of findCodes(text)) {
     const id =

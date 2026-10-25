@@ -211,6 +211,16 @@ describe("Claude legge i file del Drive", () => {
     expect(resumed).toBeGreaterThan(answer);
   });
 
+  it("una citazione scelta da una persona tiene il codice vero del file, mai quello mandato", async () => {
+    const forged: CitationRef = { kind: "drive", id: F7, code: "AUD-F99" };
+    const sent = await chat.sendMessage("ch-aud-general", {
+      text: "See AUD-F7",
+      citations: [forged],
+    });
+    const stored = state.chatMessages.find((m) => m.id === sent.id)!;
+    expect(stored.citations).toEqual([CITED]);
+  });
+
   it("@Claude in Chat cita il file; chi non vede AUD legge il gettone tenue senza nome", async () => {
     setStreamLatency(null);
     const call = await chat.sendMessage("ch-announcements", { text: `@Claude ${Q_EN}` });
