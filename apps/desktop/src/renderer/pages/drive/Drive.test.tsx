@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failNext, resetApi, setLatency } from "../../data/api";
@@ -8,6 +8,7 @@ import { resetViewerGrants, revokeProjectPermission } from "../../data/viewer";
 import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
 import { setMatchMedia } from "../../test/setup";
 import { renderRoute } from "../../test/renderRoute";
+import { readDraft } from "../chat/drafts";
 import { forgetAllBlobs } from "./blobs";
 import { closePreview } from "./FilePreview";
 import { UPLOAD_PACE } from "./UploadZone";
@@ -375,5 +376,191 @@ describe("Drive — la destinazione", () => {
     await userEvent.click(screen.getByRole("button", { name: "Upload" }));
     const menu = await screen.findByRole("menu", { name: "Upload to which project?" });
     expect(within(menu).getByRole("menuitem", { name: /AUD/ })).toBeInTheDocument();
+  });
+});
+
+describe("Drive — fix round 1", () => {
+  it("J/K dal dettaglio sovrapposto (1024) scorrono i file della vista", async () => {
+    setMatchMedia(DOCKED_PANEL_QUERY, false);
+    const router = await openDrive("/p/AUD/drive?file=AUD-F7");
+    const panel = await screen.findByRole("dialog", { name: "File AUD-F7" });
+    expect(panel).toHaveAttribute("aria-modal", "true");
+    await within(panel).findByText(/in total/);
+    await userEvent.keyboard("j");
+    await waitFor(() => expect(search(router).file).toBe("AUD-F9"));
+    await userEvent.keyboard("k");
+    await waitFor(() => expect(search(router).file).toBe("AUD-F7"));
+  });
+
+  it("«Cite in Chat» apre «Share to…» col general del progetto preselezionato; il codice va nella bozza", async () => {
+    const router = await openDrive("/p/AUD/drive?file=AUD-F7");
+    const panel = await screen.findByLabelText("File AUD-F7");
+    await userEvent.click(await within(panel).findByRole("button", { name: "Cite in Chat" }));
+    const dialog = await screen.findByRole("dialog", { name: "Share to…" });
+    const general = within(dialog).getByRole("radio", { name: "AUD · general" });
+    expect(general).toBeChecked();
+    // Si può scegliere un altro canale in cui si scrive.
+    expect(within(dialog).getAllByRole("radio").length).toBeGreaterThan(1);
+    const channelId = (general as HTMLInputElement).value;
+    await userEvent.click(within(dialog).getByRole("button", { name: "Open in channel" }));
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(`/p/AUD/chat/${channelId}`),
+    );
+    expect(readDraft("p-laura", channelId)).toContain("AUD-F7");
+  });
+
+  it("nessun canale in cui scrivere: «Cite in Chat» non c'è", async () => {
+    for (const c of state.channels) c.archived = true;
+    await openDrive("/p/AUD/drive?file=AUD-F7");
+    const panel = await screen.findByLabelText("File AUD-F7");
+    await within(panel).findByText(/in total/);
+    // Il menu «⋯» resta (Copy link); l'azione no, né lì né fra i bottoni.
+    expect(within(panel).queryByRole("button", { name: "Cite in Chat" })).toBeNull();
+  });
+
+  it("lo scheletro ha 8 righe con la forma della riga del Drive", async () => {
+    setLatency(400);
+    renderRoute("/p/AUD/drive", "p-laura");
+    await screen.findByRole("heading", { level: 1, name: "Drive" });
+    await waitFor(() =>
+      expect(document.querySelectorAll("[data-drive-skeleton-row]")).toHaveLength(8),
+    );
+    expect(document.querySelector("[data-drive-skeleton-row]")).toHaveClass("h-14");
+  });
+
+  it("le azioni rapide stanno nella colonna delle aperture, che resta anche a 1024", async () => {
+    await openDrive("/p/AUD/drive");
+    await screen.findByRole("grid");
+    const download = within(row("AUD-F2")!).getByRole("button", { name: "Download AUD-F2" });
+    expect(download.closest('[role="gridcell"]')!.querySelector("[data-opens]")).not.toBeNull();
+  });
+
+  it("la zona di rilascio copre la pagina intera, testata compresa", async () => {
+    await openDrive("/p/AUD/drive");
+    const h1 = screen.getByRole("heading", { level: 1, name: "Drive" });
+    expect(h1.closest("[data-drop-zone]")).not.toBeNull();
+  });
+
+  it("nella destinazione un rilascio chiede sempre il progetto, anche col filtro (A5)", async () => {
+    await openDrive("/drive?prj=AUD", "p-giulia");
+    await screen.findByRole("grid");
+    const file = sized("brief.pdf", "application/pdf", 1000);
+    fireEvent.drop(document.querySelector("[data-drop-zone]")!, {
+      dataTransfer: { types: ["Files"], files: [file] },
+    });
+    const dialog = await screen.findByRole("dialog", { name: "Upload to which project?" });
+    // Il progetto filtrato è il primo (e prende il fuoco).
+    const first = within(dialog).getAllByRole("button")[0]!;
+    expect(first).toHaveTextContent("AUD");
+    expect(state.driveFiles.some((f) => f.name === "brief.pdf")).toBe(false);
+  });
+
+  it("l'anteprima aperta dal dettaglio scorre (←/→) i file della vista", async () => {
+    await openDrive("/p/AUD/drive?file=AUD-F2");
+    const panel = await screen.findByLabelText("File AUD-F2");
+    await userEvent.click((await within(panel).findAllByRole("button", { name: "Open" }))[0]!);
+    await screen.findByRole("dialog", { name: "Preview of AUD-F2" });
+    await userEvent.keyboard("{ArrowRight}");
+    expect(await screen.findByRole("dialog", { name: "Preview of AUD-F3" })).toBeInTheDocument();
+  });
+
+  it("chiudendo l'anteprima sopra un dettaglio sovrapposto il fuoco torna nel pannello", async () => {
+    setMatchMedia(DOCKED_PANEL_QUERY, false);
+    await openDrive("/p/AUD/drive?file=AUD-F2");
+    const panel = await screen.findByRole("dialog", { name: "File AUD-F2" });
+    const open = (await within(panel).findAllByRole("button", { name: "Open" }))[0]!;
+    await userEvent.click(open);
+    await screen.findByRole("dialog", { name: "Preview of AUD-F2" });
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(panel.contains(document.activeElement)).toBe(true));
+    expect(screen.getByRole("dialog", { name: "File AUD-F2" })).toBeInTheDocument();
+  });
+
+  it("un'immagine ingrandita: le frecce non cambiano file", async () => {
+    await openDrive("/p/AUD/drive");
+    await screen.findByRole("grid");
+    await pick([sized("schema.png", "image/png", 2000)]);
+    const added = await waitFor(() => {
+      const f = state.driveFiles.find((x) => x.name === "schema.png");
+      expect(f).toBeDefined();
+      return f!;
+    });
+    await waitFor(() => expect(row(added.code)).not.toBeNull());
+    row(added.code)!.focus();
+    await userEvent.keyboard(" ");
+    const preview = await screen.findByRole("dialog", { name: `Preview of ${added.code}` });
+    await userEvent.click(within(preview).getByRole("button", { name: "Zoom to actual size" }));
+    await userEvent.keyboard("{ArrowRight}{ArrowLeft}");
+    expect(screen.getByRole("dialog", { name: `Preview of ${added.code}` })).toBeInTheDocument();
+  });
+
+  it("il gruppo UPLOADING sta fuori dalla griglia", async () => {
+    UPLOAD_PACE.ms = 60_000;
+    await openDrive("/p/AUD/drive");
+    const grid = await screen.findByRole("grid");
+    await pick([sized("lento.pdf", "application/pdf", 5 * MB)]);
+    const uploading = await screen.findByRole("region", { name: "Uploading" });
+    expect(grid.contains(uploading)).toBe(false);
+    await userEvent.click(within(uploading).getByRole("button", { name: "Cancel" }));
+  });
+
+  it("il gettone «Added by» non mostra mai un id grezzo", async () => {
+    await openDrive("/p/AUD/drive?addedBy=p-nessuno");
+    await screen.findByText("No files match these filters");
+    const toolbar = screen.getByRole("toolbar", { name: "File commands" });
+    expect(toolbar).not.toHaveTextContent("p-nessuno");
+    expect(toolbar).toHaveTextContent("someone");
+  });
+
+  it("Space su un file Google non disponibile dice perché", async () => {
+    await openDrive("/p/AUD/drive");
+    await screen.findByRole("grid");
+    await userEvent.click(screen.getByRole("button", { name: /Show \d+ more/ }));
+    row("AUD-F11")!.focus();
+    await userEvent.keyboard(" ");
+    expect(
+      await screen.findByText("AUD-F11 can't be opened: it was deleted on Google."),
+    ).toBeInTheDocument();
+  });
+
+  it("negativo: un progetto senza drive.upload non è nel menu di Upload della destinazione", async () => {
+    revokeProjectPermission("p-giulia", "prj-mkx", "drive.upload" as never);
+    await openDrive("/drive", "p-giulia");
+    await screen.findByRole("grid");
+    await userEvent.click(screen.getByRole("button", { name: "Upload" }));
+    const menu = await screen.findByRole("menu", { name: "Upload to which project?" });
+    expect(within(menu).getByRole("menuitem", { name: /AUD/ })).toBeInTheDocument();
+    expect(within(menu).queryByRole("menuitem", { name: /MKX/ })).toBeNull();
+  });
+
+  it("Marco (senza drive.manage) elimina il suo caricato, non quello di un altro", async () => {
+    const r = await openDrive("/p/AUD/drive?file=AUD-F2", "p-marco");
+    let panel = await screen.findByLabelText("File AUD-F2");
+    expect(await within(panel).findByRole("button", { name: "Delete" })).toBeInTheDocument();
+    await act(async () => {
+      await r.navigate({ to: ".", search: { file: "AUD-F3" } as never });
+    });
+    panel = await screen.findByLabelText("File AUD-F3");
+    await within(panel).findByText(/in total/);
+    expect(within(panel).queryByRole("button", { name: "Delete" })).toBeNull();
+  });
+
+  it("il download conta un'apertura", async () => {
+    await openDrive("/p/AUD/drive?file=AUD-F4");
+    const panel = await screen.findByLabelText("File AUD-F4");
+    const before = opensOf("drv-aud-4", "p-laura");
+    await userEvent.click(await within(panel).findByRole("button", { name: "Download" }));
+    await waitFor(() => expect(opensOf("drv-aud-4", "p-laura")).toBe(before + 1));
+    expect(state.driveOpens.at(-1)!.via).toBe("download");
+  });
+
+  it("un PDF di 99 MB si carica", async () => {
+    await openDrive("/p/AUD/drive");
+    await screen.findByRole("grid");
+    await pick([sized("Rilievi cantiere.pdf", "application/pdf", 99 * MB)]);
+    await waitFor(() =>
+      expect(state.driveFiles.some((f) => f.name === "Rilievi cantiere.pdf")).toBe(true),
+    );
+    expect(screen.queryByText(/Too large/)).toBeNull();
   });
 });

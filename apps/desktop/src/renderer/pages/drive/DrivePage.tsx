@@ -14,9 +14,10 @@ import { hasModKey } from "../../platform/platform";
 import { Dialog } from "../../tasks-ui/Dialog";
 import { Chip } from "../../tasks-ui/FilterBar";
 import { MenuGroup, RadioItem, itemClass } from "../../tasks-ui/Menu";
-import { PageEmpty, PageError, PageSkeleton } from "../../tasks-ui/PageStates";
+import { PageEmpty, PageError } from "../../tasks-ui/PageStates";
+import { useToast } from "../../tasks-ui/Toast";
 import { Chevron, MenuButton, primaryButton, quietButton, secondaryButton } from "../tasks/controls";
-import { DriveList } from "./DriveList";
+import { DriveList, DriveSkeleton } from "./DriveList";
 import type { RowActions } from "./DriveRow";
 import {
   DRIVE_SORTS,
@@ -79,11 +80,12 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
     () => new Map((projects ?? []).map((p) => [p.id, p.name])),
     [projects],
   );
-  const uploadTargets = useMemo(
-    () => (projects ?? []).filter((p) => can(viewer, "drive.upload", p.id)),
-    [projects, viewer],
-  );
-  const filteredProject = global && search.prj ? uploadTargets.find((p) => p.code === search.prj) : undefined;
+  // Dove si può caricare (solo `drive.upload`); il progetto filtrato, se c'è, per primo.
+  const uploadTargets = useMemo(() => {
+    const list = (projects ?? []).filter((p) => can(viewer, "drive.upload", p.id));
+    const first = global ? search.prj : undefined;
+    return first ? [...list.filter((p) => p.code === first), ...list.filter((p) => p.code !== first)] : list;
+  }, [projects, viewer, global, search.prj]);
   const canUpload = project ? can(viewer, "drive.upload", project.id) : uploadTargets.length > 0;
 
   function setSearch(patch: Partial<PageSearch>, replace = false) {
@@ -115,8 +117,8 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
     );
   });
 
-  // Dove va un caricamento: il progetto della sezione; nella destinazione
-  // quello scelto (menu, dialogo) o quello filtrato, se ci si può caricare.
+  // Dove va un caricamento: il progetto della sezione; nella destinazione lo
+  // si chiede SEMPRE (A5) — dal menu di «Upload» o, trascinando, dal dialogo.
   const target = useRef<string | undefined>(undefined);
   const picker = useFilePicker((files) => {
     const pid = project?.id ?? target.current;
@@ -130,13 +132,10 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
   };
   const onDropped = (files: File[]) => {
     if (project) uploads.start(files, project.id);
-    else if (filteredProject) uploads.start(files, filteredProject.id);
-    else if (uploadTargets.length === 1) uploads.start(files, uploadTargets[0]!.id);
     else setChoosing(files);
   };
   const upload = () => {
     if (project) picker.open();
-    else if (filteredProject) pickFor(filteredProject);
     else uploadButton.current?.querySelector("button")?.click();
   };
 
@@ -155,6 +154,7 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
   }, [canUpload]);
 
   const openers = useDriveOpeners();
+  const toast = useToast();
   const actions = useMemo<RowActions>(
     () => ({
       onOpen: (row) =>
@@ -165,6 +165,8 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
       onPrimary: (row, view) => {
         if (row.source === "google") {
           if (row.unavailable === null) openers.google(row);
+          // Non disponibile: lo dice, invece di non fare nulla.
+          else toast.show(t(`drive.row.cantOpen.${row.unavailable}`, { code: row.code }));
           return;
         }
         if (previewKind(row)) {
@@ -179,7 +181,7 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
       },
       onDownload: (row) => openers.download(row),
     }),
-    [navigate, openers],
+    [navigate, openers, toast, t],
   );
   const onMoveOpen = useCallback(
     (row: DriveFileRow) =>
@@ -207,7 +209,7 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
       />
     );
   } else if (!rows || (projectCode && !project)) {
-    body = <PageSkeleton />;
+    body = <DriveSkeleton />;
   } else if (rows.length === 0 && (total ?? 0) > 0) {
     body = (
       <>
@@ -273,6 +275,11 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
   }
 
   return (
+    <DropZone
+      enabled={canUpload}
+      label={project ? t("drive.uploads.drop", { code: project.code }) : t("drive.uploads.dropAny")}
+      onFiles={onDropped}
+    >
     <section className="flex h-full min-h-0 flex-col" data-drive-page={project?.code ?? "all"}>
       <header className="page-header flex shrink-0 flex-col gap-3 pb-3 pl-8 [--page-header-pr:32px] [--page-header-pt:32px]">
         <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-2">
@@ -297,13 +304,7 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
             )}
             {canUpload && !project && (
               <span ref={uploadButton} className="inline-flex">
-                {filteredProject ? (
-                  <button type="button" className={primaryButton} onClick={upload}>
-                    <UploadGlyph />
-                    {t("drive.upload")}
-                  </button>
-                ) : (
-                  <MenuButton
+                <MenuButton
                     menuLabel={t("drive.uploadWhere")}
                     align="right"
                     className={primaryButton}
@@ -337,7 +338,6 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
                       </MenuGroup>
                     )}
                   </MenuButton>
-                )}
               </span>
             )}
           </div>
@@ -354,21 +354,9 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
           me={viewer.personId}
         />
       </header>
-      <DropZone
-        enabled={canUpload}
-        label={
-          project
-            ? t("drive.uploads.drop", { code: project.code })
-            : filteredProject
-              ? t("drive.uploads.drop", { code: filteredProject.code })
-              : t("drive.uploads.dropAny")
-        }
-        onFiles={onDropped}
-      >
-        <div data-drive-body className="min-h-0 flex-1 overflow-auto border-t border-rule">
-          {body}
-        </div>
-      </DropZone>
+      <div data-drive-body className="min-h-0 flex-1 overflow-auto border-t border-rule">
+        {body}
+      </div>
       {picker.element}
       <UploadAnnouncer uploads={uploads} />
       {choosing && (
@@ -404,6 +392,7 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
         </Dialog>
       )}
     </section>
+    </DropZone>
   );
 }
 
@@ -443,9 +432,9 @@ function DriveToolbar({
   const adders = useMemo(() => {
     const ids = [...new Set((allRows ?? []).map((r) => r.addedById))];
     return ids
-      .map((id) => ({ id, name: peopleNames.get(id) ?? id }))
+      .map((id) => ({ id, name: peopleNames.get(id) ?? t("drive.row.someone") }))
       .sort((a, b) => (a.id === me ? -1 : b.id === me ? 1 : a.name.localeCompare(b.name)));
-  }, [allRows, peopleNames, me]);
+  }, [allRows, peopleNames, me, t]);
   const withFiles = useMemo(() => {
     const ids = new Set((allRows ?? []).map((r) => r.projectId));
     return (projects ?? []).filter((p) => ids.has(p.id));
@@ -484,7 +473,10 @@ function DriveToolbar({
   const sourceSummary = search.source && (DRIVE_SOURCES as readonly string[]).includes(search.source)
     ? t(`drive.sources.${search.source}`)
     : null;
-  const adderSummary = search.addedBy ? (peopleNames.get(search.addedBy) ?? search.addedBy) : null;
+  // Mai un id grezzo: una persona che non conosco è «someone».
+  const adderSummary = search.addedBy
+    ? (peopleNames.get(search.addedBy) ?? t("drive.row.someone"))
+    : null;
 
   return (
     <div

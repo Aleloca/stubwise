@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type DragEvent,
+  type ReactNode,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { UPLOAD_LIMIT_BYTES } from "../../data/drive/content";
 import { useUploadFiles } from "../../data/queries";
@@ -34,42 +41,64 @@ export interface UploadItem {
 
 let nextKey = 1;
 
+interface UploadsState {
+  items: UploadItem[];
+  /** L'ultimo annuncio `polite` (fine, errore, «Kept both»). */
+  announcement: string;
+}
+
+/** Un archivio piccolo per pagina: chi disegna l'avanzamento si iscrive, la pagina no. */
+function createUploadsStore() {
+  let state: UploadsState = { items: [], announcement: "" };
+  const listeners = new Set<() => void>();
+  return {
+    get: () => state,
+    set(fn: (s: UploadsState) => UploadsState) {
+      state = fn(state);
+      for (const l of listeners) l();
+    },
+    subscribe(l: () => void) {
+      listeners.add(l);
+      return () => {
+        listeners.delete(l);
+      };
+    },
+  };
+}
+
 /**
  * I caricamenti di una pagina del Drive. Vivono con la pagina: cambiare
  * persona la rimonta, e i caricamenti a metà (timer compresi) se ne vanno.
  * `onUploaded` riceve la riga nuova (la pagina la segna come appena arrivata).
+ *
+ * L'avanzamento (un passo ogni 80 ms) sta in un archivio a parte: lo legge
+ * solo il gruppo UPLOADING (`useUploadsState`), così la pagina e le sue 500
+ * righe non si ridisegnano a ogni passo. L'oggetto restituito è stabile.
  */
 export function useUploads(onUploaded?: (file: DriveFileRow) => void) {
   const { t, i18n } = useTranslation();
   const toast = useToast();
   const { mutateAsync } = useUploadFiles();
-  const [items, setItems] = useState<UploadItem[]>([]);
-  const [announcement, setAnnouncement] = useState("");
-  const timers = useRef(new Map<number, number>());
-  const alive = useRef(true);
-  const uploaded = useRef(onUploaded);
-  uploaded.current = onUploaded;
+  // I valori correnti, letti dalle funzioni stabili qui sotto.
+  const live = useRef({ t, language: i18n.language, toast, mutateAsync, onUploaded });
+  live.current = { t, language: i18n.language, toast, mutateAsync, onUploaded };
 
-  useEffect(() => {
-    alive.current = true;
-    const map = timers.current;
-    return () => {
-      alive.current = false;
-      for (const id of map.values()) window.clearInterval(id);
-      map.clear();
-    };
-  }, []);
+  const [api] = useState(() => {
+    const store = createUploadsStore();
+    const timers = new Map<number, number>();
+    let alive = true;
+    const patch = (key: number, p: Partial<UploadItem>) =>
+      store.set((s) => ({ ...s, items: s.items.map((i) => (i.key === key ? { ...i, ...p } : i)) }));
+    const drop = (key: number) =>
+      store.set((s) => ({ ...s, items: s.items.filter((i) => i.key !== key) }));
+    const announce = (announcement: string) => store.set((s) => ({ ...s, announcement }));
 
-  const patch = (key: number, p: Partial<UploadItem>) =>
-    setItems((list) => list.map((i) => (i.key === key ? { ...i, ...p } : i)));
-  const drop = (key: number) => setItems((list) => list.filter((i) => i.key !== key));
-
-  const save = useCallback(
-    async (item: UploadItem) => {
-      if (!alive.current) return;
+    async function save(item: UploadItem) {
+      if (!alive) return;
+      const { t: tr, toast: toasts, mutateAsync: upload } = live.current;
       patch(item.key, { status: "saving", loaded: item.sizeBytes });
       try {
-        const [result] = await mutateAsync({
+        const [result] = await upload({
           projectId: item.projectId,
           files: [
             {
@@ -79,7 +108,7 @@ export function useUploads(onUploaded?: (file: DriveFileRow) => void) {
             },
           ],
         });
-        if (!alive.current) return;
+        if (!alive) return;
         if (!result || result.error === "too_large" || !result.file) {
           patch(item.key, { status: "too_large" });
           return;
@@ -87,27 +116,24 @@ export function useUploads(onUploaded?: (file: DriveFileRow) => void) {
         const row = result.file;
         const kind = previewKind(row);
         if (kind) await rememberBlob(row.id, item.file, kind);
-        if (!alive.current) return;
+        if (!alive) return;
         drop(item.key);
-        uploaded.current?.(row);
+        live.current.onUploaded?.(row);
         if (row.name !== item.name) {
-          const kept = t("drive.uploads.keptBoth", { name: row.name });
-          toast.show(kept);
-          setAnnouncement(kept);
+          const kept = tr("drive.uploads.keptBoth", { name: row.name });
+          toasts.show(kept);
+          announce(kept);
         } else {
-          setAnnouncement(t("drive.uploads.done", { name: row.name, code: row.code }));
+          announce(tr("drive.uploads.done", { name: row.name, code: row.code }));
         }
       } catch {
-        if (!alive.current) return;
+        if (!alive) return;
         patch(item.key, { status: "failed" });
-        setAnnouncement(`${item.name}: ${t("drive.uploads.failed")}`);
+        announce(`${item.name}: ${live.current.t("drive.uploads.failed")}`);
       }
-    },
-    [mutateAsync, t, toast],
-  );
+    }
 
-  const run = useCallback(
-    (item: UploadItem) => {
+    function run(item: UploadItem) {
       if (UPLOAD_PACE.ms <= 0) {
         void save(item);
         return;
@@ -118,56 +144,78 @@ export function useUploads(onUploaded?: (file: DriveFileRow) => void) {
         step += 1;
         if (step >= steps) {
           window.clearInterval(id);
-          timers.current.delete(item.key);
+          timers.delete(item.key);
           void save(item);
           return;
         }
         patch(item.key, { loaded: Math.round((item.sizeBytes * step) / steps) });
       }, TICK_MS);
-      timers.current.set(item.key, id);
-    },
-    [save],
-  );
+      timers.set(item.key, id);
+    }
 
-  /** Carica dei file nel Drive di un progetto: uno per riga, ciascuno col suo esito. */
-  const start = useCallback(
-    (files: readonly File[], projectId: string) => {
-      const fresh: UploadItem[] = files.map((file) => ({
-        key: nextKey++,
-        name: file.name,
-        sizeBytes: file.size,
-        loaded: 0,
-        status: file.size > UPLOAD_LIMIT_BYTES ? "too_large" : "uploading",
-        projectId,
-        file,
-      }));
-      setItems((list) => [...list, ...fresh]);
-      const tooLarge = fresh.filter((i) => i.status === "too_large");
-      if (tooLarge.length > 0) {
-        setAnnouncement(
-          tooLarge
-            .map((i) => `${i.name}: ${t("drive.uploads.tooLarge", { size: formatSize(i.sizeBytes, i18n.language) })}`)
-            .join(". "),
-        );
-      }
-      for (const item of fresh) if (item.status === "uploading") run(item);
-    },
-    [run, t, i18n.language],
-  );
+    return {
+      store,
+      /** Carica dei file nel Drive di un progetto: uno per riga, ciascuno col suo esito. */
+      start(files: readonly File[], projectId: string) {
+        const fresh: UploadItem[] = files.map((file) => ({
+          key: nextKey++,
+          name: file.name,
+          sizeBytes: file.size,
+          loaded: 0,
+          status: file.size > UPLOAD_LIMIT_BYTES ? "too_large" : "uploading",
+          projectId,
+          file,
+        }));
+        store.set((s) => ({ ...s, items: [...s.items, ...fresh] }));
+        const tooLarge = fresh.filter((i) => i.status === "too_large");
+        if (tooLarge.length > 0) {
+          const { t: tr, language } = live.current;
+          announce(
+            tooLarge
+              .map(
+                (i) =>
+                  `${i.name}: ${tr("drive.uploads.tooLarge", { size: formatSize(i.sizeBytes, language) })}`,
+              )
+              .join(". "),
+          );
+        }
+        for (const item of fresh) if (item.status === "uploading") run(item);
+      },
+      cancel(key: number) {
+        const id = timers.get(key);
+        if (id !== undefined) window.clearInterval(id);
+        timers.delete(key);
+        drop(key);
+      },
+      retry(item: UploadItem) {
+        const again = { ...item, loaded: 0, status: "uploading" as const };
+        patch(item.key, again);
+        run(again);
+      },
+      dismiss: drop,
+      /** Montando (di nuovo, con StrictMode): le scritture tornano a valere. */
+      revive() {
+        alive = true;
+      },
+      /** Smontando la pagina: niente più timer né scritture. */
+      dispose() {
+        alive = false;
+        for (const id of timers.values()) window.clearInterval(id);
+        timers.clear();
+      },
+    };
+  });
 
-  const cancel = (key: number) => {
-    const id = timers.current.get(key);
-    if (id !== undefined) window.clearInterval(id);
-    timers.current.delete(key);
-    drop(key);
-  };
-  const retry = (item: UploadItem) => {
-    const again = { ...item, loaded: 0, status: "uploading" as const };
-    patch(item.key, again);
-    run(again);
-  };
+  useEffect(() => {
+    api.revive();
+    return () => api.dispose();
+  }, [api]);
+  return api;
+}
 
-  return { items, start, cancel, retry, dismiss: drop, announcement };
+/** Lo stato dei caricamenti, per chi lo disegna (il gruppo UPLOADING, l'annuncio). */
+export function useUploadsState(uploads: Uploads): UploadsState {
+  return useSyncExternalStore(uploads.store.subscribe, uploads.store.get);
 }
 
 export type Uploads = ReturnType<typeof useUploads>;
@@ -179,13 +227,14 @@ export type Uploads = ReturnType<typeof useUploads>;
  */
 export function UploadingGroup({ uploads }: { uploads: Uploads }) {
   const { t, i18n } = useTranslation();
-  if (uploads.items.length === 0) return null;
+  const { items } = useUploadsState(uploads);
+  if (items.length === 0) return null;
   const size = (n: number) => formatSize(n, i18n.language);
   return (
     <section aria-label={t("drive.uploads.heading")} data-uploading className="border-b border-rule">
       <h2 className="heading-group flex h-9 items-end px-4 pb-1.5">{t("drive.uploads.heading")}</h2>
       <ul>
-        {uploads.items.map((item) => (
+        {items.map((item) => (
           <li
             key={item.key}
             data-upload={item.name}
@@ -256,9 +305,10 @@ export function UploadingGroup({ uploads }: { uploads: Uploads }) {
 
 /** Fine, errori e «Kept both», detti ai lettori di schermo (`polite`). */
 export function UploadAnnouncer({ uploads }: { uploads: Uploads }) {
+  const { announcement } = useUploadsState(uploads);
   return (
     <p role="status" aria-live="polite" className="sr-only">
-      {uploads.announcement}
+      {announcement}
     </p>
   );
 }
@@ -311,7 +361,7 @@ export function DropZone({
   return (
     <div
       data-drop-zone
-      className="relative flex min-h-0 flex-1 flex-col"
+      className="relative flex h-full min-h-0 flex-col"
       onDragEnter={(e) => {
         if (!hasFiles(e)) return;
         e.preventDefault();

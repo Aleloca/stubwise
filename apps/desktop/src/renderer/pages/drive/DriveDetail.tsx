@@ -26,14 +26,14 @@ import { itemClass } from "../../tasks-ui/Menu";
 import { PageError } from "../../tasks-ui/PageStates";
 import { Avatar } from "../../tasks-ui/PersonChip";
 import { useToast } from "../../tasks-ui/Toast";
-import { readDraft, writeDraft } from "../chat/drafts";
 import { TrapFocus } from "../chat/ThreadPanel";
 import { CloseIcon, MoreIcon, Section, ghostButton, smallPrimary, smallSecondary } from "../task/parts";
 import { MenuButton } from "../tasks/controls";
 import { forgetBlob } from "./blobs";
 import { fileHref } from "./DriveList";
 import { previewKind } from "./driveFilters";
-import { GoogleCard, PreviewThumb, closePreview, useDriveOpeners } from "./FilePreview";
+import { GoogleCard, PreviewThumb, useDriveOpeners, viewItemsFor } from "./FilePreview";
+import { ShareToChatDialog, writableChannels } from "./ShareToChat";
 import { formatSize, modifiedLabel } from "./format";
 import {
   DownloadGlyph,
@@ -177,8 +177,6 @@ type Confirming = "delete" | "remove" | null;
 function FileBody({ file, onClose }: { file: DriveFileDetail; onClose: () => void }) {
   const { t, i18n } = useTranslation();
   const toast = useToast();
-  const navigate = useNavigate();
-  const me = useSessionPersonId();
   const projects = useProjects().data;
   const project = projects?.find((p) => p.id === file.projectId);
   const people = usePeople().data;
@@ -188,10 +186,12 @@ function FileBody({ file, onClose }: { file: DriveFileDetail; onClose: () => voi
   const remove = useRemoveGoogleFile();
   const hide = useSetDriveHidden();
   const retry = useRetryExtraction();
-  const channels = useChatChannels({ scope: "project", projectId: file.projectId });
-  const general =
-    channels.data?.find((c) => c.isGeneral) ?? channels.data?.find((c) => c.isMember && !c.archived);
+  // «Cite in Chat»: solo se c'è almeno un canale in cui chi guarda può scrivere.
+  const writable = writableChannels(useChatChannels({ scope: "all" }).data);
+  const [sharing, setSharing] = useState(false);
   const [confirming, setConfirming] = useState<Confirming>(null);
+  // L'anteprima scorre (←/→) i file della vista dell'elenco, come dalla riga.
+  const openPreview = () => openers.preview(file, viewItemsFor(file));
 
   const kind = previewKind(file);
   const google = file.source === "google";
@@ -201,17 +201,8 @@ function FileBody({ file, onClose }: { file: DriveFileDetail; onClose: () => voi
     void navigator.clipboard?.writeText(fileHref(file)).catch(() => {});
     toast.show(t("drive.detail.linkCopied"));
   };
-  // «Cite in Chat» (A11): il canale del progetto, col codice già nella casella.
-  const cite = () => {
-    if (!general || !project) return;
-    const draft = readDraft(me, general.id);
-    writeDraft(me, general.id, `${draft}${draft && !draft.endsWith(" ") ? " " : ""}${file.code} `);
-    closePreview();
-    void navigate({
-      to: "/p/$code/chat/$channelId",
-      params: { code: project.code, channelId: general.id },
-    });
-  };
+  // «Cite in Chat» (A11): il dialogo «Share to…».
+  const cite = () => setSharing(true);
   const doHide = () =>
     hide.mutate(
       { id: file.id, hidden: true },
@@ -254,7 +245,7 @@ function FileBody({ file, onClose }: { file: DriveFileDetail; onClose: () => voi
       </button>
     ) : null
   ) : kind ? (
-    <button type="button" className={smallPrimary} onClick={() => openers.preview(file, [file])}>
+    <button type="button" data-preview-origin className={smallPrimary} onClick={openPreview}>
       <span className="flex items-center gap-1.5">
         <OpenGlyph />
         {t("drive.detail.open")}
@@ -300,7 +291,7 @@ function FileBody({ file, onClose }: { file: DriveFileDetail; onClose: () => voi
               >
                 {t("drive.detail.copyLink")}
               </button>
-              {general && (
+              {writable.length > 0 && (
                 <button
                   type="button"
                   role="menuitem"
@@ -337,7 +328,7 @@ function FileBody({ file, onClose }: { file: DriveFileDetail; onClose: () => voi
           <button
             type="button"
             aria-label={t("drive.detail.open")}
-            onClick={() => openers.preview(file, [file])}
+            onClick={openPreview}
             className="block w-full cursor-zoom-in rounded-md text-left transition-opacity duration-[var(--duration-fast)] ease-out hover:opacity-90"
           >
             <PreviewThumb file={file} />
@@ -366,7 +357,7 @@ function FileBody({ file, onClose }: { file: DriveFileDetail; onClose: () => voi
           <button type="button" className={ghostButton} onClick={copyLink}>
             {t("drive.detail.copyLink")}
           </button>
-          {general && (
+          {writable.length > 0 && (
             <button type="button" className={ghostButton} onClick={cite}>
               {t("drive.detail.cite")}
             </button>
@@ -433,6 +424,9 @@ function FileBody({ file, onClose }: { file: DriveFileDetail; onClose: () => voi
         </div>
       )}
 
+      {sharing && (
+        <ShareToChatDialog file={file} channels={writable} onClose={() => setSharing(false)} />
+      )}
       {confirming && (
         <Dialog
           title={t(

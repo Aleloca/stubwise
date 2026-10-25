@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -44,6 +45,20 @@ const emit = () => listeners.forEach((l) => l());
 function setPreview(next: PreviewState | null) {
   current = next;
   emit();
+}
+
+// I file della vista che l'elenco mostra adesso, nel suo ordine: l'anteprima
+// aperta dal dettaglio scorre questi (←/→) come quella aperta dalla riga.
+let viewItems: ViewItem[] = [];
+
+/** L'elenco del Drive dice quali file mostra (e li toglie smontandosi). */
+export function setViewItems(items: ViewItem[]): void {
+  viewItems = items;
+}
+
+/** I file da scorrere a partire da `file`: la vista, se lo contiene; sennò lui solo. */
+export function viewItemsFor(file: ViewItem): ViewItem[] {
+  return viewItems.some((i) => i.code === file.code) ? viewItems : [file];
 }
 
 /** Chiude l'anteprima (Esc, «Open details», cambio di persona, test). */
@@ -103,7 +118,8 @@ export function useDriveOpeners() {
     },
     [mutate, toast, t],
   );
-  return { preview, google, download };
+  // Stabile: le righe (memo) e i loro gestori non si ridisegnano per un render della pagina.
+  return useMemo(() => ({ preview, google, download }), [preview, google, download]);
 }
 
 /** Il file non ha (più) il suo contenuto in questa sessione: una pagina tipo con la nota del prototipo. */
@@ -181,9 +197,16 @@ export function GoogleCard({ file }: { file: DriveFileRow }) {
 }
 
 /** Il contenuto dell'anteprima intera, secondo il tipo e ciò che la sessione ha del file. */
-function PreviewBody({ file }: { file: DriveFileRow }) {
+function PreviewBody({
+  file,
+  zoomed,
+  setZoomed,
+}: {
+  file: DriveFileRow;
+  zoomed: boolean;
+  setZoomed: (fn: (z: boolean) => boolean) => void;
+}) {
   const { t } = useTranslation();
-  const [zoomed, setZoomed] = useState(false);
   const kind = previewKind(file);
   const blob = blobOf(file.id);
   if (kind === "image" && blob?.url) {
@@ -247,11 +270,20 @@ function FilePreview({ state }: { state: PreviewState }) {
   const prev = at > 0 ? state.items[at - 1] : undefined;
   const next = at >= 0 ? state.items[at + 1] : undefined;
   const missing = file === null;
+  // Un'immagine ingrandita: le frecce la scorrono, non cambiano file.
+  const [zoomed, setZoomed] = useState(false);
 
   const close = useCallback(() => {
     const code = state.code;
     closePreview();
     requestAnimationFrame(() => {
+      // Sopra un dettaglio sovrapposto (modale) il fuoco torna dentro il pannello,
+      // al bottone che ha aperto l'anteprima; sennò alla riga del file.
+      const panel = document.querySelector<HTMLElement>('[data-detail-panel][data-mode="overlay"]');
+      if (panel) {
+        (panel.querySelector<HTMLElement>("[data-preview-origin]") ?? panel).focus();
+        return;
+      }
       document.querySelector<HTMLElement>(`[data-drive-row="${CSS.escape(code)}"]`)?.focus();
     });
   }, [state.code]);
@@ -271,6 +303,8 @@ function FilePreview({ state }: { state: PreviewState }) {
       if (e.key === "Escape") {
         e.preventDefault();
         close();
+      } else if (zoomed) {
+        return;
       } else if (e.key === "ArrowLeft" && prev) {
         e.preventDefault();
         openers.preview(prev, state.items);
@@ -281,7 +315,7 @@ function FilePreview({ state }: { state: PreviewState }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [close, prev, next, openers, state.items]);
+  }, [close, prev, next, openers, state.items, zoomed]);
 
   const openDetails = () => {
     closePreview();
@@ -352,7 +386,7 @@ function FilePreview({ state }: { state: PreviewState }) {
           </button>
         </div>
       </header>
-      <div className="min-h-0 flex-1">{file && <PreviewBody file={file} />}</div>
+      <div className="min-h-0 flex-1">{file && <PreviewBody file={file} zoomed={zoomed} setZoomed={setZoomed} />}</div>
     </div>
   );
 }

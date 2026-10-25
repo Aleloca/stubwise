@@ -6,6 +6,7 @@ import { useToast } from "../../tasks-ui/Toast";
 import { DisclosureGlyph } from "../chat/glyphs";
 import { typing } from "../tasks/useTaskKeys";
 import { DriveRow, type RowActions } from "./DriveRow";
+import { setViewItems } from "./FilePreview";
 import { FolderGlyph } from "./glyphs";
 
 // L'elenco del Drive (shape drive.md §3, §7): una griglia con le intestazioni
@@ -20,6 +21,54 @@ import { FolderGlyph } from "./glyphs";
 
 /** Quanti file di una cartella si vedono prima di «Show N more» (A1). */
 export const FOLDER_PREVIEW = 5;
+
+/**
+ * Un dialogo modale o un menu aperto si tengono J/K — ma non il pannello di
+ * dettaglio sovrapposto (modale anche lui, a 1024 sempre): J/K da lì
+ * scorrono i file, come affiancato.
+ */
+function somethingOnTop(): boolean {
+  if (document.querySelector('[role="menu"]')) return true;
+  return [...document.querySelectorAll('[aria-modal="true"]')].some(
+    (el) => !el.hasAttribute("data-detail-panel"),
+  );
+}
+
+/** Lo scheletro della pagina: 8 righe con la forma vera di una riga del Drive (56 px, due linee). */
+const SKELETON_WIDTHS = ["58%", "44%", "66%", "38%", "52%", "61%", "47%", "55%"];
+
+export function DriveSkeleton() {
+  const { t } = useTranslation();
+  const bar = "rounded-sm bg-ink/8";
+  return (
+    <div aria-busy="true" className="skeleton-breathe">
+      <span role="status" className="sr-only">
+        {t("taskUi.states.loading")}
+      </span>
+      {SKELETON_WIDTHS.map((w, i) => (
+        <div
+          key={i}
+          data-drive-skeleton-row
+          className="flex h-14 items-center gap-3 border-b border-rule pr-3 pl-4"
+        >
+          <span className={`h-2.5 w-12 shrink-0 self-start mt-[13px] ${bar}`} />
+          <span className="ml-[24px] flex min-w-0 flex-1 flex-col gap-2">
+            <span className={`block h-2.5 ${bar}`} style={{ width: w }} />
+            <span className={`block h-2 ${bar} opacity-70`} style={{ width: `calc(${w} + 18%)` }} />
+          </span>
+          <span className="flex w-[140px] shrink-0 items-center gap-2">
+            <span className="size-[22px] rounded-full bg-ink/8" />
+            <span className={`h-2.5 w-16 ${bar}`} />
+          </span>
+          <span className={`h-2.5 w-10 shrink-0 ${bar}`} />
+          <span className="flex w-[124px] shrink-0 justify-end">
+            <span className={`h-2.5 w-5 ${bar}`} />
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 /** Il link di un file, da incollare ovunque. */
 export const fileHref = (row: Pick<DriveFileRow, "projectCode" | "code">) =>
@@ -173,6 +222,11 @@ export function DriveList({
 
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
+  // Il dettaglio apre l'anteprima su questi stessi file (←/→ come dalla riga).
+  useEffect(() => {
+    setViewItems(visible.map((r) => ({ id: r.id, code: r.code })));
+  }, [visible]);
+  useEffect(() => () => setViewItems([]), []);
   // L'anteprima scorre (←/→) i file nell'ordine in cui la vista li mostra.
   const rowActions = useMemo<RowActions>(
     () => ({ ...actions, onPrimary: (row) => actions.onPrimary(row, visibleRef.current) }),
@@ -198,7 +252,7 @@ export function DriveList({
     if (!openCode) return;
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.defaultPrevented || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
-      if (typing(e.target) || document.querySelector('[aria-modal="true"], [role="menu"]')) return;
+      if (typing(e.target) || somethingOnTop()) return;
       const k = e.key.toLowerCase();
       if (k !== "j" && k !== "k") return;
       const next = move(openCode, k === "j" ? 1 : -1);
@@ -293,6 +347,9 @@ export function DriveList({
   };
 
   return (
+    <>
+    {/* Il gruppo UPLOADING sta sopra la griglia, fuori dalla sua struttura di righe. */}
+    {top}
     <div ref={grid} role="grid" aria-label={label} data-drive-grid className="@container min-w-0">
       <div role="rowgroup" className="sticky top-0 z-10 bg-ground">
         <div
@@ -315,7 +372,6 @@ export function DriveList({
           {header("opens", t("drive.columns.opens"), "flex w-[124px] shrink-0 justify-end whitespace-nowrap")}
         </div>
       </div>
-      {top}
       {groups.map((g) => {
         const open = !closed.includes(g.id);
         const showAll = expanded.includes(g.id);
@@ -380,5 +436,6 @@ export function DriveList({
         </div>
       )}
     </div>
+    </>
   );
 }

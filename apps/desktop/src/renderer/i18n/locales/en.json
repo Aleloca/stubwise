@@ -3288,7 +3288,11 @@
       "open": "Open {{code}}",
       "download": "Download {{code}}",
       "openGoogle": "Open {{code}} in Google Drive",
-      "someone": "someone"
+      "someone": "someone",
+      "cantOpen": {
+        "deleted": "{{code}} can't be opened: it was deleted on Google.",
+        "access_lost": "{{code}} can't be opened: Stubwise lost access to it on Google."
+      }
     },
     "time": {
       "now": "Just now",
@@ -3385,7 +3389,7 @@
     "preview": {
       "label": "Preview of {{code}}",
       "fake": "Preview not available in this prototype session",
-      "fakeBody": "This file was uploaded before the app restarted. In the real app its preview is here.",
+      "fakeBody": "The prototype keeps a file's content only while the app stays open after uploading it. The real app shows the preview here.",
       "openDetails": "Open details",
       "close": "Close preview",
       "prev": "Previous file",
@@ -3399,6 +3403,17 @@
       "mine": "Added by me",
       "google": "Google",
       "projects": "Projects"
+    },
+    "share": {
+      "title": "Share to…",
+      "body": "{{code}} goes into the message box of the channel you choose. You can add a few words before sending.",
+      "channels": "Channels you can write in",
+      "groupProject": "{{code}} channels",
+      "groupOther": "Other channels",
+      "groupDm": "Direct messages",
+      "general": "general",
+      "open": "Open in channel",
+      "cancel": "Cancel"
     }
   }
 }

@@ -3288,7 +3288,11 @@
       "open": "Apri {{code}}",
       "download": "Scarica {{code}}",
       "openGoogle": "Apri {{code}} in Google Drive",
-      "someone": "qualcuno"
+      "someone": "qualcuno",
+      "cantOpen": {
+        "deleted": "{{code}} non si può aprire: è stato eliminato su Google.",
+        "access_lost": "{{code}} non si può aprire: Stubwise ha perso l'accesso su Google."
+      }
     },
     "time": {
       "now": "Adesso",
@@ -3385,7 +3389,7 @@
     "preview": {
       "label": "Anteprima di {{code}}",
       "fake": "Anteprima non disponibile in questa sessione del prototipo",
-      "fakeBody": "Il file è stato caricato prima del riavvio dell'app. Nell'app vera qui c'è la sua anteprima.",
+      "fakeBody": "Il prototipo tiene il contenuto di un file solo finché l'app resta aperta dopo averlo caricato. Nell'app vera qui c'è l'anteprima.",
       "openDetails": "Apri i dettagli",
       "close": "Chiudi l'anteprima",
       "prev": "File precedente",
@@ -3399,6 +3403,17 @@
       "mine": "Aggiunti da me",
       "google": "Google",
       "projects": "Progetti"
+    },
+    "share": {
+      "title": "Condividi in…",
+      "body": "{{code}} va nella casella del canale che scegli. Puoi aggiungere due parole prima di inviare.",
+      "channels": "Canali in cui puoi scrivere",
+      "groupProject": "Canali di {{code}}",
+      "groupOther": "Altri canali",
+      "groupDm": "Messaggi diretti",
+      "general": "general",
+      "open": "Apri nel canale",
+      "cancel": "Annulla"
     }
   }
 }

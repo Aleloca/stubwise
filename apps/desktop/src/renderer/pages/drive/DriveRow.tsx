@@ -204,11 +204,17 @@ export const DriveRow = memo(function DriveRow({
       <span role="gridcell" className="relative flex w-[76px] shrink-0 justify-end @max-[720px]:hidden">
         <span
           title={modifiedLabel(row.modifiedAt, t, i18n.language)}
-          className="num text-xs whitespace-nowrap text-ink-muted group-focus-within/row:hidden group-hover/row:hidden"
+          className="num text-xs whitespace-nowrap text-ink-muted"
         >
           {modifiedLabel(row.modifiedAt, t, i18n.language)}
         </span>
-        <span className="hidden items-center gap-0.5 group-focus-within/row:flex group-hover/row:flex">
+      </span>
+      <span role="gridcell" className="relative w-[124px] shrink-0">
+        <Opens count={row.opens90d} />
+        {/* Le azioni rapide al passaggio e col fuoco: nello spazio libero a sinistra del
+            numero, nella colonna che resta sempre — mai in una che cade a 1024. */}
+        <span className="absolute top-1/2 right-9 hidden -translate-y-1/2 rounded-md bg-ground group-focus-within/row:flex group-hover/row:flex">
+          <span className={`flex items-center gap-0.5 rounded-md px-0.5 ${selected || current ? "bg-ink/10" : "bg-ink/6"}`}>
           {row.source === "google" && !unavailable && (
             <button
               type="button"
@@ -254,10 +260,8 @@ export const DriveRow = memo(function DriveRow({
               <DownloadGlyph />
             </button>
           )}
+          </span>
         </span>
-      </span>
-      <span role="gridcell" className="w-[124px] shrink-0">
-        <Opens count={row.opens90d} />
       </span>
     </div>
   );
