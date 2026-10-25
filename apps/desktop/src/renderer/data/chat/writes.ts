@@ -301,16 +301,17 @@ function canCite(me: string, ref: CitationRef, visible: ReadonlySet<string>): bo
 function citationsOf(me: string, text: string, picked: readonly CitationRef[]): CitationRef[] {
   const visible = visibleProjectIds(me);
   // Il codice di un file citato (R-H5) lo decide il server, non chi scrive:
-  // un codice mandato dal client non si conserva mai così com'è.
-  const out = picked
-    .filter((ref) => canCite(me, ref, visible) && stillNamed(ref, text))
-    .map((sent): CitationRef => {
-      const ref: CitationRef = { kind: sent.kind, id: sent.id };
-      const code =
-        ref.kind === "drive" ? state.driveFiles.find((f) => f.id === ref.id)?.code : undefined;
-      return code ? { ...ref, code } : ref;
-    });
+  // un codice mandato dal client non si conserva mai così com'è. Lo stesso
+  // oggetto scelto due volte resta una citazione sola.
+  const out: CitationRef[] = [];
   const has = (ref: CitationRef) => out.some((r) => r.kind === ref.kind && r.id === ref.id);
+  for (const sent of picked) {
+    if (!canCite(me, sent, visible) || !stillNamed(sent, text) || has(sent)) continue;
+    const ref: CitationRef = { kind: sent.kind, id: sent.id };
+    const code =
+      ref.kind === "drive" ? state.driveFiles.find((f) => f.id === ref.id)?.code : undefined;
+    out.push(code ? { ...ref, code } : ref);
+  }
   for (const { code, kind } of findCodes(text)) {
     const id =
       kind === "task"

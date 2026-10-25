@@ -256,6 +256,15 @@ describe("Claude legge i file del Drive", () => {
     expect(stored.citations).toEqual([CITED]);
   });
 
+  it("lo stesso file scelto due volte resta una citazione sola", async () => {
+    const sent = await chat.sendMessage("ch-aud-general", {
+      text: "See AUD-F7 and again AUD-F7",
+      citations: [ref(F7), ref(F7)],
+    });
+    const stored = state.chatMessages.find((m) => m.id === sent.id)!;
+    expect(stored.citations).toEqual([CITED]);
+  });
+
   it("@Claude in Chat cita il file; chi non vede AUD legge il gettone tenue senza nome", async () => {
     setStreamLatency(null);
     const call = await chat.sendMessage("ch-announcements", { text: `@Claude ${Q_EN}` });

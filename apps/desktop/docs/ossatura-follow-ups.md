@@ -239,8 +239,7 @@ I buchi di parità stanno in `area4-parity.md`, «Buchi». L'elenco per task:
 
 ## Area 5 — minori aperti
 
-Parità e buchi: `area5-parity.md`. L'elenco per task:
-`.superpowers/sdd/2026-10-25-desktop-area5-docs-drive-plan/progress.md`.
+Parità e buchi: `area5-parity.md`.
 Chiusa dall'area 5 (Task 9): la decisione aperta dell'area 4 sulla struttura
 del Drive per gli allegati — l'allegato ha «Save to Drive»
 (`pages/chat/SaveToDrive.tsx`), in un DM o in un canale generale chiede il
@@ -268,10 +267,8 @@ progetto; vedi `area4-parity.md`.
 
 ### Dati e modello (Task 1, 3)
 
-- La citazione di una pagina dei Docs porta alla pagina, non alla sezione:
-  `pages/docs/DocPageView.tsx`.
-- Il grafo non ha il report delle comunità né il contenuto completo di
-  `graph.json` (è un riassunto, non ogni nodo): `data/seed/`, `pages/docs/DocGraph.tsx`.
+- `graph.json` scaricato è un riassunto (comunità e nodi principali), non
+  ogni nodo: `data/seed/`, `pages/docs/DocGraph.tsx`.
 - Manca il test di `resolveCodes` per chi vede AUD senza `docs.view`:
   `data/docs/docs.test.ts`.
 - `LocalProjectPermission` non ha `docs.view` (cast `as never`): `data/store.ts`.
@@ -303,9 +300,9 @@ progetto; vedi `area4-parity.md`.
   (documentato); la simulazione di `syncFolder` e dell'estrazione in corso ha
   buchi: `data/drive/writes.ts`.
 - Scollegare l'account di chi ha collegato la cartella rende i file non
-  disponibili per tutti, e solo lui li ripristina; chi scollega e ricollega da
-  un altro gestore perde i conteggi — da verificare che il testo dei dialoghi
-  lo dica: `pages/drive/DriveBanners.tsx`.
+  disponibili per tutti, e solo lui li ripristina; un altro gestore può solo
+  scollegare e ricollegare, perdendo i conteggi (i dialoghi lo dicono):
+  `pages/drive/DriveBanners.tsx`, `pages/drive/GoogleAccountCard.tsx`.
 
 ### Drive: pagine e ricerca (Task 6–8)
 
@@ -321,9 +318,8 @@ progetto; vedi `area4-parity.md`.
   essere tagliato sulle ultime righe: `pages/drive/DriveRow.tsx`.
 - La palette importa `openLinkFolder` da un modulo di pagina (strati):
   `palette/commands.ts`, `pages/drive/LinkFolderDialog.tsx`.
-- I risultati della ricerca sono a pagine da 20; `fold` e l'evidenziazione
-  stanno in `pages/chat/search` e il livello dati li importa:
-  `data/drive/reads.ts`.
+- I risultati della ricerca non sono a pagine da 20 (lo shape lo chiede):
+  `pages/drive/DriveSearch.tsx`.
 - Il flag di modulo `personaChangedWithQuery` si regge sul rimontaggio, e la
   preselezione di ⌘K salta da un'azione a un oggetto quando arrivano risultati
   freschi: `pages/drive/DriveSearch.tsx`, `palette/CommandPalette.tsx`.
@@ -338,6 +334,13 @@ progetto; vedi `area4-parity.md`.
   `data/chat/claude.ts`, `data/drive/reads.ts`.
 - La ricerca per codici citati e i `citedCodes` di @Claude ignorano il Drive
   (come per i Docs): `data/chat/claude.ts`.
+- Un «Ferma» che arriva quando il messaggio è già consegnato ma mentre Claude
+  sta ancora scrivendo la risposta sui file, in una sessione in pausa, lascia
+  che la ripresa riparta dopo lo stop (precedente all'area 5):
+  `data/api-mutations.ts` (~1598).
+- L'avviso «pagina non aggiornata» dei Docs ha un bordo sinistro ambra di 2px,
+  che `DESIGN.md` vieta ma lo shape approvato chiede: da decidere col
+  maintainer. `pages/docs/DocPageView.tsx`.
 
 ### Dalla revisione finale (rimandati)
 
