@@ -2,7 +2,7 @@ import { CALENDAR_LOOKBACK_DAYS, CALENDAR_WINDOW_DAYS } from "@stubwise/shared";
 import { daysFromToday } from "../seed/dates";
 import { state } from "../store";
 import type { CalendarEvent, CalendarSeries } from "../types";
-import { activeParticipants } from "./deadlines";
+import { activeParticipants } from "./proposals";
 
 // Chi vede che cosa nel Calendario (area 6): UNA regola, per ogni lettura e
 // ogni scrittura. Un evento lo vede chi lo ha nel proprio calendario o è fra
@@ -17,6 +17,12 @@ import { activeParticipants } from "./deadlines";
  * La finestra letta, a giorni interi UTC: dall'inizio del giorno di 30 giorni
  * fa alla fine di quello fra 60 (oggi 23 ottobre → 23 settembre – 22
  * dicembre compresi). `to` è esclusa.
+ *
+ * I giorni interi sono DELIBERATI, non `now ± giorni` al minuto come il
+ * poller del web: lo shape del Calendario mostra e promette «Sep 23 – Dec
+ * 22» («Stubwise can schedule up to Dec 22»), e un bordo a mezzogiorno
+ * taglierebbe a metà il primo e l'ultimo giorno. UTC perché la finestra è
+ * una sola per tutti, non dipende dal fuso di chi guarda.
  */
 export function calendarWindow(): { from: string; to: string } {
   return {
@@ -25,16 +31,16 @@ export function calendarWindow(): { from: string; to: string } {
   };
 }
 
-const ms = (iso: string) => Date.parse(iso);
-
-/** L'evento tocca l'intervallo `[from, to)` (istanti). */
-export const overlaps = (e: Pick<CalendarEvent, "startsAt" | "endsAt">, from: string, to: string) =>
-  ms(e.startsAt) < ms(to) && ms(e.endsAt) > ms(from);
-
-/** L'evento tocca la finestra letta. */
+/**
+ * L'evento tocca la finestra letta. Il confronto è per ISTANTI, a
+ * differenza di `spanOf` in `reads.ts` (che legge un «tutto il giorno» nei
+ * giorni locali di chi guarda): i bordi della finestra sono mezzanotti UTC
+ * e un «tutto il giorno» è salvato a mezzanotte UTC della sua data, quindi
+ * qui istante e data coincidono e il fuso di chi guarda non c'entra.
+ */
 export function inWindow(e: Pick<CalendarEvent, "startsAt" | "endsAt">): boolean {
   const w = calendarWindow();
-  return overlaps(e, w.from, w.to);
+  return Date.parse(e.startsAt) < Date.parse(w.to) && Date.parse(e.endsAt) > Date.parse(w.from);
 }
 
 /** Chi guarda ha l'evento nel suo calendario o ne è un invitato. */

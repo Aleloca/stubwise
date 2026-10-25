@@ -5,7 +5,9 @@ import { event, guest, on, organizer, outsider } from "./helpers";
 
 // Le serie ricorrenti: una riga per data, come Google le restituisce. La
 // revisione settimanale di AUD è ACCESA (progetto AUD, promemoria il giorno
-// prima); lo standup di STW è spento, come ogni serie non configurata. Le
+// prima); la pianificazione di MKX è accesa e ha già una data nei giorni di
+// anticipo (una richiesta proposta); lo standup di STW è spento, come ogni
+// serie non configurata. Le
 // date vanno oltre la finestra letta (`now − 30 → now + 60` giorni) da
 // entrambe le parti: le letture le tagliano. La revisione del budget non ha
 // nessuna data dentro la finestra, e resta comunque fra le serie.
@@ -14,6 +16,7 @@ export const SERIES_IDS = {
   audReview: "ser-aud-weekly-review",
   stwStandup: "ser-stw-standup",
   budget: "ser-budget-quarterly",
+  mkxPlanning: "ser-mkx-content-planning",
 } as const;
 
 export const CALENDAR_SERIES: CalendarSeries[] = [
@@ -35,6 +38,18 @@ export const CALENDAR_SERIES: CalendarSeries[] = [
     enabled: false,
     action: "milestone",
     leadDays: 1,
+    auto: false,
+  },
+  // Accesa e già «in scadenza»: lunedì 26 è a 3 giorni, quindi la sua
+  // richiesta è già fra le proposte; quella del 2 novembre non ancora.
+  {
+    id: SERIES_IDS.mkxPlanning,
+    title: "MKX content planning",
+    rule: "RRULE:FREQ=WEEKLY;BYDAY=MO",
+    projectId: "prj-mkx",
+    enabled: true,
+    action: "request",
+    leadDays: 3,
     auto: false,
   },
   {
@@ -94,6 +109,21 @@ const STW_STANDUPS: CalendarEvent[] = offsets(-35, 70, [1, 2, 3, 4, 5]).map((d) 
   }),
 );
 
+/** La pianificazione dei contenuti di MKX, ogni lunedì 10:00–10:45. */
+const MKX_PLANNING: CalendarEvent[] = offsets(-30, 80, [1]).map((d) =>
+  event({
+    id: `ev-mkx-planning-${daysFromToday(d)}`,
+    calendarPersonIds: ["p-giulia", "p-matteo"],
+    title: "MKX content planning",
+    startsAt: on(d, "10:00"),
+    endsAt: on(d, "10:45"),
+    meetUrl: "https://meet.google.com/mkx-cntn-pln",
+    attendees: [organizer("p-matteo"), guest("p-giulia"), guest("p-chiara")],
+    seriesId: SERIES_IDS.mkxPlanning,
+    projectId: "prj-mkx",
+  }),
+);
+
 /** La revisione del budget, ogni tre mesi: luglio, poi gennaio e aprile (fuori finestra). */
 const BUDGET_REVIEWS: CalendarEvent[] = [-100, 84, 174].map((d) =>
   event({
@@ -112,4 +142,9 @@ const BUDGET_REVIEWS: CalendarEvent[] = [-100, 84, 174].map((d) =>
   }),
 );
 
-export const SERIES_EVENTS: CalendarEvent[] = [...AUD_REVIEWS, ...STW_STANDUPS, ...BUDGET_REVIEWS];
+export const SERIES_EVENTS: CalendarEvent[] = [
+  ...AUD_REVIEWS,
+  ...STW_STANDUPS,
+  ...MKX_PLANNING,
+  ...BUDGET_REVIEWS,
+];

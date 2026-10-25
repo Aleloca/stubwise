@@ -1,12 +1,12 @@
 // Il seme del Calendario (area 6): gli eventi (singoli e delle serie), le
 // serie con la loro configurazione, l'allineamento di ogni calendario e le
 // proposte che nascono dagli eventi (solo le scadenze future).
-import { deadlineProposal } from "../../calendar/deadlines";
+import { eventProposals } from "../../calendar/proposals";
 import type { CalendarEvent, CalendarSync, MailProposal } from "../../types";
 import { TODAY } from "../dates";
 import { at, person } from "../mail/helpers";
 import { SINGLE_EVENTS } from "./events";
-import { SERIES_EVENTS } from "./series";
+import { CALENDAR_SERIES, SERIES_EVENTS } from "./series";
 
 export { CALENDAR_CASES } from "./events";
 export { CALENDAR_SERIES, SERIES_IDS } from "./series";
@@ -32,8 +32,14 @@ export const CALENDAR_SYNC: CalendarSync[] = [
   },
 ];
 
-/** Le proposte del calendario, nate alla lettura del mattino (07:00). */
-export const CALENDAR_PROPOSALS: MailProposal[] = CALENDAR_EVENTS.flatMap((e) => {
-  const p = deadlineProposal(e, `${TODAY}T12:00:00Z`);
-  return p ? [{ ...p, createdAt: at(0, "07:00") }] : [];
-});
+/**
+ * Le proposte del calendario (scadenze e date delle serie accese già nei
+ * giorni di anticipo), nate alla lettura del mattino (07:00). Nessuna serie
+ * del seme agisce da sola: le proposte nascono tutte aperte.
+ */
+export const CALENDAR_PROPOSALS: MailProposal[] = CALENDAR_EVENTS.flatMap((e) =>
+  eventProposals(e, CALENDAR_SERIES, `${TODAY}T12:00:00Z`).map((p) => ({
+    ...p,
+    createdAt: at(0, "07:00"),
+  })),
+);

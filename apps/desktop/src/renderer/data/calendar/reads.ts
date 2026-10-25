@@ -9,7 +9,14 @@ import type {
   CalendarSyncView,
   FreeBusy,
 } from "../types";
-import { canReadEvent, canSeeSeries, inWindow, isOrganizer, readableEvents } from "./visibility";
+import {
+  calendarWindow,
+  canReadEvent,
+  canSeeSeries,
+  inWindow,
+  isOrganizer,
+  readableEvents,
+} from "./visibility";
 
 // Le letture del Calendario (area 6). Chi vede che cosa lo decide
 // `visibility.ts`: solo gli eventi del mio calendario o a cui sono invitato,
@@ -93,6 +100,15 @@ export function seriesView(me: string, s: CalendarSeries): CalendarSeriesView {
   return view;
 }
 
+/** Un intervallo richiesto, in ms, tagliato alla finestra letta; non valido → `invalid: range`. */
+function rangeOf(fromIso: string, toIso: string): { from: number; to: number } {
+  const from = Date.parse(fromIso);
+  const to = Date.parse(toIso);
+  if (Number.isNaN(from) || Number.isNaN(to)) throw invalid("range");
+  const w = calendarWindow();
+  return { from: Math.max(from, Date.parse(w.from)), to: Math.min(to, Date.parse(w.to)) };
+}
+
 /**
  * Gli eventi che chi guarda legge e che toccano `[from, to)`, tagliati alla
  * finestra: oltre, Stubwise non legge.
@@ -102,9 +118,7 @@ export async function listEvents(range: {
   to: string;
 }): Promise<CalendarEventView[]> {
   const me = await gate("calendar.listEvents");
-  const from = Date.parse(range.from);
-  const to = Date.parse(range.to);
-  if (Number.isNaN(from) || Number.isNaN(to)) throw invalid("range");
+  const { from, to } = rangeOf(range.from, range.to);
   return readableEvents(me)
     .filter((e) => touches(e, from, to))
     .sort(byStart)
@@ -141,7 +155,7 @@ export async function listCalendars(): Promise<CalendarSyncView[]> {
     }));
 }
 
-/** Gli intervalli occupati di una persona in `[from, to)`: mai i titoli. */
+/** Gli intervalli occupati di una persona in `[from, to)` (già tagliato alla finestra): mai i titoli. */
 function busyOf(personId: string, from: number, to: number): FreeBusy["busy"] {
   return state.calendarEvents
     .filter(
@@ -166,11 +180,13 @@ function freeBusyOf(personId: string, from: number, to: number): FreeBusy {
  * Libero/occupato delle persone del team in `[from, to)`, letto dai loro
  * calendari collegati: solo gli intervalli, mai titolo, luogo o invitati
  * (un evento rifiutato o «tutto il giorno» non occupa). Senza account →
- * `not_connected`, scaduto → `expired`.
+ * `not_connected`, scaduto → `expired`. Come `listEvents`, solo dentro la
+ * finestra letta.
  */
 export async function freeBusy(personIds: string[], from: string, to: string): Promise<FreeBusy[]> {
   await gate("calendar.freeBusy");
-  return personIds.map((id) => freeBusyOf(id, Date.parse(from), Date.parse(to)));
+  const range = rangeOf(from, to);
+  return personIds.map((id) => freeBusyOf(id, range.from, range.to));
 }
 
 /**
@@ -187,6 +203,7 @@ export async function findFirstFreeSlot(
   await gate("calendar.findFirstFreeSlot");
   if (!Number.isInteger(durationMin) || durationMin <= 0) throw invalid("duration");
   const start = new Date(from);
+  if (Number.isNaN(start.getTime())) throw invalid("range");
   const dayStart = startOfLocalDay(start);
   const open = new Date(dayStart);
   open.setHours(FREE_SLOT_HOURS.from);

@@ -25,6 +25,6 @@ export {
   setEventProject,
   syncCalendar,
   updateEvent,
-  whenCalendarIdle,
 } from "./writes";
+export { whenCalendarIdle } from "./save";
 export { calendarWindow } from "./visibility";

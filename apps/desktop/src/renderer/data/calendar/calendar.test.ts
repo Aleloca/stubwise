@@ -1,17 +1,14 @@
-import {
-  allDayEventsForDay,
-  eventDayKey,
-  timedEventsForDay,
-  type CalendarEventItem,
-} from "@stubwise/shared";
+import { allDayEventsForDay, eventDayKey, timedEventsForDay } from "@stubwise/shared";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { calendar, failNext, mail, resetApi, setLatency } from "../api";
 import { calendarParticipants } from "../mail/visibility";
+import { can, grantProjectRole, viewerFor } from "../viewer";
+import { isUpcoming, seriesProposal } from "./proposals";
 import { CALENDAR_CASES, SERIES_IDS } from "../seed/calendar";
 import { EV_AUD_REVIEW_YESTERDAY } from "../seed/mail";
 import { setSessionPersonId } from "../session";
 import { state } from "../store";
-import type { CalendarEvent, CalendarEventView } from "../types";
+import type { CalendarEvent } from "../types";
 
 const as = (personId: string) => setSessionPersonId(personId);
 const C = CALENDAR_CASES;
@@ -24,12 +21,9 @@ const seriesOf = (id: string) => state.calendarEvents.filter((e) => e.seriesId =
 const ALL = { from: "2000-01-01T00:00:00Z", to: "2100-01-01T00:00:00Z" };
 const proposalOf = (eventId: string) =>
   state.mailProposals.find((p) => p.source === "calendar" && p.sourceId === eventId);
-
-/**
- * Le funzioni della griglia di `@stubwise/shared` leggono solo `startsAt`,
- * `endsAt` e `allDay`: gli eventi del prototipo ci passano così come sono.
- */
-const grid = (events: CalendarEventView[]) => events as unknown as CalendarEventItem[];
+const calendarProposalIds = () =>
+  state.mailProposals.filter((p) => p.source === "calendar").map((p) => p.id);
+const series = (id: string) => state.calendarSeries.find((s) => s.id === id)!;
 
 beforeEach(() => {
   resetApi();
@@ -143,12 +137,12 @@ describe("Calendario: fusi e bordi (Review Focus 3, TZ=America/Los_Angeles)", ()
   it("un evento tutto il giorno resta sulla sua data", async () => {
     const press = await calendar.getEvent(C.pressDay);
     expect(eventDayKey(press)).toBe("2026-10-23");
-    const events = grid(await calendar.listEvents(localDay(2026, 10, 23)));
+    const events = await calendar.listEvents(localDay(2026, 10, 23));
     expect(allDayEventsForDay(events, local(2026, 10, 23)).map((e) => e.id)).toEqual([C.pressDay]);
     // Il giorno prima, in locale, non c'è: né nella lettura né nella griglia.
     const before = await calendar.listEvents(localDay(2026, 10, 22));
     expect(before.map((e) => e.id)).not.toContain(C.pressDay);
-    expect(allDayEventsForDay(grid(before), local(2026, 10, 22))).toEqual([]);
+    expect(allDayEventsForDay(before, local(2026, 10, 22))).toEqual([]);
   });
 
   it("un evento a cavallo della mezzanotte locale compare nei due giorni, tagliato", async () => {
@@ -162,17 +156,15 @@ describe("Calendario: fusi e bordi (Review Focus 3, TZ=America/Los_Angeles)", ()
       from: local(2026, 11, 2).toISOString(),
       to: local(2026, 11, 4).toISOString(),
     });
-    const first = timedEventsForDay(grid(read), local(2026, 11, 2)).find((p) => p.event.id === id)!;
-    const second = timedEventsForDay(grid(read), local(2026, 11, 3)).find(
-      (p) => p.event.id === id,
-    )!;
+    const first = timedEventsForDay(read, local(2026, 11, 2)).find((p) => p.event.id === id)!;
+    const second = timedEventsForDay(read, local(2026, 11, 3)).find((p) => p.event.id === id)!;
     expect(first.topPct + first.heightPct).toBeCloseTo(100);
     expect(second.topPct).toBe(0);
     expect(eventDayKey(read.find((e) => e.id === id)!)).toBe("2026-11-02");
   });
 
   it("il rilascio di AUD (22:30–01:00 UTC) a Los Angeles è un pomeriggio solo", async () => {
-    const read = grid(await calendar.listEvents(localDay(2026, 10, 29)));
+    const read = await calendar.listEvents(localDay(2026, 10, 29));
     expect(timedEventsForDay(read, local(2026, 10, 29)).map((p) => p.event.id)).toContain(
       C.midnight,
     );
@@ -193,6 +185,18 @@ describe("Calendario: fusi e bordi (Review Focus 3, TZ=America/Los_Angeles)", ()
     expect(read.every((e) => e.startsAt >= "2026-09-23" && e.endsAt <= "2026-12-23")).toBe(true);
     const beyond = all.find((e) => e.startsAt >= "2026-12-23")!;
     await expect(calendar.getEvent(beyond.id)).rejects.toThrow("not_found");
+  });
+
+  it("«Prossimi appuntamenti» si ferma a fine di domani nel fuso di chi guarda", async () => {
+    // Fine di domani a Los Angeles: 25 ottobre 00:00 PDT = 07:00 UTC.
+    for (const [title, startsAt, endsAt] of [
+      ["Saturday night LA", "2026-10-25T06:30:00Z", "2026-10-25T06:45:00Z"],
+      ["Sunday LA", "2026-10-25T07:00:00Z", "2026-10-25T07:30:00Z"],
+    ] as const)
+      await calendar.createEvent({ title, startsAt, endsAt });
+    const titles = (await calendar.listUpcomingEvents()).map((e) => e.title);
+    expect(titles).toContain("Saturday night LA");
+    expect(titles).not.toContain("Sunday LA");
   });
 
   it("si crea e si sposta fino al 22 dicembre, non oltre", async () => {
@@ -222,9 +226,10 @@ describe("Calendario: fusi e bordi (Review Focus 3, TZ=America/Los_Angeles)", ()
 
 describe("Calendario: un evento che tocca la mezzanotte UTC (fuso dei test)", () => {
   it("compare nei due giorni", async () => {
-    const read = grid(
-      await calendar.listEvents({ from: "2026-10-29T00:00:00Z", to: "2026-10-31T00:00:00Z" }),
-    );
+    const read = await calendar.listEvents({
+      from: "2026-10-29T00:00:00Z",
+      to: "2026-10-31T00:00:00Z",
+    });
     for (const d of [29, 30]) {
       expect(timedEventsForDay(read, new Date(2026, 9, d)).map((p) => p.event.id)).toContain(
         C.midnight,
@@ -397,8 +402,11 @@ describe("Calendario: proposte", () => {
     });
     expect(proposalOf(C.pastDeadline)).toBeUndefined();
     expect(proposalOf(C.declinedDeadline)).toBeUndefined();
-    // Una riunione normale non ne produce.
-    expect(state.mailProposals.filter((p) => p.source === "calendar")).toHaveLength(1);
+    // Una riunione normale non ne produce: solo la scadenza e la data in anticipo della serie MKX.
+    expect(calendarProposalIds()).toEqual([
+      "mp-ser-ev-mkx-planning-2026-10-26",
+      "mp-cal-ev-mkx-visuals-deadline",
+    ]);
   });
 
   it("la vedono i partecipanti membri; chi rifiuta non la vede più", async () => {
@@ -439,7 +447,7 @@ describe("Calendario: proposte", () => {
       stale: false,
     });
     expect(proposalOf(view.id)).toMatchObject({ projectId: AUD, status: "open" });
-    expect(state.mailProposals.filter((p) => p.source === "calendar")).toHaveLength(2);
+    expect(calendarProposalIds()).toHaveLength(3);
   });
 
   it("il collegamento scaduto non si allinea; il calendario vecchio si vede", async () => {
@@ -464,6 +472,9 @@ describe("Calendario: progetto dell'evento", () => {
     });
     as("p-matteo"); // vede l'evento, non il progetto
     expect(await calendar.getEvent(C.visualsReview)).toMatchObject({ projectId: null });
+    // …e un progetto che non vede non lo toglie.
+    await expect(calendar.setEventProject(C.visualsReview, null)).rejects.toThrow("forbidden");
+    as("p-giulia");
     await calendar.setEventProject(C.visualsReview, null);
     expect(ev(C.visualsReview)).toMatchObject({ projectId: null, projectBy: null });
   });
@@ -639,5 +650,210 @@ describe("Calendario: salvataggio verso Google", () => {
     await calendar.whenCalendarIdle();
     expect(state.calendarEvents.some((e) => e.id === view.id)).toBe(false);
     expect(state.calendarEvents.every((e) => e.save === undefined)).toBe(true);
+  });
+});
+
+describe("Calendario: proposte delle serie accese", () => {
+  const PLANNING_DUE = "ev-mkx-planning-2026-10-26";
+  const NOW = "2026-10-23T12:00:00Z";
+
+  it("una serie accesa propone la data entrata nei giorni di anticipo, una per data", async () => {
+    expect(proposalOf(PLANNING_DUE)).toMatchObject({
+      id: "mp-ser-ev-mkx-planning-2026-10-26",
+      projectId: MKX,
+      status: "open",
+      actions: [
+        {
+          fn: "createRequest",
+          args: { projectId: MKX, title: "MKX content planning · 2026-10-26" },
+        },
+      ],
+    });
+    // Lunedì 2 novembre è a 10 giorni: non ancora.
+    expect(proposalOf("ev-mkx-planning-2026-11-02")).toBeUndefined();
+    expect(await mail.getMailProposal(proposalOf(PLANNING_DUE)!.id)).toMatchObject({
+      canHand: false,
+    });
+  });
+
+  it("una serie spenta non propone nulla", () => {
+    expect(series(SERIES_IDS.stwStandup).enabled).toBe(false);
+    expect(seriesOf(SERIES_IDS.stwStandup).some((e) => proposalOf(e.id))).toBe(false);
+  });
+
+  it("mai da una data passata o rifiutata da tutti; il promemoria è una task «Prepare»", () => {
+    const s = { ...series(SERIES_IDS.mkxPlanning), action: "remind" as const, leadDays: 14 };
+    const due = structuredClone(ev(PLANNING_DUE));
+    expect(seriesProposal(s, due, NOW)!.actions).toEqual([
+      {
+        fn: "createTask",
+        args: {
+          projectId: MKX,
+          title: "Prepare: MKX content planning · 2026-10-26",
+          dueDate: "2026-10-26",
+          assigneeId: null,
+        },
+        summary: "Reminder: MKX content planning · 2026-10-26",
+      },
+    ]);
+    expect(seriesProposal(s, ev("ev-mkx-planning-2026-10-19"), NOW)).toBeNull();
+    for (const a of due.attendees) a.response = "declined";
+    expect(seriesProposal(s, due, NOW)).toBeNull();
+    expect(seriesProposal({ ...s, enabled: false }, ev(PLANNING_DUE), NOW)).toBeNull();
+    expect(seriesProposal({ ...s, leadDays: 2 }, ev(PLANNING_DUE), NOW)).toBeNull();
+  });
+
+  it("accenderla propone le date già in anticipo, nessuna all'indietro", async () => {
+    await calendar.configureSeries(SERIES_IDS.stwStandup, {
+      projectId: STW,
+      enabled: true,
+      leadDays: 3,
+    });
+    const fromStandup = seriesOf(SERIES_IDS.stwStandup).filter((e) => proposalOf(e.id));
+    // Oggi alle 9 è passato; lunedì 26 è a 3 giorni, martedì 27 a 4.
+    expect(fromStandup.map((e) => e.id)).toEqual(["ev-stw-standup-2026-10-26"]);
+    expect(proposalOf("ev-stw-standup-2026-10-26")).toMatchObject({ status: "open" });
+  });
+
+  it("«Agisci da solo» senza il permesso dell'azione: la proposta resta fallita, nulla creato", async () => {
+    // Giulia in STW non ha `tickets.edit`: il traguardo non nasce.
+    expect(can(viewerFor("p-giulia"), "tickets.edit", STW)).toBe(false);
+    const milestones = state.milestones.length;
+    await calendar.configureSeries(SERIES_IDS.stwStandup, {
+      projectId: STW,
+      enabled: true,
+      action: "milestone",
+      leadDays: 3,
+      auto: true,
+    });
+    expect(proposalOf("ev-stw-standup-2026-10-26")).toMatchObject({
+      status: "failed",
+      error: "forbidden",
+      decidedById: null,
+    });
+    expect(state.milestones).toHaveLength(milestones);
+  });
+
+  it("«Agisci da solo»: nasce confermata da Stubwise, crea il traguardo, nessun lavoro di Claude", async () => {
+    grantProjectRole("p-giulia", STW, "project_lead");
+    const conversations = state.conversations.length;
+    await calendar.configureSeries(SERIES_IDS.stwStandup, {
+      projectId: STW,
+      enabled: true,
+      action: "milestone",
+      leadDays: 3,
+      auto: true,
+    });
+    const p = proposalOf("ev-stw-standup-2026-10-26")!;
+    expect(p).toMatchObject({
+      status: "confirmed",
+      decidedById: null,
+      decidedAt: "2026-10-23T12:00:00Z",
+    });
+    expect(p.actions.map((a) => a.fn)).toEqual(["createMilestone"]);
+    expect(
+      state.milestones.filter((m) => m.projectId === STW && m.name === "STW standup · 2026-10-26"),
+    ).toHaveLength(1);
+    expect(state.conversations).toHaveLength(conversations);
+    // Già decisa: non torna fra quelle «Da decidere».
+    expect((await mail.listMailDecisions()).map((v) => v.proposal.id)).not.toContain(p.id);
+  });
+
+  it("l'allineamento propone una data che entra nei giorni di anticipo", async () => {
+    series(SERIES_IDS.mkxPlanning).leadDays = 10;
+    await calendar.syncCalendar();
+    await calendar.whenCalendarIdle();
+    expect(proposalOf("ev-mkx-planning-2026-11-02")).toMatchObject({ status: "open" });
+  });
+});
+
+describe("Calendario: correzioni di revisione", () => {
+  it("una scadenza «tutto il giorno» di oggi propone ancora", async () => {
+    const at = "2026-10-23T12:00:00Z";
+    expect(isUpcoming({ startsAt: "2026-10-23T00:00:00Z", allDay: true }, at)).toBe(true);
+    expect(isUpcoming({ startsAt: "2026-10-23T11:00:00Z", allDay: false }, at)).toBe(false);
+    const view = await calendar.createEvent({
+      title: "Deadline: AUD signed plan",
+      startsAt: "2026-10-23T00:00:00Z",
+      endsAt: "2026-10-24T00:00:00Z",
+      allDay: true,
+      projectId: AUD,
+    });
+    await calendar.syncCalendar();
+    await calendar.whenCalendarIdle();
+    expect(proposalOf(view.id)).toMatchObject({
+      actions: [{ fn: "createMilestone", args: { dueDate: "2026-10-23" } }],
+    });
+  });
+
+  it("libero/occupato: solo dentro la finestra; un intervallo non valido è invalid", async () => {
+    // La revisione del budget del 15 gennaio è nel calendario di Giulia, ma fuori finestra.
+    const [giulia] = await calendar.freeBusy(
+      ["p-giulia"],
+      "2027-01-01T00:00:00Z",
+      "2027-02-01T00:00:00Z",
+    );
+    expect(giulia!.busy).toEqual([]);
+    await expect(calendar.freeBusy(["p-giulia"], "nope", "2027-01-01T00:00:00Z")).rejects.toThrow(
+      "invalid: range",
+    );
+    await expect(calendar.findFirstFreeSlot(["p-giulia"], 30, "nope")).rejects.toThrow(
+      "invalid: range",
+    );
+  });
+
+  it("una serie spostata che fallisce: «Annulla la modifica» le rimette tutte", async () => {
+    as("p-matteo");
+    const before = seriesOf(SERIES_IDS.audReview).map((e) => [e.id, e.startsAt, e.endsAt]);
+    failNext("calendar.advanceSave");
+    await calendar.moveEvent(
+      "ev-aud-review-2026-10-29",
+      "2026-10-29T16:30:00Z",
+      "2026-10-29T17:30:00Z",
+      "series",
+    );
+    await calendar.whenCalendarIdle();
+    expect(seriesOf(SERIES_IDS.audReview).every((e) => e.save?.state === "failed")).toBe(true);
+    await calendar.revertEvent("ev-aud-review-2026-11-05");
+    expect(seriesOf(SERIES_IDS.audReview).map((e) => [e.id, e.startsAt, e.endsAt])).toEqual(before);
+    expect(seriesOf(SERIES_IDS.audReview).every((e) => e.save === undefined)).toBe(true);
+  });
+
+  it("«Riprova» riparte con tutto il gruppo", async () => {
+    as("p-matteo");
+    failNext("calendar.advanceSave");
+    await calendar.moveEvent(
+      "ev-aud-review-2026-10-29",
+      "2026-10-29T16:30:00Z",
+      "2026-10-29T17:30:00Z",
+      "series",
+    );
+    await calendar.whenCalendarIdle();
+    await calendar.retrySave(EV_AUD_REVIEW_YESTERDAY);
+    await calendar.whenCalendarIdle();
+    expect(seriesOf(SERIES_IDS.audReview).every((e) => e.save?.state === "saved")).toBe(true);
+  });
+
+  it("senza una versione di Google nota «Annulla la modifica» non toglie nulla", async () => {
+    ev(C.goLive).save = { state: "failed", error: "rejected" };
+    await expect(calendar.revertEvent(C.goLive)).rejects.toThrow("invalid: no version");
+    expect(ev(C.goLive)).toBeDefined();
+  });
+
+  it("eliminare un evento toglie le sue proposte aperte", async () => {
+    as("p-matteo"); // organizza la scadenza e la pianificazione di MKX
+    await calendar.deleteEvent(C.deadline);
+    expect(proposalOf(C.deadline)).toBeUndefined();
+    await calendar.deleteEvent("ev-mkx-planning-2026-10-26", "series");
+    expect(proposalOf("ev-mkx-planning-2026-10-26")).toBeUndefined();
+    expect(calendarProposalIds()).toEqual([]);
+  });
+
+  it("un progetto che non vedo non lo tolgo né lo cambio", async () => {
+    as("p-matteo"); // non è in OLV
+    ev(C.invite).calendarPersonIds.push("p-matteo");
+    await expect(calendar.setEventProject(C.invite, null)).rejects.toThrow("forbidden");
+    await expect(calendar.setEventProject(C.invite, MKX)).rejects.toThrow("forbidden");
+    expect(ev(C.invite)).toMatchObject({ projectId: "prj-olv", projectBy: "model" });
   });
 });

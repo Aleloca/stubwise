@@ -1,6 +1,7 @@
+import { applyActions } from "../api-mutations";
 import { EMAIL, lower, teamAddresses } from "../mail/compose";
-import { CALENDAR_CASES } from "../seed/calendar";
-import { copy, gate, newId, now, onStoreReset, state, storeGeneration } from "../store";
+import { isProjectMember } from "../mail/visibility";
+import { gate, newId, now, state, storeGeneration, visibleProjectIds } from "../store";
 import type {
   CalendarAttendee,
   CalendarEvent,
@@ -12,11 +13,13 @@ import type {
   CalendarSeries,
   CalendarSeriesPatch,
   CalendarSeriesView,
+  MailProposal,
   Rsvp,
 } from "../types";
-import { deadlineProposal } from "./deadlines";
+import { deadlineProposal, seriesProposal } from "./proposals";
 import { eventView, isoAt, readableEvent, seriesView } from "./reads";
-import { calendarWindow, canSeeSeries, inWindow, isOrganizer } from "./visibility";
+import { forget, markCreated, retryGroup, revertGroup, save, track } from "./save";
+import { calendarWindow, canSeeEvent, canSeeSeries, inWindow, isOrganizer } from "./visibility";
 
 // Le scritture del Calendario (area 6). Come le altre: `gate()` prima di
 // tutto (con la generazione dello stato: un ripristino durante l'attesa
@@ -25,14 +28,10 @@ import { calendarWindow, canSeeSeries, inWindow, isOrganizer } from "./visibilit
 // `not_found` (R-G5); uno che legge ma non organizza è `forbidden` per
 // modifica, spostamento ed eliminazione — la risposta è di ogni invitato.
 //
-// Le scritture verso Google (crea, modifica, sposta, risposta) cambiano
-// SUBITO lo store con `save.state: "saving"`; un passo simulato
-// (`calendar.advanceSave`, via `gate()`: segue `setLatency`, `failNext` lo fa
-// fallire) le porta a `saved` o `failed`. Un evento del seme
-// (`CALENDAR_CASES.saveFails`) fallisce sempre al primo salvataggio. Da
-// `failed`: «Riprova» (`retrySave`) o «Annulla la modifica» (`revertEvent`,
-// torna alla versione di Google). Progetto dell'evento e configurazione
-// delle serie sono di Stubwise, non di Google: si scrivono e basta.
+// Le scritture verso Google (crea, modifica, sposta, risposta) passano da
+// `save.ts` («Salvataggio…» → salvato o fallito, «Riprova», «Annulla la
+// modifica»). Progetto dell'evento e configurazione delle serie sono di
+// Stubwise, non di Google: si scrivono e basta.
 
 const notFound = () => new Error("not_found");
 const forbidden = () => new Error("forbidden");
@@ -43,34 +42,12 @@ const ACTIONS: ReadonlySet<CalendarSeries["action"]> = new Set(["milestone", "re
 const DAY_MS = 86_400_000;
 const MAX_LEAD_DAYS = 14;
 
-const pending = new Set<Promise<void>>();
-
-function track(work: Promise<void>): void {
-  pending.add(work);
-  void work.finally(() => pending.delete(work));
-}
-
-/** Si risolve quando nessun salvataggio o allineamento simulato è più in corso. */
-export async function whenCalendarIdle(): Promise<void> {
-  while (pending.size > 0) await Promise.all([...pending]);
-}
-
-/**
- * La versione di Google di ogni evento con un salvataggio non confermato
- * (`null`: l'evento non c'era, è nato qui). La rimette «Annulla la modifica».
- */
-const googleVersion = new Map<string, CalendarEvent | null>();
-onStoreReset(() => googleVersion.clear());
-
 async function writer(fnName: Parameters<typeof gate>[0]): Promise<string> {
   const gen = storeGeneration();
   const me = await gate(fnName);
   if (gen !== storeGeneration()) throw new Error("reset");
   return me;
 }
-
-const isMember = (me: string, projectId: string) =>
-  !!state.projectsById.get(projectId)?.memberIds.includes(me);
 
 /** Un evento che chi agisce legge e organizza. */
 function organizedEvent(me: string, id: string): CalendarEvent {
@@ -86,66 +63,20 @@ function targetsOf(e: CalendarEvent, scope: CalendarScope): CalendarEvent[] {
   return state.calendarEvents.filter((x) => x.seriesId === e.seriesId);
 }
 
-// --- salvataggio verso Google -------------------------------------------------
+// --- salvataggio: «Riprova» e «Annulla la modifica» ---------------------------
 
-/** Un passo del salvataggio: `saving` → `saved` (o `failed`). */
-async function advanceSave(ids: readonly string[]): Promise<void> {
-  const generation = storeGeneration();
-  const alive = () => storeGeneration() === generation;
-  const saving = () =>
-    state.calendarEvents.filter((e) => ids.includes(e.id) && e.save?.state === "saving");
-  try {
-    await gate("calendar.advanceSave");
-    if (!alive()) return;
-    for (const e of saving()) {
-      if (e.id === CALENDAR_CASES.saveFails && !state.calendarFailedOnce.has(e.id)) {
-        state.calendarFailedOnce.add(e.id);
-        e.save = { state: "failed", error: "rejected" };
-        continue;
-      }
-      e.save = { state: "saved" };
-      googleVersion.delete(e.id);
-    }
-  } catch {
-    if (!alive()) return;
-    for (const e of saving()) e.save = { state: "failed", error: "unreachable" };
-  }
-}
-
-/**
- * Applica `change` agli eventi e li manda a Google: subito `saving`, poi il
- * passo simulato. La versione di Google si tiene la prima volta (dopo un
- * fallimento la modifica successiva non la sovrascrive).
- */
-function save(events: CalendarEvent[], change: (e: CalendarEvent) => void): void {
-  for (const e of events) {
-    if (!googleVersion.has(e.id)) googleVersion.set(e.id, copy(e));
-    change(e);
-    e.save = { state: "saving" };
-  }
-  track(advanceSave(events.map((e) => e.id)));
-}
-
-/** «Riprova» un salvataggio fallito. */
+/** «Riprova» un salvataggio fallito, con tutto il suo gruppo. */
 export async function retrySave(id: string): Promise<CalendarEventView> {
   const me = await writer("calendar.retrySave");
   const e = readableEvent(me, id);
-  if (e.save?.state !== "failed") throw invalid("not failed");
-  e.save = { state: "saving" };
-  track(advanceSave([e.id]));
+  retryGroup(e);
   return eventView(me, e);
 }
 
-/** «Annulla la modifica» dopo un salvataggio fallito: torna la versione di Google. */
+/** «Annulla la modifica» dopo un salvataggio fallito: torna la versione di Google, per tutto il gruppo. */
 export async function revertEvent(id: string): Promise<void> {
   const me = await writer("calendar.revertEvent");
-  const e = readableEvent(me, id);
-  if (e.save?.state !== "failed") throw invalid("not failed");
-  const before = googleVersion.get(id);
-  googleVersion.delete(id);
-  const index = state.calendarEvents.indexOf(e);
-  if (before === null || before === undefined) state.calendarEvents.splice(index, 1);
-  else state.calendarEvents[index] = before;
+  revertGroup(readableEvent(me, id));
 }
 
 // --- creare, modificare, spostare, eliminare ---------------------------------
@@ -229,7 +160,7 @@ export async function createEvent(input: CalendarEventInput): Promise<CalendarEv
   const allDay = input.allDay === true;
   checkTimes(input.startsAt, input.endsAt, allDay);
   const projectId = input.projectId ?? null;
-  if (projectId !== null && !isMember(me, projectId)) throw notFound();
+  if (projectId !== null && !isProjectMember(me, projectId)) throw notFound();
   const guests = attendeesOf(input.guests ?? [], []).filter((a) => a.personId !== me);
   const e: CalendarEvent = {
     id: newId("ev"),
@@ -246,8 +177,7 @@ export async function createEvent(input: CalendarEventInput): Promise<CalendarEv
     projectId,
     projectBy: projectId !== null ? "manual" : null,
   };
-  // Su Google non c'era: «Annulla la modifica» dopo un fallimento la toglie.
-  googleVersion.set(e.id, null);
+  markCreated(e);
   state.calendarEvents.push(e);
   save([e], () => {});
   return eventView(me, e);
@@ -322,13 +252,25 @@ export async function moveEvent(
   return eventView(me, e);
 }
 
-/** Elimina (dell'organizzatore) l'evento o tutta la serie, configurazione compresa. */
+/** Le proposte ancora aperte nate da questi eventi. */
+const openProposalsOf = (ids: ReadonlySet<string>): MailProposal[] =>
+  state.mailProposals.filter(
+    (p) => p.source === "calendar" && ids.has(p.sourceId) && p.status === "open",
+  );
+
+/**
+ * Elimina (dell'organizzatore) l'evento o tutta la serie, configurazione
+ * compresa; le proposte aperte nate da quelle date se ne vanno con loro.
+ */
 export async function deleteEvent(id: string, scope: CalendarScope = "one"): Promise<void> {
   const me = await writer("calendar.deleteEvent");
   const e = organizedEvent(me, id);
   const targets = new Set(targetsOf(e, scope));
+  const ids = new Set([...targets].map((t) => t.id));
+  const gone = new Set(openProposalsOf(ids));
   state.calendarEvents = state.calendarEvents.filter((x) => !targets.has(x));
-  for (const t of targets) googleVersion.delete(t.id);
+  state.mailProposals = state.mailProposals.filter((p) => !gone.has(p));
+  forget([...ids]);
   if (scope === "series")
     state.calendarSeries = state.calendarSeries.filter((s) => s.id !== e.seriesId);
 }
@@ -367,9 +309,10 @@ export async function respond(
 
 /**
  * Corregge a mano il progetto di un evento: vale per tutti quelli che lo
- * vedono (il progetto è dell'evento), lo fa chiunque lo veda purché sia
- * membro del progetto scelto; un progetto di cui non lo è risponde come
- * inesistente. Una proposta aperta dell'evento segue il progetto (senza
+ * vedono (il progetto è dell'evento). Lo fa chiunque veda l'evento, purché
+ * sia membro del progetto scelto (altrimenti come inesistente) e veda
+ * quello di adesso: un progetto che non vede non lo toglie né lo cambia
+ * (`forbidden`). Una proposta aperta dell'evento segue il progetto (senza
  * progetto, sparisce).
  */
 export async function setEventProject(
@@ -378,24 +321,64 @@ export async function setEventProject(
 ): Promise<CalendarEventView> {
   const me = await writer("calendar.setEventProject");
   const e = readableEvent(me, id);
-  if (projectId !== null && !isMember(me, projectId)) throw notFound();
+  if (projectId !== null && !isProjectMember(me, projectId)) throw notFound();
+  if (e.projectId !== null && !visibleProjectIds(me).has(e.projectId)) throw forbidden();
   e.projectId = projectId;
   e.projectBy = projectId === null ? null : "manual";
-  const open = state.mailProposals.find(
-    (p) => p.source === "calendar" && p.sourceId === e.id && p.status === "open",
-  );
-  if (open && projectId === null) state.mailProposals.splice(state.mailProposals.indexOf(open), 1);
-  else if (open && projectId !== null) {
-    open.projectId = projectId;
-    for (const a of open.actions) a.args = { ...a.args, projectId };
+  for (const open of openProposalsOf(new Set([e.id]))) {
+    if (projectId === null) state.mailProposals.splice(state.mailProposals.indexOf(open), 1);
+    else {
+      open.projectId = projectId;
+      for (const a of open.actions) a.args = { ...a.args, projectId };
+    }
   }
   return eventView(me, e);
 }
 
 /**
+ * Una proposta di una serie con «Agisci da solo»: nasce già confermata, da
+ * Stubwise (`decidedById: null`), eseguita a nome di chi ha il calendario
+ * (`actor`) con i suoi permessi. Non avvia mai il lavoro di Claude: le
+ * azioni di una serie non comprendono `startRun`. Se l'esecuzione fallisce
+ * resta `failed`, col codice.
+ */
+function settleAutomatically(actor: string, p: MailProposal): void {
+  const result = applyActions(actor, p.actions);
+  p.decidedAt = now();
+  if (result.ok) {
+    p.status = "confirmed";
+    p.resultCodes = result.codes;
+  } else {
+    p.status = "failed";
+    p.error = result.code;
+  }
+}
+
+/**
+ * Le proposte nuove degli eventi che `actor` vede nella finestra: le
+ * scadenze e le date delle serie accese entrate nei giorni di anticipo. Mai
+ * per una data passata, quindi accendere una serie non crea nulla
+ * all'indietro. Una per evento (o data): una già nata non si rifà.
+ */
+function proposeFromCalendar(actor: string): void {
+  const at = now();
+  for (const e of state.calendarEvents) {
+    if (!canSeeEvent(actor, e) || !inWindow(e)) continue;
+    const series = state.calendarSeries.find((s) => s.id === e.seriesId);
+    const fromSeries = series ? seriesProposal(series, e, at) : null;
+    for (const p of [deadlineProposal(e, at), fromSeries]) {
+      if (!p || state.mailProposals.some((x) => x.id === p.id)) continue;
+      if (p === fromSeries && series!.auto) settleAutomatically(actor, p);
+      state.mailProposals.push(p);
+    }
+  }
+}
+
+/**
  * La configurazione di una serie: progetto (fra i miei), proposte accese o
  * spente, azione, giorni di anticipo (0–14), «Agisci da solo». Accesa
- * senza progetto → `choose_project_first`.
+ * senza progetto → `choose_project_first`. Accesa, propone subito le date
+ * già nei giorni di anticipo (mai quelle passate).
  */
 export async function configureSeries(
   id: string,
@@ -406,7 +389,11 @@ export async function configureSeries(
   if (!s || !canSeeSeries(me, s)) throw notFound();
   if (typeof patch !== "object" || patch === null) throw invalid("patch");
   const next = { ...s, ...patch };
-  if (next.projectId !== null && next.projectId !== s.projectId && !isMember(me, next.projectId))
+  if (
+    next.projectId !== null &&
+    next.projectId !== s.projectId &&
+    !isProjectMember(me, next.projectId)
+  )
     throw notFound();
   if (!ACTIONS.has(next.action)) throw invalid("action");
   if (!Number.isInteger(next.leadDays) || next.leadDays < 0 || next.leadDays > MAX_LEAD_DAYS)
@@ -420,12 +407,13 @@ export async function configureSeries(
     leadDays: next.leadDays,
     auto: next.auto,
   });
+  if (s.enabled) proposeFromCalendar(me);
   return seriesView(me, s);
 }
 
 // --- allineamento ----------------------------------------------------------------
 
-/** Un passo dell'allineamento: il calendario torna `ok`, e nascono le proposte delle scadenze nuove. */
+/** Un passo dell'allineamento: il calendario torna `ok`, e nascono le proposte nuove. */
 async function advanceSync(personId: string): Promise<void> {
   const generation = storeGeneration();
   const alive = () => storeGeneration() === generation;
@@ -434,11 +422,7 @@ async function advanceSync(personId: string): Promise<void> {
     await gate("calendar.advanceSync");
     if (!alive()) return;
     Object.assign(row(), { sync: "ok", syncedAt: now() });
-    for (const e of state.calendarEvents) {
-      if (!e.calendarPersonIds.includes(personId) || !inWindow(e)) continue;
-      const p = deadlineProposal(e, now());
-      if (p && !state.mailProposals.some((x) => x.id === p.id)) state.mailProposals.push(p);
-    }
+    proposeFromCalendar(personId);
   } catch {
     if (!alive()) return;
     row().sync = "failed";
