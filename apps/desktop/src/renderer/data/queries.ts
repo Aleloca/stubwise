@@ -214,6 +214,14 @@ export const queryKeys = {
   freeBusy: (personId: string, personIds: readonly string[], from: string, to: string) =>
     ["as", personId, "calendar", "freeBusy", personIds, from, to] as const,
   upcomingEvents: (personId: string) => ["as", personId, "calendar", "upcoming"] as const,
+  // Riunioni registrate e scheda di preparazione: area «meeting», che si
+  // rilegge con le scritture di posta, calendario, task, richieste e traguardi.
+  meetingPrep: (personId: string, eventId: string) =>
+    ["as", personId, "meeting", "prep", eventId] as const,
+  meetingSummary: (personId: string, eventId: string) =>
+    ["as", personId, "meeting", "summary", eventId] as const,
+  tasksBornFrom: (personId: string, eventId: string) =>
+    ["as", personId, "meeting", "born", eventId] as const,
 };
 
 /** Quali canali: tutti (colonna, «Browse channels») o quelli di un progetto. */
@@ -547,6 +555,8 @@ const CONVERSATION_CHANGE_AREAS = [
   "requests",
   // Una domanda o un piano di Claude accende (o spegne) il punto «ti aspetta».
   "waitingOnMe",
+  // Lo stato di una task si legge anche nella scheda di preparazione.
+  "meeting",
 ] as const;
 
 /** Quanto si aspetta per raccogliere più cambi in una sola rilettura (ms). */
@@ -753,7 +763,8 @@ export function usePinnedFilters() {
 /**
  * Le aree (il terzo elemento di `["as", persona, area, …]`) che una scrittura
  * può aver cambiato. Le mutazioni invalidano per area, non per chiave esatta:
- * una task cambiata sposta liste, board, ferme, polso e cronologia.
+ * una task cambiata sposta liste, board, ferme, polso e cronologia — e la
+ * scheda di preparazione del Calendario («meeting»), che ne mostra lo stato.
  */
 const TASK_AREAS = [
   "tasks",
@@ -766,6 +777,7 @@ const TASK_AREAS = [
   "waitingOnMe",
   "notifications",
   "decisions",
+  "meeting",
 ] as const;
 /**
  * Una richiesta convertita nasce come task: oltre alle richieste sposta liste,
@@ -781,6 +793,7 @@ const REQUEST_AREAS = [
   "stalled",
   "timeline",
   "activity",
+  "meeting",
 ] as const;
 const FILTER_AREAS = ["savedFilters", "savedFilter", "pinnedFilters"] as const;
 const HOME_AREAS = ["personalHome", "departmentHomes"] as const;
@@ -793,11 +806,13 @@ const PROJECT_AREAS = [
   "task",
   "stalled",
   "pulse",
+  // Chi è membro decide se c'è la scheda di preparazione.
+  "meeting",
 ] as const;
 
 const DECISION_AREAS = ["decisionLog", "timeline"] as const;
 /** Un traguardo cambiato sposta avanzamenti, polso, cronologia e le task che lo portano. */
-const MILESTONE_AREAS = ["milestones", "tasks", "task", "pulse", "timeline"] as const;
+const MILESTONE_AREAS = ["milestones", "tasks", "task", "pulse", "timeline", "meeting"] as const;
 
 /** Ricarica le aree indicate, ma solo di chi sta guardando. */
 function useInvalidate(areas: readonly string[]) {
@@ -2417,8 +2432,8 @@ export function useDisconnectGoogle() {
 
 // --- Posta (area 6) -----------------------------------------------------------
 
-/** Ogni scrittura della Posta ricarica la Posta. */
-const MAIL_AREAS = ["mail"] as const;
+/** Ogni scrittura della Posta ricarica la Posta (e le email della scheda di preparazione). */
+const MAIL_AREAS = ["mail", "meeting"] as const;
 
 /** Mentre una casella si allinea o un'email è in analisi la lettura si ripete da sola. */
 const MAIL_REFRESH_MS = 1000;
@@ -2720,9 +2735,10 @@ export function useDeleteFailedMailSend() {
 
 /**
  * Le scritture del Calendario ricaricano il Calendario e la Posta (le
- * proposte del calendario stanno lì: una risposta o un progetto le cambiano).
+ * proposte del calendario stanno lì: una risposta o un progetto le cambiano)
+ * e la scheda di preparazione (un progetto o un orario la accendono o spengono).
  */
-const CALENDAR_AREAS = ["calendar", "mail"] as const;
+const CALENDAR_AREAS = ["calendar", "mail", "meeting"] as const;
 
 /** Mentre un evento si salva o il calendario si allinea la lettura si ripete da sola. */
 const CALENDAR_REFRESH_MS = 1000;
@@ -2789,6 +2805,41 @@ export function useUpcomingEvents() {
   return useQuery({
     queryKey: queryKeys.upcomingEvents(me),
     queryFn: () => api.calendar.listUpcomingEvents(),
+  });
+}
+
+/**
+ * La scheda di preparazione di un evento futuro o in corso: `null` se è
+ * passato, senza progetto o se non sono membro; un evento che non vedo →
+ * errore `not_found`.
+ */
+export function useMeetingPrep(eventId: string | null) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.meetingPrep(me, eventId ?? ""),
+    queryFn: () => api.calendar.getMeetingPrep(eventId!),
+    enabled: eventId !== null,
+    retry: false,
+  });
+}
+
+/** «Meeting summary» di una riunione registrata: `null` per chi non c'era. */
+export function useMeetingSummary(eventId: string | null) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.meetingSummary(me, eventId ?? ""),
+    queryFn: () => api.mail.getMeetingSummary(eventId!),
+    enabled: eventId !== null,
+  });
+}
+
+/** «Tasks from this meeting»: le task e le richieste nate, per chi le vede. */
+export function useTasksBornFrom(eventId: string | null) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.tasksBornFrom(me, eventId ?? ""),
+    queryFn: () => api.mail.tasksBornFrom(eventId!),
+    enabled: eventId !== null,
   });
 }
 

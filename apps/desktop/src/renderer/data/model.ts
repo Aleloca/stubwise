@@ -1786,6 +1786,24 @@ export interface MailThreadRow {
  */
 export interface MailMessageView extends Omit<MailMessage, "readByPersonIds" | "mailboxPersonIds"> {
   read: boolean;
+  /** Solo un'email di Gemini (`kind: "transcript"`): le note della riunione. */
+  meeting?: MeetingNote;
+}
+
+/**
+ * Le note di una riunione come le vede un destinatario dell'email di Gemini.
+ * `visible`: è un partecipante (`canSeeTranscript`), quindi vede riassunto e
+ * trascrizione (col documento letto); altrimenti restano `null` e la Posta
+ * dice che li vede solo chi c'era. `event` c'è solo se chi guarda vede
+ * l'evento.
+ */
+export interface MeetingNote {
+  docTitle: string;
+  doc: MeetingTranscript["doc"];
+  visible: boolean;
+  summary: string | null;
+  transcript: string | null;
+  event: { id: string; title: string; startsAt: string; endsAt: string; people: number } | null;
 }
 
 /** Una conversazione aperta: i messaggi che chi guarda vede, dal più vecchio. */

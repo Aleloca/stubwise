@@ -22,7 +22,7 @@ import {
 } from "../task/parts";
 import { MenuButton, secondaryButton } from "../tasks/controls";
 import { TODAY } from "../../data/dates";
-import { openMilestones } from "./ProgressSection";
+import { openMilestones } from "../../domain/due";
 
 type Editing = { kind: "new" } | { kind: "edit"; id: string } | { kind: "delete"; id: string };
 

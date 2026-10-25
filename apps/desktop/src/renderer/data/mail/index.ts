@@ -47,3 +47,4 @@ export {
   type MailDraftInput,
 } from "./compose";
 export { deleteFailedSend, retrySend, sendDraft, undoSend, whenSendSettled } from "./send";
+export { getMeetingSummary, tasksBornFrom } from "./transcripts";

@@ -1,6 +1,6 @@
 import type { MouseEvent, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { TODAY } from "../data/dates";
+import { isOverdue } from "../domain/due";
 import { useProjectStatuses } from "../data/queries";
 import type { Task } from "../data/types";
 import type { Stall } from "../domain/stalled";
@@ -112,7 +112,7 @@ export function TaskRow({
   const statuses = useProjectStatuses(task.projectId).data;
   const status = statuses?.find((s) => s.id === task.statusId);
   const deptLabel = useDeptLabel(task.departmentId);
-  const overdue = !!task.dueDate && task.dueDate < TODAY && status?.family !== "closed";
+  const overdue = isOverdue(task.dueDate, status?.family);
   const activate = (e: MouseEvent) => {
     const toggle = e.metaKey || e.ctrlKey;
     if (onModifiedClick && (e.shiftKey || toggle)) {

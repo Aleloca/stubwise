@@ -1,4 +1,5 @@
 import type { InstancePermission, ProjectPermission } from "@stubwise/shared";
+import type { Stall } from "../domain/stalled";
 import type {
   Channel,
   ChatMessage,
@@ -13,12 +14,15 @@ import type {
   DailyReport,
   DriveFile,
   DriveFileType,
+  MailThreadRow,
+  MeetingTranscript,
   Milestone,
   ModelUsage,
   Outcome,
   PrFact,
   PullRequestEvent,
   RunProvider,
+  Task,
 } from "./model";
 
 // I tipi del modello dell'area 2 stanno in `model.ts`; qui restano quelli
@@ -613,4 +617,79 @@ export interface ChatMessageInput {
   alsoInChannel?: boolean;
   /** «Ask for a reply»: chiede risposta alle persone menzionate anche senza «?». */
   asksReply?: boolean;
+}
+
+// --- riunioni registrate e scheda di preparazione (area 6) -----------------
+
+/**
+ * Il riassunto di una riunione registrata, per chi ha partecipato
+ * (`canSeeTranscript`). `summary` e `transcript` ci sono solo col documento
+ * letto (`doc: "ready"`); in lettura o non raggiungibile restano `null` e
+ * `doc` lo dice. `email` è l'email di Gemini, solo se chi guarda la vede.
+ */
+export interface MeetingSummary {
+  eventId: string;
+  docTitle: string;
+  doc: MeetingTranscript["doc"];
+  summary: string | null;
+  transcript: string | null;
+  email: { threadId: string; sourceId: string; at: string } | null;
+}
+
+/**
+ * Una cosa da fare nata da una riunione: una task o una richiesta creata
+ * confermando una proposta della trascrizione, col suo stato di ADESSO.
+ * `late`: aperta con la scadenza passata (l'«Overdue» delle righe di task,
+ * `isOverdue`); `inProgress`: una task aperta nella famiglia «active».
+ */
+export interface MeetingTask {
+  kind: "task" | "request";
+  id: string;
+  code: string;
+  title: string;
+  status: "open" | "done" | "late";
+  inProgress: boolean;
+  dueDate: string | null;
+  departmentId: string | null;
+}
+
+/**
+ * Una riunione passata del progetto, nella scheda. Chi non ha partecipato
+ * ne vede titolo, data e cose da fare: `summary` e `doc` restano `null`
+ * (nulla dice che un riassunto esista), e `canOpen` è falso se l'evento non
+ * lo vede.
+ */
+export interface RecentMeeting {
+  eventId: string;
+  title: string;
+  at: string;
+  summary: string | null;
+  doc: MeetingTranscript["doc"] | null;
+  canOpen: boolean;
+  tasks: MeetingTask[];
+}
+
+/**
+ * La scheda di preparazione di un evento futuro o in corso, per un membro
+ * del suo progetto. Lo stato riusa le letture dell'Overview: `pulse` è
+ * `projectPulse`, `stalled` è `listStalled` sul progetto (dalla più
+ * vecchia), `milestones` i traguardi aperti nell'ordine di «Where it stands».
+ */
+export interface MeetingPrep {
+  eventId: string;
+  projectId: string;
+  pulse: ProjectPulse;
+  /** Le conversazioni del progetto che chi guarda vede, dalla più recente: max 5. */
+  recentMail: MailThreadRow[];
+  /** Le riunioni passate del progetto, dalla più recente: max 3. */
+  recentMeetings: RecentMeeting[];
+  status: {
+    inProgress: number;
+    late: number;
+    stalled: { task: Task; stall: Stall }[];
+    /** Le prossime task aperte a scadenza (da oggi), max 3. */
+    nextDueDates: Task[];
+    /** I traguardi aperti, max 2. */
+    milestones: Milestone[];
+  };
 }

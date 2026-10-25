@@ -1,7 +1,7 @@
 import { prLines, type PrLine } from "../domain/claude/taskWork";
 import { stallOf, type Stall } from "../domain/stalled";
 import { currentWeek } from "../domain/weeks";
-import type { FilterContext } from "../domain/filters";
+import { matches, type FilterContext } from "../domain/filters";
 import { ACTIVITY } from "./seed/activity";
 import { BRIEFS } from "./seed/briefs";
 import {
@@ -67,10 +67,12 @@ import type {
   DayArrangement,
   DecisionLogEntry,
   DecisionRequest,
+  FilterCriteria,
   DepartmentHome,
   Milestone,
   PersonalHome,
   Project,
+  ProjectPulse,
   ProjectRequest,
   ProjectStatus,
   PrFact,
@@ -341,6 +343,8 @@ export type ApiFnName =
   | "mail.deleteFailedSend"
   | "mail.suggestRecipients"
   | "mail.draftReply"
+  | "mail.getMeetingSummary"
+  | "mail.tasksBornFrom"
   /** Un passo dell'allineamento simulato di una casella (arriva la posta nuova). */
   | "mail.advanceSync"
   /** Un passo della classificazione simulata (in analisi → classificata o fallita). */
@@ -353,6 +357,7 @@ export type ApiFnName =
   | "calendar.freeBusy"
   | "calendar.findFirstFreeSlot"
   | "calendar.listUpcomingEvents"
+  | "calendar.getMeetingPrep"
   | "calendar.createEvent"
   | "calendar.updateEvent"
   | "calendar.moveEvent"
@@ -1155,6 +1160,55 @@ export function filterContext(personId: string): FilterContext {
 export function visibleTasks(personId: string): Task[] {
   const visible = visibleProjectIds(personId);
   return state.tasks.filter((t) => visible.has(t.projectId));
+}
+
+/**
+ * Le task ferme che la persona vede (eventualmente filtrate), dalla più
+ * vecchia: `listStalled` e la scheda di preparazione del Calendario.
+ */
+export function stalledTasks(
+  personId: string,
+  criteria?: FilterCriteria,
+): { task: Task; stall: Stall }[] {
+  const ctx = filterContext(personId);
+  const stallOfTask = stallScope(personId);
+  return visibleTasks(personId)
+    .filter((t) => !criteria || matches(t, criteria, ctx))
+    .flatMap((t) => {
+      const stall = stallOfTask(t);
+      return stall ? [{ task: copy(t), stall }] : [];
+    })
+    .sort((a, b) => b.stall.days - a.stall.days || a.task.code.localeCompare(b.task.code));
+}
+
+/**
+ * Il polso di un progetto per una persona (che lo vede): `projectPulse`,
+ * `listProjectPulses` e la scheda di preparazione del Calendario.
+ */
+export function pulseOf(
+  personId: string,
+  project: Project,
+  open: DecisionRequest[] = openDecisions(),
+): ProjectPulse {
+  const projectId = project.id;
+  const tasks = state.tasks.filter((t) => t.projectId === projectId);
+  const stallOfTask = stallScope(personId, open);
+  const nextMilestone =
+    state.milestones
+      .filter((m) => m.projectId === projectId && !m.closed && m.dueDate)
+      .sort((a, b) => a.dueDate!.localeCompare(b.dueDate!))
+      .at(0) ?? null;
+  return {
+    projectId,
+    open: {
+      todo: tasks.filter((t) => familyOf(t) === "todo").length,
+      active: tasks.filter((t) => familyOf(t) === "active").length,
+    },
+    stalled: tasks.filter((t) => stallOfTask(t) !== null).length,
+    waitingOnMe: waitingOnMe(personId).has(projectId),
+    claudeWorking: project.signals.claudeWorking,
+    nextMilestone: nextMilestone ? copy(nextMilestone) : null,
+  };
 }
 
 /**

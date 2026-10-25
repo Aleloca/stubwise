@@ -11,6 +11,7 @@ import type {
   MailThreadFilters,
   MailThreadRow,
 } from "../types";
+import { meetingNote } from "./transcripts";
 import { canSeeMailProposal, visibleMessages } from "./visibility";
 
 // Le letture della Posta (area 6). Chi vede che cosa lo decide
@@ -45,10 +46,12 @@ function messageView(me: string, m: MailMessage): MailMessageView {
   } = copy(m);
   delete rest.readByPersonIds;
   delete rest.mailboxPersonIds;
+  const meeting = meetingNote(me, m);
   return {
     ...rest,
     classification: classificationFor(me, m.classification),
     read: m.readByPersonIds.includes(me),
+    ...(meeting ? { meeting } : {}),
   };
 }
 
@@ -102,8 +105,11 @@ function threadRow(me: string, messages: MailMessage[]): MailThreadRow {
   };
 }
 
-/** Le righe dell'elenco per chi guarda, dalla più recente. */
-function rowsFor(me: string, filters: MailThreadFilters): MailThreadRow[] {
+/**
+ * Le righe dell'elenco per chi guarda, dalla più recente. Anche le «Recent
+ * email» della scheda di preparazione (`calendar/prep.ts`), sul progetto.
+ */
+export function rowsFor(me: string, filters: MailThreadFilters): MailThreadRow[] {
   let messages = visibleMessages(me);
   if (filters.mailbox !== undefined) {
     const box = state.mailboxes.find((b) => b.email === filters.mailbox && b.personId === me);
@@ -134,8 +140,9 @@ export async function listMailThreads(filters: MailThreadFilters = {}): Promise<
 /**
  * Una conversazione: i messaggi che chi guarda vede, dal più vecchio. Un
  * thread di cui non vede nessun messaggio è `not_found`, come uno che non
- * esiste (R-G5). Note della riunione (Task 6) si aggiungono qui; le
- * proposte si leggono a parte (`listMailProposals({ sourceId })`).
+ * esiste (R-G5). Un'email di Gemini porta le note della riunione
+ * (`meeting`, `transcripts.ts`); le proposte si leggono a parte
+ * (`listMailProposals({ sourceId })`).
  */
 export async function getMailThread(threadId: string): Promise<MailThreadDetail> {
   const me = await gate("mail.getMailThread");

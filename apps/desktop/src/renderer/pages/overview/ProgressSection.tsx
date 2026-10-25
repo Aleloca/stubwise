@@ -4,6 +4,7 @@ import { TODAY } from "../../data/dates";
 import { useMilestones, useProjectStatuses, useTasks } from "../../data/queries";
 import type { FilterCriteria, Milestone, StatusFamily, Task } from "../../data/types";
 import { can, useViewer } from "../../data/viewer";
+import { openMilestones } from "../../domain/due";
 import { progress } from "../../domain/load";
 import { DueDate } from "../../tasks-ui/TaskRow";
 import { smallSecondary } from "../task/parts";
@@ -14,17 +15,6 @@ import { MilestonesDialog } from "./MilestonesDialog";
 
 /** «Closed in the last 2 weeks»: oggi e i 13 giorni prima, estremi inclusi. */
 export const RECENT_DAYS = 14;
-
-/** I traguardi aperti dal più vicino; quelli senza data in fondo, per nome. */
-export function openMilestones(list: Milestone[]): Milestone[] {
-  return list
-    .filter((m) => !m.closed)
-    .sort((a, b) => {
-      if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate);
-      if (a.dueDate || b.dueDate) return a.dueDate ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
-}
 
 /**
  * «Where it stands» (la prima delle tre domande): i traguardi aperti con

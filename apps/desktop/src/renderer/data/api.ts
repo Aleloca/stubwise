@@ -29,18 +29,18 @@ import {
   hasOpenPr,
   hasRepository,
   openDecisions,
+  pulseOf,
   runPreconditions,
   presentEvent,
   readableLength,
   resetStore,
   slipWeeks,
-  stallScope,
+  stalledTasks,
   state,
   visibleProjectIds,
   visibleTasks,
   waitingClaudeEvents,
   waitingOnMe,
-  familyOf,
   objectCodeOf,
 } from "./store";
 import type {
@@ -365,15 +365,7 @@ export async function listStalled(
   criteria?: FilterCriteria,
 ): Promise<{ task: Task; stall: Stall }[]> {
   const me = await gate("listStalled");
-  const ctx = filterContext(me);
-  const stallOfTask = stallScope(me);
-  return visibleTasks(me)
-    .filter((t) => !criteria || matches(t, criteria, ctx))
-    .flatMap((t) => {
-      const stall = stallOfTask(t);
-      return stall ? [{ task: copy(t), stall }] : [];
-    })
-    .sort((a, b) => b.stall.days - a.stall.days || a.task.code.localeCompare(b.task.code));
+  return stalledTasks(me, criteria);
 }
 
 /** Il polso di un progetto per chi guarda; `null` se il progetto non è visibile. */
@@ -393,28 +385,6 @@ export async function listProjectPulses(): Promise<ProjectPulse[]> {
   const visible = visibleProjectIds(me);
   const open = openDecisions();
   return state.projects.filter((p) => visible.has(p.id)).map((p) => pulseOf(me, p, open));
-}
-
-function pulseOf(me: string, project: Project, open: DecisionRequest[]): ProjectPulse {
-  const projectId = project.id;
-  const tasks = state.tasks.filter((t) => t.projectId === projectId);
-  const stallOfTask = stallScope(me, open);
-  const nextMilestone =
-    state.milestones
-      .filter((m) => m.projectId === projectId && !m.closed && m.dueDate)
-      .sort((a, b) => a.dueDate!.localeCompare(b.dueDate!))
-      .at(0) ?? null;
-  return {
-    projectId,
-    open: {
-      todo: tasks.filter((t) => familyOf(t) === "todo").length,
-      active: tasks.filter((t) => familyOf(t) === "active").length,
-    },
-    stalled: tasks.filter((t) => stallOfTask(t) !== null).length,
-    waitingOnMe: waitingOnMe(me).has(projectId),
-    claudeWorking: project.signals.claudeWorking,
-    nextMilestone: nextMilestone ? copy(nextMilestone) : null,
-  };
 }
 
 /**

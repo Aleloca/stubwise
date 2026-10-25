@@ -28,3 +28,4 @@ export {
 } from "./writes";
 export { whenCalendarIdle } from "./save";
 export { calendarWindow } from "./visibility";
+export { getMeetingPrep } from "./prep";
