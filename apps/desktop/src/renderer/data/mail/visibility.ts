@@ -1,5 +1,6 @@
-import { state, visibleProjectIds } from "../store";
-import type { Mailbox, MailMessage, MailProposal } from "../types";
+import { state } from "../store";
+import type { Mailbox, MailMessage, MailProposal, ProposedAction } from "../types";
+import { can, viewerFor, type Permission } from "../viewer";
 
 // Chi vede che cosa nella Posta (area 6): UNA regola, per ogni lettura e ogni
 // scrittura. Un messaggio lo vedono solo i suoi destinatari in Stubwise —
@@ -34,13 +35,76 @@ export const myMailbox = (me: string, email: string): Mailbox | undefined =>
   state.mailboxes.find((b) => b.email === email && b.personId === me);
 
 /**
- * Una proposta aperta che chi guarda vede, nella forma minima che serve al
- * conteggio della riga: vede il messaggio da cui nasce ed è membro del
- * progetto. La regola intera (`canSeeMailProposal`: passate, calendario) è
- * del Task 3, che la sostituisce qui.
+ * Il permesso che conferma un'azione proposta, nel progetto della proposta.
+ * `chooseProject` non si conferma: si sceglie (`chooseProjectFor`).
+ */
+export function permissionForAction(fn: ProposedAction["fn"]): Permission | null {
+  switch (fn) {
+    case "createTask":
+    case "convertRequest":
+      return "tickets.create";
+    case "updateTask":
+    case "planTask":
+    case "createMilestone":
+      return "tickets.edit";
+    case "addComment":
+      return "tickets.comment";
+    case "createRequest":
+      return "backlog.create";
+    case "archiveRequest":
+      return "backlog.edit";
+    case "startRun":
+      return "runs.start";
+    case "recordDecision":
+      return "decisions.record";
+    case "chooseProject":
+      return null;
+  }
+}
+
+/**
+ * I partecipanti in Stubwise di un evento del calendario. Il Calendario non
+ * c'è ancora (Task 5): nessuno, quindi una proposta di calendario non la vede
+ * nessuno. Il Task 5 sostituisce `of` con i partecipanti dell'evento
+ * (`attendees[].personId`); i test la impostano a mano.
+ */
+export const calendarParticipants: { of: (eventId: string) => string[] } = { of: () => [] };
+
+export const isProjectMember = (me: string, projectId: string): boolean =>
+  !!state.projectsById.get(projectId)?.memberIds.includes(me);
+
+/**
+ * I progetti fra cui sceglie una proposta `chooseProject` (`args.projectIds`);
+ * per ogni altra, il suo progetto.
+ */
+export function proposalProjectIds(p: MailProposal): string[] {
+  const choose = p.actions.find((a) => a.fn === "chooseProject");
+  return choose ? ((choose.args.projectIds as string[] | undefined) ?? []) : [p.projectId];
+}
+
+/** Chi guarda è un destinatario dell'email da cui nasce la proposta. */
+export const isProposalRecipient = (me: string, p: MailProposal): boolean =>
+  p.source !== "calendar" &&
+  state.mailMessages.some((m) => m.messageId === p.sourceId && canSeeMessage(me, m));
+
+/**
+ * Chi vede una proposta della posta — l'unica regola, per ogni lettura e
+ * scrittura. Email e trascrizione: chi vede il messaggio (`messageId ===
+ * sourceId`) ED è membro del progetto (`memberIds`: un admin non membro non
+ * la vede, anche se vede ogni progetto); per `chooseProject` basta essere
+ * membro di uno dei progetti fra cui sceglie. Passata al progetto: anche
+ * chi ha il permesso della prima azione nel progetto, senza essere
+ * destinatario (vede l'estratto, non il messaggio). Calendario: partecipante
+ * dell'evento e membro.
  */
 export function canSeeMailProposal(me: string, p: MailProposal): boolean {
-  if (p.source === "calendar") return false;
-  if (!visibleProjectIds(me).has(p.projectId)) return false;
-  return state.mailMessages.some((m) => m.messageId === p.sourceId && canSeeMessage(me, m));
+  if (p.source === "calendar") {
+    return isProjectMember(me, p.projectId) && calendarParticipants.of(p.sourceId).includes(me);
+  }
+  if (proposalProjectIds(p).some((id) => isProjectMember(me, id)) && isProposalRecipient(me, p)) {
+    return true;
+  }
+  if (p.status !== "handed") return false;
+  const perm = p.actions[0] ? permissionForAction(p.actions[0].fn) : null;
+  return perm !== null && can(viewerFor(me), perm, p.projectId);
 }

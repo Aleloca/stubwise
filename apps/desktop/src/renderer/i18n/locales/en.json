@@ -2478,7 +2478,9 @@
       "planApproved": "Plan approved.",
       "planRejected": "Plan rejected.",
       "planRejectedWith": "Plan rejected: {{instructions}}",
-      "answerWithNote": "{{option}} — {{note}}"
+      "answerWithNote": "{{option}} — {{note}}",
+      "emailTitle": "From the email “{{subject}}”",
+      "emailDecision": "{{sender}} wrote: “{{excerpt}}”"
     }
   },
   "chat": {

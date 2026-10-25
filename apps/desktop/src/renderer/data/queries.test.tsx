@@ -19,8 +19,11 @@ import {
   useDayArrangements,
   useDriveFile,
   useDriveFiles,
+  useConfirmMailProposal,
   useImportantMail,
+  useMailProposalDecisions,
   useMailThreads,
+  useTasks,
   useRecordDriveOpen,
   useSyncMailbox,
   usePeopleActivity,
@@ -377,5 +380,27 @@ describe("Posta (area 6)", () => {
     await act(() => result.current.sync.mutateAsync("giulia.ferri@example.com"));
     await waitFor(() => expect(has(result.current.threads.data)).toBe(true));
     await waitFor(() => expect(has(result.current.important.data)).toBe(true));
+  });
+
+  it("confermata una proposta, esce da «Da decidere» e la task nata entra nelle task", async () => {
+    const { result } = renderHook(
+      () => ({
+        decisions: useMailProposalDecisions(),
+        tasks: useTasks(),
+        confirm: useConfirmMailProposal(),
+      }),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.decisions.data).toBeDefined());
+    await waitFor(() => expect(result.current.tasks.data).toBeDefined());
+    const ids = () => result.current.decisions.data!.map((v) => v.proposal.id);
+    const title = "Add the VAT number column to the billing export";
+    expect(ids()).toContain("mp-aud-billing-vat");
+    expect(result.current.tasks.data!.some((t) => t.title === title)).toBe(false);
+    await act(() => result.current.confirm.mutateAsync({ id: "mp-aud-billing-vat" }));
+    await waitFor(() => expect(ids()).not.toContain("mp-aud-billing-vat"));
+    await waitFor(() =>
+      expect(result.current.tasks.data!.some((t) => t.title === title)).toBe(true),
+    );
   });
 });

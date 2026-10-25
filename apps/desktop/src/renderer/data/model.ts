@@ -651,7 +651,13 @@ export type ProposedAction = {
     | "createRequest"
     | "convertRequest"
     | "startRun"
-    | "archiveRequest";
+    | "archiveRequest"
+    // Dalla posta (area 6): una decisione nel registro (origine `email`, testo
+    // da template), un traguardo, e la scelta del progetto per un'email
+    // incerta (`chooseProject` non si esegue: la risolve `chooseProjectFor`).
+    | "recordDecision"
+    | "createMilestone"
+    | "chooseProject";
   args: Record<string, unknown>;
   summary: string;
   /** Il riassunto come frase (`summary` è la sua resa al momento, per chi non la sa leggere). */
@@ -1653,6 +1659,29 @@ export interface MailProposal {
   resultCodes: string[];
   error: string | null;
   handedAt: string | null;
+  /** Confermata solo in parte: gli indici delle azioni eseguite. */
+  confirmedActions?: number[];
+  /** Chi ha scelto il progetto di un'email incerta (`chooseProject` risolta). */
+  projectChosenById?: string;
+}
+
+/** I filtri delle proposte della posta: di un'email (Message-ID) e per stato. */
+export interface MailProposalFilters {
+  sourceId?: string;
+  status?: MailProposal["status"];
+}
+
+/**
+ * Una proposta della posta come la vede chi guarda: se può confermarla (il
+ * permesso di ogni azione nel progetto) o solo passarla al progetto, gli
+ * incaricati che non sono nel progetto, e chi l'ha decisa (o passata).
+ */
+export interface MailProposalView {
+  proposal: MailProposal;
+  canConfirm: boolean;
+  canHand: boolean;
+  outsiders: { personId: string; name: string }[];
+  decidedBy: { personId: string; name: string } | null;
 }
 
 /** Una bozza, per persona e conversazione (`threadId: null` = email nuova). */

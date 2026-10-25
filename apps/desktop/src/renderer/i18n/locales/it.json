@@ -2478,7 +2478,9 @@
       "planApproved": "Piano approvato.",
       "planRejected": "Piano rifiutato.",
       "planRejectedWith": "Piano rifiutato: {{instructions}}",
-      "answerWithNote": "{{option}} — {{note}}"
+      "answerWithNote": "{{option}} — {{note}}",
+      "emailTitle": "Dall’email «{{subject}}»",
+      "emailDecision": "{{sender}} ha scritto: «{{excerpt}}»"
     }
   },
   "chat": {

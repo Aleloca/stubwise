@@ -313,6 +313,14 @@ export type ApiFnName =
   | "mail.syncMailbox"
   | "mail.setProposalsEnabled"
   | "mail.reproposeMessage"
+  | "mail.listMailProposals"
+  | "mail.getMailProposal"
+  | "mail.listMailDecisions"
+  | "mail.confirmProposal"
+  | "mail.ignoreProposal"
+  | "mail.handProposal"
+  | "mail.chooseProject"
+  | "mail.reassignProposal"
   /** Un passo dell'allineamento simulato di una casella (arriva la posta nuova). */
   | "mail.advanceSync"
   /** Un passo della classificazione simulata (in analisi → classificata o fallita). */

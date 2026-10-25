@@ -1049,6 +1049,20 @@ export async function recordDecision(
   draft: DecisionDraft,
 ): Promise<DecisionLogEntry> {
   const me = await gate("recordDecision");
+  return copy(recordDecisionAs(me, projectId, draft, "manual"));
+}
+
+/**
+ * Scrive una voce nel registro a nome di `me`, con i controlli di
+ * `recordDecision`: `manual` (il testo di chi la scrive) o `email` (la
+ * proposta della posta: il testo è un template, vedi `applyActions`).
+ */
+function recordDecisionAs(
+  me: string,
+  projectId: string,
+  draft: DecisionDraft,
+  source: "manual" | "email",
+): DecisionLogEntry {
   projectFor(me, projectId);
   need(me, "decisions.record", projectId);
   if (!draft.title.trim()) throw invalid("title");
@@ -1064,7 +1078,7 @@ export async function recordDecision(
   const entry: DecisionLogEntry = {
     id: newId("dl"),
     projectId,
-    source: "manual",
+    source,
     taskId: draft.taskId ?? null,
     title: draft.title.trim(),
     context: draft.context?.trim() ? draft.context.trim() : null,
@@ -1075,7 +1089,7 @@ export async function recordDecision(
   };
   state.decisionLog.push(entry);
   if (superseded) superseded.supersededById = entry.id;
-  return copy(entry);
+  return entry;
 }
 
 /**
@@ -1120,6 +1134,11 @@ export async function createMilestone(
   input: MilestoneInput,
 ): Promise<Milestone> {
   const me = await gate("createMilestone");
+  return copy(createMilestoneAs(me, projectId, input));
+}
+
+/** Crea un traguardo a nome di `me` (`tickets.edit`), anche da una proposta della posta. */
+function createMilestoneAs(me: string, projectId: string, input: MilestoneInput): Milestone {
   projectFor(me, projectId);
   need(me, "tickets.edit", projectId);
   checkMilestone(input);
@@ -1132,7 +1151,7 @@ export async function createMilestone(
     closed: false,
   };
   state.milestones.push(milestone);
-  return copy(milestone);
+  return milestone;
 }
 
 /** Modifica, chiude o riapre un traguardo (`tickets.edit`). */
@@ -2279,24 +2298,32 @@ export async function setConversationContext(id: string, projectId: string | nul
   notifyConversationChange(id);
 }
 
-type FailureCode = "forbidden" | "not_found" | "invalid" | "conflict" | "other";
+export type FailureCode = "forbidden" | "not_found" | "invalid" | "conflict" | "other";
 
-type Applied =
+export type Applied =
   | { ok: true; codes: string[]; projectIds: string[]; runs: Task[] }
   | { ok: false; index: number; code: FailureCode };
 
 /**
  * Esegue le azioni di una proposta in una volta sola e senza attese (nessun
  * altro può scrivere in mezzo): prima tiene una copia di ciò che le
- * mutazioni toccano, e al primo errore la rimette.
+ * mutazioni toccano, e al primo errore la rimette. È l'unico esecutore del
+ * «tutto o niente»: lo usano le proposte di Claude (conversazione e Chat,
+ * `settleProposal`) e quelle della posta (`mail/proposals.ts`).
+ *
+ * `recordDecision` scrive nel registro con origine `email` e un testo da
+ * TEMPLATE (oggetto, mittente ed estratto dell'email, che chi chiama legge
+ * dal messaggio): mai un testo del modello. `chooseProject` non si esegue.
  */
-function applyActions(me: string, actions: ProposedAction[]): Applied {
+export function applyActions(me: string, actions: ProposedAction[]): Applied {
   const snapshot = structuredClone({
     tasks: state.tasks,
     activity: state.activity,
     arrangements: state.arrangements,
     notifications: state.notifications,
     requests: state.requests,
+    decisionLog: state.decisionLog,
+    milestones: state.milestones,
     counter: state.counter,
   });
   const created: (Task | undefined)[] = [];
@@ -2358,6 +2385,33 @@ function applyActions(me: string, actions: ProposedAction[]): Applied {
           if (!task) throw invalid("taskFromAction");
           prepareRun(me, task, runs);
           runs.push(task);
+          break;
+        }
+        case "recordDecision": {
+          const projectId = args.projectId as string;
+          recordDecisionAs(
+            me,
+            projectId,
+            {
+              title: i18n.t("claude.decisionLog.emailTitle", { subject: args.subject as string }),
+              decision: i18n.t("claude.decisionLog.emailDecision", {
+                sender: args.sender as string,
+                excerpt: args.excerpt as string,
+              }),
+              taskId: (args.taskId as string | undefined) ?? null,
+            },
+            "email",
+          );
+          projectIds.add(projectId);
+          break;
+        }
+        case "createMilestone": {
+          const milestone = createMilestoneAs(me, args.projectId as string, {
+            name: args.name as string,
+            ...(args.description !== undefined ? { description: args.description as string } : {}),
+            dueDate: (args.dueDate as string | null | undefined) ?? null,
+          });
+          projectIds.add(milestone.projectId);
           break;
         }
         default:

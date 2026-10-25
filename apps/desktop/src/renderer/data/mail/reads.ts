@@ -134,8 +134,8 @@ export async function listMailThreads(filters: MailThreadFilters = {}): Promise<
 /**
  * Una conversazione: i messaggi che chi guarda vede, dal più vecchio. Un
  * thread di cui non vede nessun messaggio è `not_found`, come uno che non
- * esiste (R-G5). Note della riunione (Task 6) e proposte (Task 3) si
- * aggiungono qui.
+ * esiste (R-G5). Note della riunione (Task 6) si aggiungono qui; le
+ * proposte si leggono a parte (`listMailProposals({ sourceId })`).
  */
 export async function getMailThread(threadId: string): Promise<MailThreadDetail> {
   const me = await gate("mail.getMailThread");

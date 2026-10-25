@@ -39,6 +39,7 @@ import type {
   FilterCriteria,
   HomeBlockRef,
   MailboxView,
+  MailProposalFilters,
   MailThreadFilters,
   MailThreadRow,
   MilestoneInput,
@@ -186,6 +187,10 @@ export const queryKeys = {
   mailboxes: (personId: string) => ["as", personId, "mail", "mailboxes"] as const,
   importantMail: (personId: string) => ["as", personId, "mail", "important"] as const,
   mailSearch: (personId: string, q: string) => ["as", personId, "mail", "search", q] as const,
+  mailProposals: (personId: string, filters: MailProposalFilters) =>
+    ["as", personId, "mail", "proposals", filters] as const,
+  mailProposal: (personId: string, id: string) => ["as", personId, "mail", "proposal", id] as const,
+  mailDecisions: (personId: string) => ["as", personId, "mail", "decisions"] as const,
 };
 
 /** Quali canali: tutti (colonna, «Browse channels») o quelli di un progetto. */
@@ -2502,4 +2507,79 @@ export function useReproposeMessage() {
     },
     onSettled: invalidate,
   });
+}
+
+// Le proposte condivise della posta. Una conferma crea task, richieste,
+// decisioni e traguardi, e può aggiungere una persona al progetto: rilegge
+// quelle aree oltre alla Posta. Le altre decisioni cambiano solo la Posta.
+
+const MAIL_CONFIRM_AREAS = [
+  ...MAIL_AREAS,
+  ...TASK_AREAS,
+  ...REQUEST_AREAS,
+  ...DECISION_AREAS,
+  ...MILESTONE_AREAS,
+  ...PROJECT_AREAS,
+] as const;
+
+/** Le proposte che vedo, di un'email (`sourceId`) o per stato. */
+export function useMailProposals(filters: MailProposalFilters = {}, { enabled = true } = {}) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.mailProposals(me, filters),
+    queryFn: () => api.mail.listMailProposals(filters),
+    enabled,
+  });
+}
+
+/** Una proposta, con `canConfirm`, `canHand`, gli incaricati fuori progetto e chi ha deciso. */
+export function useMailProposal(id: string | null) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.mailProposal(me, id ?? ""),
+    queryFn: () => api.mail.getMailProposal(id!),
+    enabled: id !== null,
+    retry: false,
+  });
+}
+
+/** Le proposte della posta che aspettano me («Da decidere», `kind: "mailProposal"`). */
+export function useMailProposalDecisions() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.mailDecisions(me),
+    queryFn: () => api.mail.listMailDecisions(),
+  });
+}
+
+export function useConfirmMailProposal() {
+  return useWrite(
+    ({ id, ...input }: { id: string } & api.mail.ConfirmMailProposalInput) =>
+      api.mail.confirmMailProposal(id, input),
+    MAIL_CONFIRM_AREAS,
+  );
+}
+
+export function useIgnoreMailProposal() {
+  return useWrite((id: string) => api.mail.ignoreMailProposal(id), MAIL_AREAS);
+}
+
+export function useHandMailProposal() {
+  return useWrite((id: string) => api.mail.handMailProposal(id), MAIL_AREAS);
+}
+
+export function useChooseMailProject() {
+  return useWrite(
+    ({ id, projectId }: { id: string; projectId: string }) =>
+      api.mail.chooseProjectFor(id, projectId),
+    MAIL_AREAS,
+  );
+}
+
+export function useReassignMailProposal() {
+  return useWrite(
+    ({ id, projectId }: { id: string; projectId: string }) =>
+      api.mail.reassignMailProposal(id, projectId),
+    MAIL_AREAS,
+  );
 }

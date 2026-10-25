@@ -4,10 +4,11 @@ import { at } from "./helpers";
 import { MEETING_MESSAGES, MEETING_MESSAGE_IDS } from "./meetings";
 import { MESSAGE_IDS, PROJECT_MESSAGES } from "./messages";
 
-// Le proposte della posta, una per email (Message-ID) e progetto. Solo con
-// le funzioni di oggi (task, richieste, aggiornamenti, commenti): «scegli il
-// progetto» per l'email incerta, le decisioni e i traguardi li semina il
-// Task 3 insieme alla loro esecuzione.
+// Le proposte della posta, una per email (Message-ID) e progetto: task,
+// richieste, aggiornamenti e commenti; per l'email incerta fra AUD e MKX una
+// «scegli il progetto» (`chooseProject`), con le azioni già pronte per
+// ciascun candidato. Il suo `projectId` è il primo candidato: la proposta
+// non è ancora di nessun progetto, e la vede chi è membro di uno dei due.
 
 const sourceOf = (id: string): string => {
   const m = [...PROJECT_MESSAGES, ...MEETING_MESSAGES].find((x) => x.id === id);
@@ -126,6 +127,55 @@ export const MAIL_PROPOSALS: MailProposal[] = [
     resultCodes: [],
     error: null,
     handedAt: at(3, "15:30"),
+  },
+  // Incerta fra AUD e MKX (Giulia e Matteo sono in entrambi): si sceglie il
+  // progetto, poi si conferma la task di quel progetto.
+  {
+    id: "mp-video-testimonials",
+    source: "email",
+    sourceId: sourceOf(MESSAGE_IDS.uncertain),
+    projectId: "prj-aud",
+    actions: [
+      {
+        fn: "chooseProject",
+        args: {
+          projectIds: ["prj-aud", "prj-mkx"],
+          actionsByProject: {
+            "prj-aud": [
+              {
+                fn: "createTask",
+                args: {
+                  projectId: "prj-aud",
+                  title: "Book the customer testimonial shooting (4 or 5 November)",
+                  description:
+                    "Cristina Valli can shoot the customer testimonials on 4 or 5 November and is waiting for the campaign before sending the quote.",
+                },
+                summary:
+                  "Create in AUD: “Book the customer testimonial shooting (4 or 5 November)”",
+              },
+            ],
+            "prj-mkx": [
+              {
+                fn: "createTask",
+                args: {
+                  projectId: "prj-mkx",
+                  title: "Book the testimonial video shooting for the product launch",
+                  description:
+                    "Cristina Valli can shoot the customer testimonials on 4 or 5 November and is waiting for the campaign before sending the quote.",
+                },
+                summary:
+                  "Create in MKX: “Book the testimonial video shooting for the product launch”",
+              },
+            ],
+          },
+        },
+        summary: "Choose the project: AUD or MKX",
+      },
+    ],
+    excerpt:
+      "We can shoot the customer testimonials on 4 or 5 November. Which campaign are they for, the product launch or the spring one?",
+    createdAt: at(1, "15:24"),
+    ...undecided(),
   },
   // Dalla revisione settimanale di AUD: quattro task, una per Chiara
   // (marketing), che non è nel progetto né era alla riunione.

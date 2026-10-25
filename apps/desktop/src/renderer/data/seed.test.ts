@@ -1470,6 +1470,18 @@ describe("seed: Posta (area 6)", () => {
     const c = done(MAIL_CASES.uncertain);
     expect(c.projectIds).toEqual([]);
     expect([...c.uncertainProjectIds].sort()).toEqual([AUD, MKX].sort());
+    // Una sola proposta: «scegli il progetto», con le azioni pronte per i due.
+    const ps = proposalsOf(MAIL_CASES.uncertain);
+    expect(ps.map((p) => p.actions.map((a) => a.fn))).toEqual([["chooseProject"]]);
+    const args = ps[0]!.actions[0]!.args as {
+      projectIds: string[];
+      actionsByProject: Record<string, { fn: string; args: { projectId: string } }[]>;
+    };
+    expect([...args.projectIds].sort()).toEqual([AUD, MKX].sort());
+    for (const id of args.projectIds) {
+      expect(args.actionsByProject[id]!.length, id).toBeGreaterThan(0);
+      for (const a of args.actionsByProject[id]!) expect(a.args.projectId).toBe(id);
+    }
   });
 
   it("una email a Giulia, Matteo e Laura con una proposta condivisa aperta", () => {
@@ -1563,11 +1575,27 @@ describe("seed: Posta (area 6)", () => {
       expect(p.createdAt >= m!.at && p.createdAt <= NOW, p.id).toBe(true);
       expect(p.source, p.id).toBe(m!.kind === "transcript" ? "transcript" : "email");
       const c = m!.classification;
-      expect(c.state === "done" ? c.projectIds : [], p.id).toContain(p.projectId);
+      const choosing = p.actions.some((a) => a.fn === "chooseProject");
+      // Una «scegli il progetto» è di un'email incerta: il suo progetto è un candidato.
+      expect(
+        c.state === "done" ? (choosing ? c.uncertainProjectIds : c.projectIds) : [],
+        p.id,
+      ).toContain(p.projectId);
       expect(p.actions.length, p.id).toBeGreaterThan(0);
+      if (choosing) expect(p.actions, p.id).toHaveLength(1);
       for (const a of p.actions) {
-        // Solo le funzioni di oggi: le nuove (decisione, traguardo, scelta del progetto) arrivano dopo.
-        expect(["createTask", "createRequest", "updateTask", "addComment"], p.id).toContain(a.fn);
+        expect(
+          [
+            "createTask",
+            "createRequest",
+            "updateTask",
+            "addComment",
+            "recordDecision",
+            "createMilestone",
+            "chooseProject",
+          ],
+          p.id,
+        ).toContain(a.fn);
         const taskId = a.fn === "updateTask" ? a.args.id : a.args.taskId;
         if (a.fn === "updateTask" || a.fn === "addComment") {
           expect(tasksById.get(taskId as string)?.projectId, p.id).toBe(p.projectId);
