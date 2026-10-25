@@ -159,7 +159,9 @@ pagina e l'indice, **Operate** per generazione, grafo, form e chat.
   `docs.generate`) · held («On hold: monthly budget reached» + motivo) ·
   paused («Paused: usage limit, resumes around 14:00» + «Resume now» con
   `docs.generate`). Gli stati avanzano col ritardo simulato.
-- **Pagina vecchia**: fascia sotto la meta, filetto sinistro 2px `warning`
+- **Pagina vecchia**: fascia sotto la meta, fondo `ink/4` con angoli
+  arrotondati come gli altri avvisi (niente filetto laterale colorato:
+  deciso dal maintainer il 25 ott 2026, coerente con DESIGN.md)
   + icona e testo (mai solo colore): «3 commits since this page was
   updated», richiusa; aperta elenca sha (tnum) · messaggio · data, max 5 +
   «Show 4 more». Si chiude solo per la sessione.

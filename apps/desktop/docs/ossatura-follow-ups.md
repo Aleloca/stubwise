@@ -6,22 +6,22 @@ per dopo. Da riprendere all'inizio dell'area 2, prima di costruirci sopra.
 ## Primo passo dell'area 2
 
 - [x] (area 2, T1) **Livello dati consapevole di chi guarda.** Oggi «vedi come» cambia i
-  permessi ma non i dati: ogni persona vede i progetti fissati, le notifiche
-  e i segnali di Giulia, e un Contributor trova via ⌘K anche progetti di cui
-  non è membro (il server risponderebbe 404). Serve una «sessione» nel
-  livello finto (`currentPersonId` in `data/api.ts`, impostato da
-  `ViewerProvider`, nelle chiavi delle query), con filtri per membro e
-  destinatario su `listProjects`, `search`, `listNotifications`, progetti
-  fissati. Reparti e persone letti via query, non importando il seed
-  (`DeptStrip`, `ProfileMenu`).
+      permessi ma non i dati: ogni persona vede i progetti fissati, le notifiche
+      e i segnali di Giulia, e un Contributor trova via ⌘K anche progetti di cui
+      non è membro (il server risponderebbe 404). Serve una «sessione» nel
+      livello finto (`currentPersonId` in `data/api.ts`, impostato da
+      `ViewerProvider`, nelle chiavi delle query), con filtri per membro e
+      destinatario su `listProjects`, `search`, `listNotifications`, progetti
+      fissati. Reparti e persone letti via query, non importando il seed
+      (`DeptStrip`, `ProfileMenu`).
 - [x] (area 2) **`DetailPanel`** (`layout/useDetailPanel.ts`): Esc globale che ignora
-  `defaultPrevented` (con la palette aperta chiude entrambi) e nessun
-  spostamento/ritorno del fuoco nella modalità sovrapposta.
+      `defaultPrevented` (con la palette aperta chiude entrambi) e nessun
+      spostamento/ritorno del fuoco nella modalità sovrapposta.
 - [x] (area 2, pagine e pannello) **Windows**: l'overlay dei controlli finestra copre l'angolo in alto a
-  destra dell'area di lavoro; le testate delle pagine devono riservare
-  ~32px in alto e ~140px a destra (o `env(titlebar-area-*)`).
+      destra dell'area di lavoro; le testate delle pagine devono riservare
+      ~32px in alto e ~140px a destra (o `env(titlebar-area-*)`).
 - [x] (area 2, derivato dai dati) **Segnale «ti aspetta»** sulle tessere: oggi non è legato a task o
-  decisioni reali del seed.
+      decisioni reali del seed.
 
 ## Minori, quando capita
 
@@ -245,7 +245,7 @@ del Drive per gli allegati — l'allegato ha «Save to Drive»
 (`pages/chat/SaveToDrive.tsx`), in un DM o in un canale generale chiede il
 progetto; vedi `area4-parity.md`.
 
-### Decisioni del controller da confermare
+### Decisioni del controller (confermate dal maintainer il 25 ott 2026)
 
 - **R-H1** — nel grafo «spento», «Enable» (`repos.manage`) lo accende e lo
   costruisce subito: il prototipo non ha la pagina impostazioni del repository,
@@ -338,9 +338,6 @@ progetto; vedi `area4-parity.md`.
   sta ancora scrivendo la risposta sui file, in una sessione in pausa, lascia
   che la ripresa riparta dopo lo stop (precedente all'area 5):
   `data/api-mutations.ts` (~1598).
-- L'avviso «pagina non aggiornata» dei Docs ha un bordo sinistro ambra di 2px,
-  che `DESIGN.md` vieta ma lo shape approvato chiede: da decidere col
-  maintainer. `pages/docs/DocPageView.tsx`.
 
 ### Dalla revisione finale (rimandati)
 
@@ -354,4 +351,3 @@ progetto; vedi `area4-parity.md`.
   volte; tre estrattori di passaggio (`drivePassage` in `data/drive/reads.ts`,
   `passageOf` in `data/docs/reads.ts`, quello dei file per Claude in
   `domain/claude/intents/files.ts`). Da riunire quando si tocca la parte.
-

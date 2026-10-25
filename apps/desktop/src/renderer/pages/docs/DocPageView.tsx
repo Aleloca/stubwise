@@ -227,7 +227,7 @@ function StaleNote({ page }: { page: DocPage }) {
     <div
       role="note"
       aria-label={label}
-      className="mt-5 flex flex-col border-l-2 border-warning py-1.5 pr-1.5 pl-3"
+      className="mt-5 flex flex-col rounded-md bg-ink/4 py-1.5 pr-1.5 pl-3"
     >
       <div className="flex items-center gap-2">
         <svg
