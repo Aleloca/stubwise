@@ -286,29 +286,89 @@ async function main() {
     // Area 5: Docs e Drive. Laura (Project Lead) ha `drive.history` e gestisce
     // il Drive; Giulia ha un account Google collegato (fuori dai progetti).
     const searchBox = (p) => p.getByRole("searchbox", { name: /^(Search files|Cerca nei file)$/ });
+    // Il puntatore via dalla lista: lo scatto mostra la selezione, non un passaggio.
+    const park = async (p) => {
+      // Lo spazio vuoto della colonna del progetto: nessuna riga sotto, nessun suggerimento.
+      const size = p.viewportSize();
+      await p.mouse.move(180, size.height - 100);
+      await p.waitForTimeout(300);
+    };
+    // L'albero delle pagine non è più lo scheletro: lo scatto è la pagina vera.
+    const treeReady = async (p) => {
+      // Alla larghezza minima l'albero sta in un pannello chiuso: non c'è da attendere.
+      await p.locator('[role="tree"]').first().waitFor({ state: "attached", timeout: 3000 }).catch(() => {});
+      await p.locator('[data-testid="doc-tree-skeleton"]').waitFor({ state: "detached" });
+      await p.waitForTimeout(400);
+    };
+    // La home dei Docs non ha l'albero: basta che nessuno scheletro resti.
+    const homeReady = async (p) => {
+      await p.locator('[data-testid="doc-tree-skeleton"]').waitFor({ state: "detached" });
+      await p.waitForTimeout(900);
+    };
+    const askClaudeAboutContract = async (p) => {
+      const lang = await p.evaluate(() => window.localStorage.getItem("stubwise.language"));
+      await p.locator("textarea").last().fill(
+        lang === "it"
+          ? "Cosa dice il contratto col cliente sui tempi di consegna?"
+          : "What does the client contract say about delivery times?",
+      );
+      await p.keyboard.press("Enter");
+      await p.waitForTimeout(4500);
+    };
     const AREA5 = [
-      ["docs-home", "/p/AUD/docs", { persona: "Laura", narrow: true }],
-      ["docs-page", "/p/AUD/docs/audin-app/scheduled-callbacks", { persona: "Laura", narrow: true }],
-      ["docs-graph", "/p/STW/docs/stubwise/graph", { persona: "Laura", narrow: true }],
-      ["drive-aud", "/p/AUD/drive", { persona: "Laura", narrow: true }],
-      ["drive-detail", "/p/AUD/drive?file=AUD-F7", { persona: "Laura", narrow: true }],
+      ["docs-home", "/p/AUD/docs", { persona: "Laura", narrow: true, steps: homeReady }],
+      // Sotto i 1200 px la chat scende sotto il contenuto: «Ask the docs».
+      ["docs-home-ask", "/p/AUD/docs", {
+        persona: "Laura",
+        narrowOnly: true,
+        steps: async (p) => {
+          await homeReady(p);
+          await p.getByRole("region", { name: /^(Ask the docs|Chiedi ai docs)/ }).first().scrollIntoViewIfNeeded();
+          await p.mouse.move(500, 300);
+          await p.mouse.wheel(0, 4000);
+          await park(p);
+        },
+      }],
+      ["docs-page", "/p/AUD/docs/audin-app/scheduled-callbacks", { persona: "Laura", narrow: true, steps: treeReady }],
+      ["docs-graph", "/p/STW/docs/stubwise/graph", { persona: "Laura", narrow: true, steps: treeReady }],
+      ["drive-aud", "/p/AUD/drive", { persona: "Laura", narrow: true, steps: park }],
+      ["drive-detail", "/p/AUD/drive?file=AUD-F7", { persona: "Laura", narrow: true, steps: park }],
+      // Una cartella scelta (la frase di chi leggerà) e una già collegata in elenco.
       ["drive-link-folder", "/p/MKX/drive", {
         persona: "Giulia",
         narrow: true,
         steps: async (p) => {
           await p.getByRole("button", { name: /^(More Drive actions|Altre azioni del Drive)$/ }).click();
           await p.getByRole("menuitem", { name: /^(Link a Google folder|Collega una cartella Google)$/ }).click();
-          await p.getByRole("dialog").waitFor();
-          await p.mouse.move(2, 2);
+          const dialog = p.getByRole("dialog");
+          await dialog.waitFor();
+          await dialog.getByRole("searchbox").fill("ma");
+          await dialog.getByRole("option", { name: /materiali/ }).click();
           await p.waitForTimeout(900);
+          await park(p);
         },
       }],
+      // Giulia ha l'account collegato: in coda «In your Google Drive».
       ["drive-search", "/p/AUD/drive", {
-        persona: "Laura",
+        persona: "Giulia",
         narrow: true,
         steps: async (p) => {
-          await searchBox(p).fill("contratto");
-          await p.waitForTimeout(1200);
+          await searchBox(p).fill("release");
+          await p.waitForTimeout(1400);
+          await searchBox(p).press("ArrowDown");
+          await park(p);
+        },
+      }],
+      // La stessa ricerca, in fondo: il gruppo «In your Google Drive» e la sua nota.
+      ["drive-search-google", "/p/AUD/drive", {
+        persona: "Giulia",
+        narrow: true,
+        steps: async (p) => {
+          await searchBox(p).fill("release");
+          await p.waitForTimeout(1400);
+          await p.mouse.move(700, 400);
+          await p.mouse.wheel(0, 4000);
+          await park(p);
         },
       }],
       ["drive-which-project", "/drive", {
@@ -318,32 +378,41 @@ async function main() {
           await searchBox(p).fill("wine club");
           await p.locator("[data-drive-outside]").first().click();
           await p.getByRole("dialog").waitFor();
-          await p.mouse.move(2, 2);
+          await park(p);
           await p.waitForTimeout(900);
         },
       }],
       ["claude-cites-file", "/claude/cv-giulia-callbacks", {
         persona: "Giulia",
         narrow: true,
+        steps: askClaudeAboutContract,
+      }],
+      // La stessa risposta con il chip del file in primo piano: l'anteprima da 320 px.
+      ["claude-cites-file-preview", "/claude/cv-giulia-callbacks", {
+        persona: "Giulia",
+        narrow: true,
         steps: async (p) => {
-          const lang = await p.evaluate(() => window.localStorage.getItem("stubwise.language"));
-          await p.locator("textarea").last().fill(
-            lang === "it"
-              ? "Cosa dice il contratto col cliente sui tempi di consegna?"
-              : "What does the client contract say about delivery times?",
-          );
-          await p.keyboard.press("Enter");
-          await p.waitForTimeout(4500);
+          await askClaudeAboutContract(p);
+          const chip = p.locator('a[data-citation^="drive:"]').first();
+          await chip.scrollIntoViewIfNeeded();
+          await chip.focus();
+          await p.locator('a[data-citation^="drive:"][aria-describedby]').first().waitFor();
+          // L'anteprima si apre sotto il chip: si scende per vederla intera.
+          await p.mouse.move(700, 300);
+          await p.mouse.wheel(0, 600);
+          await p.waitForTimeout(500);
         },
       }],
     ];
     for (const [name, hash, o] of AREA5) {
       if (only && !only.test(name)) continue;
       const variants = [];
-      for (const scheme of ["light", "dark"]) {
-        for (const lang of ["en", "it"]) variants.push([scheme, lang, WIDE, `a5-${name}-${scheme}-${lang}.png`]);
+      if (!o.narrowOnly) {
+        for (const scheme of ["light", "dark"]) {
+          for (const lang of ["en", "it"]) variants.push([scheme, lang, WIDE, `a5-${name}-${scheme}-${lang}.png`]);
+        }
       }
-      if (o.narrow) variants.push(["dark", "en", NARROW, `a5-${name}-narrow.png`]);
+      if (o.narrow || o.narrowOnly) variants.push(["dark", "en", NARROW, `a5-${name}-narrow.png`]);
       for (const [scheme, lang, viewport, file] of variants) {
         const { page, context } = await open(scheme, viewport, hash, {
           lang,
