@@ -67,7 +67,8 @@ voci marcate **[ASSUNZIONE]** non sono nello spec: da confermare.
   pagina), colonna della Home (Home, My week, filtri fissati, All filters,
   Planning con il permesso).
 - Fuori: voci di Claude in Decide (area 3, stessa forma), blocchi di chat,
-  posta, rilasci (aree successive). Nessun numero di peso a schermo.
+  rilasci (aree successive). Posta e calendario sono entrati con l'area 6:
+  vedi §8. Nessun numero di peso a schermo.
 - Anti-obiettivi: dashboard di card con KPI; una Home uguale per tutti;
   decisioni che obbligano ad aprire la task per rispondere.
 
@@ -132,3 +133,74 @@ voci marcate **[ASSUNZIONE]** non sono nello spec: da confermare.
 - Da decidere (non inventare): **[ASSUNZIONE]** che la riga «department
   Home changed» si chiuda da sola dopo «See what's new» (mostra i blocchi
   aggiunti con «Add» accanto) e non ricompaia fino al prossimo cambio.
+
+## 8. Area 6 — Posta e calendario nella Home
+
+Aggiunta del 25 ott 2026 (piano area 6, Task 11; spec area 6 «Home»).
+**[A n]** = scelta del brief, elencata in fondo alla sezione.
+
+### Catalogo
+
+- Due blocchi nuovi nel catalogo, per tutti (nessun permesso: serve solo
+  l'account Google collegato, e senza account il blocco c'è e lo dice):
+  - **Upcoming** / «Prossimi appuntamenti» (`upcomingEvents`): gli eventi
+    da adesso a fine di domani, in TODAY / TOMORROW, con ora, codice del
+    progetto, titolo, segno ⌸ della scheda di preparazione, «Not
+    answered» per un invito; clic → Calendario sul giorno con l'evento e
+    la scheda.
+  - **Important email** / «Email importanti» (`importantMail`): le email
+    di importanza alta non ancora aperte, dalla più recente, con
+    mittente, oggetto, progetto e scadenza; clic → la conversazione in
+    Posta. Vuoto: «Nothing important».
+- Contenuto, tetti, vuoti, stati di allineamento (vecchio, scaduto, non
+  collegato) e clic dei due blocchi: `meeting-prep.md` §6. Usano il guscio
+  `BlockSection` con i suoi quattro stati, come ogni blocco.
+- **Home nuove**: i due blocchi sono presenti di default, subito dopo
+  «My week» e prima dei blocchi del reparto, in quest'ordine: Upcoming,
+  Important email **[A 1]**. Le Home già personalizzate non cambiano: la
+  riga «Your department's Home has changed · See what's new» li propone
+  con «Add» solo se il responsabile del reparto li aggiunge alla Home del
+  reparto.
+
+### Proposte della posta in «Decide»
+
+- Le proposte aperte nate da **email**, **trascrizioni di riunioni** e
+  **calendario** (`kind: "mailProposal"`) entrano in Decide insieme alle
+  altre voci «chieste a me», ordinate per data di nascita come loro. Le
+  vedo solo se vedo l'email (o ho partecipato alla riunione) **e** sono
+  membro del progetto; una proposta **passata al progetto** la vede anche
+  chi ha nel progetto il permesso della prima azione, con l'estratto che
+  Stubwise ha letto e non l'email.
+- Forma: la stessa card della Posta (`MailProposalCard`, `mail.md`), in
+  densità di blocco: riga d'origine «From an email · Elena Rossi ·
+  Export CSV: new deadline» / «From the meeting AUD Weekly · Oct 16» /
+  «From your calendar · Release AUD 2.1», codice del progetto, le azioni
+  proposte (la prima per intero, poi «+2 more» che espande in posto),
+  bottoni **Confirm** (o **Confirm 2 of 3** se se ne è deselezionata
+  qualcuna) · **Pass to project** (per chi non ha il permesso; mai per le
+  proposte di calendario) · **Ignore** · «Open email». La modifica dei
+  campi e l'incaricato fuori dal progetto si fanno in posto, come in
+  Posta.
+- Una conferma segue la finestra dell'«Undo» di 5 s come le altre risposte
+  di Decide (la voce collassa in 200 ms, toast «Confirmed · AUD-102
+  created · Undo») **[A 2]**.
+- **Condivisa**: decisa da un collega, la voce sparisce dal Decide di tutti
+  all'aggiornamento successivo; se ero sul punto di confermare, il toast
+  dice «Already confirmed by Marco Bianchi» con il link alla task nata, e
+  nulla viene creato due volte.
+- Una proposta `chooseProject` (il modello non è sicuro del progetto)
+  mostra i progetti candidati come bottoni («AUD» · «MKX», con il nome nel
+  tooltip), come una decisione a opzioni.
+- Decide resta «Always shown»; nessun blocco separato per le proposte
+  della posta **[A 3]**.
+
+### Scelte del brief da confermare (area 6)
+
+1. **[scelta del brief]** Ordine di default nelle Home nuove: Decide → My
+   week → Upcoming → Important email → blocchi del reparto. «Upcoming»
+   prima perché la mattina il primo bisogno è l'agenda.
+2. **[scelta del brief]** Confermare una proposta della posta da Decide
+   passa per l'«Undo» di 5 s come le altre risposte.
+3. **[scelta del brief]** Le proposte della posta stanno dentro Decide,
+   non in un blocco a parte; il blocco «Important email» non mostra
+   proposte, solo le email.
