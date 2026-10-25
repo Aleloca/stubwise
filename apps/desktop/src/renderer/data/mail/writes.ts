@@ -23,9 +23,21 @@ function track(work: Promise<void>): void {
   void work.finally(() => pending.delete(work));
 }
 
+/** I soli allineamenti in corso (l'arrivo, non la classificazione che segue). */
+const syncs = new Set<Promise<void>>();
+
 /** Si risolve quando nessun allineamento o classificazione simulata è più in corso. */
 export async function whenMailIdle(): Promise<void> {
   while (pending.size > 0) await Promise.all([...pending]);
+}
+
+/**
+ * Si risolve quando nessun allineamento è più in corso: la posta nuova è
+ * arrivata (magari ancora «in analisi»). Lo aspetta «Aggiorna ora» prima di
+ * far rileggere l'elenco.
+ */
+export async function whenMailSynced(): Promise<void> {
+  while (syncs.size > 0) await Promise.all([...syncs]);
 }
 
 /** Gli stati di classificazione attraversati da un messaggio dopo il seme. */
@@ -47,8 +59,10 @@ function mailboxFor(me: string, email: string): Mailbox {
 }
 
 /**
- * Va al modello se almeno una casella che lo contiene ha le proposte
- * attive; altrimenti resta `off` (la posta di quella casella non esce).
+ * Va al modello se almeno UNA casella che lo contiene ha le proposte
+ * attive; resta `off` solo se sono spente in tutte. La stessa email è anche
+ * posta di un collega: chi spegne le proposte ferma la PROPRIA casella, non
+ * quella degli altri (ruling del controller, fix round 1 del Task 2).
  */
 const goesToModel = (m: MailMessage): boolean =>
   state.mailboxes.some((b) => m.mailboxPersonIds.includes(b.personId) && b.proposalsEnabled);
@@ -116,7 +130,10 @@ export async function syncMailbox(email: string): Promise<void> {
     throw new Error("google_not_connected");
   if (box.sync === "syncing") return;
   box.sync = "syncing";
-  track(advanceSync(me));
+  const work = advanceSync(me);
+  syncs.add(work);
+  void work.finally(() => syncs.delete(work));
+  track(work);
 }
 
 /**

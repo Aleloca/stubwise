@@ -15,4 +15,5 @@ export {
   setProposalsEnabled,
   syncMailbox,
   whenMailIdle,
+  whenMailSynced,
 } from "./writes";

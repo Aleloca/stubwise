@@ -19,7 +19,10 @@ import {
   useDayArrangements,
   useDriveFile,
   useDriveFiles,
+  useImportantMail,
+  useMailThreads,
   useRecordDriveOpen,
+  useSyncMailbox,
   usePeopleActivity,
   usePinnedFilters,
   usePlanTask,
@@ -354,5 +357,25 @@ describe("Drive (area 5)", () => {
     await waitFor(() => expect(count()).toBe(5));
     await act(() => result.current.open.mutateAsync({ fileId: "drv-aud-3", via: "preview" }));
     await waitFor(() => expect(count()).toBe(6));
+  });
+});
+
+describe("Posta (area 6)", () => {
+  it("dopo «Aggiorna ora» la posta arrivata entra nell'elenco e nelle «Email importanti»", async () => {
+    // Con la latenza, l'arrivo e la classificazione finiscono dopo la prima rilettura.
+    setLatency(5);
+    const { result } = renderHook(
+      () => ({ threads: useMailThreads(), important: useImportantMail(), sync: useSyncMailbox() }),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.threads.data).toBeDefined());
+    await waitFor(() => expect(result.current.important.data).toBeDefined());
+    const thread = "th-aud-dialer-acceptance";
+    const has = (rows: { threadId: string }[] | undefined) =>
+      !!rows?.some((r) => r.threadId === thread);
+    expect(has(result.current.threads.data)).toBe(false);
+    await act(() => result.current.sync.mutateAsync("giulia.ferri@example.com"));
+    await waitFor(() => expect(has(result.current.threads.data)).toBe(true));
+    await waitFor(() => expect(has(result.current.important.data)).toBe(true));
   });
 });

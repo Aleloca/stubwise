@@ -2460,9 +2460,25 @@ export function useMarkMailRead() {
   return useWrite((threadId: string) => api.mail.markRead(threadId), MAIL_AREAS);
 }
 
-/** «Aggiorna ora»: la casella passa ad «in allineamento», l'elenco si rilegge da solo. */
+/**
+ * «Aggiorna ora»: appena la casella è «in allineamento» la Posta si rilegge
+ * (la casella lo mostra); di nuovo quando l'allineamento finisce, così la
+ * posta arrivata entra in elenco «in analisi»; e un'ultima volta quando la
+ * sua classificazione è finita, così l'importanza arriva anche alle
+ * «Email importanti», che non si rileggono da sole.
+ */
 export function useSyncMailbox() {
-  return useWrite((email: string) => api.mail.syncMailbox(email), MAIL_AREAS);
+  const invalidate = useInvalidate(MAIL_AREAS);
+  return useMutation({
+    mutationFn: async (email: string) => {
+      await api.mail.syncMailbox(email);
+      void invalidate();
+      await api.mail.whenMailSynced();
+      void invalidate();
+      await api.mail.whenMailIdle();
+    },
+    onSettled: invalidate,
+  });
 }
 
 export function useSetProposalsEnabled() {
@@ -2472,7 +2488,18 @@ export function useSetProposalsEnabled() {
   );
 }
 
-/** «Riproponi» un'email la cui analisi è fallita. */
+/**
+ * «Riproponi» un'email la cui analisi è fallita: si rilegge subito («in
+ * analisi») e di nuovo a classificazione finita (vedi `useSyncMailbox`).
+ */
 export function useReproposeMessage() {
-  return useWrite((id: string) => api.mail.reproposeMessage(id), MAIL_AREAS);
+  const invalidate = useInvalidate(MAIL_AREAS);
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.mail.reproposeMessage(id);
+      void invalidate();
+      await api.mail.whenMailIdle();
+    },
+    onSettled: invalidate,
+  });
 }

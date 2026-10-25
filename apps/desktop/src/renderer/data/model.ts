@@ -1704,10 +1704,11 @@ export interface MailThreadRow {
 
 /**
  * Un messaggio come lo legge chi guarda: chi altro l'ha letto non si dice
- * (`read` è solo il suo), e la classificazione nomina solo i progetti che
- * può vedere.
+ * (`read` è solo il suo), né quali caselle lo contengono (rivelerebbe i
+ * destinatari in ccn), e la classificazione nomina solo i progetti che può
+ * vedere.
  */
-export interface MailMessageView extends Omit<MailMessage, "readByPersonIds"> {
+export interface MailMessageView extends Omit<MailMessage, "readByPersonIds" | "mailboxPersonIds"> {
   read: boolean;
 }
 

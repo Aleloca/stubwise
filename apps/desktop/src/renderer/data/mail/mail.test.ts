@@ -97,6 +97,24 @@ describe("Posta: privacy sotto il «vedi come» (Review Focus 1)", () => {
   });
 });
 
+describe("Posta: ccn", () => {
+  it("una casella che tiene l'email senza il titolare in to/cc non si rivela agli altri", async () => {
+    // Laura → Giulia, e Matteo in ccn: l'email è anche nella sua casella.
+    const m = msg(MAIL_CASES.stwHigh);
+    m.mailboxPersonIds = [...m.mailboxPersonIds, "p-matteo"];
+    expect(canSeeMessage("p-matteo", m)).toBe(true);
+    const leaks = (x: unknown) => JSON.stringify(x).includes("p-matteo");
+    for (const viewer of ["p-giulia", "p-laura"]) {
+      as(viewer);
+      const thread = await mail.getMailThread(m.threadId);
+      expect(thread.messages[0], viewer).not.toHaveProperty("mailboxPersonIds");
+      expect(leaks(thread), viewer).toBe(false);
+      expect(leaks(await rowOf(m.id)), viewer).toBe(false);
+      expect(leaks(await mail.searchMail("copy freeze")), viewer).toBe(false);
+    }
+  });
+});
+
 describe("Posta: righe dell'elenco", () => {
   it("la condivisa: progetto, importanza, scadenza, non letti e proposte aperte", async () => {
     const shared = msg(MAIL_CASES.shared);
@@ -293,6 +311,28 @@ describe("Posta: letto, Riproponi, Home e ricerca", () => {
     await mail.whenMailIdle();
     expect(mail.mailClassificationHistory(id)).toEqual(["pending", "done"]);
     expect(msg(id).classification).toMatchObject({ state: "done", projectIds: [MKX] });
+  });
+
+  it("due caselle, una con le proposte spente: va al modello per l'altra", async () => {
+    // La condivisa è nelle caselle di Giulia (accese), Matteo e Laura.
+    const shared = msg(MAIL_CASES.shared);
+    shared.classification = { state: "failed" };
+    await mail.setProposalsEnabled("giulia.ferri@example.com", true);
+    as("p-matteo");
+    await mail.setProposalsEnabled("matteo.conti@example.com", false);
+    await mail.reproposeMessage(shared.id);
+    await mail.whenMailIdle();
+    expect(mail.mailClassificationHistory(shared.id)).toEqual(["pending", "done"]);
+  });
+
+  it("reproposeMessage con le proposte spente in tutte le sue caselle: finisce off", async () => {
+    as("p-matteo");
+    const id = MAIL_CASES.failed; // solo nella casella di Matteo
+    await mail.setProposalsEnabled("matteo.conti@example.com", false);
+    await mail.reproposeMessage(id);
+    await mail.whenMailIdle();
+    expect(msg(id).classification).toEqual({ state: "off" });
+    expect(mail.mailClassificationHistory(id)).toEqual(["off"]);
   });
 
   it("reproposeMessage: solo una fallita, e solo se la vedo", async () => {

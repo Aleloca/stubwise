@@ -37,8 +37,14 @@ function classificationFor(me: string, c: MailClassification): MailClassificatio
 }
 
 function messageView(me: string, m: MailMessage): MailMessageView {
-  const rest: Omit<MailMessage, "readByPersonIds"> & { readByPersonIds?: string[] } = copy(m);
+  // Né chi altro l'ha letto, né le caselle che lo contengono: una casella
+  // può tenere un'email in cui il suo titolare non è in `to`/`cc` (ccn).
+  const rest: Omit<MailMessage, "readByPersonIds" | "mailboxPersonIds"> & {
+    readByPersonIds?: string[];
+    mailboxPersonIds?: string[];
+  } = copy(m);
   delete rest.readByPersonIds;
+  delete rest.mailboxPersonIds;
   return {
     ...rest,
     classification: classificationFor(me, m.classification),
