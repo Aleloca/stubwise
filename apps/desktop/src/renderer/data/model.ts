@@ -1669,3 +1669,72 @@ export interface MailDraft {
   attachments: { id: string; name: string; sizeBytes: number; driveFileId: string | null }[];
   updatedAt: string;
 }
+
+/** I filtri dell'elenco della Posta (tutti facoltativi). */
+export interface MailThreadFilters {
+  /** L'indirizzo di una delle mie caselle: solo la posta che contiene. */
+  mailbox?: string;
+  importance?: MailImportance;
+  projectId?: string;
+  q?: string;
+}
+
+/**
+ * Una conversazione nell'elenco, calcolata sui soli messaggi che chi guarda
+ * vede: l'importanza più alta, la scadenza più vicina, i progetti che può
+ * vedere, quanti messaggi non ha letto e quante proposte aperte lo aspettano.
+ */
+export interface MailThreadRow {
+  threadId: string;
+  /** L'oggetto del primo messaggio. */
+  subject: string;
+  lastAt: string;
+  /** I mittenti, in ordine di primo messaggio. */
+  participants: MailAddress[];
+  projectIds: string[];
+  /** `null` finché nessun messaggio è classificato. */
+  importance: MailImportance | null;
+  dueDate: string | null;
+  /** Quanti messaggi chi guarda non ha ancora letto. */
+  unread: number;
+  openProposals: number;
+  /** Almeno un messaggio è in analisi. */
+  analysing: boolean;
+}
+
+/**
+ * Un messaggio come lo legge chi guarda: chi altro l'ha letto non si dice
+ * (`read` è solo il suo), e la classificazione nomina solo i progetti che
+ * può vedere.
+ */
+export interface MailMessageView extends Omit<MailMessage, "readByPersonIds"> {
+  read: boolean;
+}
+
+/** Una conversazione aperta: i messaggi che chi guarda vede, dal più vecchio. */
+export interface MailThreadDetail {
+  threadId: string;
+  subject: string;
+  messages: MailMessageView[];
+}
+
+/**
+ * Una mia casella con il suo allineamento: `stale` oltre 5 minuti
+ * dall'ultimo, `expired` se l'account Google è scaduto («Ricollega»).
+ */
+export interface MailboxView extends Mailbox {
+  stale: boolean;
+  expired: boolean;
+}
+
+/** Un messaggio trovato dalla ricerca (⌘K). */
+export interface MailSearchHit {
+  /** L'id della riga del messaggio. */
+  id: string;
+  threadId: string;
+  subject: string;
+  from: MailAddress;
+  at: string;
+  /** L'inizio del testo, per la riga del risultato. */
+  snippet: string;
+}

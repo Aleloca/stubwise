@@ -40,6 +40,7 @@ import {
 import {
   MAILBOXES,
   MAIL_DRAFTS,
+  MAIL_INCOMING,
   MAIL_MESSAGES,
   MAIL_PROPOSALS,
   MEETING_TRANSCRIPTS,
@@ -84,6 +85,7 @@ import type {
   GoogleDriveFile,
   GoogleFolder,
   GoogleOutsideFile,
+  MailClassification,
   MailDraft,
   Mailbox,
   MailMessage,
@@ -300,7 +302,21 @@ export type ApiFnName =
   | "drive.disconnectGoogle"
   | "drive.syncFolder"
   /** Un passo dell'estrazione simulata del contenuto (in elaborazione → stato finale). */
-  | "drive.advanceContent";
+  | "drive.advanceContent"
+  // Posta (area 6)
+  | "mail.listMailThreads"
+  | "mail.getMailThread"
+  | "mail.listMailboxes"
+  | "mail.listImportantMail"
+  | "mail.searchMail"
+  | "mail.markRead"
+  | "mail.syncMailbox"
+  | "mail.setProposalsEnabled"
+  | "mail.reproposeMessage"
+  /** Un passo dell'allineamento simulato di una casella (arriva la posta nuova). */
+  | "mail.advanceSync"
+  /** Un passo della classificazione simulata (in analisi → classificata o fallita). */
+  | "mail.advanceClassification";
 const failures = new Set<ApiFnName>();
 
 /** Fissa la latenza simulata (ms); `0` per i test, `null` per tornare a 150–400 ms. */
@@ -464,6 +480,10 @@ interface State {
   mailProposals: MailProposal[];
   /** Le bozze, per persona e conversazione. */
   mailDrafts: MailDraft[];
+  /** La posta non ancora arrivata: la porta dentro l'allineamento della sua casella. */
+  mailIncoming: MailMessage[];
+  /** Gli stati di classificazione attraversati da un messaggio dopo il seme (per i test). */
+  mailClassificationLog: Map<string, MailClassification["state"][]>;
 }
 
 function initialDocCodeSeq(): Map<string, number> {
@@ -548,6 +568,8 @@ function freshState(): State {
     meetingTranscripts: MEETING_TRANSCRIPTS.map(copy),
     mailProposals: MAIL_PROPOSALS.map(copy),
     mailDrafts: MAIL_DRAFTS.map(copy),
+    mailIncoming: MAIL_INCOMING.map(copy),
+    mailClassificationLog: new Map(),
   };
 }
 

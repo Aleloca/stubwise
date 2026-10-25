@@ -104,6 +104,8 @@ export * as chat from "./chat";
 export * as docs from "./docs";
 /** Il Drive (area 5): `api.drive.listDriveFiles(…)`, `api.drive.uploadFiles(…)`… */
 export * as drive from "./drive";
+/** La Posta (area 6): `api.mail.listMailThreads(…)`, `api.mail.syncMailbox(…)`… */
+export * as mail from "./mail";
 
 /** Ripristina lo stato (sessione, dati, errori iniettati) e porta le task scadute alla settimana corrente. */
 export function resetApi(): void {

@@ -38,6 +38,9 @@ import type {
   ManualPageInput,
   FilterCriteria,
   HomeBlockRef,
+  MailboxView,
+  MailThreadFilters,
+  MailThreadRow,
   MilestoneInput,
   MilestonePatch,
   Person,
@@ -175,6 +178,14 @@ export const queryKeys = {
     ["as", personId, "drive", "google-files", projectId, q] as const,
   chatSearch: (personId: string, q: string, filters: ChatSearchFilters) =>
     ["as", personId, "chatSearch", q, filters] as const,
+  // Posta (area 6): tutto nell'area «mail», che ogni scrittura della Posta ricarica.
+  mailThreads: (personId: string, filters: MailThreadFilters) =>
+    ["as", personId, "mail", "threads", filters] as const,
+  mailThread: (personId: string, threadId: string) =>
+    ["as", personId, "mail", "thread", threadId] as const,
+  mailboxes: (personId: string) => ["as", personId, "mail", "mailboxes"] as const,
+  importantMail: (personId: string) => ["as", personId, "mail", "important"] as const,
+  mailSearch: (personId: string, q: string) => ["as", personId, "mail", "search", q] as const,
 };
 
 /** Quali canali: tutti (colonna, «Browse channels») o quelli di un progetto. */
@@ -2369,9 +2380,99 @@ export function useRetryExtraction() {
 
 /** Collegare o scollegare l'account cambia cosa si vede di Google e i file delle mie cartelle. */
 export function useConnectGoogle() {
-  return useWrite(() => api.drive.connectGoogle(), DRIVE_FILE_AREAS);
+  return useWrite(() => api.drive.connectGoogle(), [...DRIVE_FILE_AREAS, "mail"]);
 }
 
 export function useDisconnectGoogle() {
-  return useWrite(() => api.drive.disconnectGoogle(), DRIVE_FILE_AREAS);
+  return useWrite(() => api.drive.disconnectGoogle(), [...DRIVE_FILE_AREAS, "mail"]);
+}
+
+// --- Posta (area 6) -----------------------------------------------------------
+
+/** Ogni scrittura della Posta ricarica la Posta. */
+const MAIL_AREAS = ["mail"] as const;
+
+/** Mentre una casella si allinea o un'email è in analisi la lettura si ripete da sola. */
+const MAIL_REFRESH_MS = 1000;
+const analysing = (rows: readonly Pick<MailThreadRow, "analysing">[] | null | undefined) =>
+  !!rows?.some((r) => r.analysing);
+const syncing = (boxes: readonly Pick<MailboxView, "sync">[] | null | undefined) =>
+  !!boxes?.some((b) => b.sync === "syncing");
+
+/** L'elenco della Posta per conversazione, coi filtri. */
+export function useMailThreads(filters: MailThreadFilters = {}, { enabled = true } = {}) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.mailThreads(me, filters),
+    queryFn: () => api.mail.listMailThreads(filters),
+    enabled,
+    refetchInterval: (query) => (analysing(query.state.data) ? MAIL_REFRESH_MS : false),
+  });
+}
+
+/** Una conversazione: i messaggi che vedo. Invisibile o inesistente → errore `not_found`. */
+export function useMailThread(threadId: string | null) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.mailThread(me, threadId ?? ""),
+    queryFn: () => api.mail.getMailThread(threadId!),
+    enabled: threadId !== null,
+    retry: false,
+    refetchInterval: (query) =>
+      query.state.data?.messages.some((m) => m.classification.state === "pending")
+        ? MAIL_REFRESH_MS
+        : false,
+  });
+}
+
+/** Le mie caselle, con «vecchia» e «scaduta». */
+export function useMailboxes() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.mailboxes(me),
+    queryFn: () => api.mail.listMailboxes(),
+    refetchInterval: (query) => (syncing(query.state.data) ? MAIL_REFRESH_MS : false),
+  });
+}
+
+/** «Email importanti» della Home: alte e non lette. */
+export function useImportantMail() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.importantMail(me),
+    queryFn: () => api.mail.listImportantMail(),
+  });
+}
+
+/** La ricerca nella posta (⌘K, da 2 caratteri). Mentre si scrive restano i risultati di prima. */
+export function useMailSearch(q: string, enabled = true) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.mailSearch(me, q),
+    queryFn: () => api.mail.searchMail(q),
+    enabled: enabled && q.trim().length >= MIN_QUERY,
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
+  });
+}
+
+export function useMarkMailRead() {
+  return useWrite((threadId: string) => api.mail.markRead(threadId), MAIL_AREAS);
+}
+
+/** «Aggiorna ora»: la casella passa ad «in allineamento», l'elenco si rilegge da solo. */
+export function useSyncMailbox() {
+  return useWrite((email: string) => api.mail.syncMailbox(email), MAIL_AREAS);
+}
+
+export function useSetProposalsEnabled() {
+  return useWrite(
+    ({ email, on }: { email: string; on: boolean }) => api.mail.setProposalsEnabled(email, on),
+    MAIL_AREAS,
+  );
+}
+
+/** «Riproponi» un'email la cui analisi è fallita. */
+export function useReproposeMessage() {
+  return useWrite((id: string) => api.mail.reproposeMessage(id), MAIL_AREAS);
 }
