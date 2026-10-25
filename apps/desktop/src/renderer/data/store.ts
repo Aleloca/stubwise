@@ -434,6 +434,8 @@ interface State {
   googleFiles: GoogleDriveFile[];
   /** Gli stati del contenuto attraversati da un file dopo il seme (per i test e i passi simulati). */
   driveContentLog: Map<string, ContentState[]>;
+  /** I file che il seme lascia in elaborazione sono già partiti (alla prima lettura del Drive). */
+  driveSeedWorkStarted: boolean;
 }
 
 function initialDocCodeSeq(): Map<string, number> {
@@ -512,6 +514,7 @@ function freshState(): State {
     googleFolders: GOOGLE_FOLDERS.map(copy),
     googleFiles: GOOGLE_DRIVE_FILES.map(copy),
     driveContentLog: new Map(),
+    driveSeedWorkStarted: false,
   };
 }
 

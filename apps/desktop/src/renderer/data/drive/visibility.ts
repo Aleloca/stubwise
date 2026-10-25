@@ -8,6 +8,15 @@ import { can, viewerFor } from "../viewer";
 // solo dove lo si chiede apposta (il filtro «Nascosti», il dettaglio, le
 // azioni su di lui). Un file che chi guarda non vede risponde come uno che
 // non esiste (R-G5): `null`, elenchi vuoti, `not_found` — mai `forbidden`.
+//
+// Eccezione accettata (fix round 1): sulle strade che partono da Google un
+// file di cartella nascosto CONTA anche per chi non gestisce — «Già in AUD»
+// nel selettore (`listGoogleFiles`), `already_in_project` di `addGoogleFile`
+// e i nomi occupati per il «(2)» di un caricamento. Non è un oracolo: chi è
+// membro del progetto sa già che la cartella collegata contiene quel file
+// (la vede su Google, o la vede collegata), e nasconderlo non lo toglie da
+// lì. Non vale fuori dal progetto: `listGoogleOutside` conta solo i
+// riferimenti che chi guarda vede.
 
 /** Chi guarda vede il Drive del progetto: ne è membro (o full admin). */
 export const canSeeDriveProject = (me: string, projectId: string): boolean =>

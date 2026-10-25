@@ -21,6 +21,7 @@ import {
   googleFolderVisible,
   isGoogleConnected,
 } from "./visibility";
+import { startSeedWork } from "./work";
 
 // Le letture del Drive (area 5). Chi vede che cosa lo decide `visibility.ts`.
 // Nessuna lettura conta un'apertura: le conta solo `recordOpen` (anteprima,
@@ -84,6 +85,7 @@ const SORTS: Record<DriveFilters["sort"], (a: DriveFileRow, b: DriveFileRow) => 
  */
 export async function listDriveFiles(filters: DriveFilters): Promise<DriveFileRow[]> {
   const me = await gate("drive.listDriveFiles");
+  startSeedWork();
   const hidden = filters.hidden === true;
   return state.driveFiles
     .filter(
@@ -105,6 +107,7 @@ export async function listDriveFiles(filters: DriveFilters): Promise<DriveFileRo
  */
 export async function getDriveFile(id: string): Promise<DriveFileDetail | null> {
   const me = await gate("drive.getDriveFile");
+  startSeedWork();
   const file = driveFileFor(me, id);
   if (!file) return null;
   const opens = opensOfFile(file.id);
@@ -136,10 +139,16 @@ export async function getGoogleAccount(): Promise<GoogleAccount | null> {
   return account ? copy(account) : null;
 }
 
-const referenced = (googleFileId: string, projectId?: string) =>
+/**
+ * Il file Google ha già un riferimento: in un progetto dato o, senza, in
+ * uno che chi guarda vede (R-G5: un progetto invisibile non deve togliere un
+ * file da «fuori dai progetti», o direbbe che esiste).
+ */
+const referenced = (me: string, googleFileId: string, projectId?: string) =>
   state.driveFiles.some(
     (f) =>
-      f.googleFileId === googleFileId && (projectId === undefined || f.projectId === projectId),
+      f.googleFileId === googleFileId &&
+      (projectId === undefined ? canSeeDriveFile(me, f) : f.projectId === projectId),
   );
 
 /**
@@ -154,7 +163,7 @@ export async function listGoogleOutside(q: string): Promise<GoogleOutsideFile[]>
     .filter(
       (f) =>
         f.visibleToPersonIds.includes(me) &&
-        !referenced(f.googleFileId) &&
+        !referenced(me, f.googleFileId) &&
         (!needle || [f.name, f.text].some((s) => s.toLowerCase().includes(needle))),
     )
     .map(copy);
@@ -199,7 +208,7 @@ export async function listGoogleFiles(projectId: string, q: string): Promise<Goo
       type: f.type,
       owner: f.owner,
       modifiedAt: f.modifiedAt,
-      alreadyInProject: referenced(f.googleFileId, projectId),
+      alreadyInProject: referenced(me, f.googleFileId, projectId),
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }

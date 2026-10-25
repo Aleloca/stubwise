@@ -1,7 +1,6 @@
 import { PEOPLE } from "../seed/people";
-import { copy, gate, newId, now, state, storeGeneration } from "../store";
+import { copy, gate, newId, now, state } from "../store";
 import type {
-  ContentState,
   DriveFile,
   DriveFileRow,
   DriveOpen,
@@ -13,13 +12,7 @@ import type {
   GoogleDriveFile,
 } from "../types";
 import { can, viewerFor, type Permission } from "../viewer";
-import {
-  driveTypeOf,
-  isOpenCounted,
-  uniqueName,
-  UPLOAD_LIMIT_BYTES,
-  uploadedContent,
-} from "./content";
+import { driveTypeOf, isOpenCounted, uniqueName, UPLOAD_LIMIT_BYTES } from "./content";
 import { driveRow } from "./reads";
 import {
   canSeeDriveProject,
@@ -30,6 +23,9 @@ import {
   googleFolderVisible,
   isGoogleConnected,
 } from "./visibility";
+import { advanceContent, googleFileById, reading, track } from "./work";
+
+export { driveContentHistory, whenDriveIdle } from "./work";
 
 // Le scritture del Drive (area 5). Come le altre: `gate()` prima di tutto,
 // permesso verificato come sul server, ogni controllo prima di ogni
@@ -37,10 +33,7 @@ import {
 // progetto che chi agisce non vede è `not_found` (R-G5); `forbidden` solo
 // per ciò che vede senza il permesso.
 //
-// L'estrazione del contenuto (testo, OCR, riassunto) è finta: un file nuovo
-// o reindicizzato è `processing`, e passa allo stato finale con un passo che
-// passa da `gate()` (`drive.advanceContent`): segue `setLatency`, e
-// `failNext` lo fa finire in `error`. Nessun timer sull'orologio.
+// L'estrazione simulata del contenuto sta in `work.ts`.
 
 const forbidden = () => new Error("forbidden");
 const notFound = () => new Error("not_found");
@@ -82,77 +75,6 @@ function dropFiles(ids: ReadonlySet<string>): void {
   state.driveFiles = state.driveFiles.filter((f) => !ids.has(f.id));
   state.driveOpens = state.driveOpens.filter((o) => !ids.has(o.fileId));
   for (const id of ids) state.driveHidden.delete(id);
-}
-
-const googleFileById = (googleFileId: string | null): GoogleDriveFile | undefined =>
-  state.googleFiles.find((g) => g.googleFileId === googleFileId);
-
-// --- contenuto simulato ------------------------------------------------------
-
-const pending = new Set<Promise<void>>();
-
-function track(work: Promise<void>): void {
-  pending.add(work);
-  void work.finally(() => pending.delete(work));
-}
-
-/** Si risolve quando nessuna estrazione simulata è più in corso. */
-export async function whenDriveIdle(): Promise<void> {
-  while (pending.size > 0) await Promise.all([...pending]);
-}
-
-/** Gli stati del contenuto attraversati da un file dal seme (o da quando è nato). */
-export function driveContentHistory(fileId: string): ContentState[] {
-  return [...(state.driveContentLog.get(fileId) ?? [])];
-}
-
-function setContent(
-  file: DriveFile,
-  patch: Pick<DriveFile, "content" | "text" | "summary"> & Partial<DriveFile>,
-): void {
-  Object.assign(file, patch);
-  const log = state.driveContentLog.get(file.id) ?? [];
-  log.push(file.content);
-  state.driveContentLog.set(file.id, log);
-}
-
-/** In elaborazione: testo e riassunto si rifanno (si trova solo per nome). */
-const reading = (file: DriveFile) =>
-  setContent(file, { content: "processing", text: "", summary: null });
-
-/** Il contenuto finale di un file: da Google (il file com'è lì) o, per un caricato, finto dal tipo. */
-function finalContent(
-  file: DriveFile,
-): Pick<DriveFile, "content" | "text" | "summary"> & Partial<DriveFile> {
-  const side = file.source === "google" ? googleFileById(file.googleFileId) : undefined;
-  if (side) {
-    return {
-      content: side.content,
-      text: side.text,
-      summary: side.summary,
-      ocr: side.ocr,
-      name: side.name,
-      modifiedAt: side.modifiedAt,
-    };
-  }
-  return uploadedContent(file.name, file.type);
-}
-
-async function advanceContent(fileIds: readonly string[]): Promise<void> {
-  const generation = storeGeneration();
-  // Lo stato è stato ripristinato nel frattempo: questo lavoro non è più suo.
-  const alive = () => storeGeneration() === generation;
-  const processing = () =>
-    state.driveFiles.filter((f) => fileIds.includes(f.id) && f.content === "processing");
-  try {
-    await gate("drive.advanceContent");
-    if (!alive()) return;
-    for (const file of processing()) setContent(file, finalContent(file));
-  } catch {
-    if (!alive()) return;
-    for (const file of processing())
-      setContent(file, { content: "error", text: "", summary: null });
-  }
 }
 
 // --- caricare, eliminare, togliere ---------------------------------------------
@@ -404,13 +326,19 @@ export async function unlinkFolder(linkId: string): Promise<void> {
  * nuovo entra; uno cambiato su Google (o ancora da leggere) torna in
  * elaborazione, col riassunto in rielaborazione, poi pronto; uno cancellato
  * diventa non disponibile. I nascosti restano nascosti (il riferimento c'è
- * già: non si rimette). Una cartella scaduta non si sincronizza.
+ * già: non si rimette). Una cartella scaduta non si sincronizza; una il cui
+ * account (di chi l'ha collegata) non è più collegato diventa scaduta, senza
+ * leggerla: Stubwise la legge solo con quell'account.
  */
 export async function syncFolder(linkId: string): Promise<FolderLinkView> {
   const me = await gate("drive.syncFolder");
   const link = linkFor(me, linkId);
   need(me, "drive.manage", link.projectId);
   if (link.status === "expired") throw new Error("link_expired");
+  if (!isGoogleConnected(link.linkedById)) {
+    link.status = "expired";
+    return linkView(link);
+  }
   const touched: string[] = [];
   for (const side of state.googleFiles.filter((g) => g.googleFolderId === link.googleFolderId)) {
     const ref = state.driveFiles.find(

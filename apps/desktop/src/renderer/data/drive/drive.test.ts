@@ -581,3 +581,46 @@ describe("Drive: ripristino", () => {
     expect(r!.file!.code).toBe("AUD-F17");
   });
 });
+
+describe("Drive: fix round 1", () => {
+  it("un file fuori dai progetti resta «fuori» per chi non vede il progetto in cui è entrato (R-G5)", async () => {
+    // Marco non è in MKX: vede il moodboard su Google, con l'account collegato.
+    state.googleOutside
+      .find((f) => f.name === "Moodboard autunno 2026")!
+      .visibleToPersonIds.push("p-marco");
+    as("p-marco");
+    await drive.connectGoogle();
+    as("p-giulia");
+    await drive.addGoogleFile(MKX, "gfile-out-moodboard-autunno");
+    expect((await drive.listGoogleOutside("")).map((f) => f.name)).not.toContain(
+      "Moodboard autunno 2026",
+    );
+    as("p-marco");
+    expect((await drive.listGoogleOutside("")).map((f) => f.name)).toContain(
+      "Moodboard autunno 2026",
+    );
+  });
+
+  it("i file del seme in elaborazione finiscono dopo la prima lettura (niente attesa senza fine)", async () => {
+    expect(state.driveFiles.find((f) => f.id === "drv-aud-12")!.content).toBe("processing");
+    await drive.listDriveFiles({ projectId: AUD, sort: "name" });
+    await drive.whenDriveIdle();
+    expect(state.driveFiles.some((f) => f.content === "processing")).toBe(false);
+    expect(drive.driveContentHistory("drv-aud-12")).toEqual(["no_text"]);
+    expect((await drive.getDriveFile("drv-aud-14"))!.content).toBe("ready");
+    // Una volta sola per stato: una seconda lettura non riparte.
+    await drive.listDriveFiles({ projectId: AUD, sort: "name" });
+    await drive.whenDriveIdle();
+    expect(drive.driveContentHistory("drv-aud-12")).toEqual(["no_text"]);
+  });
+
+  it("sincronizzare una cartella il cui account non è collegato la segna scaduta, senza leggerla", async () => {
+    state.googleAccounts.find((a) => a.personId === "p-matteo")!.status = "expired";
+    const link = await drive.syncFolder("fl-aud-cliente");
+    expect(link.status).toBe("expired");
+    expect(state.folderLinks.find((l) => l.id === "fl-aud-cliente")!.status).toBe("expired");
+    await drive.whenDriveIdle();
+    expect(drive.driveContentHistory("drv-aud-9")).toEqual([]);
+    await rejects(drive.syncFolder("fl-aud-cliente"), "link_expired");
+  });
+});
