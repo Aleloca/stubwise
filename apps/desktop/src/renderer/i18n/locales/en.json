@@ -3581,7 +3581,8 @@
       "emptyTitle": "No files match “{{q}}”",
       "emptyHint": "Try other words: search looks inside files too.",
       "error": "Couldn't search the files",
-      "noneInProjects": "No files in your projects match “{{q}}”"
+      "noneInProjects": "No files in your projects match “{{q}}”",
+      "gone": "This file is no longer available"
     }
   }
 }

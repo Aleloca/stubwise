@@ -9,6 +9,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as api from "./api";
 import { resolveHome } from "../domain/home";
+import { MIN_QUERY } from "../pages/chat/search";
 import type {
   Attachment,
   ChannelPatch,
@@ -2244,10 +2245,32 @@ export function useDriveSearch(q: string, scope: DriveSearchScope = {}, enabled 
   return useQuery({
     queryKey: queryKeys.driveSearch(me, q, scope),
     queryFn: () => api.drive.searchDrive(q, scope),
-    enabled: enabled && q.trim().length >= 2,
+    enabled: enabled && q.trim().length >= MIN_QUERY,
     placeholderData: (previous, previousQuery) =>
       previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
   });
+}
+
+/**
+ * Prima di aprire un risultato di ricerca: il file c'è ancora per chi guarda?
+ * Rilegge il dettaglio (non conta un'apertura). Tolto, nascosto o permesso
+ * perso fra la ricerca e il clic → `false` (shape drive-search.md §5).
+ */
+export function useDriveFileStillThere() {
+  const me = useSessionPersonId();
+  const client = useQueryClient();
+  return useCallback(
+    (id: string) =>
+      client
+        .fetchQuery({
+          queryKey: queryKeys.driveFile(me, id),
+          queryFn: () => api.drive.getDriveFile(id),
+          staleTime: 0,
+        })
+        .then((file) => !!file && !file.hidden)
+        .catch(() => false),
+    [client, me],
+  );
 }
 
 /** I file Google fuori dai progetti (solo con l'account collegato). */

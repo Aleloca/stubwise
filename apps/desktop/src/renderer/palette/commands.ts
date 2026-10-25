@@ -1,4 +1,5 @@
 import type { Viewer } from "../data/types";
+import { fold } from "../pages/chat/search";
 import { can } from "../data/viewer";
 import type { ThemePreference } from "../theme/theme";
 
@@ -155,10 +156,11 @@ export function matchCommands(
   label: (cmd: Command) => string,
   scope: CommandScope = {},
 ): Command[] {
-  const needle = query.trim().toLowerCase();
+  // Senza maiuscole né accenti, come la ricerca degli oggetti («tèma» trova «tema»).
+  const needle = fold(query.trim());
   return COMMANDS.filter(
     (cmd) =>
       (cmd.when?.(viewer, scope) ?? true) &&
-      (!needle || cmd.queryLabelKey !== undefined || label(cmd).toLowerCase().includes(needle)),
+      (!needle || cmd.queryLabelKey !== undefined || fold(label(cmd)).includes(needle)),
   );
 }

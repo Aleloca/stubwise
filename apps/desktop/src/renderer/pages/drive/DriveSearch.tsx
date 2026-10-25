@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import type { DriveFileRow, DriveSearchHit, DriveSearchResult, GoogleOutsideHit } from "../../data/types";
 import { hasModKey, shortcutLabel } from "../../platform/platform";
 import { PageError } from "../../tasks-ui/PageStates";
@@ -30,6 +31,20 @@ import { openGoogleOutsideFile } from "./WhichProjectDialog";
 
 /** Attesa dopo l'ultimo tasto prima di cercare. */
 export const DRIVE_SEARCH_DEBOUNCE_MS = 200;
+
+/**
+ * Il contenuto di un file non si legge (non disponibile, o ancora in
+ * lettura): l'ha trovato il nome, e la riga lo dice al posto del passaggio.
+ * La stessa frase nel Drive e in ⌘K.
+ */
+export function fileStateLine(
+  file: Pick<DriveFileRow, "unavailable" | "content">,
+  t: TFunction,
+): string | null {
+  if (file.unavailable !== null) return t("drive.search.unavailable");
+  if (file.content === "processing") return t("drive.search.reading");
+  return null;
+}
 /** Quanti file Google fuori dai progetti prima di «Show more». */
 export const OUTSIDE_PREVIEW = 5;
 
@@ -224,7 +239,12 @@ export function DriveSearchResults({
   const { t } = useTranslation();
   const [showAllOutside, setShowAllOutside] = useState(false);
   useEffect(() => setShowAllOutside(false), [query]);
-  const words = searchWords(query);
+  // Coi risultati di prima (in attesa dei nuovi) restano anche la loro query,
+  // il loro conteggio e le loro parole: mai la query nuova col numero vecchio.
+  const shown = useRef(query);
+  if (!stale && result) shown.current = query;
+  const q = shown.current;
+  const words = searchWords(q);
 
   if (error) return <PageError message={t("drive.search.error")} onRetry={onRetry} />;
   if (!result || (pending && !stale)) return <SearchSkeleton />;
@@ -261,29 +281,37 @@ export function DriveSearchResults({
 
   const empty = files.length === 0 && result.outside.length === 0;
   return (
-    <div ref={listRef} data-drive-results className={stale ? "opacity-60 transition-opacity duration-[var(--duration-fast)]" : ""}>
-      <p role="status" aria-live="polite" className="num px-4 pt-3 pb-2 text-sm text-ink-muted">
-        {empty
-          ? ""
-          : files.length === 0
-            ? t("drive.search.noneInProjects", { q: query })
-            : t("drive.search.count", { count: files.length, q: query })}
-        {files.length > 0 && <span className="text-ink-faint"> · {t("drive.search.sorted")}</span>}
-      </p>
-      {empty && (
-        <div className="flex max-w-[60ch] flex-col items-start gap-2 px-4 pt-6 pb-8">
-          <h2 className="text-lg font-semibold text-ink">{t("drive.search.emptyTitle", { q: query })}</h2>
-          {hasFilters ? (
-            <button type="button" className={`${secondaryButton} mt-1`} onClick={onClearFilters}>
-              {t("drive.filters.clear")}
-            </button>
-          ) : (
-            <p className="text-md text-ink-muted">{t("drive.search.emptyHint")}</p>
-          )}
+    <div
+      ref={listRef}
+      data-drive-results
+      className={`@container ${stale ? "opacity-60 transition-opacity duration-[var(--duration-fast)]" : ""}`}
+    >
+      {/* Il conteggio, o «nessun file», annunciato dopo l'attesa: una regione sola. */}
+      <div role="status" aria-live="polite">
+        {empty ? (
+          <div className="flex max-w-[60ch] flex-col items-start gap-2 px-4 pt-9 pb-1">
+            <h2 className="text-lg font-semibold text-ink">{t("drive.search.emptyTitle", { q })}</h2>
+            {!hasFilters && <p className="text-md text-ink-muted">{t("drive.search.emptyHint")}</p>}
+          </div>
+        ) : (
+          <p className="num px-4 pt-3 pb-2 text-sm text-ink-muted">
+            {files.length === 0
+              ? t("drive.search.noneInProjects", { q })
+              : t("drive.search.count", { count: files.length, q })}
+            {files.length > 0 && <span className="text-ink-faint"> · {t("drive.search.sorted")}</span>}
+          </p>
+        )}
+      </div>
+      {empty && hasFilters && (
+        <div className="px-4 pt-2">
+          <button type="button" className={secondaryButton} onClick={onClearFilters}>
+            {t("drive.filters.clear")}
+          </button>
         </div>
       )}
+      {empty && <div className="pb-6" />}
       {files.length > 0 && (
-        <ul aria-label={t("drive.search.results", { q: query })} key={query} className="drive-count-fade border-t border-rule">
+        <ul aria-label={t("drive.search.results", { q })} key={q} className="drive-count-fade border-t border-rule">
           {files.map((hit) => (
             <ResultRow
               key={hit.file.id}
@@ -355,15 +383,13 @@ function ResultRow({
     file.source === "google" ? t(`drive.googleTypes.${file.type}`) : t(`drive.types.${file.type}`);
   const unavailable = file.unavailable !== null;
   const reading = !unavailable && file.content === "processing";
+  const stateLine = fileStateLine(file, t);
   const opens = t("drive.opens.count", { count: file.opens90d });
   const summary = file.summary?.replace(/\s+/g, " ").trim() ?? "";
   const label = [
     `${file.code}, ${file.name}, ${typeName}, ${file.projectCode}.`,
-    unavailable
-      ? t("drive.search.unavailable")
-      : reading
-        ? t("drive.search.reading")
-        : [
+    stateLine ??
+      [
             summary && t("drive.search.labelSummary", { summary }),
             passage ? t("drive.search.labelMatched", { passage }) : t("drive.search.matchedName"),
           ]
@@ -411,12 +437,12 @@ function ResultRow({
           {unavailable ? (
             <span className="flex min-w-0 items-center gap-1.5 text-sm text-ink-faint">
               <UnavailableGlyph />
-              <span className="truncate">{t("drive.search.unavailable")}</span>
+              <span className="truncate">{stateLine}</span>
             </span>
           ) : reading ? (
             <span className="flex min-w-0 items-center gap-1.5 text-sm text-ink-muted">
               <Spinner />
-              <span className="truncate">{t("drive.search.reading")}</span>
+              <span className="truncate">{stateLine}</span>
             </span>
           ) : (
             <>

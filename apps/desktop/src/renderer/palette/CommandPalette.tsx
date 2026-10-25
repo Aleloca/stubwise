@@ -15,6 +15,7 @@ import {
   useChatSearch,
   useDocSearch,
   useDocSpaces,
+  useDriveFileStillThere,
   useDriveSearch,
   usePeople,
   useProjects,
@@ -33,6 +34,7 @@ import { DeptLegend, DeptStrip, useDepartmentName } from "../layout/DeptStrip";
 import { SearchIcon } from "../layout/icons";
 import { useRestoreFocus } from "../layout/useRestoreFocus";
 import { previewKind } from "../pages/drive/driveFilters";
+import { fileStateLine } from "../pages/drive/DriveSearch";
 import { useDriveOpeners } from "../pages/drive/FilePreview";
 import { ExternalGlyph, GoogleDriveGlyph } from "../pages/drive/glyphs";
 import { openLinkFolder } from "../pages/drive/LinkFolderDialog";
@@ -46,6 +48,8 @@ import { matchCommands, type Command, type CommandContext } from "./commands";
 export const GROUP_LIMIT = 5;
 /** Attesa dopo l'ultimo tasto prima di cercare. */
 export const SEARCH_DEBOUNCE_MS = 120;
+/** I gruppi di oggetti che, trovati, partono selezionati prima dei comandi (R-H4). */
+const PRESELECT_GROUPS = ["projects", "tasks", "requests", "pages", "people"] as const;
 
 type Step = "root" | "viewAs" | "filters" | "channels";
 type GroupId =
@@ -251,6 +255,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   const filesQuery = !scoped && trimmed.length >= MIN_QUERY ? trimmed : "";
   const fileSearch = useDriveSearch(filesQuery, undefined, !!filesQuery);
   const openers = useDriveOpeners();
+  const stillThere = useDriveFileStillThere();
 
   const groups = useMemo<Group[]>(() => {
     if (step === "viewAs") {
@@ -409,13 +414,25 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
             name: file.name,
             project: file.projectCode,
             google: file.source === "google",
-            line: passage ?? file.summary?.replace(/\s+/g, " ").trim() ?? "",
+            line: fileStateLine(file, t) ?? passage ?? file.summary?.replace(/\s+/g, " ").trim() ?? "",
             words,
           },
           fromSearch: true,
           // Enter apre il file (e conta): su Google, l'anteprima, o il dettaglio se non ne ha.
           select: () => {
             onClose();
+            // Sparito fra la ricerca e il clic (tolto, nascosto, permesso perso): solo l'avviso.
+            void stillThere(file.id).then((ok) => {
+              if (!ok) return toast.error(t("drive.search.gone"));
+              openFile();
+            });
+          },
+          details: () => {
+            onClose();
+            router.history.push(detailsPath);
+          },
+        };
+        function openFile() {
             if (file.source === "google") {
               if (file.unavailable === null) openers.google(file);
               else toast.show(t(`drive.row.cantOpen.${file.unavailable}`, { code: file.code }));
@@ -424,12 +441,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
             } else {
               router.history.push(detailsPath);
             }
-          },
-          details: () => {
-            onClose();
-            router.history.push(detailsPath);
-          },
-        };
+        }
       });
       const outsideItems = found.outside.slice(0, outsideRows).map(
         (o): Item => ({
@@ -545,7 +557,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     }
     // Un comando che cita il testo («Ask Claude: “…”») va in fondo quando
     // il testo non è il suo nome: prima ciò che il testo ha davvero trovato.
-    const needle = query.trim().toLowerCase();
+    const needle = fold(query.trim());
     // Le etichette possono nominare il progetto in cui si è («Link a Google folder to AUD»).
     const labelOf = (cmd: Command) => t(cmd.labelKey, { code: projectCode });
     const matched = matchCommands(query, viewer, labelOf, {
@@ -553,10 +565,10 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       projectCode,
     });
     const quoting = (cmd: Command) =>
-      !!needle && !!cmd.queryLabelKey && !labelOf(cmd).toLowerCase().includes(needle);
+      !!needle && !!cmd.queryLabelKey && !fold(labelOf(cmd)).includes(needle);
     // Le azioni il cui nome corrisponde vengono dopo oggetti, file e Chat
-    // (shape drive-search.md A5), ma un comando il cui nome comincia col
-    // testo parte selezionato (Enter su «new task» esegue il comando); le
+    // (shape drive-search.md A5), ma senza oggetti trovati il primo comando
+    // parte selezionato (R-H4: Enter su «new task» esegue il comando); le
     // righe che citano il testo («Search all messages for “…”», «Ask Claude:
     // “…”») ci sono per ogni testo e vanno in fondo, in More.
     const toItem = (cmd: Command): Item => ({
@@ -619,17 +631,37 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     filesQuery,
     fileSearch.data,
     openers,
+    stillThere,
   ]);
 
+  // Finché la query digitata non è quella cercata, o i dati sono quelli della
+  // ricerca precedente, le righe di ricerca sono vecchie: si vedono (niente
+  // sfarfallio) ma non si scelgono. Le azioni sono sempre valide.
+  const stale =
+    step === "root" &&
+    (searching || scoped) &&
+    (query !== debounced ||
+      search.isPlaceholderData ||
+      chatSearch.isPlaceholderData ||
+      pageSearch.isPlaceholderData ||
+      (!!filesQuery && fileSearch.isPlaceholderData));
+
   const items = useMemo(() => groups.flatMap((g) => g.items), [groups]);
-  // Finché non ci si muove: il primo comando il cui nome comincia col testo, o la prima riga.
+  // Finché nessuno si muove (R-H4): l'ordine visivo resta quello di A5, ma
+  // parte selezionata (1) la prima riga del primo gruppo di oggetti trovati
+  // (progetti, task, richieste, pagine, persone; non quelli di una query
+  // vecchia, che non si scelgono), altrimenti (2) il primo comando il cui
+  // nome corrisponde (le azioni sono già solo quelle), altrimenti (3) la
+  // prima riga. «More» è sempre in fondo: un «Search all…» parte selezionato
+  // solo se non c'è altro.
   const preferred = useMemo(() => {
-    const needle = fold(query.trim());
-    if (step !== "root" || !needle) return 0;
-    const actions = groups.find((g) => g.id === "actions")?.items ?? [];
-    const cmd = actions.find((item) => fold(item.label).startsWith(needle));
-    return cmd ? items.indexOf(cmd) : 0;
-  }, [groups, items, query, step]);
+    if (step !== "root") return 0;
+    const objects = stale
+      ? undefined
+      : groups.find((g) => (PRESELECT_GROUPS as readonly string[]).includes(g.id));
+    const first = objects?.items[0] ?? groups.find((g) => g.id === "actions")?.items[0];
+    return first ? items.indexOf(first) : 0;
+  }, [groups, items, step, stale]);
   const activeIndex =
     items.length === 0 ? -1 : Math.min(active ?? preferred, items.length - 1);
   const activeItem = activeIndex >= 0 ? items[activeIndex] : undefined;
@@ -666,17 +698,6 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     items.every((item) => item.fallback);
   const showEmptySecond = step !== "root" && items.length === 0;
 
-  // Finché la query digitata non è quella cercata, o i dati sono quelli della
-  // ricerca precedente, le righe di ricerca sono vecchie: si vedono (niente
-  // sfarfallio) ma non si scelgono. Le azioni sono sempre valide.
-  const stale =
-    step === "root" &&
-    (searching || scoped) &&
-    (query !== debounced ||
-      search.isPlaceholderData ||
-      chatSearch.isPlaceholderData ||
-      pageSearch.isPlaceholderData ||
-      (!!filesQuery && fileSearch.isPlaceholderData));
   const choose = (item: Item | undefined, details = false) => {
     if (!item || (stale && item.fromSearch)) return;
     if (details && item.details) item.details();

@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetApi, setLatency } from "../data/api";
 import { DEPARTMENTS } from "../data/seed/departments";
+import { state } from "../data/store";
 import { TASKS } from "../data/seed/tasks";
 import { ViewerProvider } from "../data/viewer";
 import { setLanguage } from "../i18n";
@@ -436,5 +437,93 @@ describe("CommandPalette", () => {
     expect(await screen.findByRole("heading", { name: "Administration", level: 1 })).toBeVisible();
     dialog = await openWithShortcut(user);
     expect(dialog).toBeInTheDocument();
+  });
+});
+
+describe("CommandPalette — la riga che parte selezionata (R-H4)", () => {
+  /** Un messaggio della Chat che cita il testo cercato, nel canale grafica di MKX (Giulia ci è). */
+  function message(id: string, text: string) {
+    state.chatMessages.push({
+      id,
+      channelId: "ch-mkx-grafica",
+      createdAt: "2026-10-23T08:00:00Z",
+      threadOf: null,
+      authorId: "p-marco",
+      kind: "person",
+      text,
+      attachments: [],
+      citations: [],
+      reactions: [],
+      asksReplyOf: [],
+      linkedCodes: [],
+      editedAt: null,
+      deletedAt: null,
+      deletedById: null,
+    });
+  }
+
+  /** Aspetta che le ricerche (oggetti, Chat, Docs, Drive) siano arrivate. */
+  const settle = () => act(() => new Promise((r) => setTimeout(r, 250)));
+
+  it("«theme» con un messaggio che lo cita: parte selezionato il comando, Invio cambia tema", async () => {
+    message("theme-1", "the theme of the campaign is spring");
+    const user = userEvent.setup();
+    renderAt("/home");
+    await screen.findByRole("heading", { name: "Home", level: 1 });
+    const dialog = await openWithShortcut(user);
+    await user.type(within(dialog).getByRole("combobox"), "theme");
+    await within(dialog).findByRole("group", { name: "Messages" });
+    await settle();
+    // L'ordine visivo resta A5: i messaggi stanno sopra le azioni.
+    const groups = within(dialog)
+      .getAllByRole("group")
+      .map((g) => g.querySelector(".heading-group")?.textContent);
+    expect(groups.indexOf("Messages")).toBeLessThan(groups.indexOf("Actions"));
+    expect(within(dialog).getByRole("option", { selected: true })).toHaveTextContent(/Switch theme/);
+    await user.keyboard("{Enter}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("in italiano «tema» fa lo stesso", async () => {
+    act(() => setLanguage("it"));
+    message("theme-2", "il tema della campagna è la primavera");
+    const user = userEvent.setup();
+    renderAt("/home");
+    await screen.findByRole("heading", { level: 1 });
+    await user.keyboard("{Control>}k{/Control}");
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByRole("combobox"), "tema");
+    await within(dialog).findByRole("group", { name: "Messaggi" });
+    await settle();
+    expect(within(dialog).getByRole("option", { selected: true })).toHaveTextContent(/Cambia tema/);
+  });
+
+  it("una task il cui titolo comincia come un comando: vince la task", async () => {
+    const task = state.tasks.find((x) => x.code === "AUD-1")!;
+    task.title = "New task template for onboarding";
+    const user = userEvent.setup();
+    renderAt("/home");
+    await screen.findByRole("heading", { name: "Home", level: 1 });
+    const dialog = await openWithShortcut(user);
+    await user.type(within(dialog).getByRole("combobox"), "new task");
+    const tasks = await within(dialog).findByRole("group", { name: "Tasks" });
+    await settle();
+    expect(within(dialog).getByRole("option", { selected: true })).toBe(
+      within(tasks).getAllByRole("option")[0],
+    );
+    expect(within(dialog).getByRole("option", { name: /^New task$/ })).toBeInTheDocument();
+  });
+
+  it("«Search all…» non parte mai selezionato se c'è altro", async () => {
+    const user = userEvent.setup();
+    renderAt("/p/AUD/drive");
+    await screen.findByRole("heading", { name: "Drive", level: 1 });
+    const dialog = await openWithShortcut(user);
+    await user.type(within(dialog).getByRole("combobox"), "penalty");
+    await within(dialog).findByRole("group", { name: "Files" });
+    await settle();
+    const selected = within(dialog).getByRole("option", { selected: true });
+    expect(selected).toHaveTextContent(/AUD-F7/);
+    expect(selected).not.toHaveTextContent(/Search all/);
   });
 });

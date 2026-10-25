@@ -214,3 +214,95 @@ describe("⌘K: il gruppo Files", () => {
     await waitFor(() => expect(String(location(router).search.newTask)).toBe("1"));
   });
 });
+
+describe("Ricerca nel Drive — fix round 1", () => {
+  /** Toglie un file dallo stato senza ricaricare i risultati: è sparito fra la ricerca e il clic. */
+  const vanish = (id: string) => {
+    const at = state.driveFiles.findIndex((f) => f.id === id);
+    state.driveFiles.splice(at, 1);
+  };
+
+  it("un risultato sparito prima del clic: l'avviso, nessuna apertura, si resta sui risultati", async () => {
+    const router = await openDrive("/p/AUD/drive");
+    await searchFor("penalty");
+    await waitFor(() => expect(result("AUD-F7")).toBeTruthy());
+    const before = state.driveOpens.length;
+    vanish("drv-aud-7");
+    await userEvent.click(result("AUD-F7")!);
+    expect(await screen.findByText("This file is no longer available")).toBeInTheDocument();
+    expect(state.driveOpens.length).toBe(before);
+    expect(location(router).search).not.toHaveProperty("file");
+    expect(location(router).search).toMatchObject({ q: "penalty" });
+  });
+
+  it("⌘K: un file sparito prima di Invio dà lo stesso avviso e non conta", async () => {
+    const user = userEvent.setup();
+    await openDrive("/p/AUD/drive");
+    const dialog = await openPalette(user);
+    await user.type(within(dialog).getByRole("combobox"), "penalty");
+    const files = await within(dialog).findByRole("group", { name: "Files" });
+    const option = within(files).getByRole("option", { name: /AUD-F7/ });
+    const before = state.driveOpens.length;
+    vanish("drv-aud-7");
+    while (option.getAttribute("aria-selected") !== "true") await user.keyboard("{ArrowDown}");
+    await user.keyboard("{Enter}");
+    expect(await screen.findByText("This file is no longer available")).toBeInTheDocument();
+    expect(state.driveOpens.length).toBe(before);
+  });
+
+  it("⌘K: un file non disponibile o in lettura dice il suo stato come nel Drive", async () => {
+    const user = userEvent.setup();
+    await openDrive("/p/AUD/drive");
+    const dialog = await openPalette(user);
+    await user.type(within(dialog).getByRole("combobox"), "Requisiti integrazione");
+    const files = await within(dialog).findByRole("group", { name: "Files" });
+    expect(within(files).getByRole("option", { name: /AUD-F11/ })).toHaveTextContent(
+      "Not available · found by name",
+    );
+    // Il seme ha già finito di leggerlo: lo si rimette in lettura.
+    state.driveFiles.find((f) => f.id === "drv-aud-14")!.content = "processing";
+    await user.clear(within(dialog).getByRole("combobox"));
+    await user.type(within(dialog).getByRole("combobox"), "Calendario consegne");
+    await waitFor(() =>
+      expect(within(dialog).getByRole("option", { name: /AUD-F14/ })).toHaveTextContent(
+        "Reading the content… found by name",
+      ),
+    );
+  });
+
+  it("cambiare persona svuota la ricerca: niente query nell'indirizzo, niente risultati di prima", async () => {
+    const router = await openDrive("/drive?q=penalty");
+    await waitFor(() => expect(result("AUD-F7")).toBeTruthy());
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Profile and settings" }));
+    const menu = await screen.findByRole("dialog", { name: "Profile and settings" });
+    await user.click(within(menu).getByRole("radio", { name: /Marco Bellini/ }));
+    await waitFor(() => expect(location(router).search).not.toHaveProperty("q"));
+    expect(await screen.findByRole("searchbox", { name: "Search files" })).toHaveValue("");
+    expect(await screen.findByRole("grid")).toBeInTheDocument();
+    expect(document.querySelector("[data-drive-results]")).toBeNull();
+  });
+
+  it("«nessun file» sta nella regione annunciata; coi risultati di prima resta la loro query", async () => {
+    await openDrive("/p/AUD/drive");
+    await searchFor("zzqx");
+    const status = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>("[data-drive-results] [role=status]");
+      expect(el).toHaveTextContent("No files match “zzqx”");
+      return el!;
+    });
+    expect(status).toBeInTheDocument();
+    await searchFor("penalty");
+    await waitFor(() => expect(result("AUD-F7")).toBeTruthy());
+    setLatency(400);
+    const field = screen.getByRole("searchbox", { name: "Search files" });
+    await userEvent.type(field, " week");
+    await act(() => new Promise((r) => setTimeout(r, 260)));
+    const live = document.querySelector("[data-drive-results] [role=status]")!;
+    expect(live).toHaveTextContent("1 file matches “penalty”");
+    expect(live).not.toHaveTextContent("penalty week");
+    await waitFor(() => expect(live).toHaveTextContent("1 file matches “penalty week”"), {
+      timeout: 2000,
+    });
+  });
+});

@@ -3581,7 +3581,8 @@
       "emptyTitle": "Nessun file corrisponde a «{{q}}»",
       "emptyHint": "Prova altre parole: la ricerca guarda anche dentro i file.",
       "error": "Non è stato possibile cercare nei file",
-      "noneInProjects": "Nessun file dei tuoi progetti corrisponde a «{{q}}»"
+      "noneInProjects": "Nessun file dei tuoi progetti corrisponde a «{{q}}»",
+      "gone": "Questo file non è più disponibile"
     }
   }
 }

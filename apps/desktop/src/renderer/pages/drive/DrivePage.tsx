@@ -10,6 +10,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  useDriveFileStillThere,
   useDriveFiles,
   useDriveSearch,
   useFolderLinks,
@@ -28,6 +29,8 @@ import type {
   FolderLinkView,
   Project,
 } from "../../data/types";
+import { onBeforePersonaChange } from "../../data/session";
+import { MIN_QUERY } from "../chat/search";
 import { can, useViewer } from "../../data/viewer";
 import { hasModKey } from "../../platform/platform";
 import { Dialog } from "../../tasks-ui/Dialog";
@@ -47,7 +50,11 @@ import {
 import { AddFromGoogleDialog } from "./AddFromGoogleDialog";
 import { ExpiredLinkBanners } from "./DriveBanners";
 import { DriveList, DriveSkeleton } from "./DriveList";
-import { DriveSearchField, DriveSearchResults, type SearchActions } from "./DriveSearch";
+import {
+  DriveSearchField,
+  DriveSearchResults,
+  type SearchActions,
+} from "./DriveSearch";
 import type { RowActions } from "./DriveRow";
 import {
   DRIVE_SORTS,
@@ -93,8 +100,12 @@ import {
 
 type PageSearch = DriveSearch & { file?: string; q?: string };
 
-/** Sotto, niente ricerca: l'elenco resta. */
-const MIN_DRIVE_QUERY = 2;
+/**
+ * Un cambio di persona col Drive aperto svuota la ricerca (shape §5): la
+ * pagina della persona nuova (rimontata) ignora la query di prima finché
+ * l'indirizzo non l'ha tolta, e non la cerca mai.
+ */
+let personaChangedWithQuery = false;
 
 /** Quanto resta segnata come «appena arrivata» una riga caricata. */
 const ARRIVE_MS = 600;
@@ -120,8 +131,17 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
     ? can(viewer, "drive.manage", project.id)
     : (projects ?? []).some((p) => can(viewer, "drive.manage", p.id));
   const filters: DriveFilters = driveFiltersFrom(search, { projectId: project?.id, codeToId });
-  const query = search.q?.trim() ?? "";
-  const searching = query.length >= MIN_DRIVE_QUERY;
+  const [ignoredQ, setIgnoredQ] = useState(() => {
+    const changed = personaChangedWithQuery;
+    personaChangedWithQuery = false;
+    return changed ? search.q : undefined;
+  });
+  useEffect(() => {
+    if (ignoredQ !== undefined && search.q !== ignoredQ) setIgnoredQ(undefined);
+  }, [ignoredQ, search.q]);
+  const ownQ = ignoredQ !== undefined && search.q === ignoredQ ? undefined : search.q;
+  const query = ownQ?.trim() ?? "";
+  const searching = query.length >= MIN_QUERY;
   if (!canManage || searching) delete filters.hidden;
   const hiddenView = filters.hidden === true;
   const base: DriveFilters = project ? { projectId: project.id, sort: filters.sort } : { sort: filters.sort };
@@ -176,10 +196,20 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
     } as never);
   }
   const setQuery = (q: string) => {
-    const on = q.trim().length >= MIN_DRIVE_QUERY;
+    const on = q.trim().length >= MIN_QUERY;
     if (!searching && on) listScroll.current = bodyRef.current?.scrollTop ?? 0;
     setSearch({ q: q.trim() ? q : undefined, ...(on ? { hidden: undefined } : {}) }, true);
   };
+  const setSearchRef = useRef(setSearch);
+  setSearchRef.current = setSearch;
+  const hasQ = !!search.q;
+  useEffect(() => {
+    if (!hasQ) return;
+    return onBeforePersonaChange(() => {
+      personaChangedWithQuery = true;
+      setSearchRef.current({ q: undefined }, true);
+    });
+  }, [hasQ]);
   const clearFilters = () =>
     setSearch(
       { type: undefined, source: undefined, addedBy: undefined, prj: undefined, hidden: undefined },
@@ -359,9 +389,21 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
     }),
     [navigate, openers, toast, t, setHidden],
   );
+  const stillThere = useDriveFileStillThere();
   const searchActions = useMemo<SearchActions>(
-    () => ({ open: (row, view) => actions.onPrimary(row, view), details: actions.onOpen }),
-    [actions],
+    () => ({
+      // Sparito fra la ricerca e il clic (tolto, nascosto, permesso perso):
+      // l'avviso, e si resta sui risultati. Niente apertura, niente conteggio.
+      open: (row, view) =>
+        void stillThere(row.id).then((ok) =>
+          ok ? actions.onPrimary(row, view) : toast.error(t("drive.search.gone")),
+        ),
+      details: (row) =>
+        void stillThere(row.id).then((ok) =>
+          ok ? actions.onOpen(row) : toast.error(t("drive.search.gone")),
+        ),
+    }),
+    [actions, stillThere, toast, t],
   );
   const onMoveOpen = useCallback(
     (row: DriveFileRow) =>
@@ -608,7 +650,7 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
           searching={searching}
           searchField={
             <DriveSearchField
-              query={search.q ?? ""}
+              query={ownQ ?? ""}
               onQuery={setQuery}
               inputRef={searchInput}
               onEnterResults={() =>
