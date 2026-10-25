@@ -1,6 +1,6 @@
 import i18n from "i18next";
 import { beforeEach, describe, expect, it } from "vitest";
-import { respond, type T } from "../../domain/claude/intents";
+import { recognize, respond, type T } from "../../domain/claude/intents";
 import {
   chat,
   docs,
@@ -30,6 +30,8 @@ const it_ = i18n.getFixedT("it") as T;
 const F7 = "drv-aud-7";
 const F8 = "drv-aud-8"; // nascosto da Laura (seme)
 const ref = (id: string): CitationRef => ({ kind: "drive", id });
+/** Come la registra una risposta: con il codice del file al momento della citazione (R-H5). */
+const CITED: CitationRef = { kind: "drive", id: F7, code: "AUD-F7" };
 
 beforeEach(() => {
   resetApi();
@@ -135,7 +137,7 @@ describe("Claude legge i file del Drive", () => {
       [Q_IT, it_],
     ] as const) {
       const steps = await ask("p-giulia", q, t);
-      expect(cited(steps)).toEqual([ref(F7)]);
+      expect(cited(steps)).toEqual([CITED]);
       expect(said(steps)).toContain("AUD-F7 Contratto quadro Audin 2025");
       expect(said(steps)).toMatch(/30 working days/);
     }
@@ -169,12 +171,12 @@ describe("Claude legge i file del Drive", () => {
     as("p-giulia");
     const before = (await drive.getDriveFile(F7))!.opensTotal;
     const answer = await docs.askDocs({ projectId: "prj-aud", question: Q_EN });
-    expect(answer.refs).toContainEqual(ref(F7));
+    expect(answer.refs).toContainEqual(CITED);
     expect(answer.text).toContain("AUD-F7 Contratto quadro Audin 2025");
     expect((await drive.getDriveFile(F7))!.opensTotal).toBe(before);
     // In un progetto senza il file la chat dei Docs non lo cita.
     const stw = await docs.askDocs({ projectId: "prj-stw", question: Q_EN });
-    expect(stw.refs).not.toContainEqual(ref(F7));
+    expect(stw.refs).not.toContainEqual(CITED);
   });
 
   it("nella sezione Claude della task (sessione di lavoro su AUD) risponde citando il file", async () => {
@@ -186,10 +188,27 @@ describe("Claude legge i file del Drive", () => {
     await whenIdle(id);
     const events = [...state.conversationEvents.get(id)!].reverse();
     const citation = events.find((e) => e.type === "citation");
-    expect(citation?.type === "citation" && citation.refs).toEqual([ref(F7)]);
+    expect(citation?.type === "citation" && citation.refs).toEqual([CITED]);
     const last = events.find((e) => e.type === "assistant");
     expect(last?.type === "assistant" && last.text).toMatch(/AUD-F7 Contratto quadro Audin 2025/);
     expect(state.driveOpens.length).toBe(before);
+  });
+
+  it("anche con la sessione in pausa: risponde citando il file, poi riprende", async () => {
+    setStreamLatency(null);
+    const id = "cv-run-aud-5";
+    state.conversations.find((c) => c.id === id)!.state = "paused";
+    const start = state.conversationEvents.get(id)!.length;
+    as("p-stefano");
+    await sendMessage(id, { text: Q_EN });
+    await whenIdle(id);
+    const after = state.conversationEvents.get(id)!.slice(start);
+    expect(after.some((e) => e.type === "citation" && e.refs.some((r) => r.id === F7))).toBe(true);
+    const texts = after.flatMap((e) => (e.type === "assistant" ? [e.text] : []));
+    const answer = texts.findIndex((t) => t.includes("AUD-F7 Contratto quadro Audin 2025"));
+    const resumed = texts.findIndex((t) => t.includes("resuming from your message"));
+    expect(answer).toBeGreaterThanOrEqual(0);
+    expect(resumed).toBeGreaterThan(answer);
   });
 
   it("@Claude in Chat cita il file; chi non vede AUD legge il gettone tenue senza nome", async () => {
@@ -198,10 +217,32 @@ describe("Claude legge i file del Drive", () => {
     const reply = state.chatMessages.find((m) => m.threadOf === call.id && m.kind === "claude")!;
     await chat.whenClaudeIdle(reply.id);
     const done = state.chatMessages.find((m) => m.id === reply.id)!;
-    expect(done.citations).toEqual([ref(F7)]);
+    expect(done.citations).toEqual([CITED]);
     expect(done.text).toContain("AUD-F7 Contratto quadro Audin 2025");
     as("p-sara");
     const [hers] = await resolveCitations(done.citations);
     expect(hers).toMatchObject({ visible: false, code: null, name: null });
+  });
+});
+
+describe("quando una domanda parla di un file", () => {
+  it("serve un nome di documento o un codice: «What does Laura say…» non va nei file", () => {
+    expect(recognize("What does Laura say about delivery times?")).not.toBe("files");
+    expect(recognize("Cosa dice Marco sui tempi di consegna?")).not.toBe("files");
+    expect(recognize("What does the spreadsheet say about licences?")).toBe("files");
+    expect(recognize("Cosa dice il documento sui tempi di consegna?")).toBe("files");
+    expect(recognize("What does AUD-F7 say about delivery times?")).toBe("files");
+  });
+
+  it("un codice di file cita quel file, se chi chiede lo vede; altrimenti come un codice che non esiste", async () => {
+    const q = (code: string) => `What does ${code} say about delivery times?`;
+    const giulia = await ask("p-giulia", q("AUD-F7"));
+    expect(cited(giulia)).toEqual([CITED]);
+    expect(said(giulia)).toMatch(/article 3/);
+    const sara = await ask("p-sara", q("AUD-F7"));
+    expect(cited(sara)).toEqual([]);
+    expect(said(sara)).toBe(said(await ask("p-sara", q("AUD-F999"))));
+    // Nascosto: anche per chi lo gestisce, come inesistente.
+    expect(cited(await ask("p-laura", q("AUD-F8")))).toEqual([]);
   });
 });

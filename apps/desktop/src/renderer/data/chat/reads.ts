@@ -247,11 +247,14 @@ function redactClaudeEvents(
   for (const ref of recorded.citations) {
     if (ref.kind === "task") consider(task(ref.id));
     if (ref.kind === "request") consider(request(ref.id));
-    // Un file del Drive che il lettore non vede (progetto invisibile, o
-    // nascosto dopo la risposta): il suo nome esce dalle righe d'azione.
+    // Un file del Drive che il lettore non può aprire (R-H5): progetto
+    // invisibile, nascosto o tolto dopo la risposta si leggono identici — il
+    // codice registrato con la citazione, tenue; il nome esce dalle righe
+    // d'azione. Non dipende dal file che c'è ancora: uno tolto non c'è più.
     if (ref.kind === "drive") {
       const file = state.driveFiles.find((f) => f.id === ref.id);
-      if (file && !canSeeDriveFile(personId, file)) hidden.set(file.code, file.name);
+      const code = ref.code ?? file?.code;
+      if (code && !(file && canSeeDriveFile(personId, file))) hidden.set(code, file?.name ?? "");
     }
   }
   // Il titolo di un oggetto che il lettore non vede e che la proposta scrive

@@ -3,7 +3,12 @@ import { findSimilarRequest } from "../domain/requests";
 import { TEMPLATE_MODULES, TEMPLATE_STATUSES } from "../domain/templates";
 import { respond, type ReadApi, type T } from "../domain/claude/intents";
 import { labelled, resulted } from "../domain/claude/answers";
-import { fileQuestion, filesFoundText, findInFiles } from "../domain/claude/intents/files";
+import {
+  driveRef,
+  fileQuestion,
+  filesFoundText,
+  findInFiles,
+} from "../domain/claude/intents/files";
 import i18n from "../i18n";
 // Le letture servono al motore di intenti (a nome di chi conversa): si usano
 // solo dentro le funzioni, quindi l'import circolare con `api.ts` è innocuo.
@@ -1584,17 +1589,22 @@ async function sendMessageNow(
     return;
   }
   const task = c.taskId ? state.tasksById.get(c.taskId) : undefined;
+  // Una domanda sui file del Drive («cosa dice il contratto sui tempi di
+  // consegna?») ha la sua risposta, citando il file, prima di proseguire —
+  // al lavoro come in pausa.
+  const fromFiles = task ? await filesReply(me, task.projectId, text) : null;
   if (resuming && task) {
     // Il messaggio riprende la pausa: Claude riparte dalla fase in cui era.
-    await runScript(id, [{ step: "state", state: "working" }, { step: "deliver" }], gen);
+    await runScript(
+      id,
+      [{ step: "state", state: "working" }, { step: "deliver" }, ...(fromFiles ?? [])],
+      gen,
+    );
     delivered();
     continueWork(c, task, "Got it. I am resuming from your message.", gen);
     return;
   }
   // Al lavoro: il messaggio entra nel turno, e il lavoro in corso prosegue.
-  // Una domanda sui file del Drive («cosa dice il contratto sui tempi di
-  // consegna?») ha la sua risposta, citando il file, prima di proseguire.
-  const fromFiles = task ? await filesReply(me, task.projectId, text) : null;
   await runScript(
     id,
     [
@@ -1642,7 +1652,7 @@ async function filesReply(
   const code = state.projectsById.get(projectId)!.code;
   steps.push(
     { step: "say", text: filesFoundText(t, found, code) },
-    { step: "event", event: { type: "citation", refs: [{ kind: "drive", id: found.file.id }] } },
+    { step: "event", event: { type: "citation", refs: [driveRef(found.file)] } },
   );
   return steps;
 }

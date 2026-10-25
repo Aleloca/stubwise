@@ -1,14 +1,15 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import * as api from "../../data/api";
 import { state } from "../../data/store";
 import type { ChatMessage } from "../../data/types";
-import { can, revokeProjectPermission, viewerFor } from "../../data/viewer";
+import { can, revokeProjectPermission, useViewer, viewerFor } from "../../data/viewer";
 import { clearToasts, ToastRegion } from "../../tasks-ui/Toast";
 import { renderWithData } from "../../test/renderWithData";
 import { ChannelView } from "./ChannelView";
 import { clearDrafts } from "./drafts";
+import { SaveToDriveButton } from "./SaveToDrive";
 
 // «Save to Drive» sull'allegato di un messaggio (area 5, chiude la decisione
 // aperta dell'area 4): in un canale di progetto salva in quel progetto; in un
@@ -126,5 +127,33 @@ describe("Save to Drive sull'allegato", () => {
     const project = await chip();
     await screen.findByText("Here is the signed scan");
     expect(saveButton(project)).toBeNull();
+  });
+
+  it("il cambio di persona chiude la domanda «in quale progetto?»", async () => {
+    // Il bottone da solo, montato attraverso il cambio (nel canale il flusso
+    // si ricarica e lo smonta comunque): la domanda si chiude, e non torna
+    // quando arrivano i progetti idonei della persona nuova.
+    // Il «vedi come» arriva da fuori (⌘K, menu del profilo): qui lo si chiama diretto.
+    let switchTo: (personId: string) => void = () => {};
+    function Switcher() {
+      switchTo = useViewer().setPersona;
+      return null;
+    }
+    const attachment = { id: "att-x", name: NAME, sizeBytes: 812_000, kind: "file" as const };
+    renderWithData(
+      <>
+        <Switcher />
+        <SaveToDriveButton attachment={attachment} projectId={null} />
+      </>,
+      { personId: "p-giulia" },
+    );
+    const label = `Save ${NAME} to the Drive`;
+    await userEvent.click(await screen.findByRole("button", { name: label }));
+    await screen.findByRole("dialog");
+    act(() => switchTo("p-laura"));
+    // Laura ha anche lei progetti idonei: il bottone torna, la domanda no.
+    await screen.findByRole("button", { name: label });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

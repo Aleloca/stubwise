@@ -1,6 +1,11 @@
 // `readsAs` si usa solo dentro la funzione: l'import circolare
 // (api-mutations → … → docs) è innocuo, come per @Claude nella Chat.
-import { fileQuestion, filesFoundText, findInFiles } from "../../domain/claude/intents/files";
+import {
+  driveRef,
+  fileQuestion,
+  filesFoundText,
+  findInFiles,
+} from "../../domain/claude/intents/files";
 import { docsAnswer } from "../../domain/claude/intents/howto";
 import type { T } from "../../domain/claude/intents";
 import i18n from "../../i18n";
@@ -62,7 +67,7 @@ export async function askDocs({
     return {
       answeredAt: now(),
       text: answer.pages.length > 0 ? `${fileText}\n\n${answer.text}` : fileText,
-      refs: [...answer.refs, { kind: "drive", id: found.file.id }],
+      refs: [...answer.refs, driveRef(found.file)],
       sources,
     };
   }

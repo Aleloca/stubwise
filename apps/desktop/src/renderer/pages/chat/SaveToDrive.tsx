@@ -1,7 +1,8 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useUploadFiles } from "../../data/queries";
+import { onBeforePersonaChange } from "../../data/session";
 import type { Attachment, DriveUploadInput, Project } from "../../data/types";
 import { useToast } from "../../tasks-ui/Toast";
 import { UploadGlyph } from "../drive/glyphs";
@@ -63,6 +64,9 @@ export function SaveToDriveButton({
   const eligible = useUploadProjects();
   const upload = useUploadFiles();
   const [asking, setAsking] = useState(false);
+  // Cambio di persona: la domanda «in quale progetto?» di chi guardava prima
+  // non resta aperta (i progetti idonei erano i suoi).
+  useEffect(() => onBeforePersonaChange(() => setAsking(false)), []);
 
   // Si decide sui permessi calcolati, non a tentativi: finché non ci sono, niente bottone.
   if (!eligible) return null;

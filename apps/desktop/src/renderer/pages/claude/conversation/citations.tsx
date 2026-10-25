@@ -25,7 +25,7 @@ export interface CitationIndex {
   byCode: Map<string, CitationView>;
 }
 
-export const refKey = (ref: CitationRef) => `${ref.kind}:${ref.id}`;
+export const refKey = (ref: Pick<CitationRef, "kind" | "id">) => `${ref.kind}:${ref.id}`;
 
 export function indexCitations(views: readonly CitationView[] | undefined): CitationIndex {
   const byRef = new Map<string, CitationView>();

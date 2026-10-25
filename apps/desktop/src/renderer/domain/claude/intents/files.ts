@@ -14,21 +14,42 @@ import { findProject, normalize, topicWords } from "../parse";
 export interface FileQuestion {
   subject: string;
   topic: string;
+  /** Il codice del file, se il soggetto è un codice («What does AUD-F7 say…»). */
+  code: string | null;
 }
+
+/** Un file del Drive citato: l'id e il codice di adesso, che la citazione ricorda (R-H5). */
+export const driveRef = (file: Pick<DriveFile, "id" | "code">): CitationRef => ({
+  kind: "drive",
+  id: file.id,
+  code: file.code,
+});
+
+const FILE_CODE = /\b([a-z]{2,4})-f(\d+)\b/i;
 
 const EN =
   /\bwhat (?:does|do|did) (?:the |our |a |an |that |this )?(.+?) (?:say|says|state|states) (?:about|on|regarding|for) (.+)$/;
 const IT =
   /\b(?:cosa|che cosa) (?:dice|dicono|prevede|prevedono|scrive|riporta) (?:il |lo |la |l'|i |gli |le )?(.+?) (?:(?:su|sul|sullo|sulla|sui|sugli|sulle|circa|riguardo a|riguardo ai|riguardo alle|a proposito di|per) |sull')(.+)$/;
 
-/** La domanda su un file, o `null` se il messaggio non lo è. */
+/**
+ * La domanda su un file, o `null` se il messaggio non lo è. Il soggetto deve
+ * dire che si parla di un file: un nome di documento («il contratto», «the
+ * spreadsheet», «il file») o il codice di un file (`AUD-F7`). «What does
+ * Laura say about X» parla di una persona, non di un file.
+ */
 export function fileQuestion(text: string): FileQuestion | null {
   const plain = normalize(text).replace(/[?!.]+\s*$/, "");
   const m = EN.exec(plain) ?? IT.exec(plain);
   if (!m) return null;
   const subject = m[1]!.trim();
   const topic = m[2]!.trim();
-  return topicWords(subject).length > 0 && topicWords(topic).length > 0 ? { subject, topic } : null;
+  if (topicWords(topic).length === 0) return null;
+  const coded = FILE_CODE.exec(subject);
+  if (coded) return { subject, topic, code: `${coded[1]!.toUpperCase()}-F${coded[2]}` };
+  const words = topicWords(subject);
+  const isFile = words.some((w) => DOCUMENT_NOUNS.has(w) || GENERIC_NOUNS.has(w));
+  return isFile ? { subject, topic, code: null } : null;
 }
 
 // Le parole italiane più comuni dei documenti di progetto, con la loro forma
@@ -88,6 +109,26 @@ const DOCUMENT_NOUNS = new Set([
   "offerta",
 ]);
 
+/**
+ * I nomi generici di un file: dicono che si parla di un file ma non di
+ * quale. Non filtrano il nome; foglio, slide e PDF filtrano il tipo.
+ */
+const GENERIC_NOUNS = new Map<string, DriveFile["type"] | null>([
+  ["file", null],
+  ["files", null],
+  ["document", null],
+  ["documents", null],
+  ["documento", null],
+  ["documenti", null],
+  ["doc", null],
+  ["sheet", "sheet"],
+  ["spreadsheet", "sheet"],
+  ["foglio", "sheet"],
+  ["slides", "slides"],
+  ["slide", "slides"],
+  ["pdf", "pdf"],
+]);
+
 /** Le radici di una parola (5 lettere delle lunghe), anche nella forma inglese. */
 function roots(word: string): string[] {
   const root = (w: string) => (w.length > 5 ? w.slice(0, 5) : w);
@@ -126,15 +167,25 @@ export interface FilesFound {
  * tema nel testo (1 a parola). Senza il tema nel testo, nessun file.
  */
 export function findInFiles(q: FileQuestion, files: readonly DriveFile[]): FilesFound | null {
-  const subject = topicWords(q.subject);
   const topic = topicWords(q.topic);
+  // Un codice dice il file: lui, se chi chiede lo legge (altrimenti nessuno,
+  // come un codice che non esiste). Il passaggio è quello del tema, se c'è.
+  if (q.code) {
+    const file = files.find((f) => f.code === q.code);
+    if (!file) return null;
+    const passage = passageOf(file.text, topic) || (file.summary ?? "");
+    return { file, passage, article: /^(\d+)\.\s/.exec(passage)?.[1] ?? null };
+  }
+  const subject = topicWords(q.subject);
   const nouns = subject.filter((w) => DOCUMENT_NOUNS.has(w));
-  const rest = subject.filter((w) => !DOCUMENT_NOUNS.has(w));
+  const types = subject.flatMap((w) => GENERIC_NOUNS.get(w) ?? []);
+  const rest = subject.filter((w) => !DOCUMENT_NOUNS.has(w) && !GENERIC_NOUNS.has(w));
   let best: { file: DriveFile; score: number } | null = null;
   for (const file of files) {
     const name = normalize(file.name);
     const body = normalize(`${file.summary ?? ""} ${file.text}`);
     if (!nouns.every((w) => hits(w, name))) continue;
+    if (!types.every((type) => file.type === type)) continue;
     const about = topic.filter((w) => hits(w, normalize(file.text))).length;
     if (about === 0) continue;
     const score = about + rest.reduce((s, w) => s + (hits(w, name) ? 2 : hits(w, body) ? 1 : 0), 0);
@@ -178,6 +229,6 @@ export async function files(text: string, ctx: IntentContext): Promise<Answer> {
     return { actions: [action], text: t("claude.answers.files.nothing", { topic: q.topic }) };
   }
   const code = projects.find((p) => p.id === found.file.projectId)?.code ?? "";
-  const refs: CitationRef[] = [{ kind: "drive", id: found.file.id }];
+  const refs: CitationRef[] = [driveRef(found.file)];
   return { actions: [action], text: filesFoundText(t, found, code), refs };
 }

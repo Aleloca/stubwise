@@ -678,6 +678,13 @@ export type CitationRef = {
     | "brief"
     | "release";
   id: string;
+  /**
+   * Solo `drive`: il codice del file al momento della citazione (`AUD-F7`).
+   * Un riferimento tolto dal Drive non c'è più nello stato, ma la citazione
+   * registrata ricorda il suo codice: chi non può aprirlo legge lo stesso
+   * codice tenue per ogni causa — progetto invisibile, nascosto, tolto (R-H5).
+   */
+  code?: string;
 };
 
 export type ConversationEvent =

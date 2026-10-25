@@ -174,7 +174,10 @@ export function MessageItem(props: MessageItemProps) {
       new Set(
         m.citations.flatMap((ref) => {
           const view = index.byRef.get(refKey(ref));
-          return view && !view.visible && view.code ? [view.code] : [];
+          // Un file del Drive non visibile non ha codice nella vista: vale
+          // quello registrato con la citazione, per ogni causa (R-H5).
+          const code = view?.code ?? (ref.kind === "drive" ? ref.code : undefined);
+          return view && !view.visible && code ? [code] : [];
         }),
       ),
     [m.citations, index],

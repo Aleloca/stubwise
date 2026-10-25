@@ -999,7 +999,7 @@ export async function resolveCodes(codes: string[]): Promise<CitationView[]> {
     if (page) return [{ kind: "doc", id: page.id }];
     // Un file del Drive (`AUD-F7`): un nascosto vale come uno che non c'è.
     const file = state.driveFiles.find((f) => f.code === code);
-    return file ? [{ kind: "drive", id: file.id }] : [];
+    return file ? [{ kind: "drive", id: file.id, code: file.code }] : [];
   });
   return (await resolveCitations(refs)).filter((v) => v.visible);
 }
@@ -1250,7 +1250,8 @@ export async function searchMentions(
     .filter((f) => canSeeDriveFile(me, f) && has(f.code, f.name))
     .map(
       (f): MentionResult => ({
-        ref: { kind: "drive", id: f.id },
+        // Il codice va con la citazione (R-H5): resta anche se il file viene tolto.
+        ref: { kind: "drive", id: f.id, code: f.code },
         code: f.code,
         label: f.name,
         detail: projectCodeOf(f.projectId),
