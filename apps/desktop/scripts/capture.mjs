@@ -283,6 +283,78 @@ async function main() {
         await context.close();
       }
     }
+    // Area 5: Docs e Drive. Laura (Project Lead) ha `drive.history` e gestisce
+    // il Drive; Giulia ha un account Google collegato (fuori dai progetti).
+    const searchBox = (p) => p.getByRole("searchbox", { name: /^(Search files|Cerca nei file)$/ });
+    const AREA5 = [
+      ["docs-home", "/p/AUD/docs", { persona: "Laura", narrow: true }],
+      ["docs-page", "/p/AUD/docs/audin-app/scheduled-callbacks", { persona: "Laura", narrow: true }],
+      ["docs-graph", "/p/STW/docs/stubwise/graph", { persona: "Laura", narrow: true }],
+      ["drive-aud", "/p/AUD/drive", { persona: "Laura", narrow: true }],
+      ["drive-detail", "/p/AUD/drive?file=AUD-F7", { persona: "Laura", narrow: true }],
+      ["drive-link-folder", "/p/MKX/drive", {
+        persona: "Giulia",
+        narrow: true,
+        steps: async (p) => {
+          await p.getByRole("button", { name: /^(More Drive actions|Altre azioni del Drive)$/ }).click();
+          await p.getByRole("menuitem", { name: /^(Link a Google folder|Collega una cartella Google)$/ }).click();
+          await p.getByRole("dialog").waitFor();
+          await p.mouse.move(2, 2);
+          await p.waitForTimeout(900);
+        },
+      }],
+      ["drive-search", "/p/AUD/drive", {
+        persona: "Laura",
+        narrow: true,
+        steps: async (p) => {
+          await searchBox(p).fill("contratto");
+          await p.waitForTimeout(1200);
+        },
+      }],
+      ["drive-which-project", "/drive", {
+        persona: "Giulia",
+        narrow: true,
+        steps: async (p) => {
+          await searchBox(p).fill("wine club");
+          await p.locator("[data-drive-outside]").first().click();
+          await p.getByRole("dialog").waitFor();
+          await p.mouse.move(2, 2);
+          await p.waitForTimeout(900);
+        },
+      }],
+      ["claude-cites-file", "/claude/cv-giulia-callbacks", {
+        persona: "Giulia",
+        narrow: true,
+        steps: async (p) => {
+          const lang = await p.evaluate(() => window.localStorage.getItem("stubwise.language"));
+          await p.locator("textarea").last().fill(
+            lang === "it"
+              ? "Cosa dice il contratto col cliente sui tempi di consegna?"
+              : "What does the client contract say about delivery times?",
+          );
+          await p.keyboard.press("Enter");
+          await p.waitForTimeout(4500);
+        },
+      }],
+    ];
+    for (const [name, hash, o] of AREA5) {
+      if (only && !only.test(name)) continue;
+      const variants = [];
+      for (const scheme of ["light", "dark"]) {
+        for (const lang of ["en", "it"]) variants.push([scheme, lang, WIDE, `a5-${name}-${scheme}-${lang}.png`]);
+      }
+      if (o.narrow) variants.push(["dark", "en", NARROW, `a5-${name}-narrow.png`]);
+      for (const [scheme, lang, viewport, file] of variants) {
+        const { page, context } = await open(scheme, viewport, hash, {
+          lang,
+          persona: o.persona,
+          viaHome: Boolean(o.persona),
+        });
+        if (o.steps) await o.steps(page);
+        await shot(page, file);
+        await context.close();
+      }
+    }
     if (only) return; // revisione mirata: salta il resto
 
     for (const scheme of ["light", "dark"]) {

@@ -38,6 +38,16 @@ test accanto ai componenti: `ChannelView.test.tsx`, `ThreadPanel.test.tsx`,
 `ChatColumn.test.tsx`, `ChannelSettings.test.tsx`, `ChatSearch.test.tsx`,
 `flow.test.ts`, `search.test.ts` (tutti in `pages/chat/`) e `data/chat/*.test.ts`.
 
+## Decisione chiusa: gli allegati nel Drive (area 5, Task 9)
+
+La decisione aperta dal design dell'area 4 («Struttura del Drive per gli
+allegati scelti dal progetto») è chiusa: un allegato **non entra da solo** nel
+Drive, ha il bottone **«Save to Drive»** (`pages/chat/SaveToDrive.tsx`, nel
+chip `pages/claude/conversation/AttachmentChip.tsx`), con `drive.upload` nel
+progetto. In un canale di progetto salva lì; in un DM o in un canale generale
+chiede «a quale progetto?» (`pages/drive/WhichProjectDialog.tsx`). Test:
+`pages/chat/SaveToDrive.test.tsx`. Dettaglio in `area5-parity.md`.
+
 ## Buchi
 
 Non costruiti:

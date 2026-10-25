@@ -237,3 +237,105 @@ I buchi di parità stanno in `area4-parity.md`, «Buchi». L'elenco per task:
 - Ricerca: il clic con modificatore sui risultati viene inghiottito; `toItem` ha un'indentazione da sistemare.
 - Notifiche: il titolo ripete il canale (testo del Task 2); lo scatto della domanda di @Claude non è catturato (serve una chiamata dal vivo).
 
+## Area 5 — minori aperti
+
+Parità e buchi: `area5-parity.md`. L'elenco per task:
+`.superpowers/sdd/2026-10-25-desktop-area5-docs-drive-plan/progress.md`.
+Chiusa dall'area 5 (Task 9): la decisione aperta dell'area 4 sulla struttura
+del Drive per gli allegati — l'allegato ha «Save to Drive»
+(`pages/chat/SaveToDrive.tsx`), in un DM o in un canale generale chiede il
+progetto; vedi `area4-parity.md`.
+
+### Decisioni del controller da confermare
+
+- **R-H1** — nel grafo «spento», «Enable» (`repos.manage`) lo accende e lo
+  costruisce subito: il prototipo non ha la pagina impostazioni del repository,
+  quindi un passo in meno del web.
+- **R-H2** — i codici `<PRJ>-D<n>` scritti a mano restavano testo semplice
+  finché non c'era il collegamento; superata dal Task 3 (ora sono collegati, e
+  R-G5 vale per costruzione: una pagina invisibile non ha codice).
+- **R-H3** — «Add from Google Drive» è un elenco piatto con ricerca (i file del
+  seme Google non hanno cartella): niente sfoglia-cartelle quando si aggiungono
+  file singoli, a differenza di quanto chiedeva lo shape.
+- **R-H4** — ⌘K tiene l'ordine visivo di shape A5; la riga preselezionata è la
+  prima di un oggetto esatto, altrimenti la prima azione che corrisponde al
+  nome, altrimenti la prima; «More» sta per ultimo. Così Invio esegue ancora il
+  comando (area 4), ma la riga evidenziata può stare sotto File/Canali/Messaggi.
+- **R-H5** — una citazione di file registrata in una risposta di Claude si
+  disegna uguale (tenue, solo il codice) per ogni causa per cui chi guarda non
+  la vede (progetto invisibile, file nascosto, file tolto); un codice scritto a
+  mano e non registrato è testo semplice (coerente con R-G5).
+
+### Dati e modello (Task 1, 3)
+
+- La citazione di una pagina dei Docs porta alla pagina, non alla sezione:
+  `pages/docs/DocPageView.tsx`.
+- Il grafo non ha il report delle comunità né il contenuto completo di
+  `graph.json` (è un riassunto, non ogni nodo): `data/seed/`, `pages/docs/DocGraph.tsx`.
+- Manca il test di `resolveCodes` per chi vede AUD senza `docs.view`:
+  `data/docs/docs.test.ts`.
+- `LocalProjectPermission` non ha `docs.view` (cast `as never`): `data/store.ts`.
+- `slugify` di un titolo non latino dà uno slug vuoto, quindi non valido:
+  `domain/docs.ts`.
+- Il test «2 nuovi messaggi» di `ChannelView` è stato instabile una volta
+  (tempi): `pages/chat/ChannelView.test.tsx`.
+
+### Docs (Task 2)
+
+- Il separatore dell'albero non risponde a Home/End e non ha `aria-valuetext`:
+  `pages/docs/DocSpace.tsx`.
+- `$repo` è il nome del repository ma l'unicità non è imposta:
+  `data/docs/reads.ts`.
+- J/K ascoltano `window` e non il fuoco, quindi dall'albero saltano nell'indice:
+  `pages/docs/DocSpace.tsx`.
+- Una scheda inattiva ha `aria-controls` verso un pannello non montato:
+  `pages/docs/DocSpace.tsx`.
+- Mancano il test dello stato di caricamento di `RepoIndex` e quello «senza
+  oracolo» su un progetto invisibile con il modulo spento:
+  `pages/docs/Docs.test.tsx`.
+
+### Drive: dati e seme (Task 4–5)
+
+- Il test del seme non asserisce `access_lost`: `data/drive/drive.test.ts`.
+- I file non disponibili tengono il contenuto «pronto» (voluto, non fissato da
+  un test): `data/drive/content.ts`.
+- I file nascosti di una cartella restano visibili sui percorsi lato Google
+  (documentato); la simulazione di `syncFolder` e dell'estrazione in corso ha
+  buchi: `data/drive/writes.ts`.
+- Scollegare l'account di chi ha collegato la cartella rende i file non
+  disponibili per tutti, e solo lui li ripristina; chi scollega e ricollega da
+  un altro gestore perde i conteggi — da verificare che il testo dei dialoghi
+  lo dica: `pages/drive/DriveBanners.tsx`.
+
+### Drive: pagine e ricerca (Task 6–8)
+
+- La vista globale non è paginata (va bene ai volumi del prototipo):
+  `pages/drive/DriveList.tsx`.
+- Gli URL degli oggetti si revocano solo a eliminazione e `pagehide`:
+  `pages/drive/blobs.ts`.
+- «Share to…» di un DM con membri ignoti mostra l'etichetta vuota:
+  `pages/drive/ShareToChat.tsx`.
+- Dall'anteprima aperta dalla miniatura il fuoco ricade sul pannello:
+  `pages/drive/FilePreview.tsx`.
+- Il `⋯` della riga è solo da mouse (nel dettaglio c'è Hide) e il menu può
+  essere tagliato sulle ultime righe: `pages/drive/DriveRow.tsx`.
+- La palette importa `openLinkFolder` da un modulo di pagina (strati):
+  `palette/commands.ts`, `pages/drive/LinkFolderDialog.tsx`.
+- I risultati della ricerca sono a pagine da 20; `fold` e l'evidenziazione
+  stanno in `pages/chat/search` e il livello dati li importa:
+  `data/drive/reads.ts`.
+- Il flag di modulo `personaChangedWithQuery` si regge sul rimontaggio, e la
+  preselezione di ⌘K salta da un'azione a un oggetto quando arrivano risultati
+  freschi: `pages/drive/DriveSearch.tsx`, `palette/CommandPalette.tsx`.
+
+### Citazioni e Claude (Task 9)
+
+- L'anteprima di una citazione di file è un `role="tooltip"` con azioni a sola
+  etichetta, mentre lo shape chiede un dialogo non modale:
+  `pages/claude/conversation/citations.tsx`.
+- @Claude in un canale di progetto cerca in tutti i progetti di chi chiede,
+  mentre la sezione della task si limita al progetto della task:
+  `data/chat/claude.ts`, `data/drive/reads.ts`.
+- La ricerca per codici citati e i `citedCodes` di @Claude ignorano il Drive
+  (come per i Docs): `data/chat/claude.ts`.
+
