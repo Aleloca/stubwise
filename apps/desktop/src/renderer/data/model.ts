@@ -1659,6 +1659,8 @@ export interface MailProposal {
   resultCodes: string[];
   error: string | null;
   handedAt: string | null;
+  /** Chi l'ha passata al progetto: resta anche dopo la decisione di chi ha il permesso. */
+  handedById: string | null;
   /** Confermata solo in parte: gli indici delle azioni eseguite. */
   confirmedActions?: number[];
   /** Chi ha scelto il progetto di un'email incerta (`chooseProject` risolta). */

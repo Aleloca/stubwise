@@ -2311,9 +2311,10 @@ export type Applied =
  * «tutto o niente»: lo usano le proposte di Claude (conversazione e Chat,
  * `settleProposal`) e quelle della posta (`mail/proposals.ts`).
  *
- * `recordDecision` scrive nel registro con origine `email` e un testo da
- * TEMPLATE (oggetto, mittente ed estratto dell'email, che chi chiama legge
- * dal messaggio): mai un testo del modello. `chooseProject` non si esegue.
+ * `recordDecision` scrive nel registro il titolo e il testo che riceve, con
+ * l'origine che riceve (`email` | `manual`): chi chiama li prepara — la
+ * Posta da template (`withEmailWords` in `mail/proposals.ts`), mai dal
+ * modello. `chooseProject` non si esegue.
  */
 export function applyActions(me: string, actions: ProposedAction[]): Applied {
   const snapshot = structuredClone({
@@ -2389,18 +2390,17 @@ export function applyActions(me: string, actions: ProposedAction[]): Applied {
         }
         case "recordDecision": {
           const projectId = args.projectId as string;
+          const source = args.source;
+          if (source !== "email" && source !== "manual") throw invalid("source");
           recordDecisionAs(
             me,
             projectId,
             {
-              title: i18n.t("claude.decisionLog.emailTitle", { subject: args.subject as string }),
-              decision: i18n.t("claude.decisionLog.emailDecision", {
-                sender: args.sender as string,
-                excerpt: args.excerpt as string,
-              }),
+              title: args.title as string,
+              decision: args.decision as string,
               taskId: (args.taskId as string | undefined) ?? null,
             },
-            "email",
+            source,
           );
           projectIds.add(projectId);
           break;

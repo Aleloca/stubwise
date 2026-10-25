@@ -48,6 +48,7 @@ function addProposal(actions: ProposedAction[], extra: Partial<MailProposal> = {
     resultCodes: [],
     error: null,
     handedAt: null,
+    handedById: null,
     ...extra,
   });
   return id;
@@ -124,7 +125,11 @@ describe("Proposte della posta: chi la vede", () => {
     expect(proposal(SHARED).status).toBe("open");
 
     await mail.handMailProposal(SHARED);
-    expect(proposal(SHARED)).toMatchObject({ status: "handed", decidedById: "p-giulia" });
+    expect(proposal(SHARED)).toMatchObject({
+      status: "handed",
+      decidedById: "p-giulia",
+      handedById: "p-giulia",
+    });
     expect(proposal(SHARED).handedAt).not.toBeNull();
     // Chi può confermare non la passa: la conferma.
     as("p-matteo");
@@ -161,11 +166,51 @@ describe("Proposte della posta: chi la vede", () => {
     expect(state.tasksById.get("t-stw-11")!.dueDate).toBe(
       (proposal(HANDED).actions[0]!.args.patch as { dueDate: string }).dueDate,
     );
+    // Decisa, resta passata: Laura la rilegge e vede che l'ha decisa lei.
+    expect(await mail.getMailProposal(HANDED)).toMatchObject({
+      proposal: { status: "confirmed", handedById: "p-giulia" },
+      decidedBy: { personId: "p-laura", name: "Laura Costa" },
+      canConfirm: false,
+    });
+    expect(await errorOf(mail.ignoreMailProposal(HANDED))).toMatchObject({
+      message: "already_handled",
+      byId: "p-laura",
+    });
+    // Un secondo Project Lead di STW, non destinatario, arriva tardi: già decisa, e da chi.
+    grantProjectRole("p-simone", STW, "project_lead");
+    as("p-simone");
+    expect(await errorOf(mail.confirmMailProposal(HANDED))).toMatchObject({
+      message: "already_handled",
+      byId: "p-laura",
+    });
     as("p-giulia");
     expect(await mail.getMailProposal(HANDED)).toMatchObject({
-      proposal: { status: "confirmed", handedAt: expect.any(String) },
+      proposal: { status: "confirmed", handedAt: expect.any(String), handedById: "p-giulia" },
       decidedBy: { personId: "p-laura" },
     });
+  });
+
+  it("passata con azioni miste: la vede chi ha il permesso di TUTTE, non solo della prima", async () => {
+    const id = addProposal(
+      [
+        { fn: "createTask", args: { projectId: AUD, title: "Mixed task" }, summary: "Create" },
+        { fn: "recordDecision", args: { projectId: AUD }, summary: "Record" },
+      ],
+      {
+        status: "handed",
+        decidedById: "p-giulia",
+        decidedAt: "2026-10-25T10:30:00Z",
+        handedAt: "2026-10-25T10:30:00Z",
+        handedById: "p-giulia",
+      },
+    );
+    // Stefano: Contributor in AUD (crea task, non registra decisioni), non destinatario.
+    grantProjectRole("p-stefano", AUD, "contributor");
+    as("p-stefano");
+    await expect(mail.getMailProposal(id)).rejects.toThrow("not_found");
+    // Marco: Developer in AUD, entrambi i permessi.
+    as("p-marco");
+    expect(await mail.getMailProposal(id)).toMatchObject({ canConfirm: true });
   });
 
   it("le aperte che vedo entrano in «Da decidere», dalla più vecchia", async () => {
@@ -194,6 +239,22 @@ describe("Proposte della posta: due persone quasi insieme (Review Focus 2)", () 
       canConfirm: false,
       canHand: false,
     });
+  });
+
+  it("conferma e «Ignora» quasi insieme: un solo esito, l'altro already_handled", async () => {
+    setLatency(20);
+    as("p-giulia");
+    const confirm = mail.confirmMailProposal(SHARED);
+    as("p-matteo");
+    const ignore = mail.ignoreMailProposal(SHARED);
+    const [c, i] = await Promise.allSettled([confirm, ignore]);
+    expect(c).toMatchObject({ status: "fulfilled", value: { status: "confirmed" } });
+    expect(i).toMatchObject({
+      status: "rejected",
+      reason: expect.objectContaining({ message: "already_handled", byId: "p-giulia" }),
+    });
+    expect(proposal(SHARED)).toMatchObject({ status: "confirmed", decidedById: "p-giulia" });
+    expect(tasksTitled("Add the VAT number column to the billing export")).toHaveLength(1);
   });
 
   it("una ignorata chiude per tutti: chi arriva dopo trova already_handled", async () => {
@@ -254,15 +315,70 @@ describe("Proposte della posta: conferma", () => {
         args: { projectId: AUD, title: "Half of a proposal" },
         summary: "Create in AUD",
       },
-      {
-        fn: "addComment",
-        args: { taskId: "t-does-not-exist", body: "Hello" },
-        summary: "Comment",
-      },
+      // Un titolo vuoto: la mutazione la rifiuta a metà esecuzione.
+      { fn: "createTask", args: { projectId: AUD, title: "  " }, summary: "Create in AUD" },
     ]);
-    expect(await mail.confirmMailProposal(id)).toEqual({ status: "failed", error: "not_found" });
+    expect(await mail.confirmMailProposal(id)).toEqual({ status: "failed", error: "invalid" });
     expect(tasksTitled("Half of a proposal")).toHaveLength(0);
-    expect(proposal(id)).toMatchObject({ status: "failed", error: "not_found" });
+    expect(proposal(id)).toMatchObject({ status: "failed", error: "invalid" });
+  });
+
+  it("ciò che nasce, nasce nel progetto della proposta; ciò che si tocca dev'essere suo", async () => {
+    as("p-matteo"); // in AUD e MKX, Project Lead
+    const create = addProposal([
+      { fn: "createTask", args: { projectId: MKX, title: "Elsewhere?" }, summary: "Create" },
+    ]);
+    await mail.confirmMailProposal(create);
+    expect(tasksTitled("Elsewhere?")).toEqual([expect.objectContaining({ projectId: AUD })]);
+    // Una task di un altro progetto (STW-11) non si aggiorna né si commenta da qui.
+    const update = addProposal([
+      { fn: "updateTask", args: { id: "t-stw-11", patch: { dueDate: null } }, summary: "Update" },
+    ]);
+    const comment = addProposal([
+      { fn: "addComment", args: { taskId: "t-stw-11", body: "Hi" }, summary: "Comment" },
+    ]);
+    const missing = addProposal([
+      { fn: "addComment", args: { taskId: "t-nope", body: "Hi" }, summary: "Comment" },
+    ]);
+    const due = state.tasksById.get("t-stw-11")!.dueDate;
+    for (const id of [update, comment, missing]) {
+      await expect(mail.confirmMailProposal(id)).rejects.toThrow("invalid: target");
+      expect(proposal(id).status).toBe("open");
+    }
+    expect(state.tasksById.get("t-stw-11")!.dueDate).toBe(due);
+  });
+
+  it("persone sconosciute: invalid: assignee, nulla creato né concesso", async () => {
+    as("p-matteo");
+    await expect(
+      mail.confirmMailProposal(REVIEW, { addOutsiders: ["p-chiara", "p-ghost"] }),
+    ).rejects.toThrow("invalid: assignee");
+    await expect(
+      mail.confirmMailProposal(REVIEW, {
+        addOutsiders: ["p-chiara"],
+        edits: { 0: { assigneeId: "p-ghost" } },
+      }),
+    ).rejects.toThrow("invalid: assignee");
+    expect(tasksTitled("Visuals for the launch announcement")).toHaveLength(0);
+    expect(membersOf(AUD)).not.toContain("p-chiara");
+    expect(membersOf(AUD)).not.toContain("p-ghost");
+    expect(can(viewerFor("p-chiara"), "tickets.create", AUD)).toBe(false);
+    expect(proposal(REVIEW).status).toBe("open");
+  });
+
+  it("modifiche che non sono oggetti: invalid: edits, senza eccezioni di tipo", async () => {
+    const bad = [
+      "title",
+      { 0: "title" },
+      { 0: null },
+      { 0: ["title"] },
+      { 0: { patch: 5 } },
+    ] as unknown as Record<number, Record<string, unknown>>[];
+    for (const edits of bad) {
+      await expect(mail.confirmMailProposal(SHARED, { edits })).rejects.toThrow("invalid: edits");
+    }
+    expect(proposal(SHARED).status).toBe("open");
+    expect(tasksTitled("Add the VAT number column to the billing export")).toHaveLength(0);
   });
 
   it("«scegli il progetto» non si conferma: si sceglie", async () => {
@@ -322,7 +438,7 @@ describe("Proposte della posta: incaricato fuori dal progetto", () => {
         args: { projectId: AUD, title: "Brief for Chiara", assigneeId: "p-chiara" },
         summary: "Create in AUD",
       },
-      { fn: "updateTask", args: { id: "t-nope", patch: { dueDate: null } }, summary: "Update" },
+      { fn: "createTask", args: { projectId: AUD, title: "" }, summary: "Create in AUD" },
     ]);
     expect(await mail.confirmMailProposal(id, { addOutsiders: ["p-chiara"] })).toMatchObject({
       status: "failed",

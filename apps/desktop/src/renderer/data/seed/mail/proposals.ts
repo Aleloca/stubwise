@@ -19,7 +19,7 @@ const sourceOf = (id: string): string => {
 /** Ancora aperta: nessuno ha deciso. */
 const undecided = (): Pick<
   MailProposal,
-  "status" | "decidedById" | "decidedAt" | "resultCodes" | "error" | "handedAt"
+  "status" | "decidedById" | "decidedAt" | "resultCodes" | "error" | "handedAt" | "handedById"
 > => ({
   status: "open",
   decidedById: null,
@@ -27,6 +27,7 @@ const undecided = (): Pick<
   resultCodes: [],
   error: null,
   handedAt: null,
+  handedById: null,
 });
 
 export const MAIL_PROPOSALS: MailProposal[] = [
@@ -80,6 +81,7 @@ export const MAIL_PROPOSALS: MailProposal[] = [
     resultCodes: ["AUD-9"],
     error: null,
     handedAt: null,
+    handedById: null,
   },
   // STW, aperta: Giulia (Contributor) può crearla.
   {
@@ -127,6 +129,7 @@ export const MAIL_PROPOSALS: MailProposal[] = [
     resultCodes: [],
     error: null,
     handedAt: at(3, "15:30"),
+    handedById: "p-giulia",
   },
   // Incerta fra AUD e MKX (Giulia e Matteo sono in entrambi): si sceglie il
   // progetto, poi si conferma la task di quel progetto.

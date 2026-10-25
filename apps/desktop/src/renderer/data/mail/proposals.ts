@@ -1,13 +1,14 @@
+import i18n from "../../i18n";
 import { applyActions } from "../api-mutations";
 import { PEOPLE } from "../seed/people";
 import { copy, gate, now, state, storeGeneration } from "../store";
 import type { MailProposal, MailProposalFilters, MailProposalView, ProposedAction } from "../types";
 import { can, grantProjectRole, viewerFor } from "../viewer";
 import {
+  canDoActions,
   canSeeMailProposal,
   isProjectMember,
   isProposalRecipient,
-  permissionForAction,
 } from "./visibility";
 
 // Le proposte della posta (area 6): una per email (Message-ID) e progetto,
@@ -20,6 +21,9 @@ import {
 // decisioni quasi insieme trova la proposta già chiusa (`already_handled`,
 // con chi l'ha decisa). Una proposta passata al progetto (`handed`) resta da
 // decidere, ma solo per chi ha il permesso (come `google.proposal_handed`).
+// «Passa al progetto» è di chi NON può confermarla: chi ha il permesso di
+// ogni azione conferma o ignora, e un suo «Passa» è `invalid_action` (la UI
+// non glielo offre: `canHand` è falso).
 // La conferma esegue le azioni con `applyActions` di `api-mutations.ts`, lo
 // stesso «tutto o niente» delle proposte di Claude.
 
@@ -50,8 +54,14 @@ const PORTABLE_FNS: ReadonlySet<ProposedAction["fn"]> = new Set([
   "createMilestone",
 ]);
 
-/** Campi che chi conferma non cambia: il progetto, l'oggetto e le parole dell'email. */
-const FIXED_ARGS = new Set(["projectId", "id", "taskId", "subject", "sender", "excerpt"]);
+/**
+ * Campi che chi conferma non cambia: il progetto, l'oggetto toccato e
+ * l'origine. Il testo di una decisione lo rifà comunque il template.
+ */
+const FIXED_ARGS = new Set(["projectId", "id", "taskId", "source"]);
+
+/** Le azioni che nascono nel progetto della proposta (`args.projectId`). */
+const CREATING_FNS: ReadonlySet<ProposedAction["fn"]> = PORTABLE_FNS;
 
 const personName = (id: string) => PEOPLE.find((p) => p.id === id)?.name ?? id;
 
@@ -60,25 +70,23 @@ const isChoosing = (p: MailProposal) => p.actions.some((a) => a.fn === "choosePr
 /** Ancora da decidere: aperta, o passata al progetto (per chi ha il permesso). */
 const isPending = (p: MailProposal) => p.status === "open" || p.status === "handed";
 
-/** Chi agisce ha nel progetto il permesso di ognuna delle azioni. */
-function canDo(me: string, p: MailProposal, actions: ProposedAction[]): boolean {
-  const viewer = viewerFor(me);
-  return actions.every((a) => {
-    const perm = permissionForAction(a.fn);
-    return perm !== null && can(viewer, perm, p.projectId);
-  });
+const canDo = canDoActions;
+
+const isPerson = (id: unknown): boolean => PEOPLE.some((p) => p.id === id);
+
+/** L'incaricato di un'azione (creare o aggiornare una task), se ne ha uno. */
+function assigneeOf(a: ProposedAction): unknown {
+  if (a.fn === "createTask") return a.args.assigneeId;
+  if (a.fn === "updateTask")
+    return (a.args.patch as Record<string, unknown> | undefined)?.assigneeId;
+  return undefined;
 }
 
 /** Gli incaricati delle azioni che non sono nel progetto. */
 function outsidersOf(p: MailProposal, actions: ProposedAction[]): string[] {
   const ids = new Set<string>();
   for (const a of actions) {
-    const assignee =
-      a.fn === "createTask"
-        ? a.args.assigneeId
-        : a.fn === "updateTask"
-          ? (a.args.patch as Record<string, unknown> | undefined)?.assigneeId
-          : undefined;
+    const assignee = assigneeOf(a);
     if (typeof assignee === "string" && !isProjectMember(assignee, p.projectId)) ids.add(assignee);
   }
   return [...ids];
@@ -211,22 +219,42 @@ function chosenActions(
   if (indexes.length === 0 || indexes.some((i) => !Number.isInteger(i) || !p.actions[i])) {
     throw invalid("selection");
   }
-  const edits = input.edits ?? {};
+  const isRecord = (x: unknown): x is Record<string, unknown> =>
+    typeof x === "object" && x !== null && !Array.isArray(x);
+  const edits: unknown = input.edits ?? {};
+  if (!isRecord(edits)) throw invalid("edits");
   for (const [key, edit] of Object.entries(edits)) {
-    if (!indexes.includes(Number(key))) throw invalid("edits");
+    if (!indexes.includes(Number(key)) || !isRecord(edit)) throw invalid("edits");
     if (Object.keys(edit).some((k) => FIXED_ARGS.has(k))) throw invalid("edits");
+    if ("patch" in edit && !isRecord(edit.patch)) throw invalid("edits");
   }
   const actions = indexes.map((i) => {
     const action = copy(p.actions[i]!);
-    action.args = { ...action.args, ...(edits[i] ?? {}) };
+    action.args = { ...action.args, ...((edits[i] as Record<string, unknown>) ?? {}) };
+    // Ciò che nasce, nasce nel progetto della proposta; ciò che si tocca, è suo.
+    if (CREATING_FNS.has(action.fn)) action.args.projectId = p.projectId;
+    const target =
+      action.fn === "updateTask"
+        ? action.args.id
+        : action.fn === "addComment"
+          ? action.args.taskId
+          : null;
+    if (target !== null && state.tasksById.get(target as string)?.projectId !== p.projectId) {
+      throw invalid("target");
+    }
+    const assignee = assigneeOf(action);
+    if (assignee !== undefined && assignee !== null && !isPerson(assignee)) {
+      throw invalid("assignee");
+    }
     return action;
   });
   return { actions, indexes: indexes.length === p.actions.length ? null : indexes };
 }
 
 /**
- * Le parole dell'email per il registro: oggetto, mittente ed estratto, letti
- * dal messaggio e dalla proposta (mai dagli argomenti del modello).
+ * Il testo del registro per una decisione dalla posta: un TEMPLATE con
+ * oggetto, mittente ed estratto, letti dal messaggio e dalla proposta — mai
+ * titolo o testo degli argomenti del modello. Origine `email`.
  */
 function withEmailWords(p: MailProposal, actions: ProposedAction[]): ProposedAction[] {
   const message = state.mailMessages.find((m) => m.messageId === p.sourceId);
@@ -235,11 +263,14 @@ function withEmailWords(p: MailProposal, actions: ProposedAction[]): ProposedAct
       ? {
           ...a,
           args: {
-            ...a.args,
             projectId: p.projectId,
-            subject: message?.subject ?? "",
-            sender: message?.from.name ?? "",
-            excerpt: p.excerpt,
+            ...(a.args.taskId !== undefined ? { taskId: a.args.taskId } : {}),
+            source: "email",
+            title: i18n.t("claude.decisionLog.emailTitle", { subject: message?.subject ?? "" }),
+            decision: i18n.t("claude.decisionLog.emailDecision", {
+              sender: message?.from.name ?? "",
+              excerpt: p.excerpt,
+            }),
           },
         }
       : a,
@@ -268,6 +299,7 @@ export async function confirmMailProposal(
   if (!canDo(me, p, actions)) throw forbidden();
   const outsiders = outsidersOf(p, actions);
   const adding = [...new Set(input.addOutsiders ?? [])];
+  if (adding.some((x) => !isPerson(x))) throw invalid("assignee");
   if (adding.some((x) => !outsiders.includes(x))) throw invalid("addOutsiders");
   if (outsiders.some((x) => !adding.includes(x))) throw invalid("assignee");
   if (adding.length > 0 && !can(viewerFor(me), "project.members.manage", p.projectId)) {
@@ -315,6 +347,7 @@ export async function handMailProposal(id: string): Promise<void> {
   if (canConfirmNow(me, p)) throw invalidAction();
   decide(p, me, "handed");
   p.handedAt = p.decidedAt;
+  p.handedById = me;
 }
 
 /** Una proposta per email e progetto: un'altra sullo stesso progetto non nasce. */

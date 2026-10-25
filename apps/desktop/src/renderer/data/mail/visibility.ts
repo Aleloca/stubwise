@@ -82,6 +82,15 @@ export function proposalProjectIds(p: MailProposal): string[] {
   return choose ? ((choose.args.projectIds as string[] | undefined) ?? []) : [p.projectId];
 }
 
+/** Chi agisce ha nel progetto della proposta il permesso di ognuna delle azioni. */
+export function canDoActions(me: string, p: MailProposal, actions: ProposedAction[]): boolean {
+  const viewer = viewerFor(me);
+  return actions.every((a) => {
+    const perm = permissionForAction(a.fn);
+    return perm !== null && can(viewer, perm, p.projectId);
+  });
+}
+
 /** Chi guarda è un destinatario dell'email da cui nasce la proposta. */
 export const isProposalRecipient = (me: string, p: MailProposal): boolean =>
   p.source !== "calendar" &&
@@ -92,10 +101,11 @@ export const isProposalRecipient = (me: string, p: MailProposal): boolean =>
  * scrittura. Email e trascrizione: chi vede il messaggio (`messageId ===
  * sourceId`) ED è membro del progetto (`memberIds`: un admin non membro non
  * la vede, anche se vede ogni progetto); per `chooseProject` basta essere
- * membro di uno dei progetti fra cui sceglie. Passata al progetto: anche
- * chi ha il permesso della prima azione nel progetto, senza essere
- * destinatario (vede l'estratto, non il messaggio). Calendario: partecipante
- * dell'evento e membro.
+ * membro di uno dei progetti fra cui sceglie. Passata al progetto (una
+ * volta passata lo resta, anche decisa: `handedAt`): anche chi ha nel
+ * progetto il permesso di ogni sua azione — la stessa regola di
+ * `canConfirm` — senza essere destinatario (vede l'estratto, non il
+ * messaggio). Calendario: partecipante dell'evento e membro.
  */
 export function canSeeMailProposal(me: string, p: MailProposal): boolean {
   if (p.source === "calendar") {
@@ -104,7 +114,5 @@ export function canSeeMailProposal(me: string, p: MailProposal): boolean {
   if (proposalProjectIds(p).some((id) => isProjectMember(me, id)) && isProposalRecipient(me, p)) {
     return true;
   }
-  if (p.status !== "handed") return false;
-  const perm = p.actions[0] ? permissionForAction(p.actions[0].fn) : null;
-  return perm !== null && can(viewerFor(me), perm, p.projectId);
+  return p.handedAt !== null && canDoActions(me, p, p.actions);
 }
