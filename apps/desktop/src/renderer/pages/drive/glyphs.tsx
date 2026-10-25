@@ -127,3 +127,35 @@ export const Spinner = () => (
     <path d="M8 2a6 6 0 0 1 6 6" />
   </svg>
 );
+
+/** Attenzione (collegamento scaduto, account scaduto): il triangolo, sempre con le parole. */
+export const WarningGlyph = ({ size = 16 }: { size?: number }) => (
+  <Glyph size={size}>
+    <path d="M8 2.25 14.25 13.5H1.75z" />
+    <path d="M8 6.5v3M8 11.6h.01" />
+  </Glyph>
+);
+
+/** La lente dei campi di ricerca dei selettori. */
+export const SearchGlyph = () => (
+  <Glyph size={14}>
+    <circle cx="7" cy="7" r="4.25" />
+    <path d="m10.25 10.25 3.5 3.5" />
+  </Glyph>
+);
+
+/** Il nascosto: l'occhio barrato. */
+export const HiddenGlyph = () => (
+  <Glyph size={14}>
+    <path d="M2 8s2.25-4 6-4 6 4 6 4-2.25 4-6 4-6-4-6-4z" />
+    <circle cx="8" cy="8" r="1.75" />
+    <path d="m2.5 13.5 11-11" />
+  </Glyph>
+);
+
+/** Il segno di una scelta fatta (casella spuntata nei selettori). */
+export const CheckGlyph = () => (
+  <Glyph size={12}>
+    <path d="m3.5 8.25 3 3 6-6.5" />
+  </Glyph>
+);

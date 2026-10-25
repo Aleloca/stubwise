@@ -7,8 +7,17 @@ import {
   usePeople,
   useProject,
   useProjects,
+  useSetDriveHidden,
+  useSyncFolder,
+  useUnlinkFolder,
 } from "../../data/queries";
-import type { DriveFileRow, DriveFilters, DriveSort, Project } from "../../data/types";
+import type {
+  DriveFileRow,
+  DriveFilters,
+  DriveSort,
+  FolderLinkView,
+  Project,
+} from "../../data/types";
 import { can, useViewer } from "../../data/viewer";
 import { hasModKey } from "../../platform/platform";
 import { Dialog } from "../../tasks-ui/Dialog";
@@ -16,7 +25,10 @@ import { Chip } from "../../tasks-ui/FilterBar";
 import { MenuGroup, RadioItem, itemClass } from "../../tasks-ui/Menu";
 import { PageEmpty, PageError } from "../../tasks-ui/PageStates";
 import { useToast } from "../../tasks-ui/Toast";
+import { MoreIcon, ghostButton } from "../task/parts";
 import { Chevron, MenuButton, primaryButton, quietButton, secondaryButton } from "../tasks/controls";
+import { AddFromGoogleDialog } from "./AddFromGoogleDialog";
+import { ExpiredLinkBanners } from "./DriveBanners";
 import { DriveList, DriveSkeleton } from "./DriveList";
 import type { RowActions } from "./DriveRow";
 import {
@@ -29,7 +41,8 @@ import {
   type DriveSearch,
 } from "./driveFilters";
 import { useDriveOpeners } from "./FilePreview";
-import { UploadGlyph } from "./glyphs";
+import { GoogleDriveGlyph, HiddenGlyph, UploadGlyph } from "./glyphs";
+import { LinkFolderDialog } from "./LinkFolderDialog";
 import {
   DropZone,
   UploadAnnouncer,
@@ -42,9 +55,14 @@ import {
 // destinazione con i file di tutti i progetti che vedo (`#/drive`). Testata
 // (h1 col conteggio, «Upload»), barra (ordinamento e filtri, tutti
 // nell'indirizzo), elenco. Il dettaglio (`?file=`) e l'anteprima intera
-// stanno sopra, montati dall'`AppLayout`. La ricerca (⌘F) e Google
-// («Add from Google Drive», le cartelle, i nascosti) arrivano dopo: qui
-// restano i loro posti.
+// stanno sopra, montati dall'`AppLayout`. Google (Task 7, shape
+// drive-google.md): «Add from Google Drive» (`drive.upload`) accanto a
+// «Upload», «Link a Google folder» nel «⋯» della testata (`drive.manage`),
+// il «⋯» di ogni cartella (apri, sincronizza, copia, scollega), la fascia
+// del collegamento scaduto (solo chi gestisce) e il filtro «Hidden» (solo
+// chi gestisce: per gli altri `?hidden=1` non vale). I dialoghi vivono qui:
+// la pagina è legata alla persona, e un cambio di persona li chiude. La
+// ricerca (⌘F) arriva dopo.
 
 type PageSearch = DriveSearch & { file?: string };
 
@@ -67,13 +85,21 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
     (code: string) => projects?.find((p) => p.code === code)?.id ?? `none:${code}`,
     [projects],
   );
+  // Chi gestisce il Drive (qui, o in almeno un progetto nella destinazione) ha il filtro «Hidden».
+  const canManage = project
+    ? can(viewer, "drive.manage", project.id)
+    : (projects ?? []).some((p) => can(viewer, "drive.manage", p.id));
   const filters: DriveFilters = driveFiltersFrom(search, { projectId: project?.id, codeToId });
+  if (!canManage) delete filters.hidden;
+  const hiddenView = filters.hidden === true;
   const base: DriveFilters = project ? { projectId: project.id, sort: filters.sort } : { sort: filters.sort };
   const enabled = global ? !!projects : !!project;
   const filesQuery = useDriveFiles(filters, { enabled });
   const allQuery = useDriveFiles(base, { enabled });
+  const hiddenQuery = useDriveFiles({ ...base, hidden: true }, { enabled: enabled && canManage });
   const folders = useFolderLinks(project?.id ?? "").data ?? [];
   const rows = enabled ? filesQuery.data : undefined;
+  const canAddGoogle = !!project && can(viewer, "drive.upload", project.id);
 
   const peopleNames = useMemo(() => new Map((people ?? []).map((p) => [p.id, p.name])), [people]);
   const projectNames = useMemo(
@@ -96,7 +122,10 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
     } as never);
   }
   const clearFilters = () =>
-    setSearch({ type: undefined, source: undefined, addedBy: undefined, prj: undefined }, true);
+    setSearch(
+      { type: undefined, source: undefined, addedBy: undefined, prj: undefined, hidden: undefined },
+      true,
+    );
 
   // Le righe appena caricate prendono il loro posto (200 ms), poi tornano normali.
   const [arrived, setArrived] = useState<ReadonlySet<string>>(new Set());
@@ -155,6 +184,66 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
 
   const openers = useDriveOpeners();
   const toast = useToast();
+  const setHidden = useSetDriveHidden();
+  const syncFolder = useSyncFolder();
+  const unlinkFolder = useUnlinkFolder();
+  const [googleDialog, setGoogleDialog] = useState<"link" | "add" | null>(null);
+  const [unlinking, setUnlinking] = useState<FolderLinkView | null>(null);
+
+  // Il «⋯» di una cartella collegata: apri (avviso), sincronizza e scollega (chi gestisce), copia.
+  const folderMenu = (link: FolderLinkView) => (
+    <MenuButton
+      menuLabel={t("drive.google.folderActions", { name: link.name })}
+      ariaLabel={t("drive.google.folderActions", { name: link.name })}
+      title={t("drive.google.folderActions", { name: link.name })}
+      align="right"
+      className={`${ghostButton} w-7 justify-center px-0 opacity-70 group-hover/folder:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100`}
+      label={<MoreIcon />}
+    >
+      {(close) => {
+        const item = (label: string, run: () => void) => (
+          <button
+            type="button"
+            role="menuitem"
+            tabIndex={-1}
+            className={itemClass}
+            onClick={() => {
+              close();
+              run();
+            }}
+          >
+            {label}
+          </button>
+        );
+        const manage = project ? can(viewer, "drive.manage", project.id) : false;
+        return (
+          <>
+            {item(t("drive.google.open"), () => toast.show(t("drive.google.folderOpened", { name: link.name })))}
+            {manage &&
+              link.status === "ok" &&
+              item(t("drive.google.syncNow"), () =>
+                syncFolder.mutate(link.id, {
+                  onSuccess: (view) =>
+                    toast.show(
+                      view.status === "expired"
+                        ? t("drive.google.syncExpired", { name: view.name })
+                        : t("drive.google.synced", { name: view.name }),
+                    ),
+                  onError: () => toast.error(t("drive.google.failed")),
+                }),
+              )}
+            {item(t("drive.google.copyFolderLink"), () => {
+              void navigator.clipboard
+                ?.writeText(`https://drive.google.com/drive/folders/${link.googleFolderId}`)
+                .catch(() => {});
+              toast.show(t("drive.google.folderLinkCopied"));
+            })}
+            {manage && item(t("drive.google.unlink"), () => setUnlinking(link))}
+          </>
+        );
+      }}
+    </MenuButton>
+  );
   const actions = useMemo<RowActions>(
     () => ({
       onOpen: (row) =>
@@ -180,8 +269,16 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
         } as never);
       },
       onDownload: (row) => openers.download(row),
+      onShowAgain: (row) =>
+        setHidden.mutate(
+          { id: row.id, hidden: false },
+          {
+            onSuccess: () => toast.show(t("drive.hidden.shown", { code: row.code })),
+            onError: () => toast.error(t("drive.detail.failed")),
+          },
+        ),
     }),
-    [navigate, openers, toast, t],
+    [navigate, openers, toast, t, setHidden],
   );
   const onMoveOpen = useCallback(
     (row: DriveFileRow) =>
@@ -210,6 +307,18 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
     );
   } else if (!rows || (projectCode && !project)) {
     body = <DriveSkeleton />;
+  } else if (rows.length === 0 && hiddenView) {
+    body = (
+      <PageEmpty
+        title={t("drive.hidden.emptyTitle")}
+        body={t("drive.hidden.emptyBody")}
+        action={
+          <button type="button" className={secondaryButton} onClick={clearFilters}>
+            {t("drive.filters.clear")}
+          </button>
+        }
+      />
+    );
   } else if (rows.length === 0 && (total ?? 0) > 0) {
     body = (
       <>
@@ -241,6 +350,14 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
               <button type="button" className={secondaryButton} onClick={upload}>
                 {t("drive.states.uploadFirst")}
               </button>
+              <button type="button" className={quietButton} onClick={() => setGoogleDialog("add")}>
+                {t("drive.google.addFrom")}
+              </button>
+              {canManage && (
+                <button type="button" className={quietButton} onClick={() => setGoogleDialog("link")}>
+                  {t("drive.google.linkFolder")}
+                </button>
+              )}
             </div>
             <p className="text-sm text-ink-faint">{t("drive.states.emptyDrop")}</p>
           </div>
@@ -258,7 +375,8 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
         rows={rows}
         global={global}
         label={global ? t("drive.listAll") : t("drive.list", { name: scopeName })}
-        folders={folders}
+        folders={hiddenView ? [] : folders}
+        folderMenu={hiddenView ? undefined : folderMenu}
         sort={filters.sort}
         onSort={(sort) => setSearch({ sort: sort === "most_used" ? undefined : sort }, true)}
         openCode={search.file}
@@ -291,6 +409,12 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
             </span>
           )}
           <div className="ml-auto flex items-center gap-2 self-center">
+            {canAddGoogle && (
+              <button type="button" className={secondaryButton} onClick={() => setGoogleDialog("add")}>
+                <GoogleDriveGlyph />
+                {t("drive.google.addFrom")}
+              </button>
+            )}
             {canUpload && project && (
               <button
                 type="button"
@@ -340,8 +464,34 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
                   </MenuButton>
               </span>
             )}
+            {project && canManage && (
+              <MenuButton
+                menuLabel={t("drive.google.more")}
+                ariaLabel={t("drive.google.more")}
+                title={t("drive.google.more")}
+                align="right"
+                className={`${ghostButton} h-8 w-8 justify-center px-0`}
+                label={<MoreIcon />}
+              >
+                {(close) => (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    tabIndex={-1}
+                    className={itemClass}
+                    onClick={() => {
+                      close();
+                      setGoogleDialog("link");
+                    }}
+                  >
+                    {t("drive.google.linkFolder")}
+                  </button>
+                )}
+              </MenuButton>
+            )}
           </div>
         </div>
+        {project && <ExpiredLinkBanners project={project} folders={folders} />}
         <DriveToolbar
           search={search}
           sort={filters.sort}
@@ -352,6 +502,7 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
           peopleNames={peopleNames}
           projects={projects}
           me={viewer.personId}
+          hiddenCount={canManage ? hiddenQuery.data?.length : undefined}
         />
       </header>
       <div data-drive-body className="min-h-0 flex-1 overflow-auto border-t border-rule">
@@ -359,6 +510,47 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
       </div>
       {picker.element}
       <UploadAnnouncer uploads={uploads} />
+      {project && googleDialog === "link" && (
+        <LinkFolderDialog project={project} onClose={() => setGoogleDialog(null)} />
+      )}
+      {project && googleDialog === "add" && (
+        <AddFromGoogleDialog project={project} onClose={() => setGoogleDialog(null)} />
+      )}
+      {project && unlinking && (
+        <Dialog
+          title={t("drive.unlink.title", { folder: unlinking.name, code: project.code })}
+          description={t("drive.unlink.body", { count: unlinking.fileCount, code: project.code })}
+          onClose={() => setUnlinking(null)}
+          width={480}
+          footer={
+            <>
+              <button type="button" className={secondaryButton} onClick={() => setUnlinking(null)}>
+                {t("drive.unlink.cancel")}
+              </button>
+              <button
+                type="button"
+                data-autofocus
+                className="inline-flex h-8 shrink-0 items-center rounded-md bg-critical px-3 text-sm font-semibold text-ground transition-opacity duration-[var(--duration-fast)] ease-out hover:opacity-90 disabled:opacity-40"
+                disabled={unlinkFolder.isPending}
+                onClick={() => {
+                  const link = unlinking;
+                  unlinkFolder.mutate(link.id, {
+                    onSuccess: () => {
+                      setUnlinking(null);
+                      toast.show(t("drive.unlink.done", { name: link.name, code: project.code }));
+                    },
+                    onError: () => toast.error(t("drive.google.failed")),
+                  });
+                }}
+              >
+                {t("drive.unlink.confirm")}
+              </button>
+            </>
+          }
+        >
+          {null}
+        </Dialog>
+      )}
       {choosing && (
         <Dialog
           title={t("drive.uploads.chooseTitle")}
@@ -411,6 +603,7 @@ function DriveToolbar({
   peopleNames,
   projects,
   me,
+  hiddenCount,
 }: {
   search: DriveSearch;
   sort: DriveSort;
@@ -421,6 +614,8 @@ function DriveToolbar({
   peopleNames: ReadonlyMap<string, string>;
   projects: Project[] | undefined;
   me: string;
+  /** I nascosti (solo chi gestisce: per gli altri il filtro non c'è). */
+  hiddenCount: number | undefined;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState<"type" | "source" | "addedBy" | "prj" | null>(null);
@@ -545,6 +740,19 @@ function DriveToolbar({
         t("drive.filters.addedBy"),
         adderSummary,
         adders.map((p) => ({ value: p.id, label: p.name })),
+      )}
+      {hiddenCount !== undefined && (hiddenCount > 0 || search.hidden === "1") && (
+        <button
+          type="button"
+          aria-pressed={search.hidden === "1"}
+          aria-label={t("drive.hidden.chipLabel", { count: hiddenCount })}
+          onClick={() => setSearch({ hidden: search.hidden === "1" ? undefined : "1" }, true)}
+          className="inline-flex h-7 items-center gap-1.5 rounded-full border border-rule-strong px-2.5 text-sm text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink aria-pressed:border-ink/50 aria-pressed:bg-ink/10 aria-pressed:text-ink"
+        >
+          <HiddenGlyph />
+          {t("drive.hidden.chip")}
+          <span className="num text-ink-faint">{hiddenCount}</span>
+        </button>
       )}
       {hasDriveFilter(search) && (
         <button type="button" className={quietButton} onClick={clearFilters}>

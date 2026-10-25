@@ -6,9 +6,9 @@ import { at } from "./helpers";
 // in STW), Marco, Sara e Roberta non l'hanno. Matteo, che ha collegato la
 // cartella del cliente di AUD, è collegato.
 export const GOOGLE_ACCOUNTS: GoogleAccount[] = [
-  { personId: "p-giulia", email: "giulia.ferri@example.com", status: "connected" },
-  { personId: "p-matteo", email: "matteo.conti@example.com", status: "connected" },
-  { personId: "p-laura", email: "laura.costa@example.com", status: "expired" },
+  { personId: "p-giulia", email: "giulia.ferri@example.com", status: "connected", since: at(150, "09:10") },
+  { personId: "p-matteo", email: "matteo.conti@example.com", status: "connected", since: at(160, "11:40") },
+  { personId: "p-laura", email: "laura.costa@example.com", status: "expired", since: at(5, "08:00") },
 ];
 
 export const AUD_CLIENT_FOLDER: FolderLink = {
@@ -19,6 +19,7 @@ export const AUD_CLIENT_FOLDER: FolderLink = {
   linkedById: "p-matteo",
   linkedAt: at(140, "10:05"),
   status: "ok",
+  expiredAt: null,
 };
 
 export const MKX_CAMPAIGN_FOLDER: FolderLink = {
@@ -29,6 +30,7 @@ export const MKX_CAMPAIGN_FOLDER: FolderLink = {
   linkedById: "p-giulia",
   linkedAt: at(120, "09:30"),
   status: "ok",
+  expiredAt: null,
 };
 
 /** Collegata da Laura, il cui account è scaduto: chi gestisce il Drive di STW vede «Ricollega». */
@@ -40,6 +42,8 @@ export const STW_BRAND_FOLDER: FolderLink = {
   linkedById: "p-laura",
   linkedAt: at(75, "16:20"),
   status: "expired",
+  // Scaduta col suo account (lo stesso giorno).
+  expiredAt: at(5, "08:00"),
 };
 
 export const FOLDER_LINKS: FolderLink[] = [

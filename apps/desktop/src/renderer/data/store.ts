@@ -266,6 +266,7 @@ export type ApiFnName =
   | "drive.listDriveFiles"
   | "drive.getDriveFile"
   | "drive.listFolderLinks"
+  | "drive.listMyFolderLinks"
   | "drive.getGoogleAccount"
   | "drive.listGoogleOutside"
   | "drive.listGoogleFolders"

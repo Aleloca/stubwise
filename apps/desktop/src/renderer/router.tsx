@@ -95,6 +95,7 @@ export interface AppSearch {
   source?: string;
   addedBy?: string;
   prj?: string;
+  hidden?: string;
 }
 
 const SEARCH_KEYS = [

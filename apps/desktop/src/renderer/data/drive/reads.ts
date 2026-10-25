@@ -135,6 +135,20 @@ export async function listFolderLinks(projectId: string): Promise<FolderLinkView
     }));
 }
 
+/**
+ * Le cartelle collegate da chi guarda, nei progetti che vede: quelle che
+ * smettono di aggiornarsi se scollega il suo account Google.
+ */
+export async function listMyFolderLinks(): Promise<FolderLinkView[]> {
+  const me = await gate("drive.listMyFolderLinks");
+  return state.folderLinks
+    .filter((l) => l.linkedById === me && canSeeDriveProject(me, l.projectId))
+    .map((l) => ({
+      ...copy(l),
+      fileCount: state.driveFiles.filter((f) => f.folderLinkId === l.id && !f.hidden).length,
+    }));
+}
+
 /** L'account Google personale di chi guarda (collegato o scaduto), o `null`. */
 export async function getGoogleAccount(): Promise<GoogleAccount | null> {
   const me = await gate("drive.getGoogleAccount");

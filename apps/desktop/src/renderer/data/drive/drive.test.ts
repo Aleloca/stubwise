@@ -562,6 +562,7 @@ describe("Drive: account Google", () => {
       personId: "p-marco",
       email: "marco.bellini@example.com",
       status: "connected",
+      since: expect.any(String) as string,
     });
   });
 });

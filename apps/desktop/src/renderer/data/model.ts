@@ -1193,6 +1193,8 @@ export interface GoogleAccount {
   personId: string;
   email: string;
   status: "connected" | "expired";
+  /** Da quando vale lo stato: collegato dal…, scaduto il… */
+  since: string;
 }
 
 /**
@@ -1207,6 +1209,8 @@ export interface FolderLink {
   linkedById: string;
   linkedAt: string;
   status: "ok" | "expired";
+  /** Quando ha smesso di aggiornarsi (`expired`), altrimenti `null`. */
+  expiredAt: string | null;
 }
 
 /**

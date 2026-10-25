@@ -7,6 +7,7 @@ export {
   getGoogleAccount,
   listDriveFiles,
   listFolderLinks,
+  listMyFolderLinks,
   listGoogleFiles,
   listGoogleFolders,
   listGoogleOutside,

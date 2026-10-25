@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { DriveFileRow, DriveSort, FolderLinkView } from "../../data/types";
+import { formatDate } from "../../notifications/time";
 import { hasModKey } from "../../platform/platform";
 import { useToast } from "../../tasks-ui/Toast";
 import { DisclosureGlyph } from "../chat/glyphs";
@@ -170,7 +171,7 @@ export function DriveList({
   /** Il menu «⋯» di una cartella (Google, Task 7): senza, non c'è. */
   folderMenu?: (link: FolderLinkView) => ReactNode;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const toast = useToast();
   const key = groupsKey(personId, storageScope);
   const [closed, setClosed] = useState<string[]>(() => readClosed(key));
@@ -325,6 +326,7 @@ export function DriveList({
       actions={rowActions}
       onKeyDown={onRowKey}
       onFocusRow={onFocusRow}
+      hiddenByName={row.hiddenBy ? person(row.hiddenBy.personId) : undefined}
     />
   );
 
@@ -401,6 +403,14 @@ export function DriveList({
                 {g.link && (
                   <span className="ml-1 min-w-0 truncate text-xs text-ink-muted">
                     {t("drive.folder.meta", { count: g.link.fileCount, name: linkedBy })}
+                  </span>
+                )}
+                {/* Scaduta: lo dice a tutti, in parole quiete; la fascia è solo di chi gestisce. */}
+                {g.link?.status === "expired" && (
+                  <span className="num ml-2 shrink-0 text-xs text-ink-faint">
+                    · {t("drive.google.notUpdating", {
+                      date: formatDate(g.link.expiredAt ?? g.link.linkedAt, i18n.language),
+                    })}
                   </span>
                 )}
               </span>

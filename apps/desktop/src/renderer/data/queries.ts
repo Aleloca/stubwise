@@ -162,6 +162,7 @@ export const queryKeys = {
   folderLinks: (personId: string, projectId: string) =>
     ["as", personId, "drive", "folders", projectId] as const,
   googleAccount: (personId: string) => ["as", personId, "drive", "google-account"] as const,
+  myFolderLinks: (personId: string) => ["as", personId, "drive", "my-folders"] as const,
   googleOutside: (personId: string, q: string) =>
     ["as", personId, "drive", "google-outside", q] as const,
   googleFolders: (personId: string, projectId: string) =>
@@ -2200,6 +2201,16 @@ export function useFolderLinks(projectId: string) {
   });
 }
 
+/** Le cartelle collegate da me (quelle che scollegare l'account ferma). */
+export function useMyFolderLinks(enabled = true) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.myFolderLinks(me),
+    queryFn: () => api.drive.listMyFolderLinks(),
+    enabled,
+  });
+}
+
 /** L'account Google personale di chi guarda (collegato, scaduto o `null`). */
 export function useGoogleAccount() {
   const me = useSessionPersonId();
@@ -2236,6 +2247,9 @@ export function useGoogleFiles(projectId: string, q: string, enabled = true) {
     queryKey: queryKeys.googleFiles(me, projectId, q),
     queryFn: () => api.drive.listGoogleFiles(projectId, q),
     enabled,
+    // Mentre si scrive restano i file di prima (della stessa persona).
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
   });
 }
 

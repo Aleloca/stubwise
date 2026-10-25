@@ -4,6 +4,8 @@ import type { DriveFile, DriveFileType, DriveFilters, DriveSort } from "../../da
 // nella ricerca (`?sort=name&type=pdf`), validati qui e riletti dalla pagina.
 // «Più usati» è il default e non si scrive. `prj` (il filtro Project) vale
 // solo nella destinazione `#/drive`: nella sezione il progetto è il percorso.
+// `hidden=1` (il filtro «Hidden», Task 7) mostra solo i nascosti: la pagina
+// lo passa all'elenco solo a chi gestisce il Drive (per gli altri non c'è).
 // `file` (il dettaglio aperto) vale ovunque, come `task`. Nessun import da
 // `data/routes.ts`: è lui a leggere da qui.
 
@@ -19,7 +21,7 @@ export const DRIVE_TYPES = [
 export const DRIVE_SOURCES = ["upload", "google"] as const satisfies readonly DriveFile["source"][];
 
 /** Le chiavi della ricerca del Drive (oltre a `file`). */
-export const DRIVE_SEARCH_KEYS = ["sort", "type", "source", "addedBy", "prj"] as const;
+export const DRIVE_SEARCH_KEYS = ["sort", "type", "source", "addedBy", "prj", "hidden"] as const;
 export type DriveSearchKey = (typeof DRIVE_SEARCH_KEYS)[number];
 export type DriveSearch = Partial<Record<DriveSearchKey, string>>;
 
@@ -41,6 +43,8 @@ export function isDriveSearchValue(key: string, value: string): boolean {
       return /^[\w-]+$/.test(value);
     case "prj":
       return /^[A-Z]{2,4}$/.test(value);
+    case "hidden":
+      return value === "1";
     default:
       return false;
   }
@@ -75,12 +79,13 @@ export function driveFiltersFrom(
   if (source) out.source = source as DriveFile["source"];
   const addedBy = valid(search, "addedBy");
   if (addedBy) out.addedById = addedBy;
+  if (valid(search, "hidden")) out.hidden = true;
   return out;
 }
 
 /** C'è almeno un filtro (l'ordinamento non è un filtro): «Clear filters» compare. */
 export function hasDriveFilter(search: DriveSearch): boolean {
-  return (["type", "source", "addedBy", "prj"] as const).some((k) => valid(search, k) !== undefined);
+  return (["type", "source", "addedBy", "prj", "hidden"] as const).some((k) => valid(search, k) !== undefined);
 }
 
 /**

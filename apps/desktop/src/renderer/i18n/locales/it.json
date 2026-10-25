@@ -3267,7 +3267,20 @@
     "google": {
       "file": "File Google, si apre in Google Drive",
       "open": "Apri in Google Drive",
-      "opened": "Aperto in Google Drive. Nel prototipo non si apre il browser."
+      "opened": "Aperto in Google Drive. Nel prototipo non si apre il browser.",
+      "linkFolder": "Collega una cartella Google",
+      "addFrom": "Aggiungi da Google Drive",
+      "more": "Altre azioni del Drive",
+      "folderActions": "Azioni per {{name}}",
+      "syncNow": "Sincronizza ora",
+      "synced": "{{name}} sincronizzata",
+      "syncExpired": "«{{name}}» non si aggiorna: il collegamento è scaduto.",
+      "copyFolderLink": "Copia link",
+      "folderLinkCopied": "Link alla cartella Google copiato",
+      "folderOpened": "«{{name}}» aperta in Google Drive. Nel prototipo non si apre nessun browser.",
+      "unlink": "Scollega la cartella…",
+      "notUpdating": "Non si aggiorna dal {{date}}",
+      "failed": "Non è riuscito. Non è cambiato nulla."
     },
     "content": {
       "processing": "Lettura del contenuto…",
@@ -3414,6 +3427,127 @@
       "general": "general",
       "open": "Apri nel canale",
       "cancel": "Annulla"
+    },
+    "unlink": {
+      "title": "Scollegare «{{folder}}» da {{code}}?",
+      "body_one": "Il suo {{count}} file esce da {{code}}, con le sue aperture: se ricolleghi la cartella riparte da zero, con un codice nuovo. Su Google non cambia nulla. I file caricati in {{code}} restano.",
+      "body_other": "I suoi {{count}} file escono da {{code}}, con le loro aperture: se ricolleghi la cartella ripartono da zero, con codici nuovi. Su Google non cambia nulla. I file caricati in {{code}} restano.",
+      "confirm": "Scollega",
+      "cancel": "Annulla",
+      "done": "{{name}} scollegata da {{code}}"
+    },
+    "link": {
+      "title": "Collega una cartella Google a {{code}}",
+      "crumbs": "Percorso della cartella",
+      "up": "Su di un livello",
+      "search": "Cerca cartelle",
+      "list": "Cartelle",
+      "files_one": "{{count}} file",
+      "files_other": "{{count}} file",
+      "folders_one": "{{count}} cartella",
+      "folders_other": "{{count}} cartelle",
+      "already": "Già collegata",
+      "empty": "Questa cartella è vuota",
+      "noMatch": "Nessuna cartella corrisponde a «{{q}}»",
+      "error": "Google Drive non risponde",
+      "retry": "Riprova",
+      "warning_one": "Tutti i membri di {{code}} ({{count}} persona) potranno leggere ogni file di «{{folder}}» e delle sue sottocartelle, anche chi su Google non può aprirla. Stubwise la legge con il tuo account, {{email}}.",
+      "warning_other": "Tutti i membri di {{code}} ({{count}} persone) potranno leggere ogni file di «{{folder}}» e delle sue sottocartelle, anche chi su Google non può aprirla. Stubwise la legge con il tuo account, {{email}}.",
+      "pick": "Scegli una cartella. Prima di collegarla, qui leggi chi potrà vederne il contenuto.",
+      "keys": "↑↓ per spostarti · Invio apre una cartella · ⌫ torna su",
+      "cancel": "Annulla",
+      "confirm": "Collega la cartella",
+      "linked_one": "{{name}} collegata · Lettura di {{count}} file…",
+      "linked_other": "{{name}} collegata · Lettura di {{count}} file…"
+    },
+    "add": {
+      "title": "Aggiungi da Google Drive a {{code}}",
+      "search": "Cerca nel tuo Google Drive",
+      "list": "I file del tuo Google Drive",
+      "already": "Già in {{code}}",
+      "note": "Tutti i membri di {{code}} potranno leggere questi file.",
+      "confirm_one": "Aggiungi {{count}} file",
+      "confirm_other": "Aggiungi {{count}} file",
+      "confirmNone": "Aggiungi i file",
+      "empty": "Nessun file nel tuo Google Drive",
+      "noMatch": "Nessun file corrisponde a «{{q}}»",
+      "cancel": "Annulla",
+      "added_one": "{{count}} file aggiunto a {{code}}",
+      "added_other": "{{count}} file aggiunti a {{code}}",
+      "meta": "{{owner}} · Modificato {{date}}"
+    },
+    "connect": {
+      "first": "Prima collega il tuo account Google",
+      "body": "Stubwise usa il tuo account Google per mostrarti qui le tue cartelle e i tuoi file.",
+      "button": "Collega l'account Google",
+      "connecting": "Collegamento a Google…",
+      "error": "Non è stato possibile collegarsi a Google",
+      "tryAgain": "Riprova"
+    },
+    "account": {
+      "menu": "Account Google",
+      "title": "Account Google",
+      "intro": "Collega il tuo account Google: Stubwise troverà i file del tuo Google Drive e potrai collegare cartelle ai progetti.",
+      "note": "Posta e Calendario useranno lo stesso account.",
+      "connected": "Collegato come {{email}}",
+      "since": "Dal {{date}}",
+      "disconnect": "Scollega",
+      "expired": "Il collegamento con Google è scaduto il {{date}}",
+      "expiredBody": "Le cartelle che hai collegato non si aggiornano finché non lo ricolleghi.",
+      "reconnect": "Ricollega",
+      "disconnectFolders_one": "{{count}} cartella che hai collegato smetterà di aggiornarsi: {{names}}. I suoi file risulteranno non disponibili per tutti i membri del progetto.",
+      "disconnectFolders_other": "{{count}} cartelle che hai collegato smetteranno di aggiornarsi: {{names}}. I loro file risulteranno non disponibili per tutti i membri del progetto.",
+      "disconnectNone": "Nessuna cartella che hai collegato dipende da questo account. Stubwise smetterà di trovare i file del tuo Google Drive.",
+      "disconnectWho": "Solo tu puoi ricollegarle, con questo account. Un altro gestore può solo scollegare una cartella e ricollegarla, e così i suoi file ripartono con codici nuovi e senza aperture.",
+      "disconnectConfirm": "Scollega l'account",
+      "cancel": "Annulla",
+      "close": "Chiudi"
+    },
+    "expired": {
+      "region": "Collegamento della cartella scaduto",
+      "text": "Il collegamento a «{{folder}}» è scaduto il {{date}}. I suoi file mostrano quello che Stubwise aveva letto fino ad allora e non si aggiornano.",
+      "reconnect": "Ricollega",
+      "other": "Solo {{name}} può ricollegarla, con il suo account Google. Scollegarla e ricollegarla con il tuo fa ripartire i suoi file con codici nuovi e senza aperture.",
+      "ask": "Chiedi a {{name}} di ricollegarla",
+      "draft": "Ciao {{name}}, il collegamento alla cartella Google «{{folder}}» in {{code}} è scaduto il {{date}} e i suoi file non si aggiornano. Puoi ricollegare il tuo account Google? È nel menu del profilo, alla voce Account Google."
+    },
+    "hidden": {
+      "chip": "Nascosti",
+      "chipLabel": "File nascosti: {{count}}",
+      "by": "Nascosto da {{name}} · {{date}}",
+      "showAgain": "Mostra di nuovo",
+      "showAgainLabel": "Mostra di nuovo {{code}}",
+      "shown": "{{code}} è di nuovo nel progetto",
+      "emptyTitle": "Nessun file nascosto",
+      "emptyBody": "Qui compaiono i file di una cartella collegata nascosti dal progetto, che si possono mostrare di nuovo."
+    },
+    "notAvailable": {
+      "title": "Non disponibile",
+      "deleted": "Eliminato su Google",
+      "accessLostOther": "Stubwise ha perso l'accesso: l'account Google di {{name}} è stato scollegato",
+      "accessLostMine": "Stubwise ha perso l'accesso: il tuo account Google è stato scollegato",
+      "accessLost": "Stubwise ha perso l'accesso: la cartella è stata scollegata o condivisa diversamente su Google",
+      "note": "Le sue aperture restano contate. Il contenuto non si cerca più, solo il nome.",
+      "reconnect": "Ricollega"
+    },
+    "which": {
+      "title": "Aggiungere «{{name}}» a un progetto?",
+      "body": "Si è aperto in Google Drive. In un progetto, il team lo trova insieme a tutto il resto.",
+      "note": "Tutti i membri del progetto potranno leggerlo.",
+      "search": "Cerca progetti",
+      "list": "Progetti",
+      "noMatch": "Nessun progetto corrisponde a «{{q}}»",
+      "notNow": "Non ora",
+      "confirm": "Aggiungi al progetto",
+      "added": "Aggiunto a {{code}} come {{fileCode}}",
+      "open": "Apri",
+      "none": "Aperto in Google Drive. Non puoi aggiungere file a nessuno dei tuoi progetti."
+    },
+    "searchInvite": {
+      "connect": "Collega l'account Google per cercare anche nei file del tuo Google Drive",
+      "connectAction": "Collega",
+      "expired": "Il collegamento con Google è scaduto",
+      "reconnect": "Ricollega"
     }
   }
 }

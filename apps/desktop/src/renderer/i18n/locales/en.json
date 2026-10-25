@@ -3267,7 +3267,20 @@
     "google": {
       "file": "Google file, opens in Google Drive",
       "open": "Open in Google Drive",
-      "opened": "Opened in Google Drive. In the prototype no browser opens."
+      "opened": "Opened in Google Drive. In the prototype no browser opens.",
+      "linkFolder": "Link a Google folder",
+      "addFrom": "Add from Google Drive",
+      "more": "More Drive actions",
+      "folderActions": "Actions for {{name}}",
+      "syncNow": "Sync now",
+      "synced": "Synced {{name}}",
+      "syncExpired": "“{{name}}” isn't updating: its link expired.",
+      "copyFolderLink": "Copy link",
+      "folderLinkCopied": "Link to the Google folder copied",
+      "folderOpened": "Opened “{{name}}” in Google Drive. In the prototype no browser opens.",
+      "unlink": "Unlink folder…",
+      "notUpdating": "Not updating since {{date}}",
+      "failed": "Couldn't do that. Nothing changed."
     },
     "content": {
       "processing": "Reading the content…",
@@ -3414,6 +3427,127 @@
       "general": "general",
       "open": "Open in channel",
       "cancel": "Cancel"
+    },
+    "unlink": {
+      "title": "Unlink “{{folder}}” from {{code}}?",
+      "body_one": "Its {{count}} file leaves {{code}}, with its opens: if you link the folder again, it starts over with a new code. Nothing changes on Google. Files uploaded to {{code}} stay.",
+      "body_other": "Its {{count}} files leave {{code}}, with their opens: if you link the folder again, they start over with new codes. Nothing changes on Google. Files uploaded to {{code}} stay.",
+      "confirm": "Unlink",
+      "cancel": "Cancel",
+      "done": "Unlinked {{name}} from {{code}}"
+    },
+    "link": {
+      "title": "Link a Google folder to {{code}}",
+      "crumbs": "Folder path",
+      "up": "Up one level",
+      "search": "Search folders",
+      "list": "Folders",
+      "files_one": "{{count}} file",
+      "files_other": "{{count}} files",
+      "folders_one": "{{count}} folder",
+      "folders_other": "{{count}} folders",
+      "already": "Already linked",
+      "empty": "This folder is empty",
+      "noMatch": "No folders match “{{q}}”",
+      "error": "Couldn't reach Google Drive",
+      "retry": "Retry",
+      "warning_one": "Everyone in {{code}} ({{count}} person) will be able to read every file in “{{folder}}” and its subfolders, even people who can't open it on Google. Stubwise reads it with your account, {{email}}.",
+      "warning_other": "Everyone in {{code}} ({{count}} people) will be able to read every file in “{{folder}}” and its subfolders, even people who can't open it on Google. Stubwise reads it with your account, {{email}}.",
+      "pick": "Choose a folder. Before linking, this says who will be able to read it.",
+      "keys": "↑↓ to move · Enter opens a folder · ⌫ goes up",
+      "cancel": "Cancel",
+      "confirm": "Link folder",
+      "linked_one": "Linked {{name}} · Reading {{count}} file…",
+      "linked_other": "Linked {{name}} · Reading {{count}} files…"
+    },
+    "add": {
+      "title": "Add from Google Drive to {{code}}",
+      "search": "Search your Google Drive",
+      "list": "Your Google Drive files",
+      "already": "Already in {{code}}",
+      "note": "Everyone in {{code}} will be able to read these files.",
+      "confirm_one": "Add {{count}} file",
+      "confirm_other": "Add {{count}} files",
+      "confirmNone": "Add files",
+      "empty": "No files in your Google Drive",
+      "noMatch": "No files match “{{q}}”",
+      "cancel": "Cancel",
+      "added_one": "Added {{count}} file to {{code}}",
+      "added_other": "Added {{count}} files to {{code}}",
+      "meta": "{{owner}} · Modified {{date}}"
+    },
+    "connect": {
+      "first": "Connect your Google account first",
+      "body": "Stubwise uses your own Google account to show your folders and files here.",
+      "button": "Connect Google account",
+      "connecting": "Connecting to Google…",
+      "error": "Couldn't connect to Google",
+      "tryAgain": "Try again"
+    },
+    "account": {
+      "menu": "Google account",
+      "title": "Google account",
+      "intro": "Connect your Google account so Stubwise can find your Google Drive files and link folders to projects.",
+      "note": "Mail and Calendar will use the same account.",
+      "connected": "Connected as {{email}}",
+      "since": "Since {{date}}",
+      "disconnect": "Disconnect",
+      "expired": "Your Google connection expired on {{date}}",
+      "expiredBody": "Folders you linked don't update until you reconnect.",
+      "reconnect": "Reconnect",
+      "disconnectFolders_one": "{{count}} folder you linked will stop updating: {{names}}. Its files will show as not available to everyone in the project.",
+      "disconnectFolders_other": "{{count}} folders you linked will stop updating: {{names}}. Their files will show as not available to everyone in the project.",
+      "disconnectNone": "No folder you linked depends on it. Stubwise will stop finding your Google Drive files.",
+      "disconnectWho": "Only you can reconnect them, with this account. Another manager can only unlink a folder and link it again, which resets its files' codes and opens.",
+      "disconnectConfirm": "Disconnect account",
+      "cancel": "Cancel",
+      "close": "Close"
+    },
+    "expired": {
+      "region": "Folder link expired",
+      "text": "The link to “{{folder}}” expired on {{date}}. Its files show what Stubwise read until then and don't update.",
+      "reconnect": "Reconnect",
+      "other": "Only {{name}} can reconnect it, with their Google account. Unlinking it and linking it again with yours resets its files' codes and opens.",
+      "ask": "Ask {{name}} to reconnect",
+      "draft": "Hi {{name}}, the link to the Google folder “{{folder}}” in {{code}} expired on {{date}}, so its files don't update. Could you reconnect your Google account? It's in the profile menu, under Google account."
+    },
+    "hidden": {
+      "chip": "Hidden",
+      "chipLabel": "Hidden files: {{count}}",
+      "by": "Hidden by {{name}} · {{date}}",
+      "showAgain": "Show again",
+      "showAgainLabel": "Show {{code}} again",
+      "shown": "{{code}} is back in the project",
+      "emptyTitle": "No hidden files",
+      "emptyBody": "Files hidden from a linked folder show up here, and can be shown again."
+    },
+    "notAvailable": {
+      "title": "Not available",
+      "deleted": "Deleted on Google",
+      "accessLostOther": "Stubwise lost access: {{name}}'s Google account was disconnected",
+      "accessLostMine": "Stubwise lost access: your Google account was disconnected",
+      "accessLost": "Stubwise lost access: the folder was unlinked or shared differently on Google",
+      "note": "Its opens stay counted. Its content can't be searched any more, only its name.",
+      "reconnect": "Reconnect"
+    },
+    "which": {
+      "title": "Add “{{name}}” to a project?",
+      "body": "It opened in Google Drive. In a project, the team finds it with everything else.",
+      "note": "Everyone in the project will be able to read it.",
+      "search": "Search projects",
+      "list": "Projects",
+      "noMatch": "No projects match “{{q}}”",
+      "notNow": "Not now",
+      "confirm": "Add to project",
+      "added": "Added to {{code}} as {{fileCode}}",
+      "open": "Open",
+      "none": "Opened in Google Drive. You can't add files to any of your projects."
+    },
+    "searchInvite": {
+      "connect": "Connect your Google account to also search files in your Google Drive",
+      "connectAction": "Connect",
+      "expired": "Your Google connection expired",
+      "reconnect": "Reconnect"
     }
   }
 }

@@ -6,6 +6,7 @@ import { VIEW_AS_PERSONAS, canSeeAdmin, useViewer } from "../data/viewer";
 import { setLanguage, type Language } from "../i18n";
 import { useTheme } from "../theme/ThemeProvider";
 import type { ThemePreference } from "../theme/theme";
+import { openGoogleAccount } from "../pages/drive/GoogleAccountCard";
 import { Tooltip } from "./Tooltip";
 
 const THEMES: ThemePreference[] = ["system", "light", "dark"];
@@ -182,6 +183,17 @@ export function ProfileMenu() {
             <Link to="/preferences" className={linkClass} onClick={() => setOpen(false)}>
               {t("nav.preferences")}
             </Link>
+            {/* L'account Google personale (Drive, A1): un dialogo, finché non c'è Impostazioni → Account. */}
+            <button
+              type="button"
+              className={`${linkClass} text-left`}
+              onClick={() => {
+                setOpen(false);
+                openGoogleAccount();
+              }}
+            >
+              {t("drive.account.menu")}
+            </button>
             {canSeeAdmin(viewer) && (
               <Link to="/admin" className={linkClass} onClick={() => setOpen(false)}>
                 {t("nav.admin")}

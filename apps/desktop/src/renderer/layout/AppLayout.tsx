@@ -11,6 +11,8 @@ import { ThreadPanelHost } from "../pages/chat/ThreadPanel";
 import { TaskDetailHost } from "../pages/task/TaskDetail";
 import { DriveDetailHost } from "../pages/drive/DriveDetail";
 import { FilePreviewHost } from "../pages/drive/FilePreview";
+import { GoogleAccountHost } from "../pages/drive/GoogleAccountCard";
+import { WhichProjectHost } from "../pages/drive/WhichProjectDialog";
 import { CommandPalette } from "../palette/CommandPalette";
 import { applyPlatformAttribute } from "../platform/platform";
 import { ToastRegion } from "../tasks-ui/Toast";
@@ -51,6 +53,8 @@ export function AppLayout() {
       <NewTaskHost />
       <NewRequestHost />
       <ChatDialogsHost />
+      <GoogleAccountHost />
+      <WhichProjectHost />
       <CommandPalette />
       <NotificationsPanel />
       <ToastRegion />

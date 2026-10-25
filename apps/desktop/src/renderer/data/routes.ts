@@ -66,6 +66,7 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
     case "type":
     case "source":
     case "addedBy":
+    case "hidden":
       return isDrivePath(path) && isDriveSearchValue(key, value);
     case "prj":
       return path === "drive" && isDriveSearchValue(key, value);

@@ -298,6 +298,7 @@ export async function linkFolder(
     linkedById: me,
     linkedAt: now(),
     status: "ok",
+    expiredAt: null,
   };
   state.folderLinks.push(link);
   const added = state.googleFiles
@@ -337,6 +338,7 @@ export async function syncFolder(linkId: string): Promise<FolderLinkView> {
   if (link.status === "expired") throw new Error("link_expired");
   if (!isGoogleConnected(link.linkedById)) {
     link.status = "expired";
+    link.expiredAt = now();
     return linkView(link);
   }
   const touched: string[] = [];
@@ -376,12 +378,14 @@ export async function connectGoogle(): Promise<GoogleAccount> {
   const me = await gate("drive.connectGoogle");
   let account = googleAccountOf(me);
   if (!account) {
-    account = { personId: me, email: emailOf(me), status: "connected" };
+    account = { personId: me, email: emailOf(me), status: "connected", since: now() };
     state.googleAccounts.push(account);
   }
+  if (account.status !== "connected") account.since = now();
   account.status = "connected";
   for (const link of state.folderLinks.filter((l) => l.linkedById === me)) {
     link.status = "ok";
+    link.expiredAt = null;
     for (const file of state.driveFiles) {
       if (file.folderLinkId !== link.id || file.unavailable !== "access_lost") continue;
       if (!googleFileById(file.googleFileId)?.deleted) file.unavailable = null;
@@ -400,6 +404,7 @@ export async function disconnectGoogle(): Promise<void> {
   if (!googleAccountOf(me)) return;
   state.googleAccounts = state.googleAccounts.filter((a) => a.personId !== me);
   for (const link of state.folderLinks.filter((l) => l.linkedById === me)) {
+    if (link.status !== "expired") link.expiredAt = now();
     link.status = "expired";
     for (const file of state.driveFiles) {
       if (file.folderLinkId === link.id && file.unavailable === null)

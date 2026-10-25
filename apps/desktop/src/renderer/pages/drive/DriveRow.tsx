@@ -3,12 +3,14 @@ import { useTranslation } from "react-i18next";
 import type { DriveFileRow } from "../../data/types";
 import { PersonChip } from "../../tasks-ui/PersonChip";
 import { middleEllipsis, previewKind } from "./driveFilters";
+import { formatDate } from "../../notifications/time";
 import { modifiedLabel } from "./format";
 import {
   DownloadGlyph,
   ErrorGlyph,
   ExternalGlyph,
   GoogleDriveGlyph,
+  HiddenGlyph,
   OpenGlyph,
   Spinner,
   TypeGlyph,
@@ -33,17 +35,39 @@ export interface RowActions {
    */
   onPrimary: (row: DriveFileRow, view?: DriveFileRow[]) => void;
   onDownload: (row: DriveFileRow) => void;
+  /** «Show again» su un nascosto (filtro «Hidden», solo chi gestisce). */
+  onShowAgain?: (row: DriveFileRow) => void;
 }
 
 /** La seconda linea: riassunto o stato del contenuto, in parole (mai solo colore). */
-function SecondLine({ row, showFolder }: { row: DriveFileRow; showFolder: boolean }) {
-  const { t } = useTranslation();
+function SecondLine({
+  row,
+  showFolder,
+  hiddenByName,
+}: {
+  row: DriveFileRow;
+  showFolder: boolean;
+  hiddenByName?: string;
+}) {
+  const { t, i18n } = useTranslation();
   const folder =
     showFolder && row.folder ? (
       <span className="mr-1 shrink-0">{t("drive.folder.in", { name: row.folder.name })} ·</span>
     ) : null;
   let body;
-  if (row.unavailable) {
+  if (row.hidden && row.hiddenBy) {
+    body = (
+      <span className="flex min-w-0 items-center gap-1.5 text-ink-faint">
+        <HiddenGlyph />
+        <span className="num truncate">
+          {t("drive.hidden.by", {
+            name: hiddenByName ?? t("drive.row.someone"),
+            date: formatDate(row.hiddenBy.at, i18n.language),
+          })}
+        </span>
+      </span>
+    );
+  } else if (row.unavailable) {
     body = (
       <span className="flex min-w-0 items-center gap-1.5 text-ink-faint">
         <UnavailableGlyph />
@@ -118,6 +142,7 @@ export const DriveRow = memo(function DriveRow({
   actions,
   onKeyDown,
   onFocusRow,
+  hiddenByName,
 }: {
   row: DriveFileRow;
   /** Nella destinazione `#/drive`: colonna del progetto e cartella sulla seconda linea. */
@@ -134,6 +159,8 @@ export const DriveRow = memo(function DriveRow({
   actions: RowActions;
   onKeyDown: (e: KeyboardEvent<HTMLElement>, row: DriveFileRow) => void;
   onFocusRow: (row: DriveFileRow) => void;
+  /** Chi l'ha nascosto (solo per un nascosto). */
+  hiddenByName?: string;
 }) {
   const { t, i18n } = useTranslation();
   const { head, tail } = middleEllipsis(row.name);
@@ -152,6 +179,7 @@ export const DriveRow = memo(function DriveRow({
     : t("drive.row.label", { code: row.code, name: row.name, type: typeName, person: personName, opens });
   const kind = previewKind(row);
   const unavailable = row.unavailable !== null;
+  const showAgain = row.hidden && row.permissions.hide ? actions.onShowAgain : undefined;
   const stop = (e: MouseEvent) => e.stopPropagation();
 
   return (
@@ -181,7 +209,7 @@ export const DriveRow = memo(function DriveRow({
         </span>
       )}
       <span role="gridcell" className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
-        <span className={`flex min-w-0 items-center gap-2 ${unavailable ? "text-ink-faint" : "text-ink"}`}>
+        <span className={`flex min-w-0 items-center gap-2 ${unavailable || row.hidden ? "text-ink-faint" : "text-ink"}`}>
           <span className="text-ink-muted">
             <TypeGlyph type={row.type} />
           </span>
@@ -196,7 +224,7 @@ export const DriveRow = memo(function DriveRow({
             </span>
           )}
         </span>
-        <SecondLine row={row} showFolder={global} />
+        <SecondLine row={row} showFolder={global} hiddenByName={hiddenByName} />
       </span>
       <span role="gridcell" className="relative flex w-[140px] shrink-0 @max-[720px]:w-[22px]">
         <PersonChip personId={row.addedById} nameClassName="@max-[720px]:sr-only" />
@@ -211,9 +239,25 @@ export const DriveRow = memo(function DriveRow({
       </span>
       <span role="gridcell" className="relative w-[124px] shrink-0">
         <Opens count={row.opens90d} />
+        {/* Un nascosto: «Show again» sempre in vista (è l'azione della vista «Hidden»). */}
+        {showAgain && (
+          <span className="absolute top-1/2 right-9 -translate-y-1/2">
+            <button
+              type="button"
+              aria-label={t("drive.hidden.showAgainLabel", { code: row.code })}
+              onClick={(e) => {
+                stop(e);
+                showAgain(row);
+              }}
+              className="inline-flex h-7 items-center rounded-md border border-rule-strong bg-ground px-2 text-sm font-medium whitespace-nowrap text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6"
+            >
+              {t("drive.hidden.showAgain")}
+            </button>
+          </span>
+        )}
         {/* Le azioni rapide al passaggio e col fuoco: nello spazio libero a sinistra del
             numero, nella colonna che resta sempre — mai in una che cade a 1024. */}
-        <span className="absolute top-1/2 right-9 hidden -translate-y-1/2 rounded-md bg-ground group-focus-within/row:flex group-hover/row:flex">
+        <span className={`absolute top-1/2 right-9 hidden -translate-y-1/2 rounded-md bg-ground ${showAgain ? "" : "group-focus-within/row:flex group-hover/row:flex"}`}>
           <span className={`flex items-center gap-0.5 rounded-md px-0.5 ${selected || current ? "bg-ink/10" : "bg-ink/6"}`}>
           {row.source === "google" && !unavailable && (
             <button

@@ -3,8 +3,10 @@ import { useCallback, useEffect, useId, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   useChatChannels,
+  useConnectGoogle,
   useDeleteDriveFile,
   useDriveFile,
+  useFolderLinks,
   usePeople,
   useProjects,
   useRemoveGoogleFile,
@@ -203,6 +205,15 @@ function FileBody({ file, onClose }: { file: DriveFileDetail; onClose: () => voi
   };
   // «Cite in Chat» (A11): il dialogo «Share to…».
   const cite = () => setSharing(true);
+  // Un nascosto (lo vede solo chi gestisce, dal filtro «Hidden»): «Show again».
+  const doShow = () =>
+    hide.mutate(
+      { id: file.id, hidden: false },
+      {
+        onSuccess: () => toast.show(t("drive.hidden.shown", { code: file.code })),
+        onError: () => toast.error(t("drive.detail.failed")),
+      },
+    );
   const doHide = () =>
     hide.mutate(
       { id: file.id, hidden: true },
@@ -321,7 +332,12 @@ function FileBody({ file, onClose }: { file: DriveFileDetail; onClose: () => voi
 
       <div className="flex flex-col gap-3 px-4 pb-4">
         <h2 className="text-xl font-semibold text-ink [overflow-wrap:anywhere]">{file.name}</h2>
-        {google ? (
+        {google && !available ? (
+          <UnavailableBand
+            file={file}
+            onRemove={file.permissions.remove ? () => setConfirming("remove") : undefined}
+          />
+        ) : google ? (
           <GoogleCard file={file} />
         ) : kind ? (
           // La miniatura non conta: conta il clic che apre l'anteprima intera (A9).
@@ -404,23 +420,28 @@ function FileBody({ file, onClose }: { file: DriveFileDetail; onClose: () => voi
 
       {file.history !== null && <History history={file.history} personName={personName} />}
 
-      {(file.permissions.delete || file.permissions.remove || file.permissions.hide) && (
+      {(file.permissions.delete || (file.permissions.remove && available) || file.permissions.hide) && (
         <div className="flex flex-wrap gap-1.5 border-t border-rule px-4 pt-4">
           {file.permissions.delete && (
             <button type="button" className={dangerGhost} onClick={() => setConfirming("delete")}>
               {t("drive.detail.delete")}
             </button>
           )}
-          {file.permissions.remove && (
+          {file.permissions.remove && available && (
             <button type="button" className={dangerGhost} onClick={() => setConfirming("remove")}>
               {t("drive.detail.remove")}
             </button>
           )}
-          {file.permissions.hide && (
-            <button type="button" className={ghostButton} onClick={doHide}>
-              {t("drive.detail.hide")}
-            </button>
-          )}
+          {file.permissions.hide &&
+            (file.hidden ? (
+              <button type="button" className={ghostButton} onClick={doShow}>
+                {t("drive.hidden.showAgain")}
+              </button>
+            ) : (
+              <button type="button" className={ghostButton} onClick={doHide}>
+                {t("drive.detail.hide")}
+              </button>
+            ))}
         </div>
       )}
 
@@ -456,6 +477,66 @@ function FileBody({ file, onClose }: { file: DriveFileDetail; onClose: () => voi
         >
           {null}
         </Dialog>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Un file Google non disponibile, al posto della scheda (drive-google.md,
+ * «Non disponibile»): la causa in parole — cancellato su Google, o accesso
+ * perso perché l'account di chi ha collegato la cartella è scollegato (chi
+ * è, se lo è), o perché la cartella è cambiata su Google — e cosa si può
+ * fare: «Reconnect» per chi ha collegato la cartella, «Remove from project»
+ * per chi può toglierlo.
+ */
+function UnavailableBand({ file, onRemove }: { file: DriveFileDetail; onRemove?: () => void }) {
+  const { t } = useTranslation();
+  const me = useSessionPersonId();
+  const people = usePeople().data;
+  const links = useFolderLinks(file.projectId).data;
+  const connect = useConnectGoogle();
+  const link = file.folder ? links?.find((l) => l.id === file.folder!.id) : undefined;
+  const accountGone = file.unavailable === "access_lost" && link?.status === "expired";
+  const linkerName = link ? (people?.find((p) => p.id === link.linkedById)?.name ?? t("drive.row.someone")) : "";
+  const cause =
+    file.unavailable === "deleted"
+      ? t("drive.notAvailable.deleted")
+      : accountGone
+        ? link!.linkedById === me
+          ? t("drive.notAvailable.accessLostMine")
+          : t("drive.notAvailable.accessLostOther", { name: linkerName })
+        : t("drive.notAvailable.accessLost");
+  const canReconnect = accountGone && link!.linkedById === me;
+  return (
+    <div
+      data-drive-unavailable
+      className="flex flex-col gap-2 rounded-md border border-rule bg-ground px-4 py-3"
+    >
+      <p className="flex items-center gap-1.5 text-sm font-semibold text-ink">
+        <UnavailableGlyph />
+        {t("drive.notAvailable.title")}
+      </p>
+      <p className="text-md text-ink">{cause}</p>
+      <p className="text-xs text-ink-muted">{t("drive.notAvailable.note")}</p>
+      {(canReconnect || onRemove) && (
+        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+          {canReconnect && (
+            <button
+              type="button"
+              className={smallSecondary}
+              disabled={connect.isPending}
+              onClick={() => connect.mutate()}
+            >
+              {t("drive.notAvailable.reconnect")}
+            </button>
+          )}
+          {onRemove && (
+            <button type="button" className={dangerGhost} onClick={onRemove}>
+              {t("drive.detail.remove")}
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
