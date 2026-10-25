@@ -13,6 +13,11 @@ import { resolveHome } from "../domain/home";
 import { MIN_QUERY } from "../pages/chat/search";
 import type {
   Attachment,
+  CalendarEventInput,
+  CalendarEventPatch,
+  CalendarEventView,
+  CalendarScope,
+  CalendarSeriesPatch,
   ChannelPatch,
   ChatEventKind,
   ChatMessageInput,
@@ -52,6 +57,7 @@ import type {
   ProjectRequest,
   ProjectStatus,
   RefinePatch,
+  Rsvp,
   StatusInput,
   Task,
   TaskPatch,
@@ -198,6 +204,16 @@ export const queryKeys = {
   mailDrafts: (personId: string) => ["as", personId, "mail", "drafts"] as const,
   mailRecipients: (personId: string, q: string) =>
     ["as", personId, "mail", "recipients", q] as const,
+  // Calendario (area 6): tutto nell'area «calendar».
+  calendarEvents: (personId: string, range: { from: string; to: string }) =>
+    ["as", personId, "calendar", "events", range] as const,
+  calendarEvent: (personId: string, id: string) =>
+    ["as", personId, "calendar", "event", id] as const,
+  calendarSeries: (personId: string) => ["as", personId, "calendar", "series"] as const,
+  calendars: (personId: string) => ["as", personId, "calendar", "calendars"] as const,
+  freeBusy: (personId: string, personIds: readonly string[], from: string, to: string) =>
+    ["as", personId, "calendar", "freeBusy", personIds, from, to] as const,
+  upcomingEvents: (personId: string) => ["as", personId, "calendar", "upcoming"] as const,
 };
 
 /** Quali canali: tutti (colonna, «Browse channels») o quelli di un progetto. */
@@ -2698,6 +2714,188 @@ export function useUndoMailSend() {
 /** «Elimina» o «Modifica» un invio fallito: la bozza torna (unita a una più recente, se c'è). */
 export function useDeleteFailedMailSend() {
   return useWrite((messageId: string) => api.mail.deleteFailedSend(messageId), MAIL_AREAS);
+}
+
+// --- Calendario (area 6) -------------------------------------------------------
+
+/**
+ * Le scritture del Calendario ricaricano il Calendario e la Posta (le
+ * proposte del calendario stanno lì: una risposta o un progetto le cambiano).
+ */
+const CALENDAR_AREAS = ["calendar", "mail"] as const;
+
+/** Mentre un evento si salva o il calendario si allinea la lettura si ripete da sola. */
+const CALENDAR_REFRESH_MS = 1000;
+const saving = (events: readonly Pick<CalendarEventView, "save">[] | null | undefined) =>
+  !!events?.some((e) => e.save?.state === "saving");
+
+/** Gli eventi che vedo nell'intervallo, dentro la finestra letta. */
+export function useCalendarEvents(range: { from: string; to: string }, { enabled = true } = {}) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.calendarEvents(me, range),
+    queryFn: () => api.calendar.listEvents(range),
+    enabled,
+    refetchInterval: (query) => (saving(query.state.data) ? CALENDAR_REFRESH_MS : false),
+  });
+}
+
+/** Un evento con la sua serie. Invisibile, inesistente o fuori finestra → errore `not_found`. */
+export function useCalendarEvent(id: string | null) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.calendarEvent(me, id ?? ""),
+    queryFn: () => api.calendar.getEvent(id!),
+    enabled: id !== null,
+    retry: false,
+    refetchInterval: (query) =>
+      query.state.data?.save?.state === "saving" ? CALENDAR_REFRESH_MS : false,
+  });
+}
+
+/** Le serie ricorrenti che vedo, anche senza date nella finestra. */
+export function useCalendarSeries() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.calendarSeries(me),
+    queryFn: () => api.calendar.listSeries(),
+  });
+}
+
+/** Il mio calendario col suo allineamento («vecchio», «scaduto»). */
+export function useCalendars() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.calendars(me),
+    queryFn: () => api.calendar.listCalendars(),
+    refetchInterval: (query) =>
+      query.state.data?.some((c) => c.sync === "syncing") ? CALENDAR_REFRESH_MS : false,
+  });
+}
+
+/** Libero/occupato degli ospiti del team (mai titoli). */
+export function useFreeBusy(personIds: readonly string[], from: string, to: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.freeBusy(me, personIds, from, to),
+    queryFn: () => api.calendar.freeBusy([...personIds], from, to),
+    enabled: personIds.length > 0,
+  });
+}
+
+/** «Prossimi appuntamenti» della Home: da adesso a fine di domani. */
+export function useUpcomingEvents() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.upcomingEvents(me),
+    queryFn: () => api.calendar.listUpcomingEvents(),
+  });
+}
+
+/** «Trova un orario»: il primo spazio libero per tutti nella giornata. */
+export function useFindFreeSlot() {
+  return useMutation({
+    mutationFn: ({
+      personIds,
+      durationMin,
+      from,
+    }: {
+      personIds: string[];
+      durationMin: number;
+      from: string;
+    }) => api.calendar.findFirstFreeSlot(personIds, durationMin, from),
+  });
+}
+
+/**
+ * Una scrittura verso Google: si rilegge subito («Salvataggio…») e di nuovo
+ * quando il salvataggio è confermato o fallito.
+ */
+function useCalendarSave<TVars, TData>(mutationFn: (vars: TVars) => Promise<TData>) {
+  const invalidate = useInvalidate(CALENDAR_AREAS);
+  return useMutation({
+    mutationFn: async (vars: TVars) => {
+      const result = await mutationFn(vars);
+      void invalidate();
+      await api.calendar.whenCalendarIdle();
+      return result;
+    },
+    onSettled: invalidate,
+  });
+}
+
+export function useCreateEvent() {
+  return useCalendarSave((input: CalendarEventInput) => api.calendar.createEvent(input));
+}
+
+export function useUpdateEvent() {
+  return useCalendarSave(
+    ({ id, patch, scope }: { id: string; patch: CalendarEventPatch; scope?: CalendarScope }) =>
+      api.calendar.updateEvent(id, patch, scope),
+  );
+}
+
+export function useMoveEvent() {
+  return useCalendarSave(
+    ({
+      id,
+      startsAt,
+      endsAt,
+      scope,
+    }: {
+      id: string;
+      startsAt: string;
+      endsAt: string;
+      scope?: CalendarScope;
+    }) => api.calendar.moveEvent(id, startsAt, endsAt, scope),
+  );
+}
+
+export function useRespondEvent() {
+  return useCalendarSave(
+    ({ id, rsvp, note, scope }: { id: string; rsvp: Rsvp; note?: string; scope?: CalendarScope }) =>
+      api.calendar.respond(id, rsvp, note, scope),
+  );
+}
+
+/** «Riprova» un salvataggio fallito. */
+export function useRetryEventSave() {
+  return useCalendarSave((id: string) => api.calendar.retrySave(id));
+}
+
+/** «Annulla la modifica»: torna la versione di Google. */
+export function useRevertEvent() {
+  return useWrite((id: string) => api.calendar.revertEvent(id), CALENDAR_AREAS);
+}
+
+export function useDeleteEvent() {
+  return useWrite(
+    ({ id, scope }: { id: string; scope?: CalendarScope }) => api.calendar.deleteEvent(id, scope),
+    CALENDAR_AREAS,
+  );
+}
+
+/** La correzione del progetto di un evento (vale per tutti). */
+export function useSetEventProject() {
+  return useWrite(
+    ({ id, projectId }: { id: string; projectId: string | null }) =>
+      api.calendar.setEventProject(id, projectId),
+    CALENDAR_AREAS,
+  );
+}
+
+/** La configurazione di una serie; accesa senza progetto → `choose_project_first`. */
+export function useConfigureSeries() {
+  return useWrite(
+    ({ id, patch }: { id: string; patch: CalendarSeriesPatch }) =>
+      api.calendar.configureSeries(id, patch),
+    CALENDAR_AREAS,
+  );
+}
+
+/** «Aggiorna ora»: si rilegge subito («Aggiornamento…») e ad allineamento finito. */
+export function useSyncCalendar() {
+  return useCalendarSave(() => api.calendar.syncCalendar());
 }
 
 export type ClaudeMailDraftState =

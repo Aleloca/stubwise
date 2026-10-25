@@ -215,7 +215,14 @@ describe("Proposte della posta: chi la vede", () => {
 
   it("le aperte che vedo entrano in «Da decidere», dalla più vecchia", async () => {
     const ids = (await mail.listMailDecisions()).map((v) => v.proposal.id);
-    expect(ids).toEqual([SHARED, CHOOSE, REVIEW, "mp-stw-copy-freeze"]);
+    // Anche la proposta di calendario (la scadenza dei visual di MKX, Task 5).
+    expect(ids).toEqual([
+      SHARED,
+      CHOOSE,
+      REVIEW,
+      "mp-cal-ev-mkx-visuals-deadline",
+      "mp-stw-copy-freeze",
+    ]);
     as("p-roberta");
     // L'admin non vede le aperte (non è destinatario); la passata sì: ha il permesso.
     expect((await mail.listMailDecisions()).map((v) => v.proposal.id)).toEqual([HANDED]);

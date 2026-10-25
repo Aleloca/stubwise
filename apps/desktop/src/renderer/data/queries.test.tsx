@@ -11,6 +11,8 @@ import {
   simulateDisconnect,
 } from "./api";
 import {
+  useCalendarEvent,
+  useRespondEvent,
   useCitations,
   useConfirmProposal,
   useConversation,
@@ -407,6 +409,34 @@ describe("Posta (area 6)", () => {
     await waitFor(() =>
       expect(result.current.tasks.data!.some((t) => t.title === title)).toBe(true),
     );
+  });
+});
+
+describe("Calendario", () => {
+  it("una risposta si rilegge salvata, e la proposta di chi rifiuta esce da «Da decidere»", async () => {
+    setLatency(20);
+    const { result } = renderHook(
+      () => ({
+        event: useCalendarEvent("ev-mkx-visuals-deadline"),
+        decisions: useMailProposalDecisions(),
+        respond: useRespondEvent(),
+      }),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.event.data).toBeDefined());
+    await waitFor(() => expect(result.current.decisions.data).toBeDefined());
+    const ids = () => result.current.decisions.data!.map((v) => v.proposal.id);
+    expect(ids()).toContain("mp-cal-ev-mkx-visuals-deadline");
+    await act(() =>
+      result.current.respond.mutateAsync({ id: "ev-mkx-visuals-deadline", rsvp: "declined" }),
+    );
+    await waitFor(() =>
+      expect(result.current.event.data).toMatchObject({
+        myResponse: "declined",
+        save: { state: "saved" },
+      }),
+    );
+    await waitFor(() => expect(ids()).not.toContain("mp-cal-ev-mkx-visuals-deadline"));
   });
 });
 

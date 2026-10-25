@@ -1,3 +1,4 @@
+import { eventParticipants } from "../calendar/visibility";
 import { state } from "../store";
 import type { Mailbox, MailMessage, MailProposal, ProposedAction } from "../types";
 import { can, viewerFor, type Permission } from "../viewer";
@@ -68,12 +69,13 @@ export function permissionForAction(fn: ProposedAction["fn"]): Permission | null
 }
 
 /**
- * I partecipanti in Stubwise di un evento del calendario. Il Calendario non
- * c'è ancora (Task 5): nessuno, quindi una proposta di calendario non la vede
- * nessuno. Il Task 5 sostituisce `of` con i partecipanti dell'evento
- * (`attendees[].personId`); i test la impostano a mano.
+ * I partecipanti in Stubwise di un evento del calendario che non l'hanno
+ * rifiutato (`eventParticipants` di `calendar/visibility.ts`). Un oggetto,
+ * così un test può sostituire `of`.
  */
-export const calendarParticipants: { of: (eventId: string) => string[] } = { of: () => [] };
+export const calendarParticipants: { of: (eventId: string) => string[] } = {
+  of: eventParticipants,
+};
 
 export const isProjectMember = (me: string, projectId: string): boolean =>
   !!state.projectsById.get(projectId)?.memberIds.includes(me);

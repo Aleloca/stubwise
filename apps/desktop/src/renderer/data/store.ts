@@ -45,6 +45,12 @@ import {
   MAIL_PROPOSALS,
   MEETING_TRANSCRIPTS,
 } from "./seed/mail";
+import {
+  CALENDAR_EVENTS,
+  CALENDAR_PROPOSALS,
+  CALENDAR_SERIES,
+  CALENDAR_SYNC,
+} from "./seed/calendar";
 import { DEFAULT_SESSION_PERSON_ID, getSessionPersonId, setSessionPersonId } from "./session";
 import type {
   ActivityEntry,
@@ -91,6 +97,9 @@ import type {
   MailMessage,
   MailProposal,
   MeetingTranscript,
+  CalendarEvent,
+  CalendarSeries,
+  CalendarSync,
   SavedFilter,
   StatusFamily,
   Task,
@@ -335,7 +344,29 @@ export type ApiFnName =
   /** Un passo dell'allineamento simulato di una casella (arriva la posta nuova). */
   | "mail.advanceSync"
   /** Un passo della classificazione simulata (in analisi → classificata o fallita). */
-  | "mail.advanceClassification";
+  | "mail.advanceClassification"
+  // Calendario (area 6)
+  | "calendar.listEvents"
+  | "calendar.getEvent"
+  | "calendar.listSeries"
+  | "calendar.listCalendars"
+  | "calendar.freeBusy"
+  | "calendar.findFirstFreeSlot"
+  | "calendar.listUpcomingEvents"
+  | "calendar.createEvent"
+  | "calendar.updateEvent"
+  | "calendar.moveEvent"
+  | "calendar.deleteEvent"
+  | "calendar.respond"
+  | "calendar.retrySave"
+  | "calendar.revertEvent"
+  | "calendar.setEventProject"
+  | "calendar.configureSeries"
+  | "calendar.syncCalendar"
+  /** Un passo del salvataggio simulato verso Google (in salvataggio → salvato o fallito). */
+  | "calendar.advanceSave"
+  /** Un passo dell'allineamento simulato di un calendario. */
+  | "calendar.advanceSync";
 const failures = new Set<ApiFnName>();
 
 /** Fissa la latenza simulata (ms); `0` per i test, `null` per tornare a 150–400 ms. */
@@ -503,6 +534,14 @@ interface State {
   mailIncoming: MailMessage[];
   /** Gli stati di classificazione attraversati da un messaggio dopo il seme (per i test). */
   mailClassificationLog: Map<string, MailClassification["state"][]>;
+  // --- Calendario (area 6) ---
+  /** Gli eventi come li ha Google, una riga per occorrenza (anche fuori dalla finestra letta). */
+  calendarEvents: CalendarEvent[];
+  calendarSeries: CalendarSeries[];
+  /** L'allineamento del calendario di ogni persona con l'account Google. */
+  calendarSync: CalendarSync[];
+  /** Gli eventi del seme che falliscono al primo salvataggio e lo hanno già fatto. */
+  calendarFailedOnce: Set<string>;
 }
 
 function initialDocCodeSeq(): Map<string, number> {
@@ -585,10 +624,14 @@ function freshState(): State {
     mailboxes: MAILBOXES.map(copy),
     mailMessages: MAIL_MESSAGES.map(copy),
     meetingTranscripts: MEETING_TRANSCRIPTS.map(copy),
-    mailProposals: MAIL_PROPOSALS.map(copy),
+    mailProposals: [...MAIL_PROPOSALS, ...CALENDAR_PROPOSALS].map(copy),
     mailDrafts: MAIL_DRAFTS.map(copy),
     mailIncoming: MAIL_INCOMING.map(copy),
     mailClassificationLog: new Map(),
+    calendarEvents: CALENDAR_EVENTS.map(copy),
+    calendarSeries: CALENDAR_SERIES.map(copy),
+    calendarSync: CALENDAR_SYNC.map(copy),
+    calendarFailedOnce: new Set(),
   };
 }
 

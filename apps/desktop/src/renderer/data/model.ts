@@ -1811,3 +1811,138 @@ export interface MailSearchHit {
   /** L'inizio del testo, per la riga del risultato. */
   snippet: string;
 }
+
+// --- Calendario (area 6) ------------------------------------------------------
+
+/** La risposta di un invitato, coi valori di Google. */
+export type Rsvp = "accepted" | "declined" | "tentative" | "needsAction";
+
+export interface CalendarAttendee {
+  email: string;
+  name: string;
+  personId: string | null;
+  response: Rsvp;
+  organizer: boolean;
+  /** La nota che accompagna la risposta («Arrivo 10 minuti in ritardo»). */
+  note?: string;
+}
+
+/**
+ * Un evento come lo legge Google: una riga per occorrenza (una serie ha una
+ * riga per data, con `seriesId`). Con orario: istanti; «tutto il giorno»:
+ * mezzanotte UTC della data, `endsAt` esclusiva (la doppia regola dei fusi
+ * di `calendar-grid` di `@stubwise/shared`).
+ */
+export interface CalendarEvent {
+  id: string;
+  /** I calendari (persone con l'account Google) che lo contengono. */
+  calendarPersonIds: string[];
+  title: string;
+  description: string | null;
+  startsAt: string;
+  endsAt: string;
+  allDay: boolean;
+  location: string | null;
+  meetUrl: string | null;
+  attendees: CalendarAttendee[];
+  reminders: { minutes: number; method: "popup" | "email" }[] | "default";
+  seriesId: string | null;
+  projectId: string | null;
+  /** Chi ha deciso il progetto: il modello o una persona (la correzione vale per tutti). */
+  projectBy: "model" | "manual" | null;
+  /** Una scrittura verso Google: in corso, confermata, rifiutata. */
+  save?: { state: "saving" | "saved" | "failed"; error?: string };
+}
+
+/** Una serie ricorrente e la sua configurazione (spenta di default). */
+export interface CalendarSeries {
+  id: string;
+  title: string;
+  /** La regola di Google (`RRULE:…`): la UI la dice a parole con `parseRecurrence`. */
+  rule: string;
+  projectId: string | null;
+  enabled: boolean;
+  action: "milestone" | "request" | "remind";
+  leadDays: number;
+  auto: boolean;
+}
+
+/** L'allineamento del calendario di una persona con Google. */
+export interface CalendarSync {
+  personId: string;
+  email: string;
+  syncedAt: string;
+  sync: "ok" | "syncing" | "failed";
+}
+
+/** Il mio calendario col suo allineamento: `stale` oltre 5 minuti, `expired` con l'account scaduto. */
+export interface CalendarSyncView extends CalendarSync {
+  stale: boolean;
+  expired: boolean;
+}
+
+/**
+ * Un evento come lo vede chi guarda: la sua risposta, se ne è
+ * l'organizzatore, in quale dei suoi calendari sta; il progetto solo se lo
+ * vede (altrimenti «Nessun progetto»).
+ */
+export interface CalendarEventView extends CalendarEvent {
+  myResponse: Rsvp | null;
+  isOrganizer: boolean;
+  /** Il mio calendario che lo contiene; `null` se ci sono solo come invitato senza account. */
+  calendarEmail: string | null;
+}
+
+/** Una serie come la vede chi guarda: le date dentro la finestra letta e la prossima. */
+export interface CalendarSeriesView extends CalendarSeries {
+  occurrencesInWindow: number;
+  nextAt: string | null;
+}
+
+/** Il dettaglio di un evento, con la sua serie (riassunto e scheda: Task 6). */
+export interface CalendarEventDetail extends CalendarEventView {
+  series: CalendarSeriesView | null;
+}
+
+/**
+ * Libero/occupato di una persona: solo gli intervalli, mai un titolo.
+ * `not_connected`/`expired`: il suo calendario non si legge.
+ */
+export interface FreeBusy {
+  personId: string;
+  availability: "connected" | "not_connected" | "expired";
+  busy: { startsAt: string; endsAt: string }[];
+}
+
+/** Un invitato da aggiungere: una persona del team o un indirizzo. */
+export type CalendarGuestInput = { personId: string } | { email: string; name?: string };
+
+export interface CalendarEventInput {
+  title: string;
+  startsAt: string;
+  endsAt: string;
+  allDay?: boolean;
+  guests?: CalendarGuestInput[];
+  /** «Aggiungi Google Meet»: il link nasce al salvataggio. */
+  addMeet?: boolean;
+  description?: string | null;
+  location?: string | null;
+  /** Uno dei miei progetti, o nessuno. */
+  projectId?: string | null;
+  reminders?: CalendarEvent["reminders"];
+}
+
+/** Cosa cambia «Modifica» (gli orari li cambia `moveEvent`, il progetto `setEventProject`). */
+export type CalendarEventPatch = Partial<
+  Pick<
+    CalendarEventInput,
+    "title" | "guests" | "addMeet" | "description" | "location" | "reminders"
+  >
+>;
+
+/** «Solo questo» o «tutta la serie». */
+export type CalendarScope = "one" | "series";
+
+export type CalendarSeriesPatch = Partial<
+  Pick<CalendarSeries, "projectId" | "enabled" | "action" | "leadDays" | "auto">
+>;
