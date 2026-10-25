@@ -270,6 +270,7 @@ export type ApiFnName =
   | "drive.countDriveReaders"
   | "drive.getGoogleAccount"
   | "drive.listGoogleOutside"
+  | "drive.searchDrive"
   | "drive.listGoogleFolders"
   | "drive.listGoogleFiles"
   | "drive.uploadFiles"

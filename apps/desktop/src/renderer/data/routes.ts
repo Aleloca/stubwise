@@ -86,8 +86,11 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
     case "thread":
     case "message":
       return isChannelPath(path) && /^[\w-]+$/.test(value);
-    // La ricerca della Chat (`#/chat?view=search&q=…`): la query e i filtri.
+    // La ricerca del Drive (`#/drive?q=…`, `#/p/AUD/drive?q=…`): solo la query.
     case "q":
+      if (isDrivePath(path)) return value.length > 0 && value.length <= 200;
+      return path === "chat" && isSearchParamValue(key, value);
+    // La ricerca della Chat (`#/chat?view=search&q=…`): la query e i filtri.
     case "in":
     case "by":
     case "when":

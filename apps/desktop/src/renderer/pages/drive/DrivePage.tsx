@@ -1,8 +1,17 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useTranslation } from "react-i18next";
 import {
   useDriveFiles,
+  useDriveSearch,
   useFolderLinks,
   usePeople,
   useProject,
@@ -14,6 +23,7 @@ import {
 import type {
   DriveFileRow,
   DriveFilters,
+  DriveSearchScope,
   DriveSort,
   FolderLinkView,
   Project,
@@ -37,6 +47,7 @@ import {
 import { AddFromGoogleDialog } from "./AddFromGoogleDialog";
 import { ExpiredLinkBanners } from "./DriveBanners";
 import { DriveList, DriveSkeleton } from "./DriveList";
+import { DriveSearchField, DriveSearchResults, type SearchActions } from "./DriveSearch";
 import type { RowActions } from "./DriveRow";
 import {
   DRIVE_SORTS,
@@ -75,9 +86,15 @@ import {
 // del collegamento scaduto (solo chi gestisce) e il filtro «Hidden» (solo
 // chi gestisce: per gli altri `?hidden=1` non vale). I dialoghi vivono qui:
 // la pagina è legata alla persona, e un cambio di persona li chiude. La
-// ricerca (⌘F) arriva dopo.
+// ricerca (Task 8, shape drive-search.md): il campo «Search files» (⌘F)
+// scrive `?q=`; da 2 caratteri i risultati prendono il posto dell'elenco,
+// coi filtri attivi, e svuotarlo riporta l'elenco dov'era. Cercare toglie
+// la vista «Hidden» (i nascosti non si cercano), e viceversa.
 
-type PageSearch = DriveSearch & { file?: string };
+type PageSearch = DriveSearch & { file?: string; q?: string };
+
+/** Sotto, niente ricerca: l'elenco resta. */
+const MIN_DRIVE_QUERY = 2;
 
 /** Quanto resta segnata come «appena arrivata» una riga caricata. */
 const ARRIVE_MS = 600;
@@ -103,7 +120,9 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
     ? can(viewer, "drive.manage", project.id)
     : (projects ?? []).some((p) => can(viewer, "drive.manage", p.id));
   const filters: DriveFilters = driveFiltersFrom(search, { projectId: project?.id, codeToId });
-  if (!canManage) delete filters.hidden;
+  const query = search.q?.trim() ?? "";
+  const searching = query.length >= MIN_DRIVE_QUERY;
+  if (!canManage || searching) delete filters.hidden;
   const hiddenView = filters.hidden === true;
   const base: DriveFilters = project ? { projectId: project.id, sort: filters.sort } : { sort: filters.sort };
   const enabled = global ? !!projects : !!project;
@@ -112,6 +131,28 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
   const hiddenQuery = useDriveFiles({ ...base, hidden: true }, { enabled: enabled && canManage });
   const folders = useFolderLinks(project?.id ?? "").data ?? [];
   const rows = enabled ? filesQuery.data : undefined;
+  const { projectId: fProject, type: fType, source: fSource, addedById: fAdded } = filters;
+  const scope = useMemo<DriveSearchScope>(
+    () => ({
+      ...(fProject ? { projectId: fProject } : {}),
+      ...(fType ? { type: fType } : {}),
+      ...(fSource ? { source: fSource } : {}),
+      ...(fAdded ? { addedById: fAdded } : {}),
+    }),
+    [fProject, fType, fSource, fAdded],
+  );
+  const driveSearch = useDriveSearch(query, scope, enabled && searching);
+  const searchInput = useRef<HTMLInputElement>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  // Svuotando la ricerca l'elenco torna dov'era.
+  const listScroll = useRef(0);
+  const wasSearching = useRef(searching);
+  useLayoutEffect(() => {
+    if (searching === wasSearching.current) return;
+    if (bodyRef.current) bodyRef.current.scrollTop = searching ? 0 : listScroll.current;
+    wasSearching.current = searching;
+  }, [searching]);
   const canAddGoogle = !!project && can(viewer, "drive.upload", project.id);
 
   const peopleNames = useMemo(() => new Map((people ?? []).map((p) => [p.id, p.name])), [people]);
@@ -134,6 +175,11 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
       replace,
     } as never);
   }
+  const setQuery = (q: string) => {
+    const on = q.trim().length >= MIN_DRIVE_QUERY;
+    if (!searching && on) listScroll.current = bodyRef.current?.scrollTop ?? 0;
+    setSearch({ q: q.trim() ? q : undefined, ...(on ? { hidden: undefined } : {}) }, true);
+  };
   const clearFilters = () =>
     setSearch(
       { type: undefined, source: undefined, addedBy: undefined, prj: undefined, hidden: undefined },
@@ -313,6 +359,10 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
     }),
     [navigate, openers, toast, t, setHidden],
   );
+  const searchActions = useMemo<SearchActions>(
+    () => ({ open: (row, view) => actions.onPrimary(row, view), details: actions.onOpen }),
+    [actions],
+  );
   const onMoveOpen = useCallback(
     (row: DriveFileRow) =>
       void navigate({
@@ -328,7 +378,26 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
   const scopeName = project?.name ?? "";
 
   let body: ReactNode;
-  if (filesQuery.isError || allQuery.isError) {
+  if (searching) {
+    body = (
+      <DriveSearchResults
+        query={query}
+        result={enabled ? driveSearch.data : undefined}
+        pending={driveSearch.isPending}
+        error={driveSearch.isError}
+        onRetry={() => void driveSearch.refetch()}
+        stale={driveSearch.isPlaceholderData}
+        global={global}
+        projectNames={projectNames}
+        openCode={search.file}
+        actions={searchActions}
+        hasFilters={hasDriveFilter({ ...search, hidden: undefined })}
+        onClearFilters={clearFilters}
+        listRef={resultsRef}
+        onBackToField={() => searchInput.current?.focus()}
+      />
+    );
+  } else if (filesQuery.isError || allQuery.isError) {
     body = (
       <PageError
         message={t("drive.states.error")}
@@ -536,9 +605,23 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
           projects={projects}
           me={viewer.personId}
           hiddenCount={canManage ? hiddenQuery.data?.length : undefined}
+          searching={searching}
+          searchField={
+            <DriveSearchField
+              query={search.q ?? ""}
+              onQuery={setQuery}
+              inputRef={searchInput}
+              onEnterResults={() =>
+                // I risultati arrivano dopo l'attesa: il primo appena c'è.
+                window.requestAnimationFrame(() =>
+                  resultsRef.current?.querySelector<HTMLElement>("[data-drive-result]")?.focus(),
+                )
+              }
+            />
+          }
         />
       </header>
-      <div data-drive-body className="min-h-0 flex-1 overflow-auto border-t border-rule">
+      <div ref={bodyRef} data-drive-body className="min-h-0 flex-1 overflow-auto border-t border-rule">
         {body}
       </div>
       {picker.element}
@@ -637,6 +720,8 @@ function DriveToolbar({
   projects,
   me,
   hiddenCount,
+  searching,
+  searchField,
 }: {
   search: DriveSearch;
   sort: DriveSort;
@@ -649,6 +734,10 @@ function DriveToolbar({
   me: string;
   /** I nascosti (solo chi gestisce: per gli altri il filtro non c'è). */
   hiddenCount: number | undefined;
+  /** Si sta cercando: l'ordine è la pertinenza, il menu dell'ordinamento sparisce. */
+  searching: boolean;
+  /** Il campo «Search files», in testa alla barra. */
+  searchField: ReactNode;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState<"type" | "source" | "addedBy" | "prj" | null>(null);
@@ -712,6 +801,8 @@ function DriveToolbar({
       aria-label={t("drive.commands")}
       className="flex flex-wrap items-center gap-x-2 gap-y-2"
     >
+      {searchField}
+      {!searching && (
       <MenuButton
         menuLabel={t("drive.sort.label")}
         className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink aria-expanded:bg-ink/8"
@@ -740,6 +831,7 @@ function DriveToolbar({
           </MenuGroup>
         )}
       </MenuButton>
+      )}
       <span aria-hidden="true" className="mx-1 h-5 w-px bg-rule" />
       {global &&
         chip(
@@ -777,9 +869,14 @@ function DriveToolbar({
       {hiddenCount !== undefined && (hiddenCount > 0 || search.hidden === "1") && (
         <button
           type="button"
-          aria-pressed={search.hidden === "1"}
+          aria-pressed={search.hidden === "1" && !searching}
           aria-label={t("drive.hidden.chipLabel", { count: hiddenCount })}
-          onClick={() => setSearch({ hidden: search.hidden === "1" ? undefined : "1" }, true)}
+          onClick={() =>
+            setSearch(
+              search.hidden === "1" ? { hidden: undefined } : { hidden: "1", q: undefined },
+              true,
+            )
+          }
           className="inline-flex h-7 items-center gap-1.5 rounded-full border border-rule-strong px-2.5 text-sm text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink aria-pressed:border-ink/50 aria-pressed:bg-ink/10 aria-pressed:text-ink"
         >
           <HiddenGlyph />

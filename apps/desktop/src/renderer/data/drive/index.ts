@@ -12,6 +12,7 @@ export {
   listGoogleFiles,
   listGoogleFolders,
   listGoogleOutside,
+  searchDrive,
 } from "./reads";
 export {
   addGoogleFile,

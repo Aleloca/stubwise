@@ -23,7 +23,8 @@ export const DRIVE_SOURCES = ["upload", "google"] as const satisfies readonly Dr
 /** Le chiavi della ricerca del Drive (oltre a `file`). */
 export const DRIVE_SEARCH_KEYS = ["sort", "type", "source", "addedBy", "prj", "hidden"] as const;
 export type DriveSearchKey = (typeof DRIVE_SEARCH_KEYS)[number];
-export type DriveSearch = Partial<Record<DriveSearchKey, string>>;
+/** Con `q`, la ricerca nei file (Task 8): la valida `isValidSearchParam` come quella della Chat. */
+export type DriveSearch = Partial<Record<DriveSearchKey | "q", string>>;
 
 /** Il codice di un file del Drive: `AUD-F7`. */
 export const FILE_CODE_RE = /^[A-Z]{2,4}-F\d+$/;

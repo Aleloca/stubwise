@@ -122,7 +122,8 @@
       "channels": "Canali",
       "messages": "Messaggi",
       "more": "Altro",
-      "pages": "Pagine"
+      "pages": "Pagine",
+      "files": "File"
     },
     "noResults": "Nessun risultato per «{{query}}»",
     "noResultsHint": "Prova con un codice come {{example}} o con un nome.",
@@ -131,7 +132,8 @@
       "move": "per spostarti",
       "open": "per aprire",
       "close": "per chiudere",
-      "back": "per tornare indietro"
+      "back": "per tornare indietro",
+      "details": "dettagli"
     },
     "commands": {
       "newTask": "Nuova task",
@@ -164,7 +166,9 @@
       "widen": "Tab: cerca ovunque",
       "narrow": "Tab: cerca nei documenti di {{repo}}",
       "placeholder": "Cerca nei documenti di {{repo}}…"
-    }
+    },
+    "searchAllFiles": "Cerca «{{query}}» in tutti i file",
+    "notInProject": "Non in un progetto"
   },
   "notifications": {
     "title": "Notifiche",
@@ -3552,6 +3556,32 @@
       "connectAction": "Collega",
       "expired": "Il collegamento con Google è scaduto",
       "reconnect": "Ricollega"
+    },
+    "search": {
+      "field": "Cerca nei file",
+      "clear": "Svuota la ricerca",
+      "results": "File che corrispondono a «{{q}}»",
+      "count_one": "{{count}} file corrisponde a «{{q}}»",
+      "count_other": "{{count}} file corrispondono a «{{q}}»",
+      "sorted": "Ordinati per pertinenza",
+      "matchedName": "Corrisponde il nome",
+      "scan": "da una scansione",
+      "reading": "Lettura del contenuto… trovato per nome",
+      "unavailable": "Non disponibile · trovato per nome",
+      "labelSummary": "Riassunto: {{summary}}",
+      "labelMatched": "Corrisponde: {{passage}}",
+      "details": "Dettagli",
+      "detailsLabel": "Dettagli di {{code}}",
+      "outsideTitle": "Nel tuo Google Drive",
+      "outsideNote": "Non ancora in un progetto. Solo tu vedi questi risultati.",
+      "outsideLabel": "{{name}}, {{type}}, proprietario {{owner}}, non in un progetto. {{summary}}",
+      "owner": "Proprietario: {{owner}}",
+      "open": "Apri",
+      "showMore": "Mostra altri {{count}}",
+      "emptyTitle": "Nessun file corrisponde a «{{q}}»",
+      "emptyHint": "Prova altre parole: la ricerca guarda anche dentro i file.",
+      "error": "Non è stato possibile cercare nei file",
+      "noneInProjects": "Nessun file dei tuoi progetti corrisponde a «{{q}}»"
     }
   }
 }

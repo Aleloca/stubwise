@@ -30,6 +30,7 @@ import type {
   DriveFileRow,
   DriveFilters,
   DriveOpen,
+  DriveSearchScope,
   DriveUploadInput,
   GraphActionKind,
   GraphState,
@@ -165,6 +166,8 @@ export const queryKeys = {
   myFolderLinks: (personId: string) => ["as", personId, "drive", "my-folders"] as const,
   driveReaders: (personId: string, projectId: string) =>
     ["as", personId, "drive", "readers", projectId] as const,
+  driveSearch: (personId: string, q: string, scope: DriveSearchScope) =>
+    ["as", personId, "drive", "search", q, scope] as const,
   googleOutside: (personId: string, q: string) =>
     ["as", personId, "drive", "google-outside", q] as const,
   googleFolders: (personId: string, projectId: string) =>
@@ -2228,6 +2231,22 @@ export function useGoogleAccount() {
   return useQuery({
     queryKey: queryKeys.googleAccount(me),
     queryFn: () => api.drive.getGoogleAccount(),
+  });
+}
+
+/**
+ * La ricerca nei file del Drive (da 2 caratteri): nel Drive e in ⌘K. Mostra
+ * i risultati, non conta aperture. Mentre si scrive restano quelli di prima
+ * (della stessa persona).
+ */
+export function useDriveSearch(q: string, scope: DriveSearchScope = {}, enabled = true) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.driveSearch(me, q, scope),
+    queryFn: () => api.drive.searchDrive(q, scope),
+    enabled: enabled && q.trim().length >= 2,
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
   });
 }
 

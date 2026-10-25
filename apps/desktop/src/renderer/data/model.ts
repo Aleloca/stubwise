@@ -1312,6 +1312,35 @@ export interface DriveFileDetail extends DriveFileRow {
   history: DriveOpen[] | null;
 }
 
+/** Dove cerca la ricerca del Drive: i filtri dell'elenco, senza ordinamento né nascosti. */
+export type DriveSearchScope = Omit<DriveFilters, "sort" | "hidden">;
+
+/**
+ * Un risultato della ricerca del Drive: la riga del file e il passaggio del
+ * testo che corrisponde — `null` se ha corrisposto solo il nome (o il codice).
+ */
+export interface DriveSearchHit {
+  file: DriveFileRow;
+  passage: string | null;
+}
+
+/** Un file Google fuori dai progetti trovato dalla ricerca: senza codice (non è un riferimento). */
+export interface GoogleOutsideHit {
+  googleFileId: string;
+  name: string;
+  type: DriveFileType;
+  owner: string;
+  modifiedAt: string;
+  summary: string;
+  passage: string | null;
+}
+
+/** La ricerca del Drive: i file dei progetti per pertinenza, poi quelli fuori dai progetti. */
+export interface DriveSearchResult {
+  files: DriveSearchHit[];
+  outside: GoogleOutsideHit[];
+}
+
 /** Una cartella collegata con quanti file porta nel progetto (non nascosti). */
 export interface FolderLinkView extends FolderLink {
   fileCount: number;

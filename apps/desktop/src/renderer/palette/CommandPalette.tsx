@@ -15,6 +15,7 @@ import {
   useChatSearch,
   useDocSearch,
   useDocSpaces,
+  useDriveSearch,
   usePeople,
   useProjects,
   useReachChatMessage,
@@ -31,7 +32,11 @@ import { VIEW_AS_PERSONAS, useViewer } from "../data/viewer";
 import { DeptLegend, DeptStrip, useDepartmentName } from "../layout/DeptStrip";
 import { SearchIcon } from "../layout/icons";
 import { useRestoreFocus } from "../layout/useRestoreFocus";
+import { previewKind } from "../pages/drive/driveFilters";
+import { useDriveOpeners } from "../pages/drive/FilePreview";
+import { ExternalGlyph, GoogleDriveGlyph } from "../pages/drive/glyphs";
 import { openLinkFolder } from "../pages/drive/LinkFolderDialog";
+import { openGoogleOutsideFile } from "../pages/drive/WhichProjectDialog";
 import { PALETTE_EVENT, type PaletteEventDetail } from "../layout/useShortcuts";
 import { shortcutLabel } from "../platform/platform";
 import { useTheme } from "../theme/ThemeProvider";
@@ -48,6 +53,7 @@ type GroupId =
   | "tasks"
   | "requests"
   | "pages"
+  | "files"
   | "people"
   | "actions"
   | "viewAs"
@@ -82,7 +88,22 @@ interface Item {
     passage: string;
     words: string[];
   };
+  /**
+   * Un file del Drive: codice · nome · progetto (↗ se Google) sopra, il
+   * passaggio trovato (o il riassunto) sotto. Senza codice: un file del
+   * proprio Google Drive non ancora in un progetto.
+   */
+  file?: {
+    code: string | null;
+    name: string;
+    project: string | null;
+    google: boolean;
+    line: string;
+    words: string[];
+  };
   select(): void;
+  /** ⌥Enter: il dettaglio senza aprire (un file del Drive: non conta). */
+  details?: () => void;
 }
 
 interface Group {
@@ -176,7 +197,8 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   const { setPreference } = useTheme();
   const [step, setStep] = useState<Step>("root");
   const [query, setQuery] = useState("");
-  const [active, setActive] = useState(0);
+  // `null`: nessuno si è ancora mosso (vale la riga preferita, vedi sotto).
+  const [active, setActive] = useState<number | null>(null);
   const debounced = useDebounced(query, SEARCH_DEBOUNCE_MS);
   const searching = step === "root" && debounced.trim().length > 0;
   const search = useSearch(step === "root" ? debounced : "");
@@ -224,6 +246,11 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   const trimmed = step === "root" ? debounced.trim() : "";
   const pagesQuery = scoped || trimmed.length >= MIN_QUERY ? trimmed : "";
   const pageSearch = useDocSearch(pagesQuery, scoped && scopeSpace ? scopeSpace.repositoryId : null);
+  // I file del Drive (da 2 caratteri, mai con l'ambito di uno spazio Docs):
+  // la stessa ricerca del campo del Drive. Mostrarli non conta un'apertura.
+  const filesQuery = !scoped && trimmed.length >= MIN_QUERY ? trimmed : "";
+  const fileSearch = useDriveSearch(filesQuery, undefined, !!filesQuery);
+  const openers = useDriveOpeners();
 
   const groups = useMemo<Group[]>(() => {
     if (step === "viewAs") {
@@ -301,17 +328,17 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       openViewAs: () => {
         setStep("viewAs");
         setQuery("");
-        setActive(0);
+        setActive(null);
       },
       openFilters: () => {
         setStep("filters");
         setQuery("");
-        setActive(0);
+        setActive(null);
       },
       openChannels: () => {
         setStep("channels");
         setQuery("");
-        setActive(0);
+        setActive(null);
       },
       openLinkFolder,
     };
@@ -327,6 +354,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       tasks: [],
       requests: [],
       pages: [],
+      files: [],
       people: [],
       actions: [],
       viewAs: [],
@@ -362,6 +390,77 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       );
     }
     if (scoped) return byGroup.pages.length > 0 ? [{ id: "pages", items: byGroup.pages }] : [];
+    // I file del Drive: al più 5 righe, quelli fuori dai progetti per ultimi.
+    if (filesQuery) {
+      const words = searchWords(filesQuery);
+      const found = fileSearch.data ?? { files: [], outside: [] };
+      const outsideRows = Math.min(
+        found.outside.length,
+        found.files.length >= GROUP_LIMIT - 1 ? 1 : GROUP_LIMIT - found.files.length,
+      );
+      const fileRows = found.files.slice(0, GROUP_LIMIT - outsideRows).map(({ file, passage }): Item => {
+        const detailsPath = `/p/${file.projectCode}/drive?file=${file.code}`;
+        return {
+          key: `file-${file.id}`,
+          code: file.code,
+          label: `${file.code} ${file.name}`,
+          file: {
+            code: file.code,
+            name: file.name,
+            project: file.projectCode,
+            google: file.source === "google",
+            line: passage ?? file.summary?.replace(/\s+/g, " ").trim() ?? "",
+            words,
+          },
+          fromSearch: true,
+          // Enter apre il file (e conta): su Google, l'anteprima, o il dettaglio se non ne ha.
+          select: () => {
+            onClose();
+            if (file.source === "google") {
+              if (file.unavailable === null) openers.google(file);
+              else toast.show(t(`drive.row.cantOpen.${file.unavailable}`, { code: file.code }));
+            } else if (previewKind(file)) {
+              openers.preview(file, [file]);
+            } else {
+              router.history.push(detailsPath);
+            }
+          },
+          details: () => {
+            onClose();
+            router.history.push(detailsPath);
+          },
+        };
+      });
+      const outsideItems = found.outside.slice(0, outsideRows).map(
+        (o): Item => ({
+          key: `file-outside-${o.googleFileId}`,
+          label: `${o.name}, ${t("palette.notInProject")}`,
+          file: {
+            code: null,
+            name: o.name,
+            project: null,
+            google: true,
+            line: o.passage ?? o.summary,
+            words,
+          },
+          fromSearch: true,
+          select: () => {
+            onClose();
+            openGoogleOutsideFile({ googleFileId: o.googleFileId, name: o.name });
+          },
+        }),
+      );
+      byGroup.files = [...fileRows, ...outsideItems];
+      byGroup.more.push({
+        key: "files-all",
+        label: t("palette.searchAllFiles", { query: filesQuery }),
+        fallback: true,
+        select: () => {
+          router.history.push(`/drive?q=${encodeURIComponent(filesQuery)}`);
+          onClose();
+        },
+      });
+    }
     if (searching) {
       for (const r of search.data ?? []) {
         const list = byGroup[KIND_GROUP[r.kind]];
@@ -455,10 +554,11 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     });
     const quoting = (cmd: Command) =>
       !!needle && !!cmd.queryLabelKey && !labelOf(cmd).toLowerCase().includes(needle);
-    // Le azioni il cui nome corrisponde vengono subito dopo gli oggetti (Enter
-    // su «new task» esegue il comando); le righe che citano il testo («Search
-    // all messages for “…”», «Ask Claude: “…”») ci sono per ogni testo e
-    // vanno in fondo, sotto Channels e Messages.
+    // Le azioni il cui nome corrisponde vengono dopo oggetti, file e Chat
+    // (shape drive-search.md A5), ma un comando il cui nome comincia col
+    // testo parte selezionato (Enter su «new task» esegue il comando); le
+    // righe che citano il testo («Search all messages for “…”», «Ask Claude:
+    // “…”») ci sono per ogni testo e vanno in fondo, in More.
     const toItem = (cmd: Command): Item => ({
         key: `cmd-${cmd.id}`,
         fallback: quoting(cmd),
@@ -479,10 +579,11 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         "tasks",
         "requests",
         "pages",
+        "files",
         "people",
-        "actions",
         "channels",
         "messages",
+        "actions",
         "more",
       ] as const
     )
@@ -515,10 +616,22 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     pageSearch.data,
     scoped,
     scopeProject,
+    filesQuery,
+    fileSearch.data,
+    openers,
   ]);
 
   const items = useMemo(() => groups.flatMap((g) => g.items), [groups]);
-  const activeIndex = items.length === 0 ? -1 : Math.min(active, items.length - 1);
+  // Finché non ci si muove: il primo comando il cui nome comincia col testo, o la prima riga.
+  const preferred = useMemo(() => {
+    const needle = fold(query.trim());
+    if (step !== "root" || !needle) return 0;
+    const actions = groups.find((g) => g.id === "actions")?.items ?? [];
+    const cmd = actions.find((item) => fold(item.label).startsWith(needle));
+    return cmd ? items.indexOf(cmd) : 0;
+  }, [groups, items, query, step]);
+  const activeIndex =
+    items.length === 0 ? -1 : Math.min(active ?? preferred, items.length - 1);
   const activeItem = activeIndex >= 0 ? items[activeIndex] : undefined;
 
   // Il risultato selezionato resta visibile quando la lista scorre.
@@ -534,6 +647,9 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   const pagesSettled =
     !pagesQuery ||
     (pageSearch.isSuccess && !pageSearch.isPlaceholderData && !pageSearch.isFetching);
+  const filesSettled =
+    !filesQuery ||
+    (fileSearch.isSuccess && !fileSearch.isPlaceholderData && !fileSearch.isFetching);
   const settled = scoped
     ? query === debounced && pagesSettled
     : query === debounced &&
@@ -541,7 +657,8 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       !search.isPlaceholderData &&
       !search.isFetching &&
       chatSettled &&
-      pagesSettled;
+      pagesSettled &&
+      filesSettled;
   const showEmpty =
     step === "root" &&
     (scoped ? !!pagesQuery : searching) &&
@@ -558,16 +675,18 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     (query !== debounced ||
       search.isPlaceholderData ||
       chatSearch.isPlaceholderData ||
-      pageSearch.isPlaceholderData);
-  const choose = (item: Item | undefined) => {
+      pageSearch.isPlaceholderData ||
+      (!!filesQuery && fileSearch.isPlaceholderData));
+  const choose = (item: Item | undefined, details = false) => {
     if (!item || (stale && item.fromSearch)) return;
-    item.select();
+    if (details && item.details) item.details();
+    else item.select();
   };
 
   function back() {
     setStep("root");
     setQuery("");
-    setActive(0);
+    setActive(null);
   }
 
   function onKeyDown(e: ReactKeyboardEvent) {
@@ -583,7 +702,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       case "Home":
         if (!query) {
           e.preventDefault();
-          setActive(0);
+          setActive(null);
         }
         break;
       case "End":
@@ -594,7 +713,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         break;
       case "Enter":
         e.preventDefault();
-        choose(activeItem);
+        choose(activeItem, e.altKey);
         break;
       case "Escape":
         e.preventDefault();
@@ -614,7 +733,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         e.preventDefault();
         if (step === "root" && scopeRepo) {
           setWidened((w) => !w);
-          setActive(0);
+          setActive(null);
         }
         break;
     }
@@ -676,7 +795,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
-              setActive(0);
+              setActive(null);
             }}
             className="h-full min-w-0 flex-1 bg-transparent text-lg text-ink outline-none placeholder:text-ink-faint focus-visible:outline-none"
           />
@@ -743,6 +862,60 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                           </span>
                           <span className="truncate text-xs text-ink-muted">
                             <Highlighted text={page.passage} words={page.words} />
+                          </span>
+                        </span>
+                        <span
+                          className={`shrink-0 text-ink-muted ${selected ? "visible" : "invisible"}`}
+                        >
+                          <EnterIcon />
+                        </span>
+                      </div>
+                    );
+                  }
+                  if (item.file) {
+                    // Un file del Drive: 52px, codice · nome · progetto sopra, il passaggio sotto.
+                    const file = item.file;
+                    return (
+                      <div
+                        key={item.key}
+                        id={optionId(item.key)}
+                        role="option"
+                        aria-selected={selected}
+                        aria-label={item.label}
+                        data-palette-file
+                        onMouseMove={() => {
+                          if (!selected) setActive(items.indexOf(item));
+                        }}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={(e) => choose(item, e.altKey)}
+                        className={`relative mx-1.5 flex h-13 cursor-pointer items-center gap-3 rounded-md px-2.5 text-ink transition-opacity duration-[var(--duration-fast)] aria-selected:bg-ink/8 ${
+                          dimmed ? "opacity-50" : ""
+                        }`}
+                      >
+                        <span
+                          className={`num w-16 shrink-0 self-start pt-[9px] ${
+                            file.code ? "text-sm font-semibold text-ink-muted" : "text-xs leading-4 text-ink-faint"
+                          }`}
+                        >
+                          {file.code ?? t("palette.notInProject")}
+                        </span>
+                        <span className="flex min-w-0 flex-1 flex-col">
+                          <span className="flex min-w-0 items-baseline gap-2">
+                            <span className={`truncate text-md ${selected ? "font-medium" : ""}`}>
+                              <Highlighted text={file.name} words={file.words} />
+                            </span>
+                            {file.google && (
+                              <span className="flex shrink-0 items-center gap-0.5 self-center text-ink-muted">
+                                <GoogleDriveGlyph size={12} />
+                                <ExternalGlyph size={10} />
+                              </span>
+                            )}
+                            {file.project && (
+                              <span className="num shrink-0 text-xs text-ink-muted">{file.project}</span>
+                            )}
+                          </span>
+                          <span className="truncate text-xs text-ink-muted">
+                            <Highlighted text={file.line} words={file.words} />
                           </span>
                         </span>
                         <span
@@ -879,6 +1052,12 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
               <Kbd>↵</Kbd>
               {t("palette.hints.open")}
             </span>
+            {activeItem?.details && (
+              <span className="flex items-center gap-1.5">
+                <Kbd>⌥↵</Kbd>
+                {t("palette.hints.details")}
+              </span>
+            )}
             <span className="flex items-center gap-1.5">
               <Kbd>Esc</Kbd>
               {step !== "root" ? t("palette.hints.back") : t("palette.hints.close")}

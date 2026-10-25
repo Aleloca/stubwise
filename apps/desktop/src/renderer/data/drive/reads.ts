@@ -1,3 +1,4 @@
+import { fold, highlightParts, MIN_QUERY, searchWords } from "../../pages/chat/search";
 import { PEOPLE } from "../seed/people";
 import { copy, gate, now, state } from "../store";
 import type {
@@ -6,11 +7,15 @@ import type {
   DriveFilePermissions,
   DriveFileRow,
   DriveFilters,
+  DriveSearchHit,
+  DriveSearchResult,
+  DriveSearchScope,
   FolderLinkView,
   GoogleAccount,
   GoogleFileChoice,
   GoogleFolderChoice,
   GoogleOutsideFile,
+  GoogleOutsideHit,
 } from "../types";
 import { can, viewerFor } from "../viewer";
 import { opens90d, searchableText, summaryLineOf } from "./content";
@@ -193,16 +198,138 @@ const referenced = (me: string, googleFileId: string, projectId?: string) =>
  */
 export async function listGoogleOutside(q: string): Promise<GoogleOutsideFile[]> {
   const me = await gate("drive.listGoogleOutside");
-  if (!isGoogleConnected(me)) return [];
   const needle = q.trim().toLowerCase();
-  return state.googleOutside
+  return outsideFor(me)
+    .filter((f) => !needle || [f.name, f.text].some((s) => s.toLowerCase().includes(needle)))
+    .map(copy);
+}
+
+/** I file Google fuori dai progetti che chi guarda vede: solo con l'account collegato. */
+const outsideFor = (me: string): GoogleOutsideFile[] =>
+  isGoogleConnected(me)
+    ? state.googleOutside.filter(
+        (f) => f.visibleToPersonIds.includes(me) && !referenced(me, f.googleFileId),
+      )
+    : [];
+
+// --- Ricerca -----------------------------------------------------------------
+
+/** Quanto è lungo, al più, il passaggio di un risultato (più le ellissi). */
+const PASSAGE = 180;
+
+/**
+ * Il passaggio del testo in cui compaiono le parole: il paragrafo che ne
+ * contiene di più, tagliato intorno alla prima. `null` se nessuna compare.
+ * Le parole si trovano come le evidenzia la Chat (`highlightParts`), così il
+ * passaggio contiene sempre ciò che la superficie marca.
+ */
+export function drivePassage(text: string, words: readonly string[]): string | null {
+  let best: { line: string; hits: number; at: number } | null = null;
+  for (const line of text.split(/\n+/).map((l) => l.trim()).filter(Boolean)) {
+    const folded = fold(line);
+    const hits = words.filter((w) => folded.includes(w)).length;
+    if (hits === 0 || (best && hits <= best.hits)) continue;
+    const parts = highlightParts(line, words);
+    const first = parts.findIndex((p) => p.hit);
+    const at = parts.slice(0, first).reduce((n, p) => n + p.text.length, 0);
+    best = { line, hits, at };
+  }
+  if (!best) return null;
+  const { line, at } = best;
+  if (line.length <= PASSAGE) return line;
+  let start = Math.max(0, Math.min(at - 50, line.length - PASSAGE));
+  // Si comincia da una parola intera, mai a metà.
+  if (start > 0) {
+    const space = line.indexOf(" ", start - 1);
+    if (space >= 0 && space < at) start = space + 1;
+  }
+  const end = Math.min(line.length, start + PASSAGE);
+  return `${start > 0 ? "…" : ""}${line.slice(start, end).trim()}${end < line.length ? "…" : ""}`;
+}
+
+/**
+ * Quanto corrisponde un testo: le parole trovate nel nome valgono doppio di
+ * quelle nel contenuto; `null` se manca anche una sola parola.
+ */
+function scoreOf(words: readonly string[], name: string, text: string, code = ""): number | null {
+  const [n, t, c] = [fold(name), fold(text), fold(code)];
+  let score = 0;
+  for (const w of words) {
+    const inName = n.includes(w) || c.includes(w);
+    const inText = t.includes(w);
+    if (!inName && !inText) return null;
+    score += (inName ? 2 : 0) + (inText ? 1 : 0);
+  }
+  return score;
+}
+
+/**
+ * La ricerca nei file del Drive (shape drive-search.md): per nome, codice e
+ * contenuto, nei progetti che chi guarda vede e coi filtri dell'elenco. Il
+ * contenuto è `searchableText`: un file non disponibile o non pronto si
+ * trova solo per nome. I nascosti non ci sono (nemmeno per chi gestisce): un
+ * file che chi cerca non vede è un file che non esiste (R-G5). Ordine:
+ * codice esatto in testa, poi pertinenza, a parità le aperture degli ultimi
+ * 90 giorni, poi la modifica più recente. In coda i file Google fuori dai
+ * progetti (account collegato). **Non conta aperture**: le conta solo
+ * `recordOpen`, quando chi cerca apre un risultato.
+ */
+export async function searchDrive(
+  q: string,
+  scope: DriveSearchScope = {},
+): Promise<DriveSearchResult> {
+  const me = await gate("drive.searchDrive");
+  const query = q.trim();
+  if (query.length < MIN_QUERY) return { files: [], outside: [] };
+  const words = searchWords(query);
+  const exact = fold(query);
+  const files = state.driveFiles
     .filter(
       (f) =>
-        f.visibleToPersonIds.includes(me) &&
-        !referenced(me, f.googleFileId) &&
-        (!needle || [f.name, f.text].some((s) => s.toLowerCase().includes(needle))),
+        canSeeDriveFile(me, f) &&
+        (scope.projectId === undefined || f.projectId === scope.projectId) &&
+        (scope.type === undefined || f.type === scope.type) &&
+        (scope.source === undefined || f.source === scope.source) &&
+        (scope.addedById === undefined || f.addedById === scope.addedById),
     )
-    .map(copy);
+    .flatMap((f) => {
+      const text = searchableText(f);
+      const isCode = fold(f.code) === exact;
+      const score = isCode ? Number.MAX_SAFE_INTEGER : scoreOf(words, f.name, text, f.code);
+      if (score === null) return [];
+      const hit: DriveSearchHit = { file: driveRow(me, f), passage: drivePassage(text, words) };
+      return [{ hit, score }];
+    })
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        b.hit.file.opens90d - a.hit.file.opens90d ||
+        b.hit.file.modifiedAt.localeCompare(a.hit.file.modifiedAt) ||
+        a.hit.file.name.localeCompare(b.hit.file.name),
+    )
+    .map((x) => x.hit);
+  // Fuori dai progetti non c'è un «caricato» né chi l'ha aggiunto.
+  const outsideApplies = scope.source !== "upload" && scope.addedById === undefined;
+  const outside = (outsideApplies ? outsideFor(me) : [])
+    .filter((f) => scope.type === undefined || f.type === scope.type)
+    .flatMap((f) => {
+      const score = scoreOf(words, f.name, f.text);
+      if (score === null) return [];
+      const google = state.googleFiles.find((g) => g.googleFileId === f.googleFileId);
+      const hit: GoogleOutsideHit = {
+        googleFileId: f.googleFileId,
+        name: f.name,
+        type: f.type,
+        owner: google?.owner ?? "",
+        modifiedAt: google?.modifiedAt ?? "",
+        summary: f.summary,
+        passage: drivePassage(f.text, words),
+      };
+      return [{ hit, score }];
+    })
+    .sort((a, b) => b.score - a.score || a.hit.name.localeCompare(b.hit.name))
+    .map((x) => x.hit);
+  return { files, outside };
 }
 
 /**
