@@ -50,6 +50,15 @@ import {
   GOOGLE_ACCOUNTS,
   GOOGLE_OUTSIDE_FILES,
 } from "./seed/drive";
+import {
+  EV_AUD_REVIEW_YESTERDAY,
+  MAILBOXES,
+  MAIL_CASES,
+  MAIL_DRAFTS,
+  MAIL_MESSAGES,
+  MAIL_PROPOSALS,
+  MEETING_TRANSCRIPTS,
+} from "./seed/mail";
 import { VIEW_AS_PERSONAS } from "./viewer";
 import type {
   Channel,
@@ -1367,5 +1376,204 @@ describe("seed: Drive (area 5)", () => {
     expect(
       GOOGLE_OUTSIDE_FILES.some((g) => g.visibleToPersonIds.some((id) => personaIds.has(id))),
     ).toBe(true);
+  });
+});
+
+describe("seed: Posta (area 6)", () => {
+  const NOW = `${TODAY}T12:00:00Z`;
+  const project = (code: string) => PROJECTS.find((p) => p.code === code)!;
+  const AUD = project("AUD").id;
+  const STW = project("STW").id;
+  const MKX = project("MKX").id;
+  type Message = (typeof MAIL_MESSAGES)[number];
+  const message = (id: string): Message => {
+    const m = MAIL_MESSAGES.find((x) => x.id === id);
+    expect(m, id).toBeDefined();
+    return m!;
+  };
+  /** I destinatari in Stubwise: mittente, `to`, `cc`, proprietari delle caselle. */
+  const recipients = (m: Message) =>
+    new Set([
+      ...[m.from, ...m.to, ...(m.cc ?? [])].flatMap((a) => (a.personId ? [a.personId] : [])),
+      ...m.mailboxPersonIds,
+    ]);
+  const done = (id: string) => {
+    const c = message(id).classification;
+    if (c.state !== "done") throw new Error(`${id}: ${c.state}`);
+    return c;
+  };
+  const proposalsOf = (id: string) =>
+    MAIL_PROPOSALS.filter((p) => p.sourceId === message(id).messageId);
+
+  it("id e Message-ID unici: la stessa email a tre caselle è una riga sola", () => {
+    expect(new Set(MAIL_MESSAGES.map((m) => m.id)).size).toBe(MAIL_MESSAGES.length);
+    expect(new Set(MAIL_MESSAGES.map((m) => m.messageId)).size).toBe(MAIL_MESSAGES.length);
+    expect(new Set(MAIL_PROPOSALS.map((p) => p.id)).size).toBe(MAIL_PROPOSALS.length);
+    for (const m of MAIL_MESSAGES) {
+      expect(m.messageId, m.id).toMatch(/^<[^<>\s]+@[^<>\s]+>$/);
+      expect(m.at <= NOW, m.id).toBe(true);
+      expect(m.mailboxPersonIds.length, m.id).toBeGreaterThan(0);
+    }
+    expect(MAIL_DRAFTS).toEqual([]);
+  });
+
+  it("caselle: Giulia e Matteo collegati, Laura scaduta; nessuna di Roberta", () => {
+    const accountOf = (personId: string) => GOOGLE_ACCOUNTS.find((a) => a.personId === personId);
+    const box = (personId: string) => MAILBOXES.find((b) => b.personId === personId);
+    expect(MAILBOXES.map((b) => b.personId).sort()).toEqual(["p-giulia", "p-laura", "p-matteo"]);
+    for (const b of MAILBOXES) {
+      expect(accountOf(b.personId)?.email, b.personId).toBe(b.email);
+      expect(b.syncedAt <= NOW, b.personId).toBe(true);
+    }
+    expect(box("p-giulia")!.proposalsEnabled).toBe(true);
+    expect(accountOf("p-giulia")?.status).toBe("connected");
+    expect(accountOf("p-matteo")?.status).toBe("connected");
+    expect(accountOf("p-laura")?.status).toBe("expired");
+    expect(box("p-laura")!.sync).toBe("failed");
+    expect(box("p-roberta")).toBeUndefined();
+    // Ogni messaggio sta in caselle che esistono, arrivato prima del loro ultimo allineamento.
+    for (const m of MAIL_MESSAGES) {
+      for (const id of m.mailboxPersonIds) {
+        expect(m.at <= (box(id)?.syncedAt ?? ""), `${m.id} / ${id}`).toBe(true);
+      }
+    }
+  });
+
+  it("Roberta (admin) non è fra i destinatari di nessun messaggio", () => {
+    for (const m of MAIL_MESSAGES) expect(recipients(m).has("p-roberta"), m.id).toBe(false);
+  });
+
+  it("AUD e STW, importanza alta/normale/bassa, con scadenze", () => {
+    const classified = MAIL_MESSAGES.flatMap((m) =>
+      m.classification.state === "done" ? [m.classification] : [],
+    );
+    for (const prj of [AUD, STW]) {
+      const of = classified.filter((c) => c.projectIds.includes(prj));
+      expect(new Set(of.map((c) => c.importance)), prj).toEqual(new Set(["high", "normal", "low"]));
+      expect(
+        of.some((c) => c.dueDate !== null && c.dueDate > TODAY),
+        prj,
+      ).toBe(true);
+    }
+  });
+
+  it("newsletter e posta personale senza progetto e senza proposte", () => {
+    for (const id of [MAIL_CASES.newsletter1, MAIL_CASES.newsletter2, MAIL_CASES.personal]) {
+      const c = done(id);
+      expect(c.projectIds, id).toEqual([]);
+      expect(c.uncertainProjectIds, id).toEqual([]);
+      expect(proposalsOf(id), id).toEqual([]);
+    }
+  });
+
+  it("una email incerta fra AUD e MKX", () => {
+    const c = done(MAIL_CASES.uncertain);
+    expect(c.projectIds).toEqual([]);
+    expect([...c.uncertainProjectIds].sort()).toEqual([AUD, MKX].sort());
+  });
+
+  it("una email a Giulia, Matteo e Laura con una proposta condivisa aperta", () => {
+    const m = message(MAIL_CASES.shared);
+    expect([...m.mailboxPersonIds].sort()).toEqual(["p-giulia", "p-laura", "p-matteo"]);
+    const ps = proposalsOf(MAIL_CASES.shared);
+    expect(ps).toHaveLength(1);
+    expect(ps[0]!.status).toBe("open");
+    expect(ps[0]!.decidedById).toBeNull();
+    // Tutti e tre membri del progetto: la vedono tutti e tre.
+    const members = projectsById.get(ps[0]!.projectId)!.memberIds;
+    for (const id of m.mailboxPersonIds) expect(members).toContain(id);
+  });
+
+  it("una proposta già confermata da Matteo e una passata al progetto", () => {
+    const [confirmed] = proposalsOf(MAIL_CASES.confirmed);
+    expect(confirmed?.status).toBe("confirmed");
+    expect(confirmed?.decidedById).toBe("p-matteo");
+    expect(confirmed?.decidedAt).not.toBeNull();
+    expect(confirmed?.resultCodes.length).toBeGreaterThan(0);
+    const [handed] = proposalsOf(MAIL_CASES.handed);
+    expect(handed?.status).toBe("handed");
+    expect(handed?.handedAt).not.toBeNull();
+    expect(handed?.decidedById).not.toBeNull();
+    expect(handed?.excerpt.length).toBeGreaterThan(0);
+  });
+
+  it("l'email di Gemini dopo la riunione AUD di ieri: trascrizione pronta e quattro task", () => {
+    const m = message(MAIL_CASES.transcript);
+    expect(m.kind).toBe("transcript");
+    expect(m.at.slice(0, 10)).toBe(daysFromToday(-1));
+    const t = MEETING_TRANSCRIPTS.find((x) => x.messageId === m.id)!;
+    expect(t.doc).toBe("ready");
+    expect(t.eventId).toBe(EV_AUD_REVIEW_YESTERDAY);
+    expect(t.transcript.length).toBeGreaterThan(0);
+    expect(t.summary).not.toBeNull();
+    const ps = proposalsOf(MAIL_CASES.transcript);
+    expect(ps).toHaveLength(1);
+    expect(ps[0]!.source).toBe("transcript");
+    expect(ps[0]!.projectId).toBe(AUD);
+    expect(ps[0]!.actions.map((a) => a.fn)).toEqual(Array(4).fill("createTask"));
+    expect(ps[0]!.actions.map((a) => a.args.assigneeId)).toContain("p-chiara");
+    // Chiara (marketing) non è nel progetto, e non era alla riunione.
+    expect(PEOPLE.find((p) => p.id === "p-chiara")!.departmentIds).toEqual(["dep-marketing"]);
+    expect(project("AUD").memberIds).not.toContain("p-chiara");
+    expect(recipients(m).has("p-chiara")).toBe(false);
+  });
+
+  it("una trascrizione non raggiungibile, una classificazione in analisi e una fallita", () => {
+    const m = message(MAIL_CASES.transcriptUnreachable);
+    expect(m.kind).toBe("transcript");
+    const t = MEETING_TRANSCRIPTS.find((x) => x.messageId === m.id)!;
+    expect(t.doc).toBe("unreachable");
+    expect(t.summary).toBeNull();
+    expect(message(MAIL_CASES.pending).classification.state).toBe("pending");
+    expect(message(MAIL_CASES.failed).classification.state).toBe("failed");
+    for (const x of MEETING_TRANSCRIPTS) expect(message(x.messageId).kind).toBe("transcript");
+  });
+
+  it("contenuti estremi: 60 messaggi, HTML ostile, 40 destinatari", () => {
+    const threadId = message(MAIL_CASES.longThread).threadId;
+    const thread = MAIL_MESSAGES.filter((m) => m.threadId === threadId);
+    expect(thread).toHaveLength(60);
+    expect(new Set(thread.map((m) => m.at)).size).toBe(60);
+    const hostile = message(MAIL_CASES.hostileHtml).html ?? "";
+    expect(hostile).toMatch(/<script/i);
+    expect(hostile).toMatch(/<img[^>]+src="https?:\/\//i);
+    const crowd = message(MAIL_CASES.fortyRecipients);
+    expect(crowd.to.length + (crowd.cc ?? []).length).toBe(40);
+  });
+
+  it("le caselle con le proposte spente non mandano la loro posta al modello", () => {
+    const on = new Set(MAILBOXES.filter((b) => b.proposalsEnabled).map((b) => b.personId));
+    for (const m of MAIL_MESSAGES) {
+      const anyOn = m.mailboxPersonIds.some((id) => on.has(id));
+      expect(m.classification.state === "off", m.id).toBe(!anyOn);
+    }
+    expect(MAIL_MESSAGES.some((m) => m.classification.state === "off")).toBe(true);
+  });
+
+  it("ogni proposta ha un progetto di cui almeno un destinatario è membro", () => {
+    const byMessageId = new Map(MAIL_MESSAGES.map((m) => [m.messageId, m]));
+    for (const p of MAIL_PROPOSALS) {
+      const m = byMessageId.get(p.sourceId);
+      expect(m, p.id).toBeDefined();
+      const members = new Set(projectsById.get(p.projectId)!.memberIds);
+      expect(
+        [...recipients(m!)].some((id) => members.has(id)),
+        p.id,
+      ).toBe(true);
+      expect(p.createdAt >= m!.at && p.createdAt <= NOW, p.id).toBe(true);
+      expect(p.source, p.id).toBe(m!.kind === "transcript" ? "transcript" : "email");
+      const c = m!.classification;
+      expect(c.state === "done" ? c.projectIds : [], p.id).toContain(p.projectId);
+      expect(p.actions.length, p.id).toBeGreaterThan(0);
+      for (const a of p.actions) {
+        // Solo le funzioni di oggi: le nuove (decisione, traguardo, scelta del progetto) arrivano dopo.
+        expect(["createTask", "createRequest", "updateTask", "addComment"], p.id).toContain(a.fn);
+        const taskId = a.fn === "updateTask" ? a.args.id : a.args.taskId;
+        if (a.fn === "updateTask" || a.fn === "addComment") {
+          expect(tasksById.get(taskId as string)?.projectId, p.id).toBe(p.projectId);
+        }
+      }
+      expect(p.status === "open", p.id).toBe(p.decidedById === null);
+    }
   });
 });

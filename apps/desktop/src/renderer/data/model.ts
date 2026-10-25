@@ -1538,3 +1538,134 @@ export type ChatScriptStep =
       patch: Partial<Omit<ChatMessage, "id" | "channelId" | "threadOf">>;
     }
   | { step: "say"; messageId: string; text: string };
+
+// --- Posta (area 6) ----------------------------------------------------------
+
+/** Un indirizzo di posta; `personId` se è di una persona del team in Stubwise. */
+export interface MailAddress {
+  name: string;
+  email: string;
+  personId: string | null;
+}
+
+/**
+ * La casella Gmail di una persona (serve l'account Google collegato).
+ * `proposalsEnabled` = «Proposte attive per questa casella»: spento, la sua
+ * posta non va al modello. `syncedAt` dice quanto è aggiornata.
+ */
+export interface Mailbox {
+  personId: string;
+  email: string;
+  proposalsEnabled: boolean;
+  syncedAt: string;
+  sync: "ok" | "syncing" | "failed";
+}
+
+export type MailImportance = "high" | "normal" | "low";
+
+/**
+ * L'esito del modello su un'email: `off` = casella con le proposte spente,
+ * `pending` = in analisi, `failed` = analisi fallita («Riproponi»). `done`:
+ * i progetti (anche nessuno: newsletter, personali), l'importanza, la
+ * scadenza ricavata e i progetti fra cui è incerto (→ `chooseProject`).
+ */
+export type MailClassification =
+  | { state: "off" | "pending" | "failed" }
+  | {
+      state: "done";
+      projectIds: string[];
+      importance: MailImportance;
+      dueDate: string | null;
+      uncertainProjectIds: string[];
+    };
+
+/**
+ * Un messaggio. La stessa email arrivata a più caselle è UNA riga (stesso
+ * Message-ID), con le caselle che la contengono in `mailboxPersonIds`. La
+ * vedono solo i suoi destinatari in Stubwise: mittente, `to`, `cc`,
+ * proprietari delle caselle — admin compresi, nessuna eccezione.
+ */
+export interface MailMessage {
+  id: string;
+  /** Il Message-ID RFC dell'email: chiave della proposta condivisa. */
+  messageId: string;
+  threadId: string;
+  from: MailAddress;
+  to: MailAddress[];
+  /** `null` = nessuna copia nell'intestazione (non una lista vuota). */
+  cc: MailAddress[] | null;
+  subject: string;
+  at: string;
+  text: string;
+  /** Il testo citato dei messaggi precedenti, piegato nella lettura. */
+  quoted: string | null;
+  /** L'originale HTML, mostrato in un frame isolato (immagini remote bloccate). */
+  html: string | null;
+  attachments: { id: string; name: string; sizeBytes: number }[];
+  /** Le caselle che lo contengono. */
+  mailboxPersonIds: string[];
+  readByPersonIds: string[];
+  /** `transcript` = l'email di Gemini con le note di una riunione. */
+  kind: "email" | "transcript";
+  /** Un messaggio di contesto della conversazione (non classificato da sé). */
+  context: boolean;
+  classification: MailClassification;
+  /** Solo i messaggi scritti da Stubwise: lo stato dell'invio. */
+  delivery?: { state: "sending" | "sent" | "failed"; sentById: string; error?: string };
+}
+
+/**
+ * Le note di una riunione registrata (email di Gemini): il Google Doc letto
+ * con l'account di chi l'ha ricevuta, l'evento collegato (link Meet e
+ * orario) e il riassunto generato. Riassunto e trascrizione li vedono solo i
+ * partecipanti dell'evento.
+ */
+export interface MeetingTranscript {
+  /** L'id della riga `MailMessage` dell'email di Gemini. */
+  messageId: string;
+  eventId: string | null;
+  docTitle: string;
+  doc: "reading" | "ready" | "unreachable";
+  transcript: string;
+  summary: string | null;
+}
+
+export type MailProposalSource = "email" | "transcript" | "calendar";
+
+/**
+ * Una proposta nata dalla posta o dal calendario: una per email (Message-ID)
+ * e progetto, condivisa fra i destinatari membri del progetto. Chi decide
+ * per primo la chiude per tutti.
+ */
+export interface MailProposal {
+  id: string;
+  source: MailProposalSource;
+  /** Il Message-ID RFC (email, trascrizione) o l'id dell'evento (calendario). */
+  sourceId: string;
+  projectId: string;
+  actions: ProposedAction[];
+  /** L'estratto che Stubwise ha letto: è ciò che vede chi la riceve passata. */
+  excerpt: string;
+  createdAt: string;
+  status: "open" | "confirmed" | "ignored" | "handed" | "failed";
+  decidedById: string | null;
+  decidedAt: string | null;
+  resultCodes: string[];
+  error: string | null;
+  handedAt: string | null;
+}
+
+/** Una bozza, per persona e conversazione (`threadId: null` = email nuova). */
+export interface MailDraft {
+  id: string;
+  personId: string;
+  threadId: string | null;
+  mode: "new" | "reply" | "replyAll" | "forward";
+  replyToMessageId: string | null;
+  to: MailAddress[];
+  cc: MailAddress[];
+  subject: string;
+  body: string;
+  attachments: { id: string; name: string; sizeBytes: number; driveFileId: string | null }[];
+  updatedAt: string;
+}

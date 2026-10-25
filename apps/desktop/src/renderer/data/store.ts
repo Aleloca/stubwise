@@ -37,6 +37,13 @@ import {
   GOOGLE_FOLDERS,
   GOOGLE_OUTSIDE_FILES,
 } from "./seed/drive";
+import {
+  MAILBOXES,
+  MAIL_DRAFTS,
+  MAIL_MESSAGES,
+  MAIL_PROPOSALS,
+  MEETING_TRANSCRIPTS,
+} from "./seed/mail";
 import { DEFAULT_SESSION_PERSON_ID, getSessionPersonId, setSessionPersonId } from "./session";
 import type {
   ActivityEntry,
@@ -77,6 +84,11 @@ import type {
   GoogleDriveFile,
   GoogleFolder,
   GoogleOutsideFile,
+  MailDraft,
+  Mailbox,
+  MailMessage,
+  MailProposal,
+  MeetingTranscript,
   SavedFilter,
   StatusFamily,
   Task,
@@ -441,6 +453,17 @@ interface State {
   driveContentLog: Map<string, ContentState[]>;
   /** I file che il seme lascia in elaborazione sono già partiti (alla prima lettura del Drive). */
   driveSeedWorkStarted: boolean;
+  // --- Posta (area 6) ---
+  /** Le caselle Gmail, una per account Google. */
+  mailboxes: Mailbox[];
+  /** Tutti i messaggi, una riga per Message-ID anche se è in più caselle. */
+  mailMessages: MailMessage[];
+  /** Le note delle riunioni registrate, per id del messaggio di Gemini. */
+  meetingTranscripts: MeetingTranscript[];
+  /** Le proposte della posta, condivise fra i destinatari membri del progetto. */
+  mailProposals: MailProposal[];
+  /** Le bozze, per persona e conversazione. */
+  mailDrafts: MailDraft[];
 }
 
 function initialDocCodeSeq(): Map<string, number> {
@@ -520,6 +543,11 @@ function freshState(): State {
     googleFiles: GOOGLE_DRIVE_FILES.map(copy),
     driveContentLog: new Map(),
     driveSeedWorkStarted: false,
+    mailboxes: MAILBOXES.map(copy),
+    mailMessages: MAIL_MESSAGES.map(copy),
+    meetingTranscripts: MEETING_TRANSCRIPTS.map(copy),
+    mailProposals: MAIL_PROPOSALS.map(copy),
+    mailDrafts: MAIL_DRAFTS.map(copy),
   };
 }
 
