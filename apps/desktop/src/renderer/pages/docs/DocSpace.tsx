@@ -1,7 +1,8 @@
-import { Link, Outlet, useParams } from "@tanstack/react-router";
+import { Link, Outlet, useNavigate, useParams } from "@tanstack/react-router";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -23,8 +24,10 @@ import { openPalette } from "../../layout/useShortcuts";
 import { formatDate } from "../../notifications/time";
 import { PageError } from "../../tasks-ui/PageStates";
 import { useToast } from "../../tasks-ui/Toast";
-import { PlusIcon, smallSecondary } from "../task/parts";
-import { primaryButton, secondaryButton } from "../tasks/controls";
+import { overflowingBarItems } from "../../domain/docs";
+import { itemClass } from "../../tasks-ui/Menu";
+import { MoreIcon, PlusIcon, smallSecondary } from "../task/parts";
+import { MenuButton, primaryButton, secondaryButton } from "../tasks/controls";
 import { DocsChatPanel, useDocsChat } from "./DocsChat";
 import { DocTree, DocTreeSkeleton, ancestorKeys, categoryKey, folderKeys } from "./DocTree";
 import { GenerationPanel } from "./GenerationPanel";
@@ -85,7 +88,11 @@ function writeChatOpen(personId: string, open: boolean): void {
 function ChatOverlay({ onClose, children }: { onClose: () => void; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    ref.current?.querySelector<HTMLElement>("textarea, button")?.focus();
+    // La casella, se c'è (chat disponibile); altrimenti il primo bottone.
+    const root = ref.current;
+    (
+      root?.querySelector<HTMLElement>("textarea") ?? root?.querySelector<HTMLElement>("button")
+    )?.focus();
   }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -100,6 +107,7 @@ function ChatOverlay({ onClose, children }: { onClose: () => void; children: Rea
   return (
     <div
       ref={ref}
+      data-docs-chat-overlay
       className="absolute top-10 right-0 bottom-0 z-30 flex w-[400px] max-w-full border-l border-rule-strong bg-surface shadow-[0_12px_32px_-8px_oklch(0_0_0/0.4)]"
     >
       {children}
@@ -215,6 +223,7 @@ function SpaceShell({ project, space }: { project: Project; space: DocSpaceView 
   }, [chatOpen, closeChat, setChat]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.altKey) return;
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "c") {
         if (document.querySelector('[aria-modal="true"]')) return;
         e.preventDefault();
@@ -249,6 +258,8 @@ function SpaceShell({ project, space }: { project: Project; space: DocSpaceView 
         if (drawer) closeDrawer(true);
         else setDrawer(true);
       } else if (e.key === "Escape" && drawer) {
+        // Un Esc chiude solo lo strato in cima: la chat sovrapposta prima del cassetto.
+        if (document.querySelector("[data-docs-chat-overlay]")) return;
         if (e.defaultPrevented || document.querySelector('[aria-modal="true"]')) return;
         e.preventDefault();
         closeDrawer(true);
@@ -299,73 +310,16 @@ function SpaceShell({ project, space }: { project: Project; space: DocSpaceView 
   return (
     <SpaceContext.Provider value={{ project, space, revealCategory }}>
       <div className="relative flex h-full min-h-0 flex-col">
-        <nav
-          aria-label={t("docs.space.bar", { name: space.name })}
-          className="page-header flex min-h-10 shrink-0 items-center gap-1 border-b border-rule pl-3 [--page-header-pr:16px]"
-        >
-          {!docked && (
-            <button
-              ref={pagesButton}
-              type="button"
-              aria-expanded={drawer}
-              aria-keyshortcuts="Meta+Backslash"
-              title={`${t("docs.space.pagesToggle")} · ⌘\\`}
-              onClick={() => (drawer ? closeDrawer(false) : setDrawer(true))}
-              className="inline-flex h-7 items-center rounded-md px-2 text-sm font-medium text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink aria-expanded:bg-ink/10 aria-expanded:text-ink"
-            >
-              {t("docs.space.pagesToggle")}
-            </button>
-          )}
-          <span
-            title={space.name}
-            className="max-w-[240px] truncate px-2 text-md font-semibold text-ink"
-          >
-            {space.name}
-          </span>
-          <Link
-            to="/p/$code/docs/$repo"
-            params={{ code: project.code, repo: space.name }}
-            activeOptions={{ exact: true }}
-            className={barItem}
-          >
-            {t("docs.space.index")}
-          </Link>
-          {(["brief", "releases", "graph"] as const).map((view) => (
-            <Link
-              key={view}
-              to={`/p/$code/docs/$repo/${view}`}
-              params={{ code: project.code, repo: space.name }}
-              className={barItem}
-            >
-              <span className="truncate">{t(`docs.space.${view}`)}</span>
-              {view === "releases" && space.releases.length > 0 && (
-                <span className="num ml-1.5 text-xs text-ink-faint">{space.releases.length}</span>
-              )}
-            </Link>
-          ))}
-          <span className="ml-auto flex shrink-0 items-center gap-1">
-            <button
-              type="button"
-              onClick={() => openPalette("open")}
-              aria-keyshortcuts="Meta+K"
-              className={barItem}
-            >
-              {t("docs.space.search")}
-              <kbd className="num ml-1.5 font-sans text-xs text-ink-faint">⌘K</kbd>
-            </button>
-            <button
-              ref={chatButton}
-              type="button"
-              aria-pressed={chatOpen}
-              aria-keyshortcuts="Meta+Shift+C"
-              title={`${t("docs.space.chat")} · ⌘⇧C`}
-              onClick={toggleChat}
-              className={`${barItem} aria-pressed:bg-ink/10 aria-pressed:text-ink`}
-            >
-              {t("docs.space.chat")}
-            </button>
-          </span>
-        </nav>
+        <SpaceBar
+          project={project}
+          space={space}
+          pagesButton={docked ? null : pagesButton}
+          drawer={drawer}
+          onPages={() => (drawer ? closeDrawer(false) : setDrawer(true))}
+          chatButton={chatButton}
+          chatOpen={chatOpen}
+          onChat={toggleChat}
+        />
         <div className="flex min-h-0 flex-1">
           {docked && (
             <aside
@@ -412,6 +366,237 @@ function SpaceShell({ project, space }: { project: Project; space: DocSpaceView 
         )}
       </div>
     </SpaceContext.Provider>
+  );
+}
+
+/** Le voci della barra che possono finire in «More», dalla più importante. */
+const OPTIONAL_BAR = ["brief", "graph", "search"] as const;
+type OptionalBarItem = (typeof OPTIONAL_BAR)[number];
+
+/**
+ * La barra secondaria dello spazio (shape §3, §6): nome del repository ·
+ * Index · Brief · Releases N · Graph, a destra «Search ⌘K» e «Chat». Le voci
+ * non vanno mai a capo: quando la barra è stretta (1024, italiano, nome
+ * lungo) Search, Graph e Brief passano, in quest'ordine, nel menu «More».
+ * Index, Releases e Chat restano sempre. Le larghezze si misurano su una
+ * copia invisibile della barra intera.
+ */
+function SpaceBar({
+  project,
+  space,
+  pagesButton,
+  drawer,
+  onPages,
+  chatButton,
+  chatOpen,
+  onChat,
+}: {
+  project: Project;
+  space: DocSpaceView;
+  /** C'è solo quando l'albero è un cassetto (sotto i 1200 px). */
+  pagesButton: RefObject<HTMLButtonElement | null> | null;
+  drawer: boolean;
+  onPages: () => void;
+  chatButton: RefObject<HTMLButtonElement | null>;
+  chatOpen: boolean;
+  onChat: () => void;
+}) {
+  const { t, i18n } = useTranslation();
+  const navigate = useNavigate();
+  const nav = useRef<HTMLElement>(null);
+  const measure = useRef<HTMLDivElement>(null);
+  const [hidden, setHidden] = useState<readonly string[]>([]);
+
+  const fit = useCallback(() => {
+    const bar = nav.current;
+    const copy = measure.current;
+    // Una barra non ancora impaginata (larghezza 0) non decide nulla.
+    if (!bar || !copy || bar.clientWidth === 0) return;
+    const width = (id: string) =>
+      copy.querySelector<HTMLElement>(`[data-bar="${id}"]`)?.offsetWidth ?? 0;
+    const style = getComputedStyle(bar);
+    const available =
+      bar.clientWidth -
+      (parseFloat(style.paddingLeft) || 0) -
+      (parseFloat(style.paddingRight) || 0);
+    const fixed = ["pages", "name", "index", "releases", "chat"].reduce(
+      (sum, id) => sum + width(id) + 4,
+      0,
+    );
+    const next = overflowingBarItems(
+      available,
+      fixed,
+      OPTIONAL_BAR.map((id) => ({ id, width: width(id) })),
+      width("more"),
+    );
+    setHidden((prev) => (prev.join() === next.join() ? prev : next));
+  }, []);
+
+  useLayoutEffect(fit, [fit, i18n.language, space.name, space.releases.length, pagesButton]);
+  useEffect(() => {
+    const bar = nav.current;
+    if (!bar || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => fit());
+    observer.observe(bar);
+    return () => observer.disconnect();
+  }, [fit]);
+
+  const shows = (id: OptionalBarItem) => !hidden.includes(id);
+  const viewLink = (view: "brief" | "releases" | "graph") => (
+    <Link
+      key={view}
+      to={`/p/$code/docs/$repo/${view}`}
+      params={{ code: project.code, repo: space.name }}
+      className={barItem}
+    >
+      {t(`docs.space.${view}`)}
+      {view === "releases" && space.releases.length > 0 && (
+        <span className="num ml-1.5 text-xs text-ink-faint">{space.releases.length}</span>
+      )}
+    </Link>
+  );
+  const nameClass = "max-w-[240px] truncate px-2 text-md font-semibold text-ink";
+
+  return (
+    <nav
+      ref={nav}
+      aria-label={t("docs.space.bar", { name: space.name })}
+      className="page-header relative flex min-h-10 shrink-0 items-center gap-1 border-b border-rule pl-3 [--page-header-pr:16px]"
+    >
+      {/* La copia da misurare: tutte le voci, invisibile, fuori dal flusso e
+          dentro una scatola di 0 px (non allarga la pagina). */}
+      <div aria-hidden="true" className="absolute top-0 left-0 h-0 w-0 overflow-hidden">
+        <div
+          ref={measure}
+          inert
+          className="pointer-events-none invisible flex w-max items-center gap-1 whitespace-nowrap"
+        >
+          {pagesButton && (
+            <span data-bar="pages" className={barItem}>
+              {t("docs.space.pagesToggle")}
+            </span>
+          )}
+          <span data-bar="name" className={nameClass}>
+            {space.name}
+          </span>
+          <span data-bar="index" className={barItem}>
+            {t("docs.space.index")}
+          </span>
+          <span data-bar="brief" className={barItem}>
+            {t("docs.space.brief")}
+          </span>
+          <span data-bar="releases" className={barItem}>
+            {t("docs.space.releases")}
+            <span className="num ml-1.5 text-xs">{space.releases.length}</span>
+          </span>
+          <span data-bar="graph" className={barItem}>
+            {t("docs.space.graph")}
+          </span>
+          <span data-bar="more" className={barItem}>
+            {t("docs.space.more")}
+            <MoreIcon />
+          </span>
+          <span data-bar="search" className={barItem}>
+            {t("docs.space.search")}
+            <kbd className="num ml-1.5 font-sans text-xs">⌘K</kbd>
+          </span>
+          <span data-bar="chat" className={barItem}>
+            {t("docs.space.chat")}
+          </span>
+        </div>
+      </div>
+
+      {pagesButton && (
+        <button
+          ref={pagesButton}
+          type="button"
+          aria-expanded={drawer}
+          aria-keyshortcuts="Meta+Backslash"
+          title={`${t("docs.space.pagesToggle")} · ⌘\\`}
+          onClick={onPages}
+          className="inline-flex h-7 shrink-0 items-center rounded-md px-2 text-sm font-medium text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink aria-expanded:bg-ink/10 aria-expanded:text-ink"
+        >
+          {t("docs.space.pagesToggle")}
+        </button>
+      )}
+      <span title={space.name} className={`min-w-0 ${nameClass}`}>
+        {space.name}
+      </span>
+      <Link
+        to="/p/$code/docs/$repo"
+        params={{ code: project.code, repo: space.name }}
+        activeOptions={{ exact: true }}
+        className={barItem}
+      >
+        {t("docs.space.index")}
+      </Link>
+      {shows("brief") && viewLink("brief")}
+      {viewLink("releases")}
+      {shows("graph") && viewLink("graph")}
+      {hidden.length > 0 && (
+        <MenuButton
+          menuLabel={t("docs.space.more")}
+          align="right"
+          className={`${barItem} gap-1 aria-expanded:bg-ink/10 aria-expanded:text-ink`}
+          wrapperClassName="inline-flex shrink-0"
+          label={
+            <>
+              {t("docs.space.more")}
+              <MoreIcon />
+            </>
+          }
+        >
+          {(close) =>
+            hidden.map((id) => (
+              <button
+                key={id}
+                type="button"
+                role="menuitem"
+                className={itemClass}
+                onClick={() => {
+                  close();
+                  if (id === "search") openPalette("open");
+                  else
+                    void navigate({
+                      to: `/p/$code/docs/$repo/${id as "brief" | "graph"}`,
+                      params: { code: project.code, repo: space.name },
+                    });
+                }}
+              >
+                {t(`docs.space.${id}`)}
+                {id === "search" && (
+                  <kbd className="num ml-auto pl-4 font-sans text-xs text-ink-faint">⌘K</kbd>
+                )}
+              </button>
+            ))
+          }
+        </MenuButton>
+      )}
+      <span className="ml-auto flex shrink-0 items-center gap-1">
+        {shows("search") && (
+          <button
+            type="button"
+            onClick={() => openPalette("open")}
+            aria-keyshortcuts="Meta+K"
+            className={barItem}
+          >
+            {t("docs.space.search")}
+            <kbd className="num ml-1.5 font-sans text-xs text-ink-faint">⌘K</kbd>
+          </button>
+        )}
+        <button
+          ref={chatButton}
+          type="button"
+          aria-pressed={chatOpen}
+          aria-keyshortcuts="Meta+Shift+C"
+          title={`${t("docs.space.chat")} · ⌘⇧C`}
+          onClick={onChat}
+          className={`${barItem} aria-pressed:bg-ink/10 aria-pressed:text-ink`}
+        >
+          {t("docs.space.chat")}
+        </button>
+      </span>
+    </nav>
   );
 }
 

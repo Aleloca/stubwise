@@ -85,6 +85,14 @@ describe("Docs — pannello di generazione", () => {
     expect(await screen.findByText(/Il provider ha restituito un errore/)).toBeInTheDocument();
   });
 
+  it("trattenuta dal budget: il motivo, ma nessun «Resume now» (solo da una pausa)", async () => {
+    setGeneration("repo-aud", { status: "held", reason: "monthly_budget" });
+    renderRoute("/p/AUD/docs/audin-app", "p-laura");
+    const panel = await openPanel();
+    expect(panel).toHaveTextContent("The monthly budget for documentation is used up.");
+    expect(within(panel).queryByRole("button", { name: "Resume now" })).toBeNull();
+  });
+
   it("senza docs.generate né docs.edit: nessuna azione, i dettagli sì", async () => {
     renderRoute("/p/AUD/docs/audin-app", "p-giulia");
     const panel = await openPanel();
@@ -143,13 +151,22 @@ describe("Docs — releases", () => {
     await userEvent.click(within(bar).getByRole("link", { name: /Releases 3/ }));
     expect(await screen.findByRole("heading", { level: 1, name: "Releases" })).toBeInTheDocument();
     const list = screen.getByRole("list", { name: "Releases" });
-    expect(within(list).getAllByRole("listitem", { name: /^\d/ })).toHaveLength(3);
+    const releases = () => list.querySelectorAll("[data-release]");
+    expect(releases()).toHaveLength(3);
+    // L'elemento della lista non ha un nome suo: lo dice il suo contenuto.
+    expect(within(list).getAllByRole("listitem")[0]).not.toHaveAttribute("aria-label");
     expect(within(list).getByText("Minor")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("checkbox", { name: "Significant only" }));
-    expect(within(list).getAllByRole("listitem", { name: /^\d/ })).toHaveLength(2);
+    const toggle = screen.getByRole("switch", { name: "Significant only" });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    await userEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    expect(releases()).toHaveLength(2);
     expect(within(list).queryByText("Minor")).toBeNull();
     await userEvent.type(screen.getByRole("searchbox", { name: "Search releases" }), "pipeline");
-    expect(within(list).getAllByRole("listitem", { name: /^\d/ })).toHaveLength(1);
+    expect(releases()).toHaveLength(1);
+    // Cercando il testo resta Markdown (un paragrafo), con la parola evidenziata dentro.
+    const mark = releases()[0]!.querySelector("p mark");
+    expect(mark).toHaveTextContent("pipeline");
     await userEvent.click(within(list).getByRole("link", { name: /STW-D\d+ Worker pipeline/ }));
     expect(
       await screen.findByRole("heading", { level: 1, name: "Worker pipeline" }),
@@ -252,6 +269,65 @@ describe("Docs — grafo", () => {
   });
 });
 
+describe("Docs — barra secondaria", () => {
+  it("a 1024, in italiano e con un nome lungo: Brief, Grafo e Cerca vanno in «Altro»; Releases resta", async () => {
+    setMatchMedia(DOCKED_PANEL_QUERY, false);
+    act(() => setLanguage("it"));
+    const name = "audin-app-mobile-desktop-and-web-clients-of-the-team";
+    spaceOf("repo-aud").name = name;
+    // happy-dom non impagina: ogni voce è larga quanto il suo testo (8 px a
+    // carattere + 16 di margine), la barra 720 px (l'area di lavoro a 1024).
+    const proto = HTMLElement.prototype;
+    const offset = Object.getOwnPropertyDescriptor(proto, "offsetWidth");
+    const client = Object.getOwnPropertyDescriptor(proto, "clientWidth");
+    Object.defineProperty(proto, "offsetWidth", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return (this.textContent ?? "").length * 8 + 16;
+      },
+    });
+    Object.defineProperty(proto, "clientWidth", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.tagName === "NAV" ? 720 : 0;
+      },
+    });
+    try {
+      const router = renderRoute(`/p/AUD/docs/${name}`, "p-laura");
+      await screen.findByRole("heading", { level: 1, name });
+      const bar = screen.getByRole("navigation", { name: `Documenti di ${name}` });
+      expect(within(bar).getByRole("link", { name: /Releases 2/ })).toBeInTheDocument();
+      expect(within(bar).getByRole("link", { name: "Indice" })).toBeInTheDocument();
+      expect(within(bar).queryByRole("link", { name: "Brief" })).toBeNull();
+      expect(within(bar).queryByRole("link", { name: "Grafo" })).toBeNull();
+      await userEvent.click(within(bar).getByRole("button", { name: /Altro/ }));
+      const items = (await screen.findAllByRole("menuitem")).map((i) => i.textContent);
+      expect(items).toEqual(["Brief", "Grafo", "Cerca⌘K"]);
+      await userEvent.click(screen.getByRole("menuitem", { name: "Grafo" }));
+      expect(await screen.findByRole("heading", { level: 1, name: "Grafo" })).toBeInTheDocument();
+      expect(path(router)).toBe(`/p/AUD/docs/${name}/graph`);
+    } finally {
+      for (const [key, original] of [
+        ["offsetWidth", offset],
+        ["clientWidth", client],
+      ] as const) {
+        if (original) Object.defineProperty(proto, key, original);
+        else delete (proto as unknown as Record<string, unknown>)[key];
+      }
+    }
+  });
+
+  it("largo abbastanza: nessun «More», tutte le voci nella barra", async () => {
+    renderRoute("/p/AUD/docs/audin-app", "p-laura");
+    await screen.findByRole("heading", { level: 1, name: "audin-app" });
+    const bar = screen.getByRole("navigation", { name: "audin-app docs" });
+    expect(within(bar).queryByRole("button", { name: /More/ })).toBeNull();
+    for (const name of ["Index", "Brief", /Releases 2/, "Graph"]) {
+      expect(within(bar).getByRole("link", { name })).toBeInTheDocument();
+    }
+  });
+});
+
 describe("Docs — chat", () => {
   it("chat del progetto: domande suggerite, risposta che cita AUD-D1, «New chat» azzera", async () => {
     renderRoute("/p/AUD/docs", "p-laura");
@@ -319,6 +395,63 @@ describe("Docs — chat", () => {
     expect(
       await within(chat).findByText("Used:", undefined, { timeout: 3000 }),
     ).toBeInTheDocument();
+  });
+
+  it("la risposta porta l'ora dell'orologio del prototipo", async () => {
+    renderRoute("/p/AUD/docs", "p-laura");
+    const chat = await screen.findByRole("complementary", { name: "Ask the docs" });
+    await userEvent.click(await within(chat).findByRole("button", { name: /Scheduled callbacks/ }));
+    await within(chat).findByText("Used:", undefined, { timeout: 3000 });
+    expect(within(chat).getByText("12:00")).toBeInTheDocument();
+  });
+
+  it("provider sparito a metà sessione: l'avviso al posto della casella, non «Couldn't answer»", async () => {
+    renderRoute("/p/AUD/docs", "p-laura");
+    const chat = await screen.findByRole("complementary", { name: "Ask the docs" });
+    await userEvent.click(await within(chat).findByRole("button", { name: /Scheduled callbacks/ }));
+    await within(chat).findByText("Used:", undefined, { timeout: 3000 });
+    state.docsChatProvider = null;
+    await userEvent.type(
+      within(chat).getByRole("textbox", { name: "Ask the docs" }),
+      "how does billing work{Enter}",
+    );
+    expect(
+      await within(chat).findByText(/Chat isn't available: it needs a provider with an API key/),
+    ).toBeInTheDocument();
+    expect(within(chat).queryByRole("alert")).toBeNull();
+    expect(within(chat).queryByText("Couldn't answer this time.")).toBeNull();
+    expect(within(chat).queryByRole("textbox")).toBeNull();
+    // «New chat» non riporta la casella: il provider non c'è.
+    await userEvent.click(within(chat).getByRole("button", { name: "New chat" }));
+    expect(within(chat).queryByRole("textbox")).toBeNull();
+  });
+
+  it("⌥ con ⌘⇧C non apre la chat", async () => {
+    const user = userEvent.setup();
+    renderRoute("/p/AUD/docs/audin-app", "p-laura");
+    await screen.findByRole("heading", { level: 1, name: "audin-app" });
+    await user.keyboard("{Meta>}{Shift>}{Alt>}c{/Alt}{/Shift}{/Meta}");
+    expect(screen.queryByRole("complementary", { name: "Ask the docs" })).toBeNull();
+  });
+
+  it("a 1024: la chat sovrapposta prende il fuoco nella casella; un Esc chiude solo lo strato in cima", async () => {
+    setMatchMedia(DOCKED_PANEL_QUERY, false);
+    const user = userEvent.setup();
+    renderRoute("/p/AUD/docs/audin-app", "p-laura");
+    await screen.findByRole("heading", { level: 1, name: "audin-app" });
+    await user.click(screen.getByRole("button", { name: "Chat" }));
+    const chat = await screen.findByRole("complementary", { name: "Ask the docs" });
+    await waitFor(() =>
+      expect(within(chat).getByRole("textbox", { name: "Ask the docs" })).toHaveFocus(),
+    );
+    // Con la chat aperta si apre anche il cassetto delle pagine (⌘\).
+    await user.keyboard("{Meta>}\\{/Meta}");
+    expect(await screen.findByRole("tree", { name: "Functional" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("complementary", { name: "Ask the docs" })).toBeNull();
+    expect(screen.getByRole("tree", { name: "Functional" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("tree", { name: "Functional" })).toBeNull();
   });
 
   it("chat non disponibile: al posto del campo lo dice", async () => {

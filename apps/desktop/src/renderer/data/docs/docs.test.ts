@@ -14,7 +14,7 @@ import { REPOSITORIES } from "../seed/docs/repositories";
 import { setSessionPersonId } from "../session";
 import { state } from "../store";
 import type { DocTreeNode } from "../types";
-import { graphJsonOf } from "../../domain/docs";
+import { graphJsonOf, overflowingBarItems } from "../../domain/docs";
 import { revokeProjectPermission } from "../viewer";
 
 const as = (personId: string) => setSessionPersonId(personId);
@@ -438,6 +438,22 @@ describe("generazione, grafo e chat (Task 3)", () => {
     expect(aud.chatSuggestions.length).toBeLessThanOrEqual(4);
     const home = (await docs.getProjectDocsHome("prj-aud"))!;
     expect(home.chatSuggestions.length).toBeGreaterThan(1);
+  });
+
+  it("la barra dello spazio: chi non sta finisce in «More», dalla voce meno importante", () => {
+    const optional = [
+      { id: "brief", width: 50 },
+      { id: "graph", width: 50 },
+      { id: "search", width: 70 },
+    ];
+    expect(overflowingBarItems(800, 400, optional, 60)).toEqual([]);
+    expect(overflowingBarItems(560, 400, optional, 60)).toEqual(["graph", "search"]);
+    expect(overflowingBarItems(420, 400, optional, 60)).toEqual(["brief", "graph", "search"]);
+  });
+
+  it("la risposta della chat porta l'ora dell'orologio del prototipo", async () => {
+    const answer = await docs.askDocs({ projectId: "prj-aud", question: "scheduled callbacks" });
+    expect(answer.answeredAt).toMatch(/T12:00:00Z$/);
   });
 
   it("searchDocs dà il passaggio che ha corrisposto", async () => {

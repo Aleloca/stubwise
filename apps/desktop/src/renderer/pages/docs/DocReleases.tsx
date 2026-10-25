@@ -1,10 +1,10 @@
 import { Link } from "@tanstack/react-router";
-import { useId, useMemo, useState } from "react";
+import { useCallback, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useDocTree } from "../../data/queries";
 import type { DocPageRef, DocTreeNode } from "../../data/types";
 import { formatDate } from "../../notifications/time";
-import { Markdown } from "../../tasks-ui/Markdown";
+import { Markdown, type TextDecorator } from "../../tasks-ui/Markdown";
 import { Highlighted } from "../chat/ChatSearch";
 import { fold, searchWords } from "../chat/search";
 import { MinorMark, pageLink, useSpace } from "./parts";
@@ -30,7 +30,11 @@ export function DocReleases() {
     () => new Map((tree.data ?? []).flatMap((c) => leaves(c.nodes)).map((p) => [p.id, p])),
     [tree.data],
   );
-  const words = searchWords(query);
+  const words = useMemo(() => searchWords(query), [query]);
+  const highlight = useCallback<TextDecorator>(
+    (text, key) => <Highlighted key={key} text={text} words={words} />,
+    [words],
+  );
   const needle = query.trim();
   const all = [...space.releases].sort((a, b) => b.date.localeCompare(a.date));
   // Una release corrisponde se ogni parola è nella versione, nel testo o nel
@@ -61,16 +65,21 @@ export function DocReleases() {
               placeholder={t("docs.releases.search")}
               className="h-8 w-[280px] max-w-full rounded-md border border-rule-strong bg-transparent px-2.5 text-md text-ink outline-none placeholder:text-ink-faint focus-visible:border-ink/45"
             />
-            <label htmlFor={toggleId} className="flex items-center gap-2 text-sm text-ink">
-              <input
+            <span className="flex items-center gap-2 text-sm text-ink">
+              <button
                 id={toggleId}
-                type="checkbox"
-                checked={significant}
-                onChange={(e) => setSignificant(e.target.checked)}
-                className="size-4 accent-ink"
-              />
-              {t("docs.releases.significant")}
-            </label>
+                type="button"
+                role="switch"
+                aria-checked={significant}
+                onClick={() => setSignificant((v) => !v)}
+                className="group relative inline-flex h-4 w-7 shrink-0 items-center rounded-full border border-rule-strong bg-ink/8 transition-colors duration-[var(--duration-fast)] ease-out outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus aria-checked:border-ink aria-checked:bg-ink"
+              >
+                <span className="ml-[2px] size-2.5 rounded-full bg-ink-muted transition-transform duration-[var(--duration-fast)] ease-out group-aria-checked:translate-x-3 group-aria-checked:bg-ground motion-reduce:transition-none" />
+              </button>
+              <label htmlFor={toggleId} className="cursor-pointer">
+                {t("docs.releases.significant")}
+              </label>
+            </span>
           </div>
           <ul aria-label={t("docs.releases.title")} className="border-t border-rule">
             {shown.map((r) => {
@@ -78,7 +87,7 @@ export function DocReleases() {
               return (
                 <li
                   key={r.id}
-                  aria-label={r.version}
+                  data-release={r.version}
                   className="flex flex-col gap-2 border-b border-rule px-2 py-3.5"
                 >
                   <div className="flex items-baseline gap-3">
@@ -88,13 +97,12 @@ export function DocReleases() {
                     </span>
                     {r.minor && <MinorMark />}
                   </div>
-                  {words.length > 0 ? (
-                    <p className="max-w-[72ch] text-md text-ink">
-                      <Highlighted text={r.text} words={words} />
-                    </p>
-                  ) : (
-                    <Markdown source={r.text} className="max-w-[72ch] text-md" />
-                  )}
+                  {/* Il testo resta Markdown anche cercando: le parole trovate si evidenziano dentro. */}
+                  <Markdown
+                    source={r.text}
+                    className="max-w-[72ch] text-md"
+                    {...(words.length > 0 ? { decorate: highlight } : {})}
+                  />
                   {touched.length > 0 && (
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 pt-0.5">
                       <span className="text-xs text-ink-muted">

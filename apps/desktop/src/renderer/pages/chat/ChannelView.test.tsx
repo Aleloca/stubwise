@@ -7,7 +7,7 @@ import { PEOPLE } from "../../data/seed/people";
 import { setSessionPersonId } from "../../data/session";
 import { state, visibleProjectIds } from "../../data/store";
 import type { ChatMessage } from "../../data/types";
-import { useViewer } from "../../data/viewer";
+import { revokeProjectPermission, useViewer } from "../../data/viewer";
 import { renderWithData } from "../../test/renderWithData";
 import { ChannelView } from "./ChannelView";
 import { clearDrafts, readDraft } from "./drafts";
@@ -162,6 +162,41 @@ describe("ChannelView: flusso", () => {
     expect(row.querySelector(`[data-citation="task:${mkx7.id}"]`)!.tagName).toBe("A");
     expect(row.querySelector('[data-citation="hidden"]')).toBeNull();
     expect(row.textContent).toContain("as ISO-9001 asks");
+  });
+
+  it("R-G5 per le pagine dei Docs: AUD-D1 è un link; una pagina nascosta e una inesistente sono testo identico", async () => {
+    const visible = state.docPages.find((p) => p.code === "AUD-D1")!;
+    // Una pagina di STW, i cui Docs Giulia non legge (senza docs.view: come se non ci fossero).
+    const hidden = state.docPages.find((p) => p.projectId === "prj-stw")!;
+    revokeProjectPermission("p-giulia", "prj-stw", "docs.view" as never);
+    const unknown = `${hidden.code.split("-")[0]}-D999`;
+    setSessionPersonId("p-giulia");
+    expect(await api.resolveCodes([hidden.code])).toEqual(await api.resolveCodes([unknown]));
+    put({
+      id: "m-doc-codes",
+      channelId: "ch-aud-general",
+      createdAt: "2026-10-23T11:00:00Z",
+      authorId: "p-paolo",
+      text: `Read ${visible.code}, then ${hidden.code} and ${unknown}`,
+      citations: [],
+    });
+    renderWithData(<Harness id="ch-aud-general" />, { personId: "p-giulia" });
+    const row = await waitFor(() => {
+      const el = flow().querySelector<HTMLElement>('[data-message="m-doc-codes"]');
+      expect(el?.querySelector(`[data-citation="doc:${visible.id}"]`)).toBeTruthy();
+      return el!;
+    });
+    const link = row.querySelector(`[data-citation="doc:${visible.id}"]`)!;
+    expect(link.tagName).toBe("A");
+    expect(link.textContent).toContain(visible.code);
+    // Nascosta e inesistente: nessuna citazione, nessun codice tenue, nessun titolo.
+    expect(row.querySelectorAll("[data-citation]").length).toBe(1);
+    expect(row.querySelector('[data-citation="hidden"]')).toBeNull();
+    const paragraph = [...row.querySelectorAll("p")].find((el) =>
+      el.textContent?.includes(unknown),
+    )!;
+    expect(paragraph.innerHTML).toContain(`, then ${hidden.code} and ${unknown}`);
+    expect(row.textContent).not.toContain(hidden.title);
   });
 
   it("R-G5: un codice che non si vede e uno che non esiste si leggono identici (niente oracolo)", async () => {
@@ -491,7 +526,9 @@ describe("ChannelView: casella e invio", () => {
   it("archiviato: sola lettura; aperto non membro: «Join channel» al posto della casella", async () => {
     const user = userEvent.setup();
     const { unmount } = renderWithData(<Harness id="ch-mkx-autumn" />, { personId: "p-giulia" });
-    expect(await screen.findByText(/This channel was archived by Paolo Gatti on/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/This channel was archived by Paolo Gatti on/),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("combobox")).toBeNull();
     unmount();
     renderWithData(<Harness id="ch-marketing" />, { personId: "p-sara" });

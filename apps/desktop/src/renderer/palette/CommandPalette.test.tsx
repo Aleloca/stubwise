@@ -100,9 +100,26 @@ describe("CommandPalette", () => {
     expect(within(dialog).getAllByRole("group")).toHaveLength(1);
     const option = within(scoped).getByRole("option", { name: /Export job/ });
     expect(option).toHaveTextContent(/AUD-D\d+/);
+    // Con l'ambito: codice · titolo · percorso, poi il passaggio.
+    expect(option.querySelector("[data-palette-path]")).toHaveTextContent("Services / Reports");
+    expect(option.querySelector("mark")).toBeTruthy();
     await user.click(option);
     expect(await screen.findByRole("heading", { name: "Export job", level: 1 })).toBeVisible();
     expect(pathname(router)).toBe("/p/AUD/docs/audin-app/export-job");
+  });
+
+  it("uno spazio che non c'è (o che non si legge): niente ambito, la ricerca è quella di sempre", async () => {
+    const user = userEvent.setup();
+    renderAt("/p/AUD/docs/nope");
+    await screen.findByRole("heading", {
+      name: "This page doesn't exist or you can't see it",
+    });
+    const dialog = await openWithShortcut(user);
+    expect(within(dialog).queryByText(/In nope docs/)).toBeNull();
+    expect(within(dialog).queryByText(/Tab: search everything/)).toBeNull();
+    await user.type(within(dialog).getByRole("combobox"), "callback");
+    const pages = await within(dialog).findByRole("group", { name: "Pages" });
+    expect(within(pages).getByRole("option", { name: /Scheduled callbacks/ })).toBeInTheDocument();
   });
 
   it("fuori da uno spazio Docs le pagine stanno con gli altri oggetti, senza ambito", async () => {

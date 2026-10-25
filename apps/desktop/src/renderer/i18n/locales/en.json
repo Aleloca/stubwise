@@ -3196,7 +3196,8 @@
       "from": "from {{repo}}",
       "reading": "Reading the docs…",
       "close": "Close the chat",
-      "open": "Open the chat"
+      "open": "Open the chat",
+      "noAnswer": "No answer: the chat isn't available any more."
     }
   }
 }

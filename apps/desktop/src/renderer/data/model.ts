@@ -1094,6 +1094,8 @@ export interface DocsQuestion {
 
 /** La risposta della chat dei Docs: Markdown, le pagine citate e il loro spazio. */
 export interface DocsAnswer {
+  /** Quando ha risposto (orologio del prototipo). */
+  answeredAt: string;
   text: string;
   refs: CitationRef[];
   sources: { pageId: string; repositoryName: string }[];

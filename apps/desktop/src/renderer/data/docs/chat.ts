@@ -4,7 +4,7 @@ import { docsAnswer } from "../../domain/claude/intents/howto";
 import type { T } from "../../domain/claude/intents";
 import i18n from "../../i18n";
 import { readsAs } from "../api-mutations";
-import { gate, state } from "../store";
+import { gate, now, state } from "../store";
 import type { DocsAnswer, DocsQuestion } from "../types";
 import { docsAccess, docSpaceOf, repositoryById } from "./reads";
 
@@ -40,6 +40,7 @@ export async function askDocs({
     repoName,
   });
   return {
+    answeredAt: now(),
     text: answer.text,
     refs: answer.refs,
     sources: answer.pages.map((p) => ({ pageId: p.id, repositoryName: repoName(p.repositoryId) })),

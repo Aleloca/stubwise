@@ -54,6 +54,30 @@ function sortTree(nodes: DocTreeNode[]): void {
 }
 
 /**
+ * Quali voci della barra secondaria finiscono in «More» (shape docs.md §6):
+ * le fisse restano sempre; le facoltative, in ordine di importanza, escono
+ * dall'ultima finché la barra (con «More», se serve) sta in `available`.
+ * Nessuna va a capo: chi non sta va nel menu.
+ */
+export function overflowingBarItems(
+  available: number,
+  fixedWidth: number,
+  optional: readonly { id: string; width: number }[],
+  moreWidth: number,
+  gap = 4,
+): string[] {
+  const widthOf = (items: readonly { width: number }[]) =>
+    items.reduce((sum, item) => sum + item.width + gap, 0);
+  if (fixedWidth + widthOf(optional) <= available) return [];
+  const kept = [...optional];
+  const hidden: string[] = [];
+  while (kept.length > 0 && fixedWidth + widthOf(kept) + moreWidth + gap > available) {
+    hidden.unshift(kept.pop()!.id);
+  }
+  return hidden;
+}
+
+/**
  * Il `graph.json` (finto) di un grafo pronto, nella forma di graphify: un
  * nodo per comunità e uno per ciascuno dei suoi nodi più collegati, gli
  * archi dentro la comunità e fra comunità vicine. I conteggi interi stanno

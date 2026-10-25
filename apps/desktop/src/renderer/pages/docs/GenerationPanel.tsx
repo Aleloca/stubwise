@@ -131,7 +131,9 @@ function Actions({ project, space }: { project: Project; space: DocSpaceView }) 
 
   let primary: ReactNode = null;
   if (space.permissions.generate) {
-    if (status === "paused" || status === "held") {
+    // «Resume now» solo da una pausa sul limite (shape §5): una generazione
+    // trattenuta dal budget aspetta che il budget cambi, e lo dice il motivo.
+    if (status === "paused") {
       primary = (
         <button
           type="button"

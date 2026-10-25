@@ -72,7 +72,15 @@ interface Item {
   /** Un messaggio della Chat: chi, dove e quando sopra, il testo con le parole trovate sotto. */
   message?: { meta: string; text: string; words: string[] };
   /** Una pagina dei Docs: codice · titolo · progetto sopra, il passaggio trovato sotto. */
-  page?: { code: string; title: string; project: string | null; passage: string; words: string[] };
+  page?: {
+    code: string;
+    title: string;
+    /** Con l'ambito il percorso nello spazio; senza, il codice del progetto. */
+    path: string | null;
+    project: string | null;
+    passage: string;
+    words: string[];
+  };
   select(): void;
 }
 
@@ -200,22 +208,21 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   // con l'ambito «In <repo> docs»: solo le pagine di quello spazio. Tab
   // allarga a «Everywhere» (le pagine stanno con gli altri oggetti) e torna.
   const docsRepo = /^\/p\/[^/]+\/docs\/([^/]+)/.exec(pathname)?.[1];
-  const scopeRepo = docsRepo ? decodeURIComponent(docsRepo) : null;
+  const docsRepoName = docsRepo ? decodeURIComponent(docsRepo) : null;
   const scopeProject = projectList?.find((p) => p.code === projectCode);
   const scopeSpaces = useDocSpaces(scopeProject?.id ?? "", {
-    enabled: !!scopeRepo && !!scopeProject,
+    enabled: !!docsRepoName && !!scopeProject,
   });
-  const scopeSpace = scopeSpaces.data?.find((s) => s.name === scopeRepo) ?? null;
+  // Lo spazio c'è solo se chi guarda lo legge: un repository che non esiste,
+  // Docs senza `docs.view` o spazi ancora in lettura → ricerca senza ambito.
+  const scopeSpace = scopeSpaces.data?.find((s) => s.name === docsRepoName) ?? null;
+  const scopeRepo = scopeSpace?.name ?? null;
   const [widened, setWidened] = useState(false);
-  const scoped = step === "root" && !!scopeRepo && !widened;
+  const scoped = step === "root" && !!scopeSpace && !widened;
   // Con l'ambito si cerca da un carattere; senza, le pagine arrivano da due (come i messaggi).
   const trimmed = step === "root" ? debounced.trim() : "";
   const pagesQuery = scoped || trimmed.length >= MIN_QUERY ? trimmed : "";
-  const pageSearch = useDocSearch(
-    pagesQuery,
-    scoped ? (scopeSpace?.repositoryId ?? "__none__") : null,
-    !scoped || !!scopeSpace,
-  );
+  const pageSearch = useDocSearch(pagesQuery, scoped && scopeSpace ? scopeSpace.repositoryId : null);
 
   const groups = useMemo<Group[]>(() => {
     if (step === "viewAs") {
@@ -337,6 +344,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
           page: {
             code: hit.page.code,
             title: hit.page.title,
+            path: scoped && hit.page.path ? hit.page.path : null,
             project: scoped ? null : hit.projectCode,
             passage: hit.passage,
             words,
@@ -711,6 +719,14 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                             <span className={`truncate text-md ${selected ? "font-medium" : ""}`}>
                               {page.title}
                             </span>
+                            {page.path && (
+                              <span
+                                data-palette-path
+                                className="min-w-0 shrink truncate text-xs text-ink-faint"
+                              >
+                                {page.path}
+                              </span>
+                            )}
                             {page.project && (
                               <span className="num shrink-0 text-xs text-ink-muted">
                                 {page.project}

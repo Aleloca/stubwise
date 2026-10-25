@@ -187,11 +187,11 @@ function AskTheDocs({
         <div className="flex flex-col gap-3 border-t border-rule pt-3">
           <ChatStart
             chat={sending}
-            available={home.chatAvailable}
+            available={home.chatAvailable && !chat.unavailable}
             suggestions={home.chatSuggestions}
             scope={project.code}
           />
-          {home.chatAvailable ? (
+          {home.chatAvailable && !chat.unavailable ? (
             <DocsComposer
               placeholder={t("docs.chat.placeholderProject", { code: project.code })}
               disabled={chat.busy}

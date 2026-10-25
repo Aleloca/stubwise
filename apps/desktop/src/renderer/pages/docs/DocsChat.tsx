@@ -9,7 +9,6 @@ import {
 import { useTranslation } from "react-i18next";
 import { useAskDocs, useCitations, useSessionPersonId } from "../../data/queries";
 import type { CitationRef, DocPageRef, DocsAnswer } from "../../data/types";
-import { NOW } from "../../notifications/time";
 import { CloseIcon } from "../task/parts";
 import { AssistantMessage, ClaudeHeader } from "../claude/conversation/AssistantMessage";
 import {
@@ -35,7 +34,8 @@ import { primaryButton, quietButton, SendGlyph, WorkingRing } from "../claude/co
 interface Turn {
   id: string;
   question: string;
-  status: "pending" | "done" | "error";
+  /** `unavailable`: il provider è sparito a metà conversazione (non un errore da riprovare). */
+  status: "pending" | "done" | "error" | "unavailable";
   answer?: DocsAnswer;
 }
 
@@ -45,6 +45,8 @@ export interface DocsChatState {
   retry: (id: string) => void;
   reset: () => void;
   busy: boolean;
+  /** Una risposta ha detto `chat_unavailable`: la casella lascia il posto all'avviso. */
+  unavailable: boolean;
 }
 
 /** La conversazione di una chat dei Docs (domande, risposte, ripresa di un errore). */
@@ -56,6 +58,7 @@ export function useDocsChat({
   repositoryId?: string;
 }): DocsChatState {
   const [turns, setTurns] = useState<Turn[]>([]);
+  const [unavailable, setUnavailable] = useState(false);
   const seq = useRef(0);
   const ask = useAskDocs();
   const { mutateAsync } = ask;
@@ -70,7 +73,12 @@ export function useDocsChat({
       // Dopo «New chat» il turno non c'è più: `patch` non trova nulla e basta.
       mutateAsync({ projectId, ...(repositoryId ? { repositoryId } : {}), question }).then(
         (answer) => patch(id, { status: "done", answer }),
-        () => patch(id, { status: "error" }),
+        (error: unknown) => {
+          const lost = error instanceof Error && error.message === "chat_unavailable";
+          // Il provider non torna con «New chat»: l'avviso resta finché vive la chat.
+          if (lost) setUnavailable(true);
+          patch(id, { status: lost ? "unavailable" : "error" });
+        },
       );
     },
     [mutateAsync, patch, projectId, repositoryId],
@@ -91,7 +99,14 @@ export function useDocsChat({
     [run, turns],
   );
   const reset = useCallback(() => setTurns([]), []);
-  return { turns, send, retry, reset, busy: turns.some((t) => t.status === "pending") };
+  return {
+    turns,
+    send,
+    retry,
+    reset,
+    busy: turns.some((t) => t.status === "pending"),
+    unavailable,
+  };
 }
 
 /**
@@ -123,6 +138,8 @@ export function DocsChatPanel({
   const { t } = useTranslation();
   const scroller = useRef<HTMLDivElement>(null);
   const count = chat.turns.length;
+  // Il provider può sparire a metà sessione: allora vale come se non ci fosse mai stato.
+  const canAsk = available && !chat.unavailable;
   const last = chat.turns.at(-1)?.status;
   // Una domanda o una risposta nuova: si va in fondo.
   useLayoutEffect(() => {
@@ -159,12 +176,12 @@ export function DocsChatPanel({
       </header>
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         {count === 0 ? (
-          <ChatStart chat={chat} available={available} suggestions={suggestions} scope={scope} />
+          <ChatStart chat={chat} available={canAsk} suggestions={suggestions} scope={scope} />
         ) : (
           <Turns chat={chat} />
         )}
       </div>
-      {available ? (
+      {canAsk ? (
         <DocsComposer
           placeholder={placeholder}
           disabled={chat.busy}
@@ -261,6 +278,10 @@ function Answer({ turn, onRetry }: { turn: Turn; onRetry: () => void }) {
       </p>
     );
   }
+  if (turn.status === "unavailable") {
+    // Non è un errore da riprovare: l'avviso vero sta al posto della casella.
+    return <p className="pt-1 text-sm text-ink-muted">{t("docs.chat.noAnswer")}</p>;
+  }
   if (turn.status === "error" || !turn.answer) {
     return (
       <p role="alert" className="flex flex-wrap items-center gap-x-2 pt-1 text-sm text-ink">
@@ -278,12 +299,18 @@ function Answer({ turn, onRetry }: { turn: Turn; onRetry: () => void }) {
   const answer = turn.answer;
   return (
     <div className="flex flex-col gap-1.5">
-      <ClaudeHeader at={NOW} compact />
+      <ClaudeHeader at={answer.answeredAt} compact />
       <AssistantMessage
         item={{
           kind: "assistant",
           key: turn.id,
-          event: { id: turn.id, at: NOW, type: "assistant", text: answer.text, done: true },
+          event: {
+            id: turn.id,
+            at: answer.answeredAt,
+            type: "assistant",
+            text: answer.text,
+            done: true,
+          },
           refs: [],
         }}
         streaming={false}
