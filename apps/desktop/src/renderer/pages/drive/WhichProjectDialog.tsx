@@ -1,5 +1,13 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type KeyboardEvent,
+} from "react";
 import { useTranslation } from "react-i18next";
 import {
   useAddGoogleFile,
@@ -104,9 +112,6 @@ function WhichProject({ file, onClose }: { file: OutsideGoogleFile; onClose: () 
   const navigate = useNavigate();
   const eligible = useUploadProjects();
   const add = useAddGoogleFile();
-  const [q, setQ] = useState("");
-  const [chosen, setChosen] = useState<string | undefined>(undefined);
-  const keys = useListKeys();
   const announced = useRef(false);
 
   // Prima l'apertura (sempre), poi la domanda — o, senza progetti idonei, solo l'avviso.
@@ -119,19 +124,12 @@ function WhichProject({ file, onClose }: { file: OutsideGoogleFile; onClose: () 
       return;
     }
     toast.show(t("drive.google.opened"));
-    if (eligible.length === 1) setChosen(eligible[0]!.id);
   }, [eligible, toast, t, onClose]);
 
   if (!eligible || eligible.length === 0) return null;
 
-  const needle = q.trim().toLowerCase();
-  const shown = needle
-    ? eligible.filter((p) => `${p.code} ${p.name}`.toLowerCase().includes(needle))
-    : eligible;
-
-  const confirm = () => {
-    const project = eligible.find((p) => p.id === chosen);
-    if (!project || add.isPending) return;
+  const confirm = (project: Project) => {
+    if (add.isPending) return;
     add.mutate(
       { projectId: project.id, googleFileId: file.googleFileId },
       {
@@ -153,6 +151,65 @@ function WhichProject({ file, onClose }: { file: OutsideGoogleFile; onClose: () 
     );
   };
 
+  return (
+    <ProjectChoiceDialog
+      title={t("drive.which.title", { name: file.name })}
+      description={t("drive.which.body")}
+      confirmLabel={t("drive.which.confirm")}
+      eligible={eligible}
+      pending={add.isPending}
+      failed={add.isError ? t("drive.google.failed") : null}
+      onConfirm={confirm}
+      onClose={onClose}
+    />
+  );
+}
+
+/**
+ * La domanda «in quale progetto?» (forma del dialogo «Which project?»):
+ * l'elenco dei progetti idonei (i fissati in testa), uno solo già scelto,
+ * il campo di ricerca oltre 8, la nota «Everyone in the project will be able
+ * to read it», «Not now» e la conferma (anche ⌘↵). La usano «Which
+ * project?» di un file Google e «Save to Drive» di un allegato della Chat.
+ */
+export function ProjectChoiceDialog({
+  title,
+  description,
+  confirmLabel,
+  eligible,
+  pending,
+  failed,
+  onConfirm,
+  onClose,
+}: {
+  title: string;
+  description: string;
+  confirmLabel: string;
+  eligible: Project[];
+  pending: boolean;
+  /** Il messaggio di un tentativo fallito, o `null`. */
+  failed: string | null;
+  onConfirm: (project: Project) => void;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const [q, setQ] = useState("");
+  const [chosen, setChosen] = useState<string | undefined>(
+    eligible.length === 1 ? eligible[0]!.id : undefined,
+  );
+  const keys = useListKeys();
+  const noteId = useId();
+
+  const needle = q.trim().toLowerCase();
+  const shown = needle
+    ? eligible.filter((p) => `${p.code} ${p.name}`.toLowerCase().includes(needle))
+    : eligible;
+
+  const confirm = () => {
+    const project = eligible.find((p) => p.id === chosen);
+    if (project && !pending) onConfirm(project);
+  };
+
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === "Enter" && hasModKey(e)) {
       e.preventDefault();
@@ -162,8 +219,8 @@ function WhichProject({ file, onClose }: { file: OutsideGoogleFile; onClose: () 
 
   return (
     <Dialog
-      title={t("drive.which.title", { name: file.name })}
-      description={t("drive.which.body")}
+      title={title}
+      description={description}
       onClose={onClose}
       width={440}
       footer={
@@ -174,11 +231,11 @@ function WhichProject({ file, onClose }: { file: OutsideGoogleFile; onClose: () 
           <button
             type="button"
             className={`${primaryButton} disabled:opacity-40`}
-            disabled={!chosen || add.isPending}
-            aria-describedby="drive-which-note"
+            disabled={!chosen || pending}
+            aria-describedby={noteId}
             onClick={confirm}
           >
-            {t("drive.which.confirm")}
+            {confirmLabel}
           </button>
         </>
       }
@@ -236,12 +293,12 @@ function WhichProject({ file, onClose }: { file: OutsideGoogleFile; onClose: () 
             })}
           </div>
         )}
-        <p id="drive-which-note" className="text-sm text-ink">
+        <p id={noteId} className="text-sm text-ink">
           {t("drive.which.note")}
         </p>
-        {add.isError && (
+        {failed && (
           <p role="alert" className="text-sm text-critical">
-            {t("drive.google.failed")}
+            {failed}
           </p>
         )}
       </div>

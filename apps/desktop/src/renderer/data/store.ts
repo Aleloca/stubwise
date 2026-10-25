@@ -265,6 +265,8 @@ export type ApiFnName =
   // Drive (area 5)
   | "drive.listDriveFiles"
   | "drive.getDriveFile"
+  /** I file che Claude legge per chi chiede (non contano aperture). */
+  | "drive.listForClaude"
   | "drive.listFolderLinks"
   | "drive.listMyFolderLinks"
   | "drive.countDriveReaders"

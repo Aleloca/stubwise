@@ -2,6 +2,8 @@ import { wouldCycle } from "../domain/decisionLog";
 import { findSimilarRequest } from "../domain/requests";
 import { TEMPLATE_MODULES, TEMPLATE_STATUSES } from "../domain/templates";
 import { respond, type ReadApi, type T } from "../domain/claude/intents";
+import { labelled, resulted } from "../domain/claude/answers";
+import { fileQuestion, filesFoundText, findInFiles } from "../domain/claude/intents/files";
 import i18n from "../i18n";
 // Le letture servono al motore di intenti (a nome di chi conversa): si usano
 // solo dentro le funzioni, quindi l'import circolare con `api.ts` è innocuo.
@@ -1252,6 +1254,7 @@ export function readsAs(me: string): ReadApi {
     getRequestByCode: bind(reads.getRequestByCode),
     listDecisionRequests: bind(reads.listDecisionRequests),
     listDocPages: bind(reads.listDocPages),
+    readDriveFiles: bind(reads.drive.listDriveFilesForClaude),
   };
 }
 
@@ -1307,6 +1310,8 @@ function projectsOfSteps(steps: ScriptStep[]): string[] {
         else if (ref.kind === "request") add(ofRequest(ref.id));
         else if (ref.kind === "project") add(ref.id);
         else if (ref.kind === "doc") add(docPageById(ref.id)?.projectId);
+        else if (ref.kind === "drive")
+          add(state.driveFiles.find((f) => f.id === ref.id)?.projectId);
       }
     }
     if (e.type === "proposal") {
@@ -1587,15 +1592,59 @@ async function sendMessageNow(
     return;
   }
   // Al lavoro: il messaggio entra nel turno, e il lavoro in corso prosegue.
+  // Una domanda sui file del Drive («cosa dice il contratto sui tempi di
+  // consegna?») ha la sua risposta, citando il file, prima di proseguire.
+  const fromFiles = task ? await filesReply(me, task.projectId, text) : null;
   await runScript(
     id,
     [
       { step: "deliver" },
-      { step: "say", text: "Got it, I am taking it into account in this step." },
+      ...(fromFiles ?? [
+        { step: "say", text: "Got it, I am taking it into account in this step." } as const,
+      ]),
     ],
     gen,
   );
   delivered();
+}
+
+/**
+ * La risposta a una domanda sui file del Drive dentro una sessione di
+ * lavoro (la sezione Claude della task): i file del progetto della task che
+ * chi scrive legge — chi segue la sessione vede quel progetto, quindi la
+ * citazione non porta altrove — letti senza contare aperture. `null` se il
+ * messaggio non è una domanda su un file.
+ */
+async function filesReply(
+  me: string,
+  projectId: string,
+  text: string,
+): Promise<ScriptStep[] | null> {
+  const q = fileQuestion(text);
+  if (!q) return null;
+  const t = i18n.t.bind(i18n) as T;
+  const found = findInFiles(
+    q,
+    (await readsAs(me).readDriveFiles()).filter((f) => f.projectId === projectId),
+  );
+  const steps: ScriptStep[] = [
+    {
+      step: "action",
+      tool: "search_drive",
+      ...labelled(t, "claude.answers.actions.searchDrive", { topic: q.topic }),
+      ...resulted(t, "claude.answers.actions.files", { count: found ? 1 : 0 }),
+    },
+  ];
+  if (!found) {
+    steps.push({ step: "say", text: t("claude.answers.files.nothing", { topic: q.topic }) });
+    return steps;
+  }
+  const code = state.projectsById.get(projectId)!.code;
+  steps.push(
+    { step: "say", text: filesFoundText(t, found, code) },
+    { step: "event", event: { type: "citation", refs: [{ kind: "drive", id: found.file.id }] } },
+  );
+  return steps;
 }
 
 function stopSteps(me: string, c: Conversation): ScriptStep[] {

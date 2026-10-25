@@ -11,6 +11,8 @@ import {
   docsAccess,
   repositoryById,
 } from "./docs/reads";
+import { driveRow } from "./drive/reads";
+import { canSeeDriveFile } from "./drive/visibility";
 import { daysFromToday, TODAY } from "./seed/dates";
 import { PEOPLE } from "./seed/people";
 import { projectOfRepo, REPO_FILES } from "./seed/repoFiles";
@@ -980,8 +982,8 @@ export async function search(q: string): Promise<SearchResult[]> {
 const projectCodeOf = (projectId: string) => state.projectsById.get(projectId)?.code ?? null;
 
 /**
- * I codici di task, richieste e pagine dei Docs scritti a mano in un testo
- * («AUD-88», «AUD-D12») che chi guarda VEDE: codice + nome, apribili. Uno che
+ * I codici di task, richieste, pagine dei Docs e file del Drive scritti a
+ * mano in un testo («AUD-88», «AUD-D12», «AUD-F7») che chi guarda VEDE: codice + nome, apribili. Uno che
  * non vede e uno che non esiste non tornano, e nello stesso modo (R-G5):
  * altrimenti, scrivendo un codice a caso, la differenza direbbe che cosa
  * esiste in un progetto che non si vede. Il codice tenue resta solo per le
@@ -994,7 +996,10 @@ export async function resolveCodes(codes: string[]): Promise<CitationView[]> {
     const request = state.requests.find((r) => r.code === code);
     if (request) return [{ kind: "request", id: request.id }];
     const page = docPageByCode(code);
-    return page ? [{ kind: "doc", id: page.id }] : [];
+    if (page) return [{ kind: "doc", id: page.id }];
+    // Un file del Drive (`AUD-F7`): un nascosto vale come uno che non c'è.
+    const file = state.driveFiles.find((f) => f.code === code);
+    return file ? [{ kind: "drive", id: file.id }] : [];
   });
   return (await resolveCitations(refs)).filter((v) => v.visible);
 }
@@ -1086,6 +1091,31 @@ export async function resolveCitations(refs: CitationRef[]): Promise<CitationVie
           projectCode: projectCodeOf(projectId),
         };
       }
+      case "drive": {
+        // Un file del Drive: progetto invisibile, nascosto (anche per chi lo
+        // gestisce: una citazione non apre i nascosti), tolto o inesistente
+        // si leggono identici — niente codice, niente nome (R-E9, R-G5).
+        const f = state.driveFiles.find((x) => x.id === ref.id);
+        if (!f || !canSeeDriveFile(me, f)) return hidden(ref);
+        const row = driveRow(me, f);
+        return {
+          ...hidden(ref),
+          visible: true,
+          code: f.code,
+          name: f.name,
+          projectCode: row.projectCode,
+          // Il dettaglio nel Drive del progetto; il clic sul gettone apre il file.
+          route: `#/p/${row.projectCode}/drive?file=${f.code}`,
+          drive: {
+            type: f.type,
+            google: f.source === "google",
+            summary: f.summary,
+            opens90d: row.opens90d,
+            unavailable: f.unavailable,
+            projectName: state.projectsById.get(f.projectId)!.name,
+          },
+        };
+      }
       case "project": {
         const p = state.projectsById.get(ref.id);
         if (!p) return hidden(ref);
@@ -1155,8 +1185,8 @@ export const MENTION_LIMIT = 6;
 
 /**
  * I risultati dei menu della casella, cercando mentre si scrive: «#» task,
- * richieste, pagine dei Docs, file dei repository (con `repos.view`) e
- * progetti; «@» le persone. Solo ciò che chi guarda può vedere; al massimo
+ * richieste, pagine dei Docs, file del Drive (per nome e codice, mai i
+ * nascosti), file dei repository (con `repos.view`) e progetti; «@» le persone. Solo ciò che chi guarda può vedere; al massimo
  * `MENTION_LIMIT` per gruppo.
  */
 export async function searchMentions(
@@ -1207,10 +1237,25 @@ export async function searchMentions(
     .map(
       (d): MentionResult => ({
         ref: { kind: "doc", id: d.id },
-        code: projectCodeOf(d.projectId),
+        // Il codice della pagina (`AUD-D3`), come una task: è quello che entra nel testo.
+        code: d.code,
         label: d.title,
-        detail: d.path,
+        detail: [projectCodeOf(d.projectId), d.path].filter(Boolean).join(" · "),
         projectId: d.projectId,
+      }),
+    );
+  // I file del Drive: per nome e codice, mai per contenuto (il menu è veloce;
+  // la ricerca per contenuto è del Drive e di ⌘K). Mai un nascosto.
+  const driveFiles = state.driveFiles
+    .filter((f) => canSeeDriveFile(me, f) && has(f.code, f.name))
+    .map(
+      (f): MentionResult => ({
+        ref: { kind: "drive", id: f.id },
+        code: f.code,
+        label: f.name,
+        detail: projectCodeOf(f.projectId),
+        projectId: f.projectId,
+        drive: { type: f.type, google: f.source === "google" },
       }),
     );
   const files = REPO_FILES.filter(
@@ -1233,5 +1278,5 @@ export async function searchMentions(
       detail: p.clientName ?? null,
       projectId: p.id,
     }));
-  return [tasks, requests, docs, files, projects].flatMap(take);
+  return [tasks, requests, docs, driveFiles, files, projects].flatMap(take);
 }

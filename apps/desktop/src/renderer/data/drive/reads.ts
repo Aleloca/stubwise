@@ -395,3 +395,13 @@ export function readDriveFileForClaude(me: string, id: string): DriveFile | null
   const file = state.driveFiles.find((f) => f.id === id);
   return file && canSeeDriveFile(me, file) && searchableText(file) !== "" ? copy(file) : null;
 }
+
+/**
+ * `driveFilesForClaude` per la persona della sessione: la lettura che il
+ * motore di intenti riceve (`readsAs`). Passa da `gate()` come ogni lettura
+ * del livello dati e, come lei, **non conta aperture**.
+ */
+export async function listDriveFilesForClaude(): Promise<DriveFile[]> {
+  const me = await gate("drive.listForClaude");
+  return driveFilesForClaude(me);
+}

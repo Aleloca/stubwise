@@ -12,6 +12,8 @@ import { usePeople } from "../../../data/queries";
 import type { CitationRef, CitationView } from "../../../data/types";
 import { Avatar } from "../../../tasks-ui/PersonChip";
 import { BreakablePath } from "../../../tasks-ui/Markdown";
+import { ExternalGlyph, TypeGlyph } from "../../drive/glyphs";
+import { useOpenDriveFile } from "../../drive/openFile";
 
 // Le citazioni del flusso: chi guarda le legge UNA volta per conversazione
 // (`useCitations` nel componente principale) e le trova qui per id e per
@@ -30,7 +32,9 @@ export function indexCitations(views: readonly CitationView[] | undefined): Cita
   const byCode = new Map<string, CitationView>();
   for (const v of views ?? []) {
     byRef.set(refKey(v), v);
-    if (v.code && (v.kind === "task" || v.kind === "request" || v.kind === "doc")) {
+    // Pagine (`AUD-D3`) e file del Drive (`AUD-F7`) hanno il loro codice; un
+    // invisibile non ne ha (code null), quindi non entra: nascosto ≡ ignoto.
+    if (v.code && ["task", "request", "doc", "drive"].includes(v.kind)) {
       byCode.set(v.code, v);
     }
   }
@@ -94,10 +98,16 @@ export function CitationLink({ view }: { view: CitationView }) {
       <BreakablePath path={view.name ?? ""} />
     ) : (
       <>
-        {/* Una pagina dei Docs ha il suo codice (`AUD-D12`), come una task. */}
+        {/* Una pagina dei Docs (`AUD-D12`) e un file del Drive (`AUD-F7`) hanno il loro codice. */}
         {view.code && <span className="num font-semibold tracking-[0.02em]">{view.code}</span>}
         {view.code && view.name && " "}
         {view.name && <span>{view.name}</span>}
+        {/* Un file Google si apre su Google: la freccia d'uscita lo dice prima del clic. */}
+        {view.drive?.google && (
+          <span className="ml-0.5 inline-block translate-y-[1px] text-ink-muted" aria-hidden="true">
+            <ExternalGlyph size={11} />
+          </span>
+        )}
       </>
     );
 
@@ -119,14 +129,16 @@ export function CitationLink({ view }: { view: CitationView }) {
     "data-citation": `${view.kind}:${view.id}`,
   };
 
+  const linkClass =
+    "rounded-[3px] text-ink underline decoration-transparent underline-offset-2 transition-colors duration-[var(--duration-fast)] ease-out hover:decoration-ink/60 focus-visible:decoration-ink/60";
   return (
     <span className="relative inline">
-      {view.route ? (
-        <a
-          href={view.route}
-          {...common}
-          className="rounded-[3px] text-ink underline decoration-transparent underline-offset-2 transition-colors duration-[var(--duration-fast)] ease-out hover:decoration-ink/60 focus-visible:decoration-ink/60"
-        >
+      {view.kind === "drive" && view.route ? (
+        <DriveAnchor view={view} common={common} className={linkClass}>
+          {label}
+        </DriveAnchor>
+      ) : view.route ? (
+        <a href={view.route} {...common} className={linkClass}>
           {label}
         </a>
       ) : (
@@ -139,7 +151,106 @@ export function CitationLink({ view }: { view: CitationView }) {
   );
 }
 
+/**
+ * Il link di un file del Drive: l'indirizzo è il suo dettaglio (copiabile,
+ * apribile in un'altra scheda), il clic APRE il file — Google o anteprima —
+ * e conta, dopo aver riletto che c'è ancora.
+ */
+export function DriveAnchor({
+  view,
+  common,
+  className,
+  children,
+}: {
+  view: CitationView;
+  common?: Record<string, unknown>;
+  className: string;
+  children: ReactNode;
+}) {
+  const open = useOpenDriveFile();
+  return (
+    <a
+      href={view.route ?? undefined}
+      {...common}
+      onClick={(e) => {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+        e.preventDefault();
+        open(view.id);
+      }}
+      className={className}
+    >
+      {children}
+    </a>
+  );
+}
+
+/**
+ * L'anteprima di un file del Drive (shape drive-search.md §3): glifo del
+ * tipo, nome, «Google spreadsheet · AUD Audin 2.0», tre righe di riassunto,
+ * aperture degli ultimi 90 giorni e cosa fa il clic. Un file non
+ * disponibile lo dice al posto del clic.
+ */
+function DrivePreviewBody({
+  view,
+}: {
+  view: CitationView & { drive: NonNullable<CitationView["drive"]> };
+}) {
+  const { t } = useTranslation();
+  const d = view.drive;
+  const typeLabel = t(`drive.${d.google ? "googleTypes" : "types"}.${d.type}`);
+  return (
+    <>
+      <span className="flex items-start gap-2.5">
+        <span className="shrink-0 pt-0.5 text-ink-muted" aria-hidden="true">
+          <TypeGlyph type={d.type} size={24} />
+        </span>
+        <span className="flex min-w-0 flex-col gap-0.5">
+          <span className="font-semibold [overflow-wrap:anywhere]">
+            <span className="num mr-1.5">{view.code}</span>
+            {view.name}
+          </span>
+          <span className="text-xs text-ink-muted">
+            {typeLabel} · <span className="num font-semibold">{view.projectCode}</span>{" "}
+            {d.projectName}
+          </span>
+        </span>
+      </span>
+      {d.summary && <span className="line-clamp-3 text-ink-muted">{d.summary}</span>}
+      <span className="flex items-baseline justify-between gap-3 border-t border-rule pt-1.5 text-xs">
+        <span className="num text-ink-muted">{t("drive.opens.count", { count: d.opens90d })}</span>
+        {d.unavailable ? (
+          <span className="text-ink-muted">{t("claude.conversation.citation.notAvailable")}</span>
+        ) : (
+          <span className="flex items-center gap-1 font-medium text-ink">
+            {d.google ? t("drive.google.open") : t("drive.search.open")}
+            {d.google && (
+              <span aria-hidden="true">
+                <ExternalGlyph size={11} />
+              </span>
+            )}
+          </span>
+        )}
+      </span>
+    </>
+  );
+}
+
 function CitationPreview({ id, view }: { id: string; view: CitationView }) {
+  if (view.drive) {
+    return (
+      <span
+        id={id}
+        role="tooltip"
+        className="menu-enter absolute top-full left-0 z-40 mt-1.5 flex w-[320px] max-w-[80vw] flex-col gap-2 rounded-lg border border-rule-strong bg-surface p-3 text-left text-sm whitespace-normal text-ink shadow-[0_12px_32px_-8px_oklch(0_0_0/0.4)]"
+      >
+        <DrivePreviewBody view={{ ...view, drive: view.drive }} />
+      </span>
+    );
+  }
+  return <ObjectPreview id={id} view={view} />;
+}
+
+function ObjectPreview({ id, view }: { id: string; view: CitationView }) {
   const { t } = useTranslation();
   const person = usePeople().data?.find((p) => p.id === view.personId);
   const status =

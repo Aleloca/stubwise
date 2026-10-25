@@ -27,6 +27,7 @@ const READ: ReadApi = {
   getRequestByCode: api.getRequestByCode,
   listDecisionRequests: api.listDecisionRequests,
   listDocPages: api.listDocPages,
+  readDriveFiles: api.drive.listDriveFilesForClaude,
 };
 
 function as(personId: string, t = en, contextProjectId: string | null = null): IntentContext {

@@ -1,4 +1,5 @@
 import { channelName } from "../../domain/chatLabel";
+import { canSeeDriveFile } from "../drive/visibility";
 import { PEOPLE } from "../seed/people";
 import { chatKey, copy, gate, now, PROPOSAL_EXPIRY, state, visibleProjectIds } from "../store";
 import type {
@@ -246,6 +247,12 @@ function redactClaudeEvents(
   for (const ref of recorded.citations) {
     if (ref.kind === "task") consider(task(ref.id));
     if (ref.kind === "request") consider(request(ref.id));
+    // Un file del Drive che il lettore non vede (progetto invisibile, o
+    // nascosto dopo la risposta): il suo nome esce dalle righe d'azione.
+    if (ref.kind === "drive") {
+      const file = state.driveFiles.find((f) => f.id === ref.id);
+      if (file && !canSeeDriveFile(personId, file)) hidden.set(file.code, file.name);
+    }
   }
   // Il titolo di un oggetto che il lettore non vede e che la proposta scrive
   // da solo (non dopo il suo codice): la richiesta da trasformare, la task o

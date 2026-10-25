@@ -661,7 +661,9 @@ export type ProposedAction = {
 /**
  * Un oggetto citato nel flusso: `file` ha id `<repo>:<percorso>`, gli altri
  * l'id dell'oggetto. `milestone`, `brief` e `release` (area 4) li citano le
- * schede degli eventi di progetto nella Chat.
+ * schede degli eventi di progetto nella Chat. `drive` (area 5) è un file del
+ * Drive di un progetto (l'id del riferimento, codice `AUD-F7`): non va
+ * confuso con `file`, che resta il file di un repository.
  */
 export type CitationRef = {
   kind:
@@ -669,6 +671,7 @@ export type CitationRef = {
     | "request"
     | "doc"
     | "file"
+    | "drive"
     | "project"
     | "person"
     | "milestone"

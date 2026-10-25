@@ -1900,7 +1900,10 @@
         "notFound": "Non trovato",
         "readThread": "Letto il thread",
         "messages_one": "{{count}} messaggio",
-        "messages_other": "{{count}} messaggi"
+        "messages_other": "{{count}} messaggi",
+        "searchDrive": "Cercato «{{topic}}» nel Drive",
+        "files_one": "{{count}} file",
+        "files_other": "{{count}} file"
       },
       "status": {
         "intro": "Ecco a che punto sono i tuoi progetti:",
@@ -2019,6 +2022,11 @@
         "noTopic": "Cosa vuoi sapere? Chiedilo con parole tue, per esempio «come funzionano i callback programmati».",
         "nothing": "I documenti di {{scope}} non parlano di «{{topic}}». Non tiro a indovinare: prova con altre parole, o chiedilo al team con una richiesta.",
         "found": "**{{code}} {{title}}**, da {{repo}}:"
+      },
+      "files": {
+        "found": "**{{code}} {{name}}**, nel Drive di {{project}}, dice:",
+        "foundArticle": "**{{code}} {{name}}**, nel Drive di {{project}}, ne parla all'articolo {{article}}:",
+        "nothing": "Non ho trovato nel Drive dei tuoi progetti un file che parli di «{{topic}}». Non tiro a indovinare: prova con altre parole, o cerca nel Drive."
       }
     },
     "proposalFailed": {
@@ -2053,8 +2061,10 @@
           "person": "Persona",
           "milestone": "Traguardo",
           "brief": "Brief settimanale",
-          "release": "Pagina di Release"
-        }
+          "release": "Pagina di Release",
+          "drive": "File del Drive"
+        },
+        "notAvailable": "Non disponibile"
       },
       "actions": {
         "running": "In corso",
@@ -2216,8 +2226,9 @@
           "task": "Task",
           "request": "Richieste",
           "doc": "Docs",
-          "file": "File",
-          "project": "Progetti"
+          "file": "File dei repository",
+          "project": "Progetti",
+          "drive": "File"
         },
         "people": "Persone",
         "loading": "Cerco…",
@@ -2926,6 +2937,16 @@
       "resultWhere": "in {{channel}}, {{date}}",
       "showMore_one": "Un altro in {{name}}",
       "showMore_other": "Altri {{count}} in {{name}}"
+    },
+    "saveToDrive": {
+      "label": "Salva {{name}} nel Drive",
+      "short": "Salva nel Drive",
+      "title": "In quale progetto salvare «{{name}}»?",
+      "body": "Finisce nel Drive di quel progetto, dove il team lo trova insieme a tutto il resto.",
+      "confirm": "Salva",
+      "saved": "Salvato nel Drive di {{project}} come {{code}}",
+      "tooLarge": "{{name}} supera i 100 MB, quindi non può andare nel Drive.",
+      "failed": "Non è stato possibile salvare nel Drive. Riprova."
     }
   },
   "docs": {

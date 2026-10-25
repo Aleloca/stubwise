@@ -113,8 +113,11 @@ export function citedRefs(events: readonly ConversationEvent[]): CitationRef[] {
   return out;
 }
 
-/** I codici di catalogo in un testo («AUD-12», «STW-R4», la pagina dei Docs «AUD-D3»). */
-export const CODE_IN_TEXT = /\b[A-Z]{2,4}-[RD]?\d+\b/g;
+/**
+ * I codici di catalogo in un testo («AUD-12», «STW-R4», la pagina dei Docs
+ * «AUD-D3», il file del Drive «AUD-F7»).
+ */
+export const CODE_IN_TEXT = /\b[A-Z]{2,4}-[RDF]?\d+\b/g;
 
 /** Durata fra due istanti, in minuti interi (almeno 1). */
 export function minutesBetween(from: string, to: string): number {

@@ -820,6 +820,8 @@ describe("seed: Chat (area 4)", () => {
         return DOC_PAGES.find((d) => d.id === ref.id)!.projectId;
       case "file":
         return projectOfRepo(ref.id.split(":")[0]!);
+      case "drive":
+        return DRIVE_FILES.find((f) => f.id === ref.id)!.projectId;
       case "project":
         return ref.id;
       case "milestone":
@@ -843,6 +845,8 @@ describe("seed: Chat (area 4)", () => {
         return DOC_PAGES.some((d) => d.id === ref.id);
       case "file":
         return REPO_FILES.some((f) => f.id === ref.id);
+      case "drive":
+        return DRIVE_FILES.some((f) => f.id === ref.id);
       case "project":
         return projectsById.has(ref.id);
       case "person":

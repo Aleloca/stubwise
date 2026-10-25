@@ -4,6 +4,7 @@ import type { IntentContext } from "./context";
 import { canonicalCodes, findCodes, findWeek, normalize, topicWords } from "./parse";
 import { assign, create, plan } from "./intents/change";
 import { explain } from "./intents/explain";
+import { fileQuestion, files } from "./intents/files";
 import { general } from "./intents/general";
 import { howto, howtoTopic } from "./intents/howto";
 import { run } from "./intents/run";
@@ -26,6 +27,7 @@ export type Intent =
   | "today"
   | "explain"
   | "howto"
+  | "files"
   | "run"
   | "create"
   | "assign"
@@ -113,6 +115,8 @@ export function recognize(text: string, visibleCodes?: ReadonlySet<string>): Int
     if (verb(CREATE, CREATE_INF) && !hasTask) return "create";
   }
   if (codes.some((c) => c.known)) return "explain";
+  // «Cosa dice il contratto col cliente sui tempi di consegna?»: i file del Drive.
+  if (fileQuestion(text)) return "files";
   if (STATUS.test(plain)) return "status";
   if (TODAY.test(plain)) return "today";
   if (HOWTO.test(plain) && topicWords(howtoTopic(text)).length > 0) return "howto";
@@ -126,6 +130,7 @@ const HANDLERS: Record<Intent, (text: string, ctx: IntentContext) => Promise<Ans
   today,
   explain,
   howto,
+  files,
   run,
   create,
   assign,

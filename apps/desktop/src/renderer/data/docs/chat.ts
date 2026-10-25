@@ -1,5 +1,6 @@
 // `readsAs` si usa solo dentro la funzione: l'import circolare
 // (api-mutations → … → docs) è innocuo, come per @Claude nella Chat.
+import { fileQuestion, filesFoundText, findInFiles } from "../../domain/claude/intents/files";
 import { docsAnswer } from "../../domain/claude/intents/howto";
 import type { T } from "../../domain/claude/intents";
 import i18n from "../../i18n";
@@ -35,14 +36,35 @@ export async function askDocs({
     (p) => repositoryId === undefined || p.repositoryId === repositoryId,
   );
   const repoName = (id: string) => repositoryById(id)?.name ?? "";
-  const answer = docsAnswer(question, pages, i18n.t.bind(i18n) as T, {
+  const t = i18n.t.bind(i18n) as T;
+  const answer = docsAnswer(question, pages, t, {
     scope: repositoryId ? repoName(repositoryId) : project.code,
     repoName,
   });
-  return {
-    answeredAt: now(),
-    text: answer.text,
-    refs: answer.refs,
-    sources: answer.pages.map((p) => ({ pageId: p.id, repositoryName: repoName(p.repositoryId) })),
-  };
+  const sources = answer.pages.map((p) => ({
+    pageId: p.id,
+    repositoryName: repoName(p.repositoryId),
+  }));
+  // Le fonti possono essere anche i file del Drive del progetto (shape
+  // drive-search.md): letti come chi chiede, senza contare aperture. Se un
+  // file risponde, la risposta parte da lui e le pagine trovate seguono;
+  // senza file, la risposta dei soli Docs come prima. I file vengono DOPO le
+  // pagine in `refs`, così `sources[i]` resta la fonte del ref i-esimo.
+  const q = fileQuestion(question);
+  const found = q
+    ? findInFiles(
+        q,
+        (await readsAs(me).readDriveFiles()).filter((f) => f.projectId === projectId),
+      )
+    : null;
+  if (found) {
+    const fileText = filesFoundText(t, found, project.code);
+    return {
+      answeredAt: now(),
+      text: answer.pages.length > 0 ? `${fileText}\n\n${answer.text}` : fileText,
+      refs: [...answer.refs, { kind: "drive", id: found.file.id }],
+      sources,
+    };
+  }
+  return { answeredAt: now(), text: answer.text, refs: answer.refs, sources };
 }

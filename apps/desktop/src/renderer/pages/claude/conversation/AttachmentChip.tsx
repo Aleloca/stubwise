@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { Attachment } from "../../../data/types";
 import { CrossGlyph, FileGlyph } from "./parts";
@@ -17,17 +18,20 @@ export function formatBytes(bytes: number, language: string): string {
 
 /**
  * Un allegato: miniatura 32 px (un'immagine appena scelta) o l'icona del
- * file, nome, peso e — nella casella — × per toglierlo.
+ * file, nome, peso e — nella casella — × per toglierlo; in un messaggio
+ * della Chat, un'azione in coda («Save to Drive»).
  */
 export function AttachmentChip({
   attachment,
   previewUrl,
   onRemove,
+  action,
 }: {
   attachment: Attachment;
   /** La miniatura di un'immagine scelta adesso (non c'è per quelle già inviate). */
   previewUrl?: string;
   onRemove?: () => void;
+  action?: ReactNode;
 }) {
   const { t, i18n } = useTranslation();
   return (
@@ -54,6 +58,7 @@ export function AttachmentChip({
           {formatBytes(attachment.sizeBytes, i18n.language)}
         </span>
       </span>
+      {action}
       {onRemove && (
         <button
           type="button"

@@ -6,6 +6,7 @@ export {
   getDriveFile,
   getGoogleAccount,
   listDriveFiles,
+  listDriveFilesForClaude,
   listFolderLinks,
   listMyFolderLinks,
   countDriveReaders,

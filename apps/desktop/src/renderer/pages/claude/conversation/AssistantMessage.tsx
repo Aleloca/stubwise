@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Markdown, type TextDecorator } from "../../../tasks-ui/Markdown";
 import { Avatar } from "../../../tasks-ui/PersonChip";
 import { usePeople } from "../../../data/queries";
-import { HiddenCode, UsedLine, useCitationIndex } from "./citations";
+import { DriveAnchor, HiddenCode, UsedLine, useCitationIndex } from "./citations";
 import { CODE_IN_TEXT, type FlowItem } from "./flow";
 import { clock } from "./parts";
 
@@ -31,6 +31,16 @@ export function AssistantMessage({
         const view = i % 2 === 1 ? index.byCode.get(part) : undefined;
         if (view && !view.visible) return <HiddenCode key={`${key}-${i}`} code={part} />;
         if (!view?.route) return <Fragment key={`${key}-${i}`}>{part}</Fragment>;
+        const linkClass =
+          "num font-semibold text-ink underline decoration-ink/25 underline-offset-2 hover:decoration-ink/70";
+        // Un file del Drive: il clic lo apre (e conta), come dal gettone.
+        if (view.kind === "drive") {
+          return (
+            <DriveAnchor key={`${key}-${i}`} view={view} className={linkClass}>
+              {part}
+            </DriveAnchor>
+          );
+        }
         return (
           <a
             key={`${key}-${i}`}

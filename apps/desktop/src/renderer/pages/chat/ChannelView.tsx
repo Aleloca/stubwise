@@ -526,6 +526,7 @@ function ChannelBody({
         viewerId={me}
         canWrite={channel.canWrite}
         member={channel.isMember}
+        driveProjectId={channel.projectId}
         mentionNames={mentionNames}
         quick={frequent.slice(0, 3)}
         frequent={frequent}

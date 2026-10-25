@@ -26,6 +26,7 @@ import { hm } from "./flow";
 import { requestReplyFocus } from "./drafts";
 import { MessageMenu, type MessageActions } from "./MessageMenu";
 import { ReactionPicker, Reactions } from "./Reactions";
+import { SaveToDriveButton } from "./SaveToDrive";
 
 // Un messaggio del canale: nessuna bolla, nessun colore per autore. Il primo
 // di un gruppo ha l'avatar 32px e «Nome · 16:02»; i successivi l'ora nel
@@ -155,6 +156,11 @@ export interface MessageItemProps {
   compact?: boolean;
   /** La radice del thread aperto nel pannello: tinta di selezione (ink 10%). */
   selected?: boolean;
+  /**
+   * Il progetto del canale per «Save to Drive» sugli allegati (`null`: DM o
+   * canale generale, si sceglie il progetto). Assente: nessuna azione.
+   */
+  driveProjectId?: string | null;
 }
 
 export function MessageItem(props: MessageItemProps) {
@@ -299,7 +305,14 @@ export function MessageItem(props: MessageItemProps) {
           <ul className="flex min-w-0 flex-wrap gap-1.5 pt-1">
             {m.attachments.map((a) => (
               <li key={a.id} className="min-w-0">
-                <AttachmentChip attachment={a} />
+                <AttachmentChip
+                  attachment={a}
+                  action={
+                    props.driveProjectId !== undefined && (
+                      <SaveToDriveButton attachment={a} projectId={props.driveProjectId} />
+                    )
+                  }
+                />
               </li>
             ))}
           </ul>

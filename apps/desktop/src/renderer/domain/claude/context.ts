@@ -1,6 +1,7 @@
 import type {
   DecisionRequest,
   DocPage,
+  DriveFile,
   FilterCriteria,
   Person,
   Project,
@@ -38,6 +39,12 @@ export interface ReadApi {
     open?: boolean;
   }): Promise<DecisionRequest[]>;
   listDocPages(projectId: string): Promise<DocPage[]>;
+  /**
+   * I file del Drive che Claude può leggere per chi chiede (visibili, non
+   * nascosti, disponibili e pronti, col testo estratto). Leggerli non conta
+   * un'apertura.
+   */
+  readDriveFiles(): Promise<DriveFile[]>;
 }
 
 export interface IntentContext {

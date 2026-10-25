@@ -2257,6 +2257,15 @@ export function useDriveSearch(q: string, scope: DriveSearchScope = {}, enabled 
  * perso fra la ricerca e il clic → `false` (shape drive-search.md §5).
  */
 export function useDriveFileStillThere() {
+  const fileIfThere = useDriveFileIfStillThere();
+  return useCallback((id: string) => fileIfThere(id).then((file) => file !== null), [fileIfThere]);
+}
+
+/**
+ * Come `useDriveFileStillThere`, ma dà il file riletto (o `null`): chi apre
+ * da una citazione ha solo l'id, e serve sapere se è Google o un caricato.
+ */
+export function useDriveFileIfStillThere() {
   const me = useSessionPersonId();
   const client = useQueryClient();
   return useCallback(
@@ -2267,8 +2276,8 @@ export function useDriveFileStillThere() {
           queryFn: () => api.drive.getDriveFile(id),
           staleTime: 0,
         })
-        .then((file) => !!file && !file.hidden)
-        .catch(() => false),
+        .then((file) => (file && !file.hidden ? file : null))
+        .catch(() => null),
     [client, me],
   );
 }

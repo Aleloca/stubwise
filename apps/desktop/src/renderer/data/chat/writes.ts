@@ -3,6 +3,7 @@
 import { createRequestAs, createTaskAs, type NewRequestInput } from "../api-mutations";
 import { findCodes } from "../../domain/claude/parse";
 import { canReadDocPage, docPageById } from "../docs/reads";
+import { canSeeDriveFile } from "../drive/visibility";
 import { REPO_FILES } from "../seed/repoFiles";
 import {
   chatKey,
@@ -228,6 +229,10 @@ function stillNamed(ref: CitationRef, text: string): boolean {
       const path = REPO_FILES.find((f) => f.id === ref.id)?.path;
       return path !== undefined && text.includes(path);
     }
+    case "drive": {
+      const code = state.driveFiles.find((f) => f.id === ref.id)?.code;
+      return code !== undefined && text.includes(code);
+    }
     case "person": {
       const name = PEOPLE.find((p) => p.id === ref.id)?.name;
       return name !== undefined && mentionsName(text, name);
@@ -269,6 +274,11 @@ function canCite(me: string, ref: CitationRef, visible: ReadonlySet<string>): bo
     case "file": {
       const projectId = REPO_FILES.find((f) => f.id === ref.id)?.projectId;
       return seen(projectId) && can(viewerFor(me), "repos.view", projectId);
+    }
+    case "drive": {
+      // Come il menu «#»: un file che chi scrive vede, mai un nascosto.
+      const file = state.driveFiles.find((f) => f.id === ref.id);
+      return file !== undefined && canSeeDriveFile(me, file);
     }
     case "person":
       return isHuman(ref.id);

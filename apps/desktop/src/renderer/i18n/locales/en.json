@@ -1900,7 +1900,10 @@
         "notFound": "Not found",
         "readThread": "Read the thread",
         "messages_one": "{{count}} message",
-        "messages_other": "{{count}} messages"
+        "messages_other": "{{count}} messages",
+        "searchDrive": "Searched the Drive for “{{topic}}”",
+        "files_one": "{{count}} file",
+        "files_other": "{{count}} files"
       },
       "status": {
         "intro": "Here's where your projects stand:",
@@ -2019,6 +2022,11 @@
         "noTopic": "What would you like to know? Ask in your own words, for example “how do scheduled callbacks work”.",
         "nothing": "The {{scope}} docs don't cover “{{topic}}”. I won't guess: try other words, or ask the team with a request.",
         "found": "**{{code}} {{title}}**, from {{repo}}:"
+      },
+      "files": {
+        "found": "**{{code}} {{name}}**, in the {{project}} Drive, says:",
+        "foundArticle": "**{{code}} {{name}}**, in the {{project}} Drive, covers it in article {{article}}:",
+        "nothing": "I didn't find a file in your projects' Drive that talks about “{{topic}}”. I won't guess: try other words, or look in the Drive."
       }
     },
     "proposalFailed": {
@@ -2053,8 +2061,10 @@
           "person": "Person",
           "milestone": "Milestone",
           "brief": "Weekly brief",
-          "release": "Release page"
-        }
+          "release": "Release page",
+          "drive": "Drive file"
+        },
+        "notAvailable": "Not available"
       },
       "actions": {
         "running": "In progress",
@@ -2216,8 +2226,9 @@
           "task": "Tasks",
           "request": "Requests",
           "doc": "Docs",
-          "file": "Files",
-          "project": "Projects"
+          "file": "Repository files",
+          "project": "Projects",
+          "drive": "Files"
         },
         "people": "People",
         "loading": "Searching…",
@@ -2926,6 +2937,16 @@
       "resultWhere": "in {{channel}}, {{date}}",
       "showMore_one": "Show {{count}} more in {{name}}",
       "showMore_other": "Show {{count}} more in {{name}}"
+    },
+    "saveToDrive": {
+      "label": "Save {{name}} to the Drive",
+      "short": "Save to Drive",
+      "title": "Save “{{name}}” to which project?",
+      "body": "It goes into that project's Drive, where the team finds it with everything else.",
+      "confirm": "Save",
+      "saved": "Saved to the {{project}} Drive as {{code}}",
+      "tooLarge": "{{name}} is over 100 MB, so it can't go in the Drive.",
+      "failed": "Couldn't save to the Drive. Try again."
     }
   },
   "docs": {

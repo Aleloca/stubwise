@@ -32,7 +32,8 @@ export interface SuggestionGroup {
   items: Suggestion[];
 }
 
-const GROUP_ORDER = ["task", "request", "doc", "file", "project"] as const;
+// I file del Drive dopo task, richieste e pagine (shape drive-search.md A7).
+const GROUP_ORDER = ["task", "request", "doc", "drive", "file", "project"] as const;
 
 /** I risultati di «#» o «@» per la ricerca scritta dopo il carattere. */
 export function useMentionSuggestions(
@@ -72,9 +73,15 @@ export function useMentionSuggestions(
       .map<Suggestion>((r) => ({
         id: `${r.ref.kind}:${r.ref.id}`,
         group: kind,
-        code: kind === "file" || kind === "doc" ? null : r.code,
+        // Pagine e file del Drive hanno il loro codice (`AUD-D3`, `AUD-F7`), come le task.
+        code: kind === "file" ? null : r.code,
         label: r.label,
-        detail: kind === "doc" ? [r.code, r.detail].filter(Boolean).join(" · ") : r.detail,
+        // Un file del Drive: «Google document · AUD».
+        detail: r.drive
+          ? [t(`drive.${r.drive.google ? "googleTypes" : "types"}.${r.drive.type}`), r.detail]
+              .filter(Boolean)
+              .join(" · ")
+          : r.detail,
         insert: kind === "file" ? r.label : [r.code, r.label].filter(Boolean).join(" "),
         ref: r.ref,
         projectId: r.projectId,

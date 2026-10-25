@@ -11,6 +11,8 @@ import type {
   ConversationState,
   DepartmentPermission,
   DailyReport,
+  DriveFile,
+  DriveFileType,
   Milestone,
   ModelUsage,
   Outcome,
@@ -334,6 +336,20 @@ export interface CitationView {
   personId: string | null;
   /** Dove si apre (route hash); `null` se non si apre (un file, una persona). */
   route: string | null;
+  /**
+   * Solo un file del Drive che chi guarda vede: quanto serve all'anteprima
+   * del gettone (tipo, Google o caricato, riassunto, aperture degli ultimi
+   * 90 giorni, non disponibile, nome del progetto). Un file che non vede
+   * non lo porta mai.
+   */
+  drive?: {
+    type: DriveFileType;
+    google: boolean;
+    summary: string | null;
+    opens90d: number;
+    unavailable: DriveFile["unavailable"];
+    projectName: string;
+  };
 }
 
 /** Un risultato dei menu «#» (oggetti) e «@» (persone) della casella. */
@@ -344,6 +360,8 @@ export interface MentionResult {
   /** Riga secondaria: il progetto, la sezione della pagina, il reparto. */
   detail: string | null;
   projectId: string | null;
+  /** Solo un file del Drive: il tipo, per la riga «codice · nome · tipo · progetto». */
+  drive?: { type: DriveFileType; google: boolean };
 }
 
 /** Il risultato di «Rendi pubblica»: la prima volta chiede di confermare i progetti toccati. */
