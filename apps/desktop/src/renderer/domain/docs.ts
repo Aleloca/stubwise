@@ -14,6 +14,13 @@ export function slugify(title: string): string {
 export const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 /**
+ * Gli slug che nello spazio sono già viste (`…/<repo>/new`, `brief`,
+ * `releases`, `graph`): una pagina con uno di questi non si aprirebbe mai.
+ * Il livello dati li rifiuta (`slug_conflict`), il form lo dice prima.
+ */
+export const RESERVED_SLUGS: ReadonlySet<string> = new Set(["new", "brief", "releases", "graph"]);
+
+/**
  * L'albero di una categoria: ogni segmento del percorso («Guide / Dialer») è
  * una cartella, la pagina è la foglia. Cartelle prima delle pagine, entrambe
  * per nome.

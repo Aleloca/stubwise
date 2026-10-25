@@ -81,31 +81,74 @@ describe("Docs — pagina iniziale", () => {
     expect(await screen.findByRole("list", { name: "Spaces" })).toBeInTheDocument();
   });
 
-  it("un progetto senza il modulo Docs non ha la sezione: si torna all'Overview", async () => {
+  it("un progetto senza il modulo Docs: la colonna non ha la sezione, l'indirizzo lo dice", async () => {
     const router = renderRoute("/p/MKX/docs", "p-roberta");
-    await screen.findByRole("heading", { level: 1, name: "Overview" });
-    expect(path(router)).toBe("/p/MKX/overview");
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Docs isn't turned on for MKX" }),
+    ).toBeInTheDocument();
+    expect(path(router)).toBe("/p/MKX/docs");
+    await userEvent.click(screen.getByRole("link", { name: "Turn it on in Settings" }));
+    await screen.findByRole("heading", { level: 1, name: "Settings" });
+    expect(path(router)).toBe("/p/MKX/settings");
+    const sections = screen.getByRole("navigation", { name: /sections/i });
+    expect(within(sections).queryByRole("link", { name: "Docs" })).toBeNull();
+  });
+
+  it("modulo spento, senza project.settings.manage: nessun «Turn it on»", async () => {
+    revokeProjectPermission("p-giulia", "prj-mkx", "project.settings.manage" as never);
+    renderRoute("/p/MKX/docs/whatever", "p-giulia");
+    await screen.findByRole("heading", { level: 1, name: "Docs isn't turned on for MKX" });
+    expect(screen.queryByRole("link", { name: "Turn it on in Settings" })).toBeNull();
   });
 });
 
 describe("Docs — spazio e albero", () => {
-  it("dall'albero alla pagina: cartelle richiudibili, la pagina si apre per slug", async () => {
+  it("dall'albero alla pagina: il treeitem porta selezione, livello ed espansione", async () => {
     const router = renderRoute("/p/AUD/docs/audin-app", "p-laura");
     const tree = await screen.findByRole("tree", { name: "Functional" });
     const leaf = within(tree).getByRole("treeitem", { name: "Scheduled callbacks" });
-    await userEvent.click(within(leaf).getByRole("link"));
+    expect(leaf).toHaveAttribute("aria-selected", "false");
+    expect(leaf).toHaveAttribute("aria-level", "3");
+    await userEvent.click(within(leaf).getByText("Scheduled callbacks"));
     expect(
       await screen.findByRole("heading", { level: 1, name: "Scheduled callbacks" }),
     ).toBeInTheDocument();
     expect(path(router)).toBe("/p/AUD/docs/audin-app/scheduled-callbacks");
     expect(screen.getByRole("button", { name: /AUD-D1/ })).toBeInTheDocument();
-    // La pagina corrente è segnata nell'albero.
-    expect(within(leaf).getByRole("link")).toHaveAttribute("aria-current", "page");
-    // Una cartella si chiude: i suoi figli spariscono.
+    // La pagina corrente è il treeitem selezionato, ed è lei a prendere il fuoco con Tab.
+    const current = within(tree).getByRole("treeitem", { name: "Scheduled callbacks" });
+    expect(current).toHaveAttribute("aria-selected", "true");
+    expect(current).toHaveAttribute("tabindex", "0");
+    // Una cartella si chiude (clic sulla riga): i suoi figli spariscono.
     const folder = within(tree).getByRole("treeitem", { name: "Dialer" });
-    await userEvent.click(within(folder).getByRole("button", { name: "Collapse Dialer" }));
+    expect(folder).toHaveAttribute("aria-expanded", "true");
+    await userEvent.click(within(folder).getByText("Dialer"));
     expect(folder).toHaveAttribute("aria-expanded", "false");
     expect(within(tree).queryByRole("treeitem", { name: "Scheduled callbacks" })).toBeNull();
+  });
+
+  it("da tastiera: frecce sui treeitem, ← chiude, → apre, Enter apre la pagina", async () => {
+    const user = userEvent.setup();
+    const router = renderRoute("/p/AUD/docs/audin-app", "p-laura");
+    const tree = await screen.findByRole("tree", { name: "Functional" });
+    const guide = within(tree).getByRole("treeitem", { name: "Guide" });
+    expect(guide).toHaveAttribute("tabindex", "0");
+    guide.focus();
+    await user.keyboard("{ArrowDown}");
+    const billing = within(tree).getByRole("treeitem", { name: "Billing" });
+    expect(billing).toHaveFocus();
+    await user.keyboard("{ArrowLeft}");
+    expect(billing).toHaveAttribute("aria-expanded", "false");
+    await user.keyboard("{ArrowRight}");
+    expect(billing).toHaveAttribute("aria-expanded", "true");
+    await user.keyboard("{ArrowDown}");
+    const leaf = within(tree).getByRole("treeitem", { name: "Invoices and billing emails" });
+    expect(leaf).toHaveFocus();
+    await user.keyboard("{ArrowLeft}");
+    expect(billing).toHaveFocus();
+    await user.keyboard("{ArrowDown}{Enter}");
+    await screen.findByRole("heading", { level: 1, name: "Invoices and billing emails" });
+    expect(path(router)).toBe("/p/AUD/docs/audin-app/invoices-and-billing-emails");
   });
 
   it("comprimi tutto / espandi tutto, e una categoria si chiude", async () => {
@@ -113,6 +156,12 @@ describe("Docs — spazio e albero", () => {
     await screen.findByRole("tree", { name: "Functional" });
     await userEvent.click(screen.getByRole("button", { name: "Collapse all" }));
     expect(screen.queryByRole("treeitem", { name: "Scheduled callbacks" })).toBeNull();
+    // Anche i gruppi: restano le quattro intestazioni.
+    expect(screen.queryByRole("tree")).toBeNull();
+    expect(screen.getByRole("button", { name: /^Functional/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
     await userEvent.click(screen.getByRole("button", { name: "Expand all" }));
     expect(screen.getByRole("treeitem", { name: "Scheduled callbacks" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /^Functional/ }));
@@ -324,5 +373,120 @@ describe("Docs — pagine manuali", () => {
     await switchPersona(/Sara Montanari/);
     expect(await screen.findByRole("heading", { name: "Project not found" })).toBeInTheDocument();
     expect(screen.queryByText("Release checklist")).toBeNull();
+  });
+});
+
+describe("Docs — fix round 1", () => {
+  it("cambio di persona con una bozza nel form: la bozza sparisce, nessuna domanda", async () => {
+    await openPage("/p/AUD/docs/audin-app/new", "New manual page");
+    await userEvent.type(screen.getByRole("textbox", { name: "Title" }), "Half written");
+    await switchPersona(/Roberta Fontana/);
+    await screen.findByRole("heading", { level: 1, name: "New manual page" });
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Title" })).toHaveValue(""));
+    expect(screen.queryByRole("group", { name: "Discard your changes?" })).toBeNull();
+  });
+
+  it("uno slug riservato (anche dal titolo) ha il suo messaggio, non «già usato»", async () => {
+    await openPage("/p/AUD/docs/audin-app/new", "New manual page");
+    const before = state.docPages.length;
+    await userEvent.type(screen.getByRole("textbox", { name: "Title" }), "New");
+    await userEvent.click(screen.getByRole("button", { name: "Save page" }));
+    expect(
+      await screen.findByText("“new” is reserved for a view of the space: choose another slug"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Another page already uses this slug")).toBeNull();
+    expect(state.docPages.length).toBe(before);
+  });
+
+  it("modifica: cambiare lo slug sposta la pagina al nuovo indirizzo", async () => {
+    const router = await openPage(
+      "/p/AUD/docs/audin-app/release-checklist/edit",
+      "Edit “Release checklist”",
+    );
+    const slug = screen.getByRole("textbox", { name: /^Slug/ });
+    await userEvent.clear(slug);
+    await userEvent.type(slug, "release-steps");
+    await userEvent.click(screen.getByRole("button", { name: "Save page" }));
+    await screen.findByRole("heading", { level: 1, name: "Release checklist" });
+    expect(path(router)).toBe("/p/AUD/docs/audin-app/release-steps");
+    expect(state.docPages.find((p) => p.id === "doc-aud-release-checklist")!.slug).toBe(
+      "release-steps",
+    );
+  });
+
+  it("Write / Preview: le schede controllano il loro pannello, l'etichetta segue il campo", async () => {
+    await openPage("/p/AUD/docs/audin-app/new", "New manual page");
+    const write = screen.getByRole("tab", { name: "Write" });
+    expect(document.getElementById(write.getAttribute("aria-controls")!)).toContainElement(
+      screen.getByRole("textbox", { name: "Body" }),
+    );
+    await userEvent.click(screen.getByRole("tab", { name: "Preview" }));
+    const preview = screen.getByRole("tab", { name: "Preview" });
+    const panel = screen.getByRole("tabpanel", { name: "Preview" });
+    expect(panel.id).toBe(preview.getAttribute("aria-controls"));
+    // Nessuna etichetta resta a puntare a un campo che non c'è.
+    expect(document.querySelector("label[for]:not([for=''])")).not.toBeNull();
+    for (const label of document.querySelectorAll<HTMLLabelElement>("label[for]")) {
+      expect(document.getElementById(label.htmlFor)).not.toBeNull();
+    }
+  });
+
+  it("J/K nell'indice muovono fra le righe degli elenchi", async () => {
+    const user = userEvent.setup();
+    renderRoute("/p/AUD/docs/audin-app", "p-laura");
+    const start = await screen.findByRole("list", { name: "Start here" });
+    await user.keyboard("j");
+    expect(within(start).getByRole("link", { name: /Audin 2.0 at a glance/ })).toHaveFocus();
+    await user.keyboard("j");
+    const categories = screen.getByRole("list", { name: "Categories" });
+    expect(within(categories).getAllByRole("button")[0]).toHaveFocus();
+    await user.keyboard("k");
+    expect(within(start).getByRole("link", { name: /Audin 2.0 at a glance/ })).toHaveFocus();
+  });
+
+  it("⌘C col fuoco sul codice copia il link della pagina", async () => {
+    const user = userEvent.setup();
+    await openPage("/p/AUD/docs/audin-app/scheduled-callbacks", "Scheduled callbacks");
+    screen.getByRole("button", { name: /AUD-D1/ }).focus();
+    await user.keyboard("{Meta>}c{/Meta}");
+    expect(await navigator.clipboard.readText()).toBe("#/p/AUD/docs/audin-app/scheduled-callbacks");
+    expect(await screen.findByText("Link to AUD-D1 copied")).toBeInTheDocument();
+  });
+
+  it("l'indice dice quando l'elenco delle categorie non si carica, con Retry", async () => {
+    failNext("docs.listDocTree");
+    renderRoute("/p/AUD/docs/audin-app", "p-laura");
+    await screen.findByRole("heading", { level: 1, name: "audin-app" });
+    const alerts = await screen.findAllByRole("alert");
+    expect(alerts.some((a) => a.textContent?.includes("Couldn't load the pages."))).toBe(true);
+    await userEvent.click(within(alerts[0]!).getByRole("button", { name: "Retry" }));
+    expect(await screen.findByRole("list", { name: "Categories" })).toBeInTheDocument();
+  });
+
+  it("1024: il cassetto prende il fuoco, Esc lo chiude e lo rende a «Pages», un clic fuori pure", async () => {
+    setMatchMedia(DOCKED_PANEL_QUERY, false);
+    const user = userEvent.setup();
+    renderRoute("/p/AUD/docs/audin-app", "p-laura");
+    await screen.findByRole("heading", { level: 1, name: "audin-app" });
+    const pages = screen.getByRole("button", { name: "Pages" });
+    await user.click(pages);
+    const drawer = await screen.findByRole("complementary", { name: "Pages of audin-app" });
+    await waitFor(() => expect(drawer).toContainElement(document.activeElement as HTMLElement));
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("complementary", { name: "Pages of audin-app" })).toBeNull();
+    expect(pages).toHaveFocus();
+
+    // Con un dialogo sopra, Esc è del dialogo: il cassetto resta.
+    await user.click(pages);
+    await screen.findByRole("complementary", { name: "Pages of audin-app" });
+    const modal = document.createElement("div");
+    modal.setAttribute("aria-modal", "true");
+    document.body.append(modal);
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("complementary", { name: "Pages of audin-app" })).toBeInTheDocument();
+    modal.remove();
+
+    await user.click(screen.getByRole("heading", { level: 1, name: "audin-app" }));
+    expect(screen.queryByRole("complementary", { name: "Pages of audin-app" })).toBeNull();
   });
 });

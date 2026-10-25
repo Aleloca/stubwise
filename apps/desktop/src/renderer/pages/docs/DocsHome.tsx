@@ -1,4 +1,4 @@
-import { Link, Navigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { usePeople, useProject, useProjectDocsHome, useDocTree } from "../../data/queries";
@@ -23,8 +23,9 @@ import {
 
 /**
  * Il progetto di una vista dei Docs: caricamento, errore, progetto che non
- * c'è (o invisibile: identici), modulo spento (la sezione non esiste: si
- * torna all'Overview, come per le altre sezioni dei moduli).
+ * c'è (o invisibile: identici), modulo spento: la colonna non mostra la
+ * sezione, ma un indirizzo diretto dice che i Docs sono spenti e, a chi
+ * gestisce il progetto, dove accenderli (shape §5, A 5).
  */
 export function DocsProjectGate({
   code,
@@ -50,10 +51,33 @@ export function DocsProjectGate({
     );
   }
   if (!project) return <ProjectNotFound />;
-  if (!project.modules.includes("docs")) {
-    return <Navigate to="/p/$code/$section" params={{ code, section: "overview" }} replace />;
-  }
+  if (!project.modules.includes("docs")) return <DocsTurnedOff project={project} />;
   return <>{children(project)}</>;
+}
+
+function DocsTurnedOff({ project }: { project: Project }) {
+  const { t } = useTranslation();
+  const { viewer } = useViewer();
+  const canManage = can(viewer, "project.settings.manage", project.id);
+  return (
+    <section className="page-header flex flex-col items-start gap-2 pb-8 pl-8 [--page-header-pr:32px] [--page-header-pt:32px]">
+      <h1 className="text-2xl font-semibold text-ink">
+        {t("docs.off.title", { code: project.code })}
+      </h1>
+      <p className="max-w-[60ch] text-md text-ink-muted">
+        {canManage ? t("docs.off.bodyManage") : t("docs.off.body")}
+      </p>
+      {canManage && (
+        <Link
+          to="/p/$code/$section"
+          params={{ code: project.code, section: "settings" }}
+          className="mt-2 inline-flex h-8 items-center rounded-md border border-rule-strong px-3 text-sm font-medium text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6"
+        >
+          {t("docs.off.turnOn")}
+        </Link>
+      )}
+    </section>
+  );
 }
 
 /**

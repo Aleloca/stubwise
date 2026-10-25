@@ -3046,8 +3046,15 @@
         "title": "Dai un titolo alla pagina.",
         "slugConflict": "Un'altra pagina usa già questo slug",
         "slugInvalid": "Usa lettere minuscole, numeri e trattini.",
-        "generic": "Non è stato possibile salvare la pagina. Riprova."
+        "generic": "Non è stato possibile salvare la pagina. Riprova.",
+        "slugReserved": "«{{slug}}» è riservato a una vista dello spazio: scegli un altro slug"
       }
+    },
+    "off": {
+      "title": "I documenti non sono attivi per {{code}}",
+      "body": "Questo progetto non usa la documentazione. Un project lead può attivarla.",
+      "bodyManage": "Questo progetto non usa ancora la documentazione. Puoi attivarla nelle impostazioni del progetto.",
+      "turnOn": "Attivali nelle impostazioni"
     }
   }
 }

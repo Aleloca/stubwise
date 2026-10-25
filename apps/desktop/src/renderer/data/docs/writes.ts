@@ -1,4 +1,4 @@
-import { SLUG_RE, slugify } from "../../domain/docs";
+import { RESERVED_SLUGS, SLUG_RE, slugify } from "../../domain/docs";
 import { COMMITS } from "../seed/commits";
 import { copy, gate, newId, now, state, storeGeneration } from "../store";
 import type {
@@ -49,13 +49,6 @@ function manualPageFor(me: string, id: string): DocPage {
   if (page.kind !== "manual") throw invalid("generated page");
   return page;
 }
-
-/**
- * Gli slug che nello spazio sono già viste (`…/<repo>/new`, `brief`,
- * `releases`, `graph`): una pagina con uno di questi non si aprirebbe mai,
- * quindi per chi scrive sono «già usati».
- */
-const RESERVED_SLUGS: ReadonlySet<string> = new Set(["new", "brief", "releases", "graph"]);
 
 function checkSlug(repositoryId: string, slug: string, exceptId?: string): void {
   if (!SLUG_RE.test(slug)) throw invalid("slug");

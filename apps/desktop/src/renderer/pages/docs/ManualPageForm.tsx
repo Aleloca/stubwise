@@ -3,7 +3,7 @@ import { useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useCreateManualPage, useDocPage, useUpdateManualPage } from "../../data/queries";
 import type { DocPage } from "../../data/types";
-import { SLUG_RE, slugify } from "../../domain/docs";
+import { RESERVED_SLUGS, SLUG_RE, slugify } from "../../domain/docs";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { Markdown } from "../../tasks-ui/Markdown";
 import { PageError } from "../../tasks-ui/PageStates";
@@ -113,6 +113,10 @@ function ManualPageForm({ initial }: { initial: DocPage | null }) {
     if (!title.trim()) next.title = t("docs.form.errors.title");
     if (slug.trim() && !SLUG_RE.test(slug.trim())) next.slug = t("docs.form.errors.slugInvalid");
     else if (!effectiveSlug) next.slug = t("docs.form.errors.slugInvalid");
+    // Anche quando lo slug viene dal titolo («New» → `new`): il motivo vero, non «già usato».
+    else if (RESERVED_SLUGS.has(effectiveSlug)) {
+      next.slug = t("docs.form.errors.slugReserved", { slug: effectiveSlug });
+    }
     setErrors(next);
     if (next.title || next.slug) return;
     if (initial) {
@@ -200,16 +204,23 @@ function ManualPageForm({ initial }: { initial: DocPage | null }) {
 
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center gap-2">
-          <label htmlFor={ids.body} className="text-sm font-medium text-ink">
-            {t("docs.form.body")}
-          </label>
+          {/* L'etichetta punta al campo solo quando il campo c'è (in Anteprima non c'è). */}
+          {tab === "write" ? (
+            <label htmlFor={ids.body} className="text-sm font-medium text-ink">
+              {t("docs.form.body")}
+            </label>
+          ) : (
+            <span className="text-sm font-medium text-ink">{t("docs.form.body")}</span>
+          )}
           <div role="tablist" aria-label={t("docs.form.body")} className="ml-auto flex gap-0.5">
             {(["write", "preview"] as const).map((key) => (
               <button
                 key={key}
+                id={`${ids.body}-tab-${key}`}
                 type="button"
                 role="tab"
                 aria-selected={tab === key}
+                aria-controls={`${ids.body}-panel-${key}`}
                 onClick={() => setTab(key)}
                 className={tabClass}
               >
@@ -219,17 +230,24 @@ function ManualPageForm({ initial }: { initial: DocPage | null }) {
           </div>
         </div>
         {tab === "write" ? (
-          <textarea
-            id={ids.body}
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            rows={14}
-            className={`${inputClass} min-h-60 resize-y leading-relaxed`}
-          />
+          <div
+            id={`${ids.body}-panel-write`}
+            role="tabpanel"
+            aria-labelledby={`${ids.body}-tab-write`}
+          >
+            <textarea
+              id={ids.body}
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              rows={14}
+              className={`${inputClass} block min-h-60 resize-y leading-relaxed`}
+            />
+          </div>
         ) : (
           <div
+            id={`${ids.body}-panel-preview`}
             role="tabpanel"
-            aria-label={t("docs.form.preview")}
+            aria-labelledby={`${ids.body}-tab-preview`}
             className="min-h-60 rounded-md border border-rule px-3 py-2.5"
           >
             {body.trim() ? (

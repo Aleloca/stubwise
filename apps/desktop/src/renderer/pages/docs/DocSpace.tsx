@@ -6,6 +6,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  type RefObject,
 } from "react";
 import { useTranslation } from "react-i18next";
 import { useDocSpaces, useDocTree, useStartGeneration } from "../../data/queries";
@@ -15,7 +16,7 @@ import { useMediaQuery } from "../../layout/useMediaQuery";
 import { formatDate } from "../../notifications/time";
 import { PageError } from "../../tasks-ui/PageStates";
 import { useToast } from "../../tasks-ui/Toast";
-import { PlusIcon } from "../task/parts";
+import { PlusIcon, smallSecondary } from "../task/parts";
 import { primaryButton, secondaryButton } from "../tasks/controls";
 import { DocTree, DocTreeSkeleton, ancestorKeys, categoryKey, folderKeys } from "./DocTree";
 import {
@@ -126,22 +127,47 @@ function SpaceShell({ project, space }: { project: Project; space: DocSpaceView 
     [docked],
   );
 
-  // ⌘\ apre e chiude il cassetto (solo quando l'albero non è affiancato); Esc lo chiude.
+  const drawerRef = useRef<HTMLElement>(null);
+  /** Chiude il cassetto; con `restore` il fuoco torna su «Pages». */
+  const closeDrawer = useCallback((restore: boolean) => {
+    setDrawer(false);
+    if (restore) pagesButton.current?.focus();
+  }, []);
+
+  // ⌘\ apre e chiude il cassetto (solo quando l'albero non è affiancato); Esc lo
+  // chiude, ma non se sopra c'è un dialogo (l'Esc è suo); un clic fuori anche.
   useEffect(() => {
     if (docked) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "\\" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        setDrawer((open) => !open);
+        if (drawer) closeDrawer(true);
+        else setDrawer(true);
       } else if (e.key === "Escape" && drawer) {
+        if (e.defaultPrevented || document.querySelector('[aria-modal="true"]')) return;
         e.preventDefault();
-        setDrawer(false);
-        pagesButton.current?.focus();
+        closeDrawer(true);
       }
     };
+    const onPointer = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (drawerRef.current?.contains(target) || pagesButton.current?.contains(target)) return;
+      closeDrawer(false);
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [docked, drawer]);
+    if (drawer) document.addEventListener("pointerdown", onPointer);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onPointer);
+    };
+  }, [docked, drawer, closeDrawer]);
+
+  // Aperto, il fuoco entra nel cassetto (salvo che ci sia già: «Show in the tree»).
+  useEffect(() => {
+    const el = drawerRef.current;
+    if (!drawer || !el || el.contains(document.activeElement)) return;
+    el.querySelector<HTMLElement>('[role="treeitem"][tabindex="0"], button')?.focus();
+  }, [drawer, tree.data]);
 
   const treeBody = tree.isError ? (
     <PageError message={t("docs.tree.error")} onRetry={() => void tree.refetch()} />
@@ -155,9 +181,13 @@ function SpaceShell({ project, space }: { project: Project; space: DocSpaceView 
       collapsed={collapsed}
       onToggle={toggle}
       onExpandAll={() => setCollapsed(new Set())}
-      onCollapseAll={() => setCollapsed(new Set(folderKeys(categories)))}
+      onCollapseAll={() =>
+        setCollapsed(
+          new Set([...categories.map((c) => categoryKey(c.kind)), ...folderKeys(categories)]),
+        )
+      }
       focusCategory={focusCategory}
-      onNavigate={docked ? undefined : () => setDrawer(false)}
+      onNavigate={docked ? undefined : () => closeDrawer(true)}
     />
   );
 
@@ -175,7 +205,7 @@ function SpaceShell({ project, space }: { project: Project; space: DocSpaceView 
               aria-expanded={drawer}
               aria-keyshortcuts="Meta+Backslash"
               title={`${t("docs.space.pagesToggle")} · ⌘\\`}
-              onClick={() => setDrawer((open) => !open)}
+              onClick={() => (drawer ? closeDrawer(false) : setDrawer(true))}
               className="inline-flex h-7 items-center rounded-md px-2 text-sm font-medium text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink aria-expanded:bg-ink/10 aria-expanded:text-ink"
             >
               {t("docs.space.pagesToggle")}
@@ -217,6 +247,7 @@ function SpaceShell({ project, space }: { project: Project; space: DocSpaceView 
         </div>
         {!docked && drawer && (
           <aside
+            ref={drawerRef}
             aria-label={t("docs.space.treeLabel", { name: space.name })}
             className="absolute top-10 bottom-0 left-0 z-30 flex w-[280px] flex-col border-r border-rule-strong bg-surface shadow-[0_12px_32px_-8px_oklch(0_0_0/0.4)]"
           >
@@ -266,6 +297,37 @@ function Resizer({ width, onWidth }: { width: number; onWidth: (w: number) => vo
   );
 }
 
+/** Un campo in cui si scrive: lì J e K sono lettere. */
+const isTyping = (el: Element | null) =>
+  el instanceof HTMLElement &&
+  (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
+
+/**
+ * J/K nell'indice (A 11): la riga successiva o precedente fra tutte quelle
+ * degli elenchi (pagine e categorie), nell'ordine in cui si leggono; Enter
+ * la apre. Non con un modificatore, non in un campo, non sotto un dialogo.
+ */
+function useIndexKeys(root: RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
+      const key = e.key.toLowerCase();
+      if (key !== "j" && key !== "k") return;
+      if (isTyping(document.activeElement) || document.querySelector('[aria-modal="true"]')) return;
+      const rows = [
+        ...(root.current?.querySelectorAll<HTMLElement>("ul > li > :is(a, button)") ?? []),
+      ];
+      if (rows.length === 0) return;
+      e.preventDefault();
+      const at = rows.indexOf(document.activeElement as HTMLElement);
+      const next = at < 0 ? (key === "j" ? 0 : rows.length - 1) : at + (key === "j" ? 1 : -1);
+      rows[Math.max(0, Math.min(rows.length - 1, next))]?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [root]);
+}
+
 /**
  * L'indice del repository (shape §3): h1 = nome, lo stato della
  * generazione in parole, il riassunto del brief, «Start here», le
@@ -277,9 +339,11 @@ export function RepoIndex() {
   const tree = useDocTree(space.repositoryId);
   const product = productPages(tree.data ?? []);
   const releases = [...space.releases].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 3);
+  const article = useRef<HTMLElement>(null);
+  useIndexKeys(article);
 
   return (
-    <article className="event-enter flex flex-col">
+    <article ref={article} className="event-enter flex flex-col">
       <header className="flex items-start gap-4 pt-8">
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
           <h1 className="truncate text-2xl font-semibold text-ink" title={space.name}>
@@ -323,27 +387,51 @@ export function RepoIndex() {
           )}
 
           <DocsGroup title={t("docs.groups.categories")}>
-            <ul aria-label={t("docs.groups.categories")} className="border-t border-rule">
-              {(tree.data ?? []).map((c) => {
-                const label = t(`docs.kinds.${c.kind}`);
-                return (
-                  <li key={c.kind}>
-                    <button
-                      type="button"
-                      onClick={() => revealCategory(c.kind)}
-                      aria-label={t("docs.index.showInTree", { name: label })}
-                      title={t("docs.index.showInTree", { name: label })}
-                      className={`${rowLinkClass} w-full`}
-                    >
-                      <span className="min-w-0 flex-1 truncate text-md text-ink">{label}</span>
-                      <span className="num shrink-0 text-sm text-ink-faint">
-                        {t("docs.space.pages", { count: c.count })}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+            {tree.isError ? (
+              <div role="alert" className="flex items-center gap-3 border-t border-rule py-3 pl-2">
+                <p className="text-md text-ink">{t("docs.tree.error")}</p>
+                <button
+                  type="button"
+                  className={smallSecondary}
+                  onClick={() => void tree.refetch()}
+                >
+                  {t("taskUi.states.retry")}
+                </button>
+              </div>
+            ) : !tree.data ? (
+              <div aria-busy="true" className="skeleton-breathe border-t border-rule">
+                <span role="status" className="sr-only">
+                  {t("taskUi.states.loading")}
+                </span>
+                {[0, 1, 2, 3].map((i) => (
+                  <div key={i} className="flex h-11 items-center border-b border-rule px-2">
+                    <span className="h-2.5 w-28 rounded-sm bg-ink/8" />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <ul aria-label={t("docs.groups.categories")} className="border-t border-rule">
+                {tree.data.map((c) => {
+                  const label = t(`docs.kinds.${c.kind}`);
+                  return (
+                    <li key={c.kind}>
+                      <button
+                        type="button"
+                        onClick={() => revealCategory(c.kind)}
+                        aria-label={t("docs.index.showInTree", { name: label })}
+                        title={t("docs.index.showInTree", { name: label })}
+                        className={`${rowLinkClass} w-full`}
+                      >
+                        <span className="min-w-0 flex-1 truncate text-md text-ink">{label}</span>
+                        <span className="num shrink-0 text-sm text-ink-faint">
+                          {t("docs.space.pages", { count: c.count })}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </DocsGroup>
 
           {releases.length > 0 && (

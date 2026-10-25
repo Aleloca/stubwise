@@ -845,7 +845,7 @@ export interface CommitOfDay {
 export interface Repository {
   id: string;
   projectId: string;
-  /** Il nome del repository sulla piattaforma, es. «audin-app». */
+  /** Il nome del repository sulla piattaforma, es. «audin-app»; unico nel progetto: è nell'indirizzo dei Docs. */
   name: string;
 }
 

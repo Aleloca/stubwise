@@ -3046,8 +3046,15 @@
         "title": "Give the page a title.",
         "slugConflict": "Another page already uses this slug",
         "slugInvalid": "Use lowercase letters, numbers and dashes.",
-        "generic": "Couldn't save the page. Try again."
+        "generic": "Couldn't save the page. Try again.",
+        "slugReserved": "“{{slug}}” is reserved for a view of the space: choose another slug"
       }
+    },
+    "off": {
+      "title": "Docs isn't turned on for {{code}}",
+      "body": "This project doesn't use the documentation. A project lead can turn it on.",
+      "bodyManage": "This project doesn't use the documentation yet. You can turn it on in the project settings.",
+      "turnOn": "Turn it on in Settings"
     }
   }
 }

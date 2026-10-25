@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { useNavigate, useParams } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type { DocKind, DocPageRef, DocTreeCategory, DocTreeNode } from "../../data/types";
@@ -87,7 +87,7 @@ function Caret({ open }: { open: boolean }) {
 }
 
 const nodeClass =
-  "flex h-7 w-full min-w-0 items-center gap-1.5 rounded-md pr-2 text-left text-sm text-ink-muted outline-none transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus aria-[current=page]:bg-ink/10 aria-[current=page]:font-semibold aria-[current=page]:text-ink";
+  "flex h-7 w-full min-w-0 cursor-default items-center gap-1.5 rounded-md pr-2 text-left text-sm text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink";
 
 /** Rientro di un livello: 12 px, più lo spazio della freccia per le foglie. */
 const indent = (level: number, leaf: boolean) => ({
@@ -270,6 +270,15 @@ function visibleKeys(
   });
 }
 
+/**
+ * Un nodo è il `treeitem` stesso (schema WAI dell'albero): prende il fuoco,
+ * porta `aria-level`, `aria-expanded` (cartelle) e `aria-selected` (la
+ * pagina aperta). La riga visibile è il suo primo figlio: il fuoco e la
+ * selezione si disegnano lì, così una cartella aperta non tinge i figli.
+ */
+const treeItemClass =
+  "outline-none [&:focus-visible>[data-row]]:outline-2 [&:focus-visible>[data-row]]:-outline-offset-2 [&:focus-visible>[data-row]]:outline-focus [&[aria-selected=true]>[data-row]]:bg-ink/10 [&[aria-selected=true]>[data-row]]:font-semibold [&[aria-selected=true]>[data-row]]:text-ink";
+
 function Tree({
   id,
   label,
@@ -289,13 +298,22 @@ function Tree({
   onToggle: (key: string) => void;
   onNavigate?: () => void;
 }) {
-  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const params = useParams({ strict: false }) as { slug?: string };
   const [active, setActive] = useState<string | null>(null);
   const visible = visibleKeys(category.kind, category.nodes, collapsed);
-  const tabStop = active && visible.includes(active) ? active : visible[0];
+  const currentKey = pagesOf(category.nodes).find((p) => p.slug === params.slug);
+  const fallback =
+    currentKey && visible.includes(pageKey(currentKey)) ? pageKey(currentKey) : visible[0];
+  const tabStop = active && visible.includes(active) ? active : fallback;
+
+  const open = (slug: string) => {
+    onNavigate?.();
+    void navigate(pageLink(projectCode, repo, slug));
+  };
 
   function onKeyDown(e: KeyboardEvent<HTMLUListElement>) {
-    const items = [...e.currentTarget.querySelectorAll<HTMLElement>("[data-tree-focus]")];
+    const items = [...e.currentTarget.querySelectorAll<HTMLElement>("[role=treeitem]")];
     const current = document.activeElement as HTMLElement | null;
     const at = current ? items.indexOf(current) : -1;
     if (at < 0) return;
@@ -314,6 +332,12 @@ function Tree({
         return go(0);
       case "End":
         return go(items.length - 1);
+      case "Enter":
+      case " ":
+        e.preventDefault();
+        if (isFolder) onToggle(key);
+        else if (current!.dataset.slug) open(current!.dataset.slug);
+        return;
       case "ArrowRight":
         if (!isFolder) return;
         e.preventDefault();
@@ -323,11 +347,7 @@ function Tree({
       case "ArrowLeft": {
         e.preventDefault();
         if (isFolder && !collapsed.has(key)) return onToggle(key);
-        const parent = current!
-          .closest("[role=group]")
-          ?.closest("[role=treeitem]")
-          ?.querySelector<HTMLElement>(":scope > [data-tree-focus]");
-        parent?.focus();
+        current!.parentElement?.closest<HTMLElement>("[role=treeitem]")?.focus();
         return;
       }
     }
@@ -338,49 +358,57 @@ function Tree({
       if (node.page) {
         const page = node.page;
         const key = pageKey(page);
+        const selected = page.slug === params.slug;
         return (
-          <li key={key} role="treeitem" aria-level={level} aria-label={page.title}>
-            <Link
-              {...pageLink(projectCode, repo, page.slug)}
-              data-tree-focus
-              data-key={key}
-              tabIndex={tabStop === key ? 0 : -1}
+          <li
+            key={key}
+            role="treeitem"
+            aria-level={level}
+            aria-selected={selected}
+            aria-label={page.title}
+            data-key={key}
+            data-slug={page.slug}
+            tabIndex={tabStop === key ? 0 : -1}
+            className={treeItemClass}
+          >
+            <div
+              data-row
               title={`${page.code} · ${page.title}`}
-              onClick={onNavigate}
+              onClick={() => open(page.slug)}
               style={indent(level, true)}
               className={nodeClass}
             >
               <span className="min-w-0 truncate">{page.title}</span>
-            </Link>
+            </div>
           </li>
         );
       }
       const here = path ? `${path}/${node.name}` : node.name;
       const key = folderKey(category.kind, here);
-      const open = !collapsed.has(key);
+      const expanded = !collapsed.has(key);
       return (
         <li
           key={key}
           role="treeitem"
           aria-level={level}
-          aria-expanded={open}
+          aria-expanded={expanded}
+          aria-selected={false}
           aria-label={node.name}
+          data-key={key}
+          tabIndex={tabStop === key ? 0 : -1}
+          className={treeItemClass}
         >
-          <button
-            type="button"
-            data-tree-focus
-            data-key={key}
-            tabIndex={tabStop === key ? 0 : -1}
-            aria-label={t(open ? "docs.tree.collapse" : "docs.tree.expand", { name: node.name })}
+          <div
+            data-row
             title={node.name}
             onClick={() => onToggle(key)}
             style={indent(level, false)}
             className={nodeClass}
           >
-            <Caret open={open} />
+            <Caret open={expanded} />
             <span className="min-w-0 truncate">{node.name}</span>
-          </button>
-          {open && (
+          </div>
+          {expanded && (
             <ul role="group" className="flex flex-col">
               {render(node.children, level + 1, here)}
             </ul>

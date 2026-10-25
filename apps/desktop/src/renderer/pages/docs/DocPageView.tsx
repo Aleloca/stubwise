@@ -98,6 +98,14 @@ function DocPageBody({ page }: { page: DocPage }) {
             <button
               type="button"
               onClick={copyLink}
+              // ⌘C col fuoco sul codice copia il link, come il clic (A 11).
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c") {
+                  e.preventDefault();
+                  copyLink();
+                }
+              }}
+              aria-keyshortcuts="Meta+C"
               aria-label={t("docs.page.copyLink", { code: page.code })}
               title={t("docs.page.copyLink", { code: page.code })}
               className="-mx-1 rounded-sm px-1 transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink"
