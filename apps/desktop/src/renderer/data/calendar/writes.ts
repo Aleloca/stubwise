@@ -329,7 +329,7 @@ export async function setEventProject(
     if (projectId === null) state.mailProposals.splice(state.mailProposals.indexOf(open), 1);
     else {
       open.projectId = projectId;
-      for (const a of open.actions) a.args = { ...a.args, projectId };
+      for (const a of open.actions) if ("projectId" in a.args) a.args = { ...a.args, projectId };
     }
   }
   return eventView(me, e);

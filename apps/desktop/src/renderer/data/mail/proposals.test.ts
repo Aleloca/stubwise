@@ -215,13 +215,15 @@ describe("Proposte della posta: chi la vede", () => {
 
   it("le aperte che vedo entrano in «Da decidere», dalla più vecchia", async () => {
     const ids = (await mail.listMailDecisions()).map((v) => v.proposal.id);
-    // Anche le proposte di calendario (Task 5): la scadenza dei visual di MKX
-    // e la data in anticipo della pianificazione di MKX, nella lettura delle 7.
+    // Anche le proposte di calendario (Task 5), nella lettura delle 7: la
+    // pianificazione di MKX, il promemoria della revisione di AUD e la
+    // scadenza dei visual di MKX.
     expect(ids).toEqual([
       SHARED,
       CHOOSE,
       REVIEW,
       "mp-ser-ev-mkx-planning-2026-10-26",
+      "mp-ser-ev-aud-review-2026-10-29",
       "mp-cal-ev-mkx-visuals-deadline",
       "mp-stw-copy-freeze",
     ]);

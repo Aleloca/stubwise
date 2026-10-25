@@ -99,9 +99,9 @@ export function deadlineProposal(e: CalendarEvent, now: string): MailProposal | 
 }
 
 /**
- * L'azione di una serie per una sua data. «Promemoria» non ha una funzione
- * sua: è una task «Prepare: …» senza incaricato, in scadenza quel giorno
- * (la più vicina fra quelle che esistono). Nessuna avvia il lavoro di Claude.
+ * L'azione di una serie per una sua data. «Ricordamelo» non crea nulla: è
+ * una presa d'atto (`acknowledgeReminder`, come `acknowledge_reminder` del
+ * web), con solo la data e il titolo. Nessuna avvia il lavoro di Claude.
  */
 function seriesAction(s: CalendarSeries, projectId: string, date: string): ProposedAction {
   const label = `${s.title} · ${date}`;
@@ -124,8 +124,8 @@ function seriesAction(s: CalendarSeries, projectId: string, date: string): Propo
       };
     case "remind":
       return {
-        fn: "createTask",
-        args: { projectId, title: `Prepare: ${label}`, dueDate: date, assigneeId: null },
+        fn: "acknowledgeReminder",
+        args: { title: s.title, date },
         summary: `Reminder: ${label}`,
       };
   }
@@ -134,7 +134,8 @@ function seriesAction(s: CalendarSeries, projectId: string, date: string): Propo
 /**
  * La proposta di una data di una serie, o `null`: la serie è accesa e ha un
  * progetto, la data non è passata, qualcuno non l'ha rifiutata, e mancano
- * al massimo `leadDays` giorni.
+ * al massimo `leadDays` giorni. Un promemoria con «Agisci da solo» non
+ * produce nulla: non c'è niente da fare in automatico.
  */
 export function seriesProposal(
   s: CalendarSeries,
@@ -142,6 +143,7 @@ export function seriesProposal(
   now: string,
 ): MailProposal | null {
   if (!s.enabled || s.projectId === null || e.seriesId !== s.id) return null;
+  if (s.auto && s.action === "remind") return null;
   if (!isUpcoming(e, now) || activeParticipants(e).length === 0) return null;
   if (Date.parse(now) < Date.parse(e.startsAt) - s.leadDays * DAY_MS) return null;
   return proposal(

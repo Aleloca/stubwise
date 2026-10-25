@@ -59,6 +59,7 @@ import {
   MAIL_PROPOSALS,
   MEETING_TRANSCRIPTS,
 } from "./seed/mail";
+import { CALENDAR_EVENTS, CALENDAR_PROPOSALS } from "./seed/calendar";
 import { VIEW_AS_PERSONAS } from "./viewer";
 import type {
   Channel,
@@ -1602,6 +1603,29 @@ describe("seed: Posta (area 6)", () => {
         }
       }
       expect(p.status === "open", p.id).toBe(p.decidedById === null);
+    }
+  });
+
+  it("le proposte del calendario: solo traguardo, richiesta o promemoria, da un evento con partecipanti membri", () => {
+    const events = new Map(CALENDAR_EVENTS.map((e) => [e.id, e]));
+    expect(CALENDAR_PROPOSALS.length).toBeGreaterThan(0);
+    for (const p of CALENDAR_PROPOSALS) {
+      expect(p.source, p.id).toBe("calendar");
+      const e = events.get(p.sourceId);
+      expect(e, p.id).toBeDefined();
+      const members = new Set(projectsById.get(p.projectId)!.memberIds);
+      expect(
+        e!.attendees.some(
+          (a) => a.personId && a.response !== "declined" && members.has(a.personId),
+        ),
+        p.id,
+      ).toBe(true);
+      for (const a of p.actions) {
+        expect(["createMilestone", "createRequest", "acknowledgeReminder"], p.id).toContain(a.fn);
+        // Un promemoria non crea nulla: porta solo titolo e data.
+        if (a.fn === "acknowledgeReminder")
+          expect(Object.keys(a.args).sort()).toEqual(["date", "title"]);
+      }
     }
   });
 });

@@ -44,6 +44,7 @@ const MAIL_FNS: ReadonlySet<ProposedAction["fn"]> = new Set([
   "createRequest",
   "recordDecision",
   "createMilestone",
+  "acknowledgeReminder",
 ]);
 
 /** Quelle che si spostano su un altro progetto (non puntano a oggetti del progetto). */

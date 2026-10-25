@@ -657,7 +657,11 @@ export type ProposedAction = {
     // incerta (`chooseProject` non si esegue: la risolve `chooseProjectFor`).
     | "recordDecision"
     | "createMilestone"
-    | "chooseProject";
+    | "chooseProject"
+    // Dal calendario (area 6): «Ricordamelo» di una serie. Non crea nulla:
+    // chi la conferma prende atto e la proposta si chiude (come
+    // `acknowledge_reminder` del web).
+    | "acknowledgeReminder";
   args: Record<string, unknown>;
   summary: string;
   /** Il riassunto come frase (`summary` è la sua resa al momento, per chi non la sa leggere). */

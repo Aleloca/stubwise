@@ -402,9 +402,11 @@ describe("Calendario: proposte", () => {
     });
     expect(proposalOf(C.pastDeadline)).toBeUndefined();
     expect(proposalOf(C.declinedDeadline)).toBeUndefined();
-    // Una riunione normale non ne produce: solo la scadenza e la data in anticipo della serie MKX.
+    // Una riunione normale non ne produce: solo la scadenza e le date in
+    // anticipo delle serie accese (la richiesta di MKX, il promemoria di AUD).
     expect(calendarProposalIds()).toEqual([
       "mp-ser-ev-mkx-planning-2026-10-26",
+      "mp-ser-ev-aud-review-2026-10-29",
       "mp-cal-ev-mkx-visuals-deadline",
     ]);
   });
@@ -447,7 +449,7 @@ describe("Calendario: proposte", () => {
       stale: false,
     });
     expect(proposalOf(view.id)).toMatchObject({ projectId: AUD, status: "open" });
-    expect(calendarProposalIds()).toHaveLength(3);
+    expect(calendarProposalIds()).toHaveLength(4);
   });
 
   it("il collegamento scaduto non si allinea; il calendario vecchio si vede", async () => {
@@ -681,18 +683,13 @@ describe("Calendario: proposte delle serie accese", () => {
     expect(seriesOf(SERIES_IDS.stwStandup).some((e) => proposalOf(e.id))).toBe(false);
   });
 
-  it("mai da una data passata o rifiutata da tutti; il promemoria è una task «Prepare»", () => {
+  it("mai da una data passata o rifiutata da tutti; il promemoria è una presa d'atto", () => {
     const s = { ...series(SERIES_IDS.mkxPlanning), action: "remind" as const, leadDays: 14 };
     const due = structuredClone(ev(PLANNING_DUE));
     expect(seriesProposal(s, due, NOW)!.actions).toEqual([
       {
-        fn: "createTask",
-        args: {
-          projectId: MKX,
-          title: "Prepare: MKX content planning · 2026-10-26",
-          dueDate: "2026-10-26",
-          assigneeId: null,
-        },
+        fn: "acknowledgeReminder",
+        args: { title: "MKX content planning", date: "2026-10-26" },
         summary: "Reminder: MKX content planning · 2026-10-26",
       },
     ]);
@@ -701,6 +698,49 @@ describe("Calendario: proposte delle serie accese", () => {
     expect(seriesProposal(s, due, NOW)).toBeNull();
     expect(seriesProposal({ ...s, enabled: false }, ev(PLANNING_DUE), NOW)).toBeNull();
     expect(seriesProposal({ ...s, leadDays: 2 }, ev(PLANNING_DUE), NOW)).toBeNull();
+    // «Ricordamelo» con «Agisci da solo»: non c'è niente da fare da soli, nessuna proposta.
+    expect(seriesProposal({ ...s, auto: true }, ev(PLANNING_DUE), NOW)).toBeNull();
+  });
+
+  it("il promemoria si conferma senza permessi e non crea nulla", async () => {
+    const id = proposalOf("ev-aud-review-2026-10-29")!.id;
+    expect(proposalOf("ev-aud-review-2026-10-29")!.actions.map((a) => a.fn)).toEqual([
+      "acknowledgeReminder",
+    ]);
+    // Marco: partecipante e membro di AUD, con un ruolo che non crea nulla.
+    as("p-marco");
+    grantProjectRole("p-marco", AUD, "viewer");
+    expect(await mail.getMailProposal(id)).toMatchObject({ canConfirm: true, canHand: false });
+    const before = {
+      tasks: state.tasks.length,
+      requests: state.requests.length,
+      milestones: state.milestones.length,
+      decisions: state.decisionLog.length,
+    };
+    expect(await mail.confirmMailProposal(id)).toEqual({ status: "confirmed", resultCodes: [] });
+    expect({
+      tasks: state.tasks.length,
+      requests: state.requests.length,
+      milestones: state.milestones.length,
+      decisions: state.decisionLog.length,
+    }).toEqual(before);
+    expect(proposalOf("ev-aud-review-2026-10-29")).toMatchObject({
+      status: "confirmed",
+      decidedById: "p-marco",
+    });
+    as("p-elena"); // membro di AUD, non partecipante
+    await expect(mail.getMailProposal(id)).rejects.toThrow("not_found");
+  });
+
+  it("«Ricordamelo» con «Agisci da solo»: niente in automatico, nessuna proposta", async () => {
+    await calendar.configureSeries(SERIES_IDS.stwStandup, {
+      projectId: STW,
+      enabled: true,
+      action: "remind",
+      leadDays: 3,
+      auto: true,
+    });
+    expect(seriesOf(SERIES_IDS.stwStandup).some((e) => proposalOf(e.id))).toBe(false);
   });
 
   it("accenderla propone le date già in anticipo, nessuna all'indietro", async () => {
@@ -846,7 +886,8 @@ describe("Calendario: correzioni di revisione", () => {
     expect(proposalOf(C.deadline)).toBeUndefined();
     await calendar.deleteEvent("ev-mkx-planning-2026-10-26", "series");
     expect(proposalOf("ev-mkx-planning-2026-10-26")).toBeUndefined();
-    expect(calendarProposalIds()).toEqual([]);
+    // Resta solo il promemoria di AUD: un'altra serie.
+    expect(calendarProposalIds()).toEqual(["mp-ser-ev-aud-review-2026-10-29"]);
   });
 
   it("un progetto che non vedo non lo tolgo né lo cambio", async () => {

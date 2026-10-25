@@ -2414,6 +2414,9 @@ export function applyActions(me: string, actions: ProposedAction[]): Applied {
           projectIds.add(milestone.projectId);
           break;
         }
+        // Prendere atto di un promemoria del calendario: non crea nulla.
+        case "acknowledgeReminder":
+          break;
         default:
           throw invalid("fn");
       }

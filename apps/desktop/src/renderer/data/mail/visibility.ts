@@ -43,6 +43,8 @@ export const myMailbox = (me: string, email: string): Mailbox | undefined =>
 /**
  * Il permesso che conferma un'azione proposta, nel progetto della proposta.
  * `chooseProject` non si conferma: si sceglie (`chooseProjectFor`).
+ * `acknowledgeReminder` non chiede permessi: non crea nulla, quindi chi vede
+ * la proposta (partecipante e membro) può prenderne atto.
  */
 export function permissionForAction(fn: ProposedAction["fn"]): Permission | null {
   switch (fn) {
@@ -64,6 +66,7 @@ export function permissionForAction(fn: ProposedAction["fn"]): Permission | null
     case "recordDecision":
       return "decisions.record";
     case "chooseProject":
+    case "acknowledgeReminder":
       return null;
   }
 }
@@ -89,10 +92,14 @@ export function proposalProjectIds(p: MailProposal): string[] {
   return choose ? ((choose.args.projectIds as string[] | undefined) ?? []) : [p.projectId];
 }
 
-/** Chi agisce ha nel progetto della proposta il permesso di ognuna delle azioni. */
+/**
+ * Chi agisce ha nel progetto della proposta il permesso di ognuna delle
+ * azioni. Prendere atto di un promemoria non ne chiede nessuno.
+ */
 export function canDoActions(me: string, p: MailProposal, actions: ProposedAction[]): boolean {
   const viewer = viewerFor(me);
   return actions.every((a) => {
+    if (a.fn === "acknowledgeReminder") return true;
     const perm = permissionForAction(a.fn);
     return perm !== null && can(viewer, perm, p.projectId);
   });

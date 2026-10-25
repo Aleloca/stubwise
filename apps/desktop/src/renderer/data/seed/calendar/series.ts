@@ -4,13 +4,14 @@ import { EV_AUD_REVIEW_YESTERDAY } from "../mail/meetings";
 import { event, guest, on, organizer, outsider } from "./helpers";
 
 // Le serie ricorrenti: una riga per data, come Google le restituisce. La
-// revisione settimanale di AUD è ACCESA (progetto AUD, promemoria il giorno
-// prima); la pianificazione di MKX è accesa e ha già una data nei giorni di
-// anticipo (una richiesta proposta); lo standup di STW è spento, come ogni
-// serie non configurata. Le
-// date vanno oltre la finestra letta (`now − 30 → now + 60` giorni) da
-// entrambe le parti: le letture le tagliano. La revisione del budget non ha
-// nessuna data dentro la finestra, e resta comunque fra le serie.
+// revisione settimanale di AUD è ACCESA (progetto AUD, «Ricordamelo» una
+// settimana prima: il promemoria di giovedì 29 è già fra le proposte); la
+// pianificazione di MKX è accesa e ha già una data nei giorni di anticipo
+// (una richiesta proposta); lo standup di STW è spento, come ogni serie non
+// configurata. Le date vanno oltre la finestra letta (`now − 30 → now + 60`
+// giorni) da entrambe le parti: le letture le tagliano. La revisione del
+// budget non ha nessuna data dentro la finestra, e resta comunque fra le
+// serie.
 
 export const SERIES_IDS = {
   audReview: "ser-aud-weekly-review",
@@ -27,7 +28,7 @@ export const CALENDAR_SERIES: CalendarSeries[] = [
     projectId: "prj-aud",
     enabled: true,
     action: "remind",
-    leadDays: 1,
+    leadDays: 7,
     auto: false,
   },
   {
