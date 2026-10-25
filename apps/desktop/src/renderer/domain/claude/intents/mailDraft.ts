@@ -10,7 +10,10 @@ import { normalize, topicWords } from "../parse";
 // dall'indicazione di chi scrive. Puro, come gli altri intenti: legge solo da
 // `ctx.read`, che il chiamante (`data/mail/compose.ts`) limita a ciò che la
 // persona vede — conversazione, progetti e task visibili (`visibleTasks`) —
-// quindi la bozza non cita mai una task di un progetto che non vede. Non
+// quindi la bozza non cita mai una task di un progetto che non vede. I miei
+// messaggi inviati fanno parte della conversazione e la bozza può leggerli
+// (è la mia posta): R-I8 tiene fuori la posta in uscita solo dalla
+// classificazione, non da qui. Non
 // scrive nulla e non invia MAI: restituisce un testo, che `compose.ts`
 // porta nel campo in streaming e che chi scrive modifica prima di «Invia».
 

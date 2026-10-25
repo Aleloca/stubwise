@@ -2690,12 +2690,12 @@ export function useRetryMailSend() {
   });
 }
 
-/** «Annulla» entro i 5 s: restituisce la bozza com'era (oltre: errore `too_late`). */
+/** «Annulla» entro i 5 s: la bozza torna (unita a una più recente, con gli allegati rimasti fuori); oltre: `too_late`. */
 export function useUndoMailSend() {
   return useWrite((messageId: string) => api.mail.undoSend(messageId), MAIL_AREAS);
 }
 
-/** «Elimina» o «Modifica» un invio fallito: la bozza torna. */
+/** «Elimina» o «Modifica» un invio fallito: la bozza torna (unita a una più recente, se c'è). */
 export function useDeleteFailedMailSend() {
   return useWrite((messageId: string) => api.mail.deleteFailedSend(messageId), MAIL_AREAS);
 }

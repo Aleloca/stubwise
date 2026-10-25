@@ -213,8 +213,9 @@ describe("Invio con «Annulla» per 5 s (Review Focus 4)", () => {
     const before = await textsOf(CALL_NOTES());
     const { messageId } = await mail.sendDraft(saved.id);
     await vi.advanceTimersByTimeAsync(MAIL_UNDO_MS - 1);
-    const restored = await mail.undoSend(messageId);
+    const { draft: restored, droppedAttachments } = await mail.undoSend(messageId);
     expect(restored).toEqual({ ...saved, updatedAt: restored.updatedAt });
+    expect(droppedAttachments).toEqual([]);
     expect(await textsOf(CALL_NOTES())).toEqual(before);
     expect(state.mailMessages.some((m) => m.id === messageId)).toBe(false);
     expect((await mail.getDraft(CALL_NOTES(), "reply")).body).toBe("Oops, wrong text.");
@@ -230,6 +231,45 @@ describe("Invio con «Annulla» per 5 s (Review Focus 4)", () => {
     await vi.advanceTimersByTimeAsync(MAIL_UNDO_MS);
     await expect(mail.undoSend(messageId)).rejects.toThrow("too_late");
     expect(await visibleIds(CALL_NOTES())).toContain(messageId);
+  });
+
+  it("«Annulla» con un'altra bozza scritta nel frattempo: si uniscono, mai sovrascritta", async () => {
+    vi.useFakeTimers();
+    const upload = state.driveFiles.find(
+      (f) => f.projectId === AUD && f.source === "upload" && !f.hidden && !f.unavailable,
+    )!;
+    const first = await savedReply("First text.");
+    await mail.attachDriveFile(first.id, upload.id);
+    const { messageId } = await mail.sendDraft(first.id);
+    // Nei 5 s riapre Rispondi e scrive un'altra bozza, con 10 allegati e un altro oggetto.
+    const fresh = await mail.getDraft(CALL_NOTES(), "reply");
+    const ten = Array.from({ length: MAIL_MAX_ATTACHMENTS }, (_, i) => ({
+      id: `n${i}`,
+      name: `n${i}.txt`,
+      sizeBytes: 1,
+      driveFileId: null,
+      as: "copy" as const,
+    }));
+    await mail.saveDraft({ ...fresh, subject: "Newer", body: "Newer text.", attachments: ten });
+    const { draft, droppedAttachments } = await mail.undoSend(messageId);
+    expect(draft.body).toBe("Newer text.\n\nFirst text.");
+    expect(draft.subject).toBe("Newer");
+    expect(draft.attachments.map((a) => a.id)).toEqual(ten.map((a) => a.id));
+    expect(droppedAttachments.map((a) => a.driveFileId)).toEqual([upload.id]);
+    expect(await mail.listDrafts()).toHaveLength(1);
+  });
+
+  it("controlli prima dell'invio: un allegato del Drive che non vedo più ferma l'invio", async () => {
+    const upload = state.driveFiles.find(
+      (f) => f.projectId === "prj-mkx" && f.source === "upload" && !f.hidden && !f.unavailable,
+    )!;
+    const saved = await savedReply();
+    await mail.attachDriveFile(saved.id, upload.id);
+    const mkx = state.projectsById.get("prj-mkx")!;
+    mkx.memberIds = mkx.memberIds.filter((id) => id !== "p-giulia");
+    await expect(mail.sendDraft(saved.id)).rejects.toThrow("attachment_unavailable");
+    expect(state.mailMessages.some((m) => m.delivery)).toBe(false);
+    expect(await mail.listDrafts()).toHaveLength(1);
   });
 
   it("cambio di persona durante la finestra: l'invio resta di chi l'ha fatto, l'altra non lo vede né lo annulla", async () => {
@@ -335,29 +375,46 @@ describe("Invio fallito", () => {
     await expect(mail.retrySend(messageId)).rejects.toThrow("invalid: not failed");
   });
 
+  it("«Riprova» con l'account scaduto → google_not_connected, il tentativo resta fallito", async () => {
+    vi.useFakeTimers();
+    const messageId = await bounced();
+    state.googleAccounts.find((a) => a.personId === "p-giulia")!.status = "expired";
+    await expect(mail.retrySend(messageId)).rejects.toThrow("google_not_connected");
+    expect(state.mailMessages.find((m) => m.id === messageId)!.delivery!.state).toBe("failed");
+  });
+
   it("«Elimina» (o «Modifica») toglie il tentativo e la bozza torna, intatta", async () => {
     vi.useFakeTimers();
     const messageId = await bounced();
-    const draft = await mail.deleteFailedSend(messageId);
+    const { draft, droppedAttachments } = await mail.deleteFailedSend(messageId);
     expect(draft.body).toBe("Keep this text.");
+    expect(droppedAttachments).toEqual([]);
     expect(state.mailMessages.some((m) => m.id === messageId)).toBe(false);
     expect((await mail.getDraft(CALL_NOTES(), "reply")).body).toBe("Keep this text.");
   });
 
-  it("un nuovo invio della stessa bozza prende il posto del tentativo fallito", async () => {
+  it("«Elimina» con una bozza più recente nella conversazione: si uniscono", async () => {
     vi.useFakeTimers();
     const messageId = await bounced();
-    const draft = await mail.deleteFailedSend(messageId);
-    await mail.saveDraft({
-      ...draft,
-      to: draft.to.filter((a) => !a.email.endsWith("bounce.example")),
-    });
-    const second = await mail.sendDraft(draft.id);
+    const fresh = await mail.getDraft(CALL_NOTES(), "reply");
+    await mail.saveDraft({ ...fresh, body: "Newer." });
+    const { draft } = await mail.deleteFailedSend(messageId);
+    expect(draft.body).toBe("Newer.\n\nKeep this text.");
+    expect(draft.to.map((a) => a.email)).toEqual(fresh.to.map((a) => a.email));
+  });
+
+  it("un nuovo invio nella stessa conversazione NON toglie il tentativo fallito", async () => {
+    vi.useFakeTimers();
+    const messageId = await bounced();
+    const fresh = await mail.getDraft(CALL_NOTES(), "reply");
+    const second = await mail.saveDraft({ ...fresh, body: "Another reply." });
+    const { messageId: secondId } = await mail.sendDraft(second.id);
     await vi.advanceTimersByTimeAsync(MAIL_UNDO_MS);
-    expect(state.mailMessages.filter((m) => m.delivery).map((m) => m.delivery!.state)).toEqual([
-      "sent",
-    ]);
-    expect(second.messageId).not.toBe(messageId);
+    const failed = state.mailMessages.find((m) => m.id === messageId)!;
+    expect(failed.delivery!.state).toBe("failed");
+    expect(failed.text).toBe("Keep this text.");
+    expect(state.mailMessages.find((m) => m.id === secondId)!.delivery!.state).toBe("sent");
+    expect(await visibleIds(CALL_NOTES())).toEqual(expect.arrayContaining([messageId, secondId]));
   });
 });
 

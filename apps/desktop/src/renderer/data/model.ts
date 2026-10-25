@@ -1732,6 +1732,16 @@ export interface MailSendResult {
   undoUntil: string;
 }
 
+/**
+ * Una bozza tornata («Annulla», «Elimina» un invio fallito). Se nella
+ * conversazione ce n'era già una, le due si uniscono: gli allegati che non
+ * stanno più nei limiti (10 file, 25 MB) restano fuori e sono elencati qui.
+ */
+export interface MailDraftRestore {
+  draft: MailDraft;
+  droppedAttachments: MailDraftAttachment[];
+}
+
 /** I filtri dell'elenco della Posta (tutti facoltativi). */
 export interface MailThreadFilters {
   /** L'indirizzo di una delle mie caselle: solo la posta che contiene. */

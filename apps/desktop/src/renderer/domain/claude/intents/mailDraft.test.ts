@@ -105,6 +105,29 @@ describe("draftReply", () => {
   });
 });
 
+describe("quante task cita", () => {
+  it("in ritardo: la pertinente prima, poi il taglio a 2; aperte pertinenti al massimo 2", async () => {
+    const tasks = [
+      task({ id: "a", code: "MKX-1", title: "Archive old invoices", dueDate: PAST }),
+      task({ id: "b", code: "MKX-2", title: "Update the logo files", slipCount: 2 }),
+      task({ id: "c", code: "MKX-3", title: "Banner review", dueDate: PAST }),
+      task({ id: "d", code: "MKX-4", title: "Revised quote layout" }),
+      task({ id: "e", code: "MKX-5", title: "Quote numbering" }),
+      task({ id: "f", code: "MKX-6", title: "Spring campaign quote approval" }),
+    ];
+    const draft = await draftReply(
+      { threadId: "th", hint: "" },
+      ctx(reads({ openTasks: async () => tasks })),
+    );
+    // In ritardo: c (pertinente: «banner», «review») prima, poi a (ordine di codice); b fuori.
+    expect(draft.used.filter((u) => u.late).map((u) => u.taskId)).toEqual(["c", "a"]);
+    // Aperte pertinenti: tre lo sarebbero, ne entrano due (ordine di codice).
+    expect(draft.used.filter((u) => !u.late).map((u) => u.taskId)).toEqual(["d", "e"]);
+    expect(draft.text).not.toContain("logo");
+    expect(draft.text).not.toContain("Spring campaign quote approval");
+  });
+});
+
 describe("pezzi", () => {
   it("hintSentence toglie il comando e chiude la frase", () => {
     expect(hintSentence("tell them that it slips to Thursday")).toBe("It slips to Thursday.");
