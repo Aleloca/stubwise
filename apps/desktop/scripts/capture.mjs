@@ -305,6 +305,11 @@ async function main() {
       await p.locator('[data-testid="doc-tree-skeleton"]').waitFor({ state: "detached" });
       await p.waitForTimeout(900);
     };
+    // ⌘K dal bottone del binario (la scorciatoia dipende dalla piattaforma).
+    const openPaletteButton = async (p) => {
+      await p.getByRole("button", { name: /^(Search and commands|Cerca e comandi)$/ }).click();
+      await p.getByRole("dialog", { name: /^(Search and commands|Cerca e comandi)$/ }).waitFor();
+    };
     const askClaudeAboutContract = async (p) => {
       const lang = await p.evaluate(() => window.localStorage.getItem("stubwise.language"));
       await p.locator("textarea").last().fill(
@@ -386,6 +391,45 @@ async function main() {
         persona: "Giulia",
         narrow: true,
         steps: askClaudeAboutContract,
+      }],
+      // ⌘K con i gruppi «Pages» e «Files» insieme (la parola sta in una pagina e in un file).
+      ["palette-files-pages", "/p/AUD/drive", {
+        persona: "Laura",
+        narrow: true,
+        steps: async (p) => {
+          await openPaletteButton(p);
+          await p.getByRole("combobox").fill("export");
+          await p.waitForTimeout(1200);
+          // Il gruppo «Files» sta sotto «Pages»: lo si porta in vista.
+          await p.getByRole("group", { name: /^(Files|File)$/ }).scrollIntoViewIfNeeded();
+          await p.waitForTimeout(300);
+        },
+      }],
+      // ⌘K dentro uno spazio Docs: ristretto a quel repository (il gettone «In audin-app docs»).
+      ["palette-docs-scoped", "/p/AUD/docs/audin-app", {
+        persona: "Laura",
+        narrow: true,
+        steps: async (p) => {
+          await treeReady(p);
+          await openPaletteButton(p);
+          await p.getByRole("combobox").fill("callback");
+          await p.waitForTimeout(1200);
+        },
+      }],
+      // Una riga del Drive al passaggio: le azioni rapide accanto al numero delle aperture.
+      ["drive-row-hover", "/p/AUD/drive", {
+        persona: "Laura",
+        narrow: true,
+        steps: async (p) => {
+          await p.locator("[data-drive-row]").nth(1).hover();
+          await p.waitForTimeout(400);
+        },
+      }],
+      // Una pagina vecchia: l'avviso coi commit successivi.
+      ["docs-page-stale", "/p/AUD/docs/audin-app/exporting-the-call-history", {
+        persona: "Laura",
+        narrow: true,
+        steps: treeReady,
       }],
       // La stessa risposta con il chip del file in primo piano: l'anteprima da 320 px.
       ["claude-cites-file-preview", "/claude/cv-giulia-callbacks", {

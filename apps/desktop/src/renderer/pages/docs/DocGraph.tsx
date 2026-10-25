@@ -374,6 +374,17 @@ function CommunityGraph({ name, report }: { name: string; report: GraphCommunity
                 r={p.r}
                 strokeWidth={1}
               />
+              {/* Il numero di nodi dentro il cerchio: le comunità si
+                  distinguono a colpo d'occhio, non solo per il raggio. */}
+              <text
+                aria-hidden="true"
+                x={p.x}
+                y={p.y + 4}
+                textAnchor="middle"
+                className="num pointer-events-none fill-ink-muted text-xs font-semibold"
+              >
+                {c.size}
+              </text>
               <text
                 x={p.x}
                 y={p.y + p.r + 15}

@@ -505,6 +505,22 @@ describe("Rail", () => {
       expect(shown.at(-1)).toHaveAccessibleName(new RegExp(far.code));
       await waitFor(() => expect(shown.at(-1)).toHaveAttribute("aria-current", "page"));
     });
+
+    it("un posto solo, in un progetto: la sua tessera resta e «+N» va su «All projects»", async () => {
+      const ids = await listPinnedProjectIds();
+      const far = PROJECTS.find((p) => p.id === ids.at(-1))!;
+      renderAt(`/p/${far.code}/overview`);
+      await tiles();
+      const zone = await fitZone(48);
+      const list = await pinnedList();
+      await waitFor(() => expect(within(list).getAllByRole("link")).toHaveLength(1));
+      expect(within(list).getByRole("link")).toHaveAccessibleName(new RegExp(far.code));
+      expect(zone.querySelector("[data-rail-overflow]")).toBeNull();
+      const all = screen.getByRole("link", { name: "All projects" });
+      const hidden = ids.length - 1;
+      expect(all.querySelector("[data-rail-overflow-count]")).toHaveTextContent(`+${hidden}`);
+      expect(all).toHaveAccessibleDescription(new RegExp(`^${hidden} more projects`));
+    });
   });
 
   describe("splitPinned", () => {
@@ -536,6 +552,15 @@ describe("Rail", () => {
 
     it("con un solo posto c'è solo la sentinella", () => {
       expect(codes(splitPinned(five, 1))).toEqual({ shown: [], hidden: five.map((p) => p.code) });
+      expect(splitPinned(five, 1).countOnGrid).toBe(false);
+    });
+
+    it("con un solo posto e un progetto aperto: il progetto resta, il «+N» va su «All projects»", () => {
+      const split = splitPinned(five, 1, "AUD");
+      expect(codes(split)).toEqual({ shown: ["AUD@1"], hidden: ["STW", "MKX", "CBV", "OLV"] });
+      expect(split.countOnGrid).toBe(true);
+      // Con più posti la sentinella resta nella zona delle tessere.
+      expect(splitPinned(five, 3, "OLV").countOnGrid).toBe(false);
     });
   });
 });

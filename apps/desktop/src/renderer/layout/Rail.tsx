@@ -23,7 +23,7 @@ import {
 } from "./icons";
 import { unreadCount } from "../notifications/time";
 import { ProfileMenu } from "./ProfileMenu";
-import { OverflowTile, ProjectTile } from "./ProjectTile";
+import { OverflowTile, ProjectTile, TileSignals, useOverflowSignals } from "./ProjectTile";
 import { Tooltip } from "./Tooltip";
 import { useFitSlots } from "./useFitSlots";
 import { openNotifications, openPalette, useShortcuts } from "./useShortcuts";
@@ -122,19 +122,68 @@ function RailButton({
   );
 }
 
+/**
+ * «All projects» quando l'unico posto delle tessere va al progetto aperto: il
+ * «+N» delle nascoste diventa un contrassegno in basso a destra del
+ * bottone, con i loro segnali (punto e anello, come la sentinella) e la
+ * stessa frase nella descrizione accessibile e nel tooltip.
+ */
+function ProjectsWithCount({
+  hidden,
+  waitingIds,
+}: {
+  hidden: Project[];
+  waitingIds: ReadonlySet<string>;
+}) {
+  const { t } = useTranslation();
+  const { label, waiting, claude } = useOverflowSignals(hidden, waitingIds);
+  const descriptionId = useId();
+  return (
+    <Tooltip label={`${t("nav.projects")} · ${label}`}>
+      <Link
+        to="/projects"
+        aria-label={t("nav.projects")}
+        aria-describedby={descriptionId}
+        className={`${controlClass} ${currentClass} relative`}
+      >
+        <AllProjectsIcon />
+        <TileSignals waiting={waiting > 0} claude={claude} />
+        {/* Dopo i segnali: il fondo del contrassegno copre l'anello che ci passa sotto. */}
+        <span
+          aria-hidden="true"
+          data-rail-overflow-count
+          className="num pointer-events-none absolute -right-[7px] -bottom-[7px] min-w-6 rounded-full border border-rule-strong bg-rail px-1 text-center text-xs leading-4 font-semibold text-ink"
+        >
+          +{hidden.length}
+        </span>
+        <span id={descriptionId} className="sr-only">
+          {label}
+        </span>
+      </Link>
+    </Tooltip>
+  );
+}
+
 /** Tessera: 40 px più 8 di spazio. La zona ha 4 px di padding sopra e sotto. */
 const TILE_FIT = { pitch: 48, gap: 8, inset: 8 };
 
 export interface PinnedSplit {
   shown: { project: Project; index: number }[];
   hidden: Project[];
+  /**
+   * Il conteggio delle nascoste sta su «All projects» invece che nella
+   * sentinella: un posto solo, che va al progetto aperto.
+   */
+  countOnGrid: boolean;
 }
 
 /**
  * Quali tessere mostrare in `slots` posti interi (`null` = tutti). Se non
  * entrano tutte, l'ultimo posto va alla sentinella con le restanti; il
- * progetto aperto resta sempre visibile, al posto dell'ultima tessera.
- * `index` è la posizione originale (scorciatoia ⌘N).
+ * progetto aperto resta sempre visibile, al posto dell'ultima tessera. Con
+ * un posto solo e un progetto aperto il posto è suo (dove sono non si perde
+ * mai), e il «+N» passa su «All projects» (`countOnGrid`). `index` è la
+ * posizione originale (scorciatoia ⌘N).
  */
 export function splitPinned(
   pinned: Project[],
@@ -142,13 +191,16 @@ export function splitPinned(
   activeCode?: string,
 ): PinnedSplit {
   const all = pinned.map((project, index) => ({ project, index }));
-  if (slots === null || pinned.length <= slots) return { shown: all, hidden: [] };
-  const room = Math.max(0, slots - 1);
-  let shown = all.slice(0, room);
+  if (slots === null || pinned.length <= slots) {
+    return { shown: all, hidden: [], countOnGrid: false };
+  }
   const active = all.find((e) => e.project.code === activeCode);
+  const room = Math.max(0, slots - 1);
+  const countOnGrid = room === 0 && active !== undefined && slots > 0;
+  let shown = countOnGrid ? [active!] : all.slice(0, room);
   if (active && room > 0 && !shown.includes(active)) shown = [...shown.slice(0, room - 1), active];
   const kept = new Set(shown);
-  return { shown, hidden: all.filter((e) => !kept.has(e)).map((e) => e.project) };
+  return { shown, hidden: all.filter((e) => !kept.has(e)).map((e) => e.project), countOnGrid };
 }
 
 /** Il logo: monogramma «S_», l'unico monospace dell'app (`font-logo`: `font-mono` è la sans). */
@@ -182,7 +234,7 @@ export function Rail() {
   const activeCode = useRouterState({
     select: (s) => /^\/p\/([^/]+)/.exec(s.location.pathname)?.[1]?.toUpperCase(),
   });
-  const { shown, hidden } = splitPinned(pinned, slots, activeCode);
+  const { shown, hidden, countOnGrid } = splitPinned(pinned, slots, activeCode);
   const { data: notifications } = useNotifications();
   const unread = notifications ? unreadCount(notifications) : 0;
   // Solo ciò che è rivolto a chi guarda: menzioni dirette, DM, thread seguiti.
@@ -234,7 +286,7 @@ export function Rail() {
             </li>
           ))}
         </ul>
-        {hidden.length > 0 && (
+        {hidden.length > 0 && !countOnGrid && (
           <div className={shown.length > 0 ? "mt-2" : undefined}>
             <OverflowTile hidden={hidden} waitingIds={waiting} />
           </div>
@@ -242,7 +294,11 @@ export function Rail() {
       </div>
 
       <div className="flex shrink-0 flex-col items-center gap-1 pt-2">
-        <RailLink to="/projects" label={t("nav.projects")} icon={<AllProjectsIcon />} />
+        {countOnGrid ? (
+          <ProjectsWithCount hidden={hidden} waitingIds={waiting} />
+        ) : (
+          <RailLink to="/projects" label={t("nav.projects")} icon={<AllProjectsIcon />} />
+        )}
       </div>
 
       <div className="mt-2 flex w-full shrink-0 flex-col items-center gap-1 border-t border-rule pt-2 pb-3">

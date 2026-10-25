@@ -95,6 +95,25 @@ export function ProjectTile({
 }
 
 /**
+ * I segnali sommati delle tessere nascoste e la frase che li dice («4 more
+ * projects · 2 waiting on you · Claude is working»): la sentinella, o il
+ * conteggio su «All projects» quando l'unico posto va al progetto aperto.
+ */
+export function useOverflowSignals(hidden: readonly Project[], waitingIds: ReadonlySet<string>) {
+  const { t } = useTranslation();
+  const waiting = hidden.filter((p) => waitingIds.has(p.id)).length;
+  const claude = hidden.some((p) => p.signals.claudeWorking);
+  const label = [
+    t("rail.more", { count: hidden.length }),
+    waiting > 0 && t("rail.moreWaiting", { count: waiting }),
+    claude && t("rail.claudeWorking"),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return { label, waiting, claude };
+}
+
+/**
  * Sentinella di trabocco: quando le tessere non entrano tutte, l'ultimo
  * posto dice quante ne mancano («+4») e porta i loro segnali sommati —
  * nessuno stato si perde perché la finestra è bassa. Apre «Tutti i progetti».
@@ -107,16 +126,7 @@ export function OverflowTile({
   /** I progetti che aspettano chi guarda. */
   waitingIds: ReadonlySet<string>;
 }) {
-  const { t } = useTranslation();
-  const waiting = hidden.filter((p) => waitingIds.has(p.id)).length;
-  const claude = hidden.some((p) => p.signals.claudeWorking);
-  const label = [
-    t("rail.more", { count: hidden.length }),
-    waiting > 0 && t("rail.moreWaiting", { count: waiting }),
-    claude && t("rail.claudeWorking"),
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const { label, waiting, claude } = useOverflowSignals(hidden, waitingIds);
   return (
     <Tooltip label={label}>
       <Link to="/projects" aria-label={label} data-rail-overflow className={tileClass}>

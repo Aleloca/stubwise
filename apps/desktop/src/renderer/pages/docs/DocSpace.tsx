@@ -333,7 +333,8 @@ function SpaceShell({ project, space }: { project: Project; space: DocSpaceView 
             </aside>
           )}
           <div className="min-w-0 flex-1 overflow-y-auto">
-            <div className="w-full max-w-[784px] pr-8 pb-16 pl-8">
+            {/* La colonna di lettura: centrata nel residuo, almeno 32 px dai bordi. */}
+            <div className="mx-auto w-full max-w-[784px] px-8 pb-16">
               <Outlet />
             </div>
           </div>

@@ -241,15 +241,19 @@ function DrivePreviewBody({
             {typeLabel} · <span className="num font-semibold">{view.projectCode}</span>{" "}
             {d.projectName}
           </span>
+          {/* Le aperture stanno coi metadati: in fondo resta solo cosa fa il
+              clic, che in italiano non ha più da dividere la riga. */}
+          <span className="num text-xs text-ink-faint">
+            {t("drive.opens.count", { count: d.opens90d })}
+          </span>
         </span>
       </span>
       {d.summary && <span className="line-clamp-3 text-ink-muted">{d.summary}</span>}
-      <span className="flex items-baseline justify-between gap-3 border-t border-rule pt-1.5 text-xs">
-        <span className="num text-ink-muted">{t("drive.opens.count", { count: d.opens90d })}</span>
+      <span className="flex items-baseline border-t border-rule pt-1.5 text-xs">
         {d.unavailable ? (
           <span className="text-ink-muted">{t("claude.conversation.citation.notAvailable")}</span>
         ) : (
-          <span className="flex items-center gap-1 font-medium text-ink">
+          <span className="flex shrink-0 items-center gap-1 font-medium whitespace-nowrap text-ink">
             {d.google ? t("drive.google.open") : t("drive.search.open")}
             {d.google && (
               <span aria-hidden="true">

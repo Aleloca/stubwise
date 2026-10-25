@@ -839,99 +839,104 @@ function DriveToolbar({
     : null;
 
   return (
-    <div
-      role="toolbar"
-      aria-label={t("drive.commands")}
-      className="flex flex-wrap items-center gap-x-2 gap-y-2"
-    >
-      {searchField}
-      {!searching && (
-      <MenuButton
-        menuLabel={t("drive.sort.label")}
-        className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink aria-expanded:bg-ink/8"
-        label={
-          <>
-            <span>{t("drive.sort.label")}:</span>
-            <span className="font-medium text-ink">{t(`drive.sort.${sort}`)}</span>
-            <Chevron />
-          </>
-        }
-      >
-        {(close) => (
-          <MenuGroup>
-            {DRIVE_SORTS.map((s) => (
-              <RadioItem
-                key={s}
-                checked={s === sort}
-                onSelect={() => {
-                  close();
-                  setSearch({ sort: s === "most_used" ? undefined : s }, true);
-                }}
-              >
-                {t(`drive.sort.${s}`)}
-              </RadioItem>
-            ))}
-          </MenuGroup>
-        )}
-      </MenuButton>
-      )}
-      <span aria-hidden="true" className="mx-1 h-5 w-px bg-rule" />
-      {global &&
-        chip(
-          "prj",
-          t("drive.filters.project"),
-          search.prj ?? null,
-          withFiles.map((p) => ({
-            value: p.code,
-            label: (
-              <span className="flex min-w-0 items-baseline gap-2">
-                <span className="num text-xs font-semibold">{p.code}</span>
-                <span className="truncate text-ink-muted">{p.name}</span>
-              </span>
-            ),
-          })),
-        )}
-      {chip(
-        "type",
-        t("drive.filters.type"),
-        typeSummary,
-        DRIVE_TYPES.map((v) => ({ value: v, label: t(`drive.types.${v}`) })),
-      )}
-      {chip(
-        "source",
-        t("drive.filters.source"),
-        sourceSummary,
-        DRIVE_SOURCES.map((v) => ({ value: v, label: t(`drive.sources.${v}`) })),
-      )}
-      {chip(
-        "addedBy",
-        t("drive.filters.addedBy"),
-        adderSummary,
-        adders.map((p) => ({ value: p.id, label: p.name })),
-      )}
-      {hiddenCount !== undefined && (hiddenCount > 0 || search.hidden === "1") && (
-        <button
-          type="button"
-          aria-pressed={search.hidden === "1" && !searching}
-          aria-label={t("drive.hidden.chipLabel", { count: hiddenCount })}
-          onClick={() =>
-            setSearch(
-              search.hidden === "1" ? { hidden: undefined } : { hidden: "1", q: undefined },
-              true,
-            )
-          }
-          className="inline-flex h-7 items-center gap-1.5 rounded-full border border-rule-strong px-2.5 text-sm text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink aria-pressed:border-ink/50 aria-pressed:bg-ink/10 aria-pressed:text-ink"
-        >
-          <HiddenGlyph />
-          {t("drive.hidden.chip")}
-          <span className="num text-ink-faint">{hiddenCount}</span>
-        </button>
-      )}
-      {hasDriveFilter(hiddenCount === undefined ? { ...search, hidden: undefined } : search) && (
-        <button type="button" className={quietButton} onClick={clearFilters}>
-          {t("drive.filters.clear")}
-        </button>
-      )}
+    // Due righe decise, non lasciate al caso: sotto i 900 px della zona
+    // dell'elenco (pannello agganciato, finestra stretta, lingua lunga) la
+    // ricerca e l'ordinamento stanno sopra, i filtri sotto, sullo stesso bordo.
+    <div role="toolbar" aria-label={t("drive.commands")} className="@container">
+      <div className="flex items-center gap-2 @max-[900px]:flex-col @max-[900px]:items-start">
+        <div className="flex min-w-0 items-center gap-2">
+          {searchField}
+          {!searching && (
+          <MenuButton
+            menuLabel={t("drive.sort.label")}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink aria-expanded:bg-ink/8"
+            label={
+              <>
+                <span>{t("drive.sort.label")}:</span>
+                <span className="font-medium text-ink">{t(`drive.sort.${sort}`)}</span>
+                <Chevron />
+              </>
+            }
+          >
+            {(close) => (
+              <MenuGroup>
+                {DRIVE_SORTS.map((s) => (
+                  <RadioItem
+                    key={s}
+                    checked={s === sort}
+                    onSelect={() => {
+                      close();
+                      setSearch({ sort: s === "most_used" ? undefined : s }, true);
+                    }}
+                  >
+                    {t(`drive.sort.${s}`)}
+                  </RadioItem>
+                ))}
+              </MenuGroup>
+            )}
+          </MenuButton>
+          )}
+        </div>
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <span aria-hidden="true" className="mx-1 h-5 w-px bg-rule @max-[900px]:hidden" />
+          {global &&
+            chip(
+              "prj",
+              t("drive.filters.project"),
+              search.prj ?? null,
+              withFiles.map((p) => ({
+                value: p.code,
+                label: (
+                  <span className="flex min-w-0 items-baseline gap-2">
+                    <span className="num text-xs font-semibold">{p.code}</span>
+                    <span className="truncate text-ink-muted">{p.name}</span>
+                  </span>
+                ),
+              })),
+            )}
+          {chip(
+            "type",
+            t("drive.filters.type"),
+            typeSummary,
+            DRIVE_TYPES.map((v) => ({ value: v, label: t(`drive.types.${v}`) })),
+          )}
+          {chip(
+            "source",
+            t("drive.filters.source"),
+            sourceSummary,
+            DRIVE_SOURCES.map((v) => ({ value: v, label: t(`drive.sources.${v}`) })),
+          )}
+          {chip(
+            "addedBy",
+            t("drive.filters.addedBy"),
+            adderSummary,
+            adders.map((p) => ({ value: p.id, label: p.name })),
+          )}
+          {hiddenCount !== undefined && (hiddenCount > 0 || search.hidden === "1") && (
+            <button
+              type="button"
+              aria-pressed={search.hidden === "1" && !searching}
+              aria-label={t("drive.hidden.chipLabel", { count: hiddenCount })}
+              onClick={() =>
+                setSearch(
+                  search.hidden === "1" ? { hidden: undefined } : { hidden: "1", q: undefined },
+                  true,
+                )
+              }
+              className="inline-flex h-7 items-center gap-1.5 rounded-full border border-rule-strong px-2.5 text-sm text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink aria-pressed:border-ink/50 aria-pressed:bg-ink/10 aria-pressed:text-ink"
+            >
+              <HiddenGlyph />
+              {t("drive.hidden.chip")}
+              <span className="num text-ink-faint">{hiddenCount}</span>
+            </button>
+          )}
+          {hasDriveFilter(hiddenCount === undefined ? { ...search, hidden: undefined } : search) && (
+            <button type="button" className={quietButton} onClick={clearFilters}>
+              {t("drive.filters.clear")}
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

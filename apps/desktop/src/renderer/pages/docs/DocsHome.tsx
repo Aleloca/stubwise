@@ -294,13 +294,17 @@ function HomeBody({ project, home }: { project: Project; home: ProjectDocsHome }
                 >
                   {space.name}
                 </span>
-                <span className="num shrink-0 text-sm text-ink-faint">
-                  {t("docs.space.pages", { count: space.pageCount })}
+                {/* Lo stato sta accanto al nome, dopo il conteggio: chi legge
+                    la riga lo trova dove guarda, non all'altro capo. */}
+                <span className="flex min-w-0 items-center gap-2 text-sm">
+                  <span className="num shrink-0 text-ink-faint">
+                    {t("docs.space.pages", { count: space.pageCount })}
+                  </span>
+                  <span aria-hidden="true" className="text-ink-faint">
+                    ·
+                  </span>
+                  <GenerationLine space={space} className="text-ink-muted" />
                 </span>
-                <GenerationLine
-                  space={space}
-                  className="ml-auto max-w-[60%] text-sm text-ink-muted"
-                />
               </Link>
             </li>
           ))}

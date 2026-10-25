@@ -360,24 +360,33 @@ function FileBody({ file, onClose }: { file: DriveFileDetail; onClose: () => voi
             </p>
           </div>
         )}
-        <div className="flex flex-wrap items-center gap-1.5">
-          {primary}
-          {!google && kind && (
-            <button type="button" className={smallSecondary} onClick={() => openers.download(file)}>
-              <span className="flex items-center gap-1.5">
-                <DownloadGlyph />
-                {t("drive.detail.download")}
-              </span>
-            </button>
+        {/* Due righe decise, sullo stesso bordo sinistro: aprire (o
+            scaricare) sopra, le azioni secondarie sotto. Nessuna va a capo
+            per caso quando il pannello è stretto o la lingua è lunga. */}
+        <div className="flex flex-col items-start gap-1.5">
+          {(primary || (!google && kind)) && (
+            <div className="flex items-center gap-1.5">
+              {primary}
+              {!google && kind && (
+                <button type="button" className={smallSecondary} onClick={() => openers.download(file)}>
+                  <span className="flex items-center gap-1.5">
+                    <DownloadGlyph />
+                    {t("drive.detail.download")}
+                  </span>
+                </button>
+              )}
+            </div>
           )}
-          <button type="button" className={ghostButton} onClick={copyLink}>
-            {t("drive.detail.copyLink")}
-          </button>
-          {writable.length > 0 && (
-            <button type="button" className={ghostButton} onClick={cite}>
-              {t("drive.detail.cite")}
+          <div className="ml-0.5 flex items-center gap-1">
+            <button type="button" className={ghostButton} onClick={copyLink}>
+              {t("drive.detail.copyLink")}
             </button>
-          )}
+            {writable.length > 0 && (
+              <button type="button" className={ghostButton} onClick={cite}>
+                {t("drive.detail.cite")}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 

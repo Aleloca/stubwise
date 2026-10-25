@@ -898,7 +898,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                         }`}
                       >
                         <span
-                          className={`num w-16 shrink-0 self-start pt-[9px] ${
+                          className={`num w-16 shrink-0 ${file.line ? "self-start pt-[9px]" : ""} ${
                             file.code ? "text-sm font-semibold text-ink-muted" : "text-xs leading-4 text-ink-faint"
                           }`}
                         >
@@ -919,9 +919,13 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                               <span className="num shrink-0 text-xs text-ink-muted">{file.project}</span>
                             )}
                           </span>
-                          <span className="truncate text-xs text-ink-muted">
-                            <Highlighted text={file.line} words={file.words} />
-                          </span>
+                          {/* Senza seconda riga (un file senza riassunto né passaggio)
+                              il codice e il nome stanno sulla stessa linea, al centro. */}
+                          {file.line && (
+                            <span className="truncate text-xs text-ink-muted">
+                              <Highlighted text={file.line} words={file.words} />
+                            </span>
+                          )}
                         </span>
                         <span
                           className={`shrink-0 text-ink-muted ${selected ? "visible" : "invisible"}`}

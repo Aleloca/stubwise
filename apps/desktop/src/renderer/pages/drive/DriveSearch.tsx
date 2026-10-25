@@ -328,7 +328,9 @@ export function DriveSearchResults({
         </ul>
       )}
       {result.outside.length > 0 && (
-        <section aria-labelledby="drive-outside-heading" className="mt-4 border-t border-rule-strong pb-4">
+        // Un solo filetto forte: copre quello dell’ultima riga dei file, senza
+        // una fascia vuota fra due linee.
+        <section aria-labelledby="drive-outside-heading" className="relative -mt-px border-t border-rule-strong pb-4">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-4 pt-4 pb-2">
             <h2 id="drive-outside-heading" className="heading-group">
               {t("drive.search.outsideTitle")}

@@ -194,7 +194,9 @@ function Category({
 
   return (
     <section data-doc-category={category.kind} className="mt-2 flex flex-col">
-      <div className="flex h-8 items-center gap-1 pr-1 pl-1">
+      {/* Il «⋯» della categoria compare col passaggio o col fuoco sulla riga:
+          fermo, a 24 px, si leggeva come un filetto puntinato. */}
+      <div className="group/category flex h-8 items-center gap-1 pr-1 pl-1">
         <h3 className="min-w-0 flex-1">
           <button
             ref={header}
@@ -215,7 +217,7 @@ function Category({
             ariaLabel={t("docs.tree.more", { name: label })}
             title={t("docs.tree.more", { name: label })}
             align="right"
-            className={`${ghostButton} h-6 w-6 justify-center px-0 aria-expanded:bg-ink/8`}
+            className={`${ghostButton} h-6 w-6 justify-center px-0 opacity-0 group-focus-within/category:opacity-100 group-hover/category:opacity-100 aria-expanded:bg-ink/8 aria-expanded:opacity-100`}
             label={<MoreIcon />}
           >
             {(close) => (

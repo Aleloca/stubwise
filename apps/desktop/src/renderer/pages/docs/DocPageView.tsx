@@ -91,7 +91,9 @@ function DocPageBody({ page }: { page: DocPage }) {
 
   const manual = page.kind === "manual";
   return (
-    <article className="event-enter flex flex-col">
+    // Una sola misura per tutta la pagina (meta, filetto, testo, pagine
+    // collegate): 72ch, centrata nella larghezza che resta accanto all’albero.
+    <article className="event-enter mx-auto flex w-full max-w-[72ch] flex-col">
       <header className="flex items-start gap-4 pt-8">
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
           <p className="flex items-center gap-1.5 text-xs text-ink-muted">
@@ -188,7 +190,7 @@ function DocPageBody({ page }: { page: DocPage }) {
 
       {page.staleCommits.length > 0 && <StaleNote page={page} />}
 
-      <div className="mt-6 max-w-[72ch]">
+      <div className="mt-6">
         <Markdown
           source={page.body}
           documentHeadings

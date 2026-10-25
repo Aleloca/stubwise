@@ -201,20 +201,20 @@ export const DriveRow = memo(function DriveRow({
       onFocus={(e) => {
         if (e.target === e.currentTarget) onFocusRow(row);
       }}
-      className={`group/row @container relative flex h-14 cursor-default items-center gap-3 border-b border-rule pr-3 pl-4 outline-none transition-colors duration-[var(--duration-fast)] ease-out [contain-intrinsic-size:auto_56px] [content-visibility:auto] has-[[aria-expanded=true]]:z-10 has-[[aria-expanded=true]]:[content-visibility:visible] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus ${selected || current ? "bg-ink/10" : "hover:bg-ink/6"} ${arrived ? "drive-arrive" : ""}`}
+      className={`group/row @container relative flex h-14 cursor-default items-start gap-3 border-b border-rule pt-2 pr-3 pl-4 outline-none transition-colors duration-[var(--duration-fast)] ease-out [contain-intrinsic-size:auto_56px] [content-visibility:auto] has-[[aria-expanded=true]]:z-10 has-[[aria-expanded=true]]:[content-visibility:visible] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus ${selected || current ? "bg-ink/10" : "hover:bg-ink/6"} ${arrived ? "drive-arrive" : ""}`}
     >
-      <span role="gridcell" className="num w-[72px] shrink-0 self-start pt-[9px] text-xs font-semibold tracking-[0.02em] text-ink">
+      <span role="gridcell" className="num w-[72px] shrink-0 pt-[3px] text-xs font-semibold tracking-[0.02em] text-ink">
         {row.code}
       </span>
       {global && (
-        <span role="gridcell" className="flex w-40 shrink-0 items-baseline gap-1.5 self-start pt-[9px] @max-[720px]:w-12">
+        <span role="gridcell" className="flex w-40 shrink-0 items-baseline gap-1.5 pt-px @max-[720px]:w-12">
           <span className="num text-xs font-semibold tracking-[0.02em] text-ink">{row.projectCode}</span>
           <span title={projectName} className="min-w-0 truncate text-sm text-ink-muted @max-[720px]:hidden">
             {projectName}
           </span>
         </span>
       )}
-      <span role="gridcell" className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
+      <span role="gridcell" className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className={`flex min-w-0 items-center gap-2 ${unavailable || row.hidden ? "text-ink-faint" : "text-ink"}`}>
           <span className="text-ink-muted">
             <TypeGlyph type={row.type} />
@@ -232,10 +232,10 @@ export const DriveRow = memo(function DriveRow({
         </span>
         <SecondLine row={row} showFolder={global} hiddenByName={hiddenByName} />
       </span>
-      <span role="gridcell" className="relative flex w-[140px] shrink-0 @max-[720px]:w-[22px]">
+      <span role="gridcell" className="relative -mt-px flex w-[140px] shrink-0 @max-[720px]:w-[22px]">
         <PersonChip personId={row.addedById} nameClassName="@max-[720px]:sr-only" />
       </span>
-      <span role="gridcell" className="relative flex w-[76px] shrink-0 justify-end @max-[720px]:hidden">
+      <span role="gridcell" className="relative flex w-[76px] shrink-0 justify-end pt-[3px] @max-[720px]:hidden">
         <span
           title={modifiedLabel(row.modifiedAt, t, i18n.language)}
           className="num text-xs whitespace-nowrap text-ink-muted"
