@@ -27,6 +27,13 @@ import { TASKS } from "./seed/tasks";
 import { DAILY_REPORTS, PR_FACTS, PULL_REQUEST_EVENTS } from "./seed/timeline";
 import { DOC_PAGES } from "./seed/docPages";
 import { DOC_SPACES } from "./seed/docs/spaces";
+import {
+  DRIVE_FILES,
+  DRIVE_OPENS,
+  FOLDER_LINKS,
+  GOOGLE_ACCOUNTS,
+  GOOGLE_OUTSIDE_FILES,
+} from "./seed/drive";
 import { DEFAULT_SESSION_PERSON_ID, getSessionPersonId, setSessionPersonId } from "./session";
 import type {
   ActivityEntry,
@@ -59,6 +66,11 @@ import type {
   DocGeneration,
   DocPage,
   DocSpace,
+  DriveFile,
+  DriveOpen,
+  FolderLink,
+  GoogleAccount,
+  GoogleOutsideFile,
   SavedFilter,
   StatusFamily,
   Task,
@@ -376,6 +388,15 @@ interface State {
    * nome); `null` = nessuno, e la chat dice che non è disponibile.
    */
   docsChatProvider: string | null;
+  // --- Drive (area 5) ---
+  driveFiles: DriveFile[];
+  /** Le aperture contate, in ordine di tempo. */
+  driveOpens: DriveOpen[];
+  /** Gli account Google personali; senza riga = non collegato. */
+  googleAccounts: GoogleAccount[];
+  folderLinks: FolderLink[];
+  /** I file Google in nessun progetto (simulati: li vede chi ha l'account). */
+  googleOutside: GoogleOutsideFile[];
 }
 
 function initialDocCodeSeq(): Map<string, number> {
@@ -435,6 +456,11 @@ function freshState(): State {
     docCodeSeq: initialDocCodeSeq(),
     docGenerationLog: new Map(),
     docsChatProvider: "Team API key",
+    driveFiles: DRIVE_FILES.map(copy),
+    driveOpens: DRIVE_OPENS.map(copy),
+    googleAccounts: GOOGLE_ACCOUNTS.map(copy),
+    folderLinks: FOLDER_LINKS.map(copy),
+    googleOutside: GOOGLE_OUTSIDE_FILES.map(copy),
   };
 }
 

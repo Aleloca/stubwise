@@ -43,6 +43,14 @@ import {
   RELEASE_PAGES,
 } from "./seed/chat";
 import { REPO_FILES, projectOfRepo } from "./seed/repoFiles";
+import {
+  DRIVE_FILES,
+  DRIVE_OPENS,
+  FOLDER_LINKS,
+  GOOGLE_ACCOUNTS,
+  GOOGLE_OUTSIDE_FILES,
+} from "./seed/drive";
+import { VIEW_AS_PERSONAS } from "./viewer";
 import type {
   Channel,
   ChatEventKind,
@@ -1167,5 +1175,193 @@ describe("seed: Chat (area 4)", () => {
       dm: (c) => c.projectId === null && !c.isGeneral && c.visibility === "private",
     };
     for (const c of CHAT_CHANNELS) expect(check[c.kind](c), c.id).toBe(true);
+  });
+});
+
+describe("seed: Drive (area 5)", () => {
+  const NOW = `${TODAY}T12:00:00Z`;
+  const DAY = 86_400_000;
+  const ms = (iso: string) => new Date(iso).getTime();
+  const project = (code: string) => PROJECTS.find((p) => p.code === code)!;
+  const filesOf = (code: string) => DRIVE_FILES.filter((f) => f.projectId === project(code).id);
+  const fileById = new Map(DRIVE_FILES.map((f) => [f.id, f]));
+  const opensOf = (fileId: string) => DRIVE_OPENS.filter((o) => o.fileId === fileId);
+  const opens90d = (fileId: string) =>
+    opensOf(fileId).filter((o) => ms(NOW) - ms(o.at) <= 90 * DAY).length;
+  const accountOf = (personId: string) => GOOGLE_ACCOUNTS.find((a) => a.personId === personId);
+
+  it("id unici e codici <PRJ>-F<n> unici per progetto, col prefisso del progetto", () => {
+    expect(new Set(DRIVE_FILES.map((f) => f.id)).size).toBe(DRIVE_FILES.length);
+    const seen = new Set<string>();
+    for (const f of DRIVE_FILES) {
+      const m = /^([A-Z]{3})-F([1-9]\d*)$/.exec(f.code);
+      expect(m, f.code).not.toBeNull();
+      expect(projectsById.get(f.projectId)!.code).toBe(m![1]);
+      expect(seen.has(f.code), f.code).toBe(false);
+      seen.add(f.code);
+    }
+  });
+
+  it("chi aggiunge un file è membro del progetto, e ogni data sta prima di adesso", () => {
+    for (const f of DRIVE_FILES) {
+      expect(projectsById.get(f.projectId)!.memberIds, f.code).toContain(f.addedById);
+      expect(ms(f.addedAt) <= ms(f.modifiedAt) || f.source === "google", f.code).toBe(true);
+      expect(ms(f.addedAt)).toBeLessThanOrEqual(ms(NOW));
+      expect(ms(f.modifiedAt)).toBeLessThanOrEqual(ms(NOW));
+    }
+  });
+
+  it("caricati e Google hanno i campi della loro provenienza", () => {
+    for (const f of DRIVE_FILES) {
+      if (f.source === "upload") {
+        expect(f.googleFileId, f.code).toBeNull();
+        expect(f.googleOwner, f.code).toBeNull();
+        expect(f.folderLinkId, f.code).toBeNull();
+        expect(f.unavailable, f.code).toBeNull();
+        expect(f.hidden, f.code).toBe(false);
+        expect(f.sizeBytes, f.code).toBeGreaterThan(0);
+      } else {
+        expect(f.googleFileId, f.code).toBeTruthy();
+        expect(f.googleOwner, f.code).toMatch(/@/);
+      }
+    }
+  });
+
+  it("il contenuto è coerente col suo stato", () => {
+    for (const f of DRIVE_FILES.filter((x) => x.unavailable === null)) {
+      if (f.content === "ready") {
+        expect(f.text.length, f.code).toBeGreaterThan(0);
+        expect(f.summary, f.code).toBeTruthy();
+      } else {
+        expect(f.text, f.code).toBe("");
+        expect(f.summary, f.code).toBeNull();
+      }
+      if (f.ocr) expect(f.content, f.code).toBe("ready");
+    }
+  });
+
+  it("i file di una cartella stanno nel suo progetto e risultano aggiunti da chi l'ha collegata", () => {
+    const linkById = new Map(FOLDER_LINKS.map((l) => [l.id, l]));
+    for (const f of DRIVE_FILES.filter((x) => x.folderLinkId !== null)) {
+      const link = linkById.get(f.folderLinkId!);
+      expect(link, f.code).toBeDefined();
+      expect(f.source).toBe("google");
+      expect(f.projectId).toBe(link!.projectId);
+      expect(f.addedById).toBe(link!.linkedById);
+      expect(f.addedAt).toBe(link!.linkedAt);
+    }
+    for (const l of FOLDER_LINKS) {
+      expect(projectsById.get(l.projectId)!.memberIds).toContain(l.linkedById);
+    }
+  });
+
+  it("AUD: la cartella «AUD – Cliente» con contratto, preventivo (foglio) e presentazione, più i caricati", () => {
+    const link = FOLDER_LINKS.find((l) => l.name === "AUD – Cliente")!;
+    expect(link.projectId).toBe(project("AUD").id);
+    expect(link.status).toBe("ok");
+    const inFolder = filesOf("AUD").filter((f) => f.folderLinkId === link.id);
+    expect(inFolder.some((f) => f.type === "document" && /contratto/i.test(f.name))).toBe(true);
+    expect(inFolder.some((f) => f.type === "sheet" && /preventivo/i.test(f.name))).toBe(true);
+    expect(inFolder.some((f) => f.type === "slides" && /presentazione/i.test(f.name))).toBe(true);
+    const uploads = filesOf("AUD").filter((f) => f.source === "upload");
+    expect(uploads.some((f) => f.type === "pdf" && /specifiche/i.test(f.name))).toBe(true);
+    expect(
+      uploads.filter((f) => f.type === "image" && /mockup/i.test(f.name)).length,
+    ).toBeGreaterThan(1);
+    expect(uploads.some((f) => f.name.endsWith(".zip") && f.content === "unsupported")).toBe(true);
+  });
+
+  it("MKX ha molti file grafici e una cartella collegata; un progetto non ha file", () => {
+    expect(filesOf("MKX").filter((f) => f.type === "image").length).toBeGreaterThanOrEqual(20);
+    expect(FOLDER_LINKS.some((l) => l.projectId === project("MKX").id)).toBe(true);
+    expect(filesOf("UFF")).toEqual([]);
+    expect(FOLDER_LINKS.some((l) => l.projectId === project("UFF").id)).toBe(false);
+  });
+
+  it("i casi del contenuto: Google non disponibile, in elaborazione, PDF con OCR, immagine senza testo", () => {
+    const google = DRIVE_FILES.filter((f) => f.source === "google");
+    expect(google.some((f) => f.unavailable === "deleted")).toBe(true);
+    expect(google.some((f) => f.unavailable === null && f.content === "processing")).toBe(true);
+    expect(DRIVE_FILES.some((f) => f.type === "pdf" && f.ocr)).toBe(true);
+    expect(DRIVE_FILES.some((f) => f.type === "image" && f.content === "no_text")).toBe(true);
+    // Un file di cartella nascosto, per il filtro «Nascosti».
+    expect(google.some((f) => f.hidden && f.folderLinkId !== null)).toBe(true);
+  });
+
+  it("un file Google in due progetti è due riferimenti, con due codici", () => {
+    const byGoogleId = new Map<string, Set<string>>();
+    for (const f of DRIVE_FILES.filter((x) => x.googleFileId)) {
+      const set = byGoogleId.get(f.googleFileId!) ?? new Set();
+      expect(set.has(f.projectId), f.code).toBe(false);
+      set.add(f.projectId);
+      byGoogleId.set(f.googleFileId!, set);
+    }
+    expect([...byGoogleId.values()].some((s) => s.size > 1)).toBe(true);
+  });
+
+  it("il contratto di AUD risponde ai tempi di consegna", () => {
+    const contract = filesOf("AUD").find((f) => /contratto/i.test(f.name))!;
+    expect(contract.content).toBe("ready");
+    expect(contract.text).toMatch(/delivery times/i);
+    expect(contract.text).toMatch(/within 30 working days/i);
+    expect(contract.summary).toMatch(/delivery within 30 working days/i);
+  });
+
+  it("aperture: su più di 90 giorni, di membri, dopo l'aggiunta, mai due della stessa persona entro 30 minuti", () => {
+    const ats = DRIVE_OPENS.map((o) => ms(o.at));
+    expect(ms(NOW) - Math.min(...ats)).toBeGreaterThan(90 * DAY);
+    const last = new Map<string, number[]>();
+    for (const o of DRIVE_OPENS) {
+      const f = fileById.get(o.fileId)!;
+      expect(f, o.fileId).toBeDefined();
+      expect(projectsById.get(f.projectId)!.memberIds, f.code).toContain(o.personId);
+      expect(ms(o.at)).toBeGreaterThanOrEqual(ms(f.addedAt));
+      expect(ms(o.at)).toBeLessThanOrEqual(ms(NOW));
+      expect(o.via === "google", f.code).toBe(f.source === "google");
+      const key = `${o.fileId}|${o.personId}`;
+      const prev = last.get(key) ?? [];
+      for (const p of prev) expect(Math.abs(p - ms(o.at)), key).toBeGreaterThan(30 * 60_000);
+      last.set(key, [...prev, ms(o.at)]);
+    }
+  });
+
+  it("aperture: file molto usati, mai aperti, e uno aperto solo più di 90 giorni fa", () => {
+    const visible = DRIVE_FILES.filter((f) => f.unavailable === null && !f.hidden);
+    expect(Math.max(...visible.map((f) => opens90d(f.id)))).toBeGreaterThanOrEqual(20);
+    expect(visible.filter((f) => opensOf(f.id).length === 0).length).toBeGreaterThan(2);
+    expect(visible.some((f) => opensOf(f.id).length > 0 && opens90d(f.id) === 0)).toBe(true);
+  });
+
+  it("account Google: fra le persone del «vedi come» una collegata, una scaduta, una senza", () => {
+    const personaIds = VIEW_AS_PERSONAS.map((p) => p.personId);
+    const statuses = personaIds.map((id) => accountOf(id)?.status ?? "none");
+    expect(statuses).toContain("connected");
+    expect(statuses).toContain("expired");
+    expect(statuses).toContain("none");
+    expect(new Set(GOOGLE_ACCOUNTS.map((a) => a.personId)).size).toBe(GOOGLE_ACCOUNTS.length);
+    // Una cartella scaduta lo è perché l'account di chi l'ha collegata è scaduto.
+    for (const l of FOLDER_LINKS) {
+      expect(accountOf(l.linkedById)?.status, l.name).toBe(
+        l.status === "ok" ? "connected" : "expired",
+      );
+    }
+    expect(FOLDER_LINKS.some((l) => l.status === "expired")).toBe(true);
+  });
+
+  it("un file Google fuori dai progetti, visibile solo a chi ha l'account collegato", () => {
+    expect(GOOGLE_OUTSIDE_FILES.length).toBeGreaterThan(0);
+    const inProjects = new Set(DRIVE_FILES.map((f) => f.googleFileId));
+    for (const g of GOOGLE_OUTSIDE_FILES) {
+      expect(inProjects.has(g.googleFileId), g.name).toBe(false);
+      expect(g.visibleToPersonIds.length).toBeGreaterThan(0);
+      for (const id of g.visibleToPersonIds) {
+        expect(accountOf(id)?.status, `${g.name} / ${id}`).toBe("connected");
+      }
+    }
+    // Una persona del «vedi come» lo trova.
+    const personaIds = new Set(VIEW_AS_PERSONAS.map((p) => p.personId));
+    expect(
+      GOOGLE_OUTSIDE_FILES.some((g) => g.visibleToPersonIds.some((id) => personaIds.has(id))),
+    ).toBe(true);
   });
 });

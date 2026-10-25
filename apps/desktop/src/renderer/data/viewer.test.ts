@@ -165,6 +165,56 @@ describe("viewer", () => {
     });
   });
 
+  describe("permessi di progetto del Drive (area 5)", () => {
+    const aud = PROJECTS.find((p) => p.code === "AUD")!;
+    const mkx = PROJECTS.find((p) => p.code === "MKX")!;
+    const stw = PROJECTS.find((p) => p.code === "STW")!;
+    // Irene è Viewer: la si mette in STW per provarlo.
+    const asViewer = () => grantProjectRole("p-irene", stw.id, "viewer");
+
+    it("drive.upload: Project Lead, Developer, Contributor e Legacy Member; non il Viewer", () => {
+      expect(can(byPerson("p-laura"), "drive.upload", aud.id)).toBe(true);
+      expect(can(byPerson("p-marco"), "drive.upload", aud.id)).toBe(true);
+      expect(can(byPerson("p-giulia"), "drive.upload", aud.id)).toBe(true);
+      expect(can(byPerson("p-sara"), "drive.upload", stw.id)).toBe(true);
+      // Elena è Legacy Member (shape drive.md, [A 14]).
+      expect(can(byPerson("p-elena"), "drive.upload", mkx.id)).toBe(true);
+      asViewer();
+      expect(can(byPerson("p-irene"), "drive.upload", stw.id)).toBe(false);
+      // Solo dove si è membri.
+      expect(can(byPerson("p-sara"), "drive.upload", aud.id)).toBe(false);
+      resetViewerGrants();
+    });
+
+    it("drive.manage e drive.history: solo il Project Lead (e il full admin ovunque)", () => {
+      for (const perm of ["drive.manage", "drive.history"] as const) {
+        expect(can(byPerson("p-laura"), perm, aud.id)).toBe(true);
+        expect(can(byPerson("p-giulia"), perm, mkx.id)).toBe(true);
+        expect(can(byPerson("p-giulia"), perm, aud.id)).toBe(false);
+        expect(can(byPerson("p-marco"), perm, aud.id)).toBe(false);
+        expect(can(byPerson("p-sara"), perm, stw.id)).toBe(false);
+        expect(can(byPerson("p-elena"), perm, mkx.id)).toBe(false);
+        for (const project of PROJECTS) {
+          expect(can(byPerson("p-roberta"), perm, project.id)).toBe(true);
+        }
+      }
+      asViewer();
+      expect(can(byPerson("p-irene"), "drive.manage", stw.id)).toBe(false);
+      expect(can(byPerson("p-irene"), "drive.history", stw.id)).toBe(false);
+      resetViewerGrants();
+    });
+
+    it("si concedono e si tolgono come gli altri permessi del prototipo", () => {
+      grantProjectPermission("p-marco", aud.id, "drive.history");
+      expect(can(byPerson("p-marco"), "drive.history", aud.id)).toBe(true);
+      revokeProjectPermission("p-giulia", aud.id, "drive.upload");
+      expect(can(byPerson("p-giulia"), "drive.upload", aud.id)).toBe(false);
+      resetViewerGrants();
+      expect(can(byPerson("p-marco"), "drive.history", aud.id)).toBe(false);
+      expect(can(byPerson("p-giulia"), "drive.upload", aud.id)).toBe(true);
+    });
+  });
+
   describe("permessi d'istanza del prototipo (aree 3 e 4)", () => {
     it("claude.public.view: di base a tutti (preset User e Admin)", () => {
       for (const id of ["p-giulia", "p-marco", "p-laura", "p-sara", "p-roberta", "p-irene"]) {

@@ -25,13 +25,17 @@ export * from "./model";
 
 /**
  * Permessi di progetto che vivono solo nel prototipo (non nel registro
- * condiviso): pianificare per altri e, dall'area 4, creare e gestire i
- * canali della Chat del progetto.
+ * condiviso): pianificare per altri, dall'area 4 creare e gestire i
+ * canali della Chat del progetto, dall'area 5 caricare nel Drive, gestirlo e
+ * vederne lo storico delle aperture.
  */
 export type LocalProjectPermission =
   | "planning.others"
   | "chat.channels.create"
-  | "chat.channels.manage";
+  | "chat.channels.manage"
+  | "drive.upload"
+  | "drive.manage"
+  | "drive.history";
 
 /**
  * Permessi d'istanza che vivono solo nel prototipo: vedere le conversazioni

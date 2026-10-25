@@ -1130,6 +1130,98 @@ export interface ReleasePage {
   publishedById: string;
 }
 
+// --- Drive (area 5) ----------------------------------------------------------
+
+/** Il tipo di un file del Drive, come lo filtra l'elenco. */
+export type DriveFileType = "document" | "sheet" | "slides" | "pdf" | "image" | "other";
+
+/**
+ * A che punto è il contenuto di un file: in elaborazione, pronto (testo
+ * estratto), nessun testo (un'immagine senza scritte), formato non
+ * supportato, errore di estrazione.
+ */
+export type ContentState = "processing" | "ready" | "no_text" | "unsupported" | "error";
+
+/**
+ * Un file del Drive di un progetto: caricato in Stubwise (`upload`) o
+ * riferimento a un file di Google Drive (`google`). `code` (`AUD-F7`) è uno
+ * per riferimento: lo stesso file Google in due progetti ha due codici. Un
+ * file di una cartella collegata (`folderLinkId`) risulta aggiunto da chi
+ * l'ha collegata; non si toglie, si nasconde (`hidden`). `unavailable` =
+ * cancellato su Google o accesso perso: resta in elenco con la causa.
+ */
+export interface DriveFile {
+  id: string;
+  code: string;
+  projectId: string;
+  source: "upload" | "google";
+  name: string;
+  type: DriveFileType;
+  mime: string;
+  /** `null` per i documenti nativi di Google (nessuna dimensione). */
+  sizeBytes: number | null;
+  addedById: string;
+  addedAt: string;
+  modifiedAt: string;
+  folderLinkId: string | null;
+  googleFileId: string | null;
+  /** L'email del proprietario su Google. */
+  googleOwner: string | null;
+  hidden: boolean;
+  unavailable: null | "deleted" | "access_lost";
+  content: ContentState;
+  /** Il testo estratto (vuoto finché non c'è): è quello che leggono ricerca e Claude. */
+  text: string;
+  summary: string | null;
+  /** Il testo viene dall'OCR (un PDF scansionato). */
+  ocr: boolean;
+}
+
+/**
+ * Un'apertura contata: anteprima di un caricato, «Apri in Google Drive»,
+ * download. La stessa persona sullo stesso riferimento entro 30 minuti è una.
+ */
+export interface DriveOpen {
+  fileId: string;
+  personId: string;
+  at: string;
+  via: "preview" | "google" | "download";
+}
+
+/** L'account Google personale di una persona; senza riga = non collegato. */
+export interface GoogleAccount {
+  personId: string;
+  email: string;
+  status: "connected" | "expired";
+}
+
+/**
+ * Una cartella Google collegata a un progetto: Stubwise la legge con
+ * l'account di chi l'ha collegata, e tutti i membri ne leggono i file.
+ */
+export interface FolderLink {
+  id: string;
+  projectId: string;
+  name: string;
+  googleFolderId: string;
+  linkedById: string;
+  linkedAt: string;
+  status: "ok" | "expired";
+}
+
+/**
+ * Un file di Google Drive che non è in nessun progetto: lo trova dalla
+ * ricerca solo chi ha l'account collegato e lo vede su Google.
+ */
+export interface GoogleOutsideFile {
+  googleFileId: string;
+  name: string;
+  type: DriveFileType;
+  visibleToPersonIds: string[];
+  text: string;
+  summary: string;
+}
+
 // --- Chat (area 4) -----------------------------------------------------------
 
 /**

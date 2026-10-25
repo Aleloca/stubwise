@@ -49,11 +49,22 @@ const PROJECT_SET: ReadonlySet<string> = new Set(PROJECT_PERMISSIONS);
  * registro di `@stubwise/shared` quando si costruisce il backend.
  * `planning.others` è del Project Lead (e implicito per il full admin); i
  * canali della Chat (area 4) li crea il Project Lead o il Developer e li
- * gestisce il Project Lead.
+ * gestisce il Project Lead. Il Drive (area 5): carica chiunque lavori nel
+ * progetto (anche il Legacy Member, shape drive.md [A 14]), non il Viewer;
+ * gestire e vedere lo storico delle aperture è del Project Lead.
  */
 const LOCAL_PROJECT_PERMISSIONS: Record<string, LocalProjectPermission[]> = {
-  project_lead: ["planning.others", "chat.channels.create", "chat.channels.manage"],
-  developer: ["chat.channels.create"],
+  project_lead: [
+    "planning.others",
+    "chat.channels.create",
+    "chat.channels.manage",
+    "drive.upload",
+    "drive.manage",
+    "drive.history",
+  ],
+  developer: ["chat.channels.create", "drive.upload"],
+  contributor: ["drive.upload"],
+  legacy_member: ["drive.upload"],
 };
 
 function roleKeys(key: string): readonly string[] {
