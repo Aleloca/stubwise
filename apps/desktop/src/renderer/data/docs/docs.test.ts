@@ -14,6 +14,7 @@ import { REPOSITORIES } from "../seed/docs/repositories";
 import { setSessionPersonId } from "../session";
 import { state } from "../store";
 import type { DocTreeNode } from "../types";
+import { graphJsonOf } from "../../domain/docs";
 import { revokeProjectPermission } from "../viewer";
 
 const as = (personId: string) => setSessionPersonId(personId);
@@ -83,7 +84,7 @@ describe("spazi e albero", () => {
     expect(stw!.graph.nodes).toBeGreaterThan(0);
     expect(aud!.graph.status).toBe("disabled");
     expect(aud!.generation.status).toBe("paused");
-    expect(aud!.generation.reason).toMatch(/limit/i);
+    expect(aud!.generation.reason).toBe("usage_limit");
     expect(stw!.generation.status).toBe("succeeded");
     expect(stw!.brief?.identity).toBeTruthy();
     expect(aud!.releases.some((r) => r.minor)).toBe(true);
@@ -349,6 +350,99 @@ describe("ricerca e codici", () => {
     const [view] = await resolveCitations([{ kind: "doc", id: created.id }]);
     expect(view!.visible).toBe(false);
     expect(await resolveCodes([created.code])).toEqual([]);
+  });
+});
+
+describe("generazione, grafo e chat (Task 3)", () => {
+  it("i motivi sono codici (la UI li dice nella lingua di chi guarda), con l'ora di ripresa", async () => {
+    const [aud] = await docs.listDocSpaces("prj-aud");
+    expect(aud!.generation.reason).toBe("usage_limit");
+    expect(aud!.generation.resumesAt).toBeTruthy();
+    failNext("docs.advanceGeneration");
+    await docs.startGeneration("repo-stw");
+    await docs.whenDocsIdle();
+    expect((await docs.getDocSpace("repo-stw"))!.generation.reason).toBe("provider_error");
+    failNext("docs.advanceGraph");
+    await docs.graphAction("repo-aud", "generate");
+    await docs.whenDocsIdle();
+    const graph = (await docs.getDocSpace("repo-aud"))!.graph;
+    expect(graph.status).toBe("failed");
+    expect(graph.reason).toBe("graphify_error");
+  });
+
+  it("in corso: pagine scritte su un totale stimato; finita, niente avanzamento", async () => {
+    await docs.startGeneration("repo-stw");
+    // Il primo passo (in coda → in corso) e basta: lo stato si legge a metà.
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    const running = state.docSpaces.find((s) => s.repositoryId === "repo-stw")!.generation;
+    if (running.status === "running") expect(running.progress?.total).toBeGreaterThan(0);
+    await docs.whenDocsIdle();
+    expect((await docs.getDocSpace("repo-stw"))!.generation.progress ?? null).toBeNull();
+  });
+
+  it("un grafo pronto ha le comunità (nomi dell'AI) e il suo graph.json", async () => {
+    const stw = (await docs.getDocSpace("repo-stw"))!;
+    expect(stw.graph.report?.length).toBeGreaterThan(2);
+    expect(stw.graph.report![0]!.name).toBeTruthy();
+    expect(stw.graph.updatedAt).toBeTruthy();
+    await docs.graphAction("repo-aud", "generate");
+    await docs.whenDocsIdle();
+    const aud = (await docs.getDocSpace("repo-aud"))!;
+    expect(aud.graph.report?.length).toBeGreaterThan(0);
+    const json = JSON.parse(graphJsonOf(aud.name, aud.graph)) as { nodes: unknown[] };
+    expect(json.nodes.length).toBeGreaterThan(0);
+  });
+
+  it("la chat del progetto risponde dai Docs citando la pagina per codice", async () => {
+    const answer = await docs.askDocs({
+      projectId: "prj-aud",
+      question: "How do scheduled callbacks work?",
+    });
+    expect(answer.text).toContain("AUD-D1");
+    expect(answer.refs).toContainEqual({ kind: "doc", id: "doc-aud-callbacks" });
+    expect(answer.sources[0]).toMatchObject({
+      pageId: "doc-aud-callbacks",
+      repositoryName: "audin-app",
+    });
+  });
+
+  it("la chat del repository cerca solo lì; un tema assente lo dice senza inventare", async () => {
+    const none = await docs.askDocs({
+      projectId: "prj-stw",
+      repositoryId: "repo-stw",
+      question: "How do scheduled callbacks work?",
+    });
+    expect(none.refs).toEqual([]);
+    expect(none.text).toMatch(/don't cover/);
+  });
+
+  it("chi non vede i Docs non riceve pagine; senza provider la chat non è disponibile", async () => {
+    as("p-sara");
+    await expect(
+      docs.askDocs({ projectId: "prj-aud", question: "scheduled callbacks" }),
+    ).rejects.toThrow("not_found");
+    as("p-laura");
+    expect((await docs.getProjectDocsHome("prj-aud"))!.chatAvailable).toBe(true);
+    state.docsChatProvider = null;
+    expect((await docs.getProjectDocsHome("prj-aud"))!.chatAvailable).toBe(false);
+    expect((await docs.getDocSpace("repo-aud"))!.chatAvailable).toBe(false);
+    await expect(
+      docs.askDocs({ projectId: "prj-aud", question: "scheduled callbacks" }),
+    ).rejects.toThrow("chat_unavailable");
+  });
+
+  it("domande suggerite: pagine dello spazio (al più 4)", async () => {
+    const aud = (await docs.getDocSpace("repo-aud"))!;
+    expect(aud.chatSuggestions.length).toBeGreaterThan(1);
+    expect(aud.chatSuggestions.length).toBeLessThanOrEqual(4);
+    const home = (await docs.getProjectDocsHome("prj-aud"))!;
+    expect(home.chatSuggestions.length).toBeGreaterThan(1);
+  });
+
+  it("searchDocs dà il passaggio che ha corrisposto", async () => {
+    const [hit] = await docs.searchDocs("callback", { repositoryId: "repo-aud" });
+    expect(hit!.passage.toLowerCase()).toContain("callback");
   });
 });
 

@@ -37,6 +37,9 @@ import { useEffect } from "react";
 import { DocsHome, DocsProjectGate } from "./pages/docs/DocsHome";
 import { DocSpace, RepoIndex } from "./pages/docs/DocSpace";
 import { DocPageRoute } from "./pages/docs/DocPageView";
+import { DocGraph } from "./pages/docs/DocGraph";
+import { DocReleases } from "./pages/docs/DocReleases";
+import { RepoBrief } from "./pages/docs/RepoBrief";
 import { EditManualPageRoute, NewManualPageRoute } from "./pages/docs/ManualPageForm";
 
 /** La ricerca che ogni route accetta (`?task=` apre il pannello, gli altri li montano i dialoghi). */
@@ -499,6 +502,25 @@ const docNewPageRoute = createRoute({
   component: NewManualPageRoute,
 });
 
+// Le viste dello spazio (Task 3): letterali, vincono su `$slug` (slug riservati).
+const docBriefRoute = createRoute({
+  getParentRoute: () => docSpaceRoute,
+  path: "brief",
+  component: RepoBrief,
+});
+
+const docReleasesRoute = createRoute({
+  getParentRoute: () => docSpaceRoute,
+  path: "releases",
+  component: DocReleases,
+});
+
+const docGraphRoute = createRoute({
+  getParentRoute: () => docSpaceRoute,
+  path: "graph",
+  component: DocGraph,
+});
+
 function DocPageRoutePage() {
   const { slug } = docPageRoute.useParams();
   return <DocPageRoute slug={slug} />;
@@ -531,7 +553,15 @@ const routeTree = rootRoute.addChildren([
   projectSectionRoute,
   projectChatChannelRoute,
   docsHomeRoute,
-  docSpaceRoute.addChildren([docSpaceIndexRoute, docNewPageRoute, docPageRoute, docEditRoute]),
+  docSpaceRoute.addChildren([
+    docSpaceIndexRoute,
+    docNewPageRoute,
+    docBriefRoute,
+    docReleasesRoute,
+    docGraphRoute,
+    docPageRoute,
+    docEditRoute,
+  ]),
 ]);
 
 export function createAppRouter(history: RouterHistory) {

@@ -26,6 +26,7 @@ import type {
   DecisionDraft,
   DepartmentHome,
   DocGeneration,
+  DocsQuestion,
   GraphActionKind,
   GraphState,
   ManualPageInput,
@@ -146,6 +147,8 @@ export const queryKeys = {
     ["as", personId, "docs", "page", repositoryId, slug] as const,
   docsHome: (personId: string, projectId: string) =>
     ["as", personId, "docs", "home", projectId] as const,
+  docBrief: (personId: string, repositoryId: string) =>
+    ["as", personId, "docs", "brief", repositoryId] as const,
   docSearch: (personId: string, q: string, repositoryId: string | null) =>
     ["as", personId, "docs", "search", q, repositoryId] as const,
   chatSearch: (personId: string, q: string, filters: ChatSearchFilters) =>
@@ -2113,6 +2116,20 @@ export function useGraphAction() {
       api.docs.graphAction(repositoryId, kind),
     DOCS_AREAS,
   );
+}
+
+/** Il brief di un repository (la sua vista nello spazio). */
+export function useRepoBrief(repositoryId: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.docBrief(me, repositoryId),
+    queryFn: () => api.docs.getRepoBrief(repositoryId),
+  });
+}
+
+/** Una domanda alla chat dei Docs: legge e basta, quindi non ricarica nulla. */
+export function useAskDocs() {
+  return useMutation({ mutationFn: (q: DocsQuestion) => api.docs.askDocs(q) });
 }
 
 /** Una visita alla pagina («più lette»). */

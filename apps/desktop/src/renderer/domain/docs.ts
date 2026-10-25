@@ -1,4 +1,4 @@
-import type { DocPageRef, DocTreeNode } from "../data/model";
+import type { DocPageRef, DocTreeNode, GraphState } from "../data/model";
 
 /** Lo slug di una pagina dal suo titolo: minuscole, senza accenti, parole unite da «-». */
 export function slugify(title: string): string {
@@ -51,4 +51,30 @@ function sortTree(nodes: DocTreeNode[]): void {
     (a, b) => Number(a.page !== null) - Number(b.page !== null) || a.name.localeCompare(b.name),
   );
   for (const n of nodes) sortTree(n.children);
+}
+
+/**
+ * Il `graph.json` (finto) di un grafo pronto, nella forma di graphify: un
+ * nodo per comunità e uno per ciascuno dei suoi nodi più collegati, gli
+ * archi dentro la comunità e fra comunità vicine. I conteggi interi stanno
+ * in `meta` (il file vero ha tutti i nodi: qui il resoconto).
+ */
+export function graphJsonOf(repository: string, graph: GraphState): string {
+  const report = graph.report ?? [];
+  const nodes = report.flatMap((c) => [
+    { id: c.id, label: c.name, kind: "community", size: c.size },
+    ...c.nodes.map((n) => ({ id: `${c.id}:${n}`, label: n, kind: "symbol", community: c.id })),
+  ]);
+  const links = report.flatMap((c) => [
+    ...c.nodes.map((n) => ({ source: c.id, target: `${c.id}:${n}` })),
+    ...c.links.filter((l) => l > c.id).map((l) => ({ source: c.id, target: l })),
+  ]);
+  const meta = {
+    repository,
+    nodes: graph.nodes ?? 0,
+    edges: graph.edges ?? 0,
+    communities: graph.communities ?? report.length,
+    updatedAt: graph.updatedAt ?? null,
+  };
+  return JSON.stringify({ meta, nodes, links }, null, 2);
 }

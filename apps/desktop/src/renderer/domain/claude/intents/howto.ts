@@ -1,6 +1,6 @@
-import type { DocPage, Project } from "../../../data/types";
+import type { CitationRef, DocPage, Project } from "../../../data/types";
 import { labelled, resulted, type Answer } from "../answers";
-import type { IntentContext } from "../context";
+import type { IntentContext, T } from "../context";
 import { findProject, normalize, topicWords } from "../parse";
 
 const HOWTO_LEAD =
@@ -54,6 +54,45 @@ export async function howto(text: string, ctx: IntentContext): Promise<Answer> {
     actions: [action],
     text: body.join("\n"),
     refs: found.map((page) => ({ kind: "doc" as const, id: page.id })),
+  };
+}
+
+/**
+ * La risposta della chat dei Docs (del progetto o di un repository): ogni
+ * domanda è una ricerca nelle pagine che chi chiede legge — `pages` arriva
+ * già filtrato —, e la risposta cita le pagine per codice (`AUD-D1`) col
+ * loro repository. Se le pagine non ne parlano lo dice: non inventa.
+ * `scope` è come si chiama il perimetro («AUD», «audin-app»).
+ */
+export function docsAnswer(
+  text: string,
+  pages: readonly DocPage[],
+  t: T,
+  { scope, repoName }: { scope: string; repoName: (repositoryId: string) => string },
+): { text: string; refs: CitationRef[]; pages: DocPage[] } {
+  const topic = howtoTopic(text);
+  const words = topicWords(topic);
+  if (words.length === 0) {
+    return { text: t("claude.answers.docs.noTopic"), refs: [], pages: [] };
+  }
+  const found = rank([...pages], words).slice(0, 2);
+  if (found.length === 0) {
+    return { text: t("claude.answers.docs.nothing", { scope, topic }), refs: [], pages: [] };
+  }
+  const body = found.flatMap((page, i) => [
+    ...(i > 0 ? [""] : []),
+    t("claude.answers.docs.found", {
+      code: page.code,
+      title: page.title,
+      repo: repoName(page.repositoryId),
+    }),
+    "",
+    `> ${page.excerpt}`,
+  ]);
+  return {
+    text: body.join("\n"),
+    refs: found.map((page) => ({ kind: "doc" as const, id: page.id })),
+    pages: found,
   };
 }
 

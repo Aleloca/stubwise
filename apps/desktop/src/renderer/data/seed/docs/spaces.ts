@@ -1,6 +1,7 @@
 import type { DocSpace } from "../../types";
 import { daysFromToday } from "../dates";
 import { GENERATED_AT } from "../docPages";
+import { GRAPHS } from "./graphs";
 
 // Lo spazio dei Docs di ogni repository: generazione, brief, releases e
 // grafo. STW: generato, grafo pronto. AUD: generazione in pausa sul limite
@@ -100,7 +101,7 @@ export const DOC_SPACES: DocSpace[] = [
         pageIds: ["doc-stw-worker-pipeline"],
       },
     ],
-    graph: { status: "ready", nodes: 4812, edges: 11930, communities: 37 },
+    graph: { status: "ready", updatedAt: at(1, "16:40"), ...structuredClone(GRAPHS["repo-stw"]!) },
   },
   {
     repositoryId: "repo-aud",
@@ -112,7 +113,10 @@ export const DOC_SPACES: DocSpace[] = [
       commit: GENERATED_AT["repo-aud"]!,
       costUsd: 2.17,
       provider: "Team account",
-      reason: "Paused on the usage limit of the provider: it resumes after the reset.",
+      reason: "usage_limit",
+      // Il limite d'uso si azzera nel pomeriggio: la generazione riparte da sola.
+      resumesAt: `${daysFromToday(0)}T14:00:00Z`,
+      progress: { done: 14, total: 38 },
     },
     brief: {
       identity:

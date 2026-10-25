@@ -30,7 +30,9 @@ export function indexCitations(views: readonly CitationView[] | undefined): Cita
   const byCode = new Map<string, CitationView>();
   for (const v of views ?? []) {
     byRef.set(refKey(v), v);
-    if (v.code && (v.kind === "task" || v.kind === "request")) byCode.set(v.code, v);
+    if (v.code && (v.kind === "task" || v.kind === "request" || v.kind === "doc")) {
+      byCode.set(v.code, v);
+    }
   }
   return { byRef, byCode };
 }
@@ -92,10 +94,9 @@ export function CitationLink({ view }: { view: CitationView }) {
       <BreakablePath path={view.name ?? ""} />
     ) : (
       <>
-        {view.code && view.kind !== "doc" && (
-          <span className="num font-semibold tracking-[0.02em]">{view.code}</span>
-        )}
-        {view.code && view.kind !== "doc" && view.name && " "}
+        {/* Una pagina dei Docs ha il suo codice (`AUD-D12`), come una task. */}
+        {view.code && <span className="num font-semibold tracking-[0.02em]">{view.code}</span>}
+        {view.code && view.name && " "}
         {view.name && <span>{view.name}</span>}
       </>
     );
@@ -160,9 +161,7 @@ function CitationPreview({ id, view }: { id: string; view: CitationView }) {
         )}
       </span>
       <span className="font-semibold">
-        {view.code && view.kind !== "doc" && view.kind !== "file" && (
-          <span className="num mr-1.5">{view.code}</span>
-        )}
+        {view.code && view.kind !== "file" && <span className="num mr-1.5">{view.code}</span>}
         {view.kind === "file" ? <BreakablePath path={view.name ?? ""} /> : view.name}
       </span>
       {(status || person) && (

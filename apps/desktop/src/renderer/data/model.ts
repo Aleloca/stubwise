@@ -902,17 +902,49 @@ export interface DocGeneration {
   costUsd: number | null;
   /** Il provider fissato per il repository. */
   provider: string | null;
-  /** Perché è fallita, trattenuta o in pausa (es. limite d'uso). */
-  reason: string | null;
+  /**
+   * Perché è fallita, trattenuta o in pausa: un codice, che la UI dice nella
+   * lingua di chi guarda (`docs.generation.reasons.<codice>`).
+   */
+  reason: DocGenerationReason | null;
+  /** In pausa sul limite d'uso: quando riprende da sola, circa. */
+  resumesAt?: string | null;
+  /** In corso: le pagine scritte su un totale stimato. */
+  progress?: { done: number; total: number } | null;
+}
+
+export type DocGenerationReason =
+  | "usage_limit"
+  | "monthly_budget"
+  | "provider_error"
+  | "worker_restart";
+
+export type GraphFailureReason = "graphify_error" | "repository_too_large";
+
+/**
+ * Una comunità del grafo: il nome lo scrive l'AI (le «etichette AI» del
+ * web), `nodes` sono i nodi più collegati, `links` le comunità vicine.
+ */
+export interface GraphCommunity {
+  id: string;
+  name: string;
+  size: number;
+  summary: string;
+  nodes: string[];
+  links: string[];
 }
 
 /** Il grafo del codice (graphify) di un repository. */
 export type GraphState = {
   status: "disabled" | "never" | "queued" | "running" | "failed" | "ready";
-  reason?: string;
+  reason?: GraphFailureReason;
   nodes?: number;
   edges?: number;
   communities?: number;
+  /** L'ultima costruzione (si rifà a ogni push). */
+  updatedAt?: string;
+  /** Il resoconto delle comunità, dalla più grande: c'è quando il grafo è pronto. */
+  report?: GraphCommunity[];
   setupPr?: { url: string; open: boolean };
 };
 
@@ -995,6 +1027,10 @@ export interface DocSpaceView extends DocSpace {
   /** Più lette, dalle visite (al più 5, solo quelle visitate). */
   mostRead: DocPageRef[];
   permissions: DocSpacePermissions;
+  /** La chat dei Docs c'è (serve un provider con chiave API). */
+  chatAvailable: boolean;
+  /** Le pagine da cui nascono le domande suggerite della chat (al più 4). */
+  chatSuggestions: DocPageRef[];
 }
 
 /** Un nodo dell'albero: una cartella del percorso o una pagina (foglia). */
@@ -1035,12 +1071,32 @@ export interface ProjectDocsHome {
   decisions: { total: number; recent: DecisionLogEntry[] };
   /** «Novità»: le releases di tutti gli spazi, dalla più recente (al più 5). */
   whatsNew: DocReleaseRow[];
+  /** La chat del progetto c'è (serve un provider con chiave API). */
+  chatAvailable: boolean;
+  /** Le pagine da cui nascono le domande suggerite (al più 4, da tutti gli spazi). */
+  chatSuggestions: DocPageRef[];
 }
 
 export interface DocSearchHit {
   page: DocPageRef;
   repositoryName: string;
   projectCode: string;
+  /** Il passaggio che ha corrisposto (dal corpo o dall'estratto), una riga. */
+  passage: string;
+}
+
+/** Una domanda alla chat dei Docs: del progetto, o di un solo repository. */
+export interface DocsQuestion {
+  projectId: string;
+  repositoryId?: string;
+  question: string;
+}
+
+/** La risposta della chat dei Docs: Markdown, le pagine citate e il loro spazio. */
+export interface DocsAnswer {
+  text: string;
+  refs: CitationRef[];
+  sources: { pageId: string; repositoryName: string }[];
 }
 
 export interface ManualPageInput {

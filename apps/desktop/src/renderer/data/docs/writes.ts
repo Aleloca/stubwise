@@ -1,5 +1,6 @@
 import { RESERVED_SLUGS, SLUG_RE, slugify } from "../../domain/docs";
 import { COMMITS } from "../seed/commits";
+import { readyGraph } from "../seed/docs/graphs";
 import { copy, gate, newId, now, state, storeGeneration } from "../store";
 import type {
   DocGeneration,
@@ -197,7 +198,7 @@ async function advanceGeneration(repositoryId: string, from: "queued" | "running
       await gate("docs.advanceGeneration");
       const s = space();
       if (!s) return;
-      setGeneration(s, { status: "running" });
+      setGeneration(s, { status: "running", progress: firstProgress(s) });
     }
     await gate("docs.advanceGeneration");
     const s = space();
@@ -216,16 +217,26 @@ async function advanceGeneration(repositoryId: string, from: "queued" | "running
       costUsd: 1.86,
       provider: s.generation.provider ?? "Team account",
       reason: null,
+      resumesAt: null,
+      progress: null,
     });
   } catch {
     const s = space();
-    if (s) {
-      setGeneration(s, {
-        status: "failed",
-        reason: "The provider returned an error while writing the pages.",
-      });
-    }
+    if (s) setGeneration(s, { status: "failed", reason: "provider_error", progress: null });
   }
+}
+
+/**
+ * A metà del lavoro: le pagine scritte su un totale stimato (le generate
+ * dello spazio, almeno qualcuna). Una ripresa riparte da dov'era.
+ */
+function firstProgress(space: DocSpace): { done: number; total: number } {
+  if (space.generation.progress) return space.generation.progress;
+  const generated = state.docPages.filter(
+    (p) => p.repositoryId === space.repositoryId && p.kind !== "manual",
+  ).length;
+  const total = Math.max(generated, 12);
+  return { done: Math.floor(total * 0.4), total };
 }
 
 const IN_FLIGHT: ReadonlySet<DocGeneration["status"]> = new Set(["queued", "running", "paused"]);
@@ -237,7 +248,7 @@ export async function startGeneration(repositoryId: string): Promise<DocGenerati
   need(me, "docs.generate", space.projectId);
   if (IN_FLIGHT.has(space.generation.status)) throw new Error("generation_in_progress");
   state.docGenerationLog.set(repositoryId, []);
-  setGeneration(space, { status: "queued", reason: null });
+  setGeneration(space, { status: "queued", reason: null, resumesAt: null, progress: null });
   track(advanceGeneration(repositoryId, "queued"));
   return copy(space.generation);
 }
@@ -251,7 +262,12 @@ export async function resumeGeneration(repositoryId: string): Promise<DocGenerat
     throw invalid("generation not paused");
   }
   state.docGenerationLog.set(repositoryId, []);
-  setGeneration(space, { status: "running", reason: null });
+  setGeneration(space, {
+    status: "running",
+    reason: null,
+    resumesAt: null,
+    progress: firstProgress(space),
+  });
   track(advanceGeneration(repositoryId, "running"));
   return copy(space.generation);
 }
@@ -277,23 +293,21 @@ async function advanceGraph(repositoryId: string): Promise<void> {
     await gate("docs.advanceGraph");
     const done = space();
     if (!done) return;
+    // Pronto: conteggi e comunità (nomi dell'AI) dal seme del repository.
+    const built = structuredClone(readyGraph(repositoryId));
     done.graph = {
       ...done.graph,
       status: "ready",
       reason: undefined,
-      nodes: done.graph.nodes ?? 2310,
-      edges: done.graph.edges ?? 5874,
-      communities: done.graph.communities ?? 21,
+      updatedAt: now(),
+      nodes: done.graph.nodes ?? built.nodes,
+      edges: done.graph.edges ?? built.edges,
+      communities: done.graph.communities ?? built.communities,
+      report: done.graph.report ?? built.report,
     };
   } catch {
     const failed = space();
-    if (failed) {
-      failed.graph = {
-        ...failed.graph,
-        status: "failed",
-        reason: "graphify exited with an error.",
-      };
-    }
+    if (failed) failed.graph = { ...failed.graph, status: "failed", reason: "graphify_error" };
   }
 }
 
@@ -324,7 +338,9 @@ export async function graphAction(
     status: "queued",
     reason: undefined,
     // «Ricostruisci da zero» butta i conteggi di prima.
-    ...(kind === "rebuild" ? { nodes: undefined, edges: undefined, communities: undefined } : {}),
+    ...(kind === "rebuild"
+      ? { nodes: undefined, edges: undefined, communities: undefined, report: undefined }
+      : {}),
   };
   track(advanceGraph(repositoryId));
   return copy(space.graph);

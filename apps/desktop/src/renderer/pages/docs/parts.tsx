@@ -60,6 +60,14 @@ export function generationWords(space: DocSpaceView, t: TFunction, language: str
       return space.manualOnly ? t("docs.generation.manualOnly") : t("docs.generation.never");
     case "paused":
       return t("docs.generation.paused");
+    case "running":
+      return g.progress
+        ? t("docs.generation.runningProgress", g.progress)
+        : t("docs.generation.running");
+    case "held":
+      return g.reason
+        ? t("docs.generation.heldReason", { reason: t(`docs.generation.short.${g.reason}`) })
+        : t("docs.generation.held");
     default:
       return t(`docs.generation.${g.status}`);
   }

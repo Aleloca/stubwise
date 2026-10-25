@@ -11,6 +11,7 @@ import type {
   DocSpaceView,
   DocTreeCategory,
   ProjectDocsHome,
+  RepoBrief,
   Repository,
 } from "../types";
 import { can, viewerFor } from "../viewer";
@@ -111,7 +112,29 @@ function spaceView(me: string, space: DocSpace): DocSpaceView {
       generate: can(viewer, "docs.generate", space.projectId),
       manageRepository: can(viewer, "repos.manage", space.projectId),
     },
+    chatAvailable: state.docsChatProvider !== null,
+    chatSuggestions: chatSuggestions(pages),
   };
+}
+
+/** L'ordine delle categorie per le domande suggerite: prima ciò che si usa. */
+const SUGGEST_ORDER: readonly DocKind[] = ["functional", "product", "technical"];
+
+/**
+ * Le pagine da cui nascono le domande suggerite della chat (al più 4): le
+ * funzionali, poi di prodotto, poi tecniche; a pari categoria le più lette.
+ */
+function chatSuggestions(pages: readonly DocPage[]): DocPageRef[] {
+  return pages
+    .filter((p) => SUGGEST_ORDER.includes(p.kind))
+    .sort(
+      (a, b) =>
+        SUGGEST_ORDER.indexOf(a.kind) - SUGGEST_ORDER.indexOf(b.kind) ||
+        b.views - a.views ||
+        a.code.localeCompare(b.code, undefined, { numeric: true }),
+    )
+    .slice(0, 4)
+    .map(pageRef);
 }
 
 function spacesOfProject(me: string, projectId: string): DocSpaceView[] {
@@ -188,7 +211,18 @@ export async function getProjectDocsHome(projectId: string): Promise<ProjectDocs
       )
       .sort((a, b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id))
       .slice(0, 5),
+    chatAvailable: state.docsChatProvider !== null,
+    chatSuggestions: chatSuggestions(
+      state.docPages.filter((p) => spaces.some((s) => s.repositoryId === p.repositoryId)),
+    ),
   };
+}
+
+/** Il brief di un repository; `null` se non c'è ancora (o lo spazio non c'è per chi guarda). */
+export async function getRepoBrief(repositoryId: string): Promise<RepoBrief | null> {
+  const me = await gate("docs.getRepoBrief");
+  const space = spaceFor(me, repositoryId);
+  return space?.brief ? copy(space.brief) : null;
 }
 
 /**
@@ -211,5 +245,31 @@ export async function searchDocs(
       page: pageRef(p),
       repositoryName: repositoryById(p.repositoryId)?.name ?? "",
       projectCode: state.projectsById.get(p.projectId)!.code,
+      passage: passageOf(p, needle),
     }));
+}
+
+/** Quanto è lungo, al più, il passaggio di un risultato. */
+const PASSAGE = 160;
+
+/**
+ * La riga (corpo o estratto, senza i segni del Markdown) in cui compare la
+ * ricerca, tagliata intorno alla parola; senza corrispondenza nel testo
+ * (il codice, il titolo) l'estratto.
+ */
+export function passageOf(page: DocPage, needle: string): string {
+  const lines = [page.excerpt, ...page.body.split("\n")]
+    .map((l) =>
+      l
+        .replace(/^[#>\-*\d.\s]+/, "")
+        .replace(/[*_`]/g, "")
+        .trim(),
+    )
+    .filter(Boolean);
+  const line = lines.find((l) => l.toLowerCase().includes(needle));
+  if (!line) return page.excerpt.slice(0, PASSAGE);
+  if (line.length <= PASSAGE) return line;
+  const at = line.toLowerCase().indexOf(needle);
+  const start = Math.max(0, Math.min(at - 40, line.length - PASSAGE));
+  return `${start > 0 ? "…" : ""}${line.slice(start, start + PASSAGE).trim()}…`;
 }

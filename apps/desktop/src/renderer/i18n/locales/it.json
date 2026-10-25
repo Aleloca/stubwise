@@ -120,7 +120,8 @@
       "filters": "Filtri",
       "channels": "Canali",
       "messages": "Messaggi",
-      "more": "Altro"
+      "more": "Altro",
+      "pages": "Pagine"
     },
     "noResults": "Nessun risultato per «{{query}}»",
     "noResultsHint": "Prova con un codice come {{example}} o con un nome.",
@@ -154,7 +155,14 @@
     "channelPlaceholder": "Vai a un canale o a un messaggio diretto…",
     "searchAllMessages": "Cerca «{{query}}» in tutti i messaggi",
     "messageMeta": "{{name}} in {{channel}} · {{date}}",
-    "goToChannel": "Vai"
+    "goToChannel": "Vai",
+    "scope": {
+      "space": "Nei documenti di {{repo}}",
+      "everywhere": "Ovunque",
+      "widen": "Tab: cerca ovunque",
+      "narrow": "Tab: cerca nei documenti di {{repo}}",
+      "placeholder": "Cerca nei documenti di {{repo}}…"
+    }
   },
   "notifications": {
     "title": "Notifiche",
@@ -2000,6 +2008,11 @@
       },
       "comment": {
         "summary": "Commenta {{task}}: {{excerpt}}"
+      },
+      "docs": {
+        "noTopic": "Cosa vuoi sapere? Chiedilo con parole tue, per esempio «come funzionano i callback programmati».",
+        "nothing": "I documenti di {{scope}} non parlano di «{{topic}}». Non tiro a indovinare: prova con altre parole, o chiedilo al team con una richiesta.",
+        "found": "**{{code}} {{title}}**, da {{repo}}:"
       }
     },
     "proposalFailed": {
@@ -2946,7 +2959,22 @@
       "running": "Scrittura delle pagine…",
       "failed": "Generazione non riuscita",
       "held": "Trattenuta",
-      "paused": "In pausa: limite d'uso"
+      "paused": "In pausa: limite d'uso",
+      "runningProgress": "Scrivo le pagine… {{done}} di ~{{total}}",
+      "heldReason": "Trattenuta: {{reason}}",
+      "short": {
+        "usage_limit": "limite d'uso",
+        "monthly_budget": "budget mensile esaurito",
+        "provider_error": "errore del provider",
+        "worker_restart": "worker riavviato"
+      },
+      "reasons": {
+        "usage_limit": "È stato raggiunto il limite d'uso del provider. La generazione riprende da sola dopo l'azzeramento.",
+        "monthly_budget": "Il budget mensile per la documentazione è esaurito. Riprende il mese prossimo, o quando qualcuno alza il budget.",
+        "provider_error": "Il provider ha restituito un errore mentre scriveva le pagine.",
+        "worker_restart": "Il worker si è riavviato mentre scriveva le pagine."
+      },
+      "spoken": "Generazione: {{status}}"
     },
     "home": {
       "empty": "Nessun repository ha ancora documentazione",
@@ -2968,7 +2996,13 @@
       "bar": "Documenti di {{name}}",
       "treeLabel": "Pagine di {{name}}",
       "resize": "Ridimensiona l'elenco delle pagine",
-      "columnLabel": "Spazi dei documenti di {{code}}"
+      "columnLabel": "Spazi dei documenti di {{code}}",
+      "brief": "Brief",
+      "releases": "Releases",
+      "graph": "Grafo",
+      "search": "Cerca",
+      "chat": "Chat",
+      "more": "Altro"
     },
     "tree": {
       "expandAll": "Espandi tutto",
@@ -3055,6 +3089,114 @@
       "body": "Questo progetto non usa la documentazione. Un project lead può attivarla.",
       "bodyManage": "Questo progetto non usa ancora la documentazione. Puoi attivarla nelle impostazioni del progetto.",
       "turnOn": "Attivali nelle impostazioni"
+    },
+    "panel": {
+      "title": "Generazione",
+      "lastGenerated": "Ultima generazione",
+      "commit": "Commit",
+      "cost": "Costo",
+      "provider": "Provider",
+      "reason": "Perché",
+      "progress": "Avanzamento",
+      "progressValue": "{{done}} di ~{{total}} pagine scritte",
+      "resumesAround": "Riprende verso le {{time}}",
+      "none": "Mai",
+      "resume": "Riprendi ora",
+      "retry": "Riprova",
+      "startFailed": "Non è stato possibile avviare la generazione. Riprova."
+    },
+    "brief": {
+      "title": "Brief",
+      "read": "Leggi il brief",
+      "projectBrief": "Brief del progetto",
+      "identity": "Identità",
+      "actors": "Attori",
+      "surfaces": "Superfici",
+      "usedBy": "usata da {{audience}}",
+      "glossary": "Glossario",
+      "invariants": "Invarianti di business",
+      "journeys": "Percorsi degli utenti",
+      "sources": "Fonti esistenti",
+      "confidential": "Fatti riservati",
+      "confidentialNote": "Mostrati per verifica: non arrivano mai nei documenti pubblici.",
+      "why": "Perché",
+      "where": "Dove nel codice",
+      "mustNot": "Non deve comparire come",
+      "excluded": "Pagine escluse",
+      "none": "Nessuno",
+      "empty": "Ancora nessun brief: si scrive con la prima generazione",
+      "error": "Non è stato possibile caricare il brief."
+    },
+    "releases": {
+      "title": "Releases",
+      "search": "Cerca nelle releases",
+      "significant": "Solo significative",
+      "pagesTouched": "Pagine toccate",
+      "empty": "Ancora nessuna release: si scrivono ogni notte dai commit nuovi",
+      "noMatch": "Nessuna release corrisponde a «{{query}}»",
+      "noMatchSignificant": "Nessuna release significativa"
+    },
+    "graph": {
+      "title": "Grafo",
+      "disabledTitle": "Il grafo del codice è spento",
+      "disabledBody": "Il grafo mappa il codice di questo repository: i file, le funzioni e come si collegano. Le chat dei documenti lo usano per rispondere alle domande sul codice.",
+      "enable": "Attivalo nel repository",
+      "askEnable": "Chiedi a un maintainer di attivarlo.",
+      "neverTitle": "Il grafo non è ancora stato costruito",
+      "neverBody": "Costruiscilo una volta: poi si aggiorna a ogni push.",
+      "generate": "Genera",
+      "queued": "In coda…",
+      "running": "Costruisco il grafo…",
+      "liveNote": "La pagina si aggiorna da sola.",
+      "failedTitle": "Non è stato possibile costruire il grafo",
+      "retry": "Riprova",
+      "askRetry": "Chiedi a un maintainer di riprovare.",
+      "reasons": {
+        "graphify_error": "graphify è uscito con un errore.",
+        "repository_too_large": "Il repository è troppo grande per costruire il grafo."
+      },
+      "counts": "{{nodes}} nodi · {{edges}} archi · {{communities}} comunità",
+      "updatedOnPush": "Aggiornato a ogni push",
+      "lastBuilt": "ultima costruzione il {{date}}",
+      "aiLabels": "Nomi scritti da Claude",
+      "communities": "Comunità",
+      "nodes_one": "{{count}} nodo",
+      "nodes_other": "{{count}} nodi",
+      "label": "Grafo del codice di {{name}}",
+      "hint": "Apri una comunità per vederne le parti più collegate.",
+      "download": "Scarica graph.json",
+      "downloaded": "Scaricato graph.json",
+      "fromTerminal": "Da un terminale",
+      "copyCommand": "Copia il comando",
+      "copied": "Comando copiato",
+      "copyFailed": "Non è stato possibile copiare il comando.",
+      "actions": "Azioni del grafo",
+      "regenerate": "Rigenera",
+      "rebuild": "Ricostruisci da zero",
+      "openSetupPr": "Apri la PR di setup",
+      "viewSetupPr": "Vedi la PR di setup",
+      "setupPrOpened": "PR di setup aperta",
+      "actionFailed": "Non è stato possibile avviarlo. Riprova.",
+      "askBuild": "Chiedi a un maintainer di costruirlo.",
+      "setupPrIs": "PR di setup: {{url}}"
+    },
+    "chat": {
+      "title": "Chiedi ai documenti",
+      "newChat": "Nuova chat",
+      "field": "Chiedi ai documenti",
+      "placeholderProject": "Chiedi su {{code}}…",
+      "placeholderRepo": "Chiedi su {{name}}…",
+      "suggest": "Come funziona «{{title}}»?",
+      "suggestions": "Domande suggerite",
+      "intro": "Le risposte vengono dalle pagine di {{scope}} e dicono da quale pagina arrivano.",
+      "send": "Invia",
+      "unavailable": "La chat non è disponibile: serve un provider con chiave API. Un admin può configurarlo nelle Impostazioni.",
+      "error": "Questa volta non è stato possibile rispondere.",
+      "tryAgain": "Riprova",
+      "from": "da {{repo}}",
+      "reading": "Leggo i documenti…",
+      "close": "Chiudi la chat",
+      "open": "Apri la chat"
     }
   }
 }

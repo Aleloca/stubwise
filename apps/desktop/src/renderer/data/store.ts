@@ -238,6 +238,8 @@ export type ApiFnName =
   | "docs.resumeGeneration"
   | "docs.graphAction"
   | "docs.recordDocView"
+  | "docs.getRepoBrief"
+  | "docs.askDocs"
   /** Un passo della generazione simulata (in coda → in corso → riuscita). */
   | "docs.advanceGeneration"
   /** Un passo della costruzione simulata del grafo. */
@@ -369,6 +371,11 @@ interface State {
   docCodeSeq: Map<string, number>;
   /** Gli stati attraversati dall'ultimo avvio di una generazione, per repository. */
   docGenerationLog: Map<string, DocGeneration["status"][]>;
+  /**
+   * Il provider con chiave API che risponde nelle chat dei Docs (solo il
+   * nome); `null` = nessuno, e la chat dice che non è disponibile.
+   */
+  docsChatProvider: string | null;
 }
 
 function initialDocCodeSeq(): Map<string, number> {
@@ -427,6 +434,7 @@ function freshState(): State {
     docSpaces: DOC_SPACES.map(copy),
     docCodeSeq: initialDocCodeSeq(),
     docGenerationLog: new Map(),
+    docsChatProvider: "Team API key",
   };
 }
 

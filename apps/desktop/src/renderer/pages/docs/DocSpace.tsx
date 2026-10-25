@@ -6,19 +6,28 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
   type RefObject,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { useDocSpaces, useDocTree, useStartGeneration } from "../../data/queries";
+import {
+  useDocSpaces,
+  useDocTree,
+  useSessionPersonId,
+  useStartGeneration,
+} from "../../data/queries";
 import type { DocKind, DocSpaceView, Project } from "../../data/types";
 import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
 import { useMediaQuery } from "../../layout/useMediaQuery";
+import { openPalette } from "../../layout/useShortcuts";
 import { formatDate } from "../../notifications/time";
 import { PageError } from "../../tasks-ui/PageStates";
 import { useToast } from "../../tasks-ui/Toast";
 import { PlusIcon, smallSecondary } from "../task/parts";
 import { primaryButton, secondaryButton } from "../tasks/controls";
+import { DocsChatPanel, useDocsChat } from "./DocsChat";
 import { DocTree, DocTreeSkeleton, ancestorKeys, categoryKey, folderKeys } from "./DocTree";
+import { GenerationPanel } from "./GenerationPanel";
 import {
   DocNotFound,
   DocsForbidden,
@@ -45,6 +54,58 @@ import {
 const TREE_MIN = 200;
 const TREE_MAX = 360;
 const TREE_DEFAULT = 240;
+
+/** Una voce della barra secondaria: testo, tinta al passaggio, corrente in tinta piena. */
+const barItem =
+  "inline-flex h-7 min-w-0 shrink-0 items-center rounded-md px-2 text-sm font-medium whitespace-nowrap text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink aria-[current=page]:bg-ink/10 aria-[current=page]:text-ink";
+
+/** La chat del repository aperta o chiusa, per persona (solo una comodità: può mancare). */
+const chatKey = (personId: string) => `stubwise.docs.repoChat.${personId}`;
+
+function readChatOpen(personId: string): boolean {
+  try {
+    return window.localStorage.getItem(chatKey(personId)) === "open";
+  } catch {
+    return false;
+  }
+}
+
+function writeChatOpen(personId: string, open: boolean): void {
+  try {
+    window.localStorage.setItem(chatKey(personId), open ? "open" : "closed");
+  } catch {
+    // Senza memoria locale la chat torna chiusa alla prossima visita: va bene così.
+  }
+}
+
+/**
+ * Sotto i 1200 px la chat del repository si sovrappone a destra (400 px), col
+ * fuoco dentro; Esc la chiude (non se sopra c'è un dialogo).
+ */
+function ChatOverlay({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    ref.current?.querySelector<HTMLElement>("textarea, button")?.focus();
+  }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (document.querySelector('[aria-modal="true"]')) return;
+      e.preventDefault();
+      onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div
+      ref={ref}
+      className="absolute top-10 right-0 bottom-0 z-30 flex w-[400px] max-w-full border-l border-rule-strong bg-surface shadow-[0_12px_32px_-8px_oklch(0_0_0/0.4)]"
+    >
+      {children}
+    </div>
+  );
+}
 
 /** Lo spazio `repo` (nome del repository) del progetto; non trovato = come invisibile. */
 export function DocSpace({ project, repo }: { project: Project; repo: string }) {
@@ -126,6 +187,50 @@ function SpaceShell({ project, space }: { project: Project; space: DocSpaceView 
     },
     [docked],
   );
+
+  // La chat del repository: chiusa di default, ricordata aperta o chiusa per
+  // persona (A 3); ⌘⇧C la apre e la chiude. La conversazione resta mentre si
+  // passa da una pagina all'altra (la shell non si smonta).
+  const me = useSessionPersonId();
+  const [chatOpen, setChatOpen] = useState(() => readChatOpen(me));
+  const chatButton = useRef<HTMLButtonElement>(null);
+  const chat = useDocsChat({ projectId: project.id, repositoryId: space.repositoryId });
+  const setChat = useCallback(
+    (open: boolean) => {
+      setChatOpen(open);
+      writeChatOpen(me, open);
+    },
+    [me],
+  );
+  const closeChat = useCallback(
+    (restore: boolean) => {
+      setChat(false);
+      if (restore) chatButton.current?.focus();
+    },
+    [setChat],
+  );
+  const toggleChat = useCallback(() => {
+    if (chatOpen) closeChat(false);
+    else setChat(true);
+  }, [chatOpen, closeChat, setChat]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "c") {
+        if (document.querySelector('[aria-modal="true"]')) return;
+        e.preventDefault();
+        toggleChat();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toggleChat]);
+  const chatProps = {
+    chat,
+    available: space.chatAvailable,
+    suggestions: space.chatSuggestions,
+    scope: space.name,
+    placeholder: t("docs.chat.placeholderRepo", { name: space.name }),
+  };
 
   const drawerRef = useRef<HTMLElement>(null);
   /** Chiude il cassetto; con `restore` il fuoco torna su «Pages». */
@@ -221,11 +326,45 @@ function SpaceShell({ project, space }: { project: Project; space: DocSpaceView 
             to="/p/$code/docs/$repo"
             params={{ code: project.code, repo: space.name }}
             activeOptions={{ exact: true }}
-            className="inline-flex h-7 items-center rounded-md px-2 text-sm font-medium text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink aria-[current=page]:bg-ink/10 aria-[current=page]:text-ink"
+            className={barItem}
           >
             {t("docs.space.index")}
           </Link>
-          {/* Task 3: Brief · Releases N · Graph, e a destra «Search ⌘K» e «Chat». */}
+          {(["brief", "releases", "graph"] as const).map((view) => (
+            <Link
+              key={view}
+              to={`/p/$code/docs/$repo/${view}`}
+              params={{ code: project.code, repo: space.name }}
+              className={barItem}
+            >
+              <span className="truncate">{t(`docs.space.${view}`)}</span>
+              {view === "releases" && space.releases.length > 0 && (
+                <span className="num ml-1.5 text-xs text-ink-faint">{space.releases.length}</span>
+              )}
+            </Link>
+          ))}
+          <span className="ml-auto flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              onClick={() => openPalette("open")}
+              aria-keyshortcuts="Meta+K"
+              className={barItem}
+            >
+              {t("docs.space.search")}
+              <kbd className="num ml-1.5 font-sans text-xs text-ink-faint">⌘K</kbd>
+            </button>
+            <button
+              ref={chatButton}
+              type="button"
+              aria-pressed={chatOpen}
+              aria-keyshortcuts="Meta+Shift+C"
+              title={`${t("docs.space.chat")} · ⌘⇧C`}
+              onClick={toggleChat}
+              className={`${barItem} aria-pressed:bg-ink/10 aria-pressed:text-ink`}
+            >
+              {t("docs.space.chat")}
+            </button>
+          </span>
         </nav>
         <div className="flex min-h-0 flex-1">
           {docked && (
@@ -235,7 +374,7 @@ function SpaceShell({ project, space }: { project: Project; space: DocSpaceView 
               className="relative flex shrink-0 flex-col border-r border-rule"
             >
               <div className="min-h-0 flex-1 overflow-y-auto">{treeBody}</div>
-              {/* Task 3: il pannello di generazione, in fondo all'albero dietro un filetto. */}
+              <GenerationPanel project={project} space={space} />
               <Resizer width={width} onWidth={setWidth} />
             </aside>
           )}
@@ -244,6 +383,13 @@ function SpaceShell({ project, space }: { project: Project; space: DocSpaceView 
               <Outlet />
             </div>
           </div>
+          {docked && chatOpen && (
+            <DocsChatPanel
+              {...chatProps}
+              onClose={() => closeChat(true)}
+              className="w-[360px] shrink-0 border-l border-rule"
+            />
+          )}
         </div>
         {!docked && drawer && (
           <aside
@@ -252,7 +398,17 @@ function SpaceShell({ project, space }: { project: Project; space: DocSpaceView 
             className="absolute top-10 bottom-0 left-0 z-30 flex w-[280px] flex-col border-r border-rule-strong bg-surface shadow-[0_12px_32px_-8px_oklch(0_0_0/0.4)]"
           >
             <div className="min-h-0 flex-1 overflow-y-auto">{treeBody}</div>
+            <GenerationPanel project={project} space={space} />
           </aside>
+        )}
+        {!docked && chatOpen && (
+          <ChatOverlay onClose={() => closeChat(true)}>
+            <DocsChatPanel
+              {...chatProps}
+              onClose={() => closeChat(true)}
+              className="h-full w-full"
+            />
+          </ChatOverlay>
         )}
       </div>
     </SpaceContext.Provider>
@@ -363,9 +519,17 @@ export function RepoIndex() {
         )}
       </header>
       {space.brief && (
-        <p className="mt-4 line-clamp-3 max-w-[72ch] text-md text-ink">{space.brief.identity}</p>
+        <>
+          <p className="mt-4 line-clamp-3 max-w-[72ch] text-md text-ink">{space.brief.identity}</p>
+          <Link
+            to="/p/$code/docs/$repo/brief"
+            params={{ code: project.code, repo: space.name }}
+            className="mt-2 self-start rounded-sm text-sm font-medium text-ink underline decoration-ink/30 underline-offset-4 hover:decoration-ink"
+          >
+            {t("docs.brief.read")}
+          </Link>
+        </>
       )}
-      {/* Task 3: «Read the brief» porta al brief del repository. */}
 
       {space.pageCount === 0 ? (
         <NotGenerated space={space} />

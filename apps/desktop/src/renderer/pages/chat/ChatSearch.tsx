@@ -1001,7 +1001,7 @@ function CitationToken({ refItem }: { refItem: CitationRef }) {
   if (!view.visible) return view.code ? <HiddenCode code={view.code} /> : null;
   return (
     <span className="inline-flex max-w-[260px] min-w-0 items-baseline gap-1 text-ink-muted">
-      {view.code && view.kind !== "doc" && (
+      {view.code && (
         <span className="num shrink-0 font-semibold tracking-[0.02em] text-ink">{view.code}</span>
       )}
       {view.name && <span className="min-w-0 truncate">{view.name}</span>}

@@ -120,7 +120,8 @@
       "filters": "Filters",
       "channels": "Channels",
       "messages": "Messages",
-      "more": "More"
+      "more": "More",
+      "pages": "Pages"
     },
     "noResults": "No results for “{{query}}”",
     "noResultsHint": "Try a code like {{example}} or a name.",
@@ -154,7 +155,14 @@
     "channelPlaceholder": "Go to a channel or direct message…",
     "searchAllMessages": "Search all messages for “{{query}}”",
     "messageMeta": "{{name}} in {{channel}} · {{date}}",
-    "goToChannel": "Go to"
+    "goToChannel": "Go to",
+    "scope": {
+      "space": "In {{repo}} docs",
+      "everywhere": "Everywhere",
+      "widen": "Tab: search everything",
+      "narrow": "Tab: search in {{repo}} docs",
+      "placeholder": "Search the {{repo}} docs…"
+    }
   },
   "notifications": {
     "title": "Notifications",
@@ -2000,6 +2008,11 @@
       },
       "comment": {
         "summary": "Comment on {{task}}: {{excerpt}}"
+      },
+      "docs": {
+        "noTopic": "What would you like to know? Ask in your own words, for example “how do scheduled callbacks work”.",
+        "nothing": "The {{scope}} docs don't cover “{{topic}}”. I won't guess: try other words, or ask the team with a request.",
+        "found": "**{{code}} {{title}}**, from {{repo}}:"
       }
     },
     "proposalFailed": {
@@ -2946,7 +2959,22 @@
       "running": "Writing pages…",
       "failed": "Generation failed",
       "held": "On hold",
-      "paused": "Paused: usage limit"
+      "paused": "Paused: usage limit",
+      "runningProgress": "Writing pages… {{done}} of ~{{total}}",
+      "heldReason": "On hold: {{reason}}",
+      "short": {
+        "usage_limit": "usage limit",
+        "monthly_budget": "monthly budget reached",
+        "provider_error": "provider error",
+        "worker_restart": "worker restarted"
+      },
+      "reasons": {
+        "usage_limit": "The provider's usage limit was reached. The generation resumes by itself after the reset.",
+        "monthly_budget": "The monthly budget for documentation is used up. It resumes next month, or when someone raises the budget.",
+        "provider_error": "The provider returned an error while writing the pages.",
+        "worker_restart": "The worker restarted while writing the pages."
+      },
+      "spoken": "Generation: {{status}}"
     },
     "home": {
       "empty": "No repository has documentation yet",
@@ -2968,7 +2996,13 @@
       "bar": "{{name}} docs",
       "treeLabel": "Pages of {{name}}",
       "resize": "Resize the page list",
-      "columnLabel": "Docs spaces of {{code}}"
+      "columnLabel": "Docs spaces of {{code}}",
+      "brief": "Brief",
+      "releases": "Releases",
+      "graph": "Graph",
+      "search": "Search",
+      "chat": "Chat",
+      "more": "More"
     },
     "tree": {
       "expandAll": "Expand all",
@@ -3055,6 +3089,114 @@
       "body": "This project doesn't use the documentation. A project lead can turn it on.",
       "bodyManage": "This project doesn't use the documentation yet. You can turn it on in the project settings.",
       "turnOn": "Turn it on in Settings"
+    },
+    "panel": {
+      "title": "Generation",
+      "lastGenerated": "Last generated",
+      "commit": "Commit",
+      "cost": "Cost",
+      "provider": "Provider",
+      "reason": "Why",
+      "progress": "Progress",
+      "progressValue": "{{done}} of ~{{total}} pages written",
+      "resumesAround": "Resumes around {{time}}",
+      "none": "Never",
+      "resume": "Resume now",
+      "retry": "Retry",
+      "startFailed": "Couldn't start the generation. Try again."
+    },
+    "brief": {
+      "title": "Brief",
+      "read": "Read the brief",
+      "projectBrief": "Project brief",
+      "identity": "Identity",
+      "actors": "Actors",
+      "surfaces": "Surfaces",
+      "usedBy": "used by {{audience}}",
+      "glossary": "Glossary",
+      "invariants": "Business invariants",
+      "journeys": "User journeys",
+      "sources": "Existing sources",
+      "confidential": "Confidential facts",
+      "confidentialNote": "Shown for audit; these never reach the public docs.",
+      "why": "Why",
+      "where": "Where in the code",
+      "mustNot": "Must not appear as",
+      "excluded": "Excluded pages",
+      "none": "None",
+      "empty": "No brief yet: it's written with the first generation",
+      "error": "Couldn't load the brief."
+    },
+    "releases": {
+      "title": "Releases",
+      "search": "Search releases",
+      "significant": "Significant only",
+      "pagesTouched": "Pages touched",
+      "empty": "No releases yet: they're written every night from new commits",
+      "noMatch": "No releases match “{{query}}”",
+      "noMatchSignificant": "No significant releases"
+    },
+    "graph": {
+      "title": "Graph",
+      "disabledTitle": "The code graph is off",
+      "disabledBody": "The graph maps the code of this repository: its files, functions and how they connect. The docs chats use it to answer questions about the code.",
+      "enable": "Enable it in the repository",
+      "askEnable": "Ask a maintainer to enable it.",
+      "neverTitle": "The graph hasn't been built yet",
+      "neverBody": "Build it once: after that it's updated on every push.",
+      "generate": "Generate",
+      "queued": "Waiting in line…",
+      "running": "Building the graph…",
+      "liveNote": "This page updates by itself.",
+      "failedTitle": "The graph couldn't be built",
+      "retry": "Retry",
+      "askRetry": "Ask a maintainer to try again.",
+      "reasons": {
+        "graphify_error": "graphify exited with an error.",
+        "repository_too_large": "The repository is too large to build the graph."
+      },
+      "counts": "{{nodes}} nodes · {{edges}} edges · {{communities}} communities",
+      "updatedOnPush": "Updated on push",
+      "lastBuilt": "last built {{date}}",
+      "aiLabels": "Names written by Claude",
+      "communities": "Communities",
+      "nodes_one": "{{count}} node",
+      "nodes_other": "{{count}} nodes",
+      "label": "Code graph of {{name}}",
+      "hint": "Open a community to see its most connected parts.",
+      "download": "Download graph.json",
+      "downloaded": "Downloaded graph.json",
+      "fromTerminal": "From a terminal",
+      "copyCommand": "Copy the command",
+      "copied": "Command copied",
+      "copyFailed": "Couldn't copy the command.",
+      "actions": "Graph actions",
+      "regenerate": "Regenerate",
+      "rebuild": "Rebuild from scratch",
+      "openSetupPr": "Open setup PR",
+      "viewSetupPr": "View the setup PR",
+      "setupPrOpened": "Setup PR opened",
+      "actionFailed": "Couldn't start it. Try again.",
+      "askBuild": "Ask a maintainer to build it.",
+      "setupPrIs": "Setup PR: {{url}}"
+    },
+    "chat": {
+      "title": "Ask the docs",
+      "newChat": "New chat",
+      "field": "Ask the docs",
+      "placeholderProject": "Ask about {{code}}…",
+      "placeholderRepo": "Ask about {{name}}…",
+      "suggest": "How does “{{title}}” work?",
+      "suggestions": "Suggested questions",
+      "intro": "Answers come from the pages of {{scope}}, and say which page they're from.",
+      "send": "Send",
+      "unavailable": "Chat isn't available: it needs a provider with an API key. An admin can set it up in Settings.",
+      "error": "Couldn't answer this time.",
+      "tryAgain": "Try again",
+      "from": "from {{repo}}",
+      "reading": "Reading the docs…",
+      "close": "Close the chat",
+      "open": "Open the chat"
     }
   }
 }

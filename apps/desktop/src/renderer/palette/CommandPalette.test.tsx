@@ -76,6 +76,46 @@ describe("CommandPalette", () => {
     expect(await screen.findByRole("dialog", { name: "Search and commands" })).toBeInTheDocument();
   });
 
+  it("dentro uno spazio Docs cerca solo lì (gruppo Pages); Tab allarga a tutto e torna", async () => {
+    const user = userEvent.setup();
+    const router = renderAt("/p/AUD/docs/audin-app");
+    await screen.findByRole("heading", { name: "audin-app", level: 1 });
+    const dialog = await openWithShortcut(user);
+    expect(within(dialog).getByText("In audin-app docs")).toBeInTheDocument();
+    expect(within(dialog).getByText("Tab: search everything")).toBeInTheDocument();
+    const field = within(dialog).getByRole("combobox");
+    await user.type(field, "stall");
+    // Nello spazio di audin-app «stall» non c'è: nessun risultato, niente da altri spazi.
+    expect(await within(dialog).findByText("No results for “stall”")).toBeInTheDocument();
+    expect(within(dialog).queryByRole("group", { name: "Pages" })).toBeNull();
+    await user.keyboard("{Tab}");
+    expect(within(dialog).getByText("Everywhere")).toBeInTheDocument();
+    const pages = await within(dialog).findByRole("group", { name: "Pages" });
+    expect(within(pages).getAllByRole("option")[0]).toHaveTextContent(/STW-D\d+/);
+    await user.keyboard("{Tab}");
+    expect(within(dialog).getByText("In audin-app docs")).toBeInTheDocument();
+    await user.clear(field);
+    await user.type(field, "export job");
+    const scoped = await within(dialog).findByRole("group", { name: "Pages" });
+    expect(within(dialog).getAllByRole("group")).toHaveLength(1);
+    const option = within(scoped).getByRole("option", { name: /Export job/ });
+    expect(option).toHaveTextContent(/AUD-D\d+/);
+    await user.click(option);
+    expect(await screen.findByRole("heading", { name: "Export job", level: 1 })).toBeVisible();
+    expect(pathname(router)).toBe("/p/AUD/docs/audin-app/export-job");
+  });
+
+  it("fuori da uno spazio Docs le pagine stanno con gli altri oggetti, senza ambito", async () => {
+    const user = userEvent.setup();
+    renderAt("/home");
+    await screen.findByRole("heading", { name: "Home", level: 1 });
+    const dialog = await openWithShortcut(user);
+    expect(within(dialog).queryByText(/Tab: search everything/)).toBeNull();
+    await user.type(within(dialog).getByRole("combobox"), "callback");
+    const pages = await within(dialog).findByRole("group", { name: "Pages" });
+    expect(within(pages).getByRole("option", { name: /Scheduled callbacks/ })).toBeInTheDocument();
+  });
+
   it("«cbv» mostra il progetto (codice + nome) e le sue task, in gruppi", async () => {
     const user = userEvent.setup();
     renderAt("/home");

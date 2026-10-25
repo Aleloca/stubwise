@@ -13,6 +13,8 @@ import { useTranslation } from "react-i18next";
 import {
   useChatChannels,
   useChatSearch,
+  useDocSearch,
+  useDocSpaces,
   usePeople,
   useProjects,
   useReachChatMessage,
@@ -44,6 +46,7 @@ type GroupId =
   | "projects"
   | "tasks"
   | "requests"
+  | "pages"
   | "people"
   | "actions"
   | "viewAs"
@@ -68,6 +71,8 @@ interface Item {
   fallback?: boolean;
   /** Un messaggio della Chat: chi, dove e quando sopra, il testo con le parole trovate sotto. */
   message?: { meta: string; text: string; words: string[] };
+  /** Una pagina dei Docs: codice · titolo · progetto sopra, il passaggio trovato sotto. */
+  page?: { code: string; title: string; project: string | null; passage: string; words: string[] };
   select(): void;
 }
 
@@ -191,6 +196,27 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
 
   const projectCode = /^\/p\/([^/]+)/.exec(pathname)?.[1]?.toUpperCase();
 
+  // Dentro uno spazio dei Docs (`/p/<CODE>/docs/<repo>/…`) la ricerca parte
+  // con l'ambito «In <repo> docs»: solo le pagine di quello spazio. Tab
+  // allarga a «Everywhere» (le pagine stanno con gli altri oggetti) e torna.
+  const docsRepo = /^\/p\/[^/]+\/docs\/([^/]+)/.exec(pathname)?.[1];
+  const scopeRepo = docsRepo ? decodeURIComponent(docsRepo) : null;
+  const scopeProject = projectList?.find((p) => p.code === projectCode);
+  const scopeSpaces = useDocSpaces(scopeProject?.id ?? "", {
+    enabled: !!scopeRepo && !!scopeProject,
+  });
+  const scopeSpace = scopeSpaces.data?.find((s) => s.name === scopeRepo) ?? null;
+  const [widened, setWidened] = useState(false);
+  const scoped = step === "root" && !!scopeRepo && !widened;
+  // Con l'ambito si cerca da un carattere; senza, le pagine arrivano da due (come i messaggi).
+  const trimmed = step === "root" ? debounced.trim() : "";
+  const pagesQuery = scoped || trimmed.length >= MIN_QUERY ? trimmed : "";
+  const pageSearch = useDocSearch(
+    pagesQuery,
+    scoped ? (scopeSpace?.repositoryId ?? "__none__") : null,
+    !scoped || !!scopeSpace,
+  );
+
   const groups = useMemo<Group[]>(() => {
     if (step === "viewAs") {
       const needle = query.trim().toLowerCase();
@@ -291,6 +317,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       projects: [],
       tasks: [],
       requests: [],
+      pages: [],
       people: [],
       actions: [],
       viewAs: [],
@@ -299,6 +326,32 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       messages: [],
       more: [],
     };
+    // Le pagine dei Docs: codice · titolo (· progetto, senza ambito) e il passaggio.
+    if (pagesQuery) {
+      const words = searchWords(pagesQuery);
+      byGroup.pages = (pageSearch.data ?? []).slice(0, GROUP_LIMIT).map(
+        (hit): Item => ({
+          key: `page-${hit.page.id}`,
+          code: hit.page.code,
+          label: `${hit.page.code} ${hit.page.title}`,
+          page: {
+            code: hit.page.code,
+            title: hit.page.title,
+            project: scoped ? null : hit.projectCode,
+            passage: hit.passage,
+            words,
+          },
+          fromSearch: true,
+          select: () => {
+            router.history.push(
+              `/p/${hit.projectCode}/docs/${hit.repositoryName}/${hit.page.slug}`,
+            );
+            onClose();
+          },
+        }),
+      );
+    }
+    if (scoped) return byGroup.pages.length > 0 ? [{ id: "pages", items: byGroup.pages }] : [];
     if (searching) {
       for (const r of search.data ?? []) {
         const list = byGroup[KIND_GROUP[r.kind]];
@@ -410,6 +463,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         "projects",
         "tasks",
         "requests",
+        "pages",
         "people",
         "actions",
         "channels",
@@ -442,6 +496,9 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     people,
     onClose,
     t,
+    pagesQuery,
+    pageSearch.data,
+    scoped,
   ]);
 
   const items = useMemo(() => groups.flatMap((g) => g.items), [groups]);
@@ -458,14 +515,22 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   const chatSettled =
     !chatSearching ||
     (chatSearch.isSuccess && !chatSearch.isPlaceholderData && !chatSearch.isFetching);
-  const settled =
-    query === debounced &&
-    search.isSuccess &&
-    !search.isPlaceholderData &&
-    !search.isFetching &&
-    chatSettled;
+  const pagesSettled =
+    !pagesQuery ||
+    (pageSearch.isSuccess && !pageSearch.isPlaceholderData && !pageSearch.isFetching);
+  const settled = scoped
+    ? query === debounced && pagesSettled
+    : query === debounced &&
+      search.isSuccess &&
+      !search.isPlaceholderData &&
+      !search.isFetching &&
+      chatSettled &&
+      pagesSettled;
   const showEmpty =
-    step === "root" && searching && settled && items.every((item) => item.fallback);
+    step === "root" &&
+    (scoped ? !!pagesQuery : searching) &&
+    settled &&
+    items.every((item) => item.fallback);
   const showEmptySecond = step !== "root" && items.length === 0;
 
   // Finché la query digitata non è quella cercata, o i dati sono quelli della
@@ -473,8 +538,11 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   // sfarfallio) ma non si scelgono. Le azioni sono sempre valide.
   const stale =
     step === "root" &&
-    searching &&
-    (query !== debounced || search.isPlaceholderData || chatSearch.isPlaceholderData);
+    (searching || scoped) &&
+    (query !== debounced ||
+      search.isPlaceholderData ||
+      chatSearch.isPlaceholderData ||
+      pageSearch.isPlaceholderData);
   const choose = (item: Item | undefined) => {
     if (!item || (stale && item.fromSearch)) return;
     item.select();
@@ -526,7 +594,12 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         break;
       case "Tab":
         // Il solo elemento a fuoco è il campo: il fuoco non esce dal dialog.
+        // Dentro uno spazio dei Docs, Tab alterna l'ambito (spazio ↔ ovunque).
         e.preventDefault();
+        if (step === "root" && scopeRepo) {
+          setWidened((w) => !w);
+          setActive(0);
+        }
         break;
     }
   }
@@ -554,6 +627,14 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
               {t(`palette.groups.${step}`)}
             </span>
           )}
+          {step === "root" && scopeRepo && (
+            <span
+              aria-live="polite"
+              className="max-w-[200px] shrink-0 truncate rounded-md border border-rule-strong px-2 py-0.5 text-xs font-semibold text-ink"
+            >
+              {scoped ? t("palette.scope.space", { repo: scopeRepo }) : t("palette.scope.everywhere")}
+            </span>
+          )}
           <input
             ref={input}
             type="text"
@@ -570,7 +651,9 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                   ? t("palette.filterPlaceholder")
                   : step === "channels"
                     ? t("palette.channelPlaceholder")
-                    : t("palette.placeholder")
+                    : scoped
+                      ? t("palette.scope.placeholder", { repo: scopeRepo })
+                      : t("palette.placeholder")
             }
             spellCheck={false}
             autoComplete="off"
@@ -600,6 +683,52 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                 {group.items.map((item) => {
                   const selected = item === activeItem;
                   const dimmed = stale && item.fromSearch;
+                  if (item.page) {
+                    // Una pagina dei Docs: 52px, codice · titolo · progetto sopra, il passaggio sotto.
+                    const page = item.page;
+                    return (
+                      <div
+                        key={item.key}
+                        id={optionId(item.key)}
+                        role="option"
+                        aria-selected={selected}
+                        aria-label={`${page.code} ${page.title}`}
+                        data-palette-page
+                        onMouseMove={() => {
+                          if (!selected) setActive(items.indexOf(item));
+                        }}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => choose(item)}
+                        className={`relative mx-1.5 flex h-13 cursor-pointer items-center gap-3 rounded-md px-2.5 text-ink transition-opacity duration-[var(--duration-fast)] aria-selected:bg-ink/8 ${
+                          dimmed ? "opacity-50" : ""
+                        }`}
+                      >
+                        <span className="num w-16 shrink-0 self-start pt-[9px] text-sm font-semibold text-ink-muted">
+                          {page.code}
+                        </span>
+                        <span className="flex min-w-0 flex-1 flex-col">
+                          <span className="flex min-w-0 items-baseline gap-2">
+                            <span className={`truncate text-md ${selected ? "font-medium" : ""}`}>
+                              {page.title}
+                            </span>
+                            {page.project && (
+                              <span className="num shrink-0 text-xs text-ink-muted">
+                                {page.project}
+                              </span>
+                            )}
+                          </span>
+                          <span className="truncate text-xs text-ink-muted">
+                            <Highlighted text={page.passage} words={page.words} />
+                          </span>
+                        </span>
+                        <span
+                          className={`shrink-0 text-ink-muted ${selected ? "visible" : "invisible"}`}
+                        >
+                          <EnterIcon />
+                        </span>
+                      </div>
+                    );
+                  }
                   if (item.message) {
                     // Un messaggio: 52px, chi/dove/quando sopra, il testo con le parole trovate sotto.
                     return (
@@ -730,6 +859,11 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
               <Kbd>Esc</Kbd>
               {step !== "root" ? t("palette.hints.back") : t("palette.hints.close")}
             </span>
+            {step === "root" && scopeRepo && (
+              <span className="ml-auto min-w-0 truncate">
+                {scoped ? t("palette.scope.widen") : t("palette.scope.narrow", { repo: scopeRepo })}
+              </span>
+            )}
           </div>
         </div>
       </div>

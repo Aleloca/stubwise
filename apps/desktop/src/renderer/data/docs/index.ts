@@ -5,10 +5,12 @@ export {
   getDocPage,
   getDocSpace,
   getProjectDocsHome,
+  getRepoBrief,
   listDocSpaces,
   listDocTree,
   searchDocs,
 } from "./reads";
+export { askDocs } from "./chat";
 export {
   createManualPage,
   deleteManualPage,
