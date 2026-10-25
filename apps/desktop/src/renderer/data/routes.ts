@@ -1,5 +1,6 @@
 import { parseCriteria } from "../domain/filters";
 import { isSearchParamValue } from "../pages/chat/search";
+import { FILE_CODE_RE, isDrivePath, isDriveSearchValue } from "../pages/drive/driveFilters";
 import type { GroupBy, ProjectModule, TaskView } from "./types";
 
 /** Grammatica delle route hash dell'app: un'unica fonte, riusata dal router. */
@@ -8,6 +9,7 @@ export const APP_ROUTES = [
   "chat",
   "mail",
   "calendar",
+  "drive",
   "claude",
   "automations",
   "projects",
@@ -56,6 +58,17 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
   switch (key) {
     case "task":
       return TASK_CODE_RE.test(value);
+    // Il dettaglio di un file del Drive: vale ovunque, come `task`.
+    case "file":
+      return FILE_CODE_RE.test(value);
+    // Il Drive: ordinamento e filtri; il progetto (`prj`) solo nella destinazione.
+    case "sort":
+    case "type":
+    case "source":
+    case "addedBy":
+      return isDrivePath(path) && isDriveSearchValue(key, value);
+    case "prj":
+      return path === "drive" && isDriveSearchValue(key, value);
     case "newTask":
       return value === "1";
     case "project":

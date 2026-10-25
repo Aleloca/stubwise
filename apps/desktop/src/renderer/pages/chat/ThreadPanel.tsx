@@ -159,7 +159,7 @@ export function ThreadPanelHost() {
 }
 
 /** Sovrapposto, Tab e Maiusc+Tab restano nel pannello. */
-function TrapFocus({ active, children }: { active: boolean; children: ReactNode }) {
+export function TrapFocus({ active, children }: { active: boolean; children: ReactNode }) {
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (!active || e.key !== "Tab") return;
     const panel = e.currentTarget.closest<HTMLElement>("[data-detail-panel]");

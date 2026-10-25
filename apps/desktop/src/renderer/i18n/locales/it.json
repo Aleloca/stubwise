@@ -4,6 +4,7 @@
     "chat": "Chat",
     "mail": "Posta",
     "calendar": "Calendario",
+    "drive": "Drive",
     "claude": "Claude",
     "automations": "Automazioni",
     "projects": "Tutti i progetti",
@@ -3198,6 +3199,206 @@
       "close": "Chiudi la chat",
       "open": "Apri la chat",
       "noAnswer": "Nessuna risposta: la chat non è più disponibile."
+    }
+  },
+  "drive": {
+    "title": "Drive",
+    "count_one": "{{count}} file",
+    "count_other": "{{count}} file",
+    "commands": "Comandi dei file",
+    "upload": "Carica",
+    "uploadWhere": "In quale progetto caricare?",
+    "sort": {
+      "label": "Ordina",
+      "most_used": "Più usati",
+      "recent": "Recenti",
+      "name": "Nome"
+    },
+    "filters": {
+      "type": "Tipo",
+      "source": "Provenienza",
+      "addedBy": "Aggiunto da",
+      "project": "Progetto",
+      "clear": "Togli i filtri"
+    },
+    "types": {
+      "document": "Documento",
+      "sheet": "Foglio",
+      "slides": "Presentazione",
+      "pdf": "PDF",
+      "image": "Immagine",
+      "other": "Altro"
+    },
+    "googleTypes": {
+      "document": "Documento Google",
+      "sheet": "Foglio Google",
+      "slides": "Presentazione Google",
+      "pdf": "PDF su Google Drive",
+      "image": "Immagine su Google Drive",
+      "other": "File su Google Drive"
+    },
+    "sources": {
+      "upload": "Caricato",
+      "google": "Google"
+    },
+    "columns": {
+      "code": "Codice",
+      "name": "Nome",
+      "project": "Progetto",
+      "addedBy": "Aggiunto da",
+      "modified": "Modifica",
+      "opens": "Aperture (90 giorni)"
+    },
+    "list": "File di {{name}}",
+    "listAll": "File dei tuoi progetti",
+    "loose": "File",
+    "opens": {
+      "count_one": "{{count}} apertura negli ultimi 90 giorni",
+      "count_other": "{{count}} aperture negli ultimi 90 giorni",
+      "summary": "{{count}} negli ultimi 90 giorni · {{total}} in tutto"
+    },
+    "folder": {
+      "meta_one": "Cartella Google · {{count}} file · collegata da {{name}}",
+      "meta_other": "Cartella Google · {{count}} file · collegata da {{name}}",
+      "showMore_one": "Mostra un altro file in {{name}}",
+      "showMore_other": "Mostra altri {{count}} file in {{name}}",
+      "in": "in {{name}}"
+    },
+    "google": {
+      "file": "File Google, si apre in Google Drive",
+      "open": "Apri in Google Drive",
+      "opened": "Aperto in Google Drive. Nel prototipo non si apre il browser."
+    },
+    "content": {
+      "processing": "Lettura del contenuto…",
+      "no_text": "Nessun testo in questo file",
+      "unsupported": "Questo formato non si cerca per contenuto",
+      "error": "Non è stato possibile leggere il contenuto",
+      "noSummary": "Nessun riassunto per questo file",
+      "ocr": "Testo letto da una scansione",
+      "retry": "Riprova"
+    },
+    "unavailable": {
+      "deleted": "Non disponibile · Eliminato su Google",
+      "access_lost": "Non disponibile · Stubwise ha perso l'accesso"
+    },
+    "row": {
+      "label": "{{code}}, {{name}}, {{type}}, aggiunto da {{person}}, {{opens}}",
+      "labelProject": "{{code}}, {{project}}, {{name}}, {{type}}, aggiunto da {{person}}, {{opens}}",
+      "open": "Apri {{code}}",
+      "download": "Scarica {{code}}",
+      "openGoogle": "Apri {{code}} in Google Drive",
+      "someone": "qualcuno"
+    },
+    "time": {
+      "now": "Adesso",
+      "minutes": "{{count}} min fa",
+      "hours": "{{count}} h fa"
+    },
+    "states": {
+      "error": "Non è stato possibile caricare i file",
+      "emptyTitle": "Ancora nessun file in {{code}}",
+      "emptyCan": "Carica un file e tutto il progetto lo troverà qui.",
+      "emptyDrop": "oppure trascina i file in un punto qualsiasi della pagina",
+      "emptyCant": "Chi può aggiungere file li metterà qui.",
+      "emptyAllTitle": "Ancora nessun file nei tuoi progetti",
+      "emptyAll": "Qui compariranno i file aggiunti ai progetti di cui fai parte.",
+      "noMatchTitle": "Nessun file corrisponde a questi filtri",
+      "uploadFirst": "Carica un file"
+    },
+    "uploads": {
+      "heading": "In caricamento",
+      "drop": "Rilascia per caricare in {{code}}",
+      "dropAny": "Rilascia per caricare",
+      "progress": "{{loaded}} di {{total}}",
+      "tooLarge": "Troppo grande: {{size}}, il limite è 100 MB",
+      "failed": "Caricamento non riuscito",
+      "retry": "Riprova",
+      "dismiss": "Chiudi",
+      "cancel": "Annulla",
+      "keptBoth": "Tenuti entrambi: il nuovo è «{{name}}»",
+      "done": "{{name}} caricato come {{code}}",
+      "progressLabel": "Caricamento di {{name}}",
+      "chooseTitle": "In quale progetto caricare?",
+      "chooseBody_one": "{{count}} file è pronto. Scegli il progetto nel cui Drive tenerlo.",
+      "chooseBody_other": "{{count}} file sono pronti. Scegli il progetto nel cui Drive tenerli.",
+      "cancelChoice": "Annulla"
+    },
+    "detail": {
+      "label": "File {{code}}",
+      "close": "Chiudi",
+      "more": "Altre azioni per {{code}}",
+      "open": "Apri",
+      "download": "Scarica",
+      "copyLink": "Copia il link",
+      "linkCopied": "Link copiato",
+      "cite": "Cita in Chat",
+      "delete": "Elimina",
+      "remove": "Togli dal progetto",
+      "hide": "Nascondi dal progetto",
+      "hidden": "{{code}} nascosto dal progetto",
+      "undo": "Annulla",
+      "deleted": "{{code}} eliminato",
+      "removed": "{{code}} tolto dal progetto",
+      "failed": "Non è stato possibile farlo. Nulla è cambiato.",
+      "downloaded": "Qui si scaricherebbe {{name}}. Il prototipo non ne tiene una copia.",
+      "summary": "Riassunto",
+      "summaryNote": "Scritto da Claude dal contenuto del file",
+      "details": "Dettagli",
+      "opens": "Aperture",
+      "fields": {
+        "type": "Tipo",
+        "size": "Dimensione",
+        "source": "Provenienza",
+        "addedBy": "Aggiunto da",
+        "modified": "Modifica"
+      },
+      "sourceUpload": "Caricato",
+      "sourceGoogle": "Google Drive",
+      "addedOn": "{{name}} · {{date}}",
+      "googleCard": "{{type}} · Proprietario: {{owner}} · Modificato su Google {{date}}",
+      "notFound": "Questo file non esiste o non puoi vederlo",
+      "error": "Non è stato possibile caricare il file",
+      "retry": "Riprova",
+      "history": "Chi l'ha aperto",
+      "historyNote": "Le aperture ripetute della stessa persona entro 30 minuti contano una volta. Lo vede chi gestisce il Drive di questo progetto.",
+      "historyEmpty": "Nessuno l'ha ancora aperto",
+      "showAll": "Mostra tutte e {{count}}",
+      "via": {
+        "preview": "Anteprima",
+        "google": "Google Drive",
+        "download": "Download"
+      },
+      "confirmDelete": {
+        "title": "Eliminare {{code}}?",
+        "body": "«{{name}}» e le sue aperture escono dal progetto. Non si può annullare.",
+        "confirm": "Elimina",
+        "cancel": "Annulla"
+      },
+      "confirmRemove": {
+        "title": "Togliere {{code}} dal progetto?",
+        "body": "«{{name}}» resta su Google Drive. Qui perde il suo codice e le sue aperture.",
+        "confirm": "Togli",
+        "cancel": "Annulla"
+      }
+    },
+    "preview": {
+      "label": "Anteprima di {{code}}",
+      "fake": "Anteprima non disponibile in questa sessione del prototipo",
+      "fakeBody": "Il file è stato caricato prima del riavvio dell'app. Nell'app vera qui c'è la sua anteprima.",
+      "openDetails": "Apri i dettagli",
+      "close": "Chiudi l'anteprima",
+      "prev": "File precedente",
+      "next": "File successivo",
+      "zoomIn": "Ingrandisci a grandezza reale",
+      "zoomOut": "Adatta alla finestra"
+    },
+    "column": {
+      "label": "Viste del Drive",
+      "all": "Tutti i file",
+      "mine": "Aggiunti da me",
+      "google": "Google",
+      "projects": "Progetti"
     }
   }
 }

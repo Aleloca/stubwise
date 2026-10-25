@@ -313,6 +313,50 @@
   }
 }
 
+/* Drive: il numero delle aperture che sale si dissolve dentro (150 ms), senza
+   altro movimento; la riga appena caricata prende il suo posto scendendo di
+   4 px (200 ms); l'anteprima intera entra dall'alto di 8 px (200 ms). */
+@keyframes drive-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes drive-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes drive-preview-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+@utility drive-count-fade {
+  animation: drive-fade-in var(--duration-fast) var(--ease) both;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@utility drive-arrive {
+  animation: drive-arrive var(--duration) var(--ease) both;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@utility drive-preview-enter {
+  animation: drive-preview-in var(--duration) var(--ease) both;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
 ::view-transition-old(root),
 ::view-transition-new(root) {
   animation: none;

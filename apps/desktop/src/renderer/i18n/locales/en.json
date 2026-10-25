@@ -4,6 +4,7 @@
     "chat": "Chat",
     "mail": "Mail",
     "calendar": "Calendar",
+    "drive": "Drive",
     "claude": "Claude",
     "automations": "Automations",
     "projects": "All projects",
@@ -3198,6 +3199,206 @@
       "close": "Close the chat",
       "open": "Open the chat",
       "noAnswer": "No answer: the chat isn't available any more."
+    }
+  },
+  "drive": {
+    "title": "Drive",
+    "count_one": "{{count}} file",
+    "count_other": "{{count}} files",
+    "commands": "File commands",
+    "upload": "Upload",
+    "uploadWhere": "Upload to which project?",
+    "sort": {
+      "label": "Sort",
+      "most_used": "Most used",
+      "recent": "Recent",
+      "name": "Name"
+    },
+    "filters": {
+      "type": "Type",
+      "source": "Source",
+      "addedBy": "Added by",
+      "project": "Project",
+      "clear": "Clear filters"
+    },
+    "types": {
+      "document": "Document",
+      "sheet": "Spreadsheet",
+      "slides": "Presentation",
+      "pdf": "PDF",
+      "image": "Image",
+      "other": "Other"
+    },
+    "googleTypes": {
+      "document": "Google document",
+      "sheet": "Google spreadsheet",
+      "slides": "Google presentation",
+      "pdf": "PDF on Google Drive",
+      "image": "Image on Google Drive",
+      "other": "File on Google Drive"
+    },
+    "sources": {
+      "upload": "Uploaded",
+      "google": "Google"
+    },
+    "columns": {
+      "code": "Code",
+      "name": "Name",
+      "project": "Project",
+      "addedBy": "Added by",
+      "modified": "Modified",
+      "opens": "Opens (90 days)"
+    },
+    "list": "Files of {{name}}",
+    "listAll": "Files of your projects",
+    "loose": "Files",
+    "opens": {
+      "count_one": "{{count}} open in the last 90 days",
+      "count_other": "{{count}} opens in the last 90 days",
+      "summary": "{{count}} in the last 90 days · {{total}} in total"
+    },
+    "folder": {
+      "meta_one": "Google folder · {{count}} file · linked by {{name}}",
+      "meta_other": "Google folder · {{count}} files · linked by {{name}}",
+      "showMore_one": "Show 1 more in {{name}}",
+      "showMore_other": "Show {{count}} more in {{name}}",
+      "in": "in {{name}}"
+    },
+    "google": {
+      "file": "Google file, opens in Google Drive",
+      "open": "Open in Google Drive",
+      "opened": "Opened in Google Drive. In the prototype no browser opens."
+    },
+    "content": {
+      "processing": "Reading the content…",
+      "no_text": "No text in this file",
+      "unsupported": "This format can't be searched by content",
+      "error": "Couldn't read the content",
+      "noSummary": "No summary for this file",
+      "ocr": "Text read from a scan",
+      "retry": "Retry"
+    },
+    "unavailable": {
+      "deleted": "Not available · Deleted on Google",
+      "access_lost": "Not available · Stubwise lost access"
+    },
+    "row": {
+      "label": "{{code}}, {{name}}, {{type}}, added by {{person}}, {{opens}}",
+      "labelProject": "{{code}}, {{project}}, {{name}}, {{type}}, added by {{person}}, {{opens}}",
+      "open": "Open {{code}}",
+      "download": "Download {{code}}",
+      "openGoogle": "Open {{code}} in Google Drive",
+      "someone": "someone"
+    },
+    "time": {
+      "now": "Just now",
+      "minutes": "{{count}} min ago",
+      "hours": "{{count}} h ago"
+    },
+    "states": {
+      "error": "Couldn't load the files",
+      "emptyTitle": "No files in {{code}} yet",
+      "emptyCan": "Upload a file and the whole project will find it here.",
+      "emptyDrop": "or drop files anywhere on this page",
+      "emptyCant": "People who can add files will put them here.",
+      "emptyAllTitle": "No files in your projects yet",
+      "emptyAll": "Files added to the projects you're in will be listed here.",
+      "noMatchTitle": "No files match these filters",
+      "uploadFirst": "Upload a file"
+    },
+    "uploads": {
+      "heading": "Uploading",
+      "drop": "Drop to upload to {{code}}",
+      "dropAny": "Drop to upload",
+      "progress": "{{loaded}} of {{total}}",
+      "tooLarge": "Too large: {{size}}, the limit is 100 MB",
+      "failed": "Upload failed",
+      "retry": "Retry",
+      "dismiss": "Dismiss",
+      "cancel": "Cancel",
+      "keptBoth": "Kept both: the new one is “{{name}}”",
+      "done": "{{name}} uploaded as {{code}}",
+      "progressLabel": "Uploading {{name}}",
+      "chooseTitle": "Upload to which project?",
+      "chooseBody_one": "{{count}} file is ready. Choose the project whose Drive keeps it.",
+      "chooseBody_other": "{{count}} files are ready. Choose the project whose Drive keeps them.",
+      "cancelChoice": "Cancel"
+    },
+    "detail": {
+      "label": "File {{code}}",
+      "close": "Close",
+      "more": "More actions for {{code}}",
+      "open": "Open",
+      "download": "Download",
+      "copyLink": "Copy link",
+      "linkCopied": "Link copied",
+      "cite": "Cite in Chat",
+      "delete": "Delete",
+      "remove": "Remove from project",
+      "hide": "Hide from project",
+      "hidden": "{{code}} hidden from the project",
+      "undo": "Undo",
+      "deleted": "{{code}} deleted",
+      "removed": "{{code}} removed from the project",
+      "failed": "Couldn't do that. Nothing changed.",
+      "downloaded": "{{name}} would download here. The prototype keeps no copy of this file.",
+      "summary": "Summary",
+      "summaryNote": "Written by Claude from the file's content",
+      "details": "Details",
+      "opens": "Opens",
+      "fields": {
+        "type": "Type",
+        "size": "Size",
+        "source": "Source",
+        "addedBy": "Added by",
+        "modified": "Modified"
+      },
+      "sourceUpload": "Uploaded",
+      "sourceGoogle": "Google Drive",
+      "addedOn": "{{name}} · {{date}}",
+      "googleCard": "{{type}} · Owner: {{owner}} · Modified on Google {{date}}",
+      "notFound": "This file doesn't exist or you can't see it",
+      "error": "Couldn't load the file",
+      "retry": "Retry",
+      "history": "Who opened it",
+      "historyNote": "Repeat opens by the same person within 30 minutes count once. Visible to people who manage this project's Drive.",
+      "historyEmpty": "Nobody has opened it yet",
+      "showAll": "Show all {{count}}",
+      "via": {
+        "preview": "Preview",
+        "google": "Google Drive",
+        "download": "Download"
+      },
+      "confirmDelete": {
+        "title": "Delete {{code}}?",
+        "body": "“{{name}}” and its opens leave the project. This can't be undone.",
+        "confirm": "Delete",
+        "cancel": "Cancel"
+      },
+      "confirmRemove": {
+        "title": "Remove {{code}} from the project?",
+        "body": "“{{name}}” stays on Google Drive. Here it loses its code and its opens.",
+        "confirm": "Remove",
+        "cancel": "Cancel"
+      }
+    },
+    "preview": {
+      "label": "Preview of {{code}}",
+      "fake": "Preview not available in this prototype session",
+      "fakeBody": "This file was uploaded before the app restarted. In the real app its preview is here.",
+      "openDetails": "Open details",
+      "close": "Close preview",
+      "prev": "Previous file",
+      "next": "Next file",
+      "zoomIn": "Zoom to actual size",
+      "zoomOut": "Fit to window"
+    },
+    "column": {
+      "label": "Drive views",
+      "all": "All files",
+      "mine": "Added by me",
+      "google": "Google",
+      "projects": "Projects"
     }
   }
 }

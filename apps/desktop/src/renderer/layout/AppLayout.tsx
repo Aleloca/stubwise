@@ -9,6 +9,8 @@ import { ChannelSettingsHost } from "../pages/chat/ChannelSettings";
 import { ChatDialogsHost } from "../pages/chat/ChatDialogsHost";
 import { ThreadPanelHost } from "../pages/chat/ThreadPanel";
 import { TaskDetailHost } from "../pages/task/TaskDetail";
+import { DriveDetailHost } from "../pages/drive/DriveDetail";
+import { FilePreviewHost } from "../pages/drive/FilePreview";
 import { CommandPalette } from "../palette/CommandPalette";
 import { applyPlatformAttribute } from "../platform/platform";
 import { ToastRegion } from "../tasks-ui/Toast";
@@ -22,7 +24,8 @@ import { useMenuEvents } from "./useMenuEvents";
  * larghezza, sovrapposto copre la pagina. Il dialogo «New task» (`?newTask=1`)
  * si apre sopra qualunque route, come «New request» (`?newRequest=`). Nelle richieste di
  * un progetto, `?request=` apre il pannello della richiesta al posto di quello della task;
- * nell'Overview, `?brief=` quello di lettura del brief.
+ * nell'Overview, `?brief=` quello di lettura del brief; ovunque, `?file=` quello di un
+ * file del Drive.
  */
 export function AppLayout() {
   useMenuEvents();
@@ -32,7 +35,7 @@ export function AppLayout() {
     <div className="grid h-full grid-cols-[64px_240px_minmax(0,1fr)] grid-rows-[minmax(0,1fr)] bg-ground text-ink">
       <Rail />
       <Column />
-      <div data-zone="work-row" className="flex min-h-0 min-w-0">
+      <div data-zone="work-row" className="relative flex min-h-0 min-w-0">
         <main data-zone="work" className="min-w-0 flex-1 overflow-auto">
           <Outlet />
         </main>
@@ -41,6 +44,9 @@ export function AppLayout() {
         <BriefPanelHost />
         <ThreadPanelHost />
         <ChannelSettingsHost />
+        <DriveDetailHost />
+        {/* L'anteprima intera di un file del Drive copre l'area di lavoro (binario e colonna restano). */}
+        <FilePreviewHost />
       </div>
       <NewTaskHost />
       <NewRequestHost />

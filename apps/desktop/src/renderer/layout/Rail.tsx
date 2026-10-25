@@ -16,6 +16,7 @@ import {
   CalendarIcon,
   ChatIcon,
   ClaudeIcon,
+  DriveIcon,
   HomeIcon,
   MailIcon,
   SearchIcon,
@@ -32,6 +33,8 @@ const DESTINATIONS = [
   { to: "/chat", key: "nav.chat", icon: <ChatIcon /> },
   { to: "/mail", key: "nav.mail", icon: <MailIcon /> },
   { to: "/calendar", key: "nav.calendar", icon: <CalendarIcon /> },
+  // Il Drive di tutti i progetti: nessun punto di segnale, non aspetta nessuno (A6).
+  { to: "/drive", key: "nav.drive", icon: <DriveIcon /> },
   { to: "/claude", key: "nav.claude", icon: <ClaudeIcon /> },
   { to: "/automations", key: "nav.automations", icon: <AutomationsIcon /> },
 ] as const;

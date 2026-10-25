@@ -623,4 +623,13 @@ describe("Drive: fix round 1", () => {
     expect(drive.driveContentHistory("drv-aud-9")).toEqual([]);
     await rejects(drive.syncFolder("fl-aud-cliente"), "link_expired");
   });
+
+  it("il dettaglio si apre anche per codice (`?file=AUD-F7`), con la stessa regola di visibilità", async () => {
+    expect((await drive.getDriveFile("AUD-F7"))!.id).toBe("drv-aud-7");
+    as("p-sara"); // non vede AUD: per codice come per id, non esiste
+    expect(await drive.getDriveFile("AUD-F7")).toBeNull();
+    as("p-marco"); // un nascosto, per chi non gestisce, non ha codice
+    expect(await drive.getDriveFile("AUD-F8")).toBeNull();
+    expect(await drive.getDriveFile("AUD-F999")).toBeNull();
+  });
 });

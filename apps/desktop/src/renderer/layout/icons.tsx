@@ -50,6 +50,14 @@ export const CalendarIcon = () => (
 );
 
 /** Claude: una scintilla a quattro punte, non il marchio. */
+/** Il Drive: un cassetto d'archivio con la maniglia (non il marchio di Google). */
+export const DriveIcon = () => (
+  <Icon>
+    <path d="M2.5 3.5h11v4h-11zM3.25 7.5v5h9.5v-5" />
+    <path d="M6.5 5.5h3M6.5 10h3" />
+  </Icon>
+);
+
 export const ClaudeIcon = () => (
   <Icon>
     <path d="M8 2v3.2M8 10.8V14M2 8h3.2M10.8 8H14M3.8 3.8l2.3 2.3M9.9 9.9l2.3 2.3M12.2 3.8 9.9 6.1M6.1 9.9l-2.3 2.3" />

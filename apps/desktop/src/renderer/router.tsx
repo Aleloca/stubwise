@@ -41,6 +41,8 @@ import { DocGraph } from "./pages/docs/DocGraph";
 import { DocReleases } from "./pages/docs/DocReleases";
 import { RepoBrief } from "./pages/docs/RepoBrief";
 import { EditManualPageRoute, NewManualPageRoute } from "./pages/docs/ManualPageForm";
+import { DrivePage } from "./pages/drive/DrivePage";
+import { DRIVE_SEARCH_KEYS, isDriveSearchValue } from "./pages/drive/driveFilters";
 
 /** La ricerca che ogni route accetta (`?task=` apre il pannello, gli altri li montano i dialoghi). */
 export interface AppSearch {
@@ -85,6 +87,14 @@ export interface AppSearch {
   att?: string;
   cit?: string;
   ppl?: string;
+  /** Il dettaglio di un file del Drive (`AUD-F7`): vale ovunque, come `task`. */
+  file?: string;
+  /** Drive: ordinamento e filtri (`pages/drive/driveFilters.ts`). */
+  sort?: string;
+  type?: string;
+  source?: string;
+  addedBy?: string;
+  prj?: string;
 }
 
 const SEARCH_KEYS = [
@@ -107,6 +117,8 @@ const SEARCH_KEYS = [
   "newMessage",
   "newChannel",
   ...SEARCH_PARAM_KEYS,
+  "file",
+  ...DRIVE_SEARCH_KEYS,
 ] as const;
 
 /**
@@ -129,7 +141,9 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
     const shapeOk =
       (SEARCH_PARAM_KEYS as readonly string[]).includes(key)
         ? isSearchParamValue(key, value)
-        : key === "request" ||
+        : (DRIVE_SEARCH_KEYS as readonly string[]).includes(key)
+          ? isDriveSearchValue(key, value)
+          : key === "request" ||
       key === "brief" ||
       key === "dept" ||
       key === "thread" ||
@@ -198,6 +212,12 @@ function ProjectsRoutePage() {
   return <AllProjectsPage key={viewer.personId} />;
 }
 
+/** Il Drive di tutti i progetti: cambiare persona lo rimonta (caricamenti, selezione e menu via). */
+function DriveRoutePage() {
+  const { viewer } = useViewer();
+  return <DrivePage key={viewer.personId} />;
+}
+
 function AdminPage() {
   const { viewer } = useViewer();
   if (!canSeeAdmin(viewer)) return <Navigate to="/home" replace />;
@@ -212,6 +232,7 @@ function pageOf(name: (typeof APP_ROUTES)[number]) {
   if (name === "projects") return ProjectsRoutePage;
   if (name === "claude") return ClaudePage;
   if (name === "chat") return ChatPage;
+  if (name === "drive") return DriveRoutePage;
   return () => <Placeholder titleKey={`nav.${name}`} bodyKey={`placeholder.pages.${name}`} />;
 }
 
@@ -406,6 +427,9 @@ function ProjectSectionPage() {
     return <RequestsPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />;
   }
   if (section === "chat") return <ProjectChatLanding projectId={project.id} code={project.code} />;
+  if (section === "drive") {
+    return <DrivePage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />;
+  }
   if (section === "settings") {
     return (
       <ProjectSettingsPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />

@@ -102,12 +102,15 @@ export async function listDriveFiles(filters: DriveFilters): Promise<DriveFileRo
 }
 
 /**
- * Il dettaglio di un file: il totale da sempre e lo storico (più recenti in
- * alto) solo con `drive.history`, altrimenti `null`. Non conta un'apertura.
+ * Il dettaglio di un file, per id o per codice (`?file=AUD-F7`): il totale
+ * da sempre e lo storico (più recenti in alto) solo con `drive.history`,
+ * altrimenti `null`. Non conta un'apertura. Per codice vale la stessa regola
+ * dell'id: un file che chi guarda non vede non ha codice (R-G5).
  */
-export async function getDriveFile(id: string): Promise<DriveFileDetail | null> {
+export async function getDriveFile(ref: string): Promise<DriveFileDetail | null> {
   const me = await gate("drive.getDriveFile");
   startSeedWork();
+  const id = state.driveFiles.find((f) => f.code === ref)?.id ?? ref;
   const file = driveFileFor(me, id);
   if (!file) return null;
   const opens = opensOfFile(file.id);
