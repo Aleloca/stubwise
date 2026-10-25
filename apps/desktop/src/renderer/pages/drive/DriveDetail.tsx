@@ -30,7 +30,7 @@ import { Avatar } from "../../tasks-ui/PersonChip";
 import { useToast } from "../../tasks-ui/Toast";
 import { TrapFocus } from "../chat/ThreadPanel";
 import { CloseIcon, MoreIcon, Section, ghostButton, smallPrimary, smallSecondary } from "../task/parts";
-import { MenuButton } from "../tasks/controls";
+import { MenuButton, dangerSolidButton, secondaryButton } from "../tasks/controls";
 import { forgetBlob } from "./blobs";
 import { fileHref } from "./DriveList";
 import { previewKind } from "./driveFilters";
@@ -462,10 +462,10 @@ function FileBody({ file, onClose }: { file: DriveFileDetail; onClose: () => voi
           width={440}
           footer={
             <>
-              <button type="button" className={smallSecondary} onClick={() => setConfirming(null)}>
+              <button type="button" className={secondaryButton} onClick={() => setConfirming(null)}>
                 {t("drive.detail.confirmDelete.cancel")}
               </button>
-              <button type="button" className={dangerSolid} onClick={confirmGone}>
+              <button type="button" className={dangerSolidButton} onClick={confirmGone}>
                 {t(
                   confirming === "delete"
                     ? "drive.detail.confirmDelete.confirm"
@@ -544,8 +544,6 @@ function UnavailableBand({ file, onRemove }: { file: DriveFileDetail; onRemove?:
 
 const dangerGhost =
   "inline-flex h-7 shrink-0 items-center rounded-md px-2 text-sm font-medium text-critical transition-colors duration-[var(--duration-fast)] ease-out hover:bg-critical/10";
-const dangerSolid =
-  "inline-flex h-7 shrink-0 items-center rounded-md bg-critical px-2.5 text-sm font-semibold text-ground transition-opacity duration-[var(--duration-fast)] ease-out hover:opacity-90";
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (

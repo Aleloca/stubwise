@@ -3,9 +3,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetApi, setLatency } from "../../data/api";
-import { whenDriveIdle } from "../../data/drive/writes";
+import { disconnectGoogle, whenDriveIdle } from "../../data/drive/writes";
+import { PEOPLE } from "../../data/seed/people";
 import { PROJECTS } from "../../data/seed/projects";
-import { state } from "../../data/store";
+import { setSessionPersonId } from "../../data/session";
+import { state, visibleProjectIds } from "../../data/store";
 import { ViewerProvider, resetViewerGrants, revokeProjectPermission } from "../../data/viewer";
 import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
 import { setMatchMedia } from "../../test/setup";
@@ -14,6 +16,7 @@ import { readDraft } from "../chat/drafts";
 import { GoogleConnectInvite } from "./DriveBanners";
 import { closePreview } from "./FilePreview";
 import { closeGoogleAccount } from "./GoogleAccountCard";
+import { closeLinkFolder } from "./LinkFolderDialog";
 import { closeWhichProject, openGoogleOutsideFile } from "./WhichProjectDialog";
 
 // Google nel Drive (Task 7, shape drive-google.md): account dal menu
@@ -55,6 +58,7 @@ afterEach(() => {
   closePreview();
   closeGoogleAccount();
   closeWhichProject();
+  closeLinkFolder();
 });
 
 describe("Collegare una cartella", () => {
@@ -362,4 +366,129 @@ describe("Review Focus 3: cambio di persona con un dialogo aperto", () => {
   function outside() {
     return { googleFileId: "gfile-out-bellavista-offer", name: "Offerta Cantina Bellavista – bozza" };
   }
+});
+
+describe("Fix round 1", () => {
+  async function openPalette() {
+    await userEvent.keyboard("{Control>}k{/Control}");
+    return screen.findByRole("dialog", { name: "Search and commands" });
+  }
+
+  it("⌘K «Link a Google folder to AUD»: porta al Drive del progetto e apre il dialogo", async () => {
+    const router = renderRoute("/p/AUD/tasks", "p-laura");
+    await screen.findByRole("heading", { level: 1 });
+    const palette = await openPalette();
+    await userEvent.type(within(palette).getByRole("combobox"), "link a google");
+    const option = await within(palette).findByRole("option", { name: /Link a Google folder to AUD/ });
+    await userEvent.click(option);
+    await waitFor(() => expect(router.state.location.pathname).toBe("/p/AUD/drive"));
+    expect(await screen.findByRole("dialog", { name: "Link a Google folder to AUD" })).toBeInTheDocument();
+  });
+
+  it("⌘K: il comando non c'è senza `drive.manage`, né fuori da un progetto", async () => {
+    renderRoute("/p/AUD/tasks", "p-marco");
+    await screen.findByRole("heading", { level: 1 });
+    const palette = await openPalette();
+    await userEvent.type(within(palette).getByRole("combobox"), "link a google");
+    await within(palette).findByRole("option", { name: /Ask Claude/ });
+    expect(within(palette).queryByRole("option", { name: /Link a Google folder/ })).toBeNull();
+  });
+
+  it("⌘K: fuori da un progetto il comando non c'è", async () => {
+    renderRoute("/home", "p-laura");
+    await screen.findByRole("heading", { level: 1 });
+    const palette = await openPalette();
+    await userEvent.type(within(palette).getByRole("combobox"), "link a google");
+    await within(palette).findByRole("option", { name: /Ask Claude/ });
+    expect(within(palette).queryByRole("option", { name: /Link a Google folder/ })).toBeNull();
+  });
+
+  it("il «⋯» della riga nasconde, con «Undo» per riportarlo", async () => {
+    await openDrive("/p/AUD/drive");
+    await screen.findByRole("grid");
+    await userEvent.click(within(row("AUD-F7")!).getByRole("button", { name: "More actions for AUD-F7" }));
+    await userEvent.click(within(await screen.findByRole("menu")).getByRole("menuitem", { name: "Hide from project" }));
+    await waitFor(() => expect(row("AUD-F7")).toBeNull());
+    await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(row("AUD-F7")).not.toBeNull());
+    // Un file caricato non si nasconde: niente «⋯».
+    expect(within(row("AUD-F2")!).queryByRole("button", { name: "More actions for AUD-F2" })).toBeNull();
+  });
+
+  it("chi non gestisce non ha il «⋯» della riga", async () => {
+    await openDrive("/p/AUD/drive", "p-marco");
+    await screen.findByRole("grid");
+    expect(within(row("AUD-F7")!).queryByRole("button", { name: /More actions/ })).toBeNull();
+  });
+
+  it("la fascia dice la causa: dopo uno scollegamento i file sono non disponibili, non «quello che aveva letto»", async () => {
+    setSessionPersonId("p-giulia");
+    await disconnectGoogle();
+    await openDrive("/p/MKX/drive", "p-roberta");
+    const banner = await screen.findByRole("region", { name: "Folder link expired" });
+    expect(banner).toHaveTextContent(/Giulia Ferri's Google account was disconnected/);
+    expect(banner).toHaveTextContent(/show as not available/);
+    expect(banner).not.toHaveTextContent(/what Stubwise read until then/);
+  });
+
+  it("il numero di chi leggerà segue la regola del Drive: anche i full admin impliciti", async () => {
+    const readers = PEOPLE.filter(
+      (p) => !p.isClaude && visibleProjectIds(p.id).has("prj-mkx"),
+    ).length;
+    const members = PROJECTS.find((p) => p.code === "MKX")!.memberIds.filter(
+      (id) => !PEOPLE.find((p) => p.id === id)?.isClaude,
+    ).length;
+    expect(readers).toBeGreaterThan(members);
+    await openDrive("/p/MKX/drive", "p-giulia");
+    await screen.findByRole("grid");
+    await userEvent.click(within(await moreDriveActions()).getByRole("menuitem", { name: "Link a Google folder" }));
+    const dialog = await screen.findByRole("dialog", { name: "Link a Google folder to MKX" });
+    await userEvent.dblClick(await within(dialog).findByRole("option", { name: /^Clienti/ }));
+    await userEvent.click(within(dialog).getByRole("option", { name: /Cantina Bellavista/ }));
+    expect(within(dialog).getByRole("button", { name: "Link folder" })).toHaveAccessibleDescription(
+      new RegExp(`Everyone in MKX \\(${readers} people\\)`),
+    );
+  });
+
+  it("i selettori tengono sempre un posto nella tastiera, anche quando la scelta esce dalla ricerca", async () => {
+    await openDrive("/p/MKX/drive", "p-giulia");
+    await screen.findByRole("grid");
+    await userEvent.click(within(await moreDriveActions()).getByRole("menuitem", { name: "Link a Google folder" }));
+    const dialog = await screen.findByRole("dialog", { name: "Link a Google folder to MKX" });
+    await userEvent.dblClick(await within(dialog).findByRole("option", { name: /^Clienti/ }));
+    await userEvent.click(within(dialog).getByRole("option", { name: /Cantina Bellavista/ }));
+    await userEvent.type(within(dialog).getByRole("searchbox", { name: "Search folders" }), "brand");
+    const options = await within(dialog).findAllByRole("option");
+    expect(options.filter((o) => o.tabIndex === 0)).toHaveLength(1);
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /Link a Google folder/ })).toBeNull());
+
+    // «Which project?»: scelto MKX, poi una ricerca che lo esclude.
+    act(() =>
+      openGoogleOutsideFile({ googleFileId: "gfile-out-bellavista-offer", name: "Offerta" }),
+    );
+    const which = await screen.findByRole("dialog", { name: /to a project\?/ });
+    await userEvent.click(within(which).getByRole("option", { name: /^MKX/ }));
+    await userEvent.type(within(which).getByRole("searchbox", { name: "Search projects" }), "audin");
+    const projects = within(which).getAllByRole("option");
+    expect(projects.some((o) => o.textContent?.startsWith("MKX"))).toBe(false);
+    expect(projects.filter((o) => o.tabIndex === 0)).toHaveLength(1);
+  });
+
+  it("«Clear filters» non conta `?hidden=1` per chi non gestisce", async () => {
+    await openDrive("/p/AUD/drive?hidden=1", "p-marco");
+    await screen.findByRole("grid");
+    expect(screen.queryByRole("button", { name: "Clear filters" })).toBeNull();
+  });
+
+  it("cambio di persona con «Add from Google Drive» aperto: si chiude", async () => {
+    await openDrive("/p/MKX/drive", "p-giulia");
+    await screen.findByRole("grid");
+    await userEvent.click(screen.getByRole("button", { name: "Add from Google Drive" }));
+    await screen.findByRole("dialog", { name: "Add from Google Drive to MKX" });
+    await switchPersona(/Laura Costa/);
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Add from Google Drive to MKX" })).toBeNull(),
+    );
+  });
 });

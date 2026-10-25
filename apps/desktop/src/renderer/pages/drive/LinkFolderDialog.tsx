@@ -1,6 +1,12 @@
-import { useId, useMemo, useState, type KeyboardEvent } from "react";
+import { useId, useMemo, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { useGoogleAccount, useGoogleFolders, useLinkFolder, usePeople } from "../../data/queries";
+import {
+  useDriveReaderCount,
+  useGoogleAccount,
+  useGoogleFolders,
+  useLinkFolder,
+} from "../../data/queries";
+import { onBeforePersonaChange } from "../../data/session";
 import type { GoogleFolderChoice, Project } from "../../data/types";
 import { hasModKey } from "../../platform/platform";
 import { Dialog } from "../../tasks-ui/Dialog";
@@ -21,6 +27,56 @@ import { PickerNote, PickerSearch, PickerSkeleton, optionClass, useListKeys } fr
 // Senza account collegato il dialogo parte dal passo «Connect…».
 
 const ROOT = ["My Drive"];
+
+// Il dialogo è aperto per un progetto (il suo codice) o per nessuno: lo
+// aprono il «⋯» della testata, lo stato vuoto e ⌘K («Link a Google folder
+// to AUD», che prima porta al Drive del progetto). Lo mostra il Drive di
+// quel progetto; un cambio di persona lo chiude.
+let linkingFor: string | null = null;
+const linkListeners = new Set<() => void>();
+const emitLink = () => linkListeners.forEach((l) => l());
+
+/** Apre «Link a Google folder» sul Drive del progetto `code`. */
+export function openLinkFolder(code: string): void {
+  linkingFor = code;
+  emitLink();
+}
+
+/** Lo chiude (Cancel, Esc, collegata, cambio di persona, test). */
+export function closeLinkFolder(): void {
+  if (linkingFor === null) return;
+  linkingFor = null;
+  emitLink();
+}
+
+// Quanti Drive di ogni progetto sono montati: lasciato il Drive del progetto
+// (nessuno più montato), il dialogo rimasto aperto per lui si chiude. Il
+// controllo aspetta un microtask: StrictMode smonta e rimonta subito.
+const mounted = new Map<string, number>();
+
+/** Il Drive del progetto `code` si monta; la funzione restituita lo smonta. */
+export function driveMountedFor(code: string): () => void {
+  mounted.set(code, (mounted.get(code) ?? 0) + 1);
+  return () => {
+    mounted.set(code, (mounted.get(code) ?? 1) - 1);
+    queueMicrotask(() => {
+      if ((mounted.get(code) ?? 0) === 0 && linkingFor === code) closeLinkFolder();
+    });
+  };
+}
+
+onBeforePersonaChange(closeLinkFolder);
+
+/** Il progetto per cui il dialogo è aperto, o `null`. */
+export function useLinkFolderFor(): string | null {
+  return useSyncExternalStore(
+    (l) => {
+      linkListeners.add(l);
+      return () => linkListeners.delete(l);
+    },
+    () => linkingFor,
+  );
+}
 
 /** Una riga del navigatore: una cartella da collegare o una che ne contiene altre. */
 type Entry =
@@ -91,7 +147,6 @@ function FolderPicker({
 }) {
   const { t } = useTranslation();
   const toast = useToast();
-  const people = usePeople().data;
   const folders = useGoogleFolders(project.id);
   const link = useLinkFolder();
   const keys = useListKeys();
@@ -99,13 +154,8 @@ function FolderPicker({
   const [path, setPath] = useState<string[]>(ROOT);
   const [q, setQ] = useState("");
   const [chosen, setChosen] = useState<GoogleFolderChoice | null>(null);
-
-  // Le persone del progetto (Claude non conta: non è una persona che legge).
-  const memberCount = useMemo(
-    () =>
-      project.memberIds.filter((id) => !people?.find((p) => p.id === id)?.isClaude).length,
-    [project.memberIds, people],
-  );
+  // Chi leggerà: la regola di chi vede il Drive (membri e full admin), senza Claude.
+  const readers = useDriveReaderCount(project.id).data;
 
   const needle = q.trim().toLowerCase();
   const entries: Entry[] = useMemo(() => {
@@ -157,6 +207,12 @@ function FolderPicker({
     }
   };
 
+  // Un solo posto nella tastiera, sempre: la scelta se è in vista, altrimenti la prima riga.
+  const chosenAt = entries.findIndex(
+    (e) => e.kind === "folder" && e.folder.googleFolderId === chosen?.googleFolderId,
+  );
+  const tabStop = chosenAt >= 0 ? chosenAt : 0;
+
   let list;
   if (folders.isError) {
     list = (
@@ -200,7 +256,7 @@ function FolderPicker({
               role="option"
               aria-selected={selected}
               aria-disabled={disabled || undefined}
-              tabIndex={selected || (!chosen && i === 0) ? 0 : -1}
+              tabIndex={i === tabStop ? 0 : -1}
               onClick={() => (entry.kind === "folder" ? pick(entry.folder) : undefined)}
               onDoubleClick={() => (entry.kind === "dir" ? enter(entry.path) : undefined)}
               onKeyDown={(e) => onEntryKey(e, entry)}
@@ -268,10 +324,10 @@ function FolderPicker({
       </div>
       <div className="border-y border-rule py-1">{list}</div>
       <p id={warningId} className={`min-h-[60px] text-md ${chosen ? "text-ink" : "text-ink-muted"}`}>
-        {chosen
+        {chosen && readers !== undefined
           ? t("drive.link.warning", {
               code: project.code,
-              count: memberCount,
+              count: readers,
               folder: chosen.name,
               email,
             })
@@ -290,7 +346,7 @@ function FolderPicker({
         <button
           type="button"
           className={`${primaryButton} disabled:opacity-40`}
-          disabled={!chosen || link.isPending}
+          disabled={!chosen || readers === undefined || link.isPending}
           aria-describedby={warningId}
           aria-keyshortcuts="Meta+Enter"
           onClick={confirm}

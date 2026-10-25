@@ -1,3 +1,4 @@
+import { PEOPLE } from "../seed/people";
 import { copy, gate, now, state } from "../store";
 import type {
   DriveFile,
@@ -132,6 +133,9 @@ export async function listFolderLinks(projectId: string): Promise<FolderLinkView
     .map((l) => ({
       ...copy(l),
       fileCount: state.driveFiles.filter((f) => f.folderLinkId === l.id && !f.hidden).length,
+      accessLost: state.driveFiles.some(
+        (f) => f.folderLinkId === l.id && f.unavailable === "access_lost",
+      ),
     }));
 }
 
@@ -146,7 +150,22 @@ export async function listMyFolderLinks(): Promise<FolderLinkView[]> {
     .map((l) => ({
       ...copy(l),
       fileCount: state.driveFiles.filter((f) => f.folderLinkId === l.id && !f.hidden).length,
+      accessLost: state.driveFiles.some(
+        (f) => f.folderLinkId === l.id && f.unavailable === "access_lost",
+      ),
     }));
+}
+
+/**
+ * Quante persone leggono il Drive del progetto: la stessa regola di
+ * `canSeeDriveProject` (i membri e i full admin, impliciti ovunque), senza
+ * Claude. È il numero della frase di «Link a Google folder». Un progetto che
+ * chi guarda non vede: 0.
+ */
+export async function countDriveReaders(projectId: string): Promise<number> {
+  const me = await gate("drive.countDriveReaders");
+  if (!canSeeDriveProject(me, projectId)) return 0;
+  return PEOPLE.filter((p) => !p.isClaude && canSeeDriveProject(p.id, projectId)).length;
 }
 
 /** L'account Google personale di chi guarda (collegato o scaduto), o `null`. */

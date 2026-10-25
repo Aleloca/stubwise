@@ -31,6 +31,7 @@ import { VIEW_AS_PERSONAS, useViewer } from "../data/viewer";
 import { DeptLegend, DeptStrip, useDepartmentName } from "../layout/DeptStrip";
 import { SearchIcon } from "../layout/icons";
 import { useRestoreFocus } from "../layout/useRestoreFocus";
+import { openLinkFolder } from "../pages/drive/LinkFolderDialog";
 import { PALETTE_EVENT, type PaletteEventDetail } from "../layout/useShortcuts";
 import { shortcutLabel } from "../platform/platform";
 import { useTheme } from "../theme/ThemeProvider";
@@ -312,6 +313,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         setQuery("");
         setActive(0);
       },
+      openLinkFolder,
     };
     // Il testo arriva al comando solo quando l'etichetta lo cita: «ask
     // claude» scritto per trovare il comando non è la domanda.
@@ -445,9 +447,14 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     // Un comando che cita il testo («Ask Claude: “…”») va in fondo quando
     // il testo non è il suo nome: prima ciò che il testo ha davvero trovato.
     const needle = query.trim().toLowerCase();
-    const matched = matchCommands(query, viewer, (cmd) => t(cmd.labelKey));
+    // Le etichette possono nominare il progetto in cui si è («Link a Google folder to AUD»).
+    const labelOf = (cmd: Command) => t(cmd.labelKey, { code: projectCode });
+    const matched = matchCommands(query, viewer, labelOf, {
+      projectId: scopeProject?.id,
+      projectCode,
+    });
     const quoting = (cmd: Command) =>
-      !!needle && !!cmd.queryLabelKey && !t(cmd.labelKey).toLowerCase().includes(needle);
+      !!needle && !!cmd.queryLabelKey && !labelOf(cmd).toLowerCase().includes(needle);
     // Le azioni il cui nome corrisponde vengono subito dopo gli oggetti (Enter
     // su «new task» esegue il comando); le righe che citano il testo («Search
     // all messages for “…”», «Ask Claude: “…”») ci sono per ogni testo e
@@ -457,7 +464,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         fallback: quoting(cmd),
         label: quoting(cmd)
           ? t(cmd.queryLabelKey!, { query: query.trim() })
-          : t(cmd.labelKey),
+          : labelOf(cmd),
         shortcut: cmd.shortcut && shortcutLabel(cmd.shortcut),
         select: run(cmd, quoting(cmd) ? query.trim() : undefined),
       });
@@ -507,6 +514,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     pagesQuery,
     pageSearch.data,
     scoped,
+    scopeProject,
   ]);
 
   const items = useMemo(() => groups.flatMap((g) => g.items), [groups]);

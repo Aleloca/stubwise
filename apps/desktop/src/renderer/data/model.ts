@@ -1315,6 +1315,11 @@ export interface DriveFileDetail extends DriveFileRow {
 /** Una cartella collegata con quanti file porta nel progetto (non nascosti). */
 export interface FolderLinkView extends FolderLink {
   fileCount: number;
+  /**
+   * I suoi file sono non disponibili per accesso perso: l'account di chi
+   * l'ha collegata è stato scollegato (non solo scaduto il collegamento).
+   */
+  accessLost: boolean;
 }
 
 /** Una cartella nel selettore di «Collega una cartella». */

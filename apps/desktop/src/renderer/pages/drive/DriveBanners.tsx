@@ -88,7 +88,15 @@ function ExpiredBanner({ project, folder }: { project: Project; folder: FolderLi
         <WarningGlyph />
       </span>
       <div className="flex min-w-[min(100%,320px)] flex-1 flex-col gap-0.5">
-        <p className="text-md text-ink">{t("drive.expired.text", { folder: folder.name, date })}</p>
+        {/* La causa decide la frase: scaduto (i file mostrano l'ultima lettura) o
+            account di chi l'ha collegata scollegato (i file non sono disponibili). */}
+        <p className="text-md text-ink">
+          {!folder.accessLost
+            ? t("drive.expired.text", { folder: folder.name, date })
+            : mine
+              ? t("drive.expired.textDisconnectedMine", { folder: folder.name, date })
+              : t("drive.expired.textDisconnected", { folder: folder.name, date, name: linker })}
+        </p>
         {!mine && <p className="text-sm text-ink-muted">{t("drive.expired.other", { name: linker })}</p>}
       </div>
       <div className="flex shrink-0 items-center gap-2 self-center">

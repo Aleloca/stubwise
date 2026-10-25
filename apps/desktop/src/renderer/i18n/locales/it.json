@@ -150,7 +150,8 @@
       "askClaudeWith": "Chiedi a Claude: «{{query}}»",
       "newMessage": "Nuovo messaggio",
       "newChannel": "Nuovo canale",
-      "goToChannel": "Vai al canale…"
+      "goToChannel": "Vai al canale…",
+      "linkFolder": "Collega una cartella Google a {{code}}"
     },
     "filterPlaceholder": "Scegli un filtro",
     "channelPlaceholder": "Vai a un canale o a un messaggio diretto…",
@@ -3305,7 +3306,8 @@
       "cantOpen": {
         "deleted": "{{code}} non si può aprire: è stato eliminato su Google.",
         "access_lost": "{{code}} non si può aprire: Stubwise ha perso l'accesso su Google."
-      }
+      },
+      "more": "Altre azioni per {{code}}"
     },
     "time": {
       "now": "Adesso",
@@ -3509,7 +3511,9 @@
       "reconnect": "Ricollega",
       "other": "Solo {{name}} può ricollegarla, con il suo account Google. Scollegarla e ricollegarla con il tuo fa ripartire i suoi file con codici nuovi e senza aperture.",
       "ask": "Chiedi a {{name}} di ricollegarla",
-      "draft": "Ciao {{name}}, il collegamento alla cartella Google «{{folder}}» in {{code}} è scaduto il {{date}} e i suoi file non si aggiornano. Puoi ricollegare il tuo account Google? È nel menu del profilo, alla voce Account Google."
+      "draft": "Ciao {{name}}, il collegamento alla cartella Google «{{folder}}» in {{code}} è scaduto il {{date}} e i suoi file non si aggiornano. Puoi ricollegare il tuo account Google? È nel menu del profilo, alla voce Account Google.",
+      "textDisconnected": "Il collegamento a «{{folder}}» si è fermato il {{date}}: l'account Google di {{name}} è stato scollegato. I suoi file risultano non disponibili e si trovano solo per nome.",
+      "textDisconnectedMine": "Il collegamento a «{{folder}}» si è fermato il {{date}}: il tuo account Google è stato scollegato. I suoi file risultano non disponibili e si trovano solo per nome."
     },
     "hidden": {
       "chip": "Nascosti",

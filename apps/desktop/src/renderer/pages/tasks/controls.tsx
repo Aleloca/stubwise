@@ -12,6 +12,13 @@ export const primaryButton =
 export const secondaryButton =
   "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-rule-strong px-3 text-sm font-medium text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 active:bg-ink/10";
 
+/**
+ * Conferma di un'azione distruttiva in un dialogo («Delete», «Unlink»,
+ * «Disconnect account»): il rosso pieno, la parola dice cosa fa.
+ */
+export const dangerSolidButton =
+  "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-critical px-3 text-sm font-semibold text-ground transition-opacity duration-[var(--duration-fast)] ease-out hover:opacity-90 active:opacity-80 disabled:opacity-40";
+
 /** Azione quieta della barra («Save as filter», azioni del filtro): solo testo, tinta al passaggio. */
 export const quietButton =
   "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink active:bg-ink/10 disabled:pointer-events-none";

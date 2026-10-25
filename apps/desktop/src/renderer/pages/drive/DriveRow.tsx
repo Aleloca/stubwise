@@ -1,7 +1,10 @@
 import { memo, useRef, type KeyboardEvent, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type { DriveFileRow } from "../../data/types";
+import { itemClass } from "../../tasks-ui/Menu";
 import { PersonChip } from "../../tasks-ui/PersonChip";
+import { MoreIcon } from "../task/parts";
+import { MenuButton } from "../tasks/controls";
 import { middleEllipsis, previewKind } from "./driveFilters";
 import { formatDate } from "../../notifications/time";
 import { modifiedLabel } from "./format";
@@ -37,6 +40,8 @@ export interface RowActions {
   onDownload: (row: DriveFileRow) => void;
   /** «Show again» su un nascosto (filtro «Hidden», solo chi gestisce). */
   onShowAgain?: (row: DriveFileRow) => void;
+  /** «Hide from project» dal «⋯» della riga (file di cartella, solo chi gestisce). */
+  onHide?: (row: DriveFileRow) => void;
 }
 
 /** La seconda linea: riassunto o stato del contenuto, in parole (mai solo colore). */
@@ -180,6 +185,7 @@ export const DriveRow = memo(function DriveRow({
   const kind = previewKind(row);
   const unavailable = row.unavailable !== null;
   const showAgain = row.hidden && row.permissions.hide ? actions.onShowAgain : undefined;
+  const hide = !row.hidden && row.permissions.hide ? actions.onHide : undefined;
   const stop = (e: MouseEvent) => e.stopPropagation();
 
   return (
@@ -195,7 +201,7 @@ export const DriveRow = memo(function DriveRow({
       onFocus={(e) => {
         if (e.target === e.currentTarget) onFocusRow(row);
       }}
-      className={`group/row @container relative flex h-14 cursor-default items-center gap-3 border-b border-rule pr-3 pl-4 outline-none transition-colors duration-[var(--duration-fast)] ease-out [contain-intrinsic-size:auto_56px] [content-visibility:auto] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus ${selected || current ? "bg-ink/10" : "hover:bg-ink/6"} ${arrived ? "drive-arrive" : ""}`}
+      className={`group/row @container relative flex h-14 cursor-default items-center gap-3 border-b border-rule pr-3 pl-4 outline-none transition-colors duration-[var(--duration-fast)] ease-out [contain-intrinsic-size:auto_56px] [content-visibility:auto] has-[[aria-expanded=true]]:z-10 has-[[aria-expanded=true]]:[content-visibility:visible] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus ${selected || current ? "bg-ink/10" : "hover:bg-ink/6"} ${arrived ? "drive-arrive" : ""}`}
     >
       <span role="gridcell" className="num w-[72px] shrink-0 self-start pt-[9px] text-xs font-semibold tracking-[0.02em] text-ink">
         {row.code}
@@ -257,7 +263,7 @@ export const DriveRow = memo(function DriveRow({
         )}
         {/* Le azioni rapide al passaggio e col fuoco: nello spazio libero a sinistra del
             numero, nella colonna che resta sempre — mai in una che cade a 1024. */}
-        <span className={`absolute top-1/2 right-9 hidden -translate-y-1/2 rounded-md bg-ground ${showAgain ? "" : "group-focus-within/row:flex group-hover/row:flex"}`}>
+        <span className={`absolute top-1/2 right-9 hidden -translate-y-1/2 rounded-md bg-ground ${showAgain ? "" : "group-focus-within/row:flex group-hover/row:flex has-[[aria-expanded=true]]:flex"}`}>
           <span className={`flex items-center gap-0.5 rounded-md px-0.5 ${selected || current ? "bg-ink/10" : "bg-ink/6"}`}>
           {row.source === "google" && !unavailable && (
             <button
@@ -303,6 +309,34 @@ export const DriveRow = memo(function DriveRow({
             >
               <DownloadGlyph />
             </button>
+          )}
+          {/* Il «⋯» della riga: per ora solo «Hide from project» (come nel dettaglio). */}
+          {hide && (
+            <span onClick={stop} onKeyDown={(e) => e.stopPropagation()} className="inline-flex">
+              <MenuButton
+                menuLabel={t("drive.row.more", { code: row.code })}
+                ariaLabel={t("drive.row.more", { code: row.code })}
+                title={t("drive.row.more", { code: row.code })}
+                align="right"
+                className={quickButton}
+                label={<MoreIcon />}
+              >
+                {(close) => (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    tabIndex={-1}
+                    className={itemClass}
+                    onClick={() => {
+                      close();
+                      hide(row);
+                    }}
+                  >
+                    {t("drive.detail.hide")}
+                  </button>
+                )}
+              </MenuButton>
+            </span>
           )}
           </span>
         </span>

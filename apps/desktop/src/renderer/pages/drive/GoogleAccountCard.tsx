@@ -10,7 +10,7 @@ import {
 import { onBeforePersonaChange } from "../../data/session";
 import { Dialog } from "../../tasks-ui/Dialog";
 import { formatDate } from "../../notifications/time";
-import { primaryButton, secondaryButton } from "../tasks/controls";
+import { dangerSolidButton, primaryButton, secondaryButton } from "../tasks/controls";
 import { GoogleDriveGlyph, Spinner, WarningGlyph } from "./glyphs";
 
 // L'account Google personale (shape drive-google.md §3, A1): un dialogo
@@ -233,7 +233,7 @@ function GoogleAccountDialog({ onClose }: { onClose: () => void }) {
               type="button"
               data-autofocus
               disabled={mine === undefined || disconnect.isPending}
-              className="inline-flex h-8 shrink-0 items-center rounded-md bg-critical px-3 text-sm font-semibold text-ground transition-opacity duration-[var(--duration-fast)] ease-out hover:opacity-90 disabled:opacity-40"
+              className={dangerSolidButton}
               onClick={doDisconnect}
             >
               {t("drive.account.disconnectConfirm")}

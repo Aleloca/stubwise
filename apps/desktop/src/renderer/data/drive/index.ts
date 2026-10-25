@@ -8,6 +8,7 @@ export {
   listDriveFiles,
   listFolderLinks,
   listMyFolderLinks,
+  countDriveReaders,
   listGoogleFiles,
   listGoogleFolders,
   listGoogleOutside,

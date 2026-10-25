@@ -204,13 +204,15 @@ function WhichProject({ file, onClose }: { file: OutsideGoogleFile; onClose: () 
           >
             {shown.map((p, i) => {
               const selected = p.id === chosen;
+              // Un solo posto nella tastiera, sempre: la scelta se è in vista, altrimenti la prima.
+              const stop = i === Math.max(0, shown.findIndex((x) => x.id === chosen));
               return (
                 <div
                   key={p.id}
                   role="option"
                   aria-selected={selected}
-                  tabIndex={selected || (!chosen && i === 0) ? 0 : -1}
-                  data-autofocus={eligible.length <= SEARCH_FROM && (selected || (!chosen && i === 0)) ? "" : undefined}
+                  tabIndex={stop ? 0 : -1}
+                  data-autofocus={eligible.length <= SEARCH_FROM && stop ? "" : undefined}
                   onClick={() => setChosen(p.id)}
                   onKeyDown={(e) => {
                     if ((e.key === "Enter" && !hasModKey(e)) || e.key === " ") {

@@ -26,7 +26,14 @@ import { MenuGroup, RadioItem, itemClass } from "../../tasks-ui/Menu";
 import { PageEmpty, PageError } from "../../tasks-ui/PageStates";
 import { useToast } from "../../tasks-ui/Toast";
 import { MoreIcon, ghostButton } from "../task/parts";
-import { Chevron, MenuButton, primaryButton, quietButton, secondaryButton } from "../tasks/controls";
+import {
+  Chevron,
+  MenuButton,
+  dangerSolidButton,
+  primaryButton,
+  quietButton,
+  secondaryButton,
+} from "../tasks/controls";
 import { AddFromGoogleDialog } from "./AddFromGoogleDialog";
 import { ExpiredLinkBanners } from "./DriveBanners";
 import { DriveList, DriveSkeleton } from "./DriveList";
@@ -42,7 +49,13 @@ import {
 } from "./driveFilters";
 import { useDriveOpeners } from "./FilePreview";
 import { GoogleDriveGlyph, HiddenGlyph, UploadGlyph } from "./glyphs";
-import { LinkFolderDialog } from "./LinkFolderDialog";
+import {
+  LinkFolderDialog,
+  closeLinkFolder,
+  driveMountedFor,
+  openLinkFolder,
+  useLinkFolderFor,
+} from "./LinkFolderDialog";
 import {
   DropZone,
   UploadAnnouncer,
@@ -187,7 +200,12 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
   const setHidden = useSetDriveHidden();
   const syncFolder = useSyncFolder();
   const unlinkFolder = useUnlinkFolder();
-  const [googleDialog, setGoogleDialog] = useState<"link" | "add" | null>(null);
+  const [adding, setAdding] = useState(false);
+  // «Link a Google folder» sta in un piccolo store: lo apre anche ⌘K, da qualunque pagina.
+  const linkingFor = useLinkFolderFor();
+  // Lasciando il Drive del progetto, il dialogo rimasto aperto per lui si chiude.
+  const mountedCode = project?.code;
+  useEffect(() => (mountedCode ? driveMountedFor(mountedCode) : undefined), [mountedCode]);
   const [unlinking, setUnlinking] = useState<FolderLinkView | null>(null);
 
   // Il «⋯» di una cartella collegata: apri (avviso), sincronizza e scollega (chi gestisce), copia.
@@ -269,6 +287,21 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
         } as never);
       },
       onDownload: (row) => openers.download(row),
+      // Nascondere dal «⋯» della riga: come dal dettaglio, nessuna conferma e «Undo» per 5 s.
+      onHide: (row) =>
+        setHidden.mutate(
+          { id: row.id, hidden: true },
+          {
+            onSuccess: () =>
+              toast.show(t("drive.detail.hidden", { code: row.code }), {
+                action: {
+                  label: t("drive.detail.undo"),
+                  run: () => setHidden.mutate({ id: row.id, hidden: false }),
+                },
+              }),
+            onError: () => toast.error(t("drive.detail.failed")),
+          },
+        ),
       onShowAgain: (row) =>
         setHidden.mutate(
           { id: row.id, hidden: false },
@@ -350,11 +383,11 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
               <button type="button" className={secondaryButton} onClick={upload}>
                 {t("drive.states.uploadFirst")}
               </button>
-              <button type="button" className={quietButton} onClick={() => setGoogleDialog("add")}>
+              <button type="button" className={quietButton} onClick={() => setAdding(true)}>
                 {t("drive.google.addFrom")}
               </button>
               {canManage && (
-                <button type="button" className={quietButton} onClick={() => setGoogleDialog("link")}>
+                <button type="button" className={quietButton} onClick={() => project && openLinkFolder(project.code)}>
                   {t("drive.google.linkFolder")}
                 </button>
               )}
@@ -410,7 +443,7 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
           )}
           <div className="ml-auto flex items-center gap-2 self-center">
             {canAddGoogle && (
-              <button type="button" className={secondaryButton} onClick={() => setGoogleDialog("add")}>
+              <button type="button" className={secondaryButton} onClick={() => setAdding(true)}>
                 <GoogleDriveGlyph />
                 {t("drive.google.addFrom")}
               </button>
@@ -481,7 +514,7 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
                     className={itemClass}
                     onClick={() => {
                       close();
-                      setGoogleDialog("link");
+                      openLinkFolder(project.code);
                     }}
                   >
                     {t("drive.google.linkFolder")}
@@ -510,11 +543,11 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
       </div>
       {picker.element}
       <UploadAnnouncer uploads={uploads} />
-      {project && googleDialog === "link" && (
-        <LinkFolderDialog project={project} onClose={() => setGoogleDialog(null)} />
+      {project && canManage && linkingFor === project.code && (
+        <LinkFolderDialog project={project} onClose={closeLinkFolder} />
       )}
-      {project && googleDialog === "add" && (
-        <AddFromGoogleDialog project={project} onClose={() => setGoogleDialog(null)} />
+      {project && adding && (
+        <AddFromGoogleDialog project={project} onClose={() => setAdding(false)} />
       )}
       {project && unlinking && (
         <Dialog
@@ -530,7 +563,7 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
               <button
                 type="button"
                 data-autofocus
-                className="inline-flex h-8 shrink-0 items-center rounded-md bg-critical px-3 text-sm font-semibold text-ground transition-opacity duration-[var(--duration-fast)] ease-out hover:opacity-90 disabled:opacity-40"
+                className={dangerSolidButton}
                 disabled={unlinkFolder.isPending}
                 onClick={() => {
                   const link = unlinking;
@@ -754,7 +787,7 @@ function DriveToolbar({
           <span className="num text-ink-faint">{hiddenCount}</span>
         </button>
       )}
-      {hasDriveFilter(search) && (
+      {hasDriveFilter(hiddenCount === undefined ? { ...search, hidden: undefined } : search) && (
         <button type="button" className={quietButton} onClick={clearFilters}>
           {t("drive.filters.clear")}
         </button>

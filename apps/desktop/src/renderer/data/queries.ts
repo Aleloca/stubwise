@@ -163,6 +163,8 @@ export const queryKeys = {
     ["as", personId, "drive", "folders", projectId] as const,
   googleAccount: (personId: string) => ["as", personId, "drive", "google-account"] as const,
   myFolderLinks: (personId: string) => ["as", personId, "drive", "my-folders"] as const,
+  driveReaders: (personId: string, projectId: string) =>
+    ["as", personId, "drive", "readers", projectId] as const,
   googleOutside: (personId: string, q: string) =>
     ["as", personId, "drive", "google-outside", q] as const,
   googleFolders: (personId: string, projectId: string) =>
@@ -2198,6 +2200,15 @@ export function useFolderLinks(projectId: string) {
   return useQuery({
     queryKey: queryKeys.folderLinks(me, projectId),
     queryFn: () => api.drive.listFolderLinks(projectId),
+  });
+}
+
+/** Quante persone leggono il Drive del progetto (membri e full admin, senza Claude). */
+export function useDriveReaderCount(projectId: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.driveReaders(me, projectId),
+    queryFn: () => api.drive.countDriveReaders(projectId),
   });
 }
 

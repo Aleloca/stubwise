@@ -150,7 +150,8 @@
       "askClaudeWith": "Ask Claude: “{{query}}”",
       "newMessage": "New message",
       "newChannel": "New channel",
-      "goToChannel": "Go to channel…"
+      "goToChannel": "Go to channel…",
+      "linkFolder": "Link a Google folder to {{code}}"
     },
     "filterPlaceholder": "Choose a filter",
     "channelPlaceholder": "Go to a channel or direct message…",
@@ -3305,7 +3306,8 @@
       "cantOpen": {
         "deleted": "{{code}} can't be opened: it was deleted on Google.",
         "access_lost": "{{code}} can't be opened: Stubwise lost access to it on Google."
-      }
+      },
+      "more": "More actions for {{code}}"
     },
     "time": {
       "now": "Just now",
@@ -3509,7 +3511,9 @@
       "reconnect": "Reconnect",
       "other": "Only {{name}} can reconnect it, with their Google account. Unlinking it and linking it again with yours resets its files' codes and opens.",
       "ask": "Ask {{name}} to reconnect",
-      "draft": "Hi {{name}}, the link to the Google folder “{{folder}}” in {{code}} expired on {{date}}, so its files don't update. Could you reconnect your Google account? It's in the profile menu, under Google account."
+      "draft": "Hi {{name}}, the link to the Google folder “{{folder}}” in {{code}} expired on {{date}}, so its files don't update. Could you reconnect your Google account? It's in the profile menu, under Google account.",
+      "textDisconnected": "The link to “{{folder}}” stopped on {{date}}: {{name}}'s Google account was disconnected. Its files show as not available and can be found only by name.",
+      "textDisconnectedMine": "The link to “{{folder}}” stopped on {{date}}: your Google account was disconnected. Its files show as not available and can be found only by name."
     },
     "hidden": {
       "chip": "Hidden",

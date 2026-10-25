@@ -20,6 +20,14 @@ export interface CommandContext {
   openChannels(): void;
   /** Il testo scritto nella palette (per «Ask Claude…»). */
   query?: string;
+  /** Apre «Link a Google folder» sul Drive del progetto (il dialogo lo mostra quel Drive). */
+  openLinkFolder(code: string): void;
+}
+
+/** Il progetto in cui si è, per i comandi che valgono solo lì. */
+export interface CommandScope {
+  projectId?: string;
+  projectCode?: string;
 }
 
 export interface Command {
@@ -35,7 +43,7 @@ export interface Command {
    */
   queryLabelKey?: string;
   run(ctx: CommandContext): void;
-  when?(viewer: Viewer): boolean;
+  when?(viewer: Viewer, scope: CommandScope): boolean;
 }
 
 function themeCommand(preference: ThemePreference): Command {
@@ -78,6 +86,18 @@ export const COMMANDS: readonly Command[] = [
     // Dentro un progetto, il progetto è già scelto (se ci si possono creare canali).
     run: (ctx) => ctx.navigate(`${ctx.pathname}?newChannel=${ctx.projectCode ?? "1"}`),
     when: (viewer) => can(viewer, "chat.general.create") || can(viewer, "chat.channels.create"),
+  },
+  {
+    id: "drive.linkFolder",
+    // L'etichetta nomina il progetto in cui si è: «Link a Google folder to AUD».
+    labelKey: "palette.commands.linkFolder",
+    run: (ctx) => {
+      if (!ctx.projectCode) return;
+      ctx.navigate(`/p/${ctx.projectCode}/drive`);
+      ctx.openLinkFolder(ctx.projectCode);
+    },
+    // Solo dentro un progetto, a chi ne gestisce il Drive.
+    when: (viewer, scope) => !!scope.projectId && can(viewer, "drive.manage", scope.projectId),
   },
   {
     id: "chat.goTo",
@@ -133,11 +153,12 @@ export function matchCommands(
   query: string,
   viewer: Viewer,
   label: (cmd: Command) => string,
+  scope: CommandScope = {},
 ): Command[] {
   const needle = query.trim().toLowerCase();
   return COMMANDS.filter(
     (cmd) =>
-      (cmd.when?.(viewer) ?? true) &&
+      (cmd.when?.(viewer, scope) ?? true) &&
       (!needle || cmd.queryLabelKey !== undefined || label(cmd).toLowerCase().includes(needle)),
   );
 }

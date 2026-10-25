@@ -268,6 +268,9 @@ export async function addGoogleFile(
 const linkView = (link: FolderLink): FolderLinkView => ({
   ...copy(link),
   fileCount: state.driveFiles.filter((f) => f.folderLinkId === link.id && !f.hidden).length,
+  accessLost: state.driveFiles.some(
+    (f) => f.folderLinkId === link.id && f.unavailable === "access_lost",
+  ),
 });
 
 /**
