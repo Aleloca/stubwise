@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as api from "./api";
+import type { MailDraftRequest } from "../domain/claude/intents/mailDraft";
 import { resolveHome } from "../domain/home";
 import { MIN_QUERY } from "../pages/chat/search";
 import type {
@@ -39,6 +40,7 @@ import type {
   FilterCriteria,
   HomeBlockRef,
   MailboxView,
+  MailDraft,
   MailProposalFilters,
   MailThreadFilters,
   MailThreadRow,
@@ -191,6 +193,11 @@ export const queryKeys = {
     ["as", personId, "mail", "proposals", filters] as const,
   mailProposal: (personId: string, id: string) => ["as", personId, "mail", "proposal", id] as const,
   mailDecisions: (personId: string) => ["as", personId, "mail", "decisions"] as const,
+  mailDraft: (personId: string, threadId: string | null, mode: MailDraft["mode"]) =>
+    ["as", personId, "mail", "draft", threadId, mode] as const,
+  mailDrafts: (personId: string) => ["as", personId, "mail", "drafts"] as const,
+  mailRecipients: (personId: string, q: string) =>
+    ["as", personId, "mail", "recipients", q] as const,
 };
 
 /** Quali canali: tutti (colonna, «Browse channels») o quelli di un progetto. */
@@ -2582,4 +2589,164 @@ export function useReassignMailProposal() {
       api.mail.reassignMailProposal(id, projectId),
     MAIL_AREAS,
   );
+}
+
+// Scrivere dalla Posta: bozze, invio con «Annulla», invio fallito, la bozza
+// di Claude. Allo scadere dei 5 s un invio cambia la Posta di chi l'ha
+// scritto E dei destinatari: la rilettura di allora vale per ogni persona
+// (anche se nel frattempo si guarda come un'altra), non solo per chi ha
+// premuto «Invia».
+
+/** La bozza di una conversazione (o dell'email nuova) in una modalità: salvata o nuova. */
+export function useMailDraft(
+  threadId: string | null,
+  mode: MailDraft["mode"],
+  { enabled = true } = {},
+) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.mailDraft(me, threadId, mode),
+    queryFn: () => api.mail.getDraft(threadId, mode),
+    enabled,
+    retry: false,
+  });
+}
+
+/** Le mie bozze, dalla più recente (la riga «Bozza» in elenco). */
+export function useMailDrafts() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.mailDrafts(me),
+    queryFn: () => api.mail.listDrafts(),
+  });
+}
+
+/** I destinatari suggeriti mentre si scrive (team, poi la mia posta). */
+export function useRecipientSuggestions(q: string, enabled = true) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.mailRecipients(me, q),
+    queryFn: () => api.mail.suggestRecipients(q),
+    enabled: enabled && q.trim().length > 0,
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
+  });
+}
+
+export function useSaveMailDraft() {
+  return useWrite((draft: api.mail.MailDraftInput) => api.mail.saveDraft(draft), MAIL_AREAS);
+}
+
+export function useDiscardMailDraft() {
+  return useWrite((id: string) => api.mail.discardDraft(id), MAIL_AREAS);
+}
+
+export function useAttachDriveFileToDraft() {
+  return useWrite(
+    ({ draftId, driveFileId }: { draftId: string; driveFileId: string }) =>
+      api.mail.attachDriveFile(draftId, driveFileId),
+    MAIL_AREAS,
+  );
+}
+
+/** Rilegge la Posta di tutti quando un invio esce dai suoi 5 s. */
+function useAfterSendWindow() {
+  const client = useQueryClient();
+  return (messageId: string) =>
+    void api.mail.whenSendSettled(messageId).then(() =>
+      client.invalidateQueries({
+        predicate: (query) => query.queryKey[0] === "as" && query.queryKey[2] === "mail",
+      }),
+    );
+}
+
+/**
+ * «Invia» (e «Riprova»): risolve subito con `undoUntil`, per l'avviso
+ * «Annulla»; la Posta si rilegge ora («Invio…») e allo scadere dei 5 s.
+ */
+export function useSendMailDraft() {
+  const invalidate = useInvalidate(MAIL_AREAS);
+  const afterWindow = useAfterSendWindow();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const result = await api.mail.sendDraft(id);
+      afterWindow(result.messageId);
+      return result;
+    },
+    onSettled: invalidate,
+  });
+}
+
+export function useRetryMailSend() {
+  const invalidate = useInvalidate(MAIL_AREAS);
+  const afterWindow = useAfterSendWindow();
+  return useMutation({
+    mutationFn: async (messageId: string) => {
+      const result = await api.mail.retrySend(messageId);
+      afterWindow(result.messageId);
+      return result;
+    },
+    onSettled: invalidate,
+  });
+}
+
+/** «Annulla» entro i 5 s: restituisce la bozza com'era (oltre: errore `too_late`). */
+export function useUndoMailSend() {
+  return useWrite((messageId: string) => api.mail.undoSend(messageId), MAIL_AREAS);
+}
+
+/** «Elimina» o «Modifica» un invio fallito: la bozza torna. */
+export function useDeleteFailedMailSend() {
+  return useWrite((messageId: string) => api.mail.deleteFailedSend(messageId), MAIL_AREAS);
+}
+
+export type ClaudeMailDraftState =
+  | { status: "idle" }
+  | { status: "writing"; text: string }
+  | { status: "done" | "stopped"; outcome: api.mail.ClaudeDraftOutcome }
+  | { status: "failed"; error: unknown };
+
+/**
+ * «Chiedi a Claude» nella casella: `start` fa arrivare la bozza a pezzi
+ * (`writing.text`, il testo fin lì), `stop` la ferma tenendo il testo. Si
+ * ferma da sola cambiando persona o smontando la casella. Non salva e non
+ * invia nulla: chi la usa mette il testo nel campo (`placeDraft`).
+ */
+export function useClaudeMailDraft() {
+  const me = useSessionPersonId();
+  const [state, setState] = useState<ClaudeMailDraftState>({ status: "idle" });
+  const current = useRef<api.mail.ClaudeDraftStream | null>(null);
+
+  const stop = useCallback(() => {
+    current.current?.stop();
+  }, []);
+
+  const start = useCallback((request: MailDraftRequest) => {
+    current.current?.stop();
+    setState({ status: "writing", text: "" });
+    const stream = api.mail.streamClaudeDraft(request, (text) => {
+      if (current.current === stream) setState({ status: "writing", text });
+    });
+    current.current = stream;
+    stream.result.then(
+      (outcome) => {
+        if (current.current === stream)
+          setState({ status: outcome.complete ? "done" : "stopped", outcome });
+      },
+      (error: unknown) => {
+        if (current.current === stream) setState({ status: "failed", error });
+      },
+    );
+  }, []);
+
+  const reset = useCallback(() => {
+    current.current?.stop();
+    current.current = null;
+    setState({ status: "idle" });
+  }, []);
+
+  // Un'altra persona, o la casella che si chiude: la bozza di prima si ferma e sparisce.
+  useEffect(() => reset, [me, reset]);
+
+  return { state, start, stop, reset };
 }

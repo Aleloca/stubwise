@@ -22,3 +22,10 @@ export const MAIL_MESSAGES: MailMessage[] = [
 export const MAIL_CASES = { ...MESSAGE_IDS, ...MEETING_MESSAGE_IDS, ...EXTREME_MESSAGE_IDS };
 
 export const MAIL_DRAFTS: MailDraft[] = [];
+
+/**
+ * Il dominio che rifiuta sempre: un invio con un destinatario
+ * `…@bounce.example` (per esempio `luca@bounce.example`) fallisce con
+ * «indirizzo non trovato», per provare «Non inviata · Riprova».
+ */
+export const BOUNCE_DOMAIN = "bounce.example";

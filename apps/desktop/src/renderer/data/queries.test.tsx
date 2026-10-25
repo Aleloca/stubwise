@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   failNext,
   resetApi,
@@ -23,6 +23,11 @@ import {
   useImportantMail,
   useMailProposalDecisions,
   useMailThreads,
+  useMailThread,
+  useMailDraft,
+  useSaveMailDraft,
+  useSendMailDraft,
+  useClaudeMailDraft,
   useTasks,
   useRecordDriveOpen,
   useSyncMailbox,
@@ -402,5 +407,68 @@ describe("Posta (area 6)", () => {
     await waitFor(() =>
       expect(result.current.tasks.data!.some((t) => t.title === title)).toBe(true),
     );
+  });
+});
+
+describe("Scrivere dalla Posta", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("allo scadere dei 5 s la Posta si rilegge anche per il destinatario che si guarda adesso", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const threadId = storeState.mailMessages.find((m) => m.id === "mm-aud-call-notes")!.threadId;
+    const { result } = renderHook(
+      () => ({
+        viewer: useViewer(),
+        thread: useMailThread(threadId),
+        draft: useMailDraft(threadId, "reply"),
+        save: useSaveMailDraft(),
+        send: useSendMailDraft(),
+      }),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.draft.data).toBeDefined());
+    const saved = await act(() =>
+      result.current.save.mutateAsync({ ...result.current.draft.data!, body: "On it." }),
+    );
+    const { messageId } = await act(() => result.current.send.mutateAsync(saved.id));
+    await waitFor(() =>
+      expect(result.current.thread.data!.messages.at(-1)!.delivery?.state).toBe("sending"),
+    );
+    // Matteo, destinatario: nei 5 s non c'è.
+    act(() => result.current.viewer.setPersona("p-matteo"));
+    await waitFor(() => expect(result.current.thread.data).toBeDefined());
+    await waitFor(() =>
+      expect(result.current.thread.data!.messages.map((m) => m.id)).not.toContain(messageId),
+    );
+    await act(() => vi.advanceTimersByTimeAsync(5000));
+    await waitFor(() =>
+      expect(result.current.thread.data!.messages.map((m) => m.id)).toContain(messageId),
+    );
+  });
+
+  it("la bozza di Claude arriva a pezzi e si ferma cambiando persona", async () => {
+    setStreamLatency(0);
+    const threadId = storeState.mailMessages.find((m) => m.id === "mm-aud-billing-vat")!.threadId;
+    const { result } = renderHook(() => ({ viewer: useViewer(), claude: useClaudeMailDraft() }), {
+      wrapper,
+    });
+    const seen: string[] = [];
+    act(() => result.current.claude.start({ threadId, hint: "" }));
+    await waitFor(() => {
+      const s = result.current.claude.state;
+      if (s.status === "writing") seen.push(s.text);
+      expect(s.status).toBe("done");
+    });
+    const s = result.current.claude.state;
+    expect(s.status === "done" && s.outcome.text.startsWith("Hi Sofia,")).toBe(true);
+    expect(storeState.mailDrafts).toEqual([]);
+
+    setStreamLatency(50);
+    act(() => result.current.claude.start({ threadId, hint: "" }));
+    expect(result.current.claude.state.status).toBe("writing");
+    act(() => result.current.viewer.setPersona("p-matteo"));
+    expect(result.current.claude.state).toEqual({ status: "idle" });
   });
 });

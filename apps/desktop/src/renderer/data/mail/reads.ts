@@ -139,10 +139,17 @@ export async function listMailThreads(filters: MailThreadFilters = {}): Promise<
  */
 export async function getMailThread(threadId: string): Promise<MailThreadDetail> {
   const me = await gate("mail.getMailThread");
+  const thread = threadFor(me, threadId);
+  if (!thread) throw notFound();
+  return thread;
+}
+
+/** Una conversazione come la legge `me`; `null` se non ne vede nessun messaggio. */
+export function threadFor(me: string, threadId: string): MailThreadDetail | null {
   const messages = visibleMessages(me)
     .filter((m) => m.threadId === threadId)
     .sort(byTime);
-  if (messages.length === 0) throw notFound();
+  if (messages.length === 0) return null;
   return {
     threadId,
     subject: messages[0]!.subject,

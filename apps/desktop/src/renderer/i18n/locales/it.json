@@ -2481,6 +2481,17 @@
       "answerWithNote": "{{option}} — {{note}}",
       "emailTitle": "Dall’email «{{subject}}»",
       "emailDecision": "{{sender}} ha scritto: «{{excerpt}}»"
+    },
+    "mailDraft": {
+      "greeting": "Ciao {{name}},",
+      "greetingAll": "Ciao,",
+      "thanks": "Grazie per il messaggio su «{{subject}}».",
+      "late": "Da parte nostra, «{{title}}» è in ritardo.",
+      "lateDue": "Da parte nostra, «{{title}}» è in ritardo (la scadenza era il {{date}}).",
+      "working": "Stiamo lavorando a {{titles}}.",
+      "quoted": "«{{title}}»",
+      "fallback": "Ti rispondo a breve.",
+      "closing": "A presto,\n{{name}}"
     }
   },
   "chat": {

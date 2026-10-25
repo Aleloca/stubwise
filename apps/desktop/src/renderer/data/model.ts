@@ -1607,7 +1607,8 @@ export interface MailMessage {
   quoted: string | null;
   /** L'originale HTML, mostrato in un frame isolato (immagini remote bloccate). */
   html: string | null;
-  attachments: { id: string; name: string; sizeBytes: number }[];
+  /** `as: "link"` solo per un file Google allegato da Stubwise come link (assente = copia). */
+  attachments: { id: string; name: string; sizeBytes: number; as?: "link" }[];
   /** Le caselle che lo contengono. */
   mailboxPersonIds: string[];
   readByPersonIds: string[];
@@ -1697,8 +1698,38 @@ export interface MailDraft {
   cc: MailAddress[];
   subject: string;
   body: string;
-  attachments: { id: string; name: string; sizeBytes: number; driveFileId: string | null }[];
+  /**
+   * `as`: un file del Drive di Stubwise (o dal disco, o inoltrato) parte come
+   * COPIA; un file Google come LINK (pesa 0: Gmail non lo allega, e per
+   * aprirlo serve l'accesso su Google).
+   */
+  attachments: MailDraftAttachment[];
   updatedAt: string;
+}
+
+export interface MailDraftAttachment {
+  id: string;
+  name: string;
+  sizeBytes: number;
+  driveFileId: string | null;
+  as: "copy" | "link";
+}
+
+/**
+ * Un destinatario suggerito mentre si scrive: una persona del team
+ * (`team`) o un indirizzo visto nei messaggi che chi scrive vede (`mail`).
+ */
+export interface MailRecipientSuggestion extends MailAddress {
+  group: "team" | "mail";
+}
+
+/**
+ * Un invio partito: `messageId` è l'id della RIGA del messaggio (non il
+ * Message-ID RFC); fino a `undoUntil` (5 s dopo «Invia») si può annullare.
+ */
+export interface MailSendResult {
+  messageId: string;
+  undoUntil: string;
 }
 
 /** I filtri dell'elenco della Posta (tutti facoltativi). */

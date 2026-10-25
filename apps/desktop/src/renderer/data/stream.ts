@@ -413,6 +413,32 @@ async function say(conversationId: string, text: string, alive: () => boolean) {
 }
 
 /**
+ * Un testo di Claude che si scrive in un CAMPO invece che nel flusso di una
+ * conversazione (la bozza di Claude nella Posta): gli stessi pezzi
+ * (`chunksOf`) e le stesse pause (`streamDelay`) delle risposte, senza
+ * evento né iscritti — `onText` riceve il testo fin lì. Smette appena
+ * `alive()` è falso o lo stato si ripristina; restituisce se è arrivato in
+ * fondo.
+ */
+export async function streamText(
+  text: string,
+  seed: string,
+  onText: (soFar: string) => void,
+  alive: () => boolean,
+): Promise<boolean> {
+  const generation = storeGeneration();
+  const going = () => alive() && storeGeneration() === generation;
+  let soFar = "";
+  for (const chunk of chunksOf(text, seed)) {
+    await pause();
+    if (!going()) return false;
+    soFar += chunk;
+    onText(soFar);
+  }
+  return true;
+}
+
+/**
  * Taglia un testo in pezzi di 3–12 parole (lo spazio dopo una parola resta
  * con lei), deterministici per evento: uniti danno il testo esatto.
  */

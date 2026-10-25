@@ -321,6 +321,17 @@ export type ApiFnName =
   | "mail.handProposal"
   | "mail.chooseProject"
   | "mail.reassignProposal"
+  | "mail.getDraft"
+  | "mail.listDrafts"
+  | "mail.saveDraft"
+  | "mail.discardDraft"
+  | "mail.attachDriveFile"
+  | "mail.sendDraft"
+  | "mail.undoSend"
+  | "mail.retrySend"
+  | "mail.deleteFailedSend"
+  | "mail.suggestRecipients"
+  | "mail.draftReply"
   /** Un passo dell'allineamento simulato di una casella (arriva la posta nuova). */
   | "mail.advanceSync"
   /** Un passo della classificazione simulata (in analisi → classificata o fallita). */

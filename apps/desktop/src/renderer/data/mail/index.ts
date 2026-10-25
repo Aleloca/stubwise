@@ -31,3 +31,23 @@ export {
   type MailProposalOutcome,
 } from "./proposals";
 export { permissionForAction } from "./visibility";
+export {
+  attachDriveFile,
+  deleteFailedSend,
+  discardDraft,
+  getDraft,
+  listDrafts,
+  MAIL_MAX_ATTACHMENTS,
+  MAIL_MAX_BYTES,
+  MAIL_UNDO_MS,
+  retrySend,
+  saveDraft,
+  sendDraft,
+  streamClaudeDraft,
+  suggestRecipients,
+  undoSend,
+  whenSendSettled,
+  type ClaudeDraftOutcome,
+  type ClaudeDraftStream,
+  type MailDraftInput,
+} from "./compose";

@@ -16,8 +16,13 @@ export function stubwiseRecipients(m: MailMessage): Set<string> {
   return ids;
 }
 
-/** Chi guarda vede il messaggio: ne è un destinatario in Stubwise. */
+/**
+ * Chi guarda vede il messaggio: ne è un destinatario in Stubwise. Un invio
+ * non ancora partito (`sending`, nei 5 s dell'«Annulla») o fallito non è
+ * arrivato a nessuno: lo vede solo chi l'ha scritto.
+ */
 export function canSeeMessage(me: string, m: MailMessage): boolean {
+  if (m.delivery && m.delivery.state !== "sent") return m.delivery.sentById === me;
   return (
     m.from.personId === me ||
     m.to.some((a) => a.personId === me) ||

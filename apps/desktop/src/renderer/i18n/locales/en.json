@@ -2481,6 +2481,17 @@
       "answerWithNote": "{{option}} — {{note}}",
       "emailTitle": "From the email “{{subject}}”",
       "emailDecision": "{{sender}} wrote: “{{excerpt}}”"
+    },
+    "mailDraft": {
+      "greeting": "Hi {{name}},",
+      "greetingAll": "Hi,",
+      "thanks": "Thanks for your message about “{{subject}}”.",
+      "late": "On our side, “{{title}}” is running late.",
+      "lateDue": "On our side, “{{title}}” is running late (it was due {{date}}).",
+      "working": "We're working on {{titles}}.",
+      "quoted": "“{{title}}”",
+      "fallback": "I'll get back to you shortly.",
+      "closing": "Best,\n{{name}}"
     }
   },
   "chat": {
