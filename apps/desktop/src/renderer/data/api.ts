@@ -100,6 +100,8 @@ export type { ScriptStep, StreamConnection, StreamMode, SubscribeOptions } from 
 export * as chat from "./chat";
 /** I Docs (area 5): `api.docs.listDocSpaces(…)`, `api.docs.createManualPage(…)`… */
 export * as docs from "./docs";
+/** Il Drive (area 5): `api.drive.listDriveFiles(…)`, `api.drive.uploadFiles(…)`… */
+export * as drive from "./drive";
 
 /** Ripristina lo stato (sessione, dati, errori iniettati) e porta le task scadute alla settimana corrente. */
 export function resetApi(): void {

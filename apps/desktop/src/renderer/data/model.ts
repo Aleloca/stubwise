@@ -1222,6 +1222,130 @@ export interface GoogleOutsideFile {
   summary: string;
 }
 
+/**
+ * Una cartella di Google Drive come la vede Google (simulato): la sceglie il
+ * selettore di «Collega una cartella». `path` sono le briciole sopra di lei
+ * («My Drive › Clienti»); la vede chi è in `visibleToPersonIds`.
+ */
+export interface GoogleFolder {
+  googleFolderId: string;
+  name: string;
+  path: string[];
+  visibleToPersonIds: string[];
+}
+
+/**
+ * Un file di Google Drive come lo vede Google (simulato): la fonte da cui
+ * collegare, aggiungere e risincronizzare i riferimenti. Il contenuto è
+ * quello finale (il riferimento passa da `processing` prima di averlo);
+ * `deleted` = cancellato su Google. Lo vede chi vede la sua cartella o chi
+ * è in `visibleToPersonIds`.
+ */
+export interface GoogleDriveFile {
+  googleFileId: string;
+  googleFolderId: string | null;
+  name: string;
+  type: DriveFileType;
+  mime: string;
+  sizeBytes: number | null;
+  owner: string;
+  modifiedAt: string;
+  deleted: boolean;
+  content: Exclude<ContentState, "processing">;
+  text: string;
+  summary: string | null;
+  ocr: boolean;
+  visibleToPersonIds: string[];
+}
+
+/** Gli ordinamenti del Drive: «Più usati» (predefinito), Recenti, Nome. */
+export type DriveSort = "most_used" | "recent" | "name";
+
+/** I filtri dell'elenco del Drive; `hidden: true` = solo i nascosti (chi ha `drive.manage`). */
+export interface DriveFilters {
+  projectId?: string;
+  type?: DriveFileType;
+  source?: DriveFile["source"];
+  addedById?: string;
+  hidden?: boolean;
+  sort: DriveSort;
+}
+
+/** Cosa può fare chi guarda su un file: lo calcola il «server», il client lo legge. */
+export interface DriveFilePermissions {
+  /** Eliminare un caricato: il proprio, o con `drive.manage`. */
+  delete: boolean;
+  /** Togliere un Google: aggiunto da me, o `drive.manage`; un file di cartella solo se non disponibile. */
+  remove: boolean;
+  /** Nascondere/rimostrare un file di cartella (`drive.manage`). */
+  hide: boolean;
+  /** «Riprova» l'estrazione di un contenuto in errore (`drive.manage`). */
+  retry: boolean;
+}
+
+/**
+ * Una riga del Drive: il file senza il testo estratto, con le aperture degli
+ * ultimi 90 giorni, la prima riga del riassunto e la cartella (il gruppo).
+ */
+export interface DriveFileRow extends Omit<DriveFile, "text"> {
+  projectCode: string;
+  opens90d: number;
+  /** L'ultima apertura contata, di chiunque (per «Recenti»). */
+  lastOpenedAt: string | null;
+  summaryLine: string | null;
+  folder: { id: string; name: string; status: FolderLink["status"] } | null;
+  /** Chi l'ha nascosto e quando (solo per un nascosto). */
+  hiddenBy: { personId: string; at: string } | null;
+  permissions: DriveFilePermissions;
+}
+
+/**
+ * Il dettaglio di un file: la riga, il totale da sempre e lo storico delle
+ * aperture (più recenti in alto) — `null` senza `drive.history`.
+ */
+export interface DriveFileDetail extends DriveFileRow {
+  opensTotal: number;
+  history: DriveOpen[] | null;
+}
+
+/** Una cartella collegata con quanti file porta nel progetto (non nascosti). */
+export interface FolderLinkView extends FolderLink {
+  fileCount: number;
+}
+
+/** Una cartella nel selettore di «Collega una cartella». */
+export interface GoogleFolderChoice {
+  googleFolderId: string;
+  name: string;
+  path: string[];
+  fileCount: number;
+  alreadyLinked: boolean;
+}
+
+/** Un file nel selettore di «Aggiungi da Google Drive». */
+export interface GoogleFileChoice {
+  googleFileId: string;
+  name: string;
+  type: DriveFileType;
+  owner: string;
+  modifiedAt: string;
+  alreadyInProject: boolean;
+}
+
+/** Un file scelto dal disco: nome, tipo e dimensione letti nel renderer. */
+export interface DriveUploadInput {
+  name: string;
+  mime: string;
+  sizeBytes: number;
+}
+
+/** L'esito del caricamento di un file: la riga nuova, o perché no. */
+export interface DriveUploadResult {
+  name: string;
+  file: DriveFileRow | null;
+  error: "too_large" | null;
+}
+
 // --- Chat (area 4) -----------------------------------------------------------
 
 /**

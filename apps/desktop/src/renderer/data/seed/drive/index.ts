@@ -7,6 +7,7 @@ import { MKX_FILES, MKX_OPENS } from "./mkx";
 import { STW_FILES, STW_OPENS } from "./stw";
 
 export { FOLDER_LINKS, GOOGLE_ACCOUNTS, GOOGLE_OUTSIDE_FILES } from "./google";
+export { DRIVE_HIDDEN, GOOGLE_DRIVE_FILES, GOOGLE_FOLDERS, GOOGLE_UPDATES } from "./catalog";
 
 export const DRIVE_FILES: DriveFile[] = [...AUD_FILES, ...MKX_FILES, ...STW_FILES];
 

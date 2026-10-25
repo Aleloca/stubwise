@@ -29,9 +29,12 @@ import { DOC_PAGES } from "./seed/docPages";
 import { DOC_SPACES } from "./seed/docs/spaces";
 import {
   DRIVE_FILES,
+  DRIVE_HIDDEN,
   DRIVE_OPENS,
   FOLDER_LINKS,
   GOOGLE_ACCOUNTS,
+  GOOGLE_DRIVE_FILES,
+  GOOGLE_FOLDERS,
   GOOGLE_OUTSIDE_FILES,
 } from "./seed/drive";
 import { DEFAULT_SESSION_PERSON_ID, getSessionPersonId, setSessionPersonId } from "./session";
@@ -66,10 +69,13 @@ import type {
   DocGeneration,
   DocPage,
   DocSpace,
+  ContentState,
   DriveFile,
   DriveOpen,
   FolderLink,
   GoogleAccount,
+  GoogleDriveFile,
+  GoogleFolder,
   GoogleOutsideFile,
   SavedFilter,
   StatusFamily,
@@ -255,7 +261,29 @@ export type ApiFnName =
   /** Un passo della generazione simulata (in coda → in corso → riuscita). */
   | "docs.advanceGeneration"
   /** Un passo della costruzione simulata del grafo. */
-  | "docs.advanceGraph";
+  | "docs.advanceGraph"
+  // Drive (area 5)
+  | "drive.listDriveFiles"
+  | "drive.getDriveFile"
+  | "drive.listFolderLinks"
+  | "drive.getGoogleAccount"
+  | "drive.listGoogleOutside"
+  | "drive.listGoogleFolders"
+  | "drive.listGoogleFiles"
+  | "drive.uploadFiles"
+  | "drive.deleteDriveFile"
+  | "drive.removeGoogleFile"
+  | "drive.setHidden"
+  | "drive.linkFolder"
+  | "drive.unlinkFolder"
+  | "drive.addGoogleFile"
+  | "drive.recordOpen"
+  | "drive.retryExtraction"
+  | "drive.connectGoogle"
+  | "drive.disconnectGoogle"
+  | "drive.syncFolder"
+  /** Un passo dell'estrazione simulata del contenuto (in elaborazione → stato finale). */
+  | "drive.advanceContent";
 const failures = new Set<ApiFnName>();
 
 /** Fissa la latenza simulata (ms); `0` per i test, `null` per tornare a 150–400 ms. */
@@ -397,6 +425,15 @@ interface State {
   folderLinks: FolderLink[];
   /** I file Google in nessun progetto (simulati: li vede chi ha l'account). */
   googleOutside: GoogleOutsideFile[];
+  /** L'ultimo numero di codice `<PRJ>-F<n>` dato, per progetto: un codice non si riusa. */
+  driveCodeSeq: Map<string, number>;
+  /** Chi ha nascosto un file e quando, per id del file (solo i nascosti). */
+  driveHidden: Map<string, { personId: string; at: string }>;
+  /** Il lato Google (simulato): le cartelle e i file come li vede Google. */
+  googleFolders: GoogleFolder[];
+  googleFiles: GoogleDriveFile[];
+  /** Gli stati del contenuto attraversati da un file dopo il seme (per i test e i passi simulati). */
+  driveContentLog: Map<string, ContentState[]>;
 }
 
 function initialDocCodeSeq(): Map<string, number> {
@@ -404,6 +441,15 @@ function initialDocCodeSeq(): Map<string, number> {
   for (const page of DOC_PAGES) {
     const n = Number(page.code.slice(page.code.lastIndexOf("-D") + 2));
     seq.set(page.projectId, Math.max(seq.get(page.projectId) ?? 0, n));
+  }
+  return seq;
+}
+
+function initialDriveCodeSeq(): Map<string, number> {
+  const seq = new Map<string, number>();
+  for (const file of DRIVE_FILES) {
+    const n = Number(file.code.slice(file.code.lastIndexOf("-F") + 2));
+    seq.set(file.projectId, Math.max(seq.get(file.projectId) ?? 0, n));
   }
   return seq;
 }
@@ -461,6 +507,11 @@ function freshState(): State {
     googleAccounts: GOOGLE_ACCOUNTS.map(copy),
     folderLinks: FOLDER_LINKS.map(copy),
     googleOutside: GOOGLE_OUTSIDE_FILES.map(copy),
+    driveCodeSeq: initialDriveCodeSeq(),
+    driveHidden: new Map(DRIVE_HIDDEN.map((h) => [h.fileId, { personId: h.personId, at: h.at }])),
+    googleFolders: GOOGLE_FOLDERS.map(copy),
+    googleFiles: GOOGLE_DRIVE_FILES.map(copy),
+    driveContentLog: new Map(),
   };
 }
 

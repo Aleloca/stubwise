@@ -27,6 +27,10 @@ import type {
   DepartmentHome,
   DocGeneration,
   DocsQuestion,
+  DriveFileRow,
+  DriveFilters,
+  DriveOpen,
+  DriveUploadInput,
   GraphActionKind,
   GraphState,
   ManualPageInput,
@@ -151,6 +155,19 @@ export const queryKeys = {
     ["as", personId, "docs", "brief", repositoryId] as const,
   docSearch: (personId: string, q: string, repositoryId: string | null) =>
     ["as", personId, "docs", "search", q, repositoryId] as const,
+  // Drive (area 5): tutto nell'area «drive», che ogni scrittura del Drive ricarica.
+  driveFiles: (personId: string, filters: DriveFilters) =>
+    ["as", personId, "drive", "files", filters] as const,
+  driveFile: (personId: string, id: string) => ["as", personId, "drive", "file", id] as const,
+  folderLinks: (personId: string, projectId: string) =>
+    ["as", personId, "drive", "folders", projectId] as const,
+  googleAccount: (personId: string) => ["as", personId, "drive", "google-account"] as const,
+  googleOutside: (personId: string, q: string) =>
+    ["as", personId, "drive", "google-outside", q] as const,
+  googleFolders: (personId: string, projectId: string) =>
+    ["as", personId, "drive", "google-folders", projectId] as const,
+  googleFiles: (personId: string, projectId: string, q: string) =>
+    ["as", personId, "drive", "google-files", projectId, q] as const,
   chatSearch: (personId: string, q: string, filters: ChatSearchFilters) =>
     ["as", personId, "chatSearch", q, filters] as const,
 };
@@ -2135,4 +2152,161 @@ export function useAskDocs() {
 /** Una visita alla pagina («più lette»). */
 export function useRecordDocView() {
   return useWrite((pageId: string) => api.docs.recordDocView(pageId), DOCS_AREAS);
+}
+
+// --- Drive (area 5) ------------------------------------------------------------
+
+/**
+ * Le scritture del Drive ricaricano il Drive; quelle che tolgono, nascondono o
+ * aggiungono un file anche citazioni, codici e «#» (un file che sparisce deve
+ * sparire anche lì, R-G5).
+ */
+const DRIVE_AREAS = ["drive"] as const;
+const DRIVE_FILE_AREAS = ["drive", "citations", "codeCitations", "mentions"] as const;
+
+/** Mentre un file è in elaborazione la lettura si ripete da sola, finché non è pronto. */
+const DRIVE_REFRESH_MS = 1000;
+const reading = (rows: readonly Pick<DriveFileRow, "content">[] | null | undefined) =>
+  !!rows?.some((r) => r.content === "processing");
+
+/** Il Drive: di un progetto o, senza `projectId`, di tutti i progetti che vedo. */
+export function useDriveFiles(filters: DriveFilters, { enabled = true } = {}) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.driveFiles(me, filters),
+    queryFn: () => api.drive.listDriveFiles(filters),
+    enabled,
+    refetchInterval: (query) => (reading(query.state.data) ? DRIVE_REFRESH_MS : false),
+  });
+}
+
+/** Il dettaglio di un file (non conta un'apertura); `null` se non c'è per chi guarda. */
+export function useDriveFile(id: string | null) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.driveFile(me, id ?? ""),
+    queryFn: () => api.drive.getDriveFile(id!),
+    enabled: id !== null,
+    refetchInterval: (query) =>
+      query.state.data?.content === "processing" ? DRIVE_REFRESH_MS : false,
+  });
+}
+
+export function useFolderLinks(projectId: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.folderLinks(me, projectId),
+    queryFn: () => api.drive.listFolderLinks(projectId),
+  });
+}
+
+/** L'account Google personale di chi guarda (collegato, scaduto o `null`). */
+export function useGoogleAccount() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.googleAccount(me),
+    queryFn: () => api.drive.getGoogleAccount(),
+  });
+}
+
+/** I file Google fuori dai progetti (solo con l'account collegato). */
+export function useGoogleOutside(q: string, enabled = true) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.googleOutside(me, q),
+    queryFn: () => api.drive.listGoogleOutside(q),
+    enabled,
+  });
+}
+
+/** Il selettore di «Collega una cartella». */
+export function useGoogleFolders(projectId: string, enabled = true) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.googleFolders(me, projectId),
+    queryFn: () => api.drive.listGoogleFolders(projectId),
+    enabled,
+  });
+}
+
+/** Il selettore di «Aggiungi da Google Drive». */
+export function useGoogleFiles(projectId: string, q: string, enabled = true) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.googleFiles(me, projectId, q),
+    queryFn: () => api.drive.listGoogleFiles(projectId, q),
+    enabled,
+  });
+}
+
+export function useUploadFiles() {
+  return useWrite(
+    ({ projectId, files }: { projectId: string; files: DriveUploadInput[] }) =>
+      api.drive.uploadFiles(projectId, files),
+    DRIVE_FILE_AREAS,
+  );
+}
+
+export function useDeleteDriveFile() {
+  return useWrite((id: string) => api.drive.deleteDriveFile(id), DRIVE_FILE_AREAS);
+}
+
+export function useRemoveGoogleFile() {
+  return useWrite((id: string) => api.drive.removeGoogleFile(id), DRIVE_FILE_AREAS);
+}
+
+export function useSetDriveHidden() {
+  return useWrite(
+    ({ id, hidden }: { id: string; hidden: boolean }) => api.drive.setHidden(id, hidden),
+    DRIVE_FILE_AREAS,
+  );
+}
+
+export function useLinkFolder() {
+  return useWrite(
+    ({ projectId, googleFolderId }: { projectId: string; googleFolderId: string }) =>
+      api.drive.linkFolder(projectId, googleFolderId),
+    DRIVE_FILE_AREAS,
+  );
+}
+
+export function useUnlinkFolder() {
+  return useWrite((linkId: string) => api.drive.unlinkFolder(linkId), DRIVE_FILE_AREAS);
+}
+
+export function useSyncFolder() {
+  return useWrite((linkId: string) => api.drive.syncFolder(linkId), DRIVE_FILE_AREAS);
+}
+
+export function useAddGoogleFile() {
+  return useWrite(
+    ({ projectId, googleFileId }: { projectId: string; googleFileId: string }) =>
+      api.drive.addGoogleFile(projectId, googleFileId),
+    DRIVE_FILE_AREAS,
+  );
+}
+
+/**
+ * Un'apertura (anteprima intera, «Apri in Google Drive», download): solo
+ * questi tre gesti la chiamano, mai una lettura.
+ */
+export function useRecordDriveOpen() {
+  return useWrite(
+    ({ fileId, via }: { fileId: string; via: DriveOpen["via"] }) =>
+      api.drive.recordOpen(fileId, via),
+    DRIVE_AREAS,
+  );
+}
+
+export function useRetryExtraction() {
+  return useWrite((id: string) => api.drive.retryExtraction(id), DRIVE_AREAS);
+}
+
+/** Collegare o scollegare l'account cambia cosa si vede di Google e i file delle mie cartelle. */
+export function useConnectGoogle() {
+  return useWrite(() => api.drive.connectGoogle(), DRIVE_FILE_AREAS);
+}
+
+export function useDisconnectGoogle() {
+  return useWrite(() => api.drive.disconnectGoogle(), DRIVE_FILE_AREAS);
 }

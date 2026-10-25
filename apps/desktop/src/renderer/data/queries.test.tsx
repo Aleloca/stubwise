@@ -16,6 +16,9 @@ import {
   useConversationStream,
   useConversations,
   useDayArrangements,
+  useDriveFile,
+  useDriveFiles,
+  useRecordDriveOpen,
   usePeopleActivity,
   usePinnedFilters,
   usePlanTask,
@@ -288,5 +291,49 @@ describe("conferma di una proposta", () => {
       result.current.confirm.mutateAsync({ id: "cv-giulia-week", proposalId: "prop-areas" }),
     );
     await waitFor(() => expect(mine()).toContain("Leaflet for the fair"));
+  });
+});
+
+describe("Drive (area 5)", () => {
+  it("useDriveFile: cambiando persona niente del file (né lo storico) della precedente", async () => {
+    const seen: { personId: string; history: unknown; code: string | null | undefined }[] = [];
+    const { result } = renderHook(
+      () => {
+        const viewer = useViewer();
+        const file = useDriveFile("drv-aud-7");
+        seen.push({
+          personId: viewer.viewer.personId,
+          code: file.data === null ? null : file.data?.code,
+          history: file.data?.history,
+        });
+        return { viewer, file };
+      },
+      { wrapper },
+    );
+    act(() => result.current.viewer.setPersona("p-laura"));
+    await waitFor(() => expect(result.current.file.data?.history).toHaveLength(29));
+    act(() => result.current.viewer.setPersona("p-sara"));
+    await waitFor(() => expect(result.current.file.data).toBeNull());
+    for (const s of seen.filter((x) => x.personId === "p-sara")) {
+      expect(s.code).not.toBe("AUD-F7");
+      expect(s.history).toBeUndefined();
+    }
+  });
+
+  it("un'apertura ricarica l'elenco: il numero sulla riga sale di uno", async () => {
+    const { result } = renderHook(
+      () => {
+        const viewer = useViewer();
+        const rows = useDriveFiles({ projectId: "prj-aud", sort: "most_used" });
+        const open = useRecordDriveOpen();
+        return { viewer, rows, open };
+      },
+      { wrapper },
+    );
+    act(() => result.current.viewer.setPersona("p-marco"));
+    const count = () => result.current.rows.data?.find((f) => f.code === "AUD-F3")?.opens90d;
+    await waitFor(() => expect(count()).toBe(5));
+    await act(() => result.current.open.mutateAsync({ fileId: "drv-aud-3", via: "preview" }));
+    await waitFor(() => expect(count()).toBe(6));
   });
 });
