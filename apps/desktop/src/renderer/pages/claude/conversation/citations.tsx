@@ -59,6 +59,34 @@ export function HiddenCode({ code }: { code: string }) {
   );
 }
 
+/**
+ * La vista di un oggetto citato con il codice registrato nella citazione
+ * (R-H5): un file del Drive che chi guarda non vede più non ha codice nella
+ * vista (nascosto ≡ ignoto), ma la citazione lo ha registrato quando è
+ * stata scritta. Vale quello, per ogni causa (progetto invisibile, file
+ * nascosto, tolto): il codice tenue, identico in ogni superficie.
+ */
+export function withRecordedCode(view: CitationView, ref: CitationRef): CitationView {
+  if (view.visible || view.code || ref.kind !== "drive" || !ref.code) return view;
+  return { ...view, code: ref.code };
+}
+
+/**
+ * I codici degli oggetti citati che chi guarda non può aprire, compreso il
+ * codice registrato di un file del Drive (`withRecordedCode`): nel testo
+ * dello stesso messaggio diventano il codice tenue, non un link.
+ */
+export function hiddenCodesOf(index: CitationIndex, refs: readonly CitationRef[]): Set<string> {
+  const out = new Set<string>();
+  for (const ref of refs) {
+    const view = index.byRef.get(refKey(ref));
+    if (!view || view.visible) continue;
+    const code = withRecordedCode(view, ref).code;
+    if (code) out.add(code);
+  }
+  return out;
+}
+
 const CitationContext = createContext<CitationIndex>(indexCitations([]));
 export const CitationProvider = CitationContext.Provider;
 export const useCitationIndex = () => useContext(CitationContext);
@@ -297,7 +325,10 @@ function ObjectPreview({ id, view }: { id: string; view: CitationView }) {
 export function UsedLine({ refs }: { refs: readonly CitationRef[] }): ReactNode {
   const { t } = useTranslation();
   const index = useCitationIndex();
-  const views = refs.map((ref) => index.byRef.get(refKey(ref))).filter((v) => v !== undefined);
+  const views = refs.flatMap((ref) => {
+    const view = index.byRef.get(refKey(ref));
+    return view ? [withRecordedCode(view, ref)] : [];
+  });
   if (views.length === 0) return null;
   return (
     <p className="flex flex-wrap items-baseline gap-x-1 gap-y-0.5 text-sm text-ink-muted">

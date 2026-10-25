@@ -250,6 +250,37 @@ describe("Ricerca nel Drive — fix round 1", () => {
     expect(state.driveOpens.length).toBe(before);
   });
 
+  it("⌘K: un file diventato non disponibile prima di Invio dice perché, non «aperto»", async () => {
+    const user = userEvent.setup();
+    await openDrive("/p/AUD/drive");
+    const dialog = await openPalette(user);
+    await user.type(within(dialog).getByRole("combobox"), "penalty");
+    const files = await within(dialog).findByRole("group", { name: "Files" });
+    const option = within(files).getByRole("option", { name: /AUD-F7/ });
+    const before = state.driveOpens.length;
+    // Fra la ricerca e Invio Google lo cancella: la riga dei risultati è vecchia.
+    state.driveFiles.find((f) => f.id === "drv-aud-7")!.unavailable = "deleted";
+    while (option.getAttribute("aria-selected") !== "true") await user.keyboard("{ArrowDown}");
+    await user.keyboard("{Enter}");
+    expect(
+      await screen.findByText("AUD-F7 can't be opened: it was deleted on Google."),
+    ).toBeInTheDocument();
+    expect(state.driveOpens.length).toBe(before);
+  });
+
+  it("Drive: lo stesso per un risultato diventato non disponibile prima del clic", async () => {
+    await openDrive("/p/AUD/drive");
+    await searchFor("penalty");
+    await waitFor(() => expect(result("AUD-F7")).toBeTruthy());
+    const before = state.driveOpens.length;
+    state.driveFiles.find((f) => f.id === "drv-aud-7")!.unavailable = "deleted";
+    await userEvent.click(result("AUD-F7")!);
+    expect(
+      await screen.findByText("AUD-F7 can't be opened: it was deleted on Google."),
+    ).toBeInTheDocument();
+    expect(state.driveOpens.length).toBe(before);
+  });
+
   it("⌘K: un file non disponibile o in lettura dice il suo stato come nel Drive", async () => {
     const user = userEvent.setup();
     await openDrive("/p/AUD/drive");

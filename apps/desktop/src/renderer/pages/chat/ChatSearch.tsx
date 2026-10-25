@@ -40,6 +40,7 @@ import {
   indexCitations,
   refKey,
   useCitationIndex,
+  withRecordedCode,
 } from "../claude/conversation/citations";
 import { FileGlyph } from "../claude/conversation/parts";
 import { rowLabel } from "./ChatPage";
@@ -976,13 +977,17 @@ function PersonMenu({
 
 // --- un risultato -------------------------------------------------------------------
 
-/** Il testo con le parole trovate in `<mark>`: fondo d'inchiostro al 14% e peso 600, mai un colore. */
+/**
+ * Il testo con le parole trovate in `<mark>`: fondo d'inchiostro al 14% e
+ * peso 600, mai un colore. Nessun margine orizzontale: una parola trovata a
+ * metà («release» in «releases») resta una parola sola, non «release s».
+ */
 export function Highlighted({ text, words }: { text: string; words: readonly string[] }) {
   return (
     <>
       {highlightParts(text, words).map((part, i) =>
         part.hit ? (
-          <mark key={i} data-hit className="rounded-[2px] bg-ink/14 px-px font-semibold text-ink">
+          <mark key={i} data-hit className="rounded-[2px] bg-ink/14 font-semibold text-ink">
             {part.text}
           </mark>
         ) : (
@@ -993,10 +998,14 @@ export function Highlighted({ text, words }: { text: string; words: readonly str
   );
 }
 
-/** Un oggetto citato, come gettone (codice + nome) che non si apre da qui; R-E9 per chi non lo vede. */
+/**
+ * Un oggetto citato, come gettone (codice + nome) che non si apre da qui;
+ * R-E9 per chi non lo vede (un file del Drive: il codice registrato, R-H5).
+ */
 function CitationToken({ refItem }: { refItem: CitationRef }) {
   const index = useCitationIndex();
-  const view = index.byRef.get(refKey(refItem));
+  const found = index.byRef.get(refKey(refItem));
+  const view = found && withRecordedCode(found, refItem);
   if (!view || view.kind === "person") return null;
   if (!view.visible) return view.code ? <HiddenCode code={view.code} /> : null;
   return (

@@ -1978,7 +1978,7 @@
         "noDocs": "{{code}} non ha i Docs, quindi non ho nulla da citare. Non tiro a indovinare: puoi chiederlo al team con una richiesta.",
         "nothing": "I Docs di {{code}} non parlano di «{{topic}}». Non tiro a indovinare: prova con altre parole, o chiedilo al team con una richiesta.",
         "nothingAll": "I Docs dei tuoi progetti non parlano di «{{topic}}». Non tiro a indovinare: prova con altre parole, o dimmi il progetto.",
-        "found": "Dai Docs di {{code}}, pagina **{{title}}** ({{path}}):"
+        "found": "Dai Docs di {{code}}, pagina **{{pageCode}} {{title}}** ({{path}}):"
       },
       "run": {
         "noCode": "Quale richiesta o task devo avviare? Dimmi il codice, come STW-R1 o AUD-4.",

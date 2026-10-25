@@ -4,7 +4,7 @@ import { setSessionPersonId } from "../session";
 import { state } from "../store";
 import type { DriveOpen } from "../types";
 import { isOpenCounted, opens90d, searchableText } from "./content";
-import { driveFilesForClaude, readDriveFileForClaude } from "./reads";
+import { driveFilesForClaude } from "./reads";
 
 const as = (personId: string) => setSessionPersonId(personId);
 const AUD = "prj-aud";
@@ -125,7 +125,7 @@ describe("Drive: visibilità (Review Focus 1)", () => {
     expect(await drive.listDriveFiles({ projectId: AUD, hidden: true, sort: "name" })).toEqual([]);
     await rejects(drive.setHidden("drv-aud-8", false), "not_found");
     await rejects(drive.recordOpen("drv-aud-8", "google"), "not_found");
-    expect(readDriveFileForClaude("p-marco", "drv-aud-8")).toBeNull();
+    expect(driveFilesForClaude("p-marco").some((f) => f.id === "drv-aud-8")).toBe(false);
   });
 
   it("chi gestisce vede il nascosto solo nel filtro «Nascosti», con chi l'ha nascosto", async () => {
@@ -142,10 +142,10 @@ describe("Drive: visibilità (Review Focus 1)", () => {
     expect(laura).not.toContain("AUD-F11"); // non disponibile
     expect(laura).not.toContain("AUD-F8"); // nascosto
     expect(laura).not.toContain("AUD-F14"); // in elaborazione
-    expect(readDriveFileForClaude("p-laura", "drv-aud-7")?.text).toContain("30 working days");
+    expect(driveFilesForClaude("p-laura").find((f) => f.id === "drv-aud-7")?.text).toContain(
+      "30 working days",
+    );
     expect(driveFilesForClaude("p-sara").some((f) => f.projectId === AUD)).toBe(false);
-    expect(readDriveFileForClaude("p-sara", "drv-aud-7")).toBeNull();
-    expect(readDriveFileForClaude("p-sara", "drv-nope")).toBeNull();
   });
 });
 
@@ -261,7 +261,6 @@ describe("Drive: aperture (Review Focus 2)", () => {
   it("la lettura di Claude non conta un'apertura", () => {
     const before = state.driveOpens.length;
     driveFilesForClaude("p-laura");
-    readDriveFileForClaude("p-laura", "drv-aud-7");
     expect(state.driveOpens.length).toBe(before);
   });
 
@@ -503,6 +502,11 @@ describe("Drive: account Google", () => {
       "Offerta Cantina Bellavista – bozza",
     ]);
     expect((await drive.listGoogleOutside("wine club")).map((f) => f.name)).toEqual([
+      "Offerta Cantina Bellavista – bozza",
+    ]);
+    // Le stesse parole della ricerca del Drive: accenti piegati, in qualunque
+    // ordine e non attaccate.
+    expect((await drive.listGoogleOutside("bellavìsta OFFERTA")).map((f) => f.name)).toEqual([
       "Offerta Cantina Bellavista – bozza",
     ]);
     as("p-laura"); // scaduto

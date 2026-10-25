@@ -276,7 +276,7 @@ describe("risposte come Giulia", () => {
     const steps = await respond("How do scheduled callbacks work in AUD?", as("p-giulia"));
     expect(actions(steps)).toEqual(["Searched AUD docs for “scheduled callbacks”"]);
     expect(said(steps)).toContain(
-      "From the AUD Docs, page **Scheduled callbacks** (Guide / Dialer):",
+      "From the AUD Docs, page **AUD-D1 Scheduled callbacks** (Guide / Dialer):",
     );
     expect(said(steps)).toContain("> A callback is stored in UTC");
     expect(refs(steps)).toEqual(["doc-aud-callbacks"]);
@@ -284,7 +284,7 @@ describe("risposte come Giulia", () => {
 
   it("howto in italiano", async () => {
     const steps = await respond("Come funziona l'import dei contatti in AUD?", as("p-giulia", it_));
-    expect(said(steps)).toContain("Dai Docs di AUD, pagina **Importing contacts**");
+    expect(said(steps)).toMatch(/Dai Docs di AUD, pagina \*\*AUD-D\d+ Importing contacts\*\*/);
     expect(refs(steps)).toEqual(["doc-aud-import"]);
   });
 

@@ -456,6 +456,16 @@ describe("generazione, grafo e chat (Task 3)", () => {
     expect(answer.answeredAt).toMatch(/T12:00:00Z$/);
   });
 
+  it("searchDocs cerca per parole come il Drive: accenti piegati, ordine libero", async () => {
+    const codes = async (q: string) => (await docs.searchDocs(q)).map((h) => h.page.code);
+    expect(await codes("reminders callback")).toContain("AUD-D1");
+    expect(await codes("cállback")).toContain("AUD-D1");
+    // Tutte le parole devono esserci.
+    expect(await codes("callback zanzibar")).toEqual([]);
+    const [hit] = await docs.searchDocs("reminders callback", { repositoryId: "repo-aud" });
+    expect(hit!.passage.toLowerCase()).toMatch(/callback|reminders/);
+  });
+
   it("searchDocs dà il passaggio che ha corrisposto", async () => {
     const [hit] = await docs.searchDocs("callback", { repositoryId: "repo-aud" });
     expect(hit!.passage.toLowerCase()).toContain("callback");

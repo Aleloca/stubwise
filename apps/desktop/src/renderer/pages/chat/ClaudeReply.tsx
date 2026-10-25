@@ -16,7 +16,13 @@ import { Markdown } from "../../tasks-ui/Markdown";
 import { itemClass, MenuGroup } from "../../tasks-ui/Menu";
 import { useToast } from "../../tasks-ui/Toast";
 import { ActionRows } from "../claude/conversation/ActionRows";
-import { HiddenCode, refKey, useCitationIndex, UsedLine } from "../claude/conversation/citations";
+import {
+  HiddenCode,
+  hiddenCodesOf,
+  refKey,
+  useCitationIndex,
+  UsedLine,
+} from "../claude/conversation/citations";
 import { CODE_IN_TEXT } from "../claude/conversation/flow";
 import { quietButton } from "../claude/conversation/parts";
 import { ProposalCardView, routeOfCode } from "../claude/conversation/ProposalCard";
@@ -102,12 +108,8 @@ export function ClaudeReply({
 
   // I codici che chi guarda non vede: quelli citati e quelli delle righe e delle schede.
   const hidden = useMemo(() => {
-    const out = new Set(m.hiddenCodes ?? []);
-    for (const ref of m.citations) {
-      const view = index.byRef.get(refKey(ref));
-      if (view && !view.visible && view.code) out.add(view.code);
-    }
-    return out;
+    // Un file del Drive non visibile: il codice registrato con la citazione (R-H5).
+    return new Set([...(m.hiddenCodes ?? []), ...hiddenCodesOf(index, m.citations)]);
   }, [m.hiddenCodes, m.citations, index]);
   const decorate = useMessageDecorator(mentionNames, hidden);
   /** Riassunti e domande: codice + nome se lo vede, tenue se no. */

@@ -407,6 +407,18 @@ describe("Drive — fix round 1", () => {
       expect(router.state.location.pathname).toBe(`/p/AUD/chat/${channelId}`),
     );
     expect(readDraft("p-laura", channelId)).toContain("AUD-F7");
+    // Come una scelta dal menu «#»: il messaggio registra la citazione del
+    // file col suo codice (R-H5), non solo il testo.
+    const box = await screen.findByRole("combobox", { name: /^Message .*general/ });
+    await waitFor(() => expect(box).toHaveValue("AUD-F7 "));
+    box.focus();
+    await userEvent.keyboard("{Enter}");
+    await waitFor(() =>
+      expect(state.chatMessages.find((m) => m.channelId === channelId && m.text === "AUD-F7"))
+        .toBeTruthy(),
+    );
+    const sent = state.chatMessages.find((m) => m.channelId === channelId && m.text === "AUD-F7")!;
+    expect(sent.citations).toEqual([{ kind: "drive", id: "drv-aud-7", code: "AUD-F7" }]);
   });
 
   it("nessun canale in cui scrivere: «Cite in Chat» non c'è", async () => {

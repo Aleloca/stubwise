@@ -15,7 +15,6 @@ import {
   useChatSearch,
   useDocSearch,
   useDocSpaces,
-  useDriveFileStillThere,
   useDriveSearch,
   usePeople,
   useProjects,
@@ -33,9 +32,8 @@ import { VIEW_AS_PERSONAS, useViewer } from "../data/viewer";
 import { DeptLegend, DeptStrip, useDepartmentName } from "../layout/DeptStrip";
 import { SearchIcon } from "../layout/icons";
 import { useRestoreFocus } from "../layout/useRestoreFocus";
-import { previewKind } from "../pages/drive/driveFilters";
 import { fileStateLine } from "../pages/drive/DriveSearch";
-import { useDriveOpeners } from "../pages/drive/FilePreview";
+import { useOpenDriveFile } from "../pages/drive/openFile";
 import { ExternalGlyph, GoogleDriveGlyph } from "../pages/drive/glyphs";
 import { openLinkFolder } from "../pages/drive/LinkFolderDialog";
 import { openGoogleOutsideFile } from "../pages/drive/WhichProjectDialog";
@@ -254,8 +252,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   // la stessa ricerca del campo del Drive. Mostrarli non conta un'apertura.
   const filesQuery = !scoped && trimmed.length >= MIN_QUERY ? trimmed : "";
   const fileSearch = useDriveSearch(filesQuery, undefined, !!filesQuery);
-  const openers = useDriveOpeners();
-  const stillThere = useDriveFileStillThere();
+  const openDriveFile = useOpenDriveFile();
 
   const groups = useMemo<Group[]>(() => {
     if (step === "viewAs") {
@@ -418,30 +415,18 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
             words,
           },
           fromSearch: true,
-          // Enter apre il file (e conta): su Google, l'anteprima, o il dettaglio se non ne ha.
+          // Enter apre il file (e conta): su Google, l'anteprima, o il dettaglio
+          // se non ne ha. Si decide sul file riletto, non sulla riga della
+          // ricerca: sparito o diventato non disponibile nel frattempo, l'avviso.
           select: () => {
             onClose();
-            // Sparito fra la ricerca e il clic (tolto, nascosto, permesso perso): solo l'avviso.
-            void stillThere(file.id).then((ok) => {
-              if (!ok) return toast.error(t("drive.search.gone"));
-              openFile();
-            });
+            openDriveFile(file.id);
           },
           details: () => {
             onClose();
             router.history.push(detailsPath);
           },
         };
-        function openFile() {
-            if (file.source === "google") {
-              if (file.unavailable === null) openers.google(file);
-              else toast.show(t(`drive.row.cantOpen.${file.unavailable}`, { code: file.code }));
-            } else if (previewKind(file)) {
-              openers.preview(file, [file]);
-            } else {
-              router.history.push(detailsPath);
-            }
-        }
       });
       const outsideItems = found.outside.slice(0, outsideRows).map(
         (o): Item => ({
@@ -630,8 +615,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     scopeProject,
     filesQuery,
     fileSearch.data,
-    openers,
-    stillThere,
+    openDriveFile,
   ]);
 
   // Finché la query digitata non è quella cercata, o i dati sono quelli della

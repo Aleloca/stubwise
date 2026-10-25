@@ -17,6 +17,7 @@ import {
   indexCitations,
   refKey,
   useCitationIndex,
+  withRecordedCode,
 } from "../claude/conversation/citations";
 import { UserMessage } from "../claude/conversation/EventList";
 import { primaryButton, quietButton, SendGlyph, WorkingRing } from "../claude/conversation/parts";
@@ -311,9 +312,10 @@ function Answer({ turn, onRetry }: { turn: Turn; onRetry: () => void }) {
             text: answer.text,
             done: true,
           },
-          refs: [],
+          refs: answer.refs,
         }}
         streaming={false}
+        showUsed={false}
       />
       <Sources answer={answer} />
     </div>
@@ -323,14 +325,17 @@ function Answer({ turn, onRetry }: { turn: Turn; onRetry: () => void }) {
 /**
  * «Used:» con le pagine lette: codice + titolo (si aprono nella colonna di
  * lettura, la chat resta) e «from audin-app»; una pagina che chi guarda non
- * legge più è il codice tenue che non si apre (R-E9).
+ * legge più è il codice tenue che non si apre (R-E9); un file del Drive che
+ * non vede più, il codice registrato con la citazione (R-H5).
  */
 function Sources({ answer }: { answer: DocsAnswer }) {
   const { t } = useTranslation();
   const index = useCitationIndex();
   const rows = answer.refs.flatMap((ref, i) => {
     const view = index.byRef.get(refKey(ref));
-    return view ? [{ view, repo: answer.sources[i]?.repositoryName }] : [];
+    return view
+      ? [{ view: withRecordedCode(view, ref), repo: answer.sources[i]?.repositoryName }]
+      : [];
   });
   if (rows.length === 0) return null;
   return (

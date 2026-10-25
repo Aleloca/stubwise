@@ -1,4 +1,11 @@
-import { useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type RefObject,
+} from "react";
 import type { CitationRef } from "../../../data/types";
 import type { Suggestion } from "./MentionMenu";
 
@@ -60,16 +67,25 @@ export function useComposerField({
   onText,
   maxLines,
   allowSlash,
+  initialTokens,
+  onTokens,
 }: {
   text: string;
   onText: (next: string) => void;
   maxLines: number;
   /** I comandi «/» (la conversazione sì, la Chat no). */
   allowSlash: boolean;
+  /** I gettoni con cui la casella riparte (quelli della bozza, nella Chat). */
+  initialTokens?: readonly ComposerToken[];
+  /** I gettoni cambiano: chi tiene la bozza li conserva con il testo. */
+  onTokens?: (tokens: ComposerToken[]) => void;
 }): ComposerField {
   const field = useRef<HTMLTextAreaElement>(null);
   const [caret, setCaret] = useState(0);
-  const [tokens, setTokens] = useState<ComposerToken[]>([]);
+  const [tokens, setTokens] = useState<ComposerToken[]>(() =>
+    (initialTokens ?? []).filter((tok) => text.includes(tok.insert)),
+  );
+  useEffect(() => onTokens?.(tokens), [tokens, onTokens]);
   const [active, setActive] = useState(0);
   const [dismissed, setDismissed] = useState<number | null>(null);
 

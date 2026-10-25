@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failNext, resetApi, setLatency } from "../../data/api";
@@ -462,5 +462,40 @@ describe("Docs — chat", () => {
       await within(chat).findByText(/Chat isn't available: it needs a provider with an API key/),
     ).toBeInTheDocument();
     expect(within(chat).queryByRole("textbox")).toBeNull();
+  });
+});
+
+describe("Docs — albero ridimensionabile", () => {
+  it("il bordo dell'albero si trascina e si sposta con ←/→, sempre fra 200 e 360 px", async () => {
+    renderRoute("/p/AUD/docs/audin-app", "p-laura");
+    const separator = await screen.findByRole("separator", { name: "Resize the page list" });
+    const tree = screen.getByRole("complementary", { name: /audin-app/ });
+    const width = () => Number(separator.getAttribute("aria-valuenow"));
+    expect(width()).toBe(240);
+    expect(separator).toHaveAttribute("aria-valuemin", "200");
+    expect(separator).toHaveAttribute("aria-valuemax", "360");
+
+    separator.focus();
+    await userEvent.keyboard("{ArrowRight}");
+    expect(width()).toBe(256);
+    expect(tree.style.width).toBe("256px");
+    for (let i = 0; i < 12; i++) await userEvent.keyboard("{ArrowRight}");
+    expect(width()).toBe(360);
+    for (let i = 0; i < 12; i++) await userEvent.keyboard("{ArrowLeft}");
+    expect(width()).toBe(200);
+
+    // Trascinare: segue il puntatore, e si ferma ai bordi.
+    fireEvent.pointerDown(separator, { clientX: 400 });
+    fireEvent.pointerMove(window, { clientX: 450 });
+    expect(width()).toBe(250);
+    fireEvent.pointerMove(window, { clientX: 900 });
+    expect(width()).toBe(360);
+    fireEvent.pointerMove(window, { clientX: 0 });
+    expect(width()).toBe(200);
+    fireEvent.pointerUp(window);
+    // Lasciato il puntatore, il bordo non segue più.
+    fireEvent.pointerMove(window, { clientX: 500 });
+    expect(width()).toBe(200);
+    expect(tree.style.width).toBe("200px");
   });
 });

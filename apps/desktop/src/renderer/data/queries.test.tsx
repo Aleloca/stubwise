@@ -11,6 +11,7 @@ import {
   simulateDisconnect,
 } from "./api";
 import {
+  useCitations,
   useConfirmProposal,
   useConversation,
   useConversationStream,
@@ -332,6 +333,24 @@ describe("Drive (area 5)", () => {
     );
     act(() => result.current.viewer.setPersona("p-marco"));
     const count = () => result.current.rows.data?.find((f) => f.code === "AUD-F3")?.opens90d;
+    await waitFor(() => expect(count()).toBe(5));
+    await act(() => result.current.open.mutateAsync({ fileId: "drv-aud-3", via: "preview" }));
+    await waitFor(() => expect(count()).toBe(6));
+  });
+
+  it("un'apertura ricarica anche le citazioni: le aperture della scheda al passaggio salgono", async () => {
+    const refs = [{ kind: "drive", id: "drv-aud-3" }] as const;
+    const { result } = renderHook(
+      () => {
+        const viewer = useViewer();
+        const cites = useCitations(refs);
+        const open = useRecordDriveOpen();
+        return { viewer, cites, open };
+      },
+      { wrapper },
+    );
+    act(() => result.current.viewer.setPersona("p-marco"));
+    const count = () => result.current.cites.data?.[0]?.drive?.opens90d;
     await waitFor(() => expect(count()).toBe(5));
     await act(() => result.current.open.mutateAsync({ fileId: "drv-aud-3", via: "preview" }));
     await waitFor(() => expect(count()).toBe(6));

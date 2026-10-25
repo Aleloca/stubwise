@@ -66,6 +66,7 @@ import {
   type DriveSearch,
 } from "./driveFilters";
 import { useDriveOpeners } from "./FilePreview";
+import { useOpenDriveFile } from "./openFile";
 import { GoogleDriveGlyph, HiddenGlyph, UploadGlyph } from "./glyphs";
 import {
   LinkFolderDialog,
@@ -390,20 +391,20 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
     [navigate, openers, toast, t, setHidden],
   );
   const stillThere = useDriveFileStillThere();
+  const openDriveFile = useOpenDriveFile();
   const searchActions = useMemo<SearchActions>(
     () => ({
-      // Sparito fra la ricerca e il clic (tolto, nascosto, permesso perso):
-      // l'avviso, e si resta sui risultati. Niente apertura, niente conteggio.
-      open: (row, view) =>
-        void stillThere(row.id).then((ok) =>
-          ok ? actions.onPrimary(row, view) : toast.error(t("drive.search.gone")),
-        ),
+      // Sparito fra la ricerca e il clic (tolto, nascosto, permesso perso) o
+      // diventato non disponibile: l'avviso, e si resta sui risultati. Niente
+      // apertura, niente conteggio. Come da ⌘K e da una citazione: si decide
+      // sul file riletto (`useOpenDriveFile`), non sulla riga dei risultati.
+      open: (row, view) => openDriveFile(row.id, { view, details: actions.onOpen }),
       details: (row) =>
         void stillThere(row.id).then((ok) =>
           ok ? actions.onOpen(row) : toast.error(t("drive.search.gone")),
         ),
     }),
-    [actions, stillThere, toast, t],
+    [actions, stillThere, openDriveFile, toast, t],
   );
   const onMoveOpen = useCallback(
     (row: DriveFileRow) =>

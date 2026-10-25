@@ -169,8 +169,6 @@ export const queryKeys = {
     ["as", personId, "drive", "readers", projectId] as const,
   driveSearch: (personId: string, q: string, scope: DriveSearchScope) =>
     ["as", personId, "drive", "search", q, scope] as const,
-  googleOutside: (personId: string, q: string) =>
-    ["as", personId, "drive", "google-outside", q] as const,
   googleFolders: (personId: string, projectId: string) =>
     ["as", personId, "drive", "google-folders", projectId] as const,
   googleFiles: (personId: string, projectId: string, q: string) =>
@@ -2282,16 +2280,6 @@ export function useDriveFileIfStillThere() {
   );
 }
 
-/** I file Google fuori dai progetti (solo con l'account collegato). */
-export function useGoogleOutside(q: string, enabled = true) {
-  const me = useSessionPersonId();
-  return useQuery({
-    queryKey: queryKeys.googleOutside(me, q),
-    queryFn: () => api.drive.listGoogleOutside(q),
-    enabled,
-  });
-}
-
 /** Il selettore di «Collega una cartella». */
 export function useGoogleFolders(projectId: string, enabled = true) {
   const me = useSessionPersonId();
@@ -2364,13 +2352,14 @@ export function useAddGoogleFile() {
 
 /**
  * Un'apertura (anteprima intera, «Apri in Google Drive», download): solo
- * questi tre gesti la chiamano, mai una lettura.
+ * questi tre gesti la chiamano, mai una lettura. Ricarica anche le
+ * citazioni: la scheda al passaggio di un gettone mostra le aperture.
  */
 export function useRecordDriveOpen() {
   return useWrite(
     ({ fileId, via }: { fileId: string; via: DriveOpen["via"] }) =>
       api.drive.recordOpen(fileId, via),
-    DRIVE_AREAS,
+    ["drive", "citations"],
   );
 }
 

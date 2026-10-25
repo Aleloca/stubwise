@@ -20,6 +20,7 @@ import { COMMITS } from "./seed/commits";
 import { TODAY } from "./seed/dates";
 import { DEPARTMENTS } from "./seed/departments";
 import { docPageById } from "./docs/reads";
+import { driveFilesForClaude } from "./drive/reads";
 import { PEOPLE } from "./seed/people";
 import { TEAM_ACCOUNT } from "./seed/runs";
 import { getSessionPersonId, setSessionPersonId } from "./session";
@@ -1591,13 +1592,17 @@ async function sendMessageNow(
   const task = c.taskId ? state.tasksById.get(c.taskId) : undefined;
   // Una domanda sui file del Drive («cosa dice il contratto sui tempi di
   // consegna?») ha la sua risposta, citando il file, prima di proseguire —
-  // al lavoro come in pausa.
-  const fromFiles = task ? await filesReply(me, task.projectId, text) : null;
+  // al lavoro come in pausa. La risposta si calcola DENTRO i passi accodati,
+  // senza attese: fra il messaggio entrato nel flusso e la sua consegna non
+  // c'è nessun `await` in cui un «Ferma» possa infilarsi e lasciare la
+  // risposta accodata dopo il taglio (né una lettura che fallisca e lasci il
+  // messaggio «in attesa» per sempre).
+  const fromFiles = () => (task ? filesReply(me, task.projectId, text) : null);
   if (resuming && task) {
     // Il messaggio riprende la pausa: Claude riparte dalla fase in cui era.
     await runScript(
       id,
-      [{ step: "state", state: "working" }, { step: "deliver" }, ...(fromFiles ?? [])],
+      () => [{ step: "state", state: "working" }, { step: "deliver" }, ...(fromFiles() ?? [])],
       gen,
     );
     delivered();
@@ -1607,9 +1612,9 @@ async function sendMessageNow(
   // Al lavoro: il messaggio entra nel turno, e il lavoro in corso prosegue.
   await runScript(
     id,
-    [
+    () => [
       { step: "deliver" },
-      ...(fromFiles ?? [
+      ...(fromFiles() ?? [
         { step: "say", text: "Got it, I am taking it into account in this step." } as const,
       ]),
     ],
@@ -1623,19 +1628,16 @@ async function sendMessageNow(
  * lavoro (la sezione Claude della task): i file del progetto della task che
  * chi scrive legge — chi segue la sessione vede quel progetto, quindi la
  * citazione non porta altrove — letti senza contare aperture. `null` se il
- * messaggio non è una domanda su un file.
+ * messaggio non è una domanda su un file. Sincrona e senza `gate()`
+ * (`driveFilesForClaude`): la chiamano i passi già accodati della sessione.
  */
-async function filesReply(
-  me: string,
-  projectId: string,
-  text: string,
-): Promise<ScriptStep[] | null> {
+function filesReply(me: string, projectId: string, text: string): ScriptStep[] | null {
   const q = fileQuestion(text);
   if (!q) return null;
   const t = i18n.t.bind(i18n) as T;
   const found = findInFiles(
     q,
-    (await readsAs(me).readDriveFiles()).filter((f) => f.projectId === projectId),
+    driveFilesForClaude(me).filter((f) => f.projectId === projectId),
   );
   const steps: ScriptStep[] = [
     {

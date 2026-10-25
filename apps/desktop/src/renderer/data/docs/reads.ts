@@ -1,4 +1,5 @@
 import { buildDocTree } from "../../domain/docs";
+import { fold, searchWords } from "../../pages/chat/search";
 import { REPOSITORIES } from "../seed/docs/repositories";
 import { copy, gate, state, visibleProjectIds } from "../store";
 import type {
@@ -234,30 +235,37 @@ export async function searchDocs(
   { repositoryId }: { repositoryId?: string } = {},
 ): Promise<DocSearchHit[]> {
   const me = await gate("docs.searchDocs");
-  const needle = q.trim().toLowerCase();
-  if (!needle) return [];
+  // Le parole come nella ricerca del Drive e della Chat: accenti piegati,
+  // ognuna deve comparire, in qualunque campo e in qualunque ordine.
+  const words = searchWords(q);
+  if (words.length === 0) return [];
   return readableDocPages(me)
     .filter((p) => repositoryId === undefined || p.repositoryId === repositoryId)
-    .filter((p) =>
-      [p.code, p.title, p.path, p.excerpt, p.body].some((f) => f.toLowerCase().includes(needle)),
-    )
+    .filter((p) => {
+      const fields = [p.code, p.title, p.path, p.excerpt, p.body].map(fold);
+      return words.every((w) => fields.some((f) => f.includes(w)));
+    })
     .map((p) => ({
       page: pageRef(p),
       repositoryName: repositoryById(p.repositoryId)?.name ?? "",
       projectCode: state.projectsById.get(p.projectId)!.code,
-      passage: passageOf(p, needle),
+      passage: passageOf(p, words),
     }));
 }
+
+/** Dove compaiono le parole in un testo già piegato (le assenti non ci sono). */
+const hitsIn = (folded: string, words: readonly string[]): number[] =>
+  words.map((w) => folded.indexOf(w)).filter((i) => i >= 0);
 
 /** Quanto è lungo, al più, il passaggio di un risultato. */
 const PASSAGE = 160;
 
 /**
  * La riga (corpo o estratto, senza i segni del Markdown) in cui compare la
- * ricerca, tagliata intorno alla parola; senza corrispondenza nel testo
- * (il codice, il titolo) l'estratto.
+ * prima delle parole cercate (già piegate, `searchWords`), tagliata intorno
+ * a lei; senza corrispondenza nel testo (il codice, il titolo) l'estratto.
  */
-export function passageOf(page: DocPage, needle: string): string {
+export function passageOf(page: DocPage, words: readonly string[]): string {
   const lines = [page.excerpt, ...page.body.split("\n")]
     .map((l) =>
       l
@@ -266,10 +274,14 @@ export function passageOf(page: DocPage, needle: string): string {
         .trim(),
     )
     .filter(Boolean);
-  const line = lines.find((l) => l.toLowerCase().includes(needle));
-  if (!line) return page.excerpt.slice(0, PASSAGE);
+  // `fold` toglie gli accenti senza cambiare la lunghezza delle lettere che
+  // contano qui, quindi l'indice nella riga piegata vale anche nell'originale.
+  const found = lines
+    .map((line) => ({ line, at: Math.min(...hitsIn(fold(line), words)) }))
+    .find((l) => Number.isFinite(l.at));
+  if (!found) return page.excerpt.slice(0, PASSAGE);
+  const { line, at } = found;
   if (line.length <= PASSAGE) return line;
-  const at = line.toLowerCase().indexOf(needle);
   const start = Math.max(0, Math.min(at - 40, line.length - PASSAGE));
   return `${start > 0 ? "…" : ""}${line.slice(start, start + PASSAGE).trim()}…`;
 }

@@ -576,3 +576,26 @@ describe("⌘K: Channels e Messages", () => {
     expect(within(channels).getByRole("option", { name: /grafica/ })).toBeInTheDocument();
   });
 });
+
+describe("ricerca: un file del Drive citato e non più visibile (R-H5)", () => {
+  it("il gettone è il codice registrato, tenue, come nel messaggio — non sparisce", async () => {
+    put({
+      id: "z-cite",
+      channelId: "ch-announcements",
+      authorId: "p-giulia",
+      createdAt: "2026-10-20T10:00:00Z",
+      text: "zebraword: see the contract",
+      citations: [{ kind: "drive", id: "drv-aud-7", code: "AUD-F7" }],
+    });
+    renderRoute("/chat?view=search&q=zebraword", "p-sara");
+    const list = await loaded();
+    const result = await waitFor(() => {
+      const el = list.querySelector<HTMLElement>('[data-result="z-cite"]');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    await waitFor(() =>
+      expect(result.querySelector('[data-citation="hidden"]')).toHaveTextContent("AUD-F7"),
+    );
+  });
+});

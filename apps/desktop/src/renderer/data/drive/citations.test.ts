@@ -5,6 +5,7 @@ import {
   chat,
   docs,
   drive,
+  failNext,
   resetApi,
   resolveCitations,
   resolveCodes,
@@ -13,7 +14,7 @@ import {
   setStreamLatency,
   whenIdle,
 } from "../api";
-import { readsAs, sendMessage } from "../api-mutations";
+import { readsAs, sendMessage, stop } from "../api-mutations";
 import { setSessionPersonId } from "../session";
 import { state } from "../store";
 import type { CitationRef, ScriptStep } from "../types";
@@ -209,6 +210,40 @@ describe("Claude legge i file del Drive", () => {
     const resumed = texts.findIndex((t) => t.includes("resuming from your message"));
     expect(answer).toBeGreaterThanOrEqual(0);
     expect(resumed).toBeGreaterThan(answer);
+  });
+
+  it("«Ferma» subito dopo una domanda sui file: nessuna risposta dopo «Stopped», la sessione resta in pausa", async () => {
+    // Latenza fissa: il «Ferma» parte insieme al messaggio e arriva appena
+    // dopo che il messaggio è entrato nel flusso. Prima la lettura dei file
+    // passava da un'altra attesa, e la risposta si accodava DOPO il taglio.
+    setLatency(20);
+    setStreamLatency(null);
+    const id = "cv-run-aud-5";
+    as("p-stefano");
+    const start = state.conversationEvents.get(id)!.length;
+    const sending = sendMessage(id, { text: Q_EN });
+    const stopping = stop(id);
+    await expect(sending).rejects.toThrow("undelivered");
+    await stopping;
+    await whenIdle(id);
+    const after = state.conversationEvents.get(id)!.slice(start);
+    expect(after.find((e) => e.type === "user")).toMatchObject({ delivery: "undelivered" });
+    expect(after.some((e) => e.type === "citation")).toBe(false);
+    expect(after.at(-1)).toMatchObject({ type: "phase", outcome: "stopped" });
+    expect(state.conversations.find((c) => c.id === id)!.state).toBe("paused");
+  });
+
+  it("la lettura dei file per Claude non ha un'attesa che possa fallire: il messaggio è consegnato", async () => {
+    setStreamLatency(null);
+    const id = "cv-run-aud-5";
+    as("p-stefano");
+    failNext("drive.listForClaude");
+    await sendMessage(id, { text: Q_EN });
+    await whenIdle(id);
+    const events = [...state.conversationEvents.get(id)!].reverse();
+    expect(events.find((e) => e.type === "user")).toMatchObject({ delivery: "delivered" });
+    const citation = events.find((e) => e.type === "citation");
+    expect(citation?.type === "citation" && citation.refs).toEqual([CITED]);
   });
 
   it("una citazione scelta da una persona tiene il codice vero del file, mai quello mandato", async () => {

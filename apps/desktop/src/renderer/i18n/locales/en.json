@@ -1978,7 +1978,7 @@
         "noDocs": "{{code}} has no Docs, so I have nothing to quote. I won't guess: you could ask the team with a request.",
         "nothing": "The {{code}} Docs don't cover “{{topic}}”. I won't guess: try other words, or ask the team with a request.",
         "nothingAll": "The Docs of your projects don't cover “{{topic}}”. I won't guess: try other words, or name the project.",
-        "found": "From the {{code}} Docs, page **{{title}}** ({{path}}):"
+        "found": "From the {{code}} Docs, page **{{pageCode}} {{title}}** ({{path}}):"
       },
       "run": {
         "noCode": "Which request or task should I start? Give me its code, like STW-R1 or AUD-4.",

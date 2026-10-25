@@ -1,9 +1,9 @@
-import { Fragment, useCallback } from "react";
+import { Fragment, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Markdown, type TextDecorator } from "../../../tasks-ui/Markdown";
 import { Avatar } from "../../../tasks-ui/PersonChip";
 import { usePeople } from "../../../data/queries";
-import { DriveAnchor, HiddenCode, UsedLine, useCitationIndex } from "./citations";
+import { DriveAnchor, HiddenCode, hiddenCodesOf, UsedLine, useCitationIndex } from "./citations";
 import { CODE_IN_TEXT, type FlowItem } from "./flow";
 import { clock } from "./parts";
 
@@ -16,18 +16,26 @@ import { clock } from "./parts";
 export function AssistantMessage({
   item,
   streaming,
+  showUsed = true,
 }: {
   item: Extract<FlowItem, { kind: "assistant" }>;
   /** Il messaggio sta ancora arrivando (la conversazione lavora). */
   streaming: boolean;
+  /** La riga «Used:» in coda (la chat dei Docs ha la sua, con il repository). */
+  showUsed?: boolean;
 }) {
   const { t } = useTranslation();
   const index = useCitationIndex();
+  // Gli oggetti citati da questo messaggio che chi guarda non apre: il loro
+  // codice nel testo è quello tenue, anche un file del Drive che la vista non
+  // nomina più (il codice registrato, R-H5).
+  const hidden = useMemo(() => hiddenCodesOf(index, item.refs), [index, item.refs]);
   const decorate = useCallback<TextDecorator>(
     (text, key) => {
       const parts = text.split(new RegExp(`(${CODE_IN_TEXT.source})`, "g"));
       if (parts.length === 1) return text;
       return parts.map((part, i) => {
+        if (i % 2 === 1 && hidden.has(part)) return <HiddenCode key={`${key}-${i}`} code={part} />;
         const view = i % 2 === 1 ? index.byCode.get(part) : undefined;
         if (view && !view.visible) return <HiddenCode key={`${key}-${i}`} code={part} />;
         if (!view?.route) return <Fragment key={`${key}-${i}`}>{part}</Fragment>;
@@ -53,7 +61,7 @@ export function AssistantMessage({
         );
       });
     },
-    [index],
+    [index, hidden],
   );
   const { event, refs } = item;
   const cursor = streaming && !event.done;
@@ -77,7 +85,7 @@ export function AssistantMessage({
           }
         />
       </div>
-      {refs.length > 0 && !cursor && <UsedLine refs={refs} />}
+      {showUsed && refs.length > 0 && !cursor && <UsedLine refs={refs} />}
     </div>
   );
 }

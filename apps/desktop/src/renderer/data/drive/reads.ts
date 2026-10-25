@@ -194,13 +194,14 @@ const referenced = (me: string, googleFileId: string, projectId?: string) =>
 
 /**
  * I file Google in nessun progetto che chi guarda vede su Google, per nome o
- * contenuto: solo con l'account collegato (scaduto o assente → vuoto).
+ * contenuto: solo con l'account collegato (scaduto o assente → vuoto). Le
+ * parole si trovano come nella ricerca del Drive (`scoreOf`).
  */
 export async function listGoogleOutside(q: string): Promise<GoogleOutsideFile[]> {
   const me = await gate("drive.listGoogleOutside");
-  const needle = q.trim().toLowerCase();
+  const words = searchWords(q);
   return outsideFor(me)
-    .filter((f) => !needle || [f.name, f.text].some((s) => s.toLowerCase().includes(needle)))
+    .filter((f) => words.length === 0 || scoreOf(words, f.name, f.text) !== null)
     .map(copy);
 }
 
@@ -388,12 +389,6 @@ export function driveFilesForClaude(me: string): DriveFile[] {
   return state.driveFiles
     .filter((f) => canSeeDriveFile(me, f) && searchableText(f) !== "")
     .map(copy);
-}
-
-/** Un file per Claude (vedi `driveFilesForClaude`), o `null`: nascosto e inesistente identici. */
-export function readDriveFileForClaude(me: string, id: string): DriveFile | null {
-  const file = state.driveFiles.find((f) => f.id === id);
-  return file && canSeeDriveFile(me, file) && searchableText(file) !== "" ? copy(file) : null;
 }
 
 /**

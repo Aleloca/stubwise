@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
+import { useCallback, useId, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useDepartments, usePeople } from "../../data/queries";
 import type { Attachment, CitationRef } from "../../data/types";
@@ -6,7 +6,11 @@ import { CheckItem, itemClass, MenuGroup, MenuNote } from "../../tasks-ui/Menu";
 import { MenuButton } from "../tasks/controls";
 import { AttachmentChip } from "../claude/conversation/AttachmentChip";
 import type { DraftAttachment } from "../claude/conversation/Composer";
-import { picksWithKey, useComposerField } from "../claude/conversation/useComposerField";
+import {
+  picksWithKey,
+  useComposerField,
+  type ComposerToken,
+} from "../claude/conversation/useComposerField";
 import {
   flatten,
   SuggestionMenu,
@@ -21,7 +25,7 @@ import {
   quietButton,
   SendGlyph,
 } from "../claude/conversation/parts";
-import { readDraft, writeDraft } from "./drafts";
+import { readDraft, readDraftTokens, writeDraft, writeDraftTokens } from "./drafts";
 
 // La casella del canale: la stessa forma della conversazione (bordo
 // `rule-strong` 8px, cresce fino a 10 righe), segnaposto «Message AUD ·
@@ -155,11 +159,20 @@ export function ChatComposer({
     writeDraft(viewerId, draftKey, next);
   };
   // Nessun «/» in chat: solo «#» e «@».
+  // I gettoni restano con la bozza: un oggetto scelto col «#» (o citato da
+  // «Cite in Chat») resta citato anche tornando al canale più tardi.
+  const [initialTokens] = useState(() => readDraftTokens(viewerId, draftKey));
+  const onTokens = useCallback(
+    (list: ComposerToken[]) => writeDraftTokens(viewerId, draftKey, list),
+    [viewerId, draftKey],
+  );
   const composer = useComposerField({
     text,
     onText: setText,
     maxLines: MAX_LINES,
     allowSlash: false,
+    initialTokens,
+    onTokens,
   });
   const { field, trigger, menuOpen, tokens } = composer;
   const objects = useMentionSuggestions(

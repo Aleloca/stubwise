@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { usePeople, useProjects, useSessionPersonId } from "../../data/queries";
 import type { ChannelRow, DriveFileRow } from "../../data/types";
 import { Dialog } from "../../tasks-ui/Dialog";
-import { readDraft, writeDraft } from "../chat/drafts";
+import { readDraft, readDraftTokens, writeDraft, writeDraftTokens } from "../chat/drafts";
 import { smallPrimary, smallSecondary } from "../task/parts";
 import { closePreview } from "./FilePreview";
 
@@ -24,7 +24,7 @@ export function ShareToChatDialog({
   channels,
   onClose,
 }: {
-  file: Pick<DriveFileRow, "code" | "projectId">;
+  file: Pick<DriveFileRow, "id" | "code" | "projectId">;
   /** Solo quelli con `canWrite`. */
   channels: ChannelRow[];
   onClose: () => void;
@@ -72,6 +72,12 @@ export function ShareToChatDialog({
     if (!channel) return;
     const draft = readDraft(me, channel.id);
     writeDraft(me, channel.id, `${draft}${draft && !draft.endsWith(" ") ? " " : ""}${file.code} `);
+    // Come una scelta dal menu «#»: il codice entra come gettone con il suo
+    // file, e il messaggio registra la citazione (col codice, R-H5).
+    writeDraftTokens(me, channel.id, [
+      ...readDraftTokens(me, channel.id),
+      { insert: file.code, ref: { kind: "drive", id: file.id, code: file.code } },
+    ]);
     closePreview();
     onClose();
     if (channel.kind === "project" && channel.projectId) {

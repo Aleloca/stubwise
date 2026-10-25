@@ -8,7 +8,8 @@ const HOWTO_LEAD =
 
 /**
  * «Come funziona <tema> [in <progetto>]»: cerca nei Docs del progetto (o di
- * tutti i progetti visibili con i Docs) e risponde con le pagine, citate.
+ * tutti i progetti visibili con i Docs) e risponde con le pagine, citate per
+ * codice (`AUD-D3`) come nella chat dei Docs.
  * Se i Docs non ne parlano lo dice: non inventa.
  */
 export async function howto(text: string, ctx: IntentContext): Promise<Answer> {
@@ -46,7 +47,12 @@ export async function howto(text: string, ctx: IntentContext): Promise<Answer> {
   const codeOf = (page: DocPage) => projects.find((p) => p.id === page.projectId)?.code ?? "";
   const body = found.flatMap((page, i) => [
     ...(i > 0 ? [""] : []),
-    t("claude.answers.howto.found", { code: codeOf(page), title: page.title, path: page.path }),
+    t("claude.answers.howto.found", {
+      code: codeOf(page),
+      pageCode: page.code,
+      title: page.title,
+      path: page.path,
+    }),
     "",
     `> ${page.excerpt}`,
   ]);

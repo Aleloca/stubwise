@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { onBeforePersonaChange } from "../../data/session";
+import type { ComposerToken } from "../claude/conversation/useComposerField";
 
 // La bozza della casella, per canale e per persona: sopravvive al cambio di
 // canale (si ritrova tornando), sparisce al cambio di persona — nessun testo
@@ -8,6 +9,10 @@ import { onBeforePersonaChange } from "../../data/session";
 // presenza per la matita.
 
 let drafts = new Map<string, string>();
+// I gettoni della bozza (gli oggetti scelti col «#», o citati da «Cite in
+// Chat»): restano con il testo, così una citazione entra nel messaggio con
+// il suo oggetto qualunque strada abbia preso per arrivare nella casella.
+let draftTokens = new Map<string, ComposerToken[]>();
 const listeners = new Set<() => void>();
 
 const key = (personId: string, channelId: string) => `${personId}\u0000${channelId}`;
@@ -25,12 +30,30 @@ export function writeDraft(personId: string, channelId: string, text: string): v
   if ((drafts.get(k) ?? "") === text) return;
   drafts = new Map(drafts);
   if (text.trim()) drafts.set(k, text);
-  else drafts.delete(k);
+  else {
+    drafts.delete(k);
+    draftTokens.delete(k);
+  }
   emit();
+}
+
+export function readDraftTokens(personId: string, channelId: string): ComposerToken[] {
+  return draftTokens.get(key(personId, channelId)) ?? [];
+}
+
+export function writeDraftTokens(
+  personId: string,
+  channelId: string,
+  tokens: readonly ComposerToken[],
+): void {
+  const k = key(personId, channelId);
+  if (tokens.length > 0) draftTokens.set(k, [...tokens]);
+  else draftTokens.delete(k);
 }
 
 /** Tutte le bozze via (il cambio di persona, un reset del prototipo). */
 export function clearDrafts(): void {
+  draftTokens = new Map();
   if (drafts.size === 0) return;
   drafts = new Map();
   emit();
