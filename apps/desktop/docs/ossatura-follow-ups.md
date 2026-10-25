@@ -339,3 +339,16 @@ progetto; vedi `area4-parity.md`.
 - La ricerca per codici citati e i `citedCodes` di @Claude ignorano il Drive
   (come per i Docs): `data/chat/claude.ts`.
 
+### Dalla revisione finale (rimandati)
+
+- **Strati**: il livello dati importa dalle pagine — `data/drive/reads.ts` e
+  `data/docs/reads.ts` da `pages/chat/search` (`fold`, `searchWords`,
+  `highlightParts`), il Drive anche da `pages/drive/driveFilters` —, e
+  `data/chat/reads.ts` (~720) ha una sua copia di `fold`. Gli helper di testo
+  e di filtro vanno spostati in `domain/`, con un solo `fold`.
+- **Helper doppi**: la mappatura in `FolderLinkView` tre volte;
+  `track`/`pending`/`whenIdle` due volte; `need`/`forbidden`/`notFound` due
+  volte; tre estrattori di passaggio (`drivePassage` in `data/drive/reads.ts`,
+  `passageOf` in `data/docs/reads.ts`, quello dei file per Claude in
+  `domain/claude/intents/files.ts`). Da riunire quando si tocca la parte.
+
