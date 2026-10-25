@@ -32,7 +32,7 @@ const ROWS: Row[] = [
 ];
 
 /** Un hash esadecimale di 40 cifre, deterministico (FNV-1a ripetuto): finto ma stabile. */
-function fakeSha(seed: string): string {
+export function fakeSha(seed: string): string {
   let out = "";
   for (let salt = 0; out.length < 40; salt++) {
     let h = 0x811c9dc5 ^ salt;

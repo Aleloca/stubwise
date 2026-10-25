@@ -4,7 +4,7 @@ import { DEPARTMENT_ROLES } from "./seed/departmentRoles";
 import { DEPARTMENTS } from "./seed/departments";
 import { commandsFor } from "./seed/commands";
 import { COMMITS } from "./seed/commits";
-import { DOC_PAGES } from "./seed/docPages";
+import { canReadDocPage, docPageByCode, docPageById, docsAccess } from "./docs/reads";
 import { daysFromToday, TODAY } from "./seed/dates";
 import { PEOPLE } from "./seed/people";
 import { projectOfRepo, REPO_FILES } from "./seed/repoFiles";
@@ -92,6 +92,8 @@ export {
 export type { ScriptStep, StreamConnection, StreamMode, SubscribeOptions } from "./stream";
 /** La Chat (area 4): `api.chat.listChannels()`, `api.chat.sendMessage(…)`… */
 export * as chat from "./chat";
+/** I Docs (area 5): `api.docs.listDocSpaces(…)`, `api.docs.createManualPage(…)`… */
+export * as docs from "./docs";
 
 /** Ripristina lo stato (sessione, dati, errori iniettati) e porta le task scadute alla settimana corrente. */
 export function resetApi(): void {
@@ -287,16 +289,14 @@ export async function getRequestByCode(code: string): Promise<ProjectRequest | n
 }
 
 /**
- * Le pagine dei Docs di un progetto visibile; un progetto senza il modulo
- * Docs (o invisibile) non ne ha.
+ * Le pagine dei Docs di un progetto di cui chi guarda legge i Docs (per
+ * Claude); un progetto senza il modulo Docs, invisibile o senza `docs.view`
+ * non ne ha.
  */
 export async function listDocPages(projectId: string): Promise<DocPage[]> {
   const me = await gate("listDocPages");
-  const project = state.projectsById.get(projectId);
-  if (!project || !visibleProjectIds(me).has(projectId) || !project.modules.includes("docs")) {
-    return [];
-  }
-  return DOC_PAGES.filter((d) => d.projectId === projectId).map(copy);
+  if (docsAccess(me, projectId) !== "read") return [];
+  return state.docPages.filter((d) => d.projectId === projectId).map(copy);
 }
 
 const canSeeFilter = (f: SavedFilter, me: string) => f.visibility === "public" || f.ownerId === me;
@@ -972,18 +972,21 @@ export async function search(q: string): Promise<SearchResult[]> {
 const projectCodeOf = (projectId: string) => state.projectsById.get(projectId)?.code ?? null;
 
 /**
- * I codici di task e richieste scritti a mano in un testo («AUD-88») che chi
- * guarda VEDE: codice + nome, apribili. Uno che non vede e uno che non esiste
- * non tornano, e nello stesso modo (R-G5): altrimenti, scrivendo un codice a
- * caso, la differenza direbbe che cosa esiste in un progetto che non si vede.
- * Il codice tenue resta solo per le citazioni registrate sul messaggio.
+ * I codici di task, richieste e pagine dei Docs scritti a mano in un testo
+ * («AUD-88», «AUD-D12») che chi guarda VEDE: codice + nome, apribili. Uno che
+ * non vede e uno che non esiste non tornano, e nello stesso modo (R-G5):
+ * altrimenti, scrivendo un codice a caso, la differenza direbbe che cosa
+ * esiste in un progetto che non si vede. Il codice tenue resta solo per le
+ * citazioni registrate sul messaggio.
  */
 export async function resolveCodes(codes: string[]): Promise<CitationView[]> {
   const refs = codes.flatMap((code): CitationRef[] => {
     const task = state.tasks.find((t) => t.code === code);
     if (task) return [{ kind: "task", id: task.id }];
     const request = state.requests.find((r) => r.code === code);
-    return request ? [{ kind: "request", id: request.id }] : [];
+    if (request) return [{ kind: "request", id: request.id }];
+    const page = docPageByCode(code);
+    return page ? [{ kind: "doc", id: page.id }] : [];
   });
   return (await resolveCitations(refs)).filter((v) => v.visible);
 }
@@ -1046,13 +1049,14 @@ export async function resolveCitations(refs: CitationRef[]): Promise<CitationVie
         };
       }
       case "doc": {
-        const d = DOC_PAGES.find((x) => x.id === ref.id);
-        if (!d || !visible.has(d.projectId)) return hidden(ref);
+        // Una pagina eliminata, o di Docs che chi guarda non legge: niente.
+        const d = docPageById(ref.id);
+        if (!d || !canReadDocPage(me, d)) return hidden(ref);
         const project = projectCodeOf(d.projectId)!;
         return {
           ...hidden(ref),
           visible: true,
-          code: project,
+          code: d.code,
           name: d.title,
           projectCode: project,
           status: d.path,
@@ -1189,15 +1193,17 @@ export async function searchMentions(
       detail: projectName(r.projectId),
       projectId: r.projectId,
     }));
-  const docs = DOC_PAGES.filter((d) => visible.has(d.projectId) && has(d.title, d.path)).map(
-    (d): MentionResult => ({
-      ref: { kind: "doc", id: d.id },
-      code: projectCodeOf(d.projectId),
-      label: d.title,
-      detail: d.path,
-      projectId: d.projectId,
-    }),
-  );
+  const docs = state.docPages
+    .filter((d) => canReadDocPage(me, d) && has(d.code, d.title, d.path))
+    .map(
+      (d): MentionResult => ({
+        ref: { kind: "doc", id: d.id },
+        code: projectCodeOf(d.projectId),
+        label: d.title,
+        detail: d.path,
+        projectId: d.projectId,
+      }),
+    );
   const files = REPO_FILES.filter(
     (f) => visible.has(f.projectId) && can(viewer, "repos.view", f.projectId) && has(f.path),
   ).map(

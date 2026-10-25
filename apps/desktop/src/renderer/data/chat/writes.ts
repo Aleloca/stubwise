@@ -2,7 +2,7 @@
 // funzioni: l'import circolare con `api-mutations` è innocuo.
 import { createRequestAs, createTaskAs, type NewRequestInput } from "../api-mutations";
 import { findCodes } from "../../domain/claude/parse";
-import { DOC_PAGES } from "../seed/docPages";
+import { canReadDocPage, docPageById } from "../docs/reads";
 import { REPO_FILES } from "../seed/repoFiles";
 import {
   chatKey,
@@ -221,7 +221,7 @@ function stillNamed(ref: CitationRef, text: string): boolean {
       return code !== undefined && text.includes(code);
     }
     case "doc": {
-      const title = DOC_PAGES.find((d) => d.id === ref.id)?.title;
+      const title = docPageById(ref.id)?.title;
       return title !== undefined && text.includes(title);
     }
     case "file": {
@@ -262,8 +262,10 @@ function canCite(me: string, ref: CitationRef, visible: ReadonlySet<string>): bo
       return seen(state.requests.find((r) => r.id === ref.id)?.projectId);
     case "project":
       return visible.has(ref.id);
-    case "doc":
-      return seen(DOC_PAGES.find((d) => d.id === ref.id)?.projectId);
+    case "doc": {
+      const page = docPageById(ref.id);
+      return page !== undefined && canReadDocPage(me, page);
+    }
     case "file": {
       const projectId = REPO_FILES.find((f) => f.id === ref.id)?.projectId;
       return seen(projectId) && can(viewerFor(me), "repos.view", projectId);

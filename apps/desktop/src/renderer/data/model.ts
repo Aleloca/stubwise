@@ -839,15 +839,221 @@ export interface CommitOfDay {
   projectId: string;
 }
 
-/** Una pagina dei Docs di un progetto, quanto basta per citarla e cercarla. */
-export interface DocPage {
+// --- Docs (area 5) -----------------------------------------------------------
+
+/** Un repository collegato a un progetto: ognuno ha il suo spazio dei Docs. */
+export interface Repository {
   id: string;
   projectId: string;
+  /** Il nome del repository sulla piattaforma, es. «audin-app». */
+  name: string;
+}
+
+/** Le quattro categorie dell'albero; `manual` = scritta a mano, le altre generate. */
+export type DocKind = "technical" | "functional" | "product" | "manual";
+
+/** Un commit arrivato dopo l'ultimo aggiornamento della pagina («pagina vecchia»). */
+export interface DocStaleCommit {
+  sha: string;
+  message: string;
+  at: string;
+}
+
+export interface DocLink {
+  type: "implements" | "implemented_by" | "related";
+  pageId: string;
+}
+
+/**
+ * Una pagina dei Docs, nello spazio del suo repository. `code` (`AUD-D12`) è
+ * stabile: non cambia col titolo né col percorso, e non si riusa dopo
+ * un'eliminazione.
+ */
+export interface DocPage {
+  id: string;
+  code: string;
+  projectId: string;
+  repositoryId: string;
+  kind: DocKind;
   title: string;
-  /** Dove sta nella sezione Docs, es. «Guide / Callbacks». */
+  /** Unico nello spazio: la pagina si apre per `slug`. */
+  slug: string;
+  /** Dove sta nell'albero della categoria, es. «Guide / Dialer». */
   path: string;
   excerpt: string;
+  /** Markdown. */
+  body: string;
+  /** La parte del codice che la pagina documenta («documents src/import»); `null` per le manuali. */
+  documentsPath: string | null;
+  /** `null` per le manuali. */
+  generatedAtCommit: string | null;
+  updatedAt: string;
+  staleCommits: DocStaleCommit[];
+  links: DocLink[];
+  /** Le visite («più lette»): nessun legame con le aperture del Drive. */
+  views: number;
 }
+
+/** Lo stato della generazione dei Docs di un repository (pannello in fondo allo spazio). */
+export interface DocGeneration {
+  status: "never" | "queued" | "running" | "succeeded" | "failed" | "held" | "paused";
+  lastAt: string | null;
+  commit: string | null;
+  costUsd: number | null;
+  /** Il provider fissato per il repository. */
+  provider: string | null;
+  /** Perché è fallita, trattenuta o in pausa (es. limite d'uso). */
+  reason: string | null;
+}
+
+/** Il grafo del codice (graphify) di un repository. */
+export type GraphState = {
+  status: "disabled" | "never" | "queued" | "running" | "failed" | "ready";
+  reason?: string;
+  nodes?: number;
+  edges?: number;
+  communities?: number;
+  setupPr?: { url: string; open: boolean };
+};
+
+/** Il brief del repository: le sezioni del web, più i fatti riservati e le pagine escluse. */
+export interface RepoBrief {
+  identity: string;
+  actors: { name: string; description: string }[];
+  /** Le superfici del prodotto, con chi le usa. */
+  surfaces: { name: string; audience: string }[];
+  glossary: { term: string; definition: string }[];
+  /** Invarianti di business. */
+  invariants: string[];
+  /** I percorsi dell'utente. */
+  journeys: { name: string; steps: string[] }[];
+  /** Le fonti già esistenti da cui la generazione parte. */
+  sources: { label: string; path: string }[];
+  /** Mostrati per verifica: cosa, perché, dove nel codice, come non deve comparire. */
+  confidentialFacts: { fact: string; reason: string; where: string; mustNotAppearAs: string }[];
+  /** Pagine tenute fuori dai Docs pubblici, col motivo. */
+  excludedPages: { title: string; reason: string }[];
+}
+
+/** Una voce di Releases dei Docs (scritta la notte): `minor` = non significativa. */
+export interface DocRelease {
+  id: string;
+  version: string;
+  date: string;
+  /** Markdown. */
+  text: string;
+  minor: boolean;
+  /** Le pagine toccate. */
+  pageIds: string[];
+}
+
+export interface DocSpace {
+  repositoryId: string;
+  projectId: string;
+  /** Il nome del repository. */
+  name: string;
+  generation: DocGeneration;
+  brief: RepoBrief | null;
+  releases: DocRelease[];
+  graph: GraphState;
+}
+
+/** Una pagina in un elenco (albero, recenti, più lette, ricerca): senza il corpo. */
+export interface DocPageRef {
+  id: string;
+  code: string;
+  projectId: string;
+  repositoryId: string;
+  kind: DocKind;
+  title: string;
+  slug: string;
+  path: string;
+  excerpt: string;
+  updatedAt: string;
+  views: number;
+  /** Ha commit successivi all'ultimo aggiornamento. */
+  stale: boolean;
+}
+
+/** Cosa chi guarda può fare in uno spazio: la UI legge i flag, non li deduce. */
+export interface DocSpacePermissions {
+  /** Creare, modificare, eliminare le pagine manuali (`docs.edit`). */
+  edit: boolean;
+  /** «Genera la documentazione», «Riprendi ora» (`docs.generate`). */
+  generate: boolean;
+  /** Le azioni del grafo (`repos.manage`). */
+  manageRepository: boolean;
+}
+
+/** Uno spazio come lo legge chi guarda. */
+export interface DocSpaceView extends DocSpace {
+  pageCount: number;
+  /** Solo pagine manuali (nessuna pagina generata). */
+  manualOnly: boolean;
+  /** Aggiornate di recente (al più 5). */
+  recent: DocPageRef[];
+  /** Più lette, dalle visite (al più 5, solo quelle visitate). */
+  mostRead: DocPageRef[];
+  permissions: DocSpacePermissions;
+}
+
+/** Un nodo dell'albero: una cartella del percorso o una pagina (foglia). */
+export interface DocTreeNode {
+  name: string;
+  page: DocPageRef | null;
+  children: DocTreeNode[];
+}
+
+export interface DocTreeCategory {
+  kind: DocKind;
+  count: number;
+  nodes: DocTreeNode[];
+}
+
+/** Una pagina aperta, coi collegamenti risolti (solo verso pagine che chi guarda vede). */
+export interface DocPageView extends DocPage {
+  repositoryName: string;
+  resolvedLinks: { type: DocLink["type"]; page: DocPageRef }[];
+  permissions: { edit: boolean; delete: boolean };
+}
+
+/** Una voce di «Novità» della pagina iniziale: una release col suo spazio. */
+export interface DocReleaseRow extends DocRelease {
+  repositoryId: string;
+  repositoryName: string;
+}
+
+/** La pagina iniziale dei Docs di un progetto. */
+export interface ProjectDocsHome {
+  projectId: string;
+  /** L'identità dal brief del repository principale. */
+  identity: string | null;
+  /** «Inizia da qui»: il brief e l'indice del repository principale. */
+  startHere: { repositoryId: string; name: string; hasBrief: boolean } | null;
+  spaces: DocSpaceView[];
+  /** Sintesi del registro decisioni (il registro intero sta in Overview). */
+  decisions: { total: number; recent: DecisionLogEntry[] };
+  /** «Novità»: le releases di tutti gli spazi, dalla più recente (al più 5). */
+  whatsNew: DocReleaseRow[];
+}
+
+export interface DocSearchHit {
+  page: DocPageRef;
+  repositoryName: string;
+  projectCode: string;
+}
+
+export interface ManualPageInput {
+  title: string;
+  /** Facoltativo: se manca si ricava dal titolo. */
+  slug?: string;
+  /** Markdown. */
+  body: string;
+  /** Dove sta nell'albero delle manuali; vuoto = in cima alla categoria. */
+  path?: string;
+}
+
+export type GraphActionKind = "generate" | "regenerate" | "rebuild" | "setup_pr";
 
 /**
  * Una pagina di Release, quanto basta perché la scheda di un evento della

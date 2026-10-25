@@ -25,6 +25,8 @@ import { REQUESTS } from "./seed/requests";
 import { PROJECT_STATUSES } from "./seed/statuses";
 import { TASKS } from "./seed/tasks";
 import { DAILY_REPORTS, PR_FACTS, PULL_REQUEST_EVENTS } from "./seed/timeline";
+import { DOC_PAGES } from "./seed/docPages";
+import { DOC_SPACES } from "./seed/docs/spaces";
 import { DEFAULT_SESSION_PERSON_ID, getSessionPersonId, setSessionPersonId } from "./session";
 import type {
   ActivityEntry,
@@ -54,6 +56,9 @@ import type {
   ReadOnlyReason,
   ReadState,
   ReleasePage,
+  DocGeneration,
+  DocPage,
+  DocSpace,
   SavedFilter,
   StatusFamily,
   Task,
@@ -218,7 +223,25 @@ export type ApiFnName =
   | "chat.editProposal"
   | "chat.completeEditedProposal"
   | "chat.answerClaudeQuestion"
-  | "chat.listClaudeQuestions";
+  | "chat.listClaudeQuestions"
+  // Docs (area 5)
+  | "docs.listDocSpaces"
+  | "docs.getDocSpace"
+  | "docs.listDocTree"
+  | "docs.getDocPage"
+  | "docs.getProjectDocsHome"
+  | "docs.searchDocs"
+  | "docs.createManualPage"
+  | "docs.updateManualPage"
+  | "docs.deleteManualPage"
+  | "docs.startGeneration"
+  | "docs.resumeGeneration"
+  | "docs.graphAction"
+  | "docs.recordDocView"
+  /** Un passo della generazione simulata (in coda → in corso → riuscita). */
+  | "docs.advanceGeneration"
+  /** Un passo della costruzione simulata del grafo. */
+  | "docs.advanceGraph";
 const failures = new Set<ApiFnName>();
 
 /** Fissa la latenza simulata (ms); `0` per i test, `null` per tornare a 150–400 ms. */
@@ -339,6 +362,22 @@ interface State {
   releasePages: ReleasePage[];
   /** I secondi dopo «adesso» dati all'ultimo messaggio nuovo (`chatNow`). */
   chatSeq: number;
+  // --- Docs (area 5) ---
+  docPages: DocPage[];
+  docSpaces: DocSpace[];
+  /** L'ultimo numero di codice `<PRJ>-D<n>` dato, per progetto: un codice non si riusa. */
+  docCodeSeq: Map<string, number>;
+  /** Gli stati attraversati dall'ultimo avvio di una generazione, per repository. */
+  docGenerationLog: Map<string, DocGeneration["status"][]>;
+}
+
+function initialDocCodeSeq(): Map<string, number> {
+  const seq = new Map<string, number>();
+  for (const page of DOC_PAGES) {
+    const n = Number(page.code.slice(page.code.lastIndexOf("-D") + 2));
+    seq.set(page.projectId, Math.max(seq.get(page.projectId) ?? 0, n));
+  }
+  return seq;
 }
 
 /** La chiave di una coppia (persona, canale o messaggio) nelle mappe della Chat. */
@@ -384,6 +423,10 @@ function freshState(): State {
     chatDismissed: new Set(),
     releasePages: RELEASE_PAGES.map(copy),
     chatSeq: 0,
+    docPages: DOC_PAGES.map(copy),
+    docSpaces: DOC_SPACES.map(copy),
+    docCodeSeq: initialDocCodeSeq(),
+    docGenerationLog: new Map(),
   };
 }
 

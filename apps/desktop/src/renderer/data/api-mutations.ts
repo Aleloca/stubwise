@@ -12,7 +12,7 @@ import { DEFAULT_PUBLISHED_EVENTS } from "./seed/chat";
 import { COMMITS } from "./seed/commits";
 import { TODAY } from "./seed/dates";
 import { DEPARTMENTS } from "./seed/departments";
-import { DOC_PAGES } from "./seed/docPages";
+import { docPageById } from "./docs/reads";
 import { PEOPLE } from "./seed/people";
 import { TEAM_ACCOUNT } from "./seed/runs";
 import { getSessionPersonId, setSessionPersonId } from "./session";
@@ -1306,7 +1306,7 @@ function projectsOfSteps(steps: ScriptStep[]): string[] {
         if (ref.kind === "task") add(ofTask(ref.id));
         else if (ref.kind === "request") add(ofRequest(ref.id));
         else if (ref.kind === "project") add(ref.id);
-        else if (ref.kind === "doc") add(DOC_PAGES.find((d) => d.id === ref.id)?.projectId);
+        else if (ref.kind === "doc") add(docPageById(ref.id)?.projectId);
       }
     }
     if (e.type === "proposal") {

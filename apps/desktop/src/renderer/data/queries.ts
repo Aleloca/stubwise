@@ -25,6 +25,10 @@ import type {
   DayArrangement,
   DecisionDraft,
   DepartmentHome,
+  DocGeneration,
+  GraphActionKind,
+  GraphState,
+  ManualPageInput,
   FilterCriteria,
   HomeBlockRef,
   MilestoneInput,
@@ -131,6 +135,19 @@ export const queryKeys = {
   chatQuestions: (personId: string) => ["as", personId, "chatQuestions"] as const,
   chatClaudeQuestions: (personId: string) => ["as", personId, "chatClaudeQuestions"] as const,
   chatSignal: (personId: string) => ["as", personId, "chatSignal"] as const,
+  // Docs (area 5): tutto nell'area «docs», che ogni scrittura dei Docs ricarica.
+  docSpaces: (personId: string, projectId: string) =>
+    ["as", personId, "docs", "spaces", projectId] as const,
+  docSpace: (personId: string, repositoryId: string) =>
+    ["as", personId, "docs", "space", repositoryId] as const,
+  docTree: (personId: string, repositoryId: string) =>
+    ["as", personId, "docs", "tree", repositoryId] as const,
+  docPage: (personId: string, repositoryId: string, slug: string) =>
+    ["as", personId, "docs", "page", repositoryId, slug] as const,
+  docsHome: (personId: string, projectId: string) =>
+    ["as", personId, "docs", "home", projectId] as const,
+  docSearch: (personId: string, q: string, repositoryId: string | null) =>
+    ["as", personId, "docs", "search", q, repositoryId] as const,
   chatSearch: (personId: string, q: string, filters: ChatSearchFilters) =>
     ["as", personId, "chatSearch", q, filters] as const,
 };
@@ -1969,4 +1986,113 @@ export function useChannelStream(channelId: string): ChatStream {
 /** Le risposte (e la radice aggiornata) di un thread, dal vivo. */
 export function useThreadStream(rootId: string): ChatStream {
   return useChatStream(api.chat.threadStream(rootId));
+}
+
+// --- Docs (area 5) -------------------------------------------------------------
+
+/** Le scritture dei Docs ricaricano i Docs; una pagina tolta o cambiata anche citazioni e «#». */
+const DOCS_AREAS = ["docs"] as const;
+const DOCS_PAGE_AREAS = ["docs", "citations", "codeCitations", "mentions"] as const;
+
+/** Mentre una generazione o un grafo è in coda o in corso la lettura si ripete da sola (come il web). */
+const DOCS_REFRESH_MS = 1000;
+const LIVE_STATUSES: readonly string[] = ["queued", "running"];
+const inFlight = (s: { generation: DocGeneration; graph: GraphState } | null | undefined) =>
+  !!s && (LIVE_STATUSES.includes(s.generation.status) || LIVE_STATUSES.includes(s.graph.status));
+
+export function useDocSpaces(projectId: string, { enabled = true }: { enabled?: boolean } = {}) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.docSpaces(me, projectId),
+    queryFn: () => api.docs.listDocSpaces(projectId),
+    enabled,
+    refetchInterval: (query) => (query.state.data?.some(inFlight) ? DOCS_REFRESH_MS : false),
+  });
+}
+
+export function useDocSpace(repositoryId: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.docSpace(me, repositoryId),
+    queryFn: () => api.docs.getDocSpace(repositoryId),
+    refetchInterval: (query) => (inFlight(query.state.data) ? DOCS_REFRESH_MS : false),
+  });
+}
+
+export function useDocTree(repositoryId: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.docTree(me, repositoryId),
+    queryFn: () => api.docs.listDocTree(repositoryId),
+  });
+}
+
+export function useDocPage(repositoryId: string, slug: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.docPage(me, repositoryId, slug),
+    queryFn: () => api.docs.getDocPage(repositoryId, slug),
+  });
+}
+
+export function useProjectDocsHome(projectId: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.docsHome(me, projectId),
+    queryFn: () => api.docs.getProjectDocsHome(projectId),
+    refetchInterval: (query) => (query.state.data?.spaces.some(inFlight) ? DOCS_REFRESH_MS : false),
+  });
+}
+
+/** La ricerca nei Docs (⌘K); con `repositoryId` solo in quello spazio. */
+export function useDocSearch(q: string, repositoryId: string | null, enabled = true) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.docSearch(me, q, repositoryId),
+    queryFn: () => api.docs.searchDocs(q, repositoryId ? { repositoryId } : {}),
+    enabled: enabled && q.trim().length > 0,
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
+  });
+}
+
+export function useCreateManualPage() {
+  return useWrite(
+    ({ repositoryId, input }: { repositoryId: string; input: ManualPageInput }) =>
+      api.docs.createManualPage(repositoryId, input),
+    DOCS_PAGE_AREAS,
+  );
+}
+
+export function useUpdateManualPage() {
+  return useWrite(
+    ({ id, patch }: { id: string; patch: Partial<ManualPageInput> }) =>
+      api.docs.updateManualPage(id, patch),
+    DOCS_PAGE_AREAS,
+  );
+}
+
+export function useDeleteManualPage() {
+  return useWrite((id: string) => api.docs.deleteManualPage(id), DOCS_PAGE_AREAS);
+}
+
+export function useStartGeneration() {
+  return useWrite((repositoryId: string) => api.docs.startGeneration(repositoryId), DOCS_AREAS);
+}
+
+export function useResumeGeneration() {
+  return useWrite((repositoryId: string) => api.docs.resumeGeneration(repositoryId), DOCS_AREAS);
+}
+
+export function useGraphAction() {
+  return useWrite(
+    ({ repositoryId, kind }: { repositoryId: string; kind: GraphActionKind }) =>
+      api.docs.graphAction(repositoryId, kind),
+    DOCS_AREAS,
+  );
+}
+
+/** Una visita alla pagina («più lette»). */
+export function useRecordDocView() {
+  return useWrite((pageId: string) => api.docs.recordDocView(pageId), DOCS_AREAS);
 }
