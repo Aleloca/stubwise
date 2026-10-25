@@ -210,6 +210,16 @@ describe("pagine", () => {
     expect(again.code).toBe(`AUD-D${max + 2}`);
   });
 
+  it("gli slug delle viste dello spazio (new, brief, releases, graph) sono riservati", async () => {
+    for (const slug of ["new", "brief", "releases", "graph"]) {
+      await rejects(
+        docs.createManualPage("repo-aud", { title: "X", slug, body: "x" }),
+        "slug_conflict",
+      );
+    }
+    await rejects(docs.createManualPage("repo-aud", { title: "New", body: "x" }), "slug_conflict");
+  });
+
   it("slug in conflitto: slug_conflict, niente scritto", async () => {
     const taken = DOC_PAGES.find((p) => p.repositoryId === "repo-aud")!.slug;
     await rejects(
@@ -323,6 +333,8 @@ describe("ricerca e codici", () => {
       id: "doc-aud-billing",
       visible: true,
       code: "AUD-D3",
+      // La citazione porta alla pagina, non alla sola sezione.
+      route: "#/p/AUD/docs/audin-app/invoices-and-billing-emails",
     });
     as("p-sara");
     const hidden = await resolveCodes(["AUD-D3"]);

@@ -1,7 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
-import { useChatChannels, usePeople, useProject } from "../data/queries";
+import { useChatChannels, useDocSpaces, usePeople, useProject } from "../data/queries";
 import { PROJECT_SECTIONS } from "../data/routes";
 import type { ChannelRow, Project } from "../data/types";
 import { can, useViewer } from "../data/viewer";
@@ -90,6 +90,9 @@ function ProjectSections({
   const onChat = useRouterState({
     select: (s) => new RegExp(`^/p/${project.code}/chat(/|$)`).test(s.location.pathname),
   });
+  const onDocs = useRouterState({
+    select: (s) => new RegExp(`^/p/${project.code}/docs(/|$)`).test(s.location.pathname),
+  });
   const channels = (chat.data ?? []).filter(inColumn).sort(
     (a, b) => Number(b.isGeneral) - Number(a.isGeneral) || a.name.localeCompare(b.name),
   );
@@ -136,11 +139,43 @@ function ProjectSections({
               {s.id === "chat" && onChat && (
                 <ProjectChatChannels project={project} channels={channels} />
               )}
+              {s.id === "docs" && onDocs && <ProjectDocSpaces project={project} />}
             </li>
           ))}
         </ul>
       </nav>
     </>
+  );
+}
+
+/**
+ * La sezione «Docs», da corrente, si apre in sottovoci rientrate: una per
+ * spazio di repository, col numero di pagine (shape docs.md, A 1). Con un
+ * solo repository nessuna sottovoce: la sezione basta.
+ */
+function ProjectDocSpaces({ project }: { project: Project }) {
+  const { t } = useTranslation();
+  const spaces = useDocSpaces(project.id).data ?? [];
+  if (spaces.length < 2) return null;
+  return (
+    <ul aria-label={t("docs.space.columnLabel", { code: project.code })} className="mt-px flex flex-col gap-px">
+      {spaces.map((space) => (
+        <li key={space.repositoryId}>
+          <Link
+            to="/p/$code/docs/$repo"
+            params={{ code: project.code, repo: space.name }}
+            title={space.name}
+            style={{ whiteSpace: "nowrap" }}
+            className={`${columnItemClass} h-7 pl-7 text-sm`}
+          >
+            <span style={ONE_LINE} className="min-w-0 flex-1">
+              {space.name}
+            </span>
+            <span className="num shrink-0 text-xs text-ink-faint">{space.pageCount}</span>
+          </Link>
+        </li>
+      ))}
+    </ul>
   );
 }
 

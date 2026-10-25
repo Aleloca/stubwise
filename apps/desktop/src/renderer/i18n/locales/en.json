@@ -2908,5 +2908,146 @@
       "showMore_one": "Show {{count}} more in {{name}}",
       "showMore_other": "Show {{count}} more in {{name}}"
     }
+  },
+  "docs": {
+    "title": "Docs",
+    "loadError": "Couldn't load the docs.",
+    "forbidden": "You can't see this project's docs",
+    "forbiddenBody": "Your role in this project doesn't include the documentation. A project lead can give you access.",
+    "minor": "Minor",
+    "groups": {
+      "startHere": "Start here",
+      "spaces": "Spaces",
+      "decisions": "Decisions",
+      "whatsNew": "What's new",
+      "categories": "Categories",
+      "recent": "Recently updated",
+      "mostRead": "Most read",
+      "linked": "Linked pages"
+    },
+    "kinds": {
+      "technical": "Technical",
+      "functional": "Functional",
+      "product": "Product",
+      "manual": "Manual"
+    },
+    "kind": {
+      "technical": "Technical",
+      "functional": "Functional",
+      "product": "Product",
+      "manual": "Manual"
+    },
+    "generation": {
+      "succeeded": "Generated {{date}} at {{commit}}",
+      "succeededPlain": "Generated",
+      "manualOnly": "Manual pages only",
+      "never": "Not generated yet",
+      "queued": "Waiting in line",
+      "running": "Writing pages…",
+      "failed": "Generation failed",
+      "held": "On hold",
+      "paused": "Paused: usage limit"
+    },
+    "home": {
+      "empty": "No repository has documentation yet",
+      "emptyBody": "Documentation is written from the project's repositories. Add one in the project settings.",
+      "emptyAsk": "Documentation is written from the project's repositories. A project lead can add one.",
+      "addRepository": "Add a repository",
+      "seeRegister": "See the whole register",
+      "decidedBy": "decided by {{name}}",
+      "someone": "someone no longer here",
+      "noDecisions": "No decisions recorded yet.",
+      "noReleases": "No releases yet: they're written every night from new commits.",
+      "indexOf": "Everything in {{name}}"
+    },
+    "space": {
+      "pages_one": "{{count}} page",
+      "pages_other": "{{count}} pages",
+      "index": "Index",
+      "pagesToggle": "Pages",
+      "bar": "{{name}} docs",
+      "treeLabel": "Pages of {{name}}",
+      "resize": "Resize the page list",
+      "columnLabel": "Docs spaces of {{code}}"
+    },
+    "tree": {
+      "expandAll": "Expand all",
+      "collapseAll": "Collapse all",
+      "expand": "Expand {{name}}",
+      "collapse": "Collapse {{name}}",
+      "more": "More for {{name}}",
+      "download": "Download as .zip",
+      "downloaded_one": "Downloaded {{file}} ({{count}} page)",
+      "downloaded_other": "Downloaded {{file}} ({{count}} pages)",
+      "empty": "No pages",
+      "error": "Couldn't load the pages."
+    },
+    "index": {
+      "newPage": "New manual page",
+      "showInTree": "Show {{name}} in the page list",
+      "notGenerated": "Not generated yet",
+      "askGenerate": "Ask a maintainer to generate it.",
+      "generate": "Generate documentation",
+      "generateFailed": "Couldn't start the generation. Try again.",
+      "views_one": "{{count}} view",
+      "views_other": "{{count}} views"
+    },
+    "page": {
+      "copyLink": "Copy the link to {{code}}",
+      "linkCopied": "Link to {{code}} copied",
+      "copyFailed": "Couldn't copy the link.",
+      "documents": "Documents",
+      "generatedAt": "Generated at commit",
+      "updated": "Updated {{date}}",
+      "manual": "Manual page",
+      "edit": "Edit",
+      "more": "More actions",
+      "delete": "Delete",
+      "deleteTitle": "Delete “{{title}}”?",
+      "deleteBody": "It can't be restored. Links from other pages will stop working.",
+      "deleted": "Deleted “{{title}}”",
+      "deleteFailed": "Couldn't delete “{{title}}”. It's still there.",
+      "loadError": "Couldn't load this page.",
+      "stale_one": "{{count}} commit since this page was updated",
+      "stale_other": "{{count}} commits since this page was updated",
+      "showMore_one": "Show {{count}} more",
+      "showMore_other": "Show {{count}} more",
+      "hideStale": "Hide for this session",
+      "notFound": "This page doesn't exist or you can't see it",
+      "notFoundBody": "It may have been deleted, or it belongs to docs you can't read.",
+      "backToIndex": "Back to the index",
+      "codeBlock": "Code",
+      "table": "Table",
+      "links": {
+        "implements": "Implements",
+        "implemented_by": "Implemented by",
+        "related": "Related"
+      }
+    },
+    "form": {
+      "newTitle": "New manual page",
+      "editTitle": "Edit “{{title}}”",
+      "title": "Title",
+      "slug": "Slug",
+      "optional": "(optional)",
+      "slugHint": "Made from the title if left empty",
+      "willBeAt": "Will be at {{path}}",
+      "body": "Body",
+      "write": "Write",
+      "preview": "Preview",
+      "previewEmpty": "Nothing to preview yet.",
+      "cancel": "Cancel",
+      "save": "Save page",
+      "saving": "Saving…",
+      "discard": "Discard your changes?",
+      "keep": "Keep editing",
+      "discardAction": "Discard",
+      "errors": {
+        "title": "Give the page a title.",
+        "slugConflict": "Another page already uses this slug",
+        "slugInvalid": "Use lowercase letters, numbers and dashes.",
+        "generic": "Couldn't save the page. Try again."
+      }
+    }
   }
 }

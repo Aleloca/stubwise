@@ -50,8 +50,16 @@ function manualPageFor(me: string, id: string): DocPage {
   return page;
 }
 
+/**
+ * Gli slug che nello spazio sono già viste (`…/<repo>/new`, `brief`,
+ * `releases`, `graph`): una pagina con uno di questi non si aprirebbe mai,
+ * quindi per chi scrive sono «già usati».
+ */
+const RESERVED_SLUGS: ReadonlySet<string> = new Set(["new", "brief", "releases", "graph"]);
+
 function checkSlug(repositoryId: string, slug: string, exceptId?: string): void {
   if (!SLUG_RE.test(slug)) throw invalid("slug");
+  if (RESERVED_SLUGS.has(slug)) throw new Error("slug_conflict");
   const taken = state.docPages.some(
     (p) => p.repositoryId === repositoryId && p.slug === slug && p.id !== exceptId,
   );

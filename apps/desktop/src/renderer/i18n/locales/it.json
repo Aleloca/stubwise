@@ -2908,5 +2908,146 @@
       "showMore_one": "Un altro in {{name}}",
       "showMore_other": "Altri {{count}} in {{name}}"
     }
+  },
+  "docs": {
+    "title": "Documenti",
+    "loadError": "Non è stato possibile caricare i documenti.",
+    "forbidden": "Non puoi vedere i documenti di questo progetto",
+    "forbiddenBody": "Il tuo ruolo in questo progetto non comprende la documentazione. Un project lead può darti l'accesso.",
+    "minor": "Minore",
+    "groups": {
+      "startHere": "Inizia da qui",
+      "spaces": "Spazi",
+      "decisions": "Decisioni",
+      "whatsNew": "Novità",
+      "categories": "Categorie",
+      "recent": "Aggiornate di recente",
+      "mostRead": "Più lette",
+      "linked": "Pagine collegate"
+    },
+    "kinds": {
+      "technical": "Tecniche",
+      "functional": "Funzionali",
+      "product": "Prodotto",
+      "manual": "Manuali"
+    },
+    "kind": {
+      "technical": "Tecnica",
+      "functional": "Funzionale",
+      "product": "Prodotto",
+      "manual": "Manuale"
+    },
+    "generation": {
+      "succeeded": "Generata il {{date}} al commit {{commit}}",
+      "succeededPlain": "Generata",
+      "manualOnly": "Solo pagine manuali",
+      "never": "Non ancora generata",
+      "queued": "In coda",
+      "running": "Scrittura delle pagine…",
+      "failed": "Generazione non riuscita",
+      "held": "Trattenuta",
+      "paused": "In pausa: limite d'uso"
+    },
+    "home": {
+      "empty": "Nessun repository ha ancora documentazione",
+      "emptyBody": "La documentazione si scrive dai repository del progetto. Aggiungine uno nelle impostazioni del progetto.",
+      "emptyAsk": "La documentazione si scrive dai repository del progetto. Un project lead può aggiungerne uno.",
+      "addRepository": "Aggiungi un repository",
+      "seeRegister": "Vedi tutto il registro",
+      "decidedBy": "decisa da {{name}}",
+      "someone": "una persona che non c'è più",
+      "noDecisions": "Nessuna decisione registrata.",
+      "noReleases": "Ancora nessuna release: si scrivono ogni notte dai commit nuovi.",
+      "indexOf": "Tutto in {{name}}"
+    },
+    "space": {
+      "pages_one": "{{count}} pagina",
+      "pages_other": "{{count}} pagine",
+      "index": "Indice",
+      "pagesToggle": "Pagine",
+      "bar": "Documenti di {{name}}",
+      "treeLabel": "Pagine di {{name}}",
+      "resize": "Ridimensiona l'elenco delle pagine",
+      "columnLabel": "Spazi dei documenti di {{code}}"
+    },
+    "tree": {
+      "expandAll": "Espandi tutto",
+      "collapseAll": "Comprimi tutto",
+      "expand": "Espandi {{name}}",
+      "collapse": "Comprimi {{name}}",
+      "more": "Altro per {{name}}",
+      "download": "Scarica come .zip",
+      "downloaded_one": "Scaricato {{file}} ({{count}} pagina)",
+      "downloaded_other": "Scaricato {{file}} ({{count}} pagine)",
+      "empty": "Nessuna pagina",
+      "error": "Non è stato possibile caricare le pagine."
+    },
+    "index": {
+      "newPage": "Nuova pagina manuale",
+      "showInTree": "Mostra {{name}} nell'elenco delle pagine",
+      "notGenerated": "Non ancora generata",
+      "askGenerate": "Chiedi a un maintainer di generarla.",
+      "generate": "Genera la documentazione",
+      "generateFailed": "Non è stato possibile avviare la generazione. Riprova.",
+      "views_one": "{{count}} lettura",
+      "views_other": "{{count}} letture"
+    },
+    "page": {
+      "copyLink": "Copia il link a {{code}}",
+      "linkCopied": "Link a {{code}} copiato",
+      "copyFailed": "Non è stato possibile copiare il link.",
+      "documents": "Documenta",
+      "generatedAt": "Generata al commit",
+      "updated": "Aggiornata il {{date}}",
+      "manual": "Pagina manuale",
+      "edit": "Modifica",
+      "more": "Altre azioni",
+      "delete": "Elimina",
+      "deleteTitle": "Eliminare «{{title}}»?",
+      "deleteBody": "Non si può recuperare. I collegamenti dalle altre pagine smetteranno di funzionare.",
+      "deleted": "«{{title}}» eliminata",
+      "deleteFailed": "Non è stato possibile eliminare «{{title}}». È ancora lì.",
+      "loadError": "Non è stato possibile caricare questa pagina.",
+      "stale_one": "{{count}} commit dopo l'ultimo aggiornamento di questa pagina",
+      "stale_other": "{{count}} commit dopo l'ultimo aggiornamento di questa pagina",
+      "showMore_one": "Mostra ancora {{count}}",
+      "showMore_other": "Mostra altri {{count}}",
+      "hideStale": "Nascondi per questa sessione",
+      "notFound": "Questa pagina non esiste o non puoi vederla",
+      "notFoundBody": "Potrebbe essere stata eliminata, o appartiene a documenti che non puoi leggere.",
+      "backToIndex": "Torna all'indice",
+      "codeBlock": "Codice",
+      "table": "Tabella",
+      "links": {
+        "implements": "Implementa",
+        "implemented_by": "Implementata da",
+        "related": "Correlate"
+      }
+    },
+    "form": {
+      "newTitle": "Nuova pagina manuale",
+      "editTitle": "Modifica «{{title}}»",
+      "title": "Titolo",
+      "slug": "Slug",
+      "optional": "(facoltativo)",
+      "slugHint": "Se resta vuoto, viene dal titolo",
+      "willBeAt": "Sarà in {{path}}",
+      "body": "Testo",
+      "write": "Scrivi",
+      "preview": "Anteprima",
+      "previewEmpty": "Ancora niente da mostrare.",
+      "cancel": "Annulla",
+      "save": "Salva la pagina",
+      "saving": "Salvataggio…",
+      "discard": "Buttare le modifiche?",
+      "keep": "Continua a modificare",
+      "discardAction": "Butta",
+      "errors": {
+        "title": "Dai un titolo alla pagina.",
+        "slugConflict": "Un'altra pagina usa già questo slug",
+        "slugInvalid": "Usa lettere minuscole, numeri e trattini.",
+        "generic": "Non è stato possibile salvare la pagina. Riprova."
+      }
+    }
   }
 }

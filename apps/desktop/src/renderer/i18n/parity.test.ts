@@ -24,6 +24,7 @@ describe("parità delle chiavi en/it", () => {
         "export",
         "chat",
         "claude",
+        "docs",
         "filter",
         "home",
         "modules",

@@ -6,7 +6,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as api from "./api";
 import { resolveHome } from "../domain/home";
 import type {
@@ -2000,23 +2000,44 @@ const LIVE_STATUSES: readonly string[] = ["queued", "running"];
 const inFlight = (s: { generation: DocGeneration; graph: GraphState } | null | undefined) =>
   !!s && (LIVE_STATUSES.includes(s.generation.status) || LIVE_STATUSES.includes(s.graph.status));
 
+/**
+ * Quando una generazione o un grafo finisce (in corso → non più) le pagine
+ * sono cambiate (commit, avviso di pagina vecchia, albero): si ricarica
+ * tutta l'area Docs, anche ciò che non si ripeteva da solo. Il cambio di
+ * persona riparte da capo (nessun «prima» della persona precedente).
+ */
+function useDocsSettled(live: boolean) {
+  const me = useSessionPersonId();
+  const invalidate = useInvalidate(DOCS_PAGE_AREAS);
+  const was = useRef({ me, live });
+  useEffect(() => {
+    const before = was.current;
+    was.current = { me, live };
+    if (before.me === me && before.live && !live) void invalidate();
+  });
+}
+
 export function useDocSpaces(projectId: string, { enabled = true }: { enabled?: boolean } = {}) {
   const me = useSessionPersonId();
-  return useQuery({
+  const query = useQuery({
     queryKey: queryKeys.docSpaces(me, projectId),
     queryFn: () => api.docs.listDocSpaces(projectId),
     enabled,
     refetchInterval: (query) => (query.state.data?.some(inFlight) ? DOCS_REFRESH_MS : false),
   });
+  useDocsSettled(!!query.data?.some(inFlight));
+  return query;
 }
 
 export function useDocSpace(repositoryId: string) {
   const me = useSessionPersonId();
-  return useQuery({
+  const query = useQuery({
     queryKey: queryKeys.docSpace(me, repositoryId),
     queryFn: () => api.docs.getDocSpace(repositoryId),
     refetchInterval: (query) => (inFlight(query.state.data) ? DOCS_REFRESH_MS : false),
   });
+  useDocsSettled(inFlight(query.data));
+  return query;
 }
 
 export function useDocTree(repositoryId: string) {
@@ -2037,11 +2058,13 @@ export function useDocPage(repositoryId: string, slug: string) {
 
 export function useProjectDocsHome(projectId: string) {
   const me = useSessionPersonId();
-  return useQuery({
+  const query = useQuery({
     queryKey: queryKeys.docsHome(me, projectId),
     queryFn: () => api.docs.getProjectDocsHome(projectId),
     refetchInterval: (query) => (query.state.data?.spaces.some(inFlight) ? DOCS_REFRESH_MS : false),
   });
+  useDocsSettled(!!query.data?.spaces.some(inFlight));
+  return query;
 }
 
 /** La ricerca nei Docs (⌘K); con `repositoryId` solo in quello spazio. */

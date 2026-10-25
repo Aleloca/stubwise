@@ -34,6 +34,10 @@ import { rememberLastChannel } from "./pages/chat/column";
 import { SEARCH_PARAM_KEYS, isSearchParamValue } from "./pages/chat/search";
 import { useChatChannel } from "./data/queries";
 import { useEffect } from "react";
+import { DocsHome, DocsProjectGate } from "./pages/docs/DocsHome";
+import { DocSpace, RepoIndex } from "./pages/docs/DocSpace";
+import { DocPageRoute } from "./pages/docs/DocPageView";
+import { EditManualPageRoute, NewManualPageRoute } from "./pages/docs/ManualPageForm";
 
 /** La ricerca che ogni route accetta (`?task=` apre il pannello, gli altri li montano i dialoghi). */
 export interface AppSearch {
@@ -429,6 +433,94 @@ const projectSectionRoute = createRoute({
   component: ProjectSectionPage,
 });
 
+/**
+ * La sezione Docs del progetto (area 5): pagina iniziale, e lo spazio di un
+ * repository (per nome) con le sue viste — indice, pagina per slug, pagina
+ * manuale nuova e modifica. Le route letterali (`docs`, `new`, `edit`)
+ * vincono sulle parametriche (`$section`, `$slug`) per specificità; uno
+ * slug `new` non può esistere (riservato dal livello dati). Cambiare
+ * persona rimonta la vista: niente form né stato della persona di prima.
+ */
+function DocsHomeRoutePage() {
+  const { code } = docsHomeRoute.useParams();
+  const { viewer } = useViewer();
+  return (
+    <DocsProjectGate code={code}>
+      {(project) => <DocsHome key={`${project.code}:${viewer.personId}`} project={project} />}
+    </DocsProjectGate>
+  );
+}
+
+function DocSpaceRoutePage() {
+  const { code, repo } = docSpaceRoute.useParams();
+  const { viewer } = useViewer();
+  return (
+    <DocsProjectGate code={code}>
+      {(project) => (
+        <DocSpace key={`${project.code}:${repo}:${viewer.personId}`} project={project} repo={repo} />
+      )}
+    </DocsProjectGate>
+  );
+}
+
+/** Un codice progetto in minuscolo nelle route dei Docs: si riporta alle maiuscole. */
+function upperCaseDocsCode(code: string, pathname: string) {
+  if (upperCaseCode(code)) {
+    throw redirect({
+      href: pathname.replace(`/p/${code}/`, `/p/${code.toUpperCase()}/`),
+      replace: true,
+    });
+  }
+}
+
+const docsHomeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/p/$code/docs",
+  beforeLoad: ({ params, location }) => upperCaseDocsCode(params.code, location.pathname),
+  component: DocsHomeRoutePage,
+});
+
+const docSpaceRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/p/$code/docs/$repo",
+  beforeLoad: ({ params, location }) => upperCaseDocsCode(params.code, location.pathname),
+  component: DocSpaceRoutePage,
+});
+
+const docSpaceIndexRoute = createRoute({
+  getParentRoute: () => docSpaceRoute,
+  path: "/",
+  component: RepoIndex,
+});
+
+const docNewPageRoute = createRoute({
+  getParentRoute: () => docSpaceRoute,
+  path: "new",
+  component: NewManualPageRoute,
+});
+
+function DocPageRoutePage() {
+  const { slug } = docPageRoute.useParams();
+  return <DocPageRoute slug={slug} />;
+}
+
+const docPageRoute = createRoute({
+  getParentRoute: () => docSpaceRoute,
+  path: "$slug",
+  component: DocPageRoutePage,
+});
+
+function DocEditRoutePage() {
+  const { slug } = docEditRoute.useParams();
+  return <EditManualPageRoute slug={slug} />;
+}
+
+const docEditRoute = createRoute({
+  getParentRoute: () => docSpaceRoute,
+  path: "$slug/edit",
+  component: DocEditRoutePage,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   ...appRoutes,
@@ -438,6 +530,8 @@ const routeTree = rootRoute.addChildren([
   projectIndexRoute,
   projectSectionRoute,
   projectChatChannelRoute,
+  docsHomeRoute,
+  docSpaceRoute.addChildren([docSpaceIndexRoute, docNewPageRoute, docPageRoute, docEditRoute]),
 ]);
 
 export function createAppRouter(history: RouterHistory) {

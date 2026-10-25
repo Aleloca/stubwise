@@ -4,7 +4,13 @@ import { DEPARTMENT_ROLES } from "./seed/departmentRoles";
 import { DEPARTMENTS } from "./seed/departments";
 import { commandsFor } from "./seed/commands";
 import { COMMITS } from "./seed/commits";
-import { canReadDocPage, docPageByCode, docPageById, docsAccess } from "./docs/reads";
+import {
+  canReadDocPage,
+  docPageByCode,
+  docPageById,
+  docsAccess,
+  repositoryById,
+} from "./docs/reads";
 import { daysFromToday, TODAY } from "./seed/dates";
 import { PEOPLE } from "./seed/people";
 import { projectOfRepo, REPO_FILES } from "./seed/repoFiles";
@@ -1060,7 +1066,8 @@ export async function resolveCitations(refs: CitationRef[]): Promise<CitationVie
           name: d.title,
           projectCode: project,
           status: d.path,
-          route: `#/p/${project}/docs`,
+          // La pagina stessa: `#/p/<CODE>/docs/<repository>/<slug>`.
+          route: `#/p/${project}/docs/${repositoryById(d.repositoryId)?.name ?? ""}/${d.slug}`,
         };
       }
       case "file": {

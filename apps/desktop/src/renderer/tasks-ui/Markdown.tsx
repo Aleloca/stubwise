@@ -13,14 +13,14 @@ import { Fragment, type ReactNode } from "react";
 type Block =
   | { kind: "p"; text: string }
   | { kind: "quote"; text: string }
-  | { kind: "h"; text: string }
+  | { kind: "h"; level: number; text: string }
   | { kind: "ul" | "ol"; items: string[] }
   | { kind: "code"; lang: string; text: string }
   | { kind: "table"; header: string[]; rows: string[][] };
 
 const UL = /^\s*[-*]\s+(.*)$/;
 const OL = /^\s*\d+[.)]\s+(.*)$/;
-const H = /^#{1,6}\s+(.*)$/;
+const H = /^(#{1,6})\s+(.*)$/;
 const QUOTE = /^\s*>\s?(.*)$/;
 const FENCE = /^\s*```\s*([\w+-]*)\s*$/;
 const TABLE_ROW = /^\s*\|.*\|\s*$/;
@@ -93,7 +93,7 @@ function blocks(source: string, streaming = false): Block[] {
     const ol = OL.exec(line);
     if (h) {
       flush();
-      out.push({ kind: "h", text: h[1]! });
+      out.push({ kind: "h", level: h[1]!.length, text: h[2]! });
     } else if (ul || ol) {
       flush();
       const kind = ul ? "ul" : "ol";
@@ -208,6 +208,7 @@ export function Markdown({
   codeLabel = "Code",
   tableLabel = "Table",
   trailing,
+  documentHeadings = false,
 }: {
   source: string;
   className?: string;
@@ -218,6 +219,11 @@ export function Markdown({
   tableLabel?: string;
   /** In coda all'ultimo blocco di testo (il cursore di un messaggio che arriva). */
   trailing?: ReactNode;
+  /**
+   * Un documento con il suo h1 sopra (una pagina dei Docs): i titoli del
+   * testo diventano titoli veri, da h2 in giù (`#`/`##` → h2, il resto h3).
+   */
+  documentHeadings?: boolean;
 }) {
   // Con il cursore il testo sta arrivando: le tabelle aspettano la prima riga intera.
   const list = blocks(source, trailing !== undefined && trailing !== null);
@@ -233,6 +239,22 @@ export function Markdown({
         const key = String(i);
         switch (block.kind) {
           case "h":
+            if (documentHeadings) {
+              const Heading = block.level <= 2 ? "h2" : "h3";
+              return (
+                <Heading
+                  key={key}
+                  className={
+                    Heading === "h2"
+                      ? "pt-4 text-xl font-semibold text-ink"
+                      : "pt-2 text-lg font-semibold text-ink"
+                  }
+                >
+                  {inline(block.text, key, decorate)}
+                  {tail(i)}
+                </Heading>
+              );
+            }
             return (
               <p key={key} className="pt-1 font-semibold text-ink">
                 {inline(block.text, key, decorate)}
