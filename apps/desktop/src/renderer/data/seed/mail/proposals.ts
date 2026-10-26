@@ -267,7 +267,8 @@ export const MAIL_PROPOSALS: MailProposal[] = [
     createdAt: at(8, "16:45"),
     status: "confirmed",
     decidedById: "p-matteo",
-    decidedAt: at(8, "17:30"),
+    // Le due task nascono all'ora della conferma (`createdHour: 17` nel seme delle task).
+    decidedAt: at(8, "17:00"),
     resultCodes: ["AUD-7", "AUD-8"],
     error: null,
     handedAt: null,

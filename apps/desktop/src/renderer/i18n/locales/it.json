@@ -2524,7 +2524,8 @@
       "planRejectedWith": "Piano rifiutato: {{instructions}}",
       "answerWithNote": "{{option}} — {{note}}",
       "emailTitle": "Dall’email «{{subject}}»",
-      "emailDecision": "{{sender}} ha scritto: «{{excerpt}}»"
+      "emailDecision": "{{sender}} ha scritto: «{{excerpt}}»",
+      "meetingDecision": "Deciso dalle note di una riunione."
     },
     "mailDraft": {
       "greeting": "Ciao {{name}},",
@@ -4244,7 +4245,8 @@
       "updated": "{{title}} aggiornata",
       "failed": "Non è stato possibile creare la riunione",
       "updateFailed": "Non è stato possibile salvare la riunione: non è cambiato nulla.",
-      "updatePartial": "Non è stato possibile salvare tutte le modifiche: il nuovo orario è salvato."
+      "updatePartial": "Non è stato possibile salvare tutte le modifiche a {{title}}: il nuovo orario è salvato.",
+      "projectFailed": "{{title}} è salvata, ma il progetto non è cambiato."
     },
     "column": {
       "calendars": "Calendari",

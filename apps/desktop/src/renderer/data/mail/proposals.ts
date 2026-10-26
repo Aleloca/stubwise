@@ -327,7 +327,9 @@ function chosenActions(
 /**
  * Il testo del registro per una decisione dalla posta: un TEMPLATE con
  * oggetto, mittente ed estratto, letti dal messaggio e dalla proposta — mai
- * titolo o testo degli argomenti del modello. Origine `email`.
+ * titolo o testo degli argomenti del modello. Da una riunione mai l'estratto
+ * (è il riassunto, solo dei partecipanti): una riga da template. Origine
+ * `email`.
  */
 function withEmailWords(p: MailProposal, actions: ProposedAction[]): ProposedAction[] {
   const message = state.mailMessages.find((m) => m.messageId === p.sourceId);
@@ -340,10 +342,15 @@ function withEmailWords(p: MailProposal, actions: ProposedAction[]): ProposedAct
             ...(a.args.taskId !== undefined ? { taskId: a.args.taskId } : {}),
             source: "email",
             title: i18n.t("claude.decisionLog.emailTitle", { subject: message?.subject ?? "" }),
-            decision: i18n.t("claude.decisionLog.emailDecision", {
-              sender: message?.from.name ?? "",
-              excerpt: p.excerpt,
-            }),
+            // Da una riunione l'estratto è il riassunto, che vedono solo i
+            // partecipanti: nel registro (di tutto il progetto) una riga neutra.
+            decision:
+              p.source === "transcript"
+                ? i18n.t("claude.decisionLog.meetingDecision")
+                : i18n.t("claude.decisionLog.emailDecision", {
+                    sender: message?.from.name ?? "",
+                    excerpt: p.excerpt,
+                  }),
           },
         }
       : a,

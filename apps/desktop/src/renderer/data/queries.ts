@@ -2421,9 +2421,9 @@ export function useRetryExtraction() {
   return useWrite((id: string) => api.drive.retryExtraction(id), DRIVE_AREAS);
 }
 
-/** Collegare o scollegare l'account cambia cosa si vede di Google e i file delle mie cartelle. */
 /**
- * Collegare o scollegare l'account Google cambia Drive, Posta, Calendario e
+ * Collegare o scollegare l'account Google cambia cosa si vede di Google — i
+ * file delle mie cartelle del Drive, Posta, Calendario e
  * scheda di preparazione: un «Reconnect» dal Calendario o dalla Home toglie
  * subito l'avviso di collegamento scaduto.
  */

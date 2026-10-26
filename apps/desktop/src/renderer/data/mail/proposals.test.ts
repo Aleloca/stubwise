@@ -571,6 +571,27 @@ describe("Proposte della posta: registro decisioni e traguardi", () => {
     expect(JSON.stringify(entry)).not.toMatch(/MODEL/);
   });
 
+  it("da una riunione: il registro non copia l'estratto (il riassunto), solo una riga da template", async () => {
+    const gemini = message(MAIL_CASES.transcript);
+    const id = addProposal(
+      [{ fn: "recordDecision", args: { projectId: AUD }, summary: "Record the decision" }],
+      {
+        source: "transcript",
+        sourceId: gemini.messageId,
+        excerpt: "SUMMARY OF THE MEETING that only participants may read.",
+      },
+    );
+    as("p-matteo");
+    await mail.confirmMailProposal(id);
+    const entry = state.decisionLog.at(-1)!;
+    expect(entry).toMatchObject({
+      source: "email",
+      title: i18n.t("claude.decisionLog.emailTitle", { subject: gemini.subject }),
+      decision: i18n.t("claude.decisionLog.meetingDecision"),
+    });
+    expect(JSON.stringify(entry)).not.toMatch(/SUMMARY OF THE MEETING/);
+  });
+
   it("createMilestone crea il traguardo con tickets.edit", async () => {
     const id = addProposal([
       {

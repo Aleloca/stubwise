@@ -135,16 +135,22 @@ function TimeGrid({
   // il tetto della vista.
   const tv = view === "day" ? "day" : "week";
   const [colPx, setColPx] = useState(0);
+  // Si osserva lo scorrimento, che resta lo stesso cambiando settimana (le
+  // colonne invece rinascono, una per data); a ogni misura si legge la
+  // colonna di adesso.
   useLayoutEffect(() => {
-    const el = scroller.current?.querySelector<HTMLElement>("[data-day-column]");
-    if (!el) return;
-    const measure = () => setColPx(el.getBoundingClientRect().width);
+    const host = scroller.current;
+    if (!host) return;
+    const measure = () => {
+      const col = host.querySelector<HTMLElement>("[data-day-column]");
+      setColPx(col ? col.getBoundingClientRect().width : 0);
+    };
     measure();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measure);
-    observer.observe(el);
+    observer.observe(host);
     return () => observer.disconnect();
-  }, [view, days.length]);
+  }, [view, days.length, days[0]?.getTime()]);
   const maxLanes = colPx > 0 ? lanesFor(colPx, tv) : MAX_LANES[tv];
   /** Un blocco più stretto di questo legge il solo titolo (shape §5, revisione del 26 ott). */
   const compactBelow = 140;

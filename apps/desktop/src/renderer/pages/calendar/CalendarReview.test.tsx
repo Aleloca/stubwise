@@ -423,11 +423,33 @@ describe("rilievi minori", () => {
       failNext("calendar.updateEvent");
       await editGoLive();
       expect(
-        await screen.findByText("Couldn't save every change: the new time is saved."),
+        await screen.findByText(
+          "Couldn't save every change to Go-live plan with Sofia: the new time is saved.",
+        ),
       ).toBeInTheDocument();
       expect(screen.queryByText("Couldn't save the meeting: nothing was changed.")).toBeNull();
       expect(announcer()).not.toHaveTextContent(/updated/);
       expect(ev(C.goLive).startsAt).toBe("2026-10-23T15:00:00Z");
+    });
+
+    it("rifiutato solo il progetto: dice cosa è salvato e cosa no", async () => {
+      failNext("calendar.setEventProject");
+      await openCalendar(`/calendar?event=${C.goLive}&date=2026-10-23`);
+      const user = userEvent.setup();
+      const panel = await screen.findByRole("region", { name: "Event" });
+      await user.click(await within(panel).findByRole("button", { name: "Edit" }));
+      const dialog = await screen.findByRole("dialog", { name: "Edit meeting" });
+      const title = within(dialog).getByLabelText("Title");
+      await user.clear(title);
+      await user.type(title, "Go-live plan v2");
+      await user.click(within(dialog).getByRole("button", { name: /^Project: / }));
+      await user.click(await screen.findByRole("menuitemradio", { name: "No project" }));
+      await user.click(within(dialog).getByRole("button", { name: "Save" }));
+      expect(
+        await screen.findByText("Go-live plan v2 is saved, but its project didn't change."),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/nothing was changed/)).toBeNull();
+      expect(ev(C.goLive)).toMatchObject({ title: "Go-live plan v2", projectId: "prj-aud" });
     });
 
     it("nuova riunione: l'annuncio arriva a creazione riuscita, anche a editor chiuso", async () => {

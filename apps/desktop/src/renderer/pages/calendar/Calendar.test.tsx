@@ -312,14 +312,62 @@ describe("Calendario — 12 eventi sovrapposti (Review Focus 5)", () => {
     }
   });
 
+  it("le corsie seguono la larghezza anche dopo aver cambiato settimana", async () => {
+    const rect = HTMLElement.prototype.getBoundingClientRect;
+    const Original = globalThis.ResizeObserver;
+    let width = 900;
+    const observers: { cb: ResizeObserverCallback; targets: Element[] }[] = [];
+    globalThis.ResizeObserver = class {
+      entry: { cb: ResizeObserverCallback; targets: Element[] };
+      constructor(cb: ResizeObserverCallback) {
+        this.entry = { cb, targets: [] };
+        observers.push(this.entry);
+      }
+      observe(el: Element) {
+        this.entry.targets.push(el);
+      }
+      unobserve() {}
+      disconnect() {
+        this.entry.targets = [];
+      }
+    } as unknown as typeof ResizeObserver;
+    // Solo un elemento ancora nella pagina ha una larghezza: una colonna staccata non conta.
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      if (!this.isConnected) return { width: 0, height: 0 } as DOMRect;
+      if (this.hasAttribute("data-day-column")) return { width, height: 1152 } as DOMRect;
+      return { width: width * 7 + 48, height: 1152 } as DOMRect;
+    };
+    try {
+      await openCalendar("/calendar?date=2026-10-21");
+      await userEvent.click(screen.getByRole("button", { name: "Next" }));
+      const col = await column("2026-10-28");
+      await within(col).findByRole("button", { name: /^\+\d+ more$/ });
+      expect(col.querySelector("[data-more-overlay]")).toBeNull();
+      // La finestra si stringe: le corsie si ricalcolano sulla settimana nuova.
+      width = 96;
+      act(() => {
+        for (const o of observers)
+          if (o.targets.some((t) => t.isConnected)) o.cb([], {} as ResizeObserver);
+      });
+      await waitFor(() => expect(col.querySelector("[data-more-overlay]")).not.toBeNull());
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = rect;
+      globalThis.ResizeObserver = Original;
+    }
+  });
+
   it("la parola della risposta non si tronca: in due righe il codice lascia il posto", async () => {
     await openCalendar("/calendar?date=2026-10-23");
     const invite = await block(C.invite);
     const word = within(invite).getByText("Not answered");
     expect(word.className).not.toMatch(/truncate/);
     expect(word.className).toMatch(/shrink-0/);
-    // Il codice del progetto non c'è sulla riga dell'ora (resta nel nome accessibile).
+    // Sulla prima riga la parola viene prima di tutto: l'ora e il codice le lasciano il
+    // posto (restano nel nome accessibile, nel tooltip e nella posizione).
+    expect(word.parentElement!.firstElementChild).toBe(word);
+    expect(word.parentElement!.textContent).not.toMatch(/PM|AM/);
     expect(invite.querySelector("[data-block-code]")).toBeNull();
+    expect(invite).toHaveAccessibleName(/\d:\d\d (AM|PM)/);
     expect(invite).toHaveAccessibleName(/OLV/);
   });
 
@@ -493,9 +541,9 @@ describe("Calendario — cambio di persona", () => {
     await openCalendar("/calendar");
     await userEvent.click(await screen.findByRole("button", { name: "New meeting" }));
     await screen.findByRole("dialog", { name: "New meeting" });
-    await act(async () => {
-      await switchPersona(/Laura Costa/);
-    });
+    // userEvent fa già da sé gli act(): avvolgerlo in un altro act() fa dire a
+    // React che l'ambiente non li supporta.
+    await switchPersona(/Laura Costa/);
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "New meeting" })).toBeNull());
   });
 });

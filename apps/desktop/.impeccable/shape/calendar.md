@@ -130,7 +130,7 @@ dettaglio è in `meeting-prep.md`; le proposte di calendario nella Posta e in
   20 px (largo almeno 28 px) **in alto nella fascia**, nell'ultima corsia;
   se resta una corsia sola si sovrappone in alto a destra del blocco
   rimasto. Bordo pieno `border-rule-strong`, non tratteggiato. Un blocco più
-  stretto di 140 px è **compatto**: su una riga il solo titolo (la parola
+  stretto di 140 px è **compatto** (la larghezza del BLOCCO, colonna diviso corsie, non della colonna: ruling R-I26): su una riga il solo titolo (la parola
   di stato al posto dell'ora), su due il titolo in testa; l'ora resta nel
   tooltip, nel nome accessibile e nella posizione. La parola di stato
   (risposta, «continues», «Saving…») non si tronca mai: sulla riga dell'ora

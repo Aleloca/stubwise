@@ -234,8 +234,11 @@ describe("Posta — contenuti estremi (Review Focus 5)", () => {
       const { html } = neutralize(payload);
       expect(html, payload).not.toMatch(/javascript:|vbscript:|data:text/i);
     }
+    // L'iframe con `srcdoc`, non con un indirizzo: happy-dom, a differenza del
+    // browser, prova a caricare l'iframe di un documento di DOMParser e,
+    // chiuso il test, lascia nel log una fetch interrotta. Si toglie per tag.
     const kept = neutralize(
-      '<img src="data:image/png;base64,AA"><iframe src="https://e.example"></iframe><object data="x"></object>',
+      '<img src="data:image/png;base64,AA"><iframe srcdoc="<p>x</p>"></iframe><object data="x"></object>',
     );
     expect(kept.html).toContain('src="data:image/png;base64,AA"');
     expect(kept.html).not.toMatch(/<iframe|<object/i);

@@ -231,8 +231,9 @@ export function EventEditor({
         );
       return;
     }
-    // Lo spostamento è già salvato: un rifiuto dopo non può dire «non è cambiato nulla».
-    let moved = false;
+    // Fin dove è arrivato il salvataggio: un rifiuto dopo lo spostamento non
+    // può dire «non è cambiato nulla», e uno dopo i dettagli dice cosa manca.
+    let saved: "nothing" | "time" | "details" = "nothing";
     try {
       // Prima gli orari (e «tutto il giorno»): sono la parte che il livello
       // dati può rifiutare, e un rifiuto non deve lasciare salvato a metà il
@@ -249,7 +250,7 @@ export function EventEditor({
           scope,
           ...(allDay !== event.allDay ? { allDay } : {}),
         });
-        moved = true;
+        saved = "time";
       }
       await update.mutateAsync({
         id: event.id,
@@ -262,13 +263,20 @@ export function EventEditor({
         },
         scope,
       });
+      saved = "details";
       if (projectId !== event.projectId) await setProject.mutateAsync({ id: event.id, projectId });
       onSaved(t("calendar.editor.updated", { title: title.trim() }));
     } catch {
       // Un rifiuto del livello dati (non un salvataggio fallito verso Google,
       // che l'evento dice da sé con «Riprova»): si dice a vista, e senza
       // annuncio di salvataggio.
-      toast.error(t(moved ? "calendar.editor.updatePartial" : "calendar.editor.updateFailed"));
+      toast.error(
+        saved === "details"
+          ? t("calendar.editor.projectFailed", { title: title.trim() })
+          : saved === "time"
+            ? t("calendar.editor.updatePartial", { title: event.title })
+            : t("calendar.editor.updateFailed"),
+      );
     }
   }
 

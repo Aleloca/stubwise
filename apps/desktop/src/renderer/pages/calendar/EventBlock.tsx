@@ -257,15 +257,20 @@ export function GridBlockBody({
     );
   }
   if (lines === 2) {
-    // Due righe: lo stato sale accanto all'ora (al posto del codice), il titolo sotto.
+    // Due righe: la parola di stato, se c'è, prende la prima riga al posto di ora e
+    // codice (restano nel nome accessibile, nel tooltip e nella posizione): così
+    // non si tronca mai. Senza, ora · codice. Il titolo sotto.
     return (
       <>
         <span className="flex min-w-0 items-center gap-1.5 overflow-hidden">
-          {time}
-          {states.length === 0 && codeEl}
+          {stateWords || (
+            <>
+              {time}
+              {codeEl}
+            </>
+          )}
           {prep}
           {fail}
-          {stateWords}
         </span>
         <span className={`${titleClass} truncate`}>{e.title}</span>
       </>

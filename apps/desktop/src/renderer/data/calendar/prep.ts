@@ -1,7 +1,7 @@
 import { isOverdue, openMilestones } from "../../domain/due";
 import { rowsFor } from "../mail/reads";
 import { bornFrom, proposedFrom, summaryFor } from "../mail/transcripts";
-import { TODAY } from "../seed/dates";
+import { TODAY } from "../dates";
 import {
   copy,
   familyOf,

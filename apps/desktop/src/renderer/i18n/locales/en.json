@@ -2524,7 +2524,8 @@
       "planRejectedWith": "Plan rejected: {{instructions}}",
       "answerWithNote": "{{option}} — {{note}}",
       "emailTitle": "From the email “{{subject}}”",
-      "emailDecision": "{{sender}} wrote: “{{excerpt}}”"
+      "emailDecision": "{{sender}} wrote: “{{excerpt}}”",
+      "meetingDecision": "Decided from the notes of a meeting."
     },
     "mailDraft": {
       "greeting": "Hi {{name}},",
@@ -4244,7 +4245,8 @@
       "updated": "{{title}} updated",
       "failed": "Couldn't create the meeting",
       "updateFailed": "Couldn't save the meeting: nothing was changed.",
-      "updatePartial": "Couldn't save every change: the new time is saved."
+      "updatePartial": "Couldn't save every change to {{title}}: the new time is saved.",
+      "projectFailed": "{{title}} is saved, but its project didn't change."
     },
     "column": {
       "calendars": "Calendars",
