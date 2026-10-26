@@ -2503,6 +2503,10 @@ export function useMarkMailRead() {
   return useWrite((threadId: string) => api.mail.markRead(threadId), MAIL_AREAS);
 }
 
+export function useMarkMailUnread() {
+  return useWrite((threadId: string) => api.mail.markUnread(threadId), MAIL_AREAS);
+}
+
 /**
  * «Aggiorna ora»: appena la casella è «in allineamento» la Posta si rilegge
  * (la casella lo mostra); di nuovo quando l'allineamento finisce, così la

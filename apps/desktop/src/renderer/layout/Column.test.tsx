@@ -277,16 +277,16 @@ describe("PersonalColumn", () => {
     const grid = column().parentElement!;
     const homeGridClass = grid.className;
     cleanup();
-    await renderAt("/mail");
-    const nav = await within(column()).findByRole("navigation", { name: "Mail views" });
-    expect(nav).toHaveTextContent("Mailboxes and labels will be listed here.");
+    await renderAt("/automations");
+    const nav = await within(column()).findByRole("navigation", { name: "Automations views" });
+    expect(nav).toHaveTextContent("Rules, sources and past runs will be listed here.");
     expect(within(column()).queryByRole("heading")).toBeNull();
     expect(within(nav).queryByRole("link")).toBeNull();
     // Stesso contenitore e stessa colonna di griglia a 240 px: niente collasso.
     expect(column().className).toBe(homeColumnClass);
     expect(column().parentElement!.className).toBe(homeGridClass);
     expect(homeGridClass).toContain("240px");
-    expect(screen.getByRole("heading", { level: 1, name: "Mail" })).toHaveClass("text-2xl");
+    expect(screen.getByRole("heading", { level: 1, name: "Automations" })).toHaveClass("text-2xl");
   });
 
   it("lo stato neutro segue la lingua", async () => {
@@ -297,7 +297,7 @@ describe("PersonalColumn", () => {
     ).toHaveTextContent("Qui compariranno i tuoi calendari.");
   });
 
-  it("Chat ha la sua colonna (canali e messaggi diretti); Mail nessuna sottovista e nessun titolo", async () => {
+  it("Chat ha la sua colonna (canali e messaggi diretti); Mail la sua (viste e caselle), nessun titolo", async () => {
     const router = await renderAt("/chat");
     const nav = await within(column()).findByRole("navigation", { name: "Chat views" });
     expect(within(nav).getByRole("button", { name: "New message" })).toBeInTheDocument();
@@ -308,7 +308,8 @@ describe("PersonalColumn", () => {
     await waitFor(() =>
       expect(column().querySelector("[data-context]")).toHaveAttribute("data-context", "mail"),
     );
-    expect(within(column()).queryByRole("link")).toBeNull();
+    const mailNav = within(column()).getByRole("navigation", { name: "Mail views" });
+    expect(await within(mailNav).findByRole("link", { name: /^All mail/ })).toBeInTheDocument();
     expect(within(column()).queryByRole("heading")).toBeNull();
     expect(await screen.findByRole("heading", { level: 1, name: "Mail" })).toBeInTheDocument();
   });

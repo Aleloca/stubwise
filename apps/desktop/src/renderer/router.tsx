@@ -43,6 +43,8 @@ import { RepoBrief } from "./pages/docs/RepoBrief";
 import { EditManualPageRoute, NewManualPageRoute } from "./pages/docs/ManualPageForm";
 import { DrivePage } from "./pages/drive/DrivePage";
 import { DRIVE_SEARCH_KEYS, isDriveSearchValue } from "./pages/drive/driveFilters";
+import { MailPage } from "./pages/mail/MailPage";
+import { MAIL_SEARCH_KEYS, NO_PROJECT, isMailSearchValue } from "./pages/mail/mailFilters";
 
 /** La ricerca che ogni route accetta (`?task=` apre il pannello, gli altri li montano i dialoghi). */
 export interface AppSearch {
@@ -96,6 +98,9 @@ export interface AppSearch {
   addedBy?: string;
   prj?: string;
   hidden?: string;
+  /** Posta: la casella e l'importanza (`pages/mail/mailFilters.ts`); `project` e `q` sopra. */
+  mailbox?: string;
+  importance?: string;
 }
 
 const SEARCH_KEYS = [
@@ -120,6 +125,7 @@ const SEARCH_KEYS = [
   ...SEARCH_PARAM_KEYS,
   "file",
   ...DRIVE_SEARCH_KEYS,
+  ...MAIL_SEARCH_KEYS,
 ] as const;
 
 /**
@@ -144,7 +150,10 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
         ? isSearchParamValue(key, value)
         : (DRIVE_SEARCH_KEYS as readonly string[]).includes(key)
           ? isDriveSearchValue(key, value)
-          : key === "request" ||
+          : (MAIL_SEARCH_KEYS as readonly string[]).includes(key) ||
+              (key === "project" && value === NO_PROJECT)
+            ? isMailSearchValue(key, value)
+            : key === "request" ||
       key === "brief" ||
       key === "dept" ||
       key === "thread" ||
@@ -219,6 +228,16 @@ function DriveRoutePage() {
   return <DrivePage key={viewer.personId} />;
 }
 
+/**
+ * La Posta (`/mail`, `/mail/<threadId>`): cambiare persona la rimonta —
+ * schede in modifica, passi «fuori dal progetto», menu e conversazione
+ * della persona di prima non restano.
+ */
+function MailRoutePage() {
+  const { viewer } = useViewer();
+  return <MailPage key={viewer.personId} />;
+}
+
 function AdminPage() {
   const { viewer } = useViewer();
   if (!canSeeAdmin(viewer)) return <Navigate to="/home" replace />;
@@ -234,12 +253,25 @@ function pageOf(name: (typeof APP_ROUTES)[number]) {
   if (name === "claude") return ClaudePage;
   if (name === "chat") return ChatPage;
   if (name === "drive") return DriveRoutePage;
+  if (name === "mail") return MailRoutePage;
   return () => <Placeholder titleKey={`nav.${name}`} bodyKey={`placeholder.pages.${name}`} />;
 }
 
 const appRoutes = APP_ROUTES.map((name) =>
   createRoute({ getParentRoute: () => rootRoute, path: `/${name}`, component: pageOf(name) }),
 );
+
+/**
+ * Una conversazione aperta nella Posta: figlia di `/mail`, così la pagina
+ * (elenco, scorrimento, filtri) resta montata cambiando conversazione. La
+ * legge `MailPage` dai parametri; qui non si disegna nulla.
+ */
+const mailRoute = appRoutes[APP_ROUTES.indexOf("mail")]!;
+const mailThreadRoute = createRoute({
+  getParentRoute: () => mailRoute,
+  path: "$threadId",
+  component: () => null,
+});
 
 function ConversationRoutePage() {
   const { id } = conversationRoute.useParams();
@@ -570,7 +602,7 @@ const docEditRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
-  ...appRoutes,
+  ...appRoutes.map((r) => (r === mailRoute ? mailRoute.addChildren([mailThreadRoute]) : r)),
   conversationRoute,
   chatChannelRoute,
   filterRoute,

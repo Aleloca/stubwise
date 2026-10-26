@@ -321,6 +321,7 @@ export type ApiFnName =
   | "mail.listImportantMail"
   | "mail.searchMail"
   | "mail.markRead"
+  | "mail.markUnread"
   | "mail.syncMailbox"
   | "mail.setProposalsEnabled"
   | "mail.reproposeMessage"

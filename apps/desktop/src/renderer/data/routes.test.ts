@@ -57,6 +57,22 @@ describe("route grammar", () => {
     expect(isAppRoute("#/home?")).toBe(false);
   });
 
+  it("area 6: la Posta, la conversazione aperta e i suoi filtri", () => {
+    expect(isAppRoute("#/mail")).toBe(true);
+    expect(isAppRoute("#/mail/th-aud-billing-vat")).toBe(true);
+    expect(isAppRoute("#/mail/th/x")).toBe(false);
+    expect(
+      isAppRoute("#/mail/th-aud-billing-vat?mailbox=giulia.ferri@example.com&importance=high&project=AUD&q=vat"),
+    ).toBe(true);
+    expect(isAppRoute("#/mail?project=none")).toBe(true);
+    expect(isAppRoute("#/mail?importance=urgent")).toBe(false);
+    expect(isAppRoute("#/mail?mailbox=not-an-address")).toBe(false);
+    // `none` e i filtri della Posta solo nella Posta.
+    expect(isAppRoute("#/home?project=none")).toBe(false);
+    expect(isAppRoute("#/home?importance=high")).toBe(false);
+    expect(isAppRoute("#/chat?mailbox=giulia.ferri@example.com")).toBe(false);
+  });
+
   it("i link delle notifiche sono nella grammatica", () => {
     for (const n of NOTIFICATIONS) {
       expect(isAppRoute(n.link), n.link).toBe(true);

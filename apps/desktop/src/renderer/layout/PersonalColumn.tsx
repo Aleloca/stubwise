@@ -7,6 +7,7 @@ import { can, useViewer } from "../data/viewer";
 import { ChatColumn } from "../pages/chat/ChatColumn";
 import { ClaudeColumn } from "../pages/claude/ClaudeColumn";
 import { DriveColumn } from "../pages/drive/DriveColumn";
+import { MailboxBar } from "../pages/mail/MailboxBar";
 import { ONE_LINE, columnItemClass } from "./ProjectColumn";
 
 export type Destination = (typeof APP_ROUTES)[number];
@@ -29,6 +30,7 @@ export function PersonalColumn({ destination }: { destination: Destination }) {
   if (destination === "claude") return <ClaudeColumn />;
   if (destination === "chat") return <ChatColumn />;
   if (destination === "drive") return <DriveColumn />;
+  if (destination === "mail") return <MailboxBar />;
   return <GenericColumn destination={destination} />;
 }
 

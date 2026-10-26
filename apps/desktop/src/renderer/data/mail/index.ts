@@ -12,6 +12,7 @@ export {
 export {
   mailClassificationHistory,
   markRead,
+  markUnread,
   reproposeMessage,
   setProposalsEnabled,
   syncMailbox,

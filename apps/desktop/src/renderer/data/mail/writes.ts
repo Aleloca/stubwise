@@ -153,6 +153,18 @@ export async function markRead(threadId: string): Promise<void> {
   for (const m of messages) if (!m.readByPersonIds.includes(me)) m.readByPersonIds.push(me);
 }
 
+/**
+ * «Segna come non letta»: l'ultimo messaggio del thread che vedo torna da
+ * leggere, solo per me (gli altri messaggi restano letti).
+ */
+export async function markUnread(threadId: string): Promise<void> {
+  const me = await gate("mail.markUnread");
+  const messages = visibleMessages(me).filter((m) => m.threadId === threadId);
+  const last = [...messages].sort((a, b) => a.at.localeCompare(b.at)).at(-1);
+  if (!last) throw notFound();
+  last.readByPersonIds = last.readByPersonIds.filter((id) => id !== me);
+}
+
 /** «Riproponi» un'email la cui analisi è fallita: torna `pending`, poi l'esito. */
 export async function reproposeMessage(id: string): Promise<void> {
   const me = await gate("mail.reproposeMessage");

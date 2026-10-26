@@ -3,6 +3,7 @@ import { useId, useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   useChatSignal,
+  useMailProposalDecisions,
   useNotifications,
   usePinnedProjects,
   useWaitingOnMe,
@@ -239,6 +240,10 @@ export function Rail() {
   const unread = notifications ? unreadCount(notifications) : 0;
   // Solo ciò che è rivolto a chi guarda: menzioni dirette, DM, thread seguiti.
   const chatNews = useChatSignal().data === true;
+  // La Posta: solo le proposte che aspettano chi guarda, mai le email non lette (A6).
+  const mailWaiting = (useMailProposalDecisions().data ?? []).filter(
+    (v) => v.proposal.source !== "calendar",
+  ).length;
 
   return (
     <nav
@@ -263,7 +268,13 @@ export function Rail() {
               label={t(d.key)}
               icon={d.icon}
               shortcut={"shortcut" in d ? shortcutLabel([...d.shortcut]) : undefined}
-              signal={d.to === "/chat" && chatNews ? t("rail.chatNews") : undefined}
+              signal={
+                d.to === "/chat" && chatNews
+                  ? t("rail.chatNews")
+                  : d.to === "/mail" && mailWaiting > 0
+                    ? t("rail.mailWaiting", { count: mailWaiting })
+                    : undefined
+              }
             />
           </li>
         ))}

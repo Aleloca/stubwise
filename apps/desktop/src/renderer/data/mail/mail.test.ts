@@ -302,6 +302,26 @@ describe("Posta: letto, Riproponi, Home e ricerca", () => {
     expect(msg(id).readByPersonIds).toEqual(["p-matteo", "p-laura", "p-giulia"]);
   });
 
+  it("la riga dice quanti messaggi, se ci sono allegati, l'analisi fallita e l'inizio dell'ultimo", async () => {
+    const shared = (await rowOf(MAIL_CASES.shared))!;
+    expect(shared).toMatchObject({ messages: 1, attachments: true, failed: false });
+    expect(shared.snippet).toMatch(/^Hi both, our accountant/);
+    const long = (await rowOf(MAIL_CASES.longThread))!;
+    expect(long.messages).toBe(60);
+    as("p-matteo");
+    expect((await rowOf(MAIL_CASES.failed))!.failed).toBe(true);
+  });
+
+  it("markUnread rimette da leggere l'ultimo messaggio, solo per me", async () => {
+    const id = MAIL_CASES.shared;
+    await mail.markRead(threadOf(id));
+    await mail.markUnread(threadOf(id));
+    expect((await rowOf(id))!.unread).toBe(1);
+    expect(msg(id).readByPersonIds).toEqual(["p-matteo", "p-laura"]);
+    as("p-marco");
+    await expect(mail.markUnread(threadOf(id))).rejects.toThrow("not_found");
+  });
+
   it("reproposeMessage: failed → pending → done", async () => {
     as("p-matteo");
     const id = MAIL_CASES.failed;

@@ -1,6 +1,7 @@
 import { parseCriteria } from "../domain/filters";
 import { isSearchParamValue } from "../pages/chat/search";
 import { FILE_CODE_RE, isDrivePath, isDriveSearchValue } from "../pages/drive/driveFilters";
+import { isMailPath, isMailSearchValue } from "../pages/mail/mailFilters";
 import type { GroupBy, ProjectModule, TaskView } from "./types";
 
 /** Grammatica delle route hash dell'app: un'unica fonte, riusata dal router. */
@@ -72,8 +73,13 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
       return path === "drive" && isDriveSearchValue(key, value);
     case "newTask":
       return value === "1";
+    // Il codice di un progetto (palette, filtro della Posta); `none` solo nella Posta.
     case "project":
-      return /^[A-Z]{2,4}$/.test(value);
+      return /^[A-Z]{2,4}$/.test(value) || (isMailPath(path) && isMailSearchValue(key, value));
+    // La Posta: la casella e l'importanza (`project` e `q` sopra e sotto).
+    case "mailbox":
+    case "importance":
+      return isMailPath(path) && isMailSearchValue(key, value);
     case "newRequest":
       return value === "1" || /^[A-Z]{2,4}$/.test(value);
     // I dialoghi della Chat (nuovo messaggio diretto, nuovo canale) e le impostazioni di un canale.
@@ -89,6 +95,7 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
     // La ricerca del Drive (`#/drive?q=…`, `#/p/AUD/drive?q=…`): solo la query.
     case "q":
       if (isDrivePath(path)) return value.length > 0 && value.length <= 200;
+      if (isMailPath(path)) return isMailSearchValue(key, value);
       return path === "chat" && isSearchParamValue(key, value);
     // La ricerca della Chat (`#/chat?view=search&q=…`): la query e i filtri.
     case "in":
@@ -180,6 +187,7 @@ export function isAppRoute(route: string): boolean {
   if ((APP_ROUTES as readonly string[]).includes(path)) return true;
   if (/^filters\/[\w-]+$/.test(path)) return true;
   if (/^claude\/[\w-]+$/.test(path)) return true;
+  if (/^mail\/[\w-]+$/.test(path)) return true;
   if (isChannelPath(path)) return true;
   const p = /^p\/([A-Z]{2,4})(?:\/([a-z]+))?$/.exec(path);
   if (!p) return false;

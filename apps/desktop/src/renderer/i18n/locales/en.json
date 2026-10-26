@@ -48,7 +48,9 @@
       "p-sara": "Support · Contributor",
       "p-roberta": "Administration · Full admin"
     },
-    "chatNews": "Mentions or replies for you"
+    "chatNews": "Mentions or replies for you",
+    "mailWaiting_one": "{{count}} proposal to decide",
+    "mailWaiting_other": "{{count}} proposals to decide"
   },
   "column": {
     "projectSections": "Project sections",
@@ -3617,6 +3619,240 @@
       "error": "Couldn't search the files",
       "noneInProjects": "No files in your projects match “{{q}}”",
       "gone": "This file is no longer available"
+    }
+  },
+  "mail": {
+    "gmailNotice": "In the app this opens Gmail. The prototype stays in Stubwise.",
+    "repropose": "Repropose",
+    "column": {
+      "all": "All mail",
+      "important": "Important",
+      "noProject": "No project",
+      "mailboxes": "Mailboxes",
+      "allMailboxes": "All mailboxes",
+      "projects": "Projects",
+      "showAll": "Show all {{count}}",
+      "showFewer": "Show fewer",
+      "googleAccount": "Google account",
+      "unread_one": "{{count}} unread conversation",
+      "unread_other": "{{count}} unread conversations"
+    },
+    "filters": {
+      "search": "Search mail",
+      "importance": "Importance",
+      "any": "Any",
+      "high": "High",
+      "normal": "Normal",
+      "low": "Low",
+      "project": "Project",
+      "noProject": "No project",
+      "clear": "Clear filters"
+    },
+    "importance": {
+      "high": "High importance",
+      "normal": "Normal importance",
+      "low": "Low importance"
+    },
+    "due": {
+      "future": "Due {{date}}",
+      "futureLong": "Due {{date}}",
+      "today": "Due today",
+      "overdue": "Overdue · {{date}}"
+    },
+    "row": {
+      "unread": "Unread",
+      "toDecide": "{{count}} to decide",
+      "toDecideLong_one": "{{count}} proposal to decide",
+      "toDecideLong_other": "{{count}} proposals to decide",
+      "analysing": "Analysing…",
+      "failed": "Analysis failed",
+      "draft": "Draft",
+      "noSubject": "(no subject)"
+    },
+    "list": {
+      "label": "Conversations",
+      "empty": "No mail in the last 90 days",
+      "noImportant": "No important mail",
+      "noProjectMail": "No mail without a project",
+      "noMailFor": "No mail for {{code}}",
+      "noMatch": "Nothing matches “{{q}}”",
+      "noFilterMatch": "No mail matches these filters",
+      "error": "Couldn't load your mail",
+      "retention": "Stubwise keeps the last 90 days of mail. Older mail is on Gmail.",
+      "openGmail": "Open Gmail",
+      "proposalsOff": "Proposals are off for this mailbox",
+      "turnOn": "Turn on",
+      "newRows_one": "{{count}} new",
+      "newRows_other": "{{count}} new"
+    },
+    "sync": {
+      "justNow": "Updated just now",
+      "minutes_one": "Updated {{count}} min ago",
+      "minutes_other": "Updated {{count}} min ago",
+      "hours_one": "Updated {{count}} h ago",
+      "hours_other": "Updated {{count}} h ago",
+      "on": "Updated {{date}}",
+      "refresh": "Refresh",
+      "updating": "Updating…",
+      "behind": "{{updated}} — may be behind Gmail",
+      "refreshNow": "Refresh now",
+      "failed": "Couldn't update",
+      "tryAgain": "Try again",
+      "expired": "Connection expired",
+      "reconnect": "Reconnect",
+      "expiredBanner": "Your Google connection expired on {{date}}. New mail isn't arriving and you can't send from {{email}}."
+    },
+    "reading": {
+      "back": "Mail",
+      "select": "Select a conversation",
+      "waiting_one": "{{count}} conversation has proposals to decide",
+      "waiting_other": "{{count}} conversations have proposals to decide",
+      "show": "Show",
+      "notFound": "This conversation doesn't exist or you can't see it",
+      "more": "More actions",
+      "openInGmail": "Open in Gmail",
+      "markUnread": "Mark as unread",
+      "copyLink": "Copy link",
+      "linkCopied": "Link copied",
+      "earlier_one": "{{count}} earlier message",
+      "earlier_other": "{{count}} earlier messages",
+      "noProject": "Not about any of your projects"
+    },
+    "message": {
+      "to": "to",
+      "cc": "cc",
+      "toGroup": "To",
+      "ccGroup": "Cc",
+      "andOthers_one": "and {{count}} other",
+      "andOthers_other": "and {{count}} others",
+      "showLess": "Show less",
+      "showQuoted": "Show quoted text",
+      "hideQuoted": "Hide quoted text",
+      "showOriginal": "Show original",
+      "showText": "Show text",
+      "imagesBlocked": "Remote images are blocked to protect your privacy.",
+      "showImages": "Show images",
+      "originalTitle": "Original message from {{name}}",
+      "context": "Earlier in the conversation · Stubwise didn't make proposals from this message",
+      "attachmentNotice": "In the app this attachment opens from Gmail.",
+      "attachment": "{{name}}, {{size}}",
+      "menu": "Message actions"
+    },
+    "analysis": {
+      "pending": "Stubwise is reading this email…",
+      "failed": "Stubwise couldn't analyse this email.",
+      "nothing": "Nothing to do for {{code}}"
+    },
+    "meeting": {
+      "recorded": "Recorded meeting",
+      "people_one": "{{count}} person",
+      "people_other": "{{count}} people",
+      "summary": "Summary",
+      "generated": "Generated by Stubwise from the transcript",
+      "open": "Open the transcript",
+      "transcriptNotice": "In the app this opens the transcript in Google Docs.",
+      "reading": "Reading the transcript…",
+      "unreachable": "Stubwise couldn't open the transcript. It may have been moved or not shared with you.",
+      "notVisible": "The summary and the transcript are visible only to the people who were in the meeting."
+    },
+    "proposal": {
+      "proposes_one": "Stubwise proposes · {{count}} change",
+      "proposes_other": "Stubwise proposes · {{count}} changes",
+      "for": "for",
+      "alsoFor": "Also for {{names}}",
+      "waitingOnYou": "Waiting on you",
+      "menu": "Proposal actions",
+      "showRead": "Show what Stubwise read",
+      "hideRead": "Hide what Stubwise read",
+      "move": "Move to another project",
+      "edit": "Edit",
+      "editRow": "Edit line {{n}}",
+      "editShortcut": "Edit (E)",
+      "edited": "Edited",
+      "reset": "Reset",
+      "done": "Done",
+      "ignore": "Ignore",
+      "confirm": "Confirm",
+      "confirmSome": "Confirm {{n}} of {{count}}",
+      "hand": "Hand to the project",
+      "choose": "Which project is this about?",
+      "none": "None of these",
+      "analysingFor": "Analysing for {{code}}…",
+      "notIn": "not in {{code}}",
+      "unassigned": "Unassigned",
+      "cantConfirm": "You can't {{ability}} in {{code}}. Hand it to the project and someone who can will decide.",
+      "handedHeader": "Handed to {{code}} by {{name}}",
+      "fromEmailTo": "from an email to {{name}}",
+      "outcomeTitle": "Proposal for {{code}}",
+      "error": "Couldn't do that. Try again.",
+      "errorForbidden": "You can't do this any more in this project.",
+      "ability": {
+        "createTasks": "create tasks",
+        "editTasks": "edit tasks",
+        "comment": "comment on tasks",
+        "createRequests": "create requests",
+        "recordDecisions": "record decisions"
+      },
+      "phrase": {
+        "createTask": "Create task in {{code}}: “{{title}}”",
+        "createRequest": "Create request in {{code}}: “{{title}}”",
+        "updateDue": "Update {{task}}: due {{date}}",
+        "updateTask": "Update {{task}}",
+        "addComment": "Comment on {{task}}: “{{body}}”",
+        "recordDecision": "Record decision in {{code}}: “{{title}}”",
+        "createMilestone": "Create milestone in {{code}}: “{{name}}”"
+      },
+      "fields": {
+        "title": "Title",
+        "description": "Description",
+        "assignee": "Assignee",
+        "dueDate": "Due date",
+        "task": "Task",
+        "comment": "Comment",
+        "name": "Name",
+        "date": "Date",
+        "inProject": "In {{code}}",
+        "outsideProject": "Not in {{code}}"
+      }
+    },
+    "outsider": {
+      "and": "and",
+      "ask": "{{name}} isn't in {{code}}. Add {{name}} as a Contributor? They'll be able to see {{code}}'s tasks, docs and chat.",
+      "askMany": "Add {{names}} as Contributors? They'll be able to see {{code}}'s tasks, docs and chat.",
+      "cant": "{{name}} isn't in {{code}}, and you can't add people to it. Choose someone else or leave the task unassigned.",
+      "cantMany": "{{names}} aren't in {{code}}, and you can't add people to it. Choose someone else or leave the tasks unassigned.",
+      "addConfirm": "Add and confirm",
+      "choose": "Choose someone else",
+      "leave": "Leave unassigned",
+      "confirmUnassigned": "Confirm unassigned"
+    },
+    "outcome": {
+      "confirmedByYou": "Confirmed by you",
+      "confirmedBy": "Confirmed by {{name}}",
+      "ignoredByYou": "Ignored by you",
+      "ignoredBy": "Ignored by {{name}}",
+      "handedByYou": "Handed to the project by you",
+      "handedBy": "Handed to the project by {{name}}",
+      "waitingFor": "waiting for someone who can {{ability}} in {{code}}",
+      "partial": "{{n}} of {{count}} done",
+      "added": "{{name}} added to {{code}} as Contributor",
+      "raced_confirmed": "{{name}} confirmed this a moment ago. Nothing was created twice.",
+      "raced_ignored": "{{name}} ignored this a moment ago. Nothing was created.",
+      "raced_handed": "{{name}} handed this to the project a moment ago. Nothing was created.",
+      "editsDropped": "Your edits weren't applied.",
+      "failed": "Couldn't be completed: {{reason}}. Nothing was changed.",
+      "reasons": {
+        "forbidden": "you can no longer {{ability}} in {{code}}",
+        "not_found": "something it changes no longer exists",
+        "conflict": "something changed in the meantime",
+        "invalid": "some of its values aren't valid any more",
+        "other": "something went wrong"
+      }
+    },
+    "connect": {
+      "body": "Connect your Google account to read your mail here. Stubwise reads your mail to suggest tasks for your projects; only you see your messages.",
+      "button": "Connect Google account",
+      "calendar": "Calendar uses the same account."
     }
   }
 }

@@ -48,7 +48,9 @@
       "p-sara": "Assistenza · Contributor",
       "p-roberta": "Amministrazione · amministratore completo"
     },
-    "chatNews": "Menzioni o risposte per te"
+    "chatNews": "Menzioni o risposte per te",
+    "mailWaiting_one": "{{count}} proposta da decidere",
+    "mailWaiting_other": "{{count}} proposte da decidere"
   },
   "column": {
     "projectSections": "Sezioni del progetto",
@@ -3617,6 +3619,240 @@
       "error": "Non è stato possibile cercare nei file",
       "noneInProjects": "Nessun file dei tuoi progetti corrisponde a «{{q}}»",
       "gone": "Questo file non è più disponibile"
+    }
+  },
+  "mail": {
+    "gmailNotice": "Nell'app si apre Gmail. Il prototipo resta in Stubwise.",
+    "repropose": "Riproponi",
+    "column": {
+      "all": "Tutta la posta",
+      "important": "Importanti",
+      "noProject": "Senza progetto",
+      "mailboxes": "Caselle",
+      "allMailboxes": "Tutte le caselle",
+      "projects": "Progetti",
+      "showAll": "Mostra tutti ({{count}})",
+      "showFewer": "Mostra meno",
+      "googleAccount": "Account Google",
+      "unread_one": "{{count}} conversazione non letta",
+      "unread_other": "{{count}} conversazioni non lette"
+    },
+    "filters": {
+      "search": "Cerca nella posta",
+      "importance": "Importanza",
+      "any": "Qualsiasi",
+      "high": "Alta",
+      "normal": "Normale",
+      "low": "Bassa",
+      "project": "Progetto",
+      "noProject": "Senza progetto",
+      "clear": "Togli i filtri"
+    },
+    "importance": {
+      "high": "Importanza alta",
+      "normal": "Importanza normale",
+      "low": "Importanza bassa"
+    },
+    "due": {
+      "future": "Scade il {{date}}",
+      "futureLong": "Scade il {{date}}",
+      "today": "Scade oggi",
+      "overdue": "Scaduta · {{date}}"
+    },
+    "row": {
+      "unread": "Non letta",
+      "toDecide": "{{count}} da decidere",
+      "toDecideLong_one": "{{count}} proposta da decidere",
+      "toDecideLong_other": "{{count}} proposte da decidere",
+      "analysing": "In analisi…",
+      "failed": "Analisi fallita",
+      "draft": "Bozza",
+      "noSubject": "(senza oggetto)"
+    },
+    "list": {
+      "label": "Conversazioni",
+      "empty": "Nessuna email negli ultimi 90 giorni",
+      "noImportant": "Nessuna email importante",
+      "noProjectMail": "Nessuna email senza progetto",
+      "noMailFor": "Nessuna email per {{code}}",
+      "noMatch": "Niente corrisponde a «{{q}}»",
+      "noFilterMatch": "Nessuna email con questi filtri",
+      "error": "Impossibile caricare la tua posta",
+      "retention": "Stubwise conserva gli ultimi 90 giorni di posta. Quella più vecchia è su Gmail.",
+      "openGmail": "Apri Gmail",
+      "proposalsOff": "Le proposte sono spente per questa casella",
+      "turnOn": "Accendi",
+      "newRows_one": "{{count}} nuova",
+      "newRows_other": "{{count}} nuove"
+    },
+    "sync": {
+      "justNow": "Aggiornato adesso",
+      "minutes_one": "Aggiornato {{count}} min fa",
+      "minutes_other": "Aggiornato {{count}} min fa",
+      "hours_one": "Aggiornato {{count}} h fa",
+      "hours_other": "Aggiornato {{count}} h fa",
+      "on": "Aggiornato il {{date}}",
+      "refresh": "Aggiorna",
+      "updating": "Aggiornamento…",
+      "behind": "{{updated}} — potrebbe essere indietro rispetto a Gmail",
+      "refreshNow": "Aggiorna ora",
+      "failed": "Aggiornamento non riuscito",
+      "tryAgain": "Riprova",
+      "expired": "Collegamento scaduto",
+      "reconnect": "Ricollega",
+      "expiredBanner": "Il collegamento con Google è scaduto il {{date}}. Le email nuove non arrivano e non puoi scrivere da {{email}}."
+    },
+    "reading": {
+      "back": "Posta",
+      "select": "Scegli una conversazione",
+      "waiting_one": "{{count}} conversazione ha proposte da decidere",
+      "waiting_other": "{{count}} conversazioni hanno proposte da decidere",
+      "show": "Mostra",
+      "notFound": "Questa conversazione non esiste o non puoi vederla",
+      "more": "Altre azioni",
+      "openInGmail": "Apri in Gmail",
+      "markUnread": "Segna come non letta",
+      "copyLink": "Copia il link",
+      "linkCopied": "Link copiato",
+      "earlier_one": "{{count}} messaggio precedente",
+      "earlier_other": "{{count}} messaggi precedenti",
+      "noProject": "Non riguarda nessuno dei tuoi progetti"
+    },
+    "message": {
+      "to": "a",
+      "cc": "cc",
+      "toGroup": "A",
+      "ccGroup": "Cc",
+      "andOthers_one": "e un altro",
+      "andOthers_other": "e altri {{count}}",
+      "showLess": "Mostra meno",
+      "showQuoted": "Mostra il testo citato",
+      "hideQuoted": "Nascondi il testo citato",
+      "showOriginal": "Mostra l'originale",
+      "showText": "Mostra il testo",
+      "imagesBlocked": "Le immagini esterne sono bloccate per proteggere la tua privacy.",
+      "showImages": "Mostra le immagini",
+      "originalTitle": "Messaggio originale di {{name}}",
+      "context": "Prima nella conversazione · Stubwise non ha fatto proposte da questo messaggio",
+      "attachmentNotice": "Nell'app questo allegato si apre da Gmail.",
+      "attachment": "{{name}}, {{size}}",
+      "menu": "Azioni del messaggio"
+    },
+    "analysis": {
+      "pending": "Stubwise sta leggendo questa email…",
+      "failed": "Stubwise non è riuscito ad analizzare questa email.",
+      "nothing": "Niente da fare per {{code}}"
+    },
+    "meeting": {
+      "recorded": "Riunione registrata",
+      "people_one": "{{count}} persona",
+      "people_other": "{{count}} persone",
+      "summary": "Riassunto",
+      "generated": "Generato da Stubwise dalla trascrizione",
+      "open": "Apri la trascrizione",
+      "transcriptNotice": "Nell'app si apre la trascrizione in Google Documenti.",
+      "reading": "Lettura della trascrizione…",
+      "unreachable": "Stubwise non è riuscito ad aprire la trascrizione. Potrebbe essere stata spostata o non condivisa con te.",
+      "notVisible": "Riassunto e trascrizione li vede solo chi ha partecipato alla riunione."
+    },
+    "proposal": {
+      "proposes_one": "Stubwise propone · {{count}} modifica",
+      "proposes_other": "Stubwise propone · {{count}} modifiche",
+      "for": "per",
+      "alsoFor": "Anche per {{names}}",
+      "waitingOnYou": "Ti aspetta",
+      "menu": "Azioni della proposta",
+      "showRead": "Mostra cosa ha letto Stubwise",
+      "hideRead": "Nascondi cosa ha letto Stubwise",
+      "move": "Sposta su un altro progetto",
+      "edit": "Modifica",
+      "editRow": "Modifica la riga {{n}}",
+      "editShortcut": "Modifica (E)",
+      "edited": "Modificata",
+      "reset": "Ripristina",
+      "done": "Fatto",
+      "ignore": "Ignora",
+      "confirm": "Conferma",
+      "confirmSome": "Conferma {{n}} di {{count}}",
+      "hand": "Passa al progetto",
+      "choose": "Di quale progetto si tratta?",
+      "none": "Nessuno di questi",
+      "analysingFor": "In analisi per {{code}}…",
+      "notIn": "non è in {{code}}",
+      "unassigned": "Senza incaricato",
+      "cantConfirm": "Non puoi {{ability}} in {{code}}. Passala al progetto: deciderà chi può.",
+      "handedHeader": "Passata a {{code}} da {{name}}",
+      "fromEmailTo": "da un'email a {{name}}",
+      "outcomeTitle": "Proposta per {{code}}",
+      "error": "Non è stato possibile farlo. Riprova.",
+      "errorForbidden": "In questo progetto non puoi più farlo.",
+      "ability": {
+        "createTasks": "creare task",
+        "editTasks": "modificare task",
+        "comment": "commentare le task",
+        "createRequests": "creare richieste",
+        "recordDecisions": "registrare decisioni"
+      },
+      "phrase": {
+        "createTask": "Crea una task in {{code}}: «{{title}}»",
+        "createRequest": "Crea una richiesta in {{code}}: «{{title}}»",
+        "updateDue": "Aggiorna {{task}}: scade il {{date}}",
+        "updateTask": "Aggiorna {{task}}",
+        "addComment": "Commenta {{task}}: «{{body}}»",
+        "recordDecision": "Registra una decisione in {{code}}: «{{title}}»",
+        "createMilestone": "Crea un traguardo in {{code}}: «{{name}}»"
+      },
+      "fields": {
+        "title": "Titolo",
+        "description": "Descrizione",
+        "assignee": "Incaricato",
+        "dueDate": "Scadenza",
+        "task": "Task",
+        "comment": "Commento",
+        "name": "Nome",
+        "date": "Data",
+        "inProject": "In {{code}}",
+        "outsideProject": "Non in {{code}}"
+      }
+    },
+    "outsider": {
+      "and": "e",
+      "ask": "{{name}} non è in {{code}}. Aggiungere {{name}} come Contributor? Vedrà task, documenti e chat di {{code}}.",
+      "askMany": "Aggiungere {{names}} come Contributor? Vedranno task, documenti e chat di {{code}}.",
+      "cant": "{{name}} non è in {{code}} e non puoi aggiungere persone. Scegli un'altra persona o lascia la task senza incaricato.",
+      "cantMany": "{{names}} non sono in {{code}} e non puoi aggiungere persone. Scegli altre persone o lascia le task senza incaricato.",
+      "addConfirm": "Aggiungi e conferma",
+      "choose": "Scegli un'altra persona",
+      "leave": "Lascia senza incaricato",
+      "confirmUnassigned": "Conferma senza incaricato"
+    },
+    "outcome": {
+      "confirmedByYou": "Confermata da te",
+      "confirmedBy": "Confermata da {{name}}",
+      "ignoredByYou": "Ignorata da te",
+      "ignoredBy": "Ignorata da {{name}}",
+      "handedByYou": "Passata al progetto da te",
+      "handedBy": "Passata al progetto da {{name}}",
+      "waitingFor": "aspetta chi può {{ability}} in {{code}}",
+      "partial": "{{n}} di {{count}} fatte",
+      "added": "{{name}} aggiunta a {{code}} come Contributor",
+      "raced_confirmed": "{{name}} l'ha appena confermata. Non è stato creato nulla due volte.",
+      "raced_ignored": "{{name}} l'ha appena ignorata. Non è stato creato nulla.",
+      "raced_handed": "{{name}} l'ha appena passata al progetto. Non è stato creato nulla.",
+      "editsDropped": "Le tue modifiche non sono state applicate.",
+      "failed": "Non è stato possibile completarla: {{reason}}. Non è cambiato nulla.",
+      "reasons": {
+        "forbidden": "non puoi più {{ability}} in {{code}}",
+        "not_found": "qualcosa che modifica non esiste più",
+        "conflict": "qualcosa è cambiato nel frattempo",
+        "invalid": "alcuni valori non sono più validi",
+        "other": "qualcosa non ha funzionato"
+      }
+    },
+    "connect": {
+      "body": "Collega il tuo account Google per leggere qui la tua posta. Stubwise legge la tua posta per proporre task per i tuoi progetti; i tuoi messaggi li vedi solo tu.",
+      "button": "Collega l'account Google",
+      "calendar": "Il Calendario usa lo stesso account."
     }
   }
 }

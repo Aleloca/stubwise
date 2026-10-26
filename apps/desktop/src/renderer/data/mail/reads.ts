@@ -72,6 +72,9 @@ function threadsOf(messages: MailMessage[]): Map<string, MailMessage[]> {
 const searchable = (m: MailMessage) =>
   fold(`${m.subject}\n${m.from.name} ${m.from.email}\n${m.text}`);
 
+/** Un testo su una riga, tagliato: la terza linea dell'elenco e i risultati della ricerca. */
+const oneLine = (text: string) => text.replace(/\s+/g, " ").trim().slice(0, 140);
+
 const matchesAll = (text: string, words: string[]) => words.every((w) => text.includes(w));
 
 function threadRow(me: string, messages: MailMessage[]): MailThreadRow {
@@ -102,6 +105,10 @@ function threadRow(me: string, messages: MailMessage[]): MailThreadRow {
       (p) => p.status === "open" && rfcIds.has(p.sourceId) && canSeeMailProposal(me, p),
     ).length,
     analysing: messages.some((m) => m.classification.state === "pending"),
+    failed: messages.some((m) => m.classification.state === "failed"),
+    messages: messages.length,
+    attachments: messages.some((m) => m.attachments.length > 0),
+    snippet: oneLine(messages[messages.length - 1]!.text),
   };
 }
 
@@ -210,6 +217,6 @@ export async function searchMail(q: string): Promise<MailSearchHit[]> {
       subject: m.subject,
       from: copy(m.from),
       at: m.at,
-      snippet: m.text.replace(/\s+/g, " ").slice(0, 140),
+      snippet: oneLine(m.text),
     }));
 }

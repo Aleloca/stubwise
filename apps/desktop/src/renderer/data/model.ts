@@ -1776,6 +1776,14 @@ export interface MailThreadRow {
   openProposals: number;
   /** Almeno un messaggio è in analisi. */
   analysing: boolean;
+  /** L'analisi di almeno un messaggio è fallita («Riproponi»). */
+  failed: boolean;
+  /** Quanti messaggi vede chi guarda. */
+  messages: number;
+  /** Almeno un messaggio ha allegati. */
+  attachments: boolean;
+  /** L'inizio del testo dell'ultimo messaggio, su una riga. */
+  snippet: string;
 }
 
 /**
