@@ -7,6 +7,7 @@ import {
 } from "../../domain/automations/engine";
 import { render } from "../../domain/automations/preview";
 import { restoreState } from "../../domain/automations/restore";
+import { runHref } from "../routes";
 import { PEOPLE } from "../seed/people";
 import { copy, gate, newId, now, onStoreReset, state, storeGeneration } from "../store";
 import type { Automation, AutomationRun, RunLogEntry, RunStatus } from "../types";
@@ -180,7 +181,7 @@ function failWith(run: AutomationRun, error: string, reason: string): void {
     read: false,
     archived: false,
     snoozedUntil: null,
-    link: `#/automations?run=${run.id}`,
+    link: runHref(a.code, run.n),
   });
 }
 

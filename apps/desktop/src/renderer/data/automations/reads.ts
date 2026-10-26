@@ -2,6 +2,7 @@ import { visitSteps } from "../../domain/automations/fields";
 import { projectOf } from "../../domain/automations/preview";
 import { validateFlow, type FlowIssue } from "../../domain/automations/validate";
 import { fold } from "../../domain/textSearch";
+import { automationHref, runHref } from "../routes";
 import { copy, gate, state, visibleProjectIds } from "../store";
 import type {
   Automation,
@@ -301,7 +302,7 @@ export async function searchAutomations(q: string): Promise<AutomationSearchResu
         id: a.id,
         code: a.code,
         label: a.name,
-        route: `#/automations?automation=${a.id}`,
+        route: automationHref(a.code),
       });
     }
   }
@@ -310,13 +311,14 @@ export async function searchAutomations(q: string): Promise<AutomationSearchResu
     // Il titolo come lo vede chi cerca (R-J13: senza l'oggetto di un'email altrui).
     const run = viewRun(me, source);
     const code = runCode(run);
+    const a = automationById(run.automationId)!;
     if (has(code, run.title)) {
       out.push({
         kind: "run",
         id: run.id,
         code,
         label: run.title,
-        route: `#/automations?run=${run.id}`,
+        route: runHref(a.code, run.n),
       });
     }
   }

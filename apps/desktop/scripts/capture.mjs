@@ -552,6 +552,49 @@ async function main() {
         await context.close();
       }
     }
+
+    // Area 7: Automations (elenco, automazione, esecuzione, sorgenti), come
+    // Roberta (admin: vede tutto e ha `integrations.manage`).
+    const expandLog = async (p) => {
+      await p.getByRole("button", { name: /^(Expand all|Espandi tutto)$/ }).last().click();
+      await p.waitForTimeout(300);
+      await p.locator("[data-run-log]").evaluate((el) => el.scrollIntoView({ block: "start" }));
+      await p.waitForTimeout(300);
+    };
+    const AREA7 = [
+      ["automations-list", "/automations", {}],
+      ["automations-runs", "/automations?view=runs", {}],
+      ["automations-attention", "/automations?view=attention", {}],
+      ["automation-detail", "/automations/AUD-A1", {}],
+      ["automation-detail-general", "/automations/AUT-1", {}],
+      ["automation-detail-draft", "/automations/STW-A1", {}],
+      ["run-approval", "/automations/AUD-A1/runs/1", {}],
+      ["run-waiting", "/automations/AUD-A1/runs/2", {}],
+      ["run-done", "/automations/AUT-1/runs/1", { steps: expandLog }],
+      ["run-failed", "/automations/BTG-A1/runs/1", {}],
+      ["run-project", "/automations/AUT-1/runs/2", {}],
+      ["sources", "/automations/sources", {}],
+      ["sources-panel", "/automations/sources?src=src-hubspot", {}],
+      ["sources-webhook", "/automations/sources?src=src-webhook", {}],
+    ];
+    for (const [name, hash, o] of AREA7) {
+      if (only && !only.test(name)) continue;
+      const variants = [];
+      for (const scheme of ["light", "dark"]) {
+        for (const lang of ["en", "it"]) variants.push([scheme, lang, WIDE, `a7-${name}-${scheme}-${lang}.png`]);
+      }
+      variants.push(["light", "en", NARROW, `a7-${name}-narrow.png`]);
+      for (const [scheme, lang, viewport, file] of variants) {
+        const { page, context } = await open(scheme, viewport, hash, {
+          lang,
+          persona: "Roberta",
+          viaHome: true,
+        });
+        if (o.steps) await o.steps(page);
+        await shot(page, file);
+        await context.close();
+      }
+    }
     if (only) return; // revisione mirata: salta il resto
 
     for (const scheme of ["light", "dark"]) {

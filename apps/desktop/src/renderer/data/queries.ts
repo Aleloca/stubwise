@@ -194,6 +194,8 @@ export const queryKeys = {
   // Posta (area 6): tutto nell'area «mail», che ogni scrittura della Posta ricarica.
   mailThreads: (personId: string, filters: MailThreadFilters) =>
     ["as", personId, "mail", "threads", filters] as const,
+  mailThreadOfMessage: (personId: string, messageId: string) =>
+    ["as", personId, "mail", "threadOf", messageId] as const,
   mailThread: (personId: string, threadId: string) =>
     ["as", personId, "mail", "thread", threadId] as const,
   mailboxes: (personId: string) => ["as", personId, "mail", "mailboxes"] as const,
@@ -2487,6 +2489,16 @@ export function useMailThreads(filters: MailThreadFilters = {}, { enabled = true
 }
 
 /** Una conversazione: i messaggi che vedo. Invisibile o inesistente → errore `not_found`. */
+/** La conversazione di un messaggio che vedo (area 7: l'email di un'esecuzione); altrimenti `null`. */
+export function useMailThreadOfMessage(messageId: string | null) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.mailThreadOfMessage(me, messageId ?? ""),
+    queryFn: () => api.mail.threadOfMessage(messageId!),
+    enabled: messageId !== null,
+  });
+}
+
 export function useMailThread(threadId: string | null) {
   const me = useSessionPersonId();
   return useQuery({
@@ -3251,6 +3263,29 @@ export function useAutomationRun(id: string | null) {
     refetchInterval: (query) =>
       query.state.data?.status === "running" ? AUTOMATION_REFRESH_MS : false,
   });
+}
+
+/**
+ * Le esecuzioni appena partite (un evento simulato): codice e numero per il
+ * toast «started AUT-1 #9 · Open». Legge come `getRun`: chi non le vede non le ha.
+ */
+export function useFetchAutomationRuns() {
+  const me = useSessionPersonId();
+  const client = useQueryClient();
+  return useCallback(
+    async (ids: string[]) => {
+      const runs = await Promise.all(
+        ids.map((id) =>
+          client.fetchQuery({
+            queryKey: queryKeys.automationRun(me, id),
+            queryFn: () => api.automations.getRun(id),
+          }),
+        ),
+      );
+      return runs.filter((r): r is NonNullable<typeof r> => r !== null);
+    },
+    [client, me],
+  );
 }
 
 export function useAutomationSources() {

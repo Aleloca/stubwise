@@ -327,6 +327,7 @@ export type ApiFnName =
   // Posta (area 6)
   | "mail.listMailThreads"
   | "mail.getMailThread"
+  | "mail.threadOfMessage"
   | "mail.listMailboxes"
   | "mail.listImportantMail"
   | "mail.searchMail"

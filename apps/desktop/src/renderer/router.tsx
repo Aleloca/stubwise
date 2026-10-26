@@ -47,6 +47,17 @@ import { MailPage } from "./pages/mail/MailPage";
 import { MAIL_SEARCH_KEYS, NO_PROJECT, isMailSearchValue } from "./pages/mail/mailFilters";
 import { CalendarPage } from "./pages/calendar/CalendarPage";
 import { CALENDAR_SEARCH_KEYS } from "./pages/calendar/calendarParams";
+import {
+  AutomationRoutePage,
+  AutomationsPage,
+  AutomationToolPage,
+  RunRoutePage,
+} from "./pages/automations/AutomationsPage";
+import {
+  AUTOMATION_SEARCH_KEYS,
+  isAutomationSearchValue,
+} from "./pages/automations/automationParams";
+import { SourcesPage } from "./pages/automations/SourcesPage";
 
 /** La ricerca che ogni route accetta (`?task=` apre il pannello, gli altri li montano i dialoghi). */
 export interface AppSearch {
@@ -110,6 +121,14 @@ export interface AppSearch {
   series?: string;
   /** Calendario: ⌘K «New meeting» apre il dialogo all'arrivo (`1`). */
   newMeeting?: string;
+  /** Automations: i filtri dell'elenco, la riga del registro, la sorgente aperta (`automationParams.ts`). */
+  general?: string;
+  status?: string;
+  owner?: string;
+  automation?: string;
+  mine?: string;
+  entry?: string;
+  src?: string;
 }
 
 const SEARCH_KEYS = [
@@ -136,6 +155,7 @@ const SEARCH_KEYS = [
   ...DRIVE_SEARCH_KEYS,
   ...MAIL_SEARCH_KEYS,
   ...CALENDAR_SEARCH_KEYS,
+  ...AUTOMATION_SEARCH_KEYS,
 ] as const;
 
 /**
@@ -156,7 +176,9 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
     if (typeof value !== "string") continue;
     // `request` e `view` dipendono dal percorso: qui si controlla la forma, la route decide.
     const shapeOk =
-      (SEARCH_PARAM_KEYS as readonly string[]).includes(key)
+      (AUTOMATION_SEARCH_KEYS as readonly string[]).includes(key)
+        ? isAutomationSearchValue(key, value)
+        : (SEARCH_PARAM_KEYS as readonly string[]).includes(key)
         ? isSearchParamValue(key, value)
         : (DRIVE_SEARCH_KEYS as readonly string[]).includes(key)
           ? isDriveSearchValue(key, value)
@@ -278,6 +300,7 @@ function pageOf(name: (typeof APP_ROUTES)[number]) {
   if (name === "drive") return DriveRoutePage;
   if (name === "mail") return MailRoutePage;
   if (name === "calendar") return CalendarRoutePage;
+  if (name === "automations") return AutomationsPage;
   return () => <Placeholder titleKey={`nav.${name}`} bodyKey={`placeholder.pages.${name}`} />;
 }
 
@@ -624,10 +647,65 @@ const docEditRoute = createRoute({
   component: DocEditRoutePage,
 });
 
+/**
+ * Le Automations (area 7): sorgenti, un'automazione, un'esecuzione, e il
+ * costruttore e la prova (Task 6 e 7). `sources` è letterale: vince sul
+ * codice per costruzione del router.
+ */
+function SourcesRoutePage() {
+  const { viewer } = useViewer();
+  return <SourcesPage key={viewer.personId} />;
+}
+
+const automationSourcesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/automations/sources",
+  component: SourcesRoutePage,
+});
+
+function AutomationDetailRoutePage() {
+  const { code } = automationRoute.useParams();
+  return <AutomationRoutePage code={code} />;
+}
+
+const automationRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/automations/$code",
+  component: AutomationDetailRoutePage,
+});
+
+function AutomationRunRoutePage() {
+  const { code, n } = automationRunRoute.useParams();
+  return <RunRoutePage code={code} n={n} />;
+}
+
+const automationRunRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/automations/$code/runs/$n",
+  component: AutomationRunRoutePage,
+});
+
+const automationEditRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/automations/$code/edit",
+  component: () => <AutomationToolPage tool="edit" />,
+});
+
+const automationTestRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/automations/$code/test",
+  component: () => <AutomationToolPage tool="test" />,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   ...appRoutes.map((r) => (r === mailRoute ? mailRoute.addChildren([mailThreadRoute]) : r)),
   conversationRoute,
+  automationSourcesRoute,
+  automationRoute,
+  automationRunRoute,
+  automationEditRoute,
+  automationTestRoute,
   chatChannelRoute,
   filterRoute,
   projectIndexRoute,

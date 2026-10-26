@@ -7,6 +7,12 @@ import { FILE_CODE_RE, isDrivePath, isDriveSearchValue } from "../pages/drive/dr
 // livello dati non importa le pagine».
 import { isMailPath, isMailSearchValue } from "../pages/mail/mailFilters";
 import { isCalendarSearchValue } from "../pages/calendar/calendarParams";
+import {
+  AUTOMATION_SEARCH_KEYS,
+  AUTOMATION_VIEWS,
+  isAutomationSearchParam,
+  isAutomationsPath,
+} from "../pages/automations/automationParams";
 import type { GroupBy, ProjectModule, TaskView } from "./types";
 
 /** Grammatica delle route hash dell'app: un'unica fonte, riusata dal router. */
@@ -61,6 +67,10 @@ export const TASK_CODE_RE = /^[A-Z]{2,4}-\d+$/;
  * anche il router per validare.
  */
 export function isValidSearchParam(path: string, key: string, value: string): boolean {
+  // Le Automations: filtri dell'elenco, la riga del registro, la sorgente aperta.
+  if ((AUTOMATION_SEARCH_KEYS as readonly string[]).includes(key)) {
+    return isAutomationSearchParam(path, key, value);
+  }
   switch (key) {
     case "task":
       return TASK_CODE_RE.test(value);
@@ -132,6 +142,7 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
       if (path === "calendar") return isCalendarSearchValue(key, value);
       if (path === "projects") return value === "person";
       if (path === "chat") return (CHAT_VIEWS as readonly string[]).includes(value);
+      if (path === "automations") return (AUTOMATION_VIEWS as readonly string[]).includes(value);
       return isTasksPath(path) && (TASK_VIEWS as readonly string[]).includes(value);
     case "date":
       if (path === "calendar") return isCalendarSearchValue(key, value);
@@ -205,7 +216,18 @@ export function isAppRoute(route: string): boolean {
   if (/^claude\/[\w-]+$/.test(path)) return true;
   if (/^mail\/[\w-]+$/.test(path)) return true;
   if (isChannelPath(path)) return true;
+  if (isAutomationsPath(path)) return true;
   const p = /^p\/([A-Z]{2,4})(?:\/([a-z]+))?$/.exec(path);
   if (!p) return false;
   return !p[2] || (PROJECT_SECTIONS_IDS as readonly string[]).includes(p[2]);
 }
+
+/** L'indirizzo di un'automazione (notifiche, ⌘K): `#/automations/AUD-A1`. */
+export const automationHref = (code: string) => `#/automations/${code}`;
+
+/**
+ * L'indirizzo di un'esecuzione, «AUD-A1 #2» → `#/automations/AUD-A1/runs/2`;
+ * con `entry` (un percorso R-J5) porta alla riga del registro.
+ */
+export const runHref = (code: string, n: number, entry?: string) =>
+  `#/automations/${code}/runs/${n}${entry ? `?entry=${encodeURIComponent(entry)}` : ""}`;

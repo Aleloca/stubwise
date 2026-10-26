@@ -3,6 +3,7 @@ import { createMilestoneAs, createRequestAs, createTaskAs } from "../api-mutatio
 import { lower } from "../mail/compose";
 import { canSeeMessage } from "../mail/visibility";
 import { sendNow } from "../mail/send";
+import { runHref } from "../routes";
 import { newId, state } from "../store";
 import type { Automation, AutomationRun } from "../types";
 import { fakeClaude } from "./claudeFake";
@@ -205,7 +206,7 @@ function notify(eff: ActionEffect, env: EffectEnv) {
     read: false,
     archived: false,
     snoozedUntil: null,
-    link: `#/automations?run=${env.run.id}`,
+    link: runHref(env.automation.code, env.run.n),
   };
   state.notifications.push(notification);
   return done([notification.id]);

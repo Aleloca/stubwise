@@ -8,6 +8,7 @@ export {
   listMailboxes,
   listMailThreads,
   searchMail,
+  threadOfMessage,
 } from "./reads";
 export {
   mailClassificationHistory,

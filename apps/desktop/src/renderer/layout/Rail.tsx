@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import {
   useChatSignal,
   useMailProposalDecisions,
+  useMyAutomationApprovals,
   useNotifications,
   usePinnedProjects,
   useWaitingOnMe,
@@ -241,6 +242,8 @@ export function Rail() {
   // Solo ciò che è rivolto a chi guarda: menzioni dirette, DM, thread seguiti.
   const chatNews = useChatSignal().data === true;
   // La Posta: solo le proposte che aspettano chi guarda, mai le email non lette (A6).
+  // Le Automations: solo le approvazioni e i «scegli il progetto» rivolti a me, mai le fallite ([A 4]).
+  const automationsWaiting = (useMyAutomationApprovals().data ?? []).length;
   const mailWaiting = (useMailProposalDecisions().data ?? []).filter(
     (v) => v.proposal.source !== "calendar",
   ).length;
@@ -273,7 +276,9 @@ export function Rail() {
                   ? t("rail.chatNews")
                   : d.to === "/mail" && mailWaiting > 0
                     ? t("rail.mailWaiting", { count: mailWaiting })
-                    : undefined
+                    : d.to === "/automations" && automationsWaiting > 0
+                      ? t("rail.automationsWaiting", { count: automationsWaiting })
+                      : undefined
               }
             />
           </li>

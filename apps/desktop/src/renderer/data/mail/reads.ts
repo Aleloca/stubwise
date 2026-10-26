@@ -171,6 +171,16 @@ export function threadFor(me: string, threadId: string): MailThreadDetail | null
   };
 }
 
+/**
+ * La conversazione di un messaggio, se chi guarda lo vede (area 7: l'email
+ * mandata da un'esecuzione → «Open the email», la risposta simulata);
+ * altrimenti `null`, come uno che non esiste (R-G5).
+ */
+export async function threadOfMessage(messageId: string): Promise<string | null> {
+  const me = await gate("mail.threadOfMessage");
+  return visibleMessages(me).find((m) => m.id === messageId)?.threadId ?? null;
+}
+
 /** Le mie caselle, con quanto sono aggiornate e se il collegamento è scaduto. */
 export async function listMailboxes(): Promise<MailboxView[]> {
   const me = await gate("mail.listMailboxes");

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { search, setLatency } from "./api";
-import { isAppRoute } from "./routes";
+import { automations, resetApi, search, setLatency } from "./api";
+import { automationHref, isAppRoute, runHref } from "./routes";
 import { NOTIFICATIONS } from "./seed/notifications";
 import { PROJECTS } from "./seed/projects";
 
@@ -62,7 +62,9 @@ describe("route grammar", () => {
     expect(isAppRoute("#/mail/th-aud-billing-vat")).toBe(true);
     expect(isAppRoute("#/mail/th/x")).toBe(false);
     expect(
-      isAppRoute("#/mail/th-aud-billing-vat?mailbox=giulia.ferri@example.com&importance=high&project=AUD&q=vat"),
+      isAppRoute(
+        "#/mail/th-aud-billing-vat?mailbox=giulia.ferri@example.com&importance=high&project=AUD&q=vat",
+      ),
     ).toBe(true);
     expect(isAppRoute("#/mail?project=none")).toBe(true);
     expect(isAppRoute("#/mail?importance=urgent")).toBe(false);
@@ -79,6 +81,39 @@ describe("route grammar", () => {
     expect(isAppRoute("#/mail?compose=reply")).toBe(false);
     expect(isAppRoute("#/mail/th-aud-billing-vat?compose=new")).toBe(false);
     expect(isAppRoute("#/chat?compose=new")).toBe(false);
+  });
+
+  it("area 7: Automations — elenco, automazione, esecuzione, sorgenti e i loro parametri", () => {
+    expect(isAppRoute("#/automations")).toBe(true);
+    expect(isAppRoute("#/automations?view=runs")).toBe(true);
+    expect(isAppRoute("#/automations?view=attention")).toBe(true);
+    expect(isAppRoute("#/automations?view=week")).toBe(false);
+    expect(isAppRoute("#/automations?project=AUD&status=active&owner=p-matteo")).toBe(true);
+    expect(isAppRoute("#/automations?general=1&mine=1&automation=AUT-1")).toBe(true);
+    expect(isAppRoute("#/automations?status=finished")).toBe(true);
+    expect(isAppRoute("#/automations?status=gone")).toBe(false);
+    expect(isAppRoute("#/automations/AUD-A1")).toBe(true);
+    expect(isAppRoute("#/automations/AUT-1")).toBe(true);
+    expect(isAppRoute("#/automations/aud-a1")).toBe(false);
+    expect(isAppRoute("#/automations/AUD-A1/runs/2")).toBe(true);
+    expect(isAppRoute("#/automations/AUD-A1/runs/x")).toBe(false);
+    expect(isAppRoute(runHref("AUD-A1", 2, "3/then/0/mancano informazioni/0"))).toBe(true);
+    expect(isAppRoute("#/automations/AUD-A1?entry=0")).toBe(false);
+    expect(isAppRoute("#/automations/sources")).toBe(true);
+    expect(isAppRoute("#/automations/sources?src=src-audin")).toBe(true);
+    expect(isAppRoute("#/automations?src=src-audin")).toBe(false);
+    expect(isAppRoute("#/home?status=active")).toBe(false);
+    expect(automationHref("AUD-A1")).toBe("#/automations/AUD-A1");
+  });
+
+  it("area 7: link di notifiche e ricerca verso le route vere delle Automations", async () => {
+    setLatency(0);
+    resetApi();
+    const results = await automations.searchAutomations("AUD-A1");
+    expect(results.map((r) => r.route)).toEqual(
+      expect.arrayContaining(["#/automations/AUD-A1", "#/automations/AUD-A1/runs/1"]),
+    );
+    for (const r of results) expect(isAppRoute(r.route), r.route).toBe(true);
   });
 
   it("i link delle notifiche sono nella grammatica", () => {
