@@ -45,6 +45,7 @@ import {
   pendingPlan,
   proposalExpired,
   reindex,
+  signalAutomations,
   state,
   storeGeneration,
   visibleProjectIds,
@@ -216,6 +217,7 @@ function addTask(task: Task): void {
 export function createTaskAs(me: string, input: NewTaskInput): Task {
   const task = buildTask(me, input);
   addTask(task);
+  signalAutomations({ kind: "task_created", taskId: task.id });
   return task;
 }
 
@@ -338,6 +340,7 @@ function commitTaskPatch(me: string, task: Task, diffs: Diff[]): void {
   setClosedAt(task, oldFamily, at);
   if (oldFamily !== "closed" && familyOf(task) === "closed") {
     void publishChatEvent(task.projectId, "task_closed", { kind: "task", id: task.id });
+    signalAutomations({ kind: "task_closed", taskId: task.id });
   }
   // Le sistemazioni nei giorni valevano per quella settimana e quell'assegnatario.
   if (diffs.some((d) => d.key === "plannedWeek" || d.key === "assigneeId")) {
@@ -653,6 +656,7 @@ export function createRequestAs(me: string, input: NewRequestInput): ProjectRequ
   };
   state.requests.push(request);
   void publishChatEvent(project.id, "request_new", { kind: "request", id: request.id });
+  signalAutomations({ kind: "request_created", requestId: request.id });
   return request;
 }
 
@@ -1137,8 +1141,8 @@ export async function createMilestone(
   return copy(createMilestoneAs(me, projectId, input));
 }
 
-/** Crea un traguardo a nome di `me` (`tickets.edit`), anche da una proposta della posta. */
-function createMilestoneAs(me: string, projectId: string, input: MilestoneInput): Milestone {
+/** Crea un traguardo a nome di `me` (`tickets.edit`), anche da una proposta della posta o da un'automazione. */
+export function createMilestoneAs(me: string, projectId: string, input: MilestoneInput): Milestone {
   projectFor(me, projectId);
   need(me, "tickets.edit", projectId);
   checkMilestone(input);
@@ -1170,6 +1174,7 @@ export async function updateMilestone(id: string, patch: MilestonePatch): Promis
       kind: "milestone",
       id: milestone.id,
     });
+    signalAutomations({ kind: "milestone_reached", milestoneId: milestone.id });
   }
   return copy(milestone);
 }

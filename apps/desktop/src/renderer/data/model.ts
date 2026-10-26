@@ -157,6 +157,14 @@ export interface Task {
   occurrences: number;
   /** Il payload dell'integrazione (chiave → valore), quando c'è. */
   technical?: Record<string, string> | null;
+  /** Creata da un'esecuzione di un'automazione (area 7): «Creata dall'automazione X · esecuzione Y». */
+  automationRef?: AutomationRef;
+}
+
+/** L'automazione e l'esecuzione che hanno creato una task o un traguardo (area 7). */
+export interface AutomationRef {
+  automationId: string;
+  runId: string;
 }
 
 export interface Milestone {
@@ -166,6 +174,8 @@ export interface Milestone {
   description: string;
   dueDate: string | null;
   closed: boolean;
+  /** Creato da un'esecuzione di un'automazione (area 7). */
+  automationRef?: AutomationRef;
 }
 
 /**
@@ -2274,6 +2284,20 @@ export interface AutomationRun {
   error: string | null;
   /** I progetti in cui ha agito (per le generali: dalla tabella cliente → progetto). */
   projectIds: string[];
+  /**
+   * Gli elementi dei `forEach` in corso, fissati all'ingresso
+   * (`EngineState.loops`): la ripresa li rilegge da qui, mai dalle variabili.
+   */
+  loops?: Record<string, unknown[]>;
+  /**
+   * I clienti → progetti già risolti (`EngineState.projects`): un progetto
+   * scelto a mano vale per tutti i passi dopo, anche dopo una ripresa.
+   */
+  projects?: Record<string, string>;
+  /** L'esecuzione che l'ha avviata con «Avvia un'altra automazione» (catena di al massimo 3). */
+  parentRunId?: string | null;
+  /** In `suspended` (pausa): lo stato a cui torna riaccendendo l'automazione. */
+  suspendedFrom?: Exclude<RunStatus, "suspended" | "done" | "failed" | "cancelled">;
 }
 
 export interface AutomationSource {

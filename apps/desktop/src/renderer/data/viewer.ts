@@ -236,6 +236,25 @@ export function viewerFor(personId: string): Viewer {
 /** Come annullare ogni concessione fatta dopo il seed, dalla più recente. */
 const undo: (() => void)[] = [];
 
+/** I ruoli di progetto dati dopo il seed (`grantProjectRole`), per `persona\u0000progetto`. */
+const grantedRoles = new Map<string, string>();
+const roleKeyOf = (personId: string, projectId: string) => `${personId}\u0000${projectId}`;
+
+/**
+ * Il ruolo (preset) di una persona in un progetto: quello dato dopo il seed,
+ * altrimenti quello del seed se ne è membro; `null` se non ci ha un ruolo.
+ * Lo usano le automazioni (area 7) per «chi ha il ruolo X nel progetto»:
+ * l'appartenenza di adesso la controlla chi chiama.
+ */
+export function projectRoleOf(personId: string, projectId: string): string | null {
+  const granted = grantedRoles.get(roleKeyOf(personId, projectId));
+  if (granted !== undefined) return granted;
+  const project = PROJECTS.find((p) => p.id === projectId);
+  const spec = specOf(personId);
+  if (!project || !spec || !project.memberIds.includes(personId)) return null;
+  return spec.projectRole(project.code);
+}
+
 /**
  * Dà a una persona il ruolo (preset) su un progetto — chi crea un progetto ne
  * è il project lead; i test lo usano anche per cambiare (o togliere) il ruolo
@@ -247,10 +266,15 @@ export function grantProjectRole(personId: string, projectId: string, roleKey: s
   const viewer = viewerFor(personId);
   // Si annulla rimettendo il ruolo di prima (anche quello del seed), non togliendolo.
   const previous = viewer.projectPermissions[projectId];
+  const key = roleKeyOf(personId, projectId);
+  const previousRole = grantedRoles.get(key);
   viewer.projectPermissions[projectId] = projectPermsOf(roleKey);
+  grantedRoles.set(key, roleKey);
   undo.push(() => {
     if (previous) viewer.projectPermissions[projectId] = previous;
     else delete viewer.projectPermissions[projectId];
+    if (previousRole === undefined) grantedRoles.delete(key);
+    else grantedRoles.set(key, previousRole);
   });
   if (roleKey === ACTIVITY_ROLE) grantInstancePermission(personId, "people.activity.view");
 }

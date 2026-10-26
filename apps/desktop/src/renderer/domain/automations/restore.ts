@@ -9,6 +9,8 @@ type SavedRun = Pick<
 > & {
   /** `EngineState.loops`, se salvato: gli elementi dei `forEach` fissati all'ingresso. */
   loops?: Record<string, unknown[]>;
+  /** `EngineState.projects`, se salvato: i clienti → progetti già risolti. */
+  projects?: Record<string, string>;
 };
 
 const ACTION_KINDS = new Set<Step["kind"]>([
@@ -38,6 +40,7 @@ export function restoreState(flow: AutomationFlow, run: SavedRun, now: string): 
   st.event = structuredClone(run.event);
   st.vars = structuredClone(run.vars);
   st.loops = structuredClone(run.loops ?? {});
+  st.projects = structuredClone(run.projects ?? {});
   for (const e of run.log) {
     const done = e.outcome === "ok" || e.outcome === "failed";
     if (e.kind === "sendEmail" && e.outcome === "ok") st.emailsSent++;
@@ -69,12 +72,15 @@ export function restoreState(flow: AutomationFlow, run: SavedRun, now: string): 
     const seg = segs[k + 1]!;
     const round = /\[(\d+)\]$/.exec(seg);
     if (step.kind === "forEach") {
-      const items = st.loops[path] ?? resolve(st, step.list);
+      const found = st.loops[path] ?? resolve(st, step.list);
+      const items = Array.isArray(found) ? found : [];
+      // Riscritti in `loops`: la prossima ripresa li rilegge da lì.
+      st.loops[path] = items;
       st.stack.push({
         t: "forEach",
         path,
         as: step.as,
-        items: Array.isArray(items) ? items : [],
+        items,
         current: Number(round![1]),
       });
     } else if (step.kind === "repeatUntil") {

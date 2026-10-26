@@ -13,6 +13,10 @@ import { resolveHome } from "../domain/home";
 import { MIN_QUERY } from "../pages/chat/search";
 import type {
   Attachment,
+  AutomationFlow,
+  AutomationMeta,
+  AutomationRunRow,
+  ClientProjectLink,
   CalendarEventInput,
   CalendarEventPatch,
   CalendarEventView,
@@ -222,7 +226,25 @@ export const queryKeys = {
     ["as", personId, "meeting", "summary", eventId] as const,
   tasksBornFrom: (personId: string, eventId: string) =>
     ["as", personId, "meeting", "born", eventId] as const,
+  // Automations (area 7): tutto nell'area «automations».
+  automations: (personId: string, filter: AutomationListFilter) =>
+    ["as", personId, "automations", "list", filter] as const,
+  automation: (personId: string, id: string) =>
+    ["as", personId, "automations", "detail", id] as const,
+  automationRuns: (personId: string, filter: AutomationRunFilter) =>
+    ["as", personId, "automations", "runs", filter] as const,
+  automationRun: (personId: string, id: string) =>
+    ["as", personId, "automations", "run", id] as const,
+  automationSources: (personId: string) => ["as", personId, "automations", "sources"] as const,
+  clientLinks: (personId: string) => ["as", personId, "automations", "clientLinks"] as const,
+  automationApprovals: (personId: string) =>
+    ["as", personId, "automations", "approvals"] as const,
+  automationSearch: (personId: string, q: string) =>
+    ["as", personId, "automations", "search", q] as const,
 };
+
+export type AutomationListFilter = Parameters<typeof api.automations.listAutomations>[0];
+export type AutomationRunFilter = Parameters<typeof api.automations.listRuns>[0];
 
 /** Quali canali: tutti (colonna, «Browse channels») o quelli di un progetto. */
 export type ChatChannelsScope = { scope: "all" } | { scope: "project"; projectId: string };
@@ -3148,4 +3170,220 @@ export function useClaudeMailDraft() {
   useEffect(() => reset, [me, reset]);
 
   return { state, start, stop, reset };
+}
+
+// --- Automations (area 7) -----------------------------------------------------
+
+/**
+ * Un'esecuzione avanza in coda dopo la scrittura che la avvia o la sblocca,
+ * e crea task, traguardi, richieste, email e notifiche: le scritture
+ * ricaricano anche quelle aree.
+ */
+const AUTOMATION_AREAS = [
+  "automations",
+  ...TASK_AREAS,
+  ...MILESTONE_AREAS,
+  ...REQUEST_AREAS,
+  "mail",
+] as const;
+
+/** Mentre un'esecuzione è in corso la lettura si ripete da sola. */
+const AUTOMATION_REFRESH_MS = 1000;
+const runningIn = (runs: readonly Pick<AutomationRunRow, "status">[] | null | undefined) =>
+  !!runs?.some((r) => r.status === "running");
+
+/**
+ * Una scrittura delle Automations: ricarica subito, e di nuovo quando le
+ * esecuzioni che ha messo in moto si fermano (un'attesa, la fine).
+ */
+function useAutomationWrite<TVars, TData>(mutationFn: (vars: TVars) => Promise<TData>) {
+  const invalidate = useInvalidate(AUTOMATION_AREAS);
+  return useMutation({
+    mutationFn,
+    onSettled: async () => {
+      await invalidate();
+      void api.automations.whenAutomationsIdle().then(invalidate);
+    },
+  });
+}
+
+export function useAutomations(filter: AutomationListFilter = {}) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.automations(me, filter),
+    queryFn: () => api.automations.listAutomations(filter),
+  });
+}
+
+/** Un'automazione con versioni, errori ed esecuzioni; invisibile o inesistente → `null`. */
+export function useAutomation(id: string | null) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.automation(me, id ?? ""),
+    queryFn: () => api.automations.getAutomation(id!),
+    enabled: id !== null,
+    refetchInterval: (query) => (runningIn(query.state.data?.runs) ? AUTOMATION_REFRESH_MS : false),
+  });
+}
+
+export function useAutomationRuns(filter: AutomationRunFilter = {}) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.automationRuns(me, filter),
+    queryFn: () => api.automations.listRuns(filter),
+    refetchInterval: (query) => (runningIn(query.state.data) ? AUTOMATION_REFRESH_MS : false),
+  });
+}
+
+/** Un'esecuzione col registro; invisibile o inesistente → `null`. */
+export function useAutomationRun(id: string | null) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.automationRun(me, id ?? ""),
+    queryFn: () => api.automations.getRun(id!),
+    enabled: id !== null,
+    refetchInterval: (query) =>
+      query.state.data?.status === "running" ? AUTOMATION_REFRESH_MS : false,
+  });
+}
+
+export function useAutomationSources() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.automationSources(me),
+    queryFn: () => api.automations.listSources(),
+  });
+}
+
+export function useClientLinks() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.clientLinks(me),
+    queryFn: () => api.automations.listClientLinks(),
+  });
+}
+
+/** «Da decidere»: i passi da approvare e i progetti da scegliere che aspettano me. */
+export function useMyAutomationApprovals() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.automationApprovals(me),
+    queryFn: () => api.automations.listMyApprovals(),
+  });
+}
+
+/** ⌘K: automazioni ed esecuzioni (da 2 caratteri). */
+export function useAutomationSearch(q: string, enabled = true) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.automationSearch(me, q),
+    queryFn: () => api.automations.searchAutomations(q),
+    enabled: enabled && q.trim().length >= MIN_QUERY,
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
+  });
+}
+
+export function useCreateAutomation() {
+  return useAutomationWrite(
+    (input: Parameters<typeof api.automations.createAutomation>[0]) =>
+      api.automations.createAutomation(input),
+  );
+}
+
+export function useSaveAutomationDraft() {
+  return useAutomationWrite(
+    ({ id, flow, meta }: { id: string; flow: AutomationFlow; meta?: AutomationMeta }) =>
+      api.automations.saveDraft(id, flow, meta),
+  );
+}
+
+export function usePublishAutomation() {
+  return useAutomationWrite((id: string) => api.automations.publish(id));
+}
+
+export function useActivateAutomation() {
+  return useAutomationWrite((id: string) => api.automations.activate(id));
+}
+
+export function usePauseAutomation() {
+  return useAutomationWrite((id: string) => api.automations.pause(id));
+}
+
+export function useDeleteAutomationDraft() {
+  return useAutomationWrite((id: string) => api.automations.deleteDraft(id));
+}
+
+export function useStartAutomation() {
+  return useAutomationWrite(
+    ({ id, event }: { id: string; event?: Record<string, unknown> }) =>
+      api.automations.startManual(id, event),
+  );
+}
+
+export function useSimulateSourceEvent() {
+  return useAutomationWrite(
+    ({ sourceId, sampleIndex }: { sourceId: string; sampleIndex: number }) =>
+      api.automations.simulateSourceEvent(sourceId, sampleIndex),
+  );
+}
+
+export function useApproveAutomationStep() {
+  return useAutomationWrite(
+    ({ runId, edited }: { runId: string; edited?: Record<string, string> }) =>
+      api.automations.approve(runId, edited),
+  );
+}
+
+export function useRejectAutomationStep() {
+  return useAutomationWrite((runId: string) => api.automations.reject(runId));
+}
+
+export function useChooseAutomationProject() {
+  return useAutomationWrite(
+    ({ runId, projectId }: { runId: string; projectId: string }) =>
+      api.automations.chooseProject(runId, projectId),
+  );
+}
+
+export function useCancelAutomationRun() {
+  return useAutomationWrite((runId: string) => api.automations.cancelRun(runId));
+}
+
+export function useRetryAutomationStep() {
+  return useAutomationWrite((runId: string) => api.automations.retryStep(runId));
+}
+
+export function useSkipAutomationStep() {
+  return useAutomationWrite((runId: string) => api.automations.skipStep(runId));
+}
+
+/** «Fai passare il tempo» (solo prototipo). */
+export function useAdvanceAutomationTime() {
+  return useAutomationWrite(({ runId, days }: { runId: string; days: number }) =>
+    api.automations.advanceTime(runId, days),
+  );
+}
+
+export function useConnectAutomationSource() {
+  return useAutomationWrite((id: string) => api.automations.connectSource(id));
+}
+
+export function useDisconnectAutomationSource() {
+  return useAutomationWrite((id: string) => api.automations.disconnectSource(id));
+}
+
+export function useSetClientLink() {
+  return useAutomationWrite((link: ClientProjectLink) => api.automations.setClientLink(link));
+}
+
+export function useRemoveClientLink() {
+  return useAutomationWrite((clientKey: string) => api.automations.removeClientLink(clientKey));
+}
+
+/** La risposta del cliente simulata in una conversazione della Posta (solo prototipo). */
+export function useSimulateMailReply() {
+  return useAutomationWrite(({ threadId, text }: { threadId: string; text: string }) =>
+    api.mail.simulateReply(threadId, text),
+  );
 }

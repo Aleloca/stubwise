@@ -1,4 +1,4 @@
-import { gate, now, state, storeGeneration } from "../store";
+import { chatNow, gate, newId, now, signalAutomations, state, storeGeneration } from "../store";
 import type { Mailbox, MailClassification, MailMessage } from "../types";
 import { classifyMessage, proposalsFromClassification } from "./classify";
 import { canSeeMessage, myMailbox, visibleMessages } from "./visibility";
@@ -135,6 +135,8 @@ async function advanceSync(personId: string): Promise<void> {
     );
     Object.assign(box(), { sync: "ok", syncedAt: now() });
     classify(arrived);
+    if (arrived.length > 0)
+      signalAutomations({ kind: "mail_received", messageIds: arrived.map((m) => m.id) });
   } catch {
     if (!alive()) return;
     box().sync = "failed";
@@ -195,4 +197,52 @@ export async function reproposeMessage(id: string): Promise<void> {
   if (!m || !canSeeMessage(me, m)) throw notFound();
   if (m.classification.state !== "failed") throw invalid("not failed");
   classify([m]);
+}
+
+/**
+ * La risposta del cliente, simulata (solo prototipo, area 7): nella mia
+ * conversazione arriva un messaggio dal primo destinatario fuori dal team
+ * del mio ultimo invio partito, col testo dato. Entra nella mia casella come
+ * la posta che arriva (classificazione compresa) e lo sanno le automazioni:
+ * un'attesa della risposta a quell'email si sblocca. Una conversazione che
+ * non vedo è `not_found`; senza un mio invio a qualcuno fuori dal team,
+ * `invalid: recipient`.
+ */
+export async function simulateReply(threadId: string, text: string): Promise<string> {
+  const me = await gate("mail.simulateReply");
+  if (!text.trim()) throw invalid("text");
+  const messages = visibleMessages(me)
+    .filter((m) => m.threadId === threadId)
+    .sort((a, b) => a.at.localeCompare(b.at));
+  if (messages.length === 0) throw notFound();
+  const sent = [...messages]
+    .reverse()
+    .find((m) => m.from.personId === me && (!m.delivery || m.delivery.state === "sent"));
+  const client = sent?.to.find((a) => a.personId === null);
+  if (!sent || !client) throw invalid("recipient");
+  if (!state.mailboxes.some((b) => b.personId === me)) throw notFound();
+  const id = newId("mm");
+  const reply: MailMessage = {
+    id,
+    messageId: `<${id}@reply.example>`,
+    threadId,
+    from: { ...client },
+    to: [{ ...sent.from }],
+    cc: null,
+    subject: /^re\s*:/i.test(sent.subject) ? sent.subject : `Re: ${sent.subject}`,
+    at: chatNow(),
+    text: text.trim(),
+    quoted: null,
+    html: null,
+    attachments: [],
+    mailboxPersonIds: [me],
+    readByPersonIds: [],
+    kind: "email",
+    context: false,
+    classification: { state: "off" },
+  };
+  state.mailMessages.push(reply);
+  classify([reply]);
+  signalAutomations({ kind: "mail_received", messageIds: [id] });
+  return id;
 }

@@ -6,6 +6,10 @@ import type { Milestone, Task } from "../../types";
 import { daysFromToday } from "../dates";
 import { PROJECTS } from "../projects";
 import { statusIdOf } from "../statuses";
+import { AUTOMATION_NEW_CONTRACT } from "./automations";
+
+/** L'esecuzione che le ha create (`RUN_DONE` in `runs.ts`, che importa questo file). */
+const BY_RUN = { automationId: AUTOMATION_NEW_CONTRACT, runId: "arun-aut1-1" };
 
 const CBV = PROJECTS.find((p) => p.code === "CBV")!;
 /** Creato il giorno dell'esecuzione, 12 giorni fa. */
@@ -22,6 +26,7 @@ export const AUTOMATION_MILESTONES: Milestone[] = [
     // `dueInDays: 30` dal giorno dell'esecuzione.
     dueDate: daysFromToday(18),
     closed: false,
+    automationRef: BY_RUN,
   },
 ];
 
@@ -66,6 +71,7 @@ export const AUTOMATION_TASKS: Task[] = NEW_CONTRACT_TASKS.map(([title, departme
   createdAt: CREATED_AT,
   closedAt: null,
   lastActivityAt: CREATED_AT,
-  source: "manual",
+  source: "automation",
   occurrences: 1,
+  automationRef: BY_RUN,
 }));

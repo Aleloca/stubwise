@@ -108,6 +108,8 @@ export * as drive from "./drive";
 export * as mail from "./mail";
 /** Il Calendario (area 6): `api.calendar.listEvents(…)`, `api.calendar.respond(…)`… */
 export * as calendar from "./calendar";
+/** Le Automations (area 7): `api.automations.listAutomations(…)`, `api.automations.approve(…)`… */
+export * as automations from "./automations";
 
 /** Ripristina lo stato (sessione, dati, errori iniettati) e porta le task scadute alla settimana corrente. */
 export function resetApi(): void {

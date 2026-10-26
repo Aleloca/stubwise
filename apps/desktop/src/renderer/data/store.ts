@@ -383,7 +383,40 @@ export type ApiFnName =
   /** Un passo del salvataggio simulato verso Google (in salvataggio → salvato o fallito). */
   | "calendar.advanceSave"
   /** Un passo dell'allineamento simulato di un calendario. */
-  | "calendar.advanceSync";
+  | "calendar.advanceSync"
+  /** La risposta del cliente simulata in una conversazione della Posta (area 7). */
+  | "mail.simulateReply"
+  // Automations (area 7)
+  | "automations.listAutomations"
+  | "automations.getAutomation"
+  | "automations.listRuns"
+  | "automations.getRun"
+  | "automations.listSources"
+  | "automations.listClientLinks"
+  | "automations.listMyApprovals"
+  | "automations.searchAutomations"
+  | "automations.createAutomation"
+  | "automations.saveDraft"
+  | "automations.publish"
+  | "automations.activate"
+  | "automations.pause"
+  | "automations.deleteDraft"
+  | "automations.startManual"
+  | "automations.simulateSourceEvent"
+  | "automations.runDueSchedules"
+  | "automations.approve"
+  | "automations.reject"
+  | "automations.chooseProject"
+  | "automations.cancelRun"
+  | "automations.retryStep"
+  | "automations.skipStep"
+  | "automations.advanceTime"
+  | "automations.connectSource"
+  | "automations.disconnectSource"
+  | "automations.setClientLink"
+  | "automations.removeClientLink"
+  /** Un passo simulato di un'esecuzione: l'effetto (o la risposta di Claude) che arriva. */
+  | "automations.advanceRun";
 const failures = new Set<ApiFnName>();
 
 /** Fissa la latenza simulata (ms); `0` per i test, `null` per tornare a 150–400 ms. */
@@ -566,6 +599,20 @@ interface State {
   automationSources: AutomationSource[];
   /** La tabella cliente → progetto delle automazioni generali. */
   clientProjectLinks: ClientProjectLink[];
+  /** L'ultimo numero di codice dato, per progetto (`""` = generali): un codice non si riusa. */
+  automationCodeSeq: Map<string, number>;
+  /** L'«adesso» di un'esecuzione mandata avanti con «Fai passare il tempo» (solo prototipo). */
+  automationClock: Map<string, string>;
+}
+
+function initialAutomationCodeSeq(): Map<string, number> {
+  const seq = new Map<string, number>();
+  for (const a of AUTOMATIONS) {
+    const key = a.projectId ?? "";
+    const n = Number(a.code.slice(a.code.search(/\d+$/)));
+    seq.set(key, Math.max(seq.get(key) ?? 0, n));
+  }
+  return seq;
 }
 
 function initialDocCodeSeq(): Map<string, number> {
@@ -660,6 +707,8 @@ function freshState(): State {
     automationRuns: AUTOMATION_RUNS.map(copy),
     automationSources: AUTOMATION_SOURCES.map(copy),
     clientProjectLinks: CLIENT_PROJECT_LINKS.map(copy),
+    automationCodeSeq: initialAutomationCodeSeq(),
+    automationClock: new Map(),
   };
 }
 
@@ -705,6 +754,30 @@ export function resetStore(): void {
   resetViewerGrants();
   Object.assign(state, freshState());
   reindex();
+}
+
+// --- i segnali per gli inizi delle automazioni (area 7) -----------------------
+
+/**
+ * Qualcosa è successo in Stubwise: lo segnalano le scritture di oggi (task
+ * creata o chiusa, richiesta creata, traguardo raggiunto, posta arrivata) e
+ * lo ascoltano gli inizi `stubwise` delle automazioni. Un ascoltatore non
+ * scrive nulla mentre la scrittura è in corso: mette in coda.
+ */
+export type AutomationSignal =
+  | { kind: "task_created" | "task_closed"; taskId: string }
+  | { kind: "request_created"; requestId: string }
+  | { kind: "milestone_reached"; milestoneId: string }
+  | { kind: "mail_received"; messageIds: string[] };
+
+const automationListeners = new Set<(signal: AutomationSignal) => void>();
+
+export function onAutomationSignal(fn: (signal: AutomationSignal) => void): void {
+  automationListeners.add(fn);
+}
+
+export function signalAutomations(signal: AutomationSignal): void {
+  for (const fn of automationListeners) fn(signal);
 }
 
 /** L'id di una riga creata dal prototipo. */

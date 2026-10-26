@@ -99,23 +99,27 @@ function deliver(id: string): void {
   const m = state.mailMessages.find((x) => x.id === id);
   if (!attempt || !m || m.delivery?.state !== "sending") return;
   attempt.timer = null;
-  const sentById = m.delivery.sentById;
+  if (settleDelivery(m)) attempts.delete(id);
+  attempt.settle();
+}
+
+/** L'esito di un invio: partito (nelle caselle dei destinatari del team) o fallito. Vero se è partito. */
+function settleDelivery(m: MailMessage): boolean {
+  const sentById = m.delivery!.sentById;
   const recipients = [...m.to, ...(m.cc ?? [])];
   const bounced = recipients.find((a) => domainOf(a.email) === BOUNCE_DOMAIN);
   if (bounced) {
     m.delivery = { state: "failed", sentById, error: `address_not_found: ${bounced.email}` };
-  } else {
-    m.delivery = { state: "sent", sentById };
-    // Entra nelle caselle dei destinatari del team che ne hanno una.
-    const boxes = new Set([sentById]);
-    for (const a of recipients) {
-      if (a.personId && state.mailboxes.some((b) => b.personId === a.personId))
-        boxes.add(a.personId);
-    }
-    m.mailboxPersonIds = [...boxes];
-    attempts.delete(id);
+    return false;
   }
-  attempt.settle();
+  m.delivery = { state: "sent", sentById };
+  // Entra nelle caselle dei destinatari del team che ne hanno una.
+  const boxes = new Set([sentById]);
+  for (const a of recipients) {
+    if (a.personId && state.mailboxes.some((b) => b.personId === a.personId)) boxes.add(a.personId);
+  }
+  m.mailboxPersonIds = [...boxes];
+  return true;
 }
 
 const bytesOf = (list: MailDraftAttachment[]) =>
@@ -246,6 +250,30 @@ export async function sendDraft(id: string): Promise<MailSendResult> {
   const me = await gate("mail.sendDraft");
   const draft = myDraft(me, id);
   checkSendable(me, draft);
+  const message = outgoing(me, draft);
+  state.mailMessages.push(message);
+  state.mailDrafts = state.mailDrafts.filter((d) => d !== draft);
+  return startWindow(message, copy(draft));
+}
+
+/**
+ * Un'email che parte SUBITO, senza bozza né «Annulla», dalla casella di
+ * `me`: la manda un'automazione a nome del suo proprietario (area 7). Gli
+ * stessi controlli di «Invia» (`checkSendable`: account collegato,
+ * indirizzi, limiti) e lo stesso esito (un indirizzo `@bounce.example`
+ * fallisce). Restituisce il messaggio, partito o fallito.
+ */
+export function sendNow(me: string, input: MailDraftInput): MailMessage {
+  const draft = draftFrom(me, input);
+  checkSendable(me, draft);
+  const message = outgoing(me, draft);
+  state.mailMessages.push(message);
+  settleDelivery(message);
+  return message;
+}
+
+/** Il messaggio che parte da una bozza: in fondo alla conversazione, `sending`. */
+function outgoing(me: string, draft: MailDraft): MailMessage {
   const original =
     draft.threadId !== null
       ? threadMessages(me, draft.threadId).find((m) => m.id === draft.replyToMessageId)
@@ -282,9 +310,7 @@ export async function sendDraft(id: string): Promise<MailSendResult> {
     classification: { state: "off" },
     delivery: { state: "sending", sentById: me },
   };
-  state.mailMessages.push(message);
-  state.mailDrafts = state.mailDrafts.filter((d) => d !== draft);
-  return startWindow(message, copy(draft));
+  return message;
 }
 
 /**

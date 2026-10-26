@@ -1,0 +1,274 @@
+import {
+  advance,
+  initialState,
+  type EngineInput,
+  type EngineState,
+  type EngineStep,
+} from "../../domain/automations/engine";
+import { render } from "../../domain/automations/preview";
+import { restoreState } from "../../domain/automations/restore";
+import { PEOPLE } from "../seed/people";
+import { copy, gate, newId, now, onStoreReset, state, storeGeneration } from "../store";
+import type { Automation, AutomationRun, RunLogEntry, RunStatus } from "../types";
+import { executeEffect } from "./effects";
+import { approversFor, automationById, flowOf, runById, stepOfRun } from "./visibility";
+
+// Chi fa avanzare le esecuzioni (area 7): prende un input, lo passa al
+// motore puro (`advance`), dà gli effetti richiesti all'unico esecutore
+// (`effects.ts`) e rimette l'esito nel motore, finché l'esecuzione si ferma
+// (un'attesa, la fine, un errore). Lo stato vero è il record
+// `AutomationRun`: a ogni input il motore lo riprende da lì (`restoreState`).
+//
+// - Gli input di un'esecuzione passano uno alla volta (`inTurn`).
+// - Ogni effetto aspetta il ritardo simulato (`gate("automations.advanceRun")`,
+//   `failNext` lo fa fallire: il passo fallisce senza essere eseguito); un
+//   ripristino (`resetApi`) nel frattempo ferma tutto prima che scriva.
+// - Pausa: un'esecuzione non si sospende MAI con un effetto in volo. Si
+//   sospende al confine del passo: prima di eseguire l'effetto seguente,
+//   che resta da fare (il cursore punta lì) e riparte riaccendendo.
+// - Le esecuzioni finite, fallite, annullate o sospese ignorano gli input
+//   (un evento arrivato in pausa non si recupera): ripartono solo da
+//   «Riprova», «Salta» e dalla riaccensione, che le rimettono in corsa.
+
+export const TERMINAL: ReadonlySet<RunStatus> = new Set(["done", "failed", "cancelled"]);
+export const isOpen = (run: AutomationRun): boolean => !TERMINAL.has(run.status);
+
+/** Il massimo di esecuzioni non finite per automazione (Global Constraints). */
+export const MAX_ACTIVE_RUNS = 100;
+
+/** L'«adesso» di un'esecuzione: quello del prototipo, o più avanti con «Fai passare il tempo». */
+export const runNow = (run: AutomationRun): string => state.automationClock.get(run.id) ?? now();
+
+const personName = (id: string) => PEOPLE.find((p) => p.id === id)?.name ?? id;
+
+// --- coda e attesa ------------------------------------------------------------------
+
+const turns = new Map<string, Promise<void>>();
+const pending = new Set<Promise<void>>();
+onStoreReset(() => turns.clear());
+
+/** Si risolve quando nessuna esecuzione sta più avanzando. */
+export async function whenAutomationsIdle(): Promise<void> {
+  while (pending.size > 0) await Promise.all([...pending]);
+}
+
+function inTurn(runId: string, work: () => Promise<void>): Promise<void> {
+  const next = (turns.get(runId) ?? Promise.resolve()).then(work, work);
+  turns.set(runId, next);
+  pending.add(next);
+  void next.finally(() => pending.delete(next));
+  return next;
+}
+
+/** Prepara lo stato ripreso prima dell'input (lo usa «Salta»). */
+type Prepare = (st: EngineState) => void;
+
+/** Mette in coda un input per un'esecuzione. */
+export function enqueue(runId: string, input: EngineInput, prepare?: Prepare): Promise<void> {
+  const gen = storeGeneration();
+  return inTurn(runId, () => drive(runId, input, gen, prepare));
+}
+
+// --- il record --------------------------------------------------------------------
+
+/** Una riga del registro scritta dal livello dati (pausa, ripresa, annulla, riprova, salta). */
+export function note(
+  run: AutomationRun,
+  e: Pick<RunLogEntry, "outcome" | "reason"> & Partial<RunLogEntry>,
+): void {
+  const step = stepOfRun(run);
+  run.log.push({
+    at: runNow(run),
+    stepId: step?.id ?? "trigger",
+    path: run.cursor ?? "trigger",
+    kind: step?.kind ?? "trigger",
+    // La riga ripete cosa si aspettava: la ripresa di un'approvazione ne rilegge il progetto.
+    input: copy(run.pending?.preview ?? {}),
+    output: {},
+    byId: null,
+    effects: [],
+    ...e,
+  });
+}
+
+function pendingOf(st: EngineState, a: Automation, run: AutomationRun): AutomationRun["pending"] {
+  const aw = st.awaiting;
+  if (st.status === "waiting_approval" && aw?.kind === "approval") {
+    const progetto = aw.preview.progetto;
+    const projectId = typeof progetto === "string" ? progetto : a.projectId;
+    return { approverIds: approversFor(a, aw.who, projectId), preview: copy(aw.preview) };
+  }
+  if (st.status === "waiting_project" && aw?.kind === "project") {
+    const cliente = (run.event.cliente as { nome?: unknown } | undefined)?.nome;
+    return {
+      approverIds: a.ownerId ? [a.ownerId] : [],
+      preview: {
+        clientKey: aw.clientKey,
+        ...(typeof cliente === "string" ? { clientName: cliente } : {}),
+      },
+    };
+  }
+  return null;
+}
+
+/** Scrive nel record l'esito di un passo del motore. */
+function commit(run: AutomationRun, a: Automation, r: EngineStep): void {
+  const at = runNow(run);
+  for (const row of r.log) run.log.push({ at, ...copy(row) });
+  const st = r.state;
+  run.status = st.status;
+  run.cursor = st.cursor;
+  run.vars = copy(st.vars);
+  run.waitingUntil = st.waitingUntil;
+  run.error = st.error;
+  run.loops = copy(st.loops);
+  run.projects = copy(st.projects);
+  run.pending = pendingOf(st, a, run);
+  for (const projectId of Object.values(st.projects)) {
+    if (!run.projectIds.includes(projectId)) run.projectIds.push(projectId);
+  }
+  if (TERMINAL.has(run.status)) {
+    run.endedAt = at;
+    run.pending = null;
+  }
+}
+
+/** Sospende al confine del passo (pausa): riaccendendo torna a `from`. */
+export function suspend(
+  run: AutomationRun,
+  from: NonNullable<AutomationRun["suspendedFrom"]>,
+): void {
+  run.suspendedFrom = from;
+  run.status = "suspended";
+  // Un'esecuzione non ancora partita non ha un passo da sospendere.
+  if (run.log.length > 0) {
+    note(run, {
+      outcome: "waiting",
+      reason: "Sospesa: l'automazione è in pausa. Riprende da qui quando si riaccende.",
+    });
+  }
+}
+
+/** Riprende una sospesa: torna allo stato di prima e riceve l'«adesso». */
+export function resume(run: AutomationRun, byId: string): void {
+  const from = run.suspendedFrom ?? "running";
+  delete run.suspendedFrom;
+  run.status = from;
+  if (run.log.length === 0) {
+    void enqueue(run.id, { kind: "start", event: run.event });
+    return;
+  }
+  note(run, {
+    outcome: "waiting",
+    byId,
+    reason: `Ripresa: ${personName(byId)} ha riacceso l'automazione.`,
+  });
+  void enqueue(run.id, { kind: "time", now: runNow(run) });
+}
+
+/** Il passo al cursore fallisce senza essere eseguito (il ritardo simulato è fallito). */
+function failUnexecuted(run: AutomationRun): void {
+  run.status = "failed";
+  run.error = "unavailable";
+  run.endedAt = runNow(run);
+  run.pending = null;
+  note(run, {
+    outcome: "failed",
+    reason: "Il servizio non ha risposto: il passo non è stato eseguito. Si può riprovare.",
+  });
+}
+
+// --- l'avanzamento ------------------------------------------------------------------
+
+async function drive(runId: string, input: EngineInput, gen: number, prepare?: Prepare) {
+  const alive = () => gen === storeGeneration();
+  const run = runById(runId);
+  const a = run && automationById(run.automationId);
+  const flow = run && flowOf(run);
+  if (!alive() || !run || !a || !flow) return;
+  if (TERMINAL.has(run.status) || run.status === "suspended") return;
+
+  const st =
+    run.log.length === 0 ? initialState(flow, runNow(run)) : restoreState(flow, run, runNow(run));
+  prepare?.(st);
+  let r = advance(st, input);
+  commit(run, a, r);
+  for (;;) {
+    const eff = r.effects[0];
+    if (!eff) break;
+    if (a.status !== "active") return suspend(run, "running");
+    try {
+      await gate("automations.advanceRun");
+    } catch {
+      if (!alive() || run.status === "cancelled") return;
+      return failUnexecuted(run);
+    }
+    if (!alive() || run.status === "cancelled") return;
+    // In pausa durante il ritardo: l'effetto non è partito, resta da fare.
+    if (a.status !== "active") return suspend(run, "running");
+    const out = executeEffect(eff, {
+      run,
+      automation: a,
+      now: runNow(run),
+      // L'avvio annidato: un'esecuzione nuova con le regole dell'automazione avviata.
+      spawn: (target, event) => startRun(target, event, run.id),
+    });
+    if (out.projectId && !run.projectIds.includes(out.projectId))
+      run.projectIds.push(out.projectId);
+    r = advance(r.state, out.input);
+    commit(run, a, r);
+  }
+  // Fermata su un'attesa mentre l'automazione andava in pausa: si sospende qui.
+  if (a.status === "paused" && isOpen(run)) {
+    suspend(run, run.status as NonNullable<AutomationRun["suspendedFrom"]>);
+  }
+}
+
+// --- l'avvio ----------------------------------------------------------------------
+
+/** L'ultima versione pubblicata (quella con cui partono le esecuzioni nuove). */
+export const publishedVersion = (a: Automation) =>
+  [...a.versions].reverse().find((v) => v.publishedAt !== null) ?? null;
+
+/**
+ * Fa nascere un'esecuzione di un'automazione attiva, con la versione
+ * pubblicata, e la mette in coda. `null` se non può partire (non attiva,
+ * nessuna versione, troppe esecuzioni in corso).
+ */
+export function startRun(
+  a: Automation,
+  event: Record<string, unknown>,
+  parentRunId: string | null = null,
+): AutomationRun | null {
+  const version = publishedVersion(a);
+  if (a.status !== "active" || !version) return null;
+  const runs = state.automationRuns.filter((r) => r.automationId === a.id);
+  if (runs.filter(isOpen).length >= MAX_ACTIVE_RUNS) return null;
+  const parent = parentRunId ? runById(parentRunId) : undefined;
+  const at = parent ? runNow(parent) : now();
+  const titled = initialState(version.flow, at);
+  titled.event = event;
+  const run: AutomationRun = {
+    id: newId("arun"),
+    automationId: a.id,
+    n: runs.reduce((m, r) => Math.max(m, r.n), 0) + 1,
+    version: version.n,
+    title: render(titled, version.flow.titleTemplate).trim() || a.name,
+    status: "running",
+    event: copy(event),
+    vars: {},
+    cursor: null,
+    waitingUntil: null,
+    pending: null,
+    log: [],
+    startedAt: at,
+    endedAt: null,
+    error: null,
+    projectIds: a.projectId ? [a.projectId] : [],
+    parentRunId,
+  };
+  state.automationRuns.push(run);
+  if (parent) state.automationClock.set(run.id, at);
+  void enqueue(run.id, { kind: "start", event: run.event });
+  return run;
+}

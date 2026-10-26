@@ -1,6 +1,14 @@
 import type { InstancePermission, ProjectPermission } from "@stubwise/shared";
+import type { FlowIssue } from "../domain/automations/validate";
 import type { Stall } from "../domain/stalled";
 import type {
+  Automation,
+  AutomationFlow,
+  AutomationRun,
+  AutomationSource,
+  ClientProjectLink,
+  RunStatus,
+  Step,
   Channel,
   ChatMessage,
   CitationRef,
@@ -702,4 +710,93 @@ export interface MeetingPrep {
     /** I traguardi aperti, max 2. */
     milestones: Milestone[];
   };
+}
+
+// --- Automations (area 7): le letture -------------------------------------------
+
+/** Un'automazione come la legge chi guarda, con i permessi calcolati dal «server». */
+export interface AutomationRow extends Automation {
+  permissions: { manage: boolean };
+  /** Le esecuzioni non finite (in corso, in attesa, sospese). */
+  openRuns: number;
+  /** Quelle ferme su un'approvazione, un evento o la scelta del progetto. */
+  waitingRuns: number;
+  lastRunAt: string | null;
+  /** C'è una bozza: mai accesa, o della versione successiva a quella attiva. */
+  hasDraft: boolean;
+  /** Gli errori di configurazione dell'ultima versione (quella che si modifica). */
+  configErrorCount: number;
+}
+
+/** Un'esecuzione con il suo codice («AUD-A1 #2») e la sua automazione. */
+export interface AutomationRunRow extends AutomationRun {
+  code: string;
+  automationCode: string;
+  automationName: string;
+  /** Il progetto dell'automazione (null = generale). */
+  automationProjectId: string | null;
+}
+
+export interface AutomationDetail {
+  automation: AutomationRow;
+  /** Gli errori dell'ultima versione (la bozza, se c'è): finché ci sono non si pubblica. */
+  configErrors: FlowIssue[];
+  /** Gli errori della versione pubblicata adesso (es. una sorgente scollegata). */
+  liveErrors: FlowIssue[];
+  /** Le esecuzioni, in corso in alto, poi dalla più recente (al massimo 20). */
+  runs: AutomationRunRow[];
+}
+
+export interface AutomationRunDetail extends AutomationRunRow {
+  /** Il flusso della versione con cui gira. */
+  flow: AutomationFlow;
+  /** Chi decide adesso (approvazione o progetto), risolto ora. */
+  deciders: string[];
+  permissions: {
+    /** Annulla, Riprova, Salta, «Fai passare il tempo». */
+    manage: boolean;
+    approve: boolean;
+    chooseProject: boolean;
+  };
+  /** L'esecuzione che l'ha avviata e quelle avviate da lei, se chi guarda le vede. */
+  parent: { id: string; code: string } | null;
+  children: { id: string; code: string; status: RunStatus }[];
+}
+
+export interface AutomationSourceView extends AutomationSource {
+  permissions: { manage: boolean };
+}
+
+/** Una riga della tabella cliente → progetto: un progetto che chi guarda non vede resta senza id. */
+export interface ClientLinkView extends ClientProjectLink {
+  projectVisible: boolean;
+}
+
+/** Una decisione in «Da decidere»: un passo da approvare o il progetto da scegliere. */
+export interface AutomationDecision {
+  kind: "approval" | "project";
+  runId: string;
+  code: string;
+  title: string;
+  automationId: string;
+  automationName: string;
+  projectId: string | null;
+  stepKind: Step["kind"];
+  preview: Record<string, unknown>;
+  /** Da quando aspetta. */
+  since: string;
+}
+
+export interface AutomationSearchResult {
+  kind: "automation" | "run";
+  id: string;
+  code: string;
+  label: string;
+  route: string;
+}
+
+/** Nome e descrizione di un'automazione. */
+export interface AutomationMeta {
+  name?: string;
+  description?: string;
 }

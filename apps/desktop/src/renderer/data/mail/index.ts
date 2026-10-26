@@ -15,6 +15,7 @@ export {
   markUnread,
   reproposeMessage,
   setProposalsEnabled,
+  simulateReply,
   syncMailbox,
   whenMailIdle,
   whenMailSynced,
