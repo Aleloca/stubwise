@@ -7,7 +7,7 @@ import { isUpcoming, seriesProposal } from "./proposals";
 import { CALENDAR_CASES, SERIES_IDS } from "../seed/calendar";
 import { EV_AUD_REVIEW_YESTERDAY } from "../seed/mail";
 import { setSessionPersonId } from "../session";
-import { state } from "../store";
+import { state, visibleProjectIds } from "../store";
 import type { CalendarEvent } from "../types";
 
 const as = (personId: string) => setSessionPersonId(personId);
@@ -523,6 +523,27 @@ describe("Calendario: configurazione delle serie", () => {
     await expect(
       calendar.configureSeries(SERIES_IDS.audReview, { projectId: STW }),
     ).rejects.toThrow("not_found");
+  });
+
+  it("una serie di un progetto che non vedo: né progetto, né accesa/spenta, né «Agisci da solo» (R-I12)", async () => {
+    // Chiara vede una data della revisione di AUD, ma AUD non lo vede.
+    ev("ev-aud-review-2026-10-29").calendarPersonIds.push("p-chiara");
+    const s = state.calendarSeries.find((x) => x.id === SERIES_IDS.audReview)!;
+    const before = { ...s };
+    expect(visibleProjectIds("p-chiara").has(AUD)).toBe(false);
+    as("p-chiara");
+    for (const patch of [
+      { projectId: null, enabled: false }, // «Rimuovi configurazione»
+      { projectId: MKX },
+      { enabled: false },
+      { auto: !s.auto },
+      { leadDays: 1 },
+    ]) {
+      await expect(calendar.configureSeries(SERIES_IDS.audReview, patch)).rejects.toThrow(
+        "forbidden",
+      );
+    }
+    expect(s).toEqual(before);
   });
 });
 

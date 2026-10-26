@@ -393,6 +393,10 @@ export async function configureSeries(
   const me = await writer("calendar.configureSeries");
   const s = state.calendarSeries.find((x) => x.id === id);
   if (!s || !canSeeSeries(me, s)) throw notFound();
+  // Come `setEventProject` (R-I12): la configurazione di un progetto che non
+  // vedo — progetto, accesa/spenta, «Agisci da solo», «Rimuovi
+  // configurazione» — non la tocco.
+  if (s.projectId !== null && !visibleProjectIds(me).has(s.projectId)) throw forbidden();
   if (typeof patch !== "object" || patch === null) throw invalid("patch");
   const next = { ...s, ...patch };
   if (
