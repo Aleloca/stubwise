@@ -146,6 +146,13 @@ function checkRefs(text: string, scope: Scope, path: string, add: Add): void {
   }
 }
 
+/** Il dato Persona di un passo: la chiave di un dato di tipo persona che c'è in questo punto. */
+function checkPersonRef(key: string, scope: Scope, path: string, add: Add): void {
+  const f = scope.fields.get(key);
+  if (!f) add(path, "unknown_ref", `Il dato «${key}» non è disponibile in questo punto.`);
+  else if (f.type !== "person") add(path, "type_mismatch", `«${f.label}» non è una persona.`);
+}
+
 function requireText(values: [string, string][], path: string, add: Add): boolean {
   const missing = values.find(([, v]) => blank(v));
   if (missing) add(path, "incomplete", `Manca ${missing[0]}.`);
@@ -217,6 +224,7 @@ function checkStep(step: Step, path: string, scope: Scope, ctx: ValidateContext,
       const a = step.assignee;
       if (a && Object.values(a).some((v) => blank(v)))
         add(path, "incomplete", "Manca l'incaricato.");
+      else if (a && "personRef" in a) checkPersonRef(a.personRef, scope, path, add);
       if (step.dueInDays !== null && step.dueInDays < 0)
         add(path, "incomplete", "La scadenza è nel passato.");
       if (step.milestoneRef !== null && !precedes(scope, "createMilestone", step.milestoneRef)) {
@@ -258,27 +266,18 @@ function checkStep(step: Step, path: string, scope: Scope, ctx: ValidateContext,
       checkApproval(step.approval, null, path, ctx, add);
       return;
     case "notify": {
+      const who = Object.values(step.who)[0] ?? "";
       requireText(
         [
-          ["chi avvisare", step.personRef],
+          ["chi avvisare", who],
           ["il testo", step.text],
         ],
         path,
         add,
       );
       checkRefs(step.text, scope, path, add);
-      // Un modello `{{…}}` o la chiave di un dato: mai un testo libero.
-      if (step.personRef.includes("{{")) checkRefs(step.personRef, scope, path, add);
-      else if (!blank(step.personRef)) {
-        const f = scope.fields.get(step.personRef);
-        if (!f)
-          add(
-            path,
-            "unknown_ref",
-            `Il dato «${step.personRef}» non è disponibile in questo punto.`,
-          );
-        else if (f.type !== "person") add(path, "type_mismatch", `«${f.label}» non è una persona.`);
-      }
+      if ("personRef" in step.who && !blank(step.who.personRef))
+        checkPersonRef(step.who.personRef, scope, path, add);
       checkApproval(step.approval, null, path, ctx, add);
       return;
     }

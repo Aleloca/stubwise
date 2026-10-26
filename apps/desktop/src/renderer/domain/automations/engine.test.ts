@@ -377,7 +377,7 @@ describe("Review Focus 2: Claude fuori dai binari", () => {
             {
               id: "n",
               kind: "notify",
-              personRef: "chi",
+              who: { personRef: "chi" },
               text: "{{e}}",
               approval: { mode: "auto" },
             },
@@ -517,7 +517,7 @@ describe("cicli, attese e limiti", () => {
         {
           id: "n",
           kind: "notify",
-          personRef: "chi",
+          who: { personRef: "chi" },
           text: "Il {{avvio.data}} più tre",
           approval: { mode: "auto" },
         },
@@ -528,7 +528,7 @@ describe("cicli, attese e limiti", () => {
     expect(d.send({ kind: "time", now: plus(NOW, 3) })).toEqual([
       expect.objectContaining({
         kind: "notify",
-        args: { personId: "p-laura", text: "Il 2026-10-23 più tre" },
+        args: { who: { personId: "p-laura" }, text: "Il 2026-10-23 più tre" },
       }),
     ]);
   });
@@ -722,7 +722,7 @@ describe("revisione, giro 1", () => {
             {
               id: "giro",
               kind: "notify",
-              personRef: "chi",
+              who: { personRef: "chi" },
               text: "giro",
               approval: { mode: "auto" },
             },
@@ -731,7 +731,7 @@ describe("revisione, giro 1", () => {
             {
               id: "fine",
               kind: "notify",
-              personRef: "chi",
+              who: { personRef: "chi" },
               text: "fine",
               approval: { mode: "auto" },
             },
@@ -784,7 +784,7 @@ describe("revisione, giro 1", () => {
                 {
                   id: "n",
                   kind: "notify",
-                  personRef: "chi",
+                  who: { personRef: "chi" },
                   text: "{{r}}",
                   approval: { mode: "auto" },
                 },
@@ -808,23 +808,51 @@ describe("revisione, giro 1", () => {
     });
   });
 
-  it("notify: il valore compilato è l'id della persona, mai una seconda chiave", () => {
+  it("notify e createTask: il dato Persona si legge una volta, il valore è l'id e mai una seconda chiave", () => {
     const flow: AutomationFlow = {
       trigger: { kind: "manual" },
       titleTemplate: "x",
       steps: [
-        { id: "n", kind: "notify", personRef: "{{chi}}", text: "t", approval: { mode: "auto" } },
+        {
+          id: "n",
+          kind: "notify",
+          who: { personRef: "chi" },
+          text: "t",
+          approval: { mode: "auto" },
+        },
       ],
     };
     const event = { chi: "cliente.nome", cliente: { nome: "Non io" } };
-    const { fx } = start(flow, event);
-    expect(fx).toEqual([
-      expect.objectContaining({ args: { personId: "cliente.nome", text: "t" } }),
+    expect(start(flow, event).fx).toEqual([
+      expect.objectContaining({ args: { who: { personId: "cliente.nome" }, text: "t" } }),
     ]);
-    // Lo stesso con la chiave del dato al posto del modello.
-    const byKey = { ...flow, steps: [{ ...flow.steps[0]!, personRef: "chi" } as Step] };
-    expect(start(byKey, event).fx).toEqual([
-      expect.objectContaining({ args: { personId: "cliente.nome", text: "t" } }),
+    // Una persona scelta e un ruolo passano così come sono (il ruolo lo risolve l'esecutore).
+    for (const who of [{ personId: "p-laura" }, { projectRole: "project_lead" }]) {
+      const fixed = { ...flow, steps: [{ ...flow.steps[0]!, who } as Step] };
+      expect(start(fixed, event).fx).toEqual([
+        expect.objectContaining({ args: { who, text: "t" } }),
+      ]);
+    }
+    const task: AutomationFlow = {
+      ...flow,
+      steps: [
+        {
+          id: "t",
+          kind: "createTask",
+          title: "x",
+          description: "",
+          assignee: { personRef: "chi" },
+          dueInDays: null,
+          project: { mode: "fixed", projectId: "prj-aud" },
+          milestoneRef: null,
+          approval: { mode: "auto" },
+        },
+      ],
+    };
+    expect(start(task, event).fx).toEqual([
+      expect.objectContaining({
+        args: expect.objectContaining({ assignee: { personId: "cliente.nome" } }),
+      }),
     ]);
   });
 

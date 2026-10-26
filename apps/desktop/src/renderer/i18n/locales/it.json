@@ -4610,7 +4610,8 @@
       "unassigned": "senza incaricato",
       "inClientProject": "nel progetto del cliente",
       "inProject": "in {{code}}",
-      "inHiddenProject": "in un progetto che non vedi"
+      "inHiddenProject": "in un progetto che non vedi",
+      "theRole": "il {{role}} del progetto"
     },
     "roles": {
       "project_lead": "Project Lead",
@@ -5531,7 +5532,10 @@
         "atMost": "Al massimo",
         "timesWord_one": "volta",
         "timesWord_other": "volte",
-        "repeatNote": "La condizione si controlla prima di ogni giro: se è già vera, i passi dentro non girano."
+        "repeatNote": "La condizione si controlla prima di ogni giro: se è già vera, i passi dentro non girano.",
+        "fromData": "Dai dati",
+        "people": "Persone",
+        "notifyRoleNote": "La prima persona con questo ruolo nel progetto del passo, in ordine alfabetico. Se nessuno ce l'ha, il passo fallisce e il registro lo dice."
       },
       "where": {
         "title": "Dove",

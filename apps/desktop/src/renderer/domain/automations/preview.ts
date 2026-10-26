@@ -1,4 +1,4 @@
-import type { Approval, ProjectTarget, Step } from "../../data/types";
+import type { Approval, PersonTarget, ProjectTarget, Step } from "../../data/types";
 import { lookup } from "./conditions";
 import type { EngineState, ResolvedTarget } from "./engine";
 
@@ -40,6 +40,19 @@ export function show(v: unknown): string {
 export const render = (st: EngineState, text: string) =>
   text.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (_, key: string) => show(resolve(st, key)));
 
+/**
+ * Il dato Persona si legge UNA volta, qui: il valore è l'id della persona,
+ * mai una seconda chiave. Una persona scelta e un ruolo passano così come
+ * sono (il ruolo si risolve nel progetto del passo, dall'esecutore).
+ */
+export function resolvePerson<T extends PersonTarget | { departmentId: string } | null>(
+  st: EngineState,
+  who: T,
+): Exclude<T, { personRef: string }> | { personId: string } {
+  if (who && "personRef" in who) return { personId: show(resolve(st, who.personRef)) };
+  return who as Exclude<T, { personRef: string }>;
+}
+
 export const projectOf = (step: Step): ProjectTarget | null =>
   step.kind === "createTask" || step.kind === "createMilestone" || step.kind === "createRequest"
     ? step.project
@@ -64,7 +77,7 @@ export function describe(
         args: {
           title: titolo,
           description: descrizione,
-          assignee: step.assignee,
+          assignee: resolvePerson(st, step.assignee),
           dueInDays: step.dueInDays,
           milestoneCode: ms,
         },
@@ -98,13 +111,10 @@ export function describe(
       };
     }
     case "notify": {
-      // Un modello si compila e il risultato È l'id; un campo si legge una
-      // volta sola. Mai un secondo giro: il valore non diventa una chiave.
-      const personId = step.personRef.includes("{{")
-        ? render(st, step.personRef)
-        : show(resolve(st, step.personRef));
+      const who = resolvePerson(st, step.who);
       const testo = pick("testo", render(st, step.text));
-      return { preview: { persona: personId, testo }, args: { personId, text: testo } };
+      const persona = "personId" in who ? who.personId : `ruolo: ${who.projectRole}`;
+      return { preview: { persona, testo }, args: { who, text: testo } };
     }
     case "startAutomation":
       return {

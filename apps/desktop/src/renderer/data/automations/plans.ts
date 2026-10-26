@@ -93,10 +93,20 @@ export interface AssigneePlan {
  * nessuno → senza incaricato e un avviso.
  */
 export function resolveAssignee(
-  who: Extract<Step, { kind: "createTask" }>["assignee"],
+  who: Exclude<Extract<Step, { kind: "createTask" }>["assignee"], { personRef: string }>,
   projectId: string,
 ): AssigneePlan {
   const firstDepartment = (id: string) => PEOPLE.find((p) => p.id === id)?.departmentIds[0];
+  // Il dato Persona è già letto dal motore (`resolvePerson`): qui arriva l'id, o vuoto.
+  if (who && "personId" in who && !PEOPLE.some((p) => p.id === who.personId && !p.isClaude)) {
+    return {
+      assigneeId: null,
+      departmentId: undefined,
+      by: "none",
+      role: null,
+      reason: "Il dato della persona è vuoto: la task nasce senza incaricato.",
+    };
+  }
   if (who && "personId" in who) {
     return {
       assigneeId: who.personId,
@@ -153,7 +163,8 @@ export function planTask(
   const args = eff.args as {
     title: string;
     description: string;
-    assignee: Extract<Step, { kind: "createTask" }>["assignee"];
+    // Il dato Persona è già letto dal motore (`resolvePerson`).
+    assignee: Parameters<typeof resolveAssignee>[0];
     dueInDays: number | null;
     milestoneCode: string | null;
   };
@@ -328,16 +339,28 @@ export interface NotifyPlan {
 }
 
 export function planNotify(eff: ActionEffect, a: Automation): Planned<NotifyPlan> {
-  const args = eff.args as { personId: string; text: string };
-  const person = PEOPLE.find((p) => p.id === args.personId && !p.isClaude);
-  if (!args.personId || !person) {
-    return refuse(
-      failed("no_recipient", "Non c'è nessuno da avvisare: il dato della persona è vuoto."),
-    );
-  }
+  const args = eff.args as { who: { personId: string } | { projectRole: string }; text: string };
   // Il progetto del passo: quello dell'automazione, o uno risolto; una generale senza
   // progetto avvisa senza progetto (mai un progetto preso a caso fra quelli toccati).
   const projectId = projectOfEffect(eff, a) ?? a.projectId;
+  // Un ruolo: la prima persona col ruolo nel progetto, in ordine alfabetico (come «Crea task»).
+  const personId =
+    "projectRole" in args.who
+      ? projectId
+        ? (holdersOfRole(projectId, args.who.projectRole)[0] ?? "")
+        : ""
+      : args.who.personId;
+  const person = PEOPLE.find((p) => p.id === personId && !p.isClaude);
+  if (!personId || !person) {
+    return refuse(
+      "projectRole" in args.who
+        ? failed(
+            "no_recipient",
+            `Nessuno ha il ruolo «${args.who.projectRole}» nel progetto: non c'è nessuno da avvisare.`,
+          )
+        : failed("no_recipient", "Non c'è nessuno da avvisare: il dato della persona è vuoto."),
+    );
+  }
   if (projectId && !visibleProjectIds(person.id).has(projectId)) {
     return refuse(
       failed("recipient_cant_see", `${person.name} non vede il progetto: l'avviso non parte.`),

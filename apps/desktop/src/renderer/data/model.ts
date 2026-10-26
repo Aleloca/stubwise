@@ -2123,13 +2123,22 @@ export type ProjectTarget =
   | { mode: "fixed"; projectId: string }
   | { mode: "from_client"; clientRef: string };
 
+/**
+ * Una persona indicata da un passo: una persona scelta, il dato Persona
+ * dell'evento o di un passo (`personRef`, una chiave, mai un modello né un
+ * testo libero: si legge una volta sola durante l'esecuzione) o un ruolo nel
+ * progetto del passo (la prima persona col ruolo, in ordine alfabetico).
+ */
+export type PersonTarget = { personId: string } | { personRef: string } | { projectRole: string };
+
 export type Step =
   | {
       id: string;
       kind: "createTask";
       title: string;
       description: string;
-      assignee: { personId: string } | { departmentId: string } | { projectRole: string } | null;
+      /** Una persona (scelta o dal dato Persona), un reparto (nessun incaricato), un ruolo nel progetto. */
+      assignee: PersonTarget | { departmentId: string } | null;
       dueInDays: number | null;
       project: ProjectTarget;
       /** L'id di un passo `createMilestone` precedente. */
@@ -2162,7 +2171,7 @@ export type Step =
       attachRefs: string[];
       approval: Approval;
     }
-  | { id: string; kind: "notify"; personRef: string; text: string; approval: Approval }
+  | { id: string; kind: "notify"; who: PersonTarget; text: string; approval: Approval }
   | { id: string; kind: "startAutomation"; automationId: string; approval: Approval }
   | {
       id: string;

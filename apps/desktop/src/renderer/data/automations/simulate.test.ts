@@ -364,7 +364,7 @@ describe("Automations: la prova (simulazione)", () => {
         {
           id: "s2",
           kind: "notify",
-          personRef: "p-marco",
+          who: { personId: "p-marco" },
           text: "",
           approval: AUTO,
         } as Step,
@@ -468,7 +468,7 @@ describe("Automations: la prova (simulazione)", () => {
         {
           id: "n1",
           kind: "notify",
-          personRef: "trattativa.commerciale",
+          who: { personRef: "trattativa.commerciale" },
           text: "Chiusa {{trattativa.titolo}}",
           approval: AUTO,
         },

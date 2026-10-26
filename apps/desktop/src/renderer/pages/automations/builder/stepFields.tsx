@@ -2,8 +2,11 @@ import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { templateRefs } from "../../../domain/automations/validate";
 import type { Step } from "../../../data/types";
-import { Field, Segmented, smallInput } from "./controls";
-import { DataText, FieldError } from "./DataText";
+import { availableFields } from "../../../domain/automations/fields";
+import { usePeople } from "../../../data/queries";
+import { useBuilder } from "./context";
+import { Field, Segmented, selectClass, smallInput } from "./controls";
+import { DataText, FieldError, tokenLabel } from "./DataText";
 import type { FieldProblem } from "./issues";
 
 // I pezzi comuni dei moduli del pannello: il problema di un campo, il campo
@@ -127,3 +130,73 @@ export function DueField({
 }
 
 export const ROLES = ["project_lead", "developer", "contributor"];
+
+/**
+ * Una persona: scelta fra le persone, o il dato Persona dell'inizio o di un
+ * passo (prima i dati, che seguono l'evento; poi le persone). Il valore è
+ * `{ personId }` o `{ personRef }`: mai un testo libero.
+ */
+export function PersonPicker({
+  value,
+  onChange,
+  label,
+  path,
+  describedBy,
+  invalid,
+}: {
+  value: { personId: string } | { personRef: string };
+  onChange: (v: { personId: string } | { personRef: string }) => void;
+  label: string;
+  path: string;
+  describedBy?: string;
+  invalid?: boolean;
+}) {
+  const { t } = useTranslation();
+  const b = useBuilder();
+  const people = usePeople().data ?? [];
+  const data = availableFields(b.flow, path, b.sources).filter((f) => f.type === "person");
+  const ref = "personRef" in value ? value.personRef : null;
+  const current =
+    ref !== null
+      ? `ref:${ref}`
+      : "personId" in value && value.personId
+        ? `id:${value.personId}`
+        : "";
+  const missing = ref !== null && ref !== "" && !data.some((f) => f.key === ref);
+  return (
+    <select
+      aria-label={label}
+      aria-describedby={describedBy}
+      aria-invalid={invalid || undefined}
+      className={selectClass}
+      value={current}
+      onChange={(e) => {
+        const v = e.target.value;
+        onChange(v.startsWith("ref:") ? { personRef: v.slice(4) } : { personId: v.slice(3) });
+      }}
+    >
+      <option value="" disabled>
+        {t("automations.builder.panel.choosePerson")}
+      </option>
+      {(data.length > 0 || missing) && (
+        <optgroup label={t("automations.builder.panel.fromData")}>
+          {missing && <option value={current}>{tokenLabel(b.flow, ref, b.labels)}</option>}
+          {data.map((f) => (
+            <option key={f.key} value={`ref:${f.key}`}>
+              {tokenLabel(b.flow, f.key, b.labels)}
+            </option>
+          ))}
+        </optgroup>
+      )}
+      <optgroup label={t("automations.builder.panel.people")}>
+        {people
+          .filter((p) => !p.isClaude)
+          .map((p) => (
+            <option key={p.id} value={`id:${p.id}`}>
+              {p.name}
+            </option>
+          ))}
+      </optgroup>
+    </select>
+  );
+}

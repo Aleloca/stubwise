@@ -262,7 +262,7 @@ export function newStep(kind: Step["kind"], id: string, general: boolean): Step 
         approval: { mode: "ask", who: { owner: true } },
       };
     case "notify":
-      return { id, kind, personRef: "", text: "", approval: auto };
+      return { id, kind, who: { personId: "" }, text: "", approval: auto };
     case "startAutomation":
       return { id, kind, automationId: "", approval: auto };
     case "wait":
@@ -329,6 +329,8 @@ export function refsOf(step: Step): string[] {
   switch (step.kind) {
     case "createTask":
       text(step.title, step.description);
+      if (step.assignee && "personRef" in step.assignee && step.assignee.personRef)
+        out.push(step.assignee.personRef);
       break;
     case "createMilestone":
       text(step.name);
@@ -342,8 +344,7 @@ export function refsOf(step: Step): string[] {
       break;
     case "notify":
       text(step.text);
-      if (step.personRef.includes("{{")) text(step.personRef);
-      else if (step.personRef) out.push(step.personRef);
+      if ("personRef" in step.who && step.who.personRef) out.push(step.who.personRef);
       break;
     case "claude":
       text(step.instruction);

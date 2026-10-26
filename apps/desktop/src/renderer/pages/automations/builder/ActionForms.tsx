@@ -1,10 +1,17 @@
 import { useTranslation } from "react-i18next";
 import { availableFields, scopeAt } from "../../../domain/automations/fields";
-import { useDepartments, usePeople } from "../../../data/queries";
+import { useDepartments } from "../../../data/queries";
 import { useBuilder } from "./context";
 import { Field, Note, Section, Segmented, selectClass } from "./controls";
 import { tokenLabel } from "./DataText";
-import { DueField, ROLES, TextField, useFieldProblem, type KindProps } from "./stepFields";
+import {
+  DueField,
+  PersonPicker,
+  ROLES,
+  TextField,
+  useFieldProblem,
+  type KindProps,
+} from "./stepFields";
 
 // I moduli dei passi che fanno qualcosa (shape builder §6): task, traguardo,
 // richiesta, email, avviso, avvio di un'altra automazione.
@@ -12,12 +19,15 @@ import { DueField, ROLES, TextField, useFieldProblem, type KindProps } from "./s
 export function TaskForm({ step, path, set, problems }: KindProps<"createTask">) {
   const { t } = useTranslation();
   const b = useBuilder();
-  const people = usePeople().data ?? [];
   const departments = useDepartments().data ?? [];
   const who = useFieldProblem(problems, "assignee");
   const a = step.assignee;
   const mode =
-    a === null || "personId" in a ? "person" : "departmentId" in a ? "department" : "role";
+    a === null || "personId" in a || "personRef" in a
+      ? "person"
+      : "departmentId" in a
+        ? "department"
+        : "role";
   const milestones = scopeAt(b.flow, path, b.sources).preceding.filter(
     (s) => s.kind === "createMilestone",
   );
@@ -63,23 +73,14 @@ export function TaskForm({ step, path, set, problems }: KindProps<"createTask">)
           }
         />
         {mode === "person" && (
-          <select
-            aria-label={t("automations.builder.panel.aPerson")}
-            aria-describedby={who.describedBy}
-            aria-invalid={who.invalid || undefined}
-            className={selectClass}
-            value={a && "personId" in a ? a.personId : ""}
-            onChange={(e) => set({ assignee: { personId: e.target.value } })}
-          >
-            <option value="" disabled>
-              {t("automations.builder.panel.choosePerson")}
-            </option>
-            {people.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+          <PersonPicker
+            label={t("automations.builder.panel.aPerson")}
+            describedBy={who.describedBy}
+            invalid={who.invalid}
+            path={path}
+            value={a && ("personId" in a || "personRef" in a) ? a : { personId: "" }}
+            onChange={(assignee) => set({ assignee })}
+          />
         )}
         {mode === "department" && (
           <>
@@ -282,34 +283,48 @@ export function EmailForm({ step, path, set, problems }: KindProps<"sendEmail">)
 
 export function NotifyForm({ step, path, set, problems }: KindProps<"notify">) {
   const { t } = useTranslation();
-  const b = useBuilder();
   const who = useFieldProblem(problems, "who");
-  const persons = availableFields(b.flow, path, b.sources).filter((f) => f.type === "person");
-  const current = step.personRef.replace(/^\{\{\s*|\s*\}\}$/g, "");
+  const w = step.who;
   return (
     <Section title={t("automations.builder.panel.what")}>
       <Field label={t("automations.builder.panel.notifyWho")} required>
-        <select
-          aria-label={t("automations.builder.panel.notifyWho")}
-          aria-describedby={who.describedBy}
-          aria-invalid={who.invalid || undefined}
-          className={selectClass}
-          value={current}
-          onChange={(e) => set({ personRef: e.target.value })}
-        >
-          <option value="" disabled>
-            {t("automations.builder.panel.choosePersonData")}
-          </option>
-          {current && !persons.some((p) => p.key === current) && (
-            <option value={current}>{tokenLabel(b.flow, current, b.labels)}</option>
-          )}
-          {persons.map((p) => (
-            <option key={p.key} value={p.key}>
-              {tokenLabel(b.flow, p.key, b.labels)}
-            </option>
-          ))}
-        </select>
-        {persons.length === 0 && <Note>{t("automations.builder.panel.noPersonData")}</Note>}
+        <Segmented
+          label={t("automations.builder.panel.notifyWho")}
+          value={"projectRole" in w ? "role" : "person"}
+          options={[
+            { value: "person", label: t("automations.builder.panel.aPerson") },
+            { value: "role", label: t("automations.builder.panel.aRole") },
+          ]}
+          onChange={(m) =>
+            set({ who: m === "role" ? { projectRole: "project_lead" } : { personId: "" } })
+          }
+        />
+        {"projectRole" in w ? (
+          <>
+            <select
+              aria-label={t("automations.builder.panel.aRole")}
+              className={selectClass}
+              value={w.projectRole}
+              onChange={(e) => set({ who: { projectRole: e.target.value } })}
+            >
+              {ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {t(`automations.roles.${r}`)}
+                </option>
+              ))}
+            </select>
+            <Note>{t("automations.builder.panel.notifyRoleNote")}</Note>
+          </>
+        ) : (
+          <PersonPicker
+            label={t("automations.builder.panel.notifyWho")}
+            describedBy={who.describedBy}
+            invalid={who.invalid}
+            path={path}
+            value={w}
+            onChange={(v) => set({ who: v })}
+          />
+        )}
         {who.error}
       </Field>
       <TextField

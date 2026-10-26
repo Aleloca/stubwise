@@ -311,6 +311,41 @@ describe("bozza e versioni", () => {
   });
 });
 
+describe("persone dei passi", () => {
+  it("avviso e task col dato Persona o un ruolo: frase coi gettoni, scelta nel pannello", async () => {
+    const a = auto("STW-A1");
+    const AUTO = { mode: "auto" } as const;
+    a.versions[0]!.flow.steps.push(
+      {
+        id: "nr",
+        kind: "notify",
+        who: { personRef: "richiesta.richiedente" },
+        text: "Ciao",
+        approval: AUTO,
+      },
+      {
+        id: "nl",
+        kind: "notify",
+        who: { projectRole: "project_lead" },
+        text: "Ciao",
+        approval: AUTO,
+      },
+    );
+    await open("/automations/STW-A1/edit", LAURA);
+    expect(row("nr").querySelector('[data-token="richiesta.richiedente"]')).not.toBeNull();
+    expect(rowText("nl")).toContain("the project's Project Lead");
+    await userEvent.click(sentence("nr"));
+    const picker = screen.getByRole("combobox", { name: "Who" });
+    expect(picker).toHaveValue("ref:richiesta.richiedente");
+    await userEvent.selectOptions(picker, "id:p-laura");
+    await waitFor(() => expect(rowText("nr")).toContain("Laura Costa"));
+    await settle();
+    expect(savedFlow("STW-A1").steps.find((s) => s.id === "nr")).toMatchObject({
+      who: { personId: "p-laura" },
+    });
+  });
+});
+
 describe("problemi di configurazione", () => {
   it("un avvio di sé stessa è un problema sulla riga e sul campo ([A 16])", async () => {
     const a = auto("STW-A1");
@@ -330,7 +365,7 @@ describe("problemi di configurazione", () => {
   it("F8 porta al problema successivo e lo seleziona", async () => {
     const a = auto("STW-A1");
     a.versions[0]!.flow.steps.push(
-      { id: "x1", kind: "notify", personRef: "", text: "", approval: { mode: "auto" } },
+      { id: "x1", kind: "notify", who: { personId: "" }, text: "", approval: { mode: "auto" } },
       {
         id: "x2",
         kind: "createMilestone",

@@ -8,6 +8,7 @@ import type {
   Condition,
   DataField,
   Operand,
+  PersonTarget,
   RunLogEntry,
   Step,
 } from "../../data/types";
@@ -225,11 +226,22 @@ function assigneeWords(
 ): string {
   if (a === null) return t("automations.steps.unassigned");
   if ("personId" in a) return t("automations.steps.forPerson", { name: names.person(a.personId) });
+  // Il dato Persona come gettone (`{{chiave}}`), che la UI rende con l'etichetta.
+  if ("personRef" in a) return t("automations.steps.forPerson", { name: `{{${a.personRef}}}` });
   if ("departmentId" in a) {
     return t("automations.steps.forDepartment", { name: names.department(a.departmentId) });
   }
   return t("automations.steps.forRole", {
     role: t(`automations.roles.${a.projectRole}`, a.projectRole),
+  });
+}
+
+/** Chi avvisa un passo: la persona, il dato Persona come gettone, il ruolo nel progetto. */
+export function personWords(who: PersonTarget, names: Names, t: TFunction): string {
+  if ("personId" in who) return who.personId ? names.person(who.personId) : "";
+  if ("personRef" in who) return who.personRef ? `{{${who.personRef}}}` : "";
+  return t("automations.steps.theRole", {
+    role: t(`automations.roles.${who.projectRole}`, who.projectRole),
   });
 }
 
@@ -270,11 +282,7 @@ export function stepSentence(
     case "notify":
       return {
         text: t("automations.steps.notify", {
-          // La chiave di un dato si legge come gettone, come un modello `{{…}}`.
-          who:
-            step.personRef && !step.personRef.includes("{{")
-              ? `{{${step.personRef}}}`
-              : step.personRef,
+          who: personWords(step.who, names, t),
           text: step.text,
         }),
         details,

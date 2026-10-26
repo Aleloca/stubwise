@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AutomationFlow, AutomationSource, Step } from "../../data/model";
+import type { AutomationFlow, AutomationSource, PersonTarget, Step } from "../../data/model";
 import { AUTOMATION_SOURCES, AUTOMATIONS } from "../../data/seed/automations";
 import { validateFlow, type FlowIssue, type ValidateContext } from "./validate";
 
@@ -277,24 +277,53 @@ describe("validateFlow, revisione giro 1", () => {
     fields,
     branches: {},
   });
-  const notify = (personRef: string): Step => ({
+  const notify = (who: PersonTarget): Step => ({
     id: "n",
     kind: "notify",
-    personRef,
+    who,
     text: "Ciao",
     approval: { mode: "auto" },
   });
 
-  it("notify: la persona è un modello o la chiave di un dato, mai un testo libero", () => {
-    expect(codes(validateFlow(base([notify("p-laura")]), CTX))).toEqual(["0 unknown_ref"]);
-    expect(codes(validateFlow(base([notify("{{cliente.email}}")]), CTX))).toEqual([]);
-    expect(codes(validateFlow(base([notify("cliente.nome")]), CTX))).toEqual(["0 type_mismatch"]);
+  it("notify: una persona, il dato Persona (chiave di un dato persona) o un ruolo; mai un testo libero", () => {
+    expect(codes(validateFlow(base([notify({ personRef: "p-laura" })]), CTX))).toEqual([
+      "0 unknown_ref",
+    ]);
+    expect(codes(validateFlow(base([notify({ personRef: "cliente.nome" })]), CTX))).toEqual([
+      "0 type_mismatch",
+    ]);
+    expect(codes(validateFlow(base([notify({ personId: "p-laura" })]), CTX))).toEqual([]);
+    expect(codes(validateFlow(base([notify({ projectRole: "project_lead" })]), CTX))).toEqual([]);
+    for (const empty of [{ personId: "" }, { personRef: "" }, { projectRole: "" }])
+      expect(codes(validateFlow(base([notify(empty)]), CTX))).toEqual(["0 incomplete"]);
     const withPerson: AutomationFlow = {
-      ...base([notify("task.incaricato")]),
+      ...base([notify({ personRef: "task.incaricato" })]),
       trigger: { kind: "stubwise", event: "task_created" },
       titleTemplate: "x",
     };
     expect(codes(validateFlow(withPerson, CTX))).toEqual([]);
+  });
+
+  it("createTask: l'incaricato dal dato Persona dev'essere un dato persona disponibile", () => {
+    const task = (assignee: { personRef: string }): Step => ({
+      id: "t",
+      kind: "createTask",
+      title: "x",
+      description: "",
+      assignee,
+      dueInDays: null,
+      project: { mode: "fixed", projectId: "prj-aud" },
+      milestoneRef: null,
+      approval: { mode: "auto" },
+    });
+    const flow = (ref: string): AutomationFlow => ({
+      ...base([task({ personRef: ref })]),
+      trigger: { kind: "stubwise", event: "task_created" },
+      titleTemplate: "x",
+    });
+    expect(codes(validateFlow(flow("task.incaricato"), CTX))).toEqual([]);
+    expect(codes(validateFlow(flow("task.titolo"), CTX))).toEqual(["0 type_mismatch"]);
+    expect(codes(validateFlow(flow("nessuno"), CTX))).toEqual(["0 unknown_ref"]);
   });
 
   it("Claude non restituisce file, nemmeno dentro un elenco", () => {

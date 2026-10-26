@@ -434,7 +434,7 @@ describe("revisione del Task 5, giro 2", () => {
         {
           id: "t",
           kind: "notify",
-          personRef: "p-matteo",
+          who: { personId: "p-matteo" },
           text: "{{r.nome}}",
           approval: { mode: "auto" },
         },

@@ -4610,7 +4610,8 @@
       "unassigned": "unassigned",
       "inClientProject": "in the client's project",
       "inProject": "in {{code}}",
-      "inHiddenProject": "in a project you can't see"
+      "inHiddenProject": "in a project you can't see",
+      "theRole": "the project's {{role}}"
     },
     "roles": {
       "project_lead": "Project Lead",
@@ -5531,7 +5532,10 @@
         "atMost": "At most",
         "timesWord_one": "time",
         "timesWord_other": "times",
-        "repeatNote": "The condition is checked before every round: if it's already true, the steps inside don't run."
+        "repeatNote": "The condition is checked before every round: if it's already true, the steps inside don't run.",
+        "fromData": "From the data",
+        "people": "People",
+        "notifyRoleNote": "The first person with this role in the step's project, in alphabetical order. If nobody has it, the step fails and the run log says so."
       },
       "where": {
         "title": "Where",

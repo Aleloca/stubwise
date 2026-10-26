@@ -854,7 +854,13 @@ describe("Automations: inizi e catene", () => {
     const id = await make(AUD, {
       trigger: { kind: "stubwise", event: "task_created" },
       steps: [
-        { id: "n", kind: "notify", personRef: "task.incaricato", text: "Ciao", approval: AUTO },
+        {
+          id: "n",
+          kind: "notify",
+          who: { personRef: "task.incaricato" },
+          text: "Ciao",
+          approval: AUTO,
+        },
       ],
       titleTemplate: "{{task.codice}}",
     });
@@ -1069,7 +1075,7 @@ describe("Automations: revisione del Task 3", () => {
           {
             id: "n",
             kind: "notify",
-            personRef: "trattativa.commerciale",
+            who: { personRef: "trattativa.commerciale" },
             text: "Contratto chiuso",
             approval: { mode: "auto" },
           },

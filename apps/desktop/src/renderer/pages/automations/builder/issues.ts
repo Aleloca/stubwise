@@ -51,7 +51,7 @@ export function missingOf(step: Step, general: boolean): string[] {
       if (blank(step.body)) out.push("body");
       break;
     case "notify":
-      if (blank(step.personRef)) out.push("who");
+      if (blank(Object.values(step.who)[0] ?? "")) out.push("who");
       if (blank(step.text)) out.push("message");
       break;
     case "startAutomation":
