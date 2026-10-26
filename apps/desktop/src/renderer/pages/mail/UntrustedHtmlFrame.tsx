@@ -35,8 +35,36 @@ const DROPPED = "script, iframe, frame, frameset, object, embed, base, meta, lin
 const CSS_REMOTE_URL = /url\(\s*["']?\s*(https?:)?\/\//gi;
 /** `@import "https://…"` senza `url(…)` (quello con `url(` lo conta già `CSS_REMOTE_URL`). */
 const CSS_REMOTE_IMPORT = /@import\s+["']\s*(https?:)?\/\//gi;
+/** Una stringa remota fra virgolette: dentro `image-set()` è un'immagine anche senza `url(…)`. */
+const QUOTED_REMOTE = /["']\s*(https?:)?\/\//gi;
+
+/**
+ * Le stringhe remote fra virgolette dentro `image-set()` (e
+ * `-webkit-image-set()`): fino alla sua parentesi di chiusura, saltando
+ * quelle degli `url(…)` dentro (già contati da `CSS_REMOTE_URL`).
+ */
+function countImageSets(css: string): number {
+  let count = 0;
+  for (const m of css.matchAll(/image-set\(/gi)) {
+    let depth = 1;
+    let i = m.index + m[0].length;
+    let inner = "";
+    while (i < css.length && depth > 0) {
+      const c = css[i]!;
+      if (c === "(") depth += 1;
+      else if (c === ")") depth -= 1;
+      if (depth > 0) inner += depth === 1 ? c : " ";
+      i += 1;
+    }
+    count += (inner.match(QUOTED_REMOTE) ?? []).length;
+  }
+  return count;
+}
+
 const countCss = (css: string) =>
-  (css.match(CSS_REMOTE_URL) ?? []).length + (css.match(CSS_REMOTE_IMPORT) ?? []).length;
+  (css.match(CSS_REMOTE_URL) ?? []).length +
+  (css.match(CSS_REMOTE_IMPORT) ?? []).length +
+  countImageSets(css);
 
 /** Il testo di un URL come lo legge il browser: senza spazi e caratteri di controllo. */
 const normalizedUrl = (value: string) => value.replace(/[\u0000-\u0020\u007f]+/g, "");

@@ -622,6 +622,73 @@ describe("Fix round 1", () => {
     expect(within(p).getByText("Bounce me.")).toBeInTheDocument();
   });
 
+  describe("file del Drive sparito dopo un invio fallito", () => {
+    const KICKOFF = () => state.driveFiles.find((f) => f.name.includes("Kickoff Audin 2.0"))!;
+
+    /** Una risposta con un file del Drive di AUD, a un indirizzo che rifiuta; poi il file sparisce. */
+    async function failedWithFile() {
+      const user = fakeTime();
+      await openMail(`/mail/${CALL_NOTES()}`);
+      const { p, form } = await replyWith("With the kickoff deck.", user);
+      await user.click(within(form).getByRole("button", { name: "Attach" }));
+      await user.click(await screen.findByRole("menuitem", { name: "From the AUD Drive" }));
+      const dialog = await screen.findByRole("dialog", { name: "From the AUD Drive" });
+      const options = await within(dialog).findAllByRole("option");
+      await user.click(options.find((o) => o.textContent?.includes("Kickoff Audin 2.0"))!);
+      await user.click(within(dialog).getByRole("button", { name: "Attach 1 file" }));
+      await user.type(
+        within(form).getByRole("combobox", { name: "To" }),
+        "luca@bounce.example{Enter}",
+      );
+      await user.click(within(form).getByRole("button", { name: "Send" }));
+      await advance(MAIL_UNDO_MS + 100);
+      await within(p).findByRole("alert");
+      KICKOFF().unavailable = "deleted";
+      return { p, user };
+    }
+
+    it("«Edit»: la casella torna col testo, senza il file, e lo dice", async () => {
+      const { p, user } = await failedWithFile();
+      await user.click(within(p).getByRole("button", { name: "Edit" }));
+      const again = await composer("Reply to Matteo Conti");
+      await waitFor(() => expect(body(again)).toHaveValue("With the kickoff deck."));
+      expect(await screen.findByText(/1 attachment didn't fit back in the draft: .*Kickoff Audin 2\.0/)).toBeInTheDocument();
+      expect(within(again).queryByText(/Kickoff Audin 2\.0/)).toBeNull();
+      expect(mineSent()).toEqual([]);
+    });
+
+    it("«Delete»: la bozza resta senza il file, e lo dice", async () => {
+      const { p, user } = await failedWithFile();
+      await user.click(within(p).getByRole("button", { name: "Delete" }));
+      expect(await screen.findByText(/1 attachment didn't fit back in the draft: .*Kickoff Audin 2\.0/)).toBeInTheDocument();
+      expect(mineSent()).toEqual([]);
+      expect(state.mailDrafts.map((d) => [d.body, d.attachments.length])).toEqual([
+        ["With the kickoff deck.", 0],
+      ]);
+    });
+  });
+
+  it("la bozza di Claude finita non ruba il fuoco a un altro campo della casella", async () => {
+    setStreamLatency(40);
+    await openMail(`/mail/${threadOf(MAIL_CASES.shared)}`);
+    const p = await pane(threadOf(MAIL_CASES.shared));
+    await userEvent.click(within(p).getByRole("button", { name: "Reply" }));
+    const form = await composer(/^Reply to /);
+    await userEvent.click(within(form).getByRole("button", { name: "Ask Claude" }));
+    await userEvent.type(
+      within(form).getByRole("textbox", { name: "What should it say? (optional)" }),
+      "tell them it lands on Monday{Enter}",
+    );
+    const writing = await within(form).findByRole("textbox", { name: "Message" });
+    await waitFor(() => expect(writing.textContent?.length ?? 0).toBeGreaterThan(0));
+    // Mentre Claude scrive, chi scrive passa ai destinatari.
+    const to = within(form).getByRole("combobox", { name: "To" });
+    to.focus();
+    await within(form).findByText(/Draft by Claude/, {}, { timeout: 5000 });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(to).toHaveFocus();
+  });
+
   it("«Stop» col clic: il fuoco torna nel corpo modificabile, non resta su «Ask Claude»", async () => {
     setStreamLatency(40);
     await openMail(`/mail/${threadOf(MAIL_CASES.shared)}`);

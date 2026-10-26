@@ -258,21 +258,40 @@ describe("Posta — contenuti estremi (Review Focus 5)", () => {
     expect(leading.blockedImages).toBe(1);
   });
 
-  it("neutralize: background= e <image href> si contano, si parcheggiano e tornano", () => {
+  it("neutralize: background= si conta, si parcheggia e torna", () => {
     const { html, blockedImages } = neutralize(
-      '<table background="https://a.example/t.png"><tr><td>z</td></tr></table>' +
-        '<image href="https://a.example/i.png"></image>',
+      '<table background="https://a.example/t.png"><tr><td>z</td></tr></table>',
     );
-    expect(blockedImages).toBe(2);
+    expect(blockedImages).toBe(1);
     const doc = new DOMParser().parseFromString(html, "text/html");
     expect(doc.querySelector("table")!.getAttribute("background")).toBeNull();
     expect(doc.querySelector("table")!.getAttribute("data-background")).toBe("https://a.example/t.png");
-    expect(doc.querySelector("image")!.getAttribute("href")).toBeNull();
     const shown = new DOMParser().parseFromString(revealImages(html), "text/html");
     expect(shown.querySelector("table")!.getAttribute("background")).toBe("https://a.example/t.png");
-    expect(shown.querySelector("image")!.getAttribute("href")).toBe("https://a.example/i.png");
   });
 
+  it("neutralize: le immagini di image-set() si contano, anche fra url() e stringhe", () => {
+    expect(
+      neutralize(
+        '<p style="background-image: image-set(\'https://a.example/1.png\' 1x, \'https://a.example/2.png\' 2x)">x</p>',
+      ).blockedImages,
+    ).toBe(2);
+    expect(
+      neutralize(
+        '<style>p{background:-webkit-image-set(url(https://a.example/1.png) 1x, "https://a.example/2.png" 2x)}</style><p>x</p>',
+      ).blockedImages,
+    ).toBe(2);
+    // Un'immagine locale (data:) non si conta.
+    expect(
+      neutralize('<p style="background-image: image-set(\'data:image/png;base64,AA\' 1x)">x</p>')
+        .blockedImages,
+    ).toBe(0);
+  });
+
+  // Un `<image>` scritto nell'HTML un parser vero lo trasforma in `<img>` (e
+  // `href` non vi carica nulla): esiste solo dentro un SVG, che il parser di
+  // happy-dom svuota. L'albero si costruisce a mano, così il test vale in
+  // happy-dom come in Chromium.
   it("scrubTree su un SVG vero (il parser di happy-dom ne scarta i figli): <style> minuscolo, <image href|xlink:href>", () => {
     const SVG = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(SVG, "svg");
