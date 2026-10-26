@@ -367,6 +367,8 @@ export const credentialReaderSchema = z.object({
   roleId: z.uuid().nullable(),
   roleName: z.string().nullable(),
   createdAt: z.iso.datetime(),
+  /** La persona che ha creato la credenziale: è lettrice diretta dalla creazione. */
+  creator: z.boolean().default(false),
 });
 export type CredentialReader = z.infer<typeof credentialReaderSchema>;
 

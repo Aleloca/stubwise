@@ -163,6 +163,11 @@ export function ReadersPanel({
               <li key={reader.id} className="flex items-center justify-between gap-2 text-sm">
                 <span className="truncate font-mono text-[13px] text-fg">
                   {readerName(reader, t)}
+                  {(reader.creator ?? false) && (
+                    <span className="ml-2 text-[11px] text-fg-faint">
+                      {t("vault:credentials.readers.creator")}
+                    </span>
+                  )}
                 </span>
                 <button
                   type="button"
