@@ -89,8 +89,9 @@ export function ReadingPane({
   // segnare letto o decidere non li richiude.
   const initial = useRef<Set<string> | null>(null);
   const found = useRef<Set<string>>(new Set());
-  if (thread.data && proposals.data && !initial.current) {
-    const live = new Set(proposals.data.filter(isLiveProposal).map((v) => v.proposal.sourceId));
+  // Le proposte che non si leggono non chiudono i messaggi: si apre come senza proposte.
+  if (thread.data && !proposals.isPending && !initial.current) {
+    const live = new Set((proposals.data ?? []).filter(isLiveProposal).map((v) => v.proposal.sourceId));
     initial.current = initiallyOpen(thread.data, q, live);
     const words = q ? searchWords(q) : [];
     found.current = new Set(thread.data.messages.filter((m) => matches(m, words)).map((m) => m.id));

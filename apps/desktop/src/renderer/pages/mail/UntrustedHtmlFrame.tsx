@@ -11,8 +11,9 @@ import { ImageGlyph } from "./glyphs";
 //    un'origine, non invia moduli, non apre finestre né porta via la pagina.
 //    Un link cliccato dentro non va da nessuna parte (`<base target>`
 //    verso una finestra nuova, che il sandbox non permette).
-// 2. Gli script e i gestori `on…` si tolgono comunque dal testo, e una CSP
-//    nel documento vieta script e connessioni.
+// 2. L'HTML si bonifica su un albero DOM (`neutralize`): script, frame,
+//    gestori `on…`, URL `javascript:` e simili, `target` dei link non
+//    restano; una CSP nel documento vieta script e connessioni.
 // 3. Le immagini remote non caricano: il loro `src` diventa `data-src`
 //    finché chi legge non preme «Show images» — per quel messaggio, quella
 //    volta (lo stato non si ricorda). La CSP le blocca anche se un `src`
@@ -26,51 +27,82 @@ export const FRAME_MAX = 1200;
 const FRAME_MIN = 320;
 
 const REMOTE = /^\s*(https?:)?\/\//i;
-/** Un attributo con o senza virgolette: `src="…"`, `src='…'`, `src=…`. */
-const attr = (name: string) => new RegExp(`\\s${name}\\s*=\\s*("[^"]*"|'[^']*'|[^\\s>]+)`, "gi");
-const unquote = (value: string) => value.replace(/^["']|["']$/g, "");
+/** Gli schemi che eseguono o incapsulano contenuto: un link o una sorgente con questi non va da nessuna parte. */
+const DANGEROUS_URL = /^(javascript|vbscript|data):/i;
+const DATA_IMAGE = /^data:image\//i;
+const URL_ATTRS = ["href", "src", "action", "formaction", "xlink:href"];
+const DROPPED = "script, iframe, frame, frameset, object, embed, base, meta, link";
+const CSS_REMOTE_URL = /url\(\s*["']?\s*(https?:)?\/\//gi;
+
+/** Il testo di un URL come lo legge il browser: senza spazi e caratteri di controllo. */
+const normalizedUrl = (value: string) => value.replace(/[\u0000- \u007f]+/g, "");
+
+const bodyOf = (html: string) => new DOMParser().parseFromString(html, "text/html").body;
 
 /**
- * Toglie script, gestori `on…`, URL `javascript:`, `<base>`, `<meta>` (un
- * refresh porterebbe via il frame) e ogni `target` dei link (nessun link
- * naviga il frame stesso: resta la `<base target="_blank">` del documento,
- * che il sandbox non apre). Sposta `src` e `srcset` remoti delle immagini e
- * delle sorgenti in `data-src`/`data-srcset`. Conta le immagini remote,
- * comprese quelle dei CSS (`url(…)`), che blocca la CSP.
+ * Bonifica l'HTML di un'email su un albero DOM (`DOMParser`, che non esegue
+ * nulla): toglie script, frame, oggetti, `base`, `meta`, `link`; ogni
+ * attributo `on…`; gli URL `javascript:`/`vbscript:`/`data:` (salvo le
+ * immagini `data:image`) in `href`, `src`, `action`, `formaction`,
+ * `xlink:href`; il `target` di link, aree e moduli (nessuno naviga il frame).
+ * Sposta `src`/`srcset` remoti in `data-src`/`data-srcset` e conta le
+ * immagini remote, comprese quelle dei CSS (`url(…)` in `style` e
+ * `<style>`), che blocca la CSP finché non si preme «Show images».
  */
 export function neutralize(html: string): { html: string; blockedImages: number } {
+  const body = bodyOf(html);
   let blockedImages = 0;
-  const out = html
-    .replace(/<script\b[\s\S]*?<\/script\s*>/gi, "")
-    .replace(/<script\b[^>]*>/gi, "")
-    .replace(/<(base|meta)\b[^>]*>/gi, "")
-    .replace(attr("on[a-z]+"), "")
-    .replace(/(href|src)\s*=\s*(["']?)\s*javascript:[^"'\s>]*\2/gi, '$1="#"')
-    .replace(/<a\b[^>]*>/gi, (tag) => tag.replace(attr("target"), ""))
-    .replace(/<(img|source)\b[^>]*>/gi, (tag) =>
-      tag
-        .replace(attr("src"), (whole, value: string) => {
-          if (!REMOTE.test(unquote(value))) return whole;
-          blockedImages += 1;
-          return ` data-src="${unquote(value)}"`;
-        })
-        .replace(attr("srcset"), (whole, value: string) => {
-          if (!/(https?:)?\/\//i.test(value)) return whole;
-          blockedImages += 1;
-          return ` data-srcset="${unquote(value)}"`;
-        }),
-    );
-  blockedImages += (out.match(/url\(\s*["']?\s*(https?:)?\/\//gi) ?? []).length;
-  return { html: out, blockedImages };
+  body.querySelectorAll(DROPPED).forEach((el) => el.remove());
+  for (const el of Array.from(body.querySelectorAll("*"))) {
+    for (const { name, value } of Array.from(el.attributes)) {
+      const key = name.toLowerCase();
+      if (key.startsWith("on")) {
+        el.removeAttribute(name);
+        continue;
+      }
+      if (URL_ATTRS.includes(key)) {
+        const url = normalizedUrl(value);
+        if (DANGEROUS_URL.test(url) && !(key === "src" && DATA_IMAGE.test(url))) {
+          if (key === "href") el.setAttribute(name, "#");
+          else el.removeAttribute(name);
+          continue;
+        }
+      }
+      if (key === "target" && /^(a|area|form)$/i.test(el.tagName)) {
+        el.removeAttribute(name);
+        continue;
+      }
+      if (key === "style") blockedImages += (value.match(CSS_REMOTE_URL) ?? []).length;
+    }
+    if (el.tagName === "STYLE") blockedImages += (el.textContent?.match(CSS_REMOTE_URL) ?? []).length;
+    if (el.tagName === "IMG" || el.tagName === "SOURCE") {
+      const src = el.getAttribute("src");
+      if (src !== null && REMOTE.test(src)) {
+        el.setAttribute("data-src", src);
+        el.removeAttribute("src");
+        blockedImages += 1;
+      }
+      const srcset = el.getAttribute("srcset");
+      if (srcset !== null && /(https?:)?\/\//i.test(srcset)) {
+        el.setAttribute("data-srcset", srcset);
+        el.removeAttribute("srcset");
+        blockedImages += 1;
+      }
+    }
+  }
+  return { html: body.innerHTML, blockedImages };
 }
 
 /** «Show images»: `data-src`/`data-srcset` tornano `src`/`srcset` (gli stessi indirizzi, nient'altro). */
 export function revealImages(html: string): string {
-  return html.replace(/<(img|source)\b[^>]*>/gi, (tag) =>
-    tag
-      .replace(/\sdata-src\s*=\s*"([^"]*)"/i, (_m, url: string) => ` src="${url}"`)
-      .replace(/\sdata-srcset\s*=\s*"([^"]*)"/i, (_m, set: string) => ` srcset="${set}"`),
-  );
+  const body = bodyOf(html);
+  for (const el of Array.from(body.querySelectorAll("img, source"))) {
+    const src = el.getAttribute("data-src");
+    if (src !== null) el.setAttribute("src", src);
+    const srcset = el.getAttribute("data-srcset");
+    if (srcset !== null) el.setAttribute("srcset", srcset);
+  }
+  return body.innerHTML;
 }
 
 function documentFor(body: string, images: boolean): string {

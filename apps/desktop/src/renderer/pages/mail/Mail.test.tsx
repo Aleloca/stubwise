@@ -1,7 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mail, resetApi, setLatency } from "../../data/api";
+import { failNext, mail, resetApi, setLatency } from "../../data/api";
 import { EV_AUD_REVIEW_YESTERDAY, MAIL_CASES } from "../../data/seed/mail";
 import { setSessionPersonId } from "../../data/session";
 import { state } from "../../data/store";
@@ -216,6 +216,32 @@ describe("Posta — contenuti estremi (Review Focus 5)", () => {
     expect(shown).toContain('srcset="https://a.example/1x.png 1x');
   });
 
+  it("neutralize su DOM: niente gestori nascosti nelle virgolette, niente javascript: in nessuna forma", () => {
+    const quoted = neutralize(`<img src='http://x/" onerror="alert(1)'>`);
+    // Riletto come lo leggerà il frame: un solo attributo, l'indirizzo intero tenuto da parte.
+    const img = new DOMParser().parseFromString(quoted.html, "text/html").querySelector("img")!;
+    expect(img.getAttributeNames()).toEqual(["data-src"]);
+    expect(img.getAttribute("data-src")).toBe('http://x/" onerror="alert(1)');
+    expect(quoted.blockedImages).toBe(1);
+    for (const payload of [
+      '<a href="javascript:void(0); x">a</a>',
+      `<a href="javascript:alert('1')">b</a>`,
+      '<a href=" JaVaScRiPt:alert(1)">c</a>',
+      '<a href="vbscript:msgbox(1)">d</a>',
+      '<a href="data:text/html,<script>alert(1)</script>">e</a>',
+      '<form action="javascript:alert(1)"><button formaction="javascript:alert(1)">f</button></form>',
+    ]) {
+      const { html } = neutralize(payload);
+      expect(html, payload).not.toMatch(/javascript:|vbscript:|data:text/i);
+    }
+    const kept = neutralize(
+      '<img src="data:image/png;base64,AA"><iframe src="https://e.example"></iframe><object data="x"></object>',
+    );
+    expect(kept.html).toContain('src="data:image/png;base64,AA"');
+    expect(kept.html).not.toMatch(/<iframe|<object/i);
+    expect(neutralize('<style>body{background:url("https://a.example/bg.png")}</style>').blockedImages).toBe(1);
+  });
+
   it("neutralize/revealImages: nessuno script né gestore, le immagini tornano solo coi loro indirizzi", () => {
     const { html, blockedImages } = neutralize(
       '<script>x()</script><img src="https://a.example/p.gif" onerror="x()"><img src="data:image/png;base64,AA"><a href="javascript:x()">y</a>',
@@ -228,6 +254,15 @@ describe("Posta — contenuti estremi (Review Focus 5)", () => {
 });
 
 describe("Posta — proposte condivise (Review Focus 2)", () => {
+  it("se le proposte non si leggono, la conversazione si apre lo stesso: l'ultimo messaggio aperto col suo testo", async () => {
+    failNext("mail.listMailProposals");
+    const thread = threadOf(MAIL_CASES.stwHigh);
+    await openMail(`/mail/${thread}`);
+    const p = await pane(thread);
+    expect(await within(p).findByText(/we freeze the copy of the desktop preview/)).toBeInTheDocument();
+    expect(p.querySelector("article[data-collapsed]")).toBeNull();
+  });
+
   it("un messaggio letto, non l'ultimo, con una proposta che mi aspetta resta aperto con la sua scheda", async () => {
     const source = state.mailMessages.find((m) => m.id === MAIL_CASES.shared)!;
     source.readByPersonIds.push("p-giulia");
