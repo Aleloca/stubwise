@@ -4,6 +4,7 @@ import type { StallReason } from "../domain/stalled";
 import { stallOf } from "../domain/stalled";
 import { TEMPLATE_MODULES } from "../domain/templates";
 import { compareWeeks } from "../domain/weeks";
+import { validateFlow } from "../domain/automations/validate";
 import { chat, resetApi, setLatency } from "./api";
 import { setSessionPersonId } from "./session";
 import { ACTIVITY } from "./seed/activity";
@@ -1865,16 +1866,26 @@ describe("seed: Automations (area 7)", () => {
     }
   });
 
-  // Task 2: ogni versione di ogni automazione del seme dà zero errori con
+  // Ogni versione di ogni automazione del seme dà zero errori con
   // `validateFlow`, cioè ogni riferimento (`{{…}}` nei testi, `ref` delle
   // condizioni, `list`, `inputs`, `clientRef`, `milestoneRef`, `replyTo`) è
   // nel campo visibile in quel punto: i campi dell'inizio (sorgente o
   // `triggerFields.ts`), quelli di Claude dei passi precedenti (ridichiarati
   // ammessi, R-J3), le chiavi relative di `forEach` col prefisso `as`
   // (`task.titolo`) e `risposta.testo` dopo un `wait` con `replyTo` (R-J2).
-  it.todo(
-    "ogni flusso del seme passa validateFlow: riferimenti in campo (forEach relativi, campi del wait), campi di Claude ridichiarati ammessi",
-  );
+  it("ogni flusso del seme passa validateFlow: riferimenti in campo (forEach relativi, campi del wait), campi di Claude ridichiarati ammessi", () => {
+    for (const a of AUTOMATIONS) {
+      for (const v of a.versions) {
+        const issues = validateFlow(v.flow, {
+          sources: AUTOMATION_SOURCES,
+          // Chi approva nel seme è il proprietario o un ruolo del progetto stesso.
+          canApprove: (who) => "owner" in who || "projectRole" in who,
+          projectId: a.projectId,
+        });
+        expect(issues, `${a.code} v${v.n}`).toEqual([]);
+      }
+    }
+  });
 
   it("esecuzioni: in attesa del cliente da 3 giorni, ferma su un'approvazione, finita, fallita, senza progetto", () => {
     const waitingEvent = run(AUTOMATION_CASES.runs.waitingEvent);

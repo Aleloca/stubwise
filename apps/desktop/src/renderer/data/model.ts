@@ -2049,9 +2049,21 @@ export type CalendarSeriesPatch = Partial<
 //   `repeat[i]` o `onLimit` dopo un `repeatUntil`; `trigger` da solo per
 //   l'inizio. Esempi: `"0"`; `"2/forEach[1]/0/else/0/then/0"`;
 //   `"3/then/0/mancano informazioni/0"`; `"2/repeat[0]/1"`;
-//   `"2/onLimit/0"`; `"trigger"`.
+//   `"2/onLimit/0"`; `"trigger"`. In `validateFlow` e `availableFields` i
+//   giri si scrivono `forEach[0]`/`repeat[0]` (vale per ogni giro).
+// - R-J6 — il tipo di campo `boolean` (es. `risposta.arrivata`): nelle
+//   condizioni si confronta con `is`/`is_not` e il valore `true`/`false`.
 
-export type FieldType = "text" | "number" | "date" | "email" | "person" | "list" | "file";
+/** `boolean` (R-J6): nelle condizioni si confronta con `is`/`is_not` e un valore `true`/`false`. */
+export type FieldType =
+  | "text"
+  | "number"
+  | "date"
+  | "email"
+  | "person"
+  | "list"
+  | "file"
+  | "boolean";
 
 /** Un dato che i passi possono usare: dell'inizio, o prodotto da un passo precedente. */
 export interface DataField {
@@ -2079,7 +2091,7 @@ export type AutomationTrigger =
   | { kind: "schedule"; rule: string }
   | { kind: "manual" };
 
-export type Operand = { ref: string } | { value: string | number | null };
+export type Operand = { ref: string } | { value: string | number | boolean | null };
 
 /** Un gruppo (`all`/`any`) o un confronto (`left op right`); niente espressioni libere. */
 export interface Condition {

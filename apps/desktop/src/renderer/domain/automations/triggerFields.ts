@@ -45,9 +45,10 @@ export const START_FIELDS: DataField[] = [
  * verifica successiva non rilegge mai una risposta vecchia: con la risposta
  * `risposta.arrivata = true` e il suo testo; scaduto `maxDays`
  * `risposta.arrivata = false` e `risposta.testo = ""`. `risposta.arrivata` è
- * un booleano nelle variabili: `FieldType` non ha booleani, e nelle
- * condizioni si usa `risposta.testo` con `not_empty`.
+ * un booleano (R-J6): nelle condizioni si confronta con `is`/`is_not` e
+ * `true`/`false`.
  */
 export const WAIT_REPLY_FIELDS: DataField[] = [
+  { key: "risposta.arrivata", label: "Risposta arrivata", type: "boolean" },
   { key: "risposta.testo", label: "Testo della risposta", type: "text" },
 ];
