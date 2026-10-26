@@ -93,6 +93,23 @@ describe("Riassunto della riunione — partecipante", () => {
 
     const tasks = await within(panel).findByRole("region", { name: "Tasks from this meeting" });
     expect(await within(tasks).findByText("No tasks came out of this meeting")).toBeInTheDocument();
+    // Due sezioni sorelle, lo stesso livello sotto il titolo dell'evento (h2).
+    expect(within(panel).getByRole("heading", { level: 3, name: "Meeting summary" })).toBeInTheDocument();
+    expect(
+      within(panel).getByRole("heading", { level: 3, name: "Tasks from this meeting" }),
+    ).toBeInTheDocument();
+  });
+
+  it("mentre legge non mostra lo scheletro: niente che appare e sparisce", async () => {
+    setLatency(40);
+    const { panel } = await openReview();
+    const busy = await waitFor(() => {
+      const el = panel.querySelector<HTMLElement>("[aria-busy='true']");
+      if (!el) throw new Error("not reading");
+      return el;
+    });
+    expect(busy.querySelector(".skeleton-breathe")).toBeNull();
+    expect(await within(panel).findByRole("region", { name: "Meeting summary" })).toBeInTheDocument();
   });
 
   it("confermata la proposta, le task nate con il loro stato di adesso", async () => {

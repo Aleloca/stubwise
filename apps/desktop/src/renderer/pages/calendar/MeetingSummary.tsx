@@ -9,7 +9,7 @@ import { queryState } from "../home/blocks/BlockSection";
 import { dayLabel } from "../mail/format";
 import { MailProposalCard } from "../mail/MailProposalCard";
 import { GeneratedTag } from "../overview/BriefCard";
-import { MeetingTaskList, SheetSection, SheetSkeleton } from "./meetingParts";
+import { MeetingTaskList, SheetSection } from "./meetingParts";
 import { TranscriptUnreachable } from "./MeetingPrep";
 
 // Un evento PASSATO (shape meeting-prep.md §6, [A 1]): al posto della
@@ -35,10 +35,15 @@ export function MeetingSummary({
   const summary = useMeetingSummary(eventId);
   const born = useTasksBornFrom(eventId);
 
+  // Mentre legge, niente scheletro: per molti eventi passati qui non c'è
+  // nulla, e uno scheletro che appare e sparisce lampeggerebbe. Resta solo
+  // lo stato per chi usa un lettore di schermo.
   if (summary.isPending || born.isPending) {
     return (
-      <div className="mt-1 border-t border-rule pt-2">
-        <SheetSkeleton label={t("calendar.summary.loading")} />
+      <div aria-busy="true">
+        <span role="status" className="sr-only">
+          {t("calendar.summary.loading")}
+        </span>
       </div>
     );
   }
@@ -65,6 +70,7 @@ export function MeetingSummary({
         <SheetSection
           title={t("calendar.summary.tasksTitle")}
           headingClassName={heading}
+          level={3}
           count={tasks.length}
           state={queryState([born])}
         >

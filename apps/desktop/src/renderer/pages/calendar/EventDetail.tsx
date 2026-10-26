@@ -211,7 +211,9 @@ function Detail({
 
       <header className="flex flex-col gap-1 px-4 pb-4">
         <h2
-          className={`text-xl font-semibold text-ink ${e.myResponse === "declined" ? "line-through decoration-1" : ""}`}
+          tabIndex={-1}
+          data-panel-title={`event:${e.id}`}
+          className={`text-xl font-semibold text-ink outline-none ${e.myResponse === "declined" ? "line-through decoration-1" : ""}`}
         >
           {e.title}
         </h2>

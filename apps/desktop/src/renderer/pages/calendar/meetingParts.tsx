@@ -25,10 +25,13 @@ export function SheetSection({
   count,
   state,
   headingClassName = "text-md font-semibold text-ink",
+  level = 4,
   extra,
   children,
 }: {
   title: string;
+  /** Il livello del titolo: 4 sotto «Prepare» (h3), 3 accanto a «Meeting summary». */
+  level?: 3 | 4;
   count?: number;
   state: BlockState;
   headingClassName?: string;
@@ -38,12 +41,13 @@ export function SheetSection({
 }) {
   const { t } = useTranslation();
   const id = useId();
+  const Heading = level === 3 ? "h3" : "h4";
   return (
     <section aria-labelledby={id} className="flex flex-col pt-4">
       <div className="flex min-h-6 items-center gap-2 px-4 pb-1.5">
-        <h4 id={id} className={headingClassName}>
+        <Heading id={id} className={headingClassName}>
           {title}
-        </h4>
+        </Heading>
         {state.status === "ready" && count !== undefined && count > 0 && (
           <span className="num text-sm text-ink-faint">{count}</span>
         )}
@@ -232,12 +236,29 @@ interface FromEventState {
  */
 export function useOpenTaskFromEvent(eventId: string): (code: string) => void {
   const navigate = useNavigate();
-  return (code) =>
+  return (code) => {
     void navigate({
       to: ".",
       search: (prev: Record<string, unknown>) => ({ ...prev, task: code, event: undefined }),
       state: (prev: Record<string, unknown>) => ({ ...prev, backToEvent: eventId }),
     } as never);
+    focusPanelTitle(`task:${code}`);
+  };
+}
+
+/**
+ * Il fuoco sul titolo del pannello appena aperto al posto di un altro (la
+ * task dall'evento, l'evento da «Back to event»): il pannello vecchio si
+ * smonta col fuoco dentro, e il fuoco non deve cadere sul documento. Il
+ * pannello nuovo arriva con la sua lettura: lo si aspetta per qualche frame.
+ */
+export function focusPanelTitle(key: string, frames = 60): void {
+  const el = document.querySelector<HTMLElement>(`[data-panel-title="${CSS.escape(key)}"]`);
+  if (el) {
+    el.focus();
+    return;
+  }
+  if (frames > 0) requestAnimationFrame(() => focusPanelTitle(key, frames - 1));
 }
 
 /**
@@ -265,7 +286,7 @@ export function BackToEvent() {
             to: ".",
             search: (prev: Record<string, unknown>) => ({ ...prev, task: undefined, event: eventId }),
             state: (prev: Record<string, unknown>) => ({ ...prev, backToEvent: undefined }),
-          } as never)
+          } as never).then(() => focusPanelTitle(`event:${eventId}`))
         }
       >
         <span aria-hidden="true">←</span>

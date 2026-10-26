@@ -138,7 +138,11 @@ function TitleEditor({ task, canEdit }: { task: Task; canEdit: boolean }) {
     );
   }
   const heading = (
-    <h2 className="text-xl font-semibold text-balance text-ink [overflow-wrap:anywhere]">
+    <h2
+      tabIndex={-1}
+      data-panel-title={`task:${task.code}`}
+      className="text-xl font-semibold text-balance text-ink outline-none [overflow-wrap:anywhere]"
+    >
       {task.title}
     </h2>
   );

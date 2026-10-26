@@ -262,6 +262,25 @@ describe("Scheda di preparazione — dove portano le righe", () => {
     expect(search(router).task).toBeUndefined();
   });
 
+  it("il fuoco va al titolo del pannello aperto: la task, poi l'evento", async () => {
+    setSessionPersonId("p-giulia");
+    const out = await mail.confirmMailProposal(REVIEW_PROPOSAL, { actionIndexes: [0] });
+    const code = out.status === "confirmed" ? out.resultCodes[0]! : "";
+    const title = state.tasks.find((t) => t.code === code)!.title;
+    const { panel } = await openEvent(NEXT_REVIEW, daysFromToday(6));
+    const meetings = await section(await sheet(panel), "Last meetings");
+    await userEvent.click(await within(meetings).findByRole("button", { name: new RegExp(code) }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("heading", { level: 2, name: title })),
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "Back to event" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("heading", { level: 2, name: "AUD weekly review" }),
+      ),
+    );
+  });
+
   it("il titolo di una riunione precedente che vedo apre quell'evento", async () => {
     const { router, panel } = await openEvent(NEXT_REVIEW, daysFromToday(6));
     const meetings = await section(await sheet(panel), "Last meetings");
