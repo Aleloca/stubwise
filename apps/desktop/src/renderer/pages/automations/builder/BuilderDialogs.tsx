@@ -5,7 +5,7 @@ import type { Step } from "../../../data/types";
 import { Dialog, DialogField } from "../../../tasks-ui/Dialog";
 import { dangerSolidButton, primaryButton, secondaryButton } from "../../tasks/controls";
 import { useBuilder } from "./context";
-import { laneLabel } from "./FlowTree";
+import { laneLabel } from "./flowWords";
 import { selectClass } from "./controls";
 import { fits, laneDepth, type DropTarget } from "./tree";
 

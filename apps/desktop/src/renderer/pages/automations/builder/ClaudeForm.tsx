@@ -9,7 +9,7 @@ import { DataText, tokenLabel } from "./DataText";
 import { Note, Section, selectClass, smallInput } from "./controls";
 import { innerCount } from "./tree";
 import type { FieldProblem } from "./issues";
-import { useFieldProblem } from "./StepPanel";
+import { useFieldProblem } from "./stepFields";
 
 // Il passo di Claude (shape builder §6, regola 2 dell'anti-obiettivo): la
 // riga fissa che dice che Claude sceglie solo fra le uscite disegnate e
