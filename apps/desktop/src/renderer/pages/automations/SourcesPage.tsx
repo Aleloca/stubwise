@@ -8,7 +8,7 @@ import {
   usePeople,
 } from "../../data/queries";
 import type { AutomationSourceView } from "../../data/types";
-import { MenuGroup, MenuNote, itemClass } from "../../tasks-ui/Menu";
+import { MenuGroup, itemClass } from "../../tasks-ui/Menu";
 import { PageSkeleton } from "../../tasks-ui/PageStates";
 import { Avatar } from "../../tasks-ui/PersonChip";
 import { rowKeys } from "../home/blocks/BlockSection";
@@ -24,7 +24,7 @@ import { shortDate } from "./format";
 import { MoreGlyph, SourceGlyph } from "./glyphs";
 import { NotVisible, useAutomationPerms } from "./shared";
 import { usersOf, sampleWords, useOpenSource, useSimulate } from "./sourceHelpers";
-import { ConnectDialog, DisconnectDialog } from "./SourceDialogs";
+import { ConnectDialog, DisconnectDialog, NewWebhookDialog } from "./SourceDialogs";
 import { StatusWord } from "./SourcePanel";
 
 // Le sorgenti (shape automation-sources.md): un quadro dei contatori — ogni
@@ -54,7 +54,9 @@ function SourceRow({ source, open }: { source: AutomationSourceView; open: boole
       : t("automations.sources.dealsWon");
   const when =
     source.status === "expired"
-      ? t("automations.sources.expiredLine")
+      ? source.expiredAt
+        ? t("automations.sources.expiredOn", { date: shortDate(source.expiredAt, i18n.language) })
+        : t("automations.sources.expiredLine")
       : source.status === "disconnected"
         ? t("automations.sources.disconnectedLine")
         : last
@@ -98,15 +100,34 @@ function SourceRow({ source, open }: { source: AutomationSourceView; open: boole
       </button>
       <span className="absolute top-2.5 right-3 flex items-center gap-1">
         {source.status !== "connected" ? (
-          <button
-            type="button"
-            className={`${secondaryButton} h-7`}
-            onClick={() => setDialog("connect")}
-          >
-            {source.status === "expired"
-              ? t("automations.sources.reconnect")
-              : t("automations.sources.connect")}
-          </button>
+          <>
+            {/* Spento, col perché in tooltip (shape sources [A 9]). */}
+            <span
+              title={t("automations.sources.simulateOff", { name: source.name })}
+              className="opacity-0 transition-opacity duration-[var(--duration-fast)] ease-out group-focus-within:opacity-100 group-hover:opacity-100"
+            >
+              <button
+                type="button"
+                disabled
+                aria-describedby={`simulate-off-${source.id}`}
+                className={`${quietButton} h-7 disabled:opacity-50`}
+              >
+                {t("automations.sources.simulate")}
+              </button>
+              <span id={`simulate-off-${source.id}`} className="sr-only">
+                {t("automations.sources.simulateOff", { name: source.name })}
+              </span>
+            </span>
+            <button
+              type="button"
+              className={`${secondaryButton} h-7`}
+              onClick={() => setDialog("connect")}
+            >
+              {source.status === "expired"
+                ? t("automations.sources.reconnect")
+                : t("automations.sources.connect")}
+            </button>
+          </>
         ) : (
           <span className="flex items-center gap-1 opacity-0 transition-opacity duration-[var(--duration-fast)] ease-out group-focus-within:opacity-100 group-hover:opacity-100">
             <MenuButton
@@ -173,6 +194,8 @@ function SourceRow({ source, open }: { source: AutomationSourceView; open: boole
 function ConnectMenu({ sources }: { sources: AutomationSourceView[] }) {
   const { t } = useTranslation();
   const [connecting, setConnecting] = useState<AutomationSourceView | null>(null);
+  const [newWebhook, setNewWebhook] = useState(false);
+  const openSource = useOpenSource();
   const crms = sources.filter((s) => s.kind !== "webhook");
   return (
     <>
@@ -211,12 +234,25 @@ function ConnectMenu({ sources }: { sources: AutomationSourceView[] }) {
                 )}
               </button>
             ))}
-            {/* TODO(area 7, follow-up): creare un webhook nuovo non ha ancora una scrittura nel livello dati. */}
-            <MenuNote>{t("automations.sources.newWebhookLater")}</MenuNote>
+            <button
+              type="button"
+              role="menuitem"
+              tabIndex={-1}
+              className={itemClass}
+              onClick={() => {
+                close();
+                setNewWebhook(true);
+              }}
+            >
+              {t("automations.sources.incomingWebhook")}
+            </button>
           </MenuGroup>
         )}
       </MenuButton>
       {connecting && <ConnectDialog source={connecting} onClose={() => setConnecting(null)} />}
+      {newWebhook && (
+        <NewWebhookDialog onClose={() => setNewWebhook(false)} onCreated={(id) => openSource(id)} />
+      )}
     </>
   );
 }
@@ -226,7 +262,7 @@ export function SourcesPage() {
   const { t } = useTranslation();
   const perms = useAutomationPerms();
   const sources = useAutomationSources();
-  const search = useSearch({ strict: false }) as { src?: string };
+  const search = useSearch({ strict: false }) as { source?: string };
   if (!perms.integrations) return <NotVisible what="page" />;
   const list = sources.data ?? [];
   return (
@@ -267,7 +303,7 @@ export function SourcesPage() {
               className="border-t border-rule"
             >
               {list.map((s) => (
-                <SourceRow key={s.id} source={s} open={search.src === s.id} />
+                <SourceRow key={s.id} source={s} open={search.source === s.id} />
               ))}
             </ul>
           )}

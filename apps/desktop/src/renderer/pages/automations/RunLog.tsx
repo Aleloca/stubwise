@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { childLists } from "../../domain/automations/fields";
 import type { RunLogEntry, Step } from "../../data/types";
@@ -17,6 +17,7 @@ import {
   isProblem,
   roundOf,
   type LogNode,
+  type LogTree,
 } from "./logTree";
 import { ClaudeBlock } from "./LogClaude";
 import {
@@ -56,7 +57,7 @@ function Row({
   const now =
     ctx.run.cursor === entry.path &&
     !["done", "failed", "cancelled"].includes(ctx.run.status) &&
-    entry === lastOf(ctx.run.log, entry.path);
+    view.isLast(entry);
   const word =
     entry.outcome === "skipped" ||
     entry.outcome === "failed" ||
@@ -65,70 +66,83 @@ function Row({
       ? t(`automations.log.outcome.${entry.outcome}`)
       : null;
   // Un'approvazione con modifiche: l'anteprima chiesta (riga «waiting») e quella eseguita.
-  const asked = entry.outcome === "ok" ? approvalBefore(ctx.run.log, entry) : undefined;
+  const asked =
+    entry.outcome === "ok" ? approvalBefore(ctx.run.log, entry, view.indexOf(entry)) : undefined;
   const pad = { paddingLeft: 92 + depth * INDENT };
   return (
-    <li
-      data-entry-path={entry.path}
-      data-outcome={entry.outcome}
-      data-now={now ? "" : undefined}
-      data-problem={isProblem(entry) ? "" : undefined}
-      tabIndex={-1}
-      className={`log-row flex flex-col rounded-md outline-none focus-visible:bg-ink/6 ${now ? "bg-ink/4" : ""}`}
-    >
-      <div className="flex min-h-9 items-start gap-3 py-1.5 pr-2">
-        <span className="num w-16 shrink-0 pt-px text-right text-xs text-ink-faint max-[1100px]:w-12">
-          {clock(entry.at, i18n.language)}
-        </span>
-        <Indent depth={depth} />
-        <span className="pt-0.5">
-          <StepGlyph kind={entry.kind} />
-        </span>
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <p className="text-md text-ink [overflow-wrap:anywhere]">
-            {now && (
-              <span className="mr-2 text-xs font-semibold tracking-[0.02em] text-ink">
-                {t("automations.log.nowLabel")}
-              </span>
-            )}
-            <EntrySentence entry={entry} step={step} ctx={ctx} />
-          </p>
-          {entry.reason &&
-            entry.kind !== "claude" &&
-            (entry.outcome === "failed" ||
-              entry.outcome === "skipped" ||
-              entry.outcome === "limit") && (
-              <p className="text-sm text-ink-muted">{entry.reason}</p>
-            )}
-        </div>
-        {word && (
-          <span className="flex shrink-0 items-center gap-1 pt-0.5 text-sm text-ink-muted">
-            {entry.outcome === "failed" && <CriticalGlyph />}
-            {word}
+    <>
+      {view.dayBreak(entry) && (
+        <li
+          aria-hidden="true"
+          data-day-separator
+          className="heading-group pt-3 pb-1 pl-[92px] max-[1100px]:pl-[76px]"
+        >
+          {shortDate(entry.at, i18n.language)}
+        </li>
+      )}
+      <li
+        data-entry-index={view.indexOf(entry)}
+        data-entry-path={entry.path}
+        data-outcome={entry.outcome}
+        data-now={now ? "" : undefined}
+        data-problem={isProblem(entry) ? "" : undefined}
+        tabIndex={-1}
+        className={`log-row flex flex-col rounded-md outline-none focus-visible:bg-ink/6 ${now ? "bg-ink/4" : ""}`}
+      >
+        <div className="flex min-h-9 items-start gap-3 py-1.5 pr-2">
+          <span className="num w-16 shrink-0 pt-px text-right text-xs text-ink-faint max-[1100px]:w-12">
+            {clock(entry.at, i18n.language)}
           </span>
-        )}
-        {view.actionsFor(entry)}
-      </div>
-      <div style={pad} className="flex flex-col">
-        {entry.kind === "claude" && entry.outcome === "ok" && (
-          <ClaudeBlock entry={entry} step={step} ctx={ctx} />
-        )}
-        {entry.kind === "claude" && entry.outcome === "failed" && entry.reason && (
-          <p className="pb-2 text-sm text-ink">{entry.reason}</p>
-        )}
-        {asked && <ApprovalChanges before={asked.input} after={entry.input} />}
-        {view.showData && <EntryData entry={entry} ctx={ctx} />}
-      </div>
-    </li>
+          <Indent depth={depth} />
+          <span className="pt-0.5">
+            <StepGlyph kind={entry.kind} />
+          </span>
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <p className="text-md text-ink [overflow-wrap:anywhere]">
+              {now && (
+                <span className="mr-2 text-xs font-semibold tracking-[0.02em] text-ink">
+                  {t("automations.log.nowLabel")}
+                </span>
+              )}
+              <EntrySentence entry={entry} step={step} ctx={ctx} />
+            </p>
+            {entry.reason &&
+              entry.kind !== "claude" &&
+              (entry.outcome === "failed" ||
+                entry.outcome === "skipped" ||
+                entry.outcome === "limit") && (
+                <p className="text-sm text-ink-muted">{entry.reason}</p>
+              )}
+          </div>
+          {word && (
+            <span className="flex shrink-0 items-center gap-1 pt-0.5 text-sm text-ink-muted">
+              {entry.outcome === "failed" && <CriticalGlyph />}
+              {word}
+            </span>
+          )}
+          {view.actionsFor(entry)}
+        </div>
+        <div style={pad} className="flex flex-col">
+          {entry.kind === "claude" && entry.outcome === "ok" && (
+            <ClaudeBlock entry={entry} step={step} ctx={ctx} />
+          )}
+          {entry.kind === "claude" && entry.outcome === "failed" && entry.reason && (
+            <p className="pb-2 text-sm text-ink">{entry.reason}</p>
+          )}
+          {asked && <ApprovalChanges before={asked.input} after={entry.input} />}
+          {view.showData && <EntryData entry={entry} ctx={ctx} />}
+        </div>
+      </li>
+    </>
   );
 }
 
-const lastOf = (log: RunLogEntry[], path: string) =>
-  [...log].reverse().find((e) => e.path === path);
-
 /** La riga «in attesa di approvazione» prima di un effetto eseguito, se fra le due c'è un «approvato». */
-export function approvalBefore(log: RunLogEntry[], entry: RunLogEntry): RunLogEntry | undefined {
-  const i = log.indexOf(entry);
+export function approvalBefore(
+  log: RunLogEntry[],
+  entry: RunLogEntry,
+  i = log.indexOf(entry),
+): RunLogEntry | undefined {
   const prior = log.slice(0, i).filter((e) => e.path === entry.path);
   const approved = prior.at(-1);
   const waiting = prior.at(-2);
@@ -153,7 +167,9 @@ function NodeView({ node, view, depth }: { node: LogNode; view: View; depth: num
     ).length;
     const doneRounds = rounds.length - failedRounds;
     const problemFirst = rounds.find((c) => containerEntries(c).some(isProblem));
-    const open = view.isOpen(node.path, view.filter !== "all" || problemFirst !== undefined);
+    const opens =
+      view.filter !== "all" || problemFirst !== undefined || node.entries.some(isProblem);
+    const open = view.isOpen(node.path, opens);
     const items = view.ctx.run.loops?.[node.path] as unknown[] | undefined;
     const list = view.ctx.labels.get(step.list)?.label ?? step.list;
     const id = `log-group-${node.path}`;
@@ -163,9 +179,7 @@ function NodeView({ node, view, depth }: { node: LogNode; view: View; depth: num
           type="button"
           aria-expanded={open}
           aria-controls={id}
-          onClick={() =>
-            view.toggle(node.path, view.filter !== "all" || problemFirst !== undefined)
-          }
+          onClick={() => view.toggle(node.path, opens)}
           className="flex min-h-9 items-center gap-3 rounded-md pr-2 text-left hover:bg-ink/6"
         >
           <span className="flex w-16 shrink-0 justify-end max-[1100px]:w-12">
@@ -286,6 +300,34 @@ function NodeView({ node, view, depth }: { node: LogNode; view: View; depth: num
   );
 }
 
+/**
+ * Le righe nell'ordine in cui la pagina le disegna (gruppi chiusi compresi:
+ * sono nel DOM), col filtro: un separatore del giorno compare ogni volta che
+ * il giorno cambia rispetto alla riga prima, anche dentro i gruppi.
+ */
+function readingOrder(tree: LogTree, filter: LogFilter): RunLogEntry[] {
+  const rowOk = (e: RunLogEntry) =>
+    filter === "all" || (filter === "problems" ? isProblem(e) : created(e));
+  const out: RunLogEntry[] = tree.trigger.filter(
+    (e) => filter === "all" || (filter === "created" && created(e)),
+  );
+  const visit = (node: LogNode) => {
+    if (!matches(filter, entriesUnder(node))) return;
+    if (node.step?.kind === "forEach") {
+      for (const c of node.children) {
+        if (roundOf(c.seg) === null || !matches(filter, containerEntries(c))) continue;
+        c.nodes.forEach(visit);
+      }
+      out.push(...node.entries.filter((e) => e.outcome !== "ok"));
+      return;
+    }
+    out.push(...node.entries.filter(rowOk));
+    for (const c of node.children) if (matches(filter, containerEntries(c))) c.nodes.forEach(visit);
+  };
+  tree.nodes.forEach(visit);
+  return out;
+}
+
 export function RunLog({
   ctx,
   entry: anchor,
@@ -296,7 +338,7 @@ export function RunLog({
   entry?: string;
   actionsFor: (entry: RunLogEntry) => ReactNode;
 }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const tree = useMemo(() => buildLogTree(ctx.run.log, ctx.run.flow), [ctx.run.log, ctx.run.flow]);
   const [filter, setFilter] = useState<LogFilter>("all");
   const [showData, setShowData] = useState(false);
@@ -306,6 +348,24 @@ export function RunLog({
   );
   const list = useRef<HTMLOListElement>(null);
   const [nowOut, setNowOut] = useState(false);
+  // La riga a cui `[`/`]` portano il fuoco, appena i suoi gruppi sono aperti.
+  const [pendingFocus, setPendingFocus] = useState<number | null>(null);
+
+  const index = useMemo(() => new Map(ctx.run.log.map((e, i) => [e, i])), [ctx.run.log]);
+  const last = useMemo(() => {
+    const m = new Map<string, RunLogEntry>();
+    for (const e of ctx.run.log) m.set(e.path, e);
+    return m;
+  }, [ctx.run.log]);
+  const breaks = useMemo(() => {
+    const out = new Set<RunLogEntry>();
+    let day = "";
+    for (const e of readingOrder(tree, filter)) {
+      if (e.at.slice(0, 10) !== day) out.add(e);
+      day = e.at.slice(0, 10);
+    }
+    return out;
+  }, [tree, filter]);
 
   const isOpen = (key: string, fallback: boolean) =>
     overrides[key] ?? (mode === "all" ? true : mode === "none" ? false : fallback);
@@ -320,6 +380,9 @@ export function RunLog({
         [key]: !(o[key] ?? (mode === "all" ? true : mode === "none" ? false : fallback)),
       })),
     actionsFor,
+    indexOf: (e) => index.get(e) ?? -1,
+    isLast: (e) => last.get(e.path) === e,
+    dayBreak: (e) => breaks.has(e),
   };
 
   // `?entry=`: porta la riga in vista e le dà il fuoco.
@@ -342,51 +405,52 @@ export function RunLog({
     return () => io.disconnect();
   }, [tree, filter, mode, overrides]);
 
-  // `[` e `]`: al problema precedente e successivo (shape [A 27]).
-  const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
-    if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || typing(e.target)) return;
-    if (e.key !== "[" && e.key !== "]") return;
-    const rows = [...(list.current?.querySelectorAll<HTMLElement>("[data-problem]") ?? [])];
-    if (rows.length === 0) return;
-    const at = rows.findIndex(
-      (r) => r === document.activeElement || r.contains(document.activeElement),
-    );
-    const next = e.key === "]" ? (at + 1) % rows.length : (at <= 0 ? rows.length : at) - 1;
-    e.preventDefault();
-    rows[next]!.focus();
-    rows[next]!.scrollIntoView?.({ block: "center" });
-  };
+  // `[` e `]` in tutta la pagina dell'esecuzione: al problema precedente e
+  // successivo (shape [A 27]), aprendo prima i gruppi che lo contengono.
+  const problems = useMemo(
+    () => ctx.run.log.map((e, i) => [e, i] as const).filter(([e]) => isProblem(e)),
+    [ctx.run.log],
+  );
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || typing(e.target)) return;
+      if ((e.key !== "[" && e.key !== "]") || problems.length === 0) return;
+      if (document.querySelector('[aria-modal="true"]')) return;
+      const active = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>(
+        "[data-entry-index]",
+      );
+      const current = active ? Number(active.dataset.entryIndex) : -1;
+      const at = problems.findIndex(([, i]) => i === current);
+      const next =
+        e.key === "]" ? (at + 1) % problems.length : (at <= 0 ? problems.length : at) - 1;
+      const [entry, i] = problems[next]!;
+      e.preventDefault();
+      setFilter((f) => (f === "created" ? "all" : f));
+      setOverrides((o) => ({
+        ...o,
+        ...Object.fromEntries(groupsContaining(entry.path).map((k) => [k, true])),
+      }));
+      setPendingFocus(i);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [problems]);
+  useEffect(() => {
+    if (pendingFocus === null) return;
+    const row = list.current?.querySelector<HTMLElement>(`[data-entry-index="${pendingFocus}"]`);
+    row?.focus({ preventScroll: true });
+    row?.scrollIntoView?.({ block: "center" });
+    setPendingFocus(null);
+  }, [pendingFocus, overrides]);
 
-  // Le righe di primo livello, con il separatore del giorno quando cambia.
-  let lastDay = "";
-  const dayOf = (n: LogNode) => entriesUnder(n)[0]?.at.slice(0, 10) ?? "";
-  const separator = (day: string) => {
-    if (!day || day === lastDay) return null;
-    lastDay = day;
-    return (
-      <li
-        key={`day-${day}`}
-        aria-hidden="true"
-        className="heading-group pt-3 pb-1 pl-[92px] max-[1100px]:pl-[76px]"
-      >
-        {shortDate(`${day}T12:00:00Z`, i18n.language)}
-      </li>
-    );
-  };
   const segments: { value: LogFilter; label: string }[] = [
     { value: "all", label: t("automations.log.filter.all") },
     { value: "problems", label: t("automations.log.filter.problems") },
     { value: "created", label: t("automations.log.filter.created") },
   ];
-  const triggerDay = tree.trigger[0]?.at.slice(0, 10) ?? "";
 
   return (
-    <section
-      aria-labelledby="run-log"
-      data-run-log
-      onKeyDown={onKeyDown}
-      className="border-t border-rule pt-5 pb-7"
-    >
+    <section aria-labelledby="run-log" data-run-log className="border-t border-rule pt-5 pb-7">
       <h2 id="run-log" className="flex items-baseline gap-3 pb-2 text-xl font-semibold text-ink">
         {t("automations.log.title")}
         <span className="num text-md font-normal text-ink-faint">{countEntries(tree)}</span>
@@ -449,14 +513,13 @@ export function RunLog({
         aria-label={t("automations.log.title")}
         className="log-list flex flex-col pt-1"
       >
-        {separator(triggerDay)}
         {tree.trigger.map((e, k) =>
           filter === "all" || (filter === "created" && created(e)) ? (
             <Row key={`trigger-${k}`} entry={e} step={null} view={view} depth={0} />
           ) : null,
         )}
         {tree.nodes.map((n) => (
-          <NodeGroup key={n.path} sep={separator(dayOf(n))} node={n} view={view} />
+          <NodeView key={n.path} node={n} view={view} depth={0} />
         ))}
       </ol>
       {nowOut && (
@@ -473,14 +536,5 @@ export function RunLog({
         </button>
       )}
     </section>
-  );
-}
-
-function NodeGroup({ sep, node, view }: { sep: ReactNode; node: LogNode; view: View }) {
-  return (
-    <>
-      {sep}
-      <NodeView node={node} view={view} depth={0} />
-    </>
   );
 }

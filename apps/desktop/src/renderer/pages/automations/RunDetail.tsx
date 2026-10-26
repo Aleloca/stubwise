@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   useAutomationRun,
@@ -81,6 +81,10 @@ export function RunDetail({ runId, entry }: { runId: string; entry?: string }) {
   const sources = useAutomationSources().data ?? [];
   const retry = useRetryAutomationStep();
   const [dialog, setDialog] = useState<"cancel" | "skip" | "on" | null>(null);
+  const nowTitle = useRef<HTMLParagraphElement>(null);
+  // Dopo Approva, Scegli, Riprova, Salta o Annulla il bottone premuto può
+  // sparire: il fuoco va alla frase nuova di «Now» (dopo la chiusura del dialogo).
+  const focusNow = () => requestAnimationFrame(() => nowTitle.current?.focus());
   const run = query.data;
   const labels = useMemo(() => (run ? fieldLabels(run.flow, sources) : new Map()), [run, sources]);
   if (query.isError) {
@@ -95,7 +99,8 @@ export function RunDetail({ runId, entry }: { runId: string; entry?: string }) {
   }
   if (!run) return <DetailSkeleton />;
   const automation = automations.find((a) => a.id === run.automationId);
-  const ownerId = automation?.ownerId ?? null;
+  // Il proprietario arriva con l'esecuzione: anche chi decide senza vedere l'automazione lo sa.
+  const ownerId = run.ownerId;
   const open = run.status !== "done" && run.status !== "cancelled" && run.status !== "failed";
   const ctx: LogCtx = {
     run,
@@ -111,7 +116,10 @@ export function RunDetail({ runId, entry }: { runId: string; entry?: string }) {
         : [];
   const doRetry = () =>
     retry.mutate(run.id, {
-      onSuccess: () => toast.show(t("automations.toast.retried", { code: run.code })),
+      onSuccess: () => {
+        toast.show(t("automations.toast.retried", { code: run.code }));
+        focusNow();
+      },
       onError: () => toast.error(t("automations.toast.decisionError", { code: run.code })),
     });
   const passTime =
@@ -220,6 +228,8 @@ export function RunDetail({ runId, entry }: { runId: string; entry?: string }) {
           onCancel={() => setDialog("cancel")}
           onSkip={() => setDialog("skip")}
           onRetry={doRetry}
+          onDone={focusNow}
+          titleRef={nowTitle}
         />
         {passTime && <PassTime run={run} />}
         <RunLog
@@ -246,8 +256,12 @@ export function RunDetail({ runId, entry }: { runId: string; entry?: string }) {
           }
         />
       </div>
-      {dialog === "cancel" && <CancelRunDialog run={run} onClose={() => setDialog(null)} />}
-      {dialog === "skip" && <SkipStepDialog run={run} onClose={() => setDialog(null)} />}
+      {dialog === "cancel" && (
+        <CancelRunDialog run={run} onClose={() => setDialog(null)} onDone={focusNow} />
+      )}
+      {dialog === "skip" && (
+        <SkipStepDialog run={run} onClose={() => setDialog(null)} onDone={focusNow} />
+      )}
       {dialog === "on" && (
         <TurnOnDialog automationId={run.automationId} onClose={() => setDialog(null)} />
       )}

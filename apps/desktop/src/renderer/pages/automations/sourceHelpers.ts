@@ -38,16 +38,12 @@ export function sampleWords(
   return [kind, client, products ?? request].filter(Boolean).join(" · ");
 }
 
-/** L'indirizzo (finto) di un webhook in arrivo. */
-export const webhookAddress = (id: string) =>
-  `https://stubwise.example/hooks/in/${id.replace(/^src-/, "")}-7f3a9c`;
-
 export function useOpenSource() {
   const navigate = useNavigate();
   return (id: string | undefined) =>
     void navigate({
       to: "/automations/sources",
-      search: ((prev: Record<string, unknown>) => ({ ...prev, src: id })) as never,
+      search: ((prev: Record<string, unknown>) => ({ ...prev, source: id })) as never,
     });
 }
 
@@ -60,9 +56,12 @@ export function useSimulate(source: AutomationSourceView) {
   const fetchRuns = useFetchAutomationRuns();
   const automations = useAutomations().data;
   const paused = usersOf(source, automations).find((a) => a.status === "paused");
-  return (sampleIndex: number) =>
+  /** Un evento d'esempio (il suo indice) o scritto a mano (`{ payload }`, «Edit and send»). */
+  return (sample: number | { payload: unknown }) =>
     simulate.mutate(
-      { sourceId: source.id, sampleIndex },
+      typeof sample === "number"
+        ? { sourceId: source.id, sampleIndex: sample }
+        : { sourceId: source.id, payload: sample.payload },
       {
         onSuccess: async (ids) => {
           const runs = await fetchRuns(ids);
@@ -93,7 +92,13 @@ export function useSimulate(source: AutomationSourceView) {
             });
           }
         },
-        onError: () => toast.error(t("automations.toast.eventError")),
+        // Un evento coi campi del tipo sbagliato non fa partire nulla (shape sources).
+        onError: (e) =>
+          toast.error(
+            (e as Error).message === "invalid: event_types"
+              ? t("automations.toast.eventTypes")
+              : t("automations.toast.eventError"),
+          ),
       },
     );
 }

@@ -5,7 +5,14 @@ import { useMailThreadOfMessage } from "../../data/queries";
 import type { AutomationRunDetail, DataField, RunLogEntry, Step } from "../../data/types";
 import { useToast } from "../../tasks-ui/Toast";
 import { quietButton } from "../tasks/controls";
-import { clientOf, conditionWords, daysBetween, startedByWords, type Names } from "./format";
+import {
+  clientOf,
+  conditionWords,
+  daysBetween,
+  shortDate,
+  startedByWords,
+  type Names,
+} from "./format";
 import { approvalWords } from "./FlowSummary";
 import { wordDiff } from "./logTree";
 import { textLink } from "./shared";
@@ -125,7 +132,7 @@ export function EntrySentence({
   step: Step | null;
   ctx: LogCtx;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const who = ctx.names.person(entry.byId);
   const input = entry.input;
   const hiddenEffect = entry.effects.some((e) => e.code === "");
@@ -253,7 +260,24 @@ export function EntrySentence({
       );
     case "wait": {
       const out = entry.output;
-      if (out["risposta.arrivata"] === true) return <>{t("automations.log.replyReceived")}</>;
+      if (out["risposta.arrivata"] === true) {
+        // «Reply from mario@rossi.it received on Oct 26»: il mittente è chi
+        // aveva ricevuto l'email attesa; il testo lo vede solo il proprietario (R-J16).
+        const sender = replySender(ctx.run.log, entry);
+        const date = shortDate(entry.at, i18n.language);
+        return (
+          <>
+            {sender
+              ? t("automations.log.replyFrom", { sender, date })
+              : t("automations.log.replyReceivedOn", { date })}
+            {entry.replyHidden && (
+              <span data-reply-hidden className="block text-sm text-ink-muted">
+                {t("automations.log.replyInMailbox", { owner: ctx.names.person(ctx.run.ownerId) })}
+              </span>
+            )}
+          </>
+        );
+      }
       if (out["risposta.arrivata"] === false) {
         const since = [...ctx.run.log]
           .reverse()
@@ -288,6 +312,15 @@ export function EntrySentence({
       return <>{t("automations.log.claudeAnswered")}</>;
   }
   return null;
+}
+
+/** Chi doveva rispondere: il destinatario dell'email attesa da questa attesa. */
+function replySender(log: RunLogEntry[], wait: RunLogEntry): string | null {
+  const replyTo = (wait.input as { replyTo?: unknown }).replyTo;
+  if (typeof replyTo !== "string") return null;
+  const sent = log.filter((e) => e.stepId === replyTo && e.kind === "sendEmail" && e.at <= wait.at);
+  const to = sent.at(-1)?.input.to;
+  return typeof to === "string" && to ? to : null;
 }
 
 /** Il valore di un dato in parole: progetti e persone per nome, elenchi uniti. */
@@ -325,6 +358,11 @@ export function EntryData({ entry, ctx }: { entry: RunLogEntry; ctx: LogCtx }) {
     return <p className="pb-1 text-xs text-ink-faint">{t("automations.log.noData")}</p>;
   return (
     <div data-entry-data className="flex flex-col gap-2 pb-2 text-sm">
+      {entry.replyHidden && (
+        <p className="text-xs text-ink-muted">
+          {t("automations.log.replyInMailbox", { owner: ctx.names.person(ctx.run.ownerId) })}
+        </p>
+      )}
       {groups.map((g) => (
         <dl
           key={g.title}

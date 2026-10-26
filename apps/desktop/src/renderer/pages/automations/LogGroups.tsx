@@ -19,6 +19,12 @@ export interface View {
   toggle(key: string, fallback: boolean): void;
   /** La riga fallita su cui si offrono «Skip» e «Retry». */
   actionsFor(entry: RunLogEntry): ReactNode;
+  /** La posizione della riga nel registro (per `[`/`]` e le approvazioni con modifiche). */
+  indexOf(entry: RunLogEntry): number;
+  /** È l'ultima riga del suo passo (la riga «Now»). */
+  isLast(entry: RunLogEntry): boolean;
+  /** Prima di questa riga cambia il giorno (separatore). */
+  dayBreak(entry: RunLogEntry): boolean;
 }
 
 export const matches = (filter: LogFilter, entries: RunLogEntry[]) =>

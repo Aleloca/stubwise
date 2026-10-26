@@ -103,6 +103,26 @@ export function startedByWords(trigger: AutomationTrigger, names: Names, t: TFun
   }
 }
 
+/**
+ * I problemi di un'automazione (shape §5): quelli della versione pubblicata
+ * (un'attiva o in pausa: le esecuzioni si fermeranno lì) e quelli della bozza
+ * (mai accesa, o la versione successiva). `blocking` sono quelli che fermano
+ * l'azione primaria: accendere una bozza o pubblicare → la bozza; riaccendere
+ * una in pausa → la pubblicata. Elenco, «Needs attention», toast e dialoghi
+ * leggono tutti da qui.
+ */
+export function problemsOf(a: {
+  status: "draft" | "active" | "paused";
+  hasDraft: boolean;
+  configErrorCount: number;
+  liveErrorCount: number;
+}) {
+  const live = a.status === "draft" ? 0 : a.liveErrorCount;
+  const draft = a.status === "draft" || a.hasDraft ? a.configErrorCount : 0;
+  const blocking = a.status === "paused" ? live : a.status === "draft" || a.hasDraft ? draft : 0;
+  return { live, draft, total: live + draft, blocking };
+}
+
 /** Quanti passi ha un flusso, rami compresi. */
 export function stepCount(flow: AutomationFlow): number {
   let n = 0;

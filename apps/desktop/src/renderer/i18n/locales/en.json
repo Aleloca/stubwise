@@ -69,7 +69,6 @@
     "coming": {
       "mail": "Mailboxes and labels will be listed here.",
       "claude": "Live and past sessions will be listed here.",
-      "automations": "Rules, sources and past runs will be listed here.",
       "projects": "Groups of projects will be listed here.",
       "preferences": "The sections of your preferences will be listed here.",
       "admin": "The sections of administration will be listed here.",
@@ -234,7 +233,6 @@
       "chat": "Project channels, general channels and direct messages will live here.",
       "mail": "Your connected mailbox will be read here, with the tasks it proposes.",
       "claude": "Claude's live sessions will be followed here: what it is doing and what it asks.",
-      "automations": "Rules that turn incoming events into tasks will be built here.",
       "projects": "Every project you can see will be listed here.",
       "filters": "Your saved filters will be listed here.",
       "planning": "Planning across your projects will be done here.",
@@ -4459,7 +4457,8 @@
       "approve": "Approve",
       "approveChanges": "Approve with changes",
       "reject": "Reject",
-      "choose": "Choose"
+      "choose": "Choose",
+      "duplicate": "Duplicate"
     },
     "filters": {
       "label": "Filters",
@@ -4663,7 +4662,11 @@
       "live_one": "{{count}} problem — runs will stop at this step",
       "live_other": "{{count}} problems — runs will stop at these steps",
       "at": "Step {{number}} · {{name}}",
-      "atStart": "The start"
+      "atStart": "The start",
+      "title_one": "{{count}} problem",
+      "title_other": "{{count}} problems",
+      "nextDraft_one": "In the draft of v{{n}}: {{count}} problem — it can't be published until it's fixed",
+      "nextDraft_other": "In the draft of v{{n}}: {{count}} problems — it can't be published until they're fixed"
     },
     "issue": {
       "incomplete": "Something this step needs is missing",
@@ -4692,7 +4695,13 @@
       "backToCurrent": "Back to current",
       "showingDraft": "Showing the draft of version {{n}}.",
       "versions": "Versions",
-      "about": "About"
+      "about": "About",
+      "statusPausedBy_one": "paused by {{who}} on {{date}} · {{count}} run suspended",
+      "statusPausedBy_other": "paused by {{who}} on {{date}} · {{count}} runs suspended",
+      "statusDraftBy": "never turned on · created by {{who}} on {{date}}",
+      "duplicateVersion": "Duplicate this version",
+      "statusPausedBy_zero": "paused by {{who}} on {{date}}",
+      "statusPaused_zero": "owner {{owner}}"
     },
     "version": {
       "short": "v{{n}}",
@@ -4739,7 +4748,12 @@
       "cancelTitle": "Cancel {{code}}?",
       "cancelBody": "It stops here. Tasks, milestones and emails already created stay as they are.",
       "skipTitle": "Skip step {{number}}?",
-      "skipBody": "Later steps that use its data may fail."
+      "skipBody": "Later steps that use its data may fail.",
+      "runNowTitle": "Run {{code}} now",
+      "runNowBody": "The run starts with these data, as if the event had just happened.",
+      "duplicateTitle": "Duplicate {{code}}",
+      "duplicateVersionTitle": "Duplicate version {{n}} of {{code}}",
+      "duplicateBody": "A new draft, never turned on, with the same steps. Whoever turns it on becomes its owner."
     },
     "toast": {
       "on": "{{code}} is on · you're the owner",
@@ -4775,7 +4789,18 @@
       "clientAdded": "{{client}} linked",
       "clientChanged": "{{client}} now points to another project",
       "clientRemoved": "{{client}} removed",
-      "clientError": "Couldn't update the table. Nothing changed."
+      "clientError": "Couldn't update the table. Nothing changed.",
+      "duplicated": "{{code}} created as a draft",
+      "duplicateError": "Couldn't duplicate {{code}}.",
+      "addressCopied": "Address copied",
+      "addressRegenerated": "New address ready: the old one no longer works",
+      "exampleSaved": "Example saved · fields updated",
+      "exampleError": "Couldn't save the example. Nothing changed.",
+      "fieldError": "Couldn't update the field. Nothing changed.",
+      "eventTypes": "Received with errors: a field isn't of its type. Nothing started.",
+      "webhookCreated": "{{name}} created · paste an example",
+      "webhookError": "Couldn't create the webhook.",
+      "renamed": "Renamed {{name}}"
     },
     "errors": {
       "load": "Couldn't load the automations",
@@ -4870,7 +4895,8 @@
         "rejected": "Rejected by {{who}} on {{date}}",
         "cancelledBy": "Cancelled by {{who}} on {{date}}",
         "stays": "What was already created stays."
-      }
+      },
+      "remember": "Remember for {{client}}"
     },
     "preview": {
       "from": "From",
@@ -4917,7 +4943,8 @@
       "toDeadlineNone": "To the next deadline",
       "simulateReply": "Simulate the client's reply…",
       "replyLabel": "The client's reply",
-      "sendReply": "Send the reply"
+      "sendReply": "Send the reply",
+      "plusHour": "+1 hour"
     },
     "log": {
       "title": "Log",
@@ -4999,7 +5026,10 @@
       "dataOut": "Data out",
       "noData": "No data for this line.",
       "copyJson": "Copy as JSON",
-      "showChanges": "Show changes"
+      "showChanges": "Show changes",
+      "replyFrom": "Reply from {{sender}} received on {{date}}",
+      "replyReceivedOn": "Reply received on {{date}}",
+      "replyInMailbox": "The reply is in {{owner}}'s mailbox"
     },
     "notVisible": {
       "automation": "This automation doesn't exist or you can't see it.",
@@ -5076,9 +5106,43 @@
       "runsContinue": "Runs already in progress continue.",
       "eventsLost": "Events sent while disconnected are lost.",
       "empty": "No sources connected yet. Connect a CRM or create an incoming webhook to start automations from outside events.",
-      "newWebhookLater": "New incoming webhooks can't be created in this prototype yet.",
       "expiredNone": "Access expired. Reconnect it to receive events again.",
-      "disconnectedNone": "Disconnected. Connect it again to receive events."
+      "disconnectedNone": "Disconnected. Connect it again to receive events.",
+      "copy": "Copy",
+      "addressMenu": "More actions for the address",
+      "regenerate": "Generate a new address",
+      "regenerateTitle": "Generate a new address?",
+      "regenerateBody": "The old address stops working at once. Whoever sends to it must update it.",
+      "exampleArea": "Example (JSON)",
+      "invalidJson": "This isn't valid JSON: {{detail}}",
+      "missingField": "{{label}} · used by {{codes}} · missing from the new example",
+      "missingConfirm_one": "{{codes}} uses {{count}} field that the new example doesn't have. It will show a problem.",
+      "missingConfirm_other": "{{codes}} uses {{count}} fields that the new example doesn't have. It will show a problem.",
+      "replaceAnyway": "Replace anyway",
+      "saveExample": "Save example",
+      "noExample": "No example yet: the fields come from it.",
+      "pasteExample": "Paste an example",
+      "replaceExample": "Replace example",
+      "fieldLabel": "Label of {{key}}",
+      "fieldType": "Type of {{key}}",
+      "noFields": "No fields yet.",
+      "colLabel": "Label",
+      "colType": "Type",
+      "colExample": "Example value",
+      "simulateNoExample": "Paste an example first: it's what gets sent.",
+      "eventArea": "The event to send (JSON)",
+      "sendExample": "Send the example",
+      "editAndSend": "Edit and send",
+      "newWebhookTitle": "New incoming webhook",
+      "newWebhookBody": "Give it a name: the address is created at once, then you paste an example of what it receives.",
+      "create": "Create",
+      "webhookName": "Name",
+      "webhookNamePlaceholder": "E-shop orders",
+      "nameLabel": "Name of the source",
+      "save": "Save",
+      "rename": "Rename",
+      "reconnectedBy": "Reconnected by {{who}} · {{date}}",
+      "expiredOn": "expired on {{date}}"
     },
     "clients": {
       "title": "Clients and projects",
@@ -5104,7 +5168,9 @@
       "rowLabel": "{{client}}, {{project}}",
       "search": "Search clients",
       "empty": "No clients linked yet. When a general automation needs the client's project, it looks here.",
-      "note": "An automation acts only in projects its owner can see. If the owner can't see the linked project, the run asks them to choose."
+      "note": "An automation acts only in projects its owner can see. If the owner can't see the linked project, the run asks them to choose.",
+      "fromRecent": "From recent events",
+      "addedBy": "Added by"
     },
     "startedBy": {
       "dealWon": "by a deal won on {{source}}",
@@ -5118,6 +5184,9 @@
       },
       "schedule": "on schedule",
       "manual": "by hand"
+    },
+    "duplicate": {
+      "defaultName": "{{name}} (copy)"
     }
   }
 }

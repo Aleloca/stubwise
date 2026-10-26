@@ -568,14 +568,15 @@ async function main() {
       ["automation-detail", "/automations/AUD-A1", {}],
       ["automation-detail-general", "/automations/AUT-1", {}],
       ["automation-detail-draft", "/automations/STW-A1", {}],
+      ["automation-detail-paused", "/automations/BTG-A1", {}],
       ["run-approval", "/automations/AUD-A1/runs/1", {}],
       ["run-waiting", "/automations/AUD-A1/runs/2", {}],
       ["run-done", "/automations/AUT-1/runs/1", { steps: expandLog }],
       ["run-failed", "/automations/BTG-A1/runs/1", {}],
       ["run-project", "/automations/AUT-1/runs/2", {}],
       ["sources", "/automations/sources", {}],
-      ["sources-panel", "/automations/sources?src=src-hubspot", {}],
-      ["sources-webhook", "/automations/sources?src=src-webhook", {}],
+      ["sources-panel", "/automations/sources?source=src-hubspot", {}],
+      ["sources-webhook", "/automations/sources?source=src-webhook", {}],
     ];
     for (const [name, hash, o] of AREA7) {
       if (only && !only.test(name)) continue;

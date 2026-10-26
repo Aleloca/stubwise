@@ -128,7 +128,8 @@ export interface AppSearch {
   automation?: string;
   mine?: string;
   entry?: string;
-  src?: string;
+  /** Automations: porta alla sezione Problems di un'automazione (`1`). */
+  problems?: string;
 }
 
 const SEARCH_KEYS = [
@@ -181,7 +182,8 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
         : (SEARCH_PARAM_KEYS as readonly string[]).includes(key)
         ? isSearchParamValue(key, value)
         : (DRIVE_SEARCH_KEYS as readonly string[]).includes(key)
-          ? isDriveSearchValue(key, value)
+          ? // `source` è anche il pannello di una sorgente delle Automations (un id).
+            isDriveSearchValue(key, value) || (key === "source" && /^[\w-]+$/.test(value))
           : (MAIL_SEARCH_KEYS as readonly string[]).includes(key) ||
               (key === "project" && value === NO_PROJECT)
             ? isMailSearchValue(key, value)

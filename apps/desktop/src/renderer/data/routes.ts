@@ -11,6 +11,7 @@ import {
   AUTOMATION_SEARCH_KEYS,
   AUTOMATION_VIEWS,
   isAutomationSearchParam,
+  isAutomationSourceParam,
   isAutomationsPath,
 } from "../pages/automations/automationParams";
 import type { GroupBy, ProjectModule, TaskView } from "./types";
@@ -78,9 +79,14 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
     case "file":
       return FILE_CODE_RE.test(value);
     // Il Drive: ordinamento e filtri; il progetto (`prj`) solo nella destinazione.
+    case "source":
+      // Il Drive (filtro per provenienza) e le sorgenti delle Automations (il pannello).
+      return (
+        (isDrivePath(path) && isDriveSearchValue(key, value)) ||
+        isAutomationSourceParam(path, value)
+      );
     case "sort":
     case "type":
-    case "source":
     case "addedBy":
     case "hidden":
       return isDrivePath(path) && isDriveSearchValue(key, value);

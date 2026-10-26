@@ -10,8 +10,8 @@ import { Avatar } from "../../tasks-ui/PersonChip";
 import { useToast } from "../../tasks-ui/Toast";
 import { MenuButton, quietButton, secondaryButton, Chevron } from "../tasks/controls";
 import { CreateAutomationDialog, type AutomationTemplate } from "./CreateAutomationDialog";
-import { PauseDialog, TurnOnDialog } from "./AutomationDialogs";
-import { stepCount, triggerWords, type Names } from "./format";
+import { DuplicateDialog, PauseDialog, TurnOnDialog } from "./AutomationDialogs";
+import { problemsOf, stepCount, triggerWords, type Names } from "./format";
 import { CriticalGlyph, MoreGlyph } from "./glyphs";
 import { orderRuns, RunRows } from "./RunList";
 import {
@@ -95,7 +95,9 @@ export function AutomationRow({ a, names }: { a: Row; names: Names }) {
   const { t, i18n } = useTranslation();
   const toast = useToast();
   const people = usePeople().data;
-  const [dialog, setDialog] = useState<"on" | "pause" | null>(null);
+  const navigate = useNavigate();
+  const [dialog, setDialog] = useState<"on" | "pause" | "duplicate" | null>(null);
+  const problems = problemsOf(a);
   const live = a.versions.filter((v) => v.publishedAt !== null).at(-1);
   const latest = a.versions.at(-1)!;
   const flow = (live ?? latest).flow;
@@ -156,10 +158,10 @@ export function AutomationRow({ a, names }: { a: Row; names: Names }) {
         </span>
         <span className="flex min-w-0 items-center gap-1.5 pl-[76px] text-sm text-ink-muted">
           <span className="truncate">{parts.join(" · ")}</span>
-          {a.configErrorCount > 0 && (
+          {problems.total > 0 && (
             <span data-problems className="inline-flex shrink-0 items-center gap-1 text-critical">
               · <CriticalGlyph className="text-critical" />
-              {t("automations.row.problems", { count: a.configErrorCount })}
+              {t("automations.row.problems", { count: problems.total })}
             </span>
           )}
         </span>
@@ -191,7 +193,14 @@ export function AutomationRow({ a, names }: { a: Row; names: Names }) {
                   className={itemClass}
                   onClick={() => {
                     close();
-                    setDialog("on");
+                    // Con problemi il dialogo non si apre: si va alla sezione Problems.
+                    if (problems.blocking > 0)
+                      void navigate({
+                        to: "/automations/$code",
+                        params: { code: a.code },
+                        search: { problems: "1" } as never,
+                      });
+                    else setDialog("on");
                   }}
                 >
                   {t("automations.actions.turnOn")}
@@ -224,12 +233,29 @@ export function AutomationRow({ a, names }: { a: Row; names: Names }) {
               >
                 {t("automations.actions.copyLink")}
               </button>
+              {a.permissions.manage && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  tabIndex={-1}
+                  className={itemClass}
+                  onClick={() => {
+                    close();
+                    setDialog("duplicate");
+                  }}
+                >
+                  {t("automations.actions.duplicate")}
+                </button>
+              )}
             </MenuGroup>
           )}
         </MenuButton>
       </span>
       {dialog === "on" && <TurnOnDialog automationId={a.id} onClose={() => setDialog(null)} />}
       {dialog === "pause" && <PauseDialog automationId={a.id} onClose={() => setDialog(null)} />}
+      {dialog === "duplicate" && (
+        <DuplicateDialog automationId={a.id} onClose={() => setDialog(null)} />
+      )}
     </li>
   );
 }
@@ -316,7 +342,7 @@ export function AutomationListView({ search }: { search: ListSearch }) {
       !search.status
         ? true
         : search.status === "problems"
-          ? a.configErrorCount > 0
+          ? problemsOf(a).total > 0
           : a.status === search.status,
     )
     .filter((a) => !search.owner || a.ownerId === search.owner);

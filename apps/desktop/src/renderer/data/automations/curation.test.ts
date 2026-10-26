@@ -322,3 +322,13 @@ describe("sorgenti curate", () => {
     expect(await automations.listClientSuggestions()).toEqual([]);
   });
 });
+
+describe("tabella cliente → progetto: un progetto che non vedo non si rivela", () => {
+  it("la riga resta, senza l'id del progetto", async () => {
+    as("p-laura");
+    const links = await automations.listClientLinks();
+    const mix = links.find((l) => l.clientKey === "mixcucine.example")!;
+    expect(mix).toMatchObject({ projectId: "", projectVisible: false });
+    expect(JSON.stringify(links)).not.toContain("prj-mkx");
+  });
+});

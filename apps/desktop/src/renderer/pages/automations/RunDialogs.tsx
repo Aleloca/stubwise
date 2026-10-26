@@ -13,9 +13,12 @@ import { stepName } from "./RunNow";
 export function CancelRunDialog({
   run,
   onClose,
+  onDone,
 }: {
   run: AutomationRunDetail;
   onClose: () => void;
+  /** Fatto: il bottone che l'ha aperto può non esserci più, il fuoco va alla frase di «Now». */
+  onDone?: () => void;
 }) {
   const { t } = useTranslation();
   const toast = useToast();
@@ -38,6 +41,7 @@ export function CancelRunDialog({
               cancel.mutate(run.id, {
                 onSuccess: () => {
                   onClose();
+                  onDone?.();
                   toast.show(t("automations.toast.cancelled", { code: run.code }));
                 },
                 onError: () =>
@@ -58,9 +62,12 @@ export function CancelRunDialog({
 export function SkipStepDialog({
   run,
   onClose,
+  onDone,
 }: {
   run: AutomationRunDetail;
   onClose: () => void;
+  /** Fatto: il bottone che l'ha aperto può non esserci più, il fuoco va alla frase di «Now». */
+  onDone?: () => void;
 }) {
   const { t } = useTranslation();
   const toast = useToast();
@@ -83,6 +90,7 @@ export function SkipStepDialog({
               skip.mutate(run.id, {
                 onSuccess: () => {
                   onClose();
+                  onDone?.();
                   toast.show(t("automations.toast.skipped", { code: run.code }));
                 },
                 onError: () =>

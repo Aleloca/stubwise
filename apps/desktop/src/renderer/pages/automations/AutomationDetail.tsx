@@ -1,14 +1,12 @@
-import { Link, useNavigate } from "@tanstack/react-router";
-import { useMemo, useRef, useState } from "react";
+import { Link, useSearch } from "@tanstack/react-router";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   useAutomation,
   useAutomationRuns,
   useAutomations,
   useAutomationSources,
-  useFetchAutomationRuns,
   useMailboxes,
-  useStartAutomation,
 } from "../../data/queries";
 import type { AutomationDetail as Detail, AutomationRow } from "../../data/types";
 import { AUTOMATION_LIMITS } from "../../domain/automations/fields";
@@ -16,7 +14,13 @@ import { MenuGroup, itemClass } from "../../tasks-ui/Menu";
 import { useToast } from "../../tasks-ui/Toast";
 import { BlockSection, queryState } from "../home/blocks/BlockSection";
 import { MenuButton, primaryButton, quietButton, secondaryButton } from "../tasks/controls";
-import { DeleteDraftDialog, PauseDialog, TurnOnDialog } from "./AutomationDialogs";
+import {
+  DeleteDraftDialog,
+  DuplicateDialog,
+  PauseDialog,
+  RunNowDialog,
+  TurnOnDialog,
+} from "./AutomationDialogs";
 import { FlowSummary } from "./FlowSummary";
 import { fieldLabels, isFinished, positionWords, shortDate } from "./format";
 import { CriticalGlyph, MoreGlyph } from "./glyphs";
@@ -36,6 +40,7 @@ function StatusLine({ a }: { a: AutomationRow }) {
   const names = useNames();
   const live = a.versions.filter((v) => v.publishedAt !== null).at(-1);
   const owner = names.person(a.ownerId);
+  // «‖ Paused by Laura Bianchi on Oct 20 · 1 run suspended» / «○ Draft · never turned on · created by Paolo Neri».
   const text =
     a.status === "active"
       ? t("automations.detail.statusActive", {
@@ -44,8 +49,19 @@ function StatusLine({ a }: { a: AutomationRow }) {
           date: shortDate(live?.publishedAt ?? a.createdAt, i18n.language),
         })
       : a.status === "paused"
-        ? t("automations.detail.statusPaused", { owner, count: a.openRuns })
-        : t("automations.detail.statusDraft", { date: shortDate(a.createdAt, i18n.language) });
+        ? a.pausedById && a.pausedAt
+          ? t("automations.detail.statusPausedBy", {
+              who: names.person(a.pausedById),
+              date: shortDate(a.pausedAt, i18n.language),
+              count: a.openRuns,
+            })
+          : t("automations.detail.statusPaused", { owner, count: a.openRuns })
+        : a.createdById
+          ? t("automations.detail.statusDraftBy", {
+              who: names.person(a.createdById),
+              date: shortDate(a.createdAt, i18n.language),
+            })
+          : t("automations.detail.statusDraft", { date: shortDate(a.createdAt, i18n.language) });
   return (
     <p data-status-line className="flex flex-wrap items-center gap-x-1.5 text-md text-ink-muted">
       <AutomationStatusWord status={a.status} />
@@ -64,18 +80,19 @@ function Header({
   onTurnOn,
   onPause,
   onDelete,
+  onRunNow,
+  onDuplicate,
 }: {
   detail: Detail;
   onTurnOn: () => void;
   onPause: () => void;
   onDelete: () => void;
+  onRunNow: () => void;
+  onDuplicate: () => void;
 }) {
   const { t } = useTranslation();
   const names = useNames();
   const toast = useToast();
-  const navigate = useNavigate();
-  const start = useStartAutomation();
-  const fetchRuns = useFetchAutomationRuns();
   const a = detail.automation;
   const manage = a.permissions.manage;
   const project = names.project(a.projectId);
@@ -91,28 +108,6 @@ function Header({
       {label}
     </Link>
   );
-  const runNow = () =>
-    start.mutate(
-      { id: a.id },
-      {
-        onSuccess: async (runId) => {
-          const [run] = await fetchRuns([runId]);
-          if (!run) return;
-          toast.show(t("automations.toast.started", { code: run.code }), {
-            action: {
-              label: t("automations.actions.open"),
-              run: () =>
-                void navigate({
-                  to: "/automations/$code/runs/$n",
-                  params: { code: a.code, n: String(run.n) },
-                }),
-            },
-          });
-        },
-        onError: () => toast.error(t("automations.toast.startError", { code: a.code })),
-      },
-    );
-
   return (
     <header className="page-header flex shrink-0 flex-col gap-2 pb-6 [--page-header-pr:32px] [--page-header-pt:32px]">
       <p className="flex items-center gap-2 text-xs text-ink-muted">
@@ -184,10 +179,24 @@ function Header({
                     className={itemClass}
                     onClick={() => {
                       close();
-                      runNow();
+                      onRunNow();
                     }}
                   >
                     {t("automations.actions.runNow")}
+                  </button>
+                )}
+                {manage && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    tabIndex={-1}
+                    className={itemClass}
+                    onClick={() => {
+                      close();
+                      onDuplicate();
+                    }}
+                  >
+                    {t("automations.actions.duplicate")}
                   </button>
                 )}
                 <button
@@ -257,12 +266,20 @@ function ProblemsSection({
 }) {
   const { t } = useTranslation();
   const a = detail.automation;
-  const live = a.status !== "draft";
-  // Una bozza: gli errori dell'ultima versione. Un'attiva o in pausa: quelli della pubblicata.
-  const issues = live ? detail.liveErrors : detail.configErrors;
-  const flow = (live ? a.versions.filter((v) => v.publishedAt !== null).at(-1) : a.versions.at(-1))!
-    .flow;
-  if (issues.length === 0) return null;
+  const latest = a.versions.at(-1)!;
+  const liveVersion = a.versions.filter((v) => v.publishedAt !== null).at(-1);
+  // La versione pubblicata (un'attiva o in pausa: le esecuzioni si fermano lì) e
+  // la bozza (mai accesa, o la versione successiva: non si accende né si pubblica).
+  const lists = [
+    ...(a.status !== "draft" && liveVersion && detail.liveErrors.length > 0
+      ? [{ key: "live", issues: detail.liveErrors, flow: liveVersion.flow }]
+      : []),
+    ...(latest.publishedAt === null && detail.configErrors.length > 0
+      ? [{ key: "draft", issues: detail.configErrors, flow: latest.flow }]
+      : []),
+  ];
+  if (lists.length === 0) return null;
+  const neverOn = a.status === "draft";
   return (
     <section
       ref={focusRef}
@@ -276,31 +293,45 @@ function ProblemsSection({
         className="flex items-center gap-2 pb-3 text-xl font-semibold text-ink"
       >
         <CriticalGlyph />
-        {t(live ? "automations.problems.live" : "automations.problems.draft", {
-          count: issues.length,
+        {t("automations.problems.title", {
+          count: lists.reduce((n, l) => n + l.issues.length, 0),
         })}
       </h2>
-      <ul className="border-t border-rule">
-        {issues.map((i, k) => (
-          <li key={k} className="flex min-h-10 items-center gap-4 border-b border-rule py-2 pl-1">
-            <span className="w-56 shrink-0 text-sm text-ink-muted">
-              {positionWords(flow, i.path, t)}
-            </span>
-            <span className="min-w-0 flex-1 text-md text-ink" title={i.message}>
-              {t(`automations.issue.${i.code}`)}
-            </span>
-            {a.permissions.manage && (
-              <Link
-                to="/automations/$code/edit"
-                params={{ code: a.code }}
-                className={`${quietButton} h-7`}
+      {lists.map((list) => (
+        <div key={list.key} data-problems={list.key} className="pb-3">
+          <p className="pb-1.5 text-sm text-ink-muted">
+            {list.key === "live"
+              ? t("automations.problems.live", { count: list.issues.length })
+              : neverOn
+                ? t("automations.problems.draft", { count: list.issues.length })
+                : t("automations.problems.nextDraft", { count: list.issues.length, n: latest.n })}
+          </p>
+          <ul className="border-t border-rule">
+            {list.issues.map((i, k) => (
+              <li
+                key={k}
+                className="flex min-h-10 items-center gap-4 border-b border-rule py-2 pl-1"
               >
-                {t("automations.actions.fix")}
-              </Link>
-            )}
-          </li>
-        ))}
-      </ul>
+                <span className="w-56 shrink-0 text-sm text-ink-muted">
+                  {positionWords(list.flow, i.path, t)}
+                </span>
+                <span className="min-w-0 flex-1 text-md text-ink" title={i.message}>
+                  {t(`automations.issue.${i.code}`)}
+                </span>
+                {a.permissions.manage && (
+                  <Link
+                    to="/automations/$code/edit"
+                    params={{ code: a.code }}
+                    className={`${quietButton} h-7`}
+                  >
+                    {t("automations.actions.fix")}
+                  </Link>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
     </section>
   );
 }
@@ -370,10 +401,13 @@ function HowItWorks({
   detail,
   viewing,
   onBack,
+  onDuplicate,
 }: {
   detail: Detail;
   viewing: number | null;
   onBack: () => void;
+  /** «Duplicate this version»: riprendere una versione vecchia ([A 11]). */
+  onDuplicate: (n: number) => void;
 }) {
   const { t } = useTranslation();
   const names = useNames();
@@ -409,6 +443,18 @@ function HowItWorks({
               >
                 {t("automations.detail.backToCurrent")}
               </button>
+              {a.permissions.manage && (
+                <>
+                  {" · "}
+                  <button
+                    type="button"
+                    className="text-ink underline underline-offset-4"
+                    onClick={() => onDuplicate(viewing)}
+                  >
+                    {t("automations.detail.duplicateVersion")}
+                  </button>
+                </>
+              )}
             </p>
           ) : version.publishedAt === null && a.status !== "draft" ? (
             <p className="text-sm text-ink-muted">
@@ -528,10 +574,21 @@ export function AutomationDetail({ automationId }: { automationId: string }) {
   const { t } = useTranslation();
   const query = useAutomation(automationId);
   const toast = useToast();
-  const [dialog, setDialog] = useState<"on" | "pause" | "delete" | null>(null);
+  const [dialog, setDialog] = useState<"on" | "pause" | "delete" | "run" | "duplicate" | null>(
+    null,
+  );
+  const [duplicateVersion, setDuplicateVersion] = useState<number | undefined>(undefined);
   const [viewing, setViewing] = useState<number | null>(null);
   const problems = useRef<HTMLElement>(null);
   const detail = query.data;
+  const search = useSearch({ strict: false }) as { problems?: string };
+  // `?problems=1` (dall'elenco, «Turn on» con problemi): alla sezione Problems.
+  const hasDetail = detail !== undefined;
+  useEffect(() => {
+    if (!hasDetail || search.problems !== "1") return;
+    problems.current?.scrollIntoView?.({ block: "start" });
+    problems.current?.focus();
+  }, [hasDetail, search.problems]);
   if (query.isError) {
     return (
       <div role="alert" className="flex flex-col items-start gap-3 px-8 py-10">
@@ -554,6 +611,10 @@ export function AutomationDetail({ automationId }: { automationId: string }) {
     }
     setDialog("on");
   };
+  const duplicateOf = (n: number) => {
+    setDuplicateVersion(n);
+    setDialog("duplicate");
+  };
   return (
     <article className="flex min-h-full flex-col pb-16 pl-8">
       <div className="flex w-full max-w-[960px] flex-col pr-8">
@@ -562,17 +623,32 @@ export function AutomationDetail({ automationId }: { automationId: string }) {
           onTurnOn={turnOn}
           onPause={() => setDialog("pause")}
           onDelete={() => setDialog("delete")}
+          onRunNow={() => setDialog("run")}
+          onDuplicate={() => {
+            setDuplicateVersion(undefined);
+            setDialog("duplicate");
+          }}
         />
         <ProblemsSection detail={detail} focusRef={problems} />
         {a.status === "draft" ? (
           <>
-            <HowItWorks detail={detail} viewing={viewing} onBack={() => setViewing(null)} />
+            <HowItWorks
+              detail={detail}
+              viewing={viewing}
+              onBack={() => setViewing(null)}
+              onDuplicate={duplicateOf}
+            />
             <RunsSection detail={detail} />
           </>
         ) : (
           <>
             <RunsSection detail={detail} />
-            <HowItWorks detail={detail} viewing={viewing} onBack={() => setViewing(null)} />
+            <HowItWorks
+              detail={detail}
+              viewing={viewing}
+              onBack={() => setViewing(null)}
+              onDuplicate={duplicateOf}
+            />
           </>
         )}
         <VersionsSection detail={detail} viewing={viewing} onView={setViewing} />
@@ -582,6 +658,14 @@ export function AutomationDetail({ automationId }: { automationId: string }) {
       {dialog === "pause" && <PauseDialog automationId={a.id} onClose={() => setDialog(null)} />}
       {dialog === "delete" && (
         <DeleteDraftDialog automationId={a.id} onClose={() => setDialog(null)} />
+      )}
+      {dialog === "run" && <RunNowDialog automationId={a.id} onClose={() => setDialog(null)} />}
+      {dialog === "duplicate" && (
+        <DuplicateDialog
+          automationId={a.id}
+          version={duplicateVersion}
+          onClose={() => setDialog(null)}
+        />
       )}
     </article>
   );

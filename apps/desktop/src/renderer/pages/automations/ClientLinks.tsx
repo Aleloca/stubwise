@@ -2,6 +2,8 @@ import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   useClientLinks,
+  useClientSuggestions,
+  usePeople,
   useProjects,
   useRemoveClientLink,
   useSetClientLink,
@@ -19,6 +21,8 @@ import {
   secondaryButton,
 } from "../tasks/controls";
 import { MoreGlyph } from "./glyphs";
+import { Avatar } from "../../tasks-ui/PersonChip";
+import { shortDate } from "./format";
 import { codeClass } from "./shared";
 
 // «Clients and projects» (shape automation-sources.md §6): il registro delle
@@ -30,8 +34,9 @@ import { codeClass } from "./shared";
 /** Da quante righe compare la ricerca sopra la tabella. */
 const SEARCH_FROM = 20;
 
+// Cliente · Chiave · Progetto · Aggiunta da · «⋯»; sotto 1100 px cade «Added by».
 const cols =
-  "grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1.4fr)_40px] items-center gap-3";
+  "grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1.4fr)_minmax(0,1fr)_40px] items-center gap-3 max-[1100px]:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1.4fr)_40px]";
 
 /** La chiave come la riconoscono le sorgenti: un dominio email, o un id del CRM. */
 function keyWords(key: string, t: (k: string, o?: Record<string, unknown>) => string) {
@@ -80,6 +85,8 @@ function AddRow({ links, onDone }: { links: ClientLinkView[]; onDone: () => void
   const clash = links.find((l) => l.clientKey === key.trim().toLowerCase());
   const project = useProjects().data?.find((p) => p.id === clash?.projectId);
   const ok = name.trim() !== "" && key.trim() !== "" && projectId !== "" && !clash;
+  // «From recent events» ([A 11]): i clienti arrivati con gli eventi che la tabella non ha.
+  const suggestions = (useClientSuggestions().data ?? []).slice(0, 4);
   return (
     <div data-add-client className={`${cols} border-b border-rule bg-ink/4 px-2 py-2`}>
       <input
@@ -111,8 +118,27 @@ function AddRow({ links, onDone }: { links: ClientLinkView[]; onDone: () => void
       <div className="flex min-w-0 items-center gap-2">
         <ProjectSelect value={projectId} onChange={setProjectId} />
       </div>
+      <span className="max-[1100px]:hidden" />
       <span />
-      <div className="col-span-4 flex justify-end gap-2">
+      {suggestions.length > 0 && !name && (
+        <div data-suggestions className="col-span-full flex flex-wrap items-center gap-1.5">
+          <span className="heading-group">{t("automations.clients.fromRecent")}</span>
+          {suggestions.map((sug) => (
+            <button
+              key={sug.clientKey}
+              type="button"
+              className={`${quietButton} h-7`}
+              onClick={() => {
+                setName(sug.clientName);
+                setKey(sug.clientKey);
+              }}
+            >
+              {sug.clientName}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="col-span-full flex justify-end gap-2">
         <button type="button" className={secondaryButton} onClick={onDone}>
           {t("automations.actions.cancel")}
         </button>
@@ -141,7 +167,8 @@ function AddRow({ links, onDone }: { links: ClientLinkView[]; onDone: () => void
 }
 
 function LinkRow({ link }: { link: ClientLinkView }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const adder = usePeople().data?.find((p) => p.id === link.addedById);
   const toast = useToast();
   const project = useProjects().data?.find((p) => p.id === link.projectId);
   const save = useSetClientLink();
@@ -189,6 +216,20 @@ function LinkRow({ link }: { link: ClientLinkView }) {
           {t("automations.clients.hidden")}
         </span>
       )}
+      <span
+        data-added-by
+        title={link.addedAt ? shortDate(link.addedAt, i18n.language) : undefined}
+        className="flex min-w-0 items-center gap-2 text-sm text-ink-muted max-[1100px]:hidden"
+      >
+        {adder ? (
+          <>
+            <Avatar person={adder} />
+            <span className="truncate">{adder.name}</span>
+          </>
+        ) : (
+          "—"
+        )}
+      </span>
       <MenuButton
         menuLabel={t("automations.clients.menu", { client: link.clientName })}
         ariaLabel={t("automations.clients.menu", { client: link.clientName })}
@@ -321,6 +362,7 @@ export function ClientLinks() {
               <span>{t("automations.clients.client")}</span>
               <span>{t("automations.clients.key")}</span>
               <span>{t("automations.clients.project")}</span>
+              <span className="max-[1100px]:hidden">{t("automations.clients.addedBy")}</span>
               <span />
             </div>
             {adding && <AddRow links={all} onDone={() => setAdding(false)} />}

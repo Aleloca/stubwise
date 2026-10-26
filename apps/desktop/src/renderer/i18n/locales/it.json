@@ -69,7 +69,6 @@
     "coming": {
       "mail": "Qui compariranno caselle ed etichette.",
       "claude": "Qui compariranno le sessioni dal vivo e quelle passate.",
-      "automations": "Qui compariranno regole, sorgenti ed esecuzioni passate.",
       "projects": "Qui compariranno i gruppi di progetti.",
       "preferences": "Qui compariranno le sezioni delle tue preferenze.",
       "admin": "Qui compariranno le sezioni dell'amministrazione.",
@@ -234,7 +233,6 @@
       "chat": "Qui vivranno i canali dei progetti, quelli generali e i messaggi diretti.",
       "mail": "Qui si leggerà la tua posta collegata, con le task che propone.",
       "claude": "Qui si seguiranno le sessioni dal vivo di Claude: cosa sta facendo e cosa chiede.",
-      "automations": "Qui si costruiranno le regole che trasformano gli eventi in arrivo in task.",
       "projects": "Qui compariranno tutti i progetti che vedi.",
       "filters": "Qui compariranno i tuoi filtri salvati.",
       "planning": "Qui si pianificherà fra i tuoi progetti.",
@@ -4459,7 +4457,8 @@
       "approve": "Approva",
       "approveChanges": "Approva con le modifiche",
       "reject": "Rifiuta",
-      "choose": "Scegli"
+      "choose": "Scegli",
+      "duplicate": "Duplica"
     },
     "filters": {
       "label": "Filtri",
@@ -4663,7 +4662,11 @@
       "live_one": "{{count}} problema — le esecuzioni si fermeranno a questo passo",
       "live_other": "{{count}} problemi — le esecuzioni si fermeranno a questi passi",
       "at": "Passo {{number}} · {{name}}",
-      "atStart": "L'inizio"
+      "atStart": "L'inizio",
+      "title_one": "{{count}} problema",
+      "title_other": "{{count}} problemi",
+      "nextDraft_one": "Nella bozza della v{{n}}: {{count}} problema — non si pubblica finché non è risolto",
+      "nextDraft_other": "Nella bozza della v{{n}}: {{count}} problemi — non si pubblica finché non sono risolti"
     },
     "issue": {
       "incomplete": "Manca qualcosa che serve a questo passo",
@@ -4692,7 +4695,13 @@
       "backToCurrent": "Torna a quella corrente",
       "showingDraft": "Stai guardando la bozza della versione {{n}}.",
       "versions": "Versioni",
-      "about": "Informazioni"
+      "about": "Informazioni",
+      "statusPausedBy_one": "messa in pausa da {{who}} il {{date}} · {{count}} esecuzione sospesa",
+      "statusPausedBy_other": "messa in pausa da {{who}} il {{date}} · {{count}} esecuzioni sospese",
+      "statusDraftBy": "mai accesa · creata da {{who}} il {{date}}",
+      "duplicateVersion": "Duplica questa versione",
+      "statusPausedBy_zero": "messa in pausa da {{who}} il {{date}}",
+      "statusPaused_zero": "proprietario {{owner}}"
     },
     "version": {
       "short": "v{{n}}",
@@ -4739,7 +4748,12 @@
       "cancelTitle": "Annullare {{code}}?",
       "cancelBody": "Si ferma qui. Le task, i traguardi e le email già creati restano come sono.",
       "skipTitle": "Saltare il passo {{number}}?",
-      "skipBody": "I passi successivi che usano i suoi dati potrebbero fallire."
+      "skipBody": "I passi successivi che usano i suoi dati potrebbero fallire.",
+      "runNowTitle": "Avviare {{code}} adesso",
+      "runNowBody": "L'esecuzione parte con questi dati, come se l'evento fosse appena successo.",
+      "duplicateTitle": "Duplica {{code}}",
+      "duplicateVersionTitle": "Duplica la versione {{n}} di {{code}}",
+      "duplicateBody": "Una bozza nuova, mai accesa, con gli stessi passi. Chi la accende ne diventa il proprietario."
     },
     "toast": {
       "on": "{{code}} è accesa · il proprietario sei tu",
@@ -4775,7 +4789,18 @@
       "clientAdded": "{{client}} collegato",
       "clientChanged": "{{client}} ora punta a un altro progetto",
       "clientRemoved": "{{client}} tolto",
-      "clientError": "Non è stato possibile aggiornare la tabella. Non è cambiato niente."
+      "clientError": "Non è stato possibile aggiornare la tabella. Non è cambiato niente.",
+      "duplicated": "{{code}} creata come bozza",
+      "duplicateError": "Non è stato possibile duplicare {{code}}.",
+      "addressCopied": "Indirizzo copiato",
+      "addressRegenerated": "Indirizzo nuovo pronto: il vecchio non funziona più",
+      "exampleSaved": "Esempio salvato · campi aggiornati",
+      "exampleError": "Non è stato possibile salvare l'esempio. Non è cambiato niente.",
+      "fieldError": "Non è stato possibile aggiornare il campo. Non è cambiato niente.",
+      "eventTypes": "Ricevuto con errori: un campo non è del suo tipo. Non è partito niente.",
+      "webhookCreated": "{{name}} creato · incolla un esempio",
+      "webhookError": "Non è stato possibile creare il webhook.",
+      "renamed": "Rinominata {{name}}"
     },
     "errors": {
       "load": "Non è stato possibile caricare le automazioni",
@@ -4870,7 +4895,8 @@
         "rejected": "Rifiutata da {{who}} il {{date}}",
         "cancelledBy": "Annullata da {{who}} il {{date}}",
         "stays": "Quello che era già stato creato resta."
-      }
+      },
+      "remember": "Ricorda per {{client}}"
     },
     "preview": {
       "from": "Da",
@@ -4917,7 +4943,8 @@
       "toDeadlineNone": "Fino alla prossima scadenza",
       "simulateReply": "Simula la risposta del cliente…",
       "replyLabel": "La risposta del cliente",
-      "sendReply": "Manda la risposta"
+      "sendReply": "Manda la risposta",
+      "plusHour": "+1 ora"
     },
     "log": {
       "title": "Registro",
@@ -4999,7 +5026,10 @@
       "dataOut": "Dati in uscita",
       "noData": "Nessun dato per questa riga.",
       "copyJson": "Copia come JSON",
-      "showChanges": "Mostra le modifiche"
+      "showChanges": "Mostra le modifiche",
+      "replyFrom": "Risposta da {{sender}} ricevuta il {{date}}",
+      "replyReceivedOn": "Risposta ricevuta il {{date}}",
+      "replyInMailbox": "La risposta è nella casella di {{owner}}"
     },
     "notVisible": {
       "automation": "Questa automazione non esiste o non puoi vederla.",
@@ -5076,9 +5106,43 @@
       "runsContinue": "Le esecuzioni già partite continuano.",
       "eventsLost": "Gli eventi mandati mentre è scollegata vanno persi.",
       "empty": "Ancora nessuna sorgente collegata. Collega un CRM o crea un webhook in arrivo per far partire le automazioni da eventi esterni.",
-      "newWebhookLater": "In questo prototipo non si possono ancora creare nuovi webhook in arrivo.",
       "expiredNone": "Accesso scaduto. Ricollegala per ricevere di nuovo eventi.",
-      "disconnectedNone": "Scollegata. Ricollegala per ricevere eventi."
+      "disconnectedNone": "Scollegata. Ricollegala per ricevere eventi.",
+      "copy": "Copia",
+      "addressMenu": "Altre azioni per l'indirizzo",
+      "regenerate": "Genera un indirizzo nuovo",
+      "regenerateTitle": "Generare un indirizzo nuovo?",
+      "regenerateBody": "Il vecchio indirizzo smette subito di funzionare. Chi ci manda eventi deve aggiornarlo.",
+      "exampleArea": "Esempio (JSON)",
+      "invalidJson": "Questo non è un JSON valido: {{detail}}",
+      "missingField": "{{label}} · usato da {{codes}} · manca nel nuovo esempio",
+      "missingConfirm_one": "{{codes}} usa {{count}} campo che il nuovo esempio non ha. Mostrerà un problema.",
+      "missingConfirm_other": "{{codes}} usa {{count}} campi che il nuovo esempio non ha. Mostrerà un problema.",
+      "replaceAnyway": "Sostituisci comunque",
+      "saveExample": "Salva l'esempio",
+      "noExample": "Ancora nessun esempio: i campi nascono da lì.",
+      "pasteExample": "Incolla un esempio",
+      "replaceExample": "Sostituisci l'esempio",
+      "fieldLabel": "Etichetta di {{key}}",
+      "fieldType": "Tipo di {{key}}",
+      "noFields": "Ancora nessun campo.",
+      "colLabel": "Etichetta",
+      "colType": "Tipo",
+      "colExample": "Valore d'esempio",
+      "simulateNoExample": "Prima incolla un esempio: è quello che si manda.",
+      "eventArea": "L'evento da mandare (JSON)",
+      "sendExample": "Manda l'esempio",
+      "editAndSend": "Modifica e manda",
+      "newWebhookTitle": "Nuovo webhook in arrivo",
+      "newWebhookBody": "Dagli un nome: l'indirizzo nasce subito, poi incolli un esempio di ciò che riceve.",
+      "create": "Crea",
+      "webhookName": "Nome",
+      "webhookNamePlaceholder": "Ordini e-shop",
+      "nameLabel": "Nome della sorgente",
+      "save": "Salva",
+      "rename": "Rinomina",
+      "reconnectedBy": "Ricollegata da {{who}} · {{date}}",
+      "expiredOn": "scaduta il {{date}}"
     },
     "clients": {
       "title": "Clienti e progetti",
@@ -5104,7 +5168,9 @@
       "rowLabel": "{{client}}, {{project}}",
       "search": "Cerca un cliente",
       "empty": "Ancora nessun cliente collegato. Quando un'automazione generale ha bisogno del progetto del cliente, guarda qui.",
-      "note": "Un'automazione agisce solo nei progetti che il suo proprietario vede. Se il proprietario non vede il progetto collegato, l'esecuzione gli chiede di sceglierlo."
+      "note": "Un'automazione agisce solo nei progetti che il suo proprietario vede. Se il proprietario non vede il progetto collegato, l'esecuzione gli chiede di sceglierlo.",
+      "fromRecent": "Dagli eventi recenti",
+      "addedBy": "Aggiunta da"
     },
     "startedBy": {
       "dealWon": "da una trattativa chiusa su {{source}}",
@@ -5118,6 +5184,9 @@
       },
       "schedule": "a calendario",
       "manual": "a mano"
+    },
+    "duplicate": {
+      "defaultName": "{{name}} (copia)"
     }
   }
 }

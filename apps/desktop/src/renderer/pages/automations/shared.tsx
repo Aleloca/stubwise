@@ -13,7 +13,7 @@ import {
 } from "../../data/queries";
 import { can, useViewer } from "../../data/viewer";
 import type { Automation, RunStatus } from "../../data/types";
-import type { Names, TemplatePart } from "./format";
+import { problemsOf, type Names, type TemplatePart } from "./format";
 import { AutomationStatusGlyph, RunStatusGlyph } from "./glyphs";
 
 // I pezzi comuni delle pagine delle Automations: i nomi che le frasi citano,
@@ -79,7 +79,7 @@ export function useAttention() {
     const mine = new Set((approvals.data ?? []).map((d) => d.runId));
     const automationIds = new Set(
       (automations.data ?? [])
-        .filter((a) => a.permissions.manage && a.configErrorCount > 0 && a.status !== "draft")
+        .filter((a) => a.permissions.manage && a.status !== "draft" && problemsOf(a).total > 0)
         .map((a) => a.id),
     );
     const runIds = new Set(

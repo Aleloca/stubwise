@@ -33,9 +33,9 @@ export function PassTime({ run }: { run: AutomationRunDetail }) {
   const toDeadline = run.waitingUntil
     ? Math.min(30, Math.max(1, Math.ceil((Date.parse(run.waitingUntil) - Date.parse(now())) / DAY)))
     : null;
-  const pass = (days: number) =>
+  const pass = (days: number, hours = 0) =>
     advance.mutate(
-      { runId: run.id, days },
+      { runId: run.id, days, hours },
       { onError: () => toast.error(t("automations.toast.timeError")) },
     );
   return (
@@ -46,6 +46,14 @@ export function PassTime({ run }: { run: AutomationRunDetail }) {
           : t("automations.prototype.daysPass")}
       </p>
       <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          className={`${secondaryButton} disabled:opacity-40`}
+          disabled={blocked || advance.isPending}
+          onClick={() => pass(0, 1)}
+        >
+          {t("automations.prototype.plusHour")}
+        </button>
         <button
           type="button"
           className={`${secondaryButton} disabled:opacity-40`}

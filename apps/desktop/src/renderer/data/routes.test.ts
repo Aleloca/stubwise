@@ -100,8 +100,14 @@ describe("route grammar", () => {
     expect(isAppRoute(runHref("AUD-A1", 2, "3/then/0/mancano informazioni/0"))).toBe(true);
     expect(isAppRoute("#/automations/AUD-A1?entry=0")).toBe(false);
     expect(isAppRoute("#/automations/sources")).toBe(true);
-    expect(isAppRoute("#/automations/sources?src=src-audin")).toBe(true);
-    expect(isAppRoute("#/automations?src=src-audin")).toBe(false);
+    expect(isAppRoute("#/automations/sources?source=src-audin")).toBe(true);
+    expect(isAppRoute("#/automations?source=src-audin")).toBe(false);
+    expect(isAppRoute("#/drive?source=google")).toBe(true);
+    expect(isAppRoute("#/automations/AUD-A1/edit")).toBe(true);
+    expect(isAppRoute("#/automations/AUD-A1/test")).toBe(true);
+    expect(isAppRoute("#/automations/AUD-A1/other")).toBe(false);
+    expect(isAppRoute("#/automations/AUD-A1?problems=1")).toBe(true);
+    expect(isAppRoute("#/automations?problems=1")).toBe(false);
     expect(isAppRoute("#/home?status=active")).toBe(false);
     expect(automationHref("AUD-A1")).toBe("#/automations/AUD-A1");
   });

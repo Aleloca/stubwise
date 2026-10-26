@@ -2,6 +2,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { automations as automationsApi, failNext, resetApi, setLatency } from "../../data/api";
+import { TODAY } from "../../data/dates";
 import { state } from "../../data/store";
 import type { AutomationRun, RunLogEntry } from "../../data/types";
 import { grantProjectRole, resetViewerGrants } from "../../data/viewer";
@@ -323,6 +324,8 @@ describe("dettaglio di un'esecuzione", () => {
     await userEvent.click(within(now).getByRole("button", { name: "Approve with changes" }));
     await idle();
     expect(await screen.findByText("Approved with changes by Matteo Conti")).toBeInTheDocument();
+    // Il bottone premuto non c'è più: il fuoco è sulla frase nuova di «Now».
+    await waitFor(() => expect(document.activeElement).toHaveAttribute("data-now-title"));
     await waitFor(() =>
       expect(screen.getByRole("region", { name: "Now" })).toHaveTextContent(
         /Waiting for .* to reply/,
@@ -669,7 +672,7 @@ describe("sorgenti", () => {
   });
 
   it("scollegare dice quali automazioni attive si fermano", async () => {
-    await open("/automations/sources?src=src-audin");
+    await open("/automations/sources?source=src-audin");
     const panel = await screen.findByRole("region", { name: "Source Audin" });
     await userEvent.click(within(panel).getByRole("button", { name: "Disconnect" }));
     const dialog = await screen.findByRole("dialog", { name: "Disconnect Audin?" });
@@ -682,7 +685,7 @@ describe("sorgenti", () => {
   });
 
   it("«Simulate an event» (solo prototipo) fa partire AUT-1 e lo dice in un toast con «Open»", async () => {
-    const router = await open("/automations/sources?src=src-audin");
+    const router = await open("/automations/sources?source=src-audin");
     const panel = await screen.findByRole("region", { name: "Source Audin" });
     const box = within(panel).getByRole("region", { name: "Simulate an event" });
     expect(box).toHaveTextContent("Prototype only");
@@ -696,19 +699,24 @@ describe("sorgenti", () => {
   });
 
   it("il webhook: indirizzo, esempio e campi con etichette", async () => {
-    await open("/automations/sources?src=src-webhook");
+    await open("/automations/sources?source=src-webhook");
     const panel = await screen.findByRole("region", {
       name: "Source Modulo di attivazione dal sito",
     });
     expect(panel).toHaveTextContent("Send a POST with a JSON body to this address.");
     expect(panel.querySelector("[data-webhook-example]")).toHaveTextContent('"cliente"');
-    expect(within(panel).getByRole("list", { name: "Fields" })).toHaveTextContent(
-      "Funzione da attivare",
+    const fields = within(panel).getByRole("table", { name: "Fields" });
+    expect(
+      within(fields).getByRole("textbox", { name: "Label of richiesta.funzione" }),
+    ).toHaveValue("Funzione da attivare");
+    expect(panel.querySelector("[data-webhook-address]")).toHaveAttribute(
+      "title",
+      "https://stubwise.example/hooks/in/4f7c2a91d03e",
     );
   });
 
   it("cambio di persona con il pannello aperto: senza permesso, pagina R-G5 e nessun dato della sorgente", async () => {
-    await open("/automations/sources?src=src-hubspot");
+    await open("/automations/sources?source=src-hubspot");
     await screen.findByRole("region", { name: "Source HubSpot" });
     await switchPersona(/Laura Costa/);
     expect(
@@ -786,6 +794,419 @@ describe("clienti e progetti", () => {
     await idle();
     await waitFor(() =>
       expect(document.querySelector('[data-client-link="lontano.example"]')).toBeNull(),
+    );
+  });
+});
+
+// --- Revisione del Task 5, giro 1 -------------------------------------------------------
+
+/** Una casella collegata per una persona del seme che non ne ha (Roberta). */
+function connectMailbox(personId: string, email = `${personId.slice(2)}@example.com`) {
+  const account = state.googleAccounts.find((a) => a.personId === personId);
+  if (account) account.status = "connected";
+  else
+    state.googleAccounts.push({
+      personId,
+      email,
+      status: "connected",
+      since: "2026-10-01T00:00:00Z",
+    });
+  state.mailboxes.push({
+    personId,
+    email,
+    proposalsEnabled: false,
+    syncedAt: "2026-10-01T00:00:00Z",
+    sync: "ok",
+  });
+  return email;
+}
+
+describe("R-J16 in pagina: il testo della risposta solo al proprietario", () => {
+  const REPLY = "Buongiorno, i numeri da collegare sono 0577 000111";
+
+  it("chi non è il proprietario vede che è arrivata e dove sta, non il testo (anche in «Show data» e «Copy as JSON»)", async () => {
+    const writes: string[] = [];
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: (s: string) => (writes.push(s), Promise.resolve()) },
+    });
+    await open("/automations/AUD-A1/runs/1");
+    const log = await screen.findByRole("list", { name: "Log" });
+    expect(log).toHaveTextContent(
+      /Reply from amministrazione@cantinabellavista\.example received on/,
+    );
+    expect(log).toHaveTextContent("The reply is in Matteo Conti's mailbox");
+    await userEvent.click(screen.getByRole("checkbox", { name: "Show data" }));
+    expect(document.body).not.toHaveTextContent(REPLY);
+    for (const b of within(log).getAllByRole("button", { name: "Copy as JSON" }))
+      await userEvent.click(b);
+    expect(writes.length).toBeGreaterThan(3);
+    expect(writes.join("\n")).not.toContain(REPLY);
+  });
+
+  it("il proprietario la legge", async () => {
+    await open("/automations/AUD-A1/runs/1", MATTEO);
+    await userEvent.click(await screen.findByRole("checkbox", { name: "Show data" }));
+    expect(document.body).toHaveTextContent(REPLY);
+    expect(document.body).not.toHaveTextContent("The reply is in");
+  });
+});
+
+describe("registro: i separatori del giorno riga per riga", () => {
+  it("la risposta arrivata in un altro giorno ha il suo separatore, anche dentro lo stesso passo", async () => {
+    await open("/automations/AUD-A1/runs/1");
+    const log = await screen.findByRole("list", { name: "Log" });
+    const reply = log.querySelector<HTMLElement>('[data-entry-path="1"][data-outcome="ok"]')!;
+    const waiting = log.querySelector<HTMLElement>(
+      '[data-entry-path="1"][data-outcome="waiting"]',
+    )!;
+    // La riga «in attesa» e la risposta sono dello stesso passo ma di giorni diversi.
+    expect(reply.previousElementSibling).toHaveAttribute("data-day-separator");
+    expect(waiting.previousElementSibling).not.toHaveAttribute("data-day-separator");
+    const days = [...log.querySelectorAll("[data-day-separator]")].map((d) => d.textContent);
+    expect(new Set(days).size).toBe(days.length);
+  });
+
+  it("`]` da qualunque punto della pagina apre il gruppo chiuso e porta al problema", async () => {
+    state.automationRuns.push(bigRun());
+    await open("/automations/AUT-1/runs/9");
+    await screen.findByRole("list", { name: "Log" });
+    await userEvent.click(screen.getByRole("button", { name: "Collapse all" }));
+    expect(document.getElementById("log-round-2/forEach[37]")).toHaveAttribute(
+      "hidden",
+      "until-found",
+    );
+    (document.activeElement as HTMLElement | null)?.blur();
+    await userEvent.keyboard("]");
+    await waitFor(() => expect(document.activeElement).toHaveAttribute("data-outcome", "failed"));
+    expect(document.getElementById("log-round-2/forEach[37]")).not.toHaveAttribute("hidden");
+  });
+});
+
+describe("accendere e pubblicare: la casella scelta, i problemi della bozza", () => {
+  it("il dialogo elenca solo le caselle collegate e la scelta resta sull'automazione", async () => {
+    const first = connectMailbox(ROBERTA);
+    // Una seconda casella della stessa persona: la scelta nel dialogo deve arrivare ai dati.
+    const email = "roberta.vendite@example.com";
+    state.mailboxes.push({
+      personId: ROBERTA,
+      email,
+      proposalsEnabled: false,
+      syncedAt: "2026-10-01T00:00:00Z",
+      sync: "ok",
+    });
+    await open("/automations/AUT-1");
+    await userEvent.click(await screen.findByRole("button", { name: "Publish v2" }));
+    const dialog = await screen.findByRole("dialog", { name: "Publish version 2 of AUT-1?" });
+    expect(within(dialog).getByRole("radio", { name: first })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await userEvent.click(within(dialog).getByRole("radio", { name: email }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Publish" }));
+    await idle();
+    expect(await screen.findByText("AUT-1 is on · you're the owner")).toBeInTheDocument();
+    expect(state.automations.find((a) => a.code === "AUT-1")).toMatchObject({
+      ownerId: ROBERTA,
+      mailbox: email,
+    });
+  });
+
+  it("errori nella bozza: «Problems» li dice «nella bozza della v2», «Publish» porta lì, la riga e «Needs attention» li contano", async () => {
+    const a = state.automations.find((x) => x.code === "AUT-1")!;
+    const welcome = a.versions[1]!.flow.steps[3] as { to: string };
+    welcome.to = "{{cliente.fax}}";
+    await open("/automations/AUT-1");
+    const problems = await screen.findByRole("region", { name: "1 problem" });
+    expect(problems).toHaveTextContent(
+      "In the draft of v2: 1 problem — it can't be published until it's fixed",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Publish v2" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(
+      await screen.findByText("Fix the problem first: it's listed under Problems."),
+    ).toBeInTheDocument();
+    expect(problems).toHaveFocus();
+    document.body.innerHTML = "";
+    await open("/automations?view=attention");
+    expect(await screen.findByRole("link", { name: /^AUT-1, Nuovo contratto/ })).toHaveTextContent(
+      "1 problem",
+    );
+  });
+
+  it("dall'elenco, «Turn on» con problemi porta alla sezione Problems", async () => {
+    state.automations.find((x) => x.code === "AUT-1")!.status = "paused";
+    state.automationSources.find((x) => x.id === "src-audin")!.status = "disconnected";
+    const router = await open("/automations");
+    const row = (await screen.findByRole("link", { name: /^AUT-1,/ })).closest("li")!;
+    await userEvent.click(within(row).getByRole("button", { name: "More actions for AUT-1" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Turn on" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/automations/AUT-1"));
+    expect(router.state.location.search).toMatchObject({ problems: "1" });
+    await waitFor(() => expect(document.querySelector("[data-problems-section]")).toHaveFocus());
+  });
+});
+
+describe("riga di stato, duplicare, avvio a mano", () => {
+  it("chi ha messo in pausa e chi ha creato la bozza", async () => {
+    await open("/automations/BTG-A1");
+    expect(await screen.findByText(/paused by Roberta Fontana on/)).toBeInTheDocument();
+    // Nessuna esecuzione sospesa: la riga non dice «0 runs suspended».
+    expect(document.querySelector("[data-status-line]")).not.toHaveTextContent("suspended");
+    document.body.innerHTML = "";
+    await open("/automations/STW-A1");
+    expect(
+      await screen.findByText(/never turned on · created by Laura Costa on/),
+    ).toBeInTheDocument();
+  });
+
+  it("«Duplicate this version» da una versione vecchia: una bozza nuova, poi il suo dettaglio", async () => {
+    const a = state.automations.find((x) => x.code === "AUD-A1")!;
+    a.versions.push({
+      ...a.versions[0]!,
+      n: 2,
+      publishedAt: "2026-10-20T10:00:00Z",
+      publishedById: MATTEO,
+    });
+    const router = await open("/automations/AUD-A1");
+    await userEvent.click(await screen.findByRole("button", { name: /^v1 · published by/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Duplicate this version" }));
+    const dialog = await screen.findByRole("dialog", { name: "Duplicate version 1 of AUD-A1" });
+    expect(within(dialog).getByRole("textbox", { name: "Name" })).toHaveValue(
+      "Richiesta dati al cliente (copy)",
+    );
+    await userEvent.click(within(dialog).getByRole("button", { name: "Duplicate" }));
+    await waitFor(() =>
+      expect(router.state.location.pathname).toMatch(/^\/automations\/AUD-A\d+$/),
+    );
+    expect(router.state.location.pathname).not.toBe("/automations/AUD-A1");
+    expect(
+      await screen.findByText(/never turned on · created by Roberta Fontana/),
+    ).toBeInTheDocument();
+  });
+
+  it("«Run now»: i dati dell'inizio con l'etichetta, poi parte e lo dice", async () => {
+    state.automations.push({
+      id: "aut-manual",
+      code: "AUD-A7",
+      name: "Controllo a mano",
+      description: "",
+      projectId: "prj-aud",
+      ownerId: ROBERTA,
+      status: "active",
+      versions: [
+        {
+          n: 1,
+          flow: {
+            trigger: { kind: "manual" },
+            steps: [],
+            titleTemplate: "Controllo – {{avvio.data}}",
+          },
+          publishedAt: "2026-10-01T10:00:00Z",
+          publishedById: ROBERTA,
+        },
+      ],
+      createdAt: "2026-10-01T10:00:00Z",
+    });
+    await open("/automations/AUD-A7");
+    await userEvent.click(await screen.findByRole("button", { name: "More" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Run now" }));
+    const dialog = await screen.findByRole("dialog", { name: "Run AUD-A7 now" });
+    const date = within(dialog).getByLabelText("Data dell'avvio");
+    expect(date).toHaveValue(TODAY);
+    await userEvent.clear(date);
+    await userEvent.type(date, "2026-11-02");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Run now" }));
+    await idle();
+    expect(await screen.findByText("Started AUD-A7 #1")).toBeInTheDocument();
+    expect(state.automationRuns.find((r) => r.automationId === "aut-manual")!.event).toEqual({
+      avvio: { data: "2026-11-02" },
+    });
+  });
+});
+
+describe("esecuzione: tempo a ore, «Remember»", () => {
+  it("«+1 hour» fa passare un'ora", async () => {
+    await open("/automations/AUD-A1/runs/2");
+    const proto = await screen.findByRole("region", { name: "Pass time" });
+    await userEvent.click(within(proto).getByRole("button", { name: "+1 hour" }));
+    await idle();
+    const clock = state.automationClock.get("arun-auda1-2")!;
+    expect(clock.slice(11, 16)).toBe("13:00");
+  });
+
+  it("«Remember for» il cliente scrive la tabella; senza `integrations.manage` non c'è", async () => {
+    state.automations.find((x) => x.code === "AUT-1")!.ownerId = ROBERTA;
+    await open("/automations/AUT-1/runs/2");
+    const now = await screen.findByRole("region", { name: "Now" });
+    await userEvent.selectOptions(within(now).getByRole("combobox"), "prj-aud");
+    await userEvent.click(
+      within(now).getByRole("checkbox", { name: "Remember for Forneria Rossi & Lari" }),
+    );
+    await userEvent.click(within(now).getByRole("button", { name: "Choose" }));
+    await idle();
+    expect(
+      state.clientProjectLinks.find((l) => l.clientKey === "forneriarossilari.example"),
+    ).toMatchObject({
+      projectId: "prj-aud",
+      addedById: ROBERTA,
+    });
+    await waitFor(() => expect(document.activeElement).toHaveAttribute("data-now-title"));
+  });
+
+  it("il proprietario senza `integrations.manage` sceglie senza «Remember»", async () => {
+    await open("/automations/AUT-1/runs/2", MATTEO);
+    const now = await screen.findByRole("region", { name: "Now" });
+    expect(within(now).queryByRole("checkbox")).toBeNull();
+  });
+});
+
+describe("sorgenti curate in pagina", () => {
+  it("un webhook nuovo: nome, poi il pannello con «Paste an example»; JSON non valido detto; i campi nascono dall'esempio", async () => {
+    const router = await open("/automations/sources");
+    await userEvent.click(await screen.findByRole("button", { name: "Connect" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Incoming webhook" }));
+    const dialog = await screen.findByRole("dialog", { name: "New incoming webhook" });
+    await userEvent.type(within(dialog).getByRole("textbox", { name: "Name" }), "Ordini e-shop");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+    await idle();
+    const panel = await screen.findByRole("region", { name: "Source Ordini e-shop" });
+    expect(router.state.location.search).toMatchObject({
+      source: expect.stringMatching(/^src-wh-/),
+    });
+    await userEvent.click(within(panel).getByRole("button", { name: "Paste an example" }));
+    const area = within(panel).getByRole("textbox", { name: "Example (JSON)" });
+    await userEvent.click(area);
+    await userEvent.paste('{ "ordine": { "totale": 12, }');
+    expect(await within(panel).findByRole("alert")).toHaveTextContent("This isn't valid JSON");
+    expect(within(panel).getByRole("button", { name: "Save example" })).toBeDisabled();
+    await userEvent.clear(area);
+    await userEvent.paste('{ "cliente": { "email": "a@b.example" }, "ordine": { "totale": 12 } }');
+    await waitFor(() =>
+      expect(within(panel).getByRole("button", { name: "Save example" })).toBeEnabled(),
+    );
+    await userEvent.click(within(panel).getByRole("button", { name: "Save example" }));
+    await idle();
+    const fields = await within(panel).findByRole("table", { name: "Fields" });
+    expect(within(fields).getByRole("textbox", { name: "Label of ordine.totale" })).toHaveValue(
+      "Ordine totale",
+    );
+    expect(within(fields).getByRole("combobox", { name: "Type of cliente.email" })).toHaveValue(
+      "email",
+    );
+  });
+
+  it("sostituire l'esempio di un webhook usato segnala i campi che spariscono e chiede conferma", async () => {
+    await open("/automations/sources?source=src-webhook");
+    const panel = await screen.findByRole("region", {
+      name: "Source Modulo di attivazione dal sito",
+    });
+    await userEvent.click(within(panel).getByRole("button", { name: "Replace example" }));
+    const area = within(panel).getByRole("textbox", { name: "Example (JSON)" });
+    await userEvent.clear(area);
+    await userEvent.paste('{ "cliente": { "nome": "X", "email": "x@x.example" } }');
+    const missing = await within(panel).findByText(
+      /Funzione da attivare · used by AUD-A1 · missing from the new example/,
+    );
+    expect(missing).toBeInTheDocument();
+    expect(panel).toHaveTextContent(
+      "AUD-A1 uses 2 fields that the new example doesn't have. It will show a problem.",
+    );
+    expect(within(panel).getByRole("button", { name: "Replace anyway" })).toBeEnabled();
+  });
+
+  it("l'indirizzo si copia e si rigenera con conferma; un campo si rinomina in posto", async () => {
+    const writes: string[] = [];
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: (s: string) => (writes.push(s), Promise.resolve()) },
+    });
+    await open("/automations/sources?source=src-webhook");
+    const panel = await screen.findByRole("region", {
+      name: "Source Modulo di attivazione dal sito",
+    });
+    await userEvent.click(within(panel).getByRole("button", { name: "Copy" }));
+    expect(writes).toEqual(["https://stubwise.example/hooks/in/4f7c2a91d03e"]);
+    await userEvent.click(
+      within(panel).getByRole("button", { name: "More actions for the address" }),
+    );
+    await userEvent.click(screen.getByRole("menuitem", { name: "Generate a new address" }));
+    const dialog = await screen.findByRole("dialog", { name: "Generate a new address?" });
+    expect(dialog).toHaveTextContent("The old address stops working at once.");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Generate a new address" }));
+    await idle();
+    await waitFor(() =>
+      expect(panel.querySelector("[data-webhook-address]")).not.toHaveAttribute(
+        "title",
+        "https://stubwise.example/hooks/in/4f7c2a91d03e",
+      ),
+    );
+    const label = within(panel).getByRole("textbox", { name: "Label of cliente.nome" });
+    await userEvent.clear(label);
+    await userEvent.type(label, "Ragione sociale{Enter}");
+    await idle();
+    await waitFor(() =>
+      expect(state.automationSources.find((x) => x.id === "src-webhook")!.fields[0]!.label).toBe(
+        "Ragione sociale",
+      ),
+    );
+  });
+
+  it("«Edit and send»: un evento scritto a mano fa partire AUD-A1", async () => {
+    await open("/automations/sources?source=src-webhook");
+    const panel = await screen.findByRole("region", {
+      name: "Source Modulo di attivazione dal sito",
+    });
+    const box = within(panel).getByRole("region", { name: "Simulate an event" });
+    await userEvent.click(within(box).getByRole("button", { name: "Edit and send" }));
+    const area = within(box).getByRole("textbox", { name: "The event to send (JSON)" });
+    await userEvent.clear(area);
+    await userEvent.paste(
+      '{ "cliente": { "nome": "Panificio Neri", "email": "info@neri.example" }, "richiesta": { "funzione": "CRM", "dati": "Il logo." } }',
+    );
+    await userEvent.click(within(box).getByRole("button", { name: "Send" }));
+    await idle();
+    expect(await screen.findByText("Event sent · started AUD-A1 #3")).toBeInTheDocument();
+  });
+
+  it("rinominare dal «⋯» del pannello; «Reconnected by» dopo un ricollegamento; scaduta: «expired on», «Simulate» spento", async () => {
+    await open("/automations/sources?source=src-hubspot");
+    const panel = await screen.findByRole("region", { name: "Source HubSpot" });
+    const row = document.querySelector<HTMLElement>('[data-source-row="src-hubspot"]')!;
+    expect(row).toHaveTextContent(/expired on/);
+    const off = within(row.closest("li")!).getByRole("button", { name: "Simulate an event" });
+    expect(off).toBeDisabled();
+    expect(off).toHaveAccessibleDescription("Reconnect HubSpot to receive events.");
+    await userEvent.click(within(panel).getAllByRole("button", { name: "Reconnect" })[0]!);
+    const dialog = await screen.findByRole("dialog", { name: "Reconnect HubSpot" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Reconnect" }));
+    await idle();
+    expect(await within(panel).findByText(/^Reconnected by Roberta Fontana ·/)).toBeInTheDocument();
+    await userEvent.click(within(panel).getByRole("button", { name: "More actions for HubSpot" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Rename" }));
+    const name = within(panel).getByRole("textbox", { name: "Name of the source" });
+    await userEvent.clear(name);
+    await userEvent.type(name, "HubSpot vendite{Enter}");
+    await idle();
+    expect(
+      await screen.findByRole("region", { name: "Source HubSpot vendite" }),
+    ).toBeInTheDocument();
+  });
+
+  it("la tabella: «Added by» e i suggerimenti «From recent events» nella riga nuova", async () => {
+    await open("/automations/sources");
+    const row = await waitFor(() => {
+      const r = document.querySelector<HTMLElement>('[data-client-link="mixcucine.example"]');
+      expect(r).not.toBeNull();
+      return r!;
+    });
+    expect(row.querySelector("[data-added-by]")).toHaveTextContent("Roberta Fontana");
+    await userEvent.click(screen.getByRole("button", { name: "Add client" }));
+    const add = document.querySelector<HTMLElement>("[data-add-client]")!;
+    const suggestion = await within(add).findByRole("button", { name: "Forneria Rossi & Lari" });
+    await userEvent.click(suggestion);
+    expect(within(add).getByRole("textbox", { name: "Key" })).toHaveValue(
+      "forneriarossilari.example",
     );
   });
 });

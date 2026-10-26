@@ -1,17 +1,22 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
-import { visitSteps } from "../../domain/automations/fields";
+import { triggerFields, visitSteps } from "../../domain/automations/fields";
+import { now } from "../../data/dates";
 import {
   useActivateAutomation,
   useAutomation,
+  useAutomationSources,
   useDeleteAutomationDraft,
+  useDuplicateAutomation,
+  useFetchAutomationRuns,
   useMailboxes,
   usePauseAutomation,
   usePublishAutomation,
+  useStartAutomation,
 } from "../../data/queries";
-import type { AutomationFlow } from "../../data/types";
-import { Dialog } from "../../tasks-ui/Dialog";
+import type { AutomationFlow, DataField } from "../../data/types";
+import { Dialog, DialogField, inputClass } from "../../tasks-ui/Dialog";
 import { RadioDot } from "../../tasks-ui/Menu";
 import { useToast } from "../../tasks-ui/Toast";
 import { dangerSolidButton, primaryButton, secondaryButton } from "../tasks/controls";
@@ -288,6 +293,197 @@ export function DeleteDraftDialog({
       }
     >
       <p className="text-md text-ink">{t("automations.dialogs.deleteBody")}</p>
+    </Dialog>
+  );
+}
+
+/** Un campo dell'inizio che si scrive a mano (gli elenchi e i file no). */
+const typable = (f: DataField) => f.type !== "list" && f.type !== "file";
+
+/** `{ "avvio.data": "…" }` → `{ avvio: { data: "…" } }`. */
+function nest(values: Record<string, string>, fields: DataField[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const f of fields) {
+    const raw = values[f.key] ?? "";
+    if (raw === "") continue;
+    const value = f.type === "number" ? Number(raw) : f.type === "boolean" ? raw === "true" : raw;
+    const keys = f.key.split(".");
+    let o = out;
+    for (const k of keys.slice(0, -1)) o = (o[k] ??= {}) as Record<string, unknown>;
+    o[keys.at(-1)!] = value;
+  }
+  return out;
+}
+
+/**
+ * «Run now» (shape §6, «⋯»): i dati dell'inizio con le loro etichette, poi
+ * l'esecuzione parte con quell'evento. Per l'avvio a mano: la data, oggi.
+ */
+export function RunNowDialog({
+  automationId,
+  onClose,
+}: {
+  automationId: string;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const navigate = useNavigate();
+  const detail = useAutomation(automationId).data;
+  const sources = useAutomationSources().data ?? [];
+  const start = useStartAutomation();
+  const fetchRuns = useFetchAutomationRuns();
+  const [values, setValues] = useState<Record<string, string>>({
+    "avvio.data": now().slice(0, 10),
+  });
+  const baseId = useId();
+  if (!detail) return null;
+  const a = detail.automation;
+  const live = a.versions.filter((v) => v.publishedAt !== null).at(-1);
+  if (!live) return null;
+  const fields = triggerFields(live.flow, sources).filter(typable);
+  const inputType = (f: DataField) =>
+    f.type === "number"
+      ? "number"
+      : f.type === "date"
+        ? "date"
+        : f.type === "email"
+          ? "email"
+          : "text";
+  const submit = () =>
+    start.mutate(
+      { id: a.id, event: nest(values, fields) },
+      {
+        onSuccess: async (runId) => {
+          onClose();
+          const [run] = await fetchRuns([runId]);
+          if (!run) return;
+          toast.show(t("automations.toast.started", { code: run.code }), {
+            action: {
+              label: t("automations.actions.open"),
+              run: () =>
+                void navigate({
+                  to: "/automations/$code/runs/$n",
+                  params: { code: a.code, n: String(run.n) },
+                }),
+            },
+          });
+        },
+        onError: () => toast.error(t("automations.toast.startError", { code: a.code })),
+      },
+    );
+  return (
+    <Dialog
+      title={t("automations.dialogs.runNowTitle", { code: a.code })}
+      description={t("automations.dialogs.runNowBody")}
+      width={480}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className={secondaryButton} onClick={onClose}>
+            {t("automations.actions.cancel")}
+          </button>
+          <button
+            type="button"
+            className={primaryButton}
+            disabled={start.isPending}
+            onClick={submit}
+          >
+            {t("automations.actions.runNow")}
+          </button>
+        </>
+      }
+    >
+      {fields.map((f, i) => (
+        <DialogField key={f.key} label={f.label} htmlFor={`${baseId}-${i}`}>
+          <input
+            id={`${baseId}-${i}`}
+            title={f.key}
+            type={inputType(f)}
+            className={inputClass}
+            value={values[f.key] ?? ""}
+            onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}
+          />
+        </DialogField>
+      ))}
+    </Dialog>
+  );
+}
+
+/**
+ * «Duplicate» (shape §6, [A 11]): una bozza nuova, mai accesa, dalla
+ * versione scelta — è anche il modo di riprendere una versione vecchia.
+ */
+export function DuplicateDialog({
+  automationId,
+  version,
+  onClose,
+}: {
+  automationId: string;
+  version?: number;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const navigate = useNavigate();
+  const detail = useAutomation(automationId).data;
+  const duplicate = useDuplicateAutomation();
+  const [name, setName] = useState(() =>
+    t("automations.duplicate.defaultName", { name: detail?.automation.name ?? "" }),
+  );
+  const nameId = useId();
+  if (!detail) return null;
+  const a = detail.automation;
+  const submit = () => {
+    if (!name.trim()) return;
+    duplicate.mutate(
+      { id: a.id, name: name.trim(), version },
+      {
+        onSuccess: (copy) => {
+          onClose();
+          toast.show(t("automations.toast.duplicated", { code: copy.code }));
+          void navigate({ to: "/automations/$code", params: { code: copy.code } });
+        },
+        onError: () => toast.error(t("automations.toast.duplicateError", { code: a.code })),
+      },
+    );
+  };
+  return (
+    <Dialog
+      title={
+        version === undefined
+          ? t("automations.dialogs.duplicateTitle", { code: a.code })
+          : t("automations.dialogs.duplicateVersionTitle", { code: a.code, n: version })
+      }
+      description={t("automations.dialogs.duplicateBody")}
+      width={440}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className={secondaryButton} onClick={onClose}>
+            {t("automations.actions.cancel")}
+          </button>
+          <button
+            type="button"
+            className={`${primaryButton} disabled:opacity-40`}
+            disabled={!name.trim() || duplicate.isPending}
+            onClick={submit}
+          >
+            {t("automations.actions.duplicate")}
+          </button>
+        </>
+      }
+    >
+      <DialogField label={t("automations.create.name")} htmlFor={nameId}>
+        <input
+          id={nameId}
+          data-autofocus
+          className={inputClass}
+          value={name}
+          maxLength={120}
+          onChange={(e) => setName(e.target.value)}
+        />
+      </DialogField>
     </Dialog>
   );
 }

@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { useId, useState } from "react";
+import { useId, useState, type Ref } from "react";
 import { useTranslation } from "react-i18next";
 import { stepAt } from "../../domain/automations/fields";
 import {
@@ -99,7 +99,14 @@ export function PreviewBlock({
   );
 }
 
-export function ApprovalActions({ run }: { run: AutomationRunDetail }) {
+export function ApprovalActions({
+  run,
+  onDone,
+}: {
+  run: AutomationRunDetail;
+  /** Dopo la decisione: il fuoco va alla frase nuova di «Now». */
+  onDone?: () => void;
+}) {
   const { t } = useTranslation();
   const toast = useToast();
   const approve = useApproveAutomationStep();
@@ -115,7 +122,10 @@ export function ApprovalActions({ run }: { run: AutomationRunDetail }) {
     Object.entries(draft).filter(([k, v]) => v !== str(preview[k])),
   );
   const done = (key: string) => ({
-    onSuccess: () => toast.show(t(key, { code: run.code })),
+    onSuccess: () => {
+      toast.show(t(key, { code: run.code }));
+      onDone?.();
+    },
     onError: () => toast.error(t("automations.toast.decisionError", { code: run.code })),
   });
   if (editing) {
@@ -190,7 +200,15 @@ export function ApprovalActions({ run }: { run: AutomationRunDetail }) {
   );
 }
 
-export function ChooseProject({ run, client }: { run: AutomationRunDetail; client: string }) {
+export function ChooseProject({
+  run,
+  client,
+  onDone,
+}: {
+  run: AutomationRunDetail;
+  client: string;
+  onDone?: () => void;
+}) {
   const { t } = useTranslation();
   const toast = useToast();
   const perms = useAutomationPerms();
@@ -198,6 +216,8 @@ export function ChooseProject({ run, client }: { run: AutomationRunDetail; clien
     .filter((p) => perms.createTasks(p.id))
     .sort((a, b) => a.code.localeCompare(b.code));
   const [projectId, setProjectId] = useState("");
+  // «Remember for <client>» ([A 26]): solo a chi gestisce la tabella cliente → progetto.
+  const [remember, setRemember] = useState(false);
   const choose = useChooseAutomationProject();
   const id = useId();
   return (
@@ -224,9 +244,12 @@ export function ChooseProject({ run, client }: { run: AutomationRunDetail; clien
         disabled={!projectId || choose.isPending}
         onClick={() =>
           choose.mutate(
-            { runId: run.id, projectId },
+            { runId: run.id, projectId, remember: perms.integrations && remember },
             {
-              onSuccess: () => toast.show(t("automations.toast.projectChosen", { code: run.code })),
+              onSuccess: () => {
+                toast.show(t("automations.toast.projectChosen", { code: run.code }));
+                onDone?.();
+              },
               onError: () => toast.error(t("automations.toast.decisionError", { code: run.code })),
             },
           )
@@ -234,6 +257,17 @@ export function ChooseProject({ run, client }: { run: AutomationRunDetail; clien
       >
         {t("automations.actions.choose")}
       </button>
+      {perms.integrations && (
+        <label className="flex h-8 items-center gap-2 text-sm text-ink">
+          <input
+            type="checkbox"
+            className="accent-ink"
+            checked={remember}
+            onChange={(e) => setRemember(e.target.checked)}
+          />
+          {t("automations.now.remember", { client })}
+        </label>
+      )}
     </div>
   );
 }
@@ -256,6 +290,8 @@ export function NowBox({
   onCancel,
   onSkip,
   onRetry,
+  onDone,
+  titleRef,
 }: {
   run: AutomationRunDetail;
   names: Names;
@@ -264,6 +300,10 @@ export function NowBox({
   onCancel: () => void;
   onSkip: () => void;
   onRetry: () => void;
+  /** Dopo una decisione presa qui (approva, scegli): il fuoco torna alla frase. */
+  onDone?: () => void;
+  /** La frase di «Now», focalizzabile: ci torna il fuoco dopo un'azione. */
+  titleRef?: Ref<HTMLParagraphElement>;
 }) {
   const { t, i18n } = useTranslation();
   const perms = useAutomationPerms();
@@ -328,7 +368,7 @@ export function NowBox({
             }
           />
           {run.permissions.approve ? (
-            <ApprovalActions run={run} />
+            <ApprovalActions run={run} onDone={onDone} />
           ) : (
             <p className="text-sm text-ink-muted">
               {t("automations.now.box.waitingSince", { date: shortDate(since, i18n.language) })}
@@ -343,7 +383,9 @@ export function NowBox({
       body = (
         <>
           <p className="text-sm text-ink-muted">{t("automations.now.box.noLink")}</p>
-          {run.permissions.chooseProject && <ChooseProject run={run} client={client} />}
+          {run.permissions.chooseProject && (
+            <ChooseProject run={run} client={client} onDone={onDone} />
+          )}
           {perms.integrations && (
             <Link to="/automations/sources" className={`${textLink} self-start text-sm underline`}>
               {t("automations.now.box.linkClient", { client })}
@@ -436,7 +478,13 @@ export function NowBox({
       data-now-box={run.status}
       className="flex flex-col gap-2.5 rounded-lg border border-rule bg-ink/4 px-4 py-3.5"
     >
-      <p aria-live="polite" className="flex items-start gap-2 text-lg font-semibold text-ink">
+      <p
+        ref={titleRef}
+        tabIndex={-1}
+        aria-live="polite"
+        data-now-title
+        className="flex items-start gap-2 rounded-sm text-lg font-semibold text-ink outline-none focus-visible:ring-2 focus-visible:ring-focus"
+      >
         {run.status === "failed" && (
           <span className="pt-1">
             <CriticalGlyph />

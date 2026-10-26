@@ -17,9 +17,10 @@ import {
 } from "../../layout/useDetailPanel";
 import { useMediaQuery } from "../../layout/useMediaQuery";
 import { Avatar } from "../../tasks-ui/PersonChip";
-import { primaryButton, quietButton, secondaryButton } from "../tasks/controls";
+import { MenuGroup, itemClass } from "../../tasks-ui/Menu";
+import { MenuButton, primaryButton, quietButton, secondaryButton } from "../tasks/controls";
 import { clientOf, shortDate } from "./format";
-import { SourceGlyph, WarningGlyph } from "./glyphs";
+import { MoreGlyph, SourceGlyph, WarningGlyph } from "./glyphs";
 import {
   AutomationStatusWord,
   PrototypeBox,
@@ -27,8 +28,9 @@ import {
   textLink,
   useAutomationPerms,
 } from "./shared";
-import { usersOf, sampleWords, webhookAddress, useSimulate } from "./sourceHelpers";
-import { ConnectDialog, DisconnectDialog } from "./SourceDialogs";
+import { usersOf, sampleWords, useSimulate } from "./sourceHelpers";
+import { ConnectDialog, DisconnectDialog, RenameSourceForm } from "./SourceDialogs";
+import { AddressSection, ExampleSection, FieldsTable, SimulateWebhook } from "./WebhookSections";
 
 // Il pannello di una sorgente (shape automation-sources.md §6): stato, chi
 // l'ha collegata, i dati che porta (per un webhook indirizzo, esempio e
@@ -100,8 +102,11 @@ export function SourcePanel({ source }: { source: AutomationSourceView }) {
   const runs = useAutomationRuns().data ?? [];
   const simulate = useSimulate(source);
   const [dialog, setDialog] = useState<"connect" | "disconnect" | null>(null);
+  const [renaming, setRenaming] = useState(false);
   const users = usersOf(source, automations);
   const connector = people?.find((p) => p.id === source.connectedById);
+  const reconnector = people?.find((p) => p.id === source.reconnectedById);
+  const manage = source.permissions.manage;
   const recent = runs
     .filter((r) => r.origin === "source" && users.some((a) => a.id === r.automationId))
     .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
@@ -110,10 +115,56 @@ export function SourcePanel({ source }: { source: AutomationSourceView }) {
   return (
     <div data-source-panel={source.id} className="flex flex-col">
       <header className="flex flex-col gap-0.5 px-4 pt-4 pb-3">
-        <h2 className="flex items-center gap-2 text-xl font-semibold text-ink">
-          <SourceGlyph kind={source.kind} />
-          {source.name}
-        </h2>
+        {renaming ? (
+          <RenameSourceForm source={source} onDone={() => setRenaming(false)} />
+        ) : (
+          <div className="flex items-center gap-2">
+            <h2 className="flex min-w-0 flex-1 items-center gap-2 text-xl font-semibold text-ink">
+              <SourceGlyph kind={source.kind} />
+              <span className="min-w-0 truncate">{source.name}</span>
+            </h2>
+            {manage && (
+              <MenuButton
+                menuLabel={t("automations.sources.menu", { name: source.name })}
+                ariaLabel={t("automations.sources.menu", { name: source.name })}
+                align="right"
+                className={`${quietButton} h-7 w-7 justify-center px-0`}
+                label={<MoreGlyph />}
+              >
+                {(close) => (
+                  <MenuGroup>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      tabIndex={-1}
+                      className={itemClass}
+                      onClick={() => {
+                        close();
+                        setRenaming(true);
+                      }}
+                    >
+                      {t("automations.sources.rename")}
+                    </button>
+                    {source.status !== "disconnected" && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        tabIndex={-1}
+                        className={`${itemClass} text-critical`}
+                        onClick={() => {
+                          close();
+                          setDialog("disconnect");
+                        }}
+                      >
+                        {t("automations.sources.disconnect")}
+                      </button>
+                    )}
+                  </MenuGroup>
+                )}
+              </MenuButton>
+            )}
+          </div>
+        )}
         <p className="text-xs text-ink-muted">
           {source.kind === "webhook"
             ? t("automations.sources.incomingWebhook")
@@ -161,43 +212,35 @@ export function SourcePanel({ source }: { source: AutomationSourceView }) {
         <p className="flex items-center gap-2 text-md text-ink">
           <Avatar person={connector} />
           {connector?.name ?? "—"}
+          {source.connectedAt && !source.reconnectedAt && (
+            <span className="num text-sm text-ink-muted">
+              · {shortDate(source.connectedAt, i18n.language)}
+            </span>
+          )}
         </p>
+        {source.reconnectedAt && reconnector && (
+          <p data-reconnected className="text-sm text-ink-muted">
+            {t("automations.sources.reconnectedBy", {
+              who: reconnector.name,
+              date: shortDate(source.reconnectedAt, i18n.language),
+            })}
+          </p>
+        )}
       </PanelSection>
-      {source.kind === "webhook" && (
+      {source.kind === "webhook" ? (
         <>
-          <PanelSection title={t("automations.sources.address")}>
-            <p className="truncate text-sm text-ink" title={webhookAddress(source.id)}>
-              {webhookAddress(source.id)}
-            </p>
-            <p className="text-xs text-ink-muted">{t("automations.sources.postHint")}</p>
-          </PanelSection>
-          <PanelSection title={t("automations.sources.example")}>
-            <pre
-              data-webhook-example
-              className="max-h-80 overflow-auto rounded-md border border-rule p-2 font-mono text-xs text-ink"
-            >
-              {JSON.stringify(source.sampleEvents[0] ?? {}, null, 2)}
-            </pre>
-          </PanelSection>
+          <AddressSection source={source} />
+          <ExampleSection source={source} />
+          <FieldsTable source={source} />
         </>
-      )}
-      <PanelSection
-        title={
-          source.kind === "webhook"
-            ? t("automations.sources.fields")
-            : t("automations.sources.events")
-        }
-      >
-        {source.kind !== "webhook" && (
+      ) : (
+        <PanelSection title={t("automations.sources.events")}>
           <p className="text-sm text-ink">{t("automations.sources.dealWon")}</p>
-        )}
-        <ul aria-label={t("automations.sources.fields")}>
-          <FieldRows fields={source.fields} />
-        </ul>
-        {source.kind === "webhook" && (
-          <p className="text-xs text-ink-muted">{t("automations.sources.fieldsHint")}</p>
-        )}
-      </PanelSection>
+          <ul aria-label={t("automations.sources.fields")}>
+            <FieldRows fields={source.fields} />
+          </ul>
+        </PanelSection>
+      )}
       <PanelSection title={t("automations.sources.usedByTitle")}>
         {users.length === 0 ? (
           <p className="text-sm text-ink-muted">{t("automations.sources.notUsed")}</p>
@@ -243,30 +286,34 @@ export function SourcePanel({ source }: { source: AutomationSourceView }) {
         )}
       </PanelSection>
       <div className="px-4 py-3">
-        <PrototypeBox label={t("automations.sources.simulate")}>
-          {source.status !== "connected" ? (
-            <p className="text-sm text-ink-muted">
-              {t("automations.sources.simulateOff", { name: source.name })}
-            </p>
-          ) : (
-            <ul className="flex flex-col">
-              {source.sampleEvents.map((e, i) => (
-                <li key={i} className="flex min-h-8 items-center gap-2">
-                  <span className="min-w-0 flex-1 truncate text-sm text-ink">
-                    {sampleWords(source, e, t)}
-                  </span>
-                  <button
-                    type="button"
-                    className={`${secondaryButton} h-7`}
-                    onClick={() => simulate(i)}
-                  >
-                    {t("automations.sources.send")}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </PrototypeBox>
+        {source.kind === "webhook" ? (
+          <SimulateWebhook source={source} />
+        ) : (
+          <PrototypeBox label={t("automations.sources.simulate")}>
+            {source.status !== "connected" ? (
+              <p className="text-sm text-ink-muted">
+                {t("automations.sources.simulateOff", { name: source.name })}
+              </p>
+            ) : (
+              <ul className="flex flex-col">
+                {source.sampleEvents.map((e, i) => (
+                  <li key={i} className="flex min-h-8 items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate text-sm text-ink">
+                      {sampleWords(source, e, t)}
+                    </span>
+                    <button
+                      type="button"
+                      className={`${secondaryButton} h-7`}
+                      onClick={() => simulate(i)}
+                    >
+                      {t("automations.sources.send")}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </PrototypeBox>
+        )}
       </div>
       {source.status !== "disconnected" && (
         <div className="px-4 pb-4">
@@ -288,14 +335,14 @@ export function SourcePanel({ source }: { source: AutomationSourceView }) {
 }
 
 /**
- * Il pannello di una sorgente (`#/automations/sources?src=<id>`), montato
+ * Il pannello di una sorgente (`#/automations/sources?source=<id>`), montato
  * nell'`AppLayout` accanto alla pagina: affiancato da 1200 px, sovrapposto
  * sotto. Cambiare persona lo chiude: niente della sorgente resta a schermo.
  */
 export function SourceDetailHost() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const search = useSearch({ strict: false }) as { src?: string };
+  const search = useSearch({ strict: false }) as { source?: string };
   const onPage = useRouterState({ select: (s) => s.location.pathname === "/automations/sources" });
   const wide = useMediaQuery(DOCKED_PANEL_QUERY);
   const overlayOnly = useRouterState({ select: (s) => forcesOverlay(s.location.pathname) });
@@ -306,18 +353,18 @@ export function SourceDetailHost() {
   const close = useCallback(() => {
     void navigate({
       to: "/automations/sources",
-      search: ((prev: Record<string, unknown>) => ({ ...prev, src: undefined })) as never,
+      search: ((prev: Record<string, unknown>) => ({ ...prev, source: undefined })) as never,
     });
   }, [navigate]);
   const [viewer, setViewer] = useState(personId);
   useEffect(() => {
     if (viewer !== personId) {
       setViewer(personId);
-      if (search.src) close();
+      if (search.source) close();
     }
-  }, [viewer, personId, search.src, close]);
-  if (!onPage || !search.src || !perms.integrations || viewer !== personId) return null;
-  const source = sources?.find((s) => s.id === search.src);
+  }, [viewer, personId, search.source, close]);
+  if (!onPage || !search.source || !perms.integrations || viewer !== personId) return null;
+  const source = sources?.find((s) => s.id === search.source);
   if (!source) return null;
   return (
     <DetailPanel
