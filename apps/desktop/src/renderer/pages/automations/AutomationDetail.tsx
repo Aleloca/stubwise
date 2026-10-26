@@ -322,6 +322,8 @@ function ProblemsSection({
                   <Link
                     to="/automations/$code/edit"
                     params={{ code: a.code }}
+                    // Il costruttore apre il passo del problema (o l'inizio).
+                    search={(i.path === "" ? {} : { step: i.path }) as never}
                     className={`${quietButton} h-7`}
                   >
                     {t("automations.actions.fix")}

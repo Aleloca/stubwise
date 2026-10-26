@@ -58,6 +58,7 @@ import {
   isAutomationSearchValue,
 } from "./pages/automations/automationParams";
 import { SourcesPage } from "./pages/automations/SourcesPage";
+import { BuilderRoutePage } from "./pages/automations/builder/BuilderPage";
 
 /** La ricerca che ogni route accetta (`?task=` apre il pannello, gli altri li montano i dialoghi). */
 export interface AppSearch {
@@ -130,6 +131,8 @@ export interface AppSearch {
   entry?: string;
   /** Automations: porta alla sezione Problems di un'automazione (`1`). */
   problems?: string;
+  /** Automations: il passo selezionato nel costruttore (percorso R-J5 o `trigger`). */
+  step?: string;
 }
 
 const SEARCH_KEYS = [
@@ -687,10 +690,15 @@ const automationRunRoute = createRoute({
   component: AutomationRunRoutePage,
 });
 
+function AutomationEditRoutePage() {
+  const { code } = automationEditRoute.useParams();
+  return <BuilderRoutePage code={code} />;
+}
+
 const automationEditRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/automations/$code/edit",
-  component: () => <AutomationToolPage tool="edit" />,
+  component: AutomationEditRoutePage,
 });
 
 const automationTestRoute = createRoute({

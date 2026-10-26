@@ -390,6 +390,7 @@ export type ApiFnName =
   // Automations (area 7)
   | "automations.listAutomations"
   | "automations.getAutomation"
+  | "automations.checkDraft"
   | "automations.listRuns"
   | "automations.getRun"
   | "automations.listSources"

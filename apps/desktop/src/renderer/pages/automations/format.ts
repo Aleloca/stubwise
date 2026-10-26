@@ -269,7 +269,14 @@ export function stepSentence(
       };
     case "notify":
       return {
-        text: t("automations.steps.notify", { who: step.personRef, text: step.text }),
+        text: t("automations.steps.notify", {
+          // La chiave di un dato si legge come gettone, come un modello `{{…}}`.
+          who:
+            step.personRef && !step.personRef.includes("{{")
+              ? `{{${step.personRef}}}`
+              : step.personRef,
+          text: step.text,
+        }),
         details,
       };
     case "startAutomation":

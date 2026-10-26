@@ -7,6 +7,7 @@
 import "./sources";
 
 export {
+  checkDraft,
   getAutomation,
   getRun,
   listAutomations,

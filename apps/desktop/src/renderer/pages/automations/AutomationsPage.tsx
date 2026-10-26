@@ -177,11 +177,11 @@ export function RunRoutePage({ code, n }: { code: string; n: string }) {
 }
 
 /**
- * Il costruttore e la prova (`/automations/<CODE>/edit`, `/test`): li
- * costruiscono i Task 6 e 7; qui la route esiste già perché i bottoni
- * «Edit», «Test» e «Fix» del dettaglio ci portano.
+ * La prova (`/automations/<CODE>/test`): la costruisce il Task 7; qui la
+ * route esiste già perché «Test» del dettaglio e del costruttore ci porta.
+ * Il costruttore (`/edit`) sta in `builder/BuilderPage.tsx`.
  */
-export function AutomationToolPage({ tool }: { tool: "edit" | "test" }) {
+export function AutomationToolPage({ tool }: { tool: "test" }) {
   return (
     <Placeholder
       titleKey={`automations.tools.${tool}.title`}

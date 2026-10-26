@@ -2215,6 +2215,16 @@ export interface AutomationVersion {
   /** null = bozza. */
   publishedAt: string | null;
   publishedById: string | null;
+  /**
+   * Una bozza: chi l'ha salvata per ultimo, quando, e il numero del
+   * salvataggio. Il costruttore salva dicendo quale `rev` ha letto; se
+   * un'altra persona l'ha cambiata dopo, il salvataggio si ferma (`invalid:
+   * stale`, shape builder [A 12]). Un numero e non l'ora: l'orologio del
+   * prototipo è fisso.
+   */
+  savedAt?: string | null;
+  savedById?: string | null;
+  rev?: number | null;
 }
 
 export interface Automation {

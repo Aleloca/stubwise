@@ -3337,9 +3337,35 @@ export function useCreateAutomation() {
 
 export function useSaveAutomationDraft() {
   return useAutomationWrite(
-    ({ id, flow, meta }: { id: string; flow: AutomationFlow; meta?: AutomationMeta }) =>
-      api.automations.saveDraft(id, flow, meta),
+    ({
+      id,
+      flow,
+      meta,
+      expected,
+    }: {
+      id: string;
+      flow: AutomationFlow;
+      meta?: AutomationMeta;
+      /** Il `rev` della bozza letta (shape builder [A 12]); assente = nessun controllo. */
+      expected?: number | null;
+    }) => api.automations.saveDraft(id, flow, meta, { expected }),
   );
+}
+
+/**
+ * Gli errori di un flusso non ancora salvato (il costruttore, mentre la bozza
+ * si salva da sola): chiave sul flusso stesso, così cambiano col flusso e
+ * restano quelli di prima finché arrivano i nuovi.
+ */
+export function useAutomationDraftIssues(id: string | null, flow: AutomationFlow | null) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "automations", "draftIssues", id ?? "", flow] as const,
+    // Col flusso a cui si riferiscono: i percorsi degli errori valgono per quello.
+    queryFn: async () => ({ flow: flow!, issues: await api.automations.checkDraft(id!, flow!) }),
+    enabled: id !== null && flow !== null,
+    placeholderData: keepPreviousData,
+  });
 }
 
 /** Pubblica la bozza: chi pubblica diventa il proprietario, con la casella scelta. */

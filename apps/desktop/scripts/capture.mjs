@@ -577,6 +577,25 @@ async function main() {
       ["sources", "/automations/sources", {}],
       ["sources-panel", "/automations/sources?source=src-hubspot", {}],
       ["sources-webhook", "/automations/sources?source=src-webhook", {}],
+      // Task 6: il costruttore. Il momento focale è il passo di Claude di AUT-1.
+      ["builder-general", "/automations/AUT-1/edit?step=0", {}],
+      ["builder-client", "/automations/AUD-A1/edit?step=3/then/0", {}],
+      ["builder-start", "/automations/AUD-A1/edit?step=trigger", {}],
+      ["builder-draft", "/automations/STW-A1/edit?step=0/bug/0", {}],
+      [
+        "builder-problem",
+        "/automations/AUT-1/edit",
+        {
+          // Claude scende sotto il traguardo: il dato del traguardo non c'è più.
+          steps: async (p) => {
+            await p.locator('[data-tree-row="nc-read"]').focus();
+            await p.keyboard.press("Alt+ArrowDown");
+            await p.waitForTimeout(900);
+            await p.locator('[data-tree-row="nc-milestone"] [id="row-text-nc-milestone"]').click();
+            await p.waitForTimeout(300);
+          },
+        },
+      ],
     ];
     for (const [name, hash, o] of AREA7) {
       if (only && !only.test(name)) continue;

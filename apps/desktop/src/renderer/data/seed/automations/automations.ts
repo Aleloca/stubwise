@@ -40,7 +40,7 @@ const departmentIs = (name: string): Condition => ({
   right: { value: name },
 });
 
-function newContractFlow(welcomeSubject: string): AutomationFlow {
+export function newContractFlow(welcomeSubject: string): AutomationFlow {
   return {
     trigger: { kind: "source", sourceId: SOURCE_AUDIN, event: "deal_won" },
     titleTemplate: "Nuovo contratto – {{cliente.nome}}",
@@ -153,7 +153,7 @@ function verify(id: string, branches: Record<string, Step[]>): Step {
   };
 }
 
-const clientDataFlow: AutomationFlow = {
+export const clientDataFlow: AutomationFlow = {
   trigger: { kind: "source", sourceId: SOURCE_WEBHOOK, event: "webhook" },
   titleTemplate: "Dati per {{richiesta.funzione}} – {{cliente.nome}}",
   steps: [

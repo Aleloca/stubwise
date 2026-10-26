@@ -27,6 +27,7 @@ import {
   suspend,
 } from "./runner";
 import { dueSchedules } from "./sources";
+import { templateFlow, type AutomationTemplateKind } from "./templates";
 import {
   automationById,
   canManageAutomation,
@@ -86,12 +87,17 @@ const emptyFlow = (name: string): AutomationFlow => ({
 
 // --- automazioni ------------------------------------------------------------------
 
-/** Una bozza nuova, mai accesa: di un progetto (`automations.manage` lì) o generale (d'istanza). */
+/**
+ * Una bozza nuova, mai accesa: di un progetto (`automations.manage` lì) o
+ * generale (d'istanza). `template`: il flusso di uno dei due modelli, con le
+ * scelte personali vuote (`templates.ts`).
+ */
 export async function createAutomation(input: {
   name: string;
   description?: string;
   projectId: string | null;
   flow?: AutomationFlow;
+  template?: AutomationTemplateKind;
 }): Promise<Automation> {
   const me = await writer("automations.createAutomation");
   const name = input.name.trim();
@@ -115,7 +121,15 @@ export async function createAutomation(input: {
     ownerId: null,
     status: "draft",
     versions: [
-      { n: 1, flow: copy(input.flow ?? emptyFlow(name)), publishedAt: null, publishedById: null },
+      {
+        n: 1,
+        flow: copy(input.flow ?? (input.template ? templateFlow(input.template) : emptyFlow(name))),
+        publishedAt: null,
+        publishedById: null,
+        savedAt: now(),
+        savedById: me,
+        rev: ++state.counter,
+      },
     ],
     createdAt: now(),
     createdById: me,
@@ -166,18 +180,38 @@ export async function duplicateAutomation(
  * Salva la bozza: modificare un'automazione accesa crea la bozza della
  * versione successiva (quella pubblicata resta com'è, con le sue
  * esecuzioni); una bozza si sostituisce.
+ *
+ * `expected` (il costruttore, shape builder [A 12]): il `rev` della
+ * bozza che chi salva ha letto (null = nessuna bozza). Se adesso la bozza è
+ * un'altra — salvata da un'altra persona, o pubblicata nel frattempo —
+ * niente fusione silenziosa: `invalid: stale`, e chi salva ricarica. I
+ * salvataggi propri di fila non si fermano da soli.
  */
 export async function saveDraft(
   id: string,
   flow: AutomationFlow,
   meta: AutomationMeta = {},
+  opts: { expected?: number | null } = {},
 ): Promise<Automation> {
   const me = await writer("automations.saveDraft");
   const a = managedAutomation(me, id);
   if (meta.name !== undefined && !meta.name.trim()) throw invalid("name");
   const last = a.versions.at(-1)!;
-  if (last.publishedAt === null) last.flow = copy(flow);
-  else a.versions.push({ n: last.n + 1, flow: copy(flow), publishedAt: null, publishedById: null });
+  const isDraft = last.publishedAt === null;
+  if (opts.expected !== undefined) {
+    const current = isDraft ? (last.rev ?? null) : null;
+    if (current !== opts.expected && !(isDraft && last.savedById === me)) throw invalid("stale");
+  }
+  const saved = { savedAt: now(), savedById: me, rev: ++state.counter };
+  if (isDraft) Object.assign(last, { flow: copy(flow) }, saved);
+  else
+    a.versions.push({
+      n: last.n + 1,
+      flow: copy(flow),
+      publishedAt: null,
+      publishedById: null,
+      ...saved,
+    });
   if (meta.name !== undefined) a.name = meta.name.trim();
   if (meta.description !== undefined) a.description = meta.description.trim();
   return copy(a);

@@ -4,6 +4,7 @@ import { validateFlow, type FlowIssue } from "../../domain/automations/validate"
 import { fold } from "../../domain/textSearch";
 import { automationHref, runHref } from "../routes";
 import { copy, gate, state, visibleProjectIds } from "../store";
+import { notFound } from "../writer";
 import type {
   Automation,
   AutomationDecision,
@@ -335,6 +336,18 @@ export async function getAutomation(id: string): Promise<AutomationDetail | null
       .slice(0, 20)
       .map((r) => runRow(me, r)),
   };
+}
+
+/**
+ * Gli errori di configurazione di un flusso NON ancora salvato, come li
+ * avrebbe la bozza di `id` (stesso proprietario di `getAutomation`): il
+ * costruttore li mostra mentre la bozza si salva. Non scrive niente.
+ */
+export async function checkDraft(id: string, flow: AutomationFlow): Promise<FlowIssue[]> {
+  const me = await gate("automations.checkDraft");
+  const a = automationById(id);
+  if (!a || !canSeeAutomation(me, a)) throw notFound();
+  return configErrorsOf(a, flow, a.ownerId ?? me);
 }
 
 export async function searchAutomations(q: string): Promise<AutomationSearchResult[]> {

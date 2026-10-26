@@ -65,9 +65,23 @@ const ON_ERRORS: Record<string, string> = {
 export function TurnOnDialog({
   automationId,
   onClose,
+  publish: forcePublish = false,
+  untested = false,
+  onTestFirst,
+  onDone,
 }: {
   automationId: string;
   onClose: () => void;
+  /**
+   * Dal costruttore: pubblica la bozza anche su un'automazione in pausa, che
+   * resta in pausa (shape builder [A 9]); la ripresa è del dettaglio.
+   */
+  publish?: boolean;
+  /** La bozza non è stata provata: il dialogo lo dice e offre «Test first» (shape builder [A 11]). */
+  untested?: boolean;
+  onTestFirst?: () => void;
+  /** Dopo l'accensione o la pubblicazione riuscita (il costruttore torna al dettaglio). */
+  onDone?: () => void;
 }) {
   const { t } = useTranslation();
   const me = useMe();
@@ -84,9 +98,11 @@ export function TurnOnDialog({
   const a = detail.automation;
   const latest = a.versions.at(-1)!;
   const live = a.versions.filter((v) => v.publishedAt !== null).at(-1);
-  const publishing = a.status === "active" && a.hasDraft;
-  const flow = a.status === "paused" && live ? live.flow : latest.flow;
-  const errors = a.status === "paused" ? detail.liveErrors : detail.configErrors;
+  const publishing = (a.status === "active" || forcePublish) && a.hasDraft;
+  // In pausa, «Turn on» riaccende la versione pubblicata; «Publish» guarda la bozza.
+  const resuming = a.status === "paused" && !publishing;
+  const flow = resuming && live ? live.flow : latest.flow;
+  const errors = resuming ? detail.liveErrors : detail.configErrors;
   const { fixed, fromClient } = fixedProjects(flow, a.projectId);
   const blocked = fixed.filter((f) => !perms.canCreate(f.kind, f.projectId));
   const needsMailbox = sendsEmail(flow);
@@ -103,7 +119,12 @@ export function TurnOnDialog({
     const done = {
       onSuccess: () => {
         onClose();
-        toast.show(t("automations.toast.on", { code: a.code }));
+        toast.show(
+          a.status === "paused" && publishing
+            ? t("automations.toast.publishedPaused", { code: a.code, n: latest.n })
+            : t("automations.toast.on", { code: a.code }),
+        );
+        onDone?.();
       },
       onError: (e: unknown) =>
         toast.error(
@@ -125,6 +146,11 @@ export function TurnOnDialog({
           <button type="button" className={secondaryButton} onClick={onClose}>
             {t("automations.actions.cancel")}
           </button>
+          {untested && onTestFirst && (
+            <button type="button" className={secondaryButton} onClick={onTestFirst}>
+              {t("automations.dialogs.testFirst")}
+            </button>
+          )}
           <button
             type="button"
             className={`${primaryButton} disabled:opacity-40`}
@@ -208,7 +234,15 @@ export function TurnOnDialog({
           {t("automations.dialogs.keepVersion", { count: a.openRuns, n: live?.n ?? 1 })}
         </p>
       )}
-      {a.status === "paused" && (
+      {untested && (
+        <p data-untested className="text-sm text-ink-muted">
+          {t("automations.dialogs.untested")}
+        </p>
+      )}
+      {a.status === "paused" && publishing && (
+        <p className="text-sm text-ink-muted">{t("automations.dialogs.staysPaused")}</p>
+      )}
+      {resuming && (
         <p className="text-sm text-ink-muted">
           {suspended > 0 && `${t("automations.dialogs.resumes", { count: suspended })} `}
           {t("automations.dialogs.notRecovered")}
