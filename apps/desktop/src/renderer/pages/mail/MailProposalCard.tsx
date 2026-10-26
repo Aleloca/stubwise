@@ -349,7 +349,7 @@ export function MailProposalCard({
             )}
             <span className="sr-only"> · {t("mail.proposal.waitingOnYou")}</span>
           </h3>
-          {!choosing && (
+          {!choosing && (p.excerpt !== "" || canMove) && (
             <MenuButton
               menuLabel={t("mail.proposal.menu")}
               ariaLabel={t("mail.proposal.menu")}
@@ -359,20 +359,22 @@ export function MailProposalCard({
             >
               {(close) => (
                 <>
-                  <MenuGroup>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      tabIndex={-1}
-                      className={itemClass}
-                      onClick={() => {
-                        setShowRead((v) => !v);
-                        close();
-                      }}
-                    >
-                      {showRead ? t("mail.proposal.hideRead") : t("mail.proposal.showRead")}
-                    </button>
-                  </MenuGroup>
+                  {p.excerpt !== "" && (
+                    <MenuGroup>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        tabIndex={-1}
+                        className={itemClass}
+                        onClick={() => {
+                          setShowRead((v) => !v);
+                          close();
+                        }}
+                      >
+                        {showRead ? t("mail.proposal.hideRead") : t("mail.proposal.showRead")}
+                      </button>
+                    </MenuGroup>
+                  )}
                   {canMove && (
                     <MenuGroup label={t("mail.proposal.move")}>
                       {reassignTargets.map((x: Project) => (
@@ -400,7 +402,11 @@ export function MailProposalCard({
           )}
         </div>
         {handedHeader && fromEmailTo && (
-          <p className="text-xs text-ink-muted">{t("mail.proposal.fromEmailTo", { name: fromEmailTo })}</p>
+          <p className="text-xs text-ink-muted">
+            {p.source === "transcript"
+              ? t("mail.proposal.fromMeeting")
+              : t("mail.proposal.fromEmailTo", { name: fromEmailTo })}
+          </p>
         )}
         {handedHeader && !fromEmailTo && (
           <p className="text-xs text-ink-muted">
@@ -517,7 +523,7 @@ export function MailProposalCard({
         </ul>
       )}
 
-      {!choosing && (
+      {!choosing && p.excerpt !== "" && (
         <div className="flex flex-col gap-2">
           <button
             type="button"

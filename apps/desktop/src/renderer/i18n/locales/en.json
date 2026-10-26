@@ -3825,6 +3825,7 @@
       "cantConfirm": "You can't {{ability}} in {{code}}. Hand it to the project and someone who can will decide.",
       "handedHeader": "Handed to {{code}} by {{name}}",
       "fromEmailTo": "from an email to {{name}}",
+      "fromMeeting": "from a meeting",
       "outcomeTitle": "Proposal for {{code}}",
       "error": "Couldn't do that. Try again.",
       "errorForbidden": "You can't do this any more in this project.",

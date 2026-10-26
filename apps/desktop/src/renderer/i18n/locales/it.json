@@ -3825,6 +3825,7 @@
       "cantConfirm": "Non puoi {{ability}} in {{code}}. Passala al progetto: deciderà chi può.",
       "handedHeader": "Passata a {{code}} da {{name}}",
       "fromEmailTo": "da un'email a {{name}}",
+      "fromMeeting": "da una riunione",
       "outcomeTitle": "Proposta per {{code}}",
       "error": "Non è stato possibile farlo. Riprova.",
       "errorForbidden": "In questo progetto non puoi più farlo.",

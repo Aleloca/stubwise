@@ -1,6 +1,12 @@
 import { eventParticipants } from "../calendar/visibility";
 import { state } from "../store";
-import type { Mailbox, MailMessage, MailProposal, ProposedAction } from "../types";
+import type {
+  Mailbox,
+  MailMessage,
+  MailProposal,
+  MeetingTranscript,
+  ProposedAction,
+} from "../types";
 import { can, viewerFor, type Permission } from "../viewer";
 
 // Chi vede che cosa nella Posta (area 6): UNA regola, per ogni lettura e ogni
@@ -105,21 +111,49 @@ export function canDoActions(me: string, p: MailProposal, actions: ProposedActio
   });
 }
 
-/** Chi guarda è un destinatario dell'email da cui nasce la proposta. */
-export const isProposalRecipient = (me: string, p: MailProposal): boolean =>
-  p.source !== "calendar" &&
-  state.mailMessages.some((m) => m.messageId === p.sourceId && canSeeMessage(me, m));
+/**
+ * Chi vede riassunto e trascrizione di una riunione: i partecipanti in
+ * Stubwise dell'evento collegato — gli invitati con una persona, qualunque
+ * sia la loro risposta: rifiutare non toglie l'accesso a una riunione a cui
+ * si era invitati (R-I15). Un membro del progetto che non c'era non li vede,
+ * e nemmeno l'admin. Senza evento collegato (o un evento che Stubwise non
+ * conosce): solo i destinatari dell'email di Gemini.
+ */
+export function canSeeTranscript(me: string, t: MeetingTranscript): boolean {
+  const e =
+    t.eventId === null ? undefined : state.calendarEvents.find((x) => x.id === t.eventId);
+  if (e) return e.attendees.some((a) => a.personId === me);
+  const m = state.mailMessages.find((x) => x.id === t.messageId);
+  return !!m && canSeeMessage(me, m);
+}
+
+/**
+ * Chi guarda è un destinatario dell'email da cui nasce la proposta. Per una
+ * riunione non basta l'email di Gemini (si inoltra): serve poter vedere la
+ * trascrizione, cioè esserci stato (R-I24) — l'estratto è il riassunto.
+ */
+export function isProposalRecipient(me: string, p: MailProposal): boolean {
+  if (p.source === "calendar") return false;
+  return state.mailMessages.some((m) => {
+    if (m.messageId !== p.sourceId || !canSeeMessage(me, m)) return false;
+    if (p.source !== "transcript") return true;
+    const notes = state.meetingTranscripts.filter((t) => t.messageId === m.id);
+    return notes.length === 0 || notes.some((t) => canSeeTranscript(me, t));
+  });
+}
 
 /**
  * Chi vede una proposta della posta — l'unica regola, per ogni lettura e
- * scrittura. Email e trascrizione: chi vede il messaggio (`messageId ===
- * sourceId`) ED è membro del progetto (`memberIds`: un admin non membro non
- * la vede, anche se vede ogni progetto); per `chooseProject` basta essere
- * membro di uno dei progetti fra cui sceglie. Passata al progetto (una
- * volta passata lo resta, anche decisa: `handedAt`): anche chi ha nel
- * progetto il permesso di ogni sua azione — la stessa regola di
- * `canConfirm` — senza essere destinatario (vede l'estratto, non il
- * messaggio). Calendario: partecipante dell'evento e membro.
+ * scrittura. Email: chi vede il messaggio (`messageId === sourceId`) ED è
+ * membro del progetto (`memberIds`: un admin non membro non la vede, anche
+ * se vede ogni progetto); per `chooseProject` basta essere membro di uno dei
+ * progetti fra cui sceglie. Trascrizione: in più, chi vede la trascrizione
+ * (i partecipanti, R-I24). Passata al progetto (una volta passata lo resta,
+ * anche decisa: `handedAt`): anche il membro che ha nel progetto il permesso
+ * di ogni sua azione — la stessa regola di `canConfirm` — senza essere
+ * destinatario (R-I25); vede l'estratto, non il messaggio, e di una riunione
+ * nemmeno l'estratto (`viewOf` in `proposals.ts`). Calendario: partecipante
+ * dell'evento e membro.
  */
 export function canSeeMailProposal(me: string, p: MailProposal): boolean {
   if (p.source === "calendar") {
@@ -128,5 +162,7 @@ export function canSeeMailProposal(me: string, p: MailProposal): boolean {
   if (proposalProjectIds(p).some((id) => isProjectMember(me, id)) && isProposalRecipient(me, p)) {
     return true;
   }
-  return p.handedAt !== null && canDoActions(me, p, p.actions);
+  return (
+    p.handedAt !== null && isProjectMember(me, p.projectId) && canDoActions(me, p, p.actions)
+  );
 }

@@ -124,8 +124,12 @@ function viewOf(me: string, p: MailProposal): MailProposalView {
       actionsByProject: Object.fromEntries(ids.map((id) => [id, byProject[id] ?? []])),
     };
   }
+  // Di una riunione l'estratto è il riassunto: a chi non c'era (una
+  // proposta passata) restano solo le azioni (R-I24).
+  const recipient = isProposalRecipient(me, p);
+  if (p.source === "transcript" && !recipient) proposal.excerpt = "";
   const canConfirm = canConfirmNow(me, p);
-  const shared = isProposalRecipient(me, p) || p.source === "calendar" ? sharersOf(p) : [];
+  const shared = recipient || p.source === "calendar" ? sharersOf(p) : [];
   return {
     proposal,
     canConfirm,

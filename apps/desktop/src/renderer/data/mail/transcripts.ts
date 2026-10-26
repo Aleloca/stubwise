@@ -11,7 +11,7 @@ import type {
   ProjectRequest,
   Task,
 } from "../types";
-import { canSeeMessage } from "./visibility";
+import { canSeeMessage, canSeeTranscript } from "./visibility";
 
 // Le riunioni registrate (area 6): l'email di Gemini, il Google Doc letto e
 // le cose da fare nate dalla trascrizione. Riassunto e trascrizione sono
@@ -25,20 +25,7 @@ const eventOf = (t: MeetingTranscript): CalendarEvent | undefined =>
 const messageOf = (t: MeetingTranscript): MailMessage | undefined =>
   state.mailMessages.find((m) => m.id === t.messageId);
 
-/**
- * Chi vede riassunto e trascrizione di una riunione: i partecipanti in
- * Stubwise dell'evento collegato — gli invitati con una persona, qualunque
- * sia la loro risposta: rifiutare non toglie l'accesso a una riunione a cui
- * si era invitati (R-I15). Un membro del progetto che non c'era non li vede,
- * e nemmeno l'admin. Senza evento collegato (o un evento che Stubwise non
- * conosce): solo i destinatari dell'email di Gemini.
- */
-export function canSeeTranscript(me: string, t: MeetingTranscript): boolean {
-  const e = eventOf(t);
-  if (e) return e.attendees.some((a) => a.personId === me);
-  const m = messageOf(t);
-  return !!m && canSeeMessage(me, m);
-}
+export { canSeeTranscript };
 
 /** Riassunto e trascrizione ci sono solo col documento letto. */
 const content = (t: MeetingTranscript) =>

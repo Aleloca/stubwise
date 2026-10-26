@@ -6,7 +6,7 @@ import { CALENDAR_CASES } from "../../../data/seed/calendar/events";
 import { MAIL_CASES } from "../../../data/seed/mail";
 import { setSessionPersonId } from "../../../data/session";
 import { now, state } from "../../../data/store";
-import { VIEW_AS_PERSONAS, viewerFor } from "../../../data/viewer";
+import { VIEW_AS_PERSONAS, grantProjectRole, viewerFor } from "../../../data/viewer";
 import { clearToasts } from "../../../tasks-ui/Toast";
 import { renderRoute } from "../../../test/renderRoute";
 import { clearPendingAnswers, setUndoWindow } from "../pendingAnswers";
@@ -438,35 +438,15 @@ describe("Privacy della posta nella Home e in ⌘K (Review Focus 1)", () => {
       const mail = await block("Important email");
       expect(await within(mail).findByText("Nothing important")).toBeInTheDocument();
       const decide = await block("Decide");
-      // Pronto: con voci (l'admin) o vuoto (Alessia).
+      // Pronto: con voci (le altre risposte dell'admin) o vuoto (Alessia).
       await waitFor(() =>
         expect(
           decide.querySelector("ul") ?? within(decide).queryByText("Nothing to decide"),
         ).not.toBeNull(),
       );
       await new Promise((r) => setTimeout(r, 50));
-      // Solo una proposta PASSATA al progetto può arrivare a chi non è
-      // destinatario (con il permesso nel progetto: l'admin): con l'estratto,
-      // senza riga d'origine né link all'email.
-      for (const item of decide.querySelectorAll<HTMLElement>("[data-mail-decision]")) {
-        const id = item.getAttribute("data-mail-decision");
-        expect(state.mailProposals.find((p) => p.id === id)!.status).toBe("handed");
-        expect(within(item).queryByRole("link", { name: "Open email" })).toBeNull();
-        expect(item.textContent).not.toMatch(/From an email|From the meeting/);
-        // L'intestazione dice chi l'ha passata e a chi era l'email; l'estratto è aperto.
-        expect(item).toHaveTextContent("Handed to STW by Giulia Ferri");
-        expect(item).toHaveTextContent("from an email to Giulia Ferri");
-        expect(
-          within(item).getByRole("button", { name: "Hide what Stubwise read" }),
-        ).toBeInTheDocument();
-        expect(item.querySelector("blockquote")).toHaveTextContent(
-          "The wording of the release notes is approved on our side.",
-        );
-      }
-      if (personId === "p-roberta") {
-        expect(decide.querySelectorAll("[data-mail-decision]")).toHaveLength(1);
-      }
-      if (personId === "p-alessia") expect(decide.querySelector("[data-mail-decision]")).toBeNull();
+      // Nemmeno la passata di STW all'admin: ha il permesso, ma non è membro (R-I25).
+      expect(decide.querySelector("[data-mail-decision]")).toBeNull();
       const page = document.body.textContent ?? "";
       for (const subject of allSubjects()) expect(page).not.toContain(subject);
 
@@ -480,6 +460,41 @@ describe("Privacy della posta nella Home e in ⌘K (Review Focus 1)", () => {
       expect(dialog.querySelector("[data-palette-mail]")).toBeNull();
     });
   }
+});
+
+describe("Proposte passate al progetto in «Decide», a chi non è destinatario", () => {
+  it("dall'email: chi l'ha passata e a chi era, con l'estratto aperto, senza origine", async () => {
+    // Simone: membro di STW, Project Lead, non destinatario dell'email di Ivo.
+    grantProjectRole("p-simone", "prj-stw", "project_lead");
+    connect("p-simone");
+    renderRoute("/home", "p-simone");
+    const item = await mailItem("mp-stw-release-notes-date");
+    expect(within(item).queryByRole("link", { name: "Open email" })).toBeNull();
+    expect(item.textContent).not.toMatch(/From an email|From the meeting/);
+    expect(item).toHaveTextContent("Handed to STW by Giulia Ferri");
+    expect(item).toHaveTextContent("from an email to Giulia Ferri");
+    expect(within(item).getByRole("button", { name: "Hide what Stubwise read" })).toBeInTheDocument();
+    expect(item.querySelector("blockquote")).toHaveTextContent(
+      "The wording of the release notes is approved on our side.",
+    );
+  });
+
+  it("da una riunione a cui non era: solo le azioni e «from a meeting», niente estratto (R-I24)", async () => {
+    grantProjectRole("p-giulia", "prj-aud", "viewer");
+    setSessionPersonId("p-giulia");
+    await api.mail.handMailProposal(MEETING_PROPOSAL);
+    grantProjectRole("p-stefano", "prj-aud", "project_lead");
+    connect("p-stefano");
+    renderRoute("/home", "p-stefano");
+    const item = await mailItem(MEETING_PROPOSAL);
+    expect(item).toHaveTextContent("Handed to AUD by Giulia Ferri");
+    expect(item).toHaveTextContent("from a meeting");
+    expect(item).not.toHaveTextContent("from an email to");
+    expect(item.querySelector("blockquote")).toBeNull();
+    expect(within(item).queryByRole("button", { name: /what Stubwise read/ })).toBeNull();
+    const summary = state.mailProposals.find((p) => p.id === MEETING_PROPOSAL)!.excerpt;
+    expect(document.body.textContent).not.toContain(summary.slice(0, 40));
+  });
 });
 
 describe("⌘K: gruppo «Mail» e azioni", () => {

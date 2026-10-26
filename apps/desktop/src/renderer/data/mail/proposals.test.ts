@@ -228,8 +228,73 @@ describe("Proposte della posta: chi la vede", () => {
       "mp-stw-copy-freeze",
     ]);
     as("p-roberta");
-    // L'admin non vede le aperte (non è destinatario); la passata sì: ha il permesso.
-    expect((await mail.listMailDecisions()).map((v) => v.proposal.id)).toEqual([HANDED]);
+    // L'admin non vede le aperte (non è destinatario) né la passata: ha il
+    // permesso, ma non è membro di STW (R-I25).
+    expect((await mail.listMailDecisions()).map((v) => v.proposal.id)).toEqual([]);
+  });
+});
+
+describe("Proposte passate al progetto: solo ai membri col permesso (R-I25)", () => {
+  it("un full admin non membro non la vede, né in «Da decidere»; un membro col permesso sì", async () => {
+    expect(membersOf(STW)).not.toContain("p-roberta");
+    expect(can(viewerFor("p-roberta"), "tickets.edit", STW)).toBe(true);
+    as("p-roberta");
+    await expect(mail.getMailProposal(HANDED)).rejects.toThrow("not_found");
+    expect((await mail.listMailDecisions()).map((v) => v.proposal.id)).not.toContain(HANDED);
+    await expect(mail.confirmMailProposal(HANDED)).rejects.toThrow("not_found");
+    // Diventa membro: ora sì.
+    membersOf(STW).push("p-roberta");
+    expect((await mail.listMailDecisions()).map((v) => v.proposal.id)).toContain(HANDED);
+  });
+});
+
+describe("Proposte da una riunione: solo ai partecipanti membri (R-I24)", () => {
+  const gemini = () => message(MAIL_CASES.transcript);
+  /** Alessia (AUD, non era alla riunione) riceve l'email di Gemini inoltrata. */
+  const forwardToAlessia = () =>
+    gemini().to.push({
+      name: "Alessia Neri",
+      email: "alessia@stubwise.example",
+      personId: "p-alessia",
+    });
+
+  it("un membro che ha l'email inoltrata ma non c'era: nessuna proposta, nessun estratto", async () => {
+    forwardToAlessia();
+    as("p-alessia");
+    await expect(mail.getMailThread(gemini().threadId)).resolves.toBeDefined();
+    expect(await mail.listMailProposals({ sourceId: gemini().messageId })).toEqual([]);
+    await expect(mail.getMailProposal(REVIEW)).rejects.toThrow("not_found");
+    const decisions = await mail.listMailDecisions();
+    expect(decisions.map((v) => v.proposal.id)).not.toContain(REVIEW);
+    expect(JSON.stringify(decisions)).not.toContain(proposal(REVIEW).excerpt);
+    expect(
+      (await mail.listMailThreads()).find((r) => r.threadId === gemini().threadId),
+    ).toMatchObject({ openProposals: 0 });
+    // I partecipanti membri la vedono, con l'estratto.
+    as("p-matteo");
+    expect((await mail.getMailProposal(REVIEW)).proposal.excerpt).toBe(proposal(REVIEW).excerpt);
+  });
+
+  it("passata al progetto: chi ha il permesso e non c'era la vede senza estratto", async () => {
+    forwardToAlessia();
+    grantProjectRole("p-giulia", AUD, "viewer");
+    grantProjectRole("p-alessia", AUD, "project_lead");
+    grantProjectRole("p-stefano", AUD, "project_lead");
+    as("p-giulia");
+    await mail.handMailProposal(REVIEW);
+    // Alessia: destinataria inoltrata, non partecipante; Stefano: nemmeno destinatario.
+    for (const who of ["p-alessia", "p-stefano"]) {
+      as(who);
+      const view = await mail.getMailProposal(REVIEW);
+      expect(view).toMatchObject({ canConfirm: true, sharedWith: [] });
+      expect(view.proposal.excerpt).toBe("");
+      const item = (await mail.listMailDecisions()).find((v) => v.proposal.id === REVIEW)!;
+      expect(item.proposal.excerpt).toBe("");
+      expect(JSON.stringify(item)).not.toContain(proposal(REVIEW).excerpt);
+    }
+    // Chi l'ha passata c'era: l'estratto lo vede ancora.
+    as("p-giulia");
+    expect((await mail.getMailProposal(REVIEW)).proposal.excerpt).toBe(proposal(REVIEW).excerpt);
   });
 });
 
@@ -244,7 +309,7 @@ describe("Proposte della posta: con chi è condivisa", () => {
   });
 
   it("una proposta passata letta per il solo estratto non dice a chi era l'email", async () => {
-    setSessionPersonId("p-roberta");
+    setSessionPersonId("p-laura"); // Project Lead in STW, non destinataria
     const handed = await mail.getMailProposal("mp-stw-release-notes-date");
     expect(handed.sharedWith).toEqual([]);
   });
