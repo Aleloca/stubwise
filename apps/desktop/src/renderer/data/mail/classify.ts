@@ -1,13 +1,20 @@
 import { fold } from "../../pages/chat/search";
 import { state } from "../store";
-import type { MailClassification, MailImportance, MailMessage } from "../types";
+import type {
+  MailClassification,
+  MailImportance,
+  MailMessage,
+  MailProposal,
+  ProposedAction,
+} from "../types";
 import { stubwiseRecipients } from "./visibility";
 
 // La classificazione finta della Posta (area 6): nel prototipo il «modello»
 // è un elenco di parole chiave sul seme, deterministico. Nessun filtro prima
 // (domini, regole per progetto): ogni email ci passa, salvo le caselle con
 // le proposte spente, che la lasciano `off` senza chiamarla. Qui si decide
-// solo l'esito; le proposte le scrive il Task 3.
+// l'esito e, da quello, le proposte (`proposalsFromClassification`): le
+// scrive `advanceClassification` (writes.ts), una per email e progetto.
 
 type Members = (projectId: string) => string[];
 
@@ -80,4 +87,87 @@ export function classifyMessage(m: MailMessage, members: Members): MailClassific
     dueDate: text.includes("tomorrow") ? dayAfter(m.at) : null,
     uncertainProjectIds: matched.length > 1 ? matched : [],
   };
+}
+
+/** L'oggetto senza «Re:»/«Fwd:» davanti: il titolo della task proposta. */
+function taskTitle(subject: string): string {
+  return subject.replace(/^\s*((re|fwd?|r|i)\s*:\s*)+/i, "").trim() || subject;
+}
+
+/** L'estratto letto: il paragrafo più lungo del testo (non il saluto né la firma). */
+function excerptOf(text: string): string {
+  const paragraphs = text
+    .split(/\n\s*\n/)
+    .map((x) => x.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const longest = paragraphs.reduce((a, b) => (b.length > a.length ? b : a), "");
+  return longest.length > 280 ? `${longest.slice(0, 279).trimEnd()}…` : longest;
+}
+
+/** La task proposta per un progetto: l'oggetto come titolo, la scadenza ricavata. */
+function createTaskFor(m: MailMessage, projectId: string, dueDate: string | null): ProposedAction {
+  const title = taskTitle(m.subject);
+  const code = state.projectsById.get(projectId)?.code ?? "";
+  return {
+    fn: "createTask",
+    args: { projectId, title, ...(dueDate ? { dueDate } : {}) },
+    summary: `Create in ${code}: “${title}”`,
+  };
+}
+
+/**
+ * Le proposte che il modello finto scrive da una classificazione `done`, in
+ * modo deterministico come la classificazione: per ogni progetto una task
+ * dall'oggetto (con la scadenza ricavata); incerta fra più progetti, UNA
+ * «scegli il progetto» con la task già pronta per ciascuno (il suo
+ * `projectId` è il primo candidato, come nel seme). Nessun progetto → nessuna.
+ * Chi le scrive controlla l'unicità per email e progetto.
+ */
+export function proposalsFromClassification(
+  m: MailMessage,
+  c: MailClassification,
+  createdAt: string,
+): MailProposal[] {
+  if (c.state !== "done") return [];
+  const base = {
+    source: m.kind === "transcript" ? ("transcript" as const) : ("email" as const),
+    sourceId: m.messageId,
+    excerpt: excerptOf(m.text),
+    createdAt,
+    status: "open" as const,
+    decidedById: null,
+    decidedAt: null,
+    resultCodes: [],
+    error: null,
+    handedAt: null,
+    handedById: null,
+  };
+  const out: MailProposal[] = c.projectIds.map((projectId) => ({
+    ...base,
+    id: `mp-${m.id}-${projectId}`,
+    projectId,
+    actions: [createTaskFor(m, projectId, c.dueDate)],
+  }));
+  const candidates = c.uncertainProjectIds;
+  if (candidates.length > 1) {
+    const codes = candidates.map((id) => state.projectsById.get(id)?.code ?? id);
+    out.push({
+      ...base,
+      id: `mp-${m.id}-choose`,
+      projectId: candidates[0]!,
+      actions: [
+        {
+          fn: "chooseProject",
+          args: {
+            projectIds: [...candidates],
+            actionsByProject: Object.fromEntries(
+              candidates.map((id) => [id, [createTaskFor(m, id, c.dueDate)]]),
+            ),
+          },
+          summary: `Choose the project: ${codes.join(" or ")}`,
+        },
+      ],
+    });
+  }
+  return out;
 }

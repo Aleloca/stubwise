@@ -489,8 +489,17 @@ describe("Posta — allineamento, analisi, stati", () => {
     setLatency(20);
     await userEvent.click(within(p).getByRole("button", { name: "Repropose" }));
     expect(await within(p).findByText("Stubwise is reading this email…")).toBeInTheDocument();
-    // L'esito: l'ordine parla di MKX, e da lì non nasce niente da fare.
-    expect(await within(p).findByText("Nothing to do for MKX", {}, { timeout: 3000 })).toBeInTheDocument();
+    // L'esito: l'ordine parla di MKX, e ne nasce la proposta per MKX.
+    const card = await waitFor(
+      () => {
+        const el = p.querySelector<HTMLElement>("[data-mail-proposal]");
+        if (!el) throw new Error("no proposal yet");
+        return el;
+      },
+      { timeout: 3000 },
+    );
+    expect(card).toHaveTextContent("Stubwise proposes · 1 change for MKX");
+    expect(card).toHaveTextContent("Conferma d'ordine 2026/1187");
     expect(within(p).queryByText("Stubwise couldn't analyse this email.")).toBeNull();
     expect(within(p).queryByText("Stubwise is reading this email…")).toBeNull();
     expect(within(p).getByRole("link", { name: /MKX/ })).toBeInTheDocument();

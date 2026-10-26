@@ -1,6 +1,6 @@
 import { gate, now, state, storeGeneration } from "../store";
 import type { Mailbox, MailClassification, MailMessage } from "../types";
-import { classifyMessage } from "./classify";
+import { classifyMessage, proposalsFromClassification } from "./classify";
 import { canSeeMessage, myMailbox, visibleMessages } from "./visibility";
 
 // Le scritture della Posta (area 6). Come le altre: `gate()` prima di tutto,
@@ -67,7 +67,27 @@ function mailboxFor(me: string, email: string): Mailbox {
 const goesToModel = (m: MailMessage): boolean =>
   state.mailboxes.some((b) => m.mailboxPersonIds.includes(b.personId) && b.proposalsEnabled);
 
-/** Un passo della classificazione: `pending` → `done` (o `failed`). */
+/**
+ * Scrive le proposte di una classificazione: una per email (Message-ID) e
+ * progetto — un'email riproposta, o arrivata in un'altra casella, non ne
+ * raddoppia nessuna. Una «scegli il progetto» non nasce se uno dei suoi
+ * candidati ha già la sua proposta.
+ */
+function propose(m: MailMessage): void {
+  for (const p of proposalsFromClassification(m, m.classification, now())) {
+    const projects = new Set(
+      p.actions[0]?.fn === "chooseProject"
+        ? ((p.actions[0].args.projectIds as string[] | undefined) ?? [])
+        : [p.projectId],
+    );
+    const taken = state.mailProposals.some(
+      (x) => x.id === p.id || (x.sourceId === p.sourceId && projects.has(x.projectId)),
+    );
+    if (!taken) state.mailProposals.push(p);
+  }
+}
+
+/** Un passo della classificazione: `pending` → `done` (e le proposte), o `failed`. */
 async function advanceClassification(ids: readonly string[]): Promise<void> {
   const generation = storeGeneration();
   // Lo stato è stato ripristinato nel frattempo: questo lavoro non è più suo.
@@ -78,7 +98,10 @@ async function advanceClassification(ids: readonly string[]): Promise<void> {
     await gate("mail.advanceClassification");
     if (!alive()) return;
     const members = (projectId: string) => state.projectsById.get(projectId)?.memberIds ?? [];
-    for (const m of analysing()) setClassification(m, classifyMessage(m, members));
+    for (const m of analysing()) {
+      setClassification(m, classifyMessage(m, members));
+      propose(m);
+    }
   } catch {
     if (!alive()) return;
     for (const m of analysing()) setClassification(m, { state: "failed" });

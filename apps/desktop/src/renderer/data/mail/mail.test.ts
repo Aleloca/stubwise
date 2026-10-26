@@ -388,6 +388,86 @@ describe("Posta: letto, Riproponi, Home e ricerca", () => {
   });
 });
 
+describe("Posta: la classificazione scrive le proposte", () => {
+  const proposalsOf = (id: string) =>
+    state.mailProposals.filter((p) => p.sourceId === msg(id).messageId);
+
+  it("l'arrivo nuovo: una proposta aperta per il suo progetto, che Giulia vede in «Da decidere»", async () => {
+    await mail.syncMailbox("giulia.ferri@example.com");
+    await mail.whenMailIdle();
+    const [p, ...rest] = proposalsOf(INCOMING_MESSAGE_ID);
+    expect(rest).toEqual([]);
+    expect(p).toMatchObject({
+      source: "email",
+      projectId: AUD,
+      status: "open",
+      actions: [
+        {
+          fn: "createTask",
+          args: {
+            projectId: AUD,
+            title: "Dialer acceptance tests: can we start tomorrow?",
+            dueDate: "2026-10-24",
+          },
+        },
+      ],
+    });
+    expect(p!.excerpt).toMatch(/Please send the checklist/);
+    expect((await mail.listMailDecisions()).map((v) => v.proposal.id)).toContain(p!.id);
+    expect((await rowOf(INCOMING_MESSAGE_ID))!.openProposals).toBe(1);
+  });
+
+  it("«Riproponi» dopo un'analisi fallita la scrive; una seconda classificazione non la raddoppia", async () => {
+    as("p-matteo");
+    const id = MAIL_CASES.failed;
+    expect(proposalsOf(id)).toEqual([]);
+    await mail.reproposeMessage(id);
+    await mail.whenMailIdle();
+    expect(proposalsOf(id)).toEqual([expect.objectContaining({ projectId: MKX, status: "open" })]);
+    msg(id).classification = { state: "failed" };
+    await mail.reproposeMessage(id);
+    await mail.whenMailIdle();
+    expect(proposalsOf(id)).toHaveLength(1);
+    // La condivisa ha già la sua proposta su AUD: riproposta, resta una.
+    as("p-giulia");
+    msg(MAIL_CASES.shared).classification = { state: "failed" };
+    await mail.reproposeMessage(MAIL_CASES.shared);
+    await mail.whenMailIdle();
+    expect(proposalsOf(MAIL_CASES.shared).map((p) => p.id)).toEqual(["mp-aud-billing-vat"]);
+  });
+
+  it("incerta fra più progetti: una proposta «scegli il progetto», con le azioni per ciascuno", async () => {
+    const incoming = state.mailIncoming[0]!;
+    incoming.text += "\nAlso: the new listini for the billing export.";
+    await mail.syncMailbox("giulia.ferri@example.com");
+    await mail.whenMailIdle();
+    expect(msg(INCOMING_MESSAGE_ID).classification).toMatchObject({
+      projectIds: [],
+      uncertainProjectIds: [AUD, MKX],
+    });
+    const [p, ...rest] = proposalsOf(INCOMING_MESSAGE_ID);
+    expect(rest).toEqual([]);
+    const choose = p!.actions[0]!;
+    expect(choose.fn).toBe("chooseProject");
+    expect(choose.args.projectIds).toEqual([AUD, MKX]);
+    const byProject = choose.args.actionsByProject as Record<string, { args: { projectId: string } }[]>;
+    expect(byProject[AUD]![0]!.args.projectId).toBe(AUD);
+    expect(byProject[MKX]![0]!.args.projectId).toBe(MKX);
+    await mail.chooseProjectFor(p!.id, MKX);
+    expect(proposalsOf(INCOMING_MESSAGE_ID)).toEqual([
+      expect.objectContaining({ projectId: MKX }),
+    ]);
+  });
+
+  it("una newsletter (nessun progetto) non ne scrive", async () => {
+    const incoming = state.mailIncoming[0]!;
+    incoming.text += "\nUnsubscribe from this newsletter.";
+    await mail.syncMailbox("giulia.ferri@example.com");
+    await mail.whenMailIdle();
+    expect(proposalsOf(INCOMING_MESSAGE_ID)).toEqual([]);
+  });
+});
+
 describe("Posta: classificazione finta (classify.ts)", () => {
   it("progetti candidati: almeno un destinatario del team è membro", () => {
     const candidates = candidateProjects(msg(MAIL_CASES.shared));
