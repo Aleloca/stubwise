@@ -4234,12 +4234,14 @@
       "send": "Manda gli inviti",
       "addTitle": "Aggiungi un titolo",
       "endBeforeStart": "La fine è prima dell'inizio",
+      "invalidDate": "Inserisci una data e un'ora valide",
       "outsideWindow": "Stubwise può fissare fino al {{date}} · per le date successive usa Google Calendar",
-      "created": "{{title}} creata. Salvataggio…",
-      "updated": "{{title}} aggiornata. Salvataggio…",
+      "created": "{{title}} creata",
+      "updated": "{{title}} aggiornata",
       "failed": "Non è stato possibile creare la riunione",
       "calendar": "Calendario",
-      "updateFailed": "Non è stato possibile salvare la riunione: non è cambiato nulla."
+      "updateFailed": "Non è stato possibile salvare la riunione: non è cambiato nulla.",
+      "updatePartial": "Non è stato possibile salvare tutte le modifiche: il nuovo orario è salvato."
     },
     "column": {
       "calendars": "Calendari",

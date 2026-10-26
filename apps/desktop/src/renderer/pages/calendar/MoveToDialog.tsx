@@ -36,11 +36,16 @@ export function MoveToDialog({
     const [y, m, d] = date.split("-").map(Number) as [number, number, number];
     const [h, min] = time.split(":").map(Number) as [number, number];
     const startMs = event.allDay ? Date.UTC(y, m - 1, d) : new Date(y, m - 1, d, h, min).getTime();
+    // Un campo vuoto o incompleto: prima di farne una data ISO, che lancerebbe.
+    if (Number.isNaN(startMs)) {
+      setError(t("calendar.editor.invalidDate"));
+      return;
+    }
     const next = {
       startsAt: iso(startMs),
       endsAt: iso(startMs + (event.allDay ? Math.max(DAY_MS, duration) : duration)),
     };
-    if (Number.isNaN(startMs) || !inWindowSpan(next, event.allDay, win)) {
+    if (!inWindowSpan(next, event.allDay, win)) {
       setError(t("calendar.editor.outsideWindow", { date: shortDate(win.last, i18n.language) }));
       return;
     }

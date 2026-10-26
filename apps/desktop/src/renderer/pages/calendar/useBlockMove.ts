@@ -274,6 +274,19 @@ export function useBlockMove({
     }, 0);
   }
 
+  /**
+   * Il sistema toglie il puntatore (gesto del trackpad, finestra persa):
+   * come Esc, il gesto si annulla e nulla si sposta né nasce.
+   */
+  function cancel(e: PointerEvent) {
+    const g = gesture.current;
+    if (!g || g.pointerId !== e.pointerId) return;
+    endGesture();
+    if (g.kind === "draw") dispatch({ type: "draft", draft: null });
+    else dispatch({ type: "clear" });
+    if (g.started) suppressNextClick();
+  }
+
   function onKeyDuringGesture(e: KeyboardEvent) {
     const g = gesture.current;
     if (e.key !== "Escape" || !g || g.cancelled) return;
@@ -285,11 +298,12 @@ export function useBlockMove({
 
   // I gestori sulla finestra per tutto il gesto: un rilascio fuori dalla
   // griglia (o fuori dalla finestra) lo chiude comunque.
-  const handlers = useRef({ move, up, key: onKeyDuringGesture });
-  handlers.current = { move, up, key: onKeyDuringGesture };
+  const handlers = useRef({ move, up, cancel, key: onKeyDuringGesture });
+  handlers.current = { move, up, cancel, key: onKeyDuringGesture };
   const listeners = useRef({
     move: (e: PointerEvent) => handlers.current.move(e),
     up: (e: PointerEvent) => handlers.current.up(e),
+    cancel: (e: PointerEvent) => handlers.current.cancel(e),
     key: (e: KeyboardEvent) => handlers.current.key(e),
   });
   function startGesture(g: Gesture) {
@@ -299,7 +313,7 @@ export function useBlockMove({
     const l = listeners.current;
     window.addEventListener("pointermove", l.move);
     window.addEventListener("pointerup", l.up);
-    window.addEventListener("pointercancel", l.up);
+    window.addEventListener("pointercancel", l.cancel);
     window.addEventListener("keydown", l.key, true);
   }
   function endGesture() {
@@ -307,7 +321,7 @@ export function useBlockMove({
     const l = listeners.current;
     window.removeEventListener("pointermove", l.move);
     window.removeEventListener("pointerup", l.up);
-    window.removeEventListener("pointercancel", l.up);
+    window.removeEventListener("pointercancel", l.cancel);
     window.removeEventListener("keydown", l.key, true);
   }
   useEffect(() => endGesture, []);

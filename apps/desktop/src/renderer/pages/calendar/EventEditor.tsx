@@ -204,8 +204,11 @@ export function EventEditor({
 
   async function apply(scope: CalendarScope) {
     if (!event) {
-      create.mutate(
-        {
+      // L'annuncio dopo l'esito, non prima: chi ascolta non sente «creata»
+      // per una riunione rifiutata. `mutateAsync` e non le callback di
+      // `mutate`, che a editor chiuso (smontato) non scatterebbero.
+      await create
+        .mutateAsync({
           title: title.trim(),
           startsAt: iso(startMs),
           endsAt: iso(endMs),
@@ -215,13 +218,15 @@ export function EventEditor({
           description: description.trim() || null,
           projectId,
           reminders,
-        },
-        { onError: () => toast.error(t("calendar.editor.failed")) },
-      );
-      onSaved(t("calendar.editor.created", { title: title.trim() }));
+        })
+        .then(
+          (e) => onSaved(t("calendar.editor.created", { title: e.title })),
+          () => toast.error(t("calendar.editor.failed")),
+        );
       return;
     }
-    onSaved(t("calendar.editor.updated", { title: title.trim() }));
+    // Lo spostamento è già salvato: un rifiuto dopo non può dire «non è cambiato nulla».
+    let moved = false;
     try {
       // Prima gli orari (e «tutto il giorno»): sono la parte che il livello
       // dati può rifiutare, e un rifiuto non deve lasciare salvato a metà il
@@ -238,6 +243,7 @@ export function EventEditor({
           scope,
           ...(allDay !== event.allDay ? { allDay } : {}),
         });
+        moved = true;
       }
       await update.mutateAsync({
         id: event.id,
@@ -251,10 +257,12 @@ export function EventEditor({
         scope,
       });
       if (projectId !== event.projectId) await setProject.mutateAsync({ id: event.id, projectId });
+      onSaved(t("calendar.editor.updated", { title: title.trim() }));
     } catch {
       // Un rifiuto del livello dati (non un salvataggio fallito verso Google,
-      // che l'evento dice da sé con «Riprova»): si dice a vista.
-      toast.error(t("calendar.editor.updateFailed"));
+      // che l'evento dice da sé con «Riprova»): si dice a vista, e senza
+      // annuncio di salvataggio.
+      toast.error(t(moved ? "calendar.editor.updatePartial" : "calendar.editor.updateFailed"));
     }
   }
 

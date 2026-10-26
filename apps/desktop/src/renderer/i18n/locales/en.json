@@ -4234,12 +4234,14 @@
       "send": "Send invitations",
       "addTitle": "Add a title",
       "endBeforeStart": "The end is before the start",
+      "invalidDate": "Enter a valid date and time",
       "outsideWindow": "Stubwise can schedule up to {{date}} · use Google Calendar for later dates",
-      "created": "{{title}} created. Saving…",
-      "updated": "{{title}} updated. Saving…",
+      "created": "{{title}} created",
+      "updated": "{{title}} updated",
       "failed": "Couldn't create the meeting",
       "calendar": "Calendar",
-      "updateFailed": "Couldn't save the meeting: nothing was changed."
+      "updateFailed": "Couldn't save the meeting: nothing was changed.",
+      "updatePartial": "Couldn't save every change: the new time is saved."
     },
     "column": {
       "calendars": "Calendars",

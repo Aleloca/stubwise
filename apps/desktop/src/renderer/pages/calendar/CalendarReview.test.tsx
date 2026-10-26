@@ -1,7 +1,7 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { calendar, resetApi, setLatency } from "../../data/api";
+import { calendar, failNext, resetApi, setLatency } from "../../data/api";
 import { CALENDAR_CASES } from "../../data/seed/calendar";
 import { setSessionPersonId } from "../../data/session";
 import { state } from "../../data/store";
@@ -225,6 +225,26 @@ describe("rilievi minori", () => {
     expect(ev(C.goLive).startsAt).toBe("2026-10-23T11:00:00Z");
   });
 
+  it("pointercancel annulla il gesto come Esc: niente spostamento, niente riunione nuova", async () => {
+    const router = await openCalendar("/calendar?date=2026-10-23");
+    const mine = await block(C.goLive);
+    fireEvent.pointerDown(mine, { button: 0, pointerId: 6, clientX: 10, clientY: 100 });
+    fireEvent.pointerMove(mine, { pointerId: 6, clientX: 10, clientY: 160 });
+    fireEvent(window, new PointerEvent("pointercancel", { pointerId: 6 }));
+    fireEvent.click(mine);
+    await wait(50);
+    expect(search(router).event).toBeUndefined();
+    expect(ev(C.goLive).startsAt).toBe("2026-10-23T11:00:00Z");
+    expect(document.querySelector("[data-moving]")).toBeNull();
+
+    const col = document.querySelector<HTMLElement>('[data-day-column="2026-10-21"]')!;
+    fireEvent.pointerDown(col, { button: 0, pointerId: 7, clientX: 10, clientY: 500 });
+    fireEvent.pointerMove(col, { pointerId: 7, clientX: 10, clientY: 600 });
+    fireEvent(window, new PointerEvent("pointercancel", { pointerId: 7 }));
+    await wait(50);
+    expect(screen.queryByRole("dialog", { name: "New meeting" })).toBeNull();
+  });
+
   it("Esc annulla anche il disegno di una riunione nuova", async () => {
     await openCalendar("/calendar?date=2026-10-23");
     const col = document.querySelector<HTMLElement>('[data-day-column="2026-10-21"]')!;
@@ -306,6 +326,24 @@ describe("rilievi minori", () => {
     ).toBeNull();
   });
 
+  it("«Move to…» con la data o l'ora vuota: «Enter a valid date and time», nulla si sposta", async () => {
+    await openCalendar("/calendar?date=2026-10-23");
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByRole("button", { name: "More actions for AUD go-live plan with Sofia" }),
+    );
+    await user.click(await screen.findByRole("menuitem", { name: "Move to…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Move AUD go-live plan with Sofia" });
+    fireEvent.change(within(dialog).getByLabelText("Date"), { target: { value: "" } });
+    await user.click(within(dialog).getByRole("button", { name: "Move" }));
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("Enter a valid date and time");
+    fireEvent.change(within(dialog).getByLabelText("Date"), { target: { value: "2026-10-23" } });
+    fireEvent.change(within(dialog).getByLabelText("Start"), { target: { value: "" } });
+    await user.click(within(dialog).getByRole("button", { name: "Move" }));
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("Enter a valid date and time");
+    expect(ev(C.goLive).startsAt).toBe("2026-10-23T11:00:00Z");
+  });
+
   it("«Couldn't save · Retry» sta sul blocco stesso", async () => {
     await openCalendar("/calendar?date=2026-10-27");
     const el = await block(C.saveFails);
@@ -329,6 +367,68 @@ describe("rilievi minori", () => {
     await user.type(within(dialog).getByRole("combobox", { name: "Guests" }), "Laura");
     await user.click(await within(dialog).findByRole("option", { name: /Laura Costa/ }));
     expect(within(dialog).getByRole("button", { name: "Send invitations" })).toBeInTheDocument();
+  });
+
+  describe("l'esito del salvataggio in modifica", () => {
+    const announcer = () => document.querySelector("[data-calendar-announcer]")!;
+    async function editGoLive() {
+      await openCalendar(`/calendar?event=${C.goLive}&date=2026-10-23`);
+      const user = userEvent.setup();
+      const panel = await screen.findByRole("region", { name: "Event" });
+      await user.click(await within(panel).findByRole("button", { name: "Edit" }));
+      const dialog = await screen.findByRole("dialog", { name: "Edit meeting" });
+      const title = within(dialog).getByLabelText("Title");
+      await user.clear(title);
+      await user.type(title, "Go-live plan v2");
+      fireEvent.change(within(dialog).getByLabelText("Start"), { target: { value: "15:00" } });
+      await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    }
+
+    it("lo spostamento rifiutato: «nothing was changed», nessun annuncio di salvataggio", async () => {
+      failNext("calendar.moveEvent");
+      await editGoLive();
+      expect(
+        await screen.findByText("Couldn't save the meeting: nothing was changed."),
+      ).toBeInTheDocument();
+      expect(announcer()).not.toHaveTextContent(/updated/);
+      expect(ev(C.goLive)).toMatchObject({ title: "AUD go-live plan with Sofia", startsAt: "2026-10-23T11:00:00Z" });
+    });
+
+    it("rifiutato dopo lo spostamento: non dice «nothing was changed», l'orario nuovo resta", async () => {
+      failNext("calendar.updateEvent");
+      await editGoLive();
+      expect(
+        await screen.findByText("Couldn't save every change: the new time is saved."),
+      ).toBeInTheDocument();
+      expect(screen.queryByText("Couldn't save the meeting: nothing was changed.")).toBeNull();
+      expect(announcer()).not.toHaveTextContent(/updated/);
+      expect(ev(C.goLive).startsAt).toBe("2026-10-23T15:00:00Z");
+    });
+
+    it("nuova riunione: l'annuncio arriva a creazione riuscita, anche a editor chiuso", async () => {
+      setLatency(30);
+      await openCalendar("/calendar?newMeeting=1&date=2026-10-23");
+      const dialog = await screen.findByRole("dialog", { name: "New meeting" });
+      const user = userEvent.setup();
+      await user.type(within(dialog).getByLabelText("Title"), "Kickoff");
+      await user.click(within(dialog).getByRole("button", { name: "Save" }));
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "New meeting" })).toBeNull());
+      expect(announcer()).not.toHaveTextContent(/created/);
+      await waitFor(() => expect(announcer()).toHaveTextContent("Kickoff created"), {
+        timeout: 3000,
+      });
+    });
+
+    it("riuscito: l'annuncio arriva dopo l'esito", async () => {
+      setLatency(30);
+      await editGoLive();
+      // Appena chiuso l'editor, l'esito non c'è ancora: niente annuncio.
+      expect(announcer()).not.toHaveTextContent(/updated/);
+      await waitFor(() => expect(announcer()).toHaveTextContent("Go-live plan v2 updated"), {
+        timeout: 3000,
+      });
+      expect(ev(C.goLive)).toMatchObject({ title: "Go-live plan v2", startsAt: "2026-10-23T15:00:00Z" });
+    });
   });
 
   it("«tutto il giorno» non si cambia su tutta una serie (livello dati), e l'editor lo spegne", async () => {
