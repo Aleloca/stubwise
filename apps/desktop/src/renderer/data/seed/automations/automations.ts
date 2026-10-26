@@ -1,6 +1,7 @@
 // Le automazioni del seme (area 7): i due esempi dello spec, attivi
 // («Nuovo contratto», generale; «Richiesta dati al cliente», di AUD), una
-// bozza mai accesa e una in pausa. I flussi usano solo i passi del modello.
+// bozza mai accesa e una in pausa (BTG-A1, il cui proprietario è uscito dal
+// progetto). I flussi usano solo i passi del modello.
 import type { Automation, AutomationFlow, Condition, Step } from "../../types";
 import { daysFromToday } from "../dates";
 import { SOURCE_AUDIN, SOURCE_WEBHOOK } from "./sources";
@@ -8,7 +9,7 @@ import { SOURCE_AUDIN, SOURCE_WEBHOOK } from "./sources";
 export const AUTOMATION_NEW_CONTRACT = "aut-new-contract";
 export const AUTOMATION_CLIENT_DATA = "aut-aud-client-data";
 export const AUTOMATION_DRAFT = "aut-stw-triage";
-export const AUTOMATION_PAUSED = "aut-mkx-weekly";
+export const AUTOMATION_PAUSED = "aut-btg-weekly";
 
 const at = (days: number, time: string) => `${daysFromToday(days)}T${time}:00Z`;
 const AUTO = { mode: "auto" } as const;
@@ -119,7 +120,10 @@ function newContractFlow(welcomeSubject: string): AutomationFlow {
 
 // --- «Richiesta dati al cliente» ----------------------------------------------
 
-/** La risposta del cliente è arrivata (la scrive l'attesa di una risposta). */
+/**
+ * La risposta del cliente è arrivata: ogni attesa riscrive `risposta.testo`,
+ * vuoto se scade (R-J2), quindi vale solo per l'ultima attesa.
+ */
 const REPLIED: Condition = { left: { ref: "risposta.testo" }, op: "not_empty" };
 
 function activate(id: string): Step {
@@ -349,10 +353,14 @@ export const AUTOMATIONS: Automation[] = [
   },
   {
     id: AUTOMATION_PAUSED,
-    code: "MKX-A1",
+    code: "BTG-A1",
     name: "Report settimanale delle campagne",
     description: "Ogni lunedì alle 9 crea la task del report settimanale per il Project Lead.",
-    projectId: "prj-mkx",
+    // L'ha accesa Matteo quando era Project Lead di BTG; poi è uscito dal
+    // progetto: l'esecuzione di lunedì è fallita per permesso perso e il
+    // team l'ha messa in pausa. Il proprietario resta lui finché qualcuno
+    // non la riaccende.
+    projectId: "prj-btg",
     ownerId: "p-matteo",
     status: "paused",
     versions: [

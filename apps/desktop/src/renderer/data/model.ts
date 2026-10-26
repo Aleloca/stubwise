@@ -2029,6 +2029,27 @@ export type CalendarSeriesPatch = Partial<
 // una funzione pura e lo interpreta un motore puro (`domain/automations`).
 // Niente salti all'indietro: i cicli sono solo `forEach` e `repeatUntil`.
 // Nei testi dei passi i dati si citano con `{{chiave}}` (es. `{{cliente.nome}}`).
+//
+// Convenzioni del motore (decisioni del controller, area 7):
+// - R-J2 — un `wait` con `replyTo` scrive, a OGNI attesa, `risposta.arrivata`
+//   e `risposta.testo`: con la risposta `true` e il testo, scaduto `maxDays`
+//   `false` e `""`. Così una verifica successiva non rilegge mai una
+//   risposta vecchia. I campi stanno in `domain/automations/triggerFields.ts`
+//   (`WAIT_REPLY_FIELDS`), con quelli degli inizi interni.
+// - R-J3 — le chiavi dei campi di Claude valgono per tutto il flusso, e un
+//   passo successivo può ridichiararle (vince il valore più recente). Dentro
+//   un `forEach`, `as` fa da prefisso alle chiavi relative dell'elemento:
+//   `as: "task"` su un elenco con `of: [{ key: "titolo" }]` → `task.titolo`.
+// - R-J4 — `repeatUntil` controlla `until` PRIMA di ogni giro (un «while»,
+//   non un «do-while»): se è già vera, zero giri.
+// - R-J5 — un percorso (`RunLogEntry.path`, `AutomationRun.cursor`) è una
+//   sequenza di segmenti separati da `/`: l'indice del passo nella sua
+//   lista; `then`/`else` dopo una `condition`; il nome dell'uscita dopo un
+//   passo `claude`; `forEach[i]` (giro i, da 0) dopo un `forEach`;
+//   `repeat[i]` o `onLimit` dopo un `repeatUntil`; `trigger` da solo per
+//   l'inizio. Esempi: `"0"`; `"2/forEach[1]/0/else/0/then/0"`;
+//   `"3/then/0/mancano informazioni/0"`; `"2/repeat[0]/1"`;
+//   `"2/onLimit/0"`; `"trigger"`.
 
 export type FieldType = "text" | "number" | "date" | "email" | "person" | "list" | "file";
 
@@ -2124,7 +2145,10 @@ export type Step =
   | {
       id: string;
       kind: "wait";
-      /** Un tempo, la risposta a un `sendEmail` (per id) o una task chiusa, col massimo di giorni. */
+      /**
+       * Un tempo, la risposta a un `sendEmail` (per id) o una task chiusa, col
+       * massimo di giorni. `replyTo` scrive `risposta.arrivata`/`risposta.testo` (R-J2).
+       */
       for:
         | { days: number }
         | { replyTo: string; maxDays: number }
@@ -2137,16 +2161,18 @@ export type Step =
       inputs: string[];
       /** Le sole uscite ammesse (regola 2 dell'anti-obiettivo). */
       outcomes: string[];
-      /** I soli campi che può compilare, col loro tipo. */
+      /** I soli campi che può compilare, col loro tipo; chiavi globali, ridichiarabili (R-J3). */
       fields: DataField[];
       /** I passi di ogni uscita; un'uscita senza ramo prosegue. */
       branches: Record<string, Step[]>;
     }
   | { id: string; kind: "condition"; when: Condition; then: Step[]; else: Step[] }
+  /** `as` fa da prefisso alle chiavi relative dell'elemento (R-J3). */
   | { id: string; kind: "forEach"; list: string; as: string; steps: Step[] }
   | {
       id: string;
       kind: "repeatUntil";
+      /** Controllata prima di ogni giro (R-J4). */
       until: Condition;
       /** Obbligatorio (≤ 10); finito, esce da `onLimit` («limite raggiunto»). */
       max: number;
@@ -2199,7 +2225,7 @@ export type RunStatus =
 export interface RunLogEntry {
   at: string;
   stepId: string;
-  /** Es. "3/forEach[2]/1". */
+  /** Grammatica R-J5, es. "2/forEach[1]/0/then/0"; "trigger" per l'inizio. */
   path: string;
   kind: Step["kind"] | "trigger";
   outcome: "ok" | "skipped" | "failed" | "waiting" | "approved" | "rejected" | "limit";
@@ -2224,7 +2250,7 @@ export interface AutomationRun {
   status: RunStatus;
   event: Record<string, unknown>;
   vars: Record<string, unknown>;
-  /** Il percorso del passo corrente. */
+  /** Il percorso (R-J5) del passo corrente: per un'esecuzione in attesa, quello del passo che aspetta. */
   cursor: string | null;
   waitingUntil: string | null;
   /** Approvazione o «scegli il progetto» in attesa: chi decide e cosa vede. */
@@ -2232,6 +2258,7 @@ export interface AutomationRun {
   log: RunLogEntry[];
   startedAt: string;
   endedAt: string | null;
+  /** Un codice macchina (es. `permission_lost`); la spiegazione sta nel `reason` del registro. */
   error: string | null;
   /** I progetti in cui ha agito (per le generali: dalla tabella cliente → progetto). */
   projectIds: string[];

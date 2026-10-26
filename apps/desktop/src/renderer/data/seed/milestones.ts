@@ -1,4 +1,5 @@
 import type { Milestone } from "../types";
+import { AUTOMATION_MILESTONES } from "./automations/created";
 import { daysFromToday } from "./dates";
 import { PROJECTS } from "./projects";
 
@@ -18,7 +19,10 @@ const REFERENCE: Row[] = [
 
 const REFERENCE_CODES = new Set(REFERENCE.map(([code]) => code));
 
-/** Traguardi: 2–3 nei progetti di riferimento, uno in circa metà degli altri. */
+/**
+ * Traguardi: 2–3 nei progetti di riferimento, uno in circa metà degli altri,
+ * più quelli creati dalle automazioni del seme.
+ */
 export const MILESTONES: Milestone[] = [
   ...REFERENCE.map(([code, name, description, due, closed], i) => {
     const n = REFERENCE.slice(0, i).filter(([c]) => c === code).length + 1;
@@ -40,4 +44,6 @@ export const MILESTONES: Milestone[] = [
     dueDate: daysFromToday(i % 5 === 4 ? -3 : 7 + (i % 6) * 6),
     closed: false,
   })),
+  // Creati dalle esecuzioni delle automazioni del seme (area 7).
+  ...AUTOMATION_MILESTONES,
 ];

@@ -9,6 +9,7 @@ import type {
   TaskSource,
   TaskType,
 } from "../types";
+import { AUTOMATION_TASKS } from "./automations/created";
 import { daysFromToday } from "./dates";
 import { DEPARTMENTS } from "./departments";
 import { MILESTONES } from "./milestones";
@@ -309,7 +310,11 @@ function generatedTasks(project: Project, pi: number): Task[] {
   });
 }
 
-export const TASKS: Task[] = PROJECTS.flatMap((project, pi) => {
-  const specs = REFERENCE[project.code];
-  return specs ? referenceTasks(project, specs) : generatedTasks(project, pi);
-});
+export const TASKS: Task[] = [
+  ...PROJECTS.flatMap((project, pi) => {
+    const specs = REFERENCE[project.code];
+    return specs ? referenceTasks(project, specs) : generatedTasks(project, pi);
+  }),
+  // Create dalle esecuzioni delle automazioni del seme (area 7).
+  ...AUTOMATION_TASKS,
+];

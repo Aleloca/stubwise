@@ -67,6 +67,7 @@ import {
   AUTOMATION_SOURCES,
   CLIENT_PROJECT_LINKS,
 } from "./seed/automations";
+import { AUTOMATION_TASKS } from "./seed/automations/created";
 import { VIEW_AS_PERSONAS, can, viewerFor } from "./viewer";
 import type {
   Step,
@@ -222,9 +223,10 @@ describe("seed: stati e task", () => {
     }
   });
 
-  it("8–15 task nei progetti di riferimento, 5 negli altri", () => {
+  it("8–15 task nei progetti di riferimento, 5 negli altri (più quelle create dalle automazioni)", () => {
+    const byAutomation = new Set(AUTOMATION_TASKS.map((t) => t.id));
     for (const p of PROJECTS) {
-      const n = TASKS.filter((t) => t.projectId === p.id).length;
+      const n = TASKS.filter((t) => t.projectId === p.id && !byAutomation.has(t.id)).length;
       if (["AUD", "STW", "MKX"].includes(p.code)) {
         expect(n).toBeGreaterThanOrEqual(8);
         expect(n).toBeLessThanOrEqual(15);
@@ -1823,6 +1825,8 @@ describe("seed: Automations (area 7)", () => {
     expect(paused.status).toBe("paused");
     expect(paused.ownerId).not.toBeNull();
     expect(published(paused.id).length).toBeGreaterThan(0);
+    // Il suo proprietario è uscito dal progetto: oggi non può più crearvi task.
+    expect(can(viewerFor(paused.ownerId!), "tickets.create", paused.projectId!)).toBe(false);
   });
 
   it("ogni flusso: id dei passi unici, ripetizioni entro il limite, approvatori indicati", () => {
@@ -1861,7 +1865,16 @@ describe("seed: Automations (area 7)", () => {
     }
   });
 
-  it.todo("ogni flusso del seme passa validateFlow (si attiva nel Task 2)");
+  // Task 2: ogni versione di ogni automazione del seme dà zero errori con
+  // `validateFlow`, cioè ogni riferimento (`{{…}}` nei testi, `ref` delle
+  // condizioni, `list`, `inputs`, `clientRef`, `milestoneRef`, `replyTo`) è
+  // nel campo visibile in quel punto: i campi dell'inizio (sorgente o
+  // `triggerFields.ts`), quelli di Claude dei passi precedenti (ridichiarati
+  // ammessi, R-J3), le chiavi relative di `forEach` col prefisso `as`
+  // (`task.titolo`) e `risposta.testo` dopo un `wait` con `replyTo` (R-J2).
+  it.todo(
+    "ogni flusso del seme passa validateFlow: riferimenti in campo (forEach relativi, campi del wait), campi di Claude ridichiarati ammessi",
+  );
 
   it("esecuzioni: in attesa del cliente da 3 giorni, ferma su un'approvazione, finita, fallita, senza progetto", () => {
     const waitingEvent = run(AUTOMATION_CASES.runs.waitingEvent);
@@ -1889,8 +1902,10 @@ describe("seed: Automations (area 7)", () => {
 
     const failed = run(AUTOMATION_CASES.runs.failed);
     expect(failed.status).toBe("failed");
-    expect(failed.error).toBe("permesso perso");
-    expect(failed.log.at(-1)).toMatchObject({ outcome: "failed", reason: "permesso perso" });
+    // Il codice è per la macchina, la spiegazione sta nel registro.
+    expect(failed.error).toBe("permission_lost");
+    expect(failed.log.at(-1)!.outcome).toBe("failed");
+    expect(failed.log.at(-1)!.reason).toMatch(/^Permesso perso/);
 
     const project = run(AUTOMATION_CASES.runs.waitingProject);
     expect(project.status).toBe("waiting_project");
@@ -1922,6 +1937,122 @@ describe("seed: Automations (area 7)", () => {
       for (const p of r.projectIds) expect(projectsById.has(p), r.id).toBe(true);
       if (a.projectId) expect(r.projectIds, r.id).toEqual([a.projectId]);
       expect(r.title.length).toBeGreaterThan(0);
+    }
+  });
+
+  /** Il passo a cui porta un percorso (grammatica R-J5), o null. */
+  function stepAt(steps: Step[], path: string): Step | null {
+    let list: Step[] | null = steps;
+    let step: Step | null = null;
+    for (const seg of path.split("/")) {
+      if (list && /^\d+$/.test(seg)) {
+        step = list[Number(seg)] ?? null;
+        list = null;
+      } else if (step?.kind === "condition" && (seg === "then" || seg === "else")) {
+        list = step[seg];
+      } else if (step?.kind === "claude" && step.outcomes.includes(seg)) {
+        list = step.branches[seg] ?? [];
+      } else if (step?.kind === "forEach" && /^forEach\[\d+\]$/.test(seg)) {
+        list = step.steps;
+      } else if (step?.kind === "repeatUntil" && /^repeat\[\d+\]$/.test(seg)) {
+        list = step.steps;
+      } else if (step?.kind === "repeatUntil" && seg === "onLimit") {
+        list = step.onLimit;
+      } else return null;
+    }
+    return list === null ? step : null;
+  }
+
+  const versionOf = (r: (typeof AUTOMATION_RUNS)[number]) =>
+    automation(r.automationId).versions.find((v) => v.n === r.version)!;
+
+  it("ogni riga del registro porta a un passo con quell'id e quel tipo, nella versione dell'esecuzione", () => {
+    for (const r of AUTOMATION_RUNS) {
+      const { flow } = versionOf(r);
+      for (const e of r.log) {
+        if (e.path === "trigger") {
+          expect(e.stepId, r.id).toBe("trigger");
+          continue;
+        }
+        const step = stepAt(flow.steps, e.path);
+        expect(step?.id, `${r.id} ${e.path}`).toBe(e.stepId);
+        expect(step?.kind, `${r.id} ${e.path}`).toBe(e.kind);
+      }
+      if (r.cursor !== null) expect(stepAt(flow.steps, r.cursor), r.id).not.toBeNull();
+    }
+  });
+
+  it("un'esecuzione in attesa: il cursore è il passo che aspetta; l'anteprima è il suo input", () => {
+    for (const r of AUTOMATION_RUNS) {
+      if (!r.status.startsWith("waiting_")) continue;
+      const last = r.log.filter((e) => e.outcome === "waiting").at(-1);
+      expect(last, r.id).toBeDefined();
+      expect(r.cursor, r.id).toBe(last!.path);
+      expect(r.log.at(-1), r.id).toBe(last);
+      if (r.status === "waiting_approval") expect(r.pending!.preview, r.id).toEqual(last!.input);
+    }
+  });
+
+  it("le variabili contengono ciò che hanno prodotto i passi di Claude e le attese andate a buon fine", () => {
+    for (const r of AUTOMATION_RUNS) {
+      for (const e of r.log) {
+        if (e.outcome !== "ok" || (e.kind !== "claude" && e.kind !== "wait")) continue;
+        for (const [key, value] of Object.entries(e.output)) {
+          // L'uscita scelta da Claude decide il ramo: non è un dato.
+          if (key === "uscita") continue;
+          expect(r.vars[key], `${r.id} ${key}`).toEqual(value);
+        }
+      }
+    }
+  });
+
+  it("un'attesa di risposta scrive risposta.arrivata e risposta.testo (R-J2)", () => {
+    const waits = AUTOMATION_RUNS.flatMap((r) =>
+      r.log.filter((e) => e.kind === "wait" && e.outcome === "ok" && "replyTo" in e.input),
+    );
+    expect(waits.length).toBeGreaterThan(0);
+    for (const e of waits) {
+      expect(Object.keys(e.output).sort()).toEqual(["risposta.arrivata", "risposta.testo"]);
+      expect(e.output["risposta.arrivata"]).toBe(e.output["risposta.testo"] !== "");
+    }
+  });
+
+  it("ogni effetto è una task o un traguardo che esiste, in un progetto dell'esecuzione", () => {
+    let effects = 0;
+    for (const r of AUTOMATION_RUNS) {
+      for (const e of r.log) {
+        for (const effect of e.effects) {
+          effects += 1;
+          const target =
+            effect.kind === "task"
+              ? TASKS.find((t) => t.code === effect.code)
+              : effect.kind === "milestone"
+                ? MILESTONES.find((m) => m.id === effect.code)
+                : undefined;
+          expect(target, `${r.id} ${effect.kind} ${effect.code}`).toBeDefined();
+          expect(r.projectIds, effect.code).toContain(target!.projectId);
+        }
+      }
+    }
+    expect(effects).toBeGreaterThan(0);
+    // Le task di AUT-1 #1: senza incaricato, del reparto indicato, nel traguardo creato.
+    const done = run(AUTOMATION_CASES.runs.done);
+    const milestoneCode = done.log.find((e) => e.kind === "createMilestone")!.effects[0]!.code;
+    expect(MILESTONES.find((m) => m.id === milestoneCode)!.name).toBe(
+      "Attivazione CRM – Cantina Bellavista Srl",
+    );
+    const departments: Record<string, string> = {
+      "nc-task-dev": "dep-development",
+      "nc-task-support": "dep-support",
+      "nc-task-admin": "dep-administration",
+      "nc-task-sales": "dep-sales",
+    };
+    for (const e of done.log.filter((x) => x.kind === "createTask")) {
+      const task = TASKS.find((t) => t.code === e.effects[0]!.code)!;
+      expect(task.assigneeId).toBeNull();
+      expect(task.departmentId).toBe(departments[e.stepId]);
+      expect(task.milestoneId).toBe(milestoneCode);
+      expect(task.title).toBe(e.input.titolo);
     }
   });
 });
