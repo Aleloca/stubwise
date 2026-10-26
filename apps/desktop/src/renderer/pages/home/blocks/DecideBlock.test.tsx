@@ -22,6 +22,10 @@ const PLAN_GROUP = "Decide on the plan for STW-13";
 beforeEach(() => {
   api.setLatency(0);
   api.resetApi();
+  // Le proposte della posta (area 6, più vecchie) occuperebbero i primi posti
+  // di «Decide» prima di «Show more»: qui si provano le domande di Claude e
+  // della Chat, e quelle della posta stanno in `MailBlocks.test.tsx`.
+  state.mailProposals.length = 0;
   setUndoWindow(0);
 });
 

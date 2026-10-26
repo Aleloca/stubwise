@@ -108,6 +108,8 @@ export interface AppSearch {
   /** Calendario: l'evento e la serie aperti nel pannello (`view` e `date` sopra). */
   event?: string;
   series?: string;
+  /** Calendario: ⌘K «New meeting» apre il dialogo all'arrivo (`1`). */
+  newMeeting?: string;
 }
 
 const SEARCH_KEYS = [
@@ -175,7 +177,7 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
             ? /^[a-z-]+$/.test(value)
             : key === "ask"
               ? value.trim().length > 0 && value.length <= ASK_MAX
-              : key === "refine" || key === "settings"
+              : key === "refine" || key === "settings" || key === "newMeeting"
                 ? value === "1"
                 : false;
     if (shapeOk || isValidSearchParam("", key, value)) out[key] = value;

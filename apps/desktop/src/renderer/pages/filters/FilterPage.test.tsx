@@ -103,9 +103,11 @@ describe("FilterPage", () => {
     const home = await getPersonalHome();
     expect(home?.blocks.at(-1)).toEqual({ kind: "filter", filterId: "flt-open" });
     // Sara è dell'assistenza: la sua Home parte da quella del reparto.
-    expect(home?.blocks.slice(0, 3)).toEqual([
+    expect(home?.blocks.slice(0, 5)).toEqual([
       { kind: "decide" },
       { kind: "myWeek" },
+      { kind: "upcomingEvents" },
+      { kind: "importantMail" },
       { kind: "myTasks" },
     ]);
     expect(within(actions).getByRole("button", { name: "On your Home" })).toBeDisabled();

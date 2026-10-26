@@ -5,10 +5,12 @@ import { MyWeekBlock } from "../../week/MyWeekBlock";
 import { ClaudeForMeBlock } from "./ClaudeForMeBlock";
 import { DecideBlock } from "./DecideBlock";
 import { FilterBlock } from "./FilterBlock";
+import { ImportantMailBlock } from "./ImportantMailBlock";
 import { MilestonesBlock } from "./MilestonesBlock";
 import { MyTasksBlock } from "./MyTasksBlock";
 import { NewRequestsBlock } from "./NewRequestsBlock";
 import { StalledBlock } from "./StalledBlock";
+import { UpcomingEventsBlock } from "./UpcomingEventsBlock";
 
 export interface BlockDef {
   /** Il titolo del blocco (per `filter`, quello del catalogo: il blocco usa il nome del filtro). */
@@ -28,6 +30,18 @@ const always = () => true;
 export const BLOCKS: Record<HomeBlockKind, BlockDef> = {
   decide: { titleKey: "home.blocks.decide", component: DecideBlock, available: always },
   myWeek: { titleKey: "home.blocks.myWeek", component: MyWeekBlock, available: always },
+  // Posta e Calendario (area 6): per tutti, senza permessi; senza account
+  // Google il blocco c'è e lo dice.
+  upcomingEvents: {
+    titleKey: "home.blocks.upcomingEvents",
+    component: UpcomingEventsBlock,
+    available: always,
+  },
+  importantMail: {
+    titleKey: "home.blocks.importantMail",
+    component: ImportantMailBlock,
+    available: always,
+  },
   myTasks: { titleKey: "home.blocks.myTasks", component: MyTasksBlock, available: always },
   claudeForMe: {
     titleKey: "home.blocks.claudeForMe",

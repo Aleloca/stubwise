@@ -19,13 +19,15 @@ export const CALENDAR_VIEWS = ["day", "week", "month"] as const satisfies readon
 export const DEFAULT_VIEW: CalendarView = "week";
 
 /** Le chiavi proprie del Calendario (`view` e `date` sono già dell'app). */
-export const CALENDAR_SEARCH_KEYS = ["event", "series"] as const;
+export const CALENDAR_SEARCH_KEYS = ["event", "series", "newMeeting"] as const;
 
 export interface CalendarSearch {
   view?: string;
   date?: string;
   event?: string;
   series?: string;
+  /** `1`: apre «New meeting» all'arrivo (⌘K «New meeting»), poi si toglie. */
+  newMeeting?: string;
 }
 
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -48,6 +50,8 @@ export function isCalendarSearchValue(key: string, value: string): boolean {
     case "event":
     case "series":
       return /^[\w-]+$/.test(value) && value.length <= 120;
+    case "newMeeting":
+      return value === "1";
     default:
       return false;
   }

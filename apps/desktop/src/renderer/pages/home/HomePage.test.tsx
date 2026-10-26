@@ -40,7 +40,15 @@ describe("HomePage", () => {
     renderRoute("/home", "p-giulia");
     await block("Decide");
     const titles = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
-    expect(titles.slice(0, 4)).toEqual(["Decide", "My week", "My tasks", "Upcoming milestones"]);
+    // Le Home nuove aprono con agenda e posta importante (area 6, shape home.md §8).
+    expect(titles.slice(0, 6)).toEqual([
+      "Decide",
+      "My week",
+      "Upcoming",
+      "Important email",
+      "My tasks",
+      "Upcoming milestones",
+    ]);
   });
 
   it("Giulia vede le sue decisioni; rispondere le toglie e la risposta arriva", async () => {
@@ -243,11 +251,11 @@ describe("HomePage", () => {
     const handle = await screen.findByRole("button", { name: "Move Upcoming milestones" });
     handle.focus();
     await userEvent.keyboard(" ");
-    expect(screen.getByText("Picked up Upcoming milestones, position 4 of 5.")).toBeInTheDocument();
+    expect(screen.getByText("Picked up Upcoming milestones, position 6 of 7.")).toBeInTheDocument();
     await userEvent.keyboard("{ArrowUp}");
     await userEvent.keyboard(" ");
     expect(
-      screen.getByText(/Upcoming milestones dropped at position 3 of 5\./),
+      screen.getByText(/Upcoming milestones dropped at position 5 of 7\./),
     ).toBeInTheDocument();
     // I fissi non si nascondono.
     const list = screen.getByRole("list", { name: "Blocks of the Home" });
@@ -259,6 +267,8 @@ describe("HomePage", () => {
     expect((await getPersonalHome())!.blocks.map((b) => b.kind)).toEqual([
       "decide",
       "myWeek",
+      "upcomingEvents",
+      "importantMail",
       "upcomingMilestones",
       "myTasks",
       "filter",
@@ -281,15 +291,17 @@ describe("HomePage", () => {
       expect(handle()).toHaveAttribute("aria-pressed", "true");
     }
     await userEvent.keyboard(" ");
-    expect(screen.getByText("My week dropped at position 4 of 5.")).toBeInTheDocument();
+    expect(screen.getByText("My week dropped at position 4 of 7.")).toBeInTheDocument();
     const rows = [...document.querySelectorAll("[data-editor-row]")].map((el) =>
       el.getAttribute("data-editor-row"),
     );
     expect(rows).toEqual([
       "decide",
+      "upcomingEvents",
+      "importantMail",
+      "myWeek",
       "myTasks",
       "upcomingMilestones",
-      "myWeek",
       "filter:flt-no-estimate",
     ]);
   });

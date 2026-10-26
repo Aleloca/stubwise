@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import {
   useChooseMailProject,
   useConfirmMailProposal,
+  useDecideMailProposalNow,
   useHandMailProposal,
   useIgnoreMailProposal,
   usePeople,
@@ -55,16 +56,26 @@ import {
 // posto: il livello dati non lo conosce finché non si conferma, quindi lì la
 // scheda guarda i membri del progetto (e la conferma lo ricontrolla comunque).
 
+/** Le decisioni che «Da decidere» tiene nella finestra dell'«Undo». */
+export type MailDecisionKind = "confirm" | "ignore" | "hand";
+
 export function MailProposalCard({
   view,
   excerptOpen = false,
   fromEmailTo,
+  onDecide,
 }: {
   view: MailProposalView;
   /** L'estratto aperto di default: in «Da decidere» e per chi non ha l'email. */
   excerptOpen?: boolean;
   /** Proposta passata vista da chi non ha l'email: a chi era l'email (chi l'ha passata). */
   fromEmailTo?: string | null;
+  /**
+   * In «Da decidere»: conferma, «Ignora» e «Passa» non partono qui ma passano
+   * a chi ospita la scheda, che le tiene nella finestra dell'«Undo» (shape
+   * home.md §8 [A 2]). `send` fa partire la chiamata in modo sincrono.
+   */
+  onDecide?: (kind: MailDecisionKind, send: () => Promise<unknown>) => void;
 }) {
   const { t, i18n } = useTranslation();
   const me = useSessionPersonId();
@@ -79,6 +90,7 @@ export function MailProposalCard({
   const hand = useHandMailProposal();
   const choose = useChooseMailProject();
   const reassign = useReassignMailProposal();
+  const decideNow = useDecideMailProposalNow();
 
   const project = projects?.find((x) => x.id === p.projectId);
   const code = project?.code ?? "";
@@ -174,13 +186,18 @@ export function MailProposalCard({
     setError(null);
     const all = indexes.length === p.actions.length;
     const payload = editsFor(opts.extra);
+    const input = {
+      ...(all ? {} : { actionIndexes: indexes }),
+      ...(Object.keys(payload).length ? { edits: payload } : {}),
+      ...(opts.add?.length ? { addOutsiders: opts.add } : {}),
+    };
+    if (onDecide) {
+      setAsking(null);
+      onDecide("confirm", () => decideNow.confirm(p.id, input));
+      return;
+    }
     confirm
-      .mutateAsync({
-        id: p.id,
-        ...(all ? {} : { actionIndexes: indexes }),
-        ...(Object.keys(payload).length ? { edits: payload } : {}),
-        ...(opts.add?.length ? { addOutsiders: opts.add } : {}),
-      })
+      .mutateAsync({ id: p.id, ...input })
       .then(() => {
         setAsking(null);
         if (opts.add?.length) setAdded(opts.add.map((id) => people.get(id)?.name ?? id));
@@ -223,11 +240,13 @@ export function MailProposalCard({
   };
   const doIgnore = () => {
     setError(null);
-    ignore.mutateAsync(p.id).catch(fail);
+    if (onDecide) onDecide("ignore", () => decideNow.ignore(p.id));
+    else ignore.mutateAsync(p.id).catch(fail);
   };
   const doHand = () => {
     setError(null);
-    hand.mutateAsync(p.id).catch(fail);
+    if (onDecide) onDecide("hand", () => decideNow.hand(p.id));
+    else hand.mutateAsync(p.id).catch(fail);
   };
 
   function onKeyDown(e: KeyboardEvent<HTMLElement>) {

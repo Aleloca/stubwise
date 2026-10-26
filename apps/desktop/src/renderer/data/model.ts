@@ -419,6 +419,8 @@ export type HomeBlockKind =
   | "stalledInMyProjects"
   | "newRequests"
   | "upcomingMilestones"
+  | "upcomingEvents"
+  | "importantMail"
   | "filter";
 
 export interface HomeBlockRef {
@@ -1696,7 +1698,20 @@ export interface MailProposalView {
    * non è destinatario (una proposta passata letta per il solo estratto).
    */
   sharedWith: { personId: string; name: string }[];
+  /**
+   * Da dove viene, per la riga d'origine di «Da decidere» (shape home.md §8):
+   * solo se chi guarda vede l'origine (l'email con `canSeeMessage`, la
+   * riunione con `canReadEvent`); `null` altrimenti — una proposta passata
+   * letta per il solo estratto. La calcola `listMailDecisions`.
+   */
+  origin?: MailProposalOrigin | null;
 }
+
+/** L'origine di una proposta della posta, come la vede chi guarda. */
+export type MailProposalOrigin =
+  | { kind: "email"; threadId: string; from: string; subject: string }
+  | { kind: "meeting"; eventId: string | null; threadId: string; title: string; at: string }
+  | { kind: "calendar"; eventId: string; title: string; startsAt: string; allDay: boolean };
 
 /** Una bozza, per persona e conversazione (`threadId: null` = email nuova). */
 export interface MailDraft {

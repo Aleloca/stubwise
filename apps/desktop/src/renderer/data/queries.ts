@@ -2594,6 +2594,29 @@ export function useMailProposalDecisions() {
   });
 }
 
+/**
+ * Decidere una proposta della posta ADESSO (vedi `useAnswerDecisionNow`): per
+ * l'«Undo» di «Da decidere». La chiamata parte in questo istante, con la
+ * sessione di chi decide, e alla fine si rileggono le aree che la conferma
+ * cambia.
+ */
+export function useDecideMailProposalNow() {
+  const invalidate = useInvalidate(MAIL_CONFIRM_AREAS);
+  const settle = async <R,>(call: Promise<R>): Promise<R> => {
+    try {
+      return await call;
+    } finally {
+      await invalidate();
+    }
+  };
+  return {
+    confirm: (id: string, input: api.mail.ConfirmMailProposalInput) =>
+      settle(api.mail.confirmMailProposal(id, input)),
+    ignore: (id: string) => settle(api.mail.ignoreMailProposal(id)),
+    hand: (id: string) => settle(api.mail.handMailProposal(id)),
+  };
+}
+
 export function useConfirmMailProposal() {
   return useWrite(
     ({ id, ...input }: { id: string } & api.mail.ConfirmMailProposalInput) =>

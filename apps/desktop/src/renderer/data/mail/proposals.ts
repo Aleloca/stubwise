@@ -2,11 +2,19 @@ import i18n from "../../i18n";
 import { applyActions } from "../api-mutations";
 import { PEOPLE } from "../seed/people";
 import { copy, gate, now, state, storeGeneration } from "../store";
-import type { MailProposal, MailProposalFilters, MailProposalView, ProposedAction } from "../types";
+import { canReadEvent } from "../calendar/visibility";
+import type {
+  MailProposal,
+  MailProposalFilters,
+  MailProposalOrigin,
+  MailProposalView,
+  ProposedAction,
+} from "../types";
 import { can, grantProjectRole, viewerFor } from "../viewer";
 import {
   calendarParticipants,
   canDoActions,
+  canSeeMessage,
   canSeeMailProposal,
   isProjectMember,
   isProposalRecipient,
@@ -210,7 +218,40 @@ export async function listMailDecisions(): Promise<MailProposalView[]> {
         (p.status === "open" || (p.status === "handed" && canConfirmNow(me, p))),
     )
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-    .map((p) => viewOf(me, p));
+    .map((p) => ({ ...viewOf(me, p), origin: originFor(me, p) }));
+}
+
+/**
+ * Da dove viene una proposta, per chi guarda: l'email (mittente, oggetto)
+ * solo se la vede; la riunione col titolo dell'evento se lo legge,
+ * altrimenti con l'oggetto dell'email di Gemini; l'evento del calendario.
+ * Niente se chi guarda non vede l'origine (una proposta passata).
+ */
+function originFor(me: string, p: MailProposal): MailProposalOrigin | null {
+  if (p.source === "calendar") {
+    const e = state.calendarEvents.find((x) => x.id === p.sourceId);
+    if (!e || !canReadEvent(me, e)) return null;
+    return { kind: "calendar", eventId: e.id, title: e.title, startsAt: e.startsAt, allDay: e.allDay };
+  }
+  const m = state.mailMessages
+    .filter((x) => x.messageId === p.sourceId && canSeeMessage(me, x))
+    .sort((a, b) => a.at.localeCompare(b.at))[0];
+  if (!m) return null;
+  if (p.source === "email") {
+    return { kind: "email", threadId: m.threadId, from: m.from.name || m.from.email, subject: m.subject };
+  }
+  const transcript = state.meetingTranscripts.find((t) => t.messageId === m.id);
+  const e = transcript?.eventId
+    ? state.calendarEvents.find((x) => x.id === transcript.eventId)
+    : undefined;
+  const event = e && canReadEvent(me, e) ? e : undefined;
+  return {
+    kind: "meeting",
+    eventId: event?.id ?? null,
+    threadId: m.threadId,
+    title: event?.title ?? m.subject,
+    at: event?.startsAt ?? m.at,
+  };
 }
 
 // --- scritture ----------------------------------------------------------------

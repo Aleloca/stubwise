@@ -206,6 +206,15 @@ export function CalendarPage() {
     [anchor, date, nowIso, today],
   );
 
+  // ⌘K «New meeting» (`?newMeeting=1`): il dialogo si apre una volta, poi il
+  // parametro si toglie (tornare indietro non lo riapre). Senza account
+  // Google resta la pagina che chiede di collegarlo.
+  useEffect(() => {
+    if (search.newMeeting !== "1" || !account.isSuccess) return;
+    setSearch({ newMeeting: undefined }, true);
+    if (connected) newMeeting();
+  }, [search.newMeeting, account.isSuccess, connected, newMeeting, setSearch]);
+
   // --- spostare (puntatore e tastiera), con lo scope e «Undo» ------------------------
   const doMove = (m: GridMove, scope: CalendarScope) => {
     const before = { startsAt: m.event.startsAt, endsAt: m.event.endsAt };

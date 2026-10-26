@@ -88,6 +88,12 @@ export const COMMANDS: readonly Command[] = [
     run: (ctx) => ctx.navigate("/mail?compose=new"),
   },
   {
+    id: "calendar.newMeeting",
+    labelKey: "palette.commands.newMeeting",
+    // «New meeting» sul Calendario, alla prima mezz'ora libera di oggi (come il bottone).
+    run: (ctx) => ctx.navigate("/calendar?newMeeting=1"),
+  },
+  {
     id: "chat.newChannel",
     labelKey: "palette.commands.newChannel",
     // Dentro un progetto, il progetto è già scelto (se ci si possono creare canali).

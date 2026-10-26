@@ -124,7 +124,8 @@
       "messages": "Messages",
       "more": "More",
       "pages": "Pages",
-      "files": "Files"
+      "files": "Files",
+      "mail": "Mail"
     },
     "noResults": "No results for “{{query}}”",
     "noResultsHint": "Try a code like {{example}} or a name.",
@@ -155,7 +156,8 @@
       "newChannel": "New channel",
       "goToChannel": "Go to channel…",
       "linkFolder": "Link a Google folder to {{code}}",
-      "newEmail": "New email"
+      "newEmail": "New email",
+      "newMeeting": "New meeting"
     },
     "filterPlaceholder": "Choose a filter",
     "channelPlaceholder": "Go to a channel or direct message…",
@@ -170,7 +172,9 @@
       "placeholder": "Search the {{repo}} docs…"
     },
     "searchAllFiles": "Search all files for “{{query}}”",
-    "notInProject": "Not in a project"
+    "notInProject": "Not in a project",
+    "searchAllMail": "Search all mail for “{{query}}”",
+    "mailMeta": "{{name}} · {{date}}"
   },
   "notifications": {
     "title": "Notifications",
@@ -935,7 +939,9 @@
       "stalledInMyProjects": "Stalled in my projects",
       "newRequests": "New requests",
       "upcomingMilestones": "Upcoming milestones",
-      "filter": "Saved filter"
+      "filter": "Saved filter",
+      "upcomingEvents": "Upcoming",
+      "importantMail": "Important email"
     },
     "block": {
       "error": "Couldn't load {{title}}.",
@@ -995,6 +1001,18 @@
         "unavailable": "This message is no longer available",
         "answered": "Answered in {{channel}}",
         "answerFailed": "Couldn't send your answer in {{channel}}. It's back in Decide."
+      },
+      "mail": {
+        "fromEmail": "From an email · {{name}} · {{subject}}",
+        "fromMeeting": "From the meeting {{title}} · {{date}}",
+        "fromCalendar": "From your calendar · {{title}}",
+        "openEmail": "Open email",
+        "openEvent": "Open event",
+        "confirmed": "Confirmed for {{code}}",
+        "ignored": "Proposal for {{code}} ignored",
+        "handed": "Passed to {{code}}",
+        "created": "{{codes}} created",
+        "failed": "Couldn't send your decision on the proposal for {{code}}. It's back in Decide."
       }
     },
     "myTasks": {
@@ -1078,6 +1096,26 @@
       "saveFailed": "Couldn't save the Home. Your changes are still here.",
       "added": "{{title}} added at the end.",
       "hidden": "{{title}} hidden."
+    },
+    "mail": {
+      "open": "Open Mail",
+      "empty": "Nothing important",
+      "emptyBody": "Important email you haven't opened shows up here.",
+      "connect": "Connect your Google account to see important email here",
+      "connectButton": "Connect",
+      "showAll_one": "Show all {{count}}",
+      "showAll_other": "Show all {{count}}",
+      "list": "Important email you haven't opened"
+    },
+    "upcoming": {
+      "open": "Open Calendar",
+      "empty": "Nothing else today or tomorrow",
+      "connect": "Connect your Google account to see your meetings here",
+      "now": "Now · until {{time}}",
+      "join": "Join",
+      "joinLabel": "Join {{title}} on Google Meet",
+      "showAll_one": "Show all {{count}}",
+      "showAll_other": "Show all {{count}}"
     }
   },
   "week": {

@@ -7,6 +7,7 @@ import {
   useChatQuestions,
   useClaudeDecisions,
   useDecisionRequests,
+  useMailProposalDecisions,
   usePeople,
   useProjects,
   useRequestsToConvert,
@@ -18,6 +19,7 @@ import type {
   ChatQuestion,
   ClaudeDecision,
   DecisionRequest,
+  MailProposalView,
   Person,
   Project,
   ProjectRequest,
@@ -33,12 +35,14 @@ import { deferAnswer, usePendingAnswers } from "../pendingAnswers";
 import { BlockSection, Capped, queryState, useOpenTask } from "./BlockSection";
 import { ChatClaudeQuestionItem, ChatQuestionItem } from "./ChatDecisionItems";
 import { ClaudeDecisionItem } from "./ClaudeDecisionItem";
+import { MailDecisionItem } from "./MailDecisionItem";
 
 type Item =
   | { kind: "decision"; id: string; decision: DecisionRequest; task: Task | undefined }
   | { kind: "claude"; id: string; claude: ClaudeDecision }
   | { kind: "chat"; id: string; question: ChatQuestion }
   | { kind: "chatClaude"; id: string; question: ChatClaudeQuestion }
+  | { kind: "mail"; id: string; view: MailProposalView }
   | { kind: "request"; id: string; request: ProjectRequest; project: Project | undefined };
 
 /**
@@ -47,7 +51,8 @@ type Item =
  * «Other…» a testo libero) e le domande e i piani di Claude che aspettano
  * me (gli stessi della conversazione, nella stessa forma), dalla più
  * vecchia, insieme alle domande della Chat rivolte a me («Reply» apre il
- * thread, «Ignore» la toglie) e a quelle di @Claude a chi l'ha chiamato;
+ * thread, «Ignore» la toglie), a quelle di @Claude a chi l'ha chiamato e
+ * alle proposte della posta che vedo (la scheda della Posta, area 6);
  * poi le richieste nuove nei progetti dove posso creare task, con
  * «Turn into task». Una risposta
  * chiude subito la voce (collassa in 200 ms) e parte dopo la finestra
@@ -60,6 +65,7 @@ export function DecideBlock() {
   const claude = useClaudeDecisions();
   const chatQuestions = useChatQuestions();
   const chatClaude = useChatClaudeQuestions();
+  const mail = useMailProposalDecisions();
   const tasks = useTasks();
   const requests = useRequestsToConvert();
   const projects = useProjects();
@@ -92,6 +98,11 @@ export function DecideBlock() {
       at: q.createdAt,
       item: { kind: "chatClaude", id: q.id, question: q } satisfies Item,
     })),
+    // Le proposte della posta che aspettano me, per data di nascita come le altre.
+    ...(mail.data ?? []).map((v) => ({
+      at: v.proposal.createdAt,
+      item: { kind: "mail", id: v.proposal.id, view: v } satisfies Item,
+    })),
   ];
   const items: Item[] = [
     ...asked.sort((a, b) => a.at.localeCompare(b.at)).map((a) => a.item),
@@ -108,7 +119,7 @@ export function DecideBlock() {
   ];
   const visible = items.filter((i) => !pending.has(i.id));
   const state = queryState(
-    [decisions, claude, chatQuestions, chatClaude, tasks, requests, projects],
+    [decisions, claude, chatQuestions, chatClaude, mail, tasks, requests, projects],
     {
       when: visible.length === 0,
       text: t("home.decide.empty"),
@@ -123,7 +134,11 @@ export function DecideBlock() {
         items={items}
         closing={(item) => pending.has(item.id)}
         render={(item) =>
-          item.kind === "chat" ? (
+          item.kind === "mail" ? (
+            <Collapsible key={item.id} closed={pending.has(item.id)}>
+              <MailDecisionItem view={item.view} />
+            </Collapsible>
+          ) : item.kind === "chat" ? (
             <Collapsible key={item.id} closed={pending.has(item.id)}>
               <ChatQuestionItem question={item.question} />
             </Collapsible>

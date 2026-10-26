@@ -120,6 +120,8 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
     // Il Calendario: l'evento e la serie aperti nel pannello (shape calendar.md §7).
     case "event":
     case "series":
+    // ⌘K «New meeting»: il dialogo si apre all'arrivo sul Calendario.
+    case "newMeeting":
       return path === "calendar" && isCalendarSearchValue(key, value);
     case "view":
       if (path === "home") return value === "week";

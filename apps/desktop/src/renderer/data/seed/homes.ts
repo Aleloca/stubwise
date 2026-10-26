@@ -2,13 +2,20 @@ import type { DayArrangement, DepartmentHome, HomeBlockRef, PersonalHome } from 
 
 // I due blocchi fissi aprono ogni Home: non si nascondono.
 const FIXED: HomeBlockRef[] = [{ kind: "decide" }, { kind: "myWeek" }];
+/**
+ * L'apertura delle Home dei reparti (e quindi di ogni Home nuova, che ne è
+ * l'unione): i fissi, poi l'agenda e la posta importante (shape home.md §8
+ * [A 1]: prima «Upcoming», la mattina il primo bisogno è l'agenda). Le Home
+ * personalizzate non cambiano.
+ */
+const OPENING: HomeBlockRef[] = [...FIXED, { kind: "upcomingEvents" }, { kind: "importantMail" }];
 
 /** La Home predefinita di ogni reparto (la decide chi ha `department.home.manage`). */
 export const DEPARTMENT_HOMES: DepartmentHome[] = [
   {
     departmentId: "dep-marketing",
     blocks: [
-      ...FIXED,
+      ...OPENING,
       { kind: "myTasks" },
       { kind: "upcomingMilestones" },
       { kind: "filter", filterId: "flt-no-estimate" },
@@ -17,13 +24,13 @@ export const DEPARTMENT_HOMES: DepartmentHome[] = [
   },
   {
     departmentId: "dep-sales",
-    blocks: [...FIXED, { kind: "myTasks" }, { kind: "newRequests" }],
+    blocks: [...OPENING, { kind: "myTasks" }, { kind: "newRequests" }],
     updatedAt: "2026-09-30T09:00:00Z",
   },
   {
     departmentId: "dep-support",
     blocks: [
-      ...FIXED,
+      ...OPENING,
       { kind: "myTasks" },
       { kind: "newRequests" },
       { kind: "stalledInMyProjects" },
@@ -33,7 +40,7 @@ export const DEPARTMENT_HOMES: DepartmentHome[] = [
   {
     departmentId: "dep-development",
     blocks: [
-      ...FIXED,
+      ...OPENING,
       { kind: "claudeForMe" },
       { kind: "myTasks" },
       { kind: "stalledInMyProjects" },
@@ -44,7 +51,7 @@ export const DEPARTMENT_HOMES: DepartmentHome[] = [
   },
   {
     departmentId: "dep-administration",
-    blocks: [...FIXED, { kind: "myTasks" }, { kind: "upcomingMilestones" }],
+    blocks: [...OPENING, { kind: "myTasks" }, { kind: "upcomingMilestones" }],
     updatedAt: "2026-09-15T09:00:00Z",
   },
 ];

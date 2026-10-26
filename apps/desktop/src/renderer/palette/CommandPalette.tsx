@@ -16,6 +16,7 @@ import {
   useDocSearch,
   useDocSpaces,
   useDriveSearch,
+  useMailSearch,
   usePeople,
   useProjects,
   useReachChatMessage,
@@ -56,6 +57,7 @@ type GroupId =
   | "requests"
   | "pages"
   | "files"
+  | "mail"
   | "people"
   | "actions"
   | "viewAs"
@@ -80,6 +82,11 @@ interface Item {
   fallback?: boolean;
   /** Un messaggio della Chat: chi, dove e quando sopra, il testo con le parole trovate sotto. */
   message?: { meta: string; text: string; words: string[] };
+  /**
+   * Un'email (gruppo «Mail»): la stessa riga di un messaggio della Chat —
+   * mittente e data sopra, oggetto e frammento con le parole trovate sotto.
+   */
+  mail?: boolean;
   /** Una pagina dei Docs: codice · titolo · progetto sopra, il passaggio trovato sotto. */
   page?: {
     code: string;
@@ -208,6 +215,8 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   const chatQuery = step === "root" ? debounced.trim() : "";
   const chatSearching = chatQuery.length >= MIN_QUERY;
   const chatSearch = useChatSearch(chatQuery);
+  // La posta (da 2 caratteri): solo i messaggi che chi guarda vede (`searchMail`).
+  const mailSearch = useMailSearch(chatQuery, chatSearching);
   const reachMessage = useReachChatMessage();
   const toast = useToast();
   const savedFilters = useSavedFilters();
@@ -357,6 +366,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       requests: [],
       pages: [],
       files: [],
+      mail: [],
       people: [],
       actions: [],
       viewAs: [],
@@ -454,6 +464,39 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         fallback: true,
         select: () => {
           router.history.push(`/drive?q=${encodeURIComponent(filesQuery)}`);
+          onClose();
+        },
+      });
+    }
+    // La posta (shape mail.md §6): al più 5 email che chi guarda vede, dalla
+    // più recente; una riga apre la conversazione. «Search all mail for “…”»
+    // va in More con le altre righe che citano il testo.
+    if (chatSearching) {
+      const words = searchWords(chatQuery);
+      byGroup.mail = (mailSearch.data ?? []).slice(0, GROUP_LIMIT).map((hit): Item => {
+        const meta = t("palette.mailMeta", {
+          name: hit.from.name || hit.from.email,
+          date: formatDate(hit.at, i18n.language),
+        });
+        const text = hit.snippet ? `${hit.subject} — ${hit.snippet}` : hit.subject;
+        return {
+          key: `mail-${hit.id}`,
+          label: `${meta}: ${hit.subject}`,
+          message: { meta, text, words },
+          mail: true,
+          fromSearch: true,
+          select: () => {
+            router.history.push(`/mail/${hit.threadId}`);
+            onClose();
+          },
+        };
+      });
+      byGroup.more.push({
+        key: "mail-all",
+        label: t("palette.searchAllMail", { query: chatQuery }),
+        fallback: true,
+        select: () => {
+          router.history.push(`/mail?q=${encodeURIComponent(chatQuery)}`);
           onClose();
         },
       });
@@ -577,6 +620,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         "requests",
         "pages",
         "files",
+        "mail",
         "people",
         "channels",
         "messages",
@@ -594,6 +638,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     chatQuery,
     chatSearching,
     chatSearch.data,
+    mailSearch.data,
     reachMessage,
     toast,
     i18n.language,
@@ -627,6 +672,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     (query !== debounced ||
       search.isPlaceholderData ||
       chatSearch.isPlaceholderData ||
+      mailSearch.isPlaceholderData ||
       pageSearch.isPlaceholderData ||
       (!!filesQuery && fileSearch.isPlaceholderData));
 
@@ -936,7 +982,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                     );
                   }
                   if (item.message) {
-                    // Un messaggio: 52px, chi/dove/quando sopra, il testo con le parole trovate sotto.
+                    // Un messaggio (o un'email): 52px, chi/dove/quando sopra, il testo con le parole trovate sotto.
                     return (
                       <div
                         key={item.key}
@@ -944,7 +990,8 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                         role="option"
                         aria-selected={selected}
                         aria-label={item.label}
-                        data-palette-message
+                        data-palette-message={item.mail ? undefined : true}
+                        data-palette-mail={item.mail || undefined}
                         onMouseMove={() => {
                           if (!selected) setActive(items.indexOf(item));
                         }}

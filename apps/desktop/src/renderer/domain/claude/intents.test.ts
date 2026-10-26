@@ -461,3 +461,36 @@ describe("le letture sono di chi conversa (Sara non vede AUD)", () => {
     expect(refs(await respond("Explain AUD-3", as("p-giulia")))).toEqual(["t-aud-3"]);
   });
 });
+
+// Review Focus 1 (area 6): Claude non legge la posta né le riunioni di
+// nessuno. Il motore riceve solo le letture di `ReadApi`, nessuna delle
+// quali tocca posta, trascrizioni o calendario; le domande su email e
+// riunioni ricadono negli intenti esistenti e non citano mai un messaggio.
+// La bozza di una risposta (`mailDraft.ts`) legge la conversazione con
+// `getMailThread`, già filtrata da `canSeeMessage` (Task 4).
+describe("la posta e le riunioni di altri non arrivano a Claude (Review Focus 1)", () => {
+  const QUESTIONS = [
+    "What did Sofia write about the VAT number column?",
+    "Summarize the AUD weekly review meeting",
+    "Cosa dice l'email sul billing export di AUD?",
+    "What do I have today?",
+    "Riassumi la riunione settimanale di AUD",
+  ];
+  const secrets = () => [
+    ...new Set(state.mailMessages.map((m) => m.subject).filter((s) => s.length > 12)),
+    ...state.meetingTranscripts.flatMap((t) => (t.summary ? [t.summary.slice(0, 40)] : [])),
+  ];
+
+  for (const [personId, who] of [
+    ["p-roberta", "l'admin"],
+    ["p-alessia", "un collega di AUD non destinatario"],
+  ] as const) {
+    it(`${who}: nessun oggetto, testo o riassunto nelle risposte`, async () => {
+      expect(secrets().length).toBeGreaterThan(10);
+      for (const q of QUESTIONS) {
+        const out = JSON.stringify(await respond(q, as(personId)));
+        for (const secret of secrets()) expect(out).not.toContain(secret);
+      }
+    });
+  }
+});
