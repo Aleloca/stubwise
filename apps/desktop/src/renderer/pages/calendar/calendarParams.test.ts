@@ -60,6 +60,17 @@ describe("parametri del Calendario nell'indirizzo", () => {
   });
 });
 
+describe("⌘K «New meeting»: `?newMeeting=1`", () => {
+  it("vale solo `1`, e solo sul Calendario", () => {
+    expect(isCalendarSearchValue("newMeeting", "1")).toBe(true);
+    expect(isCalendarSearchValue("newMeeting", "2")).toBe(false);
+    expect(isCalendarSearchValue("newMeeting", "")).toBe(false);
+    expect(isAppRoute("#/calendar?newMeeting=1")).toBe(true);
+    expect(isAppRoute("#/calendar?newMeeting=2")).toBe(false);
+    expect(isAppRoute("#/mail?newMeeting=1")).toBe(false);
+  });
+});
+
 describe("bordi della finestra (Review Focus 3)", () => {
   it("‹ e › si fermano solo quando l'intervallo intero è fuori", () => {
     // La settimana del 21 settembre tocca il 23: si arriva; quella prima no.

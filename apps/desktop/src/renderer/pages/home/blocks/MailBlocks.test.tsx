@@ -1,4 +1,4 @@
-import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as api from "../../../data/api";
@@ -23,7 +23,21 @@ const SHARED_THREAD = "th-aud-billing-vat";
 const SHARED_SUBJECT = "Billing export: we need the VAT number column by Monday";
 const SHARED_PROPOSAL = "mp-aud-billing-vat";
 
+const MEETING_PROPOSAL = "mp-aud-weekly-review";
+
 const block = (name: string) => screen.findByRole("region", { name });
+/** La voce di una proposta in «Decide», quando c'è. */
+async function mailItem(id: string): Promise<HTMLElement> {
+  const decide = await block("Decide");
+  return waitFor(() => {
+    // Oltre le prime 5 voci, «Show N more» espande sul posto.
+    const more = within(decide).queryByRole("button", { name: /^Show \d+ more$/ });
+    if (more) fireEvent.click(more);
+    const el = decide.querySelector<HTMLElement>(`[data-mail-decision="${id}"]`);
+    if (!el) throw new Error(`no proposal ${id} yet`);
+    return el;
+  });
+}
 const pathname = (router: ReturnType<typeof renderRoute>) => router.state.location.pathname;
 const searchOf = (router: ReturnType<typeof renderRoute>) =>
   router.state.matches.at(-1)!.search as Record<string, unknown>;
@@ -252,22 +266,163 @@ describe("Home: proposte della posta in «Decide»", () => {
     }
   });
 
-  it("la seconda decisione: «Already decided by Matteo Conti», nulla due volte", async () => {
+  it("la seconda decisione: «Already confirmed by Matteo Conti» col link alla task nata, nulla due volte", async () => {
     const user = userEvent.setup();
-    renderRoute("/home", "p-giulia");
-    const decide = await block("Decide");
-    const item = await waitFor(() => {
-      const el = decide.querySelector<HTMLElement>(`[data-mail-decision="${SHARED_PROPOSAL}"]`);
-      if (!el) throw new Error("no proposal yet");
-      return el;
-    });
+    const router = renderRoute("/home", "p-giulia");
+    const item = await mailItem(SHARED_PROPOSAL);
     setSessionPersonId("p-matteo");
-    await api.mail.confirmMailProposal(SHARED_PROPOSAL, {});
+    const outcome = await api.mail.confirmMailProposal(SHARED_PROPOSAL, {});
+    const born = (outcome as { resultCodes: string[] }).resultCodes[0]!;
     setSessionPersonId("p-giulia");
     const tasksAfterMatteo = state.tasks.length;
     await user.click(within(item).getByRole("button", { name: "Confirm" }));
-    expect(await screen.findByText("Already decided by Matteo Conti.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Already confirmed by Matteo Conti. Nothing was created twice."),
+    ).toBeInTheDocument();
     expect(state.tasks.length).toBe(tasksAfterMatteo);
+    await user.click(screen.getByRole("button", { name: `Open ${born}` }));
+    await waitFor(() => expect(searchOf(router)).toMatchObject({ task: born }));
+  });
+
+  it("già ignorata da un altro: «Already ignored by …», senza link", async () => {
+    const user = userEvent.setup();
+    renderRoute("/home", "p-giulia");
+    const item = await mailItem(SHARED_PROPOSAL);
+    setSessionPersonId("p-laura");
+    await api.mail.ignoreMailProposal(SHARED_PROPOSAL);
+    setSessionPersonId("p-giulia");
+    await user.click(within(item).getByRole("button", { name: "Confirm" }));
+    expect(
+      await screen.findByText("Already ignored by Laura Costa. Nothing was created."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Open [A-Z]+-\d+$/ })).toBeNull();
+  });
+
+  it("una conferma non eseguita (tutto o niente) lo dice, col link all'email in Posta", async () => {
+    // Un titolo vuoto: la mutazione la rifiuta a metà, la proposta finisce `failed`.
+    const p = state.mailProposals.find((x) => x.id === SHARED_PROPOSAL)!;
+    p.actions[0]!.args.title = "  ";
+    const user = userEvent.setup();
+    const router = renderRoute("/home", "p-giulia");
+    const item = await mailItem(SHARED_PROPOSAL);
+    const tasksBefore = state.tasks.length;
+    await user.click(within(item).getByRole("button", { name: "Confirm" }));
+    expect(
+      await screen.findByText("The proposal for AUD couldn't be completed. Nothing was changed."),
+    ).toBeInTheDocument();
+    expect(p.status).toBe("failed");
+    expect(state.tasks.length).toBe(tasksBefore);
+    await user.click(screen.getByRole("button", { name: "Open email" }));
+    await waitFor(() => expect(pathname(router)).toBe(`/mail/${SHARED_THREAD}`));
+  });
+
+  it("densità di blocco: la prima azione per intero, «+3 more» espande sul posto", async () => {
+    const user = userEvent.setup();
+    renderRoute("/home", "p-giulia");
+    const item = await mailItem(MEETING_PROPOSAL);
+    expect(item).toHaveTextContent(/From the meeting AUD weekly review/);
+    expect(item.querySelectorAll("[data-action-row]")).toHaveLength(1);
+    await user.click(within(item).getByRole("button", { name: "+3 more" }));
+    expect(item.querySelectorAll("[data-action-row]")).toHaveLength(4);
+    expect(within(item).queryByRole("button", { name: "+3 more" })).toBeNull();
+    // L'estratto è sempre aperto in «Decide».
+    expect(
+      within(item).getByRole("button", { name: "Hide what Stubwise read" }),
+    ).toBeInTheDocument();
+  });
+
+  it("cambiare persona nella finestra dell'«Undo»: la conferma parte a nome di Giulia", async () => {
+    setUndoWindow(60_000);
+    const user = userEvent.setup();
+    renderRoute("/home", "p-giulia");
+    const item = await mailItem(SHARED_PROPOSAL);
+    await user.click(within(item).getByRole("button", { name: "Confirm" }));
+    expect(state.mailProposals.find((x) => x.id === SHARED_PROPOSAL)!.status).toBe("open");
+    await user.click(screen.getByRole("button", { name: "Profile and settings" }));
+    await user.click(await screen.findByRole("radio", { name: /Marco Bellini/ }));
+    await waitFor(() =>
+      expect(state.mailProposals.find((x) => x.id === SHARED_PROPOSAL)).toMatchObject({
+        status: "confirmed",
+        decidedById: "p-giulia",
+      }),
+    );
+    await block("Decide");
+    expect(screen.queryByText(/It's back in Decide|couldn't be completed/)).toBeNull();
+  });
+
+  it("decisa da un altro mentre «Decide» è aperto: sparisce alla prima rilettura", async () => {
+    const user = userEvent.setup();
+    renderRoute("/home", "p-giulia");
+    const decide = await block("Decide");
+    await mailItem(SHARED_PROPOSAL);
+    setSessionPersonId("p-matteo");
+    await api.mail.confirmMailProposal(SHARED_PROPOSAL, {});
+    setSessionPersonId("p-giulia");
+    // Ancora lì: nessuno ha riletto. Giulia ignora un'altra proposta: la
+    // decisione rilegge «Decide», e quella condivisa se ne va.
+    expect(decide.querySelector(`[data-mail-decision="${SHARED_PROPOSAL}"]`)).not.toBeNull();
+    const other = await mailItem("mp-stw-copy-freeze");
+    await user.click(within(other).getByRole("button", { name: "Ignore" }));
+    await waitFor(() =>
+      expect(decide.querySelector(`[data-mail-decision="${SHARED_PROPOSAL}"]`)).toBeNull(),
+    );
+  });
+});
+
+describe("Calendario: `?newMeeting=1` si toglie comunque", () => {
+  it("lettura dell'account fallita: niente dialogo, e il parametro se ne va", async () => {
+    api.failNext("drive.getGoogleAccount");
+    const router = renderRoute("/calendar?newMeeting=1", "p-giulia");
+    await waitFor(() => expect(searchOf(router).newMeeting).toBeUndefined());
+    expect(screen.queryByRole("dialog", { name: "New meeting" })).toBeNull();
+  });
+
+  it("senza account Google: niente dialogo, e il parametro se ne va", async () => {
+    const router = renderRoute("/calendar?newMeeting=1", "p-alessia");
+    await waitFor(() => expect(searchOf(router).newMeeting).toBeUndefined());
+    expect(screen.queryByRole("dialog", { name: "New meeting" })).toBeNull();
+  });
+});
+
+describe("Home: J/K fra le righe dei blocchi", () => {
+  it("«Important email» e «Upcoming»: J e K muovono il fuoco fra le righe, Enter apre", async () => {
+    const user = userEvent.setup();
+    const router = renderRoute("/home", "p-giulia");
+    const mail = await block("Important email");
+    const mailLinks = await waitFor(() => {
+      const links = [...mail.querySelectorAll<HTMLElement>("[data-important-mail] > a")];
+      if (links.length < 2) throw new Error("rows not yet");
+      return links;
+    });
+    mailLinks[0]!.focus();
+    await user.keyboard("j");
+    expect(mailLinks[1]).toHaveFocus();
+    await user.keyboard("j");
+    expect(mailLinks[1]).toHaveFocus(); // all'estremità resta
+    await user.keyboard("k");
+    expect(mailLinks[0]).toHaveFocus();
+
+    const upcoming = await block("Upcoming");
+    const eventLinks = await waitFor(() => {
+      const links = [...upcoming.querySelectorAll<HTMLElement>("[data-upcoming-event] > a")];
+      if (links.length < 2) throw new Error("rows not yet");
+      return links;
+    });
+    eventLinks[0]!.focus();
+    await user.keyboard("j");
+    expect(eventLinks[1]).toHaveFocus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(pathname(router)).toBe("/calendar"));
+  });
+
+  it("fuori dal blocco J/K non muovono le righe", async () => {
+    const user = userEvent.setup();
+    renderRoute("/home", "p-giulia");
+    const mail = await block("Important email");
+    await waitFor(() => expect(mail.querySelector("[data-important-mail] > a")).not.toBeNull());
+    screen.getByRole("button", { name: "Customize" }).focus();
+    await user.keyboard("j");
+    expect(mail.contains(document.activeElement)).toBe(false);
   });
 });
 
@@ -298,6 +453,18 @@ describe("Privacy della posta nella Home e in ⌘K (Review Focus 1)", () => {
         expect(state.mailProposals.find((p) => p.id === id)!.status).toBe("handed");
         expect(within(item).queryByRole("link", { name: "Open email" })).toBeNull();
         expect(item.textContent).not.toMatch(/From an email|From the meeting/);
+        // L'intestazione dice chi l'ha passata e a chi era l'email; l'estratto è aperto.
+        expect(item).toHaveTextContent("Handed to STW by Giulia Ferri");
+        expect(item).toHaveTextContent("from an email to Giulia Ferri");
+        expect(
+          within(item).getByRole("button", { name: "Hide what Stubwise read" }),
+        ).toBeInTheDocument();
+        expect(item.querySelector("blockquote")).toHaveTextContent(
+          "The wording of the release notes is approved on our side.",
+        );
+      }
+      if (personId === "p-roberta") {
+        expect(decide.querySelectorAll("[data-mail-decision]")).toHaveLength(1);
       }
       if (personId === "p-alessia") expect(decide.querySelector("[data-mail-decision]")).toBeNull();
       const page = document.body.textContent ?? "";

@@ -1,6 +1,9 @@
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import i18n from "i18next";
 import { beforeEach, describe, expect, it } from "vitest";
 import * as api from "../../data/api";
+import { readsAs } from "../../data/api-mutations";
 import { setSessionPersonId } from "../../data/session";
 import { state } from "../../data/store";
 import type { ProposedAction, ScriptStep } from "../../data/types";
@@ -480,6 +483,54 @@ describe("la posta e le riunioni di altri non arrivano a Claude (Review Focus 1)
     ...new Set(state.mailMessages.map((m) => m.subject).filter((s) => s.length > 12)),
     ...state.meetingTranscripts.flatMap((t) => (t.summary ? [t.summary.slice(0, 40)] : [])),
   ];
+
+  // Il perimetro delle letture di Claude, chiuso. Una lettura nuova di posta,
+  // trascrizioni o calendario che entra qui DEVE passare dai filtri di chi
+  // conversa (`canSeeMessage`, `canSeeTranscript`, `canSeeEvent`/`canReadEvent`,
+  // o una lettura del livello dati costruita su di loro): chi allarga
+  // l'elenco aggiorni il test sapendo di aprire una porta.
+  it("le letture di Claude sono un elenco chiuso, senza posta né calendario", () => {
+    expect(Object.keys(readsAs("p-giulia")).sort()).toEqual([
+      "getLatestBrief",
+      "getRequest",
+      "getRequestByCode",
+      "getTaskByCode",
+      "listDecisionRequests",
+      "listDocPages",
+      "listPeople",
+      "listPinnedProjectIds",
+      "listProjectPulses",
+      "listProjectStatuses",
+      "listProjects",
+      "listTasks",
+      "readDriveFiles",
+    ]);
+  });
+
+  // E il motore non ha altre strade: dal livello dati importa solo tipi e
+  // date, mai una lettura (che non passerebbe da `ReadApi`).
+  it("domain/claude importa da data/ solo tipi e date", () => {
+    // I test girano da apps/desktop (vitest.config.ts); happy-dom non dà un `import.meta.url` file:.
+    const root = join(process.cwd(), "src/renderer/domain/claude");
+    const sources = readdirSync(root, { recursive: true, encoding: "utf8" }).filter(
+      (f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f),
+    );
+    expect(sources.length).toBeGreaterThan(10);
+    for (const file of sources) {
+      const text = readFileSync(join(root, file), "utf8");
+      for (const [, found] of text.matchAll(/from\s+"([^"]*\/data\/[^"]*)"/g)) {
+        const spec = found ?? "";
+        expect([file, spec.replace(/^(\.\.\/)+/, "")]).toEqual([
+          file,
+          expect.stringMatching(/^data\/(types|dates)$/),
+        ]);
+        if (!spec.endsWith("/types")) {
+          // Dalle date, solo valori (l'orologio fisso), non funzioni di lettura.
+          expect(spec).toMatch(/\/dates$/);
+        }
+      }
+    }
+  });
 
   for (const [personId, who] of [
     ["p-roberta", "l'admin"],

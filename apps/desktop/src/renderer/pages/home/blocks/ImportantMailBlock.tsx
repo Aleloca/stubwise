@@ -14,7 +14,7 @@ import { AlertGlyph } from "../../mail/glyphs";
 import { syncPhase } from "../../mail/SyncStatus";
 import { DueLabel, participantsLabel, useRowLabel, type ProjectRef } from "../../mail/ThreadRow";
 import { ghostButton, smallSecondary } from "../../task/parts";
-import { BlockSection, queryState } from "./BlockSection";
+import { BlockSection, queryState, rowKeys } from "./BlockSection";
 
 /** Quante email mostra il blocco prima di «Show all N» (shape meeting-prep.md [A 5]). */
 export const IMPORTANT_MAIL_CAP = 5;
@@ -71,7 +71,11 @@ export function ImportantMailBlock() {
       state={state}
     >
       {rows.length > 0 && (
-        <ul aria-label={t("home.mail.list")} className="border-t border-rule">
+        <ul
+          aria-label={t("home.mail.list")}
+          className="border-t border-rule"
+          onKeyDown={rowKeys("[data-important-mail] > a")}
+        >
           {rows.slice(0, IMPORTANT_MAIL_CAP).map((row) => (
             <MailRow key={row.threadId} row={row} projects={projects} />
           ))}

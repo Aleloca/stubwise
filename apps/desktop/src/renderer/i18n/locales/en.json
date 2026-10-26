@@ -1012,7 +1012,12 @@
         "ignored": "Proposal for {{code}} ignored",
         "handed": "Passed to {{code}}",
         "created": "{{codes}} created",
-        "failed": "Couldn't send your decision on the proposal for {{code}}. It's back in Decide."
+        "failed": "Couldn't send your decision on the proposal for {{code}}. It's back in Decide.",
+        "already_confirmed": "Already confirmed by {{name}}. Nothing was created twice.",
+        "already_ignored": "Already ignored by {{name}}. Nothing was created.",
+        "already_handed": "Already handed to the project by {{name}}. Nothing was created.",
+        "openCode": "Open {{code}}",
+        "confirmFailed": "The proposal for {{code}} couldn't be completed. Nothing was changed."
       }
     },
     "myTasks": {
@@ -3850,7 +3855,9 @@
         "date": "Date",
         "inProject": "In {{code}}",
         "outsideProject": "Not in {{code}}"
-      }
+      },
+      "moreActions_one": "+{{count}} more",
+      "moreActions_other": "+{{count}} more"
     },
     "outsider": {
       "and": "and",

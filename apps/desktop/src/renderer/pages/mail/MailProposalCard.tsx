@@ -64,6 +64,7 @@ export function MailProposalCard({
   excerptOpen = false,
   fromEmailTo,
   onDecide,
+  collapsed = false,
 }: {
   view: MailProposalView;
   /** L'estratto aperto di default: in «Da decidere» e per chi non ha l'email. */
@@ -76,6 +77,11 @@ export function MailProposalCard({
    * home.md §8 [A 2]). `send` fa partire la chiamata in modo sincrono.
    */
   onDecide?: (kind: MailDecisionKind, send: () => Promise<unknown>) => void;
+  /**
+   * Densità di blocco («Da decidere», shape home.md §8): la prima azione per
+   * intero, le altre dietro «+N more», che espande sul posto.
+   */
+  collapsed?: boolean;
 }) {
   const { t, i18n } = useTranslation();
   const me = useSessionPersonId();
@@ -102,6 +108,8 @@ export function MailProposalCard({
   const [edits, setEdits] = useState<Edits>({});
   const [editing, setEditing] = useState<{ index: number; focus?: "assignee" } | null>(null);
   const [showRead, setShowRead] = useState(excerptOpen);
+  const [allActions, setAllActions] = useState(!collapsed);
+  const hiddenActions = allActions ? 0 : p.actions.length - 1;
   const [asking, setAsking] = useState<{ personId: string; name: string }[] | null>(null);
   const [raced, setRaced] = useState<{ hadEdits: boolean } | null>(null);
   const [added, setAdded] = useState<string[]>([]);
@@ -236,7 +244,11 @@ export function MailProposalCard({
       return typeof who === "string" && ids.has(who);
     });
     setAsking(null);
-    if (index !== undefined) setEditing({ index, focus: "assignee" });
+    if (index !== undefined) {
+      // La riga da cambiare può essere fra quelle raccolte dietro «+N more».
+      setAllActions(true);
+      setEditing({ index, focus: "assignee" });
+    }
   };
   const doIgnore = () => {
     setError(null);
@@ -420,6 +432,8 @@ export function MailProposalCard({
       ) : (
         <ul className="flex min-w-0 flex-col">
           {p.actions.map((action, i) => {
+            // Raccolta: la prima azione per intero, le altre dietro «+N more».
+            if (!allActions && i > 0) return null;
             const args = effectiveArgs(action, edits[i]);
             const who = assigneeOf(action.fn, args);
             const rowEditing = editing?.index === i;
@@ -488,6 +502,18 @@ export function MailProposalCard({
               </li>
             );
           })}
+          {hiddenActions > 0 && (
+            <li className="flex min-h-8 items-center">
+              <button
+                type="button"
+                aria-expanded={false}
+                className="rounded-sm text-sm font-medium text-ink-muted underline decoration-ink/30 underline-offset-2 hover:text-ink"
+                onClick={() => setAllActions(true)}
+              >
+                {t("mail.proposal.moreActions", { count: hiddenActions })}
+              </button>
+            </li>
+          )}
         </ul>
       )}
 

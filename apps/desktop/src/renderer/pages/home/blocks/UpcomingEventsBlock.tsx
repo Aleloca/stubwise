@@ -1,6 +1,6 @@
 import { eventDayKey, localDayKey } from "@stubwise/shared";
 import { Link } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { now } from "../../../data/dates";
 import {
@@ -22,7 +22,7 @@ import {
 } from "../../calendar/EventBlock";
 import { VideoGlyph } from "../../mail/glyphs";
 import { ghostButton, smallSecondary } from "../../task/parts";
-import { BlockSection, queryState } from "./BlockSection";
+import { BlockSection, queryState, rowKeys } from "./BlockSection";
 import { ExpiredLine, NotConnected, UpdatedAgo } from "./ImportantMailBlock";
 
 /** Quante righe mostra il blocco prima di «Show all N» (shape meeting-prep.md §6). */
@@ -49,6 +49,7 @@ export function UpcomingEventsBlock() {
     [projectsData],
   );
   const today = localDayKey(new Date(now()));
+  const baseId = useId();
   const title = t("home.blocks.upcomingEvents");
   const action = (
     <Link to="/calendar" className={ghostButton}>
@@ -81,29 +82,32 @@ export function UpcomingEventsBlock() {
       action={action}
       state={state}
     >
-      {days.map(({ day, items }) => {
-        const shown = items.slice(0, Math.max(0, left));
-        left -= shown.length;
-        if (shown.length === 0) return null;
-        const headingId = `upcoming-${day}`;
-        return (
-          <div key={day} role="group" aria-labelledby={headingId}>
-            <h3 id={headingId} className="heading-group border-t border-rule px-4 pt-3 pb-1.5">
-              {day === today ? t("calendar.today") : t("calendar.tomorrow")}
-            </h3>
-            <ul>
-              {shown.map((e) => (
-                <EventRow
-                  key={e.id}
-                  event={e}
-                  day={day}
-                  project={e.projectId ? projects.get(e.projectId) : undefined}
-                />
-              ))}
-            </ul>
-          </div>
-        );
-      })}
+      {/* J/K fra le righe dei due giorni, col fuoco nel blocco. */}
+      <div onKeyDown={rowKeys("[data-upcoming-event] > a")}>
+        {days.map(({ day, items }) => {
+          const shown = items.slice(0, Math.max(0, left));
+          left -= shown.length;
+          if (shown.length === 0) return null;
+          const headingId = `${baseId}-${day}`;
+          return (
+            <div key={day} role="group" aria-labelledby={headingId}>
+              <h3 id={headingId} className="heading-group border-t border-rule px-4 pt-3 pb-1.5">
+                {day === today ? t("calendar.today") : t("calendar.tomorrow")}
+              </h3>
+              <ul>
+                {shown.map((e) => (
+                  <EventRow
+                    key={e.id}
+                    event={e}
+                    day={day}
+                    project={e.projectId ? projects.get(e.projectId) : undefined}
+                  />
+                ))}
+              </ul>
+            </div>
+          );
+        })}
+      </div>
       {expired && <ExpiredLine />}
       {list.length > UPCOMING_CAP && (
         <Link

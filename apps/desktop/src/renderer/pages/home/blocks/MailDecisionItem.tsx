@@ -1,12 +1,14 @@
 import { eventDayKey } from "@stubwise/shared";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { usePeople, useProjects } from "../../../data/queries";
+import { useDecideMailProposalNow, usePeople, useProjects } from "../../../data/queries";
+import { TASK_CODE_RE } from "../../../data/routes";
 import type { MailProposalOrigin, MailProposalView } from "../../../data/types";
 import { useToast } from "../../../tasks-ui/Toast";
 import { dayLabel } from "../../mail/format";
 import { MailProposalCard, type MailDecisionKind } from "../../mail/MailProposalCard";
 import { deferAnswer } from "../pendingAnswers";
+import { useOpenTask } from "./BlockSection";
 
 /**
  * Una proposta della posta in «Da decidere» (shape home.md §8): la riga
@@ -21,11 +23,43 @@ import { deferAnswer } from "../pendingAnswers";
 export function MailDecisionItem({ view }: { view: MailProposalView }) {
   const { t } = useTranslation();
   const toast = useToast();
+  const navigate = useNavigate();
+  const openTask = useOpenTask();
+  const decideNow = useDecideMailProposalNow();
   const people = usePeople().data;
   const project = useProjects().data?.find((p) => p.id === view.proposal.projectId);
   const code = project?.code ?? "";
   const name = (id: string | null | undefined) =>
     people?.find((p) => p.id === id)?.name ?? t("taskUi.stall.someone");
+
+  // L'email nella Posta, dove la scheda dice l'esito per intero (chi non vede
+  // l'email — una proposta passata — non ha dove andare).
+  const threadId = view.origin && view.origin.kind !== "calendar" ? view.origin.threadId : null;
+  const openEmail = threadId
+    ? {
+        label: t("home.decide.mail.openEmail"),
+        run: () => void navigate({ to: "/mail/$threadId", params: { threadId } }),
+      }
+    : undefined;
+
+  /** Chi è arrivato prima: come l'ha decisa e, se è nato qualcosa, il link. */
+  const raced = async (byId: string | null | undefined) => {
+    const fresh = await decideNow.read(view.proposal.id).catch(() => null);
+    const p = fresh?.proposal;
+    const who = fresh?.decidedBy?.name ?? name(byId);
+    const status = p?.status;
+    const text =
+      status === "confirmed" || status === "ignored" || status === "handed"
+        ? t(`home.decide.mail.already_${status}`, { name: who })
+        : t("home.decide.claude.alreadyDecided", { name: who });
+    const born =
+      p?.status === "confirmed" ? p.resultCodes.find((c) => TASK_CODE_RE.test(c)) : undefined;
+    toast.show(text, {
+      action: born
+        ? { label: t("home.decide.mail.openCode", { code: born }), run: () => openTask(born) }
+        : undefined,
+    });
+  };
 
   const onDecide = (kind: MailDecisionKind, send: () => Promise<unknown>) => {
     const done = {
@@ -37,16 +71,22 @@ export function MailDecisionItem({ view }: { view: MailProposalView }) {
       view.proposal.id,
       () =>
         send().then((outcome) => {
-          const codes = (outcome as { resultCodes?: string[] } | undefined)?.resultCodes ?? [];
-          if (codes.length > 0) {
-            toast.show(t("home.decide.mail.created", { codes: codes.join(", ") }));
+          const o = outcome as
+            | { status: "confirmed"; resultCodes: string[] }
+            | { status: "failed"; error: string }
+            | undefined;
+          // R-I22: il codice di ciò che è nato si dice dopo la finestra, in un secondo messaggio.
+          if (o?.status === "confirmed" && o.resultCodes.length > 0) {
+            toast.show(t("home.decide.mail.created", { codes: o.resultCodes.join(", ") }));
+          } else if (o?.status === "failed") {
+            // Non eseguita (tutto o niente): nulla è nato, l'esito sta nella Posta.
+            toast.error(t("home.decide.mail.confirmFailed", { code }), { action: openEmail });
           }
         }),
       (error) => {
         const err = error as (Error & { byId?: string | null }) | null;
-        if (err?.message === "already_handled") {
-          toast.show(t("home.decide.claude.alreadyDecided", { name: name(err.byId) }));
-        } else toast.error(t("home.decide.mail.failed", { code }));
+        if (err?.message === "already_handled") void raced(err.byId);
+        else toast.error(t("home.decide.mail.failed", { code }), { action: openEmail });
       },
     );
     toast.show(done, { action: { label: t("home.decide.undo"), run: cancel } });
@@ -59,7 +99,17 @@ export function MailDecisionItem({ view }: { view: MailProposalView }) {
     >
       {view.origin && <OriginLine origin={view.origin} />}
       <div className="max-w-[72ch]">
-        <MailProposalCard view={view} onDecide={onDecide} />
+        <MailProposalCard
+          view={view}
+          onDecide={onDecide}
+          collapsed
+          // In «Da decidere» si legge sempre ciò che Stubwise ha letto; chi non
+          // vede l'email (una proposta passata) legge a chi era: chi l'ha passata.
+          excerptOpen
+          fromEmailTo={
+            !view.origin && view.proposal.handedById ? name(view.proposal.handedById) : null
+          }
+        />
       </div>
     </div>
   );

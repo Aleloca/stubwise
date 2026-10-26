@@ -1,8 +1,17 @@
 import { useNavigate } from "@tanstack/react-router";
-import { createContext, useContext, useEffect, useId, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useId,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { PageSkeleton } from "../../../tasks-ui/PageStates";
 import { ghostButton, smallSecondary } from "../../task/parts";
+import { typing } from "../../tasks/useTaskKeys";
 
 // Il guscio comune dei blocchi della Home (shape home.md §3): ogni blocco è
 // una sezione della colonna di lettura, separata dalla precedente da un
@@ -162,6 +171,27 @@ export function useReportDepartments(block: string, tasks: readonly { department
     report(block, ids ? ids.split(",") : []);
     return () => report(block, []);
   }, [report, block, ids]);
+}
+
+/**
+ * J/K fra le righe di un blocco (shape meeting-prep.md §6): con il fuoco
+ * dentro il blocco (mai in un campo) J porta alla riga dopo e K a quella
+ * prima; Enter apre la riga col fuoco (è un link). `rowSelector` dice
+ * l'elemento focalizzabile di ogni riga. Alle estremità resta dov'è; il
+ * tasto non arriva alla pagina (`useTaskKeys`).
+ */
+export function rowKeys(rowSelector: string) {
+  return (e: KeyboardEvent<HTMLElement>) => {
+    if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || typing(e.target)) return;
+    const key = e.key.toLowerCase();
+    if (key !== "j" && key !== "k") return;
+    const rows = [...e.currentTarget.querySelectorAll<HTMLElement>(rowSelector)];
+    if (rows.length === 0) return;
+    const at = rows.findIndex((r) => r.contains(document.activeElement));
+    const next = at === -1 ? 0 : Math.min(rows.length - 1, Math.max(0, at + (key === "j" ? 1 : -1)));
+    e.preventDefault();
+    rows[next]!.focus();
+  };
 }
 
 /** Apre una task nel pannello (`?task=`), restando sulla Home. */

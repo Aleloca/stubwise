@@ -1012,7 +1012,12 @@
         "ignored": "Proposta per {{code}} ignorata",
         "handed": "Passata a {{code}}",
         "created": "Create: {{codes}}",
-        "failed": "Non è stato possibile mandare la tua decisione sulla proposta per {{code}}. È di nuovo in «Da decidere»."
+        "failed": "Non è stato possibile mandare la tua decisione sulla proposta per {{code}}. È di nuovo in «Da decidere».",
+        "already_confirmed": "Già confermata da {{name}}. Niente è stato creato due volte.",
+        "already_ignored": "Già ignorata da {{name}}. Non è stato creato niente.",
+        "already_handed": "Già passata al progetto da {{name}}. Non è stato creato niente.",
+        "openCode": "Apri {{code}}",
+        "confirmFailed": "Non è stato possibile completare la proposta per {{code}}. Non è cambiato niente."
       }
     },
     "myTasks": {
@@ -3850,7 +3855,9 @@
         "date": "Data",
         "inProject": "In {{code}}",
         "outsideProject": "Non in {{code}}"
-      }
+      },
+      "moreActions_one": "+{{count}} altra",
+      "moreActions_other": "+{{count}} altre"
     },
     "outsider": {
       "and": "e",

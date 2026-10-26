@@ -2614,6 +2614,8 @@ export function useDecideMailProposalNow() {
       settle(api.mail.confirmMailProposal(id, input)),
     ignore: (id: string) => settle(api.mail.ignoreMailProposal(id)),
     hand: (id: string) => settle(api.mail.handMailProposal(id)),
+    /** Rilegge la proposta dopo un `already_handled`: chi l'ha decisa, come, cosa è nato. */
+    read: (id: string) => api.mail.getMailProposal(id),
   };
 }
 
