@@ -38,6 +38,7 @@ export {
   skipStep,
   startManual,
 } from "./writes";
+export { listSimulationExamples } from "./examples";
 export {
   endSimulation,
   getSimulation,

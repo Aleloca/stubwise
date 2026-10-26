@@ -860,6 +860,12 @@ export interface SimulationEmailPreview extends SimulationAt {
   subject: string;
   body: string;
   attachments: string[];
+  /**
+   * Partirebbe come risposta nella conversazione aperta dall'email di quel
+   * passo (stesso indirizzo, come nell'esecuzione vera: il promemoria
+   * risponde alla richiesta); `null` = una conversazione nuova.
+   */
+  sameConversationAs: { stepId: string; path: string } | null;
 }
 
 export interface SimulationNotificationPreview extends SimulationAt {
@@ -879,6 +885,18 @@ export interface SimulationClaudePreview extends SimulationAt {
   outcome: string | null;
   fields: Record<string, unknown>;
   reason: string;
+  /** I documenti che Claude ha letto (nomi), per «Read: …». */
+  read: string[];
+}
+
+/** Un evento d'esempio per la prova: dalla sorgente, o un oggetto vero recente che chi prova vede. */
+export interface SimulationExample {
+  /** Una riga leggibile (es. «Nuovo contratto – Rossi Srl», «AUD-12 Titolo»). */
+  label: string;
+  /** Il codice dell'oggetto vero, se è una task o una richiesta. */
+  code: string | null;
+  at: string | null;
+  event: Record<string, unknown>;
 }
 
 export type SimulationEffectPreview =

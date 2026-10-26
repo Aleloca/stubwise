@@ -10,6 +10,7 @@ import {
 import { stepAt } from "../../domain/automations/fields";
 import { describe, projectOf, type ActionStep } from "../../domain/automations/preview";
 import type { FlowIssue } from "../../domain/automations/validate";
+import { lower } from "../mail/compose";
 import { onBeforePersonaChange } from "../session";
 import { copy, gate, now, onStoreReset, state, visibleProjectIds } from "../store";
 import type {
@@ -35,8 +36,9 @@ import {
   planTask,
   resolveProject,
   RUN_LIMIT_REASON,
+  type ActionEffect,
   type EffectOutcome,
-} from "./effects";
+} from "./plans";
 import { configErrorsOf, hideProject } from "./reads";
 import { canStartRun, NO_APPROVER_REASON } from "./runner";
 import {
@@ -53,7 +55,7 @@ import { checkEdited } from "./writes";
 // MAI nello store — nessuna task, traguardo, richiesta, email, notifica,
 // esecuzione, riga di registro vera, né un contatore che si muove.
 //
-// - Le anteprime usano i piani dell'esecutore vero (`effects.ts`): stesso
+// - Le anteprime usano i piani dell'esecutore vero (`plans.ts`): stesso
 //   incaricato, stesso progetto (tabella cliente → progetto compresa),
 //   stessi testi, stessa casella; e dove la vera fallirebbe, la prova
 //   fallisce allo stesso passo con lo stesso codice e la stessa motivazione.
@@ -79,8 +81,6 @@ export class SimulationConfigError extends Error {
 
 /** Un input della prova: «Passo successivo», «Vai alla prossima fermata», o un input del motore. */
 export type SimulationInput = EngineInput | { kind: "next" } | { kind: "run" };
-
-type ActionEffect = Extract<EffectRequest, { args: unknown }>;
 
 interface Sim {
   id: string;
@@ -182,15 +182,20 @@ function previewOf(sim: Sim, a: Automation, eff: ActionEffect, at: string): Prev
       };
     }
     case "sendEmail": {
+      // Nella prova non ci sono messaggi veri: i controlli si fanno come per
+      // una conversazione nuova, e la conversazione si dice nell'anteprima.
       const p = planEmail(
         eff,
         owner,
         sim.preview.emails.length,
         () => ({ threadId: null, mode: "new", replyToMessageId: null }),
-        (i) => `att-${sim.id}-${eff.stepId}-${i}`,
+        (i: number) => `att-${sim.id}-${eff.stepId}-${i}`,
       );
       if (!p.ok) return p;
       if (p.plan.bounced) return { ok: false, outcome: bouncedFailure(p.plan.to) };
+      // Come `threadFor` dell'esecutore vero: le email allo stesso indirizzo
+      // stanno in UNA conversazione, quella aperta dalla prima.
+      const first = sim.preview.emails.find((e) => lower(e.to) === lower(p.plan.to));
       return {
         ok: true,
         preview: {
@@ -201,6 +206,7 @@ function previewOf(sim: Sim, a: Automation, eff: ActionEffect, at: string): Prev
           subject: p.plan.subject,
           body: p.plan.body,
           attachments: p.plan.input.attachments.map((x) => x.name),
+          sameConversationAs: first ? { stepId: first.stepId, path: first.path } : null,
         },
       };
     }
@@ -260,6 +266,7 @@ function execute(sim: Sim, a: Automation, eff: EffectRequest): EngineInput {
       outcome: r.outcome ?? null,
       fields: copy(r.fields ?? {}),
       reason: r.reason,
+      read: r.read,
     });
     return r;
   }
@@ -292,8 +299,15 @@ function execute(sim: Sim, a: Automation, eff: EffectRequest): EngineInput {
 /** Scrive nella prova un passo del motore; il progetto del cliente si cerca subito (non è un passo). */
 function apply(sim: Sim, a: Automation, r: EngineStep): void {
   for (const row of r.log) sim.log.push({ at: r.state.now, ...copy(row), effects: blank(row) });
+  // Un input che il motore ignora (es. `time` mentre un effetto aspetta)
+  // non chiede di nuovo l'effetto: quello in sospeso resta finché il motore
+  // lo aspetta, o la prova non avanzerebbe più.
+  const stillAwaited =
+    r.state.status === "running" &&
+    (r.state.awaiting?.kind === "effect" || r.state.awaiting?.kind === "claude") &&
+    sim.pending?.path === r.state.awaiting.path;
   sim.engine = r.state;
-  sim.pending = r.effects[0] ?? null;
+  sim.pending = r.effects[0] ?? (stillAwaited ? sim.pending : null);
   if (sim.pending?.kind === "resolve_project") {
     const eff = sim.pending;
     sim.pending = null;
@@ -381,6 +395,8 @@ function handle(me: string, sim: Sim, a: Automation, input: SimulationInput): vo
       if (st.status !== "waiting_event") throw invalid("not_waiting");
       return apply(sim, a, advance(st, input));
     case "time":
+      // «Avanti» vale solo per un'attesa: altrove il tempo della prova non si sposta.
+      if (st.status !== "waiting_event") throw invalid("not_waiting");
       if (Number.isNaN(Date.parse(input.now))) throw invalid("time");
       return apply(sim, a, advance(st, input));
     default:
@@ -476,15 +492,29 @@ function waitingOf(sim: Sim, a: Automation): SimulationWaiting | null {
 function view(me: string, sim: Sim, a: Automation): SimulationView {
   const visible = visibleProjectIds(me);
   const HIDDEN: SimulationProject = { id: "", code: "", name: "" };
+  // Un'automazione da avviare che chi prova non vede: né id, né codice, né nome.
+  const seesAutomation = (id: unknown) => {
+    const target = typeof id === "string" ? automationById(id) : undefined;
+    return !!target && canSeeAutomation(me, target);
+  };
   const mask = <T extends object>(x: T): T => {
-    const out = copy(x) as T & { project?: SimulationProject | null };
+    const out = copy(x) as T & {
+      project?: SimulationProject | null;
+      automationId?: string;
+      code?: string;
+      name?: string;
+    };
     if (out.project && !visible.has(out.project.id)) out.project = { ...HIDDEN };
+    if (out.automationId !== undefined && !seesAutomation(out.automationId))
+      Object.assign(out, { automationId: "", code: "", name: "" });
     return out;
   };
   const log = sim.log.map((e) => {
     const row = copy(e);
     hideProject(row.input, visible);
     hideProject(row.output, visible);
+    if (row.kind === "startAutomation" && !seesAutomation(row.input.automazione))
+      row.input.automazione = "";
     return row;
   });
   const current = currentOf(sim, a);
@@ -517,7 +547,7 @@ function view(me: string, sim: Sim, a: Automation): SimulationView {
       requests: sim.preview.requests.map(mask),
       emails: sim.preview.emails.map(copy),
       notifications: sim.preview.notifications.map(mask),
-      starts: sim.preview.starts.map(copy),
+      starts: sim.preview.starts.map(mask),
       claude: sim.preview.claude.map(copy),
     },
   };

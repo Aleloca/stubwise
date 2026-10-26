@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { automations, createTask, failNext, resetApi, setLatency } from "../api";
 import { AUTOMATION_CASES } from "../seed/automations";
 import { runBeforePersonaChange, setSessionPersonId } from "../session";
-import { now, state } from "../store";
+import { now, state, visibleProjectIds } from "../store";
 import type { AutomationFlow, Step } from "../types";
 import { grantInstancePermission } from "../viewer";
 import { SimulationConfigError } from "./simulate";
@@ -437,10 +437,195 @@ describe("Automations: la prova (simulazione)", () => {
     expect(await automations.getSimulation(three)).toBeNull();
   });
 
+  it("«Avanti» due volte, o mentre un effetto aspetta: rifiutato, e la prova va ancora avanti", async () => {
+    const id = await automations.startSimulation(A.newContract, 1, sample(S.audin, 0));
+    let sim = (await automations.getSimulation(id))!;
+    // Claude in sospeso: il tempo non si sposta e l'effetto non si perde.
+    await expect(automations.simulationStep(id, { kind: "time", now: sim.now })).rejects.toThrow(
+      "invalid: not_waiting",
+    );
+    sim = await automations.simulationStep(id, { kind: "next" });
+    expect(sim.preview.claude).toHaveLength(1);
+
+    const other = await automations.startSimulation(A.clientData, 1, sample(S.webhook, 0));
+    sim = await automations.simulationStep(other, { kind: "next" });
+    const until = sim.waiting?.kind === "event" ? sim.waiting.until : "";
+    sim = await automations.simulationStep(other, { kind: "time", now: until });
+    expect(sim.current).toMatchObject({ kind: "sendEmail", path: "2/repeat[0]/0" });
+    await expect(automations.simulationStep(other, { kind: "time", now: until })).rejects.toThrow(
+      "invalid: not_waiting",
+    );
+    sim = await automations.simulationStep(other, { kind: "next" });
+    expect(sim.preview.emails).toHaveLength(2);
+    expect(sim.status).toBe("waiting_event");
+  });
+
+  it("nessuna scrittura anche con «Avvisa» e un'email che torna indietro (stesso esito della vera)", async () => {
+    const flow: AutomationFlow = {
+      trigger: { kind: "source", sourceId: S.audin, event: "deal_won" },
+      titleTemplate: "Avvisi",
+      steps: [
+        {
+          id: "n1",
+          kind: "notify",
+          personRef: "trattativa.commerciale",
+          text: "Chiusa {{trattativa.titolo}}",
+          approval: AUTO,
+        },
+        {
+          id: "e1",
+          kind: "sendEmail",
+          to: "{{cliente.email}}",
+          subject: "Benvenuti",
+          body: "Ciao",
+          attachRefs: ["trattativa.contratto"],
+          approval: AUTO,
+        },
+      ],
+    };
+    const a = await automations.createAutomation({ name: "Avvisi", projectId: AUD, flow });
+    const event = structuredClone(sample(S.audin, 0)) as {
+      cliente: { email: string };
+    } & Record<string, unknown>;
+    event.cliente.email = "nessuno@bounce.example";
+    const before = snapshot();
+    const id = await automations.startSimulation(a.id, "draft", event);
+    const sim = await automations.simulationStep(id, { kind: "run" });
+    expect(sim.preview.notifications).toEqual([
+      expect.objectContaining({
+        personId: "p-elena",
+        text: expect.stringContaining("Chiusa CRM"),
+        project: expect.objectContaining({ id: AUD }),
+      }),
+    ]);
+    expect(sim).toMatchObject({ status: "failed", error: "address_not_found", cursor: "1" });
+    expect(sim.log.at(-1)?.reason).toBe(
+      "L'indirizzo «nessuno@bounce.example» non esiste: l'email è tornata indietro.",
+    );
+    await automations.endSimulation(id);
+    await idle();
+    expect(state).toEqual(before);
+  });
+
+  it("il promemoria partirebbe nella stessa conversazione della richiesta, come nella vera", async () => {
+    const id = await automations.startSimulation(A.clientData, 1, sample(S.webhook, 0));
+    let sim = await automations.simulationStep(id, { kind: "next" });
+    const until = sim.waiting?.kind === "event" ? sim.waiting.until : "";
+    sim = await automations.simulationStep(id, { kind: "time", now: until });
+    sim = await automations.simulationStep(id, { kind: "next" });
+    expect(sim.preview.emails.map((e) => e.sameConversationAs)).toEqual([
+      null,
+      { stepId: "cd-ask", path: "0" },
+    ]);
+  });
+
+  it("Claude dice quali documenti ha letto", async () => {
+    const id = await automations.startSimulation(A.newContract, 1, sample(S.audin, 0));
+    const sim = await automations.simulationStep(id, { kind: "next" });
+    expect(sim.preview.claude[0]?.read).toEqual(["Contratto AUD-TR-1042.pdf"]);
+  });
+
+  it("R-G5: un'automazione da avviare che chi prova non vede resta senza id, codice e nome", async () => {
+    const flow: AutomationFlow = {
+      trigger: { kind: "manual" },
+      titleTemplate: "Avvia",
+      steps: [{ id: "s1", kind: "startAutomation", automationId: A.clientData, approval: AUTO }],
+    };
+    const a = await automations.createAutomation({ name: "Avvia", projectId: null, flow });
+    await automations.activate(a.id);
+    grantInstancePermission("p-sara", "automations.manage");
+    as("p-sara");
+    const id = await automations.startSimulation(a.id, 1, { avvio: { data: "2026-10-26" } });
+    let sim = (await automations.getSimulation(id))!;
+    expect(sim.current?.preview).toMatchObject({ kind: "start", automationId: "", code: "" });
+    sim = await automations.simulationStep(id, { kind: "next" });
+    expect(sim.status).toBe("done");
+    expect(sim.preview.starts).toEqual([
+      expect.objectContaining({ automationId: "", code: "", name: "" }),
+    ]);
+    const text = JSON.stringify(sim);
+    expect(text).not.toContain(A.clientData);
+    expect(text).not.toContain("AUD-A1");
+    expect(text).not.toContain("Richiesta dati al cliente");
+  });
+
   it("failNext: la prova che non parte", async () => {
     failNext("automations.startSimulation");
     await expect(automations.startSimulation(A.clientData, 1, {})).rejects.toThrow(
       "Simulated failure",
     );
+  });
+});
+
+describe("Automations: gli esempi della prova", () => {
+  const draftWith = (trigger: AutomationFlow["trigger"], projectId: string | null) =>
+    automations.createAutomation({
+      name: "Esempi",
+      projectId,
+      flow: { trigger, titleTemplate: "Esempi", steps: [] },
+    });
+
+  it("da una sorgente collegata i suoi eventi d'esempio, il più recente in alto; scaduta → nessuno", async () => {
+    const examples = await automations.listSimulationExamples(A.newContract, 1);
+    expect(examples.map((e) => e.label)).toEqual([
+      "CRM + Campagne WhatsApp + Preventivi online – Forneria Rossi & Lari",
+      "Campagne WhatsApp – Mix Cucine Srl",
+      "CRM + Centralino AI – Cantina Bellavista Srl",
+    ]);
+    expect(examples[2]!.event).toEqual(sample(S.audin, 0));
+    const hub = await draftWith({ kind: "source", sourceId: S.hubspot, event: "deal_won" }, null);
+    expect(await automations.listSimulationExamples(hub.id, "draft")).toEqual([]);
+  });
+
+  it("inizi di Stubwise: solo oggetti veri che chi prova vede, del progetto dell'automazione", async () => {
+    const aud = await draftWith({ kind: "stubwise", event: "task_created" }, AUD);
+    const own = await automations.listSimulationExamples(aud.id, "draft");
+    expect(own.length).toBeGreaterThan(0);
+    expect(
+      own.every((e) => (e.event as { task: { progetto: string } }).task.progetto === "AUD"),
+    ).toBe(true);
+    // Una generale provata da Laura: mai task di progetti che Laura non vede.
+    grantInstancePermission("p-laura", "automations.manage");
+    as("p-laura");
+    const general = await draftWith({ kind: "stubwise", event: "task_created" }, null);
+    const seen = await automations.listSimulationExamples(general.id, "draft");
+    const sees = visibleProjectIds("p-laura");
+    expect(seen.length).toBeGreaterThan(0);
+    for (const e of seen) {
+      const t = state.tasks.find((x) => x.code === e.code)!;
+      expect(sees.has(t.projectId)).toBe(true);
+    }
+  });
+
+  it("R-J13: le email d'esempio vengono SOLO dalle caselle di chi prova, non da quelle di chi l'ha creata", async () => {
+    const a = await draftWith({ kind: "stubwise", event: "mail_received" }, null);
+    const mine = await automations.listSimulationExamples(a.id, "draft");
+    const inMatteo = state.mailMessages.filter(
+      (m) => m.mailboxPersonIds.includes("p-matteo") && m.from.personId !== "p-matteo",
+    );
+    expect(mine.length).toBeGreaterThan(0);
+    expect(mine.every((e) => inMatteo.some((m) => m.subject === e.label))).toBe(true);
+    // La stessa automazione (creata da Matteo) provata da Roberta: le email di Matteo non compaiono.
+    as("p-roberta");
+    const hers = await automations.listSimulationExamples(a.id, "draft");
+    const matteoOnly = new Set(
+      inMatteo.filter((m) => !m.mailboxPersonIds.includes("p-roberta")).map((m) => m.subject),
+    );
+    expect(matteoOnly.size).toBeGreaterThan(0);
+    expect(hers.some((e) => matteoOnly.has(e.label))).toBe(false);
+    for (const e of hers) {
+      expect(
+        state.mailMessages.some(
+          (m) => m.subject === e.label && m.mailboxPersonIds.includes("p-roberta"),
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it("chi vede ma non gestisce non ha esempi; chi non vede: not_found", async () => {
+    as("p-marco");
+    await expect(automations.listSimulationExamples(A.clientData, 1)).rejects.toThrow("forbidden");
+    as("p-sara");
+    await expect(automations.listSimulationExamples(A.newContract, 1)).rejects.toThrow("not_found");
   });
 });

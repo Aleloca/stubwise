@@ -420,6 +420,7 @@ export type ApiFnName =
   | "automations.simulationStep"
   | "automations.getSimulation"
   | "automations.endSimulation"
+  | "automations.listSimulationExamples"
   /** Un passo simulato di un'esecuzione: l'effetto (o la risposta di Claude) che arriva. */
   | "automations.advanceRun";
 const failures = new Set<ApiFnName>();

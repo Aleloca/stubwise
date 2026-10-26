@@ -55,6 +55,19 @@ function requested(text: string): { item: string; key: string }[] {
 }
 
 /**
+ * I documenti che Claude «legge» fra i suoi ingressi: i file (un nome e un
+ * testo), per nome. Li mostrano la prova e il registro («Ha letto: …»).
+ */
+export function documentsRead(input: Record<string, unknown>): string[] {
+  return Object.values(input).flatMap((v) => {
+    const f = v as { nome?: unknown; testo?: unknown } | null;
+    return f && typeof f === "object" && typeof f.nome === "string" && typeof f.testo === "string"
+      ? [f.nome]
+      : [];
+  });
+}
+
+/**
  * La risposta finta di Claude, deterministica per istruzione e input: le
  * uscite e i campi dichiarati dal passo, col loro tipo. La verifica col
  * dichiarato la fa comunque il motore (`checkClaudeResult`): qui si finge
@@ -64,7 +77,7 @@ export function fakeClaude(
   step: ClaudeStep,
   input: Record<string, unknown>,
   ownerId: string | null,
-): Extract<EngineInput, { kind: "claude_result" }> {
+): Extract<EngineInput, { kind: "claude_result" }> & { read: string[] } {
   const values = Object.entries(input);
   const reply = values.find(([k]) => k.startsWith("risposta."))?.[1];
   const askedFor = values.find(
@@ -131,5 +144,12 @@ export function fakeClaude(
       : products
         ? `Ho letto il contratto e i prodotti venduti (${products.map((p) => p.nome).join(", ")}).`
         : `Ho letto ${values.map(([k]) => `«${k}»`).join(", ") || "l'evento"}.`;
-  return { kind: "claude_result", ...(outcome !== undefined ? { outcome } : {}), fields, reason };
+  return {
+    kind: "claude_result",
+    ...(outcome !== undefined ? { outcome } : {}),
+    fields,
+    reason,
+    // Il motore lo ignora (non è un'uscita né un campo): serve a chi mostra la risposta.
+    read: documentsRead(input),
+  };
 }

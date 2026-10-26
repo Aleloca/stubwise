@@ -243,6 +243,8 @@ export const queryKeys = {
     ["as", personId, "automations", "search", q] as const,
   automationSimulation: (personId: string, id: string) =>
     ["as", personId, "automations", "simulation", id] as const,
+  automationSimulationExamples: (personId: string, id: string, version: number | "draft") =>
+    ["as", personId, "automations", "simulationExamples", id, version] as const,
 };
 
 export type AutomationListFilter = Parameters<typeof api.automations.listAutomations>[0];
@@ -3405,6 +3407,19 @@ export function useAutomationSimulation(id: string | null) {
     queryKey: queryKeys.automationSimulation(me, id ?? ""),
     queryFn: () => api.automations.getSimulation(id!),
     enabled: id !== null,
+  });
+}
+
+/** Gli eventi d'esempio per la prova («Choose an example»): solo ciò che chi prova vede. */
+export function useAutomationSimulationExamples(
+  automationId: string | null,
+  version: number | "draft",
+) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.automationSimulationExamples(me, automationId ?? "", version),
+    queryFn: () => api.automations.listSimulationExamples(automationId!, version),
+    enabled: automationId !== null,
   });
 }
 

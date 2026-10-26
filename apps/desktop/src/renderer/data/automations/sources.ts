@@ -21,7 +21,7 @@ import { runById, stepOfRun } from "./visibility";
 
 type StubwiseEvent = Extract<AutomationTrigger, { kind: "stubwise" }>["event"];
 
-interface Happening {
+export interface Happening {
   event: StubwiseEvent;
   payload: Record<string, unknown>;
   /** Il progetto dell'oggetto; `null` per la posta. */
@@ -32,7 +32,8 @@ interface Happening {
 
 const projectCode = (id: string) => state.projectsById.get(id)?.code ?? "";
 
-function happenings(signal: AutomationSignal): Happening[] {
+/** Gli eventi di un segnale, coi dati che ne leggono le automazioni (anche gli esempi della prova). */
+export function happenings(signal: AutomationSignal): Happening[] {
   switch (signal.kind) {
     case "task_created":
     case "task_closed": {
