@@ -1,4 +1,4 @@
-import { TODAY } from "../data/seed/dates";
+import { TODAY } from "../data/dates";
 import type { Milestone, StatusFamily } from "../data/model";
 
 // Scadenze e traguardi letti allo stesso modo da ogni superficie: le righe di

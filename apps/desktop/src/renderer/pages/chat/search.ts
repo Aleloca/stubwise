@@ -1,5 +1,6 @@
 import { daysFromToday } from "../../data/dates";
 import type { ChatMessageHit, ChatSearchFilters } from "../../data/types";
+import { fold } from "../../domain/textSearch";
 
 // La ricerca della Chat come dato (shape chat-search.md): i parametri
 // dell'indirizzo (`#/chat?view=search&q=…`) e i filtri che ne nascono, le
@@ -7,8 +8,7 @@ import type { ChatMessageHit, ChatSearchFilters } from "../../data/types";
 // l'evidenza del messaggio raggiunto. Cosa si cerca lo decide solo
 // `searchChat` (livello dati): qui niente filtra per visibilità.
 
-/** Sotto, niente ricerca: «Type at least 2 characters». */
-export const MIN_QUERY = 2;
+export { fold, MIN_QUERY, searchWords } from "../../domain/textSearch";
 
 export const DATE_RANGES = ["today", "7d", "30d", "custom"] as const;
 export type DateRange = (typeof DATE_RANGES)[number];
@@ -102,12 +102,6 @@ export const hasFilters = (p: ChatSearchParams): boolean =>
 
 /** I parametri senza i filtri (resta la query). */
 export const withoutFilters = (p: ChatSearchParams): ChatSearchParams => (p.q ? { q: p.q } : {});
-
-/** Senza maiuscole né accenti: la stessa piegatura del livello dati. */
-export const fold = (s: string): string => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
-
-/** Le parole della ricerca, piegate. */
-export const searchWords = (q: string): string[] => fold(q).split(/\s+/).filter(Boolean);
 
 export interface TextPart {
   text: string;

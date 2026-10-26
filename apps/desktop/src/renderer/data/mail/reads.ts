@@ -1,4 +1,4 @@
-import { fold, MIN_QUERY, searchWords } from "../../pages/chat/search";
+import { fold, MIN_QUERY, searchWords } from "../../domain/textSearch";
 import { copy, gate, now, state, visibleProjectIds } from "../store";
 import type {
   MailboxView,

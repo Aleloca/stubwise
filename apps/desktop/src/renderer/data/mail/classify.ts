@@ -1,4 +1,4 @@
-import { fold } from "../../pages/chat/search";
+import { fold } from "../../domain/textSearch";
 import { state } from "../store";
 import type {
   MailClassification,

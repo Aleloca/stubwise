@@ -1,6 +1,10 @@
 import { parseCriteria } from "../domain/filters";
 import { isSearchParamValue } from "../pages/chat/search";
 import { FILE_CODE_RE, isDrivePath, isDriveSearchValue } from "../pages/drive/driveFilters";
+// I predicati dell'indirizzo di Posta e Calendario stanno con le loro pagine,
+// come quelli di Chat e Drive (precedente dell'area 5): la grammatica delle
+// route li riusa senza duplicarli. Eccezione dichiarata alla regola «il
+// livello dati non importa le pagine».
 import { isMailPath, isMailSearchValue } from "../pages/mail/mailFilters";
 import { isCalendarSearchValue } from "../pages/calendar/calendarParams";
 import type { GroupBy, ProjectModule, TaskView } from "./types";

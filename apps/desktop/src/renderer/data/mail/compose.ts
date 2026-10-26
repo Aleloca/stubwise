@@ -5,7 +5,7 @@ import {
   type MailDraftRequest,
   type MailDraftResult,
 } from "../../domain/claude/intents/mailDraft";
-import { fold, searchWords } from "../../pages/chat/search";
+import { fold, searchWords } from "../../domain/textSearch";
 import { canSeeDriveFile } from "../drive/visibility";
 import { PEOPLE } from "../seed/people";
 import { getSessionPersonId } from "../session";
