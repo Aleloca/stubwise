@@ -33,7 +33,7 @@ import { ChatPage } from "./pages/chat/ChatPage";
 import { rememberLastChannel } from "./pages/chat/column";
 import { SEARCH_PARAM_KEYS, isSearchParamValue } from "./pages/chat/search";
 import { useChatChannel } from "./data/queries";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { DocsHome, DocsProjectGate } from "./pages/docs/DocsHome";
 import { DocSpace, RepoIndex } from "./pages/docs/DocSpace";
 import { DocPageRoute } from "./pages/docs/DocPageView";
@@ -235,7 +235,9 @@ function DriveRoutePage() {
  */
 function MailRoutePage() {
   const { viewer } = useViewer();
-  return <MailPage key={viewer.personId} />;
+  // Sopravvive al rimontaggio: la pagina nuova sa che la persona è appena cambiata.
+  const switchedPersona = useRef(false);
+  return <MailPage key={viewer.personId} switchedPersona={switchedPersona} />;
 }
 
 function AdminPage() {

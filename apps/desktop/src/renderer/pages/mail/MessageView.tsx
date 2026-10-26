@@ -8,7 +8,7 @@ import { TypeGlyph } from "../drive/glyphs";
 import { useToast } from "../../tasks-ui/Toast";
 import { MenuButton } from "../tasks/controls";
 import { itemClass } from "../../tasks-ui/Menu";
-import { whenLabel, whenWithTime } from "./format";
+import { relativeDay, whenLabel, whenWithTime } from "./format";
 import { AlertGlyph, MoreGlyph, VideoGlyph } from "./glyphs";
 import { UntrustedHtmlFrame } from "./UntrustedHtmlFrame";
 
@@ -132,7 +132,7 @@ function MeetingBlock({ message }: { message: MailMessageView }) {
         <span className="text-ink-muted">
           ·{" "}
           {event ? (
-            <a href="#/calendar" className="text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink">
+            <a href={`#/calendar?event=${encodeURIComponent(event.id)}`} className="text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink">
               {event.title}
             </a>
           ) : (
@@ -142,7 +142,11 @@ function MeetingBlock({ message }: { message: MailMessageView }) {
             <>
               {" · "}
               <span className="num">
-                {whenLabel(event.startsAt, i18n.language)} {time(event.startsAt)}–{time(event.endsAt)}
+                {relativeDay(event.startsAt, i18n.language, {
+                  today: t("mail.when.today"),
+                  yesterday: t("mail.when.yesterday"),
+                })}{" "}
+                {time(event.startsAt)}–{time(event.endsAt)}
               </span>
               {" · "}
               {t("mail.meeting.people", { count: event.people })}

@@ -67,6 +67,32 @@ export function filtersOf(
   return { filters, noProject };
 }
 
+/**
+ * I progetti delle mie email, dalla conversazione più recente, con quante
+ * conversazioni non lette: la colonna (PROJECTS) e il menu «Project» li
+ * elencano nello stesso ordine.
+ */
+export function mailProjectsOf<P extends Pick<Project, "id" | "code">>(
+  rows: readonly MailThreadRow[] | undefined,
+  projects: readonly P[] | undefined,
+): { project: P; last: string; unread: number }[] {
+  const seen = new Map<string, { last: string; unread: number }>();
+  for (const r of rows ?? []) {
+    for (const id of r.projectIds) {
+      const s = seen.get(id) ?? { last: r.lastAt, unread: 0 };
+      if (r.lastAt > s.last) s.last = r.lastAt;
+      s.unread += r.unread > 0 ? 1 : 0;
+      seen.set(id, s);
+    }
+  }
+  return [...seen.entries()]
+    .flatMap(([id, s]) => {
+      const project = projects?.find((x) => x.id === id);
+      return project ? [{ project, ...s }] : [];
+    })
+    .sort((a, b) => b.last.localeCompare(a.last) || a.project.code.localeCompare(b.project.code));
+}
+
 /** «Senza progetto»: le conversazioni che non nominano nessun progetto che vedo. */
 export const withoutProject = (rows: readonly MailThreadRow[]): MailThreadRow[] =>
   rows.filter((r) => r.projectIds.length === 0);

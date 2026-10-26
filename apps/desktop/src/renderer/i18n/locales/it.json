@@ -3853,6 +3853,10 @@
       "body": "Collega il tuo account Google per leggere qui la tua posta. Stubwise legge la tua posta per proporre task per i tuoi progetti; i tuoi messaggi li vedi solo tu.",
       "button": "Collega l'account Google",
       "calendar": "Il Calendario usa lo stesso account."
+    },
+    "when": {
+      "today": "Oggi",
+      "yesterday": "Ieri"
     }
   }
 }

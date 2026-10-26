@@ -1,10 +1,11 @@
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, type MutableRefObject } from "react";
 import { useTranslation } from "react-i18next";
 import {
   useGoogleAccount,
   useMailboxes,
   useMailDrafts,
+  useMailSearch,
   useMailThread,
   useMailThreads,
   useProjects,
@@ -14,7 +15,7 @@ import { useMediaQuery } from "../../layout/useMediaQuery";
 import { hasModKey } from "../../platform/platform";
 import { primaryButton } from "../claude/conversation/parts";
 import { openGoogleAccount } from "../drive/GoogleAccountCard";
-import { filtersOf, withoutProject, type MailSearch } from "./mailFilters";
+import { filtersOf, mailProjectsOf, withoutProject, type MailSearch } from "./mailFilters";
 import { ReadingPane } from "./ReadingPane";
 import { ThreadList } from "./ThreadList";
 import type { ProjectRef } from "./ThreadRow";
@@ -33,12 +34,17 @@ import type { ProjectRef } from "./ThreadRow";
  */
 export const MAIL_TWO_UP_QUERY = "(min-width: 1400px)";
 
-// Il cambio di persona è appena avvenuto: se la conversazione aperta non è
-// visibile alla persona nuova, l'indirizzo torna a `#/mail` (non resta un
-// «non esiste» che parla della posta di un altro).
-let switchedPersona = false;
-
-export function MailPage() {
+export function MailPage({
+  switchedPersona,
+}: {
+  /**
+   * Il cambio di persona è appena avvenuto (la tiene la route, che la
+   * pagina rimontata non perde): se la conversazione aperta non è visibile
+   * alla persona nuova, l'indirizzo torna a `#/mail` — non resta un «non
+   * esiste» che parla della posta di un altro.
+   */
+  switchedPersona: MutableRefObject<boolean>;
+}) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { threadId = null } = useParams({ strict: false }) as { threadId?: string };
@@ -70,19 +76,19 @@ export function MailPage() {
   useEffect(
     () =>
       onBeforePersonaChange(() => {
-        switchedPersona = true;
+        switchedPersona.current = true;
         setSearchRef.current({ q: undefined, mailbox: undefined });
       }),
-    [],
+    [switchedPersona],
   );
   useEffect(() => {
-    if (!switchedPersona) return;
+    if (!switchedPersona.current) return;
     if (threadId && opened.isPending) return;
-    switchedPersona = false;
+    switchedPersona.current = false;
     if (threadId && opened.isError) {
       void navigate({ to: "/mail", search: (prev: Record<string, unknown>) => prev as never, replace: true });
     }
-  }, [opened.isPending, opened.isError, threadId, navigate]);
+  }, [opened.isPending, opened.isError, threadId, navigate, switchedPersona]);
 
   // ⌘F cerca nella posta (solo qui: la pagina è montata).
   useEffect(() => {
@@ -105,21 +111,30 @@ export function MailPage() {
     () => new Map<string, ProjectRef>((projects ?? []).map((p) => [p.id, p])),
     [projects],
   );
-  const mailProjects = useMemo(() => {
-    const ids = new Set((allRows ?? []).flatMap((r) => r.projectIds));
-    return (projects ?? []).filter((p) => ids.has(p.id));
-  }, [allRows, projects]);
+  const mailProjects = useMemo(
+    () => mailProjectsOf(allRows, projects).map((e) => e.project),
+    [allRows, projects],
+  );
+  // Con una ricerca, il frammento trovato del messaggio più recente di ogni conversazione.
+  const found = useMailSearch(search.q ?? "", !!search.q);
+  const hits = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const h of found.data ?? []) if (!map.has(h.threadId)) map.set(h.threadId, h.snippet);
+    return map;
+  }, [found.data]);
   const draftThreads = useMemo(
     () => new Set((drafts ?? []).flatMap((d) => (d.threadId ? [d.threadId] : []))),
     [drafts],
   );
   const waiting = (allRows ?? []).filter((r) => r.openProposals > 0);
 
-  const open = (id: string) =>
+  // Coi tasti (J/K) si scorre: la cronologia non si riempie di conversazioni.
+  const open = (id: string, how: "click" | "keys" = "click") =>
     void navigate({
       to: "/mail/$threadId",
       params: { threadId: id },
       search: (prev: Record<string, unknown>) => prev as never,
+      replace: how === "keys",
     });
   const backToList = () => {
     if (!twoUp) {
@@ -154,6 +169,7 @@ export function MailPage() {
         onEnter={() => paneRef.current?.focus()}
         listRef={listRef}
         searchRef={searchRef}
+        hits={hits}
       />
     </div>
   );

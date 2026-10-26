@@ -26,31 +26,50 @@ export const FRAME_MAX = 1200;
 const FRAME_MIN = 320;
 
 const REMOTE = /^\s*(https?:)?\/\//i;
+/** Un attributo con o senza virgolette: `src="…"`, `src='…'`, `src=…`. */
+const attr = (name: string) => new RegExp(`\\s${name}\\s*=\\s*("[^"]*"|'[^']*'|[^\\s>]+)`, "gi");
+const unquote = (value: string) => value.replace(/^["']|["']$/g, "");
 
-/** Toglie script, gestori d'evento e URL `javascript:`; sposta i `src` remoti delle immagini in `data-src`. */
+/**
+ * Toglie script, gestori `on…`, URL `javascript:`, `<base>`, `<meta>` (un
+ * refresh porterebbe via il frame) e ogni `target` dei link (nessun link
+ * naviga il frame stesso: resta la `<base target="_blank">` del documento,
+ * che il sandbox non apre). Sposta `src` e `srcset` remoti delle immagini e
+ * delle sorgenti in `data-src`/`data-srcset`. Conta le immagini remote,
+ * comprese quelle dei CSS (`url(…)`), che blocca la CSP.
+ */
 export function neutralize(html: string): { html: string; blockedImages: number } {
   let blockedImages = 0;
   const out = html
     .replace(/<script\b[\s\S]*?<\/script\s*>/gi, "")
     .replace(/<script\b[^>]*>/gi, "")
-    .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/(href|src)\s*=\s*(["'])\s*javascript:[^"']*\2/gi, "$1=$2#$2")
-    .replace(/<img\b[^>]*>/gi, (tag) =>
-      tag.replace(/\ssrc\s*=\s*(["'])([^"']*)\1/i, (attr, quote: string, url: string) => {
-        if (!REMOTE.test(url)) return attr;
-        blockedImages += 1;
-        return ` data-src=${quote}${url}${quote}`;
-      }),
+    .replace(/<(base|meta)\b[^>]*>/gi, "")
+    .replace(attr("on[a-z]+"), "")
+    .replace(/(href|src)\s*=\s*(["']?)\s*javascript:[^"'\s>]*\2/gi, '$1="#"')
+    .replace(/<a\b[^>]*>/gi, (tag) => tag.replace(attr("target"), ""))
+    .replace(/<(img|source)\b[^>]*>/gi, (tag) =>
+      tag
+        .replace(attr("src"), (whole, value: string) => {
+          if (!REMOTE.test(unquote(value))) return whole;
+          blockedImages += 1;
+          return ` data-src="${unquote(value)}"`;
+        })
+        .replace(attr("srcset"), (whole, value: string) => {
+          if (!/(https?:)?\/\//i.test(value)) return whole;
+          blockedImages += 1;
+          return ` data-srcset="${unquote(value)}"`;
+        }),
     );
+  blockedImages += (out.match(/url\(\s*["']?\s*(https?:)?\/\//gi) ?? []).length;
   return { html: out, blockedImages };
 }
 
-/** «Show images»: i `data-src` delle immagini tornano `src` (gli stessi indirizzi, nient'altro). */
+/** «Show images»: `data-src`/`data-srcset` tornano `src`/`srcset` (gli stessi indirizzi, nient'altro). */
 export function revealImages(html: string): string {
-  return html.replace(/<img\b[^>]*>/gi, (tag) =>
-    tag.replace(/\sdata-src\s*=\s*(["'])([^"']*)\1/i, (_attr, quote: string, url: string) =>
-      ` src=${quote}${url}${quote}`,
-    ),
+  return html.replace(/<(img|source)\b[^>]*>/gi, (tag) =>
+    tag
+      .replace(/\sdata-src\s*=\s*"([^"]*)"/i, (_m, url: string) => ` src="${url}"`)
+      .replace(/\sdata-srcset\s*=\s*"([^"]*)"/i, (_m, set: string) => ` srcset="${set}"`),
   );
 }
 

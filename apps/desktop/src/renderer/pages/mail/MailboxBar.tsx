@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { useGoogleAccount, useMailboxes, useMailThreads, useProjects } from "../../data/queries";
 import { ONE_LINE, columnItemClass } from "../../layout/ProjectColumn";
 import { openGoogleAccount } from "../drive/GoogleAccountCard";
-import { NO_PROJECT, type MailSearch } from "./mailFilters";
+import { NO_PROJECT, mailProjectsOf, type MailSearch } from "./mailFilters";
 import { SyncLine } from "./SyncStatus";
 
 // La colonna della destinazione «Mail» (shape mail.md §3, A3): nessun
@@ -73,23 +73,7 @@ export function MailboxBar() {
   const unread = rows?.filter((r) => r.unread > 0).length;
   const importantUnread = rows?.filter((r) => r.importance === "high" && r.unread > 0).length;
   // I progetti delle mie email, dalla conversazione più recente; i non letti accanto.
-  const mailProjects = useMemo(() => {
-    const seen = new Map<string, { last: string; unread: number }>();
-    for (const r of rows ?? []) {
-      for (const id of r.projectIds) {
-        const s = seen.get(id) ?? { last: r.lastAt, unread: 0 };
-        if (r.lastAt > s.last) s.last = r.lastAt;
-        s.unread += r.unread > 0 ? 1 : 0;
-        seen.set(id, s);
-      }
-    }
-    return [...seen.entries()]
-      .flatMap(([id, s]) => {
-        const p = projects?.find((x) => x.id === id);
-        return p ? [{ project: p, ...s }] : [];
-      })
-      .sort((a, b) => b.last.localeCompare(a.last) || a.project.code.localeCompare(b.project.code));
-  }, [rows, projects]);
+  const mailProjects = useMemo(() => mailProjectsOf(rows, projects), [rows, projects]);
   const shownProjects = allProjects ? mailProjects : mailProjects.slice(0, COLUMN_PROJECTS);
 
   const only = (key: keyof Scope | null) =>

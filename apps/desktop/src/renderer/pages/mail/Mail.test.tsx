@@ -2,7 +2,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mail, resetApi, setLatency } from "../../data/api";
-import { MAIL_CASES } from "../../data/seed/mail";
+import { EV_AUD_REVIEW_YESTERDAY, MAIL_CASES } from "../../data/seed/mail";
 import { setSessionPersonId } from "../../data/session";
 import { state } from "../../data/store";
 import { resetViewerGrants, revokeProjectPermission } from "../../data/viewer";
@@ -186,6 +186,36 @@ describe("Posta — contenuti estremi (Review Focus 5)", () => {
     expect(p.querySelector("iframe")).toBeNull();
   });
 
+  it("«Show images» non si ricorda: richiudendo e riaprendo l'originale le immagini sono di nuovo bloccate", async () => {
+    const thread = threadOf(MAIL_CASES.hostileHtml);
+    await openMail(`/mail/${thread}`);
+    const p = await pane(thread);
+    await userEvent.click(within(p).getAllByRole("button", { name: "Show original" })[0]!);
+    await userEvent.click(within(p).getByRole("button", { name: "Show images" }));
+    expect(within(p).getByTitle(/Original message/).getAttribute("srcdoc")).toMatch(/\ssrc="https:\/\/cdn\./);
+    await userEvent.click(within(p).getAllByRole("button", { name: "Show text" })[0]!);
+    await userEvent.click(within(p).getAllByRole("button", { name: "Show original" })[0]!);
+    expect(within(p).getByRole("button", { name: "Show images" })).toBeInTheDocument();
+    expect(within(p).getByTitle(/Original message/).getAttribute("srcdoc")).not.toMatch(/\ssrc="https:\/\/cdn\./);
+  });
+
+  it("neutralize: niente target nei link, niente base/meta; contano anche src senza virgolette, srcset e url() dei CSS", () => {
+    const { html, blockedImages } = neutralize(
+      '<base href="https://evil.example/"><meta http-equiv="refresh" content="0;url=https://evil.example">' +
+        '<a href="https://x.example" target="_self">a</a><a target=_top href="https://y.example">b</a>' +
+        '<img src=https://a.example/u.gif><img srcset="https://a.example/1x.png 1x, https://a.example/2x.png 2x">' +
+        '<div style="background:url(https://a.example/bg.png)">c</div>',
+    );
+    expect(html).not.toMatch(/target=|<base|<meta/i);
+    expect(html).toContain('data-src="https://a.example/u.gif"');
+    expect(html).toContain('data-srcset="https://a.example/1x.png 1x, https://a.example/2x.png 2x"');
+    expect(html).not.toMatch(/\ssrcset=|\ssrc=https/);
+    expect(blockedImages).toBe(3);
+    const shown = revealImages(html);
+    expect(shown).toContain('src="https://a.example/u.gif"');
+    expect(shown).toContain('srcset="https://a.example/1x.png 1x');
+  });
+
   it("neutralize/revealImages: nessuno script né gestore, le immagini tornano solo coi loro indirizzi", () => {
     const { html, blockedImages } = neutralize(
       '<script>x()</script><img src="https://a.example/p.gif" onerror="x()"><img src="data:image/png;base64,AA"><a href="javascript:x()">y</a>',
@@ -198,6 +228,32 @@ describe("Posta — contenuti estremi (Review Focus 5)", () => {
 });
 
 describe("Posta — proposte condivise (Review Focus 2)", () => {
+  it("un messaggio letto, non l'ultimo, con una proposta che mi aspetta resta aperto con la sua scheda", async () => {
+    const source = state.mailMessages.find((m) => m.id === MAIL_CASES.shared)!;
+    source.readByPersonIds.push("p-giulia");
+    state.mailMessages.push({
+      ...source,
+      id: "mm-test-reply",
+      messageId: "<test-reply@example.com>",
+      from: source.to[0]!,
+      to: [source.from],
+      cc: null,
+      subject: `Re: ${source.subject}`,
+      at: "2026-10-18T09:00:00Z",
+      text: "Thanks Sofia, we're on it.",
+      attachments: [],
+      readByPersonIds: ["p-giulia"],
+      classification: { state: "done", projectIds: [], importance: "normal", dueDate: null, uncertainProjectIds: [] },
+    });
+    await openMail(`/mail/${source.threadId}`);
+    const c = await card("mp-aud-billing-vat");
+    expect(within(c).getByRole("button", { name: "Confirm" })).toBeInTheDocument();
+    const article = c.closest("article")!;
+    expect(article).toHaveAttribute("data-message", MAIL_CASES.shared);
+    expect(article).not.toHaveAttribute("data-collapsed");
+  });
+
+
   it("esito altrui: chi ha deciso, quando, e il codice nato apribile", async () => {
     const thread = threadOf(MAIL_CASES.confirmed);
     await openMail(`/mail/${thread}`);
@@ -247,6 +303,19 @@ describe("Posta — proposte condivise (Review Focus 2)", () => {
     expect(document.querySelector("[data-outsider-prompt]")).toBeNull();
     expect(state.tasks.length).toBe(tasks);
     expect(state.mailProposals.find((p) => p.id === "mp-aud-weekly-review")!.status).toBe("open");
+  });
+
+  it("cambio di persona verso chi non vede la conversazione: l'indirizzo torna a #/mail, niente di chi c'era prima", async () => {
+    const thread = threadOf(MAIL_CASES.personal);
+    const router = await openMail(`/mail/${thread}?q=domenica`);
+    expect(await pane(thread)).toHaveTextContent("Cena domenica?");
+    await switchPersona(/Laura Costa/);
+    await waitFor(() => expect(router.state.location.pathname).toBe("/mail"));
+    expect(search(router).q).toBeUndefined();
+    expect(await screen.findByRole("heading", { level: 1, name: "Mail" })).toBeInTheDocument();
+    expect(screen.queryByText(/Cena domenica/)).toBeNull();
+    expect(screen.queryByText("This conversation doesn't exist or you can't see it")).toBeNull();
+    expect(screen.queryByText(/giulia\.ferri@example\.com/)).toBeNull();
   });
 
   it("fuori dal progetto: «Leave unassigned» conferma senza aggiungere nessuno", async () => {
@@ -335,7 +404,18 @@ describe("Posta — allineamento, analisi, stati", () => {
     setLatency(20);
     await userEvent.click(within(p).getByRole("button", { name: "Repropose" }));
     expect(await within(p).findByText("Stubwise is reading this email…")).toBeInTheDocument();
-    await waitFor(() => expect(within(p).queryByText("Stubwise couldn't analyse this email.")).toBeNull());
+    // L'esito: l'ordine parla di MKX, e da lì non nasce niente da fare.
+    expect(await within(p).findByText("Nothing to do for MKX", {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(within(p).queryByText("Stubwise couldn't analyse this email.")).toBeNull();
+    expect(within(p).queryByText("Stubwise is reading this email…")).toBeNull();
+    expect(within(p).getByRole("link", { name: /MKX/ })).toBeInTheDocument();
+  });
+
+  it("proposte spente per la casella: «Turn on» apre la scheda dell'account, non cambia nulla da sé", async () => {
+    await openMail("/mail?mailbox=laura.costa%40example.com", "p-laura");
+    await userEvent.click(await screen.findByRole("button", { name: "Turn on" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(state.mailboxes.find((b) => b.personId === "p-laura")!.proposalsEnabled).toBe(false);
   });
 
   it("collegamento scaduto: la fascia lo dice con «Reconnect», l'elenco resta leggibile", async () => {
@@ -365,6 +445,26 @@ describe("Posta — allineamento, analisi, stati", () => {
     expect(within(p).getByText("Recorded meeting")).toBeInTheDocument();
     expect(within(p).getByText("Generated by Stubwise from the transcript")).toBeInTheDocument();
     expect(within(p).getByRole("button", { name: "Open the transcript" })).toBeInTheDocument();
+    expect(within(p).getByRole("link", { name: "AUD weekly review" })).toHaveAttribute(
+      "href",
+      `#/calendar?event=${EV_AUD_REVIEW_YESTERDAY}`,
+    );
+    expect(p.querySelector("[data-meeting]")).toHaveTextContent(/Yesterday \d{2}:\d{2}–/);
+  });
+
+  it("riunione registrata, destinatario che non c'era: la frase che lo dice, niente riassunto", async () => {
+    const event = state.calendarEvents.find((e) => e.id === EV_AUD_REVIEW_YESTERDAY)!;
+    event.attendees = event.attendees.filter((a) => a.personId !== "p-giulia");
+    const thread = threadOf(MAIL_CASES.transcript);
+    await openMail(`/mail/${thread}`);
+    const p = await pane(thread);
+    expect(
+      within(p).getByText(
+        "The summary and the transcript are visible only to the people who were in the meeting.",
+      ),
+    ).toBeInTheDocument();
+    expect(within(p).queryByText("Generated by Stubwise from the transcript")).toBeNull();
+    expect(within(p).queryByRole("button", { name: "Open the transcript" })).toBeNull();
   });
 
   it("conversazione che non vedo: la stessa frase di una che non esiste", async () => {

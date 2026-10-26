@@ -233,6 +233,23 @@ describe("Proposte della posta: chi la vede", () => {
   });
 });
 
+describe("Proposte della posta: con chi è condivisa", () => {
+  it("sharedWith: i destinatari nelle intestazioni che la vedono, tranne chi guarda", async () => {
+    setSessionPersonId("p-giulia");
+    const vat = await mail.getMailProposal("mp-aud-billing-vat");
+    expect(vat.sharedWith.map((x) => x.name)).toEqual(["Matteo Conti", "Laura Costa"]);
+    // Il mittente esterno non c'è; chi non è membro del progetto nemmeno.
+    const review = await mail.getMailProposal("mp-aud-weekly-review");
+    expect(review.sharedWith.map((x) => x.personId)).toEqual(["p-matteo", "p-laura", "p-marco"]);
+  });
+
+  it("una proposta passata letta per il solo estratto non dice a chi era l'email", async () => {
+    setSessionPersonId("p-roberta");
+    const handed = await mail.getMailProposal("mp-stw-release-notes-date");
+    expect(handed.sharedWith).toEqual([]);
+  });
+});
+
 describe("Proposte della posta: due persone quasi insieme (Review Focus 2)", () => {
   it("la seconda riceve already_handled con chi ha deciso; una sola task", async () => {
     setLatency(20);

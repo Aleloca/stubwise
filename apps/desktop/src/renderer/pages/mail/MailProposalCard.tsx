@@ -1,9 +1,7 @@
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
-import type { TFunction } from "i18next";
 import {
   useChooseMailProject,
-  useCodeCitations,
   useConfirmMailProposal,
   useHandMailProposal,
   useIgnoreMailProposal,
@@ -13,15 +11,11 @@ import {
   useSessionPersonId,
   useTasks,
 } from "../../data/queries";
-import type { MailProposalView, Person, Project, ProposedAction, Task } from "../../data/types";
+import type { MailProposalView, Project, ProposedAction } from "../../data/types";
 import { can, useViewer } from "../../data/viewer";
-import { spoken } from "../../domain/claude/answers";
 import { hasModKey } from "../../platform/platform";
-import { inputClass } from "../../tasks-ui/Dialog";
 import { CheckBox, MenuGroup, itemClass } from "../../tasks-ui/Menu";
-import { routeOfCode } from "../claude/conversation/ProposalCard";
 import {
-  WorkingRing,
   cardClass,
   primaryButton,
   quietButton,
@@ -29,9 +23,24 @@ import {
   useFocusWhenResolved,
 } from "../claude/conversation/parts";
 import { MenuButton } from "../tasks/controls";
-import { dayLabel, whenWithTime } from "./format";
-import { AlertGlyph, MoreGlyph, PersonPlusGlyph } from "./glyphs";
+import { ChooseProject } from "./ChooseProject";
+import { EditRow } from "./EditRow";
+import { dayLabel } from "./format";
+import { MoreGlyph, PersonPlusGlyph } from "./glyphs";
+import { Outcome } from "./Outcome";
 import { OutsiderPrompt } from "./OutsiderPrompt";
+import {
+  ABILITY,
+  EDITABLE,
+  PORTABLE,
+  assigneeOf,
+  effectiveArgs,
+  isLiveProposal,
+  phraseOf,
+  type Args,
+  type Ctx,
+  type Edits,
+} from "./proposalText";
 
 // Una proposta nata da un'email (shape mail.md §4): la stessa scheda nella
 // Posta (sotto il messaggio d'origine) e in «Da decidere». Parla la lingua
@@ -40,107 +49,18 @@ import { OutsiderPrompt } from "./OutsiderPrompt";
 // CONDIVISA (chi decide per primo chiude per tutti, gli altri vedono chi),
 // si MODIFICA sul posto (A13), ha «Passa al progetto» per chi non può
 // confermare (A14) e il passo per l'incaricato fuori dal progetto (A15).
-// I permessi li dice il livello dati (`canConfirm`, `canHand`,
-// `outsiders`, `decidedBy`): la scheda non li deduce.
-
-type Args = Record<string, unknown>;
-type Edits = Record<number, Args>;
-
-/** Le funzioni che si spostano su un altro progetto (non toccano oggetti del progetto). */
-const PORTABLE: ReadonlySet<ProposedAction["fn"]> = new Set([
-  "createTask",
-  "createRequest",
-  "recordDecision",
-  "createMilestone",
-]);
-
-/** Le funzioni che si modificano sul posto. Una decisione no: il testo lo scrive il template. */
-const EDITABLE: ReadonlySet<ProposedAction["fn"]> = new Set([
-  "createTask",
-  "createRequest",
-  "updateTask",
-  "addComment",
-  "createMilestone",
-]);
-
-/** Che cosa non si può fare senza il permesso dell'azione, in parole («create tasks»). */
-const ABILITY: Partial<Record<ProposedAction["fn"], string>> = {
-  createTask: "createTasks",
-  updateTask: "editTasks",
-  createMilestone: "editTasks",
-  addComment: "comment",
-  createRequest: "createRequests",
-  recordDecision: "recordDecisions",
-};
-
-/** Gli argomenti di un'azione con le modifiche di chi conferma (la patch si fonde). */
-function effectiveArgs(action: ProposedAction, edit: Args | undefined): Args {
-  if (!edit) return action.args;
-  const merged: Args = { ...action.args, ...edit };
-  if (edit.patch && typeof action.args.patch === "object") {
-    merged.patch = { ...(action.args.patch as Args), ...(edit.patch as Args) };
-  }
-  return merged;
-}
-
-function assigneeOf(fn: ProposedAction["fn"], args: Args): string | null | undefined {
-  if (fn === "createTask") return args.assigneeId as string | null | undefined;
-  if (fn === "updateTask") return (args.patch as Args | undefined)?.assigneeId as string | null | undefined;
-  return undefined;
-}
-
-const reasonKey = (error: string | null) =>
-  ["forbidden", "not_found", "conflict", "invalid"].includes(error ?? "") ? error! : "other";
-
-interface Ctx {
-  t: TFunction;
-  language: string;
-  code: string;
-  people: ReadonlyMap<string, Person>;
-  tasks: ReadonlyMap<string, Task>;
-}
-
-/** La frase catalogo di un'azione (senza l'incaricato, che la riga aggiunge col suo segno). */
-function phraseOf(action: ProposedAction, args: Args, ctx: Ctx): string {
-  const { t, code } = ctx;
-  const task = (id: unknown) => {
-    const found = ctx.tasks.get(id as string);
-    return found ? `${found.code} ${found.title}` : String(id ?? "");
-  };
-  const date = (d: unknown) => dayLabel(String(d), ctx.language);
-  switch (action.fn) {
-    // La scadenza della task la aggiunge la riga, dopo l'incaricato.
-    case "createTask":
-      return t("mail.proposal.phrase.createTask", { code, title: args.title });
-    case "createRequest":
-      return t("mail.proposal.phrase.createRequest", { code, title: args.title });
-    case "updateTask": {
-      const patch = (args.patch ?? {}) as Args;
-      if (patch.dueDate) return t("mail.proposal.phrase.updateDue", { task: task(args.id), date: date(patch.dueDate) });
-      return t("mail.proposal.phrase.updateTask", { task: task(args.id) });
-    }
-    case "addComment":
-      return t("mail.proposal.phrase.addComment", { task: task(args.taskId), body: args.body });
-    case "recordDecision":
-      return t("mail.proposal.phrase.recordDecision", { code, title: args.title });
-    case "createMilestone": {
-      const base = t("mail.proposal.phrase.createMilestone", { code, name: args.name });
-      return args.dueDate ? `${base} · ${date(args.dueDate)}` : base;
-    }
-    default:
-      return spoken(t, action.summaryText, action.summary);
-  }
-}
+// I permessi e la condivisione li dice il livello dati (`canConfirm`,
+// `canHand`, `outsiders`, `decidedBy`, `sharedWith`): la scheda non li
+// deduce. L'unica eccezione è un incaricato CAMBIATO nella modifica sul
+// posto: il livello dati non lo conosce finché non si conferma, quindi lì la
+// scheda guarda i membri del progetto (e la conferma lo ricontrolla comunque).
 
 export function MailProposalCard({
   view,
-  alsoFor = [],
   excerptOpen = false,
   fromEmailTo,
 }: {
   view: MailProposalView;
-  /** Gli altri destinatari membri del progetto che la condividono (A11). */
-  alsoFor?: readonly string[];
   /** L'estratto aperto di default: in «Da decidere» e per chi non ha l'email. */
   excerptOpen?: boolean;
   /** Proposta passata vista da chi non ha l'email: a chi era l'email (chi l'ha passata). */
@@ -181,16 +101,33 @@ export function MailProposalCard({
   const choosing = p.actions.some((a) => a.fn === "chooseProject");
   const decidable = (status === "open" || status === "handed") && view.canConfirm;
   const handable = status === "open" && !view.canConfirm && view.canHand;
-  const live = decidable || handable || (status === "open" && choosing);
+  // Aspetta me = posso decidere, passarla o sceglierne il progetto.
+  const live = isLiveProposal(view);
   const resolvedRef = useFocusWhenResolved<HTMLElement>(!live);
   const busy = confirm.isPending || ignore.isPending || hand.isPending || choose.isPending || reassign.isPending;
   const many = p.actions.length > 1;
   const indexes = selected.flatMap((on, i) => (on ? [i] : []));
   const waitsOnMe = live;
-  const ability = t(`mail.proposal.ability.${ABILITY[p.actions[0]?.fn ?? "createTask"] ?? "createTasks"}`);
+  // Che cosa serve per decidere, da tutte le azioni: «create tasks and comment on tasks».
+  const abilities = [...new Set(p.actions.flatMap((a) => (ABILITY[a.fn] ? [ABILITY[a.fn]!] : [])))].map(
+    (key) => t(`mail.proposal.ability.${key}`),
+  );
+  const ability =
+    abilities.length <= 1
+      ? (abilities[0] ?? t("mail.proposal.ability.createTasks"))
+      : `${abilities.slice(0, -1).join(", ")} ${t("mail.outsider.and")} ${abilities.at(-1)}`;
   const members = useMemo(() => new Set(project?.memberIds ?? []), [project]);
   const outsiderIds = new Set(view.outsiders.map((o) => o.personId));
-  const isOutside = (personId: string) => (project ? !members.has(personId) : outsiderIds.has(personId));
+  /**
+   * Fuori dal progetto: per l'incaricato del modello lo dice il livello dati
+   * (`outsiders`); solo per uno scelto nella modifica sul posto si guardano
+   * i membri del progetto.
+   */
+  const isOutside = (index: number, personId: string) => {
+    const action = p.actions[index]!;
+    const original = assigneeOf(action.fn, action.args);
+    return personId === original ? outsiderIds.has(personId) : !members.has(personId);
+  };
 
   // Chi la sta decidendo altrove non deve trovarla aperta qui: un esito nuovo
   // chiude modifica e passo «fuori dal progetto».
@@ -219,7 +156,7 @@ export function MailProposalCard({
     for (const i of indexes) {
       const a = p.actions[i]!;
       const who = assigneeOf(a.fn, effectiveArgs(a, edits[i]));
-      if (typeof who === "string" && isOutside(who)) ids.add(who);
+      if (typeof who === "string" && isOutside(i, who)) ids.add(who);
     }
     return [...ids].map((personId) => ({ personId, name: people.get(personId)?.name ?? personId }));
   };
@@ -439,8 +376,10 @@ export function MailProposalCard({
             {t("mail.outcome.handedBy", { name: people.get(p.handedById!)?.name ?? "" })}
           </p>
         )}
-        {alsoFor.length > 0 && (
-          <p className="text-xs text-ink-muted">{t("mail.proposal.alsoFor", { names: alsoFor.join(", ") })}</p>
+        {view.sharedWith.length > 0 && (
+          <p className="text-xs text-ink-muted">
+            {t("mail.proposal.alsoFor", { names: view.sharedWith.map((x) => x.name).join(", ") })}
+          </p>
         )}
       </header>
 
@@ -479,11 +418,11 @@ export function MailProposalCard({
                       <span className="mt-[3px] rounded-[3px] outline-offset-2 peer-focus-visible:outline-2 peer-focus-visible:outline-focus">
                         <CheckBox checked={!!selected[i]} />
                       </span>
-                      <Phrase action={action} args={args} who={who} ctx={ctx} isOutside={isOutside} edited={!!edits[i]} />
+                      <Phrase action={action} args={args} who={who} ctx={ctx} isOutside={(who) => isOutside(i, who)} edited={!!edits[i]} />
                     </label>
                   ) : (
                     <span tabIndex={decidable ? 0 : undefined} className="min-w-0 flex-1 rounded-sm outline-offset-2">
-                      <Phrase action={action} args={args} who={who} ctx={ctx} isOutside={isOutside} edited={!!edits[i]} />
+                      <Phrase action={action} args={args} who={who} ctx={ctx} isOutside={(who) => isOutside(i, who)} edited={!!edits[i]} />
                     </span>
                   )}
                   {decidable && EDITABLE.has(action.fn) && !rowEditing && (
@@ -646,341 +585,4 @@ function Phrase({
       {edited && <span className="ml-1.5 text-xs text-ink-muted">{t("mail.proposal.edited")}</span>}
     </span>
   );
-}
-
-/** La riga aperta in un piccolo modulo dentro la scheda (A13). */
-function EditRow({
-  action,
-  args,
-  code,
-  members,
-  people,
-  tasks,
-  projectId,
-  focus,
-  onDone,
-  onReset,
-  onCancel,
-}: {
-  action: ProposedAction;
-  args: Args;
-  code: string;
-  members: ReadonlySet<string>;
-  people: readonly Person[];
-  tasks: readonly Task[];
-  projectId: string;
-  focus?: "assignee" | undefined;
-  onDone: (edit: Args) => void;
-  onReset: () => void;
-  onCancel: () => void;
-}) {
-  const { t } = useTranslation();
-  const [values, setValues] = useState<Args>(() =>
-    action.fn === "updateTask" ? { ...((args.patch as Args) ?? {}) } : { ...args },
-  );
-  const first = useRef<HTMLElement | null>(null);
-  const assignee = useRef<HTMLSelectElement | null>(null);
-  useEffect(() => {
-    (focus === "assignee" ? assignee.current : first.current)?.focus();
-  }, [focus]);
-  const set = (key: string) => (e: { target: { value: string } }) =>
-    setValues((v) => ({ ...v, [key]: e.target.value }));
-  const id = useId();
-  const field = (key: string, label: string, control: ReactNode) => (
-    <label key={key} htmlFor={`${id}-${key}`} className="flex flex-col gap-1 text-xs font-medium text-ink-muted">
-      {label}
-      {control}
-    </label>
-  );
-  const text = (key: string, label: string, multiline = false) =>
-    field(
-      key,
-      label,
-      multiline ? (
-        <textarea
-          id={`${id}-${key}`}
-          ref={(el) => {
-            if (!first.current) first.current = el;
-          }}
-          rows={3}
-          value={(values[key] as string | undefined) ?? ""}
-          onChange={set(key)}
-          className={`${inputClass} h-auto py-1.5`}
-        />
-      ) : (
-        <input
-          id={`${id}-${key}`}
-          ref={(el) => {
-            if (!first.current) first.current = el;
-          }}
-          value={(values[key] as string | undefined) ?? ""}
-          onChange={set(key)}
-          className={inputClass}
-        />
-      ),
-    );
-  const date = (key: string, label: string) =>
-    field(
-      key,
-      label,
-      <input
-        id={`${id}-${key}`}
-        type="date"
-        value={((values[key] as string | null | undefined) ?? "").slice(0, 10)}
-        onChange={(e) => setValues((v) => ({ ...v, [key]: e.target.value || null }))}
-        className={inputClass}
-      />,
-    );
-  const inProject = people.filter((x) => members.has(x.id) && !x.isClaude);
-  const outside = people.filter((x) => !members.has(x.id) && !x.isClaude);
-  const assigneeField = () =>
-    field(
-      "assigneeId",
-      t("mail.proposal.fields.assignee"),
-      <select
-        id={`${id}-assigneeId`}
-        ref={assignee}
-        value={(values.assigneeId as string | null | undefined) ?? ""}
-        onChange={(e) => setValues((v) => ({ ...v, assigneeId: e.target.value || null }))}
-        className={inputClass}
-      >
-        <option value="">{t("mail.proposal.unassigned")}</option>
-        <optgroup label={t("mail.proposal.fields.inProject", { code })}>
-          {inProject.map((x) => (
-            <option key={x.id} value={x.id}>
-              {x.name}
-            </option>
-          ))}
-        </optgroup>
-        <optgroup label={t("mail.proposal.fields.outsideProject", { code })}>
-          {outside.map((x) => (
-            <option key={x.id} value={x.id}>
-              {`${x.name} · ${t("mail.proposal.notIn", { code })}`}
-            </option>
-          ))}
-        </optgroup>
-      </select>,
-    );
-
-  let fields: ReactNode[] = [];
-  switch (action.fn) {
-    case "createTask":
-      fields = [
-        text("title", t("mail.proposal.fields.title")),
-        text("description", t("mail.proposal.fields.description"), true),
-        assigneeField(),
-        date("dueDate", t("mail.proposal.fields.dueDate")),
-      ];
-      break;
-    case "createRequest":
-      fields = [text("title", t("mail.proposal.fields.title")), text("description", t("mail.proposal.fields.description"), true)];
-      break;
-    case "updateTask":
-      fields = [
-        field(
-          "task",
-          t("mail.proposal.fields.task"),
-          <select id={`${id}-task`} disabled value={args.id as string} className={inputClass}>
-            {tasks
-              .filter((x) => x.projectId === projectId)
-              .map((x) => (
-                <option key={x.id} value={x.id}>
-                  {`${x.code} ${x.title}`}
-                </option>
-              ))}
-          </select>,
-        ),
-        ...("dueDate" in values ? [date("dueDate", t("mail.proposal.fields.dueDate"))] : []),
-        ...("assigneeId" in values ? [assigneeField()] : []),
-      ];
-      break;
-    case "addComment":
-      fields = [text("body", t("mail.proposal.fields.comment"), true)];
-      break;
-    case "createMilestone":
-      fields = [text("name", t("mail.proposal.fields.name")), date("dueDate", t("mail.proposal.fields.date"))];
-      break;
-  }
-
-  const done = () => {
-    const keys = Object.keys(values).filter((k) => !["projectId", "id", "taskId", "source"].includes(k));
-    if (action.fn === "updateTask") onDone({ patch: values });
-    else onDone(Object.fromEntries(keys.map((k) => [k, values[k]])));
-  };
-
-  return (
-    <div
-      className="flex flex-col gap-2.5 rounded-md bg-ink/4 p-3"
-      onKeyDown={(e) => {
-        if (e.key === "Escape") {
-          e.preventDefault();
-          e.stopPropagation();
-          onCancel();
-        }
-      }}
-    >
-      {fields}
-      <div className="flex items-center justify-end gap-2">
-        <button type="button" className={quietButton} onClick={onReset}>
-          {t("mail.proposal.reset")}
-        </button>
-        <button type="button" className={secondaryButton} onClick={done}>
-          {t("mail.proposal.done")}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/** «Which project is this about?»: una riga per candidato, «None of these» = Ignora. */
-function ChooseProject({
-  view,
-  chosen,
-  busy,
-  onChoose,
-  onNone,
-}: {
-  view: MailProposalView;
-  chosen: string | null;
-  busy: boolean;
-  onChoose: (projectId: string) => void;
-  onNone: () => void;
-}) {
-  const { t } = useTranslation();
-  const projects = useProjects().data;
-  const action = view.proposal.actions.find((a) => a.fn === "chooseProject")!;
-  const ids = (action.args.projectIds as string[] | undefined) ?? [];
-  const row =
-    "flex min-h-10 w-full items-center gap-2 rounded-md border border-rule px-3 text-left text-md text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 disabled:opacity-40";
-  if (chosen) {
-    const p = projects?.find((x) => x.id === chosen);
-    return (
-      <p role="status" className="flex items-center gap-2 text-sm text-ink-muted">
-        <WorkingRing size={10} />
-        {t("mail.proposal.analysingFor", { code: p?.code ?? "" })}
-      </p>
-    );
-  }
-  return (
-    <ul className="flex flex-col gap-1.5">
-      {ids.map((id) => {
-        const p = projects?.find((x) => x.id === id);
-        if (!p) return null;
-        return (
-          <li key={id}>
-            <button type="button" className={row} disabled={busy} onClick={() => onChoose(id)}>
-              <span className="num w-9 shrink-0 text-xs font-semibold tracking-[0.02em]">{p.code}</span>
-              <span className="min-w-0 truncate">{p.name}</span>
-            </button>
-          </li>
-        );
-      })}
-      <li>
-        <button type="button" className={`${row} text-ink-muted`} disabled={busy} onClick={onNone}>
-          {t("mail.proposal.none")}
-        </button>
-      </li>
-    </ul>
-  );
-}
-
-/** I codici nati, apribili se li vedo (con il nome), altrimenti solo il codice in `ink-faint` (R-E9). */
-function Codes({ codes }: { codes: readonly string[] }) {
-  const visible = useCodeCitations(codes).data;
-  return (
-    <>
-      {codes.map((code, i) => {
-        const seen = visible?.find((c) => c.code === code && c.visible);
-        return (
-          <span key={code}>
-            {" · "}
-            {seen ? (
-              <a
-                href={routeOfCode(code)}
-                className="rounded-sm underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
-              >
-                <span className="num font-semibold text-ink">{code}</span>
-                {seen.name && <span className="text-ink"> {seen.name}</span>}
-              </a>
-            ) : (
-              <span className="num font-semibold text-ink-faint">{code}</span>
-            )}
-            {i < codes.length - 1 ? "" : null}
-          </span>
-        );
-      })}
-    </>
-  );
-}
-
-/** La riga d'esito: chi ha deciso, quando, cosa è nato (o perché non è riuscita). */
-function Outcome({
-  view,
-  code,
-  ability,
-  me,
-  added,
-}: {
-  view: MailProposalView;
-  code: string;
-  ability: string;
-  me: string;
-  added: readonly string[];
-}) {
-  const { t, i18n } = useTranslation();
-  const p = view.proposal;
-  const mine = view.decidedBy?.personId === me;
-  const name = view.decidedBy?.name ?? "";
-  const when = p.decidedAt ? ` · ${whenWithTime(p.decidedAt, i18n.language)}` : "";
-  switch (p.status) {
-    case "confirmed":
-      return (
-        <p role="status" className="text-sm text-ink [overflow-wrap:anywhere]">
-          <span className="font-semibold">
-            {mine ? t("mail.outcome.confirmedByYou") : t("mail.outcome.confirmedBy", { name })}
-          </span>
-          <span className="num text-ink-muted">{when}</span>
-          <Codes codes={p.resultCodes} />
-          {p.confirmedActions && (
-            <span className="text-ink-muted">
-              {" · "}
-              {t("mail.outcome.partial", { n: p.confirmedActions.length, count: p.actions.length })}
-            </span>
-          )}
-          {added.map((who) => (
-            <span key={who} className="text-ink-muted">
-              {" · "}
-              {t("mail.outcome.added", { name: who, code })}
-            </span>
-          ))}
-        </p>
-      );
-    case "ignored":
-      return (
-        <p role="status" className="text-sm text-ink-muted">
-          {mine ? t("mail.outcome.ignoredByYou") : t("mail.outcome.ignoredBy", { name })}
-          <span className="num">{when}</span>
-        </p>
-      );
-    case "handed":
-      return (
-        <p role="status" className="text-sm text-ink-muted">
-          {mine ? t("mail.outcome.handedByYou") : t("mail.outcome.handedBy", { name })}
-          <span className="num">{when}</span>
-          {" · "}
-          {t("mail.outcome.waitingFor", { ability, code })}
-        </p>
-      );
-    case "failed":
-      return (
-        <p role="status" className="flex items-start gap-1.5 text-sm text-critical">
-          <span className="mt-0.5">
-            <AlertGlyph size={14} />
-          </span>
-          {t("mail.outcome.failed", { reason: t(`mail.outcome.reasons.${reasonKey(p.error)}`, { ability, code }) })}
-        </p>
-      );
-    default:
-      return null;
-  }
 }

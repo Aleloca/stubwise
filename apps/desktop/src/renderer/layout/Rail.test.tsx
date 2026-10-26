@@ -347,6 +347,25 @@ describe("Rail", () => {
     });
   });
 
+  describe("punto della Posta", () => {
+    it("acceso solo per le proposte che mi aspettano, detto a parole e nel tooltip", async () => {
+      renderAt("/home", "p-giulia");
+      const link = await screen.findByRole("link", { name: "Mail" });
+      await waitFor(() => expect(link).toHaveAccessibleDescription("4 proposals to decide"));
+      expect(link.querySelector("[data-signal]")).not.toBeNull();
+      await userEvent.hover(link);
+      expect(await screen.findByRole("tooltip")).toHaveTextContent("Mail · 4 proposals to decide");
+    });
+
+    it("spento per chi ha solo proposte del calendario (e per la posta non letta)", async () => {
+      renderAt("/home", "p-chiara");
+      const link = await screen.findByRole("link", { name: "Mail" });
+      await settle();
+      expect(link.querySelector("[data-signal]")).toBeNull();
+      expect(link).not.toHaveAccessibleDescription();
+    });
+  });
+
   describe("punto della Chat", () => {
     const chatLink = () => screen.findByRole("link", { name: "Chat" });
     const dotOf = (el: HTMLElement) => el.querySelector('[data-signal="chat"]');

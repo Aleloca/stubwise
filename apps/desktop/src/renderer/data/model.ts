@@ -1689,6 +1689,13 @@ export interface MailProposalView {
   canHand: boolean;
   outsiders: { personId: string; name: string }[];
   decidedBy: { personId: string; name: string } | null;
+  /**
+   * Gli altri che la condividono («Also for …»): le persone nelle intestazioni
+   * dell'email (mittente, `to`, `cc` — mai i ccn) o fra i partecipanti
+   * dell'evento che vedono questa proposta, tranne chi guarda. Vuoto per chi
+   * non è destinatario (una proposta passata letta per il solo estratto).
+   */
+  sharedWith: { personId: string; name: string }[];
 }
 
 /** Una bozza, per persona e conversazione (`threadId: null` = email nuova). */

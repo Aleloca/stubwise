@@ -19,6 +19,15 @@ export function whenLabel(iso: string, language: string): string {
   }).format(new Date(iso));
 }
 
+/** Un giorno vicino in parole: «Today», «Yesterday», altrimenti come `whenLabel`. */
+export function relativeDay(iso: string, language: string, words: { today: string; yesterday: string }): string {
+  const day = iso.slice(0, 10);
+  if (day === TODAY) return words.today;
+  const yesterday = new Date(Date.parse(`${TODAY}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+  if (day === yesterday) return words.yesterday;
+  return whenLabel(iso, language);
+}
+
 /** «10:42» (un esito di oggi) o «Oct 22, 10:42». */
 export function whenWithTime(iso: string, language: string): string {
   const time = fmt(language, { hour: "2-digit", minute: "2-digit", hour12: false }).format(

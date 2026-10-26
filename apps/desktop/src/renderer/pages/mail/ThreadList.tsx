@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
-import { useSetProposalsEnabled } from "../../data/queries";
 import { shortcutLabel } from "../../platform/platform";
 import type { MailboxView, MailThreadRow } from "../../data/types";
 import { fold, searchWords } from "../chat/search";
@@ -8,6 +7,7 @@ import { Chevron, MenuGroup, RadioItem } from "../../tasks-ui/Menu";
 import { PageEmpty, PageError } from "../../tasks-ui/PageStates";
 import { useToast } from "../../tasks-ui/Toast";
 import { MenuButton } from "../tasks/controls";
+import { openGoogleAccount } from "../drive/GoogleAccountCard";
 import { SearchGlyph } from "./glyphs";
 import { IMPORTANCES, NO_PROJECT, hasFilters, type MailSearch } from "./mailFilters";
 import { ExpiredBanner, SyncStatus, worstMailbox } from "./SyncStatus";
@@ -72,6 +72,7 @@ export function ThreadList({
   onEnter,
   listRef,
   searchRef,
+  hits = new Map(),
 }: {
   search: MailSearch;
   setSearch: (patch: Partial<MailSearch>) => void;
@@ -89,11 +90,12 @@ export function ThreadList({
   onEnter: () => void;
   listRef: RefObject<HTMLDivElement | null>;
   searchRef: RefObject<HTMLInputElement | null>;
+  /** Con una ricerca: il frammento trovato (`searchMail`) per conversazione. */
+  hits?: ReadonlyMap<string, string>;
 }) {
   const { t } = useTranslation();
   const toast = useToast();
   const rowLabel = useRowLabel();
-  const setProposals = useSetProposalsEnabled();
   const [limit, setLimit] = useState(LIST_WINDOW);
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -103,21 +105,24 @@ export function ThreadList({
 
   // Le righe arrivate dopo il primo disegno entrano in dissolvenza; se chi
   // legge ha scrollato, «N new» in testa le porta in vista.
-  const known = useRef<Set<string> | null>(null);
+  // Per filtro: cambiare filtro non fa «arrivare» le righe dell'altro elenco.
+  const filterKey = JSON.stringify([search.mailbox, search.importance, search.project, search.q]);
+  const known = useRef<{ key: string; ids: Set<string> } | null>(null);
   const [arrived, setArrived] = useState<ReadonlySet<string>>(new Set());
   const [newCount, setNewCount] = useState(0);
   useEffect(() => {
     if (!rows) return;
     const ids = new Set(rows.map((r) => r.threadId));
-    if (known.current) {
-      const fresh = [...ids].filter((id) => !known.current!.has(id));
+    if (known.current && known.current.key === filterKey) {
+      const before = known.current.ids;
+      const fresh = [...ids].filter((id) => !before.has(id));
       if (fresh.length > 0) {
         setArrived(new Set(fresh));
         if ((scroller.current?.scrollTop ?? 0) > 0) setNewCount((n) => n + fresh.length);
       }
     }
-    known.current = ids;
-  }, [rows]);
+    known.current = { key: filterKey, ids };
+  }, [rows, filterKey]);
 
   const shown = useMemo(() => (rows ?? []).slice(0, limit), [rows, limit]);
 
@@ -277,8 +282,7 @@ export function ThreadList({
           {t("mail.list.proposalsOff")} ·
           <button
             type="button"
-            disabled={setProposals.isPending}
-            onClick={() => setProposals.mutate({ email: box.email, on: true })}
+            onClick={() => openGoogleAccount()}
             className="rounded-sm font-medium text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink disabled:opacity-40"
           >
             {t("mail.list.turnOn")}
@@ -345,7 +349,7 @@ export function ThreadList({
                 draft={drafts.has(row.threadId)}
                 label={rowLabel(row, projects, drafts.has(row.threadId))}
                 onOpen={(id) => onOpen(id, "click")}
-                snippet={search.q ? highlight(row.snippet, search.q) : undefined}
+                snippet={search.q ? highlight(hits.get(row.threadId) ?? row.snippet, search.q) : undefined}
                 arrived={arrived.has(row.threadId)}
               />
             ))}

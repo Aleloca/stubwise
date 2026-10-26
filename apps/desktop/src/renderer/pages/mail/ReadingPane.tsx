@@ -9,9 +9,8 @@ import {
   usePeople,
   useProjects,
   useReproposeMessage,
-  useSessionPersonId,
 } from "../../data/queries";
-import type { MailMessageView, MailProposalView, MailThreadDetail, Project } from "../../data/types";
+import type { MailMessageView, MailProposalView, MailThreadDetail } from "../../data/types";
 import { useToast } from "../../tasks-ui/Toast";
 import { itemClass } from "../../tasks-ui/Menu";
 import { typing } from "../tasks/useTaskKeys";
@@ -19,6 +18,7 @@ import { MenuButton } from "../tasks/controls";
 import { fold, searchWords } from "../chat/search";
 import { ArrowLeftGlyph, MoreGlyph } from "./glyphs";
 import { MailProposalCard } from "./MailProposalCard";
+import { isLiveProposal } from "./proposalText";
 import { MessageView } from "./MessageView";
 import { DueLabel } from "./ThreadRow";
 
@@ -37,12 +37,21 @@ export const READ_AFTER_MS = 1000;
 const matches = (m: MailMessageView, words: string[]) =>
   words.length > 0 && words.every((w) => fold(`${m.subject}\n${m.from.name} ${m.from.email}\n${m.text}`).includes(w));
 
-/** I messaggi aperti all'arrivo: i non letti, l'ultimo e quelli cercati. */
-function initiallyOpen(thread: MailThreadDetail, q: string | undefined): Set<string> {
+/**
+ * I messaggi aperti all'arrivo: i non letti, l'ultimo, quelli cercati e
+ * quelli con una proposta che aspetta chi guarda (la scheda si vede subito).
+ */
+function initiallyOpen(
+  thread: MailThreadDetail,
+  q: string | undefined,
+  live: ReadonlySet<string>,
+): Set<string> {
   const words = q ? searchWords(q) : [];
   const open = new Set<string>();
   thread.messages.forEach((m, i) => {
-    if (!m.read || i === thread.messages.length - 1 || matches(m, words)) open.add(m.id);
+    if (!m.read || i === thread.messages.length - 1 || matches(m, words) || live.has(m.messageId)) {
+      open.add(m.id);
+    }
   });
   return open;
 }
@@ -65,7 +74,6 @@ export function ReadingPane({
 }) {
   const { t } = useTranslation();
   const toast = useToast();
-  const me = useSessionPersonId();
   const thread = useMailThread(threadId);
   const proposals = useMailProposals({});
   const peopleList = usePeople().data;
@@ -77,11 +85,13 @@ export function ReadingPane({
   const people = useMemo(() => new Map((peopleList ?? []).map((p) => [p.id, p])), [peopleList]);
   const projectById = useMemo(() => new Map((projects ?? []).map((p) => [p.id, p])), [projects]);
 
-  // Aperti all'arrivo, fissati alla prima lettura: segnare letto non li richiude.
+  // Aperti all'arrivo, fissati alla prima lettura (messaggi e proposte):
+  // segnare letto o decidere non li richiude.
   const initial = useRef<Set<string> | null>(null);
   const found = useRef<Set<string>>(new Set());
-  if (thread.data && !initial.current) {
-    initial.current = initiallyOpen(thread.data, q);
+  if (thread.data && proposals.data && !initial.current) {
+    const live = new Set(proposals.data.filter(isLiveProposal).map((v) => v.proposal.sourceId));
+    initial.current = initiallyOpen(thread.data, q, live);
     const words = q ? searchWords(q) : [];
     found.current = new Set(thread.data.messages.filter((m) => matches(m, words)).map((m) => m.id));
   }
@@ -114,7 +124,7 @@ export function ReadingPane({
     return map;
   }, [proposals.data]);
 
-  if (thread.isPending) return <PaneSkeleton />;
+  if (thread.isPending || (thread.data && proposals.isPending)) return <PaneSkeleton />;
   if (thread.isError || !thread.data) {
     return (
       <div className="flex flex-col items-start gap-3 px-8 py-10">
@@ -162,12 +172,6 @@ export function ReadingPane({
   }
   flush();
 
-  const recipientsOf = (m: MailMessageView) =>
-    [m.from, ...m.to, ...(m.cc ?? [])].flatMap((a) => (a.personId && a.personId !== me ? [a.personId] : []));
-  const alsoFor = (m: MailMessageView, project: Project | undefined) =>
-    [...new Set(recipientsOf(m))]
-      .filter((id) => project?.memberIds.includes(id))
-      .map((id) => people.get(id)?.name ?? id);
   const nothingFor = (m: MailMessageView) => {
     if (m.classification.state !== "done") return [];
     const own = bySource.get(m.messageId) ?? [];
@@ -182,9 +186,8 @@ export function ReadingPane({
   // N/P: messaggio successivo/precedente (si apre); O apre o chiude; U non letta; Esc all'elenco.
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if (e.metaKey || e.ctrlKey || e.altKey || typing(e.target)) return;
-    if ((e.target as HTMLElement).closest("[data-mail-proposal], [role=menu]")) {
-      if (e.key === "Escape") return;
-    }
+    // Dentro una scheda o un menu i tasti sono loro (Space, E, ⌘Enter, Esc).
+    if ((e.target as HTMLElement).closest("[data-mail-proposal], [role=menu]")) return;
     const ids = messages.map((m) => m.id);
     const at = Math.max(0, ids.indexOf(current ?? last.id));
     const go = (index: number) => {
@@ -348,11 +351,7 @@ export function ReadingPane({
               >
                 {isOpen(item.message.id) &&
                   (bySource.get(item.message.messageId) ?? []).map((v) => (
-                    <MailProposalCard
-                      key={v.proposal.id}
-                      view={v}
-                      alsoFor={alsoFor(item.message, projectById.get(v.proposal.projectId))}
-                    />
+                    <MailProposalCard key={v.proposal.id} view={v} />
                   ))}
               </MessageView>
             </Fragment>

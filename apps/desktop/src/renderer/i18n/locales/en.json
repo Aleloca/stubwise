@@ -3853,6 +3853,10 @@
       "body": "Connect your Google account to read your mail here. Stubwise reads your mail to suggest tasks for your projects; only you see your messages.",
       "button": "Connect Google account",
       "calendar": "Calendar uses the same account."
+    },
+    "when": {
+      "today": "Today",
+      "yesterday": "Yesterday"
     }
   }
 }

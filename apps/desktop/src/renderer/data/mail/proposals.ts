@@ -5,6 +5,7 @@ import { copy, gate, now, state, storeGeneration } from "../store";
 import type { MailProposal, MailProposalFilters, MailProposalView, ProposedAction } from "../types";
 import { can, grantProjectRole, viewerFor } from "../viewer";
 import {
+  calendarParticipants,
   canDoActions,
   canSeeMailProposal,
   isProjectMember,
@@ -116,6 +117,7 @@ function viewOf(me: string, p: MailProposal): MailProposalView {
     };
   }
   const canConfirm = canConfirmNow(me, p);
+  const shared = isProposalRecipient(me, p) || p.source === "calendar" ? sharersOf(p) : [];
   return {
     proposal,
     canConfirm,
@@ -125,7 +127,27 @@ function viewOf(me: string, p: MailProposal): MailProposalView {
       name: personName(personId),
     })),
     decidedBy: p.decidedById ? { personId: p.decidedById, name: personName(p.decidedById) } : null,
+    sharedWith: shared
+      .filter((id) => id !== me && canSeeMailProposal(id, p))
+      .map((personId) => ({ personId, name: personName(personId) })),
   };
+}
+
+/**
+ * Chi potrebbe condividerla: le persone nelle intestazioni dell'email
+ * (mittente, `to`, `cc`; le caselle no, rivelerebbero i ccn) o i
+ * partecipanti dell'evento. In ordine di intestazione, senza doppioni.
+ */
+function sharersOf(p: MailProposal): string[] {
+  if (p.source === "calendar") return calendarParticipants.of(p.sourceId);
+  const ids: string[] = [];
+  for (const m of state.mailMessages) {
+    if (m.messageId !== p.sourceId) continue;
+    for (const a of [m.from, ...m.to, ...(m.cc ?? [])]) {
+      if (a.personId && !ids.includes(a.personId)) ids.push(a.personId);
+    }
+  }
+  return ids;
 }
 
 function proposalFor(me: string, id: string): MailProposal {
