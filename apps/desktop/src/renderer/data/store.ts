@@ -772,8 +772,10 @@ export type AutomationSignal =
 
 const automationListeners = new Set<(signal: AutomationSignal) => void>();
 
-export function onAutomationSignal(fn: (signal: AutomationSignal) => void): void {
+/** Ascolta i segnali; restituisce come smettere. */
+export function onAutomationSignal(fn: (signal: AutomationSignal) => void): () => void {
   automationListeners.add(fn);
+  return () => automationListeners.delete(fn);
 }
 
 export function signalAutomations(signal: AutomationSignal): void {

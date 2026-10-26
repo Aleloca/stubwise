@@ -11,7 +11,15 @@ import { PEOPLE } from "../seed/people";
 import { copy, gate, newId, now, onStoreReset, state, storeGeneration } from "../store";
 import type { Automation, AutomationRun, RunLogEntry, RunStatus } from "../types";
 import { executeEffect } from "./effects";
-import { approversFor, automationById, flowOf, runById, stepOfRun } from "./visibility";
+import {
+  approversFor,
+  automationById,
+  decidersOf,
+  flowOf,
+  runById,
+  runCode,
+  stepOfRun,
+} from "./visibility";
 
 // Chi fa avanzare le esecuzioni (area 7): prende un input, lo passa al
 // motore puro (`advance`), dà gli effetti richiesti all'unico esecutore
@@ -45,15 +53,29 @@ const personName = (id: string) => PEOPLE.find((p) => p.id === id)?.name ?? id;
 
 const turns = new Map<string, Promise<void>>();
 const pending = new Set<Promise<void>>();
-onStoreReset(() => turns.clear());
+/** Gli input in coda (o in corso) per esecuzione: la pausa non li scavalca. */
+const queued = new Map<string, number>();
+onStoreReset(() => {
+  turns.clear();
+  queued.clear();
+});
 
 /** Si risolve quando nessuna esecuzione sta più avanzando. */
 export async function whenAutomationsIdle(): Promise<void> {
   while (pending.size > 0) await Promise.all([...pending]);
 }
 
+/** Un'esecuzione ha un input già in coda (es. un'approvazione appena data). */
+export const hasQueued = (runId: string): boolean => (queued.get(runId) ?? 0) > 0;
+
 function inTurn(runId: string, work: () => Promise<void>): Promise<void> {
-  const next = (turns.get(runId) ?? Promise.resolve()).then(work, work);
+  queued.set(runId, (queued.get(runId) ?? 0) + 1);
+  const done = () => {
+    const n = (queued.get(runId) ?? 1) - 1;
+    if (n > 0) queued.set(runId, n);
+    else queued.delete(runId);
+  };
+  const next = (turns.get(runId) ?? Promise.resolve()).then(work, work).finally(done);
   turns.set(runId, next);
   pending.add(next);
   void next.finally(() => pending.delete(next));
@@ -131,6 +153,56 @@ function commit(run: AutomationRun, a: Automation, r: EngineStep): void {
     run.endedAt = at;
     run.pending = null;
   }
+  failIfNoApprover(run);
+}
+
+/** Fallisce l'esecuzione con un codice, una riga nel registro e un avviso al proprietario. */
+function failWith(run: AutomationRun, error: string, reason: string): void {
+  note(run, { outcome: "failed", reason });
+  run.status = "failed";
+  run.error = error;
+  run.endedAt = runNow(run);
+  run.pending = null;
+  run.waitingUntil = null;
+  const a = automationById(run.automationId);
+  if (!a?.ownerId) return;
+  const code = runCode(run);
+  state.notifications.push({
+    id: newId("n"),
+    kind: "automation.failed",
+    projectId: a.projectId,
+    objectCode: code,
+    departmentId: null,
+    recipientIds: [a.ownerId],
+    title: `${a.name} · ${code}`,
+    body: reason,
+    createdAt: runNow(run),
+    read: false,
+    archived: false,
+    snoozedUntil: null,
+    link: `#/automations?run=${run.id}`,
+  });
+}
+
+/**
+ * R-J11: un'approvazione che nessuno può dare (nessuno indicato risolto, o
+ * tutti hanno perso l'accesso al progetto) non aspetta per sempre: fallisce
+ * con `no_approver`, e il proprietario lo sa. Si controlla a ogni passo e a
+ * ogni lettura (il prototipo non ha un evento «membri cambiati»).
+ */
+export function failIfNoApprover(run: AutomationRun): boolean {
+  if (run.status !== "waiting_approval" || decidersOf(run).length > 0) return false;
+  failWith(
+    run,
+    "no_approver",
+    "Nessuno può approvare questo passo: chi è indicato non c'è, o non vede il progetto. Va cambiato chi approva, poi si può riprovare.",
+  );
+  return true;
+}
+
+/** R-J11 su tutte le esecuzioni ferme su un'approvazione. */
+export function sweepApprovals(): void {
+  for (const run of state.automationRuns) failIfNoApprover(run);
 }
 
 /** Sospende al confine del passo (pausa): riaccendendo torna a `from`. */
@@ -183,11 +255,35 @@ function failUnexecuted(run: AutomationRun): void {
 async function drive(runId: string, input: EngineInput, gen: number, prepare?: Prepare) {
   const alive = () => gen === storeGeneration();
   const run = runById(runId);
-  const a = run && automationById(run.automationId);
-  const flow = run && flowOf(run);
-  if (!alive() || !run || !a || !flow) return;
+  if (!alive() || !run) return;
+  try {
+    await step(run, input, alive, prepare);
+  } catch (error) {
+    // Un errore inatteso non lascia l'esecuzione in corso per sempre.
+    if (!alive() || !isOpen(run)) return;
+    failWith(
+      run,
+      "internal_error",
+      `Errore interno: l'esecuzione si è fermata (${error instanceof Error ? error.message : String(error)}).`,
+    );
+  }
+}
+
+async function step(
+  run: AutomationRun,
+  input: EngineInput,
+  alive: () => boolean,
+  prepare?: Prepare,
+): Promise<void> {
+  const a = automationById(run.automationId);
+  const flow = flowOf(run);
+  if (!a || !flow) return;
   if (TERMINAL.has(run.status) || run.status === "suspended") return;
 
+  // Il passo su cui si è appena deciso (approvato, progetto scelto): il suo
+  // effetto si esegue anche se nel frattempo è arrivata la pausa — la
+  // decisione presa non si perde; si sospende al passo dopo.
+  const decided = input.kind === "approved" || input.kind === "project_chosen" ? run.cursor : null;
   const st =
     run.log.length === 0 ? initialState(flow, runNow(run)) : restoreState(flow, run, runNow(run));
   prepare?.(st);
@@ -196,7 +292,8 @@ async function drive(runId: string, input: EngineInput, gen: number, prepare?: P
   for (;;) {
     const eff = r.effects[0];
     if (!eff) break;
-    if (a.status !== "active") return suspend(run, "running");
+    const finishing = decided !== null && eff.path === decided;
+    if (a.status !== "active" && !finishing) return suspend(run, "running");
     try {
       await gate("automations.advanceRun");
     } catch {
@@ -205,13 +302,14 @@ async function drive(runId: string, input: EngineInput, gen: number, prepare?: P
     }
     if (!alive() || run.status === "cancelled") return;
     // In pausa durante il ritardo: l'effetto non è partito, resta da fare.
-    if (a.status !== "active") return suspend(run, "running");
+    if (a.status !== "active" && !finishing) return suspend(run, "running");
     const out = executeEffect(eff, {
       run,
       automation: a,
       now: runNow(run),
       // L'avvio annidato: un'esecuzione nuova con le regole dell'automazione avviata.
-      spawn: (target, event) => startRun(target, event, run.id),
+      spawn: (target, event) =>
+        startRun(target, event, { parentRunId: run.id, origin: "automation" }),
     });
     if (out.projectId && !run.projectIds.includes(out.projectId))
       run.projectIds.push(out.projectId);
@@ -238,8 +336,9 @@ export const publishedVersion = (a: Automation) =>
 export function startRun(
   a: Automation,
   event: Record<string, unknown>,
-  parentRunId: string | null = null,
+  opts: { parentRunId?: string | null; origin: NonNullable<AutomationRun["origin"]> },
 ): AutomationRun | null {
+  const parentRunId = opts.parentRunId ?? null;
   const version = publishedVersion(a);
   if (a.status !== "active" || !version) return null;
   const runs = state.automationRuns.filter((r) => r.automationId === a.id);
@@ -266,6 +365,7 @@ export function startRun(
     error: null,
     projectIds: a.projectId ? [a.projectId] : [],
     parentRunId,
+    origin: opts.origin,
   };
   state.automationRuns.push(run);
   if (parent) state.automationClock.set(run.id, at);

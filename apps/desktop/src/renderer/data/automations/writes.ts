@@ -13,7 +13,9 @@ import { forbidden, invalid, notFound, writer } from "../writer";
 import { configErrorsOf } from "./reads";
 import {
   enqueue,
+  hasQueued,
   isOpen,
+  sweepApprovals,
   note,
   publishedVersion,
   resume,
@@ -199,6 +201,9 @@ export async function pause(id: string): Promise<Automation> {
   a.status = "paused";
   for (const run of state.automationRuns) {
     if (run.automationId !== a.id) continue;
+    // Con un input già in coda (un'approvazione appena data) la decisione si
+    // applica prima: il runner sospende al passo dopo.
+    if (hasQueued(run.id)) continue;
     if (
       run.status === "waiting_approval" ||
       run.status === "waiting_event" ||
@@ -234,7 +239,7 @@ export async function startManual(id: string, event?: Record<string, unknown>): 
   const data =
     event ?? (trigger.kind === "manual" ? { avvio: { data: now().slice(0, 10) } } : null);
   if (!data || typeof data !== "object") throw invalid("event");
-  const run = startRun(a, data);
+  const run = startRun(a, data, { origin: "manual" });
   if (!run) throw invalid("run_limit");
   return run.id;
 }
@@ -264,7 +269,7 @@ export async function simulateSourceEvent(
   if (!event) throw invalid("sample");
   const started = listeners
     .filter((a) => a.status === "active")
-    .map((a) => startRun(a, event))
+    .map((a) => startRun(a, event, { origin: "source" }))
     .filter((r): r is AutomationRun => r !== null);
   return started.filter((r) => canSeeRun(me, r)).map((r) => r.id);
 }
@@ -274,7 +279,7 @@ export async function runDueSchedules(): Promise<string[]> {
   const me = await writer("automations.runDueSchedules");
   const at = now();
   return dueSchedules(at)
-    .map((a) => startRun(a, { avvio: { data: at.slice(0, 10) } }))
+    .map((a) => startRun(a, { avvio: { data: at.slice(0, 10) } }, { origin: "schedule" }))
     .filter((r): r is AutomationRun => r !== null)
     .filter((r) => canSeeRun(me, r))
     .map((r) => r.id);
@@ -293,6 +298,7 @@ const EDITABLE: Partial<Record<string, string[]>> = {
 
 /** Chi decide su un'esecuzione ferma: deve vederla, e deve essere fra chi decide ADESSO (R-J8). */
 function decision(me: string, id: string, status: AutomationRun["status"]): AutomationRun {
+  sweepApprovals();
   const run = visibleRun(me, id);
   if (run.status === "suspended") throw invalid("suspended");
   if (run.status !== status) throw invalid("not_waiting");

@@ -119,6 +119,7 @@ function newContractRound(i: number, when: string): RunLogEntry[] {
 const doneRun: AutomationRun = {
   id: RUN_DONE,
   automationId: AUTOMATION_NEW_CONTRACT,
+  origin: "source",
   n: 1,
   version: 1,
   title: "Nuovo contratto – Cantina Bellavista Srl",
@@ -209,6 +210,7 @@ const FORNERIA_ANALYSIS = {
 const waitingProjectRun: AutomationRun = {
   id: RUN_WAITING_PROJECT,
   automationId: AUTOMATION_NEW_CONTRACT,
+  origin: "source",
   n: 2,
   version: 1,
   title: "Nuovo contratto – Forneria Rossi & Lari",
@@ -272,6 +274,7 @@ const MISSING_PATH = "3/then/0/mancano informazioni/0";
 const waitingApprovalRun: AutomationRun = {
   id: RUN_WAITING_APPROVAL,
   automationId: AUTOMATION_CLIENT_DATA,
+  origin: "source",
   n: 1,
   version: 1,
   title: "Dati per Centralino AI – Cantina Bellavista Srl",
@@ -365,6 +368,7 @@ const waitingApprovalRun: AutomationRun = {
 const waitingEventRun: AutomationRun = {
   id: RUN_WAITING_EVENT,
   automationId: AUTOMATION_CLIENT_DATA,
+  origin: "source",
   n: 2,
   version: 1,
   title: "Dati per Campagne WhatsApp – Mix Cucine Srl",
@@ -411,6 +415,7 @@ const MONDAY_START = { avvio: { data: daysFromToday(-4) } };
 const failedRun: AutomationRun = {
   id: RUN_FAILED,
   automationId: AUTOMATION_PAUSED,
+  origin: "schedule",
   n: 1,
   version: 1,
   title: "Report settimanale delle campagne",

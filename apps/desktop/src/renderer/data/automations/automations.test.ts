@@ -1,10 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { automations, createTask, failNext, mail, resetApi, setLatency } from "../api";
+import {
+  automations,
+  createMilestone,
+  createRequest,
+  createTask,
+  failNext,
+  mail,
+  resetApi,
+  setLatency,
+  updateMilestone,
+  updateTask,
+} from "../api";
 import { AUTOMATION_CASES } from "../seed/automations";
 import { AUTOMATION_MAIL_IDS } from "../seed/automations/mail";
 import { MAIL_MESSAGES } from "../seed/mail";
 import { setSessionPersonId } from "../session";
-import { now, signalAutomations, state, visibleProjectIds } from "../store";
+import { now, onAutomationSignal, signalAutomations, state, visibleProjectIds } from "../store";
+import { MAIL_HIDDEN } from "./reads";
 import type { AutomationFlow, AutomationRun, Step } from "../types";
 import { grantInstancePermission, grantProjectRole } from "../viewer";
 
@@ -194,7 +206,9 @@ describe("Automations: un'approvazione blocca davvero (Review Focus 1)", () => {
     expect((await automations.listMyApprovals()).map((d) => d.runId)).toEqual([R.waitingProject]);
     await expect(automations.approve(R.waitingApproval)).rejects.toThrow("not_found");
     await idle();
-    expect(run(R.waitingApproval).status).toBe("waiting_approval");
+    // R-J11: nessuno può più approvare → fallita `no_approver`, mai approvata da altri.
+    expect(run(R.waitingApproval)).toMatchObject({ status: "failed", error: "no_approver" });
+    expect(run(R.waitingApproval).log.at(-1)!.reason).toMatch(/Nessuno può approvare/);
     expect(sentBy("p-matteo")).toEqual([]);
   });
 
@@ -489,22 +503,24 @@ describe("Automations: modifiche durante le esecuzioni (Review Focus 4)", () => 
   it("pausa mentre un effetto è in volo: si sospende al confine del passo, senza ripeterlo", async () => {
     as("p-laura");
     const id = await make(AUD, manual([task("a"), task("b")]));
-    setLatency(20);
-    await automations.startManual(id);
-    const r = lastRunOf(id);
-    // Il primo effetto è in volo: la pausa arriva durante il ritardo simulato.
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    await automations.pause(id);
+    // La pausa arriva esattamente mentre il primo effetto è in esecuzione:
+    // dentro `createTaskAs` della task «a» (come farebbe `pause` in quel momento).
+    const off = onAutomationSignal((s) => {
+      if (s.kind === "task_created" && state.tasksById.get(s.taskId)?.title === "Task a")
+        state.automations.find((a) => a.id === id)!.status = "paused";
+    });
+    const r = await automations.startManual(id);
     await idle();
-    setLatency(0);
-    expect(run(r.id)).toMatchObject({ status: "suspended", suspendedFrom: "running" });
-    const before = state.tasks.filter((t) => t.automationRef?.runId === r.id).length;
+    off();
+    const made = () => state.tasks.filter((t) => t.automationRef?.runId === r).map((t) => t.title);
+    // L'effetto in volo è finito; quello dopo non è partito e aspetta al suo passo.
+    expect(made()).toEqual(["Task a"]);
+    expect(run(r)).toMatchObject({ status: "suspended", suspendedFrom: "running", cursor: "1" });
+    expect(run(r).log.at(-1)).toMatchObject({ outcome: "suspended", path: "1" });
     await automations.activate(id);
     await idle();
-    expect(run(r.id).status).toBe("done");
-    const titles = state.tasks.filter((t) => t.automationRef?.runId === r.id).map((t) => t.title);
-    expect(titles).toEqual(["Task a", "Task b"]);
-    expect(before).toBeLessThanOrEqual(1);
+    expect(run(r).status).toBe("done");
+    expect(made()).toEqual(["Task a", "Task b"]);
   });
 });
 
@@ -603,18 +619,38 @@ describe("Automations: esecuzioni vere", () => {
 
   it("ogni stato dell'esecuzione è raggiungibile", async () => {
     as("p-laura");
-    const seen = new Set(state.automationRuns.map((r) => r.status));
+    // Solo stati raggiunti da esecuzioni nate nel test, non quelli del seme.
+    const seen = new Set<string>();
     const id = await make(
       AUD,
       manual([task("a"), { id: "w", kind: "wait", for: { days: 2 } }, task("t")]),
     );
-    setLatency(20);
+    // Durante l'effetto del primo passo l'esecuzione è `running`.
+    const off = onAutomationSignal((s) => {
+      if (s.kind !== "task_created") return;
+      const r = state.automationRuns.find((x) => x.automationId === id && x.status === "running");
+      if (r) seen.add(r.status);
+    });
     const started = await automations.startManual(id);
-    // L'effetto del primo passo è in volo.
-    seen.add(run(started).status);
     await idle();
-    setLatency(0);
+    off();
     seen.add(run(started).status);
+    // In attesa di approvazione.
+    const asking = await make(AUD, manual([task("q", { approval: ASK_OWNER })]), "Chiede");
+    seen.add(run(await automations.startManual(asking)).status);
+    await idle();
+    seen.add(lastRunOf(asking).status);
+    // Fallita: il ritardo simulato dell'effetto non risponde.
+    failNext("automations.advanceRun");
+    const broken = await automations.startManual(id);
+    await idle();
+    seen.add(run(broken).status);
+    // In attesa del progetto: un cliente che non è nella tabella (Forneria).
+    as("p-roberta");
+    const [orphan] = await automations.simulateSourceEvent(S.audin, 2);
+    await idle();
+    seen.add(run(orphan!).status);
+    as("p-laura");
     await automations.pause(id);
     seen.add(run(started).status);
     await automations.activate(id);
@@ -873,5 +909,284 @@ describe("Automations: inizi e catene", () => {
     expect(lastRunOf(parent).status).toBe("done");
     expect(lastRunOf(child)).toMatchObject({ status: "failed", error: "email_limit" });
     expect(sentBy("p-laura")).toHaveLength(20);
+  });
+});
+
+// --- revisione del Task 3 ------------------------------------------------------------
+
+describe("Automations: revisione del Task 3", () => {
+  const closedStatus = (projectId: string) =>
+    state.statuses.find((s) => s.projectId === projectId && s.family === "closed")!.id;
+
+  it("pausa subito dopo un'approvazione: l'approvazione già data non si perde, si sospende al passo dopo", async () => {
+    as("p-matteo");
+    await Promise.all([automations.approve(R.waitingApproval), automations.pause(A.clientData)]);
+    await idle();
+    // L'email approvata è partita; la pausa ferma l'esecuzione sull'attesa che segue.
+    expect(sentBy("p-matteo")).toHaveLength(1);
+    expect(run(R.waitingApproval)).toMatchObject({
+      status: "suspended",
+      suspendedFrom: "waiting_event",
+    });
+    expect(run(R.waitingApproval).log.some((e) => e.outcome === "approved")).toBe(true);
+    await automations.activate(A.clientData);
+    await idle();
+    expect(run(R.waitingApproval).status).toBe("waiting_event");
+    expect(sentBy("p-matteo")).toHaveLength(1);
+  });
+
+  it("R-J11: un'approvazione che nessuno può dare fallisce `no_approver`, e il proprietario lo sa", async () => {
+    as("p-laura");
+    const id = await make(
+      AUD,
+      manual([task("t", { approval: { mode: "ask", who: { personId: "p-marco" } } })]),
+    );
+    leave("p-marco", AUD);
+    const r = await automations.startManual(id);
+    await idle();
+    expect(run(r)).toMatchObject({ status: "failed", error: "no_approver", pending: null });
+    expect(state.tasks.some((t) => t.automationRef?.runId === r)).toBe(false);
+    expect(state.notifications.at(-1)).toMatchObject({
+      kind: "automation.failed",
+      recipientIds: ["p-laura"],
+    });
+    expect((await automations.getRun(r))?.log.at(-1)).toMatchObject({ outcome: "failed" });
+  });
+
+  it("R-J11: un approvatore (persona) che non vede un progetto in cui il passo può agire è un errore di configurazione", async () => {
+    as("p-roberta");
+    const flowFor = (personId: string): AutomationFlow => ({
+      trigger: { kind: "source", sourceId: S.audin, event: "deal_won" },
+      titleTemplate: "Prova",
+      steps: [
+        task("t", {
+          project: { mode: "from_client", clientRef: "cliente.dominio" },
+          approval: { mode: "ask", who: { personId } },
+        }),
+      ],
+    });
+    const a = await automations.createAutomation({
+      name: "G",
+      projectId: null,
+      flow: flowFor("p-sara"),
+    });
+    // Sara non vede MKX, uno dei progetti della tabella cliente → progetto.
+    expect((await automations.getAutomation(a.id))!.configErrors).toEqual([
+      expect.objectContaining({ path: "0", code: "approver_cant_see" }),
+    ]);
+    await automations.saveDraft(a.id, flowFor("p-roberta"));
+    expect((await automations.getAutomation(a.id))!.configErrors).toEqual([]);
+  });
+
+  it("R-J12: dentro un'esecuzione i progetti che non vedo non hanno né id né codice; filtrare per uno di essi è come per uno inesistente", async () => {
+    grantInstancePermission("p-laura", "automations.manage");
+    as("p-laura");
+    expect(visibleProjectIds("p-laura").has("prj-cbv")).toBe(false);
+    const r = (await automations.getRun(R.done))!;
+    expect(r.projectIds).toEqual([]);
+    const ms = r.log.find((e) => e.kind === "createMilestone")!;
+    expect(ms.input.progetto).toBe("");
+    expect(ms.effects).toEqual([{ kind: "milestone", code: "" }]);
+    const tasks = r.log.filter((e) => e.kind === "createTask");
+    expect(
+      tasks.every((e) => e.effects.every((x) => x.code === "") && e.input.progetto === ""),
+    ).toBe(true);
+    expect(JSON.stringify(r)).not.toMatch(/prj-cbv|CBV-\d|ms-cbv/);
+    expect(await automations.listRuns({ projectId: "prj-cbv" })).toEqual(
+      await automations.listRuns({ projectId: "prj-nope" }),
+    );
+    expect(await automations.listRuns({ projectId: "prj-cbv" })).toEqual([]);
+    // Chi vede CBV vede tutto.
+    as("p-matteo");
+    const full = (await automations.getRun(R.done))!;
+    expect(full.projectIds).toEqual(["prj-cbv"]);
+    expect(full.log.find((e) => e.kind === "createMilestone")!.effects[0]!.code).toBe(
+      "ms-cbv-aut1",
+    );
+  });
+
+  it("R-J13: di un'esecuzione partita da un'email solo il proprietario vede mittente, oggetto e testo", async () => {
+    as("p-laura");
+    const id = await make(AUD, {
+      trigger: { kind: "stubwise", event: "mail_received" },
+      steps: [task("t", { title: "Rispondere: {{email.oggetto}}" })],
+      titleTemplate: "Email: {{email.oggetto}}",
+    });
+    const mine = state.mailMessages.find(
+      (m) => m.mailboxPersonIds.includes("p-laura") && m.subject.length > 8,
+    )!;
+    signalAutomations({ kind: "mail_received", messageIds: [mine.id] });
+    await idle();
+    const r = lastRunOf(id);
+    expect((await automations.getRun(r.id))!.event).toMatchObject({
+      email: { oggetto: mine.subject },
+    });
+    as("p-marco");
+    const seen = (await automations.getRun(r.id))!;
+    expect(seen.event).toEqual({ email: { mittente: "", oggetto: MAIL_HIDDEN, testo: "" } });
+    expect(seen.title).toContain(MAIL_HIDDEN);
+    expect(seen.log[0]!.output).toEqual(seen.event);
+    const leaks = [mine.subject, mine.from.email, mine.text.slice(0, 30)];
+    for (const text of leaks) expect(JSON.stringify(seen)).not.toContain(text);
+    const listed = await automations.listRuns({ automationId: id });
+    for (const text of leaks) expect(JSON.stringify(listed)).not.toContain(text);
+    expect(await automations.searchAutomations(mine.subject)).toEqual([]);
+  });
+
+  it("un errore inatteso nel runner: l'esecuzione fallisce `internal_error`, non resta in corso", async () => {
+    as("p-matteo");
+    // Un registro rovinato: la ripresa non trova il passo del cursore.
+    run(R.waitingEvent).cursor = "9";
+    await automations.advanceTime(R.waitingEvent, 1);
+    await idle();
+    expect(run(R.waitingEvent)).toMatchObject({ status: "failed", error: "internal_error" });
+    expect(run(R.waitingEvent).log.at(-1)!.reason).toMatch(/^Errore interno/);
+  });
+
+  it("«Avvisa» in una generale non prende un progetto a caso fra quelli toccati", async () => {
+    as("p-roberta");
+    const a = await automations.createAutomation({
+      name: "Avviso",
+      projectId: null,
+      flow: {
+        trigger: { kind: "source", sourceId: S.audin, event: "deal_won" },
+        titleTemplate: "Avviso",
+        steps: [
+          {
+            id: "m",
+            kind: "createMilestone",
+            name: "Attivazione",
+            dueInDays: null,
+            project: { mode: "from_client", clientRef: "cliente.dominio" },
+            approval: { mode: "auto" },
+          },
+          {
+            id: "n",
+            kind: "notify",
+            personRef: "trattativa.commerciale",
+            text: "Contratto chiuso",
+            approval: { mode: "auto" },
+          },
+        ],
+      },
+    });
+    await automations.activate(a.id);
+    // Elena (la commerciale) non è in CBV, dove il traguardo è nato.
+    expect(visibleProjectIds("p-elena").has("prj-cbv")).toBe(false);
+    await automations.simulateSourceEvent(S.audin, 0);
+    await idle();
+    expect(lastRunOf(a.id).status).toBe("done");
+    expect(state.notifications.at(-1)).toMatchObject({
+      recipientIds: ["p-elena"],
+      projectId: null,
+    });
+  });
+
+  it("una ricorrenza conta solo gli avvii della ricorrenza, non quelli a mano", async () => {
+    as("p-laura");
+    const id = await make(AUD, {
+      trigger: { kind: "schedule", rule: "FREQ=DAILY;BYHOUR=9" },
+      steps: [task("t")],
+      titleTemplate: "Ogni giorno",
+    });
+    await automations.startManual(id, { avvio: { data: now().slice(0, 10) } });
+    expect(await automations.runDueSchedules()).toHaveLength(1);
+    expect(await automations.runDueSchedules()).toHaveLength(0);
+    await idle();
+    expect(runsOf(id).map((r) => r.origin)).toEqual(["manual", "schedule"]);
+  });
+
+  it("wait.taskClosed: chiudere la task creata dal passo sblocca l'attesa", async () => {
+    as("p-laura");
+    const id = await make(
+      AUD,
+      manual([
+        task("t"),
+        { id: "w", kind: "wait", for: { taskClosed: "t", maxDays: 5 } },
+        task("dopo"),
+      ]),
+    );
+    const r = await automations.startManual(id);
+    await idle();
+    expect(run(r).status).toBe("waiting_event");
+    const created = state.tasks.find((t) => t.automationRef?.runId === r)!;
+    await updateTask(created.id, { statusId: closedStatus(AUD) });
+    await idle();
+    expect(run(r).status).toBe("done");
+    expect(state.tasks.filter((t) => t.automationRef?.runId === r).map((t) => t.title)).toEqual([
+      "Task t",
+      "Task dopo",
+    ]);
+  });
+
+  it("inizi «richiesta creata» e «traguardo raggiunto»", async () => {
+    as("p-laura");
+    const onRequest = await make(AUD, {
+      trigger: { kind: "stubwise", event: "request_created" },
+      steps: [task("r")],
+      titleTemplate: "Richiesta {{richiesta.codice}}",
+    });
+    const onMilestone = await make(AUD, {
+      trigger: { kind: "stubwise", event: "milestone_reached" },
+      steps: [task("m")],
+      titleTemplate: "Traguardo {{traguardo.nome}}",
+    });
+    const request = await createRequest({ projectId: AUD, title: "Esportazione in CSV" });
+    await idle();
+    expect(runsOf(onRequest).map((r) => [r.title, r.status])).toEqual([
+      [`Richiesta ${request.code}`, "done"],
+    ]);
+    const ms = await createMilestone(AUD, { name: "Rilascio 3" });
+    await idle();
+    expect(runsOf(onMilestone)).toHaveLength(0);
+    await updateMilestone(ms.id, { closed: true });
+    await idle();
+    expect(runsOf(onMilestone).map((r) => [r.title, r.status])).toEqual([
+      ["Traguardo Rilascio 3", "done"],
+    ]);
+  });
+
+  it("permesso perso anche su «Crea richiesta» e «Crea traguardo»", async () => {
+    as("p-laura");
+    const request = await make(
+      AUD,
+      manual([
+        {
+          id: "r",
+          kind: "createRequest",
+          title: "Richiesta",
+          description: "",
+          project: { mode: "own" },
+          approval: { mode: "auto" },
+        },
+      ]),
+      "R",
+    );
+    const milestone = await make(
+      AUD,
+      manual([
+        {
+          id: "m",
+          kind: "createMilestone",
+          name: "Traguardo",
+          dueInDays: null,
+          project: { mode: "own" },
+          approval: { mode: "auto" },
+        },
+      ]),
+      "M",
+    );
+    grantProjectRole("p-laura", AUD, "viewer");
+    // Le avvia l'admin: il proprietario (Laura) resta lei, ed è lei che non può più.
+    as("p-roberta");
+    const requests = state.requests.length;
+    const milestones = state.milestones.length;
+    await automations.startManual(request);
+    await automations.startManual(milestone);
+    await idle();
+    expect(lastRunOf(request)).toMatchObject({ status: "failed", error: "permission_lost" });
+    expect(lastRunOf(milestone)).toMatchObject({ status: "failed", error: "permission_lost" });
+    expect(state.requests).toHaveLength(requests);
+    expect(state.milestones).toHaveLength(milestones);
   });
 });

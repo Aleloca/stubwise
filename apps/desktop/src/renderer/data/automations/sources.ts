@@ -174,7 +174,8 @@ onAutomationSignal((signal) => {
   wakeWaits(signal);
   for (const h of happenings(signal)) {
     for (const a of state.automations) {
-      if (startsOn(a, h) && chainAllows(a, origin)) startRun(a, h.payload, origin);
+      if (startsOn(a, h) && chainAllows(a, origin))
+        startRun(a, h.payload, { parentRunId: origin, origin: "stubwise" });
     }
   }
 });
@@ -207,7 +208,8 @@ export function dueSchedules(at: string): Automation[] {
     const t = publishedVersion(a)?.flow.trigger;
     if (a.status !== "active" || t?.kind !== "schedule" || !scheduleDue(t.rule, at)) return false;
     return !state.automationRuns.some(
-      (r) => r.automationId === a.id && r.parentRunId == null && r.startedAt.slice(0, 10) === today,
+      (r) =>
+        r.automationId === a.id && r.origin === "schedule" && r.startedAt.slice(0, 10) === today,
     );
   });
 }

@@ -2274,7 +2274,11 @@ export interface RunLogEntry {
   reason: string | null;
   /** Chi ha approvato, rifiutato, riprovato o saltato. */
   byId: string | null;
-  /** Le cose create dal passo (task, traguardo…) col loro codice. */
+  /**
+   * Le cose create dal passo (task, traguardo…) col loro codice. Nelle
+   * letture (R-J12) una cosa in un progetto che chi guarda non vede ha
+   * `code: ""`: né id né codice.
+   */
   effects: { kind: string; code: string }[];
 }
 
@@ -2313,6 +2317,8 @@ export interface AutomationRun {
   projects?: Record<string, string>;
   /** L'esecuzione che l'ha avviata con «Avvia un'altra automazione» (catena di al massimo 3). */
   parentRunId?: string | null;
+  /** Da dove è partita (le ricorrenze contano solo le proprie, `dueSchedules`). */
+  origin?: "manual" | "source" | "stubwise" | "schedule" | "automation";
   /** In `suspended` (pausa): lo stato a cui torna riaccendendo l'automazione. */
   suspendedFrom?: Exclude<RunStatus, "suspended" | "done" | "failed" | "cancelled">;
 }

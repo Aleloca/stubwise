@@ -3185,6 +3185,8 @@ const AUTOMATION_AREAS = [
   ...MILESTONE_AREAS,
   ...REQUEST_AREAS,
   "mail",
+  // La campanella (inbox): avvisi dei passi «Avvisa» ed esecuzioni fallite.
+  "notifications",
 ] as const;
 
 /** Mentre un'esecuzione è in corso la lettura si ripete da sola. */

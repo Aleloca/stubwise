@@ -290,7 +290,9 @@ function notify(eff: Extract<EffectRequest, { args: unknown }>, env: EffectEnv) 
   if (!args.personId || !person) {
     return failed("no_recipient", "Non c'è nessuno da avvisare: il dato della persona è vuoto.");
   }
-  const projectId = env.automation.projectId ?? env.run.projectIds[0] ?? null;
+  // Il progetto del passo: quello dell'automazione, o uno risolto; una generale senza
+  // progetto avvisa senza progetto (mai un progetto preso a caso fra quelli toccati).
+  const projectId = projectOfEffect(eff, env.automation) ?? env.automation.projectId;
   if (projectId && !visibleProjectIds(person.id).has(projectId)) {
     return failed("recipient_cant_see", `${person.name} non vede il progetto: l'avviso non parte.`);
   }

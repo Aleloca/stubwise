@@ -1,4 +1,5 @@
 import { visitSteps } from "../../domain/automations/fields";
+import { projectOf } from "../../domain/automations/preview";
 import { validateFlow, type FlowIssue } from "../../domain/automations/validate";
 import { fold } from "../../domain/textSearch";
 import { copy, gate, state, visibleProjectIds } from "../store";
@@ -16,7 +17,7 @@ import type {
   ClientLinkView,
   RunStatus,
 } from "../types";
-import { isOpen, publishedVersion } from "./runner";
+import { isOpen, publishedVersion, sweepApprovals } from "./runner";
 import {
   approversFor,
   automationById,
@@ -93,7 +94,45 @@ export function configErrorsOf(a: Automation, flow: AutomationFlow, ownerId: str
       });
     }
   }
+  personApprovers(a, flow, issues);
   return issues;
+}
+
+/**
+ * R-J11: una persona indicata come approvatore deve vedere ogni progetto in
+ * cui il passo può agire, quando si sa già prima dell'evento: quello
+ * dell'automazione o quello fisso, e per «il progetto del cliente» (anche
+ * dei passi senza progetto di una generale che ne risolve uno) ogni
+ * progetto della tabella cliente → progetto.
+ */
+function personApprovers(a: Automation, flow: AutomationFlow, issues: FlowIssue[]): void {
+  const table = [...new Set(state.clientProjectLinks.map((l) => l.projectId))];
+  let usesClient = false;
+  visitSteps(flow.steps, (step) => {
+    if (projectOf(step)?.mode === "from_client") usesClient = true;
+  });
+  visitSteps(flow.steps, (step, path) => {
+    if (!("approval" in step) || step.approval.mode !== "ask") return;
+    const who = step.approval.who;
+    if (!("personId" in who) || !who.personId) return;
+    const t = projectOf(step);
+    const candidates =
+      t?.mode === "own"
+        ? [a.projectId]
+        : t?.mode === "fixed"
+          ? [t.projectId]
+          : t?.mode === "from_client" || (!t && a.projectId === null && usesClient)
+            ? table
+            : [a.projectId];
+    const sees = visibleProjectIds(who.personId);
+    if (!candidates.some((p) => p !== null && !sees.has(p))) return;
+    if (issues.some((i) => i.path === path && i.code === "approver_cant_see")) return;
+    issues.push({
+      path,
+      code: "approver_cant_see",
+      message: "Chi deve approvare non vede uno dei progetti in cui il passo può agire.",
+    });
+  });
 }
 
 const latest = (a: Automation) => a.versions.at(-1)!;
@@ -123,10 +162,82 @@ function automationRow(me: string, a: Automation): AutomationRow {
   };
 }
 
-export function runRow(run: AutomationRun): AutomationRunRow {
+// --- R-J12 e R-J13: cosa di un'esecuzione vede chi guarda ------------------------------
+
+/** Al posto dell'email che ha avviato un'esecuzione, per chi non ne è il proprietario (R-J13). */
+export const MAIL_HIDDEN = "Un'email ricevuta dal proprietario";
+
+/** Il progetto di una cosa creata da un passo, se è in un progetto. */
+function projectOfEffect(kind: string, code: string): string | null {
+  if (kind === "task") return state.tasks.find((t) => t.code === code)?.projectId ?? null;
+  if (kind === "milestone") return state.milestones.find((m) => m.id === code)?.projectId ?? null;
+  if (kind === "request") return state.requests.find((r) => r.code === code)?.projectId ?? null;
+  return null;
+}
+
+/** L'esecuzione è partita da un'email in arrivo (della casella del proprietario). */
+function startedByMail(run: AutomationRun): boolean {
+  const t = automationById(run.automationId)?.versions.find((v) => v.n === run.version)?.flow
+    .trigger;
+  return t?.kind === "stubwise" && t.event === "mail_received";
+}
+
+/**
+ * Un'esecuzione come la vede `me`.
+ * - R-J12 (R-G5 dentro un'esecuzione): i progetti che non vede spariscono da
+ *   `projectIds` e dai clienti risolti; nel registro e nell'anteprima un
+ *   `progetto` invisibile diventa `""`, e una cosa creata in un progetto
+ *   invisibile resta col suo tipo ma `code: ""` (né id né codice).
+ * - R-J13 (privacy della Posta): di un'esecuzione partita da un'email solo
+ *   il proprietario vede mittente, oggetto e testo; gli altri leggono
+ *   `MAIL_HIDDEN` al posto dell'evento e nel titolo, e le righe del registro
+ *   senza dati (nessuna eco dell'email: ingressi, uscite, motivazioni di
+ *   Claude, variabili). Chi deve approvare vede l'anteprima del passo.
+ */
+export function viewRun(me: string, run: AutomationRun): AutomationRun {
+  const v = copy(run);
+  const visible = visibleProjectIds(me);
+  const scrub = (o: Record<string, unknown>) => {
+    if (typeof o.progetto === "string" && o.progetto !== "" && !visible.has(o.progetto))
+      o.progetto = "";
+  };
+  v.projectIds = v.projectIds.filter((p) => visible.has(p));
+  if (v.projects)
+    v.projects = Object.fromEntries(Object.entries(v.projects).filter(([, p]) => visible.has(p)));
+  for (const e of v.log) {
+    scrub(e.input);
+    scrub(e.output);
+    e.effects = e.effects.map((x) => {
+      const p = projectOfEffect(x.kind, x.code);
+      return p !== null && !visible.has(p) ? { kind: x.kind, code: "" } : x;
+    });
+  }
+  if (v.pending) scrub(v.pending.preview);
+  const a = automationById(run.automationId);
+  if (startedByMail(run) && a?.ownerId !== me) {
+    const hidden = { email: { mittente: "", oggetto: MAIL_HIDDEN, testo: "" } };
+    v.event = hidden;
+    v.title = `${a?.name ?? ""} – ${MAIL_HIDDEN}`;
+    v.vars = {};
+    v.loops = {};
+    for (const e of v.log) {
+      if (e.kind === "trigger") e.output = copy(hidden);
+      else {
+        e.input = {};
+        e.output = {};
+        if (e.kind === "claude") e.reason = null;
+      }
+    }
+    if (v.pending && !decidersOf(run).includes(me)) v.pending.preview = {};
+  }
+  return v;
+}
+
+export function runRow(me: string, source: AutomationRun): AutomationRunRow {
+  const run = viewRun(me, source);
   const a = automationById(run.automationId)!;
   return {
-    ...copy(run),
+    ...run,
     code: runCode(run),
     automationCode: a.code,
     automationName: a.name,
@@ -144,6 +255,7 @@ export async function listAutomations(
   filter: { projectId?: string; status?: Automation["status"]; ownerId?: string } = {},
 ): Promise<AutomationRow[]> {
   const me = await gate("automations.listAutomations");
+  sweepApprovals();
   return state.automations
     .filter((a) => canSeeAutomation(me, a))
     .filter((a) => filter.projectId === undefined || a.projectId === filter.projectId)
@@ -156,6 +268,7 @@ export async function listAutomations(
 /** Un'automazione con versioni, errori di configurazione ed esecuzioni; `null` se non la vedo. */
 export async function getAutomation(id: string): Promise<AutomationDetail | null> {
   const me = await gate("automations.getAutomation");
+  sweepApprovals();
   const a = automationById(id);
   if (!a || !canSeeAutomation(me, a)) return null;
   const owner = a.ownerId ?? me;
@@ -168,7 +281,7 @@ export async function getAutomation(id: string): Promise<AutomationDetail | null
       .filter((r) => r.automationId === a.id)
       .sort(byRecency)
       .slice(0, 20)
-      .map(runRow),
+      .map((r) => runRow(me, r)),
   };
 }
 
@@ -189,9 +302,12 @@ export async function searchAutomations(q: string): Promise<AutomationSearchResu
       });
     }
   }
-  for (const run of [...state.automationRuns].sort(byRecency)) {
+  for (const source of [...state.automationRuns].sort(byRecency)) {
+    if (!canSeeRun(me, source)) continue;
+    // Il titolo come lo vede chi cerca (R-J13: senza l'oggetto di un'email altrui).
+    const run = viewRun(me, source);
     const code = runCode(run);
-    if (canSeeRun(me, run) && has(code, run.title)) {
+    if (has(code, run.title)) {
       out.push({
         kind: "run",
         id: run.id,
@@ -210,6 +326,9 @@ export async function listRuns(
   filter: { automationId?: string; projectId?: string; status?: RunStatus } = {},
 ): Promise<AutomationRunRow[]> {
   const me = await gate("automations.listRuns");
+  sweepApprovals();
+  // Un progetto che non vedo risponde come uno che non esiste (R-J12).
+  if (filter.projectId !== undefined && !visibleProjectIds(me).has(filter.projectId)) return [];
   return state.automationRuns
     .filter((r) => canSeeRun(me, r))
     .filter((r) => filter.automationId === undefined || r.automationId === filter.automationId)
@@ -221,19 +340,20 @@ export async function listRuns(
     )
     .filter((r) => filter.status === undefined || r.status === filter.status)
     .sort(byRecency)
-    .map(runRow);
+    .map((r) => runRow(me, r));
 }
 
 /** Un'esecuzione col suo registro e i permessi; `null` se non la vedo (R-G5). */
 export async function getRun(id: string): Promise<AutomationRunDetail | null> {
   const me = await gate("automations.getRun");
+  sweepApprovals();
   const run = runById(id);
   if (!run || !canSeeRun(me, run)) return null;
   const a = automationById(run.automationId)!;
   const deciders = decidersOf(run);
   const parent = run.parentRunId ? runById(run.parentRunId) : undefined;
   return {
-    ...runRow(run),
+    ...runRow(me, run),
     flow: copy(a.versions.find((v) => v.n === run.version)!.flow),
     deciders,
     permissions: {
@@ -255,10 +375,12 @@ export async function getRun(id: string): Promise<AutomationRunDetail | null> {
  */
 export async function listMyApprovals(): Promise<AutomationDecision[]> {
   const me = await gate("automations.listMyApprovals");
+  sweepApprovals();
   return state.automationRuns
     .filter((r) => decidersOf(r).includes(me))
     .sort((x, y) => (x.log.at(-1)?.at ?? "").localeCompare(y.log.at(-1)?.at ?? ""))
-    .map((run) => {
+    .map((source) => {
+      const run = viewRun(me, source);
       const a = automationById(run.automationId)!;
       const progetto = run.pending?.preview.progetto;
       return {
@@ -269,7 +391,7 @@ export async function listMyApprovals(): Promise<AutomationDecision[]> {
         automationId: a.id,
         automationName: a.name,
         projectId: typeof progetto === "string" ? progetto : a.projectId,
-        stepKind: stepOfRun(run)?.kind ?? "createTask",
+        stepKind: stepOfRun(source)?.kind ?? "createTask",
         preview: copy(run.pending?.preview ?? {}),
         since: run.log.at(-1)?.at ?? run.startedAt,
       };
