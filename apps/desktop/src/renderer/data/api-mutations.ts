@@ -158,7 +158,15 @@ const personName = (id: string | null) => PEOPLE.find((p) => p.id === id)?.name 
 
 // --- task -------------------------------------------------------------------
 
-function buildTask(me: string, input: NewTaskInput): Task {
+/**
+ * I controlli di una task nuova, senza scrivere niente: la usano la
+ * creazione e la prova delle automazioni (area 7), che deve fallire come la
+ * creazione vera.
+ */
+export function checkNewTask(
+  me: string,
+  input: Pick<NewTaskInput, "projectId" | "title" | "statusId">,
+): { project: Project; status: ProjectStatus } {
   const project = projectFor(me, input.projectId);
   need(me, "tickets.create", project.id);
   if (!input.title.trim()) throw invalid("title");
@@ -169,8 +177,16 @@ function buildTask(me: string, input: NewTaskInput): Task {
     ? statuses.find((s) => s.id === input.statusId)
     : statuses.find((s) => s.family === "todo");
   if (!status) throw invalid("status");
-  const departmentId =
-    input.departmentId ?? PEOPLE.find((p) => p.id === me)?.departmentIds[0] ?? DEPARTMENTS[0]!.id;
+  return { project, status };
+}
+
+/** Il reparto di una task nuova senza reparto: il primo di chi la crea. */
+export const defaultDepartmentOf = (me: string): string =>
+  PEOPLE.find((p) => p.id === me)?.departmentIds[0] ?? DEPARTMENTS[0]!.id;
+
+function buildTask(me: string, input: NewTaskInput): Task {
+  const { project, status } = checkNewTask(me, input);
+  const departmentId = input.departmentId ?? defaultDepartmentOf(me);
   const max = state.tasks
     .filter((t) => t.projectId === project.id)
     .reduce((m, t) => Math.max(m, Number(t.code.split("-").at(-1)) || 0), 0);
@@ -626,10 +642,19 @@ export async function createRequest(input: NewRequestInput): Promise<ProjectRequ
 }
 
 /** Crea una richiesta a nome di `me` (anche «Create request» da un messaggio della Chat). */
-export function createRequestAs(me: string, input: NewRequestInput): ProjectRequest {
+/** I controlli di una richiesta nuova, senza scrivere niente (vedi `checkNewTask`). */
+export function checkNewRequest(
+  me: string,
+  input: Pick<NewRequestInput, "projectId" | "title">,
+): Project {
   const project = projectFor(me, input.projectId);
   need(me, "backlog.create", project.id);
   if (!input.title.trim()) throw invalid("title");
+  return project;
+}
+
+export function createRequestAs(me: string, input: NewRequestInput): ProjectRequest {
+  const project = checkNewRequest(me, input);
   // Al posto dell'intake: la richiesta aperta dello stesso progetto con più parole in comune.
   const similar = findSimilarRequest(input.title, project.id, state.requests);
   // Il numero dopo il più alto del progetto: le richieste non si cancellano,
@@ -1142,10 +1167,15 @@ export async function createMilestone(
 }
 
 /** Crea un traguardo a nome di `me` (`tickets.edit`), anche da una proposta della posta o da un'automazione. */
-export function createMilestoneAs(me: string, projectId: string, input: MilestoneInput): Milestone {
+/** I controlli di un traguardo nuovo, senza scrivere niente (vedi `checkNewTask`). */
+export function checkNewMilestone(me: string, projectId: string, input: MilestoneInput): void {
   projectFor(me, projectId);
   need(me, "tickets.edit", projectId);
   checkMilestone(input);
+}
+
+export function createMilestoneAs(me: string, projectId: string, input: MilestoneInput): Milestone {
+  checkNewMilestone(me, projectId, input);
   const milestone: Milestone = {
     id: newId("ms"),
     projectId,

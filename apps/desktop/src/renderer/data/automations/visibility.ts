@@ -81,9 +81,12 @@ export function approversFor(a: Automation, who: ApprovalWho, projectId: string 
 
 /** Il progetto in cui decide chi approva il passo in attesa di un'esecuzione. */
 export function pendingProjectOf(run: AutomationRun, a: Automation): string | null {
-  const progetto = run.pending?.preview.progetto;
-  if (typeof progetto === "string") return progetto;
-  return a.projectId;
+  return approvalProjectOf(run.pending?.preview ?? {}, a);
+}
+
+/** Il progetto di un passo da approvare, dalla sua anteprima: quello risolto, o quello dell'automazione. */
+export function approvalProjectOf(preview: Record<string, unknown>, a: Automation): string | null {
+  return typeof preview.progetto === "string" ? preview.progetto : a.projectId;
 }
 
 /**

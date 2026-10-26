@@ -415,6 +415,11 @@ export type ApiFnName =
   | "automations.disconnectSource"
   | "automations.setClientLink"
   | "automations.removeClientLink"
+  // La prova (simulazione): in memoria, mai nello store.
+  | "automations.startSimulation"
+  | "automations.simulationStep"
+  | "automations.getSimulation"
+  | "automations.endSimulation"
   /** Un passo simulato di un'esecuzione: l'effetto (o la risposta di Claude) che arriva. */
   | "automations.advanceRun";
 const failures = new Set<ApiFnName>();

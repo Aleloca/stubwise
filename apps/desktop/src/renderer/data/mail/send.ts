@@ -4,6 +4,7 @@ import { BOUNCE_DOMAIN } from "../seed/mail";
 import { PEOPLE } from "../seed/people";
 import { chatNow, copy, gate, newId, now, onStoreReset, state, storeGeneration } from "../store";
 import type {
+  MailAddress,
   MailDraft,
   MailDraftAttachment,
   MailDraftRestore,
@@ -103,11 +104,15 @@ function deliver(id: string): void {
   attempt.settle();
 }
 
+/** Il primo indirizzo che non esiste (`@bounce.example`): l'invio fallirebbe. */
+const bouncedAmong = (recipients: MailAddress[]): MailAddress | undefined =>
+  recipients.find((a) => domainOf(a.email) === BOUNCE_DOMAIN);
+
 /** L'esito di un invio: partito (nelle caselle dei destinatari del team) o fallito. Vero se è partito. */
 function settleDelivery(m: MailMessage): boolean {
   const sentById = m.delivery!.sentById;
   const recipients = [...m.to, ...(m.cc ?? [])];
-  const bounced = recipients.find((a) => domainOf(a.email) === BOUNCE_DOMAIN);
+  const bounced = bouncedAmong(recipients);
   if (bounced) {
     m.delivery = { state: "failed", sentById, error: `address_not_found: ${bounced.email}` };
     return false;
@@ -270,6 +275,22 @@ export function sendNow(me: string, input: MailDraftInput): MailMessage {
   state.mailMessages.push(message);
   settleDelivery(message);
   return message;
+}
+
+/**
+ * `sendNow` senza spedire (la prova delle automazioni, area 7): gli stessi
+ * controlli, che lanciano come lancerebbe l'invio, e da quale indirizzo
+ * partirebbe; `bounced` è l'indirizzo che farebbe fallire l'invio. Non
+ * scrive niente.
+ */
+export function checkSendNow(
+  me: string,
+  input: MailDraftInput,
+): { from: string; bounced: string | null } {
+  const draft = draftFrom(me, input);
+  checkSendable(me, draft);
+  const bounced = bouncedAmong([...draft.to, ...draft.cc]);
+  return { from: mailboxOf(me).email, bounced: bounced?.email ?? null };
 }
 
 /** Il messaggio che parte da una bozza: in fondo alla conversazione, `sending`. */

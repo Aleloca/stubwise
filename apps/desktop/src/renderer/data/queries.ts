@@ -241,6 +241,8 @@ export const queryKeys = {
     ["as", personId, "automations", "approvals"] as const,
   automationSearch: (personId: string, q: string) =>
     ["as", personId, "automations", "search", q] as const,
+  automationSimulation: (personId: string, id: string) =>
+    ["as", personId, "automations", "simulation", id] as const,
 };
 
 export type AutomationListFilter = Parameters<typeof api.automations.listAutomations>[0];
@@ -3388,4 +3390,57 @@ export function useSimulateMailReply() {
   return useAutomationWrite(({ threadId, text }: { threadId: string; text: string }) =>
     api.mail.simulateReply(threadId, text),
   );
+}
+
+// --- la prova (simulazione) ----------------------------------------------------------
+//
+// La prova vive in memoria e non scrive mai nello store: i suoi hook non
+// invalidano nessun'area. Ogni passo restituisce la prova aggiornata, che
+// entra direttamente nella cache.
+
+/** Una prova; buttata, di un'altra persona o non più gestibile → `null`. */
+export function useAutomationSimulation(id: string | null) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.automationSimulation(me, id ?? ""),
+    queryFn: () => api.automations.getSimulation(id!),
+    enabled: id !== null,
+  });
+}
+
+/** Comincia una prova; con errori di configurazione rifiuta con `SimulationConfigError` (`issues`). */
+export function useStartAutomationSimulation() {
+  return useMutation({
+    mutationFn: ({
+      automationId,
+      version,
+      event,
+    }: {
+      automationId: string;
+      version: number | "draft";
+      event: Record<string, unknown>;
+    }) => api.automations.startSimulation(automationId, version, event),
+  });
+}
+
+/** «Passo successivo», «Vai alla prossima fermata» e gli sblocchi delle fermate. */
+export function useAutomationSimulationStep() {
+  const me = useSessionPersonId();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: api.automations.SimulationInput }) =>
+      api.automations.simulationStep(id, input),
+    onSuccess: (sim) => client.setQueryData(queryKeys.automationSimulation(me, sim.id), sim),
+  });
+}
+
+/** Butta la prova (uscendo, o ricominciando). */
+export function useEndAutomationSimulation() {
+  const me = useSessionPersonId();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.automations.endSimulation(id),
+    onSuccess: (_, id) =>
+      client.removeQueries({ queryKey: queryKeys.automationSimulation(me, id) }),
+  });
 }

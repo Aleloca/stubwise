@@ -167,6 +167,12 @@ function automationRow(me: string, a: Automation): AutomationRow {
 /** Al posto dell'email che ha avviato un'esecuzione, per chi non ne è il proprietario (R-J13). */
 export const MAIL_HIDDEN = "Un'email ricevuta dal proprietario";
 
+/** R-J12: un `progetto` (dati di una riga, anteprima) che chi guarda non vede diventa `""`. */
+export function hideProject(o: Record<string, unknown>, visible: ReadonlySet<string>): void {
+  if (typeof o.progetto === "string" && o.progetto !== "" && !visible.has(o.progetto))
+    o.progetto = "";
+}
+
 /** Il progetto di una cosa creata da un passo, se è in un progetto. */
 function projectOfEffect(kind: string, code: string): string | null {
   if (kind === "task") return state.tasks.find((t) => t.code === code)?.projectId ?? null;
@@ -197,10 +203,7 @@ function startedByMail(run: AutomationRun): boolean {
 export function viewRun(me: string, run: AutomationRun): AutomationRun {
   const v = copy(run);
   const visible = visibleProjectIds(me);
-  const scrub = (o: Record<string, unknown>) => {
-    if (typeof o.progetto === "string" && o.progetto !== "" && !visible.has(o.progetto))
-      o.progetto = "";
-  };
+  const scrub = (o: Record<string, unknown>) => hideProject(o, visible);
   v.projectIds = v.projectIds.filter((p) => visible.has(p));
   if (v.projects)
     v.projects = Object.fromEntries(Object.entries(v.projects).filter(([, p]) => visible.has(p)));

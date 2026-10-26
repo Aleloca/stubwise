@@ -296,6 +296,14 @@ const EDITABLE: Partial<Record<string, string[]>> = {
   notify: ["testo"],
 };
 
+/** Le correzioni di un'approvazione, per il tipo del passo: `invalid: edited` se non ammesse (anche nella prova). */
+export function checkEdited(kind: string | undefined, edited: Record<string, string>): void {
+  const allowed = EDITABLE[kind ?? ""] ?? [];
+  for (const [k, v] of Object.entries(edited)) {
+    if (!allowed.includes(k) || typeof v !== "string") throw invalid("edited");
+  }
+}
+
 /** Chi decide su un'esecuzione ferma: deve vederla, e deve essere fra chi decide ADESSO (R-J8). */
 function decision(me: string, id: string, status: AutomationRun["status"]): AutomationRun {
   sweepApprovals();
@@ -315,12 +323,7 @@ function decision(me: string, id: string, status: AutomationRun["status"]): Auto
 export async function approve(runId: string, edited?: Record<string, string>): Promise<void> {
   const me = await writer("automations.approve");
   const run = decision(me, runId, "waiting_approval");
-  if (edited) {
-    const allowed = EDITABLE[stepOfRun(run)?.kind ?? ""] ?? [];
-    for (const [k, v] of Object.entries(edited)) {
-      if (!allowed.includes(k) || typeof v !== "string") throw invalid("edited");
-    }
-  }
+  if (edited) checkEdited(stepOfRun(run)?.kind, edited);
   void enqueue(run.id, {
     kind: "approved",
     path: run.cursor!,

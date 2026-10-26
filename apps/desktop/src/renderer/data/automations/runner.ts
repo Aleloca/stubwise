@@ -12,6 +12,7 @@ import { copy, gate, newId, now, onStoreReset, state, storeGeneration } from "..
 import type { Automation, AutomationRun, RunLogEntry, RunStatus } from "../types";
 import { executeEffect } from "./effects";
 import {
+  approvalProjectOf,
   approversFor,
   automationById,
   decidersOf,
@@ -116,8 +117,7 @@ export function note(
 function pendingOf(st: EngineState, a: Automation, run: AutomationRun): AutomationRun["pending"] {
   const aw = st.awaiting;
   if (st.status === "waiting_approval" && aw?.kind === "approval") {
-    const progetto = aw.preview.progetto;
-    const projectId = typeof progetto === "string" ? progetto : a.projectId;
+    const projectId = approvalProjectOf(aw.preview, a);
     return { approverIds: approversFor(a, aw.who, projectId), preview: copy(aw.preview) };
   }
   if (st.status === "waiting_project" && aw?.kind === "project") {
@@ -192,13 +192,13 @@ function failWith(run: AutomationRun, error: string, reason: string): void {
  */
 export function failIfNoApprover(run: AutomationRun): boolean {
   if (run.status !== "waiting_approval" || decidersOf(run).length > 0) return false;
-  failWith(
-    run,
-    "no_approver",
-    "Nessuno può approvare questo passo: chi è indicato non c'è, o non vede il progetto. Va cambiato chi approva, poi si può riprovare.",
-  );
+  failWith(run, "no_approver", NO_APPROVER_REASON);
   return true;
 }
+
+/** La motivazione di `no_approver` (R-J11), anche nella prova. */
+export const NO_APPROVER_REASON =
+  "Nessuno può approvare questo passo: chi è indicato non c'è, o non vede il progetto. Va cambiato chi approva, poi si può riprovare.";
 
 /** R-J11 su tutte le esecuzioni ferme su un'approvazione. */
 export function sweepApprovals(): void {
@@ -328,6 +328,13 @@ async function step(
 export const publishedVersion = (a: Automation) =>
   [...a.versions].reverse().find((v) => v.publishedAt !== null) ?? null;
 
+/** Può nascere un'esecuzione? Attiva, con una versione pubblicata, sotto le 100 non finite. */
+export function canStartRun(a: Automation): boolean {
+  if (a.status !== "active" || !publishedVersion(a)) return false;
+  const open = state.automationRuns.filter((r) => r.automationId === a.id && isOpen(r));
+  return open.length < MAX_ACTIVE_RUNS;
+}
+
 /**
  * Fa nascere un'esecuzione di un'automazione attiva, con la versione
  * pubblicata, e la mette in coda. `null` se non può partire (non attiva,
@@ -340,9 +347,8 @@ export function startRun(
 ): AutomationRun | null {
   const parentRunId = opts.parentRunId ?? null;
   const version = publishedVersion(a);
-  if (a.status !== "active" || !version) return null;
+  if (!canStartRun(a) || !version) return null;
   const runs = state.automationRuns.filter((r) => r.automationId === a.id);
-  if (runs.filter(isOpen).length >= MAX_ACTIVE_RUNS) return null;
   const parent = parentRunId ? runById(parentRunId) : undefined;
   const at = parent ? runNow(parent) : now();
   const titled = initialState(version.flow, at);

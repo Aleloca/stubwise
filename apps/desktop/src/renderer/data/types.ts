@@ -2,11 +2,13 @@ import type { InstancePermission, ProjectPermission } from "@stubwise/shared";
 import type { FlowIssue } from "../domain/automations/validate";
 import type { Stall } from "../domain/stalled";
 import type {
+  Approval,
   Automation,
   AutomationFlow,
   AutomationRun,
   AutomationSource,
   ClientProjectLink,
+  RunLogEntry,
   RunStatus,
   Step,
   Channel,
@@ -799,4 +801,163 @@ export interface AutomationSearchResult {
 export interface AutomationMeta {
   name?: string;
   description?: string;
+}
+
+// --- Automations (area 7): la prova ----------------------------------------------
+//
+// Le anteprime della prova: cosa FAREBBE un passo, risolto con le regole
+// dell'esecuzione vera. Nessun codice (non nasce niente): una cosa si lega
+// al suo passo col percorso (`path`, R-J5), e il registro della prova ha
+// `effects[].code` sempre vuoto.
+
+/** Un progetto in un'anteprima; uno che chi prova non vede ha id, codice e nome vuoti (R-G5). */
+export interface SimulationProject {
+  id: string;
+  code: string;
+  name: string;
+}
+
+interface SimulationAt {
+  stepId: string;
+  /** Il percorso del passo (R-J5), giro compreso. */
+  path: string;
+}
+
+export interface SimulationTaskPreview extends SimulationAt {
+  project: SimulationProject;
+  title: string;
+  description: string;
+  assigneeId: string | null;
+  departmentId: string | null;
+  /** Come si è scelto l'incaricato: la persona, il reparto (senza incaricato), il primo col ruolo nel progetto, nessuno. */
+  assignedBy: "person" | "department" | "role" | "none";
+  role: string | null;
+  /** L'avviso del registro (es. nessuno ha il ruolo: la task nascerebbe senza incaricato). */
+  warning: string | null;
+  dueDate: string | null;
+  dueInDays: number | null;
+  /** Il traguardo che nascerebbe da un passo precedente della prova. */
+  milestone: { name: string; stepId: string; path: string } | null;
+}
+
+export interface SimulationMilestonePreview extends SimulationAt {
+  project: SimulationProject;
+  name: string;
+  dueDate: string | null;
+  dueInDays: number | null;
+}
+
+export interface SimulationRequestPreview extends SimulationAt {
+  project: SimulationProject;
+  title: string;
+  description: string;
+}
+
+export interface SimulationEmailPreview extends SimulationAt {
+  /** La casella del proprietario da cui partirebbe. */
+  from: string;
+  to: string;
+  subject: string;
+  body: string;
+  attachments: string[];
+}
+
+export interface SimulationNotificationPreview extends SimulationAt {
+  personId: string;
+  text: string;
+  project: SimulationProject | null;
+}
+
+/** «Avvia un'altra automazione»: la prova dice solo che partirebbe, non ne percorre i passi. */
+export interface SimulationStartPreview extends SimulationAt {
+  automationId: string;
+  code: string;
+  name: string;
+}
+
+export interface SimulationClaudePreview extends SimulationAt {
+  outcome: string | null;
+  fields: Record<string, unknown>;
+  reason: string;
+}
+
+export type SimulationEffectPreview =
+  | ({ kind: "task" } & SimulationTaskPreview)
+  | ({ kind: "milestone" } & SimulationMilestonePreview)
+  | ({ kind: "request" } & SimulationRequestPreview)
+  | ({ kind: "email" } & SimulationEmailPreview)
+  | ({ kind: "notification" } & SimulationNotificationPreview)
+  | ({ kind: "start" } & SimulationStartPreview);
+
+/** Dove la prova si è fermata ad aspettare chi prova. */
+export type SimulationWaiting =
+  | (SimulationAt & {
+      kind: "approval";
+      who: Extract<Approval, { mode: "ask" }>["who"];
+      /** Chi approverebbe davvero, risolto adesso (nella prova approva chi prova). */
+      realApproverIds: string[];
+      /** Chi sarebbe il proprietario. */
+      ownerId: string;
+    })
+  | (SimulationAt & {
+      kind: "event";
+      /** Fin quando aspetterebbe: «Avanti» manda un input `time` con questa data. */
+      until: string;
+      wait: Extract<Step, { kind: "wait" }>["for"];
+      /** L'email a cui si aspetta risposta (`replyTo`), se nella prova è partita. */
+      email: SimulationEmailPreview | null;
+      /** La task di cui si aspetta la chiusura (`taskClosed`). */
+      task: SimulationTaskPreview | null;
+    })
+  | (SimulationAt & {
+      kind: "project";
+      clientKey: string;
+      clientName: string | null;
+      /** Chi sceglierebbe davvero il progetto. */
+      ownerId: string;
+    });
+
+export interface SimulationView {
+  id: string;
+  automationId: string;
+  automationCode: string;
+  automationName: string;
+  /** La versione provata, e se è la bozza. */
+  version: number;
+  draft: boolean;
+  /** Chi sarebbe il proprietario: chi prova per una bozza (accenderla lo farebbe tale), altrimenti quello di adesso. */
+  ownerId: string;
+  event: Record<string, unknown>;
+  /** `running` = pronta per «Passo successivo»; le attese, la fine, il fallimento come in un'esecuzione. */
+  status: RunStatus;
+  error: string | null;
+  cursor: string | null;
+  /** L'«adesso» della prova (va avanti con «Avanti»). */
+  now: string;
+  log: RunLogEntry[];
+  vars: Record<string, unknown>;
+  loops: Record<string, unknown[]>;
+  /**
+   * Il passo al cursore, quando sta per fare qualcosa (pronto per «Passo
+   * successivo», o in attesa di approvazione): la sua anteprima, o il
+   * fallimento con cui la vera si fermerebbe.
+   */
+  current: {
+    stepId: string;
+    path: string;
+    kind: Step["kind"];
+    preview: SimulationEffectPreview | null;
+    failure: { error: string; reason: string | null } | null;
+  } | null;
+  waiting: SimulationWaiting | null;
+  /** Tutto ciò che farebbe, finora. */
+  preview: {
+    tasks: SimulationTaskPreview[];
+    milestones: SimulationMilestonePreview[];
+    requests: SimulationRequestPreview[];
+    emails: SimulationEmailPreview[];
+    notifications: SimulationNotificationPreview[];
+    starts: SimulationStartPreview[];
+    claude: SimulationClaudePreview[];
+  };
 }

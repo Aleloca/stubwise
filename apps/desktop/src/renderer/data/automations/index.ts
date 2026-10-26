@@ -2,7 +2,8 @@
 // Chi vede che cosa lo decide `visibility.ts`; gli effetti li esegue solo
 // `effects.ts`, a nome del proprietario; `runner.ts` fa avanzare le
 // esecuzioni col motore puro; `sources.ts` aggancia gli inizi di Stubwise
-// alle scritture di oggi (importarlo registra l'ascolto).
+// alle scritture di oggi (importarlo registra l'ascolto); `simulate.ts` è
+// la prova, che usa lo stesso motore e non scrive mai nello store.
 import "./sources";
 
 export {
@@ -37,5 +38,13 @@ export {
   skipStep,
   startManual,
 } from "./writes";
+export {
+  endSimulation,
+  getSimulation,
+  SimulationConfigError,
+  simulationStep,
+  startSimulation,
+  type SimulationInput,
+} from "./simulate";
 export { MAX_ACTIVE_RUNS, whenAutomationsIdle } from "./runner";
 export { canManageAutomation, canSeeAutomation } from "./visibility";

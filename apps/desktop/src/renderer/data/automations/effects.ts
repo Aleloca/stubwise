@@ -5,13 +5,21 @@ import {
 } from "../../domain/automations/engine";
 import { AUTOMATION_LIMITS } from "../../domain/automations/fields";
 import { show } from "../../domain/automations/preview";
-import { createMilestoneAs, createRequestAs, createTaskAs } from "../api-mutations";
-import { EMAIL, lower } from "../mail/compose";
+import {
+  checkNewMilestone,
+  checkNewRequest,
+  checkNewTask,
+  defaultDepartmentOf,
+  createMilestoneAs,
+  createRequestAs,
+  createTaskAs,
+} from "../api-mutations";
+import { EMAIL, lower, type MailDraftInput } from "../mail/compose";
 import { canSeeMessage } from "../mail/visibility";
-import { sendNow } from "../mail/send";
+import { checkSendNow, sendNow } from "../mail/send";
 import { PEOPLE } from "../seed/people";
 import { newId, state, visibleProjectIds } from "../store";
-import type { Automation, AutomationRun } from "../types";
+import type { Automation, AutomationRun, Step } from "../types";
 import { fakeClaude } from "./claudeFake";
 import { canSeeAutomation, holdersOfRole, runCode } from "./visibility";
 
@@ -31,6 +39,9 @@ import { canSeeAutomation, holdersOfRole, runCode } from "./visibility";
 //   uno che il proprietario non vede vale come non trovato (R-G5): l'attesa
 //   «scegli il progetto».
 // - Ogni task e traguardo creato porta `automationRef`.
+// - Ogni azione è un PIANO (`planTask`, `planEmail`… : controlli e
+//   risoluzioni, senza scrivere) seguito dalla scrittura. La prova
+//   (`simulate.ts`) usa gli stessi piani e non scrive mai.
 // Gli errori sono codici macchina; la prosa sta solo nel `reason` della riga.
 
 export interface EffectEnv {
@@ -125,49 +136,332 @@ const emailsSent = (runs: AutomationRun[]) =>
     0,
   );
 
-// --- le azioni ----------------------------------------------------------------------
+// --- i piani: cosa farebbe un'azione, senza scrivere ----------------------------------
+//
+// Ogni azione si decide in due tempi: il PIANO (progetto, incaricato,
+// scadenza, testi, mittente — e i controlli, con lo stesso codice e la
+// stessa motivazione dell'esecuzione vera) e la SCRITTURA. La prova
+// (`simulate.ts`) usa solo i piani: fallisce dove fallirebbe la vera, e
+// mostra quello che la vera farebbe, senza toccare lo store.
 
-function createTask(eff: Extract<EffectRequest, { args: unknown }>, env: EffectEnv, owner: string) {
-  const { automation: a, run } = env;
+type ActionEffect = Extract<EffectRequest, { args: unknown }>;
+
+/** Un piano, o il fallimento con cui l'esecuzione vera si fermerebbe. */
+export type Planned<T> = { ok: true; plan: T } | { ok: false; outcome: EffectOutcome };
+
+const refuse = (outcome: EffectOutcome) => ({ ok: false as const, outcome });
+
+/** L'incaricato di «Crea task» e come è stato scelto (Global Constraints). */
+export interface AssigneePlan {
+  assigneeId: string | null;
+  departmentId: string | undefined;
+  by: "person" | "department" | "role" | "none";
+  role: string | null;
+  /** La riga d'avviso del registro: nessuno ha il ruolo, la task nasce senza incaricato. */
+  reason: string | undefined;
+}
+
+/**
+ * Persona → lei (e il suo primo reparto); reparto → nessun incaricato, quel
+ * reparto; ruolo nel progetto → il primo col ruolo in ordine alfabetico,
+ * nessuno → senza incaricato e un avviso.
+ */
+export function resolveAssignee(
+  who: Extract<Step, { kind: "createTask" }>["assignee"],
+  projectId: string,
+): AssigneePlan {
+  const firstDepartment = (id: string) => PEOPLE.find((p) => p.id === id)?.departmentIds[0];
+  if (who && "personId" in who) {
+    return {
+      assigneeId: who.personId,
+      departmentId: firstDepartment(who.personId),
+      by: "person",
+      role: null,
+      reason: undefined,
+    };
+  }
+  if (who && "departmentId" in who) {
+    return {
+      assigneeId: null,
+      departmentId: who.departmentId,
+      by: "department",
+      role: null,
+      reason: undefined,
+    };
+  }
+  if (who && "projectRole" in who) {
+    const assigneeId = holdersOfRole(projectId, who.projectRole)[0] ?? null;
+    return {
+      assigneeId,
+      departmentId: assigneeId ? firstDepartment(assigneeId) : undefined,
+      by: "role",
+      role: who.projectRole,
+      reason: assigneeId
+        ? undefined
+        : `Nessuno ha il ruolo «${who.projectRole}» nel progetto: la task nasce senza incaricato.`,
+    };
+  }
+  return { assigneeId: null, departmentId: undefined, by: "none", role: null, reason: undefined };
+}
+
+export interface TaskPlan {
+  projectId: string;
+  title: string;
+  description: string;
+  assignee: AssigneePlan;
+  /** Il reparto della task: quello dell'incaricato o del passo, altrimenti il primo del proprietario. */
+  departmentId: string;
+  dueDate: string | null;
+  /** Il codice del traguardo creato da un passo precedente (`milestoneRef`). */
+  milestoneCode: string | null;
+}
+
+export function planTask(
+  eff: ActionEffect,
+  a: Automation,
+  owner: string,
+  now: string,
+): Planned<TaskPlan> {
   const projectId = projectOfEffect(eff, a);
-  if (!projectId || !visibleProjectIds(owner).has(projectId)) return lost(owner);
+  if (!projectId || !visibleProjectIds(owner).has(projectId)) return refuse(lost(owner));
   const args = eff.args as {
     title: string;
     description: string;
-    assignee: { personId: string } | { departmentId: string } | { projectRole: string } | null;
+    assignee: Extract<Step, { kind: "createTask" }>["assignee"];
     dueInDays: number | null;
     milestoneCode: string | null;
   };
-  let assigneeId: string | null = null;
-  let departmentId: string | undefined;
-  let reason: string | undefined;
-  const who = args.assignee;
-  if (who && "personId" in who) {
-    assigneeId = who.personId;
-    departmentId = PEOPLE.find((p) => p.id === who.personId)?.departmentIds[0];
-  } else if (who && "departmentId" in who) {
-    departmentId = who.departmentId;
-  } else if (who && "projectRole" in who) {
-    assigneeId = holdersOfRole(projectId, who.projectRole)[0] ?? null;
-    if (assigneeId) departmentId = PEOPLE.find((p) => p.id === assigneeId)?.departmentIds[0];
-    else
-      reason = `Nessuno ha il ruolo «${who.projectRole}» nel progetto: la task nasce senza incaricato.`;
+  try {
+    checkNewTask(owner, { projectId, title: args.title });
+  } catch (error) {
+    return refuse(asFailure(error, owner));
   }
+  const assignee = resolveAssignee(args.assignee, projectId);
+  return {
+    ok: true,
+    plan: {
+      projectId,
+      title: args.title,
+      description: args.description,
+      assignee,
+      departmentId: assignee.departmentId ?? defaultDepartmentOf(owner),
+      dueDate: dateIn(now, args.dueInDays),
+      milestoneCode: args.milestoneCode,
+    },
+  };
+}
+
+export interface MilestonePlan {
+  projectId: string;
+  name: string;
+  dueDate: string | null;
+}
+
+export function planMilestone(
+  eff: ActionEffect,
+  a: Automation,
+  owner: string,
+  now: string,
+): Planned<MilestonePlan> {
+  const projectId = projectOfEffect(eff, a);
+  if (!projectId || !visibleProjectIds(owner).has(projectId)) return refuse(lost(owner));
+  const args = eff.args as { name: string; dueInDays: number | null };
+  const plan = { projectId, name: args.name, dueDate: dateIn(now, args.dueInDays) };
+  try {
+    checkNewMilestone(owner, projectId, { name: plan.name, dueDate: plan.dueDate });
+  } catch (error) {
+    return refuse(asFailure(error, owner));
+  }
+  return { ok: true, plan };
+}
+
+export interface RequestPlan {
+  projectId: string;
+  title: string;
+  description: string;
+}
+
+export function planRequest(eff: ActionEffect, a: Automation, owner: string): Planned<RequestPlan> {
+  const projectId = projectOfEffect(eff, a);
+  if (!projectId || !visibleProjectIds(owner).has(projectId)) return refuse(lost(owner));
+  const args = eff.args as { title: string; description: string };
+  try {
+    checkNewRequest(owner, { projectId, title: args.title });
+  } catch (error) {
+    return refuse(asFailure(error, owner));
+  }
+  return { ok: true, plan: { projectId, title: args.title, description: args.description } };
+}
+
+export interface EmailPlan {
+  /** L'indirizzo della casella del proprietario da cui partirebbe. */
+  from: string;
+  to: string;
+  subject: string;
+  body: string;
+  /** Ciò che si passa a `sendNow`. */
+  input: MailDraftInput;
+  /** L'indirizzo che non esiste: l'email partirebbe e tornerebbe indietro. */
+  bounced: string | null;
+}
+
+/** La conversazione in cui va un'email: una nuova, o la risposta a un messaggio. */
+type ThreadOf = Pick<MailDraftInput, "threadId" | "mode" | "replyToMessageId" | "quote">;
+
+/**
+ * `sentSoFar`: le email già partite dalla catena (il limite di 20 la
+ * conta tutta); `thread`: in quale conversazione va; `attachmentId`: l'id
+ * di ogni allegato.
+ */
+export function planEmail(
+  eff: ActionEffect,
+  owner: string,
+  sentSoFar: number,
+  thread: (to: string) => ThreadOf,
+  attachmentId: (i: number) => string,
+): Planned<EmailPlan> {
+  const args = eff.args as { to: string; subject: string; body: string; attachments: unknown[] };
+  if (sentSoFar >= AUTOMATION_LIMITS.emailsPerRun) {
+    return refuse(
+      failed(
+        "email_limit",
+        `Limite raggiunto: al massimo ${AUTOMATION_LIMITS.emailsPerRun} email per esecuzione, contando le automazioni avviate da questa.`,
+      ),
+    );
+  }
+  if (!state.mailboxes.some((b) => b.personId === owner)) {
+    return refuse(
+      failed(
+        "mailbox_missing",
+        `Il proprietario (${personName(owner)}) non ha una casella collegata: l'email non è partita.`,
+      ),
+    );
+  }
+  if (state.googleAccounts.find((g) => g.personId === owner)?.status !== "connected") {
+    return refuse(
+      failed(
+        "mailbox_expired",
+        `La casella del proprietario (${personName(owner)}) è scaduta: va ricollegata prima di riprovare.`,
+      ),
+    );
+  }
+  const to = args.to.trim();
+  if (!EMAIL.test(to))
+    return refuse(failed("invalid_address", `«${to}» non è un indirizzo email.`));
+  const input: MailDraftInput = {
+    ...thread(to),
+    to: [{ name: "", email: to, personId: null }],
+    cc: [],
+    subject: args.subject,
+    body: args.body,
+    attachments: args.attachments.map((f, i) => ({
+      id: attachmentId(i),
+      name: show(f) || `Allegato ${i + 1}`,
+      sizeBytes: show((f as { testo?: unknown } | null)?.testo).length,
+      driveFileId: null,
+      as: "copy" as const,
+    })),
+  };
+  try {
+    const { from, bounced } = checkSendNow(owner, input);
+    return {
+      ok: true,
+      plan: { from, to, subject: args.subject, body: args.body, input, bounced },
+    };
+  } catch (error) {
+    return refuse(asFailure(error, owner));
+  }
+}
+
+/** L'email è tornata indietro: l'indirizzo non esiste. */
+export const bouncedFailure = (to: string): EffectOutcome =>
+  failed("address_not_found", `L'indirizzo «${to}» non esiste: l'email è tornata indietro.`);
+
+export interface NotifyPlan {
+  personId: string;
+  /** Il progetto del passo, o nessuno (una generale che non ne ha risolto uno). */
+  projectId: string | null;
+  text: string;
+}
+
+export function planNotify(eff: ActionEffect, a: Automation): Planned<NotifyPlan> {
+  const args = eff.args as { personId: string; text: string };
+  const person = PEOPLE.find((p) => p.id === args.personId && !p.isClaude);
+  if (!args.personId || !person) {
+    return refuse(
+      failed("no_recipient", "Non c'è nessuno da avvisare: il dato della persona è vuoto."),
+    );
+  }
+  // Il progetto del passo: quello dell'automazione, o uno risolto; una generale senza
+  // progetto avvisa senza progetto (mai un progetto preso a caso fra quelli toccati).
+  const projectId = projectOfEffect(eff, a) ?? a.projectId;
+  if (projectId && !visibleProjectIds(person.id).has(projectId)) {
+    return refuse(
+      failed("recipient_cant_see", `${person.name} non vede il progetto: l'avviso non parte.`),
+    );
+  }
+  return { ok: true, plan: { personId: person.id, projectId, text: args.text } };
+}
+
+/**
+ * «Avvia un'altra automazione»: quella da avviare, se si può. `chain`: le
+ * automazioni della catena di avvii sopra questa, questa compresa.
+ */
+export function planStart(eff: ActionEffect, owner: string, chain: string[]): Planned<Automation> {
+  const id = (eff.args as { automationId: string }).automationId;
+  const target = state.automations.find((a) => a.id === id);
+  if (!target || !canSeeAutomation(owner, target)) {
+    return refuse(
+      failed(
+        "automation_not_found",
+        "L'automazione da avviare non esiste o il proprietario non la vede.",
+      ),
+    );
+  }
+  if (target.status !== "active") {
+    return refuse(failed("automation_not_active", `«${target.name}» non è attiva: non è partita.`));
+  }
+  if (chain.includes(target.id)) {
+    return refuse(
+      failed("automation_cycle", `«${target.name}» è già in questa catena di avvii: niente cicli.`),
+    );
+  }
+  if (chain.length >= CHAIN_MAX) {
+    return refuse(
+      failed(
+        "chain_limit",
+        `Limite raggiunto: al massimo ${CHAIN_MAX} automazioni in una catena di avvii.`,
+      ),
+    );
+  }
+  return { ok: true, plan: target };
+}
+
+/** L'automazione avviata non può partire (troppe esecuzioni in corso, `startRun` → null). */
+export const RUN_LIMIT_REASON = (name: string) => `«${name}» ha già troppe esecuzioni in corso.`;
+
+// --- le azioni ----------------------------------------------------------------------
+
+function createTask(eff: ActionEffect, env: EffectEnv, owner: string) {
+  const { automation: a, run } = env;
+  const p = planTask(eff, a, owner, env.now);
+  if (!p.ok) return p.outcome;
+  const { plan } = p;
   const milestone = state.milestones.find(
-    (m) => m.id === args.milestoneCode && m.projectId === projectId,
+    (m) => m.id === plan.milestoneCode && m.projectId === plan.projectId,
   );
   const task = createTaskAs(owner, {
-    projectId,
-    title: args.title,
-    description: args.description,
-    assigneeId,
-    ...(departmentId ? { departmentId } : {}),
-    dueDate: dateIn(env.now, args.dueInDays),
+    projectId: plan.projectId,
+    title: plan.title,
+    description: plan.description,
+    assigneeId: plan.assignee.assigneeId,
+    departmentId: plan.departmentId,
+    dueDate: plan.dueDate,
     milestoneId: milestone?.id ?? null,
   });
   task.source = "automation";
   task.automationRef = { automationId: a.id, runId: run.id };
-  return done([task.code], projectId, reason);
+  return done([task.code], plan.projectId, plan.assignee.reason);
 }
 
 const lost = (owner: string) =>
@@ -176,80 +470,35 @@ const lost = (owner: string) =>
     `Permesso perso: il proprietario (${personName(owner)}) non vede più il progetto del passo.`,
   );
 
-function createMilestone(
-  eff: Extract<EffectRequest, { args: unknown }>,
-  env: EffectEnv,
-  owner: string,
-) {
-  const projectId = projectOfEffect(eff, env.automation);
-  if (!projectId || !visibleProjectIds(owner).has(projectId)) return lost(owner);
-  const args = eff.args as { name: string; dueInDays: number | null };
-  const milestone = createMilestoneAs(owner, projectId, {
-    name: args.name,
-    dueDate: dateIn(env.now, args.dueInDays),
+function createMilestone(eff: ActionEffect, env: EffectEnv, owner: string) {
+  const p = planMilestone(eff, env.automation, owner, env.now);
+  if (!p.ok) return p.outcome;
+  const milestone = createMilestoneAs(owner, p.plan.projectId, {
+    name: p.plan.name,
+    dueDate: p.plan.dueDate,
   });
   milestone.automationRef = { automationId: env.automation.id, runId: env.run.id };
-  return done([milestone.id], projectId);
+  return done([milestone.id], p.plan.projectId);
 }
 
-function createRequest(
-  eff: Extract<EffectRequest, { args: unknown }>,
-  env: EffectEnv,
-  owner: string,
-) {
-  const projectId = projectOfEffect(eff, env.automation);
-  if (!projectId || !visibleProjectIds(owner).has(projectId)) return lost(owner);
-  const args = eff.args as { title: string; description: string };
-  const request = createRequestAs(owner, {
-    projectId,
-    title: args.title,
-    description: args.description,
-  });
-  return done([request.code], projectId);
+function createRequest(eff: ActionEffect, env: EffectEnv, owner: string) {
+  const p = planRequest(eff, env.automation, owner);
+  if (!p.ok) return p.outcome;
+  const request = createRequestAs(owner, p.plan);
+  return done([request.code], p.plan.projectId);
 }
 
-function sendEmail(eff: Extract<EffectRequest, { args: unknown }>, env: EffectEnv, owner: string) {
-  const args = eff.args as { to: string; subject: string; body: string; attachments: unknown[] };
-  if (emailsSent(chainOf(env.run)) >= AUTOMATION_LIMITS.emailsPerRun) {
-    return failed(
-      "email_limit",
-      `Limite raggiunto: al massimo ${AUTOMATION_LIMITS.emailsPerRun} email per esecuzione, contando le automazioni avviate da questa.`,
-    );
-  }
-  if (!state.mailboxes.some((b) => b.personId === owner)) {
-    return failed(
-      "mailbox_missing",
-      `Il proprietario (${personName(owner)}) non ha una casella collegata: l'email non è partita.`,
-    );
-  }
-  if (state.googleAccounts.find((g) => g.personId === owner)?.status !== "connected") {
-    return failed(
-      "mailbox_expired",
-      `La casella del proprietario (${personName(owner)}) è scaduta: va ricollegata prima di riprovare.`,
-    );
-  }
-  const to = args.to.trim();
-  if (!EMAIL.test(to)) return failed("invalid_address", `«${to}» non è un indirizzo email.`);
-  const message = sendNow(owner, {
-    ...threadFor(env.run, owner, to),
-    to: [{ name: "", email: to, personId: null }],
-    cc: [],
-    subject: args.subject,
-    body: args.body,
-    attachments: args.attachments.map((f, i) => ({
-      id: `att-${env.run.id}-${eff.stepId}-${i}`,
-      name: show(f) || `Allegato ${i + 1}`,
-      sizeBytes: show((f as { testo?: unknown } | null)?.testo).length,
-      driveFileId: null,
-      as: "copy" as const,
-    })),
-  });
-  if (message.delivery?.state !== "sent") {
-    return failed(
-      "address_not_found",
-      `L'indirizzo «${to}» non esiste: l'email è tornata indietro.`,
-    );
-  }
+function sendEmail(eff: ActionEffect, env: EffectEnv, owner: string) {
+  const p = planEmail(
+    eff,
+    owner,
+    emailsSent(chainOf(env.run)),
+    (to) => threadFor(env.run, owner, to),
+    (i) => `att-${env.run.id}-${eff.stepId}-${i}`,
+  );
+  if (!p.ok) return p.outcome;
+  const message = sendNow(owner, p.plan.input);
+  if (message.delivery?.state !== "sent") return bouncedFailure(p.plan.to);
   return done([message.id]);
 }
 
@@ -260,7 +509,7 @@ function sendEmail(eff: Extract<EffectRequest, { args: unknown }>, env: EffectEn
  * aspetta. Una conversazione che il proprietario non vede (è cambiato) ne
  * apre una nuova.
  */
-function threadFor(run: AutomationRun, owner: string, to: string) {
+function threadFor(run: AutomationRun, owner: string, to: string): ThreadOf {
   const sent = run.log
     .filter((e) => e.kind === "sendEmail" && e.outcome === "ok")
     .flatMap((e) => e.effects.map((x) => x.code));
@@ -284,28 +533,19 @@ function threadFor(run: AutomationRun, owner: string, to: string) {
     : { threadId: null, mode: "new" as const, replyToMessageId: null };
 }
 
-function notify(eff: Extract<EffectRequest, { args: unknown }>, env: EffectEnv) {
-  const args = eff.args as { personId: string; text: string };
-  const person = PEOPLE.find((p) => p.id === args.personId && !p.isClaude);
-  if (!args.personId || !person) {
-    return failed("no_recipient", "Non c'è nessuno da avvisare: il dato della persona è vuoto.");
-  }
-  // Il progetto del passo: quello dell'automazione, o uno risolto; una generale senza
-  // progetto avvisa senza progetto (mai un progetto preso a caso fra quelli toccati).
-  const projectId = projectOfEffect(eff, env.automation) ?? env.automation.projectId;
-  if (projectId && !visibleProjectIds(person.id).has(projectId)) {
-    return failed("recipient_cant_see", `${person.name} non vede il progetto: l'avviso non parte.`);
-  }
+function notify(eff: ActionEffect, env: EffectEnv) {
+  const p = planNotify(eff, env.automation);
+  if (!p.ok) return p.outcome;
   const code = runCode(env.run);
   const notification = {
     id: newId("n"),
     kind: "automation.notify",
-    projectId,
+    projectId: p.plan.projectId,
     objectCode: code,
     departmentId: null,
-    recipientIds: [person.id],
+    recipientIds: [p.plan.personId],
     title: `${env.automation.name} · ${code}`,
-    body: args.text,
+    body: p.plan.text,
     createdAt: env.now,
     read: false,
     archived: false,
@@ -316,45 +556,21 @@ function notify(eff: Extract<EffectRequest, { args: unknown }>, env: EffectEnv) 
   return done([notification.id]);
 }
 
-function startAutomation(
-  eff: Extract<EffectRequest, { args: unknown }>,
-  env: EffectEnv,
-  owner: string,
-) {
-  const id = (eff.args as { automationId: string }).automationId;
-  const target = state.automations.find((a) => a.id === id);
-  if (!target || !canSeeAutomation(owner, target)) {
-    return failed(
-      "automation_not_found",
-      "L'automazione da avviare non esiste o il proprietario non la vede.",
-    );
-  }
-  if (target.status !== "active") {
-    return failed("automation_not_active", `«${target.name}» non è attiva: non è partita.`);
-  }
-  const chain = ancestorsOf(env.run);
-  if (chain.some((r) => r.automationId === target.id)) {
-    return failed(
-      "automation_cycle",
-      `«${target.name}» è già in questa catena di avvii: niente cicli.`,
-    );
-  }
-  if (chain.length >= CHAIN_MAX) {
-    return failed(
-      "chain_limit",
-      `Limite raggiunto: al massimo ${CHAIN_MAX} automazioni in una catena di avvii.`,
-    );
-  }
-  const child = env.spawn(target, env.run.event);
-  if (!child) {
-    return failed("run_limit", `«${target.name}» ha già troppe esecuzioni in corso.`);
-  }
+function startAutomation(eff: ActionEffect, env: EffectEnv, owner: string) {
+  const p = planStart(
+    eff,
+    owner,
+    ancestorsOf(env.run).map((r) => r.automationId),
+  );
+  if (!p.ok) return p.outcome;
+  const child = env.spawn(p.plan, env.run.event);
+  if (!child) return failed("run_limit", RUN_LIMIT_REASON(p.plan.name));
   return done([runCode(child)]);
 }
 
 // --- il progetto del cliente ------------------------------------------------------
 
-function resolveProject(
+export function resolveProject(
   eff: Extract<EffectRequest, { kind: "resolve_project" }>,
   owner: string,
 ): EffectOutcome {
