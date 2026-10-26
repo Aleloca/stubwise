@@ -51,10 +51,20 @@ import {
   CALENDAR_SERIES,
   CALENDAR_SYNC,
 } from "./seed/calendar";
+import {
+  AUTOMATIONS,
+  AUTOMATION_RUNS,
+  AUTOMATION_SOURCES,
+  CLIENT_PROJECT_LINKS,
+} from "./seed/automations";
 import { DEFAULT_SESSION_PERSON_ID, getSessionPersonId, setSessionPersonId } from "./session";
 import type {
   ActivityEntry,
   AppNotification,
+  Automation,
+  AutomationRun,
+  AutomationSource,
+  ClientProjectLink,
   Channel,
   ChatMessage,
   Conversation,
@@ -549,6 +559,13 @@ interface State {
   calendarSync: CalendarSync[];
   /** Gli eventi del seme che falliscono al primo salvataggio e lo hanno già fatto. */
   calendarFailedOnce: Set<string>;
+  // --- Automations (area 7) ---
+  automations: Automation[];
+  /** Le esecuzioni delle automazioni (non quelle di Claude: `conversations`). */
+  automationRuns: AutomationRun[];
+  automationSources: AutomationSource[];
+  /** La tabella cliente → progetto delle automazioni generali. */
+  clientProjectLinks: ClientProjectLink[];
 }
 
 function initialDocCodeSeq(): Map<string, number> {
@@ -639,6 +656,10 @@ function freshState(): State {
     calendarSeries: CALENDAR_SERIES.map(copy),
     calendarSync: CALENDAR_SYNC.map(copy),
     calendarFailedOnce: new Set(),
+    automations: AUTOMATIONS.map(copy),
+    automationRuns: AUTOMATION_RUNS.map(copy),
+    automationSources: AUTOMATION_SOURCES.map(copy),
+    clientProjectLinks: CLIENT_PROJECT_LINKS.map(copy),
   };
 }
 

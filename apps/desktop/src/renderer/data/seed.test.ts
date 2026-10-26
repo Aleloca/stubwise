@@ -60,8 +60,16 @@ import {
   MEETING_TRANSCRIPTS,
 } from "./seed/mail";
 import { CALENDAR_EVENTS, CALENDAR_PROPOSALS } from "./seed/calendar";
-import { VIEW_AS_PERSONAS } from "./viewer";
+import {
+  AUTOMATIONS,
+  AUTOMATION_CASES,
+  AUTOMATION_RUNS,
+  AUTOMATION_SOURCES,
+  CLIENT_PROJECT_LINKS,
+} from "./seed/automations";
+import { VIEW_AS_PERSONAS, can, viewerFor } from "./viewer";
 import type {
+  Step,
   Channel,
   ChatEventKind,
   ChatMessage,
@@ -1626,6 +1634,294 @@ describe("seed: Posta (area 6)", () => {
         if (a.fn === "acknowledgeReminder")
           expect(Object.keys(a.args).sort()).toEqual(["date", "title"]);
       }
+    }
+  });
+});
+
+describe("seed: Automations (area 7)", () => {
+  const NOW = `${TODAY}T12:00:00Z`;
+  const automation = (id: string) => {
+    const a = AUTOMATIONS.find((x) => x.id === id);
+    expect(a, id).toBeDefined();
+    return a!;
+  };
+  const run = (id: string) => {
+    const r = AUTOMATION_RUNS.find((x) => x.id === id);
+    expect(r, id).toBeDefined();
+    return r!;
+  };
+  const source = (id: string) => AUTOMATION_SOURCES.find((s) => s.id === id)!;
+  /** Tutti i passi di un albero, rami compresi, in ordine di visita. */
+  const allSteps = (steps: Step[]): Step[] =>
+    steps.flatMap((s) => [
+      s,
+      ...(s.kind === "claude" ? Object.values(s.branches).flatMap(allSteps) : []),
+      ...(s.kind === "condition" ? [...allSteps(s.then), ...allSteps(s.else)] : []),
+      ...(s.kind === "forEach" ? allSteps(s.steps) : []),
+      ...(s.kind === "repeatUntil" ? [...allSteps(s.steps), ...allSteps(s.onLimit)] : []),
+    ]);
+  const latestFlow = (id: string) => automation(id).versions.at(-1)!.flow;
+  const published = (id: string) => automation(id).versions.filter((v) => v.publishedAt !== null);
+
+  it("sorgenti: Audin collegato con 3 trattative chiuse, HubSpot scaduto, un webhook", () => {
+    const audin = AUTOMATION_SOURCES.filter((s) => s.kind === "audin");
+    expect(audin).toHaveLength(1);
+    expect(audin[0]!.status).toBe("connected");
+    expect(audin[0]!.sampleEvents).toHaveLength(3);
+    const hubspot = AUTOMATION_SOURCES.filter((s) => s.kind === "hubspot");
+    expect(hubspot.map((s) => s.status)).toEqual(["expired"]);
+    const webhooks = AUTOMATION_SOURCES.filter((s) => s.kind === "webhook");
+    expect(webhooks).toHaveLength(1);
+    expect(webhooks[0]!.sampleEvents.length).toBeGreaterThan(0);
+    expect(new Set(AUTOMATION_SOURCES.map((s) => s.id)).size).toBe(AUTOMATION_SOURCES.length);
+    // Le collega chi ha integrations.manage.
+    for (const s of AUTOMATION_SOURCES) {
+      expect(can(viewerFor(s.connectedById), "integrations.manage"), s.id).toBe(true);
+      expect(s.fields.length, s.id).toBeGreaterThan(0);
+    }
+  });
+
+  it("le trattative di Audin: prodotti diversi e un contratto PDF con testo", () => {
+    type Deal = {
+      trattativa: { prodotti: { nome: string }[]; contratto: { tipo: string; testo: string } };
+      cliente: { nome: string; email: string; dominio: string };
+    };
+    const deals = source(AUTOMATION_CASES.sources.audin).sampleEvents as unknown as Deal[];
+    const products = deals.map((d) =>
+      d.trattativa.prodotti
+        .map((p) => p.nome)
+        .sort()
+        .join(","),
+    );
+    expect(new Set(products).size).toBe(3);
+    for (const d of deals) {
+      expect(d.trattativa.contratto.tipo).toBe("pdf");
+      expect(d.trattativa.contratto.testo.length).toBeGreaterThan(200);
+      expect(d.cliente.email).toMatch(/@/);
+    }
+    // Ogni campo dichiarato dalla sorgente c'è nelle trattative.
+    const read = (o: unknown, key: string) =>
+      key.split(".").reduce<unknown>((n, k) => (n as Record<string, unknown>)?.[k], o);
+    for (const f of source(AUTOMATION_CASES.sources.audin).fields) {
+      for (const d of deals) expect(read(d, f.key), f.key).toBeDefined();
+    }
+  });
+
+  it("tabella cliente → progetto: 3 righe, una verso un progetto che qualcuno non vede", () => {
+    expect(CLIENT_PROJECT_LINKS).toHaveLength(3);
+    expect(new Set(CLIENT_PROJECT_LINKS.map((l) => l.clientKey)).size).toBe(3);
+    for (const l of CLIENT_PROJECT_LINKS)
+      expect(projectsById.has(l.projectId), l.clientKey).toBe(true);
+    const hiddenTo = (projectId: string) =>
+      VIEW_AS_PERSONAS.filter(
+        (p) =>
+          p.viewer.instancePermissions.includes("instance.full_admin") === false &&
+          !projectsById.get(projectId)!.memberIds.includes(p.personId),
+      );
+    expect(CLIENT_PROJECT_LINKS.some((l) => hiddenTo(l.projectId).length > 0)).toBe(true);
+    // Una trattativa di Audin col cliente fuori dalla tabella (→ «scegli il progetto»).
+    const keys = new Set(CLIENT_PROJECT_LINKS.map((l) => l.clientKey));
+    const deals = source(AUTOMATION_CASES.sources.audin).sampleEvents as {
+      cliente: { dominio: string };
+    }[];
+    expect(deals.filter((d) => !keys.has(d.cliente.dominio))).toHaveLength(1);
+  });
+
+  it("codici unici e nel formato: <PRJ>-A<n> di progetto, AUT-<n> generale", () => {
+    expect(new Set(AUTOMATIONS.map((a) => a.id)).size).toBe(AUTOMATIONS.length);
+    expect(new Set(AUTOMATIONS.map((a) => a.code)).size).toBe(AUTOMATIONS.length);
+    for (const a of AUTOMATIONS) {
+      if (a.projectId === null) expect(a.code).toMatch(/^AUT-[1-9]\d*$/);
+      else {
+        const project = projectsById.get(a.projectId);
+        expect(project, a.id).toBeDefined();
+        expect(a.code).toMatch(new RegExp(`^${project!.code}-A[1-9]\\d*$`));
+      }
+    }
+  });
+
+  it("«Nuovo contratto» (AUT-1): generale, attiva, di chi ha automations.manage d'istanza", () => {
+    const a = automation(AUTOMATION_CASES.automations.newContract);
+    expect(a).toMatchObject({
+      code: "AUT-1",
+      name: "Nuovo contratto",
+      projectId: null,
+      status: "active",
+    });
+    expect(a.ownerId).not.toBeNull();
+    expect(can(viewerFor(a.ownerId!), "automations.manage")).toBe(true);
+    const flow = latestFlow(a.id);
+    expect(flow.trigger).toEqual({
+      kind: "source",
+      sourceId: AUTOMATION_CASES.sources.audin,
+      event: "deal_won",
+    });
+    const kinds = flow.steps.map((s) => s.kind);
+    // Claude legge contratto e prodotti → traguardo → per ogni task → email di benvenuto.
+    expect(kinds).toEqual(["claude", "createMilestone", "forEach", "sendEmail"]);
+    const claude = flow.steps[0]!;
+    if (claude.kind !== "claude") throw new Error("claude");
+    expect(claude.inputs).toEqual(
+      expect.arrayContaining(["trattativa.contratto", "trattativa.prodotti"]),
+    );
+    expect(claude.fields.find((f) => f.type === "list")).toBeDefined();
+    const milestone = flow.steps[1]!;
+    if (milestone.kind !== "createMilestone") throw new Error("milestone");
+    expect(milestone.name).toMatch(/^Attivazione .+ – .+$/);
+    expect(milestone.project.mode).toBe("from_client");
+    const forEach = flow.steps[2]!;
+    if (forEach.kind !== "forEach") throw new Error("forEach");
+    const tasks = allSteps(forEach.steps).filter((s) => s.kind === "createTask");
+    expect(tasks.length).toBeGreaterThan(1);
+    for (const t of tasks) {
+      if (t.kind !== "createTask") continue;
+      expect(t.assignee && "departmentId" in t.assignee, t.id).toBe(true);
+      expect(t.milestoneRef).toBe(milestone.id);
+    }
+    const email = flow.steps[3]!;
+    expect(email.kind === "sendEmail" && email.approval.mode).toBe("ask");
+  });
+
+  it("«Richiesta dati al cliente» (AUD-A1): di AUD, attiva, di Laura; email → attesa → promemoria → Claude", () => {
+    const a = automation(AUTOMATION_CASES.automations.clientData);
+    expect(a).toMatchObject({
+      code: "AUD-A1",
+      name: "Richiesta dati al cliente",
+      projectId: "prj-aud",
+      status: "active",
+      ownerId: "p-laura",
+    });
+    expect(can(viewerFor("p-laura"), "automations.manage", "prj-aud")).toBe(true);
+    const flow = latestFlow(a.id);
+    const [ask, wait, reminders, check] = flow.steps;
+    expect(ask!.kind).toBe("sendEmail");
+    expect(wait).toMatchObject({ kind: "wait", for: { replyTo: ask!.id, maxDays: 5 } });
+    if (reminders!.kind !== "repeatUntil") throw new Error("repeatUntil");
+    expect(reminders!.max).toBe(2);
+    expect(reminders!.steps.map((s) => s.kind)).toEqual(["sendEmail", "wait"]);
+    expect(reminders!.onLimit.length).toBeGreaterThan(0);
+    const claude = allSteps(flow.steps).find((s) => s.kind === "claude");
+    if (claude?.kind !== "claude") throw new Error("claude");
+    expect(check!.kind).toBe("condition");
+    expect(claude.outcomes).toEqual(["tutto presente", "mancano informazioni"]);
+    expect(Object.keys(claude.branches).sort()).toEqual(claude.outcomes.slice().sort());
+    expect(claude.branches["tutto presente"]!.some((s) => s.kind === "createTask")).toBe(true);
+    const missing = claude.branches["mancano informazioni"]!;
+    const missingEmail = missing.find((s) => s.kind === "sendEmail");
+    expect(missingEmail?.kind === "sendEmail" && missingEmail.approval.mode).toBe("ask");
+    // «e torna ad aspettare»
+    expect(missing.some((s) => s.kind === "wait")).toBe(true);
+  });
+
+  it("una bozza mai accesa e un'automazione in pausa", () => {
+    const draft = automation(AUTOMATION_CASES.automations.draft);
+    expect(draft.status).toBe("draft");
+    expect(draft.ownerId).toBeNull();
+    expect(published(draft.id)).toHaveLength(0);
+    expect(AUTOMATION_RUNS.some((r) => r.automationId === draft.id)).toBe(false);
+    const paused = automation(AUTOMATION_CASES.automations.paused);
+    expect(paused.status).toBe("paused");
+    expect(paused.ownerId).not.toBeNull();
+    expect(published(paused.id).length).toBeGreaterThan(0);
+  });
+
+  it("ogni flusso: id dei passi unici, ripetizioni entro il limite, approvatori indicati", () => {
+    for (const a of AUTOMATIONS) {
+      for (const v of a.versions) {
+        const steps = allSteps(v.flow.steps);
+        expect(new Set(steps.map((s) => s.id)).size, `${a.code} v${v.n}`).toBe(steps.length);
+        for (const s of steps) {
+          if (s.kind === "repeatUntil") {
+            expect(s.max).toBeGreaterThan(0);
+            expect(s.max).toBeLessThanOrEqual(10);
+          }
+          if (s.kind === "claude") {
+            expect(s.outcomes.length + s.fields.length, s.id).toBeGreaterThan(0);
+            for (const k of Object.keys(s.branches)) expect(s.outcomes, s.id).toContain(k);
+          }
+          if ("approval" in s && s.approval.mode === "ask" && "personId" in s.approval.who) {
+            expect(
+              PEOPLE.some(
+                (p) => p.id === (s.approval as { who: { personId: string } }).who.personId,
+              ),
+            ).toBe(true);
+          }
+        }
+        expect(v.flow.titleTemplate.length).toBeGreaterThan(0);
+      }
+      // Versioni numerate da 1; solo l'ultima può essere bozza.
+      expect(a.versions.map((v) => v.n)).toEqual(a.versions.map((_, i) => i + 1));
+      for (const v of a.versions.slice(0, -1)) expect(v.publishedAt, a.code).not.toBeNull();
+      for (const v of a.versions) {
+        if (v.publishedAt) {
+          expect(v.publishedAt <= NOW).toBe(true);
+          expect(v.publishedById).not.toBeNull();
+        }
+      }
+    }
+  });
+
+  it.todo("ogni flusso del seme passa validateFlow (si attiva nel Task 2)");
+
+  it("esecuzioni: in attesa del cliente da 3 giorni, ferma su un'approvazione, finita, fallita, senza progetto", () => {
+    const waitingEvent = run(AUTOMATION_CASES.runs.waitingEvent);
+    expect(waitingEvent.status).toBe("waiting_event");
+    expect(waitingEvent.log.at(-1)!.outcome).toBe("waiting");
+    expect(waitingEvent.log.at(-1)!.at.slice(0, 10)).toBe(daysFromToday(-3));
+    expect(waitingEvent.waitingUntil! > NOW).toBe(true);
+
+    const approval = run(AUTOMATION_CASES.runs.waitingApproval);
+    expect(approval.status).toBe("waiting_approval");
+    expect(approval.pending!.approverIds).toEqual(["p-laura"]);
+    expect(Object.keys(approval.pending!.preview).sort()).toEqual(["body", "subject", "to"]);
+    // Il passo da approvare non ha prodotto effetti.
+    expect(approval.log.at(-1)).toMatchObject({
+      kind: "sendEmail",
+      outcome: "waiting",
+      effects: [],
+    });
+
+    const done = run(AUTOMATION_CASES.runs.done);
+    expect(done.status).toBe("done");
+    expect(done.endedAt).not.toBeNull();
+    expect(done.log.some((e) => e.kind === "claude" && e.reason)).toBe(true);
+    expect(done.log.some((e) => e.outcome === "approved" && e.byId)).toBe(true);
+
+    const failed = run(AUTOMATION_CASES.runs.failed);
+    expect(failed.status).toBe("failed");
+    expect(failed.error).toBe("permesso perso");
+    expect(failed.log.at(-1)).toMatchObject({ outcome: "failed", reason: "permesso perso" });
+
+    const project = run(AUTOMATION_CASES.runs.waitingProject);
+    expect(project.status).toBe("waiting_project");
+    expect(project.projectIds).toEqual([]);
+    expect(project.pending!.approverIds).toEqual([automation(project.automationId).ownerId]);
+  });
+
+  it("esecuzioni coerenti: numerate per automazione, versione pubblicata, date, stati finali", () => {
+    const keys = AUTOMATION_RUNS.map((r) => `${r.automationId}#${r.n}`);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(new Set(AUTOMATION_RUNS.map((r) => r.id)).size).toBe(AUTOMATION_RUNS.length);
+    const terminal = new Set(["done", "failed", "cancelled"]);
+    for (const r of AUTOMATION_RUNS) {
+      const a = automation(r.automationId);
+      expect(
+        published(a.id).map((v) => v.n),
+        r.id,
+      ).toContain(r.version);
+      expect(r.startedAt <= NOW, r.id).toBe(true);
+      expect(r.endedAt !== null, r.id).toBe(terminal.has(r.status));
+      expect(r.pending !== null, r.id).toBe(
+        r.status === "waiting_approval" || r.status === "waiting_project",
+      );
+      expect(r.log[0]!.kind, r.id).toBe("trigger");
+      for (const e of r.log) {
+        expect(e.at >= r.startedAt && e.at <= NOW, `${r.id} ${e.stepId}`).toBe(true);
+        if (e.kind === "claude" && e.outcome === "ok") expect(e.reason, r.id).not.toBeNull();
+      }
+      for (const p of r.projectIds) expect(projectsById.has(p), r.id).toBe(true);
+      if (a.projectId) expect(r.projectIds, r.id).toEqual([a.projectId]);
+      expect(r.title.length).toBeGreaterThan(0);
     }
   });
 });

@@ -2022,3 +2022,237 @@ export type CalendarScope = "one" | "series";
 export type CalendarSeriesPatch = Partial<
   Pick<CalendarSeries, "projectId" | "enabled" | "action" | "leadDays" | "auto">
 >;
+
+// --- Automations (area 7) ----------------------------------------------------
+
+// Un flusso è un documento dichiarativo ad albero (JSON tipato): lo valida
+// una funzione pura e lo interpreta un motore puro (`domain/automations`).
+// Niente salti all'indietro: i cicli sono solo `forEach` e `repeatUntil`.
+// Nei testi dei passi i dati si citano con `{{chiave}}` (es. `{{cliente.nome}}`).
+
+export type FieldType = "text" | "number" | "date" | "email" | "person" | "list" | "file";
+
+/** Un dato che i passi possono usare: dell'inizio, o prodotto da un passo precedente. */
+export interface DataField {
+  /** Es. "trattativa.cliente". */
+  key: string;
+  label: string;
+  type: FieldType;
+  /** Per un elenco: i campi di ogni elemento (chiavi relative all'elemento). */
+  of?: DataField[];
+}
+
+export type AutomationTrigger =
+  | { kind: "source"; sourceId: string; event: "deal_won" | "webhook" }
+  | {
+      kind: "stubwise";
+      event:
+        | "task_created"
+        | "task_closed"
+        | "request_created"
+        | "milestone_reached"
+        | "mail_received";
+      filter?: Condition;
+    }
+  /** `rule`: una RRULE semplice, es. "FREQ=WEEKLY;BYDAY=MO;BYHOUR=9". */
+  | { kind: "schedule"; rule: string }
+  | { kind: "manual" };
+
+export type Operand = { ref: string } | { value: string | number | null };
+
+/** Un gruppo (`all`/`any`) o un confronto (`left op right`); niente espressioni libere. */
+export interface Condition {
+  all?: Condition[];
+  any?: Condition[];
+  left?: Operand;
+  op?: "is" | "is_not" | "contains" | "empty" | "not_empty" | "gt" | "lt";
+  right?: Operand;
+}
+
+/** «Parte da solo» o «Chiede approvazione a …» (persona, ruolo nel progetto, il proprietario). */
+export type Approval =
+  | { mode: "auto" }
+  | { mode: "ask"; who: { personId: string } | { projectRole: string } | { owner: true } };
+
+/** Il progetto del passo: quello dell'automazione, uno fisso, o dal cliente (tabella cliente → progetto). */
+export type ProjectTarget =
+  | { mode: "own" }
+  | { mode: "fixed"; projectId: string }
+  | { mode: "from_client"; clientRef: string };
+
+export type Step =
+  | {
+      id: string;
+      kind: "createTask";
+      title: string;
+      description: string;
+      assignee: { personId: string } | { departmentId: string } | { projectRole: string } | null;
+      dueInDays: number | null;
+      project: ProjectTarget;
+      /** L'id di un passo `createMilestone` precedente. */
+      milestoneRef: string | null;
+      approval: Approval;
+    }
+  | {
+      id: string;
+      kind: "createMilestone";
+      name: string;
+      dueInDays: number | null;
+      project: ProjectTarget;
+      approval: Approval;
+    }
+  | {
+      id: string;
+      kind: "createRequest";
+      title: string;
+      description: string;
+      project: ProjectTarget;
+      approval: Approval;
+    }
+  | {
+      id: string;
+      kind: "sendEmail";
+      /** Un modello, es. "{{cliente.email}}". */
+      to: string;
+      subject: string;
+      body: string;
+      attachRefs: string[];
+      approval: Approval;
+    }
+  | { id: string; kind: "notify"; personRef: string; text: string; approval: Approval }
+  | { id: string; kind: "startAutomation"; automationId: string; approval: Approval }
+  | {
+      id: string;
+      kind: "wait";
+      /** Un tempo, la risposta a un `sendEmail` (per id) o una task chiusa, col massimo di giorni. */
+      for:
+        | { days: number }
+        | { replyTo: string; maxDays: number }
+        | { taskClosed: string; maxDays: number };
+    }
+  | {
+      id: string;
+      kind: "claude";
+      instruction: string;
+      inputs: string[];
+      /** Le sole uscite ammesse (regola 2 dell'anti-obiettivo). */
+      outcomes: string[];
+      /** I soli campi che può compilare, col loro tipo. */
+      fields: DataField[];
+      /** I passi di ogni uscita; un'uscita senza ramo prosegue. */
+      branches: Record<string, Step[]>;
+    }
+  | { id: string; kind: "condition"; when: Condition; then: Step[]; else: Step[] }
+  | { id: string; kind: "forEach"; list: string; as: string; steps: Step[] }
+  | {
+      id: string;
+      kind: "repeatUntil";
+      until: Condition;
+      /** Obbligatorio (≤ 10); finito, esce da `onLimit` («limite raggiunto»). */
+      max: number;
+      steps: Step[];
+      onLimit: Step[];
+    };
+
+export interface AutomationFlow {
+  trigger: AutomationTrigger;
+  steps: Step[];
+  /** Il titolo di ogni esecuzione, es. "Nuovo contratto – {{cliente.nome}}". */
+  titleTemplate: string;
+}
+
+export interface AutomationVersion {
+  n: number;
+  flow: AutomationFlow;
+  /** null = bozza. */
+  publishedAt: string | null;
+  publishedById: string | null;
+}
+
+export interface Automation {
+  id: string;
+  /** `<PRJ>-A<n>` di progetto, `AUT-<n>` generale; mai riusati. */
+  code: string;
+  name: string;
+  description: string;
+  /** null = generale. */
+  projectId: string | null;
+  /** Chi l'ha accesa (o ne ha pubblicato l'ultima versione): gli effetti girano coi suoi permessi. */
+  ownerId: string | null;
+  status: "draft" | "active" | "paused";
+  /** In ordine; l'ultima può essere una bozza. */
+  versions: AutomationVersion[];
+  createdAt: string;
+}
+
+export type RunStatus =
+  | "running"
+  | "waiting_approval"
+  | "waiting_event"
+  | "waiting_project"
+  | "suspended"
+  | "done"
+  | "failed"
+  | "cancelled";
+
+/** Una riga del registro di un'esecuzione (regola 3: tutto tracciato). */
+export interface RunLogEntry {
+  at: string;
+  stepId: string;
+  /** Es. "3/forEach[2]/1". */
+  path: string;
+  kind: Step["kind"] | "trigger";
+  outcome: "ok" | "skipped" | "failed" | "waiting" | "approved" | "rejected" | "limit";
+  input: Record<string, unknown>;
+  output: Record<string, unknown>;
+  /** La motivazione (di Claude, o del fallimento). */
+  reason: string | null;
+  /** Chi ha approvato, rifiutato, riprovato o saltato. */
+  byId: string | null;
+  /** Le cose create dal passo (task, traguardo…) col loro codice. */
+  effects: { kind: string; code: string }[];
+}
+
+export interface AutomationRun {
+  id: string;
+  automationId: string;
+  /** Numerata per automazione: «AUD-A1 #2». */
+  n: number;
+  /** La versione con cui è partita, e con cui finisce. */
+  version: number;
+  title: string;
+  status: RunStatus;
+  event: Record<string, unknown>;
+  vars: Record<string, unknown>;
+  /** Il percorso del passo corrente. */
+  cursor: string | null;
+  waitingUntil: string | null;
+  /** Approvazione o «scegli il progetto» in attesa: chi decide e cosa vede. */
+  pending: { approverIds: string[]; preview: Record<string, unknown> } | null;
+  log: RunLogEntry[];
+  startedAt: string;
+  endedAt: string | null;
+  error: string | null;
+  /** I progetti in cui ha agito (per le generali: dalla tabella cliente → progetto). */
+  projectIds: string[];
+}
+
+export interface AutomationSource {
+  id: string;
+  kind: "audin" | "hubspot" | "webhook";
+  name: string;
+  status: "connected" | "expired" | "disconnected";
+  connectedById: string;
+  /** Eventi di esempio: «Simula un evento» ne fa arrivare uno, la prova li offre. */
+  sampleEvents: Record<string, unknown>[];
+  /** I dati che i suoi eventi portano. */
+  fields: DataField[];
+}
+
+/** Una riga della tabella cliente → progetto (gestita da chi ha `integrations.manage`). */
+export interface ClientProjectLink {
+  /** Es. il dominio o l'id del cliente. */
+  clientKey: string;
+  clientName: string;
+  projectId: string;
+}

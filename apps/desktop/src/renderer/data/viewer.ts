@@ -36,6 +36,7 @@ export const LOCAL_INSTANCE_PERMISSIONS: readonly LocalInstancePermission[] = [
   "people.activity.view",
   "chat.general.create",
   "chat.general.manage",
+  "automations.manage",
 ];
 
 const INSTANCE_SET: ReadonlySet<string> = new Set<string>([
@@ -45,13 +46,21 @@ const INSTANCE_SET: ReadonlySet<string> = new Set<string>([
 const PROJECT_SET: ReadonlySet<string> = new Set(PROJECT_PERMISSIONS);
 
 /**
+ * Permessi che esistono con lo stesso nome a due livelli (area 7: le
+ * automazioni di progetto e quelle generali). `can` con un progetto legge
+ * quello di progetto, senza progetto quello d'istanza.
+ */
+const BOTH_LEVELS: ReadonlySet<string> = new Set<string>(["automations.manage"]);
+
+/**
  * Permessi di progetto che vivono solo nel prototipo, per preset: entrano nel
  * registro di `@stubwise/shared` quando si costruisce il backend.
  * `planning.others` è del Project Lead (e implicito per il full admin); i
  * canali della Chat (area 4) li crea il Project Lead o il Developer e li
  * gestisce il Project Lead. Il Drive (area 5): carica chiunque lavori nel
  * progetto (anche il Legacy Member, shape drive.md [A 14]), non il Viewer;
- * gestire e vedere lo storico delle aperture è del Project Lead.
+ * gestire e vedere lo storico delle aperture è del Project Lead. Le
+ * automazioni del progetto (area 7) le gestisce il Project Lead.
  */
 const LOCAL_PROJECT_PERMISSIONS: Record<string, LocalProjectPermission[]> = {
   project_lead: [
@@ -61,6 +70,7 @@ const LOCAL_PROJECT_PERMISSIONS: Record<string, LocalProjectPermission[]> = {
     "drive.upload",
     "drive.manage",
     "drive.history",
+    "automations.manage",
   ],
   developer: ["chat.channels.create", "drive.upload"],
   contributor: ["drive.upload"],
@@ -75,12 +85,13 @@ function roleKeys(key: string): readonly string[] {
 
 function instancePermsOf(key: string): (InstancePermission | LocalInstancePermission)[] {
   // «Vedere le conversazioni pubbliche con Claude» e «creare canali generali»:
-  // di base ai preset User e Admin; «gestire i canali generali» all'Admin.
+  // di base ai preset User e Admin; «gestire i canali generali» e le
+  // automazioni generali (area 7) all'Admin.
   return [
     ...effectiveInstancePermissions(roleKeys(key)),
     "claude.public.view",
     "chat.general.create",
-    ...(key === "admin" ? (["chat.general.manage"] as const) : []),
+    ...(key === "admin" ? (["chat.general.manage", "automations.manage"] as const) : []),
   ];
 }
 
@@ -305,10 +316,14 @@ export function resetViewerGrants(): void {
 
 const isFullAdmin = (viewer: Viewer) => viewer.instancePermissions.includes("instance.full_admin");
 
-/** Stessa semantica di `hasPermission` in `apps/web/src/lib/permissions.ts`. */
+/**
+ * Stessa semantica di `hasPermission` in `apps/web/src/lib/permissions.ts`.
+ * Per un permesso a due livelli (`BOTH_LEVELS`) il progetto sceglie quale:
+ * con `projectId` quello di progetto, senza quello d'istanza.
+ */
 export function can(viewer: Viewer, perm: Permission, projectId?: string): boolean {
   if (isFullAdmin(viewer)) return true;
-  if (INSTANCE_SET.has(perm))
+  if (INSTANCE_SET.has(perm) && !(BOTH_LEVELS.has(perm) && projectId !== undefined))
     return viewer.instancePermissions.includes(
       perm as InstancePermission | LocalInstancePermission,
     );

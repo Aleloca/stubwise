@@ -274,3 +274,54 @@ describe("viewer", () => {
     });
   });
 });
+
+describe("permessi delle Automations (area 7)", () => {
+  const AUD = "prj-aud";
+  const MKX = "prj-mkx";
+
+  it("automations.manage di progetto: al Project Lead dove lo è, non a Developer né Contributor", () => {
+    expect(can(byPerson("p-laura"), "automations.manage", AUD)).toBe(true);
+    expect(can(byPerson("p-marco"), "automations.manage", AUD)).toBe(false);
+    expect(can(byPerson("p-sara"), "automations.manage", "prj-stw")).toBe(false);
+    expect(GIULIA_LEAD_CODES).toContain("MKX");
+    expect(can(byPerson("p-giulia"), "automations.manage", MKX)).toBe(true);
+    // Giulia è Contributor su AUD: lì niente.
+    expect(can(byPerson("p-giulia"), "automations.manage", AUD)).toBe(false);
+    // Matteo, Project Lead tipico, è membro di AUD.
+    expect(can(byPerson("p-matteo"), "automations.manage", AUD)).toBe(true);
+    // Fuori dai progetti di cui si è membri, niente.
+    expect(can(byPerson("p-laura"), "automations.manage", MKX)).toBe(false);
+  });
+
+  it("automations.manage d'istanza (le generali): solo all'admin; senza progetto è quello d'istanza", () => {
+    expect(can(byPerson("p-roberta"), "automations.manage")).toBe(true);
+    expect(byPerson("p-roberta").instancePermissions).toContain("automations.manage");
+    for (const id of ["p-giulia", "p-marco", "p-laura", "p-sara", "p-matteo"]) {
+      expect(can(byPerson(id), "automations.manage")).toBe(false);
+    }
+  });
+
+  it("integrations.manage (sorgenti e tabella cliente → progetto): solo all'admin", () => {
+    expect(can(byPerson("p-roberta"), "integrations.manage")).toBe(true);
+    for (const id of ["p-giulia", "p-marco", "p-laura", "p-sara", "p-matteo"]) {
+      expect(can(byPerson(id), "integrations.manage")).toBe(false);
+    }
+  });
+
+  it("si concedono e si tolgono come gli altri permessi del prototipo, fino al reset", () => {
+    grantProjectPermission("p-marco", AUD, "automations.manage");
+    expect(can(byPerson("p-marco"), "automations.manage", AUD)).toBe(true);
+    // Il permesso di progetto non dà quello d'istanza…
+    expect(can(byPerson("p-marco"), "automations.manage")).toBe(false);
+    revokeProjectPermission("p-laura", AUD, "automations.manage");
+    expect(can(byPerson("p-laura"), "automations.manage", AUD)).toBe(false);
+    grantInstancePermission("p-laura", "automations.manage");
+    expect(can(byPerson("p-laura"), "automations.manage")).toBe(true);
+    // …e quello d'istanza non dà quello di progetto.
+    expect(can(byPerson("p-laura"), "automations.manage", AUD)).toBe(false);
+    resetViewerGrants();
+    expect(can(byPerson("p-marco"), "automations.manage", AUD)).toBe(false);
+    expect(can(byPerson("p-laura"), "automations.manage", AUD)).toBe(true);
+    expect(can(byPerson("p-laura"), "automations.manage")).toBe(false);
+  });
+});

@@ -33,7 +33,8 @@ export * from "./model";
  * Permessi di progetto che vivono solo nel prototipo (non nel registro
  * condiviso): pianificare per altri, dall'area 4 creare e gestire i
  * canali della Chat del progetto, dall'area 5 caricare nel Drive, gestirlo e
- * vederne lo storico delle aperture.
+ * vederne lo storico delle aperture, dall'area 7 gestire le automazioni del
+ * progetto.
  */
 export type LocalProjectPermission =
   | "planning.others"
@@ -41,19 +42,22 @@ export type LocalProjectPermission =
   | "chat.channels.manage"
   | "drive.upload"
   | "drive.manage"
-  | "drive.history";
+  | "drive.history"
+  | "automations.manage";
 
 /**
  * Permessi d'istanza che vivono solo nel prototipo: vedere le conversazioni
  * pubbliche con Claude e l'attività delle persone (area 3), creare e gestire
- * i canali generali della Chat (area 4). Entrano nel registro di
- * `@stubwise/shared` quando si costruisce il backend.
+ * i canali generali della Chat (area 4), gestire le automazioni generali
+ * (area 7: stesso nome del permesso di progetto, vedi `can`). Entrano nel
+ * registro di `@stubwise/shared` quando si costruisce il backend.
  */
 export type LocalInstancePermission =
   | "claude.public.view"
   | "people.activity.view"
   | "chat.general.create"
-  | "chat.general.manage";
+  | "chat.general.manage"
+  | "automations.manage";
 
 export interface Viewer {
   personId: string;
