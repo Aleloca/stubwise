@@ -1,6 +1,6 @@
 import { timedEventsForDay } from "@stubwise/shared";
 import { describe, expect, it } from "vitest";
-import { MAX_LANES, layoutLanes, mailboxMarks } from "./gridLayout";
+import { MAX_LANES, lanesFor, layoutLanes, mailboxMarks } from "./gridLayout";
 
 // Le corsie della griglia oraria (shape calendar.md §5, [A 2]): al massimo 3
 // in Week e 5 in Day; oltre, l'ultima diventa «+N more» con l'elenco della
@@ -57,6 +57,43 @@ describe("corsie della griglia oraria", () => {
     expect(Math.max(...placed.map((p) => p.lanes))).toBe(5);
     const more = placed.find((p) => p.kind === "more");
     expect(more?.lane).toBe(4);
+  });
+});
+
+describe("corsie secondo la larghezza della colonna ([A 2], 26 ott 2026)", () => {
+  it("una corsia ogni 64 px (tolti 4), almeno una, al massimo il tetto della vista", () => {
+    expect(lanesFor(96, "week")).toBe(1);
+    expect(lanesFor(131, "week")).toBe(1);
+    expect(lanesFor(132, "week")).toBe(2);
+    expect(lanesFor(160, "week")).toBe(2);
+    expect(lanesFor(196, "week")).toBe(3);
+    expect(lanesFor(900, "week")).toBe(3);
+    expect(lanesFor(900, "day")).toBe(5);
+    expect(lanesFor(20, "day")).toBe(1);
+  });
+
+  it("una corsia sola: restano i blocchi della prima corsia a tutta larghezza, «+N» gli si sovrappone", () => {
+    const placed = layoutLanes(timedEventsForDay(TWELVE, DAY), 1);
+    const events = placed.filter((p) => p.kind === "event");
+    const more = placed.find((p) => p.kind === "more");
+    // La prima corsia: ev-1 e il primo che comincia dopo la sua fine.
+    expect(events[0]!.item.event.id).toBe("ev-1");
+    for (const p of events) expect([p.lane, p.lanes]).toEqual([0, 1]);
+    if (more?.kind !== "more") throw new Error("no more");
+    expect(more.overlay).toBe(true);
+    expect(more.hidden).toHaveLength(12 - events.length);
+    // In alto nella fascia, non sotto l'ultimo nascosto.
+    expect(more.topPct).toBe(events[0]!.item.topPct);
+  });
+
+  it("con più corsie «+N» sta in alto nella fascia, nell'ultima corsia, senza sovrapporsi", () => {
+    const placed = layoutLanes(timedEventsForDay(TWELVE, DAY), 2);
+    const more = placed.find((p) => p.kind === "more");
+    if (more?.kind !== "more") throw new Error("no more");
+    expect(more).toMatchObject({ lane: 1, lanes: 2, overlay: false });
+    const first = placed.find((p) => p.kind === "event")!;
+    if (first.kind !== "event") throw new Error();
+    expect(more.topPct).toBe(first.item.topPct);
   });
 });
 

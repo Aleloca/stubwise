@@ -47,10 +47,12 @@ export function rangeLabel(view: CalendarView, first: Date, last: Date, language
     return fmt(language, { weekday: "long", month: "short", day: "numeric" }).format(first);
   }
   if (view === "month") return fmt(language, { month: "long", year: "numeric" }).format(first);
-  return fmt(language, { month: "short", day: "numeric", year: "numeric" }).formatRange(
-    first,
-    last,
-  );
+  // Il giorno senza zero davanti: in italiano, a cavallo del mese, ICU
+  // scrive «26 ott – 01 nov».
+  return fmt(language, { month: "short", day: "numeric", year: "numeric" })
+    .formatRangeToParts(first, last)
+    .map((p) => (p.type === "day" ? String(Number(p.value)) : p.value))
+    .join("");
 }
 
 /** Una data come «Sep 23» (la finestra, le scadenze). */

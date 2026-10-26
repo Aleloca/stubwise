@@ -291,7 +291,6 @@ export function CalendarPage() {
           canPrev={canPrev}
           canNext={canNext}
           windowNote={windowNote}
-          compact={!wide}
           onToday={() => go({ view, date: today })}
           onStep={step}
           onView={(v) => go({ view: v, date })}

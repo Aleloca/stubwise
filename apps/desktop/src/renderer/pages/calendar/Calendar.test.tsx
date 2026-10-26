@@ -11,6 +11,7 @@ import { setMatchMedia } from "../../test/setup";
 import { renderRoute } from "../../test/renderRoute";
 import { clearToasts } from "../../tasks-ui/Toast";
 import { closeGoogleAccount } from "../drive/GoogleAccountCard";
+import { rangeLabel } from "./calendarFormat";
 
 // La pagina del Calendario (Task 9, shape calendar.md): parametri
 // nell'indirizzo, bordi della finestra e fusi (Review Focus 3, con
@@ -202,6 +203,69 @@ describe("Calendario — bordi della finestra (Review Focus 3)", () => {
   });
 });
 
+describe("Calendario — barra e Mese (revisione visiva)", () => {
+  it("l'intervallo dice il giorno senza zero davanti, anche a cavallo del mese", () => {
+    const first = new Date(2026, 9, 26);
+    const last = new Date(2026, 10, 1);
+    // Gli spazi di ICU attorno al trattino sono sottili: si confrontano normalizzati.
+    const plain = (x: string) => x.replace(/\s/g, " ");
+    expect(plain(rangeLabel("week", first, last, "it"))).toBe("26 ott – 1 nov 2026");
+    expect(plain(rangeLabel("week", first, last, "en"))).toBe("Oct 26 – Nov 1, 2026");
+  });
+
+  it("«New meeting» diventa «New» quando è stretta la barra, non la finestra", async () => {
+    const rect = HTMLElement.prototype.getBoundingClientRect;
+    let width = 1000;
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      if (this.hasAttribute("data-calendar-toolbar")) return { width, height: 64 } as DOMRect;
+      return rect.call(this);
+    };
+    try {
+      await openCalendar("/calendar");
+      const button = await screen.findByRole("button", { name: "New meeting" });
+      expect(button).toHaveTextContent("New meeting");
+      width = 700;
+      await openCalendar("/calendar?view=day");
+      await waitFor(() => expect(screen.getAllByRole("button", { name: "New meeting" }).at(-1)).toHaveTextContent(/^New$/));
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = rect;
+    }
+  });
+
+  it("Mese: tre righe per cella, poi «+N more»", async () => {
+    await openCalendar("/calendar?view=month&date=2026-10-28");
+    const cell = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>('[data-day-cell="2026-10-28"]');
+      if (!el) throw new Error("no cell");
+      return el;
+    });
+    const rows = cell.querySelectorAll("[data-event-block]");
+    expect(rows).toHaveLength(3);
+    const more = within(cell).getByRole("button", { name: /^\+\d+ more$/ });
+    const total = state.calendarEvents.filter(
+      (e) =>
+        e.startsAt.startsWith("2026-10-28") &&
+        (e.calendarPersonIds.includes("p-giulia") ||
+          e.attendees.some((a) => a.personId === "p-giulia")),
+    ).length;
+    expect(more).toHaveTextContent(`+${total - 3} more`);
+  });
+
+  it("Mese: il pezzo dopo mezzanotte dice da quando", async () => {
+    const release = state.calendarEvents.find((e) => e.id === C.midnight)!;
+    const next = new Date(release.endsAt);
+    const key = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
+    await openCalendar(`/calendar?view=month&date=${key}`);
+    const cell = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>(`[data-day-cell="${key}"]`);
+      if (!el) throw new Error("no cell");
+      return el;
+    });
+    const piece = cell.querySelector<HTMLElement>(`[data-event-block="${C.midnight}"]`)!;
+    expect(piece).toHaveTextContent(/^from \w{3} \d/);
+  });
+});
+
 describe("Calendario — 12 eventi sovrapposti (Review Focus 5)", () => {
   it("in Week 3 corsie al massimo, poi «+N more» con l'elenco intero della fascia", async () => {
     await openCalendar("/calendar?date=2026-10-28");
@@ -218,6 +282,45 @@ describe("Calendario — 12 eventi sovrapposti (Review Focus 5)", () => {
     expect(within(list).getAllByRole("button")).toHaveLength(12);
     await userEvent.click(within(list).getByRole("button", { name: /^Partner demo 03/ }));
     expect(await screen.findByRole("heading", { name: "Partner demo 03" })).toBeInTheDocument();
+  });
+
+  it("colonna stretta (96 px): una corsia, «+N» compatto sovrapposto in alto, blocchi con il solo titolo", async () => {
+    const rect = HTMLElement.prototype.getBoundingClientRect;
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      if (this.hasAttribute("data-day-column")) return { width: 96, height: 1152 } as DOMRect;
+      return rect.call(this);
+    };
+    try {
+      await openCalendar("/calendar?date=2026-10-28");
+      const col = await column("2026-10-28");
+      const more = await within(col).findByRole("button", { name: /^\+\d+ more$/ });
+      expect(more).toHaveAttribute("data-more-overlay");
+      expect(more.textContent).toMatch(/^\+\d+$/);
+      expect(more.className).toMatch(/border-rule-strong/);
+      expect(more.className).not.toMatch(/border-dashed/);
+      const blocks = [...col.querySelectorAll<HTMLElement>('[data-event-block^="ev-overlap-"]')];
+      expect(blocks.length + Number(more.getAttribute("data-more"))).toBe(12);
+      for (const b of blocks) expect(b.parentElement!.style.width).toBe("calc(100% - 4px)");
+      // In alto nella fascia: alla stessa altezza del primo blocco.
+      expect(more.style.top).toBe(`calc(${blocks[0]!.parentElement!.style.top} + 2px)`);
+      // Compatto: il titolo prima di tutto; l'ora sta nel nome accessibile e nel tooltip.
+      const first = blocks[0]!;
+      expect(first.textContent).toMatch(/^Partner demo 01/);
+      expect(first).toHaveAccessibleName(/Partner demo 01, .*AM/);
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = rect;
+    }
+  });
+
+  it("la parola della risposta non si tronca: in due righe il codice lascia il posto", async () => {
+    await openCalendar("/calendar?date=2026-10-23");
+    const invite = await block(C.invite);
+    const word = within(invite).getByText("Not answered");
+    expect(word.className).not.toMatch(/truncate/);
+    expect(word.className).toMatch(/shrink-0/);
+    // Il codice del progetto non c'è sulla riga dell'ora (resta nel nome accessibile).
+    expect(invite.querySelector("[data-block-code]")).toBeNull();
+    expect(invite).toHaveAccessibleName(/OLV/);
   });
 
   it("in Day le corsie arrivano a 5", async () => {

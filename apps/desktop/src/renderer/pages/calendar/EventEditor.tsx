@@ -23,10 +23,11 @@ import type {
   Person,
 } from "../../data/types";
 import { Dialog, DialogField, inputClass } from "../../tasks-ui/Dialog";
+import { RadioItem } from "../../tasks-ui/Menu";
 import { Avatar } from "../../tasks-ui/PersonChip";
 import { useToast } from "../../tasks-ui/Toast";
 import { RecipientField } from "../mail/RecipientField";
-import { primaryButton, secondaryButton } from "../tasks/controls";
+import { MenuButton, primaryButton, secondaryButton } from "../tasks/controls";
 import {
   lastAllDayKey,
   occurrenceLabel,
@@ -41,9 +42,13 @@ import { SeriesScopeDialog } from "./SeriesScopeDialog";
 // Title · Date + Start + Duration (con la fine a parole) o All day · Guests
 // (gli stessi suggerimenti della Posta) · Availability (libero/occupato dei
 // colleghi, MAI un titolo) con «Find a time» · Add Google Meet (acceso di
-// default con almeno un ospite, [A 6]) · Project · Description · Calendar ·
-// Reminders. Non si crea né si sposta oltre la fine della finestra ([A 8]).
-// La modifica è dell'organizzatore; in una serie «Save» chiede lo scope.
+// default con almeno un ospite, [A 6]) · Project · Reminders · Description
+// e «From <casella>». Non si crea né si sposta oltre la fine della finestra
+// ([A 8]). La modifica è dell'organizzatore; in una serie «Save» chiede lo
+// scope. Le scelte sono menu del kit, non `<select>` nativi; data, inizio e
+// durata stanno su una riga, alti 36 px. Il menu «Calendar» non c'è finché
+// il livello dati non ha il campo: la riunione parte dalla prima casella.
+// La ricorrenza resta fuori dall'editor (R-I18).
 
 export interface EditorStart {
   startsAt: string;
@@ -99,6 +104,12 @@ export function EventEditor({
   onSaved: (message: string) => void;
 }) {
   const { t, i18n } = useTranslation();
+  const durationLabel = (m: number) =>
+    m < 60
+      ? t("calendar.editor.minutes", { count: m })
+      : m % 60 === 0
+        ? t("calendar.editor.hours", { count: m / 60 })
+        : t("calendar.editor.hoursMinutes", { h: Math.floor(m / 60), m: m % 60 });
   const me = useSessionPersonId();
   const people = usePeople().data;
   const projects = useProjects().data;
@@ -111,15 +122,11 @@ export function EventEditor({
   const toast = useToast();
   const ids = {
     title: useId(),
-    calendar: useId(),
     date: useId(),
     start: useId(),
-    duration: useId(),
     end: useId(),
     to: useId(),
-    project: useId(),
     description: useId(),
-    reminders: useId(),
   };
 
   const s = new Date(start.startsAt);
@@ -161,9 +168,8 @@ export function EventEditor({
     [people],
   );
   const mine = (projects ?? []).filter((p) => p.memberIds.includes(me));
-  const [calendar, setCalendar] = useState<string | null>(null);
-  const myCalendars = calendars ?? [];
-  const chosenCalendar = calendar ?? myCalendars[0]?.email ?? null;
+  // Sempre la prima casella: scegliere il calendario non ha ancora un campo dati.
+  const fromCalendar = calendars?.[0]?.email ?? null;
   // Il primario dice cosa succede: con ospiti NUOVI partono degli inviti.
   const known = new Set((event?.attendees ?? []).map((a) => a.email.toLowerCase()));
   const invites = guests.some((g) => !known.has(g.email.toLowerCase()));
@@ -370,7 +376,7 @@ export function EventEditor({
                   setDate(ev.target.value);
                   if (toDate < ev.target.value) setToDate(ev.target.value);
                 }}
-                className={`${inputClass} num w-40`}
+                className={`${inputClass} num h-9 w-40`}
               />
             </DialogField>
             {allDay ? (
@@ -382,7 +388,7 @@ export function EventEditor({
                   min={date}
                   max={win.last}
                   onChange={(ev) => setToDate(ev.target.value)}
-                  className={`${inputClass} num w-40`}
+                  className={`${inputClass} num h-9 w-40`}
                 />
               </DialogField>
             ) : (
@@ -394,25 +400,20 @@ export function EventEditor({
                     step={900}
                     value={time}
                     onChange={(ev) => setTime(ev.target.value)}
-                    className={`${inputClass} num w-28`}
+                    className={`${inputClass} num h-9 w-28`}
                   />
                 </DialogField>
-                <DialogField label={t("calendar.editor.duration")} htmlFor={ids.duration}>
-                  <select
-                    id={ids.duration}
-                    value={String(duration)}
-                    onChange={(ev) =>
-                      setDuration(ev.target.value === "custom" ? "custom" : Number(ev.target.value))
-                    }
-                    className={`${inputClass} w-32`}
-                  >
-                    {DURATIONS.map((d) => (
-                      <option key={d} value={d}>
-                        {t("calendar.editor.minutes", { count: d })}
-                      </option>
-                    ))}
-                    <option value="custom">{t("calendar.editor.custom")}</option>
-                  </select>
+                <DialogField label={t("calendar.editor.duration")}>
+                  <SelectMenu
+                    label={t("calendar.editor.duration")}
+                    width="w-32"
+                    value={duration}
+                    options={[
+                      ...DURATIONS.map((d) => ({ value: d, text: durationLabel(d) })),
+                      { value: "custom" as const, text: t("calendar.editor.custom") },
+                    ]}
+                    onChange={setDuration}
+                  />
                 </DialogField>
                 {duration === "custom" && (
                   <DialogField label={t("calendar.editor.end")} htmlFor={ids.end}>
@@ -422,7 +423,7 @@ export function EventEditor({
                       step={900}
                       value={endTime}
                       onChange={(ev) => setEndTime(ev.target.value)}
-                      className={`${inputClass} num w-28`}
+                      className={`${inputClass} num h-9 w-28`}
                     />
                   </DialogField>
                 )}
@@ -451,7 +452,9 @@ export function EventEditor({
         </div>
 
         <RecipientField
+          variant="field"
           label={t("calendar.editor.guests")}
+          placeholder={t("calendar.editor.guestsPlaceholder")}
           value={guests}
           onChange={setGuests}
           people={peopleMap}
@@ -488,35 +491,32 @@ export function EventEditor({
         </label>
 
         <div className="grid grid-cols-2 gap-3">
-          <DialogField label={t("calendar.editor.project")} htmlFor={ids.project}>
-            <select
-              id={ids.project}
-              value={projectId ?? ""}
-              onChange={(ev) => setProjectId(ev.target.value || null)}
-              className={inputClass}
-            >
-              <option value="">{t("calendar.detail.noProject")}</option>
-              {mine.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.code} {p.name}
-                </option>
-              ))}
-            </select>
+          <DialogField label={t("calendar.editor.project")}>
+            <SelectMenu
+              label={t("calendar.editor.project")}
+              value={projectId}
+              options={[
+                { value: null, text: t("calendar.detail.noProject") },
+                ...mine.map((p) => ({ value: p.id, text: `${p.code} ${p.name}` })),
+              ]}
+              onChange={setProjectId}
+            />
           </DialogField>
-          <DialogField label={t("calendar.editor.reminders")} htmlFor={ids.reminders}>
-            <select
-              id={ids.reminders}
+          <DialogField label={t("calendar.editor.reminders")}>
+            <SelectMenu
+              label={t("calendar.editor.reminders")}
               value={reminder}
-              onChange={(ev) => setReminder(ev.target.value as Reminder)}
-              className={inputClass}
-            >
-              <option value="default">{t("calendar.editor.reminderDefault")}</option>
-              <option value="popup10">{t("calendar.detail.reminder.popup", { count: 10 })}</option>
-              <option value="email30">{t("calendar.detail.reminder.email", { count: 30 })}</option>
-              <option value="email1440">
-                {t("calendar.detail.reminder.email", { count: 1440 })}
-              </option>
-            </select>
+              options={[
+                { value: "default" as const, text: t("calendar.editor.reminderDefault") },
+                { value: "popup10" as const, text: t("calendar.detail.reminder.popup", { count: 10 }) },
+                { value: "email30" as const, text: t("calendar.detail.reminder.email", { count: 30 }) },
+                {
+                  value: "email1440" as const,
+                  text: t("calendar.detail.reminder.email", { count: 1440 }),
+                },
+              ]}
+              onChange={setReminder}
+            />
           </DialogField>
         </div>
 
@@ -530,30 +530,64 @@ export function EventEditor({
           />
         </DialogField>
 
-        {myCalendars.length > 1 ? (
-          <DialogField label={t("calendar.editor.calendar")} htmlFor={ids.calendar}>
-            <select
-              id={ids.calendar}
-              value={chosenCalendar ?? ""}
-              onChange={(ev) => setCalendar(ev.target.value)}
-              className={inputClass}
-            >
-              {myCalendars.map((c) => (
-                <option key={c.email} value={c.email}>
-                  {c.email}
-                </option>
-              ))}
-            </select>
-          </DialogField>
-        ) : (
-          chosenCalendar && (
-            <p className="text-xs text-ink-muted">
-              {t("calendar.editor.from", { email: chosenCalendar })}
-            </p>
-          )
+        {fromCalendar && (
+          <p className="text-xs text-ink-muted">{t("calendar.editor.from", { email: fromCalendar })}</p>
         )}
       </form>
     </Dialog>
+  );
+}
+
+/**
+ * Una scelta del dialogo come menu del kit (non un `<select>` nativo): un
+ * bottone alto 36 px come i campi accanto, il valore a parole e la freccia;
+ * il menu con le voci a scelta singola. Il nome accessibile dice campo e
+ * valore («Duration: 30 min»).
+ */
+function SelectMenu<T extends string | number | null>({
+  label,
+  value,
+  options,
+  onChange,
+  width = "w-full",
+}: {
+  label: string;
+  value: T;
+  options: { value: T; text: string }[];
+  onChange: (value: T) => void;
+  width?: string;
+}) {
+  const current = options.find((o) => o.value === value)?.text ?? "";
+  return (
+    <MenuButton
+      menuLabel={label}
+      ariaLabel={`${label}: ${current}`}
+      wrapperClassName={`relative flex min-w-0 ${width}`}
+      className={`${inputClass} flex h-9 items-center justify-between gap-2 text-left aria-expanded:border-ink/40`}
+      label={
+        <>
+          <span className="min-w-0 truncate">{current}</span>
+          <svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16" fill="none" className="shrink-0 text-ink-muted">
+            <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </>
+      }
+    >
+      {(close) =>
+        options.map((o) => (
+          <RadioItem
+            key={String(o.value)}
+            checked={o.value === value}
+            onSelect={() => {
+              onChange(o.value);
+              close();
+            }}
+          >
+            {o.text}
+          </RadioItem>
+        ))
+      }
+    </MenuButton>
   );
 }
 

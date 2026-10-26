@@ -369,6 +369,31 @@ describe("rilievi minori", () => {
     expect(within(dialog).getByRole("button", { name: "Send invitations" })).toBeInTheDocument();
   });
 
+  it("editor: menu del kit al posto dei select nativi, «Guests» un campo a gettoni, sempre «From» la prima casella", async () => {
+    // Due calendari: il menu «Calendar» non c'è comunque (nessun campo dati dietro).
+    state.calendarSync.push({ ...state.calendarSync.find((c) => c.personId === "p-giulia")!, email: "giulia.home@example.com" });
+    await openCalendar("/calendar?newMeeting=1&date=2026-10-23");
+    const dialog = await screen.findByRole("dialog", { name: "New meeting" });
+    expect(dialog.querySelector("select")).toBeNull();
+    expect(within(dialog).queryByText("Calendar")).toBeNull();
+    expect(within(dialog).getByText(/^From giulia\.ferri@example\.com$/)).toBeInTheDocument();
+    const guests = within(dialog).getByRole("combobox", { name: "Guests" });
+    expect(guests).toHaveAttribute("placeholder", "Add people or email addresses");
+    // Data, inizio e durata alla stessa altezza.
+    for (const el of [
+      within(dialog).getByLabelText("Date"),
+      within(dialog).getByLabelText("Start"),
+      within(dialog).getByRole("button", { name: /^Duration: / }),
+    ])
+      expect(el.className).toMatch(/\bh-9\b/);
+    const user = userEvent.setup();
+    await user.click(within(dialog).getByRole("button", { name: "Duration: 30 min" }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "1 h" }));
+    expect(within(dialog).getByRole("button", { name: "Duration: 1 h" })).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Reminders: Default" }));
+    expect(await screen.findByRole("menuitemradio", { name: "Default" })).toHaveAttribute("aria-checked", "true");
+  });
+
   describe("l'esito del salvataggio in modifica", () => {
     const announcer = () => document.querySelector("[data-calendar-announcer]")!;
     async function editGoLive() {

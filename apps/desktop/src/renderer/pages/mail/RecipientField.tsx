@@ -112,6 +112,8 @@ export function RecipientField({
   people,
   inputRef,
   trailing,
+  variant = "row",
+  placeholder,
 }: {
   label: string;
   value: MailAddress[];
@@ -120,6 +122,14 @@ export function RecipientField({
   inputRef?: RefObject<HTMLInputElement | null>;
   /** A destra della riga («Cc» sulla riga A). */
   trailing?: ReactNode;
+  /**
+   * `row`: la riga della casella di scrittura (etichetta a sinistra, filetto
+   * sotto). `field`: un campo di dialogo, con l'etichetta sopra e i gettoni
+   * in un riquadro alto come gli altri campi (l'editor del Calendario).
+   */
+  variant?: "row" | "field";
+  /** Il segnaposto del campo vuoto. */
+  placeholder?: string;
 }) {
   const { t } = useTranslation();
   const id = useId();
@@ -222,16 +232,27 @@ export function RecipientField({
   const allNames = value.map(nameOf);
 
   return (
-    <div className="flex min-w-0 flex-col">
+    <div className={`flex min-w-0 flex-col ${variant === "field" ? "gap-1.5" : ""}`}>
+      {variant === "field" && (
+        <label htmlFor={`${id}-input`} className="text-sm font-medium text-ink">
+          {label}
+        </label>
+      )}
       <div
-        className="relative flex min-h-8 min-w-0 items-start gap-2 border-b border-rule px-3"
+        className={
+          variant === "field"
+            ? "relative flex min-h-9 min-w-0 items-start gap-2 rounded-md border border-rule-strong px-1.5 transition-colors duration-[var(--duration-fast)] ease-out focus-within:border-transparent focus-within:outline-2 focus-within:outline-focus hover:border-ink/40"
+            : "relative flex min-h-8 min-w-0 items-start gap-2 border-b border-rule px-3"
+        }
         onClick={(e) => {
           if (e.target === e.currentTarget) input.current?.focus();
         }}
       >
-        <label htmlFor={`${id}-input`} className="w-14 shrink-0 py-1.5 text-sm text-ink-muted">
-          {label}
-        </label>
+        {variant === "row" && (
+          <label htmlFor={`${id}-input`} className="w-14 shrink-0 py-1.5 text-sm text-ink-muted">
+            {label}
+          </label>
+        )}
         {collapsed ? (
           <button
             type="button"
@@ -266,6 +287,7 @@ export function RecipientField({
           <input
             ref={input}
             id={`${id}-input`}
+            placeholder={value.length === 0 ? placeholder : undefined}
             role="combobox"
             aria-label={label}
             aria-expanded={open}
@@ -290,7 +312,7 @@ export function RecipientField({
               setSelected(null);
               commitTyped();
             }}
-            className="h-6 min-w-[120px] flex-1 bg-transparent text-md text-ink outline-none placeholder:text-ink-faint"
+            className={`h-6 min-w-[120px] flex-1 bg-transparent text-md text-ink outline-none placeholder:text-ink-faint ${variant === "field" ? "pl-1" : ""}`}
           />
         </div>
         {trailing && <div className="flex shrink-0 items-center py-1">{trailing}</div>}

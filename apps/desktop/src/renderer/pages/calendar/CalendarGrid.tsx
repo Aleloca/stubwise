@@ -21,7 +21,7 @@ import {
   useEventName,
   type ProjectRef,
 } from "./EventBlock";
-import { MAX_LANES, layoutLanes, type MailboxMark } from "./gridLayout";
+import { MAX_LANES, lanesFor, layoutLanes, type MailboxMark } from "./gridLayout";
 import { MonthGrid } from "./MonthGrid";
 import { useBlockMove, type GridMove } from "./useBlockMove";
 import { itemClass } from "../../tasks-ui/Menu";
@@ -129,7 +129,25 @@ function TimeGrid({
   const now = new Date(nowIso);
   const todayKey = localDayKey(now);
   const todayIndex = days.findIndex((d) => localDayKey(d) === todayKey);
-  const maxLanes = view === "day" ? MAX_LANES.day : MAX_LANES.week;
+  // Le corsie secondo la larghezza della colonna ([A 2], 26 ott 2026), non
+  // della finestra: con il pannello aperto o una finestra stretta una
+  // colonna di Week scende sotto i 100 px. Senza misura (nessun layout),
+  // il tetto della vista.
+  const tv = view === "day" ? "day" : "week";
+  const [colPx, setColPx] = useState(0);
+  useLayoutEffect(() => {
+    const el = scroller.current?.querySelector<HTMLElement>("[data-day-column]");
+    if (!el) return;
+    const measure = () => setColPx(el.getBoundingClientRect().width);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [view, days.length]);
+  const maxLanes = colPx > 0 ? lanesFor(colPx, tv) : MAX_LANES[tv];
+  /** Un blocco più stretto di questo legge il solo titolo (shape §5, revisione del 26 ott). */
+  const compactBelow = 140;
 
   // All'apertura: le 8, o l'ora corrente − 1 h se le 8 non la lascerebbero in vista.
   useLayoutEffect(() => {
@@ -296,23 +314,32 @@ function TimeGrid({
               >
                 {placed.map((p) => {
                   if (p.kind === "more") {
+                    // Un gettone di 20 px in alto nella fascia: nella sua corsia,
+                    // o sopra l'unico blocco rimasto, in alto a destra.
+                    const label = t("calendar.block.more", { count: p.hidden.length });
                     return (
                       <button
                         key={`more-${p.topPct}`}
                         type="button"
                         data-more={p.hidden.length}
+                        data-more-overlay={p.overlay ? "" : undefined}
                         onPointerDown={(e) => e.stopPropagation()}
                         onClick={() => setMore({ day: i, band: p.band, topPct: p.topPct })}
                         aria-haspopup="dialog"
-                        style={{
-                          top: `${p.topPct}%`,
-                          height: `${p.heightPct}%`,
-                          left: `calc(${(p.lane / p.lanes) * 100}% + 2px)`,
-                          width: `calc(${100 / p.lanes}% - 4px)`,
-                        }}
-                        className="absolute flex items-start rounded-md border border-dashed border-rule-strong bg-surface px-1.5 py-1 text-left text-xs font-semibold text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6"
+                        aria-label={label}
+                        title={label}
+                        style={
+                          p.overlay
+                            ? { top: `calc(${p.topPct}% + 2px)`, right: 4 }
+                            : {
+                                top: `${p.topPct}%`,
+                                left: `calc(${(p.lane / p.lanes) * 100}% + 2px)`,
+                                maxWidth: `calc(${100 / p.lanes}% - 4px)`,
+                              }
+                        }
+                        className="num absolute z-10 flex h-5 min-w-7 items-center justify-center rounded-md border border-rule-strong bg-surface px-1.5 text-xs font-semibold text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6"
                       >
-                        {t("calendar.block.more", { count: p.hidden.length })}
+                        +{p.hidden.length}
                       </button>
                     );
                   }
@@ -360,7 +387,7 @@ function TimeGrid({
                           continues={continues}
                           fromPrevious={fromPrevious}
                           hideCode={narrow && minutes < 60}
-                          titleFirst={p.lanes >= 3 && view === "week"}
+                          compact={colPx > 0 && colPx / p.lanes < compactBelow}
                         />
                       </button>
                       {ev.save?.state === "failed" && (

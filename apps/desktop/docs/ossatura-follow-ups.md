@@ -375,8 +375,6 @@ l'ondata finale e non stanno in questo elenco.
 
 ### Minori
 
-- Il menu «Calendar» dell'editor non ha un campo dati (la riunione va nel
-  calendario della casella): `pages/calendar/EventEditor.tsx`.
 - Tutte le sezioni della scheda di preparazione vanno in errore insieme: la
   scheda è una sola lettura (`getMeetingPrep`), non tre:
   `data/calendar/prep.ts`, `pages/calendar/MeetingPrep.tsx`.

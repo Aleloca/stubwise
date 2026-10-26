@@ -1,4 +1,5 @@
 import type { CalendarView } from "@stubwise/shared";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { shortcutLabel } from "../../platform/platform";
 import { primaryButton, secondaryButton } from "../tasks/controls";
@@ -9,6 +10,31 @@ import { CALENDAR_VIEWS } from "./calendarParams";
 // ‹ › si spengono solo quando l'intervallo accanto cadrebbe tutto fuori
 // dalla finestra letta, e lo dicono (tooltip e nome accessibile, [A 3]).
 
+/** Sotto questa larghezza della barra «New meeting» diventa «New». */
+const COMPACT_BELOW_PX = 820;
+
+/**
+ * La barra è stretta: la sua larghezza, non quella della finestra (il
+ * pannello aperto o la colonna la stringono anche in una finestra larga).
+ */
+function useNarrow(ref: React.RefObject<HTMLElement | null>): boolean {
+  const [narrow, setNarrow] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      const width = el.getBoundingClientRect().width;
+      setNarrow(width > 0 && width < COMPACT_BELOW_PX);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ref]);
+  return narrow;
+}
+
 const arrowButton =
   "grid size-8 place-items-center rounded-md text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent";
 
@@ -18,7 +44,6 @@ export function CalendarToolbar({
   canPrev,
   canNext,
   windowNote,
-  compact,
   onToday,
   onStep,
   onView,
@@ -30,8 +55,6 @@ export function CalendarToolbar({
   canNext: boolean;
   /** «Stubwise reads your calendar from Sep 23 to Dec 22». */
   windowNote: string;
-  /** Area di lavoro stretta: «New meeting» diventa «New». */
-  compact: boolean;
   onToday: () => void;
   onStep: (dir: 1 | -1) => void;
   onView: (view: CalendarView) => void;
@@ -39,8 +62,14 @@ export function CalendarToolbar({
 }) {
   const { t } = useTranslation();
   const keyOf: Record<CalendarView, string> = { day: "D", week: "W", month: "M" };
+  const bar = useRef<HTMLElement>(null);
+  const compact = useNarrow(bar);
   return (
-    <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 px-6 pt-6 pb-3">
+    <header
+      ref={bar}
+      data-calendar-toolbar
+      className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 px-6 pt-6 pb-3"
+    >
       <div className="flex min-w-0 flex-1 items-baseline gap-4">
         <h1 className="shrink-0 text-2xl font-semibold text-ink">{t("nav.calendar")}</h1>
         <p

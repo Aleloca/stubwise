@@ -116,7 +116,11 @@ export const BLOCK_LINE_PX = 16;
  * su due ora · codice · stato e il titolo; con più spazio il titolo va a
  * capo e sotto compaiono luogo o «Google Meet» (in Day anche gli invitati).
  * Le parole di stato (risposta, «continues», «Saving…», «Couldn't save»)
- * hanno la precedenza sul luogo: dicono qualcosa che il colore non dice.
+ * hanno la precedenza sul luogo: dicono qualcosa che il colore non dice, e
+ * non si troncano mai — sulla riga dell'ora il codice lascia loro il posto.
+ * `compact` (blocco più stretto di 140 px): su una riga il solo titolo (la
+ * parola di stato al posto dell'ora), su due il titolo in testa; l'ora resta
+ * nel tooltip, nel nome accessibile e nella posizione.
  */
 export function GridBlockBody({
   e,
@@ -127,12 +131,12 @@ export function GridBlockBody({
   continues,
   fromPrevious,
   hideCode,
-  titleFirst = false,
+  compact = false,
 }: {
   e: CalendarEventView;
   heightPx: number;
-  /** Corsia stretta (tre affiancate): il titolo prima dell'ora, così resta leggibile. */
-  titleFirst?: boolean;
+  /** Blocco stretto (< 140 px): il titolo prima di tutto, così resta leggibile. */
+  compact?: boolean;
   project: ProjectRef | undefined;
   past: boolean;
   roomy: boolean;
@@ -166,7 +170,10 @@ export function GridBlockBody({
     </span>
   );
   const codeEl = code && (
-    <span className="num shrink-0 text-xs leading-4 font-semibold tracking-[0.02em] text-ink">
+    <span
+      data-block-code
+      className="num shrink-0 text-xs leading-4 font-semibold tracking-[0.02em] text-ink"
+    >
       {code}
     </span>
   );
@@ -176,10 +183,24 @@ export function GridBlockBody({
       {t("calendar.save.failed")}
     </span>
   );
+  /** Le parole di stato intere, mai troncate. */
+  const stateWords = states.length > 0 && (
+    <span className="shrink-0 text-xs leading-4 whitespace-nowrap text-ink-muted">
+      {states.join(" · ")}
+    </span>
+  );
   if (lines === 1) {
     return (
       <span className="flex min-w-0 items-center gap-1.5">
-        {!titleFirst && time}
+        {compact ? (
+          word && (
+            <span className="shrink-0 text-xs leading-4 whitespace-nowrap text-ink-muted">
+              {t(word)}
+            </span>
+          )
+        ) : (
+          time
+        )}
         <span className={`${titleClass} truncate`}>{e.title}</span>
         {prep}
         {continues && (
@@ -223,39 +244,48 @@ export function GridBlockBody({
       </span>,
     );
   }
-  if (lines === 2 && titleFirst) {
+  if (lines === 2 && compact) {
     return (
       <>
         <span className={`${titleClass} truncate`}>{e.title}</span>
-        <span className="flex min-w-0 items-center gap-1.5">
-          {time}
+        <span className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+          {stateWords || time}
           {prep}
           {fail}
-          {states.length > 0 && (
-            <span className="truncate text-xs leading-4 text-ink-muted">{states.join(" · ")}</span>
-          )}
         </span>
       </>
     );
   }
   if (lines === 2) {
-    // Due righe: lo stato sale accanto all'ora, il titolo sotto.
+    // Due righe: lo stato sale accanto all'ora (al posto del codice), il titolo sotto.
     return (
       <>
-        <span className="flex min-w-0 items-center gap-1.5">
+        <span className="flex min-w-0 items-center gap-1.5 overflow-hidden">
           {time}
-          {codeEl}
+          {states.length === 0 && codeEl}
           {prep}
           {fail}
-          {states.length > 0 && (
-            <span className="truncate text-xs leading-4 text-ink-muted">{states.join(" · ")}</span>
-          )}
+          {stateWords}
         </span>
         <span className={`${titleClass} truncate`}>{e.title}</span>
       </>
     );
   }
   const titleLines = Math.min(2, Math.max(1, lines - 1 - extra.length));
+  if (compact) {
+    return (
+      <>
+        <span className={`${titleClass} ${titleLines === 2 ? "line-clamp-2" : "truncate"}`}>
+          {e.title}
+        </span>
+        <span className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+          {time}
+          {prep}
+        </span>
+        {extra.slice(0, Math.max(0, lines - 1 - titleLines))}
+      </>
+    );
+  }
   return (
     <>
       <span className="flex min-w-0 items-center gap-1.5">

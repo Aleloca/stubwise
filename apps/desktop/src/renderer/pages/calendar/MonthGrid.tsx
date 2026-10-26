@@ -1,4 +1,4 @@
-import { eventsForDay, localDayKey, monthGridDays } from "@stubwise/shared";
+import { eventsForDay, localDayKey, monthGridDays, startOfLocalDay } from "@stubwise/shared";
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { CalendarEventView } from "../../data/types";
@@ -18,7 +18,7 @@ import { MONTH_ROWS, type MailboxMark } from "./gridLayout";
 import { AlertGlyph } from "../mail/glyphs";
 
 // La vista Month del Calendario (shape calendar.md §6): 6 × 7 celle, per
-// cella 3 righe e «+N more»; il numero del giorno porta in Day.
+// cella 3 righe e poi «+N more» [A 2]; il numero del giorno porta in Day.
 
 /** La vista Month: 6 × 7 celle; per cella 3 righe e «+N more». */
 export function MonthGrid({
@@ -67,8 +67,7 @@ export function MonthGrid({
               );
               const out = outsideWindow(d, win);
               const isToday = key === todayKey;
-              const shownRows =
-                dayEvents.length > MONTH_ROWS ? dayEvents.slice(0, MONTH_ROWS - 1) : dayEvents;
+              const shownRows = dayEvents.slice(0, MONTH_ROWS);
               const rest = dayEvents.length - shownRows.length;
               return (
                 <div
@@ -92,6 +91,7 @@ export function MonthGrid({
                       <MonthRow
                         key={e.id}
                         e={e}
+                        day={d}
                         project={e.projectId ? projects.get(e.projectId) : undefined}
                         name={name}
                         withMailbox={marks !== null}
@@ -145,6 +145,7 @@ export function MonthGrid({
  */
 function MonthRow({
   e,
+  day,
   project,
   name,
   withMailbox,
@@ -152,6 +153,8 @@ function MonthRow({
   onOpen,
 }: {
   e: CalendarEventView;
+  /** La cella: un evento cominciato il giorno prima dice «from Thu 23:30». */
+  day: Date;
   project: ProjectRef | undefined;
   name: ReturnType<typeof useEventName>;
   withMailbox: boolean;
@@ -179,7 +182,14 @@ function MonthRow({
         </span>
       )}
       {!e.allDay && (
-        <span className="num shrink-0 text-ink-muted">{timeLabel(e.startsAt, i18n.language)}</span>
+        <span className="num shrink-0 text-ink-muted">
+          {Date.parse(e.startsAt) < startOfLocalDay(day).getTime()
+            ? t("calendar.block.from", {
+                day: weekdayShort(new Date(e.startsAt), i18n.language),
+                time: timeLabel(e.startsAt, i18n.language),
+              })
+            : timeLabel(e.startsAt, i18n.language)}
+        </span>
       )}
       {project && <span className="num shrink-0 font-semibold text-ink">{project.code}</span>}
       {e.hasPrep && <PrepMark />}

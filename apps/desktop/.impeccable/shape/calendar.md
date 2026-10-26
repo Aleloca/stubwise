@@ -121,6 +121,20 @@ dettaglio è in `meeting-prep.md`; le proposte di calendario nella Posta e in
   popover con l'elenco della fascia (righe: ora tnum, codice progetto,
   titolo, stato di risposta). In Month ogni cella mostra 3 righe e «+N
   more» che apre lo stesso popover del giorno **[A 2]**.
+  **Aggiornamento [A 2] del 26 ott 2026** (approvato dal maintainer dopo la
+  revisione visiva, cambia solo le colonne strette): le corsie seguono la
+  **larghezza della colonna**, non solo la vista —
+  `maxLanes = clamp(floor((larghezzaColonna − 4) / 64), 1, MAX_LANES[view])`,
+  misurata con un ResizeObserver (una colonna di Week a 1024 px, o con il
+  pannello aperto, scende sotto i 100 px). «+N» è un gettone compatto alto
+  20 px (largo almeno 28 px) **in alto nella fascia**, nell'ultima corsia;
+  se resta una corsia sola si sovrappone in alto a destra del blocco
+  rimasto. Bordo pieno `border-rule-strong`, non tratteggiato. Un blocco più
+  stretto di 140 px è **compatto**: su una riga il solo titolo (la parola
+  di stato al posto dell'ora), su due il titolo in testa; l'ora resta nel
+  tooltip, nel nome accessibile e nella posizione. La parola di stato
+  (risposta, «continues», «Saving…») non si tronca mai: sulla riga dell'ora
+  il codice le lascia il posto.
 - **Durate**: un evento di 15′ o meno ha l'altezza minima garantita dalla
   griglia e mostra solo ora + titolo su una riga; da 45′ titolo su due
   righe e codice progetto; da 60′ anche luogo o «Google Meet».

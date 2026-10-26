@@ -508,6 +508,31 @@ async function main() {
         },
       ],
       ["home-mail-blocks", "/home", { persona: "Giulia", narrow: true }],
+      // Ondata finale (revisione visiva del 26 ott): i due blocchi della Home
+      // portati in vista, Day, Week col pannello e a 1024, Month.
+      ...["Upcoming", "Important email"].map((block) => [
+        `home-${block === "Upcoming" ? "upcoming" : "important-mail"}`,
+        "/home",
+        {
+          persona: "Giulia",
+          steps: async (p) => {
+            const region = p.getByRole("region", {
+              name: block === "Upcoming" ? /^(Upcoming|Prossimi appuntamenti)$/ : /^(Important email|Email importanti)$/,
+            });
+            await region.waitFor();
+            await region.evaluate((el) => el.scrollIntoView({ block: "start" }));
+            await p.waitForTimeout(400);
+          },
+        },
+      ]),
+      ["calendar-day", "/calendar?view=day&date=2026-10-28", { persona: "Giulia", narrow: true }],
+      [
+        "calendar-week-panel",
+        `/calendar?date=2026-10-28&event=${NEXT_REVIEW}`,
+        { persona: "Giulia", narrow: true },
+      ],
+      ["calendar-week-overlap", "/calendar?date=2026-10-28", { persona: "Giulia", narrow: true }],
+      ["calendar-month", "/calendar?view=month", { persona: "Giulia", narrow: true }],
     ];
     for (const [name, hash, o] of AREA6) {
       if (only && !only.test(name)) continue;
