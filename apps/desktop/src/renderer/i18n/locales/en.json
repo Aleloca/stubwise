@@ -4265,6 +4265,57 @@
     "moveTo": {
       "item": "Move to…",
       "title": "Move {{title}}"
-    }
+    },
+    "prep": {
+      "title": "Prepare",
+      "recentMail": "Recent email",
+      "lastMeetings": "Last meetings",
+      "status": "Project status",
+      "openOverview": "Open {{code}} overview",
+      "noMail": "No recent email with you about {{code}}",
+      "noMeetings": "No earlier meetings on {{code}}",
+      "noTasks": "No tasks came out of this meeting",
+      "noTasksYet": "No tasks yet",
+      "nothingOpen": "Nothing open on {{code}}",
+      "error": "Couldn't load {{title}}",
+      "summary": "Summary",
+      "readMore": "Read more",
+      "readLess": "Show less",
+      "moreTasks_one": "{{count}} more",
+      "moreTasks_other": "{{count}} more",
+      "fewerTasks": "Show fewer",
+      "important": "Important",
+      "inProgress": "In progress",
+      "overdue": "Overdue",
+      "stalled": "Stalled",
+      "countLink": "{{label}}: {{count}}, open in Tasks",
+      "showAllStalled_one": "Show all {{count}}",
+      "showAllStalled_other": "Show all {{count}}",
+      "nextDue": "Next due",
+      "milestones": "Milestones",
+      "meetingTasks": "Tasks from {{title}}",
+      "taskStatus": {
+        "open": "Open",
+        "inProgress": "In progress",
+        "done": "Done",
+        "overdue": "Overdue · {{date}}",
+        "overdueNoDate": "Overdue",
+        "request": "Request"
+      }
+    },
+    "summary": {
+      "title": "Meeting summary",
+      "openTranscript": "Open the transcript",
+      "fromEmail": "From the email by Gemini, {{date}}",
+      "tasksTitle": "Tasks from this meeting",
+      "proposals": "Still to decide",
+      "reading": "Reading the transcript…",
+      "unreachable": "Couldn't open the transcript document",
+      "openInDocs": "Open in Google Docs",
+      "docsNotice": "In the app this opens the document in Google Docs. The prototype stays in Stubwise.",
+      "loadFailed": "Couldn't load what came out of this meeting",
+      "loading": "Loading what came out of this meeting…"
+    },
+    "backToEvent": "Back to event"
   }
 }

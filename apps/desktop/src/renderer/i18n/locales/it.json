@@ -4265,6 +4265,57 @@
     "moveTo": {
       "item": "Sposta a…",
       "title": "Sposta {{title}}"
-    }
+    },
+    "prep": {
+      "title": "Preparati",
+      "recentMail": "Email recenti",
+      "lastMeetings": "Riunioni precedenti",
+      "status": "Stato del progetto",
+      "openOverview": "Apri la panoramica di {{code}}",
+      "noMail": "Nessuna email recente con te su {{code}}",
+      "noMeetings": "Nessuna riunione precedente su {{code}}",
+      "noTasks": "Nessuna task nata da questa riunione",
+      "noTasksYet": "Ancora nessuna task",
+      "nothingOpen": "Niente di aperto su {{code}}",
+      "error": "Impossibile caricare {{title}}",
+      "summary": "Riassunto",
+      "readMore": "Leggi tutto",
+      "readLess": "Mostra meno",
+      "moreTasks_one": "Altra {{count}}",
+      "moreTasks_other": "Altre {{count}}",
+      "fewerTasks": "Mostra meno",
+      "important": "Importante",
+      "inProgress": "In corso",
+      "overdue": "In ritardo",
+      "stalled": "Ferme",
+      "countLink": "{{label}}: {{count}}, apri nelle Task",
+      "showAllStalled_one": "Mostra tutte ({{count}})",
+      "showAllStalled_other": "Mostra tutte ({{count}})",
+      "nextDue": "Prossime scadenze",
+      "milestones": "Traguardi",
+      "meetingTasks": "Task nate da {{title}}",
+      "taskStatus": {
+        "open": "Aperta",
+        "inProgress": "In corso",
+        "done": "Chiusa",
+        "overdue": "In ritardo · {{date}}",
+        "overdueNoDate": "In ritardo",
+        "request": "Richiesta"
+      }
+    },
+    "summary": {
+      "title": "Riassunto della riunione",
+      "openTranscript": "Apri la trascrizione",
+      "fromEmail": "Dall'email di Gemini, {{date}}",
+      "tasksTitle": "Task nate dalla riunione",
+      "proposals": "Ancora da decidere",
+      "reading": "Lettura della trascrizione…",
+      "unreachable": "Non è stato possibile aprire il documento della trascrizione",
+      "openInDocs": "Apri in Google Docs",
+      "docsNotice": "Nell'app si apre il documento in Google Docs. Il prototipo resta in Stubwise.",
+      "loadFailed": "Impossibile caricare ciò che è nato da questa riunione",
+      "loading": "Caricamento di ciò che è nato da questa riunione…"
+    },
+    "backToEvent": "Torna all'evento"
   }
 }

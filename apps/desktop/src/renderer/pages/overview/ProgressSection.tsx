@@ -124,16 +124,22 @@ export function ProgressSection({
  * · «N without estimate». La barra è il peso chiuso sul totale, mai un
  * numero a schermo; per i lettori di schermo dice la percentuale.
  */
-function MilestoneRow({
+export function MilestoneRow({
   milestone,
   projectCode,
   tasks,
   familyOf,
+  compact = false,
 }: {
   milestone: Milestone;
   projectCode: string;
   tasks: Task[];
   familyOf: (task: Task) => StatusFamily;
+  /**
+   * Densità compatta (la scheda di preparazione, nel pannello): nome,
+   * scadenza e barra; «N without estimate» cade (lo dice l'Overview).
+   */
+  compact?: boolean;
 }) {
   const { t } = useTranslation();
   const { doneWeight, totalWeight, unsized } = progress(tasks, familyOf);
@@ -143,7 +149,7 @@ function MilestoneRow({
   return (
     <li
       data-milestone-row={milestone.id}
-      className="grid min-h-11 grid-cols-[minmax(0,1fr)_64px_minmax(96px,200px)_minmax(0,148px)] items-center gap-4 border-b border-rule py-2 pr-3 pl-4"
+      className={`grid items-center border-b border-rule pl-4 ${compact ? "min-h-9 grid-cols-[minmax(0,1fr)_56px_minmax(48px,96px)] gap-3 py-1.5 pr-4" : "min-h-11 grid-cols-[minmax(0,1fr)_64px_minmax(96px,200px)_minmax(0,148px)] gap-4 py-2 pr-3"}`}
     >
       <TasksLink
         projectCode={projectCode}
@@ -181,9 +187,11 @@ function MilestoneRow({
           />
         </span>
       )}
-      <span className="min-w-0 truncate text-xs text-ink-muted">
-        {unsized > 0 ? t("overview.milestones.unsized", { count: unsized }) : ""}
-      </span>
+      {!compact && (
+        <span className="min-w-0 truncate text-xs text-ink-muted">
+          {unsized > 0 ? t("overview.milestones.unsized", { count: unsized }) : ""}
+        </span>
+      )}
     </li>
   );
 }

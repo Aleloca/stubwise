@@ -94,11 +94,17 @@ export function StalledRow({
   stall,
   names,
   onOpen,
+  compact = false,
 }: {
   task: Task;
   stall: Stall;
   names: StallNames;
   onOpen: () => void;
+  /**
+   * Per una colonna stretta (la scheda di preparazione nel pannello): il
+   * motivo va a capo sotto il titolo invece di stargli accanto.
+   */
+  compact?: boolean;
 }) {
   const { t } = useTranslation();
   const deptLabel = useDeptLabel(task.departmentId);
@@ -109,10 +115,13 @@ export function StalledRow({
       data-task-row={task.code}
       data-stall-reason={stall.reason.kind}
       title={deptLabel}
-      className="relative grid h-11 grid-cols-[48px_minmax(0,1fr)_minmax(0,1.1fr)] items-center gap-4 border-b border-rule pr-3 pl-4 transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/4"
+      className={`relative grid items-center border-b border-rule pl-4 transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/4 ${compact ? "grid-cols-[40px_minmax(0,1fr)] gap-x-3 py-2 pr-4" : "h-11 grid-cols-[48px_minmax(0,1fr)_minmax(0,1.1fr)] gap-4 pr-3"}`}
     >
       <DeptStrip departmentId={task.departmentId} />
-      <span aria-hidden="true" className="num text-right text-lg font-semibold text-ink">
+      <span
+        aria-hidden="true"
+        className={`num text-right text-lg font-semibold text-ink ${compact ? "row-span-2" : ""}`}
+      >
         {t("taskUi.stall.short", { count: stall.days })}
       </span>
       <button
@@ -131,7 +140,7 @@ export function StalledRow({
       <span
         aria-hidden="true"
         title={note ? `${reason} · ${t("overview.stalled.note", { note })}` : reason}
-        className="flex min-w-0 items-center gap-1.5 text-sm"
+        className={`flex min-w-0 items-center gap-1.5 text-sm ${compact ? "col-start-2" : ""}`}
       >
         <StallSign />
         <span className="min-w-0 truncate">

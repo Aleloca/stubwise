@@ -12,6 +12,7 @@ import {
 } from "../../layout/useDetailPanel";
 import { useMediaQuery } from "../../layout/useMediaQuery";
 import { PageError } from "../../tasks-ui/PageStates";
+import { BackToEvent } from "../calendar/meetingParts";
 import { Conversation } from "../claude/conversation/Conversation";
 import { ActivityFeed } from "./ActivityFeed";
 import { ClaudeSection, ClaudeWaitingNotice, scrollPanelTo } from "./ClaudeSection";
@@ -49,6 +50,8 @@ export function TaskDetailHost() {
       label={t("taskDetail.label", { code })}
       onClose={close}
     >
+      {/* Aperta dalla scheda di preparazione di un evento: «Back to event». */}
+      <BackToEvent />
       {/* Una task nuova riparte da capo: niente modifiche a metà della precedente. */}
       <TaskDetail key={code} code={code} onClose={close} />
     </DetailPanel>

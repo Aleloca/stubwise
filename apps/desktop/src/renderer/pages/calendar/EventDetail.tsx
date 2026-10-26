@@ -31,11 +31,14 @@ import { eventDayLabel, spanLabel } from "./calendarFormat";
 import { SeriesScopeDialog } from "./SeriesScopeDialog";
 import { RsvpBar } from "./RsvpBar";
 import { useRecurrenceWords } from "./SeriesSidebar";
+import { MeetingPrep } from "./MeetingPrep";
+import { MeetingSummary } from "./MeetingSummary";
 
 // Il dettaglio di un evento nel pannello (`?event=`, shape calendar.md §6),
 // dall'alto: avviso di rifiuto, titolo e orario, ricorrenza, Join Google
 // Meet, risposta, progetto, partecipanti, luogo, descrizione (isolata),
-// promemoria, casella, la scheda di preparazione (Task 10) e il piede con
+// promemoria, casella, la scheda di preparazione o il riassunto di una
+// riunione passata (`MeetingPrep` / `MeetingSummary`) e il piede con
 // «Open in Google Calendar» e, per l'organizzatore, Edit · Delete. Chi non
 // organizza legge chi lo fa e cambia solo la sua risposta.
 
@@ -168,6 +171,8 @@ function Detail({
     ? `${t("calendar.allDay")} · ${spanLabel(e, i18n.language)}`
     : `${eventDayLabel(e, todayKey(), i18n.language, dayWords)} · ${spanLabel(e, i18n.language)}`;
   const project = e.projectId ? projects?.find((p) => p.id === e.projectId) : undefined;
+  const member = !!project && project.memberIds.includes(me);
+  const past = Date.parse(e.endsAt) <= Date.parse(now());
   const organizer = e.attendees.find((a) => a.organizer);
   const invited = e.myResponse !== null && !e.isOrganizer;
   const dateLabel = new Intl.DateTimeFormat(i18n.language, {
@@ -367,9 +372,16 @@ function Detail({
         </p>
       )}
 
-      {/* La scheda di preparazione (o «Riassunto e cose da fare» di una riunione
-          passata) entra qui con il Task 10: `MeetingPrep` / `MeetingSummary`. */}
-      <div data-slot="meeting-prep" data-event-id={e.id} />
+      {/* Per un membro del progetto dell'evento: la scheda di preparazione se
+          l'evento è futuro o in corso, il riassunto e le task nate se è
+          passato [A 1]. Chi non è membro, o un evento senza progetto: niente. */}
+      {member &&
+        project &&
+        (past ? (
+          <MeetingSummary eventId={e.id} project={project} />
+        ) : (
+          <MeetingPrep eventId={e.id} project={project} />
+        ))}
 
       <footer className="mt-2 flex flex-col gap-3 border-t border-rule px-4 pt-3">
         <div className="flex flex-wrap items-center gap-2">
