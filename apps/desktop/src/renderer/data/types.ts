@@ -667,6 +667,12 @@ export interface RecentMeeting {
   doc: MeetingTranscript["doc"] | null;
   canOpen: boolean;
   tasks: MeetingTask[];
+  /**
+   * Le task ancora proposte dalle sue note e da decidere, che chi guarda
+   * vede (`canSeeMailProposal`: chi c'era ed è membro): «4 proposed tasks ·
+   * to decide», che porta al riassunto. Non sono ancora nate.
+   */
+  proposedTasks: number;
 }
 
 /**

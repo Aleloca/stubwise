@@ -184,7 +184,7 @@ describe("Riunioni registrate: le note nella conversazione della Posta", () => {
       visible: true,
       doc: "ready",
       summary: AUD_NOTES().summary,
-      event: { id: EV_AUD_REVIEW_YESTERDAY, title: "AUD weekly review", people: 4 },
+      event: { id: EV_AUD_REVIEW_YESTERDAY, title: "Weekly review with Audin", people: 4 },
     });
   });
 

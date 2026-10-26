@@ -43,7 +43,7 @@ async function openReview(personId = "p-giulia") {
   connectGoogle(personId);
   const router = renderRoute(`/calendar?event=${EV_AUD_REVIEW_YESTERDAY}&date=${YESTERDAY}`, personId);
   const panel = await screen.findByRole("region", { name: "Event" });
-  await within(panel).findByRole("heading", { level: 2, name: "AUD weekly review" });
+  await within(panel).findByRole("heading", { level: 2, name: "Weekly review with Audin" });
   return { router, panel };
 }
 

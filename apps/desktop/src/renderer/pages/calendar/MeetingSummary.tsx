@@ -146,8 +146,8 @@ function SummaryBody({ summary: s }: { summary: Summary }) {
         )}
       </div>
       {open.length > 0 && (
-        <div className="-mx-4 flex flex-col gap-2 pt-2">
-          <p className="px-4 text-xs text-ink-muted">{t("calendar.summary.proposals")}</p>
+        <div className="flex flex-col gap-2 pt-2">
+          <p className="text-xs text-ink-muted">{t("calendar.summary.proposals")}</p>
           {open.map((v) => (
             <MailProposalCard key={v.proposal.id} view={v} />
           ))}

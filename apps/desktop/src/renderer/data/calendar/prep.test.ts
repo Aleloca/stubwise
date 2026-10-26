@@ -158,7 +158,7 @@ describe("Scheda di preparazione: riunioni precedenti", () => {
     ]);
     expect(prep.recentMeetings[0]).toMatchObject({ summary: null, doc: null, canOpen: true });
     expect(prep.recentMeetings[1]).toMatchObject({
-      title: "AUD weekly review",
+      title: "Weekly review with Audin",
       at: ev(EV_AUD_REVIEW_YESTERDAY).startsAt,
       doc: "ready",
       canOpen: true,
@@ -190,7 +190,7 @@ describe("Scheda di preparazione: riunioni precedenti", () => {
     const prep = (await calendar.getMeetingPrep(C.saveFails))!;
     const review = prep.recentMeetings.find((m) => m.eventId === EV_AUD_REVIEW_YESTERDAY)!;
     expect(review).toMatchObject({
-      title: "AUD weekly review",
+      title: "Weekly review with Audin",
       summary: null,
       doc: null,
       canOpen: false,

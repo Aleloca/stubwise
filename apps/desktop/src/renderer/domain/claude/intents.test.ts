@@ -474,7 +474,7 @@ describe("le letture sono di chi conversa (Sara non vede AUD)", () => {
 describe("la posta e le riunioni di altri non arrivano a Claude (Review Focus 1)", () => {
   const QUESTIONS = [
     "What did Sofia write about the VAT number column?",
-    "Summarize the AUD weekly review meeting",
+    "Summarize the Weekly review with Audin meeting",
     "Cosa dice l'email sul billing export di AUD?",
     "What do I have today?",
     "Riassumi la riunione settimanale di AUD",

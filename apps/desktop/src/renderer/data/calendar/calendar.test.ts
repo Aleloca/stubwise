@@ -396,7 +396,7 @@ describe("Calendario: proposte", () => {
       actions: [
         {
           fn: "createMilestone",
-          args: { projectId: MKX, name: "MKX launch visuals", dueDate: "2026-11-06" },
+          args: { projectId: MKX, name: "Launch visuals", dueDate: "2026-11-06" },
         },
       ],
     });
@@ -591,7 +591,7 @@ describe("Calendario: Prossimi appuntamenti", () => {
     const titles = upcoming.map((e) => e.title);
     expect(titles).toContain("Saturday late");
     expect(titles).not.toContain("Sunday early");
-    expect(titles).not.toContain("AUD go-live plan with Sofia"); // finita alle 12:00
+    expect(titles).not.toContain("Go-live plan with Sofia"); // finita alle 12:00
     expect(titles).toContain("Lunch with Anna");
     expect(upcoming.find((e) => e.id === C.invite)).toMatchObject({ myResponse: "needsAction" });
     await calendar.respond(C.invite, "declined");
@@ -716,7 +716,7 @@ describe("Calendario: proposte delle serie accese", () => {
       actions: [
         {
           fn: "createRequest",
-          args: { projectId: MKX, title: "MKX content planning · 2026-10-26" },
+          args: { projectId: MKX, title: "Content planning · 2026-10-26" },
         },
       ],
     });
@@ -738,8 +738,8 @@ describe("Calendario: proposte delle serie accese", () => {
     expect(seriesProposal(s, due, NOW)!.actions).toEqual([
       {
         fn: "acknowledgeReminder",
-        args: { title: "MKX content planning", date: "2026-10-26" },
-        summary: "Reminder: MKX content planning · 2026-10-26",
+        args: { title: "Content planning", date: "2026-10-26" },
+        summary: "Reminder: Content planning · 2026-10-26",
       },
     ]);
     expect(seriesProposal(s, ev("ev-mkx-planning-2026-10-19"), NOW)).toBeNull();
@@ -841,7 +841,7 @@ describe("Calendario: proposte delle serie accese", () => {
     });
     expect(p.actions.map((a) => a.fn)).toEqual(["createMilestone"]);
     expect(
-      state.milestones.filter((m) => m.projectId === STW && m.name === "STW standup · 2026-10-26"),
+      state.milestones.filter((m) => m.projectId === STW && m.name === "Standup · 2026-10-26"),
     ).toHaveLength(1);
     expect(state.conversations).toHaveLength(conversations);
     // Già decisa: non torna fra quelle «Da decidere».

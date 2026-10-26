@@ -248,15 +248,32 @@ function MeetingItem({
         <p className="px-4 text-sm text-ink-muted">{t("calendar.summary.reading")}</p>
       )}
       {m.doc === "unreachable" && <TranscriptUnreachable />}
-      <MeetingTaskList
-        tasks={m.tasks}
-        projectCode={project.code}
-        eventId={eventId}
-        label={t("calendar.prep.meetingTasks", { title: m.title })}
-        empty={
-          m.doc === "unreachable" ? t("calendar.prep.noTasksYet") : t("calendar.prep.noTasks")
-        }
-      />
+      {/* Proposte ancora da decidere: non «No tasks», ma quante e dove decidere (il riassunto). */}
+      {(m.tasks.length > 0 || m.proposedTasks === 0) && (
+        <MeetingTaskList
+          tasks={m.tasks}
+          projectCode={project.code}
+          eventId={eventId}
+          label={t("calendar.prep.meetingTasks", { title: m.title })}
+          empty={
+            m.doc === "unreachable" ? t("calendar.prep.noTasksYet") : t("calendar.prep.noTasks")
+          }
+        />
+      )}
+      {m.proposedTasks > 0 && m.canOpen && (
+        <button
+          type="button"
+          onClick={() =>
+            void navigate({
+              to: ".",
+              search: (prev: Record<string, unknown>) => ({ ...prev, event: m.eventId }),
+            } as never)
+          }
+          className="mx-4 self-start rounded-sm text-sm text-ink-muted underline decoration-ink/30 underline-offset-2 hover:text-ink hover:decoration-ink"
+        >
+          {t("calendar.prep.proposedTasks", { count: m.proposedTasks })}
+        </button>
+      )}
     </li>
   );
 }

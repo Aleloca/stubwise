@@ -33,7 +33,7 @@ const TODAY_EVENTS: CalendarEvent[] = [
   event({
     id: C.goLive,
     calendarPersonIds: ["p-giulia", "p-matteo"],
-    title: "AUD go-live plan with Sofia",
+    title: "Go-live plan with Sofia",
     description: "Walk through the revised go-live plan before sending it in writing.",
     startsAt: on(0, "11:00"),
     endsAt: on(0, "12:00"),
@@ -54,7 +54,7 @@ const TODAY_EVENTS: CalendarEvent[] = [
   event({
     id: C.visualsReview,
     calendarPersonIds: ["p-giulia", "p-matteo"],
-    title: "MKX launch visuals review",
+    title: "Launch visuals review",
     startsAt: on(0, "14:00"),
     endsAt: on(0, "15:00"),
     meetUrl: "https://meet.google.com/mkx-vsls-rvw",
@@ -64,7 +64,7 @@ const TODAY_EVENTS: CalendarEvent[] = [
   event({
     id: C.invite,
     calendarPersonIds: ["p-giulia"],
-    title: "OLV harvest photo shoot",
+    title: "Harvest photo shoot",
     description: "Planning the photo shoot at the mill for the new website.",
     startsAt: on(0, "16:00"),
     endsAt: on(0, "16:45"),
@@ -78,7 +78,7 @@ const TODAY_EVENTS: CalendarEvent[] = [
   event({
     id: C.pressDay,
     calendarPersonIds: ["p-giulia", "p-matteo"],
-    title: "MKX press day",
+    title: "Press day",
     startsAt: day(0),
     endsAt: day(1),
     allDay: true,
@@ -108,7 +108,7 @@ const LATER: CalendarEvent[] = [
   event({
     id: C.midnight,
     calendarPersonIds: ["p-giulia", "p-laura"],
-    title: "Release AUD 2.1",
+    title: "Release 2.1",
     startsAt: on(6, "22:30"),
     endsAt: on(7, "01:00"),
     meetUrl: "https://meet.google.com/aud-rels-twn",
@@ -118,7 +118,7 @@ const LATER: CalendarEvent[] = [
   event({
     id: C.saveFails,
     calendarPersonIds: ["p-giulia"],
-    title: "AUD dashboard check",
+    title: "Dashboard check",
     startsAt: on(4, "10:00"),
     endsAt: on(4, "10:30"),
     meetUrl: "https://meet.google.com/aud-dash-chk",
@@ -147,7 +147,7 @@ const LATER: CalendarEvent[] = [
   event({
     id: C.deadline,
     calendarPersonIds: ["p-giulia", "p-matteo"],
-    title: "Deadline: MKX launch visuals",
+    title: "Deadline: Launch visuals",
     startsAt: day(14),
     endsAt: day(15),
     allDay: true,
@@ -157,7 +157,7 @@ const LATER: CalendarEvent[] = [
   event({
     id: C.pastDeadline,
     calendarPersonIds: ["p-giulia", "p-laura"],
-    title: "Deadline: STW beta feedback",
+    title: "Deadline: Beta feedback",
     startsAt: day(-7),
     endsAt: day(-6),
     allDay: true,
@@ -167,7 +167,7 @@ const LATER: CalendarEvent[] = [
   event({
     id: C.declinedDeadline,
     calendarPersonIds: ["p-giulia"],
-    title: "Delivery: AUD billing export",
+    title: "Delivery: Billing export",
     startsAt: on(12, "10:00"),
     endsAt: on(12, "10:30"),
     attendees: [

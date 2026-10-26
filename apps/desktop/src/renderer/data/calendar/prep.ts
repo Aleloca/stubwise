@@ -1,6 +1,6 @@
 import { isOverdue, openMilestones } from "../../domain/due";
 import { rowsFor } from "../mail/reads";
-import { bornFrom, summaryFor } from "../mail/transcripts";
+import { bornFrom, proposedFrom, summaryFor } from "../mail/transcripts";
 import { TODAY } from "../seed/dates";
 import {
   copy,
@@ -49,6 +49,7 @@ function recentMeetings(me: string, e: CalendarEvent, projectId: string): Recent
     if (out.length === PREP_MEETINGS) break;
     const canOpen = canReadEvent(me, x);
     const tasks = bornFrom(me, x.id);
+    const proposedTasks = proposedFrom(me, x.id);
     if (!canOpen && tasks.length === 0) continue;
     const summary = summaryFor(me, x.id);
     out.push({
@@ -59,6 +60,7 @@ function recentMeetings(me: string, e: CalendarEvent, projectId: string): Recent
       doc: summary?.doc ?? null,
       canOpen,
       tasks,
+      proposedTasks,
     });
   }
   return out;

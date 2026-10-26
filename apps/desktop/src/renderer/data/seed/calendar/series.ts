@@ -23,7 +23,7 @@ export const SERIES_IDS = {
 export const CALENDAR_SERIES: CalendarSeries[] = [
   {
     id: SERIES_IDS.audReview,
-    title: "AUD weekly review",
+    title: "Weekly review with Audin",
     rule: "RRULE:FREQ=WEEKLY;BYDAY=TH",
     projectId: "prj-aud",
     enabled: true,
@@ -33,7 +33,7 @@ export const CALENDAR_SERIES: CalendarSeries[] = [
   },
   {
     id: SERIES_IDS.stwStandup,
-    title: "STW standup",
+    title: "Standup",
     rule: "RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR",
     projectId: null,
     enabled: false,
@@ -45,7 +45,7 @@ export const CALENDAR_SERIES: CalendarSeries[] = [
   // richiesta è già fra le proposte; quella del 2 novembre non ancora.
   {
     id: SERIES_IDS.mkxPlanning,
-    title: "MKX content planning",
+    title: "Content planning",
     rule: "RRULE:FREQ=WEEKLY;BYDAY=MO",
     projectId: "prj-mkx",
     enabled: true,
@@ -79,7 +79,7 @@ const AUD_REVIEWS: CalendarEvent[] = offsets(-50, 90, [4]).map((d) =>
   event({
     id: d === -1 ? EV_AUD_REVIEW_YESTERDAY : `ev-aud-review-${daysFromToday(d)}`,
     calendarPersonIds: ["p-giulia", "p-matteo", "p-laura"],
-    title: "AUD weekly review",
+    title: "Weekly review with Audin",
     description: "Weekly status with the Audin team: progress, risks, next steps.",
     startsAt: on(d, "15:30"),
     endsAt: on(d, "16:30"),
@@ -95,7 +95,7 @@ const STW_STANDUPS: CalendarEvent[] = offsets(-35, 70, [1, 2, 3, 4, 5]).map((d) 
   event({
     id: `ev-stw-standup-${daysFromToday(d)}`,
     calendarPersonIds: ["p-giulia", "p-laura"],
-    title: "STW standup",
+    title: "Standup",
     startsAt: on(d, "09:00"),
     endsAt: on(d, "09:15"),
     meetUrl: "https://meet.google.com/stw-stnd-upp",
@@ -115,7 +115,7 @@ const MKX_PLANNING: CalendarEvent[] = offsets(-30, 80, [1]).map((d) =>
   event({
     id: `ev-mkx-planning-${daysFromToday(d)}`,
     calendarPersonIds: ["p-giulia", "p-matteo"],
-    title: "MKX content planning",
+    title: "Content planning",
     startsAt: on(d, "10:00"),
     endsAt: on(d, "10:45"),
     meetUrl: "https://meet.google.com/mkx-cntn-pln",

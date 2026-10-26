@@ -320,7 +320,7 @@ describe("Home: proposte della posta in «Decide»", () => {
     const user = userEvent.setup();
     renderRoute("/home", "p-giulia");
     const item = await mailItem(MEETING_PROPOSAL);
-    expect(item).toHaveTextContent(/From the meeting AUD weekly review/);
+    expect(item).toHaveTextContent(/From the meeting Weekly review with Audin/);
     expect(item.querySelectorAll("[data-action-row]")).toHaveLength(1);
     await user.click(within(item).getByRole("button", { name: "+3 more" }));
     expect(item.querySelectorAll("[data-action-row]")).toHaveLength(4);

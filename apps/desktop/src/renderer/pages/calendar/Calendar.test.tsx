@@ -105,7 +105,7 @@ describe("Calendario — parametri nell'indirizzo", () => {
     const router = await openCalendar(`/calendar?event=${EV_AUD_REVIEW_YESTERDAY}`);
     await waitFor(() => expect(search(router)).toMatchObject({ view: "day", date: "2026-10-22" }));
     const panel = await screen.findByRole("region", { name: "Event" });
-    expect(within(panel).getByRole("heading", { name: "AUD weekly review" })).toBeInTheDocument();
+    expect(within(panel).getByRole("heading", { name: "Weekly review with Audin" })).toBeInTheDocument();
     expect(search(router).event).toBe(EV_AUD_REVIEW_YESTERDAY);
   });
 
@@ -179,7 +179,7 @@ describe("Calendario — bordi della finestra (Review Focus 3)", () => {
       const press = await block(C.pressDay);
       // Lunedì 19 è la colonna 1: venerdì 23 è la 5.
       expect(press.style.gridColumn).toBe("5 / 6");
-      expect(press).toHaveAccessibleName(/MKX press day, All day, Fri, Oct 23/);
+      expect(press).toHaveAccessibleName(/Press day, All day, Fri, Oct 23/);
     });
 
     it("un evento a cavallo della mezzanotte locale sta in entrambi i giorni: «continues» e «from»", async () => {
@@ -245,7 +245,7 @@ describe("Calendario — organizzatore e no", () => {
       expect(announcer()).toHaveTextContent("You can't move this event: Matteo Conti organizes it"),
     );
     const panel = await screen.findByRole("region", { name: "Event" });
-    await within(panel).findByRole("heading", { name: "MKX launch visuals review" });
+    await within(panel).findByRole("heading", { name: "Launch visuals review" });
     expect(within(panel).queryByRole("button", { name: "Edit" })).toBeNull();
     expect(
       within(panel).getByText(/Organized by Matteo Conti · you can change only your answer/),
@@ -264,7 +264,7 @@ describe("Calendario — organizzatore e no", () => {
     const user = userEvent.setup();
     await user.keyboard(" ");
     await waitFor(() =>
-      expect(announcer()).toHaveTextContent(/^Moving AUD go-live plan with Sofia/),
+      expect(announcer()).toHaveTextContent(/^Moving Go-live plan with Sofia/),
     );
     await user.keyboard("{ArrowDown}");
     await waitFor(() => expect(announcer()).toHaveTextContent("Friday 11:15 AM to 12:15 PM"));
@@ -401,7 +401,7 @@ describe("Calendario — stati", () => {
   it("il salvataggio fallito dice «Couldn't save» e offre «Retry»", async () => {
     await openCalendar(`/calendar?event=${C.saveFails}&date=2026-10-27`);
     const panel = await screen.findByRole("region", { name: "Event" });
-    await within(panel).findByRole("heading", { name: "AUD dashboard check" });
+    await within(panel).findByRole("heading", { name: "Dashboard check" });
     const el = await block(C.saveFails);
     el.focus();
     const user = userEvent.setup();

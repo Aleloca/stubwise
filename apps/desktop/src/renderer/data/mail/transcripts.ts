@@ -11,7 +11,7 @@ import type {
   ProjectRequest,
   Task,
 } from "../types";
-import { canSeeMessage, canSeeTranscript, isProjectMember } from "./visibility";
+import { canSeeMailProposal, canSeeMessage, canSeeTranscript, isProjectMember } from "./visibility";
 
 // Le riunioni registrate (area 6): l'email di Gemini, il Google Doc letto e
 // le cose da fare nate dalla trascrizione. Riassunto e trascrizione sono
@@ -138,6 +138,30 @@ export function bornFrom(me: string, eventId: string): MeetingTask[] {
     }
   }
   return out;
+}
+
+/**
+ * Le task proposte dalle note di una riunione e ancora da decidere, fra le
+ * proposte che `me` vede (chi c'era ed è membro, R-I24).
+ */
+export function proposedFrom(me: string, eventId: string): number {
+  const sources = new Set(
+    state.meetingTranscripts
+      .filter((t) => t.eventId === eventId)
+      .flatMap((t) => {
+        const m = messageOf(t);
+        return m ? [m.messageId] : [];
+      }),
+  );
+  return state.mailProposals
+    .filter(
+      (p) =>
+        p.source === "transcript" &&
+        sources.has(p.sourceId) &&
+        (p.status === "open" || p.status === "handed") &&
+        canSeeMailProposal(me, p),
+    )
+    .reduce((n, p) => n + p.actions.filter((a) => a.fn === "createTask").length, 0);
 }
 
 /**

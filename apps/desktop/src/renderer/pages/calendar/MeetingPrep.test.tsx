@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mail, resetApi, setLatency } from "../../data/api";
 import { CALENDAR_CASES } from "../../data/seed/calendar";
 import { daysFromToday, TODAY } from "../../data/seed/dates";
-import { EV_AUD_REVIEW_YESTERDAY, MAIL_CASES } from "../../data/seed/mail";
+import { EV_AUD_REVIEW_LAST_WEEK, EV_AUD_REVIEW_YESTERDAY, MAIL_CASES } from "../../data/seed/mail";
 import { setSessionPersonId } from "../../data/session";
 import { failNext, state } from "../../data/store";
 import { resetViewerGrants } from "../../data/viewer";
@@ -102,12 +102,15 @@ describe("Scheda di preparazione — chi la vede e cosa", () => {
 
     const meetings = await section(prep, "Last meetings");
     expect(
-      await within(meetings).findAllByRole("button", { name: /AUD weekly review/ }),
+      await within(meetings).findAllByRole("button", { name: /Weekly review with Audin/ }),
     ).toHaveLength(2);
-    expect(within(meetings).getByText("Generated text")).toBeInTheDocument();
-    expect(within(meetings).getByText(SUMMARY)).toBeInTheDocument();
+    // Quella di ieri, la più recente: il suo riassunto, segnato come generato.
+    const yesterday = meetings.querySelector<HTMLElement>(
+      `[data-recent-meeting="${EV_AUD_REVIEW_YESTERDAY}"]`,
+    )!;
+    expect(within(yesterday).getByText(SUMMARY)).toBeInTheDocument();
     // «Generated text» si annuncia PRIMA del riassunto.
-    const tag = within(meetings).getByText("Generated text");
+    const tag = within(yesterday).getByText("Generated text");
     expect(
       tag.compareDocumentPosition(within(meetings).getByText(SUMMARY)) &
         Node.DOCUMENT_POSITION_FOLLOWING,
@@ -124,9 +127,10 @@ describe("Scheda di preparazione — chi la vede e cosa", () => {
     // Alessia è invitata al controllo della dashboard di AUD, non alla revisione di ieri.
     const { panel } = await openEvent(C.saveFails, "2026-10-27", "p-alessia");
     const meetings = await section(await sheet(panel), "Last meetings");
-    const item = (await within(meetings).findByText("AUD weekly review")).closest("li")!;
+    // La più recente, quella di ieri.
+    const item = (await within(meetings).findAllByText("Weekly review with Audin"))[0]!.closest("li")!;
     // Il titolo non apre l'evento: lei non lo vede.
-    expect(within(item).queryByRole("button", { name: /AUD weekly review/ })).toBeNull();
+    expect(within(item).queryByRole("button", { name: /Weekly review with Audin/ })).toBeNull();
     for (const code of codes) expect(within(item).getByText(code)).toBeInTheDocument();
     expect(within(meetings).queryByText("Generated text")).toBeNull();
     expect(within(meetings).queryByText(SUMMARY)).toBeNull();
@@ -247,6 +251,40 @@ describe("Scheda di preparazione — stati per sezione", () => {
   });
 });
 
+describe("Scheda di preparazione — le cose nate dalle riunioni precedenti", () => {
+  it("proposte ancora aperte: «4 proposed tasks · to decide», che porta al riassunto; non «No tasks»", async () => {
+    const { router, panel } = await openEvent(NEXT_REVIEW, daysFromToday(6));
+    const meetings = await section(await sheet(panel), "Last meetings");
+    const yesterday = await waitFor(() => {
+      const el = meetings.querySelector<HTMLElement>(
+        `[data-recent-meeting="${EV_AUD_REVIEW_YESTERDAY}"]`,
+      );
+      if (!el) throw new Error("no meeting");
+      return el;
+    });
+    expect(yesterday).not.toHaveTextContent("No tasks came out of this meeting");
+    await userEvent.click(within(yesterday).getByRole("button", { name: "4 proposed tasks · to decide" }));
+    await waitFor(() => expect(search(router).event).toBe(EV_AUD_REVIEW_YESTERDAY));
+  });
+
+  it("la revisione della settimana scorsa: le task nate, una «Overdue · Oct 21»", async () => {
+    const { panel } = await openEvent(NEXT_REVIEW, daysFromToday(6));
+    const meetings = await section(await sheet(panel), "Last meetings");
+    const lastWeek = await waitFor(() => {
+      const el = meetings.querySelector<HTMLElement>(
+        `[data-recent-meeting="${EV_AUD_REVIEW_LAST_WEEK}"]`,
+      );
+      if (!el) throw new Error("no meeting");
+      return el;
+    });
+    const late = lastWeek.querySelector<HTMLElement>('[data-meeting-task="AUD-7"]')!;
+    expect(late).toHaveTextContent("Write the help pages for the dialer");
+    expect(late).toHaveTextContent("Overdue · Oct 21");
+    expect(lastWeek.querySelector('[data-meeting-task="AUD-8"]')).not.toBeNull();
+    expect(within(lastWeek).queryByRole("button", { name: /proposed/ })).toBeNull();
+  });
+});
+
 describe("Scheda di preparazione — dove portano le righe", () => {
   it("una task apre il suo pannello al posto dell'evento, e «Back to event» riporta indietro [A 4]", async () => {
     setSessionPersonId("p-giulia");
@@ -276,7 +314,7 @@ describe("Scheda di preparazione — dove portano le righe", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Back to event" }));
     await waitFor(() =>
       expect(document.activeElement).toBe(
-        screen.getByRole("heading", { level: 2, name: "AUD weekly review" }),
+        screen.getByRole("heading", { level: 2, name: "Weekly review with Audin" }),
       ),
     );
   });
@@ -285,7 +323,7 @@ describe("Scheda di preparazione — dove portano le righe", () => {
     const { router, panel } = await openEvent(NEXT_REVIEW, daysFromToday(6));
     const meetings = await section(await sheet(panel), "Last meetings");
     // Dalla più recente: la revisione di ieri prima di quella della settimana scorsa.
-    const [yesterday] = await within(meetings).findAllByRole("button", { name: /AUD weekly review/ });
+    const [yesterday] = await within(meetings).findAllByRole("button", { name: /Weekly review with Audin/ });
     await userEvent.click(yesterday!);
     await waitFor(() => expect(search(router).event).toBe(EV_AUD_REVIEW_YESTERDAY));
   });
@@ -337,7 +375,7 @@ describe("Segno «Preparation available» sui blocchi della griglia", () => {
       });
     renderRoute(`/calendar?date=${daysFromToday(6)}`, personId);
     const next = await block(NEXT_REVIEW);
-    await waitFor(() => expect(next).toHaveAccessibleName(/AUD weekly review/));
+    await waitFor(() => expect(next).toHaveAccessibleName(/Weekly review with Audin/));
     expect(next).not.toHaveAccessibleName(/Preparation available/);
     expect(next.querySelector("[data-prep-mark]")).toBeNull();
   });

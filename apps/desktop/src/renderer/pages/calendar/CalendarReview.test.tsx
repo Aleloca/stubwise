@@ -308,10 +308,10 @@ describe("rilievi minori", () => {
     await openCalendar("/calendar?date=2026-10-23");
     const user = userEvent.setup();
     await user.click(
-      await screen.findByRole("button", { name: "More actions for AUD go-live plan with Sofia" }),
+      await screen.findByRole("button", { name: "More actions for Go-live plan with Sofia" }),
     );
     await user.click(await screen.findByRole("menuitem", { name: "Move to…" }));
-    const dialog = await screen.findByRole("dialog", { name: "Move AUD go-live plan with Sofia" });
+    const dialog = await screen.findByRole("dialog", { name: "Move Go-live plan with Sofia" });
     fireEvent.change(within(dialog).getByLabelText("Start"), { target: { value: "15:00" } });
     await user.click(within(dialog).getByRole("button", { name: "Move" }));
     await waitFor(() =>
@@ -322,7 +322,7 @@ describe("rilievi minori", () => {
     );
     // Chi non organizza non ha il menu.
     expect(
-      screen.queryByRole("button", { name: /^More actions for MKX launch visuals review/ }),
+      screen.queryByRole("button", { name: /^More actions for Launch visuals review/ }),
     ).toBeNull();
   });
 
@@ -330,10 +330,10 @@ describe("rilievi minori", () => {
     await openCalendar("/calendar?date=2026-10-23");
     const user = userEvent.setup();
     await user.click(
-      await screen.findByRole("button", { name: "More actions for AUD go-live plan with Sofia" }),
+      await screen.findByRole("button", { name: "More actions for Go-live plan with Sofia" }),
     );
     await user.click(await screen.findByRole("menuitem", { name: "Move to…" }));
-    const dialog = await screen.findByRole("dialog", { name: "Move AUD go-live plan with Sofia" });
+    const dialog = await screen.findByRole("dialog", { name: "Move Go-live plan with Sofia" });
     fireEvent.change(within(dialog).getByLabelText("Date"), { target: { value: "" } });
     await user.click(within(dialog).getByRole("button", { name: "Move" }));
     expect(within(dialog).getByRole("alert")).toHaveTextContent("Enter a valid date and time");
@@ -352,7 +352,7 @@ describe("rilievi minori", () => {
     await user.keyboard(" ");
     await user.keyboard("{ArrowDown}");
     await user.keyboard(" ");
-    const retry = await screen.findByRole("button", { name: "Retry: AUD dashboard check" });
+    const retry = await screen.findByRole("button", { name: "Retry: Dashboard check" });
     await user.click(retry);
     await waitFor(() => expect(ev(C.saveFails).save?.state).toBe("saved"));
   });
@@ -391,7 +391,7 @@ describe("rilievi minori", () => {
         await screen.findByText("Couldn't save the meeting: nothing was changed."),
       ).toBeInTheDocument();
       expect(announcer()).not.toHaveTextContent(/updated/);
-      expect(ev(C.goLive)).toMatchObject({ title: "AUD go-live plan with Sofia", startsAt: "2026-10-23T11:00:00Z" });
+      expect(ev(C.goLive)).toMatchObject({ title: "Go-live plan with Sofia", startsAt: "2026-10-23T11:00:00Z" });
     });
 
     it("rifiutato dopo lo spostamento: non dice «nothing was changed», l'orario nuovo resta", async () => {

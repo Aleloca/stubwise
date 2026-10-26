@@ -4322,6 +4322,8 @@
       "noMail": "No recent email with you about {{code}}",
       "noMeetings": "No earlier meetings on {{code}}",
       "noTasks": "No tasks came out of this meeting",
+      "proposedTasks_one": "{{count}} proposed task · to decide",
+      "proposedTasks_other": "{{count}} proposed tasks · to decide",
       "noTasksYet": "No tasks yet",
       "nothingOpen": "Nothing open on {{code}}",
       "error": "Couldn't load {{title}}",

@@ -233,4 +233,44 @@ export const MAIL_PROPOSALS: MailProposal[] = [
     createdAt: at(1, "16:45"),
     ...undecided(),
   },
+  // La revisione della settimana scorsa: Matteo ha confermato le due task
+  // (AUD-7, ora in ritardo, e AUD-8). La scheda di preparazione le mostra
+  // fra le «riunioni precedenti».
+  {
+    id: "mp-aud-weekly-review-1015",
+    source: "transcript",
+    sourceId: sourceOf(MEETING_MESSAGE_IDS.transcriptLastWeek),
+    projectId: "prj-aud",
+    actions: [
+      {
+        fn: "createTask",
+        args: {
+          projectId: "prj-aud",
+          title: "Write the help pages for the dialer",
+          assigneeId: "p-alessia",
+          dueDate: daysFromToday(-2),
+        },
+        summary: "Create in AUD: “Write the help pages for the dialer” · Alessia Neri",
+      },
+      {
+        fn: "createTask",
+        args: {
+          projectId: "prj-aud",
+          title: "Launch announcement for existing customers",
+          assigneeId: "p-elena",
+        },
+        summary: "Create in AUD: “Launch announcement for existing customers” · Elena Moretti",
+      },
+    ],
+    excerpt:
+      "The dialer needs help pages before the client starts testing, due Wednesday 21. The launch announcement to existing customers is planned for mid-November.",
+    createdAt: at(8, "16:45"),
+    status: "confirmed",
+    decidedById: "p-matteo",
+    decidedAt: at(8, "17:30"),
+    resultCodes: ["AUD-7", "AUD-8"],
+    error: null,
+    handedAt: null,
+    handedById: null,
+  },
 ];

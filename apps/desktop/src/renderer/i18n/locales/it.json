@@ -4322,6 +4322,8 @@
       "noMail": "Nessuna email recente con te su {{code}}",
       "noMeetings": "Nessuna riunione precedente su {{code}}",
       "noTasks": "Nessuna task nata da questa riunione",
+      "proposedTasks_one": "{{count}} task proposta · da decidere",
+      "proposedTasks_other": "{{count}} task proposte · da decidere",
       "noTasksYet": "Ancora nessuna task",
       "nothingOpen": "Niente di aperto su {{code}}",
       "error": "Impossibile caricare {{title}}",
