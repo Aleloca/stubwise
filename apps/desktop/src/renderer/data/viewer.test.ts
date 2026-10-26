@@ -293,12 +293,18 @@ describe("permessi delle Automations (area 7)", () => {
     expect(can(byPerson("p-laura"), "automations.manage", MKX)).toBe(false);
   });
 
-  it("automations.manage d'istanza (le generali): solo all'admin; senza progetto è quello d'istanza", () => {
+  it("automations.manage d'istanza (le generali): del preset admin, più la concessione personale del seme a Matteo (R-J10)", () => {
     expect(can(byPerson("p-roberta"), "automations.manage")).toBe(true);
     expect(byPerson("p-roberta").instancePermissions).toContain("automations.manage");
-    for (const id of ["p-giulia", "p-marco", "p-laura", "p-sara", "p-matteo"]) {
+    for (const id of ["p-giulia", "p-marco", "p-laura", "p-sara"]) {
       expect(can(byPerson(id), "automations.manage")).toBe(false);
     }
+    // Una concessione personale, non del preset: si toglie e il reset la ridà.
+    expect(can(viewerFor("p-matteo"), "automations.manage")).toBe(true);
+    revokeInstancePermission("p-matteo", "automations.manage");
+    expect(can(viewerFor("p-matteo"), "automations.manage")).toBe(false);
+    resetViewerGrants();
+    expect(can(viewerFor("p-matteo"), "automations.manage")).toBe(true);
   });
 
   it("integrations.manage (sorgenti e tabella cliente → progetto): solo all'admin", () => {

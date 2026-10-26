@@ -1,5 +1,5 @@
 // Le esecuzioni del seme (area 7), una per ogni caso dello spec: in attesa
-// del cliente da 3 giorni, ferma su un'approvazione (un'email per Laura),
+// del cliente da 3 giorni, ferma su un'approvazione (un'email per Matteo),
 // finita, fallita (permesso perso), in attesa del progetto. Il registro
 // segue i passi dei flussi in `automations.ts`, uno per riga, coi percorsi
 // della grammatica R-J5 (`model.ts`).
@@ -7,6 +7,7 @@ import type { AutomationRun, RunLogEntry } from "../../types";
 import { daysFromToday } from "../dates";
 import { AUTOMATION_CLIENT_DATA, AUTOMATION_NEW_CONTRACT, AUTOMATION_PAUSED } from "./automations";
 import { AUTOMATION_TASKS, NEW_CONTRACT_MILESTONE_ID } from "./created";
+import { AUTOMATION_MAIL_IDS, BELLAVISTA_REPLY } from "./mail";
 import { AUDIN_SAMPLE_EVENTS, WEBHOOK_SAMPLE_EVENTS } from "./sources";
 
 export const RUN_DONE = "arun-aut1-1";
@@ -181,7 +182,7 @@ const doneRun: AutomationRun = {
       path: "3",
       kind: "sendEmail",
       outcome: "approved",
-      byId: "p-roberta",
+      byId: "p-matteo",
     }),
     entry({
       at: at(-11, "09:30"),
@@ -190,7 +191,8 @@ const doneRun: AutomationRun = {
       kind: "sendEmail",
       outcome: "ok",
       input: WELCOME,
-      output: { inviata: true, casella: "p-roberta" },
+      output: { inviata: true, casella: "p-matteo" },
+      effects: [{ kind: "email", code: AUTOMATION_MAIL_IDS.welcome }],
     }),
   ],
 };
@@ -216,7 +218,7 @@ const waitingProjectRun: AutomationRun = {
   cursor: "1",
   waitingUntil: null,
   pending: {
-    approverIds: ["p-roberta"],
+    approverIds: ["p-matteo"],
     preview: { clientKey: "forneriarossilari.example", clientName: "Forneria Rossi & Lari" },
   },
   startedAt: at(-1, "14:20"),
@@ -257,8 +259,6 @@ const BELLAVISTA_REQUEST = WEBHOOK_SAMPLE_EVENTS[0]!;
 const MIXCUCINE_REQUEST = WEBHOOK_SAMPLE_EVENTS[1]!;
 const WAIT_INPUT = { replyTo: "cd-ask", maxDays: 5 };
 
-const BELLAVISTA_REPLY =
-  "Buongiorno, i numeri da collegare sono 0577 000111 e 0577 000112. Siamo aperti dal lunedì al sabato, dalle 9 alle 18.";
 /** Cosa scrive l'attesa quando la risposta arriva (R-J2). */
 const BELLAVISTA_REPLY_VARS = { "risposta.arrivata": true, "risposta.testo": BELLAVISTA_REPLY };
 const MISSING = "il testo del messaggio di benvenuto";
@@ -280,7 +280,7 @@ const waitingApprovalRun: AutomationRun = {
   vars: { ...BELLAVISTA_REPLY_VARS, "verifica.mancanti": MISSING },
   cursor: MISSING_PATH,
   waitingUntil: null,
-  pending: { approverIds: ["p-laura"], preview: MISSING_EMAIL },
+  pending: { approverIds: ["p-matteo"], preview: MISSING_EMAIL },
   startedAt: at(-6, "09:40"),
   endedAt: null,
   error: null,
@@ -297,7 +297,8 @@ const waitingApprovalRun: AutomationRun = {
         to: "amministrazione@cantinabellavista.example",
         subject: "Ci servono alcuni dati per attivare Centralino AI",
       },
-      output: { inviata: true, casella: "p-laura" },
+      output: { inviata: true, casella: "p-matteo" },
+      effects: [{ kind: "email", code: AUTOMATION_MAIL_IDS.bellavistaAsk }],
     }),
     entry({
       at: at(-6, "09:40"),
@@ -389,7 +390,8 @@ const waitingEventRun: AutomationRun = {
         to: "marketing@mixcucine.example",
         subject: "Ci servono alcuni dati per attivare Campagne WhatsApp",
       },
-      output: { inviata: true, casella: "p-laura" },
+      output: { inviata: true, casella: "p-matteo" },
+      effects: [{ kind: "email", code: AUTOMATION_MAIL_IDS.mixAsk }],
     }),
     entry({
       at: at(-3, "10:15"),

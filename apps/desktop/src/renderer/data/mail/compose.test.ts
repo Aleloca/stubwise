@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { failNext, mail, resetApi, setLatency } from "../api";
-import { MAIL_CASES } from "../seed/mail";
+import { MAIL_CASES, MAIL_MESSAGES } from "../seed/mail";
 import { setSessionPersonId } from "../session";
 import { setStreamLatency, state } from "../store";
 import type { MailDraft } from "../types";
@@ -8,6 +8,9 @@ import { MAIL_MAX_ATTACHMENTS, MAIL_UNDO_MS, streamClaudeDraft } from "./compose
 
 const as = (personId: string) => setSessionPersonId(personId);
 const AUD = "prj-aud";
+/** Le email mandate dal seme (le automazioni, area 7) non contano: solo gli invii del test. */
+const SEEDED_SENDS = new Set(MAIL_MESSAGES.filter((m) => m.delivery).map((m) => m.id));
+const mySends = () => state.mailMessages.filter((m) => m.delivery && !SEEDED_SENDS.has(m.id));
 
 const threadOf = (id: string) => state.mailMessages.find((m) => m.id === id)!.threadId;
 /** Le note della chiamata: da Matteo a Giulia, Laura in copia. */
@@ -172,7 +175,7 @@ describe("Allegati dal Drive", () => {
       ],
     });
     await expect(mail.sendDraft(big.id)).rejects.toThrow("invalid: too_large");
-    expect(state.mailMessages.some((m) => m.delivery)).toBe(false);
+    expect(mySends()).toEqual([]);
   });
 });
 
@@ -268,7 +271,7 @@ describe("Invio con «Annulla» per 5 s (Review Focus 4)", () => {
     const mkx = state.projectsById.get("prj-mkx")!;
     mkx.memberIds = mkx.memberIds.filter((id) => id !== "p-giulia");
     await expect(mail.sendDraft(saved.id)).rejects.toThrow("attachment_unavailable");
-    expect(state.mailMessages.some((m) => m.delivery)).toBe(false);
+    expect(mySends()).toEqual([]);
     expect(await mail.listDrafts()).toHaveLength(1);
   });
 
@@ -332,7 +335,7 @@ describe("Invio con «Annulla» per 5 s (Review Focus 4)", () => {
     state.googleAccounts.find((a) => a.personId === "p-giulia")!.status = "expired";
     await mail.saveDraft(draft);
     await expect(mail.sendDraft(draft.id)).rejects.toThrow("google_not_connected");
-    expect(state.mailMessages.some((m) => m.delivery)).toBe(false);
+    expect(mySends()).toEqual([]);
   });
 });
 
@@ -477,7 +480,7 @@ describe("Invio fallito", () => {
     await vi.advanceTimersByTimeAsync(MAIL_UNDO_MS);
     // Lo stesso indirizzo fallisce di nuovo: resta uno solo, fallito.
     expect(row.delivery!.state).toBe("failed");
-    expect(state.mailMessages.filter((m) => m.delivery).length).toBe(1);
+    expect(mySends().length).toBe(1);
     await expect(mail.retrySend(messageId)).resolves.toBeDefined();
     await expect(mail.retrySend(messageId)).rejects.toThrow("invalid: not failed");
   });
@@ -547,12 +550,14 @@ describe("Destinatari suggeriti", () => {
   });
 
   it("mai un indirizzo visto solo in messaggi che non vedo", async () => {
-    // L'ordine di Mix Cucine e Product Weekly sono solo nella casella di Matteo.
+    // L'ordine di Mix Cucine, la richiesta dati della sua automazione (AUD-A1)
+    // e Product Weekly sono solo nella casella di Matteo.
     expect(await mail.suggestRecipients("mixcucine")).toEqual([]);
     expect(await mail.suggestRecipients("productweekly")).toEqual([]);
     as("p-matteo");
-    expect((await mail.suggestRecipients("mixcucine")).map((s) => s.email)).toEqual([
+    expect((await mail.suggestRecipients("mixcucine")).map((s) => s.email).sort()).toEqual([
       "acquisti@mixcucine.example",
+      "marketing@mixcucine.example",
     ]);
   });
 
@@ -596,7 +601,7 @@ describe("La bozza di Claude", () => {
     expect(outcome.used.length).toBeGreaterThan(0);
     for (const u of outcome.used) expect(state.tasksById.get(u.taskId)!.projectId).toBe(AUD);
     // Nessun messaggio, nessuna bozza salvata.
-    expect(state.mailMessages.some((m) => m.delivery)).toBe(false);
+    expect(mySends()).toEqual([]);
     expect(state.mailDrafts).toEqual([]);
   });
 

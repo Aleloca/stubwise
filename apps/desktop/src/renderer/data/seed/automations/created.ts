@@ -52,7 +52,7 @@ export const AUTOMATION_TASKS: Task[] = NEW_CONTRACT_TASKS.map(([title, departme
   departmentId,
   assigneeId: null,
   // L'automazione agisce a nome del suo proprietario.
-  createdById: "p-roberta",
+  createdById: "p-matteo",
   followerIds: [],
   size: null,
   // `dueInDays: 14` dal giorno dell'esecuzione.

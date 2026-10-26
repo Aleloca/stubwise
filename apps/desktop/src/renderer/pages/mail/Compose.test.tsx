@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { failNext, mail, resetApi, setLatency } from "../../data/api";
 import { MAIL_UNDO_MS } from "../../data/mail/compose";
-import { MAIL_CASES } from "../../data/seed/mail";
+import { MAIL_CASES, MAIL_MESSAGES } from "../../data/seed/mail";
 import { setSessionPersonId } from "../../data/session";
 import { setStreamLatency, state } from "../../data/store";
 import { resetViewerGrants } from "../../data/viewer";
@@ -62,7 +62,9 @@ async function replyWith(text: string, user = userEvent.setup()) {
   return { p, form };
 }
 
-const mineSent = () => state.mailMessages.filter((m) => m.delivery);
+/** Gli invii fatti nel test (non le email mandate dalle automazioni del seme, area 7). */
+const SEEDED_SENDS = new Set(MAIL_MESSAGES.filter((m) => m.delivery).map((m) => m.id));
+const mineSent = () => state.mailMessages.filter((m) => m.delivery && !SEEDED_SENDS.has(m.id));
 
 beforeEach(() => {
   setLatency(0);

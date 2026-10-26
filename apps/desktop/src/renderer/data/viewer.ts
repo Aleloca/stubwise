@@ -8,6 +8,7 @@ import {
 } from "@stubwise/shared";
 import { createContext, createElement, useContext, useMemo, useState, type ReactNode } from "react";
 import { DEPARTMENT_ROLES } from "./seed/departmentRoles";
+import { SEED_INSTANCE_GRANTS } from "./seed/grants";
 import { PEOPLE } from "./seed/people";
 import { GIULIA_LEAD_CODES, PROJECTS } from "./seed/projects";
 import { clearToasts } from "../tasks-ui/Toast";
@@ -182,7 +183,13 @@ function buildViewer(spec: PersonaSpec): Viewer {
       }
     }
   }
-  const instancePermissions = instancePermsOf(spec.instanceRole);
+  const instancePermissions = [
+    ...instancePermsOf(spec.instanceRole),
+    // Le concessioni personali del seme (R-J10), in più del preset.
+    ...(SEED_INSTANCE_GRANTS[spec.personId] ?? []).filter(
+      (p) => !instancePermsOf(spec.instanceRole).includes(p),
+    ),
+  ];
   if (spec.instanceRole === "admin" || leadSomewhere) {
     instancePermissions.push("people.activity.view");
   }

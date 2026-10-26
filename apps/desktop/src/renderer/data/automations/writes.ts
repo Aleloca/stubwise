@@ -345,7 +345,11 @@ export async function cancelRun(runId: string): Promise<void> {
   const me = await writer("automations.cancelRun");
   const { run } = managedRun(me, runId);
   if (!isOpen(run)) throw invalid("finished");
-  note(run, { outcome: "skipped", byId: me, reason: `Esecuzione annullata da ${personName(me)}.` });
+  note(run, {
+    outcome: "cancelled",
+    byId: me,
+    reason: `Esecuzione annullata da ${personName(me)}.`,
+  });
   run.status = "cancelled";
   run.error = "cancelled";
   run.endedAt = runNow(run);
@@ -360,7 +364,7 @@ export async function cancelRun(runId: string): Promise<void> {
  * effetto: riparte riaccendendola.
  */
 function restart(run: AutomationRun, me: string, reason: string, skip: boolean) {
-  note(run, { outcome: skip ? "skipped" : "waiting", byId: me, reason });
+  note(run, { outcome: skip ? "skipped" : "retried", byId: me, reason });
   run.error = null;
   run.endedAt = null;
   run.status = "running";

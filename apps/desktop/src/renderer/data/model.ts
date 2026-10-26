@@ -2250,7 +2250,24 @@ export interface RunLogEntry {
   /** Grammatica R-J5, es. "2/forEach[1]/0/then/0"; "trigger" per l'inizio. */
   path: string;
   kind: Step["kind"] | "trigger";
-  outcome: "ok" | "skipped" | "failed" | "waiting" | "approved" | "rejected" | "limit";
+  /**
+   * Gli esiti del motore, più quelli scritti dal livello dati sul passo al
+   * cursore: `suspended` (pausa), `resumed` (riaccesa, `byId`), `cancelled`
+   * («Annulla», `byId`), `retried` («Riprova», `byId`); «Salta» è `skipped`
+   * con `byId`. Nessuno di questi conta come passo eseguito.
+   */
+  outcome:
+    | "ok"
+    | "skipped"
+    | "failed"
+    | "waiting"
+    | "approved"
+    | "rejected"
+    | "limit"
+    | "suspended"
+    | "resumed"
+    | "cancelled"
+    | "retried";
   input: Record<string, unknown>;
   output: Record<string, unknown>;
   /** La motivazione (di Claude, o del fallimento). */

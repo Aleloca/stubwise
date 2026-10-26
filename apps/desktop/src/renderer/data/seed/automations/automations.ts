@@ -300,15 +300,16 @@ export const AUTOMATIONS: Automation[] = [
     description:
       "Quando su Audin si chiude una trattativa, Claude legge il contratto e crea il traguardo di attivazione con le task per ogni reparto; l'email di benvenuto parte dopo l'approvazione.",
     projectId: null,
-    // Una generale vuole automations.manage d'istanza: l'ha accesa l'admin.
-    ownerId: "p-roberta",
+    // Una generale vuole automations.manage d'istanza: Matteo lo ha per concessione personale
+    // del seme (R-J10), e la sua casella è collegata.
+    ownerId: "p-matteo",
     status: "active",
     versions: [
       {
         n: 1,
         flow: newContractFlow("Benvenuti in Audin, {{cliente.nome}}"),
         publishedAt: at(-40, "10:00"),
-        publishedById: "p-roberta",
+        publishedById: "p-matteo",
       },
       // Modificata dopo l'accensione: la bozza della versione successiva.
       {
@@ -327,14 +328,14 @@ export const AUTOMATIONS: Automation[] = [
     description:
       "Scrive al cliente i dati che servono per attivare una funzione, gli ricorda fino a due volte, e quando risponde Claude controlla che ci sia tutto.",
     projectId: "prj-aud",
-    ownerId: "p-laura",
+    ownerId: "p-matteo",
     status: "active",
     versions: [
       {
         n: 1,
         flow: clientDataFlow,
         publishedAt: at(-20, "09:15"),
-        publishedById: "p-laura",
+        publishedById: "p-matteo",
       },
     ],
     createdAt: at(-21, "17:40"),

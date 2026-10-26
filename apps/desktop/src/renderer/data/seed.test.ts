@@ -1569,7 +1569,8 @@ describe("seed: Posta (area 6)", () => {
     const on = new Set(MAILBOXES.filter((b) => b.proposalsEnabled).map((b) => b.personId));
     for (const m of MAIL_MESSAGES) {
       const anyOn = m.mailboxPersonIds.some((id) => on.has(id));
-      expect(m.classification.state === "off", m.id).toBe(!anyOn);
+      // La posta mandata da Stubwise (le automazioni del seme) non va mai al modello (R-I8).
+      expect(m.classification.state === "off", m.id).toBe(!anyOn || m.delivery !== undefined);
     }
     expect(MAIL_MESSAGES.some((m) => m.classification.state === "off")).toBe(true);
   });
@@ -1785,16 +1786,23 @@ describe("seed: Automations (area 7)", () => {
     expect(email.kind === "sendEmail" && email.approval.mode).toBe("ask");
   });
 
-  it("«Richiesta dati al cliente» (AUD-A1): di AUD, attiva, di Laura; email → attesa → promemoria → Claude", () => {
+  it("«Richiesta dati al cliente» (AUD-A1): di AUD, attiva, di Matteo (R-J10); email → attesa → promemoria → Claude", () => {
     const a = automation(AUTOMATION_CASES.automations.clientData);
     expect(a).toMatchObject({
       code: "AUD-A1",
       name: "Richiesta dati al cliente",
       projectId: "prj-aud",
       status: "active",
-      ownerId: "p-laura",
+      ownerId: "p-matteo",
     });
-    expect(can(viewerFor("p-laura"), "automations.manage", "prj-aud")).toBe(true);
+    expect(can(viewerFor("p-matteo"), "automations.manage", "prj-aud")).toBe(true);
+    // R-J10: i proprietari hanno la casella collegata (le email partono davvero).
+    for (const owner of new Set(AUTOMATIONS.map((x) => x.ownerId).filter((id) => id !== null))) {
+      expect(
+        MAILBOXES.some((b) => b.personId === owner),
+        owner!,
+      ).toBe(true);
+    }
     const flow = latestFlow(a.id);
     const [ask, wait, reminders, check] = flow.steps;
     expect(ask!.kind).toBe("sendEmail");
@@ -1896,7 +1904,7 @@ describe("seed: Automations (area 7)", () => {
 
     const approval = run(AUTOMATION_CASES.runs.waitingApproval);
     expect(approval.status).toBe("waiting_approval");
-    expect(approval.pending!.approverIds).toEqual(["p-laura"]);
+    expect(approval.pending!.approverIds).toEqual(["p-matteo"]);
     expect(Object.keys(approval.pending!.preview).sort()).toEqual(["body", "subject", "to"]);
     // Il passo da approvare non ha prodotto effetti.
     expect(approval.log.at(-1)).toMatchObject({
@@ -2034,6 +2042,7 @@ describe("seed: Automations (area 7)", () => {
       for (const e of r.log) {
         for (const effect of e.effects) {
           effects += 1;
+          if (effect.kind === "email") continue;
           const target =
             effect.kind === "task"
               ? TASKS.find((t) => t.code === effect.code)
@@ -2046,6 +2055,26 @@ describe("seed: Automations (area 7)", () => {
       }
     }
     expect(effects).toBeGreaterThan(0);
+    // R-J10: ogni email che un'esecuzione dice di aver mandato è un messaggio
+    // inviato dalla casella del proprietario, nella sua Posta.
+    let emails = 0;
+    for (const r of AUTOMATION_RUNS) {
+      const owner = automation(r.automationId).ownerId;
+      for (const e of r.log) {
+        if (e.kind !== "sendEmail" || e.outcome !== "ok") continue;
+        emails += 1;
+        expect(
+          e.effects.map((x) => x.kind),
+          `${r.id} ${e.path}`,
+        ).toEqual(["email"]);
+        const m = MAIL_MESSAGES.find((x) => x.id === e.effects[0]!.code);
+        expect(m, `${r.id} ${e.path}`).toBeDefined();
+        expect(m!.delivery).toEqual({ state: "sent", sentById: owner });
+        expect(m!.mailboxPersonIds).toContain(owner);
+        expect(m!.to.map((a) => a.email)).toContain(e.input.to);
+      }
+    }
+    expect(emails).toBe(3);
     // Le task di AUT-1 #1: senza incaricato, del reparto indicato, nel traguardo creato.
     const done = run(AUTOMATION_CASES.runs.done);
     const milestoneCode = done.log.find((e) => e.kind === "createMilestone")!.effects[0]!.code;

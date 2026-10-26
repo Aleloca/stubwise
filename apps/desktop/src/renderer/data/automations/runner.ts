@@ -143,7 +143,7 @@ export function suspend(
   // Un'esecuzione non ancora partita non ha un passo da sospendere.
   if (run.log.length > 0) {
     note(run, {
-      outcome: "waiting",
+      outcome: "suspended",
       reason: "Sospesa: l'automazione è in pausa. Riprende da qui quando si riaccende.",
     });
   }
@@ -159,7 +159,7 @@ export function resume(run: AutomationRun, byId: string): void {
     return;
   }
   note(run, {
-    outcome: "waiting",
+    outcome: "resumed",
     byId,
     reason: `Ripresa: ${personName(byId)} ha riacceso l'automazione.`,
   });

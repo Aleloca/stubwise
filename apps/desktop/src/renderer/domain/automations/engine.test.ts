@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AutomationFlow, AutomationRun, RunLogEntry, Step } from "../../data/model";
 import { AUTOMATION_CASES, AUTOMATION_RUNS, AUTOMATIONS } from "../../data/seed/automations";
 import { AUTOMATION_TASKS, NEW_CONTRACT_MILESTONE_ID } from "../../data/seed/automations/created";
+import { AUTOMATION_MAIL_IDS } from "../../data/seed/automations/mail";
 import {
   advance,
   initialState,
@@ -118,8 +119,8 @@ describe("advance: rigioca le esecuzioni del seme", () => {
     });
     expect(d.state.status).toBe("waiting_approval");
     expect(d.state.cursor).toBe("3");
-    // Approvata da Roberta: parte l'email.
-    const after = d.send({ kind: "approved", path: d.state.cursor!, byId: "p-roberta" });
+    // Approvata dal proprietario (Matteo, R-J10): parte l'email.
+    const after = d.send({ kind: "approved", path: d.state.cursor!, byId: "p-matteo" });
     expect(after).toMatchObject([
       {
         kind: "sendEmail",
@@ -130,7 +131,7 @@ describe("advance: rigioca le esecuzioni del seme", () => {
         },
       },
     ]);
-    settle(d, after, { codes: () => [] });
+    settle(d, after, { codes: () => [AUTOMATION_MAIL_IDS.welcome] });
     expect(d.state.status).toBe("done");
     expect(d.state.cursor).toBeNull();
     expect(d.log.map(shape)).toEqual(run.log.map(shape));
@@ -149,7 +150,7 @@ describe("advance: rigioca le esecuzioni del seme", () => {
   it("AUD-A1 #1 dal suo evento fino all'approvazione: registro e anteprima come nel seme", () => {
     const run = runOf(AUTOMATION_CASES.runs.waitingApproval);
     const { d, fx } = start(CLIENT_DATA, run.event, run.startedAt);
-    settle(d, fx);
+    settle(d, fx, { codes: () => [AUTOMATION_MAIL_IDS.bellavistaAsk] });
     expect(d.state.status).toBe("waiting_event");
     const reply = run.log.find((e) => e.stepId === "cd-wait" && e.outcome === "ok")!;
     const fx2 = d.send({
