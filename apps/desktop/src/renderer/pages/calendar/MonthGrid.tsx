@@ -1,12 +1,21 @@
 import { eventsForDay, localDayKey, monthGridDays } from "@stubwise/shared";
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { useSessionPersonId } from "../../data/queries";
 import type { CalendarEventView } from "../../data/types";
 import { BandPopover } from "./BandPopover";
 import { timeLabel, weekdayShort } from "./calendarFormat";
 import { outsideWindow } from "./calendarParams";
 import type { GridProps } from "./CalendarGrid";
-import { MailboxRule, answerOf, blockShape, useEventName, type ProjectRef } from "./EventBlock";
+import {
+  MailboxRule,
+  PrepMark,
+  answerOf,
+  blockShape,
+  hasPrep,
+  useEventName,
+  type ProjectRef,
+} from "./EventBlock";
 import { MONTH_ROWS, type MailboxMark } from "./gridLayout";
 import { AlertGlyph } from "../mail/glyphs";
 
@@ -152,6 +161,7 @@ function MonthRow({
   onOpen: () => void;
 }): ReactNode {
   const { t, i18n } = useTranslation();
+  const me = useSessionPersonId();
   const answer = answerOf(e);
   const label = name(e, project, withMailbox);
   const failed = e.save?.state === "failed";
@@ -175,6 +185,7 @@ function MonthRow({
         <span className="num shrink-0 text-ink-muted">{timeLabel(e.startsAt, i18n.language)}</span>
       )}
       {project && <span className="num shrink-0 font-semibold text-ink">{project.code}</span>}
+      {hasPrep(e, project, me) && <PrepMark />}
       <span
         className={`min-w-0 truncate ${answer === "declined" ? "text-ink-faint line-through" : "text-ink"}`}
       >

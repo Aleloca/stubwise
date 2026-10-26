@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { now } from "../../data/dates";
+import { useSessionPersonId } from "../../data/queries";
 import type { CalendarEventView, Rsvp } from "../../data/types";
 import { AlertGlyph, VideoGlyph } from "../mail/glyphs";
 import { spanLabel, timeLabel } from "./calendarFormat";
@@ -32,11 +34,48 @@ export interface ProjectRef {
   id: string;
   code: string;
   name: string;
+  /** I membri espliciti (R-I7): dicono se l'evento ha la scheda di preparazione per me. */
+  memberIds?: readonly string[];
+}
+
+/**
+ * L'evento ha la scheda di preparazione per chi guarda (shape meeting-prep.md
+ * §6): futuro o in corso, con un progetto di cui è membro. La stessa regola
+ * del dettaglio (`EventDetail`) e di `getMeetingPrep`.
+ */
+export function hasPrep(
+  e: Pick<CalendarEventView, "endsAt">,
+  project: ProjectRef | undefined,
+  me: string,
+): boolean {
+  return !!project?.memberIds?.includes(me) && Date.parse(e.endsAt) > Date.parse(now());
+}
+
+/**
+ * Il segno «Preparation available»: un foglio con le righe, a tratto come gli
+ * altri glifi. Il nome accessibile del blocco lo dice a parole; qui il
+ * tooltip «Open to prepare». Mai colore.
+ */
+export function PrepMark() {
+  const { t } = useTranslation();
+  return (
+    <span
+      data-prep-mark
+      title={t("calendar.prep.openToPrepare")}
+      className="flex shrink-0 items-center text-ink-muted"
+    >
+      <svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16" fill="none">
+        <rect x="3" y="2" width="10" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M5.75 5.5h4.5M5.75 8h4.5M5.75 10.5h2.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    </span>
+  );
 }
 
 /** Il nome accessibile completo: titolo, orario intero, progetto, risposta, salvataggio, casella. */
 export function useEventName() {
   const { t, i18n } = useTranslation();
+  const me = useSessionPersonId();
   return (e: CalendarEventView, project: ProjectRef | undefined, withMailbox: boolean): string => {
     const parts = [
       e.title,
@@ -45,6 +84,7 @@ export function useEventName() {
         : spanLabel(e, i18n.language),
     ];
     if (project) parts.push(`${project.code} ${project.name}`);
+    if (hasPrep(e, project, me)) parts.push(t("calendar.prep.available"));
     const word = answerWordKey(answerOf(e));
     if (word) parts.push(t(word));
     if (e.save?.state === "saving") parts.push(t("calendar.save.saving"));
@@ -119,6 +159,8 @@ export function GridBlockBody({
   hideCode: boolean;
 }) {
   const { t, i18n } = useTranslation();
+  const me = useSessionPersonId();
+  const prep = hasPrep(e, project, me) && <PrepMark />;
   const answer = answerOf(e);
   const word = answerWordKey(answer);
   const lines = Math.max(1, Math.floor((heightPx - 4) / BLOCK_LINE_PX));
@@ -158,6 +200,7 @@ export function GridBlockBody({
       <span className="flex min-w-0 items-center gap-1.5">
         {!titleFirst && time}
         <span className={`${titleClass} truncate`}>{e.title}</span>
+        {prep}
         {continues && (
           <span className="shrink-0 text-xs leading-4 text-ink-muted">
             {t("calendar.block.continues")}
@@ -205,6 +248,7 @@ export function GridBlockBody({
         <span className={`${titleClass} truncate`}>{e.title}</span>
         <span className="flex min-w-0 items-center gap-1.5">
           {time}
+          {prep}
           {fail}
           {states.length > 0 && (
             <span className="truncate text-xs leading-4 text-ink-muted">{states.join(" · ")}</span>
@@ -220,6 +264,7 @@ export function GridBlockBody({
         <span className="flex min-w-0 items-center gap-1.5">
           {time}
           {codeEl}
+          {prep}
           {fail}
           {states.length > 0 && (
             <span className="truncate text-xs leading-4 text-ink-muted">{states.join(" · ")}</span>
@@ -235,6 +280,7 @@ export function GridBlockBody({
       <span className="flex min-w-0 items-center gap-1.5">
         {time}
         {codeEl}
+        {prep}
       </span>
       <span className={`${titleClass} ${titleLines === 2 ? "line-clamp-2" : "truncate"}`}>
         {e.title}

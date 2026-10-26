@@ -4301,7 +4301,9 @@
         "overdue": "In ritardo · {{date}}",
         "overdueNoDate": "In ritardo",
         "request": "Richiesta"
-      }
+      },
+      "available": "Scheda di preparazione disponibile",
+      "openToPrepare": "Apri per prepararti"
     },
     "summary": {
       "title": "Riassunto della riunione",

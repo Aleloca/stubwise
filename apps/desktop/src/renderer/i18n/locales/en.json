@@ -4301,7 +4301,9 @@
         "overdue": "Overdue · {{date}}",
         "overdueNoDate": "Overdue",
         "request": "Request"
-      }
+      },
+      "available": "Preparation available",
+      "openToPrepare": "Open to prepare"
     },
     "summary": {
       "title": "Meeting summary",

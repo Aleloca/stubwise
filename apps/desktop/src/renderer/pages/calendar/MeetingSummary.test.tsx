@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mail, resetApi, setLatency } from "../../data/api";
+import { calendar, mail, resetApi, setLatency } from "../../data/api";
 import { daysFromToday } from "../../data/seed/dates";
 import { EV_AUD_REVIEW_YESTERDAY } from "../../data/seed/mail";
 import { setSessionPersonId } from "../../data/session";
@@ -20,6 +20,8 @@ import { closeGoogleAccount } from "../drive/GoogleAccountCard";
 
 const YESTERDAY = daysFromToday(-1);
 const REVIEW_PROPOSAL = "mp-aud-weekly-review";
+/** La prossima revisione di AUD, futura. */
+const NEXT_REVIEW = `ev-aud-review-${daysFromToday(6)}`;
 const SUMMARY = /client accepts the go-live plan/;
 
 const ev = () => state.calendarEvents.find((e) => e.id === EV_AUD_REVIEW_YESTERDAY)!;
@@ -149,30 +151,44 @@ describe("Riassunto della riunione — chi non c'era, chi non è membro", () => 
     ["p-chiara", "Chiara Gallo"],
     ["p-roberta", "Roberta Fontana"],
   ])(
-    "partecipante non membro del progetto (%s): solo i dettagli dell'evento",
+    "partecipante non membro del progetto (%s): il riassunto sì, la scheda di preparazione no",
     async (personId, name) => {
       expect(state.projectsById.get("prj-aud")!.memberIds).not.toContain(personId);
-      ev().attendees.push({
+      const guest = {
         email: `${personId}@stubwise.example`,
         name,
         personId,
-        response: "accepted",
+        response: "accepted" as const,
         organizer: false,
-      });
-      const { panel } = await openReview(personId);
-      // I progetti caricati (la riga «Project» dice AUD o «No project»), poi nessun caricamento.
-      await within(panel).findByText(/^(AUD|No project)$/);
-      await waitFor(() => expect(panel.querySelector("[aria-busy='true']")).toBeNull());
-      expect(within(panel).queryByRole("region", { name: "Meeting summary" })).toBeNull();
-      expect(within(panel).queryByText(SUMMARY)).toBeNull();
+      };
+      ev().attendees.push(guest);
+      const next = state.calendarEvents.find((e) => e.id === NEXT_REVIEW)!;
+      next.attendees.push({ ...guest });
+
+      const { router, panel } = await openReview(personId);
+      const summary = await within(panel).findByRole("region", { name: "Meeting summary" });
+      expect(within(summary).getByText("Generated text")).toBeInTheDocument();
+      expect(within(summary).getByText(SUMMARY)).toBeInTheDocument();
+
+      // La prossima revisione: invitato, ma senza scheda (serve essere membri).
+      setSessionPersonId(personId);
+      expect(await calendar.getMeetingPrep(NEXT_REVIEW)).toBeNull();
+      await router.navigate({
+        to: "/calendar",
+        search: { event: NEXT_REVIEW, date: daysFromToday(6) },
+      } as never);
+      const again = await screen.findByRole("region", { name: "Event" });
+      await within(again).findByText(/^(AUD|No project)$/);
+      await waitFor(() => expect(within(again).queryByText(SUMMARY)).toBeNull());
+      expect(within(again).queryByRole("region", { name: "Prepare" })).toBeNull();
     },
   );
 
-  it("evento senza progetto: nessun riassunto nel pannello", async () => {
+  it("evento senza progetto: il riassunto resta di chi ha partecipato", async () => {
     ev().projectId = null;
     const { panel } = await openReview();
-    await waitFor(() => expect(panel.querySelector("[aria-busy='true']")).toBeNull());
-    expect(within(panel).queryByRole("region", { name: "Meeting summary" })).toBeNull();
+    const summary = await within(panel).findByRole("region", { name: "Meeting summary" });
+    expect(within(summary).getByText(SUMMARY)).toBeInTheDocument();
   });
 });
 

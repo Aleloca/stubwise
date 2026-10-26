@@ -42,6 +42,7 @@ import { MeetingTaskList, SheetSection, useOpenTaskFromEvent } from "./meetingPa
 const STALLED_CAP = 3;
 
 /** «Overdue» nelle Tasks: aperte con la scadenza prima di oggi (la regola di `isOverdue`). */
+// Le Tasks non hanno un criterio «in ritardo»: nel prototipo un periodo con inizio arbitrario.
 const OVERDUE: FilterCriteria = {
   families: ["todo", "active"],
   period: { field: "due", kind: "absolute", from: "2000-01-01", to: shiftDate(TODAY, -1) },

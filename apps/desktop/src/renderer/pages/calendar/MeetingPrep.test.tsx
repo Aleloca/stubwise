@@ -271,3 +271,55 @@ describe("Scheda di preparazione — dove portano le righe", () => {
     await waitFor(() => expect(search(router).event).toBe(EV_AUD_REVIEW_YESTERDAY));
   });
 });
+
+describe("Segno «Preparation available» sui blocchi della griglia", () => {
+  const block = (id: string) =>
+    waitFor(() => {
+      const el = document.querySelector<HTMLElement>(`[data-event-block="${id}"]`);
+      if (!el) throw new Error(`no block ${id}`);
+      return el;
+    });
+
+  it("c'è sugli eventi futuri di un progetto di cui sono membro, a parole nel nome del blocco", async () => {
+    renderRoute(`/calendar?date=${daysFromToday(6)}`, "p-giulia");
+    const next = await block(NEXT_REVIEW);
+    await waitFor(() => expect(next).toHaveAccessibleName(/Preparation available/));
+    expect(next.querySelector("[data-prep-mark]")).toHaveAttribute("title", "Open to prepare");
+  });
+
+  it("non c'è su un evento passato, né su uno senza progetto", async () => {
+    // La settimana di oggi: la revisione di ieri (passata) e il pranzo di oggi (senza progetto).
+    renderRoute(`/calendar?date=${TODAY}`, "p-giulia");
+    const past = await block(EV_AUD_REVIEW_YESTERDAY);
+    await waitFor(() => expect(past).toHaveAccessibleName(/AUD Audin/));
+    expect(past).not.toHaveAccessibleName(/Preparation available/);
+    expect(past.querySelector("[data-prep-mark]")).toBeNull();
+    expect(state.calendarEvents.find((e) => e.id === C.lunch)!.projectId).toBeNull();
+    const lunch = await block(C.lunch);
+    expect(lunch).not.toHaveAccessibleName(/Preparation available/);
+    expect(lunch.querySelector("[data-prep-mark]")).toBeNull();
+  });
+
+  it.each([
+    // Chiara non vede AUD; Roberta (admin) lo vede ma non ne è membro (R-I7).
+    ["p-chiara", "Chiara Lombardi"],
+    ["p-roberta", "Roberta Fontana"],
+  ])("non c'è per un invitato che non è membro del progetto (%s)", async (personId, name) => {
+    expect(state.projectsById.get(AUD)!.memberIds).not.toContain(personId);
+    connectGoogle(personId);
+    state.calendarEvents
+      .find((e) => e.id === NEXT_REVIEW)!
+      .attendees.push({
+        email: `${personId}@stubwise.example`,
+        name,
+        personId,
+        response: "accepted",
+        organizer: false,
+      });
+    renderRoute(`/calendar?date=${daysFromToday(6)}`, personId);
+    const next = await block(NEXT_REVIEW);
+    await waitFor(() => expect(next).toHaveAccessibleName(/AUD weekly review/));
+    expect(next).not.toHaveAccessibleName(/Preparation available/);
+    expect(next.querySelector("[data-prep-mark]")).toBeNull();
+  });
+});

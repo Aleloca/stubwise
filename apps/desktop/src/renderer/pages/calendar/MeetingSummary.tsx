@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { useMailProposals, useMeetingSummary, useTasksBornFrom } from "../../data/queries";
-import type { MeetingSummary as Summary, Project } from "../../data/types";
+import type { MeetingSummary as Summary } from "../../data/types";
 import { smallSecondary } from "../task/parts";
 import { useToast } from "../../tasks-ui/Toast";
 import { queryState } from "../home/blocks/BlockSection";
@@ -12,17 +12,25 @@ import { GeneratedTag } from "../overview/BriefCard";
 import { MeetingTaskList, SheetSection, SheetSkeleton } from "./meetingParts";
 import { TranscriptUnreachable } from "./MeetingPrep";
 
-// Un evento PASSATO di un progetto di cui chi guarda è membro (shape
-// meeting-prep.md §6, [A 1]): al posto della scheda, «Meeting summary» per
-// chi c'era — il riassunto intero come testo generato, la trascrizione su
-// Google, l'email di Gemini e le proposte ancora aperte, con la conferma sul
-// posto — poi «Tasks from this meeting» con lo stato di adesso. Chi non
-// c'era vede solo le task nate, e nulla dice che un riassunto esista: senza
-// task, per lui qui non c'è niente.
+// Un evento PASSATO (shape meeting-prep.md §6, [A 1]): al posto della
+// scheda, «Meeting summary» per chi c'era — membro del progetto o no, come in
+// Posta: lo decide `getMeetingSummary` — con il riassunto intero come testo
+// generato, la trascrizione su Google, l'email di Gemini e le proposte ancora
+// aperte (conferma sul posto per chi può), poi «Tasks from this meeting» con
+// lo stato di adesso, quelle che chi guarda vede. Chi non c'era vede solo le
+// task nate, e nulla dice che un riassunto esista: senza task, per lui qui
+// non c'è niente.
 
 const heading = "heading-group";
 
-export function MeetingSummary({ eventId, project }: { eventId: string; project: Project }) {
+export function MeetingSummary({
+  eventId,
+  projectCode,
+}: {
+  eventId: string;
+  /** Il codice del progetto dell'evento, se chi guarda lo vede (link delle richieste). */
+  projectCode: string | null;
+}) {
   const { t } = useTranslation();
   const summary = useMeetingSummary(eventId);
   const born = useTasksBornFrom(eventId);
@@ -60,7 +68,7 @@ export function MeetingSummary({ eventId, project }: { eventId: string; project:
         >
           <MeetingTaskList
             tasks={tasks}
-            projectCode={project.code}
+            projectCode={projectCode}
             eventId={eventId}
             label={t("calendar.summary.tasksTitle")}
             empty={

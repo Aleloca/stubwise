@@ -99,7 +99,8 @@ export function MeetingTaskList({
   label,
 }: {
   tasks: MeetingTask[];
-  projectCode: string;
+  /** Il progetto delle richieste nate (il loro link); `null` se chi guarda non lo vede. */
+  projectCode: string | null;
   /** L'evento del pannello: la task si apre al suo posto, con «Back to event». */
   eventId: string;
   empty: string | null;
@@ -139,7 +140,7 @@ function MeetingTaskRow({
   eventId,
 }: {
   task: MeetingTask;
-  projectCode: string;
+  projectCode: string | null;
   eventId: string;
 }) {
   const openTask = useOpenTaskFromEvent(eventId);
@@ -164,6 +165,8 @@ function MeetingTaskRow({
         <button type="button" onClick={() => openTask(task.code)} className={open}>
           {name}
         </button>
+      ) : projectCode === null ? (
+        <span className="flex min-w-0 flex-1 items-baseline gap-2">{name}</span>
       ) : (
         <Link
           to="/p/$code/$section"

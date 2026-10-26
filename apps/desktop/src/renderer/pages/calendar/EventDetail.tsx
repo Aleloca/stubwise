@@ -372,16 +372,15 @@ function Detail({
         </p>
       )}
 
-      {/* Per un membro del progetto dell'evento: la scheda di preparazione se
-          l'evento è futuro o in corso, il riassunto e le task nate se è
-          passato [A 1]. Chi non è membro, o un evento senza progetto: niente. */}
-      {member &&
-        project &&
-        (past ? (
-          <MeetingSummary eventId={e.id} project={project} />
-        ) : (
-          <MeetingPrep eventId={e.id} project={project} />
-        ))}
+      {/* Evento passato [A 1]: riassunto e task nate. Il riassunto lo decide
+          il livello dati — solo chi ha partecipato, membro o no del progetto,
+          come in Posta —, le task chi le vede. Evento futuro o in corso: la
+          scheda di preparazione, solo per un membro del progetto dell'evento. */}
+      {past ? (
+        <MeetingSummary eventId={e.id} projectCode={project?.code ?? null} />
+      ) : (
+        member && project && <MeetingPrep eventId={e.id} project={project} />
+      )}
 
       <footer className="mt-2 flex flex-col gap-3 border-t border-rule px-4 pt-3">
         <div className="flex flex-wrap items-center gap-2">
