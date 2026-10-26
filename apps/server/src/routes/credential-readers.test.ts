@@ -248,6 +248,9 @@ describe("lettori di una credenziale", () => {
     expect(res.body).not.toContain("wrappedKey");
     expect(res.body).not.toContain("passwordCiphertext");
 
+    // Ha creato la credenziale il full admin, che qui non è lettore diretto.
+    expect(body.readers.every((r: { creator: boolean }) => r.creator === false)).toBe(true);
+
     expect((await req("GET", `/api/credentials/${id}/readers`, admin.session)).statusCode).toBe(200);
     // Lettore senza credentials.share: non vede i lettori.
     expect((await req("GET", `/api/credentials/${id}/readers`, devReader.session)).statusCode).toBe(403);
@@ -262,6 +265,16 @@ describe("lettori di una credenziale", () => {
     const pat = await req("GET", `/api/credentials/${id}/readers`, lead.pat);
     expect(pat.statusCode).toBe(403);
     expect(pat.json()).toMatchObject({ code: "session_required" });
+  });
+
+  it("GET readers: il lettore diretto che ha creato la credenziale è marcato `creator`", async () => {
+    const id = await seedCredential({
+      readers: [admin.id, lead.id],
+      copiesFor: [await confirmedKeyOf(lead)],
+    });
+    const body = (await req("GET", `/api/credentials/${id}/readers`, lead.session)).json();
+    expect(body.readers).toContainEqual(expect.objectContaining({ userId: admin.id, creator: true }));
+    expect(body.readers).toContainEqual(expect.objectContaining({ userId: lead.id, creator: false }));
   });
 
   it("condividere senza poterla aprire → 403 anche con credentials.share, nulla scritto", async () => {

@@ -507,6 +507,44 @@ describe("sezione Credenziali del progetto", () => {
     ).toBeInTheDocument();
   });
 
+  it("lettori: chi ha creato la credenziale è indicato; una risposta senza `creator` non lo indica", async () => {
+    const user = userEvent.setup();
+    const reader = (id: string, userId: string, email: string) => ({
+      id,
+      userId,
+      email,
+      roleId: null,
+      roleName: null,
+      createdAt: "2026-10-23T10:00:00.000Z",
+    });
+    mockApi({
+      "GET /api/vault/status": statusConfirmed,
+      [`GET ${listPath}`]: () =>
+        jsonResponse(200, {
+          items: [item({ id: HETZNER_MAIN, service: "Hetzner", canShare: true })],
+        }),
+      [`GET /api/projects/${PROJECT_ID}/members`]: () => jsonResponse(200, []),
+      [`GET /api/credentials/${HETZNER_MAIN}/readers`]: () =>
+        jsonResponse(200, {
+          readers: [
+            { ...reader("70000000-0000-4000-8000-000000000001", ME_ID, "ada@example.com"), creator: true },
+            // Senza `creator`, apposta: un server più vecchio non lo manda.
+            reader("70000000-0000-4000-8000-000000000002", CARL_ID, "carl@example.com"),
+          ],
+          people: [],
+        }),
+    });
+    renderSection(["credentials.share"]);
+
+    await user.click(await screen.findByRole("button", { name: "Readers of Hetzner" }));
+    const panel = await screen.findByRole("region", { name: "Readers of Hetzner" });
+    expect(await within(panel).findByText("Added directly")).toBeInTheDocument();
+    const items = within(panel).getAllByRole("listitem");
+    expect(items[0]).toHaveTextContent("ada@example.comcreated it");
+    expect(items[1]).toHaveTextContent("carl@example.com");
+    expect(items[1]).not.toHaveTextContent("created it");
+  });
+
   it("condividere con una persona: sblocca, apre la propria copia e la ricifra per lei", async () => {
     const user = userEvent.setup();
     const shared: Record<string, unknown>[] = [];

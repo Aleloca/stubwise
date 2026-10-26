@@ -60,8 +60,10 @@ export async function readersView(db: DbOrTx, credentialId: string): Promise<Cre
       roleId: credentialReaders.roleId,
       roleName: roles.name,
       createdAt: credentialReaders.createdAt,
+      creator: sql<boolean>`coalesce(${credentialReaders.userId} = ${credentials.createdByUserId}, false)`,
     })
     .from(credentialReaders)
+    .innerJoin(credentials, eq(credentials.id, credentialReaders.credentialId))
     .leftJoin(users, eq(users.id, credentialReaders.userId))
     .leftJoin(roles, eq(roles.id, credentialReaders.roleId))
     .where(eq(credentialReaders.credentialId, credentialId))
