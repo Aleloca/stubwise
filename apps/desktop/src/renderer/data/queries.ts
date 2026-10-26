@@ -2823,6 +2823,20 @@ export function useDeleteFailedMailSend() {
  */
 const CALENDAR_AREAS = ["calendar", "mail", "meeting"] as const;
 
+/**
+ * Configurare una serie o allinearsi può far agire da sola una serie con
+ * «Agisci da solo» (`settleAutomatically`): nascono traguardi e richieste.
+ * Si rileggono anche task, richieste, traguardi e decisioni; «Da decidere»
+ * della posta sta già in `mail`.
+ */
+const CALENDAR_WORK_AREAS = [
+  ...CALENDAR_AREAS,
+  ...TASK_AREAS,
+  ...REQUEST_AREAS,
+  ...MILESTONE_AREAS,
+  ...DECISION_AREAS,
+] as const;
+
 /** Mentre un evento si salva o il calendario si allinea la lettura si ripete da sola. */
 const CALENDAR_REFRESH_MS = 1000;
 const saving = (events: readonly Pick<CalendarEventView, "save">[] | null | undefined) =>
@@ -2952,8 +2966,11 @@ export function useFindFreeSlot() {
  * Una scrittura verso Google: si rilegge subito («Salvataggio…») e di nuovo
  * quando il salvataggio è confermato o fallito.
  */
-function useCalendarSave<TVars, TData>(mutationFn: (vars: TVars) => Promise<TData>) {
-  const invalidate = useInvalidate(CALENDAR_AREAS);
+function useCalendarSave<TVars, TData>(
+  mutationFn: (vars: TVars) => Promise<TData>,
+  areas: readonly string[] = CALENDAR_AREAS,
+) {
+  const invalidate = useInvalidate(areas);
   const client = useQueryClient();
   const me = useSessionPersonId();
   return useMutation({
@@ -3073,13 +3090,13 @@ export function useConfigureSeries() {
   return useWrite(
     ({ id, patch }: { id: string; patch: CalendarSeriesPatch }) =>
       api.calendar.configureSeries(id, patch),
-    CALENDAR_AREAS,
+    CALENDAR_WORK_AREAS,
   );
 }
 
 /** «Aggiorna ora»: si rilegge subito («Aggiornamento…») e ad allineamento finito. */
 export function useSyncCalendar() {
-  return useCalendarSave(() => api.calendar.syncCalendar());
+  return useCalendarSave(() => api.calendar.syncCalendar(), CALENDAR_WORK_AREAS);
 }
 
 export type ClaudeMailDraftState =

@@ -12,6 +12,10 @@ import {
 } from "./api";
 import {
   useCalendarEvent,
+  useConfigureSeries,
+  useMilestones,
+  useRequests,
+  useSyncCalendar,
   useRespondEvent,
   useCitations,
   useConfirmProposal,
@@ -44,7 +48,7 @@ import { TODAY } from "./seed/dates";
 import { getSessionPersonId } from "./session";
 import { state as storeState } from "./store";
 import type { ConversationEvent, ScriptStep } from "./types";
-import { ViewerProvider, useViewer } from "./viewer";
+import { ViewerProvider, grantProjectRole, useViewer } from "./viewer";
 
 beforeEach(() => {
   setLatency(0);
@@ -437,6 +441,42 @@ describe("Calendario", () => {
       }),
     );
     await waitFor(() => expect(ids()).not.toContain("mp-cal-ev-mkx-visuals-deadline"));
+  });
+
+  it("una serie con «Agisci da solo»: il traguardo nato entra nei traguardi già letti", async () => {
+    grantProjectRole("p-giulia", "prj-stw", "project_lead");
+    const { result } = renderHook(
+      () => ({ milestones: useMilestones("prj-stw"), configure: useConfigureSeries() }),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.milestones.data).toBeDefined());
+    const before = result.current.milestones.data!.length;
+    await act(() =>
+      result.current.configure.mutateAsync({
+        id: "ser-stw-standup",
+        patch: { projectId: "prj-stw", enabled: true, action: "milestone", leadDays: 3, auto: true },
+      }),
+    );
+    await waitFor(() => expect(result.current.milestones.data!.length).toBe(before + 1));
+  });
+
+  it("«Aggiorna ora» con una serie che agisce da sola: la richiesta nata entra nelle richieste", async () => {
+    grantProjectRole("p-giulia", "prj-stw", "project_lead");
+    Object.assign(storeState.calendarSeries.find((s) => s.id === "ser-stw-standup")!, {
+      projectId: "prj-stw",
+      enabled: true,
+      action: "request",
+      leadDays: 3,
+      auto: true,
+    });
+    const { result } = renderHook(
+      () => ({ requests: useRequests("prj-stw"), sync: useSyncCalendar() }),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.requests.data).toBeDefined());
+    const before = result.current.requests.data!.length;
+    await act(() => result.current.sync.mutateAsync(undefined));
+    await waitFor(() => expect(result.current.requests.data!.length).toBe(before + 1));
   });
 });
 
