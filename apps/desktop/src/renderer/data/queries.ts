@@ -17,6 +17,7 @@ import type {
   AutomationMeta,
   AutomationRunRow,
   ClientProjectLink,
+  FieldType,
   CalendarEventInput,
   CalendarEventPatch,
   CalendarEventView,
@@ -239,6 +240,8 @@ export const queryKeys = {
     ["as", personId, "automations", "run", id] as const,
   automationSources: (personId: string) => ["as", personId, "automations", "sources"] as const,
   clientLinks: (personId: string) => ["as", personId, "automations", "clientLinks"] as const,
+  clientSuggestions: (personId: string) =>
+    ["as", personId, "automations", "clientSuggestions"] as const,
   automationApprovals: (personId: string) =>
     ["as", personId, "automations", "approvals"] as const,
   automationSearch: (personId: string, q: string) =>
@@ -3339,12 +3342,26 @@ export function useSaveAutomationDraft() {
   );
 }
 
+/** Pubblica la bozza: chi pubblica diventa il proprietario, con la casella scelta. */
 export function usePublishAutomation() {
-  return useAutomationWrite((id: string) => api.automations.publish(id));
+  return useAutomationWrite(({ id, mailbox }: { id: string; mailbox?: string }) =>
+    api.automations.publish(id, { mailbox }),
+  );
 }
 
+/** Accende (o riaccende): chi accende diventa il proprietario, con la casella scelta. */
 export function useActivateAutomation() {
-  return useAutomationWrite((id: string) => api.automations.activate(id));
+  return useAutomationWrite(({ id, mailbox }: { id: string; mailbox?: string }) =>
+    api.automations.activate(id, { mailbox }),
+  );
+}
+
+/** «Duplicate»: una bozza nuova da una versione (di base l'ultima). */
+export function useDuplicateAutomation() {
+  return useAutomationWrite(
+    ({ id, name, version }: { id: string; name: string; version?: number }) =>
+      api.automations.duplicateAutomation(id, { name, version }),
+  );
 }
 
 export function usePauseAutomation() {
@@ -3362,10 +3379,14 @@ export function useStartAutomation() {
   );
 }
 
+/** «Simulate an event»: un evento d'esempio (`sampleIndex`) o scritto a mano (`payload`). */
 export function useSimulateSourceEvent() {
   return useAutomationWrite(
-    ({ sourceId, sampleIndex }: { sourceId: string; sampleIndex: number }) =>
-      api.automations.simulateSourceEvent(sourceId, sampleIndex),
+    ({ sourceId, sampleIndex, payload }: { sourceId: string; sampleIndex?: number; payload?: unknown }) =>
+      api.automations.simulateSourceEvent(
+        sourceId,
+        payload !== undefined ? { payload } : (sampleIndex ?? 0),
+      ),
   );
 }
 
@@ -3382,8 +3403,8 @@ export function useRejectAutomationStep() {
 
 export function useChooseAutomationProject() {
   return useAutomationWrite(
-    ({ runId, projectId }: { runId: string; projectId: string }) =>
-      api.automations.chooseProject(runId, projectId),
+    ({ runId, projectId, remember }: { runId: string; projectId: string; remember?: boolean }) =>
+      api.automations.chooseProject(runId, projectId, { remember }),
   );
 }
 
@@ -3401,9 +3422,57 @@ export function useSkipAutomationStep() {
 
 /** «Fai passare il tempo» (solo prototipo). */
 export function useAdvanceAutomationTime() {
-  return useAutomationWrite(({ runId, days }: { runId: string; days: number }) =>
-    api.automations.advanceTime(runId, days),
+  return useAutomationWrite(
+    ({ runId, days, hours = 0 }: { runId: string; days: number; hours?: number }) =>
+      api.automations.advanceTime(runId, days, hours),
   );
+}
+
+// --- sorgenti curate (webhook in arrivo) ----------------------------------------------------
+
+export function useCreateWebhookSource() {
+  return useAutomationWrite((name: string) => api.automations.createWebhookSource(name));
+}
+
+export function useRenameSource() {
+  return useAutomationWrite(({ id, name }: { id: string; name: string }) =>
+    api.automations.renameSource(id, name),
+  );
+}
+
+export function useRegenerateWebhookAddress() {
+  return useAutomationWrite((id: string) => api.automations.regenerateWebhookAddress(id));
+}
+
+/** «Replace example», prima di confermare: una lettura, non scrive niente. */
+export function usePreviewWebhookExample() {
+  return useMutation({
+    mutationFn: ({ id, json }: { id: string; json: string }) =>
+      api.automations.previewWebhookExample(id, json),
+  });
+}
+
+export function useSetWebhookExample() {
+  return useAutomationWrite(({ id, json }: { id: string; json: string }) =>
+    api.automations.setWebhookExample(id, json),
+  );
+}
+
+export function useUpdateWebhookField() {
+  return useAutomationWrite(
+    ({ id, key, label, type }: { id: string; key: string; label?: string; type?: FieldType }) =>
+      api.automations.updateWebhookField(id, key, { label, type }),
+  );
+}
+
+/** «From recent events»: i clienti degli eventi recenti che la tabella non ha. */
+export function useClientSuggestions(enabled = true) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.clientSuggestions(me),
+    queryFn: () => api.automations.listClientSuggestions(),
+    enabled,
+  });
 }
 
 export function useConnectAutomationSource() {

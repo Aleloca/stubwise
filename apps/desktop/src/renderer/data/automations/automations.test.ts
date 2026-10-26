@@ -339,12 +339,15 @@ describe("Automations: proprietario e permessi (Review Focus 3)", () => {
     as("p-roberta");
     const a = state.automations.find((x) => x.id === A.clientData)!;
     await automations.saveDraft(A.clientData, a.versions[0]!.flow);
+    // Chi pubblica un flusso con email deve avere una casella collegata (Task 5, [A 12]).
+    connect("p-roberta");
     await automations.publish(A.clientData);
     expect(a.ownerId).toBe("p-roberta");
     expect((await automations.listMyApprovals()).map((d) => d.runId)).toContain(R.waitingApproval);
     as("p-matteo");
     await expect(automations.approve(R.waitingApproval)).rejects.toThrow("forbidden");
-    // L'email ora partirebbe dalla casella di Roberta, che non ne ha una.
+    // L'email ora partirebbe dalla casella di Roberta, che nel frattempo l'ha scollegata.
+    state.mailboxes = state.mailboxes.filter((b) => b.personId !== "p-roberta");
     as("p-roberta");
     await automations.approve(R.waitingApproval);
     await idle();
@@ -375,6 +378,7 @@ describe("Automations: proprietario e permessi (Review Focus 3)", () => {
     as("p-roberta");
     await automations.pause(A.newContract);
     as("p-sara");
+    connect("p-sara");
     await automations.activate(A.newContract);
     expect(visibleProjectIds("p-sara").has("prj-mkx")).toBe(false);
     const [id] = await automations.simulateSourceEvent(S.audin, 1);
@@ -406,6 +410,7 @@ describe("Automations: proprietario e permessi (Review Focus 3)", () => {
 
 describe("Automations: modifiche durante le esecuzioni (Review Focus 4)", () => {
   it("versione nuova pubblicata con esecuzioni in corso: quelle finiscono con la loro", async () => {
+    connect("p-roberta");
     await automations.publish(A.newContract);
     const a = state.automations.find((x) => x.id === A.newContract)!;
     expect(a.versions.map((v) => v.publishedAt !== null)).toEqual([true, true]);
@@ -446,6 +451,7 @@ describe("Automations: modifiche durante le esecuzioni (Review Focus 4)", () => 
     await automations.pause(A.newContract);
     await expect(automations.activate(A.newContract)).rejects.toThrow("invalid: config");
     await automations.connectSource(S.audin);
+    connect("p-roberta");
     await automations.activate(A.newContract);
     await automations.disconnectSource(S.audin);
     await automations.chooseProject(R.waitingProject, "prj-cbv");

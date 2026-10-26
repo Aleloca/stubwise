@@ -26,6 +26,7 @@ export {
   createAutomation,
   deleteDraft,
   disconnectSource,
+  duplicateAutomation,
   pause,
   publish,
   reject,
@@ -39,6 +40,16 @@ export {
   startManual,
 } from "./writes";
 export { listSimulationExamples } from "./examples";
+export {
+  createWebhookSource,
+  listClientSuggestions,
+  previewWebhookExample,
+  regenerateWebhookAddress,
+  renameSource,
+  setWebhookExample,
+  updateWebhookField,
+  type WebhookExamplePreview,
+} from "./webhooks";
 export {
   endSimulation,
   getSimulation,

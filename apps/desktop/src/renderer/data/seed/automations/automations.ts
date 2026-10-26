@@ -320,6 +320,7 @@ export const AUTOMATIONS: Automation[] = [
       },
     ],
     createdAt: at(-41, "15:30"),
+    createdById: "p-matteo",
   },
   {
     id: AUTOMATION_CLIENT_DATA,
@@ -339,6 +340,7 @@ export const AUTOMATIONS: Automation[] = [
       },
     ],
     createdAt: at(-21, "17:40"),
+    createdById: "p-matteo",
   },
   {
     id: AUTOMATION_DRAFT,
@@ -351,6 +353,7 @@ export const AUTOMATIONS: Automation[] = [
     status: "draft",
     versions: [{ n: 1, flow: triageFlow, publishedAt: null, publishedById: null }],
     createdAt: at(-2, "11:05"),
+    createdById: "p-laura",
   },
   {
     id: AUTOMATION_PAUSED,
@@ -368,5 +371,9 @@ export const AUTOMATIONS: Automation[] = [
       { n: 1, flow: weeklyFlow, publishedAt: at(-30, "08:30"), publishedById: "p-matteo" },
     ],
     createdAt: at(-30, "08:20"),
+    createdById: "p-matteo",
+    // Dopo l'esecuzione fallita di lunedì: messa in pausa dall'admin.
+    pausedById: "p-roberta",
+    pausedAt: at(-4, "10:30"),
   },
 ];

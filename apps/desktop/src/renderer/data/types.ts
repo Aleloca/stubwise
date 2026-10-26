@@ -728,6 +728,8 @@ export interface AutomationRow extends Automation {
   hasDraft: boolean;
   /** Gli errori di configurazione dell'ultima versione (quella che si modifica). */
   configErrorCount: number;
+  /** Quelli della versione pubblicata adesso (0 per una bozza mai accesa). */
+  liveErrorCount: number;
 }
 
 /** Un'esecuzione con il suo codice («AUD-A1 #2») e la sua automazione. */
@@ -754,6 +756,8 @@ export interface AutomationRunDetail extends AutomationRunRow {
   flow: AutomationFlow;
   /** Chi decide adesso (approvazione o progetto), risolto ora. */
   deciders: string[];
+  /** Il proprietario dell'automazione adesso (anche per chi non vede l'automazione). */
+  ownerId: string | null;
   permissions: {
     /** Annulla, Riprova, Salta, «Fai passare il tempo». */
     manage: boolean;

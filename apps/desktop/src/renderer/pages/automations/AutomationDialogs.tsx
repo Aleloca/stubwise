@@ -23,7 +23,9 @@ import { useAutomationPerms, useMe, useNames } from "./shared";
 // e pubblicare dicono SEMPRE il cambio di proprietario, anche quando non
 // cambia; mettere in pausa dice cosa succede agli eventi e alle esecuzioni;
 // eliminare una bozza mai accesa chiede conferma. I controlli (casella,
-// permessi) sono di chi accende: il livello dati li rifà comunque.
+// permessi nei progetti fissi) sono di chi accende: il dialogo li mostra
+// prima, e `activate`/`publish` li rifanno (codici `mailbox_missing`,
+// `mailbox_expired`, `permission`). La casella scelta resta sull'automazione.
 
 /** I progetti fissi in cui il flusso crea qualcosa, col primo passo che ci crea. */
 function fixedProjects(flow: AutomationFlow, own: string | null) {
@@ -68,7 +70,8 @@ export function TurnOnDialog({
   const { fixed, fromClient } = fixedProjects(flow, a.projectId);
   const blocked = [...fixed.entries()].filter(([id]) => !perms.createTasks(id));
   const needsMailbox = sendsEmail(flow);
-  const boxes = mailboxes ?? [];
+  // Solo le caselle collegate: una scaduta non spedisce.
+  const boxes = (mailboxes ?? []).filter((b) => !b.expired);
   const chosen = from ?? boxes[0]?.email ?? null;
   const suspended = detail.runs.filter((r) => r.status === "suspended").length;
   const ok = errors.length === 0 && blocked.length === 0 && (!needsMailbox || boxes.length > 0);
@@ -84,8 +87,9 @@ export function TurnOnDialog({
       },
       onError: () => toast.error(t("automations.toast.onError", { code: a.code })),
     };
-    if (publishing) publish.mutate(a.id, done);
-    else activate.mutate(a.id, done);
+    const vars = { id: a.id, mailbox: needsMailbox ? (chosen ?? undefined) : undefined };
+    if (publishing) publish.mutate(vars, done);
+    else activate.mutate(vars, done);
   };
 
   return (

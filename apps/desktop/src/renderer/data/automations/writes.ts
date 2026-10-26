@@ -1,4 +1,6 @@
 import type { EngineState } from "../../domain/automations/engine";
+import { visitSteps } from "../../domain/automations/fields";
+import { projectOf } from "../../domain/automations/preview";
 import { PEOPLE } from "../seed/people";
 import { copy, now, state, visibleProjectIds } from "../store";
 import type {
@@ -115,6 +117,45 @@ export async function createAutomation(input: {
       { n: 1, flow: copy(input.flow ?? emptyFlow(name)), publishedAt: null, publishedById: null },
     ],
     createdAt: now(),
+    createdById: me,
+  };
+  state.automations.push(automation);
+  return copy(automation);
+}
+
+/**
+ * «Duplicate» (anche il modo di riprendere una versione vecchia, shape
+ * [A 11]): una bozza nuova, mai accesa, nello stesso progetto, col flusso
+ * della versione indicata (di base l'ultima). Il nome lo scrive chi duplica.
+ */
+export async function duplicateAutomation(
+  id: string,
+  opts: { version?: number; name: string },
+): Promise<Automation> {
+  const me = await writer("automations.duplicateAutomation");
+  const source = managedAutomation(me, id);
+  const version =
+    opts.version === undefined
+      ? source.versions.at(-1)!
+      : source.versions.find((v) => v.n === opts.version);
+  if (!version) throw invalid("version");
+  const name = opts.name.trim();
+  if (!name) throw invalid("name");
+  const key = source.projectId ?? "";
+  const n = (state.automationCodeSeq.get(key) ?? 0) + 1;
+  state.automationCodeSeq.set(key, n);
+  const project = source.projectId ? state.projectsById.get(source.projectId) : null;
+  const automation: Automation = {
+    id: `aut-new-${++state.counter}`,
+    code: project ? `${project.code}-A${n}` : `AUT-${n}`,
+    name,
+    description: source.description,
+    projectId: source.projectId,
+    ownerId: null,
+    status: "draft",
+    versions: [{ n: 1, flow: copy(version.flow), publishedAt: null, publishedById: null }],
+    createdAt: now(),
+    createdById: me,
   };
   state.automations.push(automation);
   return copy(automation);
@@ -142,13 +183,68 @@ export async function saveDraft(
 }
 
 /** Pubblica la bozza (e accende una mai accesa): chi pubblica diventa il proprietario. */
-function publishAs(me: string, a: Automation): void {
+/** Il permesso che serve per creare quello che un passo crea. */
+const CREATE_PERMISSION = {
+  createTask: "tickets.create",
+  createMilestone: "tickets.edit",
+  createRequest: "backlog.create",
+} as const;
+
+/**
+ * I controlli di chi diventa proprietario (shape automations.md [A 12],
+ * [A 13]), rifatti qui qualunque cosa mostri il dialogo:
+ * - in un progetto fisso (o quello dell'automazione) deve poter creare ciò
+ *   che il flusso crea (`invalid: permission`); un progetto ricavato dal
+ *   cliente si saprà solo a runtime;
+ * - se il flusso manda email, una sua casella collegata (`invalid:
+ *   mailbox_missing`), non scaduta (`invalid: mailbox_expired`): quella
+ *   indicata, o la prima.
+ * Restituisce la casella scelta (null se non servono email).
+ */
+function ownerChecks(
+  me: string,
+  a: Automation,
+  flow: AutomationFlow,
+  mailbox?: string,
+): string | null {
+  const viewer = viewerFor(me);
+  let emails = false;
+  visitSteps(flow.steps, (step) => {
+    if (step.kind === "sendEmail") emails = true;
+    if (
+      step.kind !== "createTask" &&
+      step.kind !== "createMilestone" &&
+      step.kind !== "createRequest"
+    )
+      return;
+    const target = projectOf(step);
+    const projectId =
+      target?.mode === "fixed" ? target.projectId : target?.mode === "own" ? a.projectId : null;
+    if (projectId === null) return;
+    if (
+      !visibleProjectIds(me).has(projectId) ||
+      !can(viewer, CREATE_PERMISSION[step.kind], projectId)
+    )
+      throw invalid("permission");
+  });
+  if (!emails) return null;
+  const boxes = state.mailboxes.filter((b) => b.personId === me);
+  const chosen = mailbox === undefined ? boxes[0] : boxes.find((b) => b.email === mailbox);
+  if (!chosen) throw invalid("mailbox_missing");
+  if (state.googleAccounts.find((g) => g.personId === me)?.status === "expired")
+    throw invalid("mailbox_expired");
+  return chosen.email;
+}
+
+function publishAs(me: string, a: Automation, mailbox?: string): void {
   const draft = a.versions.at(-1)!;
   if (draft.publishedAt !== null) throw invalid("no_draft");
   if (configErrorsOf(a, draft.flow, me).length > 0) throw invalid("config");
+  const box = ownerChecks(me, a, draft.flow, mailbox);
   draft.publishedAt = now();
   draft.publishedById = me;
   a.ownerId = me;
+  a.mailbox = box;
   if (a.status === "draft") a.status = "active";
 }
 
@@ -158,10 +254,10 @@ function publishAs(me: string, a: Automation): void {
  * proprietario. Con errori di configurazione non si pubblica
  * (`invalid: config`).
  */
-export async function publish(id: string): Promise<Automation> {
+export async function publish(id: string, opts: { mailbox?: string } = {}): Promise<Automation> {
   const me = await writer("automations.publish");
   const a = managedAutomation(me, id);
-  publishAs(me, a);
+  publishAs(me, a, opts.mailbox);
   return copy(a);
 }
 
@@ -171,18 +267,21 @@ export async function publish(id: string): Promise<Automation> {
  * La versione pubblicata deve essere senza errori (es. la sorgente è
  * scollegata → `invalid: config`).
  */
-export async function activate(id: string): Promise<Automation> {
+export async function activate(id: string, opts: { mailbox?: string } = {}): Promise<Automation> {
   const me = await writer("automations.activate");
   const a = managedAutomation(me, id);
   if (a.status === "active") return copy(a);
   if (a.status === "draft") {
-    publishAs(me, a);
+    publishAs(me, a, opts.mailbox);
     return copy(a);
   }
   const live = publishedVersion(a);
   if (!live || configErrorsOf(a, live.flow, me).length > 0) throw invalid("config");
+  a.mailbox = ownerChecks(me, a, live.flow, opts.mailbox);
   a.ownerId = me;
   a.status = "active";
+  a.pausedById = null;
+  a.pausedAt = null;
   for (const run of state.automationRuns) {
     if (run.automationId === a.id && run.status === "suspended") resume(run, me);
   }
@@ -199,6 +298,8 @@ export async function pause(id: string): Promise<Automation> {
   const a = managedAutomation(me, id);
   if (a.status !== "active") throw invalid("not_active");
   a.status = "paused";
+  a.pausedById = me;
+  a.pausedAt = now();
   for (const run of state.automationRuns) {
     if (run.automationId !== a.id) continue;
     // Con un input già in coda (un'approvazione appena data) la decisione si
@@ -251,9 +352,38 @@ export async function startManual(id: string, event?: Record<string, unknown>): 
  * quell'inizio; la sorgente deve essere collegata. Restituisce le
  * esecuzioni nate che chi agisce vede.
  */
+/**
+ * I dati di un evento mandato a mano («Edit and send» di un webhook):
+ * un oggetto, coi campi dichiarati del tipo giusto. `invalid: event_types`
+ * se un numero non è un numero (shape sources: «Received with errors» e non
+ * parte nulla).
+ */
+function checkPayload(source: { fields: { key: string; type: string }[] }, payload: unknown) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw invalid("event");
+  for (const f of source.fields) {
+    const v = f.key
+      .split(".")
+      .reduce<unknown>(
+        (o, k) => (o && typeof o === "object" ? (o as Record<string, unknown>)[k] : undefined),
+        payload,
+      );
+    if (v === undefined || v === null) continue;
+    const ok =
+      f.type === "number"
+        ? typeof v === "number"
+        : f.type === "list"
+          ? Array.isArray(v)
+          : f.type === "boolean"
+            ? typeof v === "boolean"
+            : true;
+    if (!ok) throw invalid("event_types");
+  }
+  return payload as Record<string, unknown>;
+}
+
 export async function simulateSourceEvent(
   sourceId: string,
-  sampleIndex: number,
+  sample: number | { payload: unknown },
 ): Promise<string[]> {
   const me = await writer("automations.simulateSourceEvent");
   const source = state.automationSources.find((s) => s.id === sourceId);
@@ -265,7 +395,8 @@ export async function simulateSourceEvent(
   if (!canManageIntegrations(me) && !listeners.some((a) => canManageAutomation(me, a)))
     throw forbidden();
   if (source.status !== "connected") throw invalid("source_not_connected");
-  const event = source.sampleEvents[sampleIndex];
+  const event =
+    typeof sample === "number" ? source.sampleEvents[sample] : checkPayload(source, sample.payload);
   if (!event) throw invalid("sample");
   const started = listeners
     .filter((a) => a.status === "active")
@@ -340,10 +471,29 @@ export async function reject(runId: string): Promise<void> {
 }
 
 /** «Scegli il progetto» (il proprietario): fra quelli che vede. */
-export async function chooseProject(runId: string, projectId: string): Promise<void> {
+/**
+ * «Scegli il progetto» (il proprietario): fra quelli che vede. Con
+ * `remember` (shape [A 26], solo con `integrations.manage`) la scelta entra
+ * nella tabella cliente → progetto, a nome di chi sceglie.
+ */
+export async function chooseProject(
+  runId: string,
+  projectId: string,
+  opts: { remember?: boolean } = {},
+): Promise<void> {
   const me = await writer("automations.chooseProject");
   const run = decision(me, runId, "waiting_project");
   if (!state.projectsById.has(projectId) || !visibleProjectIds(me).has(projectId)) throw notFound();
+  if (opts.remember) {
+    if (!canManageIntegrations(me)) throw forbidden();
+    const preview = run.pending?.preview ?? {};
+    const clientKey = String(preview.clientKey ?? "")
+      .trim()
+      .toLowerCase();
+    const clientName = String(preview.clientName ?? "").trim();
+    if (!clientKey || !clientName) throw invalid("client");
+    putClientLink(me, { clientKey, clientName, projectId });
+  }
   void enqueue(run.id, { kind: "project_chosen", projectId, byId: me });
 }
 
@@ -407,14 +557,15 @@ export async function skipStep(runId: string): Promise<void> {
  * avanti di `days` giorni e le attese scadute si chiudono. Non scavalca
  * nulla: un'approvazione o un progetto da scegliere aspettano ancora.
  */
-export async function advanceTime(runId: string, days: number): Promise<void> {
+export async function advanceTime(runId: string, days: number, hours = 0): Promise<void> {
   const me = await writer("automations.advanceTime");
   const { run } = managedRun(me, runId);
-  if (!Number.isInteger(days) || days < 1 || days > 30) throw invalid("days");
+  if (!Number.isInteger(days) || !Number.isInteger(hours) || days < 0 || hours < 0 || hours > 23)
+    throw invalid("days");
+  const ms = days * 86_400_000 + hours * 3_600_000;
+  if (ms < 3_600_000 || ms > 30 * 86_400_000) throw invalid("days");
   if (!isOpen(run)) throw invalid("finished");
-  const at = new Date(Date.parse(runNow(run)) + days * 86_400_000)
-    .toISOString()
-    .replace(".000Z", "Z");
+  const at = new Date(Date.parse(runNow(run)) + ms).toISOString().replace(".000Z", "Z");
   state.automationClock.set(run.id, at);
   if (run.status !== "suspended") void enqueue(run.id, { kind: "time", now: at });
 }
@@ -432,8 +583,14 @@ function managedSource(me: string, id: string) {
 export async function connectSource(id: string): Promise<void> {
   const me = await writer("automations.connectSource");
   const source = managedSource(me, id);
+  // Ricollegare (anche da un altro): ne diventa «chi l'ha collegata» (shape sources [A 5]).
+  if (source.connectedAt) {
+    source.reconnectedById = me;
+    source.reconnectedAt = now();
+  } else source.connectedAt = now();
   source.status = "connected";
   source.connectedById = me;
+  source.expiredAt = null;
 }
 
 /** Scollega una sorgente: le automazioni che ne partono lo dicono negli errori di configurazione. */
@@ -450,10 +607,16 @@ export async function setClientLink(link: ClientProjectLink): Promise<void> {
   if (!clientKey || !link.clientName.trim()) throw invalid("client");
   if (!state.projectsById.has(link.projectId) || !visibleProjectIds(me).has(link.projectId))
     throw notFound();
-  const row = { clientKey, clientName: link.clientName.trim(), projectId: link.projectId };
-  const i = state.clientProjectLinks.findIndex((l) => l.clientKey === clientKey);
-  if (i >= 0) state.clientProjectLinks[i] = row;
-  else state.clientProjectLinks.push(row);
+  putClientLink(me, { clientKey, clientName: link.clientName.trim(), projectId: link.projectId });
+}
+
+/** Scrive una riga cliente → progetto: una nuova porta chi e quando, una cambiata li conserva. */
+function putClientLink(me: string, row: ClientProjectLink): void {
+  const i = state.clientProjectLinks.findIndex((l) => l.clientKey === row.clientKey);
+  if (i >= 0) {
+    const old = state.clientProjectLinks[i]!;
+    state.clientProjectLinks[i] = { ...row, addedById: old.addedById, addedAt: old.addedAt };
+  } else state.clientProjectLinks.push({ ...row, addedById: me, addedAt: now() });
 }
 
 export async function removeClientLink(clientKey: string): Promise<void> {

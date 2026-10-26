@@ -147,6 +147,7 @@ const WAITING: ReadonlySet<RunStatus> = new Set([
 ]);
 
 function automationRow(me: string, a: Automation): AutomationRow {
+  const live = publishedVersion(a);
   const runs = state.automationRuns.filter((r) => r.automationId === a.id);
   const last = runs.reduce<string | null>(
     (m, r) => (m === null || r.startedAt > m ? r.startedAt : m),
@@ -160,6 +161,7 @@ function automationRow(me: string, a: Automation): AutomationRow {
     lastRunAt: last,
     hasDraft: latest(a).publishedAt === null,
     configErrorCount: configErrorsOf(a, latest(a).flow, a.ownerId ?? me).length,
+    liveErrorCount: live ? configErrorsOf(a, live.flow, a.ownerId ?? me).length : 0,
   };
 }
 
@@ -218,6 +220,7 @@ export function viewRun(me: string, run: AutomationRun): AutomationRun {
   }
   if (v.pending) scrub(v.pending.preview);
   const a = automationById(run.automationId);
+  if (a?.ownerId !== me) hideReplies(v, !decidersOf(run).includes(me));
   if (startedByMail(run) && a?.ownerId !== me) {
     const hidden = { email: { mittente: "", oggetto: MAIL_HIDDEN, testo: "" } };
     v.event = hidden;
@@ -235,6 +238,46 @@ export function viewRun(me: string, run: AutomationRun): AutomationRun {
     if (v.pending && !decidersOf(run).includes(me)) v.pending.preview = {};
   }
   return v;
+}
+
+/**
+ * R-J16 (shape [A 21]): la risposta del cliente sta nella casella del
+ * proprietario, e il suo testo lo vede solo lui — su OGNI esecuzione, non
+ * solo su quelle partite da un'email. Per gli altri ogni testo che la
+ * contiene diventa `""`: l'uscita dell'attesa, gli ingressi di chi la legge
+ * (Claude, condizioni, ripetizioni), le variabili, i campi di Claude che la
+ * ripetono; la riga lo dice con `replyHidden`. L'anteprima di chi deve
+ * approvare resta intera (R-J14).
+ */
+function hideReplies(v: AutomationRun, preview: boolean): void {
+  const replies = new Set<string>();
+  const add = (t: unknown) => {
+    if (typeof t === "string" && t.trim()) replies.add(t);
+  };
+  for (const e of v.log) if (e.kind === "wait") add(e.output["risposta.testo"]);
+  add(v.vars["risposta.testo"]);
+  if (replies.size === 0) return;
+  const echoes = (s: string) => [...replies].some((r) => s.includes(r));
+  const hide = (o: unknown): boolean => {
+    if (!o || typeof o !== "object") return false;
+    let hit = false;
+    const rec = o as Record<string, unknown>;
+    for (const [k, val] of Object.entries(rec)) {
+      if (typeof val === "string" && echoes(val)) {
+        rec[k] = "";
+        hit = true;
+      } else if (val && typeof val === "object" && hide(val)) hit = true;
+    }
+    return hit;
+  };
+  for (const e of v.log) {
+    const a = hide(e.input);
+    const b = hide(e.output);
+    if (a || b) e.replyHidden = true;
+  }
+  hide(v.vars);
+  if (v.loops) hide(v.loops);
+  if (preview && v.pending) hide(v.pending.preview);
 }
 
 export function runRow(me: string, source: AutomationRun): AutomationRunRow {
@@ -361,6 +404,7 @@ export async function getRun(id: string): Promise<AutomationRunDetail | null> {
     ...runRow(me, run),
     flow: copy(a.versions.find((v) => v.n === run.version)!.flow),
     deciders,
+    ownerId: a.ownerId,
     permissions: {
       manage: canManageRun(me, run),
       approve: run.status === "waiting_approval" && deciders.includes(me),

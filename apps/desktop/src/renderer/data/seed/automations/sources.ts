@@ -164,6 +164,7 @@ export const AUTOMATION_SOURCES: AutomationSource[] = [
     name: "Audin",
     status: "connected",
     connectedById: "p-roberta",
+    connectedAt: `${daysFromToday(-60)}T09:00:00Z`,
     sampleEvents: AUDIN_SAMPLE_EVENTS,
     fields: DEAL_FIELDS,
   },
@@ -173,6 +174,8 @@ export const AUTOMATION_SOURCES: AutomationSource[] = [
     name: "HubSpot",
     status: "expired",
     connectedById: "p-roberta",
+    connectedAt: `${daysFromToday(-55)}T11:20:00Z`,
+    expiredAt: `${daysFromToday(-3)}T00:00:00Z`,
     sampleEvents: [
       deal({
         id: "HS-88213",
@@ -196,6 +199,8 @@ export const AUTOMATION_SOURCES: AutomationSource[] = [
     name: "Modulo di attivazione dal sito",
     status: "connected",
     connectedById: "p-roberta",
+    connectedAt: `${daysFromToday(-25)}T16:00:00Z`,
+    address: "https://stubwise.example/hooks/in/4f7c2a91d03e",
     sampleEvents: WEBHOOK_SAMPLE_EVENTS,
     fields: WEBHOOK_FIELDS,
   },
@@ -211,11 +216,21 @@ export const CLIENT_PROJECT_LINKS: ClientProjectLink[] = [
     clientKey: "cantinabellavista.example",
     clientName: "Cantina Bellavista Srl",
     projectId: "prj-cbv",
+    addedById: "p-roberta",
+    addedAt: `${daysFromToday(-40)}T10:00:00Z`,
   },
-  { clientKey: "mixcucine.example", clientName: "Mix Cucine Srl", projectId: "prj-mkx" },
+  {
+    clientKey: "mixcucine.example",
+    clientName: "Mix Cucine Srl",
+    projectId: "prj-mkx",
+    addedById: "p-roberta",
+    addedAt: `${daysFromToday(-30)}T10:00:00Z`,
+  },
   {
     clientKey: "tessituramori.example",
     clientName: "Tessitura Lombarda Mori Spa",
     projectId: "prj-tlm",
+    addedById: "p-roberta",
+    addedAt: `${daysFromToday(-20)}T10:00:00Z`,
   },
 ];

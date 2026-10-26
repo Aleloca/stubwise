@@ -2231,6 +2231,17 @@ export interface Automation {
   /** In ordine; l'ultima può essere una bozza. */
   versions: AutomationVersion[];
   createdAt: string;
+  /** Chi l'ha creata (la riga di stato di una bozza: «created by»). */
+  createdById?: string | null;
+  /** Chi l'ha messa in pausa e quando (la riga di stato: «Paused by … on …»); si azzerano riaccendendo. */
+  pausedById?: string | null;
+  pausedAt?: string | null;
+  /**
+   * La casella da cui partono le email, scelta da chi l'ha accesa o
+   * pubblicata fra le sue collegate (shape automations.md [A 12]). Assente:
+   * la casella del proprietario.
+   */
+  mailbox?: string | null;
 }
 
 export type RunStatus =
@@ -2274,6 +2285,12 @@ export interface RunLogEntry {
   reason: string | null;
   /** Chi ha approvato, rifiutato, riprovato o saltato. */
   byId: string | null;
+  /**
+   * R-J16: solo nelle letture, per chi non è il proprietario — il testo della
+   * risposta del cliente è stato tolto da questa riga (sta nella casella del
+   * proprietario, shape [A 21]).
+   */
+  replyHidden?: boolean;
   /**
    * Le cose create dal passo (task, traguardo…) col loro codice. Nelle
    * letture (R-J12) una cosa in un progetto che chi guarda non vede ha
@@ -2333,6 +2350,14 @@ export interface AutomationSource {
   sampleEvents: Record<string, unknown>[];
   /** I dati che i suoi eventi portano. */
   fields: DataField[];
+  /** Un webhook in arrivo: l'indirizzo a cui si manda (finto nel prototipo). */
+  address?: string;
+  /** Quando è stata collegata, e chi l'ha ricollegata e quando (shape sources [A 5]). */
+  connectedAt?: string;
+  reconnectedById?: string | null;
+  reconnectedAt?: string | null;
+  /** Da quando è scaduta (stato `expired`). */
+  expiredAt?: string | null;
 }
 
 /** Una riga della tabella cliente → progetto (gestita da chi ha `integrations.manage`). */
@@ -2341,4 +2366,7 @@ export interface ClientProjectLink {
   clientKey: string;
   clientName: string;
   projectId: string;
+  /** Chi l'ha aggiunta e quando (la colonna «Added by»). */
+  addedById?: string;
+  addedAt?: string;
 }
