@@ -1,7 +1,7 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mail, resetApi, setLatency } from "../../data/api";
+import { failNext, mail, resetApi, setLatency } from "../../data/api";
 import { MAIL_UNDO_MS } from "../../data/mail/compose";
 import { MAIL_CASES } from "../../data/seed/mail";
 import { setSessionPersonId } from "../../data/session";
@@ -599,5 +599,45 @@ describe("Fix round 1", () => {
       "title",
       "Too large: Gmail accepts up to 25 MB per email",
     );
+  });
+
+  it("«Delete» che non riesce lo dice, e il tentativo fallito resta col suo testo", async () => {
+    const user = fakeTime();
+    await openMail(`/mail/${CALL_NOTES()}`);
+    const { p, form } = await replyWith("Bounce me.", user);
+    await user.type(
+      within(form).getByRole("combobox", { name: "To" }),
+      "luca@bounce.example{Enter}",
+    );
+    await user.click(within(form).getByRole("button", { name: "Send" }));
+    await advance(MAIL_UNDO_MS + 100);
+    await within(p).findByRole("alert");
+    failNext("mail.deleteFailedSend");
+    await user.click(within(p).getByRole("button", { name: "Delete" }));
+    expect(
+      await screen.findByText("That didn't work. Your text is unchanged; try again."),
+    ).toBeInTheDocument();
+    expect(mineSent()).toHaveLength(1);
+    expect(mineSent()[0]!.delivery!.state).toBe("failed");
+    expect(within(p).getByText("Bounce me.")).toBeInTheDocument();
+  });
+
+  it("«Stop» col clic: il fuoco torna nel corpo modificabile, non resta su «Ask Claude»", async () => {
+    setStreamLatency(40);
+    await openMail(`/mail/${threadOf(MAIL_CASES.shared)}`);
+    const p = await pane(threadOf(MAIL_CASES.shared));
+    await userEvent.click(within(p).getByRole("button", { name: "Reply" }));
+    const form = await composer(/^Reply to /);
+    await userEvent.click(within(form).getByRole("button", { name: "Ask Claude" }));
+    await userEvent.type(
+      within(form).getByRole("textbox", { name: "What should it say? (optional)" }),
+      "tell them it lands on Monday{Enter}",
+    );
+    const writing = await within(form).findByRole("textbox", { name: "Message" });
+    await waitFor(() => expect(writing.textContent?.length ?? 0).toBeGreaterThan(0));
+    await userEvent.click(within(form).getByRole("button", { name: "Stop" }));
+    await within(form).findByText(/Draft by Claude/);
+    await waitFor(() => expect(body(form)).toHaveFocus());
+    expect(within(form).getByRole("button", { name: "Ask Claude" })).not.toHaveFocus();
   });
 });

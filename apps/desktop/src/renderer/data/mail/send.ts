@@ -159,15 +159,22 @@ function myAttempt(me: string, messageId: string): MailMessage {
  * aggiungono finché stanno nei limiti; quelli in più si lasciano e si dicono
  * (`droppedAttachments`).
  */
-function restoreDraft(draft: MailDraft): MailDraftRestore {
+function restoreDraft(
+  draft: MailDraft,
+  alreadyDropped: MailDraftAttachment[] = [],
+): MailDraftRestore {
+  // Un file del Drive che nel frattempo non vedo più (o non è più
+  // disponibile) resta fuori e si dice: la bozza torna lo stesso.
+  const [usable, gone] = splitUsable(draft.personId, draft.attachments);
+  draft = { ...draft, attachments: usable };
   const existing = draftIn(draft.personId, draft.threadId);
   if (!existing) {
     const restored = { ...copy(draft), updatedAt: now() };
     putDraft(restored);
-    return { draft: copy(restored), droppedAttachments: [] };
+    return { draft: copy(restored), droppedAttachments: [...alreadyDropped, ...gone] };
   }
   const merged = existing.attachments.map(copy);
-  const dropped: MailDraftAttachment[] = [];
+  const dropped: MailDraftAttachment[] = [...alreadyDropped, ...gone];
   let bytes = bytesOf(merged);
   for (const a of draft.attachments) {
     if (merged.some((x) => x.id === a.id)) continue;
@@ -206,7 +213,28 @@ function quotedOf(draft: MailDraft, original: MailMessage | undefined): string |
  */
 export async function restoreDiscardedDraft(snapshot: MailDraftInput): Promise<MailDraftRestore> {
   const me = await gate("mail.restoreDiscardedDraft");
-  return restoreDraft(draftFrom(me, snapshot));
+  // Prima di rileggerli dal Drive: un file che non c'è più non fa fallire il ripristino.
+  const [usable, gone] = splitUsable(me, snapshot.attachments);
+  return restoreDraft(draftFrom(me, { ...snapshot, attachments: usable }), gone);
+}
+
+/** Gli allegati che si possono ancora tenere e quelli del Drive che non si vedono più (o non ci sono più). */
+function splitUsable(
+  me: string,
+  list: readonly MailDraftAttachment[],
+): [MailDraftAttachment[], MailDraftAttachment[]] {
+  const usable: MailDraftAttachment[] = [];
+  const gone: MailDraftAttachment[] = [];
+  for (const a of list) {
+    if (a.driveFileId === null) {
+      usable.push(a);
+      continue;
+    }
+    const file = state.driveFiles.find((f) => f.id === a.driveFileId);
+    if (file && canSeeDriveFile(me, file) && !file.unavailable) usable.push(a);
+    else gone.push(copy(a));
+  }
+  return [usable, gone];
 }
 
 /**

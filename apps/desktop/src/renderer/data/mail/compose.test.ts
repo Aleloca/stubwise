@@ -368,6 +368,37 @@ describe("L'«Undo» di «Discard» (R-I9)", () => {
     expect(await mail.listDrafts()).toHaveLength(1);
   });
 
+  it("un file del Drive non più disponibile non fa perdere la bozza: resta fuori e si dice", async () => {
+    const upload = state.driveFiles.find(
+      (f) => f.projectId === AUD && f.source === "upload" && !f.hidden && !f.unavailable,
+    )!;
+    const first = await savedReply("Still here.");
+    const withFile = await mail.attachDriveFile(first.id, upload.id);
+    await mail.discardDraft(first.id);
+    upload.unavailable = "deleted";
+    const { draft, droppedAttachments } = await mail.restoreDiscardedDraft(withFile);
+    expect(draft.body).toBe("Still here.");
+    expect(draft.attachments).toEqual([]);
+    expect(droppedAttachments.map((a) => a.driveFileId)).toEqual([upload.id]);
+    expect((await mail.listDrafts()).map((d) => d.body)).toEqual(["Still here."]);
+  });
+
+  it("«Annulla» un invio con un file del Drive che non vedo più: la bozza torna senza quel file, detto", async () => {
+    vi.useFakeTimers();
+    const upload = state.driveFiles.find(
+      (f) => f.projectId === "prj-mkx" && f.source === "upload" && !f.hidden && !f.unavailable,
+    )!;
+    const saved = await savedReply("With an MKX file.");
+    await mail.attachDriveFile(saved.id, upload.id);
+    const { messageId } = await mail.sendDraft(saved.id);
+    const mkx = state.projectsById.get("prj-mkx")!;
+    mkx.memberIds = mkx.memberIds.filter((id) => id !== "p-giulia");
+    const { draft, droppedAttachments } = await mail.undoSend(messageId);
+    expect(draft.body).toBe("With an MKX file.");
+    expect(draft.attachments).toEqual([]);
+    expect(droppedAttachments.map((a) => a.driveFileId)).toEqual([upload.id]);
+  });
+
   it("decide l'esistenza della bozza, non il contenuto: una bozza vuota tiene destinatari e oggetto", async () => {
     const first = await savedReply("Discarded text.");
     await mail.discardDraft(first.id);

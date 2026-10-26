@@ -137,7 +137,11 @@ export function ClaudeDraftButton({ flow }: { flow: ClaudeDraftFlow }) {
   const { t } = useTranslation();
   if (flow.writing) {
     return (
+      // Un altro elemento, non lo stesso bottone rietichettato: fermato, il fuoco
+      // non resta su «Ask Claude» ma torna nel corpo (Composer).
       <button
+        key="stop"
+        data-claude-stop
         type="button"
         onClick={flow.stop}
         title={`${t("mail.compose.stop")} (${shortcutLabel(["mod", "."])})`}
@@ -150,6 +154,7 @@ export function ClaudeDraftButton({ flow }: { flow: ClaudeDraftFlow }) {
   }
   return (
     <button
+      key="ask"
       type="button"
       onClick={flow.openHint}
       aria-expanded={flow.stage !== "closed"}

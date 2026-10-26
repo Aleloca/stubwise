@@ -176,19 +176,24 @@ export function Composer(props: ComposerProps) {
   });
 
   // Mentre Claude scrive il fuoco resta nella casella (sul corpo in sola
-  // lettura): ⌘. ferma, Esc chiude; finita, torna nel corpo modificabile.
+  // lettura): ⌘. ferma, Esc chiude. Finita o fermata (con ⌘. o col clic su
+  // Stop), corpo in sola lettura e Stop non ci sono più e il fuoco cadrebbe
+  // sul documento: torna nel corpo modificabile — salvo che chi scrive
+  // l'abbia portato in un altro campo della casella nel frattempo.
   const streamRef = useRef<HTMLDivElement>(null);
-  const streamFocused = useRef(false);
+  const wasWriting = useRef(false);
   const writingNow = claude.writing;
   useLayoutEffect(() => {
+    const active = document.activeElement;
+    const outside = !active || active === document.body || !rootRef.current?.contains(active);
     if (writingNow) {
-      const active = document.activeElement;
-      const lost = !rootRef.current?.contains(active) || active === document.body;
-      if (lost || active === bodyRef.current) streamRef.current?.focus();
+      wasWriting.current = true;
+      if (outside || active === bodyRef.current) streamRef.current?.focus();
       return;
     }
-    if (streamFocused.current) bodyRef.current?.focus();
-    streamFocused.current = false;
+    if (!wasWriting.current) return;
+    wasWriting.current = false;
+    if (outside) bodyRef.current?.focus();
   }, [writingNow]);
 
   // Il corpo cresce con il testo fino a riempire il pannello, poi scorre dentro.
@@ -447,8 +452,6 @@ export function Composer(props: ComposerProps) {
             ref={streamRef}
             role="textbox"
             tabIndex={0}
-            onFocus={() => (streamFocused.current = true)}
-            onBlur={() => (streamFocused.current = false)}
             aria-label={t("mail.compose.message")}
             aria-readonly="true"
             aria-busy="true"
