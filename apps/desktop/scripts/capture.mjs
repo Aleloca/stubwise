@@ -468,6 +468,65 @@ async function main() {
         await context.close();
       }
     }
+    // Area 6: Posta e Calendario. Giulia ha la casella e le proposte; l'oggi del
+    // seme è fisso (2026-10-23), quindi gli id degli eventi non cambiano.
+    const NEXT_REVIEW = "ev-aud-review-2026-10-29";
+    const openComposer = async (p, hint) => {
+      await p.getByRole("button", { name: /^(Reply|Rispondi)$/ }).first().click();
+      await p.getByRole("button", { name: /^(Ask Claude|Chiedi a Claude)$/ }).click();
+      const field = p.getByRole("textbox", { name: /What should it say|Cosa deve dire/ });
+      await field.fill(hint);
+      await field.press("Enter");
+      // La bozza si scrive a pezzi: si aspetta che «Ferma» torni «Chiedi».
+      await p.getByRole("button", { name: /^(Ask Claude|Chiedi a Claude)$/ }).waitFor({ timeout: 15_000 });
+      await p.waitForTimeout(400);
+    };
+    const AREA6 = [
+      ["mail-shared-proposal", "/mail/th-aud-billing-vat", { persona: "Giulia", narrow: true }],
+      ["mail-transcript", "/mail/th-gemini-aud-review", { persona: "Giulia" }],
+      [
+        "mail-compose-claude-draft",
+        "/mail/th-aud-billing-vat",
+        { persona: "Giulia", steps: (p) => openComposer(p, "tell them it lands on Monday") },
+      ],
+      ["calendar-week", "/calendar", { persona: "Giulia", narrow: true }],
+      ["calendar-new-meeting", "/calendar?newMeeting=1", { persona: "Giulia" }],
+      [
+        "calendar-meeting-prep",
+        `/calendar?event=${NEXT_REVIEW}&date=2026-10-29`,
+        {
+          persona: "Giulia",
+          narrow: true,
+          // La scheda sta in fondo al pannello: la si porta in vista, con le tre sezioni caricate.
+          steps: async (p) => {
+            const sheet = p.getByRole("region", { name: /^(Prepare|Prepara)/ });
+            await sheet.waitFor();
+            await p.waitForTimeout(900);
+            await sheet.evaluate((el) => el.scrollIntoView({ block: "start" }));
+            await p.waitForTimeout(300);
+          },
+        },
+      ],
+      ["home-mail-blocks", "/home", { persona: "Giulia", narrow: true }],
+    ];
+    for (const [name, hash, o] of AREA6) {
+      if (only && !only.test(name)) continue;
+      const variants = [];
+      for (const scheme of ["light", "dark"]) {
+        for (const lang of ["en", "it"]) variants.push([scheme, lang, WIDE, `a6-${name}-${scheme}-${lang}.png`]);
+      }
+      if (o.narrow) variants.push(["dark", "en", NARROW, `a6-${name}-narrow.png`]);
+      for (const [scheme, lang, viewport, file] of variants) {
+        const { page, context } = await open(scheme, viewport, hash, {
+          lang,
+          persona: o.persona,
+          viaHome: Boolean(o.persona),
+        });
+        if (o.steps) await o.steps(page);
+        await shot(page, file);
+        await context.close();
+      }
+    }
     if (only) return; // revisione mirata: salta il resto
 
     for (const scheme of ["light", "dark"]) {

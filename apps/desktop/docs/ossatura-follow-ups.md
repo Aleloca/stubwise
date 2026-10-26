@@ -351,3 +351,45 @@ progetto; vedi `area4-parity.md`.
   volte; tre estrattori di passaggio (`drivePassage` in `data/drive/reads.ts`,
   `passageOf` in `data/docs/reads.ts`, quello dei file per Claude in
   `domain/claude/intents/files.ts`). Da riunire quando si tocca la parte.
+
+## Area 6 — minori aperti
+
+Parità e buchi: `area6-parity.md`. Qui solo ciò che è stato **rimandato**
+apposta; i minori della revisione finale dell'area si correggono con
+l'ondata finale e non stanno in questo elenco.
+
+### Rimandati (decisioni del controller)
+
+- **Proposta fallita senza «Repropose» e stati di errore dell'originale**
+  (R-I16): una proposta in stato `failed` non si può riproporre (si
+  riprova solo l'analisi del messaggio), e la lettura dell'originale in un
+  frame isolato non ha i suoi stati di errore (messaggio sparito, token
+  scaduto, Google non disponibile): `pages/mail/MailProposalCard.tsx`,
+  `pages/mail/Outcome.tsx`, `pages/mail/UntrustedHtmlFrame.tsx`.
+- **Creare una serie ricorrente dall'editor** (R-I18): l'editor crea e
+  sposta eventi singoli; la serie nasce solo dal seme e si configura da
+  `SeriesSettings`: `pages/calendar/EventEditor.tsx`.
+- **Cambio di persona con il pannello dell'evento aperto** (R-I19): il
+  pannello si chiude invece di ricaricare la scheda di preparazione per chi
+  guarda adesso: `pages/calendar/CalendarPage.tsx`, `MeetingPrep.tsx`.
+
+### Minori
+
+- Il menu «Calendar» dell'editor non ha un campo dati (la riunione va nel
+  calendario della casella): `pages/calendar/EventEditor.tsx`.
+- Tutte le sezioni della scheda di preparazione vanno in errore insieme: la
+  scheda è una sola lettura (`getMeetingPrep`), non tre:
+  `data/calendar/prep.ts`, `pages/calendar/MeetingPrep.tsx`.
+- Il link «In ritardo» (Overdue) della scheda porta a un elenco con una data
+  d'inizio arbitraria, non a quella delle task in ritardo:
+  `pages/calendar/MeetingPrep.tsx`.
+
+### Lavoro sul server: un progetto a parte
+
+Il prototipo mostra l'interfaccia; ciò che la regge sul server non è in
+questa area e non si decide qui: classificare **tutta** la posta (senza
+ammissione), leggere i Google Doc delle trascrizioni, gli scope OAuth di
+invio e di scrittura del calendario, e riscrivere
+`docs/invariants/mail-calendar.md` per l'ammissione senza filtro e le
+proposte condivise (oggi le invarianti descrivono l'audience `mailbox_owner`
+e le regole della posta del progetto, entrambe tolte qui).
