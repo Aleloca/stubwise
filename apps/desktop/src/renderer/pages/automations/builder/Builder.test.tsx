@@ -720,7 +720,7 @@ describe("revisione del Task 6, giro 1", () => {
     expect(screen.queryByRole("navigation", { name: "Automations views" })).toBeNull();
   });
 
-  it("«Move to…» parte dal posto di adesso; F8 tace con un dialogo aperto", async () => {
+  it("«Move to…» parte dal posto di adesso", async () => {
     await open("/automations/AUD-A1/edit");
     row("cd-wait").focus();
     await userEvent.click(
@@ -796,6 +796,110 @@ describe("revisione del Task 6, giro 1", () => {
     expect(contract).toHaveAttribute("aria-checked", "true");
     await waitFor(() => expect(document.activeElement).toBe(contract));
     expect(blank).toHaveAttribute("tabindex", "-1");
+  });
+});
+
+describe("revisione del Task 6, giro 2", () => {
+  const notify = (id: string): Step => ({
+    id,
+    kind: "notify",
+    who: { personId: "p-laura" },
+    text: "x",
+    approval: { mode: "auto" },
+  });
+
+  it("eliminato st-3, aggiunto un passo, Undo: id tutti diversi e flusso valido", async () => {
+    auto("STW-A1").versions[0]!.flow.steps = [notify("st-1"), notify("st-2"), notify("st-3")];
+    await open("/automations/STW-A1/edit", LAURA);
+    row("st-3").focus();
+    await userEvent.keyboard("{Backspace}");
+    await waitFor(() => expect(idsInOrder()).toEqual(["st-1", "st-2"]));
+    row("st-2").focus();
+    await userEvent.keyboard("a");
+    const menu = await screen.findByRole("dialog", { name: "Add a step" });
+    await userEvent.type(within(menu).getByRole("combobox"), "notify");
+    await userEvent.keyboard("{Enter}");
+    await waitFor(() => expect(idsInOrder()).toHaveLength(3));
+    const added = idsInOrder()[2]!;
+    expect(added).not.toBe("st-3");
+    await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(idsInOrder()).toHaveLength(4));
+    const all = idsInOrder();
+    expect(new Set(all).size).toBe(4);
+    await settle();
+    const saved: string[] = [];
+    visitSteps(savedFlow("STW-A1").steps, (s) => saved.push(s.id));
+    expect(new Set(saved).size).toBe(4);
+    const issues = await act(() =>
+      automationsApi.checkDraft(auto("STW-A1").id, savedFlow("STW-A1")),
+    );
+    expect(issues.filter((i) => i.message.includes("identificativo"))).toEqual([]);
+  });
+
+  it("con la fascia «stale» Discard è spento; ⌘S annuncia solo se ha salvato", async () => {
+    await open("/automations/AUT-1/edit");
+    failNext("automations.saveDraft");
+    row("nc-read").focus();
+    await userEvent.keyboard("{Meta>}d{/Meta}");
+    fireEvent.keyDown(window, { key: "s", metaKey: true });
+    await settle();
+    expect(document.querySelector("[data-builder-live]")!.textContent).not.toBe(
+      "All changes saved",
+    );
+    const draft = auto("AUT-1").versions.at(-1)!;
+    draft.savedById = ROBERTA;
+    draft.rev = 9999;
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await settle();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Roberta Fontana");
+    await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+    expect(screen.getByRole("menuitem", { name: "Discard this draft" })).toBeDisabled();
+  });
+
+  it("Test aspetta il salvataggio: se non riesce resta qui, con l'errore", async () => {
+    const router = await open("/automations/AUT-1/edit");
+    row("nc-read").focus();
+    await userEvent.keyboard("{Meta>}d{/Meta}");
+    failNext("automations.saveDraft");
+    await userEvent.click(document.querySelector<HTMLButtonElement>("[data-test-action]")!);
+    await settle();
+    expect(router.state.location.pathname).toBe("/automations/AUT-1/edit");
+    expect(document.querySelector("[data-save-status]")).toHaveTextContent("Couldn't save");
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await settle();
+    await userEvent.click(document.querySelector<HTMLButtonElement>("[data-test-action]")!);
+    await waitFor(() => expect(router.state.location.pathname).toBe("/automations/AUT-1/test"));
+  });
+
+  it("in un'automazione generale l'avviso non offre «un ruolo», e un ruolo già scelto è un problema", async () => {
+    const flow = auto("AUT-1").versions.at(-1)!.flow;
+    flow.steps.push(notify("n-person"), {
+      ...notify("n-role"),
+      who: { projectRole: "project_lead" },
+    } as Step);
+    await open("/automations/AUT-1/edit");
+    await userEvent.click(sentence("n-person"));
+    const who = screen.getByRole("radiogroup", { name: "Who" });
+    expect(within(who).queryByRole("radio", { name: "A role in the project" })).toBeNull();
+    await waitFor(() => expect(row("n-role")).toHaveTextContent("Incomplete"));
+    await userEvent.click(sentence("n-role"));
+    expect(
+      screen.getByText("A general automation has no project: notify a person"),
+    ).toBeInTheDocument();
+  });
+
+  it("un'uscita non può chiamarsi «__proto__»: resta il nome di prima, rami intatti", async () => {
+    await open("/automations/AUD-A1/edit");
+    const before = idsInOrder();
+    await userEvent.click(sentence("cd-verify"));
+    const first = screen.getByRole("textbox", { name: "Name of outcome 1" });
+    for (const value of ["__proto__", "constructor"]) {
+      fireEvent.change(first, { target: { value } });
+      expect(first).toHaveAccessibleDescription(
+        "This name is reserved: choose another — it stays “tutto presente” for now.",
+      );
+      expect(idsInOrder()).toEqual(before);
+    }
   });
 });
 

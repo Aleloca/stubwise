@@ -111,5 +111,13 @@ export function useAutosave(automationId: string, initialRev: number | null) {
     [run],
   );
 
-  return { status, saved, schedule, flush, retry: () => void run() };
+  return {
+    status,
+    saved,
+    schedule,
+    flush,
+    retry: () => void run(),
+    /** Il `rev` della bozza che questo costruttore ha salvato (o letto). */
+    rev: () => rev.current,
+  };
 }

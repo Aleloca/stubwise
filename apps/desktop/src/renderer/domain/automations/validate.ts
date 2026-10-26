@@ -100,7 +100,9 @@ export function validateFlow(flow: AutomationFlow, ctx: ValidateContext): FlowIs
     // Al massimo 5 livelli di rami (shape builder [A 7]): un passo più in
     // fondo, o un blocco al quinto livello che apre altri rami.
     const depth = path.split("/").filter((s) => !/^\d+$/.test(s)).length;
-    if (depth > MAX_NESTING || (depth === MAX_NESTING && childLists(step).length > 0))
+    // Claude conta come un blocco anche senza uscite (come `heightOf` nel costruttore).
+    const opens = childLists(step).length > 0 || step.kind === "claude";
+    if (depth > MAX_NESTING || (depth === MAX_NESTING && opens))
       add(path, "limit", `I rami arrivano al massimo a ${MAX_NESTING} livelli.`);
   });
   return issues;
@@ -287,6 +289,9 @@ function checkStep(step: Step, path: string, scope: Scope, ctx: ValidateContext,
       checkRefs(step.text, scope, path, add);
       if ("personRef" in step.who && !blank(step.who.personRef))
         checkPersonRef(step.who.personRef, scope, path, add);
+      // Un ruolo si cerca nel progetto dell'automazione: una generale non ne ha.
+      if ("projectRole" in step.who && ctx.projectId === null)
+        add(path, "incomplete", "Un'automazione generale non ha un progetto: avvisa una persona.");
       checkApproval(step.approval, null, path, ctx, add);
       return;
     }
@@ -319,7 +324,9 @@ function checkStep(step: Step, path: string, scope: Scope, ctx: ValidateContext,
         add(path, "incomplete", "Claude deve restituire almeno un'uscita o un campo.");
       }
       // Un nome tutto cifre si confonderebbe con l'indice di un passo nei percorsi (R-J5).
-      const bad = (o: string) => blank(o) || o.includes("/") || /^\d+$/.test(o.trim());
+      // Nemmeno un nome di Object.prototype («__proto__», «constructor»): i rami sono un oggetto.
+      const bad = (o: string) =>
+        blank(o) || o.includes("/") || /^\d+$/.test(o.trim()) || o in Object.prototype;
       if (step.outcomes.some(bad) || new Set(step.outcomes).size !== step.outcomes.length) {
         add(path, "incomplete", "Le uscite devono avere nomi diversi, senza «/».");
       }

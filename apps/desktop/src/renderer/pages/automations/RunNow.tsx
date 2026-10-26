@@ -20,6 +20,7 @@ import {
   errorWords,
   shortDate,
   type Names,
+  roleWords,
 } from "./format";
 import { CriticalGlyph } from "./glyphs";
 import { textLink, useAutomationPerms } from "./shared";
@@ -60,10 +61,13 @@ export function PreviewBlock({
   preview,
   names,
   from,
+  projectId = null,
 }: {
   preview: Record<string, unknown>;
   names: Names;
   from: string | null;
+  /** Il progetto in cui si cerca un ruolo («Project Lead di AUD»). */
+  projectId?: string | null;
 }) {
   const { t } = useTranslation();
   const rows: [string, string][] = [];
@@ -78,6 +82,8 @@ export function PreviewBlock({
       ]);
     } else if (k === "persona")
       rows.push([t("automations.dataKeys.persona"), names.person(str(v))]);
+    else if (k === "ruolo")
+      rows.push([t("automations.dataKeys.persona"), roleWords(str(v), projectId, names, t)]);
     else if (Array.isArray(v))
       rows.push([t(`automations.dataKeys.${k}`, { defaultValue: k }), v.join(", ")]);
     else rows.push([t(`automations.dataKeys.${k}`, { defaultValue: k }), String(v ?? "")]);
@@ -365,6 +371,7 @@ export function NowBox({
           <PreviewBlock
             preview={run.pending?.preview ?? {}}
             names={names}
+            projectId={run.automationProjectId ?? run.projectIds[0] ?? null}
             from={
               kind === "sendEmail" && ownerId
                 ? t("automations.preview.fromOwner", { owner: names.person(ownerId) })

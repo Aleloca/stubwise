@@ -113,8 +113,9 @@ export function describe(
     case "notify": {
       const who = resolvePerson(st, step.who);
       const testo = pick("testo", render(st, step.text));
-      const persona = "personId" in who ? who.personId : `ruolo: ${who.projectRole}`;
-      return { preview: { persona, testo }, args: { who, text: testo } };
+      // Chi approva vede il ruolo per quello che è (la persona si sceglie al passo).
+      const chi = "personId" in who ? { persona: who.personId } : { ruolo: who.projectRole };
+      return { preview: { ...chi, testo }, args: { who, text: testo } };
     }
     case "startAutomation":
       return {

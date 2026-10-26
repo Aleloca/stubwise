@@ -237,6 +237,20 @@ function assigneeWords(
   });
 }
 
+/** Un ruolo nel progetto, in parole: «Project Lead of AUD», o «the project's Project Lead». */
+export function roleWords(
+  role: string,
+  projectId: string | null,
+  names: Names,
+  t: (k: string, o?: Record<string, unknown>) => string,
+): string {
+  const name = t(`automations.roles.${role}`, { defaultValue: role });
+  const code = names.project(projectId)?.code;
+  return code
+    ? t("automations.preview.roleIn", { role: name, code })
+    : t("automations.steps.theRole", { role: name });
+}
+
 /** Chi avvisa un passo: la persona, il dato Persona come gettone, il ruolo nel progetto. */
 export function personWords(who: PersonTarget, names: Names, t: TFunction): string {
   if ("personId" in who) return who.personId ? names.person(who.personId) : "";

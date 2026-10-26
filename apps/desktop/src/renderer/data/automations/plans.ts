@@ -356,7 +356,9 @@ export function planNotify(eff: ActionEffect, a: Automation): Planned<NotifyPlan
       "projectRole" in args.who
         ? failed(
             "no_recipient",
-            `Nessuno ha il ruolo «${args.who.projectRole}» nel progetto: non c'è nessuno da avvisare.`,
+            projectId
+              ? `Nessuno ha il ruolo «${args.who.projectRole}» nel progetto: non c'è nessuno da avvisare.`
+              : `Senza un progetto non c'è un «${args.who.projectRole}» da avvisare.`,
           )
         : failed("no_recipient", "Non c'è nessuno da avvisare: il dato della persona è vuoto."),
     );

@@ -371,12 +371,22 @@ export async function pause(id: string): Promise<Automation> {
   return copy(a);
 }
 
-/** Elimina la bozza: tutta l'automazione se non è mai stata accesa, altrimenti la versione in bozza. */
-export async function deleteDraft(id: string): Promise<void> {
+/**
+ * Elimina la bozza: tutta l'automazione se non è mai stata accesa, altrimenti
+ * la versione in bozza. `expected` (il costruttore, shape builder [A 12]):
+ * come per `saveDraft`, se la bozza è cambiata da un'altra persona dopo
+ * averla letta non si butta niente (`invalid: stale`).
+ */
+export async function deleteDraft(
+  id: string,
+  opts: { expected?: number | null } = {},
+): Promise<void> {
   const me = await writer("automations.deleteDraft");
   const a = managedAutomation(me, id);
   const last = a.versions.at(-1)!;
   if (last.publishedAt !== null) throw invalid("no_draft");
+  if (opts.expected !== undefined && (last.rev ?? null) !== opts.expected && last.savedById !== me)
+    throw invalid("stale");
   if (a.versions.length === 1) state.automations = state.automations.filter((x) => x !== a);
   else a.versions.pop();
 }

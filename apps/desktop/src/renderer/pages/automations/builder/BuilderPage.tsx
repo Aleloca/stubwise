@@ -275,7 +275,9 @@ function Builder({
         actions.goProblem(e.shiftKey ? -1 : 1);
       } else if ((e.metaKey || e.ctrlKey) && e.key === "s") {
         e.preventDefault();
-        void autosave.flush().then(() => setAnnouncement(t("automations.builder.save.saved")));
+        void autosave
+          .flush()
+          .then((ok) => ok && setAnnouncement(t("automations.builder.save.saved")));
       }
     };
     window.addEventListener("keydown", onKey);
@@ -348,6 +350,10 @@ function Builder({
             ? t("automations.builder.noChanges")
             : null;
 
+  /** Prima di buttare la bozza: si salva ciò che resta, e si dice quale bozza si butta. */
+  const prepareDrop = async (): Promise<number | null | false> =>
+    (await autosave.flush()) ? autosave.rev() : false;
+
   const panel =
     current !== null ? (
       <StepPanel key={current.step.id} step={current.step} path={current.path} />
@@ -371,11 +377,21 @@ function Builder({
             staleBy={detail.automation.versions.at(-1)?.savedById ?? null}
             staleAt={detail.automation.versions.at(-1)?.savedAt ?? null}
             onProblem={() => actions.goProblem(1)}
-            onTest={() => void autosave.flush()}
+            // La prova parte solo sulla bozza salvata: altrimenti resta qui, con l'errore.
+            onTest={() =>
+              void autosave.flush().then((ok) => {
+                if (ok)
+                  void navigate({
+                    to: "/automations/$code/test",
+                    params: { code: a.code },
+                  } as never);
+              })
+            }
             onPrimary={() => void autosave.flush().then((ok) => ok && setDialog("turnOn"))}
             onReload={() => void reload()}
             onRename={() => setDialog("rename")}
             onDiscard={draftExists && a.status !== "draft" ? () => setDialog("discard") : undefined}
+            stale={autosave.status === "stale"}
             onDeleteDraft={
               a.status === "draft" && !readOnly ? () => setDialog("deleteDraft") : undefined
             }
@@ -401,7 +417,7 @@ function Builder({
           </DetailPanel>
         )}
       </div>
-      <p role="status" aria-live="polite" className="sr-only">
+      <p role="status" aria-live="polite" data-builder-live className="sr-only">
         {announcement}
       </p>
       {actions.adding && (
@@ -461,9 +477,12 @@ function Builder({
             void reload();
           }}
           onRestore={(f) => void restoreDraft(f)}
+          prepare={prepareDrop}
         />
       )}
-      {dialog === "deleteDraft" && <DeleteDraftDialog onClose={() => setDialog(null)} />}
+      {dialog === "deleteDraft" && (
+        <DeleteDraftDialog onClose={() => setDialog(null)} prepare={prepareDrop} />
+      )}
       {blocker.status === "blocked" && (
         <LeaveDialog onStay={() => blocker.reset?.()} onLeave={() => blocker.proceed?.()} />
       )}

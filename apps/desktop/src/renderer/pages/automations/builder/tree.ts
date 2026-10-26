@@ -80,7 +80,17 @@ function mutableLane(steps: Step[], lane: string): Step[] {
       if (seg === "then" || seg === "else") return block[seg];
       break;
     case "claude":
-      if (block.outcomes.includes(seg)) return (block.branches[seg] ??= []);
+      if (block.outcomes.includes(seg)) {
+        // Solo chiavi proprie (mai il prototipo, anche per un nome come «__proto__»).
+        if (!Object.prototype.hasOwnProperty.call(block.branches, seg))
+          Object.defineProperty(block.branches, seg, {
+            value: [],
+            enumerable: true,
+            writable: true,
+            configurable: true,
+          });
+        return block.branches[seg]!;
+      }
       break;
     case "forEach":
       return block.steps;
@@ -205,12 +215,56 @@ export function moveTo(
 // --- passi nuovi e copie ----------------------------------------------------------
 
 /** Un id nuovo, diverso da tutti quelli del flusso. */
-export function freshId(steps: Step[], taken: Set<string> = new Set()): string {
-  visitSteps(steps, (s) => taken.add(s.id));
-  let n = taken.size + 1;
-  while (taken.has(`st-${n}`)) n += 1;
-  taken.add(`st-${n}`);
+/**
+ * Un id nuovo, mai usato: né dal flusso di adesso né da `seen` (gli id già
+ * visti in questa sessione del costruttore, anche di passi eliminati: un
+ * «Undo» li rimette). Il numero cresce sempre, non riempie i buchi.
+ */
+export function freshId(steps: Step[], seen: Set<string> = new Set()): string {
+  visitSteps(steps, (s) => seen.add(s.id));
+  let n = 0;
+  for (const id of seen) {
+    const m = /^st-(\d+)$/.exec(id);
+    if (m) n = Math.max(n, Number(m[1]));
+  }
+  n += 1;
+  while (seen.has(`st-${n}`)) n += 1;
+  seen.add(`st-${n}`);
   return `st-${n}`;
+}
+
+/**
+ * Dà id nuovi ai passi di un sotto-albero (e rimappa i riferimenti interni:
+ * traguardo, email o task attesi). Restituisce la copia.
+ */
+export function reidentify(subtree: Step, steps: Step[], seen: Set<string> = new Set()): Step {
+  const copy = structuredClone(subtree);
+  const ids = new Map<string, string>();
+  visitSteps([copy], (s) => {
+    const id = freshId(steps, seen);
+    ids.set(s.id, id);
+    s.id = id;
+  });
+  visitSteps([copy], (s) => {
+    if (s.kind === "createTask" && s.milestoneRef)
+      s.milestoneRef = ids.get(s.milestoneRef) ?? s.milestoneRef;
+    if (s.kind === "wait" && "replyTo" in s.for)
+      s.for = { ...s.for, replyTo: ids.get(s.for.replyTo) ?? s.for.replyTo };
+    if (s.kind === "wait" && "taskClosed" in s.for)
+      s.for = { ...s.for, taskClosed: ids.get(s.for.taskClosed) ?? s.for.taskClosed };
+  });
+  return copy;
+}
+
+/** Il sotto-albero così com'è, o con id nuovi se qualcuno dei suoi è già nel flusso. */
+export function withFreeIds(subtree: Step, steps: Step[], seen: Set<string> = new Set()): Step {
+  const used = new Set<string>();
+  visitSteps(steps, (s) => used.add(s.id));
+  let clash = false;
+  visitSteps([subtree], (s) => {
+    if (used.has(s.id)) clash = true;
+  });
+  return clash ? reidentify(subtree, steps, seen) : subtree;
 }
 
 /** Una condizione nuova: un gruppo «tutte» con un confronto vuoto (un solo livello di gruppo, [A 18]). */
@@ -281,25 +335,11 @@ export function duplicateAt(
   steps: Step[],
   path: string,
   copyLabel: string,
+  seen: Set<string> = new Set(),
 ): { steps: Step[]; path: string } {
   const original = stepAt(steps, path);
   if (!original) throw new Error(`no step at ${path}`);
-  const copy = structuredClone(original);
-  const taken = new Set<string>();
-  const ids = new Map<string, string>();
-  visitSteps([copy], (s) => {
-    const id = freshId(steps, taken);
-    ids.set(s.id, id);
-    s.id = id;
-  });
-  visitSteps([copy], (s) => {
-    if (s.kind === "createTask" && s.milestoneRef)
-      s.milestoneRef = ids.get(s.milestoneRef) ?? s.milestoneRef;
-    if (s.kind === "wait" && "replyTo" in s.for)
-      s.for = { ...s.for, replyTo: ids.get(s.for.replyTo) ?? s.for.replyTo };
-    if (s.kind === "wait" && "taskClosed" in s.for)
-      s.for = { ...s.for, taskClosed: ids.get(s.for.taskClosed) ?? s.for.taskClosed };
-  });
+  const copy = reidentify(original, steps, seen);
   const suffix = (text: string) => `${text} ${copyLabel}`.trim();
   if (copy.kind === "createTask" || copy.kind === "createRequest") copy.title = suffix(copy.title);
   if (copy.kind === "createMilestone") copy.name = suffix(copy.name);

@@ -52,6 +52,7 @@ export function missingOf(step: Step, general: boolean): string[] {
       break;
     case "notify":
       if (blank(Object.values(step.who)[0] ?? "")) out.push("who");
+      else if ("projectRole" in step.who && general) out.push("whoRole");
       if (blank(step.text)) out.push("message");
       break;
     case "startAutomation":
@@ -162,7 +163,10 @@ function stepRefProblem(
 /** Il passo sta oltre il quinto livello, o al quinto apre altri rami ([A 7]). */
 export function tooDeep(step: Step, path: string): boolean {
   const depth = path.split("/").filter((s) => !/^\d+$/.test(s)).length;
-  return depth > MAX_NESTING || (depth === MAX_NESTING && childLists(step).length > 0);
+  return (
+    depth > MAX_NESTING ||
+    (depth === MAX_NESTING && (childLists(step).length > 0 || step.kind === "claude"))
+  );
 }
 
 /** La parola breve sulla riga («Incomplete», «Data not available»…). */

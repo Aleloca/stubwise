@@ -299,7 +299,12 @@ export function EmailForm({ step, path, set, problems }: KindProps<"sendEmail">)
 
 export function NotifyForm({ step, path, set, problems }: KindProps<"notify">) {
   const { t } = useTranslation();
-  const who = useFieldProblem(problems, "who");
+  const b = useBuilder();
+  // «whoRole» (un ruolo in una generale) sta sotto lo stesso campo.
+  const who = useFieldProblem(
+    problems.map((p) => (p.field === "whoRole" ? { ...p, field: "who" } : p)),
+    "who",
+  );
   const w = step.who;
   return (
     <Section title={t("automations.builder.panel.what")}>
@@ -309,7 +314,10 @@ export function NotifyForm({ step, path, set, problems }: KindProps<"notify">) {
           value={"projectRole" in w ? "role" : "person"}
           options={[
             { value: "person", label: t("automations.builder.panel.aPerson") },
-            { value: "role", label: t("automations.builder.panel.aRole") },
+            // Un ruolo si cerca nel progetto dell'automazione: una generale non ne ha.
+            ...(b.automation.projectId !== null || "projectRole" in w
+              ? [{ value: "role" as const, label: t("automations.builder.panel.aRole") }]
+              : []),
           ]}
           onChange={(m) =>
             set({ who: m === "role" ? { projectRole: "project_lead" } : { personId: "" } })

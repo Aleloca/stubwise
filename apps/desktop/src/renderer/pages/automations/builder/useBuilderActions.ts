@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type RefObject } from "react";
+import { useCallback, useMemo, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { stepAt, visitSteps } from "../../../domain/automations/fields";
 import type { AutomationFlow, AutomationSourceView, Step } from "../../../data/types";
@@ -8,6 +8,7 @@ import {
   brokenBy,
   duplicateAt,
   freshId,
+  withFreeIds,
   innerCount,
   insertAt,
   moveByOne,
@@ -59,6 +60,12 @@ export function useBuilderActions(o: {
   const toast = useToast();
   const { flow, update, paths, numbers, announce, setSelected, setPanelOpen } = o;
   const [adding, setAdding] = useState<Adding | null>(null);
+  // Gli id visti in questa sessione (anche di passi eliminati): un id nuovo non li riusa mai.
+  const seen = useRef(new Set<string>());
+  for (const id of paths.keys()) seen.current.add(id);
+  // Il flusso di adesso, per le azioni che arrivano dopo (l'«Undo» di un toast).
+  const latest = useRef(flow);
+  latest.current = flow;
   const [deleting, setDeleting] = useState<Deleting | null>(null);
   const [movingTo, setMovingTo] = useState<string | null>(null);
 
@@ -161,19 +168,21 @@ export function useBuilderActions(o: {
       action: {
         label: t("automations.builder.undo"),
         run: () => {
+          // Un passo aggiunto dopo può aver preso uno dei suoi id: allora torna con id nuovi.
+          const back = withFreeIds(removed, latest.current.steps, seen.current);
           update((f) => {
             const blockPath = block === null ? "" : pathsById(f.steps).get(block);
             const lane =
               blockPath === undefined ? null : block === null ? "" : `${blockPath}/${seg}`;
             try {
               if (lane === null) throw new Error("lane gone");
-              return { ...f, steps: insertAt(f.steps, lane, place.index, removed) };
+              return { ...f, steps: insertAt(f.steps, lane, place.index, back) };
             } catch {
-              return { ...f, steps: [...f.steps, removed] };
+              return { ...f, steps: [...f.steps, back] };
             }
           });
           announce(t("automations.builder.restored", { n }));
-          focusId(removed.id);
+          focusId(back.id);
         },
       },
     });
@@ -197,7 +206,7 @@ export function useBuilderActions(o: {
   const duplicate = (id: string) => {
     const path = paths.get(id);
     if (path === undefined) return;
-    const r = duplicateAt(flow.steps, path, t("automations.builder.copySuffix"));
+    const r = duplicateAt(flow.steps, path, t("automations.builder.copySuffix"), seen.current);
     const copy = stepAt(r.steps, r.path)!;
     update((f) => ({ ...f, steps: r.steps }));
     setSelected(copy.id);
@@ -209,7 +218,7 @@ export function useBuilderActions(o: {
 
   const addStep = (kind: Step["kind"]) => {
     if (!adding) return;
-    const id = freshId(flow.steps);
+    const id = freshId(flow.steps, seen.current);
     const step = newStep(kind, id, o.general);
     const steps = insertAt(flow.steps, adding.lane, adding.index, step);
     update((f) => ({ ...f, steps }));

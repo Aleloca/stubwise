@@ -3,6 +3,11 @@ import { resetApi, setLatency } from "../api";
 import { state } from "../store";
 import { planNotify, resolveAssignee, type ActionEffect } from "./plans";
 import { holdersOfRole } from "./visibility";
+import { initialState } from "../../domain/automations/engine";
+import { describe as describeStep } from "../../domain/automations/preview";
+import i18n from "../../i18n";
+import { roleWords } from "../../pages/automations/format";
+import type { Step } from "../types";
 
 // Chi avvisa un passo e chi riceve una task (fix round 1 del Task 6): una
 // persona scelta, il dato Persona (già letto dal motore) o un ruolo nel
@@ -36,6 +41,28 @@ describe("planNotify", () => {
     expect(p.ok && p.plan.personId).toBe("p-laura");
     const empty = planNotify(eff({ personId: "" }), aut());
     expect(empty.ok).toBe(false);
+  });
+});
+
+describe("anteprima dell'avviso a un ruolo", () => {
+  it("chi approva vede il ruolo, e la pagina lo dice col progetto («Project Lead of AUD»)", () => {
+    const step: Step = {
+      id: "n",
+      kind: "notify",
+      who: { projectRole: "project_lead" },
+      text: "Ciao",
+      approval: { mode: "ask", who: { owner: true } },
+    };
+    const st = initialState(
+      { trigger: { kind: "manual" }, titleTemplate: "x", steps: [step] },
+      "2026-10-26T12:00:00Z",
+    );
+    const { preview } = describeStep(st, step as never, null);
+    expect(preview).toEqual({ ruolo: "project_lead", testo: "Ciao" });
+    const names = { project: () => ({ code: "AUD", name: "Audin 2.0" }) } as never;
+    expect(roleWords("project_lead", "prj-aud", names, i18n.t)).toBe("Project Lead of AUD");
+    const none = { project: () => null } as never;
+    expect(roleWords("project_lead", null, none, i18n.t)).toBe("the project's Project Lead");
   });
 });
 

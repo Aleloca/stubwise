@@ -3416,8 +3416,13 @@ export function usePauseAutomation() {
   return useAutomationWrite((id: string) => api.automations.pause(id));
 }
 
+/** `expected` (il costruttore): il `rev` della bozza letta; se un altro l'ha cambiata, `invalid: stale`. */
 export function useDeleteAutomationDraft() {
-  return useAutomationWrite((id: string) => api.automations.deleteDraft(id));
+  return useAutomationWrite((v: string | { id: string; expected: number | null }) =>
+    typeof v === "string"
+      ? api.automations.deleteDraft(v)
+      : api.automations.deleteDraft(v.id, { expected: v.expected }),
+  );
 }
 
 export function useStartAutomation() {

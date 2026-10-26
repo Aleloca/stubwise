@@ -4920,7 +4920,8 @@
     },
     "preview": {
       "from": "Da",
-      "fromOwner": "la casella di {{owner}}"
+      "fromOwner": "la casella di {{owner}}",
+      "roleIn": "{{role}} di {{code}}"
     },
     "dataKeys": {
       "to": "A",
@@ -5291,7 +5292,8 @@
         "body": "Le tue modifiche si perdono. La versione {{m}} continua a girare com'è.",
         "done": "Bozza buttata",
         "error": "Non è stato possibile buttare la bozza. Non è cambiato niente.",
-        "restoreError": "Non è stato possibile rimettere la bozza."
+        "restoreError": "Non è stato possibile rimettere la bozza.",
+        "stale": "Qualcun altro ha cambiato questa bozza: prima ricaricala. Non è stato buttato niente."
       },
       "delete": {
         "title": "Eliminare il passo {{n}}?",
@@ -5440,7 +5442,8 @@
         "approver": "Incompleto: scegli chi approva",
         "source": "Scegli come parte: da quale sistema arriva la trattativa",
         "schedule": "Scegli quando parte",
-        "titleTemplate": "Scrivi il titolo di ogni esecuzione"
+        "titleTemplate": "Scrivi il titolo di ogni esecuzione",
+        "whoRole": "Un'automazione generale non ha un progetto: avvisa una persona"
       },
       "short": {
         "incomplete": "Incompleto",
@@ -5593,7 +5596,8 @@
         "outcomeEmpty": "Un'uscita deve avere un nome",
         "outcomeDigits": "Usa almeno una lettera",
         "outcomeTaken": "C'è già un'uscita con questo nome",
-        "outcomeKept": "{{problem}}: per ora resta «{{name}}»."
+        "outcomeKept": "{{problem}}: per ora resta «{{name}}».",
+        "outcomeReserved": "Questo nome è riservato: scegline un altro"
       },
       "condition": {
         "join": "Unisci le condizioni",

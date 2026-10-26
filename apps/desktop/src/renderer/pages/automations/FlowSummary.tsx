@@ -83,17 +83,12 @@ function Branch({
   seg,
   steps,
   depth,
-  number,
-  start,
   ctx,
 }: {
   step: Step;
   seg: string;
   steps: Step[];
   depth: number;
-  number: string;
-  /** Il primo numero dei passi del ramo: i rami di un passo continuano la numerazione (3.1, 3.2 | 3.3). */
-  start: number;
   ctx: Ctx;
 }) {
   const { t } = useTranslation();
@@ -108,7 +103,7 @@ function Branch({
       {steps.length === 0 ? (
         <p className="pb-1 text-sm text-ink-faint">{t("automations.branch.nothing")}</p>
       ) : shown ? (
-        <StepList steps={steps} depth={depth} prefix={number} start={start} ctx={ctx} />
+        <StepList steps={steps} depth={depth} ctx={ctx} />
       ) : (
         <button
           type="button"
@@ -165,15 +160,13 @@ function StepLine({
       </div>
       {children.length > 0 && (
         <ul className="pl-10">
-          {children.map((c, k) => (
+          {children.map((c) => (
             <Branch
               key={c.seg}
               step={step}
               seg={c.seg}
               steps={c.steps}
               depth={depth + 1}
-              number={number}
-              start={children.slice(0, k).reduce((n, x) => n + x.steps.length, 0)}
               ctx={ctx}
             />
           ))}
@@ -186,14 +179,11 @@ function StepLine({
 function StepList({
   steps,
   depth,
-  prefix,
-  start = 0,
+
   ctx,
 }: {
   steps: Step[];
   depth: number;
-  prefix: string;
-  start?: number;
   ctx: Ctx;
 }) {
   return (
@@ -203,7 +193,7 @@ function StepList({
           key={s.id || i}
           step={s}
           // R-J17: 1…N su tutto l'albero, gli stessi del costruttore e del registro.
-          number={String(ctx.numbers.get(s.id) ?? (prefix ? "" : start + i + 1))}
+          number={String(ctx.numbers.get(s.id) ?? "")}
           depth={depth}
           ctx={ctx}
         />
@@ -283,7 +273,7 @@ export function FlowSummary({
       {flow.steps.length === 0 ? (
         <p className="pl-[62px] text-sm text-ink-muted">{t("automations.flow.noSteps")}</p>
       ) : (
-        <StepList key={String(expandAll)} steps={flow.steps} depth={0} prefix="" ctx={ctx} />
+        <StepList key={String(expandAll)} steps={flow.steps} depth={0} ctx={ctx} />
       )}
     </div>
   );

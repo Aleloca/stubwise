@@ -80,12 +80,15 @@ export function DiscardDialog({
   onClose,
   onDone,
   onRestore,
+  prepare,
 }: {
   flow: AutomationFlow;
   onClose: () => void;
   onDone: () => void;
   /** «Undo»: rimette la bozza buttata e ricarica il costruttore. */
   onRestore: (flow: AutomationFlow) => void;
+  /** Salva ciò che resta e dice quale bozza si butta (il suo `rev`); `false` se il salvataggio non va. */
+  prepare: () => Promise<number | null | false>;
 }) {
   const { t } = useTranslation();
   const toast = useToast();
@@ -107,20 +110,32 @@ export function DiscardDialog({
             data-autofocus
             className={dangerSolidButton}
             disabled={discard.isPending}
-            onClick={() =>
-              discard.mutate(a.id, {
-                onSuccess: () => {
-                  onDone();
-                  toast.show(t("automations.builder.discard.done"), {
-                    action: {
-                      label: t("automations.builder.undo"),
-                      run: () => onRestore(flow),
-                    },
-                  });
+            onClick={async () => {
+              const expected = await prepare();
+              if (expected === false) return onClose();
+              discard.mutate(
+                { id: a.id, expected },
+                {
+                  onSuccess: () => {
+                    onDone();
+                    toast.show(t("automations.builder.discard.done"), {
+                      action: {
+                        label: t("automations.builder.undo"),
+                        run: () => onRestore(flow),
+                      },
+                    });
+                  },
+                  onError: (e) =>
+                    toast.error(
+                      t(
+                        (e as Error).message === "invalid: stale"
+                          ? "automations.builder.discard.stale"
+                          : "automations.builder.discard.error",
+                      ),
+                    ),
                 },
-                onError: () => toast.error(t("automations.builder.discard.error")),
-              })
-            }
+              );
+            }}
           >
             {t("automations.builder.menu.discard")}
           </button>
@@ -134,7 +149,13 @@ export function DiscardDialog({
   );
 }
 
-export function DeleteDraftDialog({ onClose }: { onClose: () => void }) {
+export function DeleteDraftDialog({
+  onClose,
+  prepare,
+}: {
+  onClose: () => void;
+  prepare: () => Promise<number | null | false>;
+}) {
   const { t } = useTranslation();
   const toast = useToast();
   const navigate = useNavigate();
@@ -154,16 +175,26 @@ export function DeleteDraftDialog({ onClose }: { onClose: () => void }) {
             type="button"
             className={dangerSolidButton}
             disabled={del.isPending}
-            onClick={() =>
-              del.mutate(a.id, {
-                onSuccess: () => {
-                  onClose();
-                  toast.show(t("automations.toast.deleted", { code: a.code }));
-                  void navigate({ to: "/automations" });
+            onClick={async () => {
+              const expected = await prepare();
+              if (expected === false) return onClose();
+              del.mutate(
+                { id: a.id, expected },
+                {
+                  onSuccess: () => {
+                    onClose();
+                    toast.show(t("automations.toast.deleted", { code: a.code }));
+                    void navigate({ to: "/automations" });
+                  },
+                  onError: (e) =>
+                    toast.error(
+                      (e as Error).message === "invalid: stale"
+                        ? t("automations.builder.discard.stale")
+                        : t("automations.toast.deleteError", { code: a.code }),
+                    ),
                 },
-                onError: () => toast.error(t("automations.toast.deleteError", { code: a.code })),
-              })
-            }
+              );
+            }}
           >
             {t("automations.actions.delete")}
           </button>

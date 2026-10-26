@@ -173,6 +173,24 @@ describe("saveDraft con la bozza attesa ([A 12])", () => {
     );
   });
 
+  it("deleteDraft con la bozza attesa: un altro che ha salvato dopo la ferma", async () => {
+    as("p-matteo");
+    const flow = structuredClone(auto(A.newContract).versions.at(-1)!.flow);
+    const mine = await automations.saveDraft(A.newContract, flow, {}, { expected: null });
+    const rev = mine.versions.at(-1)!.rev!;
+    as("p-roberta");
+    await automations.saveDraft(A.newContract, flow, {}, { expected: rev }).catch(() => {});
+    // Roberta l'ha letta così com'era: salva lei.
+    as("p-matteo");
+    await expect(automations.deleteDraft(A.newContract, { expected: rev })).rejects.toThrow(
+      "invalid: stale",
+    );
+    expect(auto(A.newContract).versions).toHaveLength(2);
+    const now = auto(A.newContract).versions.at(-1)!.rev!;
+    await automations.deleteDraft(A.newContract, { expected: now });
+    expect(auto(A.newContract).versions).toHaveLength(1);
+  });
+
   it("la bozza non cambia le esecuzioni in corso né la versione pubblicata", async () => {
     as("p-matteo");
     const a = auto(A.newContract);

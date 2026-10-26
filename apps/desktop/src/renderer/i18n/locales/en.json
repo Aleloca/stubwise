@@ -4920,7 +4920,8 @@
     },
     "preview": {
       "from": "From",
-      "fromOwner": "{{owner}}'s mailbox"
+      "fromOwner": "{{owner}}'s mailbox",
+      "roleIn": "{{role}} of {{code}}"
     },
     "dataKeys": {
       "to": "To",
@@ -5291,7 +5292,8 @@
         "body": "Your changes are thrown away. Version {{m}} keeps running as it is.",
         "done": "Draft discarded",
         "error": "Couldn't discard the draft. Nothing changed.",
-        "restoreError": "Couldn't bring the draft back."
+        "restoreError": "Couldn't bring the draft back.",
+        "stale": "Someone else changed this draft: reload it first. Nothing was thrown away."
       },
       "delete": {
         "title": "Delete step {{n}}?",
@@ -5440,7 +5442,8 @@
         "approver": "Incomplete: choose who approves",
         "source": "Choose how this starts: which system the deal comes from",
         "schedule": "Choose when it runs",
-        "titleTemplate": "Write the title of each run"
+        "titleTemplate": "Write the title of each run",
+        "whoRole": "A general automation has no project: notify a person"
       },
       "short": {
         "incomplete": "Incomplete",
@@ -5593,7 +5596,8 @@
         "outcomeEmpty": "An outcome needs a name",
         "outcomeDigits": "Use at least one letter",
         "outcomeTaken": "Another outcome already has this name",
-        "outcomeKept": "{{problem}} — it stays “{{name}}” for now."
+        "outcomeKept": "{{problem}} — it stays “{{name}}” for now.",
+        "outcomeReserved": "This name is reserved: choose another"
       },
       "condition": {
         "join": "Join the conditions",

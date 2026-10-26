@@ -33,6 +33,16 @@ export function ancestorsAt(steps: Step[], path: string): Step[] {
 
 export const joinPath = (base: string, seg: string) => (base === "" ? seg : `${base}/${seg}`);
 
+/**
+ * I passi di un'uscita di Claude. Solo le chiavi proprie dei rami: un nome
+ * come «__proto__» o «constructor» non deve mai leggere il prototipo.
+ */
+export function branchOf(step: Extract<Step, { kind: "claude" }>, outcome: string): Step[] {
+  return Object.prototype.hasOwnProperty.call(step.branches, outcome)
+    ? (step.branches[outcome] ?? [])
+    : [];
+}
+
 /** Le liste figlie di un passo, col segmento che le apre (i giri al giro 0). */
 export function childLists(step: Step): { seg: string; steps: Step[] }[] {
   switch (step.kind) {
@@ -42,7 +52,7 @@ export function childLists(step: Step): { seg: string; steps: Step[] }[] {
         { seg: "else", steps: step.else },
       ];
     case "claude":
-      return step.outcomes.map((o) => ({ seg: o, steps: step.branches[o] ?? [] }));
+      return step.outcomes.map((o) => ({ seg: o, steps: branchOf(step, o) }));
     case "forEach":
       return [{ seg: "forEach[0]", steps: step.steps }];
     case "repeatUntil":
@@ -58,7 +68,7 @@ export function childLists(step: Step): { seg: string; steps: Step[] }[] {
 /** La lista figlia di `step` aperta dal segmento `seg`, o null. */
 function childList(step: Step, seg: string): Step[] | null {
   if (step.kind === "condition" && (seg === "then" || seg === "else")) return step[seg];
-  if (step.kind === "claude" && step.outcomes.includes(seg)) return step.branches[seg] ?? [];
+  if (step.kind === "claude" && step.outcomes.includes(seg)) return branchOf(step, seg);
   if (step.kind === "forEach" && /^forEach\[\d+\]$/.test(seg)) return step.steps;
   if (step.kind === "repeatUntil" && /^repeat\[\d+\]$/.test(seg)) return step.steps;
   if (step.kind === "repeatUntil" && seg === "onLimit") return step.onLimit;

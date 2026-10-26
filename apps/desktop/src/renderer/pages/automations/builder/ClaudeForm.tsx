@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { availableFields } from "../../../domain/automations/fields";
+import { availableFields, branchOf } from "../../../domain/automations/fields";
 import type { DataField, Step } from "../../../data/types";
 import { Dialog } from "../../../tasks-ui/Dialog";
 import { dangerSolidButton, secondaryButton } from "../../tasks/controls";
@@ -53,6 +53,8 @@ export function ClaudeForm({
   const outcomeProblem = (i: number, name: string): string | null => {
     if (name.trim() === "") return t("automations.builder.claude.outcomeEmpty");
     if (/^\d+$/.test(name.trim())) return t("automations.builder.claude.outcomeDigits");
+    // I rami stanno in un oggetto: un nome come «__proto__» ne cambierebbe il prototipo.
+    if (name in Object.prototype) return t("automations.builder.claude.outcomeReserved");
     if (step.outcomes.some((o, k) => k !== i && o === name))
       return t("automations.builder.claude.outcomeTaken");
     return null;
@@ -168,7 +170,7 @@ export function ClaudeForm({
                     aria-label={t("automations.builder.claude.removeOutcome", { name: o })}
                     className="h-7 rounded-md px-1.5 text-sm text-ink-muted hover:bg-ink/6 hover:text-ink"
                     onClick={() =>
-                      (step.branches[o]?.length ?? 0) > 0 ? setRemoving(o) : removeOutcome(o)
+                      branchOf(step, o).length > 0 ? setRemoving(o) : removeOutcome(o)
                     }
                   >
                     {t("automations.builder.claude.remove")}
@@ -248,7 +250,7 @@ export function ClaudeForm({
         >
           <p className="text-md text-ink">
             {t("automations.builder.claude.removeBody", {
-              count: (step.branches[removing] ?? []).reduce((n, s) => n + 1 + innerCount(s), 0),
+              count: branchOf(step, removing).reduce((n, s) => n + 1 + innerCount(s), 0),
             })}
           </p>
         </Dialog>

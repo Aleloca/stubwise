@@ -12,6 +12,7 @@ import {
   shortDate,
   startedByWords,
   type Names,
+  roleWords,
 } from "./format";
 import { approvalWords } from "./FlowSummary";
 import { wordDiff } from "./logTree";
@@ -251,7 +252,15 @@ export function EntrySentence({
         </>
       );
     case "notify":
-      return <>{t("automations.log.notified", { who: ctx.names.person(str(input.persona)) })}</>;
+      return (
+        <>
+          {t("automations.log.notified", {
+            who: input.ruolo
+              ? roleWords(str(input.ruolo), ctx.run.automationProjectId, ctx.names, t)
+              : ctx.names.person(str(input.persona)),
+          })}
+        </>
+      );
     case "startAutomation":
       return (
         <>

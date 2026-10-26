@@ -368,6 +368,17 @@ describe("validateFlow, revisione giro 1", () => {
       approval: { mode: "auto" },
     };
     expect(codes(validateFlow(base([nest(5, notifyLeaf)]), CTX))).toEqual([]);
+    // Claude al quinto livello, anche senza uscite: come `fits` nel costruttore.
+    expect(
+      codes(validateFlow(base([nest(5, c([], [{ key: "k", label: "K", type: "text" }]))]), CTX)),
+    ).toEqual(["0/then/0/then/0/then/0/then/0/then/0 limit"]);
+    // Un avviso a un ruolo in una generale: non c'è un progetto dove cercarlo.
+    const role: Step = { ...notifyLeaf, who: { projectRole: "project_lead" } } as Step;
+    expect(codes(validateFlow(base([role]), { ...CTX, projectId: null }))).toEqual([
+      "0 incomplete",
+    ]);
+    expect(codes(validateFlow(base([role]), { ...CTX, projectId: "prj-aud" }))).toEqual([]);
+    expect(codes(validateFlow(base([c(["__proto__"])]), CTX))).toEqual(["0 incomplete"]);
     expect(codes(validateFlow(base([nest(6, notifyLeaf)]), CTX))).toEqual([
       "0/then/0/then/0/then/0/then/0/then/0 limit",
       "0/then/0/then/0/then/0/then/0/then/0/then/0 limit",

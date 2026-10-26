@@ -38,6 +38,8 @@ export interface HeaderProps {
   onCollapse: (ids: Set<string>) => void;
   /** Arrivati dall'elenco: il ritorno è «← Automations» (shape §3). */
   fromList: boolean;
+  /** La bozza è cambiata da un altro: buttarla o eliminarla aspetta il «Reload». */
+  stale: boolean;
 }
 
 export function BuilderHeader(p: HeaderProps) {
@@ -108,6 +110,7 @@ export function BuilderHeader(p: HeaderProps) {
             }}
             readOnly={b.readOnly}
             code={a.code}
+            stale={p.stale}
           />
           {!b.readOnly && (
             <>
@@ -121,14 +124,14 @@ export function BuilderHeader(p: HeaderProps) {
                   {t("automations.actions.test")}
                 </button>
               ) : (
-                <Link
-                  to="/automations/$code/test"
-                  params={{ code: a.code }}
+                <button
+                  type="button"
+                  data-test-action
                   onClick={p.onTest}
                   className={secondaryButton}
                 >
                   {t("automations.actions.test")}
-                </Link>
+                </button>
               )}
               <button
                 type="button"
@@ -240,7 +243,9 @@ function HeaderMenu({
   onCollapseAll,
   readOnly,
   code,
+  stale,
 }: {
+  stale: boolean;
   onRename: () => void;
   onDiscard?: () => void;
   onDeleteDraft?: () => void;
@@ -251,12 +256,15 @@ function HeaderMenu({
 }) {
   const { t } = useTranslation();
   const toast = useToast();
-  const item = (label: string, run: () => void, danger = false) => (
+  const item = (label: string, run: () => void, danger = false, disabled = false) => (
     <button
       type="button"
       role="menuitem"
       tabIndex={-1}
-      className={`${itemClass} ${danger ? "text-critical" : ""}`}
+      disabled={disabled}
+      aria-disabled={disabled || undefined}
+      title={disabled ? t("automations.builder.blockedStale") : undefined}
+      className={`${itemClass} ${danger ? "text-critical" : ""} disabled:opacity-40`}
       onClick={run}
     >
       {label}
@@ -287,9 +295,19 @@ function HeaderMenu({
           {(onDiscard || onDeleteDraft) && (
             <MenuGroup>
               {onDiscard &&
-                item(t("automations.builder.menu.discard"), () => (close(), onDiscard()), true)}
+                item(
+                  t("automations.builder.menu.discard"),
+                  () => (close(), onDiscard()),
+                  true,
+                  stale,
+                )}
               {onDeleteDraft &&
-                item(t("automations.actions.deleteDraft"), () => (close(), onDeleteDraft()), true)}
+                item(
+                  t("automations.actions.deleteDraft"),
+                  () => (close(), onDeleteDraft()),
+                  true,
+                  stale,
+                )}
             </MenuGroup>
           )}
         </>

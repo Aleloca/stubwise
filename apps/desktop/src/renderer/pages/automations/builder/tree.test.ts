@@ -5,6 +5,8 @@ import {
   brokenBy,
   duplicateAt,
   fits,
+  freshId,
+  withFreeIds,
   heightOf,
   insertAt,
   laneDepth,
@@ -96,6 +98,41 @@ describe("spostare di uno", () => {
       r = next;
     }
     expect(Math.max(...depths)).toBe(4);
+  });
+});
+
+describe("id nuovi", () => {
+  it("freshId non riusa mai un id visto (anche di un passo eliminato)", () => {
+    const seen = new Set<string>();
+    const steps = [task("st-1"), task("st-2"), task("st-3")];
+    expect(freshId(steps, seen)).toBe("st-4");
+    // st-3 eliminato: un passo nuovo non ne prende l'id.
+    expect(freshId(steps.slice(0, 2), seen)).toBe("st-5");
+    // Mai un buco riempito: dopo st-5 viene st-6, anche senza la memoria della sessione.
+    expect(freshId([task("st-1"), task("st-5")])).toBe("st-6");
+  });
+
+  it("un sotto-albero rimesso con id già presi torna con id nuovi e riferimenti rimappati", () => {
+    const block: Step = {
+      id: "st-3",
+      kind: "condition",
+      when: { all: [{}] },
+      then: [
+        { ...(newStep("sendEmail", "st-4", false) as Extract<Step, { kind: "sendEmail" }>) },
+        { id: "st-5", kind: "wait", for: { replyTo: "st-4", maxDays: 2 } },
+      ],
+      else: [],
+    };
+    const now = [task("st-1"), task("st-3")];
+    const back = withFreeIds(block, now, new Set());
+    const all = [...ids(now), ...ids([back])];
+    expect(new Set(all).size).toBe(all.length);
+    const cond = back as Extract<Step, { kind: "condition" }>;
+    expect((cond.then[1] as Extract<Step, { kind: "wait" }>).for).toMatchObject({
+      replyTo: cond.then[0]!.id,
+    });
+    // Senza conflitti torna così com'è.
+    expect(withFreeIds(block, [task("st-1")])).toBe(block);
   });
 });
 
