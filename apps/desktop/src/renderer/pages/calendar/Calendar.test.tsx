@@ -427,6 +427,23 @@ describe("Calendario — stati", () => {
     ).toBeInTheDocument();
   });
 
+  it("collegamento scaduto: «Reconnect» rinfresca il calendario, l'avviso se ne va", async () => {
+    await openCalendar("/calendar", "p-laura");
+    const user = userEvent.setup();
+    const expired = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>('[data-calendar-sync="expired"]');
+      if (!el) throw new Error("no expired row");
+      return el;
+    });
+    await user.click(within(expired).getByRole("button", { name: "Reconnect" }));
+    const dialog = await screen.findByRole("dialog", { name: "Google account" });
+    await user.click(within(dialog).getByRole("button", { name: "Reconnect" }));
+    await within(dialog).findByText("Connected as laura.costa@example.com");
+    await waitFor(() =>
+      expect(document.querySelector('[data-calendar-sync="expired"]')).toBeNull(),
+    );
+  });
+
   it("in italiano l'ora è a 24 ore, in inglese a 12", async () => {
     await openCalendar("/calendar");
     expect(await block(C.goLive)).toHaveAccessibleName(/11:00 AM – 12:00 PM/);

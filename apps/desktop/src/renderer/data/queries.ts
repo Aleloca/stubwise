@@ -2422,12 +2422,19 @@ export function useRetryExtraction() {
 }
 
 /** Collegare o scollegare l'account cambia cosa si vede di Google e i file delle mie cartelle. */
+/**
+ * Collegare o scollegare l'account Google cambia Drive, Posta, Calendario e
+ * scheda di preparazione: un «Reconnect» dal Calendario o dalla Home toglie
+ * subito l'avviso di collegamento scaduto.
+ */
+const GOOGLE_AREAS = [...DRIVE_FILE_AREAS, "mail", "calendar", "meeting"] as const;
+
 export function useConnectGoogle() {
-  return useWrite(() => api.drive.connectGoogle(), [...DRIVE_FILE_AREAS, "mail"]);
+  return useWrite(() => api.drive.connectGoogle(), GOOGLE_AREAS);
 }
 
 export function useDisconnectGoogle() {
-  return useWrite(() => api.drive.disconnectGoogle(), [...DRIVE_FILE_AREAS, "mail"]);
+  return useWrite(() => api.drive.disconnectGoogle(), GOOGLE_AREAS);
 }
 
 // --- Posta (area 6) -----------------------------------------------------------
