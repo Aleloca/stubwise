@@ -266,3 +266,89 @@ describe("validateFlow", () => {
     for (const i of issues) expect(i.message.length).toBeGreaterThan(0);
   });
 });
+
+describe("validateFlow, revisione giro 1", () => {
+  const claude = (id: string, fields: Extract<Step, { kind: "claude" }>["fields"]): Step => ({
+    id,
+    kind: "claude",
+    instruction: "Leggi",
+    inputs: [],
+    outcomes: [],
+    fields,
+    branches: {},
+  });
+  const notify = (personRef: string): Step => ({
+    id: "n",
+    kind: "notify",
+    personRef,
+    text: "Ciao",
+    approval: { mode: "auto" },
+  });
+
+  it("notify: la persona è un modello o la chiave di un dato, mai un testo libero", () => {
+    expect(codes(validateFlow(base([notify("p-laura")]), CTX))).toEqual(["0 unknown_ref"]);
+    expect(codes(validateFlow(base([notify("{{cliente.email}}")]), CTX))).toEqual([]);
+    expect(codes(validateFlow(base([notify("cliente.nome")]), CTX))).toEqual(["0 type_mismatch"]);
+    const withPerson: AutomationFlow = {
+      ...base([notify("task.incaricato")]),
+      trigger: { kind: "stubwise", event: "task_created" },
+      titleTemplate: "x",
+    };
+    expect(codes(validateFlow(withPerson, CTX))).toEqual([]);
+  });
+
+  it("Claude non restituisce file, nemmeno dentro un elenco", () => {
+    expect(
+      codes(validateFlow(base([claude("c", [{ key: "a.doc", label: "Doc", type: "file" }])]), CTX)),
+    ).toEqual(["0 type_mismatch"]);
+    const nested = claude("c", [
+      {
+        key: "a.righe",
+        label: "Righe",
+        type: "list",
+        of: [{ key: "doc", label: "Doc", type: "file" }],
+      },
+    ]);
+    expect(codes(validateFlow(base([nested]), CTX))).toEqual(["0 type_mismatch"]);
+  });
+
+  it("chiavi di Claude riservate o che si confondono con l'elemento di un forEach", () => {
+    for (const key of ["risposta.testo", "risposta", "avvio.data"]) {
+      expect(
+        codes(validateFlow(base([claude("c", [{ key, label: "", type: "text" }])]), CTX)),
+        key,
+      ).toEqual(["0 incomplete"]);
+    }
+    const steps: Step[] = [
+      claude("c", [
+        { key: "e", label: "", type: "text" },
+        { key: "e.nome", label: "", type: "text" },
+        { key: "elenco.x", label: "", type: "list" },
+      ]),
+      { id: "f", kind: "forEach", list: "elenco.x", as: "e", steps: [] },
+    ];
+    expect(codes(validateFlow(base(steps), CTX))).toEqual(["0 incomplete", "0 incomplete"]);
+  });
+
+  it("l'elenco di un forEach non si ridichiara dentro il suo ciclo", () => {
+    const steps: Step[] = [
+      claude("c", [{ key: "analisi.task", label: "", type: "list" }]),
+      {
+        id: "f",
+        kind: "forEach",
+        list: "analisi.task",
+        as: "t",
+        steps: [
+          {
+            id: "cond",
+            kind: "condition",
+            when: { left: { ref: "t" }, op: "not_empty" },
+            then: [claude("c2", [{ key: "analisi.task", label: "", type: "list" }])],
+            else: [],
+          },
+        ],
+      },
+    ];
+    expect(codes(validateFlow(base(steps), CTX))).toEqual(["1/forEach[0]/0/then/0 incomplete"]);
+  });
+});

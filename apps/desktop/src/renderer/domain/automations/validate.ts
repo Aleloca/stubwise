@@ -8,7 +8,14 @@ import type {
   ProjectTarget,
   Step,
 } from "../../data/types";
-import { AUTOMATION_LIMITS, scopeAt, triggerFields, visitSteps, type Scope } from "./fields";
+import {
+  AUTOMATION_LIMITS,
+  ancestorsAt,
+  scopeAt,
+  triggerFields,
+  visitSteps,
+  type Scope,
+} from "./fields";
 
 // La validazione di un flusso: pura, la usano il costruttore (errori sul
 // passo), la pubblicazione (un flusso con errori non si accende) e la prova.
@@ -75,7 +82,12 @@ export function validateFlow(flow: AutomationFlow, ctx: ValidateContext): FlowIs
 
   // --- i passi ----------------------------------------------------------------
   const ids = new Set<string>();
+  const asNames: string[] = [];
+  visitSteps(flow.steps, (step) => {
+    if (step.kind === "forEach" && !blank(step.as)) asNames.push(step.as);
+  });
   visitSteps(flow.steps, (step, path) => {
+    if (step.kind === "claude") checkClaudeKeys(step, path, flow, asNames, add);
     if (blank(step.id) || ids.has(step.id)) {
       add(path, "incomplete", "Il passo non ha un identificativo unico.");
     }
@@ -86,6 +98,46 @@ export function validateFlow(flow: AutomationFlow, ctx: ValidateContext): FlowIs
 }
 
 type Add = (path: string, code: FlowIssueCode, message: string) => void;
+
+/** Le chiavi che scrivono le attese e gli inizi: Claude non le può dichiarare. */
+const RESERVED = ["risposta", "avvio"];
+const under = (key: string, prefix: string) => key === prefix || key.startsWith(`${prefix}.`);
+
+/**
+ * Le chiavi dei campi di Claude: niente file (Claude non produce file), niente
+ * chiavi riservate, niente collisioni con la variabile di un `forEach` (la
+ * leggerebbe al posto del campo), e mai l'elenco del `forEach` che lo
+ * contiene: gli elementi di un ciclo sono fissati all'ingresso.
+ */
+function checkClaudeKeys(
+  step: Extract<Step, { kind: "claude" }>,
+  path: string,
+  flow: AutomationFlow,
+  asNames: string[],
+  add: Add,
+): void {
+  const all = step.fields.flatMap((f) => [f, ...(f.of ?? [])]);
+  if (all.some((f) => f.type === "file")) {
+    add(path, "type_mismatch", "Claude non può restituire un file.");
+  }
+  const lists = ancestorsAt(flow.steps, path).flatMap((s) =>
+    s.kind === "forEach" ? [s.list] : [],
+  );
+  for (const { key } of step.fields) {
+    if (blank(key)) continue;
+    if (RESERVED.some((r) => under(key, r))) {
+      add(path, "incomplete", `La chiave «${key}» è riservata.`);
+    } else if (asNames.some((a) => under(key, a))) {
+      add(path, "incomplete", `La chiave «${key}» si confonde con l'elemento di un «Per ogni».`);
+    } else if (lists.includes(key)) {
+      add(
+        path,
+        "incomplete",
+        `«${key}» è l'elenco del «Per ogni» che contiene il passo: non si riscrive.`,
+      );
+    }
+  }
+}
 
 function checkRefs(text: string, scope: Scope, path: string, add: Add): void {
   for (const ref of templateRefs(text)) {
@@ -215,9 +267,18 @@ function checkStep(step: Step, path: string, scope: Scope, ctx: ValidateContext,
         add,
       );
       checkRefs(step.text, scope, path, add);
-      checkRefs(step.personRef, scope, path, add);
-      const f = scope.fields.get(step.personRef);
-      if (f && f.type !== "person") add(path, "type_mismatch", `«${f.label}» non è una persona.`);
+      // Un modello `{{…}}` o la chiave di un dato: mai un testo libero.
+      if (step.personRef.includes("{{")) checkRefs(step.personRef, scope, path, add);
+      else if (!blank(step.personRef)) {
+        const f = scope.fields.get(step.personRef);
+        if (!f)
+          add(
+            path,
+            "unknown_ref",
+            `Il dato «${step.personRef}» non è disponibile in questo punto.`,
+          );
+        else if (f.type !== "person") add(path, "type_mismatch", `«${f.label}» non è una persona.`);
+      }
       checkApproval(step.approval, null, path, ctx, add);
       return;
     }

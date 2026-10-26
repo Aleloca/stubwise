@@ -1,15 +1,16 @@
-import type {
-  Approval,
-  AutomationFlow,
-  AutomationRun,
-  ProjectTarget,
-  RunLogEntry,
-  RunStatus,
-  Step,
-} from "../../data/types";
+import type { AutomationFlow, RunLogEntry, RunStatus, Step } from "../../data/types";
 import { checkClaudeResult } from "./claudeStep";
-import { conditionRefs, evaluate, lookup } from "./conditions";
-import { AUTOMATION_LIMITS, joinPath, listAt, stepAt } from "./fields";
+import { conditionRefs, evaluate } from "./conditions";
+import { AUTOMATION_LIMITS, joinPath, listAt, repeatCap, stepAt } from "./fields";
+import {
+  approverReason,
+  describe,
+  projectOf,
+  resolve,
+  show,
+  type ActionStep,
+  type ApprovalWho,
+} from "./preview";
 
 // Il motore delle automazioni: puro. `advance` prende lo stato e un input
 // (l'evento d'inizio, un'approvazione, il tempo che passa, l'esito di un
@@ -28,8 +29,30 @@ import { AUTOMATION_LIMITS, joinPath, listAt, stepAt } from "./fields";
 // 3. ogni passo eseguito scrive una riga, con dati, esito, motivazione e
 //    chi ha approvato.
 // Un input che lo stato non aspetta è ignorato allo stesso modo.
+//
+// R-J8 — chi approva lo controlla l'esecutore (Task 3), che risolve `who`
+// (persona, ruolo nel progetto, proprietario) e verifica che veda il
+// progetto: il motore si fida che `approved`/`rejected` gli arrivino solo da
+// un approvatore ammesso. Controlla invece il PERCORSO: un'approvazione vale
+// solo per il passo che la aspetta (`path === awaiting.path`), così quella di
+// un giro precedente, ripetuta, non sblocca il giro dopo né vi porta le sue
+// correzioni (`edited`).
+//
+// Note per il Task 3 (esecutore e livello dati):
+// - un effetto in volo (`awaiting.kind` `"effect"` o `"claude"`) viene
+//   riemesso dopo `restoreState`: sospendere (pausa) solo negli stati senza
+//   un effetto in volo, o l'effetto partirebbe due volte;
+// - una risposta in ritardo si abbina per id del passo `sendEmail`, non per
+//   giro: la risposta al promemoria del giro 0 sblocca anche l'attesa del
+//   giro 1 (stesso passo);
+// - il limite di 20 email vale per esecuzione: le catene di avvii
+//   (`startAutomation` che avvia sé stessa o un ciclo, shape [A 16]) e un
+//   `automationId` inesistente sono dell'esecutore — validazione coi dati e
+//   profondità massima della catena 3 a runtime.
+//
+// Le anteprime e la lettura dei dati stanno in `preview.ts`, la ripresa di
+// un'esecuzione salvata in `restore.ts`.
 
-type ActionStep = Extract<Step, { approval: Approval }>;
 type ClaudeStep = Extract<Step, { kind: "claude" }>;
 type WaitStep = Extract<Step, { kind: "wait" }>;
 export type ActionKind = ActionStep["kind"];
@@ -41,8 +64,9 @@ export type EnginePayload =
 
 export type EngineInput =
   | { kind: "start"; event: Record<string, unknown> }
-  | { kind: "approved"; byId: string; edited?: Record<string, string> }
-  | { kind: "rejected"; byId: string }
+  /** `path`: il passo approvato; vale solo se è quello che aspetta (R-J8). */
+  | { kind: "approved"; path: string; byId: string; edited?: Record<string, string> }
+  | { kind: "rejected"; path: string; byId: string }
   | { kind: "event"; payload: EnginePayload }
   | { kind: "time"; now: string }
   | { kind: "project_chosen"; projectId: string; byId?: string }
@@ -73,7 +97,7 @@ export type EffectRequest =
 /** L'errore di `effect_result` che porta in «scegli il progetto». */
 export const PROJECT_NOT_FOUND = "project_not_found";
 
-type Frame =
+export type Frame =
   /** Una lista di passi; `i` è il prossimo da eseguire. */
   | { t: "list"; base: string; i: number }
   /** Un `forEach`: gli elementi fissati all'ingresso, il giro corrente (-1 prima del primo). */
@@ -88,7 +112,7 @@ export type Awaiting =
   | {
       kind: "approval";
       path: string;
-      who: Extract<Approval, { mode: "ask" }>["who"];
+      who: ApprovalWho;
       preview: Record<string, unknown>;
     }
   | { kind: "effect"; path: string; preview: Record<string, unknown> }
@@ -114,6 +138,10 @@ export interface EngineState {
   /** I codici creati da ogni passo (per `milestoneRef`). */
   created: Record<string, string[]>;
   emailsSent: number;
+  /** Azioni e chiamate a Claude emesse (R-J9). */
+  effectsSent: number;
+  /** Gli elementi di ogni `forEach` in corso, fissati all'ingresso (per percorso). */
+  loops: Record<string, unknown[]>;
   /** Un codice macchina (`permission_lost`, `unknown_outcome`, `limit`…). */
   error: string | null;
 }
@@ -156,6 +184,8 @@ export function initialState(flow: AutomationFlow, now: string): EngineState {
     projects: {},
     created: {},
     emailsSent: 0,
+    effectsSent: 0,
+    loops: {},
     error: null,
   };
 }
@@ -170,112 +200,6 @@ function row(e: Pick<LogRow, "stepId" | "path" | "kind" | "outcome"> & Partial<L
   return { input: {}, output: {}, reason: null, byId: null, effects: [], ...e };
 }
 
-// --- dati e testi ---------------------------------------------------------------
-
-/** Il valore di una chiave: la variabile di un `forEach` (dal più interno), le variabili, l'evento. */
-function resolve(st: EngineState, key: string): unknown {
-  for (let k = st.stack.length - 1; k >= 0; k--) {
-    const f = st.stack[k]!;
-    if (f.t !== "forEach" || f.current < 0) continue;
-    const item = f.items[f.current];
-    if (key === f.as) return item;
-    if (key.startsWith(`${f.as}.`)) {
-      return item !== null && typeof item === "object"
-        ? lookup(item as Record<string, unknown>, key.slice(f.as.length + 1))
-        : undefined;
-    }
-  }
-  if (Object.prototype.hasOwnProperty.call(st.vars, key)) return st.vars[key];
-  return lookup(st.event, key);
-}
-
-function show(v: unknown): string {
-  if (v === null || v === undefined) return "";
-  if (Array.isArray(v)) return v.map(show).join(", ");
-  if (typeof v === "object") {
-    const o = v as Record<string, unknown>;
-    return show(o.nome ?? o.titolo ?? o.name ?? "");
-  }
-  return String(v);
-}
-
-const render = (st: EngineState, text: string) =>
-  text.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (_, key: string) => show(resolve(st, key)));
-
-/** L'anteprima (cosa vede chi approva, l'input della riga) e gli argomenti dell'effetto. */
-function describe(
-  st: EngineState,
-  step: ActionStep,
-  target: ResolvedTarget | null,
-  edited: Record<string, string> = {},
-) {
-  const progetto = target?.mode === "fixed" ? { progetto: target.projectId } : {};
-  const pick = (key: string, value: string) => edited[key] ?? value;
-  switch (step.kind) {
-    case "createTask": {
-      const titolo = pick("titolo", render(st, step.title));
-      const descrizione = pick("descrizione", render(st, step.description));
-      const ms = step.milestoneRef ? (st.created[step.milestoneRef]?.at(-1) ?? null) : null;
-      return {
-        preview: { titolo, descrizione, ...progetto },
-        args: {
-          title: titolo,
-          description: descrizione,
-          assignee: step.assignee,
-          dueInDays: step.dueInDays,
-          milestoneCode: ms,
-        },
-      };
-    }
-    case "createMilestone": {
-      const nome = pick("nome", render(st, step.name));
-      return { preview: { nome, ...progetto }, args: { name: nome, dueInDays: step.dueInDays } };
-    }
-    case "createRequest": {
-      const titolo = pick("titolo", render(st, step.title));
-      const descrizione = pick("descrizione", render(st, step.description));
-      return {
-        preview: { titolo, descrizione, ...progetto },
-        args: { title: titolo, description: descrizione },
-      };
-    }
-    case "sendEmail": {
-      const to = pick("to", render(st, step.to));
-      const subject = pick("subject", render(st, step.subject));
-      const body = pick("body", render(st, step.body));
-      const attachments = step.attachRefs.map((r) => resolve(st, r));
-      return {
-        preview: {
-          to,
-          subject,
-          body,
-          ...(attachments.length ? { allegati: attachments.map(show) } : {}),
-        },
-        args: { to, subject, body, attachments },
-      };
-    }
-    case "notify": {
-      const ref = step.personRef.includes("{{") ? render(st, step.personRef) : step.personRef;
-      const person = resolve(st, ref);
-      const personId = typeof person === "string" && person !== "" ? person : ref;
-      const testo = pick("testo", render(st, step.text));
-      return { preview: { persona: personId, testo }, args: { personId, text: testo } };
-    }
-    case "startAutomation":
-      return {
-        preview: { automazione: step.automationId },
-        args: { automationId: step.automationId },
-      };
-  }
-}
-
-const APPROVER: (who: Extract<Approval, { mode: "ask" }>["who"]) => string = (who) =>
-  "owner" in who
-    ? "Chiede l'approvazione del proprietario."
-    : "personId" in who
-      ? "Chiede l'approvazione della persona indicata."
-      : `Chiede l'approvazione del ruolo «${who.projectRole}» nel progetto.`;
-
 // --- il ciclo ---------------------------------------------------------------------
 
 function fail(c: Ctx, error: string) {
@@ -285,10 +209,25 @@ function fail(c: Ctx, error: string) {
   c.st.waitingUntil = null;
 }
 
-const projectOf = (step: Step): ProjectTarget | null =>
-  step.kind === "createTask" || step.kind === "createMilestone" || step.kind === "createRequest"
-    ? step.project
-    : null;
+/** R-J9: oltre il tetto di effetti per esecuzione il passo è un limite e l'esecuzione si ferma. */
+function overCap(c: Ctx, step: Step, path: string, input: Record<string, unknown>): boolean {
+  if (c.st.effectsSent < AUTOMATION_LIMITS.effectsPerRun) {
+    c.st.effectsSent++;
+    return false;
+  }
+  c.log.push(
+    row({
+      stepId: step.id,
+      path,
+      kind: step.kind,
+      outcome: "limit",
+      input,
+      reason: `Limite raggiunto: al massimo ${AUTOMATION_LIMITS.effectsPerRun} azioni per esecuzione.`,
+    }),
+  );
+  fail(c, "effect_limit");
+  return true;
+}
 
 /** Un passo d'azione: progetto, poi approvazione, poi l'effetto. */
 function proceedAction(
@@ -328,11 +267,12 @@ function proceedAction(
         kind: step.kind,
         outcome: "waiting",
         input: preview,
-        reason: APPROVER(step.approval.who),
+        reason: approverReason(step.approval.who),
       }),
     );
     return;
   }
+  if (overCap(c, step, path, preview)) return;
   if (step.kind === "sendEmail") {
     if (st.emailsSent >= AUTOMATION_LIMITS.emailsPerRun) {
       c.log.push(
@@ -409,6 +349,7 @@ function enterStep(c: Ctx, step: Step, path: string) {
         );
         return fail(c, "limit");
       }
+      st.loops[path] = items;
       st.stack.push({ t: "forEach", path, as: step.as, items, current: -1 });
       return;
     }
@@ -417,6 +358,7 @@ function enterStep(c: Ctx, step: Step, path: string) {
       return;
     case "claude": {
       const input = Object.fromEntries(step.inputs.map((k) => [k, resolve(st, k)]));
+      if (overCap(c, step, path, input)) return;
       st.awaiting = { kind: "claude", path, input };
       c.effects.push({ kind: "claude", stepId: step.id, path, step, vars: input });
       return;
@@ -464,6 +406,7 @@ function run(c: Ctx) {
         st.stack.push({ t: "list", base: joinPath(top.path, `forEach[${top.current}]`), i: 0 });
       } else {
         st.stack.pop();
+        delete st.loops[top.path];
         st.cursor = top.path;
         c.log.push(
           row({
@@ -485,7 +428,7 @@ function run(c: Ctx) {
       st.cursor = top.path;
       const base = { stepId: step.id, path: top.path, kind: "repeatUntil" as const };
       const input = Object.fromEntries(conditionRefs(step.until).map((k) => [k, resolve(st, k)]));
-      const max = Math.min(step.max, AUTOMATION_LIMITS.repeatMax);
+      const max = repeatCap(step.max);
       // R-J4: la condizione si controlla prima di ogni giro.
       if (evaluate(step.until, (k) => resolve(st, k))) {
         st.stack.pop();
@@ -572,7 +515,8 @@ function handle(c: Ctx, input: EngineInput) {
       return;
     }
     case "approved": {
-      if (st.status !== "waiting_approval" || aw?.kind !== "approval") return;
+      if (st.status !== "waiting_approval" || aw?.kind !== "approval" || input.path !== aw.path)
+        return;
       const step = currentStep(st) as ActionStep;
       c.log.push(
         row({
@@ -587,7 +531,8 @@ function handle(c: Ctx, input: EngineInput) {
       return proceedAction(c, step, aw.path, { edited: input.edited });
     }
     case "rejected": {
-      if (st.status !== "waiting_approval" || aw?.kind !== "approval") return;
+      if (st.status !== "waiting_approval" || aw?.kind !== "approval" || input.path !== aw.path)
+        return;
       const step = currentStep(st)!;
       c.log.push(
         row({
@@ -782,101 +727,4 @@ export function advance(state: EngineState, input: EngineInput): EngineStep {
   handle(c, input);
   run(c);
   return { state: c.st, effects: c.effects, log: c.log };
-}
-
-/**
- * Lo stato di un'esecuzione salvata, ricostruito dal cursore (R-J5): le
- * liste, i giri dei cicli (elementi del `forEach` riletti dalle variabili),
- * cosa aspetta. Per un'esecuzione `waiting_*` aspetta lo stesso input di
- * prima; per ogni altro stato (sospesa, fallita da riprovare) il passo del
- * cursore riparte al prossimo input (anche solo `time`).
- */
-export function restoreState(
-  flow: AutomationFlow,
-  run: Pick<AutomationRun, "event" | "vars" | "cursor" | "status" | "waitingUntil" | "log">,
-  now: string,
-): EngineState {
-  const st = initialState(flow, now);
-  st.started = true;
-  st.event = structuredClone(run.event);
-  st.vars = structuredClone(run.vars);
-  for (const e of run.log) {
-    if (e.kind === "sendEmail" && e.outcome === "ok") st.emailsSent++;
-    if (e.effects.length > 0) st.created[e.stepId] = e.effects.map((x) => x.code);
-  }
-  if (run.cursor === null) {
-    st.status = run.status;
-    return st;
-  }
-  const segs = run.cursor.split("/");
-  let base = "";
-  let path = "";
-  let step: Step | null = null;
-  for (let k = 0; k < segs.length; k += 2) {
-    const i = Number(segs[k]);
-    const last = k === segs.length - 1;
-    path = joinPath(base, String(i));
-    step = stepAt(flow.steps, path);
-    if (!step) throw new Error(`Percorso non valido: ${run.cursor}`);
-    // Il passo del cursore: già iniziato se si aspetta, da rieseguire altrimenti.
-    const waiting = run.status.startsWith("waiting_");
-    st.stack.push({ t: "list", base, i: last && !waiting ? i : i + 1 });
-    if (last) break;
-    const seg = segs[k + 1]!;
-    const round = /\[(\d+)\]$/.exec(seg);
-    if (step.kind === "forEach") {
-      const items = resolve(st, step.list);
-      st.stack.push({
-        t: "forEach",
-        path,
-        as: step.as,
-        items: Array.isArray(items) ? items : [],
-        current: Number(round![1]),
-      });
-    } else if (step.kind === "repeatUntil") {
-      st.stack.push(
-        seg === "onLimit"
-          ? { t: "repeat", path, round: step.max, onLimit: true }
-          : { t: "repeat", path, round: Number(round![1]) + 1, onLimit: false },
-      );
-    }
-    base = joinPath(path, seg);
-  }
-  st.cursor = run.cursor;
-  if (!run.status.startsWith("waiting_")) return st;
-
-  st.status = run.status;
-  if (run.status === "waiting_event" && step!.kind === "wait") {
-    st.waitingUntil = run.waitingUntil;
-    st.awaiting = { kind: "wait", path, until: run.waitingUntil ?? now };
-  } else if (
-    run.status === "waiting_approval" &&
-    "approval" in step! &&
-    step.approval.mode === "ask"
-  ) {
-    const target = projectOf(step);
-    const projectId = run.log.at(-1)?.input.progetto;
-    const resolved: ResolvedTarget | null =
-      target?.mode === "from_client"
-        ? typeof projectId === "string"
-          ? { mode: "fixed", projectId }
-          : null
-        : target;
-    if (target?.mode === "from_client" && resolved?.mode === "fixed") {
-      st.projects[show(resolve(st, target.clientRef))] = resolved.projectId;
-    }
-    st.awaiting = {
-      kind: "approval",
-      path,
-      who: step.approval.who,
-      preview: describe(st, step, resolved).preview,
-    };
-  } else if (run.status === "waiting_project" && "approval" in step!) {
-    const target = projectOf(step);
-    const clientKey = target?.mode === "from_client" ? show(resolve(st, target.clientRef)) : "";
-    st.awaiting = { kind: "project", path, clientKey, asked: true };
-  } else {
-    throw new Error(`Stato ${run.status} incoerente col passo ${path}`);
-  }
-  return st;
 }

@@ -4,12 +4,32 @@ import { START_FIELDS, STUBWISE_TRIGGER_FIELDS, WAIT_REPLY_FIELDS } from "./trig
 // I percorsi (grammatica R-J5 in `model.ts`) e i dati visibili in un punto
 // del flusso: li usano la validazione, il costruttore e il motore.
 
-/** I limiti di sicurezza del motore (Global Constraints del piano). */
+/**
+ * I limiti di sicurezza del motore (Global Constraints del piano). R-J9:
+ * `effectsPerRun` conta ogni azione e ogni chiamata a Claude di
+ * un'esecuzione, anche attraverso cicli annidati (50 × 10 × … non scappa).
+ */
 export const AUTOMATION_LIMITS = {
   emailsPerRun: 20,
   forEachRounds: 50,
   repeatMax: 10,
+  effectsPerRun: 200,
 } as const;
+
+/** Il massimo di giri di un `repeatUntil` a runtime: intero fra 0 e 10, 0 se non è un numero finito. */
+export const repeatCap = (max: number): number =>
+  Number.isFinite(max) ? Math.min(Math.max(Math.floor(max), 0), AUTOMATION_LIMITS.repeatMax) : 0;
+
+/** I passi che contengono quello al percorso `path`, dal più esterno. */
+export function ancestorsAt(steps: Step[], path: string): Step[] {
+  const segs = path === "" ? [] : path.split("/");
+  const out: Step[] = [];
+  for (let k = 0; k + 1 < segs.length; k += 2) {
+    const s = stepAt(steps, segs.slice(0, k + 1).join("/"));
+    if (s) out.push(s);
+  }
+  return out;
+}
 
 export const joinPath = (base: string, seg: string) => (base === "" ? seg : `${base}/${seg}`);
 

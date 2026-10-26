@@ -5,11 +5,11 @@ import { AUTOMATION_TASKS, NEW_CONTRACT_MILESTONE_ID } from "../../data/seed/aut
 import {
   advance,
   initialState,
-  restoreState,
   type EffectRequest,
   type EngineInput,
   type EngineState,
 } from "./engine";
+import { restoreState } from "./restore";
 
 const NOW = "2026-10-23T12:00:00Z";
 const DAY = 86_400_000;
@@ -119,7 +119,7 @@ describe("advance: rigioca le esecuzioni del seme", () => {
     expect(d.state.status).toBe("waiting_approval");
     expect(d.state.cursor).toBe("3");
     // Approvata da Roberta: parte l'email.
-    const after = d.send({ kind: "approved", byId: "p-roberta" });
+    const after = d.send({ kind: "approved", path: d.state.cursor!, byId: "p-roberta" });
     expect(after).toMatchObject([
       {
         kind: "sendEmail",
@@ -214,7 +214,7 @@ describe("Review Focus 1: nessun effetto di un passo `ask` prima di `approved`",
       expect(d.log.length).toBe(logBefore);
       expect({ ...d.state, now: frozen.now }).toEqual(frozen);
       // Solo l'approvazione lo sblocca.
-      expect(d.send({ kind: "approved", byId: "p-roberta" })).toMatchObject([
+      expect(d.send({ kind: "approved", path: d.state.cursor!, byId: "p-roberta" })).toMatchObject([
         { kind: "sendEmail" },
       ]);
     }
@@ -227,7 +227,12 @@ describe("Review Focus 1: nessun effetto di un passo `ask` prima di `approved`",
     for (const input of noise(3, 60, NOW)) expect(d.send(input)).toEqual([]);
     expect(d.state.status).toBe("waiting_approval");
     // L'email approvata è quella dell'anteprima del seme, corretta prima di partire.
-    const fx = d.send({ kind: "approved", byId: "p-laura", edited: { body: "Testo corretto" } });
+    const fx = d.send({
+      kind: "approved",
+      path: d.state.cursor!,
+      byId: "p-laura",
+      edited: { body: "Testo corretto" },
+    });
     expect(fx).toEqual([
       expect.objectContaining({
         kind: "sendEmail",
@@ -249,8 +254,12 @@ describe("Review Focus 1: nessun effetto di un passo `ask` prima di `approved`",
     const atEffect = start(CLIENT_DATA, REQUEST).d;
     for (const [name, d] of Object.entries({ atClaude, atReply, atProject, atEffect })) {
       const before = structuredClone(d.state);
-      expect(d.send({ kind: "approved", byId: "p-roberta" }), name).toEqual([]);
-      expect(d.send({ kind: "rejected", byId: "p-roberta" }), name).toEqual([]);
+      expect(d.send({ kind: "approved", path: d.state.cursor!, byId: "p-roberta" }), name).toEqual(
+        [],
+      );
+      expect(d.send({ kind: "rejected", path: d.state.cursor!, byId: "p-roberta" }), name).toEqual(
+        [],
+      );
       expect(d.state, name).toEqual(before);
     }
   });
@@ -279,16 +288,16 @@ describe("Review Focus 1: nessun effetto di un passo `ask` prima di `approved`",
     const { d, fx } = start(flow, { elenco: ["a", "b"] });
     expect(fx).toEqual([]);
     expect(d.state).toMatchObject({ status: "waiting_approval", cursor: "0/forEach[0]/0" });
-    settle(d, d.send({ kind: "approved", byId: "p-laura" }));
+    settle(d, d.send({ kind: "approved", path: d.state.cursor!, byId: "p-laura" }));
     expect(d.state).toMatchObject({ status: "waiting_approval", cursor: "0/forEach[1]/0" });
-    expect(d.send({ kind: "rejected", byId: "p-laura" })).toEqual([]);
+    expect(d.send({ kind: "rejected", path: d.state.cursor!, byId: "p-laura" })).toEqual([]);
     expect(d.state).toMatchObject({ status: "cancelled", error: "rejected" });
     expect(d.log.at(-1)).toMatchObject({
       outcome: "rejected",
       byId: "p-laura",
       path: "0/forEach[1]/0",
     });
-    expect(d.send({ kind: "approved", byId: "p-laura" })).toEqual([]);
+    expect(d.send({ kind: "approved", path: d.state.cursor!, byId: "p-laura" })).toEqual([]);
     expect(d.effects.filter((e) => e.kind === "startAutomation")).toHaveLength(1);
   });
 });
@@ -333,7 +342,7 @@ describe("Review Focus 2: Claude fuori dai binari", () => {
     expect(d.state.vars).toEqual({});
     for (const input of [
       { kind: "time", now: plus(NOW, 30) },
-      { kind: "approved", byId: "p-roberta" },
+      { kind: "approved", path: d.state.cursor!, byId: "p-roberta" },
       { kind: "effect_result", ok: true },
     ] as EngineInput[]) {
       expect(d.send(input)).toEqual([]);
@@ -367,7 +376,7 @@ describe("Review Focus 2: Claude fuori dai binari", () => {
             {
               id: "n",
               kind: "notify",
-              personRef: "p-laura",
+              personRef: "chi",
               text: "{{e}}",
               approval: { mode: "auto" },
             },
@@ -507,13 +516,13 @@ describe("cicli, attese e limiti", () => {
         {
           id: "n",
           kind: "notify",
-          personRef: "p-laura",
+          personRef: "chi",
           text: "Il {{avvio.data}} più tre",
           approval: { mode: "auto" },
         },
       ],
     };
-    const { d } = start(flow, { avvio: { data: "2026-10-23" } });
+    const { d } = start(flow, { avvio: { data: "2026-10-23" }, chi: "p-laura" });
     expect(d.send({ kind: "time", now: plus(NOW, 2) })).toEqual([]);
     expect(d.send({ kind: "time", now: plus(NOW, 3) })).toEqual([
       expect.objectContaining({
@@ -632,5 +641,220 @@ describe("progetto ed effetti falliti", () => {
     expect(d.send({ kind: "time", now: NOW })).toEqual([
       expect.objectContaining({ kind: "createTask", stepId: "wk-report" }),
     ]);
+  });
+});
+
+describe("revisione, giro 1", () => {
+  const askEach = (list: string): AutomationFlow => ({
+    trigger: { kind: "manual" },
+    titleTemplate: "x",
+    steps: [
+      {
+        id: "each",
+        kind: "forEach",
+        list,
+        as: "e",
+        steps: [
+          {
+            id: "m",
+            kind: "sendEmail",
+            to: "{{e}}",
+            subject: "s",
+            body: "b",
+            attachRefs: [],
+            approval: { mode: "ask", who: { personId: "p-laura" } },
+          },
+        ],
+      },
+    ],
+  });
+  const ROUND0 = "0/forEach[0]/0";
+  const ROUND1 = "0/forEach[1]/0";
+
+  function atRound1() {
+    const { d } = start(askEach("elenco"), { elenco: ["a@x.example", "b@x.example"] });
+    expect(d.state.cursor).toBe(ROUND0);
+    const fx0 = d.send({
+      kind: "approved",
+      path: ROUND0,
+      byId: "p-laura",
+      edited: { body: "Per a" },
+    });
+    expect(fx0).toEqual([
+      expect.objectContaining({ args: expect.objectContaining({ body: "Per a" }) }),
+    ]);
+    expect(d.send({ kind: "effect_result", ok: true })).toEqual([]);
+    expect(d.state).toMatchObject({ status: "waiting_approval", cursor: ROUND1 });
+    return d;
+  }
+
+  it("R-J8: l'approvazione del giro 0 ripetuta non sblocca il giro 1 né vi porta le sue correzioni", () => {
+    const d = atRound1();
+    const before = structuredClone(d.state);
+    const rows = d.log.length;
+    expect(
+      d.send({ kind: "approved", path: ROUND0, byId: "p-laura", edited: { body: "Per a" } }),
+    ).toEqual([]);
+    expect(d.send({ kind: "rejected", path: ROUND0, byId: "p-laura" })).toEqual([]);
+    expect(d.state).toEqual(before);
+    expect(d.log).toHaveLength(rows);
+    const fx1 = d.send({ kind: "approved", path: ROUND1, byId: "p-laura" });
+    expect(fx1).toEqual([
+      expect.objectContaining({
+        path: ROUND1,
+        args: expect.objectContaining({ to: "b@x.example", body: "b" }),
+      }),
+    ]);
+  });
+
+  it("repeatUntil con un massimo non finito, negativo o frazionario: 0 giri, poi a intero per difetto", () => {
+    const flow = (max: number): AutomationFlow => ({
+      trigger: { kind: "manual" },
+      titleTemplate: "x",
+      steps: [
+        {
+          id: "r",
+          kind: "repeatUntil",
+          until: { left: { ref: "x" }, op: "is", right: { value: "y" } },
+          max,
+          steps: [
+            {
+              id: "giro",
+              kind: "notify",
+              personRef: "chi",
+              text: "giro",
+              approval: { mode: "auto" },
+            },
+          ],
+          onLimit: [
+            {
+              id: "fine",
+              kind: "notify",
+              personRef: "chi",
+              text: "fine",
+              approval: { mode: "auto" },
+            },
+          ],
+        },
+      ],
+    });
+    for (const [max, rounds] of [
+      [Number.NaN, 0],
+      [Number.POSITIVE_INFINITY, 0],
+      [-3, 0],
+      [2.7, 2],
+      [99, 10],
+    ] as const) {
+      const { d, fx } = start(flow(max), { chi: "p-laura" });
+      settle(d, fx);
+      expect(
+        d.effects.filter((e) => e.stepId === "giro"),
+        String(max),
+      ).toHaveLength(rounds);
+      expect(
+        d.log.find((e) => e.stepId === "r"),
+        String(max),
+      ).toMatchObject({
+        outcome: "limit",
+        output: { giri: rounds },
+      });
+      expect(d.effects.at(-1), String(max)).toMatchObject({ stepId: "fine", path: "0/onLimit/0" });
+      expect(d.state.status).toBe("done");
+    }
+  });
+
+  it("R-J9: al massimo 200 effetti per esecuzione, anche attraverso cicli annidati", () => {
+    const flow: AutomationFlow = {
+      trigger: { kind: "manual" },
+      titleTemplate: "x",
+      steps: [
+        {
+          id: "out",
+          kind: "forEach",
+          list: "gruppi",
+          as: "g",
+          steps: [
+            {
+              id: "in",
+              kind: "forEach",
+              list: "g.righe",
+              as: "r",
+              steps: [
+                {
+                  id: "n",
+                  kind: "notify",
+                  personRef: "chi",
+                  text: "{{r}}",
+                  approval: { mode: "auto" },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const gruppi = Array.from({ length: 10 }, (_, i) => ({
+      righe: Array.from({ length: 25 }, (_, j) => `${i}.${j}`),
+    }));
+    const { d, fx } = start(flow, { gruppi, chi: "p-laura" });
+    settle(d, fx);
+    expect(d.effects.filter((e) => e.kind === "notify")).toHaveLength(200);
+    expect(d.state).toMatchObject({ status: "failed", error: "effect_limit" });
+    expect(d.log.at(-1)).toMatchObject({
+      stepId: "n",
+      outcome: "limit",
+      path: "0/forEach[8]/0/forEach[0]/0",
+    });
+  });
+
+  it("notify: il valore compilato è l'id della persona, mai una seconda chiave", () => {
+    const flow: AutomationFlow = {
+      trigger: { kind: "manual" },
+      titleTemplate: "x",
+      steps: [
+        { id: "n", kind: "notify", personRef: "{{chi}}", text: "t", approval: { mode: "auto" } },
+      ],
+    };
+    const event = { chi: "cliente.nome", cliente: { nome: "Non io" } };
+    const { fx } = start(flow, event);
+    expect(fx).toEqual([
+      expect.objectContaining({ args: { personId: "cliente.nome", text: "t" } }),
+    ]);
+    // Lo stesso con la chiave del dato al posto del modello.
+    const byKey = { ...flow, steps: [{ ...flow.steps[0]!, personRef: "chi" } as Step] };
+    expect(start(byKey, event).fx).toEqual([
+      expect.objectContaining({ args: { personId: "cliente.nome", text: "t" } }),
+    ]);
+  });
+
+  it("restoreState: finite e annullate restano tali; un'attesa di evento senza scadenza è un errore", () => {
+    const done = runOf(AUTOMATION_CASES.runs.done);
+    for (const status of ["done", "cancelled"] as const) {
+      const d = driver(restoreState(NEW_CONTRACT, { ...done, status, cursor: "3" }, NOW));
+      expect(d.state.status).toBe(status);
+      expect(d.send({ kind: "time", now: plus(NOW, 1) })).toEqual([]);
+      expect(d.send({ kind: "approved", path: "3", byId: "p-roberta" })).toEqual([]);
+    }
+    const waiting = runOf(AUTOMATION_CASES.runs.waitingEvent);
+    expect(() => restoreState(CLIENT_DATA, { ...waiting, waitingUntil: null }, NOW)).toThrow();
+  });
+
+  it("restoreState: gli elementi del forEach sono quelli fissati all'ingresso (`loops`), non quelli riletti", () => {
+    const d = atRound1();
+    const saved = {
+      event: { elenco: ["a@x.example", "b@x.example"] },
+      // Come se l'elenco fosse cambiato dopo l'ingresso nel ciclo.
+      vars: { elenco: ["z@x.example", "y@x.example"] },
+      cursor: d.state.cursor,
+      status: d.state.status,
+      waitingUntil: null,
+      log: d.log.map((e) => ({ ...e, at: NOW })),
+    };
+    const fixed = restoreState(askEach("elenco"), { ...saved, loops: d.state.loops }, NOW);
+    expect(fixed.awaiting).toMatchObject({ kind: "approval", preview: { to: "b@x.example" } });
+    const reread = restoreState(askEach("elenco"), saved, NOW);
+    expect(reread.awaiting).toMatchObject({ kind: "approval", preview: { to: "y@x.example" } });
+    // Il contatore degli effetti riparte dal registro: l'email del giro 0.
+    expect(fixed.effectsSent).toBe(1);
   });
 });
