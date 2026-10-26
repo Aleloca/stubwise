@@ -136,7 +136,7 @@ function MeetingBlock({ message }: { message: MailMessageView }) {
               {event.title}
             </a>
           ) : (
-            note.docTitle
+            (note.docTitle ?? message.subject)
           )}
           {event && (
             <>

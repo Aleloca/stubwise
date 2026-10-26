@@ -11,13 +11,14 @@ import type {
   ProjectRequest,
   Task,
 } from "../types";
-import { canSeeMessage, canSeeTranscript } from "./visibility";
+import { canSeeMessage, canSeeTranscript, isProjectMember } from "./visibility";
 
 // Le riunioni registrate (area 6): l'email di Gemini, il Google Doc letto e
 // le cose da fare nate dalla trascrizione. Riassunto e trascrizione sono
 // testo generato e li vede SOLO chi era alla riunione (`canSeeTranscript`);
-// le task e le richieste nate sono lavoro vero del progetto e le vede chi
-// vede il progetto (`visibleTasks`), anche se non c'era.
+// le task e le richieste nate sono lavoro vero del progetto e le vedono i
+// suoi membri (`memberIds`, R-I21), anche se non c'erano — non chi vede il
+// progetto senza esserne membro (un full admin).
 
 const eventOf = (t: MeetingTranscript): CalendarEvent | undefined =>
   t.eventId === null ? undefined : state.calendarEvents.find((e) => e.id === t.eventId);
@@ -89,9 +90,11 @@ function requestItem(r: ProjectRequest): MeetingTask {
 }
 
 /**
- * Le task e le richieste nate da una riunione, per chi le vede: i codici
- * creati confermando le proposte delle sue note (`resultCodes`), in ordine
- * di decisione. Una richiesta già convertita compare come le sue task.
+ * Le task e le richieste nate da una riunione, per un membro dei loro
+ * progetti (R-I21): i codici creati confermando le proposte delle sue note
+ * (`resultCodes`), in ordine di decisione. `visibleTasks` dice se la task
+ * esiste ancora per chi guarda; l'appartenenza al progetto, se gli spetta.
+ * Una richiesta già convertita compare come le sue task.
  */
 export function bornFrom(me: string, eventId: string): MeetingTask[] {
   const sources = new Set(
@@ -106,7 +109,11 @@ export function bornFrom(me: string, eventId: string): MeetingTask[] {
     .filter((p) => p.source === "transcript" && sources.has(p.sourceId))
     .sort((a, b) => (a.decidedAt ?? "").localeCompare(b.decidedAt ?? ""))
     .flatMap((p) => p.resultCodes);
-  const tasks = new Map(visibleTasks(me).map((t) => [t.code, t]));
+  const tasks = new Map(
+    visibleTasks(me)
+      .filter((t) => isProjectMember(me, t.projectId))
+      .map((t) => [t.code, t]),
+  );
   const projects = visibleProjectIds(me);
   const out: MeetingTask[] = [];
   const push = (item: MeetingTask) => {
@@ -119,7 +126,8 @@ export function bornFrom(me: string, eventId: string): MeetingTask[] {
       continue;
     }
     const request = state.requests.find((r) => r.code === code);
-    if (!request || !projects.has(request.projectId)) continue;
+    if (!request || !projects.has(request.projectId) || !isProjectMember(me, request.projectId))
+      continue;
     if (request.status !== "converted") {
       push(requestItem(request));
       continue;
@@ -144,8 +152,9 @@ export function meetingNote(me: string, m: MailMessage): MeetingNote | undefined
   const visible = canSeeTranscript(me, t);
   const e = eventOf(t);
   return {
-    docTitle: t.docTitle,
-    doc: t.doc,
+    // A chi non c'era nulla del Google Doc: né il titolo né se si legge.
+    docTitle: visible ? t.docTitle : null,
+    doc: visible ? t.doc : null,
     visible,
     ...(visible ? content(t) : { summary: null, transcript: null }),
     event:
@@ -170,8 +179,14 @@ export async function getMeetingSummary(eventId: string): Promise<MeetingSummary
   return summaryFor(me, eventId);
 }
 
-/** «Tasks from this meeting»: le task e le richieste nate, per ogni membro che le vede. */
-export async function tasksBornFrom(eventId: string): Promise<MeetingTask[]> {
+/**
+ * «Tasks from this meeting»: le task e le richieste nate, per un membro del
+ * progetto dell'evento; `null` per chiunque altro (R-I21) — anche per un
+ * partecipante che ne legge il riassunto: la sezione per lui non c'è.
+ */
+export async function tasksBornFrom(eventId: string): Promise<MeetingTask[] | null> {
   const me = await gate("mail.tasksBornFrom");
+  const e = state.calendarEvents.find((x) => x.id === eventId);
+  if (!e || e.projectId === null || !isProjectMember(me, e.projectId)) return null;
   return bornFrom(me, eventId);
 }

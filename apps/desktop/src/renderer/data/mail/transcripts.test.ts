@@ -112,7 +112,7 @@ describe("Riunioni registrate: tasksBornFrom", () => {
     third!.statusId = state.statuses.find((s) => s.projectId === AUD && s.family === "closed")!.id;
 
     as("p-alessia");
-    const born = await mail.tasksBornFrom(EV_AUD_REVIEW_YESTERDAY);
+    const born = (await mail.tasksBornFrom(EV_AUD_REVIEW_YESTERDAY))!;
     expect(born.map((t) => t.code)).toEqual(codes);
     expect(born.map((t) => t.status)).toEqual(["open", "late", "done"]);
     expect(born[0]).toMatchObject({
@@ -129,7 +129,27 @@ describe("Riunioni registrate: tasksBornFrom", () => {
   it("chi non vede il progetto non vede le task nate", async () => {
     await confirmReview();
     as("p-chiara");
-    expect(await mail.tasksBornFrom(EV_AUD_REVIEW_YESTERDAY)).toEqual([]);
+    expect(await mail.tasksBornFrom(EV_AUD_REVIEW_YESTERDAY)).toBeNull();
+  });
+
+  it("solo ai membri del progetto (R-I21): un partecipante non membro ha il riassunto, non le task", async () => {
+    await confirmReview();
+    const e = event(EV_AUD_REVIEW_YESTERDAY);
+    for (const [personId, name] of [
+      ["p-chiara", "Chiara"],
+      ["p-roberta", "Roberta Fontana"], // full admin: vede ogni task, ma non è membro
+    ] as const) {
+      e.attendees.push({
+        personId,
+        name,
+        email: `${personId}@example.com`,
+        response: "accepted",
+        organizer: false,
+      });
+      as(personId);
+      expect(await mail.getMeetingSummary(EV_AUD_REVIEW_YESTERDAY)).not.toBeNull();
+      expect(await mail.tasksBornFrom(EV_AUD_REVIEW_YESTERDAY)).toBeNull();
+    }
   });
 
   it("una richiesta nata dalla riunione compare come richiesta", async () => {
@@ -143,7 +163,7 @@ describe("Riunioni registrate: tasksBornFrom", () => {
     ];
     const out = await mail.confirmMailProposal(REVIEW);
     expect(out.status).toBe("confirmed");
-    const born = await mail.tasksBornFrom(EV_AUD_REVIEW_YESTERDAY);
+    const born = (await mail.tasksBornFrom(EV_AUD_REVIEW_YESTERDAY))!;
     expect(born).toHaveLength(1);
     expect(born[0]).toMatchObject({
       kind: "request",
@@ -175,6 +195,8 @@ describe("Riunioni registrate: le note nella conversazione della Posta", () => {
     const thread = await mail.getMailThread(threadId());
     const note = thread.messages.find((x) => x.kind === "transcript")!.meeting;
     expect(note).toMatchObject({ visible: false, summary: null, transcript: null, event: null });
+    // Né lo stato né il titolo del Google Doc: solo ciò che dice già l'email.
+    expect(note).toMatchObject({ doc: null, docTitle: null });
   });
 
   it("un'email normale non ha note", async () => {

@@ -1839,11 +1839,12 @@ export interface MailMessageView extends Omit<MailMessage, "readByPersonIds" | "
  * `visible`: è un partecipante (`canSeeTranscript`), quindi vede riassunto e
  * trascrizione (col documento letto); altrimenti restano `null` e la Posta
  * dice che li vede solo chi c'era. `event` c'è solo se chi guarda vede
- * l'evento.
+ * l'evento. A chi non c'era nemmeno il Google Doc: `docTitle` e `doc` sono
+ * `null` (resta ciò che dice l'email).
  */
 export interface MeetingNote {
-  docTitle: string;
-  doc: MeetingTranscript["doc"];
+  docTitle: string | null;
+  doc: MeetingTranscript["doc"] | null;
   visible: boolean;
   summary: string | null;
   transcript: string | null;
@@ -1971,7 +1972,10 @@ export interface CalendarSeriesView extends CalendarSeries {
   nextAt: string | null;
 }
 
-/** Il dettaglio di un evento, con la sua serie (riassunto e scheda: Task 6). */
+/**
+ * Il dettaglio di un evento, con la sua serie. Riassunto e scheda di
+ * preparazione sono letture a sé (`getMeetingSummary`, `getMeetingPrep`).
+ */
 export interface CalendarEventDetail extends CalendarEventView {
   series: CalendarSeriesView | null;
 }

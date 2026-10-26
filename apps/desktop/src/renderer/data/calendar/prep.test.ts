@@ -72,6 +72,16 @@ describe("Scheda di preparazione: quando c'è", () => {
     expect(await calendar.getMeetingPrep(C.allHands)).not.toBeNull();
   });
 
+  it("il confine: finito esattamente adesso è passato, un secondo dopo adesso no", async () => {
+    // Il go-live (11:00–12:00) finisce esattamente a «adesso» (12:00).
+    expect(ev(C.goLive).endsAt).toBe(`${TODAY}T12:00:00Z`);
+    expect(await calendar.getMeetingPrep(C.goLive)).toBeNull();
+    expect((await calendar.getEvent(C.goLive)).hasPrep).toBe(false);
+    ev(C.goLive).endsAt = `${TODAY}T12:00:01Z`;
+    expect(await calendar.getMeetingPrep(C.goLive)).toMatchObject({ eventId: C.goLive });
+    expect((await calendar.getEvent(C.goLive)).hasPrep).toBe(true);
+  });
+
   it("evento passato → null: al suo posto riassunto e task nate [A 1]", async () => {
     expect(await calendar.getMeetingPrep(EV_AUD_REVIEW_YESTERDAY)).toBeNull();
   });

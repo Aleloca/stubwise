@@ -17,9 +17,9 @@ import { TranscriptUnreachable } from "./MeetingPrep";
 // Posta: lo decide `getMeetingSummary` — con il riassunto intero come testo
 // generato, la trascrizione su Google, l'email di Gemini e le proposte ancora
 // aperte (conferma sul posto per chi può), poi «Tasks from this meeting» con
-// lo stato di adesso, quelle che chi guarda vede. Chi non c'era vede solo le
-// task nate, e nulla dice che un riassunto esista: senza task, per lui qui
-// non c'è niente.
+// lo stato di adesso, solo per i membri del progetto (R-I21). Chi non c'era
+// vede solo le task nate, e nulla dice che un riassunto esista: senza task,
+// per lui qui non c'è niente.
 
 const heading = "heading-group";
 
@@ -43,6 +43,8 @@ export function MeetingSummary({
     );
   }
   const s = summary.data ?? null;
+  // `null`: le task nate non sono per chi guarda (non è membro, R-I21).
+  const forMe = born.data !== null;
   const tasks = born.data ?? [];
   // Né riassunto né task (riunione senza note, o io non c'ero e non è nato nulla): niente.
   if (!summary.isError && !s && !born.isError && tasks.length === 0) return null;
@@ -59,7 +61,7 @@ export function MeetingSummary({
         </div>
       )}
       {s && <SummaryBody summary={s} />}
-      {(s || tasks.length > 0 || born.isError) && (
+      {forMe && (s || tasks.length > 0 || born.isError) && (
         <SheetSection
           title={t("calendar.summary.tasksTitle")}
           headingClassName={heading}

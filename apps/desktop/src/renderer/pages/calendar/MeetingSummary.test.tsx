@@ -164,11 +164,15 @@ describe("Riassunto della riunione — chi non c'era, chi non è membro", () => 
       ev().attendees.push(guest);
       const next = state.calendarEvents.find((e) => e.id === NEXT_REVIEW)!;
       next.attendees.push({ ...guest });
+      const codes = await confirmReview();
 
       const { router, panel } = await openReview(personId);
       const summary = await within(panel).findByRole("region", { name: "Meeting summary" });
       expect(within(summary).getByText("Generated text")).toBeInTheDocument();
       expect(within(summary).getByText(SUMMARY)).toBeInTheDocument();
+      // Le task nate sono dei membri (R-I21): la sezione per lui non c'è.
+      expect(within(panel).queryByRole("region", { name: "Tasks from this meeting" })).toBeNull();
+      for (const code of codes) expect(within(panel).queryByText(code)).toBeNull();
 
       // La prossima revisione: invitato, ma senza scheda (serve essere membri).
       setSessionPersonId(personId);
