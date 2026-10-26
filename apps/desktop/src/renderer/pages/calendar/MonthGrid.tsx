@@ -8,6 +8,7 @@ import { outsideWindow } from "./calendarParams";
 import type { GridProps } from "./CalendarGrid";
 import { MailboxRule, answerOf, blockShape, useEventName, type ProjectRef } from "./EventBlock";
 import { MONTH_ROWS, type MailboxMark } from "./gridLayout";
+import { AlertGlyph } from "../mail/glyphs";
 
 // La vista Month del Calendario (shape calendar.md §6): 6 × 7 celle, per
 // cella 3 righe e «+N more»; il numero del giorno porta in Day.
@@ -129,7 +130,12 @@ export function MonthGrid({
   );
 }
 
-/** Una riga di 20 px del mese: «09:30 AUD Standup» (tutto il giorno senza ora). */
+/**
+ * Una riga di 20 px del mese: «09:30 AUD Standup» (tutto il giorno senza
+ * ora). La risposta per forma come nella griglia oraria — contorno per chi
+ * non ha risposto, contorno e tinta lieve con «Maybe» per il forse, barrato
+ * per il rifiuto — e il salvataggio fallito con icona e parola.
+ */
 function MonthRow({
   e,
   project,
@@ -145,9 +151,11 @@ function MonthRow({
   mark: MailboxMark | undefined;
   onOpen: () => void;
 }): ReactNode {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const answer = answerOf(e);
   const label = name(e, project, withMailbox);
+  const failed = e.save?.state === "failed";
+  const outlined = e.allDay || answer === "needsAction" || answer === "tentative" || failed;
   return (
     <button
       type="button"
@@ -155,18 +163,30 @@ function MonthRow({
       aria-label={label}
       title={label}
       onClick={onOpen}
-      className={`relative flex h-5 min-w-0 items-center gap-1 rounded-sm px-1 text-left text-xs transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 ${e.allDay ? `border ${blockShape(e)}` : ""} ${e.save?.state === "failed" ? "text-critical" : ""}`}
+      className={`relative flex h-5 min-w-0 items-center gap-1 rounded-sm px-1 text-left text-xs transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 ${outlined ? `border ${blockShape(e)}` : ""}`}
     >
       {mark && <MailboxRule mark={mark} />}
+      {failed && (
+        <span className="shrink-0 text-critical">
+          <AlertGlyph />
+        </span>
+      )}
       {!e.allDay && (
         <span className="num shrink-0 text-ink-muted">{timeLabel(e.startsAt, i18n.language)}</span>
       )}
       {project && <span className="num shrink-0 font-semibold text-ink">{project.code}</span>}
       <span
-        className={`min-w-0 truncate ${answer === "declined" ? "text-ink-faint line-through" : answer === "needsAction" ? "text-ink underline decoration-dotted underline-offset-2" : "text-ink"}`}
+        className={`min-w-0 truncate ${answer === "declined" ? "text-ink-faint line-through" : "text-ink"}`}
       >
         {e.title}
       </span>
+      {failed ? (
+        <span className="ml-auto shrink-0 text-critical">{t("calendar.save.failed")}</span>
+      ) : (
+        answer === "tentative" && (
+          <span className="ml-auto shrink-0 text-ink-muted">{t("calendar.answer.maybe")}</span>
+        )
+      )}
     </button>
   );
 }

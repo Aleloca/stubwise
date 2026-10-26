@@ -27,7 +27,13 @@ import { Avatar } from "../../tasks-ui/PersonChip";
 import { useToast } from "../../tasks-ui/Toast";
 import { RecipientField } from "../mail/RecipientField";
 import { primaryButton, secondaryButton } from "../tasks/controls";
-import { lastAllDayKey, shortDate, timeInputValue, timeLabel } from "./calendarFormat";
+import {
+  lastAllDayKey,
+  occurrenceLabel,
+  shortDate,
+  timeInputValue,
+  timeLabel,
+} from "./calendarFormat";
 import type { WindowDays } from "./calendarParams";
 import { SeriesScopeDialog } from "./SeriesScopeDialog";
 
@@ -105,6 +111,7 @@ export function EventEditor({
   const toast = useToast();
   const ids = {
     title: useId(),
+    calendar: useId(),
     date: useId(),
     start: useId(),
     duration: useId(),
@@ -154,7 +161,12 @@ export function EventEditor({
     [people],
   );
   const mine = (projects ?? []).filter((p) => p.memberIds.includes(me));
-  const calendar = calendars?.[0]?.email ?? null;
+  const [calendar, setCalendar] = useState<string | null>(null);
+  const myCalendars = calendars ?? [];
+  const chosenCalendar = calendar ?? myCalendars[0]?.email ?? null;
+  // Il primario dice cosa succede: con ospiti NUOVI partono degli inviti.
+  const known = new Set((event?.attendees ?? []).map((a) => a.email.toLowerCase()));
+  const invites = guests.some((g) => !known.has(g.email.toLowerCase()));
 
   const startMs = allDay ? Date.parse(`${date}T00:00:00Z`) : at(date, time);
   const endMs = allDay
@@ -211,6 +223,22 @@ export function EventEditor({
     }
     onSaved(t("calendar.editor.updated", { title: title.trim() }));
     try {
+      // Prima gli orari (e «tutto il giorno»): sono la parte che il livello
+      // dati può rifiutare, e un rifiuto non deve lasciare salvato a metà il
+      // resto (titolo, invitati).
+      if (
+        iso(startMs) !== event.startsAt ||
+        iso(endMs) !== event.endsAt ||
+        allDay !== event.allDay
+      ) {
+        await move.mutateAsync({
+          id: event.id,
+          startsAt: iso(startMs),
+          endsAt: iso(endMs),
+          scope,
+          ...(allDay !== event.allDay ? { allDay } : {}),
+        });
+      }
       await update.mutateAsync({
         id: event.id,
         patch: {
@@ -222,12 +250,11 @@ export function EventEditor({
         },
         scope,
       });
-      if (iso(startMs) !== event.startsAt || iso(endMs) !== event.endsAt) {
-        await move.mutateAsync({ id: event.id, startsAt: iso(startMs), endsAt: iso(endMs), scope });
-      }
       if (projectId !== event.projectId) await setProject.mutateAsync({ id: event.id, projectId });
     } catch {
-      // Lo stato del salvataggio (fallito, «Riprova») lo dice l'evento stesso.
+      // Un rifiuto del livello dati (non un salvataggio fallito verso Google,
+      // che l'evento dice da sé con «Riprova»): si dice a vista.
+      toast.error(t("calendar.editor.updateFailed"));
     }
   }
 
@@ -271,11 +298,7 @@ export function EventEditor({
     return (
       <SeriesScopeDialog
         action="edit"
-        dateLabel={new Intl.DateTimeFormat(i18n.language, {
-          weekday: "long",
-          month: "short",
-          day: "numeric",
-        }).format(new Date(event.startsAt))}
+        dateLabel={occurrenceLabel(event, i18n.language)}
         onCancel={() => setAsking(false)}
         onConfirm={(scope) => {
           setAsking(false);
@@ -297,7 +320,7 @@ export function EventEditor({
             {t("calendar.cancel")}
           </button>
           <button type="button" className={primaryButton} onClick={submit}>
-            {guests.length > 0 && !event ? t("calendar.editor.send") : t("calendar.editor.save")}
+            {invites ? t("calendar.editor.send") : t("calendar.editor.save")}
           </button>
         </>
       }
@@ -403,6 +426,8 @@ export function EventEditor({
               <input
                 type="checkbox"
                 checked={allDay}
+                // In una serie «tutto il giorno» non si cambia da qui (vale per una data sola).
+                disabled={!!event?.seriesId}
                 onChange={(ev) => setAllDay(ev.target.checked)}
                 className="size-3.5 accent-[var(--ink)]"
               />
@@ -497,8 +522,27 @@ export function EventEditor({
           />
         </DialogField>
 
-        {calendar && (
-          <p className="text-xs text-ink-muted">{t("calendar.editor.from", { email: calendar })}</p>
+        {myCalendars.length > 1 ? (
+          <DialogField label={t("calendar.editor.calendar")} htmlFor={ids.calendar}>
+            <select
+              id={ids.calendar}
+              value={chosenCalendar ?? ""}
+              onChange={(ev) => setCalendar(ev.target.value)}
+              className={inputClass}
+            >
+              {myCalendars.map((c) => (
+                <option key={c.email} value={c.email}>
+                  {c.email}
+                </option>
+              ))}
+            </select>
+          </DialogField>
+        ) : (
+          chosenCalendar && (
+            <p className="text-xs text-ink-muted">
+              {t("calendar.editor.from", { email: chosenCalendar })}
+            </p>
+          )
         )}
       </form>
     </Dialog>

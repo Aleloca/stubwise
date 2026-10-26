@@ -29,8 +29,17 @@ export function BandPopover({
   const { t } = useTranslation();
   const name = useEventName();
   const ref = useRef<HTMLDivElement>(null);
+  // Il fuoco entra sulla prima riga; alla chiusura torna al bottone «+N more»
+  // (se nel frattempo non è andato altrove di proposito).
   useLayoutEffect(() => {
-    ref.current?.querySelector<HTMLElement>("button")?.focus();
+    const origin = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const el = ref.current;
+    el?.querySelector<HTMLElement>("button")?.focus();
+    return () => {
+      const active = document.activeElement;
+      const lost = !active || active === document.body || (el?.contains(active) ?? false);
+      if (lost && origin?.isConnected) origin.focus();
+    };
   }, []);
   useEffect(() => {
     const onPointer = (e: PointerEvent) => {
@@ -50,7 +59,15 @@ export function BandPopover({
           e.preventDefault();
           e.stopPropagation();
           onClose();
+          return;
         }
+        // Tab gira fra le righe del popover.
+        if (e.key !== "Tab") return;
+        const rows = [...(ref.current?.querySelectorAll<HTMLElement>("button") ?? [])];
+        if (rows.length === 0) return;
+        const at = rows.indexOf(document.activeElement as HTMLElement);
+        e.preventDefault();
+        rows[(at + (e.shiftKey ? -1 : 1) + rows.length) % rows.length]!.focus();
       }}
       style={topPct !== undefined ? { top: `${topPct}%` } : undefined}
       className={`menu-enter absolute ${side === "right" ? "right-1" : "left-1"} z-30 flex max-h-80 w-72 max-w-[min(18rem,80vw)] flex-col overflow-y-auto rounded-lg border border-rule-strong bg-surface p-1.5 shadow-[0_12px_32px_-8px_oklch(0_0_0/0.4)]`}

@@ -118,6 +118,22 @@ export function eventDayLabel(
   return dateWithWeekday(key, language);
 }
 
+/**
+ * La data di un'occorrenza per il dialogo della serie («Thursday, Oct 29»):
+ * in UTC per un «tutto il giorno», che è una DATA.
+ */
+export function occurrenceLabel(
+  e: Pick<CalendarEvent, "startsAt" | "allDay">,
+  language: string,
+): string {
+  return new Intl.DateTimeFormat(language, {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+    ...(e.allDay ? { timeZone: "UTC" } : {}),
+  }).format(new Date(e.startsAt));
+}
+
 /** «HH:MM» locale per un campo `<input type="time">`. */
 export function timeInputValue(d: Date): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;

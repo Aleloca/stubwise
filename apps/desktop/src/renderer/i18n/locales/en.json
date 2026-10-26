@@ -66,7 +66,6 @@
     "viewsOf": "{{name}} views",
     "coming": {
       "mail": "Mailboxes and labels will be listed here.",
-      "calendar": "Your calendars will be listed here.",
       "claude": "Live and past sessions will be listed here.",
       "automations": "Rules, sources and past runs will be listed here.",
       "projects": "Groups of projects will be listed here.",
@@ -228,7 +227,6 @@
     "pages": {
       "chat": "Project channels, general channels and direct messages will live here.",
       "mail": "Your connected mailbox will be read here, with the tasks it proposes.",
-      "calendar": "Your connected calendar will be shown here, with the tasks its events propose.",
       "claude": "Claude's live sessions will be followed here: what it is doing and what it asks.",
       "automations": "Rules that turn incoming events into tasks will be built here.",
       "projects": "Every project you can see will be listed here.",
@@ -4028,7 +4026,8 @@
       "guests_one": "{{count}} guest",
       "guests_other": "{{count}} guests",
       "band_one": "{{count}} event at this time",
-      "band_other": "{{count}} events at this time"
+      "band_other": "{{count}} events at this time",
+      "actions": "More actions for {{title}}"
     },
     "answer": {
       "going": "Going?",
@@ -4193,7 +4192,9 @@
       "outsideWindow": "Stubwise can schedule up to {{date}} · use Google Calendar for later dates",
       "created": "{{title}} created. Saving…",
       "updated": "{{title}} updated. Saving…",
-      "failed": "Couldn't create the meeting"
+      "failed": "Couldn't create the meeting",
+      "calendar": "Calendar",
+      "updateFailed": "Couldn't save the meeting: nothing was changed."
     },
     "column": {
       "calendars": "Calendars",
@@ -4260,6 +4261,10 @@
       "withDays": "{{frequency}} on {{days}}",
       "withUntil": "{{recurrence}} · until {{date}}",
       "withCount": "{{recurrence}} · {{count}} times"
+    },
+    "moveTo": {
+      "item": "Move to…",
+      "title": "Move {{title}}"
     }
   }
 }

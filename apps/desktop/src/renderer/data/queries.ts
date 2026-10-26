@@ -2939,13 +2939,26 @@ function useCalendarSave<TVars, TData>(mutationFn: (vars: TVars) => Promise<TDat
   });
 }
 
-const isEventView = (x: unknown): x is CalendarEventView =>
-  typeof x === "object" && x !== null && "startsAt" in x && "attendees" in x && "id" in x;
+function isEventView(x: unknown): x is CalendarEventView {
+  if (typeof x !== "object" || x === null) return false;
+  const e = x as Partial<CalendarEventView>;
+  return (
+    typeof e.id === "string" &&
+    typeof e.startsAt === "string" &&
+    typeof e.endsAt === "string" &&
+    typeof e.allDay === "boolean" &&
+    typeof e.isOrganizer === "boolean" &&
+    Array.isArray(e.attendees)
+  );
+}
 
-/** Mette (o sostituisce) l'evento negli elenchi letti degli intervalli che tocca. */
+/**
+ * Mette (o sostituisce) l'evento negli elenchi letti degli intervalli che
+ * tocca, con la stessa regola di `listEvents` (`spanOf`: un «tutto il
+ * giorno» copre i giorni LOCALI della sua data).
+ */
 function placeEvent(client: ReturnType<typeof useQueryClient>, me: string, e: CalendarEventView) {
-  const from = Date.parse(e.startsAt);
-  const to = Date.parse(e.endsAt);
+  const { from, to } = api.calendar.spanOf(e);
   for (const [key, list] of client.getQueriesData<CalendarEventView[]>({
     queryKey: ["as", me, "calendar", "events"],
   })) {
@@ -2978,12 +2991,15 @@ export function useMoveEvent() {
       startsAt,
       endsAt,
       scope,
+      allDay,
     }: {
       id: string;
       startsAt: string;
       endsAt: string;
       scope?: CalendarScope;
-    }) => api.calendar.moveEvent(id, startsAt, endsAt, scope),
+      /** Cambia anche «tutto il giorno» (solo per una data). */
+      allDay?: boolean;
+    }) => api.calendar.moveEvent(id, startsAt, endsAt, scope, allDay),
   );
 }
 

@@ -18,10 +18,11 @@ import {
   useCalendars,
   useGoogleAccount,
   useMoveEvent,
+  useRetryEventSave,
   useProjects,
 } from "../../data/queries";
 import { onBeforePersonaChange } from "../../data/session";
-import type { CalendarEventDetail, CalendarScope } from "../../data/types";
+import type { CalendarEventDetail, CalendarEventView, CalendarScope } from "../../data/types";
 import { DOCKED_PANEL_QUERY, DetailPanel } from "../../layout/useDetailPanel";
 import { useMediaQuery } from "../../layout/useMediaQuery";
 import { hasModKey } from "../../platform/platform";
@@ -33,7 +34,8 @@ import { openGoogleAccount } from "../drive/GoogleAccountCard";
 import { typing } from "../tasks/useTaskKeys";
 import { CalendarGrid, type GridMove } from "./CalendarGrid";
 import { calendarSyncPhase, CalendarSyncRow, useHiddenCalendars } from "./CalendarColumn";
-import { rangeLabel, shortDate, timeLabel } from "./calendarFormat";
+import { occurrenceLabel, rangeLabel, shortDate, timeLabel } from "./calendarFormat";
+import { MoveToDialog } from "./MoveToDialog";
 import {
   calendarSearch,
   canStep,
@@ -89,6 +91,8 @@ export function CalendarPage() {
   const move = useMoveEvent();
   const [editing, setEditing] = useState<Editing>(null);
   const [scopeFor, setScopeFor] = useState<GridMove | null>(null);
+  const [movingTo, setMovingTo] = useState<CalendarEventView | null>(null);
+  const retry = useRetryEventSave();
   const [message, setMessage] = useState("");
 
   const announce = useCallback((text: string) => {
@@ -124,10 +128,15 @@ export function CalendarPage() {
     if (search.date && search.date !== date) setSearch(calendarSearch({ view, date }, today), true);
   }, [search.date, date, view, today, setSearch]);
 
-  // [A 11] Un evento aperto da fuori (Home, Posta, ⌘K) senza giorno: Day sul suo giorno.
+  // [A 11] Un evento aperto da FUORI (Home, Posta, ⌘K) senza giorno: Day sul suo
+  // giorno. Solo per l'evento con cui si è arrivati: aprirne uno dalla griglia
+  // lascia la vista com'è.
+  const arrival = useRef<string | null>(search.date ? null : (search.event ?? null));
   const opened = useCalendarEvent(connected && search.event ? search.event : null);
   useEffect(() => {
-    if (!search.event || search.date || !opened.data) return;
+    if (!arrival.current || search.event !== arrival.current || !opened.data) return;
+    arrival.current = null;
+    if (search.date) return;
     setSearch(calendarSearch({ view: "day", date: eventDayKey(opened.data) }, today), true);
     // Una volta per evento aperto.
   }, [search.event, search.date, opened.data?.id]);
@@ -338,6 +347,12 @@ export function CalendarPage() {
                 onMove={onMove}
                 onDayOpen={(day) => go({ view: "day", date: day })}
                 announce={announce}
+                onRefuse={(text) => {
+                  toast.error(text);
+                  announce(text);
+                }}
+                onRetry={(id) => retry.mutate(id)}
+                onMoveTo={setMovingTo}
               />
               {empty && (
                 <p className="pointer-events-none absolute inset-x-0 top-1/2 text-center text-md text-ink-faint">
@@ -396,14 +411,18 @@ export function CalendarPage() {
           onSaved={announce}
         />
       )}
+      {movingTo && (
+        <MoveToDialog
+          event={movingTo}
+          win={win}
+          onMove={onMove}
+          onClose={() => setMovingTo(null)}
+        />
+      )}
       {scopeFor && (
         <SeriesScopeDialog
           action="move"
-          dateLabel={new Intl.DateTimeFormat(i18n.language, {
-            weekday: "long",
-            month: "short",
-            day: "numeric",
-          }).format(new Date(scopeFor.event.startsAt))}
+          dateLabel={occurrenceLabel(scopeFor.event, i18n.language)}
           onCancel={() => {
             setScopeFor(null);
             announce(t("calendar.move.cancelled"));

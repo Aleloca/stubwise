@@ -237,17 +237,23 @@ export async function moveEvent(
   startsAt: string,
   endsAt: string,
   scope: CalendarScope = "one",
+  allDay?: boolean,
 ): Promise<CalendarEventView> {
   const me = await writer("calendar.moveEvent");
   const e = organizedEvent(me, id);
   const targets = targetsOf(e, scope);
-  checkTimes(startsAt, endsAt, e.allDay);
+  // Diventare (o smettere di essere) «tutto il giorno» vale per una data sola:
+  // per la serie lo scarto non ha senso fra un istante e una data.
+  const nextAllDay = allDay ?? e.allDay;
+  if (nextAllDay !== e.allDay && scope === "series") throw invalid("all_day_series");
+  checkTimes(startsAt, endsAt, nextAllDay);
   const delta = Date.parse(startsAt) - Date.parse(e.startsAt);
   const duration = Date.parse(endsAt) - Date.parse(startsAt);
   save(targets, (t) => {
     const start = Date.parse(t.startsAt) + delta;
     t.startsAt = isoAt(start);
     t.endsAt = isoAt(start + duration);
+    t.allDay = nextAllDay;
   });
   return eventView(me, e);
 }

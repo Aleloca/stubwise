@@ -66,7 +66,6 @@
     "viewsOf": "Viste di {{name}}",
     "coming": {
       "mail": "Qui compariranno caselle ed etichette.",
-      "calendar": "Qui compariranno i tuoi calendari.",
       "claude": "Qui compariranno le sessioni dal vivo e quelle passate.",
       "automations": "Qui compariranno regole, sorgenti ed esecuzioni passate.",
       "projects": "Qui compariranno i gruppi di progetti.",
@@ -228,7 +227,6 @@
     "pages": {
       "chat": "Qui vivranno i canali dei progetti, quelli generali e i messaggi diretti.",
       "mail": "Qui si leggerà la tua posta collegata, con le task che propone.",
-      "calendar": "Qui comparirà il tuo calendario collegato, con le task che propongono i suoi eventi.",
       "claude": "Qui si seguiranno le sessioni dal vivo di Claude: cosa sta facendo e cosa chiede.",
       "automations": "Qui si costruiranno le regole che trasformano gli eventi in arrivo in task.",
       "projects": "Qui compariranno tutti i progetti che vedi.",
@@ -4028,7 +4026,8 @@
       "guests_one": "{{count}} invitato",
       "guests_other": "{{count}} invitati",
       "band_one": "{{count}} evento a quest'ora",
-      "band_other": "{{count}} eventi a quest'ora"
+      "band_other": "{{count}} eventi a quest'ora",
+      "actions": "Altre azioni per {{title}}"
     },
     "answer": {
       "going": "Partecipi?",
@@ -4193,7 +4192,9 @@
       "outsideWindow": "Stubwise può fissare fino al {{date}} · per le date successive usa Google Calendar",
       "created": "{{title}} creata. Salvataggio…",
       "updated": "{{title}} aggiornata. Salvataggio…",
-      "failed": "Non è stato possibile creare la riunione"
+      "failed": "Non è stato possibile creare la riunione",
+      "calendar": "Calendario",
+      "updateFailed": "Non è stato possibile salvare la riunione: non è cambiato nulla."
     },
     "column": {
       "calendars": "Calendari",
@@ -4260,6 +4261,10 @@
       "withDays": "{{frequency}}, di {{days}}",
       "withUntil": "{{recurrence}} · fino al {{date}}",
       "withCount": "{{recurrence}} · {{count}} volte"
+    },
+    "moveTo": {
+      "item": "Sposta a…",
+      "title": "Sposta {{title}}"
     }
   }
 }

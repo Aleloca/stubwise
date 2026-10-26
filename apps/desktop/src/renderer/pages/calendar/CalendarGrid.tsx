@@ -24,6 +24,9 @@ import {
 import { MAX_LANES, layoutLanes, type MailboxMark } from "./gridLayout";
 import { MonthGrid } from "./MonthGrid";
 import { useBlockMove, type GridMove } from "./useBlockMove";
+import { itemClass } from "../../tasks-ui/Menu";
+import { MoreIcon } from "../task/parts";
+import { MenuButton } from "../tasks/controls";
 
 // La griglia del Calendario (shape calendar.md §6): un registro orario a
 // righe sottili. Day e Week sono una griglia oraria (ore 48 px, testate
@@ -55,6 +58,12 @@ export interface GridProps {
   onMove: (move: GridMove) => void;
   onDayOpen: (day: string) => void;
   announce: (message: string) => void;
+  /** Uno spostamento rifiutato (oltre la finestra): la pagina lo dice a vista. */
+  onRefuse: (message: string) => void;
+  /** «Retry» di un salvataggio fallito, sul blocco. */
+  onRetry: (id: string) => void;
+  /** «Move to…» dal menu ⋯ del blocco (dialogo data e ora). */
+  onMoveTo: (event: CalendarEventView) => void;
 }
 
 const minutesInDay = (d: Date) => d.getHours() * 60 + d.getMinutes();
@@ -87,6 +96,9 @@ function TimeGrid({
   onCreate,
   onMove,
   announce,
+  onRefuse,
+  onRetry,
+  onMoveTo,
 }: GridProps) {
   const { t, i18n } = useTranslation();
   const name = useEventName();
@@ -107,6 +119,7 @@ function TimeGrid({
     onOpen,
     onMove,
     onCreate,
+    onRefuse,
   });
   const [more, setMore] = useState<{
     day: number;
@@ -126,7 +139,8 @@ function TimeGrid({
     const nowHour = now.getHours();
     if (todayIndex >= 0 && (nowHour + 1) * HOUR_PX > 8 * HOUR_PX + el.clientHeight)
       hour = nowHour - 1;
-    el.scrollTop = hour * HOUR_PX;
+    // Qualche pixel prima dell'ora, perché la sua etichetta (a cavallo della riga) resti intera.
+    el.scrollTop = Math.max(0, hour * HOUR_PX - 12);
     // Solo cambiando vista o intervallo, non a ogni rilettura.
   }, [view, days[0]?.getTime()]);
 
@@ -186,7 +200,7 @@ function TimeGrid({
         <div role="row" className="grid" style={gridCols}>
           <div
             role="rowheader"
-            className="flex items-start justify-end pt-1.5 pr-2 text-[11px] whitespace-nowrap text-ink-muted"
+            className="flex items-start justify-end pt-1.5 pr-1.5 text-right text-[11px] leading-tight break-words hyphens-auto text-ink-muted"
           >
             {t("calendar.allDay")}
           </div>
@@ -349,6 +363,47 @@ function TimeGrid({
                           titleFirst={p.lanes >= 3 && view === "week"}
                         />
                       </button>
+                      {ev.save?.state === "failed" && (
+                        <button
+                          type="button"
+                          data-block-retry
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={() => onRetry(ev.id)}
+                          aria-label={`${t("calendar.save.retry")}: ${ev.title}`}
+                          className="absolute right-1 bottom-1 z-10 rounded-sm bg-surface px-1 text-xs font-semibold text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
+                        >
+                          {t("calendar.save.retry")}
+                        </button>
+                      )}
+                      {original.isOrganizer && !moving && minutes >= 30 && (
+                        <span
+                          className="absolute top-0.5 right-0.5 z-10 opacity-0 transition-opacity duration-[var(--duration-fast)] group-focus-within:opacity-100 group-hover:opacity-100 has-[[aria-expanded=true]]:opacity-100"
+                          onPointerDown={(e) => e.stopPropagation()}
+                        >
+                          <MenuButton
+                            menuLabel={t("calendar.block.actions", { title: ev.title })}
+                            ariaLabel={t("calendar.block.actions", { title: ev.title })}
+                            align="right"
+                            className="grid size-5 place-items-center rounded-sm bg-surface text-ink-muted hover:text-ink aria-expanded:text-ink"
+                            label={<MoreIcon />}
+                          >
+                            {(close) => (
+                              <button
+                                type="button"
+                                role="menuitem"
+                                tabIndex={-1}
+                                className={itemClass}
+                                onClick={() => {
+                                  close();
+                                  onMoveTo(original);
+                                }}
+                              >
+                                {t("calendar.moveTo.item")}
+                              </button>
+                            )}
+                          </MenuButton>
+                        </span>
+                      )}
                       {original.isOrganizer && !continues && (
                         <span
                           aria-hidden="true"

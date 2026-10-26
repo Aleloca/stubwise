@@ -13,6 +13,7 @@ export {
   listEvents,
   listSeries,
   listUpcomingEvents,
+  spanOf,
 } from "./reads";
 export {
   configureSeries,
