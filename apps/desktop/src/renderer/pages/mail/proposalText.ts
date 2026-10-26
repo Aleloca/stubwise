@@ -24,14 +24,6 @@ export function isLiveProposal(view: MailProposalView): boolean {
 export type Args = Record<string, unknown>;
 export type Edits = Record<number, Args>;
 
-/** Le funzioni che si spostano su un altro progetto (non toccano oggetti del progetto). */
-export const PORTABLE: ReadonlySet<ProposedAction["fn"]> = new Set([
-  "createTask",
-  "createRequest",
-  "recordDecision",
-  "createMilestone",
-]);
-
 /** Le funzioni che si modificano sul posto. Una decisione no: il testo lo scrive il template. */
 export const EDITABLE: ReadonlySet<ProposedAction["fn"]> = new Set([
   "createTask",

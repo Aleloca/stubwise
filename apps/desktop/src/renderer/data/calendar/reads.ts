@@ -1,4 +1,5 @@
 import { addDays, startOfLocalDay } from "@stubwise/shared";
+import { isProjectMember } from "../mail/visibility";
 import { copy, gate, now, state, visibleProjectIds } from "../store";
 import type {
   CalendarEvent,
@@ -61,6 +62,20 @@ const touches = (e: CalendarEvent, from: number, to: number) => {
 const byStart = (a: CalendarEvent, b: CalendarEvent) =>
   a.startsAt.localeCompare(b.startsAt) || a.id.localeCompare(b.id);
 
+/**
+ * L'evento ha la scheda di preparazione per `me`: non ancora finito (in
+ * corso sì), con un progetto che vede e di cui è membro (`memberIds`, R-I7).
+ * L'unica regola: la usano `getMeetingPrep` e il flag `hasPrep` della vista.
+ */
+export function prepAvailable(me: string, e: CalendarEvent): boolean {
+  return (
+    Date.parse(e.endsAt) > Date.parse(now()) &&
+    e.projectId !== null &&
+    visibleProjectIds(me).has(e.projectId) &&
+    isProjectMember(me, e.projectId)
+  );
+}
+
 /** L'evento come lo vede chi guarda: la sua risposta, il suo calendario, il progetto se lo vede. */
 export function eventView(me: string, e: CalendarEvent): CalendarEventView {
   const view: CalendarEventView = {
@@ -70,6 +85,7 @@ export function eventView(me: string, e: CalendarEvent): CalendarEventView {
     calendarEmail: e.calendarPersonIds.includes(me)
       ? (state.calendarSync.find((c) => c.personId === me)?.email ?? null)
       : null,
+    hasPrep: prepAvailable(me, e),
   };
   if (view.projectId !== null && !visibleProjectIds(me).has(view.projectId)) {
     view.projectId = null;

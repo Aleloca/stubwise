@@ -1,7 +1,5 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { now } from "../../data/dates";
-import { useSessionPersonId } from "../../data/queries";
 import type { CalendarEventView, Rsvp } from "../../data/types";
 import { AlertGlyph, VideoGlyph } from "../mail/glyphs";
 import { spanLabel, timeLabel } from "./calendarFormat";
@@ -34,21 +32,6 @@ export interface ProjectRef {
   id: string;
   code: string;
   name: string;
-  /** I membri espliciti (R-I7): dicono se l'evento ha la scheda di preparazione per me. */
-  memberIds?: readonly string[];
-}
-
-/**
- * L'evento ha la scheda di preparazione per chi guarda (shape meeting-prep.md
- * §6): futuro o in corso, con un progetto di cui è membro. La stessa regola
- * del dettaglio (`EventDetail`) e di `getMeetingPrep`.
- */
-export function hasPrep(
-  e: Pick<CalendarEventView, "endsAt">,
-  project: ProjectRef | undefined,
-  me: string,
-): boolean {
-  return !!project?.memberIds?.includes(me) && Date.parse(e.endsAt) > Date.parse(now());
 }
 
 /**
@@ -75,7 +58,6 @@ export function PrepMark() {
 /** Il nome accessibile completo: titolo, orario intero, progetto, risposta, salvataggio, casella. */
 export function useEventName() {
   const { t, i18n } = useTranslation();
-  const me = useSessionPersonId();
   return (e: CalendarEventView, project: ProjectRef | undefined, withMailbox: boolean): string => {
     const parts = [
       e.title,
@@ -84,7 +66,7 @@ export function useEventName() {
         : spanLabel(e, i18n.language),
     ];
     if (project) parts.push(`${project.code} ${project.name}`);
-    if (hasPrep(e, project, me)) parts.push(t("calendar.prep.available"));
+    if (e.hasPrep) parts.push(t("calendar.prep.available"));
     const word = answerWordKey(answerOf(e));
     if (word) parts.push(t(word));
     if (e.save?.state === "saving") parts.push(t("calendar.save.saving"));
@@ -159,8 +141,7 @@ export function GridBlockBody({
   hideCode: boolean;
 }) {
   const { t, i18n } = useTranslation();
-  const me = useSessionPersonId();
-  const prep = hasPrep(e, project, me) && <PrepMark />;
+  const prep = e.hasPrep && <PrepMark />;
   const answer = answerOf(e);
   const word = answerWordKey(answer);
   const lines = Math.max(1, Math.floor((heightPx - 4) / BLOCK_LINE_PX));

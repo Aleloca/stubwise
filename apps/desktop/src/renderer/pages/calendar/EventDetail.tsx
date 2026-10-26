@@ -171,7 +171,6 @@ function Detail({
     ? `${t("calendar.allDay")} · ${spanLabel(e, i18n.language)}`
     : `${eventDayLabel(e, todayKey(), i18n.language, dayWords)} · ${spanLabel(e, i18n.language)}`;
   const project = e.projectId ? projects?.find((p) => p.id === e.projectId) : undefined;
-  const member = !!project && project.memberIds.includes(me);
   const past = Date.parse(e.endsAt) <= Date.parse(now());
   const organizer = e.attendees.find((a) => a.organizer);
   const invited = e.myResponse !== null && !e.isOrganizer;
@@ -379,7 +378,7 @@ function Detail({
       {past ? (
         <MeetingSummary eventId={e.id} projectCode={project?.code ?? null} />
       ) : (
-        member && project && <MeetingPrep eventId={e.id} project={project} />
+        e.hasPrep && project && <MeetingPrep eventId={e.id} project={project} />
       )}
 
       <footer className="mt-2 flex flex-col gap-3 border-t border-rule px-4 pt-3">

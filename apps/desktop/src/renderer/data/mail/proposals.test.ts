@@ -643,6 +643,28 @@ describe("Proposte della posta: scegliere e spostare il progetto", () => {
     ]);
     await expect(mail.reassignMailProposal(update, MKX)).rejects.toThrow("invalid_action");
   });
+
+  it("`canReassign` sulla vista: la stessa regola di reassignMailProposal", async () => {
+    const flag = async (id: string) => (await mail.getMailProposal(id)).canReassign;
+    expect(await flag(SHARED)).toBe(true);
+    expect(await flag(CHOOSE)).toBe(false); // si sceglie, non si sposta
+    const update = addProposal([
+      { fn: "updateTask", args: { id: "t-aud-9", patch: { dueDate: null } }, summary: "Update" },
+    ]);
+    expect(await flag(update)).toBe(false); // tocca un oggetto di AUD
+    as("p-laura"); // Project Lead in STW, non destinataria: legge la passata per l'estratto
+    expect(await flag(HANDED)).toBe(false);
+    // Nessun altro progetto di cui sia membro: niente da spostare.
+    as("p-giulia");
+    const elsewhere = state.projects.filter(
+      (p) => p.id !== AUD && p.memberIds.includes("p-giulia"),
+    );
+    for (const p of elsewhere) p.memberIds = p.memberIds.filter((id) => id !== "p-giulia");
+    expect(await flag(SHARED)).toBe(false);
+    for (const p of elsewhere) p.memberIds.push("p-giulia");
+    await mail.confirmMailProposal(SHARED);
+    expect(await flag(SHARED)).toBe(false); // decisa
+  });
 });
 
 describe("Proposte della posta: calendario", () => {

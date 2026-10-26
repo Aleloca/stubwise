@@ -1,7 +1,6 @@
 import { isOverdue, openMilestones } from "../../domain/due";
 import { rowsFor } from "../mail/reads";
 import { bornFrom, summaryFor } from "../mail/transcripts";
-import { isProjectMember } from "../mail/visibility";
 import { TODAY } from "../seed/dates";
 import {
   copy,
@@ -11,11 +10,10 @@ import {
   pulseOf,
   stalledTasks,
   state,
-  visibleProjectIds,
   visibleTasks,
 } from "../store";
 import type { CalendarEvent, MeetingPrep, RecentMeeting } from "../types";
-import { readableEvent } from "./reads";
+import { prepAvailable, readableEvent } from "./reads";
 import { canReadEvent, inWindow } from "./visibility";
 
 // La scheda di preparazione (area 6, shape meeting-prep.md): dentro il
@@ -68,10 +66,8 @@ function recentMeetings(me: string, e: CalendarEvent, projectId: string): Recent
 
 /** La scheda per `me`; `null` se l'evento è passato, senza progetto o se non è membro. */
 export function prepFor(me: string, e: CalendarEvent): MeetingPrep | null {
-  if (Date.parse(e.endsAt) <= Date.parse(now())) return null;
-  const projectId = e.projectId;
-  if (projectId === null || !visibleProjectIds(me).has(projectId)) return null;
-  if (!isProjectMember(me, projectId)) return null;
+  if (!prepAvailable(me, e)) return null;
+  const projectId = e.projectId!;
   const project = state.projectsById.get(projectId)!;
   const pulse = pulseOf(me, project);
   const open = visibleTasks(me).filter(

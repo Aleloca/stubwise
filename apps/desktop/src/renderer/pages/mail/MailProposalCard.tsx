@@ -33,7 +33,6 @@ import { OutsiderPrompt } from "./OutsiderPrompt";
 import {
   ABILITY,
   EDITABLE,
-  PORTABLE,
   assigneeOf,
   effectiveArgs,
   isLiveProposal,
@@ -285,13 +284,7 @@ export function MailProposalCard({
   const reassignTargets = (projects ?? []).filter(
     (x) => x.id !== p.projectId && x.memberIds.includes(me),
   );
-  const canMove =
-    status === "open" &&
-    !choosing &&
-    p.source !== "calendar" &&
-    (view.canConfirm || view.canHand) &&
-    p.actions.every((a) => PORTABLE.has(a.fn)) &&
-    reassignTargets.length > 0;
+  const canMove = view.canReassign && reassignTargets.length > 0;
 
   // --- l'esito ----------------------------------------------------------------
   if (!live) {

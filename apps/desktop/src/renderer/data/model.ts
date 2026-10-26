@@ -1689,6 +1689,12 @@ export interface MailProposalView {
   proposal: MailProposal;
   canConfirm: boolean;
   canHand: boolean;
+  /**
+   * Chi guarda può spostarla su un altro progetto di cui è membro
+   * (`reassignMailProposal`): aperta, da un'email che riceve, con sole azioni
+   * portabili, e almeno un altro progetto dove spostarla.
+   */
+  canReassign: boolean;
   outsiders: { personId: string; name: string }[];
   decidedBy: { personId: string; name: string } | null;
   /**
@@ -1951,6 +1957,12 @@ export interface CalendarEventView extends CalendarEvent {
   isOrganizer: boolean;
   /** Il mio calendario che lo contiene; `null` se ci sono solo come invitato senza account. */
   calendarEmail: string | null;
+  /**
+   * Ha la scheda di preparazione per chi guarda (`getMeetingPrep` non è
+   * `null`): non ancora finito, con un progetto di cui è membro. Lo calcola
+   * il livello dati; il segno sui blocchi e il dettaglio lo leggono.
+   */
+  hasPrep: boolean;
 }
 
 /** Una serie come la vede chi guarda: le date dentro la finestra letta e la prossima. */

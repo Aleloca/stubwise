@@ -102,6 +102,21 @@ function outsidersOf(p: MailProposal, actions: ProposedAction[]): string[] {
   return [...ids];
 }
 
+/**
+ * La regola di `reassignMailProposal`, senza il progetto di arrivo: aperta,
+ * non di calendario né da scegliere, da un'email che chi guarda riceve, con
+ * sole azioni portabili.
+ */
+function reassignable(me: string, p: MailProposal): boolean {
+  return (
+    p.status === "open" &&
+    p.source !== "calendar" &&
+    !isChoosing(p) &&
+    isProposalRecipient(me, p) &&
+    p.actions.every((a) => PORTABLE_FNS.has(a.fn))
+  );
+}
+
 function canConfirmNow(me: string, p: MailProposal): boolean {
   return isPending(p) && !isChoosing(p) && canDo(me, p, p.actions);
 }
@@ -134,6 +149,9 @@ function viewOf(me: string, p: MailProposal): MailProposalView {
     proposal,
     canConfirm,
     canHand: p.status === "open" && p.source !== "calendar" && !isChoosing(p) && !canConfirm,
+    canReassign:
+      reassignable(me, p) &&
+      state.projects.some((x) => x.id !== p.projectId && x.memberIds.includes(me)),
     outsiders: outsidersOf(p, p.actions).map((personId) => ({
       personId,
       name: personName(personId),
@@ -483,7 +501,7 @@ export async function reassignMailProposal(id: string, projectId: string): Promi
   if (!isProposalRecipient(me, p)) throw forbidden();
   if (!isProjectMember(me, projectId)) throw notFound();
   if (projectId === p.projectId) throw invalid("project");
-  if (p.actions.some((a) => !PORTABLE_FNS.has(a.fn))) throw invalidAction();
+  if (!reassignable(me, p)) throw invalidAction();
   checkUnique(p, projectId);
   const from = p.projectId;
   p.projectId = projectId;

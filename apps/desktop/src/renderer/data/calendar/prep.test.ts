@@ -76,6 +76,19 @@ describe("Scheda di preparazione: quando c'è", () => {
     expect(await calendar.getMeetingPrep(EV_AUD_REVIEW_YESTERDAY)).toBeNull();
   });
 
+  it("`hasPrep` sulla vista dell'evento: la stessa regola di getMeetingPrep", async () => {
+    const flag = async (id: string) => (await calendar.getEvent(id)).hasPrep;
+    expect(await flag(NEXT_REVIEW)).toBe(true);
+    expect(await flag(C.lunch)).toBe(false); // senza progetto
+    expect(await flag(EV_AUD_REVIEW_YESTERDAY)).toBe(false); // passato
+    ev(C.allHands).projectId = AUD;
+    expect(await flag(C.allHands)).toBe(true);
+    as("p-chiara"); // non membro di AUD
+    expect(await flag(C.allHands)).toBe(false);
+    const listed = await calendar.listUpcomingEvents();
+    expect(listed.find((e) => e.id === C.allHands)?.hasPrep ?? false).toBe(false);
+  });
+
   it("evento che non vedo → not_found, come uno inesistente", async () => {
     as("p-roberta");
     expect(await errorOf(calendar.getMeetingPrep(NEXT_REVIEW))).toBe("not_found");

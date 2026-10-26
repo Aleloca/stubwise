@@ -7,7 +7,6 @@ import {
   useCalendars,
   useGoogleAccount,
   useProjects,
-  useSessionPersonId,
   useUpcomingEvents,
 } from "../../../data/queries";
 import type { CalendarEventView } from "../../../data/types";
@@ -16,7 +15,6 @@ import { timeLabel } from "../../calendar/calendarFormat";
 import {
   PrepMark,
   answerOf,
-  hasPrep,
   useEventName,
   type ProjectRef,
 } from "../../calendar/EventBlock";
@@ -165,7 +163,6 @@ function EventRow({
   project: ProjectRef | undefined;
 }) {
   const { t, i18n } = useTranslation();
-  const me = useSessionPersonId();
   const toast = useToast();
   const name = useEventName();
   const at = Date.parse(now());
@@ -204,7 +201,7 @@ function EventRow({
       >
         {e.title}
       </Link>
-      {hasPrep(e, project, me) && <PrepMark />}
+      {e.hasPrep && <PrepMark />}
       {notAnswered && (
         <span className="shrink-0 text-xs text-ink-muted">{t("calendar.answer.notAnswered")}</span>
       )}
