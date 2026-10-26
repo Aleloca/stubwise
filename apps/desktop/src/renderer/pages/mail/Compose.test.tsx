@@ -5,11 +5,12 @@ import { mail, resetApi, setLatency } from "../../data/api";
 import { MAIL_UNDO_MS } from "../../data/mail/compose";
 import { MAIL_CASES } from "../../data/seed/mail";
 import { setSessionPersonId } from "../../data/session";
-import { state } from "../../data/store";
+import { setStreamLatency, state } from "../../data/store";
 import { resetViewerGrants } from "../../data/viewer";
 import { setMatchMedia } from "../../test/setup";
 import { renderRoute } from "../../test/renderRoute";
 import { closeGoogleAccount } from "../drive/GoogleAccountCard";
+import { takeCompose } from "./composeRequest";
 import { MAIL_TWO_UP_QUERY } from "./MailPage";
 
 // Scrivere dalla Posta (Task 8, shape mail-compose.md): rispondere in fondo
@@ -70,6 +71,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
+  setStreamLatency(null);
   resetViewerGrants();
   closeGoogleAccount();
   setSessionPersonId("p-giulia");
@@ -107,14 +109,15 @@ describe("Rispondere in fondo alla conversazione", () => {
     });
     await waitFor(() => expect(row).toHaveAccessibleName(/Draft/));
 
-    // Esc chiude la casella e tiene la bozza.
+    // Esc chiude la casella e tiene la bozza; il fuoco torna a «Reply», che l'aveva aperta.
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("form")).toBeNull());
-    await waitFor(() =>
-      expect(
-        within(screen.getByRole("listbox")).getByRole("option", { name: /Notes from today's/ }),
-      ).toHaveFocus(),
-    ).catch(() => undefined);
+    const p = await pane(CALL_NOTES());
+    await waitFor(() => expect(within(p).getByRole("button", { name: "Reply" })).toHaveFocus());
+    expect(within(p).getByRole("button", { name: "Reply" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
 
     // Un'altra conversazione e ritorno: la casella è aperta con il testo, il fuoco no.
     await router.navigate({
@@ -447,6 +450,8 @@ describe("Nuova email", () => {
       }),
     );
     await waitFor(() => expect(search(router).compose).toBeUndefined());
+    // Il fuoco torna a «New email».
+    await waitFor(() => expect(screen.getByRole("button", { name: "New email" })).toHaveFocus());
     await userEvent.click(screen.getByRole("button", { name: "Draft · Kick-off" }));
     const again = await composer("New email");
     await waitFor(() =>
@@ -484,5 +489,115 @@ describe("Nuova email", () => {
     expect(mineSent()).toEqual([]);
     await userEvent.click(within(form).getByRole("button", { name: "Add subject" }));
     expect(within(form).getByRole("textbox", { name: "Subject" })).toHaveFocus();
+  });
+});
+
+describe("Fix round 1", () => {
+  it("⌘Z si spegne quando l'avviso se ne va (×)", async () => {
+    const user = fakeTime();
+    await openMail(`/mail/${CALL_NOTES()}`);
+    const { p, form } = await replyWith("Keep sending.", user);
+    await user.click(within(form).getByRole("button", { name: "Send" }));
+    await within(p).findByText("Sending…");
+    const toast = (await screen.findByText("Sending to Matteo Conti")).closest("[data-toast]")!;
+    await user.click(within(toast as HTMLElement).getByRole("button", { name: "Dismiss" }));
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    await advance(100);
+    expect(mineSent()).toHaveLength(1);
+    expect(screen.queryByRole("form")).toBeNull();
+  });
+
+  it("⌘Z con un menu aperto è del menu; chiuso il menu, annulla", async () => {
+    const user = fakeTime();
+    await openMail(`/mail/${CALL_NOTES()}`);
+    const { p, form } = await replyWith("Menu first.", user);
+    await user.click(within(form).getByRole("button", { name: "Send" }));
+    await within(p).findByText("Sending…");
+    await user.click(within(p).getByRole("button", { name: "More actions" }));
+    const item = (await screen.findAllByRole("menuitem"))[0]!;
+    await waitFor(() => expect(item).toHaveFocus());
+    fireEvent.keyDown(item, { key: "z", ctrlKey: true });
+    await advance(100);
+    expect(mineSent()).toHaveLength(1);
+    await user.keyboard("{Escape}");
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    await composer("Reply to Matteo Conti");
+    expect(mineSent()).toEqual([]);
+  });
+
+  it("«Undo» di una nuova email eliminata la riapre (compose=new) e non lascia richieste in attesa", async () => {
+    const router = await openMail("/mail?compose=new");
+    const form = await composer("New email");
+    await userEvent.type(within(form).getByRole("textbox", { name: "Subject" }), "Kept");
+    await within(form).findByText("Saved", {}, { timeout: 3000 });
+    await userEvent.click(within(form).getByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(search(router).compose).toBeUndefined());
+    expect(state.mailDrafts).toEqual([]);
+    const toast = (await screen.findByText("Draft discarded")).closest("[data-toast]")!;
+    await userEvent.click(within(toast as HTMLElement).getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(search(router).compose).toBe("new"));
+    const again = await composer("New email");
+    await waitFor(() =>
+      expect(within(again).getByRole("textbox", { name: "Subject" })).toHaveValue("Kept"),
+    );
+    await waitFor(() => expect(body(again)).toHaveFocus());
+    expect(takeCompose(null)).toBeNull();
+  });
+
+  it("«Stop» (⌘.) tiene il testo fin lì, rende il campo modificabile e cita solo le task già scritte", async () => {
+    setStreamLatency(40);
+    await openMail(`/mail/${threadOf(MAIL_CASES.shared)}`);
+    const p = await pane(threadOf(MAIL_CASES.shared));
+    await userEvent.click(within(p).getByRole("button", { name: "Reply" }));
+    const form = await composer(/^Reply to /);
+    await userEvent.click(within(form).getByRole("button", { name: "Ask Claude" }));
+    await userEvent.type(
+      within(form).getByRole("textbox", { name: "What should it say? (optional)" }),
+      "tell them it lands on Monday{Enter}",
+    );
+    // Mentre scrive: sola lettura, «Send» spento, «Stop» al posto di «Ask Claude».
+    const writing = await within(form).findByRole("textbox", { name: "Message" });
+    await waitFor(() => expect(writing).toHaveAttribute("aria-busy", "true"));
+    await waitFor(() => expect(writing.textContent?.length ?? 0).toBeGreaterThan(0));
+    expect(within(form).getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(within(form).getByRole("button", { name: "Stop" })).toBeInTheDocument();
+    await userEvent.keyboard("{Control>}.{/Control}");
+    await within(form).findByText(/Draft by Claude/);
+    const text = (body(form) as HTMLTextAreaElement).value;
+    expect(text.length).toBeGreaterThan(0);
+    expect(text).not.toContain("Giulia Ferri");
+    expect(body(form)).not.toHaveAttribute("aria-readonly");
+    await waitFor(() => expect(body(form)).toHaveFocus());
+    const used = within(form).queryByText(/Used:/);
+    for (const code of used?.textContent?.match(/[A-Z]{2,4}-\d+/g) ?? []) {
+      const title = state.tasks.find((task) => task.code === code)!.title;
+      expect(text).toContain(title);
+    }
+    expect(mineSent()).toEqual([]);
+  });
+
+  it("i limiti di Gmail: oltre 10 file la riga lo dice; oltre 25 MB il gettone e «Send» lo dicono", async () => {
+    await openMail(`/mail/${CALL_NOTES()}`);
+    const { form } = await replyWith("Files.");
+    const input = form.querySelector<HTMLInputElement>('input[type="file"]')!;
+    const files = Array.from({ length: 11 }, (_, i) => new File(["x"], `f${i}.txt`));
+    await userEvent.upload(input, files);
+    expect(within(form).getByText("You can attach up to 10 files")).toBeInTheDocument();
+    expect(within(form).getAllByRole("button", { name: /^Remove f\d+\.txt$/ })).toHaveLength(10);
+    // Tolto un file, ne entra uno da 26 MB: sfora.
+    await userEvent.click(within(form).getByRole("button", { name: "Remove f0.txt" }));
+    const big = new File(["x"], "big.zip");
+    Object.defineProperty(big, "size", { value: 26 * 1024 * 1024 });
+    await userEvent.upload(input, big);
+    expect(
+      within(form).getByText("Too large: Gmail accepts up to 25 MB per email"),
+    ).toBeInTheDocument();
+    const send = within(form).getByRole("button", { name: "Send" });
+    expect(send).toBeDisabled();
+    expect(send).toHaveAttribute("title", "Too large: Gmail accepts up to 25 MB per email");
+    expect(form.querySelector('[data-attachment="big.zip"]')).toHaveAttribute(
+      "title",
+      "Too large: Gmail accepts up to 25 MB per email",
+    );
   });
 });

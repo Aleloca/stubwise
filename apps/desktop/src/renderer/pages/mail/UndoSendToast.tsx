@@ -1,13 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { placeDraft } from "../../domain/claude/intents/mailDraft";
-import {
-  MAIL_LIMITS,
-  useLoadMailDraft,
-  useSaveMailDraft,
-  useUndoMailSend,
-} from "../../data/queries";
+import { MAIL_LIMITS, useRestoreDiscardedMailDraft, useUndoMailSend } from "../../data/queries";
 import { onBeforePersonaChange } from "../../data/session";
 import type {
   MailAddress,
@@ -17,7 +11,7 @@ import type {
   MailSendResult,
 } from "../../data/types";
 import { hasModKey } from "../../platform/platform";
-import { useToast } from "../../tasks-ui/Toast";
+import { isToastShown, onToastsChange, useToast } from "../../tasks-ui/Toast";
 import { typing } from "../tasks/useTaskKeys";
 import { closeComposer, requestCompose } from "./composeRequest";
 
@@ -46,8 +40,9 @@ export function recipientNames(
 }
 
 // Il ⌘Z dell'avviso: uno solo per volta (l'ultimo invio), di modulo perché
-// valga anche se la pagina che l'ha aperto non c'è più.
-let active: { run: () => void; timer: number } | null = null;
+// valga anche se la pagina che l'ha aperto non c'è più. Vive quanto il suo
+// avviso: chiuso (×), scaduto o spinto fuori da altri, il ⌘Z si spegne.
+let active: { run: () => void; toastId: number; timer: number } | null = null;
 let listening = false;
 
 function clearUndoKey() {
@@ -57,22 +52,28 @@ function clearUndoKey() {
 
 function onKeyDown(e: KeyboardEvent) {
   if (!active || !hasModKey(e) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "z") return;
-  // In un campo ⌘Z è l'annulla del testo.
+  // In un campo ⌘Z è l'annulla del testo; in un dialogo o un menu i tasti sono loro.
   if (typing(e.target)) return;
+  const focus = document.activeElement;
+  if (focus instanceof Element && focus.closest('[aria-modal="true"], [role="menu"]')) return;
+  if (e.target instanceof Element && e.target.closest('[aria-modal="true"], [role="menu"]')) return;
   e.preventDefault();
   const { run } = active;
   clearUndoKey();
   run();
 }
 
-function armUndoKey(run: () => void) {
+function armUndoKey(run: () => void, toastId: number) {
   if (!listening) {
     window.addEventListener("keydown", onKeyDown);
     onBeforePersonaChange(clearUndoKey);
+    onToastsChange(() => {
+      if (active && !isToastShown(active.toastId)) clearUndoKey();
+    });
     listening = true;
   }
   clearUndoKey();
-  active = { run, timer: window.setTimeout(clearUndoKey, MAIL_LIMITS.undoMs) };
+  active = { run, toastId, timer: window.setTimeout(clearUndoKey, MAIL_LIMITS.undoMs) };
 }
 
 /** Il nome dei file rimasti fuori, per l'avviso. */
@@ -97,18 +98,45 @@ export function useDroppedNotice() {
 }
 
 /**
+ * Riapre la casella di una bozza tornata: la conversazione (o la nuova
+ * email) si apre e prende la richiesta subito — nessuna richiesta resta in
+ * attesa per dopo.
+ */
+function useReopen() {
+  const navigate = useNavigate();
+  return useCallback(
+    (draft: Pick<MailDraft, "threadId" | "mode">) => {
+      requestCompose({ threadId: draft.threadId, mode: draft.mode, focus: "body" });
+      if (draft.threadId === null) {
+        void navigate({
+          to: "/mail",
+          search: (prev: Record<string, unknown>) => ({ ...prev, compose: "new" }),
+        } as never);
+      } else {
+        void navigate({
+          to: "/mail/$threadId",
+          params: { threadId: draft.threadId },
+          search: (prev: Record<string, unknown>) => ({ ...prev, compose: undefined }),
+        } as never);
+      }
+    },
+    [navigate],
+  );
+}
+
+/**
  * «Discard» toglie la bozza senza conferma; l'avviso «Draft discarded ·
- * Undo» la rimette e riapre la casella. Una bozza scritta nel frattempo
- * nella stessa conversazione non si sovrascrive (R-I9): quella tornata ci
- * va sotto, i suoi allegati si aggiungono finché stanno nei limiti.
+ * Undo» la rimette (`restoreDiscardedDraft`, le stesse regole di «Annulla»
+ * un invio: una bozza scritta nel frattempo non si sovrascrive, R-I9) e
+ * riapre la casella.
  */
 export function useDiscardedNotice() {
   const { t } = useTranslation();
   const toast = useToast();
-  const save = useSaveMailDraft();
-  const load = useLoadMailDraft();
+  const restore = useRestoreDiscardedMailDraft();
   const dropped = useDroppedNotice();
-  const saveAsync = save.mutateAsync;
+  const reopen = useReopen();
+  const restoreAsync = restore.mutateAsync;
   return useCallback(
     (snapshot: MailDraft) =>
       toast.show(t("mail.compose.discarded"), {
@@ -116,56 +144,28 @@ export function useDiscardedNotice() {
           label: t("mail.compose.undo"),
           run: () =>
             void closeComposer(snapshot.threadId)
-              .then(() => load(snapshot.threadId, snapshot.mode))
-              .then(async (current) => {
-                const busy = current.body.trim() !== "" || current.attachments.length > 0;
-                const merged = busy
-                  ? mergeDrafts(current, snapshot)
-                  : { draft: snapshot, droppedAttachments: [] };
-                await saveAsync(merged.draft);
-                dropped(merged);
-                requestCompose({
-                  threadId: snapshot.threadId,
-                  mode: merged.draft.mode,
-                  focus: "body",
-                });
-              }),
+              .then(() => restoreAsync(snapshot))
+              .then((restored) => {
+                dropped(restored);
+                reopen(restored.draft);
+              })
+              .catch(() => toast.error(t("mail.compose.restoreFailed"))),
         },
       }),
-    [t, toast, load, saveAsync, dropped],
+    [t, toast, restoreAsync, dropped, reopen],
   );
 }
 
-/** La bozza tornata sotto quella che c'è (R-I9): destinatari e oggetto restano quelli di adesso. */
-function mergeDrafts(current: MailDraft, back: MailDraft): MailDraftRestore {
-  const attachments = [...current.attachments];
-  const droppedAttachments: MailDraftAttachment[] = [];
-  let bytes = attachments.reduce((sum, a) => sum + (a.as === "link" ? 0 : a.sizeBytes), 0);
-  for (const a of back.attachments) {
-    if (attachments.some((x) => x.id === a.id)) continue;
-    const size = a.as === "link" ? 0 : a.sizeBytes;
-    if (attachments.length >= MAIL_LIMITS.attachments || bytes + size > MAIL_LIMITS.bytes) {
-      droppedAttachments.push(a);
-      continue;
-    }
-    attachments.push(a);
-    bytes += size;
-  }
-  return {
-    draft: { ...current, body: placeDraft(current.body, back.body, "below"), attachments },
-    droppedAttachments,
-  };
-}
-
 /**
- * Mostra l'avviso di un invio appena partito (o di un «Retry»). `threadId`
- * `null` = un'email nuova: «Undo» riapre la nuova email.
+ * Mostra l'avviso di un invio appena partito (o di un «Retry»). `newEmail`:
+ * «Undo» riapre la nuova email.
  */
 export function useUndoSendToast() {
   const { t, i18n } = useTranslation();
   const toast = useToast();
   const undo = useUndoMailSend();
-  const navigate = useNavigate();
+  const dropped = useDroppedNotice();
+  const reopen = useReopen();
   const undoAsync = undo.mutateAsync;
 
   return useCallback(
@@ -177,36 +177,15 @@ export function useUndoSendToast() {
         closeComposer(newEmail ? null : result.threadId)
           .then(() => undoAsync(result.messageId))
           .then(
-            ({ draft, droppedAttachments }) => {
-              requestCompose({ threadId: draft.threadId, mode: draft.mode, focus: "body" });
-              if (draft.threadId === null || newEmail) {
-                void navigate({
-                  to: "/mail",
-                  search: (prev: Record<string, unknown>) => ({ ...prev, compose: "new" }),
-                } as never);
-              } else {
-                void navigate({
-                  to: "/mail/$threadId",
-                  params: { threadId: draft.threadId },
-                  search: (prev: Record<string, unknown>) => ({ ...prev, compose: undefined }),
-                } as never);
-              }
-              if (droppedAttachments.length > 0) {
-                toast.show(
-                  t("mail.compose.dropped", {
-                    count: droppedAttachments.length,
-                    names: namesOf(droppedAttachments),
-                  }),
-                );
-              }
+            (restored) => {
+              reopen(restored.draft);
+              dropped(restored);
             },
             (error: unknown) => {
               const tooLate = error instanceof Error && error.message === "too_late";
               if (tooLate) toast.show(t("mail.compose.tooLate"));
-              else
-                toast.error(
-                  t("mail.compose.couldntSend", { reason: t("mail.compose.reason.other") }),
-                );
+              // Non sappiamo se è partita: lo diciamo, senza fingere che sia ferma.
+              else toast.error(t("mail.compose.undoFailed"));
             },
           );
       };
@@ -214,8 +193,8 @@ export function useUndoSendToast() {
         t("mail.compose.sendingTo", { names: recipientNames(recipients, t, i18n.language) }),
         { action: { label: t("mail.compose.undo"), run } },
       );
-      armUndoKey(run);
+      armUndoKey(run, id);
     },
-    [t, i18n.language, toast, undoAsync, navigate],
+    [t, i18n.language, toast, undoAsync, reopen, dropped],
   );
 }

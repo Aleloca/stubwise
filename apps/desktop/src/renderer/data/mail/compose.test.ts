@@ -336,6 +336,49 @@ describe("Invio con «Annulla» per 5 s (Review Focus 4)", () => {
   });
 });
 
+describe("L'«Undo» di «Discard» (R-I9)", () => {
+  it("senza un'altra bozza torna com'era; con un'altra (anche vuota) ci si unisce sotto e dice gli allegati rimasti fuori", async () => {
+    const upload = state.driveFiles.find(
+      (f) => f.projectId === AUD && f.source === "upload" && !f.hidden && !f.unavailable,
+    )!;
+    const first = await savedReply("Discarded text.");
+    const withFile = await mail.attachDriveFile(first.id, upload.id);
+    await mail.discardDraft(first.id);
+    const back = await mail.restoreDiscardedDraft(withFile);
+    expect(back.droppedAttachments).toEqual([]);
+    expect(back.draft.body).toBe("Discarded text.");
+    expect(back.draft.attachments.map((a) => a.driveFileId)).toEqual([upload.id]);
+
+    // Un'altra bozza nella conversazione, con 10 allegati: non si sovrascrive.
+    await mail.discardDraft(first.id);
+    const fresh = await mail.getDraft(CALL_NOTES(), "reply");
+    const ten = Array.from({ length: MAIL_MAX_ATTACHMENTS }, (_, i) => ({
+      id: `n${i}`,
+      name: `n${i}.txt`,
+      sizeBytes: 1,
+      driveFileId: null,
+      as: "copy" as const,
+    }));
+    await mail.saveDraft({ ...fresh, subject: "Newer", body: "Newer text.", attachments: ten });
+    const merged = await mail.restoreDiscardedDraft(withFile);
+    expect(merged.draft.body).toBe("Newer text.\n\nDiscarded text.");
+    expect(merged.draft.subject).toBe("Newer");
+    expect(merged.draft.attachments.map((a) => a.id)).toEqual(ten.map((a) => a.id));
+    expect(merged.droppedAttachments.map((a) => a.driveFileId)).toEqual([upload.id]);
+    expect(await mail.listDrafts()).toHaveLength(1);
+  });
+
+  it("decide l'esistenza della bozza, non il contenuto: una bozza vuota tiene destinatari e oggetto", async () => {
+    const first = await savedReply("Discarded text.");
+    await mail.discardDraft(first.id);
+    const fresh = await mail.getDraft(CALL_NOTES(), "reply");
+    await mail.saveDraft({ ...fresh, subject: "Kept subject", body: "" });
+    const { draft } = await mail.restoreDiscardedDraft(first);
+    expect(draft.subject).toBe("Kept subject");
+    expect(draft.body).toBe("Discarded text.");
+  });
+});
+
 describe("Il testo citato [A 4]", () => {
   it("Rispondi cita l'originale salvo toglierlo (anche dopo aver cambiato modalità); Inoltra sempre", async () => {
     const reply = await mail.sendDraft((await savedReply("Quoted.")).id);
@@ -351,6 +394,10 @@ describe("Il testo citato [A 4]", () => {
     const bare = await mail.sendDraft(draft.id);
     expect(state.mailMessages.find((m) => m.id === bare.messageId)!.quoted).toBeNull();
     await mail.undoSend(bare.messageId);
+
+    // Rispondi → Inoltra → Rispondi: la scelta di non citare resta.
+    await mail.saveDraft(await mail.getDraft(CALL_NOTES(), "forward"));
+    expect((await mail.getDraft(CALL_NOTES(), "reply")).quote).toBe(false);
 
     const fwd = await mail.getDraft(CALL_NOTES(), "forward");
     await mail.saveDraft({

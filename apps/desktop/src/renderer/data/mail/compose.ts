@@ -260,6 +260,17 @@ function driveAttachment(me: string, driveFileId: string): MailDraftAttachment {
  */
 export async function saveDraft(input: MailDraftInput): Promise<MailDraft> {
   const me = await gate("mail.saveDraft");
+  const draft = draftFrom(me, input);
+  putDraft(draft);
+  return copy(draft);
+}
+
+/**
+ * La bozza di `me` com'è scritta da `input`, controllata e ripulita (le
+ * regole di `saveDraft`), senza metterla al suo posto: la usano `saveDraft`
+ * e il ripristino di una bozza eliminata (`restoreDiscardedDraft`).
+ */
+export function draftFrom(me: string, input: MailDraftInput): MailDraft {
   mailboxOf(me);
   checkMode(input.threadId, input.mode);
   if (input.threadId !== null) {
@@ -292,14 +303,11 @@ export async function saveDraft(input: MailDraftInput): Promise<MailDraft> {
     subject: input.subject,
     body: input.body,
     attachments,
-    // Togliere la citazione vale solo per Rispondi (Inoltra cita sempre).
-    ...(input.quote === false && (input.mode === "reply" || input.mode === "replyAll")
-      ? { quote: false }
-      : {}),
+    // La scelta resta anche passando per Inoltra (che cita sempre: lo decide l'invio).
+    ...(input.quote === false ? { quote: false } : {}),
     updatedAt: now(),
   };
-  putDraft(draft);
-  return copy(draft);
+  return draft;
 }
 
 /** La bozza al suo posto (persona e conversazione), al posto di quella che c'era. */

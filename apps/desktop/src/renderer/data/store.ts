@@ -342,6 +342,7 @@ export type ApiFnName =
   | "mail.undoSend"
   | "mail.retrySend"
   | "mail.deleteFailedSend"
+  | "mail.restoreDiscardedDraft"
   | "mail.suggestRecipients"
   | "mail.draftReply"
   | "mail.getMeetingSummary"

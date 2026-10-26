@@ -47,5 +47,12 @@ export {
   type ClaudeDraftStream,
   type MailDraftInput,
 } from "./compose";
-export { deleteFailedSend, retrySend, sendDraft, undoSend, whenSendSettled } from "./send";
+export {
+  deleteFailedSend,
+  restoreDiscardedDraft,
+  retrySend,
+  sendDraft,
+  undoSend,
+  whenSendSettled,
+} from "./send";
 export { getMeetingSummary, tasksBornFrom } from "./transcripts";

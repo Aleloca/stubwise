@@ -1,5 +1,4 @@
 import {
-  useEffect,
   useId,
   useLayoutEffect,
   useRef,
@@ -11,17 +10,12 @@ import {
 import { useTranslation } from "react-i18next";
 import {
   MAIL_LIMITS,
-  saveMailDraftNow,
   useDiscardMailDraft,
-  useLoadMailDraft,
   useMailboxes,
   usePeople,
   useProjects,
-  useSaveMailDraft,
   useSendMailDraft,
-  useSessionPersonId,
 } from "../../data/queries";
-import { getSessionPersonId, onBeforePersonaChange } from "../../data/session";
 import type {
   DriveFileRow,
   MailAddress,
@@ -55,8 +49,8 @@ import {
   overLimit,
 } from "./ComposeAttachments";
 import { AlertGlyph } from "./glyphs";
-import { registerComposer } from "./composeRequest";
 import { ADDRESS, RecipientField } from "./RecipientField";
+import { useComposerDraft } from "./useComposerDraft";
 
 // La casella di scrittura della Posta (shape mail-compose §3, §5, §6): la
 // stessa casella della conversazione con Claude, allargata a un modulo —
@@ -76,32 +70,7 @@ import { ADDRESS, RecipientField } from "./RecipientField";
 //   valido, oltre 10 file o 25 MB, la casella scaduta spengono «Send» con la
 //   ragione nel `title`; l'oggetto vuoto chiede al primo «Send».
 
-/** Quanto si aspetta dopo l'ultima modifica per salvare la bozza. */
-export const DRAFT_SAVE_MS = 800;
-
 type Mode = MailDraft["mode"];
-
-interface Fields {
-  id: string;
-  replyToMessageId: string | null;
-  to: MailAddress[];
-  cc: MailAddress[];
-  subject: string;
-  body: string;
-  attachments: MailDraftAttachment[];
-  quote: boolean;
-}
-
-const fieldsOf = (d: MailDraft): Fields => ({
-  id: d.id,
-  replyToMessageId: d.replyToMessageId,
-  to: d.to,
-  cc: d.cc,
-  subject: d.subject,
-  body: d.body,
-  attachments: d.attachments,
-  quote: d.quote !== false,
-});
 
 let uploads = 0;
 
@@ -153,9 +122,6 @@ export function Composer(props: ComposerProps) {
     onSent,
   } = props;
   const { t } = useTranslation();
-  const owner = useSessionPersonId();
-  const load = useLoadMailDraft();
-  const saveMutation = useSaveMailDraft();
   const send = useSendMailDraft();
   const discard = useDiscardMailDraft();
   const peopleList = usePeople().data;
@@ -163,9 +129,6 @@ export function Composer(props: ComposerProps) {
   const allProjects = useProjects().data ?? [];
   const box = useMailboxes().data?.[0];
 
-  const [fields, setFieldsState] = useState<Fields | null>(null);
-  const [loadFailed, setLoadFailed] = useState(false);
-  const [status, setStatus] = useState<"idle" | "saving" | "saved" | "failed">("idle");
   const [ccOpen, setCcOpen] = useState(false);
   const [quotedOpen, setQuotedOpen] = useState(false);
   const [askSubject, setAskSubject] = useState(false);
@@ -176,11 +139,6 @@ export function Composer(props: ComposerProps) {
   const [attachNote, setAttachNote] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
 
-  const fieldsRef = useRef<Fields | null>(null);
-  const modeRef = useRef(mode);
-  const dirty = useRef(false);
-  const timer = useRef<number | null>(null);
-  const gone = useRef(false);
   const rootRef = useRef<HTMLFormElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const toRef = useRef<HTMLInputElement>(null);
@@ -191,119 +149,16 @@ export function Composer(props: ComposerProps) {
   const fileInput = useRef<HTMLInputElement>(null);
   const formId = useId();
 
-  const inputOf = (f: Fields, m: Mode) => ({
+  const draft = useComposerDraft({
     threadId,
-    mode: m,
-    replyToMessageId: f.replyToMessageId,
-    to: f.to,
-    cc: f.cc,
-    subject: f.subject,
-    body: f.body,
-    attachments: f.attachments,
-    ...(f.quote ? {} : { quote: false }),
+    mode,
+    onClose,
+    onLoaded: (f) => setCcOpen(f.cc.length > 0),
+    onEdit: () => setSendError(null),
   });
+  const { fields, loadFailed, status, setFields, owner } = draft;
 
-  const clearTimer = () => {
-    if (timer.current !== null) window.clearTimeout(timer.current);
-    timer.current = null;
-  };
-
-  /** Salva ora, se c'è qualcosa da salvare. */
-  const saveNow = async () => {
-    clearTimer();
-    const f = fieldsRef.current;
-    if (!f || !dirty.current || gone.current) return;
-    dirty.current = false;
-    setStatus("saving");
-    try {
-      await saveMutation.mutateAsync(inputOf(f, modeRef.current));
-      setStatus("saved");
-    } catch {
-      dirty.current = true;
-      setStatus("failed");
-    }
-  };
-  const saveRef = useRef(saveNow);
-  saveRef.current = saveNow;
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-  /** Chiude salvando; la promessa si risolve a bozza salvata. */
-  const closeNow = () => {
-    const saved = saveRef.current();
-    gone.current = true;
-    onCloseRef.current();
-    return saved;
-  };
-  // Chi rimette una bozza («Undo», «Edit») chiude prima questa casella.
-  useEffect(() => registerComposer(threadId, closeNow), [threadId]);
-
-  const setFields = (patch: Partial<Fields>) => {
-    const next = { ...fieldsRef.current!, ...patch };
-    fieldsRef.current = next;
-    setFieldsState(next);
-    setSendError(null);
-    dirty.current = true;
-    clearTimer();
-    timer.current = window.setTimeout(() => void saveRef.current(), DRAFT_SAVE_MS);
-  };
-
-  // All'apertura: la bozza salvata (o una nuova, già indirizzata).
-  useEffect(() => {
-    let live = true;
-    load(threadId, modeRef.current).then(
-      (draft) => {
-        if (!live) return;
-        const f = fieldsOf(draft);
-        fieldsRef.current = f;
-        setFieldsState(f);
-        setCcOpen(f.cc.length > 0);
-      },
-      () => live && setLoadFailed(true),
-    );
-    return () => {
-      live = false;
-    };
-    // Una volta per casella: la modalità cambia sotto (effetto qui sotto).
-  }, []);
-
-  // Un'altra modalità [A 1]: si salva il corpo, poi destinatari e oggetto rifatti.
-  useEffect(() => {
-    if (modeRef.current === mode || !fieldsRef.current) {
-      modeRef.current = mode;
-      return;
-    }
-    const previous = modeRef.current;
-    let live = true;
-    void (async () => {
-      const f = fieldsRef.current!;
-      const hasContent = f.body.trim() !== "" || f.attachments.length > 0;
-      if (dirty.current || hasContent) {
-        dirty.current = true;
-        modeRef.current = previous;
-        await saveRef.current();
-      }
-      modeRef.current = mode;
-      try {
-        const draft = await load(threadId, mode);
-        if (!live) return;
-        const next = { ...fieldsOf(draft), body: fieldsRef.current!.body };
-        fieldsRef.current = next;
-        setFieldsState(next);
-        setCcOpen(next.cc.length > 0);
-        if (hasContent) {
-          dirty.current = true;
-          void saveRef.current();
-        }
-      } catch {
-        if (live) setLoadFailed(true);
-      }
-    })();
-    return () => {
-      live = false;
-    };
-  }, [mode, threadId, load]);
-
-  // Il fuoco all'apertura, a bozza letta.
+  // Il fuoco all'apertura, a bozza letta (solo all'apertura).
   const loaded = fields !== null;
   useLayoutEffect(() => {
     if (!loaded || focus === "none") return;
@@ -311,30 +166,7 @@ export function Composer(props: ComposerProps) {
       focus === "start" && (mode === "forward" || mode === "new") ? toRef.current : bodyRef.current;
     target?.focus();
     rootRef.current?.scrollIntoView?.({ block: "nearest" });
-    // Solo all'apertura.
   }, [loaded]);
-
-  // Cambio di persona: la bozza si salva ORA, a nome di chi la scriveva; poi
-  // più nulla (la pagina si rimonta per la persona nuova).
-  useEffect(
-    () =>
-      onBeforePersonaChange(() => {
-        clearTimer();
-        const f = fieldsRef.current;
-        if (f && dirty.current && !gone.current) void saveMailDraftNow(inputOf(f, modeRef.current));
-        gone.current = true;
-      }),
-    [],
-  );
-  // Chiusa o un'altra conversazione: salva, se la persona è ancora quella.
-  useEffect(
-    () => () => {
-      clearTimer();
-      if (gone.current || getSessionPersonId() !== owner) return;
-      void saveRef.current();
-    },
-    [owner],
-  );
 
   const claude = useClaudeDraft({
     threadId,
@@ -342,6 +174,22 @@ export function Composer(props: ComposerProps) {
     setBody: (text) => setFields({ body: text }),
     hintRef,
   });
+
+  // Mentre Claude scrive il fuoco resta nella casella (sul corpo in sola
+  // lettura): ⌘. ferma, Esc chiude; finita, torna nel corpo modificabile.
+  const streamRef = useRef<HTMLDivElement>(null);
+  const streamFocused = useRef(false);
+  const writingNow = claude.writing;
+  useLayoutEffect(() => {
+    if (writingNow) {
+      const active = document.activeElement;
+      const lost = !rootRef.current?.contains(active) || active === document.body;
+      if (lost || active === bodyRef.current) streamRef.current?.focus();
+      return;
+    }
+    if (streamFocused.current) bodyRef.current?.focus();
+    streamFocused.current = false;
+  }, [writingNow]);
 
   // Il corpo cresce con il testo fino a riempire il pannello, poi scorre dentro.
   useLayoutEffect(() => {
@@ -378,28 +226,28 @@ export function Composer(props: ComposerProps) {
       ? t("mail.compose.noRecipients")
       : invalid
         ? t("mail.compose.invalid")
-        : over.size > 0 || fields.attachments.length > MAIL_LIMITS.attachments
-          ? t("mail.compose.tooLarge")
-          : expired
-            ? t("mail.compose.expired", { email: box?.email ?? "" })
-            : null;
+        : fields.attachments.length > MAIL_LIMITS.attachments
+          ? t("mail.compose.tooMany")
+          : over.size > 0
+            ? t("mail.compose.tooLarge")
+            : expired
+              ? t("mail.compose.expired", { email: box?.email ?? "" })
+              : null;
   const canSend = blocked === null && !sending;
 
   async function doSend(force = false) {
-    if (!canSend || !fieldsRef.current) return;
-    if (!force && !fieldsRef.current.subject.trim()) {
+    const f = draft.current();
+    if (!canSend || !f) return;
+    if (!force && !f.subject.trim()) {
       setAskSubject(true);
       return;
     }
     setAskSubject(false);
     setSending(true);
-    clearTimer();
-    const f = fieldsRef.current;
     try {
-      const saved = await saveMutation.mutateAsync(inputOf(f, modeRef.current));
-      dirty.current = false;
+      const saved = await draft.saveForSend();
       const result = await send.mutateAsync(saved.id);
-      gone.current = true;
+      draft.markSent();
       onSent(result, [...f.to, ...f.cc]);
     } catch (error) {
       setSendError(t("mail.compose.couldntSend", { reason: t(reasonKey(error)) }));
@@ -408,27 +256,18 @@ export function Composer(props: ComposerProps) {
   }
 
   function close() {
-    void closeNow();
+    void draft.closeNow();
   }
 
   function doDiscard() {
-    clearTimer();
-    dirty.current = false;
-    gone.current = true;
-    const f = fieldsRef.current!;
-    const snapshot: MailDraft = {
-      ...inputOf(f, modeRef.current),
-      id: f.id,
-      personId: owner,
-      updatedAt: "",
-    };
-    discard.mutate(f.id);
+    const snapshot = draft.discarded();
+    discard.mutate(snapshot.id);
     onDiscarded(snapshot);
   }
 
   // --- allegati ----------------------------------------------------------------
   function addAttachments(more: MailDraftAttachment[]) {
-    const current = fieldsRef.current!.attachments;
+    const current = draft.current()!.attachments;
     const fresh = more.filter((a) => !current.some((x) => x.id === a.id));
     const room = MAIL_LIMITS.attachments - current.length;
     setAttachNote(fresh.length > room ? t("mail.compose.tooMany") : null);
@@ -605,12 +444,16 @@ export function Composer(props: ComposerProps) {
       <div className={`flex min-w-0 flex-col ${full ? "flex-1" : ""}`}>
         {claude.writing ? (
           <div
+            ref={streamRef}
             role="textbox"
+            tabIndex={0}
+            onFocus={() => (streamFocused.current = true)}
+            onBlur={() => (streamFocused.current = false)}
             aria-label={t("mail.compose.message")}
             aria-readonly="true"
             aria-busy="true"
             aria-multiline="true"
-            className="max-h-[60vh] min-h-[132px] overflow-y-auto px-3 py-2.5 text-md whitespace-pre-wrap text-ink [overflow-wrap:anywhere]"
+            className="max-h-[60vh] min-h-[132px] overflow-y-auto px-3 py-2.5 outline-none text-md whitespace-pre-wrap text-ink [overflow-wrap:anywhere]"
           >
             {claude.streamingBody}
             <span
@@ -684,7 +527,7 @@ export function Composer(props: ComposerProps) {
               over={over.has(a.id)}
               onRemove={() =>
                 setFields({
-                  attachments: fieldsRef.current!.attachments.filter((x) => x.id !== a.id),
+                  attachments: draft.current()!.attachments.filter((x) => x.id !== a.id),
                 })
               }
             />
@@ -804,10 +647,7 @@ export function Composer(props: ComposerProps) {
               {t("mail.compose.saveFailed")} ·
               <button
                 type="button"
-                onClick={() => {
-                  dirty.current = true;
-                  void saveNow();
-                }}
+                onClick={draft.retrySave}
                 className="rounded-sm font-medium underline underline-offset-2"
               >
                 {t("mail.compose.retry")}

@@ -87,7 +87,10 @@ function Token({
       <span aria-hidden="true" className="min-w-0 truncate">
         {name}
       </span>
-      <span className="sr-only">{t("mail.compose.tokenHint", { name, email: address.email })}</span>
+      <span className="sr-only">
+        {t("mail.compose.tokenHint", { name, email: address.email })}
+        {selected && `, ${t("mail.compose.selected")}`}
+      </span>
       <button
         type="button"
         tabIndex={-1}

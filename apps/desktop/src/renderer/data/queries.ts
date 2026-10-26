@@ -2769,6 +2769,14 @@ export function useUndoMailSend() {
   return useWrite((messageId: string) => api.mail.undoSend(messageId), MAIL_AREAS);
 }
 
+/** L'«Undo» di «Discard»: la bozza torna (unita a una più recente, con gli allegati rimasti fuori). */
+export function useRestoreDiscardedMailDraft() {
+  return useWrite(
+    (snapshot: api.mail.MailDraftInput) => api.mail.restoreDiscardedDraft(snapshot),
+    MAIL_AREAS,
+  );
+}
+
 /** «Elimina» o «Modifica» un invio fallito: la bozza torna (unita a una più recente, se c'è). */
 export function useDeleteFailedMailSend() {
   return useWrite((messageId: string) => api.mail.deleteFailedSend(messageId), MAIL_AREAS);

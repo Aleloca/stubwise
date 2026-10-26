@@ -11,12 +11,14 @@ import type {
   MailSendResult,
 } from "../types";
 import {
+  draftFrom,
   draftIn,
   EMAIL,
   lower,
   MAIL_MAX_ATTACHMENTS,
   MAIL_MAX_BYTES,
   MAIL_UNDO_MS,
+  type MailDraftInput,
   mailboxOf,
   myDraft,
   putDraft,
@@ -194,6 +196,17 @@ function quotedOf(draft: MailDraft, original: MailMessage | undefined): string |
     ? `${original.from.name} <${original.from.email}>`
     : original.from.email;
   return `${who}:\n${original.text}`;
+}
+
+/**
+ * L'«Undo» di «Discard»: la bozza eliminata torna, con le stesse regole di
+ * «Annulla» un invio — se nella conversazione ce n'è già un'altra (decide
+ * l'esistenza della bozza, non il suo contenuto) ci si unisce sotto, e gli
+ * allegati che non stanno più nei limiti si dicono (R-I9).
+ */
+export async function restoreDiscardedDraft(snapshot: MailDraftInput): Promise<MailDraftRestore> {
+  const me = await gate("mail.restoreDiscardedDraft");
+  return restoreDraft(draftFrom(me, snapshot));
 }
 
 /**

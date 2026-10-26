@@ -61,6 +61,19 @@ function subscribe(l: () => void) {
   return () => listeners.delete(l);
 }
 
+/** Il messaggio `id` è ancora a schermo (non chiuso, scaduto o spinto fuori). */
+export function isToastShown(id: number): boolean {
+  return items.some((i) => i.id === id);
+}
+
+/** Avvisa a ogni cambio dei messaggi (per chi lega qualcosa alla vita di un messaggio). */
+export function onToastsChange(l: () => void): () => void {
+  listeners.add(l);
+  return () => {
+    listeners.delete(l);
+  };
+}
+
 /**
  * Messaggi brevi in fondo all'area di lavoro. Le azioni ottimistiche che
  * tornano indietro usano `error` con una frase che lo dice («Couldn't move

@@ -17,7 +17,7 @@ import { primaryButton } from "../claude/conversation/parts";
 import { openGoogleAccount } from "../drive/GoogleAccountCard";
 import { typing } from "../tasks/useTaskKeys";
 import { Composer } from "./Composer";
-import { requestCompose, takeCompose } from "./composeRequest";
+import { onComposeRequest, requestCompose, takeCompose } from "./composeRequest";
 import { useDiscardedNotice, useUndoSendToast } from "./UndoSendToast";
 import { filtersOf, mailProjectsOf, withoutProject, type MailSearch } from "./mailFilters";
 import { ReadingPane } from "./ReadingPane";
@@ -72,10 +72,20 @@ export function MailPage({
   const discardedNotice = useDiscardedNotice();
   // Il fuoco della nuova email: nel primo campo, o nel corpo se la riapre una
   // richiesta («Undo» di un invio, la riga «Draft»).
+  // Una richiesta arrivata con la nuova email già aperta la rimonta (la bozza
+  // tornata si rilegge): nessuna richiesta resta in attesa.
   const [newFocus, setNewFocus] = useState<"body" | "start">("start");
+  const [newKey, setNewKey] = useState(0);
   useEffect(() => {
     if (!composeNew) return;
     setNewFocus(takeCompose(null)?.focus ?? "start");
+    return onComposeRequest((req) => {
+      if (req.threadId !== null) return;
+      const taken = takeCompose(null);
+      if (!taken) return;
+      setNewFocus(taken.focus);
+      setNewKey((k) => k + 1);
+    });
   }, [composeNew]);
 
   const setSearch = (patch: Partial<MailSearch>) =>
@@ -240,7 +250,7 @@ export function MailPage({
   const pane = composeNew ? (
     <div className="mx-auto flex h-full w-full max-w-[824px] min-w-0 flex-col px-8 pt-6 pb-8">
       <Composer
-        key="new"
+        key={`new-${newKey}`}
         threadId={null}
         mode="new"
         threadProjects={[]}

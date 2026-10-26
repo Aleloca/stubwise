@@ -348,11 +348,13 @@ export function ReadingPane({
               .then((restored) => {
                 droppedNotice(restored);
                 if (restored.draft.mode !== "new") openCompose(restored.draft.mode, "body");
-              }),
+              })
+              .catch(() => toast.error(t("mail.compose.actionFailed"))),
           onDelete: () =>
             void closeComposer(threadId)
               .then(() => removeFailed.mutateAsync(m.id))
-              .then(droppedNotice),
+              .then(droppedNotice)
+              .catch(() => toast.error(t("mail.compose.actionFailed"))),
         }
       : undefined;
 
