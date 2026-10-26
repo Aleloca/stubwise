@@ -19,7 +19,7 @@ import { MenuButton, secondaryButton } from "../tasks/controls";
 import { useTaskKeys } from "../tasks/useTaskKeys";
 import { blockKey, useBlockTitle } from "./blockTitle";
 import { BlockSection, DepartmentsReport, useOpenTask } from "./blocks/BlockSection";
-import { BLOCKS } from "./blocks/registry";
+import { BLOCKS, useBlockContext } from "./blocks/registry";
 import { HomeEditor, type EditTarget } from "./HomeEditor";
 
 /**
@@ -35,6 +35,7 @@ import { HomeEditor, type EditTarget } from "./HomeEditor";
 export function HomePage() {
   const { t } = useTranslation();
   const { viewer } = useViewer();
+  const blockCtx = useBlockContext();
   const home = useHome();
   const departments = useDepartments().data;
   const [editing, setEditing] = useState<EditTarget | null>(null);
@@ -144,7 +145,7 @@ export function HomePage() {
       />
     );
   } else {
-    const blocks = data.blocks.filter((b) => BLOCKS[b.kind].available(viewer));
+    const blocks = data.blocks.filter((b) => BLOCKS[b.kind].available(viewer, blockCtx));
     content = (
       <>
         {whatsNew ? (
@@ -186,6 +187,7 @@ function HomeBlock({ block }: { block: HomeBlockRef }) {
 function ChangedLine({ onSee }: { onSee: (found: HomeBlockRef[]) => void }) {
   const { t } = useTranslation();
   const { viewer } = useViewer();
+  const blockCtx = useBlockContext();
   const home = useHome().data!;
   const markSeen = useMarkDepartmentHomeSeen();
   const see = () => {
@@ -193,7 +195,7 @@ function ChangedLine({ onSee }: { onSee: (found: HomeBlockRef[]) => void }) {
     for (const id of home.departmentChanged) {
       const dept = home.departmentHomes.find((h) => h.departmentId === id);
       for (const b of dept?.blocks ?? []) {
-        if (!BLOCKS[b.kind].available(viewer)) continue;
+        if (!BLOCKS[b.kind].available(viewer, blockCtx)) continue;
         if (home.blocks.some((x) => sameBlock(x, b)) || found.some((x) => sameBlock(x, b)))
           continue;
         found.push(b);

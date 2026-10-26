@@ -1,7 +1,9 @@
 import type { ComponentType } from "react";
+import { useAutomations } from "../../../data/queries";
 import type { HomeBlockKind, HomeBlockRef, Viewer } from "../../../data/types";
 import { can } from "../../../data/viewer";
 import { MyWeekBlock } from "../../week/MyWeekBlock";
+import { AutomationsBlock } from "./AutomationsBlock";
 import { ClaudeForMeBlock } from "./ClaudeForMeBlock";
 import { DecideBlock } from "./DecideBlock";
 import { FilterBlock } from "./FilterBlock";
@@ -16,8 +18,24 @@ export interface BlockDef {
   /** Il titolo del blocco (per `filter`, quello del catalogo: il blocco usa il nome del filtro). */
   titleKey: string;
   component: ComponentType<{ block: HomeBlockRef }>;
-  /** Se chi guarda può averlo: un blocco che richiede un permesso non è nel catalogo di chi non ce l'ha. */
-  available(viewer: Viewer): boolean;
+  /**
+   * Se chi guarda può averlo: un blocco che richiede un permesso non è nel
+   * catalogo di chi non ce l'ha. `ctx` porta ciò che dipende dai dati (vedi
+   * `useBlockContext`).
+   */
+  available(viewer: Viewer, ctx?: BlockContext): boolean;
+}
+
+/** Ciò che serve sapere dai dati per decidere se un blocco c'è; `undefined` = ancora in lettura. */
+export interface BlockContext {
+  /** Chi guarda vede almeno un'automazione (blocco «Automations», [A 25]). */
+  seesAutomations?: boolean;
+}
+
+/** Il contesto dei blocchi per chi guarda. */
+export function useBlockContext(): BlockContext {
+  const automations = useAutomations().data;
+  return { seesAutomations: automations ? automations.length > 0 : undefined };
 }
 
 const always = () => true;
@@ -63,6 +81,13 @@ export const BLOCKS: Record<HomeBlockKind, BlockDef> = {
     titleKey: "home.blocks.upcomingMilestones",
     component: MilestonesBlock,
     available: always,
+  },
+  // Le automazioni (area 7): nel catalogo di chi ne vede almeno una, mai
+  // nelle Home di default [A 25]. Finché non si sa, un blocco già scelto resta.
+  automations: {
+    titleKey: "home.blocks.automations",
+    component: AutomationsBlock,
+    available: (_viewer, ctx) => ctx?.seesAutomations !== false,
   },
   filter: { titleKey: "home.blocks.filter", component: FilterBlock, available: always },
 };

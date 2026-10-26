@@ -15,6 +15,7 @@ import type {
   Attachment,
   AutomationFlow,
   AutomationMeta,
+  AutomationRef,
   AutomationRunRow,
   ClientProjectLink,
   FieldType,
@@ -243,6 +244,11 @@ export const queryKeys = {
   clientSuggestions: (personId: string) =>
     ["as", personId, "automations", "clientSuggestions"] as const,
   automationApprovals: (personId: string) => ["as", personId, "automations", "approvals"] as const,
+  myAutomationRuns: (personId: string) => ["as", personId, "automations", "myRuns"] as const,
+  projectAutomations: (personId: string, projectId: string) =>
+    ["as", personId, "automations", "project", projectId] as const,
+  automationOrigin: (personId: string, automationId: string, runId: string, code: string) =>
+    ["as", personId, "automations", "origin", automationId, runId, code] as const,
   automationSearch: (personId: string, q: string) =>
     ["as", personId, "automations", "search", q] as const,
   automationSimulation: (personId: string, id: string) =>
@@ -3317,6 +3323,66 @@ export function useMyAutomationApprovals() {
   });
 }
 
+/** Il blocco Home «Automations»: le esecuzioni che mi riguardano [A 25]. */
+export function useMyAutomationRuns() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.myAutomationRuns(me),
+    queryFn: () => api.automations.listMyRuns(),
+    refetchInterval: (query) => (runningIn(query.state.data) ? AUTOMATION_REFRESH_MS : false),
+  });
+}
+
+/** La sezione «Automations» di un progetto; invisibile o inesistente → `null`. */
+export function useProjectAutomations(projectId: string | null) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.projectAutomations(me, projectId ?? ""),
+    queryFn: () => api.automations.getProjectAutomations(projectId!),
+    enabled: projectId !== null,
+    refetchInterval: (query) =>
+      runningIn(query.state.data?.runs) ? AUTOMATION_REFRESH_MS : false,
+  });
+}
+
+/** «Created by automation…» su una task o un traguardo creati da un'esecuzione. */
+export function useAutomationOrigin(ref: AutomationRef | null | undefined, createdCode: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.automationOrigin(me, ref?.automationId ?? "", ref?.runId ?? "", createdCode),
+    queryFn: () => api.automations.automationOrigin(ref!, createdCode),
+    enabled: !!ref,
+  });
+}
+
+/**
+ * Decidere su un'esecuzione ADESSO, senza `useMutation` (come
+ * `useAnswerDecisionNow`): la chiamata parte in questo istante, quindi con
+ * la sessione di chi decide anche se subito dopo si cambia persona — è ciò
+ * che serve all'«Undo» di «Decide» e del riquadro «Now». Alla fine ricarica
+ * le aree, e di nuovo quando l'esecuzione si ferma.
+ */
+export function useDecideAutomationNow() {
+  const invalidate = useInvalidate(AUTOMATION_AREAS);
+  const settle = async <T,>(call: Promise<T>): Promise<T> => {
+    try {
+      return await call;
+    } finally {
+      await invalidate();
+      void api.automations.whenAutomationsIdle().then(invalidate);
+    }
+  };
+  return {
+    approve: (runId: string, edited?: Record<string, string>) =>
+      settle(api.automations.approve(runId, edited)),
+    reject: (runId: string) => settle(api.automations.reject(runId)),
+    choose: (runId: string, projectId: string, remember?: boolean) =>
+      settle(api.automations.chooseProject(runId, projectId, { remember })),
+    /** L'esecuzione riletta (chi ha deciso prima, per «Already approved by …»). */
+    read: (runId: string) => api.automations.getRun(runId),
+  };
+}
+
 /** ⌘K: automazioni ed esecuzioni (da 2 caratteri). */
 export function useAutomationSearch(q: string, enabled = true) {
   const me = useSessionPersonId();
@@ -3447,24 +3513,6 @@ export function useSimulateSourceEvent() {
         sourceId,
         payload !== undefined ? { payload } : (sampleIndex ?? 0),
       ),
-  );
-}
-
-export function useApproveAutomationStep() {
-  return useAutomationWrite(
-    ({ runId, edited }: { runId: string; edited?: Record<string, string> }) =>
-      api.automations.approve(runId, edited),
-  );
-}
-
-export function useRejectAutomationStep() {
-  return useAutomationWrite((runId: string) => api.automations.reject(runId));
-}
-
-export function useChooseAutomationProject() {
-  return useAutomationWrite(
-    ({ runId, projectId, remember }: { runId: string; projectId: string; remember?: boolean }) =>
-      api.automations.chooseProject(runId, projectId, { remember }),
   );
 }
 

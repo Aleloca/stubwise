@@ -561,7 +561,56 @@ async function main() {
       await p.locator("[data-run-log]").evaluate((el) => el.scrollIntoView({ block: "start" }));
       await p.waitForTimeout(300);
     };
+    /**
+     * Matteo non è fra le persone di «Vedi come»: per vedere «Decide» con le
+     * sue decisioni le si danno a Roberta, rendendola proprietaria di AUD-A1
+     * e AUT-1 nel livello dati finto della pagina (lo stesso modulo che usa
+     * l'app, servito da vite), poi si rilegge la Home.
+     */
+    async function robertaDecides(p) {
+      await p.evaluate(async () => {
+        const { state } = await import("/data/store.ts");
+        for (const a of state.automations) {
+          if (a.code === "AUD-A1" || a.code === "AUT-1") a.ownerId = "p-roberta";
+        }
+      });
+      await p.evaluate(() => {
+        window.location.hash = "/automations";
+      });
+      await p.waitForTimeout(500);
+      await p.evaluate(() => {
+        window.location.hash = "/home";
+      });
+      await p.waitForTimeout(900);
+    }
     const AREA7 = [
+      // Task 8, i punti d'ingresso: «Decide» e la Home di Matteo (approva
+      // l'email di AUD-A1 #1, sceglie il progetto di AUT-1 #2), la sezione
+      // del progetto, l'origine di una task, ⌘K.
+      ["entry-decide", "/home", { steps: robertaDecides }],
+      ["entry-home-block", "/home", { steps: async (p) => {
+        await robertaDecides(p);
+        await p.getByRole("button", { name: /^(Customize|Personalizza)$/ }).click();
+        const mine = p.getByRole("menuitem", { name: /^(My Home|La mia Home)$/ });
+        if (await mine.count()) await mine.click();
+        await p.getByRole("button", { name: /^(Add block|Aggiungi blocco)$/ }).click();
+        await p.getByRole("menuitem", { name: /^(Automations|Automazioni)$/ }).click();
+        await p.getByRole("button", { name: /^(Done|Fatto)$/ }).click();
+        await p.waitForTimeout(600);
+        const block = p.getByRole("region", { name: /^(Automations|Automazioni)$/ });
+        await block.scrollIntoViewIfNeeded();
+        await p.waitForTimeout(300);
+      } }],
+      ["entry-project", "/p/AUD/automations", {}],
+      ["entry-project-sara", "/p/CBV/automations", { persona: "Sara" }],
+      ["entry-task-origin", "/p/CBV/tasks?task=CBV-6", {}],
+      ["entry-task-origin-sara", "/p/CBV/tasks?task=CBV-6", { persona: "Sara" }],
+      ["entry-palette", "/home", { steps: async (p) => {
+        await p.getByRole("button", { name: /^(Search and commands|Cerca e comandi)/ }).click();
+        await p.getByRole("combobox").fill("aud-a1");
+        await p.getByRole("group", { name: /^(Automations|Automazioni)$/ }).waitFor();
+        await p.waitForTimeout(400);
+      } }],
       ["automations-list", "/automations", {}],
       ["automations-runs", "/automations?view=runs", {}],
       ["automations-attention", "/automations?view=attention", {}],
@@ -660,7 +709,7 @@ async function main() {
       for (const [scheme, lang, viewport, file] of variants) {
         const { page, context } = await open(scheme, viewport, hash, {
           lang,
-          persona: "Roberta",
+          persona: o.persona ?? "Roberta",
           viaHome: true,
         });
         if (o.steps) await o.steps(page);

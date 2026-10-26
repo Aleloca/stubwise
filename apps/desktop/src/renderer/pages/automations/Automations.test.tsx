@@ -10,6 +10,7 @@ import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
 import { clearToasts } from "../../tasks-ui/Toast";
 import { renderRoute } from "../../test/renderRoute";
 import { setMatchMedia } from "../../test/setup";
+import { clearPendingAnswers, setUndoWindow } from "../home/pendingAnswers";
 
 // Le pagine delle Automations (Task 5, shape automations.md e
 // automation-sources.md): elenco, automazione, esecuzione col registro,
@@ -42,6 +43,8 @@ beforeEach(() => {
   setLatency(0);
   resetApi();
   setMatchMedia(DOCKED_PANEL_QUERY, true);
+  // Le decisioni (approva, scegli) partono dopo l'«Undo»: qui subito.
+  setUndoWindow(0);
   try {
     window.localStorage.clear();
   } catch {
@@ -51,6 +54,8 @@ beforeEach(() => {
 afterEach(() => {
   resetViewerGrants();
   clearToasts();
+  clearPendingAnswers();
+  setUndoWindow(null);
 });
 
 describe("elenco", () => {

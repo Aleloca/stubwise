@@ -1,7 +1,13 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
-import { useChatChannels, useDocSpaces, usePeople, useProject } from "../data/queries";
+import {
+  useChatChannels,
+  useDocSpaces,
+  usePeople,
+  useProject,
+  useProjectAutomations,
+} from "../data/queries";
 import { PROJECT_SECTIONS } from "../data/routes";
 import type { ChannelRow, Project } from "../data/types";
 import { can, useViewer } from "../data/viewer";
@@ -97,6 +103,10 @@ function ProjectSections({
     (a, b) => Number(b.isGeneral) - Number(a.isGeneral) || a.name.localeCompare(b.name),
   );
   const mentions = channels.reduce((n, c) => n + c.mentions, 0);
+  // «Automations» solo se c'è qualcosa o chi guarda può crearne [A 22]; conta le esecuzioni in corso.
+  const automations = useProjectAutomations(project.id).data;
+  const running = automations?.runs.length ?? 0;
+  const sections = sectionsOf(project).filter((s) => s.id !== "automations" || automations?.show);
   return (
     <>
       <Header code={project.code} project={project} />
@@ -105,7 +115,7 @@ function ProjectSections({
         className="min-h-0 flex-1 overflow-y-auto px-2 py-2"
       >
         <ul className="flex flex-col gap-px">
-          {sectionsOf(project).map((s) => (
+          {sections.map((s) => (
             <li
               key={s.id}
               className={s.id === "settings" ? "mt-2 border-t border-rule pt-2" : undefined}
@@ -128,6 +138,14 @@ function ProjectSections({
                       {t("chat.column.mentions", { count: mentions })}
                     </span>
                     <MentionPill count={mentions} />
+                  </span>
+                )}
+                {s.id === "automations" && running > 0 && (
+                  <span className="num ml-auto shrink-0 text-xs font-normal text-ink-faint">
+                    <span className="sr-only">
+                      {t("automations.column.runningInProject", { count: running })}
+                    </span>
+                    <span aria-hidden="true">{running}</span>
                   </span>
                 )}
                 {s.id === "settings" && !canManage && (

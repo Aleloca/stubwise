@@ -56,6 +56,7 @@ import {
   AUTOMATION_SEARCH_KEYS,
   isAutomationSearchValue,
 } from "./pages/automations/automationParams";
+import { ProjectAutomationsPage } from "./pages/automations/ProjectAutomations";
 import { SourcesPage } from "./pages/automations/SourcesPage";
 import { BuilderRoutePage } from "./pages/automations/builder/BuilderPage";
 import { TestRoutePage } from "./pages/automations/test/TestPage";
@@ -514,6 +515,11 @@ function ProjectSectionPage() {
     return <RequestsPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />;
   }
   if (section === "chat") return <ProjectChatLanding projectId={project.id} code={project.code} />;
+  if (section === "automations") {
+    return (
+      <ProjectAutomationsPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />
+    );
+  }
   if (section === "drive") {
     return <DrivePage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />;
   }

@@ -46,9 +46,42 @@ describe("comandi di Claude (area 3)", () => {
       openFilters: () => {},
       openChannels: () => {},
       openLinkFolder: () => {},
+      openNewAutomation: () => {},
     };
     cmd.run({ ...ctx, query: "  Explain AUD-3 " });
     cmd.run(ctx);
     expect(paths).toEqual(["/claude?ask=Explain%20AUD-3", "/claude"]);
+  });
+});
+
+describe("comandi delle Automations (area 7)", () => {
+  it("«New automation» solo con automations.manage, in un progetto o d'istanza", () => {
+    expect(ids(viewerWith(["tickets.create"]))).not.toContain("automation.new");
+    expect(ids(viewerWith(["automations.manage"]))).toContain("automation.new");
+    const instance: Viewer = {
+      ...viewerWith([]),
+      instancePermissions: ["automations.manage" as never],
+    };
+    expect(ids(instance)).toContain("automation.new");
+  });
+
+  it("dentro un progetto apre il dialogo preimpostato su quello", () => {
+    const cmd = matchCommands("", viewerWith(["automations.manage"]), (c) => c.id).find(
+      (c) => c.id === "automation.new",
+    )!;
+    const opened: (string | undefined)[] = [];
+    cmd.run({
+      navigate: () => {},
+      setTheme: () => {},
+      setPersona: () => {},
+      pathname: "/p/AUD/tasks",
+      projectCode: "AUD",
+      openViewAs: () => {},
+      openFilters: () => {},
+      openChannels: () => {},
+      openLinkFolder: () => {},
+      openNewAutomation: (code) => opened.push(code),
+    });
+    expect(opened).toEqual(["AUD"]);
   });
 });

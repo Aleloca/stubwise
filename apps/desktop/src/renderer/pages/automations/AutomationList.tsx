@@ -261,7 +261,7 @@ export function AutomationRow({ a, names }: { a: Row; names: Names }) {
 }
 
 /** I due modelli del vuoto (shape [A 7]). */
-function Templates({ projectId }: { projectId?: string | null }) {
+export function Templates({ projectId }: { projectId?: string | null }) {
   const { t } = useTranslation();
   const [template, setTemplate] = useState<AutomationTemplate | "blank" | null>(null);
   return (

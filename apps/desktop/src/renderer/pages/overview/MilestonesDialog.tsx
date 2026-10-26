@@ -23,6 +23,7 @@ import {
 import { MenuButton, secondaryButton } from "../tasks/controls";
 import { TODAY } from "../../data/dates";
 import { openMilestones } from "../../domain/due";
+import { AutomationOriginLine } from "../automations/AutomationOrigin";
 
 type Editing = { kind: "new" } | { kind: "edit"; id: string } | { kind: "delete"; id: string };
 
@@ -116,6 +117,14 @@ export function MilestonesDialog({
             </span>
             {m.closed && (
               <span className="text-xs text-ink-muted">{t("overview.milestones.closed")}</span>
+            )}
+            {m.automationRef && (
+              <AutomationOriginLine
+                automationRef={m.automationRef}
+                createdCode={m.id}
+                kind="milestone"
+                className="text-xs text-ink-muted"
+              />
             )}
           </span>
           <span className="w-16 shrink-0">

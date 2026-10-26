@@ -7,6 +7,7 @@ import { can, useViewer } from "../../data/viewer";
 import { linksOf, withoutLink, type LinkView } from "../../domain/links";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
+import { AutomationOriginLine } from "../automations/AutomationOrigin";
 import { Chevron, MenuButton } from "../tasks/controls";
 import { useInlineUpdate } from "../tasks/pickers";
 import { CloseIcon, InlineConfirm, PlusIcon, Section, ghostButton, smallSecondary } from "./parts";
@@ -36,11 +37,22 @@ const FAKE_FILES = [
   { name: "Budget.xlsx", sizeBytes: 64_512 },
 ];
 
-/** Richiesta d'origine, task collegate, allegati: tre sezioni, una riga se vuote. */
+/** Richiesta o automazione d'origine, task collegate, allegati: una riga se vuote. */
 export function LinksSection({ task, canEdit }: { task: Task; canEdit: boolean }) {
+  const { t } = useTranslation();
   return (
     <>
       {task.requestId && <OriginRequest task={task} requestId={task.requestId} />}
+      {task.automationRef && (
+        <Section title={t("taskDetail.links.originAutomation")}>
+          <AutomationOriginLine
+            automationRef={task.automationRef}
+            createdCode={task.code}
+            kind="task"
+            className="text-md text-ink-muted"
+          />
+        </Section>
+      )}
       <LinkedTasks task={task} canEdit={canEdit} />
       <Attachments task={task} canEdit={canEdit} />
     </>

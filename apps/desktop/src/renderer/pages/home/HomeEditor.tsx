@@ -30,7 +30,7 @@ import { useToast } from "../../tasks-ui/Toast";
 import { ghostButton } from "../task/parts";
 import { MenuButton, primaryButton, quietButton, secondaryButton } from "../tasks/controls";
 import { blockKey, useBlockTitle } from "./blockTitle";
-import { CATALOG_KINDS, BLOCKS } from "./blocks/registry";
+import { BLOCKS, CATALOG_KINDS, useBlockContext } from "./blocks/registry";
 
 export type EditTarget =
   | { kind: "mine" }
@@ -65,6 +65,7 @@ export function HomeEditor({
 }) {
   const { t } = useTranslation();
   const { viewer } = useViewer();
+  const blockCtx = useBlockContext();
   const toast = useToast();
   const title = useBlockTitle();
   const filters = useSavedFilters().data;
@@ -115,7 +116,7 @@ export function HomeEditor({
   const catalog = CATALOG_KINDS.filter(
     (kind) =>
       !FIXED_BLOCKS.includes(kind) &&
-      BLOCKS[kind].available(viewer) &&
+      BLOCKS[kind].available(viewer, { seesAutomations: blockCtx.seesAutomations ?? false }) &&
       !draft.some((b) => b.kind === kind),
   );
   const filterChoices = (filters ?? [])

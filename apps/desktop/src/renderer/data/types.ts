@@ -768,6 +768,12 @@ export interface AutomationRunDetail extends AutomationRunRow {
   /** L'esecuzione che l'ha avviata e quelle avviate da lei, se chi guarda le vede. */
   parent: { id: string; code: string } | null;
   children: { id: string; code: string; status: RunStatus }[];
+  /**
+   * Il passo da approvare come anteprima condivisa (task, email…: la stessa
+   * della prova e di «Da decidere»), risolta adesso; `null` se non ce n'è
+   * una o se chi guarda non può leggerla (R-J13/R-J16).
+   */
+  pendingEffect: SimulationEffectPreview | null;
 }
 
 export interface AutomationSourceView extends AutomationSource {
@@ -792,7 +798,56 @@ export interface AutomationDecision {
   preview: Record<string, unknown>;
   /** Da quando aspetta. */
   since: string;
+  /** Il codice dell'automazione e il numero dell'esecuzione («AUD-A1», 12). */
+  automationCode: string;
+  n: number;
+  /** Chi decide vede l'automazione: il link al suo dettaglio c'è solo allora. */
+  automationVisible: boolean;
+  /** «Scegli il progetto»: il cliente letto dall'evento, se c'è. */
+  clientName: string;
+  /** L'anteprima condivisa del passo da approvare (vedi `AutomationRunDetail.pendingEffect`). */
+  effect: SimulationEffectPreview | null;
 }
+
+/** Un'esecuzione nel blocco Home «Automations», con il motivo per cui riguarda chi guarda. */
+export interface MyAutomationRun extends AutomationRunRow {
+  /** Aspetta me; fallita di un'automazione che gestisco; di un'automazione mia, non finita. */
+  concern: "waiting_me" | "failed" | "owner";
+}
+
+/**
+ * Un'esecuzione nella sezione «Automations» di un progetto. Senza
+ * `linkable` (una generale che chi guarda non vede, shape [A 23]) restano
+ * solo codice, titolo e stato: niente registro né nome dell'automazione.
+ */
+export interface ProjectAutomationRun {
+  id: string;
+  n: number;
+  code: string;
+  title: string;
+  status: RunStatus;
+  startedAt: string;
+  automationCode: string;
+  automationName: string;
+  linkable: boolean;
+}
+
+/** La sezione «Automations» di un progetto (shape automations.md [A 22]). */
+export interface ProjectAutomationsView {
+  /** La voce della colonna c'è: qualcosa da vedere, o chi guarda può crearne. */
+  show: boolean;
+  canCreate: boolean;
+  automations: AutomationRow[];
+  /** Le esecuzioni non finite delle automazioni del progetto e delle generali che vi hanno agito. */
+  runs: ProjectAutomationRun[];
+  /** Le generali che vi hanno agito: solo a chi le vede. */
+  general: { id: string; code: string; name: string; lastActedAt: string; runCount: number }[];
+}
+
+/** «Created by automation …» su una task o un traguardo: senza nomi né link se non la vedo [A 24]. */
+export type AutomationOrigin =
+  | { visible: false }
+  | { visible: true; code: string; name: string; n: number; entry: string | null };
 
 export interface AutomationSearchResult {
   kind: "automation" | "run";
@@ -800,6 +855,8 @@ export interface AutomationSearchResult {
   code: string;
   label: string;
   route: string;
+  /** Lo stato in parola (⌘K): dell'automazione o dell'esecuzione. */
+  status: Automation["status"] | RunStatus;
 }
 
 /** Nome e descrizione di un'automazione. */

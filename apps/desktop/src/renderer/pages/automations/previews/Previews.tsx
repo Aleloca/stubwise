@@ -21,8 +21,8 @@ import { CriticalGlyph, WarningGlyph } from "../glyphs";
 // dell'esecuzione vera. Nessun codice (al posto del codice «New task» [A 9])
 // e nessun link verso oggetti che non esistono: i soli nomi veri sono
 // progetti e persone. Componenti di sole props, senza contesto: le usa la
-// prova, e le useranno il registro di un'esecuzione e «Da decidere» (Task 8)
-// — una sola anteprima di task, una sola di email.
+// prova, il riquadro «Now» di un'esecuzione e «Da decidere» (Task 8) — una
+// sola anteprima di task, una sola di email.
 
 /** Le parole che un'anteprima cita: nomi, numeri dei passi (1…N), etichette dei dati. */
 export interface PreviewWords {
@@ -61,17 +61,18 @@ function Clamped({
   className = "",
 }: {
   text: string;
-  lines: 6 | 10;
+  lines: 3 | 6 | 10;
   className?: string;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const long = text.length > (lines === 6 ? 360 : 680) || text.split("\n").length > lines;
+  const long = text.length > { 3: 180, 6: 360, 10: 680 }[lines] || text.split("\n").length > lines;
+  const clamp = { 3: "line-clamp-3", 6: "line-clamp-6", 10: "line-clamp-[10]" }[lines];
   return (
     <>
       <p
         className={`max-w-[68ch] whitespace-pre-line text-ink ${className} ${
-          long && !open ? (lines === 6 ? "line-clamp-6" : "line-clamp-[10]") : ""
+          long && !open ? clamp : ""
         }`}
       >
         {text}
@@ -206,9 +207,12 @@ export function EmailPreview({
   words,
   fromYours = false,
   edited,
+  clampBody = false,
 }: {
   p: SimulationEmailPreview;
   words: PreviewWords;
+  /** «Da decidere»: il corpo chiuso alle prime 3 righe, con «Show all». */
+  clampBody?: boolean;
   /** Partirebbe dalla casella di chi guarda perché ne sarebbe il proprietario (una bozza mai accesa). */
   fromYours?: boolean;
   /** Oggetto e testo corretti prima di approvare. */
@@ -221,18 +225,27 @@ export function EmailPreview({
     <section data-preview-email className="flex flex-col gap-3">
       <p className="text-sm text-ink-muted">{t("automations.test.preview.email")}</p>
       <dl className={pairs}>
-        <Pair label={t("automations.test.preview.from")}>
-          {yours ? t("automations.test.preview.fromOwner", { email: p.from }) : p.from}
-        </Pair>
+        {/* Senza una casella nota (un proprietario senza posta collegata) la riga non c'è. */}
+        {p.from && (
+          <Pair label={t("automations.test.preview.from")}>
+            {yours ? t("automations.test.preview.fromOwner", { email: p.from }) : p.from}
+          </Pair>
+        )}
         <Pair label={t("automations.test.preview.to")}>{edited?.to ?? p.to}</Pair>
         <Pair label={t("automations.test.preview.subject")}>
           <span className="font-semibold">{edited?.subject ?? p.subject}</span>
         </Pair>
       </dl>
       <div className="border-t border-rule pt-3">
-        <p data-email-body className="max-w-[68ch] text-md whitespace-pre-line text-ink">
-          {edited?.body ?? p.body}
-        </p>
+        {clampBody ? (
+          <div data-email-body className="flex flex-col gap-1">
+            <Clamped text={edited?.body ?? p.body} lines={3} className="text-md" />
+          </div>
+        ) : (
+          <p data-email-body className="max-w-[68ch] text-md whitespace-pre-line text-ink">
+            {edited?.body ?? p.body}
+          </p>
+        )}
       </div>
       {p.attachments.length > 0 && (
         <div className="flex flex-col gap-1.5">
@@ -350,11 +363,13 @@ export function EffectPreview({
   words,
   fromYours = false,
   edited,
+  clampBody = false,
 }: {
   p: SimulationEffectPreview;
   words: PreviewWords;
   fromYours?: boolean;
   edited?: { subject?: string; body?: string; to?: string };
+  clampBody?: boolean;
 }) {
   const { t } = useTranslation();
   const ctx = words;
@@ -366,7 +381,15 @@ export function EffectPreview({
     case "request":
       return <RequestPreview p={p} />;
     case "email":
-      return <EmailPreview p={p} words={words} fromYours={fromYours} edited={edited} />;
+      return (
+        <EmailPreview
+          p={p}
+          words={words}
+          fromYours={fromYours}
+          edited={edited}
+          clampBody={clampBody}
+        />
+      );
     case "notification":
       return (
         <section data-preview-notify className="flex flex-col gap-2">

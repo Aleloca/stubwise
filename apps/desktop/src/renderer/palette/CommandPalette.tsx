@@ -11,6 +11,7 @@ import {
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import {
+  useAutomationSearch,
   useChatChannels,
   useChatSearch,
   useDocSearch,
@@ -37,6 +38,7 @@ import { fileStateLine } from "../pages/drive/DriveSearch";
 import { useOpenDriveFile } from "../pages/drive/openFile";
 import { ExternalGlyph, GoogleDriveGlyph } from "../pages/drive/glyphs";
 import { openLinkFolder } from "../pages/drive/LinkFolderDialog";
+import { openNewAutomation } from "../pages/automations/NewAutomationHost";
 import { openGoogleOutsideFile } from "../pages/drive/WhichProjectDialog";
 import { PALETTE_EVENT, type PaletteEventDetail } from "../layout/useShortcuts";
 import { shortcutLabel } from "../platform/platform";
@@ -59,6 +61,7 @@ type GroupId =
   | "files"
   | "mail"
   | "people"
+  | "automations"
   | "actions"
   | "viewAs"
   | "filters"
@@ -217,6 +220,8 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   const chatSearch = useChatSearch(chatQuery);
   // La posta (da 2 caratteri): solo i messaggi che chi guarda vede (`searchMail`).
   const mailSearch = useMailSearch(chatQuery, chatSearching);
+  // Le automazioni e le esecuzioni che vedo (da 2 caratteri, R-G5 nel livello dati).
+  const automationSearch = useAutomationSearch(chatQuery, chatSearching);
   const reachMessage = useReachChatMessage();
   const toast = useToast();
   const savedFilters = useSavedFilters();
@@ -352,6 +357,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         setActive(null);
       },
       openLinkFolder,
+      openNewAutomation,
     };
     // Il testo arriva al comando solo quando l'etichetta lo cita: «ask
     // claude» scritto per trovare il comando non è la domanda.
@@ -368,6 +374,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       files: [],
       mail: [],
       people: [],
+      automations: [],
       actions: [],
       viewAs: [],
       filters: [],
@@ -518,6 +525,26 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         });
       }
     }
+    // Le automazioni (shape automations.md §6): codice · nome · stato in parola;
+    // le esecuzioni per codice («AUD-A1 #12») o titolo.
+    if (chatSearching) {
+      byGroup.automations = (automationSearch.data ?? []).slice(0, GROUP_LIMIT).map(
+        (r): Item => ({
+          key: `automation-${r.kind}-${r.id}`,
+          code: r.code,
+          label: r.label,
+          detail:
+            r.kind === "automation"
+              ? t(`automations.status.${r.status}`)
+              : t(`automations.runStatus.full.${r.status}`),
+          fromSearch: true,
+          select: () => {
+            router.history.push(r.route.replace(/^#/, ""));
+            onClose();
+          },
+        }),
+      );
+    }
     // Dopo gli oggetti, la Chat: i canali leggibili il cui nome corrisponde,
     // poi i messaggi (al più 5) e «Search all messages for “…”».
     if (chatSearching) {
@@ -622,6 +649,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         "files",
         "mail",
         "people",
+        "automations",
         "channels",
         "messages",
         "actions",
@@ -639,6 +667,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     chatSearching,
     chatSearch.data,
     mailSearch.data,
+    automationSearch.data,
     reachMessage,
     toast,
     i18n.language,
@@ -673,6 +702,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       search.isPlaceholderData ||
       chatSearch.isPlaceholderData ||
       mailSearch.isPlaceholderData ||
+      automationSearch.isPlaceholderData ||
       pageSearch.isPlaceholderData ||
       (!!filesQuery && fileSearch.isPlaceholderData));
 
@@ -1041,7 +1071,9 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                         group.id !== "viewAs" &&
                         group.id !== "filters" &&
                         (group.id !== "channels" || item.code) && (
-                        <span className="num w-16 shrink-0 text-sm font-semibold text-ink-muted">
+                        <span
+                          className={`num shrink-0 text-sm font-semibold whitespace-nowrap text-ink-muted ${group.id === "automations" ? "w-24" : "w-16"}`}
+                        >
                           {item.code}
                         </span>
                       )}

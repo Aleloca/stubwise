@@ -24,7 +24,7 @@ import { NotVisible, useAttention, useAutomationPerms } from "./shared";
 type Search = ListSearch & { view?: string; automation?: string; mine?: string; entry?: string };
 
 /** «New automation ▾»: vuota, o da uno dei due modelli. */
-function NewAutomationButton() {
+export function NewAutomationButton({ projectId }: { projectId?: string } = {}) {
   const { t } = useTranslation();
   const [open, setOpen] = useState<AutomationTemplate | "blank" | null>(null);
   return (
@@ -79,6 +79,7 @@ function NewAutomationButton() {
       {open && (
         <CreateAutomationDialog
           template={open === "blank" ? undefined : open}
+          projectId={projectId}
           onClose={() => setOpen(null)}
         />
       )}

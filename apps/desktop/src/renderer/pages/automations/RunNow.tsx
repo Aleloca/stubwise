@@ -1,17 +1,10 @@
 import { Link } from "@tanstack/react-router";
-import { useId, useState, type Ref } from "react";
+import { type Ref } from "react";
 import { useTranslation } from "react-i18next";
 import { stepAt } from "../../domain/automations/fields";
-import {
-  useApproveAutomationStep,
-  useChooseAutomationProject,
-  useMailThreadOfMessage,
-  useProjects,
-  useRejectAutomationStep,
-} from "../../data/queries";
+import { useMailThreadOfMessage } from "../../data/queries";
 import type { AutomationRunDetail, RunLogEntry } from "../../data/types";
-import { inputClass } from "../../tasks-ui/Dialog";
-import { useToast } from "../../tasks-ui/Toast";
+import { usePendingAnswers } from "../home/pendingAnswers";
 import { primaryButton, quietButton, secondaryButton } from "../tasks/controls";
 import {
   clientOf,
@@ -20,28 +13,21 @@ import {
   errorWords,
   shortDate,
   type Names,
-  roleWords,
 } from "./format";
 import { CriticalGlyph } from "./glyphs";
+import { ApprovalBox, ChooseProject, str } from "./RunDecisions";
 import { textLink, useAutomationPerms } from "./shared";
 
 // Il riquadro «Now» di un'esecuzione (shape automations.md §6): la frase di
 // adesso e, se qualcuno può agire, le sue azioni — approvare (con le
-// modifiche), scegliere il progetto, riprovare, saltare. Lo riusa «Decide»
-// (Task 8).
+// modifiche), scegliere il progetto, riprovare, saltare. Approvare e
+// scegliere sono le stesse di «Decide» (`RunDecisions.tsx`), con l'«Undo».
 
 /** «Cancel run»: l'azione resta secondaria, il testo dice che è distruttiva. */
 export const criticalSecondary = secondaryButton.replace("text-ink", "text-critical");
 export const criticalQuiet = quietButton
   .replace("text-ink-muted", "text-critical")
   .replace("hover:text-ink", "hover:text-critical");
-export const str = (v: unknown) => (typeof v === "string" ? v : "");
-
-/** Le chiavi dell'anteprima che si correggono prima di approvare, per tipo di passo. */
-export const EDITABLE: Record<string, string[]> = {
-  sendEmail: ["to", "subject", "body"],
-};
-
 export function stepName(
   run: AutomationRunDetail,
   t: (k: string, o?: Record<string, unknown>) => string,
@@ -54,232 +40,6 @@ export function stepName(
         name: t(`automations.kind.${step.kind}`),
       }
     : null;
-}
-
-/** L'anteprima intera di un passo da approvare: email (Da, A, Oggetto, corpo, allegati) o task. */
-export function PreviewBlock({
-  preview,
-  names,
-  from,
-  projectId = null,
-}: {
-  preview: Record<string, unknown>;
-  names: Names;
-  from: string | null;
-  /** Il progetto in cui si cerca un ruolo («Project Lead di AUD»). */
-  projectId?: string | null;
-}) {
-  const { t } = useTranslation();
-  const rows: [string, string][] = [];
-  if (from) rows.push([t("automations.preview.from"), from]);
-  for (const [k, v] of Object.entries(preview)) {
-    if (k === "body" || k === "descrizione") continue;
-    if (k === "progetto") {
-      const p = names.project(str(v));
-      rows.push([
-        t("automations.dataKeys.progetto"),
-        p ? `${p.code} · ${p.name}` : t("automations.log.hiddenProject"),
-      ]);
-    } else if (k === "persona")
-      rows.push([t("automations.dataKeys.persona"), names.person(str(v))]);
-    else if (k === "ruolo")
-      rows.push([t("automations.dataKeys.persona"), roleWords(str(v), projectId, names, t)]);
-    else if (Array.isArray(v))
-      rows.push([t(`automations.dataKeys.${k}`, { defaultValue: k }), v.join(", ")]);
-    else rows.push([t(`automations.dataKeys.${k}`, { defaultValue: k }), String(v ?? "")]);
-  }
-  const body = str(preview.body) || str(preview.descrizione);
-  if (rows.length === 0 && !body) return null;
-  return (
-    <div
-      data-preview
-      className="flex flex-col gap-2 rounded-md border border-rule bg-surface px-3 py-2.5"
-    >
-      <dl className="grid grid-cols-[96px_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
-        {rows.map(([k, v]) => (
-          <div key={k} className="contents">
-            <dt className="text-ink-muted">{k}</dt>
-            <dd className="text-ink [overflow-wrap:anywhere]">{v}</dd>
-          </div>
-        ))}
-      </dl>
-      {body && <p className="text-sm whitespace-pre-line text-ink">{body}</p>}
-    </div>
-  );
-}
-
-export function ApprovalActions({
-  run,
-  onDone,
-}: {
-  run: AutomationRunDetail;
-  /** Dopo la decisione: il fuoco va alla frase nuova di «Now». */
-  onDone?: () => void;
-}) {
-  const { t } = useTranslation();
-  const toast = useToast();
-  const approve = useApproveAutomationStep();
-  const reject = useRejectAutomationStep();
-  const kind = [...run.log].reverse().find((e) => e.path === run.cursor)?.kind ?? "";
-  const editable = EDITABLE[kind] ?? [];
-  const preview = run.pending?.preview ?? {};
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState<Record<string, string>>(() =>
-    Object.fromEntries(editable.map((k) => [k, str(preview[k])])),
-  );
-  const changed = Object.fromEntries(
-    Object.entries(draft).filter(([k, v]) => v !== str(preview[k])),
-  );
-  const done = (key: string) => ({
-    onSuccess: () => {
-      toast.show(t(key, { code: run.code }));
-      onDone?.();
-    },
-    onError: () => toast.error(t("automations.toast.decisionError", { code: run.code })),
-  });
-  if (editing) {
-    return (
-      <div className="flex flex-col gap-2">
-        {editable.map((k) => (
-          <label key={k} className="flex flex-col gap-1 text-sm text-ink-muted">
-            {t(`automations.dataKeys.${k}`)}
-            {k === "body" ? (
-              <textarea
-                className={`${inputClass} min-h-32`}
-                value={draft[k]}
-                onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}
-              />
-            ) : (
-              <input
-                className={inputClass}
-                value={draft[k]}
-                onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}
-              />
-            )}
-          </label>
-        ))}
-        <div className="flex items-center gap-2">
-          <button type="button" className={secondaryButton} onClick={() => setEditing(false)}>
-            {t("automations.actions.cancel")}
-          </button>
-          <button
-            type="button"
-            className={primaryButton}
-            disabled={approve.isPending}
-            onClick={() =>
-              approve.mutate(
-                { runId: run.id, edited: Object.keys(changed).length ? changed : undefined },
-                done("automations.toast.approved"),
-              )
-            }
-          >
-            {t("automations.actions.approveChanges")}
-          </button>
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="flex items-start gap-2">
-      <div className="flex flex-col items-start gap-0.5">
-        <button
-          type="button"
-          className={secondaryButton}
-          disabled={reject.isPending}
-          onClick={() => reject.mutate(run.id, done("automations.toast.rejected"))}
-        >
-          {t("automations.actions.reject")}
-        </button>
-        <span className="text-xs text-ink-muted">{t("automations.now.rejectStops")}</span>
-      </div>
-      {editable.length > 0 && (
-        <button type="button" className={secondaryButton} onClick={() => setEditing(true)}>
-          {t("automations.actions.edit")}
-        </button>
-      )}
-      <button
-        type="button"
-        className={primaryButton}
-        disabled={approve.isPending}
-        onClick={() => approve.mutate({ runId: run.id }, done("automations.toast.approved"))}
-      >
-        {t("automations.actions.approve")}
-      </button>
-    </div>
-  );
-}
-
-export function ChooseProject({
-  run,
-  client,
-  onDone,
-}: {
-  run: AutomationRunDetail;
-  client: string;
-  onDone?: () => void;
-}) {
-  const { t } = useTranslation();
-  const toast = useToast();
-  const perms = useAutomationPerms();
-  const projects = (useProjects().data ?? [])
-    .filter((p) => perms.createTasks(p.id))
-    .sort((a, b) => a.code.localeCompare(b.code));
-  const [projectId, setProjectId] = useState("");
-  // «Remember for <client>» ([A 26]): solo a chi gestisce la tabella cliente → progetto.
-  const [remember, setRemember] = useState(false);
-  const choose = useChooseAutomationProject();
-  const id = useId();
-  return (
-    <div className="flex flex-wrap items-end gap-2">
-      <label htmlFor={id} className="flex min-w-64 flex-col gap-1 text-sm text-ink-muted">
-        {t("automations.now.whichProject", { client })}
-        <select
-          id={id}
-          className={`${inputClass} h-8`}
-          value={projectId}
-          onChange={(e) => setProjectId(e.target.value)}
-        >
-          <option value="">{t("automations.now.pickProject")}</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.code} · {p.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <button
-        type="button"
-        className={`${primaryButton} disabled:opacity-40`}
-        disabled={!projectId || choose.isPending}
-        onClick={() =>
-          choose.mutate(
-            { runId: run.id, projectId, remember: perms.integrations && !!client && remember },
-            {
-              onSuccess: () => {
-                toast.show(t("automations.toast.projectChosen", { code: run.code }));
-                onDone?.();
-              },
-              onError: () => toast.error(t("automations.toast.decisionError", { code: run.code })),
-            },
-          )
-        }
-      >
-        {t("automations.actions.choose")}
-      </button>
-      {/* Senza un cliente conosciuto non c'è niente da ricordare. */}
-      {perms.integrations && client && (
-        <label className="flex h-8 items-center gap-2 text-sm text-ink">
-          <input
-            type="checkbox"
-            className="accent-ink"
-            checked={remember}
-            onChange={(e) => setRemember(e.target.checked)}
-          />
-          {t("automations.now.remember", { client })}
-        </label>
-      )}
-    </div>
-  );
 }
 
 /** L'email a cui l'esecuzione aspetta risposta: la riga che l'ha mandata. */
@@ -322,6 +82,8 @@ export function NowBox({
   const email = awaitedEmail(run);
   const thread = useMailThreadOfMessage(email?.effects[0]?.code || null).data;
   const client = str(run.pending?.preview.clientName) || clientOf(run.event) || "";
+  // Una decisione presa qui (o in «Decide») e ancora nella finestra dell'«Undo».
+  const answering = usePendingAnswers().has(run.id);
   let title = "";
   let body: React.ReactNode = null;
   switch (run.status) {
@@ -368,8 +130,13 @@ export function NowBox({
         [...run.log].reverse().find((e) => e.outcome === "waiting")?.at ?? run.startedAt;
       body = (
         <>
-          <PreviewBlock
+          <ApprovalBox
+            key={run.cursor}
+            runId={run.id}
+            code={run.code}
+            stepKind={kind}
             preview={run.pending?.preview ?? {}}
+            effect={run.pendingEffect}
             names={names}
             projectId={run.automationProjectId ?? run.projectIds[0] ?? null}
             from={
@@ -377,13 +144,17 @@ export function NowBox({
                 ? t("automations.preview.fromOwner", { owner: names.person(ownerId) })
                 : null
             }
+            canDecide={run.permissions.approve && !answering}
+            onDone={onDone}
           />
-          {run.permissions.approve ? (
-            <ApprovalActions run={run} onDone={onDone} />
+          {answering ? (
+            <p className="text-sm text-ink-muted">{t("automations.decide.answering")}</p>
           ) : (
-            <p className="text-sm text-ink-muted">
-              {t("automations.now.box.waitingSince", { date: shortDate(since, i18n.language) })}
-            </p>
+            !run.permissions.approve && (
+              <p className="text-sm text-ink-muted">
+                {t("automations.now.box.waitingSince", { date: shortDate(since, i18n.language) })}
+              </p>
+            )
           )}
         </>
       );
@@ -394,8 +165,12 @@ export function NowBox({
       body = (
         <>
           <p className="text-sm text-ink-muted">{t("automations.now.box.noLink")}</p>
-          {run.permissions.chooseProject && (
-            <ChooseProject run={run} client={client} onDone={onDone} />
+          {answering ? (
+            <p className="text-sm text-ink-muted">{t("automations.decide.answering")}</p>
+          ) : (
+            run.permissions.chooseProject && (
+              <ChooseProject runId={run.id} code={run.code} client={client} onDone={onDone} />
+            )
           )}
           {perms.integrations && (
             <Link to="/automations/sources" className={`${textLink} self-start text-sm underline`}>

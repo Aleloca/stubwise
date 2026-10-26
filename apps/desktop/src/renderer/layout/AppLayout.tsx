@@ -13,6 +13,7 @@ import { DriveDetailHost } from "../pages/drive/DriveDetail";
 import { FilePreviewHost } from "../pages/drive/FilePreview";
 import { GoogleAccountHost } from "../pages/drive/GoogleAccountCard";
 import { WhichProjectHost } from "../pages/drive/WhichProjectDialog";
+import { NewAutomationHost } from "../pages/automations/NewAutomationHost";
 import { SourceDetailHost } from "../pages/automations/SourcePanel";
 import { CommandPalette } from "../palette/CommandPalette";
 import { applyPlatformAttribute } from "../platform/platform";
@@ -68,6 +69,7 @@ export function AppLayout() {
       <ChatDialogsHost />
       <GoogleAccountHost />
       <WhichProjectHost />
+      <NewAutomationHost />
       <CommandPalette />
       <NotificationsPanel />
       <ToastRegion />

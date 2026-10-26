@@ -94,7 +94,8 @@
       "releases": "Releases",
       "support": "Support",
       "servers": "Servers",
-      "settings": "Settings"
+      "settings": "Settings",
+      "automations": "Automations"
     },
     "notFound": "Project not found",
     "notFoundBody": "This project doesn't exist or you can't see it.",
@@ -126,7 +127,8 @@
       "more": "More",
       "pages": "Pages",
       "files": "Files",
-      "mail": "Mail"
+      "mail": "Mail",
+      "automations": "Automations"
     },
     "noResults": "No results for “{{query}}”",
     "noResultsHint": "Try a code like {{example}} or a name.",
@@ -158,7 +160,8 @@
       "goToChannel": "Go to channel…",
       "linkFolder": "Link a Google folder to {{code}}",
       "newEmail": "New email",
-      "newMeeting": "New meeting"
+      "newMeeting": "New meeting",
+      "newAutomation": "New automation"
     },
     "filterPlaceholder": "Choose a filter",
     "channelPlaceholder": "Go to a channel or direct message…",
@@ -814,7 +817,8 @@
         "child": "Child"
       },
       "confirm": "Remove the link «{{kind}} {{code}}»? It goes from both tasks.",
-      "removeConfirm": "Remove link"
+      "removeConfirm": "Remove link",
+      "originAutomation": "Origin"
     },
     "attachments": {
       "title": "Attachments",
@@ -941,7 +945,8 @@
       "upcomingMilestones": "Upcoming milestones",
       "filter": "Saved filter",
       "upcomingEvents": "Upcoming",
-      "importantMail": "Important email"
+      "importantMail": "Important email",
+      "automations": "Automations"
     },
     "block": {
       "error": "Couldn't load {{title}}.",
@@ -1121,6 +1126,10 @@
       "joinLabel": "Join {{title}} on Google Meet",
       "showAll_one": "Show all {{count}}",
       "showAll_other": "Show all {{count}}"
+    },
+    "automations": {
+      "empty": "No runs that need you",
+      "showAll": "Show all {{count}}"
     }
   },
   "week": {
@@ -4386,7 +4395,9 @@
       "drafts": "Drafts",
       "sources": "Sources",
       "projects": "Projects",
-      "open": "Open automation"
+      "open": "Open automation",
+      "runningInProject_one": "{{count}} run in progress",
+      "runningInProject_other": "{{count}} runs in progress"
     },
     "titles": {
       "list": "Automations",
@@ -5968,6 +5979,46 @@
       "loadError": "Couldn't load the automation for the test.",
       "turnOn": "Turn on",
       "publish": "Publish version {{n}}"
+    },
+    "project": {
+      "title": "Automations",
+      "runs": "Runs in progress",
+      "noRuns": "No runs in progress.",
+      "own": "Automations of {{code}}",
+      "noOwn": "No automations in {{code}} yet.",
+      "general": "General automations that acted here",
+      "lastActed_one": "Last acted {{date}} · {{count}} run",
+      "lastActed_other": "Last acted {{date}} · {{count}} runs",
+      "empty": "No automations in {{code}} yet",
+      "emptyNoPermission": "People who manage {{code}} can create automations here.",
+      "error": "Couldn't load this project's automations.",
+      "runLabel": "{{code}}, {{title}}, {{status}}, started {{date}}"
+    },
+    "origin": {
+      "byTask": "Created by automation",
+      "byMilestone": "Created by automation",
+      "run": "run #{{n}}",
+      "hiddenTask": "Created by an automation",
+      "hiddenMilestone": "Created by an automation"
+    },
+    "decide": {
+      "from": "From automation",
+      "run": "run #{{n}}",
+      "ask": {
+        "sendEmail": "Send this email to {{to}}?",
+        "createTask": "Create this task in {{project}}?",
+        "createMilestone": "Create this milestone in {{project}}?",
+        "createRequest": "Open this request in {{project}}?",
+        "notify": "Notify {{name}}?",
+        "startAutomation": "Start another automation?",
+        "other": "Approve this step?"
+      },
+      "project": "Project",
+      "whichProjectNoClient": "Which project should this run work in?",
+      "alreadyDecided": "Already decided by {{name}}",
+      "alreadyDecidedSomeone": "Someone already decided this step",
+      "answering": "Your answer goes out in a few seconds. You can undo it from the message below.",
+      "attachmentsReadOnly": "Attachments stay as they are: {{names}}"
     }
   }
 }

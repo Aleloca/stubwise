@@ -8,6 +8,7 @@ import {
   useClaudeDecisions,
   useDecisionRequests,
   useMailProposalDecisions,
+  useMyAutomationApprovals,
   usePeople,
   useProjects,
   useRequestsToConvert,
@@ -15,6 +16,7 @@ import {
   useTasks,
 } from "../../../data/queries";
 import type {
+  AutomationDecision,
   ChatClaudeQuestion,
   ChatQuestion,
   ClaudeDecision,
@@ -32,6 +34,7 @@ import { useToast } from "../../../tasks-ui/Toast";
 import { NewTaskDialog } from "../../task/NewTaskDialog";
 import { ghostButton, smallPrimary, smallSecondary } from "../../task/parts";
 import { deferAnswer, usePendingAnswers } from "../pendingAnswers";
+import { AutomationDecisionItem } from "./AutomationDecisionItem";
 import { BlockSection, Capped, queryState, useOpenTask } from "./BlockSection";
 import { ChatClaudeQuestionItem, ChatQuestionItem } from "./ChatDecisionItems";
 import { ClaudeDecisionItem } from "./ClaudeDecisionItem";
@@ -43,6 +46,7 @@ type Item =
   | { kind: "chat"; id: string; question: ChatQuestion }
   | { kind: "chatClaude"; id: string; question: ChatClaudeQuestion }
   | { kind: "mail"; id: string; view: MailProposalView }
+  | { kind: "automation"; id: string; decision: AutomationDecision }
   | { kind: "request"; id: string; request: ProjectRequest; project: Project | undefined };
 
 /**
@@ -52,7 +56,9 @@ type Item =
  * me (gli stessi della conversazione, nella stessa forma), dalla più
  * vecchia, insieme alle domande della Chat rivolte a me («Reply» apre il
  * thread, «Ignore» la toglie), a quelle di @Claude a chi l'ha chiamato e
- * alle proposte della posta che vedo (la scheda della Posta, area 6);
+ * alle proposte della posta che vedo (la scheda della Posta, area 6) e ai
+ * passi delle automazioni da approvare o il cui progetto devo scegliere
+ * (area 7);
  * poi le richieste nuove nei progetti dove posso creare task, con
  * «Turn into task». Una risposta
  * chiude subito la voce (collassa in 200 ms) e parte dopo la finestra
@@ -66,6 +72,7 @@ export function DecideBlock() {
   const chatQuestions = useChatQuestions();
   const chatClaude = useChatClaudeQuestions();
   const mail = useMailProposalDecisions();
+  const automations = useMyAutomationApprovals();
   const tasks = useTasks();
   const requests = useRequestsToConvert();
   const projects = useProjects();
@@ -103,6 +110,11 @@ export function DecideBlock() {
       at: v.proposal.createdAt,
       item: { kind: "mail", id: v.proposal.id, view: v } satisfies Item,
     })),
+    // I passi delle automazioni che aspettano me (approvare, scegliere il progetto).
+    ...(automations.data ?? []).map((d) => ({
+      at: d.since,
+      item: { kind: "automation", id: d.runId, decision: d } satisfies Item,
+    })),
   ];
   const items: Item[] = [
     ...asked.sort((a, b) => a.at.localeCompare(b.at)).map((a) => a.item),
@@ -119,7 +131,7 @@ export function DecideBlock() {
   ];
   const visible = items.filter((i) => !pending.has(i.id));
   const state = queryState(
-    [decisions, claude, chatQuestions, chatClaude, mail, tasks, requests, projects],
+    [decisions, claude, chatQuestions, chatClaude, mail, automations, tasks, requests, projects],
     {
       when: visible.length === 0,
       text: t("home.decide.empty"),
@@ -134,7 +146,11 @@ export function DecideBlock() {
         items={items}
         closing={(item) => pending.has(item.id)}
         render={(item) =>
-          item.kind === "mail" ? (
+          item.kind === "automation" ? (
+            <Collapsible key={item.id} closed={pending.has(item.id)}>
+              <AutomationDecisionItem decision={item.decision} />
+            </Collapsible>
+          ) : item.kind === "mail" ? (
             <Collapsible key={item.id} closed={pending.has(item.id)}>
               <MailDecisionItem view={item.view} />
             </Collapsible>

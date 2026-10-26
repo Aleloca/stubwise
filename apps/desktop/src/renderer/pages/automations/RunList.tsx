@@ -1,7 +1,12 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { now } from "../../data/dates";
-import { useAutomationRuns, useAutomations, useProjects } from "../../data/queries";
+import {
+  useAutomationRuns,
+  useAutomations,
+  useMyAutomationRuns,
+  useProjects,
+} from "../../data/queries";
 import type { AutomationRunRow } from "../../data/types";
 import { rowKeys } from "../home/blocks/BlockSection";
 import { PageEmpty, PageError, PageSkeleton } from "../../tasks-ui/PageStates";
@@ -128,6 +133,8 @@ export function RunsView({ search }: { search: RunsSearch }) {
   const projects = useProjects().data ?? [];
   const attention = useAttention();
   const project = projects.find((p) => p.code === search.project);
+  // `mine=1`: le esecuzioni che mi riguardano, le stesse del blocco Home «Automations» [A 25].
+  const mine = new Set((useMyAutomationRuns().data ?? []).map((r) => r.id));
   const automation = automations.find((a) => a.code === search.automation);
   const set = (patch: Partial<RunsSearch>) =>
     void navigate({
@@ -142,8 +149,9 @@ export function RunsView({ search }: { search: RunsSearch }) {
           (project && (r.projectIds.includes(project.id) || r.automationProjectId === project.id)),
       )
       .filter((r) => !search.automation || r.automationCode === search.automation)
-      .filter((r) => !search.mine || attention.waitingMe.has(r.id))
-      .filter((r) => matchesStatus(r, search.status)),
+      .filter((r) => !search.mine || mine.has(r.id))
+      // Le mie comprendono le fallite: senza un filtro di stato si vedono tutte.
+      .filter((r) => (search.mine && !search.status) || matchesStatus(r, search.status)),
     attention.waitingMe,
   );
   const filtering = !!(search.project || search.automation || search.status || search.mine);

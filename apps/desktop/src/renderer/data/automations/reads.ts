@@ -19,6 +19,7 @@ import type {
   ClientLinkView,
   RunStatus,
 } from "../types";
+import { pendingEffectOf } from "./pendingEffect";
 import { isOpen, publishedVersion, sweepApprovals } from "./runner";
 import {
   approversFor,
@@ -147,7 +148,7 @@ const WAITING: ReadonlySet<RunStatus> = new Set([
   "waiting_project",
 ]);
 
-function automationRow(me: string, a: Automation): AutomationRow {
+export function automationRow(me: string, a: Automation): AutomationRow {
   const live = publishedVersion(a);
   const runs = state.automationRuns.filter((r) => r.automationId === a.id);
   const last = runs.reduce<string | null>(
@@ -364,6 +365,7 @@ export async function searchAutomations(q: string): Promise<AutomationSearchResu
         code: a.code,
         label: a.name,
         route: automationHref(a.code),
+        status: a.status,
       });
     }
   }
@@ -380,6 +382,7 @@ export async function searchAutomations(q: string): Promise<AutomationSearchResu
         code,
         label: run.title,
         route: runHref(a.code, run.n),
+        status: run.status,
       });
     }
   }
@@ -418,8 +421,10 @@ export async function getRun(id: string): Promise<AutomationRunDetail | null> {
   const a = automationById(run.automationId)!;
   const deciders = decidersOf(run);
   const parent = run.parentRunId ? runById(run.parentRunId) : undefined;
+  const row = runRow(me, run);
   return {
-    ...runRow(me, run),
+    ...row,
+    pendingEffect: pendingEffectOf(me, run, row),
     flow: copy(a.versions.find((v) => v.n === run.version)!.flow),
     deciders,
     ownerId: a.ownerId,
@@ -450,6 +455,8 @@ export async function listMyApprovals(): Promise<AutomationDecision[]> {
       const run = viewRun(me, source);
       const a = automationById(run.automationId)!;
       const progetto = run.pending?.preview.progetto;
+      const client = run.pending?.preview.clientName;
+      const cliente = (run.event.cliente as { nome?: unknown } | undefined)?.nome;
       return {
         kind: run.status === "waiting_project" ? ("project" as const) : ("approval" as const),
         runId: run.id,
@@ -461,6 +468,12 @@ export async function listMyApprovals(): Promise<AutomationDecision[]> {
         stepKind: stepOfRun(source)?.kind ?? "createTask",
         preview: copy(run.pending?.preview ?? {}),
         since: run.log.at(-1)?.at ?? run.startedAt,
+        automationCode: a.code,
+        n: run.n,
+        automationVisible: canSeeAutomation(me, a),
+        clientName:
+          typeof client === "string" ? client : typeof cliente === "string" ? cliente : "",
+        effect: pendingEffectOf(me, source, run),
       };
     });
 }

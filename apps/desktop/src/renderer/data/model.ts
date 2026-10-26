@@ -431,6 +431,7 @@ export type HomeBlockKind =
   | "upcomingMilestones"
   | "upcomingEvents"
   | "importantMail"
+  | "automations"
   | "filter";
 
 export interface HomeBlockRef {

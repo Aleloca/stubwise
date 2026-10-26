@@ -41,6 +41,8 @@ export const PROJECT_SECTIONS = [
   { id: "docs", module: "docs" },
   { id: "drive" },
   { id: "chat" },
+  // Le automazioni (area 7): la voce c'è solo se c'è qualcosa o chi guarda può crearne [A 22].
+  { id: "automations" },
   { id: "releases", module: "releases" },
   { id: "support", module: "support" },
   { id: "servers", module: "servers" },

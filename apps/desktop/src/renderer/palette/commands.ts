@@ -23,6 +23,8 @@ export interface CommandContext {
   query?: string;
   /** Apre «Link a Google folder» sul Drive del progetto (il dialogo lo mostra quel Drive). */
   openLinkFolder(code: string): void;
+  /** Apre «New automation» (dentro un progetto, preimpostato su quello). */
+  openNewAutomation(projectCode?: string): void;
 }
 
 /** Il progetto in cui si è, per i comandi che valgono solo lì. */
@@ -111,6 +113,17 @@ export const COMMANDS: readonly Command[] = [
     },
     // Solo dentro un progetto, a chi ne gestisce il Drive.
     when: (viewer, scope) => !!scope.projectId && can(viewer, "drive.manage", scope.projectId),
+  },
+  {
+    id: "automation.new",
+    labelKey: "palette.commands.newAutomation",
+    run: (ctx) => ctx.openNewAutomation(ctx.projectCode),
+    // Con `automations.manage` in almeno un posto: d'istanza o in un progetto.
+    when: (viewer) =>
+      can(viewer, "automations.manage") ||
+      Object.values(viewer.projectPermissions).some((p) =>
+        (p as readonly string[]).includes("automations.manage"),
+      ),
   },
   {
     id: "chat.goTo",

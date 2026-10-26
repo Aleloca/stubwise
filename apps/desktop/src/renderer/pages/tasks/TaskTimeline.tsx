@@ -240,7 +240,9 @@ export function TaskTimeline({
               <span
                 key={m.id}
                 style={{ left: x(m.dueDate!) + DAY_W / 2 + 4 }}
-                title={m.name}
+                // Un traguardo nato da un'automazione lo dice (senza nomi: il
+                // dettaglio, se la vedo, sta nel dialogo dei traguardi).
+                title={m.automationRef ? `${m.name}\n${t("automations.origin.hiddenMilestone")}` : m.name}
                 className="absolute top-1 max-w-36 truncate text-xs font-medium text-ink-muted"
               >
                 {m.name}

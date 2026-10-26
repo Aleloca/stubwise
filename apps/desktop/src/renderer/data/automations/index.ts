@@ -17,6 +17,7 @@ export {
   listSources,
   searchAutomations,
 } from "./reads";
+export { automationOrigin, getProjectAutomations, listMyRuns } from "./entry";
 export {
   activate,
   advanceTime,
