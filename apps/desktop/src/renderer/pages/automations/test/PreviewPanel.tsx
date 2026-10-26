@@ -5,7 +5,7 @@ import { show } from "../../../domain/automations/preview";
 import type { SimulationView, Step } from "../../../data/types";
 import { quietButton } from "../../tasks/controls";
 import { conditionWords, shortDate, stepSentence, templatePlain } from "../format";
-import { flowPathOf, useTest } from "./context";
+import { flowPathOf, usePreviewProps, useTest } from "./context";
 import { lastEntry, markAt, type Mark } from "./marks";
 import {
   ClaudePreview,
@@ -13,7 +13,7 @@ import {
   EmailPreview,
   FailurePreview,
   TaskPreview,
-} from "./Previews";
+} from "../previews/Previews";
 import { ApprovalStop, EventStop, ProjectStop } from "./StopActions";
 
 // Il pannello dell'anteprima (shape automation-test §3 e §5): al posto del
@@ -120,6 +120,7 @@ function isInNotTakenLane(path: string, ctx: ReturnType<typeof useTest>): boolea
 
 function StepBody({ step, path, mark }: { step: Step; path: string; mark: Mark }) {
   const { t, i18n } = useTranslation();
+  const pp = usePreviewProps();
   const ctx = useTest();
   const sim = ctx.sim!;
   const ix = ctx.ix!;
@@ -181,7 +182,7 @@ function StepBody({ step, path, mark }: { step: Step; path: string; mark: Mark }
                   count: days,
                 })}
               </p>
-              {w.task && <TaskPreview p={w.task} />}
+              {w.task && <TaskPreview p={w.task} words={pp.words} />}
               <p className="text-sm text-ink-muted">{t("automations.test.preview.realTask")}</p>
             </>
           ) : (
@@ -201,7 +202,7 @@ function StepBody({ step, path, mark }: { step: Step; path: string; mark: Mark }
     if (cur?.preview)
       return (
         <div className="flex flex-col gap-3">
-          <EffectPreview p={cur.preview} />
+          <EffectPreview {...pp} p={cur.preview} />
           <p className="border-t border-rule pt-3 text-sm text-ink-muted">
             {t("automations.test.preview.wouldDo")}
           </p>
@@ -233,13 +234,13 @@ function StepBody({ step, path, mark }: { step: Step; path: string; mark: Mark }
 
   // Già fatto: l'anteprima di ciò che ha fatto, a quel percorso.
   const item = effectAt(sim, path);
-  if (item) return <EffectPreview p={item} />;
+  if (item) return <EffectPreview {...pp} p={item} />;
   switch (step.kind) {
     case "claude": {
       const p = sim.preview.claude.find((x) => x.path === path);
       if (!p) return null;
       const streaming = ctx.stream?.path === path ? ctx.stream.text : undefined;
-      return <ClaudePreview p={p} reason={streaming} />;
+      return <ClaudePreview p={p} words={pp.words} reason={streaming} />;
     }
     case "condition": {
       const values = Object.entries(last?.input ?? {});
@@ -347,6 +348,7 @@ function effectAt(sim: SimulationView, path: string) {
 /** L'email a cui si aspetta risposta, in una riga; «See» la apre. */
 function AwaitedEmail({ email }: { email: SimulationView["preview"]["emails"][number] }) {
   const { t } = useTranslation();
+  const pp = usePreviewProps();
   const [open, setOpen] = useState(false);
   return (
     <div className="flex flex-col gap-2 rounded-md border border-rule px-3 py-2">
@@ -362,7 +364,7 @@ function AwaitedEmail({ email }: { email: SimulationView["preview"]["emails"][nu
           {open ? t("automations.test.preview.hide") : t("automations.test.preview.see")}
         </button>
       </p>
-      {open && <EmailPreview p={email} />}
+      {open && <EmailPreview {...pp} p={email} />}
     </div>
   );
 }

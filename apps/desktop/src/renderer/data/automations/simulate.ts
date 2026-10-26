@@ -396,8 +396,8 @@ function handle(me: string, sim: Sim, a: Automation, input: SimulationInput): vo
     }
     case "project_chosen": {
       if (st.status !== "waiting_project") throw invalid("not_waiting");
-      if (!state.projectsById.has(input.projectId) || !visibleProjectIds(me).has(input.projectId))
-        throw notFound();
+      // Come nell'esecuzione vera, un progetto che il proprietario vede; e che vede chi prova (R-G5).
+      if (!projectChoices(me, sim.ownerId).some((p) => p.id === input.projectId)) throw notFound();
       return apply(sim, a, advance(st, { ...input, byId: me }));
     }
     case "event":
@@ -452,7 +452,16 @@ function currentOf(sim: Sim, a: Automation): SimulationView["current"] {
   return { ...at, preview: null, failure: { error: out.error ?? "", reason: out.reason ?? null } };
 }
 
-function waitingOf(sim: Sim, a: Automation): SimulationWaiting | null {
+/** I progetti fra cui si sceglie nella prova: del proprietario, che chi prova vede; per codice. */
+function projectChoices(me: string, ownerId: string): SimulationProject[] {
+  const mine = visibleProjectIds(me);
+  return [...visibleProjectIds(ownerId)]
+    .filter((id) => mine.has(id) && state.projectsById.has(id))
+    .map(projectRef)
+    .sort((x, y) => x.code.localeCompare(y.code));
+}
+
+function waitingOf(me: string, sim: Sim, a: Automation): SimulationWaiting | null {
   const st = sim.engine;
   const aw = st.awaiting;
   if (!aw) return null;
@@ -492,6 +501,7 @@ function waitingOf(sim: Sim, a: Automation): SimulationWaiting | null {
       clientKey: aw.clientKey,
       clientName: typeof cliente === "string" ? cliente : null,
       ownerId: sim.ownerId,
+      choices: projectChoices(me, sim.ownerId),
     };
   }
   return null;
@@ -527,7 +537,7 @@ function view(me: string, sim: Sim, a: Automation): SimulationView {
     return row;
   });
   const current = currentOf(sim, a);
-  const waiting = waitingOf(sim, a);
+  const waiting = waitingOf(me, sim, a);
   if (waiting?.kind === "event") {
     if (waiting.task) waiting.task = mask(waiting.task);
   }

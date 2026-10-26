@@ -45,3 +45,13 @@ export function useTest(): TestState {
 
 /** Il percorso del flusso di un percorso concreto (`forEach[3]` → `forEach[0]`). */
 export const flowPathOf = (path: string) => path.replace(/\[\d+\]/g, "[0]");
+
+/** Le props delle anteprime condivise, dal contesto della prova. */
+export function usePreviewProps() {
+  const ctx = useTest();
+  return {
+    words: { names: ctx.names, numberOf: ctx.numberOf, labels: ctx.labels },
+    // Una bozza mai accesa partirebbe dalla casella di chi prova: «because you'd be the owner».
+    fromYours: !!ctx.sim?.draft && ctx.sim.ownerId === ctx.me,
+  };
+}

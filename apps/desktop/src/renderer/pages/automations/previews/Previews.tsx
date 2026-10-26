@@ -11,14 +11,27 @@ import type {
   SimulationRequestPreview,
   SimulationTaskPreview,
 } from "../../../data/types";
-import { shortDate } from "../format";
+import type { DataField } from "../../../data/types";
+import { shortDate, type Names } from "../format";
 import { CriticalGlyph, WarningGlyph } from "../glyphs";
-import { useTest } from "./context";
 
-// Le anteprime della prova (shape automation-test §5, «Anteprime»): cosa
-// FAREBBE un passo, al condizionale, risolto con le regole dell'esecuzione
-// vera. Nessun codice (al posto del codice «New task» [A 9]) e nessun link
-// verso oggetti che non esistono: i soli nomi veri sono progetti e persone.
+// Le anteprime di ciò che un passo FAREBBE (shape automation-test §5,
+// «Anteprime»): una task, un traguardo, una richiesta, un'email, un avviso,
+// un avvio, la scelta di Claude; al condizionale, risolte con le regole
+// dell'esecuzione vera. Nessun codice (al posto del codice «New task» [A 9])
+// e nessun link verso oggetti che non esistono: i soli nomi veri sono
+// progetti e persone. Componenti di sole props, senza contesto: le usa la
+// prova, e le useranno il registro di un'esecuzione e «Da decidere» (Task 8)
+// — una sola anteprima di task, una sola di email.
+
+/** Le parole che un'anteprima cita: nomi, numeri dei passi (1…N), etichette dei dati. */
+export interface PreviewWords {
+  names: Names;
+  /** Id del passo → numero 1…N (R-J17). */
+  numberOf: (stepId: string) => number | undefined;
+  /** Le etichette dei dati del flusso, per chiave (i campi di Claude). */
+  labels: Map<string, DataField>;
+}
 
 const showMore = "self-start text-sm text-ink underline-offset-4 hover:underline";
 
@@ -80,9 +93,9 @@ function DueWords({ date, days }: { date: string | null; days: number | null }) 
   return <>{days === null ? d : t("automations.test.preview.dueIn", { date: d, count: days })}</>;
 }
 
-export function TaskPreview({ p }: { p: SimulationTaskPreview }) {
+export function TaskPreview({ p, words }: { p: SimulationTaskPreview; words: PreviewWords }) {
   const { t } = useTranslation();
-  const ctx = useTest();
+  const ctx = words;
   const project = useProjectWords();
   const assignee =
     p.assignedBy === "person"
@@ -190,17 +203,20 @@ export function RequestPreview({ p }: { p: SimulationRequestPreview }) {
 /** L'email intera, come nel pannello di lettura della Posta (prosa ≤ 68ch). Nessun «Open in Mail». */
 export function EmailPreview({
   p,
+  words,
+  fromYours = false,
   edited,
 }: {
   p: SimulationEmailPreview;
+  words: PreviewWords;
+  /** Partirebbe dalla casella di chi guarda perché ne sarebbe il proprietario (una bozza mai accesa). */
+  fromYours?: boolean;
   /** Oggetto e testo corretti prima di approvare. */
   edited?: { subject?: string; body?: string; to?: string };
 }) {
   const { t } = useTranslation();
-  const ctx = useTest();
-  const sim = ctx.sim;
-  const yours = sim?.draft && sim.ownerId === ctx.me;
-  const same = p.sameConversationAs ? ctx.numberOf(p.sameConversationAs.stepId) : undefined;
+  const yours = fromYours;
+  const same = p.sameConversationAs ? words.numberOf(p.sameConversationAs.stepId) : undefined;
   return (
     <section data-preview-email className="flex flex-col gap-3">
       <p className="text-sm text-ink-muted">{t("automations.test.preview.email")}</p>
@@ -269,14 +285,16 @@ function FieldValue({ value }: { value: unknown }) {
 /** Cosa ha scelto Claude, perché (la sua motivazione, come tale), i campi, cosa ha letto. */
 export function ClaudePreview({
   p,
+  words,
   reason,
 }: {
   p: SimulationClaudePreview;
+  words: PreviewWords;
   /** La motivazione mentre arriva (streaming); assente = intera. */
   reason?: string;
 }) {
   const { t } = useTranslation();
-  const ctx = useTest();
+  const ctx = words;
   const fields = Object.entries(p.fields);
   const streaming = reason !== undefined && reason !== p.reason;
   return (
@@ -329,22 +347,26 @@ export function ClaudePreview({
 /** Un'anteprima di un effetto, qualunque sia. */
 export function EffectPreview({
   p,
+  words,
+  fromYours = false,
   edited,
 }: {
   p: SimulationEffectPreview;
+  words: PreviewWords;
+  fromYours?: boolean;
   edited?: { subject?: string; body?: string; to?: string };
 }) {
   const { t } = useTranslation();
-  const ctx = useTest();
+  const ctx = words;
   switch (p.kind) {
     case "task":
-      return <TaskPreview p={p} />;
+      return <TaskPreview p={p} words={words} />;
     case "milestone":
       return <MilestonePreview p={p} />;
     case "request":
       return <RequestPreview p={p} />;
     case "email":
-      return <EmailPreview p={p} edited={edited} />;
+      return <EmailPreview p={p} words={words} fromYours={fromYours} edited={edited} />;
     case "notification":
       return (
         <section data-preview-notify className="flex flex-col gap-2">

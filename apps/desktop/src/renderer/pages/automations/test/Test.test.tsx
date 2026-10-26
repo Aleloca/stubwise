@@ -576,3 +576,100 @@ describe("il ritmo", () => {
     expect(document.querySelector("[data-so-far]")).toHaveTextContent("4 tasks");
   });
 });
+
+describe("revisione, giro 1", () => {
+  it("Esc nel compositore della risposta resta al campo: pagina e prova intatte", async () => {
+    const router = await open("/automations/AUD-A1/test");
+    await startWith(0);
+    await userEvent.click(next());
+    await userEvent.click(
+      await within(panel()).findByRole("button", { name: "Write the client's reply" }),
+    );
+    const reply = within(panel()).getByRole("textbox", { name: "Reply" });
+    await userEvent.type(reply, "Gli orari");
+    await userEvent.keyboard("{Escape}");
+    expect(router.state.location.pathname).toBe("/automations/AUD-A1/test");
+    expect(within(panel()).getByRole("textbox", { name: "Reply" })).toHaveValue("Gli orari");
+    expect(rowMark("1")).toBe("stopped");
+  });
+
+  it("Esc nei campi «Edit before approving» e nel menu del progetto non esce dalla prova", async () => {
+    const router = await open("/automations/AUT-1/test");
+    await startWith(0);
+    await userEvent.click(next());
+    const select = await within(panel()).findByRole("combobox", { name: "Project" });
+    select.focus();
+    await userEvent.keyboard("{Escape}");
+    expect(router.state.location.pathname).toBe("/automations/AUT-1/test");
+    await userEvent.selectOptions(select, "prj-aud");
+    await userEvent.click(
+      within(panel()).getByRole("button", { name: "Use this project in the test" }),
+    );
+    await waitFor(() => expect(next()).toBeEnabled());
+    await userEvent.click(runToStop());
+    await userEvent.click(
+      await within(panel()).findByRole("button", { name: "Edit before approving" }),
+    );
+    within(panel()).getByRole("textbox", { name: "Subject" }).focus();
+    await userEvent.keyboard("{Escape}");
+    expect(router.state.location.pathname).toBe("/automations/AUT-1/test");
+    expect(within(panel()).getByRole("textbox", { name: "Subject" })).toBeInTheDocument();
+  });
+
+  it("«What a test can't do»: Esc chiude solo il riquadro e rende il fuoco al bottone", async () => {
+    const router = await open("/automations/AUT-1/test");
+    await startWith(2);
+    const button = within(band()).getByRole("button", { name: "What a test can't do" });
+    await userEvent.click(button);
+    expect(within(band()).getByRole("dialog")).toHaveTextContent("Claude answers as it would");
+    await userEvent.keyboard("{Escape}");
+    expect(within(band()).queryByRole("dialog")).toBeNull();
+    expect(button).toHaveFocus();
+    expect(router.state.location.pathname).toBe("/automations/AUT-1/test");
+  });
+
+  it("Restart e «Change example» aspettano mentre Claude risponde", async () => {
+    setMatchMedia(REDUCED_MOTION_QUERY, false);
+    await open("/automations/AUT-1/test");
+    await startWith(2);
+    await userEvent.click(next());
+    await waitFor(() => expect(panel().querySelector('[aria-busy="true"]')).not.toBeNull());
+    expect(document.querySelector("[data-restart]")).toBeDisabled();
+    expect(document.querySelector("[data-change-example]")).toBeDisabled();
+    await waitFor(() => expect(document.querySelector("[data-restart]")).toBeEnabled());
+  });
+
+  it("«All rounds» si chiude con un clic fuori", async () => {
+    await open("/automations/AUT-1/test");
+    await startWith(2);
+    await userEvent.click(runToStop());
+    await waitFor(() => expect(document.querySelector("[data-real-approver]")).not.toBeNull());
+    await userEvent.click(screen.getByRole("button", { name: "All rounds" }));
+    expect(document.querySelector("[data-all-rounds]")).not.toBeNull();
+    await userEvent.click(screen.getByRole("heading", { level: 1 }));
+    expect(document.querySelector("[data-all-rounds]")).toBeNull();
+  });
+
+  it("il dialogo «Turn on» della prova dice «non provata» se la versione non lo è più", async () => {
+    await open("/automations/AUT-1/test");
+    await startWith(2);
+    await userEvent.click(runToStop());
+    await userEvent.click(
+      await within(panel()).findByRole("button", { name: "Approve in the test" }),
+    );
+    await waitFor(() => expect(next()).toBeEnabled());
+    await userEvent.click(next());
+    await screen.findByText("If this were real");
+    // Un altro salva la bozza dopo la prova: la revisione nuova non è provata.
+    await act(() =>
+      automationsApi.saveDraft(auto("AUT-1").id, auto("AUT-1").versions.at(-1)!.flow),
+    );
+    await userEvent.click(document.querySelector<HTMLButtonElement>("[data-finish-action]")!);
+    const dialog = await screen.findByRole("dialog", { name: "Publish version 2 of AUT-1?" });
+    await waitFor(() =>
+      expect(dialog.querySelector("[data-untested]")).toHaveTextContent(
+        "You haven't tested this version yet.",
+      ),
+    );
+  });
+});

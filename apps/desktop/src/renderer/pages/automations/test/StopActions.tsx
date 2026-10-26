@@ -1,11 +1,10 @@
-import { useId, useState } from "react";
+import { useId, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { useProjects } from "../../../data/queries";
 import type { SimulationEffectPreview, SimulationWaiting } from "../../../data/types";
 import { inputClass } from "../../../tasks-ui/Dialog";
 import { primaryButton, secondaryButton } from "../../tasks/controls";
-import { useTest } from "./context";
-import { EffectPreview, EmailPreview, FailurePreview } from "./Previews";
+import { usePreviewProps, useTest } from "./context";
+import { EffectPreview, EmailPreview, FailurePreview } from "../previews/Previews";
 
 // Le fermate della prova (shape automation-test §5, «Fermate»): il pannello
 // dice cosa succederebbe ora e il bottone che sblocca la prova; accanto, in
@@ -15,6 +14,14 @@ import { EffectPreview, EmailPreview, FailurePreview } from "./Previews";
 // progetto, nessuna email vera.
 
 const DAY = 86_400_000;
+
+/**
+ * Esc in un campo della fermata resta al campo: non chiude il pannello né
+ * fa uscire dalla prova (il pannello e la pagina rispettano `defaultPrevented`).
+ */
+const keepEsc = (e: KeyboardEvent) => {
+  if (e.key === "Escape") e.preventDefault();
+};
 
 /** La riga «In a real run, this waits for …» di un'approvazione. */
 export function RealApprover({
@@ -69,6 +76,7 @@ export function ApprovalStop({
   failure: { reason: string | null } | null;
 }) {
   const { t } = useTranslation();
+  const pp = usePreviewProps();
   const ctx = useTest();
   const email = preview?.kind === "email" ? preview : null;
   const [editing, setEditing] = useState(false);
@@ -93,6 +101,7 @@ export function ApprovalStop({
             <input
               id={subjectId}
               className={inputClass}
+              onKeyDown={keepEsc}
               value={draft.subject}
               onChange={(e) => setDraft({ ...draft, subject: e.target.value })}
             />
@@ -102,15 +111,16 @@ export function ApprovalStop({
             <textarea
               id={bodyId}
               className={`${inputClass} min-h-40`}
+              onKeyDown={keepEsc}
               value={draft.body}
               onChange={(e) => setDraft({ ...draft, body: e.target.value })}
             />
           </label>
-          <EmailPreview p={email} edited={draft} />
+          <EmailPreview {...pp} p={email} edited={draft} />
         </div>
       ) : (
         <>
-          {preview && <EffectPreview p={preview} />}
+          {preview && <EffectPreview {...pp} p={preview} />}
           {failure && <FailurePreview reason={failure.reason} claude={false} />}
         </>
       )}
@@ -187,6 +197,7 @@ export function EventStop({ waiting }: { waiting: Extract<SimulationWaiting, { k
           <textarea
             id={textId}
             autoFocus
+            onKeyDown={keepEsc}
             className={`${inputClass} min-h-32`}
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -256,7 +267,7 @@ export function EventStop({ waiting }: { waiting: Extract<SimulationWaiting, { k
   );
 }
 
-/** Il cliente non è in tabella: un progetto per la prova. La tabella non cambia. */
+/** Il cliente non è in tabella: un progetto per la prova, fra quelli del proprietario. La tabella non cambia. */
 export function ProjectStop({
   waiting,
 }: {
@@ -264,7 +275,8 @@ export function ProjectStop({
 }) {
   const { t } = useTranslation();
   const ctx = useTest();
-  const projects = [...(useProjects().data ?? [])].sort((a, b) => a.code.localeCompare(b.code));
+  // I progetti che vedrebbe il proprietario, come nell'esecuzione vera (fra quelli che vedi).
+  const projects = waiting.choices ?? [];
   const [projectId, setProjectId] = useState("");
   const id = useId();
   return (
@@ -281,6 +293,7 @@ export function ProjectStop({
             id={id}
             data-stop-primary
             className={`${inputClass} h-8`}
+            onKeyDown={keepEsc}
             value={projectId}
             onChange={(e) => setProjectId(e.target.value)}
           >

@@ -938,6 +938,12 @@ export type SimulationWaiting =
       clientName: string | null;
       /** Chi sceglierebbe davvero il progetto. */
       ownerId: string;
+      /**
+       * I progetti fra cui scegliere: quelli che il proprietario vedrebbe
+       * (come nell'esecuzione vera), fra quelli che chi prova vede (R-G5);
+       * per codice.
+       */
+      choices: SimulationProject[];
     });
 
 export interface SimulationView {

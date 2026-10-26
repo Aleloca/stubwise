@@ -68,14 +68,23 @@ export function useTestRun({
   const sim = useAutomationSimulation(simId).data ?? null;
 
   // Uscire butta la prova, senza conferma: non c'è niente di vero da perdere.
+  // Smontata la pagina, «Run to next stop» si ferma e lo streaming smette.
   const endRef = useRef(end.mutate);
   endRef.current = end.mutate;
-  useEffect(
-    () => () => {
+  const mounted = useRef(true);
+  const streamTimer = useRef<{ id: number; done: () => void } | null>(null);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (streamTimer.current) {
+        window.clearInterval(streamTimer.current.id);
+        streamTimer.current.done();
+        streamTimer.current = null;
+      }
       if (simRef.current) endRef.current(simRef.current);
-    },
-    [],
-  );
+    };
+  }, []);
 
   const begin = async (ex: ChosenExample) => {
     setStartError(false);
@@ -128,18 +137,20 @@ export function useTestRun({
   /** La motivazione di Claude in streaming; risolve quando è arrivata tutta. */
   const streamClaude = (path: string, text: string) =>
     new Promise<void>((resolve) => {
-      if (prefersReducedMotion() || text.length === 0) return resolve();
+      if (!mounted.current || prefersReducedMotion() || text.length === 0) return resolve();
       let shown = 0;
       setStream({ path, text: "" });
-      const timer = window.setInterval(() => {
+      const id = window.setInterval(() => {
         shown = Math.min(text.length, shown + 18);
         setStream({ path, text: text.slice(0, shown) });
         if (shown >= text.length) {
-          window.clearInterval(timer);
+          window.clearInterval(id);
+          streamTimer.current = null;
           setStream(null);
           resolve();
         }
       }, 30);
+      streamTimer.current = { id, done: resolve };
     });
 
   const sendOnce = async (input: SimulationInput): Promise<SimulationView | null> => {
@@ -179,8 +190,11 @@ export function useTestRun({
         await sendOnce({ kind: "run" });
         return;
       }
+      // Il giro si ferma se la prova cambia (Restart, un altro esempio) o la pagina se ne va.
+      const id = simRef.current;
+      const same = () => mounted.current && simRef.current === id;
       let cur: SimulationView | null = sim;
-      while (cur && cur.status === "running" && cur.current) {
+      while (cur && cur.status === "running" && cur.current && same()) {
         cur = await sendOnce({ kind: "next" });
         if (cur && cur.status === "running" && cur.current)
           await new Promise((r) => window.setTimeout(r, PACE_MS));

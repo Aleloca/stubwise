@@ -696,4 +696,25 @@ describe("Automations: gli esempi della prova", () => {
     expect(sim.loopItems["2"]).toHaveLength(4);
     expect(sim.loopItems["2"]?.[0]).toMatchObject({ titolo: expect.stringContaining("CRM") });
   });
+
+  it("la scelta del progetto nella prova: i progetti del proprietario (come nella vera), fra quelli di chi prova", async () => {
+    // Roberta (admin, vede tutto) prova la versione accesa di Matteo: si sceglie fra quelli di Matteo.
+    as("p-roberta");
+    const id = await automations.startSimulation(A.newContract, 1, sample(S.audin, 2));
+    const sim = await automations.simulationStep(id, { kind: "next" });
+    expect(sim.waiting?.kind).toBe("project");
+    const choices = sim.waiting?.kind === "project" ? sim.waiting.choices.map((p) => p.id) : [];
+    const matteo = visibleProjectIds("p-matteo");
+    expect(new Set(choices)).toEqual(matteo);
+    const notMatteo = state.projects.find((p) => !matteo.has(p.id))!;
+    expect(notMatteo).toBeDefined();
+    await expect(
+      automations.simulationStep(id, { kind: "project_chosen", projectId: notMatteo.id }),
+    ).rejects.toThrow("not_found");
+    const ok = await automations.simulationStep(id, {
+      kind: "project_chosen",
+      projectId: choices[0]!,
+    });
+    expect(ok.status).not.toBe("waiting_project");
+  });
 });

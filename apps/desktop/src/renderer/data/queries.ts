@@ -3596,6 +3596,8 @@ export function useAutomationSimulationExamples(
 
 /** Comincia una prova; con errori di configurazione rifiuta con `SimulationConfigError` (`issues`). */
 export function useStartAutomationSimulation() {
+  const me = useSessionPersonId();
+  const client = useQueryClient();
   return useMutation({
     mutationFn: ({
       automationId,
@@ -3606,6 +3608,9 @@ export function useStartAutomationSimulation() {
       version: number | "draft";
       event: Record<string, unknown>;
     }) => api.automations.startSimulation(automationId, version, event),
+    // R-J19: una prova che con l'esempio scelto finisce già all'avvio segna la versione come provata.
+    onSuccess: (_, { automationId }) =>
+      void client.invalidateQueries({ queryKey: queryKeys.automation(me, automationId) }),
   });
 }
 

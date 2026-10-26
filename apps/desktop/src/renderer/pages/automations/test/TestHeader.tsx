@@ -29,6 +29,8 @@ export interface TestHeaderProps {
   /** A prova finita bene: «Turn on» / «Publish version N» (solo una bozza). */
   finish: { label: string; onClick: () => void } | null;
   onTestAgain: (() => void) | null;
+  /** La prova avanza (o Claude risponde): ricominciare o cambiare esempio aspetta. */
+  busy: boolean;
 }
 
 export function TestHeader(p: TestHeaderProps) {
@@ -62,7 +64,8 @@ export function TestHeader(p: TestHeaderProps) {
                 <button
                   type="button"
                   data-restart
-                  className={quietButton}
+                  className={`${quietButton} disabled:opacity-40`}
+                  disabled={p.busy}
                   onClick={p.commands.onRestart}
                 >
                   {t("automations.test.commands.restart")}
@@ -126,8 +129,9 @@ export function TestHeader(p: TestHeaderProps) {
               <button
                 type="button"
                 data-change-example
+                disabled={p.busy}
                 onClick={p.onChangeExample}
-                className="text-ink underline-offset-4 hover:underline"
+                className="text-ink underline-offset-4 hover:underline disabled:opacity-40 disabled:hover:no-underline"
               >
                 {t("automations.test.meta.change")}
               </button>
@@ -154,8 +158,19 @@ function TestBand() {
       const target = e.target as Node;
       if (!buttonRef.current?.contains(target) && !popRef.current?.contains(target)) setOpen(false);
     };
+    // Esc chiude il riquadro e basta: né il pannello né l'uscita dalla prova.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      e.preventDefault();
+      setOpen(false);
+      buttonRef.current?.focus();
+    };
     document.addEventListener("pointerdown", onDown);
-    return () => document.removeEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
   }, [open]);
   return (
     <div
@@ -183,14 +198,6 @@ function TestBand() {
           id={popId}
           role="dialog"
           aria-label={t("automations.test.band.cant")}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") {
-              e.preventDefault();
-              e.stopPropagation();
-              setOpen(false);
-              buttonRef.current?.focus();
-            }
-          }}
           className="menu-enter absolute top-full right-8 z-30 mt-1 w-[340px] max-w-[calc(100vw-32px)] rounded-lg border border-rule-strong bg-surface p-3 shadow-[0_12px_32px_-8px_oklch(0_0_0/0.4)]"
         >
           <ul className="flex list-disc flex-col gap-1.5 pl-4 text-sm text-ink">

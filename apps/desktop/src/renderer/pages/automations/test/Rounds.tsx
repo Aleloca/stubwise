@@ -1,4 +1,13 @@
-import { useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type RefObject,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { inputClass } from "../../../tasks-ui/Dialog";
 import { useTest } from "./context";
@@ -108,6 +117,8 @@ export function RoundPicker({
             setOpen(false);
             allRef.current?.focus();
           }}
+          anchor={allRef}
+          onDismiss={() => setOpen(false)}
         />
       )}
     </div>
@@ -121,6 +132,8 @@ function AllRounds({
   current,
   onPick,
   onClose,
+  anchor,
+  onDismiss,
 }: {
   blockPath: string;
   kind: "forEach" | "repeat";
@@ -128,6 +141,10 @@ function AllRounds({
   current: number;
   onPick: (round: number) => void;
   onClose: () => void;
+  /** Il bottone che lo apre: un clic lì lo chiude da sé. */
+  anchor: RefObject<HTMLButtonElement | null>;
+  /** Un clic fuori: si chiude senza spostare il fuoco. */
+  onDismiss: () => void;
 }) {
   const { t } = useTranslation();
   const ctx = useTest();
@@ -135,7 +152,16 @@ function AllRounds({
   const [scroll, setScroll] = useState(0);
   const [height, setHeight] = useState(VIEW);
   const listRef = useRef<HTMLDivElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (!popRef.current?.contains(target) && !anchor.current?.contains(target)) onDismiss();
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [anchor, onDismiss]);
   const rows = useMemo(
     () =>
       Array.from({ length: total }, (_, i) => ({
@@ -160,6 +186,7 @@ function AllRounds({
   const last = Math.min(shown.length, Math.ceil((scroll + height) / ROW) + 4);
   return (
     <div
+      ref={popRef}
       role="dialog"
       aria-labelledby={titleId}
       data-all-rounds
@@ -219,6 +246,8 @@ function AllRounds({
                   data-round-row={r.i}
                   aria-current={r.i === current ? "true" : undefined}
                   onClick={() => onPick(r.i)}
+                  // Tab fra le righe: quella col fuoco si vede, e le vicine si disegnano.
+                  onFocus={(e) => e.currentTarget.scrollIntoView({ block: "nearest" })}
                   className={`flex h-full w-full items-center gap-3 rounded-md px-2 text-left text-sm hover:bg-ink/6 ${r.i === current ? "bg-ink/10" : ""}`}
                 >
                   <span className="num w-6 shrink-0 text-right text-ink-faint">{r.i + 1}</span>

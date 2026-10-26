@@ -14,7 +14,7 @@ import { DOCKED_PANEL_QUERY, DetailPanel } from "../../../layout/useDetailPanel"
 import { useMediaQuery } from "../../../layout/useMediaQuery";
 import { PageError } from "../../../tasks-ui/PageStates";
 import { TurnOnDialog } from "../AutomationDialogs";
-import { fieldLabels } from "../format";
+import { fieldLabels, isUntested } from "../format";
 import { NotVisible, useNames } from "../shared";
 import { numbersById, stepNumbers } from "../numbering";
 import { Blocked } from "./Blocked";
@@ -285,6 +285,7 @@ function Test({ detail }: { detail: AutomationDetail }) {
           : null
       }
       onTestAgain={finished && example ? () => void begin(example) : null}
+      busy={busy || stream !== null}
       // «Turn on» solo dopo una prova finita bene, mai da sé ([A 12]); una versione accesa no.
       finish={
         goodEnd && draft
@@ -358,6 +359,7 @@ function Test({ detail }: { detail: AutomationDetail }) {
         <TurnOnDialog
           automationId={a.id}
           publish={a.status !== "draft"}
+          untested={isUntested(latest)}
           onDone={() =>
             void navigate({ to: "/automations/$code", params: { code: a.code } } as never)
           }
