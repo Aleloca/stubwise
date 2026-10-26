@@ -43,7 +43,7 @@ export function isUpcoming(e: Pick<CalendarEvent, "startsAt" | "allDay">, now: s
 }
 
 /** L'id della proposta di una scadenza: una per evento. */
-const calendarProposalId = (eventId: string): string => `mp-cal-${eventId}`;
+export const calendarProposalId = (eventId: string): string => `mp-cal-${eventId}`;
 
 /** L'id della proposta di una data di una serie: una per data. */
 const seriesProposalId = (eventId: string): string => `mp-ser-${eventId}`;

@@ -1,4 +1,3 @@
-import { applyActions } from "../api-mutations";
 import { EMAIL, lower, teamAddresses } from "../mail/compose";
 import { isProjectMember } from "../mail/visibility";
 import { gate, newId, now, state, storeGeneration, visibleProjectIds } from "../store";
@@ -17,10 +16,11 @@ import type {
   MailProposal,
   Rsvp,
 } from "../types";
-import { DAY_MS, deadlineProposal, seriesProposal } from "./proposals";
+import { calendarProposalId, DAY_MS } from "./proposals";
+import { proposeFromCalendar } from "./propose";
 import { eventView, isoAt, readableEvent, seriesView } from "./reads";
 import { forget, markCreated, retryGroup, revertGroup, save, track } from "./save";
-import { calendarWindow, canSeeEvent, canSeeSeries, inWindow, isOrganizer } from "./visibility";
+import { calendarWindow, canSeeSeries, isOrganizer } from "./visibility";
 
 // Le scritture del Calendario (area 6). Come le altre: `gate()` prima di
 // tutto (con la generazione dello stato: un ripristino durante l'attesa
@@ -308,8 +308,9 @@ export async function respond(
  * vedono (il progetto è dell'evento). Lo fa chiunque veda l'evento, purché
  * sia membro del progetto scelto (altrimenti come inesistente) e veda
  * quello di adesso: un progetto che non vede non lo toglie né lo cambia
- * (`forbidden`). Una proposta aperta dell'evento segue il progetto (senza
- * progetto, sparisce).
+ * (`forbidden`). La proposta aperta della sua scadenza segue il progetto
+ * (senza progetto, sparisce); quella di una data di serie no: è del
+ * progetto della serie, che si cambia dalla configurazione.
  */
 export async function setEventProject(
   id: string,
@@ -321,7 +322,8 @@ export async function setEventProject(
   if (e.projectId !== null && !visibleProjectIds(me).has(e.projectId)) throw forbidden();
   e.projectId = projectId;
   e.projectBy = projectId === null ? null : "manual";
-  for (const open of openProposalsOf(new Set([e.id]))) {
+  const deadline = calendarProposalId(e.id);
+  for (const open of openProposalsOf(new Set([e.id])).filter((p) => p.id === deadline)) {
     if (projectId === null) state.mailProposals.splice(state.mailProposals.indexOf(open), 1);
     else {
       open.projectId = projectId;
@@ -329,45 +331,6 @@ export async function setEventProject(
     }
   }
   return eventView(me, e);
-}
-
-/**
- * Una proposta di una serie con «Agisci da solo»: nasce già confermata, da
- * Stubwise (`decidedById: null`), eseguita a nome di chi ha il calendario
- * (`actor`) con i suoi permessi. Non avvia mai il lavoro di Claude: le
- * azioni di una serie non comprendono `startRun`. Se l'esecuzione fallisce
- * resta `failed`, col codice.
- */
-function settleAutomatically(actor: string, p: MailProposal): void {
-  const result = applyActions(actor, p.actions);
-  p.decidedAt = now();
-  if (result.ok) {
-    p.status = "confirmed";
-    p.resultCodes = result.codes;
-  } else {
-    p.status = "failed";
-    p.error = result.code;
-  }
-}
-
-/**
- * Le proposte nuove degli eventi che `actor` vede nella finestra: le
- * scadenze e le date delle serie accese entrate nei giorni di anticipo. Mai
- * per una data passata, quindi accendere una serie non crea nulla
- * all'indietro. Una per evento (o data): una già nata non si rifà.
- */
-function proposeFromCalendar(actor: string): void {
-  const at = now();
-  for (const e of state.calendarEvents) {
-    if (!canSeeEvent(actor, e) || !inWindow(e)) continue;
-    const series = state.calendarSeries.find((s) => s.id === e.seriesId);
-    const fromSeries = series ? seriesProposal(series, e, at) : null;
-    for (const p of [deadlineProposal(e, at), fromSeries]) {
-      if (!p || state.mailProposals.some((x) => x.id === p.id)) continue;
-      if (p === fromSeries && series!.auto) settleAutomatically(actor, p);
-      state.mailProposals.push(p);
-    }
-  }
 }
 
 /**
@@ -407,7 +370,7 @@ export async function configureSeries(
     leadDays: next.leadDays,
     auto: next.auto,
   });
-  if (s.enabled) proposeFromCalendar(me);
+  if (s.enabled) proposeFromCalendar(me, (e) => e.seriesId === s.id);
   return seriesView(me, s);
 }
 

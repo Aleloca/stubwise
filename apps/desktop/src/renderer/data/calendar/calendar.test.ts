@@ -490,6 +490,17 @@ describe("Calendario: progetto dell'evento", () => {
     await calendar.setEventProject(C.deadline, null);
     expect(proposalOf(C.deadline)).toBeUndefined();
   });
+
+  it("la proposta di una serie resta del progetto della serie, anche se cambia quello di una data", async () => {
+    const id = "mp-ser-ev-aud-review-2026-10-29";
+    const before = structuredClone(state.mailProposals.find((p) => p.id === id)!);
+    expect(before).toMatchObject({ status: "open", projectId: AUD });
+    as("p-matteo"); // in AUD e MKX
+    await calendar.setEventProject("ev-aud-review-2026-10-29", MKX);
+    expect(state.mailProposals.find((p) => p.id === id)).toEqual(before);
+    await calendar.setEventProject("ev-aud-review-2026-10-29", null);
+    expect(state.mailProposals.find((p) => p.id === id)).toEqual(before);
+  });
 });
 
 describe("Calendario: configurazione delle serie", () => {
@@ -523,6 +534,23 @@ describe("Calendario: configurazione delle serie", () => {
     await expect(
       calendar.configureSeries(SERIES_IDS.audReview, { projectId: STW }),
     ).rejects.toThrow("not_found");
+  });
+
+  it("configurare una serie propone solo le date di quella serie, non gli altri eventi", async () => {
+    // Due proposte che l'allineamento rifarebbe: la scadenza dei visual e la pianificazione di MKX.
+    const others = ["mp-cal-ev-mkx-visuals-deadline", "mp-ser-ev-mkx-planning-2026-10-26"];
+    state.mailProposals = state.mailProposals.filter((p) => !others.includes(p.id));
+    await calendar.configureSeries(SERIES_IDS.stwStandup, {
+      projectId: STW,
+      enabled: true,
+      leadDays: 3,
+    });
+    expect(proposalOf("ev-stw-standup-2026-10-26")).toBeDefined();
+    expect(state.mailProposals.filter((p) => others.includes(p.id))).toEqual([]);
+    // L'allineamento invece guarda tutto il calendario.
+    await calendar.syncCalendar();
+    await calendar.whenCalendarIdle();
+    expect(state.mailProposals.filter((p) => others.includes(p.id))).toHaveLength(2);
   });
 
   it("una serie di un progetto che non vedo: né progetto, né accesa/spenta, né «Agisci da solo» (R-I12)", async () => {
