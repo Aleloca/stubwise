@@ -2,39 +2,30 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { stepAt } from "../../../domain/automations/fields";
-import type { FlowIssue } from "../../../domain/automations/validate";
 import {
-  simulationConfigIssues,
   useAutomation,
   useAutomations,
-  useAutomationSimulation,
-  useAutomationSimulationStep,
   useAutomationSources,
-  useEndAutomationSimulation,
   useSessionPersonId,
-  useStartAutomationSimulation,
-  type SimulationInput,
 } from "../../../data/queries";
 import type { AutomationDetail, SimulationView } from "../../../data/types";
 import { useViewer } from "../../../data/viewer";
 import { DOCKED_PANEL_QUERY, DetailPanel } from "../../../layout/useDetailPanel";
-import { prefersReducedMotion, useMediaQuery } from "../../../layout/useMediaQuery";
+import { useMediaQuery } from "../../../layout/useMediaQuery";
 import { PageError } from "../../../tasks-ui/PageStates";
-import { useToast } from "../../../tasks-ui/Toast";
 import { TurnOnDialog } from "../AutomationDialogs";
 import { fieldLabels } from "../format";
-import { CriticalGlyph } from "../glyphs";
 import { NotVisible, useNames } from "../shared";
-import { startProblems, stepProblems } from "../builder/issues";
 import { numbersById, stepNumbers } from "../numbering";
-import { flowPathOf, TestContext, useTest, type TestState } from "./context";
-import { ExampleDialog, type ChosenExample } from "./ExampleDialog";
-import { defaultRound, indexLog, markAt } from "./marks";
+import { Blocked } from "./Blocked";
+import { flowPathOf, TestContext, type TestState } from "./context";
+import { ExampleDialog } from "./ExampleDialog";
+import { defaultRound, indexLog } from "./marks";
 import { currentPathOf, PreviewPanel } from "./PreviewPanel";
 import { Summary } from "./Summary";
 import { TestFlow } from "./TestFlow";
 import { TestHeader } from "./TestHeader";
-import { rowOutcome } from "./words";
+import { useTestRun } from "./useTestRun";
 
 // La prova di un'automazione (shape automation-test.md, Task 7):
 // `#/automations/<CODE>/test`, una modalità del costruttore ([A 1]). Si
@@ -46,8 +37,6 @@ import { rowOutcome } from "./words";
 // cambiare persona rimonta la pagina (chiave) e la prova di prima sparisce.
 
 const TERMINAL = new Set(["done", "failed", "cancelled"]);
-/** Il ritmo di «Run to next stop»: ogni passo si accende per un momento. */
-const PACE_MS = 250;
 
 /** `#/automations/<CODE>/test` */
 export function TestRoutePage({ code }: { code: string }) {
@@ -115,7 +104,6 @@ function CantTest({ code }: { code: string }) {
 function Test({ detail }: { detail: AutomationDetail }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const toast = useToast();
   const names = useNames();
   const me = useSessionPersonId();
   const sources = useAutomationSources().data ?? [];
@@ -134,163 +122,32 @@ function Test({ detail }: { detail: AutomationDetail }) {
   const byId = useMemo(() => numbersById(flow.steps), [flow.steps]);
   const labels = useMemo(() => fieldLabels(flow, sources), [flow, sources]);
 
-  const [example, setExample] = useState<ChosenExample | null>(null);
-  const [choosing, setChoosing] = useState(true);
-  const [simId, setSimId] = useState<string | null>(null);
-  const [startError, setStartError] = useState(false);
-  const [configIssues, setConfigIssues] = useState<FlowIssue[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [rounds, setRounds] = useState<Record<string, number>>({});
-  const [busy, setBusy] = useState(false);
-  const [stream, setStream] = useState<{ path: string; text: string } | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [dialog, setDialog] = useState<"turnOn" | null>(null);
-  const [polite, setPolite] = useState("");
-  const [assertive, setAssertive] = useState("");
   const treeRef = useRef<HTMLUListElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const simRef = useRef<string | null>(null);
-  simRef.current = simId;
 
-  const start = useStartAutomationSimulation();
-  const step = useAutomationSimulationStep();
-  const end = useEndAutomationSimulation();
-  const sim = useAutomationSimulation(simId).data ?? null;
-  const ix = useMemo(() => (sim ? indexLog(sim) : null), [sim]);
-
-  // Uscire butta la prova, senza conferma: non c'è niente di vero da perdere.
-  const endRef = useRef(end.mutate);
-  endRef.current = end.mutate;
-  useEffect(
-    () => () => {
-      if (simRef.current) endRef.current(simRef.current);
+  const run = useTestRun({
+    automationId: a.id,
+    versionKey,
+    flow,
+    numbers,
+    ctxFor: (view) => ctxFor(view),
+    onBegin: () => {
+      setSelected(null);
+      setRounds({});
     },
-    [],
-  );
+    onAdvance: () => setSelected(null),
+  });
+  const { sim, example, choosing, setChoosing, startError, configIssues, busy, stream } = run;
+  const { begin, send, runToStop } = run;
+  const ix = useMemo(() => (sim ? indexLog(sim) : null), [sim]);
 
   // Errori di configurazione: la prova non parte e dice dove ([A 5]).
   const knownIssues = draft ? detail.configErrors : detail.liveErrors;
   const blockedBy = configIssues ?? (knownIssues.length > 0 ? knownIssues : null);
-
-  const begin = async (ex: ChosenExample) => {
-    setStartError(false);
-    const old = simRef.current;
-    if (old) {
-      setSimId(null);
-      end.mutate(old);
-    }
-    try {
-      const id = await start.mutateAsync({
-        automationId: a.id,
-        version: versionKey,
-        event: ex.event,
-      });
-      setExample(ex);
-      setChoosing(false);
-      setSelected(null);
-      setRounds({});
-      setStream(null);
-      setSimId(id);
-      setAssertive(t("automations.test.announce.started"));
-    } catch (e) {
-      const issues = simulationConfigIssues(e);
-      if (issues) {
-        setConfigIssues(issues);
-        setChoosing(false);
-      } else setStartError(true);
-    }
-  };
-
-  // --- l'avanzamento ---------------------------------------------------------------
-
-  /** Gli annunci: «polite» per un passo fatto, «assertive» per le fermate e la fine. */
-  const announce = (before: SimulationView | null, after: SimulationView) => {
-    const nOf = (p: string) => numbers.get(flowPathOf(p)) ?? 0;
-    const ixAfter = indexLog(after);
-    if (after.status === "done") return setAssertive(t("automations.test.announce.finished"));
-    if (after.status === "failed" || after.status === "cancelled")
-      return setAssertive(
-        t("automations.test.announce.failed", {
-          n: nOf(after.cursor ?? after.log.at(-1)?.path ?? ""),
-        }),
-      );
-    if (after.status.startsWith("waiting_") && after.cursor) {
-      const s = stepAt(flow.steps, flowPathOf(after.cursor));
-      const what = s ? rowOutcome(ctxFor(after), s, after.cursor, "stopped", t) : "";
-      return setAssertive(t("automations.test.announce.stopped", { n: nOf(after.cursor), what }));
-    }
-    const prev = currentPathOf(before);
-    if (prev) {
-      const s = stepAt(flow.steps, flowPathOf(prev));
-      const what = s ? rowOutcome(ctxFor(after), s, prev, markAt(ixAfter, prev), t) : "";
-      setPolite(t("automations.test.announce.stepDone", { n: nOf(prev), what }));
-    }
-  };
-
-  /** La motivazione di Claude in streaming; risolve quando è arrivata tutta. */
-  const streamClaude = (path: string, text: string) =>
-    new Promise<void>((resolve) => {
-      if (prefersReducedMotion() || text.length === 0) return resolve();
-      let shown = 0;
-      setStream({ path, text: "" });
-      const timer = window.setInterval(() => {
-        shown = Math.min(text.length, shown + 18);
-        setStream({ path, text: text.slice(0, shown) });
-        if (shown >= text.length) {
-          window.clearInterval(timer);
-          setStream(null);
-          resolve();
-        }
-      }, 30);
-    });
-
-  const sendOnce = async (input: SimulationInput): Promise<SimulationView | null> => {
-    if (!simRef.current) return null;
-    const before = sim;
-    try {
-      const after = await step.mutateAsync({ id: simRef.current, input });
-      announce(before, after);
-      const claudeBefore = before?.preview.claude.length ?? 0;
-      const fresh = after.preview.claude.slice(claudeBefore);
-      for (const c of fresh) await streamClaude(c.path, c.reason);
-      return after;
-    } catch {
-      toast.error(t("automations.test.stop.error"));
-      return null;
-    }
-  };
-
-  const send = async (input: SimulationInput) => {
-    if (busy) return;
-    setBusy(true);
-    setSelected(null);
-    try {
-      await sendOnce(input);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  /** «Run to next stop»: un passo alla volta, con un piccolo ritmo visibile; nulla con movimento ridotto. */
-  const runToStop = async () => {
-    if (busy || !sim) return;
-    setBusy(true);
-    setSelected(null);
-    try {
-      if (prefersReducedMotion()) {
-        await sendOnce({ kind: "run" });
-        return;
-      }
-      let cur: SimulationView | null = sim;
-      while (cur && cur.status === "running" && cur.current) {
-        cur = await sendOnce({ kind: "next" });
-        if (cur && cur.status === "running" && cur.current)
-          await new Promise((r) => window.setTimeout(r, PACE_MS));
-      }
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const canStep = !!sim && sim.status === "running" && !!sim.current && !busy && stream === null;
   const finished = sim !== null && TERMINAL.has(sim.status);
@@ -481,10 +338,10 @@ function Test({ detail }: { detail: AutomationDetail }) {
         )}
       </div>
       <p role="status" aria-live="polite" data-test-live className="sr-only">
-        {polite}
+        {run.polite}
       </p>
       <p role="alert" aria-live="assertive" data-test-alert className="sr-only">
-        {assertive}
+        {run.assertive}
       </p>
       {choosing && !blockedBy && (
         <ExampleDialog
@@ -509,86 +366,4 @@ function Test({ detail }: { detail: AutomationDetail }) {
       )}
     </TestContext.Provider>
   );
-}
-
-/** La bozza ha problemi: nessuna prova parte; ogni riga porta al passo nel costruttore ([A 5]). */
-function Blocked({ issues }: { issues: FlowIssue[] }) {
-  const { t } = useTranslation();
-  const names = useNames();
-  const ctx = useTestFlowWords();
-  // I problemi in parole, come nel costruttore: per passo (tutti i suoi campi), senza doppioni.
-  const lines: { text: string; step: string | null }[] = [];
-  const seen = new Set<string>();
-  const push = (text: string, step: string | null) => {
-    if (seen.has(text)) return;
-    seen.add(text);
-    lines.push({ text, step });
-  };
-  const byPath = new Map<string, FlowIssue[]>();
-  for (const i of issues) byPath.set(i.path, [...(byPath.get(i.path) ?? []), i]);
-  for (const [path, group] of byPath) {
-    if (path === "trigger" || path === "") {
-      for (const problem of startProblems(group, ctx.flow, names, t))
-        push(
-          t("automations.test.blocked.start", { problem }),
-          path === "trigger" ? "trigger" : null,
-        );
-      continue;
-    }
-    const fp = flowPathOf(path);
-    const s = stepAt(ctx.flow.steps, fp);
-    const n = ctx.numbers.get(fp) ?? 0;
-    const texts = s
-      ? stepProblems(group, ctx.flow, fp, s, ctx.problemCtx, t).map((p) => p.text)
-      : [];
-    if (texts.length === 0) texts.push(t(`automations.builder.short.${group[0]!.code}`));
-    for (const problem of texts)
-      push(t("automations.test.blocked.step", { n, problem }), s?.id ?? null);
-  }
-  return (
-    <section
-      data-test-blocked
-      aria-labelledby="test-blocked"
-      className="flex max-w-[760px] flex-col gap-3 px-8 pt-6 pb-24"
-    >
-      <h2 id="test-blocked" className="flex items-center gap-2 text-xl font-semibold text-ink">
-        <CriticalGlyph />
-        {t("automations.test.blocked.title")}
-      </h2>
-      <p className="text-md text-ink-muted">{t("automations.test.blocked.body")}</p>
-      <ul className="flex flex-col">
-        {lines.map((l, k) => (
-          <li key={k}>
-            <Link
-              to="/automations/$code/edit"
-              params={{ code: ctx.automation.code }}
-              search={(l.step ? { step: l.step } : {}) as never}
-              data-blocked-problem
-              className="flex min-h-9 items-center gap-2 rounded-md px-2 text-md text-ink hover:bg-ink/6"
-            >
-              <CriticalGlyph />
-              {l.text}
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-/** Ciò che serve a dire i problemi in parole, dal contesto della prova. */
-function useTestFlowWords() {
-  const ctx = useTest();
-  const sources = useAutomationSources().data ?? [];
-  return {
-    ...ctx,
-    problemCtx: {
-      general: ctx.automation.projectId === null,
-      names: ctx.names,
-      ownerId: ctx.automation.ownerId,
-      projectCode: ctx.names.project(ctx.automation.projectId)?.code ?? null,
-      sources,
-      labels: ctx.labels,
-    },
-  };
 }
