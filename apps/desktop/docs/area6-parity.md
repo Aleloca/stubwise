@@ -21,8 +21,8 @@ decidere lo fa dove le vede.
 | Riga: oggetto, progetto, badge «N open» delle proposte, «To sort» | `ThreadRow.tsx` (progetto, importanza, «N da decidere», «In analisi», «Senza progetto»); la riga dice quanti messaggi, allegati, analisi fallita | `Mail.test.tsx` (primo test, «oggetto lunghissimo: una riga con ellissi in elenco, per intero nel pannello»), `mail.test.ts` («la riga dice quanti messaggi, se ci sono allegati, l'analisi fallita e l'inizio dell'ultimo», «in analisi: la riga lo dice e non ha ancora importanza», «la condivisa: progetto, importanza, scadenza, non letti e proposte aperte») |
 | Messaggi della conversazione, in ordine; chiusi quelli letti, aperto l'ultimo | `ReadingPane.tsx`, `MessageView.tsx` | `Mail.test.tsx` («60 messaggi: aperto l'ultimo, i 59 chiusi in una fascia che li mostra come righe», «un messaggio letto, non l'ultimo, con una proposta che mi aspetta resta aperto con la sua scheda», «40 destinatari: «to <due del team> and 38 others»…»), `mail.test.ts` («il thread restituisce solo i messaggi visibili, in ordine, senza chi altro ha letto») |
 | Estratto che il classificatore ha visto («excerpt notice») | la scheda della proposta ha «Show what Stubwise read» (`MailProposalCard.tsx`, `excerptOpen`): mostra l'estratto, non il messaggio | solo `proposals.test.ts` («una proposta passata letta per il solo estratto non dice a chi era l'email»); **nessun test UI del bottone** (Buchi) |
-| Nota «messaggio di contesto» | non c'è: il pannello mostra la conversazione intera dei messaggi visibili, quindi il messaggio di contesto è un messaggio come gli altri | — (Buchi: nessuna parità, scelta del prototipo) |
-| Mostra/nascondi il testo citato | nella posta ricevuta il corpo è mostrato intero (testo); il testo citato si gestisce solo nella risposta: `Composer.tsx` («Hide quoted» / «Remove quoted») | `Compose.test.tsx` (««Reply»: la casella in fondo con destinatario e oggetto, il fuoco nel corpo, il bottone segnato»), `data/mail/compose.test.ts` («Rispondi cita l'originale salvo toglierlo (anche dopo aver cambiato modalità); Inoltra sempre») |
+| Nota «messaggio di contesto» | `MessageView.tsx` (`mail.message.context`: «Earlier in the conversation · Stubwise didn't make proposals from this message» sopra il corpo); nel seme il calendario della build di Laura nella conversazione del copy freeze (`MAIL_CASES.context`) | `Mail.test.tsx` («messaggio di contesto: aperto lo dice; il testo citato si mostra e si nasconde») |
+| Mostra/nascondi il testo citato | nella posta ricevuta: `MessageView.tsx` (bottone «···», «Show quoted text» / «Hide quoted text»); nella risposta: `Composer.tsx` («Hide quoted» / «Remove quoted») | `Mail.test.tsx` («messaggio di contesto: aperto lo dice; il testo citato si mostra e si nasconde»), `Compose.test.tsx` (««Reply»: la casella in fondo con destinatario e oggetto, il fuoco nel corpo, il bottone segnato»), `data/mail/compose.test.ts` («Rispondi cita l'originale salvo toglierlo (anche dopo aver cambiato modalità); Inoltra sempre») |
 | Allegati | `MessageView.tsx` (chip con nome e peso) | nessun test dedicato (visibili nei seed del test «la condivisa…») |
 | «Open the conversation in Gmail» | `ReadingPane.tsx` (`mail.reading.openInGmail`) | **nessun test** (Buchi) |
 | Avviso di conservazione (90 giorni) | `ThreadList.tsx` in coda all'elenco («Stubwise keeps the last 90 days of mail», «Open Gmail») | **nessun test** (Buchi) |
@@ -105,10 +105,10 @@ condivisa» è il blocco; la decisione è la stessa.
 
 Voci del web che il prototipo non ha, o ha senza test dedicato:
 
-- Nessuna parità: nota «messaggio di contesto»; evidenziazione del messaggio
-  trovato; snooze; filtro per casella nel Calendario (il seme ha un solo
-  calendario per persona); stati di errore della lettura dell'originale;
-  «Repropose» sulla proposta fallita (R-I16).
+- Nessuna parità: evidenziazione del messaggio trovato; snooze; filtro per
+  casella nel Calendario (il seme ha un solo calendario per persona); stati
+  di errore della lettura dell'originale; «Repropose» sulla proposta fallita
+  (R-I16).
 - Senza test dedicato: bottone «Show what Stubwise read»; «Open in Gmail» e
   avviso dei 90 giorni; Meet e punti d'accesso, promemoria, ricorrenza, «Open
   in Google Calendar», avviso di rifiuto, descrizione e luogo; errore di

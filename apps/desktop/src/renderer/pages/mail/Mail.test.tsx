@@ -310,7 +310,37 @@ describe("Posta — proposte condivise (Review Focus 2)", () => {
     await openMail(`/mail/${thread}`);
     const p = await pane(thread);
     expect(await within(p).findByText(/we freeze the copy of the desktop preview/)).toBeInTheDocument();
-    expect(p.querySelector("article[data-collapsed]")).toBeNull();
+    // Chiuso resta solo il messaggio di contesto, già letto.
+    expect(p.querySelector(`article[data-message="${MAIL_CASES.stwHigh}"][data-collapsed]`)).toBeNull();
+    expect(p.querySelectorAll("article[data-collapsed]")).toHaveLength(1);
+  });
+
+  it("messaggio di contesto: aperto lo dice; il testo citato si mostra e si nasconde", async () => {
+    const thread = threadOf(MAIL_CASES.stwHigh);
+    await openMail(`/mail/${thread}`);
+    const p = await pane(thread);
+    const user = userEvent.setup();
+    // L'email di oggi, aperta: il citato è piegato dietro «···».
+    const today = p.querySelector<HTMLElement>(`article[data-message="${MAIL_CASES.stwHigh}"]`)!;
+    expect(within(today).queryByText(/Draft schedule for the preview build attached/)).toBeNull();
+    await user.click(within(today).getByRole("button", { name: "Show quoted text" }));
+    expect(within(today).getByText(/Draft schedule for the preview build attached/)).toBeInTheDocument();
+    await user.click(within(today).getByRole("button", { name: "Hide quoted text" }));
+    expect(within(today).queryByText(/Draft schedule for the preview build attached/)).toBeNull();
+    expect(today).not.toHaveTextContent("Earlier in the conversation");
+    // Il messaggio di martedì, chiuso: aperto dice che è contesto, senza proposte.
+    const earlier = p.querySelector<HTMLElement>(`article[data-message="${MAIL_CASES.context}"]`)!;
+    expect(earlier).toHaveAttribute("data-collapsed");
+    await user.click(within(earlier).getAllByRole("button")[0]!);
+    const opened = await waitFor(() => {
+      const el = p.querySelector<HTMLElement>(`article[data-message="${MAIL_CASES.context}"]`)!;
+      if (el.hasAttribute("data-collapsed")) throw new Error("still collapsed");
+      return el;
+    });
+    expect(opened).toHaveTextContent(
+      "Earlier in the conversation · Stubwise didn't make proposals from this message",
+    );
+    expect(opened.querySelector("[data-mail-proposal]")).toBeNull();
   });
 
   it("un messaggio letto, non l'ultimo, con una proposta che mi aspetta resta aperto con la sua scheda", async () => {

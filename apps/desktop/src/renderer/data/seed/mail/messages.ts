@@ -34,6 +34,7 @@ export const MESSAGE_IDS = {
   pending: "mm-aud-dialer-pricing",
   failed: "mm-mkx-order-confirmation",
   lauraOff: "mm-stw-pr-review",
+  context: "mm-stw-preview-schedule",
 } as const;
 
 export const PROJECT_MESSAGES: MailMessage[] = [
@@ -88,6 +89,23 @@ export const PROJECT_MESSAGES: MailMessage[] = [
     mailboxPersonIds: ["p-matteo", "p-giulia"],
     readByPersonIds: ["p-matteo"],
     classification: done([AUD], "low"),
+  }),
+  // Il messaggio di contesto della stessa conversazione: il calendario della
+  // build che Laura aveva mandato martedì, citato nella sua email di oggi.
+  // Stubwise non lo classifica da sé (`context`): nessuna proposta.
+  mail({
+    id: MESSAGE_IDS.context,
+    threadId: "th-stw-copy-freeze",
+    from: LAURA,
+    to: [GIULIA],
+    subject: "Desktop preview: copy freeze tomorrow",
+    at: at(3, "16:40"),
+    text: "Giulia,\n\ndraft schedule for the preview build attached. The copy freeze is the day before the build.\n\nLaura",
+    mailboxPersonIds: ["p-giulia"],
+    readByPersonIds: ["p-giulia"],
+    context: true,
+    // Letto solo come contesto dell'email di oggi: nessun progetto da sé.
+    classification: done([], "normal"),
   }),
   // STW, alta, scadenza domani: una proposta aperta per Giulia.
   mail({
