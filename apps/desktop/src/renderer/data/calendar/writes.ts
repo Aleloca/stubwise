@@ -2,6 +2,7 @@ import { applyActions } from "../api-mutations";
 import { EMAIL, lower, teamAddresses } from "../mail/compose";
 import { isProjectMember } from "../mail/visibility";
 import { gate, newId, now, state, storeGeneration, visibleProjectIds } from "../store";
+import { forbidden, invalid, notFound, writer } from "../writer";
 import type {
   CalendarAttendee,
   CalendarEvent,
@@ -16,7 +17,7 @@ import type {
   MailProposal,
   Rsvp,
 } from "../types";
-import { deadlineProposal, seriesProposal } from "./proposals";
+import { DAY_MS, deadlineProposal, seriesProposal } from "./proposals";
 import { eventView, isoAt, readableEvent, seriesView } from "./reads";
 import { forget, markCreated, retryGroup, revertGroup, save, track } from "./save";
 import { calendarWindow, canSeeEvent, canSeeSeries, inWindow, isOrganizer } from "./visibility";
@@ -33,21 +34,10 @@ import { calendarWindow, canSeeEvent, canSeeSeries, inWindow, isOrganizer } from
 // modifica»). Progetto dell'evento e configurazione delle serie sono di
 // Stubwise, non di Google: si scrivono e basta.
 
-const notFound = () => new Error("not_found");
-const forbidden = () => new Error("forbidden");
-const invalid = (what: string) => new Error(`invalid: ${what}`);
 
 const RSVPS: ReadonlySet<Rsvp> = new Set(["accepted", "declined", "tentative"]);
 const ACTIONS: ReadonlySet<CalendarSeries["action"]> = new Set(["milestone", "request", "remind"]);
-const DAY_MS = 86_400_000;
 const MAX_LEAD_DAYS = 14;
-
-async function writer(fnName: Parameters<typeof gate>[0]): Promise<string> {
-  const gen = storeGeneration();
-  const me = await gate(fnName);
-  if (gen !== storeGeneration()) throw new Error("reset");
-  return me;
-}
 
 /** Un evento che chi agisce legge e organizza. */
 function organizedEvent(me: string, id: string): CalendarEvent {

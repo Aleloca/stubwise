@@ -3911,7 +3911,6 @@
       "replyTo": "Rispondi a {{name}}",
       "replyToAll": "Rispondi a tutti ({{count}})",
       "modeMenu": "Tipo di risposta",
-      "from": "Da",
       "to": "A",
       "cc": "Cc",
       "subject": "Oggetto",

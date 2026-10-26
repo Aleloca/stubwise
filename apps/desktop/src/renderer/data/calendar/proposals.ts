@@ -10,7 +10,7 @@ import type { CalendarEvent, CalendarSeries, MailProposal, ProposedAction } from
 // modello fisso (titolo + data), mai scritto dal modello. Puro (nessuno
 // stato): lo usano il seme, l'allineamento e la configurazione delle serie.
 
-const DAY_MS = 86_400_000;
+export const DAY_MS = 86_400_000;
 
 /** I titoli che il modello (finto) riconosce come scadenza o consegna. */
 const DEADLINE = /\b(deadline|due|delivery|consegna|scadenza)\b/i;
@@ -43,10 +43,10 @@ export function isUpcoming(e: Pick<CalendarEvent, "startsAt" | "allDay">, now: s
 }
 
 /** L'id della proposta di una scadenza: una per evento. */
-export const calendarProposalId = (eventId: string): string => `mp-cal-${eventId}`;
+const calendarProposalId = (eventId: string): string => `mp-cal-${eventId}`;
 
 /** L'id della proposta di una data di una serie: una per data. */
-export const seriesProposalId = (eventId: string): string => `mp-ser-${eventId}`;
+const seriesProposalId = (eventId: string): string => `mp-ser-${eventId}`;
 
 function proposal(
   id: string,

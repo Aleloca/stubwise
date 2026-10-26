@@ -4,9 +4,7 @@
 // dell'organizzatore. Le proposte del calendario sono proposte della Posta
 // (`source: "calendar"`): si leggono e si decidono con `api.mail`.
 export {
-  CALENDAR_STALE_MS,
   findFirstFreeSlot,
-  FREE_SLOT_HOURS,
   freeBusy,
   getEvent,
   listCalendars,

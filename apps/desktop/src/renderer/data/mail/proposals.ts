@@ -1,7 +1,8 @@
 import i18n from "../../i18n";
 import { applyActions } from "../api-mutations";
 import { PEOPLE } from "../seed/people";
-import { copy, gate, now, state, storeGeneration } from "../store";
+import { copy, gate, now, state } from "../store";
+import { forbidden, invalid, notFound, writer } from "../writer";
 import { canReadEvent } from "../calendar/visibility";
 import type {
   MailProposal,
@@ -36,9 +37,6 @@ import {
 // La conferma esegue le azioni con `applyActions` di `api-mutations.ts`, lo
 // stesso «tutto o niente» delle proposte di Claude.
 
-const notFound = () => new Error("not_found");
-const forbidden = () => new Error("forbidden");
-const invalid = (what: string) => new Error(`invalid: ${what}`);
 const invalidAction = () => new Error("invalid_action");
 
 function alreadyHandled(p: MailProposal): Error {
@@ -184,17 +182,6 @@ function proposalFor(me: string, id: string): MailProposal {
   const p = state.mailProposals.find((x) => x.id === id);
   if (!p || !canSeeMailProposal(me, p)) throw notFound();
   return p;
-}
-
-/**
- * Il cancello di una scrittura: chi agisce, letto quando parte. Un
- * ripristino (`resetApi`) durante l'attesa la ferma prima che scriva.
- */
-async function writer(fnName: Parameters<typeof gate>[0]): Promise<string> {
-  const gen = storeGeneration();
-  const me = await gate(fnName);
-  if (gen !== storeGeneration()) throw new Error("reset");
-  return me;
 }
 
 function decide(p: MailProposal, me: string, status: MailProposal["status"]): void {
