@@ -50,7 +50,6 @@ import { CALENDAR_SEARCH_KEYS } from "./pages/calendar/calendarParams";
 import {
   AutomationRoutePage,
   AutomationsPage,
-  AutomationToolPage,
   RunRoutePage,
 } from "./pages/automations/AutomationsPage";
 import {
@@ -59,6 +58,7 @@ import {
 } from "./pages/automations/automationParams";
 import { SourcesPage } from "./pages/automations/SourcesPage";
 import { BuilderRoutePage } from "./pages/automations/builder/BuilderPage";
+import { TestRoutePage } from "./pages/automations/test/TestPage";
 
 /** La ricerca che ogni route accetta (`?task=` apre il pannello, gli altri li montano i dialoghi). */
 export interface AppSearch {
@@ -703,10 +703,15 @@ const automationEditRoute = createRoute({
   component: AutomationEditRoutePage,
 });
 
+function AutomationTestRoutePage() {
+  const { code } = automationTestRoute.useParams();
+  return <TestRoutePage code={code} />;
+}
+
 const automationTestRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/automations/$code/test",
-  component: () => <AutomationToolPage tool="test" />,
+  component: AutomationTestRoutePage,
 });
 
 const routeTree = rootRoute.addChildren([

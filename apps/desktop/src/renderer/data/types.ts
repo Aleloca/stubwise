@@ -961,6 +961,11 @@ export interface SimulationView {
   vars: Record<string, unknown>;
   loops: Record<string, unknown[]>;
   /**
+   * Gli elementi di ogni «Per ogni» entrato nella prova (per percorso del
+   * passo), anche a giri finiti: i titoli dei giri («Round 3 of 6 · …»).
+   */
+  loopItems: Record<string, unknown[]>;
+  /**
    * Il passo al cursore, quando sta per fare qualcosa (pronto per «Passo
    * successivo», o in attesa di approvazione): la sua anteprima, o il
    * fallimento con cui la vera si fermerebbe.

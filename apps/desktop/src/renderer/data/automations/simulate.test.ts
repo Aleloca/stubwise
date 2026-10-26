@@ -19,8 +19,17 @@ const DAY = 86_400_000;
 const inDays = (days: number) =>
   new Date(Date.parse(now()) + days * DAY).toISOString().slice(0, 10);
 
-/** Tutto lo stato del prototipo, contatori compresi: la prova non deve toccarne nulla. */
-const snapshot = () => structuredClone(state);
+/**
+ * Tutto lo stato del prototipo, contatori compresi: la prova non deve
+ * toccarne nulla. L'unica traccia ammessa è `testedRev` sulla versione
+ * provata fino in fondo (R-J19), verificata a parte.
+ */
+const bare = () => {
+  const s = structuredClone(state);
+  for (const a of s.automations) for (const v of a.versions) delete v.testedRev;
+  return s;
+};
+const snapshot = bare;
 
 /** Il codice che avrebbe la prossima task di un progetto. */
 function nextTaskCode(projectId: string): string {
@@ -110,7 +119,7 @@ describe("Automations: la prova (simulazione)", () => {
       body: expect.stringContaining("attivazione di CRM"),
     });
     // A metà prova lo store è identico.
-    expect(state).toEqual(before);
+    expect(bare()).toEqual(before);
 
     sim = await automations.simulationStep(id, { kind: "approved", path: "3", byId: "x" });
     expect(sim.status).toBe("running");
@@ -121,7 +130,7 @@ describe("Automations: la prova (simulazione)", () => {
 
     await automations.endSimulation(id);
     await idle();
-    expect(state).toEqual(before);
+    expect(bare()).toEqual(before);
     expect(state.automationRuns).toHaveLength(before.automationRuns.length);
     // Il codice della prossima task vera non è cambiato.
     const real = await createTask({ projectId: "prj-cbv", title: "Vera" });
@@ -211,7 +220,7 @@ describe("Automations: la prova (simulazione)", () => {
       }),
     ]);
     expect(sim.preview.emails).toHaveLength(2);
-    expect(state).toEqual(before);
+    expect(bare()).toEqual(before);
   });
 
   it("al limite dei promemoria: la task del Project Lead, risolto come nell'esecuzione vera", async () => {
@@ -352,7 +361,7 @@ describe("Automations: la prova (simulazione)", () => {
     // La bozza non è attiva: la vera fallirebbe, la prova pure.
     sim = await automations.simulationStep(id, { kind: "next" });
     expect(sim).toMatchObject({ status: "failed", error: "automation_not_active" });
-    expect(state).toEqual(before);
+    expect(bare()).toEqual(before);
   });
 
   it("errori di configurazione: la prova non parte e dice dove", async () => {
@@ -504,7 +513,7 @@ describe("Automations: la prova (simulazione)", () => {
     );
     await automations.endSimulation(id);
     await idle();
-    expect(state).toEqual(before);
+    expect(bare()).toEqual(before);
   });
 
   it("il promemoria partirebbe nella stessa conversazione della richiesta, come nella vera", async () => {
@@ -627,5 +636,64 @@ describe("Automations: gli esempi della prova", () => {
     await expect(automations.listSimulationExamples(A.clientData, 1)).rejects.toThrow("forbidden");
     as("p-sara");
     await expect(automations.listSimulationExamples(A.newContract, 1)).rejects.toThrow("not_found");
+  });
+
+  it("R-J19: una prova finita bene segna la revisione provata; una nuova modifica la rende non provata", async () => {
+    const a = () => state.automations.find((x) => x.id === A.newContract)!;
+    const draft = () => a().versions.at(-1)!;
+    expect(draft().testedRev).toBeUndefined();
+    // Una prova che non arriva in fondo non segna niente.
+    let id = await automations.startSimulation(A.newContract, "draft", sample(S.audin, 0));
+    await automations.simulationStep(id, { kind: "run" });
+    expect(draft().testedRev).toBeUndefined();
+    await automations.endSimulation(id);
+    // Rifiutata nella prova: non è «finita bene».
+    id = await automations.startSimulation(A.newContract, "draft", sample(S.audin, 0));
+    let sim = await automations.simulationStep(id, { kind: "run" });
+    while (sim.status === "running") sim = await automations.simulationStep(id, { kind: "run" });
+    expect(sim.status).toBe("waiting_approval");
+    sim = await automations.simulationStep(id, { kind: "rejected", path: "", byId: "" });
+    expect(sim.status).toBe("cancelled");
+    expect(draft().testedRev).toBeUndefined();
+    // Fino in fondo: la bozza di adesso (rev del seme: null) è provata.
+    id = await automations.startSimulation(A.newContract, "draft", sample(S.audin, 0));
+    sim = (await automations.getSimulation(id))!;
+    for (let i = 0; i < 20 && sim.status !== "done"; i++) {
+      sim =
+        sim.status === "waiting_approval"
+          ? await automations.simulationStep(id, { kind: "approved", path: "", byId: "" })
+          : await automations.simulationStep(id, { kind: "run" });
+    }
+    expect(sim.status).toBe("done");
+    expect(draft().testedRev).toBe(draft().rev ?? null);
+    // La versione 1 (pubblicata) non è toccata.
+    expect(a().versions[0]!.testedRev).toBeUndefined();
+    // Un salvataggio dopo la prova: la revisione nuova non è provata.
+    await automations.saveDraft(A.newContract, draft().flow);
+    expect(draft().testedRev).not.toBe(draft().rev);
+  });
+
+  it("R-J19: una prova finita su una bozza cambiata nel frattempo non la segna come provata", async () => {
+    const draft = () => state.automations.find((x) => x.id === A.newContract)!.versions.at(-1)!;
+    const id = await automations.startSimulation(A.newContract, "draft", sample(S.audin, 0));
+    await automations.saveDraft(A.newContract, draft().flow);
+    let sim = (await automations.getSimulation(id))!;
+    for (let i = 0; i < 20 && sim.status !== "done"; i++) {
+      sim =
+        sim.status === "waiting_approval"
+          ? await automations.simulationStep(id, { kind: "approved", path: "", byId: "" })
+          : await automations.simulationStep(id, { kind: "run" });
+    }
+    expect(sim.status).toBe("done");
+    expect(draft().testedRev).toBeUndefined();
+  });
+
+  it("gli elementi di ogni «Per ogni» restano nella vista anche a giri finiti (titoli dei giri)", async () => {
+    const id = await automations.startSimulation(A.newContract, 1, sample(S.audin, 0));
+    let sim = await automations.simulationStep(id, { kind: "next" });
+    sim = await automations.simulationStep(id, { kind: "run" });
+    expect(sim.loops).toEqual({});
+    expect(sim.loopItems["2"]).toHaveLength(4);
+    expect(sim.loopItems["2"]?.[0]).toMatchObject({ titolo: expect.stringContaining("CRM") });
   });
 });

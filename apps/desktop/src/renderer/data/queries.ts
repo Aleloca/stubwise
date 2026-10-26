@@ -3564,6 +3564,13 @@ export function useSimulateMailReply() {
 // invalidano nessun'area. Ogni passo restituisce la prova aggiornata, che
 // entra direttamente nella cache.
 
+export type SimulationInput = api.automations.SimulationInput;
+
+/** I problemi per cui la prova non è partita (`SimulationConfigError`), o null per un altro errore. */
+export function simulationConfigIssues(e: unknown) {
+  return e instanceof api.automations.SimulationConfigError ? e.issues : null;
+}
+
 /** Una prova; buttata, di un'altra persona o non più gestibile → `null`. */
 export function useAutomationSimulation(id: string | null) {
   const me = useSessionPersonId();
@@ -3609,7 +3616,12 @@ export function useAutomationSimulationStep() {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: api.automations.SimulationInput }) =>
       api.automations.simulationStep(id, input),
-    onSuccess: (sim) => client.setQueryData(queryKeys.automationSimulation(me, sim.id), sim),
+    onSuccess: (sim) => {
+      client.setQueryData(queryKeys.automationSimulation(me, sim.id), sim);
+      // R-J19: finita bene, la versione è segnata come provata (l'unica traccia).
+      if (sim.status === "done")
+        void client.invalidateQueries({ queryKey: queryKeys.automation(me, sim.automationId) });
+    },
   });
 }
 

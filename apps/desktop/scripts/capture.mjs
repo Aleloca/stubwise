@@ -596,7 +596,60 @@ async function main() {
           },
         },
       ],
+      // Task 7: la prova (Roberta, admin). AUD-A1 è accesa: si prova la versione 1,
+      // col proprietario di adesso (Matteo, che ha la casella).
+      ["test-example", "/automations/AUD-A1/test", { steps: async (p) => {
+        await p.locator("[data-example]").first().waitFor();
+        await p.waitForTimeout(300);
+      } }],
+      ["test-wait", "/automations/AUD-A1/test", { steps: async (p) => {
+        await testStart(p, 0);
+        await p.locator("[data-next-step]").click();
+        await p.locator("[data-stop-primary]").click();
+        await p.locator("[data-reply-composer] textarea").fill("Gli orari di apertura sono dalle 9 alle 18.");
+        await p.waitForTimeout(300);
+      } }],
+      // Il momento focale: l'approvazione nella prova, con l'email intera e chi approverebbe davvero.
+      ["test-stop", "/automations/AUD-A1/test", { steps: async (p) => {
+        await testStart(p, 0);
+        await p.locator("[data-next-step]").click();
+        await p.locator("[data-stop-primary]").click();
+        await p.locator("[data-reply-composer] textarea").fill("Gli orari di apertura sono dalle 9 alle 18.");
+        await p.locator("[data-reply-composer] [type=submit]").click();
+        await p.waitForTimeout(400);
+        await p.locator("[data-run-to-stop]").click();
+        await p.locator("[data-real-approver]").waitFor();
+        await p.waitForTimeout(400);
+      } }],
+      ["test-final", "/automations/AUD-A1/test", { steps: async (p) => {
+        await testStart(p, 0);
+        await p.locator("[data-next-step]").click();
+        await p.locator("[data-stop-primary]").click();
+        await p.locator("[data-reply-composer] textarea").fill("I numeri da collegare sono 0577 000111 e 0577 000112; gli orari di apertura dalle 9 alle 18; il messaggio di benvenuto: «Benvenuti in cantina».");
+        await p.locator("[data-reply-composer] [type=submit]").click();
+        await p.waitForTimeout(400);
+        await p.locator("[data-run-to-stop]").click();
+        await p.locator("[data-test-final]").waitFor();
+        await p.waitForTimeout(400);
+      } }],
+      // Nuovo contratto provato da Roberta (la bozza: il proprietario sarebbe lei): i giri e l'email che fallirebbe.
+      ["test-rounds", "/automations/AUT-1/test", { steps: async (p) => {
+        await testStart(p, 2);
+        await p.locator("[data-run-to-stop]").click();
+        await p.locator("[data-real-approver]").waitFor();
+        // A 1024 il pannello sovrapposto copre il flusso: si chiude prima.
+        if (await p.locator('[data-mode="overlay"]').count()) await p.keyboard.press("Escape");
+        await p.getByRole("button", { name: /^(All rounds|Tutti i giri)$/ }).click();
+        await p.waitForTimeout(400);
+      } }],
     ];
+    /** La prova: l'esempio `index` fra i recenti, poi «Start test». */
+    async function testStart(p, index) {
+      await p.locator(`[data-example="${index}"]`).click();
+      await p.locator("[data-start-test]").click();
+      await p.locator("[data-example-line]").waitFor();
+      await p.waitForTimeout(300);
+    }
     for (const [name, hash, o] of AREA7) {
       if (only && !only.test(name)) continue;
       const variants = [];

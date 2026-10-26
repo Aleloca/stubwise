@@ -11,7 +11,7 @@ import { producerOf } from "./issues";
 // il progetto del passo, i gettoni dei dati (barrati se qui non ci sono).
 
 /** «Asks Laura Costa» / «Asks the Project Lead» / «Asks the owner»; null se parte da solo ([A 5]). */
-export function asksWords(approval: Approval, b: BuilderState, t: TFunction) {
+export function asksWords(approval: Approval, b: Pick<BuilderState, "names">, t: TFunction) {
   if (approval.mode !== "ask") return null;
   const who = approval.who;
   if ("owner" in who) return t("automations.builder.asks.owner");
@@ -25,7 +25,12 @@ export function asksWords(approval: Approval, b: BuilderState, t: TFunction) {
 }
 
 /** L'etichetta di una corsia, in parole. */
-export function laneLabel(step: Step, seg: string, b: BuilderState, t: TFunction) {
+export function laneLabel(
+  step: Step,
+  seg: string,
+  b: Pick<BuilderState, "flow" | "labels">,
+  t: TFunction,
+) {
   switch (step.kind) {
     case "condition":
       return seg === "then"
@@ -122,7 +127,11 @@ export function automationCode(b: BuilderState, id: string): string | null {
   return b.otherAutomations.find((a) => a.id === id)?.code ?? null;
 }
 
-export function projectMark(step: Step, b: BuilderState, t: TFunction) {
+export function projectMark(
+  step: Step,
+  b: Pick<BuilderState, "names" | "automation">,
+  t: TFunction,
+) {
   if (!("project" in step)) return null;
   const p = step.project;
   if (p.mode === "own") return null;

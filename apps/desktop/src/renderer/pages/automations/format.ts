@@ -491,3 +491,10 @@ export function clock(iso: string, language: string): string {
 const TERMINAL = new Set(["done", "failed", "cancelled"]);
 /** Un'esecuzione finita (le fallite restano «da sistemare» finché qualcuno non agisce). */
 export const isFinished = (status: string) => TERMINAL.has(status);
+
+/**
+ * R-J19: una versione non ancora provata — nessuna prova finita bene sulla
+ * sua revisione di adesso (ogni salvataggio ne dà una nuova).
+ */
+export const isUntested = (v: { rev?: number | null; testedRev?: number | null }) =>
+  v.testedRev === undefined || v.testedRev !== (v.rev ?? null);

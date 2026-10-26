@@ -2234,6 +2234,15 @@ export interface AutomationVersion {
   savedAt?: string | null;
   savedById?: string | null;
   rev?: number | null;
+  /**
+   * R-J19: la revisione (`rev`, null per una mai salvata) provata fino in
+   * fondo con una prova finita bene. Assente = mai provata. «Accendi» e
+   * «Pubblica» dicono «non l'hai ancora provata» quando non coincide con
+   * `rev`: ogni salvataggio dà un `rev` nuovo, quindi una modifica dopo la
+   * prova la rende di nuovo non provata. È la sola traccia che una prova
+   * lascia (shape automation-test [A 4], superata da R-J19).
+   */
+  testedRev?: number | null;
 }
 
 export interface Automation {

@@ -7,7 +7,6 @@ import {
   useAutomation,
   useAutomationDraftIssues,
   useAutomations,
-  useAutomationSimulation,
   useAutomationSources,
   useSaveAutomationDraft,
 } from "../../../data/queries";
@@ -18,7 +17,7 @@ import { useMediaQuery } from "../../../layout/useMediaQuery";
 import { PageError } from "../../../tasks-ui/PageStates";
 import { useToast } from "../../../tasks-ui/Toast";
 import { TurnOnDialog } from "../AutomationDialogs";
-import { fieldLabels } from "../format";
+import { fieldLabels, isUntested } from "../format";
 import { NotVisible, useNames } from "../shared";
 import { AddStepMenu } from "./AddStepMenu";
 import { DeleteStepDialog, MoveToDialog } from "./BuilderDialogs";
@@ -327,8 +326,8 @@ function Builder({
   const current = selectedStep(ctx);
   const draftExists = a.hasDraft || autosave.saved;
   const editingN = a.hasDraft ? latest.n : (live?.n ?? 0) + 1;
-  const tested = useAutomationSimulation(readOnly ? null : a.id).data;
-  const untested = !(tested && tested.draft && tested.version === editingN);
+  // R-J19: provata = una prova finita bene sulla revisione di adesso.
+  const untested = isUntested(latest);
   // Test e Turn on/Publish restano chiusi finché la bozza salvata non è quella
   // a schermo: un salvataggio fallito o fermato da un altro.
   const saveBlocked = autosave.status === "error" || autosave.status === "stale";

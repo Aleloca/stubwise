@@ -5,7 +5,6 @@ import { useAutomationRuns, useAutomations } from "../../data/queries";
 import { useViewer } from "../../data/viewer";
 import { MenuGroup, itemClass } from "../../tasks-ui/Menu";
 import { PageError } from "../../tasks-ui/PageStates";
-import { Placeholder } from "../Placeholder";
 import { Chevron, MenuButton, primaryButton } from "../tasks/controls";
 import { AttentionView, AutomationListView, type ListSearch } from "./AutomationList";
 import { AutomationDetail, DetailSkeleton } from "./AutomationDetail";
@@ -173,19 +172,5 @@ export function RunRoutePage({ code, n }: { code: string; n: string }) {
   const search = useSearch({ strict: false }) as Search;
   return (
     <RunByCode key={`${viewer.personId}:${code}:${n}`} code={code} n={n} entry={search.entry} />
-  );
-}
-
-/**
- * La prova (`/automations/<CODE>/test`): la costruisce il Task 7; qui la
- * route esiste già perché «Test» del dettaglio e del costruttore ci porta.
- * Il costruttore (`/edit`) sta in `builder/BuilderPage.tsx`.
- */
-export function AutomationToolPage({ tool }: { tool: "test" }) {
-  return (
-    <Placeholder
-      titleKey={`automations.tools.${tool}.title`}
-      bodyKey={`automations.tools.${tool}.body`}
-    />
   );
 }

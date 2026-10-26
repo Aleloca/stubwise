@@ -37,10 +37,11 @@ export function AppLayout() {
   // Prima del primo disegno: le testate su Windows riservano i controlli finestra.
   useLayoutEffect(applyPlatformAttribute, []);
   // Il costruttore delle automazioni (shape automation-builder.md [A 4]):
-  // sotto i 1200 px la colonna si chiude, così flusso e pannello hanno spazio.
+  // sotto i 1200 px la colonna si chiude, così flusso e pannello hanno spazio;
+  // la prova (automation-test.md §6) è una sua modalità, e fa lo stesso.
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const wide = useMediaQuery(DOCKED_PANEL_QUERY);
-  const noColumn = !wide && /^\/automations\/[^/]+\/edit$/.test(pathname);
+  const noColumn = !wide && /^\/automations\/[^/]+\/(edit|test)$/.test(pathname);
   return (
     <div
       data-column={noColumn ? "closed" : undefined}

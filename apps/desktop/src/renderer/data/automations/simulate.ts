@@ -70,7 +70,9 @@ import { checkEdited } from "./writes";
 // - Chi vede ma non gestisce non prova; un flusso con errori di
 //   configurazione non parte (`SimulationConfigError`, con l'elenco).
 // - Le prove stanno in memoria, per persona; si buttano con
-//   `endSimulation`, con `resetApi` e col cambio di persona. Mai salvate.
+//   `endSimulation`, con `resetApi` e col cambio di persona. Mai salvate:
+//   l'unica traccia è `testedRev` sulla versione provata fino in fondo
+//   (R-J19), che dice ad «Accendi»/«Pubblica» se è stata provata.
 
 /** La prova non parte: il flusso ha errori di configurazione (`issues` dice dove). */
 export class SimulationConfigError extends Error {
@@ -87,10 +89,14 @@ interface Sim {
   personId: string;
   automationId: string;
   version: number;
+  /** La revisione provata (R-J19): se la prova finisce bene e la versione è ancora questa, è provata. */
+  rev: number | null;
   draft: boolean;
   ownerId: string;
   event: Record<string, unknown>;
   engine: EngineState;
+  /** Gli elementi di ogni «Per ogni» visto (il motore li toglie a giri finiti). */
+  loopItems: Record<string, unknown[]>;
   /** L'effetto chiesto dal motore, che «Passo successivo» farebbe. */
   pending: EffectRequest | null;
   log: RunLogEntry[];
@@ -309,6 +315,7 @@ function apply(sim: Sim, a: Automation, r: EngineStep): void {
     (r.state.awaiting?.kind === "effect" || r.state.awaiting?.kind === "claude") &&
     sim.pending?.path === r.state.awaiting.path;
   sim.engine = r.state;
+  for (const [path, items] of Object.entries(r.state.loops)) sim.loopItems[path] = copy(items);
   sim.pending = r.effects[0] ?? (stillAwaited ? sim.pending : null);
   if (sim.pending?.kind === "resolve_project") {
     const eff = sim.pending;
@@ -541,6 +548,7 @@ function view(me: string, sim: Sim, a: Automation): SimulationView {
     log,
     vars: copy(st.vars),
     loops: copy(st.loops),
+    loopItems: copy(sim.loopItems),
     current: current && { ...current, preview: current.preview && mask(current.preview) },
     waiting,
     preview: {
@@ -553,6 +561,16 @@ function view(me: string, sim: Sim, a: Automation): SimulationView {
       claude: sim.preview.claude.map(copy),
     },
   };
+}
+
+/**
+ * R-J19: una prova finita bene segna la revisione provata sulla versione —
+ * se è ancora quella provata (una bozza salvata nel frattempo ha un `rev`
+ * nuovo, e la prova non vale per lei). È l'unica scrittura della prova.
+ */
+function markTested(sim: Sim): void {
+  const v = automationById(sim.automationId)?.versions.find((x) => x.n === sim.version);
+  if (v && (v.rev ?? null) === sim.rev) v.testedRev = sim.rev;
 }
 
 // --- l'api --------------------------------------------------------------------------
@@ -603,10 +621,12 @@ export async function startSimulation(
     personId: me,
     automationId: a.id,
     version: v.n,
+    rev: v.rev ?? null,
     draft,
     ownerId,
     event: copy(event),
     engine: initialState(flow, now()),
+    loopItems: {},
     pending: null,
     log: [],
     milestoneRefs: new Map(),
@@ -621,6 +641,8 @@ export async function startSimulation(
     },
   };
   apply(sim, a, advance(sim.engine, { kind: "start", event: copy(event) }));
+  // Un flusso che con questo esempio non fa niente finisce già qui: è finito bene.
+  if (sim.engine.status === "done") markTested(sim);
   sims.set(sim.id, sim);
   return sim.id;
 }
@@ -635,7 +657,9 @@ export async function startSimulation(
 export async function simulationStep(id: string, input: SimulationInput): Promise<SimulationView> {
   const me = await writer("automations.simulationStep");
   const { sim, a } = mine(me, id);
+  const was = sim.engine.status;
   handle(me, sim, a, input);
+  if (was !== "done" && sim.engine.status === "done") markTested(sim);
   return view(me, sim, a);
 }
 
