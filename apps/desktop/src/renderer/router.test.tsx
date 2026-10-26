@@ -64,6 +64,16 @@ describe("router", () => {
     expect(bad.state.matches.at(-1)!.search).toEqual({});
   });
 
+  it("?compose=new apre la nuova email della Posta; un altro valore si scarta", async () => {
+    const router = renderAt("/mail?compose=new");
+    await screen.findByRole("heading", { level: 1, name: "Mail" });
+    expect(router.state.matches.at(-1)!.search).toEqual({ compose: "new" });
+    cleanup();
+    const bad = renderAt("/mail?compose=reply");
+    await screen.findByRole("heading", { level: 1, name: "Mail" });
+    expect(bad.state.matches.at(-1)!.search).toEqual({});
+  });
+
   it("#/filters/<id>: un filtro pubblico si apre, il privato di un altro è «Filter not found»", async () => {
     renderAt("/filters/flt-open");
     expect(await screen.findByRole("heading", { level: 1, name: "Open" })).toBeInTheDocument();

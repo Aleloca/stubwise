@@ -336,6 +336,35 @@ describe("Invio con «Annulla» per 5 s (Review Focus 4)", () => {
   });
 });
 
+describe("Il testo citato [A 4]", () => {
+  it("Rispondi cita l'originale salvo toglierlo (anche dopo aver cambiato modalità); Inoltra sempre", async () => {
+    const reply = await mail.sendDraft((await savedReply("Quoted.")).id);
+    expect(reply.threadId).toBe(CALL_NOTES());
+    const quoted = state.mailMessages.find((m) => m.id === reply.messageId)!.quoted!;
+    expect(quoted).toContain("Matteo Conti <");
+    expect(quoted).toContain("I put the notes from this morning's call");
+    await mail.undoSend(reply.messageId);
+
+    const draft = await mail.getDraft(CALL_NOTES(), "reply");
+    await mail.saveDraft({ ...draft, quote: false });
+    expect((await mail.getDraft(CALL_NOTES(), "replyAll")).quote).toBe(false);
+    const bare = await mail.sendDraft(draft.id);
+    expect(state.mailMessages.find((m) => m.id === bare.messageId)!.quoted).toBeNull();
+    await mail.undoSend(bare.messageId);
+
+    const fwd = await mail.getDraft(CALL_NOTES(), "forward");
+    await mail.saveDraft({
+      ...fwd,
+      quote: false,
+      to: [{ name: "", email: "sofia.marchetti@audin.example", personId: null }],
+    });
+    const sent = await mail.sendDraft(fwd.id);
+    expect(state.mailMessages.find((m) => m.id === sent.messageId)!.quoted).toContain(
+      "Matteo Conti",
+    );
+  });
+});
+
 describe("Invio fallito", () => {
   async function bounced() {
     const draft = await savedReply("Keep this text.");

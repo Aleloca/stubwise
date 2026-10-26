@@ -273,6 +273,15 @@
   }
 }
 
+/* La casella di scrittura della Posta che entra in fondo alla conversazione:
+   lo stesso movimento dei messaggi (dissolvenza + 8 px dal basso, 200 ms). */
+@utility compose-enter {
+  animation: toast-in var(--duration) var(--ease) both;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
 /* Menu dei chip e delle righe: scende di 4 px con dissolvenza, entro --duration-fast. */
 @keyframes menu-in {
   from {

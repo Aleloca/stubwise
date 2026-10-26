@@ -1,5 +1,5 @@
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, type MutableRefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { useTranslation } from "react-i18next";
 import {
   useGoogleAccount,
@@ -12,9 +12,13 @@ import {
 } from "../../data/queries";
 import { onBeforePersonaChange } from "../../data/session";
 import { useMediaQuery } from "../../layout/useMediaQuery";
-import { hasModKey } from "../../platform/platform";
+import { hasModKey, shortcutLabel } from "../../platform/platform";
 import { primaryButton } from "../claude/conversation/parts";
 import { openGoogleAccount } from "../drive/GoogleAccountCard";
+import { typing } from "../tasks/useTaskKeys";
+import { Composer } from "./Composer";
+import { requestCompose, takeCompose } from "./composeRequest";
+import { useDiscardedNotice, useUndoSendToast } from "./UndoSendToast";
 import { filtersOf, mailProjectsOf, withoutProject, type MailSearch } from "./mailFilters";
 import { ReadingPane } from "./ReadingPane";
 import { ThreadList } from "./ThreadList";
@@ -62,6 +66,17 @@ export function MailPage({
   const listRef = useRef<HTMLDivElement>(null);
   const paneRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const newEmailRef = useRef<HTMLButtonElement>(null);
+  const composeNew = search.compose === "new";
+  const showUndo = useUndoSendToast();
+  const discardedNotice = useDiscardedNotice();
+  // Il fuoco della nuova email: nel primo campo, o nel corpo se la riapre una
+  // richiesta («Undo» di un invio, la riga «Draft»).
+  const [newFocus, setNewFocus] = useState<"body" | "start">("start");
+  useEffect(() => {
+    if (!composeNew) return;
+    setNewFocus(takeCompose(null)?.focus ?? "start");
+  }, [composeNew]);
 
   const setSearch = (patch: Partial<MailSearch>) =>
     void navigate({
@@ -90,14 +105,30 @@ export function MailPage({
     }
   }, [opened.isPending, opened.isError, threadId, navigate, switchedPersona]);
 
-  // ⌘F cerca nella posta (solo qui: la pagina è montata).
+  // ⌘F cerca nella posta; ⌘N è «New email» (in Mail prende il posto del
+  // «New message» della Chat, [A 20]) — fuori dai campi, senza dialoghi o menu.
+  const newEmail = () =>
+    void navigate({
+      to: "/mail",
+      search: (prev: Record<string, unknown>) => ({ ...prev, compose: "new" }),
+    } as never);
+  const openNewEmail = useRef(newEmail);
+  openNewEmail.current = newEmail;
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (!hasModKey(e) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "f") return;
+      if (!hasModKey(e) || e.shiftKey || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key !== "f" && key !== "n") return;
       if (document.querySelector('[aria-modal="true"]')) return;
+      if (key === "f") {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+        return;
+      }
+      if (typing(e.target) || document.querySelector('[role="menu"]')) return;
       e.preventDefault();
-      searchRef.current?.focus();
-      searchRef.current?.select();
+      openNewEmail.current();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -126,6 +157,7 @@ export function MailPage({
     () => new Set((drafts ?? []).flatMap((d) => (d.threadId ? [d.threadId] : []))),
     [drafts],
   );
+  const newDraft = (drafts ?? []).find((d) => d.threadId === null);
   const waiting = (allRows ?? []).filter((r) => r.openProposals > 0);
 
   // Coi tasti (J/K) si scorre: la cronologia non si riempie di conversazioni.
@@ -136,6 +168,13 @@ export function MailPage({
       search: (prev: Record<string, unknown>) => prev as never,
       replace: how === "keys",
     });
+  const closeNewEmail = (focusButton = true) => {
+    void navigate({
+      to: "/mail",
+      search: (prev: Record<string, unknown>) => ({ ...prev, compose: undefined }),
+    } as never);
+    if (focusButton) requestAnimationFrame(() => newEmailRef.current?.focus());
+  };
   const backToList = () => {
     if (!twoUp) {
       void navigate({ to: "/mail", search: (prev: Record<string, unknown>) => prev as never });
@@ -150,8 +189,17 @@ export function MailPage({
 
   const list = (
     <div className={`flex min-h-0 flex-col ${twoUp ? "w-[380px] shrink-0 border-r border-rule" : "min-w-0 flex-1"}`}>
-      <header className="shrink-0 px-4 pt-6 pb-3">
-        <h1 className="text-2xl font-semibold text-ink">{t("nav.mail")}</h1>
+      <header className="flex shrink-0 items-center gap-3 px-4 pt-6 pb-3">
+        <h1 className="min-w-0 flex-1 text-2xl font-semibold text-ink">{t("nav.mail")}</h1>
+        <button
+          ref={newEmailRef}
+          type="button"
+          className={primaryButton}
+          title={`${t("mail.compose.newEmail")} (${shortcutLabel(["mod", "N"])})`}
+          onClick={newEmail}
+        >
+          {t("mail.compose.newEmail")}
+        </button>
       </header>
       <ThreadList
         search={search}
@@ -167,6 +215,21 @@ export function MailPage({
         drafts={draftThreads}
         onOpen={open}
         onEnter={() => paneRef.current?.focus()}
+        onCompose={(mode) => {
+          if (threadId) requestCompose({ threadId, mode, focus: "start" });
+        }}
+        newDraft={
+          newDraft
+            ? {
+                subject: newDraft.subject,
+                selected: composeNew,
+                onOpen: () => {
+                  requestCompose({ threadId: null, mode: "new", focus: "body" });
+                  newEmail();
+                },
+              }
+            : undefined
+        }
         listRef={listRef}
         searchRef={searchRef}
         hits={hits}
@@ -174,7 +237,32 @@ export function MailPage({
     </div>
   );
 
-  const pane = threadId ? (
+  const pane = composeNew ? (
+    <div className="mx-auto flex h-full w-full max-w-[824px] min-w-0 flex-col px-8 pt-6 pb-8">
+      <Composer
+        key="new"
+        threadId={null}
+        mode="new"
+        threadProjects={[]}
+        focus={newFocus}
+        full
+        onClose={() => closeNewEmail()}
+        onDiscarded={(snapshot) => {
+          closeNewEmail();
+          discardedNotice(snapshot);
+        }}
+        onSent={(result, recipients) => {
+          // L'email nuova diventa una conversazione in cima all'elenco, e si apre.
+          void navigate({
+            to: "/mail/$threadId",
+            params: { threadId: result.threadId },
+            search: (prev: Record<string, unknown>) => ({ ...prev, compose: undefined }),
+          } as never);
+          showUndo(result, recipients, true);
+        }}
+      />
+    </div>
+  ) : threadId ? (
     <ReadingPane
       key={threadId}
       threadId={threadId}
@@ -204,7 +292,7 @@ export function MailPage({
   if (!twoUp) {
     return (
       <section data-mail-page="one" className="flex h-full min-h-0 flex-col">
-        {threadId ? (
+        {threadId || composeNew ? (
           <>
             <h1 className="sr-only">{t("nav.mail")}</h1>
             <div className="min-h-0 flex-1 overflow-y-auto">{pane}</div>

@@ -101,6 +101,8 @@ export interface AppSearch {
   /** Posta: la casella e l'importanza (`pages/mail/mailFilters.ts`); `project` e `q` sopra. */
   mailbox?: string;
   importance?: string;
+  /** Posta: la nuova email nel pannello di lettura (`new`). */
+  compose?: string;
 }
 
 const SEARCH_KEYS = [

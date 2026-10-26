@@ -2,6 +2,8 @@ import { Link } from "@tanstack/react-router";
 import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  useDeleteFailedMailSend,
+  useMailDrafts,
   useMailProposals,
   useMailThread,
   useMarkMailRead,
@@ -9,14 +11,23 @@ import {
   usePeople,
   useProjects,
   useReproposeMessage,
+  useRetryMailSend,
 } from "../../data/queries";
-import type { MailMessageView, MailProposalView, MailThreadDetail } from "../../data/types";
+import type {
+  MailDraft,
+  MailMessageView,
+  MailProposalView,
+  MailThreadDetail,
+} from "../../data/types";
 import { useToast } from "../../tasks-ui/Toast";
 import { itemClass } from "../../tasks-ui/Menu";
 import { typing } from "../tasks/useTaskKeys";
 import { MenuButton } from "../tasks/controls";
 import { fold, searchWords } from "../chat/search";
 import { ArrowLeftGlyph, MoreGlyph } from "./glyphs";
+import { Composer } from "./Composer";
+import { closeComposer, onComposeRequest, takeCompose, type ComposeRequest } from "./composeRequest";
+import { useDiscardedNotice, useDroppedNotice, useUndoSendToast } from "./UndoSendToast";
 import { MailProposalCard } from "./MailProposalCard";
 import { isLiveProposal } from "./proposalText";
 import { MessageView } from "./MessageView";
@@ -58,6 +69,13 @@ function initiallyOpen(
 
 type Item = { kind: "message"; message: MailMessageView } | { kind: "band"; ids: string[] };
 
+type ReplyMode = Exclude<MailDraft["mode"], "new">;
+const REPLY_MODES: { mode: ReplyMode; key: string }[] = [
+  { mode: "reply", key: "R" },
+  { mode: "replyAll", key: "A" },
+  { mode: "forward", key: "F" },
+];
+
 export function ReadingPane({
   threadId,
   q,
@@ -81,6 +99,56 @@ export function ReadingPane({
   const markRead = useMarkMailRead();
   const markUnread = useMarkMailUnread();
   const repropose = useReproposeMessage();
+  const drafts = useMailDrafts();
+  const retry = useRetryMailSend();
+  const removeFailed = useDeleteFailedMailSend();
+  const showUndo = useUndoSendToast();
+  const droppedNotice = useDroppedNotice();
+  const discardedNotice = useDiscardedNotice();
+
+  // La casella di scrittura in fondo (shape mail-compose): una per
+  // conversazione; si riapre da sé se c'è una bozza (senza prendere il
+  // fuoco), o su richiesta (R/A/F dall'elenco, «Undo», «Edit»).
+  const [compose, setCompose] = useState<{ mode: ReplyMode; focus: ComposeRequest["focus"] | "none" } | null>(
+    null,
+  );
+  const replyButtons = useRef(new Map<ReplyMode, HTMLButtonElement>());
+  const opener = useRef<ReplyMode | null>(null);
+  const draftChecked = useRef(false);
+  const focusSent = useRef<string | null>(null);
+  const focusComposerBody = () =>
+    requestAnimationFrame(() =>
+      paneRef.current?.querySelector<HTMLElement>("[data-composer] textarea")?.focus(),
+    );
+  const openCompose = (mode: ReplyMode, focus: ComposeRequest["focus"] | "none") => {
+    opener.current = mode;
+    if (compose) {
+      setCompose({ mode, focus: compose.focus });
+      if (focus !== "none") focusComposerBody();
+    } else setCompose({ mode, focus });
+  };
+  const takeRequest = (req: ComposeRequest | null) => {
+    if (!req || req.mode === "new") return false;
+    openCompose(req.mode, req.focus);
+    return true;
+  };
+  const takeRef = useRef(takeRequest);
+  takeRef.current = takeRequest;
+  useEffect(
+    () =>
+      onComposeRequest((req) => {
+        if (req.threadId === threadId) takeRef.current(takeCompose(threadId));
+      }),
+    [threadId],
+  );
+  // All'arrivo: una richiesta in attesa, o la bozza salvata della conversazione.
+  useEffect(() => {
+    if (draftChecked.current || !drafts.data) return;
+    draftChecked.current = true;
+    if (takeRef.current(takeCompose(threadId))) return;
+    const saved = drafts.data.find((d) => d.threadId === threadId);
+    if (saved && saved.mode !== "new") setCompose({ mode: saved.mode, focus: "none" });
+  }, [drafts.data, threadId]);
 
   const people = useMemo(() => new Map((peopleList ?? []).map((p) => [p.id, p])), [peopleList]);
   const projectById = useMemo(() => new Map((projects ?? []).map((p) => [p.id, p])), [projects]);
@@ -88,11 +156,13 @@ export function ReadingPane({
   // Aperti all'arrivo, fissati alla prima lettura (messaggi e proposte):
   // segnare letto o decidere non li richiude.
   const initial = useRef<Set<string> | null>(null);
+  const known = useRef<Set<string>>(new Set());
   const found = useRef<Set<string>>(new Set());
   // Le proposte che non si leggono non chiudono i messaggi: si apre come senza proposte.
   if (thread.data && !proposals.isPending && !initial.current) {
     const live = new Set((proposals.data ?? []).filter(isLiveProposal).map((v) => v.proposal.sourceId));
     initial.current = initiallyOpen(thread.data, q, live);
+    known.current = new Set(thread.data.messages.map((m) => m.id));
     const words = q ? searchWords(q) : [];
     found.current = new Set(thread.data.messages.filter((m) => matches(m, words)).map((m) => m.id));
   }
@@ -101,7 +171,9 @@ export function ReadingPane({
   const [originals, setOriginals] = useState<ReadonlySet<string>>(new Set());
   const [current, setCurrent] = useState<string | null>(null);
   const keptUnread = useRef(false);
-  const isOpen = (id: string) => toggled.get(id) ?? initial.current?.has(id) ?? false;
+  // Un messaggio arrivato dopo la prima lettura (un mio invio) si apre.
+  const isOpen = (id: string) =>
+    toggled.get(id) ?? (initial.current ? initial.current.has(id) || !known.current.has(id) : false);
   const toggle = (id: string) => setToggled((m) => new Map(m).set(id, !isOpen(id)));
 
   // Letta dopo 1 s di permanenza; «Mark as unread» la lascia com'è finché non si riapre.
@@ -124,6 +196,16 @@ export function ReadingPane({
     for (const list of map.values()) list.sort((a, b) => a.proposal.createdAt.localeCompare(b.proposal.createdAt));
     return map;
   }, [proposals.data]);
+
+  // Dopo l'invio il fuoco va sul messaggio inviato, appena c'è.
+  useEffect(() => {
+    const id = focusSent.current;
+    if (!id || !thread.data?.messages.some((m) => m.id === id)) return;
+    focusSent.current = null;
+    requestAnimationFrame(() =>
+      paneRef.current?.querySelector<HTMLElement>(`[data-message="${CSS.escape(id)}"] button`)?.focus(),
+    );
+  }, [thread.data, paneRef]);
 
   if (thread.isPending || (thread.data && proposals.isPending)) return <PaneSkeleton />;
   if (thread.isError || !thread.data) {
@@ -188,7 +270,8 @@ export function ReadingPane({
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if (e.metaKey || e.ctrlKey || e.altKey || typing(e.target)) return;
     // Dentro una scheda o un menu i tasti sono loro (Space, E, ⌘Enter, Esc).
-    if ((e.target as HTMLElement).closest("[data-mail-proposal], [role=menu]")) return;
+    // Nella casella di scrittura i tasti sono suoi (Esc la chiude).
+    if ((e.target as HTMLElement).closest("[data-mail-proposal], [role=menu], [data-composer]")) return;
     const ids = messages.map((m) => m.id);
     const at = Math.max(0, ids.indexOf(current ?? last.id));
     const go = (index: number) => {
@@ -219,6 +302,14 @@ export function ReadingPane({
         e.preventDefault();
         unread();
         return;
+      case "r":
+      case "a":
+      case "f": {
+        e.preventDefault();
+        const mode = REPLY_MODES.find((m) => m.key === e.key.toUpperCase())!.mode;
+        openCompose(mode, "start");
+        return;
+      }
       case "escape":
         e.preventDefault();
         onEscape();
@@ -229,6 +320,93 @@ export function ReadingPane({
   function unread() {
     keptUnread.current = true;
     markUnread.mutate(threadId);
+  }
+
+  const closeCompose = () => {
+    const mode = opener.current ?? compose?.mode ?? "reply";
+    setCompose(null);
+    requestAnimationFrame(() => replyButtons.current.get(mode)?.focus());
+  };
+
+  /**
+   * Un mio invio fallito: «Retry» (di nuovo i 5 s con «Undo»), «Edit»
+   * (toglie il tentativo e riapre la casella col testo intatto), «Delete»
+   * (toglie il tentativo, la bozza resta). La casella aperta salva prima.
+   */
+  const deliveryOf = (m: MailMessageView) =>
+    m.delivery?.state === "failed"
+      ? {
+          busy: retry.isPending || removeFailed.isPending,
+          onRetry: () =>
+            void retry
+              .mutateAsync(m.id)
+              .then((result) => showUndo(result, [...m.to, ...(m.cc ?? [])], false))
+              .catch(() => toast.error(t("mail.compose.couldntSend", { reason: t("mail.compose.reason.other") }))),
+          onEdit: () =>
+            void closeComposer(threadId)
+              .then(() => removeFailed.mutateAsync(m.id))
+              .then((restored) => {
+                droppedNotice(restored);
+                if (restored.draft.mode !== "new") openCompose(restored.draft.mode, "body");
+              }),
+          onDelete: () =>
+            void closeComposer(threadId)
+              .then(() => removeFailed.mutateAsync(m.id))
+              .then(droppedNotice),
+        }
+      : undefined;
+
+  const composer = compose && (
+    <div className="mt-6 flex min-w-0 flex-col gap-3">
+      <Composer
+        threadId={threadId}
+        mode={compose.mode}
+        onModeChange={(mode) => {
+          if (mode === "new") return;
+          opener.current = mode;
+          setCompose((c) => (c ? { ...c, mode } : c));
+        }}
+        messages={messages}
+        threadProjects={threadProjects}
+        focus={compose.focus}
+        onClose={closeCompose}
+        onDiscarded={(snapshot) => {
+          setCompose(null);
+          discardedNotice(snapshot);
+        }}
+        onSent={(result, recipients) => {
+          setCompose(null);
+          focusSent.current = result.messageId;
+          showUndo(result, recipients, false);
+        }}
+        header={
+          narrow ? (
+            <button
+              type="button"
+              onClick={closeCompose}
+              className="inline-flex h-8 items-center gap-1.5 self-start rounded-md px-2 text-sm font-medium text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink"
+            >
+              <ArrowLeftGlyph />
+              {t("mail.compose.back")}
+            </button>
+          ) : undefined
+        }
+      />
+    </div>
+  );
+
+  if (narrow && composer) {
+    return (
+      <div
+        ref={paneRef}
+        tabIndex={-1}
+        onKeyDown={onKeyDown}
+        data-reading-pane={threadId}
+        className="mx-auto flex w-full max-w-[824px] min-w-0 flex-col px-8 pt-6 pb-16 outline-none"
+      >
+        {composer}
+      </div>
+    );
   }
 
   return (
@@ -247,6 +425,26 @@ export function ReadingPane({
           >
             {data.subject || t("mail.row.noSubject")}
           </h2>
+          <div className="flex shrink-0 items-center gap-1">
+            {REPLY_MODES.map(({ mode, key }) => (
+              <button
+                key={mode}
+                ref={(el) => {
+                  if (el) replyButtons.current.set(mode, el);
+                  else replyButtons.current.delete(mode);
+                }}
+                type="button"
+                aria-pressed={compose?.mode === mode}
+                title={`${t(`mail.compose.${mode}`)} (${key})`}
+                onClick={() => openCompose(mode, "start")}
+                className={`inline-flex h-8 shrink-0 items-center rounded-md px-2.5 text-sm font-medium transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink aria-pressed:bg-ink/10 aria-pressed:text-ink ${
+                  mode === "reply" ? "border border-rule-strong text-ink" : "text-ink-muted"
+                }`}
+              >
+                {t(`mail.compose.${mode}`)}
+              </button>
+            ))}
+          </div>
           <MenuButton
             menuLabel={t("mail.reading.more")}
             ariaLabel={t("mail.reading.more")}
@@ -341,6 +539,7 @@ export function ReadingPane({
                 onRepropose={() => repropose.mutate(item.message.id)}
                 reproposing={repropose.isPending && repropose.variables === item.message.id}
                 original={originals.has(item.message.id)}
+                delivery={deliveryOf(item.message)}
                 onOriginal={(on) =>
                   setOriginals((s) => {
                     const next = new Set(s);
@@ -359,6 +558,7 @@ export function ReadingPane({
           ),
         )}
       </div>
+      {composer}
     </div>
   );
 }

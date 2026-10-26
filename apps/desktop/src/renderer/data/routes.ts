@@ -80,6 +80,9 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
     case "mailbox":
     case "importance":
       return isMailPath(path) && isMailSearchValue(key, value);
+    // La nuova email nel pannello di lettura (shape mail-compose [A 2]): solo su `#/mail`.
+    case "compose":
+      return path === "mail" && isMailSearchValue(key, value);
     case "newRequest":
       return value === "1" || /^[A-Z]{2,4}$/.test(value);
     // I dialoghi della Chat (nuovo messaggio diretto, nuovo canale) e le impostazioni di un canale.

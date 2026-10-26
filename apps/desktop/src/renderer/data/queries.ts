@@ -2647,6 +2647,34 @@ export function useMailDraft(
   });
 }
 
+/** I limiti della casella (quelli di Gmail) e la finestra dell'«Annulla», per la UI. */
+export const MAIL_LIMITS = {
+  attachments: api.mail.MAIL_MAX_ATTACHMENTS,
+  bytes: api.mail.MAIL_MAX_BYTES,
+  undoMs: api.mail.MAIL_UNDO_MS,
+} as const;
+
+/**
+ * Legge ADESSO la bozza di una modalità (non dalla cache): la casella la
+ * prende all'apertura e passando fra Rispondi, Rispondi a tutti e Inoltra,
+ * dopo aver salvato il corpo — così destinatari e oggetto sono rifatti e il
+ * corpo resta [A 1].
+ */
+export function useLoadMailDraft() {
+  const client = useQueryClient();
+  const me = useSessionPersonId();
+  return useCallback(
+    (threadId: string | null, mode: MailDraft["mode"]) =>
+      client.fetchQuery({
+        queryKey: queryKeys.mailDraft(me, threadId, mode),
+        queryFn: () => api.mail.getDraft(threadId, mode),
+        staleTime: 0,
+        retry: false,
+      }),
+    [client, me],
+  );
+}
+
 /** Le mie bozze, dalla più recente (la riga «Bozza» in elenco). */
 export function useMailDrafts() {
   const me = useSessionPersonId();
@@ -2670,6 +2698,17 @@ export function useRecipientSuggestions(q: string, enabled = true) {
 
 export function useSaveMailDraft() {
   return useWrite((draft: api.mail.MailDraftInput) => api.mail.saveDraft(draft), MAIL_AREAS);
+}
+
+/**
+ * Salva la bozza SUBITO, fuori da React Query: per il cambio di persona
+ * (`onBeforePersonaChange`), dove la sessione è ancora di chi scriveva solo
+ * finché non si torna al ciclo degli eventi — `gate` la legge qui, in modo
+ * sincrono, e una mutazione la leggerebbe dopo, a persona già cambiata. La
+ * Posta della persona nuova si rilegge comunque da capo.
+ */
+export function saveMailDraftNow(draft: api.mail.MailDraftInput): Promise<unknown> {
+  return api.mail.saveDraft(draft).catch(() => undefined);
 }
 
 export function useDiscardMailDraft() {

@@ -8,7 +8,7 @@ import { PageEmpty, PageError } from "../../tasks-ui/PageStates";
 import { useToast } from "../../tasks-ui/Toast";
 import { MenuButton } from "../tasks/controls";
 import { openGoogleAccount } from "../drive/GoogleAccountCard";
-import { SearchGlyph } from "./glyphs";
+import { PencilGlyph, SearchGlyph } from "./glyphs";
 import { IMPORTANCES, NO_PROJECT, hasFilters, type MailSearch } from "./mailFilters";
 import { ExpiredBanner, SyncStatus, worstMailbox } from "./SyncStatus";
 import { ThreadRow, useRowLabel, type ProjectRef } from "./ThreadRow";
@@ -73,6 +73,8 @@ export function ThreadList({
   listRef,
   searchRef,
   hits = new Map(),
+  onCompose,
+  newDraft,
 }: {
   search: MailSearch;
   setSearch: (patch: Partial<MailSearch>) => void;
@@ -92,6 +94,10 @@ export function ThreadList({
   searchRef: RefObject<HTMLInputElement | null>;
   /** Con una ricerca: il frammento trovato (`searchMail`) per conversazione. */
   hits?: ReadonlyMap<string, string>;
+  /** R / A / F con il fuoco nell'elenco: la casella della conversazione aperta. */
+  onCompose?: (mode: "reply" | "replyAll" | "forward") => void;
+  /** La bozza dell'email nuova: una riga «Draft · …» in cima [A 2]. */
+  newDraft?: { subject: string; selected: boolean; onOpen: () => void };
 }) {
   const { t } = useTranslation();
   const toast = useToast();
@@ -148,6 +154,9 @@ export function ThreadList({
     } else if (key === "Enter") {
       e.preventDefault();
       onEnter();
+    } else if (onCompose && (key === "r" || key === "a" || key === "f")) {
+      e.preventDefault();
+      onCompose(key === "r" ? "reply" : key === "a" ? "replyAll" : "forward");
     }
   }
 
@@ -310,6 +319,21 @@ export function ThreadList({
             className="sticky top-2 z-10 mx-auto mb-[-28px] flex h-7 items-center rounded-full border border-rule-strong bg-surface px-3 text-xs font-medium text-ink shadow-[0_4px_16px_-4px_oklch(0_0_0/0.35)]"
           >
             {t("mail.list.newRows", { count: newCount })}
+          </button>
+        )}
+        {newDraft && (
+          <button
+            type="button"
+            onClick={newDraft.onOpen}
+            aria-current={newDraft.selected || undefined}
+            className={`flex h-12 w-full min-w-0 items-center gap-2 border-b border-rule px-4 text-left text-sm transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 ${newDraft.selected ? "bg-ink/10" : ""}`}
+          >
+            <span className="text-ink-muted">
+              <PencilGlyph />
+            </span>
+            <span className="min-w-0 truncate font-medium text-ink">
+              {t("mail.compose.draftRow", { subject: newDraft.subject.trim() || t("mail.compose.noSubject") })}
+            </span>
           </button>
         )}
         {loading ? (

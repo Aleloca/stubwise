@@ -82,6 +82,12 @@ export const COMMANDS: readonly Command[] = [
     run: (ctx) => ctx.navigate(`${ctx.pathname}?newMessage=1`),
   },
   {
+    id: "mail.newEmail",
+    labelKey: "palette.commands.newEmail",
+    // La nuova email nel pannello di lettura della Posta (shape mail-compose [A 2]).
+    run: (ctx) => ctx.navigate("/mail?compose=new"),
+  },
+  {
     id: "chat.newChannel",
     labelKey: "palette.commands.newChannel",
     // Dentro un progetto, il progetto è già scelto (se ci si possono creare canali).

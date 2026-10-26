@@ -1,4 +1,4 @@
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { MailAddress, MailMessageView, Person } from "../../data/types";
 import { WorkingRing } from "../claude/conversation/parts";
@@ -103,9 +103,9 @@ function Recipients({ message }: { message: MailMessageView }) {
 }
 
 /** Il testo pulito, a paragrafi, ≤ 68ch. */
-function Body({ text }: { text: string }) {
+function Body({ text, muted = false }: { text: string; muted?: boolean }) {
   return (
-    <div className="flex max-w-[68ch] flex-col gap-3 text-md text-ink [overflow-wrap:anywhere]">
+    <div className={`flex max-w-[68ch] flex-col gap-3 text-md [overflow-wrap:anywhere] ${muted ? "text-ink-muted" : "text-ink"}`}>
       {text.split(/\n{2,}/).map((para, i) => (
         <p key={i} className="whitespace-pre-line">
           {para}
@@ -237,6 +237,89 @@ function Analysis({
   );
 }
 
+/** Quanto resta «Sent» sotto un messaggio appena partito. */
+export const SENT_NOTE_MS = 3000;
+
+/** La ragione di un invio fallito, in parole: «address not found (luca@bounce.example)». */
+function failureReason(error: string | undefined, t: (key: string, o?: Record<string, unknown>) => string) {
+  const found = /^address_not_found: (.+)$/.exec(error ?? "");
+  return found
+    ? t("mail.compose.reason.addressNotFound", { email: found[1] })
+    : t("mail.compose.reason.other");
+}
+
+/**
+ * Lo stato di un mio invio sotto il messaggio (shape mail-compose §5 [A 12]):
+ * «Sending…» con l'anello nei 5 s, «Sent» per 3 s quando parte, «Not sent»
+ * col perché e «Retry» · «Edit» · «Delete» se fallisce — mai un nuovo
+ * tentativo da solo. Lo vede solo chi l'ha scritto (il livello dati).
+ */
+function Delivery({
+  message,
+  actions,
+}: {
+  message: MailMessageView;
+  actions?: DeliveryActions;
+}) {
+  const { t } = useTranslation();
+  const state = message.delivery?.state;
+  const previous = useRef(state);
+  const [justSent, setJustSent] = useState(false);
+  useEffect(() => {
+    const was = previous.current;
+    previous.current = state;
+    if (was !== "sending" || state !== "sent") return;
+    setJustSent(true);
+    const timer = window.setTimeout(() => setJustSent(false), SENT_NOTE_MS);
+    return () => window.clearTimeout(timer);
+  }, [state]);
+  if (state === "sending") {
+    return (
+      <p role="status" className="flex items-center gap-2 text-xs text-ink-muted">
+        <WorkingRing size={10} />
+        {t("mail.compose.sending")}
+      </p>
+    );
+  }
+  if (state === "failed") {
+    const link =
+      "rounded-sm font-medium text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink disabled:opacity-40";
+    return (
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+        <p role="alert" className="flex items-center gap-1.5 text-critical">
+          <AlertGlyph size={14} />
+          {t("mail.compose.notSent", { reason: failureReason(message.delivery?.error, t) })}
+        </p>
+        {actions && (
+          <span className="flex items-center gap-2 text-ink-muted">
+            <button type="button" className={link} disabled={actions.busy} onClick={actions.onRetry}>
+              {t("mail.compose.retry")}
+            </button>
+            <span aria-hidden="true">·</span>
+            <button type="button" className={link} disabled={actions.busy} onClick={actions.onEdit}>
+              {t("mail.compose.edit")}
+            </button>
+            <span aria-hidden="true">·</span>
+            <button type="button" className={link} disabled={actions.busy} onClick={actions.onDelete}>
+              {t("mail.compose.delete")}
+            </button>
+          </span>
+        )}
+      </div>
+    );
+  }
+  if (justSent) return <p className="text-xs text-ink-muted">{t("mail.compose.sent")}</p>;
+  return null;
+}
+
+/** I comandi di un mio invio fallito. */
+export interface DeliveryActions {
+  onRetry: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  busy: boolean;
+}
+
 export function MessageView({
   message,
   expanded,
@@ -249,6 +332,7 @@ export function MessageView({
   reproposing,
   original,
   onOriginal,
+  delivery,
   children,
 }: {
   message: MailMessageView;
@@ -266,6 +350,8 @@ export function MessageView({
   /** L'originale HTML al posto del testo («Show original»; anche con O). */
   original: boolean;
   onOriginal: (on: boolean) => void;
+  /** I comandi di un mio invio fallito («Retry», «Edit», «Delete»). */
+  delivery?: DeliveryActions;
   /** Le schede delle proposte nate da questo messaggio. */
   children?: ReactNode;
 }) {
@@ -351,8 +437,9 @@ export function MessageView({
         {original && message.html ? (
           <UntrustedHtmlFrame html={message.html} title={t("mail.message.originalTitle", { name: nameOf(from) })} />
         ) : (
-          <Body text={message.text} />
+          <Body text={message.text} muted={message.delivery?.state === "sending"} />
         )}
+        <Delivery message={message} actions={delivery} />
         {message.html && (
           <button
             type="button"

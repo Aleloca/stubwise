@@ -216,6 +216,7 @@ export async function getDraft(
     ...headerFor(me, box, last, mode),
     body: saved?.body ?? "",
     attachments: mode === "forward" ? [...forwardedOf(last), ...own] : own,
+    ...(saved?.quote === false ? { quote: false } : {}),
     updatedAt: saved?.updatedAt ?? now(),
   };
 }
@@ -232,7 +233,8 @@ export async function listDrafts(): Promise<MailDraft[]> {
 export type MailDraftInput = Pick<
   MailDraft,
   "threadId" | "mode" | "replyToMessageId" | "to" | "cc" | "subject" | "body" | "attachments"
->;
+> &
+  Pick<MailDraft, "quote">;
 
 /** Un allegato del Drive com'è nel Drive (nome, peso, copia o link), se chi scrive vede il file. */
 function driveAttachment(me: string, driveFileId: string): MailDraftAttachment {
@@ -290,6 +292,10 @@ export async function saveDraft(input: MailDraftInput): Promise<MailDraft> {
     subject: input.subject,
     body: input.body,
     attachments,
+    // Togliere la citazione vale solo per Rispondi (Inoltra cita sempre).
+    ...(input.quote === false && (input.mode === "reply" || input.mode === "replyAll")
+      ? { quote: false }
+      : {}),
     updatedAt: now(),
   };
   putDraft(draft);

@@ -73,6 +73,14 @@ describe("route grammar", () => {
     expect(isAppRoute("#/chat?mailbox=giulia.ferri@example.com")).toBe(false);
   });
 
+  it("area 6: la nuova email nel pannello di lettura (`compose=new`, solo su #/mail)", () => {
+    expect(isAppRoute("#/mail?compose=new")).toBe(true);
+    expect(isAppRoute("#/mail?compose=new&importance=high")).toBe(true);
+    expect(isAppRoute("#/mail?compose=reply")).toBe(false);
+    expect(isAppRoute("#/mail/th-aud-billing-vat?compose=new")).toBe(false);
+    expect(isAppRoute("#/chat?compose=new")).toBe(false);
+  });
+
   it("i link delle notifiche sono nella grammatica", () => {
     for (const n of NOTIFICATIONS) {
       expect(isAppRoute(n.link), n.link).toBe(true);

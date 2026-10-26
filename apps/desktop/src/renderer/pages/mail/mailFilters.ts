@@ -3,10 +3,10 @@ import type { MailImportance, MailThreadFilters, MailThreadRow, Project } from "
 // I filtri della Posta nell'indirizzo (shape mail.md §3, §9): la casella
 // (`mailbox`, un mio indirizzo), l'importanza (`importance`), il progetto
 // (`project`: il codice, o `none` = «Senza progetto», A2) e la ricerca
-// (`q`). Fonte unica della forma: la usano il router e `data/routes.ts`.
+// (`q`), più la nuova email (`compose=new`). Fonte unica della forma: la usano il router e `data/routes.ts`.
 
 /** Le chiavi proprie della Posta (`project` e `q` sono già dell'app). */
-export const MAIL_SEARCH_KEYS = ["mailbox", "importance"] as const;
+export const MAIL_SEARCH_KEYS = ["mailbox", "importance", "compose"] as const;
 
 export const IMPORTANCES = ["high", "normal", "low"] as const satisfies readonly MailImportance[];
 
@@ -18,6 +18,8 @@ export interface MailSearch {
   importance?: string;
   project?: string;
   q?: string;
+  /** `new` = la nuova email nel pannello di lettura (shape mail-compose [A 2]). */
+  compose?: string;
 }
 
 /** `#/mail` e `#/mail/<threadId>`. */
@@ -36,6 +38,8 @@ export function isMailSearchValue(key: string, value: string): boolean {
       return value === NO_PROJECT || /^[A-Z]{2,4}$/.test(value);
     case "q":
       return value.length > 0 && value.length <= 200;
+    case "compose":
+      return value === "new";
     default:
       return false;
   }

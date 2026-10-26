@@ -86,7 +86,7 @@ function startWindow(message: MailMessage, draft: MailDraft): MailSendResult {
   }, MAIL_UNDO_MS);
   attempts.get(message.id)?.settle();
   attempts.set(message.id, { draft, timer, settled, settle });
-  return { messageId: message.id, undoUntil: undoUntil() };
+  return { messageId: message.id, threadId: message.threadId, undoUntil: undoUntil() };
 }
 
 const domainOf = (email: string) => lower(email).slice(lower(email).lastIndexOf("@") + 1);
@@ -184,6 +184,19 @@ function restoreDraft(draft: MailDraft): MailDraftRestore {
 }
 
 /**
+ * Il testo citato del messaggio inviato (shape [A 4]): Inoltra cita sempre
+ * l'originale, Rispondi salvo che chi scrive l'abbia tolto (`quote: false`).
+ */
+function quotedOf(draft: MailDraft, original: MailMessage | undefined): string | null {
+  if (!original || draft.mode === "new") return null;
+  if (draft.mode !== "forward" && draft.quote === false) return null;
+  const who = original.from.name
+    ? `${original.from.name} <${original.from.email}>`
+    : original.from.email;
+  return `${who}:\n${original.text}`;
+}
+
+/**
  * «Invia»: il messaggio entra in fondo alla conversazione come `sending`
  * (solo per me) e la bozza esce; dopo `MAIL_UNDO_MS` parte. Un tentativo
  * fallito precedente resta dov'è, col suo testo: lo toglie solo «Elimina».
@@ -192,7 +205,10 @@ export async function sendDraft(id: string): Promise<MailSendResult> {
   const me = await gate("mail.sendDraft");
   const draft = myDraft(me, id);
   checkSendable(me, draft);
-  if (draft.threadId !== null) threadMessages(me, draft.threadId);
+  const original =
+    draft.threadId !== null
+      ? threadMessages(me, draft.threadId).find((m) => m.id === draft.replyToMessageId)
+      : undefined;
   const box = mailboxOf(me);
   const team = teamAddresses();
   const rowId = newId("mm");
@@ -211,7 +227,7 @@ export async function sendDraft(id: string): Promise<MailSendResult> {
     // Lo stesso orologio fisso dei messaggi della Chat, un secondo dopo l'altro.
     at: chatNow(),
     text: draft.body,
-    quoted: null,
+    quoted: quotedOf(draft, original),
     html: null,
     attachments: draft.attachments.map((a) =>
       a.as === "link"

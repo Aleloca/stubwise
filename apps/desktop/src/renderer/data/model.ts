@@ -1715,6 +1715,12 @@ export interface MailDraft {
    * aprirlo serve l'accesso su Google).
    */
   attachments: MailDraftAttachment[];
+  /**
+   * Rispondi: il messaggio a cui si risponde va citato sotto (assente =
+   * sì, shape mail-compose [A 4]); `false` l'ha tolto chi scrive. Inoltra
+   * lo cita sempre; l'email nuova non cita nulla.
+   */
+  quote?: boolean;
   updatedAt: string;
 }
 
@@ -1740,6 +1746,8 @@ export interface MailRecipientSuggestion extends MailAddress {
  */
 export interface MailSendResult {
   messageId: string;
+  /** La conversazione del messaggio (per un'email nuova, quella appena nata). */
+  threadId: string;
   undoUntil: string;
 }
 

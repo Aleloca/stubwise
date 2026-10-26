@@ -63,6 +63,8 @@ export function useShortcuts(): void {
         if (e.defaultPrevented || typing(e.target)) return;
         if (document.querySelector('[aria-modal="true"], [role="menu"]')) return;
         if (/^\/claude(\/|$)/.test(router.state.location.pathname)) return;
+        // In Mail ⌘N è «New email» (lo gestisce la pagina, montata dopo di qui).
+        if (/^\/mail(\/|$)/.test(router.state.location.pathname)) return;
         e.preventDefault();
         void navigate({
           to: ".",
