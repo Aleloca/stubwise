@@ -2796,6 +2796,13 @@ const CALENDAR_REFRESH_MS = 1000;
 const saving = (events: readonly Pick<CalendarEventView, "save">[] | null | undefined) =>
   !!events?.some((e) => e.save?.state === "saving");
 
+/**
+ * La finestra che Stubwise legge da Google (`now − 30 → now + 60` giorni, a
+ * giorni interi UTC): la griglia ne segna i bordi. Non è una lettura: è una
+ * regola dell'orologio del prototipo.
+ */
+export const calendarReadWindow = (): { from: string; to: string } => api.calendar.calendarWindow();
+
 /** Gli eventi che vedo nell'intervallo, dentro la finestra letta. */
 export function useCalendarEvents(range: { from: string; to: string }, { enabled = true } = {}) {
   const me = useSessionPersonId();
@@ -2915,15 +2922,42 @@ export function useFindFreeSlot() {
  */
 function useCalendarSave<TVars, TData>(mutationFn: (vars: TVars) => Promise<TData>) {
   const invalidate = useInvalidate(CALENDAR_AREAS);
+  const client = useQueryClient();
+  const me = useSessionPersonId();
   return useMutation({
     mutationFn: async (vars: TVars) => {
       const result = await mutationFn(vars);
+      // L'evento scritto (in «Salvataggio…») entra SUBITO negli elenchi già
+      // letti: la rilettura che segue può arrivare a salvataggio finito, e
+      // il blocco deve comparire nel posto nuovo con la sua parola di stato.
+      if (isEventView(result)) placeEvent(client, me, result);
       void invalidate();
       await api.calendar.whenCalendarIdle();
       return result;
     },
     onSettled: invalidate,
   });
+}
+
+const isEventView = (x: unknown): x is CalendarEventView =>
+  typeof x === "object" && x !== null && "startsAt" in x && "attendees" in x && "id" in x;
+
+/** Mette (o sostituisce) l'evento negli elenchi letti degli intervalli che tocca. */
+function placeEvent(client: ReturnType<typeof useQueryClient>, me: string, e: CalendarEventView) {
+  const from = Date.parse(e.startsAt);
+  const to = Date.parse(e.endsAt);
+  for (const [key, list] of client.getQueriesData<CalendarEventView[]>({
+    queryKey: ["as", me, "calendar", "events"],
+  })) {
+    if (!list) continue;
+    const range = key[4] as { from: string; to: string } | undefined;
+    const touches = !!range && from < Date.parse(range.to) && to > Date.parse(range.from);
+    const rest = list.filter((x) => x.id !== e.id);
+    const next = touches
+      ? [...rest, e].sort((a, b) => a.startsAt.localeCompare(b.startsAt) || a.id.localeCompare(b.id))
+      : rest;
+    client.setQueryData(key, next);
+  }
 }
 
 export function useCreateEvent() {

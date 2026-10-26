@@ -443,3 +443,40 @@
     }
   }
 }
+
+/* Calendario (area 6): il registro orario a righe sottili — un filetto
+   `rule` ogni ora (48 px) e uno più lieve alla mezz'ora — e il tratteggio dei
+   giorni fuori dalla finestra letta (righe sottili `rule`, [A 3]). */
+@utility calendar-hours {
+  background-image:
+    linear-gradient(to bottom, var(--rule) 1px, transparent 1px),
+    linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--rule) 45%, transparent) 1px,
+      transparent 1px
+    );
+  background-size:
+    100% 48px,
+    100% 48px;
+  background-position:
+    0 0,
+    0 24px;
+}
+
+@utility calendar-hatch {
+  background-image: repeating-linear-gradient(-45deg, var(--rule) 0 1px, transparent 1px 7px);
+}
+
+/* Il cambio di vista del Calendario: una dissolvenza di 150 ms, nessuno scorrimento. */
+@keyframes calendar-view-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@utility calendar-view-enter {
+  animation: calendar-view-in var(--duration-fast) var(--ease) both;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}

@@ -291,10 +291,11 @@ describe("PersonalColumn", () => {
 
   it("lo stato neutro segue la lingua", async () => {
     act(() => setLanguage("it"));
-    await renderAt("/calendar");
+    // Il Calendario ha la sua colonna (area 6): lo stato neutro resta sulle Automazioni.
+    await renderAt("/automations");
     expect(
-      await within(column()).findByRole("navigation", { name: "Viste di Calendario" }),
-    ).toHaveTextContent("Qui compariranno i tuoi calendari.");
+      await within(column()).findByRole("navigation", { name: "Viste di Automazioni" }),
+    ).toHaveTextContent("Qui compariranno regole, sorgenti ed esecuzioni passate.");
   });
 
   it("Chat ha la sua colonna (canali e messaggi diretti); Mail la sua (viste e caselle), nessun titolo", async () => {

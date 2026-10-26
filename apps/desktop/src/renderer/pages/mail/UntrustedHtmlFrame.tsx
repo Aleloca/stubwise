@@ -159,7 +159,16 @@ function estimatedHeight(html: string): number {
   return Math.min(FRAME_MAX, Math.max(FRAME_MIN, 40 + Math.ceil(text / 80) * 22 + blocks * 18));
 }
 
-export function UntrustedHtmlFrame({ html, title }: { html: string; title: string }) {
+export function UntrustedHtmlFrame({
+  html,
+  title,
+  height,
+}: {
+  html: string;
+  title: string;
+  /** Un'altezza fissa (la descrizione di un evento: fino a 240 px), al posto della stima. */
+  height?: number;
+}) {
   const { t } = useTranslation();
   const [images, setImages] = useState(false);
   const safe = useMemo(() => neutralize(html), [html]);
@@ -187,7 +196,7 @@ export function UntrustedHtmlFrame({ html, title }: { html: string; title: strin
         srcDoc={srcDoc}
         sandbox=""
         referrerPolicy="no-referrer"
-        style={{ height: estimatedHeight(safe.html) }}
+        style={{ height: height ?? estimatedHeight(safe.html) }}
         className="w-full rounded-md border border-rule bg-white"
       />
     </div>

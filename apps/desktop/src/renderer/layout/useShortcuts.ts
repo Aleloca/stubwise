@@ -65,6 +65,8 @@ export function useShortcuts(): void {
         if (/^\/claude(\/|$)/.test(router.state.location.pathname)) return;
         // In Mail ⌘N è «New email» (lo gestisce la pagina, montata dopo di qui).
         if (/^\/mail(\/|$)/.test(router.state.location.pathname)) return;
+        // Nel Calendario ⌘N è «New meeting» ([A 9], lo gestisce la pagina).
+        if (/^\/calendar\/?$/.test(router.state.location.pathname)) return;
         e.preventDefault();
         void navigate({
           to: ".",

@@ -48,6 +48,7 @@ describe("parità delle chiavi en/it", () => {
         "projects",
         "settings",
         "mail",
+        "calendar",
       ].sort(),
     );
   });

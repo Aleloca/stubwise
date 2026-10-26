@@ -2,6 +2,7 @@ import { parseCriteria } from "../domain/filters";
 import { isSearchParamValue } from "../pages/chat/search";
 import { FILE_CODE_RE, isDrivePath, isDriveSearchValue } from "../pages/drive/driveFilters";
 import { isMailPath, isMailSearchValue } from "../pages/mail/mailFilters";
+import { isCalendarSearchValue } from "../pages/calendar/calendarParams";
 import type { GroupBy, ProjectModule, TaskView } from "./types";
 
 /** Grammatica delle route hash dell'app: un'unica fonte, riusata dal router. */
@@ -116,12 +117,18 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
       return /^p\/[A-Z]{2,4}\/requests$/.test(path) && value === "1";
     case "brief":
       return /^p\/[A-Z]{2,4}\/overview$/.test(path) && /^[\w-]+$/.test(value);
+    // Il Calendario: l'evento e la serie aperti nel pannello (shape calendar.md §7).
+    case "event":
+    case "series":
+      return path === "calendar" && isCalendarSearchValue(key, value);
     case "view":
       if (path === "home") return value === "week";
+      if (path === "calendar") return isCalendarSearchValue(key, value);
       if (path === "projects") return value === "person";
       if (path === "chat") return (CHAT_VIEWS as readonly string[]).includes(value);
       return isTasksPath(path) && (TASK_VIEWS as readonly string[]).includes(value);
     case "date":
+      if (path === "calendar") return isCalendarSearchValue(key, value);
       return path === "projects" && /^\d{4}-\d{2}-\d{2}$/.test(value);
     case "dept":
       return path === "projects" && /^[\w-]+$/.test(value);

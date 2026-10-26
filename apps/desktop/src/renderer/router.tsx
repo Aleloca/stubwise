@@ -45,6 +45,8 @@ import { DrivePage } from "./pages/drive/DrivePage";
 import { DRIVE_SEARCH_KEYS, isDriveSearchValue } from "./pages/drive/driveFilters";
 import { MailPage } from "./pages/mail/MailPage";
 import { MAIL_SEARCH_KEYS, NO_PROJECT, isMailSearchValue } from "./pages/mail/mailFilters";
+import { CalendarPage } from "./pages/calendar/CalendarPage";
+import { CALENDAR_SEARCH_KEYS } from "./pages/calendar/calendarParams";
 
 /** La ricerca che ogni route accetta (`?task=` apre il pannello, gli altri li montano i dialoghi). */
 export interface AppSearch {
@@ -103,6 +105,9 @@ export interface AppSearch {
   importance?: string;
   /** Posta: la nuova email nel pannello di lettura (`new`). */
   compose?: string;
+  /** Calendario: l'evento e la serie aperti nel pannello (`view` e `date` sopra). */
+  event?: string;
+  series?: string;
 }
 
 const SEARCH_KEYS = [
@@ -128,6 +133,7 @@ const SEARCH_KEYS = [
   "file",
   ...DRIVE_SEARCH_KEYS,
   ...MAIL_SEARCH_KEYS,
+  ...CALENDAR_SEARCH_KEYS,
 ] as const;
 
 /**
@@ -156,6 +162,8 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
               (key === "project" && value === NO_PROJECT)
             ? isMailSearchValue(key, value)
             : key === "request" ||
+      key === "event" ||
+      key === "series" ||
       key === "brief" ||
       key === "dept" ||
       key === "thread" ||
@@ -242,6 +250,15 @@ function MailRoutePage() {
   return <MailPage key={viewer.personId} switchedPersona={switchedPersona} />;
 }
 
+/**
+ * Il Calendario (`/calendar?view&date&event&series`): cambiare persona lo
+ * rimonta — dialoghi, spostamenti e menu della persona di prima non restano.
+ */
+function CalendarRoutePage() {
+  const { viewer } = useViewer();
+  return <CalendarPage key={viewer.personId} />;
+}
+
 function AdminPage() {
   const { viewer } = useViewer();
   if (!canSeeAdmin(viewer)) return <Navigate to="/home" replace />;
@@ -258,6 +275,7 @@ function pageOf(name: (typeof APP_ROUTES)[number]) {
   if (name === "chat") return ChatPage;
   if (name === "drive") return DriveRoutePage;
   if (name === "mail") return MailRoutePage;
+  if (name === "calendar") return CalendarRoutePage;
   return () => <Placeholder titleKey={`nav.${name}`} bodyKey={`placeholder.pages.${name}`} />;
 }
 
