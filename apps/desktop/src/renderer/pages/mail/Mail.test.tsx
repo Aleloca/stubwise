@@ -10,7 +10,7 @@ import { setMatchMedia } from "../../test/setup";
 import { renderRoute } from "../../test/renderRoute";
 import { closeGoogleAccount } from "../drive/GoogleAccountCard";
 import { MAIL_TWO_UP_QUERY } from "./MailPage";
-import { neutralize, revealImages } from "./UntrustedHtmlFrame";
+import { neutralize, revealImages, scrubTree } from "./UntrustedHtmlFrame";
 
 // La pagina della Posta (Task 7, shape mail.md): filtri nell'indirizzo,
 // contenuti estremi (Review Focus 5), proposte condivise e cambio di persona
@@ -240,6 +240,56 @@ describe("Posta — contenuti estremi (Review Focus 5)", () => {
     expect(kept.html).toContain('src="data:image/png;base64,AA"');
     expect(kept.html).not.toMatch(/<iframe|<object/i);
     expect(neutralize('<style>body{background:url("https://a.example/bg.png")}</style>').blockedImages).toBe(1);
+  });
+
+  it("neutralize: gli <style> della head restano (in cima al corpo) e i loro url() si contano", () => {
+    const head = neutralize(
+      '<html><head><title>x</title><style>body{background:url(https://a.example/h.png)}</style></head><body><p>x</p></body></html>',
+    );
+    // Il caso discrimina: il parser mette lo stile nella head, non nel corpo.
+    expect(
+      new DOMParser().parseFromString('<html><head><style>p{}</style></head><body></body></html>', "text/html").body
+        .innerHTML,
+    ).not.toContain("<style>");
+    expect(head.html).toMatch(/^<style>body\{background:url\(https:\/\/a\.example\/h\.png\)\}<\/style>/);
+    expect(head.blockedImages).toBe(1);
+    const leading = neutralize('<style>@import "https://a.example/s.css";</style><p>y</p>');
+    expect(leading.html).toContain('<style>@import "https://a.example/s.css";</style>');
+    expect(leading.blockedImages).toBe(1);
+  });
+
+  it("neutralize: background= e <image href> si contano, si parcheggiano e tornano", () => {
+    const { html, blockedImages } = neutralize(
+      '<table background="https://a.example/t.png"><tr><td>z</td></tr></table>' +
+        '<image href="https://a.example/i.png"></image>',
+    );
+    expect(blockedImages).toBe(2);
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    expect(doc.querySelector("table")!.getAttribute("background")).toBeNull();
+    expect(doc.querySelector("table")!.getAttribute("data-background")).toBe("https://a.example/t.png");
+    expect(doc.querySelector("image")!.getAttribute("href")).toBeNull();
+    const shown = new DOMParser().parseFromString(revealImages(html), "text/html");
+    expect(shown.querySelector("table")!.getAttribute("background")).toBe("https://a.example/t.png");
+    expect(shown.querySelector("image")!.getAttribute("href")).toBe("https://a.example/i.png");
+  });
+
+  it("scrubTree su un SVG vero (il parser di happy-dom ne scarta i figli): <style> minuscolo, <image href|xlink:href>", () => {
+    const SVG = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(SVG, "svg");
+    const style = document.createElementNS(SVG, "style");
+    style.textContent = 'rect{fill:url(https://a.example/f.svg#g)} @import "https://a.example/s.css";';
+    const image = document.createElementNS(SVG, "image");
+    image.setAttribute("href", "https://a.example/i.png");
+    const old = document.createElementNS(SVG, "image");
+    old.setAttribute("xlink:href", "https://a.example/x.png");
+    svg.append(style, image, old);
+    const root = document.createElement("div");
+    root.append(svg);
+    expect(scrubTree(root)).toBe(4);
+    expect(image.getAttribute("href")).toBeNull();
+    expect(image.getAttribute("data-href")).toBe("https://a.example/i.png");
+    expect(old.getAttribute("xlink:href")).toBeNull();
+    expect(old.getAttribute("data-xlink-href")).toBe("https://a.example/x.png");
   });
 
   it("neutralize/revealImages: nessuno script né gestore, le immagini tornano solo coi loro indirizzi", () => {

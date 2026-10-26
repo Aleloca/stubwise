@@ -33,11 +33,41 @@ const DATA_IMAGE = /^data:image\//i;
 const URL_ATTRS = ["href", "src", "action", "formaction", "xlink:href"];
 const DROPPED = "script, iframe, frame, frameset, object, embed, base, meta, link";
 const CSS_REMOTE_URL = /url\(\s*["']?\s*(https?:)?\/\//gi;
+/** `@import "https://…"` senza `url(…)` (quello con `url(` lo conta già `CSS_REMOTE_URL`). */
+const CSS_REMOTE_IMPORT = /@import\s+["']\s*(https?:)?\/\//gi;
+const countCss = (css: string) =>
+  (css.match(CSS_REMOTE_URL) ?? []).length + (css.match(CSS_REMOTE_IMPORT) ?? []).length;
 
 /** Il testo di un URL come lo legge il browser: senza spazi e caratteri di controllo. */
-const normalizedUrl = (value: string) => value.replace(/[\u0000- \u007f]+/g, "");
+const normalizedUrl = (value: string) => value.replace(/[\u0000-\u0020\u007f]+/g, "");
 
-const bodyOf = (html: string) => new DOMParser().parseFromString(html, "text/html").body;
+/**
+ * Le risorse remote che aspettano «Show images»: per elemento, l'attributo
+ * vero e quello in cui si parcheggia l'indirizzo finché non si preme.
+ */
+const PARKED: { match: (el: Element) => boolean; attr: string; parked: string }[] = [
+  { match: (el) => /^(img|source)$/i.test(el.tagName), attr: "src", parked: "data-src" },
+  { match: (el) => /^(img|source)$/i.test(el.tagName), attr: "srcset", parked: "data-srcset" },
+  // `background=` di body, table, td…: un'immagine di fondo vecchio stile.
+  { match: () => true, attr: "background", parked: "data-background" },
+  // Un'immagine SVG.
+  { match: (el) => el.tagName.toLowerCase() === "image", attr: "href", parked: "data-href" },
+  { match: (el) => el.tagName.toLowerCase() === "image", attr: "xlink:href", parked: "data-xlink-href" },
+];
+const isRemote = (attr: string, value: string) =>
+  attr === "srcset" ? /(https?:)?\/\//i.test(value) : REMOTE.test(value);
+
+/**
+ * Il corpo dell'email come albero. Gli `<style>` che il parser mette nella
+ * `<head>` (dichiarati lì, o in testa al documento) passano in cima al corpo:
+ * senza, il loro aspetto si perderebbe e i loro `url()` non si conterebbero.
+ */
+function bodyOf(html: string): HTMLElement {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const styles = Array.from(doc.head.querySelectorAll("style"));
+  for (const style of styles.reverse()) doc.body.prepend(style);
+  return doc.body;
+}
 
 /**
  * Bonifica l'HTML di un'email su un albero DOM (`DOMParser`, che non esegue
@@ -45,15 +75,26 @@ const bodyOf = (html: string) => new DOMParser().parseFromString(html, "text/htm
  * attributo `on…`; gli URL `javascript:`/`vbscript:`/`data:` (salvo le
  * immagini `data:image`) in `href`, `src`, `action`, `formaction`,
  * `xlink:href`; il `target` di link, aree e moduli (nessuno naviga il frame).
- * Sposta `src`/`srcset` remoti in `data-src`/`data-srcset` e conta le
- * immagini remote, comprese quelle dei CSS (`url(…)` in `style` e
- * `<style>`), che blocca la CSP finché non si preme «Show images».
+ * Parcheggia le risorse remote (`src`, `srcset`, `background`, immagini
+ * SVG) in attributi `data-…` e le conta, comprese quelle dei CSS (`url(…)`
+ * e `@import` in `style` e `<style>`), che blocca la CSP finché non si preme
+ * «Show images».
  */
 export function neutralize(html: string): { html: string; blockedImages: number } {
   const body = bodyOf(html);
+  const blockedImages = scrubTree(body);
+  return { html: body.innerHTML, blockedImages };
+}
+
+/**
+ * Il passo di `neutralize` su un albero già costruito (anche SVG, con i suoi
+ * namespace): lo bonifica sul posto e dice quante risorse remote ha
+ * parcheggiato o trovato nei CSS.
+ */
+export function scrubTree(root: Element): number {
   let blockedImages = 0;
-  body.querySelectorAll(DROPPED).forEach((el) => el.remove());
-  for (const el of Array.from(body.querySelectorAll("*"))) {
+  root.querySelectorAll(DROPPED).forEach((el) => el.remove());
+  for (const el of Array.from(root.querySelectorAll("*"))) {
     for (const { name, value } of Array.from(el.attributes)) {
       const key = name.toLowerCase();
       if (key.startsWith("on")) {
@@ -72,41 +113,38 @@ export function neutralize(html: string): { html: string; blockedImages: number 
         el.removeAttribute(name);
         continue;
       }
-      if (key === "style") blockedImages += (value.match(CSS_REMOTE_URL) ?? []).length;
+      if (key === "style") blockedImages += countCss(value);
     }
-    if (el.tagName === "STYLE") blockedImages += (el.textContent?.match(CSS_REMOTE_URL) ?? []).length;
-    if (el.tagName === "IMG" || el.tagName === "SOURCE") {
-      const src = el.getAttribute("src");
-      if (src !== null && REMOTE.test(src)) {
-        el.setAttribute("data-src", src);
-        el.removeAttribute("src");
-        blockedImages += 1;
-      }
-      const srcset = el.getAttribute("srcset");
-      if (srcset !== null && /(https?:)?\/\//i.test(srcset)) {
-        el.setAttribute("data-srcset", srcset);
-        el.removeAttribute("srcset");
-        blockedImages += 1;
-      }
+    if (el.tagName.toLowerCase() === "style") blockedImages += countCss(el.textContent ?? "");
+    for (const rule of PARKED) {
+      if (!rule.match(el)) continue;
+      const value = el.getAttribute(rule.attr);
+      if (value === null || !isRemote(rule.attr, value)) continue;
+      el.setAttribute(rule.parked, value);
+      el.removeAttribute(rule.attr);
+      blockedImages += 1;
     }
   }
-  return { html: body.innerHTML, blockedImages };
+  return blockedImages;
 }
 
-/** «Show images»: `data-src`/`data-srcset` tornano `src`/`srcset` (gli stessi indirizzi, nient'altro). */
+/** «Show images»: gli indirizzi parcheggiati tornano ai loro attributi (gli stessi, nient'altro). */
 export function revealImages(html: string): string {
   const body = bodyOf(html);
-  for (const el of Array.from(body.querySelectorAll("img, source"))) {
-    const src = el.getAttribute("data-src");
-    if (src !== null) el.setAttribute("src", src);
-    const srcset = el.getAttribute("data-srcset");
-    if (srcset !== null) el.setAttribute("srcset", srcset);
+  for (const el of Array.from(body.querySelectorAll("*"))) {
+    for (const rule of PARKED) {
+      if (!rule.match(el)) continue;
+      const value = el.getAttribute(rule.parked);
+      if (value !== null) el.setAttribute(rule.attr, value);
+    }
   }
   return body.innerHTML;
 }
 
 function documentFor(body: string, images: boolean): string {
-  const csp = `default-src 'none'; style-src 'unsafe-inline'; img-src data:${images ? " https: http:" : ""}; font-src data:`;
+  // «Show images» apre le immagini remote e, con loro, i fogli `@import` (contati nella stessa fascia).
+  const remote = images ? " https: http:" : "";
+  const csp = `default-src 'none'; style-src 'unsafe-inline'${remote}; img-src data:${remote}; font-src data:`;
   return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><meta name="color-scheme" content="light"><base target="_blank"><style>
   body { margin: 0; padding: 16px; font: 14px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif; color: #1a1a1a; background: #ffffff; overflow-wrap: anywhere; }
   img { max-width: 100%; height: auto; }
