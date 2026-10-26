@@ -5,6 +5,7 @@ import type { AutomationVersion } from "../../../data/types";
 import { MenuGroup, itemClass } from "../../../tasks-ui/Menu";
 import { useToast } from "../../../tasks-ui/Toast";
 import { MenuButton, primaryButton, quietButton, secondaryButton } from "../../tasks/controls";
+import { clock, shortDate } from "../format";
 import { CriticalGlyph, MoreGlyph } from "../glyphs";
 import { codeClass } from "../shared";
 import { useBuilder } from "./context";
@@ -25,6 +26,8 @@ export interface HeaderProps {
   blocked: boolean;
   nothingToPublish: boolean;
   staleBy: string | null;
+  /** Quando l'altro l'ha salvata (la fascia lo dice, [A 12]). */
+  staleAt: string | null;
   onProblem: () => void;
   onTest: () => void;
   onPrimary: () => void;
@@ -33,10 +36,12 @@ export interface HeaderProps {
   onDiscard?: () => void;
   onDeleteDraft?: () => void;
   onCollapse: (ids: Set<string>) => void;
+  /** Arrivati dall'elenco: il ritorno è «← Automations» (shape §3). */
+  fromList: boolean;
 }
 
 export function BuilderHeader(p: HeaderProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const b = useBuilder();
   const a = b.automation;
   const general = a.projectId === null;
@@ -52,13 +57,24 @@ export function BuilderHeader(p: HeaderProps) {
       : t("automations.builder.publishN", { n: p.editingN });
   return (
     <header className="sticky top-0 z-20 flex flex-col gap-2 border-b border-rule bg-ground pt-6 pr-8 pb-4 pl-8">
-      <Link
-        to="/automations/$code"
-        params={{ code: a.code }}
-        className="w-fit text-sm text-ink-muted hover:text-ink"
-      >
-        ← <span className={codeClass}>{a.code}</span> {a.name}
-      </Link>
+      {p.fromList ? (
+        <Link
+          to="/automations"
+          data-back-link
+          className="w-fit text-sm text-ink-muted hover:text-ink"
+        >
+          ← {t("automations.builder.backToList")}
+        </Link>
+      ) : (
+        <Link
+          to="/automations/$code"
+          params={{ code: a.code }}
+          data-back-link
+          className="w-fit text-sm text-ink-muted hover:text-ink"
+        >
+          ← <span className={codeClass}>{a.code}</span> {a.name}
+        </Link>
+      )}
       <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
         <h1 className="min-w-0 flex-1 basis-80 text-2xl font-semibold break-words text-ink">
           {a.name}{" "}
@@ -174,7 +190,12 @@ export function BuilderHeader(p: HeaderProps) {
       {p.status === "stale" && (
         <p role="alert" className="flex flex-wrap items-center gap-2 text-sm text-ink">
           <CriticalGlyph />
-          {t("automations.builder.stale", { name: b.names.person(p.staleBy) })}
+          {t("automations.builder.stale", {
+            name: b.names.person(p.staleBy),
+            when: p.staleAt
+              ? `${shortDate(p.staleAt, i18n.language)} ${clock(p.staleAt, i18n.language)}`
+              : "",
+          })}
           <button type="button" className={quietButton} onClick={p.onReload}>
             {t("automations.builder.reload")}
           </button>

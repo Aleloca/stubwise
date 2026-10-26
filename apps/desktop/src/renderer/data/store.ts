@@ -399,6 +399,7 @@ export type ApiFnName =
   | "automations.searchAutomations"
   | "automations.createAutomation"
   | "automations.saveDraft"
+  | "automations.renameAutomation"
   | "automations.publish"
   | "automations.activate"
   | "automations.pause"

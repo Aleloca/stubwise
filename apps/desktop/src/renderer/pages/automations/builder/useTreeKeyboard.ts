@@ -2,7 +2,7 @@ import { useState, type KeyboardEvent, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { useBuilder, type BuilderState } from "./context";
 import { findById, findByPath, laneLabel } from "./flowWords";
-import { isBlock, placeOf } from "./tree";
+import { hasLanes, placeOf } from "./tree";
 
 // La tastiera del flusso (shape builder [A 13], [A 14]): un `role="tree"`
 // con fuoco itinerante. ↑/↓ fra le righe, → apre/entra, ← chiude/esce,
@@ -90,7 +90,7 @@ export function useTreeKeyboard(treeRef: RefObject<HTMLUListElement | null>) {
         go(e.currentTarget, e.key === "ArrowDown" ? 1 : -1);
         return;
       case "ArrowRight":
-        if (step && isBlock(step.kind)) {
+        if (step && hasLanes(step)) {
           handled();
           if (b.collapsed.has(id)) b.toggleCollapsed(id, true);
           else go(e.currentTarget, 1);
@@ -98,7 +98,7 @@ export function useTreeKeyboard(treeRef: RefObject<HTMLUListElement | null>) {
         return;
       case "ArrowLeft": {
         handled();
-        if (step && isBlock(step.kind) && !b.collapsed.has(id)) b.toggleCollapsed(id, false);
+        if (step && hasLanes(step) && !b.collapsed.has(id)) b.toggleCollapsed(id, false);
         else e.currentTarget.parentElement?.closest<HTMLElement>(ROW)?.focus();
         return;
       }

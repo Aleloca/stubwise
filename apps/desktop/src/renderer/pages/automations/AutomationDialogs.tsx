@@ -49,7 +49,7 @@ function fixedProjects(flow: AutomationFlow, own: string | null) {
     if (p.mode === "from_client") fromClient = true;
     const key = `${id}:${s.kind}`;
     if (id && !out.has(key))
-      out.set(key, { projectId: id, kind: s.kind, step: displayNumber(path) });
+      out.set(key, { projectId: id, kind: s.kind, step: displayNumber(flow.steps, path) });
   });
   return { fixed: [...out.values()], fromClient };
 }

@@ -283,13 +283,14 @@ describe("bozza e versioni", () => {
     await open("/automations/AUT-1/edit");
     const draft = auto("AUT-1").versions.at(-1)!;
     draft.savedById = ROBERTA;
+    draft.savedAt = "2026-10-26T11:58:00Z";
     draft.rev = 9999;
     draft.flow = { ...draft.flow, titleTemplate: "Di Roberta" };
     row("nc-read").focus();
     await userEvent.keyboard("{Meta>}d{/Meta}");
     await settle();
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Roberta Fontana changed this draft after you opened it",
+      /Roberta Fontana changed this draft on Oct 26 11:58, after you opened it/,
     );
     expect(savedFlow("AUT-1").titleTemplate).toBe("Di Roberta");
     await userEvent.click(screen.getByRole("button", { name: "Reload" }));
@@ -486,10 +487,12 @@ describe("New automation e modelli", () => {
     await screen.findByRole("tree");
     expect(router.state.location.pathname).toMatch(/^\/automations\/AUT-\d+\/edit$/);
     expect(row("trigger")).toHaveTextContent("Choose how this starts");
+    // Arrivati dall'elenco: il ritorno è «← Automations».
+    expect(document.querySelector("[data-back-link]")).toHaveTextContent("← Automations");
     await waitFor(() =>
       expect(document.querySelector("[data-problem-count]")?.textContent).toMatch(/\d+ problems/),
     );
-    expect(row("nc-welcome")).toHaveTextContent("Asks… (choose who)");
+    expect(row("nc-welcome")).toHaveTextContent("Asks the owner");
     expect(tree().textContent).not.toMatch(/Matteo|Roberta|Laura/);
   });
 
@@ -499,6 +502,300 @@ describe("New automation e modelli", () => {
       visitSteps(templateFlow(k).steps, () => (n += 1));
       expect(TEMPLATE_STEPS[k]).toBe(n);
     }
+  });
+});
+
+describe("revisione del Task 6, giro 1", () => {
+  async function switchPersona(name: RegExp) {
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Profile and settings" }));
+    const menu = await screen.findByRole("dialog", { name: "Profile and settings" });
+    await user.click(within(menu).getByRole("radio", { name }));
+  }
+
+  it("rinominare un'uscita per indice: un nome vuoto, di sole cifre o già usato non tocca i rami", async () => {
+    await open("/automations/AUD-A1/edit");
+    const before = idsInOrder();
+    await userEvent.click(sentence("cd-verify"));
+    const first = screen.getByRole("textbox", { name: "Name of outcome 1" });
+    for (const [value, problem] of [
+      ["", "An outcome needs a name"],
+      ["42", "Use at least one letter"],
+      ["mancano informazioni", "Another outcome already has this name"],
+    ] as const) {
+      fireEvent.change(first, { target: { value } });
+      expect(first).toHaveValue(value);
+      expect(first).toHaveAccessibleDescription(`${problem} — it stays “tutto presente” for now.`);
+      // I due rami restano con i loro passi e i loro nomi.
+      expect(idsInOrder()).toEqual(before);
+      expect(tree()).toHaveTextContent("If Claude says “tutto presente”");
+      expect(tree()).toHaveTextContent("If Claude says “mancano informazioni”");
+    }
+    fireEvent.change(first, { target: { value: "tutto ok" } });
+    expect(tree()).toHaveTextContent("If Claude says “tutto ok”");
+    expect(idsInOrder()).toEqual(before);
+    await settle();
+    const verify = savedFlow("AUD-A1").steps[3]!;
+    expect(verify).toMatchObject({ kind: "condition" });
+    const claude = (verify as Extract<Step, { kind: "condition" }>).then[0] as Extract<
+      Step,
+      { kind: "claude" }
+    >;
+    expect(claude.outcomes).toEqual(["tutto ok", "mancano informazioni"]);
+    expect(claude.branches["tutto ok"]!.map((s) => s.id)).toEqual(["cd-activate"]);
+    expect(claude.branches["mancano informazioni"]).toHaveLength(3);
+  });
+
+  it("salvataggio fallito o fermato: Test e Publish chiusi col motivo, il dialogo non si apre", async () => {
+    await open("/automations/AUT-1/edit");
+    failNext("automations.saveDraft");
+    row("nc-read").focus();
+    await userEvent.keyboard("{Meta>}d{/Meta}");
+    await settle();
+    const primary = document.querySelector<HTMLButtonElement>("[data-primary-action]")!;
+    expect(primary).toBeDisabled();
+    expect(primary.title).toBe("Save first: your latest changes aren't saved");
+    expect(screen.getByRole("button", { name: "Test" })).toBeDisabled();
+    // Riprovato, si riaprono.
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await settle();
+    expect(primary).toBeEnabled();
+    // Un altro salva: fermo, chiuso col motivo «Reload first».
+    const draft = auto("AUT-1").versions.at(-1)!;
+    draft.savedById = ROBERTA;
+    draft.rev = 9999;
+    row("nc-read").focus();
+    await userEvent.keyboard("{Meta>}d{/Meta}");
+    await settle();
+    expect(primary).toBeDisabled();
+    expect(primary.title).toBe("Reload first: someone else changed this draft");
+    await userEvent.click(primary).catch(() => {});
+    expect(screen.queryByRole("dialog", { name: /Publish version/ })).toBeNull();
+  });
+
+  it("il dialogo di Publish si apre solo dopo un salvataggio riuscito", async () => {
+    await open("/automations/AUT-1/edit");
+    row("nc-read").focus();
+    await userEvent.keyboard("{Meta>}d{/Meta}");
+    // Senza aspettare: il clic salva prima, poi apre.
+    failNext("automations.saveDraft");
+    await userEvent.click(document.querySelector<HTMLButtonElement>("[data-primary-action]")!);
+    await settle();
+    expect(screen.queryByRole("dialog", { name: /Publish version 2/ })).toBeNull();
+    expect(document.querySelector("[data-save-status]")).toHaveTextContent("Couldn't save");
+  });
+
+  it("rinominare non crea una bozza; «Undo» di Discard rimette la bozza e ricarica", async () => {
+    await open("/automations/AUD-A1/edit");
+    await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Rename and describe" }));
+    const dialog = await screen.findByRole("dialog", { name: "Rename and describe" });
+    const name = within(dialog).getByRole("textbox", { name: "Name" });
+    await userEvent.clear(name);
+    await userEvent.type(name, "Dati dal cliente");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(auto("AUD-A1").name).toBe("Dati dal cliente"));
+    expect(auto("AUD-A1").versions).toHaveLength(1);
+    expect(screen.getByText("Version 1 is on")).toBeInTheDocument();
+
+    // AUT-1 ha la bozza v2: buttata, poi rimessa con «Undo».
+    clearToasts();
+    document.body.innerHTML = "";
+    await open("/automations/AUT-1/edit");
+    const draft = structuredClone(savedFlow("AUT-1"));
+    await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Discard this draft" }));
+    await userEvent.click(
+      within(await screen.findByRole("dialog", { name: "Discard this draft?" })).getByRole(
+        "button",
+        { name: "Discard this draft" },
+      ),
+    );
+    await waitFor(() => expect(screen.getByText("Version 1 is on")).toBeInTheDocument());
+    expect(auto("AUT-1").versions).toHaveLength(1);
+    await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    await waitFor(() =>
+      expect(screen.getByText("Editing version 2 · version 1 is on")).toBeInTheDocument(),
+    );
+    expect(savedFlow("AUT-1")).toEqual(draft);
+    // Ricaricato sulla bozza rimessa: un'altra modifica salva senza fermarsi.
+    row("nc-read").focus();
+    await userEvent.keyboard("{Meta>}d{/Meta}");
+    await settle();
+    expect(document.querySelector("[data-save-status]")).toHaveTextContent("All changes saved");
+  });
+
+  it("cambiare persona con una modifica in coda: la salva chi l'ha fatta, mai la persona nuova", async () => {
+    await open("/automations/AUT-1/edit");
+    row("nc-read").focus();
+    await userEvent.keyboard("{Meta>}d{/Meta}");
+    // Dentro i 400 ms del salvataggio.
+    await switchPersona(/Roberta/);
+    await settle();
+    await act(() => automationsApi.whenAutomationsIdle());
+    const draft = auto("AUT-1").versions.at(-1)!;
+    expect(draft.savedById).toBe(MATTEO);
+    expect(draft.flow.steps.map((s) => s.id)).toHaveLength(5);
+  });
+
+  it("il fuoco dopo ⌫ va alla riga dopo (o prima, o «When»); dopo Undo sulla riga rimessa; ⌘D e ⌥↓ lo tengono sul passo", async () => {
+    await open("/automations/AUD-A1/edit");
+    // L'ultima attesa dei promemoria: dopo di lei viene la corsia «When the limit is reached».
+    row("cd-remind-wait").focus();
+    await userEvent.keyboard("{Backspace}");
+    await waitFor(() => expect(document.activeElement).toBe(row("cd-call")));
+    // Il fuoco itinerante è sulla riga nuova: Tab ci torna.
+    expect(row("cd-call")).toHaveAttribute("tabindex", "0");
+    await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(document.activeElement).toBe(row("cd-remind-wait")));
+    expect(row("cd-remind-wait").dataset.stepPath).toBe("2/repeat[0]/1");
+    // L'ultimo passo principale: il fuoco va a quello prima (fuori dal suo blocco).
+    row("cd-replied").focus();
+    await userEvent.keyboard("{Delete}");
+    await userEvent.click(
+      within(await screen.findByRole("dialog", { name: /Delete step 7/ })).getByRole("button", {
+        name: "Delete",
+      }),
+    );
+    await waitFor(() => expect(document.activeElement).toBe(row("cd-call")));
+    row("cd-wait").focus();
+    await userEvent.keyboard("{Meta>}d{/Meta}");
+    const copy = idsInOrder()[2]!;
+    await waitFor(() => expect(document.activeElement).toBe(row(copy)));
+    await userEvent.keyboard("{Alt>}{ArrowUp}{/Alt}");
+    await waitFor(() => expect(document.activeElement).toBe(row(copy)));
+    expect(row(copy).dataset.stepPath).toBe("1");
+  });
+
+  it("solo un passo: eliminato, il fuoco va a «When»", async () => {
+    await open("/automations/BTG-A1/edit", ROBERTA);
+    row("wk-report").focus();
+    await userEvent.keyboard("{Backspace}");
+    await waitFor(() => expect(document.activeElement).toBe(row("trigger")));
+  });
+
+  it("Undo rimette il passo nella sua corsia, nel flusso di adesso (le altre modifiche restano)", async () => {
+    await open("/automations/AUD-A1/edit");
+    row("cd-remind-wait").focus();
+    await userEvent.keyboard("{Backspace}");
+    row("cd-ask").focus();
+    await userEvent.keyboard("{Meta>}d{/Meta}");
+    await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(row("cd-remind-wait").dataset.stepPath).toBe("3/repeat[0]/1"));
+    // La copia fatta dopo l'eliminazione è ancora lì.
+    expect(idsInOrder()).toHaveLength(15);
+  });
+
+  it("un'email dentro un «Per ogni» è un avviso sul limite delle 20, non un problema", async () => {
+    const flow = auto("AUT-1").versions.at(-1)!.flow;
+    const each = flow.steps[2] as Extract<Step, { kind: "forEach" }>;
+    each.steps.push({ ...structuredClone(flow.steps[3]!), id: "loop-mail" });
+    await open("/automations/AUT-1/edit");
+    expect(row("loop-mail").querySelector("[data-row-warning]")).toHaveTextContent(
+      "Up to 20 emails per run",
+    );
+    expect(row("nc-welcome").querySelector("[data-row-warning]")).toBeNull();
+    expect(document.querySelector("[data-problem-count]")).toBeNull();
+    await userEvent.click(sentence("loop-mail"));
+    expect(document.querySelector("[data-email-limit]")).toHaveTextContent(
+      "a run sends at most 20 emails",
+    );
+  });
+
+  it("Claude senza uscite non ha chevron e prosegue in riga; la colonna evidenzia l'automazione aperta", async () => {
+    await open("/automations/AUT-1/edit");
+    expect(within(row("nc-read")).queryByRole("button", { name: /branches/ })).toBeNull();
+    expect(row("nc-read")).not.toHaveAttribute("aria-expanded");
+    const column = screen.getByRole("navigation", { name: "Automations views" });
+    expect(within(column).getByRole("link", { name: /AUT-1/ })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+
+  it("sotto i 1200 px la colonna si chiude nel costruttore", async () => {
+    setMatchMedia(DOCKED_PANEL_QUERY, false);
+    await open("/automations/AUT-1/edit");
+    expect(document.querySelector('[data-column="closed"]')).not.toBeNull();
+    expect(screen.queryByRole("navigation", { name: "Automations views" })).toBeNull();
+  });
+
+  it("«Move to…» parte dal posto di adesso; F8 tace con un dialogo aperto", async () => {
+    await open("/automations/AUD-A1/edit");
+    row("cd-wait").focus();
+    await userEvent.click(
+      within(row("cd-wait")).getByRole("button", { name: "Actions for step 2" }),
+    );
+    await userEvent.click(screen.getByRole("menuitem", { name: /Move to/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Move step 2" });
+    expect(within(dialog).getByRole("combobox", { name: "Into" })).toHaveValue("main");
+    expect(within(dialog).getByRole("combobox", { name: "Position" })).toHaveValue("cd-ask");
+  });
+
+  it("F8 e ⌘S tacciono con un dialogo aperto", async () => {
+    auto("STW-A1").versions[0]!.flow.steps.push({
+      id: "x1",
+      kind: "notify",
+      who: { personId: "" },
+      text: "",
+      approval: { mode: "auto" },
+    });
+    await open("/automations/STW-A1/edit", LAURA);
+    await waitFor(() => expect(document.querySelector("[data-problem-count]")).not.toBeNull());
+    await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Rename and describe" }));
+    await screen.findByRole("dialog", { name: "Rename and describe" });
+    fireEvent.keyDown(window, { key: "F8" });
+    await act(() => new Promise((r) => requestAnimationFrame(r)));
+    expect(screen.queryByRole("heading", { name: /Step 3/ })).toBeNull();
+    await userEvent.keyboard("{Escape}");
+    fireEvent.keyDown(window, { key: "F8" });
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /Step 3/ })).toBeInTheDocument(),
+    );
+  });
+
+  it("«Fix» dal dettaglio apre il passo della bozza per id", async () => {
+    const a = auto("AUT-1");
+    // Nella bozza il benvenuto è senza oggetto (problema), e la bozza ha un passo in più in testa.
+    const draft = a.versions.at(-1)!.flow;
+    (draft.steps[3] as Extract<Step, { kind: "sendEmail" }>).subject = "";
+    draft.steps.unshift({ id: "extra", kind: "wait", for: { days: 1 } });
+    const router = renderRoute("/automations/AUT-1", MATTEO);
+    const fix = await screen.findByRole("link", { name: "Fix" });
+    await userEvent.click(fix);
+    await screen.findByRole("tree");
+    expect(router.state.location.search).toMatchObject({ step: "nc-welcome" });
+    expect(screen.getByRole("heading", { name: /Step 12/ })).toBeInTheDocument();
+  });
+
+  it("i numeri 1…N sono gli stessi nel dettaglio («How it works») e nel costruttore", async () => {
+    renderRoute("/automations/AUT-1", MATTEO);
+    const summary = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>("[data-flow-summary]");
+      if (!el) throw new Error("summary");
+      return el;
+    });
+    await userEvent.click(within(summary).getByRole("button", { name: "Expand all" }));
+    const nums = [...summary.querySelectorAll("[data-flow-step] > div .num")].map(
+      (n) => n.textContent,
+    );
+    expect(nums).toEqual(Array.from({ length: 11 }, (_, i) => String(i + 1)));
+  });
+
+  it("«Start from»: un gruppo di radio con le frecce", async () => {
+    await openList();
+    await userEvent.click(screen.getAllByRole("button", { name: "New automation" })[0]!);
+    const dialog = await screen.findByRole("dialog", { name: "New automation" });
+    const blank = within(dialog).getByRole("radio", { name: /Blank automation/ });
+    expect(blank).toHaveAttribute("aria-checked", "true");
+    expect(blank).toHaveAttribute("tabindex", "0");
+    blank.focus();
+    await userEvent.keyboard("{ArrowDown}");
+    const contract = within(dialog).getByRole("radio", { name: /New contract/ });
+    expect(contract).toHaveAttribute("aria-checked", "true");
+    await waitFor(() => expect(document.activeElement).toBe(contract));
+    expect(blank).toHaveAttribute("tabindex", "-1");
   });
 });
 

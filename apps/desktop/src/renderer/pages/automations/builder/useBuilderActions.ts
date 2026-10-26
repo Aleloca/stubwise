@@ -33,7 +33,6 @@ export interface Adding {
 
 export interface Deleting {
   id: string;
-  after: AutomationFlow;
   inside: number;
   broken: number[];
 }
@@ -119,18 +118,62 @@ export function useBuilderActions(o: {
     );
   };
 
-  const applyDelete = (id: string, after: AutomationFlow) => {
-    const before = flow;
-    const n = numbers.get(paths.get(id) ?? "");
-    update(() => after);
+  const focusId = (id: string) =>
+    requestAnimationFrame(() =>
+      o.treeRef.current?.querySelector<HTMLElement>(`[data-tree-row="${id}"]`)?.focus(),
+    );
+
+  /**
+   * Dove va il fuoco togliendo una riga: la riga che viene dopo (fuori dal
+   * blocco che sparisce), altrimenti quella prima, altrimenti «When».
+   */
+  const neighbourOf = (id: string): string => {
+    const rows = [...(o.treeRef.current?.querySelectorAll<HTMLElement>("[data-tree-row]") ?? [])];
+    const gone = rows.find((r) => r.dataset.treeRow === id);
+    if (!gone) return "trigger";
+    const at = rows.indexOf(gone);
+    const after = rows.slice(at + 1).find((r) => !gone.contains(r));
+    const before = rows.slice(0, at).at(-1);
+    return (after ?? before)?.dataset.treeRow ?? "trigger";
+  };
+
+  /**
+   * Elimina il passo; «Undo» lo rimette nella sua corsia, al suo posto,
+   * nel flusso di ADESSO (le modifiche fatte nel frattempo restano). Se la
+   * corsia non c'è più, torna in fondo ai passi principali.
+   */
+  const applyDelete = (id: string) => {
+    const path = paths.get(id);
+    if (path === undefined) return;
+    // La corsia per blocco (id) e segmento: i percorsi cambiano con le modifiche fatte dopo.
+    const place = placeOf(path);
+    const segs = place.lane.split("/");
+    const seg = segs.pop() ?? "";
+    const block = place.lane === "" ? null : (stepAt(flow.steps, segs.join("/"))?.id ?? null);
+    const removed = stepAt(flow.steps, path)!;
+    const n = numbers.get(path);
+    const next = neighbourOf(id);
+    update((f) => ({ ...f, steps: removeAt(f.steps, pathsById(f.steps).get(id) ?? path).steps }));
     setSelected(null);
+    focusId(next);
     announce(t("automations.builder.deleted", { n }));
     toast.show(t("automations.builder.deleted", { n }), {
       action: {
         label: t("automations.builder.undo"),
         run: () => {
-          update(() => before);
+          update((f) => {
+            const blockPath = block === null ? "" : pathsById(f.steps).get(block);
+            const lane =
+              blockPath === undefined ? null : block === null ? "" : `${blockPath}/${seg}`;
+            try {
+              if (lane === null) throw new Error("lane gone");
+              return { ...f, steps: insertAt(f.steps, lane, place.index, removed) };
+            } catch {
+              return { ...f, steps: [...f.steps, removed] };
+            }
+          });
           announce(t("automations.builder.restored", { n }));
+          focusId(removed.id);
         },
       },
     });
@@ -147,8 +190,8 @@ export function useBuilderActions(o: {
       (x) => afterNumbers.get(afterPaths.get(x)!)!,
     );
     const inside = innerCount(removed);
-    if (inside > 0 || broken.length > 0) setDeleting({ id, after, inside, broken });
-    else applyDelete(id, after);
+    if (inside > 0 || broken.length > 0) setDeleting({ id, inside, broken });
+    else applyDelete(id);
   };
 
   const duplicate = (id: string) => {

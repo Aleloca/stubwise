@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useId, useState } from "react";
+import { useId, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useCreateAutomation, useProjects } from "../../data/queries";
 import { Dialog, DialogField, inputClass } from "../../tasks-ui/Dialog";
@@ -33,7 +33,7 @@ export function CreateAutomationDialog({
   template?: AutomationTemplate;
   projectId?: string | null;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const perms = useAutomationPerms();
   const projects = (useProjects().data ?? [])
     .filter((p) => perms.inProject(p.id))
@@ -67,17 +67,42 @@ export function CreateAutomationDialog({
         name: name.trim(),
         projectId: project === "" ? null : project,
         template: template ?? undefined,
+        language: i18n.language,
       },
       {
         onSuccess: (a) => {
           onClose();
-          void navigate({ to: "/automations/$code/edit", params: { code: a.code } } as never);
+          // «← Automations» nel costruttore: si arriva dall'elenco.
+          void navigate({
+            to: "/automations/$code/edit",
+            params: { code: a.code },
+            search: { from: "list" },
+          } as never);
         },
         onError: () => toast.error(t("automations.create.error")),
       },
     );
   };
 
+  // Un gruppo di radio vero: un solo punto di Tab (la scelta), le frecce
+  // cambiano scelta e fuoco insieme.
+  const order: (AutomationTemplate | null)[] = [null, "newContract", "askClient"];
+  const onArrow = (e: KeyboardEvent<HTMLButtonElement>, value: AutomationTemplate | null) => {
+    const dir =
+      e.key === "ArrowDown" || e.key === "ArrowRight"
+        ? 1
+        : e.key === "ArrowUp" || e.key === "ArrowLeft"
+          ? -1
+          : 0;
+    if (!dir) return;
+    e.preventDefault();
+    const next = order[(order.indexOf(value) + dir + order.length) % order.length]!;
+    pick(next);
+    const group = e.currentTarget.parentElement;
+    requestAnimationFrame(() =>
+      group?.querySelector<HTMLElement>(`[data-start-from="${next ?? "blank"}"]`)?.focus(),
+    );
+  };
   const row = (value: AutomationTemplate | null) => {
     const on = template === value;
     return (
@@ -86,6 +111,9 @@ export function CreateAutomationDialog({
         type="button"
         role="radio"
         aria-checked={on}
+        tabIndex={on ? 0 : -1}
+        data-start-from={value ?? "blank"}
+        onKeyDown={(e) => onArrow(e, value)}
         onClick={() => pick(value)}
         className={`flex items-start gap-3 rounded-md border px-3 py-2.5 text-left transition-colors duration-[var(--duration-fast)] ease-out ${on ? "border-rule-strong bg-ink/6" : "border-rule hover:bg-ink/4"}`}
       >

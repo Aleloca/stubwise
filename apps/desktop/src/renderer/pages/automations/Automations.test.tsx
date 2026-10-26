@@ -1218,7 +1218,7 @@ describe("revisione del Task 5, giro 2", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Turn on" }));
     const dialog = await screen.findByRole("dialog", { name: "Turn on STW-A1?" });
     expect(dialog.querySelector("[data-blocked]")).toHaveTextContent(
-      "You can't create tasks in STW: step 1.1 would fail.",
+      "You can't create tasks in STW: step 2 would fail.",
     );
     expect(within(dialog).getByRole("button", { name: "Turn on" })).toBeDisabled();
   });
@@ -1238,7 +1238,7 @@ describe("revisione del Task 5, giro 2", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Turn on" }));
     const dialog = await screen.findByRole("dialog", { name: "Turn on STW-A1?" });
     const blocked = [...dialog.querySelectorAll("[data-blocked]")].map((b) => b.textContent);
-    expect(blocked).toEqual(["You can't create milestones in STW: step 2 would fail."]);
+    expect(blocked).toEqual(["You can't create milestones in STW: step 3 would fail."]);
   });
 
   it("un rifiuto del livello dati si legge in parole (casella scaduta dopo aver aperto il dialogo)", async () => {

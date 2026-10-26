@@ -8,8 +8,8 @@ import {
   useAutomationSources,
   useMailboxes,
 } from "../../data/queries";
-import type { AutomationDetail as Detail, AutomationRow } from "../../data/types";
-import { AUTOMATION_LIMITS } from "../../domain/automations/fields";
+import type { AutomationDetail as Detail, AutomationFlow, AutomationRow } from "../../data/types";
+import { AUTOMATION_LIMITS, stepAt } from "../../domain/automations/fields";
 import { MenuGroup, itemClass } from "../../tasks-ui/Menu";
 import { useToast } from "../../tasks-ui/Toast";
 import { BlockSection, queryState } from "../home/blocks/BlockSection";
@@ -34,6 +34,17 @@ import { AutomationStatusWord, codeClass, textLink, useAttention, useMe, useName
 
 /** Quante esecuzioni finite si vedono prima di «Show all N». */
 const FINISHED_CAP = 10;
+
+/**
+ * «Fix»: il costruttore apre il passo del problema per id (la bozza può
+ * avere un'altra forma della versione pubblicata), o l'inizio.
+ */
+function fixSearch(flow: AutomationFlow, path: string): { step?: string } {
+  if (path === "") return {};
+  if (path === "trigger") return { step: "trigger" };
+  const id = stepAt(flow.steps, path.replace(/\[\d+\]/g, "[0]"))?.id;
+  return id ? { step: id } : {};
+}
 
 function StatusLine({ a }: { a: AutomationRow }) {
   const { t, i18n } = useTranslation();
@@ -323,7 +334,8 @@ function ProblemsSection({
                     to="/automations/$code/edit"
                     params={{ code: a.code }}
                     // Il costruttore apre il passo del problema (o l'inizio).
-                    search={(i.path === "" ? {} : { step: i.path }) as never}
+                    // Il passo per id: un problema della versione pubblicata porta allo stesso passo della bozza.
+                    search={fixSearch(list.flow, i.path) as never}
                     className={`${quietButton} h-7`}
                   >
                     {t("automations.actions.fix")}

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { childLists, triggerFields } from "../../domain/automations/fields";
 import type {
@@ -11,6 +11,7 @@ import type {
 import { quietButton } from "../tasks/controls";
 import { conditionWords, stepSentence, templateParts, triggerWords, type Names } from "./format";
 import { ApprovalGlyph, Disclosure, StepGlyph } from "./glyphs";
+import { numbersById } from "./numbering";
 import { TemplateText } from "./shared";
 
 // «How it works» (shape automations.md §6, [A 1], [A 9], [A 10]): il flusso
@@ -50,6 +51,8 @@ interface Ctx {
   automationCode: (id: string) => string | null;
   ownerId: string | null;
   expandAll: boolean;
+  /** Id → numero 1…N (R-J17). */
+  numbers: Map<string, number>;
 }
 
 /** Le etichette dei rami di un passo, nell'ordine in cui si leggono. */
@@ -199,7 +202,8 @@ function StepList({
         <StepLine
           key={s.id || i}
           step={s}
-          number={prefix ? `${prefix}.${start + i + 1}` : String(start + i + 1)}
+          // R-J17: 1…N su tutto l'albero, gli stessi del costruttore e del registro.
+          number={String(ctx.numbers.get(s.id) ?? (prefix ? "" : start + i + 1))}
           depth={depth}
           ctx={ctx}
         />
@@ -243,7 +247,8 @@ export function FlowSummary({
 }) {
   const { t, i18n } = useTranslation();
   const [expandAll, setExpandAll] = useState(false);
-  const ctx: Ctx = { flow, names, labels, automationCode, ownerId, expandAll };
+  const numbers = useMemo(() => numbersById(flow.steps), [flow.steps]);
+  const ctx: Ctx = { flow, names, labels, automationCode, ownerId, expandAll, numbers };
   const fields = triggerFields(flow, sources);
   return (
     <div data-flow-summary className="flex flex-col gap-2">

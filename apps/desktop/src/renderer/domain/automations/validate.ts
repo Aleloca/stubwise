@@ -11,6 +11,7 @@ import type {
 import {
   AUTOMATION_LIMITS,
   ancestorsAt,
+  childLists,
   scopeAt,
   triggerFields,
   visitSteps,
@@ -55,6 +56,9 @@ export function templateRefs(text: string): string[] {
 
 const blank = (s: string) => s.trim() === "";
 
+/** I livelli di rami di un flusso (shape builder [A 7]). */
+export const MAX_NESTING = 5;
+
 export function validateFlow(flow: AutomationFlow, ctx: ValidateContext): FlowIssue[] {
   const issues: FlowIssue[] = [];
   const add = (path: string, code: FlowIssueCode, message: string) =>
@@ -93,6 +97,11 @@ export function validateFlow(flow: AutomationFlow, ctx: ValidateContext): FlowIs
     }
     ids.add(step.id);
     checkStep(step, path, scopeAt(flow, path, ctx.sources), ctx, add);
+    // Al massimo 5 livelli di rami (shape builder [A 7]): un passo più in
+    // fondo, o un blocco al quinto livello che apre altri rami.
+    const depth = path.split("/").filter((s) => !/^\d+$/.test(s)).length;
+    if (depth > MAX_NESTING || (depth === MAX_NESTING && childLists(step).length > 0))
+      add(path, "limit", `I rami arrivano al massimo a ${MAX_NESTING} livelli.`);
   });
   return issues;
 }
@@ -309,10 +318,13 @@ function checkStep(step: Step, path: string, scope: Scope, ctx: ValidateContext,
       if (step.outcomes.length === 0 && step.fields.length === 0) {
         add(path, "incomplete", "Claude deve restituire almeno un'uscita o un campo.");
       }
-      const bad = (o: string) => blank(o) || o.includes("/");
+      // Un nome tutto cifre si confonderebbe con l'indice di un passo nei percorsi (R-J5).
+      const bad = (o: string) => blank(o) || o.includes("/") || /^\d+$/.test(o.trim());
       if (step.outcomes.some(bad) || new Set(step.outcomes).size !== step.outcomes.length) {
         add(path, "incomplete", "Le uscite devono avere nomi diversi, senza «/».");
       }
+      if (step.fields.some((f) => blank(f.label) || (f.of ?? []).some((x) => blank(x.label))))
+        add(path, "incomplete", "Un campo non ha il nome.");
       if (step.fields.some((f) => blank(f.key)))
         add(path, "incomplete", "Un campo non ha la chiave.");
       for (const ref of step.inputs) {

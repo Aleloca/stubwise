@@ -3,6 +3,7 @@ import { useMemo, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
   AUTOMATION_LIMITS,
+  ancestorsAt,
   availableFields,
   childLists,
   joinPath,
@@ -10,7 +11,7 @@ import {
 } from "../../../domain/automations/fields";
 import type { Step } from "../../../data/types";
 import { stepSentence, triggerWords } from "../format";
-import { ApprovalGlyph, CriticalGlyph, Disclosure, StepGlyph } from "../glyphs";
+import { ApprovalGlyph, CriticalGlyph, Disclosure, StepGlyph, WarningGlyph } from "../glyphs";
 import { useBuilder } from "./context";
 import {
   asksWords,
@@ -125,7 +126,12 @@ export function StepRow({
   const { t } = useTranslation();
   const b = useBuilder();
   const n = b.numbers.get(path) ?? 0;
-  const block = isBlock(step.kind);
+  // Un blocco con rami (Claude senza uscite non ne ha: prosegue in riga, senza chevron).
+  const block = isBlock(step.kind) && childLists(step).length > 0;
+  // [A 21]: un'email dentro un «Per ogni» può superare il tetto delle 20 per
+  // esecuzione: un avviso, non un errore che blocca.
+  const emailInLoop =
+    step.kind === "sendEmail" && ancestorsAt(b.flow.steps, path).some((s) => s.kind === "forEach");
   const open = block && !b.collapsed.has(step.id);
   const issues = b.issues.byStep.get(step.id) ?? [];
   const available = useMemo(
@@ -164,7 +170,8 @@ export function StepRow({
         e.stopPropagation();
         b.select(step.id);
       }}
-      className="event-enter relative flex flex-col outline-none focus-visible:[&>div:first-child]:outline-2 focus-visible:[&>div:first-child]:-outline-offset-2 focus-visible:[&>div:first-child]:outline-focus"
+      // Col fuoco sulla riga compare anche «Add step here» (solo il suo, non quelli dei rami).
+      className="event-enter relative flex flex-col outline-none focus-visible:[&>div:first-child]:outline-2 focus-visible:[&>div:first-child]:-outline-offset-2 focus-visible:[&>div:first-child]:outline-focus [&:focus>div>[data-add-here]]:flex"
       style={{ opacity: drag.isDragging ? 0.4 : undefined }}
     >
       <div ref={drop.setNodeRef} className={rowClass(selected, picked)}>
@@ -231,6 +238,20 @@ export function StepRow({
                 {project.text}
               </span>
             )}
+            {emailInLoop && (
+              <span
+                data-row-warning
+                title={t("automations.builder.warning.emailLimitLong", {
+                  count: AUTOMATION_LIMITS.emailsPerRun,
+                })}
+                className="inline-flex items-center gap-1 text-sm text-warning"
+              >
+                <WarningGlyph />
+                {t("automations.builder.warning.emailLimit", {
+                  count: AUTOMATION_LIMITS.emailsPerRun,
+                })}
+              </span>
+            )}
             {issues.length > 0 && (
               <span
                 data-row-problem
@@ -280,6 +301,7 @@ export function StepRow({
               const { lane, index } = placeOf(path);
               b.requestAdd(lane, index + 1, e.currentTarget);
             }}
+            data-add-here
             className="absolute -bottom-3 left-10 z-10 hidden h-6 items-center gap-1 rounded-md border border-rule bg-surface px-2 text-xs text-ink-muted group-hover/row:flex hover:text-ink"
           >
             {t("automations.builder.add.here")}
@@ -378,8 +400,10 @@ export function AddRow({
 }) {
   const { t } = useTranslation();
   const b = useBuilder();
-  const key = `lane:${block ?? ""}:${seg}`;
-  const drop = useDroppable({ id: key });
+  // Il nome di un'uscita può contenere qualunque carattere: corsia e blocco
+  // viaggiano nei dati del bersaglio, non nell'id.
+  const key = `lane:${lane}`;
+  const drop = useDroppable({ id: key, data: { block, seg } });
   if (b.readOnly) return null;
   const ind = ctx.indicator?.key === key;
   void depth;

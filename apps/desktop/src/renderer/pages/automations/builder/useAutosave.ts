@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useSaveAutomationDraft } from "../../../data/queries";
+import {
+  onBeforePersonaChange,
+  saveAutomationDraftNow,
+  useSaveAutomationDraft,
+} from "../../../data/queries";
 import type { AutomationFlow } from "../../../data/types";
 
 // La bozza che si salva da sola (shape builder [A 8], [A 12]): in coda, una
@@ -24,6 +28,8 @@ export function useAutosave(automationId: string, initialRev: number | null) {
   const inFlight = useRef<Promise<void> | null>(null);
   const timer = useRef<number | undefined>(undefined);
   const stopped = useRef(false);
+  /** L'ultimo salvataggio è riuscito (Test e Turn on/Publish partono solo così). */
+  const ok = useRef(true);
 
   const run = useCallback(async (): Promise<void> => {
     if (inFlight.current) return inFlight.current.then(run);
@@ -36,9 +42,11 @@ export function useAutosave(automationId: string, initialRev: number | null) {
       try {
         const a = await mutate.current({ id: automationId, flow, expected: rev.current });
         rev.current = a.versions.at(-1)!.rev ?? null;
+        ok.current = true;
         setSaved(true);
         setStatus(pending.current ? "saving" : "saved");
       } catch (e) {
+        ok.current = false;
         if ((e as Error).message === "invalid: stale") {
           stopped.current = true;
           setStatus("stale");
@@ -70,11 +78,29 @@ export function useAutosave(automationId: string, initialRev: number | null) {
     [run],
   );
 
-  const flush = useCallback(async () => {
+  /** Salva subito ciò che resta; `true` solo se la bozza salvata è quella di adesso. */
+  const flush = useCallback(async (): Promise<boolean> => {
     window.clearTimeout(timer.current);
     await run();
     if (inFlight.current) await inFlight.current;
+    return ok.current && !stopped.current && pending.current === null;
   }, [run]);
+
+  // Cambiare persona con una modifica in attesa (come le risposte della
+  // Home): parte SUBITO, con la sessione ancora di chi l'ha fatta — la
+  // chiamata legge la persona prima di ogni attesa. Mai a nome della
+  // persona nuova; un errore non si dice a lei.
+  useEffect(
+    () =>
+      onBeforePersonaChange(() => {
+        window.clearTimeout(timer.current);
+        const flow = pending.current;
+        stopped.current = true;
+        pending.current = null;
+        if (flow) void saveAutomationDraftNow(automationId, flow, rev.current).catch(() => {});
+      }),
+    [automationId],
+  );
 
   // Uscendo con una modifica ancora in attesa, si salva lo stesso.
   useEffect(

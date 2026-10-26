@@ -48,7 +48,10 @@ export function stepName(
   if (!run.cursor) return null;
   const step = stepAt(run.flow.steps, run.cursor.replace(/\[\d+\]/g, "[0]"));
   return step
-    ? { number: displayNumber(run.cursor), name: t(`automations.kind.${step.kind}`) }
+    ? {
+        number: displayNumber(run.flow.steps, run.cursor),
+        name: t(`automations.kind.${step.kind}`),
+      }
     : null;
 }
 

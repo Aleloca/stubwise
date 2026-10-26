@@ -99,6 +99,23 @@ describe("spostare di uno", () => {
   });
 });
 
+describe("Claude conta come un blocco", () => {
+  it("anche senza uscite non scende al quinto livello (le uscite gli darebbero rami)", () => {
+    const claude: Step = {
+      id: "cl",
+      kind: "claude",
+      instruction: "x",
+      inputs: [],
+      outcomes: [],
+      fields: [],
+      branches: {},
+    };
+    expect(heightOf(claude)).toBe(1);
+    expect(fits(claude, 4)).toBe(true);
+    expect(fits(claude, 5)).toBe(false);
+  });
+});
+
 describe("spostare in un punto", () => {
   it("prima, dopo, dentro una corsia; mai dentro sé stesso", () => {
     const steps = [task("a"), cond("b", [task("c")]), task("e")];

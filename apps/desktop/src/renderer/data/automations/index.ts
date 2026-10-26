@@ -30,6 +30,7 @@ export {
   duplicateAutomation,
   pause,
   publish,
+  renameAutomation,
   reject,
   removeClientLink,
   retryStep,

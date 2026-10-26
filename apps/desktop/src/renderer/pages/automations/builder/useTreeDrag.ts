@@ -9,7 +9,7 @@ import {
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useBuilder } from "./context";
-import { moveTo, type DropTarget } from "./tree";
+import { moveTo, stepNumbers, type DropTarget } from "./tree";
 
 // Il trascinamento col puntatore (shape builder §6): dnd-kit come la Home,
 // la maniglia a sei punti, la linea d'inserimento sopra o sotto la riga (o
@@ -33,12 +33,8 @@ export function useTreeDrag(where: (id: string) => string) {
     const key = String(over.id);
     const y = (activatorEvent as PointerEvent).clientY + delta.y;
     if (key.startsWith("lane:")) {
-      const [, block, seg] = key.split(":");
-      return setIndicator({
-        key,
-        edge: "top",
-        target: { block: block === "" ? null : block!, seg: seg! },
-      });
+      const { block, seg } = over.data.current as { block: string | null; seg: string };
+      return setIndicator({ key, edge: "top", target: { block, seg } });
     }
     const id = key.slice("row:".length);
     if (id === String(active.id)) return setIndicator(null);
@@ -62,7 +58,8 @@ export function useTreeDrag(where: (id: string) => string) {
       return;
     }
     b.update((f) => ({ ...f, steps: r.steps }));
-    b.announce(t("automations.builder.move.moved", { n: b.numbers.get(path) ?? "" }));
+    // Il numero di arrivo, non quello di partenza.
+    b.announce(t("automations.builder.move.moved", { n: stepNumbers(r.steps).get(r.path) ?? "" }));
   };
 
   const announcements: Announcements = {

@@ -242,8 +242,7 @@ export const queryKeys = {
   clientLinks: (personId: string) => ["as", personId, "automations", "clientLinks"] as const,
   clientSuggestions: (personId: string) =>
     ["as", personId, "automations", "clientSuggestions"] as const,
-  automationApprovals: (personId: string) =>
-    ["as", personId, "automations", "approvals"] as const,
+  automationApprovals: (personId: string) => ["as", personId, "automations", "approvals"] as const,
   automationSearch: (personId: string, q: string) =>
     ["as", personId, "automations", "search", q] as const,
   automationSimulation: (personId: string, id: string) =>
@@ -2650,7 +2649,7 @@ export function useMailProposalDecisions() {
  */
 export function useDecideMailProposalNow() {
   const invalidate = useInvalidate(MAIL_CONFIRM_AREAS);
-  const settle = async <R,>(call: Promise<R>): Promise<R> => {
+  const settle = async <R>(call: Promise<R>): Promise<R> => {
     try {
       return await call;
     } finally {
@@ -3057,7 +3056,9 @@ function placeEvent(client: ReturnType<typeof useQueryClient>, me: string, e: Ca
     const touches = !!range && from < Date.parse(range.to) && to > Date.parse(range.from);
     const rest = list.filter((x) => x.id !== e.id);
     const next = touches
-      ? [...rest, e].sort((a, b) => a.startsAt.localeCompare(b.startsAt) || a.id.localeCompare(b.id))
+      ? [...rest, e].sort(
+          (a, b) => a.startsAt.localeCompare(b.startsAt) || a.id.localeCompare(b.id),
+        )
       : rest;
     client.setQueryData(key, next);
   }
@@ -3329,9 +3330,30 @@ export function useAutomationSearch(q: string, enabled = true) {
 }
 
 export function useCreateAutomation() {
-  return useAutomationWrite(
-    (input: Parameters<typeof api.automations.createAutomation>[0]) =>
-      api.automations.createAutomation(input),
+  return useAutomationWrite((input: Parameters<typeof api.automations.createAutomation>[0]) =>
+    api.automations.createAutomation(input),
+  );
+}
+
+/**
+ * Salva la bozza SUBITO, senza aspettare un render: la chiamata legge la
+ * persona prima di ogni attesa. Serve al costruttore prima di un cambio di
+ * persona (`onBeforePersonaChange`), quando una modifica è ancora in coda.
+ */
+export function saveAutomationDraftNow(
+  id: string,
+  flow: AutomationFlow,
+  expected: number | null,
+): Promise<unknown> {
+  return api.automations.saveDraft(id, flow, {}, { expected });
+}
+
+export { onBeforePersonaChange } from "./session";
+
+/** Nome e descrizione: non sono della versione, non creano una bozza. */
+export function useRenameAutomation() {
+  return useAutomationWrite(({ id, meta }: { id: string; meta: AutomationMeta }) =>
+    api.automations.renameAutomation(id, meta),
   );
 }
 
@@ -3399,16 +3421,23 @@ export function useDeleteAutomationDraft() {
 }
 
 export function useStartAutomation() {
-  return useAutomationWrite(
-    ({ id, event }: { id: string; event?: Record<string, unknown> }) =>
-      api.automations.startManual(id, event),
+  return useAutomationWrite(({ id, event }: { id: string; event?: Record<string, unknown> }) =>
+    api.automations.startManual(id, event),
   );
 }
 
 /** «Simulate an event»: un evento d'esempio (`sampleIndex`) o scritto a mano (`payload`). */
 export function useSimulateSourceEvent() {
   return useAutomationWrite(
-    ({ sourceId, sampleIndex, payload }: { sourceId: string; sampleIndex?: number; payload?: unknown }) =>
+    ({
+      sourceId,
+      sampleIndex,
+      payload,
+    }: {
+      sourceId: string;
+      sampleIndex?: number;
+      payload?: unknown;
+    }) =>
       api.automations.simulateSourceEvent(
         sourceId,
         payload !== undefined ? { payload } : (sampleIndex ?? 0),

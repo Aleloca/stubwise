@@ -1,6 +1,6 @@
 import type { TFunction } from "i18next";
-import { availableFields, scopeAt, stepAt } from "../../../domain/automations/fields";
-import type { FlowIssue } from "../../../domain/automations/validate";
+import { availableFields, childLists, scopeAt, stepAt } from "../../../domain/automations/fields";
+import { MAX_NESTING, type FlowIssue } from "../../../domain/automations/validate";
 import type {
   AutomationFlow,
   AutomationSource,
@@ -159,6 +159,12 @@ function stepRefProblem(
   return null;
 }
 
+/** Il passo sta oltre il quinto livello, o al quinto apre altri rami ([A 7]). */
+export function tooDeep(step: Step, path: string): boolean {
+  const depth = path.split("/").filter((s) => !/^\d+$/.test(s)).length;
+  return depth > MAX_NESTING || (depth === MAX_NESTING && childLists(step).length > 0);
+}
+
 /** La parola breve sulla riga («Incomplete», «Data not available»…). */
 export function shortProblem(
   issues: FlowIssue[],
@@ -257,13 +263,16 @@ export function stepProblems(
     });
   }
   if (codes.has("limit")) {
-    out.push(
-      step.kind === "startAutomation"
-        ? { field: "automation", text: t("automations.builder.problem.selfStart") }
-        : step.kind === "repeatUntil"
-          ? { field: "max", text: t("automations.builder.problem.repeatMax") }
-          : { field: "step", text: t("automations.issue.limit") },
-    );
+    const deep = tooDeep(step, path);
+    if (deep) out.push({ field: "step", text: t("automations.builder.problem.tooDeep") });
+    if (step.kind === "startAutomation")
+      out.push({ field: "automation", text: t("automations.builder.problem.selfStart") });
+    else if (
+      step.kind === "repeatUntil" &&
+      !(Number.isInteger(step.max) && step.max >= 1 && step.max <= 10)
+    )
+      out.push({ field: "max", text: t("automations.builder.problem.repeatMax") });
+    else if (!deep) out.push({ field: "step", text: t("automations.issue.limit") });
   }
   return out;
 }

@@ -1,5 +1,11 @@
 import { useTranslation } from "react-i18next";
-import { availableFields, scopeAt } from "../../../domain/automations/fields";
+import {
+  AUTOMATION_LIMITS,
+  ancestorsAt,
+  availableFields,
+  scopeAt,
+} from "../../../domain/automations/fields";
+import { WarningGlyph } from "../glyphs";
 import { useDepartments } from "../../../data/queries";
 import { useBuilder } from "./context";
 import { Field, Note, Section, Segmented, selectClass } from "./controls";
@@ -216,8 +222,18 @@ export function EmailForm({ step, path, set, problems }: KindProps<"sendEmail">)
   const { t } = useTranslation();
   const b = useBuilder();
   const files = availableFields(b.flow, path, b.sources).filter((f) => f.type === "file");
+  // [A 21]: dentro un «Per ogni» le email possono superare il tetto: un avviso, non un errore.
+  const inLoop = ancestorsAt(b.flow.steps, path).some((s) => s.kind === "forEach");
   return (
     <Section title={t("automations.builder.panel.what")}>
+      {inLoop && (
+        <p data-email-limit className="flex items-start gap-1.5 text-sm text-ink">
+          <WarningGlyph />
+          {t("automations.builder.warning.emailLimitLong", {
+            count: AUTOMATION_LIMITS.emailsPerRun,
+          })}
+        </p>
+      )}
       <TextField
         label={t("automations.builder.panel.to")}
         field="to"

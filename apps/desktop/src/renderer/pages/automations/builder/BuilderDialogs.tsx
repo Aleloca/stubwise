@@ -121,7 +121,11 @@ export function MoveToDialog({
   );
   const chosen = lanes.find((l) => l.key === lane) ?? lanes[0]!;
   const others = chosen.steps.filter((s) => s.id !== step.id);
-  const [pos, setPos] = useState("start");
+  // Di partenza il posto di adesso: dopo il passo che lo precede nella sua corsia (o in testa).
+  const [pos, setPos] = useState(() => {
+    const index = Number(here.split("/").at(-1));
+    return chosen.steps[index - 1]?.id ?? "start";
+  });
   const target = (): DropTarget =>
     pos === "start" ? { block: chosen.block, seg: chosen.seg, index: 0 } : { after: pos };
   const n = b.numbers.get(here) ?? 0;

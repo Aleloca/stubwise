@@ -1,4 +1,4 @@
-import { Outlet } from "@tanstack/react-router";
+import { Outlet, useRouterState } from "@tanstack/react-router";
 import { useLayoutEffect } from "react";
 import { NotificationsPanel } from "../notifications/NotificationsPanel";
 import { BriefPanelHost } from "../pages/overview/BriefCard";
@@ -19,6 +19,8 @@ import { applyPlatformAttribute } from "../platform/platform";
 import { ToastRegion } from "../tasks-ui/Toast";
 import { Column } from "./Column";
 import { Rail } from "./Rail";
+import { DOCKED_PANEL_QUERY } from "./useDetailPanel";
+import { useMediaQuery } from "./useMediaQuery";
 import { useMenuEvents } from "./useMenuEvents";
 
 /**
@@ -34,10 +36,18 @@ export function AppLayout() {
   useMenuEvents();
   // Prima del primo disegno: le testate su Windows riservano i controlli finestra.
   useLayoutEffect(applyPlatformAttribute, []);
+  // Il costruttore delle automazioni (shape automation-builder.md [A 4]):
+  // sotto i 1200 px la colonna si chiude, così flusso e pannello hanno spazio.
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const wide = useMediaQuery(DOCKED_PANEL_QUERY);
+  const noColumn = !wide && /^\/automations\/[^/]+\/edit$/.test(pathname);
   return (
-    <div className="grid h-full grid-cols-[64px_240px_minmax(0,1fr)] grid-rows-[minmax(0,1fr)] bg-ground text-ink">
+    <div
+      data-column={noColumn ? "closed" : undefined}
+      className={`grid h-full ${noColumn ? "grid-cols-[64px_minmax(0,1fr)]" : "grid-cols-[64px_240px_minmax(0,1fr)]"} grid-rows-[minmax(0,1fr)] bg-ground text-ink`}
+    >
       <Rail />
-      <Column />
+      {!noColumn && <Column />}
       <div data-zone="work-row" className="relative flex min-h-0 min-w-0">
         <main data-zone="work" className="min-w-0 flex-1 overflow-auto">
           <Outlet />

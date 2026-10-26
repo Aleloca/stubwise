@@ -38,17 +38,20 @@ describe("modelli", () => {
     visitSteps(flow.steps, (s) => steps.push(s));
     expect(steps.map((s) => s.kind)).toContain("claude");
     for (const s of steps) {
-      if ("approval" in s && s.approval.mode === "ask")
+      if ("approval" in s && s.approval.mode === "ask" && "personId" in s.approval.who)
         expect(s.approval.who).toEqual({ personId: "" });
       if (s.kind === "createTask" && s.assignee && "departmentId" in s.assignee)
         expect(s.assignee.departmentId).toBe("");
     }
+    // Chi approva: mai una persona del seme; «il proprietario» non è una scelta personale e resta.
+    expect(steps.find((s) => s.id === "nc-welcome")).toMatchObject({
+      approval: { mode: "ask", who: { owner: true } },
+    });
     // Nessuna persona del seme: approvazioni e reparti sono problemi da completare.
     expect(JSON.stringify(flow)).not.toMatch(/p-[a-z]+|dep-[a-z]+/);
     const detail = await automations.getAutomation(a.id);
     const codes = detail!.configErrors.map((i) => `${i.path}:${i.code}`);
     expect(codes).toContain("trigger:unknown_ref");
-    expect(detail!.configErrors.some((i) => i.message === "Manca chi approva.")).toBe(true);
     expect(detail!.configErrors.some((i) => i.message === "Manca l'incaricato.")).toBe(true);
   });
 
@@ -64,6 +67,40 @@ describe("modelli", () => {
     const kinds: string[] = [];
     visitSteps(flow.steps, (s) => kinds.push(s.kind));
     expect(kinds).toEqual(expect.arrayContaining(["sendEmail", "wait", "repeatUntil", "claude"]));
+  });
+});
+
+describe("modelli in inglese", () => {
+  it("oggetti, corpi, istruzioni, uscite e campi di Claude nella lingua di chi crea", async () => {
+    as("p-laura");
+    const a = await automations.createAutomation({
+      name: "Data",
+      projectId: "prj-stw",
+      template: "askClient",
+      language: "en",
+    });
+    const flow = a.versions[0]!.flow;
+    expect(flow.titleTemplate).toBe("Data for {{richiesta.funzione}} – {{cliente.nome}}");
+    const steps: Step[] = [];
+    visitSteps(flow.steps, (s) => steps.push(s));
+    expect(steps.find((s) => s.id === "cd-ask")).toMatchObject({
+      subject: "We need some information to activate {{richiesta.funzione}}",
+    });
+    const verify = steps.find((s) => s.id === "cd-verify") as Extract<Step, { kind: "claude" }>;
+    expect(verify.outcomes).toEqual(["all present", "something is missing"]);
+    expect(Object.keys(verify.branches)).toEqual(["all present", "something is missing"]);
+    expect(verify.fields[0]!.label).toBe("What is missing");
+    // Nessun testo italiano rimasto nei testi del flusso.
+    expect(JSON.stringify(flow)).not.toMatch(/Gentile|Grazie|mancano|Promemoria/);
+    // Si traducono i nomi, non la struttura: gli stessi problemi del modello italiano.
+    const it = await automations.createAutomation({
+      name: "Dati",
+      projectId: "prj-stw",
+      template: "askClient",
+    });
+    expect((await automations.getAutomation(a.id))!.configErrors.map((i) => i.code)).toEqual(
+      (await automations.getAutomation(it.id))!.configErrors.map((i) => i.code),
+    );
   });
 });
 

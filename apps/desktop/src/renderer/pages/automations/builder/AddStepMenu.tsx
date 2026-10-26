@@ -102,6 +102,7 @@ export function AddStepMenu({
     <div
       ref={box}
       role="dialog"
+      data-add-menu
       aria-label={t("automations.builder.add.menu")}
       style={pos ?? undefined}
       className="menu-enter fixed z-50 flex max-h-[420px] w-80 flex-col rounded-lg border border-rule-strong bg-surface shadow-[0_12px_32px_-8px_oklch(0_0_0/0.4)]"

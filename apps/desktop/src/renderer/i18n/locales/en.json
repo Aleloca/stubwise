@@ -4385,7 +4385,8 @@
       "waitingYou": "Something is waiting for you",
       "drafts": "Drafts",
       "sources": "Sources",
-      "projects": "Projects"
+      "projects": "Projects",
+      "open": "Open automation"
     },
     "titles": {
       "list": "Automations",
@@ -5232,7 +5233,7 @@
       "publishN": "Publish version {{n}}",
       "readOnly": "Only someone who can manage automations in {{code}} can change this.",
       "band": "Your changes are a draft. Version {{m}} keeps running until you publish. Runs in progress finish with the version they started with.",
-      "stale": "{{name}} changed this draft after you opened it. Your latest changes aren't saved.",
+      "stale": "{{name}} changed this draft on {{when}}, after you opened it. Your latest changes aren't saved.",
       "reload": "Reload",
       "undo": "Undo",
       "copySuffix": "(copy)",
@@ -5289,7 +5290,8 @@
         "title": "Discard this draft?",
         "body": "Your changes are thrown away. Version {{m}} keeps running as it is.",
         "done": "Draft discarded",
-        "error": "Couldn't discard the draft. Nothing changed."
+        "error": "Couldn't discard the draft. Nothing changed.",
+        "restoreError": "Couldn't bring the draft back."
       },
       "delete": {
         "title": "Delete step {{n}}?",
@@ -5465,7 +5467,8 @@
         "sourceDisconnected": "{{source}} is disconnected.",
         "sourceGone": "The system it starts from isn't connected any more.",
         "titleData": "The title of each run uses data that isn't available",
-        "noSteps": "Add at least one step"
+        "noSteps": "Add at least one step",
+        "tooDeep": "Branches can go 5 levels deep: move it higher or remove a level."
       },
       "panel": {
         "inside": "Inside: {{trail}}",
@@ -5586,7 +5589,11 @@
         "subType": "Type of item field {{n}}",
         "removeSub": "Remove item field {{n}}",
         "addSub": "+ Add an item field",
-        "mismatch": "If Claude's answer doesn't match these outcomes and fields, the step fails and the run stops. Nothing else happens."
+        "mismatch": "If Claude's answer doesn't match these outcomes and fields, the step fails and the run stops. Nothing else happens.",
+        "outcomeEmpty": "An outcome needs a name",
+        "outcomeDigits": "Use at least one letter",
+        "outcomeTaken": "Another outcome already has this name",
+        "outcomeKept": "{{problem}} — it stays “{{name}}” for now."
       },
       "condition": {
         "join": "Join the conditions",
@@ -5670,6 +5677,13 @@
         "changeBody_one": "{{count}} step uses data from the current start. It'll show a problem until you change it.",
         "changeBody_other": "{{count}} steps use data from the current start. They'll show a problem until you change them.",
         "change": "Change start"
+      },
+      "backToList": "Automations",
+      "blockedStale": "Reload first: someone else changed this draft",
+      "blockedError": "Save first: your latest changes aren't saved",
+      "warning": {
+        "emailLimit": "Up to {{count}} emails per run",
+        "emailLimitLong": "This email is inside a “For each”: a run sends at most {{count}} emails, and stops with an error past that."
       }
     }
   }

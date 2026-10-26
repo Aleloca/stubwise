@@ -13,6 +13,7 @@ import type {
   Step,
 } from "../../data/types";
 import { formatDate } from "../../notifications/time";
+import { numberAt } from "./numbering";
 
 // Le parole delle Automations: l'inizio, i passi, le condizioni, la frase di
 // «adesso» di un'esecuzione. Tutto da template i18n e dai dati della riga:
@@ -341,22 +342,15 @@ export function findStep(flow: AutomationFlow, id: string): Step | null {
 /** «Step 4 · Send email “Welcome”»: dove sta un problema, in parole (mai il percorso). */
 export function positionWords(flow: AutomationFlow, path: string, t: TFunction): string {
   if (path === "trigger" || path === "") return t("automations.problems.atStart");
-  const number = displayNumber(path);
+  const number = displayNumber(flow.steps, path);
   const step = stepAt(flow.steps, path.replace(/\[\d+\]/g, "[0]"));
   const name = step ? t(`automations.kind.${step.kind}`) : "";
   return t("automations.problems.at", { number, name });
 }
 
-/**
- * Il numero di un passo nel riassunto: «4», «2.1», «3.1.2». I rami e i giri
- * non contano come livello numerato, i passi annidati sì.
- */
-export function displayNumber(path: string): string {
-  return path
-    .split("/")
-    .filter((s) => /^\d+$/.test(s))
-    .map((s) => String(Number(s) + 1))
-    .join(".");
+/** Il numero di un passo, 1…N su tutto l'albero (R-J17, `numbering.ts`); "" se non c'è. */
+export function displayNumber(steps: Step[], path: string): string {
+  return String(numberAt(steps, path) ?? "");
 }
 
 // --- esecuzioni ---------------------------------------------------------------------

@@ -5,9 +5,9 @@ import type { DataField, Step } from "../../../data/types";
 import { Dialog } from "../../../tasks-ui/Dialog";
 import { dangerSolidButton, secondaryButton } from "../../tasks/controls";
 import { useBuilder } from "./context";
-import { DataText, tokenLabel } from "./DataText";
+import { DataText, FieldError, tokenLabel } from "./DataText";
 import { Note, Section, selectClass, smallInput } from "./controls";
-import { innerCount } from "./tree";
+import { innerCount, laneDepth, MAX_DEPTH, placeOf } from "./tree";
 import type { FieldProblem } from "./issues";
 import { useFieldProblem } from "./stepFields";
 
@@ -43,6 +43,26 @@ export function ClaudeForm({
   const readable = availableFields(b.flow, path, b.sources);
   const inputs = [...new Set([...readable.map((f) => f.key), ...step.inputs])];
 
+  // Il nome che si sta scrivendo, per indice: diventa il nome dell'uscita (e
+  // del suo ramo) solo quando è valido. Mai due rami con lo stesso nome, mai
+  // un ramo senza nome: finché non va, l'uscita tiene il suo e il campo lo dice.
+  const [drafts, setDrafts] = useState<Record<number, string>>({});
+  const depth = laneDepth(placeOf(path).lane);
+  const clearDraft = (i: number) =>
+    setDrafts((d) => Object.fromEntries(Object.entries(d).filter(([k]) => Number(k) !== i)));
+  const outcomeProblem = (i: number, name: string): string | null => {
+    if (name.trim() === "") return t("automations.builder.claude.outcomeEmpty");
+    if (/^\d+$/.test(name.trim())) return t("automations.builder.claude.outcomeDigits");
+    if (step.outcomes.some((o, k) => k !== i && o === name))
+      return t("automations.builder.claude.outcomeTaken");
+    return null;
+  };
+  const typeOutcome = (i: number, name: string) => {
+    if (outcomeProblem(i, name) === null) {
+      renameOutcome(i, name);
+      clearDraft(i);
+    } else setDrafts((d) => ({ ...d, [i]: name }));
+  };
   const renameOutcome = (i: number, name: string) => {
     const old = step.outcomes[i]!;
     const outcomes = step.outcomes.map((o, k) => (k === i ? name : o));
@@ -124,34 +144,52 @@ export function ClaudeForm({
           aria-describedby={outcomesP.describedBy ?? answer.describedBy}
           className="flex flex-col gap-1.5"
         >
-          {step.outcomes.map((o, i) => (
-            <li key={i} className="flex items-center gap-2">
-              <input
-                aria-label={t("automations.builder.claude.outcomeName", { n: i + 1 })}
-                className={`${smallInput} flex-1`}
-                value={o}
-                onChange={(e) => renameOutcome(i, e.target.value.replace(/\//g, ""))}
-              />
-              <span className="text-xs text-ink-faint">
-                {t("automations.builder.claude.branch")}
-              </span>
-              {!b.readOnly && (
-                <button
-                  type="button"
-                  aria-label={t("automations.builder.claude.removeOutcome", { name: o })}
-                  className="h-7 rounded-md px-1.5 text-sm text-ink-muted hover:bg-ink/6 hover:text-ink"
-                  onClick={() =>
-                    (step.branches[o]?.length ?? 0) > 0 ? setRemoving(o) : removeOutcome(o)
-                  }
-                >
-                  {t("automations.builder.claude.remove")}
-                </button>
-              )}
-            </li>
-          ))}
+          {step.outcomes.map((o, i) => {
+            const value = drafts[i] ?? o;
+            const problem = drafts[i] === undefined ? null : outcomeProblem(i, value);
+            const errorId = `${path}-outcome-${i}`;
+            return (
+              <li key={i} className="flex flex-wrap items-center gap-2">
+                <input
+                  aria-label={t("automations.builder.claude.outcomeName", { n: i + 1 })}
+                  aria-invalid={problem !== null || undefined}
+                  aria-describedby={problem ? errorId : undefined}
+                  className={`${smallInput} flex-1 ${problem ? "border-critical" : ""}`}
+                  value={value}
+                  onChange={(e) => typeOutcome(i, e.target.value.replace(/\//g, ""))}
+                  onBlur={() => clearDraft(i)}
+                />
+                <span className="text-xs text-ink-faint">
+                  {t("automations.builder.claude.branch")}
+                </span>
+                {!b.readOnly && (
+                  <button
+                    type="button"
+                    aria-label={t("automations.builder.claude.removeOutcome", { name: o })}
+                    className="h-7 rounded-md px-1.5 text-sm text-ink-muted hover:bg-ink/6 hover:text-ink"
+                    onClick={() =>
+                      (step.branches[o]?.length ?? 0) > 0 ? setRemoving(o) : removeOutcome(o)
+                    }
+                  >
+                    {t("automations.builder.claude.remove")}
+                  </button>
+                )}
+                {problem && (
+                  <span className="basis-full">
+                    <FieldError id={errorId}>
+                      {t("automations.builder.claude.outcomeKept", { problem, name: o })}
+                    </FieldError>
+                  </span>
+                )}
+              </li>
+            );
+          })}
         </ul>
         {outcomesP.error}
-        {!b.readOnly && step.outcomes.length < MAX && (
+        {!b.readOnly && depth >= MAX_DEPTH && step.outcomes.length === 0 && (
+          <Note>{t("automations.builder.add.tooDeep")}</Note>
+        )}
+        {!b.readOnly && step.outcomes.length < MAX && depth < MAX_DEPTH && (
           <button
             type="button"
             className="h-7 w-fit rounded-md px-1.5 text-sm text-ink-muted hover:bg-ink/6 hover:text-ink"

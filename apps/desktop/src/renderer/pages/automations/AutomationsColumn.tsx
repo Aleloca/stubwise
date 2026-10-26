@@ -86,6 +86,12 @@ export function AutomationsColumn() {
       keys.includes(k) ? search[k] !== undefined : search[k] === undefined,
     );
   const running = (runs ?? []).filter((r) => !isFinished(r.status)).length;
+  // L'automazione aperta (dettaglio, costruttore, prova, esecuzione), evidenziata
+  // in testa alla colonna (shape builder [A 4]): il costruttore è una pagina di
+  // Automations, non un editor a parte.
+  const openCode = /^\/automations\/([^/]+)/.exec(location.pathname)?.[1];
+  const open =
+    openCode && openCode !== "sources" ? automations?.find((a) => a.code === openCode) : undefined;
   const drafts = (automations ?? []).filter((a) => a.status === "draft" && a.permissions.manage);
 
   return (
@@ -101,6 +107,19 @@ export function AutomationsColumn() {
         >
           {t("automations.actions.new")}
         </button>
+      )}
+      {open && (
+        <ul
+          aria-label={t("automations.column.open")}
+          className="mb-2 flex flex-col gap-px border-b border-rule pb-2"
+        >
+          <li>
+            <ColumnLink to={`/automations/${open.code}`} search={{}} current>
+              <span className="num mr-2 text-xs font-semibold text-ink">{open.code}</span>
+              {open.name}
+            </ColumnLink>
+          </li>
+        </ul>
       )}
       <ul className="flex flex-col gap-px">
         <li>

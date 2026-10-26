@@ -4385,7 +4385,8 @@
       "waitingYou": "Qualcosa aspetta te",
       "drafts": "Bozze",
       "sources": "Sorgenti",
-      "projects": "Progetti"
+      "projects": "Progetti",
+      "open": "Automazione aperta"
     },
     "titles": {
       "list": "Automazioni",
@@ -5232,7 +5233,7 @@
       "publishN": "Pubblica la versione {{n}}",
       "readOnly": "Solo chi gestisce le automazioni in {{code}} può modificarla.",
       "band": "Le tue modifiche sono una bozza. La versione {{m}} continua a girare finché non pubblichi. Le esecuzioni in corso finiscono con la versione con cui sono partite.",
-      "stale": "{{name}} ha modificato questa bozza dopo che l'hai aperta. Le tue ultime modifiche non sono salvate.",
+      "stale": "{{name}} ha modificato questa bozza il {{when}}, dopo che l'hai aperta. Le tue ultime modifiche non sono salvate.",
       "reload": "Ricarica",
       "undo": "Annulla",
       "copySuffix": "(copia)",
@@ -5289,7 +5290,8 @@
         "title": "Buttare questa bozza?",
         "body": "Le tue modifiche si perdono. La versione {{m}} continua a girare com'è.",
         "done": "Bozza buttata",
-        "error": "Non è stato possibile buttare la bozza. Non è cambiato niente."
+        "error": "Non è stato possibile buttare la bozza. Non è cambiato niente.",
+        "restoreError": "Non è stato possibile rimettere la bozza."
       },
       "delete": {
         "title": "Eliminare il passo {{n}}?",
@@ -5465,7 +5467,8 @@
         "sourceDisconnected": "{{source}} è scollegata.",
         "sourceGone": "Il sistema da cui parte non è più collegato.",
         "titleData": "Il titolo di ogni esecuzione usa dati che non ci sono",
-        "noSteps": "Aggiungi almeno un passo"
+        "noSteps": "Aggiungi almeno un passo",
+        "tooDeep": "I rami arrivano al massimo a 5 livelli: spostalo più in alto o togli un livello."
       },
       "panel": {
         "inside": "Dentro: {{trail}}",
@@ -5586,7 +5589,11 @@
         "subType": "Tipo del campo dell'elemento {{n}}",
         "removeSub": "Togli il campo dell'elemento {{n}}",
         "addSub": "+ Aggiungi un campo dell'elemento",
-        "mismatch": "Se la risposta di Claude non corrisponde a queste uscite e a questi campi, il passo fallisce e l'esecuzione si ferma. Non succede nient'altro."
+        "mismatch": "Se la risposta di Claude non corrisponde a queste uscite e a questi campi, il passo fallisce e l'esecuzione si ferma. Non succede nient'altro.",
+        "outcomeEmpty": "Un'uscita deve avere un nome",
+        "outcomeDigits": "Usa almeno una lettera",
+        "outcomeTaken": "C'è già un'uscita con questo nome",
+        "outcomeKept": "{{problem}}: per ora resta «{{name}}»."
       },
       "condition": {
         "join": "Unisci le condizioni",
@@ -5670,6 +5677,13 @@
         "changeBody_one": "{{count}} passo usa i dati dell'inizio di adesso. Mostrerà un problema finché non lo cambi.",
         "changeBody_other": "{{count}} passi usano i dati dell'inizio di adesso. Mostreranno un problema finché non li cambi.",
         "change": "Cambia inizio"
+      },
+      "backToList": "Automazioni",
+      "blockedStale": "Prima ricarica: qualcun altro ha cambiato questa bozza",
+      "blockedError": "Prima salva: le ultime modifiche non sono salvate",
+      "warning": {
+        "emailLimit": "Al massimo {{count}} email per esecuzione",
+        "emailLimitLong": "Questa email è dentro un «Per ogni»: un'esecuzione manda al massimo {{count}} email, e oltre si ferma con un errore."
       }
     }
   }

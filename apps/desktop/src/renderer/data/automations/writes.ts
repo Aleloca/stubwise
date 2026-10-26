@@ -98,6 +98,8 @@ export async function createAutomation(input: {
   projectId: string | null;
   flow?: AutomationFlow;
   template?: AutomationTemplateKind;
+  /** La lingua dei testi del modello (di base l'italiano del seme). */
+  language?: string;
 }): Promise<Automation> {
   const me = await writer("automations.createAutomation");
   const name = input.name.trim();
@@ -123,7 +125,10 @@ export async function createAutomation(input: {
     versions: [
       {
         n: 1,
-        flow: copy(input.flow ?? (input.template ? templateFlow(input.template) : emptyFlow(name))),
+        flow: copy(
+          input.flow ??
+            (input.template ? templateFlow(input.template, input.language) : emptyFlow(name)),
+        ),
         publishedAt: null,
         publishedById: null,
         savedAt: now(),
@@ -212,6 +217,21 @@ export async function saveDraft(
       publishedById: null,
       ...saved,
     });
+  if (meta.name !== undefined) a.name = meta.name.trim();
+  if (meta.description !== undefined) a.description = meta.description.trim();
+  return copy(a);
+}
+
+/**
+ * Nome e descrizione (il costruttore, «Rename and describe»): sono
+ * dell'automazione, non di una versione, quindi non creano mai una bozza —
+ * nemmeno su un'attiva senza bozza, dove ne nascerebbe una identica alla
+ * pubblicata.
+ */
+export async function renameAutomation(id: string, meta: AutomationMeta): Promise<Automation> {
+  const me = await writer("automations.renameAutomation");
+  const a = managedAutomation(me, id);
+  if (meta.name !== undefined && !meta.name.trim()) throw invalid("name");
   if (meta.name !== undefined) a.name = meta.name.trim();
   if (meta.description !== undefined) a.description = meta.description.trim();
   return copy(a);

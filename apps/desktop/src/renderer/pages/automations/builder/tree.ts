@@ -5,7 +5,7 @@ import {
   stepAt,
   visitSteps,
 } from "../../../domain/automations/fields";
-import { templateRefs } from "../../../domain/automations/validate";
+import { MAX_NESTING, templateRefs } from "../../../domain/automations/validate";
 import type { AutomationFlow, AutomationSource, Condition, Step } from "../../../data/types";
 
 // Le operazioni del costruttore sull'albero dei passi (shape builder §4–§6):
@@ -21,7 +21,7 @@ import type { AutomationFlow, AutomationSource, Condition, Step } from "../../..
 //   corsia da cui i suoi rami non superano il quinto livello.
 
 /** Il quinto livello è l'ultimo: lì dentro solo passi senza rami. */
-export const MAX_DEPTH = 5;
+export const MAX_DEPTH = MAX_NESTING;
 
 export type BlockKind = "condition" | "claude" | "forEach" | "repeatUntil";
 const BLOCKS: ReadonlySet<Step["kind"]> = new Set([
@@ -32,19 +32,11 @@ const BLOCKS: ReadonlySet<Step["kind"]> = new Set([
 ]);
 export const isBlock = (kind: Step["kind"]) => BLOCKS.has(kind);
 
-/** I numeri 1…N nell'ordine di lettura, su tutto l'albero ([A 6]): percorso → numero. */
-export function stepNumbers(steps: Step[]): Map<string, number> {
-  const out = new Map<string, number>();
-  visitSteps(steps, (_, path) => out.set(path, out.size + 1));
-  return out;
-}
+/** Il passo ha corsie da aprire (un Claude senza uscite non ne ha). */
+export const hasLanes = (step: Step) => childLists(step).length > 0;
 
-/** Il numero di ogni passo per id (stabile mentre i percorsi cambiano). */
-export function numbersById(steps: Step[]): Map<string, number> {
-  const out = new Map<string, number>();
-  visitSteps(steps, (s) => out.set(s.id, out.size + 1));
-  return out;
-}
+// La numerazione 1…N ([A 6], R-J17) è condivisa con le altre pagine.
+export { numbersById, stepNumbers } from "../numbering";
 
 /** Il percorso di ogni passo per id. */
 export function pathsById(steps: Step[]): Map<string, string> {
@@ -67,7 +59,9 @@ export const laneDepth = (lane: string) =>
 /** Quanti livelli di rami porta con sé un passo (0 per un passo semplice). */
 export function heightOf(step: Step): number {
   const lists = childLists(step);
-  if (lists.length === 0) return 0;
+  // Claude senza uscite non ha ancora rami, ma gliene si possono aggiungere:
+  // conta come un blocco, così non scende mai al quinto livello.
+  if (lists.length === 0) return step.kind === "claude" ? 1 : 0;
   return 1 + Math.max(0, ...lists.flatMap((l) => l.steps.map(heightOf)));
 }
 

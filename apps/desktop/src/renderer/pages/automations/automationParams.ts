@@ -7,8 +7,9 @@
 //   `status`, `owner`, `automation` (codice), `mine=1`.
 // - `#/automations/<CODE>` — un'automazione; `?problems=1` porta alla
 //   sezione Problems; `/edit` e `/test` il costruttore e la prova.
-// - `#/automations/<CODE>/edit?step=<percorso>` — il costruttore col passo
-//   (o `trigger`, l'inizio) selezionato: «Fix», «Step 27».
+// - `#/automations/<CODE>/edit?step=<percorso | id>` — il costruttore col
+//   passo (o `trigger`, l'inizio) selezionato: «Fix», «Step 27»; `from=list`
+//   quando ci si arriva dall'elenco («← Automations»).
 // - `#/automations/<CODE>/runs/<n>` — un'esecuzione; `?entry=<percorso>`
 //   porta a una riga del registro (il percorso R-J5 non si mostra mai).
 // - `#/automations/sources` — le sorgenti; `?source=<id>` apre il pannello
@@ -24,6 +25,7 @@ export const AUTOMATION_SEARCH_KEYS = [
   "entry",
   "problems",
   "step",
+  "from",
 ] as const;
 
 export type AutomationSearchKey = (typeof AUTOMATION_SEARCH_KEYS)[number];
@@ -87,7 +89,14 @@ export function isAutomationSearchValue(key: string, value: string): boolean {
     case "problems":
       return value === "1";
     case "step":
-      return value === "trigger" || /^\d+(\/[^/]{1,80})*$/.test(value);
+      // Il percorso (R-J5) o l'id del passo (da «Fix»).
+      return (
+        value === "trigger" ||
+        /^\d+(\/[^/]{1,80})*$/.test(value) ||
+        /^[A-Za-z][\w-]{0,80}$/.test(value)
+      );
+    case "from":
+      return value === "list";
     default:
       return false;
   }
@@ -98,6 +107,6 @@ export function isAutomationSearchParam(path: string, key: string, value: string
   if (!isAutomationSearchValue(key, value)) return false;
   if (key === "entry") return isRunPath(path);
   if (key === "problems") return isAutomationDetailPath(path);
-  if (key === "step") return /^automations\/[^/]+\/edit$/.test(path);
+  if (key === "step" || key === "from") return /^automations\/[^/]+\/edit$/.test(path);
   return path === "automations";
 }

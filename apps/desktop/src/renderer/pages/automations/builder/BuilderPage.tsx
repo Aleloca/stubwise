@@ -9,12 +9,14 @@ import {
   useAutomations,
   useAutomationSimulation,
   useAutomationSources,
+  useSaveAutomationDraft,
 } from "../../../data/queries";
 import type { AutomationDetail, AutomationFlow } from "../../../data/types";
 import { useViewer } from "../../../data/viewer";
 import { DOCKED_PANEL_QUERY, DetailPanel } from "../../../layout/useDetailPanel";
 import { useMediaQuery } from "../../../layout/useMediaQuery";
 import { PageError } from "../../../tasks-ui/PageStates";
+import { useToast } from "../../../tasks-ui/Toast";
 import { TurnOnDialog } from "../AutomationDialogs";
 import { fieldLabels } from "../format";
 import { NotVisible, useNames } from "../shared";
@@ -41,16 +43,33 @@ import { useBuilderActions } from "./useBuilderActions";
 /** `#/automations/<CODE>/edit` */
 export function BuilderRoutePage({ code }: { code: string }) {
   const { viewer } = useViewer();
-  const search = useSearch({ strict: false }) as { step?: string };
-  return <BuilderByCode key={`${viewer.personId}:${code}`} code={code} step={search.step} />;
+  const search = useSearch({ strict: false }) as { step?: string; from?: string };
+  return (
+    <BuilderByCode
+      key={`${viewer.personId}:${code}`}
+      code={code}
+      step={search.step}
+      fromList={search.from === "list"}
+    />
+  );
 }
 
-function BuilderByCode({ code, step }: { code: string; step?: string }) {
+function BuilderByCode({
+  code,
+  step,
+  fromList,
+}: {
+  code: string;
+  step?: string;
+  fromList: boolean;
+}) {
   const { t } = useTranslation();
   const list = useAutomations();
   const id = list.data?.find((x) => x.code === code)?.id ?? null;
   const detail = useAutomation(id);
   const sources = useAutomationSources();
+  const restore = useSaveAutomationDraft();
+  const toast = useToast();
   const [generation, setGeneration] = useState(0);
   if (list.isError || detail.isError)
     return (
@@ -70,7 +89,19 @@ function BuilderByCode({ code, step }: { code: string; step?: string }) {
       key={`${detail.data.automation.id}:${generation}`}
       detail={detail.data}
       initialStep={step}
+      fromList={fromList}
       reload={async () => {
+        await detail.refetch();
+        setGeneration((g) => g + 1);
+      }}
+      // «Undo» di «Discard this draft»: la bozza torna (non ce n'è un'altra:
+      // `expected` null), poi il costruttore ricarica su di lei.
+      restoreDraft={async (flow) => {
+        try {
+          await restore.mutateAsync({ id: id!, flow, expected: null });
+        } catch {
+          toast.error(t("automations.builder.discard.restoreError"));
+        }
         await detail.refetch();
         setGeneration((g) => g + 1);
       }}
@@ -108,10 +139,14 @@ function Builder({
   detail,
   initialStep,
   reload,
+  restoreDraft,
+  fromList,
 }: {
   detail: AutomationDetail;
   initialStep?: string;
+  fromList: boolean;
   reload: () => Promise<void>;
+  restoreDraft: (flow: AutomationFlow) => Promise<void>;
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -159,8 +194,10 @@ function Builder({
 
   const [selected, setSelected] = useState<string | null>(() => {
     if (initialStep === "trigger" || flow.steps.length === 0) return "trigger";
-    if (initialStep) return stepAt(flow.steps, initialStep.replace(/\[\d+\]/g, "[0]"))?.id ?? null;
-    return null;
+    if (!initialStep) return null;
+    // Un id (da «Fix»: il passo della bozza per id) o un percorso.
+    if (pathsById(flow.steps).has(initialStep)) return initialStep;
+    return stepAt(flow.steps, initialStep.replace(/\[\d+\]/g, "[0]"))?.id ?? null;
   });
 
   // Gli errori: quelli del flusso di adesso (o i precedenti, legati ai passi per id, finché arrivano).
@@ -231,6 +268,8 @@ function Builder({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Con un dialogo aperto le scorciatoie della pagina tacciono.
+      if (document.querySelector('[aria-modal="true"], [data-add-menu]')) return;
       if (e.key === "F8") {
         e.preventDefault();
         actions.goProblem(e.shiftKey ? -1 : 1);
@@ -288,18 +327,26 @@ function Builder({
   const editingN = a.hasDraft ? latest.n : (live?.n ?? 0) + 1;
   const tested = useAutomationSimulation(readOnly ? null : a.id).data;
   const untested = !(tested && tested.draft && tested.version === editingN);
-  const blocked = issues.total > 0;
+  // Test e Turn on/Publish restano chiusi finché la bozza salvata non è quella
+  // a schermo: un salvataggio fallito o fermato da un altro.
+  const saveBlocked = autosave.status === "error" || autosave.status === "stale";
+  const blocked = issues.total > 0 || saveBlocked;
   const nothingToPublish = a.status !== "draft" && !draftExists;
-  const why = blocked
-    ? t(
-        a.status === "draft"
-          ? "automations.builder.fixToTurnOn"
-          : "automations.builder.fixToPublish",
-        { count: issues.total },
-      )
-    : nothingToPublish
-      ? t("automations.builder.noChanges")
-      : null;
+  const why =
+    autosave.status === "stale"
+      ? t("automations.builder.blockedStale")
+      : autosave.status === "error"
+        ? t("automations.builder.blockedError")
+        : issues.total > 0
+          ? t(
+              a.status === "draft"
+                ? "automations.builder.fixToTurnOn"
+                : "automations.builder.fixToPublish",
+              { count: issues.total },
+            )
+          : nothingToPublish
+            ? t("automations.builder.noChanges")
+            : null;
 
   const panel =
     current !== null ? (
@@ -322,9 +369,10 @@ function Builder({
             blocked={blocked}
             nothingToPublish={nothingToPublish}
             staleBy={detail.automation.versions.at(-1)?.savedById ?? null}
+            staleAt={detail.automation.versions.at(-1)?.savedAt ?? null}
             onProblem={() => actions.goProblem(1)}
             onTest={() => void autosave.flush()}
-            onPrimary={() => void autosave.flush().then(() => setDialog("turnOn"))}
+            onPrimary={() => void autosave.flush().then((ok) => ok && setDialog("turnOn"))}
             onReload={() => void reload()}
             onRename={() => setDialog("rename")}
             onDiscard={draftExists && a.status !== "draft" ? () => setDialog("discard") : undefined}
@@ -332,6 +380,7 @@ function Builder({
               a.status === "draft" && !readOnly ? () => setDialog("deleteDraft") : undefined
             }
             onCollapse={writeCollapsed}
+            fromList={fromList}
           />
           <div className="w-full max-w-[760px] min-w-[520px] px-6 pt-4 pb-24">
             <FlowTree treeRef={treeRef} />
@@ -374,8 +423,9 @@ function Builder({
           broken={actions.deleting.broken}
           onClose={() => actions.setDeleting(null)}
           onConfirm={() => {
-            actions.applyDelete(actions.deleting!.id, actions.deleting!.after);
+            const id = actions.deleting!.id;
             actions.setDeleting(null);
+            actions.applyDelete(id);
           }}
         />
       )}
@@ -401,7 +451,7 @@ function Builder({
           onClose={() => setDialog(null)}
         />
       )}
-      {dialog === "rename" && <RenameDialog flow={flow} onClose={() => setDialog(null)} />}
+      {dialog === "rename" && <RenameDialog onClose={() => setDialog(null)} />}
       {dialog === "discard" && (
         <DiscardDialog
           flow={flow}
@@ -410,6 +460,7 @@ function Builder({
             setDialog(null);
             void reload();
           }}
+          onRestore={(f) => void restoreDraft(f)}
         />
       )}
       {dialog === "deleteDraft" && <DeleteDraftDialog onClose={() => setDialog(null)} />}

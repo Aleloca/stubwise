@@ -133,6 +133,8 @@ export interface AppSearch {
   problems?: string;
   /** Automations: il passo selezionato nel costruttore (percorso R-J5 o `trigger`). */
   step?: string;
+  /** Automations: si arriva al costruttore dall'elenco (`list`). */
+  from?: string;
 }
 
 const SEARCH_KEYS = [

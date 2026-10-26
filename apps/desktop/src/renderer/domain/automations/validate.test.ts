@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { AutomationFlow, AutomationSource, PersonTarget, Step } from "../../data/model";
+import type {
+  AutomationFlow,
+  AutomationSource,
+  DataField,
+  PersonTarget,
+  Step,
+} from "../../data/model";
 import { AUTOMATION_SOURCES, AUTOMATIONS } from "../../data/seed/automations";
 import { validateFlow, type FlowIssue, type ValidateContext } from "./validate";
 
@@ -326,6 +332,48 @@ describe("validateFlow, revisione giro 1", () => {
     expect(codes(validateFlow(flow("nessuno"), CTX))).toEqual(["0 unknown_ref"]);
   });
 
+  it("revisione Task 6: uscite di sole cifre, campi senza nome, più di 5 livelli", () => {
+    const c = (outcomes: string[], fields: DataField[] = []): Step => ({
+      id: "c",
+      kind: "claude",
+      instruction: "x",
+      inputs: [],
+      outcomes,
+      fields,
+      branches: {},
+    });
+    expect(codes(validateFlow(base([c(["12"])]), CTX))).toEqual(["0 incomplete"]);
+    expect(codes(validateFlow(base([c(["ok: sì", "a:b"])]), CTX))).toEqual([]);
+    expect(
+      codes(validateFlow(base([c([], [{ key: "k", label: " ", type: "text" }])]), CTX)),
+    ).toEqual(["0 incomplete"]);
+    // 5 livelli sì; un blocco al quinto che apre rami no.
+    const nest = (levels: number, leaf: Step): Step => {
+      let s = leaf;
+      for (let i = levels; i >= 1; i--)
+        s = {
+          id: `n${i}`,
+          kind: "condition",
+          when: { left: { value: 1 }, op: "is", right: { value: 1 } },
+          then: [s],
+          else: [],
+        };
+      return s;
+    };
+    const notifyLeaf: Step = {
+      id: "leaf",
+      kind: "notify",
+      who: { personId: "p-laura" },
+      text: "x",
+      approval: { mode: "auto" },
+    };
+    expect(codes(validateFlow(base([nest(5, notifyLeaf)]), CTX))).toEqual([]);
+    expect(codes(validateFlow(base([nest(6, notifyLeaf)]), CTX))).toEqual([
+      "0/then/0/then/0/then/0/then/0/then/0 limit",
+      "0/then/0/then/0/then/0/then/0/then/0/then/0 limit",
+    ]);
+  });
+
   it("Claude non restituisce file, nemmeno dentro un elenco", () => {
     expect(
       codes(validateFlow(base([claude("c", [{ key: "a.doc", label: "Doc", type: "file" }])]), CTX)),
@@ -344,15 +392,15 @@ describe("validateFlow, revisione giro 1", () => {
   it("chiavi di Claude riservate o che si confondono con l'elemento di un forEach", () => {
     for (const key of ["risposta.testo", "risposta", "avvio.data"]) {
       expect(
-        codes(validateFlow(base([claude("c", [{ key, label: "", type: "text" }])]), CTX)),
+        codes(validateFlow(base([claude("c", [{ key, label: "x", type: "text" }])]), CTX)),
         key,
       ).toEqual(["0 incomplete"]);
     }
     const steps: Step[] = [
       claude("c", [
-        { key: "e", label: "", type: "text" },
-        { key: "e.nome", label: "", type: "text" },
-        { key: "elenco.x", label: "", type: "list" },
+        { key: "e", label: "x", type: "text" },
+        { key: "e.nome", label: "x", type: "text" },
+        { key: "elenco.x", label: "x", type: "list" },
       ]),
       { id: "f", kind: "forEach", list: "elenco.x", as: "e", steps: [] },
     ];
@@ -361,7 +409,7 @@ describe("validateFlow, revisione giro 1", () => {
 
   it("l'elenco di un forEach non si ridichiara dentro il suo ciclo", () => {
     const steps: Step[] = [
-      claude("c", [{ key: "analisi.task", label: "", type: "list" }]),
+      claude("c", [{ key: "analisi.task", label: "x", type: "list" }]),
       {
         id: "f",
         kind: "forEach",
@@ -372,7 +420,7 @@ describe("validateFlow, revisione giro 1", () => {
             id: "cond",
             kind: "condition",
             when: { left: { ref: "t" }, op: "not_empty" },
-            then: [claude("c2", [{ key: "analisi.task", label: "", type: "list" }])],
+            then: [claude("c2", [{ key: "analisi.task", label: "x", type: "list" }])],
             else: [],
           },
         ],

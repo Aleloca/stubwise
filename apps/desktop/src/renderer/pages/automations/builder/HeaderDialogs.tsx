@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "@tanstack/react-router";
-import { useDeleteAutomationDraft, useSaveAutomationDraft } from "../../../data/queries";
+import { useDeleteAutomationDraft, useRenameAutomation } from "../../../data/queries";
 import type { AutomationFlow } from "../../../data/types";
 import { Dialog, DialogField, inputClass } from "../../../tasks-ui/Dialog";
 import { useToast } from "../../../tasks-ui/Toast";
@@ -12,16 +12,17 @@ import { useBuilder } from "./context";
 // bozza (con Undo), eliminare una bozza mai accesa, uscire con un
 // salvataggio fallito.
 
-export function RenameDialog({ flow, onClose }: { flow: AutomationFlow; onClose: () => void }) {
+/** Nome e descrizione: una scrittura a sé, che non tocca la bozza (né ne crea una). */
+export function RenameDialog({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation();
   const toast = useToast();
   const b = useBuilderAutomation();
-  const save = useSaveAutomationDraft();
+  const save = useRenameAutomation();
   const [name, setName] = useState(b.name);
   const [description, setDescription] = useState(b.description);
   const submit = () =>
     save.mutate(
-      { id: b.id, flow, meta: { name, description } },
+      { id: b.id, meta: { name, description } },
       { onSuccess: onClose, onError: () => toast.error(t("automations.builder.renameError")) },
     );
   return (
@@ -78,16 +79,18 @@ export function DiscardDialog({
   flow,
   onClose,
   onDone,
+  onRestore,
 }: {
   flow: AutomationFlow;
   onClose: () => void;
   onDone: () => void;
+  /** «Undo»: rimette la bozza buttata e ricarica il costruttore. */
+  onRestore: (flow: AutomationFlow) => void;
 }) {
   const { t } = useTranslation();
   const toast = useToast();
   const a = useBuilderAutomation();
   const discard = useDeleteAutomationDraft();
-  const save = useSaveAutomationDraft();
   const live = [...a.versions].reverse().find((v) => v.publishedAt !== null);
   return (
     <Dialog
@@ -111,7 +114,7 @@ export function DiscardDialog({
                   toast.show(t("automations.builder.discard.done"), {
                     action: {
                       label: t("automations.builder.undo"),
-                      run: () => save.mutate({ id: a.id, flow }),
+                      run: () => onRestore(flow),
                     },
                   });
                 },
