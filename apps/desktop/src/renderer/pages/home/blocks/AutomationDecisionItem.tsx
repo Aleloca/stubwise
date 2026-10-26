@@ -76,14 +76,18 @@ export function AutomationDecisionItem({ decision }: { decision: AutomationDecis
       <div className="flex max-w-[72ch] flex-col gap-2.5">
         {d.kind === "project" ? (
           <ChooseProject
+            key={`${d.runId}:${d.cursor}`}
             runId={d.runId}
+            cursor={d.cursor}
             code={d.code}
             client={d.clientName}
             label={t("automations.decide.project")}
           />
         ) : (
           <ApprovalBox
+            key={`${d.runId}:${d.cursor}`}
             runId={d.runId}
+            cursor={d.cursor}
             code={d.code}
             stepKind={d.stepKind}
             preview={d.preview}

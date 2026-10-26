@@ -26,6 +26,7 @@ import {
 import { unreadCount } from "../notifications/time";
 import { ProfileMenu } from "./ProfileMenu";
 import { OverflowTile, ProjectTile, TileSignals, useOverflowSignals } from "./ProjectTile";
+import { usePendingAnswers } from "../pages/home/pendingAnswers";
 import { Tooltip } from "./Tooltip";
 import { useFitSlots } from "./useFitSlots";
 import { openNotifications, openPalette, useShortcuts } from "./useShortcuts";
@@ -243,7 +244,11 @@ export function Rail() {
   const chatNews = useChatSignal().data === true;
   // La Posta: solo le proposte che aspettano chi guarda, mai le email non lette (A6).
   // Le Automations: solo le approvazioni e i «scegli il progetto» rivolti a me, mai le fallite ([A 4]).
-  const automationsWaiting = (useMyAutomationApprovals().data ?? []).length;
+  // Una risposta ancora nella finestra dell'«Undo» non aspetta più: il punto si spegne subito.
+  const answering = usePendingAnswers();
+  const automationsWaiting = (useMyAutomationApprovals().data ?? []).filter(
+    (d) => !answering.has(d.runId),
+  ).length;
   const mailWaiting = (useMailProposalDecisions().data ?? []).filter(
     (v) => v.proposal.source !== "calendar",
   ).length;

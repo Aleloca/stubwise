@@ -798,6 +798,8 @@ export interface AutomationDecision {
   preview: Record<string, unknown>;
   /** Da quando aspetta. */
   since: string;
+  /** Il passo che aspetta (R-J5): la decisione vale solo per lui. */
+  cursor: string;
   /** Il codice dell'automazione e il numero dell'esecuzione («AUD-A1», 12). */
   automationCode: string;
   n: number;

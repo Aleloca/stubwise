@@ -115,7 +115,8 @@ export async function getProjectAutomations(
 
   const canCreate = can(viewerFor(me), "automations.manage", projectId);
   return {
-    show: own.length > 0 || acted.length > 0 || canCreate,
+    // La voce c'è se questa persona riceve qualcosa da vedere, o può crearne.
+    show: own.length > 0 || runs.length > 0 || general.length > 0 || canCreate,
     canCreate,
     automations: own.map((a) => automationRow(me, a)),
     runs,

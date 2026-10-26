@@ -521,12 +521,24 @@ export function checkEdited(kind: string | undefined, edited: Record<string, str
   }
 }
 
-/** Chi decide su un'esecuzione ferma: deve vederla, e deve essere fra chi decide ADESSO (R-J8). */
-function decision(me: string, id: string, status: AutomationRun["status"]): AutomationRun {
+/**
+ * Chi decide su un'esecuzione ferma: deve vederla, e deve essere fra chi
+ * decide ADESSO (R-J8). `expectedPath` è il passo su cui chi decide ha
+ * cliccato (la decisione può partire 5 s dopo, con l'«Undo»): se nel
+ * frattempo l'esecuzione è passata a un altro passo — un altro ha deciso —
+ * la decisione non cade su quello nuovo.
+ */
+function decision(
+  me: string,
+  id: string,
+  status: AutomationRun["status"],
+  expectedPath?: string,
+): AutomationRun {
   sweepApprovals();
   const run = visibleRun(me, id);
   if (run.status === "suspended") throw invalid("suspended");
   if (run.status !== status) throw invalid("not_waiting");
+  if (expectedPath !== undefined && run.cursor !== expectedPath) throw invalid("not_waiting");
   if (!decidersOf(run).includes(me)) throw forbidden();
   return run;
 }
@@ -537,9 +549,13 @@ function decision(me: string, id: string, status: AutomationRun["status"]): Auto
  * approvato è quello in attesa (`path` = il cursore): il motore lo
  * ricontrolla.
  */
-export async function approve(runId: string, edited?: Record<string, string>): Promise<void> {
+export async function approve(
+  runId: string,
+  edited?: Record<string, string>,
+  opts: { expectedPath?: string } = {},
+): Promise<void> {
   const me = await writer("automations.approve");
-  const run = decision(me, runId, "waiting_approval");
+  const run = decision(me, runId, "waiting_approval", opts.expectedPath);
   if (edited) checkEdited(stepOfRun(run)?.kind, edited);
   void enqueue(run.id, {
     kind: "approved",
@@ -550,9 +566,9 @@ export async function approve(runId: string, edited?: Record<string, string>): P
 }
 
 /** «Rifiuta»: l'esecuzione si ferma, annullata (R-J7). */
-export async function reject(runId: string): Promise<void> {
+export async function reject(runId: string, opts: { expectedPath?: string } = {}): Promise<void> {
   const me = await writer("automations.reject");
-  const run = decision(me, runId, "waiting_approval");
+  const run = decision(me, runId, "waiting_approval", opts.expectedPath);
   void enqueue(run.id, { kind: "rejected", path: run.cursor!, byId: me });
 }
 
@@ -565,10 +581,10 @@ export async function reject(runId: string): Promise<void> {
 export async function chooseProject(
   runId: string,
   projectId: string,
-  opts: { remember?: boolean } = {},
+  opts: { remember?: boolean; expectedPath?: string } = {},
 ): Promise<void> {
   const me = await writer("automations.chooseProject");
-  const run = decision(me, runId, "waiting_project");
+  const run = decision(me, runId, "waiting_project", opts.expectedPath);
   if (!state.projectsById.has(projectId) || !visibleProjectIds(me).has(projectId)) throw notFound();
   if (opts.remember) {
     if (!canManageIntegrations(me)) throw forbidden();

@@ -121,6 +121,19 @@ describe("getProjectAutomations: la sezione del progetto [A 22] [A 23]", () => {
     });
   });
 
+  it("`show` segue ciò che questa persona riceve: una generale finita che non vede non basta", async () => {
+    // In CBV ha agito solo AUT-1 #1, finita: Sara non vede AUT-1 né ha esecuzioni aperte.
+    as("p-sara");
+    expect(await automations.getProjectAutomations(CBV)).toMatchObject({
+      show: false,
+      runs: [],
+      general: [],
+    });
+    // Roberta (admin) vede la generale che vi ha agito.
+    as("p-roberta");
+    expect((await automations.getProjectAutomations(CBV))!.show).toBe(true);
+  });
+
   it("un progetto che non vedo risponde come uno che non esiste (R-G5)", async () => {
     as("p-sara");
     expect(await automations.getProjectAutomations(AUD)).toBeNull();
@@ -168,5 +181,29 @@ describe("l'anteprima condivisa del passo da approvare", () => {
     const d = (await automations.listMyApprovals()).find((x) => x.runId === R.waitingProject)!;
     expect(d.clientName).not.toBe("");
     expect(d.effect).toBeNull();
+  });
+});
+
+describe("R-J8 con l'«Undo»: la decisione vale per il passo su cui si è cliccato", () => {
+  it("con un passo diverso da quello in attesa: not_waiting, e niente cambia", async () => {
+    as("p-matteo");
+    const before = run(R.waitingApproval).log.length;
+    await expect(
+      automations.approve(R.waitingApproval, { subject: "x" }, { expectedPath: "0" }),
+    ).rejects.toThrow("invalid: not_waiting");
+    await expect(automations.reject(R.waitingApproval, { expectedPath: "0" })).rejects.toThrow(
+      "invalid: not_waiting",
+    );
+    await expect(
+      automations.chooseProject(R.waitingProject, AUD, { expectedPath: "nope" }),
+    ).rejects.toThrow("invalid: not_waiting");
+    await automations.whenAutomationsIdle();
+    expect(run(R.waitingApproval).status).toBe("waiting_approval");
+    expect(run(R.waitingApproval).log).toHaveLength(before);
+    // Col passo giusto passa.
+    const cursor = run(R.waitingApproval).cursor!;
+    await automations.approve(R.waitingApproval, undefined, { expectedPath: cursor });
+    await automations.whenAutomationsIdle();
+    expect(run(R.waitingApproval).status).not.toBe("waiting_approval");
   });
 });

@@ -468,6 +468,7 @@ export async function listMyApprovals(): Promise<AutomationDecision[]> {
         stepKind: stepOfRun(source)?.kind ?? "createTask",
         preview: copy(run.pending?.preview ?? {}),
         since: run.log.at(-1)?.at ?? run.startedAt,
+        cursor: source.cursor ?? "",
         automationCode: a.code,
         n: run.n,
         automationVisible: canSeeAutomation(me, a),

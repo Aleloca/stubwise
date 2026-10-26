@@ -5,7 +5,9 @@ import { automations as automationsApi, resetApi, setLatency } from "../../data/
 import { AUTOMATION_CASES } from "../../data/seed/automations";
 import { NEW_CONTRACT_MILESTONE_ID } from "../../data/seed/automations/created";
 import { state } from "../../data/store";
-import { resetViewerGrants } from "../../data/viewer";
+import { setSessionPersonId } from "../../data/session";
+import type { Step } from "../../data/types";
+import { grantProjectRole, resetViewerGrants } from "../../data/viewer";
 import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
 import { clearToasts } from "../../tasks-ui/Toast";
 import { renderRoute } from "../../test/renderRoute";
@@ -156,6 +158,80 @@ describe("«Decide»: approvazioni e progetto da scegliere", () => {
     );
     await userEvent.click(within(item).getByRole("button", { name: "Choose" }));
     await waitFor(() => expect(run(R.waitingProject).status).not.toBe("waiting_project"));
+  });
+});
+
+describe("R-J8 con l'«Undo»: due approvatori, il passo cambia nella finestra", () => {
+  const ask = { mode: "ask", who: { projectRole: "project_lead" } } as const;
+  const email = (id: string, subject: string): Step => ({
+    id,
+    kind: "sendEmail",
+    to: "cliente@example.com",
+    subject,
+    body: "Ciao",
+    attachRefs: [],
+    approval: ask,
+  });
+
+  it("la decisione rimandata (con le modifiche) non cade sul passo nuovo, e il messaggio dice chi ha deciso", async () => {
+    // Due email da approvare in fila; decide chi è Project Lead di AUD: Laura e (qui) Giulia.
+    grantProjectRole("p-giulia", "prj-aud", "project_lead");
+    setSessionPersonId(MATTEO);
+    const a = await automationsApi.createAutomation({
+      name: "Due email",
+      projectId: "prj-aud",
+      flow: {
+        trigger: { kind: "manual" },
+        steps: [email("first", "Prima"), email("second", "Seconda")],
+        titleTemplate: "Due email",
+      },
+    });
+    await automationsApi.activate(a.id);
+    const runId = await automationsApi.startManual(a.id);
+    await automationsApi.whenAutomationsIdle();
+    expect(run(runId)).toMatchObject({ status: "waiting_approval", cursor: "0" });
+
+    setSessionPersonId("p-giulia");
+    expect((await automationsApi.listMyApprovals()).map((d) => d.runId)).toContain(runId);
+    setUndoWindow(300);
+    renderRoute("/home", "p-giulia");
+    const decide = await decideBlock();
+    // La voce più recente può stare oltre le prime cinque di «Decide».
+    const more = await within(decide).findByRole("button", { name: /^Show \d+ more$/ });
+    await userEvent.click(more);
+    const item = await waitFor(() => {
+      const el = decide.querySelector(`[data-automation-decision="${runId}"]`);
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    await userEvent.click(within(item).getByRole("button", { name: "Edit" }));
+    const subject = within(item).getByRole("textbox", { name: "Subject" });
+    await userEvent.clear(subject);
+    await userEvent.type(subject, "Corretta da Giulia");
+    await userEvent.click(within(item).getByRole("button", { name: "Approve with changes" }));
+    expect(
+      await screen.findByText(`Approved with changes · ${a.code} #1 goes on`),
+    ).toBeInTheDocument();
+
+    // Nella finestra Laura approva la prima: l'esecuzione passa alla seconda.
+    setSessionPersonId("p-laura");
+    await automationsApi.approve(runId);
+    setSessionPersonId("p-giulia");
+    await idle();
+    expect(run(runId)).toMatchObject({ status: "waiting_approval", cursor: "1" });
+
+    // Scaduta la finestra, la decisione di Giulia non tocca il passo nuovo.
+    expect(
+      await screen.findByText("Already decided by Laura Costa", {}, { timeout: 3000 }),
+    ).toBeInTheDocument();
+    await idle();
+    expect(run(runId)).toMatchObject({ status: "waiting_approval", cursor: "1" });
+    expect(run(runId).log.some((e) => e.byId === "p-giulia")).toBe(false);
+    expect(run(runId).pending?.preview.subject).toBe("Seconda");
+    // La voce torna per il passo nuovo, senza la bozza di prima.
+    await waitFor(() => expect(item.closest("[data-closed]")).toBeNull());
+    expect(within(item).queryByRole("textbox")).toBeNull();
+    expect(item).toHaveTextContent("Seconda");
   });
 });
 

@@ -81,6 +81,12 @@ export function PreviewBlock({
   );
 }
 
+/** Il codice di un errore di una decisione (`invalid: <codice>`, `forbidden`, `not_found`). */
+function decisionErrorCode(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  return message.startsWith("invalid: ") ? message.slice("invalid: ".length) : message;
+}
+
 /**
  * Manda una decisione allo scadere della finestra dell'«Undo» (5 s): la
  * voce si chiude subito, il messaggio offre «Undo». Se nel frattempo un
@@ -108,9 +114,16 @@ function useDeferredDecision(runId: string, code: string) {
       runId,
       () => send(decideNow),
       (error) => {
-        const message = error instanceof Error ? error.message : "";
-        if (message === "invalid: not_waiting" || message === "forbidden") void raced();
-        else toast.error(t("automations.toast.decisionError", { code }));
+        switch (decisionErrorCode(error)) {
+          // Un altro ha deciso (il passo è cambiato) o non decido più io.
+          case "not_waiting":
+          case "forbidden":
+            return void raced();
+          case "suspended":
+            return toast.error(t("automations.decide.suspended", { code }));
+          default:
+            return toast.error(t("automations.toast.decisionError", { code }));
+        }
       },
     );
     toast.show(t(doneKey, { code }), {
@@ -126,6 +139,7 @@ function useDeferredDecision(runId: string, code: string) {
  */
 export function ApprovalBox({
   runId,
+  cursor,
   code,
   stepKind,
   preview,
@@ -138,6 +152,12 @@ export function ApprovalBox({
   onDone,
 }: {
   runId: string;
+  /**
+   * Il passo che aspetta, letto quando si clicca: la decisione vale solo per
+   * lui (R-J8). Chi monta la casella la chiave anche su questo, così una
+   * bozza corretta non sopravvive a un cambio di passo.
+   */
+  cursor: string;
   code: string;
   stepKind: string;
   preview: Record<string, unknown>;
@@ -165,7 +185,9 @@ export function ApprovalBox({
   );
   const words: PreviewWords = { names, numberOf: NO_STEPS, labels: NO_LABELS };
   const approve = (edited?: Record<string, string>) => {
-    decide("automations.toast.approved", (now) => now.approve(runId, edited));
+    decide(edited ? "automations.toast.approvedChanges" : "automations.toast.approved", (now) =>
+      now.approve(runId, cursor, edited),
+    );
     setEditing(false);
     onDone?.();
   };
@@ -230,7 +252,7 @@ export function ApprovalBox({
               type="button"
               className={secondaryButton}
               onClick={() => {
-                decide("automations.toast.rejected", (now) => now.reject(runId));
+                decide("automations.toast.rejected", (now) => now.reject(runId, cursor));
                 onDone?.();
               }}
             >
@@ -258,12 +280,15 @@ export function ApprovalBox({
  */
 export function ChooseProject({
   runId,
+  cursor,
   code,
   client,
   label,
   onDone,
 }: {
   runId: string;
+  /** Il passo che aspetta il progetto, come per `ApprovalBox`. */
+  cursor: string;
   code: string;
   client: string;
   /** L'etichetta del menu, se la domanda è già scritta sopra («Da decidere»). */
@@ -306,7 +331,9 @@ export function ChooseProject({
         disabled={!projectId}
         onClick={() => {
           const keep = perms.integrations && !!client && remember;
-          decide("automations.toast.projectChosen", (now) => now.choose(runId, projectId, keep));
+          decide("automations.toast.projectChosen", (now) =>
+            now.choose(runId, cursor, projectId, keep),
+          );
           onDone?.();
         }}
       >

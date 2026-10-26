@@ -131,8 +131,9 @@ export function NowBox({
       body = (
         <>
           <ApprovalBox
-            key={run.cursor}
+            key={`${run.id}:${run.cursor}`}
             runId={run.id}
+            cursor={run.cursor ?? ""}
             code={run.code}
             stepKind={kind}
             preview={run.pending?.preview ?? {}}
@@ -169,7 +170,14 @@ export function NowBox({
             <p className="text-sm text-ink-muted">{t("automations.decide.answering")}</p>
           ) : (
             run.permissions.chooseProject && (
-              <ChooseProject runId={run.id} code={run.code} client={client} onDone={onDone} />
+              <ChooseProject
+                key={`${run.id}:${run.cursor}`}
+                runId={run.id}
+                cursor={run.cursor ?? ""}
+                code={run.code}
+                client={client}
+                onDone={onDone}
+              />
             )
           )}
           {perms.integrations && (

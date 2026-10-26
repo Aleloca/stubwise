@@ -4831,7 +4831,8 @@
       "onMailboxMissing": "Couldn't turn on {{code}}: connect a mailbox in Mail first.",
       "onMailboxExpired": "Couldn't turn on {{code}}: your mailbox connection expired. Reconnect it in Mail.",
       "onConfig": "Couldn't turn on {{code}}: it has problems to fix first.",
-      "publishedPaused": "Version {{n}} of {{code}} published · it stays paused"
+      "publishedPaused": "Version {{n}} of {{code}} published · it stays paused",
+      "approvedChanges": "Approved with changes · {{code}} goes on"
     },
     "errors": {
       "load": "Couldn't load the automations",
@@ -6018,7 +6019,8 @@
       "alreadyDecided": "Already decided by {{name}}",
       "alreadyDecidedSomeone": "Someone already decided this step",
       "answering": "Your answer goes out in a few seconds. You can undo it from the message below.",
-      "attachmentsReadOnly": "Attachments stay as they are: {{names}}"
+      "attachmentsReadOnly": "Attachments stay as they are: {{names}}",
+      "suspended": "{{code}} is paused: nothing was decided. It can be decided once it's turned on again."
     }
   }
 }

@@ -121,8 +121,11 @@ function ProjectSections({
               className={s.id === "settings" ? "mt-2 border-t border-rule pt-2" : undefined}
             >
               <Link
-                to="/p/$code/$section"
-                params={{ code: project.code, section: s.id }}
+                // «Docs» ha la sua route (`/p/$code/docs`): il link la nomina, o il
+                // router avverte che `/p/$code/$section` porta a un'altra.
+                {...(s.id === "docs"
+                  ? { to: "/p/$code/docs", params: { code: project.code } }
+                  : { to: "/p/$code/$section", params: { code: project.code, section: s.id } })}
                 data-section={s.id}
                 // Nella Chat il canale aperto è la sottovoce corrente, non la sezione.
                 activeOptions={{ exact: s.id === "chat" }}

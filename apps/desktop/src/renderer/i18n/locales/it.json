@@ -4831,7 +4831,8 @@
       "onMailboxMissing": "Non è stato possibile accendere {{code}}: prima collega una casella nella Posta.",
       "onMailboxExpired": "Non è stato possibile accendere {{code}}: il collegamento della tua casella è scaduto. Ricollegala nella Posta.",
       "onConfig": "Non è stato possibile accendere {{code}}: prima vanno risolti i suoi problemi.",
-      "publishedPaused": "Versione {{n}} di {{code}} pubblicata · resta in pausa"
+      "publishedPaused": "Versione {{n}} di {{code}} pubblicata · resta in pausa",
+      "approvedChanges": "Approvato con le modifiche · {{code}} prosegue"
     },
     "errors": {
       "load": "Non è stato possibile caricare le automazioni",
@@ -6018,7 +6019,8 @@
       "alreadyDecided": "Ha già deciso {{name}}",
       "alreadyDecidedSomeone": "Qualcuno ha già deciso questo passo",
       "answering": "La tua risposta parte fra pochi secondi. Puoi annullarla dal messaggio qui sotto.",
-      "attachmentsReadOnly": "Gli allegati restano così: {{names}}"
+      "attachmentsReadOnly": "Gli allegati restano così: {{names}}",
+      "suspended": "{{code}} è in pausa: non è stato deciso niente. Si potrà decidere quando verrà riaccesa."
     }
   }
 }

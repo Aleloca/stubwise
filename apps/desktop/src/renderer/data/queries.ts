@@ -3372,12 +3372,15 @@ export function useDecideAutomationNow() {
       void api.automations.whenAutomationsIdle().then(invalidate);
     }
   };
+  // `expectedPath`: il passo su cui si è cliccato (R-J8): se l'esecuzione è
+  // passata a un altro, la decisione non parte (`invalid: not_waiting`).
   return {
-    approve: (runId: string, edited?: Record<string, string>) =>
-      settle(api.automations.approve(runId, edited)),
-    reject: (runId: string) => settle(api.automations.reject(runId)),
-    choose: (runId: string, projectId: string, remember?: boolean) =>
-      settle(api.automations.chooseProject(runId, projectId, { remember })),
+    approve: (runId: string, expectedPath: string, edited?: Record<string, string>) =>
+      settle(api.automations.approve(runId, edited, { expectedPath })),
+    reject: (runId: string, expectedPath: string) =>
+      settle(api.automations.reject(runId, { expectedPath })),
+    choose: (runId: string, expectedPath: string, projectId: string, remember?: boolean) =>
+      settle(api.automations.chooseProject(runId, projectId, { remember, expectedPath })),
     /** L'esecuzione riletta (chi ha deciso prima, per «Already approved by …»). */
     read: (runId: string) => api.automations.getRun(runId),
   };
