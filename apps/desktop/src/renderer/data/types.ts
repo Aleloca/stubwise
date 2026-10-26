@@ -8,6 +8,7 @@ import type {
   AutomationRun,
   AutomationSource,
   ClientProjectLink,
+  DataField,
   RunLogEntry,
   RunStatus,
   Step,
@@ -982,4 +983,13 @@ export interface SimulationView {
     starts: SimulationStartPreview[];
     claude: SimulationClaudePreview[];
   };
+}
+
+/** «Replace example» di un webhook, prima di confermare (area 7). */
+export interface WebhookExamplePreview {
+  /** Il JSON non è valido: il messaggio del parser (riga e colonna, se le dice). */
+  error: string | null;
+  fields: DataField[];
+  /** I campi di oggi che il nuovo esempio non ha e che un'automazione usa ([A 8]). */
+  missing: { key: string; label: string; usedBy: string[] }[];
 }

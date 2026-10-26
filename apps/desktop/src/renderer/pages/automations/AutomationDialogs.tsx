@@ -32,9 +32,14 @@ import { useAutomationPerms, useMe, useNames } from "./shared";
 // prima, e `activate`/`publish` li rifanno (codici `mailbox_missing`,
 // `mailbox_expired`, `permission`). La casella scelta resta sull'automazione.
 
-/** I progetti fissi in cui il flusso crea qualcosa, col primo passo che ci crea. */
+type CreateKind = "createTask" | "createMilestone" | "createRequest";
+
+/**
+ * I progetti fissi in cui il flusso crea qualcosa, per tipo di passo (task,
+ * traguardo, richiesta: permessi diversi), col primo passo che ci crea.
+ */
 function fixedProjects(flow: AutomationFlow, own: string | null) {
-  const out = new Map<string, string>();
+  const out = new Map<string, { projectId: string; kind: CreateKind; step: string }>();
   let fromClient = false;
   visitSteps(flow.steps, (s, path) => {
     if (s.kind !== "createTask" && s.kind !== "createMilestone" && s.kind !== "createRequest")
@@ -42,10 +47,20 @@ function fixedProjects(flow: AutomationFlow, own: string | null) {
     const p = s.project;
     const id = p.mode === "fixed" ? p.projectId : p.mode === "own" ? own : null;
     if (p.mode === "from_client") fromClient = true;
-    if (id && !out.has(id)) out.set(id, displayNumber(path));
+    const key = `${id}:${s.kind}`;
+    if (id && !out.has(key))
+      out.set(key, { projectId: id, kind: s.kind, step: displayNumber(path) });
   });
-  return { fixed: out, fromClient };
+  return { fixed: [...out.values()], fromClient };
 }
+
+/** I codici d'errore di `activate`/`publish` in parole. */
+const ON_ERRORS: Record<string, string> = {
+  "invalid: permission": "automations.toast.onPermission",
+  "invalid: mailbox_missing": "automations.toast.onMailboxMissing",
+  "invalid: mailbox_expired": "automations.toast.onMailboxExpired",
+  "invalid: config": "automations.toast.onConfig",
+};
 
 export function TurnOnDialog({
   automationId,
@@ -73,7 +88,7 @@ export function TurnOnDialog({
   const flow = a.status === "paused" && live ? live.flow : latest.flow;
   const errors = a.status === "paused" ? detail.liveErrors : detail.configErrors;
   const { fixed, fromClient } = fixedProjects(flow, a.projectId);
-  const blocked = [...fixed.entries()].filter(([id]) => !perms.createTasks(id));
+  const blocked = fixed.filter((f) => !perms.canCreate(f.kind, f.projectId));
   const needsMailbox = sendsEmail(flow);
   // Solo le caselle collegate: una scaduta non spedisce.
   const boxes = (mailboxes ?? []).filter((b) => !b.expired);
@@ -90,7 +105,10 @@ export function TurnOnDialog({
         onClose();
         toast.show(t("automations.toast.on", { code: a.code }));
       },
-      onError: () => toast.error(t("automations.toast.onError", { code: a.code })),
+      onError: (e: unknown) =>
+        toast.error(
+          t(ON_ERRORS[(e as Error).message] ?? "automations.toast.onError", { code: a.code }),
+        ),
     };
     const vars = { id: a.id, mailbox: needsMailbox ? (chosen ?? undefined) : undefined };
     if (publishing) publish.mutate(vars, done);
@@ -166,12 +184,16 @@ export function TurnOnDialog({
           )}
         </div>
       )}
-      {blocked.map(([id, step]) => (
-        <p key={id} data-blocked className="flex items-start gap-2 text-sm text-critical">
+      {blocked.map((b) => (
+        <p
+          key={`${b.projectId}:${b.kind}`}
+          data-blocked
+          className="flex items-start gap-2 text-sm text-critical"
+        >
           <CriticalGlyph />
-          {t("automations.dialogs.cantCreate", {
-            code: names.project(id)?.code ?? t("automations.dialogs.thatProject"),
-            step,
+          {t(`automations.dialogs.cantCreate.${b.kind}`, {
+            code: names.project(b.projectId)?.code ?? t("automations.dialogs.thatProject"),
+            step: b.step,
           })}
         </p>
       ))}

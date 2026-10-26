@@ -859,3 +859,30 @@ describe("revisione, giro 1", () => {
     expect(fixed.effectsSent).toBe(1);
   });
 });
+
+describe("motore: le righe del registro non condividono l'anteprima (R-J14/R-J16)", () => {
+  it("la riga «in attesa» e quella eseguita hanno ciascuna la sua copia", () => {
+    const { d, fx } = start(NEW_CONTRACT, BELLAVISTA);
+    settle(d, fx, {
+      claude: () => ({
+        kind: "claude_result",
+        fields: { "analisi.prodotto": "CRM", "analisi.task": [] },
+        reason: "Nessuna task.",
+      }),
+    });
+    expect(d.state.status).toBe("waiting_approval");
+    const aw = d.state.awaiting as {
+      kind: "approval";
+      path: string;
+      preview: Record<string, unknown>;
+    };
+    const waiting = d.log.at(-1)!;
+    expect(waiting.outcome).toBe("waiting");
+    expect(waiting.input).toEqual(aw.preview);
+    expect(waiting.input).not.toBe(aw.preview);
+    d.send({ kind: "approved", path: aw.path, byId: "p-matteo" });
+    d.send({ kind: "effect_result", ok: true, codes: ["mm-1"] });
+    const ok = d.log.filter((e) => e.path === aw.path && e.outcome === "ok").at(-1)!;
+    expect(ok.input).not.toBe(waiting.input);
+  });
+});

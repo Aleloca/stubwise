@@ -43,6 +43,13 @@ export function useNames(): Names {
 
 export const useMe = useSessionPersonId;
 
+/** Il permesso per creare ciò che crea un passo: lo stesso che controllano `activate`/`publish`. */
+const CREATE_PERMISSION = {
+  createTask: "tickets.create",
+  createMilestone: "tickets.edit",
+  createRequest: "backlog.create",
+} as const;
+
 /**
  * Cosa può fare chi guarda, dai permessi calcolati: creare automazioni (in
  * almeno un progetto o d'istanza), le generali (d'istanza), le sorgenti.
@@ -60,6 +67,9 @@ export function useAutomationPerms() {
     inProject: (projectId: string) => can(viewer, "automations.manage", projectId),
     integrations: can(viewer, "integrations.manage"),
     createTasks: (projectId: string) => can(viewer, "tickets.create", projectId),
+    /** Il permesso che serve per creare ciò che crea un passo (come `activate`/`publish`). */
+    canCreate: (kind: "createTask" | "createMilestone" | "createRequest", projectId: string) =>
+      can(viewer, CREATE_PERMISSION[kind], projectId),
   };
 }
 

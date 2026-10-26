@@ -5,7 +5,7 @@ import { automations as automationsApi, failNext, resetApi, setLatency } from ".
 import { TODAY } from "../../data/dates";
 import { state } from "../../data/store";
 import type { AutomationRun, RunLogEntry } from "../../data/types";
-import { grantProjectRole, resetViewerGrants } from "../../data/viewer";
+import { grantProjectRole, resetViewerGrants, revokeProjectPermission } from "../../data/viewer";
 import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
 import { clearToasts } from "../../tasks-ui/Toast";
 import { renderRoute } from "../../test/renderRoute";
@@ -1208,5 +1208,70 @@ describe("sorgenti curate in pagina", () => {
     expect(within(add).getByRole("textbox", { name: "Key" })).toHaveValue(
       "forneriarossilari.example",
     );
+  });
+});
+
+describe("revisione del Task 5, giro 2", () => {
+  it("il dialogo blocca per tipo di passo: senza `tickets.create` nel progetto, la task", async () => {
+    revokeProjectPermission(LAURA, "prj-stw", "tickets.create" as never);
+    await open("/automations/STW-A1", LAURA);
+    await userEvent.click(await screen.findByRole("button", { name: "Turn on" }));
+    const dialog = await screen.findByRole("dialog", { name: "Turn on STW-A1?" });
+    expect(dialog.querySelector("[data-blocked]")).toHaveTextContent(
+      "You can't create tasks in STW: step 1.1 would fail.",
+    );
+    expect(within(dialog).getByRole("button", { name: "Turn on" })).toBeDisabled();
+  });
+
+  it("…e senza `tickets.edit` il traguardo, anche con `tickets.create`", async () => {
+    revokeProjectPermission(LAURA, "prj-stw", "tickets.edit" as never);
+    const draft = state.automations.find((x) => x.code === "STW-A1")!.versions[0]!.flow;
+    draft.steps.push({
+      id: "ms",
+      kind: "createMilestone",
+      name: "Rilascio",
+      dueInDays: 7,
+      project: { mode: "own" },
+      approval: { mode: "auto" },
+    });
+    await open("/automations/STW-A1", LAURA);
+    await userEvent.click(await screen.findByRole("button", { name: "Turn on" }));
+    const dialog = await screen.findByRole("dialog", { name: "Turn on STW-A1?" });
+    const blocked = [...dialog.querySelectorAll("[data-blocked]")].map((b) => b.textContent);
+    expect(blocked).toEqual(["You can't create milestones in STW: step 2 would fail."]);
+  });
+
+  it("un rifiuto del livello dati si legge in parole (casella scaduta dopo aver aperto il dialogo)", async () => {
+    connectMailbox(ROBERTA);
+    await open("/automations/AUT-1");
+    await userEvent.click(await screen.findByRole("button", { name: "Publish v2" }));
+    const dialog = await screen.findByRole("dialog", { name: "Publish version 2 of AUT-1?" });
+    state.googleAccounts.find((g) => g.personId === ROBERTA)!.status = "expired";
+    await userEvent.click(within(dialog).getByRole("button", { name: "Publish" }));
+    expect(
+      await screen.findByText(
+        "Couldn't turn on AUT-1: your mailbox connection expired. Reconnect it in Mail.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("senza un cliente conosciuto «Remember for» non c'è", async () => {
+    state.automations.find((x) => x.code === "AUT-1")!.ownerId = ROBERTA;
+    const run = state.automationRuns.find((r) => r.id === "arun-aut1-2")!;
+    run.pending!.preview = {};
+    run.event = {};
+    await open("/automations/AUT-1/runs/2");
+    const now = await screen.findByRole("region", { name: "Now" });
+    expect(within(now).getByRole("combobox")).toBeInTheDocument();
+    expect(within(now).queryByRole("checkbox")).toBeNull();
+  });
+
+  it("i tipi di un campo comprendono «yes or no»", async () => {
+    await open("/automations/sources?source=src-webhook");
+    const panel = await screen.findByRole("region", {
+      name: "Source Modulo di attivazione dal sito",
+    });
+    const type = within(panel).getByRole("combobox", { name: "Type of cliente.nome" });
+    expect(within(type).getByRole("option", { name: "yes or no" })).toBeInTheDocument();
   });
 });

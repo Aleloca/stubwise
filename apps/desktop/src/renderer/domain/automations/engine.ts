@@ -259,6 +259,7 @@ function proceedAction(
   const { preview, args } = describe(st, step, resolved, approval?.edited);
   if (step.approval.mode === "ask" && !approval) {
     st.status = "waiting_approval";
+    // La riga del registro ha la SUA copia dell'anteprima: nascondere una non tocca l'altra (R-J14/R-J16).
     st.awaiting = { kind: "approval", path, who: step.approval.who, preview };
     c.log.push(
       row({
@@ -266,7 +267,7 @@ function proceedAction(
         path,
         kind: step.kind,
         outcome: "waiting",
-        input: preview,
+        input: structuredClone(preview),
         reason: approverReason(step.approval.who),
       }),
     );
@@ -281,7 +282,7 @@ function proceedAction(
           path,
           kind: step.kind,
           outcome: "limit",
-          input: preview,
+          input: structuredClone(preview),
           reason: `Limite raggiunto: al massimo ${AUTOMATION_LIMITS.emailsPerRun} email per esecuzione.`,
         }),
       );
@@ -541,7 +542,7 @@ function handle(c: Ctx, input: EngineInput) {
           kind: step.kind,
           outcome: "rejected",
           byId: input.byId,
-          input: aw.preview,
+          input: structuredClone(aw.preview),
         }),
       );
       st.status = "cancelled";
@@ -644,7 +645,7 @@ function handle(c: Ctx, input: EngineInput) {
             path: aw.path,
             kind: step.kind,
             outcome: "failed",
-            input: aw.preview,
+            input: structuredClone(aw.preview),
             reason: input.reason ?? input.error ?? null,
           }),
         );
@@ -658,7 +659,7 @@ function handle(c: Ctx, input: EngineInput) {
           path: aw.path,
           kind: step.kind,
           outcome: "ok",
-          input: aw.preview,
+          input: structuredClone(aw.preview),
           output: step.kind === "sendEmail" ? { inviata: true } : {},
           reason: input.reason ?? null,
           effects: codes.map((code) => ({ kind: EFFECT_KIND[step.kind], code })),

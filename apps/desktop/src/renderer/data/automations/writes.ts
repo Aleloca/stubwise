@@ -9,6 +9,7 @@ import type {
   AutomationMeta,
   AutomationRun,
   ClientProjectLink,
+  DataField,
 } from "../types";
 import { can, viewerFor } from "../viewer";
 import { forbidden, invalid, notFound, writer } from "../writer";
@@ -358,26 +359,47 @@ export async function startManual(id: string, event?: Record<string, unknown>): 
  * se un numero non è un numero (shape sources: «Received with errors» e non
  * parte nulla).
  */
-function checkPayload(source: { fields: { key: string; type: string }[] }, payload: unknown) {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw invalid("event");
-  for (const f of source.fields) {
+const PAYLOAD_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PAYLOAD_DATE = /^\d{4}-\d{2}-\d{2}(T[\d:.]+(Z|[+-]\d{2}:?\d{2})?)?$/;
+
+/** Un valore è del tipo del campo? Numeri, sì/no, date, email, elenchi (coi loro campi). */
+function fitsType(f: DataField, v: unknown): boolean {
+  switch (f.type) {
+    case "number":
+      return typeof v === "number" && Number.isFinite(v);
+    case "boolean":
+      return typeof v === "boolean";
+    case "date":
+      return typeof v === "string" && PAYLOAD_DATE.test(v) && !Number.isNaN(Date.parse(v));
+    case "email":
+      return typeof v === "string" && PAYLOAD_EMAIL.test(v);
+    case "list":
+      return (
+        Array.isArray(v) &&
+        (!f.of ||
+          v.every((item) => !!item && typeof item === "object" && fieldsFit(f.of!, item as object)))
+      );
+    default:
+      return true;
+  }
+}
+
+/** I campi presenti in un oggetto hanno il loro tipo (gli assenti non si controllano). */
+function fieldsFit(fields: DataField[], obj: object): boolean {
+  return fields.every((f) => {
     const v = f.key
       .split(".")
       .reduce<unknown>(
         (o, k) => (o && typeof o === "object" ? (o as Record<string, unknown>)[k] : undefined),
-        payload,
+        obj,
       );
-    if (v === undefined || v === null) continue;
-    const ok =
-      f.type === "number"
-        ? typeof v === "number"
-        : f.type === "list"
-          ? Array.isArray(v)
-          : f.type === "boolean"
-            ? typeof v === "boolean"
-            : true;
-    if (!ok) throw invalid("event_types");
-  }
+    return v === undefined || v === null || fitsType(f, v);
+  });
+}
+
+function checkPayload(source: { fields: DataField[] }, payload: unknown) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw invalid("event");
+  if (!fieldsFit(source.fields, payload)) throw invalid("event_types");
   return payload as Record<string, unknown>;
 }
 

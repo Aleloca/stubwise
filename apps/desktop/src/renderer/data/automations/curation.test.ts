@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { automations, resetApi, setLatency } from "../api";
-import { AUTOMATION_CASES } from "../seed/automations";
+import { AUTOMATION_CASES, AUTOMATION_RUNS } from "../seed/automations";
 import { BELLAVISTA_REPLY } from "../seed/automations/mail";
 import { setSessionPersonId } from "../session";
 import { state } from "../store";
+import { visitSteps } from "../../domain/automations/fields";
 import { resetViewerGrants, revokeProjectPermission } from "../viewer";
 
 // Revisione del Task 5, giro 1: le letture e le scritture che le pagine delle
@@ -330,5 +331,134 @@ describe("tabella cliente → progetto: un progetto che non vedo non si rivela",
     const mix = links.find((l) => l.clientKey === "mixcucine.example")!;
     expect(mix).toMatchObject({ projectId: "", projectVisible: false });
     expect(JSON.stringify(links)).not.toContain("prj-mkx");
+  });
+});
+
+describe("revisione del Task 5, giro 2", () => {
+  it("R-J14 sotto R-J16: chi decide senza essere il proprietario vede l'anteprima intera; registro e variabili restano nascosti", async () => {
+    const run = state.automationRuns.find((r) => r.id === R.waitingApproval)!;
+    const a = auto(run.automationId);
+    for (const v of a.versions)
+      visitSteps(v.flow.steps, (step) => {
+        if ("approval" in step && step.approval.mode === "ask")
+          step.approval = { mode: "ask", who: { personId: "p-roberta" } };
+      });
+    (run.pending!.preview as Record<string, unknown>).body = `Riassunto: ${BELLAVISTA_REPLY}`;
+    // Il seme non condivide più l'oggetto fra anteprima e riga del registro.
+    const seeded = AUTOMATION_RUNS.find((r) => r.id === R.waitingApproval)!;
+    expect(seeded.log.some((e) => e.input === seeded.pending!.preview)).toBe(false);
+    as("p-roberta");
+    const view = (await automations.getRun(R.waitingApproval))!;
+    expect(view.deciders).toEqual(["p-roberta"]);
+    expect(JSON.stringify(view.pending!.preview)).toContain(BELLAVISTA_REPLY);
+    expect(JSON.stringify(view.log)).not.toContain(BELLAVISTA_REPLY);
+    expect(view.vars["risposta.testo"]).toBe("");
+  });
+
+  it("R-J14 sotto R-J16 anche se anteprima e riga del registro sono lo stesso oggetto (difesa in `viewRun`)", async () => {
+    const run = state.automationRuns.find((r) => r.id === R.waitingApproval)!;
+    const a = auto(run.automationId);
+    for (const v of a.versions)
+      visitSteps(v.flow.steps, (step) => {
+        if ("approval" in step && step.approval.mode === "ask")
+          step.approval = { mode: "ask", who: { personId: "p-roberta" } };
+      });
+    const shared = { ...run.pending!.preview, body: `Riassunto: ${BELLAVISTA_REPLY}` };
+    run.pending!.preview = shared;
+    run.log.find(
+      (e) => e.outcome === "waiting" && e.kind === "sendEmail" && e.path === run.cursor,
+    )!.input = shared;
+    as("p-roberta");
+    const view = (await automations.getRun(R.waitingApproval))!;
+    expect(JSON.stringify(view.pending!.preview)).toContain(BELLAVISTA_REPLY);
+    expect(JSON.stringify(view.log)).not.toContain(BELLAVISTA_REPLY);
+  });
+
+  it("il motore dà a ogni riga del registro la sua copia dell'anteprima", async () => {
+    as("p-matteo");
+    await automations.approve(R.waitingApproval);
+    await idle();
+    const run = state.automationRuns.find((r) => r.id === R.waitingApproval)!;
+    const rows = run.log.filter((e) => e.path === "3/then/0/mancano informazioni/0");
+    const waiting = rows.find((e) => e.outcome === "waiting")!;
+    const ok = rows.find((e) => e.outcome === "ok")!;
+    expect(ok.input).not.toBe(waiting.input);
+  });
+
+  it("l'email parte solo dalla casella scelta: se non è più del proprietario, `mailbox_missing` che la nomina", async () => {
+    auto(A.clientData).mailbox = "vecchia-scelta@example.com";
+    as("p-matteo");
+    await automations.approve(R.waitingApproval);
+    await idle();
+    const run = state.automationRuns.find((r) => r.id === R.waitingApproval)!;
+    expect(run).toMatchObject({ status: "failed", error: "mailbox_missing" });
+    expect(run.log.at(-1)!.reason).toContain("vecchia-scelta@example.com");
+  });
+
+  it("con la casella scelta ancora collegata l'email parte", async () => {
+    const box = state.mailboxes.find((b) => b.personId === "p-matteo")!.email;
+    auto(A.clientData).mailbox = box.toUpperCase();
+    as("p-matteo");
+    await automations.approve(R.waitingApproval);
+    await idle();
+    expect(state.automationRuns.find((r) => r.id === R.waitingApproval)!.status).not.toBe("failed");
+  });
+
+  it("«Edit and send» controlla anche date, email e i campi dentro gli elenchi", async () => {
+    as("p-roberta");
+    const bad = [
+      { trattativa: { chiusaIl: "ieri" } },
+      { cliente: { email: "non-un-indirizzo" } },
+      { trattativa: { prodotti: [{ nome: "CRM", quantita: "tre" }] } },
+    ];
+    for (const payload of bad)
+      await expect(automations.simulateSourceEvent(S.audin, { payload })).rejects.toThrow(
+        "invalid: event_types",
+      );
+  });
+
+  it("un campo usato si conta solo nella versione pubblicata e nella bozza, anche dentro un `forEach`", async () => {
+    as("p-roberta");
+    const a = auto(A.clientData);
+    const old = a.versions[0]!;
+    // v1 diventa vecchia: la v2 pubblicata non cita più `richiesta.dati`, e scorre `righe` con `r.nome`.
+    const live = JSON.parse(
+      JSON.stringify(old.flow).replaceAll("richiesta.dati", "richiesta.funzione"),
+    );
+    live.steps.push({
+      id: "each",
+      kind: "forEach",
+      list: "righe",
+      as: "r",
+      steps: [
+        {
+          id: "t",
+          kind: "notify",
+          personRef: "p-matteo",
+          text: "{{r.nome}}",
+          approval: { mode: "auto" },
+        },
+      ],
+    });
+    a.versions.push({
+      n: 2,
+      flow: live,
+      publishedAt: "2026-10-22T10:00:00Z",
+      publishedById: "p-matteo",
+    });
+    const source = state.automationSources.find((x) => x.id === S.webhook)!;
+    source.fields.push({
+      key: "righe",
+      label: "Righe",
+      type: "list",
+      of: [{ key: "nome", label: "Nome", type: "text" }],
+    });
+    const p = await automations.previewWebhookExample(
+      S.webhook,
+      JSON.stringify({ cliente: { nome: "X", email: "x@x.example" }, righe: [{ quantita: 1 }] }),
+    );
+    expect(p.missing.find((m) => m.key === "righe.nome")?.usedBy).toEqual(["AUD-A1"]);
+    // `richiesta.dati` lo cita solo la v1, che non gira più.
+    expect(p.missing.some((m) => m.key === "richiesta.dati")).toBe(false);
   });
 });

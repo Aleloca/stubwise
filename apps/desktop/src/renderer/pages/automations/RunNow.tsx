@@ -244,7 +244,7 @@ export function ChooseProject({
         disabled={!projectId || choose.isPending}
         onClick={() =>
           choose.mutate(
-            { runId: run.id, projectId, remember: perms.integrations && remember },
+            { runId: run.id, projectId, remember: perms.integrations && !!client && remember },
             {
               onSuccess: () => {
                 toast.show(t("automations.toast.projectChosen", { code: run.code }));
@@ -257,7 +257,8 @@ export function ChooseProject({
       >
         {t("automations.actions.choose")}
       </button>
-      {perms.integrations && (
+      {/* Senza un cliente conosciuto non c'è niente da ricordare. */}
+      {perms.integrations && client && (
         <label className="flex h-8 items-center gap-2 text-sm text-ink">
           <input
             type="checkbox"

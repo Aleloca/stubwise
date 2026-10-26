@@ -237,7 +237,10 @@ export type ThreadOf = Pick<MailDraftInput, "threadId" | "mode" | "replyToMessag
 /**
  * `sentSoFar`: le email già partite dalla catena (il limite di 20 la
  * conta tutta); `thread`: in quale conversazione va; `attachmentId`: l'id
- * di ogni allegato.
+ * di ogni allegato; `mailbox`: la casella scelta accendendo o pubblicando
+ * (`Automation.mailbox`), che deve essere ancora una casella del
+ * proprietario — altrimenti `mailbox_missing`, con l'indirizzo nella
+ * motivazione. `null`: la casella del proprietario.
  */
 export function planEmail(
   eff: ActionEffect,
@@ -245,6 +248,7 @@ export function planEmail(
   sentSoFar: number,
   thread: (to: string) => ThreadOf,
   attachmentId: (i: number) => string,
+  mailbox: string | null = null,
 ): Planned<EmailPlan> {
   const args = eff.args as { to: string; subject: string; body: string; attachments: unknown[] };
   if (sentSoFar >= AUTOMATION_LIMITS.emailsPerRun) {
@@ -252,6 +256,19 @@ export function planEmail(
       failed(
         "email_limit",
         `Limite raggiunto: al massimo ${AUTOMATION_LIMITS.emailsPerRun} email per esecuzione, contando le automazioni avviate da questa.`,
+      ),
+    );
+  }
+  if (
+    mailbox !== null &&
+    !state.mailboxes.some(
+      (b) => b.personId === owner && b.email.toLowerCase() === mailbox.toLowerCase(),
+    )
+  ) {
+    return refuse(
+      failed(
+        "mailbox_missing",
+        `La casella scelta per l'automazione (${mailbox}) non è più collegata a ${personName(owner)}: l'email non è partita.`,
       ),
     );
   }

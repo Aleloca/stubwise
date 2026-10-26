@@ -283,7 +283,8 @@ const waitingApprovalRun: AutomationRun = {
   vars: { ...BELLAVISTA_REPLY_VARS, "verifica.mancanti": MISSING },
   cursor: MISSING_PATH,
   waitingUntil: null,
-  pending: { approverIds: ["p-matteo"], preview: MISSING_EMAIL },
+  // Copie distinte: l'anteprima di chi decide e la riga del registro non sono lo stesso oggetto.
+  pending: { approverIds: ["p-matteo"], preview: { ...MISSING_EMAIL } },
   startedAt: at(-6, "09:40"),
   endedAt: null,
   error: null,
@@ -359,7 +360,7 @@ const waitingApprovalRun: AutomationRun = {
       path: MISSING_PATH,
       kind: "sendEmail",
       outcome: "waiting",
-      input: MISSING_EMAIL,
+      input: { ...MISSING_EMAIL },
       reason: "Chiede l'approvazione del proprietario.",
     }),
   ],

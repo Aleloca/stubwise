@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   usePreviewWebhookExample,
@@ -6,7 +6,12 @@ import {
   useSetWebhookExample,
   useUpdateWebhookField,
 } from "../../data/queries";
-import type { AutomationSourceView, DataField, FieldType } from "../../data/types";
+import type {
+  AutomationSourceView,
+  DataField,
+  FieldType,
+  WebhookExamplePreview,
+} from "../../data/types";
 import { Dialog, inputClass } from "../../tasks-ui/Dialog";
 import { MenuGroup, itemClass } from "../../tasks-ui/Menu";
 import { useToast } from "../../tasks-ui/Toast";
@@ -21,7 +26,16 @@ import { useSimulate } from "./sourceHelpers";
 // campi usati che sparirebbero segnalati prima di confermare, [A 8]), i campi
 // con etichetta e tipo modificabili, e «Simulate an event» del prototipo.
 
-const FIELD_TYPES: FieldType[] = ["text", "number", "date", "email", "person", "list", "file"];
+const FIELD_TYPES: FieldType[] = [
+  "text",
+  "number",
+  "date",
+  "email",
+  "person",
+  "list",
+  "file",
+  "boolean",
+];
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -140,13 +154,22 @@ function ExampleEditor({ source, onDone }: { source: AutomationSourceView; onDon
   );
   const areaId = useId();
   const errorId = useId();
+  // Solo la risposta all'ultimo testo conta: una lettura vecchia che arriva
+  // dopo non può accendere «Save» su una validazione superata.
+  const seq = useRef(0);
+  const [result, setResult] = useState<{ seq: number; data: WebhookExamplePreview } | null>(null);
   const { mutate } = preview;
   useEffect(() => {
-    if (json.trim()) mutate({ id: source.id, json });
+    const mine = ++seq.current;
+    if (!json.trim()) return;
+    mutate(
+      { id: source.id, json },
+      { onSuccess: (data) => mine === seq.current && setResult({ seq: mine, data }) },
+    );
   }, [json, source.id, mutate]);
-  const result = json.trim() ? preview.data : undefined;
-  const invalid = result?.error ?? null;
-  const missing = result?.missing ?? [];
+  const current = result && result.seq === seq.current && json.trim() ? result.data : undefined;
+  const invalid = current?.error ?? null;
+  const missing = current?.missing ?? [];
   const usedCodes = [...new Set(missing.flatMap((m) => m.usedBy))];
   return (
     <div className="flex flex-col gap-2">
@@ -190,7 +213,7 @@ function ExampleEditor({ source, onDone }: { source: AutomationSourceView; onDon
         <button
           type="button"
           className={`${primaryButton} disabled:opacity-40`}
-          disabled={!json.trim() || !!invalid || !result || save.isPending}
+          disabled={!json.trim() || !!invalid || !current || save.isPending}
           onClick={() =>
             save.mutate(
               { id: source.id, json },

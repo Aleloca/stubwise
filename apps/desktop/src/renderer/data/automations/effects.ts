@@ -151,6 +151,7 @@ function sendEmail(eff: ActionEffect, env: EffectEnv, owner: string) {
     emailsSent(chainOf(env.run)),
     (to) => threadFor(env.run, owner, to),
     (i) => `att-${env.run.id}-${eff.stepId}-${i}`,
+    env.automation.mailbox ?? null,
   );
   if (!p.ok) return p.outcome;
   const message = sendNow(owner, p.plan.input);

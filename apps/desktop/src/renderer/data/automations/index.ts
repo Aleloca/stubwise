@@ -48,7 +48,6 @@ export {
   renameSource,
   setWebhookExample,
   updateWebhookField,
-  type WebhookExamplePreview,
 } from "./webhooks";
 export {
   endSimulation,

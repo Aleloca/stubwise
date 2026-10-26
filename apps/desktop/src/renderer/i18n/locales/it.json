@@ -4731,7 +4731,11 @@
       "sentFrom": "Le email partono da",
       "noMailbox": "Prima collega una casella nella Posta.",
       "openMail": "Apri la Posta",
-      "cantCreate": "Non puoi creare task in {{code}}: il passo {{step}} fallirebbe.",
+      "cantCreate": {
+        "createTask": "Non puoi creare task in {{code}}: il passo {{step}} fallirebbe.",
+        "createMilestone": "Non puoi creare traguardi in {{code}}: il passo {{step}} fallirebbe.",
+        "createRequest": "Non puoi creare richieste in {{code}}: il passo {{step}} fallirebbe."
+      },
       "thatProject": "un progetto che non vedi",
       "clientWarning": "Le esecuzioni per clienti il cui progetto non vedi ti chiederanno di sceglierlo.",
       "keepVersion_one": "{{count}} esecuzione in corso resta sulla versione {{n}} e finisce come è partita.",
@@ -4800,7 +4804,11 @@
       "eventTypes": "Ricevuto con errori: un campo non è del suo tipo. Non è partito niente.",
       "webhookCreated": "{{name}} creato · incolla un esempio",
       "webhookError": "Non è stato possibile creare il webhook.",
-      "renamed": "Rinominata {{name}}"
+      "renamed": "Rinominata {{name}}",
+      "onPermission": "Non è stato possibile accendere {{code}}: in uno dei suoi progetti non puoi creare ciò che crea.",
+      "onMailboxMissing": "Non è stato possibile accendere {{code}}: prima collega una casella nella Posta.",
+      "onMailboxExpired": "Non è stato possibile accendere {{code}}: il collegamento della tua casella è scaduto. Ricollegala nella Posta.",
+      "onConfig": "Non è stato possibile accendere {{code}}: prima vanno risolti i suoi problemi."
     },
     "errors": {
       "load": "Non è stato possibile caricare le automazioni",

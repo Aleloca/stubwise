@@ -1,7 +1,10 @@
 import { copy, gate, now, state } from "../store";
-import type { AutomationSource, DataField, FieldType } from "../types";
+import type { AutomationSource, DataField, FieldType, WebhookExamplePreview } from "../types";
 import { forbidden, invalid, notFound, writer } from "../writer";
-import { canManageIntegrations } from "./visibility";
+import { visitSteps } from "../../domain/automations/fields";
+import { viewRun } from "./reads";
+import { publishedVersion } from "./runner";
+import { canManageIntegrations, canSeeAutomation, canSeeRun } from "./visibility";
 
 // Le sorgenti create e curate da chi gestisce le integrazioni (shape
 // automation-sources.md §6): un webhook in arrivo nuovo, il nome, l'indirizzo
@@ -137,28 +140,43 @@ function mergeFields(next: DataField[], old: DataField[]): DataField[] {
 }
 
 /** Un campo è usato da un'automazione se il flusso lo cita (testi, condizioni, ingressi). */
-function usedBy(source: AutomationSource, key: string): string[] {
-  const re = new RegExp(
-    `\\{\\{\\s*${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\}\\}|"${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`,
-  );
+const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const cites = (text: string, key: string) =>
+  new RegExp(`\\{\\{\\s*${escape(key)}\\s*\\}\\}|"${escape(key)}"`).test(text);
+
+/**
+ * Le automazioni che chi guarda vede (R-G5) e che citano un campo nella
+ * versione pubblicata o nella bozza (le versioni vecchie non girano più per
+ * esecuzioni nuove). Un campo dentro un elenco (`prodotti.nome`) si cita
+ * attraverso il `forEach` che scorre l'elenco: `{{<as>.nome}}`.
+ */
+function usedBy(me: string, source: AutomationSource, key: string): string[] {
+  const [listKey, childKey] = splitListKey(source.fields, key);
   return state.automations
-    .filter((a) =>
-      a.versions.some(
-        (v) =>
-          v.flow.trigger.kind === "source" &&
-          v.flow.trigger.sourceId === source.id &&
-          re.test(JSON.stringify(v.flow.steps)),
-      ),
-    )
+    .filter((a) => canSeeAutomation(me, a))
+    .filter((a) => {
+      const live = publishedVersion(a);
+      const draft = a.versions.at(-1)!;
+      return [live, draft].some((v) => {
+        if (!v || v.flow.trigger.kind !== "source" || v.flow.trigger.sourceId !== source.id)
+          return false;
+        const text = JSON.stringify(v.flow.steps);
+        if (listKey === null) return cites(text, key);
+        let hit = false;
+        visitSteps(v.flow.steps, (s) => {
+          if (s.kind === "forEach" && s.list === listKey && cites(text, `${s.as}.${childKey}`))
+            hit = true;
+        });
+        return hit;
+      });
+    })
     .map((a) => a.code);
 }
 
-export interface WebhookExamplePreview {
-  /** Il JSON non è valido: il messaggio del parser (riga e colonna, se le dice). */
-  error: string | null;
-  fields: DataField[];
-  /** I campi di oggi che il nuovo esempio non ha e che un'automazione usa ([A 8]). */
-  missing: { key: string; label: string; usedBy: string[] }[];
+/** `prodotti.nome` → `["prodotti", "nome"]` se `prodotti` è un elenco; altrimenti `[null, key]`. */
+function splitListKey(fields: DataField[], key: string): [string | null, string] {
+  const parent = fields.find((f) => f.type === "list" && key.startsWith(`${f.key}.`));
+  return parent ? [parent.key, key.slice(parent.key.length + 1)] : [null, key];
 }
 
 function parseExample(json: string): Record<string, unknown> {
@@ -172,7 +190,7 @@ function parseExample(json: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function preview(source: AutomationSource, json: string): WebhookExamplePreview {
+function preview(me: string, source: AutomationSource, json: string): WebhookExamplePreview {
   let parsed: Record<string, unknown>;
   try {
     parsed = parseExample(json);
@@ -190,7 +208,7 @@ function preview(source: AutomationSource, json: string): WebhookExamplePreview 
     .map((k) => ({
       key: k,
       label: source.fields.find((f) => f.key === k)?.label ?? k,
-      usedBy: usedBy(source, k),
+      usedBy: usedBy(me, source, k),
     }))
     .filter((m) => m.usedBy.length > 0);
   return { error: null, fields, missing };
@@ -202,7 +220,7 @@ export async function previewWebhookExample(
   json: string,
 ): Promise<WebhookExamplePreview> {
   const me = await gate("automations.previewWebhookExample");
-  return preview(webhook(me, id), json);
+  return preview(me, webhook(me, id), json);
 }
 
 /** Conferma l'esempio: diventa il primo evento d'esempio e ne derivano i campi. */
@@ -258,10 +276,12 @@ export async function listClientSuggestions(): Promise<
   if (!canManageIntegrations(me)) return [];
   const known = new Set(state.clientProjectLinks.map((l) => l.clientKey));
   const out = new Map<string, string>();
+  // Solo gli eventi di esecuzioni che chi guarda vede (R-G5), e quelli d'esempio delle sorgenti.
   const events = [
     ...[...state.automationRuns]
+      .filter((r) => canSeeRun(me, r))
       .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
-      .map((r) => r.event),
+      .map((r) => viewRun(me, r).event),
     ...state.automationSources.flatMap((s) => s.sampleEvents),
   ];
   for (const e of events) {

@@ -190,6 +190,8 @@ function previewOf(sim: Sim, a: Automation, eff: ActionEffect, at: string): Prev
         sim.preview.emails.length,
         () => ({ threadId: null, mode: "new", replyToMessageId: null }),
         (i: number) => `att-${sim.id}-${eff.stepId}-${i}`,
+        // La casella scelta vale per il proprietario di adesso; chi prova una bozza usa la sua (R-J15).
+        owner === a.ownerId ? (a.mailbox ?? null) : null,
       );
       if (!p.ok) return p;
       if (p.plan.bounced) return { ok: false, outcome: bouncedFailure(p.plan.to) };

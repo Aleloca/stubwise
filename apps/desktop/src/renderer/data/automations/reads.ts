@@ -220,7 +220,12 @@ export function viewRun(me: string, run: AutomationRun): AutomationRun {
   }
   if (v.pending) scrub(v.pending.preview);
   const a = automationById(run.automationId);
-  if (a?.ownerId !== me) hideReplies(v, !decidersOf(run).includes(me));
+  if (a?.ownerId !== me) {
+    // R-J14: l'anteprima di chi decide resta intera — separata prima di
+    // nascondere, perché può condividere oggetti col registro.
+    if (v.pending) v.pending.preview = copy(v.pending.preview);
+    hideReplies(v, !decidersOf(run).includes(me));
+  }
   if (startedByMail(run) && a?.ownerId !== me) {
     const hidden = { email: { mittente: "", oggetto: MAIL_HIDDEN, testo: "" } };
     v.event = hidden;

@@ -4731,7 +4731,11 @@
       "sentFrom": "Emails are sent from",
       "noMailbox": "Connect a mailbox in Mail first.",
       "openMail": "Open Mail",
-      "cantCreate": "You can't create tasks in {{code}}: step {{step}} would fail.",
+      "cantCreate": {
+        "createTask": "You can't create tasks in {{code}}: step {{step}} would fail.",
+        "createMilestone": "You can't create milestones in {{code}}: step {{step}} would fail.",
+        "createRequest": "You can't create requests in {{code}}: step {{step}} would fail."
+      },
       "thatProject": "a project you can't see",
       "clientWarning": "Runs for clients whose project you can't see will ask you to choose.",
       "keepVersion_one": "{{count}} run in progress keeps using version {{n}} and finishes as it started.",
@@ -4800,7 +4804,11 @@
       "eventTypes": "Received with errors: a field isn't of its type. Nothing started.",
       "webhookCreated": "{{name}} created · paste an example",
       "webhookError": "Couldn't create the webhook.",
-      "renamed": "Renamed {{name}}"
+      "renamed": "Renamed {{name}}",
+      "onPermission": "Couldn't turn on {{code}}: you can't create what it creates in one of its projects.",
+      "onMailboxMissing": "Couldn't turn on {{code}}: connect a mailbox in Mail first.",
+      "onMailboxExpired": "Couldn't turn on {{code}}: your mailbox connection expired. Reconnect it in Mail.",
+      "onConfig": "Couldn't turn on {{code}}: it has problems to fix first."
     },
     "errors": {
       "load": "Couldn't load the automations",
