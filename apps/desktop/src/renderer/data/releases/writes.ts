@@ -1,9 +1,15 @@
 // Le scritture usano `createTaskAs`/`startRunAs`/`createConversationAs` solo
 // dentro le funzioni: l'import circolare con `api-mutations` è innocuo.
-import { createConversationAs, createTaskAs, startRunAs } from "../api-mutations";
+import {
+  addCommentAs,
+  createConversationAs,
+  createTaskAs,
+  requestChangesAs,
+  startRunAs,
+} from "../api-mutations";
 import { publishAlert } from "../alerts/publish";
 import { PEOPLE } from "../seed/people";
-import { copy, newId, now, state, storeGeneration } from "../store";
+import { copy, latestRunOf, newId, now, state, storeGeneration } from "../store";
 import type {
   ColleaguePrMode,
   Conversation,
@@ -230,7 +236,13 @@ export async function setPrAnalysisOnly(prId: string, on: boolean): Promise<Open
 }
 
 export type CorrectionRequestResult =
-  | { ok: true; correction: PrAutoCorrection }
+  | {
+      ok: true;
+      /** La correzione sul ramo di un collega; `null` per una PR di Stubwise. */
+      correction: PrAutoCorrection | null;
+      /** La sessione di correzione della task (solo PR di Stubwise). */
+      sessionId: string | null;
+    }
   | {
       ok: false;
       error: "needs_maintainer" | "already_closed" | "in_flight" | "not_fixable" | "analysis_only";
@@ -246,13 +258,29 @@ export async function requestPrCorrection(
   prId: string,
   text: string,
 ): Promise<CorrectionRequestResult> {
+  const gen = storeGeneration();
   const me = await writer("releases.requestPrCorrection");
   const pr = prFor(me, prId);
-  if (pr.origin !== "colleague") throw invalid("origin");
   if (!canRequestCorrection(me, pr)) throw forbidden();
   if (!text.trim()) throw invalid("text");
   if (pr.state !== "open") return { ok: false, error: "already_closed" };
   const st = stateOfPr(pr);
+  if (pr.origin === "stubwise") {
+    // Una PR di Stubwise si corregge con una sessione della sua task (il
+    // percorso di «Chiedi modifiche», area 3), sotto lo stesso tetto (R-K2).
+    const task = state.tasksById.get(pr.taskId!)!;
+    if (st.notFixable) return { ok: false, error: "not_fixable" };
+    if (st.autoRound >= capOf(pr.projectId) && !holds(me, "plans.approve", pr.projectId)) {
+      return { ok: false, error: "needs_maintainer" };
+    }
+    const live = latestRunOf(task.id);
+    if (live && live.state !== "finished") return { ok: false, error: "in_flight" };
+    const session = await requestChangesAs(me, task, text, gen, {
+      repo: pr.repo,
+      number: pr.number,
+    });
+    return { ok: true, correction: null, sessionId: session.id };
+  }
   if (pr.corrections.some((c) => c.state === "running")) return { ok: false, error: "in_flight" };
   if (st.notFixable) return { ok: false, error: "not_fixable" };
   if (st.state === "analysis_only" || st.state === "analysis_off") {
@@ -272,7 +300,7 @@ export async function requestPrCorrection(
     at: now(),
   };
   pr.corrections.push(correction);
-  return { ok: true, correction: copy(correction) };
+  return { ok: true, correction: copy(correction), sessionId: null };
 }
 
 // --- rilascio fallito ---------------------------------------------------------
@@ -294,17 +322,25 @@ function fixDescription(r: Release, note?: string): string {
  * «Fai sistemare a Claude» (`tickets.create`): una task `bug` collegata al
  * rilascio (e «correlata» alla task della PR, se c'era), con l'errore della
  * run. Un rilascio fallito ha al massimo una task di riparazione aperta: un
- * secondo clic restituisce quella. Con `runs.start` Claude parte col
+ * secondo clic restituisce quella (`existing`), e la sua nota, se c'è, entra
+ * come commento della task (`noteAdded`; senza `tickets.comment` non entra, e
+ * la pagina lo dice). Con `runs.start` Claude parte col
  * percorso normale di «Avvia» (gate del piano per chi non ha `plans.approve`);
  * senza, la task aspetta qualcuno che la avvii.
  */
-export async function fixRelease(code: string, note?: string): Promise<Task> {
+export type FixResult = Task & { existing: boolean; noteAdded: boolean };
+
+export async function fixRelease(code: string, note?: string): Promise<FixResult> {
   const gen = storeGeneration();
   const me = await writer("releases.fixRelease");
   const r = releaseFor(me, code);
   if (!holds(me, "tickets.create", r.projectId)) throw forbidden();
   const existing = openFixTask(r);
-  if (existing) return copy(existing);
+  if (existing) {
+    const noteAdded = !!note?.trim() && holds(me, "tickets.comment", r.projectId);
+    if (noteAdded) addCommentAs(me, existing.id, note!);
+    return { ...copy(existing), existing: true, noteAdded };
+  }
   if (statusOf(r).kind !== "failed") throw invalid("status");
   const prEvent = state.pullRequests.find(
     (p) => p.projectId === r.projectId && p.repo === r.pr.repo && p.number === r.pr.number,
@@ -326,7 +362,7 @@ export async function fixRelease(code: string, note?: string): Promise<Task> {
   );
   r.fixTaskId = task.id;
   if (holds(me, "runs.start", r.projectId)) await startRunAs(me, task, gen);
-  return copy(task);
+  return { ...copy(task), existing: false, noteAdded: false };
 }
 
 /**

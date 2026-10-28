@@ -108,7 +108,7 @@ export function ReleasesPage({ projectCode }: { projectCode: string }) {
             if (queue.isError) void queue.refetch();
           }}
         />
-      ) : !prs.data || !queue.data || !envs.data ? (
+      ) : !prs.data || !queue.data ? (
         loading(3)
       ) : prs.data.length === 0 ? (
         <p className="border-t border-rule py-3 pl-3 text-md text-ink-muted">
@@ -120,7 +120,7 @@ export function ReleasesPage({ projectCode }: { projectCode: string }) {
           prs={prs.data}
           queue={queue.data}
           cap={cap}
-          environments={envs.data.environments}
+          environments={envs.data?.environments ?? []}
           full={view === "prs"}
         />
       )}
@@ -162,7 +162,7 @@ export function ReleasesPage({ projectCode }: { projectCode: string }) {
           projectId={project.id}
           projectCode={projectCode}
           canManage={envs.data.canManage}
-          environments={envs.data.environments}
+          environments={envs.data?.environments ?? []}
           releases={releases.data ?? []}
         />
       )}

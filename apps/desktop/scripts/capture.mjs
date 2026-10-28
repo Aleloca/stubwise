@@ -817,6 +817,11 @@ async function main() {
         await p.waitForTimeout(400);
       } }],
       ["releases-pr", "/p/AUD/releases?pr=opr-aud-246", { persona: "Marco" }],
+      // Una PR di Stubwise: «Request changes» apre una sessione della task (m3).
+      ["releases-pr-stubwise", "/p/AUD/releases?pr=opr-aud-244", { persona: "Marco", steps: async (p) => {
+        await p.locator("[data-detail-panel]").getByText(/^(What should change|Cosa deve cambiare)$/).scrollIntoViewIfNeeded();
+        await p.waitForTimeout(300);
+      } }],
       ["release-failed", "/p/AUD/releases/AUD-V3", { persona: "Laura" }],
       ["release-log-all", "/p/AUD/releases/AUD-V3", { persona: "Laura", steps: async (p) => {
         await p.getByRole("button", { name: /^(Show all|Vedi tutto)$/ }).click();

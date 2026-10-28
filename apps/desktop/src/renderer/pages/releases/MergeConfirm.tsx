@@ -2,7 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useMergePr } from "../../data/queries";
-import type { MergeError, OpenPrView } from "../../data/releases";
+import type { MergeError as DataMergeError, OpenPrView } from "../../data/releases";
 import { useToast } from "../../tasks-ui/Toast";
 import { smallPrimary, smallSecondary } from "../task/parts";
 import { platformOf, prCode, prUrl } from "./format";
@@ -14,6 +14,12 @@ import { platformOf, prCode, prUrl } from "./format";
 // l'unica azione: la pipeline la fa la piattaforma, Stubwise la segue.
 
 export type MergeStep = "idle" | "confirm" | "merging";
+
+/**
+ * Gli esiti d'errore del merge: i codici del livello dati, più `generic` per
+ * un'eccezione (trasporto, cancello) che non dice niente sui controlli.
+ */
+export type MergeError = DataMergeError | "generic";
 
 export interface MergeFlow {
   step: MergeStep;
@@ -85,7 +91,7 @@ export function useMergeFlow(
           toast.show(t("releases.merge.doneNoRelease"));
         }
       } catch {
-        report("checks_unreadable");
+        report("generic");
         setStep("confirm");
       }
     },

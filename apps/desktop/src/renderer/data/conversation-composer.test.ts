@@ -340,7 +340,7 @@ describe("citazioni", () => {
       visible: true,
       code: "AUD",
       name: "0.10.0 · Callbacks and import preview",
-      route: "#/p/AUD/releases",
+      route: "#/p/AUD/docs",
     });
 
     setSessionPersonId("p-sara"); // AUD non lo vede: nulla, nemmeno il codice

@@ -315,9 +315,30 @@ describe("Review Focus 2: correzioni sulle PR dei colleghi (livello dati)", () =
       ok: false,
       error: "in_flight",
     });
-    await expect(releases.requestPrCorrection("opr-aud-244", "x")).rejects.toThrow(
-      "invalid: origin",
-    );
+  });
+
+  it("PR di Stubwise: «Chiedi modifiche» apre una sessione della task, sotto lo stesso tetto (R-K2)", async () => {
+    as("p-giulia");
+    grantProjectRole("p-giulia", AUD, "contributor");
+    await expect(releases.requestPrCorrection("opr-aud-244", "x")).rejects.toThrow("forbidden");
+    as("p-marco"); // Developer: corrections.request, niente plans.approve
+    const res = await releases.requestPrCorrection("opr-aud-244", "Rename the checklist step");
+    expect(res).toMatchObject({ ok: true, correction: null });
+    const session = state.conversations.find((c) => c.id === (res.ok ? res.sessionId : ""));
+    expect(session).toMatchObject({ kind: "task_run", taskId: pr("opr-aud-244").taskId });
+    // Una seconda mentre la prima lavora: in volo, nessuna sessione nuova.
+    const before = state.conversations.length;
+    expect(await releases.requestPrCorrection("opr-aud-244", "Again")).toEqual({
+      ok: false,
+      error: "in_flight",
+    });
+    expect(state.conversations.length).toBe(before);
+    // guide#58 di STW è al tetto: Marco no, e nessuna sessione nasce.
+    expect(await releases.requestPrCorrection("opr-stw-guide-58", "Add Escape")).toEqual({
+      ok: false,
+      error: "needs_maintainer",
+    });
+    expect(state.conversations.length).toBe(before);
   });
 
   it("«Solo analisi» acceso con una correzione in volo: si ferma prima del push", async () => {

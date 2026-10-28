@@ -34,7 +34,16 @@ export function FixDialog({ release, onClose }: { release: ReleaseView; onClose:
       {
         onSuccess: (task) => {
           onClose();
-          toast.show(t("releases.fix.created", { task: task.code }));
+          // Una task già aperta (un altro clic, un'altra persona): lo si dice, e
+          // si dice che fine ha fatto la nota.
+          const key = !task.existing
+            ? "releases.fix.created"
+            : !note.trim()
+              ? "releases.fix.existing"
+              : task.noteAdded
+                ? "releases.fix.existingNote"
+                : "releases.fix.existingNoteUnused";
+          toast.show(t(key, { task: task.code }));
         },
         onError: () => toast.error(t("releases.fix.error", { code: release.code })),
       },

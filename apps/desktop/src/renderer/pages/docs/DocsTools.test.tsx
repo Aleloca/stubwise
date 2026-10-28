@@ -143,7 +143,7 @@ describe("Docs — brief del repository", () => {
   });
 });
 
-describe("Docs — releases", () => {
+describe("Docs — note di rilascio", () => {
   it("cerca, «Significant only» toglie le minori, le pagine toccate portano alla pagina", async () => {
     const router = renderRoute("/p/STW/docs/stubwise", "p-laura");
     await screen.findByRole("heading", { level: 1, name: "stubwise" });
@@ -174,19 +174,19 @@ describe("Docs — releases", () => {
     expect(path(router)).toBe("/p/STW/docs/stubwise/worker-pipeline");
   });
 
-  it("nessun risultato lo dice; uno spazio senza releases anche", async () => {
+  it("nessun risultato lo dice; uno spazio senza note di rilascio anche", async () => {
     renderRoute("/p/STW/docs/stubwise/releases", "p-laura");
     await userEvent.type(
       await screen.findByRole("searchbox", { name: "Search release notes" }),
       "export",
     );
-    expect(await screen.findByText("No releases match “export”")).toBeInTheDocument();
+    expect(await screen.findByText("No release notes match “export”")).toBeInTheDocument();
   });
 
   it("vuoto", async () => {
     renderRoute("/p/CBV/docs/bellavista-store/releases", "p-roberta");
     expect(
-      await screen.findByText("No releases yet: they're written every night from new commits"),
+      await screen.findByText("No release notes yet: they're written every night from new commits"),
     ).toBeInTheDocument();
   });
 });

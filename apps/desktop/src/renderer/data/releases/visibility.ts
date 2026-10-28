@@ -7,6 +7,7 @@ import {
   type PrState,
 } from "../../domain/releases/prState";
 import { releaseStatus, type ReleaseStatus } from "../../domain/releases/releaseStatus";
+import { releaseMandatory } from "../alerts/publish";
 import { eventsOf, now, state, visibleProjectIds } from "../store";
 import type {
   CiRun,
@@ -144,15 +145,20 @@ export const canSetAnalysisOnly = (me: string, pr: OpenPullRequest): boolean =>
   isAuthor(me, pr) || holds(me, "prs.adopt", pr.projectId);
 
 /**
- * Chiedere una correzione su una PR di un collega: l'autore con
- * `corrections.request`, gli altri con `prs.adopt`. Le PR di Stubwise si
- * correggono dalla task («Chiedi modifiche», area 3).
+ * Chiedere una correzione. Su una PR di un collega: l'autore con
+ * `corrections.request`, gli altri con `prs.adopt`. Su una PR di Stubwise:
+ * il permesso di oggi, `corrections.request` (come «Chiedi modifiche» sulla
+ * task, area 3), purché la task si veda — la correzione è una sua sessione.
  */
-export const canRequestCorrection = (me: string, pr: OpenPullRequest): boolean =>
-  pr.origin === "colleague" &&
-  (isAuthor(me, pr)
+export const canRequestCorrection = (me: string, pr: OpenPullRequest): boolean => {
+  if (pr.origin === "stubwise") {
+    const task = pr.taskId ? state.tasksById.get(pr.taskId) : undefined;
+    return !!task && sees(me, task.projectId) && holds(me, "corrections.request", pr.projectId);
+  }
+  return isAuthor(me, pr)
     ? holds(me, "corrections.request", pr.projectId)
-    : holds(me, "prs.adopt", pr.projectId));
+    : holds(me, "prs.adopt", pr.projectId);
+};
 
 export type OpenPrView = OpenPullRequest & {
   prState: PrState;
@@ -198,6 +204,12 @@ export interface ReleaseView extends Omit<Release, "runs"> {
   /** «Fai sistemare a Claude»: `tickets.create` (e `runs.start` per far partire Claude). */
   canFix: boolean;
   canStartFix: boolean;
+  /**
+   * Aspetta chi guarda ([R 6], il punto sulla voce della colonna): fallito,
+   * senza task di riparazione aperta, e chi guarda ne è destinatario
+   * obbligatorio (`releaseMandatory`: il merge è suo).
+   */
+  waitsOnViewer: boolean;
 }
 
 export function statusOf(r: Release): ReleaseStatus {
@@ -232,6 +244,10 @@ export function releaseView(me: string, r: Release): ReleaseView {
       : null,
     canFix: holds(me, "tickets.create", r.projectId),
     canStartFix: holds(me, "runs.start", r.projectId),
+    waitsOnViewer:
+      statusOf(r).kind === "failed" &&
+      !openFixTask(r) &&
+      releaseMandatory(r).some((m) => m.personId === me),
   };
 }
 

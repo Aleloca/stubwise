@@ -3132,7 +3132,7 @@
       "decidedBy": "decisa da {{name}}",
       "someone": "una persona che non c'è più",
       "noDecisions": "Nessuna decisione registrata.",
-      "noReleases": "Ancora nessuna release: si scrivono ogni notte dai commit nuovi.",
+      "noReleases": "Ancora nessuna nota di rilascio: si scrivono ogni notte dai commit nuovi.",
       "indexOf": "Tutto in {{name}}"
     },
     "space": {
@@ -3279,9 +3279,9 @@
       "search": "Cerca nelle note di rilascio",
       "significant": "Solo significative",
       "pagesTouched": "Pagine toccate",
-      "empty": "Ancora nessuna release: si scrivono ogni notte dai commit nuovi",
-      "noMatch": "Nessuna release corrisponde a «{{query}}»",
-      "noMatchSignificant": "Nessuna release significativa"
+      "empty": "Ancora nessuna nota di rilascio: si scrivono ogni notte dai commit nuovi",
+      "noMatch": "Nessuna nota di rilascio corrisponde a «{{query}}»",
+      "noMatchSignificant": "Nessuna nota di rilascio significativa"
     },
     "graph": {
       "title": "Grafo",
@@ -6396,7 +6396,8 @@
         "not_mergeable": "{{platform}} ha rifiutato il merge: conflitti o regole del ramo non soddisfatte.",
         "merge_forbidden": "L'account git salvato per {{code}} non può mergiare questa PR.",
         "not_found": "Questa PR non è stata trovata.",
-        "forbidden": "Non puoi più rilasciare in {{code}}."
+        "forbidden": "Non puoi più rilasciare in {{code}}.",
+        "generic": "Non è stato possibile mergiare. Riprova fra poco."
       }
     },
     "status": {
@@ -6465,7 +6466,10 @@
       "noPermission": "Chi può creare task in {{code}} può chiedere a Claude di sistemarlo.",
       "discard": "Buttare la nota?",
       "keep": "Continua a scrivere",
-      "discardConfirm": "Butta"
+      "discardConfirm": "Butta",
+      "existing": "Già in riparazione in {{task}}",
+      "existingNote": "Già in riparazione in {{task}}: la tua nota è stata aggiunta come commento",
+      "existingNoteUnused": "Già in riparazione in {{task}}: la tua nota non è stata aggiunta, non puoi commentarla"
     },
     "explain": {
       "button": "Chiedi a Claude di spiegarlo",
@@ -6583,7 +6587,8 @@
         "not_fixable": "Claude non può spingere su questo ramo.",
         "analysis_only": "Questa PR è su solo analisi."
       },
-      "stubwiseCorrections": "Le modifiche a questa PR si chiedono da {{task}}."
+      "stubwiseCorrections": "Claude fa la modifica in una nuova sessione di {{task}}.",
+      "requestStarted": "Claude sta facendo la modifica in {{task}}"
     },
     "simulate": {
       "label": "Solo prototipo",
@@ -6596,6 +6601,11 @@
       "advance": "Fai avanzare il lavoro di Claude",
       "authorPush": "Simula un push dell'autore",
       "error": "La simulazione non è andata a buon fine."
+    },
+    "column": {
+      "waiting": "Un rilascio fallito aspetta te",
+      "openPrs_one": "{{count}} pull request aperta",
+      "openPrs_other": "{{count}} pull request aperte"
     }
   }
 }

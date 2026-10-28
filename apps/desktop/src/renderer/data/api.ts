@@ -1164,7 +1164,9 @@ export async function resolveCitations(refs: CitationRef[]): Promise<CitationVie
           name: `${r.version} · ${r.title}`,
           projectCode: project,
           personId: r.publishedById,
-          route: `#/p/${project}/releases`,
+          // Le note di rilascio stanno nei Docs (come l'avviso `docs.release_note`),
+          // non nella sezione Rilasci dell'area 8a.
+          route: `#/p/${project}/docs`,
         };
       }
     }

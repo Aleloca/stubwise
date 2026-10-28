@@ -3968,7 +3968,8 @@ export function useRequestPrCorrection() {
   return useWrite(
     ({ prId, text }: { prId: string; text: string }) =>
       api.releases.requestPrCorrection(prId, text),
-    RELEASE_AREAS,
+    // Su una PR di Stubwise nasce una sessione della task.
+    [...RELEASE_AREAS, ...RUN_AREAS],
   );
 }
 

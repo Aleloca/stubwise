@@ -3132,7 +3132,7 @@
       "decidedBy": "decided by {{name}}",
       "someone": "someone no longer here",
       "noDecisions": "No decisions recorded yet.",
-      "noReleases": "No releases yet: they're written every night from new commits.",
+      "noReleases": "No release notes yet: they're written every night from new commits.",
       "indexOf": "Everything in {{name}}"
     },
     "space": {
@@ -3279,9 +3279,9 @@
       "search": "Search release notes",
       "significant": "Significant only",
       "pagesTouched": "Pages touched",
-      "empty": "No releases yet: they're written every night from new commits",
-      "noMatch": "No releases match “{{query}}”",
-      "noMatchSignificant": "No significant releases"
+      "empty": "No release notes yet: they're written every night from new commits",
+      "noMatch": "No release notes match “{{query}}”",
+      "noMatchSignificant": "No significant release notes"
     },
     "graph": {
       "title": "Graph",
@@ -6396,7 +6396,8 @@
         "not_mergeable": "{{platform}} refused the merge: conflicts or branch rules not met.",
         "merge_forbidden": "The git account saved for {{code}} can't merge this pull request.",
         "not_found": "This pull request wasn't found.",
-        "forbidden": "You can't release in {{code}} any more."
+        "forbidden": "You can't release in {{code}} any more.",
+        "generic": "Couldn't merge. Try again in a moment."
       }
     },
     "status": {
@@ -6465,7 +6466,10 @@
       "noPermission": "Someone who can create tasks in {{code}} can ask Claude to fix it.",
       "discard": "Discard your note?",
       "keep": "Keep editing",
-      "discardConfirm": "Discard"
+      "discardConfirm": "Discard",
+      "existing": "Already being fixed in {{task}}",
+      "existingNote": "Already being fixed in {{task}}: your note was added as a comment",
+      "existingNoteUnused": "Already being fixed in {{task}}: your note wasn't added, you can't comment on it"
     },
     "explain": {
       "button": "Ask Claude to explain",
@@ -6583,7 +6587,8 @@
         "not_fixable": "Claude can't push to this branch.",
         "analysis_only": "This pull request is set to analysis only."
       },
-      "stubwiseCorrections": "Changes to this pull request are requested from {{task}}."
+      "stubwiseCorrections": "Claude makes the change in a new session of {{task}}.",
+      "requestStarted": "Claude is making the change in {{task}}"
     },
     "simulate": {
       "label": "Prototype only",
@@ -6596,6 +6601,11 @@
       "advance": "Advance Claude's work",
       "authorPush": "Simulate a push by the author",
       "error": "The simulation didn't go through."
+    },
+    "column": {
+      "waiting": "A failed release waits on you",
+      "openPrs_one": "{{count}} open pull request",
+      "openPrs_other": "{{count}} open pull requests"
     }
   }
 }

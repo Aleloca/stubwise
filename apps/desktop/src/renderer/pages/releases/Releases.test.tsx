@@ -1,7 +1,7 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resetApi, setLatency } from "../../data/api";
+import { failNext, resetApi, setLatency } from "../../data/api";
 import { state } from "../../data/store";
 import { grantProjectRole, resetViewerGrants } from "../../data/viewer";
 import { setLanguage } from "../../i18n";
@@ -251,6 +251,72 @@ describe("Releases — il pannello di una PR", () => {
     expect(simulate.length).toBeGreaterThan(0);
     for (const b of simulate) expect(b.closest("[data-prototype-only]")).not.toBeNull();
     expect(within(panel).getByText("Prototype only")).toBeInTheDocument();
+  });
+});
+
+describe("Releases — giro di correzioni 1", () => {
+  it("[R 6] la voce Releases della colonna: il conteggio delle PR aperte, il punto solo per chi aspetta", async () => {
+    await openSection();
+    const item = () => document.querySelector<HTMLElement>('[data-section="releases"]')!;
+    await waitFor(() => expect(item()).toHaveTextContent("5"));
+    // Laura ha fatto il merge di AUD-V3, fallito e senza riparazione.
+    expect(item().querySelector("[data-waiting-dot]")).not.toBeNull();
+    expect(within(item()).getByText("A failed release waits on you")).toBeInTheDocument();
+    document.body.innerHTML = "";
+    await openSection("p-marco");
+    await waitFor(() => expect(item()).toHaveTextContent("5"));
+    expect(item().querySelector("[data-waiting-dot]")).toBeNull();
+  });
+
+  it("[R 6] riparato con una task, il punto se ne va", async () => {
+    state.releases.find((r) => r.code === "AUD-V3")!.fixTaskId = "t-aud-3";
+    await openSection();
+    const item = document.querySelector<HTMLElement>('[data-section="releases"]')!;
+    await waitFor(() => expect(item).toHaveTextContent("5"));
+    expect(item.querySelector("[data-waiting-dot]")).toBeNull();
+  });
+
+  it("m4: se gli ambienti non si leggono, le PR si vedono lo stesso", async () => {
+    failNext("releases.listEnvironments");
+    await openSection();
+    expect(await screen.findByText("Couldn't load the environments.")).toBeInTheDocument();
+    expect(rowOf("opr-aud-244")).not.toBeNull();
+  });
+
+  it("un'eccezione del merge è un errore generico, non «checks unreadable»", async () => {
+    await openSection();
+    await userEvent.click(screen.getByRole("button", { name: "Release audin-app#244" }));
+    failNext("releases.mergePr");
+    await userEvent.click(screen.getByRole("button", { name: "Confirm merge" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Couldn't merge. Try again in a moment.",
+    );
+    expect(screen.queryByText(/Couldn't read the checks/)).toBeNull();
+  });
+
+  it("m3: «Request changes» anche su una PR di Stubwise, con la sessione della task", async () => {
+    renderRoute("/p/AUD/releases?pr=opr-aud-244", "p-marco");
+    const panel = await screen.findByRole("region", { name: "Pull request audin-app#244" });
+    const before = state.conversations.length;
+    await userEvent.type(
+      within(panel).getByRole("textbox", { name: "What should change" }),
+      "Rename the first step",
+    );
+    await userEvent.click(within(panel).getByRole("button", { name: "Send to Claude" }));
+    await waitFor(() => expect(state.conversations.length).toBe(before + 1));
+    expect(state.conversations.at(-1)).toMatchObject({
+      kind: "task_run",
+      taskId: pr("opr-aud-244").taskId,
+    });
+  });
+
+  it("m3: al tetto (STW guide#58) Marco ha il bottone spento col perché", async () => {
+    renderRoute("/p/STW/releases?pr=opr-stw-guide-58", "p-marco");
+    const panel = await screen.findByRole("region", { name: "Pull request guide#58" });
+    expect(within(panel).getByRole("button", { name: "Send to Claude" })).toBeDisabled();
+    expect(
+      within(panel).getByText(/Claude reached the limit of 3 corrections\./),
+    ).toBeInTheDocument();
   });
 });
 

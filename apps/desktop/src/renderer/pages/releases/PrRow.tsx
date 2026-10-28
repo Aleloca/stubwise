@@ -1,12 +1,12 @@
 import { useNavigate } from "@tanstack/react-router";
 import type { KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
-import type { MergeError, OpenPrView } from "../../data/releases";
+import type { OpenPrView } from "../../data/releases";
 import { Avatar } from "../../tasks-ui/PersonChip";
 import { usePeople } from "../../data/queries";
 import { checksWord, notReadyReason, prCode, prProse, prStateWord, riskWord } from "./format";
 import { PrStateWord } from "./glyphs";
-import { MergeButton, MergeExpansion, useMergeFlow } from "./MergeConfirm";
+import { MergeButton, MergeExpansion, useMergeFlow, type MergeError } from "./MergeConfirm";
 
 // Una riga di PR (shape releases.md §6, «Riga»): due linee, tutta
 // cliccabile → pannello (`?pr=`). Stessa forma per le PR di Stubwise e dei

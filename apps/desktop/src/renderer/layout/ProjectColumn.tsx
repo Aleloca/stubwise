@@ -6,7 +6,9 @@ import {
   useDocSpaces,
   usePeople,
   useProject,
+  useOpenPrs,
   useProjectAutomations,
+  useReleases,
 } from "../data/queries";
 import { PROJECT_SECTIONS } from "../data/routes";
 import type { ChannelRow, Project } from "../data/types";
@@ -114,6 +116,13 @@ function ProjectSections({
   const automations = useProjectAutomations(project.id).data;
   const running = automations?.runs.length ?? 0;
   const sections = sectionsOf(project).filter((s) => s.id !== "automations" || automations?.show);
+  // «Releases» ([R 6]): il conteggio delle PR aperte; il punto pieno solo per un
+  // rilascio fallito che aspetta chi guarda (destinatario obbligatorio, senza riparazione).
+  const hasReleases = sections.some((s) => s.id === "releases");
+  const openPrs = useOpenPrs(hasReleases ? project.id : undefined).data?.length ?? 0;
+  const releaseWaits = (useReleases(hasReleases ? project.id : undefined).data ?? []).some(
+    (r) => r.waitsOnViewer,
+  );
   return (
     <>
       <Header code={project.code} project={project} />
@@ -156,6 +165,28 @@ function ProjectSections({
                       {t("automations.column.runningInProject", { count: running })}
                     </span>
                     <span aria-hidden="true">{running}</span>
+                  </span>
+                )}
+                {s.id === "releases" && (releaseWaits || openPrs > 0) && (
+                  <span className="ml-auto flex shrink-0 items-center gap-2">
+                    {releaseWaits && (
+                      <>
+                        <span
+                          aria-hidden="true"
+                          data-waiting-dot
+                          className="size-2 shrink-0 rounded-full bg-ink"
+                        />
+                        <span className="sr-only">{t("releases.column.waiting")}</span>
+                      </>
+                    )}
+                    {openPrs > 0 && (
+                      <span className="num text-xs font-normal text-ink-faint">
+                        <span className="sr-only">
+                          {t("releases.column.openPrs", { count: openPrs })}
+                        </span>
+                        <span aria-hidden="true">{openPrs}</span>
+                      </span>
+                    )}
                   </span>
                 )}
                 {s.id === "settings" && !canManage && (

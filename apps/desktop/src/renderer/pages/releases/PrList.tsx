@@ -1,7 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import type { MergeError, OpenPrView, QueueItem } from "../../data/releases";
+import type { OpenPrView, QueueItem } from "../../data/releases";
+import type { MergeError } from "./MergeConfirm";
 import type { ProjectEnvironment } from "../../data/types";
 import { sameCommit } from "../../domain/releases/releaseStatus";
 import { Chevron, Menu, MenuGroup, RadioItem } from "../../tasks-ui/Menu";

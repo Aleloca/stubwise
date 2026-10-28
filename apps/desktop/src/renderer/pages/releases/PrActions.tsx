@@ -157,10 +157,11 @@ export function PrActions({
     <Section title={t("releases.panel.actions")}>
       <div className="flex flex-col gap-5 pb-1">
         {colleague && <AnalysisOnly pr={pr} />}
-        {colleague && pr.actions.requestCorrection && fixable && (
+        {/* Sulle PR di Stubwise è la correzione della task (area 3), sotto lo stesso tetto. */}
+        {pr.actions.requestCorrection && fixable && (
           <RequestChanges pr={pr} cap={cap} projectCode={projectCode} />
         )}
-        {!colleague && pr.taskCode && (
+        {!colleague && pr.taskCode && pr.actions.requestCorrection && (
           <p className="text-sm text-ink-muted">
             {t("releases.panel.stubwiseCorrections", { task: pr.taskCode })}
           </p>

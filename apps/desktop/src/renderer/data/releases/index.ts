@@ -31,6 +31,7 @@ export {
   setRepoPrMode,
   updateEnvironment,
   type CorrectionRequestResult,
+  type FixResult,
   type EnvironmentInput,
   type MergeError,
   type MergeResult,

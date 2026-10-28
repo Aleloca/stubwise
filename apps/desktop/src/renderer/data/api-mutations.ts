@@ -81,6 +81,7 @@ import type {
   RequestLevel,
   RequestPatch,
   SavedFilter,
+  PrRef,
   ScriptStep,
   SetVisibilityResult,
   StatusFamily,
@@ -494,7 +495,12 @@ export async function addComment(
   return copy(addCommentAs(me, taskId, body, replyToId));
 }
 
-function addCommentAs(me: string, taskId: string, body: string, replyToId?: string): ActivityEntry {
+export function addCommentAs(
+  me: string,
+  taskId: string,
+  body: string,
+  replyToId?: string,
+): ActivityEntry {
   const task = taskFor(me, taskId);
   need(me, "tickets.comment", task.projectId);
   if (!body.trim()) throw invalid("body");
@@ -2847,6 +2853,22 @@ export async function requestChanges(taskId: string, text: string): Promise<Conv
   if (!hasOpenPr(task)) throw invalid("no_pr");
   const live = latestRunOf(task.id);
   if (live && live.state !== "finished") throw conflict();
+  return copy(await requestChangesAs(me, task, text, gen, latestOpenPrOf(task) ?? undefined));
+}
+
+/**
+ * Il corpo di «Chiedi modifiche», a controlli già fatti: una sessione di
+ * correzione sulla PR `pr` della task. Lo usa anche il pannello di una PR di
+ * Stubwise nella sezione Rilasci (area 8a, `requestPrCorrection`), che
+ * sceglie la PR e applica il tetto (R-K2).
+ */
+export async function requestChangesAs(
+  me: string,
+  task: Task,
+  text: string,
+  gen: number,
+  pr: PrRef | undefined,
+): Promise<Conversation> {
   const c = newConversation(me, {
     kind: "task_run",
     provider: { ...TEAM_ACCOUNT },
@@ -2856,11 +2878,11 @@ export async function requestChanges(taskId: string, text: string): Promise<Conv
     state: "working",
   });
   task.claude = "working";
-  // La correzione è di una PR: la più recente ancora aperta (il job la conosce).
-  const pr = latestOpenPrOf(task) ?? undefined;
+  // La correzione è di una PR: quella scelta dal chiamante (da «Chiedi
+  // modifiche» sulla task, la più recente ancora aperta).
   await runScript(c.id, scripts.runOpening("correction", me, text.trim(), pr), gen);
   follow(c.id, scripts.correction(task, pr), gen);
-  return copy(c);
+  return c;
 }
 
 /**

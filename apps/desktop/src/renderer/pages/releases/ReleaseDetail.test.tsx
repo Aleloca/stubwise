@@ -126,10 +126,21 @@ describe("Release detail — fallito", () => {
     await userEvent.click(
       within(dialog).getByRole("button", { name: "Create task and start Claude" }),
     );
-    expect(await screen.findByText(`${first.code} created`)).toBeInTheDocument();
+    // Non «created»: era già in riparazione, e la nota diventa un commento della task.
+    expect(
+      await screen.findByText(
+        `Already being fixed in ${first.code}: your note was added as a comment`,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(`${first.code} created`)).toBeNull();
     expect(
       state.tasks.filter((t) => t.releaseRef?.releaseId === release("AUD-V3").id),
     ).toHaveLength(1);
+    expect(
+      state.activity.some(
+        (a) => a.taskId === first.id && a.kind === "comment" && a.body === "Backfill first",
+      ),
+    ).toBe(true);
     const now = screen.getByRole("region", { name: "Now" });
     expect(
       await within(now).findByText(`Claude is fixing it in ${first.code}`),
