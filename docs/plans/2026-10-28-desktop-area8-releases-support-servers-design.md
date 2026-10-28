@@ -239,7 +239,10 @@ delle preferenze sparisce *(maintainer)*.
 
 ### Cosa si vede *(maintainer per gli stati; forma: scelta del controller)*
 
-Sezione **Releases** del progetto (`#/p/<CODE>/releases`), tre parti:
+Sezione **Releases** del progetto (`#/p/<CODE>/releases`), tre parti
+*(maintainer, 28 ott 2026: «una lista, due gruppi»: PR aperte e coda sono
+la stessa lista, divisa in «Pronte per il rilascio» e «Non ancora pronte»,
+non due viste)*:
 
 1. **PR aperte**: tutte le PR aperte sui repository del progetto, di
    Stubwise e di chiunque, **nella stessa lista e con la stessa forma**
@@ -247,13 +250,18 @@ Sezione **Releases** del progetto (`#/p/<CODE>/releases`), tre parti:
    c'è, analisi di Claude (esito in una riga, rischio, problemi trovati),
    controlli della piattaforma, review, «già su» (ambienti). Le PR dei
    colleghi hanno solo un segno «di <nome>», nessun bottone «Adotta».
-2. **Pronte per il rilascio** (la coda): le PR che si possono mergiare, con
+2. **Pronte per il rilascio** (la coda, primo gruppo della stessa lista:
+   non una seconda lista con le stesse PR): le PR che si possono mergiare, con
    **Rilascia** → conferma a due tempi (come sul web) per chi ha
    `release.merge`. Gli errori del web restano tutti (`already_closed`,
    `checks_failed`, `checks_unreadable`, `not_mergeable`, `merge_forbidden`,
    `not_found`).
 3. **Rilasci**: i merge recenti (anche quelli fatti fuori da Stubwise, sul
    ramo di rilascio) con il loro stato.
+
+La scheda «Releases» dei Docs (note di rilascio notturne) si rinomina
+**«Note di rilascio» / «Release notes»** *(maintainer, 28 ott 2026)*, per
+non avere due «Releases» nello stesso progetto.
 
 Più **Ambienti** (come il web: nome, tipo test/staging/produzione, URL,
 server collegato, versione che vi gira secondo l'agente; modifica con
@@ -434,13 +442,13 @@ l'istruzione dice all'utente che la conversazione verrà allegata.
 
 ### Le email *(maintainer, decisione 7)*
 
-- Le email **non aprono mai** richieste da sole.
-- *(scelta del controller)* Una persona del team può creare a mano una
-  richiesta da un'email (dalla Posta, azione «Crea richiesta», con
-  `backlog.create`); la conversazione email resta allegata come
-  conversazione della richiesta. La proposta di tipo «richiesta»
-  dell'area 6 è questo stesso gesto: la crea la persona che conferma, mai
-  il modello.
+- **Una richiesta non nasce MAI da un'email, né in automatico né a mano**
+  *(decisione del maintainer, 28 ott 2026: era la sua intenzione fin
+  dall'inizio; la scelta del controller che permetteva di crearla a mano
+  dalla Posta è tolta)*. Le richieste nascono solo dai canali col triage
+  (widget, plugin/MCP e simili). Non esistono l'azione «Crea richiesta»
+  nella Posta, una funzione del livello dati che la crei da un thread, un
+  canale «Email» in Support né una provenienza «da un'email».
 
 ### Cosa vede il cliente e come gli si risponde *(maintainer, decisione 8)*
 
@@ -455,8 +463,9 @@ l'istruzione dice all'utente che la conversazione verrà allegata.
   chi ha `support.reply` scrive la risposta, che arriva al cliente nel
   canale da cui ha scritto.
 - **Nessuna risposta automatica**: Claude prepara una **bozza** (come la
-  bozza della Posta, area 6), una persona la rilegge e la invia. Per le
-  richieste nate da un'email si risponde dalla Posta.
+  bozza della Posta, area 6), una persona la rilegge e la invia. Un cliente
+  che ha lasciato un indirizzo si raggiunge dalla Posta con «Scrivigli
+  anche per email» (qui sotto).
 - **Il cliente che non è più sul sito** vede la risposta quando torna
   *(maintainer, risposta H)*. **Nessuna email automatica**, nemmeno un
   semplice avviso «hai una risposta». Se serve, il team manda a mano
