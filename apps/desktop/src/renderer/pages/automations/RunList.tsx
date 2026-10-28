@@ -12,7 +12,7 @@ import { rowKeys } from "../home/blocks/BlockSection";
 import { PageEmpty, PageError, PageSkeleton } from "../../tasks-ui/PageStates";
 import { quietButton } from "../tasks/controls";
 import { FilterChip } from "./AutomationList";
-import { isFinished, nowPhrase, shortDate, type Names } from "./format";
+import { isFinished, nowPhrase, runTitle, shortDate, type Names } from "./format";
 import { RunStatusWord, codeClass, useAttention, useNames } from "./shared";
 
 // Le esecuzioni: la riga (44 px — codice, titolo, stato, frase di adesso,
@@ -52,7 +52,7 @@ export function RunRow({
         data-run-row={run.code}
         aria-label={t("automations.runRow.label", {
           code: run.code,
-          title: run.title,
+          title: runTitle(run, t),
           status: statusFull,
           phrase,
           date: started,
@@ -61,7 +61,7 @@ export function RunRow({
       >
         <span className={`${codeClass} truncate`}>{run.code}</span>
         <span className="flex min-w-0 items-baseline gap-2">
-          <span className="truncate text-md text-ink">{run.title}</span>
+          <span className="truncate text-md text-ink">{runTitle(run, t)}</span>
           {otherVersion && (
             <span className="num shrink-0 text-xs text-ink-muted">
               {t("automations.version.short", { n: run.version })}

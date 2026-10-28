@@ -19,7 +19,7 @@ import { useMediaQuery } from "../../layout/useMediaQuery";
 import { Avatar } from "../../tasks-ui/PersonChip";
 import { MenuGroup, itemClass } from "../../tasks-ui/Menu";
 import { MenuButton, primaryButton, quietButton, secondaryButton } from "../tasks/controls";
-import { clientOf, shortDate } from "./format";
+import { clientOf, runTitle, shortDate } from "./format";
 import { MoreGlyph, SourceGlyph, WarningGlyph } from "./glyphs";
 import {
   AutomationStatusWord,
@@ -272,7 +272,7 @@ export function SourcePanel({ source }: { source: AutomationSourceView }) {
             {recent.map((r) => (
               <li key={r.id} className="flex min-h-8 items-center gap-2 text-sm">
                 <span className="num text-ink-muted">{shortDate(r.startedAt, i18n.language)}</span>
-                <span className="min-w-0 truncate text-ink">{clientOf(r.event) ?? r.title}</span>
+                <span className="min-w-0 truncate text-ink">{clientOf(r.event) ?? runTitle(r, t)}</span>
                 <Link
                   to="/automations/$code/runs/$n"
                   params={{ code: r.automationCode, n: String(r.n) }}

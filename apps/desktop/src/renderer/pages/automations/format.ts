@@ -414,6 +414,15 @@ export function reasonWords(
   });
 }
 
+/**
+ * Il titolo di un'esecuzione come lo legge chi guarda: per chi non è il
+ * proprietario di un'email d'inizio (R-J13) il livello dati lascia il solo
+ * nome e `mailHidden`; qui si dice, nella sua lingua, che l'email è nascosta.
+ */
+export function runTitle(run: { title: string; mailHidden?: boolean }, t: TFunction): string {
+  return run.mailHidden ? `${run.title} – ${t("automations.run.mailHidden")}` : run.title;
+}
+
 /** La parola di un codice d'errore (`permission_lost` → «permission lost»). */
 export function errorWords(code: string | null, t: TFunction): string {
   return t(`automations.errors.${code ?? "other"}`, {

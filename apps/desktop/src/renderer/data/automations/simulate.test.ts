@@ -4,7 +4,7 @@ import { AUTOMATION_CASES } from "../seed/automations";
 import { runBeforePersonaChange, setSessionPersonId } from "../session";
 import { now, state, visibleProjectIds } from "../store";
 import type { AutomationFlow, Step } from "../types";
-import { grantInstancePermission } from "../viewer";
+import { grantInstancePermission, grantProjectRole } from "../viewer";
 import { SimulationConfigError } from "./simulate";
 import { holdersOfRole } from "./visibility";
 
@@ -584,6 +584,47 @@ describe("Automations: gli esempi della prova", () => {
     expect(examples[2]!.event).toEqual(sample(S.audin, 0));
     const hub = await draftWith({ kind: "source", sourceId: S.hubspot, event: "deal_won" }, null);
     expect(await automations.listSimulationExamples(hub.id, "draft")).toEqual([]);
+  });
+
+  it("la data di un esempio viene solo da esecuzioni che chi prova vede (R-G5)", async () => {
+    // Un evento nuovo del webhook, arrivato solo a una generale (Laura non vede le generali).
+    as("p-roberta");
+    const webhook = state.automationSources.find((s) => s.id === S.webhook)!;
+    const extra = { cliente: { nome: "Panificio Neri", email: "info@neri.example" } };
+    webhook.sampleEvents.push(extra);
+    const g = await automations.createAutomation({
+      name: "Generale",
+      projectId: null,
+      flow: {
+        trigger: { kind: "source", sourceId: S.webhook, event: "webhook" },
+        titleTemplate: "G",
+        steps: [
+          {
+            id: "t",
+            kind: "createTask",
+            title: "T",
+            description: "",
+            assignee: null,
+            dueInDays: null,
+            project: { mode: "fixed", projectId: AUD },
+            milestoneRef: null,
+            approval: { mode: "auto" },
+          },
+        ],
+      },
+    });
+    await automations.activate(g.id);
+    as("p-matteo");
+    await automations.pause(A.clientData);
+    as("p-roberta");
+    await automations.simulateSourceEvent(S.webhook, webhook.sampleEvents.length - 1);
+    await automations.whenAutomationsIdle();
+    const at = (list: { event: unknown; at: string | null }[]) =>
+      list.find((e) => JSON.stringify(e.event) === JSON.stringify(extra))?.at;
+    as("p-laura");
+    grantProjectRole("p-laura", AUD, "project_lead");
+    const seen = await automations.listSimulationExamples(A.clientData, 1);
+    expect(at(seen)).toBeNull();
   });
 
   it("inizi di Stubwise: solo oggetti veri che chi prova vede, del progetto dell'automazione", async () => {

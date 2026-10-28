@@ -8,7 +8,8 @@ import type {
   ProjectAutomationsView,
 } from "../types";
 import { can, viewerFor } from "../viewer";
-import { automationRow, runRow, viewRun } from "./reads";
+import { automationRow, runRow } from "./reads";
+import { viewRun } from "./runView";
 import { isOpen, sweepApprovals } from "./runner";
 import {
   automationById,

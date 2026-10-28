@@ -2375,6 +2375,8 @@ export interface AutomationRun {
   projects?: Record<string, string>;
   /** L'esecuzione che l'ha avviata con «Avvia un'altra automazione» (catena di al massimo 3). */
   parentRunId?: string | null;
+  /** Solo nelle letture (R-J13): l'evento è un'email che chi guarda non vede; la pagina lo dice. */
+  mailHidden?: boolean;
   /** Da dove è partita (le ricorrenze contano solo le proprie, `dueSchedules`). */
   origin?: "manual" | "source" | "stubwise" | "schedule" | "automation";
   /** In `suspended` (pausa): lo stato a cui torna riaccendendo l'automazione. */

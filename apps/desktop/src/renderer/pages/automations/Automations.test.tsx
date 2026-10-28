@@ -3,7 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { automations as automationsApi, failNext, resetApi, setLatency } from "../../data/api";
 import { TODAY } from "../../data/dates";
-import { state } from "../../data/store";
+import { setSessionPersonId } from "../../data/session";
+import { signalAutomations, state } from "../../data/store";
 import type { AutomationRun, RunLogEntry } from "../../data/types";
 import { grantProjectRole, resetViewerGrants, revokeProjectPermission } from "../../data/viewer";
 import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
@@ -23,6 +24,90 @@ const ROBERTA = "p-roberta";
 const MATTEO = "p-matteo";
 const LAURA = "p-laura";
 const GIULIA = "p-giulia";
+
+describe("R-J13 e R-G5 in pagina (re-review)", () => {
+  it("un'esecuzione partita da un'email, vista da chi non è il proprietario: il titolo lo dice nella sua lingua", async () => {
+    setSessionPersonId("p-laura");
+    const account = state.googleAccounts.find((g) => g.personId === "p-laura");
+    if (account) account.status = "connected";
+    const a = await automationsApi.createAutomation({
+      name: "Dalla posta",
+      projectId: "prj-aud",
+      flow: {
+        trigger: { kind: "stubwise", event: "mail_received" },
+        titleTemplate: "Email: {{email.oggetto}}",
+        steps: [
+          {
+            id: "t",
+            kind: "createTask",
+            title: "Rispondere",
+            description: "",
+            assignee: null,
+            dueInDays: null,
+            project: { mode: "own" },
+            milestoneRef: null,
+            approval: { mode: "auto" },
+          },
+        ],
+      },
+    });
+    await automationsApi.activate(a.id);
+    const mine = state.mailMessages.find(
+      (m) => m.mailboxPersonIds.includes("p-laura") && m.subject.length > 8,
+    )!;
+    signalAutomations({ kind: "mail_received", messageIds: [mine.id] });
+    await automationsApi.whenAutomationsIdle();
+    const code = state.automations.find((x) => x.id === a.id)!.code;
+    await open(`/automations/${code}/runs/1`, "p-marco");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+      "Dalla posta – An email received by the owner",
+    );
+    expect(document.body.textContent).not.toContain("Un'email ricevuta");
+    expect(document.body.textContent).not.toContain(mine.subject);
+  });
+
+  it("chi non vede l'automazione avviata legge «Started an automation you can't see», senza codice né link", async () => {
+    setSessionPersonId("p-roberta");
+    const step = {
+      id: "t",
+      kind: "createTask" as const,
+      title: "Segreta",
+      description: "",
+      assignee: null,
+      dueInDays: null,
+      project: { mode: "own" as const },
+      milestoneRef: null,
+      approval: { mode: "auto" as const },
+    };
+    const child = await automationsApi.createAutomation({
+      name: "Bersaglio segreto",
+      projectId: "prj-aud",
+      flow: { trigger: { kind: "manual" }, titleTemplate: "t", steps: [step] },
+    });
+    await automationsApi.activate(child.id);
+    const parent = await automationsApi.createAutomation({
+      name: "Madre",
+      projectId: "prj-stw",
+      flow: {
+        trigger: { kind: "manual" },
+        titleTemplate: "Madre",
+        steps: [
+          { id: "s", kind: "startAutomation", automationId: child.id, approval: { mode: "auto" } },
+        ],
+      },
+    });
+    await automationsApi.activate(parent.id);
+    await automationsApi.startManual(parent.id);
+    await automationsApi.whenAutomationsIdle();
+    const code = state.automations.find((x) => x.id === parent.id)!.code;
+    const childCode = state.automations.find((x) => x.id === child.id)!.code;
+    await open(`/automations/${code}/runs/1`, "p-sara");
+    const log = await screen.findByRole("list", { name: "Log" });
+    await waitFor(() => expect(log).toHaveTextContent("Started an automation you can't see"));
+    expect(document.body.textContent).not.toContain(childCode);
+    expect(document.body.textContent).not.toContain("Bersaglio");
+  });
+});
 
 async function open(path: string, personId = ROBERTA) {
   const router = renderRoute(path, personId);

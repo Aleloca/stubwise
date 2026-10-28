@@ -16,7 +16,6 @@ import { AUTOMATION_MAIL_IDS } from "../seed/automations/mail";
 import { MAIL_MESSAGES } from "../seed/mail";
 import { setSessionPersonId } from "../session";
 import { now, onAutomationSignal, signalAutomations, state, visibleProjectIds } from "../store";
-import { MAIL_HIDDEN } from "./reads";
 import type { AutomationFlow, AutomationRun, Step } from "../types";
 import { grantInstancePermission, grantProjectRole } from "../viewer";
 
@@ -1135,6 +1134,74 @@ describe("Automations: revisione del Task 3", () => {
     expect(saved.steps[0]).toMatchObject({ project: { mode: "fixed", projectId: "prj-cbv" } });
   });
 
+  it("R-J13 nelle motivazioni: un passo fallito su un dato dell'email non lo ripete a chi non è il proprietario", async () => {
+    as("p-laura");
+    connect("p-laura");
+    const id = await make(AUD, {
+      trigger: { kind: "stubwise", event: "mail_received" },
+      titleTemplate: "Email",
+      steps: [
+        {
+          id: "e",
+          kind: "sendEmail",
+          to: "{{email.oggetto}}",
+          subject: "Re",
+          body: "ciao",
+          attachRefs: [],
+          approval: AUTO,
+        } as Step,
+      ],
+    });
+    const mine = state.mailMessages.find(
+      (m) => m.mailboxPersonIds.includes("p-laura") && m.subject.length > 8,
+    )!;
+    signalAutomations({ kind: "mail_received", messageIds: [mine.id] });
+    await idle();
+    const r = lastRunOf(id);
+    expect(r).toMatchObject({ status: "failed", error: "invalid_address" });
+    // Il proprietario legge il motivo coi suoi dati.
+    expect(JSON.stringify((await automations.getRun(r.id))!.log)).toContain(mine.subject);
+    as("p-marco");
+    const seen = (await automations.getRun(r.id))!;
+    expect(JSON.stringify(seen)).not.toContain(mine.subject);
+    const failed = seen.log.find((e) => e.outcome === "failed")!;
+    expect(failed.why?.code).toBe("invalidAddress");
+    expect(failed.reason).toBeNull();
+  });
+
+  it("R-G5 attraverso «Avvia un'altra automazione»: chi vede la madre ma non la figlia non ne legge codice, id né nome", async () => {
+    as("p-roberta");
+    const STW = "prj-stw";
+    expect(visibleProjectIds("p-sara").has(STW)).toBe(true);
+    expect(visibleProjectIds("p-sara").has(AUD)).toBe(false);
+    const target = await make(AUD, manual([task("t")]), "Bersaglio segreto");
+    const code = state.automations.find((a) => a.id === target)!.code;
+    const parent = await make(
+      STW,
+      manual([{ id: "s", kind: "startAutomation", automationId: target, approval: AUTO }]),
+      "Madre",
+    );
+    const ok = await automations.startManual(parent);
+    await idle();
+    // Ora il bersaglio è in pausa: il secondo avvio fallisce col suo nome nel motivo.
+    await automations.pause(target);
+    const ko = await automations.startManual(parent);
+    await idle();
+    expect(run(ok).log.some((e) => e.effects.some((x) => x.kind === "run" && x.code))).toBe(true);
+    expect(run(ko)).toMatchObject({ status: "failed", error: "automation_not_active" });
+    as("p-sara");
+    for (const r of [ok, ko]) {
+      const seen = JSON.stringify(await automations.getRun(r));
+      expect(seen).not.toContain(code);
+      expect(seen).not.toContain(target);
+      expect(seen).not.toContain("Bersaglio");
+    }
+    expect(JSON.stringify(await automations.getAutomation(parent))).not.toContain(target);
+    // Chi vede la figlia la legge intera.
+    as("p-roberta");
+    expect(JSON.stringify(await automations.getRun(ok))).toContain(code);
+  });
+
   it("R-J13: di un'esecuzione partita da un'email solo il proprietario vede mittente, oggetto e testo", async () => {
     as("p-laura");
     const id = await make(AUD, {
@@ -1153,8 +1220,9 @@ describe("Automations: revisione del Task 3", () => {
     });
     as("p-marco");
     const seen = (await automations.getRun(r.id))!;
-    expect(seen.event).toEqual({ email: { mittente: "", oggetto: MAIL_HIDDEN, testo: "" } });
-    expect(seen.title).toContain(MAIL_HIDDEN);
+    expect(seen.event).toEqual({ email: { mittente: "", oggetto: "", testo: "" } });
+    // Niente testo dal livello dati: la pagina dice, tradotto, che l'email è nascosta.
+    expect(seen.mailHidden).toBe(true);
     expect(seen.log[0]!.output).toEqual(seen.event);
     const leaks = [mine.subject, mine.from.email, mine.text.slice(0, 30)];
     for (const text of leaks) expect(JSON.stringify(seen)).not.toContain(text);
@@ -1191,8 +1259,9 @@ describe("Automations: revisione del Task 3", () => {
     });
     as("p-marco");
     const seen = (await automations.getRun(kid.id))!;
-    expect(seen.event).toEqual({ email: { mittente: "", oggetto: MAIL_HIDDEN, testo: "" } });
-    expect(seen.title).toContain(MAIL_HIDDEN);
+    expect(seen.event).toEqual({ email: { mittente: "", oggetto: "", testo: "" } });
+    // Niente testo dal livello dati: la pagina dice, tradotto, che l'email è nascosta.
+    expect(seen.mailHidden).toBe(true);
     const leaks = [mine.subject, mine.from.email, mine.text.slice(0, 30)];
     for (const text of leaks) expect(JSON.stringify(seen)).not.toContain(text);
     const listed = await automations.listRuns({ automationId: child });

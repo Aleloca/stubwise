@@ -222,8 +222,9 @@ function FailingApprovalStop({
           disabled={ctx.busy}
           onClick={async () => {
             // Approvato nella prova, il passo prova a partire e si ferma dove fallirebbe.
-            await ctx.send({ kind: "approved", path: waiting.path, byId: ctx.me });
-            await ctx.send({ kind: "next" });
+            const after = await ctx.send({ kind: "approved", path: waiting.path, byId: ctx.me });
+            // Solo se l'approvazione è passata e c'è un passo da fare.
+            if (after?.status === "running" && after.current) await ctx.send({ kind: "next" });
           }}
         >
           {t("automations.test.stop.seeWhereItStops")}

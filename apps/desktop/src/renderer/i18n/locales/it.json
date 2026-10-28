@@ -5015,7 +5015,8 @@
       "started": "Partita il {{date}} alle {{time}}",
       "byRun": "da",
       "ownersAutomation": "automazione di {{owner}}",
-      "startedRuns": "Ha avviato:"
+      "startedRuns": "Ha avviato:",
+      "mailHidden": "Un'email ricevuta dal proprietario"
     },
     "prototype": {
       "only": "Solo prototipo",
@@ -5112,7 +5113,8 @@
       "showChanges": "Mostra le modifiche",
       "replyFrom": "Risposta da {{sender}} ricevuta il {{date}}",
       "replyReceivedOn": "Risposta ricevuta il {{date}}",
-      "replyInMailbox": "La risposta è nella casella di {{owner}}"
+      "replyInMailbox": "La risposta è nella casella di {{owner}}",
+      "hiddenRun": "Ha avviato un'automazione che non vedi"
     },
     "notVisible": {
       "automation": "Questa automazione non esiste o non puoi vederla.",

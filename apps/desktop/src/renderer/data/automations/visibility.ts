@@ -145,22 +145,41 @@ function fixedSteps(flow: AutomationFlow): FixedStep[] {
   return out;
 }
 
+type StartStep = Extract<Step, { kind: "startAutomation" }>;
+
+function startSteps(flow: AutomationFlow): StartStep[] {
+  const out: StartStep[] = [];
+  visitSteps(flow.steps, (s) => {
+    if (s.kind === "startAutomation") out.push(s);
+  });
+  return out;
+}
+
+/** `me` vede l'automazione `id` (un id vuoto o inesistente non è «nascosto»). */
+const seesAutomation = (me: string, id: string) => {
+  const a = automationById(id);
+  return !a || canSeeAutomation(me, a);
+};
+
 /**
  * Un flusso come lo legge `me`: un progetto fisso che non vede resta senza
- * id (`""`), come nel registro (R-J12). L'interfaccia lo dice già («un
- * progetto che non vedi»).
+ * id (`""`), come nel registro (R-J12), e così l'automazione che un passo
+ * avvia, se non la vede (R-G5). L'interfaccia lo dice già («un progetto che
+ * non vedi», «un'automazione»).
  */
 export function flowFor(me: string, flow: AutomationFlow): AutomationFlow {
   const out = copy(flow);
   const visible = visibleProjectIds(me);
   for (const s of fixedSteps(out)) if (!visible.has(s.project.projectId)) s.project.projectId = "";
+  for (const s of startSteps(out)) if (!seesAutomation(me, s.automationId)) s.automationId = "";
   return out;
 }
 
 /**
  * Il rovescio per chi salva un flusso letto con `flowFor`: un passo che
- * aveva un progetto fisso che `me` non vede, e che torna senza id, lo
- * riprende dalla versione di prima (per id del passo).
+ * aveva un progetto fisso (o un'automazione da avviare) che `me` non vede,
+ * e che torna senza id, lo riprende dalla versione di prima (per id del
+ * passo).
  */
 export function keepHiddenProjects(me: string, prev: AutomationFlow, next: AutomationFlow): void {
   const visible = visibleProjectIds(me);
@@ -168,5 +187,10 @@ export function keepHiddenProjects(me: string, prev: AutomationFlow, next: Autom
   for (const s of fixedSteps(next)) {
     const old = before.get(s.id);
     if (s.project.projectId === "" && old && !visible.has(old)) s.project.projectId = old;
+  }
+  const targets = new Map(startSteps(prev).map((s) => [s.id, s.automationId]));
+  for (const s of startSteps(next)) {
+    const old = targets.get(s.id);
+    if (s.automationId === "" && old && !seesAutomation(me, old)) s.automationId = old;
   }
 }

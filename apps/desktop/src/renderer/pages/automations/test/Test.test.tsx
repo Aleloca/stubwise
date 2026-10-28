@@ -678,6 +678,20 @@ describe("revisione visiva (Impeccable)", () => {
     expect(within(panel()).getByRole("link", { name: /^Edit step \d+$/ })).toBeInTheDocument();
   });
 
+  it("«See where it stops»: se l'approvazione non passa, la prova non fa il passo dopo", async () => {
+    await open("/automations/AUT-1/test", "p-roberta");
+    await startWith(2);
+    await userEvent.click(runToStop());
+    await waitFor(() => expect(panel().querySelector("[data-preview-failure]")).not.toBeNull());
+    failNext("automations.simulationStep");
+    await userEvent.click(within(panel()).getByRole("button", { name: "See where it stops" }));
+    expect(await screen.findByText("The test couldn't go on. Try again.")).toBeInTheDocument();
+    await act(() => new Promise((r) => setTimeout(r, 300)));
+    // Un solo errore: dopo un'approvazione non passata non si chiede il passo dopo.
+    expect(screen.getAllByText("The test couldn't go on. Try again.")).toHaveLength(1);
+    expect(within(panel()).getByRole("button", { name: "See where it stops" })).toBeEnabled();
+  });
+
   it("«Edit before approving»: il corpo dell'email si chiama come il corpo, non come la risposta", async () => {
     await open("/automations/AUD-A1/test");
     await startWith("Cantina Bellavista");

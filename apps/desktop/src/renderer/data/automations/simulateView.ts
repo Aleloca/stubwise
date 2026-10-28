@@ -4,7 +4,7 @@ import { describe, projectOf, show, type ActionStep } from "../../domain/automat
 import { copy, state, visibleProjectIds } from "../store";
 import type { Automation, SimulationProject, SimulationView, SimulationWaiting } from "../types";
 import type { ActionEffect } from "./plans";
-import { hideProject } from "./reads";
+import { hideProject } from "./runView";
 import { previewOf, projectRef, TERMINAL, type Sim } from "./simulateExecute";
 import { approvalProjectOf, approversFor, automationById, canSeeAutomation } from "./visibility";
 

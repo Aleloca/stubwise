@@ -169,12 +169,12 @@ export function useTestRun({
     }
   };
 
-  const send = async (input: SimulationInput) => {
-    if (busy) return;
+  const send = async (input: SimulationInput): Promise<SimulationView | null> => {
+    if (busy) return null;
     setBusy(true);
     onAdvance();
     try {
-      await sendOnce(input);
+      return await sendOnce(input);
     } finally {
       setBusy(false);
     }

@@ -13,7 +13,15 @@ import { useToast } from "../../tasks-ui/Toast";
 import { MenuButton, quietButton, secondaryButton } from "../tasks/controls";
 import { TurnOnDialog } from "./AutomationDialogs";
 import { DetailSkeleton } from "./AutomationDetail";
-import { clientOf, clock, fieldLabels, shortDate, startedByWords, type Names } from "./format";
+import {
+  clientOf,
+  clock,
+  fieldLabels,
+  runTitle,
+  shortDate,
+  startedByWords,
+  type Names,
+} from "./format";
 import { MoreGlyph } from "./glyphs";
 import type { LogCtx } from "./LogEntryText";
 import { RunLog } from "./RunLog";
@@ -156,7 +164,7 @@ export function RunDetail({ runId, entry }: { runId: string; entry?: string }) {
           </p>
           <div className="flex items-start gap-4">
             <h1 className="min-w-0 flex-1 text-2xl font-semibold text-ink [overflow-wrap:anywhere]">
-              {run.title}
+              {runTitle(run, t)}
             </h1>
             <div className="flex shrink-0 items-center gap-2 pt-0.5">
               <RunStatusWord

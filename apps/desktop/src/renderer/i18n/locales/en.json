@@ -5015,7 +5015,8 @@
       "started": "Started {{date}} at {{time}}",
       "byRun": "by",
       "ownersAutomation": "{{owner}}'s automation",
-      "startedRuns": "It started:"
+      "startedRuns": "It started:",
+      "mailHidden": "An email received by the owner"
     },
     "prototype": {
       "only": "Prototype only",
@@ -5112,7 +5113,8 @@
       "showChanges": "Show changes",
       "replyFrom": "Reply from {{sender}} received on {{date}}",
       "replyReceivedOn": "Reply received on {{date}}",
-      "replyInMailbox": "The reply is in {{owner}}'s mailbox"
+      "replyInMailbox": "The reply is in {{owner}}'s mailbox",
+      "hiddenRun": "Started an automation you can't see"
     },
     "notVisible": {
       "automation": "This automation doesn't exist or you can't see it.",

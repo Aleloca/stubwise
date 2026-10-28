@@ -4,7 +4,7 @@ import { gate, now, state, visibleProjectIds, type AutomationSignal } from "../s
 import type { AutomationFlow, SimulationExample } from "../types";
 import { forbidden, invalid, notFound } from "../writer";
 import { happenings } from "./sources";
-import { automationById, canManageAutomation, canSeeAutomation } from "./visibility";
+import { automationById, canManageAutomation, canSeeAutomation, canSeeRun } from "./visibility";
 
 // Gli eventi d'esempio della prova (area 7, shape «Choose an example»): per
 // un inizio da sorgente gli eventi d'esempio della sorgente collegata; per
@@ -120,15 +120,19 @@ export async function listSimulationExamples(
       const source = state.automationSources.find((s) => s.id === t.sourceId);
       // Una sorgente scaduta o scollegata non manda eventi: «No recent events».
       if (!source || source.status !== "connected") return [];
+      // Quando è arrivato un evento: la prima esecuzione nata da lui fra quelle che chi prova vede (R-G5).
+      const arrivedAt = new Map<string, string>();
+      for (const r of state.automationRuns) {
+        if (!canSeeRun(me, r)) continue;
+        const key = JSON.stringify(r.event);
+        const prev = arrivedAt.get(key);
+        if (prev === undefined || r.startedAt < prev) arrivedAt.set(key, r.startedAt);
+      }
       return source.sampleEvents
         .map((event, i) => {
           const chiusa = lookup(event, "trattativa.chiusaIl");
-          // La data: quella dell'evento, se la porta; altrimenti quando è arrivato (la prima esecuzione nata da lui).
-          const same = JSON.stringify(event);
-          const arrived = state.automationRuns
-            .filter((r) => JSON.stringify(r.event) === same)
-            .map((r) => r.startedAt)
-            .sort()[0];
+          // La data: quella dell'evento, se la porta; altrimenti quando è arrivato.
+          const arrived = arrivedAt.get(JSON.stringify(event));
           return {
             label: sampleLabel(event, i),
             code: null,

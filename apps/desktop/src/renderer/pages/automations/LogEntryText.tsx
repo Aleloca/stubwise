@@ -262,6 +262,8 @@ export function EntrySentence({
         </>
       );
     case "startAutomation":
+      // Un'esecuzione avviata che chi guarda non vede: né codice né link (R-G5).
+      if (hiddenEffect) return <>{t("automations.log.hiddenRun")}</>;
       return (
         <>
           {t("automations.log.startedRun")} {effect && link(effect)}

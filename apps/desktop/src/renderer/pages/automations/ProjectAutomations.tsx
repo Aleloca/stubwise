@@ -7,7 +7,7 @@ import { PageEmpty, PageError, PageSkeleton } from "../../tasks-ui/PageStates";
 import { rowKeys } from "../home/blocks/BlockSection";
 import { AutomationRow, Templates } from "./AutomationList";
 import { NewAutomationButton } from "./AutomationsPage";
-import { shortDate } from "./format";
+import { runTitle, shortDate } from "./format";
 import { RunStatusWord, codeClass, useNames } from "./shared";
 
 // La sezione «Automations» di un progetto (`#/p/AUD/automations`, shape
@@ -47,14 +47,14 @@ function ProjectRunRow({ run }: { run: ProjectAutomationRun }) {
   const cells = (
     <>
       <span className={`${codeClass} truncate`}>{run.code}</span>
-      <span className="truncate text-md text-ink">{run.title}</span>
+      <span className="truncate text-md text-ink">{runTitle(run, t)}</span>
       <RunStatusWord status={run.status} short />
       <span className="num text-right text-xs text-ink-faint">{started}</span>
     </>
   );
   const label = t("automations.project.runLabel", {
     code: run.code,
-    title: run.title,
+    title: runTitle(run, t),
     status: t(`automations.runStatus.full.${run.status}`),
     date: started,
   });

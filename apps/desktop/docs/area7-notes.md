@@ -231,6 +231,14 @@ vincolano il codice.
   (`useAutomationsLiveRefresh`, `runner.ts` `onAutomationsSettled`) che rilegge
   le aree quando le esecuzioni si fermano, anche dopo le scritture delle
   altre aree e dopo un fallimento scoperto da una lettura (R-J11).
+- Re-review (R-J24): `viewRun` sta in `d/runView.ts`. In un'esecuzione
+  partita da un'email, per chi non è il proprietario, ogni riga perde anche
+  `reason` e i parametri dei motivi (diventano «…»); l'evento nascosto è un
+  flag `mailHidden` che la pagina traduce (`format.ts` `runTitle`). Un'esecuzione
+  figlia che chi guarda non vede resta senza codice («Started an automation
+  you can't see»), il bersaglio di «Avvia» senza id nel flusso, nei dati e nel
+  nome del motivo. Le date degli esempi vengono solo da esecuzioni che chi
+  prova vede. «See where it stops» fa il passo solo se l'approvazione è passata.
 - R-G5 nel flusso (`visibility.ts` `flowFor`/`keepHiddenProjects`),
   `approverIds` ricalcolato a lettura, `expectedPath` obbligatorio, l'email
   dalla casella salvata anche con più caselle.
@@ -239,12 +247,6 @@ vincolano il codice.
 
 - Il trascinamento col puntatore nel costruttore non ha test unitari
   (verificato in Chromium vero).
-- `MAIL_HIDDEN` («Un'email ricevuta dal proprietario», al posto dell'email
-  per chi non è il proprietario, R-J13) è un testo del livello dati in
-  italiano: nell'interfaccia inglese si legge in italiano.
-- Le date degli esempi della prova senza una data propria vengono dalla prima
-  esecuzione nata da quell'evento (anche se chi prova non la vede: solo il
-  giorno).
 - Screenshot: `.impeccable/review/a7-*` (36 scene × chiaro/scuro × en/it a
   1440, più una a 1024); si rifanno con `node scripts/capture.mjs`
   (`CAPTURE_ONLY=<nome>` per una sola scena).

@@ -28,7 +28,8 @@ export interface TestState {
   roundOf(blockPath: string): number;
   setRound(blockPath: string, round: number): void;
   /** Un input della prova (un passo, uno sblocco); gli errori li dice la pagina. */
-  send(input: SimulationInput): Promise<void>;
+  /** Lo stato della prova dopo l'input, o `null` se non è passato. */
+  send(input: SimulationInput): Promise<SimulationView | null>;
   /** Un input in volo (o «Run to next stop» che avanza): i comandi aspettano. */
   busy: boolean;
   /** La motivazione di Claude che arriva in streaming: il passo e il testo finora. */
