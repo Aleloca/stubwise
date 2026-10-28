@@ -41,14 +41,14 @@ export function laneLabel(
     case "claude":
       return t("automations.builder.lane.claude", { outcome: seg });
     case "forEach":
-      return t("automations.builder.lane.forEach", {
+      return t("automations.steps.forEach", {
         as: step.as || t("automations.builder.lane.item"),
         list: step.list ? tokenLabel(b.flow, step.list, b.labels) : "…",
       });
     case "repeatUntil":
       return seg === "onLimit"
         ? t("automations.builder.lane.onLimit")
-        : t("automations.builder.lane.repeat", {
+        : t("automations.steps.repeatUntil", {
             until: conditionWords(step.until, b.labels, t as never),
             count: step.max,
           });

@@ -170,7 +170,7 @@ export function branchLabel(
   if (step.kind === "condition") {
     return seg === "then" ? t("automations.branch.yes") : t("automations.branch.otherwise");
   }
-  if (step.kind === "claude") return t("automations.branch.claude", { outcome: seg });
+  if (step.kind === "claude") return t("automations.builder.lane.claude", { outcome: seg });
   if (step.kind === "repeatUntil" && seg === "onLimit")
     return t("automations.branch.onLimitFollowed");
   return seg;

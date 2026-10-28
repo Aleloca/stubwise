@@ -348,7 +348,7 @@ Sempre glifo + parola nel nome accessibile, mai solo colore **[A 7]**:
   e tornare in prova ricomincia da capo con lo stesso esempio, finché la
   pagina resta aperta.
 - **Prova di un'automazione accesa senza bozza**: si prova la versione
-  accesa («Version 2 · on»); a fine prova niente Turn on, solo «Test
+  accesa («Version 2 · active», R-J23); a fine prova niente Turn on, solo «Test
   again» e «Back».
 - **A 1024**: colonna chiusa; il pannello anteprima diventa sovrapposto
   (440px) e si apre da solo a ogni fermata; fuori dalle fermate si apre

@@ -90,8 +90,10 @@ progetto di `automation-sources.md`. Mondo: «Catalogo numerato», modalità
      tnum 600 accanto (`AUT-1`, `AUD-A1`); per una bozza mai salvata il
      codice non c'è ancora e al suo posto «New automation»;
   3. riga meta 13px: progetto («General · uses the client's project» o
-     «AUD Audin 2.0») · stato in parole («Draft», «On», «Paused») · versione
-     («Editing version 3 · version 2 is on») · proprietario («Acts as Matteo
+     «AUD Audin 2.0») · stato in parole («Draft», «Active», «Paused»: lo
+     stato di un'automazione accesa si chiama sempre «Active / Attiva»,
+     ruling R-J23 del 28 ott 2026; «Turn on / Accendi» resta l'azione) ·
+     versione («Editing version 3 · version 2 is active») · proprietario («Acts as Matteo
      Conti») · salvataggio («All changes saved» / «Saving…» / «Couldn't
      save · Retry»);
   4. a destra: contatore problemi («3 problems», con icona e `critical`,
@@ -149,7 +151,7 @@ progetto di `automation-sources.md`. Mondo: «Catalogo numerato», modalità
 ┌─work area──────────────────────────────────────────┬─Step 2 ─────────────────────┐
 │ ← Automations                                      │ ✦ Claude                    │
 │ Nuovo contratto  AUT-1                             │ Reads and decides. It never │
-│ General · On · Editing version 3 · v2 is on ·      │ acts on its own.            │
+│ General · Active · Editing version 3 · v2 is active│ acts on its own.            │
 │ Acts as Matteo Conti · All changes saved           │                             │
 │                      1 problem  ⋯  [Test] [Publish]│ INSTRUCTION                 │
 │ ─────────────────────────────────────────────────  │ Read the contract and list  │
@@ -532,7 +534,7 @@ progetto di `automation-sources.md`. Mondo: «Catalogo numerato», modalità
 | Chiave | en | it |
 |---|---|---|
 | azioni testata | Test · Turn on · Publish version {{n}} · Discard this draft | Prova · Accendi · Pubblica la versione {{n}} · Butta questa bozza |
-| stato | Draft · On · Paused · Editing version {{n}} · version {{m}} is on | Bozza · Accesa · In pausa · Stai modificando la versione {{n}} · è accesa la versione {{m}} |
+| stato | Draft · Active · Paused · Editing version {{n}} · version {{m}} is active | Bozza · Attiva · In pausa · Stai modificando la versione {{n}} · è attiva la versione {{m}} |
 | salvataggio | All changes saved · Saving… · Couldn't save · Retry | Modifiche salvate · Salvataggio… · Non salvato · Riprova |
 | problemi | {{count}} problems · Fix {{count}} problems to test | {{count}} problemi · Risolvi {{count}} problemi per provarla |
 | inizio | When · Choose how this starts · {{count}} pieces of data available · See | Quando · Scegli come parte · {{count}} dati disponibili · Vedi |
@@ -543,7 +545,8 @@ progetto di `automation-sources.md`. Mondo: «Catalogo numerato», modalità
 | progetto | Where · This automation's project · The client's project · Always this project | Dove · Il progetto dell'automazione · Il progetto del cliente · Sempre questo progetto |
 | approvazione | Before it runs · Runs by itself · Asks for approval · Asks {{name}} · The owner | Prima di partire · Parte da solo · Chiede approvazione · Chiede a {{name}} · Il proprietario |
 | Claude | Claude only picks one of these outcomes and fills these fields. It never acts on its own: actions are the steps you add. | Claude sceglie solo una di queste uscite e compila questi campi. Non agisce mai da solo: le azioni sono i passi che aggiungi tu. |
-| ripeti | At most {{n}} times · When the limit is reached | Al massimo {{n}} volte · Quando si arriva al limite |
+| ripeti | At most {{n}} times · When the limit is reached | Al massimo {{n}} volte · Al limite raggiunto |
+| corsie e righe (R-J23) | If Claude says “{{outcome}}” · For each {{as}} in {{list}} · Repeat until {{until}} — at most {{n}} times | Se Claude dice «{{outcome}}» · Per ogni {{as}} in {{list}} · Ripeti finché {{until}} — al massimo {{n}} volte |
 | proprietario | From now on it acts as you · Today it acts as {{name}} | Da adesso agisce come te · Oggi agisce come {{name}} |
 | sola lettura | Only someone who can manage automations in {{code}} can change this. | Solo chi gestisce le automazioni in {{code}} può modificarla. |
 

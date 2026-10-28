@@ -331,7 +331,10 @@ export function stepSentence(
       };
     case "forEach":
       return {
-        text: t("automations.steps.forEach", { list: labels.get(step.list)?.label ?? step.list }),
+        text: t("automations.steps.forEach", {
+          as: step.as || t("automations.builder.lane.item"),
+          list: labels.get(step.list)?.label ?? step.list,
+        }),
         details,
       };
     case "repeatUntil":

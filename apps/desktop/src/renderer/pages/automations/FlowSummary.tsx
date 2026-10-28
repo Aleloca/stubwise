@@ -1,3 +1,4 @@
+import type { TFunction } from "i18next";
 import { useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { childLists, triggerFields } from "../../domain/automations/fields";
@@ -9,8 +10,9 @@ import type {
   Step,
 } from "../../data/types";
 import { quietButton } from "../tasks/controls";
-import { conditionWords, stepSentence, templateParts, triggerWords, type Names } from "./format";
+import { stepSentence, templateParts, triggerWords, type Names } from "./format";
 import { ApprovalGlyph, Disclosure, StepGlyph } from "./glyphs";
+import { laneLabel } from "./builder/flowWords";
 import { numbersById } from "./numbering";
 import { TemplateText } from "./shared";
 
@@ -55,28 +57,9 @@ interface Ctx {
   numbers: Map<string, number>;
 }
 
-/** Le etichette dei rami di un passo, nell'ordine in cui si leggono. */
-function branchLabel(
-  step: Step,
-  seg: string,
-  ctx: Ctx,
-  t: (k: string, o?: Record<string, unknown>) => string,
-) {
-  switch (step.kind) {
-    case "condition":
-      return seg === "then"
-        ? t("automations.branch.if", { when: conditionWords(step.when, ctx.labels, t as never) })
-        : t("automations.branch.otherwise");
-    case "claude":
-      return t("automations.branch.claude", { outcome: seg });
-    case "forEach":
-      return t("automations.branch.eachRound");
-    case "repeatUntil":
-      return seg === "onLimit" ? t("automations.branch.onLimit") : t("automations.branch.eachTime");
-    default:
-      return seg;
-  }
-}
+/** Le etichette dei rami di un passo: le stesse delle corsie del costruttore (R-J23). */
+const branchLabel = (step: Step, seg: string, ctx: Ctx, t: TFunction) =>
+  laneLabel(step, seg, ctx, t);
 
 function Branch({
   step,

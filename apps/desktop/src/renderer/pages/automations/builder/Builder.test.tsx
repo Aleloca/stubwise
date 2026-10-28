@@ -63,7 +63,7 @@ describe("lettura", () => {
   it("AUT-1: procedura numerata 1…N su tutto l'albero, corsie in parole, approvazione sulla riga", async () => {
     await open("/automations/AUT-1/edit");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Nuovo contratto");
-    expect(screen.getByText("Editing version 2 · version 1 is on")).toBeInTheDocument();
+    expect(screen.getByText("Editing version 2 · version 1 is active")).toBeInTheDocument();
     expect(document.querySelector("[data-draft-band]")).toHaveTextContent(
       "Version 1 keeps running until you publish",
     );
@@ -254,14 +254,14 @@ describe("bozza e versioni", () => {
   it("su un'attiva senza bozza: aprire non crea niente; la prima modifica nasce come versione 2", async () => {
     await open("/automations/AUD-A1/edit");
     expect(auto("AUD-A1").versions).toHaveLength(1);
-    expect(screen.getByText("Version 1 is on")).toBeInTheDocument();
+    expect(screen.getByText("Version 1 is active")).toBeInTheDocument();
     expect(document.querySelector("[data-primary-action]")).toBeDisabled();
     row("cd-ask").focus();
     await userEvent.keyboard("{Meta>}d{/Meta}");
     await settle();
     expect(auto("AUD-A1").versions).toHaveLength(2);
     expect(auto("AUD-A1").versions[0]!.publishedAt).not.toBeNull();
-    expect(screen.getByText("Editing version 2 · version 1 is on")).toBeInTheDocument();
+    expect(screen.getByText("Editing version 2 · version 1 is active")).toBeInTheDocument();
     expect(document.querySelector("[data-primary-action]")).toHaveTextContent("Publish version 2");
   });
 
@@ -596,7 +596,7 @@ describe("revisione del Task 6, giro 1", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(auto("AUD-A1").name).toBe("Dati dal cliente"));
     expect(auto("AUD-A1").versions).toHaveLength(1);
-    expect(screen.getByText("Version 1 is on")).toBeInTheDocument();
+    expect(screen.getByText("Version 1 is active")).toBeInTheDocument();
 
     // AUT-1 ha la bozza v2: buttata, poi rimessa con «Undo».
     clearToasts();
@@ -611,11 +611,11 @@ describe("revisione del Task 6, giro 1", () => {
         { name: "Discard this draft" },
       ),
     );
-    await waitFor(() => expect(screen.getByText("Version 1 is on")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Version 1 is active")).toBeInTheDocument());
     expect(auto("AUT-1").versions).toHaveLength(1);
     await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
     await waitFor(() =>
-      expect(screen.getByText("Editing version 2 · version 1 is on")).toBeInTheDocument(),
+      expect(screen.getByText("Editing version 2 · version 1 is active")).toBeInTheDocument(),
     );
     expect(savedFlow("AUT-1")).toEqual(draft);
     // Ricaricato sulla bozza rimessa: un'altra modifica salva senza fermarsi.

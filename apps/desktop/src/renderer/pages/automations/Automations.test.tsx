@@ -467,7 +467,7 @@ describe("dettaglio di un'esecuzione", () => {
     );
     expect(claude).toHaveTextContent("Why — written by Claude");
     const notTaken = within(log).getByRole("button", {
-      name: /^Not taken: If Claude answers “tutto presente”/,
+      name: /^Not taken: If Claude says “tutto presente”/,
     });
     expect(notTaken).toHaveAttribute("aria-expanded", "false");
     await userEvent.click(notTaken);
@@ -597,7 +597,7 @@ describe("Review Focus 5: registro da 300 righe, 50 giri", () => {
     // Tutto il registro è presente (⌘F lo trova), anche dentro i gruppi chiusi.
     expect(log.querySelectorAll("[data-entry-path]")).toHaveLength(303);
     const group = within(log).getByRole("button", {
-      name: /^For each item of Task di attivazione · 50 rounds · 49 done, 1 failed/,
+      name: /^For each task in Task di attivazione · 50 rounds · 49 done, 1 failed/,
     });
     expect(group).toHaveAttribute("aria-expanded", "true");
     const rounds = log.querySelectorAll<HTMLElement>("[data-log-round] > button");
@@ -914,7 +914,7 @@ describe("accendere e pubblicare: la casella scelta, i problemi della bozza", ()
     await userEvent.click(within(dialog).getByRole("radio", { name: email }));
     await userEvent.click(within(dialog).getByRole("button", { name: "Publish" }));
     await idle();
-    expect(await screen.findByText("AUT-1 is on · you're the owner")).toBeInTheDocument();
+    expect(await screen.findByText("AUT-1 is active · you're the owner")).toBeInTheDocument();
     expect(state.automations.find((a) => a.code === "AUT-1")).toMatchObject({
       ownerId: ROBERTA,
       mailbox: email,

@@ -4611,7 +4611,7 @@
       "upTo_other": "al massimo {{count}} giorni",
       "claude": "Claude: {{instruction}}",
       "condition": "Controlla se {{when}}",
-      "forEach": "Per ogni elemento di {{list}}",
+      "forEach": "Per ogni {{as}} in {{list}}",
       "repeatUntil_one": "Ripeti finché {{until}} — al massimo {{count}} volta",
       "repeatUntil_other": "Ripeti finché {{until}} — al massimo {{count}} volte",
       "dueIn_one": "scadenza fra {{count}} giorno",
@@ -4647,14 +4647,9 @@
       "other": "un passo"
     },
     "branch": {
-      "if": "Se {{when}}",
       "yes": "Se sì",
       "otherwise": "Altrimenti",
-      "claude": "Se Claude risponde «{{outcome}}»",
-      "eachRound": "A ogni giro",
-      "eachTime": "Ogni volta",
-      "onLimit": "Se si raggiunge il limite",
-      "onLimitFollowed": "Limite raggiunto → seguito «Se si raggiunge il limite»",
+      "onLimitFollowed": "Limite raggiunto → seguito «Al limite raggiunto»",
       "nothing": "Niente — il flusso prosegue.",
       "showInside_one": "Mostra {{count}} passo dentro",
       "showInside_other": "Mostra {{count}} passi dentro"
@@ -4782,11 +4777,11 @@
       "staysPaused": "Resta in pausa: riaccendila dalla sua pagina quando sei pronto."
     },
     "toast": {
-      "on": "{{code}} è accesa · il proprietario sei tu",
+      "on": "{{code}} è attiva · il proprietario sei tu",
       "onError": "Non è stato possibile accendere {{code}}. Non è cambiato niente.",
       "onError_publish": "Non è stato possibile pubblicare {{code}}. Non è cambiato niente.",
       "paused": "{{code}} è in pausa",
-      "pauseError": "Non è stato possibile mettere in pausa {{code}}. È ancora accesa.",
+      "pauseError": "Non è stato possibile mettere in pausa {{code}}. È ancora attiva.",
       "deleted": "{{code}} eliminata",
       "deleteError": "Non è stato possibile eliminare {{code}}.",
       "fixFirst_one": "Prima risolvi il problema: è elencato in Problemi.",
@@ -4856,7 +4851,7 @@
       "no_recipient": "nessun destinatario",
       "recipient_cant_see": "la persona non vede il progetto",
       "project_not_found": "il progetto non è stato trovato",
-      "automation_not_active": "l'automazione da avviare non è accesa",
+      "automation_not_active": "l'automazione da avviare non è attiva",
       "automation_cycle": "avvierebbe di nuovo sé stessa",
       "chain_limit": "troppe automazioni avviate di fila",
       "run_limit": "troppe esecuzioni in corso",
@@ -5102,8 +5097,8 @@
       "why": "Perché — scritto da Claude",
       "showAllRows": "Mostra tutte e {{count}}",
       "showFewer": "Mostra meno",
-      "forEachGroup_one": "Per ogni elemento di {{list}} · {{count}} giro",
-      "forEachGroup_other": "Per ogni elemento di {{list}} · {{count}} giri",
+      "forEachGroup_one": "Per ogni {{as}} in {{list}} · {{count}} giro",
+      "forEachGroup_other": "Per ogni {{as}} in {{list}} · {{count}} giri",
       "roundsDone": "{{count}} finiti",
       "roundsDoneFailed": "{{done}} finiti, {{failed}} falliti",
       "round": "Giro {{n}} di {{total}}",
@@ -5309,15 +5304,15 @@
         "general": "Generale · usa il progetto del cliente",
         "status": {
           "draft": "Bozza",
-          "active": "Accesa",
+          "active": "Attiva",
           "paused": "In pausa"
         },
         "editing": {
-          "active": "Stai modificando la versione {{n}} · è accesa la versione {{m}}",
+          "active": "Stai modificando la versione {{n}} · è attiva la versione {{m}}",
           "paused": "Stai modificando la versione {{n}} · la versione {{m}} è in pausa"
         },
         "live": {
-          "active": "È accesa la versione {{m}}",
+          "active": "È attiva la versione {{m}}",
           "paused": "La versione {{m}} è in pausa"
         },
         "actsAs": "Agisce come {{name}}"
@@ -5432,12 +5427,9 @@
         "if": "Se {{when}}",
         "otherwise": "Altrimenti",
         "claude": "Se Claude dice «{{outcome}}»",
-        "forEach": "Per ogni {{as}} in {{list}}",
         "item": "elemento",
         "upTo": "al massimo {{count}} volte",
-        "repeat_one": "Ripeti finché {{until}} · al massimo {{count}} volta",
-        "repeat_other": "Ripeti finché {{until}} · al massimo {{count}} volte",
-        "onLimit": "Quando si arriva al limite",
+        "onLimit": "Al limite raggiunto",
         "nothing": "Qui non succede niente"
       },
       "asks": {
@@ -5568,7 +5560,7 @@
         "notifyWho": "Chi",
         "message": "Messaggio",
         "whichAutomation": "Automazione",
-        "chooseAutomation": "Scegli un'automazione accesa",
+        "chooseAutomation": "Scegli un'automazione attiva",
         "startNote": "Parte coi suoi passi e le sue approvazioni.",
         "waitFor": "Aspetta",
         "someTime": "Del tempo",
@@ -5764,7 +5756,7 @@
       },
       "meta": {
         "draft": "Versione {{n}} (bozza)",
-        "active": "Versione {{n}} · accesa",
+        "active": "Versione {{n}} · attiva",
         "paused": "Versione {{n}} · in pausa",
         "example": "Esempio: {{label}}",
         "written": "scritto a mano",

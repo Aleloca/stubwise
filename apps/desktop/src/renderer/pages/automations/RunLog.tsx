@@ -203,7 +203,11 @@ function NodeView({ node, view, depth }: { node: LogNode; view: View; depth: num
           <Indent depth={depth} />
           <StepGlyph kind="forEach" />
           <span className="text-md text-ink">
-            {t("automations.log.forEachGroup", { list, count: total })}
+            {t("automations.log.forEachGroup", {
+              as: step.as || t("automations.builder.lane.item"),
+              list,
+              count: total,
+            })}
             <span className="text-ink-muted">
               {" · "}
               {failedRounds > 0

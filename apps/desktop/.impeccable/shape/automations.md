@@ -300,10 +300,12 @@ Colonna di lettura fino a 960px, sezioni separate da filetti con titolo
     tooltip) **[A 9]**;
   - i rami come sottoelenchi rientrati 20px con filetto verticale
     `rule` a sinistra e un'etichetta del ramo 12px 600: «If products
-    contains “CRM”» / «Otherwise»; per Claude «If Claude answers “All
-    present”» / «“Missing information”»; «For each task from Claude»;
-    «Repeat until the client replies — at most 2 times» e «If the limit
-    is reached»;
+    contains “CRM”» / «Otherwise»; per Claude «If Claude says “All
+    present”» / «If Claude says “Missing information”»; «For each task in
+    Task di attivazione»; «Repeat until the client replies — at most 2
+    times» e «When the limit is reached» — le stesse etichette delle corsie
+    del costruttore, e la stessa frase sulla riga del passo e sulla sua
+    corsia (28 ott 2026, ruling R-J23: un solo vocabolario);
   - un passo con approvazione porta a destra «Needs approval · Laura
     Bianchi» (glifo mano lineare + parole); un passo che crea in un
     progetto ricavato dice «in the client's project»;

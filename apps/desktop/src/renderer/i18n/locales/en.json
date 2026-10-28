@@ -4611,7 +4611,7 @@
       "upTo_other": "at most {{count}} days",
       "claude": "Claude: {{instruction}}",
       "condition": "Check whether {{when}}",
-      "forEach": "For each item of {{list}}",
+      "forEach": "For each {{as}} in {{list}}",
       "repeatUntil_one": "Repeat until {{until}} — at most {{count}} time",
       "repeatUntil_other": "Repeat until {{until}} — at most {{count}} times",
       "dueIn_one": "due in {{count}} day",
@@ -4647,14 +4647,9 @@
       "other": "a step"
     },
     "branch": {
-      "if": "If {{when}}",
       "yes": "If yes",
       "otherwise": "Otherwise",
-      "claude": "If Claude answers “{{outcome}}”",
-      "eachRound": "Each round",
-      "eachTime": "Each time",
-      "onLimit": "If the limit is reached",
-      "onLimitFollowed": "Limit reached → followed “If the limit is reached”",
+      "onLimitFollowed": "Limit reached → followed “When the limit is reached”",
       "nothing": "Nothing — the flow goes on.",
       "showInside_one": "Show {{count}} step inside",
       "showInside_other": "Show {{count}} steps inside"
@@ -4782,11 +4777,11 @@
       "staysPaused": "It stays paused: turn it back on from its page when you're ready."
     },
     "toast": {
-      "on": "{{code}} is on · you're the owner",
+      "on": "{{code}} is active · you're the owner",
       "onError": "Couldn't turn on {{code}}. Nothing changed.",
       "onError_publish": "Couldn't publish {{code}}. Nothing changed.",
       "paused": "{{code}} is paused",
-      "pauseError": "Couldn't pause {{code}}. It's still on.",
+      "pauseError": "Couldn't pause {{code}}. It's still active.",
       "deleted": "{{code}} deleted",
       "deleteError": "Couldn't delete {{code}}.",
       "fixFirst_one": "Fix the problem first: it's listed under Problems.",
@@ -4856,7 +4851,7 @@
       "no_recipient": "nobody to send it to",
       "recipient_cant_see": "the person can't see the project",
       "project_not_found": "the project wasn't found",
-      "automation_not_active": "the automation to start isn't on",
+      "automation_not_active": "the automation to start isn't active",
       "automation_cycle": "it would start itself again",
       "chain_limit": "too many automations started in a row",
       "run_limit": "too many runs in progress",
@@ -4900,8 +4895,8 @@
       "recipientCantSee": "{{name}} doesn't see the project: the notification wasn't sent.",
       "recipientCantSee_would": "{{name}} doesn't see the project: the notification wouldn't be sent.",
       "automationNotFound": "The automation to start doesn't exist, or the owner can't see it.",
-      "automationNotActive": "“{{name}}” isn't on: it didn't start.",
-      "automationNotActive_would": "“{{name}}” isn't on: it wouldn't start.",
+      "automationNotActive": "“{{name}}” isn't active: it didn't start.",
+      "automationNotActive_would": "“{{name}}” isn't active: it wouldn't start.",
       "automationCycle": "“{{name}}” is already in this chain of starts: no loops.",
       "chainLimit": "Limit reached: at most {{max}} automations in a chain of starts.",
       "runLimit": "“{{name}}” already has too many runs in progress.",
@@ -5102,8 +5097,8 @@
       "why": "Why — written by Claude",
       "showAllRows": "Show all {{count}}",
       "showFewer": "Show fewer",
-      "forEachGroup_one": "For each item of {{list}} · {{count}} round",
-      "forEachGroup_other": "For each item of {{list}} · {{count}} rounds",
+      "forEachGroup_one": "For each {{as}} in {{list}} · {{count}} round",
+      "forEachGroup_other": "For each {{as}} in {{list}} · {{count}} rounds",
       "roundsDone": "{{count}} done",
       "roundsDoneFailed": "{{done}} done, {{failed}} failed",
       "round": "Round {{n}} of {{total}}",
@@ -5309,15 +5304,15 @@
         "general": "General · uses the client's project",
         "status": {
           "draft": "Draft",
-          "active": "On",
+          "active": "Active",
           "paused": "Paused"
         },
         "editing": {
-          "active": "Editing version {{n}} · version {{m}} is on",
+          "active": "Editing version {{n}} · version {{m}} is active",
           "paused": "Editing version {{n}} · version {{m}} is paused"
         },
         "live": {
-          "active": "Version {{m}} is on",
+          "active": "Version {{m}} is active",
           "paused": "Version {{m}} is paused"
         },
         "actsAs": "Acts as {{name}}"
@@ -5432,11 +5427,8 @@
         "if": "If {{when}}",
         "otherwise": "Otherwise",
         "claude": "If Claude says “{{outcome}}”",
-        "forEach": "For each {{as}} in {{list}}",
         "item": "item",
         "upTo": "up to {{count}} times",
-        "repeat_one": "Repeat until {{until}} · at most {{count}} time",
-        "repeat_other": "Repeat until {{until}} · at most {{count}} times",
         "onLimit": "When the limit is reached",
         "nothing": "Nothing happens here"
       },
@@ -5568,7 +5560,7 @@
         "notifyWho": "Who",
         "message": "Message",
         "whichAutomation": "Automation",
-        "chooseAutomation": "Choose an automation that's on",
+        "chooseAutomation": "Choose an active automation",
         "startNote": "It starts with its own steps and its own approvals.",
         "waitFor": "Wait for",
         "someTime": "Some time",
@@ -5764,7 +5756,7 @@
       },
       "meta": {
         "draft": "Version {{n}} (draft)",
-        "active": "Version {{n}} · on",
+        "active": "Version {{n}} · active",
         "paused": "Version {{n}} · paused",
         "example": "Example: {{label}}",
         "written": "written by hand",

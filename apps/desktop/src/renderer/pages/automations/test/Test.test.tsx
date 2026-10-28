@@ -362,7 +362,7 @@ describe("le fermate", () => {
   it("una versione accesa: risposta del cliente scritta nella prova; a fine prova niente «Turn on»", async () => {
     await open("/automations/AUD-A1/test");
     await startWith(0);
-    expect(screen.getByText("Version 1 · on")).toBeInTheDocument();
+    expect(screen.getByText("Version 1 · active")).toBeInTheDocument();
     await userEvent.click(next());
     await waitFor(() => expect(rowMark("1")).toBe("stopped"));
     expect(row("1")).toHaveTextContent("Stopped: waiting");
