@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { isCatalogKind, registerAlertTypes } from "../../domain/alerts/catalog";
+import { ALERT_TYPES, isCatalogKind, registerAlertTypes } from "../../domain/alerts/catalog";
 import {
   alerts,
   failNext,
@@ -136,6 +136,25 @@ describe("Review Focus 1: destinatari a lettura", () => {
     expect(elena?.mandatory).toEqual([{ personId: "p-elena", reason: "task_author" }]);
     // Senza task collegata alla PR: nessun obbligato.
     expect(releaseMandatory({ ...v2, pr: { repo: "audin/audin-app", number: 241 } })).toEqual([]);
+  });
+
+  it("merge fuori da Stubwise da un nome git collegato: a chi l'ha fatto, non all'autore della task", async () => {
+    const v2 = state.releases.find((r) => r.code === "AUD-V2")!;
+    state.commitAuthorLinks.set(v2.mergedGitName, "p-stefano");
+    const mandatory = releaseMandatory(v2);
+    expect(mandatory).toEqual([{ personId: "p-stefano", reason: "merged" }]);
+    publishAlert({
+      kind: "release.failed",
+      projectId: AUD,
+      objectCode: "AUD-V2",
+      title: "Release failed",
+      body: "",
+      link: "#/p/AUD/releases",
+      mandatory,
+    });
+    const stefano = (await inbox("p-stefano")).find((n) => n.id === lastId());
+    expect(stefano?.mandatory).toEqual([{ personId: "p-stefano", reason: "merged" }]);
+    expect(await has("p-elena", lastId())).toBe(false);
   });
 
   it("Claude non riceve mai avvisi, nemmeno obbligatori (R-K5)", async () => {
@@ -392,6 +411,19 @@ describe("iscrizioni: righe e scritture", () => {
       .find((p) => p.projectId === AUD)!
       .rows.find((r) => r.type === "test.server_struggling");
     expect(row).toMatchObject({ group: "monitor", state: "on", app: true, phone: true });
+    // resetApi rimette il catalogo: la riga di prova non passa ai test dopo.
+    const before = ALERT_TYPES.length;
+    resetApi();
+    setLatency(0);
+    expect(isCatalogKind("test.server_struggling")).toBe(false);
+    expect(ALERT_TYPES).toHaveLength(before - 1);
+    as("p-laura");
+    const rows = (await alerts.subscriptionRows()).find((p) => p.projectId === AUD)!.rows;
+    expect(rows.some((r) => r.type === "test.server_struggling")).toBe(false);
+  });
+
+  it("publishAlert rifiuta un kind fuori dal catalogo con un codice", () => {
+    expect(() => again({ ...prOpened, kind: "security.alert" })).toThrow("invalid: kind");
   });
 
   it("failNext e resetApi", async () => {

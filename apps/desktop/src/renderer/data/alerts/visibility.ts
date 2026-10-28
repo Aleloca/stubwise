@@ -1,7 +1,7 @@
-import { isCatalogKind } from "../../domain/alerts/catalog";
+import { isCatalogKind, resetAlertTypes } from "../../domain/alerts/catalog";
 import { recipientsOf, type Perms, type Recipient } from "../../domain/alerts/recipients";
 import { PEOPLE } from "../seed/people";
-import { state, visibleProjectIds } from "../store";
+import { onStoreReset, state, visibleProjectIds } from "../store";
 import type { AppNotification } from "../types";
 import { can, viewerFor } from "../viewer";
 
@@ -11,6 +11,10 @@ import { can, viewerFor } from "../viewer";
 // altri (sicurezza, decisioni, Chat, Automazioni…) quelli fissi della riga.
 // Claude non riceve mai avvisi, obbligatori compresi (R-K5): è l'autore
 // delle PR di Stubwise, non una persona da avvisare.
+
+// `resetApi` rimette anche il catalogo: le righe registrate da un test non
+// passano agli altri.
+onStoreReset(resetAlertTypes);
 
 const isClaude = (personId: string) => PEOPLE.some((p) => p.id === personId && p.isClaude);
 

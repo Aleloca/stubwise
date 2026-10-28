@@ -116,8 +116,25 @@ export const ALERT_TYPES: AlertType[] = [
 ];
 
 /**
+ * Il catalogo «di partenza»: i tipi qui sopra più quelli registrati al
+ * caricamento dei moduli (8b), fotografato al primo `resetAlertTypes`.
+ */
+let baseline: AlertType[] | null = null;
+
+/**
+ * Rimette il catalogo com'era al caricamento: la prima chiamata (il primo
+ * `resetApi`, dopo gli import) lo fotografa, le successive tolgono ciò che
+ * è stato registrato dopo (le righe di prova dei test). Lo chiama `resetApi`.
+ */
+export function resetAlertTypes(): void {
+  if (baseline === null) baseline = [...ALERT_TYPES];
+  else ALERT_TYPES.splice(0, ALERT_TYPES.length, ...baseline);
+}
+
+/**
  * Il punto d'estensione delle aree successive (8b): aggiunge i tipi, o
- * sostituisce quelli con lo stesso `type`.
+ * sostituisce quelli con lo stesso `type`. Va chiamato al caricamento del
+ * modulo: ciò che si registra dopo il primo `resetApi` lo toglie il reset.
  */
 export function registerAlertTypes(rows: AlertType[]): void {
   for (const r of rows) {

@@ -2,6 +2,7 @@ import { isCatalogKind } from "../../domain/alerts/catalog";
 import { mergeMandatory } from "../../domain/alerts/recipients";
 import { newId, now, state } from "../store";
 import type { AppNotification, MandatoryReason, Release } from "../types";
+import { invalid } from "../writer";
 
 // L'unico modo in cui le aree dell'8a (`data/releases`, `data/support`)
 // creano un avviso: la riga non porta destinatari (`recipientIds: []`),
@@ -19,7 +20,7 @@ export interface AlertInput {
 }
 
 export function publishAlert(input: AlertInput): void {
-  if (!isCatalogKind(input.kind)) throw new Error(`invalid: kind ${input.kind}`);
+  if (!isCatalogKind(input.kind)) throw invalid("kind");
   const task = state.tasks.find(
     (t) => t.projectId === input.projectId && t.code === input.objectCode,
   );
@@ -57,5 +58,8 @@ export function releaseMandatory(
       p.number === release.pr.number,
   );
   const task = pr ? state.tasksById.get(pr.taskId) : undefined;
-  return mergeMandatory(release.mergedById, task?.createdById ?? null);
+  // Un nome git collegato dopo a una persona («Collega l'autore») vale come
+  // merge suo: l'autore della task subentra solo se nessuno è collegato.
+  const merger = release.mergedById ?? state.commitAuthorLinks.get(release.mergedGitName) ?? null;
+  return mergeMandatory(merger, task?.createdById ?? null);
 }
