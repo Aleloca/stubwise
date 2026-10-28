@@ -348,6 +348,11 @@ controller: i log di CI possono contenere più dettagli del codice)*.
   che ha spento l'iscrizione. Per farlo, a lettura conta lo stato
   dell'iscrizione **al momento dell'avviso** (l'iscrizione tiene la storia
   delle sue accensioni e spegnimenti), mentre i permessi contano **adesso**.
+- **Letto, archiviato e posticipato per persona** *(scelta del controller,
+  28 ott)*: con i destinatari calcolati, lo stato di una notifica non sta più
+  sulla riga (oggi un flag unico, condiviso fra i destinatari) ma per persona
+  (`notificationMarks` nel prototipo): che Laura la legga non la segna letta
+  per Marco.
 - **Decisioni ≠ avvisi** (ossatura): ciò che chiede una decisione (piano da
   approvare, domanda di Claude) va nel «Da decidere» di chi deve decidere,
   non passa dalle iscrizioni (`DECISION_NOTIFICATION_KINDS` in
@@ -613,10 +618,13 @@ uso** di ciascun accesso (quando e da quale task o analisi).
 
 ### I limiti *(scelta del controller)*
 
-1. **Tetto di giri**: al massimo **2 correzioni automatiche per PR**, in
-   tutto, per **ogni** PR (E) (i nuovi commit dell'autore non azzerano il
-   conto, o il costo non avrebbe fine). Oltre, solo su richiesta di una persona («Chiedi
-   modifiche», come oggi), e anche lì vale il tetto del ciclo del progetto.
+1. **Tetto di giri** *(scelta del controller, 28 ott: un solo tetto, quello del progetto)*:
+   le correzioni automatiche si fermano al **`correctionCap` del progetto**
+   (lo stesso numero di oggi, default 3), per **ogni** PR (E), di Stubwise e
+   dei colleghi; i nuovi commit dell'autore non azzerano il conto, o il
+   costo non avrebbe fine. Oltre il tetto va solo una persona con
+   `plans.approve` («Il budget di una correzione lo scavalca solo chi ha
+   `plans.approve`»). Nessun tetto fisso separato.
 2. **Niente force push, niente rebase**: un commit sopra, push in avanti.
 3. **Se l'autore spinge in parallelo**: il push di Claude è rifiutato, la
    correzione si **scarta** (nessun tentativo di unire), e l'analisi riparte
