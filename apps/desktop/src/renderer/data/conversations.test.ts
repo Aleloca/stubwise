@@ -1000,9 +1000,11 @@ describe("sessioni di lavoro", () => {
   it("avvia: con runs.start; un developer passa dal gate del piano", async () => {
     as("p-giulia"); // contributor in AUD
     const before = state.conversations.length;
+    // AUD-2 ha già un lavoro finito (la PR #244 dell'area 8a): il rifiuto non lo tocca.
+    const claudeBefore = task("t-aud-2").claude;
     await expect(startRun("t-aud-2")).rejects.toThrow("forbidden");
     expect(state.conversations).toHaveLength(before);
-    expect(task("t-aud-2").claude).toBe("none");
+    expect(task("t-aud-2").claude).toBe(claudeBefore);
 
     as("p-marco");
     const run = await startRun("t-aud-2");

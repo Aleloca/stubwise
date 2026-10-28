@@ -8,7 +8,8 @@ import type { Repository } from "../../types";
 //
 // Area 8a: ogni repository dice cosa fa con le PR dei colleghi, il ramo di
 // rilascio e da dove si leggono le run. AUD ne ha due in più, senza spazio
-// dei Docs: uno su «Solo analisi» e uno «Spento». STW non ha una pipeline
+// dei Docs: uno su «Solo analisi» e uno «Spento»; STW la guida (la PR #58
+// di STW-3). STW non ha una pipeline
 // (`ciProvider: null`): lo stato dei suoi rilasci lo dice l'ambiente.
 // L'ordine conta: il primo repository di un progetto è il suo principale.
 
@@ -43,6 +44,17 @@ export const REPOSITORIES: Repository[] = [
     releaseBranch: "main",
     releasePipeline: { mode: "auto" },
     ciProvider: "github_actions",
+  },
+  // La guida di STW (PR #58 di STW-3): senza spazio dei Docs, senza pipeline.
+  {
+    id: "repo-stw-guide",
+    projectId: "prj-stw",
+    name: "guide",
+    fullName: "stubwise/guide",
+    colleaguePrs: "analyze_and_fix",
+    releaseBranch: "main",
+    releasePipeline: { mode: "auto" },
+    ciProvider: null,
   },
   {
     id: "repo-aud-scripts",

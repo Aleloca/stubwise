@@ -76,6 +76,7 @@ import { OPEN_PRS } from "./seed/releases/prs";
 import { RELEASES } from "./seed/releases/releases";
 import { SUPPORT_CONVERSATIONS } from "./seed/support/conversations";
 import { SUPPORT_WIDGETS } from "./seed/support/widgets";
+import { PR_FACTS, PULL_REQUEST_EVENTS } from "./seed/timeline";
 import { state } from "./store";
 import { VIEW_AS_PERSONAS, can, viewerFor } from "./viewer";
 import type {
@@ -505,6 +506,7 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
   const SHA = /^[0-9a-f]{40}$/;
   const repoOf = (id: string) => REPOSITORIES.find((r) => r.id === id)!;
   const prsOf = (projectId: string) => OPEN_PRS.filter((p) => p.projectId === projectId);
+  const eventsOf = (c: Conversation): ConversationEvent[] => CONVERSATION_EVENTS[c.id] ?? [];
 
   it("i kind nuovi sono locali e hanno destinatari a lettura: nessuno fisso, obbligatori membri umani", () => {
     const kinds8a = [
@@ -538,7 +540,7 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
     expect(new Set(NOTIFICATIONS.map((n) => n.id)).size).toBe(NOTIFICATIONS.length);
     // «Rilascio fallito»: obbligatorio per chi ha fatto il merge (Laura).
     const failed = ALERT_NOTIFICATIONS.find((n) => n.kind === "release.failed")!;
-    expect(failed.objectCode).toBe("AUD-V2");
+    expect(failed.objectCode).toBe("AUD-V3");
     expect(failed.mandatory).toEqual([{ personId: "p-laura", reason: "merged" }]);
     const corrected = ALERT_NOTIFICATIONS.find((n) => n.kind === "pr.corrected")!;
     expect(corrected.mandatory).toEqual([{ personId: "p-marco", reason: "pr_author" }]);
@@ -605,7 +607,25 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
       (p) => p.origin === "stubwise" && p.checks === "passing" && p.mergeable,
     );
     expect(ready).toHaveLength(1);
-    expect(ready[0]!.taskId).not.toBeNull();
+    // Coerente col resto del seme: la task ha finito (sessione finita con la
+    // PR aperta e la review senza rilievi), la PR è nella cronologia.
+    const readyTask = tasksById.get(ready[0]!.taskId!)!;
+    expect(readyTask.claude).toBe("done");
+    const session = CONVERSATIONS.filter((c) => c.taskId === readyTask.id).at(-1)!;
+    expect(session.state).toBe("finished");
+    expect(
+      eventsOf(session).some(
+        (e) =>
+          e.type === "work_result" &&
+          e.kind === "pr_opened" &&
+          e.text.includes(`#${ready[0]!.number}`),
+      ),
+    ).toBe(true);
+    expect(
+      PULL_REQUEST_EVENTS.some(
+        (e) => e.kind === "pr_opened" && e.repo === ready[0]!.repo && e.number === ready[0]!.number,
+      ),
+    ).toBe(true);
 
     const marco = prsOf(AUD).find((p) => p.authorId === "p-marco")!;
     expect(marco.origin).toBe("colleague");
@@ -627,6 +647,12 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
 
     // Una PR anche sul repository in «Solo analisi».
     expect(prsOf(AUD).some((p) => p.repositoryId === "repo-aud-admin")).toBe(true);
+
+    // Le PR aperte delle task (i fatti della review in `PR_FACTS`) ci sono tutte.
+    for (const f of PR_FACTS) {
+      const pr = OPEN_PRS.find((p) => p.repo === f.repo && p.number === f.number);
+      expect(pr?.taskId, `${f.repo}#${f.number}`).toBe(f.taskId);
+    }
   });
 
   it("rilasci: AUD riuscito (2 run di GitHub Actions) e fallito di Laura con log lungo; STW senza run", () => {
@@ -657,6 +683,25 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
     const stw = RELEASES.filter((r) => r.projectId === STW);
     expect(stw).toHaveLength(2);
     for (const r of stw) expect(r.runs).toEqual([]);
+
+    // Ogni merge della cronologia ha il suo rilascio, alla stessa ora.
+    for (const e of PULL_REQUEST_EVENTS.filter((x) => x.kind === "pr_merged")) {
+      const r = RELEASES.find((x) => x.pr.repo === e.repo && x.pr.number === e.number);
+      expect(r?.mergedAt, `${e.repo}#${e.number}`).toBe(e.at);
+      expect(r!.projectId).toBe(e.projectId);
+    }
+  });
+
+  it("un merge fuori da Stubwise da un'identità non collegata, su una PR con una task (`task_author`)", () => {
+    const outside = RELEASES.find((r) => !r.viaStubwise && r.mergedById === null)!;
+    expect(outside.mergedGitName).toBeTruthy();
+    expect(PEOPLE.some((p) => p.name === outside.mergedGitName)).toBe(false);
+    const event = PULL_REQUEST_EVENTS.find(
+      (e) => e.repo === outside.pr.repo && e.number === outside.pr.number,
+    )!;
+    const task = tasksById.get(event.taskId)!;
+    expect(task.projectId).toBe(outside.projectId);
+    expect(projectsById.get(outside.projectId)!.memberIds).toContain(task.createdById);
   });
 
   it("ambienti: STW e AUD con produzione su un server e staging senza; ACQ in produzione su SRV-1", () => {
@@ -744,7 +789,7 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
     expect(state.supportConversations).toEqual(SUPPORT_CONVERSATIONS);
     expect(state.supportWidgets).toEqual(SUPPORT_WIDGETS);
     expect(state.notificationMarks.size).toBe(0);
-    expect(state.releaseCodeSeq.get(AUD)).toBe(2);
+    expect(state.releaseCodeSeq.get(AUD)).toBe(3);
     expect(state.releaseCodeSeq.get(STW)).toBe(2);
     expect(state.supportCodeSeq.get(ACQ)).toBe(4);
     // Copie: cambiare lo stato non tocca il seme.

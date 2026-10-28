@@ -2,7 +2,9 @@ import type { OpenPullRequest } from "../../types";
 import { daysFromToday } from "../dates";
 import { CLAUDE_ID } from "../people";
 
-// Le PR aperte dell'area 8a, tutte su AUD (spec «Dati finti»). Stessa forma
+// Le PR aperte dell'area 8a (spec «Dati finti»): quelle di AUD, più le due
+// già aperte di STW-3 (`PR_FACTS` in `timeline.ts`, che resta la fonte dei
+// fatti della review per il ciclo delle correzioni). Stessa forma
 // per quelle di Stubwise e per quelle dei colleghi: cambiano solo l'autore
 // e, se c'è, la task collegata. Le correzioni salvate qui sono solo quelle
 // sui rami dei colleghi: per le PR di Stubwise valgono le sessioni della task.
@@ -11,7 +13,9 @@ const at = (days: number, hm: string) => `${daysFromToday(-days)}T${hm}:00Z`;
 
 /** La testa di ogni PR (sha finti, 40 caratteri, stabili). */
 export const PR_HEADS = {
-  billing: "4be1f0c27a9d3e5b6c8f0a1d2e3b4c5d6e7f8091",
+  onboarding: "4be1f0c27a9d3e5b6c8f0a1d2e3b4c5d6e7f8091",
+  board: "7e9a1c3e5b7d9f1a3c5e7b9d1f3a5c7e9b1d3f5a",
+  guide: "0a2c4e6b8d0f2a4c6e8b0d2f4a6c8e0b2d4f6a8c",
   filters: "9c3d2a1b0e8f7d6c5b4a39281706f5e4d3c2b1a0",
   readme: "e7a1c3b5d7f9e1a3c5b7d9f1e3a5c7b9d1f3e5a7",
   retention: "2f4e6d8c0b1a3e5d7c9b1f3e5d7c9b1a3e5d7c9b",
@@ -19,37 +23,39 @@ export const PR_HEADS = {
 } as const;
 
 export const OPEN_PRS: OpenPullRequest[] = [
-  // Di Stubwise, pronta per il rilascio: task collegata, analisi pulita, controlli verdi.
+  // Di Stubwise, pronta per il rilascio: AUD-2 ha finito (sessione
+  // `cv-run-aud-2`, review senza rilievi), analisi pulita, controlli verdi.
   {
     id: "opr-aud-244",
     projectId: "prj-aud",
     repositoryId: "repo-aud",
     repo: "audin/audin-app",
     number: 244,
-    title: "Billing emails with the new invoice layout",
+    title: "Onboarding checklist for new workspaces",
     authorId: CLAUDE_ID,
     authorName: "Claude",
     origin: "stubwise",
-    taskId: "t-aud-4",
-    branch: "stubwise/AUD-4-billing-emails",
+    taskId: "t-aud-2",
+    branch: "stubwise/AUD-2-onboarding-checklist",
     baseBranch: "main",
-    headSha: PR_HEADS.billing,
+    headSha: PR_HEADS.onboarding,
     fromFork: false,
     branchProtected: false,
     analysisOnly: null,
     analysis: {
-      sha: PR_HEADS.billing,
+      sha: PR_HEADS.onboarding,
       status: "done",
-      summary: "The invoice emails use the new layout; the old template is removed with its tests.",
+      summary:
+        "A checklist card on the dashboard of new workspaces; each step ticks itself when done.",
       risk: "low",
       issues: [],
-      at: at(1, "10:20"),
+      at: at(1, "13:50"),
     },
     corrections: [],
     checks: "passing",
     mergeable: true,
     state: "open",
-    openedAt: at(1, "09:45"),
+    openedAt: at(1, "13:30"),
   },
   // Di Marco, aperta fuori da Stubwise: l'analisi ha trovato problemi e Claude
   // ne ha corretto uno con un commit sopra.
@@ -241,5 +247,80 @@ export const OPEN_PRS: OpenPullRequest[] = [
     mergeable: true,
     state: "open",
     openedAt: at(1, "11:40"),
+  },
+  // STW-3, l'app: aperta da Claude ieri, la review ha chiesto modifiche e la
+  // correzione è in corso (sessione `cv-run-stw-3`).
+  {
+    id: "opr-stw-411",
+    projectId: "prj-stw",
+    repositoryId: "repo-stw",
+    repo: "stubwise/stubwise",
+    number: 411,
+    title: "Board view with keyboard drag and drop",
+    authorId: CLAUDE_ID,
+    authorName: "Claude",
+    origin: "stubwise",
+    taskId: "t-stw-3",
+    branch: "stubwise/STW-3-board-keyboard",
+    baseBranch: "main",
+    headSha: PR_HEADS.board,
+    fromFork: false,
+    branchProtected: false,
+    analysisOnly: null,
+    analysis: {
+      sha: PR_HEADS.board,
+      status: "done",
+      summary:
+        "Cards move between columns with the keyboard; the drop is announced to screen readers.",
+      risk: "medium",
+      issues: [
+        {
+          title: "The drop announcement is read twice by screen readers",
+          file: "apps/desktop/src/renderer/pages/board/announce.ts",
+        },
+      ],
+      at: at(1, "12:10"),
+    },
+    corrections: [],
+    checks: "pending",
+    mergeable: true,
+    state: "open",
+    openedAt: at(1, "11:30"),
+  },
+  // STW-3, la guida: aperta a mano da Simone, corretta dal ciclo automatico
+  // fino al tetto di STW (3 giri, sessione `cv-run-stw-3-guide`). È «di
+  // Stubwise» perché le sue correzioni sono quelle delle sessioni della task.
+  {
+    id: "opr-stw-guide-58",
+    projectId: "prj-stw",
+    repositoryId: "repo-stw-guide",
+    repo: "stubwise/guide",
+    number: 58,
+    title: "Keyboard shortcuts of the board",
+    authorId: "p-simone",
+    authorName: "Simone Rossetti",
+    origin: "stubwise",
+    taskId: "t-stw-3",
+    branch: "stubwise/STW-3-board-keyboard",
+    baseBranch: "main",
+    headSha: PR_HEADS.guide,
+    fromFork: false,
+    branchProtected: false,
+    analysisOnly: null,
+    analysis: {
+      sha: PR_HEADS.guide,
+      status: "done",
+      summary: "The guide page lists the keyboard moves of the board.",
+      risk: "low",
+      issues: [
+        { title: "The keyboard table still misses the Escape key", file: "docs/board/keyboard.md" },
+      ],
+      at: at(3, "16:30"),
+    },
+    corrections: [],
+    checks: "passing",
+    mergeable: true,
+    state: "open",
+    openedAt: at(3, "12:30"),
   },
 ];

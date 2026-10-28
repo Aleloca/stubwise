@@ -7,7 +7,7 @@ import { TASKS } from "./tasks";
 // Iscrizioni: nessuna riga = il default del catalogo (Task 3). Il seme
 // scrive solo quelle che se ne discostano: Matteo ha acceso «Nuova PR» su
 // AUD; Giulia aveva acceso «Rilascio fallito» su AUD e l'ha spenta DOPO
-// l'avviso di AUD-V2 (spegnere vale solo per il futuro: quello le resta).
+// l'avviso di AUD-V3 (spegnere vale solo per il futuro: quello le resta).
 //
 // Notifiche: i kind del catalogo non portano destinatari fissi
 // (`recipientIds: []`): chi le riceve si calcola a lettura da iscrizioni,
@@ -47,11 +47,11 @@ type Row = [
 
 // prettier-ignore
 const ROWS: Row[] = [
-  ["pr.opened", "AUD", "audin/audin-app#244", "New pull request", "Claude opened audin-app#244 for AUD-4: Billing emails with the new invoice layout.", at(1, "09:45"), "#/p/AUD/releases"],
+  ["pr.opened", "AUD", "audin/audin-app#244", "New pull request", "Claude opened audin-app#244 for AUD-2: Onboarding checklist for new workspaces.", at(1, "13:30"), "#/p/AUD/releases"],
   ["pr.analysis_issues", "AUD", "audin/audin-app#246", "Problems in a pull request", "The analysis of audin-app#246 found 3 problems.", at(1, "15:10"), "#/p/AUD/releases", [["p-marco", "pr_author"]]],
   ["pr.corrected", "AUD", "audin/audin-app#246", "Claude fixed your pull request", "Claude pushed a fix on audin-app#246: the saved filter was applied before the tags were loaded.", at(1, "14:40"), "#/p/AUD/releases", [["p-marco", "pr_author"]]],
-  ["release.merged", "AUD", "AUD-V2", "New release", "Laura Costa merged audin-app#241: Invoices with the VAT number.", at(3, "14:30"), "#/p/AUD/releases"],
-  ["release.failed", "AUD", "AUD-V2", "Release failed", "AUD-V2 failed at “Run migrations” in Deploy to production.", at(3, "14:42"), "#/p/AUD/releases", [["p-laura", "merged"]]],
+  ["release.merged", "AUD", "AUD-V3", "New release", "Laura Costa merged audin-app#241: Invoices with the VAT number.", at(3, "16:10"), "#/p/AUD/releases"],
+  ["release.failed", "AUD", "AUD-V3", "Release failed", "AUD-V3 failed at “Run migrations” in Deploy to production.", at(3, "16:22"), "#/p/AUD/releases", [["p-laura", "merged"]]],
   ["release.succeeded", "AUD", "AUD-V1", "Release succeeded", "AUD-V1 is in production: Drop the legacy SMS module.", at(15, "12:41"), "#/p/AUD/releases"],
   ["docs.release_note", "STW", "STW", "New release notes", "Release notes 0.4.0 — Desktop preview.", at(5, "15:20"), "#/p/STW/docs"],
   ["task.created", "AUD", "AUD-10", "New task", "Store review notes for the mobile app.", at(8, "11:00"), "#/p/AUD/tasks"],

@@ -1,23 +1,29 @@
 import type { CiRun, Release } from "../../types";
 import { daysFromToday } from "../dates";
 
-// I rilasci dell'area 8a: un rilascio = un merge sul ramo di rilascio, sulle
-// PR già mergiate della cronologia (`timeline.ts`), più la #241 di AUD. Lo
-// stato NON si salva: lo derivano le run e l'ambiente di produzione (Task 4).
+// I rilasci dell'area 8a: un rilascio = un merge sul ramo di rilascio. Ce
+// n'è uno per ogni `pr_merged` della cronologia (`timeline.ts`, stessi
+// orari), più la #241 di AUD, che non ha una task. Lo stato NON si salva: lo
+// derivano le run e l'ambiente di produzione (Task 4).
 //
-// - AUD-V1 (#214): riuscito, due run di GitHub Actions.
-// - AUD-V2 (#241, senza task): fallito, mergiato da Laura; la run «Deploy to
+// - AUD-V1 (#214, AUD-12): riuscito, due run di GitHub Actions.
+// - AUD-V2 (#231, AUD-8): riuscito, mergiato FUORI da Stubwise da un'identità
+//   git non collegata a nessuno (`mergedById: null`): chi lo riguarda è
+//   l'autore della task della PR (`task_author`, Task 3).
+// - AUD-V3 (#241, senza task): fallito, mergiato da Laura; la run «Deploy to
 //   production» si è fermata alle migrazioni, con un log di ~5000 righe.
-// - STW-V1 (#402): senza pipeline, l'agente di produzione riporta il suo commit.
-// - STW-V2 (#405): senza pipeline, mergiato da Marco fuori da Stubwise, non
-//   ancora in produzione.
+// - STW-V1 (#402, STW-9): senza pipeline, l'agente di produzione riporta il
+//   suo commit.
+// - STW-V2 (#405, STW-1): senza pipeline, mergiato da Marco fuori da
+//   Stubwise, non ancora in produzione.
 
 const at = (days: number, hms: string) => `${daysFromToday(-days)}T${hms}Z`;
 
 /** Gli sha dei merge (finti, 40 caratteri): gli ambienti li riportano. */
 export const MERGE_SHAS = {
   audV1: "a1c2e3f4b5d6a7c8e9f0b1d2c3e4f5a6b7c8d9e0",
-  audV2: "b7d9f1a3c5e7b9d1f3a5c7e9b1d3f5a7c9e1b3d5",
+  audV2: "f2a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2b4d6f8a0",
+  audV3: "b7d9f1a3c5e7b9d1f3a5c7e9b1d3f5a7c9e1b3d5",
   stwV1: "c0ffee12ab34cd56ef78ab90cd12ef34ab56cd78",
   stwV2: "d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3",
 } as const;
@@ -106,22 +112,41 @@ export const RELEASES: Release[] = [
     code: "AUD-V2",
     projectId: "prj-aud",
     repositoryId: "repo-aud",
-    pr: { repo: "audin/audin-app", number: 241 },
-    title: "Invoices with the VAT number",
+    pr: { repo: "audin/audin-app", number: 231 },
+    title: "Launch announcement banner for existing customers",
     mergeSha: MERGE_SHAS.audV2,
     mergedAt: at(3, "14:30:00"),
+    mergedById: null,
+    mergedGitName: "ops-laptop",
+    viaStubwise: false,
+    runs: [
+      run("run-72001", "CI", "success", 3, "14:30:15", "14:36:50"),
+      run("run-72002", "Deploy to production", "success", 3, "14:37:10", "14:41:30"),
+    ],
+    seenInProductionAt: at(3, "14:42:00"),
+    fixTaskId: null,
+  },
+  {
+    id: "rel8-aud-3",
+    code: "AUD-V3",
+    projectId: "prj-aud",
+    repositoryId: "repo-aud",
+    pr: { repo: "audin/audin-app", number: 241 },
+    title: "Invoices with the VAT number",
+    mergeSha: MERGE_SHAS.audV3,
+    mergedAt: at(3, "16:10:00"),
     mergedById: "p-laura",
     mergedGitName: "Laura Costa",
     viaStubwise: true,
     runs: [
-      run("run-72001", "CI", "success", 3, "14:30:15", "14:37:40"),
+      run("run-73001", "CI", "success", 3, "16:10:15", "16:17:40"),
       run(
-        "run-72002",
+        "run-73002",
         "Deploy to production",
         "failed",
         3,
-        "14:38:02",
-        "14:42:14",
+        "16:18:02",
+        "16:22:14",
         "Run migrations",
         failedDeployLog(),
       ),
@@ -137,7 +162,7 @@ export const RELEASES: Release[] = [
     pr: { repo: "stubwise/stubwise", number: 402 },
     title: "Fix the focus ring in the notifications panel",
     mergeSha: MERGE_SHAS.stwV1,
-    mergedAt: at(6, "15:30:00"),
+    mergedAt: at(6, "11:30:00"),
     mergedById: "p-laura",
     mergedGitName: "Laura Costa",
     viaStubwise: true,
@@ -153,7 +178,7 @@ export const RELEASES: Release[] = [
     pr: { repo: "stubwise/stubwise", number: 405 },
     title: "Fake data layer aware of the viewer",
     mergeSha: MERGE_SHAS.stwV2,
-    mergedAt: at(2, "14:30:00"),
+    mergedAt: at(2, "15:30:00"),
     mergedById: "p-marco",
     mergedGitName: "mbellini",
     viaStubwise: false,

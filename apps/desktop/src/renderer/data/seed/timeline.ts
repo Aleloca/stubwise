@@ -67,6 +67,8 @@ const PRS: PrRow[] = [
   ["STW", 1, "pr_merged", 2, 405],
   ["STW", 3, "pr_opened", 1, 411],
   ["STW", 3, "pr_opened", 3, 58, "stubwise/guide"],
+  // La PR di AUD-2 pronta per il rilascio (area 8a, `OPEN_PRS`).
+  ["AUD", 2, "pr_opened", 1, 244],
 ];
 
 export const PULL_REQUEST_EVENTS: PullRequestEvent[] = PRS.map(

@@ -474,12 +474,13 @@ describe("generazione, grafo e chat (Task 3)", () => {
 });
 
 describe("repository del seme", () => {
-  it("STW, AUD e CBV hanno un repository (AUD altri due dall'area 8a, senza spazio dei Docs)", () => {
+  it("STW, AUD e CBV hanno un repository (dall'area 8a altri due di AUD e la guida di STW, senza spazio dei Docs)", () => {
     expect(REPOSITORIES.map((r) => r.name).sort()).toEqual([
       "audin-admin",
       "audin-app",
       "audin-scripts",
       "bellavista-store",
+      "guide",
       "stubwise",
     ]);
     const spaced = new Set(DOC_SPACES.map((s) => s.repositoryId));

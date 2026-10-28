@@ -123,7 +123,7 @@ interface Spec {
 const REFERENCE: Record<string, Spec[]> = {
   AUD: [
     { title: "Decide the pricing tiers for the launch", dept: S, family: "closed", assignee: "p-matteo", size: "M", week: "2026-W41", ms: 1, lastDays: 12, createdDays: 30, type: "activity", priority: "high" },
-    { title: "Onboarding checklist for new workspaces", dept: D, family: "active", assignee: "p-laura", size: "L", week: "2026-W43", ms: 2, lastDays: 1, createdDays: 21, labels: ["onboarding"] },
+    { title: "Onboarding checklist for new workspaces", dept: D, family: "active", assignee: "p-laura", size: "L", week: "2026-W43", ms: 2, lastDays: 1, createdDays: 21, labels: ["onboarding"], claude: "done" },
     { title: "Import contacts from CSV with duplicates check", dept: D, family: "active", nth: 1, assignee: "p-marco", size: "M", week: "2026-W43", ms: 2, claude: "awaiting_answer", lastDays: 3, createdDays: 18, priority: "high" },
     { title: "Billing emails with the new invoice layout", dept: D, family: "todo", assignee: "p-marco", size: "S", week: "2026-W44", ms: 2, lastDays: 2, createdDays: 14, claude: "stopped" },
     { title: "Export the call history as a spreadsheet", dept: D, family: "active", assignee: "p-stefano", size: "M", week: "2026-W43", ms: 2, requestId: "req-aud-1", lastDays: 0, createdDays: 9, claude: "working" },

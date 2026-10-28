@@ -7,8 +7,13 @@ import { MERGE_SHAS } from "./releases";
 // agente riporta il commit che gira); lo staging no. ACQ ha `SRV-1`, il
 // server dell'allarme di memoria già nel seme.
 //
+// La numerazione dei server è fissata qui (ruling del controller, 28 ott):
+// `SRV-1` ACQ, `SRV-2` la produzione di STW, `SRV-3` quella di AUD. I server
+// dell'8b (il secondo di ACQ compreso) partono da `SRV-4` e si allineano a
+// questa numerazione, non il contrario.
+//
 // - STW: la produzione riporta il merge di STW-V1, non quello di STW-V2.
-// - AUD: la produzione è ferma ad AUD-V1 (il deploy di AUD-V2 è fallito).
+// - AUD: la produzione è ferma ad AUD-V2 (il deploy di AUD-V3 è fallito).
 
 const at = (days: number, hm: string) => `${daysFromToday(-days)}T${hm}:00Z`;
 
@@ -40,7 +45,7 @@ export const ENVIRONMENTS: ProjectEnvironment[] = [
     kind: "production",
     url: "https://app.audin.test",
     serverCode: "SRV-3",
-    reportedSha: MERGE_SHAS.audV1,
+    reportedSha: MERGE_SHAS.audV2,
     reportedAt: at(0, "11:50"),
   },
   {

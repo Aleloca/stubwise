@@ -68,7 +68,10 @@ const stw13 = seeded(
       summary: STW13_SUMMARY,
       status: "pending",
     },
-    says(at(0, "07:35"), "Once the plan is approved I fix the count and add a test at the minimum window size."),
+    says(
+      at(0, "07:35"),
+      "Once the plan is approved I fix the count and add a test at the minimum window size.",
+    ),
   ],
 );
 
@@ -387,6 +390,60 @@ const aud4 = seeded(
   ],
 );
 
+// AUD-2: lavoro finito, PR #244 aperta e pulita. È la PR di Stubwise
+// «pronta per il rilascio» dell'area 8a (`seed/releases/prs.ts`).
+const aud2 = seeded(
+  {
+    id: "cv-run-aud-2",
+    kind: "task_run",
+    title: "Onboarding checklist for new workspaces",
+    ownerId: "p-laura",
+    projectId: "prj-aud",
+    taskId: "t-aud-2",
+    state: "finished",
+    outcome: "ok",
+  },
+  [
+    { at: at(2, "09:00"), type: "phase", phase: "plan", outcome: "ok" },
+    {
+      at: at(2, "09:15"),
+      type: "plan",
+      planText: [
+        "## Onboarding checklist for new workspaces",
+        "",
+        "1. A checklist card on the dashboard of a new workspace: import contacts, invite the team, first call.",
+        "2. Each step ticks itself when the action is done; the card hides when all are done.",
+        "3. Tests for a new workspace, a half-done one and a finished one.",
+      ].join("\n"),
+      summary: "A self-ticking checklist card on the dashboard of new workspaces.",
+      status: "approved",
+      decidedById: "p-laura",
+    },
+    { at: at(2, "09:30"), type: "phase", phase: "execution", outcome: "ok" },
+    done(at(2, "10:10"), "repo.edit", "Edits src/dashboard/OnboardingChecklist.tsx"),
+    done(at(2, "11:00"), "repo.edit", "Edits src/workspaces/onboarding-steps.ts"),
+    done(at(1, "13:10"), "shell", "Runs the dashboard tests", { result: "58 passed" }),
+    {
+      at: at(1, "13:30"),
+      type: "work_result",
+      kind: "pr_opened",
+      text: "Pull request #244 opened",
+      link: "https://git.example.com/audin/audin-app/pull/244",
+    },
+    { at: at(1, "13:40"), type: "phase", phase: "review", outcome: "ok" },
+    {
+      at: at(1, "13:55"),
+      type: "work_result",
+      kind: "review",
+      text: "Review: no findings",
+    },
+    says(
+      at(1, "13:56"),
+      "#244 is open, the checks pass and the review found nothing. It is ready to merge.",
+    ),
+  ],
+);
+
 const stw1Stopped = seeded(
   {
     id: "cv-run-stw-1-first",
@@ -651,6 +708,7 @@ export const WORK_CONVERSATIONS: Seeded[] = [
   stw3,
   mkx11,
   aud4,
+  aud2,
   stw1Stopped,
   stw1,
   stw7,
