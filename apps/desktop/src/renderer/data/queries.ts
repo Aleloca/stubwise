@@ -124,6 +124,20 @@ export const queryKeys = {
   notifications: (personId: string) => ["as", personId, "notifications"] as const,
   /** Le iscrizioni agli avvisi (area 8a): la pagina e il popover del progetto leggono questa. */
   alertSubscriptions: (personId: string) => ["as", personId, "alerts"] as const,
+  /** Rilasci, PR e ambienti (area 8a): tutto nell'area «releases». */
+  openPrs: (personId: string, projectId: string) =>
+    ["as", personId, "releases", "openPrs", projectId] as const,
+  releaseQueue: (personId: string, projectId: string) =>
+    ["as", personId, "releases", "queue", projectId] as const,
+  releases: (personId: string, projectId: string) =>
+    ["as", personId, "releases", "list", projectId] as const,
+  release: (personId: string, code: string) =>
+    ["as", personId, "releases", "release", code] as const,
+  environments: (personId: string, projectId: string) =>
+    ["as", personId, "releases", "environments", projectId] as const,
+  myReleases: (personId: string) => ["as", personId, "releases", "mine"] as const,
+  repositorySettings: (personId: string, projectId: string) =>
+    ["as", personId, "releases", "repositories", projectId] as const,
   search: (personId: string, q: string) => ["as", personId, "search", q] as const,
   conversations: (personId: string, filter: ConversationFilter) =>
     ["as", personId, "conversations", filter] as const,
@@ -1240,7 +1254,7 @@ const REFINE_AREAS = [...CONVERSATION_AREAS, ...REQUEST_AREAS] as const;
 
 export function useCreateConversation() {
   return useWrite(
-    (input: { contextProjectId?: string | null } = {}) => api.createConversation(input),
+    (input: api.NewConversationInput = {}) => api.createConversation(input),
     CONVERSATION_AREAS,
   );
 }
@@ -3356,8 +3370,7 @@ export function useProjectAutomations(projectId: string | null) {
     queryKey: queryKeys.projectAutomations(me, projectId ?? ""),
     queryFn: () => api.automations.getProjectAutomations(projectId!),
     enabled: projectId !== null,
-    refetchInterval: (query) =>
-      runningIn(query.state.data?.runs) ? AUTOMATION_REFRESH_MS : false,
+    refetchInterval: (query) => (runningIn(query.state.data?.runs) ? AUTOMATION_REFRESH_MS : false),
   });
 }
 
@@ -3365,7 +3378,12 @@ export function useProjectAutomations(projectId: string | null) {
 export function useAutomationOrigin(ref: AutomationRef | null | undefined, createdCode: string) {
   const me = useSessionPersonId();
   return useQuery({
-    queryKey: queryKeys.automationOrigin(me, ref?.automationId ?? "", ref?.runId ?? "", createdCode),
+    queryKey: queryKeys.automationOrigin(
+      me,
+      ref?.automationId ?? "",
+      ref?.runId ?? "",
+      createdCode,
+    ),
     queryFn: () => api.automations.automationOrigin(ref!, createdCode),
     enabled: !!ref,
   });
@@ -3380,7 +3398,7 @@ export function useAutomationOrigin(ref: AutomationRef | null | undefined, creat
  */
 export function useDecideAutomationNow() {
   const invalidate = useInvalidate(AUTOMATION_AREAS);
-  const settle = async <T,>(call: Promise<T>): Promise<T> => {
+  const settle = async <T>(call: Promise<T>): Promise<T> => {
     try {
       return await call;
     } finally {
@@ -3778,4 +3796,181 @@ export function useMuteFromNotification() {
   return useUndoableAlertWrite((notificationId: string) =>
     api.alerts.muteFromNotification(notificationId),
   );
+}
+
+// --- Rilasci, PR e ambienti (area 8a) ---------------------------------------------
+
+/**
+ * Le scritture dei rilasci cambiano liste, coda, dettaglio e Home (area
+ * «releases»), e possono pubblicare avvisi (campanella).
+ */
+const RELEASE_AREAS = ["releases", "notifications"] as const;
+/** «Fai sistemare a Claude» crea una task e può far partire Claude. */
+const FIX_RELEASE_AREAS = [...RELEASE_AREAS, ...RUN_AREAS] as const;
+
+/** Le PR aperte del progetto, di Stubwise e dei colleghi. */
+export function useOpenPrs(projectId: string | undefined) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.openPrs(me, projectId ?? ""),
+    queryFn: () => api.releases.listOpenPrs(projectId!),
+    enabled: !!projectId,
+  });
+}
+
+/** «Pronte per il rilascio». */
+export function useReleaseQueue(projectId: string | undefined) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.releaseQueue(me, projectId ?? ""),
+    queryFn: () => api.releases.listReleaseQueue(projectId!),
+    enabled: !!projectId,
+  });
+}
+
+export function useReleases(projectId: string | undefined) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.releases(me, projectId ?? ""),
+    queryFn: () => api.releases.listReleases(projectId!),
+    enabled: !!projectId,
+  });
+}
+
+/** Il dettaglio di un rilascio (`null`: nascosto o inesistente, R-G5). */
+export function useRelease(code: string | undefined) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.release(me, code ?? ""),
+    queryFn: () => api.releases.getRelease(code!),
+    enabled: !!code,
+  });
+}
+
+export function useEnvironments(projectId: string | undefined) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.environments(me, projectId ?? ""),
+    queryFn: () => api.releases.listEnvironments(projectId!),
+    enabled: !!projectId,
+  });
+}
+
+/** Il blocco «Rilasci» della Home. */
+export function useMyReleases() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.myReleases(me),
+    queryFn: () => api.releases.listMyReleases(),
+  });
+}
+
+export function useRepositorySettings(projectId: string | undefined) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.repositorySettings(me, projectId ?? ""),
+    queryFn: () => api.releases.getRepositorySettings(projectId!),
+    enabled: !!projectId,
+  });
+}
+
+/** «Rilascia» (conferma a due tempi nella UI): l'esito è un codice, come sul web. */
+export function useMergePr() {
+  return useWrite((prId: string) => api.releases.mergePr(prId), [...RELEASE_AREAS, ...TASK_AREAS]);
+}
+
+export function useSetRepoPrMode() {
+  return useWrite(
+    ({
+      repositoryId,
+      mode,
+    }: {
+      repositoryId: string;
+      mode: Parameters<typeof api.releases.setRepoPrMode>[1];
+    }) => api.releases.setRepoPrMode(repositoryId, mode),
+    RELEASE_AREAS,
+  );
+}
+
+export function useSetReleasePipeline() {
+  return useWrite(
+    ({
+      repositoryId,
+      pipeline,
+      branch,
+    }: {
+      repositoryId: string;
+      pipeline: Parameters<typeof api.releases.setReleasePipeline>[1];
+      branch: string;
+    }) => api.releases.setReleasePipeline(repositoryId, pipeline, branch),
+    RELEASE_AREAS,
+  );
+}
+
+export function useSetPrAnalysisOnly() {
+  return useWrite(
+    ({ prId, on }: { prId: string; on: boolean }) => api.releases.setPrAnalysisOnly(prId, on),
+    RELEASE_AREAS,
+  );
+}
+
+/** «Chiedi modifiche» su una PR di un collega: `needs_maintainer` oltre il tetto. */
+export function useRequestPrCorrection() {
+  return useWrite(
+    ({ prId, text }: { prId: string; text: string }) =>
+      api.releases.requestPrCorrection(prId, text),
+    RELEASE_AREAS,
+  );
+}
+
+export function useFixRelease() {
+  return useWrite((code: string) => api.releases.fixRelease(code), FIX_RELEASE_AREAS);
+}
+
+export function useExplainRelease() {
+  return useWrite((code: string) => api.releases.explainRelease(code), CONVERSATION_AREAS);
+}
+
+export function useCreateEnvironment() {
+  return useWrite(
+    ({ projectId, input }: { projectId: string; input: api.releases.EnvironmentInput }) =>
+      api.releases.createEnvironment(projectId, input),
+    RELEASE_AREAS,
+  );
+}
+
+export function useUpdateEnvironment() {
+  return useWrite(
+    ({ id, patch }: { id: string; patch: Partial<api.releases.EnvironmentInput> }) =>
+      api.releases.updateEnvironment(id, patch),
+    RELEASE_AREAS,
+  );
+}
+
+export function useDeleteEnvironment() {
+  return useWrite((id: string) => api.releases.deleteEnvironment(id), RELEASE_AREAS);
+}
+
+/** Solo prototipo: «Simula esito» di una run in corso. */
+export function useSimulateRunOutcome() {
+  return useWrite(
+    ({ code, runId, outcome }: { code: string; runId: string; outcome: "success" | "failed" }) =>
+      api.releases.simulateRunOutcome(code, runId, outcome),
+    RELEASE_AREAS,
+  );
+}
+
+/** Solo prototipo: «Simula comparsa sul server». */
+export function useSimulateSeenOnServer() {
+  return useWrite((code: string) => api.releases.simulateSeenOnServer(code), RELEASE_AREAS);
+}
+
+/** Solo prototipo: «Simula push dell'autore». */
+export function useSimulateAuthorPush() {
+  return useWrite((prId: string) => api.releases.simulateAuthorPush(prId), RELEASE_AREAS);
+}
+
+/** Solo prototipo: un passo dell'analisi o della correzione automatica. */
+export function useAdvancePrWork() {
+  return useWrite((prId: string) => api.releases.advancePrWork(prId), RELEASE_AREAS);
 }

@@ -58,6 +58,7 @@ import {
   CLIENT_PROJECT_LINKS,
 } from "./seed/automations";
 import { ALERT_SUBSCRIPTIONS } from "./seed/alerts";
+import { REPOSITORIES } from "./seed/docs/repositories";
 import { ENVIRONMENTS } from "./seed/releases/environments";
 import { OPEN_PRS } from "./seed/releases/prs";
 import { RELEASES } from "./seed/releases/releases";
@@ -126,6 +127,7 @@ import type {
   OpenPullRequest,
   ProjectEnvironment,
   Release,
+  Repository,
   SupportConversation,
   SupportWidget,
 } from "./types";
@@ -456,7 +458,32 @@ export type ApiFnName =
   | "alerts.muteProject"
   | "alerts.muteFromNotification"
   /** L'«Annulla» di una scrittura delle iscrizioni. */
-  | "alerts.undo";
+  | "alerts.undo"
+  // Rilasci, PR e ambienti (area 8a)
+  | "releases.listOpenPrs"
+  | "releases.listReleaseQueue"
+  | "releases.listReleases"
+  | "releases.getRelease"
+  | "releases.listEnvironments"
+  | "releases.listMyReleases"
+  | "releases.getRepositorySettings"
+  | "releases.searchReleases"
+  | "releases.mergePr"
+  | "releases.setRepoPrMode"
+  | "releases.setReleasePipeline"
+  | "releases.setPrAnalysisOnly"
+  | "releases.requestPrCorrection"
+  | "releases.fixRelease"
+  | "releases.explainRelease"
+  | "releases.createEnvironment"
+  | "releases.updateEnvironment"
+  | "releases.deleteEnvironment"
+  /** Solo prototipo: l'esito di una run di CI, la comparsa sul server, il push dell'autore. */
+  | "releases.simulateRunOutcome"
+  | "releases.simulateSeenOnServer"
+  | "releases.simulateAuthorPush"
+  /** Un passo simulato dell'analisi o della correzione automatica di una PR. */
+  | "releases.advancePrWork";
 const failures = new Set<ApiFnName>();
 
 /** Fissa la latenza simulata (ms); `0` per i test, `null` per tornare a 150–400 ms. */
@@ -644,6 +671,11 @@ interface State {
   /** L'«adesso» di un'esecuzione mandata avanti con «Fai passare il tempo» (solo prototipo). */
   automationClock: Map<string, string>;
   // --- Rilasci, PR, avvisi e Support (area 8a) ---
+  /**
+   * I repository dei progetti, con le impostazioni dell'area 8a (modo delle
+   * PR dei colleghi, pipeline e ramo di rilascio) che si cambiano.
+   */
+  repositories: Repository[];
   /** Le PR aperte, di Stubwise e dei colleghi (stessa forma). */
   openPrs: OpenPullRequest[];
   releases: Release[];
@@ -780,6 +812,7 @@ function freshState(): State {
     clientProjectLinks: CLIENT_PROJECT_LINKS.map(copy),
     automationCodeSeq: initialAutomationCodeSeq(),
     automationClock: new Map(),
+    repositories: REPOSITORIES.map(copy),
     openPrs: OPEN_PRS.map(copy),
     releases: RELEASES.map(copy),
     environments: ENVIRONMENTS.map(copy),

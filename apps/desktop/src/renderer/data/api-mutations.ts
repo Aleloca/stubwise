@@ -229,9 +229,18 @@ function addTask(task: Task): void {
   reindex();
 }
 
-/** Crea una task a nome di `me` (anche «Create task» da un messaggio della Chat). */
-export function createTaskAs(me: string, input: NewTaskInput): Task {
-  const task = buildTask(me, input);
+/**
+ * Crea una task a nome di `me` (anche «Create task» da un messaggio della
+ * Chat). `extra`: i campi che non vengono dall'input di chi scrive, ma da
+ * chi la crea per conto di un'azione (il rilascio di «Fai sistemare a
+ * Claude», area 8a, e il collegamento alla task della sua PR).
+ */
+export function createTaskAs(
+  me: string,
+  input: NewTaskInput,
+  extra: Partial<Pick<Task, "releaseRef" | "links">> = {},
+): Task {
+  const task = { ...buildTask(me, input), ...copy(extra) };
   addTask(task);
   signalAutomations({ kind: "task_created", taskId: task.id });
   return task;
@@ -1571,14 +1580,39 @@ function newConversation(
   return c;
 }
 
-/** Una conversazione libera nuova, con un contesto di progetto facoltativo (visibile). */
-export async function createConversation(
-  input: { contextProjectId?: string | null } = {},
-): Promise<Conversation> {
-  const me = await gate("createConversation");
-  const contextProjectId = input.contextProjectId ?? null;
+export interface NewConversationInput {
+  contextProjectId?: string | null;
+  /** Un oggetto di contesto (area 8a): il rilascio; il suo progetto diventa il contesto. */
+  context?: { kind: "release"; releaseId: string };
+}
+
+/**
+ * Una conversazione libera nuova a nome di `me` (privata, sua). Il contesto
+ * deve essere visibile a chi la apre: un rilascio che non vede risponde come
+ * uno che non esiste.
+ */
+export function createConversationAs(me: string, input: NewConversationInput = {}): Conversation {
+  let contextProjectId = input.contextProjectId ?? null;
+  let context: Conversation["context"] = null;
+  if (input.context) {
+    const release = state.releases.find((r) => r.id === input.context!.releaseId);
+    if (!release || !visibleProjectIds(me).has(release.projectId)) throw notFound();
+    contextProjectId = release.projectId;
+    context = { kind: "release", releaseId: release.id };
+  }
   if (contextProjectId !== null) projectFor(me, contextProjectId);
-  return copy(newConversation(me, { kind: "free", title: "", contextProjectId }));
+  return newConversation(me, {
+    kind: "free",
+    title: "",
+    contextProjectId,
+    ...(context ? { context } : {}),
+  });
+}
+
+/** Una conversazione libera nuova, con un contesto di progetto (o un rilascio) facoltativo (visibile). */
+export async function createConversation(input: NewConversationInput = {}): Promise<Conversation> {
+  const me = await gate("createConversation");
+  return copy(createConversationAs(me, input));
 }
 
 /**
@@ -2667,11 +2701,19 @@ async function playRun(
 export async function startRun(taskId: string): Promise<Conversation> {
   const gen = storeGeneration();
   const me = await afterGate("startRun", gen);
-  const task = taskFor(me, taskId);
+  return copy(await startRunAs(me, taskFor(me, taskId), gen));
+}
+
+/**
+ * Il percorso normale di «Avvia» per chi ha già passato il cancello nella
+ * generazione `gen` (anche «Fai sistemare a Claude», area 8a): stessi
+ * controlli, stesso gate del piano per chi non ha `plans.approve`.
+ */
+export async function startRunAs(me: string, task: Task, gen: number): Promise<Conversation> {
   prepareRun(me, task);
   const c = openRun(me, task);
   await playRun(me, c, task, gen);
-  return copy(c);
+  return c;
 }
 
 /**

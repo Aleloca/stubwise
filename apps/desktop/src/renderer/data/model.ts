@@ -657,6 +657,11 @@ export interface Conversation {
   usage?: ModelUsage[];
   /** Solo sessione di lavoro fallita: il riassunto del fallimento, in una riga. */
   failureSummary?: string | null;
+  /**
+   * Solo libera: l'oggetto di contesto con cui è nata («Chiedi a Claude di
+   * spiegarlo» su un rilascio, area 8a). Resta di chi la apre (privacy area 3).
+   */
+  context?: { kind: "release"; releaseId: string } | null;
 }
 
 export interface Attachment {
@@ -2498,6 +2503,11 @@ export interface OpenPullRequest extends PrRef {
   corrections: PrAutoCorrection[];
   checks: "passing" | "failing" | "pending" | "unreadable";
   mergeable: boolean;
+  /**
+   * Solo prototipo: la piattaforma rifiuterebbe il merge a Stubwise (permessi
+   * del token o regole del ramo), l'errore `merge_forbidden` del web.
+   */
+  platformMergeForbidden?: boolean;
   state: "open" | "merged" | "closed";
   openedAt: string;
 }

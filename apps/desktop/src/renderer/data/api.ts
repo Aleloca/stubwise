@@ -115,6 +115,8 @@ export * as calendar from "./calendar";
 export * as automations from "./automations";
 /** Gli avvisi (area 8a): `api.alerts.subscriptionRows()`, `api.alerts.setSubscription(…)`… */
 export * as alerts from "./alerts";
+/** Rilasci, PR e ambienti (area 8a): `api.releases.listOpenPrs(…)`, `api.releases.mergePr(…)`… */
+export * as releases from "./releases";
 
 /** Ripristina lo stato (sessione, dati, errori iniettati) e porta le task scadute alla settimana corrente. */
 export function resetApi(): void {
