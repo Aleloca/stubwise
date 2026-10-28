@@ -424,3 +424,55 @@ giorni), connettori veri (Audin, HubSpot, webhook in arrivo), invio delle
 email dalla casella, passi di Claude veri sotto le tre regole
 dell'anti-obiettivo, permessi `automations.manage` e invarianti dedicate in
 `docs/invariants/`.
+
+## Area 8a — minori aperti
+
+Parità e copertura: `area8-parity.md`. Qui solo ciò che è stato **rimandato
+apposta**; i minori della revisione finale dell'area si correggono con
+l'ondata finale e non stanno in questo elenco.
+
+### Esclusi di proposito da 8a
+
+- **Notifica di sistema di Electron.** Il piano costruisce solo il pannello
+  delle notifiche; la notifica del sistema operativo (il design la prevede
+  «se il builder la aggiunge senza toccare la sicurezza del processo
+  principale») non c'è. Va decisa insieme al processo principale, non in
+  un'area di sola interfaccia.
+- **Nuova etichetta di `prs.adopt`.** Il design cambia l'etichetta in
+  «Gestire le correzioni sulle PR di altri» (la chiave resta). Il desktop
+  non mostra l'etichetta dei permessi di progetto, quindi non c'è dove
+  scriverla: la cambia il registro dei permessi di `@stubwise/shared` col
+  backend.
+
+### Rimandato per mancanza del dato
+
+- **Link dal rilascio alla nota di rilascio (R-K17).** Il dettaglio di un
+  rilascio non rimanda alla nota di rilascio dei Docs che lo racconta: il
+  seme non lega un rilascio a una nota e nel prototipo non c'è un dato da
+  cui ricavarlo. Si fa quando un rilascio sa quale nota lo contiene (col
+  motore, o con un campo nel seme).
+
+### Invarianti del CLAUDE.md da riscrivere prima del motore
+
+Il design (sezione «Invarianti del CLAUDE.md che quest'area cambia
+DELIBERATAMENTE», §1–5) le decide; quando si costruirà il motore vanno
+riscritte in `CLAUDE.md` e in `docs/invariants/` **prima** del codice. Qui non
+si riscrivono.
+
+- **§1** «Stubwise non fa deploy: il merge è il confine (fase 8)»: resta il
+  merge per i rilasci, ma esiste ora un'azione sull'ambiente, la correzione
+  di un server da una task. È un'azione dell'8b; l'8a non la tocca.
+- **§2** «I due divieti dell'operatore», divieto 2: la correzione di un
+  server ha due condizioni, sempre (`servers.operate` e piano approvato prima
+  di ogni comando), anche per chi ha `plans.approve`. 8b.
+- **§3** `docs/invariants/pr-corrections.md`: superata «Adottare una PR
+  aperta da altri» e la frase sul ramo di una PR di una persona; «Il ciclo di
+  correzione non si innesca da sé» cambia per le PR dei colleghi; un motore e
+  un tetto per tutte. **Riguarda l'8a** (il prototipo già li mostra).
+- **§4** Le istruzioni del server MCP per i collaboratori: niente più «di
+  solito bastano tre domande», domande una alla volta finché non è chiaro
+  cosa vuole il cliente; vale anche per il widget. **Riguarda l'8a**
+  (Support).
+- **§5** Notifiche: ogni `notification_kind` nuovo porta la regola di
+  rollback e quella dei cambi additivi verso l'app; sparisce il DM Slack
+  delle preferenze. **Riguarda l'8a** (catalogo degli avvisi).
