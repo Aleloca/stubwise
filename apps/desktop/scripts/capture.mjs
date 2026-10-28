@@ -222,6 +222,15 @@ async function main() {
       ["home-decide", "/home", { persona: "Laura" }],
       // Il report di oggi di STW è più vecchio degli ultimi commit: l'avviso.
       ["by-person", "/projects?view=person", { persona: "Roberta" }],
+      // «Vedi come» col proprietario di AUT-1 scelto: il menu del profilo aperto.
+      ["view-as-matteo", "/home", {
+        persona: "Matteo",
+        steps: async (p) => {
+          await p.getByRole("button", { name: /^(Profile and settings|Profilo e impostazioni)/ }).click();
+          await p.getByRole("radiogroup").first().waitFor();
+          await p.waitForTimeout(300);
+        },
+      }],
     ];
     for (const [name, hash, o] of AREA3) {
       if (only && !only.test(name)) continue;

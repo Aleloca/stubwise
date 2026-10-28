@@ -146,6 +146,16 @@ const SPECS: PersonaSpec[] = [
     instanceRole: "user",
     projectRole: () => "contributor",
   },
+  // Il proprietario di «Nuovo contratto» (AUT-1, R-J10): `automations.manage`
+  // d'istanza gli viene dalle concessioni del seme, non dal preset. Serve a
+  // vedere l'app come chi possiede un'automazione (email dell'inizio,
+  // risposte del cliente).
+  {
+    personId: "p-matteo",
+    name: "Matteo Conti",
+    instanceRole: "user",
+    projectRole: () => "project_lead",
+  },
   {
     personId: "p-roberta",
     name: "Roberta Fontana",

@@ -288,8 +288,14 @@ describe("Rail", () => {
       const menu = await openProfile();
       const group = within(menu).getByRole("radiogroup", { name: "View as" });
       const radios = within(group).getAllByRole("radio");
-      expect(radios).toHaveLength(5);
+      expect(radios).toHaveLength(6);
       expect(within(group).getByRole("radio", { name: /Giulia Ferri/ })).toBeChecked();
+      // Matteo possiede AUT-1: per vedere l'app come il proprietario di un'automazione.
+      const matteo = within(group).getByRole("radio", {
+        name: "Matteo Conti Sales · Project Lead, owns an automation",
+      });
+      await userEvent.click(matteo);
+      expect(matteo).toBeChecked();
       await userEvent.click(within(group).getByRole("radio", { name: /Roberta Fontana/ }));
       expect(within(menu).getByRole("link", { name: "Administration" })).toBeInTheDocument();
     });
@@ -316,6 +322,11 @@ describe("Rail", () => {
       ).toBeInTheDocument();
       expect(
         within(group).getByRole("radio", { name: /Roberta Fontana.*amministratore completo/ }),
+      ).toBeInTheDocument();
+      expect(
+        within(group).getByRole("radio", {
+          name: /Matteo Conti.*Vendite · Project Lead, ha un'automazione/,
+        }),
       ).toBeInTheDocument();
     });
 

@@ -204,6 +204,8 @@ const dms: Channel[] = [
   dm("dm-laura-marco", ["p-laura", "p-marco"], at(25, "11:00")),
   dm("dm-giulia-roberta", ["p-roberta", "p-giulia"], at(20, "09:00")),
   dm("dm-davide-sara", ["p-sara", "p-davide"], at(20, "09:30")),
+  // Matteo nel «vedi come»: un diretto non letto, così ha anche lui le sue novità.
+  dm("dm-elena-matteo", ["p-matteo", "p-elena"], at(12, "10:00")),
   // Gruppo (≤ 8) senza Roberta: per lei non esiste.
   dm("dm-launch-week", ["p-laura", "p-giulia", "p-marco", "p-sara", "p-elena"], at(7, "09:00")),
 ];

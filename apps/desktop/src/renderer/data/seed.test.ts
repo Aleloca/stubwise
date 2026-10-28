@@ -160,9 +160,9 @@ describe("seed: progetti e persone", () => {
     for (const c of GIULIA_PINNED_CODES) expect(PROJECTS.some((p) => p.code === c)).toBe(true);
   });
 
-  it("ognuno dei cinque personaggi ha 6–14 fissati fra i progetti che vede", () => {
+  it("ognuna delle persone «vedi come» ha 6–14 fissati fra i progetti che vede", () => {
     expect(Object.keys(INITIAL_PINNED_CODES).sort()).toEqual(
-      ["p-giulia", "p-laura", "p-marco", "p-roberta", "p-sara"].sort(),
+      VIEW_AS_PERSONAS.map((p) => p.personId).sort(),
     );
     expect(INITIAL_PINNED_CODES["p-giulia"]).toEqual(GIULIA_PINNED_CODES);
     for (const [personId, codes] of Object.entries(INITIAL_PINNED_CODES)) {
@@ -460,7 +460,7 @@ describe("seed: notifiche", () => {
         if (n.projectId) expect(projectsById.get(n.projectId)!.memberIds).toContain(r);
       }
     }
-    for (const id of ["p-giulia", "p-marco", "p-laura", "p-sara", "p-roberta"]) {
+    for (const { personId: id } of VIEW_AS_PERSONAS) {
       expect(NOTIFICATIONS.some((n) => n.recipientIds.includes(id))).toBe(true);
     }
   });
@@ -1168,7 +1168,7 @@ describe("seed: Chat (area 4)", () => {
     }
   });
 
-  it("le cinque persone hanno non letti, menzioni e thread con novità diversi", async () => {
+  it("le persone «vedi come» hanno non letti, menzioni e thread con novità diversi", async () => {
     // Contati dal livello dati (una sola regola: silenziati, menzioni, DM, sistema).
     setLatency(0);
     resetApi();
@@ -1181,7 +1181,7 @@ describe("seed: Chat (area 4)", () => {
         threads: (await chat.listThreadsWithNews()).length,
       };
     };
-    const personas = ["p-giulia", "p-marco", "p-laura", "p-sara", "p-roberta"];
+    const personas = VIEW_AS_PERSONAS.map((p) => p.personId);
     const counts = [];
     for (const id of personas) counts.push(await countsOf(id));
     resetApi();

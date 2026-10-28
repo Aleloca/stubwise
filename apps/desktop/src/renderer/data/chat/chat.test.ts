@@ -311,9 +311,9 @@ describe("chat: Review Focus 3 — un messaggio eliminato non ha più testo, da 
 });
 
 describe("chat: non letti e menzioni", () => {
-  it("le cinque persone hanno conteggi diversi (dal livello dati)", async () => {
+  it("le persone «vedi come» hanno conteggi diversi (dal livello dati)", async () => {
     const totals: string[] = [];
-    for (const person of ["p-giulia", "p-marco", "p-laura", "p-sara", "p-roberta"]) {
+    for (const person of ["p-giulia", "p-marco", "p-laura", "p-sara", "p-matteo", "p-roberta"]) {
       as(person);
       const rows = await chat.listChannels();
       const unread = rows.reduce((n, r) => n + r.unread, 0);
@@ -321,7 +321,7 @@ describe("chat: non letti e menzioni", () => {
       expect(unread + mentions, person).toBeGreaterThan(0);
       totals.push(`${unread}/${mentions}`);
     }
-    expect(new Set(totals).size, totals.join(" ")).toBe(5);
+    expect(new Set(totals).size, totals.join(" ")).toBe(6);
   });
 
   it("un silenziato non conta i messaggi né @channel, ma le menzioni dirette sì", async () => {

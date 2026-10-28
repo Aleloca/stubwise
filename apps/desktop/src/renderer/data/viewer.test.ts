@@ -28,14 +28,26 @@ const lookup = (tree: Tree, key: string) =>
 const byPerson = (id: string) => viewerFor(id);
 
 describe("viewer", () => {
-  it("offre le cinque persone «vedi come»", () => {
+  it("offre le sei persone «vedi come»", () => {
     expect(VIEW_AS_PERSONAS.map((p) => p.personId)).toEqual([
       "p-giulia",
       "p-marco",
       "p-laura",
       "p-sara",
+      "p-matteo",
       "p-roberta",
     ]);
+  });
+
+  it("Matteo, proprietario di AUT-1: Project Lead dove è membro, `automations.manage` d'istanza", () => {
+    const matteo = VIEW_AS_PERSONAS.find((p) => p.personId === "p-matteo")!.viewer;
+    expect(matteo.instancePermissions).toContain("automations.manage");
+    expect(matteo.instancePermissions).not.toContain("instance.full_admin");
+    for (const project of PROJECTS) {
+      expect(can(matteo, "plans.approve", project.id), project.code).toBe(
+        project.memberIds.includes("p-matteo"),
+      );
+    }
   });
 
   it("le descrizioni delle persone stanno nei locali, tradotte in en e it", () => {
@@ -231,8 +243,8 @@ describe("viewer", () => {
       expect(can(byPerson("p-roberta"), "people.activity.view")).toBe(true);
       expect(can(byPerson("p-laura"), "people.activity.view")).toBe(true);
       expect(can(byPerson("p-marco"), "people.activity.view")).toBe(false);
-      // Chi non è fra le persone «vedi come»: dal suo ruolo tipico.
       expect(can(byPerson("p-matteo"), "people.activity.view")).toBe(true);
+      // Chi non è fra le persone «vedi come»: dal suo ruolo tipico.
       expect(can(byPerson("p-davide"), "people.activity.view")).toBe(false);
     });
 

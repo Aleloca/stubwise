@@ -49,6 +49,12 @@ const davideSara: Spec[] = [
   say("p-davide", at(4, "10:12"), "Point them to the request, it's being refined."),
 ];
 
+const elenaMatteo: Spec[] = [
+  say("p-matteo", at(12, "10:00"), "From today new contracts go through Nuovo contratto (AUT-1)."),
+  say("p-elena", at(12, "10:20"), "Great, no more welcome emails by hand."),
+  say("p-elena", at(0, "09:50"), "Mix Cucine answered the welcome email: can we move the kickoff?"),
+];
+
 const launchWeek: Spec[] = [
   say(
     "p-laura",
@@ -67,5 +73,6 @@ export const DM_MESSAGES: ChatMessage[] = [
   ...channelFlow("dm-laura-marco", lauraMarco),
   ...channelFlow("dm-giulia-roberta", giuliaRoberta),
   ...channelFlow("dm-davide-sara", davideSara),
+  ...channelFlow("dm-elena-matteo", elenaMatteo),
   ...channelFlow("dm-launch-week", launchWeek),
 ];

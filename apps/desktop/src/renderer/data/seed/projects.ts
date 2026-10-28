@@ -109,6 +109,7 @@ export const INITIAL_PINNED_CODES: Record<string, readonly string[]> = {
   "p-marco": ["STW", "AUD", "TLM", "PSF", "CVP", "ELS", "CRT", "ACQ"],
   "p-laura": ["AUD", "STW", "ELS", "CRT", "ACQ", "NVS", "PVN"],
   "p-sara": ["STW", "CBV", "TLM", "PSF", "GLT", "IDR"],
+  "p-matteo": ["AUD", "MKX", "CBV", "PSF", "ACQ", "UFF"],
   "p-roberta": ["STW", "AUD", "MKX", "CBV", "ACQ", "UFF"],
 };
 

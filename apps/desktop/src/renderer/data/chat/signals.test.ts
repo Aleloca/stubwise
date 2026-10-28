@@ -25,7 +25,7 @@ beforeEach(() => {
 
 describe("chat: il punto del binario", () => {
   it("il seme accende il punto per chi ha menzioni dirette, DM o thread con novità", async () => {
-    for (const id of ["p-giulia", "p-marco", "p-laura", "p-sara", "p-roberta"]) {
+    for (const id of ["p-giulia", "p-marco", "p-laura", "p-sara", "p-matteo", "p-roberta"]) {
       as(id);
       expect(await chat.hasNews(), id).toBe(true);
     }
@@ -158,7 +158,7 @@ describe("chat: notifiche di menzione, solo se leggibili", () => {
 
 describe("chat: notifiche del seme", () => {
   it("le menzioni dirette non lette del seme sono già fra le notifiche, e solo quelle", async () => {
-    for (const id of ["p-giulia", "p-marco", "p-laura", "p-sara", "p-roberta"]) {
+    for (const id of ["p-giulia", "p-marco", "p-laura", "p-sara", "p-matteo", "p-roberta"]) {
       as(id);
       const chatNotes = (await listNotifications()).filter((n) => n.chatMessageId);
       for (const n of chatNotes) {

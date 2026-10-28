@@ -5,7 +5,7 @@ import { CHAT_MESSAGES } from "./messages";
 
 // Fin dove ognuno ha letto. Di base tutto letto (fino all'ultimo messaggio
 // del canale e, nei thread a cui si partecipa, all'ultima risposta); le
-// eccezioni qui sotto danno alle cinque persone «vedi come» non letti,
+// eccezioni qui sotto danno alle persone «vedi come» non letti,
 // menzioni e thread con novità diversi.
 
 /** Persona → canale → letto fino a. */
@@ -31,6 +31,9 @@ const CHANNEL_READS: Record<string, Record<string, string>> = {
   "p-roberta": {
     "ch-chit-chat": at(1, "15:00"),
     "dm-giulia-roberta": at(1, "12:00"),
+  },
+  "p-matteo": {
+    "dm-elena-matteo": at(1, "00:00"),
   },
 };
 
