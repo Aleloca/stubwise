@@ -74,13 +74,14 @@ export function releaseStatus(
     }
     return { kind: "succeeded", since: latestOf(runs.map((x) => x.endedAt ?? x.startedAt)) };
   }
-  // Nessuna run letta: entro la soglia le run possono ancora partire.
+  // Nessuna run letta. Un commit già comparso in produzione ci resta, anche
+  // entro la soglia (R-K10), dopo un deploy più nuovo o se l'ambiente perde
+  // il server: è un fatto già osservato.
+  if (r.seenInProductionAt) return { kind: "in_production", since: r.seenInProductionAt };
+  // Entro la soglia le run possono ancora partire.
   const elapsedMin = (Date.parse(ctx.now) - Date.parse(r.mergedAt)) / 60_000;
   if (elapsedMin < NO_PIPELINE_AFTER_MIN) return { kind: "running", since: r.mergedAt };
   // Senza pipeline: lo dice l'agente sul server dell'ambiente di produzione.
-  // Un commit già comparso in produzione ci resta, anche dopo un deploy più
-  // nuovo o se l'ambiente perde il server: è un fatto già osservato.
-  if (r.seenInProductionAt) return { kind: "in_production", since: r.seenInProductionAt };
   if (!ctx.production) return { kind: "unavailable", since: null, reason: "no_production_env" };
   if (!ctx.production.serverCode) return { kind: "unavailable", since: null, reason: "no_server" };
   if (sameCommit(r.mergeSha, ctx.production.reportedSha)) {

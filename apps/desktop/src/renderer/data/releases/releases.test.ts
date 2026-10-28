@@ -371,6 +371,63 @@ describe("Review Focus 2: correzioni sulle PR dei colleghi (livello dati)", () =
     expect((await releases.setPrAnalysisOnly("opr-aud-246", false)).analysisOnly).toBeNull();
   });
 
+  it("I1: repository messo su «Spento» con una correzione in volo → stopped subito, mai spinta", async () => {
+    as("p-laura");
+    await releases.advancePrWork("opr-aud-246");
+    const head = pr("opr-aud-246").headSha;
+    const before = state.notifications.length;
+    await releases.setRepoPrMode("repo-aud", "off");
+    expect(states("opr-aud-246")).toEqual(["pushed", "stopped"]);
+    expect((await releases.advancePrWork("opr-aud-246")).prState).toMatchObject({
+      state: "analysis_off",
+      autoRound: 1,
+    });
+    // Riacceso: la fermata non viene spinta e non conta nel tetto.
+    await releases.setRepoPrMode("repo-aud", "analyze_and_fix");
+    await releases.advancePrWork("opr-aud-246");
+    expect(states("opr-aud-246").slice(0, 2)).toEqual(["pushed", "stopped"]);
+    expect(pr("opr-aud-246").corrections[1]!.commitSha).toBeNull();
+    expect(pr("opr-aud-246").headSha).toBe(head);
+    expect(state.notifications.slice(before).some((n) => n.kind === "pr.corrected")).toBe(false);
+  });
+
+  it("I1: repository messo su «Solo analisi» con una correzione in volo → stopped", async () => {
+    as("p-laura");
+    await releases.advancePrWork("opr-aud-246");
+    const head = pr("opr-aud-246").headSha;
+    await releases.setRepoPrMode("repo-aud", "analyze_only");
+    expect(states("opr-aud-246")).toEqual(["pushed", "stopped"]);
+    await releases.advancePrWork("opr-aud-246");
+    expect(states("opr-aud-246")).toEqual(["pushed", "stopped"]);
+    expect(pr("opr-aud-246").headSha).toBe(head);
+  });
+
+  it("I1: «Spento» al momento del push (senza passare da setRepoPrMode) → stopped", async () => {
+    as("p-laura");
+    await releases.advancePrWork("opr-aud-246");
+    state.repositories.find((r) => r.id === "repo-aud")!.colleaguePrs = "off";
+    await releases.advancePrWork("opr-aud-246");
+    expect(states("opr-aud-246")).toEqual(["pushed", "stopped"]);
+  });
+
+  it("analisi con problemi: pr.analysis_issues con l'autore obbligatorio; Claude mai scritto", async () => {
+    as("p-laura");
+    await releases.simulateAuthorPush("opr-aud-246");
+    const before = state.notifications.length;
+    await releases.advancePrWork("opr-aud-246");
+    const issues = state.notifications.slice(before);
+    expect(issues.map((n) => n.kind)).toEqual(["pr.analysis_issues"]);
+    expect(issues[0]!.mandatory).toEqual([{ personId: "p-marco", reason: "pr_author" }]);
+    // Una PR di Claude: nessun obbligatorio scritto per lui (R-K5).
+    pr("opr-aud-244").analysis!.issues = [{ title: "x", file: null }];
+    await releases.simulateAuthorPush("opr-aud-244");
+    const mark = state.notifications.length;
+    await releases.advancePrWork("opr-aud-244");
+    const claude = state.notifications.slice(mark);
+    expect(claude.map((n) => n.kind)).toEqual(["pr.analysis_issues"]);
+    expect(claude[0]!.mandatory).toBeUndefined();
+  });
+
   it("impostazioni del repository: repos.manage", async () => {
     as("p-giulia");
     await expect(releases.setRepoPrMode("repo-aud", "off")).rejects.toThrow("forbidden");
@@ -450,6 +507,56 @@ describe("Review Focus 3: stato del rilascio ai bordi (livello dati)", () => {
     expect((await releases.getRelease("STW-V2"))!.status.kind).toBe("not_in_production");
     env.reportedSha = sha.slice(0, 7).toUpperCase();
     expect((await releases.getRelease("STW-V2"))!.status.kind).toBe("in_production");
+  });
+
+  it("R-K10: merge senza pipeline e «Simula comparsa sul server» → in produzione subito", async () => {
+    as("p-laura");
+    state.openPrs.push({
+      ...structuredClone(pr("opr-aud-244")),
+      id: "opr-stw-y",
+      projectId: STW,
+      repositoryId: "repo-stw",
+      repo: "stubwise/stubwise",
+      number: 998,
+      taskId: null,
+    });
+    const res = await releases.mergePr("opr-stw-y");
+    const code = res.ok ? res.release!.code : "";
+    expect((await releases.getRelease(code))!.status.kind).toBe("running");
+    const seen = await releases.simulateSeenOnServer(code);
+    expect(seen.status.kind).toBe("in_production");
+  });
+
+  it("release.merged e release.succeeded non hanno obbligatori", async () => {
+    as("p-laura");
+    const before = state.notifications.length;
+    const res = await releases.mergePr("opr-aud-244");
+    const code = res.ok ? res.release!.code : "";
+    for (const run of (await releases.getRelease(code))!.runs) {
+      await releases.simulateRunOutcome(code, run.id, "success");
+    }
+    const added = state.notifications.slice(before);
+    expect(added.map((n) => n.kind)).toEqual(["release.merged", "release.succeeded"]);
+    for (const n of added) expect(n.mandatory).toBeUndefined();
+  });
+
+  it("i rilasci con la stessa ora si ordinano per numero: V10 prima di V9", async () => {
+    as("p-laura");
+    for (let i = 0; i < 7; i++) {
+      const id = `opr-k${i}`;
+      state.openPrs.push({ ...structuredClone(pr("opr-aud-244")), id, number: 900 + i });
+      expect((await releases.mergePr(id)).ok).toBe(true);
+    }
+    const codes = (await releases.listReleases(AUD)).map((r) => r.code);
+    expect(codes.slice(0, 7)).toEqual([
+      "AUD-V10",
+      "AUD-V9",
+      "AUD-V8",
+      "AUD-V7",
+      "AUD-V6",
+      "AUD-V5",
+      "AUD-V4",
+    ]);
   });
 
   it("«Simula comparsa sul server» scrive il commit riportato dall'ambiente di produzione", async () => {
@@ -567,6 +674,27 @@ describe("ambienti: environments.manage", () => {
     expect(state.environments.some((e) => e.id === env.id)).toBe(false);
     as("p-sara");
     await expect(releases.deleteEnvironment("env-aud-prod")).rejects.toThrow("not_found");
+  });
+
+  it("un solo ambiente di produzione per progetto", async () => {
+    as("p-laura");
+    const n = state.environments.length;
+    await expect(
+      releases.createEnvironment(AUD, {
+        name: "Prod 2",
+        kind: "production",
+        url: null,
+        serverCode: null,
+      }),
+    ).rejects.toThrow("invalid: production_exists");
+    await expect(
+      releases.updateEnvironment("env-aud-staging", { kind: "production" }),
+    ).rejects.toThrow("invalid: production_exists");
+    expect(state.environments.length).toBe(n);
+    // La produzione stessa si può modificare; tolta, se ne crea una nuova.
+    await releases.updateEnvironment("env-aud-prod", { kind: "production", name: "Prod" });
+    await releases.deleteEnvironment("env-aud-prod");
+    await releases.updateEnvironment("env-aud-staging", { kind: "production" });
   });
 });
 

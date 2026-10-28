@@ -22,6 +22,7 @@ import {
   holds,
   openFixTask,
   prFor,
+  productionOf,
   prView,
   releaseBranchOf,
   releaseFor,
@@ -178,6 +179,14 @@ export async function setRepoPrMode(repositoryId: string, mode: ColleaguePrMode)
   if (!holds(me, "repos.manage", repo.projectId)) throw forbidden();
   if (!PR_MODES.includes(mode)) throw invalid("mode");
   repo.colleaguePrs = mode;
+  // «Spento» e «Solo analisi» valgono subito: una correzione in volo sulle
+  // PR dei colleghi si ferma prima del push (non conta nel tetto, R-K8, e
+  // non riparte alla riaccensione).
+  if (mode === "analyze_and_fix") return;
+  for (const pr of state.openPrs) {
+    if (pr.repositoryId !== repo.id || pr.origin !== "colleague") continue;
+    for (const c of pr.corrections) if (c.state === "running") c.state = "stopped";
+  }
 }
 
 /** Settings → repository: quali run fanno lo stato del rilascio, e il ramo (`repos.manage`). */
@@ -354,6 +363,7 @@ export async function createEnvironment(
   if (!sees(me, projectId)) throw notFound();
   if (!holds(me, "environments.manage", projectId)) throw forbidden();
   checkEnvironment(input);
+  if (input.kind === "production" && productionOf(projectId)) throw invalid("production_exists");
   const env: ProjectEnvironment = {
     id: newId("env"),
     projectId,
@@ -377,6 +387,11 @@ export async function updateEnvironment(
   const env = environmentFor(me, id);
   if (!holds(me, "environments.manage", env.projectId)) throw forbidden();
   checkEnvironment(patch);
+  // Un solo ambiente di produzione: lo stato dei rilasci legge quello.
+  const prod = productionOf(env.projectId);
+  if (patch.kind === "production" && prod && prod.id !== env.id) {
+    throw invalid("production_exists");
+  }
   if (patch.name !== undefined) env.name = patch.name.trim();
   if (patch.kind !== undefined) env.kind = patch.kind;
   if (patch.url !== undefined) env.url = patch.url?.trim() || null;

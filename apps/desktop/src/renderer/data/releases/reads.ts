@@ -22,6 +22,13 @@ import {
 // guarda non vede sono vuote, il dettaglio di un rilascio invisibile è
 // `null`, come uno che non esiste (R-G5). Gli stati si derivano a lettura.
 
+/** Il numero di un codice `<PRJ>-V<n>`. */
+const codeNumber = (code: string): number => Number(code.slice(code.search(/\d+$/)));
+
+/** Dal più recente; a parità d'ora (orologio fermo) il numero più alto: V10 prima di V9. */
+const byRecency = (a: { mergedAt: string; code: string }, b: { mergedAt: string; code: string }) =>
+  b.mergedAt.localeCompare(a.mergedAt) || codeNumber(b.code) - codeNumber(a.code);
+
 /** Le PR aperte del progetto: di Stubwise e dei colleghi, stessa forma. */
 export async function listOpenPrs(projectId: string): Promise<OpenPrView[]> {
   const me = await gate("releases.listOpenPrs");
@@ -42,7 +49,7 @@ export async function listReleases(projectId: string): Promise<ReleaseView[]> {
   if (!sees(me, projectId)) return [];
   return state.releases
     .filter((r) => r.projectId === projectId)
-    .sort((a, b) => b.mergedAt.localeCompare(a.mergedAt) || b.code.localeCompare(a.code))
+    .sort(byRecency)
     .map((r) => releaseView(me, r));
 }
 
@@ -97,7 +104,7 @@ export async function listMyReleases(): Promise<MyReleases> {
       if (mine || subscribed) failed.push(releaseView(me, r));
     }
   }
-  failed.sort((a, b) => b.mergedAt.localeCompare(a.mergedAt));
+  failed.sort(byRecency);
   return { ready, failed };
 }
 

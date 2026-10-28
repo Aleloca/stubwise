@@ -3370,7 +3370,8 @@ export function useProjectAutomations(projectId: string | null) {
     queryKey: queryKeys.projectAutomations(me, projectId ?? ""),
     queryFn: () => api.automations.getProjectAutomations(projectId!),
     enabled: projectId !== null,
-    refetchInterval: (query) => (runningIn(query.state.data?.runs) ? AUTOMATION_REFRESH_MS : false),
+    refetchInterval: (query) =>
+      runningIn(query.state.data?.runs) ? AUTOMATION_REFRESH_MS : false,
   });
 }
 
@@ -3378,12 +3379,7 @@ export function useProjectAutomations(projectId: string | null) {
 export function useAutomationOrigin(ref: AutomationRef | null | undefined, createdCode: string) {
   const me = useSessionPersonId();
   return useQuery({
-    queryKey: queryKeys.automationOrigin(
-      me,
-      ref?.automationId ?? "",
-      ref?.runId ?? "",
-      createdCode,
-    ),
+    queryKey: queryKeys.automationOrigin(me, ref?.automationId ?? "", ref?.runId ?? "", createdCode),
     queryFn: () => api.automations.automationOrigin(ref!, createdCode),
     enabled: !!ref,
   });
@@ -3398,7 +3394,7 @@ export function useAutomationOrigin(ref: AutomationRef | null | undefined, creat
  */
 export function useDecideAutomationNow() {
   const invalidate = useInvalidate(AUTOMATION_AREAS);
-  const settle = async <T>(call: Promise<T>): Promise<T> => {
+  const settle = async <T,>(call: Promise<T>): Promise<T> => {
     try {
       return await call;
     } finally {

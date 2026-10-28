@@ -1,4 +1,5 @@
 import { publishAlert, releaseMandatory } from "../alerts/publish";
+import { CLAUDE_ID } from "../seed/people";
 import { newId, now, state } from "../store";
 import type { OpenPullRequest, PrAutoCorrection } from "../types";
 import { invalid, writer } from "../writer";
@@ -26,9 +27,15 @@ import { fakeSha } from "./writes";
 const shortRepo = (repo: string): string => repo.split("/").at(-1) ?? repo;
 const projectCodeOf = (projectId: string) => state.projectsById.get(projectId)!.code;
 
-/** Gli obbligatori «autore della PR»: una persona collegata (Claude è escluso a lettura). */
+/**
+ * Gli obbligatori «autore della PR»: una persona collegata. Claude (autore
+ * delle PR di Stubwise) non si scrive nemmeno, oltre a essere escluso a
+ * lettura (R-K5).
+ */
 const authorMandatory = (pr: OpenPullRequest) =>
-  pr.authorId ? [{ personId: pr.authorId, reason: "pr_author" as const }] : [];
+  pr.authorId && pr.authorId !== CLAUDE_ID
+    ? [{ personId: pr.authorId, reason: "pr_author" as const }]
+    : [];
 
 /** Le righe finte del log di una run fallita dal prototipo. */
 const simulatedLog = (name: string) =>
@@ -182,14 +189,15 @@ export async function advancePrWork(prId: string): Promise<OpenPrView> {
   const me = await writer("releases.advancePrWork");
   const pr = prFor(me, prId);
   if (pr.state !== "open") return prView(me, pr);
-  const repo = repositoryById(pr.repositoryId);
-  if (pr.origin === "colleague" && repo?.colleaguePrs === "off") return prView(me, pr);
-
+  // La correzione in volo si chiude per prima: anche su un repository messo
+  // su «Spento» (si ferma prima del push, I1).
   const inFlight = pr.corrections.find((c) => c.state === "running");
   if (inFlight) {
     settleCorrection(pr, inFlight);
     return prView(me, pr);
   }
+  const repo = repositoryById(pr.repositoryId);
+  if (pr.origin === "colleague" && repo?.colleaguePrs === "off") return prView(me, pr);
 
   const a = pr.analysis;
   if (!a || a.status === "running" || a.sha !== pr.headSha) {

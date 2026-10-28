@@ -117,6 +117,15 @@ describe("releaseStatus — senza run", () => {
       since: MERGED,
     });
   });
+  it("R-K10: visto in produzione vince sulla soglia, anche entro i 30 minuti", () => {
+    const seen = release({ seenInProductionAt: later(5) });
+    expect(releaseStatus(seen, ctx({ now: later(10) }))).toEqual({
+      kind: "in_production",
+      since: later(5),
+    });
+    // Senza `seenInProductionAt`, entro la soglia resta in corso.
+    expect(releaseStatus(release(), ctx({ now: later(10) })).kind).toBe("running");
+  });
   it("oltre la soglia → senza pipeline: non ancora in produzione", () => {
     expect(releaseStatus(release(), ctx({ now: later(30) }))).toEqual({
       kind: "not_in_production",
