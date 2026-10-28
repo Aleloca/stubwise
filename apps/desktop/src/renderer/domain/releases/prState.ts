@@ -90,11 +90,18 @@ function forbiddenBranch(i: PrStateInput): NotFixableReason | null {
   return null;
 }
 
+/**
+ * Il giro di una PR, l'UNICO conteggio del tetto (R-K2, R-K8): contano solo
+ * le correzioni che hanno fatto, o stanno facendo, un commit; le fermate
+ * prima del push (fallite, finite senza invio) e le scartate no. Lo usano
+ * `prState` (Rilasci) e `prCycles` (pagina della task), e le porte che
+ * aprono una correzione passano da qui.
+ */
+export const countedRound = (corrections: readonly PrCorrectionInput[]): number =>
+  corrections.filter((c) => c.state === "pushed" || c.state === "running").length;
+
 export function prState(i: PrStateInput): PrState {
-  // R-K8: contano solo le correzioni che hanno fatto, o stanno facendo, un
-  // commit; le fermate prima del push e le scartate no.
-  const counted = i.corrections.filter((c) => c.state === "pushed" || c.state === "running");
-  const autoRound = counted.length;
+  const autoRound = countedRound(i.corrections);
   const notFixable = forbiddenBranch(i);
   const out = (state: PrStateKind, canAutoCorrect = false): PrState => ({
     state,
@@ -134,7 +141,8 @@ export function prState(i: PrStateInput): PrState {
  * (`correctionsOf`): solo quelle della PR `prKey` (`owner/repo#n`). Le
  * annullate (fermate in una sessione poi chiusa) non ci sono, come in
  * `prCycles`: non contano e non sono «scartate» (nessun push dell'autore);
- * in corso e in pausa sono in volo; fallita o finita senza invio sono ferme. Il ciclo di Stubwise nasce dalla review: tutte automatiche.
+ * in corso e in pausa sono in volo; fallita o finita senza invio sono
+ * ferme. Il ciclo di Stubwise nasce dalla review: tutte automatiche.
  */
 export function correctionsFromRecords(
   records: readonly CorrectionRecord[],

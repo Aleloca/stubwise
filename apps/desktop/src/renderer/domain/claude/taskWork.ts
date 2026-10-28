@@ -7,6 +7,7 @@ import type {
   TaskRun,
   TaskWork,
 } from "../../data/types";
+import { correctionsFromRecords, countedRound } from "../releases/prState";
 
 // Il lavoro di Claude su una task letto dalle sue sessioni: lo stato
 // dell'ultima, le PR, la correzione in corso e la storia del lavoro. Puro.
@@ -235,7 +236,7 @@ export function lastReview(work: TaskWork, latest?: readonly ConversationEvent[]
 }
 
 /** I flussi di tutte le sessioni, in ordine; quello dell'ultima può arrivare dal vivo. */
-function runsEvents(work: TaskWork, latest?: readonly ConversationEvent[]): ConversationEvent[] {
+function runsEvents(work: WorkSource, latest?: readonly ConversationEvent[]): ConversationEvent[] {
   return work.runs.flatMap((run, i) =>
     i === work.runs.length - 1 && latest && latest.length > 0 ? latest : run.events,
   );
@@ -320,7 +321,7 @@ export interface CorrectionRecord {
  * Le aperture delle PR (flusso e piattaforma), in ordine, con la chiave
  * `repo#numero` (o l'evento): la PR di una correzione che non la dice.
  */
-function prOpenings(work: TaskWork, latest?: readonly ConversationEvent[]) {
+function prOpenings(work: WorkSource, latest?: readonly ConversationEvent[]) {
   const out: { at: string; key: string }[] = [];
   for (const e of runsEvents(work, latest)) {
     if (e.type !== "work_result" || e.kind !== "pr_opened") continue;
@@ -353,15 +354,23 @@ export function workStory(work: TaskWork, latest?: readonly ConversationEvent[])
 }
 
 /** Le correzioni della task, dalla più vecchia, con la loro PR, il giro e lo stato. */
+/**
+ * Ciò che la storia del lavoro legge di una task: le sessioni e le PR (le
+ * decisioni sui piani servono solo al racconto). `correctionsOf` non chiede
+ * altro, così il motore delle PR non costruisce un `TaskWork` finto.
+ */
+export type WorkSource = Pick<TaskWork, "runs" | "pullRequests"> &
+  Partial<Pick<TaskWork, "planDecisions">>;
+
 export function correctionsOf(
-  work: TaskWork,
+  work: WorkSource,
   latest?: readonly ConversationEvent[],
 ): CorrectionRecord[] {
   return analyze(work, latest).records;
 }
 
 function analyze(
-  work: TaskWork,
+  work: WorkSource,
   latest?: readonly ConversationEvent[],
 ): { story: StoryEntry[]; records: CorrectionRecord[] } {
   const out: StoryEntry[] = [];
@@ -466,7 +475,7 @@ function analyze(
         case "plan": {
           const decided = e.status === "approved" || e.status === "rejected";
           const index = decided
-            ? work.planDecisions.findIndex(
+            ? (work.planDecisions ?? []).findIndex(
                 (d, i) =>
                   !usedDecisions.has(i) &&
                   d.decidedAt >= e.at &&
@@ -488,7 +497,7 @@ function analyze(
             out.push({
               kind: "plan_decision",
               key: `${e.id}:decision`,
-              at: work.planDecisions[index]!.decidedAt,
+              at: work.planDecisions![index]!.decidedAt,
               status: e.status as "approved" | "rejected",
               byId: e.decidedById ?? null,
               instructions: e.instructions ?? null,
@@ -590,7 +599,7 @@ export type PrCycle = {
     | "capped"
     | "correction_failed"
     | "queued";
-  /** Il giro: le correzioni (non annullate) fatte o in corso su questa PR. */
+  /** Il giro: le correzioni spinte o in corso su questa PR (`countedRound`, R-K8). */
   round: number;
   maxRounds: number;
   requestedById: string | null;
@@ -610,7 +619,8 @@ export function prCycles(
     const fact = work.prFacts.find((f) => f.number === line.number && f.repo === line.repo);
     const mine = records.filter((r) => r.pr === line.key && !r.cancelled);
     const last = mine.at(-1);
-    const round = mine.length;
+    // Lo stesso conteggio del motore delle PR (R-K2, R-K8): una fallita non è un giro.
+    const round = countedRound(correctionsFromRecords(records, line.key));
     const review = fact?.review ?? null;
     // La review conta solo se è arrivata dopo l'ultima correzione.
     const freshReview = review && (!last || review.at > last.stateAt) ? review : null;

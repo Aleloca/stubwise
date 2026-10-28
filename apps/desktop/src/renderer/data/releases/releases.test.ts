@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   failNext,
   getConversation,
+  requestChanges,
   listNotifications,
   releases,
   resetApi,
@@ -9,7 +10,9 @@ import {
   whenIdle,
 } from "../api";
 import { setSessionPersonId } from "../session";
-import { state, storeGeneration } from "../store";
+import { TODAY } from "../dates";
+import { eventsOf, state, storeGeneration } from "../store";
+import { runScript } from "../stream";
 import type { OpenPullRequest } from "../types";
 import { grantProjectRole } from "../viewer";
 
@@ -339,6 +342,38 @@ describe("Review Focus 2: correzioni sulle PR dei colleghi (livello dati)", () =
       error: "needs_maintainer",
     });
     expect(state.conversations.length).toBe(before);
+  });
+
+  it("R-K2 su ogni porta: la stessa PR di Stubwise dà lo stesso esito dalla task e dai Rilasci", async () => {
+    // STW-3: la #411 si mergia, così «Chiedi modifiche» della task va sulla guida #58 (al tetto).
+    await runScript("cv-run-stw-3", [{ step: "state", state: "finished", outcome: "ok" }]);
+    state.pullRequests.push({
+      id: "pr-test-merge-411",
+      projectId: STW,
+      taskId: "t-stw-3",
+      kind: "pr_merged",
+      at: `${TODAY}T11:00:00Z`,
+      number: 411,
+      repo: "stubwise/stubwise",
+    });
+    const before = state.conversations.length;
+    as("p-marco"); // corrections.request, niente plans.approve
+    await expect(requestChanges("t-stw-3", "Add Escape")).rejects.toThrow("needs_maintainer");
+    expect(await releases.requestPrCorrection("opr-stw-guide-58", "Add Escape")).toEqual({
+      ok: false,
+      error: "needs_maintainer",
+    });
+    expect(state.conversations.length).toBe(before);
+    // n1: oltre il tetto chi ha plans.approve apre la sessione, sulla PR scelta.
+    as("p-laura");
+    const res = await releases.requestPrCorrection("opr-stw-guide-58", "Add Escape");
+    expect(res).toMatchObject({ ok: true });
+    const session = res.ok ? res.sessionId! : "";
+    expect(eventsOf(session)[0]).toMatchObject({
+      type: "phase",
+      phase: "correction",
+      pr: { repo: "stubwise/guide", number: 58 },
+    });
   });
 
   it("«Solo analisi» acceso con una correzione in volo: si ferma prima del push", async () => {

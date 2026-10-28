@@ -1,6 +1,7 @@
 import { correctionsOf, prKey } from "../../domain/claude/taskWork";
 import {
   correctionsFromRecords,
+  countedRound,
   isReadyForRelease,
   prState,
   type PrCorrectionInput,
@@ -12,10 +13,11 @@ import { eventsOf, now, state, visibleProjectIds } from "../store";
 import type {
   CiRun,
   OpenPullRequest,
+  PrRef,
   ProjectEnvironment,
   Release,
   Repository,
-  TaskWork,
+  Task,
 } from "../types";
 import { can, viewerFor, type Permission } from "../viewer";
 import { notFound } from "../writer";
@@ -81,13 +83,13 @@ export function environmentFor(me: string, id: string): ProjectEnvironment {
 // --- PR ---------------------------------------------------------------------
 
 /**
- * Le correzioni di una PR di Stubwise, dalle sessioni della task (tutte: lo
- * stato della PR lo vedono i membri, anche chi non legge le sessioni).
+ * Le correzioni di una PR di Stubwise (`key`, `owner/repo#n`), dalle sessioni
+ * della task (tutte: lo stato della PR lo vedono i membri, anche chi non
+ * legge le sessioni).
  */
-function sessionCorrections(pr: OpenPullRequest): PrCorrectionInput[] {
-  if (!pr.taskId) return [];
+function taskPrCorrections(taskId: string, key: string): PrCorrectionInput[] {
   const runs = state.conversations
-    .filter((c) => c.kind === "task_run" && c.taskId === pr.taskId)
+    .filter((c) => c.kind === "task_run" && c.taskId === taskId)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
     .map((c) => ({
       id: c.id,
@@ -99,25 +101,22 @@ function sessionCorrections(pr: OpenPullRequest): PrCorrectionInput[] {
       provider: c.provider ?? null,
       failureSummary: null,
     }));
-  const work: TaskWork = {
-    runs,
-    pullRequests: state.pullRequests.filter((p) => p.taskId === pr.taskId),
-    software: true,
-    openPr: true,
-    planDecisions: [],
-    waitsOnViewer: false,
-    hiddenRuns: false,
-    actions: {
-      start: "unavailable",
-      relaunch: "unavailable",
-      resume: "unavailable",
-      requestChanges: "unavailable",
-    },
-    prFacts: [],
-    correctionCap: capOf(pr.projectId),
-    usage: [],
-  };
-  return correctionsFromRecords(correctionsOf(work), prKey(pr.repo, pr.number));
+  const pullRequests = state.pullRequests.filter((p) => p.taskId === taskId);
+  return correctionsFromRecords(correctionsOf({ runs, pullRequests }), key);
+}
+
+const sessionCorrections = (pr: OpenPullRequest): PrCorrectionInput[] =>
+  pr.taskId ? taskPrCorrections(pr.taskId, prKey(pr.repo, pr.number)) : [];
+
+/**
+ * Il tetto R-K2, lo stesso su ogni porta che apre una correzione su una PR
+ * di Stubwise (la task, area 3; il pannello dei Rilasci): al giro
+ * `countedRound` pari al `correctionCap` del progetto, va solo chi ha
+ * `plans.approve` (`needs_maintainer` per gli altri).
+ */
+export function overStubwiseCap(me: string, task: Task, pr: PrRef): boolean {
+  const round = countedRound(taskPrCorrections(task.id, prKey(pr.repo, pr.number)));
+  return round >= capOf(task.projectId) && !holds(me, "plans.approve", task.projectId);
 }
 
 /** Lo stato della PR adesso (un motore per tutte). */

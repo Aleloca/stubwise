@@ -1287,7 +1287,8 @@ describe("elenco filtrato per progetto", () => {
 
 describe("PR aperte, PR per PR", () => {
   it("il merge di una PR non chiude l'altra della stessa task (un'altra repository)", async () => {
-    as("p-marco");
+    // La guida #58 è al tetto di STW (R-K2): chiede modifiche chi ha plans.approve.
+    as("p-laura");
     await runScript("cv-run-stw-3", [{ step: "state", state: "finished", outcome: "ok" }]);
     // La #411 (app) si mergia; la #58 (guida) resta aperta.
     state.pullRequests.push({

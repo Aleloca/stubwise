@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { ConversationEvent, TaskRun, TaskWork } from "../../data/types";
+import { correctionsFromRecords, countedRound } from "../releases/prState";
 import {
   correctionHeld,
+  correctionsOf,
   latestCorrection,
   openCard,
   prCycles,
@@ -398,6 +400,16 @@ describe("prCycles: il ciclo di una PR si DERIVA dalle sessioni", () => {
       round: 1,
       maxRounds: 1,
     });
+  });
+
+  it("R-K2/R-K8: una correzione fallita non conta nel giro, come nel motore delle PR dei Rilasci", () => {
+    const after = review("changes_requested", "2026-10-21T12:00:00Z", "p-laura");
+    const runs = [correctionRun("a", 19, "failed"), correctionRun("b", 20, "pushed")];
+    const w = work(runs, { pullRequests: [opened], prFacts: [after], correctionCap: 2 });
+    const cycle = prCycles(w, pullRequestsOf(w)).get("acme/web#7")!;
+    expect(cycle).toMatchObject({ state: "changes_requested", round: 1 });
+    const corrections = correctionsFromRecords(correctionsOf(w), "acme/web#7");
+    expect(countedRound(corrections)).toBe(cycle.round);
   });
 
   it("in coda e branch protetto vengono dai fatti esterni", () => {

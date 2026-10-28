@@ -269,12 +269,20 @@ function InlineForm({
   );
 }
 
-/** Il messaggio d'errore di una scrittura: un lavoro già vivo lo dice, il resto «riprova». */
-function useFailure() {
+/**
+ * Il messaggio d'errore di una scrittura: un lavoro già vivo lo dice, il
+ * tetto delle correzioni (R-K2) anche, con le parole del pannello dei
+ * Rilasci; il resto «riprova».
+ */
+function useFailure(cap?: { code: string; cap: number }) {
   const { t } = useTranslation();
   const toast = useToast();
-  return (error: Error) =>
-    toast.error(error.message === "conflict" ? t(`${K}.conflict`) : t(`${K}.failed`));
+  return (error: Error) => {
+    if (error.message === "conflict") toast.error(t(`${K}.conflict`));
+    else if (error.message === "needs_maintainer" && cap)
+      toast.error(t("releases.panel.requestErrors.needs_maintainer", cap));
+    else toast.error(t(`${K}.failed`));
+  };
 }
 
 // --- nessuna sessione ---------------------------------------------------------
@@ -417,7 +425,7 @@ function WithRun({
   const stream = useConversationStream(run.id, { passive: true });
   const people = usePeople().data;
   const code = useProjectCode(task.projectId);
-  const failed = useFailure();
+  const failed = useFailure({ code, cap: work.correctionCap });
   const relaunch = useRelaunchWithInstructions();
   const request = useRequestChanges();
   const resume = useResumeCorrection();

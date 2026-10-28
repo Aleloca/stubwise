@@ -91,6 +91,7 @@ import type {
   TaskPatch,
   TaskSize,
 } from "./types";
+import { overStubwiseCap } from "./releases/visibility";
 import { can, canInDepartment, grantProjectRole, viewerFor, type Permission } from "./viewer";
 
 // Le scritture del «server» finto. Ognuna passa da `gate()` (quindi `failNext`
@@ -2842,7 +2843,8 @@ export async function resumeCorrection(taskId: string): Promise<Conversation> {
 /**
  * «Chiedi modifiche» (`corrections.request`) su una PR aperta da Claude: una
  * correzione nuova, con la richiesta come primo messaggio. Senza una PR è
- * `invalid`; con un lavoro vivo sulla task è un conflitto.
+ * `invalid`; con un lavoro vivo sulla task è un conflitto; al tetto delle
+ * correzioni (R-K2) è `needs_maintainer` per chi non ha `plans.approve`.
  */
 export async function requestChanges(taskId: string, text: string): Promise<Conversation> {
   const gen = storeGeneration();
@@ -2853,7 +2855,10 @@ export async function requestChanges(taskId: string, text: string): Promise<Conv
   if (!hasOpenPr(task)) throw invalid("no_pr");
   const live = latestRunOf(task.id);
   if (live && live.state !== "finished") throw conflict();
-  return copy(await requestChangesAs(me, task, text, gen, latestOpenPrOf(task) ?? undefined));
+  const pr = latestOpenPrOf(task) ?? undefined;
+  // Lo stesso tetto del pannello dei Rilasci (R-K2): oltre, solo plans.approve.
+  if (pr && overStubwiseCap(me, task, pr)) throw new Error("needs_maintainer");
+  return copy(await requestChangesAs(me, task, text, gen, pr));
 }
 
 /**

@@ -27,6 +27,7 @@ import {
   environmentFor,
   holds,
   openFixTask,
+  overStubwiseCap,
   prFor,
   productionOf,
   prView,
@@ -270,9 +271,7 @@ export async function requestPrCorrection(
     // percorso di «Chiedi modifiche», area 3), sotto lo stesso tetto (R-K2).
     const task = state.tasksById.get(pr.taskId!)!;
     if (st.notFixable) return { ok: false, error: "not_fixable" };
-    if (st.autoRound >= capOf(pr.projectId) && !holds(me, "plans.approve", pr.projectId)) {
-      return { ok: false, error: "needs_maintainer" };
-    }
+    if (overStubwiseCap(me, task, pr)) return { ok: false, error: "needs_maintainer" };
     const live = latestRunOf(task.id);
     if (live && live.state !== "finished") return { ok: false, error: "in_flight" };
     const session = await requestChangesAs(me, task, text, gen, {
