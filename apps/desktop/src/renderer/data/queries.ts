@@ -3751,9 +3751,14 @@ export function useAlertSubscriptions() {
   });
 }
 
-/** Accende o spegne un tipo in un progetto, per App e Telefono. */
+/**
+ * Accende o spegne un tipo in un progetto, per App e Telefono. Ottimistica:
+ * l'interruttore (pagina e popover leggono la stessa cache) cambia subito e
+ * torna com'era se la scrittura fallisce. Telefono richiede App, come nel
+ * livello dati.
+ */
 export function useSetAlertSubscription() {
-  return useWrite(
+  return useOptimistic(
     ({
       projectId,
       type,
@@ -3763,6 +3768,21 @@ export function useSetAlertSubscription() {
       type: string;
       change: { app?: boolean; phone?: boolean };
     }) => api.alerts.setSubscription(projectId, type, change),
+    ["alerts"],
+    ({ projectId, type, change }, _area, old) =>
+      (old as api.alerts.ProjectSubscriptions[]).map((p) =>
+        p.projectId !== projectId
+          ? p
+          : {
+              ...p,
+              rows: p.rows.map((r) => {
+                if (r.type !== type || (r.state !== "on" && r.state !== "off")) return r;
+                const app = change.app ?? (change.phone ? true : r.app);
+                const phone = app && (change.phone ?? r.phone);
+                return { ...r, app, phone, state: app ? "on" : "off" };
+              }),
+            },
+      ),
     ALERT_AREAS,
   );
 }

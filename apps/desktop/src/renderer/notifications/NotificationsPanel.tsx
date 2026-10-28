@@ -10,17 +10,21 @@ import {
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import {
+  useAlertSubscriptions,
   useMarkNotification,
+  useMuteFromNotification,
   useNotifications,
   useProjects,
   useReachChatMessage,
+  useSetAlertSubscription,
 } from "../data/queries";
+import { isCatalogKind, rowTypeOf } from "../domain/alerts/catalog";
 import type { AppNotification } from "../data/types";
 import { useToast } from "../tasks-ui/Toast";
 import { useRestoreFocus } from "../layout/useRestoreFocus";
 import { NOTIFICATIONS_EVENT } from "../layout/useShortcuts";
 import { DeptLegend } from "../layout/DeptStrip";
-import { NotificationItem, type Change } from "./NotificationItem";
+import { NotificationItem, type AlertOfNotification, type Change } from "./NotificationItem";
 import { tabOf, type Tab } from "./time";
 
 const TABS: Tab[] = ["new", "snoozed", "archived"];
@@ -91,6 +95,47 @@ function Panel({ onClose }: { onClose: () => void }) {
   }, [notifications.data]);
 
   const visible = grouped[tab];
+
+  // Gli avvisi del catalogo: il menu «⋯» legge lo stato di adesso della riga
+  // dalle Preferenze (la stessa query della pagina e del popover).
+  const subs = useAlertSubscriptions();
+  const muteFrom = useMuteFromNotification();
+  const setSub = useSetAlertSubscription();
+  function alertOf(n: AppNotification): AlertOfNotification | undefined {
+    if (!n.projectId || !isCatalogKind(n.kind)) return undefined;
+    const project = subs.data?.find((p) => p.projectId === n.projectId);
+    const code = project?.code ?? projectsById.get(n.projectId)?.code;
+    if (!code) return undefined;
+    const rowType = rowTypeOf(n.kind);
+    const row = project?.rows.find((r) => r.type === rowType);
+    const label = row ? t(row.labelKey) : n.title;
+    const projectId = n.projectId;
+    return {
+      code,
+      label,
+      state: row?.state,
+      onMute: () =>
+        void muteFrom.mutateAsync(n.id).then(
+          (done) =>
+            toast.show(t("alerts.panel.muted", { label, code }), {
+              action: { label: t("alerts.undo"), run: () => void done.undo() },
+            }),
+          () => toast.error(t("alerts.panel.muteError")),
+        ),
+      onTurnBackOn: () =>
+        setSub.mutate(
+          { projectId, type: rowType, change: { app: true } },
+          {
+            onSuccess: () => toast.show(t("alerts.panel.backOn", { label, code })),
+            onError: () => toast.error(t("alerts.saveError", { label, code })),
+          },
+        ),
+      onOpenSettings: () => {
+        router.history.push(`/preferences/notifications?project=${code}`);
+        onClose();
+      },
+    };
+  }
 
   async function openLink(n: AppNotification) {
     // Una menzione della Chat si rilegge prima di andarci: il messaggio può
@@ -236,6 +281,7 @@ function Panel({ onClose }: { onClose: () => void }) {
                 key={n.id}
                 notification={n}
                 project={n.projectId ? projectsById.get(n.projectId) : undefined}
+                alert={alertOf(n)}
                 onOpen={() => void openLink(n)}
                 onChange={(change: Change) => mark.mutate({ id: n.id, change })}
               />

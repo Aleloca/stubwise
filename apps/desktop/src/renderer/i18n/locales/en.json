@@ -162,7 +162,9 @@
       "linkFolder": "Link a Google folder to {{code}}",
       "newEmail": "New email",
       "newMeeting": "New meeting",
-      "newAutomation": "New automation"
+      "newAutomation": "New automation",
+      "notificationPrefs": "Notification preferences",
+      "projectAlerts": "Alerts for {{code}}"
     },
     "filterPlaceholder": "Choose a filter",
     "channelPlaceholder": "Go to a channel or direct message…",
@@ -257,7 +259,16 @@
       "settings": "The project's settings will be managed here."
     }
   },
-  "prefs": {},
+  "prefs": {
+    "columnLabel": "Preferences sections",
+    "sections": {
+      "notifications": "Notifications",
+      "account": "Account",
+      "security": "Security",
+      "claude-code": "Claude Code"
+    },
+    "later": "Arrives with a later area."
+  },
   "common": {
     "department": "Department: {{name}}",
     "departmentsLegend": "Departments"
@@ -6066,5 +6077,168 @@
       "attachmentsReadOnly": "Attachments stay as they are: {{names}}",
       "suspended": "{{code}} is paused: nothing was decided. It can be decided once it's turned on again."
     }
+  },
+  "alerts": {
+    "title": "Notifications",
+    "intro": "Choose, project by project, what you hear about. Decisions — plans to approve, Claude's questions — always reach you in Home.",
+    "find": "Find a project",
+    "findPlaceholder": "Find a project…",
+    "expandAll": "Expand all",
+    "collapseAll": "Collapse all",
+    "app": "App",
+    "phone": "Phone",
+    "prototypePhone": "Prototype: phone alerts are saved, but nothing is sent.",
+    "pinned": "Pinned",
+    "others": "Other projects",
+    "projects": "Projects",
+    "noMatch": "No project matches “{{query}}”",
+    "clear": "Clear",
+    "noProjects": "You're not in any project yet. Alerts are set project by project.",
+    "nothingHere": "Nothing to set up here",
+    "loadError": "Couldn't load your alert settings.",
+    "retry": "Retry",
+    "summary": {
+      "on_one": "{{count}} on",
+      "on_other": "{{count}} on",
+      "phone_one": "{{count}} to phone",
+      "phone_other": "{{count}} to phone",
+      "paused_one": "{{count}} paused",
+      "paused_other": "{{count}} paused",
+      "allOff": "Everything off",
+      "always_one": "{{count}} always on",
+      "always_other": "{{count}} always on"
+    },
+    "groups": {
+      "prs": "Pull requests",
+      "releases": "Releases",
+      "docs": "Docs",
+      "tasks": "Tasks",
+      "support": "Support",
+      "monitor": "Servers",
+      "claude": "Claude"
+    },
+    "types": {
+      "pr_opened": "New PR",
+      "pr_analysis_issues": "PR analysis found problems",
+      "pr_corrected": "Claude corrected your PR",
+      "release_merged": "Release merged",
+      "release_succeeded": "Release succeeded",
+      "release_failed": "Release failed",
+      "docs_release_note": "Release note ready",
+      "task_created": "New task",
+      "support_request": "New request",
+      "support_customer_replied": "Customer replied",
+      "job_pr_opened": "Claude opened a PR",
+      "review_completed": "PR review done",
+      "ticket_created": "New task",
+      "request_created": "New request",
+      "docs_nightly_attention": "Docs need attention",
+      "monitor_alert": "Server in trouble",
+      "monitor_recovered": "Server recovered",
+      "job_failed": "Claude's work failed",
+      "project_brief": "Weekly brief"
+    },
+    "when": {
+      "pr_opened": "When a PR is opened in {{code}}, by Claude or a colleague",
+      "pr_analysis_issues": "When Claude's analysis of a PR in {{code}} finds problems",
+      "pr_corrected": "When Claude pushes a correction to a PR you opened",
+      "release_merged": "When a PR of {{code}} is merged to be released",
+      "release_succeeded": "When a release of {{code}} reaches production",
+      "release_failed": "When a release of {{code}} fails after the merge",
+      "docs_release_note": "When the night run writes a release note for {{code}}",
+      "task_created": "When a task is created in {{code}}",
+      "support_request": "When a request is opened in {{code}}, by a customer or a colleague",
+      "support_customer_replied": "When a customer writes again in a conversation of {{code}}",
+      "job_pr_opened": "When Claude opens a PR for a task of {{code}}",
+      "review_completed": "When Claude finishes reviewing a PR of {{code}}",
+      "ticket_created": "When a task is created in {{code}}",
+      "request_created": "When a request is opened in {{code}}",
+      "docs_nightly_attention": "When the night run can't update a page of {{code}}'s docs",
+      "monitor_alert": "When a server of {{code}} raises an alert",
+      "monitor_recovered": "When a server of {{code}} is back to normal",
+      "job_failed": "When Claude's work on a task of {{code}} fails",
+      "project_brief": "When the weekly brief of {{code}} is ready"
+    },
+    "mandatoryLine": {
+      "merged": "Always when you did the merge",
+      "pr_author": "Always for the PR's author",
+      "follows_conversation": "Always if you follow the conversation",
+      "task_author": "Always for the task's author, if the merge came from outside Stubwise"
+    },
+    "always": "Always for you",
+    "alwaysPhone": "App and phone",
+    "alwaysApp": "App only",
+    "suspended": {
+      "repos_view": "Paused · you can no longer see {{code}}'s repositories",
+      "docs_view": "Paused · you can no longer see {{code}}'s docs",
+      "tickets_view_all": "Paused · you can no longer see all of {{code}}'s tasks",
+      "backlog_view_all": "Paused · you can no longer see {{code}}'s requests",
+      "support_reply": "Paused · you can no longer reply to {{code}}'s customers",
+      "other": "Paused · you can no longer see this in {{code}}"
+    },
+    "suspendedBack": "It comes back if you get access again.",
+    "switchName": "{{label}} in {{code}}, {{channel}}",
+    "appFirst": "Turn on App first",
+    "saveError": "Couldn't save “{{label}}” for {{code}}.",
+    "menu": {
+      "label": "Alert actions for {{code}}",
+      "same": "Same as another project…",
+      "pick": "Copy from a project",
+      "off": "Turn everything off in {{code}}",
+      "open": "Open {{code}}",
+      "none": "No project matches"
+    },
+    "offDone": "Everything off in {{code}}. Alerts you already got stay; you'll still get the ones meant only for you.",
+    "undo": "Undo",
+    "bulkError": "Couldn't change the alerts of {{code}}.",
+    "copy": {
+      "title": "Use {{from}}'s alert settings in {{to}}?",
+      "count_one": "{{count}} alert changes.",
+      "count_other": "{{count}} alerts change.",
+      "none": "Nothing would change.",
+      "more": "and {{count}} more",
+      "stays": "Paused alerts, and the ones always on for you, stay as they are.",
+      "line": "{{label}}: {{from}} → {{to}}",
+      "confirm": "Copy settings",
+      "cancel": "Cancel",
+      "done": "{{to}} now has {{from}}'s alert settings.",
+      "channels": {
+        "off": "off",
+        "app": "App",
+        "both": "App and phone"
+      }
+    },
+    "notSet": {
+      "title": "Not set here",
+      "security": "Security alerts always reach you.",
+      "decisionsBefore": "Decisions are in",
+      "decisionsLink": "Home → Decide",
+      "rest": "Chat and Automations notify you by their own rules."
+    },
+    "bell": {
+      "label": "Alerts for {{code}}",
+      "tooltip": "Alerts for {{code}} · {{summary}}",
+      "title": "Alerts in {{code}}",
+      "turnOff": "Turn everything off",
+      "all": "All notification settings",
+      "error": "Couldn't load alerts."
+    },
+    "panel": {
+      "more": "More actions",
+      "mute": "Don't alert me about this in {{code}}",
+      "settings": "Alert settings for {{code}}",
+      "muted": "You won't get “{{label}}” alerts from {{code}} anymore.",
+      "alreadyOff": "Alerts like this are off in {{code}}",
+      "turnBackOn": "Turn back on",
+      "backOn": "“{{label}}” alerts from {{code}} are back on.",
+      "muteError": "Couldn't turn off these alerts.",
+      "why": {
+        "merged": "You get this because you did the merge",
+        "pr_author": "You get this because you opened this PR",
+        "follows_conversation": "You get this because you follow this conversation",
+        "task_author": "You get this because the PR comes from your task"
+      }
+    },
+    "pausedShort": "Paused"
   }
 }

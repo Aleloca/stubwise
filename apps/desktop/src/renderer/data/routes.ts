@@ -223,6 +223,8 @@ export function isAppRoute(route: string): boolean {
   if (/^filters\/[\w-]+$/.test(path)) return true;
   if (/^claude\/[\w-]+$/.test(path)) return true;
   if (/^mail\/[\w-]+$/.test(path)) return true;
+  // Le sezioni delle Preferenze (area 8a: Notifiche).
+  if (/^preferences\/[a-z-]+$/.test(path)) return true;
   if (isChannelPath(path)) return true;
   if (isAutomationsPath(path)) return true;
   const p = /^p\/([A-Z]{2,4})(?:\/([a-z]+))?$/.exec(path);

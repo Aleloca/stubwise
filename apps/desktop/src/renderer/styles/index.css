@@ -297,6 +297,23 @@
   }
 }
 
+/* Un gruppo delle Preferenze → Notifiche che si apre: cresce in altezza, entro --duration. */
+@keyframes alert-group-open {
+  from {
+    grid-template-rows: 0fr;
+  }
+  to {
+    grid-template-rows: 1fr;
+  }
+}
+
+@utility alert-group-enter {
+  animation: alert-group-open var(--duration) var(--ease) both;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
 /* Scheletri di caricamento: respirano piano; fermi con movimento ridotto. */
 @keyframes skeleton-breathe {
   0%,

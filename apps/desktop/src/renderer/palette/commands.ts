@@ -149,6 +149,20 @@ export const COMMANDS: readonly Command[] = [
     run: (ctx) => ctx.navigate("/projects"),
   },
   {
+    id: "prefs.notifications",
+    labelKey: "palette.commands.notificationPrefs",
+    run: (ctx) => ctx.navigate("/preferences/notifications"),
+  },
+  {
+    // Dentro un progetto: la pagina con il gruppo del progetto aperto (shape alerts.md §4).
+    id: "prefs.projectAlerts",
+    labelKey: "palette.commands.projectAlerts",
+    run: (ctx) => {
+      if (ctx.projectCode) ctx.navigate(`/preferences/notifications?project=${ctx.projectCode}`);
+    },
+    when: (_viewer, scope) => !!scope.projectId,
+  },
+  {
     id: "claude.new",
     labelKey: "palette.commands.newConversation",
     run: (ctx) => ctx.navigate("/claude"),

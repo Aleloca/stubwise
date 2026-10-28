@@ -162,7 +162,9 @@
       "linkFolder": "Collega una cartella Google a {{code}}",
       "newEmail": "Nuova email",
       "newMeeting": "Nuova riunione",
-      "newAutomation": "Nuova automazione"
+      "newAutomation": "Nuova automazione",
+      "notificationPrefs": "Preferenze delle notifiche",
+      "projectAlerts": "Avvisi di {{code}}"
     },
     "filterPlaceholder": "Scegli un filtro",
     "channelPlaceholder": "Vai a un canale o a un messaggio diretto…",
@@ -257,7 +259,16 @@
       "settings": "Qui si gestiranno le impostazioni del progetto."
     }
   },
-  "prefs": {},
+  "prefs": {
+    "columnLabel": "Sezioni delle preferenze",
+    "sections": {
+      "notifications": "Notifiche",
+      "account": "Account",
+      "security": "Sicurezza",
+      "claude-code": "Claude Code"
+    },
+    "later": "Arriva con un'area successiva."
+  },
   "common": {
     "department": "Reparto: {{name}}",
     "departmentsLegend": "Reparti"
@@ -6066,5 +6077,168 @@
       "attachmentsReadOnly": "Gli allegati restano così: {{names}}",
       "suspended": "{{code}} è in pausa: non è stato deciso niente. Si potrà decidere quando verrà riaccesa."
     }
+  },
+  "alerts": {
+    "title": "Notifiche",
+    "intro": "Scegli, progetto per progetto, di cosa vuoi sapere. Le decisioni — piani da approvare, domande di Claude — ti arrivano sempre in Home.",
+    "find": "Trova un progetto",
+    "findPlaceholder": "Trova un progetto…",
+    "expandAll": "Apri tutti",
+    "collapseAll": "Chiudi tutti",
+    "app": "App",
+    "phone": "Telefono",
+    "prototypePhone": "Prototipo: gli avvisi sul telefono si salvano, ma non parte nulla.",
+    "pinned": "Fissati",
+    "others": "Altri progetti",
+    "projects": "Progetti",
+    "noMatch": "Nessun progetto corrisponde a «{{query}}»",
+    "clear": "Cancella",
+    "noProjects": "Non sei ancora in nessun progetto. Gli avvisi si impostano progetto per progetto.",
+    "nothingHere": "Niente da impostare qui",
+    "loadError": "Non è stato possibile caricare le impostazioni degli avvisi.",
+    "retry": "Riprova",
+    "summary": {
+      "on_one": "{{count}} acceso",
+      "on_other": "{{count}} accesi",
+      "phone_one": "{{count}} sul telefono",
+      "phone_other": "{{count}} sul telefono",
+      "paused_one": "{{count}} sospeso",
+      "paused_other": "{{count}} sospesi",
+      "allOff": "Tutto spento",
+      "always_one": "{{count}} sempre attivo",
+      "always_other": "{{count}} sempre attivi"
+    },
+    "groups": {
+      "prs": "Pull requests",
+      "releases": "Rilasci",
+      "docs": "Docs",
+      "tasks": "Task",
+      "support": "Support",
+      "monitor": "Server",
+      "claude": "Claude"
+    },
+    "types": {
+      "pr_opened": "Nuova PR",
+      "pr_analysis_issues": "Analisi della PR con problemi",
+      "pr_corrected": "Claude ha corretto la tua PR",
+      "release_merged": "Rilascio mergiato",
+      "release_succeeded": "Rilascio riuscito",
+      "release_failed": "Rilascio fallito",
+      "docs_release_note": "Nota di rilascio pronta",
+      "task_created": "Nuova task",
+      "support_request": "Nuova richiesta",
+      "support_customer_replied": "Il cliente ha risposto",
+      "job_pr_opened": "Claude ha aperto una PR",
+      "review_completed": "Revisione della PR conclusa",
+      "ticket_created": "Nuova task",
+      "request_created": "Nuova richiesta",
+      "docs_nightly_attention": "Docs da guardare",
+      "monitor_alert": "Server in difficoltà",
+      "monitor_recovered": "Server tornato a posto",
+      "job_failed": "Lavoro di Claude fallito",
+      "project_brief": "Brief settimanale"
+    },
+    "when": {
+      "pr_opened": "Quando si apre una PR in {{code}}, di Claude o di un collega",
+      "pr_analysis_issues": "Quando l'analisi di Claude trova problemi in una PR di {{code}}",
+      "pr_corrected": "Quando Claude manda una correzione a una PR che hai aperto tu",
+      "release_merged": "Quando una PR di {{code}} viene mergiata per il rilascio",
+      "release_succeeded": "Quando un rilascio di {{code}} arriva in produzione",
+      "release_failed": "Quando un rilascio di {{code}} fallisce dopo il merge",
+      "docs_release_note": "Quando il giro notturno scrive una nota di rilascio di {{code}}",
+      "task_created": "Quando si crea una task in {{code}}",
+      "support_request": "Quando si apre una richiesta in {{code}}, da un cliente o da un collega",
+      "support_customer_replied": "Quando un cliente riscrive in una conversazione di {{code}}",
+      "job_pr_opened": "Quando Claude apre una PR per una task di {{code}}",
+      "review_completed": "Quando Claude finisce di rivedere una PR di {{code}}",
+      "ticket_created": "Quando si crea una task in {{code}}",
+      "request_created": "Quando si apre una richiesta in {{code}}",
+      "docs_nightly_attention": "Quando il giro notturno non riesce ad aggiornare una pagina dei docs di {{code}}",
+      "monitor_alert": "Quando un server di {{code}} lancia un allarme",
+      "monitor_recovered": "Quando un server di {{code}} torna normale",
+      "job_failed": "Quando il lavoro di Claude su una task di {{code}} fallisce",
+      "project_brief": "Quando il brief settimanale di {{code}} è pronto"
+    },
+    "mandatoryLine": {
+      "merged": "Sempre se il merge l'hai fatto tu",
+      "pr_author": "Sempre per chi ha aperto la PR",
+      "follows_conversation": "Sempre se segui la conversazione",
+      "task_author": "Sempre per l'autore della task, se il merge è arrivato da fuori Stubwise"
+    },
+    "always": "Sempre per te",
+    "alwaysPhone": "App e telefono",
+    "alwaysApp": "Solo App",
+    "suspended": {
+      "repos_view": "Sospeso · non vedi più i repository di {{code}}",
+      "docs_view": "Sospeso · non vedi più i docs di {{code}}",
+      "tickets_view_all": "Sospeso · non vedi più tutte le task di {{code}}",
+      "backlog_view_all": "Sospeso · non vedi più le richieste di {{code}}",
+      "support_reply": "Sospeso · non puoi più rispondere ai clienti di {{code}}",
+      "other": "Sospeso · non lo vedi più in {{code}}"
+    },
+    "suspendedBack": "Torna da solo se riavrai l'accesso.",
+    "switchName": "{{label}} in {{code}}, {{channel}}",
+    "appFirst": "Prima accendi App",
+    "saveError": "Non è stato possibile salvare «{{label}}» per {{code}}.",
+    "menu": {
+      "label": "Azioni sugli avvisi di {{code}}",
+      "same": "Come un altro progetto…",
+      "pick": "Copia da un progetto",
+      "off": "Spegni tutto in {{code}}",
+      "open": "Apri {{code}}",
+      "none": "Nessun progetto corrisponde"
+    },
+    "offDone": "Tutto spento in {{code}}. Gli avvisi già arrivati restano; quelli che riguardano solo te arrivano comunque.",
+    "undo": "Annulla",
+    "bulkError": "Non è stato possibile cambiare gli avvisi di {{code}}.",
+    "copy": {
+      "title": "Usare in {{to}} gli avvisi di {{from}}?",
+      "count_one": "Cambia {{count}} avviso.",
+      "count_other": "Cambiano {{count}} avvisi.",
+      "none": "Non cambierebbe nulla.",
+      "more": "e altri {{count}}",
+      "stays": "Gli avvisi sospesi e quelli sempre attivi per te restano come sono.",
+      "line": "{{label}}: {{from}} → {{to}}",
+      "confirm": "Copia le impostazioni",
+      "cancel": "Annulla",
+      "done": "{{to}} ha ora gli avvisi di {{from}}.",
+      "channels": {
+        "off": "spento",
+        "app": "App",
+        "both": "App e telefono"
+      }
+    },
+    "notSet": {
+      "title": "Non si impostano qui",
+      "security": "Gli avvisi di sicurezza ti arrivano sempre.",
+      "decisionsBefore": "Le decisioni sono in",
+      "decisionsLink": "Home → Decidi",
+      "rest": "Chat e Automazioni ti avvisano con le loro regole."
+    },
+    "bell": {
+      "label": "Avvisi di {{code}}",
+      "tooltip": "Avvisi di {{code}} · {{summary}}",
+      "title": "Avvisi in {{code}}",
+      "turnOff": "Spegni tutto",
+      "all": "Tutte le impostazioni",
+      "error": "Non è stato possibile caricare gli avvisi."
+    },
+    "panel": {
+      "more": "Altre azioni",
+      "mute": "Non avvisarmi più di questo in {{code}}",
+      "settings": "Impostazioni degli avvisi di {{code}}",
+      "muted": "Non riceverai più avvisi «{{label}}» da {{code}}.",
+      "alreadyOff": "Gli avvisi come questo sono spenti in {{code}}",
+      "turnBackOn": "Riaccendi",
+      "backOn": "Gli avvisi «{{label}}» di {{code}} sono di nuovo accesi.",
+      "muteError": "Non è stato possibile spegnere questi avvisi.",
+      "why": {
+        "merged": "Lo ricevi perché il merge l'hai fatto tu",
+        "pr_author": "Lo ricevi perché questa PR l'hai aperta tu",
+        "follows_conversation": "Lo ricevi perché segui questa conversazione",
+        "task_author": "Lo ricevi perché la PR viene da una tua task"
+      }
+    },
+    "pausedShort": "Sospeso"
   }
 }

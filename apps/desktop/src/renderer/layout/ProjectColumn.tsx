@@ -20,6 +20,7 @@ import {
 } from "../pages/chat/ChatColumn";
 import { inColumn } from "../pages/chat/column";
 import { PlusGlyph } from "../pages/chat/glyphs";
+import { ProjectAlerts } from "./ProjectAlerts";
 
 /** Una riga, ellissi in fondo. Inline perché il test la legge dallo stile calcolato. */
 export const ONE_LINE: CSSProperties = {
@@ -43,7 +44,13 @@ function Header({ code, project }: { code: string; project?: Project | null }) {
       : t("column.internal")
     : null;
   return (
-    <header className="shrink-0 border-b border-rule px-4 pt-4 pb-3">
+    <header className="relative shrink-0 border-b border-rule px-4 pt-4 pb-3">
+      {/* Gli avvisi del progetto, sulla riga del codice (shape alerts.md [A 14]). */}
+      {project && (
+        <span className="absolute top-[19px] right-3">
+          <ProjectAlerts projectId={project.id} code={project.code} />
+        </span>
+      )}
       {/* Il codice è l'ancora, a scala di titolo; il nome sotto, fino a due righe. */}
       <h2 className="flex min-w-0 flex-col gap-1">
         <span data-column-code className="num text-2xl font-semibold tracking-[-0.01em] text-ink">

@@ -19,6 +19,7 @@ describe("parità delle chiavi en/it", () => {
   test("le chiavi radice previste ci sono", () => {
     expect(Object.keys(en).sort()).toEqual(
       [
+        "alerts",
         "automations",
         "column",
         "common",

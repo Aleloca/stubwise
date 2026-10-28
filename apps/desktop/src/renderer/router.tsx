@@ -60,6 +60,7 @@ import { ProjectAutomationsPage } from "./pages/automations/ProjectAutomations";
 import { SourcesPage } from "./pages/automations/SourcesPage";
 import { BuilderRoutePage } from "./pages/automations/builder/BuilderPage";
 import { TestRoutePage } from "./pages/automations/test/TestPage";
+import { PreferencesPage, isPreferenceSection } from "./pages/preferences/PreferencesPage";
 
 /** La ricerca che ogni route accetta (`?task=` apre il pannello, gli altri li montano i dialoghi). */
 export interface AppSearch {
@@ -297,6 +298,29 @@ function AdminPage() {
   return <Placeholder titleKey="nav.admin" bodyKey="placeholder.pages.admin" />;
 }
 
+/** `/preferences` porta alla sola sezione costruita, Notifiche, tenendo la ricerca. */
+function PreferencesLanding() {
+  return (
+    <Navigate
+      to="/preferences/$section"
+      params={{ section: "notifications" }}
+      search={(prev: Record<string, unknown>) => prev}
+      replace
+    />
+  );
+}
+
+/**
+ * Una sezione delle Preferenze (`/preferences/notifications`); una sezione
+ * che non c'è torna a Notifiche. `?project=AUD` apre quel gruppo.
+ */
+function PreferencesRoutePage() {
+  const { section } = preferencesSectionRoute.useParams();
+  const search = useSearch({ strict: false }) as { project?: string };
+  if (!isPreferenceSection(section)) return <PreferencesLanding />;
+  return <PreferencesPage section={section} focusCode={search.project} />;
+}
+
 function pageOf(name: (typeof APP_ROUTES)[number]) {
   if (name === "admin") return AdminPage;
   if (name === "planning") return PlanningRoutePage;
@@ -309,6 +333,7 @@ function pageOf(name: (typeof APP_ROUTES)[number]) {
   if (name === "mail") return MailRoutePage;
   if (name === "calendar") return CalendarRoutePage;
   if (name === "automations") return AutomationsPage;
+  if (name === "preferences") return PreferencesLanding;
   return () => <Placeholder titleKey={`nav.${name}`} bodyKey={`placeholder.pages.${name}`} />;
 }
 
@@ -670,6 +695,12 @@ function SourcesRoutePage() {
   return <SourcesPage key={viewer.personId} />;
 }
 
+const preferencesSectionRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/preferences/$section",
+  component: PreferencesRoutePage,
+});
+
 const automationSourcesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/automations/sources",
@@ -724,6 +755,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   ...appRoutes.map((r) => (r === mailRoute ? mailRoute.addChildren([mailThreadRoute]) : r)),
   conversationRoute,
+  preferencesSectionRoute,
   automationSourcesRoute,
   automationRoute,
   automationRunRoute,

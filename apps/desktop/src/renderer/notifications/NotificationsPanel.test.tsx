@@ -4,6 +4,7 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  alerts,
   chat,
   failNext,
   listNotifications,
@@ -19,6 +20,9 @@ import { ViewerProvider } from "../data/viewer";
 import { setLanguage } from "../i18n";
 import { createAppRouter } from "../router";
 import { ThemeProvider } from "../theme/ThemeProvider";
+import { isCatalogKind } from "../domain/alerts/catalog";
+import { renderRoute } from "../test/renderRoute";
+import { tabOf } from "./time";
 
 function renderAt(path: string) {
   const history = createMemoryHistory({ initialEntries: [path] });
@@ -399,5 +403,96 @@ describe("menzioni della Chat", () => {
     await within(panel).findAllByRole("listitem");
     expect(within(panel).queryByText(/15%/)).toBeNull();
     expect(within(panel).queryByText(/Laura Costa mentioned you/)).toBeNull();
+  });
+});
+
+describe("«Don't alert me about this in <progetto>» (area 8a)", () => {
+  /** Un avviso nel pannello di Laura. */
+  const itemOf = (panel: HTMLElement, id: string) =>
+    panel.querySelector<HTMLElement>(`[data-notification="${id}"]`)!;
+  const alertsRow = async (type: string) => {
+    setSessionPersonId("p-laura");
+    return (await alerts.subscriptionRows())
+      .find((p) => p.code === "AUD")!
+      .rows.find((r) => r.type === type)!;
+  };
+
+  it("spegne il tipo per il futuro, l'avviso resta; «Undo» lo riaccende", async () => {
+    const user = userEvent.setup();
+    renderRoute("/home", "p-laura");
+    const panel = await openPanel(user);
+    const item = await waitFor(() => itemOf(panel, "n-a8-4"));
+    expect(item).toHaveTextContent("New release");
+    await user.click(within(item).getByRole("button", { name: "More actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Don't alert me about this in AUD" }));
+    expect(
+      await screen.findByText("You won't get “Release merged” alerts from AUD anymore."),
+    ).toBeVisible();
+    expect(await alertsRow("release.merged")).toMatchObject({ app: false, state: "off" });
+    // L'avviso cliccato resta dov'è, non letto come prima.
+    expect(itemOf(panel, "n-a8-4")).toBeInTheDocument();
+    expect(within(itemOf(panel, "n-a8-4")).getByText("Unread")).toBeInTheDocument();
+
+    // Già spento: il menu lo dice e offre di riaccendere.
+    await user.click(within(itemOf(panel, "n-a8-4")).getByRole("button", { name: "More actions" }));
+    expect(
+      await screen.findByRole("menuitem", { name: "Alerts like this are off in AUD" }),
+    ).toHaveAttribute("aria-disabled", "true");
+    expect(screen.queryByRole("menuitem", { name: /Don't alert me/ })).toBeNull();
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    await waitFor(async () =>
+      expect(await alertsRow("release.merged")).toMatchObject({ app: true, state: "on" }),
+    );
+  });
+
+  it("«Turn back on» riaccende il tipo dal pannello", async () => {
+    setSessionPersonId("p-laura");
+    await alerts.setSubscription("prj-aud", "release.merged", { app: false });
+    const user = userEvent.setup();
+    renderRoute("/home", "p-laura");
+    const panel = await openPanel(user);
+    const item = await waitFor(() => itemOf(panel, "n-a8-4"));
+    await user.click(within(item).getByRole("button", { name: "More actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Turn back on" }));
+    expect(await screen.findByText("“Release merged” alerts from AUD are back on.")).toBeVisible();
+    expect(await alertsRow("release.merged")).toMatchObject({ app: true, state: "on" });
+  });
+
+  it("obbligatorio: la ragione è scritta sotto il corpo, e nel menu non si spegne", async () => {
+    const user = userEvent.setup();
+    const router = renderRoute("/home", "p-laura");
+    const panel = await openPanel(user);
+    const item = await waitFor(() => itemOf(panel, "n-a8-5"));
+    expect(item).toHaveTextContent("You get this because you did the merge");
+    expect(
+      within(itemOf(panel, "n-a8-10")).getByText("You get this because you follow this conversation"),
+    ).toBeVisible();
+    await user.click(within(item).getByRole("button", { name: "More actions" }));
+    const menu = await screen.findByRole("menu", { name: "More actions" });
+    expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual([
+      "Alert settings for AUD",
+    ]);
+    // «Alert settings for AUD» apre la pagina col gruppo di AUD e chiude il pannello.
+    await user.click(within(menu).getByRole("menuitem", { name: "Alert settings for AUD" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/preferences/notifications"));
+    expect(router.state.location.search).toMatchObject({ project: "AUD" });
+    expect(screen.queryByRole("dialog", { name: "Notifications" })).toBeNull();
+  });
+
+  it("fuori dal catalogo (decisioni, menzioni, sicurezza) niente «⋯»", async () => {
+    const user = userEvent.setup();
+    renderRoute("/home", "p-laura");
+    const panel = await openPanel(user);
+    await waitFor(() => expect(itemOf(panel, "n-a8-4")).toBeInTheDocument());
+    setSessionPersonId("p-laura");
+    const outside = (await listNotifications()).filter(
+      (n) => !isCatalogKind(n.kind) && tabOf(n) === "new",
+    );
+    expect(outside.length).toBeGreaterThan(0);
+    for (const n of outside) {
+      expect(within(itemOf(panel, n.id)).queryByRole("button", { name: "More actions" })).toBeNull();
+    }
   });
 });

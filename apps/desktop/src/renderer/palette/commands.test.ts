@@ -54,6 +54,32 @@ describe("comandi di Claude (area 3)", () => {
   });
 });
 
+describe("comandi degli avvisi (area 8a)", () => {
+  it("«Notification preferences» per tutti; «Alerts for <PRJ>» solo dentro un progetto, sul suo gruppo", () => {
+    expect(ids(viewerWith([]))).toContain("prefs.notifications");
+    expect(ids(viewerWith([]))).not.toContain("prefs.projectAlerts");
+    const scoped = matchCommands("", viewerWith([]), (c) => c.id, {
+      projectId: "prj-1",
+      projectCode: "AUD",
+    });
+    const cmd = scoped.find((c) => c.id === "prefs.projectAlerts")!;
+    const paths: string[] = [];
+    cmd.run({
+      navigate: (p: string) => paths.push(p),
+      setTheme: () => {},
+      setPersona: () => {},
+      pathname: "/p/AUD/overview",
+      projectCode: "AUD",
+      openViewAs: () => {},
+      openFilters: () => {},
+      openChannels: () => {},
+      openLinkFolder: () => {},
+      openNewAutomation: () => {},
+    });
+    expect(paths).toEqual(["/preferences/notifications?project=AUD"]);
+  });
+});
+
 describe("comandi delle Automations (area 7)", () => {
   it("«New automation» solo con automations.manage, in un progetto o d'istanza", () => {
     expect(ids(viewerWith(["tickets.create"]))).not.toContain("automation.new");

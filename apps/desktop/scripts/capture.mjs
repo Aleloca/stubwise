@@ -752,6 +752,59 @@ async function main() {
         await context.close();
       }
     }
+
+    // Area 8a, Task 7: gli avvisi — Preferenze → Notifiche, il popover del
+    // progetto, «⋯» nel pannello delle notifiche.
+    const AREA8A_ALERTS = [
+      ["alerts-prefs", "/preferences/notifications", { persona: "Laura" }],
+      ["alerts-prefs-marco", "/preferences/notifications", { persona: "Marco" }],
+      // Roberta (admin): ~50 progetti, gli altri chiusi con la sintesi.
+      ["alerts-prefs-50", "/preferences/notifications", { persona: "Roberta", steps: async (p) => {
+        await p.locator('[data-group-header="AUD"]').click();
+        await p.locator('[data-group-header="STW"]').click();
+        await p.waitForTimeout(300);
+      } }],
+      ["alerts-copy", "/preferences/notifications", { persona: "Laura", steps: async (p) => {
+        await p.getByRole("button", { name: /^(Alert actions for AUD|Azioni sugli avvisi di AUD)$/ }).click();
+        await p.getByRole("menuitem", { name: /^(Same as another project…|Come un altro progetto…)$/ }).click();
+        await p.getByRole("menuitem", { name: /ELS/ }).click();
+        await p.waitForTimeout(400);
+      } }],
+      ["alerts-popover", "/p/AUD/overview", { persona: "Laura", steps: async (p) => {
+        await p.getByRole("button", { name: /^(Alerts for AUD|Avvisi di AUD)$/ }).click();
+        await p.waitForTimeout(400);
+      } }],
+      ["alerts-panel-menu", "/home", { persona: "Laura", steps: async (p) => {
+        await p.getByRole("button", { name: /^(Notifications|Notifiche)/ }).first().click();
+        const item = p.locator('[data-notification="n-a8-4"]');
+        await item.hover();
+        await item.getByRole("button", { name: /^(More actions|Altre azioni)$/ }).click();
+        await p.waitForTimeout(400);
+      } }],
+      ["alerts-panel-mandatory", "/home", { persona: "Laura", steps: async (p) => {
+        await p.getByRole("button", { name: /^(Notifications|Notifiche)/ }).first().click();
+        const item = p.locator('[data-notification="n-a8-5"]');
+        await item.scrollIntoViewIfNeeded();
+        await item.hover();
+        await item.getByRole("button", { name: /^(More actions|Altre azioni)$/ }).click();
+        await p.waitForTimeout(400);
+      } }],
+    ];
+    for (const [name, hash, o] of AREA8A_ALERTS) {
+      if (only && !only.test(name)) continue;
+      const variants = [];
+      for (const scheme of ["light", "dark"]) {
+        for (const lang of ["en", "it"]) variants.push([scheme, lang, WIDE, `a8-${name}-${scheme}-${lang}.png`]);
+      }
+      variants.push(["light", "en", NARROW, `a8-${name}-narrow.png`]);
+      variants.push(["dark", "it", NARROW, `a8-${name}-narrow-dark-it.png`]);
+      for (const [scheme, lang, viewport, file] of variants) {
+        const { page, context } = await open(scheme, viewport, hash, { lang, persona: o.persona, viaHome: true });
+        if (o.steps) await o.steps(page);
+        await shot(page, file);
+        await context.close();
+      }
+    }
     if (only) return; // revisione mirata: salta il resto
 
     for (const scheme of ["light", "dark"]) {

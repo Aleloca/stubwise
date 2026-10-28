@@ -262,7 +262,10 @@ describe("PersonalColumn", () => {
             ? i18n.t("filter.allTitle")
             : name === "claude"
               ? i18n.t("claude.destination.landing.title")
-              : i18n.t(`nav.${name}`),
+              : // `/preferences` porta alla sezione Notifiche (area 8a).
+                name === "preferences"
+                ? i18n.t("alerts.title")
+                : i18n.t(`nav.${name}`),
         );
       }
       expect(h1).toHaveClass("text-2xl");
@@ -277,26 +280,28 @@ describe("PersonalColumn", () => {
     const grid = column().parentElement!;
     const homeGridClass = grid.className;
     cleanup();
-    // Le Automations hanno la loro colonna (area 7): lo stato neutro resta sulle Preferenze.
-    await renderAt("/preferences");
-    const nav = await within(column()).findByRole("navigation", { name: "Preferences views" });
-    expect(nav).toHaveTextContent("The sections of your preferences will be listed here.");
+    // Le Preferenze hanno la loro colonna (area 8a): lo stato neutro resta sull'Amministrazione.
+    await renderAt("/admin", "p-roberta");
+    const nav = await within(column()).findByRole("navigation", { name: "Administration views" });
+    expect(nav).toHaveTextContent("The sections of administration will be listed here.");
     expect(within(column()).queryByRole("heading")).toBeNull();
     expect(within(nav).queryByRole("link")).toBeNull();
     // Stesso contenitore e stessa colonna di griglia a 240 px: niente collasso.
     expect(column().className).toBe(homeColumnClass);
     expect(column().parentElement!.className).toBe(homeGridClass);
     expect(homeGridClass).toContain("240px");
-    expect(screen.getByRole("heading", { level: 1, name: "Preferences" })).toHaveClass("text-2xl");
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Administration" }),
+    ).toHaveClass("text-2xl");
   });
 
   it("lo stato neutro segue la lingua", async () => {
     act(() => setLanguage("it"));
-    // Calendario (area 6) e Automazioni (area 7) hanno la loro colonna: lo stato neutro resta sulle Preferenze.
-    await renderAt("/preferences");
+    // Calendario (area 6), Automazioni (area 7) e Preferenze (area 8a) hanno la loro colonna.
+    await renderAt("/admin", "p-roberta");
     expect(
-      await within(column()).findByRole("navigation", { name: "Viste di Preferenze" }),
-    ).toHaveTextContent("Qui compariranno le sezioni delle tue preferenze.");
+      await within(column()).findByRole("navigation", { name: "Viste di Amministrazione" }),
+    ).toHaveTextContent("Qui compariranno le sezioni dell'amministrazione.");
   });
 
   it("Chat ha la sua colonna (canali e messaggi diretti); Mail la sua (viste e caselle), nessun titolo", async () => {
