@@ -106,21 +106,25 @@ describe("popover «Alerts»", () => {
           .every((s) => s.getAttribute("aria-checked") === "false"),
       ).toBe(true),
     );
-    // Sara (Contributor) non ha righe solo obbligatorie in STW: la campanella è barrata.
+    // Tutte le iscrizioni spente: la campanella è barrata (R-K16).
     expect(await stwBell()).toHaveAttribute("data-alerts-off", "true");
     await user.click(screen.getByRole("button", { name: "Undo" }));
     await waitFor(async () => expect(await stwBell()).not.toHaveAttribute("data-alerts-off"));
   });
 
-  it("la campanella non è barrata con tutto spento se un avviso arriva comunque (obbligatorio)", async () => {
+  it("R-K16: barrata con tutte le iscrizioni spente anche se qualche avviso arriva comunque, e lo dice", async () => {
     renderRoute("/p/AUD/overview", LAURA);
     const user = userEvent.setup();
+    const still = "Some alerts still reach you, like a failed release you merged.";
     const pop = await openPopover(user);
+    expect(within(pop).queryByText(still)).toBeNull();
     await user.click(within(pop).getByRole("button", { name: "Turn everything off" }));
     await waitFor(() =>
       expect(within(pop).getByText(/^Everything off · 1 always on/)).toBeVisible(),
     );
-    expect(await bell()).not.toHaveAttribute("data-alerts-off");
+    expect(await bell()).toHaveAttribute("data-alerts-off", "true");
+    expect(await bell()).toHaveAttribute("title", expect.stringContaining(still));
+    expect(within(pop).getByText(still)).toBeVisible();
   });
 
   it("errore nel popover: una riga con «Retry», il resto della colonna intatto", async () => {

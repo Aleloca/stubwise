@@ -6221,7 +6221,8 @@
       "title": "Avvisi in {{code}}",
       "turnOff": "Spegni tutto",
       "all": "Tutte le impostazioni",
-      "error": "Non è stato possibile caricare gli avvisi."
+      "error": "Non è stato possibile caricare gli avvisi.",
+      "stillArrive": "Alcuni avvisi ti arrivano comunque, come un rilascio fallito che hai mergiato tu."
     },
     "panel": {
       "more": "Altre azioni",
@@ -6239,6 +6240,8 @@
         "task_author": "Lo ricevi perché la PR viene da una tua task"
       }
     },
-    "pausedShort": "Sospeso"
+    "pausedShort": "Sospeso",
+    "undoError": "Non è stato possibile annullare la modifica in {{code}}.",
+    "reloadError": "Non è stato possibile aggiornare le impostazioni degli avvisi: quello che vedi potrebbe non essere aggiornato."
   }
 }

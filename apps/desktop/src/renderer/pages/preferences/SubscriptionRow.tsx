@@ -2,8 +2,7 @@ import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { ProjectSubscriptions, SubscriptionRow as Row } from "../../data/alerts";
-import { useSetAlertSubscription } from "../../data/queries";
-import { useToast } from "../../tasks-ui/Toast";
+import { useSaveSwitch } from "./useAlertActions";
 
 // Una riga delle iscrizioni (shape alerts.md, «Riga di un tipo»): il nome e
 // il «quando» a sinistra, a destra due interruttori in colonna (App,
@@ -115,26 +114,6 @@ export function Switch({
       />
     </button>
   );
-}
-
-/** Scrive un interruttore; un errore lo riporta indietro (la cache) e lo dice, con «Retry». */
-export function useSaveSwitch(project: Pick<ProjectSubscriptions, "projectId" | "code">) {
-  const { t } = useTranslation();
-  const set = useSetAlertSubscription();
-  const toast = useToast();
-  return function save(row: Row, change: { app?: boolean; phone?: boolean }) {
-    const run = () =>
-      set.mutate(
-        { projectId: project.projectId, type: row.type, change },
-        {
-          onError: () =>
-            toast.error(t("alerts.saveError", { label: t(row.labelKey), code: project.code }), {
-              action: { label: t("alerts.retry"), run },
-            }),
-        },
-      );
-    run();
-  };
 }
 
 /** I due interruttori di una riga accesa o spenta. Telefono richiede App (shape [A 7]). */

@@ -118,7 +118,13 @@ function Panel({ onClose }: { onClose: () => void }) {
         void muteFrom.mutateAsync(n.id).then(
           (done) =>
             toast.show(t("alerts.panel.muted", { label, code }), {
-              action: { label: t("alerts.undo"), run: () => void done.undo() },
+              action: {
+                label: t("alerts.undo"),
+                // Un annullamento che fallisce lo dice, senza promise rifiutate in giro.
+                run: () => {
+                  done.undo().catch(() => toast.error(t("alerts.undoError", { code })));
+                },
+              },
             }),
           () => toast.error(t("alerts.panel.muteError")),
         ),

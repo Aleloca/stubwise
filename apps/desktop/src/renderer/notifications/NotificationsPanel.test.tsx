@@ -447,6 +447,20 @@ describe("«Don't alert me about this in <progetto>» (area 8a)", () => {
     );
   });
 
+  it("un «Undo» che fallisce lo dice con un toast d'errore", async () => {
+    const user = userEvent.setup();
+    renderRoute("/home", "p-laura");
+    const panel = await openPanel(user);
+    const item = await waitFor(() => itemOf(panel, "n-a8-4"));
+    await user.click(within(item).getByRole("button", { name: "More actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Don't alert me about this in AUD" }));
+    await screen.findByText("You won't get “Release merged” alerts from AUD anymore.");
+    failNext("alerts.undo");
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(await screen.findByText("Couldn't undo the change in AUD.")).toBeVisible();
+    expect(await alertsRow("release.merged")).toMatchObject({ state: "off" });
+  });
+
   it("«Turn back on» riaccende il tipo dal pannello", async () => {
     setSessionPersonId("p-laura");
     await alerts.setSubscription("prj-aud", "release.merged", { app: false });

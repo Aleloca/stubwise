@@ -6221,7 +6221,8 @@
       "title": "Alerts in {{code}}",
       "turnOff": "Turn everything off",
       "all": "All notification settings",
-      "error": "Couldn't load alerts."
+      "error": "Couldn't load alerts.",
+      "stillArrive": "Some alerts still reach you, like a failed release you merged."
     },
     "panel": {
       "more": "More actions",
@@ -6239,6 +6240,8 @@
         "task_author": "You get this because the PR comes from your task"
       }
     },
-    "pausedShort": "Paused"
+    "pausedShort": "Paused",
+    "undoError": "Couldn't undo the change in {{code}}.",
+    "reloadError": "Couldn't refresh your alert settings: what you see may be out of date."
   }
 }

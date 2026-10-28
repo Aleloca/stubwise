@@ -10,20 +10,26 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import type { SubscriptionRow as Row } from "../data/alerts";
 import { useAlertSubscriptions } from "../data/queries";
-import { useMuteProject } from "../pages/preferences/NotificationsSection";
-import {
-  FamilyList,
-  SWITCH_COL,
-  countRows,
-  summaryText,
-} from "../pages/preferences/SubscriptionRow";
+import { useMuteProject } from "../pages/preferences/useAlertActions";
+import { FamilyList, SWITCH_COL, summaryText } from "../pages/preferences/SubscriptionRow";
 
 // Il popover «Alerts» nella testata della colonna del progetto (shape
 // alerts.md): le stesse righe della pagina, in forma compatta, sulla stessa
 // query — un cambio qui si vede nella pagina e viceversa, senza ricaricare.
 
 const WIDTH = 340;
+
+/**
+ * Tutte le iscrizioni del progetto sono spente (R-K16): la campanella si
+ * barra anche se qualche avviso arriva comunque per obbligo.
+ */
+const allOff = (rows: Row[]) => rows.every((r) => r.state !== "on");
+
+/** Qualche avviso arriva comunque: una riga solo obbligatoria, o un obbligo condizionale. */
+const someStillArrive = (rows: Row[]) =>
+  rows.some((r) => r.state === "mandatory" || r.mandatory.length > 0);
 
 function BellGlyph({ off }: { off: boolean }) {
   return (
@@ -48,8 +54,9 @@ function BellGlyph({ off }: { off: boolean }) {
 
 /**
  * La campanella del progetto (28 px, sulla riga del codice): barrata quando
- * è tutto spento e nessun avviso arriva comunque. Apre un popover non
- * modale: Esc o un clic fuori lo chiudono e il fuoco torna qui.
+ * tutte le iscrizioni sono spente (R-K16); allora il suggerimento (e il
+ * popover) dice che alcuni avvisi arrivano comunque, se è così. Apre un
+ * popover non modale: Esc o un clic fuori lo chiudono e il fuoco torna qui.
  */
 export function ProjectAlerts({ projectId, code }: { projectId: string; code: string }) {
   const { t } = useTranslation();
@@ -58,9 +65,13 @@ export function ProjectAlerts({ projectId, code }: { projectId: string; code: st
   const button = useRef<HTMLButtonElement>(null);
   const project = subs.data?.find((p) => p.projectId === projectId);
   const rows = project?.rows ?? [];
-  const counts = countRows(rows);
-  const off = project !== undefined && counts.on === 0 && counts.always === 0;
-  const summary = project ? summaryText(t, rows) : "";
+  const off = project !== undefined && allOff(rows);
+  const summary = project
+    ? [
+        summaryText(t, rows),
+        ...(off && someStillArrive(rows) ? [t("alerts.bell.stillArrive")] : []),
+      ].join(" · ")
+    : "";
 
   const close = useCallback((restore: boolean) => {
     setAnchor(null);
@@ -173,6 +184,11 @@ function Popover({
           <span className="truncate text-xs text-ink-faint">{summaryText(t, project.rows)}</span>
         )}
       </div>
+      {project && allOff(project.rows) && someStillArrive(project.rows) && (
+        <p data-still-arrive className="px-3 pb-1 text-sm text-ink-muted">
+          {t("alerts.bell.stillArrive")}
+        </p>
+      )}
       {subs.isError ? (
         <p role="alert" className="flex items-center gap-2 px-3 py-3 text-sm text-ink">
           {t("alerts.bell.error")}

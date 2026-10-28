@@ -329,12 +329,13 @@ describe("stati della pagina", () => {
         visibleProjectIds(MARCO).has(p.id) &&
         !INITIAL_PINNED_CODES[LAURA]!.includes(p.code) &&
         !INITIAL_PINNED_CODES[MARCO]!.includes(p.code),
-    );
+    )!;
+    expect(shared).toBeDefined();
     renderRoute(PAGE, LAURA);
     await ready();
     const user = userEvent.setup();
     expect(sw("PR analysis found problems in AUD, App")).toHaveAttribute("aria-checked", "true");
-    if (shared) await user.click(headerOf(shared.code)!);
+    await user.click(headerOf(shared.code)!);
     await user.type(screen.getByRole("searchbox", { name: "Find a project" }), "a");
 
     await user.click(screen.getByRole("button", { name: "Profile and settings" }));
@@ -347,7 +348,48 @@ describe("stati della pagina", () => {
     );
     expect(screen.getByRole("searchbox", { name: "Find a project" })).toHaveValue("a");
     await user.clear(screen.getByRole("searchbox", { name: "Find a project" }));
-    if (shared) expect(headerOf(shared.code)).toHaveAttribute("aria-expanded", "true");
+    expect(headerOf(shared.code)).toHaveAttribute("aria-expanded", "true");
     expect(headers()).toHaveLength(visibleProjectIds(MARCO).size);
+    // m2: la mappa di Laura non finisce sotto la chiave di Marco; Marco scrive solo ciò che tocca.
+    const stored = (id: string) =>
+      JSON.parse(window.localStorage.getItem(`stubwise.alerts.open.${id}`) ?? "null") as unknown;
+    expect(stored(MARCO)).toBeNull();
+    await user.click(headerOf("AUD")!);
+    expect(stored(MARCO)).toEqual({ [AUD]: false });
+    expect(stored(LAURA)).toEqual({ [shared.id]: true });
+  });
+
+  it("una rilettura che fallisce con i dati in pagina: un avviso con «Retry», la pagina resta", async () => {
+    renderRoute(PAGE, LAURA);
+    await ready();
+    failNext("alerts.subscriptionRows");
+    await userEvent.click(sw("New PR in AUD, App"));
+    expect(
+      await screen.findByText(
+        "Couldn't refresh your alert settings: what you see may be out of date.",
+      ),
+    ).toBeVisible();
+    expect(headerOf("AUD")).toHaveAttribute("aria-expanded", "true");
+    expect(sw("New PR in AUD, App")).toBeVisible();
+    expect(screen.queryByText("Couldn't load your alert settings.")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByText(
+          "Couldn't refresh your alert settings: what you see may be out of date.",
+        ),
+      ).toBeNull(),
+    );
+  });
+
+  it("un «Undo» che fallisce lo dice con un toast d'errore", async () => {
+    renderRoute(PAGE, LAURA);
+    await ready();
+    await userEvent.click(screen.getByRole("button", { name: "Alert actions for AUD" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Turn everything off in AUD" }));
+    await screen.findByText(/^Everything off in AUD\./);
+    failNext("alerts.undo");
+    await userEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(await screen.findByText("Couldn't undo the change in AUD.")).toBeVisible();
   });
 });
