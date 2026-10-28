@@ -21,7 +21,7 @@ dati), `dom/*.test.ts` (motore puro), `p/*.test.tsx` e `p/*/*.test.*` (pagine).
 | Costruttore comprensibile a chi non è tecnico | `p/builder/*` (procedura numerata 1…N, corsie in parole, pannello del passo) | `Builder.test.tsx` («AUT-1: procedura numerata 1…N su tutto l'albero, corsie in parole, approvazione sulla riga», «40 passi, 5 livelli, nome lunghissimo: numeri 1…40, nome intero, tutto in pagina»), `tree.test.ts` («1…N nell'ordine di lettura, rami compresi») |
 | Costruzione con tastiera e trascinamento | `p/builder/useTreeKeyboard.ts`, `useTreeDrag.ts`, `RowMenu.tsx` | `Builder.test.tsx` («A apre il menu dei passi, Enter crea il passo selezionato e già «Incomplete»; la bozza si salva da sola», «Spazio prende, ↓ sposta entrando nella corsia, Spazio lascia; Esc rimette dov'era», «⌥↓ sposta di uno, ⌘D duplica con «(copy)», ⌫ elimina con Undo»). Il gesto col puntatore: verificato in Chromium vero, nessun test unitario (Buchi) |
 | Simulazione su un evento di esempio, passo per passo, senza effetti | `d/simulate.ts`, `d/examples.ts`; `p/test/*` | `simulate.test.ts` (««Nuovo contratto» provato da cima a fondo: anteprime complete e NESSUNA scrittura nello store»), `Test.test.tsx` («AUT-1: fascia di prova, stesso elenco numerato, si ferma subito, anteprime al condizionale, approvazione nella prova, poi «Publish»», «dopo una prova completa nessun effetto vero: né store, né Posta, né Home, né notifiche») |
-| Passi di Claude che leggono e ricavano dati o scelte | `dom/claudeStep.ts`, `d/claudeFake.ts`, `p/builder/ClaudeForm.tsx`, `p/LogClaude.tsx` | `claudeStep.test.ts` («accetta un'uscita dichiarata e i campi col loro tipo»), `automations.test.ts` (««Nuovo contratto» da una trattativa Audin: Claude, traguardo, task per reparto, email da approvare»), `simulate.test.ts` («Claude dice quali documenti ha letto») |
+| Passi di Claude che leggono e ricavano dati o scelte | `dom/claudeStep.ts`, `d/claudeFake.ts`, `p/builder/ClaudeForm.tsx`, `p/previews/Previews.tsx` (`ClaudePreview`, uno solo per registro e prova) | `claudeStep.test.ts` («accetta un'uscita dichiarata e i campi col loro tipo»), `automations.test.ts` (««Nuovo contratto» da una trattativa Audin: Claude, traguardo, task per reparto, email da approvare»), `simulate.test.ts` («Claude dice quali documenti ha letto») |
 | Approvazione per passo (parte da solo / chiede approvazione) | `d/pendingEffect.ts`, `d/runner.ts`; `p/builder/StepSections.tsx` (impostazione), `p/RunDecisions.tsx` | `automations.test.ts` («pausa e riaccensione durante l'attesa: sospesa, non approvabile, poi di nuovo in attesa — nessun effetto prima»), `tree.test.ts` («l'email nasce chiedendo al proprietario, il resto parte da solo; «Where» secondo il tipo d'automazione») |
 | Esecuzioni visibili: pagina Automations, progetto, traguardo, task | `p/RunList.tsx`, `RunDetail.tsx`, `ProjectAutomations.tsx`, `AutomationOrigin.tsx` | `Automations.test.tsx` (««Runs in progress»: prima quelle che aspettano me (punto pieno), poi le altre»), `EntryPoints.test.tsx` («in AUD la voce c'è dopo Chat, col conteggio delle esecuzioni in corso», «chi vede l'automazione ha codice, nome e l'esecuzione coi link», «il traguardo nel dialogo dei traguardi ha la stessa riga») |
 | Sorgenti esterne (Audin, HubSpot, webhook in arrivo) collegate da chi ha il permesso | `p/SourcesPage.tsx`, `SourcePanel.tsx`, `WebhookSections.tsx`, `ClientLinks.tsx`; `d/sources.ts`, `d/webhooks.ts` | `Automations.test.tsx` («senza `integrations.manage` la pagina non esiste (R-G5)», «collegare dichiara la simulazione; ricollegare rende chi agisce «chi l'ha collegata»», «il webhook: indirizzo, esempio e campi con etichette»), `curation.test.ts` («solo con `integrations.manage`; scrive la riga a nome di chi sceglie») |
@@ -41,7 +41,7 @@ dati), `dom/*.test.ts` (motore puro), `p/*.test.tsx` e `p/*/*.test.*` (pagine).
 |---|---|---|
 | 1. Un'approvazione blocca davvero (né un riavvio, né un'altra automazione, né la simulazione la scavalcano) | `dom/engine.ts` (il passo con approvazione aspetta), `d/runner.ts`, `dom/restore.ts`; la prova dà l'approvazione a nome di chi prova | `engine.test.ts` («un'esecuzione ripresa da un'istantanea (pausa e riaccensione) resta ferma; «Fai passare il tempo» non la sblocca», «un'approvazione arrivata mentre si aspetta altro (Claude, cliente, progetto, effetto) non fa nulla», «R-J8: l'approvazione del giro 0 ripetuta non sblocca il giro 1 né vi porta le sue correzioni»), `automations.test.ts` (««Fai passare il tempo» non scavalca un'approvazione», «un avvio annidato non salta l'approvazione dell'automazione avviata», «pausa subito dopo un'approvazione: l'approvazione già data non si perde, si sospende al passo dopo», «chi gestisce ma non è l'approvatore: forbidden (R-J8)»), `simulate.test.ts` («le approvazioni nella prova le dà chi prova, a nome suo; la riga dice chi approverebbe davvero»), `EntryPoints.test.tsx` («la decisione rimandata (con le modifiche) non cade sul passo nuovo, e il messaggio dice chi ha deciso») |
 | 2. Claude sceglie solo fra le strade disegnate; fuori elenco = errore del passo | `dom/claudeStep.ts`, `dom/engine.ts`; codici `unknown_outcome`, `bad_field`, `too_many` | `claudeStep.test.ts` («un'uscita non dichiarata, assente o non prevista è unknown_outcome», «un campo non dichiarato, mancante o del tipo sbagliato è bad_field», «un elenco oltre 50 elementi è too_many; 50 e vuoto vanno bene»), `engine.test.ts` («una motivazione che «chiede» di fare altro non è un'azione: il flusso prosegue com'è disegnato»), `simulate.test.ts` («chi prova non può iniettare risultati di effetti o di Claude») |
-| 3. Tutto tracciato: dati, perché (motivazione di Claude), chi approva e quando | registro in `data/model.ts`, `p/RunLog.tsx`, `LogGroups.tsx`, `LogClaude.tsx` | `Automations.test.tsx` («il registro: rami presi con l'etichetta, rami non presi espandibili, Claude con uscite e motivazione», «annulla con conferma: il registro scrive chi»), `automations.test.ts` («rifiutare annulla l'esecuzione (R-J7) senza effetti», ««Salta» un passo fallito: l'esecuzione prosegue da quello dopo») |
+| 3. Tutto tracciato: dati, perché (motivazione di Claude), chi approva e quando | registro in `data/model.ts`, `p/RunLog.tsx`, `LogGroups.tsx`, `previews/Previews.tsx` (`ClaudePreview`) | `Automations.test.tsx` («il registro: rami presi con l'etichetta, rami non presi espandibili, Claude con uscite e motivazione», «annulla con conferma: il registro scrive chi»), `automations.test.ts` («rifiutare annulla l'esecuzione (R-J7) senza effetti», ««Salta» un passo fallito: l'esecuzione prosegue da quello dopo») |
 
 ## Il modello
 
@@ -89,7 +89,7 @@ dati), `dom/*.test.ts` (motore puro), `p/*.test.tsx` e `p/*/*.test.*` (pagine).
 |---|---|---|
 | Titolo da modello, stato (in corso, in attesa di approvazione, di un evento, finita, fallita, annullata), registro | `d/runner.ts`, `p/RunDetail.tsx` | `automations.test.ts` («ogni stato dell'esecuzione è raggiungibile», «codici: <PRJ>-A<n> e AUT-<n>, mai riusati; esecuzioni numerate per automazione») |
 | Dura giorni e riprende da sola; «Fai passare il tempo» (solo prototipo) | `p/PassTime.tsx`, `d/runner.ts` | `Automations.test.tsx` («attesa della risposta: «Pass time» fino alla scadenza manda il promemoria»), `engine.test.ts` («un'esecuzione in attesa del cliente ripresa dal seme: alla scadenza scrive R-J2 e manda il promemoria») |
-| Annullare; riprovare o saltare un passo fallito | `p/RunDialogs.tsx`, `d/writes.ts` | `Automations.test.tsx` («fallita: «Retry», «Skip» con conferma, «Cancel run» con conferma; Viewer non li ha»), `automations.test.ts` («il proprietario perde tickets.create a metà esecuzione: passo fallito «permesso perso», poi Riprova») |
+| Annullare; riprovare o saltare un passo fallito | `p/RunDialogs.tsx`, `d/runWrites.ts` | `Automations.test.tsx` («fallita: «Retry», «Skip» con conferma, «Cancel run» con conferma; Viewer non li ha»), `automations.test.ts` («il proprietario perde tickets.create a metà esecuzione: passo fallito «permesso perso», poi Riprova») |
 | Approvazioni in «Da decidere» con Approva / Rifiuta; il rifiuto ferma l'esecuzione | `pages/home/blocks/DecideBlock.tsx`, `AutomationDecisionItem.tsx` | `EntryPoints.test.tsx` («l'approvazione con l'origine, la domanda e l'email in anteprima; Approve la manda», ««Undo» entro la finestra: niente parte e la voce torna»), `automations.test.ts` («rifiutare annulla l'esecuzione (R-J7) senza effetti») |
 | Un'email da approvare si corregge prima | `p/RunDecisions.tsx`, `p/previews/Previews.tsx` | `EntryPoints.test.tsx` (««Edit» corregge l'email prima di approvarla»), `automations.test.ts` («un'email da approvare si corregge prima di approvarla (solo i campi dell'anteprima)») |
 
@@ -202,16 +202,49 @@ vincolano il codice.
 - **Esiti del registro** `suspended`/`resumed`/`cancelled`/`retried` aggiunti
   dal Task 3; errori macchina come codici (`permission_lost`), prosa solo in
   `reason`.
+- **R-J21, avviare un'altra automazione** chiede che il proprietario possa
+  gestirla, non solo vederla: errore di configurazione `unknown_ref` e, a
+  runtime, `permission_lost` (`plans.ts` `planStart`, `reads.ts`
+  `configErrorsOf`); il costruttore propone solo quelle che si gestiscono.
+- **R-J22, «Ripeti finché»** resta col controllo prima di ogni giro (R-J4); il
+  costruttore dice «If the condition is already true, the steps inside are
+  skipped.» (shape `automation-builder.md` §6, 28 ott 2026).
+- **R-J23, un solo vocabolario.** Lo stato acceso si chiama sempre «Active /
+  Attiva» («Turn on» resta l'azione); righe e corsie di costruttore,
+  dettaglio e registro usano le stesse frasi («If Claude says», «When the
+  limit is reached», «For each task in …»), da `builder/flowWords.tsx`
+  `laneLabel`.
+
+## Ondata finale (28 ott 2026)
+
+- File divisi (spostamenti puri): `dom/engine.ts` → `engineLoop.ts` (il
+  ciclo) e `engineInputs.ts` (gli input); `d/writes.ts` → `runWrites.ts`
+  (avvii a mano, decisioni, annulla/riprova/salta/tempo), `sourceWrites.ts`
+  (sorgenti, eventi a mano, tabella cliente → progetto), `writeGuards.ts`;
+  `d/simulate.ts` → `simulateExecute.ts` e `simulateView.ts`;
+  `p/AutomationDetail.tsx` → `DetailHeader.tsx` e `DetailSections.tsx`.
+- Motivazioni come codici (`RunLogEntry.why`, `automations.reasons.*` en/it,
+  al condizionale nella prova): `reasons.test.ts` controlla che ogni codice
+  scritto abbia le sue frasi. `reason` resta la prosa del registro.
+- R-J13 lungo la catena (`reads.ts` `mailOrigin`), «Avvisa» coi permessi del
+  proprietario, un solo ascoltatore in `AppLayout`
+  (`useAutomationsLiveRefresh`, `runner.ts` `onAutomationsSettled`) che rilegge
+  le aree quando le esecuzioni si fermano, anche dopo le scritture delle
+  altre aree e dopo un fallimento scoperto da una lettura (R-J11).
+- R-G5 nel flusso (`visibility.ts` `flowFor`/`keepHiddenProjects`),
+  `approverIds` ricalcolato a lettura, `expectedPath` obbligatorio, l'email
+  dalla casella salvata anche con più caselle.
 
 ## Buchi
 
 - Il trascinamento col puntatore nel costruttore non ha test unitari
   (verificato in Chromium vero).
-- Minori della revisione rimandati all'ondata finale (ledger della
-  costruzione): `expectedPath` obbligatorio in `data/automations/writes.ts`,
-  test UI della corsa per rifiuto e scelta nei punti d'ingresso, intervallo e
-  loop della prova allo smontaggio, `scrollIntoView` della riga di registro non
-  verificato, scelta del progetto vuota senza testo.
-- Screenshot: `.impeccable/review/a7-*` (33 scene × chiaro/scuro × en/it a
+- `MAIL_HIDDEN` («Un'email ricevuta dal proprietario», al posto dell'email
+  per chi non è il proprietario, R-J13) è un testo del livello dati in
+  italiano: nell'interfaccia inglese si legge in italiano.
+- Le date degli esempi della prova senza una data propria vengono dalla prima
+  esecuzione nata da quell'evento (anche se chi prova non la vede: solo il
+  giorno).
+- Screenshot: `.impeccable/review/a7-*` (36 scene × chiaro/scuro × en/it a
   1440, più una a 1024); si rifanno con `node scripts/capture.mjs`
   (`CAPTURE_ONLY=<nome>` per una sola scena).
