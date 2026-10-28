@@ -750,7 +750,8 @@ describe("«Salvato» solo a bozza salvata (area 8)", () => {
     // Da qui al salvataggio dell'ultimo testo «Saved» non deve mai comparire.
     let early = false;
     const watch = new MutationObserver(() => {
-      if (within(form).queryByText("Saved") && !savedBody("First and second.")) early = true;    });
+      if (within(form).queryByText("Saved") && !savedBody("First and second.")) early = true;
+    });
     watch.observe(form, { childList: true, subtree: true, characterData: true });
     try {
       await waitFor(() => expect(savedBody("First and second.")).toBe(true));
@@ -760,4 +761,25 @@ describe("«Salvato» solo a bozza salvata (area 8)", () => {
       watch.disconnect();
     }
   });
+  it("il salvataggio più vecchio fallisce dopo il più nuovo riuscito: resta «Salvato»", async () => {
+    await openMail(`/mail/${CALL_NOTES()}`);
+    const p = await pane(CALL_NOTES());
+    await userEvent.click(within(p).getByRole("button", { name: "Reply" }));
+    const form = await composer("Reply to Matteo Conti");
+    // Il primo salvataggio è lento; il secondo parte dopo e finisce prima.
+    setLatency(2500);
+    write(form, "First.");
+    await within(form).findByText("Saving…");
+    setLatency(0);
+    write(form, "First and second.");
+    await waitFor(() => expect(savedBody("First and second.")).toBe(true), { timeout: 2000 });
+    // Il vecchio, ancora in volo, fallisce DOPO: il testo più recente è salvato.
+    failNext("mail.saveDraft");
+    await waitFor(() => expect(within(form).getByText("Saved")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(within(form).queryByText(/Couldn't save/)).toBeNull();
+    expect(within(form).getByText("Saved")).toBeInTheDocument();
+  }, 10000);
 });

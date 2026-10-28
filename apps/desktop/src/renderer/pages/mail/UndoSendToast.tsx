@@ -178,8 +178,9 @@ export function useUndoSendToast() {
       const run = () => {
         clearUndoKey();
         toast.dismiss(id);
-        // Una casella riaperta nel frattempo salva prima: la bozza tornata ci si unisce.
-        closeComposer(newEmail ? null : result.threadId)
+        // Una casella riaperta nel frattempo salva prima: la bozza tornata ci
+        // si unisce. Un'email nuova partita da uno slot (R-K14) chiude quella.
+        closeComposer(newEmail ? null : result.threadId, newEmail ? result.slot : undefined)
           .then(() => undoAsync(result.messageId))
           .then(
             (restored) => {

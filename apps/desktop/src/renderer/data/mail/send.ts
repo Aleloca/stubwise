@@ -89,7 +89,12 @@ function startWindow(message: MailMessage, draft: MailDraft): MailSendResult {
   }, MAIL_UNDO_MS);
   attempts.get(message.id)?.settle();
   attempts.set(message.id, { draft, timer, settled, settle });
-  return { messageId: message.id, threadId: message.threadId, undoUntil: undoUntil() };
+  return {
+    messageId: message.id,
+    threadId: message.threadId,
+    ...(draft.slot ? { slot: draft.slot } : {}),
+    undoUntil: undoUntil(),
+  };
 }
 
 const domainOf = (email: string) => lower(email).slice(lower(email).lastIndexOf("@") + 1);

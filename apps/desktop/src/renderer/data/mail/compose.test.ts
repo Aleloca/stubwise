@@ -132,6 +132,26 @@ describe("Bozze con uno slot loro (R-K14, area 8a)", () => {
     );
   });
 
+  it("un invio dallo slot dice il suo slot: «Undo» chiude quella casella, non la nuova email", async () => {
+    as("p-matteo");
+    const slotted = await mail.getDraft(null, "new", "support-ACQ-S2");
+    const saved = await mail.saveDraft({
+      ...slotted,
+      to: [{ name: "Lucia Benedetti", email: "lucia.benedetti@example.com" }],
+      subject: "About your request",
+      body: "Hi",
+    });
+    const sent = await mail.sendDraft(saved.id);
+    expect(sent.slot).toBe("support-ACQ-S2");
+    const plain = await mail.saveDraft({
+      ...(await mail.getDraft(null, "new")),
+      to: [{ name: "Lucia Benedetti", email: "lucia.benedetti@example.com" }],
+      subject: "Hello",
+      body: "Hi",
+    });
+    expect((await mail.sendDraft(plain.id)).slot).toBeUndefined();
+  });
+
   it("uno slot solo per l'email nuova e con la forma di una conversazione di Support", async () => {
     as("p-matteo");
     const base = await mail.getDraft(null, "new");

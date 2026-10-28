@@ -76,6 +76,9 @@ export function useComposerDraft({
   const gone = useRef(false);
   /** Salvataggi partiti e non ancora finiti. */
   const inFlight = useRef(0);
+  /** L'ultimo salvataggio partito, e se è fallito (decide lui lo stato). */
+  const issued = useRef(0);
+  const newestFailed = useRef(false);
   const callbacks = useRef({ onClose, onLoaded, onEdit });
   callbacks.current = { onClose, onLoaded, onEdit };
 
@@ -105,16 +108,25 @@ export function useComposerDraft({
     dirty.current = false;
     setStatus("saving");
     inFlight.current += 1;
+    const mine = ++issued.current;
+    newestFailed.current = false;
+    // «Salvato» solo se nel frattempo non si è scritto altro (il timer già
+    // programmato salva il testo nuovo), nessun altro salvataggio è in volo
+    // (si possono sovrapporre, e quello più vecchio vedrebbe `dirty` già
+    // azzerato da quello più nuovo) e il più recente non è fallito.
+    const settle = () => {
+      if (inFlight.current === 0 && !newestFailed.current) setStatus(dirty.current ? "idle" : "saved");
+    };
     try {
       await saveMutation.mutateAsync(inputOf(f, modeRef.current));
       inFlight.current -= 1;
-      // «Salvato» solo se nel frattempo non si è scritto altro (il timer già
-      // programmato salva il testo nuovo) e nessun altro salvataggio è in
-      // volo: i salvataggi si possono sovrapporre, e quello più vecchio
-      // vedrebbe `dirty` già azzerato da quello più nuovo.
-      if (inFlight.current === 0) setStatus(dirty.current ? "idle" : "saved");
+      settle();
     } catch {
       inFlight.current -= 1;
+      // Un salvataggio più vecchio che fallisce non conta: uno più nuovo ha
+      // portato (o sta portando) il testo più recente, e decide lui.
+      if (mine !== issued.current) return settle();
+      newestFailed.current = true;
       dirty.current = true;
       setStatus("failed");
     }

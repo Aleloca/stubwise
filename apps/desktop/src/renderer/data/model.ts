@@ -1832,6 +1832,8 @@ export interface MailSendResult {
   messageId: string;
   /** La conversazione del messaggio (per un'email nuova, quella appena nata). */
   threadId: string;
+  /** L'email nuova partita da uno slot (R-K14): «Undo» chiude quella casella. */
+  slot?: string;
   undoUntil: string;
 }
 
