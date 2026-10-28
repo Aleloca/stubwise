@@ -4,7 +4,6 @@ import { usePeople, type SupportConversationView } from "../../data/queries";
 import type { SupportMessage } from "../../data/types";
 import { Avatar } from "../../tasks-ui/PersonChip";
 import { clock } from "../claude/conversation/parts";
-import { AlertGlyph } from "../mail/glyphs";
 import { whenWithTime } from "../mail/format";
 import { customerName } from "./format";
 import type { PendingReply } from "./replyStore";
@@ -54,7 +53,8 @@ function Message({
 }: {
   m: Pick<SupportMessage, "from" | "authorId" | "body" | "at">;
   conv: SupportConversationView;
-  pending?: { status: PendingReply["status"]; onRetry: () => void; onEdit: () => void };
+  /** Il mio invio nella finestra dell'«Annulla»: «Sending…» al posto dell'ora. */
+  pending?: boolean;
   /** L'ultimo messaggio: il fuoco ci va dopo l'invio (shape §6). */
   liRef?: React.RefObject<HTMLLIElement | null>;
 }) {
@@ -104,27 +104,7 @@ function Message({
           </blockquote>
         )}
         {m.from === "team" &&
-          (pending?.status === "failed" ? (
-            <p role="alert" className="flex flex-wrap items-center gap-1.5 text-xs text-critical">
-              <AlertGlyph size={14} />
-              {t("support.message.notSent")} ·
-              <button
-                type="button"
-                onClick={pending.onRetry}
-                className="rounded-sm font-semibold underline underline-offset-2"
-              >
-                {t("support.message.retry")}
-              </button>
-              ·
-              <button
-                type="button"
-                onClick={pending.onEdit}
-                className="rounded-sm font-semibold underline underline-offset-2"
-              >
-                {t("support.message.edit")}
-              </button>
-            </p>
-          ) : pending ? (
+          (pending ? (
             <p className="text-xs text-ink-muted">{t("support.message.sending")}</p>
           ) : (
             <p className="text-xs text-ink-faint">
@@ -143,15 +123,11 @@ function Message({
 export function Messages({
   conv,
   pending,
-  onRetry,
-  onEdit,
   lastSentRef,
 }: {
   conv: SupportConversationView;
-  /** Il mio invio nella finestra dell'«Annulla», o fallito: in fondo, come mio. */
+  /** Il mio invio nella finestra dell'«Annulla»: in fondo, come mio. */
   pending: PendingReply | null;
-  onRetry: () => void;
-  onEdit: () => void;
   /** L'ultimo messaggio: il fuoco ci va dopo l'invio. */
   lastSentRef: React.RefObject<HTMLLIElement | null>;
 }) {
@@ -182,17 +158,19 @@ export function Messages({
             key={m.id ?? i}
             m={m}
             conv={conv}
-            liRef={!pending && i === shown.length - 1 ? lastSentRef : undefined}
+            liRef={i === shown.length - 1 ? lastSentRef : undefined}
           />
         ),
       )}
-      {pending && (
-        <Message
-          m={{ from: "team", authorId: pending.personId, body: pending.body, at: "" }}
-          conv={conv}
-          pending={{ status: pending.status, onRetry, onEdit }}
-        />
-      )}
+      {/* Partito e già riletto: c'è il messaggio vero, non lo si ripete. */}
+      {pending &&
+        !(list.at(-1)?.authorId === pending.personId && list.at(-1)?.body === pending.body) && (
+          <Message
+            m={{ from: "team", authorId: pending.personId, body: pending.body, at: "" }}
+            conv={conv}
+            pending
+          />
+        )}
       {/* Un nuovo messaggio del cliente si annuncia (shape §7). */}
       <li className="sr-only" aria-live="polite">
         {lastCustomer

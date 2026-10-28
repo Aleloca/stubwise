@@ -6719,9 +6719,6 @@
       "earlier_one": "{{count}} messaggio precedente",
       "earlier_other": "{{count}} messaggi precedenti",
       "sending": "Invio…",
-      "notSent": "Non inviata",
-      "retry": "Riprova",
-      "edit": "Modifica",
       "newFrom": "Nuovo messaggio da {{name}}, {{time}}"
     },
     "reply": {
@@ -6758,7 +6755,10 @@
       "noEmail": "Il cliente non ha lasciato un indirizzo email",
       "noMailbox": "Collega il tuo account Google per scrivere da Stubwise",
       "connect": "Collega",
-      "emailError": "Non è stato possibile preparare l'email."
+      "emailError": "Non è stato possibile preparare l'email.",
+      "waitPrevious": "Aspetta: la risposta di prima è ancora nella finestra dell'Annulla",
+      "notSentBack": "Non inviata. La risposta è tornata nella casella: inviala di nuovo quando vuoi.",
+      "noEmailTriage": "L'assistente sta ancora facendo domande al cliente"
     },
     "preview": {
       "title": "Cosa vede {{name}}",
@@ -6833,6 +6833,14 @@
       "deleteConfirm": "Elimina",
       "deleted": "{{name}} eliminato",
       "deleteError": "Non è stato possibile eliminare il widget."
+    },
+    "origin": {
+      "title": "Da dove nasce",
+      "widget": "Dal widget",
+      "mcp": "Da Claude Code",
+      "show_one": "Mostra la conversazione ({{count}} messaggio)",
+      "show_other": "Mostra la conversazione ({{count}} messaggi)",
+      "hide": "Nascondi la conversazione"
     }
   }
 }

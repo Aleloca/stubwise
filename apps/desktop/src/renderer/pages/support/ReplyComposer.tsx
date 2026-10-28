@@ -19,8 +19,10 @@ import { ClaudeMark } from "../mail/ClaudeDraftButton";
 import { DRAFT_SAVE_MS } from "../mail/useComposerDraft";
 import { customerName } from "./format";
 import {
+  pendingFor,
   readDraft,
   scheduleReply,
+  sendFailed,
   takeBackReply,
   usePendingReplies,
   writeDraft,
@@ -112,14 +114,23 @@ export function ReplyComposer({
     else regenerate("replace");
   };
 
-  const canSend = body.trim() !== "" && !writing;
+  // Un invio alla volta (I1): finché il precedente è nella finestra
+  // dell'«Annulla», «Invia» è fermo e dice perché.
+  const waiting = pendingFor(me, conv.code) !== null;
+  const canSend = body.trim() !== "" && !writing && !waiting;
+  const sendReason = waiting
+    ? t("support.reply.waitPrevious")
+    : body.trim() === ""
+      ? t("support.reply.emptyReason")
+      : null;
   const send = () => {
     if (!canSend) return;
     const text = body.trim();
-    scheduleReply(conv.code, text, () => {
-      void invalidate();
+    const scheduled = scheduleReply(conv.code, text, async () => {
+      await invalidate();
       onSent();
     });
+    if (!scheduled) return;
     setSaved(false);
     setPlacedFrom(null);
     claude.reset();
@@ -254,6 +265,11 @@ export function ReplyComposer({
             </button>
           </div>
         )}
+        {sendFailed(me, conv.code) && (
+          <p role="alert" className="border-t border-rule px-3 py-2 text-sm text-critical">
+            {t("support.reply.notSentBack")}
+          </p>
+        )}
         {claude.state.status === "failed" && (
           <p
             role="alert"
@@ -317,7 +333,7 @@ export function ReplyComposer({
               title={
                 canSend
                   ? `${t("support.reply.send")} (${shortcutLabel(["mod", "Enter"])})`
-                  : t("support.reply.emptyReason")
+                  : (sendReason ?? undefined)
               }
               onClick={send}
             >

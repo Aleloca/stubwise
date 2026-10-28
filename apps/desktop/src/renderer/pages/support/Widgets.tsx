@@ -473,21 +473,25 @@ export function Widgets({
           ) : widgets.length === 0 ? (
             <PageEmpty title={t("support.widgets.empty")} />
           ) : (
-            <ul aria-label={t("support.views.widgets")} className="border-t border-rule">
+            <ul aria-label={t("support.views.widgets")} className="@container border-t border-rule">
               {widgets.map((w) => (
                 <li
                   key={w.id}
                   data-widget-row={w.id}
                   aria-current={w.id === open || undefined}
-                  className="flex h-12 items-center gap-4 border-b border-rule px-3 aria-[current]:bg-ink/10"
+                  className="flex min-h-12 flex-wrap items-center gap-x-4 gap-y-1 border-b border-rule px-3 py-2 aria-[current]:bg-ink/10"
                 >
-                  <span className="min-w-0 flex-1 truncate text-md font-medium text-ink">
+                  {/* Stretta (pannello aperto a 1024): il nome ha una riga sua, mai nascosto. */}
+                  <span
+                    title={w.name}
+                    className="min-w-0 basis-full truncate text-md font-medium text-ink @[440px]:flex-1 @[440px]:basis-auto"
+                  >
                     {w.name}
                   </span>
                   <span className={`text-sm ${w.enabled ? "text-ink" : "text-ink-muted"}`}>
                     {w.enabled ? t("support.widgets.on") : t("support.widgets.off")}
                   </span>
-                  <span className="num w-36 text-right text-sm text-ink-muted">
+                  <span className="num text-sm text-ink-muted @[440px]:min-w-32 @[440px]:text-right">
                     {t("support.widgets.conversations", { count: w.conversationCount })}
                   </span>
                   <button

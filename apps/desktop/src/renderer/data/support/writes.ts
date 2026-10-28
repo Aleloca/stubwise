@@ -121,7 +121,8 @@ export async function emailDraftFor(
   code: string,
 ): Promise<{ threadId: string | null; draft: MailDraft }> {
   const me = await writer("support.emailDraftFor");
-  const c = replierFor(me, code);
+  // Nemmeno l'email durante il triage: Claude sta facendo le domande (R-K18).
+  const c = openReplyFor(me, code);
   const email = c.customer.email;
   if (!email) throw invalid("no_email");
   mailboxOf(me);

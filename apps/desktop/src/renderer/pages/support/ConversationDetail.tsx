@@ -1,10 +1,9 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   useEmailDraftFor,
   useFollowConversation,
-  useInvalidateSupport,
   useLoadMailDraft,
   useSaveMailDraft,
   useSessionPersonId,
@@ -31,7 +30,7 @@ import { CustomerPreview } from "./CustomerPreview";
 import { customerName, firstName, PREVIEW_DOCKED_QUERY, stateWord } from "./format";
 import { Messages } from "./Messages";
 import { ReplyComposer } from "./ReplyComposer";
-import { pendingFor, retryReply, takeBackReply, usePendingReplies } from "./replyStore";
+import { pendingFor, usePendingReplies } from "./replyStore";
 import { RequestBlock } from "./RequestBlock";
 
 // Il dettaglio di una conversazione (shape support.md §3, §5, §6): in testa
@@ -138,9 +137,10 @@ function Header({
           ]
             .filter(Boolean)
             .map((part) => (
-              <span key={part} className="whitespace-nowrap">
-                {part}&nbsp;·{" "}
-              </span>
+              // Lo spazio fuori dalla voce: è lì che la riga può andare a capo.
+              <Fragment key={part}>
+                <span className="whitespace-nowrap">{part}&nbsp;·</span>{" "}
+              </Fragment>
             ))}
           <span className="font-medium whitespace-nowrap text-ink">{stateWord(conv.state, t)}</span>
         </p>
@@ -197,7 +197,7 @@ function Header({
                     {t("support.detail.writeEmail")}
                   </button>
                 )}
-                {(conv.emailBlocked === "no_email" || conv.emailBlocked === "no_mailbox") && (
+                {conv.emailBlocked !== null && conv.emailBlocked !== "no_permission" && (
                   <>
                     <button
                       type="button"
@@ -211,7 +211,9 @@ function Header({
                     <MenuNote>
                       {conv.emailBlocked === "no_email"
                         ? t("support.reply.noEmail")
-                        : t("support.reply.noMailbox")}
+                        : conv.emailBlocked === "triage"
+                          ? t("support.reply.noEmailTriage")
+                          : t("support.reply.noMailbox")}
                     </MenuNote>
                   </>
                 )}
@@ -282,7 +284,6 @@ export function ConversationDetail({
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const lastRef = useRef<HTMLLIElement>(null);
   const writeByEmail = useWriteByEmail();
-  const invalidate = useInvalidateSupport();
   usePendingReplies();
   const conv = q.data;
 
@@ -398,21 +399,7 @@ export function ConversationDetail({
             writeByEmail={() => void writeByEmail(conv.code)}
           />
           <RequestBlock conv={conv} />
-          <Messages
-            conv={conv}
-            pending={pending}
-            lastSentRef={lastRef}
-            onRetry={() =>
-              retryReply(me, conv.code, () => {
-                void invalidate();
-                requestAnimationFrame(() => lastRef.current?.focus());
-              })
-            }
-            onEdit={() => {
-              takeBackReply(me, conv.code);
-              requestAnimationFrame(() => bodyRef.current?.focus());
-            }}
-          />
+          <Messages conv={conv} pending={pending} lastSentRef={lastRef} />
           {!conv.canReply ? (
             <p className="border-t border-rule pt-4 text-xs text-ink-muted">
               {t("support.reply.readOnly")}

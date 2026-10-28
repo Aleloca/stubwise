@@ -6719,9 +6719,6 @@
       "earlier_one": "{{count}} earlier message",
       "earlier_other": "{{count}} earlier messages",
       "sending": "Sending…",
-      "notSent": "Not sent",
-      "retry": "Retry",
-      "edit": "Edit",
       "newFrom": "New message from {{name}}, {{time}}"
     },
     "reply": {
@@ -6758,7 +6755,10 @@
       "noEmail": "The customer didn't leave an email address",
       "noMailbox": "Connect your Google account to write from Stubwise",
       "connect": "Connect",
-      "emailError": "Couldn't prepare the email."
+      "emailError": "Couldn't prepare the email.",
+      "waitPrevious": "Wait: your previous reply is still in its Undo window",
+      "notSentBack": "Not sent. Your reply is back in the box: send it again when you're ready.",
+      "noEmailTriage": "The assistant is still asking the customer questions"
     },
     "preview": {
       "title": "What {{name}} sees",
@@ -6833,6 +6833,14 @@
       "deleteConfirm": "Delete",
       "deleted": "{{name}} deleted",
       "deleteError": "Couldn't delete the widget."
+    },
+    "origin": {
+      "title": "Where it comes from",
+      "widget": "From the widget",
+      "mcp": "From Claude Code",
+      "show_one": "Show the conversation ({{count}} message)",
+      "show_other": "Show the conversation ({{count}} messages)",
+      "hide": "Hide the conversation"
     }
   }
 }

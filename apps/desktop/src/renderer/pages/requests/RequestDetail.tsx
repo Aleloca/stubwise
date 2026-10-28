@@ -45,6 +45,7 @@ import {
 import { fieldButton, hoverChevron } from "../task/TaskHeader";
 import { MenuButton } from "../tasks/controls";
 import { SizeOptions } from "../tasks/pickers";
+import { RequestOrigin } from "../support/RequestOrigin";
 import { MergeDialog } from "./MergeDialog";
 import { RequestStatusLabel, RequestStatusSign, RiskMark, UrgencyMark } from "./marks";
 import { NextStepLine, SuggestionsSection } from "./RequestGuidance";
@@ -489,6 +490,9 @@ function RequestBody({
       >
         {request.description.trim() && <Markdown source={request.description} />}
       </Section>
+
+      {/* Da dove nasce (area 8a, shape support.md [A 15]): la conversazione col cliente. */}
+      <RequestOrigin request={request} />
 
       {/* Scritti nel refine con Claude: si leggono anche senza poter seguire la conversazione. */}
       {request.design?.trim() && (

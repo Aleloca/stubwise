@@ -257,6 +257,19 @@ describe("R-K15: durante il triage non si risponde", () => {
   });
 });
 
+describe("R-K18: durante il triage nemmeno l'email", () => {
+  it("emailDraftFor in triage è invalid: state, e la vista dice perché", async () => {
+    as("p-matteo");
+    const drafts = structuredClone(state.mailDrafts);
+    await expect(support.emailDraftFor("ACQ-S1")).rejects.toThrow("invalid: state");
+    expect(state.mailDrafts).toEqual(drafts);
+    expect((await support.getSupportConversation("ACQ-S1"))!.emailBlocked).toBe("triage");
+    // Chi non può rispondere resta `no_permission`, anche in triage.
+    as("p-sara");
+    expect((await support.getSupportConversation("ACQ-S1"))!.emailBlocked).toBe("no_permission");
+  });
+});
+
 describe("R-K14: la bozza email ha uno slot suo", () => {
   it("emailDraftFor non usa lo slot della nuova email: id e slot della conversazione", async () => {
     as("p-matteo");

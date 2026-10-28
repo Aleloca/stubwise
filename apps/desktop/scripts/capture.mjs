@@ -879,6 +879,12 @@ async function main() {
         await p.waitForTimeout(400);
       } }],
       ["support-widgets", "/p/ACQ/support?view=widgets&widget=wdg-acq-portal", { persona: "Matteo" }],
+      // La provenienza nel pannello della richiesta [A 15], con la conversazione aperta.
+      ["support-origin", "/p/ACQ/requests?request=req-acq-1", { persona: "Matteo", steps: async (p) => {
+        await p.getByRole("button", { name: /^(Show the conversation|Mostra la conversazione)/ }).click();
+        await p.getByRole("region", { name: /^(Where it comes from|Da dove nasce)$/ }).scrollIntoViewIfNeeded();
+        await p.waitForTimeout(300);
+      } }],
       // Il blocco non è nelle Home di default [A 17]: lo si aggiunge dal catalogo.
       ["support-home", "/home", { persona: "Matteo", steps: async (p) => {
         await p.getByRole("button", { name: /^(Customize|Personalizza)$/ }).click();

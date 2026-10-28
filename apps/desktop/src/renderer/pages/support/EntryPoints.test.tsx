@@ -107,3 +107,37 @@ describe("⌘K — conversazioni di Support", () => {
     expect(await screen.findByRole("complementary", { name: "New widget" })).toBeInTheDocument();
   });
 });
+
+describe("Pannello della richiesta — «Where it comes from» [A 15]", () => {
+  it("dal widget: canale · cliente · codice col link; la conversazione si apre sul posto, chiusa di default", async () => {
+    const user = userEvent.setup();
+    const router = renderRoute("/p/ACQ/requests?request=req-acq-1", "p-sara");
+    const section = await screen.findByRole("region", { name: "Where it comes from" });
+    expect(section).toHaveTextContent("From the widget · Lucia Benedetti · ACQ-S2");
+    const messages = state.supportConversations.find((c) => c.code === "ACQ-S2")!.messages.length;
+    expect(within(section).queryByRole("list", { name: "Conversation" })).toBeNull();
+    await user.click(
+      within(section).getByRole("button", { name: `Show the conversation (${messages} messages)` }),
+    );
+    const list = within(section).getByRole("list", { name: "Conversation" });
+    expect(list.querySelectorAll("[data-support-message]")).toHaveLength(messages);
+    // In sola lettura: nessuna casella.
+    expect(within(section).queryByRole("form")).toBeNull();
+    await user.click(within(section).getByRole("link", { name: "ACQ-S2" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/p/ACQ/support/ACQ-S2"));
+  });
+
+  it("da Claude Code: canale e cliente, senza codice", async () => {
+    renderRoute("/p/ACQ/requests?request=req-acq-2", "p-matteo");
+    const section = await screen.findByRole("region", { name: "Where it comes from" });
+    expect(section).toHaveTextContent("From Claude Code · Technical office, Comune di Valfonda");
+    expect(within(section).queryByRole("link")).toBeNull();
+  });
+
+  it("una richiesta che non nasce da Support non ha la sezione", async () => {
+    const other = state.requests.find((r) => r.projectId === "prj-aud" && !r.origin)!;
+    renderRoute(`/p/AUD/requests?request=${other.id}`, "p-matteo");
+    await screen.findByRole("heading", { name: other.title });
+    expect(screen.queryByRole("region", { name: "Where it comes from" })).toBeNull();
+  });
+});

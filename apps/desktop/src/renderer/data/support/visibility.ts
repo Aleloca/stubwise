@@ -108,13 +108,16 @@ export interface SupportConversationView extends Omit<
   canOpenRequest: boolean;
   /**
    * «Scrivigli anche per email»: `null` se si può; altrimenti il perché.
-   * Senza `support.reply` la voce non c'è (`no_permission`).
+   * Senza `support.reply` la voce non c'è (`no_permission`); durante il
+   * triage nemmeno (`triage`, R-K18).
    */
-  emailBlocked: "no_permission" | "no_email" | "no_mailbox" | null;
+  emailBlocked: "no_permission" | "triage" | "no_email" | "no_mailbox" | null;
 }
 
 function emailBlocked(me: string, c: SupportConversation): SupportConversationView["emailBlocked"] {
   if (!holds(me, "support.reply", c.projectId)) return "no_permission";
+  // Durante il triage le domande al cliente le fa Claude (R-K18).
+  if (supportState(c) === "triage") return "triage";
   if (!c.customer.email) return "no_email";
   if (!state.mailboxes.some((b) => b.personId === me)) return "no_mailbox";
   return null;

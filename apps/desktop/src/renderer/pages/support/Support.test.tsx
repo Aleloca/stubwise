@@ -324,22 +324,94 @@ describe("Support — la bozza di Claude e l'invio", () => {
     await waitFor(() => expect(within(d).queryByText("Sending…")).toBeNull());
   });
 
-  it("invio fallito: «Not sent · Retry · Edit», testo intatto, mai ritentato da solo", async () => {
+  it("I1: un invio alla volta — col primo nella finestra «Send» è fermo col perché; nessun invio si perde", async () => {
     const user = fakeTime();
     await open("/p/ACQ/support/ACQ-S2");
     const form = await composer();
-    await user.type(within(form).getByRole("textbox", { name: "Message" }), "Hello again.");
+    const body = within(form).getByRole("textbox", { name: "Message" });
+    const send = within(form).getByRole("button", { name: "Send to customer" });
+    const before = conv("ACQ-S2").messages.length;
+    await user.type(body, "First reply.");
+    await user.click(send);
+    await user.type(body, "Second reply.");
+    expect(send).toBeDisabled();
+    expect(send).toHaveAttribute("title", "Wait: your previous reply is still in its Undo window");
+    await user.keyboard("{Control>}{Enter}{/Control}");
+    await advance(REPLY_UNDO_MS + 100);
+    await waitFor(() => expect(conv("ACQ-S2").messages).toHaveLength(before + 1));
+    expect(conv("ACQ-S2").messages.at(-1)!.body).toBe("First reply.");
+    // Il secondo testo è ancora nella casella, e ora parte.
+    expect(body).toHaveValue("Second reply.");
+    await waitFor(() => expect(send).toBeEnabled());
+    await user.click(send);
+    await advance(REPLY_UNDO_MS + 100);
+    await waitFor(() => expect(conv("ACQ-S2").messages).toHaveLength(before + 2));
+    expect(
+      conv("ACQ-S2")
+        .messages.slice(-2)
+        .map((m) => m.body),
+    ).toEqual(["First reply.", "Second reply."]);
+  });
+
+  it("invio non riuscito: «Not sent», il testo torna nella casella (sotto il nuovo), mai ritentato da solo", async () => {
+    const user = fakeTime();
+    await open("/p/ACQ/support/ACQ-S2");
+    const form = await composer();
+    const body = within(form).getByRole("textbox", { name: "Message" });
+    await user.type(body, "Hello again.");
     const before = conv("ACQ-S2").messages.length;
     failNext("support.replyToCustomer");
     await user.click(within(form).getByRole("button", { name: "Send to customer" }));
+    // Nella finestra si scrive già altro: il testo fallito torna SOTTO, non al suo posto.
+    await user.type(body, "Also:");
     await advance(REPLY_UNDO_MS + 100);
-    const d = await detail("ACQ-S2");
-    const alert = await within(d).findByRole("alert");
-    expect(alert).toHaveTextContent("Not sent");
+    const alert = await within(form).findByRole("alert");
+    expect(alert).toHaveTextContent("Not sent. Your reply is back in the box");
+    expect(body).toHaveValue("Also:\n\nHello again.");
+    expect(screen.queryByText("Sending…")).toBeNull();
     await advance(REPLY_UNDO_MS * 3);
     expect(conv("ACQ-S2").messages).toHaveLength(before);
-    await user.click(within(alert).getByRole("button", { name: "Edit" }));
-    expect(within(form).getByRole("textbox", { name: "Message" })).toHaveValue("Hello again.");
+  });
+
+  it("dopo l'invio il fuoco va al messaggio inviato", async () => {
+    const user = fakeTime();
+    await open("/p/ACQ/support/ACQ-S2");
+    const form = await composer();
+    await user.type(within(form).getByRole("textbox", { name: "Message" }), "Done.");
+    await user.click(within(form).getByRole("button", { name: "Send to customer" }));
+    await advance(REPLY_UNDO_MS + 100);
+    const d = await detail("ACQ-S2");
+    await waitFor(() =>
+      expect(document.activeElement).toBe([...d.querySelectorAll("[data-support-message]")].at(-1)),
+    );
+    expect(document.activeElement).toHaveTextContent("Done.");
+  });
+});
+
+describe("Support — R-K18 e errori di caricamento", () => {
+  it("in triage «Write to them by email» non c'è: nel «⋯» è disattivata col perché", async () => {
+    const user = userEvent.setup();
+    await open("/p/ACQ/support/ACQ-S1");
+    await detail("ACQ-S1");
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    expect(screen.getByRole("menuitem", { name: "Write to them by email" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    expect(
+      screen.getByText("The assistant is still asking the customer questions"),
+    ).toBeInTheDocument();
+  });
+
+  it("m4: un dettaglio che non si carica dice l'errore con «Retry», non «not found»", async () => {
+    failNext("support.getSupportConversation");
+    const user = userEvent.setup();
+    renderRoute("/p/ACQ/support/ACQ-S2", "p-matteo");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Couldn't load the conversation.");
+    expect(screen.queryByText("This conversation doesn't exist or you can't see it.")).toBeNull();
+    await user.click(within(alert).getByRole("button", { name: "Retry" }));
+    expect(await detail("ACQ-S2")).toBeInTheDocument();
   });
 });
 

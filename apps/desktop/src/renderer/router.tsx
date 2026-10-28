@@ -64,6 +64,7 @@ import { PreferencesPage, isPreferenceSection } from "./pages/preferences/Prefer
 import { ReleasesPage } from "./pages/releases/ReleasesPage";
 import { ReleaseDetail } from "./pages/releases/ReleaseDetail";
 import { ConversationNotFound, SupportPage } from "./pages/support/SupportPage";
+import { PageError } from "./tasks-ui/PageStates";
 import { useSupportConversation } from "./data/queries";
 
 /** La ricerca che ogni route accetta (`?task=` apre il pannello, gli altri li montano i dialoghi). */
@@ -521,10 +522,25 @@ const releaseRoute = createRoute({
  * altro progetto danno la STESSA pagina (R-G5). Cambiare persona rimonta.
  */
 function SupportConversationRoutePage() {
+  const { t } = useTranslation();
   const { code, conversation } = supportConversationRoute.useParams();
   const { viewer } = useViewer();
   const project = useProject(code);
   const conv = useSupportConversation(conversation);
+  // Un errore di caricamento non è «non esiste»: si dice, con «Retry».
+  if (project.isError || conv.isError) {
+    return (
+      <section className="p-8">
+        <PageError
+          message={t("support.detail.error")}
+          onRetry={() => {
+            if (project.isError) void project.refetch();
+            if (conv.isError) void conv.refetch();
+          }}
+        />
+      </section>
+    );
+  }
   if (project.isPending || conv.isPending) {
     return <section className="h-full" aria-busy="true" />;
   }
