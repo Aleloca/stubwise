@@ -130,6 +130,28 @@ rilascio `#/p/<CODE>/releases/<PRJ>-V<n>`), Support è `#/p/<CODE>/support`
 - L'assenza del DM Slack nelle Preferenze non è asserita da nessun test.
 - Il collegamento dal rilascio alla nota di rilascio non c'è (R-K17, vedi `ossatura-follow-ups.md`).
 
+### Ondata finale (29 ott 2026): scelte e limiti del prototipo
+
+Fatti nuovi del livello dati, con il loro test:
+
+| Voce | Dove vive | Test |
+|---|---|---|
+| R-K19: avvisi e voci delle iscrizioni hanno un ordine monotono (`seq`), «spegnere vale solo per il futuro» anche con l'orologio fisso | `domain/alerts/recipients.ts` (`precedes`), `data/store.ts` (`nextSeq`) | `alerts.test.ts` («R-K19: …») |
+| R-K20: ramo di default separato dal ramo di rilascio, vietati entrambi | `Repository.defaultBranch`, `domain/releases/prState.ts` | `releases.test.ts` («R-K20: …»), `prState.test.ts` |
+| R-K2: un solo conteggio del giro (`countedRound`) e lo stesso tetto da task e Rilasci | `domain/releases/prState.ts`, `data/releases/visibility.ts` (`overStubwiseCap`) | `releases.test.ts` («R-K2 su ogni porta…»), `taskWork.test.ts` |
+| Default e appartenenza di un'iscrizione sono quelli di ADESSO (non c'è storia di permessi e membri) | docblock di `subscriptionAt` | — |
+| `customerStatus`: con «non disponibile» la richiesta resta «in lavorazione» (Stubwise non afferma un rilascio che non ha visto) | `domain/releases/customerStatus.ts` | `customerStatus.test.ts` («mergiata ma non ancora rilasciata → in_progress») |
+
+Non fatti, per scelta (rifiniture dello shape senza un dato o con un costo che il prototipo non ripaga):
+
+- **La piattaforma è sempre GitHub** (link «Open on GitHub», URL dei commit, `platformOf(prUrl)`): il modello del repository non ha la piattaforma git (`ciProvider` è la CI, non l'hosting) e nel seme non c'è un repository Bitbucket, quindi non sarebbe verificabile. Per l'app vera: un campo `platform` sul repository, letto da `prUrl`.
+- **Gruppo «Pull requests» in ⌘K, J/K come sequenza unica, uscita in 150 ms della riga mergiata**: non fatti; ⌘K trova i rilasci per codice, le PR si raggiungono dalla sezione.
+- **«Needs attention» approssimato** ([R 4]): un fallito riparato con un merge senza task resta «da guardare»; «un commit di Claude non ancora visto» è `prState === "corrected"`, uno stato transitorio. Per l'app vera serve un «visto» per persona.
+- **Chiusura dei gruppi delle Notifiche senza animazione**: scelta (non si montano le righe di ~50 gruppi chiusi); l'apertura anima.
+- **«Home → Decide»** porta alla Home, non al blocco Decide: la Home non ha un'ancora per blocco.
+- **Popover «Alerts»**: si chiude cambiando progetto o pagina; il Tab dopo l'ultimo elemento esce dal popover (in portale) invece di tornare alla campanella.
+- **La casella di Support vive in memoria** (`replyStore`): «Saved» vuol dire tenuta in memoria per la sessione, si perde ricaricando.
+
 ## Server → area 8b
 
 Restano al piano 8b; qui solo l'elenco, nessun test.
