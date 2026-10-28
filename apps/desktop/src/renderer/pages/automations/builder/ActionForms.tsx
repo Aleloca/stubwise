@@ -370,8 +370,9 @@ export function StartForm({ step, set, problems }: KindProps<"startAutomation">)
   const { t } = useTranslation();
   const b = useBuilder();
   const p = useFieldProblem(problems, "automation");
+  // R-J21: solo quelle che si possono gestire (chi accende ne diventa il proprietario).
   const choices = b.otherAutomations.filter(
-    (a) => a.status === "active" && a.id !== b.automation.id,
+    (a) => a.status === "active" && a.id !== b.automation.id && a.permissions.manage,
   );
   return (
     <Section title={t("automations.builder.panel.what")}>

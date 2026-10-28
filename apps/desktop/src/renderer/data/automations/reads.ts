@@ -82,11 +82,12 @@ export function configErrorsOf(a: Automation, flow: AutomationFlow, ownerId: str
   for (const { path, automationId } of startsOf(flow)) {
     if (!automationId) continue;
     const target = automationById(automationId);
-    if (!target || !canSeeAutomation(ownerId, target)) {
+    if (!target || !canSeeAutomation(ownerId, target) || !canManageAutomation(ownerId, target)) {
       issues.push({
         path,
         code: "unknown_ref",
-        message: "L'automazione da avviare non esiste o il proprietario non la vede.",
+        message:
+          "L'automazione da avviare non esiste, o il proprietario non la vede o non può gestirla.",
       });
     } else if (reaches(automationId, a.id)) {
       issues.push({
@@ -194,13 +195,30 @@ function startedByMail(run: AutomationRun): boolean {
 }
 
 /**
+ * Se l'evento di un'esecuzione è un'email, di chi è (`ownerId`); `null` se
+ * non lo è. «Avvia un'altra automazione» passa alla figlia l'evento della
+ * madre così com'è: l'origine «da un'email» si eredita lungo la catena
+ * (R-J13), e l'email è del proprietario della prima della catena.
+ */
+function mailOrigin(run: AutomationRun): { ownerId: string | null } | null {
+  let cur: AutomationRun | undefined = run;
+  while (cur.origin === "automation" && cur.parentRunId) {
+    const parent = runById(cur.parentRunId);
+    if (!parent) break;
+    cur = parent;
+  }
+  return startedByMail(cur) ? { ownerId: automationById(cur.automationId)?.ownerId ?? null } : null;
+}
+
+/**
  * Un'esecuzione come la vede `me`.
  * - R-J12 (R-G5 dentro un'esecuzione): i progetti che non vede spariscono da
  *   `projectIds` e dai clienti risolti; nel registro e nell'anteprima un
  *   `progetto` invisibile diventa `""`, e una cosa creata in un progetto
  *   invisibile resta col suo tipo ma `code: ""` (né id né codice).
- * - R-J13 (privacy della Posta): di un'esecuzione partita da un'email solo
- *   il proprietario vede mittente, oggetto e testo; gli altri leggono
+ * - R-J13 (privacy della Posta): di un'esecuzione partita da un'email (anche
+ *   figlia di una partita da un'email, `mailOrigin`) solo il proprietario
+ *   dell'email vede mittente, oggetto e testo; gli altri leggono
  *   `MAIL_HIDDEN` al posto dell'evento e nel titolo, e le righe del registro
  *   senza dati (nessuna eco dell'email: ingressi, uscite, motivazioni di
  *   Claude, variabili). Chi deve approvare vede l'anteprima del passo.
@@ -228,7 +246,8 @@ export function viewRun(me: string, run: AutomationRun): AutomationRun {
     if (v.pending) v.pending.preview = copy(v.pending.preview);
     hideReplies(v, !decidersOf(run).includes(me));
   }
-  if (startedByMail(run) && a?.ownerId !== me) {
+  const mail = mailOrigin(run);
+  if (mail && mail.ownerId !== me) {
     const hidden = { email: { mittente: "", oggetto: MAIL_HIDDEN, testo: "" } };
     v.event = hidden;
     v.title = `${a?.name ?? ""} – ${MAIL_HIDDEN}`;

@@ -67,6 +67,23 @@ export async function whenAutomationsIdle(): Promise<void> {
   while (pending.size > 0) await Promise.all([...pending]);
 }
 
+const settledListeners = new Set<() => void>();
+
+/**
+ * Avvisa quando le esecuzioni hanno finito di avanzare (la coda si è
+ * svuotata), o quando una lettura ne ha fatta fallire una (R-J11): le
+ * esecuzioni le muovono anche le scritture delle altre aree (una task
+ * chiusa, un'email arrivata), e chi mostra i dati deve rileggerli.
+ */
+export function onAutomationsSettled(fn: () => void): () => void {
+  settledListeners.add(fn);
+  return () => settledListeners.delete(fn);
+}
+
+function notifySettled(): void {
+  for (const fn of settledListeners) fn();
+}
+
 /** Un'esecuzione ha un input già in coda (es. un'approvazione appena data). */
 export const hasQueued = (runId: string): boolean => (queued.get(runId) ?? 0) > 0;
 
@@ -80,7 +97,10 @@ function inTurn(runId: string, work: () => Promise<void>): Promise<void> {
   const next = (turns.get(runId) ?? Promise.resolve()).then(work, work).finally(done);
   turns.set(runId, next);
   pending.add(next);
-  void next.finally(() => pending.delete(next));
+  void next.finally(() => {
+    pending.delete(next);
+    if (pending.size === 0) notifySettled();
+  });
   return next;
 }
 
@@ -203,7 +223,10 @@ export const NO_APPROVER_REASON =
 
 /** R-J11 su tutte le esecuzioni ferme su un'approvazione. */
 export function sweepApprovals(): void {
-  for (const run of state.automationRuns) failIfNoApprover(run);
+  let failed = false;
+  for (const run of state.automationRuns) if (failIfNoApprover(run)) failed = true;
+  // Dopo la lettura che l'ha scoperto: la rilettura non fallisce più nulla, quindi niente cicli.
+  if (failed) queueMicrotask(notifySettled);
 }
 
 /** Sospende al confine del passo (pausa): riaccendendo torna a `from`. */

@@ -190,8 +190,8 @@ function threadFor(run: AutomationRun, owner: string, to: string): ThreadOf {
     : { threadId: null, mode: "new" as const, replyToMessageId: null };
 }
 
-function notify(eff: ActionEffect, env: EffectEnv) {
-  const p = planNotify(eff, env.automation);
+function notify(eff: ActionEffect, env: EffectEnv, owner: string) {
+  const p = planNotify(eff, env.automation, owner);
   if (!p.ok) return p.outcome;
   const code = runCode(env.run);
   const notification = {
@@ -249,7 +249,7 @@ export function executeEffect(eff: EffectRequest, env: EffectEnv): EffectOutcome
       case "sendEmail":
         return sendEmail(eff, env, owner);
       case "notify":
-        return notify(eff, env);
+        return notify(eff, env, owner);
       case "startAutomation":
         return startAutomation(eff, env, owner);
     }

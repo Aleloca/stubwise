@@ -15,6 +15,7 @@ import { GoogleAccountHost } from "../pages/drive/GoogleAccountCard";
 import { WhichProjectHost } from "../pages/drive/WhichProjectDialog";
 import { NewAutomationHost } from "../pages/automations/NewAutomationHost";
 import { SourceDetailHost } from "../pages/automations/SourcePanel";
+import { useAutomationsLiveRefresh } from "../data/queries";
 import { CommandPalette } from "../palette/CommandPalette";
 import { applyPlatformAttribute } from "../platform/platform";
 import { ToastRegion } from "../tasks-ui/Toast";
@@ -35,6 +36,7 @@ import { useMenuEvents } from "./useMenuEvents";
  */
 export function AppLayout() {
   useMenuEvents();
+  useAutomationsLiveRefresh();
   // Prima del primo disegno: le testate su Windows riservano i controlli finestra.
   useLayoutEffect(applyPlatformAttribute, []);
   // Il costruttore delle automazioni (shape automation-builder.md [A 4]):

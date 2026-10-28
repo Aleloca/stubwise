@@ -16,7 +16,7 @@ import { checkSendNow } from "../mail/send";
 import { PEOPLE } from "../seed/people";
 import { state, visibleProjectIds } from "../store";
 import type { Automation, Step } from "../types";
-import { canSeeAutomation, holdersOfRole } from "./visibility";
+import { canManageAutomation, canSeeAutomation, holdersOfRole } from "./visibility";
 
 // I PIANI delle azioni delle automazioni (area 7): cosa farebbe un'azione,
 // con i controlli e le risoluzioni dell'esecuzione vera, senza scrivere
@@ -338,11 +338,13 @@ export interface NotifyPlan {
   text: string;
 }
 
-export function planNotify(eff: ActionEffect, a: Automation): Planned<NotifyPlan> {
+export function planNotify(eff: ActionEffect, a: Automation, owner: string): Planned<NotifyPlan> {
   const args = eff.args as { who: { personId: string } | { projectRole: string }; text: string };
   // Il progetto del passo: quello dell'automazione, o uno risolto; una generale senza
   // progetto avvisa senza progetto (mai un progetto preso a caso fra quelli toccati).
   const projectId = projectOfEffect(eff, a) ?? a.projectId;
+  // Come gli altri effetti: coi permessi del proprietario, che deve vedere il progetto del passo.
+  if (projectId && !visibleProjectIds(owner).has(projectId)) return refuse(lost(owner));
   // Un ruolo: la prima persona col ruolo nel progetto, in ordine alfabetico (come «Crea task»).
   const personId =
     "projectRole" in args.who
@@ -383,6 +385,15 @@ export function planStart(eff: ActionEffect, owner: string, chain: string[]): Pl
       failed(
         "automation_not_found",
         "L'automazione da avviare non esiste o il proprietario non la vede.",
+      ),
+    );
+  }
+  // R-J21: avviarla è come «Avvia ora» — il proprietario deve poterla gestire.
+  if (!canManageAutomation(owner, target)) {
+    return refuse(
+      failed(
+        "permission_lost",
+        `Permesso perso: il proprietario (${personName(owner)}) non può gestire «${target.name}».`,
       ),
     );
   }

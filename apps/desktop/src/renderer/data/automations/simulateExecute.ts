@@ -162,7 +162,7 @@ export function previewOf(sim: Sim, a: Automation, eff: ActionEffect, at: string
       };
     }
     case "notify": {
-      const p = planNotify(eff, a);
+      const p = planNotify(eff, a, owner);
       if (!p.ok) return p;
       return {
         ok: true,

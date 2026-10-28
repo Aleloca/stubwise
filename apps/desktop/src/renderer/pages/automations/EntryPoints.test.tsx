@@ -1,7 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { automations as automationsApi, resetApi, setLatency } from "../../data/api";
+import { automations as automationsApi, resetApi, setLatency, updateTask } from "../../data/api";
 import { AUTOMATION_CASES } from "../../data/seed/automations";
 import { NEW_CONTRACT_MILESTONE_ID } from "../../data/seed/automations/created";
 import { state } from "../../data/store";
@@ -407,5 +407,54 @@ describe("⌘K: gruppo Automations e «New automation»", () => {
     await screen.findByRole("region", { name: "Decide" });
     const dialog = await search("new automation");
     expect(within(dialog).queryByRole("option", { name: "New automation" })).toBeNull();
+  });
+});
+
+describe("le scritture delle altre aree aggiornano le automazioni", () => {
+  it("una task chiusa sblocca un'attesa: «Decide» si aggiorna da solo", async () => {
+    setSessionPersonId(MATTEO);
+    const step = (
+      id: string,
+      extra: Partial<Extract<Step, { kind: "createTask" }>> = {},
+    ): Step => ({
+      id,
+      kind: "createTask",
+      title: `Task ${id}`,
+      description: "",
+      assignee: null,
+      dueInDays: null,
+      project: { mode: "own" },
+      milestoneRef: null,
+      approval: { mode: "auto" },
+      ...extra,
+    });
+    const a = await automationsApi.createAutomation({
+      name: "Dopo la task",
+      projectId: "prj-aud",
+      flow: {
+        trigger: { kind: "manual" },
+        titleTemplate: "Dopo la task",
+        steps: [
+          step("t"),
+          { id: "w", kind: "wait", for: { taskClosed: "t", maxDays: 5 } },
+          step("dopo", { approval: { mode: "ask", who: { owner: true } } }),
+        ],
+      },
+    });
+    await automationsApi.activate(a.id);
+    const runId = await automationsApi.startManual(a.id);
+    await automationsApi.whenAutomationsIdle();
+    renderRoute("/home", MATTEO);
+    const decide = await decideBlock();
+    await approvalItem();
+    const mine = `[data-automation-decision="${runId}"]`;
+    expect(decide.querySelector(mine)).toBeNull();
+    const created = state.tasks.find((t) => t.automationRef?.runId === runId)!;
+    const closed = state.statuses.find((s) => s.projectId === "prj-aud" && s.family === "closed")!;
+    // Una scrittura di un'altra area, fuori dalle Automations: nessuno ricarica a mano.
+    await act(() => updateTask(created.id, { statusId: closed.id }));
+    await idle();
+    expect(run(runId).status).toBe("waiting_approval");
+    await waitFor(() => expect(decide.querySelector(mine)).not.toBeNull());
   });
 });

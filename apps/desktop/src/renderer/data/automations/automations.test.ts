@@ -212,6 +212,22 @@ describe("Automations: un'approvazione blocca davvero (Review Focus 1)", () => {
     expect(sentBy("p-matteo")).toEqual([]);
   });
 
+  it("R-J11 scoperto da una lettura: chi mostra i dati è avvisato, una volta sola (niente cicli)", async () => {
+    let calls = 0;
+    const off = automations.onAutomationsSettled(() => calls++);
+    leave("p-matteo", AUD);
+    as("p-roberta");
+    await automations.listRuns({});
+    await Promise.resolve();
+    expect(run(R.waitingApproval)).toMatchObject({ status: "failed", error: "no_approver" });
+    expect(calls).toBe(1);
+    // La rilettura che l'avviso provoca non fallisce più nulla: nessun avviso nuovo.
+    await automations.listRuns({});
+    await Promise.resolve();
+    expect(calls).toBe(1);
+    off();
+  });
+
   it("chi gestisce ma non è l'approvatore: forbidden (R-J8)", async () => {
     as("p-roberta");
     expect((await automations.getRun(R.waitingApproval))?.permissions.approve).toBe(false);
@@ -823,6 +839,28 @@ describe("Automations: inizi e catene", () => {
     await expect(automations.activate(a.id)).rejects.toThrow("invalid: config");
   });
 
+  it("R-J21: «Avvia un'altra automazione» vuole che il proprietario possa gestire quella da avviare, non solo vederla", async () => {
+    as("p-laura");
+    const target = await make(AUD, manual([task("t")]), "Bersaglio");
+    grantInstancePermission("p-laura", "automations.manage");
+    const parent = await make(
+      null,
+      manual([{ id: "s", kind: "startAutomation", automationId: target, approval: AUTO }]),
+      "Madre",
+    );
+    // Laura resta nel progetto ma non gestisce più le sue automazioni.
+    grantProjectRole("p-laura", AUD, "viewer");
+    expect(visibleProjectIds("p-laura").has(AUD)).toBe(true);
+    expect((await automations.getAutomation(parent))!.configErrors).toEqual([
+      expect.objectContaining({ path: "0", code: "unknown_ref" }),
+    ]);
+    as("p-roberta");
+    await automations.startManual(parent);
+    await idle();
+    expect(lastRunOf(parent)).toMatchObject({ status: "failed", error: "permission_lost" });
+    expect(runsOf(target)).toHaveLength(0);
+  });
+
   it("una catena di avvii si ferma alla profondità 3", async () => {
     as("p-laura");
     const d = await make(AUD, manual([task("d")]), "D");
@@ -1045,6 +1083,42 @@ describe("Automations: revisione del Task 3", () => {
     expect(await automations.searchAutomations(mine.subject)).toEqual([]);
   });
 
+  it("R-J13 lungo la catena: un'esecuzione figlia di una partita da un'email nasconde l'email a chi non ne è il proprietario", async () => {
+    as("p-laura");
+    const child = await make(
+      AUD,
+      {
+        trigger: { kind: "manual" },
+        steps: [task("c", { title: "Seguire l'email" })],
+        titleTemplate: "Figlia",
+      },
+      "Figlia",
+    );
+    await make(AUD, {
+      trigger: { kind: "stubwise", event: "mail_received" },
+      steps: [{ id: "s", kind: "startAutomation", automationId: child, approval: AUTO }],
+      titleTemplate: "Email: {{email.oggetto}}",
+    });
+    const mine = state.mailMessages.find(
+      (m) => m.mailboxPersonIds.includes("p-laura") && m.subject.length > 8,
+    )!;
+    signalAutomations({ kind: "mail_received", messageIds: [mine.id] });
+    await idle();
+    const kid = lastRunOf(child);
+    expect(kid.parentRunId).toBeTruthy();
+    expect((await automations.getRun(kid.id))!.event).toMatchObject({
+      email: { oggetto: mine.subject },
+    });
+    as("p-marco");
+    const seen = (await automations.getRun(kid.id))!;
+    expect(seen.event).toEqual({ email: { mittente: "", oggetto: MAIL_HIDDEN, testo: "" } });
+    expect(seen.title).toContain(MAIL_HIDDEN);
+    const leaks = [mine.subject, mine.from.email, mine.text.slice(0, 30)];
+    for (const text of leaks) expect(JSON.stringify(seen)).not.toContain(text);
+    const listed = await automations.listRuns({ automationId: child });
+    for (const text of leaks) expect(JSON.stringify(listed)).not.toContain(text);
+  });
+
   it("un errore inatteso nel runner: l'esecuzione fallisce `internal_error`, non resta in corso", async () => {
     as("p-matteo");
     // Un registro rovinato: la ripresa non trova il passo del cursore.
@@ -1200,5 +1274,29 @@ describe("Automations: revisione del Task 3", () => {
     expect(lastRunOf(milestone)).toMatchObject({ status: "failed", error: "permission_lost" });
     expect(state.requests).toHaveLength(requests);
     expect(state.milestones).toHaveLength(milestones);
+  });
+
+  it("permesso perso anche su «Avvisa»: nessun avviso nel progetto che il proprietario non vede più", async () => {
+    as("p-laura");
+    const id = await make(
+      AUD,
+      manual([
+        {
+          id: "n",
+          kind: "notify",
+          who: { personId: "p-marco" },
+          text: "Avviso",
+          approval: { mode: "auto" },
+        },
+      ]),
+      "N",
+    );
+    leave("p-laura", AUD);
+    as("p-roberta");
+    const notifications = state.notifications.length;
+    await automations.startManual(id);
+    await idle();
+    expect(lastRunOf(id)).toMatchObject({ status: "failed", error: "permission_lost" });
+    expect(state.notifications).toHaveLength(notifications);
   });
 });

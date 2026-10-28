@@ -26,20 +26,20 @@ beforeEach(() => {
 describe("planNotify", () => {
   it("un ruolo nel progetto: la prima persona col ruolo, in ordine alfabetico", () => {
     const lead = holdersOfRole(AUD, "project_lead")[0]!;
-    const p = planNotify(eff({ projectRole: "project_lead" }), aut());
+    const p = planNotify(eff({ projectRole: "project_lead" }), aut(), aut().ownerId!);
     expect(p).toEqual({ ok: true, plan: { personId: lead, projectId: AUD, text: "Ciao" } });
   });
 
   it("un ruolo che nessuno ha: il passo fallisce con «no_recipient», mai un avviso a caso", () => {
-    const p = planNotify(eff({ projectRole: "nessuno" }), aut());
+    const p = planNotify(eff({ projectRole: "nessuno" }), aut(), aut().ownerId!);
     expect(p.ok).toBe(false);
     if (!p.ok) expect(p.outcome).toMatchObject({ input: { error: "no_recipient" } });
   });
 
   it("una persona scelta o il dato Persona letto: lei", () => {
-    const p = planNotify(eff({ personId: "p-laura" }), aut());
+    const p = planNotify(eff({ personId: "p-laura" }), aut(), aut().ownerId!);
     expect(p.ok && p.plan.personId).toBe("p-laura");
-    const empty = planNotify(eff({ personId: "" }), aut());
+    const empty = planNotify(eff({ personId: "" }), aut(), aut().ownerId!);
     expect(empty.ok).toBe(false);
   });
 });

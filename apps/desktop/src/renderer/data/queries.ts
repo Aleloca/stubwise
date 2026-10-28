@@ -3235,6 +3235,20 @@ function useAutomationWrite<TVars, TData>(mutationFn: (vars: TVars) => Promise<T
   });
 }
 
+/**
+ * Un solo ascoltatore (montato in `AppLayout`): le esecuzioni le muovono
+ * anche le scritture delle altre aree — una task chiusa sblocca un'attesa,
+ * una task o un'email nuove ne avviano una — e i loro hook non conoscono le
+ * automazioni. Quando le esecuzioni finiscono di avanzare (o una lettura ne
+ * fa fallire una, R-J11) si rileggono le aree che possono aver toccato.
+ */
+export function useAutomationsLiveRefresh(): void {
+  const invalidate = useInvalidate(AUTOMATION_AREAS);
+  const latest = useRef(invalidate);
+  latest.current = invalidate;
+  useEffect(() => api.automations.onAutomationsSettled(() => void latest.current()), []);
+}
+
 export function useAutomations(filter: AutomationListFilter = {}) {
   const me = useSessionPersonId();
   return useQuery({

@@ -64,5 +64,5 @@ export {
   startSimulation,
   type SimulationInput,
 } from "./simulate";
-export { MAX_ACTIVE_RUNS, whenAutomationsIdle } from "./runner";
+export { MAX_ACTIVE_RUNS, onAutomationsSettled, whenAutomationsIdle } from "./runner";
 export { canManageAutomation, canSeeAutomation } from "./visibility";
