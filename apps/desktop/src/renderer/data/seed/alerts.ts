@@ -7,7 +7,8 @@ import { TASKS } from "./tasks";
 // Iscrizioni: nessuna riga = il default del catalogo (Task 3). Il seme
 // scrive solo quelle che se ne discostano: Matteo ha acceso «Nuova PR» su
 // AUD; Giulia aveva acceso «Rilascio fallito» su AUD e l'ha spenta DOPO
-// l'avviso di AUD-V3 (spegnere vale solo per il futuro: quello le resta).
+// l'avviso di AUD-V3 (spegnere vale solo per il futuro: quello le resta);
+// in fondo, chi ha acceso gli altri tipi spenti di default.
 //
 // Notifiche: i kind del catalogo non portano destinatari fissi
 // (`recipientIds: []`): chi le riceve si calcola a lettura da iscrizioni,
@@ -30,6 +31,33 @@ export const ALERT_SUBSCRIPTIONS: AlertSubscription[] = [
       { at: at(30, "09:00"), app: true, phone: false },
       { at: at(2, "09:30"), app: false, phone: false },
     ],
+  },
+  // I tipi spenti di default (Task 3): senza chi li ha accesi, gli avvisi
+  // del seme non arriverebbero a nessuno. Laura segue i rilasci di AUD,
+  // Giulia le note di rilascio di STW, Matteo le task nuove di AUD.
+  {
+    personId: "p-laura",
+    projectId: "prj-aud",
+    type: "release.merged",
+    history: [{ at: at(30, "09:00"), app: true, phone: false }],
+  },
+  {
+    personId: "p-laura",
+    projectId: "prj-aud",
+    type: "release.succeeded",
+    history: [{ at: at(30, "09:00"), app: true, phone: false }],
+  },
+  {
+    personId: "p-giulia",
+    projectId: "prj-stw",
+    type: "docs.release_note",
+    history: [{ at: at(20, "10:00"), app: true, phone: false }],
+  },
+  {
+    personId: "p-matteo",
+    projectId: "prj-aud",
+    type: "task.created",
+    history: [{ at: at(20, "10:00"), app: true, phone: false }],
   },
 ];
 

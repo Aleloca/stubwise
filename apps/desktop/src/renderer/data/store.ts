@@ -448,7 +448,15 @@ export type ApiFnName =
   | "automations.endSimulation"
   | "automations.listSimulationExamples"
   /** Un passo simulato di un'esecuzione: l'effetto (o la risposta di Claude) che arriva. */
-  | "automations.advanceRun";
+  | "automations.advanceRun"
+  // Avvisi (area 8a)
+  | "alerts.subscriptionRows"
+  | "alerts.setSubscription"
+  | "alerts.copySubscriptions"
+  | "alerts.muteProject"
+  | "alerts.muteFromNotification"
+  /** L'«Annulla» di una scrittura delle iscrizioni. */
+  | "alerts.undo";
 const failures = new Set<ApiFnName>();
 
 /** Fissa la latenza simulata (ms); `0` per i test, `null` per tornare a 150–400 ms. */

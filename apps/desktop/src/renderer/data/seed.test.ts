@@ -547,11 +547,16 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
   });
 
   it("iscrizioni: solo quelle diverse dal default — Matteo «Nuova PR» su AUD, Giulia «Rilascio fallito» spenta dopo l'avviso", () => {
-    expect(ALERT_SUBSCRIPTIONS).toHaveLength(2);
-    const matteo = ALERT_SUBSCRIPTIONS.find((s) => s.personId === "p-matteo")!;
+    // Più le quattro dei tipi spenti di default (Task 3): rilasci, note, task.
+    expect(ALERT_SUBSCRIPTIONS).toHaveLength(6);
+    const matteo = ALERT_SUBSCRIPTIONS.find(
+      (s) => s.personId === "p-matteo" && s.type === "pr.opened",
+    )!;
     expect(matteo).toMatchObject({ projectId: AUD, type: "pr.opened" });
     expect(matteo.history.at(-1)).toMatchObject({ app: true });
-    const giulia = ALERT_SUBSCRIPTIONS.find((s) => s.personId === "p-giulia")!;
+    const giulia = ALERT_SUBSCRIPTIONS.find(
+      (s) => s.personId === "p-giulia" && s.type === "release.failed",
+    )!;
     expect(giulia).toMatchObject({ projectId: AUD, type: "release.failed" });
     const failedAt = ALERT_NOTIFICATIONS.find((n) => n.kind === "release.failed")!.createdAt;
     // Accesa al momento dell'avviso, spenta dopo: l'ultima voce è lo stato di adesso.

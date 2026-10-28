@@ -122,6 +122,8 @@ export const queryKeys = {
   latestBrief: (personId: string, projectId: string) =>
     ["as", personId, "latestBrief", projectId] as const,
   notifications: (personId: string) => ["as", personId, "notifications"] as const,
+  /** Le iscrizioni agli avvisi (area 8a): la pagina e il popover del progetto leggono questa. */
+  alertSubscriptions: (personId: string) => ["as", personId, "alerts"] as const,
   search: (personId: string, q: string) => ["as", personId, "search", q] as const,
   conversations: (personId: string, filter: ConversationFilter) =>
     ["as", personId, "conversations", filter] as const,
@@ -3704,4 +3706,76 @@ export function useEndAutomationSimulation() {
     onSuccess: (_, id) =>
       client.removeQueries({ queryKey: queryKeys.automationSimulation(me, id) }),
   });
+}
+
+// --- Avvisi (area 8a) ---------------------------------------------------------
+
+/**
+ * Le iscrizioni decidono chi riceve gli avvisi futuri, e la campanella legge
+ * «già spento» dalle iscrizioni: le scritture ricaricano entrambe.
+ */
+const ALERT_AREAS = ["alerts", "notifications"] as const;
+
+/** Le iscrizioni di chi guarda, per progetto (Preferenze → Notifiche e popover). */
+export function useAlertSubscriptions() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.alertSubscriptions(me),
+    queryFn: () => api.alerts.subscriptionRows(),
+  });
+}
+
+/** Accende o spegne un tipo in un progetto, per App e Telefono. */
+export function useSetAlertSubscription() {
+  return useWrite(
+    ({
+      projectId,
+      type,
+      change,
+    }: {
+      projectId: string;
+      type: string;
+      change: { app?: boolean; phone?: boolean };
+    }) => api.alerts.setSubscription(projectId, type, change),
+    ALERT_AREAS,
+  );
+}
+
+/** Una scrittura in blocco con «Annulla»: anche l'annullamento ricarica le aree. */
+function useUndoableAlertWrite<TVars>(mutationFn: (vars: TVars) => Promise<api.alerts.Undoable>) {
+  const invalidate = useInvalidate(ALERT_AREAS);
+  return useMutation({
+    mutationFn: async (vars: TVars): Promise<api.alerts.Undoable> => {
+      const done = await mutationFn(vars);
+      return {
+        undo: async () => {
+          try {
+            await done.undo();
+          } finally {
+            await invalidate();
+          }
+        },
+      };
+    },
+    onSettled: invalidate,
+  });
+}
+
+/** «Come questo progetto»: le righe di `to` prendono lo stato di quelle di `from`. */
+export function useCopyAlertSubscriptions() {
+  return useUndoableAlertWrite(({ from, to }: { from: string; to: string }) =>
+    api.alerts.copySubscriptions(from, to),
+  );
+}
+
+/** «Spegni tutto in questo progetto». */
+export function useMuteProjectAlerts() {
+  return useUndoableAlertWrite((projectId: string) => api.alerts.muteProject(projectId));
+}
+
+/** «Non avvisarmi più di questo in <progetto>», dal pannello. */
+export function useMuteFromNotification() {
+  return useUndoableAlertWrite((notificationId: string) =>
+    api.alerts.muteFromNotification(notificationId),
+  );
 }

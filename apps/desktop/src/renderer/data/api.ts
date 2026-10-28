@@ -18,8 +18,11 @@ import { PEOPLE } from "./seed/people";
 import { projectOfRepo, REPO_FILES } from "./seed/repoFiles";
 import { can, viewerFor } from "./viewer";
 import { presentChatNotification } from "./chat/reads";
+import { deliveredTo } from "./alerts/reads";
+import { whyReceives } from "./alerts/visibility";
 import {
   canSeeConversation,
+  chatKey,
   conversationPermissions,
   conversationRow,
   copy,
@@ -110,6 +113,8 @@ export * as mail from "./mail";
 export * as calendar from "./calendar";
 /** Le Automations (area 7): `api.automations.listAutomations(…)`, `api.automations.approve(…)`… */
 export * as automations from "./automations";
+/** Gli avvisi (area 8a): `api.alerts.subscriptionRows()`, `api.alerts.setSubscription(…)`… */
+export * as alerts from "./alerts";
 
 /** Ripristina lo stato (sessione, dati, errori iniettati) e porta le task scadute alla settimana corrente. */
 export function resetApi(): void {
@@ -474,29 +479,35 @@ export async function getLatestBrief(projectId: string): Promise<WeeklyBrief | n
   return latest ? copy(latest) : null;
 }
 
-/** Le notifiche di cui chi guarda è destinatario, nei progetti che vede. */
+/**
+ * Le notifiche che arrivano a chi guarda, nei progetti che vede: per i kind
+ * del catalogo degli avvisi (area 8a) i destinatari si calcolano adesso
+ * (iscrizioni, obbligatori, permessi), per gli altri sono quelli fissi della
+ * riga. Letto, archiviato e posticipato sono di chi guarda.
+ */
 export async function listNotifications(): Promise<AppNotification[]> {
   const me = await gate("listNotifications");
-  const visible = visibleProjectIds(me);
-  return state.notifications
-    .filter((n) => n.recipientIds.includes(me) && (!n.projectId || visible.has(n.projectId)))
-    .flatMap((n) => {
-      // Una menzione della Chat si legge dal messaggio di adesso: eliminato o
-      // in un canale che non legge più, non c'è.
-      if (n.chatMessageId === undefined) return [copy(n)];
-      const shown = presentChatNotification(me, n);
-      return shown ? [shown] : [];
-    });
+  return state.notifications.flatMap((n) => {
+    const delivered = deliveredTo(me, n);
+    if (!delivered) return [];
+    // Una menzione della Chat si legge dal messaggio di adesso: eliminato o
+    // in un canale che non legge più, non c'è.
+    if (n.chatMessageId === undefined) return [copy(delivered)];
+    const shown = presentChatNotification(me, delivered);
+    return shown ? [shown] : [];
+  });
 }
 
+/** Segna una notifica per chi guarda soltanto: che Laura la legga non la segna letta per Marco. */
 export async function markNotification(
   id: string,
   change: { read?: boolean; archived?: boolean; snoozedUntil?: string | null },
 ): Promise<void> {
   const me = await gate("markNotification");
-  state.notifications = state.notifications.map((n) =>
-    n.id === id && n.recipientIds.includes(me) ? { ...n, ...change } : n,
-  );
+  const n = state.notifications.find((x) => x.id === id);
+  if (!n || whyReceives(me, n) === null) return;
+  const key = chatKey(me, id);
+  state.notificationMarks.set(key, { ...state.notificationMarks.get(key), ...change });
 }
 
 // --- conversazioni con Claude -----------------------------------------------
