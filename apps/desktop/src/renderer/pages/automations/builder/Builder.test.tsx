@@ -861,7 +861,9 @@ describe("revisione del Task 6, giro 2", () => {
     row("nc-read").focus();
     await userEvent.keyboard("{Meta>}d{/Meta}");
     failNext("automations.saveDraft");
-    await userEvent.click(document.querySelector<HTMLButtonElement>("[data-test-action]")!);
+    // Subito, senza le pause di userEvent: sotto carico il salvataggio
+    // automatico (400 ms) partirebbe prima e consumerebbe lui l'errore.
+    fireEvent.click(document.querySelector<HTMLButtonElement>("[data-test-action]")!);
     await settle();
     expect(router.state.location.pathname).toBe("/automations/AUT-1/edit");
     expect(document.querySelector("[data-save-status]")).toHaveTextContent("Couldn't save");
