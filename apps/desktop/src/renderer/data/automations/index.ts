@@ -20,28 +20,32 @@ export {
 export { automationOrigin, getProjectAutomations, listMyRuns } from "./entry";
 export {
   activate,
-  advanceTime,
-  approve,
-  cancelRun,
-  chooseProject,
-  connectSource,
   createAutomation,
   deleteDraft,
-  disconnectSource,
   duplicateAutomation,
   pause,
   publish,
   renameAutomation,
-  reject,
-  removeClientLink,
-  retryStep,
-  runDueSchedules,
   saveDraft,
-  setClientLink,
-  simulateSourceEvent,
+} from "./writes";
+export {
+  advanceTime,
+  approve,
+  cancelRun,
+  chooseProject,
+  reject,
+  retryStep,
   skipStep,
   startManual,
-} from "./writes";
+} from "./runWrites";
+export {
+  connectSource,
+  disconnectSource,
+  removeClientLink,
+  runDueSchedules,
+  setClientLink,
+  simulateSourceEvent,
+} from "./sourceWrites";
 export { listSimulationExamples } from "./examples";
 export {
   createWebhookSource,
