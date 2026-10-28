@@ -1,5 +1,6 @@
 import type { ProjectRequest, RequestStatus, RequestSuggestions } from "../types";
 import { daysFromToday } from "./dates";
+import { SUPPORT_CONVERSATIONS } from "./support/conversations";
 
 // [id, codice progetto, titolo, richiedenti, stato, urgenza, simile a, fusa in, task nate, giorni fa]
 type Row = [
@@ -30,15 +31,40 @@ const ROWS: Row[] = [
   ["req-mkx-5", "MKX", "Print flyers for the fair", ["p-paolo"], "archived", "low", null, null, [], 40],
   ["req-olv-1", "OLV", "New photos of the olive grove on the homepage", ["p-giulia"], "new", "medium", null, null, [], 3],
   ["req-cbv-1", "CBV", "Gift-box option in the store", ["p-elena"], "refining", "high", null, null, [], 4],
+  ["req-acq-1", "ACQ", "Pay the larger bills in instalments", [], "new", "medium", null, null, [], 4],
+  ["req-acq-2", "ACQ", "Consumption history of the town buildings as a spreadsheet", [], "new", "low", null, null, [], 2],
 ];
+
+// Le richieste nate da una conversazione di Support (area 8a): nessun
+// richiedente del team (è un cliente), il testo è il desiderio riscritto dal
+// triage. Una richiesta non nasce MAI da un'email.
+const FROM_SUPPORT: Record<string, { conversationId: string; description: string }> =
+  Object.fromEntries(
+    SUPPORT_CONVERSATIONS.filter((c) => c.requestId !== null).map((c) => [
+      c.requestId!,
+      { conversationId: c.id, description: c.rewrittenWish! },
+    ]),
+  );
 
 // Stima e rischio, dove il team li ha già dati (le altre restano «No estimate» / «Not assessed»).
 const META: Record<string, Pick<ProjectRequest, "size" | "risk" | "riskNote">> = {
   "req-aud-1": { size: "M", risk: "low", riskNote: null },
-  "req-aud-2": { size: "S", risk: "medium", riskNote: "Depends on the sending limits of the mail provider." },
-  "req-stw-2": { size: "L", risk: "medium", riskNote: "Keyboard dragging must work with screen readers too." },
+  "req-aud-2": {
+    size: "S",
+    risk: "medium",
+    riskNote: "Depends on the sending limits of the mail provider.",
+  },
+  "req-stw-2": {
+    size: "L",
+    risk: "medium",
+    riskNote: "Keyboard dragging must work with screen readers too.",
+  },
   "req-stw-4": { size: "S", risk: null, riskNote: null },
-  "req-mkx-2": { size: "M", risk: "high", riskNote: "The showroom date is fixed: no room to slip." },
+  "req-mkx-2": {
+    size: "M",
+    risk: "high",
+    riskNote: "The showroom date is fixed: no room to slip.",
+  },
   "req-mkx-3": { size: "L", risk: "low", riskNote: null },
   "req-cbv-1": { size: "XS", risk: "low", riskNote: null },
 };
@@ -97,7 +123,8 @@ export const REQUESTS: ProjectRequest[] = ROWS.map(
     code: `${code}-R${id.split("-").at(-1)}`,
     projectId: `prj-${code.toLowerCase()}`,
     title,
-    description: `${title}. Asked by the team; details in the conversation.`,
+    description:
+      FROM_SUPPORT[id]?.description ?? `${title}. Asked by the team; details in the conversation.`,
     requesterIds,
     status,
     urgency,
@@ -111,5 +138,8 @@ export const REQUESTS: ProjectRequest[] = ROWS.map(
     taskIds,
     createdAt: `${daysFromToday(-days)}T11:00:00Z`,
     suggestions: SUGGESTIONS[id] ?? null,
+    ...(FROM_SUPPORT[id]
+      ? { origin: { kind: "support" as const, conversationId: FROM_SUPPORT[id].conversationId } }
+      : {}),
   }),
 );

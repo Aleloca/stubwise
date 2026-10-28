@@ -61,7 +61,9 @@ const BOTH_LEVELS: ReadonlySet<string> = new Set<string>(["automations.manage"])
  * gestisce il Project Lead. Il Drive (area 5): carica chiunque lavori nel
  * progetto (anche il Legacy Member, shape drive.md [A 14]), non il Viewer;
  * gestire e vedere lo storico delle aperture è del Project Lead. Le
- * automazioni del progetto (area 7) le gestisce il Project Lead.
+ * automazioni del progetto (area 7) le gestisce il Project Lead. Ai clienti di
+ * Support (area 8a) risponde chi lavora al progetto: Project Lead, Developer e
+ * Legacy Member, non il Contributor né il Viewer.
  */
 const LOCAL_PROJECT_PERMISSIONS: Record<string, LocalProjectPermission[]> = {
   project_lead: [
@@ -72,10 +74,11 @@ const LOCAL_PROJECT_PERMISSIONS: Record<string, LocalProjectPermission[]> = {
     "drive.manage",
     "drive.history",
     "automations.manage",
+    "support.reply",
   ],
-  developer: ["chat.channels.create", "drive.upload"],
+  developer: ["chat.channels.create", "drive.upload", "support.reply"],
   contributor: ["drive.upload"],
-  legacy_member: ["drive.upload"],
+  legacy_member: ["drive.upload", "support.reply"],
 };
 
 function roleKeys(key: string): readonly string[] {

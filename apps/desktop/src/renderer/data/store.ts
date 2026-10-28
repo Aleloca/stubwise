@@ -57,9 +57,16 @@ import {
   AUTOMATION_SOURCES,
   CLIENT_PROJECT_LINKS,
 } from "./seed/automations";
+import { ALERT_SUBSCRIPTIONS } from "./seed/alerts";
+import { ENVIRONMENTS } from "./seed/releases/environments";
+import { OPEN_PRS } from "./seed/releases/prs";
+import { RELEASES } from "./seed/releases/releases";
+import { SUPPORT_CONVERSATIONS } from "./seed/support/conversations";
+import { SUPPORT_WIDGETS } from "./seed/support/widgets";
 import { DEFAULT_SESSION_PERSON_ID, getSessionPersonId, setSessionPersonId } from "./session";
 import type {
   ActivityEntry,
+  AlertSubscription,
   AppNotification,
   Automation,
   AutomationRun,
@@ -116,6 +123,11 @@ import type {
   StatusFamily,
   Task,
   WeeklyBrief,
+  OpenPullRequest,
+  ProjectEnvironment,
+  Release,
+  SupportConversation,
+  SupportWidget,
 } from "./types";
 import { can, resetViewerGrants, viewerFor } from "./viewer";
 
@@ -623,6 +635,37 @@ interface State {
   automationCodeSeq: Map<string, number>;
   /** L'«adesso» di un'esecuzione mandata avanti con «Fai passare il tempo» (solo prototipo). */
   automationClock: Map<string, string>;
+  // --- Rilasci, PR, avvisi e Support (area 8a) ---
+  /** Le PR aperte, di Stubwise e dei colleghi (stessa forma). */
+  openPrs: OpenPullRequest[];
+  releases: Release[];
+  environments: ProjectEnvironment[];
+  /** Solo le iscrizioni diverse dal default del catalogo (nessuna riga = default). */
+  alertSubscriptions: AlertSubscription[];
+  /**
+   * Letto, archiviato e posticipato per persona, per `chatKey(persona,
+   * notifica)`: lo stato non sta più sulla riga, condiviso fra i destinatari.
+   */
+  notificationMarks: Map<
+    string,
+    { read?: boolean; archived?: boolean; snoozedUntil?: string | null }
+  >;
+  supportConversations: SupportConversation[];
+  supportWidgets: SupportWidget[];
+  /** L'ultimo numero di codice `<PRJ>-V<n>` dato, per progetto: un codice non si riusa. */
+  releaseCodeSeq: Map<string, number>;
+  /** L'ultimo numero di codice `<PRJ>-S<n>` dato, per progetto: un codice non si riusa. */
+  supportCodeSeq: Map<string, number>;
+}
+
+/** L'ultimo numero di un codice `<PRJ>-<lettera><n>` per progetto, dalle righe del seme. */
+function initialCodeSeq(rows: { projectId: string; code: string }[]): Map<string, number> {
+  const seq = new Map<string, number>();
+  for (const row of rows) {
+    const n = Number(row.code.slice(row.code.search(/\d+$/)));
+    seq.set(row.projectId, Math.max(seq.get(row.projectId) ?? 0, n));
+  }
+  return seq;
 }
 
 function initialAutomationCodeSeq(): Map<string, number> {
@@ -729,6 +772,15 @@ function freshState(): State {
     clientProjectLinks: CLIENT_PROJECT_LINKS.map(copy),
     automationCodeSeq: initialAutomationCodeSeq(),
     automationClock: new Map(),
+    openPrs: OPEN_PRS.map(copy),
+    releases: RELEASES.map(copy),
+    environments: ENVIRONMENTS.map(copy),
+    alertSubscriptions: ALERT_SUBSCRIPTIONS.map(copy),
+    notificationMarks: new Map(),
+    supportConversations: SUPPORT_CONVERSATIONS.map(copy),
+    supportWidgets: SUPPORT_WIDGETS.map(copy),
+    releaseCodeSeq: initialCodeSeq(RELEASES),
+    supportCodeSeq: initialCodeSeq(SUPPORT_CONVERSATIONS),
   };
 }
 

@@ -89,6 +89,15 @@ export const BLOCKS: Record<HomeBlockKind, BlockDef> = {
     component: AutomationsBlock,
     available: (_viewer, ctx) => ctx?.seesAutomations !== false,
   },
+  // Rilasci e clienti in attesa (area 8a): il tipo c'è già nel modello, i
+  // blocchi arrivano con le loro sezioni (Task 8 e 9 del piano 8a). Fino ad
+  // allora non sono nel catalogo di nessuno.
+  releases: { titleKey: "home.blocks.releases", component: () => null, available: () => false },
+  waitingCustomers: {
+    titleKey: "home.blocks.waitingCustomers",
+    component: () => null,
+    available: () => false,
+  },
   filter: { titleKey: "home.blocks.filter", component: FilterBlock, available: always },
 };
 

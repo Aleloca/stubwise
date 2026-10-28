@@ -11,6 +11,7 @@ import {
 } from "../api";
 import { DOC_PAGES } from "../seed/docPages";
 import { REPOSITORIES } from "../seed/docs/repositories";
+import { DOC_SPACES } from "../seed/docs/spaces";
 import { setSessionPersonId } from "../session";
 import { state } from "../store";
 import type { DocTreeNode } from "../types";
@@ -473,11 +474,19 @@ describe("generazione, grafo e chat (Task 3)", () => {
 });
 
 describe("repository del seme", () => {
-  it("STW, AUD e CBV hanno un repository", () => {
+  it("STW, AUD e CBV hanno un repository (AUD altri due dall'area 8a, senza spazio dei Docs)", () => {
     expect(REPOSITORIES.map((r) => r.name).sort()).toEqual([
+      "audin-admin",
       "audin-app",
+      "audin-scripts",
       "bellavista-store",
       "stubwise",
     ]);
+    const spaced = new Set(DOC_SPACES.map((s) => s.repositoryId));
+    expect(
+      REPOSITORIES.filter((r) => spaced.has(r.id))
+        .map((r) => r.name)
+        .sort(),
+    ).toEqual(["audin-app", "bellavista-store", "stubwise"]);
   });
 });

@@ -55,7 +55,8 @@ export type LocalProjectPermission =
   | "drive.upload"
   | "drive.manage"
   | "drive.history"
-  | "automations.manage";
+  | "automations.manage"
+  | "support.reply";
 
 /**
  * Permessi d'istanza che vivono solo nel prototipo: vedere le conversazioni

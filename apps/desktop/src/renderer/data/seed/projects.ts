@@ -103,6 +103,16 @@ const REFERENCE_MEMBERS: Record<string, string[]> = {
   MKX: ["p-giulia", "p-elena", "p-paolo", "p-chiara", "p-tommaso", "p-matteo", "p-francesca"],
 };
 
+/**
+ * Membri in più dei progetti coi membri calcolati (area 8a, spec G): si
+ * aggiungono a quelli calcolati, non li sostituiscono. In ACQ Sara
+ * (Contributor) vede il Support ma non risponde ai clienti; Matteo (Project
+ * Lead) prova gli avvisi.
+ */
+const EXTRA_MEMBERS: Record<string, string[]> = {
+  ACQ: ["p-sara", "p-matteo"],
+};
+
 /** I progetti fissati di partenza di ogni personaggio del «vedi come». */
 export const INITIAL_PINNED_CODES: Record<string, readonly string[]> = {
   "p-giulia": GIULIA_PINNED_CODES,
@@ -126,6 +136,7 @@ export const PROJECTS: Project[] = ROWS.map(([code, name, clientName, template],
     }
     if (i % 3 === 0) memberIds.add("p-sara");
   }
+  for (const id of EXTRA_MEMBERS[code] ?? []) memberIds.add(id);
   if (template === "software" || i % 4 === 0 || code === "MKX") memberIds.add(CLAUDE_ID);
   const project: Project = {
     id: `prj-${code.toLowerCase()}`,

@@ -1,4 +1,5 @@
 import type { AppNotification } from "../types";
+import { ALERT_NOTIFICATIONS } from "./alerts";
 import { daysFromToday } from "./dates";
 import { PEOPLE } from "./people";
 import { PROJECTS } from "./projects";
@@ -25,9 +26,23 @@ export type EventPrefix = (typeof EVENT_PREFIXES)[number];
 /**
  * Kind locali del prototipo, non (ancora) in `notificationKindSchema`: li
  * pubblicano le azioni dell'area 2 (pianificazione altrui, risposta a una
- * richiesta di decisione).
+ * richiesta di decisione) e gli avvisi dell'area 8a (PR, rilasci, note di
+ * rilascio, task nuove, Support), che hanno i destinatari calcolati a lettura.
  */
-export const LOCAL_NOTIFICATION_KINDS = ["planning.changed", "decision.answered"] as const;
+export const LOCAL_NOTIFICATION_KINDS = [
+  "planning.changed",
+  "decision.answered",
+  "pr.opened",
+  "pr.analysis_issues",
+  "pr.corrected",
+  "release.merged",
+  "release.succeeded",
+  "release.failed",
+  "docs.release_note",
+  "task.created",
+  "support.request",
+  "support.customer_replied",
+] as const;
 
 // [kind, codice progetto, codice oggetto, titolo, corpo, ore fa, letta, destinatari?]
 // Senza destinatari espliciti la notifica va ai membri umani del progetto.
@@ -278,7 +293,7 @@ function projectlessLink(kind: string): string {
 
 const isHuman = (id: string) => PEOPLE.some((p) => p.id === id && !p.isClaude);
 
-export const NOTIFICATIONS: AppNotification[] = ROWS.map(
+const FIXED_NOTIFICATIONS: AppNotification[] = ROWS.map(
   ([kind, code, objectCode, title, body, hoursAgo, read, recipients], i) => {
     const project = code ? PROJECTS.find((p) => p.code === code) : undefined;
     const task = TASKS.find((t) => t.code === objectCode);
@@ -302,3 +317,6 @@ export const NOTIFICATIONS: AppNotification[] = ROWS.map(
     };
   },
 );
+
+/** Le notifiche del seme: quelle coi destinatari fissi, poi gli avvisi dell'area 8a. */
+export const NOTIFICATIONS: AppNotification[] = [...FIXED_NOTIFICATIONS, ...ALERT_NOTIFICATIONS];

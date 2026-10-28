@@ -69,6 +69,14 @@ import {
   CLIENT_PROJECT_LINKS,
 } from "./seed/automations";
 import { AUTOMATION_TASKS } from "./seed/automations/created";
+import { ALERT_NOTIFICATIONS, ALERT_SUBSCRIPTIONS } from "./seed/alerts";
+import { REPOSITORIES } from "./seed/docs/repositories";
+import { ENVIRONMENTS } from "./seed/releases/environments";
+import { OPEN_PRS } from "./seed/releases/prs";
+import { RELEASES } from "./seed/releases/releases";
+import { SUPPORT_CONVERSATIONS } from "./seed/support/conversations";
+import { SUPPORT_WIDGETS } from "./seed/support/widgets";
+import { state } from "./store";
 import { VIEW_AS_PERSONAS, can, viewerFor } from "./viewer";
 import type {
   Step,
@@ -432,17 +440,25 @@ describe("seed: decisioni, richieste, filtri, Home", () => {
 });
 
 describe("seed: notifiche", () => {
-  it("ogni notifica ha il codice del suo oggetto: task, progetto o evento", () => {
+  it("ogni notifica ha il codice del suo oggetto: task, progetto, evento, PR, rilascio o conversazione", () => {
     const eventCode = new RegExp("^(" + EVENT_PREFIXES.join("|") + ")-\\d+$");
+    // Gli oggetti dell'area 8a, del progetto della notifica.
+    const area8a = [
+      ...OPEN_PRS.map((p) => ({ code: `${p.repo}#${p.number}`, projectId: p.projectId })),
+      ...RELEASES.map((r) => ({ code: r.code, projectId: r.projectId })),
+      ...SUPPORT_CONVERSATIONS.map((c) => ({ code: c.code, projectId: c.projectId })),
+    ];
     for (const n of NOTIFICATIONS) {
       const task = TASKS.find((t) => t.code === n.objectCode);
       const project = PROJECTS.find((p) => p.code === n.objectCode);
+      const object = area8a.find((o) => o.code === n.objectCode);
       if (task) {
         expect(n.departmentId).toBe(task.departmentId);
         expect(task.projectId).toBe(n.projectId);
       } else {
         expect(n.departmentId).toBeNull();
         if (project) expect(project.id).toBe(n.projectId);
+        else if (object) expect(object.projectId).toBe(n.projectId);
         else expect(n.objectCode).toMatch(eventCode);
       }
       if (n.projectId === null) expect(n.objectCode).toMatch(/^SEC-\d+$/);
@@ -452,8 +468,11 @@ describe("seed: notifiche", () => {
     expect(NOTIFICATIONS.some((n) => eventCode.test(n.objectCode))).toBe(true);
   });
 
-  it("ogni notifica ha destinatari, membri del suo progetto", () => {
+  it("ogni notifica coi destinatari fissi li ha, membri del suo progetto", () => {
+    const alertIds = new Set(ALERT_NOTIFICATIONS.map((n) => n.id));
     for (const n of NOTIFICATIONS) {
+      // Gli avvisi dell'area 8a hanno i destinatari calcolati a lettura.
+      if (alertIds.has(n.id)) continue;
       expect(n.recipientIds.length).toBeGreaterThan(0);
       for (const r of n.recipientIds) {
         expect(PEOPLE.find((p) => p.id === r)?.isClaude).toBe(false);
@@ -476,6 +495,262 @@ describe("seed: notifiche", () => {
   it("nessuna notifica chiede una decisione: quelle vivono in Home e in Mail", () => {
     for (const n of NOTIFICATIONS)
       expect(DECISION_NOTIFICATION_KINDS as readonly string[]).not.toContain(n.kind);
+  });
+});
+
+describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
+  const AUD = "prj-aud";
+  const STW = "prj-stw";
+  const ACQ = "prj-acq";
+  const SHA = /^[0-9a-f]{40}$/;
+  const repoOf = (id: string) => REPOSITORIES.find((r) => r.id === id)!;
+  const prsOf = (projectId: string) => OPEN_PRS.filter((p) => p.projectId === projectId);
+
+  it("i kind nuovi sono locali e hanno destinatari a lettura: nessuno fisso, obbligatori membri umani", () => {
+    const kinds8a = [
+      "pr.opened",
+      "pr.analysis_issues",
+      "pr.corrected",
+      "release.merged",
+      "release.succeeded",
+      "release.failed",
+      "docs.release_note",
+      "task.created",
+      "support.request",
+      "support.customer_replied",
+    ];
+    for (const k of kinds8a) {
+      expect(LOCAL_NOTIFICATION_KINDS as readonly string[]).toContain(k);
+      expect(
+        ALERT_NOTIFICATIONS.some((n) => n.kind === k),
+        k,
+      ).toBe(true);
+    }
+    expect(ALERT_NOTIFICATIONS.map((n) => n.kind).sort()).toEqual([...kinds8a].sort());
+    for (const n of ALERT_NOTIFICATIONS) {
+      expect(NOTIFICATIONS).toContainEqual(n);
+      expect(n.recipientIds).toEqual([]);
+      for (const m of n.mandatory ?? []) {
+        expect(PEOPLE.find((p) => p.id === m.personId)?.isClaude).toBe(false);
+        expect(projectsById.get(n.projectId!)!.memberIds).toContain(m.personId);
+      }
+    }
+    expect(new Set(NOTIFICATIONS.map((n) => n.id)).size).toBe(NOTIFICATIONS.length);
+    // «Rilascio fallito»: obbligatorio per chi ha fatto il merge (Laura).
+    const failed = ALERT_NOTIFICATIONS.find((n) => n.kind === "release.failed")!;
+    expect(failed.objectCode).toBe("AUD-V2");
+    expect(failed.mandatory).toEqual([{ personId: "p-laura", reason: "merged" }]);
+    const corrected = ALERT_NOTIFICATIONS.find((n) => n.kind === "pr.corrected")!;
+    expect(corrected.mandatory).toEqual([{ personId: "p-marco", reason: "pr_author" }]);
+  });
+
+  it("iscrizioni: solo quelle diverse dal default — Matteo «Nuova PR» su AUD, Giulia «Rilascio fallito» spenta dopo l'avviso", () => {
+    expect(ALERT_SUBSCRIPTIONS).toHaveLength(2);
+    const matteo = ALERT_SUBSCRIPTIONS.find((s) => s.personId === "p-matteo")!;
+    expect(matteo).toMatchObject({ projectId: AUD, type: "pr.opened" });
+    expect(matteo.history.at(-1)).toMatchObject({ app: true });
+    const giulia = ALERT_SUBSCRIPTIONS.find((s) => s.personId === "p-giulia")!;
+    expect(giulia).toMatchObject({ projectId: AUD, type: "release.failed" });
+    const failedAt = ALERT_NOTIFICATIONS.find((n) => n.kind === "release.failed")!.createdAt;
+    // Accesa al momento dell'avviso, spenta dopo: l'ultima voce è lo stato di adesso.
+    const atAlert = giulia.history.filter((h) => h.at <= failedAt).at(-1)!;
+    expect(atAlert.app).toBe(true);
+    expect(giulia.history.at(-1)!.app).toBe(false);
+    expect(giulia.history.at(-1)!.at > failedAt).toBe(true);
+    for (const s of ALERT_SUBSCRIPTIONS) {
+      expect(projectsById.get(s.projectId)!.memberIds).toContain(s.personId);
+      const ats = s.history.map((h) => h.at);
+      expect(ats).toEqual([...ats].sort());
+    }
+  });
+
+  it("repository: AUD in «analisi e correzioni», «audin-admin» solo analisi, «audin-scripts» spento; STW senza pipeline", () => {
+    expect(repoOf("repo-aud")).toMatchObject({
+      fullName: "audin/audin-app",
+      colleaguePrs: "analyze_and_fix",
+      ciProvider: "github_actions",
+    });
+    expect(repoOf("repo-aud-admin")).toMatchObject({
+      projectId: AUD,
+      fullName: "audin/audin-admin",
+      colleaguePrs: "analyze_only",
+    });
+    expect(repoOf("repo-aud-scripts")).toMatchObject({
+      projectId: AUD,
+      fullName: "audin/audin-scripts",
+      colleaguePrs: "off",
+    });
+    expect(repoOf("repo-stw").ciProvider).toBeNull();
+    // Il primo repository di un progetto resta il principale (spazio dei Docs).
+    expect(REPOSITORIES.find((r) => r.projectId === AUD)!.id).toBe("repo-aud");
+  });
+
+  it("PR di AUD: una di Stubwise pronta, quella di Marco corretta, una da fork, una al tetto", () => {
+    for (const pr of OPEN_PRS) {
+      const repo = repoOf(pr.repositoryId);
+      expect(repo.projectId).toBe(pr.projectId);
+      expect(pr.repo).toBe(repo.fullName);
+      expect(pr.headSha).toMatch(SHA);
+      expect(pr.state).toBe("open");
+      if (pr.analysis) expect(pr.analysis.sha).toBe(pr.headSha);
+      if (pr.taskId) expect(tasksById.get(pr.taskId)!.projectId).toBe(pr.projectId);
+      if (pr.authorId) expect(projectsById.get(pr.projectId)!.memberIds).toContain(pr.authorId);
+      // Le correzioni salvate sono solo sui rami dei colleghi.
+      if (pr.origin === "stubwise") expect(pr.corrections).toEqual([]);
+    }
+    const refs = OPEN_PRS.map((p) => `${p.repo}#${p.number}`);
+    expect(new Set(refs).size).toBe(refs.length);
+
+    const ready = prsOf(AUD).filter(
+      (p) => p.origin === "stubwise" && p.checks === "passing" && p.mergeable,
+    );
+    expect(ready).toHaveLength(1);
+    expect(ready[0]!.taskId).not.toBeNull();
+
+    const marco = prsOf(AUD).find((p) => p.authorId === "p-marco")!;
+    expect(marco.origin).toBe("colleague");
+    expect(marco.analysis!.issues.length).toBeGreaterThan(0);
+    expect(marco.corrections.map((c) => c.state)).toContain("pushed");
+
+    const fork = prsOf(AUD).find((p) => p.fromFork)!;
+    expect(fork.analysis?.status).toBe("done");
+    expect(fork.corrections).toEqual([]);
+
+    // Il tetto è `correctionCap` del progetto (assente = 3), non una costante.
+    const cap = projectsById.get(AUD)!.correctionCap ?? 3;
+    expect(cap).toBe(3);
+    const capped = prsOf(AUD).find(
+      (p) => p.corrections.filter((c) => c.state !== "discarded").length >= cap,
+    );
+    expect(capped?.origin).toBe("colleague");
+    expect(capped!.authorId).not.toBe("p-marco");
+
+    // Una PR anche sul repository in «Solo analisi».
+    expect(prsOf(AUD).some((p) => p.repositoryId === "repo-aud-admin")).toBe(true);
+  });
+
+  it("rilasci: AUD riuscito (2 run di GitHub Actions) e fallito di Laura con log lungo; STW senza run", () => {
+    const codes = RELEASES.map((r) => r.code);
+    expect(new Set(codes).size).toBe(codes.length);
+    for (const r of RELEASES) {
+      const project = projectsById.get(r.projectId)!;
+      expect(r.code).toMatch(new RegExp(`^${project.code}-V\\d+$`));
+      expect(repoOf(r.repositoryId).projectId).toBe(r.projectId);
+      expect(r.pr.repo).toBe(repoOf(r.repositoryId).fullName);
+      expect(r.mergeSha).toMatch(SHA);
+      expect(r.mergedAt <= `${TODAY}T12:00:00Z`).toBe(true);
+      for (const run of r.runs) expect(run.startedAt >= r.mergedAt).toBe(true);
+    }
+    const aud = RELEASES.filter((r) => r.projectId === AUD);
+    const succeeded = aud.find(
+      (r) => r.runs.length > 0 && r.runs.every((x) => x.status === "success"),
+    )!;
+    expect(succeeded.runs).toHaveLength(2);
+    expect(repoOf(succeeded.repositoryId).ciProvider).toBe("github_actions");
+
+    const failed = aud.find((r) => r.runs.some((x) => x.status === "failed"))!;
+    expect(failed.mergedById).toBe("p-laura");
+    const run = failed.runs.find((x) => x.status === "failed")!;
+    expect(run.failedStep).toBe("Run migrations");
+    expect(run.log!.split("\n")).toHaveLength(5012);
+
+    const stw = RELEASES.filter((r) => r.projectId === STW);
+    expect(stw).toHaveLength(2);
+    for (const r of stw) expect(r.runs).toEqual([]);
+  });
+
+  it("ambienti: STW e AUD con produzione su un server e staging senza; ACQ in produzione su SRV-1", () => {
+    const ids = ENVIRONMENTS.map((e) => e.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const projectId of [STW, AUD]) {
+      const envs = ENVIRONMENTS.filter((e) => e.projectId === projectId);
+      expect(envs.find((e) => e.kind === "production")!.serverCode).toMatch(/^SRV-\d+$/);
+      expect(envs.find((e) => e.kind === "staging")!.serverCode).toBeNull();
+    }
+    expect(
+      ENVIRONMENTS.find((e) => e.projectId === ACQ && e.kind === "production")!.serverCode,
+    ).toBe("SRV-1");
+    // STW: la produzione riporta STW-V1 («in produzione»), non STW-V2 («non ancora»).
+    const stwProd = ENVIRONMENTS.find((e) => e.projectId === STW && e.kind === "production")!;
+    const byCode = (c: string) => RELEASES.find((r) => r.code === c)!;
+    expect(stwProd.reportedSha).toBe(byCode("STW-V1").mergeSha);
+    expect(stwProd.reportedSha).not.toBe(byCode("STW-V2").mergeSha);
+  });
+
+  it("Support di ACQ: triage, richiesta che aspetta noi con bozza, non conclusa, nata dal server MCP", () => {
+    const codes = SUPPORT_CONVERSATIONS.map((c) => c.code);
+    expect(new Set(codes).size).toBe(codes.length);
+    const requestsById = new Map(REQUESTS.map((r) => [r.id, r]));
+    for (const c of SUPPORT_CONVERSATIONS) {
+      const project = projectsById.get(c.projectId)!;
+      expect(c.code).toMatch(new RegExp(`^${project.code}-S\\d+$`));
+      expect(["widget", "mcp"]).toContain(c.channel);
+      if (c.channel === "widget") {
+        expect(SUPPORT_WIDGETS.find((w) => w.id === c.widgetId)?.projectId).toBe(c.projectId);
+      } else expect(c.widgetId).toBeNull();
+      for (const m of c.messages) {
+        if (m.from === "team") expect(project.memberIds).toContain(m.authorId);
+        else expect(m.authorId).toBeNull();
+      }
+      const ats = c.messages.map((m) => m.at);
+      expect(ats).toEqual([...ats].sort());
+      if (c.requestId) {
+        const request = requestsById.get(c.requestId)!;
+        expect(request.projectId).toBe(c.projectId);
+        expect(request.origin).toEqual({ kind: "support", conversationId: c.id });
+      }
+      for (const id of c.followerIds) expect(project.memberIds).toContain(id);
+    }
+    const acq = SUPPORT_CONVERSATIONS.filter((c) => c.projectId === ACQ);
+    // In triage: nessuna richiesta, il cliente non se n'è andato.
+    expect(acq.some((c) => c.channel === "widget" && !c.requestId && !c.leftAt)).toBe(true);
+    // Aspetta noi: richiesta aperta, l'ultimo messaggio è del cliente, bozza di Claude.
+    const waiting = acq.find((c) => c.requestId && c.messages.at(-1)!.from === "customer")!;
+    expect(waiting.claudeDraft).toBeTruthy();
+    // Non conclusa: se n'è andato, nessuna richiesta.
+    const left = acq.find((c) => c.leftAt)!;
+    expect(left.requestId).toBeNull();
+    // Dal server MCP, con la conversazione allegata alla richiesta.
+    const mcp = acq.find((c) => c.channel === "mcp")!;
+    expect(mcp.requestId).not.toBeNull();
+    expect(SUPPORT_WIDGETS.filter((w) => w.projectId === ACQ)).toHaveLength(1);
+  });
+
+  it("nessuna richiesta nasce da un'email: le sole con un'origine vengono da Support", () => {
+    for (const r of REQUESTS) {
+      if (!r.origin) continue;
+      expect(r.origin.kind).toBe("support");
+      const c = SUPPORT_CONVERSATIONS.find((x) => x.id === r.origin!.conversationId)!;
+      expect(c.requestId).toBe(r.id);
+    }
+    expect(REQUESTS.filter((r) => r.origin)).toHaveLength(2);
+  });
+
+  it("ACQ: Sara e Matteo membri in più, senza perdere i membri calcolati", () => {
+    const acq = projectsById.get(ACQ)!;
+    expect(acq.memberIds).toEqual(expect.arrayContaining(["p-sara", "p-matteo"]));
+    // I membri calcolati di prima restano (software: Marco, Laura e Claude).
+    expect(acq.memberIds).toEqual(expect.arrayContaining(["p-marco", "p-laura", "p-claude"]));
+    expect(acq.memberIds.filter((id) => id !== "p-claude").length).toBeGreaterThanOrEqual(7);
+    expect(new Set(acq.memberIds).size).toBe(acq.memberIds.length);
+  });
+
+  it("lo stato parte dal seme e i contatori dei codici dal numero più alto", () => {
+    resetApi();
+    expect(state.openPrs).toEqual(OPEN_PRS);
+    expect(state.releases).toEqual(RELEASES);
+    expect(state.environments).toEqual(ENVIRONMENTS);
+    expect(state.alertSubscriptions).toEqual(ALERT_SUBSCRIPTIONS);
+    expect(state.supportConversations).toEqual(SUPPORT_CONVERSATIONS);
+    expect(state.supportWidgets).toEqual(SUPPORT_WIDGETS);
+    expect(state.notificationMarks.size).toBe(0);
+    expect(state.releaseCodeSeq.get(AUD)).toBe(2);
+    expect(state.releaseCodeSeq.get(STW)).toBe(2);
+    expect(state.supportCodeSeq.get(ACQ)).toBe(4);
+    // Copie: cambiare lo stato non tocca il seme.
+    state.releases[0]!.title = "changed";
+    expect(RELEASES[0]!.title).not.toBe("changed");
+    resetApi();
   });
 });
 

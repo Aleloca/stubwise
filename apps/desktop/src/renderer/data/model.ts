@@ -51,7 +51,14 @@ export interface AppNotification {
   objectCode: string;
   /** Reparto della task, se l'oggetto è una task; altrimenti `null`. */
   departmentId: string | null;
+  /**
+   * I destinatari fissi: valgono solo per i kind FUORI dal catalogo degli
+   * avvisi (area 8a). Per quelli del catalogo chi lo riceve si calcola a
+   * lettura (iscrizioni, `mandatory`, permessi di adesso) e qui resta `[]`.
+   */
   recipientIds: string[];
+  /** Kind del catalogo: chi lo riceve senza iscrizione, col perché (chiave i18n). */
+  mandatory?: { personId: string; reason: MandatoryReason }[];
   title: string;
   body: string;
   createdAt: string;
@@ -67,6 +74,9 @@ export interface AppNotification {
    */
   chatMessageId?: string;
 }
+
+/** Perché un avviso del catalogo arriva a qualcuno senza iscrizione (area 8a). */
+export type MandatoryReason = "merged" | "pr_author" | "follows_conversation" | "task_author";
 
 export type StatusFamily = "todo" | "active" | "closed";
 
@@ -159,6 +169,8 @@ export interface Task {
   technical?: Record<string, string> | null;
   /** Creata da un'esecuzione di un'automazione (area 7): «Creata dall'automazione X · esecuzione Y». */
   automationRef?: AutomationRef;
+  /** Creata da «Fai sistemare a Claude» su un rilascio fallito (area 8a). */
+  releaseRef?: { releaseId: string };
 }
 
 /** L'automazione e l'esecuzione che hanno creato una task o un traguardo (area 7). */
@@ -363,6 +375,11 @@ export interface ProjectRequest {
    * Assente o `null`: nessuna proposta.
    */
   suggestions?: RequestSuggestions | null;
+  /**
+   * Da dove è nata, se non a mano: una conversazione di Support (widget o
+   * server MCP, area 8a). Una richiesta non nasce MAI da un'email.
+   */
+  origin?: { kind: "support"; conversationId: string };
 }
 
 /** I metadati proposti dall'intake: solo quelli che cambierebbero, e il perché. */
@@ -432,6 +449,8 @@ export type HomeBlockKind =
   | "upcomingEvents"
   | "importantMail"
   | "automations"
+  | "releases"
+  | "waitingCustomers"
   | "filter";
 
 export interface HomeBlockRef {
@@ -880,6 +899,16 @@ export interface Repository {
   projectId: string;
   /** Il nome del repository sulla piattaforma, es. «audin-app»; unico nel progetto: è nell'indirizzo dei Docs. */
   name: string;
+  /** `owner/repo`, come nei `PrRef` (area 8a). */
+  fullName?: string;
+  /** Le PR dei colleghi (aperte fuori da Stubwise): analisi e correzioni, solo analisi o spento. */
+  colleaguePrs?: ColleaguePrMode;
+  /** Il ramo su cui si rilascia (il merge), es. «main». */
+  releaseBranch?: string;
+  /** Quali run di CI fanno lo stato del rilascio: tutte, o solo quelle coi nomi dati. */
+  releasePipeline?: { mode: "auto" } | { mode: "named"; names: string[] };
+  /** Da dove si leggono le run; `null` = nessuna pipeline (lo stato lo dice l'ambiente). */
+  ciProvider?: "github_actions" | "bitbucket_pipelines" | null;
 }
 
 /** Le quattro categorie dell'albero; `manual` = scritta a mano, le altre generate. */
@@ -2412,4 +2441,161 @@ export interface ClientProjectLink {
   /** Chi l'ha aggiunta e quando (la colonna «Added by»). */
   addedById?: string;
   addedAt?: string;
+}
+
+// --- Rilasci, PR, ambienti, avvisi e Support (area 8a) -----------------------
+
+/** Cosa fa Stubwise sulle PR dei colleghi di un repository. */
+export type ColleaguePrMode = "analyze_and_fix" | "analyze_only" | "off";
+
+/** L'analisi automatica di una PR, sulla testa `sha`. */
+export interface PrAnalysis {
+  sha: string;
+  status: "running" | "done";
+  summary: string;
+  risk: "low" | "medium" | "high";
+  issues: { title: string; file: string | null }[];
+  at: string;
+}
+
+/**
+ * Una correzione di Claude sul ramo di un collega: un commit sopra, push in
+ * avanti. `discarded` = l'autore ha spinto nel frattempo (non conta nel
+ * tetto); `stopped` = fermata prima del push.
+ */
+export interface PrAutoCorrection {
+  id: string;
+  trigger: "auto" | "person";
+  /** Chi l'ha chiesta, se una persona. */
+  byId: string | null;
+  fromSha: string;
+  state: "running" | "pushed" | "discarded" | "stopped";
+  commitSha: string | null;
+  why: string;
+  at: string;
+}
+
+/** Una PR aperta, di Stubwise o di un collega (stessa forma per tutte). */
+export interface OpenPullRequest extends PrRef {
+  id: string;
+  projectId: string;
+  repositoryId: string;
+  title: string;
+  /** La persona collegata all'autore; `null` = identità git non collegata. */
+  authorId: string | null;
+  authorName: string;
+  origin: "stubwise" | "colleague";
+  taskId: string | null;
+  branch: string;
+  baseBranch: string;
+  headSha: string;
+  fromFork: boolean;
+  branchProtected: boolean;
+  /** «Solo analisi» acceso su questa PR, da chi e quando. */
+  analysisOnly: { byId: string; at: string } | null;
+  analysis: PrAnalysis | null;
+  /** Solo colleghi: per quelle di Stubwise valgono le sessioni della task. */
+  corrections: PrAutoCorrection[];
+  checks: "passing" | "failing" | "pending" | "unreadable";
+  mergeable: boolean;
+  state: "open" | "merged" | "closed";
+  openedAt: string;
+}
+
+/** Una run di CI dopo il merge, letta dalla piattaforma (nel prototipo: del seme). */
+export interface CiRun {
+  id: string;
+  name: string;
+  status: "running" | "success" | "failed";
+  url: string;
+  failedStep: string | null;
+  /** Il log (finto), anche lunghissimo; lo legge solo chi ha `repos.view`. */
+  log: string | null;
+  startedAt: string;
+  endedAt: string | null;
+}
+
+/** Un rilascio = un merge sul ramo di rilascio. Lo stato si DERIVA, non si salva. */
+export interface Release {
+  id: string;
+  /** `<PRJ>-V<n>`, per progetto, mai riusato. */
+  code: string;
+  projectId: string;
+  repositoryId: string;
+  pr: PrRef;
+  title: string;
+  mergeSha: string;
+  mergedAt: string;
+  /** La persona che ha fatto il merge, se collegata; `null` = fuori da Stubwise e non collegata. */
+  mergedById: string | null;
+  mergedGitName: string;
+  viaStubwise: boolean;
+  runs: CiRun[];
+  /** Quando l'agente dell'ambiente di produzione ha riportato il commit del merge. */
+  seenInProductionAt: string | null;
+  /** La task aperta da «Fai sistemare a Claude», se c'è. */
+  fixTaskId: string | null;
+}
+
+/** Un ambiente del progetto: pura anagrafica, mai un bersaglio che Stubwise esegue. */
+export interface ProjectEnvironment {
+  id: string;
+  projectId: string;
+  name: string;
+  kind: "test" | "staging" | "production";
+  url: string | null;
+  /** Il server monitorato (`SRV-<n>`) il cui agente riporta il commit. */
+  serverCode: string | null;
+  reportedSha: string | null;
+  reportedAt: string | null;
+}
+
+/**
+ * Un'iscrizione a un tipo di avviso in un progetto. Nessuna riga = il
+ * default del catalogo; la storia serve a «spegnere vale solo per il
+ * futuro»: l'ultima voce è lo stato di adesso.
+ */
+export interface AlertSubscription {
+  personId: string;
+  projectId: string;
+  type: string;
+  history: { at: string; app: boolean; phone: boolean }[];
+}
+
+export interface SupportMessage {
+  id: string;
+  /** Il cliente, il triage di Claude o una persona del team. */
+  from: "customer" | "triage" | "team";
+  authorId: string | null;
+  body: string;
+  at: string;
+}
+
+/** Una conversazione di Support con un cliente: dal widget o dal server MCP (mai da un'email). */
+export interface SupportConversation {
+  id: string;
+  /** `<PRJ>-S<n>`, per progetto, mai riusato. */
+  code: string;
+  projectId: string;
+  channel: "widget" | "mcp";
+  widgetId: string | null;
+  customer: { name: string; email: string | null };
+  messages: SupportMessage[];
+  /** Il desiderio del cliente riscritto dal triage; `null` finché il triage non lo ha. */
+  rewrittenWish: string | null;
+  requestId: string | null;
+  /** Il cliente se n'è andato prima della fine del triage. */
+  leftAt: string | null;
+  followerIds: string[];
+  /** La bozza di risposta di Claude: la vede solo chi ha `support.reply`, non parte mai da sola. */
+  claudeDraft: string | null;
+}
+
+export interface SupportWidget {
+  id: string;
+  projectId: string;
+  name: string;
+  origins: string[];
+  greeting: string;
+  createdAt: string;
 }
