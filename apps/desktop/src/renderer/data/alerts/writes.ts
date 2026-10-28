@@ -6,7 +6,7 @@ import {
   type AlertType,
 } from "../../domain/alerts/catalog";
 import type { Channels } from "../../domain/alerts/recipients";
-import { copy, now, state, storeGeneration, visibleProjectIds } from "../store";
+import { copy, nextSeq, now, state, storeGeneration, visibleProjectIds } from "../store";
 import type { AlertSubscription } from "../types";
 import { forbidden, invalid, notFound, writer } from "../writer";
 import { canSubscribe, currentChannels, projectRows } from "./reads";
@@ -35,7 +35,7 @@ function write(personId: string, projectId: string, def: AlertType, ch: Channels
   const cur = currentChannels(personId, projectId, def);
   if (cur.app === next.app && cur.phone === next.phone) return false;
   const i = subIndex(personId, projectId, def.type);
-  const entry = { at: now(), ...next };
+  const entry = { at: now(), seq: nextSeq(), ...next };
   if (i >= 0) state.alertSubscriptions[i]!.history.push(entry);
   else state.alertSubscriptions.push({ personId, projectId, type: def.type, history: [entry] });
   return true;

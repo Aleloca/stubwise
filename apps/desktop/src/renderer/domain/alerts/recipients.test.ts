@@ -9,7 +9,7 @@ import {
   rowPartners,
   type AlertType,
 } from "./catalog";
-import { mergeMandatory, recipientsOf, subscriptionAt } from "./recipients";
+import { mergeMandatory, precedes, recipientsOf, subscriptionAt } from "./recipients";
 
 const notification = (over: Partial<AppNotification>): AppNotification => ({
   id: "n-x",
@@ -136,21 +136,33 @@ describe("subscriptionAt", () => {
   const s = sub("p-giulia", "release.failed", history);
 
   it("conta lo stato al momento dell'avviso", () => {
-    expect(subscriptionAt(s, def, perms(), "2026-10-20T00:00:00Z")).toEqual({
+    expect(subscriptionAt(s, def, perms(), { at: "2026-10-20T00:00:00Z" })).toEqual({
       app: true,
       phone: false,
     });
-    expect(subscriptionAt(s, def, perms(), "2026-10-22T00:00:00Z").app).toBe(false);
+    expect(subscriptionAt(s, def, perms(), { at: "2026-10-22T00:00:00Z" }).app).toBe(false);
   });
 
   it("prima della prima voce, e senza riga, vale il default (di un membro)", () => {
-    expect(subscriptionAt(s, def, perms("release.merge"), "2026-09-01T00:00:00Z")).toEqual({
+    expect(subscriptionAt(s, def, perms("release.merge"), { at: "2026-09-01T00:00:00Z" })).toEqual({
       app: true,
       phone: true,
     });
-    expect(subscriptionAt(undefined, def, perms(), "2026-09-01T00:00:00Z").app).toBe(false);
+    expect(subscriptionAt(undefined, def, perms(), { at: "2026-09-01T00:00:00Z" }).app).toBe(false);
     // Chi non è membro (un full admin che vede il progetto) parte spento.
-    expect(subscriptionAt(undefined, def, perms("release.merge"), "x", false).app).toBe(false);
+    expect(subscriptionAt(undefined, def, perms("release.merge"), { at: "x" }, false).app).toBe(false);
+  });
+});
+
+describe("precedes (R-K19)", () => {
+  const at = "2026-10-28T12:00:00Z";
+  it("con l'orologio fisso decide il seq; la sessione viene dopo il seme", () => {
+    expect(precedes({ at, seq: 1 }, { at, seq: 2 })).toBe(true);
+    expect(precedes({ at, seq: 2 }, { at, seq: 1 })).toBe(false);
+    expect(precedes({ at, seq: 1 }, { at })).toBe(false);
+    expect(precedes({ at }, { at, seq: 1 })).toBe(true);
+    expect(precedes({ at }, { at })).toBe(true);
+    expect(precedes({ at: "2026-10-29T00:00:00Z" }, { at })).toBe(false);
   });
 });
 

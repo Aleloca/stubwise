@@ -1,6 +1,6 @@
 import { isCatalogKind } from "../../domain/alerts/catalog";
 import { mergeMandatory } from "../../domain/alerts/recipients";
-import { newId, now, state } from "../store";
+import { newId, nextSeq, now, state } from "../store";
 import type { AppNotification, MandatoryReason, Release } from "../types";
 import { invalid } from "../writer";
 
@@ -34,6 +34,7 @@ export function publishAlert(input: AlertInput): void {
     title: input.title,
     body: input.body,
     createdAt: now(),
+    seq: nextSeq(),
     read: false,
     archived: false,
     snoozedUntil: null,

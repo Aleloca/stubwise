@@ -62,6 +62,11 @@ export interface AppNotification {
   title: string;
   body: string;
   createdAt: string;
+  /**
+   * Solo gli avvisi del catalogo pubblicati nella sessione: l'ordine monotono
+   * condiviso con le voci delle iscrizioni (R-K19). Il seme non lo ha.
+   */
+  seq?: number;
   read: boolean;
   archived: boolean;
   snoozedUntil: string | null;
@@ -2576,7 +2581,12 @@ export interface AlertSubscription {
   personId: string;
   projectId: string;
   type: string;
-  history: { at: string; app: boolean; phone: boolean }[];
+  /**
+   * Le voci in ordine di scrittura. `seq` c'è solo sulle voci scritte nella
+   * sessione: l'ordine monotono condiviso con gli avvisi (R-K19), perché con
+   * l'orologio fisso `at` non distingue un prima da un dopo.
+   */
+  history: { at: string; seq?: number; app: boolean; phone: boolean }[];
 }
 
 export interface SupportMessage {

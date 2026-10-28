@@ -18,21 +18,51 @@ export interface Channels {
 }
 
 /**
- * Lo stato di un'iscrizione all'istante `at`: l'ultima voce della storia
- * non successiva ad `at`; prima della prima voce (o senza riga) il default
+ * Un momento: l'ora e, per ciò che è stato scritto nella sessione, il posto
+ * nell'ordine monotono condiviso da avvisi e iscrizioni (R-K19).
+ */
+export interface Moment {
+  at: string;
+  seq?: number;
+}
+
+/** Adesso: dopo tutto ciò che è già stato scritto. */
+export const latest = (at: string): Moment => ({ at, seq: Number.POSITIVE_INFINITY });
+
+/**
+ * Se una voce della storia vale per un momento. Con l'orologio fisso l'ora
+ * non basta: due cose della sessione si ordinano col `seq`; una cosa della
+ * sessione viene dopo ogni cosa del seme (che non ha `seq`); fra due cose
+ * del seme decide l'ora.
+ */
+export function precedes(entry: Moment, moment: Moment): boolean {
+  if (entry.seq !== undefined && moment.seq !== undefined) return entry.seq < moment.seq;
+  if (entry.seq !== undefined) return false;
+  if (moment.seq !== undefined) return true;
+  return entry.at <= moment.at;
+}
+
+/**
+ * Lo stato di un'iscrizione a un momento: l'ultima voce della storia che lo
+ * precede (`precedes`); prima della prima voce (o senza riga) il default
  * del catalogo. Il default vale per i membri: chi vede il progetto senza
- * esserne membro (un full admin) parte spento.
+ * esserne membro (un full admin) parte spento. Default e appartenenza sono
+ * quelli di ADESSO, non del momento dell'avviso: il prototipo non ha la
+ * storia di permessi e membri, quindi chi entra oggi in un progetto (o
+ * ottiene oggi il permesso) riceve per default anche gli avvisi di prima.
+ * Vede comunque il progetto, quindi non tocca l'anti-obiettivo 5; R-K19
+ * ordina solo le voci scritte.
  */
 export function subscriptionAt(
   sub: AlertSubscription | undefined,
   def: AlertType,
   perms: Perms,
-  at: string,
+  at: Moment,
   member = true,
 ): Channels {
   let found: Channels | null = null;
   for (const entry of sub?.history ?? []) {
-    if (entry.at <= at) found = { app: entry.app, phone: entry.phone };
+    if (precedes(entry, at)) found = { app: entry.app, phone: entry.phone };
   }
   if (found) return found;
   const on = member && def.defaultOn(perms);
@@ -75,7 +105,7 @@ export function recipientsOf(n: AppNotification, ctx: RecipientContext): Recipie
       if (out.has(personId)) continue;
       const sub = ctx.subs.find((s) => s.personId === personId && s.type === n.kind);
       const member = ctx.members.includes(personId);
-      if (subscriptionAt(sub, def, ctx.permsOf(personId), n.createdAt, member).app)
+      if (subscriptionAt(sub, def, ctx.permsOf(personId), { at: n.createdAt, seq: n.seq }, member).app)
         out.set(personId, "subscribed");
     }
   }

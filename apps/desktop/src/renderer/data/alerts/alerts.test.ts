@@ -98,6 +98,17 @@ describe("Review Focus 1: destinatari a lettura", () => {
     expect(await has("p-giulia", lastId())).toBe(false);
   });
 
+  it("R-K19: iscriversi non porta gli avvisi già arrivati nella sessione", async () => {
+    again(failedV3, []);
+    const past = lastId();
+    expect(await has("p-marco", past)).toBe(false);
+    as("p-marco");
+    await alerts.setSubscription(AUD, "release.failed", { app: true });
+    expect(await has("p-marco", past)).toBe(false);
+    again(failedV3, []);
+    expect(await has("p-marco", lastId())).toBe(true);
+  });
+
   it("progetto diventato invisibile: sparisce, anche se obbligatorio", async () => {
     expect(await has("p-laura", failedV3.id)).toBe(true);
     const aud = state.projectsById.get(AUD)!;
@@ -204,6 +215,17 @@ describe("Non avvisarmi più (muteFromNotification)", () => {
     expect(state.alertSubscriptions.filter((s) => s.personId === "p-matteo")).toEqual(
       ALERT_SUBSCRIPTIONS.filter((s) => s.personId === "p-matteo"),
     );
+  });
+
+  it("R-K19: l'avviso cliccato resta anche se è nato in questa sessione", async () => {
+    again(prOpened);
+    const fresh = lastId();
+    expect(await has("p-matteo", fresh)).toBe(true);
+    as("p-matteo");
+    await alerts.muteFromNotification(fresh);
+    expect(await has("p-matteo", fresh)).toBe(true);
+    again(prOpened);
+    expect(await has("p-matteo", lastId())).toBe(false);
   });
 
   it("non c'è per gli obbligatori, né fuori dal catalogo", async () => {

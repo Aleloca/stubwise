@@ -5,7 +5,7 @@ import {
   type AlertGroup,
   type AlertType,
 } from "../../domain/alerts/catalog";
-import { allowedNow, subscriptionAt, type Channels } from "../../domain/alerts/recipients";
+import { allowedNow, latest, subscriptionAt, type Channels } from "../../domain/alerts/recipients";
 import { chatKey, gate, now, state, visibleProjectIds } from "../store";
 import type { AppNotification, MandatoryReason } from "../types";
 import type { Permission } from "../viewer";
@@ -50,7 +50,7 @@ export function currentChannels(personId: string, projectId: string, def: AlertT
     subOf(personId, projectId, def.type),
     def,
     permsIn(personId, projectId),
-    now(),
+    latest(now()),
     isMember(personId, projectId),
   );
 }

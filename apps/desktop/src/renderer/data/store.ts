@@ -624,6 +624,8 @@ interface State {
   releasePages: ReleasePage[];
   /** I secondi dopo «adesso» dati all'ultimo messaggio nuovo (`chatNow`). */
   chatSeq: number;
+  /** L'ordine monotono di avvisi e voci delle iscrizioni (R-K19, `nextSeq`). */
+  alertSeq: number;
   // --- Docs (area 5) ---
   docPages: DocPage[];
   docSpaces: DocSpace[];
@@ -799,6 +801,7 @@ function freshState(): State {
     chatDismissed: new Set(),
     releasePages: RELEASE_PAGES.map(copy),
     chatSeq: 0,
+    alertSeq: 0,
     docPages: DOC_PAGES.map(copy),
     docSpaces: DOC_SPACES.map(copy),
     docCodeSeq: initialDocCodeSeq(),
@@ -917,6 +920,14 @@ export function signalAutomations(signal: AutomationSignal): void {
 
 /** L'id di una riga creata dal prototipo. */
 export const newId = (prefix: string): string => `${prefix}-new-${++state.counter}`;
+
+/**
+ * Il prossimo numero dell'ordine fra avvisi pubblicati e voci delle
+ * iscrizioni scritte nella sessione (R-K19): con l'orologio fisso hanno
+ * tutti lo stesso `now()`, e «spegnere vale solo per il futuro» ha bisogno
+ * di sapere che cosa è venuto prima.
+ */
+export const nextSeq = (): number => ++state.alertSeq;
 
 /** L'«adesso» del prototipo: nessuna logica legge l'orologio. */
 export const now = (): string => `${TODAY}T12:00:00Z`;
