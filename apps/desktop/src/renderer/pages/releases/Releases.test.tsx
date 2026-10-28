@@ -82,6 +82,10 @@ describe("Releases — la sezione", () => {
     await userEvent.click(screen.getByRole("button", { name: "Release audin-app#244" }));
     const confirm = screen.getByRole("button", { name: "Confirm merge" });
     expect(confirm).toHaveFocus();
+    // La domanda si legge col bottone che prende il fuoco (un aria-live montato insieme non si annuncia).
+    expect(confirm).toHaveAccessibleDescription(
+      "Merge #244 into main? The pipeline will release it; Stubwise only follows it.",
+    );
     expect(
       screen.getByText(
         "Merge #244 into main? The pipeline will release it; Stubwise only follows it.",

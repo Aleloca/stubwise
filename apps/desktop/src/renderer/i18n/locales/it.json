@@ -71,7 +71,6 @@
       "mail": "Qui compariranno caselle ed etichette.",
       "claude": "Qui compariranno le sessioni dal vivo e quelle passate.",
       "projects": "Qui compariranno i gruppi di progetti.",
-      "preferences": "Qui compariranno le sezioni delle tue preferenze.",
       "admin": "Qui compariranno le sezioni dell'amministrazione.",
       "chat": "Qui compariranno canali e messaggi diretti.",
       "filters": "Qui compariranno i tuoi filtri.",
@@ -245,7 +244,6 @@
       "projects": "Qui compariranno tutti i progetti che vedi.",
       "filters": "Qui compariranno i tuoi filtri salvati.",
       "planning": "Qui si pianificherà fra i tuoi progetti.",
-      "preferences": "Qui si imposteranno notifiche, lingua e account collegati.",
       "admin": "Qui si gestiranno membri, ruoli, provider AI e integrazioni."
     },
     "sections": {
@@ -6258,8 +6256,7 @@
     "notSet": {
       "title": "Non si impostano qui",
       "security": "Gli avvisi di sicurezza ti arrivano sempre.",
-      "decisionsBefore": "Le decisioni sono in",
-      "decisionsLink": "Home → Decidi",
+      "decisions": "Le decisioni sono in <home>Home → Decidi</home>.",
       "rest": "Chat e Automazioni ti avvisano con le loro regole."
     },
     "bell": {

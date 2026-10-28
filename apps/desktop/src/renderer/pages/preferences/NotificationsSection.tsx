@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useRouterState } from "@tanstack/react-router";
 import {
   useCallback,
   useEffect,
@@ -8,8 +8,9 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type ReactNode,
 } from "react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import type { ProjectSubscriptions } from "../../data/alerts";
 import { useAlertSubscriptions } from "../../data/queries";
 import { useViewer } from "../../data/viewer";
@@ -53,7 +54,7 @@ function writeOpen(personId: string, change: Record<string, boolean>) {
 }
 
 const buttonClass =
-  "inline-flex h-8 shrink-0 items-center rounded-md px-2.5 text-sm font-medium text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink active:bg-ink/10";
+  "inline-flex h-8 shrink-0 items-center rounded-md px-2.5 text-sm font-medium text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink active:bg-ink/10 disabled:pointer-events-none disabled:opacity-40";
 
 /** L'intestazione delle colonne App / Phone ⓘ: agganciata in alto mentre si scorre. */
 function ColumnsHeader() {
@@ -139,17 +140,21 @@ export function NotificationsSection({ focusCode }: { focusCode?: string }) {
       return { ...prev, ...change };
     });
 
-  // L'ancora: apre il gruppo, lo porta in vista e gli dà il fuoco, una volta per codice.
+  // L'ancora: apre il gruppo, lo porta in vista e gli dà il fuoco, una volta
+  // per navigazione (ripetere «Alert settings for AUD» con la pagina già su
+  // `?project=AUD` lo rifà: la chiave della navigazione è nuova).
+  const navKey = useRouterState({ select: (s) => s.location.state.key ?? s.location.href });
   const anchored = useRef<string | null>(null);
   const pendingFocus = useRef<string | null>(null);
   const focusProject = subs.data?.find((p) => p.code === focusCode);
   useEffect(() => {
-    if (!focusProject || anchored.current === focusProject.code) return;
-    anchored.current = focusProject.code;
+    const at = focusProject ? `${focusProject.code}:${navKey}` : null;
+    if (!focusProject || anchored.current === at) return;
+    anchored.current = at;
     pendingFocus.current = focusProject.code;
     setOpen((prev) => ({ ...prev, [focusProject.projectId]: true }));
     setQuery("");
-  }, [focusProject]);
+  }, [focusProject, navKey]);
   useLayoutEffect(() => {
     const code = pendingFocus.current;
     const header =
@@ -272,9 +277,11 @@ export function NotificationsSection({ focusCode }: { focusCode?: string }) {
               className="h-8 w-72 min-w-0 rounded-md border border-rule-strong bg-transparent px-2.5 text-md text-ink placeholder:text-ink-faint transition-colors duration-[var(--duration-fast)] ease-out hover:border-ink/40 focus-visible:border-transparent"
             />
             <span className="ml-auto flex gap-1">
+              {/* Con una ricerca i trovati restano aperti: aprire e chiudere tutto non c'entra. */}
               <button
                 type="button"
                 className={buttonClass}
+                disabled={searching}
                 onClick={() => setGroups(Object.fromEntries(shown.map((p) => [p.projectId, true])))}
               >
                 {t("alerts.expandAll")}
@@ -282,6 +289,7 @@ export function NotificationsSection({ focusCode }: { focusCode?: string }) {
               <button
                 type="button"
                 className={buttonClass}
+                disabled={searching}
                 onClick={() =>
                   setGroups(Object.fromEntries(shown.map((p) => [p.projectId, false])))
                 }
@@ -313,6 +321,18 @@ export function NotificationsSection({ focusCode }: { focusCode?: string }) {
 }
 
 /** «Not set here»: ciò che non si regola qui, in una riga di prosa (shape [A 13]). */
+/** Il link di «Home → Decide» dentro la frase tradotta (`Trans` gli passa il testo). */
+function HomeLink({ children }: { children?: ReactNode }) {
+  return (
+    <Link
+      to="/home"
+      className="text-ink underline decoration-rule-strong underline-offset-2 hover:decoration-ink"
+    >
+      {children}
+    </Link>
+  );
+}
+
 function NotSetHere() {
   const { t } = useTranslation();
   const id = useId();
@@ -322,14 +342,13 @@ function NotSetHere() {
         {t("alerts.notSet.title")}
       </h2>
       <p className="mt-2 max-w-[62ch] text-sm text-ink-muted">
-        {t("alerts.notSet.security")} {t("alerts.notSet.decisionsBefore")}{" "}
-        <Link
-          to="/home"
-          className="text-ink underline decoration-rule-strong underline-offset-2 hover:decoration-ink"
-        >
-          {t("alerts.notSet.decisionsLink")}
-        </Link>
-        . {t("alerts.notSet.rest")}
+        {t("alerts.notSet.security")}{" "}
+        {/* Un messaggio solo col link dentro: l'ordine delle parole è della lingua. */}
+        <Trans
+          i18nKey="alerts.notSet.decisions"
+          components={{ home: <HomeLink /> }}
+        />{" "}
+        {t("alerts.notSet.rest")}
       </p>
     </section>
   );

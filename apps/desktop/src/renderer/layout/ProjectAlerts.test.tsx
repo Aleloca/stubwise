@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { alerts, failNext, resetApi, setLatency } from "../data/api";
@@ -46,6 +46,14 @@ describe("popover «Alerts»", () => {
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Alerts in AUD" })).toBeNull());
     expect(await bell()).toHaveFocus();
+  });
+
+  it("m9: cambiando pagina (tastiera, ⌘K) il popover si chiude", async () => {
+    const router = renderRoute("/p/AUD/overview", LAURA);
+    const user = userEvent.setup();
+    await openPopover(user);
+    act(() => router.history.push("/p/AUD/tasks"));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Alerts in AUD" })).toBeNull());
   });
 
   it("coerente con la pagina: un cambio nel popover si vede nella pagina, e viceversa", async () => {

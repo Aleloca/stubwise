@@ -72,6 +72,8 @@ describe("Release detail — fallito", () => {
     const drawn = log.querySelectorAll("[data-log-line]").length;
     expect(drawn).toBeGreaterThan(LOG_TAIL);
     expect(drawn).toBeLessThanOrEqual(400);
+    // Da tastiera il log si scorre: il contenitore prende il fuoco.
+    expect(log.querySelector("[data-log-scroller]")).toHaveAttribute("tabindex", "0");
     expect(log.querySelector(`[data-log-line="${FAILED_LOG_LINES}"]`)).not.toBeNull();
     expect(performance.now() - started).toBeLessThan(2000);
 

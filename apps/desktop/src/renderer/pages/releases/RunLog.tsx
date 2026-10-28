@@ -230,7 +230,9 @@ export function RunLog({ runName, log, url }: { runName: string; log: string; ur
         ref={scroller}
         onScroll={onScroll}
         data-log-scroller
-        className="max-h-[70vh] overflow-y-auto px-3 py-2"
+        // Da tastiera si scorre (frecce, Pag): il contenitore prende il fuoco.
+        tabIndex={0}
+        className="max-h-[70vh] overflow-y-auto px-3 py-2 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--color-focus)]"
       >
         {blocks}
       </div>

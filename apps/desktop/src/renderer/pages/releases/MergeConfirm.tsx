@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useMergePr } from "../../data/queries";
 import type { MergeError as DataMergeError, OpenPrView } from "../../data/releases";
@@ -130,6 +130,7 @@ export function MergeExpansion({
 }) {
   const { t } = useTranslation();
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const questionId = useId();
   const open = flow.step !== "idle";
   // Il fuoco va su «Confirm merge» quando il secondo tempo si apre.
   useEffect(() => {
@@ -160,7 +161,9 @@ export function MergeExpansion({
       onClick={(e) => e.stopPropagation()}
       className="merge-expand flex flex-col gap-2 border-t border-rule py-3 pr-3 pl-3"
     >
-      <p aria-live="polite" className="text-md text-ink">
+      {/* La domanda la legge il bottone che prende il fuoco (`aria-describedby`):
+          un aria-live montato insieme al contenuto di solito non si annuncia. */}
+      <p id={questionId} className="text-md text-ink">
         {t("releases.merge.question", { n: pr.number, branch: pr.baseBranch })}
       </p>
       {flow.error && (
@@ -172,6 +175,7 @@ export function MergeExpansion({
         <button
           ref={confirmRef}
           type="button"
+          aria-describedby={questionId}
           data-merge-confirm-button
           disabled={flow.step === "merging"}
           onClick={() => void flow.confirm()}

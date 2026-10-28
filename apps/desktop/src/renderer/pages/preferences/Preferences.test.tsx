@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { alerts, failNext, resetApi, setLatency } from "../../data/api";
@@ -147,6 +147,30 @@ describe("gruppi per progetto", () => {
     expect(screen.getByText("No project matches “zz”")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Clear" }));
     expect(headers().length).toBeGreaterThan(1);
+  });
+
+  it("m3: con una ricerca «Expand all» e «Collapse all» sono spenti (i trovati restano aperti)", async () => {
+    renderRoute(PAGE, LAURA);
+    await ready();
+    const user = userEvent.setup();
+    expect(screen.getByRole("button", { name: "Collapse all" })).toBeEnabled();
+    await user.type(screen.getByRole("searchbox", { name: "Find a project" }), "a");
+    expect(screen.getByRole("button", { name: "Collapse all" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Expand all" })).toBeDisabled();
+  });
+
+  it("m6: ripetere `?project=` con la pagina aperta riporta il gruppo in vista e il fuoco", async () => {
+    const code = state.projects.find(
+      (p) => visibleProjectIds(LAURA).has(p.id) && !INITIAL_PINNED_CODES[LAURA]!.includes(p.code),
+    )!.code;
+    const router = renderRoute(`${PAGE}?project=${code}`, LAURA);
+    await waitFor(() => expect(headerOf(code)).toHaveFocus());
+    await userEvent.click(headerOf(code)!); // chiuso
+    screen.getByRole("searchbox", { name: "Find a project" }).focus();
+    // Come «Alert settings for …» del pannello: una voce nuova nella storia.
+    act(() => router.history.push(`${PAGE}?project=${code}`));
+    await waitFor(() => expect(headerOf(code)).toHaveFocus());
+    expect(headerOf(code)).toHaveAttribute("aria-expanded", "true");
   });
 
   it("`?project=` apre quel gruppo e gli dà il fuoco", async () => {

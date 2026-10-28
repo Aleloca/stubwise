@@ -71,7 +71,6 @@
       "mail": "Mailboxes and labels will be listed here.",
       "claude": "Live and past sessions will be listed here.",
       "projects": "Groups of projects will be listed here.",
-      "preferences": "The sections of your preferences will be listed here.",
       "admin": "The sections of administration will be listed here.",
       "chat": "Channels and direct messages will be listed here.",
       "filters": "Your filters will be listed here.",
@@ -245,7 +244,6 @@
       "projects": "Every project you can see will be listed here.",
       "filters": "Your saved filters will be listed here.",
       "planning": "Planning across your projects will be done here.",
-      "preferences": "Your notifications, language and connected accounts will be set here.",
       "admin": "Members, roles, AI providers and integrations will be managed here."
     },
     "sections": {
@@ -6258,8 +6256,7 @@
     "notSet": {
       "title": "Not set here",
       "security": "Security alerts always reach you.",
-      "decisionsBefore": "Decisions are in",
-      "decisionsLink": "Home → Decide",
+      "decisions": "Decisions are in <home>Home → Decide</home>.",
       "rest": "Chat and Automations notify you by their own rules."
     },
     "bell": {

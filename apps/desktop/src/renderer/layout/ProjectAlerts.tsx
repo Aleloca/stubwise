@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useRouterState } from "@tanstack/react-router";
 import {
   useCallback,
   useEffect,
@@ -77,6 +77,11 @@ export function ProjectAlerts({ projectId, code }: { projectId: string; code: st
     setAnchor(null);
     if (restore) button.current?.focus();
   }, []);
+
+  // Un altro progetto o un'altra pagina (tastiera, ⌘K) chiude il popover: il
+  // componente non si rimonta, e resterebbe aperto sul progetto di prima.
+  const path = useRouterState({ select: (st) => st.location.pathname });
+  useEffect(() => setAnchor(null), [projectId, path]);
 
   function toggle() {
     if (anchor) return close(false);
