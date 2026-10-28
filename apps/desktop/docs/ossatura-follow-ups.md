@@ -391,3 +391,39 @@ invio e di scrittura del calendario, e riscrivere
 `docs/invariants/mail-calendar.md` per l'ammissione senza filtro e le
 proposte condivise (oggi le invarianti descrivono l'audience `mailbox_owner`
 e le regole della posta del progetto, entrambe tolte qui).
+
+## Area 7 — minori aperti
+
+Notes e copertura: `area7-notes.md`. Qui solo ciò che è stato **rimandato**
+apposta; i minori della revisione finale dell'area si correggono con
+l'ondata finale e non stanno in questo elenco.
+
+### Rimandati (decisioni del controller)
+
+- **Casella dell'inizio «email in arrivo», allegati dal Drive, file del Drive
+  come input di Claude** (R-J18): rimandati. L'inizio `mail_received` non ha
+  una scelta della casella; l'email di un passo non allega file del Drive; un
+  passo di Claude non legge file del Drive.
+- **Niente allegati nella risposta simulata del cliente** (R-J20): la risposta
+  scritta nella prova è solo testo.
+- **Claude che costruisce e prova le automazioni**: è della fase sull'integrazione
+  di Claude nell'app, non di questa area. Il flusso è già un documento
+  dichiarativo validabile (`domain/automations/validate.ts`) apposta.
+- **Deviazioni accettate dal Task 8**: il tooltip della timeline delle task è
+  sempre generico («creata da un'automazione»), anche per chi vede la riga
+  intera (`pages/tasks/TaskTimeline.tsx`); la scelta del progetto di
+  «scegli il progetto» in «Da decidere» è un `select` semplice, non il
+  selettore con ricerca dei progetti
+  (`pages/home/blocks/AutomationDecisionItem.tsx`).
+- **Matteo non è in «Vedi come»**: AUT-1 è sua (permesso d'istanza personale),
+  ma non compare fra le persone da impersonare. Decisione del maintainer
+  ancora da prendere.
+
+### Lavoro sul server: un progetto a parte
+
+Il prototipo mostra l'interfaccia; il **motore sul server** non è in questa
+area e non si decide qui: esecuzione durevole (coda, orologi, attese di
+giorni), connettori veri (Audin, HubSpot, webhook in arrivo), invio delle
+email dalla casella, passi di Claude veri sotto le tre regole
+dell'anti-obiettivo, permessi `automations.manage` e invarianti dedicate in
+`docs/invariants/`.
