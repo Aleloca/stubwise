@@ -5947,7 +5947,9 @@
         "hide": "Nascondi",
         "replyGot": "Risposta nella prova",
         "noReplyGot": "Nessuna risposta: l'attesa è finita.",
-        "wouldDo": "Lo farebbe adesso. «Passo successivo» lo esegue."
+        "wouldDo": "Lo farebbe adesso. «Passo successivo» lo esegue.",
+        "noMailboxFrom": "Nessuna casella collegata",
+        "mailboxExpiredFrom": "Collegamento della casella scaduto"
       },
       "stop": {
         "skip_one": "Vai avanti di {{count}} giorno",
@@ -5968,7 +5970,7 @@
         "realPerson": "Un'esecuzione vera si fermerebbe qui finché {{name}} non approva.",
         "realRole": "Un'esecuzione vera si fermerebbe qui finché il {{role}} di {{code}} — {{name}} — non approva.",
         "realRoleNobody": "Un'esecuzione vera si fermerebbe qui finché il {{role}} di {{code}} non approva.",
-        "realOwnerYou": "Un'esecuzione vera si fermerebbe qui finché il proprietario non approva. Dopo averla accesa, sei tu.",
+        "realOwnerYou": "Un'esecuzione vera si fermerebbe qui finché il proprietario non approva: tu, {{name}}, quando accendi questa versione.",
         "realOwner": "Un'esecuzione vera si fermerebbe qui finché il proprietario — {{name}} — non approva.",
         "project": "{{client}} non è nella tabella dei clienti. Un'esecuzione vera si fermerebbe e chiederebbe al proprietario di scegliere un progetto.",
         "projectNoClient": "Il cliente non è nella tabella dei clienti. Un'esecuzione vera si fermerebbe e chiederebbe al proprietario di scegliere un progetto.",
@@ -5976,7 +5978,9 @@
         "pickProjectNone": "Scegli un progetto",
         "useProject": "Usa questo progetto nella prova",
         "error": "La prova non è potuta andare avanti. Riprova.",
-        "noProjects": "Non vedi nessun progetto che il proprietario potrebbe scegliere, quindi la prova non può andare avanti da qui. Un'esecuzione vera aspetterebbe che il proprietario ne scelga uno."
+        "noProjects": "Non vedi nessun progetto che il proprietario potrebbe scegliere, quindi la prova non può andare avanti da qui. Un'esecuzione vera aspetterebbe che il proprietario ne scelga uno.",
+        "connectMailbox": "Collega una casella prima di accenderla",
+        "seeWhereItStops": "Vedi dove si ferma"
       },
       "summary": {
         "label": "Cosa farebbe",

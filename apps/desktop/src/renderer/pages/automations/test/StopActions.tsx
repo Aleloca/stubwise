@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { useId, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReasonCode, SimulationEffectPreview, SimulationWaiting } from "../../../data/types";
@@ -39,7 +40,7 @@ export function RealApprover({
   if ("owner" in who) {
     line =
       ctx.sim?.draft && waiting.ownerId === ctx.me
-        ? t("automations.test.stop.realOwnerYou")
+        ? t("automations.test.stop.realOwnerYou", { name: ctx.names.person(waiting.ownerId) })
         : t("automations.test.stop.realOwner", { name: ctx.names.person(waiting.ownerId) });
   } else if ("personId" in who) {
     line = t("automations.test.stop.realPerson", { name: ctx.names.person(who.personId) });
@@ -92,6 +93,7 @@ export function ApprovalStop({
     );
   const subjectId = useId();
   const bodyId = useId();
+  if (failure) return <FailingApprovalStop waiting={waiting} preview={preview} failure={failure} />;
   return (
     <div className="flex flex-col gap-4">
       <RealApprover waiting={waiting} preview={preview} />
@@ -108,7 +110,7 @@ export function ApprovalStop({
             />
           </label>
           <label htmlFor={bodyId} className="flex flex-col gap-1 text-sm text-ink-muted">
-            {t("automations.test.stop.replyText")}
+            {t("automations.dataKeys.body")}
             <textarea
               id={bodyId}
               className={`${inputClass} min-h-40`}
@@ -120,12 +122,7 @@ export function ApprovalStop({
           <EmailPreview {...pp} p={email} edited={draft} />
         </div>
       ) : (
-        <>
-          {preview && <EffectPreview {...pp} p={preview} />}
-          {failure && (
-            <FailurePreview reason={reasonWords(failure.why, t, { would: true })} claude={false} />
-          )}
-        </>
+        preview && <EffectPreview {...pp} p={preview} />
       )}
       <div
         data-stop-actions
@@ -160,6 +157,77 @@ export function ApprovalStop({
             {t("automations.test.stop.edit")}
           </button>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** Le motivazioni che si risolvono collegando una casella nella Posta. */
+const MAILBOX_REASONS = new Set(["noMailbox", "mailboxGone", "mailboxExpired"]);
+
+/**
+ * Un'approvazione che, data, farebbe fallire il passo (es. il proprietario
+ * non ha una casella): il motivo per primo, al condizionale, con cosa fare;
+ * poi chi approverebbe e l'anteprima; al posto di Approve/Reject un solo
+ * «See where it stops», che approva nella prova e la porta dove si ferma.
+ */
+function FailingApprovalStop({
+  waiting,
+  preview,
+  failure,
+}: {
+  waiting: Extract<SimulationWaiting, { kind: "approval" }>;
+  preview: SimulationEffectPreview | null;
+  failure: { why: ReasonCode | null };
+}) {
+  const { t } = useTranslation();
+  const pp = usePreviewProps();
+  const ctx = useTest();
+  const code = failure.why?.code ?? "";
+  const action = MAILBOX_REASONS.has(code) ? (
+    <Link
+      to="/mail"
+      className="self-start text-md text-ink underline underline-offset-4 hover:no-underline"
+    >
+      {t("automations.test.stop.connectMailbox")}
+    </Link>
+  ) : null;
+  return (
+    <div className="flex flex-col gap-4">
+      <FailurePreview
+        reason={reasonWords(failure.why, t, { would: true })}
+        claude={false}
+        action={action}
+      />
+      <RealApprover waiting={waiting} preview={preview} />
+      {preview?.kind === "email" ? (
+        <EmailPreview
+          {...pp}
+          p={preview}
+          fromMissing={
+            code === "mailboxExpired" ? t("automations.test.preview.mailboxExpiredFrom") : undefined
+          }
+        />
+      ) : (
+        preview && <EffectPreview {...pp} p={preview} />
+      )}
+      <div
+        data-stop-actions
+        className="flex flex-wrap items-center gap-2 border-t border-rule pt-3"
+      >
+        <button
+          type="button"
+          data-stop-primary
+          className={secondaryButton}
+          disabled={ctx.busy}
+          onClick={async () => {
+            // Approvato nella prova, il passo prova a partire e si ferma dove fallirebbe.
+            await ctx.send({ kind: "approved", path: waiting.path, byId: ctx.me });
+            await ctx.send({ kind: "next" });
+          }}
+        >
+          {t("automations.test.stop.seeWhereItStops")}
+        </button>
       </div>
     </div>
   );

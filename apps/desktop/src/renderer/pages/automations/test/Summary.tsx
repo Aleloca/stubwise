@@ -9,19 +9,19 @@ import { soFarParts } from "./words";
 
 // Il riepilogo della prova (shape automation-test §3 e §5, «Fine»): in fondo
 // all'elenco, «So far: would create …» con i conteggi che crescono; a prova
-// finita bene la sezione «If this were real» a gruppi; finita male, dove si
-// è fermata e perché, con «Edit step N». Mai un numero animato.
+// finita, nel pannello (`EndSummary`): finita bene la sezione «If this were
+// real» a gruppi; finita male, dove si è fermata e perché, con «Edit step
+// N». Il titolo prende il fuoco (`tabIndex -1`). Mai un numero animato.
 
 const group = "flex flex-col gap-1.5";
 const rowText = "flex min-w-0 items-baseline gap-2 text-sm text-ink";
 
+/** In fondo all'elenco, mentre la prova va: «So far». */
 export function Summary() {
   const { t } = useTranslation();
   const ctx = useTest();
   const sim = ctx.sim;
-  if (!sim) return null;
-  if (sim.status === "done") return <FinalSummary sim={sim} />;
-  if (sim.status === "failed" || sim.status === "cancelled") return <StoppedSummary sim={sim} />;
+  if (!sim || ["done", "failed", "cancelled"].includes(sim.status)) return null;
   const parts = soFarParts(sim, t);
   return (
     <p data-so-far className="border-t border-rule pt-3 text-sm text-ink-muted">
@@ -30,6 +30,15 @@ export function Summary() {
         : t("automations.test.summary.soFarNothing")}
     </p>
   );
+}
+
+/** Nel pannello, a prova finita: «If this were real», o dove si è fermata. */
+export function EndSummary() {
+  const sim = useTest().sim;
+  if (!sim) return null;
+  if (sim.status === "done") return <FinalSummary sim={sim} />;
+  if (sim.status === "failed" || sim.status === "cancelled") return <StoppedSummary sim={sim} />;
+  return null;
 }
 
 function StoppedSummary({ sim }: { sim: SimulationView }) {
@@ -43,12 +52,13 @@ function StoppedSummary({ sim }: { sim: SimulationView }) {
   });
   const rejected = sim.status === "cancelled";
   return (
-    <section
-      data-test-stopped
-      aria-labelledby="test-stopped"
-      className="flex flex-col gap-2 border-t border-rule pt-4"
-    >
-      <h2 id="test-stopped" className="flex items-center gap-2 text-lg font-semibold text-ink">
+    <section data-test-stopped aria-labelledby="test-stopped" className="flex flex-col gap-2">
+      <h2
+        id="test-stopped"
+        tabIndex={-1}
+        data-summary-heading
+        className="flex items-center gap-2 text-lg font-semibold text-ink outline-none"
+      >
         <CriticalGlyph />
         {rejected
           ? t("automations.test.summary.rejected", { n })
@@ -91,12 +101,13 @@ function FinalSummary({ sim }: { sim: SimulationView }) {
   const project = (x: { project: { code: string } }) =>
     x.project.code || t("automations.test.preview.hiddenProject");
   return (
-    <section
-      data-test-final
-      aria-labelledby="test-final"
-      className="flex flex-col gap-4 border-t border-rule pt-4"
-    >
-      <h2 id="test-final" className="text-xl font-semibold text-ink">
+    <section data-test-final aria-labelledby="test-final" className="flex flex-col gap-4">
+      <h2
+        id="test-final"
+        tabIndex={-1}
+        data-summary-heading
+        className="text-xl font-semibold text-ink outline-none"
+      >
         {t("automations.test.summary.final")}
       </h2>
       {nothing ? (

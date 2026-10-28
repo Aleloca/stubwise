@@ -15,6 +15,7 @@ import {
   TaskPreview,
 } from "../previews/Previews";
 import { ApprovalStop, EventStop, ProjectStop } from "./StopActions";
+import { EndSummary } from "./Summary";
 
 // Il pannello dell'anteprima (shape automation-test §3 e §5): al posto del
 // pannello del passo del costruttore, cosa farebbe il passo selezionato (di
@@ -36,6 +37,13 @@ export function PreviewPanel({ bodyRef }: { bodyRef: RefObject<HTMLDivElement | 
   // Mentre la motivazione di Claude arriva, il pannello la mostra.
   const sel = ctx.selected ?? ctx.stream?.path ?? current;
   if (!sim || !ctx.ix) return null;
+  // A prova finita, senza un passo scelto: il riepilogo.
+  if (sel === null && ["done", "failed", "cancelled"].includes(sim.status))
+    return (
+      <div ref={bodyRef} className="flex flex-col gap-4 px-5 py-5">
+        <EndSummary />
+      </div>
+    );
   if (sel === null)
     return (
       <p className="px-5 py-5 text-md text-ink-muted">{t("automations.test.panel.nothing")}</p>
@@ -199,10 +207,13 @@ function StepBody({ step, path, mark }: { step: Step; path: string; mark: Mark }
     }
     if (cur?.failure)
       return (
-        <FailurePreview
-          reason={reasonWords(cur.failure.why, t, { would: true })}
-          claude={step.kind === "claude"}
-        />
+        <div className="flex flex-col gap-4">
+          <FailurePreview
+            reason={reasonWords(cur.failure.why, t, { would: true })}
+            claude={step.kind === "claude"}
+          />
+          {cur.preview && <EffectPreview {...pp} p={cur.preview} />}
+        </div>
       );
     if (cur?.preview)
       return (

@@ -11,7 +11,7 @@ import {
 import type { AutomationDetail, SimulationView } from "../../../data/types";
 import { useViewer } from "../../../data/viewer";
 import { DOCKED_PANEL_QUERY, DetailPanel } from "../../../layout/useDetailPanel";
-import { useMediaQuery } from "../../../layout/useMediaQuery";
+import { prefersReducedMotion, useMediaQuery } from "../../../layout/useMediaQuery";
 import { PageError } from "../../../tasks-ui/PageStates";
 import { TurnOnDialog } from "../AutomationDialogs";
 import { fieldLabels, isUntested } from "../format";
@@ -170,6 +170,32 @@ function Test({ detail }: { detail: AutomationDetail }) {
     }, 0);
     return () => window.clearTimeout(id);
   }, [stopKey]);
+
+  // A prova finita il pannello mostra il riepilogo (anche a 1024, dove si apre), col fuoco sul titolo.
+  const finishKey = finished ? `${sim!.status}:${sim!.log.length}` : null;
+  useEffect(() => {
+    if (!finishKey) return;
+    setSelected(null);
+    setPanelOpen(true);
+    const id = window.setTimeout(() => {
+      panelRef.current?.querySelector<HTMLElement>("[data-summary-heading]")?.focus();
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [finishKey]);
+
+  // Il passo corrente resta in vista: a ogni passo e a ogni fermata la sua riga va al centro.
+  const currentPath = currentPathOf(sim);
+  const positionKey = currentPath ? `${currentPath}:${sim!.log.length}` : null;
+  useEffect(() => {
+    if (!currentPath) return;
+    const row = treeRef.current?.querySelector<HTMLElement>(
+      `[data-test-row="${currentPath.replace(/["\\]/g, "\\$&")}"]`,
+    );
+    row?.scrollIntoView?.({
+      block: "center",
+      behavior: prefersReducedMotion() ? "auto" : "smooth",
+    });
+  }, [positionKey]);
 
   // Le scorciatoie: N ovunque, Invio dal flusso o dal pannello, Maiusc+Invio, Esc per uscire.
   const backStep = (() => {

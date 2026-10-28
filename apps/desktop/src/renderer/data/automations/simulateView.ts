@@ -1,6 +1,6 @@
 import type { EngineInput, ResolvedTarget } from "../../domain/automations/engine";
 import { stepAt } from "../../domain/automations/fields";
-import { describe, projectOf, type ActionStep } from "../../domain/automations/preview";
+import { describe, projectOf, show, type ActionStep } from "../../domain/automations/preview";
 import { copy, state, visibleProjectIds } from "../store";
 import type { Automation, SimulationProject, SimulationView, SimulationWaiting } from "../types";
 import type { ActionEffect } from "./plans";
@@ -44,9 +44,33 @@ function currentOf(sim: Sim, a: Automation): SimulationView["current"] {
   const r = previewOf(sim, a, eff, st.now);
   if (r.ok) return { ...at, preview: r.preview, failure: null };
   const out = r.outcome.input as Extract<EngineInput, { kind: "effect_result" }>;
+  // Un'email che non partirebbe resta leggibile: chi prova vede cosa avrebbe
+  // mandato, e «From» vuoto dice che manca la casella.
+  const args = eff.args as {
+    to?: unknown;
+    subject?: unknown;
+    body?: unknown;
+    attachments?: unknown;
+  };
+  const email =
+    eff.kind === "sendEmail"
+      ? {
+          kind: "email" as const,
+          stepId: eff.stepId,
+          path: eff.path,
+          from: "",
+          to: show(args.to),
+          subject: show(args.subject),
+          body: show(args.body),
+          attachments: (Array.isArray(args.attachments) ? args.attachments : [])
+            .map(show)
+            .filter((x) => x !== ""),
+          sameConversationAs: null,
+        }
+      : null;
   return {
     ...at,
-    preview: null,
+    preview: email,
     failure: { error: out.error ?? "", reason: out.reason ?? null, why: out.why ?? null },
   };
 }

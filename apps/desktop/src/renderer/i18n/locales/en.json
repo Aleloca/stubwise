@@ -5947,7 +5947,9 @@
         "hide": "Hide",
         "replyGot": "Reply in the test",
         "noReplyGot": "No reply: the wait ran out.",
-        "wouldDo": "Would do this next. Next step runs it."
+        "wouldDo": "Would do this next. Next step runs it.",
+        "noMailboxFrom": "No mailbox connected",
+        "mailboxExpiredFrom": "Mailbox connection expired"
       },
       "stop": {
         "skip_one": "Skip ahead {{count}} day",
@@ -5968,7 +5970,7 @@
         "realPerson": "A real run would stop here until {{name}} approves.",
         "realRole": "A real run would stop here until the {{role}} of {{code}} — {{name}} — approves.",
         "realRoleNobody": "A real run would stop here until the {{role}} of {{code}} approves.",
-        "realOwnerYou": "A real run would stop here until the owner approves. After you turn it on, that's you.",
+        "realOwnerYou": "A real run would stop here until the owner approves: you, {{name}}, once you turn this version on.",
         "realOwner": "A real run would stop here until the owner — {{name}} — approves.",
         "project": "{{client}} isn't in the client table. A real run would stop and ask the owner to choose a project.",
         "projectNoClient": "The client isn't in the client table. A real run would stop and ask the owner to choose a project.",
@@ -5976,7 +5978,9 @@
         "pickProjectNone": "Choose a project",
         "useProject": "Use this project in the test",
         "error": "The test couldn't go on. Try again.",
-        "noProjects": "You can't see any project the owner could choose, so the test can't go on from here. A real run would wait for the owner to choose one."
+        "noProjects": "You can't see any project the owner could choose, so the test can't go on from here. A real run would wait for the owner to choose one.",
+        "connectMailbox": "Connect a mailbox before you turn it on",
+        "seeWhereItStops": "See where it stops"
       },
       "summary": {
         "label": "What it would do",

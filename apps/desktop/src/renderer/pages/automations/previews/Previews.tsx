@@ -208,8 +208,11 @@ export function EmailPreview({
   fromYours = false,
   edited,
   clampBody = false,
+  fromMissing,
 }: {
   p: SimulationEmailPreview;
+  /** Perché «From» è vuoto, se non è la casella mancante (es. scaduta). */
+  fromMissing?: string;
   words: PreviewWords;
   /** «Da decidere»: il corpo chiuso alle prime 3 righe, con «Show all». */
   clampBody?: boolean;
@@ -225,12 +228,20 @@ export function EmailPreview({
     <section data-preview-email className="flex flex-col gap-3">
       <p className="text-sm text-ink-muted">{t("automations.test.preview.email")}</p>
       <dl className={pairs}>
-        {/* Senza una casella nota (un proprietario senza posta collegata) la riga non c'è. */}
-        {p.from && (
-          <Pair label={t("automations.test.preview.from")}>
-            {yours ? t("automations.test.preview.fromOwner", { email: p.from }) : p.from}
-          </Pair>
-        )}
+        {/* Senza una casella (un proprietario senza posta collegata) «From» lo dice: l'email non partirebbe. */}
+        <Pair label={t("automations.test.preview.from")}>
+          {p.from ? (
+            yours ? (
+              t("automations.test.preview.fromOwner", { email: p.from })
+            ) : (
+              p.from
+            )
+          ) : (
+            <span data-from-missing className="text-critical">
+              {fromMissing ?? t("automations.test.preview.noMailboxFrom")}
+            </span>
+          )}
+        </Pair>
         <Pair label={t("automations.test.preview.to")}>{edited?.to ?? p.to}</Pair>
         <Pair label={t("automations.test.preview.subject")}>
           <span className="font-semibold">{edited?.subject ?? p.subject}</span>
@@ -466,7 +477,16 @@ export function EffectPreview({
 }
 
 /** Il fallimento di un passo: in parole, con la riga che dice che la vera si fermerebbe. */
-export function FailurePreview({ reason, claude }: { reason: string | null; claude: boolean }) {
+export function FailurePreview({
+  reason,
+  claude,
+  action,
+}: {
+  reason: string | null;
+  claude: boolean;
+  /** Cosa fare perché non fallisca (es. collegare una casella), sotto il motivo. */
+  action?: ReactNode;
+}) {
   const { t } = useTranslation();
   return (
     <section data-preview-failure className="flex flex-col gap-1.5">
@@ -475,6 +495,7 @@ export function FailurePreview({ reason, claude }: { reason: string | null; clau
         {claude ? t("automations.test.preview.claudeOff") : t("automations.test.preview.failed")}
       </p>
       {reason && <p className="max-w-[68ch] text-md text-ink">{reason}</p>}
+      {action}
       <p className="text-sm text-ink-muted">{t("automations.test.preview.realStop")}</p>
     </section>
   );

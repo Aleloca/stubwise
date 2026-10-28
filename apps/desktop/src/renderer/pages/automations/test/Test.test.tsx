@@ -112,7 +112,7 @@ describe("la prova, da cima a fondo", () => {
     await userEvent.click(runToStop());
     await waitFor(() => expect(document.querySelector("[data-real-approver]")).not.toBeNull());
     expect(document.querySelector("[data-real-approver]")).toHaveTextContent(
-      "A real run would stop here until the owner approves. After you turn it on, that's you.",
+      "A real run would stop here until the owner approves: you, Matteo Conti, once you turn this version on.",
     );
     expect(next()).toBeDisabled();
     expect(runToStop()).toBeDisabled();
@@ -276,6 +276,10 @@ describe("i giri (Review Focus 5)", () => {
     await open(`/automations/${code}/test`);
     await startWith(0);
     await screen.findByText("The test stopped at step 1");
+    expect(screen.getByRole("link", { name: "Edit step 1" })).toHaveAttribute(
+      "href",
+      expect.stringContaining(`/automations/${code}/edit?step=each`),
+    );
     expect(rowMark("0")).toBe("failed");
     expect(row("0")).toHaveTextContent("Would fail");
     await userEvent.click(row("0"));
@@ -283,10 +287,6 @@ describe("i giri (Review Focus 5)", () => {
       "The list has 64 items. A run stops at 50: this step would fail.",
     );
     expect(panel()).toHaveTextContent("A real run would stop here. Nothing else would happen.");
-    expect(screen.getByRole("link", { name: "Edit step 1" })).toHaveAttribute(
-      "href",
-      expect.stringContaining(`/automations/${code}/edit?step=each`),
-    );
     expect(document.querySelector("[data-finish-action]")).toBeNull();
   });
 });
@@ -622,6 +622,94 @@ describe("ondata finale", () => {
     );
     expect(note).toBeInTheDocument();
     expect(within(panel()).queryByRole("combobox", { name: "Project" })).toBeNull();
+  });
+});
+
+describe("revisione visiva (Impeccable)", () => {
+  it("la fermata che fallirebbe: il motivo per primo, cosa fare, l'email con «From» che lo dice, un solo «See where it stops»", async () => {
+    // Roberta prova la bozza di AUT-1: il proprietario sarebbe lei, che non ha una casella.
+    await open("/automations/AUT-1/test", "p-roberta");
+    await startWith(2);
+    await userEvent.click(runToStop());
+    await waitFor(() => expect(document.querySelector("[data-real-approver]")).not.toBeNull());
+    const p = panel();
+    const failure = p.querySelector<HTMLElement>("[data-preview-failure]")!;
+    expect(failure).toHaveTextContent(
+      "The owner (Roberta Fontana) has no connected mailbox: the email wouldn't be sent.",
+    );
+    // Il motivo viene prima della riga dell'approvatore e dell'anteprima.
+    const email = p.querySelector<HTMLElement>("[data-preview-email]")!;
+    expect(failure.compareDocumentPosition(email) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      failure.compareDocumentPosition(p.querySelector("[data-real-approver]")!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      within(p).getByRole("link", { name: "Connect a mailbox before you turn it on" }),
+    ).toHaveAttribute("href", "/mail");
+    expect(email).toHaveTextContent("No mailbox connected");
+    expect(email.querySelector("[data-from-missing]")).toHaveClass("text-critical");
+    // La riga dell'approvatore non contraddice il nome del motivo.
+    expect(p.querySelector("[data-real-approver]")).toHaveTextContent("Roberta Fontana");
+    expect(within(p).queryByRole("button", { name: "Approve in the test" })).toBeNull();
+    expect(within(p).queryByRole("button", { name: "Reject in the test" })).toBeNull();
+    await userEvent.click(within(p).getByRole("button", { name: "See where it stops" }));
+    // Fine della prova: il pannello mostra il riepilogo, col fuoco sul titolo.
+    const heading = await within(panel()).findByRole("heading", {
+      name: /^The test stopped at step \d+$/,
+    });
+    await waitFor(() => expect(heading).toHaveFocus());
+    expect(within(panel()).getByRole("link", { name: /^Edit step \d+$/ })).toBeInTheDocument();
+  });
+
+  it("«Edit before approving»: il corpo dell'email si chiama come il corpo, non come la risposta", async () => {
+    await open("/automations/AUD-A1/test");
+    await startWith(0);
+    await userEvent.click(next());
+    await userEvent.click(
+      await within(panel()).findByRole("button", { name: "Write the client's reply" }),
+    );
+    await userEvent.type(within(panel()).getByRole("textbox", { name: "Reply" }), "Gli orari");
+    await userEvent.click(within(panel()).getByRole("button", { name: "Use this reply" }));
+    await waitFor(() => expect(next()).toBeEnabled());
+    await userEvent.click(runToStop());
+    await userEvent.click(
+      await within(panel()).findByRole("button", { name: "Edit before approving" }),
+    );
+    expect(within(panel()).getByRole("textbox", { name: "Body" })).toBeInTheDocument();
+    expect(within(panel()).queryByRole("textbox", { name: "Reply" })).toBeNull();
+  });
+
+  it("finita bene: il pannello mostra «If this were real» e il passo corrente resta in vista a ogni passo", async () => {
+    const scroll = vi.fn();
+    const proto = Element.prototype as unknown as { scrollIntoView?: unknown };
+    const before = proto.scrollIntoView;
+    proto.scrollIntoView = scroll;
+    try {
+      await open("/automations/AUD-A1/test");
+      await startWith(0);
+      await userEvent.click(next());
+      // Movimento ridotto: istantaneo, al centro.
+      await waitFor(() =>
+        expect(scroll).toHaveBeenCalledWith({ block: "center", behavior: "auto" }),
+      );
+      const rowsScrolled = scroll.mock.contexts.map((el) => (el as HTMLElement).dataset.testRow);
+      expect(rowsScrolled).toContain("1");
+      await userEvent.click(
+        await within(panel()).findByRole("button", { name: "Write the client's reply" }),
+      );
+      await userEvent.type(
+        within(panel()).getByRole("textbox", { name: "Reply" }),
+        "I numeri da collegare sono 0577 000111 e 0577 000112; gli orari di apertura dalle 9 alle 18; il messaggio di benvenuto: «Benvenuti in cantina».",
+      );
+      await userEvent.click(within(panel()).getByRole("button", { name: "Use this reply" }));
+      await waitFor(() => expect(next()).toBeEnabled());
+      await userEvent.click(runToStop());
+      const heading = await within(panel()).findByRole("heading", { name: "If this were real" });
+      await waitFor(() => expect(heading).toHaveFocus());
+    } finally {
+      proto.scrollIntoView = before;
+    }
   });
 });
 
