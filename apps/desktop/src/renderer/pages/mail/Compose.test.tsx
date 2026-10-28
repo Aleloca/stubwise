@@ -714,3 +714,50 @@ describe("Fix round 1", () => {
     expect(within(form).getByRole("button", { name: "Ask Claude" })).not.toHaveFocus();
   });
 });
+
+describe("«Salvato» solo a bozza salvata (area 8)", () => {
+  // Senza userEvent.type: ogni lettera è un passo che può sforare il debounce
+  // (DRAFT_SAVE_MS) sotto carico. fireEvent.change è un passo solo, e le
+  // attese sono sullo stato vero della bozza, non sull'orologio.
+  const write = (form: HTMLElement, text: string) =>
+    fireEvent.change(body(form), { target: { value: text } });
+  const savedBody = (text: string) => state.mailDrafts[0]?.body === text;
+
+  it("modifica dopo un salvataggio: niente «Salvato» finché il nuovo salvataggio non finisce", async () => {
+    await openMail(`/mail/${CALL_NOTES()}`);
+    const p = await pane(CALL_NOTES());
+    await userEvent.click(within(p).getByRole("button", { name: "Reply" }));
+    const form = await composer("Reply to Matteo Conti");
+    write(form, "First.");
+    expect(await within(form).findByText("Saved")).toBeInTheDocument();
+    write(form, "First and second.");
+    // Subito dopo la modifica la scritta non c'è più: la bozza non è salvata.
+    expect(within(form).queryByText("Saved")).toBeNull();
+    await waitFor(() => expect(savedBody("First and second.")).toBe(true));
+    expect(await within(form).findByText("Saved")).toBeInTheDocument();
+  });
+
+  it("modifica durante un salvataggio: niente «Salvato» al suo termine", async () => {
+    await openMail(`/mail/${CALL_NOTES()}`);
+    const p = await pane(CALL_NOTES());
+    await userEvent.click(within(p).getByRole("button", { name: "Reply" }));
+    const form = await composer("Reply to Matteo Conti");
+    setLatency(400);
+    write(form, "First.");
+    // Il salvataggio è in volo: lo dice la scritta «Saving…».
+    await within(form).findByText("Saving…");
+    write(form, "First and second.");
+    // Da qui al salvataggio dell'ultimo testo «Saved» non deve mai comparire.
+    let early = false;
+    const watch = new MutationObserver(() => {
+      if (within(form).queryByText("Saved") && !savedBody("First and second.")) early = true;    });
+    watch.observe(form, { childList: true, subtree: true, characterData: true });
+    try {
+      await waitFor(() => expect(savedBody("First and second.")).toBe(true));
+      expect(early).toBe(false);
+      expect(await within(form).findByText("Saved")).toBeInTheDocument();
+    } finally {
+      watch.disconnect();
+    }
+  });
+});

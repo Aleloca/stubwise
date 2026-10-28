@@ -71,6 +71,8 @@ export function useComposerDraft({
   const dirty = useRef(false);
   const timer = useRef<number | null>(null);
   const gone = useRef(false);
+  /** Salvataggi partiti e non ancora finiti. */
+  const inFlight = useRef(0);
   const callbacks = useRef({ onClose, onLoaded, onEdit });
   callbacks.current = { onClose, onLoaded, onEdit };
 
@@ -98,10 +100,17 @@ export function useComposerDraft({
     if (!f || !dirty.current || gone.current) return;
     dirty.current = false;
     setStatus("saving");
+    inFlight.current += 1;
     try {
       await saveMutation.mutateAsync(inputOf(f, modeRef.current));
-      setStatus("saved");
+      inFlight.current -= 1;
+      // «Salvato» solo se nel frattempo non si è scritto altro (il timer già
+      // programmato salva il testo nuovo) e nessun altro salvataggio è in
+      // volo: i salvataggi si possono sovrapporre, e quello più vecchio
+      // vedrebbe `dirty` già azzerato da quello più nuovo.
+      if (inFlight.current === 0) setStatus(dirty.current ? "idle" : "saved");
     } catch {
+      inFlight.current -= 1;
       dirty.current = true;
       setStatus("failed");
     }
@@ -127,6 +136,9 @@ export function useComposerDraft({
     setFieldsState(next);
     callbacks.current.onEdit();
     dirty.current = true;
+    // Nessuna etichetta finché la modifica non è salvata (scelta del
+    // costruttore, area 8): «Salvato» sopra un testo nuovo mentirebbe.
+    setStatus("idle");
     clearTimer();
     timer.current = window.setTimeout(() => void saveRef.current(), DRAFT_SAVE_MS);
   };
