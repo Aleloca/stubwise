@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   failNext,
+  releases as releasesApi,
   resetApi,
   runScript,
   setLatency,
@@ -43,6 +44,9 @@ import {
   useSetFilterPinned,
   useTask,
   useUpdateTask,
+  useMyReleases,
+  useOpenPrs,
+  useSetAlertSubscription,
 } from "./queries";
 import { TODAY } from "./seed/dates";
 import { getSessionPersonId } from "./session";
@@ -540,5 +544,36 @@ describe("Scrivere dalla Posta", () => {
     expect(result.current.claude.state.status).toBe("writing");
     act(() => result.current.viewer.setPersona("p-matteo"));
     expect(result.current.claude.state).toEqual({ status: "idle" });
+  });
+});
+
+describe("Rilasci: lo stato delle PR di Stubwise e i falliti seguono sessioni e iscrizioni", () => {
+  it("un cambio di una sessione rilegge le PR aperte (lo stato di una PR di Stubwise viene da lì)", async () => {
+    const read = vi.spyOn(releasesApi, "listOpenPrs");
+    const { result } = renderHook(() => useOpenPrs("prj-stw"), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const before = read.mock.calls.length;
+    await act(() => runScript("cv-run-stw-3", [{ step: "state", state: "finished" }]));
+    await waitFor(() => expect(read.mock.calls.length).toBeGreaterThan(before));
+    read.mockRestore();
+  });
+
+  it("un'iscrizione cambiata rilegge i rilasci di chi guarda (il blocco Home legge l'iscrizione)", async () => {
+    const read = vi.spyOn(releasesApi, "listMyReleases");
+    const { result } = renderHook(
+      () => ({ mine: useMyReleases(), set: useSetAlertSubscription() }),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.mine.isSuccess).toBe(true));
+    const before = read.mock.calls.length;
+    await act(() =>
+      result.current.set.mutateAsync({
+        projectId: "prj-aud",
+        type: "release.failed",
+        change: { app: false },
+      }),
+    );
+    await waitFor(() => expect(read.mock.calls.length).toBeGreaterThan(before));
+    read.mockRestore();
   });
 });

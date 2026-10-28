@@ -6,6 +6,7 @@ import { state } from "../../data/store";
 import { grantProjectRole, resetViewerGrants } from "../../data/viewer";
 import { setLanguage } from "../../i18n";
 import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
+import { expectNoDeploy } from "../../test/noDeploy";
 import { renderRoute } from "../../test/renderRoute";
 import { setMatchMedia } from "../../test/setup";
 
@@ -34,33 +35,6 @@ async function openSection(person = "p-laura", path = "/p/AUD/releases") {
   await screen.findByRole("heading", { level: 1, name: "Releases" });
   await screen.findByRole("list", { name: "Ready to release" });
   return router;
-}
-
-/**
- * Anti-obiettivo 1: nessun controllo che avvii, rilanci o promuova un
- * rilascio o una pipeline. Si cerca per nome accessibile fra bottoni, link
- * e voci di menu, e per testo in tutta la pagina.
- */
-function expectNoDeploy() {
-  const actions = [
-    ...screen.queryAllByRole("button"),
-    ...screen.queryAllByRole("link"),
-    ...screen.queryAllByRole("menuitem"),
-    ...screen.queryAllByRole("switch"),
-  ];
-  const banned =
-    /^(re-?deploy|deploy|re-?run|rerun|retry the pipeline|promote|riprova|rilancia|promuovi)\b/i;
-  for (const el of actions) {
-    const name = (el.getAttribute("aria-label") ?? el.textContent ?? "").trim();
-    expect(name, `controllo vietato: «${name}»`).not.toMatch(banned);
-  }
-  // Nessun elemento il cui testo SIA un invito a rilanciare o a rilasciare a
-  // mano (la frase-confine del sottotitolo lo nomina solo per negarlo).
-  for (const el of document.body.querySelectorAll("*")) {
-    expect(el.textContent?.trim() ?? "").not.toMatch(
-      /^(deploy|re-?deploy|re-?run( the)? pipeline|riprova la pipeline|rilancia la pipeline)$/i,
-    );
-  }
 }
 
 describe("Releases — la sezione", () => {

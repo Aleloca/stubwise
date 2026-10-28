@@ -1,4 +1,5 @@
 import { matches } from "../domain/filters";
+import { DEFAULT_CORRECTION_CAP } from "../domain/releases/prState";
 import type { Stall } from "../domain/stalled";
 import { DEPARTMENT_ROLES } from "./seed/departmentRoles";
 import { DEPARTMENTS } from "./seed/departments";
@@ -682,8 +683,6 @@ export async function getTaskWork(taskId: string): Promise<TaskWork | null> {
   };
 }
 
-/** Il tetto delle correzioni automatiche per PR quando il progetto non ne fissa uno. */
-const DEFAULT_CORRECTION_CAP = 3;
 
 /**
  * I consumi AI di una task per modello, su tutte le sue sessioni di lavoro:

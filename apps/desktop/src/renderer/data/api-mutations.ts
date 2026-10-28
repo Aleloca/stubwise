@@ -91,6 +91,7 @@ import type {
   TaskPatch,
   TaskSize,
 } from "./types";
+import { publishAlert } from "./alerts/publish";
 import { overStubwiseCap } from "./releases/visibility";
 import { can, canInDepartment, grantProjectRole, viewerFor, type Permission } from "./viewer";
 
@@ -245,6 +246,17 @@ export function createTaskAs(
   const task = { ...buildTask(me, input), ...copy(extra) };
   addTask(task);
   signalAutomations({ kind: "task_created", taskId: task.id });
+  // «Nuova task» del catalogo (area 8a): da ogni porta che crea una task,
+  // «Fai sistemare a Claude» compreso; chi la riceve si calcola a lettura.
+  const code = state.projectsById.get(task.projectId)!.code;
+  publishAlert({
+    kind: "task.created",
+    projectId: task.projectId,
+    objectCode: task.code,
+    title: "New task",
+    body: task.title,
+    link: `#/p/${code}/tasks?task=${task.code}`,
+  });
   return task;
 }
 

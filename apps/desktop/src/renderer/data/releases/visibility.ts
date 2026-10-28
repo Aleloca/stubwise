@@ -2,6 +2,7 @@ import { correctionsOf, prKey } from "../../domain/claude/taskWork";
 import {
   correctionsFromRecords,
   countedRound,
+  DEFAULT_CORRECTION_CAP,
   isReadyForRelease,
   prState,
   type PrCorrectionInput,
@@ -9,7 +10,8 @@ import {
 } from "../../domain/releases/prState";
 import { releaseStatus, type ReleaseStatus } from "../../domain/releases/releaseStatus";
 import { releaseMandatory } from "../alerts/publish";
-import { eventsOf, now, state, visibleProjectIds } from "../store";
+import { holds, sees } from "../access";
+import { eventsOf, now, state } from "../store";
 import type {
   CiRun,
   OpenPullRequest,
@@ -19,7 +21,6 @@ import type {
   Repository,
   Task,
 } from "../types";
-import { can, viewerFor, type Permission } from "../viewer";
 import { notFound } from "../writer";
 
 // Chi vede che cosa in Rilasci, PR e ambienti (area 8a) — l'unica regola,
@@ -29,14 +30,7 @@ import { notFound } from "../writer";
 // risponde come uno che non esiste (R-G5). Lo stato di una PR e di un
 // rilascio si DERIVA qui, con le regole pure di `domain/releases`.
 
-/** Il tetto delle correzioni del progetto (`correctionCap`), assente = 3. */
-export const DEFAULT_CORRECTION_CAP = 3;
-
-export const sees = (me: string, projectId: string): boolean =>
-  visibleProjectIds(me).has(projectId);
-
-export const holds = (me: string, perm: Permission, projectId: string): boolean =>
-  can(viewerFor(me), perm, projectId);
+export { holds, sees };
 
 export const capOf = (projectId: string): number =>
   state.projectsById.get(projectId)?.correctionCap ?? DEFAULT_CORRECTION_CAP;
@@ -144,9 +138,13 @@ export function stateOfPr(pr: OpenPullRequest): PrState {
 /** Chi è l'autore della PR, come persona di Stubwise (mai Claude). */
 export const isAuthor = (me: string, pr: OpenPullRequest): boolean => pr.authorId === me;
 
-/** «Solo analisi» sulla PR: l'autore (una persona) o chi ha `prs.adopt`. */
+/**
+ * «Solo analisi» sulla PR di un collega: l'autore (una persona) o chi ha
+ * `prs.adopt`. Su una PR di Stubwise non c'è: le sue correzioni sono
+ * sessioni della task, sotto il tetto (R-K2).
+ */
 export const canSetAnalysisOnly = (me: string, pr: OpenPullRequest): boolean =>
-  isAuthor(me, pr) || holds(me, "prs.adopt", pr.projectId);
+  pr.origin === "colleague" && (isAuthor(me, pr) || holds(me, "prs.adopt", pr.projectId));
 
 /**
  * Chiedere una correzione. Su una PR di un collega: l'autore con
@@ -166,6 +164,8 @@ export const canRequestCorrection = (me: string, pr: OpenPullRequest): boolean =
 
 export type OpenPrView = OpenPullRequest & {
   prState: PrState;
+  /** Il tetto delle correzioni del progetto (R-K2): la UI lo legge, non lo deduce. */
+  cap: number;
   taskCode: string | null;
   /** Cosa può fare chi guarda, deciso qui (il client non lo deduce). */
   actions: { analysisOnly: boolean; requestCorrection: boolean };
@@ -176,6 +176,7 @@ export function prView(me: string, pr: OpenPullRequest): OpenPrView {
   return {
     ...structuredClone(pr),
     prState: stateOfPr(pr),
+    cap: capOf(pr.projectId),
     taskCode: task && sees(me, task.projectId) ? task.code : null,
     actions: {
       analysisOnly: canSetAnalysisOnly(me, pr),

@@ -158,6 +158,14 @@ describe("letture", () => {
     expect(marco.failed).toEqual([]);
   });
 
+  it("blocco Home: un fallito in riparazione resta, con la riparazione chiusa esce (deciso qui)", async () => {
+    as("p-laura");
+    const task = await releases.fixRelease("AUD-V3");
+    expect((await releases.listMyReleases()).failed.map((r) => r.code)).toEqual(["AUD-V3"]);
+    state.tasksById.get(task.id)!.closedAt = `${TODAY}T10:00:00Z`;
+    expect((await releases.listMyReleases()).failed).toEqual([]);
+  });
+
   it("impostazioni dei repository e ambienti, coi permessi calcolati qui", async () => {
     as("p-laura");
     const settings = (await releases.getRepositorySettings(AUD))!;
@@ -428,6 +436,16 @@ describe("Review Focus 2: correzioni sulle PR dei colleghi (livello dati)", () =
     Object.assign(pr("opr-aud-246"), { branch: "release", baseBranch: "develop" });
     const again = await releases.advancePrWork("opr-aud-246");
     expect(again.prState).toMatchObject({ state: "not_fixable", notFixable: "release_branch" });
+  });
+
+  it("«Solo analisi» c'è solo sulle PR dei colleghi: su una di Stubwise è invalid: origin", async () => {
+    as("p-laura"); // prs.adopt in AUD
+    await expect(releases.setPrAnalysisOnly("opr-aud-244", true)).rejects.toThrow(
+      /^invalid: origin$/,
+    );
+    expect(pr("opr-aud-244").analysisOnly).toBeNull();
+    const view = (await releases.listOpenPrs(AUD)).find((p) => p.id === "opr-aud-244")!;
+    expect(view.actions.analysisOnly).toBe(false);
   });
 
   it("repository «Spento» con PR «Solo analisi»: non si riaccende", async () => {

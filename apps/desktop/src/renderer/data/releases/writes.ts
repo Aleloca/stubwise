@@ -7,6 +7,7 @@ import {
   requestChangesAs,
   startRunAs,
 } from "../api-mutations";
+import { shortRepo } from "../../domain/releases/repo";
 import { publishAlert } from "../alerts/publish";
 import { PEOPLE } from "../seed/people";
 import { copy, latestRunOf, newId, now, state, storeGeneration } from "../store";
@@ -52,7 +53,6 @@ import {
 // loro esiti come codici, come sul web.
 
 const personName = (id: string): string => PEOPLE.find((p) => p.id === id)?.name ?? id;
-const shortRepo = (repo: string): string => repo.split("/").at(-1) ?? repo;
 
 /** Uno sha finto ma stabile (40 esadecimali), da un seme e dal contatore dello store. */
 export function fakeSha(seed: string): string {
@@ -220,13 +220,14 @@ export async function setReleasePipeline(
 // --- PR ---------------------------------------------------------------------
 
 /**
- * «Solo analisi» sulla singola PR: l'autore (una persona) o chi ha
- * `prs.adopt`. Restringe soltanto: su un repository «Spento» non si
+ * «Solo analisi» sulla singola PR di un collega (su una di Stubwise non c'è:
+ * `invalid: origin`): l'autore (una persona) o chi ha `prs.adopt`. Restringe soltanto: su un repository «Spento» non si
  * accende (non riaccenderebbe l'analisi).
  */
 export async function setPrAnalysisOnly(prId: string, on: boolean): Promise<OpenPrView> {
   const me = await writer("releases.setPrAnalysisOnly");
   const pr = prFor(me, prId);
+  if (pr.origin !== "colleague") throw invalid("origin");
   if (!canSetAnalysisOnly(me, pr)) throw forbidden();
   if (pr.state !== "open") throw invalid("state");
   const repo = repositoryById(pr.repositoryId);

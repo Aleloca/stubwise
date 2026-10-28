@@ -69,11 +69,9 @@ function AnalysisOnly({ pr }: { pr: OpenPrView }) {
 
 function RequestChanges({
   pr,
-  cap,
   projectCode,
 }: {
   pr: OpenPrView;
-  cap: number;
   projectCode: string;
 }) {
   const { t } = useTranslation();
@@ -83,6 +81,7 @@ function RequestChanges({
   const id = useId();
   const [text, setText] = useState("");
   const [result, setResult] = useState<string | null>(null);
+  const { cap } = pr;
   const atCap = pr.prState.autoRound >= cap;
   // Oltre il tetto solo chi approva i piani (R-K2): agli altri il bottone c'è, spento, col perché.
   const over = atCap && can(viewer, "plans.approve", pr.projectId);
@@ -143,11 +142,9 @@ function RequestChanges({
 
 export function PrActions({
   pr,
-  cap,
   projectCode,
 }: {
   pr: OpenPrView;
-  cap: number;
   projectCode: string;
 }) {
   const { t } = useTranslation();
@@ -159,7 +156,7 @@ export function PrActions({
         {colleague && <AnalysisOnly pr={pr} />}
         {/* Sulle PR di Stubwise è la correzione della task (area 3), sotto lo stesso tetto. */}
         {pr.actions.requestCorrection && fixable && (
-          <RequestChanges pr={pr} cap={cap} projectCode={projectCode} />
+          <RequestChanges pr={pr} projectCode={projectCode} />
         )}
         {!colleague && pr.taskCode && pr.actions.requestCorrection && (
           <p className="text-sm text-ink-muted">

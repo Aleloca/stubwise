@@ -69,8 +69,6 @@ import type {
   TaskPatch,
 } from "./types";
 import { can, useViewer } from "./viewer";
-import { getSessionPersonId } from "./session";
-import { streamText } from "./stream";
 
 /**
  * Ogni chiave comincia con `["as", personId]`: cambiare persona «vedi come»
@@ -621,7 +619,7 @@ export function useSearch(q: string) {
 // --- conversazioni con Claude ------------------------------------------------
 
 /** Le aree delle conversazioni: elenchi e dettaglio. */
-const CONVERSATION_AREAS = ["conversations", "conversation", "refineOf"] as const;
+export const CONVERSATION_AREAS = ["conversations", "conversation", "refineOf"] as const;
 /** Claude che lavora su una task ne cambia lo stato: anche le aree delle task. */
 const CONVERSATION_CHANGE_AREAS = [
   ...CONVERSATION_AREAS,
@@ -637,6 +635,9 @@ const CONVERSATION_CHANGE_AREAS = [
   "waitingOnMe",
   // Lo stato di una task si legge anche nella scheda di preparazione.
   "meeting",
+  // Lo stato di una PR di Stubwise (coda, pannello, blocco Home) viene dalle
+  // sessioni della sua task.
+  "releases",
 ] as const;
 
 /** Quanto si aspetta per raccogliere più cambi in una sola rilettura (ms). */
@@ -699,7 +700,7 @@ function listenToConversationChanges(client: QueryClient): () => void {
  * chi guarda, quindi una conversazione che non vede non compare. Un solo
  * ascoltatore per app, qualunque sia il numero di hook montati.
  */
-function useConversationChanges(): void {
+export function useConversationChanges(): void {
   const client = useQueryClient();
   useEffect(() => listenToConversationChanges(client), [client]);
 }
@@ -846,7 +847,7 @@ export function usePinnedFilters() {
  * una task cambiata sposta liste, board, ferme, polso e cronologia — e la
  * scheda di preparazione del Calendario («meeting»), che ne mostra lo stato.
  */
-const TASK_AREAS = [
+export const TASK_AREAS = [
   "tasks",
   "task",
   "activity",
@@ -863,7 +864,7 @@ const TASK_AREAS = [
  * Una richiesta convertita nasce come task: oltre alle richieste sposta liste,
  * ferme, polso, cronologia e attività del progetto.
  */
-const REQUEST_AREAS = [
+export const REQUEST_AREAS = [
   "requests",
   "request",
   "waitingOnMe",
@@ -895,7 +896,7 @@ const DECISION_AREAS = ["decisionLog", "timeline"] as const;
 const MILESTONE_AREAS = ["milestones", "tasks", "task", "pulse", "timeline", "meeting"] as const;
 
 /** Ricarica le aree indicate, ma solo di chi sta guardando. */
-function useInvalidate(areas: readonly string[]) {
+export function useInvalidate(areas: readonly string[]) {
   const client = useQueryClient();
   const me = useSessionPersonId();
   return () =>
@@ -908,7 +909,7 @@ function useInvalidate(areas: readonly string[]) {
 }
 
 /** Una mutazione semplice: alla fine ricarica le aree che può aver toccato. */
-function useWrite<TVars, TData>(
+export function useWrite<TVars, TData>(
   mutationFn: (vars: TVars) => Promise<TData>,
   areas: readonly string[],
 ) {
@@ -923,7 +924,7 @@ function useWrite<TVars, TData>(
  * dal «server». Chi usa il hook legge `error` per dire all'utente che
  * l'azione è stata annullata.
  */
-function useOptimistic<TVars, TData>(
+export function useOptimistic<TVars, TData>(
   mutationFn: (vars: TVars) => Promise<TData>,
   areas: readonly string[],
   optimistic: (vars: TVars, area: string, old: unknown, key: readonly unknown[]) => unknown,
@@ -1277,7 +1278,7 @@ const PROPOSAL_AREAS = [
   "dailyReports",
 ] as const;
 const DECIDE_AREAS = [...CONVERSATION_CHANGE_AREAS, ...DECISION_AREAS] as const;
-const RUN_AREAS = [...CONVERSATION_CHANGE_AREAS, ...TASK_AREAS] as const;
+export const RUN_AREAS = [...CONVERSATION_CHANGE_AREAS, ...TASK_AREAS] as const;
 const REFINE_AREAS = [...CONVERSATION_AREAS, ...REQUEST_AREAS] as const;
 
 export function useCreateConversation() {
@@ -3757,523 +3758,8 @@ export function useEndAutomationSimulation() {
   });
 }
 
-// --- Avvisi (area 8a) ---------------------------------------------------------
-
-/**
- * Le iscrizioni decidono chi riceve gli avvisi futuri, e la campanella legge
- * «già spento» dalle iscrizioni: le scritture ricaricano entrambe.
- */
-const ALERT_AREAS = ["alerts", "notifications"] as const;
-
-/** Le iscrizioni di chi guarda, per progetto (Preferenze → Notifiche e popover). */
-export function useAlertSubscriptions() {
-  const me = useSessionPersonId();
-  return useQuery({
-    queryKey: queryKeys.alertSubscriptions(me),
-    queryFn: () => api.alerts.subscriptionRows(),
-  });
-}
-
-/**
- * Accende o spegne un tipo in un progetto, per App e Telefono. Ottimistica:
- * l'interruttore (pagina e popover leggono la stessa cache) cambia subito e
- * torna com'era se la scrittura fallisce. Telefono richiede App, come nel
- * livello dati.
- */
-export function useSetAlertSubscription() {
-  return useOptimistic(
-    ({
-      projectId,
-      type,
-      change,
-    }: {
-      projectId: string;
-      type: string;
-      change: { app?: boolean; phone?: boolean };
-    }) => api.alerts.setSubscription(projectId, type, change),
-    ["alerts"],
-    ({ projectId, type, change }, _area, old) =>
-      (old as api.alerts.ProjectSubscriptions[]).map((p) =>
-        p.projectId !== projectId
-          ? p
-          : {
-              ...p,
-              rows: p.rows.map((r) => {
-                if (r.type !== type || (r.state !== "on" && r.state !== "off")) return r;
-                const app = change.app ?? (change.phone ? true : r.app);
-                const phone = app && (change.phone ?? r.phone);
-                return { ...r, app, phone, state: app ? "on" : "off" };
-              }),
-            },
-      ),
-    ALERT_AREAS,
-  );
-}
-
-/** Una scrittura in blocco con «Annulla»: anche l'annullamento ricarica le aree. */
-function useUndoableAlertWrite<TVars>(mutationFn: (vars: TVars) => Promise<api.alerts.Undoable>) {
-  const invalidate = useInvalidate(ALERT_AREAS);
-  return useMutation({
-    mutationFn: async (vars: TVars): Promise<api.alerts.Undoable> => {
-      const done = await mutationFn(vars);
-      return {
-        undo: async () => {
-          try {
-            await done.undo();
-          } finally {
-            await invalidate();
-          }
-        },
-      };
-    },
-    onSettled: invalidate,
-  });
-}
-
-/** «Come questo progetto»: le righe di `to` prendono lo stato di quelle di `from`. */
-export function useCopyAlertSubscriptions() {
-  return useUndoableAlertWrite(({ from, to }: { from: string; to: string }) =>
-    api.alerts.copySubscriptions(from, to),
-  );
-}
-
-/** «Spegni tutto in questo progetto». */
-export function useMuteProjectAlerts() {
-  return useUndoableAlertWrite((projectId: string) => api.alerts.muteProject(projectId));
-}
-
-/** «Non avvisarmi più di questo in <progetto>», dal pannello. */
-export function useMuteFromNotification() {
-  return useUndoableAlertWrite((notificationId: string) =>
-    api.alerts.muteFromNotification(notificationId),
-  );
-}
-
-// --- Rilasci, PR e ambienti (area 8a) ---------------------------------------------
-
-/**
- * Le scritture dei rilasci cambiano liste, coda, dettaglio e Home (area
- * «releases»), e possono pubblicare avvisi (campanella).
- */
-const RELEASE_AREAS = ["releases", "notifications"] as const;
-/** «Fai sistemare a Claude» crea una task e può far partire Claude. */
-const FIX_RELEASE_AREAS = [...RELEASE_AREAS, ...RUN_AREAS] as const;
-
-/** Le PR aperte del progetto, di Stubwise e dei colleghi. */
-export function useOpenPrs(projectId: string | undefined) {
-  const me = useSessionPersonId();
-  return useQuery({
-    queryKey: queryKeys.openPrs(me, projectId ?? ""),
-    queryFn: () => api.releases.listOpenPrs(projectId!),
-    enabled: !!projectId,
-  });
-}
-
-/** «Pronte per il rilascio». */
-export function useReleaseQueue(projectId: string | undefined) {
-  const me = useSessionPersonId();
-  return useQuery({
-    queryKey: queryKeys.releaseQueue(me, projectId ?? ""),
-    queryFn: () => api.releases.listReleaseQueue(projectId!),
-    enabled: !!projectId,
-  });
-}
-
-export function useReleases(projectId: string | undefined) {
-  const me = useSessionPersonId();
-  return useQuery({
-    queryKey: queryKeys.releases(me, projectId ?? ""),
-    queryFn: () => api.releases.listReleases(projectId!),
-    enabled: !!projectId,
-  });
-}
-
-/** Il dettaglio di un rilascio (`null`: nascosto o inesistente, R-G5). */
-export function useRelease(code: string | undefined) {
-  const me = useSessionPersonId();
-  return useQuery({
-    queryKey: queryKeys.release(me, code ?? ""),
-    queryFn: () => api.releases.getRelease(code!),
-    enabled: !!code,
-  });
-}
-
-export function useEnvironments(projectId: string | undefined) {
-  const me = useSessionPersonId();
-  return useQuery({
-    queryKey: queryKeys.environments(me, projectId ?? ""),
-    queryFn: () => api.releases.listEnvironments(projectId!),
-    enabled: !!projectId,
-  });
-}
-
-/** ⌘K: i rilasci per codice o titolo (da 2 caratteri, R-G5 nel livello dati). */
-export function useReleaseSearch(q: string, enabled = true) {
-  const me = useSessionPersonId();
-  return useQuery({
-    queryKey: queryKeys.releaseSearch(me, q),
-    queryFn: () => api.releases.searchReleases(q),
-    enabled: enabled && q.trim().length >= MIN_QUERY,
-    placeholderData: (previous, previousQuery) =>
-      previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
-  });
-}
-
-/** Il blocco «Rilasci» della Home. */
-export function useMyReleases() {
-  const me = useSessionPersonId();
-  return useQuery({
-    queryKey: queryKeys.myReleases(me),
-    queryFn: () => api.releases.listMyReleases(),
-  });
-}
-
-export function useRepositorySettings(projectId: string | undefined) {
-  const me = useSessionPersonId();
-  return useQuery({
-    queryKey: queryKeys.repositorySettings(me, projectId ?? ""),
-    queryFn: () => api.releases.getRepositorySettings(projectId!),
-    enabled: !!projectId,
-  });
-}
-
-/** «Rilascia» (conferma a due tempi nella UI): l'esito è un codice, come sul web. */
-export function useMergePr() {
-  return useWrite((prId: string) => api.releases.mergePr(prId), [...RELEASE_AREAS, ...TASK_AREAS]);
-}
-
-export function useSetRepoPrMode() {
-  return useWrite(
-    ({
-      repositoryId,
-      mode,
-    }: {
-      repositoryId: string;
-      mode: Parameters<typeof api.releases.setRepoPrMode>[1];
-    }) => api.releases.setRepoPrMode(repositoryId, mode),
-    RELEASE_AREAS,
-  );
-}
-
-export function useSetReleasePipeline() {
-  return useWrite(
-    ({
-      repositoryId,
-      pipeline,
-      branch,
-    }: {
-      repositoryId: string;
-      pipeline: Parameters<typeof api.releases.setReleasePipeline>[1];
-      branch: string;
-    }) => api.releases.setReleasePipeline(repositoryId, pipeline, branch),
-    RELEASE_AREAS,
-  );
-}
-
-export function useSetPrAnalysisOnly() {
-  return useWrite(
-    ({ prId, on }: { prId: string; on: boolean }) => api.releases.setPrAnalysisOnly(prId, on),
-    RELEASE_AREAS,
-  );
-}
-
-/** «Chiedi modifiche» su una PR di un collega: `needs_maintainer` oltre il tetto. */
-export function useRequestPrCorrection() {
-  return useWrite(
-    ({ prId, text }: { prId: string; text: string }) =>
-      api.releases.requestPrCorrection(prId, text),
-    // Su una PR di Stubwise nasce una sessione della task.
-    [...RELEASE_AREAS, ...RUN_AREAS],
-  );
-}
-
-export function useFixRelease() {
-  return useWrite(
-    ({ code, note }: { code: string; note?: string }) => api.releases.fixRelease(code, note),
-    FIX_RELEASE_AREAS,
-  );
-}
-
-export function useExplainRelease() {
-  return useWrite((code: string) => api.releases.explainRelease(code), CONVERSATION_AREAS);
-}
-
-export function useCreateEnvironment() {
-  return useWrite(
-    ({ projectId, input }: { projectId: string; input: api.releases.EnvironmentInput }) =>
-      api.releases.createEnvironment(projectId, input),
-    RELEASE_AREAS,
-  );
-}
-
-export function useUpdateEnvironment() {
-  return useWrite(
-    ({ id, patch }: { id: string; patch: Partial<api.releases.EnvironmentInput> }) =>
-      api.releases.updateEnvironment(id, patch),
-    RELEASE_AREAS,
-  );
-}
-
-export function useDeleteEnvironment() {
-  return useWrite((id: string) => api.releases.deleteEnvironment(id), RELEASE_AREAS);
-}
-
-/** Solo prototipo: «Simula esito» di una run in corso. */
-export function useSimulateRunOutcome() {
-  return useWrite(
-    ({ code, runId, outcome }: { code: string; runId: string; outcome: "success" | "failed" }) =>
-      api.releases.simulateRunOutcome(code, runId, outcome),
-    RELEASE_AREAS,
-  );
-}
-
-/** Solo prototipo: «Simula comparsa sul server». */
-export function useSimulateSeenOnServer() {
-  return useWrite((code: string) => api.releases.simulateSeenOnServer(code), RELEASE_AREAS);
-}
-
-/** Solo prototipo: «Simula push dell'autore». */
-export function useSimulateAuthorPush() {
-  return useWrite((prId: string) => api.releases.simulateAuthorPush(prId), RELEASE_AREAS);
-}
-
-/** Solo prototipo: un passo dell'analisi o della correzione automatica. */
-export function useAdvancePrWork() {
-  return useWrite((prId: string) => api.releases.advancePrWork(prId), RELEASE_AREAS);
-}
-
-// --- Support (area 8a) --------------------------------------------------------
-
-/**
- * Le scritture di Support cambiano elenco, dettaglio, anteprima e Home (area
- * «support»); i messaggi simulati del cliente pubblicano avvisi (campanella).
- */
-const SUPPORT_AREAS = ["support", "notifications"] as const;
-/** «Apri la richiesta» e il triage concluso creano una richiesta. */
-const SUPPORT_REQUEST_AREAS = [...SUPPORT_AREAS, ...REQUEST_AREAS] as const;
-
-/** Le conversazioni coi clienti del progetto, raggruppate per stato. */
-export function useSupportConversations(
-  projectId: string | undefined,
-  filter: { state?: api.support.SupportState } = {},
-) {
-  const me = useSessionPersonId();
-  return useQuery({
-    queryKey: queryKeys.supportConversations(me, projectId ?? "", filter.state ?? ""),
-    queryFn: () => api.support.listSupportConversations(projectId!, filter),
-    enabled: !!projectId,
-  });
-}
-
-/** Il dettaglio di una conversazione (`null`: nascosta o inesistente, R-G5). */
-export function useSupportConversation(code: string | undefined) {
-  const me = useSessionPersonId();
-  return useQuery({
-    queryKey: queryKeys.supportConversation(me, code ?? ""),
-    queryFn: () => api.support.getSupportConversation(code!),
-    enabled: !!code,
-  });
-}
-
-/** «Anteprima del cliente»: cosa vede lui adesso. */
-export function useCustomerPreview(code: string | undefined) {
-  const me = useSessionPersonId();
-  return useQuery({
-    queryKey: queryKeys.customerPreview(me, code ?? ""),
-    queryFn: () => api.support.customerPreview(code!),
-    enabled: !!code,
-  });
-}
-
-/** Il blocco «Clienti in attesa» della Home. */
-export function useWaitingCustomers() {
-  const me = useSessionPersonId();
-  return useQuery({
-    queryKey: queryKeys.waitingCustomers(me),
-    queryFn: () => api.support.listWaitingCustomers(),
-  });
-}
-
-export function useSupportWidgets(projectId: string | undefined) {
-  const me = useSessionPersonId();
-  return useQuery({
-    queryKey: queryKeys.supportWidgets(me, projectId ?? ""),
-    queryFn: () => api.support.listWidgets(projectId!),
-    enabled: !!projectId,
-  });
-}
-
-/** ⌘K: le conversazioni per codice (`ACQ-S2`), cliente o desiderio (da 2 caratteri). */
-export function useSupportSearch(q: string, enabled = true) {
-  const me = useSessionPersonId();
-  return useQuery({
-    queryKey: queryKeys.supportSearch(me, q),
-    queryFn: () => api.support.searchSupport(q),
-    enabled: enabled && q.trim().length >= MIN_QUERY,
-    placeholderData: (previous, previousQuery) =>
-      previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
-  });
-}
-
-/** Lo stato di una richiesta come lo dice `my_requests` al cliente. */
-export function useMyRequestStatus(requestId: string | undefined) {
-  const me = useSessionPersonId();
-  return useQuery({
-    queryKey: queryKeys.myRequestStatus(me, requestId ?? ""),
-    queryFn: () => api.support.myRequestStatus(requestId!),
-    enabled: !!requestId,
-  });
-}
-
-/** «Invia al cliente»: solo dal clic di chi ha `support.reply`, mai un'email. */
-export function useReplyToCustomer() {
-  return useWrite(
-    ({ code, body }: { code: string; body: string }) => api.support.replyToCustomer(code, body),
-    SUPPORT_AREAS,
-  );
-}
-
-/** «Bozza di Claude»: la rigenera, non la invia. */
-export function useDraftReply() {
-  return useWrite((code: string) => api.support.draftReply(code), SUPPORT_AREAS);
-}
-
-/** «Apri la richiesta» su una non conclusa (`backlog.create`). */
-export function useOpenRequestFrom() {
-  return useWrite(
-    ({ code, title, description }: { code: string; title: string; description: string }) =>
-      api.support.openRequestFrom(code, { title, description }),
-    SUPPORT_REQUEST_AREAS,
-  );
-}
-
-export function useFollowConversation() {
-  return useWrite(
-    ({ code, on }: { code: string; on: boolean }) => api.support.followConversation(code, on),
-    SUPPORT_AREAS,
-  );
-}
-
-/** «Scrivigli anche per email»: la bozza per il compositore della Posta. Non scrive nulla. */
-export function useEmailDraftFor() {
-  return useWrite((code: string) => api.support.emailDraftFor(code), []);
-}
-
-export function useCreateWidget() {
-  return useWrite(
-    ({ projectId, input }: { projectId: string; input: api.support.WidgetInput }) =>
-      api.support.createWidget(projectId, input),
-    SUPPORT_AREAS,
-  );
-}
-
-export function useUpdateWidget() {
-  return useWrite(
-    ({ id, patch }: { id: string; patch: Partial<api.support.WidgetInput> }) =>
-      api.support.updateWidget(id, patch),
-    SUPPORT_AREAS,
-  );
-}
-
-export function useDeleteWidget() {
-  return useWrite((id: string) => api.support.deleteWidget(id), SUPPORT_AREAS);
-}
-
-/**
- * «Invia al cliente» SUBITO, fuori da React Query: alla fine della finestra
- * dell'«Annulla» e prima di cambiare persona (`onBeforePersonaChange`), dove
- * `writer` legge la sessione ora — a nome di chi ha cliccato «Invia». La
- * pagina della persona nuova si rilegge comunque da capo.
- */
-export function replyToCustomerNow(code: string, body: string) {
-  return api.support.replyToCustomer(code, body);
-}
-
-/** Ricarica Support (elenco, dettaglio, Home) dopo un invio fatto fuori da React Query. */
-export function useInvalidateSupport() {
-  return useInvalidate(SUPPORT_AREAS);
-}
-
-export type SupportClaudeDraftState =
-  | { status: "idle" }
-  | { status: "writing"; text: string }
-  | { status: "done" | "stopped"; text: string }
-  | { status: "failed" };
-
-/**
- * «Bozza di Claude» nella casella di Support (shape support.md §5): la
- * rigenera (`draftReply`) e la scrive a pezzi nel corpo, con lo stesso ritmo
- * delle risposte di Claude (`streamText`). Non invia NULLA: chi risponde la
- * rilegge e preme «Invia al cliente». Di chi l'ha chiesta: cambiando persona
- * si ferma e sparisce.
- */
-export function useSupportClaudeDraft() {
-  const me = useSessionPersonId();
-  const invalidate = useInvalidate(SUPPORT_AREAS);
-  const [state, setState] = useState<SupportClaudeDraftState>({ status: "idle" });
-  const run = useRef<{ stopped: boolean } | null>(null);
-
-  const stop = useCallback(() => {
-    if (run.current) run.current.stopped = true;
-  }, []);
-
-  const start = useCallback(
-    (code: string) => {
-      if (run.current) run.current.stopped = true;
-      const current = { stopped: false };
-      run.current = current;
-      setState({ status: "writing", text: "" });
-      void (async () => {
-        try {
-          const view = await api.support.draftReply(code);
-          void invalidate();
-          let written = "";
-          const complete = await streamText(
-            view.claudeDraft ?? "",
-            `${me}:${code}`,
-            (soFar) => {
-              written = soFar;
-              if (run.current === current) setState({ status: "writing", text: soFar });
-            },
-            () => !current.stopped && getSessionPersonId() === me,
-          );
-          if (run.current === current)
-            setState({ status: complete ? "done" : "stopped", text: written });
-        } catch {
-          if (run.current === current) setState({ status: "failed" });
-        }
-      })();
-    },
-    [me, invalidate],
-  );
-
-  const reset = useCallback(() => {
-    if (run.current) run.current.stopped = true;
-    run.current = null;
-    setState({ status: "idle" });
-  }, []);
-
-  // Un'altra persona, o la casella che si chiude: la bozza si ferma.
-  useEffect(() => reset, [me, reset]);
-
-  return { state, start, stop, reset };
-}
-
-/** Solo prototipo: «Simula un messaggio del cliente». */
-export function useSimulateCustomerMessage() {
-  return useWrite(
-    ({ code, body }: { code: string; body: string }) =>
-      api.support.simulateCustomerMessage(code, body),
-    SUPPORT_AREAS,
-  );
-}
-
-/** Solo prototipo: «Simula: il cliente se ne va». */
-export function useSimulateCustomerLeaves() {
-  return useWrite((code: string) => api.support.simulateCustomerLeaves(code), SUPPORT_AREAS);
-}
-
-/** Solo prototipo: «Simula: triage concluso». */
-export function useSimulateTriageDone() {
-  return useWrite((code: string) => api.support.simulateTriageDone(code), SUPPORT_REQUEST_AREAS);
-}
+// Gli hook dell'area 8a stanno in `data/queries/`, ri-esportati da qui: chi
+// li usa continua a importarli da `data/queries`.
+export * from "./queries/alerts";
+export * from "./queries/releases";
+export * from "./queries/support";

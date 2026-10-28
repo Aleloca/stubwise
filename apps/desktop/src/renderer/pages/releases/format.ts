@@ -1,4 +1,5 @@
 import type { TFunction } from "i18next";
+import { shortRepo } from "../../domain/releases/repo";
 import { now } from "../../data/dates";
 import type { OpenPrView, ReleaseView, RunView } from "../../data/releases";
 import { formatDate } from "../../notifications/time";
@@ -9,7 +10,7 @@ import { formatDate } from "../../notifications/time";
 // stato. Solo riassunto e problemi dell'analisi sono testo di Claude.
 
 /** «audin-app» da «audin/audin-app». */
-export const shortRepo = (repo: string): string => repo.slice(repo.indexOf("/") + 1);
+export { shortRepo };
 
 /** «audin-app#246»: il codice di una PR nelle righe. */
 export const prCode = (pr: { repo: string; number: number }): string =>
@@ -88,7 +89,8 @@ export function notReadyReason(pr: OpenPrView, t: TFunction): string | null {
 }
 
 /** La prosa della seconda riga dopo stato e rischio (shape §5, «Seconda riga»). */
-export function prProse(pr: OpenPrView, t: TFunction, cap: number): string | null {
+export function prProse(pr: OpenPrView, t: TFunction): string | null {
+  const { cap } = pr;
   const s = pr.prState;
   switch (s.state) {
     case "analyzing":

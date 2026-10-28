@@ -1,10 +1,11 @@
 import { customerStatus, type CustomerStatus } from "../../domain/releases/customerStatus";
 import type { ReleaseStatusKind } from "../../domain/releases/releaseStatus";
 import { supportState, waitingSince, type SupportState } from "../../domain/support/state";
+import { publishAlert } from "../alerts/publish";
 import { statusOf } from "../releases/visibility";
-import { visibleProjectIds, state } from "../store";
+import { holds, sees } from "../access";
+import { state } from "../store";
 import type { ProjectRequest, RequestStatus, SupportConversation, SupportMessage } from "../types";
-import { can, viewerFor, type Permission } from "../viewer";
 import { notFound } from "../writer";
 
 // Chi vede che cosa in Support (area 8a) — l'unica regola, per letture e
@@ -15,11 +16,7 @@ import { notFound } from "../writer";
 // (R-G5). Lo stato della conversazione e quello per il cliente si DERIVANO
 // qui, con le regole pure di `domain/support` e `domain/releases`.
 
-export const sees = (me: string, projectId: string): boolean =>
-  visibleProjectIds(me).has(projectId);
-
-export const holds = (me: string, perm: Permission, projectId: string): boolean =>
-  can(viewerFor(me), perm, projectId);
+export { holds, sees };
 
 const projectCodeOf = (projectId: string): string => state.projectsById.get(projectId)!.code;
 
@@ -36,6 +33,22 @@ export const supportHref = (projectId: string, code: string): string =>
 /** L'indirizzo di una richiesta nel pannello delle richieste. */
 export const requestHref = (req: ProjectRequest): string =>
   `#/p/${projectCodeOf(req.projectId)}/requests?request=${req.id}`;
+
+/**
+ * L'avviso di una richiesta nata da una conversazione di Support, da
+ * qualunque porta (il triage concluso, «Apri la richiesta»): uno per
+ * richiesta, col suo codice e il suo link (R-K11).
+ */
+export function publishSupportRequest(req: ProjectRequest): void {
+  publishAlert({
+    kind: "support.request",
+    projectId: req.projectId,
+    objectCode: req.code,
+    title: "New request from a customer",
+    body: req.title,
+    link: requestHref(req),
+  });
+}
 
 // --- stato per il cliente ----------------------------------------------------
 

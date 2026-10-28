@@ -940,7 +940,9 @@ describe("Automations: inizi e catene", () => {
 
   it("«Avvisa» con la persona vuota è un passo fallito, non un avviso a nessuno", async () => {
     as("p-laura");
-    const notifications = state.notifications.length;
+    // Gli avvisi dell'automazione: «Nuova task» del catalogo (area 8a) nasce a parte.
+    const notifies = () => state.notifications.filter((n) => n.kind !== "task.created");
+    const notifications = notifies().length;
     const id = await make(AUD, {
       trigger: { kind: "stubwise", event: "task_created" },
       steps: [
@@ -958,7 +960,7 @@ describe("Automations: inizi e catene", () => {
     await createTask({ projectId: AUD, title: "Senza incaricato" });
     await idle();
     expect(lastRunOf(id)).toMatchObject({ status: "failed", error: "no_recipient" });
-    expect(state.notifications).toHaveLength(notifications);
+    expect(notifies()).toHaveLength(notifications);
     // Con la persona: l'avviso arriva a lei, col codice dell'esecuzione.
     await createTask({ projectId: AUD, title: "A Marco", assigneeId: "p-marco" });
     await idle();
@@ -1311,7 +1313,8 @@ describe("Automations: revisione del Task 3", () => {
     await automations.simulateSourceEvent(S.audin, 0);
     await idle();
     expect(lastRunOf(a.id).status).toBe("done");
-    expect(state.notifications.at(-1)).toMatchObject({
+    // L'ultimo avviso dell'automazione («Nuova task» del catalogo nasce a parte).
+    expect(state.notifications.filter((n) => n.kind !== "task.created").at(-1)).toMatchObject({
       recipientIds: ["p-elena"],
       projectId: null,
     });

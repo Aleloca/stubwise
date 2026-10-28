@@ -1,4 +1,5 @@
 import { useId, useState, type KeyboardEvent } from "react";
+import { DEFAULT_CORRECTION_CAP } from "../../domain/releases/prState";
 import { useTranslation } from "react-i18next";
 import {
   useOpenPrs,
@@ -59,7 +60,7 @@ function ColleagueMode({ repo, project }: { repo: Repo; project: Project }) {
   const saver = useSaver();
   const name = useId();
   const [asking, setAsking] = useState<ColleaguePrMode | null>(null);
-  const cap = project.correctionCap ?? 3;
+  const cap = project.correctionCap ?? DEFAULT_CORRECTION_CAP;
   const inFlight = (prs ?? []).filter(
     (p) =>
       p.repositoryId === repo.id &&

@@ -317,6 +317,11 @@ describe("scritture", () => {
     expect(req.requesterIds).toEqual([]);
     expect(state.requests.filter((r) => r.title === "Logged out often")).toHaveLength(1);
     expect(a.state).toBe("request_open");
+    // Come la richiesta nata dal triage: un solo «support.request», col codice della richiesta.
+    const alerts = state.notifications.filter(
+      (n) => n.kind === "support.request" && n.objectCode === req.code,
+    );
+    expect(alerts).toHaveLength(1);
   });
 
   it("R-K12: segue chi vede la conversazione (ogni membro); rispondere resta a support.reply", async () => {

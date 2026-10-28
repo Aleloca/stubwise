@@ -25,10 +25,8 @@ export function ReleasesBlock() {
   const projects = useProjects().data;
   const codeOf = (projectId: string) => projects?.find((p) => p.id === projectId)?.code ?? "";
   const rows: Row[] = [
-    ...(q.data?.failed ?? [])
-      // Finché la sua task di riparazione non si chiude.
-      .filter((r) => !r.fixTask || r.fixTask.open)
-      .map((release): Row => ({ kind: "release", release })),
+    // Finché la sua task di riparazione non si chiude: lo decide il livello dati.
+    ...(q.data?.failed ?? []).map((release): Row => ({ kind: "release", release })),
     ...(q.data?.ready ?? []).map((pr): Row => ({ kind: "pr", pr })),
   ];
   const state = queryState([q], { when: rows.length === 0, text: t("home.releases.empty") });

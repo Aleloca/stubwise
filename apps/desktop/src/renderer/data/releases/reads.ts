@@ -7,6 +7,7 @@ import type { ProjectEnvironment, Repository } from "../types";
 import {
   holds,
   isReady,
+  openFixTask,
   openPrViews,
   queueItem,
   releaseHref,
@@ -82,7 +83,13 @@ export async function listEnvironments(projectId: string): Promise<EnvironmentLi
 export interface MyReleases {
   /** Le PR pronte nei progetti dove chi guarda ha `release.merge`. */
   ready: QueueItem[];
-  /** I rilasci falliti che lo riguardano: obbligatorio (merge) o iscritto adesso. */
+  /**
+   * I rilasci falliti che lo riguardano (obbligatorio per il merge, o iscritto
+   * adesso), finché non c'è una task di riparazione CHIUSA: uno in
+   * riparazione resta (lo shape: «finché la task non si chiude»). È una
+   * domanda diversa da `waitsOnViewer` (il punto «ti aspetta»), che con una
+   * riparazione aperta tace: qualcuno ci sta già lavorando.
+   */
   failed: ReleaseView[];
 }
 
@@ -99,6 +106,7 @@ export async function listMyReleases(): Promise<MyReleases> {
     }
     for (const r of state.releases) {
       if (r.projectId !== p.id || statusOf(r).kind !== "failed") continue;
+      if (r.fixTaskId && !openFixTask(r)) continue;
       const mine = releaseMandatory(r).some((m) => m.personId === me);
       const subscribed = failedType ? currentChannels(me, p.id, failedType).app : false;
       if (mine || subscribed) failed.push(releaseView(me, r));

@@ -102,14 +102,12 @@ export function PrList({
   projectCode,
   prs,
   queue,
-  cap,
   environments,
   full = false,
 }: {
   projectCode: string;
   prs: OpenPrView[];
   queue: QueueItem[];
-  cap: number;
   environments: ProjectEnvironment[];
   /** `?view=prs`: la lista intera, coi filtri. */
   full?: boolean;
@@ -149,7 +147,6 @@ export function PrList({
       key={p.id}
       pr={p}
       projectCode={projectCode}
-      cap={cap}
       ready={isReady}
       canMerge={isReady && (queue.find((q) => q.id === p.id)?.canMerge ?? canMerge)}
       onStaging={onStaging(p)}

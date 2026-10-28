@@ -8,6 +8,7 @@ import { state } from "../../data/store";
 import { grantProjectRole, resetViewerGrants } from "../../data/viewer";
 import { setLanguage } from "../../i18n";
 import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
+import { expectNoDeploy } from "../../test/noDeploy";
 import { renderRoute } from "../../test/renderRoute";
 import { setMatchMedia } from "../../test/setup";
 import { LOG_TAIL } from "./RunLog";
@@ -33,20 +34,6 @@ async function openRelease(code: string, person = "p-laura") {
   const router = renderRoute(`/p/${code.split("-")[0]}/releases/${code}`, person);
   await screen.findByRole("region", { name: "Now" });
   return router;
-}
-
-const banned = /^(re-?deploy|deploy|re-?run|rerun|promote|riprova|rilancia|promuovi)\b/i;
-function expectNoDeploy() {
-  for (const el of [...screen.queryAllByRole("button"), ...screen.queryAllByRole("link")]) {
-    const name = (el.getAttribute("aria-label") ?? el.textContent ?? "").trim();
-    expect(name, `controllo vietato: «${name}»`).not.toMatch(banned);
-  }
-  // Nessun elemento il cui testo SIA un invito a rilanciare (la riga-confine lo nomina per negarlo).
-  for (const el of document.body.querySelectorAll("*")) {
-    expect(el.textContent?.trim() ?? "").not.toMatch(
-      /^(deploy|re-?run( the)? pipeline|riprova la pipeline)$/i,
-    );
-  }
 }
 
 describe("Release detail — fallito", () => {

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ALERT_TYPES, isCatalogKind, registerAlertTypes } from "../../domain/alerts/catalog";
 import {
   alerts,
+  createTask,
   failNext,
   listNotifications,
   markNotification,
@@ -172,6 +173,17 @@ describe("Review Focus 1: destinatari a lettura", () => {
     again(analysis, [{ personId: "p-claude", reason: "pr_author" }]);
     expect(await has("p-claude", lastId())).toBe(false);
     expect((await inbox("p-claude")).some((n) => n.recipientIds.length === 0)).toBe(false);
+  });
+});
+
+describe("task.created: una task nuova avvisa chi l'ha accesa", () => {
+  it("Matteo (iscritto in AUD) riceve la task che Laura crea; Marco (spento) no", async () => {
+    as("p-laura");
+    const task = await createTask({ projectId: AUD, title: "Store review notes" });
+    const n = state.notifications.find((x) => x.kind === "task.created" && x.objectCode === task.code);
+    expect(n).toMatchObject({ link: `#/p/AUD/tasks?task=${task.code}`, recipientIds: [] });
+    expect(await has("p-matteo", n!.id)).toBe(true);
+    expect(await has("p-marco", n!.id)).toBe(false);
   });
 });
 

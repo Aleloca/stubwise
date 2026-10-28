@@ -86,7 +86,6 @@ export function ReleasesPage({ projectCode }: { projectCode: string }) {
   const queue = useReleaseQueue(project?.id);
   const releases = useReleases(project?.id);
   const envs = useEnvironments(project?.id);
-  const cap = project?.correctionCap ?? 3;
 
   const repos = useRepositorySettings(project?.id);
   // Il rimando «Set up environments» arriva con `#environments`: la parte si porta in vista.
@@ -119,7 +118,6 @@ export function ReleasesPage({ projectCode }: { projectCode: string }) {
           projectCode={projectCode}
           prs={prs.data}
           queue={queue.data}
-          cap={cap}
           environments={envs.data?.environments ?? []}
           full={view === "prs"}
         />

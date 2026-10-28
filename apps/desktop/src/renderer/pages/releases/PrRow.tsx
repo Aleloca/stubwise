@@ -17,7 +17,6 @@ import { MergeButton, MergeExpansion, useMergeFlow, type MergeError } from "./Me
 export function PrRow({
   pr,
   projectCode,
-  cap,
   ready,
   canMerge,
   onStaging,
@@ -25,7 +24,6 @@ export function PrRow({
 }: {
   pr: OpenPrView;
   projectCode: string;
-  cap: number;
   ready: boolean;
   canMerge: boolean;
   /** Il commit della PR gira su un ambiente di staging ([R 8]). */
@@ -46,7 +44,7 @@ export function PrRow({
 
   const reason = ready ? null : notReadyReason(pr, t);
   const risk = riskWord(pr, t);
-  const prose = prProse(pr, t, cap);
+  const prose = prProse(pr, t);
   const facts = [
     reason,
     risk,

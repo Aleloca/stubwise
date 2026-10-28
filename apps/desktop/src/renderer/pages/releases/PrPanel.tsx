@@ -108,7 +108,7 @@ function Analysis({ pr }: { pr: OpenPrView }) {
   );
 }
 
-function Corrections({ pr, cap }: { pr: OpenPrView; cap: number }) {
+function Corrections({ pr }: { pr: OpenPrView }) {
   const { t, i18n } = useTranslation();
   const people = usePeople().data;
   const notFixable = pr.prState.notFixable;
@@ -166,7 +166,7 @@ function Corrections({ pr, cap }: { pr: OpenPrView; cap: number }) {
         </ul>
       )}
       <p className="num text-sm text-ink-muted">
-        {t("releases.panel.used", { used: Math.min(pr.prState.autoRound, cap), cap })}
+        {t("releases.panel.used", { used: Math.min(pr.prState.autoRound, pr.cap), cap: pr.cap })}
       </p>
     </Section>
   );
@@ -176,20 +176,18 @@ function PrBody({
   pr,
   queueItem,
   projectCode,
-  cap,
   onClose,
 }: {
   pr: OpenPrView;
   queueItem: QueueItem | undefined;
   projectCode: string;
-  cap: number;
   onClose: () => void;
 }) {
   const { t, i18n } = useTranslation();
   const people = usePeople().data;
   const flow = useMergeFlow(pr, projectCode);
   const author = people?.find((p) => p.id === pr.authorId)?.name ?? pr.authorName;
-  const prose = prProse(pr, t, cap);
+  const prose = prProse(pr, t);
   return (
     <div className="flex flex-col">
       <header className="flex flex-col gap-2 px-4 pt-4 pb-3">
@@ -252,8 +250,8 @@ function PrBody({
         <span className="text-xs text-ink-faint">{ago(pr.openedAt, t, i18n.language)}</span>
       </header>
       <Analysis pr={pr} />
-      <Corrections pr={pr} cap={cap} />
-      <PrActions pr={pr} cap={cap} projectCode={projectCode} />
+      <Corrections pr={pr} />
+      <PrActions pr={pr} projectCode={projectCode} />
       <PrSimulate pr={pr} />
     </div>
   );
@@ -303,7 +301,6 @@ function PrPanelFor({ code, prId }: { code: string; prId: string }) {
         pr={pr}
         queueItem={queue.data?.find((q) => q.id === pr.id)}
         projectCode={project.code}
-        cap={project.correctionCap ?? 3}
         onClose={close}
       />
     </DetailPanel>

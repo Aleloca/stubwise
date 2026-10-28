@@ -11,6 +11,7 @@ import {
   conversationView,
   draftText,
   holds,
+  publishSupportRequest,
   requestOf,
   sees,
   type SupportConversationView,
@@ -90,6 +91,7 @@ export async function openRequestFrom(
     origin: { kind: "support", conversationId: c.id },
   });
   c.rewrittenWish ??= req.description || req.title;
+  publishSupportRequest(req);
   return conversationView(me, c);
 }
 

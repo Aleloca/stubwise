@@ -1,3 +1,4 @@
+import { shortRepo } from "../../domain/releases/repo";
 import { publishAlert, releaseMandatory } from "../alerts/publish";
 import { CLAUDE_ID } from "../seed/people";
 import { newId, now, state } from "../store";
@@ -25,7 +26,6 @@ import { fakeSha } from "./writes";
 // pipeline (anti-obiettivo 1): fanno arrivare l'ESITO che Stubwise legge.
 // Gli avvisi passano tutti da `publishAlert`.
 
-const shortRepo = (repo: string): string => repo.split("/").at(-1) ?? repo;
 const projectCodeOf = (projectId: string) => state.projectsById.get(projectId)!.code;
 
 /**

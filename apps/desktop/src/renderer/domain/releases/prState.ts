@@ -16,6 +16,9 @@ import type { CorrectionRecord } from "../claude/taskWork";
 // solo chi ha `plans.approve`: questa funzione dice solo che l'automatica
 // non parte.
 
+/** Il tetto delle correzioni quando il progetto non fissa un `correctionCap` (R-K2): l'unica copia. */
+export const DEFAULT_CORRECTION_CAP = 3;
+
 export type PrStateKind =
   | "analyzing"
   | "clean"

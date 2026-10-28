@@ -11,7 +11,7 @@ import {
   conversationFor,
   conversationView,
   draftText,
-  requestHref,
+  publishSupportRequest,
   supportHref,
   type SupportConversationView,
 } from "./visibility";
@@ -98,13 +98,6 @@ export async function simulateTriageDone(code: string): Promise<SupportConversat
     },
     [],
   );
-  publishAlert({
-    kind: "support.request",
-    projectId: project.id,
-    objectCode: req.code,
-    title: "New request from a customer",
-    body: req.title,
-    link: requestHref(req),
-  });
+  publishSupportRequest(req);
   return conversationView(me, c);
 }
