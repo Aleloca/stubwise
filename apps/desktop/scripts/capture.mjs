@@ -652,7 +652,7 @@ async function main() {
         await p.waitForTimeout(300);
       } }],
       ["test-wait", "/automations/AUD-A1/test", { steps: async (p) => {
-        await testStart(p, 0);
+        await testStart(p, "Cantina Bellavista");
         await p.locator("[data-next-step]").click();
         await p.locator("[data-stop-primary]").click();
         await p.locator("[data-reply-composer] textarea").fill("Gli orari di apertura sono dalle 9 alle 18.");
@@ -660,7 +660,7 @@ async function main() {
       } }],
       // Il momento focale: l'approvazione nella prova, con l'email intera e chi approverebbe davvero.
       ["test-stop", "/automations/AUD-A1/test", { steps: async (p) => {
-        await testStart(p, 0);
+        await testStart(p, "Cantina Bellavista");
         await p.locator("[data-next-step]").click();
         await p.locator("[data-stop-primary]").click();
         await p.locator("[data-reply-composer] textarea").fill("Gli orari di apertura sono dalle 9 alle 18.");
@@ -671,7 +671,7 @@ async function main() {
         await p.waitForTimeout(400);
       } }],
       ["test-final", "/automations/AUD-A1/test", { steps: async (p) => {
-        await testStart(p, 0);
+        await testStart(p, "Cantina Bellavista");
         await p.locator("[data-next-step]").click();
         await p.locator("[data-stop-primary]").click();
         await p.locator("[data-reply-composer] textarea").fill("I numeri da collegare sono 0577 000111 e 0577 000112; gli orari di apertura dalle 9 alle 18; il messaggio di benvenuto: «Benvenuti in cantina».");
@@ -691,10 +691,36 @@ async function main() {
         await p.getByRole("button", { name: /^(All rounds|Tutti i giri)$/ }).click();
         await p.waitForTimeout(400);
       } }],
+      // Ondata finale: l'approvazione che fallirebbe (Roberta senza casella), e dove si ferma.
+      ["test-fail-stop", "/automations/AUT-1/test", { steps: async (p) => {
+        await testStart(p, 2);
+        await p.locator("[data-run-to-stop]").click();
+        await p.locator("[data-preview-failure]").waitFor();
+        await p.waitForTimeout(400);
+      } }],
+      ["test-fail-end", "/automations/AUT-1/test", { steps: async (p) => {
+        await testStart(p, 2);
+        await p.locator("[data-run-to-stop]").click();
+        await p.locator("[data-preview-failure]").waitFor();
+        await p.locator("[data-stop-primary]").click();
+        await p.locator("[data-test-stopped]").waitFor();
+        await p.waitForTimeout(400);
+      } }],
+      // «Where» a righe, e il chip «Add step here» al passaggio del puntatore.
+      ["builder-where", "/automations/STW-A1/edit?step=tr-bug", { steps: async (p) => {
+        await p.getByRole("radiogroup", { name: /^(Where|Dove)$/ }).scrollIntoViewIfNeeded();
+        await p.locator(`[data-tree-row="tr-bug"] > div`).first().hover().catch(() => {});
+        await p.waitForTimeout(300);
+      } }],
     ];
     /** La prova: l'esempio `index` fra i recenti, poi «Start test». */
-    async function testStart(p, index) {
-      await p.locator(`[data-example="${index}"]`).click();
+    async function testStart(p, which) {
+      // Un indice, o il nome del cliente (gli esempi stanno dal più recente).
+      const example =
+        typeof which === "number"
+          ? p.locator(`[data-example="${which}"]`)
+          : p.locator("[data-example]").filter({ hasText: which });
+      await example.click();
       await p.locator("[data-start-test]").click();
       await p.locator("[data-example-line]").waitFor();
       await p.waitForTimeout(300);

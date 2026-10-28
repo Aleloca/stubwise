@@ -80,7 +80,7 @@ export function Tokens({ text, available }: { text: string; available: Set<strin
                   ? t("automations.builder.data.laterOrElsewhere", { n })
                   : t("automations.builder.data.gone")
             }
-            className={`rounded-[4px] px-1 ${ok ? "bg-ink/6" : "bg-critical/10 text-critical line-through decoration-critical"}`}
+            className={`-mx-[2px] rounded-[4px] px-[3px] ${ok ? "bg-ink/6" : "bg-critical/10 text-critical line-through decoration-critical"}`}
           >
             {tokenLabel(b.flow, p.ref, b.labels)}
           </span>

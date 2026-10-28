@@ -123,10 +123,16 @@ export async function listSimulationExamples(
       return source.sampleEvents
         .map((event, i) => {
           const chiusa = lookup(event, "trattativa.chiusaIl");
+          // La data: quella dell'evento, se la porta; altrimenti quando è arrivato (la prima esecuzione nata da lui).
+          const same = JSON.stringify(event);
+          const arrived = state.automationRuns
+            .filter((r) => JSON.stringify(r.event) === same)
+            .map((r) => r.startedAt)
+            .sort()[0];
           return {
             label: sampleLabel(event, i),
             code: null,
-            at: typeof chiusa === "string" ? chiusa : null,
+            at: typeof chiusa === "string" ? chiusa : (arrived ?? null),
             event: structuredClone(event),
           };
         })

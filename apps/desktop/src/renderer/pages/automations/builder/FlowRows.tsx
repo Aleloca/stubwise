@@ -302,7 +302,7 @@ export function StepRow({
               b.requestAdd(lane, index + 1, e.currentTarget);
             }}
             data-add-here
-            className="absolute -bottom-3 left-10 z-10 hidden h-6 items-center gap-1 rounded-md border border-rule bg-surface px-2 text-xs text-ink-muted group-hover/row:flex hover:text-ink"
+            className="absolute -bottom-2.5 left-[88px] z-10 hidden h-5 items-center gap-1 rounded-md border border-rule bg-surface px-2 text-xs text-ink-muted group-hover/row:flex hover:text-ink"
           >
             {t("automations.builder.add.here")}
           </button>

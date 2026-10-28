@@ -159,7 +159,8 @@ export function ExampleDialog({
           <div
             role="radiogroup"
             aria-labelledby={groupId}
-            className="flex max-h-[360px] flex-col gap-px overflow-y-auto"
+            // Spazio per l'anello di fuoco (2px + 2px di distanza): dentro un elenco che scorre non va tagliato.
+            className="-m-1 flex max-h-[368px] flex-col gap-px overflow-y-auto p-1"
           >
             <span id={groupId} className="sr-only">
               {t("automations.test.example.recent")}

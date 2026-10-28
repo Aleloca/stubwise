@@ -45,10 +45,14 @@ async function open(path: string, personId = MATTEO) {
 }
 
 /** Sceglie l'esempio (il primo recente, o quello indicato) e avvia la prova. */
-async function startWith(index = 0) {
+async function startWith(which: number | string = 0) {
   const dialog = await screen.findByRole("dialog", { name: "Choose an example" });
   const radios = await within(dialog).findAllByRole("radio");
-  await userEvent.click(radios[index]!);
+  const pick =
+    typeof which === "number"
+      ? radios[which]!
+      : radios.find((r) => r.textContent?.includes(which))!;
+  await userEvent.click(pick);
   await userEvent.click(within(dialog).getByRole("button", { name: "Start test" }));
   await waitFor(() => expect(document.querySelector("[data-example-line]")).not.toBeNull());
 }
@@ -343,7 +347,8 @@ describe("partire", () => {
     const dialog = await screen.findByRole("dialog", { name: "Choose an example" });
     await userEvent.click(within(dialog).getByRole("tab", { name: "Write one" }));
     const client = within(dialog).getByRole("textbox", { name: "Cliente" });
-    expect(client).toHaveValue("Cantina Bellavista Srl");
+    // Precompilato dal più recente degli esempi.
+    expect(client).toHaveValue("Mix Cucine Srl");
     await userEvent.clear(client);
     await userEvent.type(client, "Pasticceria Neri");
     await userEvent.click(within(dialog).getByRole("button", { name: "Start test" }));
@@ -361,7 +366,7 @@ describe("partire", () => {
 describe("le fermate", () => {
   it("una versione accesa: risposta del cliente scritta nella prova; a fine prova niente «Turn on»", async () => {
     await open("/automations/AUD-A1/test");
-    await startWith(0);
+    await startWith("Cantina Bellavista");
     expect(screen.getByText("Version 1 · active")).toBeInTheDocument();
     await userEvent.click(next());
     await waitFor(() => expect(rowMark("1")).toBe("stopped"));
@@ -394,7 +399,7 @@ describe("le fermate", () => {
 
   it("«Skip ahead» senza risposta: il promemoria, poi il limite dei giri", async () => {
     await open("/automations/AUD-A1/test");
-    await startWith(0);
+    await startWith("Cantina Bellavista");
     await userEvent.click(next());
     for (let i = 0; i < 3; i++) {
       const skip = await within(panel()).findByRole("button", { name: /Skip ahead 5 days/ });
@@ -626,6 +631,17 @@ describe("ondata finale", () => {
 });
 
 describe("revisione visiva (Impeccable)", () => {
+  it("nella scelta dell'esempio ogni riga ha una data e un fatto chiave", async () => {
+    await open("/automations/AUD-A1/test");
+    const dialog = await screen.findByRole("dialog", { name: "Choose an example" });
+    const radios = await within(dialog).findAllByRole("radio");
+    expect(radios.length).toBeGreaterThan(1);
+    for (const r of radios) {
+      expect(r.textContent).toMatch(/· [A-Z][a-z]{2} \d{1,2}/);
+      expect(r.querySelectorAll("span.text-xs").length).toBeGreaterThan(0);
+    }
+  });
+
   it("la fermata che fallirebbe: il motivo per primo, cosa fare, l'email con «From» che lo dice, un solo «See where it stops»", async () => {
     // Roberta prova la bozza di AUT-1: il proprietario sarebbe lei, che non ha una casella.
     await open("/automations/AUT-1/test", "p-roberta");
@@ -664,7 +680,7 @@ describe("revisione visiva (Impeccable)", () => {
 
   it("«Edit before approving»: il corpo dell'email si chiama come il corpo, non come la risposta", async () => {
     await open("/automations/AUD-A1/test");
-    await startWith(0);
+    await startWith("Cantina Bellavista");
     await userEvent.click(next());
     await userEvent.click(
       await within(panel()).findByRole("button", { name: "Write the client's reply" }),
@@ -687,7 +703,7 @@ describe("revisione visiva (Impeccable)", () => {
     proto.scrollIntoView = scroll;
     try {
       await open("/automations/AUD-A1/test");
-      await startWith(0);
+      await startWith("Cantina Bellavista");
       await userEvent.click(next());
       // Movimento ridotto: istantaneo, al centro.
       await waitFor(() =>
@@ -716,7 +732,7 @@ describe("revisione visiva (Impeccable)", () => {
 describe("revisione, giro 1", () => {
   it("Esc nel compositore della risposta resta al campo: pagina e prova intatte", async () => {
     const router = await open("/automations/AUD-A1/test");
-    await startWith(0);
+    await startWith("Cantina Bellavista");
     await userEvent.click(next());
     await userEvent.click(
       await within(panel()).findByRole("button", { name: "Write the client's reply" }),
