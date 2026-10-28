@@ -212,6 +212,22 @@ describe("Automations: un'approvazione blocca davvero (Review Focus 1)", () => {
     expect(sentBy("p-matteo")).toEqual([]);
   });
 
+  it("chi approva si legge adesso: ripubblicata da un altro, `approverIds` nomina il proprietario nuovo", async () => {
+    as("p-matteo");
+    expect((await automations.getRun(R.waitingApproval))!.pending?.approverIds).toEqual([
+      "p-matteo",
+    ]);
+    as("p-roberta");
+    const a = state.automations.find((x) => x.id === A.clientData)!;
+    await automations.saveDraft(A.clientData, a.versions[0]!.flow);
+    connect("p-roberta");
+    await automations.publish(A.clientData);
+    await idle();
+    const seen = (await automations.getRun(R.waitingApproval))!;
+    expect(seen.status).toBe("waiting_approval");
+    expect(seen.pending?.approverIds).toEqual(["p-roberta"]);
+  });
+
   it("R-J11 scoperto da una lettura: chi mostra i dati è avvisato, una volta sola (niente cicli)", async () => {
     let calls = 0;
     const off = automations.onAutomationsSettled(() => calls++);

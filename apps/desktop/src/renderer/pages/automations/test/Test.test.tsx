@@ -99,7 +99,7 @@ describe("la prova, da cima a fondo", () => {
     await userEvent.click(next());
     await waitFor(() => expect(rowMark("0")).toBe("done"));
     await userEvent.click(row("0"));
-    expect(within(panel()).getByText("Why")).toBeInTheDocument();
+    expect(within(panel()).getByText("Why — written by Claude")).toBeInTheDocument();
     expect(within(panel()).getByText(/Ho letto il contratto/)).toBeInTheDocument();
     expect(within(panel()).getByText(/Contratto AUD-TR-1042\.pdf/)).toBeInTheDocument();
     await userEvent.click(within(panel()).getByRole("button", { name: /Back to current step/ }));

@@ -19,7 +19,7 @@ import {
   type LogNode,
   type LogTree,
 } from "./logTree";
-import { ClaudeBlock } from "./LogClaude";
+import { ClaudePreview } from "./previews/Previews";
 import {
   Collapsible,
   INDENT,
@@ -124,7 +124,22 @@ function Row({
         </div>
         <div style={pad} className="flex flex-col">
           {entry.kind === "claude" && entry.outcome === "ok" && (
-            <ClaudeBlock entry={entry} step={step} ctx={ctx} />
+            <div className="mb-2 border-l border-rule pl-4">
+              <ClaudePreview
+                p={{
+                  stepId: entry.stepId,
+                  path: entry.path,
+                  outcome: typeof entry.output.uscita === "string" ? entry.output.uscita : null,
+                  fields: Object.fromEntries(
+                    Object.entries(entry.output).filter(([k]) => k !== "uscita"),
+                  ),
+                  reason: entry.reason ?? "",
+                  read: [],
+                }}
+                words={{ names: ctx.names, labels: ctx.labels, numberOf: () => undefined }}
+                outcomes={step?.kind === "claude" ? step.outcomes : []}
+              />
+            </div>
           )}
           {entry.kind === "claude" && entry.outcome === "failed" && entry.why && (
             <p className="pb-2 text-sm text-ink">{reasonWords(entry.why, t)}</p>

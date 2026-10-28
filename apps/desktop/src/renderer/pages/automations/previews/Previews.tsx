@@ -271,81 +271,136 @@ export function EmailPreview({
   );
 }
 
-/** Il valore di un campo di Claude: un elenco come righe numerate, il resto in parole. */
-function FieldValue({ value }: { value: unknown }) {
+/** Un campo restituito da Claude: testo, o un elenco come tabella compatta («Show all 23» oltre 10). */
+function ReturnedField({
+  name,
+  value,
+  labels,
+}: {
+  name: string;
+  value: unknown;
+  labels: Map<string, DataField>;
+}) {
+  const { t } = useTranslation();
+  const [all, setAll] = useState(false);
+  const field = labels.get(name);
+  const label = field?.label ?? name;
   if (Array.isArray(value)) {
+    const rows = value as Record<string, unknown>[];
+    const cols = field?.of ?? Object.keys(rows[0] ?? {}).map((k) => ({ key: k, label: k }));
+    const shown = all ? rows : rows.slice(0, 10);
     return (
-      <ol className="flex flex-col gap-0.5">
-        {value.map((item, i) => (
-          <li key={i} className="flex gap-2">
-            <span className="num w-5 shrink-0 text-right text-ink-faint">{i + 1}</span>
-            <span className="min-w-0">
-              {item && typeof item === "object"
-                ? Object.values(item as Record<string, unknown>)
-                    .map(show)
-                    .filter((s) => s !== "")
-                    .join(" · ")
-                : show(item)}
-            </span>
-          </li>
-        ))}
-      </ol>
+      <div className="flex flex-col gap-1">
+        <p className="text-sm text-ink-muted">{label}</p>
+        <table className="max-w-[640px] text-sm">
+          <thead>
+            <tr>
+              {cols.map((c) => (
+                <th
+                  key={c.key}
+                  scope="col"
+                  className="border-b border-rule py-1 pr-4 text-left font-medium text-ink-muted"
+                >
+                  {c.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((r, i) => (
+              <tr key={i}>
+                {cols.map((c) => (
+                  <td key={c.key} className="border-b border-rule py-1 pr-4 text-ink">
+                    {r && typeof r === "object" ? show(r[c.key]) : show(r)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {rows.length > 10 && (
+          <button type="button" className={showMore} onClick={() => setAll((v) => !v)}>
+            {all
+              ? t("automations.log.showFewer")
+              : t("automations.log.showAllRows", { count: rows.length })}
+          </button>
+        )}
+      </div>
     );
   }
-  return <>{show(value)}</>;
+  return (
+    <p className="text-sm [overflow-wrap:anywhere]">
+      <span className="text-ink-muted">{label}: </span>
+      <span className="text-ink">{show(value)}</span>
+    </p>
+  );
 }
 
-/** Cosa ha scelto Claude, perché (la sua motivazione, come tale), i campi, cosa ha letto. */
+/**
+ * Il passo di Claude (shape [A 1], regola 2) — lo stesso nel registro e
+ * nella prova: le uscite possibili con quella scelta in evidenza, il perché
+ * scritto da Claude (come tale, mai interpretato), i campi, cosa ha letto.
+ */
 export function ClaudePreview({
   p,
   words,
   reason,
+  outcomes = [],
 }: {
   p: SimulationClaudePreview;
   words: PreviewWords;
   /** La motivazione mentre arriva (streaming); assente = intera. */
   reason?: string;
+  /** Le uscite del passo, per mostrare la scelta fra quelle possibili. */
+  outcomes?: readonly string[];
 }) {
   const { t } = useTranslation();
-  const ctx = words;
   const fields = Object.entries(p.fields);
   const streaming = reason !== undefined && reason !== p.reason;
   return (
     <section data-preview-claude className="flex flex-col gap-3">
       {p.outcome !== null ? (
-        <p className="text-sm text-ink-muted">
+        <p className="text-md text-ink">
           {t("automations.test.preview.claudeChose")}{" "}
-          <strong data-claude-outcome className="text-md font-semibold text-ink">
+          <strong data-claude-outcome className="font-semibold">
             {p.outcome}
           </strong>
         </p>
       ) : (
         <p className="text-sm text-ink-muted">{t("automations.test.preview.claudeAnswered")}</p>
       )}
-      <div className="flex flex-col gap-1">
-        <p className="heading-group">{t("automations.test.preview.why")}</p>
-        {streaming ? (
-          <p aria-busy="true" className="max-w-[68ch] text-md whitespace-pre-line text-ink">
-            {reason}
-            <span
-              aria-hidden="true"
-              className="stream-caret ml-0.5 inline-block h-4 w-[2px] translate-y-[3px] rounded-[1px] bg-ink"
-            />
-          </p>
-        ) : (
-          <Clamped text={p.reason} lines={10} className="text-md" />
-        )}
-      </div>
-      {!streaming && fields.length > 0 && (
+      {outcomes.length > 0 && (
+        <p data-outcomes className="flex flex-wrap gap-x-2 text-sm">
+          {outcomes.map((o, i) => (
+            <span key={o} className={o === p.outcome ? "font-semibold text-ink" : "text-ink-faint"}>
+              {o}
+              {i < outcomes.length - 1 && <span className="text-ink-faint"> ·</span>}
+            </span>
+          ))}
+        </p>
+      )}
+      {(streaming || p.reason) && (
         <div className="flex flex-col gap-1">
+          <p className="heading-group">{t("automations.log.why")}</p>
+          {streaming ? (
+            <p aria-busy="true" className="max-w-[68ch] text-md whitespace-pre-line text-ink">
+              {reason}
+              <span
+                aria-hidden="true"
+                className="stream-caret ml-0.5 inline-block h-4 w-[2px] translate-y-[3px] rounded-[1px] bg-ink"
+              />
+            </p>
+          ) : (
+            <Clamped text={p.reason} lines={10} className="text-md" />
+          )}
+        </div>
+      )}
+      {!streaming && fields.length > 0 && (
+        <div className="flex flex-col gap-1.5">
           <p className="heading-group">{t("automations.test.preview.fields")}</p>
-          <dl className={pairs}>
-            {fields.map(([k, v]) => (
-              <Pair key={k} label={ctx.labels.get(k)?.label ?? k}>
-                <FieldValue value={v} />
-              </Pair>
-            ))}
-          </dl>
+          {fields.map(([k, v]) => (
+            <ReturnedField key={k} name={k} value={v} labels={words.labels} />
+          ))}
         </div>
       )}
       {!streaming && p.read.length > 0 && (

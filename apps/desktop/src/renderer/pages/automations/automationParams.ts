@@ -28,8 +28,6 @@ export const AUTOMATION_SEARCH_KEYS = [
   "from",
 ] as const;
 
-export type AutomationSearchKey = (typeof AUTOMATION_SEARCH_KEYS)[number];
-
 /** Le viste dell'elenco (`?view=`): senza parametro, tutte le automazioni. */
 export const AUTOMATION_VIEWS = ["runs", "attention"] as const;
 

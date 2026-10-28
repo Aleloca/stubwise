@@ -456,7 +456,7 @@ describe("dettaglio di un'esecuzione", () => {
     await open("/automations/AUD-A1/runs/1");
     const log = await screen.findByRole("list", { name: "Log" });
     expect(log).toHaveTextContent("Checked whether Testo della risposta isn't empty: yes");
-    const claude = log.querySelector("[data-claude-block]")!;
+    const claude = log.querySelector("[data-preview-claude]")!;
     expect(claude).toHaveTextContent("Claude chose mancano informazioni");
     const outcomes = claude.querySelector("[data-outcomes]")!;
     expect(within(outcomes as HTMLElement).getByText("mancano informazioni")).toHaveClass(

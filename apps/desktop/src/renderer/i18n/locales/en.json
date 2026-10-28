@@ -5094,7 +5094,6 @@
       "repeatDone_one": "“Repeat until” finished · {{count}} round",
       "repeatDone_other": "“Repeat until” finished · {{count}} rounds",
       "claudeAnswered": "Claude answered",
-      "claudeChose": "Claude chose",
       "why": "Why — written by Claude",
       "showAllRows": "Show all {{count}}",
       "showFewer": "Show fewer",
@@ -5562,8 +5561,6 @@
         "noFiles": "No files are available here.",
         "sentFromOwner": "Sent from the owner's mailbox when the automation runs.",
         "notifyWho": "Who",
-        "choosePersonData": "Choose a person from the data",
-        "noPersonData": "No data about a person is available here.",
         "message": "Message",
         "whichAutomation": "Automation",
         "chooseAutomation": "Choose an automation that's on",
@@ -5795,9 +5792,7 @@
         "title": "This automation can't be tested yet",
         "body": "Fix these problems in the editor, then test it.",
         "step": "Step {{n}} · {{problem}}",
-        "start": "When it starts · {{problem}}",
-        "fix_one": "Fix {{count}} problem to test",
-        "fix_other": "Fix {{count}} problems to test"
+        "start": "When it starts · {{problem}}"
       },
       "cantTest": {
         "title": "You can't test this automation",
@@ -5858,9 +5853,7 @@
         "find": "Find a round",
         "none": "No round matches",
         "item": "round {{n}}",
-        "label": "Round of step {{n}}",
-        "summary_one": "{{count}} round",
-        "summary_other": "{{count}} rounds"
+        "label": "Round of step {{n}}"
       },
       "panel": {
         "stepN": "Step {{n}} · {{kind}}",
@@ -5921,7 +5914,6 @@
         "startHidden": "Would start an automation you can't see. A test doesn't run other automations: its steps aren't shown.",
         "claudeChose": "Claude chose",
         "claudeAnswered": "Claude answered with the fields below.",
-        "why": "Why",
         "fields": "Fields",
         "read": "Read",
         "claudeNext": "Claude would read {{inputs}} and answer. Next step runs it.",
@@ -5930,7 +5922,6 @@
         "realStop": "A real run would stop here. Nothing else would happen.",
         "failed": "This step would fail",
         "condition": "With these values",
-        "conditionLane": "→ {{lane}}",
         "forEach_one": "{{list}} has {{count}} item",
         "forEach_other": "{{list}} has {{count}} items",
         "forEachOver_one": "The list has {{count}} item. A run stops at {{max}}: this step would fail.",
@@ -6008,18 +5999,13 @@
         "wouldStart": "Would start",
         "stops": "Stops",
         "stopApproval": "Would wait for approval — {{name}}",
-        "stopWait_one": "Would wait up to {{count}} day",
-        "stopWait_other": "Would wait up to {{count}} days",
-        "stopProject": "Would ask the owner to choose a project",
         "waiting_one": "Real run: about {{count}} day of waiting",
         "waiting_other": "Real run: about {{count}} days of waiting",
         "nothing": "Nothing would happen with this example.",
         "stoppedAt": "The test stopped at step {{n}}",
         "editStep": "Edit step {{n}}",
         "rejected": "A real run would stop at step {{n}}: rejected in the test",
-        "inMilestone": "in {{name}}",
-        "to": "to {{to}}",
-        "liveNoTurnOn": "This is the version that's on: nothing to turn on."
+        "to": "to {{to}}"
       },
       "announce": {
         "stepDone": "Step {{n}} done: {{what}}",

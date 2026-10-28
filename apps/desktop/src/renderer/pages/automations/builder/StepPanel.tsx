@@ -28,8 +28,6 @@ import { laneDepth, placeOf, replaceAt } from "./tree";
 // di partire (approvazione). Ogni modifica si vede subito nella frase della
 // riga. Ogni problema sta sotto il suo campo (`aria-describedby`).
 
-export type Patch<S extends Step> = (next: Partial<S>) => void;
-
 export function StepPanel({ step, path }: { step: Step; path: string }) {
   const { t } = useTranslation();
   const b = useBuilder();

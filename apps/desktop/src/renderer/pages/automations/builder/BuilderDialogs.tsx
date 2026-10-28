@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { childLists, joinPath, stepAt, visitSteps } from "../../../domain/automations/fields";
+import { childLists, joinPath, visitSteps } from "../../../domain/automations/fields";
 import type { Step } from "../../../data/types";
 import { Dialog, DialogField } from "../../../tasks-ui/Dialog";
 import { dangerSolidButton, primaryButton, secondaryButton } from "../../tasks/controls";
@@ -180,10 +180,4 @@ export function MoveToDialog({
       </DialogField>
     </Dialog>
   );
-}
-
-/** Il passo per id, nell'albero di adesso. */
-export function stepById(steps: Step[], paths: Map<string, string>, id: string): Step | null {
-  const path = paths.get(id);
-  return path === undefined ? null : stepAt(steps, path);
 }

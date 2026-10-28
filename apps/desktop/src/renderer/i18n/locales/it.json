@@ -5094,7 +5094,6 @@
       "repeatDone_one": "«Ripeti finché» finito · {{count}} giro",
       "repeatDone_other": "«Ripeti finché» finito · {{count}} giri",
       "claudeAnswered": "Claude ha risposto",
-      "claudeChose": "Claude ha scelto",
       "why": "Perché — scritto da Claude",
       "showAllRows": "Mostra tutte e {{count}}",
       "showFewer": "Mostra meno",
@@ -5562,8 +5561,6 @@
         "noFiles": "Qui non ci sono file disponibili.",
         "sentFromOwner": "Parte dalla casella del proprietario quando l'automazione gira.",
         "notifyWho": "Chi",
-        "choosePersonData": "Scegli una persona fra i dati",
-        "noPersonData": "Qui non c'è nessun dato su una persona.",
         "message": "Messaggio",
         "whichAutomation": "Automazione",
         "chooseAutomation": "Scegli un'automazione accesa",
@@ -5795,9 +5792,7 @@
         "title": "Questa automazione non si può ancora provare",
         "body": "Risolvi questi problemi nel costruttore, poi provala.",
         "step": "Passo {{n}} · {{problem}}",
-        "start": "Quando inizia · {{problem}}",
-        "fix_one": "Risolvi {{count}} problema per provarla",
-        "fix_other": "Risolvi {{count}} problemi per provarla"
+        "start": "Quando inizia · {{problem}}"
       },
       "cantTest": {
         "title": "Non puoi provare questa automazione",
@@ -5858,9 +5853,7 @@
         "find": "Cerca un giro",
         "none": "Nessun giro corrisponde",
         "item": "giro {{n}}",
-        "label": "Giro del passo {{n}}",
-        "summary_one": "{{count}} giro",
-        "summary_other": "{{count}} giri"
+        "label": "Giro del passo {{n}}"
       },
       "panel": {
         "stepN": "Passo {{n}} · {{kind}}",
@@ -5921,7 +5914,6 @@
         "startHidden": "Avvierebbe un'automazione che non vedi. Una prova non esegue altre automazioni: i suoi passi non si vedono.",
         "claudeChose": "Claude ha scelto",
         "claudeAnswered": "Claude ha risposto con i campi qui sotto.",
-        "why": "Perché",
         "fields": "Campi",
         "read": "Ha letto",
         "claudeNext": "Claude leggerebbe {{inputs}} e risponderebbe. «Passo successivo» lo esegue.",
@@ -5930,7 +5922,6 @@
         "realStop": "Un'esecuzione vera si fermerebbe qui. Non succederebbe nient'altro.",
         "failed": "Questo passo fallirebbe",
         "condition": "Con questi valori",
-        "conditionLane": "→ {{lane}}",
         "forEach_one": "{{list}} ha {{count}} elemento",
         "forEach_other": "{{list}} ha {{count}} elementi",
         "forEachOver_one": "L'elenco ha {{count}} elemento. Un'esecuzione si ferma a {{max}}: questo passo fallirebbe.",
@@ -6008,18 +5999,13 @@
         "wouldStart": "Avvierebbe",
         "stops": "Fermate",
         "stopApproval": "Aspetterebbe un'approvazione — {{name}}",
-        "stopWait_one": "Aspetterebbe fino a {{count}} giorno",
-        "stopWait_other": "Aspetterebbe fino a {{count}} giorni",
-        "stopProject": "Chiederebbe al proprietario di scegliere un progetto",
         "waiting_one": "Esecuzione vera: circa {{count}} giorno di attesa",
         "waiting_other": "Esecuzione vera: circa {{count}} giorni di attesa",
         "nothing": "Con questo esempio non succederebbe niente.",
         "stoppedAt": "La prova si è fermata al passo {{n}}",
         "editStep": "Modifica il passo {{n}}",
         "rejected": "Un'esecuzione vera si fermerebbe al passo {{n}}: rifiutato nella prova",
-        "inMilestone": "in {{name}}",
-        "to": "a {{to}}",
-        "liveNoTurnOn": "Questa è la versione accesa: non c'è niente da accendere."
+        "to": "a {{to}}"
       },
       "announce": {
         "stepDone": "Passo {{n}} fatto: {{what}}",

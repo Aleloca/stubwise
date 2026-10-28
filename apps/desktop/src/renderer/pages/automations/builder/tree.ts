@@ -23,7 +23,6 @@ import type { AutomationFlow, AutomationSource, Condition, Step } from "../../..
 /** Il quinto livello è l'ultimo: lì dentro solo passi senza rami. */
 export const MAX_DEPTH = MAX_NESTING;
 
-export type BlockKind = "condition" | "claude" | "forEach" | "repeatUntil";
 const BLOCKS: ReadonlySet<Step["kind"]> = new Set([
   "condition",
   "claude",

@@ -238,7 +238,11 @@ export function viewRun(me: string, run: AutomationRun): AutomationRun {
       return p !== null && !visible.has(p) ? { kind: x.kind, code: "" } : x;
     });
   }
-  if (v.pending) scrub(v.pending.preview);
+  if (v.pending) {
+    scrub(v.pending.preview);
+    // Chi decide si legge adesso (come `decide`): il proprietario può essere cambiato.
+    v.pending.approverIds = decidersOf(run);
+  }
   const a = automationById(run.automationId);
   if (a?.ownerId !== me) {
     // R-J14: l'anteprima di chi decide resta intera — separata prima di

@@ -245,7 +245,7 @@ function StepBody({ step, path, mark }: { step: Step; path: string; mark: Mark }
       const p = sim.preview.claude.find((x) => x.path === path);
       if (!p) return null;
       const streaming = ctx.stream?.path === path ? ctx.stream.text : undefined;
-      return <ClaudePreview p={p} words={pp.words} reason={streaming} />;
+      return <ClaudePreview p={p} words={pp.words} reason={streaming} outcomes={step.outcomes} />;
     }
     case "condition": {
       const values = Object.entries(last?.input ?? {});
