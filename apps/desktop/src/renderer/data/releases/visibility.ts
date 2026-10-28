@@ -42,6 +42,10 @@ export const capOf = (projectId: string): number =>
 export const repositoryById = (id: string): Repository | undefined =>
   state.repositories.find((r) => r.id === id);
 
+/** Il ramo di default di un repository sulla piattaforma, o `main`. */
+export const defaultBranchOf = (repo: Repository | undefined): string =>
+  repo?.defaultBranch ?? "main";
+
 /** Il ramo di rilascio di un repository: quello scelto, o `main`. */
 export const releaseBranchOf = (repo: Repository | undefined): string =>
   repo?.releaseBranch ?? "main";
@@ -130,7 +134,8 @@ export function stateOfPr(pr: OpenPullRequest): PrState {
     prAnalysisOnly: pr.analysisOnly !== null,
     branch: pr.branch,
     baseBranch: pr.baseBranch,
-    defaultBranch: releaseBranchOf(repo),
+    defaultBranch: defaultBranchOf(repo),
+    releaseBranch: releaseBranchOf(repo),
     fromFork: pr.fromFork,
     branchProtected: pr.branchProtected,
     ownTaskCode: task?.code ?? null,

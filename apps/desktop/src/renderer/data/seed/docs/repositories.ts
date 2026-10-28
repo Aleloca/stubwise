@@ -7,7 +7,7 @@ import type { Repository } from "../../types";
 // sono vuoti.
 //
 // Area 8a: ogni repository dice cosa fa con le PR dei colleghi, il ramo di
-// rilascio e da dove si leggono le run. AUD ne ha due in più, senza spazio
+// rilascio (distinto dal ramo di default, R-K20) e da dove si leggono le run. AUD ne ha due in più, senza spazio
 // dei Docs: uno su «Solo analisi» e uno «Spento»; STW la guida (la PR #58
 // di STW-3). STW non ha una pipeline
 // (`ciProvider: null`): lo stato dei suoi rilasci lo dice l'ambiente.
@@ -20,6 +20,7 @@ export const REPOSITORIES: Repository[] = [
     name: "stubwise",
     fullName: "stubwise/stubwise",
     colleaguePrs: "analyze_and_fix",
+    defaultBranch: "main",
     releaseBranch: "main",
     releasePipeline: { mode: "auto" },
     ciProvider: null,
@@ -30,6 +31,7 @@ export const REPOSITORIES: Repository[] = [
     name: "audin-app",
     fullName: "audin/audin-app",
     colleaguePrs: "analyze_and_fix",
+    defaultBranch: "main",
     releaseBranch: "main",
     releasePipeline: { mode: "auto" },
     ciProvider: "github_actions",
@@ -41,6 +43,7 @@ export const REPOSITORIES: Repository[] = [
     name: "audin-admin",
     fullName: "audin/audin-admin",
     colleaguePrs: "analyze_only",
+    defaultBranch: "main",
     releaseBranch: "main",
     releasePipeline: { mode: "auto" },
     ciProvider: "github_actions",
@@ -52,6 +55,7 @@ export const REPOSITORIES: Repository[] = [
     name: "guide",
     fullName: "stubwise/guide",
     colleaguePrs: "analyze_and_fix",
+    defaultBranch: "main",
     releaseBranch: "main",
     releasePipeline: { mode: "auto" },
     ciProvider: null,
@@ -62,6 +66,7 @@ export const REPOSITORIES: Repository[] = [
     name: "audin-scripts",
     fullName: "audin/audin-scripts",
     colleaguePrs: "off",
+    defaultBranch: "main",
     releaseBranch: "main",
     releasePipeline: { mode: "auto" },
     ciProvider: "github_actions",

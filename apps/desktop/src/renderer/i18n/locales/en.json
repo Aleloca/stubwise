@@ -6380,6 +6380,7 @@
       "fork": "Claude can't fix this: it comes from a fork",
       "protected": "Claude can't fix this: the branch is protected",
       "default_branch": "Claude can't fix this: it's the default branch",
+      "release_branch": "Claude can't fix this: it's the release branch",
       "target_branch": "Claude can't fix this: it's the target branch",
       "other_task_branch": "Claude can't fix this: it belongs to another task"
     },

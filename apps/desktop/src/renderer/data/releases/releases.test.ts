@@ -378,6 +378,23 @@ describe("Review Focus 2: correzioni sulle PR dei colleghi (livello dati)", () =
     }
   });
 
+  it("R-K20: col ramo di rilascio spostato su `release`, una PR da `main` resta vietata", async () => {
+    as("p-laura");
+    await releases.setReleasePipeline("repo-aud", { mode: "auto" }, "release");
+    Object.assign(pr("opr-aud-246"), { branch: "main", baseBranch: "release" });
+    const view = await releases.advancePrWork("opr-aud-246");
+    expect(view.prState).toMatchObject({ state: "not_fixable", notFixable: "default_branch" });
+    expect(await releases.requestPrCorrection("opr-aud-246", "x")).toEqual({
+      ok: false,
+      error: "not_fixable",
+    });
+    expect(states("opr-aud-246")).toEqual(["pushed"]);
+    // E il ramo di rilascio resta vietato anche se non è la base della PR.
+    Object.assign(pr("opr-aud-246"), { branch: "release", baseBranch: "develop" });
+    const again = await releases.advancePrWork("opr-aud-246");
+    expect(again.prState).toMatchObject({ state: "not_fixable", notFixable: "release_branch" });
+  });
+
   it("repository «Spento» con PR «Solo analisi»: non si riaccende", async () => {
     as("p-laura");
     await releases.setRepoPrMode("repo-aud", "off");

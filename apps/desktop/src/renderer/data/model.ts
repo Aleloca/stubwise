@@ -913,6 +913,12 @@ export interface Repository {
   fullName?: string;
   /** Le PR dei colleghi (aperte fuori da Stubwise): analisi e correzioni, solo analisi o spento. */
   colleaguePrs?: ColleaguePrMode;
+  /**
+   * Il ramo di default sulla piattaforma (assente = `main`). È un fatto del
+   * repository, non una scelta di Stubwise: cambiare il ramo di rilascio non
+   * lo sposta, e Claude non ci spinge mai (anti-obiettivo 4, R-K20).
+   */
+  defaultBranch?: string;
   /** Il ramo su cui si rilascia (il merge), es. «main». */
   releaseBranch?: string;
   /** Quali run di CI fanno lo stato del rilascio: tutte, o solo quelle coi nomi dati. */

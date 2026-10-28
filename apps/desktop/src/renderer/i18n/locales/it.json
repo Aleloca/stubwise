@@ -6380,6 +6380,7 @@
       "fork": "Claude non può correggere qui: viene da un fork",
       "protected": "Claude non può correggere qui: il ramo è protetto",
       "default_branch": "Claude non può correggere qui: è il ramo di default",
+      "release_branch": "Claude non può correggere qui: è il ramo di rilascio",
       "target_branch": "Claude non può correggere qui: è il ramo di destinazione",
       "other_task_branch": "Claude non può correggere qui: è il ramo di un'altra task"
     },

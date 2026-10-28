@@ -32,6 +32,7 @@ export type NotFixableReason =
   | "fork"
   | "protected"
   | "default_branch"
+  | "release_branch"
   | "target_branch"
   | "other_task_branch";
 
@@ -54,7 +55,10 @@ export interface PrStateInput {
   prAnalysisOnly: boolean;
   branch: string;
   baseBranch: string;
+  /** Il ramo di default sulla piattaforma (R-K20): vietato anche se non è quello di rilascio. */
   defaultBranch: string;
+  /** Il ramo di rilascio del repository: vietato anche se la PR punta altrove. */
+  releaseBranch: string;
   fromFork: boolean;
   branchProtected: boolean;
   /** Il codice della task collegata alla PR (`STW-3`): il suo ramo `stubwise/…` non è vietato. */
@@ -76,6 +80,7 @@ function forbiddenBranch(i: PrStateInput): NotFixableReason | null {
   if (i.fromFork) return "fork";
   if (i.branchProtected) return "protected";
   if (i.branch === i.defaultBranch) return "default_branch";
+  if (i.branch === i.releaseBranch) return "release_branch";
   if (i.branch === i.baseBranch) return "target_branch";
   if (i.branch.startsWith("stubwise/")) {
     const own = i.ownTaskCode ? `stubwise/${i.ownTaskCode}` : null;
