@@ -441,13 +441,14 @@ describe("seed: decisioni, richieste, filtri, Home", () => {
 });
 
 describe("seed: notifiche", () => {
-  it("ogni notifica ha il codice del suo oggetto: task, progetto, evento, PR, rilascio o conversazione", () => {
+  it("ogni notifica ha il codice del suo oggetto: task, progetto, evento, PR, rilascio, conversazione o richiesta", () => {
     const eventCode = new RegExp("^(" + EVENT_PREFIXES.join("|") + ")-\\d+$");
-    // Gli oggetti dell'area 8a, del progetto della notifica.
+    // Gli oggetti dell'area 8a, del progetto della notifica (R-K11: `support.request` porta la richiesta).
     const area8a = [
       ...OPEN_PRS.map((p) => ({ code: `${p.repo}#${p.number}`, projectId: p.projectId })),
       ...RELEASES.map((r) => ({ code: r.code, projectId: r.projectId })),
       ...SUPPORT_CONVERSATIONS.map((c) => ({ code: c.code, projectId: c.projectId })),
+      ...REQUESTS.filter((r) => r.origin).map((r) => ({ code: r.code, projectId: r.projectId })),
     ];
     for (const n of NOTIFICATIONS) {
       const task = TASKS.find((t) => t.code === n.objectCode);
@@ -774,6 +775,40 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
       expect(c.requestId).toBe(r.id);
     }
     expect(REQUESTS.filter((r) => r.origin)).toHaveLength(2);
+  });
+
+  it("R-K11: l'avviso support.request porta il codice della richiesta e il link alla richiesta", () => {
+    const alerts = ALERT_NOTIFICATIONS.filter((n) => n.kind === "support.request");
+    expect(alerts.length).toBeGreaterThan(0);
+    for (const n of alerts) {
+      const req = REQUESTS.find((r) => r.code === n.objectCode)!;
+      expect(req.origin?.kind).toBe("support");
+      expect(n.link).toBe(`#/p/ACQ/requests?request=${req.id}`);
+    }
+  });
+
+  it("R-K13: i widget hanno i campi del web", () => {
+    for (const w of SUPPORT_WIDGETS) {
+      expect(Object.keys(w).sort()).toEqual(
+        [
+          "id",
+          "projectId",
+          "name",
+          "enabled",
+          "sourceRepositoryIds",
+          "origins",
+          "title",
+          "welcomeMessage",
+          "instructions",
+          "accentColor",
+          "language",
+          "dailyMessageCap",
+          "dailyRequestCap",
+          "createdAt",
+        ].sort(),
+      );
+      expect(w.accentColor).toMatch(/^#[0-9a-fA-F]{6}$/);
+    }
   });
 
   it("ACQ: Sara e Matteo membri in più, senza perdere i membri calcolati", () => {

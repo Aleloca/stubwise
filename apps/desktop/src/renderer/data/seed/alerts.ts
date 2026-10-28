@@ -83,7 +83,8 @@ const ROWS: Row[] = [
   ["release.succeeded", "AUD", "AUD-V1", "Release succeeded", "AUD-V1 is in production: Drop the legacy SMS module.", at(15, "12:41"), "#/p/AUD/releases"],
   ["docs.release_note", "STW", "STW", "New release notes", "Release notes 0.4.0 — Desktop preview.", at(5, "15:20"), "#/p/STW/docs"],
   ["task.created", "AUD", "AUD-10", "New task", "Store review notes for the mobile app.", at(8, "11:00"), "#/p/AUD/tasks"],
-  ["support.request", "ACQ", "ACQ-S4", "New request from a customer", "Consumption history of the town buildings as a spreadsheet.", at(2, "11:00"), "#/p/ACQ/support"],
+  // La richiesta nata da ACQ-S4 (R-K11: codice e link della richiesta, come gli avvisi nuovi).
+  ["support.request", "ACQ", "ACQ-R2", "New request from a customer", "Consumption history of the town buildings as a spreadsheet.", at(2, "11:00"), "#/p/ACQ/requests?request=req-acq-2"],
   ["support.customer_replied", "ACQ", "ACQ-S2", "The customer replied", "Lucia Benedetti: Any news? The yearly adjustment arrives next month.", at(0, "08:15"), "#/p/ACQ/support", [["p-laura", "follows_conversation"]]],
 ];
 

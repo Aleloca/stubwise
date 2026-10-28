@@ -86,15 +86,15 @@ export async function openRequestFrom(
 
 /**
  * «Segui»: l'avviso obbligatorio `support.customer_replied` a ogni messaggio
- * nuovo del cliente. Il tipo d'avviso vuole `support.reply`, quindi anche
- * seguire.
+ * nuovo del cliente. Segue chiunque veda la conversazione, cioè ogni membro
+ * del progetto (R-K12); rispondere resta a chi ha `support.reply`.
  */
 export async function followConversation(
   code: string,
   on: boolean,
 ): Promise<SupportConversationView> {
   const me = await writer("support.followConversation");
-  const c = replierFor(me, code);
+  const c = conversationFor(me, code);
   c.followerIds = c.followerIds.filter((id) => id !== me);
   if (on) c.followerIds.push(me);
   return conversationView(me, c);
@@ -144,21 +144,89 @@ export async function emailDraftFor(
 
 // --- widget -------------------------------------------------------------------
 
-export interface WidgetInput {
-  name: string;
-  origins: string[];
-  greeting: string;
-}
+/** I campi che si scrivono (R-K13): quelli del web. Nuovo: solo il nome è obbligatorio. */
+export type WidgetFields = Omit<SupportWidget, "id" | "projectId" | "createdAt">;
+export type WidgetInput = Pick<WidgetFields, "name"> & Partial<WidgetFields>;
+
+/** I default del web (`widgetSettingsSchema`), coi testi in inglese del prototipo. */
+const WIDGET_DEFAULTS: Omit<WidgetFields, "name"> = {
+  enabled: false,
+  sourceRepositoryIds: [],
+  origins: [],
+  title: "Help",
+  welcomeMessage: "Hi! How can we help?",
+  instructions: "",
+  accentColor: "#22c55e",
+  language: "it",
+  dailyMessageCap: null,
+  dailyRequestCap: null,
+};
 
 const ORIGIN = /^https?:\/\/[^\s/]+$/;
+const COLOR = /^#[0-9a-fA-F]{6}$/;
+/** Il tetto massimo di un limite giornaliero, come sul web. */
+const MAX_DAILY_CAP = 100_000;
 
-function checkWidget(input: Partial<WidgetInput>): void {
-  if (input.name !== undefined && !input.name.trim()) throw invalid("name");
-  if (input.origins !== undefined) {
-    if (!Array.isArray(input.origins) || input.origins.some((o) => !ORIGIN.test(o.trim()))) {
-      throw invalid("origins");
-    }
+/** Un testo obbligatorio fra 1 e `max` caratteri (dopo `trim`), altrimenti `invalid: <field>`. */
+function text(value: string, field: string, max: number, required = true): string {
+  if (typeof value !== "string") throw invalid(field);
+  const v = value.trim();
+  if ((required && !v) || v.length > max) throw invalid(field);
+  return v;
+}
+
+function cap(value: number | null, field: string): number | null {
+  if (value === null) return null;
+  if (!Number.isInteger(value) || value < 1 || value > MAX_DAILY_CAP) throw invalid(field);
+  return value;
+}
+
+/**
+ * I campi di `patch` controllati e ripuliti, con le regole del web
+ * (`widgetUpsertBodySchema`). Gli errori sono codici: `invalid: <campo>`.
+ * Le fonti della documentazione sono repository dello stesso progetto.
+ */
+function cleanWidget(projectId: string, patch: Partial<WidgetFields>): Partial<WidgetFields> {
+  const out: Partial<WidgetFields> = {};
+  if (patch.name !== undefined) out.name = text(patch.name, "name", 80);
+  if (patch.enabled !== undefined) {
+    if (typeof patch.enabled !== "boolean") throw invalid("enabled");
+    out.enabled = patch.enabled;
   }
+  if (patch.sourceRepositoryIds !== undefined) {
+    const ids = patch.sourceRepositoryIds;
+    const own = (id: string) =>
+      state.repositories.some((r) => r.id === id && r.projectId === projectId);
+    if (!Array.isArray(ids) || ids.length > 200 || !ids.every(own)) {
+      throw invalid("sourceRepositoryIds");
+    }
+    out.sourceRepositoryIds = [...new Set(ids)];
+  }
+  if (patch.origins !== undefined) {
+    const list = patch.origins;
+    if (!Array.isArray(list) || list.some((o) => typeof o !== "string" || !ORIGIN.test(o.trim())))
+      throw invalid("origins");
+    out.origins = [...new Set(list.map((o) => o.trim()))];
+  }
+  if (patch.title !== undefined) out.title = text(patch.title, "title", 80);
+  if (patch.welcomeMessage !== undefined)
+    out.welcomeMessage = text(patch.welcomeMessage, "welcomeMessage", 500);
+  if (patch.instructions !== undefined)
+    out.instructions = text(patch.instructions, "instructions", 4000, false);
+  if (patch.accentColor !== undefined) {
+    if (typeof patch.accentColor !== "string" || !COLOR.test(patch.accentColor))
+      throw invalid("accentColor");
+    out.accentColor = patch.accentColor;
+  }
+  if (patch.language !== undefined) {
+    if (patch.language !== "it" && patch.language !== "en") throw invalid("language");
+    out.language = patch.language;
+  }
+  if (patch.dailyMessageCap !== undefined)
+    out.dailyMessageCap = cap(patch.dailyMessageCap, "dailyMessageCap");
+  if (patch.dailyRequestCap !== undefined)
+    out.dailyRequestCap = cap(patch.dailyRequestCap, "dailyRequestCap");
+  return out;
 }
 
 function widgetFor(me: string, id: string): SupportWidget {
@@ -172,29 +240,27 @@ export async function createWidget(projectId: string, input: WidgetInput): Promi
   const me = await writer("support.createWidget");
   if (!sees(me, projectId)) throw notFound();
   if (!holds(me, "widget.manage", projectId)) throw forbidden();
-  checkWidget(input);
+  const fields = cleanWidget(projectId, { ...input, name: input.name ?? "" });
   const w: SupportWidget = {
     id: newId("wdg"),
     projectId,
-    name: input.name.trim(),
-    origins: input.origins.map((o) => o.trim()),
-    greeting: input.greeting.trim(),
+    ...WIDGET_DEFAULTS,
+    ...fields,
+    name: fields.name!,
     createdAt: now(),
   };
   state.supportWidgets.push(w);
   return copy(w);
 }
 
+/** Cambia i campi passati, gli altri restano (patch). Tutto o niente: un campo sbagliato non scrive. */
 export async function updateWidget(
   id: string,
-  patch: Partial<WidgetInput>,
+  patch: Partial<WidgetFields>,
 ): Promise<SupportWidget> {
   const me = await writer("support.updateWidget");
   const w = widgetFor(me, id);
-  checkWidget(patch);
-  if (patch.name !== undefined) w.name = patch.name.trim();
-  if (patch.origins !== undefined) w.origins = patch.origins.map((o) => o.trim());
-  if (patch.greeting !== undefined) w.greeting = patch.greeting.trim();
+  Object.assign(w, cleanWidget(w.projectId, patch));
   return copy(w);
 }
 

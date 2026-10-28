@@ -98,7 +98,9 @@ export const ALERT_TYPES: AlertType[] = [
   row("docs.release_note", "docs", "docs.view", off, false),
   row("task.created", "tasks", "tickets.view_all", off, false),
   row("support.request", "support", "backlog.view_all", holds("backlog.edit"), false),
-  row("support.customer_replied", "support", "support.reply", holds("support.reply"), true, [
+  // R-K12: segue una conversazione chi la vede (ogni membro), quindi l'avviso
+  // lo può ricevere ogni membro; acceso di default solo per chi risponde.
+  row("support.customer_replied", "support", "member", holds("support.reply"), true, [
     "follows_conversation",
   ]),
   // I kind di prima: la regola di oggi (tutti i membri) come default.

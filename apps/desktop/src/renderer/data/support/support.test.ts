@@ -125,9 +125,10 @@ describe("letture e visibilità", () => {
   it("widget solo con widget.manage", async () => {
     as("p-sara");
     expect(await support.listWidgets(ACQ)).toEqual({ canManage: false, widgets: [] });
-    await expect(
-      support.createWidget(ACQ, { name: "x", origins: [], greeting: "" }),
-    ).rejects.toThrow("forbidden");
+    await expect(support.createWidget(ACQ, { name: "x" })).rejects.toThrow("forbidden");
+    await expect(support.updateWidget("wdg-acq-portal", { enabled: false })).rejects.toThrow(
+      "forbidden",
+    );
     as("p-matteo");
     const list = await support.listWidgets(ACQ);
     expect(list.canManage).toBe(true);
@@ -272,27 +273,96 @@ describe("scritture", () => {
     expect(a.state).toBe("request_open");
   });
 
-  it("seguire: con support.reply", async () => {
+  it("R-K12: segue chi vede la conversazione (ogni membro); rispondere resta a support.reply", async () => {
     as("p-matteo");
     expect((await support.followConversation("ACQ-S1", true)).following).toBe(true);
     expect((await support.followConversation("ACQ-S1", false)).following).toBe(false);
     as("p-sara");
-    await expect(support.followConversation("ACQ-S1", true)).rejects.toThrow("forbidden");
+    const view = await support.followConversation("ACQ-S1", true);
+    expect(view.following).toBe(true);
+    expect(view.canReply).toBe(false);
+    expect(conv("ACQ-S1").followerIds).toContain("p-sara");
+    // Seguire serve: l'avviso del cliente le arriva, anche senza support.reply.
+    await support.simulateCustomerMessage("ACQ-S1", "From the portal.");
+    const n = state.notifications.at(-1)!;
+    expect((await listNotifications()).some((x) => x.id === n.id)).toBe(true);
+    // Senza seguirla, no: il default resta acceso solo per chi risponde.
+    await support.followConversation("ACQ-S1", false);
+    await support.simulateCustomerMessage("ACQ-S1", "Hello?");
+    const m = state.notifications.at(-1)!;
+    expect((await listNotifications()).some((x) => x.id === m.id)).toBe(false);
+    as(outsider());
+    await expect(support.followConversation("ACQ-S1", true)).rejects.toThrow("not_found");
+  });
+
+  it("R-K13: widget coi campi del web, default e validazione con codici", async () => {
+    as("p-matteo");
+    const w = await support.createWidget(ACQ, { name: "  Site  " });
+    expect(w).toMatchObject({
+      name: "Site",
+      enabled: false,
+      sourceRepositoryIds: [],
+      origins: [],
+      title: "Help",
+      welcomeMessage: "Hi! How can we help?",
+      instructions: "",
+      accentColor: "#22c55e",
+      language: "it",
+      dailyMessageCap: null,
+      dailyRequestCap: null,
+    });
+    const bad: [Partial<support.WidgetInput>, string][] = [
+      [{ name: " " }, "name"],
+      [{ name: "x".repeat(81) }, "name"],
+      [{ title: "" }, "title"],
+      [{ title: "x".repeat(81) }, "title"],
+      [{ welcomeMessage: " " }, "welcomeMessage"],
+      [{ welcomeMessage: "x".repeat(501) }, "welcomeMessage"],
+      [{ instructions: "x".repeat(4001) }, "instructions"],
+      [{ accentColor: "green" }, "accentColor"],
+      [{ language: "fr" as never }, "language"],
+      [{ dailyMessageCap: 0 }, "dailyMessageCap"],
+      [{ dailyMessageCap: 1.5 }, "dailyMessageCap"],
+      [{ dailyRequestCap: 100_001 }, "dailyRequestCap"],
+      [{ origins: ["ftp://x"] }, "origins"],
+      [{ sourceRepositoryIds: ["repo-aud"] }, "sourceRepositoryIds"],
+      [{ enabled: "yes" as never }, "enabled"],
+    ];
+    for (const [patch, code] of bad) {
+      await expect(support.createWidget(ACQ, { name: "Ok", ...patch })).rejects.toThrow(
+        `invalid: ${code}`,
+      );
+      await expect(support.updateWidget(w.id, patch)).rejects.toThrow(`invalid: ${code}`);
+    }
+    const updated = await support.updateWidget(w.id, {
+      name: "Site 2",
+      enabled: true,
+      origins: ["https://acq.test"],
+      title: "Assistance",
+      welcomeMessage: "Hello",
+      instructions: "Be brief.",
+      accentColor: "#0A84FF",
+      language: "en",
+      dailyMessageCap: 200,
+      dailyRequestCap: 20,
+    });
+    expect(updated).toMatchObject({
+      name: "Site 2",
+      enabled: true,
+      accentColor: "#0A84FF",
+      language: "en",
+      dailyMessageCap: 200,
+      dailyRequestCap: 20,
+    });
+    // Un tetto si riporta al default d'istanza con `null`.
+    expect(
+      (await support.updateWidget(w.id, { dailyMessageCap: null })).dailyMessageCap,
+    ).toBeNull();
   });
 
   it("widget: crea, modifica, elimina (le conversazioni restano)", async () => {
     as("p-matteo");
-    await expect(
-      support.createWidget(ACQ, { name: " ", origins: [], greeting: "" }),
-    ).rejects.toThrow("invalid: name");
-    await expect(
-      support.createWidget(ACQ, { name: "Site", origins: ["ftp://x"], greeting: "" }),
-    ).rejects.toThrow("invalid: origins");
-    const w = await support.createWidget(ACQ, {
-      name: "Site",
-      origins: ["https://acq.test"],
-      greeting: "Hi",
-    });
+    const w = await support.createWidget(ACQ, { name: "Site", origins: ["https://acq.test"] });
     expect((await support.updateWidget(w.id, { name: "Site 2" })).name).toBe("Site 2");
     await support.deleteWidget("wdg-acq-portal");
     expect(state.supportWidgets.map((x) => x.id)).toEqual([w.id]);

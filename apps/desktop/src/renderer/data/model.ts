@@ -2601,11 +2601,29 @@ export interface SupportConversation {
   claudeDraft: string | null;
 }
 
+/**
+ * Un widget del customer service, coi campi del web (`widgetUpsertBodySchema`
+ * di `@stubwise/shared`, shape support.md [A 16]). Spento non accetta
+ * conversazioni nuove (lo fa il widget vero; qui basta il dato).
+ */
 export interface SupportWidget {
   id: string;
   projectId: string;
   name: string;
+  enabled: boolean;
+  /** Le fonti della documentazione: repository del progetto (`enabledRepositoryIds` sul web). */
+  sourceRepositoryIds: string[];
+  /** I siti da cui si può caricare. */
   origins: string[];
-  greeting: string;
+  title: string;
+  welcomeMessage: string;
+  /** Istruzioni in più per l'assistente; vuoto = nessuna. */
+  instructions: string;
+  /** `#rrggbb`. */
+  accentColor: string;
+  language: "it" | "en";
+  /** Tetti giornalieri; `null` = il default d'istanza. */
+  dailyMessageCap: number | null;
+  dailyRequestCap: number | null;
   createdAt: string;
 }

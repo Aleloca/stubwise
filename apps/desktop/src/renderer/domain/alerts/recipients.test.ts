@@ -90,6 +90,10 @@ describe("catalogo degli avvisi", () => {
     expect(alertTypeOf("release.failed")!.defaultOn(merge)).toBe(true);
     expect(alertTypeOf("support.request")!.defaultOn(perms("backlog.edit"))).toBe(true);
     expect(alertTypeOf("support.customer_replied")!.mandatory).toEqual(["follows_conversation"]);
+    // R-K12: segue (e riceve) chi vede la conversazione; acceso di default per chi risponde.
+    expect(alertTypeOf("support.customer_replied")!.subscribe.perm).toBe("member");
+    expect(alertTypeOf("support.customer_replied")!.defaultOn(perms("support.reply"))).toBe(true);
+    expect(alertTypeOf("support.customer_replied")!.defaultOn(none)).toBe(false);
     // I kind di prima: la regola di oggi, tutti i membri.
     expect(alertTypeOf("job.pr_opened")!.subscribe.perm).toBe("member");
     expect(alertTypeOf("job.pr_opened")!.defaultOn(none)).toBe(true);
