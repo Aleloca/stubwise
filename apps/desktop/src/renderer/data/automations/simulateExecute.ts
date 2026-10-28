@@ -25,7 +25,7 @@ import {
   planStart,
   planTask,
   resolveProject,
-  RUN_LIMIT_REASON,
+  runLimitFailure,
   type ActionEffect,
   type EffectOutcome,
 } from "./plans";
@@ -91,7 +91,7 @@ export function previewOf(sim: Sim, a: Automation, eff: ActionEffect, at: string
           departmentId: plan.departmentId,
           assignedBy: plan.assignee.by,
           role: plan.assignee.role,
-          warning: plan.assignee.reason ?? null,
+          warning: plan.assignee.why ?? null,
           dueDate: plan.dueDate,
           dueInDays,
           milestone:
@@ -181,17 +181,7 @@ export function previewOf(sim: Sim, a: Automation, eff: ActionEffect, at: string
       if (!p.ok) return p;
       const target = p.plan;
       if (!canStartRun(target)) {
-        return {
-          ok: false,
-          outcome: {
-            input: {
-              kind: "effect_result",
-              ok: false,
-              error: "run_limit",
-              reason: RUN_LIMIT_REASON(target.name),
-            },
-          },
-        };
+        return { ok: false, outcome: runLimitFailure(target.name) };
       }
       return {
         ok: true,

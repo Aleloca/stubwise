@@ -1,3 +1,4 @@
+import type { ReasonCode } from "../../data/types";
 import { checkClaudeResult } from "./claudeStep";
 import {
   PROJECT_NOT_FOUND,
@@ -196,6 +197,7 @@ export function handle(c: Ctx, input: EngineInput) {
             outcome: "failed",
             input: structuredClone(aw.preview),
             reason: input.reason ?? input.error ?? null,
+            why: input.why ?? null,
           }),
         );
         return fail(c, input.error ?? "effect_failed");
@@ -223,11 +225,17 @@ export function handle(c: Ctx, input: EngineInput) {
       const check = checkClaudeResult(step, input);
       const uscita = input.outcome === undefined ? {} : { uscita: input.outcome };
       if (!check.ok) {
-        const why = {
+        const reason = {
           unknown_outcome: `Claude ha restituito un'uscita non prevista dal passo («${input.outcome ?? "nessuna"}»).`,
           bad_field: "Claude ha restituito campi non previsti dal passo o del tipo sbagliato.",
           too_many: `Claude ha restituito un elenco oltre il limite di ${AUTOMATION_LIMITS.forEachRounds} elementi.`,
         }[check.error];
+        const whys: Record<typeof check.error, ReasonCode> = {
+          unknown_outcome: { code: "unknownOutcome", params: { outcome: input.outcome ?? "—" } },
+          bad_field: { code: "badField" },
+          too_many: { code: "tooMany", params: { max: AUTOMATION_LIMITS.forEachRounds } },
+        };
+        const why = whys[check.error];
         c.log.push(
           row({
             stepId: step.id,
@@ -236,7 +244,8 @@ export function handle(c: Ctx, input: EngineInput) {
             outcome: "failed",
             input: aw.input,
             output: uscita,
-            reason: why,
+            reason,
+            why,
           }),
         );
         return fail(c, check.error);

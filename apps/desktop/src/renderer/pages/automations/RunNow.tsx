@@ -11,6 +11,7 @@ import {
   createdSummary,
   displayNumber,
   errorWords,
+  reasonWords,
   shortDate,
   type Names,
 } from "./format";
@@ -221,7 +222,7 @@ export function NowBox({
         : t("automations.now.failed", { error: errorWords(run.error, t) });
       body = (
         <>
-          {failed?.reason && <p className="text-sm text-ink">{failed.reason}</p>}
+          {failed?.why && <p className="text-sm text-ink">{reasonWords(failed.why, t)}</p>}
           {run.permissions.manage && (
             <div className="flex items-center gap-2">
               <button type="button" className={criticalQuiet} onClick={onCancel}>

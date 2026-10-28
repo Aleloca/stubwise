@@ -12,7 +12,7 @@ import type {
   SimulationTaskPreview,
 } from "../../../data/types";
 import type { DataField } from "../../../data/types";
-import { shortDate, type Names } from "../format";
+import { reasonWords, shortDate, type Names } from "../format";
 import { CriticalGlyph, WarningGlyph } from "../glyphs";
 
 // Le anteprime di ciò che un passo FAREBBE (shape automation-test §5,
@@ -146,7 +146,7 @@ export function TaskPreview({ p, words }: { p: SimulationTaskPreview; words: Pre
       {p.warning && (
         <p data-preview-warning className="flex items-start gap-2 text-sm text-warning">
           <WarningGlyph />
-          <span className="text-ink">{p.warning}</span>
+          <span className="text-ink">{reasonWords(p.warning, t, { would: true })}</span>
         </p>
       )}
       {p.description && (

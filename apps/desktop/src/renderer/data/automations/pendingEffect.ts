@@ -100,7 +100,7 @@ export function pendingEffectOf(
         departmentId: plan.plan.departmentId,
         assignedBy: assignee.by,
         role: assignee.role,
-        warning: assignee.reason ?? null,
+        warning: assignee.why ?? null,
         dueDate: plan.plan.dueDate,
         dueInDays: step.dueInDays,
         milestone: null,

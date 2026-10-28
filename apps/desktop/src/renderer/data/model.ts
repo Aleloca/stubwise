@@ -2284,6 +2284,16 @@ export type RunStatus =
   | "cancelled";
 
 /** Una riga del registro di un'esecuzione (regola 3: tutto tracciato). */
+/**
+ * Una motivazione come codice e parametri (nomi propri, numeri, indirizzi):
+ * l'interfaccia la traduce con `automations.reasons.<code>`, e nella prova
+ * al condizionale. `reason` resta la prosa del registro.
+ */
+export interface ReasonCode {
+  code: string;
+  params?: Record<string, string | number>;
+}
+
 export interface RunLogEntry {
   at: string;
   stepId: string;
@@ -2310,8 +2320,10 @@ export interface RunLogEntry {
     | "retried";
   input: Record<string, unknown>;
   output: Record<string, unknown>;
-  /** La motivazione (di Claude, o del fallimento). */
+  /** La motivazione (di Claude, o del fallimento): prosa per il registro, mai mostrata come tale. */
   reason: string | null;
+  /** La motivazione come la mostra l'interfaccia, nella lingua di chi guarda (tutto tranne Claude). */
+  why?: ReasonCode | null;
   /** Chi ha approvato, rifiutato, riprovato o saltato. */
   byId: string | null;
   /**

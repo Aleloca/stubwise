@@ -9,6 +9,7 @@ import type {
   DataField,
   Operand,
   PersonTarget,
+  ReasonCode,
   RunLogEntry,
   Step,
 } from "../../data/types";
@@ -386,6 +387,28 @@ export function createdSummary(log: RunLogEntry[], t: TFunction): string {
     .filter((k) => counts.has(k))
     .map((k) => t(`automations.created.${k}`, { count: counts.get(k)! }))
     .join(", ");
+}
+
+/**
+ * La motivazione di una riga, un fallimento o un avviso nella lingua di chi
+ * guarda (B1): dal codice, mai dalla prosa del registro. `would`: nella
+ * prova, al condizionale («the email wouldn't be sent»), dove la frase lo
+ * chiede. Un ruolo si dice con la sua parola.
+ */
+export function reasonWords(
+  why: ReasonCode | null | undefined,
+  t: TFunction,
+  opts: { would?: boolean } = {},
+): string | null {
+  if (!why) return null;
+  const params: Record<string, unknown> = { ...why.params };
+  if (typeof params.role === "string")
+    params.role = t(`automations.roles.${params.role}`, { defaultValue: params.role });
+  return t(`automations.reasons.${why.code}`, {
+    ...params,
+    ...(opts.would ? { context: "would" } : {}),
+    defaultValue: t("automations.reasons.other"),
+  });
 }
 
 /** La parola di un codice d'errore (`permission_lost` → «permission lost»). */

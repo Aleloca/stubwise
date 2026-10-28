@@ -330,6 +330,7 @@ const waitingApprovalRun: AutomationRun = {
       input: { "risposta.testo": BELLAVISTA_REPLY },
       output: { giri: 0 },
       reason: "La risposta è già arrivata: nessun promemoria.",
+      why: { code: "alreadyTrue" },
     }),
     entry({
       at: at(-4, "15:20"),
@@ -445,6 +446,7 @@ const failedRun: AutomationRun = {
       },
       reason:
         "Permesso perso: il proprietario (Matteo Conti) non è più membro del progetto e non può crearvi task.",
+      why: { code: "permissionLost", params: { owner: "Matteo Conti" } },
     }),
   ],
 };

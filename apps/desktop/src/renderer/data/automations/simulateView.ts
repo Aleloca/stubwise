@@ -44,7 +44,11 @@ function currentOf(sim: Sim, a: Automation): SimulationView["current"] {
   const r = previewOf(sim, a, eff, st.now);
   if (r.ok) return { ...at, preview: r.preview, failure: null };
   const out = r.outcome.input as Extract<EngineInput, { kind: "effect_result" }>;
-  return { ...at, preview: null, failure: { error: out.error ?? "", reason: out.reason ?? null } };
+  return {
+    ...at,
+    preview: null,
+    failure: { error: out.error ?? "", reason: out.reason ?? null, why: out.why ?? null },
+  };
 }
 
 /** I progetti fra cui si sceglie nella prova: del proprietario, che chi prova vede; per codice. */

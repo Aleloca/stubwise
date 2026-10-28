@@ -1,8 +1,9 @@
 import { useId, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
-import type { SimulationEffectPreview, SimulationWaiting } from "../../../data/types";
+import type { ReasonCode, SimulationEffectPreview, SimulationWaiting } from "../../../data/types";
 import { inputClass } from "../../../tasks-ui/Dialog";
 import { primaryButton, secondaryButton } from "../../tasks/controls";
+import { reasonWords } from "../format";
 import { usePreviewProps, useTest } from "./context";
 import { EffectPreview, EmailPreview, FailurePreview } from "../previews/Previews";
 
@@ -73,7 +74,7 @@ export function ApprovalStop({
   waiting: Extract<SimulationWaiting, { kind: "approval" }>;
   preview: SimulationEffectPreview | null;
   /** Approvato, il passo fallirebbe comunque (es. la casella scaduta): si vede già prima. */
-  failure: { reason: string | null } | null;
+  failure: { why: ReasonCode | null } | null;
 }) {
   const { t } = useTranslation();
   const pp = usePreviewProps();
@@ -121,7 +122,9 @@ export function ApprovalStop({
       ) : (
         <>
           {preview && <EffectPreview {...pp} p={preview} />}
-          {failure && <FailurePreview reason={failure.reason} claude={false} />}
+          {failure && (
+            <FailurePreview reason={reasonWords(failure.why, t, { would: true })} claude={false} />
+          )}
         </>
       )}
       <div

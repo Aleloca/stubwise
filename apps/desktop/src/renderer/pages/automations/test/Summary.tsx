@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { stepAt } from "../../../domain/automations/fields";
 import type { SimulationView } from "../../../data/types";
+import { reasonWords } from "../format";
 import { CriticalGlyph } from "../glyphs";
 import { flowPathOf, useTest } from "./context";
 import { soFarParts } from "./words";
@@ -37,7 +38,9 @@ function StoppedSummary({ sim }: { sim: SimulationView }) {
   const path = sim.cursor ?? sim.log.at(-1)?.path ?? "";
   const step = stepAt(ctx.flow.steps, flowPathOf(path));
   const n = ctx.numbers.get(flowPathOf(path)) ?? 0;
-  const reason = [...sim.log].reverse().find((e) => e.path === path && e.reason)?.reason;
+  const reason = reasonWords([...sim.log].reverse().find((e) => e.path === path && e.why)?.why, t, {
+    would: true,
+  });
   const rejected = sim.status === "cancelled";
   return (
     <section

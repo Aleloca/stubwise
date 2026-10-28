@@ -10,7 +10,7 @@ import { restoreState } from "../../domain/automations/restore";
 import { runHref } from "../routes";
 import { PEOPLE } from "../seed/people";
 import { copy, gate, newId, now, onStoreReset, state, storeGeneration } from "../store";
-import type { Automation, AutomationRun, RunLogEntry, RunStatus } from "../types";
+import type { Automation, AutomationRun, ReasonCode, RunLogEntry, RunStatus } from "../types";
 import { executeEffect } from "./effects";
 import {
   approvalProjectOf,
@@ -178,8 +178,8 @@ function commit(run: AutomationRun, a: Automation, r: EngineStep): void {
 }
 
 /** Fallisce l'esecuzione con un codice, una riga nel registro e un avviso al proprietario. */
-function failWith(run: AutomationRun, error: string, reason: string): void {
-  note(run, { outcome: "failed", reason });
+function failWith(run: AutomationRun, error: string, reason: string, why: ReasonCode): void {
+  note(run, { outcome: "failed", reason, why });
   run.status = "failed";
   run.error = error;
   run.endedAt = runNow(run);
@@ -213,11 +213,12 @@ function failWith(run: AutomationRun, error: string, reason: string): void {
  */
 export function failIfNoApprover(run: AutomationRun): boolean {
   if (run.status !== "waiting_approval" || decidersOf(run).length > 0) return false;
-  failWith(run, "no_approver", NO_APPROVER_REASON);
+  failWith(run, "no_approver", NO_APPROVER_REASON, NO_APPROVER_WHY);
   return true;
 }
 
 /** La motivazione di `no_approver` (R-J11), anche nella prova. */
+export const NO_APPROVER_WHY: ReasonCode = { code: "noApprover" };
 export const NO_APPROVER_REASON =
   "Nessuno può approvare questo passo: chi è indicato non c'è, o non vede il progetto. Va cambiato chi approva, poi si può riprovare.";
 
@@ -271,6 +272,7 @@ function failUnexecuted(run: AutomationRun): void {
   note(run, {
     outcome: "failed",
     reason: "Il servizio non ha risposto: il passo non è stato eseguito. Si può riprovare.",
+    why: { code: "unavailable" },
   });
 }
 
@@ -285,11 +287,11 @@ async function drive(runId: string, input: EngineInput, gen: number, prepare?: P
   } catch (error) {
     // Un errore inatteso non lascia l'esecuzione in corso per sempre.
     if (!alive() || !isOpen(run)) return;
-    failWith(
-      run,
-      "internal_error",
-      `Errore interno: l'esecuzione si è fermata (${error instanceof Error ? error.message : String(error)}).`,
-    );
+    const message = error instanceof Error ? error.message : String(error);
+    failWith(run, "internal_error", `Errore interno: l'esecuzione si è fermata (${message}).`, {
+      code: "internalError",
+      params: { message },
+    });
   }
 }
 

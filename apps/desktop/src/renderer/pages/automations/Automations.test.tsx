@@ -371,7 +371,11 @@ describe("dettaglio di un'esecuzione", () => {
     await open("/automations/BTG-A1/runs/1");
     const now = await screen.findByRole("region", { name: "Now" });
     expect(now).toHaveTextContent("Failed at step 1 “Create task”: permission lost");
-    expect(now).toHaveTextContent("Permesso perso");
+    // La motivazione nella lingua di chi guarda, dal codice (B1): mai la prosa del registro.
+    expect(now).toHaveTextContent(
+      "Permission lost: the owner (Matteo Conti) no longer sees the step's project.",
+    );
+    expect(now).not.toHaveTextContent("Permesso perso");
     await userEvent.click(within(now).getByRole("button", { name: "Skip this step" }));
     const skip = await screen.findByRole("dialog", { name: "Skip step 1?" });
     expect(skip).toHaveTextContent("Later steps that use its data may fail.");

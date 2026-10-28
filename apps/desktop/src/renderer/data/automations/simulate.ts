@@ -12,7 +12,7 @@ import type { Automation, SimulationView } from "../types";
 import { forbidden, invalid, notFound, writer } from "../writer";
 import { resolveProject } from "./plans";
 import { configErrorsOf } from "./reads";
-import { NO_APPROVER_REASON } from "./runner";
+import { NO_APPROVER_REASON, NO_APPROVER_WHY } from "./runner";
 import {
   approvalProjectOf,
   approversFor,
@@ -105,6 +105,7 @@ function failIfNoApprover(sim: Sim, a: Automation): void {
     input: copy(aw.preview),
     output: {},
     reason: NO_APPROVER_REASON,
+    why: NO_APPROVER_WHY,
     byId: null,
     effects: [],
     outcome: "failed",

@@ -4,7 +4,7 @@ import { stepAt } from "../../../domain/automations/fields";
 import { show } from "../../../domain/automations/preview";
 import type { SimulationView, Step } from "../../../data/types";
 import { quietButton } from "../../tasks/controls";
-import { conditionWords, shortDate, stepSentence, templatePlain } from "../format";
+import { conditionWords, reasonWords, shortDate, stepSentence, templatePlain } from "../format";
 import { flowPathOf, usePreviewProps, useTest } from "./context";
 import { lastEntry, markAt, type Mark } from "./marks";
 import {
@@ -198,7 +198,12 @@ function StepBody({ step, path, mark }: { step: Step; path: string; mark: Mark }
       );
     }
     if (cur?.failure)
-      return <FailurePreview reason={cur.failure.reason} claude={step.kind === "claude"} />;
+      return (
+        <FailurePreview
+          reason={reasonWords(cur.failure.why, t, { would: true })}
+          claude={step.kind === "claude"}
+        />
+      );
     if (cur?.preview)
       return (
         <div className="flex flex-col gap-3">
@@ -226,7 +231,7 @@ function StepBody({ step, path, mark }: { step: Step; path: string; mark: Mark }
         reason={
           step.kind === "forEach" && typeof last?.output.elementi === "number"
             ? t("automations.test.preview.forEachOver", { count: last.output.elementi, max: 50 })
-            : (last?.reason ?? null)
+            : reasonWords(last?.why, t, { would: true })
         }
         claude={step.kind === "claude"}
       />

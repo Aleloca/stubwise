@@ -1,4 +1,4 @@
-import type { AutomationFlow, RunLogEntry, RunStatus, Step } from "../../data/types";
+import type { AutomationFlow, ReasonCode, RunLogEntry, RunStatus, Step } from "../../data/types";
 import { handle } from "./engineInputs";
 import { run, type Ctx } from "./engineLoop";
 import type { ActionStep, ApprovalWho } from "./preview";
@@ -63,7 +63,15 @@ export type EngineInput =
   | { kind: "event"; payload: EnginePayload }
   | { kind: "time"; now: string }
   | { kind: "project_chosen"; projectId: string; byId?: string }
-  | { kind: "effect_result"; ok: boolean; codes?: string[]; error?: string; reason?: string }
+  | {
+      kind: "effect_result";
+      ok: boolean;
+      codes?: string[];
+      error?: string;
+      reason?: string;
+      /** La motivazione per l'interfaccia (B1). */
+      why?: ReasonCode;
+    }
   | { kind: "claude_result"; outcome?: string; fields?: Record<string, unknown>; reason: string };
 
 /** Il progetto in cui agisce un effetto: quello dell'automazione, o uno risolto. */

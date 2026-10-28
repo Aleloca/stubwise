@@ -15,7 +15,7 @@ import { EMAIL, type MailDraftInput } from "../mail/compose";
 import { checkSendNow } from "../mail/send";
 import { PEOPLE } from "../seed/people";
 import { state, visibleProjectIds } from "../store";
-import type { Automation, Step } from "../types";
+import type { Automation, ReasonCode, Step } from "../types";
 import { canManageAutomation, canSeeAutomation, holdersOfRole } from "./visibility";
 
 // I PIANI delle azioni delle automazioni (area 7): cosa farebbe un'azione,
@@ -32,8 +32,13 @@ export interface EffectOutcome {
 
 export const personName = (id: string | null) => PEOPLE.find((p) => p.id === id)?.name ?? id ?? "—";
 
-export const failed = (error: string, reason: string): EffectOutcome => ({
-  input: { kind: "effect_result", ok: false, error, reason },
+/**
+ * Un effetto che non parte: il codice macchina (`error`), la motivazione
+ * per l'interfaccia (`why`, tradotta e nella prova al condizionale) e la
+ * prosa del registro (`reason`).
+ */
+export const failed = (error: string, why: ReasonCode, reason: string): EffectOutcome => ({
+  input: { kind: "effect_result", ok: false, error, reason, why },
 });
 
 const DAY = 86_400_000;
@@ -46,10 +51,15 @@ export function asFailure(error: unknown, owner: string): EffectOutcome {
   if (message === "forbidden" || message === "not_found") {
     return failed(
       "permission_lost",
+      { code: "permissionLostHere", params: { owner: personName(owner) } },
       `Permesso perso: il proprietario (${personName(owner)}) non può più farlo in questo progetto.`,
     );
   }
-  return failed("invalid_input", `Dati non validi per il passo (${message}).`);
+  return failed(
+    "invalid_input",
+    { code: "invalidInput", params: { message } },
+    `Dati non validi per il passo (${message}).`,
+  );
 }
 
 /** Il progetto di un'azione, risolto dal motore. */
@@ -85,6 +95,8 @@ export interface AssigneePlan {
   role: string | null;
   /** La riga d'avviso del registro: nessuno ha il ruolo, la task nasce senza incaricato. */
   reason: string | undefined;
+  /** Lo stesso avviso per l'interfaccia (B1). */
+  why?: ReasonCode;
 }
 
 /**
@@ -105,6 +117,7 @@ export function resolveAssignee(
       by: "none",
       role: null,
       reason: "Il dato della persona è vuoto: la task nasce senza incaricato.",
+      why: { code: "noAssignee" },
     };
   }
   if (who && "personId" in who) {
@@ -135,6 +148,7 @@ export function resolveAssignee(
       reason: assigneeId
         ? undefined
         : `Nessuno ha il ruolo «${who.projectRole}» nel progetto: la task nasce senza incaricato.`,
+      ...(assigneeId ? {} : { why: { code: "noRoleAssignee", params: { role: who.projectRole } } }),
     };
   }
   return { assigneeId: null, departmentId: undefined, by: "none", role: null, reason: undefined };
@@ -266,6 +280,7 @@ export function planEmail(
     return refuse(
       failed(
         "email_limit",
+        { code: "emailLimitChain", params: { max: AUTOMATION_LIMITS.emailsPerRun } },
         `Limite raggiunto: al massimo ${AUTOMATION_LIMITS.emailsPerRun} email per esecuzione, contando le automazioni avviate da questa.`,
       ),
     );
@@ -279,6 +294,7 @@ export function planEmail(
     return refuse(
       failed(
         "mailbox_missing",
+        { code: "mailboxGone", params: { mailbox, owner: personName(owner) } },
         `La casella scelta per l'automazione (${mailbox}) non è più collegata a ${personName(owner)}: l'email non è partita.`,
       ),
     );
@@ -287,6 +303,7 @@ export function planEmail(
     return refuse(
       failed(
         "mailbox_missing",
+        { code: "noMailbox", params: { owner: personName(owner) } },
         `Il proprietario (${personName(owner)}) non ha una casella collegata: l'email non è partita.`,
       ),
     );
@@ -295,13 +312,20 @@ export function planEmail(
     return refuse(
       failed(
         "mailbox_expired",
+        { code: "mailboxExpired", params: { owner: personName(owner) } },
         `La casella del proprietario (${personName(owner)}) è scaduta: va ricollegata prima di riprovare.`,
       ),
     );
   }
   const to = args.to.trim();
   if (!EMAIL.test(to))
-    return refuse(failed("invalid_address", `«${to}» non è un indirizzo email.`));
+    return refuse(
+      failed(
+        "invalid_address",
+        { code: "invalidAddress", params: { to } },
+        `«${to}» non è un indirizzo email.`,
+      ),
+    );
   const input: MailDraftInput = {
     ...thread(to),
     to: [{ name: "", email: to, personId: null }],
@@ -329,7 +353,11 @@ export function planEmail(
 
 /** L'email è tornata indietro: l'indirizzo non esiste. */
 export const bouncedFailure = (to: string): EffectOutcome =>
-  failed("address_not_found", `L'indirizzo «${to}» non esiste: l'email è tornata indietro.`);
+  failed(
+    "address_not_found",
+    { code: "addressNotFound", params: { to } },
+    `L'indirizzo «${to}» non esiste: l'email è tornata indietro.`,
+  );
 
 export interface NotifyPlan {
   personId: string;
@@ -358,16 +386,28 @@ export function planNotify(eff: ActionEffect, a: Automation, owner: string): Pla
       "projectRole" in args.who
         ? failed(
             "no_recipient",
+            {
+              code: projectId ? "noRoleHolder" : "noRoleProject",
+              params: { role: args.who.projectRole },
+            },
             projectId
               ? `Nessuno ha il ruolo «${args.who.projectRole}» nel progetto: non c'è nessuno da avvisare.`
               : `Senza un progetto non c'è un «${args.who.projectRole}» da avvisare.`,
           )
-        : failed("no_recipient", "Non c'è nessuno da avvisare: il dato della persona è vuoto."),
+        : failed(
+            "no_recipient",
+            { code: "noRecipient" },
+            "Non c'è nessuno da avvisare: il dato della persona è vuoto.",
+          ),
     );
   }
   if (projectId && !visibleProjectIds(person.id).has(projectId)) {
     return refuse(
-      failed("recipient_cant_see", `${person.name} non vede il progetto: l'avviso non parte.`),
+      failed(
+        "recipient_cant_see",
+        { code: "recipientCantSee", params: { name: person.name } },
+        `${person.name} non vede il progetto: l'avviso non parte.`,
+      ),
     );
   }
   return { ok: true, plan: { personId: person.id, projectId, text: args.text } };
@@ -384,6 +424,7 @@ export function planStart(eff: ActionEffect, owner: string, chain: string[]): Pl
     return refuse(
       failed(
         "automation_not_found",
+        { code: "automationNotFound" },
         "L'automazione da avviare non esiste o il proprietario non la vede.",
       ),
     );
@@ -393,22 +434,34 @@ export function planStart(eff: ActionEffect, owner: string, chain: string[]): Pl
     return refuse(
       failed(
         "permission_lost",
+        { code: "cantManage", params: { owner: personName(owner), name: target.name } },
         `Permesso perso: il proprietario (${personName(owner)}) non può gestire «${target.name}».`,
       ),
     );
   }
   if (target.status !== "active") {
-    return refuse(failed("automation_not_active", `«${target.name}» non è attiva: non è partita.`));
+    return refuse(
+      failed(
+        "automation_not_active",
+        { code: "automationNotActive", params: { name: target.name } },
+        `«${target.name}» non è attiva: non è partita.`,
+      ),
+    );
   }
   if (chain.includes(target.id)) {
     return refuse(
-      failed("automation_cycle", `«${target.name}» è già in questa catena di avvii: niente cicli.`),
+      failed(
+        "automation_cycle",
+        { code: "automationCycle", params: { name: target.name } },
+        `«${target.name}» è già in questa catena di avvii: niente cicli.`,
+      ),
     );
   }
   if (chain.length >= CHAIN_MAX) {
     return refuse(
       failed(
         "chain_limit",
+        { code: "chainLimit", params: { max: CHAIN_MAX } },
         `Limite raggiunto: al massimo ${CHAIN_MAX} automazioni in una catena di avvii.`,
       ),
     );
@@ -417,11 +470,17 @@ export function planStart(eff: ActionEffect, owner: string, chain: string[]): Pl
 }
 
 /** L'automazione avviata non può partire (troppe esecuzioni in corso, `startRun` → null). */
-export const RUN_LIMIT_REASON = (name: string) => `«${name}» ha già troppe esecuzioni in corso.`;
+export const runLimitFailure = (name: string): EffectOutcome =>
+  failed(
+    "run_limit",
+    { code: "runLimit", params: { name } },
+    `«${name}» ha già troppe esecuzioni in corso.`,
+  );
 
 const lost = (owner: string) =>
   failed(
     "permission_lost",
+    { code: "permissionLost", params: { owner: personName(owner) } },
     `Permesso perso: il proprietario (${personName(owner)}) non vede più il progetto del passo.`,
   );
 

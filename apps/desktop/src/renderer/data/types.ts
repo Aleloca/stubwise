@@ -9,6 +9,7 @@ import type {
   AutomationSource,
   ClientProjectLink,
   DataField,
+  ReasonCode,
   RunLogEntry,
   RunStatus,
   Step,
@@ -897,7 +898,7 @@ export interface SimulationTaskPreview extends SimulationAt {
   assignedBy: "person" | "department" | "role" | "none";
   role: string | null;
   /** L'avviso del registro (es. nessuno ha il ruolo: la task nascerebbe senza incaricato). */
-  warning: string | null;
+  warning: ReasonCode | null;
   dueDate: string | null;
   dueInDays: number | null;
   /** Il traguardo che nascerebbe da un passo precedente della prova. */
@@ -1040,7 +1041,7 @@ export interface SimulationView {
     path: string;
     kind: Step["kind"];
     preview: SimulationEffectPreview | null;
-    failure: { error: string; reason: string | null } | null;
+    failure: { error: string; reason: string | null; why: ReasonCode | null } | null;
   } | null;
   waiting: SimulationWaiting | null;
   /** Tutto ciò che farebbe, finora. */

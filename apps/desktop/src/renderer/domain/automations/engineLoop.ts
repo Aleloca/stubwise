@@ -56,6 +56,7 @@ function overCap(c: Ctx, step: Step, path: string, input: Record<string, unknown
       outcome: "limit",
       input,
       reason: `Limite raggiunto: al massimo ${AUTOMATION_LIMITS.effectsPerRun} azioni per esecuzione.`,
+      why: { code: "effectLimit", params: { max: AUTOMATION_LIMITS.effectsPerRun } },
     }),
   );
   fail(c, "effect_limit");
@@ -117,6 +118,7 @@ export function proceedAction(
           outcome: "limit",
           input: structuredClone(preview),
           reason: `Limite raggiunto: al massimo ${AUTOMATION_LIMITS.emailsPerRun} email per esecuzione.`,
+          why: { code: "emailLimit", params: { max: AUTOMATION_LIMITS.emailsPerRun } },
         }),
       );
       return fail(c, "email_limit");
@@ -165,6 +167,7 @@ function enterStep(c: Ctx, step: Step, path: string) {
             outcome: "failed",
             input: { list: step.list },
             reason: `«${step.list}» non è un elenco.`,
+            why: { code: "badList", params: { list: step.list } },
           }),
         );
         return fail(c, "bad_list");
@@ -179,6 +182,7 @@ function enterStep(c: Ctx, step: Step, path: string) {
             input: { list: step.list },
             output: { elementi: items.length },
             reason: `Limite raggiunto: al massimo ${AUTOMATION_LIMITS.forEachRounds} giri.`,
+            why: { code: "forEachLimit", params: { max: AUTOMATION_LIMITS.forEachRounds } },
           }),
         );
         return fail(c, "limit");
@@ -273,6 +277,7 @@ export function run(c: Ctx) {
             input,
             output: { giri: top.round },
             reason: top.round === 0 ? "La condizione è già vera: nessun giro." : null,
+            why: top.round === 0 ? { code: "alreadyTrue" } : null,
           }),
         );
       } else if (top.round >= max) {
@@ -284,6 +289,7 @@ export function run(c: Ctx) {
             input,
             output: { giri: top.round },
             reason: `Limite raggiunto: ${max} giri.`,
+            why: { code: "repeatLimit", params: { max } },
           }),
         );
         st.stack.push({ t: "list", base: joinPath(top.path, "onLimit"), i: 0 });

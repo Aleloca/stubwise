@@ -4,7 +4,7 @@ import { childLists } from "../../domain/automations/fields";
 import type { RunLogEntry, Step } from "../../data/types";
 import { quietButton } from "../tasks/controls";
 import { typing } from "../tasks/useTaskKeys";
-import { clock, shortDate } from "./format";
+import { clock, reasonWords, shortDate } from "./format";
 import { CriticalGlyph, Disclosure, StepGlyph } from "./glyphs";
 import { ApprovalChanges, EntryData, EntrySentence, type LogCtx } from "./LogEntryText";
 import {
@@ -106,12 +106,12 @@ function Row({
               )}
               <EntrySentence entry={entry} step={step} ctx={ctx} />
             </p>
-            {entry.reason &&
+            {entry.why &&
               entry.kind !== "claude" &&
               (entry.outcome === "failed" ||
                 entry.outcome === "skipped" ||
                 entry.outcome === "limit") && (
-                <p className="text-sm text-ink-muted">{entry.reason}</p>
+                <p className="text-sm text-ink-muted">{reasonWords(entry.why, t)}</p>
               )}
           </div>
           {word && (
@@ -126,8 +126,8 @@ function Row({
           {entry.kind === "claude" && entry.outcome === "ok" && (
             <ClaudeBlock entry={entry} step={step} ctx={ctx} />
           )}
-          {entry.kind === "claude" && entry.outcome === "failed" && entry.reason && (
-            <p className="pb-2 text-sm text-ink">{entry.reason}</p>
+          {entry.kind === "claude" && entry.outcome === "failed" && entry.why && (
+            <p className="pb-2 text-sm text-ink">{reasonWords(entry.why, t)}</p>
           )}
           {asked && <ApprovalChanges before={asked.input} after={entry.input} />}
           {view.showData && <EntryData entry={entry} ctx={ctx} />}

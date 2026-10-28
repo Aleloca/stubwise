@@ -161,7 +161,11 @@ export async function cancelRun(runId: string): Promise<void> {
  * effetto: riparte riaccendendola.
  */
 function restart(run: AutomationRun, me: string, reason: string, skip: boolean) {
-  note(run, { outcome: skip ? "skipped" : "retried", byId: me, reason });
+  note(run, {
+    outcome: skip ? "skipped" : "retried",
+    byId: me,
+    reason,
+  });
   run.error = null;
   run.endedAt = null;
   run.status = "running";

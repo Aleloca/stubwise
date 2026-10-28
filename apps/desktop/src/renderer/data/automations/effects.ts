@@ -18,7 +18,7 @@ import {
   planStart,
   planTask,
   resolveProject,
-  RUN_LIMIT_REASON,
+  runLimitFailure,
   type ActionEffect,
   type EffectOutcome,
   type ThreadOf,
@@ -221,7 +221,7 @@ function startAutomation(eff: ActionEffect, env: EffectEnv, owner: string) {
   );
   if (!p.ok) return p.outcome;
   const child = env.spawn(p.plan, env.run.event);
-  if (!child) return failed("run_limit", RUN_LIMIT_REASON(p.plan.name));
+  if (!child) return runLimitFailure(p.plan.name);
   return done([runCode(child)]);
 }
 
@@ -234,7 +234,11 @@ export function executeEffect(eff: EffectRequest, env: EffectEnv): EffectOutcome
     return { input: fakeClaude(eff.step, eff.vars, owner) };
   }
   if (!owner) {
-    return failed("permission_lost", "Permesso perso: l'automazione non ha un proprietario.");
+    return failed(
+      "permission_lost",
+      { code: "noOwner" },
+      "Permesso perso: l'automazione non ha un proprietario.",
+    );
   }
   if (eff.kind === "resolve_project") return resolveProject(eff, owner);
   origin = env.run.id;
