@@ -4784,6 +4784,7 @@
     "toast": {
       "on": "{{code}} è accesa · il proprietario sei tu",
       "onError": "Non è stato possibile accendere {{code}}. Non è cambiato niente.",
+      "onError_publish": "Non è stato possibile pubblicare {{code}}. Non è cambiato niente.",
       "paused": "{{code}} è in pausa",
       "pauseError": "Non è stato possibile mettere in pausa {{code}}. È ancora accesa.",
       "deleted": "{{code}} eliminata",
@@ -4828,9 +4829,13 @@
       "webhookError": "Non è stato possibile creare il webhook.",
       "renamed": "Rinominata {{name}}",
       "onPermission": "Non è stato possibile accendere {{code}}: in uno dei suoi progetti non puoi creare ciò che crea.",
+      "onPermission_publish": "Non è stato possibile pubblicare {{code}}: in uno dei suoi progetti non puoi creare ciò che crea.",
       "onMailboxMissing": "Non è stato possibile accendere {{code}}: prima collega una casella nella Posta.",
+      "onMailboxMissing_publish": "Non è stato possibile pubblicare {{code}}: prima collega una casella nella Posta.",
       "onMailboxExpired": "Non è stato possibile accendere {{code}}: il collegamento della tua casella è scaduto. Ricollegala nella Posta.",
+      "onMailboxExpired_publish": "Non è stato possibile pubblicare {{code}}: il collegamento della tua casella è scaduto. Ricollegala nella Posta.",
       "onConfig": "Non è stato possibile accendere {{code}}: prima vanno risolti i suoi problemi.",
+      "onConfig_publish": "Non è stato possibile pubblicare {{code}}: prima vanno risolti i suoi problemi.",
       "publishedPaused": "Versione {{n}} di {{code}} pubblicata · resta in pausa",
       "approvedChanges": "Approvato con le modifiche · {{code}} prosegue"
     },
@@ -5970,7 +5975,8 @@
         "pickProject": "Progetto",
         "pickProjectNone": "Scegli un progetto",
         "useProject": "Usa questo progetto nella prova",
-        "error": "La prova non è potuta andare avanti. Riprova."
+        "error": "La prova non è potuta andare avanti. Riprova.",
+        "noProjects": "Non vedi nessun progetto che il proprietario potrebbe scegliere, quindi la prova non può andare avanti da qui. Un'esecuzione vera aspetterebbe che il proprietario ne scelga uno."
       },
       "summary": {
         "label": "Cosa farebbe",

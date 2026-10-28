@@ -7,6 +7,7 @@ import { forbidden, invalid, notFound, writer } from "../writer";
 import { configErrorsOf } from "./reads";
 import { hasQueued, publishedVersion, resume, suspend } from "./runner";
 import { templateFlow, type AutomationTemplateKind } from "./templates";
+import { keepHiddenProjects } from "./visibility";
 import { managedAutomation } from "./writeGuards";
 
 // Le scritture delle Automations (area 7). Come le altre: `writer()` prima
@@ -155,11 +156,14 @@ export async function saveDraft(
     if (current !== opts.expected && !(isDraft && last.savedById === me)) throw invalid("stale");
   }
   const saved = { savedAt: now(), savedById: me, rev: ++state.counter };
-  if (isDraft) Object.assign(last, { flow: copy(flow) }, saved);
+  const next = copy(flow);
+  // Il flusso si legge senza i progetti che non vedo (R-G5): salvarlo non li perde.
+  keepHiddenProjects(me, last.flow, next);
+  if (isDraft) Object.assign(last, { flow: next }, saved);
   else
     a.versions.push({
       n: last.n + 1,
-      flow: copy(flow),
+      flow: next,
       publishedAt: null,
       publishedById: null,
       ...saved,

@@ -1,7 +1,7 @@
 import type { ApprovalWho } from "../../domain/automations/preview";
-import { stepAt } from "../../domain/automations/fields";
+import { stepAt, visitSteps } from "../../domain/automations/fields";
 import { PEOPLE } from "../seed/people";
-import { state, visibleProjectIds } from "../store";
+import { copy, state, visibleProjectIds } from "../store";
 import type { Automation, AutomationFlow, AutomationRun, Step } from "../types";
 import { can, projectRoleOf, viewerFor } from "../viewer";
 
@@ -130,4 +130,43 @@ export function canSeeSources(me: string): boolean {
       (p) => visibleProjectIds(me).has(p.id) && can(viewer, "automations.manage", p.id),
     )
   );
+}
+
+// --- R-G5 dentro un flusso -------------------------------------------------------
+
+type FixedStep = Step & { project: { mode: "fixed"; projectId: string } };
+
+function fixedSteps(flow: AutomationFlow): FixedStep[] {
+  const out: FixedStep[] = [];
+  visitSteps(flow.steps, (s) => {
+    const p = (s as { project?: { mode: string } }).project;
+    if (p?.mode === "fixed") out.push(s as FixedStep);
+  });
+  return out;
+}
+
+/**
+ * Un flusso come lo legge `me`: un progetto fisso che non vede resta senza
+ * id (`""`), come nel registro (R-J12). L'interfaccia lo dice già («un
+ * progetto che non vedi»).
+ */
+export function flowFor(me: string, flow: AutomationFlow): AutomationFlow {
+  const out = copy(flow);
+  const visible = visibleProjectIds(me);
+  for (const s of fixedSteps(out)) if (!visible.has(s.project.projectId)) s.project.projectId = "";
+  return out;
+}
+
+/**
+ * Il rovescio per chi salva un flusso letto con `flowFor`: un passo che
+ * aveva un progetto fisso che `me` non vede, e che torna senza id, lo
+ * riprende dalla versione di prima (per id del passo).
+ */
+export function keepHiddenProjects(me: string, prev: AutomationFlow, next: AutomationFlow): void {
+  const visible = visibleProjectIds(me);
+  const before = new Map(fixedSteps(prev).map((s) => [s.id, s.project.projectId]));
+  for (const s of fixedSteps(next)) {
+    const old = before.get(s.id);
+    if (s.project.projectId === "" && old && !visible.has(old)) s.project.projectId = old;
+  }
 }

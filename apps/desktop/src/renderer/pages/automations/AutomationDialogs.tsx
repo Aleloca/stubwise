@@ -126,9 +126,13 @@ export function TurnOnDialog({
         );
         onDone?.();
       },
+      // Pubblicando, il toast dice «pubblicare», non «accendere».
       onError: (e: unknown) =>
         toast.error(
-          t(ON_ERRORS[(e as Error).message] ?? "automations.toast.onError", { code: a.code }),
+          t(ON_ERRORS[(e as Error).message] ?? "automations.toast.onError", {
+            code: a.code,
+            ...(publishing ? { context: "publish" } : {}),
+          }),
         ),
     };
     const vars = { id: a.id, mailbox: needsMailbox ? (chosen ?? undefined) : undefined };

@@ -289,34 +289,41 @@ export function ProjectStop({
           ? t("automations.test.stop.project", { client: waiting.clientName })
           : t("automations.test.stop.projectNoClient")}
       </p>
-      <div data-stop-actions className="flex flex-wrap items-end gap-2 border-t border-rule pt-3">
-        <label htmlFor={id} className="flex min-w-56 flex-col gap-1 text-sm text-ink-muted">
-          {t("automations.test.stop.pickProject")}
-          <select
-            id={id}
-            data-stop-primary
-            className={`${inputClass} h-8`}
-            onKeyDown={keepEsc}
-            value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
+      {projects.length === 0 ? (
+        // Nessun progetto che il proprietario vedrebbe e che vedi anche tu: un menu vuoto non spiega niente.
+        <p data-no-projects className="max-w-[68ch] border-t border-rule pt-3 text-md text-ink">
+          {t("automations.test.stop.noProjects")}
+        </p>
+      ) : (
+        <div data-stop-actions className="flex flex-wrap items-end gap-2 border-t border-rule pt-3">
+          <label htmlFor={id} className="flex min-w-56 flex-col gap-1 text-sm text-ink-muted">
+            {t("automations.test.stop.pickProject")}
+            <select
+              id={id}
+              data-stop-primary
+              className={`${inputClass} h-8`}
+              onKeyDown={keepEsc}
+              value={projectId}
+              onChange={(e) => setProjectId(e.target.value)}
+            >
+              <option value="">{t("automations.test.stop.pickProjectNone")}</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.code} · {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            className={`${primaryButton} disabled:opacity-40`}
+            disabled={!projectId || ctx.busy}
+            onClick={() => void ctx.send({ kind: "project_chosen", projectId })}
           >
-            <option value="">{t("automations.test.stop.pickProjectNone")}</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.code} · {p.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button
-          type="button"
-          className={`${primaryButton} disabled:opacity-40`}
-          disabled={!projectId || ctx.busy}
-          onClick={() => void ctx.send({ kind: "project_chosen", projectId })}
-        >
-          {t("automations.test.stop.useProject")}
-        </button>
-      </div>
+            {t("automations.test.stop.useProject")}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

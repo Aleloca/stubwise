@@ -341,7 +341,7 @@ export function planEmail(
     })),
   };
   try {
-    const { from, bounced } = checkSendNow(owner, input);
+    const { from, bounced } = checkSendNow(owner, input, { from: mailbox });
     return {
       ok: true,
       plan: { from, to, subject: args.subject, body: args.body, input, bounced },

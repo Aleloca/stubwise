@@ -5,7 +5,12 @@ import { BELLAVISTA_REPLY } from "../seed/automations/mail";
 import { setSessionPersonId } from "../session";
 import { state } from "../store";
 import { visitSteps } from "../../domain/automations/fields";
-import { resetViewerGrants, revokeProjectPermission } from "../viewer";
+import { grantInstancePermission, resetViewerGrants, revokeProjectPermission } from "../viewer";
+
+/** Il passo su cui si decide (`expectedPath`, obbligatorio): quello che l'esecuzione aspetta adesso. */
+const at = (runId: string) => ({
+  expectedPath: state.automationRuns.find((r) => r.id === runId)?.cursor ?? "",
+});
 
 // Revisione del Task 5, giro 1: le letture e le scritture che le pagine delle
 // Automations chiedevano e il livello dati non aveva (R-J16, proprietario e
@@ -69,12 +74,21 @@ describe("R-J16: il testo della risposta del cliente lo vede solo il proprietari
     expect(JSON.stringify(rows)).not.toContain(BELLAVISTA_REPLY);
   });
 
-  it("il proprietario la legge intera; chi deve approvare vede l'anteprima (R-J14)", async () => {
+  it("il proprietario la legge intera, anteprima compresa; un membro che non decide non la vede nemmeno lì (R-J14 vale per chi decide)", async () => {
+    const run = state.automationRuns.find((r) => r.id === R.waitingApproval)!;
+    (run.pending!.preview as Record<string, unknown>).body = `Riassunto: ${BELLAVISTA_REPLY}`;
     as("p-matteo");
     const view = (await automations.getRun(R.waitingApproval))!;
     expect(JSON.stringify(view)).toContain(BELLAVISTA_REPLY);
     expect(view.log.some((e) => e.replyHidden)).toBe(false);
     expect(view.ownerId).toBe("p-matteo");
+    expect(view.deciders).toEqual(["p-matteo"]);
+    expect(String(view.pending!.preview.body)).toContain(BELLAVISTA_REPLY);
+    // Giulia è membro di AUD ma non decide: niente risposta, nemmeno nell'anteprima.
+    as("p-giulia");
+    const other = (await automations.getRun(R.waitingApproval))!;
+    expect(other.deciders).not.toContain("p-giulia");
+    expect(JSON.stringify(other)).not.toContain(BELLAVISTA_REPLY);
   });
 });
 
@@ -93,6 +107,28 @@ describe("accendere e pubblicare: casella e permessi di chi diventa proprietario
     await automations.publish(A.newContract, { mailbox: mine });
     expect(auto(A.newContract).mailbox).toBe(mine);
     expect(auto(A.newContract).ownerId).toBe("p-roberta");
+  });
+
+  it("con più caselle l'email parte da quella scelta per l'automazione, non dalla prima", async () => {
+    as("p-matteo");
+    const first = state.mailboxes.find((b) => b.personId === "p-matteo")!.email;
+    const second = "matteo.vendite@example.com";
+    state.mailboxes.push({
+      personId: "p-matteo",
+      email: second,
+      proposalsEnabled: false,
+      syncedAt: "2026-10-01T00:00:00Z",
+      sync: "ok",
+    });
+    await automations.saveDraft(A.clientData, auto(A.clientData).versions[0]!.flow);
+    await automations.publish(A.clientData, { mailbox: second });
+    await automations.approve(R.waitingApproval, undefined, at(R.waitingApproval));
+    await idle();
+    const sent = state.mailMessages.find(
+      (m) => m.delivery?.sentById === "p-matteo" && m.id.includes("new"),
+    );
+    expect(sent?.from.email).toBe(second);
+    expect(first).not.toBe(second);
   });
 
   it("senza nessuna casella, un flusso con email non si accende", async () => {
@@ -156,11 +192,17 @@ describe("«Remember for <cliente>» nella scelta del progetto", () => {
   it("solo con `integrations.manage`; scrive la riga a nome di chi sceglie", async () => {
     as("p-matteo");
     await expect(
-      automations.chooseProject(R.waitingProject, "prj-aud", { remember: true }),
+      automations.chooseProject(R.waitingProject, "prj-aud", {
+        remember: true,
+        ...at(R.waitingProject),
+      }),
     ).rejects.toThrow("forbidden");
     auto(A.newContract).ownerId = "p-roberta";
     as("p-roberta");
-    await automations.chooseProject(R.waitingProject, "prj-aud", { remember: true });
+    await automations.chooseProject(R.waitingProject, "prj-aud", {
+      remember: true,
+      ...at(R.waitingProject),
+    });
     await idle();
     const link = state.clientProjectLinks.find((l) => l.clientKey === "forneriarossilari.example")!;
     expect(link).toMatchObject({
@@ -296,6 +338,35 @@ describe("sorgenti curate", () => {
     );
   });
 
+  it("«Edit and send» con ogni tipo giusto (numero, data, email, elenco coi suoi campi) parte; uno sbagliato no", async () => {
+    as("p-roberta");
+    const payload = {
+      trattativa: {
+        id: "AUD-TR-9",
+        importo: 1200,
+        chiusaIl: "2026-10-20",
+        commerciale: "p-elena",
+        prodotti: [{ nome: "CRM", quantita: 2 }],
+      },
+      cliente: { nome: "Neri", email: "info@neri.example", dominio: "neri.example" },
+    };
+    const before = state.automationRuns.length;
+    await automations.simulateSourceEvent(S.audin, { payload });
+    await idle();
+    const started = state.automationRuns.slice(before);
+    expect(started.length).toBeGreaterThan(0);
+    expect(started.map((r) => r.event)).toEqual(started.map(() => payload));
+    for (const wrong of [
+      { trattativa: { chiusaIl: "ieri" } },
+      { cliente: { email: "non-un-indirizzo" } },
+      { trattativa: { prodotti: [{ nome: "CRM", quantita: "due" }] } },
+    ]) {
+      await expect(automations.simulateSourceEvent(S.audin, { payload: wrong })).rejects.toThrow(
+        "invalid: event_types",
+      );
+    }
+  });
+
   it("ricollegare scrive chi e quando; la tabella clienti porta «Added by»; i suggerimenti dagli eventi recenti", async () => {
     as("p-roberta");
     await automations.connectSource(S.hubspot);
@@ -321,6 +392,37 @@ describe("sorgenti curate", () => {
     expect(suggestions.some((s) => s.clientKey === "cantinabellavista.example")).toBe(false);
     as("p-laura");
     expect(await automations.listClientSuggestions()).toEqual([]);
+  });
+});
+
+describe("R-G5 per chi gestisce le integrazioni senza essere admin", () => {
+  it("«Used by» e i suggerimenti dei clienti non nominano ciò che non vede", async () => {
+    // Un evento con un cliente nuovo fa partire AUD-A1 (AUD: Sara non ne è membro).
+    as("p-roberta");
+    const payload = {
+      cliente: { nome: "Panificio Neri", email: "info@panificioneri.example" },
+      richiesta: { funzione: "CRM", dati: "Il logo." },
+    };
+    await automations.simulateSourceEvent(S.webhook, { payload });
+    await idle();
+    expect(await automations.listClientSuggestions()).toContainEqual({
+      clientKey: "panificioneri.example",
+      clientName: "Panificio Neri",
+    });
+    const json = JSON.stringify({ cliente: { nome: "Rossi" } });
+    const all = await automations.previewWebhookExample(S.webhook, json);
+    expect(all.missing.find((m) => m.key === "richiesta.dati")!.usedBy).toEqual(["AUD-A1"]);
+
+    grantInstancePermission("p-sara", "integrations.manage" as never);
+    as("p-sara");
+    expect(state.projectsById.get("prj-aud")!.memberIds).not.toContain("p-sara");
+    // La sorgente la gestisce, ma AUD-A1 e la sua esecuzione non le vede.
+    const seen = await automations.previewWebhookExample(S.webhook, json);
+    expect(seen.error).toBeNull();
+    expect(seen.missing.flatMap((m) => m.usedBy)).not.toContain("AUD-A1");
+    const suggestions = await automations.listClientSuggestions();
+    expect(suggestions.length).toBeGreaterThan(0);
+    expect(suggestions.map((s) => s.clientKey)).not.toContain("panificioneri.example");
   });
 });
 
@@ -376,7 +478,7 @@ describe("revisione del Task 5, giro 2", () => {
 
   it("il motore dà a ogni riga del registro la sua copia dell'anteprima", async () => {
     as("p-matteo");
-    await automations.approve(R.waitingApproval);
+    await automations.approve(R.waitingApproval, undefined, at(R.waitingApproval));
     await idle();
     const run = state.automationRuns.find((r) => r.id === R.waitingApproval)!;
     const rows = run.log.filter((e) => e.path === "3/then/0/mancano informazioni/0");
@@ -388,7 +490,7 @@ describe("revisione del Task 5, giro 2", () => {
   it("l'email parte solo dalla casella scelta: se non è più del proprietario, `mailbox_missing` che la nomina", async () => {
     auto(A.clientData).mailbox = "vecchia-scelta@example.com";
     as("p-matteo");
-    await automations.approve(R.waitingApproval);
+    await automations.approve(R.waitingApproval, undefined, at(R.waitingApproval));
     await idle();
     const run = state.automationRuns.find((r) => r.id === R.waitingApproval)!;
     expect(run).toMatchObject({ status: "failed", error: "mailbox_missing" });
@@ -399,7 +501,7 @@ describe("revisione del Task 5, giro 2", () => {
     const box = state.mailboxes.find((b) => b.personId === "p-matteo")!.email;
     auto(A.clientData).mailbox = box.toUpperCase();
     as("p-matteo");
-    await automations.approve(R.waitingApproval);
+    await automations.approve(R.waitingApproval, undefined, at(R.waitingApproval));
     await idle();
     expect(state.automationRuns.find((r) => r.id === R.waitingApproval)!.status).not.toBe("failed");
   });

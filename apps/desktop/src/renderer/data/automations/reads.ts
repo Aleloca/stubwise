@@ -31,6 +31,8 @@ import {
   canSeeRun,
   canSeeSources,
   decidersOf,
+  flowFor,
+  keepHiddenProjects,
   runById,
   runCode,
   stepOfRun,
@@ -158,6 +160,8 @@ export function automationRow(me: string, a: Automation): AutomationRow {
   );
   return {
     ...copy(a),
+    // R-G5: un progetto fisso che non vedo non ha id nemmeno nel flusso.
+    versions: a.versions.map((v) => ({ ...copy(v), flow: flowFor(me, v.flow) })),
     permissions: { manage: canManageAutomation(me, a) },
     openRuns: runs.filter(isOpen).length,
     waitingRuns: runs.filter((r) => WAITING.has(r.status)).length,
@@ -371,7 +375,10 @@ export async function checkDraft(id: string, flow: AutomationFlow): Promise<Flow
   const me = await gate("automations.checkDraft");
   const a = automationById(id);
   if (!a || !canSeeAutomation(me, a)) throw notFound();
-  return configErrorsOf(a, flow, a.ownerId ?? me);
+  // Come al salvataggio: i progetti fissi che non vedo restano quelli della versione (R-G5).
+  const next = copy(flow);
+  keepHiddenProjects(me, latest(a).flow, next);
+  return configErrorsOf(a, next, a.ownerId ?? me);
 }
 
 export async function searchAutomations(q: string): Promise<AutomationSearchResult[]> {
@@ -448,7 +455,7 @@ export async function getRun(id: string): Promise<AutomationRunDetail | null> {
   return {
     ...row,
     pendingEffect: pendingEffectOf(me, run, row),
-    flow: copy(a.versions.find((v) => v.n === run.version)!.flow),
+    flow: flowFor(me, a.versions.find((v) => v.n === run.version)!.flow),
     deciders,
     ownerId: a.ownerId,
     permissions: {

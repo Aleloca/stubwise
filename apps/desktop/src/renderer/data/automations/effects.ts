@@ -154,7 +154,7 @@ function sendEmail(eff: ActionEffect, env: EffectEnv, owner: string) {
     env.automation.mailbox ?? null,
   );
   if (!p.ok) return p.outcome;
-  const message = sendNow(owner, p.plan.input);
+  const message = sendNow(owner, p.plan.input, { from: env.automation.mailbox ?? null });
   if (message.delivery?.state !== "sent") return bouncedFailure(p.plan.to);
   return done([message.id]);
 }

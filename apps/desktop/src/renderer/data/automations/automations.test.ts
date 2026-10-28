@@ -20,6 +20,11 @@ import { MAIL_HIDDEN } from "./reads";
 import type { AutomationFlow, AutomationRun, Step } from "../types";
 import { grantInstancePermission, grantProjectRole } from "../viewer";
 
+/** Il passo su cui si decide (`expectedPath`, obbligatorio): quello che l'esecuzione aspetta adesso. */
+const at = (runId: string) => ({
+  expectedPath: state.automationRuns.find((r) => r.id === runId)?.cursor ?? "",
+});
+
 const as = (personId: string) => setSessionPersonId(personId);
 const A = AUTOMATION_CASES.automations;
 const R = AUTOMATION_CASES.runs;
@@ -204,7 +209,9 @@ describe("Automations: un'approvazione blocca davvero (Review Focus 1)", () => {
     leave("p-matteo", AUD);
     // Resta solo il progetto da scegliere di AUT-1 #2 (Matteo ne è il proprietario).
     expect((await automations.listMyApprovals()).map((d) => d.runId)).toEqual([R.waitingProject]);
-    await expect(automations.approve(R.waitingApproval)).rejects.toThrow("not_found");
+    await expect(
+      automations.approve(R.waitingApproval, undefined, at(R.waitingApproval)),
+    ).rejects.toThrow("not_found");
     await idle();
     // R-J11: nessuno può più approvare → fallita `no_approver`, mai approvata da altri.
     expect(run(R.waitingApproval)).toMatchObject({ status: "failed", error: "no_approver" });
@@ -244,11 +251,33 @@ describe("Automations: un'approvazione blocca davvero (Review Focus 1)", () => {
     off();
   });
 
+  it("una decisione dice sempre su che passo cade: un passo diverso da quello che aspetta è `not_waiting`", async () => {
+    as("p-matteo");
+    const stale = { expectedPath: "0" };
+    expect(run(R.waitingApproval).cursor).not.toBe("0");
+    await expect(automations.approve(R.waitingApproval, undefined, stale)).rejects.toThrow(
+      "invalid: not_waiting",
+    );
+    await expect(automations.reject(R.waitingApproval, stale)).rejects.toThrow(
+      "invalid: not_waiting",
+    );
+    await expect(automations.chooseProject(R.waitingProject, AUD, stale)).rejects.toThrow(
+      "invalid: not_waiting",
+    );
+    await idle();
+    expect(run(R.waitingApproval).status).toBe("waiting_approval");
+    expect(run(R.waitingProject).status).toBe("waiting_project");
+  });
+
   it("chi gestisce ma non è l'approvatore: forbidden (R-J8)", async () => {
     as("p-roberta");
     expect((await automations.getRun(R.waitingApproval))?.permissions.approve).toBe(false);
-    await expect(automations.approve(R.waitingApproval)).rejects.toThrow("forbidden");
-    await expect(automations.reject(R.waitingApproval)).rejects.toThrow("forbidden");
+    await expect(
+      automations.approve(R.waitingApproval, undefined, at(R.waitingApproval)),
+    ).rejects.toThrow("forbidden");
+    await expect(automations.reject(R.waitingApproval, at(R.waitingApproval))).rejects.toThrow(
+      "forbidden",
+    );
     await idle();
     expect(run(R.waitingApproval).status).toBe("waiting_approval");
   });
@@ -263,7 +292,9 @@ describe("Automations: un'approvazione blocca davvero (Review Focus 1)", () => {
       suspendedFrom: "waiting_approval",
     });
     expect((await automations.listMyApprovals()).map((d) => d.runId)).toEqual([R.waitingProject]);
-    await expect(automations.approve(R.waitingApproval)).rejects.toThrow("invalid: suspended");
+    await expect(
+      automations.approve(R.waitingApproval, undefined, at(R.waitingApproval)),
+    ).rejects.toThrow("invalid: suspended");
     await automations.advanceTime(R.waitingApproval, 10);
     await automations.activate(A.clientData);
     await idle();
@@ -274,7 +305,7 @@ describe("Automations: un'approvazione blocca davvero (Review Focus 1)", () => {
         .map((e) => e.outcome),
     ).toEqual(["suspended", "resumed"]);
     expect(sentBy("p-matteo")).toEqual([]);
-    await automations.approve(R.waitingApproval);
+    await automations.approve(R.waitingApproval, undefined, at(R.waitingApproval));
     await idle();
     expect(sentBy("p-matteo")).toHaveLength(1);
     expect(run(R.waitingApproval).status).toBe("waiting_event");
@@ -307,7 +338,7 @@ describe("Automations: un'approvazione blocca davvero (Review Focus 1)", () => {
     expect(kid.status).toBe("waiting_approval");
     expect(lastRunOf(parent).status).toBe("done");
     expect(state.tasks).toHaveLength(tasks);
-    await automations.approve(kid.id);
+    await automations.approve(kid.id, undefined, at(kid.id));
     await idle();
     expect(state.tasks).toHaveLength(tasks + 1);
     expect(state.tasks.at(-1)!.automationRef).toEqual({ automationId: child, runId: kid.id });
@@ -315,7 +346,7 @@ describe("Automations: un'approvazione blocca davvero (Review Focus 1)", () => {
 
   it("rifiutare annulla l'esecuzione (R-J7) senza effetti", async () => {
     as("p-matteo");
-    await automations.reject(R.waitingApproval);
+    await automations.reject(R.waitingApproval, at(R.waitingApproval));
     await idle();
     expect(run(R.waitingApproval)).toMatchObject({ status: "cancelled", error: "rejected" });
     expect(run(R.waitingApproval).log.at(-1)).toMatchObject({
@@ -328,10 +359,14 @@ describe("Automations: un'approvazione blocca davvero (Review Focus 1)", () => {
   it("un'email da approvare si corregge prima di approvarla (solo i campi dell'anteprima)", async () => {
     as("p-matteo");
     connect("p-matteo");
-    await expect(automations.approve(R.waitingApproval, { cc: "x@example.com" })).rejects.toThrow(
-      "invalid: edited",
+    await expect(
+      automations.approve(R.waitingApproval, { cc: "x@example.com" }, at(R.waitingApproval)),
+    ).rejects.toThrow("invalid: edited");
+    await automations.approve(
+      R.waitingApproval,
+      { body: "Testo corretto." },
+      at(R.waitingApproval),
     );
-    await automations.approve(R.waitingApproval, { body: "Testo corretto." });
     await idle();
     expect(sentBy("p-matteo")[0]!.text).toBe("Testo corretto.");
   });
@@ -377,11 +412,13 @@ describe("Automations: proprietario e permessi (Review Focus 3)", () => {
     expect(a.ownerId).toBe("p-roberta");
     expect((await automations.listMyApprovals()).map((d) => d.runId)).toContain(R.waitingApproval);
     as("p-matteo");
-    await expect(automations.approve(R.waitingApproval)).rejects.toThrow("forbidden");
+    await expect(
+      automations.approve(R.waitingApproval, undefined, at(R.waitingApproval)),
+    ).rejects.toThrow("forbidden");
     // L'email ora partirebbe dalla casella di Roberta, che nel frattempo l'ha scollegata.
     state.mailboxes = state.mailboxes.filter((b) => b.personId !== "p-roberta");
     as("p-roberta");
-    await automations.approve(R.waitingApproval);
+    await automations.approve(R.waitingApproval, undefined, at(R.waitingApproval));
     await idle();
     expect(run(R.waitingApproval)).toMatchObject({ status: "failed", error: "mailbox_missing" });
   });
@@ -389,7 +426,7 @@ describe("Automations: proprietario e permessi (Review Focus 3)", () => {
   it("un'email da una casella scaduta: passo fallito, nessun invio", async () => {
     as("p-matteo");
     expire("p-matteo");
-    await automations.approve(R.waitingApproval);
+    await automations.approve(R.waitingApproval, undefined, at(R.waitingApproval));
     await idle();
     expect(run(R.waitingApproval)).toMatchObject({ status: "failed", error: "mailbox_expired" });
     expect(run(R.waitingApproval).log.at(-1)).toMatchObject({
@@ -424,13 +461,13 @@ describe("Automations: proprietario e permessi (Review Focus 3)", () => {
       [id, "project"],
     ]);
     expect(state.milestones.some((m) => m.automationRef?.runId === id)).toBe(false);
-    await expect(automations.chooseProject(id!, "prj-mkx")).rejects.toThrow("not_found");
+    await expect(automations.chooseProject(id!, "prj-mkx", at(id!))).rejects.toThrow("not_found");
     as("p-laura");
-    await expect(automations.chooseProject(id!, AUD)).rejects.toThrow("not_found");
+    await expect(automations.chooseProject(id!, AUD, at(id!))).rejects.toThrow("not_found");
     as("p-sara");
     const cbv = "prj-cbv";
     grantProjectRole("p-sara", cbv, "project_lead");
-    await automations.chooseProject(id!, cbv);
+    await automations.chooseProject(id!, cbv, at(id!));
     await idle();
     expect(run(id!).log.find((e) => e.byId === "p-sara")).toMatchObject({ outcome: "approved" });
     expect(run(id!).projectIds).toContain(cbv);
@@ -446,7 +483,7 @@ describe("Automations: modifiche durante le esecuzioni (Review Focus 4)", () => 
     await automations.publish(A.newContract);
     const a = state.automations.find((x) => x.id === A.newContract)!;
     expect(a.versions.map((v) => v.publishedAt !== null)).toEqual([true, true]);
-    await automations.chooseProject(R.waitingProject, "prj-cbv");
+    await automations.chooseProject(R.waitingProject, "prj-cbv", at(R.waitingProject));
     await idle();
     const old = run(R.waitingProject);
     expect(old).toMatchObject({ version: 1, status: "waiting_approval" });
@@ -467,7 +504,7 @@ describe("Automations: modifiche durante le esecuzioni (Review Focus 4)", () => 
     await automations.saveDraft(A.clientData, flow);
     // Salvare una bozza non cambia il proprietario: approva ancora Matteo.
     as("p-matteo");
-    await automations.approve(R.waitingApproval);
+    await automations.approve(R.waitingApproval, undefined, at(R.waitingApproval));
     await idle();
     expect(run(R.waitingApproval)).toMatchObject({ status: "waiting_event", version: 1 });
     expect(run(R.waitingApproval).cursor).toBe("3/then/0/mancano informazioni/1");
@@ -486,7 +523,7 @@ describe("Automations: modifiche durante le esecuzioni (Review Focus 4)", () => 
     connect("p-roberta");
     await automations.activate(A.newContract);
     await automations.disconnectSource(S.audin);
-    await automations.chooseProject(R.waitingProject, "prj-cbv");
+    await automations.chooseProject(R.waitingProject, "prj-cbv", at(R.waitingProject));
     await idle();
     expect(run(R.waitingProject).status).toBe("waiting_approval");
   });
@@ -589,9 +626,9 @@ describe("Automations: esecuzioni vere", () => {
     expect(r.log.find((e) => e.kind === "claude")?.reason).toMatch(/contratto/);
     expect(r.log.filter((e) => e.kind === "createTask").flatMap((e) => e.effects)).toHaveLength(4);
     // L'email di benvenuto la approva il proprietario (Matteo, R-J10), e parte dalla sua casella.
-    await expect(automations.approve(id!)).rejects.toThrow("forbidden");
+    await expect(automations.approve(id!, undefined, at(id!))).rejects.toThrow("forbidden");
     as("p-matteo");
-    await automations.approve(id!);
+    await automations.approve(id!, undefined, at(id!));
     await idle();
     expect(run(id!).status).toBe("done");
     expect(sentBy("p-matteo")[0]!.to[0]!.email).toBe("amministrazione@cantinabellavista.example");
@@ -717,7 +754,7 @@ describe("Automations: esecuzioni vere", () => {
   it("«Salta» un passo fallito: l'esecuzione prosegue da quello dopo", async () => {
     as("p-matteo");
     expire("p-matteo");
-    await automations.approve(R.waitingApproval);
+    await automations.approve(R.waitingApproval, undefined, at(R.waitingApproval));
     await idle();
     expect(run(R.waitingApproval).error).toBe("mailbox_expired");
     await automations.skipStep(R.waitingApproval);
@@ -986,7 +1023,10 @@ describe("Automations: revisione del Task 3", () => {
 
   it("pausa subito dopo un'approvazione: l'approvazione già data non si perde, si sospende al passo dopo", async () => {
     as("p-matteo");
-    await Promise.all([automations.approve(R.waitingApproval), automations.pause(A.clientData)]);
+    await Promise.all([
+      automations.approve(R.waitingApproval, undefined, at(R.waitingApproval)),
+      automations.pause(A.clientData),
+    ]);
     await idle();
     // L'email approvata è partita; la pausa ferma l'esecuzione sull'attesa che segue.
     expect(sentBy("p-matteo")).toHaveLength(1);
@@ -1069,6 +1109,30 @@ describe("Automations: revisione del Task 3", () => {
     expect(full.log.find((e) => e.kind === "createMilestone")!.effects[0]!.code).toBe(
       "ms-cbv-aut1",
     );
+  });
+
+  it("R-G5 nel flusso: un progetto fisso che non vedo non ha id in automazione ed esecuzione, e salvare non lo perde", async () => {
+    as("p-roberta");
+    const id = await make(
+      null,
+      manual([task("t", { project: { mode: "fixed", projectId: "prj-cbv" } })]),
+      "Fissa",
+    );
+    const r = await automations.startManual(id);
+    await idle();
+    grantInstancePermission("p-laura", "automations.manage");
+    as("p-laura");
+    expect(visibleProjectIds("p-laura").has("prj-cbv")).toBe(false);
+    const detail = (await automations.getAutomation(id))!;
+    expect(JSON.stringify(detail)).not.toContain("prj-cbv");
+    expect(JSON.stringify(await automations.listAutomations())).not.toContain("prj-cbv");
+    expect(JSON.stringify(await automations.getRun(r))).not.toContain("prj-cbv");
+    // Laura gestisce e salva il flusso come lo vede: il progetto resta quello di prima.
+    const flow = detail.automation.versions.at(-1)!.flow;
+    expect(await automations.checkDraft(id, flow)).toEqual([]);
+    await automations.saveDraft(id, { ...flow, titleTemplate: "Fissa 2" });
+    const saved = state.automations.find((a) => a.id === id)!.versions.at(-1)!.flow;
+    expect(saved.steps[0]).toMatchObject({ project: { mode: "fixed", projectId: "prj-cbv" } });
   });
 
   it("R-J13: di un'esecuzione partita da un'email solo il proprietario vede mittente, oggetto e testo", async () => {

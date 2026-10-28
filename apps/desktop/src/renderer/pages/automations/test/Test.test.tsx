@@ -1,6 +1,6 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { automations as automationsApi, failNext, resetApi, setLatency } from "../../../data/api";
 import { setSessionPersonId } from "../../../data/session";
 import { state } from "../../../data/store";
@@ -574,6 +574,54 @@ describe("il ritmo", () => {
       timeout: 4000,
     });
     expect(document.querySelector("[data-so-far]")).toHaveTextContent("4 tasks");
+  });
+});
+
+describe("ondata finale", () => {
+  it("smontata la pagina, lo streaming si ferma (l'intervallo è tolto) e «Run to next stop» non va avanti", async () => {
+    setMatchMedia(REDUCED_MOTION_QUERY, false);
+    const setSpy = vi.spyOn(window, "setInterval");
+    const clearSpy = vi.spyOn(window, "clearInterval");
+    try {
+      const router = await open("/automations/AUT-1/test");
+      await startWith(2);
+      await userEvent.click(next());
+      await waitFor(() => expect(panel().querySelector('[aria-busy="true"]')).not.toBeNull());
+      const at = setSpy.mock.calls.map((c) => c[1]).lastIndexOf(30);
+      const streamId = setSpy.mock.results[at]!.value as number;
+      await act(() => router.navigate({ to: "/automations/$code", params: { code: "AUT-1" } }));
+      expect(clearSpy).toHaveBeenCalledWith(streamId);
+
+      // «Run to next stop» a metà, poi via: il giro non chiede altri passi a una prova finita.
+      await act(() =>
+        router.navigate({ to: "/automations/$code/test", params: { code: "AUT-1" } }),
+      );
+      await startWith(2);
+      await waitFor(() => expect(next()).toBeEnabled());
+      setMatchMedia(REDUCED_MOTION_QUERY, true);
+      await userEvent.click(next());
+      await waitFor(() => expect(next()).toBeEnabled());
+      setMatchMedia(REDUCED_MOTION_QUERY, false);
+      await userEvent.click(runToStop());
+      await act(() => router.navigate({ to: "/automations/$code", params: { code: "AUT-1" } }));
+      await act(() => new Promise((r) => setTimeout(r, 800)));
+      expect(screen.queryByText("The test couldn't go on. Try again.")).toBeNull();
+    } finally {
+      setSpy.mockRestore();
+      clearSpy.mockRestore();
+    }
+  });
+
+  it("senza un progetto da scegliere la fermata lo dice, invece di un menu vuoto", async () => {
+    for (const p of state.projects) p.memberIds = p.memberIds.filter((id) => id !== MATTEO);
+    await open("/automations/AUT-1/test");
+    await startWith(0);
+    await userEvent.click(next());
+    const note = await within(panel()).findByText(
+      "You can't see any project the owner could choose, so the test can't go on from here. A real run would wait for the owner to choose one.",
+    );
+    expect(note).toBeInTheDocument();
+    expect(within(panel()).queryByRole("combobox", { name: "Project" })).toBeNull();
   });
 });
 

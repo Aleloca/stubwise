@@ -85,8 +85,11 @@ function others(list: MailAddress[], me: string, box: Mailbox): MailAddress[] {
   return out;
 }
 
-export function mailboxOf(me: string): Mailbox {
-  const box = state.mailboxes.find((b) => b.personId === me);
+export function mailboxOf(me: string, email?: string | null): Mailbox {
+  // `email`: una casella precisa fra quelle di `me` (le automazioni ne salvano una, area 7).
+  const box = state.mailboxes.find(
+    (b) => b.personId === me && (!email || b.email.toLowerCase() === email.toLowerCase()),
+  );
   if (!box) throw notConnected();
   return box;
 }

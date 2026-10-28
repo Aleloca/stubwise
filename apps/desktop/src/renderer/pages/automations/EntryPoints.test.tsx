@@ -14,6 +14,11 @@ import { renderRoute } from "../../test/renderRoute";
 import { setMatchMedia } from "../../test/setup";
 import { clearPendingAnswers, setUndoWindow } from "../home/pendingAnswers";
 
+/** Il passo su cui si decide (`expectedPath`, obbligatorio): quello che l'esecuzione aspetta adesso. */
+const at = (runId: string) => ({
+  expectedPath: state.automationRuns.find((r) => r.id === runId)?.cursor ?? "",
+});
+
 // I punti d'ingresso delle Automations (Task 8, shape automations.md §6):
 // «Decide» con l'«Undo», il blocco Home, la sezione del progetto,
 // «Created by automation…» su task e traguardi, ⌘K. Persone: Matteo
@@ -215,7 +220,7 @@ describe("R-J8 con l'«Undo»: due approvatori, il passo cambia nella finestra",
 
     // Nella finestra Laura approva la prima: l'esecuzione passa alla seconda.
     setSessionPersonId("p-laura");
-    await automationsApi.approve(runId);
+    await automationsApi.approve(runId, undefined, at(runId));
     setSessionPersonId("p-giulia");
     await idle();
     expect(run(runId)).toMatchObject({ status: "waiting_approval", cursor: "1" });
@@ -232,6 +237,100 @@ describe("R-J8 con l'«Undo»: due approvatori, il passo cambia nella finestra",
     await waitFor(() => expect(item.closest("[data-closed]")).toBeNull());
     expect(within(item).queryByRole("textbox")).toBeNull();
     expect(item).toHaveTextContent("Seconda");
+  });
+
+  it("anche «Reject» rimandato non cade sul passo nuovo: l'esecuzione non si annulla", async () => {
+    grantProjectRole("p-giulia", "prj-aud", "project_lead");
+    setSessionPersonId(MATTEO);
+    const a = await automationsApi.createAutomation({
+      name: "Due email",
+      projectId: "prj-aud",
+      flow: {
+        trigger: { kind: "manual" },
+        steps: [email("first", "Prima"), email("second", "Seconda")],
+        titleTemplate: "Due email",
+      },
+    });
+    await automationsApi.activate(a.id);
+    const runId = await automationsApi.startManual(a.id);
+    await automationsApi.whenAutomationsIdle();
+    setUndoWindow(300);
+    renderRoute("/home", "p-giulia");
+    const decide = await decideBlock();
+    const more = await within(decide).findByRole("button", { name: /^Show \d+ more$/ });
+    await userEvent.click(more);
+    const item = await waitFor(() => {
+      const el = decide.querySelector(`[data-automation-decision="${runId}"]`);
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    await userEvent.click(within(item).getByRole("button", { name: "Reject" }));
+    // Nella finestra Laura approva la prima.
+    setSessionPersonId("p-laura");
+    await automationsApi.approve(runId, undefined, at(runId));
+    setSessionPersonId("p-giulia");
+    await idle();
+    expect(
+      await screen.findByText("Already decided by Laura Costa", {}, { timeout: 3000 }),
+    ).toBeInTheDocument();
+    await idle();
+    expect(run(runId)).toMatchObject({ status: "waiting_approval", cursor: "1" });
+    expect(run(runId).log.some((e) => e.byId === "p-giulia")).toBe(false);
+  });
+
+  it("anche «Choose» rimandato non sceglie il progetto di un altro passo", async () => {
+    // Due passi col progetto dal cliente, due clienti che la tabella non conosce.
+    setSessionPersonId(MATTEO);
+    const fromClient = (id: string, clientRef: string): Step => ({
+      id,
+      kind: "createTask",
+      title: `Task ${id}`,
+      description: "",
+      assignee: null,
+      dueInDays: null,
+      project: { mode: "from_client", clientRef },
+      milestoneRef: null,
+      approval: { mode: "auto" },
+    });
+    // Matteo gestisce le automazioni generali (R-J10).
+    const a = await automationsApi.createAutomation({
+      name: "Due clienti",
+      projectId: null,
+      flow: {
+        trigger: { kind: "source", sourceId: AUTOMATION_CASES.sources.audin, event: "deal_won" },
+        steps: [fromClient("one", "cliente.dominio"), fromClient("two", "cliente.email")],
+        titleTemplate: "Due clienti",
+      },
+    });
+    await automationsApi.activate(a.id);
+    const runId = await automationsApi.startManual(a.id, {
+      cliente: { nome: "Neri", dominio: "neri.example", email: "info@altro.example" },
+    });
+    await automationsApi.whenAutomationsIdle();
+    expect(run(runId)).toMatchObject({ status: "waiting_project", cursor: "0" });
+    setUndoWindow(300);
+    renderRoute("/home", MATTEO);
+    const decide = await decideBlock();
+    const item = await waitFor(() => {
+      const el = decide.querySelector(`[data-automation-decision="${runId}"]`);
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    await userEvent.selectOptions(
+      within(item).getByRole("combobox", { name: "Project" }),
+      "prj-aud",
+    );
+    await userEvent.click(within(item).getByRole("button", { name: "Choose" }));
+    // Nella finestra il progetto del primo passo si sceglie da un'altra parte.
+    await automationsApi.chooseProject(runId, "prj-cbv", at(runId));
+    await idle();
+    expect(run(runId)).toMatchObject({ status: "waiting_project", cursor: "1" });
+    expect(
+      await screen.findByText(/^Already decided by/, {}, { timeout: 3000 }),
+    ).toBeInTheDocument();
+    await idle();
+    // Il secondo passo aspetta ancora: la scelta rimandata non l'ha toccato.
+    expect(run(runId)).toMatchObject({ status: "waiting_project", cursor: "1" });
   });
 });
 

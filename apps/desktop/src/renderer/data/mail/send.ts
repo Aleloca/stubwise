@@ -268,10 +268,14 @@ export async function sendDraft(id: string): Promise<MailSendResult> {
  * indirizzi, limiti) e lo stesso esito (un indirizzo `@bounce.example`
  * fallisce). Restituisce il messaggio, partito o fallito.
  */
-export function sendNow(me: string, input: MailDraftInput): MailMessage {
+export function sendNow(
+  me: string,
+  input: MailDraftInput,
+  opts: { from?: string | null } = {},
+): MailMessage {
   const draft = draftFrom(me, input);
   checkSendable(me, draft);
-  const message = outgoing(me, draft);
+  const message = outgoing(me, draft, opts.from);
   state.mailMessages.push(message);
   settleDelivery(message);
   return message;
@@ -286,20 +290,21 @@ export function sendNow(me: string, input: MailDraftInput): MailMessage {
 export function checkSendNow(
   me: string,
   input: MailDraftInput,
+  opts: { from?: string | null } = {},
 ): { from: string; bounced: string | null } {
   const draft = draftFrom(me, input);
   checkSendable(me, draft);
   const bounced = bouncedAmong([...draft.to, ...draft.cc]);
-  return { from: mailboxOf(me).email, bounced: bounced?.email ?? null };
+  return { from: mailboxOf(me, opts.from).email, bounced: bounced?.email ?? null };
 }
 
 /** Il messaggio che parte da una bozza: in fondo alla conversazione, `sending`. */
-function outgoing(me: string, draft: MailDraft): MailMessage {
+function outgoing(me: string, draft: MailDraft, from?: string | null): MailMessage {
   const original =
     draft.threadId !== null
       ? threadMessages(me, draft.threadId).find((m) => m.id === draft.replyToMessageId)
       : undefined;
-  const box = mailboxOf(me);
+  const box = mailboxOf(me, from);
   const team = teamAddresses();
   const rowId = newId("mm");
   const message: MailMessage = {

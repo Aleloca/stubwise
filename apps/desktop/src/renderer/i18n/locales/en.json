@@ -4784,6 +4784,7 @@
     "toast": {
       "on": "{{code}} is on · you're the owner",
       "onError": "Couldn't turn on {{code}}. Nothing changed.",
+      "onError_publish": "Couldn't publish {{code}}. Nothing changed.",
       "paused": "{{code}} is paused",
       "pauseError": "Couldn't pause {{code}}. It's still on.",
       "deleted": "{{code}} deleted",
@@ -4828,9 +4829,13 @@
       "webhookError": "Couldn't create the webhook.",
       "renamed": "Renamed {{name}}",
       "onPermission": "Couldn't turn on {{code}}: you can't create what it creates in one of its projects.",
+      "onPermission_publish": "Couldn't publish {{code}}: you can't create what it creates in one of its projects.",
       "onMailboxMissing": "Couldn't turn on {{code}}: connect a mailbox in Mail first.",
+      "onMailboxMissing_publish": "Couldn't publish {{code}}: connect a mailbox in Mail first.",
       "onMailboxExpired": "Couldn't turn on {{code}}: your mailbox connection expired. Reconnect it in Mail.",
+      "onMailboxExpired_publish": "Couldn't publish {{code}}: your mailbox connection expired. Reconnect it in Mail.",
       "onConfig": "Couldn't turn on {{code}}: it has problems to fix first.",
+      "onConfig_publish": "Couldn't publish {{code}}: it has problems to fix first.",
       "publishedPaused": "Version {{n}} of {{code}} published · it stays paused",
       "approvedChanges": "Approved with changes · {{code}} goes on"
     },
@@ -5970,7 +5975,8 @@
         "pickProject": "Project",
         "pickProjectNone": "Choose a project",
         "useProject": "Use this project in the test",
-        "error": "The test couldn't go on. Try again."
+        "error": "The test couldn't go on. Try again.",
+        "noProjects": "You can't see any project the owner could choose, so the test can't go on from here. A real run would wait for the owner to choose one."
       },
       "summary": {
         "label": "What it would do",

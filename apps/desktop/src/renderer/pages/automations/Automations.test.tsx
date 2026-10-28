@@ -1250,6 +1250,25 @@ describe("revisione del Task 5, giro 2", () => {
     expect(blocked).toEqual(["You can't create milestones in STW: step 3 would fail."]);
   });
 
+  it("…e senza `backlog.create` la richiesta", async () => {
+    revokeProjectPermission(LAURA, "prj-stw", "backlog.create" as never);
+    const draft = state.automations.find((x) => x.code === "STW-A1")!.versions[0]!.flow;
+    draft.steps.push({
+      id: "rq",
+      kind: "createRequest",
+      title: "Richiesta",
+      description: "",
+      project: { mode: "own" },
+      approval: { mode: "auto" },
+    });
+    await open("/automations/STW-A1", LAURA);
+    await userEvent.click(await screen.findByRole("button", { name: "Turn on" }));
+    const dialog = await screen.findByRole("dialog", { name: "Turn on STW-A1?" });
+    const blocked = [...dialog.querySelectorAll("[data-blocked]")].map((b) => b.textContent);
+    expect(blocked).toEqual(["You can't create requests in STW: step 3 would fail."]);
+    expect(within(dialog).getByRole("button", { name: "Turn on" })).toBeDisabled();
+  });
+
   it("un rifiuto del livello dati si legge in parole (casella scaduta dopo aver aperto il dialogo)", async () => {
     connectMailbox(ROBERTA);
     await open("/automations/AUT-1");
@@ -1259,7 +1278,7 @@ describe("revisione del Task 5, giro 2", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Publish" }));
     expect(
       await screen.findByText(
-        "Couldn't turn on AUT-1: your mailbox connection expired. Reconnect it in Mail.",
+        "Couldn't publish AUT-1: your mailbox connection expired. Reconnect it in Mail.",
       ),
     ).toBeInTheDocument();
   });
