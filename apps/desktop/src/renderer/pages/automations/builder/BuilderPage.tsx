@@ -162,6 +162,24 @@ function Builder({
   const treeRef = useRef<HTMLUListElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const dataRef = useRef<HTMLElement>(null);
+  // Il fondo della testata (sticky): il pannello sovrapposto parte da lì.
+  const headerRef = useRef<HTMLElement>(null);
+  const [headerBottom, setHeaderBottom] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    if (docked) return;
+    const measure = () => {
+      const bottom = headerRef.current?.getBoundingClientRect().bottom;
+      setHeaderBottom(bottom ? Math.round(bottom) : undefined);
+    };
+    measure();
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    if (headerRef.current) ro?.observe(headerRef.current);
+    window.addEventListener("resize", measure);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [docked]);
   const [announcement, setAnnouncement] = useState("");
   const [dialog, setDialog] = useState<"turnOn" | "rename" | "discard" | "deleteDraft" | null>(
     null,
@@ -365,6 +383,7 @@ function Builder({
       <div className="flex h-full min-h-0">
         <div data-builder className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
           <BuilderHeader
+            headerRef={headerRef}
             status={autosave.status}
             onRetry={autosave.retry}
             draftExists={draftExists}
@@ -410,6 +429,8 @@ function Builder({
                 : t("automations.builder.start.title")
             }
             defaultWidth={400}
+            // A 1024 il pannello parte sotto la testata: Test, Publish e i problemi restano a portata.
+            top={docked ? undefined : headerBottom}
             onClose={() => (docked ? setSelected(null) : setPanelOpen(false))}
           >
             <div ref={panelRef}>{panel}</div>

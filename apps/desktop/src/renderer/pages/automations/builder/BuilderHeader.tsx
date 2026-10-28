@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import type { RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { visitSteps } from "../../../domain/automations/fields";
 import type { AutomationVersion } from "../../../data/types";
@@ -40,6 +41,8 @@ export interface HeaderProps {
   fromList: boolean;
   /** La bozza è cambiata da un altro: buttarla o eliminarla aspetta il «Reload». */
   stale: boolean;
+  /** La testata, per chi deve lasciarla scoperta (il pannello sovrapposto a 1024). */
+  headerRef?: RefObject<HTMLElement | null>;
 }
 
 export function BuilderHeader(p: HeaderProps) {
@@ -58,7 +61,11 @@ export function BuilderHeader(p: HeaderProps) {
       ? t("automations.actions.turnOn")
       : t("automations.builder.publishN", { n: p.editingN });
   return (
-    <header className="sticky top-0 z-20 flex flex-col gap-2 border-b border-rule bg-ground pt-6 pr-8 pb-4 pl-8">
+    <header
+      ref={p.headerRef}
+      data-builder-header
+      className="sticky top-0 z-20 flex flex-col gap-2 border-b border-rule bg-ground pt-6 pr-8 pb-4 pl-8"
+    >
       {p.fromList ? (
         <Link
           to="/automations"

@@ -30,99 +30,115 @@ export function WhereSection({ step, path, set, problems }: FormProps) {
   const allowed = projects
     .filter((p) => perms.canCreate(kind, p.id))
     .sort((a, c) => a.code.localeCompare(c.code));
-  const options = [
-    ...(own
-      ? [
-          {
-            value: "own" as const,
-            label: t("automations.builder.where.own", { code: ownCode ?? "" }),
-          },
-        ]
-      : []),
-    { value: "from_client" as const, label: t("automations.builder.where.client") },
-    { value: "fixed" as const, label: t("automations.builder.where.fixed") },
-  ];
+  const choose = (m: ProjectTarget["mode"]) =>
+    target.mode !== m &&
+    set({
+      project:
+        m === "own"
+          ? { mode: "own" }
+          : m === "fixed"
+            ? { mode: "fixed", projectId: "" }
+            : { mode: "from_client", clientRef: "" },
+    } as Partial<Step>);
+  // Tre righe come «Before it runs»: ognuna dice cosa succede, e la scelta che serve sta dentro.
   return (
     <Section title={t("automations.builder.where.title")}>
-      <Segmented
-        label={t("automations.builder.where.title")}
-        value={target.mode}
-        options={options}
-        onChange={(m) =>
-          set({
-            project:
-              m === "own"
-                ? { mode: "own" }
-                : m === "fixed"
-                  ? { mode: "fixed", projectId: "" }
-                  : { mode: "from_client", clientRef: "" },
-          } as Partial<Step>)
-        }
-      />
-      {where.error}
-      {target.mode === "from_client" && (
-        <>
-          <Field label={t("automations.builder.where.clientData")} required>
-            <select
-              aria-label={t("automations.builder.where.clientData")}
-              aria-describedby={client.describedBy}
-              aria-invalid={client.invalid || undefined}
-              className={selectClass}
-              value={target.clientRef}
-              onChange={(e) =>
-                set({
-                  project: { mode: "from_client", clientRef: e.target.value },
-                } as Partial<Step>)
-              }
-            >
-              <option value="" disabled>
-                {t("automations.builder.where.chooseClientData")}
-              </option>
-              {keys.map((f) => (
-                <option key={f.key} value={f.key}>
-                  {tokenLabel(b.flow, f.key, b.labels)}
+      <div
+        role="radiogroup"
+        aria-label={t("automations.builder.where.title")}
+        className="flex flex-col gap-2"
+      >
+        {own && (
+          <RadioRow
+            checked={target.mode === "own"}
+            label={t("automations.builder.where.own", { code: ownCode ?? "" })}
+            body={t("automations.builder.where.ownBody", { code: ownCode ?? "" })}
+            onSelect={() => choose("own")}
+            disabled={b.readOnly}
+          />
+        )}
+        <RadioRow
+          checked={target.mode === "from_client"}
+          label={t("automations.builder.where.client")}
+          body={t("automations.builder.where.clientBody")}
+          onSelect={() => choose("from_client")}
+          disabled={b.readOnly}
+        >
+          {target.mode === "from_client" && (
+            <>
+              <Field label={t("automations.builder.where.clientData")} required>
+                <select
+                  aria-label={t("automations.builder.where.clientData")}
+                  aria-describedby={client.describedBy}
+                  aria-invalid={client.invalid || undefined}
+                  className={selectClass}
+                  value={target.clientRef}
+                  onChange={(e) =>
+                    set({
+                      project: { mode: "from_client", clientRef: e.target.value },
+                    } as Partial<Step>)
+                  }
+                >
+                  <option value="" disabled>
+                    {t("automations.builder.where.chooseClientData")}
+                  </option>
+                  {keys.map((f) => (
+                    <option key={f.key} value={f.key}>
+                      {tokenLabel(b.flow, f.key, b.labels)}
+                    </option>
+                  ))}
+                </select>
+                {client.error}
+              </Field>
+              <Link
+                to="/automations/sources"
+                className="self-start text-sm text-ink underline underline-offset-4"
+              >
+                {t("automations.builder.where.clientTable")}
+              </Link>
+            </>
+          )}
+        </RadioRow>
+        <RadioRow
+          checked={target.mode === "fixed"}
+          label={t("automations.builder.where.fixed")}
+          body={t("automations.builder.where.fixedBody")}
+          onSelect={() => choose("fixed")}
+          disabled={b.readOnly}
+        >
+          {target.mode === "fixed" && (
+            <Field label={t("automations.builder.where.project")} required>
+              <select
+                aria-label={t("automations.builder.where.project")}
+                aria-describedby={fixed.describedBy}
+                aria-invalid={fixed.invalid || undefined}
+                className={selectClass}
+                value={target.projectId}
+                onChange={(e) =>
+                  set({ project: { mode: "fixed", projectId: e.target.value } } as Partial<Step>)
+                }
+              >
+                <option value="" disabled>
+                  {t("automations.builder.where.chooseProject")}
                 </option>
-              ))}
-            </select>
-            {client.error}
-          </Field>
-          <Note>
-            {t("automations.builder.where.clientNote")}{" "}
-            <Link to="/automations/sources" className="text-ink underline underline-offset-4">
-              {t("automations.builder.where.clientTable")}
-            </Link>
-          </Note>
-        </>
-      )}
-      {target.mode === "fixed" && (
-        <Field label={t("automations.builder.where.project")} required>
-          <select
-            aria-label={t("automations.builder.where.project")}
-            aria-describedby={fixed.describedBy}
-            aria-invalid={fixed.invalid || undefined}
-            className={selectClass}
-            value={target.projectId}
-            onChange={(e) =>
-              set({ project: { mode: "fixed", projectId: e.target.value } } as Partial<Step>)
-            }
-          >
-            <option value="" disabled>
-              {t("automations.builder.where.chooseProject")}
-            </option>
-            {target.projectId && !allowed.some((p) => p.id === target.projectId) && (
-              <option value={target.projectId}>
-                {b.names.project(target.projectId)?.code ?? t("automations.steps.inHiddenProject")}
-              </option>
-            )}
-            {allowed.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.code} · {p.name}
-              </option>
-            ))}
-          </select>
-          {fixed.error}
-        </Field>
-      )}
+                {target.projectId && !allowed.some((p) => p.id === target.projectId) && (
+                  <option value={target.projectId}>
+                    {b.names.project(target.projectId)?.code ??
+                      t("automations.steps.inHiddenProject")}
+                  </option>
+                )}
+                {allowed.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.code} · {p.name}
+                  </option>
+                ))}
+              </select>
+              {fixed.error}
+            </Field>
+          )}
+        </RadioRow>
+      </div>
+      {where.error}
     </Section>
   );
 }

@@ -903,6 +903,50 @@ describe("revisione del Task 6, giro 2", () => {
   });
 });
 
+describe("«Where» del passo (revisione visiva)", () => {
+  it("tre righe radio a tutta larghezza, ognuna con la sua conseguenza; il progetto fisso si sceglie dentro la sua", async () => {
+    await open("/automations/STW-A1/edit?step=tr-bug", LAURA);
+    const group = await screen.findByRole("radiogroup", { name: "Where" });
+    const radios = within(group).getAllByRole("radio");
+    expect(radios.map((r) => r.textContent)).toEqual([
+      "This automation's project (STW)Everything this step creates goes in STW.",
+      "The client's projectFound in the client table from the event's data. If the client isn't there, the run stops and asks the owner to choose.",
+      "Always this projectThe same project every time, whatever the event says.",
+    ]);
+    expect(radios[0]).toHaveAttribute("aria-checked", "true");
+    await userEvent.click(radios[2]!);
+    expect(within(group).getByRole("combobox", { name: "Project" })).toBeInTheDocument();
+  });
+});
+
+describe("«Repeat until» (R-J22)", () => {
+  it("il pannello dice che la condizione si controlla prima: già vera, i passi dentro si saltano", async () => {
+    await open("/automations/AUD-A1/edit?step=cd-reminders");
+    expect(
+      await screen.findByText("If the condition is already true, the steps inside are skipped."),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("a 1024 (revisione visiva)", () => {
+  it("il pannello del passo parte sotto la testata: Test, Publish e i problemi restano scoperti", async () => {
+    setMatchMedia(DOCKED_PANEL_QUERY, false);
+    const real = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      const r = real.call(this);
+      return this.hasAttribute("data-builder-header") ? { ...r.toJSON(), bottom: 152 } : r;
+    } as typeof real;
+    try {
+      await open("/automations/AUT-1/edit?step=0");
+      const panel = await screen.findByRole("dialog", { name: /^Step 1/ });
+      expect(panel.style.top).toBe("152px");
+      expect(screen.getByRole("button", { name: "Test" })).toBeInTheDocument();
+    } finally {
+      Element.prototype.getBoundingClientRect = real;
+    }
+  });
+});
+
 async function openList() {
   const router = renderRoute("/automations", ROBERTA);
   await screen.findByRole("heading", { level: 1, name: "Automations" });

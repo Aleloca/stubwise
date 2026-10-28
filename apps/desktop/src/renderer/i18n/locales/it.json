@@ -5597,7 +5597,7 @@
         "atMost": "Al massimo",
         "timesWord_one": "volta",
         "timesWord_other": "volte",
-        "repeatNote": "La condizione si controlla prima di ogni giro: se è già vera, i passi dentro non girano.",
+        "repeatNote": "Se la condizione è già vera, i passi dentro si saltano.",
         "fromData": "Dai dati",
         "people": "Persone",
         "notifyRoleNote": "La prima persona con questo ruolo nel progetto del passo, in ordine alfabetico. Se nessuno ce l'ha, il passo fallisce e il registro lo dice."
@@ -5609,10 +5609,12 @@
         "fixed": "Sempre questo progetto",
         "clientData": "Il dato che identifica il cliente",
         "chooseClientData": "Scegli il dato",
-        "clientNote": "Si cerca nella tabella dei clienti. Se il cliente non c'è, l'esecuzione si ferma e chiede al proprietario di scegliere.",
         "clientTable": "Tabella dei clienti",
         "project": "Progetto",
-        "chooseProject": "Scegli un progetto"
+        "chooseProject": "Scegli un progetto",
+        "ownBody": "Tutto ciò che il passo crea va in {{code}}.",
+        "clientBody": "Si cerca nella tabella dei clienti, dai dati dell'evento. Se il cliente non c'è, l'esecuzione si ferma e chiede al proprietario di scegliere.",
+        "fixedBody": "Sempre lo stesso progetto, qualunque cosa dica l'evento."
       },
       "approval": {
         "title": "Prima di partire",

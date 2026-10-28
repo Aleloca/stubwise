@@ -122,6 +122,7 @@ export function DetailPanel({
   children,
   defaultWidth,
   modal = false,
+  top,
 }: {
   mode: DetailPanelMode;
   label: string;
@@ -131,6 +132,8 @@ export function DetailPanel({
   defaultWidth?: number;
   /** Sovrapposto, è un dialogo modale (`aria-modal`): il thread della Chat, con velo e fuoco intrappolato. */
   modal?: boolean;
+  /** Sovrapposto, parte da qui (px) invece che dal bordo alto: lascia libera una testata (il costruttore). */
+  top?: number;
 }) {
   const { t } = useTranslation();
   const personId = useViewer().viewer.personId;
@@ -243,7 +246,7 @@ export function DetailPanel({
       "data-mode": mode,
       "data-detail-panel": "",
       tabIndex: -1,
-      style: { width },
+      style: mode === "overlay" && top !== undefined ? { width, top } : { width },
       className: `flex min-h-0 flex-col outline-none ${MODE_CLASS[mode]}`,
     },
     handle,

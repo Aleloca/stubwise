@@ -5597,7 +5597,7 @@
         "atMost": "At most",
         "timesWord_one": "time",
         "timesWord_other": "times",
-        "repeatNote": "The condition is checked before every round: if it's already true, the steps inside don't run.",
+        "repeatNote": "If the condition is already true, the steps inside are skipped.",
         "fromData": "From the data",
         "people": "People",
         "notifyRoleNote": "The first person with this role in the step's project, in alphabetical order. If nobody has it, the step fails and the run log says so."
@@ -5609,10 +5609,12 @@
         "fixed": "Always this project",
         "clientData": "Data that identifies the client",
         "chooseClientData": "Choose the data",
-        "clientNote": "Found in the client table. If the client isn't there, the run stops and asks the owner to choose.",
         "clientTable": "Client table",
         "project": "Project",
-        "chooseProject": "Choose a project"
+        "chooseProject": "Choose a project",
+        "ownBody": "Everything this step creates goes in {{code}}.",
+        "clientBody": "Found in the client table from the event's data. If the client isn't there, the run stops and asks the owner to choose.",
+        "fixedBody": "The same project every time, whatever the event says."
       },
       "approval": {
         "title": "Before it runs",

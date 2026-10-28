@@ -437,13 +437,21 @@ progetto di `automation-sources.md`. Mondo: «Catalogo numerato», modalità
 - **Repeat until**: «Until» (stesso costruttore di condizione, sui dati
   dei passi interni) · **At most [2] times*** (1–10, nessun default vuoto:
   nasce a 3) · corsia «When the limit is reached» (può restare vuota). Riga
-  muted: «Steps inside run first, then the condition is checked.»
-- **Where** (passi che creano) — segmentato a tre **[A 19]**:
-  «This automation's project (AUD)» (solo automazioni di progetto, ed è il
-  default) · «The client's project» con il dato che identifica il cliente
-  («{Client}») e la riga «Found in the client table. If the client isn't
-  there, the run stops and asks the owner to choose.» + link «Client table»
-  (`automation-sources.md`) · «Always this project» con scelta del progetto
+  muted: «If the condition is already true, the steps inside are skipped.» /
+  «Se la condizione è già vera, i passi dentro si saltano.» (28 ott 2026,
+  ruling R-J22: la condizione si controlla PRIMA di ogni giro, R-J4 — se il
+  cliente ha già risposto il promemoria non parte; la riga di prima diceva
+  il contrario del motore).
+- **Where** (passi che creano) — tre righe radio a tutta larghezza, ognuna
+  con la sua riga di conseguenza, come «Before it runs» **[A 19]** (28 ott
+  2026: il segmentato andava a capo nel pannello):
+  «This automation's project (AUD)» — «Everything this step creates goes in
+  AUD.» (solo automazioni di progetto, ed è il default) · «The client's
+  project» — «Found in the client table from the event's data. If the client
+  isn't there, the run stops and asks the owner to choose.», con dentro il
+  dato che identifica il cliente («{Client}») e il link «Client table»
+  (`automation-sources.md`) · «Always this project» — «The same project
+  every time, whatever the event says.», con dentro la scelta del progetto
   fra quelli in cui chi costruisce può creare. Nelle generali il default è
   «The client's project».
 - **Before it runs** (passi che producono un effetto) — due radio a tutta
