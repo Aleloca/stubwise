@@ -42,6 +42,8 @@ export interface PrCorrectionInput {
 
 export interface PrStateInput {
   origin: OpenPullRequest["origin"];
+  /** La testa della PR adesso: un'analisi su un'altra testa vale come «in analisi» (R-K9). */
+  headSha: string;
   analysis: PrAnalysis | null;
   corrections: PrCorrectionInput[];
   /** Il `correctionCap` del progetto. */
@@ -104,9 +106,16 @@ export function prState(i: PrStateInput): PrState {
   if (i.corrections.some((c) => c.state === "running")) {
     return out(analysisOnly ? "analysis_only" : "correcting");
   }
-  if (!i.analysis || i.analysis.status === "running") return out("analyzing");
+  // R-K9: l'analisi si rifà a ogni commit nuovo; una su un'altra testa è stantia.
+  if (!i.analysis || i.analysis.status === "running" || i.analysis.sha !== i.headSha) {
+    return out("analyzing");
+  }
   if (i.analysis.issues.length === 0) {
-    return out(counted.at(-1)?.state === "pushed" ? "corrected" : "clean");
+    // «Corretta da Claude»: l'ultima correzione che ha toccato la testa (le
+    // fermate prima del push non la toccano) è un push di Claude. Dopo uno
+    // scarto la testa pulita è dell'autore: è solo «senza problemi».
+    const lastTouch = i.corrections.filter((c) => c.state !== "stopped").at(-1);
+    return out(lastTouch?.state === "pushed" ? "corrected" : "clean");
   }
   // Ci sono problemi aperti: chi li può correggere?
   if (notFixable) return out("not_fixable");

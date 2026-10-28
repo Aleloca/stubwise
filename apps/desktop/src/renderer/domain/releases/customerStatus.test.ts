@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ProjectRequest, Task } from "../../data/model";
 import { customerStatus } from "./customerStatus";
+import { releaseStatus } from "./releaseStatus";
 
 const request = (over: Partial<ProjectRequest> = {}): ProjectRequest => ({
   id: "req-x",
@@ -73,6 +74,41 @@ describe("customerStatus", () => {
     expect(customerStatus(converted, [task({ closedAt: "2026-10-28T12:00:00Z" })], [])).toBe(
       "not_proceeding",
     );
+  });
+  it("rilasciata resta rilasciata dopo un deploy più nuovo in produzione", () => {
+    const kind = releaseStatus(
+      {
+        id: "rel-x",
+        code: "AUD-V1",
+        projectId: "prj-aud",
+        repositoryId: "repo-aud",
+        pr: { repo: "audin/audin-app", number: 1 },
+        title: "x",
+        mergeSha: "4be1f0c27a9d3e5b6c8f0a1d2e3b4c5d6e7f8091",
+        mergedAt: "2026-10-28T10:00:00Z",
+        mergedById: null,
+        mergedGitName: "x",
+        viaStubwise: true,
+        runs: [],
+        seenInProductionAt: "2026-10-28T10:40:00Z",
+        fixTaskId: null,
+      },
+      {
+        now: "2026-10-29T10:00:00Z",
+        pipeline: { mode: "auto" },
+        production: {
+          id: "env-prod",
+          projectId: "prj-aud",
+          name: "Production",
+          kind: "production",
+          url: null,
+          serverCode: "SRV-1",
+          reportedSha: "0a2c4e6b8d0f2a4c6e8b0d2f4a6c8e0b2d4f6a8c",
+          reportedAt: "2026-10-29T09:00:00Z",
+        },
+      },
+    ).kind;
+    expect(customerStatus(converted, [task({ claude: "done" })], [kind])).toBe("released");
   });
   it("task chiusa con un rilascio non ancora riuscito → in_progress", () => {
     const closed = task({ claude: "done", closedAt: "2026-10-28T12:00:00Z" });

@@ -78,13 +78,13 @@ export function releaseStatus(
   const elapsedMin = (Date.parse(ctx.now) - Date.parse(r.mergedAt)) / 60_000;
   if (elapsedMin < NO_PIPELINE_AFTER_MIN) return { kind: "running", since: r.mergedAt };
   // Senza pipeline: lo dice l'agente sul server dell'ambiente di produzione.
+  // Un commit già comparso in produzione ci resta, anche dopo un deploy più
+  // nuovo o se l'ambiente perde il server: è un fatto già osservato.
+  if (r.seenInProductionAt) return { kind: "in_production", since: r.seenInProductionAt };
   if (!ctx.production) return { kind: "unavailable", since: null, reason: "no_production_env" };
   if (!ctx.production.serverCode) return { kind: "unavailable", since: null, reason: "no_server" };
   if (sameCommit(r.mergeSha, ctx.production.reportedSha)) {
-    return {
-      kind: "in_production",
-      since: r.seenInProductionAt ?? ctx.production.reportedAt,
-    };
+    return { kind: "in_production", since: ctx.production.reportedAt };
   }
   return { kind: "not_in_production", since: r.mergedAt };
 }

@@ -140,6 +140,20 @@ describe("releaseStatus — senza run", () => {
     // Senza l'ora salvata sul rilascio: quella del campione dell'agente.
     expect(releaseStatus(release(), c)).toEqual({ kind: "in_production", since: later(50) });
   });
+  it("già comparso in produzione: ci resta anche dopo un deploy più nuovo", () => {
+    const seen = release({ seenInProductionAt: later(40) });
+    const newer = ctx({
+      now: later(600),
+      production: production({ reportedSha: "0a2c4e6b8d0f2a4c", reportedAt: later(500) }),
+    });
+    expect(releaseStatus(seen, newer)).toEqual({ kind: "in_production", since: later(40) });
+    // È un fatto già osservato: vale anche se l'ambiente perde il server o sparisce.
+    const noServer = ctx({ now: later(600), production: production({ serverCode: null }) });
+    expect(releaseStatus(seen, noServer)).toEqual({ kind: "in_production", since: later(40) });
+    expect(releaseStatus(seen, ctx({ now: later(600), production: null })).kind).toBe(
+      "in_production",
+    );
+  });
   it("sha in maiuscolo combacia, di 6 caratteri no", () => {
     const upper = ctx({
       now: later(60),

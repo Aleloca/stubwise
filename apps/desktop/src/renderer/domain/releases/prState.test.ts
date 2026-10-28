@@ -23,6 +23,7 @@ const auto = (state: PrCorrectionInput["state"]): PrCorrectionInput => ({ trigge
 
 const input = (over: Partial<PrStateInput> = {}): PrStateInput => ({
   origin: "colleague",
+  headSha: "a".repeat(40),
   analysis: analysis(1),
   corrections: [],
   cap: 3,
@@ -54,6 +55,31 @@ describe("prState — analisi", () => {
       state: "corrected",
       autoRound: 1,
     });
+  });
+  it("corrected solo se l'ultima correzione (non scartata) ha spinto", () => {
+    // Dopo lo scarto la testa pulita è il push dell'autore, non di Claude.
+    const afterDiscard = [auto("pushed"), auto("discarded")];
+    expect(prState(input({ analysis: analysis(0), corrections: afterDiscard })).state).toBe(
+      "clean",
+    );
+    // Una fermata prima del push non cambia la testa: resta quella di Claude.
+    const afterStop = [auto("pushed"), auto("stopped")];
+    expect(prState(input({ analysis: analysis(0), corrections: afterStop })).state).toBe(
+      "corrected",
+    );
+  });
+  it("R-K9: un'analisi su un'altra testa vale come analyzing, e la PR non è pronta", () => {
+    const stale = prState(input({ analysis: analysis(0), headSha: "b".repeat(40) }));
+    expect(stale).toMatchObject({ state: "analyzing", canAutoCorrect: false });
+    const pr = {
+      state: "open",
+      checks: "passing",
+      mergeable: true,
+      analysis: analysis(0),
+    } as const;
+    expect(isReadyForRelease(pr, stale)).toBe(false);
+    // Con problemi sulla testa vecchia non parte nessuna correzione.
+    expect(prState(input({ headSha: "b".repeat(40) })).canAutoCorrect).toBe(false);
   });
   it("con problemi → issues, e Claude può correggere", () => {
     expect(prState(input())).toEqual({ state: "issues", autoRound: 0, canAutoCorrect: true });
@@ -229,6 +255,7 @@ describe("isReadyForRelease (R-K4)", () => {
   it("stubwise/guide#58: verde e mergeable ma al tetto con problemi → non pronta", () => {
     const state = prState({
       origin: guide.origin,
+      headSha: guide.headSha,
       analysis: guide.analysis,
       // I tre giri del ciclo automatico, dalle sessioni della task (STW: cap 3).
       corrections: [auto("pushed"), auto("pushed"), auto("pushed")],
@@ -285,6 +312,7 @@ describe("isReadyForRelease (R-K4)", () => {
     const fork = OPEN_PRS.find((p) => p.repo === "audin/audin-app" && p.number === 209)!;
     const state = prState({
       origin: fork.origin,
+      headSha: fork.headSha,
       analysis: fork.analysis,
       corrections: fork.corrections,
       cap: 3,
