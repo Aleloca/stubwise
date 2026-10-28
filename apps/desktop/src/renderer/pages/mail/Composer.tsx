@@ -89,6 +89,8 @@ function reasonKey(error: unknown): string {
 export interface ComposerProps {
   threadId: string | null;
   mode: Mode;
+  /** Un'email nuova nel suo slot (la bozza di «Scrivigli anche per email», R-K14). */
+  slot?: string;
   /** Passare a un'altra modalità dal menu in testa (il corpo resta). */
   onModeChange?: (mode: Mode) => void;
   /** Il messaggio a cui si risponde, per il testo citato. */
@@ -112,6 +114,7 @@ export function Composer(props: ComposerProps) {
   const {
     threadId,
     mode,
+    slot,
     onModeChange,
     messages,
     threadProjects,
@@ -152,6 +155,7 @@ export function Composer(props: ComposerProps) {
   const draft = useComposerDraft({
     threadId,
     mode,
+    slot,
     onClose,
     onLoaded: (f) => setCcOpen(f.cc.length > 0),
     onEdit: () => setSendError(null),
@@ -369,7 +373,7 @@ export function Composer(props: ComposerProps) {
     <form
       ref={rootRef}
       aria-label={title}
-      data-composer={threadId ?? "new"}
+      data-composer={threadId ?? slot ?? "new"}
       onSubmit={(e) => e.preventDefault()}
       onKeyDown={onKeyDown}
       onDragEnter={(e) => {

@@ -130,7 +130,8 @@
       "files": "Files",
       "mail": "Mail",
       "automations": "Automations",
-      "releases": "Releases"
+      "releases": "Releases",
+      "support": "Support"
     },
     "noResults": "No results for “{{query}}”",
     "noResultsHint": "Try a code like {{example}} or a name.",
@@ -165,7 +166,8 @@
       "newMeeting": "New meeting",
       "newAutomation": "New automation",
       "notificationPrefs": "Notification preferences",
-      "projectAlerts": "Alerts for {{code}}"
+      "projectAlerts": "Alerts for {{code}}",
+      "newWidget": "New widget"
     },
     "filterPlaceholder": "Choose a filter",
     "channelPlaceholder": "Go to a channel or direct message…",
@@ -960,7 +962,8 @@
       "upcomingEvents": "Upcoming",
       "importantMail": "Important email",
       "automations": "Automations",
-      "releases": "Releases"
+      "releases": "Releases",
+      "waitingCustomers": "Customers waiting"
     },
     "block": {
       "error": "Couldn't load {{title}}.",
@@ -1147,6 +1150,9 @@
     },
     "releases": {
       "empty": "Nothing to release and no failed releases."
+    },
+    "waitingCustomers": {
+      "empty": "No customer is waiting"
     }
   },
   "week": {
@@ -6606,6 +6612,227 @@
       "waiting": "A failed release waits on you",
       "openPrs_one": "{{count}} open pull request",
       "openPrs_other": "{{count}} open pull requests"
+    }
+  },
+  "support": {
+    "title": "Support",
+    "views": {
+      "label": "Support views",
+      "conversations": "Conversations",
+      "widgets": "Widgets"
+    },
+    "anonymous": "Anonymous visitor",
+    "notFound": "This conversation doesn't exist or you can't see it.",
+    "waiting": "waiting {{time}}",
+    "duration": {
+      "minutes": "{{n}} min",
+      "hours": "{{n}} h",
+      "days": "{{n}} d"
+    },
+    "channel": {
+      "widget": "Widget",
+      "mcp": "Claude Code"
+    },
+    "state": {
+      "waiting_us": "Waiting on us",
+      "triage": "In triage",
+      "not_concluded": "Not concluded",
+      "request_open": "Request open",
+      "reply_sent": "Replied"
+    },
+    "customerStatus": {
+      "received": "Received",
+      "evaluating": "In evaluation",
+      "planned": "Planned",
+      "in_progress": "In progress",
+      "released": "Released",
+      "not_proceeding": "We're not going ahead"
+    },
+    "list": {
+      "label": "Conversations",
+      "search": "Search conversations",
+      "channel": "Channel",
+      "any": "Any",
+      "nothing": "Nothing matches",
+      "clear": "Clear filters",
+      "error": "Couldn't load the conversations.",
+      "select": "Select a conversation",
+      "back": "Conversations",
+      "waitingYou": "Waiting on you",
+      "you": "You",
+      "assistant": "Assistant"
+    },
+    "empty": {
+      "title": "No customer conversations yet",
+      "manage": "Conversations start from the project's widget or from Claude Code. Set up a widget to put it on your site.",
+      "others": "Conversations start from the project's widget or from Claude Code.",
+      "setUp": "Set up a widget"
+    },
+    "detail": {
+      "error": "Couldn't load the conversation.",
+      "widgetChannel": "Widget · {{name}}",
+      "started": "started {{date}}",
+      "preview": "Customer preview",
+      "follow": "Follow",
+      "following": "Following",
+      "more": "More actions",
+      "copyLink": "Copy link",
+      "linkCopied": "Link copied",
+      "linkError": "Couldn't copy the link.",
+      "writeEmail": "Write to them by email",
+      "prototype": "Prototype only",
+      "simulateMessage": "Simulate a customer message",
+      "simulateLeaves": "Simulate: customer leaves",
+      "simulateTriage": "Simulate: triage done",
+      "simulatedText": "Hello, is there any news?",
+      "actionFailed": "Something went wrong. Nothing changed."
+    },
+    "request": {
+      "label": "Request",
+      "customerSees": "The customer sees:",
+      "showAll": "Show all",
+      "showLess": "Show less",
+      "triage": "No request yet · the assistant is still asking",
+      "left": "No request · the customer left before confirming",
+      "open": "Open the request",
+      "cannotOpen": "Someone with permission to create requests can open it."
+    },
+    "openDialog": {
+      "title": "Open the request",
+      "project": "Project",
+      "titleLabel": "Title",
+      "description": "Description",
+      "attached_one": "The conversation ({{count}} message) will be attached to the request.",
+      "attached_other": "The conversation ({{count}} messages) will be attached to the request.",
+      "create": "Create request",
+      "cancel": "Cancel",
+      "created": "{{code}} created",
+      "error": "Couldn't create the request.",
+      "titleRequired": "Write a title first"
+    },
+    "message": {
+      "label": "Conversation",
+      "assistant": "Assistant (triage)",
+      "team": "Team",
+      "sentWidget": "Sent to the customer in the widget",
+      "sentMcp": "Sent to the customer in Claude Code",
+      "earlier_one": "{{count}} earlier message",
+      "earlier_other": "{{count}} earlier messages",
+      "sending": "Sending…",
+      "notSent": "Not sent",
+      "retry": "Retry",
+      "edit": "Edit",
+      "newFrom": "New message from {{name}}, {{time}}"
+    },
+    "reply": {
+      "to": "Reply to {{name}}",
+      "inWidget": "in the widget",
+      "inMcp": "in Claude Code",
+      "message": "Message",
+      "placeholder": "Write to {{name}}…",
+      "prepared": "Claude prepared a draft",
+      "useDraft": "Use draft",
+      "show": "Show",
+      "hide": "Hide",
+      "claudeDraft": "Claude's draft",
+      "stop": "Stop",
+      "saved": "Saved",
+      "discard": "Discard",
+      "send": "Send to customer",
+      "emptyReason": "Write a reply first",
+      "replaceAsk": "Replace your text or add Claude's draft below it?",
+      "replace": "Replace",
+      "addBelow": "Add below",
+      "cancel": "Cancel",
+      "draftBy": "Draft by Claude from the conversation · edit it before sending",
+      "draftByWith": "Draft by Claude from the conversation and {{code}} · edit it before sending",
+      "editedFrom": "Edited from Claude's draft",
+      "draftFailed": "Claude couldn't write a draft. Your text is unchanged.",
+      "tryAgain": "Try again",
+      "sentTo": "Sent to {{name}}",
+      "undo": "Undo",
+      "readOnly": "Only people who can reply to customers write here.",
+      "triage": "The assistant is still asking the customer questions: you can reply once the triage ends.",
+      "lastSeen": "{{name}} last saw the conversation {{time}}. They'll see your reply when they come back.",
+      "nextTime": "They'll see it the next time they ask about their requests.",
+      "noEmail": "The customer didn't leave an email address",
+      "noMailbox": "Connect your Google account to write from Stubwise",
+      "connect": "Connect",
+      "emailError": "Couldn't prepare the email."
+    },
+    "preview": {
+      "title": "What {{name}} sees",
+      "live": "Updates live",
+      "close": "Close the preview",
+      "back": "Back",
+      "steps": "Request status",
+      "current": "current step",
+      "messages": "Messages",
+      "you": "Customer",
+      "never": "Internal comments, names, estimates and drafts are never shown.",
+      "error": "Couldn't load what the customer sees."
+    },
+    "widgets": {
+      "new": "New widget",
+      "empty": "No widgets yet",
+      "error": "Couldn't load the widgets.",
+      "on": "On",
+      "off": "Off",
+      "conversations_one": "{{count}} conversation",
+      "conversations_other": "{{count}} conversations",
+      "edit": "Edit",
+      "editNamed": "Edit {{name}}",
+      "panelEdit": "Edit {{name}}",
+      "close": "Close",
+      "cancel": "Cancel",
+      "save": "Save",
+      "create": "Create widget",
+      "saved": "Widget saved",
+      "created": "{{name}} created",
+      "saveError": "Couldn't save the widget.",
+      "invalid": {
+        "name": "The name must be 1 to 80 characters.",
+        "title": "The title must be 1 to 80 characters.",
+        "welcomeMessage": "The welcome message must be 1 to 500 characters.",
+        "instructions": "The instructions can be at most 4000 characters.",
+        "accentColor": "The colour must be like #22c55e.",
+        "language": "Choose Italian or English.",
+        "origins": "Each site must be like https://example.com.",
+        "sourceRepositoryIds": "Choose repositories of this project.",
+        "dailyMessageCap": "Messages per day: a whole number from 1 to 100000, or empty.",
+        "dailyRequestCap": "Requests per day: a whole number from 1 to 100000, or empty."
+      },
+      "fields": {
+        "name": "Name",
+        "enabled": "On: it accepts new conversations",
+        "sources": "Documentation sources",
+        "noSources": "This project has no repositories.",
+        "origins": "Sites",
+        "originsHint": "One per line, like https://example.com",
+        "title": "Title",
+        "welcome": "Welcome message",
+        "instructions": "Instructions for the assistant",
+        "instructionsHint": "Optional. How the assistant should talk to customers.",
+        "color": "Colour",
+        "language": "Language",
+        "languageIt": "Italian",
+        "languageEn": "English",
+        "messageCap": "Messages per day",
+        "requestCap": "Requests per day",
+        "capHint": "Empty: the instance default"
+      },
+      "snippet": "Snippet",
+      "copySnippet": "Copy snippet",
+      "guide": "Guide",
+      "copyGuide": "Copy guide",
+      "downloadGuide": "Download .md",
+      "copied": "Copied",
+      "copyError": "Couldn't copy.",
+      "delete": "Delete widget",
+      "deleteAsk": "Delete {{name}}? Its conversations stay.",
+      "deleteConfirm": "Delete",
+      "deleted": "{{name}} deleted",
+      "deleteError": "Couldn't delete the widget."
     }
   }
 }

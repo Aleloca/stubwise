@@ -2,11 +2,10 @@
 // circolare con `api-mutations` è innocuo.
 import { createRequestAs } from "../api-mutations";
 import { mailboxOf } from "../mail/compose";
-import { visibleMessages } from "../mail/visibility";
 import { copy, newId, now, state } from "../store";
 import type { MailDraft, SupportWidget } from "../types";
 import { forbidden, invalid, notFound, writer } from "../writer";
-import { supportState } from "../../domain/support/state";
+import { supportMailSlot, supportState } from "../../domain/support/state";
 import {
   conversationFor,
   conversationView,
@@ -32,6 +31,16 @@ function replierFor(me: string, code: string) {
 }
 
 /**
+ * Durante il triage le domande al cliente le fa Claude: né la risposta né
+ * la sua bozza (R-K15, `invalid: state`). Su una «non conclusa» si risponde.
+ */
+function openReplyFor(me: string, code: string) {
+  const c = replierFor(me, code);
+  if (supportState(c) === "triage") throw invalid("state");
+  return c;
+}
+
+/**
  * «Invia al cliente»: un messaggio del team, che arriva al cliente nel canale
  * da cui ha scritto (widget o Claude Code). Chi risponde segue la
  * conversazione da sé (shape [A 14]); la bozza di Claude, scritta per il
@@ -43,7 +52,7 @@ export async function replyToCustomer(
   body: string,
 ): Promise<SupportConversationView> {
   const me = await writer("support.replyToCustomer");
-  const c = replierFor(me, code);
+  const c = openReplyFor(me, code);
   const text = body.trim();
   if (!text) throw invalid("body");
   c.messages.push({ id: newId("sup-m"), from: "team", authorId: me, body: text, at: now() });
@@ -55,7 +64,7 @@ export async function replyToCustomer(
 /** «Bozza di Claude»: la rigenera (nel prototipo, un testo deterministico). Non la invia. */
 export async function draftReply(code: string): Promise<SupportConversationView> {
   const me = await writer("support.draftReply");
-  const c = replierFor(me, code);
+  const c = openReplyFor(me, code);
   c.claudeDraft = draftText(c);
   return conversationView(me, c);
 }
@@ -100,20 +109,13 @@ export async function followConversation(
   return conversationView(me, c);
 }
 
-/** L'ultimo messaggio della Posta che chi scrive vede con l'indirizzo del cliente. */
-function lastMailWith(me: string, email: string) {
-  const e = email.toLowerCase();
-  return visibleMessages(me)
-    .filter((x) => [x.from, ...x.to, ...(x.cc ?? [])].some((a) => a.email.toLowerCase() === e))
-    .sort((a, b) => b.at.localeCompare(a.at))[0];
-}
-
 /**
  * «Scrivigli anche per email»: la bozza da aprire nel compositore della
  * Posta (area 6), dalla casella di chi scrive, col testo di Claude. NON la
- * salva e NON la invia: la manda una persona, dalla Posta. `threadId` è la
- * conversazione della Posta con quel cliente, se chi scrive ne vede una
- * (si risponde lì); altrimenti `null`, un'email nuova.
+ * salva e NON la invia: la manda una persona, dalla Posta. È sempre
+ * un'email nuova, nello slot della conversazione (`support-<codice>`,
+ * R-K14): accanto alla «nuova email» di chi scrive, mai al suo posto, e mai
+ * dentro una conversazione della Posta (la cui bozza sovrascriverebbe).
  */
 export async function emailDraftFor(
   code: string,
@@ -124,14 +126,14 @@ export async function emailDraftFor(
   if (!email) throw invalid("no_email");
   mailboxOf(me);
   const req = requestOf(c);
-  const last = lastMailWith(me, email);
-  const threadId = last?.threadId ?? null;
+  const slot = supportMailSlot(c.code);
   const draft: MailDraft = {
-    id: `md-${me}-${threadId ?? "new"}`,
+    id: `md-${me}-${slot}`,
     personId: me,
-    threadId,
-    mode: threadId ? "reply" : "new",
-    replyToMessageId: last?.id ?? null,
+    threadId: null,
+    mode: "new",
+    slot,
+    replyToMessageId: null,
     to: [{ name: c.customer.name, email, personId: null }],
     cc: [],
     subject: req ? `About your request ${req.code}` : "About your message",
@@ -139,7 +141,7 @@ export async function emailDraftFor(
     attachments: [],
     updatedAt: now(),
   };
-  return { threadId, draft };
+  return { threadId: null, draft };
 }
 
 // --- widget -------------------------------------------------------------------

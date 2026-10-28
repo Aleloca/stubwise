@@ -13,6 +13,8 @@ export interface ComposeRequest {
   mode: MailDraft["mode"];
   /** Il fuoco nel corpo (dopo «Undo», «Edit»), o nel primo campo della modalità (R/A/F). */
   focus: "body" | "start";
+  /** Un'email nuova nel suo slot (R-K14); assente = la nuova email. */
+  slot?: string;
 }
 
 let pending: ComposeRequest | null = null;
@@ -23,9 +25,9 @@ export function requestCompose(req: ComposeRequest): void {
   for (const l of listeners) l(req);
 }
 
-/** Il pannello di `threadId` prende la richiesta (una volta). */
-export function takeCompose(threadId: string | null): ComposeRequest | null {
-  if (!pending || pending.threadId !== threadId) return null;
+/** Il pannello di `threadId` (o dello slot dell'email nuova) prende la richiesta (una volta). */
+export function takeCompose(threadId: string | null, slot?: string): ComposeRequest | null {
+  if (!pending || pending.threadId !== threadId || pending.slot !== slot) return null;
   const req = pending;
   pending = null;
   return req;
@@ -45,16 +47,20 @@ onBeforePersonaChange(() => {
 // salva il suo testo, e solo dopo la bozza tornata ci si unisce (R-I9) —
 // altrimenti la casella ancora aperta la sovrascriverebbe col suo.
 const closers = new Map<string, () => Promise<void>>();
-const slot = (threadId: string | null) => threadId ?? "new";
+const place = (threadId: string | null, slot?: string) => threadId ?? slot ?? "new";
 
-export function registerComposer(threadId: string | null, close: () => Promise<void>): () => void {
-  closers.set(slot(threadId), close);
+export function registerComposer(
+  threadId: string | null,
+  close: () => Promise<void>,
+  slot?: string,
+): () => void {
+  closers.set(place(threadId, slot), close);
   return () => {
-    if (closers.get(slot(threadId)) === close) closers.delete(slot(threadId));
+    if (closers.get(place(threadId, slot)) === close) closers.delete(place(threadId, slot));
   };
 }
 
 /** Chiude la casella della conversazione, se è aperta, e aspetta che la bozza sia salvata. */
-export async function closeComposer(threadId: string | null): Promise<void> {
-  await closers.get(slot(threadId))?.();
+export async function closeComposer(threadId: string | null, slot?: string): Promise<void> {
+  await closers.get(place(threadId, slot))?.();
 }

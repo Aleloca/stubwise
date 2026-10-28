@@ -859,6 +859,55 @@ async function main() {
         await context.close();
       }
     }
+    // Area 8a, Task 9: la sezione Support — elenco per stato, il dettaglio
+    // con la bozza di Claude, l'anteprima del cliente, chi legge soltanto, il
+    // triage, «Apri la richiesta», i widget, il blocco Home.
+    const AREA8A_SUPPORT = [
+      ["support", "/p/ACQ/support/ACQ-S2", { persona: "Matteo" }],
+      ["support-draft", "/p/ACQ/support/ACQ-S2", { persona: "Matteo", steps: async (p) => {
+        await p.getByRole("button", { name: /^(Use draft|Usa la bozza)$/ }).click();
+        await p.waitForTimeout(300);
+      } }],
+      ["support-preview", "/p/ACQ/support/ACQ-S2", { persona: "Matteo", steps: async (p) => {
+        await p.getByRole("button", { name: /^(Customer preview|Anteprima del cliente)$/ }).click();
+        await p.waitForTimeout(500);
+      } }],
+      ["support-sara", "/p/ACQ/support/ACQ-S2", { persona: "Sara" }],
+      ["support-triage", "/p/ACQ/support/ACQ-S1", { persona: "Matteo" }],
+      ["support-open-request", "/p/ACQ/support/ACQ-S3", { persona: "Matteo", steps: async (p) => {
+        await p.getByRole("button", { name: /^(Open the request|Apri la richiesta)$/ }).click();
+        await p.waitForTimeout(400);
+      } }],
+      ["support-widgets", "/p/ACQ/support?view=widgets&widget=wdg-acq-portal", { persona: "Matteo" }],
+      // Il blocco non è nelle Home di default [A 17]: lo si aggiunge dal catalogo.
+      ["support-home", "/home", { persona: "Matteo", steps: async (p) => {
+        await p.getByRole("button", { name: /^(Customize|Personalizza)$/ }).click();
+        // Matteo cura anche la Home del reparto: dal menu, la sua.
+        const mine = p.getByRole("menuitem", { name: /^(My Home|La mia Home)$/ });
+        if (await mine.count()) await mine.click();
+        await p.getByRole("button", { name: /^(Add block|Aggiungi blocco)$/ }).click();
+        await p.getByRole("menuitem", { name: /^(Customers waiting|Clienti in attesa)$/ }).click();
+        await p.getByRole("button", { name: /^(Done|Fatto)$/ }).click();
+        const block = p.getByRole("region", { name: /^(Customers waiting|Clienti in attesa)/ });
+        await block.scrollIntoViewIfNeeded();
+        await p.waitForTimeout(600);
+      } }],
+    ];
+    for (const [name, hash, o] of AREA8A_SUPPORT) {
+      if (only && !only.test(name)) continue;
+      const variants = [];
+      for (const scheme of ["light", "dark"]) {
+        for (const lang of ["en", "it"]) variants.push([scheme, lang, WIDE, `a8-${name}-${scheme}-${lang}.png`]);
+      }
+      variants.push(["light", "en", NARROW, `a8-${name}-narrow.png`]);
+      variants.push(["dark", "it", NARROW, `a8-${name}-narrow-dark-it.png`]);
+      for (const [scheme, lang, viewport, file] of variants) {
+        const { page, context } = await open(scheme, viewport, hash, { lang, persona: o.persona, viaHome: true });
+        if (o.steps) await o.steps(page);
+        await shot(page, file);
+        await context.close();
+      }
+    }
     if (only) return; // revisione mirata: salta il resto
 
     for (const scheme of ["light", "dark"]) {

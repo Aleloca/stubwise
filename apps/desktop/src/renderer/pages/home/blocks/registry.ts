@@ -14,6 +14,7 @@ import { NewRequestsBlock } from "./NewRequestsBlock";
 import { ReleasesBlock } from "./ReleasesBlock";
 import { StalledBlock } from "./StalledBlock";
 import { UpcomingEventsBlock } from "./UpcomingEventsBlock";
+import { WaitingCustomersBlock } from "./WaitingCustomersBlock";
 
 export interface BlockDef {
   /** Il titolo del blocco (per `filter`, quello del catalogo: il blocco usa il nome del filtro). */
@@ -98,12 +99,12 @@ export const BLOCKS: Record<HomeBlockKind, BlockDef> = {
     component: ReleasesBlock,
     available: (viewer) => can(viewer, "release.merge"),
   },
-  // Clienti in attesa (area 8a): arriva con la sua sezione (Task 9). Fino ad
-  // allora non è nel catalogo di nessuno.
+  // Clienti in attesa (area 8a, shape support.md [A 17]): nel catalogo di chi
+  // può rispondere ai clienti in almeno un progetto, mai nelle Home di default.
   waitingCustomers: {
     titleKey: "home.blocks.waitingCustomers",
-    component: () => null,
-    available: () => false,
+    component: WaitingCustomersBlock,
+    available: (viewer) => can(viewer, "support.reply"),
   },
   filter: { titleKey: "home.blocks.filter", component: FilterBlock, available: always },
 };

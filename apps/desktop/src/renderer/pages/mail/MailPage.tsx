@@ -67,7 +67,11 @@ export function MailPage({
   const paneRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const newEmailRef = useRef<HTMLButtonElement>(null);
-  const composeNew = search.compose === "new";
+  // `compose=new` è la nuova email; `compose=support-…` la bozza di
+  // «Scrivigli anche per email» di una conversazione di Support, nel suo
+  // slot (R-K14): stessa casella, un posto suo.
+  const composeNew = !!search.compose;
+  const composeSlot = search.compose && search.compose !== "new" ? search.compose : undefined;
   const showUndo = useUndoSendToast();
   const discardedNotice = useDiscardedNotice();
   // Il fuoco della nuova email: nel primo campo, o nel corpo se la riapre una
@@ -78,15 +82,15 @@ export function MailPage({
   const [newKey, setNewKey] = useState(0);
   useEffect(() => {
     if (!composeNew) return;
-    setNewFocus(takeCompose(null)?.focus ?? "start");
+    setNewFocus(takeCompose(null, composeSlot)?.focus ?? (composeSlot ? "body" : "start"));
     return onComposeRequest((req) => {
-      if (req.threadId !== null) return;
-      const taken = takeCompose(null);
+      if (req.threadId !== null || req.slot !== composeSlot) return;
+      const taken = takeCompose(null, composeSlot);
       if (!taken) return;
       setNewFocus(taken.focus);
       setNewKey((k) => k + 1);
     });
-  }, [composeNew]);
+  }, [composeNew, composeSlot]);
 
   const setSearch = (patch: Partial<MailSearch>) =>
     void navigate({
@@ -167,7 +171,7 @@ export function MailPage({
     () => new Set((drafts ?? []).flatMap((d) => (d.threadId ? [d.threadId] : []))),
     [drafts],
   );
-  const newDraft = (drafts ?? []).find((d) => d.threadId === null);
+  const newDrafts = (drafts ?? []).filter((d) => d.threadId === null);
   const waiting = (allRows ?? []).filter((r) => r.openProposals > 0);
 
   // Coi tasti (J/K) si scorre: la cronologia non si riempie di conversazioni.
@@ -228,18 +232,23 @@ export function MailPage({
         onCompose={(mode) => {
           if (threadId) requestCompose({ threadId, mode, focus: "start" });
         }}
-        newDraft={
-          newDraft
-            ? {
-                subject: newDraft.subject,
-                selected: composeNew,
-                onOpen: () => {
-                  requestCompose({ threadId: null, mode: "new", focus: "body" });
-                  newEmail();
-                },
-              }
-            : undefined
-        }
+        newDrafts={newDrafts.map((d) => ({
+          id: d.id,
+          subject: d.subject,
+          selected: (search.compose ?? null) === (d.slot ?? "new"),
+          onOpen: () => {
+            requestCompose({
+              threadId: null,
+              mode: "new",
+              focus: "body",
+              ...(d.slot ? { slot: d.slot } : {}),
+            });
+            void navigate({
+              to: "/mail",
+              search: (prev: Record<string, unknown>) => ({ ...prev, compose: d.slot ?? "new" }),
+            } as never);
+          },
+        }))}
         listRef={listRef}
         searchRef={searchRef}
         hits={hits}
@@ -250,9 +259,10 @@ export function MailPage({
   const pane = composeNew ? (
     <div className="mx-auto flex h-full w-full max-w-[824px] min-w-0 flex-col px-8 pt-6 pb-8">
       <Composer
-        key={`new-${newKey}`}
+        key={`new-${composeSlot ?? ""}-${newKey}`}
         threadId={null}
         mode="new"
+        slot={composeSlot}
         threadProjects={[]}
         focus={newFocus}
         full

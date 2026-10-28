@@ -142,6 +142,9 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
     // Releases (area 8a): il pannello di una PR aperta.
     case "pr":
       return isReleasesPath(path) && /^[\w-]+$/.test(value);
+    // Support (area 8a): il pannello di un widget (l'id, o `new`).
+    case "widget":
+      return isSupportPath(path) && /^[\w-]+$/.test(value);
     // Il Calendario: l'evento e la serie aperti nel pannello (shape calendar.md §7).
     case "event":
     case "series":
@@ -155,6 +158,7 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
       if (path === "chat") return (CHAT_VIEWS as readonly string[]).includes(value);
       if (path === "automations") return (AUTOMATION_VIEWS as readonly string[]).includes(value);
       if (isReleasesPath(path)) return (RELEASES_VIEWS as readonly string[]).includes(value);
+      if (isSupportPath(path)) return value === "widgets";
       return isTasksPath(path) && (TASK_VIEWS as readonly string[]).includes(value);
     case "date":
       if (path === "calendar") return isCalendarSearchValue(key, value);
@@ -176,6 +180,11 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
 
 /** Gli elenchi interi della sezione Releases (`?view=`, shape releases.md [R 3]). */
 export const RELEASES_VIEWS = ["prs", "releases", "environments"] as const;
+
+/** La sezione Support di un progetto. */
+function isSupportPath(path: string): boolean {
+  return /^p\/[A-Z]{2,4}\/support$/.test(path);
+}
 
 /** La sezione Releases di un progetto. */
 function isReleasesPath(path: string): boolean {
@@ -241,6 +250,8 @@ export function isAppRoute(route: string): boolean {
   if (isAutomationsPath(path)) return true;
   // Il dettaglio di un rilascio (area 8a): `#/p/AUD/releases/AUD-V3`.
   if (/^p\/[A-Z]{2,4}\/releases\/[A-Z]{2,4}-V\d+$/.test(path)) return true;
+  // Una conversazione di Support (area 8a): `#/p/ACQ/support/ACQ-S2`.
+  if (/^p\/[A-Z]{2,4}\/support\/[A-Z]{2,4}-S\d+$/.test(path)) return true;
   const p = /^p\/([A-Z]{2,4})(?:\/([a-z]+))?$/.exec(path);
   if (!p) return false;
   return !p[2] || (PROJECT_SECTIONS_IDS as readonly string[]).includes(p[2]);

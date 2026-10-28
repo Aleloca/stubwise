@@ -85,7 +85,7 @@ const ROWS: Row[] = [
   ["task.created", "AUD", "AUD-10", "New task", "Store review notes for the mobile app.", at(8, "11:00"), "#/p/AUD/tasks"],
   // La richiesta nata da ACQ-S4 (R-K11: codice e link della richiesta, come gli avvisi nuovi).
   ["support.request", "ACQ", "ACQ-R2", "New request from a customer", "Consumption history of the town buildings as a spreadsheet.", at(2, "11:00"), "#/p/ACQ/requests?request=req-acq-2"],
-  ["support.customer_replied", "ACQ", "ACQ-S2", "The customer replied", "Lucia Benedetti: Any news? The yearly adjustment arrives next month.", at(0, "08:15"), "#/p/ACQ/support", [["p-laura", "follows_conversation"]]],
+  ["support.customer_replied", "ACQ", "ACQ-S2", "The customer replied", "Lucia Benedetti: Any news? The yearly adjustment arrives next month.", at(0, "08:15"), "#/p/ACQ/support/ACQ-S2", [["p-laura", "follows_conversation"]]],
 ];
 
 export const ALERT_NOTIFICATIONS: AppNotification[] = ROWS.map(

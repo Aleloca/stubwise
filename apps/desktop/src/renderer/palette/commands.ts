@@ -126,6 +126,15 @@ export const COMMANDS: readonly Command[] = [
       ),
   },
   {
+    // Dentro un progetto, a chi ne gestisce i widget (shape support.md §6).
+    id: "support.newWidget",
+    labelKey: "palette.commands.newWidget",
+    run: (ctx) => {
+      if (ctx.projectCode) ctx.navigate(`/p/${ctx.projectCode}/support?view=widgets&widget=new`);
+    },
+    when: (viewer, scope) => !!scope.projectId && can(viewer, "widget.manage", scope.projectId),
+  },
+  {
     id: "chat.goTo",
     labelKey: "palette.commands.goToChannel",
     keepsOpen: true,

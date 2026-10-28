@@ -63,6 +63,8 @@ import { TestRoutePage } from "./pages/automations/test/TestPage";
 import { PreferencesPage, isPreferenceSection } from "./pages/preferences/PreferencesPage";
 import { ReleasesPage } from "./pages/releases/ReleasesPage";
 import { ReleaseDetail } from "./pages/releases/ReleaseDetail";
+import { ConversationNotFound, SupportPage } from "./pages/support/SupportPage";
+import { useSupportConversation } from "./data/queries";
 
 /** La ricerca che ogni route accetta (`?task=` apre il pannello, gli altri li montano i dialoghi). */
 export interface AppSearch {
@@ -141,6 +143,8 @@ export interface AppSearch {
   from?: string;
   /** Releases: il pannello di una PR aperta (l'id). */
   pr?: string;
+  /** Support → Widget: il pannello di un widget (l'id, o `new`). */
+  widget?: string;
 }
 
 const SEARCH_KEYS = [
@@ -169,6 +173,7 @@ const SEARCH_KEYS = [
   ...CALENDAR_SEARCH_KEYS,
   ...AUTOMATION_SEARCH_KEYS,
   "pr",
+  "widget",
 ] as const;
 
 /**
@@ -206,7 +211,8 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
       key === "dept" ||
       key === "thread" ||
       key === "message" ||
-      key === "pr"
+      key === "pr" ||
+      key === "widget"
         ? /^[\w-]+$/.test(value)
         : key === "date"
           ? /^\d{4}-\d{2}-\d{2}$/.test(value)
@@ -509,6 +515,53 @@ const releaseRoute = createRoute({
   component: ReleaseRoutePage,
 });
 
+/**
+ * Una conversazione di Support aperta (`#/p/ACQ/support/ACQ-S2`, area 8a).
+ * Una conversazione che non esiste, di un progetto che non si vede o di un
+ * altro progetto danno la STESSA pagina (R-G5). Cambiare persona rimonta.
+ */
+function SupportConversationRoutePage() {
+  const { code, conversation } = supportConversationRoute.useParams();
+  const { viewer } = useViewer();
+  const project = useProject(code);
+  const conv = useSupportConversation(conversation);
+  if (project.isPending || conv.isPending) {
+    return <section className="h-full" aria-busy="true" />;
+  }
+  if (!project.data || !conv.data || conv.data.projectCode !== project.data.code) {
+    return <ConversationNotFound />;
+  }
+  if (!project.data.modules.includes("support")) {
+    return <Navigate to="/p/$code/$section" params={{ code, section: "overview" }} replace />;
+  }
+  return (
+    <SupportPage
+      key={`${code}:${viewer.personId}`}
+      projectCode={code}
+      conversationCode={conversation}
+    />
+  );
+}
+
+const supportConversationRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/p/$code/support/$conversation",
+  beforeLoad: ({ params }) => {
+    if (upperCaseCode(params.code) || upperCaseCode(params.conversation)) {
+      throw redirect({
+        to: "/p/$code/support/$conversation",
+        params: {
+          code: params.code.toUpperCase(),
+          conversation: params.conversation.toUpperCase(),
+        },
+        search: (prev) => prev,
+        replace: true,
+      });
+    }
+  },
+  component: SupportConversationRoutePage,
+});
+
 const filterRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/filters/$id",
@@ -585,6 +638,9 @@ function ProjectSectionPage() {
     return (
       <ReleasesPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />
     );
+  }
+  if (section === "support") {
+    return <SupportPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />;
   }
   if (section === "drive") {
     return <DrivePage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />;
@@ -808,6 +864,7 @@ const routeTree = rootRoute.addChildren([
   projectSectionRoute,
   projectChatChannelRoute,
   releaseRoute,
+  supportConversationRoute,
   docsHomeRoute,
   docSpaceRoute.addChildren([
     docSpaceIndexRoute,

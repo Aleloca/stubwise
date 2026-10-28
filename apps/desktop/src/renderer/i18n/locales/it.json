@@ -130,7 +130,8 @@
       "files": "File",
       "mail": "Posta",
       "automations": "Automazioni",
-      "releases": "Rilasci"
+      "releases": "Rilasci",
+      "support": "Support"
     },
     "noResults": "Nessun risultato per «{{query}}»",
     "noResultsHint": "Prova con un codice come {{example}} o con un nome.",
@@ -165,7 +166,8 @@
       "newMeeting": "Nuova riunione",
       "newAutomation": "Nuova automazione",
       "notificationPrefs": "Preferenze delle notifiche",
-      "projectAlerts": "Avvisi di {{code}}"
+      "projectAlerts": "Avvisi di {{code}}",
+      "newWidget": "Nuovo widget"
     },
     "filterPlaceholder": "Scegli un filtro",
     "channelPlaceholder": "Vai a un canale o a un messaggio diretto…",
@@ -960,7 +962,8 @@
       "upcomingEvents": "Prossimi appuntamenti",
       "importantMail": "Email importanti",
       "automations": "Automazioni",
-      "releases": "Rilasci"
+      "releases": "Rilasci",
+      "waitingCustomers": "Clienti in attesa"
     },
     "block": {
       "error": "Impossibile caricare {{title}}.",
@@ -1147,6 +1150,9 @@
     },
     "releases": {
       "empty": "Niente da rilasciare e nessun rilascio fallito."
+    },
+    "waitingCustomers": {
+      "empty": "Nessun cliente in attesa"
     }
   },
   "week": {
@@ -6606,6 +6612,227 @@
       "waiting": "Un rilascio fallito aspetta te",
       "openPrs_one": "{{count}} pull request aperta",
       "openPrs_other": "{{count}} pull request aperte"
+    }
+  },
+  "support": {
+    "title": "Support",
+    "views": {
+      "label": "Viste di Support",
+      "conversations": "Conversazioni",
+      "widgets": "Widget"
+    },
+    "anonymous": "Visitatore anonimo",
+    "notFound": "Questa conversazione non esiste o non puoi vederla.",
+    "waiting": "in attesa da {{time}}",
+    "duration": {
+      "minutes": "{{n}} min",
+      "hours": "{{n}} h",
+      "days": "{{n}} g"
+    },
+    "channel": {
+      "widget": "Widget",
+      "mcp": "Claude Code"
+    },
+    "state": {
+      "waiting_us": "Aspetta noi",
+      "triage": "In triage",
+      "not_concluded": "Non conclusa",
+      "request_open": "Richiesta aperta",
+      "reply_sent": "Risposta inviata"
+    },
+    "customerStatus": {
+      "received": "Ricevuta",
+      "evaluating": "In valutazione",
+      "planned": "Pianificata",
+      "in_progress": "In lavorazione",
+      "released": "Rilasciata",
+      "not_proceeding": "Non procediamo"
+    },
+    "list": {
+      "label": "Conversazioni",
+      "search": "Cerca nelle conversazioni",
+      "channel": "Canale",
+      "any": "Tutti",
+      "nothing": "Nessun risultato",
+      "clear": "Togli i filtri",
+      "error": "Non è stato possibile caricare le conversazioni.",
+      "select": "Scegli una conversazione",
+      "back": "Conversazioni",
+      "waitingYou": "Aspetta te",
+      "you": "Tu",
+      "assistant": "Assistente"
+    },
+    "empty": {
+      "title": "Ancora nessuna conversazione coi clienti",
+      "manage": "Le conversazioni nascono dal widget del progetto o da Claude Code. Configura un widget da mettere sul vostro sito.",
+      "others": "Le conversazioni nascono dal widget del progetto o da Claude Code.",
+      "setUp": "Configura un widget"
+    },
+    "detail": {
+      "error": "Non è stato possibile caricare la conversazione.",
+      "widgetChannel": "Widget · {{name}}",
+      "started": "iniziata il {{date}}",
+      "preview": "Anteprima del cliente",
+      "follow": "Segui",
+      "following": "Segui già",
+      "more": "Altre azioni",
+      "copyLink": "Copia il link",
+      "linkCopied": "Link copiato",
+      "linkError": "Non è stato possibile copiare il link.",
+      "writeEmail": "Scrivigli anche per email",
+      "prototype": "Solo nel prototipo",
+      "simulateMessage": "Simula un messaggio del cliente",
+      "simulateLeaves": "Simula: il cliente se ne va",
+      "simulateTriage": "Simula: triage concluso",
+      "simulatedText": "Buongiorno, ci sono novità?",
+      "actionFailed": "Qualcosa non è andato. Non è cambiato nulla."
+    },
+    "request": {
+      "label": "Richiesta",
+      "customerSees": "Il cliente vede:",
+      "showAll": "Mostra tutto",
+      "showLess": "Mostra meno",
+      "triage": "Ancora nessuna richiesta · l'assistente sta facendo domande",
+      "left": "Nessuna richiesta · il cliente se n'è andato prima di confermare",
+      "open": "Apri la richiesta",
+      "cannotOpen": "Può aprirla chi ha il permesso di creare richieste."
+    },
+    "openDialog": {
+      "title": "Apri la richiesta",
+      "project": "Progetto",
+      "titleLabel": "Titolo",
+      "description": "Descrizione",
+      "attached_one": "La conversazione ({{count}} messaggio) sarà allegata alla richiesta.",
+      "attached_other": "La conversazione ({{count}} messaggi) sarà allegata alla richiesta.",
+      "create": "Crea richiesta",
+      "cancel": "Annulla",
+      "created": "{{code}} creata",
+      "error": "Non è stato possibile creare la richiesta.",
+      "titleRequired": "Scrivi prima un titolo"
+    },
+    "message": {
+      "label": "Conversazione",
+      "assistant": "Assistente (triage)",
+      "team": "Team",
+      "sentWidget": "Inviata al cliente nel widget",
+      "sentMcp": "Inviata al cliente in Claude Code",
+      "earlier_one": "{{count}} messaggio precedente",
+      "earlier_other": "{{count}} messaggi precedenti",
+      "sending": "Invio…",
+      "notSent": "Non inviata",
+      "retry": "Riprova",
+      "edit": "Modifica",
+      "newFrom": "Nuovo messaggio da {{name}}, {{time}}"
+    },
+    "reply": {
+      "to": "Rispondi a {{name}}",
+      "inWidget": "nel widget",
+      "inMcp": "in Claude Code",
+      "message": "Messaggio",
+      "placeholder": "Scrivi a {{name}}…",
+      "prepared": "Claude ha preparato una bozza",
+      "useDraft": "Usa la bozza",
+      "show": "Mostra",
+      "hide": "Nascondi",
+      "claudeDraft": "Bozza di Claude",
+      "stop": "Ferma",
+      "saved": "Salvata",
+      "discard": "Elimina",
+      "send": "Invia al cliente",
+      "emptyReason": "Scrivi prima una risposta",
+      "replaceAsk": "Sostituire il tuo testo o aggiungere la bozza di Claude sotto?",
+      "replace": "Sostituisci",
+      "addBelow": "Aggiungi sotto",
+      "cancel": "Annulla",
+      "draftBy": "Bozza di Claude dalla conversazione · modificala prima di inviare",
+      "draftByWith": "Bozza di Claude dalla conversazione e da {{code}} · modificala prima di inviare",
+      "editedFrom": "Modificata dalla bozza di Claude",
+      "draftFailed": "Claude non è riuscito a scrivere una bozza. Il tuo testo è com'era.",
+      "tryAgain": "Riprova",
+      "sentTo": "Inviata a {{name}}",
+      "undo": "Annulla",
+      "readOnly": "Qui scrive solo chi può rispondere ai clienti.",
+      "triage": "L'assistente sta ancora facendo domande al cliente: potrai rispondere quando il triage è concluso.",
+      "lastSeen": "{{name}} ha visto la conversazione l'ultima volta {{time}}. Vedrà la risposta quando torna.",
+      "nextTime": "La vedrà la prossima volta che chiede delle sue richieste.",
+      "noEmail": "Il cliente non ha lasciato un indirizzo email",
+      "noMailbox": "Collega il tuo account Google per scrivere da Stubwise",
+      "connect": "Collega",
+      "emailError": "Non è stato possibile preparare l'email."
+    },
+    "preview": {
+      "title": "Cosa vede {{name}}",
+      "live": "Si aggiorna da sola",
+      "close": "Chiudi l'anteprima",
+      "back": "Indietro",
+      "steps": "Stato della richiesta",
+      "current": "passo attuale",
+      "messages": "Messaggi",
+      "you": "Cliente",
+      "never": "Commenti interni, nomi, stime e bozze non si vedono mai.",
+      "error": "Non è stato possibile caricare cosa vede il cliente."
+    },
+    "widgets": {
+      "new": "Nuovo widget",
+      "empty": "Ancora nessun widget",
+      "error": "Non è stato possibile caricare i widget.",
+      "on": "Acceso",
+      "off": "Spento",
+      "conversations_one": "{{count}} conversazione",
+      "conversations_other": "{{count}} conversazioni",
+      "edit": "Modifica",
+      "editNamed": "Modifica {{name}}",
+      "panelEdit": "Modifica {{name}}",
+      "close": "Chiudi",
+      "cancel": "Annulla",
+      "save": "Salva",
+      "create": "Crea il widget",
+      "saved": "Widget salvato",
+      "created": "{{name}} creato",
+      "saveError": "Non è stato possibile salvare il widget.",
+      "invalid": {
+        "name": "Il nome deve avere da 1 a 80 caratteri.",
+        "title": "Il titolo deve avere da 1 a 80 caratteri.",
+        "welcomeMessage": "Il messaggio di benvenuto deve avere da 1 a 500 caratteri.",
+        "instructions": "Le istruzioni possono avere al massimo 4000 caratteri.",
+        "accentColor": "Il colore deve essere come #22c55e.",
+        "language": "Scegli italiano o inglese.",
+        "origins": "Ogni sito deve essere come https://example.com.",
+        "sourceRepositoryIds": "Scegli repository di questo progetto.",
+        "dailyMessageCap": "Messaggi al giorno: un numero intero da 1 a 100000, o vuoto.",
+        "dailyRequestCap": "Richieste al giorno: un numero intero da 1 a 100000, o vuoto."
+      },
+      "fields": {
+        "name": "Nome",
+        "enabled": "Acceso: accetta conversazioni nuove",
+        "sources": "Fonti della documentazione",
+        "noSources": "Questo progetto non ha repository.",
+        "origins": "Siti",
+        "originsHint": "Uno per riga, come https://example.com",
+        "title": "Titolo",
+        "welcome": "Messaggio di benvenuto",
+        "instructions": "Istruzioni per l'assistente",
+        "instructionsHint": "Facoltative. Come l'assistente deve parlare ai clienti.",
+        "color": "Colore",
+        "language": "Lingua",
+        "languageIt": "Italiano",
+        "languageEn": "Inglese",
+        "messageCap": "Messaggi al giorno",
+        "requestCap": "Richieste al giorno",
+        "capHint": "Vuoto: il default dell'istanza"
+      },
+      "snippet": "Snippet",
+      "copySnippet": "Copia lo snippet",
+      "guide": "Guida",
+      "copyGuide": "Copia la guida",
+      "downloadGuide": "Scarica il .md",
+      "copied": "Copiato",
+      "copyError": "Non è stato possibile copiare.",
+      "delete": "Elimina il widget",
+      "deleteAsk": "Eliminare {{name}}? Le sue conversazioni restano.",
+      "deleteConfirm": "Elimina",
+      "deleted": "{{name}} eliminato",
+      "deleteError": "Non è stato possibile eliminare il widget."
     }
   }
 }

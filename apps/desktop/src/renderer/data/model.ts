@@ -1787,6 +1787,13 @@ export interface MailDraft {
    * lo cita sempre; l'email nuova non cita nulla.
    */
   quote?: boolean;
+  /**
+   * Un'email nuova che non è «la» nuova email di chi scrive: la bozza di
+   * «Scrivigli anche per email» di una conversazione di Support
+   * (`support-<PRJ>-S<n>`, R-K14), con un posto suo accanto a quello della
+   * nuova email, che così non si sovrascrive. Assente = la nuova email.
+   */
+  slot?: string;
   updatedAt: string;
 }
 

@@ -1,4 +1,5 @@
 import type { MailImportance, MailThreadFilters, MailThreadRow, Project } from "../../data/types";
+import { SUPPORT_MAIL_SLOT } from "../../domain/support/state";
 
 // I filtri della Posta nell'indirizzo (shape mail.md §3, §9): la casella
 // (`mailbox`, un mio indirizzo), l'importanza (`importance`), il progetto
@@ -39,7 +40,8 @@ export function isMailSearchValue(key: string, value: string): boolean {
     case "q":
       return value.length > 0 && value.length <= 200;
     case "compose":
-      return value === "new";
+      // `new`, o lo slot della bozza di «Scrivigli anche per email» (R-K14).
+      return value === "new" || SUPPORT_MAIL_SLOT.test(value);
     default:
       return false;
   }

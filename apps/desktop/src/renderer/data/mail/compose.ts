@@ -5,6 +5,7 @@ import {
   type MailDraftRequest,
   type MailDraftResult,
 } from "../../domain/claude/intents/mailDraft";
+import { SUPPORT_MAIL_SLOT } from "../../domain/support/state";
 import { fold, searchWords } from "../../domain/textSearch";
 import { canSeeDriveFile } from "../drive/visibility";
 import { PEOPLE } from "../seed/people";
@@ -96,10 +97,18 @@ export function mailboxOf(me: string, email?: string | null): Mailbox {
 
 // --- bozze ---------------------------------------------------------------------
 
-const slotId = (me: string, threadId: string | null) => `md-${me}-${threadId ?? "new"}`;
+/**
+ * Il posto di una bozza: la conversazione, oppure per un'email nuova il suo
+ * slot (`new`, la nuova email; `support-<PRJ>-S<n>`, R-K14).
+ */
+const placeOf = (threadId: string | null, slot?: string) => threadId ?? slot ?? "new";
+const slotId = (me: string, threadId: string | null, slot?: string) =>
+  `md-${me}-${placeOf(threadId, slot)}`;
 
-export const draftIn = (me: string, threadId: string | null) =>
-  state.mailDrafts.find((d) => d.personId === me && d.threadId === threadId);
+export const draftIn = (me: string, threadId: string | null, slot?: string) =>
+  state.mailDrafts.find(
+    (d) => d.personId === me && placeOf(d.threadId, d.slot) === placeOf(threadId, slot),
+  );
 
 export function myDraft(me: string, id: string): MailDraft {
   const draft = state.mailDrafts.find((d) => d.id === id && d.personId === me);
@@ -177,6 +186,13 @@ function checkMode(threadId: string | null, mode: MailDraft["mode"]): void {
   if (!modes.includes(mode) || (threadId === null) !== (mode === "new")) throw invalid("mode");
 }
 
+/** Uno slot solo per un'email nuova, e solo con la forma ammessa (`invalid: slot`). */
+function checkSlot(threadId: string | null, slot: string | undefined): void {
+  if (slot === undefined) return;
+  if (threadId !== null || typeof slot !== "string" || !SUPPORT_MAIL_SLOT.test(slot))
+    throw invalid("slot");
+}
+
 /**
  * La bozza di una conversazione (o dell'email nuova) in una modalità: quella
  * salvata, se c'è — in un'altra modalità tiene corpo e allegati, con
@@ -186,19 +202,22 @@ function checkMode(threadId: string | null, mode: MailDraft["mode"]): void {
 export async function getDraft(
   threadId: string | null,
   mode: MailDraft["mode"],
+  slot?: string,
 ): Promise<MailDraft> {
   const me = await gate("mail.getDraft");
   const box = mailboxOf(me);
   checkMode(threadId, mode);
-  const saved = draftIn(me, threadId);
+  checkSlot(threadId, slot);
+  const saved = draftIn(me, threadId, slot);
   if (threadId === null || mode === "new") {
     return saved
       ? copy(saved)
       : {
-          id: slotId(me, null),
+          id: slotId(me, null, slot),
           personId: me,
           threadId: null,
           mode: "new",
+          ...(slot ? { slot } : {}),
           replyToMessageId: null,
           to: [],
           cc: [],
@@ -237,7 +256,7 @@ export type MailDraftInput = Pick<
   MailDraft,
   "threadId" | "mode" | "replyToMessageId" | "to" | "cc" | "subject" | "body" | "attachments"
 > &
-  Pick<MailDraft, "quote">;
+  Pick<MailDraft, "quote" | "slot">;
 
 /** Un allegato del Drive com'è nel Drive (nome, peso, copia o link), se chi scrive vede il file. */
 function driveAttachment(me: string, driveFileId: string): MailDraftAttachment {
@@ -276,6 +295,7 @@ export async function saveDraft(input: MailDraftInput): Promise<MailDraft> {
 export function draftFrom(me: string, input: MailDraftInput): MailDraft {
   mailboxOf(me);
   checkMode(input.threadId, input.mode);
+  checkSlot(input.threadId, input.slot);
   if (input.threadId !== null) {
     const messages = threadMessages(me, input.threadId);
     if (input.replyToMessageId !== null && !messages.some((m) => m.id === input.replyToMessageId))
@@ -296,10 +316,11 @@ export function draftFrom(me: string, input: MailDraftInput): MailDraft {
   );
   const team = teamAddresses();
   const draft: MailDraft = {
-    id: slotId(me, input.threadId),
+    id: slotId(me, input.threadId, input.slot),
     personId: me,
     threadId: input.threadId,
     mode: input.mode,
+    ...(input.slot ? { slot: input.slot } : {}),
     replyToMessageId: input.replyToMessageId,
     to: input.to.map((a) => resolve(a, team)),
     cc: input.cc.map((a) => resolve(a, team)),
@@ -317,7 +338,11 @@ export function draftFrom(me: string, input: MailDraftInput): MailDraft {
 export function putDraft(draft: MailDraft): void {
   state.mailDrafts = [
     ...state.mailDrafts.filter(
-      (d) => !(d.personId === draft.personId && d.threadId === draft.threadId),
+      (d) =>
+        !(
+          d.personId === draft.personId &&
+          placeOf(d.threadId, d.slot) === placeOf(draft.threadId, draft.slot)
+        ),
     ),
     draft,
   ];

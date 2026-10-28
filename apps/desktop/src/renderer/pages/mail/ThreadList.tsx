@@ -74,7 +74,7 @@ export function ThreadList({
   searchRef,
   hits = new Map(),
   onCompose,
-  newDraft,
+  newDrafts = [],
 }: {
   search: MailSearch;
   setSearch: (patch: Partial<MailSearch>) => void;
@@ -96,8 +96,11 @@ export function ThreadList({
   hits?: ReadonlyMap<string, string>;
   /** R / A / F con il fuoco nell'elenco: la casella della conversazione aperta. */
   onCompose?: (mode: "reply" | "replyAll" | "forward") => void;
-  /** La bozza dell'email nuova: una riga «Draft · …» in cima [A 2]. */
-  newDraft?: { subject: string; selected: boolean; onOpen: () => void };
+  /**
+   * Le bozze delle email nuove: una riga «Draft · …» in cima [A 2] per
+   * ciascuna (la nuova email e quelle di «Scrivigli anche per email», R-K14).
+   */
+  newDrafts?: { id: string; subject: string; selected: boolean; onOpen: () => void }[];
 }) {
   const { t } = useTranslation();
   const toast = useToast();
@@ -321,8 +324,9 @@ export function ThreadList({
             {t("mail.list.newRows", { count: newCount })}
           </button>
         )}
-        {newDraft && (
+        {newDrafts.map((newDraft) => (
           <button
+            key={newDraft.id}
             type="button"
             onClick={newDraft.onOpen}
             aria-current={newDraft.selected || undefined}
@@ -335,7 +339,7 @@ export function ThreadList({
               {t("mail.compose.draftRow", { subject: newDraft.subject.trim() || t("mail.compose.noSubject") })}
             </span>
           </button>
-        )}
+        ))}
         {loading ? (
           <ListSkeleton />
         ) : error ? (

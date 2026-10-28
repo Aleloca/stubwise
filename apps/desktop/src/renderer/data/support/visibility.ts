@@ -99,6 +99,11 @@ export interface SupportConversationView extends Omit<
   following: boolean;
   /** Cosa può fare chi guarda, deciso qui (il client non lo deduce). */
   canReply: boolean;
+  /**
+   * La casella è chiusa anche a chi può rispondere: `triage` mentre Claude
+   * fa le domande al cliente (R-K15). `null` = si risponde.
+   */
+  replyClosed: "triage" | null;
   /** «Apri la richiesta»: su una non conclusa, con `backlog.create`. */
   canOpenRequest: boolean;
   /**
@@ -140,6 +145,7 @@ export function conversationView(me: string, c: SupportConversation): SupportCon
     claudeDraft: reply ? claudeDraft : null,
     following: followerIds.includes(me),
     canReply: reply,
+    replyClosed: st === "triage" ? "triage" : null,
     canOpenRequest: st === "not_concluded" && holds(me, "backlog.create", c.projectId),
     emailBlocked: emailBlocked(me, c),
   };

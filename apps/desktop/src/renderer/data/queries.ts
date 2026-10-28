@@ -69,6 +69,8 @@ import type {
   TaskPatch,
 } from "./types";
 import { can, useViewer } from "./viewer";
+import { getSessionPersonId } from "./session";
+import { streamText } from "./stream";
 
 /**
  * Ogni chiave comincia con `["as", personId]`: cambiare persona «vedi come»
@@ -152,6 +154,7 @@ export const queryKeys = {
     ["as", personId, "support", "widgets", projectId] as const,
   myRequestStatus: (personId: string, requestId: string) =>
     ["as", personId, "support", "myRequest", requestId] as const,
+  supportSearch: (personId: string, q: string) => ["as", personId, "support", "search", q] as const,
   search: (personId: string, q: string) => ["as", personId, "search", q] as const,
   conversations: (personId: string, filter: ConversationFilter) =>
     ["as", personId, "conversations", filter] as const,
@@ -237,8 +240,12 @@ export const queryKeys = {
     ["as", personId, "mail", "proposals", filters] as const,
   mailProposal: (personId: string, id: string) => ["as", personId, "mail", "proposal", id] as const,
   mailDecisions: (personId: string) => ["as", personId, "mail", "decisions"] as const,
-  mailDraft: (personId: string, threadId: string | null, mode: MailDraft["mode"]) =>
-    ["as", personId, "mail", "draft", threadId, mode] as const,
+  mailDraft: (
+    personId: string,
+    threadId: string | null,
+    mode: MailDraft["mode"],
+    slot: string | null = null,
+  ) => ["as", personId, "mail", "draft", threadId, mode, slot] as const,
   mailDrafts: (personId: string) => ["as", personId, "mail", "drafts"] as const,
   mailRecipients: (personId: string, q: string) =>
     ["as", personId, "mail", "recipients", q] as const,
@@ -2779,10 +2786,10 @@ export function useLoadMailDraft() {
   const client = useQueryClient();
   const me = useSessionPersonId();
   return useCallback(
-    (threadId: string | null, mode: MailDraft["mode"]) =>
+    (threadId: string | null, mode: MailDraft["mode"], slot?: string) =>
       client.fetchQuery({
-        queryKey: queryKeys.mailDraft(me, threadId, mode),
-        queryFn: () => api.mail.getDraft(threadId, mode),
+        queryKey: queryKeys.mailDraft(me, threadId, mode, slot ?? null),
+        queryFn: () => api.mail.getDraft(threadId, mode, slot),
         staleTime: 0,
         retry: false,
       }),
@@ -3469,6 +3476,13 @@ export function saveAutomationDraftNow(
 }
 
 export { onBeforePersonaChange } from "./session";
+export type {
+  CustomerPreview,
+  SupportConversationView,
+  SupportState,
+  SupportWidgetView,
+  WidgetInput,
+} from "./support";
 
 /** Nome e descrizione: non sono della versione, non creano una bozza. */
 export function useRenameAutomation() {
@@ -4089,6 +4103,18 @@ export function useSupportWidgets(projectId: string | undefined) {
   });
 }
 
+/** ⌘K: le conversazioni per codice (`ACQ-S2`), cliente o desiderio (da 2 caratteri). */
+export function useSupportSearch(q: string, enabled = true) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.supportSearch(me, q),
+    queryFn: () => api.support.searchSupport(q),
+    enabled: enabled && q.trim().length >= MIN_QUERY,
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
+  });
+}
+
 /** Lo stato di una richiesta come lo dice `my_requests` al cliente. */
 export function useMyRequestStatus(requestId: string | undefined) {
   const me = useSessionPersonId();
@@ -4151,6 +4177,86 @@ export function useUpdateWidget() {
 
 export function useDeleteWidget() {
   return useWrite((id: string) => api.support.deleteWidget(id), SUPPORT_AREAS);
+}
+
+/**
+ * «Invia al cliente» SUBITO, fuori da React Query: alla fine della finestra
+ * dell'«Annulla» e prima di cambiare persona (`onBeforePersonaChange`), dove
+ * `writer` legge la sessione ora — a nome di chi ha cliccato «Invia». La
+ * pagina della persona nuova si rilegge comunque da capo.
+ */
+export function replyToCustomerNow(code: string, body: string) {
+  return api.support.replyToCustomer(code, body);
+}
+
+/** Ricarica Support (elenco, dettaglio, Home) dopo un invio fatto fuori da React Query. */
+export function useInvalidateSupport() {
+  return useInvalidate(SUPPORT_AREAS);
+}
+
+export type SupportClaudeDraftState =
+  | { status: "idle" }
+  | { status: "writing"; text: string }
+  | { status: "done" | "stopped"; text: string }
+  | { status: "failed" };
+
+/**
+ * «Bozza di Claude» nella casella di Support (shape support.md §5): la
+ * rigenera (`draftReply`) e la scrive a pezzi nel corpo, con lo stesso ritmo
+ * delle risposte di Claude (`streamText`). Non invia NULLA: chi risponde la
+ * rilegge e preme «Invia al cliente». Di chi l'ha chiesta: cambiando persona
+ * si ferma e sparisce.
+ */
+export function useSupportClaudeDraft() {
+  const me = useSessionPersonId();
+  const invalidate = useInvalidate(SUPPORT_AREAS);
+  const [state, setState] = useState<SupportClaudeDraftState>({ status: "idle" });
+  const run = useRef<{ stopped: boolean } | null>(null);
+
+  const stop = useCallback(() => {
+    if (run.current) run.current.stopped = true;
+  }, []);
+
+  const start = useCallback(
+    (code: string) => {
+      if (run.current) run.current.stopped = true;
+      const current = { stopped: false };
+      run.current = current;
+      setState({ status: "writing", text: "" });
+      void (async () => {
+        try {
+          const view = await api.support.draftReply(code);
+          void invalidate();
+          let written = "";
+          const complete = await streamText(
+            view.claudeDraft ?? "",
+            `${me}:${code}`,
+            (soFar) => {
+              written = soFar;
+              if (run.current === current) setState({ status: "writing", text: soFar });
+            },
+            () => !current.stopped && getSessionPersonId() === me,
+          );
+          if (run.current === current)
+            setState({ status: complete ? "done" : "stopped", text: written });
+        } catch {
+          if (run.current === current) setState({ status: "failed" });
+        }
+      })();
+    },
+    [me, invalidate],
+  );
+
+  const reset = useCallback(() => {
+    if (run.current) run.current.stopped = true;
+    run.current = null;
+    setState({ status: "idle" });
+  }, []);
+
+  // Un'altra persona, o la casella che si chiude: la bozza si ferma.
+  useEffect(() => reset, [me, reset]);
+
+  return { state, start, stop, reset };
 }
 
 /** Solo prototipo: «Simula un messaggio del cliente». */

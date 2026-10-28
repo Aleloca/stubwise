@@ -32,3 +32,12 @@ export function waitingSince(c: SupportConversation): string | null {
   while (i > 0 && c.messages[i - 1]!.from === "customer") i--;
   return c.messages[i]!.at;
 }
+
+/**
+ * Lo slot della Posta per la bozza di «Scrivigli anche per email» di una
+ * conversazione (R-K14): un posto suo accanto alla «nuova email», che così
+ * non si sovrascrive. Lo usano il livello dati della Posta e l'indirizzo
+ * `#/mail?compose=<slot>`.
+ */
+export const supportMailSlot = (code: string): string => `support-${code}`;
+export const SUPPORT_MAIL_SLOT = /^support-[A-Z]{2,4}-S\d+$/;

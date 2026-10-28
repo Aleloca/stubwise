@@ -176,7 +176,7 @@ function restoreDraft(
   // disponibile) resta fuori e si dice: la bozza torna lo stesso.
   const [usable, gone] = splitUsable(draft.personId, draft.attachments);
   draft = { ...draft, attachments: usable };
-  const existing = draftIn(draft.personId, draft.threadId);
+  const existing = draftIn(draft.personId, draft.threadId, draft.slot);
   if (!existing) {
     const restored = { ...copy(draft), updatedAt: now() };
     putDraft(restored);

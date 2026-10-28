@@ -46,12 +46,15 @@ const fieldsOf = (d: MailDraft): ComposerFields => ({
 export function useComposerDraft({
   threadId,
   mode,
+  slot,
   onClose,
   onLoaded,
   onEdit,
 }: {
   threadId: string | null;
   mode: Mode;
+  /** Un'email nuova nel suo slot (la bozza di «Scrivigli anche per email», R-K14). */
+  slot?: string;
   /** Chiusa (Esc, «Close», `closeComposer` da fuori): la bozza è in salvataggio. */
   onClose: () => void;
   /** La bozza letta (all'apertura o con un'altra modalità). */
@@ -86,6 +89,7 @@ export function useComposerDraft({
     body: f.body,
     attachments: f.attachments,
     ...(f.quote ? {} : { quote: false }),
+    ...(slot ? { slot } : {}),
   });
 
   const clearTimer = () => {
@@ -128,7 +132,7 @@ export function useComposerDraft({
   const closeRef = useRef(closeNow);
   closeRef.current = closeNow;
   // Chi rimette una bozza («Undo», «Edit») chiude prima questa casella.
-  useEffect(() => registerComposer(threadId, () => closeRef.current()), [threadId]);
+  useEffect(() => registerComposer(threadId, () => closeRef.current(), slot), [threadId, slot]);
 
   const setFields = (patch: Partial<ComposerFields>) => {
     const next = { ...fieldsRef.current!, ...patch };
@@ -153,7 +157,7 @@ export function useComposerDraft({
   // per casella: la modalità cambia sotto (effetto qui sotto).
   useEffect(() => {
     let live = true;
-    load(threadId, modeRef.current).then(
+    load(threadId, modeRef.current, slot).then(
       (draft) => live && loaded(fieldsOf(draft)),
       () => live && setLoadFailed(true),
     );

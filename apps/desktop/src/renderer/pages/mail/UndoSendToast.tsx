@@ -105,12 +105,17 @@ export function useDroppedNotice() {
 function useReopen() {
   const navigate = useNavigate();
   return useCallback(
-    (draft: Pick<MailDraft, "threadId" | "mode">) => {
-      requestCompose({ threadId: draft.threadId, mode: draft.mode, focus: "body" });
+    (draft: Pick<MailDraft, "threadId" | "mode" | "slot">) => {
+      requestCompose({
+        threadId: draft.threadId,
+        mode: draft.mode,
+        focus: "body",
+        ...(draft.slot ? { slot: draft.slot } : {}),
+      });
       if (draft.threadId === null) {
         void navigate({
           to: "/mail",
-          search: (prev: Record<string, unknown>) => ({ ...prev, compose: "new" }),
+          search: (prev: Record<string, unknown>) => ({ ...prev, compose: draft.slot ?? "new" }),
         } as never);
       } else {
         void navigate({
@@ -143,7 +148,7 @@ export function useDiscardedNotice() {
         action: {
           label: t("mail.compose.undo"),
           run: () =>
-            void closeComposer(snapshot.threadId)
+            void closeComposer(snapshot.threadId, snapshot.slot)
               .then(() => restoreAsync(snapshot))
               .then((restored) => {
                 dropped(restored);

@@ -235,6 +235,39 @@ describe("Review Focus 4: il cliente vede solo il suo", () => {
   });
 });
 
+describe("R-K15: durante il triage non si risponde", () => {
+  it("in triage replyToCustomer e draftReply sono invalid: state, nessun messaggio; la vista lo dice", async () => {
+    as("p-matteo");
+    const before = conv("ACQ-S1").messages.length;
+    await expect(support.replyToCustomer("ACQ-S1", "Hello")).rejects.toThrow("invalid: state");
+    await expect(support.draftReply("ACQ-S1")).rejects.toThrow("invalid: state");
+    expect(conv("ACQ-S1").messages).toHaveLength(before);
+    expect(conv("ACQ-S1").claudeDraft).toBeNull();
+    const view = (await support.getSupportConversation("ACQ-S1"))!;
+    expect(view.canReply).toBe(true);
+    expect(view.replyClosed).toBe("triage");
+  });
+
+  it("su una non conclusa si risponde; fuori dal triage la casella è aperta", async () => {
+    as("p-matteo");
+    expect((await support.getSupportConversation("ACQ-S3"))!.replyClosed).toBeNull();
+    expect((await support.getSupportConversation("ACQ-S2"))!.replyClosed).toBeNull();
+    const view = await support.replyToCustomer("ACQ-S3", "We're looking into it.");
+    expect(view.messages.at(-1)!.body).toBe("We're looking into it.");
+  });
+});
+
+describe("R-K14: la bozza email ha uno slot suo", () => {
+  it("emailDraftFor non usa lo slot della nuova email: id e slot della conversazione", async () => {
+    as("p-matteo");
+    const { draft } = await support.emailDraftFor("ACQ-S2");
+    expect(draft.id).toBe("md-p-matteo-support-ACQ-S2");
+    expect(draft.slot).toBe("support-ACQ-S2");
+    expect(draft.threadId).toBeNull();
+    expect(draft.id).not.toBe("md-p-matteo-new");
+  });
+});
+
 describe("scritture", () => {
   it("risposta vuota: invalid, nessun messaggio", async () => {
     as("p-matteo");

@@ -111,6 +111,56 @@ describe("Bozze: una per persona e conversazione", () => {
   });
 });
 
+describe("Bozze con uno slot loro (R-K14, area 8a)", () => {
+  it("una bozza nello slot di una conversazione di Support non tocca la nuova email non inviata", async () => {
+    as("p-matteo");
+    const fresh = await mail.getDraft(null, "new");
+    const unsent = await mail.saveDraft({ ...fresh, subject: "Unsent", body: "Mine." });
+    expect(unsent.id).toBe("md-p-matteo-new");
+    const slotted = await mail.getDraft(null, "new", "support-ACQ-S2");
+    expect(slotted).toMatchObject({
+      id: "md-p-matteo-support-ACQ-S2",
+      slot: "support-ACQ-S2",
+      body: "",
+    });
+    const saved = await mail.saveDraft({ ...slotted, subject: "About your request", body: "Hi" });
+    expect(saved.id).toBe("md-p-matteo-support-ACQ-S2");
+    expect(await mail.getDraft(null, "new")).toMatchObject({ id: unsent.id, body: "Mine." });
+    expect(await mail.getDraft(null, "new", "support-ACQ-S2")).toMatchObject({ body: "Hi" });
+    expect((await mail.listDrafts()).map((d) => d.id).sort()).toEqual(
+      expect.arrayContaining(["md-p-matteo-new", "md-p-matteo-support-ACQ-S2"]),
+    );
+  });
+
+  it("uno slot solo per l'email nuova e con la forma di una conversazione di Support", async () => {
+    as("p-matteo");
+    const base = await mail.getDraft(null, "new");
+    await expect(mail.saveDraft({ ...base, slot: "anything" })).rejects.toThrow("invalid: slot");
+    const reply = await mail.getDraft(CALL_NOTES(), "reply");
+    await expect(mail.saveDraft({ ...reply, slot: "support-ACQ-S2" })).rejects.toThrow(
+      "invalid: slot",
+    );
+  });
+
+  it("inviare la bozza dello slot lascia la nuova email; «Annulla» la rimette nel suo slot", async () => {
+    vi.useFakeTimers();
+    as("p-matteo");
+    const fresh = await mail.getDraft(null, "new");
+    await mail.saveDraft({ ...fresh, subject: "Unsent", body: "Mine." });
+    const slotted = await mail.saveDraft({
+      ...(await mail.getDraft(null, "new", "support-ACQ-S2")),
+      to: [{ name: "Lucia", email: "lucia.benedetti@example.com", personId: null }],
+      subject: "About your request",
+      body: "Hi Lucia",
+    });
+    const sent = await mail.sendDraft(slotted.id);
+    expect(await mail.getDraft(null, "new")).toMatchObject({ body: "Mine." });
+    const back = await mail.undoSend(sent.messageId);
+    expect(back.draft).toMatchObject({ id: slotted.id, slot: "support-ACQ-S2", body: "Hi Lucia" });
+    expect(await mail.getDraft(null, "new")).toMatchObject({ body: "Mine." });
+  });
+});
+
 describe("Allegati dal Drive", () => {
   const fileOf = (projectId: string, source: "upload" | "google", hidden = false) =>
     state.driveFiles.find(
