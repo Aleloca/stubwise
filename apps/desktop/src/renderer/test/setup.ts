@@ -1,8 +1,14 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { afterEach, beforeEach } from "vitest";
 import "../i18n";
 import { clearToasts } from "../tasks-ui/Toast";
+
+// `findBy*`/`waitFor` aspettano 1 s di default: basta su una macchina scarica,
+// non quando la suite intera gira con altro carico (montare l'app intera
+// arrivava a 2–3 s, e il test cadeva su «Unable to find role…» ogni volta in
+// un punto diverso). È solo un tetto: un'attesa che riesce prima non cambia.
+configure({ asyncUtilTimeout: 5_000 });
 
 // Senza i globals di vitest l'auto-cleanup di testing-library non si
 // registra da solo: lo si fa qui per ogni test.

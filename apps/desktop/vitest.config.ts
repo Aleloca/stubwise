@@ -12,5 +12,10 @@ export default defineConfig({
     setupFiles: ["./src/renderer/test/setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
     testTimeout: 15_000,
+    // Metà dei core, non tutti meno uno (il default): ogni file monta l'app
+    // intera in happy-dom, e con un worker per core la macchina satura; i
+    // test rallentano fino a sforare le attese di testing-library (vedi
+    // `asyncUtilTimeout` nel setup). Con meno worker la corsa non si allunga.
+    maxWorkers: "50%",
   },
 });

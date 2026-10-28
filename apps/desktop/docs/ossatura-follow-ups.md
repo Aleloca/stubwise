@@ -415,12 +415,6 @@ l'ondata finale e non stanno in questo elenco.
   «scegli il progetto» in «Da decidere» è un `select` semplice, non il
   selettore con ricerca dei progetti
   (`pages/home/blocks/AutomationDecisionItem.tsx`).
-- **Suite intera instabile sotto carico** (28 ott 2026): con ~2500 test,
-  una corsa su due o tre ha 1–7 fallimenti, ogni volta su test diversi e
-  di aree diverse (Docs, Drive, costruttore). Lanciati da soli passano
-  sempre. Probabili timeout sotto carico (92 s reali, oltre 500 s
-  cumulati). Da guardare: annotare i nomi quando succede, o limitare i
-  worker di vitest.
 
 ### Lavoro sul server: un progetto a parte
 

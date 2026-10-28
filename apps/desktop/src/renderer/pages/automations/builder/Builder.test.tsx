@@ -575,11 +575,11 @@ describe("revisione del Task 6, giro 1", () => {
 
   it("il dialogo di Publish si apre solo dopo un salvataggio riuscito", async () => {
     await open("/automations/AUT-1/edit");
-    row("nc-read").focus();
-    await userEvent.keyboard("{Meta>}d{/Meta}");
-    // Senza aspettare: il clic salva prima, poi apre.
+    // Senza aspettare (nemmeno le pause di userEvent, sotto carico più lunghe
+    // del salvataggio automatico): il clic salva prima, poi apre.
+    fireEvent.keyDown(row("nc-read"), { key: "d", metaKey: true });
     failNext("automations.saveDraft");
-    await userEvent.click(document.querySelector<HTMLButtonElement>("[data-primary-action]")!);
+    fireEvent.click(document.querySelector<HTMLButtonElement>("[data-primary-action]")!);
     await settle();
     expect(screen.queryByRole("dialog", { name: /Publish version 2/ })).toBeNull();
     expect(document.querySelector("[data-save-status]")).toHaveTextContent("Couldn't save");
@@ -839,8 +839,10 @@ describe("revisione del Task 6, giro 2", () => {
   it("con la fascia «stale» Discard è spento; ⌘S annuncia solo se ha salvato", async () => {
     await open("/automations/AUT-1/edit");
     failNext("automations.saveDraft");
-    row("nc-read").focus();
-    await userEvent.keyboard("{Meta>}d{/Meta}");
+    // Modifica e ⌘S nello stesso giro, senza le pause di userEvent: sotto
+    // carico il salvataggio automatico (400 ms) partiva fra i due e
+    // consumava lui l'errore, e ⌘S salvava davvero.
+    fireEvent.keyDown(row("nc-read"), { key: "d", metaKey: true });
     fireEvent.keyDown(window, { key: "s", metaKey: true });
     await settle();
     expect(document.querySelector("[data-builder-live]")!.textContent).not.toBe(
@@ -858,11 +860,11 @@ describe("revisione del Task 6, giro 2", () => {
 
   it("Test aspetta il salvataggio: se non riesce resta qui, con l'errore", async () => {
     const router = await open("/automations/AUT-1/edit");
-    row("nc-read").focus();
-    await userEvent.keyboard("{Meta>}d{/Meta}");
+    // Modifica e clic su Test nello stesso giro, senza le pause di userEvent:
+    // sotto carico il salvataggio automatico (400 ms) partiva prima (anche
+    // fra i tasti di `{Meta>}d{/Meta}`) e si prendeva lui la modifica.
+    fireEvent.keyDown(row("nc-read"), { key: "d", metaKey: true });
     failNext("automations.saveDraft");
-    // Subito, senza le pause di userEvent: sotto carico il salvataggio
-    // automatico (400 ms) partirebbe prima e consumerebbe lui l'errore.
     fireEvent.click(document.querySelector<HTMLButtonElement>("[data-test-action]")!);
     await settle();
     expect(router.state.location.pathname).toBe("/automations/AUT-1/edit");

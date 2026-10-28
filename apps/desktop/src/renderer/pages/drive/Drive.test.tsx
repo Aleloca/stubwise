@@ -302,10 +302,14 @@ describe("Drive — Review Focus 5: volumi e casi limite", () => {
       fake(499, { name: long }),
       fake(500, { summary: null }),
     );
-    const started = performance.now();
+    // Tempo di CPU del processo, non d'orologio: quello d'orologio misurava
+    // anche quanto la macchina era carica (10–15 s con la suite intera in
+    // corsa e altro lavoro, contro ~1 s da solo), non quanto costa l'elenco.
+    const started = process.cpuUsage();
     await openDrive("/p/UFF/drive", "p-roberta");
     const grid = await screen.findByRole("grid");
-    const elapsed = performance.now() - started;
+    const { user, system } = process.cpuUsage(started);
+    const elapsed = (user + system) / 1000;
     expect(grid.querySelectorAll("[data-drive-row]")).toHaveLength(500);
     // Lo tiene il nome intero nel `title` (l'ellissi è a metà, l'estensione resta).
     const longRow = row("UFF-F499")!;

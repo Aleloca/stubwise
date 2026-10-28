@@ -424,8 +424,12 @@ describe("Allegati dal Drive", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Attach 2 files" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(within(form).getByText(/Contratto quadro Audin 2025/)).toBeInTheDocument();
-    await within(form).findByText("Saved", {}, { timeout: 3000 });
-    expect(state.mailDrafts[0]!.attachments.map((a) => a.as).sort()).toEqual(["copy", "link"]);
+    // «Saved» può essere ancora quello del testo (sotto carico salvato prima
+    // degli allegati): si aspetta la bozza con gli allegati, non la scritta.
+    await waitFor(() =>
+      expect(state.mailDrafts[0]?.attachments.map((a) => a.as).sort()).toEqual(["copy", "link"]),
+    );
+    expect(await within(form).findByText("Saved")).toBeInTheDocument();
   });
 });
 
