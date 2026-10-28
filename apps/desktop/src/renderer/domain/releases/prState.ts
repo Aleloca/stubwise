@@ -63,7 +63,7 @@ export interface PrState {
   state: PrStateKind;
   /** Presente quando il ramo è vietato, anche se non ci sono problemi da correggere. */
   notFixable?: NotFixableReason;
-  /** I giri che contano nel tetto: le correzioni non scartate, automatiche o chieste. */
+  /** I giri che contano nel tetto (R-K8): le correzioni `pushed` o `running`, automatiche o chieste. */
   autoRound: number;
   /** Una correzione automatica può partire adesso. */
   canAutoCorrect: boolean;
@@ -84,7 +84,9 @@ function forbiddenBranch(i: PrStateInput): NotFixableReason | null {
 }
 
 export function prState(i: PrStateInput): PrState {
-  const counted = i.corrections.filter((c) => c.state !== "discarded");
+  // R-K8: contano solo le correzioni che hanno fatto, o stanno facendo, un
+  // commit; le fermate prima del push e le scartate no.
+  const counted = i.corrections.filter((c) => c.state === "pushed" || c.state === "running");
   const autoRound = counted.length;
   const notFixable = forbiddenBranch(i);
   const out = (state: PrStateKind, canAutoCorrect = false): PrState => ({
@@ -143,18 +145,22 @@ const OPEN_PROBLEMS: ReadonlySet<PrStateKind> = new Set([
 ]);
 
 /**
- * «Pronta per il rilascio» (R-K4): aperta, controlli verdi, mergeable E lo
- * stato della PR senza problemi aperti. `stubwise/guide#58` del seme è verde
- * e mergeable, ma al tetto con una richiesta di modifiche: non è pronta.
+ * «Pronta per il rilascio» (R-K4, R-K7): aperta, controlli verdi, mergeable
+ * E senza problemi aperti — né per lo stato della PR, né nell'ultima analisi.
+ * Vale per ogni PR: anche una non correggibile o in «Solo analisi» con
+ * problemi non è pronta, e un problema si chiude solo con una nuova analisi
+ * pulita sulla nuova testa. `stubwise/guide#58` del seme (al tetto) e
+ * `audin/audin-app#209` (dal fork, con un problema) non sono pronte.
  */
 export function isReadyForRelease(
-  pr: Pick<OpenPullRequest, "state" | "checks" | "mergeable">,
+  pr: Pick<OpenPullRequest, "state" | "checks" | "mergeable" | "analysis">,
   state: Pick<PrState, "state">,
 ): boolean {
   return (
     pr.state === "open" &&
     pr.checks === "passing" &&
     pr.mergeable &&
-    !OPEN_PROBLEMS.has(state.state)
+    !OPEN_PROBLEMS.has(state.state) &&
+    (pr.analysis?.issues.length ?? 0) === 0
   );
 }

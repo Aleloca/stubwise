@@ -98,6 +98,19 @@ describe("prState — tetto (correctionCap del progetto)", () => {
       canAutoCorrect: true,
     });
   });
+  it("R-K8: una fermata prima del push non conta; una in volo sì", () => {
+    const withStop = [auto("pushed"), auto("stopped"), auto("pushed")];
+    expect(prState(input({ corrections: withStop }))).toEqual({
+      state: "issues",
+      autoRound: 2,
+      canAutoCorrect: true,
+    });
+    const inFlight = [auto("pushed"), auto("pushed"), auto("running")];
+    expect(prState(input({ corrections: inFlight }))).toMatchObject({
+      state: "correcting",
+      autoRound: 3,
+    });
+  });
   it("l'ultima scartata → discarded, e si può ripartire", () => {
     expect(prState(input({ corrections: [auto("pushed"), auto("discarded")] }))).toEqual({
       state: "discarded",
@@ -235,7 +248,12 @@ describe("isReadyForRelease (R-K4)", () => {
     expect(isReadyForRelease(guide, state)).toBe(false);
   });
   it("aperta, verde, mergeable e senza problemi aperti → pronta", () => {
-    const pr = { state: "open", checks: "passing", mergeable: true } as const;
+    const pr = {
+      state: "open",
+      checks: "passing",
+      mergeable: true,
+      analysis: analysis(0),
+    } as const;
     expect(isReadyForRelease(pr, { state: "clean" })).toBe(true);
     expect(isReadyForRelease(pr, { state: "corrected" })).toBe(true);
     for (const s of ["analyzing", "issues", "correcting", "capped"] as const) {
@@ -245,5 +263,43 @@ describe("isReadyForRelease (R-K4)", () => {
     expect(isReadyForRelease({ ...pr, checks: "unreadable" }, { state: "clean" })).toBe(false);
     expect(isReadyForRelease({ ...pr, mergeable: false }, { state: "clean" })).toBe(false);
     expect(isReadyForRelease({ ...pr, state: "merged" }, { state: "clean" })).toBe(false);
+  });
+  it("R-K7: con problemi nell'ultima analisi non è pronta, nemmeno se non correggibile o in solo analisi", () => {
+    const pr = {
+      state: "open",
+      checks: "passing",
+      mergeable: true,
+      analysis: analysis(1),
+    } as const;
+    expect(isReadyForRelease(pr, { state: "not_fixable" })).toBe(false);
+    expect(isReadyForRelease(pr, { state: "analysis_only" })).toBe(false);
+    expect(isReadyForRelease(pr, { state: "analysis_off" })).toBe(false);
+    // Senza analisi (repository «Spento») non c'è un problema aperto da dire.
+    expect(isReadyForRelease({ ...pr, analysis: null }, { state: "analysis_off" })).toBe(true);
+    // Si chiude solo con una nuova analisi pulita.
+    expect(isReadyForRelease({ ...pr, analysis: analysis(0) }, { state: "not_fixable" })).toBe(
+      true,
+    );
+  });
+  it("R-K7: audin/audin-app#209 dal fork, verde e mergeable, non è pronta", () => {
+    const fork = OPEN_PRS.find((p) => p.repo === "audin/audin-app" && p.number === 209)!;
+    const state = prState({
+      origin: fork.origin,
+      analysis: fork.analysis,
+      corrections: fork.corrections,
+      cap: 3,
+      repoMode: "analyze_and_fix",
+      prAnalysisOnly: fork.analysisOnly !== null,
+      branch: fork.branch,
+      baseBranch: fork.baseBranch,
+      defaultBranch: "main",
+      fromFork: fork.fromFork,
+      branchProtected: fork.branchProtected,
+      ownTaskCode: null,
+    });
+    expect(fork.checks).toBe("passing");
+    expect(fork.mergeable).toBe(true);
+    expect(state).toMatchObject({ state: "not_fixable", notFixable: "fork" });
+    expect(isReadyForRelease(fork, state)).toBe(false);
   });
 });
