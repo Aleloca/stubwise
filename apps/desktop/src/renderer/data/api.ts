@@ -117,6 +117,8 @@ export * as automations from "./automations";
 export * as alerts from "./alerts";
 /** Rilasci, PR e ambienti (area 8a): `api.releases.listOpenPrs(…)`, `api.releases.mergePr(…)`… */
 export * as releases from "./releases";
+/** Support (area 8a): `api.support.listSupportConversations(…)`, `api.support.replyToCustomer(…)`… */
+export * as support from "./support";
 
 /** Ripristina lo stato (sessione, dati, errori iniettati) e porta le task scadute alla settimana corrente. */
 export function resetApi(): void {

@@ -138,6 +138,18 @@ export const queryKeys = {
   myReleases: (personId: string) => ["as", personId, "releases", "mine"] as const,
   repositorySettings: (personId: string, projectId: string) =>
     ["as", personId, "releases", "repositories", projectId] as const,
+  /** Support (area 8a): tutto nell'area «support». */
+  supportConversations: (personId: string, projectId: string, state: string) =>
+    ["as", personId, "support", "list", projectId, state] as const,
+  supportConversation: (personId: string, code: string) =>
+    ["as", personId, "support", "conversation", code] as const,
+  customerPreview: (personId: string, code: string) =>
+    ["as", personId, "support", "preview", code] as const,
+  waitingCustomers: (personId: string) => ["as", personId, "support", "waiting"] as const,
+  supportWidgets: (personId: string, projectId: string) =>
+    ["as", personId, "support", "widgets", projectId] as const,
+  myRequestStatus: (personId: string, requestId: string) =>
+    ["as", personId, "support", "myRequest", requestId] as const,
   search: (personId: string, q: string) => ["as", personId, "search", q] as const,
   conversations: (personId: string, filter: ConversationFilter) =>
     ["as", personId, "conversations", filter] as const,
@@ -3969,4 +3981,148 @@ export function useSimulateAuthorPush() {
 /** Solo prototipo: un passo dell'analisi o della correzione automatica. */
 export function useAdvancePrWork() {
   return useWrite((prId: string) => api.releases.advancePrWork(prId), RELEASE_AREAS);
+}
+
+// --- Support (area 8a) --------------------------------------------------------
+
+/**
+ * Le scritture di Support cambiano elenco, dettaglio, anteprima e Home (area
+ * «support»); i messaggi simulati del cliente pubblicano avvisi (campanella).
+ */
+const SUPPORT_AREAS = ["support", "notifications"] as const;
+/** «Apri la richiesta» e il triage concluso creano una richiesta. */
+const SUPPORT_REQUEST_AREAS = [...SUPPORT_AREAS, ...REQUEST_AREAS] as const;
+
+/** Le conversazioni coi clienti del progetto, raggruppate per stato. */
+export function useSupportConversations(
+  projectId: string | undefined,
+  filter: { state?: api.support.SupportState } = {},
+) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.supportConversations(me, projectId ?? "", filter.state ?? ""),
+    queryFn: () => api.support.listSupportConversations(projectId!, filter),
+    enabled: !!projectId,
+  });
+}
+
+/** Il dettaglio di una conversazione (`null`: nascosta o inesistente, R-G5). */
+export function useSupportConversation(code: string | undefined) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.supportConversation(me, code ?? ""),
+    queryFn: () => api.support.getSupportConversation(code!),
+    enabled: !!code,
+  });
+}
+
+/** «Anteprima del cliente»: cosa vede lui adesso. */
+export function useCustomerPreview(code: string | undefined) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.customerPreview(me, code ?? ""),
+    queryFn: () => api.support.customerPreview(code!),
+    enabled: !!code,
+  });
+}
+
+/** Il blocco «Clienti in attesa» della Home. */
+export function useWaitingCustomers() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.waitingCustomers(me),
+    queryFn: () => api.support.listWaitingCustomers(),
+  });
+}
+
+export function useSupportWidgets(projectId: string | undefined) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.supportWidgets(me, projectId ?? ""),
+    queryFn: () => api.support.listWidgets(projectId!),
+    enabled: !!projectId,
+  });
+}
+
+/** Lo stato di una richiesta come lo dice `my_requests` al cliente. */
+export function useMyRequestStatus(requestId: string | undefined) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.myRequestStatus(me, requestId ?? ""),
+    queryFn: () => api.support.myRequestStatus(requestId!),
+    enabled: !!requestId,
+  });
+}
+
+/** «Invia al cliente»: solo dal clic di chi ha `support.reply`, mai un'email. */
+export function useReplyToCustomer() {
+  return useWrite(
+    ({ code, body }: { code: string; body: string }) => api.support.replyToCustomer(code, body),
+    SUPPORT_AREAS,
+  );
+}
+
+/** «Bozza di Claude»: la rigenera, non la invia. */
+export function useDraftReply() {
+  return useWrite((code: string) => api.support.draftReply(code), SUPPORT_AREAS);
+}
+
+/** «Apri la richiesta» su una non conclusa (`backlog.create`). */
+export function useOpenRequestFrom() {
+  return useWrite(
+    ({ code, title, description }: { code: string; title: string; description: string }) =>
+      api.support.openRequestFrom(code, { title, description }),
+    SUPPORT_REQUEST_AREAS,
+  );
+}
+
+export function useFollowConversation() {
+  return useWrite(
+    ({ code, on }: { code: string; on: boolean }) => api.support.followConversation(code, on),
+    SUPPORT_AREAS,
+  );
+}
+
+/** «Scrivigli anche per email»: la bozza per il compositore della Posta. Non scrive nulla. */
+export function useEmailDraftFor() {
+  return useWrite((code: string) => api.support.emailDraftFor(code), []);
+}
+
+export function useCreateWidget() {
+  return useWrite(
+    ({ projectId, input }: { projectId: string; input: api.support.WidgetInput }) =>
+      api.support.createWidget(projectId, input),
+    SUPPORT_AREAS,
+  );
+}
+
+export function useUpdateWidget() {
+  return useWrite(
+    ({ id, patch }: { id: string; patch: Partial<api.support.WidgetInput> }) =>
+      api.support.updateWidget(id, patch),
+    SUPPORT_AREAS,
+  );
+}
+
+export function useDeleteWidget() {
+  return useWrite((id: string) => api.support.deleteWidget(id), SUPPORT_AREAS);
+}
+
+/** Solo prototipo: «Simula un messaggio del cliente». */
+export function useSimulateCustomerMessage() {
+  return useWrite(
+    ({ code, body }: { code: string; body: string }) =>
+      api.support.simulateCustomerMessage(code, body),
+    SUPPORT_AREAS,
+  );
+}
+
+/** Solo prototipo: «Simula: il cliente se ne va». */
+export function useSimulateCustomerLeaves() {
+  return useWrite((code: string) => api.support.simulateCustomerLeaves(code), SUPPORT_AREAS);
+}
+
+/** Solo prototipo: «Simula: triage concluso». */
+export function useSimulateTriageDone() {
+  return useWrite((code: string) => api.support.simulateTriageDone(code), SUPPORT_REQUEST_AREAS);
 }

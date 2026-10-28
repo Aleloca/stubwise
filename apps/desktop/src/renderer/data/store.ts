@@ -483,7 +483,27 @@ export type ApiFnName =
   | "releases.simulateSeenOnServer"
   | "releases.simulateAuthorPush"
   /** Un passo simulato dell'analisi o della correzione automatica di una PR. */
-  | "releases.advancePrWork";
+  | "releases.advancePrWork"
+  // Support (area 8a)
+  | "support.listSupportConversations"
+  | "support.getSupportConversation"
+  | "support.customerPreview"
+  | "support.listWaitingCustomers"
+  | "support.listWidgets"
+  | "support.myRequestStatus"
+  | "support.searchSupport"
+  | "support.replyToCustomer"
+  | "support.draftReply"
+  | "support.openRequestFrom"
+  | "support.followConversation"
+  | "support.emailDraftFor"
+  | "support.createWidget"
+  | "support.updateWidget"
+  | "support.deleteWidget"
+  /** Solo prototipo: un messaggio del cliente, il cliente che se ne va, il triage concluso. */
+  | "support.simulateCustomerMessage"
+  | "support.simulateCustomerLeaves"
+  | "support.simulateTriageDone";
 const failures = new Set<ApiFnName>();
 
 /** Fissa la latenza simulata (ms); `0` per i test, `null` per tornare a 150–400 ms. */

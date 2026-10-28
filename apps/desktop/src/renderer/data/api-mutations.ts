@@ -643,6 +643,12 @@ export interface NewRequestInput {
   title: string;
   description?: string;
   urgency?: ProjectRequest["urgency"];
+  /**
+   * Una conversazione di Support da allegare (area 8a): il richiedente è il
+   * cliente, quindi nessuna persona fra i richiedenti. Una richiesta non
+   * nasce MAI da un'email: l'unica origine ammessa è `support`.
+   */
+  origin?: { kind: "support"; conversationId: string };
 }
 
 export async function createRequest(input: NewRequestInput): Promise<ProjectRequest> {
@@ -664,6 +670,35 @@ export function checkNewRequest(
 
 export function createRequestAs(me: string, input: NewRequestInput): ProjectRequest {
   const project = checkNewRequest(me, input);
+  return insertRequest(project, input, input.origin ? [] : [me]);
+}
+
+/**
+ * La conversazione di Support di un'origine: dello stesso progetto e ancora
+ * senza richiesta. Ogni altra origine (un'email, un thread) è rifiutata.
+ */
+function supportOriginOf(project: Project, origin: NewRequestInput["origin"]) {
+  if (!origin) return null;
+  const conv =
+    origin.kind === "support"
+      ? state.supportConversations.find((c) => c.id === origin.conversationId)
+      : undefined;
+  if (!conv || conv.projectId !== project.id || conv.requestId !== null) throw invalid("origin");
+  return conv;
+}
+
+/**
+ * Scrive una richiesta già controllata. Senza `me`: la usa anche il triage di
+ * un canale di Support (`data/support/simulate.ts`), dove chi la apre è il
+ * cliente, non una persona con `backlog.create`.
+ */
+export function insertRequest(
+  project: Project,
+  input: NewRequestInput,
+  requesterIds: string[],
+): ProjectRequest {
+  if (!input.title.trim()) throw invalid("title");
+  const conv = supportOriginOf(project, input.origin);
   // Al posto dell'intake: la richiesta aperta dello stesso progetto con più parole in comune.
   const similar = findSimilarRequest(input.title, project.id, state.requests);
   // Il numero dopo il più alto del progetto: le richieste non si cancellano,
@@ -677,7 +712,7 @@ export function createRequestAs(me: string, input: NewRequestInput): ProjectRequ
     projectId: project.id,
     title: input.title.trim(),
     description: input.description ?? "",
-    requesterIds: [me],
+    requesterIds,
     status: "new",
     urgency: input.urgency ?? "medium",
     size: null,
@@ -687,8 +722,10 @@ export function createRequestAs(me: string, input: NewRequestInput): ProjectRequ
     mergedIntoId: null,
     taskIds: [],
     createdAt: now(),
+    ...(conv ? { origin: { kind: "support" as const, conversationId: conv.id } } : {}),
   };
   state.requests.push(request);
+  if (conv) conv.requestId = request.id;
   void publishChatEvent(project.id, "request_new", { kind: "request", id: request.id });
   signalAutomations({ kind: "request_created", requestId: request.id });
   return request;
