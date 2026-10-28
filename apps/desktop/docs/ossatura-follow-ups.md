@@ -452,6 +452,21 @@ l'ondata finale e non stanno in questo elenco.
   cui ricavarlo. Si fa quando un rilascio sa quale nota lo contiene (col
   motore, o con un campo nel seme).
 
+### Dalla re-review dell'ondata finale
+
+- **Due numerazioni dopo una correzione fallita.** Nella task «Correction N»
+  conta anche le correzioni fallite, «Round N of M» no (R-K8: nel tetto
+  contano solo `pushed` e `running`). Dopo una fallita i due numeri
+  divergono; va deciso se allinearli o spiegarlo nella UI.
+- **Toast `needs_maintainer` della task senza test UI.** La regola è coperta
+  a livello dati; manca il test del messaggio nella task.
+- **`prCycles` conta solo le sessioni visibili.** Chi guarda senza
+  `repos.view` vedrebbe meno giri di quelli che il tetto conta. Nessun
+  preset del seme ha `corrections.request` senza `repos.view`, quindi oggi
+  non si presenta; diventa vero col registro dei permessi del backend.
+- **Titolo di «Fai sistemare».** Il dialogo mostra il titolo tradotto, la
+  task nasce col titolo inglese: va scelta una lingua (quella di chi crea).
+
 ### Invarianti del CLAUDE.md da riscrivere prima del motore
 
 Il design (sezione «Invarianti del CLAUDE.md che quest'area cambia
