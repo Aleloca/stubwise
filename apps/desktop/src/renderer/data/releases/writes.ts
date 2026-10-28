@@ -278,13 +278,15 @@ export async function requestPrCorrection(
 // --- rilascio fallito ---------------------------------------------------------
 
 /** Il testo della task di riparazione: la run fallita, il passo, il link (il log no: `repos.view`). */
-function fixDescription(r: Release): string {
+function fixDescription(r: Release, note?: string): string {
   const failed = r.runs.filter((x) => x.status === "failed");
   const lines = [
     `Release ${r.code} failed after the merge of ${r.pr.repo}#${r.pr.number}: ${r.title}.`,
     "",
     ...failed.map((x) => `- ${x.name}${x.failedStep ? `, step “${x.failedStep}”` : ""}: ${x.url}`),
   ];
+  // La nota facoltativa di chi la chiede («Anything Claude should know?», [R 16]).
+  if (note?.trim()) lines.push("", note.trim());
   return lines.join("\n");
 }
 
@@ -296,7 +298,7 @@ function fixDescription(r: Release): string {
  * percorso normale di «Avvia» (gate del piano per chi non ha `plans.approve`);
  * senza, la task aspetta qualcuno che la avvii.
  */
-export async function fixRelease(code: string): Promise<Task> {
+export async function fixRelease(code: string, note?: string): Promise<Task> {
   const gen = storeGeneration();
   const me = await writer("releases.fixRelease");
   const r = releaseFor(me, code);
@@ -313,7 +315,7 @@ export async function fixRelease(code: string): Promise<Task> {
     {
       projectId: r.projectId,
       title: `Fix release ${r.code}: ${r.title}`,
-      description: fixDescription(r),
+      description: fixDescription(r, note),
       type: "bug",
       priority: "high",
     },
@@ -329,12 +331,25 @@ export async function fixRelease(code: string): Promise<Task> {
 
 /**
  * «Chiedi a Claude di spiegarlo»: una conversazione libera di chi la apre,
- * col rilascio come oggetto di contesto (privacy dell'area 3: è sua).
+ * col rilascio come oggetto di contesto (privacy dell'area 3: è sua). Un
+ * secondo clic della stessa persona riapre la SUA conversazione su quel
+ * rilascio invece di crearne un'altra ([R 17]): `reused` lo dice, così la
+ * pagina manda la prima domanda solo a una conversazione nuova.
  */
-export async function explainRelease(code: string): Promise<Conversation> {
+export async function explainRelease(code: string): Promise<Conversation & { reused: boolean }> {
   const me = await writer("releases.explainRelease");
   const r = releaseFor(me, code);
-  return copy(createConversationAs(me, { context: { kind: "release", releaseId: r.id } }));
+  const mine = state.conversations.find(
+    (c) =>
+      c.kind === "free" &&
+      c.ownerId === me &&
+      !c.archived &&
+      c.context?.kind === "release" &&
+      c.context.releaseId === r.id,
+  );
+  if (mine) return { ...copy(mine), reused: true };
+  const created = createConversationAs(me, { context: { kind: "release", releaseId: r.id } });
+  return { ...copy(created), reused: false };
 }
 
 // --- ambienti -----------------------------------------------------------------

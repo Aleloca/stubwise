@@ -68,7 +68,7 @@ import type {
   Task,
   TaskPatch,
 } from "./types";
-import { useViewer } from "./viewer";
+import { can, useViewer } from "./viewer";
 
 /**
  * Ogni chiave comincia con `["as", personId]`: cambiare persona «vedi come»
@@ -136,6 +136,8 @@ export const queryKeys = {
   environments: (personId: string, projectId: string) =>
     ["as", personId, "releases", "environments", projectId] as const,
   myReleases: (personId: string) => ["as", personId, "releases", "mine"] as const,
+  releaseSearch: (personId: string, q: string) =>
+    ["as", personId, "releases", "search", q] as const,
   repositorySettings: (personId: string, projectId: string) =>
     ["as", personId, "releases", "repositories", projectId] as const,
   /** Support (area 8a): tutto nell'area «support». */
@@ -483,6 +485,8 @@ export function usePersonalHome() {
  */
 export function useHome() {
   const me = useSessionPersonId();
+  // [R 22]: «Releases» nella Home non personalizzata di chi può rilasciare.
+  const canRelease = can(useViewer().viewer, "release.merge");
   const people = usePeople();
   const homes = useDepartmentHomes();
   const personal = usePersonalHome();
@@ -494,10 +498,15 @@ export function useHome() {
             person,
             departmentHomes: homes.data,
             personal: personal.data,
-            ...resolveHome(person, homes.data, personal.data),
+            ...resolveHome(
+              person,
+              homes.data,
+              personal.data,
+              canRelease ? ["releases"] : [],
+            ),
           }
         : undefined,
-    [person, homes.data, personal.data],
+    [person, homes.data, personal.data, canRelease],
   );
   const parts = [people, homes, personal];
   return {
@@ -3884,6 +3893,18 @@ export function useEnvironments(projectId: string | undefined) {
   });
 }
 
+/** ⌘K: i rilasci per codice o titolo (da 2 caratteri, R-G5 nel livello dati). */
+export function useReleaseSearch(q: string, enabled = true) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.releaseSearch(me, q),
+    queryFn: () => api.releases.searchReleases(q),
+    enabled: enabled && q.trim().length >= MIN_QUERY,
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
+  });
+}
+
 /** Il blocco «Rilasci» della Home. */
 export function useMyReleases() {
   const me = useSessionPersonId();
@@ -3952,7 +3973,10 @@ export function useRequestPrCorrection() {
 }
 
 export function useFixRelease() {
-  return useWrite((code: string) => api.releases.fixRelease(code), FIX_RELEASE_AREAS);
+  return useWrite(
+    ({ code, note }: { code: string; note?: string }) => api.releases.fixRelease(code, note),
+    FIX_RELEASE_AREAS,
+  );
 }
 
 export function useExplainRelease() {

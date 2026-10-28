@@ -650,6 +650,24 @@ describe("«Fai sistemare a Claude» e «Chiedi a Claude di spiegarlo»", () => 
     as("p-laura");
     expect(await getConversation(c.id)).toBeNull();
   });
+
+  it("spiegalo due volte: la stessa persona riapre la sua conversazione ([R 17]), un'altra ne apre una sua", async () => {
+    as("p-giulia");
+    const first = await releases.explainRelease("AUD-V3");
+    expect(first.reused).toBe(false);
+    const again = await releases.explainRelease("AUD-V3");
+    expect(again).toMatchObject({ id: first.id, reused: true });
+    as("p-laura");
+    const laura = await releases.explainRelease("AUD-V3");
+    expect(laura.reused).toBe(false);
+    expect(laura.id).not.toBe(first.id);
+  });
+
+  it("la nota di «Fai sistemare» entra nella descrizione della task ([R 16])", async () => {
+    as("p-laura");
+    const task = await releases.fixRelease("AUD-V3", "  Backfill the VAT numbers first  ");
+    expect(task.description).toMatch(/\n\nBackfill the VAT numbers first$/);
+  });
 });
 
 describe("ambienti: environments.manage", () => {

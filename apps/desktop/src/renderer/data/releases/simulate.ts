@@ -7,6 +7,7 @@ import {
   prFor,
   prView,
   releaseFor,
+  prHref,
   releaseHref,
   releaseView,
   repositoryById,
@@ -173,7 +174,7 @@ function settleCorrection(pr: OpenPullRequest, c: PrAutoCorrection): void {
     objectCode: `${pr.repo}#${pr.number}`,
     title: "Claude fixed your pull request",
     body: `Claude pushed a fix on ${shortRepo(pr.repo)}#${pr.number}: ${c.why}`,
-    link: `#/p/${projectCodeOf(pr.projectId)}/releases`,
+    link: prHref(projectCodeOf(pr.projectId), pr.id),
     mandatory: authorMandatory(pr),
   });
 }
@@ -217,7 +218,7 @@ export async function advancePrWork(prId: string): Promise<OpenPrView> {
         objectCode: `${pr.repo}#${pr.number}`,
         title: "Problems in a pull request",
         body: `The analysis of ${shortRepo(pr.repo)}#${pr.number} found ${issues.length} problems.`,
-        link: `#/p/${projectCodeOf(pr.projectId)}/releases`,
+        link: prHref(projectCodeOf(pr.projectId), pr.id),
         mandatory: authorMandatory(pr),
       });
     }

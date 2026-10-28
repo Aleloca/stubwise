@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { useProject } from "../../data/queries";
 import { ProjectStatusesSettings } from "./ProjectStatusesSettings";
+import { RepositorySettings } from "./RepositorySettings";
 
 /**
  * Le impostazioni di un progetto. In quest'area c'è solo «Statuses and
@@ -22,6 +23,9 @@ export function ProjectSettingsPage({ projectCode }: { projectCode: string }) {
           )}
         </header>
         {project && <ProjectStatusesSettings project={project} />}
+        {project && project.modules.includes("releases") && (
+          <RepositorySettings project={project} />
+        )}
         <section aria-labelledby="settings-other" className="border-t border-rule pt-5 pb-7">
           <h2 id="settings-other" className="text-xl font-semibold text-ink">
             {t("settings.other.title")}

@@ -129,7 +129,8 @@
       "pages": "Pagine",
       "files": "File",
       "mail": "Posta",
-      "automations": "Automazioni"
+      "automations": "Automazioni",
+      "releases": "Rilasci"
     },
     "noResults": "Nessun risultato per «{{query}}»",
     "noResultsHint": "Prova con un codice come {{example}} o con un nome.",
@@ -958,7 +959,8 @@
       "filter": "Filtro salvato",
       "upcomingEvents": "Prossimi appuntamenti",
       "importantMail": "Email importanti",
-      "automations": "Automazioni"
+      "automations": "Automazioni",
+      "releases": "Rilasci"
     },
     "block": {
       "error": "Impossibile caricare {{title}}.",
@@ -1142,6 +1144,9 @@
     "automations": {
       "empty": "Nessuna esecuzione ha bisogno di te",
       "showAll": "Mostra tutte ({{count}})"
+    },
+    "releases": {
+      "empty": "Niente da rilasciare e nessun rilascio fallito."
     }
   },
   "week": {
@@ -1922,6 +1927,42 @@
       "saveFailed": "Non è stato possibile salvare gli stati. Non è cambiato niente; le tue modifiche sono ancora qui.",
       "thresholdsFailed": "Non è stato possibile salvare le soglie. Sono come prima; le tue modifiche sono ancora qui.",
       "thresholdsFailedAfter": "Stati salvati, ma le soglie no. Le modifiche alle soglie sono ancora qui."
+    },
+    "repositories": {
+      "title": "Repository",
+      "intro": "Come Claude tratta le pull request e come Stubwise segue i rilasci, per repository.",
+      "colleagues": "PR dei colleghi",
+      "modes": {
+        "analyze_and_fix": "Analisi e correzioni",
+        "analyze_only": "Solo analisi",
+        "off": "Spento"
+      },
+      "modeBody": {
+        "analyze_and_fix": "Claude analizza ogni pull request e spinge le correzioni sopra, fino al tetto di {{cap}} correzioni di {{code}}.",
+        "analyze_only": "Claude analizza ma non spinge mai sui rami dei colleghi.",
+        "off": "Nessuna analisi: le pull request restano in Rilasci, senza le note di Claude."
+      },
+      "stubwisePrs": "Le pull request aperte da Stubwise seguono sempre le impostazioni di review di {{code}}.",
+      "stopTitle_one": "Fermare la correzione in corso?",
+      "stopTitle_other": "Fermare le correzioni in corso?",
+      "stopBody_one": "1 correzione in corso su {{prs}} si fermerà prima del push.",
+      "stopBody_other": "{{count}} correzioni in corso su {{prs}} si fermeranno prima del push.",
+      "change": "Cambia",
+      "pipeline": "Pipeline di rilascio",
+      "pipelineModes": {
+        "auto": "Automatica",
+        "named": "Solo queste"
+      },
+      "autoBody": "Conta ogni run avviata dal commit di merge sul ramo di rilascio.",
+      "names": "Nomi di workflow o pipeline",
+      "namesPlaceholder": "Scrivi un nome e premi Invio",
+      "namesEmpty": "Aggiungi almeno un nome: un elenco vuoto non si salva.",
+      "removeName": "Togli {{name}}",
+      "branch": "Ramo di rilascio",
+      "fallback": "Nessuna run entro 30 minuti dal merge? Stubwise segue invece il server di produzione.",
+      "saved": "Salvato",
+      "saveError": "Non è stato possibile salvare le impostazioni del repository.",
+      "error": "Non è stato possibile caricare i repository."
     }
   },
   "export": {
@@ -3104,7 +3145,7 @@
       "resize": "Ridimensiona l'elenco delle pagine",
       "columnLabel": "Spazi dei documenti di {{code}}",
       "brief": "Brief",
-      "releases": "Releases",
+      "releases": "Note di rilascio",
       "graph": "Grafo",
       "search": "Cerca",
       "chat": "Chat",
@@ -3234,8 +3275,8 @@
       "error": "Non è stato possibile caricare il brief."
     },
     "releases": {
-      "title": "Releases",
-      "search": "Cerca nelle releases",
+      "title": "Note di rilascio",
+      "search": "Cerca nelle note di rilascio",
       "significant": "Solo significative",
       "pagesTouched": "Pagine toccate",
       "empty": "Ancora nessuna release: si scrivono ogni notte dai commit nuovi",
@@ -6243,5 +6284,318 @@
     "pausedShort": "Sospeso",
     "undoError": "Non è stato possibile annullare la modifica in {{code}}.",
     "reloadError": "Non è stato possibile aggiornare le impostazioni degli avvisi: quello che vedi potrebbe non essere aggiornato."
+  },
+  "releases": {
+    "title": "Rilasci",
+    "subtitle": "Le pull request dei repository di {{code}} e cosa è successo dopo il merge. Stubwise mergia, la pipeline rilascia.",
+    "parts": {
+      "prs": "Pull request",
+      "releases": "Rilasci",
+      "environments": "Ambienti"
+    },
+    "groups": {
+      "attention": "Da guardare",
+      "ready": "Pronte per il rilascio",
+      "readyEmpty": "Niente è pronto per il rilascio.",
+      "notReady": "Non ancora pronte",
+      "notReadyEmpty": "Tutte le pull request aperte sono pronte."
+    },
+    "boundary": "Stubwise non rilancia le pipeline. Si corregge la causa, si mergia la correzione: diventa un nuovo rilascio.",
+    "you": "te",
+    "open": "Apri",
+    "cancel": "Annulla",
+    "openOn": "Apri su {{platform}}",
+    "showAll": "Vedi tutte {{count}}",
+    "showMore": "Mostra altre {{count}}",
+    "notVisible": "Questo rilascio non esiste o non puoi vederlo.",
+    "empty": {
+      "prs": "Nessuna pull request aperta in {{code}}.",
+      "releases": "Ancora nessun rilascio. Un rilascio nasce quando una pull request viene mergiata in main.",
+      "noRepos": "{{code}} non ha repository, quindi non c'è niente da rilasciare."
+    },
+    "errors": {
+      "prs": "Non è stato possibile caricare le pull request.",
+      "releases": "Non è stato possibile caricare i rilasci.",
+      "environments": "Non è stato possibile caricare gli ambienti."
+    },
+    "filters": {
+      "any": "Tutti",
+      "repository": "Repository",
+      "author": "Autore",
+      "state": "Stato"
+    },
+    "pr": {
+      "by": "di {{name}}",
+      "fork": "fork"
+    },
+    "prState": {
+      "analyzing": "In analisi",
+      "clean": "Nessun problema",
+      "issues_one": "{{count}} problema",
+      "issues_other": "{{count}} problemi",
+      "correcting": "Claude corregge",
+      "corrected": "Corretta da Claude",
+      "discarded": "Correzione scartata",
+      "capped": "Tetto raggiunto",
+      "analysis_only": "Solo analisi",
+      "analysis_off": "Analisi spenta",
+      "not_fixable": "Analizzata"
+    },
+    "risk": {
+      "low": "Rischio basso",
+      "medium": "Rischio medio",
+      "high": "Rischio alto"
+    },
+    "checks": {
+      "passing": "controlli verdi",
+      "failing": "controlli rossi",
+      "pending": "controlli in corso",
+      "unreadable": "controlli illeggibili"
+    },
+    "reason": {
+      "checksFailing": "controlli rossi",
+      "checksRunning": "controlli in corso",
+      "checksUnreadable": "controlli illeggibili",
+      "conflicts": "in conflitto con {{branch}}"
+    },
+    "prLine": {
+      "analyzing": "Claude sta leggendo le modifiche",
+      "willFix": "Claude li correggerà",
+      "analysisOnly": "Claude qui non spinge",
+      "correcting": "Correzione {{n}} di {{cap}}",
+      "corrected": "Claude ha spinto {{sha}} · di nuovo in analisi",
+      "correctedNoSha": "Claude ha spinto una correzione · di nuovo in analisi",
+      "discarded": "{{name}} ha spinto prima nuovi commit · in analisi la nuova testa",
+      "capped": "Claude si è fermato dopo {{cap}} correzioni",
+      "analysisOff": "L'analisi è spenta per {{repo}}",
+      "onStaging": "su staging"
+    },
+    "notFixable": {
+      "fork": "Claude non può correggere qui: viene da un fork",
+      "protected": "Claude non può correggere qui: il ramo è protetto",
+      "default_branch": "Claude non può correggere qui: è il ramo di default",
+      "target_branch": "Claude non può correggere qui: è il ramo di destinazione",
+      "other_task_branch": "Claude non può correggere qui: è il ramo di un'altra task"
+    },
+    "merge": {
+      "release": "Rilascia",
+      "releaseLabel": "Rilascia {{pr}}",
+      "confirmGroup": "Merge di {{pr}}",
+      "question": "Mergiare #{{n}} in {{branch}}? La pipeline lo rilascia; Stubwise lo segue soltanto.",
+      "confirm": "Conferma il merge",
+      "merging": "Merge in corso…",
+      "cancel": "Annulla",
+      "done": "Mergiata. La seguiamo come {{code}}",
+      "doneNoRelease": "Mergiata.",
+      "open": "Apri",
+      "noPermission": "Può mergiarla chi può rilasciare in {{code}}.",
+      "errors": {
+        "already_closed": "Questa PR non è più aperta.",
+        "checks_failed": "I controlli sono rossi su questa PR: non si può rilasciare.",
+        "checks_unreadable": "Non è stato possibile leggere i controlli su {{platform}}. Riprova fra poco.",
+        "not_mergeable": "{{platform}} ha rifiutato il merge: conflitti o regole del ramo non soddisfatte.",
+        "merge_forbidden": "L'account git salvato per {{code}} non può mergiare questa PR.",
+        "not_found": "Questa PR non è stata trovata.",
+        "forbidden": "Non puoi più rilasciare in {{code}}."
+      }
+    },
+    "status": {
+      "running": "In corso",
+      "succeeded": "Riuscito",
+      "failed": "Fallito",
+      "not_in_production": "Non ancora in produzione",
+      "in_production": "In produzione",
+      "unavailable": "Stato non disponibile"
+    },
+    "list": {
+      "outsideBy": "{{name}} fuori da Stubwise",
+      "outsideUnlinked": "{{login}} (non collegato a nessuno) fuori da Stubwise",
+      "fixing": "{{task}} in riparazione",
+      "fixingWord": "in riparazione"
+    },
+    "attention": {
+      "failedAt": "fallito a «{{step}}» · {{run}}",
+      "failed": "fallito",
+      "mergedBy": "mergiato da {{who}} · {{ago}}",
+      "claudePushed_one": "Claude ha spinto una correzione sulla tua {{pr}} {{title}} · {{count}} correzione",
+      "claudePushed_other": "Claude ha spinto una correzione sulla tua {{pr}} {{title}} · {{count}} correzioni",
+      "setAnalysisOnly": "Metti su solo analisi",
+      "more_one": "e altri {{count}}",
+      "more_other": "e altri {{count}}"
+    },
+    "now": {
+      "label": "Adesso",
+      "failedAt": "Fallito a «{{step}}» in «{{run}}»",
+      "failedIn": "Fallito in «{{run}}»",
+      "waiting": "In attesa che parta la pipeline · mergiato {{ago}}",
+      "running_one": "{{count}} run · {{running}} in corso ({{name}})",
+      "running_other": "{{count}} run · {{running}} in corso ({{name}})",
+      "succeeded_one": "La run è riuscita · finita alle {{time}}",
+      "succeeded_other": "Tutte le {{count}} run sono riuscite · finite alle {{time}}",
+      "notInProduction": "Non ancora in produzione",
+      "stillRuns": "Su {{server}} gira ancora {{sha}}",
+      "inProduction": "In produzione dalle {{time}}",
+      "unavailable": {
+        "no_production_env": "{{code}} non ha un ambiente di produzione",
+        "no_server": "L'ambiente di produzione non ha un server collegato"
+      },
+      "noPipeline": "Nessuna run della pipeline è partita entro 30 minuti dal merge, quindi Stubwise segue invece il server di produzione.",
+      "fixingIn": "Claude lo sta sistemando in {{task}}",
+      "openTask": "Apri {{task}}",
+      "openRun": "Apri la run su {{platform}}",
+      "setUpEnvironments": "Configura gli ambienti",
+      "environmentsNoPermission": "Chi gestisce gli ambienti di {{code}} può collegare il server di produzione."
+    },
+    "fix": {
+      "button": "Fai sistemare a Claude",
+      "title": "Fai sistemare {{code}} a Claude",
+      "type": "Tipo",
+      "bug": "Bug",
+      "titleLabel": "Titolo",
+      "linked": "Collegata",
+      "attached": "L'errore della run è allegato: il passo «{{step}}» e il link alla run.",
+      "attachedNoStep": "Il link alla run fallita è allegato.",
+      "note": "Qualcosa che Claude deve sapere?",
+      "createAndStart": "Crea la task e avvia Claude",
+      "create": "Crea la task",
+      "waits": "La task aspetterà qualcuno che può avviare Claude in {{code}}.",
+      "planGate": "Claude scriverà prima un piano; lo approva chi può approvare i piani in {{code}}.",
+      "created": "{{task}} creata",
+      "error": "Non è stato possibile creare la task per {{code}}.",
+      "noPermission": "Chi può creare task in {{code}} può chiedere a Claude di sistemarlo.",
+      "discard": "Buttare la nota?",
+      "keep": "Continua a scrivere",
+      "discardConfirm": "Butta"
+    },
+    "explain": {
+      "button": "Chiedi a Claude di spiegarlo",
+      "question": "Perché {{code}} è fallito?",
+      "error": "Non è stato possibile aprire la conversazione su {{code}}."
+    },
+    "detail": {
+      "merged": "Mergiato da {{who}} il {{date}} alle {{time}}",
+      "runs": "Run",
+      "noRuns": "Nessuna run della pipeline per questo rilascio.",
+      "copyLink": "Copia il link",
+      "linkCopied": "Link copiato",
+      "linkError": "Non è stato possibile copiare il link.",
+      "error": "Non è stato possibile caricare questo rilascio."
+    },
+    "run": {
+      "status": {
+        "running": "in corso",
+        "success": "riuscita",
+        "failed": "fallita"
+      },
+      "duration": "{{m}} min {{s}} s",
+      "durationSeconds": "{{s}} s",
+      "failedStep": "Passo fallito:",
+      "label": "Run «{{name}}», {{status}}, {{duration}}"
+    },
+    "log": {
+      "region": "Log di {{run}}, {{total}} righe",
+      "lastLines": "Ultime {{n}} di {{total}} righe",
+      "allLines": "Tutte le {{total}} righe",
+      "showAll": "Vedi tutto",
+      "showLess": "Mostra meno",
+      "find": "Cerca nel log",
+      "matchOf": "{{i}} di {{n}}",
+      "previous": "Corrispondenza precedente",
+      "next": "Corrispondenza successiva",
+      "copy": "Copia",
+      "copied": "Log copiato",
+      "copyError": "Non è stato possibile copiare il log.",
+      "hidden": "Il log lo vede chi può vedere il codice di {{code}}.",
+      "none": "Questa run non ha un log."
+    },
+    "environments": {
+      "kinds": {
+        "test": "Test",
+        "staging": "Staging",
+        "production": "Produzione"
+      },
+      "runs": "gira {{sha}}",
+      "empty": "Ancora nessun ambiente.",
+      "emptyManage": "Ancora nessun ambiente. Aggiungi dove gira {{code}}, così i rilasci si seguono sul server.",
+      "addButton": "Aggiungi ambiente",
+      "addTitle": "Aggiungi ambiente",
+      "editTitle": "Modifica ambiente",
+      "add": "Aggiungi",
+      "save": "Salva",
+      "name": "Nome",
+      "kind": "Tipo",
+      "url": "URL",
+      "server": "Server",
+      "serverHint": "Il server monitorato il cui agente riporta il commit che gira, es. SRV-3. Vuoto se nessuno.",
+      "productionExists": "{{name}} è già l'ambiente di produzione di questo progetto.",
+      "more": "Altro per {{name}}",
+      "edit": "Modifica",
+      "delete": "Elimina",
+      "deleteTitle": "Eliminare {{name}}?",
+      "deleteProduction": "I rilasci senza pipeline mostreranno «Stato non disponibile» finché un altro ambiente di produzione non avrà un server.",
+      "deleteError": "Non è stato possibile eliminare {{name}}.",
+      "errors": {
+        "name": "Dai un nome all'ambiente.",
+        "url": "L'URL deve cominciare con http:// o https://.",
+        "serverCode": "Il codice di un server è come SRV-3.",
+        "production_exists": "Questo progetto ha già un ambiente di produzione.",
+        "generic": "Non è stato possibile salvare l'ambiente."
+      }
+    },
+    "panel": {
+      "label": "Pull request {{pr}}",
+      "close": "Chiudi",
+      "byLine": "di {{name}} · aperta il {{date}} · {{branch}} → {{base}}",
+      "analysis": "Analisi di Claude",
+      "onSha": "su {{sha}} · {{time}}",
+      "more": "Altro",
+      "less": "Meno",
+      "problems": "Problemi",
+      "writtenByClaude": "Scritto da Claude",
+      "corrections": "Correzioni",
+      "correctionN": "Correzione {{n}}",
+      "pushed": "spinta {{sha}} · {{time}}",
+      "correction": {
+        "running": "in corso",
+        "pushed": "spinta",
+        "discarded": "scartata: {{name}} ha spinto prima · non conta",
+        "stopped": "fermata prima del push · non conta"
+      },
+      "automatic": "automatica",
+      "askedBy": "chiesta da {{name}}",
+      "viewCommit": "Vedi il commit",
+      "used": "{{used}} di {{cap}} correzioni automatiche usate",
+      "actions": "Azioni",
+      "analysisOnly": "Solo analisi",
+      "analysisOnlyBody": "Claude analizza questa PR ma non spinge sul suo ramo.",
+      "willStop": "La correzione in corso si fermerà prima del push.",
+      "analysisOnlyError": "Non è stato possibile cambiare «Solo analisi».",
+      "whatShouldChange": "Cosa deve cambiare",
+      "sendToClaude": "Manda a Claude",
+      "overCap": "Così si supera il tetto di {{cap}} correzioni di {{code}}.",
+      "capReached": "Claude ha raggiunto il tetto di {{cap}} correzioni. Chi può approvare i piani in {{code}} può chiederne altre.",
+      "requestSent": "Mandato a Claude",
+      "requestError": "Non è stato possibile mandare la richiesta a Claude.",
+      "requestErrors": {
+        "needs_maintainer": "Claude ha raggiunto il tetto di {{cap}} correzioni. Chi può approvare i piani in {{code}} può chiederne altre.",
+        "already_closed": "Questa PR non è più aperta.",
+        "in_flight": "Claude sta già lavorando a una correzione.",
+        "not_fixable": "Claude non può spingere su questo ramo.",
+        "analysis_only": "Questa PR è su solo analisi."
+      },
+      "stubwiseCorrections": "Le modifiche a questa PR si chiedono da {{task}}."
+    },
+    "simulate": {
+      "label": "Solo prototipo",
+      "intro": "Questi bottoni fingono la risposta della pipeline o del server. Non avviano niente.",
+      "prIntro": "Nell'app vera Claude lavora da solo; qui lo fai avanzare un passo alla volta.",
+      "outcome": "Simula l'esito di «{{run}}»:",
+      "success": "Riuscita",
+      "failure": "Fallita",
+      "seen": "Simula la comparsa del commit su {{server}}",
+      "advance": "Fai avanzare il lavoro di Claude",
+      "authorPush": "Simula un push dell'autore",
+      "error": "La simulazione non è andata a buon fine."
+    }
   }
 }

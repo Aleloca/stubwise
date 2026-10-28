@@ -48,13 +48,23 @@ export function resolveHome(
   person: Person,
   departmentHomes: DepartmentHome[],
   personal: PersonalHome | null,
+  /**
+   * I blocchi che spettano per permesso a chi non ha personalizzato la Home
+   * (shape releases.md [R 22]: «Releases» per chi ha `release.merge`): in
+   * coda, solo nella Home non personale — mai aggiunti a una già scelta.
+   */
+  extras: HomeBlockKind[] = [],
 ): { blocks: HomeBlockRef[]; departmentChanged: string[] } {
   const mine = person.departmentIds.flatMap((id) => {
     const home = departmentHomes.find((h) => h.departmentId === id);
     return home ? [home] : [];
   });
   if (!personal) {
-    return { blocks: withFixed(dedup(mine.flatMap((h) => h.blocks))), departmentChanged: [] };
+    const blocks = [
+      ...mine.flatMap((h) => h.blocks),
+      ...extras.map((kind) => ({ kind }) as HomeBlockRef),
+    ];
+    return { blocks: withFixed(dedup(blocks)), departmentChanged: [] };
   }
   const departmentChanged = mine
     .filter((h) => {

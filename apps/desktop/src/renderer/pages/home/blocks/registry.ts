@@ -11,6 +11,7 @@ import { ImportantMailBlock } from "./ImportantMailBlock";
 import { MilestonesBlock } from "./MilestonesBlock";
 import { MyTasksBlock } from "./MyTasksBlock";
 import { NewRequestsBlock } from "./NewRequestsBlock";
+import { ReleasesBlock } from "./ReleasesBlock";
 import { StalledBlock } from "./StalledBlock";
 import { UpcomingEventsBlock } from "./UpcomingEventsBlock";
 
@@ -89,10 +90,16 @@ export const BLOCKS: Record<HomeBlockKind, BlockDef> = {
     component: AutomationsBlock,
     available: (_viewer, ctx) => ctx?.seesAutomations !== false,
   },
-  // Rilasci e clienti in attesa (area 8a): il tipo c'è già nel modello, i
-  // blocchi arrivano con le loro sezioni (Task 8 e 9 del piano 8a). Fino ad
-  // allora non sono nel catalogo di nessuno.
-  releases: { titleKey: "home.blocks.releases", component: () => null, available: () => false },
+  // Rilasci (area 8a, shape releases.md [R 22]): nel catalogo di chi può
+  // rilasciare in almeno un progetto; nella Home non personalizzata di quelle
+  // persone ci entra da sé (`resolveHome`, `extras`).
+  releases: {
+    titleKey: "home.blocks.releases",
+    component: ReleasesBlock,
+    available: (viewer) => can(viewer, "release.merge"),
+  },
+  // Clienti in attesa (area 8a): arriva con la sua sezione (Task 9). Fino ad
+  // allora non è nel catalogo di nessuno.
   waitingCustomers: {
     titleKey: "home.blocks.waitingCustomers",
     component: () => null,

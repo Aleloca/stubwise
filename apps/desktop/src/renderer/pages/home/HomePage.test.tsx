@@ -251,11 +251,11 @@ describe("HomePage", () => {
     const handle = await screen.findByRole("button", { name: "Move Upcoming milestones" });
     handle.focus();
     await userEvent.keyboard(" ");
-    expect(screen.getByText("Picked up Upcoming milestones, position 6 of 7.")).toBeInTheDocument();
+    expect(screen.getByText("Picked up Upcoming milestones, position 6 of 8.")).toBeInTheDocument();
     await userEvent.keyboard("{ArrowUp}");
     await userEvent.keyboard(" ");
     expect(
-      screen.getByText(/Upcoming milestones dropped at position 5 of 7\./),
+      screen.getByText(/Upcoming milestones dropped at position 5 of 8\./),
     ).toBeInTheDocument();
     // I fissi non si nascondono.
     const list = screen.getByRole("list", { name: "Blocks of the Home" });
@@ -272,6 +272,7 @@ describe("HomePage", () => {
       "upcomingMilestones",
       "myTasks",
       "filter",
+      "releases",
     ]);
   });
 
@@ -291,7 +292,7 @@ describe("HomePage", () => {
       expect(handle()).toHaveAttribute("aria-pressed", "true");
     }
     await userEvent.keyboard(" ");
-    expect(screen.getByText("My week dropped at position 4 of 7.")).toBeInTheDocument();
+    expect(screen.getByText("My week dropped at position 4 of 8.")).toBeInTheDocument();
     const rows = [...document.querySelectorAll("[data-editor-row]")].map((el) =>
       el.getAttribute("data-editor-row"),
     );
@@ -303,6 +304,7 @@ describe("HomePage", () => {
       "myTasks",
       "upcomingMilestones",
       "filter:flt-no-estimate",
+      "releases",
     ]);
   });
 

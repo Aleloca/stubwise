@@ -12,6 +12,7 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import {
   useAutomationSearch,
+  useReleaseSearch,
   useChatChannels,
   useChatSearch,
   useDocSearch,
@@ -62,6 +63,7 @@ type GroupId =
   | "mail"
   | "people"
   | "automations"
+  | "releases"
   | "actions"
   | "viewAs"
   | "filters"
@@ -222,6 +224,8 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   const mailSearch = useMailSearch(chatQuery, chatSearching);
   // Le automazioni e le esecuzioni che vedo (da 2 caratteri, R-G5 nel livello dati).
   const automationSearch = useAutomationSearch(chatQuery, chatSearching);
+  // I rilasci che vedo, per codice («AUD-V3») o titolo (area 8a, R-G5 nel livello dati).
+  const releaseSearch = useReleaseSearch(chatQuery, chatSearching);
   const reachMessage = useReachChatMessage();
   const toast = useToast();
   const savedFilters = useSavedFilters();
@@ -375,6 +379,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       mail: [],
       people: [],
       automations: [],
+      releases: [],
       actions: [],
       viewAs: [],
       filters: [],
@@ -545,6 +550,22 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         }),
       );
     }
+    // I rilasci (shape releases.md §6): codice · titolo della PR · stato in parola.
+    if (chatSearching) {
+      byGroup.releases = (releaseSearch.data ?? []).slice(0, GROUP_LIMIT).map(
+        (r): Item => ({
+          key: `release-${r.id}`,
+          code: r.code,
+          label: r.label,
+          detail: t(`releases.status.${r.status}`),
+          fromSearch: true,
+          select: () => {
+            router.history.push(r.route.replace(/^#/, ""));
+            onClose();
+          },
+        }),
+      );
+    }
     // Dopo gli oggetti, la Chat: i canali leggibili il cui nome corrisponde,
     // poi i messaggi (al più 5) e «Search all messages for “…”».
     if (chatSearching) {
@@ -650,6 +671,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         "mail",
         "people",
         "automations",
+        "releases",
         "channels",
         "messages",
         "actions",
@@ -668,6 +690,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     chatSearch.data,
     mailSearch.data,
     automationSearch.data,
+    releaseSearch.data,
     reachMessage,
     toast,
     i18n.language,
@@ -703,6 +726,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       chatSearch.isPlaceholderData ||
       mailSearch.isPlaceholderData ||
       automationSearch.isPlaceholderData ||
+      releaseSearch.isPlaceholderData ||
       pageSearch.isPlaceholderData ||
       (!!filesQuery && fileSearch.isPlaceholderData));
 

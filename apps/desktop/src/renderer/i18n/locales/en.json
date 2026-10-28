@@ -129,7 +129,8 @@
       "pages": "Pages",
       "files": "Files",
       "mail": "Mail",
-      "automations": "Automations"
+      "automations": "Automations",
+      "releases": "Releases"
     },
     "noResults": "No results for “{{query}}”",
     "noResultsHint": "Try a code like {{example}} or a name.",
@@ -958,7 +959,8 @@
       "filter": "Saved filter",
       "upcomingEvents": "Upcoming",
       "importantMail": "Important email",
-      "automations": "Automations"
+      "automations": "Automations",
+      "releases": "Releases"
     },
     "block": {
       "error": "Couldn't load {{title}}.",
@@ -1142,6 +1144,9 @@
     "automations": {
       "empty": "No runs that need you",
       "showAll": "Show all {{count}}"
+    },
+    "releases": {
+      "empty": "Nothing to release and no failed releases."
     }
   },
   "week": {
@@ -1922,6 +1927,42 @@
       "saveFailed": "Couldn't save the statuses. Nothing changed; your edits are still here.",
       "thresholdsFailed": "Couldn't save the thresholds. They're as they were; your edits are still here.",
       "thresholdsFailedAfter": "Statuses saved, but the thresholds couldn't be saved. Your threshold edits are still here."
+    },
+    "repositories": {
+      "title": "Repositories",
+      "intro": "How Claude treats pull requests and how Stubwise follows releases, per repository.",
+      "colleagues": "Colleagues' pull requests",
+      "modes": {
+        "analyze_and_fix": "Analysis and fixes",
+        "analyze_only": "Analysis only",
+        "off": "Off"
+      },
+      "modeBody": {
+        "analyze_and_fix": "Claude analyses every pull request and pushes fixes on top, up to {{code}}'s limit of {{cap}} corrections.",
+        "analyze_only": "Claude analyses but never pushes to colleagues' branches.",
+        "off": "No analysis: pull requests still appear in Releases, without Claude's notes."
+      },
+      "stubwisePrs": "Pull requests opened by Stubwise always follow {{code}}'s review settings.",
+      "stopTitle_one": "Stop the correction in progress?",
+      "stopTitle_other": "Stop the corrections in progress?",
+      "stopBody_one": "1 correction in progress on {{prs}} will stop before pushing.",
+      "stopBody_other": "{{count}} corrections in progress on {{prs}} will stop before pushing.",
+      "change": "Change",
+      "pipeline": "Release pipeline",
+      "pipelineModes": {
+        "auto": "Automatic",
+        "named": "Only these"
+      },
+      "autoBody": "Every run started by the merge commit on the release branch counts.",
+      "names": "Workflow or pipeline names",
+      "namesPlaceholder": "Type a name and press Enter",
+      "namesEmpty": "Add at least one name: an empty list can't be saved.",
+      "removeName": "Remove {{name}}",
+      "branch": "Release branch",
+      "fallback": "No runs within 30 minutes of a merge? Stubwise follows the production server instead.",
+      "saved": "Saved",
+      "saveError": "Couldn't save the repository settings.",
+      "error": "Couldn't load the repositories."
     }
   },
   "export": {
@@ -3104,7 +3145,7 @@
       "resize": "Resize the page list",
       "columnLabel": "Docs spaces of {{code}}",
       "brief": "Brief",
-      "releases": "Releases",
+      "releases": "Release notes",
       "graph": "Graph",
       "search": "Search",
       "chat": "Chat",
@@ -3234,8 +3275,8 @@
       "error": "Couldn't load the brief."
     },
     "releases": {
-      "title": "Releases",
-      "search": "Search releases",
+      "title": "Release notes",
+      "search": "Search release notes",
       "significant": "Significant only",
       "pagesTouched": "Pages touched",
       "empty": "No releases yet: they're written every night from new commits",
@@ -6243,5 +6284,318 @@
     "pausedShort": "Paused",
     "undoError": "Couldn't undo the change in {{code}}.",
     "reloadError": "Couldn't refresh your alert settings: what you see may be out of date."
+  },
+  "releases": {
+    "title": "Releases",
+    "subtitle": "Pull requests on {{code}}'s repositories and what happened after the merge. Stubwise merges, the pipeline releases.",
+    "parts": {
+      "prs": "Pull requests",
+      "releases": "Releases",
+      "environments": "Environments"
+    },
+    "groups": {
+      "attention": "Needs attention",
+      "ready": "Ready to release",
+      "readyEmpty": "Nothing is ready to release.",
+      "notReady": "Not ready yet",
+      "notReadyEmpty": "Every open pull request is ready."
+    },
+    "boundary": "Stubwise doesn't re-run pipelines. Fix the cause, merge the fix: it becomes a new release.",
+    "you": "you",
+    "open": "Open",
+    "cancel": "Cancel",
+    "openOn": "Open on {{platform}}",
+    "showAll": "Show all {{count}}",
+    "showMore": "Show {{count}} more",
+    "notVisible": "This release doesn't exist or you can't see it.",
+    "empty": {
+      "prs": "No open pull requests in {{code}}.",
+      "releases": "No releases yet. A release starts when a pull request is merged into main.",
+      "noRepos": "{{code}} has no repositories, so there's nothing to release."
+    },
+    "errors": {
+      "prs": "Couldn't load the pull requests.",
+      "releases": "Couldn't load the releases.",
+      "environments": "Couldn't load the environments."
+    },
+    "filters": {
+      "any": "Any",
+      "repository": "Repository",
+      "author": "Author",
+      "state": "State"
+    },
+    "pr": {
+      "by": "by {{name}}",
+      "fork": "fork"
+    },
+    "prState": {
+      "analyzing": "Analysing",
+      "clean": "No problems",
+      "issues_one": "{{count}} problem",
+      "issues_other": "{{count}} problems",
+      "correcting": "Claude is fixing",
+      "corrected": "Fixed by Claude",
+      "discarded": "Correction discarded",
+      "capped": "Limit reached",
+      "analysis_only": "Analysis only",
+      "analysis_off": "Analysis off",
+      "not_fixable": "Analysed"
+    },
+    "risk": {
+      "low": "Low risk",
+      "medium": "Medium risk",
+      "high": "High risk"
+    },
+    "checks": {
+      "passing": "checks passing",
+      "failing": "checks failing",
+      "pending": "checks running",
+      "unreadable": "checks unreadable"
+    },
+    "reason": {
+      "checksFailing": "checks failing",
+      "checksRunning": "checks running",
+      "checksUnreadable": "checks unreadable",
+      "conflicts": "conflicts with {{branch}}"
+    },
+    "prLine": {
+      "analyzing": "Claude is reading the changes",
+      "willFix": "Claude will fix them",
+      "analysisOnly": "Claude doesn't push here",
+      "correcting": "Correction {{n}} of {{cap}}",
+      "corrected": "Claude pushed {{sha}} · analysing again",
+      "correctedNoSha": "Claude pushed a fix · analysing again",
+      "discarded": "{{name}} pushed new commits first · analysing the new head",
+      "capped": "Claude stopped after {{cap}} corrections",
+      "analysisOff": "Analysis is off for {{repo}}",
+      "onStaging": "on staging"
+    },
+    "notFixable": {
+      "fork": "Claude can't fix this: it comes from a fork",
+      "protected": "Claude can't fix this: the branch is protected",
+      "default_branch": "Claude can't fix this: it's the default branch",
+      "target_branch": "Claude can't fix this: it's the target branch",
+      "other_task_branch": "Claude can't fix this: it belongs to another task"
+    },
+    "merge": {
+      "release": "Release",
+      "releaseLabel": "Release {{pr}}",
+      "confirmGroup": "Merge {{pr}}",
+      "question": "Merge #{{n}} into {{branch}}? The pipeline will release it; Stubwise only follows it.",
+      "confirm": "Confirm merge",
+      "merging": "Merging…",
+      "cancel": "Cancel",
+      "done": "Merged. Following it as {{code}}",
+      "doneNoRelease": "Merged.",
+      "open": "Open",
+      "noPermission": "Someone who can release in {{code}} can merge it.",
+      "errors": {
+        "already_closed": "This pull request isn't open any more.",
+        "checks_failed": "Checks are failing on this pull request, so it can't be released.",
+        "checks_unreadable": "Couldn't read the checks on {{platform}}. Try again in a moment.",
+        "not_mergeable": "{{platform}} refused the merge: conflicts or branch rules not met.",
+        "merge_forbidden": "The git account saved for {{code}} can't merge this pull request.",
+        "not_found": "This pull request wasn't found.",
+        "forbidden": "You can't release in {{code}} any more."
+      }
+    },
+    "status": {
+      "running": "In progress",
+      "succeeded": "Succeeded",
+      "failed": "Failed",
+      "not_in_production": "Not in production yet",
+      "in_production": "In production",
+      "unavailable": "Status unavailable"
+    },
+    "list": {
+      "outsideBy": "{{name}} outside Stubwise",
+      "outsideUnlinked": "{{login}} (not linked to anyone) outside Stubwise",
+      "fixing": "{{task}} fixing",
+      "fixingWord": "fixing"
+    },
+    "attention": {
+      "failedAt": "failed at “{{step}}” · {{run}}",
+      "failed": "failed",
+      "mergedBy": "merged by {{who}} · {{ago}}",
+      "claudePushed_one": "Claude pushed a fix to your {{pr}} {{title}} · {{count}} correction",
+      "claudePushed_other": "Claude pushed a fix to your {{pr}} {{title}} · {{count}} corrections",
+      "setAnalysisOnly": "Set to analysis only",
+      "more_one": "and {{count}} more",
+      "more_other": "and {{count}} more"
+    },
+    "now": {
+      "label": "Now",
+      "failedAt": "Failed at “{{step}}” in “{{run}}”",
+      "failedIn": "Failed in “{{run}}”",
+      "waiting": "Waiting for the pipeline to start · merged {{ago}}",
+      "running_one": "{{count}} run · {{running}} running ({{name}})",
+      "running_other": "{{count}} runs · {{running}} running ({{name}})",
+      "succeeded_one": "The run succeeded · finished {{time}}",
+      "succeeded_other": "All {{count}} runs succeeded · finished {{time}}",
+      "notInProduction": "Not in production yet",
+      "stillRuns": "{{server}} still runs {{sha}}",
+      "inProduction": "In production since {{time}}",
+      "unavailable": {
+        "no_production_env": "{{code}} has no production environment",
+        "no_server": "The production environment has no server linked"
+      },
+      "noPipeline": "No pipeline run started within 30 minutes of the merge, so Stubwise follows the production server instead.",
+      "fixingIn": "Claude is fixing it in {{task}}",
+      "openTask": "Open {{task}}",
+      "openRun": "Open the run on {{platform}}",
+      "setUpEnvironments": "Set up environments",
+      "environmentsNoPermission": "Someone who manages {{code}}'s environments can link the production server."
+    },
+    "fix": {
+      "button": "Fix it with Claude",
+      "title": "Fix {{code}} with Claude",
+      "type": "Type",
+      "bug": "Bug",
+      "titleLabel": "Title",
+      "linked": "Linked",
+      "attached": "The run's error is attached: the step “{{step}}” and the link to the run.",
+      "attachedNoStep": "The link to the failed run is attached.",
+      "note": "Anything Claude should know?",
+      "createAndStart": "Create task and start Claude",
+      "create": "Create task",
+      "waits": "The task will wait for someone who can start Claude in {{code}}.",
+      "planGate": "Claude will write a plan first; someone who can approve plans in {{code}} approves it.",
+      "created": "{{task}} created",
+      "error": "Couldn't create the task for {{code}}.",
+      "noPermission": "Someone who can create tasks in {{code}} can ask Claude to fix it.",
+      "discard": "Discard your note?",
+      "keep": "Keep editing",
+      "discardConfirm": "Discard"
+    },
+    "explain": {
+      "button": "Ask Claude to explain",
+      "question": "Why did {{code}} fail?",
+      "error": "Couldn't open the conversation about {{code}}."
+    },
+    "detail": {
+      "merged": "Merged by {{who}} on {{date}} at {{time}}",
+      "runs": "Runs",
+      "noRuns": "No pipeline runs for this release.",
+      "copyLink": "Copy link",
+      "linkCopied": "Link copied",
+      "linkError": "Couldn't copy the link.",
+      "error": "Couldn't load this release."
+    },
+    "run": {
+      "status": {
+        "running": "running",
+        "success": "succeeded",
+        "failed": "failed"
+      },
+      "duration": "{{m}} min {{s}} s",
+      "durationSeconds": "{{s}} s",
+      "failedStep": "Failed step:",
+      "label": "Run “{{name}}”, {{status}}, {{duration}}"
+    },
+    "log": {
+      "region": "Log of {{run}}, {{total}} lines",
+      "lastLines": "Last {{n}} of {{total}} lines",
+      "allLines": "All {{total}} lines",
+      "showAll": "Show all",
+      "showLess": "Show less",
+      "find": "Find in log",
+      "matchOf": "{{i}} of {{n}}",
+      "previous": "Previous match",
+      "next": "Next match",
+      "copy": "Copy",
+      "copied": "Log copied",
+      "copyError": "Couldn't copy the log.",
+      "hidden": "The log is visible to people who can see {{code}}'s code.",
+      "none": "This run has no log."
+    },
+    "environments": {
+      "kinds": {
+        "test": "Test",
+        "staging": "Staging",
+        "production": "Production"
+      },
+      "runs": "runs {{sha}}",
+      "empty": "No environments yet.",
+      "emptyManage": "No environments yet. Add where {{code}} runs, so releases can be followed on the server.",
+      "addButton": "Add environment",
+      "addTitle": "Add environment",
+      "editTitle": "Edit environment",
+      "add": "Add",
+      "save": "Save",
+      "name": "Name",
+      "kind": "Type",
+      "url": "URL",
+      "server": "Server",
+      "serverHint": "The monitored server whose agent reports the running commit, like SRV-3. Leave empty for none.",
+      "productionExists": "{{name}} is already the production environment of this project.",
+      "more": "More for {{name}}",
+      "edit": "Edit",
+      "delete": "Delete",
+      "deleteTitle": "Delete {{name}}?",
+      "deleteProduction": "Releases without a pipeline will show “Status unavailable” until another production environment has a server.",
+      "deleteError": "Couldn't delete {{name}}.",
+      "errors": {
+        "name": "Give the environment a name.",
+        "url": "The URL must start with http:// or https://.",
+        "serverCode": "A server code looks like SRV-3.",
+        "production_exists": "This project already has a production environment.",
+        "generic": "Couldn't save the environment."
+      }
+    },
+    "panel": {
+      "label": "Pull request {{pr}}",
+      "close": "Close",
+      "byLine": "by {{name}} · opened {{date}} · {{branch}} → {{base}}",
+      "analysis": "Claude's analysis",
+      "onSha": "on {{sha}} · {{time}}",
+      "more": "More",
+      "less": "Less",
+      "problems": "Problems",
+      "writtenByClaude": "Written by Claude",
+      "corrections": "Corrections",
+      "correctionN": "Correction {{n}}",
+      "pushed": "pushed {{sha}} · {{time}}",
+      "correction": {
+        "running": "in progress",
+        "pushed": "pushed",
+        "discarded": "discarded: {{name}} pushed first · doesn't count",
+        "stopped": "stopped before pushing · doesn't count"
+      },
+      "automatic": "automatic",
+      "askedBy": "asked by {{name}}",
+      "viewCommit": "View commit",
+      "used": "{{used}} of {{cap}} automatic corrections used",
+      "actions": "Actions",
+      "analysisOnly": "Analysis only",
+      "analysisOnlyBody": "Claude analyses this pull request but doesn't push to its branch.",
+      "willStop": "The correction in progress will stop before pushing.",
+      "analysisOnlyError": "Couldn't change analysis only.",
+      "whatShouldChange": "What should change",
+      "sendToClaude": "Send to Claude",
+      "overCap": "This goes over {{code}}'s limit of {{cap}} corrections.",
+      "capReached": "Claude reached the limit of {{cap}} corrections. Someone who can approve plans in {{code}} can ask for more.",
+      "requestSent": "Sent to Claude",
+      "requestError": "Couldn't send the request to Claude.",
+      "requestErrors": {
+        "needs_maintainer": "Claude reached the limit of {{cap}} corrections. Someone who can approve plans in {{code}} can ask for more.",
+        "already_closed": "This pull request isn't open any more.",
+        "in_flight": "Claude is already working on a correction.",
+        "not_fixable": "Claude can't push to this branch.",
+        "analysis_only": "This pull request is set to analysis only."
+      },
+      "stubwiseCorrections": "Changes to this pull request are requested from {{task}}."
+    },
+    "simulate": {
+      "label": "Prototype only",
+      "intro": "These buttons pretend the pipeline or the server answered. They don't start anything.",
+      "prIntro": "In the real app Claude works on its own; here you move it one step at a time.",
+      "outcome": "Simulate outcome of “{{run}}”:",
+      "success": "Success",
+      "failure": "Failure",
+      "seen": "Simulate the commit appearing on {{server}}",
+      "advance": "Advance Claude's work",
+      "authorPush": "Simulate a push by the author",
+      "error": "The simulation didn't go through."
+    }
   }
 }

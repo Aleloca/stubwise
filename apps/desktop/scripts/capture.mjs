@@ -805,6 +805,55 @@ async function main() {
         await context.close();
       }
     }
+
+    // Area 8a, Task 8: la sezione Releases — lista a due gruppi, il due tempi
+    // del merge, il pannello di una PR, il rilascio fallito col log, la
+    // riparazione, le impostazioni del repository, il blocco Home.
+    const AREA8A_RELEASES = [
+      ["releases", "/p/AUD/releases", { persona: "Laura" }],
+      ["releases-marco", "/p/AUD/releases", { persona: "Marco" }],
+      ["releases-confirm", "/p/AUD/releases", { persona: "Laura", steps: async (p) => {
+        await p.locator("[data-merge-start]").first().click();
+        await p.waitForTimeout(400);
+      } }],
+      ["releases-pr", "/p/AUD/releases?pr=opr-aud-246", { persona: "Marco" }],
+      ["release-failed", "/p/AUD/releases/AUD-V3", { persona: "Laura" }],
+      ["release-log-all", "/p/AUD/releases/AUD-V3", { persona: "Laura", steps: async (p) => {
+        await p.getByRole("button", { name: /^(Show all|Vedi tutto)$/ }).click();
+        await p.getByRole("button", { name: /^(Find in log|Cerca nel log)$/ }).click();
+        await p.keyboard.type("vat_number");
+        await p.waitForTimeout(500);
+      } }],
+      ["release-fix", "/p/AUD/releases/AUD-V3", { persona: "Marco", steps: async (p) => {
+        await p.getByRole("button", { name: /^(Fix it with Claude|Fai sistemare a Claude)$/ }).click();
+        await p.waitForTimeout(400);
+      } }],
+      ["release-stw", "/p/STW/releases/STW-V2", { persona: "Laura" }],
+      ["releases-settings", "/p/AUD/settings", { persona: "Laura", steps: async (p) => {
+        await p.locator('[data-repository="audin/audin-app"]').scrollIntoViewIfNeeded();
+        await p.waitForTimeout(300);
+      } }],
+      ["releases-home", "/home", { persona: "Laura", steps: async (p) => {
+        await p.getByRole("region", { name: /^(Releases|Rilasci)/ }).scrollIntoViewIfNeeded();
+        await p.waitForTimeout(300);
+      } }],
+      ["docs-release-notes", "/p/STW/docs/stubwise/releases", { persona: "Laura" }],
+    ];
+    for (const [name, hash, o] of AREA8A_RELEASES) {
+      if (only && !only.test(name)) continue;
+      const variants = [];
+      for (const scheme of ["light", "dark"]) {
+        for (const lang of ["en", "it"]) variants.push([scheme, lang, WIDE, `a8-${name}-${scheme}-${lang}.png`]);
+      }
+      variants.push(["light", "en", NARROW, `a8-${name}-narrow.png`]);
+      variants.push(["dark", "it", NARROW, `a8-${name}-narrow-dark-it.png`]);
+      for (const [scheme, lang, viewport, file] of variants) {
+        const { page, context } = await open(scheme, viewport, hash, { lang, persona: o.persona, viaHome: true });
+        if (o.steps) await o.steps(page);
+        await shot(page, file);
+        await context.close();
+      }
+    }
     if (only) return; // revisione mirata: salta il resto
 
     for (const scheme of ["light", "dark"]) {

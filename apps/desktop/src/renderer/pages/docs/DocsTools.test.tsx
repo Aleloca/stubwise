@@ -148,9 +148,9 @@ describe("Docs — releases", () => {
     const router = renderRoute("/p/STW/docs/stubwise", "p-laura");
     await screen.findByRole("heading", { level: 1, name: "stubwise" });
     const bar = screen.getByRole("navigation", { name: "stubwise docs" });
-    await userEvent.click(within(bar).getByRole("link", { name: /Releases 3/ }));
-    expect(await screen.findByRole("heading", { level: 1, name: "Releases" })).toBeInTheDocument();
-    const list = screen.getByRole("list", { name: "Releases" });
+    await userEvent.click(within(bar).getByRole("link", { name: /Release notes 3/ }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Release notes" })).toBeInTheDocument();
+    const list = screen.getByRole("list", { name: "Release notes" });
     const releases = () => list.querySelectorAll("[data-release]");
     expect(releases()).toHaveLength(3);
     // L'elemento della lista non ha un nome suo: lo dice il suo contenuto.
@@ -162,7 +162,7 @@ describe("Docs — releases", () => {
     expect(toggle).toHaveAttribute("aria-checked", "true");
     expect(releases()).toHaveLength(2);
     expect(within(list).queryByText("Minor")).toBeNull();
-    await userEvent.type(screen.getByRole("searchbox", { name: "Search releases" }), "pipeline");
+    await userEvent.type(screen.getByRole("searchbox", { name: "Search release notes" }), "pipeline");
     expect(releases()).toHaveLength(1);
     // Cercando il testo resta Markdown (un paragrafo), con la parola evidenziata dentro.
     const mark = releases()[0]!.querySelector("p mark");
@@ -177,7 +177,7 @@ describe("Docs — releases", () => {
   it("nessun risultato lo dice; uno spazio senza releases anche", async () => {
     renderRoute("/p/STW/docs/stubwise/releases", "p-laura");
     await userEvent.type(
-      await screen.findByRole("searchbox", { name: "Search releases" }),
+      await screen.findByRole("searchbox", { name: "Search release notes" }),
       "export",
     );
     expect(await screen.findByText("No releases match “export”")).toBeInTheDocument();
@@ -270,7 +270,7 @@ describe("Docs — grafo", () => {
 });
 
 describe("Docs — barra secondaria", () => {
-  it("a 1024, in italiano e con un nome lungo: Brief, Grafo e Cerca vanno in «Altro»; Releases resta", async () => {
+  it("a 1024, in italiano e con un nome lungo: Brief, Grafo e Cerca vanno in «Altro»; Note di rilascio resta", async () => {
     setMatchMedia(DOCKED_PANEL_QUERY, false);
     act(() => setLanguage("it"));
     const name = "audin-app-mobile-desktop-and-web-clients-of-the-team";
@@ -296,7 +296,7 @@ describe("Docs — barra secondaria", () => {
       const router = renderRoute(`/p/AUD/docs/${name}`, "p-laura");
       await screen.findByRole("heading", { level: 1, name });
       const bar = screen.getByRole("navigation", { name: `Documenti di ${name}` });
-      expect(within(bar).getByRole("link", { name: /Releases 2/ })).toBeInTheDocument();
+      expect(within(bar).getByRole("link", { name: /Note di rilascio 2/ })).toBeInTheDocument();
       expect(within(bar).getByRole("link", { name: "Indice" })).toBeInTheDocument();
       expect(within(bar).queryByRole("link", { name: "Brief" })).toBeNull();
       expect(within(bar).queryByRole("link", { name: "Grafo" })).toBeNull();
@@ -322,7 +322,7 @@ describe("Docs — barra secondaria", () => {
     await screen.findByRole("heading", { level: 1, name: "audin-app" });
     const bar = screen.getByRole("navigation", { name: "audin-app docs" });
     expect(within(bar).queryByRole("button", { name: /More/ })).toBeNull();
-    for (const name of ["Index", "Brief", /Releases 2/, "Graph"]) {
+    for (const name of ["Index", "Brief", /Release notes 2/, "Graph"]) {
       expect(within(bar).getByRole("link", { name })).toBeInTheDocument();
     }
   });

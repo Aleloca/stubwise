@@ -9,8 +9,9 @@ import { Highlighted } from "../chat/ChatSearch";
 import { fold, searchWords } from "../chat/search";
 import { MinorMark, pageLink, useSpace } from "./parts";
 
-// Le releases dello spazio (shape docs.md §5): scritte ogni notte dai commit
-// nuovi. Campo «Search releases», interruttore «Significant only»; ogni voce
+// Le note di rilascio dello spazio (shape docs.md §5; «Release notes» dal 28
+// ott 2026, releases.md [R 25]): scritte ogni notte dai commit
+// nuovi. Campo «Search release notes», interruttore «Significant only»; ogni voce
 // è versione (600, cifre tabellari) · data · «Minor» in parola, il testo, e
 // le pagine toccate come gettoni codice + titolo (solo quelle che chi guarda
 // legge: una pagina eliminata o nascosta non c'è).

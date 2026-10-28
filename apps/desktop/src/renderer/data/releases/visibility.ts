@@ -235,9 +235,13 @@ export function releaseView(me: string, r: Release): ReleaseView {
   };
 }
 
-/** L'indirizzo di un rilascio (notifiche, ⌘K). */
+/** L'indirizzo di un rilascio (notifiche, ⌘K): il suo dettaglio. */
 export const releaseHref = (projectCode: string, code: string): string =>
-  `#/p/${projectCode}/releases?release=${code}`;
+  `#/p/${projectCode}/releases/${code}`;
+
+/** L'indirizzo di una PR aperta (avvisi `pr.*`): la sezione col suo pannello. */
+export const prHref = (projectCode: string, prId: string): string =>
+  `#/p/${projectCode}/releases?pr=${prId}`;
 
 /** Le PR aperte di un progetto, viste da `me` (vuoto se non lo vede). */
 export function openPrViews(me: string, projectId: string): OpenPrView[] {

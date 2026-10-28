@@ -61,6 +61,8 @@ import { SourcesPage } from "./pages/automations/SourcesPage";
 import { BuilderRoutePage } from "./pages/automations/builder/BuilderPage";
 import { TestRoutePage } from "./pages/automations/test/TestPage";
 import { PreferencesPage, isPreferenceSection } from "./pages/preferences/PreferencesPage";
+import { ReleasesPage } from "./pages/releases/ReleasesPage";
+import { ReleaseDetail } from "./pages/releases/ReleaseDetail";
 
 /** La ricerca che ogni route accetta (`?task=` apre il pannello, gli altri li montano i dialoghi). */
 export interface AppSearch {
@@ -137,6 +139,8 @@ export interface AppSearch {
   step?: string;
   /** Automations: si arriva al costruttore dall'elenco (`list`). */
   from?: string;
+  /** Releases: il pannello di una PR aperta (l'id). */
+  pr?: string;
 }
 
 const SEARCH_KEYS = [
@@ -164,6 +168,7 @@ const SEARCH_KEYS = [
   ...MAIL_SEARCH_KEYS,
   ...CALENDAR_SEARCH_KEYS,
   ...AUTOMATION_SEARCH_KEYS,
+  "pr",
 ] as const;
 
 /**
@@ -200,7 +205,8 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
       key === "brief" ||
       key === "dept" ||
       key === "thread" ||
-      key === "message"
+      key === "message" ||
+      key === "pr"
         ? /^[\w-]+$/.test(value)
         : key === "date"
           ? /^\d{4}-\d{2}-\d{2}$/.test(value)
@@ -473,6 +479,36 @@ const projectChatChannelRoute = createRoute({
   component: ProjectChatChannelRoutePage,
 });
 
+/**
+ * Il dettaglio di un rilascio (`#/p/AUD/releases/AUD-V3`, area 8a). Un
+ * rilascio inesistente, di un progetto che non si vede o di un altro
+ * progetto risponde allo stesso modo (R-G5): lo decide `ReleaseDetail`.
+ * Cambiare persona rimonta la pagina.
+ */
+function ReleaseRoutePage() {
+  const { code, release } = releaseRoute.useParams();
+  const { viewer } = useViewer();
+  return (
+    <ReleaseDetail key={`${release}:${viewer.personId}`} projectCode={code} code={release} />
+  );
+}
+
+const releaseRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/p/$code/releases/$release",
+  beforeLoad: ({ params }) => {
+    if (upperCaseCode(params.code) || upperCaseCode(params.release)) {
+      throw redirect({
+        to: "/p/$code/releases/$release",
+        params: { code: params.code.toUpperCase(), release: params.release.toUpperCase() },
+        search: (prev) => prev,
+        replace: true,
+      });
+    }
+  },
+  component: ReleaseRoutePage,
+});
+
 const filterRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/filters/$id",
@@ -543,6 +579,11 @@ function ProjectSectionPage() {
   if (section === "automations") {
     return (
       <ProjectAutomationsPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />
+    );
+  }
+  if (section === "releases") {
+    return (
+      <ReleasesPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />
     );
   }
   if (section === "drive") {
@@ -766,6 +807,7 @@ const routeTree = rootRoute.addChildren([
   projectIndexRoute,
   projectSectionRoute,
   projectChatChannelRoute,
+  releaseRoute,
   docsHomeRoute,
   docSpaceRoute.addChildren([
     docSpaceIndexRoute,

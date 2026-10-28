@@ -15,6 +15,7 @@ import { GoogleAccountHost } from "../pages/drive/GoogleAccountCard";
 import { WhichProjectHost } from "../pages/drive/WhichProjectDialog";
 import { NewAutomationHost } from "../pages/automations/NewAutomationHost";
 import { SourceDetailHost } from "../pages/automations/SourcePanel";
+import { PrPanelHost } from "../pages/releases/PrPanel";
 import { useAutomationsLiveRefresh } from "../data/queries";
 import { CommandPalette } from "../palette/CommandPalette";
 import { applyPlatformAttribute } from "../platform/platform";
@@ -63,6 +64,7 @@ export function AppLayout() {
         <ChannelSettingsHost />
         <DriveDetailHost />
         <SourceDetailHost />
+        <PrPanelHost />
         {/* L'anteprima intera di un file del Drive copre l'area di lavoro (binario e colonna restano). */}
         <FilePreviewHost />
       </div>

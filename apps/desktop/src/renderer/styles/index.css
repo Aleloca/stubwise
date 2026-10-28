@@ -203,6 +203,34 @@
   }
 }
 
+/* Releases (area 8a): il secondo tempo del merge si apre in posto e una run
+   si apre sotto la sua riga, entro --duration (200 ms); niente con
+   movimento ridotto. */
+@keyframes expand-in {
+  from {
+    opacity: 0;
+    clip-path: inset(0 0 100% 0);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@utility merge-expand {
+  animation: expand-in var(--duration) var(--ease) both;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@utility run-open {
+  animation: expand-in var(--duration) var(--ease) both;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
 /* Palette ⌘K: il fondo si scurisce, il dialog scende di 6 px e appare.
    Entro --duration (0 ms con movimento ridotto), e comunque niente
    animazione con movimento ridotto. */
