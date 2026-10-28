@@ -91,6 +91,7 @@ import type {
   TaskPatch,
   TaskSize,
 } from "./types";
+import { supportState } from "../domain/support/state";
 import { publishAlert } from "./alerts/publish";
 import { overStubwiseCap } from "./releases/visibility";
 import { can, canInDepartment, grantProjectRole, viewerFor, type Permission } from "./viewer";
@@ -696,28 +697,40 @@ export function createRequestAs(me: string, input: NewRequestInput): ProjectRequ
  * La conversazione di Support di un'origine: dello stesso progetto e ancora
  * senza richiesta. Ogni altra origine (un'email, un thread) è rifiutata.
  */
-function supportOriginOf(project: Project, origin: NewRequestInput["origin"]) {
+/**
+ * La conversazione di Support da cui nasce una richiesta. Da una persona
+ * (`createRequest`, le azioni proposte, la Chat, «Apri la richiesta») solo
+ * se è NON CONCLUSA: in triage Claude sta ancora facendo le domande, e una
+ * richiesta collegata ne salterebbe la conferma. Il triage concluso ha la
+ * sua strada esplicita (`triage: true`, solo da `data/support/simulate.ts`).
+ */
+function supportOriginOf(project: Project, origin: NewRequestInput["origin"], triage: boolean) {
   if (!origin) return null;
   const conv =
     origin.kind === "support"
       ? state.supportConversations.find((c) => c.id === origin.conversationId)
       : undefined;
   if (!conv || conv.projectId !== project.id || conv.requestId !== null) throw invalid("origin");
+  if (!triage && supportState(conv) !== "not_concluded") throw invalid("origin");
   return conv;
 }
 
 /**
- * Scrive una richiesta già controllata. Senza `me`: la usa anche il triage di
- * un canale di Support (`data/support/simulate.ts`), dove chi la apre è il
- * cliente, non una persona con `backlog.create`.
+ * Scrive una richiesta già controllata, SENZA controllare permessi: chi la
+ * chiama li ha già controllati (`createRequestAs`), oppure è il triage di un
+ * canale di Support simulato (`data/support/simulate.ts`, `triage: true`),
+ * dove chi la apre è il cliente e non una persona con `backlog.create`. Mai
+ * da una scrittura di una persona: un test architetturale ne limita gli
+ * import a quel file.
  */
 export function insertRequest(
   project: Project,
   input: NewRequestInput,
   requesterIds: string[],
+  { triage = false }: { triage?: boolean } = {},
 ): ProjectRequest {
   if (!input.title.trim()) throw invalid("title");
-  const conv = supportOriginOf(project, input.origin);
+  const conv = supportOriginOf(project, input.origin, triage);
   // Al posto dell'intake: la richiesta aperta dello stesso progetto con più parole in comune.
   const similar = findSimilarRequest(input.title, project.id, state.requests);
   // Il numero dopo il più alto del progetto: le richieste non si cancellano,

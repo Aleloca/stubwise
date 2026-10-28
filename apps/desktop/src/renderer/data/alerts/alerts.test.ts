@@ -247,7 +247,7 @@ describe("Non avvisarmi più (muteFromNotification)", () => {
     const sec = state.notifications.find(
       (n) => n.kind === "security.alert" && n.recipientIds.includes("p-giulia"),
     )!;
-    await expect(alerts.muteFromNotification(sec.id)).rejects.toThrow("invalid: kind");
+    await expect(alerts.muteFromNotification(sec.id)).rejects.toThrow(/^invalid: kind$/);
   });
 
   it("R-G5: un avviso che non si riceve risponde come uno che non esiste", async () => {
@@ -457,7 +457,7 @@ describe("iscrizioni: righe e scritture", () => {
   });
 
   it("publishAlert rifiuta un kind fuori dal catalogo con un codice", () => {
-    expect(() => again({ ...prOpened, kind: "security.alert" })).toThrow("invalid: kind");
+    expect(() => again({ ...prOpened, kind: "security.alert" })).toThrow(/^invalid: kind$/);
   });
 
   it("failNext e resetApi", async () => {

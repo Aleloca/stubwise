@@ -135,8 +135,13 @@ export function resetAlertTypes(): void {
 
 /**
  * Il punto d'estensione delle aree successive (8b): aggiunge i tipi, o
- * sostituisce quelli con lo stesso `type`. Va chiamato al caricamento del
- * modulo: ciò che si registra dopo il primo `resetApi` lo toglie il reset.
+ * sostituisce quelli con lo stesso `type`. Va chiamato al caricamento di un
+ * modulo importato STATICAMENTE dal livello dati (`data/…`), mai da una
+ * pagina o da un import dinamico: la fotografia del catalogo si scatta al
+ * primo `resetApi`, non a fine caricamento. Quindi un tipo registrato dopo
+ * il primo reset (una pagina caricata in lazy) sparirebbe al reset
+ * successivo, e una registrazione di prova fatta prima del primo reset di un
+ * file di test resterebbe nel catalogo per tutto quel file.
  */
 export function registerAlertTypes(rows: AlertType[]): void {
   for (const r of rows) {

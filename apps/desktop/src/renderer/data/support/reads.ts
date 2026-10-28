@@ -127,7 +127,10 @@ export interface MyRequestStatus {
 
 /**
  * Lo stato di una richiesta come lo dice `my_requests` al cliente che l'ha
- * aperta dal server MCP: codice, titolo e stato in parole, nient'altro.
+ * aperta dal server MCP: codice, titolo e stato in parole, nient'altro. Ha
+ * la FORMA di `my_requests`, non il suo filtro: sul server risponde solo a
+ * chi ha chiesto (richiedente), qui il filtro è la sola visibilità (chi
+ * vede il progetto), anche per una richiesta senza origine Support.
  */
 export async function myRequestStatus(requestId: string): Promise<MyRequestStatus | null> {
   const me = await gate("support.myRequestStatus");

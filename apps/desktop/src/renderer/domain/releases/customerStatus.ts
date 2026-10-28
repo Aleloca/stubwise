@@ -43,6 +43,11 @@ export function customerStatus(
   }
   if (releases.some((k) => k === "succeeded" || k === "in_production")) return "released";
   // Un merge c'è, ma non è ancora arrivato (o è fallito): si lavora ancora.
+  // Vale anche per `unavailable` (nessuna pipeline né server di produzione
+  // da leggere), ed è una scelta: Stubwise non fa deploy e non sa se il
+  // merge è arrivato, quindi al cliente non dice «rilasciata» — come «già su
+  // staging?» dice «non risulta», mai un fatto che non ha visto. Il progetto
+  // esce da qui collegando una pipeline o il server dell'ambiente.
   if (releases.length > 0) return "in_progress";
   // Task tutte chiuse senza un rilascio: non è arrivato niente al cliente.
   if (tasks.length > 0 && tasks.every((t) => t.closedAt !== null)) return "not_proceeding";

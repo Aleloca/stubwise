@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   failNext,
   getConversation,
@@ -448,6 +448,16 @@ describe("Review Focus 2: correzioni sulle PR dei colleghi (livello dati)", () =
     expect(view.actions.analysisOnly).toBe(false);
   });
 
+  it("«Spento» non tocca le PR di Stubwise: la loro correzione in volo continua", async () => {
+    as("p-laura");
+    const res = await releases.requestPrCorrection("opr-aud-244", "Rename the checklist step");
+    const sessionId = res.ok ? res.sessionId! : "";
+    await releases.setRepoPrMode("repo-aud", "off");
+    expect(state.conversations.find((c) => c.id === sessionId)!.state).not.toBe("finished");
+    const view = (await releases.listOpenPrs(AUD)).find((p) => p.id === "opr-aud-244")!;
+    expect(view.prState.state).not.toBe("analysis_off");
+  });
+
   it("repository «Spento» con PR «Solo analisi»: non si riaccende", async () => {
     as("p-laura");
     await releases.setRepoPrMode("repo-aud", "off");
@@ -704,11 +714,14 @@ describe("«Fai sistemare a Claude» e «Chiedi a Claude di spiegarlo»", () => 
     expect(runs[0]!.ownerId).toBe("p-marco");
     expect(state.tasksById.get(task.id)!.claude).toBe("working");
     // Il gate si decide quando arriva il piano: Marco non ha plans.approve.
-    for (let i = 0; i < 8; i++) {
-      await whenIdle(runs[0]!.id);
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    }
-    expect(runs[0]!.state).toBe("awaiting_approval");
+    // Si aspetta lo stato, non un numero di giri dello script (con un limite).
+    await vi.waitFor(
+      async () => {
+        await whenIdle(runs[0]!.id);
+        expect(runs[0]!.state).toBe("awaiting_approval");
+      },
+      { timeout: 2000, interval: 5 },
+    );
     expect(state.tasksById.get(task.id)!.claude).toBe("awaiting_approval");
   });
 

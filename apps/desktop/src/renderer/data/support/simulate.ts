@@ -97,6 +97,7 @@ export async function simulateTriageDone(code: string): Promise<SupportConversat
       origin: { kind: "support", conversationId: c.id },
     },
     [],
+    { triage: true },
   );
   publishSupportRequest(req);
   return conversationView(me, c);

@@ -29,3 +29,21 @@ describe("architettura", () => {
     expect(offenders).toEqual([]);
   });
 });
+
+// `insertRequest` scrive una richiesta senza controllare permessi: oltre al
+// suo file la usa solo il triage simulato di Support (mai una scrittura di
+// una persona, che passa da `createRequestAs`).
+const DATA_SOURCES = import.meta.glob(["./**/*.{ts,tsx}", "!**/*.test.{ts,tsx}"], {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
+
+describe("insertRequest", () => {
+  it("fuori dal suo file la usa solo data/support/simulate.ts", () => {
+    const users = Object.entries(DATA_SOURCES)
+      .filter(([path, source]) => /\binsertRequest\b/.test(source) && path !== "./api-mutations.ts")
+      .map(([path]) => path);
+    expect(users).toEqual(["./support/simulate.ts"]);
+  });
+});

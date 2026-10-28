@@ -9,7 +9,7 @@ import {
   rowPartners,
   type AlertType,
 } from "./catalog";
-import { mergeMandatory, precedes, recipientsOf, subscriptionAt } from "./recipients";
+import { mergeMandatory, precedes, recipientsOf, subscriptionAt, whyFor } from "./recipients";
 
 const notification = (over: Partial<AppNotification>): AppNotification => ({
   id: "n-x",
@@ -223,6 +223,30 @@ describe("recipientsOf", () => {
     expect(recipientsOf(n, { ...base, subs: [on], permsOf: () => perms("repos.view") })).toEqual(
       [],
     );
+  });
+});
+
+describe("whyFor: una persona sola, la stessa regola di recipientsOf", () => {
+  const ctx = {
+    members: ["p-laura", "p-marco", "p-giulia"],
+    subs: [
+      sub("p-roberta", "release.failed", [{ at: "2026-10-01T00:00:00Z", app: true, phone: false }]),
+      sub("p-laura", "release.failed", [{ at: "2026-10-01T00:00:00Z", app: false, phone: false }]),
+    ],
+    permsOf: (id: string) => (id === "p-giulia" ? perms("release.merge") : perms()),
+    seesProject: (id: string) => id !== "p-marco",
+  };
+  it("dà per ognuno il perché di recipientsOf (o null)", () => {
+    const n = notification({
+      mandatory: [
+        { personId: "p-laura", reason: "merged" },
+        { personId: "p-marco", reason: "task_author" },
+      ],
+    });
+    const all = new Map(recipientsOf(n, ctx).map((r) => [r.personId, r.why]));
+    for (const p of ["p-laura", "p-marco", "p-giulia", "p-roberta", "p-sara"]) {
+      expect(whyFor(n, p, ctx), p).toBe(all.get(p) ?? null);
+    }
   });
 });
 

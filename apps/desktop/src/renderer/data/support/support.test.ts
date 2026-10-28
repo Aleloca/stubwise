@@ -74,6 +74,17 @@ describe("l'insieme esportato: nessuna richiesta da un'email", () => {
       }),
     ).rejects.toThrow("invalid: origin");
   });
+
+  it("fuori da «Apri la richiesta» un'origine Support vale solo per una non conclusa (mai in triage)", async () => {
+    as("p-matteo");
+    const id = conv("ACQ-S1").id; // in triage: Claude sta facendo le domande
+    await expect(
+      createRequest({ projectId: ACQ, title: "Skip the triage", origin: { kind: "support", conversationId: id } }),
+    ).rejects.toThrow(/^invalid: origin$/);
+    expect(conv("ACQ-S1").requestId).toBeNull();
+    // Il triage concluso resta la sua strada.
+    expect((await support.simulateTriageDone("ACQ-S1")).request).not.toBeNull();
+  });
 });
 
 describe("letture e visibilità", () => {

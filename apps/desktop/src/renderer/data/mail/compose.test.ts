@@ -137,7 +137,7 @@ describe("Bozze con uno slot loro (R-K14, area 8a)", () => {
     const slotted = await mail.getDraft(null, "new", "support-ACQ-S2");
     const saved = await mail.saveDraft({
       ...slotted,
-      to: [{ name: "Lucia Benedetti", email: "lucia.benedetti@example.com" }],
+      to: [{ name: "Lucia Benedetti", email: "lucia.benedetti@example.com", personId: null }],
       subject: "About your request",
       body: "Hi",
     });
@@ -145,7 +145,7 @@ describe("Bozze con uno slot loro (R-K14, area 8a)", () => {
     expect(sent.slot).toBe("support-ACQ-S2");
     const plain = await mail.saveDraft({
       ...(await mail.getDraft(null, "new")),
-      to: [{ name: "Lucia Benedetti", email: "lucia.benedetti@example.com" }],
+      to: [{ name: "Lucia Benedetti", email: "lucia.benedetti@example.com", personId: null }],
       subject: "Hello",
       body: "Hi",
     });

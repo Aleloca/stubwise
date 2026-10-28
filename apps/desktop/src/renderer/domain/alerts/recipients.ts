@@ -93,26 +93,42 @@ export interface Recipient {
  * scrive, e «Non avvisarmi più» non c'è).
  */
 export function recipientsOf(n: AppNotification, ctx: RecipientContext): Recipient[] {
+  const candidates = new Set([
+    ...(n.mandatory ?? []).map((m) => m.personId),
+    ...ctx.members,
+    ...ctx.subs.map((s) => s.personId),
+  ]);
+  const out: Recipient[] = [];
+  for (const personId of candidates) {
+    const why = whyFor(n, personId, ctx);
+    if (why) out.push({ personId, why });
+  }
+  return out.sort((a, b) => a.personId.localeCompare(b.personId));
+}
+
+/**
+ * Se UNA persona riceve un avviso del catalogo, e perché (`null` se no):
+ * la regola di `recipientsOf` valutata solo per lei, così chi chiede di
+ * una persona (`whyReceives`, a ogni lettura) non calcola tutti i membri.
+ */
+export function whyFor(
+  n: AppNotification,
+  personId: string,
+  ctx: RecipientContext,
+): Recipient["why"] | null {
   const def = alertTypeOf(n.kind);
-  if (!def) return [];
-  const out = new Map<string, Recipient["why"]>();
-  for (const m of n.mandatory ?? []) {
-    if (!out.has(m.personId)) out.set(m.personId, m.reason);
-  }
-  if (!def.mandatoryOnly) {
-    const candidates = new Set([...ctx.members, ...ctx.subs.map((s) => s.personId)]);
-    for (const personId of candidates) {
-      if (out.has(personId)) continue;
-      const sub = ctx.subs.find((s) => s.personId === personId && s.type === n.kind);
-      const member = ctx.members.includes(personId);
-      if (subscriptionAt(sub, def, ctx.permsOf(personId), { at: n.createdAt, seq: n.seq }, member).app)
-        out.set(personId, "subscribed");
-    }
-  }
-  return [...out]
-    .filter(([personId]) => allowedNow(def, ctx.permsOf(personId), ctx.seesProject(personId)))
-    .map(([personId, why]) => ({ personId, why }))
-    .sort((a, b) => a.personId.localeCompare(b.personId));
+  if (!def) return null;
+  const perms = ctx.permsOf(personId);
+  if (!allowedNow(def, perms, ctx.seesProject(personId))) return null;
+  const mandatory = n.mandatory?.find((m) => m.personId === personId);
+  if (mandatory) return mandatory.reason;
+  if (def.mandatoryOnly) return null;
+  const member = ctx.members.includes(personId);
+  const sub = ctx.subs.find((s) => s.personId === personId && s.type === n.kind);
+  if (!member && !sub) return null;
+  return subscriptionAt(sub, def, perms, { at: n.createdAt, seq: n.seq }, member).app
+    ? "subscribed"
+    : null;
 }
 
 /**
