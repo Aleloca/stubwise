@@ -96,13 +96,28 @@ describe("Release detail — fallito", () => {
     expect(screen.queryByRole("region", { name: /^Log of/ })).toBeNull();
   });
 
+  it("anteprima della task in italiano: titolo dal passo fallito e task correlata", async () => {
+    const v2 = release("AUD-V2");
+    v2.runs[1]!.status = "failed";
+    v2.runs[1]!.failedStep = "Run migrations";
+    await openRelease("AUD-V2");
+    act(() => setLanguage("it"));
+    await userEvent.click(screen.getByRole("button", { name: "Fai sistemare a Claude" }));
+    const dialog = await screen.findByRole("dialog", { name: "Fai sistemare AUD-V2 a Claude" });
+    expect(
+      within(dialog).getByText("Sistema il rilascio AUD-V2: il passo «Run migrations» è fallito"),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText(/correlata a AUD-8/)).toBeInTheDocument();
+  });
+
   it("«Fai sistemare» due volte apre la stessa task", async () => {
     await openRelease("AUD-V3");
     await userEvent.click(screen.getByRole("button", { name: "Fix it with Claude" }));
     const dialog = await screen.findByRole("dialog", { name: "Fix AUD-V3 with Claude" });
     expect(
-      within(dialog).getByText("Fix release AUD-V3: Invoices with the VAT number"),
+      within(dialog).getByText("Fix release AUD-V3: “Run migrations” failed"),
     ).toBeInTheDocument();
+    expect(within(dialog).getByText(/last 40 lines/)).toBeInTheDocument();
     // Nel frattempo qualcun altro (o un altro clic) l'ha già chiesto.
     setSessionPersonId("p-laura");
     const first = await releasesApi.fixRelease("AUD-V3");

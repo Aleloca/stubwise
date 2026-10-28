@@ -3,6 +3,8 @@ import { useId, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useOpenRequestFrom, type SupportConversationView } from "../../data/queries";
 import { Dialog, DialogField, inputClass } from "../../tasks-ui/Dialog";
+import { wishTitle } from "../../domain/support/state";
+import { formatDateTime } from "../../notifications/time";
 import { useToast } from "../../tasks-ui/Toast";
 import { primaryButton, secondaryButton, WorkingRing } from "../claude/conversation/parts";
 import { RequestStatusLabel } from "../requests/marks";
@@ -30,7 +32,8 @@ function OpenRequestDialog({
   const open = useOpenRequestFrom();
   const titleId = useId();
   const descId = useId();
-  const [title, setTitle] = useState("");
+  // Precompilati dal desiderio, se il triage l'aveva riscritto (shape §5).
+  const [title, setTitle] = useState(conv.rewrittenWish ? wishTitle(conv.rewrittenWish) : "");
   const [description, setDescription] = useState(conv.rewrittenWish ?? "");
   const submit = () => {
     if (!title.trim() || open.isPending) return;
@@ -133,7 +136,7 @@ function Wish({ text }: { text: string }) {
 }
 
 export function RequestBlock({ conv }: { conv: SupportConversationView }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [dialog, setDialog] = useState(false);
   const codeRef = useRef<HTMLAnchorElement>(null);
   const focusCode = useRef(false);
@@ -151,8 +154,9 @@ export function RequestBlock({ conv }: { conv: SupportConversationView }) {
   if (req) {
     return (
       <section aria-label={t("support.request.label")} data-request-block className={card}>
-        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-          <span className="heading-group">{t("support.request.label")}</span>
+        {/* Una riga sola: si accorcia il titolo, lo stato non va a capo da solo. */}
+        <div className="flex min-w-0 items-center gap-x-3">
+          <span className="heading-group shrink-0">{t("support.request.label")}</span>
           <Link
             ref={codeRef}
             to="/p/$code/$section"
@@ -164,7 +168,7 @@ export function RequestBlock({ conv }: { conv: SupportConversationView }) {
             <span className="num shrink-0 text-xs font-semibold tracking-[0.02em]">{req.code}</span>
             <span className="min-w-0 truncate">{req.title}</span>
           </Link>
-          <span className="ml-auto">
+          <span className="ml-auto shrink-0">
             <RequestStatusLabel status={req.status} />
           </span>
         </div>
@@ -174,6 +178,14 @@ export function RequestBlock({ conv }: { conv: SupportConversationView }) {
           <span className="font-semibold text-ink">
             {t(`support.customerStatus.${req.customerStatus}`)}
           </span>
+          {conv.confirmedAt && (
+            <>
+              {" · "}
+              {t("support.request.confirmed", {
+                date: formatDateTime(conv.confirmedAt, i18n.language),
+              })}
+            </>
+          )}
         </p>
       </section>
     );

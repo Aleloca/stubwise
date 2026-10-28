@@ -41,3 +41,13 @@ export function waitingSince(c: SupportConversation): string | null {
  */
 export const supportMailSlot = (code: string): string => `support-${code}`;
 export const SUPPORT_MAIL_SLOT = /^support-[A-Z]{2,4}-S\d+$/;
+
+/**
+ * Il titolo di una richiesta dal desiderio del cliente: la prima frase, senza
+ * il punto finale, al più 80 caratteri. Lo usano il triage concluso e
+ * «Apri la richiesta» (precompilato, shape support §5).
+ */
+export function wishTitle(wish: string): string {
+  const first = wish.split(/(?<=[.!?])\s/)[0]!.replace(/[.!?]$/, "");
+  return first.length > 80 ? `${first.slice(0, 79)}…` : first;
+}

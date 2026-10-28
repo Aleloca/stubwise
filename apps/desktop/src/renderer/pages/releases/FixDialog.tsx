@@ -7,7 +7,7 @@ import { can, useViewer } from "../../data/viewer";
 import { Dialog, DialogField, inputClass } from "../../tasks-ui/Dialog";
 import { useToast } from "../../tasks-ui/Toast";
 import { primaryButton, secondaryButton } from "../tasks/controls";
-import { failedRun } from "./format";
+import { prCode } from "./format";
 
 // «Fai sistemare a Claude» ([R 16]): un dialogo con l'anteprima della task
 // che nasce e una nota facoltativa per Claude, invece di crearla con un
@@ -24,7 +24,8 @@ export function FixDialog({ release, onClose }: { release: ReleaseView; onClose:
   const toast = useToast();
   const noteId = useId();
   const [note, setNote] = useState("");
-  const run = failedRun(release);
+  // Gli stessi dati di `fixRelease`: titolo dal passo fallito, task correlata, log.
+  const preview = release.fixPreview;
   // Il gate del piano: chi non ha `plans.approve` lo legge prima di partire.
   const approves = can(viewer, "plans.approve", release.projectId);
 
@@ -88,17 +89,29 @@ export function FixDialog({ release, onClose }: { release: ReleaseView; onClose:
         <div className="flex gap-2">
           <dt className="w-16 shrink-0 text-ink-muted">{t("releases.fix.titleLabel")}</dt>
           <dd className="min-w-0 text-ink [overflow-wrap:anywhere]">
-            {`Fix release ${release.code}: ${release.title}`}
+            {preview.step
+              ? t("releases.fix.taskTitle", { code: release.code, step: preview.step })
+              : t("releases.fix.taskTitleNoStep", { code: release.code, title: release.title })}
           </dd>
         </div>
         <div className="flex gap-2">
           <dt className="w-16 shrink-0 text-ink-muted">{t("releases.fix.linked")}</dt>
-          <dd className="num text-ink">#{release.pr.number}</dd>
+          <dd className="min-w-0 text-ink">
+            <span className="num">{prCode(release.pr)}</span>
+            {preview.relatedTaskCode && (
+              <span className="text-ink-muted">
+                {" · "}
+                {t("releases.fix.related", { task: preview.relatedTaskCode })}
+              </span>
+            )}
+          </dd>
         </div>
         <p className="text-ink-muted">
-          {run?.failedStep
-            ? t("releases.fix.attached", { step: run.failedStep })
-            : t("releases.fix.attachedNoStep")}
+          {!preview.step
+            ? t("releases.fix.attachedNoStep")
+            : preview.logLines
+              ? t("releases.fix.attachedLog", { step: preview.step })
+              : t("releases.fix.attached", { step: preview.step })}
         </p>
       </dl>
       <DialogField label={t("releases.fix.note")} htmlFor={noteId}>

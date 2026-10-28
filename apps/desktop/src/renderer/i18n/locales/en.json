@@ -6463,6 +6463,10 @@
       "linked": "Linked",
       "attached": "The run's error is attached: the step “{{step}}” and the link to the run.",
       "attachedNoStep": "The link to the failed run is attached.",
+      "attachedLog": "The run's error is attached: the step “{{step}}”, the last 40 lines of the log and the link to the run.",
+      "taskTitle": "Fix release {{code}}: “{{step}}” failed",
+      "taskTitleNoStep": "Fix release {{code}}: {{title}}",
+      "related": "related to {{task}}",
       "note": "Anything Claude should know?",
       "createAndStart": "Create task and start Claude",
       "create": "Create task",
@@ -6556,7 +6560,11 @@
     "panel": {
       "label": "Pull request {{pr}}",
       "close": "Close",
-      "byLine": "by {{name}} · opened {{date}} · {{branch}} → {{base}}",
+      "author": "Author",
+      "branch": "Branch",
+      "task": "Task",
+      "state": "State",
+      "opened": "Opened",
       "analysis": "Claude's analysis",
       "onSha": "on {{sha}} · {{time}}",
       "more": "More",
@@ -6595,6 +6603,7 @@
         "analysis_only": "This pull request is set to analysis only."
       },
       "stubwiseCorrections": "Claude makes the change in a new session of {{task}}.",
+      "openSession": "Open",
       "requestStarted": "Claude is making the change in {{task}}"
     },
     "simulate": {
@@ -6690,6 +6699,7 @@
     },
     "request": {
       "label": "Request",
+      "confirmed": "Confirmed by the customer, {{date}}",
       "customerSees": "The customer sees:",
       "showAll": "Show all",
       "showLess": "Show less",

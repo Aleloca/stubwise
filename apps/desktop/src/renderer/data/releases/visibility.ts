@@ -206,6 +206,13 @@ export interface ReleaseView extends Omit<Release, "runs"> {
   runs: RunView[];
   /** La task di «Fai sistemare a Claude», se chi guarda la vede. */
   fixTask: { id: string; code: string; title: string; open: boolean } | null;
+  /**
+   * L'anteprima della task di «Fai sistemare a Claude», con gli stessi dati
+   * di `fixRelease` (il titolo lo scrive la pagina col suo template i18n):
+   * il passo fallito, la task della PR (se chi guarda la vede) e se la task
+   * rimanda alle ultime righe del log (solo con `repos.view`).
+   */
+  fixPreview: FixPreview;
   /** «Fai sistemare a Claude»: `tickets.create` (e `runs.start` per far partire Claude). */
   canFix: boolean;
   canStartFix: boolean;
@@ -215,6 +222,40 @@ export interface ReleaseView extends Omit<Release, "runs"> {
    * obbligatorio (`releaseMandatory`: il merge è suo).
    */
   waitsOnViewer: boolean;
+}
+
+export interface FixPreview {
+  step: string | null;
+  relatedTaskCode: string | null;
+  logLines: boolean;
+}
+
+/** La prima run fallita del rilascio (quella che la task racconta). */
+export const firstFailedRun = (r: Release): CiRun | undefined =>
+  r.runs.find((x) => x.status === "failed");
+
+/** La task della PR del rilascio (dalla cronologia delle PR), se c'era. */
+export function prTaskOf(r: Release) {
+  const ev = state.pullRequests.find(
+    (p) => p.projectId === r.projectId && p.repo === r.pr.repo && p.number === r.pr.number,
+  );
+  return ev ? state.tasksById.get(ev.taskId) : undefined;
+}
+
+/** Il titolo della task di riparazione: dal passo fallito, se c'è (template di `releases.fix.taskTitle`). */
+export function fixTitle(r: Release): string {
+  const step = firstFailedRun(r)?.failedStep;
+  return step ? `Fix release ${r.code}: “${step}” failed` : `Fix release ${r.code}: ${r.title}`;
+}
+
+export function fixPreviewOf(me: string, r: Release): FixPreview {
+  const run = firstFailedRun(r);
+  const related = prTaskOf(r);
+  return {
+    step: run?.failedStep ?? null,
+    relatedTaskCode: related && sees(me, related.projectId) ? related.code : null,
+    logLines: !!run?.log && holds(me, "repos.view", r.projectId),
+  };
 }
 
 export function statusOf(r: Release): ReleaseStatus {
@@ -247,6 +288,7 @@ export function releaseView(me: string, r: Release): ReleaseView {
     fixTask: task
       ? { id: task.id, code: task.code, title: task.title, open: !task.closedAt }
       : null,
+    fixPreview: fixPreviewOf(me, r),
     canFix: holds(me, "tickets.create", r.projectId),
     canStartFix: holds(me, "runs.start", r.projectId),
     waitsOnViewer:

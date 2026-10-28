@@ -121,7 +121,7 @@ export async function followConversation(
  */
 export async function emailDraftFor(
   code: string,
-): Promise<{ threadId: string | null; draft: MailDraft }> {
+): Promise<{ slot: string; draft: MailDraft }> {
   const me = await writer("support.emailDraftFor");
   // Nemmeno l'email durante il triage: Claude sta facendo le domande (R-K18).
   const c = openReplyFor(me, code);
@@ -144,7 +144,8 @@ export async function emailDraftFor(
     attachments: [],
     updatedAt: now(),
   };
-  return { threadId: null, draft };
+  // Sempre un'email nuova nel suo slot: nessuna conversazione della Posta.
+  return { slot, draft };
 }
 
 // --- widget -------------------------------------------------------------------

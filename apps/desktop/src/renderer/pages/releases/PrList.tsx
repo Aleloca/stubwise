@@ -19,7 +19,9 @@ import { PrRow } from "./PrRow";
 /** Quante «non ancora pronte» si vedono nella pagina prima di «Show all N». */
 export const NOT_READY_PAGE = 8;
 
-type Filters = { repo: string | null; author: string | null; state: string | null };
+export type PrFilters = { repo: string | null; author: string | null; state: string | null };
+
+export const NO_PR_FILTERS: PrFilters = { repo: null, author: null, state: null };
 
 function FilterMenu({
   label,
@@ -103,17 +105,19 @@ export function PrList({
   prs,
   queue,
   environments,
+  filters = NO_PR_FILTERS,
   full = false,
 }: {
   projectCode: string;
   prs: OpenPrView[];
   queue: QueueItem[];
   environments: ProjectEnvironment[];
+  /** I filtri scelti in testa alla parte (`PrFilterBar`). */
+  filters?: PrFilters;
   /** `?view=prs`: la lista intera, coi filtri. */
   full?: boolean;
 }) {
   const { t } = useTranslation();
-  const [filters, setFilters] = useState<Filters>({ repo: null, author: null, state: null });
   // Una riga che ha preso un errore del merge resta nel primo gruppo, espansa
   // con l'errore, anche se nel frattempo la coda l'ha tolta (shape [R 10]).
   const [pinned, setPinned] = useState<Record<string, MergeError>>({});
@@ -126,9 +130,6 @@ export function PrList({
       return next;
     });
 
-  const repos = [...new Set(prs.map((p) => p.repo))];
-  const authors = [...new Map(prs.map((p) => [p.authorName, p.authorName])).values()];
-  const states = [...new Set(prs.map((p) => p.prState.state))];
   const match = (p: OpenPrView) =>
     (!filters.repo || p.repo === filters.repo) &&
     (!full || !filters.author || p.authorName === filters.author) &&
@@ -156,37 +157,6 @@ export function PrList({
 
   return (
     <div className="@container flex flex-col">
-      {(repos.length > 1 || full) && (
-        <div className="flex flex-wrap items-center justify-end gap-1 pb-1">
-          {repos.length > 1 && (
-            <FilterMenu
-              label={t("releases.filters.repository")}
-              value={filters.repo}
-              options={repos.map((r) => ({ id: r, label: shortRepo(r) }))}
-              onChange={(repo) => setFilters((f) => ({ ...f, repo }))}
-            />
-          )}
-          {full && (
-            <>
-              <FilterMenu
-                label={t("releases.filters.author")}
-                value={filters.author}
-                options={authors.map((a) => ({ id: a, label: a }))}
-                onChange={(author) => setFilters((f) => ({ ...f, author }))}
-              />
-              <FilterMenu
-                label={t("releases.filters.state")}
-                value={filters.state}
-                options={states.map((s) => ({
-                  id: s,
-                  label: t(`releases.prState.${s}`, { count: 2 }),
-                }))}
-                onChange={(state) => setFilters((f) => ({ ...f, state }))}
-              />
-            </>
-          )}
-        </div>
-      )}
       <div onKeyDown={rowKeys("[data-pr-open]")} className="flex flex-col border-t border-rule">
         <Group
           id="ready"
@@ -222,6 +192,60 @@ export function PrList({
         >
           {t("releases.showAll", { count: notReady.length })}
         </Link>
+      )}
+    </div>
+  );
+}
+
+/**
+ * I filtri della lista, sulla riga del titolo «Pull requests» (shape
+ * releases §6): Repository se ce n'è più d'uno; con `?view=prs` anche
+ * Author e State.
+ */
+export function PrFilterBar({
+  prs,
+  full,
+  filters,
+  setFilters,
+}: {
+  prs: OpenPrView[];
+  full: boolean;
+  filters: PrFilters;
+  setFilters: (update: (f: PrFilters) => PrFilters) => void;
+}) {
+  const { t } = useTranslation();
+  const repos = [...new Set(prs.map((p) => p.repo))];
+  const authors = [...new Map(prs.map((p) => [p.authorName, p.authorName])).values()];
+  const states = [...new Set(prs.map((p) => p.prState.state))];
+  if (repos.length <= 1 && !full) return null;
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-1">
+      {repos.length > 1 && (
+        <FilterMenu
+          label={t("releases.filters.repository")}
+          value={filters.repo}
+          options={repos.map((r) => ({ id: r, label: shortRepo(r) }))}
+          onChange={(repo) => setFilters((f) => ({ ...f, repo }))}
+        />
+      )}
+      {full && (
+        <>
+          <FilterMenu
+            label={t("releases.filters.author")}
+            value={filters.author}
+            options={authors.map((a) => ({ id: a, label: a }))}
+            onChange={(author) => setFilters((f) => ({ ...f, author }))}
+          />
+          <FilterMenu
+            label={t("releases.filters.state")}
+            value={filters.state}
+            options={states.map((s) => ({
+              id: s,
+              label: t(`releases.prState.${s}`, { count: 2 }),
+            }))}
+            onChange={(state) => setFilters((f) => ({ ...f, state }))}
+          />
+        </>
       )}
     </div>
   );

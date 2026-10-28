@@ -2,7 +2,7 @@
 // solo dentro le funzioni.
 import { insertRequest } from "../api-mutations";
 import { publishAlert } from "../alerts/publish";
-import { supportState } from "../../domain/support/state";
+import { supportState, wishTitle } from "../../domain/support/state";
 import { CLAUDE_ID } from "../seed/people";
 import { newId, now, state } from "../store";
 import type { SupportConversation, SupportMessage } from "../types";
@@ -66,10 +66,6 @@ export async function simulateCustomerLeaves(code: string): Promise<SupportConve
 }
 
 /** Il titolo della richiesta: la prima frase del desiderio, al massimo 80 caratteri. */
-function titleOf(wish: string): string {
-  const first = wish.split(/(?<=[.!?])\s/)[0]!.replace(/[.!?]$/, "");
-  return first.length > 80 ? `${first.slice(0, 79)}…` : first;
-}
 
 /**
  * «Simula: triage concluso»: il triage propone il desiderio riscritto, il
@@ -87,12 +83,13 @@ export async function simulateTriageDone(code: string): Promise<SupportConversat
   push(c, "customer", "Yes, that's it.");
   push(c, "triage", "Thanks: I passed your request to the team. You'll find the answer here.");
   c.rewrittenWish = wish;
+  c.confirmedAt = now();
   const project = state.projectsById.get(c.projectId)!;
   const req = insertRequest(
     project,
     {
       projectId: project.id,
-      title: titleOf(wish),
+      title: wishTitle(wish),
       description: wish,
       origin: { kind: "support", conversationId: c.id },
     },

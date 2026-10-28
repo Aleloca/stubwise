@@ -27,8 +27,11 @@ import {
   capOf,
   environmentFor,
   holds,
+  fixPreviewOf,
+  fixTitle,
   openFixTask,
   overStubwiseCap,
+  prTaskOf,
   prFor,
   productionOf,
   prView,
@@ -305,14 +308,19 @@ export async function requestPrCorrection(
 
 // --- rilascio fallito ---------------------------------------------------------
 
-/** Il testo della task di riparazione: la run fallita, il passo, il link (il log no: `repos.view`). */
-function fixDescription(r: Release, note?: string): string {
+/**
+ * Il testo della task di riparazione: la run fallita, il passo, il link. Il
+ * log NON entra (ruling del Task 5): a chi ha `repos.view` la task rimanda
+ * alle sue ultime 40 righe, che si leggono solo da lì.
+ */
+function fixDescription(r: Release, logLines: boolean, note?: string): string {
   const failed = r.runs.filter((x) => x.status === "failed");
   const lines = [
     `Release ${r.code} failed after the merge of ${r.pr.repo}#${r.pr.number}: ${r.title}.`,
     "",
     ...failed.map((x) => `- ${x.name}${x.failedStep ? `, step “${x.failedStep}”` : ""}: ${x.url}`),
   ];
+  if (logLines) lines.push("", "The last 40 lines of the log are on the release page.");
   // La nota facoltativa di chi la chiede («Anything Claude should know?», [R 16]).
   if (note?.trim()) lines.push("", note.trim());
   return lines.join("\n");
@@ -342,16 +350,13 @@ export async function fixRelease(code: string, note?: string): Promise<FixResult
     return { ...copy(existing), existing: true, noteAdded };
   }
   if (statusOf(r).kind !== "failed") throw invalid("status");
-  const prEvent = state.pullRequests.find(
-    (p) => p.projectId === r.projectId && p.repo === r.pr.repo && p.number === r.pr.number,
-  );
-  const prTask = prEvent ? state.tasksById.get(prEvent.taskId) : undefined;
+  const prTask = prTaskOf(r);
   const task = createTaskAs(
     me,
     {
       projectId: r.projectId,
-      title: `Fix release ${r.code}: ${r.title}`,
-      description: fixDescription(r, note),
+      title: fixTitle(r),
+      description: fixDescription(r, fixPreviewOf(me, r).logLines, note),
       type: "bug",
       priority: "high",
     },

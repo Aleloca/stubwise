@@ -26,6 +26,8 @@ export interface PendingReply {
   personId: string;
   code: string;
   body: string;
+  /** Partito: l'id del messaggio vero (finché la rilettura non lo porta, resta «in invio»). */
+  deliveredId?: string;
 }
 
 const drafts = new Map<string, string>();
@@ -54,7 +56,14 @@ export function writeDraft(personId: string, code: string, body: string): void {
 /** L'invio in attesa (nella finestra dell'«Annulla») di questa persona in questa conversazione. */
 export function pendingFor(personId: string, code: string): PendingReply | null {
   const p = pending.get(key(personId, code));
-  return p ? { personId: p.personId, code: p.code, body: p.body } : null;
+  return p
+    ? {
+        personId: p.personId,
+        code: p.code,
+        body: p.body,
+        ...(p.deliveredId ? { deliveredId: p.deliveredId } : {}),
+      }
+    : null;
 }
 
 /** L'ultimo invio non è riuscito: il suo testo è tornato nella casella. */
@@ -74,7 +83,8 @@ async function deliver(k: string, onSent: () => Promise<void> | void): Promise<v
   if (!p) return;
   p.timer = null;
   try {
-    await replyToCustomerNow(p.code, p.body);
+    const view = await replyToCustomerNow(p.code, p.body);
+    p.deliveredId = view.messages.at(-1)?.id;
   } catch {
     giveBack(k, p);
     return;
@@ -114,8 +124,10 @@ export function scheduleReply(
 export function takeBackReply(personId: string, code: string): boolean {
   const k = key(personId, code);
   const p = pending.get(k);
-  if (!p) return false;
-  if (p.timer) window.clearTimeout(p.timer);
+  // Già partito (il timer è scattato, la risposta è in volo): troppo tardi,
+  // il testo non torna nella casella mentre il messaggio parte comunque.
+  if (!p || p.timer === null) return false;
+  window.clearTimeout(p.timer);
   pending.delete(k);
   writeDraft(personId, code, placeDraft(readDraft(personId, code), p.body, "below"));
   return true;

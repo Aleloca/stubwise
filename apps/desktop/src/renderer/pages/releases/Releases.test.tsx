@@ -9,6 +9,7 @@ import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
 import { expectNoDeploy } from "../../test/noDeploy";
 import { renderRoute } from "../../test/renderRoute";
 import { setMatchMedia } from "../../test/setup";
+import { PR_PANEL_DOCKED_QUERY } from "./PrPanel";
 
 // La sezione Releases (Task 8 del piano 8a, shape releases.md): una lista di
 // PR a due gruppi, il merge a due tempi con ogni errore in parole, il
@@ -20,6 +21,7 @@ beforeEach(() => {
   resetApi();
   window.localStorage.clear();
   setMatchMedia(DOCKED_PANEL_QUERY, true);
+  setMatchMedia(PR_PANEL_DOCKED_QUERY, true);
 });
 afterEach(() => {
   resetViewerGrants();
@@ -198,6 +200,14 @@ describe("Releases — il pannello di una PR", () => {
     expectNoDeploy();
   });
 
+  it("a 1024 il pannello si aggancia accanto alla lista, non la copre (shape §6)", async () => {
+    setMatchMedia(DOCKED_PANEL_QUERY, false);
+    setMatchMedia(PR_PANEL_DOCKED_QUERY, true);
+    await openSection("p-marco", "/p/AUD/releases?pr=opr-aud-246");
+    const panel = await screen.findByRole("region", { name: "Pull request audin-app#246" });
+    expect(panel.closest("[data-mode]")).toHaveAttribute("data-mode", "docked");
+  });
+
   it("40 problemi: i primi 8 e «Show all 40», poi tutti leggibili", async () => {
     pr("opr-aud-246").analysis!.issues = Array.from({ length: 40 }, (_, i) => ({
       title: `Problem number ${i + 1} ${"with a long description ".repeat(4)}`,
@@ -269,7 +279,7 @@ describe("Releases — giro di correzioni 1", () => {
   });
 
   it("m3: «Request changes» anche su una PR di Stubwise, con la sessione della task", async () => {
-    renderRoute("/p/AUD/releases?pr=opr-aud-244", "p-marco");
+    const router = renderRoute("/p/AUD/releases?pr=opr-aud-244", "p-marco");
     const panel = await screen.findByRole("region", { name: "Pull request audin-app#244" });
     const before = state.conversations.length;
     await userEvent.type(
@@ -282,6 +292,10 @@ describe("Releases — giro di correzioni 1", () => {
       kind: "task_run",
       taskId: pr("opr-aud-244").taskId,
     });
+    // n2: l'esito porta alla sessione appena nata.
+    const session = state.conversations.at(-1)!.id;
+    await userEvent.click(await screen.findByRole("button", { name: "Open" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/claude/${session}`));
   });
 
   it("m3: al tetto (STW guide#58) Marco ha il bottone spento col perché", async () => {

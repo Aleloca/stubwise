@@ -697,13 +697,24 @@ describe("«Fai sistemare a Claude» e «Chiedi a Claude di spiegarlo»", () => 
       releaseRef: { releaseId: "rel8-aud-3" },
       claude: "none",
     });
+    expect(task.title).toBe("Fix release AUD-V3: “Run migrations” failed");
     expect(task.description).toContain("Run migrations");
     expect(task.description).not.toContain("SQL statement"); // il log resta a chi ha repos.view
+    expect(task.description).not.toContain("last 40 lines");
     expect(runsOf(task.id)).toEqual([]);
     expect((await releases.getRelease("AUD-V3"))!.fixTask).toMatchObject({
       id: task.id,
       open: true,
     });
+  });
+
+  it("con repos.view la task rimanda alle ultime 40 righe del log (il log non entra)", async () => {
+    as("p-laura");
+    const task = await releases.fixRelease("AUD-V3");
+    expect(task.description).toContain("last 40 lines");
+    expect(task.description).not.toContain("SQL statement");
+    const view = (await releases.getRelease("AUD-V3"))!;
+    expect(view.fixPreview).toMatchObject({ step: "Run migrations", logLines: true });
   });
 
   it("con runs.start ma senza plans.approve (Marco): Claude parte e passa dal gate", async () => {

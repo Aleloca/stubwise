@@ -6463,6 +6463,10 @@
       "linked": "Collegata",
       "attached": "L'errore della run è allegato: il passo «{{step}}» e il link alla run.",
       "attachedNoStep": "Il link alla run fallita è allegato.",
+      "attachedLog": "L'errore della run è allegato: il passo «{{step}}», le ultime 40 righe del log e il link alla run.",
+      "taskTitle": "Sistema il rilascio {{code}}: il passo «{{step}}» è fallito",
+      "taskTitleNoStep": "Sistema il rilascio {{code}}: {{title}}",
+      "related": "correlata a {{task}}",
       "note": "Qualcosa che Claude deve sapere?",
       "createAndStart": "Crea la task e avvia Claude",
       "create": "Crea la task",
@@ -6556,7 +6560,11 @@
     "panel": {
       "label": "Pull request {{pr}}",
       "close": "Chiudi",
-      "byLine": "di {{name}} · aperta il {{date}} · {{branch}} → {{base}}",
+      "author": "Autore",
+      "branch": "Ramo",
+      "task": "Task",
+      "state": "Stato",
+      "opened": "Aperta",
       "analysis": "Analisi di Claude",
       "onSha": "su {{sha}} · {{time}}",
       "more": "Altro",
@@ -6595,6 +6603,7 @@
         "analysis_only": "Questa PR è su solo analisi."
       },
       "stubwiseCorrections": "Claude fa la modifica in una nuova sessione di {{task}}.",
+      "openSession": "Apri",
       "requestStarted": "Claude sta facendo la modifica in {{task}}"
     },
     "simulate": {
@@ -6690,6 +6699,7 @@
     },
     "request": {
       "label": "Richiesta",
+      "confirmed": "Confermato dal cliente, {{date}}",
       "customerSees": "Il cliente vede:",
       "showAll": "Mostra tutto",
       "showLess": "Mostra meno",

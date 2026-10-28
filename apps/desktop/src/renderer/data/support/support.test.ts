@@ -211,7 +211,8 @@ describe("Review Focus 4: il cliente vede solo il suo", () => {
       body: "Thanks Lucia.",
     });
     const email = await support.emailDraftFor("ACQ-S2");
-    expect(email.threadId).toBeNull();
+    expect(email.slot).toBe("support-ACQ-S2");
+    expect(email.draft.threadId).toBeNull();
     expect(email.draft).toMatchObject({
       mode: "new",
       to: [expect.objectContaining({ email: "lucia.benedetti@example.com" })],
@@ -451,8 +452,10 @@ describe("simulazioni e avvisi", () => {
 
   it("triage concluso: richiesta col desiderio riscritto e la conversazione, avviso", async () => {
     as("p-sara");
+    expect(conv("ACQ-S1").confirmedAt).toBeNull();
     const view = await support.simulateTriageDone("ACQ-S1");
     expect(view.state).toBe("request_open");
+    expect(view.confirmedAt).not.toBeNull();
     const req = state.requests.find((r) => r.id === conv("ACQ-S1").requestId)!;
     expect(req.origin).toEqual({ kind: "support", conversationId: conv("ACQ-S1").id });
     expect(req.description).toBe(conv("ACQ-S1").rewrittenWish);

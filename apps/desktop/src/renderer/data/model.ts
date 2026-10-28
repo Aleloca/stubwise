@@ -2621,6 +2621,12 @@ export interface SupportConversation {
   requestId: string | null;
   /** Il cliente se n'è andato prima della fine del triage. */
   leftAt: string | null;
+  /**
+   * Quando il cliente ha confermato il desiderio riscritto, a fine triage
+   * («Confirmed by the customer, …»); `null` se non l'ha confermato (una
+   * richiesta aperta dal team da una conversazione non conclusa).
+   */
+  confirmedAt: string | null;
   followerIds: string[];
   /** La bozza di risposta di Claude: la vede solo chi ha `support.reply`, non parte mai da sola. */
   claudeDraft: string | null;

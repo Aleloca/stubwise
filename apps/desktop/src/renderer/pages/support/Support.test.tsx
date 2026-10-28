@@ -165,6 +165,8 @@ describe("Support — il dettaglio", () => {
     expect(within(block).getByRole("link", { name: /ACQ-R\d+/ })).toBeInTheDocument();
     expect(block).toHaveTextContent("Pay the larger bills");
     expect(block).toHaveTextContent(/The customer sees: (Received|In evaluation)/);
+    // Il desiderio l'ha confermato il cliente nel triage: quando (brief §3).
+    expect(block).toHaveTextContent(/Confirmed by the customer, .*10:09/);
     const messages = within(d).getByRole("list", { name: "Conversation" });
     expect(within(messages).getAllByText("Assistant (triage)").length).toBeGreaterThan(0);
     expect(within(messages).getByText("Sent to the customer in the widget")).toBeInTheDocument();
@@ -322,6 +324,25 @@ describe("Support — la bozza di Claude e l'invio", () => {
     expect(conv("ACQ-S2").followerIds).toContain("p-matteo");
     const d = await detail("ACQ-S2");
     await waitFor(() => expect(within(d).queryByText("Sending…")).toBeNull());
+  });
+
+  it("n1: lo stesso testo dell'ultimo messaggio mio: «Sending…» si vede lo stesso", async () => {
+    const user = fakeTime();
+    conv("ACQ-S2").messages.push({
+      id: "sup-m-same",
+      from: "team",
+      authorId: "p-matteo",
+      body: "Same.",
+      at: "2026-10-28T08:30:00Z",
+    });
+    await open("/p/ACQ/support/ACQ-S2");
+    const form = await composer();
+    await user.type(within(form).getByRole("textbox", { name: "Message" }), "Same.");
+    await user.click(within(form).getByRole("button", { name: "Send to customer" }));
+    expect(await screen.findByText("Sending…")).toBeInTheDocument();
+    await advance(REPLY_UNDO_MS + 100);
+    await waitFor(() => expect(screen.queryByText("Sending…")).toBeNull());
+    expect(screen.getAllByText("Same.")).toHaveLength(2);
   });
 
   it("I1: un invio alla volta — col primo nella finestra «Send» è fermo col perché; nessun invio si perde", async () => {
@@ -513,6 +534,21 @@ describe("Support — «Apri la richiesta» su una non conclusa", () => {
       kind: "support",
       conversationId: conv("ACQ-S3").id,
     });
+  });
+
+  it("m3: col desiderio riscritto, titolo e descrizione partono precompilati", async () => {
+    conv("ACQ-S3").rewrittenWish = "Stay logged in on the portal for a week. Even on a phone.";
+    const user = userEvent.setup();
+    await open("/p/ACQ/support/ACQ-S3");
+    const d = await detail("ACQ-S3");
+    await user.click(within(d).getByRole("button", { name: "Open the request" }));
+    const dialog = await screen.findByRole("dialog", { name: "Open the request" });
+    expect(within(dialog).getByRole("textbox", { name: "Title" })).toHaveValue(
+      "Stay logged in on the portal for a week",
+    );
+    expect(within(dialog).getByRole("textbox", { name: "Description" })).toHaveValue(
+      "Stay logged in on the portal for a week. Even on a phone.",
+    );
   });
 
   it("senza backlog.create: nessun bottone, la frase", async () => {

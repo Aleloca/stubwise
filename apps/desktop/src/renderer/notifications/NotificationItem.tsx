@@ -130,10 +130,11 @@ export function NotificationItem({ notification: n, project, alert, onOpen, onCh
 
       {/* Le azioni non riservano spazio: si sovrappongono all'angolo in alto a
           destra (sopra il «quando») al passaggio o al fuoco, e restano
-          raggiungibili da tastiera. */}
+          raggiungibili da tastiera. Il bordo sinistro sfuma: il nome del
+          progetto sotto si dissolve, non si taglia a metà parola. */}
       <div
         data-notification-actions
-        className={`absolute top-2 right-3 flex items-center gap-1 bg-[color-mix(in_oklch,var(--ink)_4%,var(--surface))] pl-2 group-focus-within:opacity-100 group-hover:opacity-100 ${menuOpen || moreOpen ? "opacity-100" : "opacity-0"}`}
+        className={`absolute top-2 right-3 flex items-center gap-1 bg-[linear-gradient(to_right,transparent,color-mix(in_oklch,var(--ink)_4%,var(--surface))_1.5rem)] pl-8 group-focus-within:opacity-100 group-hover:opacity-100 ${menuOpen || moreOpen ? "opacity-100" : "opacity-0"}`}
       >
         {!n.read && (
           <button type="button" className={actionClass} onClick={() => onChange({ read: true })}>
@@ -223,6 +224,13 @@ export function NotificationItem({ notification: n, project, alert, onOpen, onCh
               <AlertMenu
                 alert={alert}
                 mandatory={why !== undefined}
+                // Sotto coprirebbe il perché dell'obbligo, scritto sotto il
+                // corpo: allora si apre sopra, se c'è posto.
+                placement={
+                  why && (moreButton.current?.getBoundingClientRect().top ?? 0) > 160
+                    ? "above"
+                    : "below"
+                }
                 onClose={(restore) => {
                   setMoreOpen(false);
                   if (restore) moreButton.current?.focus();
@@ -244,10 +252,12 @@ export function NotificationItem({ notification: n, project, alert, onOpen, onCh
 function AlertMenu({
   alert,
   mandatory,
+  placement,
   onClose,
 }: {
   alert: AlertOfNotification;
   mandatory: boolean;
+  placement: "above" | "below";
   onClose: (restoreFocus: boolean) => void;
 }) {
   const { t } = useTranslation();
@@ -257,13 +267,23 @@ function AlertMenu({
     action();
   };
   return (
-    <Menu label={t("alerts.panel.more")} onClose={onClose} align="right">
+    <Menu label={t("alerts.panel.more")} onClose={onClose} align="right" placement={placement}>
       {!mandatory && alert.state === "off" && (
         <>
-          <p role="menuitem" aria-disabled="true" tabIndex={-1} className={`${itemClass} text-ink-muted hover:bg-transparent`}>
+          <p
+            role="menuitem"
+            aria-disabled="true"
+            tabIndex={-1}
+            className={`${itemClass} text-ink-muted hover:bg-transparent`}
+          >
             {t("alerts.panel.alreadyOff", { code })}
           </p>
-          <button type="button" role="menuitem" className={itemClass} onClick={run(alert.onTurnBackOn)}>
+          <button
+            type="button"
+            role="menuitem"
+            className={itemClass}
+            onClick={run(alert.onTurnBackOn)}
+          >
             {t("alerts.panel.turnBackOn")}
           </button>
         </>

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useOpenPrs, usePeople, useProject, useReleaseQueue } from "../../data/queries";
 import type { OpenPrView, QueueItem } from "../../data/releases";
-import { DOCKED_PANEL_QUERY, DetailPanel } from "../../layout/useDetailPanel";
+import { DetailPanel } from "../../layout/useDetailPanel";
 import { useMediaQuery } from "../../layout/useMediaQuery";
 import { formatDate } from "../../notifications/time";
 import { CloseIcon, Section, ghostButton } from "../task/parts";
@@ -214,31 +214,51 @@ function PrBody({
           </button>
         </div>
         <h2 className="text-lg font-semibold text-ink [overflow-wrap:anywhere]">{pr.title}</h2>
-        <p className="text-sm text-ink-muted [overflow-wrap:anywhere]">
-          {t("releases.panel.byLine", {
-            name: author,
-            date: formatDate(pr.openedAt, i18n.language),
-            branch: pr.branch,
-            base: pr.baseBranch,
-          })}
-          {pr.fromFork && ` · ${t("releases.pr.fork")}`}
-        </p>
-        {pr.taskCode && (
-          <Link
-            to="."
-            search={
-              ((prev: Record<string, unknown>) => ({
-                ...prev,
-                pr: undefined,
-                task: pr.taskCode,
-              })) as never
-            }
-            className="num self-start rounded-sm text-sm font-semibold text-ink underline-offset-4 hover:underline"
-          >
-            {pr.taskCode}
-          </Link>
-        )}
-        {prose && <p className="text-sm text-ink-muted">{prose}</p>}
+        {/* Ogni riga ha la sua etichetta (shape §6): niente frasi orfane sotto il titolo. */}
+        <dl className="grid grid-cols-[minmax(64px,auto)_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
+          <dt className="text-ink-muted">{t("releases.panel.author")}</dt>
+          <dd className="min-w-0 text-ink [overflow-wrap:anywhere]">
+            {author}
+            {pr.fromFork && <span className="text-ink-muted"> · {t("releases.pr.fork")}</span>}
+          </dd>
+          <dt className="text-ink-muted">{t("releases.panel.branch")}</dt>
+          <dd className="num min-w-0 text-ink">
+            <span className="[overflow-wrap:anywhere]">{pr.branch}</span>{" "}
+            {/* La destinazione non va mai a capo da sola. */}
+            <span className="whitespace-nowrap">→ {pr.baseBranch}</span>
+          </dd>
+          {pr.taskCode && (
+            <>
+              <dt className="text-ink-muted">{t("releases.panel.task")}</dt>
+              <dd>
+                <Link
+                  to="."
+                  search={
+                    ((prev: Record<string, unknown>) => ({
+                      ...prev,
+                      pr: undefined,
+                      task: pr.taskCode,
+                    })) as never
+                  }
+                  className="num rounded-sm font-semibold text-ink underline-offset-4 hover:underline"
+                >
+                  {pr.taskCode}
+                </Link>
+              </dd>
+            </>
+          )}
+          {prose && (
+            <>
+              <dt className="text-ink-muted">{t("releases.panel.state")}</dt>
+              <dd className="min-w-0 text-ink [overflow-wrap:anywhere]">{prose}</dd>
+            </>
+          )}
+          <dt className="text-ink-muted">{t("releases.panel.opened")}</dt>
+          <dd className="text-ink">
+            {formatDate(pr.openedAt, i18n.language)}
+            <span className="text-ink-muted"> · {ago(pr.openedAt, t, i18n.language)}</span>
+          </dd>
+        </dl>
         {queueItem?.canMerge && (
           <div className="flex flex-col pt-1">
             <span className="self-start">
@@ -247,7 +267,6 @@ function PrBody({
             <MergeExpansion pr={pr} flow={flow} projectCode={projectCode} />
           </div>
         )}
-        <span className="text-xs text-ink-faint">{ago(pr.openedAt, t, i18n.language)}</span>
       </header>
       <Analysis pr={pr} />
       <Corrections pr={pr} />
@@ -256,6 +275,14 @@ function PrBody({
     </div>
   );
 }
+
+/**
+ * Il pannello della PR si aggancia già a 1024 (shape releases §6
+ * «1024×680»): la lista resta a ~360px e le sue righe si accorciano con le
+ * container query di `PrRow` (riga 2 = stato e rischio, autore solo avatar),
+ * invece di essere coperta. Più stretto si sovrappone, come il resto dell'app.
+ */
+export const PR_PANEL_DOCKED_QUERY = "(min-width: 1024px)";
 
 /**
  * Montato dal layout: il pannello della PR su `?pr=` nella sezione Releases.
@@ -273,7 +300,7 @@ export function PrPanelHost() {
 function PrPanelFor({ code, prId }: { code: string; prId: string }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const docked = useMediaQuery(DOCKED_PANEL_QUERY);
+  const docked = useMediaQuery(PR_PANEL_DOCKED_QUERY);
   const project = useProject(code).data;
   const prs = useOpenPrs(project?.id);
   const queue = useReleaseQueue(project?.id);

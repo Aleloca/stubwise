@@ -1,3 +1,4 @@
+import { useNavigate } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -78,6 +79,7 @@ function RequestChanges({
   const { viewer } = useViewer();
   const request = useRequestPrCorrection();
   const toast = useToast();
+  const navigate = useNavigate();
   const id = useId();
   const [text, setText] = useState("");
   const [result, setResult] = useState<string | null>(null);
@@ -91,11 +93,20 @@ function RequestChanges({
       { prId: pr.id, text },
       {
         onSuccess: (r) => {
-          if (r.ok) {
-            setText("");
-            setResult(null);
-            toast.show(t("releases.panel.requestSent"));
-          } else setResult(r.error);
+          if (!r.ok) return setResult(r.error);
+          setText("");
+          setResult(null);
+          const sessionId = r.sessionId;
+          // Una PR di Stubwise: la correzione è una sessione della task, e il
+          // toast porta lì (come «Merged… Open»).
+          if (sessionId && pr.taskCode) {
+            toast.show(t("releases.panel.requestStarted", { task: pr.taskCode }), {
+              action: {
+                label: t("releases.panel.openSession"),
+                run: () => void navigate({ to: "/claude/$id", params: { id: sessionId } }),
+              },
+            });
+          } else toast.show(t("releases.panel.requestSent"));
         },
         onError: () => toast.error(t("releases.panel.requestError")),
       },

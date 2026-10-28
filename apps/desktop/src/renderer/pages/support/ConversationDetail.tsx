@@ -53,8 +53,7 @@ function useWriteByEmail() {
   const save = useSaveMailDraft();
   return async (code: string) => {
     try {
-      const { draft } = await emailDraft.mutateAsync(code);
-      const slot = draft.slot!;
+      const { slot, draft } = await emailDraft.mutateAsync(code);
       // Una bozza già scritta per questo cliente non si sovrascrive.
       const saved = await load(null, "new", slot);
       if (!saved.to.length && !saved.subject.trim() && !saved.body.trim()) {
@@ -409,13 +408,21 @@ export function ConversationDetail({
               {t("support.reply.triage")}
             </p>
           ) : (
-            <ReplyComposer
-              key={`${me}:${conv.code}`}
-              conv={conv}
-              bodyRef={bodyRef}
-              footer={footer}
-              onSent={() => requestAnimationFrame(() => lastRef.current?.focus())}
-            />
+            // Agganciata in fondo alla colonna (shape support §6, il momento
+            // focale): desiderio in alto, bozza e «Send to customer» si vedono
+            // insieme anche quando la conversazione è lunga.
+            <div
+              data-reply-dock
+              className="sticky bottom-0 z-10 -mx-8 -mb-10 bg-ground px-8 pt-1 pb-6"
+            >
+              <ReplyComposer
+                key={`${me}:${conv.code}`}
+                conv={conv}
+                bodyRef={bodyRef}
+                footer={footer}
+                onSent={() => requestAnimationFrame(() => lastRef.current?.focus())}
+              />
+            </div>
           )}
         </div>
       </article>

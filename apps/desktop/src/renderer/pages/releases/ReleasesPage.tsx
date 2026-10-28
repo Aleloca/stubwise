@@ -1,5 +1,5 @@
 import { Link, useRouterState, useSearch } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   useEnvironments,
@@ -14,7 +14,7 @@ import { PageEmpty, PageSkeleton } from "../../tasks-ui/PageStates";
 import { smallSecondary } from "../task/parts";
 import { Environments } from "./Environments";
 import { NeedsAttention, attentionCases } from "./NeedsAttention";
-import { PrList } from "./PrList";
+import { NO_PR_FILTERS, PrFilterBar, PrList, type PrFilters } from "./PrList";
 import { ReleaseList } from "./ReleaseList";
 
 // La sezione Releases di un progetto (`#/p/AUD/releases`, shape releases.md
@@ -88,6 +88,7 @@ export function ReleasesPage({ projectCode }: { projectCode: string }) {
   const envs = useEnvironments(project?.id);
 
   const repos = useRepositorySettings(project?.id);
+  const [prFilters, setPrFilters] = useState<PrFilters>(NO_PR_FILTERS);
   // Il rimando «Set up environments» arriva con `#environments`: la parte si porta in vista.
   const hash = useRouterState({ select: (s) => s.location.hash });
   const envsReady = envs.data !== undefined;
@@ -98,7 +99,21 @@ export function ReleasesPage({ projectCode }: { projectCode: string }) {
   }, [hash, envsReady]);
 
   const prsPart = (
-    <Part id="prs" title={t("releases.parts.prs")} count={prs.data?.length}>
+    <Part
+      id="prs"
+      title={t("releases.parts.prs")}
+      count={prs.data?.length}
+      action={
+        prs.data && prs.data.length > 0 ? (
+          <PrFilterBar
+            prs={prs.data}
+            full={view === "prs"}
+            filters={prFilters}
+            setFilters={setPrFilters}
+          />
+        ) : undefined
+      }
+    >
       {prs.isError || queue.isError ? (
         <PartError
           message={t("releases.errors.prs")}
@@ -119,6 +134,7 @@ export function ReleasesPage({ projectCode }: { projectCode: string }) {
           prs={prs.data}
           queue={queue.data}
           environments={envs.data?.environments ?? []}
+          filters={prFilters}
           full={view === "prs"}
         />
       )}

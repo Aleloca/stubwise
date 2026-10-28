@@ -10,14 +10,14 @@ import { ReleaseStatusWord } from "./glyphs";
 // I rilasci del progetto (shape releases.md §6, «Releases»): una riga da
 // 44px — codice · titolo della PR · glifo + parola · chi e quando; fuori da
 // Stubwise «· outside Stubwise»; con la task di riparazione «· AUD-140
-// fixing». Nella pagina gli ultimi 10 e «Show all N» (`?view=releases`), lì
+// fixing», che non si troncano mai (si va a capo). Nella pagina gli ultimi 10 e «Show all N» (`?view=releases`), lì
 // a pagine da 50.
 
 export const RELEASES_PAGE = 10;
 export const RELEASES_CHUNK = 50;
 
 const rowGrid =
-  "grid min-h-11 grid-cols-[72px_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 rounded-md px-3 py-1.5 @[560px]:grid-cols-[72px_minmax(0,1fr)_minmax(136px,176px)_minmax(0,240px)]";
+  "grid min-h-11 grid-cols-[72px_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 rounded-md px-3 py-1.5 @[560px]:grid-cols-[72px_minmax(0,1fr)_auto_minmax(0,240px)]";
 
 export function ReleaseRow({ release }: { release: ReleaseView }) {
   const { t, i18n } = useTranslation();
@@ -43,7 +43,9 @@ export function ReleaseRow({ release }: { release: ReleaseView }) {
           {release.title}
         </span>
         <ReleaseStatusWord release={release} />
-        <span className="col-start-2 min-w-0 truncate text-sm text-ink-muted @[560px]:col-start-auto @[560px]:text-right">
+        {/* Chi e quando va a capo invece di troncarsi: «outside Stubwise» e
+            «AUD-140 fixing» sono il punto della riga, non un dettaglio. */}
+        <span className="col-start-2 min-w-0 text-sm text-ink-muted [overflow-wrap:anywhere] @[560px]:col-start-auto @[560px]:text-right">
           {who}
           {fixing && (
             <>

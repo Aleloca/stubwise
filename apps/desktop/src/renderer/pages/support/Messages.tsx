@@ -162,9 +162,8 @@ export function Messages({
           />
         ),
       )}
-      {/* Partito e già riletto: c'è il messaggio vero, non lo si ripete. */}
-      {pending &&
-        !(list.at(-1)?.authorId === pending.personId && list.at(-1)?.body === pending.body) && (
+      {/* Partito e già riletto: c'è il messaggio vero (per id), non lo si ripete. */}
+      {pending && !(pending.deliveredId && list.some((m) => m.id === pending.deliveredId)) && (
           <Message
             m={{ from: "team", authorId: pending.personId, body: pending.body, at: "" }}
             conv={conv}
