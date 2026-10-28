@@ -449,6 +449,11 @@ l'istruzione dice all'utente che la conversazione verrà allegata.
   (widget, plugin/MCP e simili). Non esistono l'azione «Crea richiesta»
   nella Posta, una funzione del livello dati che la crei da un thread, un
   canale «Email» in Support né una provenienza «da un'email».
+- **Eccezione che resta: le proposte della Posta dell'area 6** *(decisione
+  del maintainer, 28 ott 2026)*. La proposta di Claude «Crea richiesta in
+  <progetto>» su un'email, che una persona conferma, resta com'è: è una
+  proposta confermata, non una richiesta di un cliente aperta da Support.
+  Quest'area non la tocca.
 
 ### Cosa vede il cliente e come gli si risponde *(maintainer, decisione 8)*
 
