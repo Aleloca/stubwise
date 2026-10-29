@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { decidePlan, resetApi, servers, setLatency, setStreamLatency, stop } from "../../data/api";
@@ -459,8 +459,9 @@ describe("l'avviso di un server senza accesso", () => {
       expect(within(notifications).getAllByText(/can't look into it/).length).toBeGreaterThan(0),
     );
     expect(within(notifications).queryByRole("button", { name: "Link SSH access" })).toBeNull();
-    // Controllo positivo: lo stesso avviso, a Roberta, lo offre.
-    document.body.innerHTML = "";
+    // Controllo positivo: lo stesso avviso, a Roberta, lo offre. Il primo
+    // render si smonta (non si svuota il body sotto React: rumore removeChild).
+    cleanup();
     const roberta = await openPanel("p-roberta");
     const srv1 = (await within(roberta.panel).findAllByText("SRV-1"))
       .map((el) => el.closest("[data-notification]")!)

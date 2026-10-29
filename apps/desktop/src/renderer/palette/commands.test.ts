@@ -80,6 +80,42 @@ describe("comandi degli avvisi (area 8a)", () => {
   });
 });
 
+describe("comandi dei server (area 8b)", () => {
+  const ssh: Viewer = {
+    personId: "p-x",
+    instancePermissions: ["servers.ssh.manage"] as never,
+    projectPermissions: {},
+    departmentPermissions: {},
+  };
+  const linkSsh = (
+    v: Viewer,
+    state: string | undefined,
+    serverCode: string | undefined = "SRV-1",
+  ) =>
+    matchCommands("", v, (c) => c.id, {
+      projectId: "prj-1",
+      projectCode: "ACQ",
+      serverCode,
+      serverAccessState: state as never,
+    }).some((c) => c.id === "server.linkSsh");
+
+  it("«Link SSH access»: solo con servers.ssh.manage, su un server, se l'accesso non è già a posto", () => {
+    for (const state of [
+      "not_linked",
+      "awaiting_command",
+      "verify_failed",
+      "read_writes",
+      "revoked",
+    ])
+      expect(linkSsh(ssh, state), state).toBe(true);
+    expect(linkSsh(ssh, "verified")).toBe(false);
+    expect(linkSsh(ssh, "regenerating")).toBe(false);
+    expect(linkSsh(ssh, undefined)).toBe(false);
+    expect(linkSsh(ssh, "not_linked", "")).toBe(false);
+    expect(linkSsh(viewerWith([]), "not_linked")).toBe(false);
+  });
+});
+
 describe("comandi delle Automations (area 7)", () => {
   it("«New automation» solo con automations.manage, in un progetto o d'istanza", () => {
     expect(ids(viewerWith(["tickets.create"]))).not.toContain("automation.new");
