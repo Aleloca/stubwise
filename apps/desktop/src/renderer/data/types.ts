@@ -282,6 +282,13 @@ export type ClaudeDecision = {
       /** L'evento del piano: la decisione vale solo per questo piano. */
       planId: string;
       summary: string;
+      /**
+       * Correzione di un server (area 8b): perché il piano non si può
+       * approvare adesso; resta solo il rifiuto. `null` altrove.
+       */
+      blockedReason: ServerFixBlock | null;
+      /** Il server di una correzione (`SRV-n`), `null` altrove. */
+      serverCode: string | null;
     }
 );
 

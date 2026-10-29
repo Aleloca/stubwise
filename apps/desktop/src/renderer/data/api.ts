@@ -252,7 +252,15 @@ export async function listClaudeDecisions(): Promise<ClaudeDecision[]> {
             text: event.text,
             options: copy(event.options),
           }
-        : { ...base, kind: "plan", planId: event.id, summary: event.summary };
+        : {
+            ...base,
+            kind: "plan",
+            planId: event.id,
+            summary: event.summary,
+            // Approvazione spenta (correzione di server): si può solo rifiutare.
+            blockedReason: conversationPermissions(me, c).planBlockedReason,
+            serverCode: c.serverFix?.serverCode ?? null,
+          };
     })
     .sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
 }

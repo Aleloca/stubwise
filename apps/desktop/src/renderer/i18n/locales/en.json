@@ -1104,6 +1104,12 @@
       "claude": {
         "asks": "Claude asks",
         "plan": "Claude's plan waits for your approval",
+        "planRejectOnly": "Claude's fix plan can only be rejected",
+        "blocked": {
+          "fix_access_revoked": "Can't be approved: fix access to {{code}} was revoked. Reject it to free {{code}}.",
+          "fix_access_unverified": "Can't be approved: {{code}}'s fix access isn't verified. Reject it to free {{code}}.",
+          "server_gone": "Can't be approved: {{code}} is no longer in this project. Reject it to free {{code}}."
+        },
         "recommended": "Recommended",
         "planOptions": "Decide on the plan for {{code}}",
         "planOptionsFree": "Decide on Claude's plan",

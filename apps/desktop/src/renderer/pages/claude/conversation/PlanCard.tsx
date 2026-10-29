@@ -156,7 +156,7 @@ export function PlanCard({
             ? t(`${F}.planTitle`, { code: serverFix.code })
             : t(`claude.conversation.plan.${statusShown ? "title" : "waiting"}`)}
         </h3>
-        {canDecidePlan && lostTo === null && !statusShown && (
+        {decides && lostTo === null && !statusShown && (
           <WaitingDot label={t("claude.conversation.waitingOnYou")} />
         )}
       </header>

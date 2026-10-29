@@ -2,6 +2,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as api from "../../../data/api";
+import { whenFixesIdle } from "../../../data/servers/fix";
 import { setSessionPersonId } from "../../../data/session";
 import { now, state } from "../../../data/store";
 import type { ConversationEvent } from "../../../data/types";
@@ -450,5 +451,35 @@ describe("Decide: domande della Chat", () => {
     await userEvent.click(within(item).getByRole("link", { name: /AUD · general/ }));
     expect(await screen.findByText("This message is no longer available")).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/home");
+  });
+});
+
+describe("Decide: piano di correzione con l'approvazione spenta (area 8b, I1)", () => {
+  it("Marco avvia, Roberta revoca: per Laura il piano resta in Decide, col motivo e il solo rifiuto", async () => {
+    await act(async () => {
+      setSessionPersonId("p-marco");
+      await api.servers.startServerFix("t-acq-srv-1");
+      await whenFixesIdle();
+      setSessionPersonId("p-roberta");
+      await api.servers.revokeSshAccess("SRV-1");
+      await whenFixesIdle();
+    });
+    renderRoute("/home", "p-laura");
+    const decide = await decideBlock();
+    // Il piano è la voce più recente: oltre il tetto del blocco.
+    await userEvent.click(await within(decide).findByRole("button", { name: /^Show \d+ more$/ }));
+    const plan = await within(decide).findByRole("group", { name: "Decide on the plan for ACQ-6" });
+    const item = plan.closest("[data-claude-decision]") as HTMLElement;
+    expect(
+      within(item).getByText(
+        "Can't be approved: fix access to SRV-1 was revoked. Reject it to free SRV-1.",
+      ),
+    ).toBeInTheDocument();
+    expect(within(plan).queryByRole("button", { name: "Approve" })).toBeNull();
+    await userEvent.click(within(plan).getByRole("button", { name: "Reject…" }));
+    await userEvent.click(within(item).getByRole("button", { name: "Reject and send" }));
+    await waitFor(() =>
+      expect(state.conversations.find((c) => c.serverFix)).toMatchObject({ state: "finished" }),
+    );
   });
 });

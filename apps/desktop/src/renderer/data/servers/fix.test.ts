@@ -4,6 +4,7 @@ import { fixCommandsBeforeApproval } from "../../domain/servers/fixGate";
 import {
   decidePlan,
   failNext,
+  listClaudeDecisions,
   listNotifications,
   preApprovePlan,
   releases,
@@ -19,10 +20,13 @@ import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import { setSessionPersonId } from "../session";
 import {
   conversationPermissions,
+  conversationRow,
   eventsOf,
   setStreamLatency,
   state,
   visibleProjectIds,
+  waitingClaudeEvents,
+  waitingOnMe,
 } from "../store";
 import type { Conversation, ConversationEvent } from "../types";
 import { can, viewerFor } from "../viewer";
@@ -241,6 +245,41 @@ describe("RF 1: accesso revocato o non più usabile", () => {
     await decidePlan(c.id, "reject");
     expect(session(c.id)).toMatchObject({ state: "finished", outcome: "stopped" });
     expect(allFixCommands()).toBe(0);
+  });
+
+  it("I1: revocato col piano che aspetta Laura → resta in «Waiting on me» col solo rifiuto; rifiutato, il server non è più occupato", async () => {
+    // Marco avvia (servers.operate, senza plans.approve): il piano aspetta Laura.
+    const c = await started("p-marco");
+    expect(session(c.id).state).toBe("awaiting_approval");
+    as("p-roberta");
+    await servers.revokeSshAccess("SRV-1");
+    await whenFixesIdle();
+    // Approvazione spenta, sessione ferma lì (shape): ma per Laura il piano
+    // continua ad aspettare, con la ragione e il solo rifiuto.
+    const perms = conversationPermissions("p-laura", session(c.id));
+    expect(perms).toMatchObject({
+      canDecidePlan: false,
+      canRejectPlan: true,
+      planBlockedReason: "fix_access_revoked",
+    });
+    expect(conversationRow("p-laura", session(c.id)).waitsOnViewer).toBe(true);
+    expect(waitingClaudeEvents("p-laura").map((w) => w.conversation.id)).toContain(c.id);
+    expect(waitingOnMe("p-laura").has(ACQ)).toBe(true);
+    as("p-laura");
+    const decisions = (await listClaudeDecisions()).filter((d) => d.conversationId === c.id);
+    expect(decisions).toMatchObject([{ kind: "plan", blockedReason: "fix_access_revoked" }]);
+    // Il server resta occupato finché il piano aspetta.
+    as("p-roberta");
+    expect(await message(servers.deleteServer("SRV-1"))).toBe("invalid: busy");
+    as("p-laura");
+    await decidePlan(c.id, "reject");
+    await whenFixesIdle();
+    expect(session(c.id)).toMatchObject({ state: "finished", outcome: "stopped" });
+    expect(waitingClaudeEvents("p-laura").map((w) => w.conversation.id)).not.toContain(c.id);
+    expect(allFixCommands()).toBe(0);
+    // Non più `busy`: la cancellazione passa.
+    as("p-roberta");
+    expect(await message(servers.deleteServer("SRV-1"))).toBe("ok");
   });
 
   it("revoca durante l'esecuzione → la sessione si ferma col motivo, nessun comando dopo", async () => {

@@ -236,19 +236,29 @@ function PlanItem({ decision, claude, onOpenTask, defer, label }: ItemProps<Plan
       t("home.decide.claude.planFailed", { code: label }),
     );
 
+  // Correzione di server con l'approvazione spenta: resta qui finché tiene
+  // occupato il server, ma l'unica decisione possibile è il rifiuto.
+  const blocked = decision.blockedReason;
   return (
     <Shell
       decision={decision}
       claude={claude}
-      heading={t("home.decide.claude.plan")}
+      heading={t(blocked ? "home.decide.claude.planRejectOnly" : "home.decide.claude.plan")}
       onOpenTask={onOpenTask}
       content={
-        <p
-          title={decision.summary}
-          className="line-clamp-2 max-w-[72ch] text-lg font-medium text-ink [overflow-wrap:anywhere]"
-        >
-          {decision.summary}
-        </p>
+        <>
+          <p
+            title={decision.summary}
+            className="line-clamp-2 max-w-[72ch] text-lg font-medium text-ink [overflow-wrap:anywhere]"
+          >
+            {decision.summary}
+          </p>
+          {blocked && (
+            <p role="note" data-plan-blocked className="max-w-[72ch] text-sm text-ink">
+              {t(`home.decide.claude.blocked.${blocked}`, { code: decision.serverCode })}
+            </p>
+          )}
+        </>
       }
       actions={
         rejecting === null ? (
@@ -261,9 +271,11 @@ function PlanItem({ decision, claude, onOpenTask, defer, label }: ItemProps<Plan
             }
             className="flex flex-wrap items-center gap-2"
           >
-            <button type="button" className={smallPrimary} onClick={() => decide("approve")}>
-              {t("home.decide.claude.approve")}
-            </button>
+            {!blocked && (
+              <button type="button" className={smallPrimary} onClick={() => decide("approve")}>
+                {t("home.decide.claude.approve")}
+              </button>
+            )}
             <button type="button" className={smallSecondary} onClick={() => setRejecting("")}>
               {t("home.decide.claude.reject")}
             </button>

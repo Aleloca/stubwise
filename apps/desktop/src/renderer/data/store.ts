@@ -1334,17 +1334,23 @@ export function conversationRow(personId: string, c: Conversation): Conversation
   };
 }
 
-/** Claude aspetta questa persona: una domanda a cui può rispondere o un piano che può decidere. */
+/**
+ * Claude aspetta questa persona: una domanda a cui può rispondere o un piano
+ * che può decidere. Un piano di correzione con l'approvazione spenta
+ * (`planBlockedReason`) aspetta ancora chi può rifiutarlo: finché aspetta
+ * tiene occupato il server, e senza nessuno che lo sappia resterebbe lì.
+ */
 function waitsOn(personId: string, c: Conversation): boolean {
   if (c.state !== "awaiting_answer" && c.state !== "awaiting_approval") return false;
   const perms = conversationPermissions(personId, c);
-  return perms.canAnswer || perms.canDecidePlan;
+  return perms.canAnswer || perms.canRejectPlan;
 }
 
 /**
  * Le domande e i piani di Claude che aspettano una persona, dalle sole
  * conversazioni che vede: la domanda se può rispondere (richiedente o
- * `plans.approve`), il piano se può deciderlo (`plans.approve`). Solo eventi
+ * `plans.approve`), il piano se può deciderlo (`plans.approve`), anche solo
+ * rifiutarlo quando l'approvazione è spenta (`canRejectPlan`). Solo eventi
  * che può leggere (mai dal seguito privato di una pubblica). Sono la stessa
  * domanda e lo stesso piano della conversazione: rispondere in un posto li
  * chiude nell'altro.
@@ -1359,7 +1365,7 @@ export function waitingClaudeEvents(
     const readable = log.slice(0, readableLength(personId, c));
     const perms = conversationPermissions(personId, c);
     const question = perms.canAnswer ? openQuestion(readable) : undefined;
-    const plan = perms.canDecidePlan ? pendingPlan(readable) : undefined;
+    const plan = perms.canRejectPlan ? pendingPlan(readable) : undefined;
     if (question) out.push({ conversation: c, event: question });
     if (plan) out.push({ conversation: c, event: plan });
   }

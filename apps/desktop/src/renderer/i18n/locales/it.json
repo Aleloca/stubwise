@@ -1104,6 +1104,12 @@
       "claude": {
         "asks": "Claude chiede",
         "plan": "Il piano di Claude aspetta la tua approvazione",
+        "planRejectOnly": "Il piano di correzione di Claude si può solo rifiutare",
+        "blocked": {
+          "fix_access_revoked": "Non si può approvare: l'accesso di correzione a {{code}} è stato revocato. Rifiutalo per liberare {{code}}.",
+          "fix_access_unverified": "Non si può approvare: l'accesso di correzione di {{code}} non è verificato. Rifiutalo per liberare {{code}}.",
+          "server_gone": "Non si può approvare: {{code}} non è più in questo progetto. Rifiutalo per liberare {{code}}."
+        },
         "recommended": "Consigliata",
         "planOptions": "Decidi sul piano di {{code}}",
         "planOptionsFree": "Decidi sul piano di Claude",
