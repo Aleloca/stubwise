@@ -3,7 +3,7 @@ import { auth, failNext, resetApi, setLatency } from "../api";
 import { accessState } from "../access/index";
 import { __secretValuesForTest, secretIdsOf } from "../admin/secrets";
 import { setSessionPersonId } from "../session";
-import { advanceNow, state, type ApiFnName } from "../store";
+import { advanceNow, now, state, type ApiFnName } from "../store";
 import * as reauthModule from "./reauth";
 import {
   PROTOTYPE_TOTP_CODE,
@@ -122,6 +122,8 @@ describe("requireReauth", () => {
     await auth.reauthenticate({ method: "totp", code: "123456" });
     await withDeclared((fn) => {
       advanceNow(REAUTH_GRACE_MINUTES * MINUTE);
+      // `now()` spostato tiene il formato dell'orologio fermo.
+      expect(now()).toBe("2026-10-23T12:10:00Z");
       expect(requireReauth("p-laura", fn)).toBeNull();
       advanceNow(1_000);
       expect(requireReauth("p-laura", fn)).toBe("reauth_required");
@@ -162,7 +164,7 @@ describe("blocco", () => {
     expect(await auth.reauthenticate({ method: "totp", code: "000000" })).toEqual({
       ok: false,
       error: "locked",
-      lockedUntil: "2026-10-23T12:15:00.000Z",
+      lockedUntil: "2026-10-23T12:15:00Z",
     });
     expect(await auth.reauthenticate({ method: "totp", code: "123456" })).toMatchObject({
       ok: false,

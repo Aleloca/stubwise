@@ -9,9 +9,11 @@ import type { ChangeEntry, ChangeEntryView, ChangeFilter } from "./types";
 // (`readable`), sempre attraverso `can()`:
 // - una voce d'istanza: `changelog.view`, oppure il `readPermission` del suo
 //   tipo (chi gestisce l'oggetto);
-// - una voce di progetto: `project.settings.manage` o
-//   `project.members.manage` in quel progetto, e il progetto dev'essere
-//   visibile (R-G5: una voce di un progetto che non si vede non esiste).
+// - una voce di progetto (R-M1): il progetto dev'essere visibile (R-G5: una
+//   voce di un progetto che non si vede non esiste) E chi guarda ha
+//   `changelog.view`, oppure gestisce il progetto
+//   (`project.settings.manage` o `project.members.manage`), oppure ha lì il
+//   `readPermission` del tipo.
 // Il full admin legge tutto (`can()` gli dice sempre sì, e vede ogni
 // progetto); Claude niente (`changelog.view` e i `.manage` gli sono negati).
 
@@ -25,11 +27,15 @@ const managesProject = (me: string, projectId: string): boolean =>
 function readable(me: string, entry: ChangeEntry, visible: Set<string>): boolean {
   const type = changeTypeOf(entry.kind);
   if (!type) return false;
-  if (entry.projectId === null) {
-    const viewer = viewerFor(me);
+  const viewer = viewerFor(me);
+  if (entry.projectId === null)
     return can(viewer, "changelog.view") || can(viewer, type.readPermission as Permission);
-  }
-  return visible.has(entry.projectId) && managesProject(me, entry.projectId);
+  if (!visible.has(entry.projectId)) return false;
+  return (
+    can(viewer, "changelog.view") ||
+    managesProject(me, entry.projectId) ||
+    can(viewer, type.readPermission as Permission, entry.projectId)
+  );
 }
 
 function matchesFilter(entry: ChangeEntry, filter: ChangeFilter): boolean {

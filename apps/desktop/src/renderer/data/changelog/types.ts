@@ -14,9 +14,10 @@ export interface ChangeType {
   templateKey: string;
   /**
    * Chi legge la voce oltre a chi ha `changelog.view`: il permesso che
-   * gestisce l'oggetto (`roles.manage` per i ruoli…). Vale per le voci
-   * d'istanza; quelle di progetto le legge chi gestisce il progetto
-   * (`project.settings.manage` o `project.members.manage`).
+   * gestisce l'oggetto (`roles.manage` per i ruoli…). Per una voce di
+   * progetto vale in quel progetto, e solo se il progetto è visibile; lì la
+   * legge anche chi gestisce il progetto (`project.settings.manage` o
+   * `project.members.manage`).
    */
   readPermission: string;
   scope: "instance" | "project";

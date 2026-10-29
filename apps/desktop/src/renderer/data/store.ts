@@ -1060,7 +1060,10 @@ let clockOffsetMs = 0;
 export const now = (): string =>
   clockOffsetMs === 0
     ? `${TODAY}T12:00:00Z`
-    : new Date(Date.parse(`${TODAY}T12:00:00Z`) + clockOffsetMs).toISOString();
+    : // Lo stesso formato dell'orologio fermo, senza millisecondi.
+      new Date(Date.parse(`${TODAY}T12:00:00Z`) + clockOffsetMs)
+        .toISOString()
+        .replace(/\.\d{3}Z$/, "Z");
 
 /**
  * SOLO PROTOTIPO: manda avanti l'orologio di `ms` (i test della finestra di

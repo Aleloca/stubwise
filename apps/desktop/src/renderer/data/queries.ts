@@ -165,15 +165,15 @@ export const queryKeys = {
     ["as", personId, "servers", "installCommand", code, lang] as const,
   serverRemovalCommand: (personId: string, code: string, lang: string) =>
     ["as", personId, "servers", "removalCommand", code, lang] as const,
-  /**
-   * Il blocco «Server» di una task (Task 9): nell'area delle conversazioni,
-   * così si rilegge quando la correzione avanza (piano, comandi, controllo).
-   */
   /** Il registro delle modifiche (area 9a): tutto nell'area «changelog». */
   changes: (personId: string, filter: ChangeFilter) =>
     ["as", personId, "changelog", "list", filter] as const,
   projectChanges: (personId: string, projectId: string, filter: ChangeFilter) =>
     ["as", personId, "changelog", "project", projectId, filter] as const,
+  /**
+   * Il blocco «Server» di una task (Task 9): nell'area delle conversazioni,
+   * così si rilegge quando la correzione avanza (piano, comandi, controllo).
+   */
   serverTaskInfo: (personId: string, taskId: string) =>
     ["as", personId, "conversations", "server-task", taskId] as const,
   search: (personId: string, q: string) => ["as", personId, "search", q] as const,
@@ -526,7 +526,12 @@ export function useHome() {
             person,
             departmentHomes: homes.data,
             personal: personal.data,
-            ...resolveHome(person, homes.data, personal.data, canRelease ? ["releases"] : []),
+            ...resolveHome(
+              person,
+              homes.data,
+              personal.data,
+              canRelease ? ["releases"] : [],
+            ),
           }
         : undefined,
     [person, homes.data, personal.data, canRelease],
@@ -3417,7 +3422,8 @@ export function useProjectAutomations(projectId: string | null) {
     queryKey: queryKeys.projectAutomations(me, projectId ?? ""),
     queryFn: () => api.automations.getProjectAutomations(projectId!),
     enabled: projectId !== null,
-    refetchInterval: (query) => (runningIn(query.state.data?.runs) ? AUTOMATION_REFRESH_MS : false),
+    refetchInterval: (query) =>
+      runningIn(query.state.data?.runs) ? AUTOMATION_REFRESH_MS : false,
   });
 }
 
@@ -3425,12 +3431,7 @@ export function useProjectAutomations(projectId: string | null) {
 export function useAutomationOrigin(ref: AutomationRef | null | undefined, createdCode: string) {
   const me = useSessionPersonId();
   return useQuery({
-    queryKey: queryKeys.automationOrigin(
-      me,
-      ref?.automationId ?? "",
-      ref?.runId ?? "",
-      createdCode,
-    ),
+    queryKey: queryKeys.automationOrigin(me, ref?.automationId ?? "", ref?.runId ?? "", createdCode),
     queryFn: () => api.automations.automationOrigin(ref!, createdCode),
     enabled: !!ref,
   });
@@ -3445,7 +3446,7 @@ export function useAutomationOrigin(ref: AutomationRef | null | undefined, creat
  */
 export function useDecideAutomationNow() {
   const invalidate = useInvalidate(AUTOMATION_AREAS);
-  const settle = async <T>(call: Promise<T>): Promise<T> => {
+  const settle = async <T,>(call: Promise<T>): Promise<T> => {
     try {
       return await call;
     } finally {

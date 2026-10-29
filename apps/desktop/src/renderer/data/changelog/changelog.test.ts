@@ -3,7 +3,7 @@ import { changelog, failNext, resetApi, setLatency } from "../api";
 import { roleIdOf, writeAccess } from "../access/index";
 import { setSessionPersonId } from "../session";
 import { advanceNow, state } from "../store";
-import { grantProjectRole } from "../viewer";
+import { can, grantProjectRole, viewerFor } from "../viewer";
 import * as changelogModule from "./index";
 import { recordChange, registerChangeTypes } from "./index";
 
@@ -33,6 +33,12 @@ registerChangeTypes([
     kind: "test.member.added",
     templateKey: "changelog.test.member",
     readPermission: "project.members.manage",
+    scope: "project",
+  },
+  {
+    kind: "test.server.updated",
+    templateKey: "changelog.test.server",
+    readPermission: "servers.operate",
     scope: "project",
   },
 ]);
@@ -175,16 +181,63 @@ describe("chi legge cosa", () => {
     );
   });
 
-  it("l'Auditor legge tutte le voci d'istanza, e nessuna di progetto che non gestisce", async () => {
-    // Giulia con il ruolo d'istanza «Auditor» (usage.view + changelog.view):
-    // gestisce MKX (Project Lead) ma non ACQ, AUD, STW.
+  it("l'Auditor legge le voci d'istanza e quelle di tutti i progetti che vede", async () => {
+    // Giulia con il ruolo d'istanza «Auditor» (usage.view + changelog.view),
+    // membra di ACQ come Developer, senza gestione. R-M1: la voce «Roberta
+    // aggiunge Marco ad ACQ» la legge. Vede anche AUD, MKX e STW.
     writeAccess((s) => {
       s.people.find((p) => p.personId === "p-giulia")!.instanceRoleId = roleIdOf("au-1");
     });
+    grantProjectRole("p-giulia", ACQ, "developer");
     as("p-giulia");
     expect((await kinds()).sort()).toEqual(
-      ["test.member.added@MKX", "test.person.updated@-", "test.role.updated@-"].sort(),
+      [
+        "test.member.added@ACQ",
+        "test.member.added@AUD",
+        "test.member.added@MKX",
+        "test.member.added@STW",
+        "test.person.updated@-",
+        "test.role.updated@-",
+      ].sort(),
     );
+  });
+
+  it("l'Auditor che non è membro di AUD non ne legge la voce (R-G5)", async () => {
+    writeAccess((s) => {
+      s.people.find((p) => p.personId === "p-giulia")!.instanceRoleId = roleIdOf("au-1");
+      s.memberships = s.memberships.filter(
+        (m) => !(m.personId === "p-giulia" && m.projectId === AUD),
+      );
+    });
+    as("p-giulia");
+    expect(await kinds()).not.toContain("test.member.added@AUD");
+    expect(await kinds()).toContain("test.member.added@STW");
+  });
+
+  it("una voce di progetto la legge chi ha lì il readPermission del tipo", async () => {
+    // Marco, Developer di ACQ senza gestione, ha `servers.operate` su ACQ
+    // dal seme: legge la voce dei server di ACQ, non quella dei membri. In
+    // un progetto che vede ma dove non ha `servers.operate`, niente.
+    const elsewhere = state.projects.find(
+      (p) =>
+        p.id !== ACQ &&
+        p.memberIds.includes("p-marco") &&
+        !can(viewerFor("p-marco"), "servers.operate", p.id),
+    )!;
+    const serverEntry = (projectId: string) =>
+      recordChange({
+        kind: "test.server.updated",
+        actorId: "p-roberta",
+        projectId,
+        object: { type: "server", id: "SRV-1", label: "SRV-1" },
+      });
+    serverEntry(ACQ);
+    serverEntry(elsewhere.id);
+    as("p-marco");
+    expect(can(viewerFor("p-marco"), "project.members.manage", ACQ)).toBe(false);
+    expect(
+      (await kinds()).filter((k) => k.endsWith("@ACQ") || k.endsWith(`@${elsewhere.code}`)),
+    ).toEqual(["test.server.updated@ACQ"]);
   });
 
   it("senza changelog.view una voce d'istanza la legge chi ha il readPermission del tipo", async () => {
@@ -209,6 +262,23 @@ describe("chi legge cosa", () => {
     grantProjectRole("p-laura", STW, "developer");
     as("p-laura");
     expect((await kinds()).sort()).toEqual(["test.member.added@ACQ", "test.member.added@AUD"]);
+  });
+
+  it("chi gestisce il progetto legge anche i tipi il cui readPermission non ha", async () => {
+    // Laura gestisce ACQ; le tolgo `servers.operate` lì, se il ruolo
+    // gliel'avesse dato: la voce dei server di ACQ la legge comunque.
+    writeAccess((s) => {
+      s.revocations.push({ personId: "p-laura", projectId: ACQ, permission: "servers.operate" });
+    });
+    expect(can(viewerFor("p-laura"), "servers.operate", ACQ)).toBe(false);
+    recordChange({
+      kind: "test.server.updated",
+      actorId: "p-roberta",
+      projectId: ACQ,
+      object: { type: "server", id: "SRV-1", label: "SRV-1" },
+    });
+    as("p-laura");
+    expect(await kinds()).toContain("test.server.updated@ACQ");
   });
 
   it("Sara non legge niente", async () => {

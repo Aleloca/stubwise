@@ -126,7 +126,10 @@ export function attemptSecondFactor(
   }
   const failures = (state.secondFactorAttempts.get(personId)?.failures ?? 0) + 1;
   if (failures >= SECOND_FACTOR_MAX_FAILURES) {
-    const until = new Date(Date.parse(now()) + SECOND_FACTOR_LOCK_MINUTES * MINUTE).toISOString();
+    // Nel formato di `now()`, senza millisecondi.
+    const until = new Date(Date.parse(now()) + SECOND_FACTOR_LOCK_MINUTES * MINUTE)
+      .toISOString()
+      .replace(/\.\d{3}Z$/, "Z");
     state.secondFactorAttempts.set(personId, { failures: 0, lockedUntil: until });
     return { ok: false, error: "locked", lockedUntil: until };
   }
