@@ -576,11 +576,40 @@ dell'area si correggono con l'ondata finale e non stanno in questo elenco.
   `servers.ssh.manage`.
 - **Rifiuto del piano con approvazione spenta**: ammesso (rifiutare è
   sicuro), ma il client legge `canRejectPlan` calcolato dal livello dati, non
-  lo deduce.
-- **Orari nel fuso di chi guarda**, anche l'ora del rientro; nessuna ora nel
-  testo di un avviso (la UI la legge dall'episodio).
-- **Server cancellato**: a chi non vede il progetto della task resta
-  invisibile (R-G5); a chi lo vede dirà «SRV-n · deleted» (ondata finale).
+  lo deduce. Un piano così resta in «Waiting on me» e in Decide per chi può
+  rifiutarlo, con la ragione in parole e il solo rifiuto (ondata finale, I1):
+  finché aspetta tiene occupato il server (R-L6). La sessione non si chiude
+  da sola alla revoca: lo shape vuole `awaiting_approval` con l'approvazione
+  spenta.
+- **Analisi e piano si fermano se il server lascia il progetto**: l'analisi
+  finisce `stopped` senza aprire la task (nessuna «Diagnosis ready»), il piano
+  si ferma con `server_gone` prima di ogni lettura. Il motore deve rifare lo
+  stesso controllo prima di ogni lettura, non solo all'avvio.
+- **Lo script SSH nella lingua di chi lo legge**: commenti ed `echo` di
+  installazione e rimozione seguono la lingua dell'interfaccia (i comandi
+  sono identici). Alternativa scartata: una lingua sola (inglese) per un
+  artefatto che resta sul server; da confermare, perché il server conserva
+  i commenti di chi l'ha incollato.
+
+### Non fatti nell'ondata finale (con il motivo)
+
+- **Il progetto invisibile si intuisce** («Diagnoses go to another project»,
+  `onlyHere` calcolato su tutti gli ambienti): resta com'è. C'è un precedente
+  nell'app («in a project you can't see» delle automazioni) e la revisione
+  finale chiede di confermarlo col maintainer contro R-G5: è una decisione di
+  prodotto, non una correzione.
+- **`orphaned()` della pagina Ambienti** resta nel client: calcola l'effetto
+  di una modifica NON ancora salvata (la bozza del dialogo) partendo da
+  `onlyHere` del livello dati; spostarla nel livello dati vorrebbe una
+  lettura «cosa succederebbe se», non un campo della vista.
+- **Il riordino in 200 ms** c'è sull'elenco dei server, non sul riquadro Now
+  del dettaglio: lì i motivi non si riordinano, compaiono e spariscono.
+- **I comandi di Link, Rigenera e Revoca** restituiscono ancora lo script in
+  inglese (`linkSshAccess`, `revokeSshAccess`): la UI non lo usa, legge
+  sempre `getInstallCommand`/`getRemovalCommand` con la lingua.
+- **«Fix stopped by» mentre le persone caricano**: il ramo che aspetta il
+  nome non ha un test (le persone si rileggono da più parti del pannello e un
+  errore simulato non le tiene ferme).
 
 ### Limiti del prototipo (per scelta)
 
@@ -589,6 +618,3 @@ dell'area si correggono con l'ondata finale e non stanno in questo elenco.
   ogni comando contro `isReadCommand` (lato server, non nel client).
 - Le chiavi private stanno solo in `data/servers/secrets.ts`, in memoria; nel
   motore vanno cifrate a riposo e mai restituite da una lettura.
-- Gli screenshot a 7d del dettaglio di SRV-1: l'etichetta dell'episodio sta
-  sopra la linea della CPU (vedi rapporto del Task 10); non corretto di
-  proposito.
