@@ -71,16 +71,19 @@ function Line({
   text,
   query,
   current,
+  pre = false,
 }: {
   n: number;
   text: string;
   query: string;
   current: boolean;
+  /** Uscita di un comando: le colonne restano colonne, si scorre in orizzontale. */
+  pre?: boolean;
 }) {
   return (
     <li
       data-log-line={n}
-      className="grid grid-cols-[var(--log-gutter)_minmax(0,1fr)] gap-3 [overflow-wrap:anywhere] whitespace-pre-wrap"
+      className={`grid grid-cols-[var(--log-gutter)_minmax(0,1fr)] gap-3 ${pre ? "w-max min-w-full whitespace-pre" : "[overflow-wrap:anywhere] whitespace-pre-wrap"}`}
     >
       <span aria-hidden="true" className="num text-right text-ink-faint select-none">
         {n}
@@ -206,9 +209,9 @@ export function RunLog({
   if (!all) {
     const from = Math.max(0, total - LOG_TAIL);
     body = (
-      <ol className="flex flex-col px-3 py-2">
+      <ol className={`flex flex-col px-3 py-2 ${command ? "overflow-x-auto" : ""}`}>
         {lines.slice(from).map((l, i) => (
-          <Line key={from + i} n={from + i + 1} text={l} query="" current={false} />
+          <Line key={from + i} n={from + i + 1} text={l} query="" current={false} pre={command} />
         ))}
       </ol>
     );
@@ -229,6 +232,7 @@ export function RunLog({
               text={l}
               query={query}
               current={start + i === currentLine}
+              pre={command}
             />
           ))}
         </ol>,
@@ -250,7 +254,7 @@ export function RunLog({
         data-log-scroller
         // Da tastiera si scorre (frecce, Pag): il contenitore prende il fuoco.
         tabIndex={0}
-        className="max-h-[70vh] overflow-y-auto px-3 py-2 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--color-focus)]"
+        className={`max-h-[70vh] overflow-y-auto px-3 py-2 ${command ? "overflow-x-auto" : ""} focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--color-focus)]`}
       >
         {blocks}
       </div>
@@ -266,14 +270,17 @@ export function RunLog({
     >
       <div className="flex flex-wrap items-center gap-1 border-b border-rule px-3 py-1.5">
         <span className="num mr-auto text-sm text-ink-muted">
-          {all
-            ? t(command ? "taskDetail.server.log.allLines" : "releases.log.allLines", {
-                total: format(total),
-              })
-            : t(command ? "taskDetail.server.log.lastLines" : "releases.log.lastLines", {
-                n: Math.min(LOG_TAIL, total),
-                total: format(total),
-              })}
+          {command && total <= LOG_TAIL
+            ? // Un'uscita corta è tutta lì: niente «the last 6 of 6».
+              t("taskDetail.server.log.lines", { count: total, total: format(total) })
+            : all
+              ? t(command ? "taskDetail.server.log.allLines" : "releases.log.allLines", {
+                  total: format(total),
+                })
+              : t(command ? "taskDetail.server.log.lastLines" : "releases.log.lastLines", {
+                  n: Math.min(LOG_TAIL, total),
+                  total: format(total),
+                })}
         </span>
         {all && finding && (
           <span className="flex items-center gap-1">

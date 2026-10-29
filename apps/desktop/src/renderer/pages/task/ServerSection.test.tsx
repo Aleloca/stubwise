@@ -177,9 +177,7 @@ describe("sezione Server", () => {
       expect(items[i]).toHaveTextContent(c.why);
     });
     // Il piano intero resta chiuso: i comandi si leggono senza clic.
-    expect(
-      within(plan).getByRole("button", { name: "Read the full plan" }),
-    ).toBeInTheDocument();
+    expect(within(plan).getByRole("button", { name: "Read the full plan" })).toBeInTheDocument();
   });
 
   it("accesso revocato col piano in attesa: Approve spento col motivo, Reject attivo", async () => {
@@ -255,6 +253,23 @@ describe("sezione Server", () => {
     expect(claudeSection()).toHaveTextContent(/Stopped by Roberta .* No commands after this\./);
   });
 
+  it("«More» compare quando la proposta è tagliata davvero, anche se è corta", async () => {
+    const proto = HTMLElement.prototype;
+    const sh = Object.getOwnPropertyDescriptor(proto, "scrollHeight");
+    const ch = Object.getOwnPropertyDescriptor(proto, "clientHeight");
+    Object.defineProperty(proto, "scrollHeight", { configurable: true, get: () => 120 });
+    Object.defineProperty(proto, "clientHeight", { configurable: true, get: () => 80 });
+    try {
+      const section = await openTask("p-roberta");
+      expect(await within(section).findByRole("button", { name: "More" })).toBeInTheDocument();
+    } finally {
+      if (sh) Object.defineProperty(proto, "scrollHeight", sh);
+      else delete (proto as { scrollHeight?: number }).scrollHeight;
+      if (ch) Object.defineProperty(proto, "clientHeight", ch);
+      else delete (proto as { clientHeight?: number }).clientHeight;
+    }
+  });
+
   it("una revoca durante l'esecuzione dice il motivo, mai «stopped by»", async () => {
     await haltAfterFirstCommand(() => servers.revokeSshAccess("SRV-1"));
     const section = await openTask("p-roberta");
@@ -294,6 +309,28 @@ describe("sezione Server", () => {
     const drawn = out.querySelectorAll("[data-log-line]").length;
     expect(drawn).toBeGreaterThan(40);
     expect(drawn).toBeLessThan(5000);
+  });
+
+  it("un'uscita corta dice solo quante righe ha, e le colonne restano colonne", async () => {
+    const id = await startAs("p-marco");
+    setSessionPersonId("p-laura");
+    await decidePlan(id, "approve");
+    await whenFixesIdle();
+    const fix = eventsOf(id).find(
+      (e): e is Extract<ConversationEvent, { type: "action" }> =>
+        e.type === "action" && e.access === "fix",
+    )!;
+    fix.result = "NAME   CPU %   MEM USAGE\nportale   12.0%   210MiB / 1GiB";
+    const user = userEvent.setup();
+    await openTask("p-laura");
+    await user.click(within(claudeSection()).getByRole("button", { name: /Commands on SRV-1/ }));
+    await user.click(
+      within(claudeSection()).getByRole("button", { name: new RegExp(fix.input!.slice(0, 20)) }),
+    );
+    const out = await within(claudeSection()).findByRole("region", { name: /Output of/ });
+    expect(out).toHaveTextContent("2 lines");
+    expect(out).not.toHaveTextContent(/Showing the last/);
+    expect(out.querySelector("[data-log-line]")!.className).toMatch(/(^| )whitespace-pre( |$)/);
   });
 
   it("cambio di persona con la task aperta: l'avvio compare e sparisce sul posto", async () => {

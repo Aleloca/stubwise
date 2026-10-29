@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import {
@@ -133,7 +133,7 @@ function StateLine({ info, code }: { info: ServerTaskInfo; code: string }) {
   const waitsOnMe = useWaitsOnMe(info.state === "plan_awaiting" ? info.fixConversationId : null);
   const s = info.state;
   let mark: ReactNode = null;
-  let text: string;
+  let text: ReactNode;
   switch (s) {
     case "fix_planning":
     case "fixing":
@@ -159,7 +159,16 @@ function StateLine({ info, code }: { info: ServerTaskInfo; code: string }) {
       // «stopped by» SOLO per lo Stop di una persona; altrimenti il motivo.
       const stop = info.stop;
       const name = people?.find((p) => p.id === stop?.byId)?.name;
-      if (stop?.byId && name) text = t(`${K}.states.stoppedBy`, { name });
+      // Le persone non ancora lette: si aspetta il nome invece di dire per un
+      // attimo un motivo che non è quello (e di annunciarlo due volte).
+      if (stop?.byId && !people)
+        text = (
+          <span
+            aria-hidden="true"
+            className="skeleton-breathe inline-block h-3 w-48 rounded-sm bg-ink/6"
+          />
+        );
+      else if (stop?.byId && name) text = t(`${K}.states.stoppedBy`, { name });
       else if (stop?.reason) text = t(`${K}.stoppedReasons.${stop.reason}`);
       else if (stop?.outcome === "failed" || stop?.outcome === "timed_out")
         text = t(`${K}.stoppedReasons.${stop.outcome}`);
@@ -197,14 +206,31 @@ function StateLine({ info, code }: { info: ServerTaskInfo; code: string }) {
   );
 }
 
-/** «Suggested fix:» con la proposta di Claude, fino a 4 righe e «More». */
+/**
+ * «Suggested fix:» con la proposta di Claude, fino a 4 righe e «More». Se
+ * il testo è tagliato lo dice la misura (`scrollHeight` oltre l'altezza
+ * visibile), non il numero dei caratteri: a 360 px una proposta corta può
+ * già riempire le 4 righe.
+ */
 function Proposal({ text }: { text: string }) {
   const { t } = useTranslation();
   const [all, setAll] = useState(false);
-  const long = text.length > 280 || text.split("\n").length > 4;
+  const [clipped, setClipped] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el || all) return;
+    const check = () => setClipped(el.scrollHeight > el.clientHeight + 1);
+    check();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(check);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [text, all]);
+  const long = all || clipped;
   return (
     <div className="flex min-w-0 flex-col gap-0.5 text-sm">
-      <div className={`min-w-0 text-ink ${!all && long ? "line-clamp-4" : ""}`}>
+      <div ref={box} className={`min-w-0 text-ink ${!all ? "line-clamp-4" : ""}`}>
         <span className="font-semibold">{t(`${K}.suggested`)}</span>{" "}
         <Markdown source={text} className="inline [&>*]:inline" />
       </div>

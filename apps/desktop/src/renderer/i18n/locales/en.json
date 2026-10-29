@@ -1009,6 +1009,8 @@
         "running": "Running",
         "outputOf": "Output of {{command}}",
         "noOutput": "No output.",
+        "lines_one": "{{total}} line",
+        "lines_other": "{{total}} lines",
         "lastLines": "Showing the last {{n}} of {{total}} lines",
         "allLines": "All {{total}} lines",
         "stoppedBy": "Stopped by {{name}} · {{time}}. No commands after this.",

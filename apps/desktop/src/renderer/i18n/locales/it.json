@@ -1009,6 +1009,8 @@
         "running": "In corso",
         "outputOf": "Uscita di {{command}}",
         "noOutput": "Nessuna uscita.",
+        "lines_one": "{{total}} riga",
+        "lines_other": "{{total}} righe",
         "lastLines": "Ultime {{n}} di {{total}} righe",
         "allLines": "Tutte le {{total}} righe",
         "stoppedBy": "Fermata da {{name}} · {{time}}. Nessun comando dopo questo punto.",
