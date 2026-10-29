@@ -52,14 +52,53 @@ describe("accessState e accessUsable", () => {
     expect(verifyFailure(a)).toEqual({ read: true, fix: true, reason: "Connection timed out" });
   });
 
+  const OLD_OK = {
+    at: hoursAgo(5),
+    read: "ok",
+    fix: "ok",
+    reason: null,
+    ofPending: false,
+  } as const;
+
   it("rigenerazione con verifica delle nuove fallita: le vecchie restano usabili", () => {
     const a = access({
       pending: pair(2),
       verification: { at: hoursAgo(1), read: "failed", fix: "ok", reason: "x", ofPending: true },
+      keysVerification: OLD_OK,
     });
     expect(accessState(a)).toBe("verify_failed");
     expect(accessUsable(a, "read")).toBe(true);
     expect(accessUsable(a, "fix")).toBe(true);
+  });
+
+  // Minor 4 della revisione del Task 2: le vecchie chiavi restano usabili
+  // durante «Rigenera» SOLO se lo erano prima.
+  it("rigenerazione partita con la fix vecchia fallita: dopo una verifica fallita delle nuove la fix resta spenta", () => {
+    const a = access({
+      pending: pair(2),
+      verification: { at: hoursAgo(1), read: "failed", fix: "ok", reason: "x", ofPending: true },
+      keysVerification: { ...OLD_OK, fix: "failed", reason: "Permission denied (publickey)" },
+    });
+    expect([accessUsable(a, "read"), accessUsable(a, "fix")]).toEqual([true, false]);
+  });
+
+  it("rigenerazione partita da una lettura che scrive: niente torna usabile finché una verifica non riesce", () => {
+    const a = access({
+      pending: pair(2),
+      verification: { at: hoursAgo(1), read: "failed", fix: "ok", reason: "x", ofPending: true },
+      keysVerification: { ...OLD_OK, read: "writes", reason: "sudo -n true succeeded" },
+    });
+    expect(accessState(a)).toBe("read_writes");
+    expect([accessUsable(a, "read"), accessUsable(a, "fix")]).toEqual([false, false]);
+  });
+
+  it("verifica delle nuove senza l'esito delle vecchie: niente di usabile (prudenza)", () => {
+    const a = access({
+      pending: pair(2),
+      verification: { at: hoursAgo(1), read: "failed", fix: "ok", reason: "x", ofPending: true },
+      keysVerification: null,
+    });
+    expect([accessUsable(a, "read"), accessUsable(a, "fix")]).toEqual([false, false]);
   });
 
   it("rigenerazione partita da una verifica fallita: finché le nuove non si verificano vale l'esito di prima", () => {

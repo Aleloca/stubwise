@@ -1,10 +1,15 @@
 import { serverHealth, serverWork, type ServerWork } from "../../domain/servers/health";
 import { downsample } from "../../domain/servers/metrics";
 import { alertProjectsOf } from "../../domain/servers/projects";
-import { accessState, type AccessState } from "../../domain/servers/sshAccess";
+import { installScript } from "../../domain/servers/installScript";
+import { accessState, accessUsable, type AccessState } from "../../domain/servers/sshAccess";
 import { holds, sees } from "../access";
 import { now, state, visibleProjectIds } from "../store";
 import type {
+  ServerSshAccess,
+  SshAccessKind,
+  SshPublicKey,
+  SshUse,
   MonitoredServer,
   ProjectEnvironment,
   ServerAnalysis,
@@ -173,7 +178,9 @@ export interface ServerEpisodeView extends ServerEpisode {
   taskCode: string | null;
 }
 
-export interface ServerDetail extends ServerRow {
+export interface ServerDetail extends Omit<ServerRow, "access"> {
+  /** Il pannello «Accesso SSH»: lo stato lo vede chiunque veda il server, le azioni chi ha `servers.ssh.manage`. */
+  access: SshAccessView;
   agentVersion: string | null;
   lastSeenAt: string | null;
   sampleIntervalSeconds: number;
@@ -206,6 +213,7 @@ function episodeView(me: string, e: ServerEpisode): ServerEpisodeView {
 export function serverDetail(me: string, s: MonitoredServer): ServerDetail {
   return {
     ...serverRow(me, s),
+    access: sshAccessView(me, s.code),
     agentVersion: s.agentVersion,
     lastSeenAt: s.lastSeenAt,
     sampleIntervalSeconds: s.sampleIntervalSeconds,
@@ -244,4 +252,78 @@ export function homeProjectCode(me: string, s: MonitoredServer): string | null {
     return projectCodeOf(s.primaryProjectId);
   const env = environmentsOf(s.code).find((e) => visible.has(e.projectId));
   return env ? projectCodeOf(env.projectId) : null;
+}
+
+// --- l'accesso SSH ----------------------------------------------------------
+// Qui solo ciò che si può mostrare: lo stato e le chiavi PUBBLICHE. Le
+// private stanno in `secrets.ts`, che da qui (e da ogni lettura) non si
+// raggiunge (anti-obiettivo 3, test architetturale).
+
+/** `servers.ssh.manage` (d'istanza): collegare, verificare, rigenerare, revocare. */
+export const canManageSsh = (me: string): boolean => can(viewerFor(me), "servers.ssh.manage");
+
+/** L'ultimo uso di un accesso: quando, e da quale analisi o task (il codice della task solo se chi guarda la vede). */
+export interface SshUseView {
+  at: string;
+  label: { kind: "analysis" | "task"; code: string | null };
+}
+
+export interface SshAccessView {
+  state: AccessState;
+  /** Le chiavi pubbliche in uso. */
+  read: SshPublicKey | null;
+  fix: SshPublicKey | null;
+  /** Le chiavi generate e non ancora verificate (collegamento o rigenerazione). */
+  pending: { read: SshPublicKey; fix: SshPublicKey } | null;
+  verification: ServerSshAccess["verification"];
+  /**
+   * Se ciascun accesso si può usare adesso (`accessUsable`): durante una
+   * rigenerazione dipende anche dall'esito delle vecchie chiavi, che la
+   * vista non porta, quindi la UI non lo può ricavare da sé.
+   */
+  usable: Record<SshAccessKind, boolean>;
+  lastUse: { read: SshUseView | null; fix: SshUseView | null };
+  canManage: boolean;
+}
+
+function useView(me: string, use: SshUse | undefined): SshUseView | null {
+  if (!use) return null;
+  const ref = use.ref;
+  const taskId =
+    ref.kind === "task"
+      ? ref.taskId
+      : (state.serverAnalyses.find((a) => a.id === ref.analysisId)?.taskId ?? null);
+  const task = taskId ? state.tasksById.get(taskId) : undefined;
+  return {
+    at: use.at,
+    label: { kind: ref.kind, code: task && sees(me, task.projectId) ? task.code : null },
+  };
+}
+
+/** Il pannello «Accesso SSH» di `code` per chi guarda (che lo vede già: passa da `serverFor`). */
+export function sshAccessView(me: string, code: string): SshAccessView {
+  const a = state.serverAccess.get(code);
+  return structuredClone({
+    state: accessState(a),
+    read: a?.keys?.read ?? null,
+    fix: a?.keys?.fix ?? null,
+    pending: a?.pending ?? null,
+    verification: a?.verification ?? null,
+    usable: { read: accessUsable(a, "read"), fix: accessUsable(a, "fix") },
+    lastUse: { read: useView(me, a?.lastUse.read), fix: useView(me, a?.lastUse.fix) },
+    canManage: canManageSsh(me),
+  });
+}
+
+/**
+ * Il comando da incollare sul server: lo script coi due accessi e le sole
+ * chiavi PUBBLICHE — quelle in attesa se ce ne sono (collegamento o
+ * rigenerazione), altrimenti quelle in uso. `null` senza chiavi.
+ * L'indirizzo dell'istanza nel prototipo non è noto: niente `from=`.
+ */
+export function installCommandOf(code: string): string | null {
+  const a = state.serverAccess.get(code);
+  const keys = a?.pending ?? a?.keys;
+  if (!keys) return null;
+  return installScript({ serverCode: code, read: keys.read, fix: keys.fix, instanceAddress: null });
 }

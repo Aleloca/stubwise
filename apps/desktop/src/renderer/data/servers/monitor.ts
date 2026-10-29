@@ -4,6 +4,7 @@ import { copy, newId, now, state } from "../store";
 import type { MonitoredServer, ServerCheck, ServerThresholds } from "../types";
 import { forbidden, invalid, writer } from "../writer";
 import { environmentFor } from "../releases/visibility";
+import { dropSshAccess } from "./access";
 import { canMonitor, checkFor, holds, serverFor, serverRow, type ServerRow } from "./visibility";
 
 // Il monitor dei server (area 8b), come la sezione Monitor del web: server,
@@ -147,8 +148,8 @@ export async function deleteServer(code: string): Promise<void> {
     state.serverCheckSamples.delete(c.id);
   state.serverChecks = state.serverChecks.filter((c) => c.serverCode !== server.code);
   state.serverMetrics.delete(server.code);
-  state.serverAccess.delete(server.code);
-  state.sshVerifyNext.delete(server.code);
+  // L'accesso SSH e le sue chiavi private (in `secrets.ts`, via `access.ts`).
+  dropSshAccess(server.code);
   state.fixCheckNext.delete(server.code);
 }
 

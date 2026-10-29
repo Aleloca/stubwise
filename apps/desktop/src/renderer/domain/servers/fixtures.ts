@@ -20,6 +20,7 @@ export const access = (over: Partial<ServerSshAccess> = {}): ServerSshAccess => 
   keys: pair(1),
   pending: null,
   verification: { at: hoursAgo(1), read: "ok", fix: "ok", reason: null, ofPending: false },
+  keysVerification: null,
   lastUse: {},
   revokedAt: null,
   ...over,

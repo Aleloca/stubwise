@@ -529,7 +529,13 @@ export type ApiFnName =
   | "servers.setThresholds"
   | "servers.createCheck"
   | "servers.updateCheck"
-  | "servers.deleteCheck";
+  | "servers.deleteCheck"
+  | "servers.getInstallCommand"
+  | "servers.linkSshAccess"
+  | "servers.verifySshAccess"
+  | "servers.regenerateSshAccess"
+  | "servers.revokeSshAccess"
+  | "servers.simulateSshVerifyOutcome";
 const failures = new Set<ApiFnName>();
 
 /** Fissa la latenza simulata (ms); `0` per i test, `null` per tornare a 150–400 ms. */

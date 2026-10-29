@@ -2,9 +2,11 @@ import { downsample, downsampleSamples } from "../../domain/servers/metrics";
 import { fold } from "../../domain/textSearch";
 import { copy, gate, now, state } from "../store";
 import type { CheckSample, MetricPoint } from "../types";
-import { notFound } from "../writer";
+import { forbidden, invalid, notFound } from "../writer";
 import {
+  canManageSsh,
   homeProjectCode,
+  installCommandOf,
   metricsSince,
   projectServerCodes,
   sees,
@@ -82,6 +84,21 @@ export interface ServerSearchResult {
   name: string;
   /** Il progetto da cui si apre (`serverHref`): il principale, o il primo visibile. */
   projectCode: string;
+}
+
+/**
+ * Il comando dell'accesso SSH, da rivedere (contiene solo chiavi pubbliche):
+ * quello delle chiavi in attesa se ce ne sono, altrimenti di quelle in uso.
+ * `servers.ssh.manage`; `invalid: state` senza chiavi. Come ogni lettura non
+ * raggiunge le private (`secrets.ts`).
+ */
+export async function getInstallCommand(code: string): Promise<{ command: string }> {
+  const me = await gate("servers.getInstallCommand");
+  const server = serverFor(me, code);
+  if (!canManageSsh(me)) throw forbidden();
+  const command = installCommandOf(server.code);
+  if (command === null) throw invalid("state");
+  return { command };
 }
 
 /** ⌘K: i server per codice, nome o hostname, solo fra quelli che chi cerca vede. */

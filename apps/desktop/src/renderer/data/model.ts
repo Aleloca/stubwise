@@ -2762,24 +2762,36 @@ export interface SshUse {
   ref: { kind: "analysis"; analysisId: string } | { kind: "task"; taskId: string };
 }
 
+/** L'esito di una «Verifica» dei due accessi SSH. */
+export interface SshVerification {
+  at: string;
+  read: "ok" | "failed" | "writes";
+  fix: "ok" | "failed";
+  reason: string | null;
+  /** La verifica era delle chiavi in `pending`. */
+  ofPending: boolean;
+}
+
 /**
  * Lo stato degli accessi SSH di un server (nessuna riga = non collegato).
  * `pending`: chiavi generate e non ancora verificate — le prime (in attesa
  * del comando, `keys` nullo) o quelle di una rigenerazione (le vecchie in
- * `keys` restano valide finché la verifica delle nuove non riesce).
+ * `keys` restano valide finché la verifica delle nuove non riesce, ma solo
+ * se lo erano prima di «Rigenera»).
  */
 export interface ServerSshAccess {
   serverCode: string;
   keys: Record<SshAccessKind, SshPublicKey> | null;
   pending: Record<SshAccessKind, SshPublicKey> | null;
-  verification: {
-    at: string;
-    read: "ok" | "failed" | "writes";
-    fix: "ok" | "failed";
-    reason: string | null;
-    /** La verifica era delle chiavi in `pending`. */
-    ofPending: boolean;
-  } | null;
+  /** L'ultima verifica: delle chiavi in `keys`, o di quelle in `pending` (`ofPending`). */
+  verification: SshVerification | null;
+  /**
+   * L'esito delle chiavi in `keys` quando `verification` riguarda quelle in
+   * `pending` (una rigenerazione la cui verifica non è riuscita): senza,
+   * l'esito delle vecchie andrebbe perso e un accesso che non passava
+   * tornerebbe usabile. `null` in ogni altro caso.
+   */
+  keysVerification: SshVerification | null;
   lastUse: Partial<Record<SshAccessKind, SshUse>>;
   revokedAt: string | null;
 }
