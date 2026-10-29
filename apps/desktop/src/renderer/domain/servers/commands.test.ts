@@ -109,6 +109,14 @@ describe("isReadCommand", () => {
       no("journalctl -D /tmp/x");
       no("journalctl --directory=/tmp/x");
     });
+
+    it("--boot ha il valore FACOLTATIVO: solo --boot o --boot=N, mai separato", () => {
+      ok("journalctl --boot");
+      ok("journalctl --boot=-1 -u docker");
+      ok("journalctl --boot=5");
+      no("journalctl --boot 5");
+      no("journalctl --boot -1");
+    });
   });
 
   it("ss: solo -tlnp, niente -K né -D", () => {

@@ -66,10 +66,18 @@ describe("installScript (RF 3)", () => {
     expect(READ_GROUP).toBe("systemd-journal");
     const s = script(null);
     // `-G` senza `-a`: un utente che esisteva già perde i gruppi di prima (docker compreso).
-    expect(s).toContain('usermod -G "systemd-journal" stubwise-read');
+    expect(s).toContain('usermod -g stubwise-read -G "systemd-journal" stubwise-read');
     expect(s).not.toMatch(/usermod[^\n]*-a/);
     // stubwise-fix non ha gruppi: fa tutto con sudo.
-    expect(s).toContain('usermod -G "" stubwise-fix');
+    expect(s).toContain('usermod -g stubwise-fix -G "" stubwise-fix');
+  });
+
+  it("anche il gruppo PRIMARIO è normalizzato: un utente vecchio creato con -g docker lo perde", () => {
+    const s = script(null);
+    // Il gruppo omonimo c'è prima di usarlo come primario.
+    const ensure = s.indexOf("getent group stubwise-read >/dev/null || groupadd stubwise-read");
+    expect(ensure).toBeGreaterThan(-1);
+    expect(ensure).toBeLessThan(s.indexOf("usermod -g stubwise-read"));
   });
 
   it("non scarica né esegue niente da fuori e non contiene chiavi private", () => {

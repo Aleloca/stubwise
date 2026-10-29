@@ -67,8 +67,11 @@ function userBlock(
   return [
     `id -u ${user} >/dev/null 2>&1 || useradd --create-home --shell /bin/bash ${user}`,
     // `-G` senza `-a` RIMPIAZZA i gruppi supplementari: un utente che esisteva
-    // già non si porta dietro un gruppo di prima (vuoto = nessuno).
-    `usermod -G "${groups}" ${user}`,
+    // già non si porta dietro un gruppo di prima (vuoto = nessuno). `-g`
+    // rimette il primario al gruppo omonimo: uno creato a mano con
+    // `-g docker` resterebbe altrimenti nel gruppo docker (= root).
+    `getent group ${user} >/dev/null || groupadd ${user}`,
+    `usermod -g ${user} -G "${groups}" ${user}`,
     `install -d -m 700 -o ${user} -g ${user} /home/${user}/.ssh`,
     `cat > /home/${user}/.ssh/authorized_keys <<'KEY'`,
     ...keys.map((key) => authorizedKey(key, instanceAddress)),

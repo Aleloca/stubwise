@@ -74,6 +74,9 @@ const GRAMMARS: Record<string, Grammar> = {
       "-k",
       "--dmesg",
       "-b",
+      // Valore FACOLTATIVO per `getopt_long`: `--boot 5` non lo consuma.
+      // Nudo è un'opzione; col valore solo `--boot=N` (in `values`).
+      "--boot",
       "-x",
       "--no-hostname",
       "-q",
