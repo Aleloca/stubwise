@@ -150,6 +150,7 @@ import type {
 } from "./types";
 import { can, viewerFor } from "./viewer";
 import { registerMembershipSync, resetAccessState, type AccessState } from "./access/index";
+import type { ChangeEntry } from "./changelog/types";
 
 // Il «server» finto: il simulatore (latenza, errori iniettati), lo stato
 // mutabile — una copia del seed, che `resetApi` rifà — e i derivati che le
@@ -547,7 +548,12 @@ export type ApiFnName =
   | "servers.simulateSshUnreachable"
   | "startServerFix"
   | "servers.getServerTaskInfo"
-  | "servers.simulateFixCheck";
+  | "servers.simulateFixCheck"
+  // Registro delle modifiche e riconferma (area 9a, Task 3)
+  | "changelog.listChanges"
+  | "changelog.listProjectChanges"
+  | "auth.reauthenticate"
+  | "auth.enrollDuringReauth";
 const failures = new Set<ApiFnName>();
 
 /** Fissa la latenza simulata (ms); `0` per i test, `null` per tornare a 150–400 ms. */
@@ -620,6 +626,18 @@ interface State {
    * È lo stesso oggetto di `accessState()`; si scrive solo con `writeAccess`.
    */
   access: AccessState;
+  /**
+   * Il registro delle modifiche (area 9a): solo in aggiunta, lo scrive
+   * `recordChange` (`changelog/record.ts`), le voci sono congelate.
+   */
+  changelog: ChangeEntry[];
+  /**
+   * L'ultima riconferma riuscita, per persona (ISO): la finestra di grazia
+   * vale per persona, quindi il «vedi come» non la passa a un'altra.
+   */
+  reauth: Map<string, string>;
+  /** I codici sbagliati di fila e il blocco del secondo fattore, per persona (`auth/reauth.ts`). */
+  secondFactorAttempts: Map<string, { failures: number; lockedUntil: string | null }>;
   projects: Project[];
   statuses: ProjectStatus[];
   tasks: Task[];
@@ -836,6 +854,9 @@ export const chatKey = (personId: string, id: string): string => `${personId}\u0
 function freshState(): State {
   return {
     access: resetAccessState(),
+    changelog: [],
+    reauth: new Map(),
+    secondFactorAttempts: new Map(),
     projects: PROJECTS.map(copy),
     statuses: PROJECT_STATUSES.map(copy),
     tasks: TASKS.map(copy),
@@ -986,6 +1007,7 @@ export function resetStore(): void {
   callCounter = 0;
   chunkCounter = 0;
   setSessionPersonId(DEFAULT_SESSION_PERSON_ID);
+  clockOffsetMs = 0;
   // `freshState` riporta anche gli accessi al seme (`resetAccessState`).
   Object.assign(state, freshState());
   reindex();
@@ -1028,8 +1050,26 @@ export const newId = (prefix: string): string => `${prefix}-new-${++state.counte
  */
 export const nextSeq = (): number => ++state.alertSeq;
 
-/** L'«adesso» del prototipo: nessuna logica legge l'orologio. */
-export const now = (): string => `${TODAY}T12:00:00Z`;
+/** Di quanto «Fai passare il tempo» ha spostato l'orologio (ms); `resetApi` lo azzera. */
+let clockOffsetMs = 0;
+
+/**
+ * L'«adesso» del prototipo: nessuna logica legge l'orologio. Fermo, salvo
+ * `advanceNow` (la riconferma e il blocco del secondo fattore, area 9a).
+ */
+export const now = (): string =>
+  clockOffsetMs === 0
+    ? `${TODAY}T12:00:00Z`
+    : new Date(Date.parse(`${TODAY}T12:00:00Z`) + clockOffsetMs).toISOString();
+
+/**
+ * SOLO PROTOTIPO: manda avanti l'orologio di `ms` (i test della finestra di
+ * grazia, «Pass 15 minutes» del blocco). Sposta `now()` per tutti; il
+ * ripristino lo riporta fermo.
+ */
+export function advanceNow(ms: number): void {
+  clockOffsetMs += ms;
+}
 
 /**
  * L'ora di un messaggio nuovo della Chat: «adesso» più un secondo per ogni

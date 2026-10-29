@@ -1,0 +1,330 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { changelog, failNext, resetApi, setLatency } from "../api";
+import { roleIdOf, writeAccess } from "../access/index";
+import { setSessionPersonId } from "../session";
+import { advanceNow, state } from "../store";
+import { grantProjectRole } from "../viewer";
+import * as changelogModule from "./index";
+import { recordChange, registerChangeTypes } from "./index";
+
+// Il registro delle modifiche (area 9a, Task 3). I tipi veri di 9a li
+// registra `admin/changeTypes.ts` (Task 4): qui ne bastano due finti, uno
+// per livello.
+
+const ACQ = "prj-acq";
+const AUD = "prj-aud";
+const MKX = "prj-mkx";
+const STW = "prj-stw";
+
+registerChangeTypes([
+  {
+    kind: "test.role.updated",
+    templateKey: "changelog.test.role",
+    readPermission: "roles.manage",
+    scope: "instance",
+  },
+  {
+    kind: "test.person.updated",
+    templateKey: "changelog.test.person",
+    readPermission: "users.manage",
+    scope: "instance",
+  },
+  {
+    kind: "test.member.added",
+    templateKey: "changelog.test.member",
+    readPermission: "project.members.manage",
+    scope: "project",
+  },
+]);
+
+const as = (personId: string) => setSessionPersonId(personId);
+const instanceEntry = (kind = "test.role.updated", actorId = "p-roberta") =>
+  recordChange({
+    kind,
+    actorId,
+    projectId: null,
+    object: { type: "role", id: roleIdOf("developer"), label: "Developer" },
+    before: "Developer",
+    after: "Developer + merge pull requests",
+  });
+const projectEntry = (projectId: string, actorId = "p-roberta") =>
+  recordChange({
+    kind: "test.member.added",
+    actorId,
+    projectId,
+    object: { type: "person", id: "p-marco", label: "Marco Bellini" },
+    params: { role: "developer" },
+  });
+const kinds = async () =>
+  (await changelog.listChanges()).map((e) => `${e.kind}@${e.projectCode ?? "-"}`);
+const message = (p: Promise<unknown>) =>
+  p.then(
+    () => "ok",
+    (e: Error) => e.message,
+  );
+
+beforeEach(() => {
+  resetApi();
+  setLatency(0);
+});
+afterEach(() => resetApi());
+
+describe("tipi registrati", () => {
+  it("una voce di un tipo registrato si scrive, con i campi calcolati", async () => {
+    instanceEntry();
+    as("p-roberta");
+    const [entry] = await changelog.listChanges();
+    expect(entry).toMatchObject({
+      kind: "test.role.updated",
+      templateKey: "changelog.test.role",
+      scope: "instance",
+      actorId: "p-roberta",
+      actorName: "Roberta Fontana",
+      projectId: null,
+      projectCode: null,
+      before: "Developer",
+      after: "Developer + merge pull requests",
+      at: state.changelog[0]!.at,
+    });
+  });
+
+  it("un tipo non registrato lancia, e non scrive niente", () => {
+    expect(() =>
+      recordChange({
+        kind: "test.unknown",
+        actorId: "p-roberta",
+        projectId: null,
+        object: { type: "x", id: "x", label: "x" },
+      }),
+    ).toThrow(/Unregistered change type/);
+    expect(state.changelog).toEqual([]);
+  });
+
+  it("il livello del tipo vale: una voce di progetto senza progetto lancia, e viceversa", () => {
+    expect(() =>
+      recordChange({
+        kind: "test.member.added",
+        actorId: "p-roberta",
+        projectId: null,
+        object: { type: "x", id: "x", label: "x" },
+      }),
+    ).toThrow();
+    expect(() =>
+      recordChange({
+        kind: "test.role.updated",
+        actorId: "p-roberta",
+        projectId: ACQ,
+        object: { type: "x", id: "x", label: "x" },
+      }),
+    ).toThrow();
+    expect(state.changelog).toEqual([]);
+  });
+
+  it("ri-registrare lo stesso tipo uguale va bene, diverso no", () => {
+    expect(() =>
+      registerChangeTypes([
+        {
+          kind: "test.role.updated",
+          templateKey: "changelog.test.role",
+          readPermission: "roles.manage",
+          scope: "instance",
+        },
+      ]),
+    ).not.toThrow();
+    expect(() =>
+      registerChangeTypes([
+        {
+          kind: "test.role.updated",
+          templateKey: "changelog.test.role",
+          readPermission: "usage.view",
+          scope: "instance",
+        },
+      ]),
+    ).toThrow();
+  });
+
+  it("resetApi svuota le voci ma non i tipi", () => {
+    instanceEntry();
+    resetApi();
+    expect(state.changelog).toEqual([]);
+    expect(() => instanceEntry()).not.toThrow();
+  });
+});
+
+describe("chi legge cosa", () => {
+  beforeEach(() => {
+    instanceEntry("test.role.updated");
+    instanceEntry("test.person.updated");
+    projectEntry(ACQ);
+    projectEntry(AUD);
+    projectEntry(MKX);
+    projectEntry(STW);
+  });
+
+  it("il full admin legge tutto", async () => {
+    as("p-roberta");
+    expect((await kinds()).sort()).toEqual(
+      [
+        "test.member.added@ACQ",
+        "test.member.added@AUD",
+        "test.member.added@MKX",
+        "test.member.added@STW",
+        "test.person.updated@-",
+        "test.role.updated@-",
+      ].sort(),
+    );
+  });
+
+  it("l'Auditor legge tutte le voci d'istanza, e nessuna di progetto che non gestisce", async () => {
+    // Giulia con il ruolo d'istanza «Auditor» (usage.view + changelog.view):
+    // gestisce MKX (Project Lead) ma non ACQ, AUD, STW.
+    writeAccess((s) => {
+      s.people.find((p) => p.personId === "p-giulia")!.instanceRoleId = roleIdOf("au-1");
+    });
+    as("p-giulia");
+    expect((await kinds()).sort()).toEqual(
+      ["test.member.added@MKX", "test.person.updated@-", "test.role.updated@-"].sort(),
+    );
+  });
+
+  it("senza changelog.view una voce d'istanza la legge chi ha il readPermission del tipo", async () => {
+    // Giulia (ruolo «User») con roles.manage: legge i ruoli, non le persone.
+    writeAccess((s) => {
+      s.grants.push({
+        personId: "p-giulia",
+        projectId: null,
+        permission: "roles.manage",
+        grantedById: null,
+        at: state.changelog[0]!.at,
+      });
+    });
+    as("p-giulia");
+    expect(await kinds()).toContain("test.role.updated@-");
+    expect(await kinds()).not.toContain("test.person.updated@-");
+  });
+
+  it("Laura legge solo le voci dei progetti che gestisce", async () => {
+    // Laura è Project Lead dove è membra: la rendo Developer in STW, che
+    // continua a vedere ma non gestisce più. MKX non lo vede.
+    grantProjectRole("p-laura", STW, "developer");
+    as("p-laura");
+    expect((await kinds()).sort()).toEqual(["test.member.added@ACQ", "test.member.added@AUD"]);
+  });
+
+  it("Sara non legge niente", async () => {
+    as("p-sara");
+    expect(await changelog.listChanges()).toEqual([]);
+  });
+
+  it("Claude non legge niente", async () => {
+    as("p-claude");
+    expect(await changelog.listChanges()).toEqual([]);
+  });
+
+  it("una voce di AUD non compare a chi non vede AUD", async () => {
+    // Laura esce da AUD: non lo vede più, e la voce sparisce con lui.
+    as("p-laura");
+    expect(await kinds()).toContain("test.member.added@AUD");
+    writeAccess((s) => {
+      s.memberships = s.memberships.filter(
+        (m) => !(m.personId === "p-laura" && m.projectId === AUD),
+      );
+    });
+    expect(await kinds()).not.toContain("test.member.added@AUD");
+    expect(await message(changelog.listProjectChanges(AUD))).toBe("not_found");
+  });
+});
+
+describe("registro di un progetto", () => {
+  beforeEach(() => {
+    instanceEntry();
+    projectEntry(ACQ, "p-laura");
+    projectEntry(AUD);
+  });
+
+  it("chi gestisce il progetto ne legge solo le voci", async () => {
+    as("p-laura");
+    const rows = await changelog.listProjectChanges(ACQ);
+    expect(rows.map((r) => r.projectCode)).toEqual(["ACQ"]);
+    expect(rows[0]!.actorName).toBe("Laura Costa");
+  });
+
+  it("R-G5: un progetto invisibile è not_found, uno visibile senza gestione forbidden", async () => {
+    as("p-sara");
+    expect(await message(changelog.listProjectChanges(AUD))).toBe("not_found");
+    expect(await message(changelog.listProjectChanges("prj-nope"))).toBe("not_found");
+    expect(await message(changelog.listProjectChanges(ACQ))).toBe("forbidden");
+  });
+
+  it("failNext rifiuta la prossima lettura", async () => {
+    as("p-roberta");
+    failNext("changelog.listProjectChanges");
+    expect(await message(changelog.listProjectChanges(ACQ))).toMatch(/Simulated failure/);
+    failNext("changelog.listChanges");
+    expect(await message(changelog.listChanges())).toMatch(/Simulated failure/);
+  });
+});
+
+describe("ordine e filtri", () => {
+  it("più recenti prima, e a parità d'ora l'ultima scritta prima", async () => {
+    instanceEntry("test.role.updated");
+    advanceNow(60_000);
+    instanceEntry("test.person.updated");
+    instanceEntry("test.role.updated", "p-laura");
+    as("p-roberta");
+    const rows = await changelog.listChanges();
+    expect(rows.map((r) => `${r.kind}/${r.actorId}`)).toEqual([
+      "test.role.updated/p-laura",
+      "test.person.updated/p-roberta",
+      "test.role.updated/p-roberta",
+    ]);
+  });
+
+  it("filtra per persona, progetto (null = solo istanza), tipo e periodo", async () => {
+    const t0 = "2026-10-23T12:00:00Z";
+    instanceEntry("test.role.updated", "p-laura");
+    advanceNow(3_600_000);
+    projectEntry(ACQ);
+    instanceEntry("test.person.updated");
+    as("p-roberta");
+    const ids = async (f: Parameters<typeof changelog.listChanges>[0]) =>
+      (await changelog.listChanges(f)).map((r) => r.kind + "@" + (r.projectCode ?? "-"));
+    expect(await ids({ personId: "p-laura" })).toEqual(["test.role.updated@-"]);
+    expect(await ids({ projectId: ACQ })).toEqual(["test.member.added@ACQ"]);
+    expect(await ids({ projectId: null })).toEqual([
+      "test.person.updated@-",
+      "test.role.updated@-",
+    ]);
+    expect(await ids({ kind: "test.person.updated" })).toEqual(["test.person.updated@-"]);
+    expect(await ids({ to: t0 })).toEqual(["test.role.updated@-"]);
+    expect(await ids({ from: "2026-10-23T12:30:00Z" })).toEqual([
+      "test.person.updated@-",
+      "test.member.added@ACQ",
+    ]);
+  });
+});
+
+describe("una voce non si tocca", () => {
+  it("nessuna funzione esportata la modifica o la cancella", () => {
+    const names = Object.keys(changelogModule);
+    expect(names.length).toBeGreaterThan(3);
+    expect(
+      names.filter((n) => /update|edit|delete|remove|clear|set|undo|forget|replace/i.test(n)),
+    ).toEqual([]);
+    expect(Object.keys(changelog).sort()).toEqual(["listChanges", "listProjectChanges"]);
+  });
+
+  it("le voci salvate sono congelate, e la vista è una copia", async () => {
+    projectEntry(ACQ);
+    const entry = state.changelog[0]!;
+    expect(Object.isFrozen(entry)).toBe(true);
+    expect(Object.isFrozen(entry.object)).toBe(true);
+    expect(Object.isFrozen(entry.params)).toBe(true);
+    as("p-roberta");
+    const [row] = await changelog.listChanges();
+    row!.object.label = "changed";
+    row!.params.role = "changed";
+    expect(state.changelog[0]!.object.label).toBe("Marco Bellini");
+    expect(state.changelog[0]!.params.role).toBe("developer");
+  });
+});

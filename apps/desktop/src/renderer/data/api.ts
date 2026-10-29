@@ -123,6 +123,10 @@ export * as releases from "./releases";
 export * as support from "./support";
 /** I Server (area 8b): `api.servers.listProjectServers(…)`, `api.servers.createServer(…)`… */
 export * as servers from "./servers";
+/** Il registro delle modifiche (area 9a): `api.changelog.listChanges(…)`, `api.changelog.listProjectChanges(…)`. */
+export * as changelog from "./changelog/reads";
+/** La riconferma col secondo fattore (area 9a): `api.auth.reauthenticate(…)`, `api.auth.enrollDuringReauth()`. */
+export * as auth from "./auth";
 
 /** Ripristina lo stato (sessione, dati, errori iniettati) e porta le task scadute alla settimana corrente. */
 export function resetApi(): void {
