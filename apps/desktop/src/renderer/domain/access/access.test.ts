@@ -16,14 +16,13 @@ import { PROJECTS } from "../../data/seed/projects";
 import en from "../../i18n/locales/en.json";
 import it_ from "../../i18n/locales/it.json";
 import { ACTIONS, INSTANCE_GROUPS, PROJECT_GROUPS, groupOf, groupPermissions } from "./actions";
-import { checkEscalation, checkTarget } from "./escalation";
+import { checkEscalation } from "./escalation";
 import { lastFullAdminBlock, lastMembersManagerBlock, membersManagersOf } from "./guards";
 
 beforeEach(() => resetApi());
 
 const pid = (code: string) => PROJECTS.find((p) => p.code === code)!.id;
 const ACQ = pid("ACQ");
-const AUD = pid("AUD");
 
 describe("checkEscalation", () => {
   // Nel seme il Project Lead ha ogni permesso di progetto del web, quindi
@@ -100,41 +99,46 @@ describe("checkEscalation", () => {
   });
 });
 
-describe("checkTarget", () => {
-  it("Laura su Roberta: target_above, in ogni progetto e nell'istanza", () => {
-    expect(
-      checkTarget(effectivePermissions("p-laura", ACQ), effectivePermissions("p-roberta", ACQ)),
-    ).toEqual({ ok: false, error: "target_above" });
-    expect(checkTarget(effectivePermissions("p-laura"), effectivePermissions("p-roberta"))).toEqual(
-      { ok: false, error: "target_above" },
-    );
-  });
-
-  it("Laura su Marco in AUD: ok (Developer è contenuto nel Project Lead)", () => {
-    expect(
-      checkTarget(effectivePermissions("p-laura", AUD), effectivePermissions("p-marco", AUD)),
-    ).toEqual({ ok: true });
-  });
-
-  it("Laura su Marco in ACQ: target_above, per la concessione servers.operate che Laura non ha", () => {
+describe("escalation solo su ciò che si dà (maintainer, 30 ott 2026)", () => {
+  // Niente gerarchia: chi gestisce i membri modifica chiunque. Conta solo
+  // ciò che la modifica DÀ.
+  it("Laura dà servers.operate a Federico su ACQ: escalation, non ce l'ha", () => {
     expect(effectivePermissions("p-laura", ACQ).has("servers.operate")).toBe(false);
-    expect(
-      checkTarget(effectivePermissions("p-laura", ACQ), effectivePermissions("p-marco", ACQ)),
-    ).toEqual({ ok: false, error: "target_above" });
+    expect(checkEscalation(effectivePermissions("p-laura", ACQ), ["servers.operate"])).toEqual({
+      ok: false,
+      error: "escalation",
+      missing: ["servers.operate"],
+    });
   });
 
-  it("un full admin non è mai sopra un altro full admin", () => {
-    const roberta = effectivePermissions("p-roberta", ACQ);
-    expect(checkTarget(roberta, roberta)).toEqual({ ok: true });
-    expect(checkTarget(roberta, effectivePermissions("p-laura", ACQ))).toEqual({ ok: true });
+  it("Laura toglie servers.operate a Marco su ACQ: non dà niente, ok", () => {
+    // Marco ha più permessi di Laura su ACQ: non conta.
+    expect(effectivePermissions("p-marco", ACQ).has("servers.operate")).toBe(true);
+    expect(checkEscalation(effectivePermissions("p-laura", ACQ), [])).toEqual({ ok: true });
   });
 
-  it("chi non è full admin non tocca un full admin, anche avendo gli stessi permessi", () => {
-    const roberta = effectivePermissions("p-roberta", ACQ);
-    const sameKeysNoAdmin = new Map(
-      [...roberta.keys()].map((p) => [p, [{ kind: "role" as const, roleId: "r" }]]),
-    );
-    expect(checkTarget(sameKeysNoAdmin, roberta)).toEqual({ ok: false, error: "target_above" });
+  it("Laura cambia il ruolo di Marco in Developer: dà i permessi del ruolo, che ha", () => {
+    const developer = accessState().roles.find((r) => r.key === "developer")!;
+    expect(checkEscalation(effectivePermissions("p-laura", ACQ), developer.permissions)).toEqual({
+      ok: true,
+    });
+  });
+
+  it("Laura toglie Marco da ACQ: non dà niente, ok", () => {
+    expect(checkEscalation(effectivePermissions("p-laura", ACQ), [])).toEqual({ ok: true });
+  });
+
+  it("Laura assegna Release manager: dà release.merge, che ha dal Project Lead", () => {
+    const rm = accessState().roles.find((r) => r.key === "rm-1")!;
+    expect(checkEscalation(effectivePermissions("p-laura", ACQ), rm.permissions)).toEqual({
+      ok: true,
+    });
+    // Marco no: release.merge gli manca.
+    expect(checkEscalation(effectivePermissions("p-marco", ACQ), rm.permissions)).toEqual({
+      ok: false,
+      error: "escalation",
+      missing: ["release.merge"],
+    });
   });
 });
 
@@ -196,105 +200,107 @@ describe("lastFullAdminBlock", () => {
 });
 
 describe("lastMembersManagerBlock", () => {
-  /** Un progetto di Laura senza full admin membri in cui Laura è l'unica a gestire i membri. */
-  const lauraAlone = (s: AccessState): string =>
-    PROJECTS.find(
-      (p) =>
-        p.memberIds.includes("p-laura") &&
-        !p.memberIds.includes("p-roberta") &&
-        membersManagersOf(s, p.id).join() === "p-laura",
-    )!.id;
-
-  it("su un progetto di Laura senza full admin membri, toglierle il permesso è bloccato", () => {
+  /**
+   * Uno stato costruito apposta (maintainer, 30 ott 2026): un progetto, due
+   * persone, nessun full admin. Nel seme non può succedere — resta sempre
+   * un full admin, e i full admin contano ovunque — ma la guardia resta.
+   */
+  const P = "prj-x";
+  const twoPeopleNoAdmin = (): AccessState => {
     const s = seedCopy();
-    const projectId = lauraAlone(s);
-    expect(
-      lastMembersManagerBlock(s, projectId, { personId: "p-laura", losesMembersManage: true }),
-    ).toBe("last_members_manager");
-  });
-
-  it("su ACQ c'è anche Matteo (Project Lead): Laura può perderlo", () => {
-    const s = seedCopy();
-    expect(membersManagersOf(s, ACQ).sort()).toEqual(["p-laura", "p-matteo"]);
-    expect(
-      lastMembersManagerBlock(s, ACQ, { personId: "p-laura", losesMembersManage: true }),
-    ).toBeNull();
-  });
-
-  it("un full admin membro conta come gestore", () => {
-    const s = seedCopy();
-    const projectId = lauraAlone(s);
-    s.memberships.push({ personId: "p-roberta", projectId, roleId: roleIdOf("viewer") });
-    expect(membersManagersOf(s, projectId).sort()).toEqual(["p-laura", "p-roberta"]);
-    expect(
-      lastMembersManagerBlock(s, projectId, { personId: "p-laura", losesMembersManage: true }),
-    ).toBeNull();
-  });
-
-  it("un gestore disattivato non conta", () => {
-    const s = seedCopy();
-    const projectId = lauraAlone(s);
-    const other = s.memberships.find((m) => m.projectId === projectId && m.personId !== "p-laura")!;
-    other.roleId = roleIdOf("project_lead");
-    expect(
-      lastMembersManagerBlock(s, projectId, { personId: "p-laura", losesMembersManage: true }),
-    ).toBeNull();
-    s.people.find((p) => p.personId === other.personId)!.status = "deactivated";
-    expect(
-      lastMembersManagerBlock(s, projectId, { personId: "p-laura", losesMembersManage: true }),
-    ).toBe("last_members_manager");
-  });
-
-  it("un secondo gestore da una concessione personale sblocca", () => {
-    const s = seedCopy();
-    const projectId = lauraAlone(s);
-    const other = s.memberships.find(
-      (m) => m.projectId === projectId && m.personId !== "p-laura",
-    )!.personId;
-    s.grants.push({
-      personId: other,
-      projectId,
-      permission: "project.members.manage",
-      grantedById: "p-laura",
-      at: "2026-10-01T10:00:00Z",
+    const person = (personId: string) => ({
+      personId,
+      instanceRoleId: roleIdOf("user"),
+      status: "active" as const,
+      deactivatedAt: null,
+      secondFactor: null,
     });
-    expect(
-      lastMembersManagerBlock(s, projectId, { personId: "p-laura", losesMembersManage: true }),
-    ).toBeNull();
-  });
+    s.people = [person("p-anna"), person("p-bruno")];
+    s.memberships = [
+      { personId: "p-anna", projectId: P, roleId: roleIdOf("project_lead") },
+      { personId: "p-bruno", projectId: P, roleId: roleIdOf("developer") },
+    ];
+    s.grants = [];
+    s.departments = [];
+    s.revocations = [];
+    return s;
+  };
+  const annaLoses = { personId: "p-anna", losesMembersManage: true };
 
-  it("un secondo gestore dal reparto sblocca (permesso di reparto, da membro)", () => {
-    const s = seedCopy();
-    const projectId = lauraAlone(s);
-    const dep = s.departments.find((d) =>
-      d.memberIds.some(
-        (id) =>
-          id !== "p-laura" &&
-          s.memberships.some((m) => m.personId === id && m.projectId === projectId),
-      ),
-    )!;
-    dep.projectPermissions.push("project.members.manage");
-    expect(
-      lastMembersManagerBlock(s, projectId, { personId: "p-laura", losesMembersManage: true }),
-    ).toBeNull();
+  it("l'unico gestore, senza full admin, non lo perde", () => {
+    const s = twoPeopleNoAdmin();
+    expect(membersManagersOf(s, P)).toEqual(["p-anna"]);
+    expect(lastMembersManagerBlock(s, P, annaLoses)).toBe("last_members_manager");
   });
 
   it("chi non gestisce i membri, o una modifica che non lo toglie, passa", () => {
-    const s = seedCopy();
-    const projectId = lauraAlone(s);
+    const s = twoPeopleNoAdmin();
+    expect(lastMembersManagerBlock(s, P, { ...annaLoses, losesMembersManage: false })).toBeNull();
     expect(
-      lastMembersManagerBlock(s, projectId, { personId: "p-laura", losesMembersManage: false }),
-    ).toBeNull();
-    expect(
-      lastMembersManagerBlock(s, projectId, { personId: "p-marco", losesMembersManage: true }),
+      lastMembersManagerBlock(s, P, { personId: "p-bruno", losesMembersManage: true }),
     ).toBeNull();
   });
 
-  it("un full admin che non è membro non conta", () => {
+  it("un secondo gestore da una concessione personale sblocca", () => {
+    const s = twoPeopleNoAdmin();
+    s.grants.push({
+      personId: "p-bruno",
+      projectId: P,
+      permission: "project.members.manage",
+      grantedById: "p-anna",
+      at: "2026-10-01T10:00:00Z",
+    });
+    expect(lastMembersManagerBlock(s, P, annaLoses)).toBeNull();
+  });
+
+  it("un secondo gestore dal reparto sblocca (permesso di reparto, da membro)", () => {
+    const s = twoPeopleNoAdmin();
+    s.departments.push({
+      departmentId: "dep-x",
+      memberIds: ["p-bruno"],
+      homeManagerIds: [],
+      projectPermissions: ["project.members.manage"],
+    });
+    expect(lastMembersManagerBlock(s, P, annaLoses)).toBeNull();
+  });
+
+  it("un gestore disattivato non conta", () => {
+    const s = twoPeopleNoAdmin();
+    s.memberships[1]!.roleId = roleIdOf("project_lead");
+    expect(lastMembersManagerBlock(s, P, annaLoses)).toBeNull();
+    s.people[1]!.status = "deactivated";
+    expect(lastMembersManagerBlock(s, P, annaLoses)).toBe("last_members_manager");
+  });
+
+  it("un full admin attivo conta sempre, anche se non è membro", () => {
+    const s = twoPeopleNoAdmin();
+    s.people.push({
+      personId: "p-carla",
+      instanceRoleId: roleIdOf("admin"),
+      status: "active",
+      deactivatedAt: null,
+      secondFactor: null,
+    });
+    expect(s.memberships.some((m) => m.personId === "p-carla")).toBe(false);
+    expect(membersManagersOf(s, P).sort()).toEqual(["p-anna", "p-carla"]);
+    expect(lastMembersManagerBlock(s, P, annaLoses)).toBeNull();
+    // Disattivato non conta più.
+    s.people[2]!.status = "deactivated";
+    expect(lastMembersManagerBlock(s, P, annaLoses)).toBe("last_members_manager");
+  });
+
+  it("nel seme non scatta mai: Roberta conta ovunque", () => {
     const s = seedCopy();
-    const projectId = lauraAlone(s);
-    expect(effectivePermissions("p-roberta", projectId).has("project.members.manage")).toBe(true);
-    expect(membersManagersOf(s, projectId)).not.toContain("p-roberta");
+    const lauraOnly = PROJECTS.find(
+      (p) => p.memberIds.includes("p-laura") && !p.memberIds.includes("p-roberta"),
+    )!.id;
+    expect(membersManagersOf(s, lauraOnly)).toContain("p-roberta");
+    expect(
+      lastMembersManagerBlock(s, lauraOnly, { personId: "p-laura", losesMembersManage: true }),
+    ).toBeNull();
+    expect(
+      lastMembersManagerBlock(s, ACQ, { personId: "p-laura", losesMembersManage: true }),
+    ).toBeNull();
   });
 });
 
