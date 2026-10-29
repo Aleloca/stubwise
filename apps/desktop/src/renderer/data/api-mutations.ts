@@ -1654,6 +1654,9 @@ function newConversation(
   return c;
 }
 
+/** Una sessione nuova a nome di `me` (l'analisi automatica di un server, area 8b, a nome di Claude). */
+export { newConversation as openWorkConversationAs };
+
 export interface NewConversationInput {
   contextProjectId?: string | null;
   /** Un oggetto di contesto (area 8a): il rilascio; il suo progetto diventa il contesto. */

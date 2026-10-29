@@ -2605,6 +2605,24 @@
       "quoted": "“{{title}}”",
       "fallback": "I'll get back to you shortly.",
       "closing": "Best,\n{{name}}"
+    },
+    "serverAnalysis": {
+      "reads": {
+        "uptime": "Read the uptime and load",
+        "memory": "Read the memory",
+        "containers": "Read the container usage",
+        "processesCpu": "Read the processes by CPU",
+        "processesMem": "Read the processes by memory",
+        "logs": "Read the log of {{service}}",
+        "disk": "Read the disk usage",
+        "containerSizes": "Read the container sizes",
+        "journal": "Read the system journal",
+        "containerList": "Read the containers",
+        "ports": "Read the listening ports",
+        "agent": "Read the agent status",
+        "bootJournal": "Read the journal of the last boot",
+        "attempt": "Tried to connect (attempt {{n}})"
+      }
     }
   },
   "chat": {
@@ -6184,7 +6202,11 @@
       "monitor_alert": "Server in trouble",
       "monitor_recovered": "Server recovered",
       "job_failed": "Claude's work failed",
-      "project_brief": "Weekly brief"
+      "project_brief": "Weekly brief",
+      "server_trouble": "Server in trouble",
+      "server_down": "Server not responding",
+      "server_recovered": "Server back to normal",
+      "server_diagnosis_ready": "Diagnosis ready"
     },
     "when": {
       "pr_opened": "When a PR is opened in {{code}}, by Claude or a colleague",

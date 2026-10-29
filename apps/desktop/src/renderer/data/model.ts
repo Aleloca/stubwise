@@ -686,6 +686,12 @@ export interface Conversation {
    * task con `serverRef`. Il suo piano va sempre approvato da una persona.
    */
   serverFix?: { serverCode: string };
+  /**
+   * Solo `server_analysis`: i limiti con cui è partita (`ANALYSIS_MAX_*`),
+   * scritti accanto ai consumi (`usage`): oltre, l'analisi si ferma
+   * `timed_out` e apre la task con ciò che ha visto.
+   */
+  analysisLimits?: { maxMinutes: number; maxCostUsd: number };
 }
 
 export interface Attachment {

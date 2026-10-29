@@ -141,6 +141,9 @@ export async function updateServer(code: string, patch: UpdateServerInput): Prom
 export async function deleteServer(code: string): Promise<void> {
   const me = await writer("servers.deleteServer");
   const server = managed(me, code);
+  // R-L6: non mentre un'analisi lo sta guardando (la correzione: Task 6).
+  if (state.serverAnalyses.some((a) => a.serverCode === server.code && a.outcome === "running"))
+    throw invalid("busy");
   state.servers = state.servers.filter((s) => s !== server);
   for (const env of state.environments)
     env.servers = env.servers.filter((s) => s.serverCode !== server.code);

@@ -2605,6 +2605,24 @@
       "quoted": "«{{title}}»",
       "fallback": "Ti rispondo a breve.",
       "closing": "A presto,\n{{name}}"
+    },
+    "serverAnalysis": {
+      "reads": {
+        "uptime": "Letti uptime e carico",
+        "memory": "Letta la memoria",
+        "containers": "Letto l'uso dei container",
+        "processesCpu": "Letti i processi per CPU",
+        "processesMem": "Letti i processi per memoria",
+        "logs": "Letto il log di {{service}}",
+        "disk": "Letto l'uso del disco",
+        "containerSizes": "Lette le dimensioni dei container",
+        "journal": "Letto il journal di sistema",
+        "containerList": "Letti i container",
+        "ports": "Lette le porte in ascolto",
+        "agent": "Letto lo stato dell'agente",
+        "bootJournal": "Letto il journal dell'ultimo avvio",
+        "attempt": "Tentata la connessione ({{n}}° tentativo)"
+      }
     }
   },
   "chat": {
@@ -6184,7 +6202,11 @@
       "monitor_alert": "Server in difficoltà",
       "monitor_recovered": "Server tornato a posto",
       "job_failed": "Lavoro di Claude fallito",
-      "project_brief": "Brief settimanale"
+      "project_brief": "Brief settimanale",
+      "server_trouble": "Server in difficoltà",
+      "server_down": "Server che non risponde",
+      "server_recovered": "Server tornato a posto",
+      "server_diagnosis_ready": "Diagnosi pronta"
     },
     "when": {
       "pr_opened": "Quando si apre una PR in {{code}}, di Claude o di un collega",

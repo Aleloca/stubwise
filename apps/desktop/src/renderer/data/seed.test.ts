@@ -2645,7 +2645,9 @@ describe("seed: server (area 8b)", () => {
     expect(familyOf(task)).toBe("todo");
     expect(task.createdAt).toBe(an.endedAt);
     expect(task.description).toMatch(/Diagnosis/);
-    expect(task.description).toMatch(/Back to normal at 20:00/);
+    expect(task.description).toMatch(/Back to normal\*\* after 2 h/);
+    // Nessuna ora nel testo: l'ora del rientro si legge dall'episodio, nel fuso di chi guarda.
+    expect(task.description).not.toMatch(/\d{1,2}:\d{2}/);
     expect(task.description).toMatch(/Proposal/);
     // L'avviso «diagnosi pronta», nel progetto dell'analisi.
     const n = notification("server.diagnosis_ready", "SRV-1");

@@ -535,7 +535,10 @@ export type ApiFnName =
   | "servers.verifySshAccess"
   | "servers.regenerateSshAccess"
   | "servers.revokeSshAccess"
-  | "servers.simulateSshVerifyOutcome";
+  | "servers.simulateSshVerifyOutcome"
+  | "servers.simulateServerAlert"
+  | "servers.simulateServerRecovery"
+  | "servers.simulateSshUnreachable";
 const failures = new Set<ApiFnName>();
 
 /** Fissa la latenza simulata (ms); `0` per i test, `null` per tornare a 150–400 ms. */

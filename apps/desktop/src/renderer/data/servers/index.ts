@@ -5,6 +5,12 @@
 // (`servers.ssh.manage`), `simulate.ts` i «Simula …» del solo prototipo.
 // `secrets.ts` (le chiavi private) NON si esporta: lo importano solo
 // `access.ts`, `analysis.ts` e `fix.ts`.
+//
+// `alertTypes.ts` si importa qui, STATICAMENTE e per il suo effetto:
+// registra gli avvisi dei server nel catalogo prima del primo `resetApi`.
+// `analysis.ts` (episodi e analisi automatica) non è una funzione dell'API:
+// ci arrivano i «Simula …» di `simulate.ts`.
+import "./alertTypes";
 
 export {
   getInstallCommand,
@@ -30,7 +36,12 @@ export {
   type UpdateServerInput,
 } from "./monitor";
 export { linkSshAccess, regenerateSshAccess, revokeSshAccess, verifySshAccess } from "./access";
-export { simulateSshVerifyOutcome } from "./simulate";
+export {
+  simulateServerAlert,
+  simulateServerRecovery,
+  simulateSshUnreachable,
+  simulateSshVerifyOutcome,
+} from "./simulate";
 export {
   RECENT_CPU_POINTS,
   serverHref,

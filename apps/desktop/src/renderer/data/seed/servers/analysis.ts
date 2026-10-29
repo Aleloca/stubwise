@@ -152,7 +152,10 @@ export const SERVER_TASKS: Task[] = [
       "",
       "Claude looked with the read-only access: nothing was changed on the server.",
       "",
-      `**Back to normal at 20:00**, when the import committed (after 2 h).`,
+      // Niente ora nel testo: è lo stesso per tutti, il fuso no. L'ora del
+      // rientro sta nell'episodio (`recoveredAt`) e la UI la formatta per
+      // chi guarda (`data/servers/analysis.ts`, `recoveredLine`).
+      "**Back to normal** after 2 h, when the import committed, without any change from Stubwise.",
     ].join("\n"),
     statusId: statusIdOf(ACQ, "todo"),
     departmentId: "dep-development",
