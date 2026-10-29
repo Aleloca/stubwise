@@ -6,14 +6,14 @@ import type { MetricRange, ServerDetail as Detail } from "../../data/servers";
 import { PageError } from "../../tasks-ui/PageStates";
 import { ChecksPanel } from "./ChecksPanel";
 import { DisksPanel } from "./DisksPanel";
-import { accessProblem, environmentsLine, healthParts, lastReport } from "./format";
+import { environmentsLine, healthParts, lastReport } from "./format";
 import { HealthGlyph } from "./glyphs";
 import { MetricsCharts, RANGES } from "./MetricsCharts";
 import { NowBox, showsNow } from "./NowBox";
-import { Part } from "./Part";
 import { ServerSettings } from "./ServerSettings";
 import { ServicesTable } from "./ServicesTable";
 import { SimulatePanel } from "./SimulatePanel";
+import { SshAccessPanel } from "./SshAccessPanel";
 import { ThresholdsPanel } from "./ThresholdsPanel";
 
 // Il dettaglio di un server (`#/p/ACQ/servers/SRV-1`, shape servers.md §3):
@@ -60,24 +60,6 @@ function DetailSkeleton() {
         ))}
       </div>
     </section>
-  );
-}
-
-/** La parte «SSH access»: qui solo lo stato in parole; il pannello vero è di server-access.md. */
-function AccessPart({ server }: { server: Detail }) {
-  const { t } = useTranslation();
-  const problem = accessProblem({ access: server.access.state }, t);
-  return (
-    <Part id="access" title={t("servers.index.access")}>
-      <div className="flex flex-col gap-1 border-t border-rule pt-3 pl-3">
-        <p className="text-md text-ink">
-          {problem ?? t(`servers.accessPart.${server.access.state}`)}
-        </p>
-        {!server.access.usable.read && (
-          <p className="text-md text-ink-muted">{t("servers.accessPart.cantLook")}</p>
-        )}
-      </div>
-    </Part>
   );
 }
 
@@ -238,7 +220,7 @@ function Page({ server, projectCode }: { server: Detail; projectCode: string }) 
                 document.getElementById("server-charts")?.scrollIntoView?.({ block: "start" });
             }}
           />
-          <AccessPart server={server} />
+          <SshAccessPanel server={server} />
           <ThresholdsPanel
             serverCode={server.code}
             thresholds={server.thresholds}

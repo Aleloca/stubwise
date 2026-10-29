@@ -326,6 +326,8 @@ export const canManageSsh = (me: string): boolean => can(viewerFor(me), "servers
 export interface SshUseView {
   at: string;
   label: { kind: "analysis" | "task"; code: string | null };
+  /** La sessione dell'analisi («Open session», Task 8), solo se chi guarda ne vede il progetto. */
+  sessionId: string | null;
 }
 
 export interface SshAccessView {
@@ -343,20 +345,22 @@ export interface SshAccessView {
    */
   usable: Record<SshAccessKind, boolean>;
   lastUse: { read: SshUseView | null; fix: SshUseView | null };
+  /** Quando è stato revocato («Revoked Oct 29», il comando di rimozione); `null` se non lo è. */
+  revokedAt: string | null;
   canManage: boolean;
 }
 
 function useView(me: string, use: SshUse | undefined): SshUseView | null {
   if (!use) return null;
   const ref = use.ref;
-  const taskId =
-    ref.kind === "task"
-      ? ref.taskId
-      : (state.serverAnalyses.find((a) => a.id === ref.analysisId)?.taskId ?? null);
+  const analysis =
+    ref.kind === "analysis" ? state.serverAnalyses.find((a) => a.id === ref.analysisId) : undefined;
+  const taskId = ref.kind === "task" ? ref.taskId : (analysis?.taskId ?? null);
   const task = taskId ? state.tasksById.get(taskId) : undefined;
   return {
     at: use.at,
     label: { kind: ref.kind, code: task && sees(me, task.projectId) ? task.code : null },
+    sessionId: analysis && sees(me, analysis.projectId) ? analysis.conversationId : null,
   };
 }
 
@@ -371,6 +375,7 @@ export function sshAccessView(me: string, code: string): SshAccessView {
     verification: a?.verification ?? null,
     usable: { read: accessUsable(a, "read"), fix: accessUsable(a, "fix") },
     lastUse: { read: useView(me, a?.lastUse.read), fix: useView(me, a?.lastUse.fix) },
+    revokedAt: a?.revokedAt ?? null,
     canManage: canManageSsh(me),
   });
 }

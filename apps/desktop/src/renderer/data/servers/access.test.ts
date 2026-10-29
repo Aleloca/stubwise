@@ -320,6 +320,7 @@ describe("permessi e R-G5", () => {
     expect(v.lastUse.read).toEqual({
       at: expect.any(String),
       label: { kind: "analysis", code: "ACQ-6" },
+      sessionId: expect.any(String),
     });
     expect(v.lastUse.fix).toBeNull();
     as("p-roberta");
@@ -357,6 +358,7 @@ describe("ultimo uso", () => {
     expect((await view("SRV-1")).lastUse.fix).toEqual({
       at: expect.any(String),
       label: { kind: "task", code: "ACQ-6" },
+      sessionId: null,
     });
     // Una task di un progetto che Sara non vede: l'uso c'è, il codice no.
     const aud = PROJECTS.find((p) => p.code === "AUD")!;

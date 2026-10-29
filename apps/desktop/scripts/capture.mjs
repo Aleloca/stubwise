@@ -938,6 +938,44 @@ async function main() {
         await p.locator("[data-agent-key]").waitFor();
         await p.waitForTimeout(400);
       } }],
+      // Task 8: gli accessi SSH (shape server-access.md).
+      ["access-link", "/p/AUD/servers/SRV-4", { persona: "Roberta", steps: scrollTo("access") }],
+      ["access-command", "/p/AUD/servers/SRV-3", { persona: "Roberta", steps: scrollTo("access") }],
+      ["access-read-writes", "/p/AUD/servers/SRV-3", { persona: "Roberta", steps: async (p) => {
+        await p.locator("[data-prototype-only]").filter({ hasText: /Next verification|Prossima verifica/ }).locator("select").selectOption("read_writes");
+        await p.waitForTimeout(300);
+        await p.getByRole("button", { name: /^(Verify|Verifica)$/ }).click();
+        await p.getByRole("alert").first().waitFor();
+        await scrollTo("access")(p);
+      } }],
+      ["access-verified", "/p/ACQ/servers/SRV-1", { persona: "Roberta", steps: scrollTo("access") }],
+      ["access-regenerate", "/p/ACQ/servers/SRV-1", { persona: "Roberta", steps: async (p) => {
+        await p.locator("#server-access [aria-haspopup='menu']").click();
+        await p.getByRole("menuitem", { name: /^(Regenerate keys|Rigenera le chiavi)/ }).click();
+        await p.getByRole("dialog").waitFor();
+        await p.waitForTimeout(300);
+      } }],
+      ["access-regenerating", "/p/ACQ/servers/SRV-1", { persona: "Roberta", steps: async (p) => {
+        await p.locator("#server-access [aria-haspopup='menu']").click();
+        await p.getByRole("menuitem", { name: /^(Regenerate keys|Rigenera le chiavi)/ }).click();
+        await p.getByRole("dialog").getByRole("button", { name: /^(Regenerate|Rigenera)$/ }).click();
+        await p.locator("#server-access [data-command]").waitFor();
+        await scrollTo("access")(p);
+      } }],
+      ["access-revoke", "/p/ACQ/servers/SRV-1", { persona: "Roberta", steps: async (p) => {
+        await p.locator("#server-access [aria-haspopup='menu']").click();
+        await p.getByRole("menuitem", { name: /^(Revoke access|Revoca l'accesso)/ }).click();
+        await p.getByRole("dialog").waitFor();
+        await p.waitForTimeout(300);
+      } }],
+      ["access-removal", "/p/ACQ/servers/SRV-1", { persona: "Roberta", steps: async (p) => {
+        await p.locator("#server-access [aria-haspopup='menu']").click();
+        await p.getByRole("menuitem", { name: /^(Revoke access|Revoca l'accesso)/ }).click();
+        await p.getByRole("dialog").getByRole("button", { name: /^(Revoke access|Revoca l'accesso)$/ }).click();
+        await p.locator("#server-access [data-command]").waitFor();
+        await scrollTo("access")(p);
+      } }],
+      ["access-laura", "/p/ACQ/servers/SRV-1", { persona: "Laura", steps: scrollTo("access") }],
     ];
     for (const [name, hash, o] of AREA8B_SERVERS) {
       if (only && !only.test(name)) continue;

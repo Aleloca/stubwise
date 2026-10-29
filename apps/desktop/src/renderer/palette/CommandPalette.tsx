@@ -259,6 +259,8 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   // con l'ambito «In <repo> docs»: solo le pagine di quello spazio. Tab
   // allarga a «Everywhere» (le pagine stanno con gli altri oggetti) e torna.
   const docsRepo = /^\/p\/[^/]+\/docs\/([^/]+)/.exec(pathname)?.[1];
+  // Il server aperto (`/p/ACQ/servers/SRV-1`): «Link SSH access to SRV-1».
+  const serverCode = /^\/p\/[^/]+\/servers\/(SRV-\d+)/i.exec(pathname)?.[1]?.toUpperCase();
   const docsRepoName = docsRepo ? decodeURIComponent(docsRepo) : null;
   const scopeProject = projectList?.find((p) => p.code === projectCode);
   const scopeSpaces = useDocSpaces(scopeProject?.id ?? "", {
@@ -352,6 +354,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       setTheme: setPreference,
       setPersona,
       projectCode,
+      serverCode,
       pathname,
       openViewAs: () => {
         setStep("viewAs");
@@ -677,10 +680,12 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     // il testo non è il suo nome: prima ciò che il testo ha davvero trovato.
     const needle = fold(query.trim());
     // Le etichette possono nominare il progetto in cui si è («Link a Google folder to AUD»).
-    const labelOf = (cmd: Command) => t(cmd.labelKey, { code: projectCode });
+    const labelOf = (cmd: Command) =>
+      t(cmd.labelKey, { code: projectCode, server: serverCode });
     const matched = matchCommands(query, viewer, labelOf, {
       projectId: scopeProject?.id,
       projectCode,
+      serverCode,
     });
     const quoting = (cmd: Command) =>
       !!needle && !!cmd.queryLabelKey && !fold(labelOf(cmd)).includes(needle);

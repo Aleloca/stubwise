@@ -171,3 +171,62 @@ export function useSimulateSshUnreachable() {
     SIMULATE_AREAS,
   );
 }
+
+/**
+ * Il comando dell'accesso SSH da rivedere (solo chiavi pubbliche; solo
+ * `servers.ssh.manage`: chi chiama lo abilita solo se `access.canManage`).
+ */
+export function useInstallCommand(code: string | undefined, enabled: boolean) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.serverInstallCommand(me, code ?? ""),
+    queryFn: () => api.servers.getInstallCommand(code!),
+    enabled: enabled && !!code,
+  });
+}
+
+/**
+ * Le scritture degli accessi SSH (Task 4). Cambiano il dettaglio (area
+ * «servers», compreso il comando); la revoca ferma anche la correzione viva
+ * sul server e spegne l'approvazione di un piano che aspetta (task e
+ * conversazioni), e così una verifica che cambia l'accesso di correzione.
+ */
+const SSH_AREAS = [
+  "servers",
+  "tasks",
+  "task",
+  "conversations",
+  "conversation",
+  "notifications",
+  "activity",
+] as const;
+
+export function useLinkSshAccess() {
+  return useWrite((code: string) => api.servers.linkSshAccess(code), SSH_AREAS);
+}
+
+export function useVerifySshAccess() {
+  return useWrite((code: string) => api.servers.verifySshAccess(code), SSH_AREAS);
+}
+
+export function useRegenerateSshAccess() {
+  return useWrite((code: string) => api.servers.regenerateSshAccess(code), SSH_AREAS);
+}
+
+export function useRevokeSshAccess() {
+  return useWrite((code: string) => api.servers.revokeSshAccess(code), SSH_AREAS);
+}
+
+/** Solo prototipo: l'esito della prossima «Verify» (riquadro «Prototype only»). */
+export function useSimulateSshVerifyOutcome() {
+  return useWrite(
+    ({
+      code,
+      outcome,
+    }: {
+      code: string;
+      outcome: Parameters<typeof api.servers.simulateSshVerifyOutcome>[1];
+    }) => api.servers.simulateSshVerifyOutcome(code, outcome),
+    SERVER_AREAS,
+  );
+}

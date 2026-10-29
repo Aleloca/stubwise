@@ -167,7 +167,8 @@
       "newAutomation": "New automation",
       "notificationPrefs": "Notification preferences",
       "projectAlerts": "Alerts for {{code}}",
-      "newWidget": "New widget"
+      "newWidget": "New widget",
+      "linkSsh": "Link SSH access to {{server}}"
     },
     "filterPlaceholder": "Choose a filter",
     "channelPlaceholder": "Go to a channel or direct message…",
@@ -6956,16 +6957,6 @@
       "regenerating": "New SSH keys waiting for the command",
       "cantLook": "{{access}}: Claude can't look into it"
     },
-    "accessPart": {
-      "not_linked": "No SSH access",
-      "awaiting_command": "SSH access waiting for the command",
-      "verify_failed": "SSH access check failed",
-      "read_writes": "SSH access turned off: the read access can write",
-      "revoked": "SSH access revoked",
-      "verified": "Verified: Claude can read, and fix from a task, with its own accounts.",
-      "regenerating": "New keys are waiting for the command; the current ones still work.",
-      "cantLook": "Claude can't look into problems on this server: no SSH access."
-    },
     "duration": {
       "lessThanMinute": "less than a minute",
       "minutes": "{{m}} min",
@@ -7257,6 +7248,165 @@
       "down_other": "{{count}} servers not responding",
       "trouble_one": "{{count}} server in trouble",
       "trouble_other": "{{count}} servers in trouble"
+    },
+    "ssh": {
+      "intro": "Two accesses let Claude look into {{code}}, and fix it from a task.",
+      "more": "More SSH access actions for {{code}}",
+      "menu": {
+        "showCommand": "Show command again",
+        "hideCommand": "Hide command",
+        "verifyAgain": "Verify again",
+        "regenerate": "Regenerate keys…",
+        "revoke": "Revoke access…",
+        "removal": "Show removal command"
+      },
+      "users": {
+        "label": "The two users the command creates",
+        "user": "User",
+        "does": "What it can do",
+        "read": "Reads logs, processes, disk and memory. Can't change anything.",
+        "readNote": "Not in the docker group; docker inspect isn't allowed (it shows secrets).",
+        "fix": "Can do anything on the server",
+        "fixSudo": "(passwordless sudo).",
+        "fixNote": "Used only by a fix that someone allowed started from a task, after its plan was approved."
+      },
+      "steps": {
+        "label": "Steps to link SSH access to {{code}}",
+        "done": "Done:",
+        "current": "Current step:",
+        "next": "Next step:"
+      },
+      "step1": {
+        "title": "Link SSH access",
+        "body": "Stubwise creates two key pairs. Private keys are encrypted and never shown.",
+        "done": "Keys created {{date}}, {{time}}",
+        "action": "Link SSH access",
+        "linking": "Linking…"
+      },
+      "step2": {
+        "title": "Run this command on {{code}}",
+        "creates": "It creates two users:",
+        "runAs": "Run it as root on {{code}}. Read it first: it contains only public keys.",
+        "prototype": "Prototype: these keys are made up by the prototype.",
+        "fpRead": "read",
+        "fpFix": "fix"
+      },
+      "step3": {
+        "title": "Verify",
+        "hint": "Stubwise signs in with each key, and checks that read access can't write.",
+        "action": "Verify",
+        "again": "Verify again",
+        "verifying": "Verifying…"
+      },
+      "command": {
+        "label": "Command for {{code}}",
+        "removalLabel": "Removal command for {{code}}",
+        "copy": "Copy",
+        "copyLabel": "Copy the command",
+        "copied": "Command copied",
+        "copyError": "Couldn't copy. Select the text and copy it by hand.",
+        "showAll": "Show all {{n}} lines",
+        "showLess": "Show fewer lines",
+        "publicOnly": "The command contains only public keys. Private keys are encrypted and never shown.",
+        "loadError": "Couldn't load the command.",
+        "lines": "{{n}} lines"
+      },
+      "outcome": {
+        "label": "Verification result",
+        "readOk": "Read access works, and it can't write.",
+        "fixOk": "Fix access works.",
+        "readFailed": "Read access failed: the server refused the key. Was the command run on {{code}}?",
+        "fixFailed": "Fix access failed: the server refused the key. Was the command run on {{code}}?",
+        "unreachable": "Couldn't reach {{code}} over SSH (port 22). Neither access could be checked.",
+        "readWrites": "Read access can write. That's an error: both accesses are off until a verification passes.",
+        "readWritesHint": "Check that stubwise-read isn't in the sudo or docker group, then verify again.",
+        "newInUse": "The new keys are in use. Stubwise forgot the old ones.",
+        "newFailedKept": "The new keys didn't pass. The current ones are still in use.",
+        "newFailedNone": "The new keys didn't pass, and the current ones aren't working either."
+      },
+      "errors": {
+        "verify": "Couldn't verify. Try again.",
+        "link": "Couldn't link SSH access. Try again.",
+        "regenerate": "Couldn't regenerate the keys. Try again.",
+        "revoke": "Couldn't revoke the access. Try again."
+      },
+      "rows": {
+        "label": "SSH access of {{code}}",
+        "read": "Read access",
+        "fix": "Fix access",
+        "fixWarning": "Can do anything on the server.",
+        "state": {
+          "verified": "Verified {{date}}",
+          "inUse": "In use",
+          "failed": "Check failed: {{why}}",
+          "waiting": "Waiting for the command",
+          "passed": "Passed, waiting for the other access",
+          "off": "Off: read access can write",
+          "revoked": "Revoked {{date}}",
+          "notLinked": "Not linked",
+          "failedPlain": "Check failed"
+        },
+        "why": {
+          "refused": "the server refused the key",
+          "unreachable": "couldn't reach the server"
+        },
+        "newKeys": "New keys being set up. The current ones stay in use until the new ones pass verification.",
+        "used": {
+          "never": "Not used yet",
+          "analysis": "Used {{when}} by the analysis of {{code}}",
+          "task": "Used {{when}} by",
+          "hiddenTask": "Used {{when}} by a task you can't see"
+        },
+        "openSession": "Open session"
+      },
+      "when": {
+        "now": "just now",
+        "yesterday": "yesterday",
+        "on": "on {{date}}"
+      },
+      "notLinked": {
+        "title": "Not linked. Claude can't look into this server's problems.",
+        "hint": "An admin who manages SSH access can link it."
+      },
+      "regenerating": {
+        "title": "New keys — not in use yet",
+        "keep": "Until they pass, Stubwise keeps using the current keys.",
+        "keepNone": "The current keys aren't working: the new ones take over once they pass.",
+        "command": "The command authorizes the current keys and the new ones. When the new ones pass, Stubwise forgets the old ones, and the next command carries only the new keys."
+      },
+      "regenerate": {
+        "title": "Regenerate {{code}}'s keys?",
+        "body": "You get new keys and a new command. The current keys keep working until the new ones pass verification.",
+        "bodyNone": "You get new keys and a new command. The current keys aren't working now: the new ones take over once they pass verification.",
+        "confirm": "Regenerate"
+      },
+      "revoke": {
+        "title": "Revoke SSH access to {{code}}?",
+        "noLook": "Claude can't look into {{code}}'s problems any more.",
+        "fixStops": "A fix running on {{code}} stops.",
+        "planBlocked": "A fix plan waiting for approval can't be approved.",
+        "forget": "Stubwise forgets the keys. The users stay on the server until you remove them.",
+        "confirm": "Revoke access"
+      },
+      "removal": {
+        "title": "Access revoked {{date}}, {{time}}. To remove the two users from {{code}}, run:",
+        "done": "Done"
+      },
+      "linkAgain": "Link again",
+      "cancel": "Cancel",
+      "simulate": {
+        "label": "Prototype only: SSH verification",
+        "next": "Next verification:",
+        "hint": "This decides what the next Verify answers. Nothing connects to a server.",
+        "outcomes": {
+          "ok": "Works",
+          "read_fails": "Read access fails",
+          "fix_fails": "Fix access fails",
+          "read_writes": "Read access can write",
+          "unreachable": "Server unreachable"
+        },
+        "error": "The simulation didn't go through."
+      }
     }
   }
 }

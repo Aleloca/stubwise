@@ -231,6 +231,15 @@
   }
 }
 
+/* Server (area 8b): un passo dell'accesso SSH che si apre, e l'esito della
+   verifica che prende il posto della procedura. */
+@utility ssh-step-open {
+  animation: expand-in var(--duration) var(--ease) both;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
 /* Palette ⌘K: il fondo si scurisce, il dialog scende di 6 px e appare.
    Entro --duration (0 ms con movimento ridotto), e comunque niente
    animazione con movimento ridotto. */

@@ -11,6 +11,8 @@ export interface CommandContext {
   setPersona(personId: string): void;
   /** Codice del progetto in cui ci si trova, se si è dentro un progetto. */
   projectCode?: string;
+  /** Il server aperto (`SRV-1`), se si è sul suo dettaglio. */
+  serverCode?: string;
   /** Percorso della route corrente (senza ricerca): i dialoghi si aprono sopra la pagina, non al suo posto. */
   pathname: string;
   /** Apre il secondo passo «vedi come» dentro la palette. */
@@ -31,6 +33,8 @@ export interface CommandContext {
 export interface CommandScope {
   projectId?: string;
   projectCode?: string;
+  /** Il server aperto, sul suo dettaglio. */
+  serverCode?: string;
 }
 
 export interface Command {
@@ -133,6 +137,18 @@ export const COMMANDS: readonly Command[] = [
       if (ctx.projectCode) ctx.navigate(`/p/${ctx.projectCode}/support?view=widgets&widget=new`);
     },
     when: (viewer, scope) => !!scope.projectId && can(viewer, "widget.manage", scope.projectId),
+  },
+  {
+    // Sul dettaglio di un server, a chi gestisce gli accessi SSH (shape
+    // server-access.md §4): porta alla parte «SSH access». R-L9: Claude non
+    // ha mai `servers.ssh.manage`.
+    id: "server.linkSsh",
+    labelKey: "palette.commands.linkSsh",
+    run: (ctx) => {
+      if (ctx.projectCode && ctx.serverCode)
+        ctx.navigate(`/p/${ctx.projectCode}/servers/${ctx.serverCode}?section=access`);
+    },
+    when: (viewer, scope) => !!scope.serverCode && can(viewer, "servers.ssh.manage"),
   },
   {
     id: "chat.goTo",

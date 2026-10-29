@@ -167,7 +167,8 @@
       "newAutomation": "Nuova automazione",
       "notificationPrefs": "Preferenze delle notifiche",
       "projectAlerts": "Avvisi di {{code}}",
-      "newWidget": "Nuovo widget"
+      "newWidget": "Nuovo widget",
+      "linkSsh": "Collega l'accesso SSH a {{server}}"
     },
     "filterPlaceholder": "Scegli un filtro",
     "channelPlaceholder": "Vai a un canale o a un messaggio diretto…",
@@ -6956,16 +6957,6 @@
       "regenerating": "Nuove chiavi SSH in attesa del comando",
       "cantLook": "{{access}}: Claude non può guardarci"
     },
-    "accessPart": {
-      "not_linked": "Nessun accesso SSH",
-      "awaiting_command": "Accesso SSH in attesa del comando",
-      "verify_failed": "Verifica dell'accesso SSH non riuscita",
-      "read_writes": "Accesso SSH spento: l'accesso di lettura può scrivere",
-      "revoked": "Accesso SSH revocato",
-      "verified": "Verificato: Claude può leggere, e correggere da una task, con i suoi account.",
-      "regenerating": "Le nuove chiavi aspettano il comando; quelle in uso funzionano ancora.",
-      "cantLook": "Claude non può guardare i problemi di questo server: nessun accesso SSH."
-    },
     "duration": {
       "lessThanMinute": "meno di un minuto",
       "minutes": "{{m}} min",
@@ -7257,6 +7248,165 @@
       "down_other": "{{count}} server non rispondono",
       "trouble_one": "{{count}} server in difficoltà",
       "trouble_other": "{{count}} server in difficoltà"
+    },
+    "ssh": {
+      "intro": "Due accessi permettono a Claude di guardare dentro {{code}}, e di correggerlo da una task.",
+      "more": "Altre azioni sull'accesso SSH di {{code}}",
+      "menu": {
+        "showCommand": "Mostra di nuovo il comando",
+        "hideCommand": "Nascondi il comando",
+        "verifyAgain": "Verifica di nuovo",
+        "regenerate": "Rigenera le chiavi…",
+        "revoke": "Revoca l'accesso…",
+        "removal": "Mostra il comando di rimozione"
+      },
+      "users": {
+        "label": "I due utenti che il comando crea",
+        "user": "Utente",
+        "does": "Cosa può fare",
+        "read": "Legge log, processi, disco e memoria. Non può cambiare nulla.",
+        "readNote": "Non è nel gruppo docker; docker inspect non è ammesso (mostra i segreti).",
+        "fix": "Può fare tutto sul server",
+        "fixSudo": "(sudo senza password).",
+        "fixNote": "Lo usa solo una correzione che una persona autorizzata ha avviato da una task, dopo che il suo piano è stato approvato."
+      },
+      "steps": {
+        "label": "Passi per collegare l'accesso SSH a {{code}}",
+        "done": "Fatto:",
+        "current": "Passo corrente:",
+        "next": "Passo successivo:"
+      },
+      "step1": {
+        "title": "Collega l'accesso SSH",
+        "body": "Stubwise crea due coppie di chiavi. Le chiavi private sono cifrate e non si vedono mai.",
+        "done": "Chiavi create il {{date}}, {{time}}",
+        "action": "Collega l'accesso SSH",
+        "linking": "Collegamento…"
+      },
+      "step2": {
+        "title": "Esegui questo comando su {{code}}",
+        "creates": "Crea due utenti:",
+        "runAs": "Eseguilo come root su {{code}}. Leggilo prima: contiene solo chiavi pubbliche.",
+        "prototype": "Prototipo: queste chiavi le ha inventate il prototipo.",
+        "fpRead": "lettura",
+        "fpFix": "correzione"
+      },
+      "step3": {
+        "title": "Verifica",
+        "hint": "Stubwise entra con ciascuna chiave e controlla che l'accesso di lettura non possa scrivere.",
+        "action": "Verifica",
+        "again": "Verifica di nuovo",
+        "verifying": "Verifica in corso…"
+      },
+      "command": {
+        "label": "Comando per {{code}}",
+        "removalLabel": "Comando di rimozione per {{code}}",
+        "copy": "Copia",
+        "copyLabel": "Copia il comando",
+        "copied": "Comando copiato",
+        "copyError": "Non è stato possibile copiare. Seleziona il testo e copialo a mano.",
+        "showAll": "Mostra tutte le {{n}} righe",
+        "showLess": "Mostra meno righe",
+        "publicOnly": "Il comando contiene solo chiavi pubbliche. Le chiavi private sono cifrate e non si vedono mai.",
+        "loadError": "Non è stato possibile caricare il comando.",
+        "lines": "{{n}} righe"
+      },
+      "outcome": {
+        "label": "Esito della verifica",
+        "readOk": "L'accesso di lettura funziona, e non può scrivere.",
+        "fixOk": "L'accesso di correzione funziona.",
+        "readFailed": "Accesso di lettura non riuscito: il server ha rifiutato la chiave. Il comando è stato eseguito su {{code}}?",
+        "fixFailed": "Accesso di correzione non riuscito: il server ha rifiutato la chiave. Il comando è stato eseguito su {{code}}?",
+        "unreachable": "Non è stato possibile raggiungere {{code}} via SSH (porta 22). Nessuno dei due accessi è stato controllato.",
+        "readWrites": "L'accesso di lettura può scrivere. È un errore: entrambi gli accessi sono spenti finché una verifica non riesce.",
+        "readWritesHint": "Controlla che stubwise-read non sia nel gruppo sudo o docker, poi verifica di nuovo.",
+        "newInUse": "Le nuove chiavi sono in uso. Stubwise ha dimenticato quelle vecchie.",
+        "newFailedKept": "Le nuove chiavi non hanno passato la verifica. Quelle attuali restano in uso.",
+        "newFailedNone": "Le nuove chiavi non hanno passato la verifica, e nemmeno quelle attuali funzionano."
+      },
+      "errors": {
+        "verify": "Non è stato possibile verificare. Riprova.",
+        "link": "Non è stato possibile collegare l'accesso SSH. Riprova.",
+        "regenerate": "Non è stato possibile rigenerare le chiavi. Riprova.",
+        "revoke": "Non è stato possibile revocare l'accesso. Riprova."
+      },
+      "rows": {
+        "label": "Accesso SSH di {{code}}",
+        "read": "Accesso di lettura",
+        "fix": "Accesso di correzione",
+        "fixWarning": "Può fare tutto sul server.",
+        "state": {
+          "verified": "Verificato il {{date}}",
+          "inUse": "In uso",
+          "failed": "Verifica non riuscita: {{why}}",
+          "waiting": "In attesa del comando",
+          "passed": "Riuscito, in attesa dell'altro accesso",
+          "off": "Spento: l'accesso di lettura può scrivere",
+          "revoked": "Revocato il {{date}}",
+          "notLinked": "Non collegato",
+          "failedPlain": "Verifica non riuscita"
+        },
+        "why": {
+          "refused": "il server ha rifiutato la chiave",
+          "unreachable": "server non raggiungibile"
+        },
+        "newKeys": "Nuove chiavi in preparazione. Quelle attuali restano in uso finché le nuove non passano la verifica.",
+        "used": {
+          "never": "Mai usato",
+          "analysis": "Usato {{when}} dall'analisi di {{code}}",
+          "task": "Usato {{when}} da",
+          "hiddenTask": "Usato {{when}} da una task che non puoi vedere"
+        },
+        "openSession": "Apri la sessione"
+      },
+      "when": {
+        "now": "adesso",
+        "yesterday": "ieri",
+        "on": "il {{date}}"
+      },
+      "notLinked": {
+        "title": "Non collegato. Claude non può guardare i problemi di questo server.",
+        "hint": "Può collegarlo un admin che gestisce gli accessi SSH."
+      },
+      "regenerating": {
+        "title": "Nuove chiavi — non ancora in uso",
+        "keep": "Finché non passano, Stubwise continua a usare le chiavi attuali.",
+        "keepNone": "Le chiavi attuali non funzionano: le nuove subentrano appena passano.",
+        "command": "Il comando autorizza sia le chiavi attuali sia le nuove. Quando le nuove passano, Stubwise dimentica le vecchie, e il comando successivo porta solo le nuove."
+      },
+      "regenerate": {
+        "title": "Rigenerare le chiavi di {{code}}?",
+        "body": "Ricevi chiavi nuove e un comando nuovo. Le chiavi attuali continuano a funzionare finché le nuove non passano la verifica.",
+        "bodyNone": "Ricevi chiavi nuove e un comando nuovo. Le chiavi attuali ora non funzionano: le nuove subentrano appena passano la verifica.",
+        "confirm": "Rigenera"
+      },
+      "revoke": {
+        "title": "Revocare l'accesso SSH a {{code}}?",
+        "noLook": "Claude non potrà più guardare i problemi di {{code}}.",
+        "fixStops": "Una correzione in corso su {{code}} si ferma.",
+        "planBlocked": "Un piano di correzione in attesa di approvazione non potrà essere approvato.",
+        "forget": "Stubwise dimentica le chiavi. Gli utenti restano sul server finché non li togli.",
+        "confirm": "Revoca l'accesso"
+      },
+      "removal": {
+        "title": "Accesso revocato il {{date}}, {{time}}. Per togliere i due utenti da {{code}}, esegui:",
+        "done": "Fatto"
+      },
+      "linkAgain": "Collega di nuovo",
+      "cancel": "Annulla",
+      "simulate": {
+        "label": "Solo prototipo: verifica SSH",
+        "next": "Prossima verifica:",
+        "hint": "Decide cosa risponde la prossima «Verifica». Nessuna connessione a un server.",
+        "outcomes": {
+          "ok": "Riesce",
+          "read_fails": "Fallisce la lettura",
+          "fix_fails": "Fallisce la correzione",
+          "read_writes": "La lettura può scrivere",
+          "unreachable": "Server irraggiungibile"
+        },
+        "error": "La simulazione non è andata a buon fine."
+      }
     }
   }
 }

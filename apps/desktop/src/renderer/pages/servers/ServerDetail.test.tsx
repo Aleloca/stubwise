@@ -96,9 +96,10 @@ describe("testata e «Now»", () => {
     ).toBeInTheDocument();
     expect(within(now).getByText("Claude can't look into it: no SSH access.")).toBeInTheDocument();
     expect(within(now).getByRole("link", { name: "Link SSH access" })).toBeInTheDocument();
-    expect(part("SSH access")).toHaveTextContent(
-      "Claude can't look into problems on this server: no SSH access.",
-    );
+    // Roberta gestisce gli accessi: la parte si apre sul primo passo (Task 8).
+    expect(
+      within(part("SSH access")).getByRole("button", { name: "Link SSH access" }),
+    ).toBeInTheDocument();
   });
 
   it("l'analisi fermata o fallita si dice in parole", async () => {
