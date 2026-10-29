@@ -427,6 +427,23 @@ async function failAnalysis(a: ServerAnalysis, gen: number, e: unknown): Promise
     c.failureSummary = `Couldn't open the task: ${reason}`;
     notifyConversationChange(c.id);
   }
+  // Chi ha letto «Claude is looking into it» deve sapere che non è finita:
+  // lo stesso tipo dell'avviso dell'episodio, agli stessi progetti (quindi
+  // alle stesse persone, con le stesse iscrizioni).
+  const s = serverOf(a.serverCode);
+  const ep = state.serverEpisodes.find((x) => x.id === a.episodeId);
+  if (s && ep) {
+    for (const projectId of alertProjectsOf(s.code, state.environments)) {
+      publishAlert({
+        kind: ep.severity === "down" ? "server.down" : "server.trouble",
+        projectId,
+        objectCode: s.code,
+        title: "Claude couldn't finish the analysis",
+        body: `${s.name}: ${reasonsPhrase(ep.reasons)}. Claude looked into it but couldn't open the task (${reason}), so there is no diagnosis.`,
+        link: serverHref(projectCode(projectId), s.code),
+      });
+    }
+  }
   await runScript(
     a.conversationId,
     [

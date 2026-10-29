@@ -493,6 +493,17 @@ describe("R-L10: il full admin riceve gli avvisi dei server coi default", () => 
 });
 
 describe("R-L9: Claude lavora in ogni progetto, anche in quelli creati dall'app", () => {
+  it("R-K5 anche fuori dal catalogo: un destinatario fisso Claude non riceve", () => {
+    const fixed: AppNotification = {
+      ...state.notifications.find((n) => n.kind === "monitor.alert")!,
+      id: "n-fixed-claude",
+      kind: "security.alert",
+      recipientIds: ["p-claude", "p-marco"],
+    };
+    expect(whyReceives("p-marco", fixed)).toBe("fixed");
+    expect(whyReceives("p-claude", fixed)).toBeNull();
+  });
+
   it("in un progetto nuovo l'analisi parte e apre la task", async () => {
     const p = await createProject({ code: "NEWP", name: "New production", template: "software" });
     expect(state.projectsById.get(p.id)!.memberIds).not.toContain("p-claude");
@@ -527,6 +538,16 @@ describe("analisi ai bordi (fix round 1)", () => {
     expect(a.taskId).toBeNull();
     expect(sessionOf(a)).toMatchObject({ state: "finished", outcome: "failed" });
     expect(sessionOf(a).failureSummary).toMatch(/invalid: status/);
+    // Chi aveva letto «Claude is looking into it» lo sa: un secondo avviso
+    // dello stesso tipo, agli stessi progetti, e nessuna «diagnosi pronta».
+    const [first, failed] = published("server.trouble", "SRV-1");
+    expect(first!.body).toMatch(/Claude is looking into it/);
+    expect(failed).toMatchObject({ projectId: ACQ, title: "Claude couldn't finish the analysis" });
+    expect(failed!.body).toMatch(/couldn't open the task \(invalid: status\)/);
+    expect(published("server.diagnosis_ready", "SRV-1")).toHaveLength(0);
+    expect((await inbox("p-marco")).map((n) => n.id)).toContain(failed!.id);
+    expect(whyReceives("p-claude", failed!)).toBeNull();
+    as("p-roberta");
     expect(await message(servers.deleteServer("SRV-1"))).toBe("ok");
   });
 

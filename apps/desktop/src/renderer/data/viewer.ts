@@ -117,34 +117,53 @@ function projectPermsOf(key: string): AnyProjectPermission[] {
 }
 
 /**
- * Quello che Claude non ha MAI, in nessun progetto (R-L9): le decisioni
- * (approvare un piano, fare merge, operare sui server) e la gestione del
- * progetto (impostazioni, membri, repository, ambienti, widget, moderazione).
- * `servers.ssh.manage` e `monitor.manage` sono d'istanza: Claude ha il
- * preset User, che non li contiene.
+ * Quello che Claude non ha MAI (R-L9, R-L11): le decisioni — approvare un
+ * piano, fare merge, operare sui server, registrare una decisione (il
+ * registro non lo scrive mai l'AI), adottare una PR — e la gestione, di
+ * progetto (impostazioni, membri, repository, ambienti, widget, moderazione)
+ * e d'istanza (full admin, inviti, ogni `*.manage`: accessi SSH, monitor,
+ * automazioni, canali generali…). Vince su ogni concessione, riga del seme,
+ * ruolo di progetto e full admin: `claudeCan` non legge il `Viewer`.
  */
 const CLAUDE_NEVER: ReadonlySet<string> = new Set([
   "plans.approve",
   "release.merge",
   "servers.operate",
-  "project.settings.manage",
-  "project.members.manage",
-  "repos.manage",
-  "environments.manage",
-  "widget.manage",
+  "decisions.record",
+  "prs.adopt",
   "tickets.moderate",
-  "automations.manage",
+  "instance.full_admin",
+  "users.invite",
 ]);
+
+const claudeForbidden = (perm: string): boolean =>
+  CLAUDE_NEVER.has(perm) || perm.endsWith(".manage");
 
 /**
  * I permessi di Claude in ogni progetto, membro o no (R-L9, maintainer:
  * «Claude ha sempre accesso a TUTTI i progetti»): quelli di lavoro del
  * Developer — vedere, aprire task, avviare i run, leggere i repository —
- * senza nessuno di `CLAUDE_NEVER`. Gli avvisi non gli arrivano comunque (R-K5).
+ * senza nessuno dei vietati. Gli avvisi non gli arrivano comunque (R-K5).
  */
-const CLAUDE_PROJECT_PERMISSIONS: ReadonlySet<AnyProjectPermission> = new Set(
-  projectPermsOf("developer").filter((p) => !CLAUDE_NEVER.has(p)),
+const CLAUDE_PROJECT_PERMISSIONS: ReadonlySet<string> = new Set(
+  projectPermsOf("developer").filter((p) => !claudeForbidden(p)),
 );
+
+/** D'istanza: il preset User, senza i vietati (nessuna concessione si aggiunge). */
+const CLAUDE_INSTANCE_PERMISSIONS: ReadonlySet<string> = new Set(
+  instancePermsOf("user").filter((p) => !claudeForbidden(p)),
+);
+
+/**
+ * Se Claude ha `perm`, in qualunque progetto: dai due insiemi qui sopra e
+ * basta. Un permesso a due livelli (`automations.manage`) è vietato a
+ * entrambi; i permessi di reparto non li ha.
+ */
+function claudeCan(perm: Permission): boolean {
+  if (claudeForbidden(perm)) return false;
+  if (INSTANCE_SET.has(perm)) return CLAUDE_INSTANCE_PERMISSIONS.has(perm);
+  return CLAUDE_PROJECT_PERMISSIONS.has(perm);
+}
 
 /** I permessi del ruolo più le concessioni del seme della persona su quel progetto (area 8b). */
 function projectPermsWithGrants(
@@ -413,11 +432,11 @@ const isFullAdmin = (viewer: Viewer) => viewer.instancePermissions.includes("ins
  * con `projectId` quello di progetto, senza quello d'istanza.
  */
 export function can(viewer: Viewer, perm: Permission, projectId?: string): boolean {
+  // R-L9: Claude PRIMA di tutto, e senza leggere il suo `Viewer`: nessuna
+  // concessione, riga del seme, ruolo di progetto o full admin gli dà ciò
+  // che è vietato.
+  if (viewer.personId === CLAUDE_ID) return claudeCan(perm);
   if (isFullAdmin(viewer)) return true;
-  // R-L9: Claude è membro implicito di OGNI progetto (anche di quelli creati
-  // dall'app), coi soli permessi di lavoro.
-  if (viewer.personId === CLAUDE_ID && !INSTANCE_SET.has(perm) && perm !== "department.home.manage")
-    return CLAUDE_PROJECT_PERMISSIONS.has(perm as AnyProjectPermission);
   if (INSTANCE_SET.has(perm) && !(BOTH_LEVELS.has(perm) && projectId !== undefined))
     return viewer.instancePermissions.includes(
       perm as InstancePermission | LocalInstancePermission,

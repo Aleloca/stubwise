@@ -458,4 +458,45 @@ describe("R-L9: Claude, membro implicito di ogni progetto coi soli permessi di l
     expect(can(claude(), "servers.operate", ACQ)).toBe(false);
     resetViewerGrants();
   });
+
+  it("R-L11: niente registro decisioni né adozione di PR", () => {
+    for (const id of [...projects, ACQ]) {
+      expect(can(claude(), "decisions.record", id)).toBe(false);
+      expect(can(claude(), "prs.adopt", id)).toBe(false);
+    }
+  });
+
+  it("I3: nessuna strada ridà il vietato — concessione d'istanza, ruolo, riga del seme, full admin", () => {
+    // Concessioni d'istanza (anche `automations.manage`, che vale a due livelli).
+    grantInstancePermission("p-claude", "servers.ssh.manage");
+    grantInstancePermission("p-claude", "automations.manage");
+    expect(can(claude(), "servers.ssh.manage")).toBe(false);
+    expect(can(claude(), "automations.manage")).toBe(false);
+    expect(can(claude(), "automations.manage", ACQ)).toBe(false);
+    // Un ruolo di progetto che dà tutto.
+    grantProjectRole("p-claude", ACQ, "project_lead");
+    for (const perm of ["automations.manage", "plans.approve", "release.merge"] as const)
+      expect(can(claude(), perm, ACQ), perm).toBe(false);
+    resetViewerGrants();
+    // Un `Viewer` come lo darebbe una riga di `SEED_INSTANCE_GRANTS` o un
+    // preset Admin: il ramo di Claude non lo legge.
+    const forged = {
+      ...claude(),
+      instancePermissions: [...INSTANCE_PERMISSIONS, ...LOCAL_INSTANCE_PERMISSIONS],
+      projectPermissions: { [ACQ]: [...PROJECT_PERMISSIONS, "servers.operate" as const] },
+    };
+    for (const perm of [
+      "instance.full_admin",
+      "servers.ssh.manage",
+      "monitor.manage",
+      "users.manage",
+      "chat.general.manage",
+    ] as const)
+      expect(can(forged, perm), perm).toBe(false);
+    for (const perm of ["plans.approve", "servers.operate", "project.members.manage"] as const)
+      expect(can(forged, perm, ACQ), perm).toBe(false);
+    // Le letture di lavoro restano.
+    expect(can(forged, "tickets.create", ACQ)).toBe(true);
+    expect(can(forged, "monitor.view")).toBe(true);
+  });
 });

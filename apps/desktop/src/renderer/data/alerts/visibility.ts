@@ -77,7 +77,9 @@ export function whyReceives(
   n: AppNotification,
 ): Recipient["why"] | "fixed" | null {
   if (isComputed(n)) return whyFor(n, personId, contextOf(n));
-  if (!n.recipientIds.includes(personId)) return null;
+  // R-K5 anche fuori dal catalogo: con R-L9 Claude vede ogni progetto, quindi
+  // la visibilità non lo filtra più.
+  if (isClaude(personId) || !n.recipientIds.includes(personId)) return null;
   if (n.projectId && !visibleProjectIds(personId).has(n.projectId)) return null;
   return "fixed";
 }
