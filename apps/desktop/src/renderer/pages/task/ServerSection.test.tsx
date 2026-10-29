@@ -143,6 +143,28 @@ describe("sezione Server", () => {
     expect(serverSection()).toHaveTextContent("Fix plan waiting for approval");
   });
 
+  it("il piano mostra i comandi previsti uno per uno, col perché, senza aprire niente", async () => {
+    const id = await startAs("p-marco");
+    const event = eventsOf(id).find((e) => e.type === "plan") as Extract<
+      ConversationEvent,
+      { type: "plan" }
+    >;
+    expect(event.commands?.length).toBeGreaterThan(0);
+    await openTask("p-laura");
+    const plan = await within(claudeSection()).findByRole("region", { name: "Fix plan for SRV-1" });
+    const list = within(plan).getByRole("list", { name: "Commands to run on SRV-1" });
+    const items = within(list).getAllByRole("listitem");
+    expect(items).toHaveLength(event.commands!.length);
+    event.commands!.forEach((c, i) => {
+      expect(items[i]).toHaveTextContent(c.input);
+      expect(items[i]).toHaveTextContent(c.why);
+    });
+    // Il piano intero resta chiuso: i comandi si leggono senza clic.
+    expect(
+      within(plan).getByRole("button", { name: "Read the full plan" }),
+    ).toBeInTheDocument();
+  });
+
   it("accesso revocato col piano in attesa: Approve spento col motivo, Reject attivo", async () => {
     await startAs("p-marco");
     setSessionPersonId("p-roberta");

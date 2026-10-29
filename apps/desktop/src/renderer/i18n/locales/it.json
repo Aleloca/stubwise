@@ -980,6 +980,7 @@
       "loading": "Caricamento del server",
       "planCard": {
         "planTitle": "Piano di correzione di {{code}}",
+        "commands": "Comandi da eseguire su {{code}}",
         "runsAs": "Gira come stubwise-fix: su {{code}} può fare tutto.",
         "releaseRule": "Un piano che rilascia (pull, aggiornamento d'immagine, deploy) va rifiutato. I rilasci passano da Rilasci.",
         "approve": "Approva il piano",

@@ -847,6 +847,11 @@ export type ConversationEvent =
       type: "plan";
       planText: string;
       summary: string;
+      /**
+       * Correzione di un server (area 8b): i comandi previsti, uno per riga
+       * col perché, come li legge chi approva. Scritti col piano.
+       */
+      commands?: { input: string; why: string }[];
       status: "pending" | "approved" | "rejected" | "pre_approved";
       decidedById?: string;
       instructions?: string;

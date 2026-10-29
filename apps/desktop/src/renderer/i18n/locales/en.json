@@ -980,6 +980,7 @@
       "loading": "Loading the server",
       "planCard": {
         "planTitle": "Fix plan for {{code}}",
+        "commands": "Commands to run on {{code}}",
         "runsAs": "Runs as stubwise-fix: it can do anything on {{code}}.",
         "releaseRule": "A plan that releases — pull, image update, deploy — must be rejected. Releases go through Releases.",
         "approve": "Approve the plan",

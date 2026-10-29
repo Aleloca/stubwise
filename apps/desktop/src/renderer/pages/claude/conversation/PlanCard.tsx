@@ -149,7 +149,11 @@ export function PlanCard({
   const decides = canDecidePlan || canReject;
   const F = "taskDetail.server.planCard";
   return (
-    <section aria-labelledby={headingId} data-plan={event.id} className={`${cardClass} gap-3 p-4`}>
+    <section
+      aria-labelledby={headingId}
+      data-plan={event.id}
+      className={`${cardClass} @container gap-3 p-4`}
+    >
       <header className="flex flex-wrap items-center justify-between gap-2">
         <h3 id={headingId} className="text-sm font-semibold text-ink">
           {serverFix
@@ -174,6 +178,27 @@ export function PlanCard({
         </span>
         <Markdown source={event.summary} className="max-w-[68ch]" />
       </div>
+      {serverFix && event.commands && event.commands.length > 0 && (
+        // Chi approva legge il piano comando per comando, sempre a vista (shape server-task §3).
+        <ol
+          aria-label={t(`${F}.commands`, { code: serverFix.code })}
+          className="flex min-w-0 flex-col gap-2"
+        >
+          {event.commands.map((c, i) => (
+            <li key={i} className="flex min-w-0 gap-2">
+              <span className="num w-4 shrink-0 text-right text-xs leading-5 text-ink-muted">
+                {i + 1}
+              </span>
+              <span className="flex min-w-0 flex-col">
+                <code title={c.input} className="truncate font-code text-xs leading-5 text-ink">
+                  {c.input}
+                </code>
+                <span className="text-[13px] text-ink-muted">{c.why}</span>
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
       {toggle}
       {fullPlan}
       {serverFix &&
@@ -202,7 +227,8 @@ export function PlanCard({
         ))}
       {decides ? (
         rejecting === null ? (
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          // Stretta (pannello della task): impilati a tutta larghezza, il primario in alto.
+          <div className="flex flex-col-reverse gap-2 @[400px]:flex-row @[400px]:flex-wrap @[400px]:items-center @[400px]:justify-end">
             <button
               type="button"
               className={secondaryButton}

@@ -219,6 +219,7 @@ async function writePlan(
             type: "plan",
             planText: plan.planText,
             summary: plan.summary,
+            commands: plan.commands.map(({ input, why }) => ({ input, why })),
             status: "pending",
           },
         },
