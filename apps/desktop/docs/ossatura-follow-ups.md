@@ -624,6 +624,14 @@ dell'area si correggono con l'ondata finale e non stanno in questo elenco.
 - **Un piano di correzione non si approva da Decide** (Home): lì c'è «Open the
   task», dove i comandi sono elencati. Alternativa scartata: portare i comandi
   anche in Decide (una seconda superficie d'approvazione da tenere allineata).
+- **Rifiuto di un piano bloccato** (dalla re-review dei residui): nella UI si
+  rifiuta con un clic, senza indicazioni (non potrebbero produrre un piano
+  diverso senza accesso usabile). Restano tre minori:
+  - un rifiuto con indicazioni via API le registra comunque nel piano e nel
+    registro decisioni, senza riscrivere il piano;
+  - se il campo del rifiuto è già aperto quando il piano diventa bloccato,
+    promette una riscrittura che non avviene (senza test);
+  - il rifiuto da Decide non ha conferma né Undo (come nella scheda del piano).
 
 ### Limiti del prototipo (per scelta)
 
