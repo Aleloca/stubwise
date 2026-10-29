@@ -516,7 +516,20 @@ export type ApiFnName =
   /** Solo prototipo: un messaggio del cliente, il cliente che se ne va, il triage concluso. */
   | "support.simulateCustomerMessage"
   | "support.simulateCustomerLeaves"
-  | "support.simulateTriageDone";
+  | "support.simulateTriageDone"
+  // Server (area 8b)
+  | "servers.listProjectServers"
+  | "servers.getServer"
+  | "servers.getServerMetrics"
+  | "servers.searchServers"
+  | "servers.createServer"
+  | "servers.regenerateAgentKey"
+  | "servers.updateServer"
+  | "servers.deleteServer"
+  | "servers.setThresholds"
+  | "servers.createCheck"
+  | "servers.updateCheck"
+  | "servers.deleteCheck";
 const failures = new Set<ApiFnName>();
 
 /** Fissa la latenza simulata (ms); `0` per i test, `null` per tornare a 150–400 ms. */

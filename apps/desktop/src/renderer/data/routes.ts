@@ -252,6 +252,8 @@ export function isAppRoute(route: string): boolean {
   if (/^p\/[A-Z]{2,4}\/releases\/[A-Z]{2,4}-V\d+$/.test(path)) return true;
   // Una conversazione di Support (area 8a): `#/p/ACQ/support/ACQ-S2`.
   if (/^p\/[A-Z]{2,4}\/support\/[A-Z]{2,4}-S\d+$/.test(path)) return true;
+  // Il dettaglio di un server (area 8b): `#/p/STW/servers/SRV-2` (codice d'istanza).
+  if (/^p\/[A-Z]{2,4}\/servers\/SRV-\d+$/.test(path)) return true;
   const p = /^p\/([A-Z]{2,4})(?:\/([a-z]+))?$/.exec(path);
   if (!p) return false;
   return !p[2] || (PROJECT_SECTIONS_IDS as readonly string[]).includes(p[2]);

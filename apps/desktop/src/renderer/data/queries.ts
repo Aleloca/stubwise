@@ -153,6 +153,13 @@ export const queryKeys = {
   myRequestStatus: (personId: string, requestId: string) =>
     ["as", personId, "support", "myRequest", requestId] as const,
   supportSearch: (personId: string, q: string) => ["as", personId, "support", "search", q] as const,
+  /** Server (area 8b): tutto nell'area «servers». */
+  projectServers: (personId: string, projectId: string) =>
+    ["as", personId, "servers", "list", projectId] as const,
+  server: (personId: string, code: string) => ["as", personId, "servers", "server", code] as const,
+  serverMetrics: (personId: string, code: string, range: string, checkId: string) =>
+    ["as", personId, "servers", "metrics", code, range, checkId] as const,
+  serverSearch: (personId: string, q: string) => ["as", personId, "servers", "search", q] as const,
   search: (personId: string, q: string) => ["as", personId, "search", q] as const,
   conversations: (personId: string, filter: ConversationFilter) =>
     ["as", personId, "conversations", filter] as const,
@@ -503,12 +510,7 @@ export function useHome() {
             person,
             departmentHomes: homes.data,
             personal: personal.data,
-            ...resolveHome(
-              person,
-              homes.data,
-              personal.data,
-              canRelease ? ["releases"] : [],
-            ),
+            ...resolveHome(person, homes.data, personal.data, canRelease ? ["releases"] : []),
           }
         : undefined,
     [person, homes.data, personal.data, canRelease],
@@ -3399,8 +3401,7 @@ export function useProjectAutomations(projectId: string | null) {
     queryKey: queryKeys.projectAutomations(me, projectId ?? ""),
     queryFn: () => api.automations.getProjectAutomations(projectId!),
     enabled: projectId !== null,
-    refetchInterval: (query) =>
-      runningIn(query.state.data?.runs) ? AUTOMATION_REFRESH_MS : false,
+    refetchInterval: (query) => (runningIn(query.state.data?.runs) ? AUTOMATION_REFRESH_MS : false),
   });
 }
 
@@ -3408,7 +3409,12 @@ export function useProjectAutomations(projectId: string | null) {
 export function useAutomationOrigin(ref: AutomationRef | null | undefined, createdCode: string) {
   const me = useSessionPersonId();
   return useQuery({
-    queryKey: queryKeys.automationOrigin(me, ref?.automationId ?? "", ref?.runId ?? "", createdCode),
+    queryKey: queryKeys.automationOrigin(
+      me,
+      ref?.automationId ?? "",
+      ref?.runId ?? "",
+      createdCode,
+    ),
     queryFn: () => api.automations.automationOrigin(ref!, createdCode),
     enabled: !!ref,
   });
@@ -3423,7 +3429,7 @@ export function useAutomationOrigin(ref: AutomationRef | null | undefined, creat
  */
 export function useDecideAutomationNow() {
   const invalidate = useInvalidate(AUTOMATION_AREAS);
-  const settle = async <T,>(call: Promise<T>): Promise<T> => {
+  const settle = async <T>(call: Promise<T>): Promise<T> => {
     try {
       return await call;
     } finally {
@@ -3758,8 +3764,9 @@ export function useEndAutomationSimulation() {
   });
 }
 
-// Gli hook dell'area 8a stanno in `data/queries/`, ri-esportati da qui: chi
+// Gli hook delle aree 8a e 8b stanno in `data/queries/`, ri-esportati da qui: chi
 // li usa continua a importarli da `data/queries`.
 export * from "./queries/alerts";
 export * from "./queries/releases";
 export * from "./queries/support";
+export * from "./queries/servers";

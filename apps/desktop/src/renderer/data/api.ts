@@ -120,6 +120,8 @@ export * as alerts from "./alerts";
 export * as releases from "./releases";
 /** Support (area 8a): `api.support.listSupportConversations(…)`, `api.support.replyToCustomer(…)`… */
 export * as support from "./support";
+/** I Server (area 8b): `api.servers.listProjectServers(…)`, `api.servers.createServer(…)`… */
+export * as servers from "./servers";
 
 /** Ripristina lo stato (sessione, dati, errori iniettati) e porta le task scadute alla settimana corrente. */
 export function resetApi(): void {
@@ -682,7 +684,6 @@ export async function getTaskWork(taskId: string): Promise<TaskWork | null> {
     usage: usageOfTask(taskId),
   };
 }
-
 
 /**
  * I consumi AI di una task per modello, su tutte le sue sessioni di lavoro:

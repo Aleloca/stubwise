@@ -1,0 +1,434 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { METRIC_POINTS_MAX } from "../../domain/servers/limits";
+import { failNext, resetApi, servers, setLatency } from "../api";
+import { setSessionPersonId } from "../session";
+import { state, storeGeneration } from "../store";
+import type { ServerService } from "../types";
+import { serverFor, serversVisibleTo } from "./visibility";
+
+const as = (personId: string) => setSessionPersonId(personId);
+const server = (code: string) => state.servers.find((s) => s.code === code);
+const env = (id: string) => state.environments.find((e) => e.id === id)!;
+
+beforeEach(() => {
+  resetApi();
+  setLatency(0);
+});
+
+afterEach(() => resetApi());
+
+describe("visibilità dei server (R-L2, R-G5)", () => {
+  it("un server si vede attraverso gli ambienti dei progetti visibili", () => {
+    // Marco vede ACQ e AUD; Sara vede ACQ ma non AUD.
+    expect(serversVisibleTo("p-marco").has("SRV-1")).toBe(true);
+    expect(serversVisibleTo("p-marco").has("SRV-3")).toBe(true);
+    expect(serversVisibleTo("p-sara").has("SRV-1")).toBe(true);
+    expect(serversVisibleTo("p-sara").has("SRV-3")).toBe(false);
+    expect(serversVisibleTo("p-sara").has("SRV-4")).toBe(false);
+  });
+
+  it("serverFor: inesistente e invisibile rispondono allo stesso modo", () => {
+    expect(serverFor("p-marco", "SRV-1").code).toBe("SRV-1");
+    expect(() => serverFor("p-sara", "SRV-3")).toThrow("not_found");
+    expect(() => serverFor("p-sara", "SRV-99")).toThrow("not_found");
+  });
+
+  it("Marco vede SRV-1 nella sezione di ACQ; Sara non vede SRV-3, nemmeno nel dettaglio", async () => {
+    as("p-marco");
+    expect((await servers.listProjectServers("prj-acq")).map((s) => s.code)).toEqual(["SRV-1"]);
+    expect((await servers.listProjectServers("prj-aud")).map((s) => s.code)).toEqual([
+      "SRV-3",
+      "SRV-4",
+    ]);
+    as("p-sara");
+    expect((await servers.listProjectServers("prj-acq")).map((s) => s.code)).toEqual(["SRV-1"]);
+    expect(await servers.listProjectServers("prj-aud")).toEqual([]);
+    const hidden = await servers.getServer("SRV-3").catch((e: Error) => e.message);
+    const missing = await servers.getServer("SRV-99").catch((e: Error) => e.message);
+    expect(hidden).toBe("not_found");
+    expect(missing).toBe(hidden);
+    await expect(servers.getServerMetrics("SRV-3", "1h")).rejects.toThrow("not_found");
+  });
+});
+
+describe("letture dei server", () => {
+  it("la riga di SRV-1: salute, lavoro, accesso, ambienti, principale, CPU recente", async () => {
+    as("p-marco");
+    const [row] = await servers.listProjectServers("prj-acq");
+    expect(row).toMatchObject({
+      code: "SRV-1",
+      name: "acq-prod-01",
+      hostname: "acq-prod-01.colline.internal",
+      status: "online",
+      health: { health: "healthy" },
+      // La task della diagnosi (ACQ-6) è aperta.
+      work: "diagnosis_ready",
+      access: "verified",
+      environments: [{ projectCode: "ACQ", name: "Production", kind: "production" }],
+      primaryProjectCode: "ACQ",
+    });
+    expect(row!.recentCpu.length).toBeGreaterThan(0);
+    expect(row!.recentCpu.length).toBeLessThanOrEqual(servers.RECENT_CPU_POINTS);
+  });
+
+  it("SRV-2 è in difficoltà e non collegato; SRV-3 attende il comando", async () => {
+    as("p-roberta");
+    const [srv2] = await servers.listProjectServers("prj-stw");
+    expect(srv2).toMatchObject({ code: "SRV-2", access: "not_linked", work: "none" });
+    expect(srv2!.health.health).toBe("trouble");
+    const aud = await servers.listProjectServers("prj-aud");
+    expect(aud.find((s) => s.code === "SRV-3")!.access).toBe("awaiting_command");
+  });
+
+  it("gli ambienti di un progetto invisibile non compaiono nella riga", async () => {
+    // SRV-1 anche nello staging di AUD: Sara, che non vede AUD, non lo sa.
+    env("env-aud-staging").servers.push({
+      repositoryId: null,
+      serverCode: "SRV-1",
+      reportedSha: null,
+      reportedAt: null,
+    });
+    as("p-sara");
+    const [row] = await servers.listProjectServers("prj-acq");
+    expect(row!.environments.map((e) => e.projectCode)).toEqual(["ACQ"]);
+    as("p-marco");
+    const [full] = await servers.listProjectServers("prj-acq");
+    expect(full!.environments.map((e) => e.projectCode)).toEqual(["AUD", "ACQ"]);
+  });
+
+  it("il dettaglio di SRV-1: soglie, servizi, dischi, controlli, episodi con analisi e task", async () => {
+    as("p-marco");
+    const d = await servers.getServer("SRV-1");
+    expect(d.thresholds).toEqual({ cpuPct: 95, memPct: 90, diskPct: 90, sustainedMinutes: 5 });
+    expect(d.services.map((s) => s.name)).toContain("portale-import");
+    expect(d.disks).toHaveLength(2);
+    expect(d.checks.map((c) => c.id)).toEqual([
+      "chk-srv-1-api",
+      "chk-srv-1-db",
+      "chk-srv-1-import",
+    ]);
+    expect(d.episodes).toHaveLength(1);
+    expect(d.episodes[0]!.analysis).toMatchObject({ id: "an-srv-1-1", outcome: "diagnosed" });
+    expect(d.episodes[0]!.taskCode).toBe("ACQ-6");
+    expect(d.productionProjects).toEqual([
+      { id: "prj-acq", code: "ACQ", name: expect.any(String) },
+    ]);
+    expect(d.canManage).toBe(false);
+    as("p-roberta");
+    expect((await servers.getServer("SRV-1")).canManage).toBe(true);
+  });
+
+  it("analisi e task di un progetto invisibile non escono dal dettaglio", async () => {
+    // SRV-1 anche nella produzione di AUD (Sara non la vede); l'analisi resta di ACQ.
+    state.serverAnalyses[0]!.projectId = "prj-aud";
+    state.tasksById.get(state.serverAnalyses[0]!.taskId!)!.projectId = "prj-aud";
+    env("env-aud-staging").servers.push({
+      repositoryId: null,
+      serverCode: "SRV-1",
+      reportedSha: null,
+      reportedAt: null,
+    });
+    as("p-sara");
+    const d = await servers.getServer("SRV-1");
+    expect(d.episodes[0]!.analysis).toBeNull();
+    expect(d.episodes[0]!.taskCode).toBeNull();
+  });
+
+  it("RF 5: 200 servizi restituiti tutti", async () => {
+    const many: ServerService[] = Array.from({ length: 200 }, (_, i) => ({
+      name: `svc-${i}`,
+      source: "docker",
+      state: "running",
+      cpuPct: 0.1,
+      memBytes: 1024,
+      restarts: 0,
+    }));
+    server("SRV-1")!.services = many;
+    as("p-marco");
+    expect((await servers.getServer("SRV-1")).services).toHaveLength(200);
+  });
+
+  it("RF 5: 7 giorni di metriche a 30 s si riducono a ≤ 300 punti", async () => {
+    as("p-marco");
+    const week = await servers.getServerMetrics("SRV-1", "7d");
+    expect(week.points.length).toBeLessThanOrEqual(METRIC_POINTS_MAX);
+    expect(week.truncated).toBe(true);
+    expect(week.check).toBeNull();
+    const hour = await servers.getServerMetrics("SRV-1", "1h");
+    expect(hour.truncated).toBe(false);
+    expect(hour.points.length).toBe(120);
+    const from = Date.parse(hour.points[0]!.ts);
+    expect(Date.parse(hour.points.at(-1)!.ts) - from).toBeLessThan(3_600_000);
+  });
+
+  it("R-L1: con un controllo, i campioni della latenza (ridotti anch'essi)", async () => {
+    as("p-marco");
+    const day = await servers.getServerMetrics("SRV-1", "24h", "chk-srv-1-api");
+    expect(day.check).not.toBeNull();
+    expect(day.check!.samples.length).toBeLessThanOrEqual(METRIC_POINTS_MAX);
+    expect(day.check!.truncated).toBe(true);
+    expect(day.check!.samples.some((s) => s.latencyMs !== null)).toBe(true);
+    // La replica di SRV-2 è giù: le fasce dei momenti giù non si perdono nella media.
+    const replica = await servers.getServerMetrics("SRV-2", "7d", "chk-srv-2-replica");
+    expect(replica.check!.samples.at(-1)).toMatchObject({ status: "down", latencyMs: null });
+    expect(replica.check!.samples.some((s) => s.status === "down")).toBe(true);
+    // Un controllo di un altro server non si legge da qui.
+    await expect(servers.getServerMetrics("SRV-1", "1h", "chk-srv-2-db")).rejects.toThrow(
+      "not_found",
+    );
+  });
+
+  it("⌘K: per codice, nome o hostname, solo fra i server visibili", async () => {
+    as("p-sara");
+    // Sara vede ACQ e STW, non AUD.
+    expect(await servers.searchServers("srv")).toEqual([
+      { code: "SRV-1", name: "acq-prod-01", projectCode: "ACQ" },
+      { code: "SRV-2", name: "db-stw-01", projectCode: "STW" },
+    ]);
+    expect(await servers.searchServers("aud-app")).toEqual([]);
+    as("p-marco");
+    expect(await servers.searchServers("aud-app")).toEqual([
+      { code: "SRV-3", name: "aud-app-01", projectCode: "AUD" },
+    ]);
+    expect(await servers.searchServers("colline.internal")).toHaveLength(1);
+    expect(await servers.searchServers("  ")).toEqual([]);
+  });
+
+  it("serverHref: il dettaglio del server nella sezione del progetto", () => {
+    expect(servers.serverHref("STW", "SRV-2")).toBe("#/p/STW/servers/SRV-2");
+  });
+});
+
+describe("monitor: creare, modificare, togliere (monitor.manage)", () => {
+  it("senza monitor.manage (Laura): forbidden, e nessun server", async () => {
+    as("p-laura");
+    const before = state.servers.length;
+    await expect(
+      servers.createServer({ name: "aud-new", environmentId: "env-aud-staging" }),
+    ).rejects.toThrow("forbidden");
+    expect(state.servers).toHaveLength(before);
+    expect(state.serverCodeSeq).toBe(4);
+    await expect(servers.updateServer("SRV-3", { name: "x" })).rejects.toThrow("forbidden");
+    await expect(servers.deleteServer("SRV-3")).rejects.toThrow("forbidden");
+    await expect(servers.regenerateAgentKey("SRV-3")).rejects.toThrow("forbidden");
+  });
+
+  it("Roberta crea SRV-5 nello staging di AUD; la chiave non esce da nessuna lettura", async () => {
+    as("p-roberta");
+    const { server: row, agentKey } = await servers.createServer({
+      name: "  aud-staging-01 ",
+      environmentId: "env-aud-staging",
+    });
+    expect(row).toMatchObject({
+      code: "SRV-5",
+      name: "aud-staging-01",
+      status: "never_connected",
+      health: { health: "never_connected" },
+      access: "not_linked",
+      environments: [{ projectCode: "AUD", name: "Staging", kind: "staging" }],
+      primaryProjectCode: null,
+    });
+    expect(agentKey).toMatch(/^sk_[0-9a-f]{40}$/);
+    expect(env("env-aud-staging").servers).toEqual([
+      { repositoryId: null, serverCode: "SRV-5", reportedSha: null, reportedAt: null },
+    ]);
+    const reads = JSON.stringify([
+      await servers.getServer("SRV-5"),
+      await servers.listProjectServers("prj-aud"),
+      await servers.searchServers("SRV-5"),
+      state.servers,
+    ]);
+    expect(reads).not.toContain(agentKey);
+    expect(reads).not.toContain("sk_");
+    const again = await servers.regenerateAgentKey("SRV-5");
+    expect(again.agentKey).toMatch(/^sk_[0-9a-f]{40}$/);
+    expect(again.agentKey).not.toBe(agentKey);
+  });
+
+  it("serve environments.manage nel progetto dell'ambiente, e un ambiente senza server", async () => {
+    as("p-roberta");
+    await expect(
+      servers.createServer({ name: "dup", environmentId: "env-acq-prod" }),
+    ).rejects.toThrow("invalid: environment");
+    await expect(
+      servers.createServer({ name: " ", environmentId: "env-aud-staging" }),
+    ).rejects.toThrow("invalid: name");
+    await expect(servers.createServer({ name: "x", environmentId: "env-nope" })).rejects.toThrow(
+      "not_found",
+    );
+    expect(state.serverCodeSeq).toBe(4);
+  });
+
+  it("deleteServer toglie il server dagli ambienti; il codice non si riusa", async () => {
+    as("p-roberta");
+    const first = await servers.createServer({ name: "a", environmentId: "env-aud-staging" });
+    expect(first.server.code).toBe("SRV-5");
+    await servers.deleteServer("SRV-5");
+    expect(server("SRV-5")).toBeUndefined();
+    expect(env("env-aud-staging").servers).toEqual([]);
+    const second = await servers.createServer({ name: "b", environmentId: "env-aud-staging" });
+    expect(second.server.code).toBe("SRV-6");
+    await servers.deleteServer("SRV-3");
+    expect(env("env-aud-prod").servers.map((s) => s.serverCode)).toEqual(["SRV-4"]);
+    expect(state.serverChecks.some((c) => c.serverCode === "SRV-3")).toBe(false);
+    await expect(servers.getServer("SRV-3")).rejects.toThrow("not_found");
+  });
+
+  it("updateServer: nome, intervallo 10–300, principale fra le produzioni", async () => {
+    as("p-roberta");
+    await servers.updateServer("SRV-1", { name: "acq-prod-02", sampleIntervalSeconds: 60 });
+    expect(server("SRV-1")).toMatchObject({ name: "acq-prod-02", sampleIntervalSeconds: 60 });
+    await expect(servers.updateServer("SRV-1", { sampleIntervalSeconds: 9 })).rejects.toThrow(
+      "invalid: sampleIntervalSeconds",
+    );
+    await expect(servers.updateServer("SRV-1", { sampleIntervalSeconds: 301 })).rejects.toThrow(
+      "invalid: sampleIntervalSeconds",
+    );
+    await expect(servers.updateServer("SRV-1", { sampleIntervalSeconds: 30.5 })).rejects.toThrow(
+      "invalid: sampleIntervalSeconds",
+    );
+    await expect(servers.updateServer("SRV-1", { name: "" })).rejects.toThrow("invalid: name");
+    // AUD non usa SRV-1 in produzione: non può esserne il principale.
+    await expect(servers.updateServer("SRV-1", { primaryProjectId: "prj-aud" })).rejects.toThrow(
+      "invalid: primaryProjectId",
+    );
+    env("env-aud-prod").servers.push({
+      repositoryId: "repo-aud-scripts",
+      serverCode: "SRV-1",
+      reportedSha: null,
+      reportedAt: null,
+    });
+    await servers.updateServer("SRV-1", { primaryProjectId: "prj-aud" });
+    expect(server("SRV-1")!.primaryProjectId).toBe("prj-aud");
+    // Uno scarto lascia il server com'era: niente scritture a metà.
+    await expect(
+      servers.updateServer("SRV-1", { name: "half", sampleIntervalSeconds: 5 }),
+    ).rejects.toThrow("invalid");
+    expect(server("SRV-1")!.name).toBe("acq-prod-02");
+  });
+
+  it("setThresholds: 1–100 o spenta, minuti 1–60", async () => {
+    as("p-roberta");
+    await servers.setThresholds("SRV-2", {
+      cpuPct: null,
+      memPct: 80,
+      diskPct: 95,
+      sustainedMinutes: 10,
+    });
+    expect(server("SRV-2")!.thresholds).toEqual({
+      cpuPct: null,
+      memPct: 80,
+      diskPct: 95,
+      sustainedMinutes: 10,
+    });
+    const base = { cpuPct: 95, memPct: 90, diskPct: 90, sustainedMinutes: 5 };
+    for (const [bad, what] of [
+      [{ cpuPct: 0 }, "cpuPct"],
+      [{ memPct: 101 }, "memPct"],
+      [{ diskPct: Number.NaN }, "diskPct"],
+      [{ sustainedMinutes: 0 }, "sustainedMinutes"],
+      [{ sustainedMinutes: 61 }, "sustainedMinutes"],
+      [{ sustainedMinutes: 2.5 }, "sustainedMinutes"],
+    ] as const) {
+      await expect(servers.setThresholds("SRV-2", { ...base, ...bad })).rejects.toThrow(
+        `invalid: ${what}`,
+      );
+    }
+    expect(server("SRV-2")!.thresholds.memPct).toBe(80);
+    as("p-marco");
+    await expect(servers.setThresholds("SRV-1", base)).rejects.toThrow("forbidden");
+  });
+
+  it("controlli: crea, modifica, togli; intervallo 10–3600 e tipi del web", async () => {
+    as("p-roberta");
+    const c = await servers.createCheck("SRV-4", {
+      name: "Admin DB",
+      type: "mysql",
+      target: "127.0.0.1:3306",
+      intervalSeconds: 30,
+      enabled: true,
+    });
+    expect(c).toMatchObject({ serverCode: "SRV-4", status: "unknown", latencyMs: null });
+    expect((await servers.getServer("SRV-4")).checks.map((x) => x.id)).toContain(c.id);
+    const updated = await servers.updateCheck(c.id, { intervalSeconds: 3600, enabled: false });
+    expect(updated).toMatchObject({ intervalSeconds: 3600, enabled: false, name: "Admin DB" });
+    const good = {
+      name: "x",
+      type: "http" as const,
+      target: "https://x.test",
+      intervalSeconds: 60,
+      enabled: true,
+    };
+    await expect(servers.createCheck("SRV-4", { ...good, intervalSeconds: 9 })).rejects.toThrow(
+      "invalid: intervalSeconds",
+    );
+    await expect(servers.updateCheck(c.id, { intervalSeconds: 3601 })).rejects.toThrow(
+      "invalid: intervalSeconds",
+    );
+    await expect(servers.createCheck("SRV-4", { ...good, type: "ftp" as never })).rejects.toThrow(
+      "invalid: type",
+    );
+    await expect(servers.createCheck("SRV-4", { ...good, name: " " })).rejects.toThrow(
+      "invalid: name",
+    );
+    await expect(servers.createCheck("SRV-4", { ...good, target: "" })).rejects.toThrow(
+      "invalid: target",
+    );
+    await servers.deleteCheck(c.id);
+    expect(state.serverChecks.some((x) => x.id === c.id)).toBe(false);
+    await expect(servers.deleteCheck(c.id)).rejects.toThrow("not_found");
+    as("p-marco");
+    await expect(servers.createCheck("SRV-1", good)).rejects.toThrow("forbidden");
+    await expect(servers.deleteCheck("chk-srv-1-api")).rejects.toThrow("forbidden");
+    as("p-sara");
+    await expect(servers.updateCheck("chk-srv-3-app", { enabled: false })).rejects.toThrow(
+      "not_found",
+    );
+  });
+});
+
+describe("simulatore", () => {
+  it("failNext rifiuta solo la chiamata successiva", async () => {
+    as("p-marco");
+    failNext("servers.listProjectServers");
+    await expect(servers.listProjectServers("prj-acq")).rejects.toThrow("Simulated failure");
+    expect(await servers.listProjectServers("prj-acq")).toHaveLength(1);
+    as("p-roberta");
+    failNext("servers.createServer");
+    await expect(
+      servers.createServer({ name: "x", environmentId: "env-aud-staging" }),
+    ).rejects.toThrow("Simulated failure");
+    expect(state.serverCodeSeq).toBe(4);
+  });
+
+  it("una scrittura partita prima di resetApi non scrive", async () => {
+    setLatency(20);
+    as("p-roberta");
+    const gen = storeGeneration();
+    const pending = servers.createServer({ name: "x", environmentId: "env-aud-staging" });
+    resetApi();
+    await expect(pending).rejects.toThrow("reset");
+    expect(storeGeneration()).not.toBe(gen);
+    expect(state.serverCodeSeq).toBe(4);
+    expect(env("env-aud-staging").servers).toEqual([]);
+  });
+
+  it("resetApi ripulisce server, ambienti, controlli e contatore", async () => {
+    as("p-roberta");
+    await servers.createServer({ name: "x", environmentId: "env-aud-staging" });
+    await servers.deleteServer("SRV-1");
+    await servers.setThresholds("SRV-2", {
+      cpuPct: 50,
+      memPct: 50,
+      diskPct: 50,
+      sustainedMinutes: 1,
+    });
+    resetApi();
+    expect(state.servers.map((s) => s.code)).toEqual(["SRV-1", "SRV-2", "SRV-3", "SRV-4"]);
+    expect(state.serverCodeSeq).toBe(4);
+    expect(env("env-acq-prod").servers.map((s) => s.serverCode)).toEqual(["SRV-1"]);
+    expect(env("env-aud-staging").servers).toEqual([]);
+    expect(server("SRV-2")!.thresholds.cpuPct).toBe(95);
+    expect(state.serverChecks.some((c) => c.serverCode === "SRV-1")).toBe(true);
+  });
+});

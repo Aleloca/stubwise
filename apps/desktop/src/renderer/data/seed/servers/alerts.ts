@@ -8,8 +8,8 @@ import { SRV2_DISK_EPISODE, SRV3_SILENT_EPISODE } from "./episodes";
 // L'allarme e il rientro di memoria di SRV-1 restano le righe
 // `monitor.alert` / `monitor.recovered` di `notifications.ts`.
 //
-// I link portano alla sezione Servers del progetto; il dettaglio del server
-// (`#/p/<CODE>/servers/SRV-<n>`) entra nella grammatica col Task 3.
+// I link portano al dettaglio del server nella sezione Servers del progetto
+// (`#/p/<CODE>/servers/SRV-<n>`); quello della diagnosi apre la task.
 
 // [kind, codice progetto, codice oggetto, titolo, corpo, quando, link, letta]
 type Row = [string, string, string, string, string, string, string, boolean];
@@ -19,9 +19,9 @@ const diagnosis = SERVER_ANALYSES[0]!;
 // prettier-ignore
 const ROWS: Row[] = [
   ["server.diagnosis_ready", "ACQ", "SRV-1", "Diagnosis ready", `Claude looked into acq-prod-01 with read-only access: ${SERVER_TASK_CODE} Memory leak in the nightly import worker.`, diagnosis.endedAt!, `#/p/ACQ/tasks?task=${SERVER_TASK_CODE}`, false],
-  ["server.trouble", "STW", "SRV-2", "Server in trouble", "db-stw-01: disk at 93% (alert at 90%) and the check “Replica port” is down. Claude can't look into it: no SSH access.", SRV2_DISK_EPISODE.startedAt, "#/p/STW/servers", false],
-  ["server.down", "AUD", "SRV-3", "Server not responding", "aud-app-01: the agent stopped reporting.", SRV3_SILENT_EPISODE.startedAt, "#/p/AUD/servers", true],
-  ["server.recovered", "AUD", "SRV-3", "Server back to normal", "aud-app-01 is reporting again, after 22 minutes.", SRV3_SILENT_EPISODE.recoveredAt!, "#/p/AUD/servers", true],
+  ["server.trouble", "STW", "SRV-2", "Server in trouble", "db-stw-01: disk at 93% (alert at 90%) and the check “Replica port” is down. Claude can't look into it: no SSH access.", SRV2_DISK_EPISODE.startedAt, "#/p/STW/servers/SRV-2", false],
+  ["server.down", "AUD", "SRV-3", "Server not responding", "aud-app-01: the agent stopped reporting.", SRV3_SILENT_EPISODE.startedAt, "#/p/AUD/servers/SRV-3", true],
+  ["server.recovered", "AUD", "SRV-3", "Server back to normal", "aud-app-01 is reporting again, after 22 minutes.", SRV3_SILENT_EPISODE.recoveredAt!, "#/p/AUD/servers/SRV-3", true],
 ];
 
 export const SERVER_ALERT_NOTIFICATIONS: AppNotification[] = ROWS.map(

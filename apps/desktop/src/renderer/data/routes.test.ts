@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { automations, resetApi, search, setLatency } from "./api";
+import { automations, resetApi, search, servers, setLatency } from "./api";
 import { automationHref, isAppRoute, runHref } from "./routes";
 import { NOTIFICATIONS } from "./seed/notifications";
 import { PROJECTS } from "./seed/projects";
@@ -120,6 +120,28 @@ describe("route grammar", () => {
       expect.arrayContaining(["#/automations/AUD-A1", "#/automations/AUD-A1/runs/1"]),
     );
     for (const r of results) expect(isAppRoute(r.route), r.route).toBe(true);
+  });
+
+  it("area 8b: il dettaglio di un server", () => {
+    expect(isAppRoute("#/p/STW/servers")).toBe(true);
+    expect(isAppRoute("#/p/STW/servers/SRV-2")).toBe(true);
+    expect(isAppRoute(servers.serverHref("AUD", "SRV-12"))).toBe(true);
+    expect(isAppRoute("#/p/STW/servers/srv-2")).toBe(false);
+    expect(isAppRoute("#/p/STW/servers/SRV-")).toBe(false);
+    expect(isAppRoute("#/p/STW/releases/SRV-2")).toBe(false);
+  });
+
+  it("area 8b: gli avvisi dei server (tranne la diagnosi, che apre la task) portano al dettaglio", () => {
+    const serverAlerts = NOTIFICATIONS.filter(
+      (n) =>
+        (n.kind.startsWith("server.") || n.kind.startsWith("monitor.")) &&
+        n.kind !== "server.diagnosis_ready",
+    );
+    // server.trouble, server.down, server.recovered, monitor.alert, monitor.recovered.
+    expect(serverAlerts).toHaveLength(5);
+    for (const n of serverAlerts) {
+      expect(n.link).toBe(`#/p/${n.projectId!.slice(4).toUpperCase()}/servers/${n.objectCode}`);
+    }
   });
 
   it("i link delle notifiche sono nella grammatica", () => {

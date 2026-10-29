@@ -23,6 +23,11 @@ import {
  */
 const RELEASE_AREAS = ["releases", "notifications"] as const;
 /**
+ * Gli ambienti dicono anche quali server ha un progetto (R-L2): le loro
+ * scritture ricaricano pure l'area «servers».
+ */
+const ENVIRONMENT_AREAS = [...RELEASE_AREAS, "servers"] as const;
+/**
  * «Fai sistemare a Claude» crea una task e può far partire Claude. Una
  * funzione, non una costante: `RUN_AREAS` viene da `../queries`, che a sua
  * volta carica questo modulo (l'import è circolare).
@@ -175,7 +180,7 @@ export function useCreateEnvironment() {
   return useWrite(
     ({ projectId, input }: { projectId: string; input: api.releases.EnvironmentInput }) =>
       api.releases.createEnvironment(projectId, input),
-    RELEASE_AREAS,
+    ENVIRONMENT_AREAS,
   );
 }
 
@@ -183,12 +188,12 @@ export function useUpdateEnvironment() {
   return useWrite(
     ({ id, patch }: { id: string; patch: Partial<api.releases.EnvironmentInput> }) =>
       api.releases.updateEnvironment(id, patch),
-    RELEASE_AREAS,
+    ENVIRONMENT_AREAS,
   );
 }
 
 export function useDeleteEnvironment() {
-  return useWrite((id: string) => api.releases.deleteEnvironment(id), RELEASE_AREAS);
+  return useWrite((id: string) => api.releases.deleteEnvironment(id), ENVIRONMENT_AREAS);
 }
 
 /** Solo prototipo: «Simula esito» di una run in corso. */

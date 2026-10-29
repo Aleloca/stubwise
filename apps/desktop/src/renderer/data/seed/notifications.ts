@@ -319,7 +319,13 @@ const FIXED_NOTIFICATIONS: AppNotification[] = ROWS.map(
       read,
       archived: false,
       snoozedUntil: null,
-      link: task ? `#/p/${code}/tasks` : project ? `#/p/${project.code}` : projectlessLink(kind),
+      link: task
+        ? `#/p/${code}/tasks`
+        : project && objectCode?.startsWith("SRV-")
+          ? `#/p/${project.code}/servers/${objectCode}`
+          : project
+            ? `#/p/${project.code}`
+            : projectlessLink(kind),
     };
   },
 );

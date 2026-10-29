@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { MetricPoint, ProjectEnvironment } from "../../data/model";
+import type { CheckSample, MetricPoint, ProjectEnvironment } from "../../data/model";
 import {
   ANALYSIS_MAX_COST_USD,
   ANALYSIS_MAX_MINUTES,
@@ -7,7 +7,7 @@ import {
   METRIC_POINTS_MAX,
   RECOVERED_SHOWN_HOURS,
 } from "./limits";
-import { downsample } from "./metrics";
+import { downsample, downsampleSamples } from "./metrics";
 import { alertProjectsOf, analysisProjectOf } from "./projects";
 
 // Limiti, metriche e progetti; salute, accessi, comandi e correzione hanno
@@ -74,6 +74,40 @@ const env = (
     reportedSha: null,
     reportedAt: null,
   })),
+});
+
+describe("downsampleSamples (R-L1)", () => {
+  const sample = (i: number, status: "up" | "down", latencyMs: number | null): CheckSample => ({
+    ts: new Date(Date.UTC(2026, 9, 29) + i * 60_000).toISOString(),
+    status,
+    latencyMs,
+  });
+
+  it("riduce a max punti, tiene primo e ultimo, media la latenza dei soli campioni su", () => {
+    const samples = Array.from({ length: 1000 }, (_, i) =>
+      i === 500 ? sample(i, "down", null) : sample(i, "up", i % 2 ? 40 : 60),
+    );
+    const out = downsampleSamples(samples, 10);
+    expect(out.truncated).toBe(true);
+    expect(out.samples).toHaveLength(10);
+    expect(out.samples[0]).toEqual(samples[0]);
+    expect(out.samples.at(-1)).toEqual(samples.at(-1));
+    // Un solo campione giù basta a far giù la finestra: la fascia non si perde.
+    expect(out.samples.filter((s) => s.status === "down")).toHaveLength(1);
+    const up = out.samples.slice(1, -1).filter((s) => s.status === "up");
+    for (const s of up) expect(s.latencyMs).toBeCloseTo(50, 0);
+  });
+
+  it("una finestra senza latenza (un processo) resta senza", () => {
+    const samples = Array.from({ length: 50 }, (_, i) => sample(i, "up", null));
+    const out = downsampleSamples(samples, 5);
+    expect(out.samples.every((s) => s.latencyMs === null)).toBe(true);
+  });
+
+  it("sotto il massimo la serie resta com'è", () => {
+    const samples = [sample(0, "up", 3)];
+    expect(downsampleSamples(samples)).toEqual({ samples, truncated: false });
+  });
 });
 
 describe("alertProjectsOf e analysisProjectOf", () => {
