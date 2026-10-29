@@ -987,6 +987,7 @@
         "runsAs": "Gira come stubwise-fix: su {{code}} può fare tutto.",
         "releaseRule": "Un piano che rilascia (pull, aggiornamento d'immagine, deploy) va rifiutato. I rilasci passano da Rilasci.",
         "approve": "Approva il piano",
+        "rejectBlocked": "Rifiuta il piano",
         "youStarted": "Hai avviato tu questa correzione. Approvando, i comandi girano su {{code}}.",
         "waitingFor": "Aspetta chi può approvare i piani in {{project}}.",
         "waitingForAny": "Aspetta chi può approvare i piani.",
@@ -1115,6 +1116,9 @@
         "asks": "Claude chiede",
         "plan": "Il piano di Claude aspetta la tua approvazione",
         "planRejectOnly": "Il piano di correzione di Claude si può solo rifiutare",
+        "fixFromTask": "I comandi su {{code}} si approvano dalla task, dove sono elencati uno per uno.",
+        "openTask": "Apri la task",
+        "rejectNow": "Rifiuta",
         "blocked": {
           "fix_access_revoked": "Non si può approvare: l'accesso di correzione a {{code}} è stato revocato. Rifiutalo per liberare {{code}}.",
           "fix_access_unverified": "Non si può approvare: l'accesso di correzione di {{code}} non è verificato. Rifiutalo per liberare {{code}}.",

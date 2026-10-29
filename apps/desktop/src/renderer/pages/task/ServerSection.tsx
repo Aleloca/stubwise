@@ -178,10 +178,14 @@ export function ServerBrief({ taskId }: { taskId: string }) {
   );
 }
 
-/** Il piano aspetta chi guarda? Lo dice la conversazione (`canDecidePlan`). */
+/**
+ * Il piano aspetta chi guarda? Lo dice la conversazione: può deciderlo, o
+ * almeno rifiutarlo con l'approvazione spenta (`canRejectPlan`, come
+ * «Waiting on me»).
+ */
 function useWaitsOnMe(conversationId: string | null): boolean {
   const detail = useConversation(conversationId ?? "").data;
-  return conversationId !== null && (detail?.canDecidePlan ?? false);
+  return conversationId !== null && (detail?.canRejectPlan ?? false);
 }
 
 function StateLine({ info, code }: { info: ServerTaskInfo; code: string }) {

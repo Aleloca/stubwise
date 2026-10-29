@@ -237,8 +237,12 @@ function PlanItem({ decision, claude, onOpenTask, defer, label }: ItemProps<Plan
     );
 
   // Correzione di server con l'approvazione spenta: resta qui finché tiene
-  // occupato il server, ma l'unica decisione possibile è il rifiuto.
+  // occupato il server, ma l'unica decisione possibile è il rifiuto, che la
+  // chiude (niente indicazioni: un piano riscritto sarebbe bloccato uguale).
   const blocked = decision.blockedReason;
+  // Un piano di correzione non si approva da qui: chi approva legge i comandi
+  // uno per uno nella scheda della task (shape server-task §3, B1).
+  const fix = decision.serverCode !== null && decision.taskId !== null;
   return (
     <Shell
       decision={decision}
@@ -253,10 +257,16 @@ function PlanItem({ decision, claude, onOpenTask, defer, label }: ItemProps<Plan
           >
             {decision.summary}
           </p>
-          {blocked && (
+          {blocked ? (
             <p role="note" data-plan-blocked className="max-w-[72ch] text-sm text-ink">
               {t(`home.decide.claude.blocked.${blocked}`, { code: decision.serverCode })}
             </p>
+          ) : (
+            fix && (
+              <p className="max-w-[72ch] text-sm text-ink-muted">
+                {t("home.decide.claude.fixFromTask", { code: decision.serverCode })}
+              </p>
+            )
           )}
         </>
       }
@@ -271,14 +281,30 @@ function PlanItem({ decision, claude, onOpenTask, defer, label }: ItemProps<Plan
             }
             className="flex flex-wrap items-center gap-2"
           >
-            {!blocked && (
-              <button type="button" className={smallPrimary} onClick={() => decide("approve")}>
-                {t("home.decide.claude.approve")}
+            {fix && !blocked ? (
+              <button
+                type="button"
+                className={smallPrimary}
+                onClick={() => onOpenTask(decision.objectCode ?? "")}
+              >
+                {t("home.decide.claude.openTask")}
+              </button>
+            ) : (
+              !blocked && (
+                <button type="button" className={smallPrimary} onClick={() => decide("approve")}>
+                  {t("home.decide.claude.approve")}
+                </button>
+              )
+            )}
+            {blocked ? (
+              <button type="button" className={smallSecondary} onClick={() => decide("reject")}>
+                {t("home.decide.claude.rejectNow")}
+              </button>
+            ) : (
+              <button type="button" className={smallSecondary} onClick={() => setRejecting("")}>
+                {t("home.decide.claude.reject")}
               </button>
             )}
-            <button type="button" className={smallSecondary} onClick={() => setRejecting("")}>
-              {t("home.decide.claude.reject")}
-            </button>
             <Link to="/claude/$id" params={{ id: decision.conversationId }} className={ghostButton}>
               {t("home.decide.claude.readPlan")}
             </Link>

@@ -156,7 +156,8 @@ describe("sezione Server", () => {
   });
 
   it("server cancellato: «SRV-1 · deleted» a chi vede la task; non visibile: «A server you can't see»", async () => {
-    state.servers = state.servers.filter((s) => s.code !== "SRV-1");
+    setSessionPersonId("p-roberta");
+    await servers.deleteServer("SRV-1");
     renderRoute(`/p/ACQ/tasks?task=${CODE}`, "p-marco");
     await screen.findByRole("dialog", { name: `Task ${CODE}` });
     await waitFor(() => expect(serverSection()).toHaveTextContent("SRV-1·deleted"));
@@ -202,7 +203,16 @@ describe("sezione Server", () => {
       "Fix access to SRV-1 was revoked. Link it again to approve this plan.",
     );
     expect(within(plan).getByRole("button", { name: "Approve the plan" })).toBeDisabled();
-    expect(within(plan).getByRole("button", { name: "Reject with instructions" })).toBeEnabled();
+    // Bloccato, il rifiuto chiude: niente indicazioni (un piano riscritto sarebbe bloccato uguale).
+    const reject = within(plan).getByRole("button", { name: "Reject the plan" });
+    expect(reject).toBeEnabled();
+    // Minor 1: la riga di stato dice che il piano aspetta Laura, come «Waiting on me».
+    expect(serverSection()).toHaveTextContent("Fix plan waiting for your approval");
+    await userEvent.click(reject);
+    await whenFixesIdle();
+    await waitFor(() =>
+      expect(state.conversations.find((c) => c.serverFix)).toMatchObject({ state: "finished" }),
+    );
     expect(fixCommands()).toBe(0);
   });
 

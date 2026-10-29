@@ -987,6 +987,7 @@
         "runsAs": "Runs as stubwise-fix: it can do anything on {{code}}.",
         "releaseRule": "A plan that releases — pull, image update, deploy — must be rejected. Releases go through Releases.",
         "approve": "Approve the plan",
+        "rejectBlocked": "Reject the plan",
         "youStarted": "You started this fix. Approving runs the commands on {{code}}.",
         "waitingFor": "Waiting for someone who can approve plans in {{project}}.",
         "waitingForAny": "Waiting for someone who can approve plans.",
@@ -1115,6 +1116,9 @@
         "asks": "Claude asks",
         "plan": "Claude's plan waits for your approval",
         "planRejectOnly": "Claude's fix plan can only be rejected",
+        "fixFromTask": "Commands on {{code}} are approved from the task, where each one is listed.",
+        "openTask": "Open the task",
+        "rejectNow": "Reject",
         "blocked": {
           "fix_access_revoked": "Can't be approved: fix access to {{code}} was revoked. Reject it to free {{code}}.",
           "fix_access_unverified": "Can't be approved: {{code}}'s fix access isn't verified. Reject it to free {{code}}.",

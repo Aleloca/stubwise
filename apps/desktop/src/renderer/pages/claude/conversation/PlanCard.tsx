@@ -233,9 +233,13 @@ export function PlanCard({
               type="button"
               className={secondaryButton}
               disabled={decide.isPending || lostTo !== null || !canReject}
-              onClick={() => setRejecting("")}
+              // Approvazione spenta: il rifiuto chiude la correzione e libera il
+              // server, senza indicazioni (un piano riscritto sarebbe bloccato uguale).
+              onClick={() => (serverFix?.blockedReason ? run("reject") : setRejecting(""))}
             >
-              {t("claude.conversation.plan.reject")}
+              {serverFix?.blockedReason
+                ? t(`${F}.rejectBlocked`)
+                : t("claude.conversation.plan.reject")}
             </button>
             <button
               type="button"

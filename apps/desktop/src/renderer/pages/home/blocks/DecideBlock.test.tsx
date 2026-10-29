@@ -476,10 +476,26 @@ describe("Decide: piano di correzione con l'approvazione spenta (area 8b, I1)", 
       ),
     ).toBeInTheDocument();
     expect(within(plan).queryByRole("button", { name: "Approve" })).toBeNull();
-    await userEvent.click(within(plan).getByRole("button", { name: "Reject…" }));
-    await userEvent.click(within(item).getByRole("button", { name: "Reject and send" }));
+    // Bloccato, il rifiuto chiude e basta: niente indicazioni da mandare.
+    await userEvent.click(within(plan).getByRole("button", { name: "Reject" }));
     await waitFor(() =>
       expect(state.conversations.find((c) => c.serverFix)).toMatchObject({ state: "finished" }),
     );
+  });
+
+  it("B1: un piano di correzione non si approva da Decide; «Open the task» porta ai comandi", async () => {
+    await act(async () => {
+      setSessionPersonId("p-marco");
+      await api.servers.startServerFix("t-acq-srv-1");
+      await whenFixesIdle();
+    });
+    const router = renderRoute("/home", "p-laura");
+    const decide = await decideBlock();
+    await userEvent.click(await within(decide).findByRole("button", { name: /^Show \d+ more$/ }));
+    const plan = await within(decide).findByRole("group", { name: "Decide on the plan for ACQ-6" });
+    expect(within(plan).queryByRole("button", { name: "Approve" })).toBeNull();
+    expect(within(plan).getByRole("button", { name: "Reject…" })).toBeInTheDocument();
+    await userEvent.click(within(plan).getByRole("button", { name: "Open the task" }));
+    await waitFor(() => expect(router.state.location.search).toMatchObject({ task: "ACQ-6" }));
   });
 });
