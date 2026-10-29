@@ -519,6 +519,21 @@ describe("I1: il server deve essere ancora del progetto della task (R-L2, R-G5)"
     expect(session(c.id)).toMatchObject({ state: "finished", outcome: "stopped" });
     expect(checks(c.id)).toEqual([]);
   });
+
+  it("R1: tolto mentre Claude legge per il piano → si ferma (server_gone), nessuna lettura dopo e nessun piano", async () => {
+    setStreamLatency(20);
+    as("p-roberta");
+    const c = await servers.startServerFix(TASK);
+    await expect.poll(() => actions(c.id, "server.read").length, FAST).toBeGreaterThan(0);
+    detachSrv1(true);
+    const atDetach = actions(c.id, "server.read").length;
+    await whenFixesIdle();
+    await sleep(80);
+    expect(actions(c.id, "server.read").length).toBe(atDetach);
+    expect(plans(c.id)).toEqual([]);
+    expect(phases(c.id).at(-1)).toMatchObject({ outcome: "stopped", reason: "server_gone" });
+    expect(session(c.id).state).toBe("finished");
+  });
 });
 
 describe("I2: il rifiuto è un permesso calcolato", () => {

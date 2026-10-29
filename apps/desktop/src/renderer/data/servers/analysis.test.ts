@@ -581,6 +581,24 @@ describe("analisi ai bordi (fix round 1)", () => {
     expect(taskOf(a).description).toMatch(/\*\*Stopped\*\* — the read-only SSH access stopped/);
   });
 
+  it("tolto dal progetto durante l'analisi → si ferma: nessuna lettura dopo, nessuna task lì", async () => {
+    setStreamLatency(20);
+    await servers.simulateServerAlert("SRV-1", "memory");
+    await vi.waitFor(() => expect(newAnalyses("SRV-1")).toHaveLength(1), FAST);
+    const a = onlyAnalysis("SRV-1");
+    await vi.waitFor(() => expect(actionsOf(a.conversationId).length).toBeGreaterThan(0), FAST);
+    const tasksBefore = state.tasks.length;
+    for (const env of state.environments)
+      if (env.projectId === ACQ) env.servers = env.servers.filter((s) => s.serverCode !== "SRV-1");
+    const readsAtDetach = actionsOf(a.conversationId).length;
+    await whenAnalysesIdle();
+    expect(actionsOf(a.conversationId).length).toBe(readsAtDetach);
+    expect(a).toMatchObject({ outcome: "stopped", taskId: null });
+    expect(state.tasks.length).toBe(tasksBefore);
+    expect(published("server.diagnosis_ready", "SRV-1")).toHaveLength(0);
+    expect(sessionOf(a)).toMatchObject({ state: "finished", outcome: "failed" });
+  });
+
   it("una «lettura che scrive» durante l'analisi la ferma alla lettura successiva", async () => {
     setStreamLatency(20);
     await servers.simulateServerAlert("SRV-1", "memory");

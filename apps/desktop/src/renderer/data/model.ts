@@ -2777,7 +2777,9 @@ export interface ServerAnalysis {
   /**
    * `stopped`: finita senza diagnosi, perché il server è rientrato prima
    * della prima lettura o perché l'accesso di lettura ha smesso di essere
-   * usabile (revoca, lettura che scrive); la task c'è e lo dice. `failed`:
+   * usabile (revoca, lettura che scrive); la task c'è e lo dice. Anche
+   * quando il server è stato tolto dal progetto a metà: lì senza task
+   * (`taskId` null), lo dice la sessione. `failed`:
    * la task non si è potuta aprire (la sessione dice perché).
    */
   outcome: "running" | "diagnosed" | "unreachable" | "timed_out" | "stopped" | "failed";

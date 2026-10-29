@@ -181,18 +181,29 @@ async function writePlan(
     ],
     gen,
   );
+  // R1: tolto il server dal progetto della task, Claude non lo legge più
+  // per conto di quel progetto e non scrive il piano: si ferma col motivo.
+  const gone = () => serverFixBlock(c) === "server_gone";
   let reads = 0;
   for (const r of plan.reads) {
-    if (!go() || !readUsable(code)) break;
+    if (!go()) break;
+    if (gone()) return stopFix(c, gen, "server_gone");
+    if (!readUsable(code)) break;
     if (reads === 0) markUsed(code, "read", { kind: "task", taskId: task.id });
     reads++;
-    await runScript(c.id, () => (go() ? readSteps([r]) : []), gen);
+    await runScript(c.id, () => (go() && !gone() ? readSteps([r]) : []), gen);
   }
+  if (go() && gone()) return stopFix(c, gen, "server_gone");
   const project = state.projectsById.get(task.projectId)!.code;
+  let goneAtPlan = false;
   await runScript(
     c.id,
     () => {
       if (!go()) return [];
+      if (gone()) {
+        goneAtPlan = true;
+        return [];
+      }
       planned.set(c.id, plan.commands);
       return [
         {
@@ -220,6 +231,7 @@ async function writePlan(
     },
     gen,
   );
+  if (goneAtPlan && go()) await stopFix(c, gen, "server_gone");
 }
 
 /** Il piano rifiutato con indicazioni (o un «Ferma e scrivi»): Claude lo riscrive, di nuovo da approvare. */

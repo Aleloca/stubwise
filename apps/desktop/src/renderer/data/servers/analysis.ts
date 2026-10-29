@@ -1,5 +1,9 @@
 import { ANALYSIS_MAX_COST_USD, ANALYSIS_MAX_MINUTES } from "../../domain/servers/limits";
-import { alertProjectsOf, analysisProjectOf } from "../../domain/servers/projects";
+import {
+  alertProjectsOf,
+  analysisProjectOf,
+  serverInProject,
+} from "../../domain/servers/projects";
 import { accessState, accessUsable } from "../../domain/servers/sshAccess";
 import { utterance } from "../../domain/claude/answers";
 import i18n from "../../i18n";
@@ -311,6 +315,7 @@ async function drive(
   while (episode.recoveredAt === null) {
     server = serverOf(a.serverCode);
     if (!server) return;
+    if (gone(a)) return stopGone(a, gen);
     const all = readsFor(server, episode.reasons);
     const next = all.find((r) => !ran.has(r.input));
     if (!next) break;
@@ -329,8 +334,37 @@ async function drive(
     await runScript(a.conversationId, readSteps([next]), gen);
     if (!alive()) return;
   }
+  if (gone(a)) return stopGone(a, gen);
   if (ending === "diagnosed" && ran.size === 0) ending = "recovered_early";
   return finish(a, episode, gen, ending, ran.size);
+}
+
+/** Il server non è più in un ambiente del progetto dell'analisi (tolto a metà). */
+const gone = (a: ServerAnalysis): boolean =>
+  !serverInProject(a.serverCode, a.projectId, state.environments);
+
+/**
+ * Tolto il server dal progetto a metà: Claude non lo legge più per conto di
+ * quel progetto e non ci apre la task (stessa regola della correzione,
+ * `server_gone`). L'analisi finisce `stopped` senza task; la sessione dice perché.
+ */
+async function stopGone(a: ServerAnalysis, gen: number): Promise<void> {
+  if (gen !== storeGeneration() || a.outcome !== "running") return;
+  a.outcome = "stopped";
+  a.endedAt = now();
+  await runScript(
+    a.conversationId,
+    [
+      { step: "finish_action", outcome: "failed", result: "Stopped" },
+      {
+        step: "say",
+        text: `${a.serverCode} is no longer in this project's environments, so I stopped. No task was opened.`,
+      },
+      { step: "event", event: { type: "phase", phase: "analysis", outcome: "failed" } },
+      { step: "state", state: "finished", outcome: "failed" },
+    ],
+    gen,
+  );
 }
 
 /** I consumi finti dell'analisi: plausibili, sotto il tetto (`ANALYSIS_MAX_COST_USD`). */
