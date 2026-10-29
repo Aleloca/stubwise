@@ -2623,6 +2623,15 @@
         "bootJournal": "Read the journal of the last boot",
         "attempt": "Tried to connect (attempt {{n}})"
       }
+    },
+    "serverFix": {
+      "commands": {
+        "restart": "Restarted {{service}}",
+        "limitMemory": "Capped the memory of {{service}}",
+        "pruneImages": "Removed the unused images",
+        "vacuumJournal": "Trimmed the system journal",
+        "restartAgent": "Restarted the monitoring agent"
+      }
     }
   },
   "chat": {

@@ -3,9 +3,12 @@
 // pure di `domain/servers`; `monitor.ts` sono le scritture della sezione
 // Monitor del web (`monitor.manage`); `access.ts` gli accessi SSH
 // (`servers.ssh.manage`), `simulate.ts` i «Simula …» del solo prototipo.
-// `secrets.ts` (le chiavi private) NON si esporta: lo importa `access.ts`
-// (e `fix.ts`, se gli serve). L'analisi non lo importa: legge solo con
-// l'accesso di lettura, attraverso `accessUsable` e `markUsed`.
+// `secrets.ts` (le chiavi private) NON si esporta: lo importano `access.ts`
+// e `fix.ts` (che chiede solo se la chiave di correzione c'è, `hasKey`).
+// L'analisi non lo importa: legge solo con l'accesso di lettura, attraverso
+// `accessUsable` e `markUsed`. `fix.ts` è la correzione da task
+// (`startServerFix`); il resto del suo percorso (decidere il piano, Stop)
+// passa dalle scritture delle conversazioni.
 //
 // `alertTypes.ts` si importa qui, STATICAMENTE e per il suo effetto:
 // registra gli avvisi dei server nel catalogo prima del primo `resetApi`.
@@ -17,12 +20,15 @@ export {
   getInstallCommand,
   getServer,
   getServerMetrics,
+  getServerTaskInfo,
   listProjectServers,
   searchServers,
   type MetricRange,
   type ServerMetrics,
   type ServerSearchResult,
+  type ServerTaskInfo,
 } from "./reads";
+export { startServerFix } from "./fix";
 export {
   createCheck,
   createServer,
@@ -38,6 +44,7 @@ export {
 } from "./monitor";
 export { linkSshAccess, regenerateSshAccess, revokeSshAccess, verifySshAccess } from "./access";
 export {
+  simulateFixCheck,
   simulateServerAlert,
   simulateServerRecovery,
   simulateSshUnreachable,

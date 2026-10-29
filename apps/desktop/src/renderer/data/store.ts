@@ -2,6 +2,7 @@ import { prLines, type PrLine } from "../domain/claude/taskWork";
 import { stallOf, type Stall } from "../domain/stalled";
 import { currentWeek } from "../domain/weeks";
 import { matches, type FilterContext } from "../domain/filters";
+import { accessState, accessUsable } from "../domain/servers/sshAccess";
 import { ACTIVITY } from "./seed/activity";
 import { BRIEFS } from "./seed/briefs";
 import {
@@ -539,7 +540,10 @@ export type ApiFnName =
   | "servers.simulateSshVerifyOutcome"
   | "servers.simulateServerAlert"
   | "servers.simulateServerRecovery"
-  | "servers.simulateSshUnreachable";
+  | "servers.simulateSshUnreachable"
+  | "startServerFix"
+  | "servers.getServerTaskInfo"
+  | "servers.simulateFixCheck";
 const failures = new Set<ApiFnName>();
 
 /** Fissa la latenza simulata (ms); `0` per i test, `null` per tornare a 150–400 ms. */
@@ -1224,22 +1228,35 @@ export function conversationPermissions(
     request !== undefined &&
     ["new", "ready", "refining"].includes(request.status) &&
     request.mergedIntoId === null;
+  const decidable = plan !== undefined && approver && c.state === "awaiting_approval";
+  // Correzione di un server (area 8b): il piano che aspetta non si approva
+  // se l'accesso di correzione non è usabile adesso (mai il solo stato). La
+  // ragione la riceve solo chi altrimenti potrebbe decidere: per lui il
+  // rifiuto resta (`decidePlan`).
+  const fixAccess = c.serverFix ? state.serverAccess.get(c.serverFix.serverCode) : undefined;
+  const planBlockedReason =
+    c.serverFix && decidable && !accessUsable(fixAccess, "fix")
+      ? accessState(fixAccess) === "revoked"
+        ? "fix_access_revoked"
+        : "fix_access_unverified"
+      : null;
+  // Niente approvazione in anticipo per una correzione di server.
+  const preApprovable = approver && live && planning && !c.serverFix;
   return {
     isOwner,
     canWrite,
     canInterrupt,
     canAnswer: question !== undefined && live && (isOwner || inProject("plans.approve")),
-    canDecidePlan: plan !== undefined && approver && c.state === "awaiting_approval",
-    canPreApprovePlan: approver && live && planning && !preApproved,
+    canDecidePlan: decidable && planBlockedReason === null,
+    canPreApprovePlan: preApprovable && !preApproved,
     // Revocabile solo finché il piano non è arrivato: dopo, l'anticipo è già speso.
-    canRevokePlanApproval: approver && live && planning && preApproved,
+    canRevokePlanApproval: preApprovable && preApproved,
     canContinue: c.kind === "free" && !isOwner && c.visibility === "public",
     canManage: c.kind === "free" && isOwner,
     canClose: refiner && live,
     canStartNew: refiner && !live && refinable,
     readOnlyReason,
-    // La correzione dei server (Task 6 dell'area 8b) lo valorizza.
-    planBlockedReason: null,
+    planBlockedReason,
   };
 }
 

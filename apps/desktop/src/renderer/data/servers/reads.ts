@@ -1,7 +1,15 @@
+import {
+  fixStartBlock,
+  serverTaskState,
+  type FixStartBlock,
+  type ServerTaskState,
+} from "../../domain/servers/fixGate";
 import { downsample, downsampleSamples } from "../../domain/servers/metrics";
+import { accessState, type AccessState } from "../../domain/servers/sshAccess";
 import { fold } from "../../domain/textSearch";
-import { copy, gate, now, state } from "../store";
-import type { CheckSample, MetricPoint } from "../types";
+import { copy, eventsOf, gate, latestRunOf, now, state, visibleProjectIds } from "../store";
+import type { CheckSample, MetricPoint, ServerEpisode } from "../types";
+import { can, viewerFor } from "../viewer";
 import { forbidden, invalid, notFound } from "../writer";
 import {
   canManageSsh,
@@ -99,6 +107,55 @@ export async function getInstallCommand(code: string): Promise<{ command: string
   const command = installCommandOf(server.code);
   if (command === null) throw invalid("state");
   return { command };
+}
+
+/** Il blocco «Server» di una task di server (area 8b, Task 9). */
+export interface ServerTaskInfo {
+  /** Il server della task; `null` se chi guarda non lo vede più (R-G5) o non esiste più. */
+  server: { code: string; name: string } | null;
+  episode: ServerEpisode | null;
+  state: ServerTaskState;
+  /** Perché chi guarda non può avviare la correzione adesso; `null` se può. */
+  startBlock: FixStartBlock | null;
+  fixAccess: AccessState;
+  /** L'ultima sessione di correzione della task (la scheda del piano, i comandi). */
+  fixConversationId: string | null;
+}
+
+/**
+ * Il blocco «Server» della task: server, episodio, a che punto è la
+ * correzione (`serverTaskState`, dall'ultima sessione con `serverFix`),
+ * perché chi guarda non può avviarla e lo stato dell'accesso di correzione.
+ * `null` per una task senza `serverRef`; `not_found` per una task invisibile.
+ */
+export async function getServerTaskInfo(taskId: string): Promise<ServerTaskInfo | null> {
+  const me = await gate("servers.getServerTaskInfo");
+  const task = state.tasksById.get(taskId);
+  if (!task || !visibleProjectIds(me).has(task.projectId)) throw notFound();
+  if (!task.serverRef) return null;
+  const code = task.serverRef.serverCode;
+  const s = serversVisibleTo(me).has(code) ? state.servers.find((x) => x.code === code) : undefined;
+  const episode = s
+    ? (state.serverEpisodes.find((e) => e.id === task.serverRef!.episodeId) ?? null)
+    : null;
+  const run = state.conversations
+    .filter((c) => c.kind === "task_run" && c.taskId === task.id && c.serverFix)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))[0];
+  const live = latestRunOf(task.id);
+  const access = state.serverAccess.get(code);
+  return copy({
+    server: s ? { code: s.code, name: s.name } : null,
+    episode,
+    state: serverTaskState(task, run ? { c: run, events: eventsOf(run.id) } : null),
+    startBlock: fixStartBlock({
+      hasOperate: can(viewerFor(me), "servers.operate", task.projectId),
+      task,
+      access,
+      liveRun: live !== undefined && live.state !== "finished",
+    }),
+    fixAccess: accessState(access),
+    fixConversationId: run?.id ?? null,
+  });
 }
 
 /** ⌘K: i server per codice, nome o hostname, solo fra quelli che chi cerca vede. */

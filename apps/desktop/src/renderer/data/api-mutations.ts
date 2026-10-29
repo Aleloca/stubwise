@@ -94,6 +94,15 @@ import type {
 import { supportState } from "../domain/support/state";
 import { publishAlert } from "./alerts/publish";
 import { overStubwiseCap } from "./releases/visibility";
+import { accessUsable } from "../domain/servers/sshAccess";
+// La correzione dei server (area 8b): usata solo dentro le funzioni, quindi
+// l'import circolare (fix.ts apre le sessioni da qui) è innocuo.
+import {
+  executeServerFix,
+  replanServerFix,
+  stopAndReplanServerFixAs,
+  stopServerFixAs,
+} from "./servers/fix";
 import { can, canInDepartment, grantProjectRole, viewerFor, type Permission } from "./viewer";
 
 // Le scritture del «server» finto. Ognuna passa da `gate()` (quindi `failNext`
@@ -1525,6 +1534,9 @@ function releaseHold(c: Conversation, fromIndex: number): void {
  * aspetta l'approvazione. Si calcola quando il piano arriva, non prima.
  */
 function planGateFor(c: Conversation, task: Task): scripts.PlanGate {
+  // La correzione di un server (area 8b): il piano va SEMPRE approvato da una
+  // persona — né il `plans.approve` di chi avvia né un anticipo contano.
+  if (c.serverFix) return { status: "awaiting", by: c.ownerId };
   if (can(viewerFor(c.ownerId), "plans.approve", task.projectId)) {
     return { status: "approved", by: c.ownerId };
   }
@@ -1538,6 +1550,12 @@ function planGateFor(c: Conversation, task: Task): scripts.PlanGate {
  * messaggio che riprende una pausa, «Ferma e scrivi».
  */
 function continueWork(c: Conversation, task: Task, ack: string, gen: number): void {
+  // Una correzione di server non riprende mai l'esecuzione da sola: Claude
+  // riscrive il piano, di nuovo da approvare.
+  if (c.serverFix) {
+    follow(c.id, [{ step: "say", text: ack }], gen, () => replanServerFix(c, task, undefined, gen));
+    return;
+  }
   const phase = currentPhase(eventsOf(c.id));
   const software = hasRepository(task.projectId);
   if (phase === "plan") {
@@ -1654,8 +1672,11 @@ function newConversation(
   return c;
 }
 
-/** Una sessione nuova a nome di `me` (l'analisi automatica di un server, area 8b, a nome di Claude). */
-export { newConversation as openWorkConversationAs };
+/**
+ * Una sessione nuova a nome di `me`, e il seguito di Claude in coda (area 8b:
+ * l'analisi automatica a nome di Claude, la correzione di un server).
+ */
+export { newConversation as openWorkConversationAs, follow as followScripts };
 
 export interface NewConversationInput {
   contextProjectId?: string | null;
@@ -1988,6 +2009,11 @@ export async function stop(id: string): Promise<void> {
     await stopFree(me, c, gen);
     return;
   }
+  // La correzione di un server si chiude, fermata da chi l'ha fermata.
+  if (c.serverFix) {
+    await stopServerFixAs(me, c, gen);
+    return;
+  }
   // Un messaggio ancora in attesa non lo legge più nessuno: resta, non consegnato.
   interruptScripts(id, i18n.t("claude.conversation.delivery.stoppedBeforeTurn"));
   await runScript(id, stopSteps(me, c), gen);
@@ -2005,6 +2031,11 @@ export async function stopAndSend(id: string, text: string): Promise<void> {
     // pubblica (trattenuto finché non si sa cosa tocca).
     await stopFree(me, c, gen);
     await sendFree(me, c, text.trim(), [], gen);
+    return;
+  }
+  // Una correzione di server non riparte dal messaggio: il piano si riscrive.
+  if (c.serverFix && c.taskId) {
+    await stopAndReplanServerFixAs(me, c, state.tasksById.get(c.taskId)!, text.trim(), gen);
     return;
   }
   interruptScripts(id, i18n.t("claude.conversation.delivery.stoppedBeforeTurn"));
@@ -2144,7 +2175,18 @@ export async function decidePlan(
   if (plan && claims.has(key)) throw alreadyAnswered(claims.get(key));
   const decided = lastEvent(log, (e): e is PlanEvent => e.type === "plan");
   if (!plan && decided?.decidedById) throw alreadyAnswered(decided.decidedById);
-  if (!plan || !conversationPermissions(me, c).canDecidePlan) {
+  const perms = conversationPermissions(me, c);
+  // Correzione di un server: l'accesso di correzione si ricontrolla qui
+  // (revocato o non più usabile → niente approvazione); il rifiuto resta.
+  if (c.serverFix && plan && decision === "approve") {
+    if (!accessUsable(state.serverAccess.get(c.serverFix.serverCode), "fix")) {
+      throw invalid("fix_access");
+    }
+  }
+  const mayDecide =
+    perms.canDecidePlan ||
+    (c.serverFix !== undefined && decision === "reject" && perms.planBlockedReason !== null);
+  if (!plan || !mayDecide) {
     throw invalid("status");
   }
   const task = state.tasksById.get(c.taskId!)!;
@@ -2209,7 +2251,11 @@ export async function decidePlan(
     supersededById: null,
     planOutcome: decision === "approve" ? "approved" : "rejected",
   });
-  if (decision === "approve") {
+  if (c.serverFix) {
+    // I comandi del piano approvato, uno alla volta; o il piano riscritto.
+    if (decision === "approve") executeServerFix(c, task, gen);
+    else if (note) replanServerFix(c, task, note, gen);
+  } else if (decision === "approve") {
     follow(id, scripts.execution(task, hasRepository(task.projectId)), gen);
   } else if (note) follow(id, scripts.replanning(task, note), gen);
 }
@@ -2222,7 +2268,8 @@ export async function decidePlan(
 export async function preApprovePlan(id: string): Promise<void> {
   const me = await gate("preApprovePlan");
   const c = conversationFor(me, id);
-  if (c.kind !== "task_run" || c.projectId === null) throw invalid("kind");
+  // Il piano di una correzione di server non si approva in anticipo (anti-obiettivo 2).
+  if (c.kind !== "task_run" || c.projectId === null || c.serverFix) throw invalid("kind");
   need(me, "plans.approve", c.projectId);
   if (!conversationPermissions(me, c).canPreApprovePlan) throw invalid("status");
   state.preApprovedPlans.set(id, me);

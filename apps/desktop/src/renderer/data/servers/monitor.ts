@@ -141,8 +141,15 @@ export async function updateServer(code: string, patch: UpdateServerInput): Prom
 export async function deleteServer(code: string): Promise<void> {
   const me = await writer("servers.deleteServer");
   const server = managed(me, code);
-  // R-L6: non mentre un'analisi lo sta guardando (la correzione: Task 6).
+  // R-L6: non mentre un'analisi lo sta guardando o una correzione è viva
+  // (anche in attesa dell'approvazione del piano).
   if (state.serverAnalyses.some((a) => a.serverCode === server.code && a.outcome === "running"))
+    throw invalid("busy");
+  if (
+    state.conversations.some(
+      (c) => c.serverFix?.serverCode === server.code && c.state !== "finished",
+    )
+  )
     throw invalid("busy");
   state.servers = state.servers.filter((s) => s !== server);
   for (const env of state.environments)

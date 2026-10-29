@@ -85,6 +85,22 @@ export async function simulateServerRecovery(code: string): Promise<ServerEpisod
   return copy(ep);
 }
 
+const FIX_CHECK_OUTCOMES = ["resolved", "not_resolved"] as const;
+
+/**
+ * «Simula: risolto / non risolto» per il prossimo controllo finale di una
+ * correzione su quel server (di base risolto); vale una volta sola.
+ */
+export async function simulateFixCheck(
+  code: string,
+  outcome: (typeof FIX_CHECK_OUTCOMES)[number],
+): Promise<void> {
+  const me = await writer("servers.simulateFixCheck");
+  const server = serverFor(me, code);
+  if (!FIX_CHECK_OUTCOMES.includes(outcome)) throw invalid("outcome");
+  state.fixCheckNext.set(server.code, outcome);
+}
+
 /** «Simula server irraggiungibile»: l'SSH non risponde (`on`), o torna a rispondere. */
 export async function simulateSshUnreachable(code: string, on: boolean): Promise<void> {
   const me = await writer("servers.simulateSshUnreachable");

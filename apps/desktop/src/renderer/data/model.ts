@@ -800,8 +800,16 @@ export type ConversationEvent =
       stoppedById?: string;
       /** Chi l'ha chiusa («Close the session» di un refine). */
       closedById?: string;
-      /** `item_closed`: il refine si è chiuso perché la richiesta è stata trasformata, archiviata o fusa. */
-      reason?: "item_closed";
+      /**
+       * `item_closed`: il refine si è chiuso perché la richiesta è stata
+       * trasformata, archiviata o fusa. Correzione di un server (area 8b),
+       * fase fermata SENZA una persona: `fix_access_revoked` (l'accesso di
+       * correzione è stato revocato) o `fix_access_unusable` (non è più
+       * usabile: verifica fallita, lettura che scrive). Lo Stop di una
+       * persona porta `stoppedById`; tempo scaduto ed errore hanno il loro
+       * `outcome` (`timed_out`, `failed`).
+       */
+      reason?: "item_closed" | "fix_access_revoked" | "fix_access_unusable";
       /** Solo una fase `correction`: la PR che corregge (il job del server la conosce). */
       pr?: PrRef;
     }

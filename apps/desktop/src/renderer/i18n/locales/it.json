@@ -2623,6 +2623,15 @@
         "bootJournal": "Letto il journal dell'ultimo avvio",
         "attempt": "Tentata la connessione ({{n}}° tentativo)"
       }
+    },
+    "serverFix": {
+      "commands": {
+        "restart": "Riavviato {{service}}",
+        "limitMemory": "Limitata la memoria di {{service}}",
+        "pruneImages": "Tolte le immagini non usate",
+        "vacuumJournal": "Ridotto il journal di sistema",
+        "restartAgent": "Riavviato l'agente di monitoraggio"
+      }
     }
   },
   "chat": {
