@@ -918,6 +918,7 @@
       "open": "Apri",
       "openLabel": "Apri {{code}}",
       "hidden": "Un server che non vedi",
+      "deleted": "eliminato",
       "episodeOpen": "{{reasons}} · dalle {{when}}, ancora in corso",
       "episodeClosed": "{{reasons}} · {{from}} → {{to}} (rientrato)",
       "reasonsMore": "{{first}} +{{count}}",

@@ -6,6 +6,7 @@ import {
 import { serverHealth, type ServerHealth } from "../../domain/servers/health";
 import { downsample, downsampleSamples } from "../../domain/servers/metrics";
 import { removalScript, type ScriptLang } from "../../domain/servers/installScript";
+import { serverInProject } from "../../domain/servers/projects";
 import { accessState, type AccessState } from "../../domain/servers/sshAccess";
 import { fold } from "../../domain/textSearch";
 import { canSeeConversation, copy, eventsOf, gate, now, state, visibleProjectIds } from "../store";
@@ -135,13 +136,26 @@ export async function getRemovalCommand(
 
 /** Il blocco «Server» di una task di server (area 8b, Task 9). */
 export interface ServerTaskInfo {
-  /** Il server della task; `null` se chi guarda non lo vede più (R-G5) o non esiste più. */
-  server: { code: string; name: string } | null;
+  /**
+   * Il server della task; `null` se chi guarda non lo vede più (R-G5) o non
+   * esiste più. `projectCode`: dove si apre il suo dettaglio («Open →»): il
+   * progetto della task se il server ci sta ancora, altrimenti un altro
+   * progetto che chi guarda vede e che lo usa.
+   */
+  server: { code: string; name: string; projectCode: string | null } | null;
+  /**
+   * Il server non esiste più («SRV-n · deleted»). Lo riceve solo chi vede il
+   * progetto della task (chi vede la task): lì il server era visibile per
+   * definizione, quindi dirlo non rivela niente. Un server che esiste ma non
+   * si vede resta `false` (R-G5: «A server you can't see»).
+   */
+  serverGone: boolean;
   episode: ServerEpisode | null;
   state: ServerTaskState;
   /** Perché chi guarda non può avviare la correzione adesso; `null` se può. */
   startBlock: FixStartBlock | null;
-  fixAccess: AccessState;
+  /** Lo stato dell'accesso di correzione; `null` con `server` nullo (R-G5). */
+  fixAccess: AccessState | null;
   /** L'ultima sessione di correzione della task (la scheda del piano, i comandi). */
   fixConversationId: string | null;
   /** La salute del server adesso (la riga del server); `null` con `server` nullo. */
@@ -220,12 +234,23 @@ export async function getServerTaskInfo(taskId: string): Promise<ServerTaskInfo 
           outcome: run.outcome ?? "stopped",
         }
       : null;
+  const taskProject = state.projectsById.get(task.projectId)!.code;
   return copy({
-    server: s ? { code: s.code, name: s.name } : null,
+    server: s
+      ? {
+          code: s.code,
+          name: s.name,
+          projectCode: serverInProject(s.code, task.projectId, state.environments)
+            ? taskProject
+            : homeProjectCode(me, s),
+        }
+      : null,
+    // La task è visibile, quindi chi guarda vede il suo progetto (sopra).
+    serverGone: !state.servers.some((x) => x.code === code),
     episode,
     state: taskState,
     startBlock: serverFixStartBlock(me, task),
-    fixAccess: accessState(access),
+    fixAccess: s ? accessState(access) : null,
     fixConversationId: run?.id ?? null,
     health: s ? serverHealth(s, state.serverEpisodes, now()) : null,
     analysis: analysis

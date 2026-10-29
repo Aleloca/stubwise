@@ -308,9 +308,12 @@ export const serverHref = (projectCode: string, code: string): string =>
  */
 export function homeProjectCode(me: string, s: MonitoredServer): string | null {
   const visible = visibleProjectIds(me);
-  if (s.primaryProjectId && visible.has(s.primaryProjectId))
-    return projectCodeOf(s.primaryProjectId);
-  const env = environmentsOf(s.code).find((e) => visible.has(e.projectId));
+  const envs = environmentsOf(s.code);
+  // Il principale solo se lo usa ancora: il dettaglio esiste solo lì.
+  const primary = s.primaryProjectId;
+  if (primary && visible.has(primary) && envs.some((e) => e.projectId === primary))
+    return projectCodeOf(primary);
+  const env = envs.find((e) => visible.has(e.projectId));
   return env ? projectCodeOf(env.projectId) : null;
 }
 
@@ -419,8 +422,14 @@ export function linkAccessHrefOf(
   if (accessUsable(state.serverAccess.get(n.objectCode), "read")) return null;
   const server = state.servers.find((s) => s.code === n.objectCode);
   if (!server) return null;
+  // Il progetto dell'avviso solo se il server ci sta ancora: altrimenti il
+  // dettaglio lì direbbe «non trovato» anche a chi il server lo vede altrove.
   const own =
-    n.projectId && visibleProjectIds(me).has(n.projectId) ? projectCodeOf(n.projectId) : null;
+    n.projectId &&
+    visibleProjectIds(me).has(n.projectId) &&
+    serverInProject(n.objectCode, n.projectId, state.environments)
+      ? projectCodeOf(n.projectId)
+      : null;
   const home = own ?? homeProjectCode(me, server);
   return home ? `${serverHref(home, n.objectCode)}?section=access` : null;
 }

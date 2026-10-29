@@ -253,10 +253,12 @@ function ServerBody({ task, info }: { task: Task; info: ServerTaskInfo }) {
 
   const block = info.startBlock;
   const showConditions = info.server !== null && (block === null || CONDITIONS_UNDER.has(block));
-  const accessLink = manageSsh && info.server && (
+  // Il dettaglio del server si apre dove il server è (lo dice il livello dati).
+  const home = info.server?.projectCode ?? null;
+  const accessLink = manageSsh && info.server && home && (
     <Link
       to="/p/$code/servers/$server"
-      params={{ code: project, server: code }}
+      params={{ code: home, server: code }}
       search={{ section: "access" } as never}
       className={linkClass}
     >
@@ -317,15 +319,26 @@ function ServerBody({ task, info }: { task: Task; info: ServerTaskInfo }) {
               </span>
             </>
           )}
-          <Link
-            to="/p/$code/servers/$server"
-            params={{ code: project, server: info.server.code }}
-            aria-label={t(`${K}.openLabel`, { code: info.server.code })}
-            className={`${ghostButton} ml-auto`}
-          >
-            {t(`${K}.open`)}
-            <span aria-hidden="true">→</span>
-          </Link>
+          {home && (
+            <Link
+              to="/p/$code/servers/$server"
+              params={{ code: home, server: info.server.code }}
+              aria-label={t(`${K}.openLabel`, { code: info.server.code })}
+              className={`${ghostButton} ml-auto`}
+            >
+              {t(`${K}.open`)}
+              <span aria-hidden="true">→</span>
+            </Link>
+          )}
+        </p>
+      ) : info.serverGone && code ? (
+        // Solo a chi vede il progetto della task, dove il server era visibile.
+        <p data-server-deleted className="flex items-center gap-x-2 text-md text-ink-muted">
+          <span className="num font-semibold text-ink">{code}</span>
+          <span aria-hidden="true" className="text-ink-faint">
+            ·
+          </span>
+          <span>{t(`${K}.deleted`)}</span>
         </p>
       ) : (
         <p className="text-md text-ink-muted">{t(`${K}.hidden`)}</p>

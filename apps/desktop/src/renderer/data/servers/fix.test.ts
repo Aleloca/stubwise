@@ -612,7 +612,8 @@ describe("getServerTaskInfo", () => {
   it("dice server, episodio, stato, blocco e accesso; null per una task senza serverRef", async () => {
     as("p-marco");
     const info = (await servers.getServerTaskInfo(TASK))!;
-    expect(info.server).toEqual({ code: "SRV-1", name: expect.any(String) });
+    expect(info.server).toEqual({ code: "SRV-1", name: expect.any(String), projectCode: "ACQ" });
+    expect(info.serverGone).toBe(false);
     expect(info.episode?.serverCode).toBe("SRV-1");
     expect(info.state).toBe("diagnosis_ready");
     expect(info.startBlock).toBeNull();
@@ -624,6 +625,34 @@ describe("getServerTaskInfo", () => {
     expect(await servers.getServerTaskInfo(plain.id)).toBeNull();
     as(outsider());
     expect(await message(servers.getServerTaskInfo(TASK))).toBe("not_found");
+  });
+
+  it("il link «Open» porta dove il server è: il progetto della task, o un altro che chi guarda vede", async () => {
+    as("p-roberta");
+    expect((await servers.getServerTaskInfo(TASK))!.server).toMatchObject({ projectCode: "ACQ" });
+    detachSrv1(true);
+    expect((await servers.getServerTaskInfo(TASK))!.server).toMatchObject({
+      code: "SRV-1",
+      projectCode: "STW",
+    });
+  });
+
+  it("server invisibile (R-G5): niente stato dell'accesso, e nessun «deleted»", async () => {
+    detachSrv1();
+    as("p-marco");
+    const info = (await servers.getServerTaskInfo(TASK))!;
+    expect(info.server).toBeNull();
+    expect(info.fixAccess).toBeNull();
+    expect(info.serverGone).toBe(false);
+  });
+
+  it("server cancellato: serverGone a chi vede il progetto della task", async () => {
+    state.servers = state.servers.filter((s) => s.code !== "SRV-1");
+    as("p-marco");
+    const info = (await servers.getServerTaskInfo(TASK))!;
+    expect(info.server).toBeNull();
+    expect(info.serverGone).toBe(true);
+    expect(info.fixAccess).toBeNull();
   });
 
   it("segue la correzione: piano da approvare, in corso", async () => {

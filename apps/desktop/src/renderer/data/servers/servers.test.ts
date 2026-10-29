@@ -515,6 +515,22 @@ describe("R-G5 sulle scritture", () => {
   });
 });
 
+describe("«Link SSH access» dell'avviso porta dove il server è", () => {
+  it("spostato in un altro progetto che chi guarda vede, il link apre quel progetto", async () => {
+    as("p-roberta");
+    const href = async () =>
+      (await listNotifications()).find(
+        (n) => n.kind === "server.trouble" && n.objectCode === "SRV-2",
+      )!.linkAccessHref;
+    expect(await href()).toMatch(/\/p\/STW\/servers\/SRV-2\?section=access$/);
+    for (const env of state.environments)
+      env.servers = env.servers.filter((s) => s.serverCode !== "SRV-2");
+    const acq = state.environments.find((e) => e.id === "env-acq-prod")!;
+    acq.servers.push({ repositoryId: null, serverCode: "SRV-2", reportedSha: null, reportedAt: null });
+    expect(await href()).toMatch(/\/p\/ACQ\/servers\/SRV-2\?section=access$/);
+  });
+});
+
 describe("R-L7: un server orfano lo vede chi ha monitor.manage", () => {
   it("tolto l'ultimo ambiente, resta raggiungibile dal monitor e si può togliere", async () => {
     as("p-roberta");

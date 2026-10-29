@@ -143,6 +143,23 @@ describe("sezione Server", () => {
     expect(serverSection()).toHaveTextContent("Fix plan waiting for approval");
   });
 
+  it("server cancellato: «SRV-1 · deleted» a chi vede la task; non visibile: «A server you can't see»", async () => {
+    state.servers = state.servers.filter((s) => s.code !== "SRV-1");
+    renderRoute(`/p/ACQ/tasks?task=${CODE}`, "p-marco");
+    await screen.findByRole("dialog", { name: `Task ${CODE}` });
+    await waitFor(() => expect(serverSection()).toHaveTextContent("SRV-1·deleted"));
+    expect(serverSection()).not.toHaveTextContent("A server you can't see");
+  });
+
+  it("server tolto dal progetto (orfano): chi non lo vede legge «A server you can't see»", async () => {
+    for (const env of state.environments)
+      env.servers = env.servers.filter((s) => s.serverCode !== "SRV-1");
+    renderRoute(`/p/ACQ/tasks?task=${CODE}`, "p-marco");
+    await screen.findByRole("dialog", { name: `Task ${CODE}` });
+    await waitFor(() => expect(serverSection()).toHaveTextContent("A server you can't see"));
+    expect(serverSection()).not.toHaveTextContent("deleted");
+  });
+
   it("il piano mostra i comandi previsti uno per uno, col perché, senza aprire niente", async () => {
     const id = await startAs("p-marco");
     const event = eventsOf(id).find((e) => e.type === "plan") as Extract<

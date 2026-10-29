@@ -918,6 +918,7 @@
       "open": "Open",
       "openLabel": "Open {{code}}",
       "hidden": "A server you can't see",
+      "deleted": "deleted",
       "episodeOpen": "{{reasons}} · since {{when}}, still going",
       "episodeClosed": "{{reasons}} · {{from}} → {{to}} (back to normal)",
       "reasonsMore": "{{first}} +{{count}}",
