@@ -91,6 +91,44 @@ function sudoersBlock(user: string, rules: string[]): string {
 }
 
 /**
+ * La lingua dei commenti e degli `echo` dello script: quella dell'interfaccia
+ * di chi lo legge (lo legge prima di eseguirlo). I comandi non cambiano.
+ */
+export type ScriptLang = "en" | "it";
+
+const TEXTS: Record<
+  ScriptLang,
+  {
+    title: (code: string) => string;
+    who: string;
+    read: string;
+    fix: string;
+    ready: (code: string) => string;
+    removalTitle: (code: string) => string;
+    removed: (code: string) => string;
+  }
+> = {
+  en: {
+    title: (code) => `# Stubwise: SSH accesses for ${code} (public keys only).`,
+    who: "# stubwise-read only reads; stubwise-fix can do anything on the server.",
+    read: `# stubwise-read: read-only; its only group is ${READ_GROUP} (it reads the journal).`,
+    fix: "# stubwise-fix: can do anything on the server, used only after an approved plan.",
+    ready: (code) => `echo "Stubwise: ${code} accesses ready."`,
+    removalTitle: (code) => `# Stubwise: removing the SSH accesses of ${code}.`,
+    removed: (code) => `echo "Stubwise: ${code} accesses removed."`,
+  },
+  it: {
+    title: (code) => `# Stubwise: accessi SSH di ${code} (solo chiavi pubbliche).`,
+    who: "# stubwise-read legge soltanto; stubwise-fix può fare tutto sul server.",
+    read: `# stubwise-read: sola lettura; il suo unico gruppo è ${READ_GROUP} (legge il journal).`,
+    fix: "# stubwise-fix: può fare tutto sul server, usato solo dopo un piano approvato.",
+    ready: (code) => `echo "Stubwise: accessi di ${code} pronti."`,
+    removalTitle: (code) => `# Stubwise: rimozione degli accessi SSH di ${code}.`,
+    removed: (code) => `echo "Stubwise: accessi di ${code} rimossi."`,
+  },
+};
+
+/**
  * Lo script d'installazione dei due accessi di `serverCode`, da eseguire
  * come root sul server. `instanceAddress` (l'indirizzo da cui si collega
  * l'istanza), se noto, limita le due chiavi a quell'origine (`from=`).
@@ -108,41 +146,44 @@ export function installScript(input: {
   fix: SshPublicKey;
   previous?: { read: SshPublicKey; fix: SshPublicKey } | null;
   instanceAddress: string | null;
+  lang?: ScriptLang;
 }): string {
   const { serverCode, read, fix, previous, instanceAddress } = input;
+  const text = TEXTS[input.lang ?? "en"];
   const keysOf = (kind: "read" | "fix", key: SshPublicKey) =>
     previous ? [previous[kind], key] : [key];
   return [
     "#!/bin/bash",
-    `# Stubwise: accessi SSH di ${serverCode} (solo chiavi pubbliche).`,
-    "# stubwise-read legge soltanto; stubwise-fix può fare tutto sul server.",
+    text.title(serverCode),
+    text.who,
     "set -euo pipefail",
     "",
-    `# stubwise-read: sola lettura; il suo unico gruppo è ${READ_GROUP} (legge il journal).`,
+    text.read,
     userBlock("stubwise-read", keysOf("read", read), instanceAddress, READ_GROUP),
     sudoersBlock("stubwise-read", readSudoRules()),
     "",
-    "# stubwise-fix: può fare tutto sul server, usato solo dopo un piano approvato.",
+    text.fix,
     userBlock("stubwise-fix", keysOf("fix", fix), instanceAddress, ""),
     sudoersBlock("stubwise-fix", ["stubwise-fix ALL=(ALL) NOPASSWD: ALL"]),
     "",
-    `echo "Stubwise: accessi di ${serverCode} pronti."`,
+    text.ready(serverCode),
     "",
   ].join("\n");
 }
 
 /** Lo script che toglie i due accessi di `serverCode` (dopo una revoca). */
-export function removalScript(serverCode: string): string {
+export function removalScript(serverCode: string, lang: ScriptLang = "en"): string {
+  const text = TEXTS[lang];
   return [
     "#!/bin/bash",
-    `# Stubwise: rimozione degli accessi SSH di ${serverCode}.`,
+    text.removalTitle(serverCode),
     "set -uo pipefail",
     "rm -f /etc/sudoers.d/stubwise-read /etc/sudoers.d/stubwise-fix",
     "pkill -u stubwise-read || true",
     "pkill -u stubwise-fix || true",
     "userdel stubwise-read && rm -rf /home/stubwise-read",
     "userdel stubwise-fix && rm -rf /home/stubwise-fix",
-    `echo "Stubwise: accessi di ${serverCode} rimossi."`,
+    text.removed(serverCode),
     "",
   ].join("\n");
 }

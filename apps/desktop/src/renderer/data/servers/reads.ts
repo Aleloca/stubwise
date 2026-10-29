@@ -5,7 +5,7 @@ import {
 } from "../../domain/servers/fixGate";
 import { serverHealth, type ServerHealth } from "../../domain/servers/health";
 import { downsample, downsampleSamples } from "../../domain/servers/metrics";
-import { removalScript } from "../../domain/servers/installScript";
+import { removalScript, type ScriptLang } from "../../domain/servers/installScript";
 import { accessState, type AccessState } from "../../domain/servers/sshAccess";
 import { fold } from "../../domain/textSearch";
 import { canSeeConversation, copy, eventsOf, gate, now, state, visibleProjectIds } from "../store";
@@ -104,11 +104,14 @@ export interface ServerSearchResult {
  * `servers.ssh.manage`; `invalid: state` senza chiavi. Come ogni lettura non
  * raggiunge le private (`secrets.ts`).
  */
-export async function getInstallCommand(code: string): Promise<{ command: string }> {
+export async function getInstallCommand(
+  code: string,
+  lang: ScriptLang = "en",
+): Promise<{ command: string }> {
   const me = await gate("servers.getInstallCommand");
   const server = serverFor(me, code);
   if (!canManageSsh(me)) throw forbidden();
-  const command = installCommandOf(server.code);
+  const command = installCommandOf(server.code, lang);
   if (command === null) throw invalid("state");
   return { command };
 }
@@ -119,12 +122,15 @@ export async function getInstallCommand(code: string): Promise<{ command: string
  * `revokeSshAccess`. `servers.ssh.manage`; `invalid: state` se l'accesso
  * non è revocato.
  */
-export async function getRemovalCommand(code: string): Promise<{ command: string }> {
+export async function getRemovalCommand(
+  code: string,
+  lang: ScriptLang = "en",
+): Promise<{ command: string }> {
   const me = await gate("servers.getRemovalCommand");
   const server = serverFor(me, code);
   if (!canManageSsh(me)) throw forbidden();
   if (accessState(state.serverAccess.get(server.code)) !== "revoked") throw invalid("state");
-  return { command: removalScript(server.code) };
+  return { command: removalScript(server.code, lang) };
 }
 
 /** Il blocco «Server» di una task di server (area 8b, Task 9). */

@@ -2,7 +2,7 @@ import { serverHealth, serverWork, type ServerWork } from "../../domain/servers/
 import { downsample } from "../../domain/servers/metrics";
 import { fixStartBlock, type FixStartBlock } from "../../domain/servers/fixGate";
 import { alertProjectsOf, analysisProjectOf, serverInProject } from "../../domain/servers/projects";
-import { installScript } from "../../domain/servers/installScript";
+import { installScript, type ScriptLang } from "../../domain/servers/installScript";
 import { accessState, accessUsable, type AccessState } from "../../domain/servers/sshAccess";
 import { holds, sees } from "../access";
 import { latestRunOf, now, state, visibleProjectIds } from "../store";
@@ -388,7 +388,7 @@ export function sshAccessView(me: string, code: string): SshAccessView {
  * delle nuove non riesce. `null` senza chiavi. L'indirizzo dell'istanza nel
  * prototipo non è noto: niente `from=`.
  */
-export function installCommandOf(code: string): string | null {
+export function installCommandOf(code: string, lang: ScriptLang = "en"): string | null {
   const a = state.serverAccess.get(code);
   const keys = a?.pending ?? a?.keys;
   if (!a || !keys) return null;
@@ -398,6 +398,7 @@ export function installCommandOf(code: string): string | null {
     fix: keys.fix,
     previous: a.pending ? a.keys : null,
     instanceAddress: null,
+    lang,
   });
 }
 

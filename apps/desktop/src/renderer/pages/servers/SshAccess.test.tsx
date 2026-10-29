@@ -75,6 +75,9 @@ describe("i tre passi (Roberta, servers.ssh.manage)", () => {
     const code = command.querySelector("pre")!;
     expect(code.className).toContain("font-code");
     expect(code.textContent).toContain("stubwise-read@SRV-4");
+    // Interfaccia in inglese: nessun commento né echo in italiano.
+    expect(code.textContent).toContain("# Stubwise: SSH accesses for SRV-4 (public keys only).");
+    expect(code.textContent).not.toMatch(/accessi|sola lettura|soltanto|può fare|pronti/);
     expect(users.compareDocumentPosition(command) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(access()).toHaveTextContent(
       "Run it as root on SRV-4. Read it first: it contains only public keys.",
@@ -303,6 +306,9 @@ describe("Rigenera e Revoca", () => {
     const removal = within(access()).getByRole("region", { name: "Removal command for SRV-1" });
     expect(removal).toHaveTextContent("userdel stubwise-read");
     expect(removal).toHaveTextContent("userdel stubwise-fix");
+    // Con l'interfaccia in inglese, commenti ed echo dello script sono in inglese.
+    expect(removal).toHaveTextContent("Stubwise: SRV-1 accesses removed.");
+    expect(removal.textContent).not.toMatch(/accessi|rimoss|rimozione/);
     expect(within(removal).getByRole("button", { name: "Copy the command" })).toBeInTheDocument();
     await user.click(within(access()).getByRole("button", { name: "Done" }));
 

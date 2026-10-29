@@ -160,10 +160,10 @@ export const queryKeys = {
   serverMetrics: (personId: string, code: string, range: string, checkId: string) =>
     ["as", personId, "servers", "metrics", code, range, checkId] as const,
   serverSearch: (personId: string, q: string) => ["as", personId, "servers", "search", q] as const,
-  serverInstallCommand: (personId: string, code: string) =>
-    ["as", personId, "servers", "installCommand", code] as const,
-  serverRemovalCommand: (personId: string, code: string) =>
-    ["as", personId, "servers", "removalCommand", code] as const,
+  serverInstallCommand: (personId: string, code: string, lang: string) =>
+    ["as", personId, "servers", "installCommand", code, lang] as const,
+  serverRemovalCommand: (personId: string, code: string, lang: string) =>
+    ["as", personId, "servers", "removalCommand", code, lang] as const,
   /**
    * Il blocco «Server» di una task (Task 9): nell'area delle conversazioni,
    * così si rilegge quando la correzione avanza (piano, comandi, controllo).

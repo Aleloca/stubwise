@@ -1,4 +1,6 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
+import type { ScriptLang } from "../../domain/servers/installScript";
 import * as api from "../api";
 import { MIN_QUERY } from "../../pages/chat/search";
 import { queryKeys, useConversationChanges, useSessionPersonId, useWrite } from "../queries";
@@ -178,9 +180,10 @@ export function useSimulateSshUnreachable() {
  */
 export function useInstallCommand(code: string | undefined, enabled: boolean) {
   const me = useSessionPersonId();
+  const lang = useScriptLang();
   return useQuery({
-    queryKey: queryKeys.serverInstallCommand(me, code ?? ""),
-    queryFn: () => api.servers.getInstallCommand(code!),
+    queryKey: queryKeys.serverInstallCommand(me, code ?? "", lang),
+    queryFn: () => api.servers.getInstallCommand(code!, lang),
     enabled: enabled && !!code,
   });
 }
@@ -188,11 +191,18 @@ export function useInstallCommand(code: string | undefined, enabled: boolean) {
 /** Il comando di rimozione dopo una revoca (solo `servers.ssh.manage`, solo `revoked`). */
 export function useRemovalCommand(code: string | undefined, enabled: boolean) {
   const me = useSessionPersonId();
+  const lang = useScriptLang();
   return useQuery({
-    queryKey: queryKeys.serverRemovalCommand(me, code ?? ""),
-    queryFn: () => api.servers.getRemovalCommand(code!),
+    queryKey: queryKeys.serverRemovalCommand(me, code ?? "", lang),
+    queryFn: () => api.servers.getRemovalCommand(code!, lang),
     enabled: enabled && !!code,
   });
+}
+
+/** I commenti degli script nella lingua dell'interfaccia (inglese salvo l'italiano). */
+function useScriptLang(): ScriptLang {
+  const { i18n } = useTranslation();
+  return i18n.language.startsWith("it") ? "it" : "en";
 }
 
 /**

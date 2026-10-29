@@ -100,6 +100,41 @@ describe("installScript (RF 3)", () => {
   });
 });
 
+describe("la lingua dei commenti e degli echo", () => {
+  const ITALIAN = /accessi|sola lettura|soltanto|può fare|pronti|rimoss|rimozione|gruppo/;
+  it("in inglese (default) nessun commento è in italiano; in italiano sì", () => {
+    expect(script(null)).not.toMatch(ITALIAN);
+    expect(removalScript("SRV-1")).not.toMatch(ITALIAN);
+    const it_ = installScript({
+      serverCode: "SRV-1",
+      read: READ,
+      fix: FIX,
+      instanceAddress: null,
+      lang: "it",
+    });
+    expect(it_).toContain("# Stubwise: accessi SSH di SRV-1 (solo chiavi pubbliche).");
+    expect(removalScript("SRV-1", "it")).toContain('echo "Stubwise: accessi di SRV-1 rimossi."');
+  });
+
+  it("i comandi sono gli stessi nelle due lingue: cambiano solo commenti ed echo", () => {
+    const strip = (s: string) =>
+      s
+        .split("\n")
+        .filter((l) => !l.startsWith("#") && !l.startsWith("echo "))
+        .join("\n");
+    const en = installScript({ serverCode: "SRV-1", read: READ, fix: FIX, instanceAddress: null });
+    const it_ = installScript({
+      serverCode: "SRV-1",
+      read: READ,
+      fix: FIX,
+      instanceAddress: null,
+      lang: "it",
+    });
+    expect(strip(en)).toBe(strip(it_));
+    expect(strip(removalScript("SRV-1"))).toBe(strip(removalScript("SRV-1", "it")));
+  });
+});
+
 describe("removalScript", () => {
   it("toglie i due utenti e le loro regole sudo", () => {
     const s = removalScript("SRV-1");
