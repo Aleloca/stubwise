@@ -588,16 +588,16 @@ dell'area si correggono con l'ondata finale e non stanno in questo elenco.
 - **Lo script SSH nella lingua di chi lo legge**: commenti ed `echo` di
   installazione e rimozione seguono la lingua dell'interfaccia (i comandi
   sono identici). Alternativa scartata: una lingua sola (inglese) per un
-  artefatto che resta sul server; da confermare, perché il server conserva
-  i commenti di chi l'ha incollato.
+  artefatto che resta sul server. **Confermata dal maintainer il 29 ott
+  2026.**
 
 ### Non fatti nell'ondata finale (con il motivo)
 
 - **Il progetto invisibile si intuisce** («Diagnoses go to another project»,
   `onlyHere` calcolato su tutti gli ambienti): resta com'è. C'è un precedente
-  nell'app («in a project you can't see» delle automazioni) e la revisione
-  finale chiede di confermarlo col maintainer contro R-G5: è una decisione di
-  prodotto, non una correzione.
+  nell'app («in a project you can't see» delle automazioni): né nome né link
+  del progetto. **Confermato dal maintainer il 29 ott 2026** come eccezione
+  accettata a R-G5.
 - **`orphaned()` della pagina Ambienti** resta nel client: calcola l'effetto
   di una modifica NON ancora salvata (la bozza del dialogo) partendo da
   `onlyHere` del livello dati; spostarla nel livello dati vorrebbe una
