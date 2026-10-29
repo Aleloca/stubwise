@@ -110,14 +110,15 @@ export interface FixPlan {
 
 /**
  * Il piano della correzione: le letture di adesso, i comandi previsti (uno
- * per riga, col perché) e le indicazioni di chi ha rifiutato il piano di
- * prima, se ci sono. `diagnosis`: il testo della task (il servizio che nomina).
+ * per riga, col perché), le note di chi ha avviato la correzione e le
+ * indicazioni di chi ha rifiutato il piano di prima, se ci sono. `diagnosis`: il testo della task (il servizio che nomina).
  */
 export function fixPlan(
   s: MonitoredServer,
   reasons: EpisodeReason[],
   diagnosis: string,
   instructions?: string,
+  notes?: string,
 ): FixPlan {
   const commands: FixCommand[] = [];
   for (const reason of reasons)
@@ -137,6 +138,7 @@ export function fixPlan(
     "### Check",
     "",
     "Afterwards Claude reads the server again with the read-only access and says whether the problem is gone.",
+    ...(notes ? ["", "### Notes from the person who started the fix", "", notes] : []),
     ...(instructions ? ["", "### Instructions from the review", "", instructions] : []),
   ];
   const n = commands.length;

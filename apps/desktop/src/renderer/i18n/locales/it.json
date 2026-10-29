@@ -971,6 +971,8 @@
         "before": "Claude legge il server, poi scrive un piano. Esegue i comandi come ",
         "strong": "stubwise-fix, che su {{code}} può fare tutto",
         "after": ", solo dopo che il piano è stato approvato.",
+        "notes": "Note per Claude",
+        "notesPlaceholder": "Facoltative. Cosa deve sapere Claude prima di leggere {{code}}.",
         "confirm": "Avvia la correzione",
         "cancel": "Annulla"
       },

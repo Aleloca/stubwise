@@ -282,7 +282,11 @@ const FIX_AREAS = [
 ] as const;
 
 export function useStartServerFix() {
-  return useWrite((taskId: string) => api.servers.startServerFix(taskId), FIX_AREAS);
+  return useWrite(
+    ({ taskId, notes }: { taskId: string; notes?: string }) =>
+      api.servers.startServerFix(taskId, { notes }),
+    FIX_AREAS,
+  );
 }
 
 /** Solo prototipo: l'esito del prossimo controllo dopo la correzione. */

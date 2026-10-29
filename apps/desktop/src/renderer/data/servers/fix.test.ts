@@ -203,6 +203,16 @@ describe("RF 1: chi avvia, chi approva", () => {
     expect(actions(c.id, "server.fix").length).toBe(2);
   });
 
+  it("d1: le note per Claude entrano nel piano, che resta da approvare", async () => {
+    as("p-roberta");
+    const c = await servers.startServerFix(TASK, { notes: "Prefer a restart over a memory cap." });
+    await whenFixesIdle();
+    expect(plans(c.id)).toHaveLength(1);
+    expect(plans(c.id)[0]).toMatchObject({ status: "pending" });
+    expect(plans(c.id)[0]!.planText).toContain("Prefer a restart over a memory cap.");
+    expect(actions(c.id, "server.fix")).toEqual([]);
+  });
+
   it("rifiuto senza indicazioni → la sessione si chiude, nessun comando", async () => {
     const c = await started("p-roberta");
     as("p-roberta");

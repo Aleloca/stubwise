@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import {
@@ -12,7 +12,7 @@ import {
 import type { ServerTaskInfo } from "../../data/servers";
 import type { EpisodeReason, ServerEpisode, Task } from "../../data/types";
 import { can, useViewer } from "../../data/viewer";
-import { Dialog } from "../../tasks-ui/Dialog";
+import { Dialog, DialogField, inputClass } from "../../tasks-ui/Dialog";
 import { Markdown } from "../../tasks-ui/Markdown";
 import { useToast } from "../../tasks-ui/Toast";
 import { CheckGlyph, CrossGlyph, WorkingRing } from "../claude/conversation/parts";
@@ -255,27 +255,32 @@ function ServerBody({ task, info }: { task: Task; info: ServerTaskInfo }) {
   const code = info.server?.code ?? task.serverRef?.serverCode ?? "";
   const manageSsh = can(viewer, "servers.ssh.manage");
   const [confirming, setConfirming] = useState(false);
+  const [notes, setNotes] = useState("");
+  const notesId = useId();
   const start = useStartServerFix();
   const toast = useToast();
 
   const run = () =>
-    start.mutate(task.id, {
-      onSuccess: () => {
-        setConfirming(false);
-        // Lo stato cambia sul posto; il pannello porta alla sezione Claude.
-        requestAnimationFrame(() => {
-          const status = document.querySelector<HTMLElement>(
-            `[data-task-detail="${task.code}"] [data-claude-status]`,
-          );
-          const section = status?.closest("section");
-          if (section) scrollPanelTo(section);
-        });
+    start.mutate(
+      { taskId: task.id, notes: notes.trim() || undefined },
+      {
+        onSuccess: () => {
+          setConfirming(false);
+          // Lo stato cambia sul posto; il pannello porta alla sezione Claude.
+          requestAnimationFrame(() => {
+            const status = document.querySelector<HTMLElement>(
+              `[data-task-detail="${task.code}"] [data-claude-status]`,
+            );
+            const section = status?.closest("section");
+            if (section) scrollPanelTo(section);
+          });
+        },
+        onError: () => {
+          setConfirming(false);
+          toast.error(t(`${K}.startFailed`), { action: { label: t(`${K}.retry`), run } });
+        },
       },
-      onError: () => {
-        setConfirming(false);
-        toast.error(t(`${K}.startFailed`), { action: { label: t(`${K}.retry`), run } });
-      },
-    });
+    );
 
   const block = info.startBlock;
   const showConditions = info.server !== null && (block === null || CONDITIONS_UNDER.has(block));
@@ -428,6 +433,16 @@ function ServerBody({ task, info }: { task: Task; info: ServerTaskInfo }) {
             <strong className="font-semibold">{t(`${K}.dialog.strong`, { code })}</strong>
             {t(`${K}.dialog.after`)}
           </p>
+          <DialogField label={t(`${K}.dialog.notes`)} htmlFor={notesId}>
+            <textarea
+              id={notesId}
+              rows={3}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder={t(`${K}.dialog.notesPlaceholder`, { code })}
+              className={`${inputClass} resize-y`}
+            />
+          </DialogField>
         </Dialog>
       )}
     </Section>

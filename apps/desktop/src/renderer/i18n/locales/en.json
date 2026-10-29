@@ -971,6 +971,8 @@
         "before": "Claude reads the server, then writes a plan. It runs commands as ",
         "strong": "stubwise-fix, which can do anything on {{code}}",
         "after": ", only after the plan is approved.",
+        "notes": "Notes for Claude",
+        "notesPlaceholder": "Optional. What Claude should know before reading {{code}}.",
         "confirm": "Start fix",
         "cancel": "Cancel"
       },

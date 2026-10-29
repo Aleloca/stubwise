@@ -109,8 +109,18 @@ describe("sezione Server", () => {
     await user.click(within(section).getByRole("button", { name: "Start fix on the server" }));
     const dialog = await screen.findByRole("dialog", { name: "Start a fix on SRV-1?" });
     expect(dialog).toHaveTextContent("stubwise-fix, which can do anything on SRV-1");
+    // Il campo facoltativo «Notes for Claude» (shape server-task §2).
+    await user.type(
+      within(dialog).getByRole("textbox", { name: "Notes for Claude" }),
+      "Restart only, no config change.",
+    );
     await user.click(within(dialog).getByRole("button", { name: "Start fix" }));
     await whenFixesIdle();
+    expect(
+      eventsOf(fixConversation()).some(
+        (e) => e.type === "plan" && e.planText.includes("Restart only, no config change."),
+      ),
+    ).toBe(true);
     await waitFor(() =>
       expect(serverSection()).toHaveTextContent("Fix plan waiting for your approval"),
     );

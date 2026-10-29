@@ -55,11 +55,14 @@ import { serverFixStartBlock } from "./visibility";
 const turns = new Map<string, number>();
 /** Per sessione: i comandi dell'ultimo piano scritto, cioè quelli che si approvano. */
 const planned = new Map<string, FixCommand[]>();
+/** Per sessione: le note di chi ha avviato la correzione («Notes for Claude»). */
+const notesOf = new Map<string, string>();
 /** Le guide in corso (per i test: `whenFixesIdle`). */
 const running = new Set<Promise<void>>();
 onStoreReset(() => {
   turns.clear();
   planned.clear();
+  notesOf.clear();
   running.clear();
 });
 
@@ -117,7 +120,10 @@ const isLive = (c: Conversation | undefined): boolean => c !== undefined && c.st
  * `task_run` con `serverFix`; Claude legge il server in sola lettura,
  * scrive il piano e si ferma: `awaiting_approval`, sempre.
  */
-export async function startServerFix(taskId: string): Promise<Conversation> {
+export async function startServerFix(
+  taskId: string,
+  opts: { notes?: string } = {},
+): Promise<Conversation> {
   const gen = storeGeneration();
   const me = await writer("startServerFix");
   const task = state.tasksById.get(taskId);
@@ -146,6 +152,9 @@ export async function startServerFix(taskId: string): Promise<Conversation> {
     ],
     gen,
   );
+  // «Notes for Claude» (facoltative): restano per ogni piano di questa sessione.
+  const notes = opts.notes?.trim();
+  if (notes) notesOf.set(c.id, notes);
   track(c, gen, writePlan(c, task, gen));
   return copy(c);
 }
@@ -167,7 +176,7 @@ async function writePlan(
   const code = c.serverFix!.serverCode;
   const server = serverOf(code);
   if (!server) throw new Error("server not found");
-  const plan = fixPlan(server, reasonsOf(task), task.description, instructions);
+  const plan = fixPlan(server, reasonsOf(task), task.description, instructions, notesOf.get(c.id));
   await runScript(
     c.id,
     [
