@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { GIULIA_LEAD_CODES, PROJECTS } from "./seed/projects";
 import en from "../i18n/locales/en.json";
 import itLocale from "../i18n/locales/it.json";
-import { SEED_PROJECT_GRANTS } from "./seed/grants";
+import { SEED_PROJECT_GRANTS } from "./access/index";
 import {
   LOCAL_INSTANCE_PERMISSIONS,
   LOCAL_PROJECT_PERMISSIONS,

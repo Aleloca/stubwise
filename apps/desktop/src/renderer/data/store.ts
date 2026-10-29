@@ -148,7 +148,8 @@ import type {
   ServerSshAccess,
   VerifyOutcome,
 } from "./types";
-import { can, resetViewerGrants, viewerFor } from "./viewer";
+import { can, viewerFor } from "./viewer";
+import { registerMembershipSync, resetAccessState, type AccessState } from "./access/index";
 
 // Il «server» finto: il simulatore (latenza, errori iniettati), lo stato
 // mutabile — una copia del seed, che `resetApi` rifà — e i derivati che le
@@ -614,6 +615,11 @@ function initialPinned(): Map<string, string[]> {
 }
 
 interface State {
+  /**
+   * Gli accessi (area 9a): ruoli, appartenenze, concessioni, reparti, persone.
+   * È lo stesso oggetto di `accessState()`; si scrive solo con `writeAccess`.
+   */
+  access: AccessState;
   projects: Project[];
   statuses: ProjectStatus[];
   tasks: Task[];
@@ -829,6 +835,7 @@ export const chatKey = (personId: string, id: string): string => `${personId}\u0
 
 function freshState(): State {
   return {
+    access: resetAccessState(),
     projects: PROJECTS.map(copy),
     statuses: PROJECT_STATUSES.map(copy),
     tasks: TASKS.map(copy),
@@ -938,6 +945,18 @@ export function reindex(): void {
 }
 reindex();
 
+// `project.memberIds` segue le appartenenze dello stato `access`: è l'unico
+// scrittore per chi entra o esce da un progetto. Claude (membro implicito,
+// R-L9) non ha appartenenze, e le sue righe di `memberIds` non si toccano.
+registerMembershipSync({
+  changed(projectId, personId, isMember) {
+    const project = state.projects.find((p) => p.id === projectId);
+    if (!project) return;
+    if (isMember && !project.memberIds.includes(personId)) project.memberIds.push(personId);
+    if (!isMember) project.memberIds = project.memberIds.filter((id) => id !== personId);
+  },
+});
+
 const resetHooks = new Set<() => void>();
 
 /** Cambia a ogni ripristino: il lavoro partito prima sa che lo stato non è più il suo. */
@@ -967,7 +986,7 @@ export function resetStore(): void {
   callCounter = 0;
   chunkCounter = 0;
   setSessionPersonId(DEFAULT_SESSION_PERSON_ID);
-  resetViewerGrants();
+  // `freshState` riporta anche gli accessi al seme (`resetAccessState`).
   Object.assign(state, freshState());
   reindex();
 }

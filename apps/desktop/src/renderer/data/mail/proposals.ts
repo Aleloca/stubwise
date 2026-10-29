@@ -391,11 +391,8 @@ export async function confirmMailProposal(
     p.error = result.code;
     return { status: "failed", error: result.code };
   }
-  const project = state.projectsById.get(p.projectId)!;
-  for (const personId of adding) {
-    project.memberIds.push(personId);
-    grantProjectRole(personId, p.projectId, "contributor");
-  }
+  // Entrare nel progetto è un'appartenenza: `memberIds` la segue da sé.
+  for (const personId of adding) grantProjectRole(personId, p.projectId, "contributor");
   decide(p, me, "confirmed");
   p.resultCodes = result.codes;
   if (indexes) p.confirmedActions = indexes;

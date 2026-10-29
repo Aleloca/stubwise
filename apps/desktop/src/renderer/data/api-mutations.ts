@@ -1044,7 +1044,8 @@ export async function createProject(input: NewProjectInput): Promise<Project> {
     kind: input.clientName ? "client" : "internal",
     template: input.template,
     modules: [...(input.modules ?? TEMPLATE_MODULES[input.template])],
-    memberIds: [me],
+    // Lo riempie l'appartenenza qui sotto (`grantProjectRole`): un solo scrittore.
+    memberIds: [],
     stallThresholds: { activeDays: 7, todoDays: 14 },
     signals: { claudeWorking: false },
   };

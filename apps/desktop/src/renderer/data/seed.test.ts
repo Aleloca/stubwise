@@ -14,7 +14,7 @@ import { CONVERSATION_EVENTS, CONVERSATIONS } from "./seed/conversations";
 import { DOC_PAGES } from "./seed/docPages";
 import { TODAY, daysFromToday } from "./seed/dates";
 import { DECISION_REQUESTS } from "./seed/decisions";
-import { DEPARTMENT_ROLES } from "./seed/departmentRoles";
+import { DEPARTMENT_ROLES } from "./access/index";
 import { DEPARTMENTS } from "./seed/departments";
 import { INITIAL_PINNED_FILTERS, SAVED_FILTERS } from "./seed/filters";
 import { DAY_ARRANGEMENTS, DEPARTMENT_HOMES, PERSONAL_HOMES } from "./seed/homes";

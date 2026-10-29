@@ -15,7 +15,11 @@ export interface Person {
   initials: string;
   departmentIds: string[];
   isClaude: boolean;
-  /** Chiave di un `PRESET_ROLES` di `@stubwise/shared` (ruolo tipico della persona). */
+  /**
+   * Chiave di un `PRESET_ROLES` di `@stubwise/shared` (ruolo tipico della
+   * persona). È solo seme: da qui `data/access/seed.ts` ricava il ruolo
+   * d'istanza e le appartenenze; il ruolo vero sta nello stato `access`.
+   */
   presetRole: string;
 }
 

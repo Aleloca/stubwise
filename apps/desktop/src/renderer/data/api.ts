@@ -1,7 +1,7 @@
 import { matches } from "../domain/filters";
 import { DEFAULT_CORRECTION_CAP } from "../domain/releases/prState";
 import type { Stall } from "../domain/stalled";
-import { DEPARTMENT_ROLES } from "./seed/departmentRoles";
+import { accessState } from "./access/index";
 import { DEPARTMENTS } from "./seed/departments";
 import { commandsFor } from "./seed/commands";
 import { COMMITS } from "./seed/commits";
@@ -374,7 +374,18 @@ export async function getPersonalHome(): Promise<PersonalHome | null> {
 
 export async function listDepartmentRoles(personId?: string): Promise<DepartmentRole[]> {
   await gate("listDepartmentRoles");
-  return DEPARTMENT_ROLES.filter((r) => !personId || r.personId === personId).map(copy);
+  // Dallo stato degli accessi: chi gestisce la Home di quale reparto.
+  return accessState()
+    .departments.flatMap((d) =>
+      d.homeManagerIds.map(
+        (id): DepartmentRole => ({
+          personId: id,
+          departmentId: d.departmentId,
+          permissions: ["department.home.manage"],
+        }),
+      ),
+    )
+    .filter((r) => !personId || r.personId === personId);
 }
 
 /** Le sistemazioni nei giorni di chi guarda, per quella settimana: sono personali. */
