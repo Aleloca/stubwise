@@ -22,6 +22,7 @@ import type {
   Task,
 } from "../types";
 import { forbidden, invalid, notFound, writer } from "../writer";
+import { assertServerCodesVisible } from "../servers/visibility";
 import {
   canRequestCorrection,
   canSetAnalysisOnly,
@@ -414,7 +415,7 @@ const ENV_KINDS: readonly ProjectEnvironment["kind"][] = ["test", "staging", "pr
 
 const serverCodeOf = (s: EnvironmentServerInput) => s.serverCode.trim().toUpperCase();
 
-function checkEnvironment(projectId: string, input: Partial<EnvironmentInput>): void {
+function checkEnvironment(me: string, projectId: string, input: Partial<EnvironmentInput>): void {
   if (input.name !== undefined && !input.name.trim()) throw invalid("name");
   if (input.kind !== undefined && !ENV_KINDS.includes(input.kind)) throw invalid("kind");
   if (input.url && !/^https?:\/\/\S+$/.test(input.url.trim())) throw invalid("url");
@@ -425,6 +426,9 @@ function checkEnvironment(projectId: string, input: Partial<EnvironmentInput>): 
       throw invalid("repository");
     }
   }
+  // Solo server che esistono e che chi scrive vede (R-G5, R-L2): un codice
+  // nascosto risponde come uno inesistente.
+  assertServerCodesVisible(me, input.servers.map(serverCodeOf));
   // Una riga per repository, e una sola per tutto il progetto.
   const keys = input.servers.map((s) => s.repositoryId);
   if (new Set(keys).size !== keys.length) throw invalid("repository");
@@ -455,7 +459,7 @@ export async function createEnvironment(
   const me = await writer("releases.createEnvironment");
   if (!sees(me, projectId)) throw notFound();
   if (!holds(me, "environments.manage", projectId)) throw forbidden();
-  checkEnvironment(projectId, input);
+  checkEnvironment(me, projectId, input);
   if (input.kind === "production" && productionOf(projectId)) throw invalid("production_exists");
   const env: ProjectEnvironment = {
     id: newId("env"),
@@ -477,7 +481,7 @@ export async function updateEnvironment(
   const me = await writer("releases.updateEnvironment");
   const env = environmentFor(me, id);
   if (!holds(me, "environments.manage", env.projectId)) throw forbidden();
-  checkEnvironment(env.projectId, patch);
+  checkEnvironment(me, env.projectId, patch);
   // Un solo ambiente di produzione: lo stato dei rilasci legge quello.
   const prod = productionOf(env.projectId);
   if (patch.kind === "production" && prod && prod.id !== env.id) {

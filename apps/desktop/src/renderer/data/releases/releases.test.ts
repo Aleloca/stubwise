@@ -605,6 +605,13 @@ describe("Review Focus 3: stato del rilascio ai bordi (livello dati)", () => {
       kind: "unavailable",
       reason: "no_server",
     });
+    // Tolta l'ultima riga, SRV-2 è orfano: lo vede (e lo ricollega) solo chi ha monitor.manage (R-L7).
+    await expect(
+      releases.updateEnvironment("env-stw-prod", {
+        servers: [{ repositoryId: null, serverCode: "SRV-2" }],
+      }),
+    ).rejects.toThrow("invalid: serverCode");
+    as("p-roberta");
     await releases.updateEnvironment("env-stw-prod", {
       servers: [{ repositoryId: null, serverCode: "SRV-2" }],
     });
@@ -853,17 +860,31 @@ describe("ambienti: environments.manage", () => {
     as("p-laura");
     const one = (serverCode: string) => [{ repositoryId: null, serverCode }];
     await expect(
-      releases.createEnvironment(AUD, { name: "QA", kind: "test", url: null, servers: one("srv1") }),
+      releases.createEnvironment(AUD, {
+        name: "QA",
+        kind: "test",
+        url: null,
+        servers: one("srv1"),
+      }),
+    ).rejects.toThrow("invalid: serverCode");
+    // Un server che non esiste (R-G5: come uno nascosto).
+    await expect(
+      releases.createEnvironment(AUD, {
+        name: "QA",
+        kind: "test",
+        url: null,
+        servers: one("SRV-99"),
+      }),
     ).rejects.toThrow("invalid: serverCode");
     const env = await releases.createEnvironment(AUD, {
       name: " QA ",
       kind: "test",
       url: "https://qa.audin.test",
-      servers: [{ repositoryId: null, serverCode: " srv-7 " }],
+      servers: [{ repositoryId: null, serverCode: " srv-4 " }],
     });
     expect(env).toMatchObject({ name: "QA", projectId: AUD });
     expect(env.servers).toEqual([
-      { repositoryId: null, serverCode: "SRV-7", reportedSha: null, reportedAt: null },
+      { repositoryId: null, serverCode: "SRV-4", reportedSha: null, reportedAt: null },
     ]);
     await releases.updateEnvironment(env.id, { name: "QA 2" });
     await releases.deleteEnvironment(env.id);
@@ -921,14 +942,19 @@ describe("ambienti: environments.manage", () => {
     await releases.updateEnvironment("env-aud-prod", {
       servers: [
         { repositoryId: "repo-aud", serverCode: "SRV-3" },
-        { repositoryId: "repo-aud-admin", serverCode: "SRV-5" },
+        { repositoryId: "repo-aud-admin", serverCode: "SRV-1" },
         { repositoryId: "repo-aud-scripts", serverCode: "SRV-3" },
       ],
     });
     expect(prod.servers).toEqual([
       app,
-      { repositoryId: "repo-aud-admin", serverCode: "SRV-5", reportedSha: null, reportedAt: null },
-      { repositoryId: "repo-aud-scripts", serverCode: "SRV-3", reportedSha: null, reportedAt: null },
+      { repositoryId: "repo-aud-admin", serverCode: "SRV-1", reportedSha: null, reportedAt: null },
+      {
+        repositoryId: "repo-aud-scripts",
+        serverCode: "SRV-3",
+        reportedSha: null,
+        reportedAt: null,
+      },
     ]);
   });
 });

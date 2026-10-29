@@ -1,6 +1,6 @@
 import { downsample, downsampleSamples } from "../../domain/servers/metrics";
 import { fold } from "../../domain/textSearch";
-import { gate, now, state } from "../store";
+import { copy, gate, now, state } from "../store";
 import type { CheckSample, MetricPoint } from "../types";
 import { notFound } from "../writer";
 import {
@@ -73,7 +73,8 @@ export async function getServerMetrics(
     );
     check = downsampleSamples(samples);
   }
-  return { ...downsample(metricsSince(server.code, fromMs)), check };
+  // Copie: i punti del seme sono condivisi (congelati), mai riferimenti allo stato.
+  return copy({ ...downsample(metricsSince(server.code, fromMs)), check });
 }
 
 export interface ServerSearchResult {

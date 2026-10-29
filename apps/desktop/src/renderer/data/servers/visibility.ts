@@ -15,7 +15,7 @@ import type {
   ServerThresholds,
 } from "../types";
 import { can, viewerFor } from "../viewer";
-import { notFound } from "../writer";
+import { invalid, notFound } from "../writer";
 
 // Chi vede che cosa nei Server (area 8b) — l'unica regola, per letture e
 // scritture. Un server è un oggetto d'istanza che entra nei progetti
@@ -35,15 +35,41 @@ export const canMonitor = (me: string): boolean => can(viewerFor(me), "monitor.m
 const environmentsOf = (code: string): ProjectEnvironment[] =>
   state.environments.filter((e) => e.servers.some((s) => s.serverCode === code));
 
-/** I codici dei server di un ambiente qualunque di un progetto che `personId` vede. */
+/**
+ * I codici dei server (esistenti) che `personId` vede: quelli di un ambiente
+ * qualunque di un progetto che vede e, con `monitor.manage`, anche quelli
+ * che non compaiono in nessun ambiente (R-L7): un server orfano resta
+ * raggiungibile da chi gestisce il monitor, che lo può ricollegare o togliere.
+ */
 export function serversVisibleTo(personId: string): Set<string> {
   const visible = visibleProjectIds(personId);
+  const linked = new Set<string>();
   const out = new Set<string>();
   for (const env of state.environments) {
-    if (!visible.has(env.projectId)) continue;
-    for (const s of env.servers) out.add(s.serverCode);
+    for (const s of env.servers) {
+      linked.add(s.serverCode);
+      if (visible.has(env.projectId)) out.add(s.serverCode);
+    }
   }
+  const monitor = canMonitor(personId);
+  const existing = new Set<string>();
+  for (const s of state.servers) {
+    existing.add(s.code);
+    if (monitor && !linked.has(s.code)) out.add(s.code);
+  }
+  for (const code of out) if (!existing.has(code)) out.delete(code);
   return out;
+}
+
+/**
+ * Le righe `servers[]` di un ambiente decidono chi vede un server (R-L2):
+ * chi scrive un ambiente può nominare solo un server che esiste e che vede.
+ * Uno nascosto risponde come uno inesistente (`invalid: serverCode`, R-G5),
+ * altrimenti scriverne il codice basterebbe a «adottarlo».
+ */
+export function assertServerCodesVisible(me: string, codes: string[]): void {
+  const visible = serversVisibleTo(me);
+  if (codes.some((c) => !visible.has(c))) throw invalid("serverCode");
 }
 
 export function serverFor(me: string, code: string): MonitoredServer {

@@ -1,14 +1,27 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { METRIC_POINTS_MAX } from "../../domain/servers/limits";
-import { failNext, resetApi, servers, setLatency } from "../api";
+import { failNext, listNotifications, releases, resetApi, servers, setLatency } from "../api";
 import { setSessionPersonId } from "../session";
 import { state, storeGeneration } from "../store";
 import type { ServerService } from "../types";
+import { grantInstancePermission, grantProjectRole } from "../viewer";
 import { serverFor, serversVisibleTo } from "./visibility";
 
 const as = (personId: string) => setSessionPersonId(personId);
 const server = (code: string) => state.servers.find((s) => s.code === code);
 const env = (id: string) => state.environments.find((e) => e.id === id)!;
+/** `monitor.manage` è un permesso di `@stubwise/shared`, non del prototipo: il cast serve solo al tipo. */
+const grantMonitor = (personId: string) =>
+  grantInstancePermission(
+    personId,
+    "monitor.manage" as Parameters<typeof grantInstancePermission>[1],
+  );
+/** Tutto lo stato, Map e Set compresi, come testo. */
+const dumpState = () =>
+  JSON.stringify(state, (_, v: unknown) =>
+    v instanceof Map ? [...v.entries()] : v instanceof Set ? [...v] : v,
+  );
+const AGENT_KEY_RE = /sk_[0-9a-f]{40}/;
 
 beforeEach(() => {
   resetApi();
@@ -161,6 +174,18 @@ describe("letture dei server", () => {
     expect(Date.parse(hour.points.at(-1)!.ts) - from).toBeLessThan(3_600_000);
   });
 
+  it("i punti delle metriche sono copie, non lo stato", async () => {
+    as("p-marco");
+    const hour = await servers.getServerMetrics("SRV-1", "1h", "chk-srv-1-api");
+    const stored = state.serverMetrics.get("SRV-1")!.at(-1)!;
+    const sample = state.serverCheckSamples.get("chk-srv-1-api")!.at(-1)!;
+    expect(hour.points.at(-1)).toEqual(stored);
+    expect(hour.points.at(-1)).not.toBe(stored);
+    expect(hour.check!.samples.at(-1)).not.toBe(sample);
+    hour.points.at(-1)!.cpuPct = -1;
+    expect(stored.cpuPct).not.toBe(-1);
+  });
+
   it("R-L1: con un controllo, i campioni della latenza (ridotti anch'essi)", async () => {
     as("p-marco");
     const day = await servers.getServerMetrics("SRV-1", "24h", "chk-srv-1-api");
@@ -232,17 +257,40 @@ describe("monitor: creare, modificare, togliere (monitor.manage)", () => {
     expect(env("env-aud-staging").servers).toEqual([
       { repositoryId: null, serverCode: "SRV-5", reportedSha: null, reportedAt: null },
     ]);
+    const again = await servers.regenerateAgentKey("SRV-5");
+    expect(again.agentKey).toMatch(/^sk_[0-9a-f]{40}$/);
+    expect(again.agentKey).not.toBe(agentKey);
+    // Ogni lettura del livello dati dei server, le notifiche e TUTTO lo stato.
     const reads = JSON.stringify([
       await servers.getServer("SRV-5"),
       await servers.listProjectServers("prj-aud"),
       await servers.searchServers("SRV-5"),
-      state.servers,
+      await servers.getServerMetrics("SRV-5", "7d"),
+      await releases.listEnvironments("prj-aud"),
+      await listNotifications(),
     ]);
-    expect(reads).not.toContain(agentKey);
-    expect(reads).not.toContain("sk_");
-    const again = await servers.regenerateAgentKey("SRV-5");
-    expect(again.agentKey).toMatch(/^sk_[0-9a-f]{40}$/);
-    expect(again.agentKey).not.toBe(agentKey);
+    for (const text of [reads, dumpState()]) {
+      expect(text).not.toContain(agentKey);
+      expect(text).not.toContain(again.agentKey);
+      expect(text).not.toMatch(AGENT_KEY_RE);
+    }
+  });
+
+  it("con monitor.manage ma senza environments.manage nel progetto: forbidden", async () => {
+    // Sara (Contributor su STW) gestisce il monitor ma non gli ambienti di STW.
+    grantMonitor("p-sara");
+    as("p-sara");
+    await expect(
+      servers.createServer({ name: "x", environmentId: "env-stw-staging" }),
+    ).rejects.toThrow("forbidden");
+    expect(state.serverCodeSeq).toBe(4);
+    expect(env("env-stw-staging").servers).toEqual([]);
+    grantProjectRole("p-sara", "prj-stw", "project_lead");
+    const { server: row } = await servers.createServer({
+      name: "x",
+      environmentId: "env-stw-staging",
+    });
+    expect(row.code).toBe("SRV-5");
   });
 
   it("serve environments.manage nel progetto dell'ambiente, e un ambiente senza server", async () => {
@@ -384,6 +432,110 @@ describe("monitor: creare, modificare, togliere (monitor.manage)", () => {
     await expect(servers.updateCheck("chk-srv-3-app", { enabled: false })).rejects.toThrow(
       "not_found",
     );
+  });
+});
+
+describe("R-G5 sulle scritture", () => {
+  it("ogni scrittura su un server nascosto risponde come su uno inesistente, prima di forbidden", async () => {
+    as("p-sara"); // non vede AUD, non ha monitor.manage
+    const writes: [string, (code: string) => Promise<unknown>][] = [
+      ["updateServer", (c) => servers.updateServer(c, { name: "x" })],
+      ["deleteServer", (c) => servers.deleteServer(c)],
+      ["regenerateAgentKey", (c) => servers.regenerateAgentKey(c)],
+      [
+        "setThresholds",
+        (c) =>
+          servers.setThresholds(c, { cpuPct: 50, memPct: 50, diskPct: 50, sustainedMinutes: 5 }),
+      ],
+      [
+        "createCheck",
+        (c) =>
+          servers.createCheck(c, {
+            name: "x",
+            type: "http",
+            target: "https://x.test",
+            intervalSeconds: 60,
+            enabled: true,
+          }),
+      ],
+    ];
+    const before = JSON.stringify([state.servers, state.serverChecks]);
+    for (const [name, write] of writes) {
+      const hidden = await write("SRV-3").catch((e: Error) => e.message);
+      const missing = await write("SRV-99").catch((e: Error) => e.message);
+      expect(hidden, name).toBe("not_found");
+      expect(missing, name).toBe(hidden);
+      // Su un server che vede ma senza monitor.manage: forbidden.
+      expect(await write("SRV-1").catch((e: Error) => e.message), name).toBe("forbidden");
+    }
+    for (const [name, del] of [
+      ["updateCheck", (id: string) => servers.updateCheck(id, { enabled: false })],
+      ["deleteCheck", (id: string) => servers.deleteCheck(id)],
+    ] as const) {
+      const hidden = await del("chk-srv-3-app").catch((e: Error) => e.message);
+      const missing = await del("chk-nope").catch((e: Error) => e.message);
+      expect(hidden, name).toBe("not_found");
+      expect(missing, name).toBe(hidden);
+    }
+    expect(JSON.stringify([state.servers, state.serverChecks])).toBe(before);
+  });
+
+  it("I1: un ambiente non può nominare un server nascosto; stesso errore di uno inesistente", async () => {
+    // Sara diventa Project Lead di ACQ (environments.manage) ma non vede AUD, quindi né SRV-3 né SRV-4.
+    grantProjectRole("p-sara", "prj-acq", "project_lead");
+    as("p-sara");
+    const before = JSON.stringify(state.environments);
+    const attempt = (code: string) =>
+      releases
+        .updateEnvironment("env-acq-prod", {
+          servers: [{ repositoryId: null, serverCode: code }],
+        })
+        .catch((e: Error) => e.message);
+    const hidden = await attempt("SRV-3");
+    const missing = await attempt("SRV-99");
+    expect(hidden).toBe("invalid: serverCode");
+    expect(missing).toBe(hidden);
+    const created = await releases
+      .createEnvironment("prj-acq", {
+        name: "Staging",
+        kind: "staging",
+        url: null,
+        servers: [{ repositoryId: null, serverCode: "srv-4" }],
+      })
+      .catch((e: Error) => e.message);
+    expect(created).toBe("invalid: serverCode");
+    expect(JSON.stringify(state.environments)).toBe(before);
+    expect(serversVisibleTo("p-sara").has("SRV-3")).toBe(false);
+    await expect(servers.getServer("SRV-3")).rejects.toThrow("not_found");
+    // Un server che vede, invece, si può nominare.
+    await releases.updateEnvironment("env-acq-prod", {
+      servers: [{ repositoryId: null, serverCode: "SRV-2" }],
+    });
+    expect(env("env-acq-prod").servers.map((s) => s.serverCode)).toEqual(["SRV-2"]);
+  });
+});
+
+describe("R-L7: un server orfano lo vede chi ha monitor.manage", () => {
+  it("tolto l'ultimo ambiente, resta raggiungibile dal monitor e si può togliere", async () => {
+    as("p-roberta");
+    await releases.deleteEnvironment("env-acq-prod");
+    // Senza monitor.manage nessuno lo vede, nemmeno chi era in ACQ.
+    expect(serversVisibleTo("p-marco").has("SRV-1")).toBe(false);
+    as("p-marco");
+    await expect(servers.getServer("SRV-1")).rejects.toThrow("not_found");
+    expect(await servers.searchServers("acq-prod")).toEqual([]);
+    // Con monitor.manage sì (Roberta, e Marco dopo la concessione).
+    expect(serversVisibleTo("p-roberta").has("SRV-1")).toBe(true);
+    grantMonitor("p-marco");
+    expect(serversVisibleTo("p-marco").has("SRV-1")).toBe(true);
+    expect((await servers.getServer("SRV-1")).environments).toEqual([]);
+    // Col monitor non si vedono i server collegati a progetti invisibili: solo gli orfani.
+    grantMonitor("p-sara");
+    expect(serversVisibleTo("p-sara").has("SRV-1")).toBe(true);
+    expect(serversVisibleTo("p-sara").has("SRV-3")).toBe(false);
+    as("p-roberta");
+    await servers.deleteServer("SRV-1");
+    expect(server("SRV-1")).toBeUndefined();
   });
 });
 
