@@ -490,7 +490,7 @@ Test:
   - `listTokens()`: nome, creato, scadenza, ultimo uso, mai il valore
   - `createToken({ name; expiresAt: string | null })` (**+R**): `{ token }` una volta, `stw_pat_…`
   - `revokeToken(id)`
-- **Claude Code:** `createClaudeCodeCommand()` crea un token e restituisce il comando con il token dentro, una volta. Il comando ha la stessa forma di `lib/sdk-install-guide.ts` del web.
+- **Claude Code:** `createClaudeCodeCommand()` (**+R**, maintainer 29 ott: crea un token) crea un token e restituisce il comando con il token dentro, una volta. Il comando ha la stessa forma di `lib/sdk-install-guide.ts` del web.
 - **Ingresso:**
   - `login({ email; password })`: `{ stage: "second_factor" }` oppure `{ stage: "in" }`. L'errore è sempre `invalid_credentials`, anche per un'email inesistente o una persona disattivata.
   - `loginSecondFactor(input)`: `{ stage: "in" } | error`
@@ -571,7 +571,11 @@ Test:
 ### Task 8: Amministrazione — intelaiatura, People e inviti
 
 **Files:**
-- Create: `pages/admin/{AdminLayout.tsx,PeoplePage.tsx,PersonDetail.tsx,DeactivateDialog.tsx,InvitesPage.tsx}`, con il test `pages/admin/People.test.tsx`.
+- Create: `pages/admin/{AdminLayout.tsx,PeoplePage.tsx,PersonDetail.tsx,DeactivateDialog.tsx,InviteDialog.tsx}`, con il test `pages/admin/People.test.tsx`.
+- Decisioni del maintainer (29 ott, shape `admin-people.md`):
+  - la persona si apre in una pagina intera;
+  - gli inviti in attesa sono righe dell'elenco People, con stato «Invited» e scadenza; non c'è una pagina Invites;
+  - chi non amministra niente vede nel profilo la voce «People» e non «Administration». Apre People e Who can? in sola lettura.
 - Modify: `router.tsx` (`AdminPage` :322 diventa la sezione `/admin/$section`; `canSeeAdmin` :480 allargata alle voci di 9a), `layout/ProfileMenu.tsx`, `palette/CommandPalette.tsx` (persone, «Invite someone»), i18n.
 
 Segue lo shape `admin-people.md`.
@@ -618,7 +622,10 @@ Test:
 
 **Files:**
 - Create: `pages/settings/{MembersSettings.tsx,AddMemberDialog.tsx}`, con il test `MembersSettings.test.tsx`.
-- Modify: `pages/settings/ProjectSettingsPage.tsx` (sezione Members), i18n.
+- Modify:
+  - `pages/settings/ProjectSettingsPage.tsx` e `layout/Column.tsx`. Decisione del maintainer: le sezioni di Settings diventano voci rientrate sotto «Settings» nella colonna del progetto, una pagina ciascuna. Rotta `/p/$code/settings/$section`; le sezioni di oggi (Statuses, Repositories) si spostano lì;
+  - i18n.
+- Il membro si modifica nel pannello laterale (maintainer), che si apre in sola lettura per chi non gestisce i membri.
 
 Segue lo shape `admin-roles-members.md`.
 
@@ -648,7 +655,7 @@ Test:
     elenca. Diventano un `WhoCanLink`;
   - i18n.
 
-Segue lo shape `admin-audit.md`.
+Segue lo shape `admin-audit.md`. Il link «Who?» apre un riquadro sul posto, con le persone e il perché, più «Open in Who can?» (maintainer).
 
 Test:
 - [ ] Il registro filtra per persona, progetto, tipo e periodo.
