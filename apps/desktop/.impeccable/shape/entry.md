@@ -1,5 +1,7 @@
 # Shape brief — Ingresso: login, secondo fattore, invito, primo avvio, riconferma
 
+> **Nota del 30 ott 2026 (maintainer):** `target_above` non esiste più (nessuna gerarchia). Ogni riferimento qui sotto è superato.
+
 Superficie: le schermate **fuori dall'intelaiatura** (nessun binario,
 nessuna colonna): `/login` con il passo del secondo fattore, `/register/$token`
 (registrazione da invito), `/setup` (primo avvio su istanza vuota); il

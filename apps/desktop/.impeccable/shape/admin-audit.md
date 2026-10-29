@@ -1,5 +1,7 @@
 # Shape brief — Change log e «Who can?»
 
+> **Nota del 30 ott 2026 (maintainer):** `target_above` non esiste più (nessuna gerarchia). Ogni riferimento qui sotto è superato.
+
 Superficie: **Change log** in Amministrazione (`/admin/changelog`) e la sua
 parte di progetto in Progetto → Settings → Change log
 (`/p/<CODE>/settings/changelog`), con la voce del registro

@@ -122,9 +122,10 @@ vedo chi ha fatto cosa.
 - **Un segreto che ricompare.** Una chiave API, un token, una chiave
   d'ingestione o un valore d'ambiente si vede una volta sola, al momento in
   cui nasce. Poi non torna mai nel DOM: si può solo sostituire.
-- **Un'escalation.** Nessuno dà permessi che non ha e nessuno modifica chi
-  sta più in alto. Tutte le strade sono coperte: ruoli, inviti, Members,
-  reparti, persone.
+- **Un'escalation.** Nessuno dà permessi che non ha. Tutte le strade sono
+  coperte: ruoli, inviti, Members, reparti, persone. Non c'è invece una
+  gerarchia fra persone *(maintainer, 30 ott)*: chi ha il permesso di
+  gestione modifica chiunque.
 - **Claude con un permesso di decisione.** Non da Members, non da un ruolo,
   non da un invito (R-L9 e R-L11 dell'8b).
 - **Un'istanza senza full admin.**
@@ -139,7 +140,7 @@ Le invarianti di `docs/invariants/permissions.md` e
 `docs/invariants/second-factor.md` **valgono identiche** nel prototipo.
 Quest'area le costruisce per la prima volta nell'app desktop:
 - un progetto invisibile è come uno che non esiste;
-- nessuna escalation e bersaglio protetto (`escalation`, `target_above`);
+- nessuna escalation (`escalation`);
 - resta sempre un full admin;
 - i full admin sono membri impliciti di ogni progetto;
 - la revoca si applica a lettura;
@@ -148,7 +149,27 @@ Quest'area le costruisce per la prima volta nell'app desktop:
 - un admin che azzera il secondo fattore di un pari grado è accettato,
   registrato e avvisato.
 
-Una sola invariante **cambia deliberatamente**:
+Due invarianti **cambiano deliberatamente**:
+
+### «Bersaglio protetto» (`target_above`) non c'è più *(maintainer, 30 ott 2026)*
+
+Sul web nessuno modifica chi sta sopra di lui (`target_above`, confronto
+dei ruoli). Il maintainer: «Contano i permessi che una persona ha perché fa
+parte di un ruolo o di un reparto, non la gerarchia. Se Laura ha i permessi
+per poter modificare i permessi e i ruoli di altre persone, allora può
+farlo».
+
+Quindi:
+- chi ha il permesso di gestione (`project.members.manage`,
+  `users.manage`, `roles.manage`, `departments.manage`) modifica chiunque,
+  anche chi ha più permessi di lui: gli toglie permessi, gli cambia il
+  ruolo, lo allontana;
+- l'`escalation` resta sul **dare**: si danno solo permessi che si hanno;
+- restano anche il rifiuto su sé stessi (ruolo d'istanza, reset,
+  disattivazione) e «resta sempre un full admin».
+
+Prima del motore va riscritta l'invariante «Nessuna escalation, e il
+bersaglio è protetto» di `docs/invariants/permissions.md`.
 
 ### «Stubwise non fa deploy» e le azioni dello Stato dell'istanza *(maintainer)*
 
@@ -372,11 +393,11 @@ Members sta in Progetto → Settings, accanto a Stati e Repository.
     progetto. I permessi effettivi sono ruolo, concessioni personali e
     reparto, compresi i permessi locali del prototipo (`drive.*`, `chat.*`,
     `servers.*`…).
-  - **`target_above`:** nessuno modifica una persona i cui permessi
-    effettivi nel progetto **non sono contenuti** nei propri. Un full admin
-    li contiene tutti.
-  - Le due regole stanno in una funzione sola del livello dati, usata da
-    Members, People, inviti, Roles e Departments.
+  - **Niente `target_above`** *(maintainer, 30 ott)*: chi gestisce i
+    membri modifica chiunque. Togliere un permesso non passa
+    dall'`escalation`.
+  - La regola sta in una funzione sola del livello dati, usata da Members,
+    People, inviti, Roles e Departments.
   - non si toglie sé stessi se si è l'ultimo con `project.members.manage`;
     il messaggio lo dice in parole.
 - `servers.operate` e `servers.ssh.manage` si assegnano da qui. Le
@@ -742,7 +763,7 @@ In breve:
    un permesso messo in un reparto, una persona aggiunta a un reparto che
    porta permessi, un cambio fatto mentre il «vedi come» è su un'altra
    persona.
-   Ci si aspetta `escalation` / `target_above` ovunque.
+   Ci si aspetta `escalation` ovunque si dia qualcosa.
 2. **Un segreto nel DOM o nel registro** dopo la prima volta: token, chiave
    d'ingestione, client secret, valori d'ambiente, link di reset.
 3. **L'ultimo full admin**, e l'ultimo con `project.members.manage` in un
@@ -761,7 +782,7 @@ Il controllo del costruttore (29 ott 2026) ha posto dodici domande:
   - le impostazioni hanno effetti visibili;
   - i permessi in più possono essere qualunque, entro i propri.
 - **Le altre sono scelte del controller**, marcate nel testo:
-  - regole `escalation`/`target_above` sui permessi effettivi;
+  - regola `escalation` sui permessi effettivi (`target_above` tolto dal maintainer il 30 ott);
   - grazia della riconferma di 10 minuti, per persona;
   - permessi di Claude come insieme fisso;
   - `changelog.view`;

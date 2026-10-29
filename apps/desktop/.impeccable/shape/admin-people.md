@@ -1,5 +1,14 @@
 # Shape brief — Amministrazione: intelaiatura, People, inviti, Departments
 
+> **Nota del 30 ott 2026 (maintainer):** `target_above` non esiste più. Non c'è gerarchia: chi ha il permesso di gestione modifica chiunque. I rifiuti che restano sono:
+> - `escalation`, solo su ciò che si dà;
+> - ultimo gestore;
+> - ultimo full admin;
+> - «non su te stesso»;
+> - `reauth_required`.
+>
+> Ogni riferimento a `target_above` qui sotto è superato.
+
 Superficie: l'intelaiatura di **Amministrazione** (`/admin/$section`, oggi
 `AdminPage` segnaposto) con la colonna delle voci filtrate per permesso;
 **People** (`/admin/people`), la pagina di una persona

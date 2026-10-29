@@ -1,5 +1,14 @@
 # Shape brief — Roles e Members del progetto, con i rifiuti
 
+> **Nota del 30 ott 2026 (maintainer):** `target_above` non esiste più. Non c'è gerarchia: Laura, con `project.members.manage`, modifica anche chi ha più permessi di lei, e può togliergli un permesso che lei non ha. I rifiuti che restano sono:
+> - `escalation`, solo su ciò che si dà;
+> - ultimo gestore;
+> - ultimo full admin;
+> - «non su te stesso»;
+> - `reauth_required`.
+>
+> Ogni riferimento a `target_above` qui sotto è superato.
+
 Superficie: **Roles** in Amministrazione (`/admin/roles`) con la pagina di
 un ruolo (`/admin/roles/$roleId`) e la tabella dei permessi condivisa
 **`PermissionTable`**; **Members** in Progetto → Settings

@@ -22,7 +22,7 @@
   anche le **fonti** di ogni permesso. `viewerFor` e `can()` la leggono, e
   il ramo di Claude (R-L9) resta in testa con un insieme fisso.
 - **Le regole pure** stanno in `domain/access/`: anti-escalation,
-  `target_above`, l'ultimo full admin, «Chi può farlo?».
+  l'ultimo full admin, «Chi può farlo?».
 - **Il livello dati** sta in `data/admin/*`, `data/me/*` e `data/auth/*`,
   con `gate()`, `storeGeneration`, `failNext` e `resetApi` come nelle aree
   5–8.
@@ -84,9 +84,11 @@ Contesto da leggere:
     Per i ruoli d'istanza e per il contenuto di un ruolo il confronto è
     d'istanza. Contano tutti i permessi, compresi quelli locali del
     prototipo.
-  - `target_above`: non si modifica chi ha permessi effettivi non contenuti
-    nei propri.
-  - Il full admin contiene tutto.
+  - **Niente `target_above`** (maintainer, 30 ott): chi ha il permesso di
+    gestione modifica chiunque, anche chi ha più permessi. Togliere un
+    permesso non passa da `escalation`.
+  - Il full admin contiene tutto, e conta sempre come gestore dei membri di
+    ogni progetto, perché ne è membro implicito.
   - Si rifiuta anche chi modifica sé stesso (ruolo d'istanza, reset,
     disattivazione), come sul web.
 - **Restano sempre** un full admin attivo e, in ogni progetto, una persona
@@ -222,7 +224,7 @@ Nessun codice.
     gruppi con le frasi, duplica, elimina, chi lo ha);
   - Members del progetto (elenco con ruolo e permessi in più, la fonte di
     ogni permesso, aggiungi, togli, cambia, riga sui full admin);
-  - il messaggio di ogni rifiuto (`escalation`, `target_above`, ultimo
+  - il messaggio di ogni rifiuto (`escalation`, ultimo
     gestore).
 - **`admin-audit.md`:**
   - Change log (Amministrazione e Progetto → Settings, filtri, voce con
@@ -321,7 +323,6 @@ Test:
 
 **Interfaces, prodotte:**
 - `checkEscalation(actor: Map<string, PermissionSource[]>, wanted: readonly string[]): { ok: true } | { ok: false; error: "escalation"; missing: string[] }`
-- `checkTarget(actor: Map<…>, target: Map<…>): { ok: true } | { ok: false; error: "target_above" }`. Restituisce `target_above` se il bersaglio ha un permesso fuori da quelli di chi agisce. Un full admin non è mai sopra un altro full admin.
 - `lastFullAdminBlock(state: AccessState, change: { personId: string; losesFullAdmin: boolean }): null | "last_full_admin"`
 - `lastMembersManagerBlock(state, projectId, change): null | "last_members_manager"`. Conta chi ha `project.members.manage` nel progetto da qualunque fonte, full admin compresi.
 - `ACTIONS: readonly { id: string; permission: string; scope: "project" | "instance"; labelKey: string }[]`, il catalogo in parole di «Chi può farlo?». Contiene almeno: approvare un piano, mandare in produzione, avviare la correzione di un server, gestire gli accessi SSH, gestire i membri, rispondere ai clienti, pianificare le task altrui, gestire le automazioni.
@@ -337,8 +338,8 @@ Test:
   - Laura → `release.merge` su ACQ: `missing: ["release.merge"]`;
   - Roberta → qualunque permesso: `ok`;
   - un permesso locale (`drive.manage`) conta come gli altri.
-- [ ] `checkTarget`: Laura su Roberta dà `target_above`; Laura su Marco dà
-  `ok`.
+- [ ] Senza gerarchia: Laura toglie `servers.operate` a Marco su ACQ → ok;
+  dà `servers.operate` a Federico → `escalation`.
 - [ ] Ultimo full admin e ultimo gestore:
   - con Roberta sola full admin, togliere il ruolo o disattivarla →
     `last_full_admin`;
@@ -639,7 +640,7 @@ Test:
 - [ ] Marco vede l'elenco senza azioni.
 - [ ] Né Claude né Roberta compaiono fra le righe; c'è la riga sui full
   admin.
-- [ ] `target_above` in parole.
+- [ ] Laura toglie a Marco `servers.operate`, che lei non ha (nessuna gerarchia); dare un permesso che non ha è spento, col motivo.
 - [ ] Ultimo gestore in parole.
 - [ ] Commit `feat(desktop): membri del progetto`.
 
