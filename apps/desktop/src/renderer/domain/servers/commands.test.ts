@@ -54,6 +54,17 @@ describe("isReadCommand", () => {
     }
   });
 
+  it("falso per le graffe che bash espande dopo il controllo", () => {
+    for (const cmd of [
+      "ps -o {pid,eww}",
+      "ps --format {pid,eww}",
+      "sudo docker ps --format {x,--size}",
+      "sudo docker ps --format {1..3}",
+    ]) {
+      no(cmd);
+    }
+  });
+
   describe("journalctl (R-L5): senza sudo, solo opzioni dell'elenco", () => {
     it("le opzioni ammesse", () => {
       ok("journalctl -u docker --since -30min --no-pager");

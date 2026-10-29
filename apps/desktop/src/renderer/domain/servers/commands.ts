@@ -30,7 +30,12 @@ const WORD = /^[\w@.:+-]+$/;
 const NUMBER = /^\d{1,6}$/;
 const NAME = /^[\w][\w@.:-]*$/;
 const PATH = /^\/[\w./-]*$/;
-const TEMPLATE = /^[\w{}.:,% -]+$/;
+// Le graffe servono ai template Go di docker (`{{.Name}}`), ma bash le
+// espande DOPO il controllo se dentro c'è una virgola o un `..`
+// (`{pid,eww}`, `{1..3}`): un template non ha né l'una né l'altro.
+const TEMPLATE = /^(?!.*\.\.)[\w{}.:% -]+$/;
+/** I campi di `ps -o`: virgole sì, graffe no. */
+const PS_FIELDS = /^[\w,%-]+$/;
 
 const JOURNAL_OUTPUT =
   /^(short|short-iso|short-iso-precise|short-precise|short-full|short-monotonic|short-unix|cat|json|json-pretty|verbose|with-unit)$/;
@@ -56,7 +61,7 @@ const GRAMMARS: Record<string, Grammar> = {
   },
   ps: {
     flags: ["-e", "-f", "-A", "-F", "-l", "-w", "-H", "--forest"],
-    values: { "-o": TEMPLATE, "--format": TEMPLATE, "--sort": /^[-+]?[%\w,]+$/, "-p": NUMBER },
+    values: { "-o": PS_FIELDS, "--format": PS_FIELDS, "--sort": /^[-+]?[%\w,]+$/, "-p": NUMBER },
     positional: { pattern: /^(aux|auxww|ax|axu)$/, max: 1 },
   },
   // `ss` solo così: `-K` chiude dei socket, `-D` scrive un file.
