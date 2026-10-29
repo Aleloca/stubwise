@@ -898,7 +898,8 @@
         "webhook": "Webhook",
         "widget": "Widget",
         "email": "Email",
-        "automation": "Automation"
+        "automation": "Automation",
+        "server": "Server"
       }
     },
     "technical": {
@@ -2433,7 +2434,8 @@
         "brief": "Brief",
         "daily_report": "Daily report",
         "mail_classify": "Mail",
-        "intake": "Intake"
+        "intake": "Intake",
+        "server_analysis": "Server analysis"
       },
       "status": {
         "working": "Working",
@@ -6543,6 +6545,10 @@
       "url": "URL",
       "server": "Server",
       "serverHint": "The monitored server whose agent reports the running commit, like SRV-3. Leave empty for none.",
+      "serverHintRepos": "The monitored server for the whole project, like SRV-3. A repository that runs somewhere else gets its own below.",
+      "byRepository": "By repository",
+      "sameAsProject": "Same as project",
+      "allRepositories": "All repositories",
       "productionExists": "{{name}} is already the production environment of this project.",
       "more": "More for {{name}}",
       "edit": "Edit",
@@ -6554,6 +6560,7 @@
         "name": "Give the environment a name.",
         "url": "The URL must start with http:// or https://.",
         "serverCode": "A server code looks like SRV-3.",
+        "repository": "Each repository can run on one server only.",
         "production_exists": "This project already has a production environment.",
         "generic": "Couldn't save the environment."
       }

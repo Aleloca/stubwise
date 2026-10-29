@@ -6,7 +6,7 @@ import {
   useUpdateEnvironment,
 } from "../../data/queries";
 import type { EnvironmentInput, ReleaseView } from "../../data/releases";
-import type { ProjectEnvironment } from "../../data/types";
+import type { EnvironmentServer, ProjectEnvironment } from "../../data/types";
 import { sameCommit } from "../../domain/releases/releaseStatus";
 import { Dialog, DialogField, inputClass } from "../../tasks-ui/Dialog";
 import { Menu, itemClass } from "../../tasks-ui/Menu";
@@ -21,30 +21,76 @@ import { ExternalGlyph } from "./glyphs";
 // tipo in parola · URL ↗ · server · «runs abc1234 · = AUD-V2 · 10 min ago»
 // ([R 11]). Con `environments.manage`: «Add environment» e, per riga, Edit ·
 // Delete. Un solo ambiente di tipo Production per progetto ([R 12]).
+//
+// R-L2: in un ambiente il server si sceglie per repository. Il campo
+// «Server» vale per tutto il progetto; con più repository, ognuna può dire
+// il suo (vuoto = quello del progetto). Una riga con un server solo per
+// tutto il progetto resta com'era; con server per repository, una riga sotto
+// per ognuno, con il suo commit.
 
 const KINDS: ProjectEnvironment["kind"][] = ["test", "staging", "production"];
+
+type Repo = { id: string; name: string };
+
+interface Draft {
+  name: string;
+  kind: ProjectEnvironment["kind"];
+  url: string;
+  /** Il server di tutto il progetto. */
+  server: string;
+  /** Il server di una repository, se diverso. */
+  byRepo: Record<string, string>;
+}
+
+function draftOf(environment: ProjectEnvironment | null): Draft {
+  const servers = environment?.servers ?? [];
+  return {
+    name: environment?.name ?? "",
+    kind: environment?.kind ?? "staging",
+    url: environment?.url ?? "",
+    server: servers.find((s) => s.repositoryId === null)?.serverCode ?? "",
+    byRepo: Object.fromEntries(
+      servers.flatMap((s) => (s.repositoryId ? [[s.repositoryId, s.serverCode]] : [])),
+    ),
+  };
+}
+
+function inputOf(draft: Draft): EnvironmentInput {
+  const code = (s: string | undefined) => s?.trim().toUpperCase() ?? "";
+  return {
+    name: draft.name,
+    kind: draft.kind,
+    url: draft.url.trim() || null,
+    servers: [
+      ...(code(draft.server) ? [{ repositoryId: null, serverCode: code(draft.server) }] : []),
+      ...Object.entries(draft.byRepo).flatMap(([repositoryId, s]) =>
+        code(s) ? [{ repositoryId, serverCode: code(s) }] : [],
+      ),
+    ],
+  };
+}
 
 function EnvironmentDialog({
   projectId,
   environment,
   environments,
+  repositories,
   onClose,
 }: {
   projectId: string;
   environment: ProjectEnvironment | null;
   environments: ProjectEnvironment[];
+  repositories: Repo[];
   onClose: () => void;
 }) {
   const { t } = useTranslation();
   const create = useCreateEnvironment();
   const update = useUpdateEnvironment();
   const ids = { name: useId(), url: useId(), server: useId() };
-  const [draft, setDraft] = useState<EnvironmentInput>({
-    name: environment?.name ?? "",
-    kind: environment?.kind ?? "staging",
-    url: environment?.url ?? "",
-    serverCode: environment?.serverCode ?? "",
-  });
+  const [draft, setDraft] = useState<Draft>(() => draftOf(environment));
+  // Server per repository: con più repository, o se l'ambiente ne ha già.
+  const perRepo =
+    repositories.length > 1 || (environment?.servers ?? []).some((s) => s.repositoryId);
   const [error, setError] = useState<string | null>(null);
   const otherProduction = environments.find(
     (e) => e.kind === "production" && e.id !== environment?.id,
@@ -53,12 +99,7 @@ function EnvironmentDialog({
 
   const save = async () => {
     setError(null);
-    const input: EnvironmentInput = {
-      name: draft.name,
-      kind: draft.kind,
-      url: draft.url?.trim() || null,
-      serverCode: draft.serverCode?.trim().toUpperCase() || null,
-    };
+    const input = inputOf(draft);
     try {
       if (environment) await update.mutateAsync({ id: environment.id, patch: input });
       else await create.mutateAsync({ projectId, input });
@@ -139,7 +180,7 @@ function EnvironmentDialog({
           id={ids.url}
           type="url"
           placeholder="https://"
-          value={draft.url ?? ""}
+          value={draft.url}
           onChange={(e) => setDraft((d) => ({ ...d, url: e.target.value }))}
           className={inputClass}
         />
@@ -147,16 +188,40 @@ function EnvironmentDialog({
       <DialogField
         label={t("releases.environments.server")}
         htmlFor={ids.server}
-        hint={t("releases.environments.serverHint")}
+        hint={t(
+          perRepo ? "releases.environments.serverHintRepos" : "releases.environments.serverHint",
+        )}
       >
         <input
           id={ids.server}
           placeholder="SRV-3"
-          value={draft.serverCode ?? ""}
-          onChange={(e) => setDraft((d) => ({ ...d, serverCode: e.target.value }))}
+          value={draft.server}
+          onChange={(e) => setDraft((d) => ({ ...d, server: e.target.value }))}
           className={`${inputClass} num`}
         />
       </DialogField>
+      {perRepo && (
+        <fieldset className="flex flex-col gap-1.5">
+          <legend className="pb-1.5 text-sm font-medium text-ink">
+            {t("releases.environments.byRepository")}
+          </legend>
+          {repositories.map((r) => (
+            <label key={r.id} className="grid grid-cols-[minmax(0,1fr)_10rem] items-center gap-3">
+              <span className="truncate text-md text-ink" title={r.name}>
+                {r.name}
+              </span>
+              <input
+                placeholder={draft.server.trim() || t("releases.environments.sameAsProject")}
+                value={draft.byRepo[r.id] ?? ""}
+                onChange={(e) =>
+                  setDraft((d) => ({ ...d, byRepo: { ...d.byRepo, [r.id]: e.target.value } }))
+                }
+                className={`${inputClass} num`}
+              />
+            </label>
+          ))}
+        </fieldset>
+      )}
       {error && (
         <p role="alert" className="text-sm text-critical">
           {error}
@@ -271,28 +336,42 @@ export function Environments({
   projectCode,
   canManage,
   environments,
+  repositories,
   releases,
 }: {
   projectId: string;
   projectCode: string;
   canManage: boolean;
   environments: ProjectEnvironment[];
+  repositories: Repo[];
   releases: ReleaseView[];
 }) {
   const { t, i18n } = useTranslation();
   const [editing, setEditing] = useState<ProjectEnvironment | "new" | null>(null);
   const [deleting, setDeleting] = useState<ProjectEnvironment | null>(null);
-  const runsLine = (e: ProjectEnvironment) => {
-    if (!e.reportedSha) return null;
-    const release = releases.find((r) => sameCommit(r.mergeSha, e.reportedSha));
+  const runsLine = (s: EnvironmentServer) => {
+    if (!s.reportedSha) return null;
+    // Il rilascio che combacia è della stessa repository (R-L2).
+    const release = releases.find(
+      (r) =>
+        (s.repositoryId === null || r.repositoryId === s.repositoryId) &&
+        sameCommit(r.mergeSha, s.reportedSha),
+    );
     return [
-      t("releases.environments.runs", { sha: shortSha(e.reportedSha) }),
+      t("releases.environments.runs", { sha: shortSha(s.reportedSha) }),
       release ? `= ${release.code}` : null,
-      e.reportedAt ? ago(e.reportedAt, t, i18n.language) : null,
+      s.reportedAt ? ago(s.reportedAt, t, i18n.language) : null,
     ]
       .filter(Boolean)
       .join(" · ");
   };
+  const repoName = (id: string | null) =>
+    id === null
+      ? t("releases.environments.allRepositories")
+      : (repositories.find((r) => r.id === id)?.name ?? id);
+  // Un server solo, per tutto il progetto: nella riga, come prima di R-L2.
+  const inline = (e: ProjectEnvironment) =>
+    e.servers.length === 1 && e.servers[0]!.repositoryId === null ? e.servers[0]! : null;
 
   return (
     <div className="flex flex-col">
@@ -330,16 +409,35 @@ export function Environments({
                   <ExternalGlyph />
                 </a>
               )}
-              {e.serverCode && (
-                <span className="num text-xs font-semibold text-ink">{e.serverCode}</span>
+              {inline(e) && (
+                <span className="num text-xs font-semibold text-ink">{inline(e)!.serverCode}</span>
               )}
-              <span className="num ml-auto text-sm text-ink-muted">{runsLine(e)}</span>
+              <span className="num ml-auto text-sm text-ink-muted">
+                {inline(e) && runsLine(inline(e)!)}
+              </span>
               {canManage && (
                 <RowMenu
                   environment={e}
                   onEdit={() => setEditing(e)}
                   onDelete={() => setDeleting(e)}
                 />
+              )}
+              {!inline(e) && e.servers.length > 0 && (
+                <ul className="flex basis-full flex-col pb-0.5">
+                  {e.servers.map((s) => (
+                    <li
+                      key={s.repositoryId ?? ""}
+                      data-environment-server={s.serverCode}
+                      className="flex min-w-0 flex-wrap items-baseline gap-x-3"
+                    >
+                      <span className="num text-xs font-semibold text-ink">{s.serverCode}</span>
+                      <span className="min-w-0 truncate text-sm text-ink-muted">
+                        {repoName(s.repositoryId)}
+                      </span>
+                      <span className="num ml-auto text-sm text-ink-muted">{runsLine(s)}</span>
+                    </li>
+                  ))}
+                </ul>
               )}
             </li>
           ))}
@@ -350,6 +448,7 @@ export function Environments({
           projectId={projectId}
           environment={editing === "new" ? null : editing}
           environments={environments}
+          repositories={repositories}
           onClose={() => setEditing(null)}
         />
       )}

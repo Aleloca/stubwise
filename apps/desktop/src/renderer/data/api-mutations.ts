@@ -242,7 +242,7 @@ function addTask(task: Task): void {
 export function createTaskAs(
   me: string,
   input: NewTaskInput,
-  extra: Partial<Pick<Task, "releaseRef" | "links" | "source" | "automationRef">> = {},
+  extra: Partial<Pick<Task, "releaseRef" | "links" | "source" | "automationRef" | "serverRef">> = {},
 ): Task {
   const task = { ...buildTask(me, input), ...copy(extra) };
   addTask(task);

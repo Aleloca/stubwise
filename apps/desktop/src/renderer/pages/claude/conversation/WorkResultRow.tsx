@@ -39,6 +39,19 @@ const MARKS: Record<Ev<"work_result">["kind"], ReactElement> = {
       <path d="M2 13.5h12M4 13.5V9M8 13.5V5.5M12 13.5V2.5" />
     </Glyph>
   ),
+  // Area 8b: la diagnosi di un server (la lente) e il controllo finale della correzione.
+  server_diagnosis: (
+    <Glyph>
+      <circle cx="7" cy="7" r="4.25" />
+      <path d="m10.25 10.25 3.5 3.5" />
+    </Glyph>
+  ),
+  server_check: (
+    <Glyph>
+      <path d="M3 3h10v10H3z" />
+      <path d="m5.5 8.25 1.75 1.75L10.75 6.5" />
+    </Glyph>
+  ),
 };
 
 /**

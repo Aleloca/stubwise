@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { CiRun, ProjectEnvironment, Release } from "../../data/model";
+import type { CiRun, EnvironmentServer, ProjectEnvironment, Release } from "../../data/model";
+import { environmentServerFor } from "./environmentServer";
 import { NO_PIPELINE_AFTER_MIN, releaseStatus, sameCommit } from "./releaseStatus";
 
 const SHA = "4be1f0c27a9d3e5b6c8f0a1d2e3b4c5d6e7f8091";
@@ -35,17 +36,22 @@ const release = (over: Partial<Release> = {}): Release => ({
   ...over,
 });
 
-const production = (over: Partial<ProjectEnvironment> = {}): ProjectEnvironment => ({
-  id: "env-prod",
-  projectId: "prj-aud",
-  name: "Production",
-  kind: "production",
-  url: null,
-  serverCode: "SRV-1",
-  reportedSha: null,
-  reportedAt: null,
-  ...over,
-});
+/** Una produzione con un server per tutto il progetto (`serverCode: null` = nessun server). */
+const production = (
+  over: Partial<Omit<EnvironmentServer, "repositoryId" | "serverCode">> & {
+    serverCode?: string | null;
+  } = {},
+): ProjectEnvironment => {
+  const { serverCode = "SRV-1", reportedSha = null, reportedAt = null } = over;
+  return {
+    id: "env-prod",
+    projectId: "prj-aud",
+    name: "Production",
+    kind: "production",
+    url: null,
+    servers: serverCode ? [{ repositoryId: null, serverCode, reportedSha, reportedAt }] : [],
+  };
+};
 
 const later = (min: number) => new Date(Date.parse(MERGED) + min * 60_000).toISOString();
 const ctx = (over: Partial<Parameters<typeof releaseStatus>[1]> = {}) => ({
@@ -189,6 +195,49 @@ describe("releaseStatus — senza run", () => {
       kind: "unavailable",
       since: null,
       reason: "no_production_env",
+    });
+  });
+});
+
+describe("R-L2: il server di una repository nell'ambiente", () => {
+  const row = (repositoryId: string | null, serverCode: string, reportedSha: string | null) => ({
+    repositoryId,
+    serverCode,
+    reportedSha,
+    reportedAt: reportedSha ? later(50) : null,
+  });
+  const env = (servers: EnvironmentServer[]): ProjectEnvironment => ({
+    ...production(),
+    servers,
+  });
+
+  it("la riga della repository, altrimenti quella di tutto il progetto, altrimenti nessuna", () => {
+    const both = env([row(null, "SRV-1", null), row("repo-admin", "SRV-4", null)]);
+    expect(environmentServerFor(both, "repo-admin")!.serverCode).toBe("SRV-4");
+    expect(environmentServerFor(both, "repo-aud")!.serverCode).toBe("SRV-1");
+    const onlyAdmin = env([row("repo-admin", "SRV-4", null)]);
+    expect(environmentServerFor(onlyAdmin, "repo-aud")).toBeNull();
+    expect(environmentServerFor(env([]), "repo-aud")).toBeNull();
+  });
+
+  it("un rilascio guarda solo il server della SUA repository", () => {
+    const admin = release({ repositoryId: "repo-admin" });
+    // Il commit gira sul server di audin-app, non su quello di audin-admin: non è in produzione.
+    const elsewhere = env([row("repo-aud", "SRV-3", SHA), row("repo-admin", "SRV-4", "0a2c4e6b8d")]);
+    expect(releaseStatus(admin, ctx({ now: later(60), production: elsewhere })).kind).toBe(
+      "not_in_production",
+    );
+    const here = env([row("repo-aud", "SRV-3", null), row("repo-admin", "SRV-4", SHA)]);
+    expect(releaseStatus(admin, ctx({ now: later(60), production: here }))).toEqual({
+      kind: "in_production",
+      since: later(50),
+    });
+    // Una repository senza server nell'ambiente: non disponibile, anche se le altre ce l'hanno.
+    const scripts = release({ repositoryId: "repo-scripts" });
+    expect(releaseStatus(scripts, ctx({ now: later(60), production: here }))).toEqual({
+      kind: "unavailable",
+      since: null,
+      reason: "no_server",
     });
   });
 });

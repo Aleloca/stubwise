@@ -1,3 +1,4 @@
+import { environmentServerFor } from "../../domain/releases/environmentServer";
 import { shortRepo } from "../../domain/releases/repo";
 import { publishAlert, releaseMandatory } from "../alerts/publish";
 import { CLAUDE_ID } from "../seed/people";
@@ -104,10 +105,12 @@ export async function simulateSeenOnServer(code: string): Promise<ReleaseView> {
   const me = await writer("releases.simulateSeenOnServer");
   const r = releaseFor(me, code);
   const env = productionOf(r.projectId);
-  if (!env?.serverCode) throw invalid("environment");
+  // Il server della repository del rilascio (R-L2), non uno qualunque dell'ambiente.
+  const server = env && environmentServerFor(env, r.repositoryId);
+  if (!server) throw invalid("environment");
   const at = now();
-  env.reportedSha = r.mergeSha;
-  env.reportedAt = at;
+  server.reportedSha = r.mergeSha;
+  server.reportedAt = at;
   r.seenInProductionAt ??= at;
   return releaseView(me, r);
 }

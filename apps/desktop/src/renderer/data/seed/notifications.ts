@@ -3,6 +3,7 @@ import { ALERT_NOTIFICATIONS } from "./alerts";
 import { daysFromToday } from "./dates";
 import { PEOPLE } from "./people";
 import { PROJECTS } from "./projects";
+import { SERVER_ALERT_NOTIFICATIONS } from "./servers/alerts";
 import { TASKS } from "./tasks";
 
 /**
@@ -27,7 +28,8 @@ export type EventPrefix = (typeof EVENT_PREFIXES)[number];
  * Kind locali del prototipo, non (ancora) in `notificationKindSchema`: li
  * pubblicano le azioni dell'area 2 (pianificazione altrui, risposta a una
  * richiesta di decisione) e gli avvisi dell'area 8a (PR, rilasci, note di
- * rilascio, task nuove, Support), che hanno i destinatari calcolati a lettura.
+ * rilascio, task nuove, Support) e dell'area 8b (server), che hanno i
+ * destinatari calcolati a lettura.
  */
 export const LOCAL_NOTIFICATION_KINDS = [
   "planning.changed",
@@ -42,6 +44,10 @@ export const LOCAL_NOTIFICATION_KINDS = [
   "task.created",
   "support.request",
   "support.customer_replied",
+  "server.trouble",
+  "server.down",
+  "server.recovered",
+  "server.diagnosis_ready",
 ] as const;
 
 // [kind, codice progetto, codice oggetto, titolo, corpo, ore fa, letta, destinatari?]
@@ -318,5 +324,9 @@ const FIXED_NOTIFICATIONS: AppNotification[] = ROWS.map(
   },
 );
 
-/** Le notifiche del seme: quelle coi destinatari fissi, poi gli avvisi dell'area 8a. */
-export const NOTIFICATIONS: AppNotification[] = [...FIXED_NOTIFICATIONS, ...ALERT_NOTIFICATIONS];
+/** Le notifiche del seme: quelle coi destinatari fissi, poi gli avvisi delle aree 8a e 8b. */
+export const NOTIFICATIONS: AppNotification[] = [
+  ...FIXED_NOTIFICATIONS,
+  ...ALERT_NOTIFICATIONS,
+  ...SERVER_ALERT_NOTIFICATIONS,
+];

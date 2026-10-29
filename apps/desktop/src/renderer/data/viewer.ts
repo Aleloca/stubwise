@@ -8,7 +8,7 @@ import {
 } from "@stubwise/shared";
 import { createContext, createElement, useContext, useMemo, useState, type ReactNode } from "react";
 import { DEPARTMENT_ROLES } from "./seed/departmentRoles";
-import { SEED_INSTANCE_GRANTS } from "./seed/grants";
+import { SEED_INSTANCE_GRANTS, SEED_PROJECT_GRANTS } from "./seed/grants";
 import { PEOPLE } from "./seed/people";
 import { GIULIA_LEAD_CODES, PROJECTS } from "./seed/projects";
 import { clearToasts } from "../tasks-ui/Toast";
@@ -38,6 +38,7 @@ export const LOCAL_INSTANCE_PERMISSIONS: readonly LocalInstancePermission[] = [
   "chat.general.create",
   "chat.general.manage",
   "automations.manage",
+  "servers.ssh.manage",
 ];
 
 const INSTANCE_SET: ReadonlySet<string> = new Set<string>([
@@ -63,9 +64,10 @@ const BOTH_LEVELS: ReadonlySet<string> = new Set<string>(["automations.manage"])
  * gestire e vedere lo storico delle aperture è del Project Lead. Le
  * automazioni del progetto (area 7) le gestisce il Project Lead. Ai clienti di
  * Support (area 8a) risponde chi lavora al progetto: Project Lead, Developer e
- * Legacy Member, non il Contributor né il Viewer.
+ * Legacy Member, non il Contributor né il Viewer. `servers.operate` (area 8b)
+ * non è di nessun preset: lo danno le concessioni del seme (`grants.ts`).
  */
-const LOCAL_PROJECT_PERMISSIONS: Record<string, LocalProjectPermission[]> = {
+export const LOCAL_PROJECT_PERMISSIONS: Readonly<Record<string, readonly LocalProjectPermission[]>> = {
   project_lead: [
     "planning.others",
     "chat.channels.create",
@@ -89,13 +91,15 @@ function roleKeys(key: string): readonly string[] {
 
 function instancePermsOf(key: string): (InstancePermission | LocalInstancePermission)[] {
   // «Vedere le conversazioni pubbliche con Claude» e «creare canali generali»:
-  // di base ai preset User e Admin; «gestire i canali generali» e le
-  // automazioni generali (area 7) all'Admin.
+  // di base ai preset User e Admin; «gestire i canali generali», le
+  // automazioni generali (area 7) e gli accessi SSH dei server (area 8b) all'Admin.
   return [
     ...effectiveInstancePermissions(roleKeys(key)),
     "claude.public.view",
     "chat.general.create",
-    ...(key === "admin" ? (["chat.general.manage", "automations.manage"] as const) : []),
+    ...(key === "admin"
+      ? (["chat.general.manage", "automations.manage", "servers.ssh.manage"] as const)
+      : []),
   ];
 }
 
@@ -110,6 +114,18 @@ function projectPermsOf(key: string): AnyProjectPermission[] {
     ...roleKeys(key).filter((p): p is ProjectPermission => PROJECT_SET.has(p)),
     ...(LOCAL_PROJECT_PERMISSIONS[key] ?? []),
   ];
+}
+
+/** I permessi del ruolo più le concessioni del seme della persona su quel progetto (area 8b). */
+function projectPermsWithGrants(
+  personId: string,
+  projectId: string,
+  role: string,
+): AnyProjectPermission[] {
+  const code = PROJECTS.find((p) => p.id === projectId)?.code;
+  const granted = (code && SEED_PROJECT_GRANTS[personId]?.[code]) || [];
+  const perms = projectPermsOf(role);
+  return [...perms, ...granted.filter((p) => !perms.includes(p))];
 }
 
 interface PersonaSpec {
@@ -192,7 +208,7 @@ function buildViewer(spec: PersonaSpec): Viewer {
       if (project.memberIds.includes(spec.personId)) {
         const role = spec.projectRole(project.code);
         if (role === ACTIVITY_ROLE) leadSomewhere = true;
-        projectPermissions[project.id] = projectPermsOf(role);
+        projectPermissions[project.id] = projectPermsWithGrants(spec.personId, project.id, role);
       }
     }
   }
@@ -288,7 +304,8 @@ export function grantProjectRole(personId: string, projectId: string, roleKey: s
   const previous = viewer.projectPermissions[projectId];
   const key = roleKeyOf(personId, projectId);
   const previousRole = grantedRoles.get(key);
-  viewer.projectPermissions[projectId] = projectPermsOf(roleKey);
+  // Cambiare ruolo non toglie le concessioni personali del seme.
+  viewer.projectPermissions[projectId] = projectPermsWithGrants(personId, projectId, roleKey);
   grantedRoles.set(key, roleKey);
   undo.push(() => {
     if (previous) viewer.projectPermissions[projectId] = previous;

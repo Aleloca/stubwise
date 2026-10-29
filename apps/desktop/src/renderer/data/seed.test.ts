@@ -77,8 +77,25 @@ import { RELEASES } from "./seed/releases/releases";
 import { SUPPORT_CONVERSATIONS } from "./seed/support/conversations";
 import { SUPPORT_WIDGETS } from "./seed/support/widgets";
 import { PR_FACTS, PULL_REQUEST_EVENTS } from "./seed/timeline";
+import { SERVER_ACCESS } from "./seed/servers/access";
+import { SERVER_ALERT_NOTIFICATIONS } from "./seed/servers/alerts";
+import {
+  SERVER_ANALYSES,
+  SERVER_CONVERSATIONS,
+  SERVER_TASKS,
+  SERVER_TASK_CODE,
+} from "./seed/servers/analysis";
+import { SERVER_EPISODES } from "./seed/servers/episodes";
+import {
+  CHECK_SAMPLES,
+  METRIC_STEP_SECONDS,
+  SERVER_METRICS,
+  checkSamplesOf,
+  metricsOf,
+} from "./seed/servers/metrics";
+import { DEFAULT_THRESHOLDS, SERVERS, SERVER_CHECKS } from "./seed/servers/servers";
 import { state } from "./store";
-import { VIEW_AS_PERSONAS, can, viewerFor } from "./viewer";
+import { VIEW_AS_PERSONAS, can, revokeProjectPermission, viewerFor } from "./viewer";
 import type {
   Step,
   Channel,
@@ -233,8 +250,8 @@ describe("seed: stati e task", () => {
     }
   });
 
-  it("8–15 task nei progetti di riferimento, 5 negli altri (più quelle create dalle automazioni)", () => {
-    const byAutomation = new Set(AUTOMATION_TASKS.map((t) => t.id));
+  it("8–15 task nei progetti di riferimento, 5 negli altri (più quelle create dalle automazioni e dai server)", () => {
+    const byAutomation = new Set([...AUTOMATION_TASKS, ...SERVER_TASKS].map((t) => t.id));
     for (const p of PROJECTS) {
       const n = TASKS.filter((t) => t.projectId === p.id && !byAutomation.has(t.id)).length;
       if (["AUD", "STW", "MKX"].includes(p.code)) {
@@ -471,9 +488,11 @@ describe("seed: notifiche", () => {
   });
 
   it("ogni notifica coi destinatari fissi li ha, membri del suo progetto", () => {
-    const alertIds = new Set(ALERT_NOTIFICATIONS.map((n) => n.id));
+    const alertIds = new Set(
+      [...ALERT_NOTIFICATIONS, ...SERVER_ALERT_NOTIFICATIONS].map((n) => n.id),
+    );
     for (const n of NOTIFICATIONS) {
-      // Gli avvisi dell'area 8a hanno i destinatari calcolati a lettura.
+      // Gli avvisi delle aree 8a e 8b hanno i destinatari calcolati a lettura.
       if (alertIds.has(n.id)) continue;
       expect(n.recipientIds.length).toBeGreaterThan(0);
       for (const r of n.recipientIds) {
@@ -713,16 +732,39 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
   it("ambienti: STW e AUD con produzione su un server e staging senza; ACQ in produzione su SRV-1", () => {
     const ids = ENVIRONMENTS.map((e) => e.id);
     expect(new Set(ids).size).toBe(ids.length);
+    const prodOf = (projectId: string) =>
+      ENVIRONMENTS.filter((e) => e.projectId === projectId && e.kind === "production");
+    for (const projectId of [STW, AUD, ACQ]) expect(prodOf(projectId)).toHaveLength(1);
     for (const projectId of [STW, AUD]) {
       const envs = ENVIRONMENTS.filter((e) => e.projectId === projectId);
-      expect(envs.find((e) => e.kind === "production")!.serverCode).toMatch(/^SRV-\d+$/);
-      expect(envs.find((e) => e.kind === "staging")!.serverCode).toBeNull();
+      expect(envs.find((e) => e.kind === "production")!.servers.length).toBeGreaterThan(0);
+      expect(envs.find((e) => e.kind === "staging")!.servers).toEqual([]);
     }
-    expect(
-      ENVIRONMENTS.find((e) => e.projectId === ACQ && e.kind === "production")!.serverCode,
-    ).toBe("SRV-1");
+    for (const e of ENVIRONMENTS) {
+      for (const s of e.servers) {
+        expect(s.serverCode).toMatch(/^SRV-\d+$/);
+        if (s.repositoryId) expect(repoOf(s.repositoryId).projectId).toBe(e.projectId);
+      }
+      // Una riga per repository (e al più una per tutto il progetto).
+      const keys = e.servers.map((s) => s.repositoryId);
+      expect(new Set(keys).size).toBe(keys.length);
+    }
+    // R-L2: ACQ non ha repository, il server vale per tutto il progetto; su
+    // AUD audin-app gira su SRV-3 e audin-admin su SRV-4.
+    expect(prodOf(ACQ)[0]!.servers.map((s) => [s.repositoryId, s.serverCode])).toEqual([
+      [null, "SRV-1"],
+    ]);
+    expect(prodOf(STW)[0]!.servers.map((s) => [s.repositoryId, s.serverCode])).toEqual([
+      [null, "SRV-2"],
+    ]);
+    expect(prodOf(AUD)[0]!.servers.map((s) => [repoOf(s.repositoryId!).name, s.serverCode])).toEqual(
+      [
+        ["audin-app", "SRV-3"],
+        ["audin-admin", "SRV-4"],
+      ],
+    );
     // STW: la produzione riporta STW-V1 («in produzione»), non STW-V2 («non ancora»).
-    const stwProd = ENVIRONMENTS.find((e) => e.projectId === STW && e.kind === "production")!;
+    const stwProd = prodOf(STW)[0]!.servers[0]!;
     const byCode = (c: string) => RELEASES.find((r) => r.code === c)!;
     expect(stwProd.reportedSha).toBe(byCode("STW-V1").mergeSha);
     expect(stwProd.reportedSha).not.toBe(byCode("STW-V2").mergeSha);
@@ -852,7 +894,8 @@ describe("seed: conversazioni con Claude", () => {
     expect(new Set(CONVERSATIONS.map((c) => c.id)).size).toBe(CONVERSATIONS.length);
     for (const c of CONVERSATIONS) {
       expect(peopleIds.has(c.ownerId)).toBe(true);
-      expect(PEOPLE.find((p) => p.id === c.ownerId)!.isClaude).toBe(false);
+      // L'analisi di un server non la chiede nessuno: la apre Claude (area 8b).
+      expect(PEOPLE.find((p) => p.id === c.ownerId)!.isClaude).toBe(c.kind === "server_analysis");
       if (c.projectId) expect(projectsById.has(c.projectId)).toBe(true);
       if (c.contextProjectId) expect(projectsById.has(c.contextProjectId)).toBe(true);
       if (c.taskId) expect(tasksById.get(c.taskId)?.projectId).toBe(c.projectId);
@@ -906,6 +949,7 @@ describe("seed: conversazioni con Claude", () => {
       "daily_report",
       "mail_classify",
       "intake",
+      "server_analysis",
     ];
     const states: ConversationState[] = [
       "working",
@@ -2454,5 +2498,321 @@ describe("seed: Automations (area 7)", () => {
       expect(task.milestoneId).toBe(milestoneCode);
       expect(task.title).toBe(e.input.titolo);
     }
+  });
+});
+
+describe("seed: server (area 8b)", () => {
+  const ACQ = "prj-acq";
+  const STW = "prj-stw";
+  const AUD = "prj-aud";
+  const NOW = `${TODAY}T12:00:00Z`;
+  const server = (code: string) => SERVERS.find((s) => s.code === code)!;
+  const accessOf = (code: string) => SERVER_ACCESS.find((a) => a.serverCode === code);
+  const episodesOf = (code: string) => SERVER_EPISODES.filter((e) => e.serverCode === code);
+  const checksOf = (code: string) => SERVER_CHECKS.filter((c) => c.serverCode === code);
+  const notification = (kind: string, code: string) =>
+    NOTIFICATIONS.find((n) => n.kind === kind && n.objectCode === code)!;
+  const ms = (iso: string) => Date.parse(iso);
+  const diskPctOf = (code: string) => {
+    const d = server(code).disks[0]!;
+    return Math.round((d.usedBytes / d.totalBytes) * 100);
+  };
+
+  it("quattro server, codici SRV-<n> unici, e ognuno su un ambiente (R-L2)", () => {
+    expect(SERVERS.map((s) => s.code)).toEqual(["SRV-1", "SRV-2", "SRV-3", "SRV-4"]);
+    expect(new Set(SERVERS.map((s) => s.id)).size).toBe(SERVERS.length);
+    for (const s of SERVERS) {
+      expect(s.code).toMatch(/^SRV-\d+$/);
+      const envs = ENVIRONMENTS.filter((e) => e.servers.some((x) => x.serverCode === s.code));
+      expect(envs.length, s.code).toBeGreaterThan(0);
+      // Il progetto principale è uno di quelli in cui il server è in produzione.
+      const prodProjects = envs.filter((e) => e.kind === "production").map((e) => e.projectId);
+      expect(prodProjects).toContain(s.primaryProjectId);
+      expect(s.thresholds).toEqual(DEFAULT_THRESHOLDS);
+      expect(s.services.length).toBeGreaterThan(0);
+      expect(s.disks.length).toBeGreaterThan(0);
+      for (const d of s.disks) expect(d.usedBytes).toBeLessThanOrEqual(d.totalBytes);
+      expect(s.status).toBe("online");
+      expect(s.sshReachable).toBe(true);
+    }
+    expect(DEFAULT_THRESHOLDS).toEqual({
+      cpuPct: 95,
+      memPct: 90,
+      diskPct: 90,
+      sustainedMinutes: 5,
+    });
+    expect(server("SRV-1").primaryProjectId).toBe(ACQ);
+    expect(server("SRV-2").primaryProjectId).toBe(STW);
+    expect(server("SRV-3").primaryProjectId).toBe(AUD);
+    expect(server("SRV-4").primaryProjectId).toBe(AUD);
+    // I controlli: id unici, di un server del seme, uno solo giù (su SRV-2).
+    expect(new Set(SERVER_CHECKS.map((c) => c.id)).size).toBe(SERVER_CHECKS.length);
+    for (const c of SERVER_CHECKS) expect(SERVERS.some((s) => s.code === c.serverCode)).toBe(true);
+    for (const s of SERVERS) expect(checksOf(s.code).length, s.code).toBeGreaterThan(0);
+    const down = SERVER_CHECKS.filter((c) => c.status === "down");
+    expect(down.map((c) => c.serverCode)).toEqual(["SRV-2"]);
+    expect(down[0]!.lastError).toBeTruthy();
+    expect(down[0]!.latencyMs).toBeNull();
+  });
+
+  it("SRV-1 (ACQ): accesso verificato su entrambi, episodio di memoria coerente con gli avvisi del seme", () => {
+    const a = accessOf("SRV-1")!;
+    expect(a.keys).not.toBeNull();
+    expect(a.pending).toBeNull();
+    expect(a.revokedAt).toBeNull();
+    expect(a.verification).toMatchObject({ read: "ok", fix: "ok", reason: null, ofPending: false });
+    const [ep, ...rest] = episodesOf("SRV-1");
+    expect(rest).toEqual([]);
+    expect(ep!.severity).toBe("trouble");
+    expect(ep!.reasons).toEqual([
+      { kind: "memory", valuePct: expect.any(Number), thresholdPct: 90 },
+    ]);
+    expect((ep!.reasons[0] as { valuePct: number }).valuePct).toBeGreaterThan(90);
+    // Inizio e rientro sono quelli delle righe monitor.alert / monitor.recovered.
+    expect(ep!.startedAt).toBe(notification("monitor.alert", "SRV-1").createdAt);
+    expect(ep!.recoveredAt).toBe(notification("monitor.recovered", "SRV-1").createdAt);
+    expect(ms(ep!.recoveredAt!) - ms(ep!.startedAt)).toBe(2 * 3600_000);
+  });
+
+  it("SRV-1: analisi conclusa in sola lettura, con la sessione server_analysis e l'ultimo uso", () => {
+    const ep = episodesOf("SRV-1")[0]!;
+    const an = SERVER_ANALYSES.find((x) => x.id === ep.analysisId)!;
+    expect(SERVER_ANALYSES).toEqual([an]);
+    expect(an).toMatchObject({
+      serverCode: "SRV-1",
+      episodeId: ep.id,
+      projectId: ACQ,
+      outcome: "diagnosed",
+    });
+    expect(an.startedAt >= ep.startedAt).toBe(true);
+    expect(an.endedAt! > an.startedAt).toBe(true);
+    // La sessione: di Claude, del progetto, conclusa, solo comandi di lettura con le uscite.
+    const c = CONVERSATIONS.find((x) => x.id === an.conversationId)!;
+    expect(SERVER_CONVERSATIONS.map((s) => s.conversation.id)).toEqual([c.id]);
+    expect(c).toMatchObject({
+      kind: "server_analysis",
+      ownerId: "p-claude",
+      projectId: ACQ,
+      taskId: an.taskId,
+      visibility: "project",
+      state: "finished",
+      outcome: "ok",
+    });
+    const events = CONVERSATION_EVENTS[c.id]!;
+    const actions = events.flatMap((e) => (e.type === "action" ? [e] : []));
+    expect(actions.length).toBeGreaterThanOrEqual(4);
+    for (const e of actions) {
+      expect(e).toMatchObject({ tool: "server.read", state: "done" });
+      expect(e.input).toBeTruthy();
+      expect(e.result).toBeTruthy();
+      // Nessun comando che scrive o che legge l'ambiente dei container.
+      expect(e.input).not.toMatch(/docker (inspect|restart|rm|exec)|\brm\b|\bkill\b/);
+    }
+    const result = events.find((e) => e.type === "work_result")!;
+    expect(result).toMatchObject({
+      kind: "server_diagnosis",
+      link: `#/p/ACQ/tasks?task=${SERVER_TASK_CODE}`,
+    });
+    // L'ultimo uso dell'accesso di lettura è l'analisi; quello di correzione non c'è mai stato.
+    const a = accessOf("SRV-1")!;
+    expect(a.lastUse.read).toEqual({
+      at: expect.any(String),
+      ref: { kind: "analysis", analysisId: an.id },
+    });
+    expect(a.lastUse.read!.at >= an.startedAt && a.lastUse.read!.at <= an.endedAt!).toBe(true);
+    expect(a.lastUse.fix).toBeUndefined();
+  });
+
+  it("SRV-1: la task è la prossima di ACQ, bug, senza incaricato, di Claude, legata al server", () => {
+    const an = SERVER_ANALYSES[0]!;
+    const acqNumbers = TASKS.filter((t) => t.projectId === ACQ && t.id !== an.taskId).map((t) =>
+      Number(t.code.split("-")[1]),
+    );
+    expect(SERVER_TASK_CODE).toBe(`ACQ-${Math.max(...acqNumbers) + 1}`);
+    expect(SERVER_TASKS).toHaveLength(1);
+    const task = TASKS.find((t) => t.id === an.taskId)!;
+    expect(task).toEqual(SERVER_TASKS[0]);
+    expect(task).toMatchObject({
+      code: SERVER_TASK_CODE,
+      projectId: ACQ,
+      type: "bug",
+      assigneeId: null,
+      createdById: "p-claude",
+      source: "server",
+      serverRef: { serverCode: "SRV-1", episodeId: an.episodeId },
+      closedAt: null,
+    });
+    expect(familyOf(task)).toBe("todo");
+    expect(task.createdAt).toBe(an.endedAt);
+    expect(task.description).toMatch(/Diagnosis/);
+    expect(task.description).toMatch(/Back to normal at 20:00/);
+    expect(task.description).toMatch(/Proposal/);
+    // L'avviso «diagnosi pronta», nel progetto dell'analisi.
+    const n = notification("server.diagnosis_ready", "SRV-1");
+    expect(n.projectId).toBe(ACQ);
+    expect(n.link).toBe(`#/p/ACQ/tasks?task=${SERVER_TASK_CODE}`);
+    expect(n.createdAt).toBe(an.endedAt);
+  });
+
+  it("SRV-2 (STW): accesso non collegato, episodio disco aperto senza analisi, l'avviso lo dice", () => {
+    expect(accessOf("SRV-2")).toBeUndefined();
+    const open = episodesOf("SRV-2").filter((e) => e.recoveredAt === null);
+    expect(open).toHaveLength(1);
+    const ep = open[0]!;
+    expect(ep.severity).toBe("trouble");
+    expect(ep.analysisId).toBeNull();
+    const down = SERVER_CHECKS.find((c) => c.status === "down")!;
+    expect(ep.reasons).toEqual([
+      { kind: "disk", valuePct: diskPctOf("SRV-2"), thresholdPct: 90 },
+      { kind: "check", checkId: down.id },
+    ]);
+    expect(diskPctOf("SRV-2")).toBeGreaterThan(90);
+    expect(SERVER_ANALYSES.some((a) => a.serverCode === "SRV-2")).toBe(false);
+    const n = notification("server.trouble", "SRV-2");
+    expect(n).toMatchObject({ projectId: STW, createdAt: ep.startedAt });
+    expect(n.body).toMatch(/no SSH access/);
+  });
+
+  it("SRV-3 (AUD, audin-app): in salute, accesso in attesa del comando (chiavi generate, mai verificate)", () => {
+    const a = accessOf("SRV-3")!;
+    expect(a.keys).toBeNull();
+    expect(a.pending).not.toBeNull();
+    expect(a.verification).toBeNull();
+    expect(a.lastUse).toEqual({});
+    expect(a.revokedAt).toBeNull();
+    // Il vecchio episodio (agente muto) è rientrato da giorni: oggi è in salute.
+    const [old, ...rest] = episodesOf("SRV-3");
+    expect(rest).toEqual([]);
+    expect(old).toMatchObject({ severity: "down", analysisId: null });
+    expect(old!.reasons).toEqual([{ kind: "agent_silent", since: old!.startedAt }]);
+    expect(ms(NOW) - ms(old!.recoveredAt!)).toBeGreaterThan(24 * 3600_000);
+    expect(notification("server.down", "SRV-3").createdAt).toBe(old!.startedAt);
+    expect(notification("server.recovered", "SRV-3").createdAt).toBe(old!.recoveredAt);
+    for (const n of [notification("server.down", "SRV-3"), notification("server.recovered", "SRV-3")])
+      expect(n.projectId).toBe(AUD);
+  });
+
+  it("SRV-4 (AUD, audin-admin): in salute, accesso non collegato", () => {
+    expect(accessOf("SRV-4")).toBeUndefined();
+    expect(episodesOf("SRV-4")).toEqual([]);
+  });
+
+  it("chiavi pubbliche ssh-ed25519 col commento dell'utente; nessuna chiave privata nel seme", () => {
+    expect(SERVER_ACCESS.map((a) => a.serverCode)).toEqual(["SRV-1", "SRV-3"]);
+    for (const a of SERVER_ACCESS) {
+      for (const pair of [a.keys, a.pending]) {
+        if (!pair) continue;
+        for (const kind of ["read", "fix"] as const) {
+          expect(pair[kind].publicKey).toMatch(
+            new RegExp(`^ssh-ed25519 AAAA[A-Za-z0-9+/]+ stubwise-${kind}@${a.serverCode}$`),
+          );
+          expect(pair[kind].fingerprint).toMatch(/^SHA256:[A-Za-z0-9+/]{43}$/);
+        }
+        expect(pair.read.publicKey).not.toBe(pair.fix.publicKey);
+      }
+    }
+    const all = JSON.stringify([SERVERS, SERVER_ACCESS, SERVER_CONVERSATIONS, SERVER_TASKS]);
+    expect(all).not.toMatch(/PRIVATE KEY/);
+  });
+
+  it("metriche: 7 giorni a 30 s, deterministiche; SRV-1 mostra il picco di memoria dell'episodio", () => {
+    expect(METRIC_STEP_SECONDS).toBe(30);
+    expect([...SERVER_METRICS.keys()]).toEqual(SERVERS.map((s) => s.code));
+    for (const s of SERVERS) {
+      const points = SERVER_METRICS.get(s.code)!;
+      expect(points).toEqual(metricsOf(s.code));
+      expect(ms(points[0]!.ts)).toBeGreaterThanOrEqual(ms(NOW) - 7 * 86400_000);
+      expect(points.at(-1)!.ts <= NOW).toBe(true);
+      let previous = 0;
+      for (const p of points) {
+        expect((ms(p.ts) - previous) % 30_000).toBe(0);
+        expect(ms(p.ts)).toBeGreaterThan(previous);
+        previous = ms(p.ts);
+        for (const v of [p.cpuPct, p.memPct, p.diskPct]) {
+          expect(v).toBeGreaterThanOrEqual(0);
+          expect(v).toBeLessThanOrEqual(100);
+        }
+      }
+    }
+    // Senza buchi sono 20 160 campioni; SRV-3 tace durante il suo episodio.
+    expect(SERVER_METRICS.get("SRV-1")).toHaveLength(20_160);
+    const silent = episodesOf("SRV-3")[0]!;
+    const srv3 = SERVER_METRICS.get("SRV-3")!;
+    expect(srv3.length).toBeLessThan(20_160);
+    expect(srv3.some((p) => p.ts >= silent.startedAt && p.ts < silent.recoveredAt!)).toBe(false);
+    const ep = episodesOf("SRV-1")[0]!;
+    const srv1 = SERVER_METRICS.get("SRV-1")!;
+    const inside = srv1.filter((p) => p.ts >= ep.startedAt && p.ts < ep.recoveredAt!);
+    const outside = srv1.filter((p) => p.ts < ep.startedAt || p.ts >= ep.recoveredAt!);
+    expect(Math.max(...inside.map((p) => p.memPct))).toBeGreaterThan(90);
+    expect(Math.max(...outside.map((p) => p.memPct))).toBeLessThan(90);
+    // SRV-2: il disco arriva al valore dell'episodio aperto.
+    expect(Math.round(SERVER_METRICS.get("SRV-2")!.at(-1)!.diskPct)).toBe(diskPctOf("SRV-2"));
+  });
+
+  it("R-L1: i campioni dei controlli portano la latenza; quello giù non ne ha", () => {
+    expect([...CHECK_SAMPLES.keys()].sort()).toEqual(SERVER_CHECKS.map((c) => c.id).sort());
+    for (const c of SERVER_CHECKS) {
+      const samples = CHECK_SAMPLES.get(c.id)!;
+      expect(samples).toEqual(checkSamplesOf(c.id));
+      expect(samples.length).toBeGreaterThan(1000);
+      const last = samples.at(-1)!;
+      expect(last.status).toBe(c.status);
+      expect(last.latencyMs).toBe(c.latencyMs);
+      // Un processo non ha un tempo di risposta; un controllo giù nemmeno.
+      for (const x of samples) {
+        if (x.status === "down" || c.type === "process") expect(x.latencyMs).toBeNull();
+        else expect(x.latencyMs).toBeGreaterThan(0);
+      }
+    }
+    const down = SERVER_CHECKS.find((c) => c.status === "down")!;
+    const since = episodesOf("SRV-2").find((e) => e.recoveredAt === null)!.startedAt;
+    for (const x of CHECK_SAMPLES.get(down.id)!) {
+      expect(x.status).toBe(x.ts >= since ? "down" : "up");
+    }
+  });
+
+  it("i kind dei server sono locali, compaiono nel seme, senza destinatari fissi", () => {
+    const kinds = ["server.trouble", "server.down", "server.recovered", "server.diagnosis_ready"];
+    for (const k of kinds) expect(LOCAL_NOTIFICATION_KINDS as readonly string[]).toContain(k);
+    expect([...new Set(SERVER_ALERT_NOTIFICATIONS.map((n) => n.kind))].sort()).toEqual(
+      [...kinds].sort(),
+    );
+    for (const n of SERVER_ALERT_NOTIFICATIONS) {
+      expect(NOTIFICATIONS).toContainEqual(n);
+      expect(n.recipientIds).toEqual([]);
+      expect(n.objectCode).toMatch(/^SRV-\d+$/);
+    }
+  });
+
+  it("lo stato parte dal seme dei server; resetApi lo rimette, concessioni comprese", () => {
+    resetApi();
+    expect(state.servers).toEqual(SERVERS);
+    expect(state.serverChecks).toEqual(SERVER_CHECKS);
+    expect(state.serverEpisodes).toEqual(SERVER_EPISODES);
+    expect(state.serverAnalyses).toEqual(SERVER_ANALYSES);
+    expect([...state.serverAccess.values()]).toEqual(SERVER_ACCESS);
+    expect(state.serverMetrics.get("SRV-1")).toEqual(SERVER_METRICS.get("SRV-1"));
+    const check = SERVER_CHECKS[0]!.id;
+    expect(state.serverCheckSamples.get(check)).toEqual(CHECK_SAMPLES.get(check));
+    expect(state.serverCodeSeq).toBe(4);
+    expect(state.sshVerifyNext.size).toBe(0);
+    expect(state.fixCheckNext.size).toBe(0);
+    // Copie: cambiare lo stato non tocca il seme.
+    state.servers[0]!.name = "changed";
+    state.serverMetrics.get("SRV-1")!.pop();
+    state.serverAccess.get("SRV-1")!.revokedAt = NOW;
+    state.serverCodeSeq = 9;
+    revokeProjectPermission("p-marco", ACQ, "servers.operate");
+    expect(can(viewerFor("p-marco"), "servers.operate", ACQ)).toBe(false);
+    expect(SERVERS[0]!.name).not.toBe("changed");
+    expect(SERVER_METRICS.get("SRV-1")).toHaveLength(20_160);
+    expect(SERVER_ACCESS[0]!.revokedAt).toBeNull();
+    resetApi();
+    expect(state.servers[0]!.name).toBe(SERVERS[0]!.name);
+    expect(state.serverMetrics.get("SRV-1")).toHaveLength(20_160);
+    expect(state.serverAccess.get("SRV-1")!.revokedAt).toBeNull();
+    expect(state.serverCodeSeq).toBe(4);
+    expect(can(viewerFor("p-marco"), "servers.operate", ACQ)).toBe(true);
   });
 });

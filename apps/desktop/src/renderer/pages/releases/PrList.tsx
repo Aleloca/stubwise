@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { OpenPrView, QueueItem } from "../../data/releases";
 import type { MergeError } from "./MergeConfirm";
 import type { ProjectEnvironment } from "../../data/types";
+import { environmentServerFor } from "../../domain/releases/environmentServer";
 import { sameCommit } from "../../domain/releases/releaseStatus";
 import { Chevron, Menu, MenuGroup, RadioItem } from "../../tasks-ui/Menu";
 import { rowKeys } from "../home/blocks/BlockSection";
@@ -140,8 +141,10 @@ export function PrList({
   const ready = prs.filter((p) => (queueIds.has(p.id) || pinned[p.id]) && match(p));
   const notReady = prs.filter((p) => !queueIds.has(p.id) && !pinned[p.id] && match(p));
   const shownNotReady = full ? notReady : notReady.slice(0, NOT_READY_PAGE);
-  const staging = environments.filter((e) => e.kind === "staging" && e.reportedSha);
-  const onStaging = (p: OpenPrView) => staging.some((e) => sameCommit(p.headSha, e.reportedSha));
+  // «Già su staging?»: il server della repository della PR in uno staging (R-L2).
+  const staging = environments.filter((e) => e.kind === "staging");
+  const onStaging = (p: OpenPrView) =>
+    staging.some((e) => sameCommit(p.headSha, environmentServerFor(e, p.repositoryId)?.reportedSha));
 
   const row = (p: OpenPrView, isReady: boolean) => (
     <PrRow

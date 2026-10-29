@@ -3,17 +3,23 @@ import { daysFromToday } from "../dates";
 import { MERGE_SHAS } from "./releases";
 
 // Gli ambienti dell'area 8a: pura anagrafica, mai un bersaglio che Stubwise
-// esegue. La produzione ha il suo server monitorato (`SRV-<n>`, il cui
-// agente riporta il commit che gira); lo staging no. ACQ ha `SRV-1`, il
-// server dell'allarme di memoria già nel seme.
+// esegue. La produzione ha i suoi server monitorati (`SRV-<n>`, il cui
+// agente riporta il commit che gira); lo staging no.
 //
-// La numerazione dei server è fissata qui (ruling del controller, 28 ott):
-// `SRV-1` ACQ, `SRV-2` la produzione di STW, `SRV-3` quella di AUD. I server
-// dell'8b (il secondo di ACQ compreso) partono da `SRV-4` e si allineano a
-// questa numerazione, non il contrario.
+// R-L2 (maintainer, 29 ott 2026): in un ambiente il server si sceglie per
+// repository (`servers`, `repositoryId: null` = tutto il progetto), e un
+// rilascio guarda solo quello della sua repository. Una sola produzione per
+// progetto resta la regola.
+//
+// La numerazione dei server è fissata qui (ruling del controller, 28 ott;
+// R-L2 per `SRV-4`): `SRV-1` ACQ (che non ha repository: vale per tutto il
+// progetto), `SRV-2` la produzione di STW, `SRV-3` quella di AUD per
+// `audin-app`, `SRV-4` quella di AUD per `audin-admin`. I server creati
+// dall'app (area 8b) partono da `SRV-5`.
 //
 // - STW: la produzione riporta il merge di STW-V1, non quello di STW-V2.
-// - AUD: la produzione è ferma ad AUD-V2 (il deploy di AUD-V3 è fallito).
+// - AUD: `audin-app` è ferma ad AUD-V2 (il deploy di AUD-V3 è fallito);
+//   `audin-scripts` non ha un server, i suoi rilasci non si seguono.
 
 const at = (days: number, hm: string) => `${daysFromToday(-days)}T${hm}:00Z`;
 
@@ -24,9 +30,14 @@ export const ENVIRONMENTS: ProjectEnvironment[] = [
     name: "Production",
     kind: "production",
     url: "https://demo.stubwise.test",
-    serverCode: "SRV-2",
-    reportedSha: MERGE_SHAS.stwV1,
-    reportedAt: at(0, "11:55"),
+    servers: [
+      {
+        repositoryId: null,
+        serverCode: "SRV-2",
+        reportedSha: MERGE_SHAS.stwV1,
+        reportedAt: at(0, "11:55"),
+      },
+    ],
   },
   {
     id: "env-stw-staging",
@@ -34,9 +45,7 @@ export const ENVIRONMENTS: ProjectEnvironment[] = [
     name: "Staging",
     kind: "staging",
     url: "https://staging.stubwise.test",
-    serverCode: null,
-    reportedSha: null,
-    reportedAt: null,
+    servers: [],
   },
   {
     id: "env-aud-prod",
@@ -44,9 +53,20 @@ export const ENVIRONMENTS: ProjectEnvironment[] = [
     name: "Production",
     kind: "production",
     url: "https://app.audin.test",
-    serverCode: "SRV-3",
-    reportedSha: MERGE_SHAS.audV2,
-    reportedAt: at(0, "11:50"),
+    servers: [
+      {
+        repositoryId: "repo-aud",
+        serverCode: "SRV-3",
+        reportedSha: MERGE_SHAS.audV2,
+        reportedAt: at(0, "11:50"),
+      },
+      {
+        repositoryId: "repo-aud-admin",
+        serverCode: "SRV-4",
+        reportedSha: "3e5a7c9b1d2f4e6a8c0b2d4f6e8a1c3b5d7f9e0a",
+        reportedAt: at(0, "11:52"),
+      },
+    ],
   },
   {
     id: "env-aud-staging",
@@ -54,9 +74,7 @@ export const ENVIRONMENTS: ProjectEnvironment[] = [
     name: "Staging",
     kind: "staging",
     url: "https://staging.audin.test",
-    serverCode: null,
-    reportedSha: null,
-    reportedAt: null,
+    servers: [],
   },
   {
     id: "env-acq-prod",
@@ -64,8 +82,13 @@ export const ENVIRONMENTS: ProjectEnvironment[] = [
     name: "Production",
     kind: "production",
     url: "https://portale.acquedottocolline.test",
-    serverCode: "SRV-1",
-    reportedSha: "e9f8d7c6b5a4e3f2d1c0b9a8f7e6d5c4b3a2f1e0",
-    reportedAt: at(0, "11:58"),
+    servers: [
+      {
+        repositoryId: null,
+        serverCode: "SRV-1",
+        reportedSha: "e9f8d7c6b5a4e3f2d1c0b9a8f7e6d5c4b3a2f1e0",
+        reportedAt: at(0, "11:58"),
+      },
+    ],
   },
 ];

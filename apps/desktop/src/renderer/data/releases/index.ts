@@ -33,6 +33,7 @@ export {
   type CorrectionRequestResult,
   type FixResult,
   type EnvironmentInput,
+  type EnvironmentServerInput,
   type MergeError,
   type MergeResult,
 } from "./writes";

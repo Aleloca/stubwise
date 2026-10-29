@@ -102,9 +102,14 @@ describe("customerStatus", () => {
           name: "Production",
           kind: "production",
           url: null,
-          serverCode: "SRV-1",
-          reportedSha: "0a2c4e6b8d0f2a4c6e8b0d2f4a6c8e0b2d4f6a8c",
-          reportedAt: "2026-10-29T09:00:00Z",
+          servers: [
+            {
+              repositoryId: null,
+              serverCode: "SRV-1",
+              reportedSha: "0a2c4e6b8d0f2a4c6e8b0d2f4a6c8e0b2d4f6a8c",
+              reportedAt: "2026-10-29T09:00:00Z",
+            },
+          ],
         },
       },
     ).kind;

@@ -898,7 +898,8 @@
         "webhook": "Webhook",
         "widget": "Widget",
         "email": "Email",
-        "automation": "Automazione"
+        "automation": "Automazione",
+        "server": "Server"
       }
     },
     "technical": {
@@ -2433,7 +2434,8 @@
         "brief": "Brief",
         "daily_report": "Report giornaliero",
         "mail_classify": "Posta",
-        "intake": "Intake"
+        "intake": "Intake",
+        "server_analysis": "Analisi del server"
       },
       "status": {
         "working": "Al lavoro",
@@ -6543,6 +6545,10 @@
       "url": "URL",
       "server": "Server",
       "serverHint": "Il server monitorato il cui agente riporta il commit che gira, es. SRV-3. Vuoto se nessuno.",
+      "serverHintRepos": "Il server monitorato di tutto il progetto, es. SRV-3. Una repository che gira altrove ha il suo qui sotto.",
+      "byRepository": "Per repository",
+      "sameAsProject": "Come il progetto",
+      "allRepositories": "Tutte le repository",
       "productionExists": "{{name}} è già l'ambiente di produzione di questo progetto.",
       "more": "Altro per {{name}}",
       "edit": "Modifica",
@@ -6554,6 +6560,7 @@
         "name": "Dai un nome all'ambiente.",
         "url": "L'URL deve cominciare con http:// o https://.",
         "serverCode": "Il codice di un server è come SRV-3.",
+        "repository": "Ogni repository gira su un server solo.",
         "production_exists": "Questo progetto ha già un ambiente di produzione.",
         "generic": "Non è stato possibile salvare l'ambiente."
       }

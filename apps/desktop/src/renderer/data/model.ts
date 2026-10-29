@@ -120,8 +120,9 @@ export type TaskLinkKind = StoredLinkKind | "blocked_by" | "child";
 
 /**
  * Da dove è arrivata una task: a mano, da un'integrazione (SDK, API, Slack,
- * webhook, widget), dalla posta o da un'automazione. Al posto di `source` del
- * ticket del web (dove l'SDK distingue errore e feedback).
+ * webhook, widget), dalla posta, da un'automazione o dall'analisi di un
+ * server (area 8b). Al posto di `source` del ticket del web (dove l'SDK
+ * distingue errore e feedback).
  */
 export type TaskSource =
   | "manual"
@@ -131,7 +132,8 @@ export type TaskSource =
   | "webhook"
   | "widget"
   | "email"
-  | "automation";
+  | "automation"
+  | "server";
 
 export interface ManualStall {
   reason: string;
@@ -181,6 +183,11 @@ export interface Task {
   automationRef?: AutomationRef;
   /** Creata da «Fai sistemare a Claude» su un rilascio fallito (area 8a). */
   releaseRef?: { releaseId: string };
+  /**
+   * Legata a un server (area 8b): la apre l'analisi automatica di un
+   * episodio. È l'unica porta della correzione da task (anti-obiettivo 2).
+   */
+  serverRef?: { serverCode: string; episodeId: string | null };
 }
 
 /** L'automazione e l'esecuzione che hanno creato una task o un traguardo (area 7). */
@@ -603,7 +610,8 @@ export interface StatusInput {
  * Il tipo di una conversazione con Claude: libera (aperta da una persona) o
  * una sessione di lavoro — esecuzione di una task, refine di una richiesta,
  * sessioni automatiche (review della PR, Docs, brief, report giornaliero,
- * classificazione della posta, stima e merge dell'intake).
+ * classificazione della posta, stima e merge dell'intake, analisi di un
+ * server in sola lettura — area 8b).
  */
 export type ConversationKind =
   | "free"
@@ -614,7 +622,8 @@ export type ConversationKind =
   | "brief"
   | "daily_report"
   | "mail_classify"
-  | "intake";
+  | "intake"
+  | "server_analysis";
 export type ConversationState =
   | "working"
   | "awaiting_answer"
@@ -672,6 +681,11 @@ export interface Conversation {
    * spiegarlo» su un rilascio, area 8a). Resta di chi la apre (privacy area 3).
    */
   context?: { kind: "release"; releaseId: string } | null;
+  /**
+   * Solo `task_run`: la correzione di un server (area 8b), avviata da una
+   * task con `serverRef`. Il suo piano va sempre approvato da una persona.
+   */
+  serverFix?: { serverCode: string };
 }
 
 export interface Attachment {
@@ -830,7 +844,10 @@ export type ConversationEvent =
         | "correction"
         | "design_updated"
         | "plan_updated"
-        | "estimate_updated";
+        | "estimate_updated"
+        // Area 8b: la diagnosi dell'analisi di un server, il controllo finale della correzione.
+        | "server_diagnosis"
+        | "server_check";
       text: string;
       link?: string;
       /** Nel refine: i campi della richiesta che questa riga ha scritto (già eseguito). */
@@ -2572,18 +2589,197 @@ export interface Release {
   fixTaskId: string | null;
 }
 
-/** Un ambiente del progetto: pura anagrafica, mai un bersaglio che Stubwise esegue. */
+/**
+ * Su quale server gira una repository in un ambiente, e cosa ci riporta
+ * l'agente (R-L2, maintainer 29 ott 2026): repository diverse dello stesso
+ * progetto possono girare su server diversi.
+ */
+export interface EnvironmentServer {
+  /**
+   * La repository; `null` = tutto il progetto (un progetto senza repository,
+   * o le repository che non hanno una riga propria).
+   */
+  repositoryId: string | null;
+  /** Il server monitorato (`SRV-<n>`) il cui agente riporta il commit. */
+  serverCode: string;
+  /** Il commit che l'agente riporta per quella repository (o per il progetto). */
+  reportedSha: string | null;
+  reportedAt: string | null;
+}
+
+/**
+ * Un ambiente del progetto: pura anagrafica, mai un bersaglio che Stubwise
+ * esegue. Un solo ambiente di produzione per progetto; dentro, al più una
+ * riga di `servers` per repository e al più una per tutto il progetto. Un
+ * rilascio legge solo il server della SUA repository
+ * (`environmentServerFor` in `domain/releases/environmentServer.ts`).
+ */
 export interface ProjectEnvironment {
   id: string;
   projectId: string;
   name: string;
   kind: "test" | "staging" | "production";
   url: string | null;
-  /** Il server monitorato (`SRV-<n>`) il cui agente riporta il commit. */
-  serverCode: string | null;
-  reportedSha: string | null;
-  reportedAt: string | null;
+  servers: EnvironmentServer[];
 }
+
+// --- area 8b: server ----------------------------------------------------------
+
+/** Le soglie di un server; `null` = soglia spenta. Di base quelle del web: 95/90/90, 5 minuti. */
+export interface ServerThresholds {
+  cpuPct: number | null;
+  memPct: number | null;
+  diskPct: number | null;
+  sustainedMinutes: number;
+}
+
+/** Un controllo (come il monitor del web); stato e latenza sono quelli dell'ultimo campione. */
+export interface ServerCheck {
+  id: string;
+  serverCode: string;
+  name: string;
+  type: "http" | "tcp" | "process" | "postgres" | "mysql";
+  target: string;
+  intervalSeconds: number;
+  enabled: boolean;
+  status: "up" | "down" | "unknown";
+  latencyMs: number | null;
+  lastError: string | null;
+}
+
+/**
+ * Un campione di un controllo (R-L1): fa il grafico «Response time» del
+ * controllo selezionato, con le fasce dei momenti in cui era giù. Giù: senza
+ * latenza.
+ */
+export interface CheckSample {
+  ts: string;
+  status: "up" | "down";
+  latencyMs: number | null;
+}
+
+/** Un servizio che l'agente vede: un container docker o un processo pm2. */
+export interface ServerService {
+  name: string;
+  source: "docker" | "pm2";
+  state: string;
+  cpuPct: number | null;
+  memBytes: number | null;
+  restarts: number | null;
+  image?: string;
+}
+
+export interface ServerDisk {
+  mount: string;
+  usedBytes: number;
+  totalBytes: number;
+}
+
+/** Un campione dell'agente (ogni `sampleIntervalSeconds`); la rete in byte nell'intervallo. */
+export interface MetricPoint {
+  ts: string;
+  cpuPct: number;
+  memPct: number;
+  diskPct: number;
+  load1m: number;
+  netRxBytes: number;
+  netTxBytes: number;
+}
+
+/**
+ * Un server monitorato, oggetto d'istanza: appartiene ai progetti
+ * attraverso gli ambienti (`EnvironmentServer.serverCode`).
+ */
+export interface MonitoredServer {
+  id: string;
+  /** `SRV-<n>`, d'istanza, mai riusato. */
+  code: string;
+  name: string;
+  hostname: string | null;
+  status: "online" | "offline" | "never_connected";
+  agentVersion: string | null;
+  lastSeenAt: string | null;
+  sampleIntervalSeconds: number;
+  thresholds: ServerThresholds;
+  services: ServerService[];
+  disks: ServerDisk[];
+  /** Dove si apre la diagnosi quando il server è in produzione di più progetti. */
+  primaryProjectId: string | null;
+  createdAt: string;
+  /** Solo prototipo: se l'SSH risponde («Simula server irraggiungibile»). */
+  sshReachable: boolean;
+}
+
+/** Perché un server è in difficoltà o non risponde. */
+export type EpisodeReason =
+  | { kind: "cpu" | "memory" | "disk"; valuePct: number; thresholdPct: number }
+  | { kind: "check"; checkId: string }
+  | { kind: "agent_silent"; since: string };
+
+/** Un episodio: dall'allarme al rientro; un secondo allarme durante si aggiunge ai motivi. */
+export interface ServerEpisode {
+  id: string;
+  serverCode: string;
+  severity: "trouble" | "down";
+  reasons: EpisodeReason[];
+  startedAt: string;
+  recoveredAt: string | null;
+  analysisId: string | null;
+}
+
+/** L'analisi automatica di un episodio, in sola lettura: una sessione e, alla fine, una task. */
+export interface ServerAnalysis {
+  id: string;
+  serverCode: string;
+  episodeId: string;
+  projectId: string;
+  conversationId: string;
+  outcome: "running" | "diagnosed" | "unreachable" | "timed_out";
+  taskId: string | null;
+  startedAt: string;
+  endedAt: string | null;
+}
+
+/** I due accessi SSH di un server: lettura (`stubwise-read`) e correzione (`stubwise-fix`). */
+export type SshAccessKind = "read" | "fix";
+
+/** Una chiave pubblica (`ssh-ed25519 AAAA… stubwise-read@SRV-1`); la privata sta solo in `data/servers/secrets.ts`. */
+export interface SshPublicKey {
+  publicKey: string;
+  fingerprint: string;
+  createdAt: string;
+}
+
+/** L'ultimo uso di un accesso: quando, e da quale analisi o task. */
+export interface SshUse {
+  at: string;
+  ref: { kind: "analysis"; analysisId: string } | { kind: "task"; taskId: string };
+}
+
+/**
+ * Lo stato degli accessi SSH di un server (nessuna riga = non collegato).
+ * `pending`: chiavi generate e non ancora verificate — le prime (in attesa
+ * del comando, `keys` nullo) o quelle di una rigenerazione (le vecchie in
+ * `keys` restano valide finché la verifica delle nuove non riesce).
+ */
+export interface ServerSshAccess {
+  serverCode: string;
+  keys: Record<SshAccessKind, SshPublicKey> | null;
+  pending: Record<SshAccessKind, SshPublicKey> | null;
+  verification: {
+    at: string;
+    read: "ok" | "failed" | "writes";
+    fix: "ok" | "failed";
+    reason: string | null;
+    /** La verifica era delle chiavi in `pending`. */
+    ofPending: boolean;
+  } | null;
+  lastUse: Partial<Record<SshAccessKind, SshUse>>;
+  revokedAt: string | null;
+}
+
+/** L'esito simulato della prossima «Verifica» di un accesso (solo prototipo). */
+export type VerifyOutcome = "ok" | "read_fails" | "fix_fails" | "read_writes" | "unreachable";
 
 /**
  * Un'iscrizione a un tipo di avviso in un progetto. Nessuna riga = il

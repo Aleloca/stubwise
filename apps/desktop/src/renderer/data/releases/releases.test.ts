@@ -126,7 +126,11 @@ describe("letture", () => {
     expect(await releases.getRelease("AUD-V99")).toBeNull();
     expect(await releases.listReleases(AUD)).toEqual([]);
     expect(await releases.listOpenPrs(AUD)).toEqual([]);
-    expect(await releases.listEnvironments(AUD)).toEqual({ canManage: false, environments: [] });
+    expect(await releases.listEnvironments(AUD)).toEqual({
+      canManage: false,
+      environments: [],
+      repositories: [],
+    });
     expect(await releases.getRepositorySettings(AUD)).toBeNull();
     expect(await releases.searchReleases("AUD-V")).toEqual([]);
     await expect(releases.fixRelease("AUD-V3")).rejects.toThrow("not_found");
@@ -596,17 +600,19 @@ describe("Review Focus 3: stato del rilascio ai bordi (livello dati)", () => {
 
   it("ambiente di produzione senza server → non disponibile; sha corto o maiuscolo", async () => {
     as("p-laura");
-    await releases.updateEnvironment("env-stw-prod", { serverCode: null });
+    await releases.updateEnvironment("env-stw-prod", { servers: [] });
     expect((await releases.getRelease("STW-V2"))!.status).toMatchObject({
       kind: "unavailable",
       reason: "no_server",
     });
+    await releases.updateEnvironment("env-stw-prod", {
+      servers: [{ repositoryId: null, serverCode: "SRV-2" }],
+    });
     const env = state.environments.find((e) => e.id === "env-stw-prod")!;
-    env.serverCode = "SRV-2";
     const sha = state.releases.find((r) => r.code === "STW-V2")!.mergeSha;
-    env.reportedSha = sha.slice(0, 6);
+    env.servers[0]!.reportedSha = sha.slice(0, 6);
     expect((await releases.getRelease("STW-V2"))!.status.kind).toBe("not_in_production");
-    env.reportedSha = sha.slice(0, 7).toUpperCase();
+    env.servers[0]!.reportedSha = sha.slice(0, 7).toUpperCase();
     expect((await releases.getRelease("STW-V2"))!.status.kind).toBe("in_production");
   });
 
@@ -665,7 +671,60 @@ describe("Review Focus 3: stato del rilascio ai bordi (livello dati)", () => {
     const v = await releases.simulateSeenOnServer("STW-V2");
     expect(v.status.kind).toBe("in_production");
     const env = state.environments.find((e) => e.id === "env-stw-prod")!;
-    expect(env.reportedSha).toBe(state.releases.find((r) => r.code === "STW-V2")!.mergeSha);
+    expect(env.servers[0]!.reportedSha).toBe(
+      state.releases.find((r) => r.code === "STW-V2")!.mergeSha,
+    );
+  });
+
+  it("R-L2: un rilascio di audin-admin guarda SRV-4, non SRV-3", async () => {
+    as("p-laura");
+    const sha = "7c1e9a4b2d6f8e0a3c5b7d9f1e2a4c6b8d0f2e4a";
+    state.releases.push({
+      ...structuredClone(state.releases.find((r) => r.code === "AUD-V2")!),
+      id: "rel-aud-admin-x",
+      code: "AUD-V9",
+      repositoryId: "repo-aud-admin",
+      pr: { repo: "audin/audin-admin", number: 31 },
+      mergeSha: sha,
+      runs: [],
+      seenInProductionAt: null,
+      fixTaskId: null,
+    });
+    const prod = state.environments.find((e) => e.id === "env-aud-prod")!;
+    const slot = (code: string) => prod.servers.find((s) => s.serverCode === code)!;
+    expect(slot("SRV-3").repositoryId).toBe("repo-aud");
+    expect(slot("SRV-4").repositoryId).toBe("repo-aud-admin");
+    // Il commit sul server di audin-app non dice niente di audin-admin.
+    slot("SRV-3").reportedSha = sha;
+    expect((await releases.getRelease("AUD-V9"))!.status.kind).toBe("not_in_production");
+    slot("SRV-4").reportedSha = sha.slice(0, 7);
+    expect((await releases.getRelease("AUD-V9"))!.status.kind).toBe("in_production");
+    // E «Simula comparsa sul server» scrive solo sul server della sua repository.
+    slot("SRV-3").reportedSha = null;
+    slot("SRV-4").reportedSha = null;
+    const before = structuredClone(slot("SRV-3"));
+    await releases.simulateSeenOnServer("AUD-V9");
+    expect(slot("SRV-4").reportedSha).toBe(sha);
+    expect(slot("SRV-3")).toEqual(before);
+  });
+
+  it("R-L2: una repository senza server nell'ambiente → non disponibile, e niente comparsa simulata", async () => {
+    as("p-laura");
+    state.releases.push({
+      ...structuredClone(state.releases.find((r) => r.code === "AUD-V2")!),
+      id: "rel-aud-scripts-x",
+      code: "AUD-V8",
+      repositoryId: "repo-aud-scripts",
+      mergeSha: "1b3d5f7a9c0e2b4d6f8a0c2e4b6d8f0a1c3e5b7d",
+      runs: [],
+      seenInProductionAt: null,
+      fixTaskId: null,
+    });
+    expect((await releases.getRelease("AUD-V8"))!.status).toMatchObject({
+      kind: "unavailable",
+      reason: "no_server",
+    });
+    await expect(releases.simulateSeenOnServer("AUD-V8")).rejects.toThrow("invalid: environment");
   });
 
   it("doppio clic su «Fai sistemare a Claude»: una sola task", async () => {
@@ -789,19 +848,23 @@ describe("ambienti: environments.manage", () => {
   it("crea, modifica, toglie; Giulia no", async () => {
     as("p-giulia");
     await expect(
-      releases.createEnvironment(AUD, { name: "QA", kind: "test", url: null, serverCode: null }),
+      releases.createEnvironment(AUD, { name: "QA", kind: "test", url: null, servers: [] }),
     ).rejects.toThrow("forbidden");
     as("p-laura");
+    const one = (serverCode: string) => [{ repositoryId: null, serverCode }];
     await expect(
-      releases.createEnvironment(AUD, { name: "QA", kind: "test", url: null, serverCode: "srv1" }),
+      releases.createEnvironment(AUD, { name: "QA", kind: "test", url: null, servers: one("srv1") }),
     ).rejects.toThrow("invalid: serverCode");
     const env = await releases.createEnvironment(AUD, {
       name: " QA ",
       kind: "test",
       url: "https://qa.audin.test",
-      serverCode: null,
+      servers: [{ repositoryId: null, serverCode: " srv-7 " }],
     });
-    expect(env).toMatchObject({ name: "QA", projectId: AUD, reportedSha: null });
+    expect(env).toMatchObject({ name: "QA", projectId: AUD });
+    expect(env.servers).toEqual([
+      { repositoryId: null, serverCode: "SRV-7", reportedSha: null, reportedAt: null },
+    ]);
     await releases.updateEnvironment(env.id, { name: "QA 2" });
     await releases.deleteEnvironment(env.id);
     expect(state.environments.some((e) => e.id === env.id)).toBe(false);
@@ -817,7 +880,7 @@ describe("ambienti: environments.manage", () => {
         name: "Prod 2",
         kind: "production",
         url: null,
-        serverCode: null,
+        servers: [],
       }),
     ).rejects.toThrow("invalid: production_exists");
     await expect(
@@ -828,6 +891,45 @@ describe("ambienti: environments.manage", () => {
     await releases.updateEnvironment("env-aud-prod", { kind: "production", name: "Prod" });
     await releases.deleteEnvironment("env-aud-prod");
     await releases.updateEnvironment("env-aud-staging", { kind: "production" });
+  });
+
+  it("R-L2: un server per repository, le repository del progetto nell'elenco", async () => {
+    as("p-laura");
+    const list = await releases.listEnvironments(AUD);
+    expect(list.repositories).toEqual([
+      { id: "repo-aud", name: "audin-app" },
+      { id: "repo-aud-admin", name: "audin-admin" },
+      { id: "repo-aud-scripts", name: "audin-scripts" },
+    ]);
+    // Una repository di un altro progetto, o la stessa due volte: rifiutate.
+    await expect(
+      releases.updateEnvironment("env-aud-prod", {
+        servers: [{ repositoryId: "repo-stw", serverCode: "SRV-3" }],
+      }),
+    ).rejects.toThrow("invalid: repository");
+    await expect(
+      releases.updateEnvironment("env-aud-prod", {
+        servers: [
+          { repositoryId: "repo-aud", serverCode: "SRV-3" },
+          { repositoryId: "repo-aud", serverCode: "SRV-4" },
+        ],
+      }),
+    ).rejects.toThrow("invalid: repository");
+    // Cambiare il server di una repository azzera solo il suo commit riportato.
+    const prod = state.environments.find((e) => e.id === "env-aud-prod")!;
+    const app = structuredClone(prod.servers.find((s) => s.repositoryId === "repo-aud")!);
+    await releases.updateEnvironment("env-aud-prod", {
+      servers: [
+        { repositoryId: "repo-aud", serverCode: "SRV-3" },
+        { repositoryId: "repo-aud-admin", serverCode: "SRV-5" },
+        { repositoryId: "repo-aud-scripts", serverCode: "SRV-3" },
+      ],
+    });
+    expect(prod.servers).toEqual([
+      app,
+      { repositoryId: "repo-aud-admin", serverCode: "SRV-5", reportedSha: null, reportedAt: null },
+      { repositoryId: "repo-aud-scripts", serverCode: "SRV-3", reportedSha: null, reportedAt: null },
+    ]);
   });
 });
 

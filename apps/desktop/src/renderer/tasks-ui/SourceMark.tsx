@@ -23,6 +23,8 @@ const PATHS: Record<TaskSource, string> = {
   email: "M2.75 4.25h10.5v7.5H2.75zM2.75 4.75 8 8.75l5.25-4",
   // Fulmine dell'automazione.
   automation: "M9 2.25 4 9h3.5L7 13.75 12 7H8.5L9 2.25Z",
+  // Server a due cassetti (area 8b: l'analisi di un server).
+  server: "M3 3h10v4.25H3zM3 8.75h10V13H3zM5.25 5.1h.01M5.25 10.9h.01",
 };
 
 export function SourceIcon({ source }: { source: TaskSource }) {

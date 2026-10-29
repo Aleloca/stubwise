@@ -66,17 +66,22 @@ export interface EnvironmentList {
   /** `environments.manage`: aggiungere, modificare, togliere. */
   canManage: boolean;
   environments: ProjectEnvironment[];
+  /** Le repository del progetto, per dire su quale server gira ognuna (R-L2). */
+  repositories: { id: string; name: string }[];
 }
 
 /** Gli ambienti del progetto: pura anagrafica (anti-obiettivo 1). */
 export async function listEnvironments(projectId: string): Promise<EnvironmentList> {
   const me = await gate("releases.listEnvironments");
-  if (!sees(me, projectId)) return { canManage: false, environments: [] };
+  if (!sees(me, projectId)) return { canManage: false, environments: [], repositories: [] };
   return {
     canManage: holds(me, "environments.manage", projectId),
     environments: state.environments
       .filter((e) => e.projectId === projectId)
       .map((e) => structuredClone(e)),
+    repositories: state.repositories
+      .filter((r) => r.projectId === projectId)
+      .map((r) => ({ id: r.id, name: r.name })),
   };
 }
 

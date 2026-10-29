@@ -64,6 +64,11 @@ import { OPEN_PRS } from "./seed/releases/prs";
 import { RELEASES } from "./seed/releases/releases";
 import { SUPPORT_CONVERSATIONS } from "./seed/support/conversations";
 import { SUPPORT_WIDGETS } from "./seed/support/widgets";
+import { SERVER_ACCESS } from "./seed/servers/access";
+import { SERVER_ANALYSES } from "./seed/servers/analysis";
+import { SERVER_EPISODES } from "./seed/servers/episodes";
+import { CHECK_SAMPLES, SERVER_METRICS } from "./seed/servers/metrics";
+import { SERVERS, SERVER_CHECKS } from "./seed/servers/servers";
 import { DEFAULT_SESSION_PERSON_ID, getSessionPersonId, setSessionPersonId } from "./session";
 import type {
   ActivityEntry,
@@ -130,6 +135,14 @@ import type {
   Repository,
   SupportConversation,
   SupportWidget,
+  CheckSample,
+  MetricPoint,
+  MonitoredServer,
+  ServerAnalysis,
+  ServerCheck,
+  ServerEpisode,
+  ServerSshAccess,
+  VerifyOutcome,
 } from "./types";
 import { can, resetViewerGrants, viewerFor } from "./viewer";
 
@@ -718,6 +731,23 @@ interface State {
   releaseCodeSeq: Map<string, number>;
   /** L'ultimo numero di codice `<PRJ>-S<n>` dato, per progetto: un codice non si riusa. */
   supportCodeSeq: Map<string, number>;
+  // --- Server (area 8b) ---
+  servers: MonitoredServer[];
+  serverChecks: ServerCheck[];
+  /** I campioni dell'agente, per codice del server, in ordine di tempo. */
+  serverMetrics: Map<string, MetricPoint[]>;
+  /** I campioni dei controlli (stato e latenza, R-L1), per id del controllo. */
+  serverCheckSamples: Map<string, CheckSample[]>;
+  serverEpisodes: ServerEpisode[];
+  serverAnalyses: ServerAnalysis[];
+  /** Gli accessi SSH, per codice del server; nessuna riga = non collegato. */
+  serverAccess: Map<string, ServerSshAccess>;
+  /** L'ultimo numero di `SRV-<n>` dato, d'istanza: un codice non si riusa. */
+  serverCodeSeq: number;
+  /** Solo prototipo: l'esito della prossima «Verifica» di un accesso, per server. */
+  sshVerifyNext: Map<string, VerifyOutcome>;
+  /** Solo prototipo: l'esito del controllo finale della prossima correzione, per server. */
+  fixCheckNext: Map<string, "resolved" | "not_resolved">;
 }
 
 /** L'ultimo numero di un codice `<PRJ>-<lettera><n>` per progetto, dalle righe del seme. */
@@ -845,6 +875,19 @@ function freshState(): State {
     supportWidgets: SUPPORT_WIDGETS.map(copy),
     releaseCodeSeq: initialCodeSeq(RELEASES),
     supportCodeSeq: initialCodeSeq(SUPPORT_CONVERSATIONS),
+    servers: SERVERS.map(copy),
+    serverChecks: SERVER_CHECKS.map(copy),
+    // Decine di migliaia di campioni per serie: i punti del seme sono
+    // congelati e condivisi, si copiano solo gli array (un campione nuovo si
+    // aggiunge, non si modifica).
+    serverMetrics: new Map([...SERVER_METRICS].map(([code, points]) => [code, [...points]])),
+    serverCheckSamples: new Map([...CHECK_SAMPLES].map(([id, samples]) => [id, [...samples]])),
+    serverEpisodes: SERVER_EPISODES.map(copy),
+    serverAnalyses: SERVER_ANALYSES.map(copy),
+    serverAccess: new Map(SERVER_ACCESS.map((a) => [a.serverCode, copy(a)])),
+    serverCodeSeq: Math.max(...SERVERS.map((s) => Number(s.code.slice("SRV-".length)))),
+    sshVerifyNext: new Map(),
+    fixCheckNext: new Map(),
   };
 }
 
@@ -1066,6 +1109,7 @@ const AUTOMATIC_KINDS: ReadonlySet<ConversationKind> = new Set([
   "daily_report",
   "mail_classify",
   "intake",
+  "server_analysis",
 ]);
 
 export const eventsOf = (conversationId: string): ConversationEvent[] =>
@@ -1170,6 +1214,8 @@ export function conversationPermissions(
     canClose: refiner && live,
     canStartNew: refiner && !live && refinable,
     readOnlyReason,
+    // La correzione dei server (Task 6 dell'area 8b) lo valorizza.
+    planBlockedReason: null,
   };
 }
 

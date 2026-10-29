@@ -15,6 +15,7 @@ import { DEPARTMENTS } from "./departments";
 import { MILESTONES } from "./milestones";
 import { PEOPLE } from "./people";
 import { PROJECTS } from "./projects";
+import { SERVER_TASKS } from "./servers/analysis";
 import { statusIdOf } from "./statuses";
 
 // Titoli per reparto (chiave = id reparto). Generati in modo deterministico
@@ -317,4 +318,6 @@ export const TASKS: Task[] = [
   }),
   // Create dalle esecuzioni delle automazioni del seme (area 7).
   ...AUTOMATION_TASKS,
+  // La diagnosi dell'analisi di SRV-1 (area 8b).
+  ...SERVER_TASKS,
 ];

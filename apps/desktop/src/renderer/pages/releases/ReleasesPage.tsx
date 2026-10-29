@@ -177,6 +177,7 @@ export function ReleasesPage({ projectCode }: { projectCode: string }) {
           projectCode={projectCode}
           canManage={envs.data.canManage}
           environments={envs.data?.environments ?? []}
+          repositories={envs.data?.repositories ?? []}
           releases={releases.data ?? []}
         />
       )}

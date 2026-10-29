@@ -330,6 +330,34 @@ describe("Releases — ambienti", () => {
     expect(state.environments.some((e) => e.name === "Preview" && e.kind === "test")).toBe(true);
   });
 
+  it("R-L2: un server per repository, ognuno col suo commit; si cambia dal dialogo", async () => {
+    await openSection();
+    const part = screen.getByRole("region", { name: /^Environments/ });
+    const row = (code: string) =>
+      part.querySelector<HTMLElement>(`[data-environment-server="${code}"]`)!;
+    expect(within(row("SRV-3")).getByText("audin-app")).toBeInTheDocument();
+    expect(within(row("SRV-3")).getByText(/runs f2a4c6e · = AUD-V2/)).toBeInTheDocument();
+    expect(within(row("SRV-4")).getByText("audin-admin")).toBeInTheDocument();
+    await userEvent.click(within(part).getByRole("button", { name: "More for Production" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Edit" }));
+    const dialog = await screen.findByRole("dialog", { name: "Edit environment" });
+    const group = within(dialog).getByRole("group", { name: "By repository" });
+    expect(within(group).getByRole("textbox", { name: "audin-admin" })).toHaveValue("SRV-4");
+    const scripts = within(group).getByRole("textbox", { name: "audin-scripts" });
+    expect(scripts).toHaveValue("");
+    await userEvent.type(scripts, "srv-4");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const prod = state.environments.find((e) => e.id === "env-aud-prod")!;
+    expect(prod.servers.map((s) => [s.repositoryId, s.serverCode])).toEqual([
+      ["repo-aud", "SRV-3"],
+      ["repo-aud-admin", "SRV-4"],
+      ["repo-aud-scripts", "SRV-4"],
+    ]);
+    // Le righe che non cambiano tengono il commit riportato dall'agente.
+    expect(prod.servers[0]!.reportedSha).not.toBeNull();
+  });
+
   it("senza environments.manage (Elena, Legacy Member): sola lettura", async () => {
     await openSection("p-elena");
     const part = screen.getByRole("region", { name: /^Environments/ });

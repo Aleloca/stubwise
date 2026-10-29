@@ -14,6 +14,7 @@ import { copy, latestRunOf, newId, now, state, storeGeneration } from "../store"
 import type {
   ColleaguePrMode,
   Conversation,
+  EnvironmentServer,
   PrAutoCorrection,
   ProjectEnvironment,
   Release,
@@ -395,20 +396,56 @@ export async function explainRelease(code: string): Promise<Conversation & { reu
 
 // --- ambienti -----------------------------------------------------------------
 
+/** Su quale server gira una repository (`null` = tutto il progetto): R-L2. */
+export interface EnvironmentServerInput {
+  repositoryId: string | null;
+  serverCode: string;
+}
+
 export interface EnvironmentInput {
   name: string;
   kind: ProjectEnvironment["kind"];
   url: string | null;
-  serverCode: string | null;
+  /** L'insieme completo dei server dell'ambiente; vuoto = nessuno. */
+  servers: EnvironmentServerInput[];
 }
 
 const ENV_KINDS: readonly ProjectEnvironment["kind"][] = ["test", "staging", "production"];
 
-function checkEnvironment(input: Partial<EnvironmentInput>): void {
+const serverCodeOf = (s: EnvironmentServerInput) => s.serverCode.trim().toUpperCase();
+
+function checkEnvironment(projectId: string, input: Partial<EnvironmentInput>): void {
   if (input.name !== undefined && !input.name.trim()) throw invalid("name");
   if (input.kind !== undefined && !ENV_KINDS.includes(input.kind)) throw invalid("kind");
   if (input.url && !/^https?:\/\/\S+$/.test(input.url.trim())) throw invalid("url");
-  if (input.serverCode && !/^SRV-\d+$/.test(input.serverCode)) throw invalid("serverCode");
+  if (input.servers === undefined) return;
+  for (const s of input.servers) {
+    if (!/^SRV-\d+$/.test(serverCodeOf(s))) throw invalid("serverCode");
+    if (s.repositoryId !== null && repositoryById(s.repositoryId)?.projectId !== projectId) {
+      throw invalid("repository");
+    }
+  }
+  // Una riga per repository, e una sola per tutto il progetto.
+  const keys = input.servers.map((s) => s.repositoryId);
+  if (new Set(keys).size !== keys.length) throw invalid("repository");
+}
+
+/**
+ * Le righe dei server dopo una modifica: una riga che resta sulla stessa
+ * repository e sullo stesso server tiene il commit riportato; le altre
+ * ripartono senza (il commit era del vecchio agente).
+ */
+function serverRows(
+  before: EnvironmentServer[],
+  input: EnvironmentServerInput[],
+): EnvironmentServer[] {
+  return input.map((s) => {
+    const serverCode = serverCodeOf(s);
+    const same = before.find(
+      (b) => b.repositoryId === s.repositoryId && b.serverCode === serverCode,
+    );
+    return same ?? { repositoryId: s.repositoryId, serverCode, reportedSha: null, reportedAt: null };
+  });
 }
 
 export async function createEnvironment(
@@ -418,7 +455,7 @@ export async function createEnvironment(
   const me = await writer("releases.createEnvironment");
   if (!sees(me, projectId)) throw notFound();
   if (!holds(me, "environments.manage", projectId)) throw forbidden();
-  checkEnvironment(input);
+  checkEnvironment(projectId, input);
   if (input.kind === "production" && productionOf(projectId)) throw invalid("production_exists");
   const env: ProjectEnvironment = {
     id: newId("env"),
@@ -426,15 +463,13 @@ export async function createEnvironment(
     name: input.name.trim(),
     kind: input.kind,
     url: input.url?.trim() || null,
-    serverCode: input.serverCode || null,
-    reportedSha: null,
-    reportedAt: null,
+    servers: serverRows([], input.servers),
   };
   state.environments.push(env);
   return copy(env);
 }
 
-/** Cambia nome, tipo, URL o server collegato; il commit riportato lo scrive solo l'agente. */
+/** Cambia nome, tipo, URL o server collegati; il commit riportato lo scrive solo l'agente. */
 export async function updateEnvironment(
   id: string,
   patch: Partial<EnvironmentInput>,
@@ -442,7 +477,7 @@ export async function updateEnvironment(
   const me = await writer("releases.updateEnvironment");
   const env = environmentFor(me, id);
   if (!holds(me, "environments.manage", env.projectId)) throw forbidden();
-  checkEnvironment(patch);
+  checkEnvironment(env.projectId, patch);
   // Un solo ambiente di produzione: lo stato dei rilasci legge quello.
   const prod = productionOf(env.projectId);
   if (patch.kind === "production" && prod && prod.id !== env.id) {
@@ -451,12 +486,7 @@ export async function updateEnvironment(
   if (patch.name !== undefined) env.name = patch.name.trim();
   if (patch.kind !== undefined) env.kind = patch.kind;
   if (patch.url !== undefined) env.url = patch.url?.trim() || null;
-  if (patch.serverCode !== undefined && patch.serverCode !== env.serverCode) {
-    env.serverCode = patch.serverCode || null;
-    // Un altro server: il commit riportato era del vecchio agente.
-    env.reportedSha = null;
-    env.reportedAt = null;
-  }
+  if (patch.servers !== undefined) env.servers = serverRows(env.servers, patch.servers);
   return copy(env);
 }
 

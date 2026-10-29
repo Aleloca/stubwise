@@ -4,12 +4,19 @@ import { FREE_CONVERSATIONS } from "./conversations/free";
 import type { Seeded } from "./conversations/helpers";
 import { WORK_CONVERSATIONS } from "./conversations/work";
 import { RUN_META } from "./runs";
+import { SERVER_CONVERSATIONS } from "./servers/analysis";
 
 // Le conversazioni con Claude del seed: libere, sessioni di lavoro (task e
 // refine) e sessioni automatiche, ognuna col suo flusso di eventi già
-// accaduti. I file in `conversations/` le scrivono per famiglia.
+// accaduti. I file in `conversations/` le scrivono per famiglia; l'analisi
+// dei server (area 8b) sta con il seme dei server.
 
-const ALL: Seeded[] = [...FREE_CONVERSATIONS, ...WORK_CONVERSATIONS, ...AUTOMATIC_CONVERSATIONS];
+const ALL: Seeded[] = [
+  ...FREE_CONVERSATIONS,
+  ...WORK_CONVERSATIONS,
+  ...AUTOMATIC_CONVERSATIONS,
+  ...SERVER_CONVERSATIONS,
+];
 
 export const CONVERSATIONS: Conversation[] = ALL.map((s) => ({
   ...s.conversation,

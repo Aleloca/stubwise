@@ -175,7 +175,7 @@ describe("Release detail — stato non disponibile", () => {
   function unavailable() {
     const r = release("AUD-V3");
     r.runs = [];
-    state.environments.find((e) => e.id === "env-aud-prod")!.serverCode = null;
+    state.environments.find((e) => e.id === "env-aud-prod")!.servers = [];
   }
 
   it("con environments.manage: il link agli ambienti", async () => {

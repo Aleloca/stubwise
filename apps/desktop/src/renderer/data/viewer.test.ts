@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import { GIULIA_LEAD_CODES, PROJECTS } from "./seed/projects";
 import en from "../i18n/locales/en.json";
 import itLocale from "../i18n/locales/it.json";
+import { SEED_PROJECT_GRANTS } from "./seed/grants";
 import {
+  LOCAL_INSTANCE_PERMISSIONS,
+  LOCAL_PROJECT_PERMISSIONS,
   VIEW_AS_PERSONAS,
   can,
   canInDepartment,
@@ -361,5 +364,56 @@ describe("permessi del Support (area 8a)", () => {
     expect(can(byPerson("p-silvia"), "support.reply", ACQ)).toBe(false);
     // Il full admin ce l'ha ovunque, come ogni permesso di progetto.
     expect(can(byPerson("p-roberta"), "support.reply", ACQ)).toBe(true);
+  });
+});
+
+describe("permessi dei server (area 8b)", () => {
+  const ACQ = "prj-acq";
+  const AUD = "prj-aud";
+
+  it("servers.operate: nessun preset di progetto lo contiene", () => {
+    const presets = Object.entries(LOCAL_PROJECT_PERMISSIONS);
+    expect(presets.length).toBeGreaterThan(0);
+    for (const [preset, perms] of presets) expect(perms, preset).not.toContain("servers.operate");
+  });
+
+  it("servers.operate: Marco solo su ACQ (concessione del seme), Laura e Matteo no, Roberta sì (full admin)", () => {
+    expect(SEED_PROJECT_GRANTS).toEqual({ "p-marco": { ACQ: ["servers.operate"] } });
+    expect(can(byPerson("p-marco"), "servers.operate", ACQ)).toBe(true);
+    expect(can(byPerson("p-marco"), "servers.operate", AUD)).toBe(false);
+    expect(can(byPerson("p-marco"), "servers.operate", "prj-stw")).toBe(false);
+    // Si aggiunge al ruolo: Marco resta Developer su ACQ (avvia, non approva).
+    expect(can(byPerson("p-marco"), "plans.approve", ACQ)).toBe(false);
+    expect(can(byPerson("p-marco"), "runs.start", ACQ)).toBe(true);
+    for (const id of ["p-laura", "p-matteo", "p-sara", "p-giulia"]) {
+      for (const projectId of [ACQ, AUD]) {
+        expect(can(byPerson(id), "servers.operate", projectId), `${id} ${projectId}`).toBe(false);
+      }
+    }
+    // Laura approva i piani su ACQ ma non avvia la correzione di un server.
+    expect(can(byPerson("p-laura"), "plans.approve", ACQ)).toBe(true);
+    expect(can(byPerson("p-laura"), "runs.start", ACQ)).toBe(true);
+    expect(can(byPerson("p-roberta"), "servers.operate", ACQ)).toBe(true);
+    expect(can(byPerson("p-roberta"), "servers.operate", AUD)).toBe(true);
+  });
+
+  it("servers.ssh.manage: d'istanza, del solo preset Admin", () => {
+    expect(LOCAL_INSTANCE_PERMISSIONS).toContain("servers.ssh.manage");
+    expect(byPerson("p-roberta").instancePermissions).toContain("servers.ssh.manage");
+    for (const id of ["p-giulia", "p-marco", "p-laura", "p-sara", "p-matteo", "p-elena"]) {
+      expect(can(byPerson(id), "servers.ssh.manage"), id).toBe(false);
+    }
+    // Locale al prototipo, separato da monitor.manage.
+    expect(INSTANCE_PERMISSIONS as readonly string[]).not.toContain("servers.ssh.manage");
+  });
+
+  it("le concessioni del seme si tolgono, e resetViewerGrants (resetApi) le rimette", () => {
+    revokeProjectPermission("p-marco", ACQ, "servers.operate");
+    expect(can(byPerson("p-marco"), "servers.operate", ACQ)).toBe(false);
+    grantProjectPermission("p-laura", ACQ, "servers.operate");
+    expect(can(byPerson("p-laura"), "servers.operate", ACQ)).toBe(true);
+    resetViewerGrants();
+    expect(can(byPerson("p-marco"), "servers.operate", ACQ)).toBe(true);
+    expect(can(byPerson("p-laura"), "servers.operate", ACQ)).toBe(false);
   });
 });

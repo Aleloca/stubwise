@@ -1,4 +1,5 @@
 import type { CiRun, ProjectEnvironment, Release, Repository } from "../../data/model";
+import { environmentServerFor } from "./environmentServer";
 
 // Lo stato di un rilascio si DERIVA, non si salva (spec «Lo stato del
 // rilascio»): legge le run della CI e il commit che l'agente riporta
@@ -81,11 +82,13 @@ export function releaseStatus(
   // Entro la soglia le run possono ancora partire.
   const elapsedMin = (Date.parse(ctx.now) - Date.parse(r.mergedAt)) / 60_000;
   if (elapsedMin < NO_PIPELINE_AFTER_MIN) return { kind: "running", since: r.mergedAt };
-  // Senza pipeline: lo dice l'agente sul server dell'ambiente di produzione.
+  // Senza pipeline: lo dice l'agente sul server della repository del
+  // rilascio nell'ambiente di produzione (R-L2), non quello di un'altra.
   if (!ctx.production) return { kind: "unavailable", since: null, reason: "no_production_env" };
-  if (!ctx.production.serverCode) return { kind: "unavailable", since: null, reason: "no_server" };
-  if (sameCommit(r.mergeSha, ctx.production.reportedSha)) {
-    return { kind: "in_production", since: ctx.production.reportedAt };
+  const server = environmentServerFor(ctx.production, r.repositoryId);
+  if (!server) return { kind: "unavailable", since: null, reason: "no_server" };
+  if (sameCommit(r.mergeSha, server.reportedSha)) {
+    return { kind: "in_production", since: server.reportedAt };
   }
   return { kind: "not_in_production", since: r.mergedAt };
 }

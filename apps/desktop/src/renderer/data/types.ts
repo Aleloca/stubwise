@@ -46,7 +46,8 @@ export * from "./model";
  * condiviso): pianificare per altri, dall'area 4 creare e gestire i
  * canali della Chat del progetto, dall'area 5 caricare nel Drive, gestirlo e
  * vederne lo storico delle aperture, dall'area 7 gestire le automazioni del
- * progetto.
+ * progetto, dall'area 8b avviare la correzione di un server da una task
+ * (`servers.operate`: nessun preset, solo concessioni persona × progetto).
  */
 export type LocalProjectPermission =
   | "planning.others"
@@ -56,21 +57,25 @@ export type LocalProjectPermission =
   | "drive.manage"
   | "drive.history"
   | "automations.manage"
-  | "support.reply";
+  | "support.reply"
+  | "servers.operate";
 
 /**
  * Permessi d'istanza che vivono solo nel prototipo: vedere le conversazioni
  * pubbliche con Claude e l'attività delle persone (area 3), creare e gestire
  * i canali generali della Chat (area 4), gestire le automazioni generali
- * (area 7: stesso nome del permesso di progetto, vedi `can`). Entrano nel
- * registro di `@stubwise/shared` quando si costruisce il backend.
+ * (area 7: stesso nome del permesso di progetto, vedi `can`), collegare,
+ * verificare, rigenerare e revocare gli accessi SSH dei server (area 8b,
+ * separato da `monitor.manage`). Entrano nel registro di `@stubwise/shared`
+ * quando si costruisce il backend.
  */
 export type LocalInstancePermission =
   | "claude.public.view"
   | "people.activity.view"
   | "chat.general.create"
   | "chat.general.manage"
-  | "automations.manage";
+  | "automations.manage"
+  | "servers.ssh.manage";
 
 export interface Viewer {
   personId: string;
@@ -310,6 +315,12 @@ export interface ConversationPermissions {
    */
   canStartNew: boolean;
   readOnlyReason: ReadOnlyReason | null;
+  /**
+   * Correzione di un server (area 8b): perché il piano non si può approvare
+   * adesso, anche da chi ha `plans.approve` — l'accesso di correzione è
+   * revocato o non verificato. `null` altrove.
+   */
+  planBlockedReason: "fix_access_revoked" | "fix_access_unverified" | null;
 }
 
 export interface ConversationDetail extends ConversationRow, ConversationPermissions {
