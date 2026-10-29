@@ -30,3 +30,14 @@ export function analysisProjectOf(
   if (primaryProjectId !== null && projects.includes(primaryProjectId)) return primaryProjectId;
   return projects[0] ?? null;
 }
+
+/**
+ * Se `serverCode` è in un ambiente qualunque del progetto (R-L2): la
+ * correzione da una task di quel progetto vale solo finché è così.
+ */
+export const serverInProject = (
+  serverCode: string,
+  projectId: string,
+  envs: ProjectEnvironment[],
+): boolean =>
+  envs.some((e) => e.projectId === projectId && e.servers.some((s) => s.serverCode === serverCode));

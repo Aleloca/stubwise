@@ -350,6 +350,13 @@ describe("RF 1: fermare, e i percorsi che non usano l'accesso di correzione", ()
     expect(plans(c.id).at(-1)).toMatchObject({ status: "pending" });
     expect(plans(c.id).at(-1)!.planText).toContain("Only restart, nothing else.");
     expect(session(c.id).state).toBe("awaiting_approval");
+    // I comandi ripartono solo dopo la nuova approvazione.
+    await sleep(60);
+    expect(actions(c.id, "server.fix").length).toBe(atStop);
+    setStreamLatency(0);
+    await approved(c, "p-roberta");
+    expect(actions(c.id, "server.fix").length).toBe(atStop + 2);
+    expect(plans(c.id).at(-1)).toMatchObject({ status: "approved", decidedById: "p-roberta" });
   });
 
   it("task senza serverRef → not_server_task; accesso in attesa del comando → fix_access_unverified", async () => {
@@ -409,6 +416,104 @@ describe("RF 1: fermare, e i percorsi che non usano l'accesso di correzione", ()
     expect(await message(servers.deleteServer("SRV-1"))).toBe("invalid: busy");
     await decidePlan(c.id, "reject");
     expect(await message(servers.deleteServer("SRV-1"))).toBe("ok");
+  });
+});
+
+/** Toglie SRV-1 dagli ambienti di ACQ (e, se si vuole, lo mette in STW). */
+function detachSrv1(toStw = false): void {
+  for (const env of state.environments) {
+    if (env.projectId === ACQ) env.servers = env.servers.filter((s) => s.serverCode !== "SRV-1");
+  }
+  if (toStw) {
+    const stw = state.projects.find((p) => p.code === "STW")!;
+    const env = state.environments.find((e) => e.projectId === stw.id)!;
+    env.servers.push({ ...env.servers[0]!, repositoryId: null, serverCode: "SRV-1" });
+  }
+}
+
+describe("I1: il server deve essere ancora del progetto della task (R-L2, R-G5)", () => {
+  it("tolto prima dell'avvio → server_gone, nessuna sessione, anche per chi lo vede altrove", async () => {
+    detachSrv1();
+    as("p-marco");
+    expect((await servers.getServerTaskInfo(TASK))!.startBlock).toBe("server_gone");
+    expect(await message(servers.startServerFix(TASK))).toBe("invalid: server_gone");
+    // Spostato su STW: Roberta lo vede (per STW) ma da una task di ACQ non lo corregge.
+    detachSrv1(true);
+    as("p-roberta");
+    expect((await servers.getServerTaskInfo(TASK))!.startBlock).toBe("server_gone");
+    expect(await message(servers.startServerFix(TASK))).toBe("invalid: server_gone");
+    expect(fixSessions()).toEqual([]);
+    expect(allFixCommands()).toBe(0);
+  });
+
+  it("tolto mentre il piano aspetta → approvazione spenta col motivo, rifiutata, zero comandi", async () => {
+    const c = await started("p-marco");
+    detachSrv1(true);
+    const perms = conversationPermissions("p-laura", session(c.id));
+    expect(perms).toMatchObject({
+      canDecidePlan: false,
+      canRejectPlan: true,
+      planBlockedReason: "server_gone",
+    });
+    as("p-laura");
+    expect(await message(decidePlan(c.id, "approve"))).toBe("invalid: server_gone");
+    as("p-roberta");
+    expect(await message(decidePlan(c.id, "approve"))).toBe("invalid: server_gone");
+    expect(plans(c.id).map((p) => p.status)).toEqual(["pending"]);
+    await whenFixesIdle();
+    expect(allFixCommands()).toBe(0);
+  });
+
+  it("tolto durante l'esecuzione → si ferma (server_gone), nessun comando dopo", async () => {
+    const c = await started("p-roberta");
+    setStreamLatency(20);
+    as("p-roberta");
+    await decidePlan(c.id, "approve");
+    await expect.poll(() => actions(c.id, "server.fix").length, FAST).toBeGreaterThan(0);
+    detachSrv1();
+    const atDetach = actions(c.id, "server.fix").length;
+    await whenFixesIdle();
+    await sleep(60);
+    expect(actions(c.id, "server.fix").length).toBe(atDetach);
+    expect(atDetach).toBeLessThan(2);
+    expect(phases(c.id).at(-1)).toMatchObject({ outcome: "stopped", reason: "server_gone" });
+    expect(session(c.id)).toMatchObject({ state: "finished", outcome: "stopped" });
+    expect(checks(c.id)).toEqual([]);
+  });
+});
+
+describe("I2: il rifiuto è un permesso calcolato", () => {
+  it("canRejectPlan: vero con l'approvazione spenta per chi decide, falso per chi non decide", async () => {
+    const c = await started("p-marco");
+    const before = conversationPermissions("p-roberta", session(c.id));
+    expect(before.canRejectPlan).toBe(true);
+    expect(before.canRejectPlan).toBe(before.canDecidePlan);
+    expect(conversationPermissions("p-marco", session(c.id)).canRejectPlan).toBe(false);
+    as("p-roberta");
+    await servers.revokeSshAccess("SRV-1");
+    expect(conversationPermissions("p-roberta", session(c.id))).toMatchObject({
+      canDecidePlan: false,
+      canRejectPlan: true,
+    });
+    expect(conversationPermissions("p-marco", session(c.id)).canRejectPlan).toBe(false);
+    as("p-marco");
+    expect(await message(decidePlan(c.id, "reject"))).toBe("forbidden");
+  });
+});
+
+describe("una correzione viva per server", () => {
+  it("una seconda task dello stesso server → server_busy finché la prima è viva", async () => {
+    const c = await started("p-roberta");
+    const second = createTaskAs(
+      CLAUDE_ID,
+      { projectId: ACQ, title: "SRV-1 again", type: "bug" },
+      { source: "server", serverRef: { serverCode: "SRV-1", episodeId: null } },
+    );
+    as("p-roberta");
+    expect(await message(servers.startServerFix(second.id))).toBe("invalid: server_busy");
+    expect((await servers.getServerTaskInfo(second.id))!.startBlock).toBe("server_busy");
+    await decidePlan(c.id, "reject");
+    expect((await servers.getServerTaskInfo(second.id))!.startBlock).toBeNull();
   });
 });
 

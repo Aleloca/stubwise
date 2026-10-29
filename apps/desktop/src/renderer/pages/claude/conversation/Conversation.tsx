@@ -711,6 +711,7 @@ function readOnlyOrigin(detail: ConversationDetail): ConversationDetail {
     canInterrupt: false,
     canAnswer: false,
     canDecidePlan: false,
+    canRejectPlan: false,
     canPreApprovePlan: false,
     canRevokePlanApproval: false,
     canContinue: false,

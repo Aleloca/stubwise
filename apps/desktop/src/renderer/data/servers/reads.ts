@@ -1,5 +1,4 @@
 import {
-  fixStartBlock,
   serverTaskState,
   type FixStartBlock,
   type ServerTaskState,
@@ -7,12 +6,12 @@ import {
 import { downsample, downsampleSamples } from "../../domain/servers/metrics";
 import { accessState, type AccessState } from "../../domain/servers/sshAccess";
 import { fold } from "../../domain/textSearch";
-import { copy, eventsOf, gate, latestRunOf, now, state, visibleProjectIds } from "../store";
+import { copy, eventsOf, gate, now, state, visibleProjectIds } from "../store";
 import type { CheckSample, MetricPoint, ServerEpisode } from "../types";
-import { can, viewerFor } from "../viewer";
 import { forbidden, invalid, notFound } from "../writer";
 import {
   canManageSsh,
+  serverFixStartBlock,
   homeProjectCode,
   installCommandOf,
   metricsSince,
@@ -141,18 +140,12 @@ export async function getServerTaskInfo(taskId: string): Promise<ServerTaskInfo 
   const run = state.conversations
     .filter((c) => c.kind === "task_run" && c.taskId === task.id && c.serverFix)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))[0];
-  const live = latestRunOf(task.id);
   const access = state.serverAccess.get(code);
   return copy({
     server: s ? { code: s.code, name: s.name } : null,
     episode,
     state: serverTaskState(task, run ? { c: run, events: eventsOf(run.id) } : null),
-    startBlock: fixStartBlock({
-      hasOperate: can(viewerFor(me), "servers.operate", task.projectId),
-      task,
-      access,
-      liveRun: live !== undefined && live.state !== "finished",
-    }),
+    startBlock: serverFixStartBlock(me, task),
     fixAccess: accessState(access),
     fixConversationId: run?.id ?? null,
   });

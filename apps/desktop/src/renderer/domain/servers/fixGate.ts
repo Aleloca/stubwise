@@ -1,4 +1,5 @@
 import type { Conversation, ConversationEvent, ServerSshAccess, Task } from "../../data/model";
+import { CLAUDE_ID } from "../../data/seed/people";
 import { accessUsable } from "./sshAccess";
 
 // La correzione di un server ha due condizioni, sempre (anti-obiettivo 2):
@@ -14,7 +15,11 @@ export type FixStartBlock =
   | "no_fix_access"
   | "fix_access_unverified"
   | "closed"
-  | "run_live";
+  | "run_live"
+  /** Il server non è più in un ambiente del progetto della task (R-L2), o non esiste più. */
+  | "server_gone"
+  /** Sullo stesso server c'è già una correzione viva (da un'altra task). */
+  | "server_busy";
 
 /** A che punto è una task di server. */
 export type ServerTaskState =
@@ -30,21 +35,30 @@ export type ServerTaskState =
 
 /**
  * Il motivo, in quest'ordine, per cui `task` non può avviare una correzione:
- * il permesso prima di tutto, poi la task (di server, aperta, senza una
- * sessione viva), poi l'accesso di correzione del SUO server (un accesso di
- * un altro server non vale).
+ * il permesso prima di tutto, poi la task (di server, il cui server è
+ * ancora in un ambiente del SUO progetto, aperta, senza una sessione viva),
+ * poi il server (nessun'altra correzione viva), poi l'accesso di correzione
+ * del SUO server (un accesso di un altro server non vale).
+ *
+ * `serverInProject`: il server di `serverRef` esiste ed è in un ambiente del
+ * progetto della task (R-L2). Un server tolto dal progetto non si corregge
+ * da lì, anche se chi avvia lo vede per un altro progetto (R-G5).
  */
 export function fixStartBlock(input: {
   hasOperate: boolean;
   task: Task;
+  serverInProject: boolean;
   access: ServerSshAccess | undefined;
   liveRun: boolean;
+  serverBusy: boolean;
 }): FixStartBlock | null {
   const { hasOperate, task, liveRun } = input;
   if (!hasOperate) return "no_permission";
   if (!task.serverRef) return "not_server_task";
+  if (!input.serverInProject) return "server_gone";
   if (task.closedAt !== null) return "closed";
   if (liveRun) return "run_live";
+  if (input.serverBusy) return "server_busy";
   const access = input.access?.serverCode === task.serverRef.serverCode ? input.access : undefined;
   if (!access || (access.keys === null && access.pending === null)) return "no_fix_access";
   if (!accessUsable(access, "fix")) return "fix_access_unverified";
@@ -53,7 +67,9 @@ export function fixStartBlock(input: {
 
 type PlanEvent = Extract<ConversationEvent, { type: "plan" }>;
 
-const approvedByPerson = (p: PlanEvent) => p.status === "approved" && p.decidedById !== undefined;
+/** Approvato da una PERSONA: con chi ha deciso, e mai Claude (R-L9, R-L11). */
+const approvedByPerson = (p: PlanEvent) =>
+  p.status === "approved" && p.decidedById !== undefined && p.decidedById !== CLAUDE_ID;
 
 /**
  * Quanti comandi di correzione (`tool: "server.fix"`) nel flusso non hanno

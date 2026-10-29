@@ -300,7 +300,13 @@ export interface ConversationPermissions {
   canWrite: boolean;
   canInterrupt: boolean;
   canAnswer: boolean;
+  /** Approvare (o rifiutare) il piano che aspetta. */
   canDecidePlan: boolean;
+  /**
+   * Rifiutare il piano che aspetta: come `canDecidePlan`, ma resta vero
+   * quando l'approvazione è spenta (`planBlockedReason`). Il client lo legge.
+   */
+  canRejectPlan: boolean;
   canPreApprovePlan: boolean;
   canRevokePlanApproval: boolean;
   /** Pubblica di un altro: scrivendo nasce una continuazione propria. */
@@ -317,11 +323,15 @@ export interface ConversationPermissions {
   readOnlyReason: ReadOnlyReason | null;
   /**
    * Correzione di un server (area 8b): perché il piano non si può approvare
-   * adesso, anche da chi ha `plans.approve` — l'accesso di correzione è
-   * revocato o non verificato. `null` altrove.
+   * adesso, anche da chi ha `plans.approve` — il server non è più del
+   * progetto, o l'accesso di correzione è revocato o non verificato. `null`
+   * altrove, e per chi comunque non potrebbe decidere.
    */
-  planBlockedReason: "fix_access_revoked" | "fix_access_unverified" | null;
+  planBlockedReason: ServerFixBlock | null;
 }
+
+/** Perché una correzione di server non può eseguire comandi adesso (`serverFixBlock`). */
+export type ServerFixBlock = "server_gone" | "fix_access_revoked" | "fix_access_unverified";
 
 export interface ConversationDetail extends ConversationRow, ConversationPermissions {
   /** Il flusso com'è adesso (proposte scadute già `expired`); dal vivo arriva dallo stream. */

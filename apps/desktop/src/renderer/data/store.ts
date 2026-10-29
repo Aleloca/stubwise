@@ -2,6 +2,7 @@ import { prLines, type PrLine } from "../domain/claude/taskWork";
 import { stallOf, type Stall } from "../domain/stalled";
 import { currentWeek } from "../domain/weeks";
 import { matches, type FilterContext } from "../domain/filters";
+import { serverInProject } from "../domain/servers/projects";
 import { accessState, accessUsable } from "../domain/servers/sshAccess";
 import { ACTIVITY } from "./seed/activity";
 import { BRIEFS } from "./seed/briefs";
@@ -88,6 +89,7 @@ import type {
   ConversationKind,
   ConversationPermissions,
   ConversationRow,
+  ServerFixBlock,
   DailyReport,
   DayArrangement,
   DecisionLogEntry,
@@ -1176,6 +1178,25 @@ export function currentPhase(log: readonly ConversationEvent[]): string | null {
 }
 
 /**
+ * Perché una correzione di server non può eseguire comandi adesso (`null`
+ * se può, o se `c` non è una correzione): il server non esiste più o non è
+ * più in un ambiente del progetto della sessione (R-L2, R-G5), oppure
+ * l'accesso di correzione non è usabile (mai il solo stato). Una regola
+ * sola per l'approvazione (`conversationPermissions`, `decidePlan`) e per
+ * l'esecuzione (`data/servers/fix.ts`, che in più chiede la chiave).
+ */
+export function serverFixBlock(c: Conversation): ServerFixBlock | null {
+  if (!c.serverFix) return null;
+  const code = c.serverFix.serverCode;
+  const exists = state.servers.some((s) => s.code === code);
+  if (!exists || c.projectId === null || !serverInProject(code, c.projectId, state.environments))
+    return "server_gone";
+  const access = state.serverAccess.get(code);
+  if (accessUsable(access, "fix")) return null;
+  return accessState(access) === "revoked" ? "fix_access_revoked" : "fix_access_unverified";
+}
+
+/**
  * Cosa può fare una persona in una conversazione che vede: la regola del
  * server di oggi (`canWrite`/`canInterrupt`/`canAnswer`, gate del piano),
  * in un posto solo. Scrivere in una sessione di task chiede
@@ -1230,16 +1251,10 @@ export function conversationPermissions(
     request.mergedIntoId === null;
   const decidable = plan !== undefined && approver && c.state === "awaiting_approval";
   // Correzione di un server (area 8b): il piano che aspetta non si approva
-  // se l'accesso di correzione non è usabile adesso (mai il solo stato). La
-  // ragione la riceve solo chi altrimenti potrebbe decidere: per lui il
-  // rifiuto resta (`decidePlan`).
-  const fixAccess = c.serverFix ? state.serverAccess.get(c.serverFix.serverCode) : undefined;
-  const planBlockedReason =
-    c.serverFix && decidable && !accessUsable(fixAccess, "fix")
-      ? accessState(fixAccess) === "revoked"
-        ? "fix_access_revoked"
-        : "fix_access_unverified"
-      : null;
+  // se il server non è più del progetto o l'accesso di correzione non è
+  // usabile adesso (`serverFixBlock`). La ragione la riceve solo chi
+  // altrimenti potrebbe decidere: per lui il rifiuto resta (`canRejectPlan`).
+  const planBlockedReason = decidable ? serverFixBlock(c) : null;
   // Niente approvazione in anticipo per una correzione di server.
   const preApprovable = approver && live && planning && !c.serverFix;
   return {
@@ -1248,6 +1263,7 @@ export function conversationPermissions(
     canInterrupt,
     canAnswer: question !== undefined && live && (isOwner || inProject("plans.approve")),
     canDecidePlan: decidable && planBlockedReason === null,
+    canRejectPlan: decidable,
     canPreApprovePlan: preApprovable && !preApproved,
     // Revocabile solo finché il piano non è arrivato: dopo, l'anticipo è già speso.
     canRevokePlanApproval: preApprovable && preApproved,

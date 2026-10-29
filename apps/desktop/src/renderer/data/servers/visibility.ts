@@ -1,10 +1,11 @@
 import { serverHealth, serverWork, type ServerWork } from "../../domain/servers/health";
 import { downsample } from "../../domain/servers/metrics";
-import { alertProjectsOf } from "../../domain/servers/projects";
+import { fixStartBlock, type FixStartBlock } from "../../domain/servers/fixGate";
+import { alertProjectsOf, serverInProject } from "../../domain/servers/projects";
 import { installScript } from "../../domain/servers/installScript";
 import { accessState, accessUsable, type AccessState } from "../../domain/servers/sshAccess";
 import { holds, sees } from "../access";
-import { now, state, visibleProjectIds } from "../store";
+import { latestRunOf, now, state, visibleProjectIds } from "../store";
 import type {
   ServerSshAccess,
   SshAccessKind,
@@ -18,6 +19,7 @@ import type {
   ServerEpisode,
   ServerService,
   ServerThresholds,
+  Task,
 } from "../types";
 import { can, viewerFor } from "../viewer";
 import { invalid, notFound } from "../writer";
@@ -32,6 +34,32 @@ import { invalid, notFound } from "../writer";
 // (`sk_…`) non sta nello stato: nessuna lettura la può restituire.
 
 export { holds, sees };
+
+/**
+ * Perché `me` non può avviare adesso la correzione della task (`null` se
+ * può): la regola pura `fixStartBlock` coi fatti di adesso — il server di
+ * `serverRef` ancora in un ambiente del progetto della task (R-L2: chi vede
+ * la task lo vede, R-G5), una sessione viva sulla task, un'altra
+ * correzione viva sullo stesso server. Una sola regola per l'avvio e per
+ * il blocco «Server» della task.
+ */
+export function serverFixStartBlock(me: string, task: Task): FixStartBlock | null {
+  const code = task.serverRef?.serverCode;
+  const live = latestRunOf(task.id);
+  return fixStartBlock({
+    hasOperate: can(viewerFor(me), "servers.operate", task.projectId),
+    task,
+    serverInProject:
+      code !== undefined &&
+      state.servers.some((s) => s.code === code) &&
+      serverInProject(code, task.projectId, state.environments),
+    access: code ? state.serverAccess.get(code) : undefined,
+    liveRun: live !== undefined && live.state !== "finished",
+    serverBusy: state.conversations.some(
+      (c) => c.serverFix !== undefined && c.serverFix.serverCode === code && c.state !== "finished",
+    ),
+  });
+}
 
 /** `monitor.manage` (d'istanza): server, chiave dell'agente, soglie, controlli e principale. */
 export const canMonitor = (me: string): boolean => can(viewerFor(me), "monitor.manage");

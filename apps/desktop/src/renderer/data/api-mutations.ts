@@ -43,6 +43,7 @@ import {
   objectCodeOf,
   onStoreReset,
   pendingPlan,
+  serverFixBlock,
   proposalExpired,
   reindex,
   signalAutomations,
@@ -94,7 +95,6 @@ import type {
 import { supportState } from "../domain/support/state";
 import { publishAlert } from "./alerts/publish";
 import { overStubwiseCap } from "./releases/visibility";
-import { accessUsable } from "../domain/servers/sshAccess";
 // La correzione dei server (area 8b): usata solo dentro le funzioni, quindi
 // l'import circolare (fix.ts apre le sessioni da qui) è innocuo.
 import {
@@ -2176,18 +2176,17 @@ export async function decidePlan(
   const decided = lastEvent(log, (e): e is PlanEvent => e.type === "plan");
   if (!plan && decided?.decidedById) throw alreadyAnswered(decided.decidedById);
   const perms = conversationPermissions(me, c);
-  // Correzione di un server: l'accesso di correzione si ricontrolla qui
-  // (revocato o non più usabile → niente approvazione); il rifiuto resta.
-  if (c.serverFix && plan && decision === "approve") {
-    if (!accessUsable(state.serverAccess.get(c.serverFix.serverCode), "fix")) {
-      throw invalid("fix_access");
-    }
-  }
-  const mayDecide =
-    perms.canDecidePlan ||
-    (c.serverFix !== undefined && decision === "reject" && perms.planBlockedReason !== null);
-  if (!plan || !mayDecide) {
+  // `canRejectPlan` è il piano che aspetta e chi può deciderlo; il rifiuto
+  // resta anche con l'approvazione spenta (correzione di un server).
+  if (!plan || !perms.canRejectPlan) {
     throw invalid("status");
+  }
+  // Correzione di un server: server ancora del progetto e accesso di
+  // correzione usabile, ricontrollati qui (`serverFixBlock`); altrimenti
+  // niente approvazione, col motivo.
+  if (decision === "approve" && !perms.canDecidePlan) {
+    const block = serverFixBlock(c);
+    throw invalid(block === "server_gone" ? "server_gone" : block ? "fix_access" : "status");
   }
   const task = state.tasksById.get(c.taskId!)!;
   const note = instructions?.trim() || undefined;

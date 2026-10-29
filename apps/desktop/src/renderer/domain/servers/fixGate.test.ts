@@ -5,7 +5,31 @@ import { access, ev, hoursAgo, serverTask, STATES } from "./fixtures";
 import { fixCommandsBeforeApproval, fixStartBlock, serverTaskState } from "./fixGate";
 
 describe("fixStartBlock", () => {
-  const base = { hasOperate: true, task: serverTask(), access: access(), liveRun: false };
+  const base = {
+    hasOperate: true,
+    task: serverTask(),
+    serverInProject: true,
+    access: access(),
+    liveRun: false,
+    serverBusy: false,
+  };
+
+  it("server tolto dal progetto → server_gone, prima della task chiusa e dell'accesso", () => {
+    expect(fixStartBlock({ ...base, serverInProject: false })).toBe("server_gone");
+    expect(
+      fixStartBlock({
+        ...base,
+        serverInProject: false,
+        task: serverTask({ closedAt: hoursAgo(1) }),
+        access: undefined,
+      }),
+    ).toBe("server_gone");
+  });
+
+  it("un'altra correzione viva sullo stesso server → server_busy", () => {
+    expect(fixStartBlock({ ...base, serverBusy: true })).toBe("server_busy");
+    expect(fixStartBlock({ ...base, serverBusy: true, liveRun: true })).toBe("run_live");
+  });
 
   it("nessun blocco con le due condizioni", () => {
     expect(fixStartBlock(base)).toBeNull();
@@ -27,7 +51,14 @@ describe("fixStartBlock", () => {
 
   it("il permesso viene prima di tutto", () => {
     expect(
-      fixStartBlock({ hasOperate: false, task: makeTask(), access: undefined, liveRun: true }),
+      fixStartBlock({
+        hasOperate: false,
+        task: makeTask(),
+        serverInProject: false,
+        access: undefined,
+        liveRun: true,
+        serverBusy: true,
+      }),
     ).toBe("no_permission");
   });
 
@@ -64,6 +95,12 @@ describe("fixCommandsBeforeApproval", () => {
   it("conta un server.fix dopo un rejected", () => {
     expect(
       fixCommandsBeforeApproval([plan("rejected", { decidedById: "p-laura" }), fixCmd()]),
+    ).toBe(1);
+  });
+
+  it("un approved deciso da Claude non vale: non è una persona", () => {
+    expect(
+      fixCommandsBeforeApproval([plan("approved", { decidedById: "p-claude" }), fixCmd()]),
     ).toBe(1);
   });
 

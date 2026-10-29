@@ -1,4 +1,3 @@
-import { fixStartBlock } from "../../domain/servers/fixGate";
 import { accessUsable } from "../../domain/servers/sshAccess";
 import i18n from "../../i18n";
 import { openWorkConversationAs } from "../api-mutations";
@@ -7,8 +6,8 @@ import {
   copy,
   currentPhase,
   eventsOf,
-  latestRunOf,
   onStoreReset,
+  serverFixBlock,
   state,
   storeGeneration,
   visibleProjectIds,
@@ -19,7 +18,9 @@ import { can, viewerFor } from "../viewer";
 import { forbidden, invalid, notFound, writer } from "../writer";
 import { markUsed, onAccessRevoked } from "./access";
 import { hasKey } from "./secrets";
-import { fixCheck, fixExecution, fixPlan, readSteps, type FixCommand } from "./scripts";
+import { fixCheck, fixExecution, fixPlan, type FixCommand } from "./fixScripts";
+import { readSteps } from "./scripts";
+import { serverFixStartBlock } from "./visibility";
 
 // La correzione di un server, avviata da una task (area 8b, anti-obiettivo
 // 2). Due condizioni, sempre:
@@ -33,12 +34,14 @@ import { fixCheck, fixExecution, fixPlan, readSteps, type FixCommand } from "./s
 //
 // Il resto sta qui: il piano scritto dopo aver letto il server con
 // l'accesso di LETTURA, l'esecuzione dopo l'approvazione (un comando alla
-// volta, ricontrollando prima di ognuno che l'accesso di correzione sia
-// usabile e che nessuno l'abbia fermata), il controllo finale in sola
-// lettura (`resolved` esplicito, R-L3), e i modi di fermarsi — ognuno col
-// suo segno nel flusso: lo Stop di una persona (`stoppedById`), la revoca
-// (`reason: "fix_access_revoked"`), l'accesso non più usabile
-// (`fix_access_unusable`), un errore (`outcome: "failed"`).
+// volta, ricontrollando prima di ognuno che il server sia ancora in un
+// ambiente del progetto della task — R-L2, R-G5 —, che l'accesso di
+// correzione sia usabile e che nessuno l'abbia fermata), il controllo
+// finale in sola lettura (`resolved` esplicito, R-L3), e i modi di
+// fermarsi — ognuno col suo segno nel flusso: lo Stop di una persona
+// (`stoppedById`), la revoca (`reason: "fix_access_revoked"`), l'accesso
+// non più usabile (`fix_access_unusable`), il server tolto dal progetto
+// (`server_gone`), un errore (`outcome: "failed"`).
 //
 // Dopo il controllo finale la sessione si chiude SEMPRE (stesso script):
 // il controllo è l'ultima cosa che fa. La task resta aperta: la chiude una
@@ -88,9 +91,18 @@ function reasonsOf(task: Task): EpisodeReason[] {
   return state.serverEpisodes.find((e) => e.id === id)?.reasons ?? [];
 }
 
-/** L'accesso di correzione si può usare adesso: verificato (mai il solo stato) e con la chiave. */
-const fixUsable = (code: string): boolean =>
-  accessUsable(state.serverAccess.get(code), "fix") && hasKey(code, "fix");
+/**
+ * Perché la correzione non può eseguire il prossimo comando (`null` se può):
+ * la regola dell'approvazione (`serverFixBlock`: server ancora del
+ * progetto, accesso usabile) e in più la chiave, che qui c'è da usare.
+ */
+function execBlock(c: Conversation): StopReason | null {
+  const block = serverFixBlock(c);
+  if (block === "server_gone") return "server_gone";
+  if (block === "fix_access_revoked") return "fix_access_revoked";
+  if (block !== null || !hasKey(c.serverFix!.serverCode, "fix")) return "fix_access_unusable";
+  return null;
+}
 
 const readUsable = (code: string): boolean => accessUsable(state.serverAccess.get(code), "read");
 
@@ -111,16 +123,11 @@ export async function startServerFix(taskId: string): Promise<Conversation> {
   const task = state.tasksById.get(taskId);
   if (!task || !visibleProjectIds(me).has(task.projectId)) throw notFound();
   if (!can(viewerFor(me), "servers.operate", task.projectId)) throw forbidden();
-  const code = task.serverRef?.serverCode;
-  const block = fixStartBlock({
-    hasOperate: true,
-    task,
-    access: code ? state.serverAccess.get(code) : undefined,
-    liveRun: isLive(latestRunOf(task.id)),
-  });
+  // La task, il server ancora del suo progetto (R-L2, R-G5), il lavoro vivo, l'accesso.
+  const block = serverFixStartBlock(me, task);
   if (block) throw invalid(block);
-  const server = serverOf(code!);
-  if (!server) throw invalid("no_fix_access");
+  const server = serverOf(task.serverRef!.serverCode);
+  if (!server) throw invalid("server_gone");
   const c = openWorkConversationAs(me, {
     kind: "task_run",
     provider: { ...TEAM_ACCOUNT },
@@ -259,13 +266,14 @@ async function execute(c: Conversation, task: Task, gen: number): Promise<void> 
   let ran = 0;
   for (const step of fixExecution(planned.get(c.id) ?? [])) {
     if (!go()) return;
-    if (!fixUsable(code)) return stopFix(c, gen, "fix_access_unusable");
+    const blocked = execBlock(c);
+    if (blocked) return stopFix(c, gen, blocked);
     // Il comando entra solo se, al suo turno nella coda, nessuno ha fermato
-    // la sessione e l'accesso è ancora usabile.
+    // la sessione, il server è ancora del progetto e l'accesso è usabile.
     await runScript(
       c.id,
       () => {
-        if (!go() || !fixUsable(code)) return [];
+        if (!go() || execBlock(c)) return [];
         if (ran === 0) markUsed(code, "fix", { kind: "task", taskId: task.id });
         ran++;
         return [step];
@@ -317,18 +325,19 @@ async function execute(c: Conversation, task: Task, gen: number): Promise<void> 
 
 const phaseNow = (c: Conversation) => currentPhase(eventsOf(c.id)) ?? "execution";
 
-/** Ferma la sessione senza una persona: la revoca o l'accesso non più usabile. */
-function stopFix(
-  c: Conversation,
-  gen: number,
-  reason: "fix_access_revoked" | "fix_access_unusable",
-): Promise<void> {
+type StopReason = "fix_access_revoked" | "fix_access_unusable" | "server_gone";
+
+const STOP_WHY: Record<StopReason, string> = {
+  fix_access_revoked: "the fix access was revoked",
+  fix_access_unusable: "the fix access isn't usable any more",
+  server_gone: "the server isn't in this project any more",
+};
+
+/** Ferma la sessione senza una persona: revoca, accesso non più usabile, server tolto dal progetto. */
+function stopFix(c: Conversation, gen: number, reason: StopReason): Promise<void> {
   halt(c.id);
   interruptScripts(c.id, i18n.t("claude.conversation.delivery.stoppedBeforeTurn"));
-  const why =
-    reason === "fix_access_revoked"
-      ? "the fix access was revoked"
-      : "the fix access isn't usable any more";
+  const why = STOP_WHY[reason];
   return runScript(
     c.id,
     () => [
