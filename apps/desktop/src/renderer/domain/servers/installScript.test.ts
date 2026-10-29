@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fakeSshPublicKey } from "../../data/seed/servers/access";
-import { installScript, READ_SUDO_COMMANDS, removalScript } from "./installScript";
+import { installScript, READ_GROUP, READ_SUDO_COMMANDS, removalScript } from "./installScript";
 
 const READ = fakeSshPublicKey("SRV-1", "read", 1, "2026-10-20T10:00:00Z");
 const FIX = fakeSshPublicKey("SRV-1", "fix", 1, "2026-10-20T10:00:00Z");
@@ -29,11 +29,22 @@ describe("installScript (RF 3)", () => {
 
   it("stubwise-read non entra nel gruppo docker e non ha docker inspect", () => {
     for (const s of [script(null), script("203.0.113.7")]) {
-      expect(s).not.toMatch(/usermod[^\n]*-a?G[^\n]*docker/);
+      expect(s).not.toMatch(/usermod[^\n]*docker/);
       expect(s).not.toMatch(/gpasswd[^\n]*docker/);
       expect(s).not.toMatch(/adduser[^\n]*docker/);
+      expect(s).not.toMatch(/useradd[^\n]*-G/);
       expect(s).not.toContain("docker inspect");
     }
+  });
+
+  it("R-L5: i gruppi di stubwise-read sono RIMPIAZZATI dal solo systemd-journal", () => {
+    expect(READ_GROUP).toBe("systemd-journal");
+    const s = script(null);
+    // `-G` senza `-a`: un utente che esisteva già perde i gruppi di prima (docker compreso).
+    expect(s).toContain('usermod -G "systemd-journal" stubwise-read');
+    expect(s).not.toMatch(/usermod[^\n]*-a/);
+    // stubwise-fix non ha gruppi: fa tutto con sudo.
+    expect(s).toContain('usermod -G "" stubwise-fix');
   });
 
   it("non scarica né esegue niente da fuori e non contiene chiavi private", () => {
@@ -44,30 +55,19 @@ describe("installScript (RF 3)", () => {
     expect(s).not.toContain("PRIVATE KEY");
   });
 
-  it("le regole sudo di stubwise-read sono i soli comandi di lettura, con percorsi assoluti", () => {
+  it("le regole sudo di stubwise-read sono i soli comandi docker di lettura, con percorsi assoluti", () => {
+    expect(READ_SUDO_COMMANDS).toEqual(["docker ps", "docker logs", "docker stats --no-stream"]);
     const s = script(null);
     const readRules = s.split("\n").filter((l) => l.startsWith("stubwise-read "));
-    expect(readRules.length).toBeGreaterThan(0);
-    for (const rule of readRules) {
-      expect(rule).not.toContain("NOPASSWD: ALL");
-      expect(rule).not.toMatch(/=\(ALL\)\s+NOPASSWD:\s*ALL/);
-    }
-    const sudoBlock = readRules.join("\n");
-    for (const cmd of READ_SUDO_COMMANDS) {
-      const [bin, ...rest] = cmd.split(" ");
-      expect(sudoBlock).toContain(`/usr/bin/${bin}${rest.length ? ` ${rest.join(" ")}` : ""}`);
-    }
-    // I comandi senza sudo non hanno una regola.
-    for (const plain of ["df", "free", "uptime", " ps", "ss -tlnp"]) {
-      expect(sudoBlock).not.toContain(`/usr/bin/${plain.trim()} `);
-    }
-    expect(READ_SUDO_COMMANDS).toEqual([
-      "journalctl",
-      "docker ps",
-      "docker logs",
-      "docker stats --no-stream",
-      "systemctl status",
-    ]);
+    expect(readRules).toEqual(
+      READ_SUDO_COMMANDS.map(
+        (cmd) => `stubwise-read ALL=(root) NOPASSWD:NOEXEC: /usr/bin/${cmd} *`,
+      ),
+    );
+    // R-L5: journal e systemctl senza sudo (niente pager né negazioni come root).
+    expect(s).not.toContain("journalctl");
+    expect(s).not.toContain("systemctl");
+    expect(s).not.toMatch(/!\/usr\/bin/);
   });
 
   it("valida i file sudoers prima di installarli", () => {

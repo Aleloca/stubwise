@@ -3,48 +3,50 @@ import type { SshPublicKey } from "../../data/model";
 // Lo script che chi gestisce il server incolla per collegare i due accessi
 // SSH (area 8b). Contiene SOLO chiavi pubbliche (anti-obiettivo 3), non
 // scarica né esegue nulla da fuori, e fa di `stubwise-read` un utente di
-// sola lettura vera: niente gruppo `docker` (che equivale a root), niente
-// `docker inspect` (mostra le variabili d'ambiente dei container, quindi i
-// segreti), `sudo` solo sui comandi di lettura, con percorso assoluto e
-// `NOEXEC` (un pager non può aprire una shell). `stubwise-fix` invece può
-// fare tutto: lo usa solo la correzione da task, dopo un piano approvato.
+// sola lettura vera:
+// - niente gruppo `docker` (equivale a root): i gruppi supplementari di
+//   `stubwise-read` sono riscritti a `systemd-journal` e basta, così anche un
+//   utente che esisteva già perde ogni gruppo di prima;
+// - il journal si legge col gruppo `systemd-journal`, non con `sudo`
+//   (R-L5): legge e non può ruotare né cancellare. Per lo stesso motivo
+//   `systemctl status` gira senza `sudo` (le righe di log le vede col
+//   gruppo), e un pager non gira mai come root;
+// - `sudo` solo per i comandi `docker` di lettura, con percorso assoluto e
+//   `NOEXEC`; niente `docker inspect` (mostra le variabili d'ambiente dei
+//   container, quindi i segreti).
+// `stubwise-fix` invece può fare tutto: lo usa solo la correzione da task,
+// dopo un piano approvato.
 
 /** I comandi che `stubwise-read` lancia con `sudo` (nelle regole: percorso assoluto). */
 export const READ_SUDO_COMMANDS: readonly string[] = [
-  "journalctl",
   "docker ps",
   "docker logs",
   "docker stats --no-stream",
+];
+
+/** I comandi di lettura che non chiedono `sudo` (`journalctl` col gruppo `systemd-journal`). */
+export const READ_PLAIN_COMMANDS: readonly string[] = [
+  "df",
+  "free",
+  "ps",
+  "uptime",
+  "ss -tlnp",
+  "journalctl",
   "systemctl status",
 ];
 
-/** I comandi di lettura che non chiedono `sudo`. */
-export const READ_PLAIN_COMMANDS: readonly string[] = ["df", "free", "ps", "uptime", "ss -tlnp"];
-
-/** Le opzioni di `journalctl` che scrivono (ruotano o cancellano i log): negate anche con `sudo`. */
-export const JOURNALCTL_WRITE_FLAGS: readonly string[] = [
-  "--vacuum-size",
-  "--vacuum-time",
-  "--vacuum-files",
-  "--rotate",
-  "--flush",
-  "--sync",
-  "--relinquish-var",
-  "--smart-relinquish-var",
-  "--setup-keys",
-  "--update-catalog",
-];
+/** Il solo gruppo supplementare di `stubwise-read`: legge il journal. */
+export const READ_GROUP = "systemd-journal";
 
 const absolute = (cmd: string) => `/usr/bin/${cmd}`;
 
-/** Le regole `sudo` di `stubwise-read`: i soli comandi di lettura, con qualunque argomento. */
+/** Le regole `sudo` di `stubwise-read`: i soli comandi `docker` di lettura. */
 function readSudoRules(): string[] {
-  const allowed = READ_SUDO_COMMANDS.map((cmd) => `${absolute(cmd)} *`);
-  const denied = JOURNALCTL_WRITE_FLAGS.map((flag) => `!${absolute("journalctl")} *${flag}*`);
   return [
     "Defaults:stubwise-read !requiretty",
-    ...allowed.map((rule) => `stubwise-read ALL=(root) NOPASSWD:NOEXEC: ${rule}`),
-    `stubwise-read ALL=(root) NOPASSWD: ${denied.join(", ")}`,
+    ...READ_SUDO_COMMANDS.map(
+      (cmd) => `stubwise-read ALL=(root) NOPASSWD:NOEXEC: ${absolute(cmd)} *`,
+    ),
   ];
 }
 
@@ -56,9 +58,17 @@ function authorizedKey(key: SshPublicKey, instanceAddress: string | null): strin
   return `${options} ${key.publicKey}`;
 }
 
-function userBlock(user: string, key: SshPublicKey, instanceAddress: string | null): string {
+function userBlock(
+  user: string,
+  key: SshPublicKey,
+  instanceAddress: string | null,
+  groups: string,
+): string {
   return [
     `id -u ${user} >/dev/null 2>&1 || useradd --create-home --shell /bin/bash ${user}`,
+    // `-G` senza `-a` RIMPIAZZA i gruppi supplementari: un utente che esisteva
+    // già non si porta dietro un gruppo di prima (vuoto = nessuno).
+    `usermod -G "${groups}" ${user}`,
     `install -d -m 700 -o ${user} -g ${user} /home/${user}/.ssh`,
     `cat > /home/${user}/.ssh/authorized_keys <<'KEY'`,
     authorizedKey(key, instanceAddress),
@@ -98,12 +108,12 @@ export function installScript(input: {
     "# stubwise-read legge soltanto; stubwise-fix può fare tutto sul server.",
     "set -euo pipefail",
     "",
-    "# stubwise-read: sola lettura, fuori dal gruppo docker.",
-    userBlock("stubwise-read", read, instanceAddress),
+    `# stubwise-read: sola lettura; il suo unico gruppo è ${READ_GROUP} (legge il journal).`,
+    userBlock("stubwise-read", read, instanceAddress, READ_GROUP),
     sudoersBlock("stubwise-read", readSudoRules()),
     "",
     "# stubwise-fix: può fare tutto sul server, usato solo dopo un piano approvato.",
-    userBlock("stubwise-fix", fix, instanceAddress),
+    userBlock("stubwise-fix", fix, instanceAddress, ""),
     sudoersBlock("stubwise-fix", ["stubwise-fix ALL=(ALL) NOPASSWD: ALL"]),
     "",
     `echo "Stubwise: accessi di ${serverCode} pronti."`,

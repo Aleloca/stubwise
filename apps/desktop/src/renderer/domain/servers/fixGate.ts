@@ -73,13 +73,16 @@ export function fixCommandsBeforeApproval(events: ConversationEvent[]): number {
   return count;
 }
 
+type WorkResult = Extract<ConversationEvent, { type: "work_result" }>;
+
 /**
  * Lo stato di una task di server, dall'ultima sessione di correzione (`run`,
- * `null` se non ce n'è). Convenzione con la correzione (Task 6): finito il
- * controllo in sola lettura (`work_result` `server_check`), la sessione si
- * chiude con esito `ok` se il problema è risolto, `failed` se no. Un rifiuto
- * senza indicazioni chiude la sessione (`stopped`) e si legge «piano
- * rifiutato»; con indicazioni Claude riscrive il piano.
+ * `null` se non ce n'è). «Risolto/non risolto» lo dice SOLO il campo
+ * `resolved` del `work_result` `server_check` (R-L3), mai l'esito della
+ * sessione: una sessione finita senza controllo (errore, tempo scaduto,
+ * accesso revocato, Stop) si legge `stopped`, che non afferma niente sul
+ * problema. Un rifiuto senza indicazioni chiude la sessione (`stopped`) e
+ * si legge «piano rifiutato»; con indicazioni Claude riscrive il piano.
  */
 export function serverTaskState(
   task: Task,
@@ -88,14 +91,18 @@ export function serverTaskState(
   if (task.closedAt !== null) return "closed";
   if (run === null) return "diagnosis_ready";
   const { c, events } = run;
-  const plans = events.filter((e): e is PlanEvent => e.type === "plan");
-  const plan = plans.at(-1) ?? null;
+  const plan = events.filter((e): e is PlanEvent => e.type === "plan").at(-1) ?? null;
+  const check = events
+    .filter(
+      (e): e is WorkResult =>
+        e.type === "work_result" && e.kind === "server_check" && e.resolved !== undefined,
+    )
+    .at(-1);
 
+  if (check) return check.resolved ? "resolved" : "not_resolved";
   if (c.state === "finished") {
-    if (c.outcome === "stopped") {
-      return plan?.status === "rejected" && !plan.instructions ? "plan_rejected" : "stopped";
-    }
-    return c.outcome === "ok" ? "resolved" : "not_resolved";
+    const rejected = c.outcome === "stopped" && plan?.status === "rejected" && !plan.instructions;
+    return rejected ? "plan_rejected" : "stopped";
   }
   if (plan === null) return "fix_planning";
   if (approvedByPerson(plan)) return "fixing";

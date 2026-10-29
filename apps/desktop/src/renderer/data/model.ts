@@ -852,6 +852,12 @@ export type ConversationEvent =
       link?: string;
       /** Nel refine: i campi della richiesta che questa riga ha scritto (già eseguito). */
       requestPatch?: RefinePatch;
+      /**
+       * Solo `server_check` (R-L3): l'esito del controllo in sola lettura
+       * dopo la correzione. Dice «risolto/non risolto»; l'esito della
+       * sessione no (può chiudersi male per altri motivi).
+       */
+      resolved?: boolean;
     };
 
 /** Il contenuto di un evento senza id né data: li dà il motore dello stream quando lo emette. */

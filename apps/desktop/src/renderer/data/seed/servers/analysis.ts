@@ -56,7 +56,12 @@ const analysis = seeded(
       STARTED,
       "Memory on acq-prod-01 is at 94%, above the 90% alert. Looking into it with the read-only access.",
     ),
-    read("18:02", "Reads the uptime and load", "uptime", " 18:02:11 up 41 days,  3:12,  0 users,  load average: 2.84, 2.41, 1.97"),
+    read(
+      "18:02",
+      "Reads the uptime and load",
+      "uptime",
+      " 18:02:11 up 41 days,  3:12,  0 users,  load average: 2.84, 2.41, 1.97",
+    ),
     read(
       "18:03",
       "Reads the memory",
@@ -101,7 +106,12 @@ const analysis = seeded(
         "pg    1033   4.1 20.7 2213104 1688520 postgres: checkpointer",
       ].join("\n"),
     ),
-    read("18:07", "Reads the system journal", "sudo journalctl -u docker --since -30min --no-pager", "-- No entries --"),
+    read(
+      "18:07",
+      "Reads the system journal",
+      "journalctl -u docker --since -30min --no-pager",
+      "-- No entries --",
+    ),
     says(
       ENDED,
       [

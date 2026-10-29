@@ -9,8 +9,11 @@ import { RECOVERED_SHOWN_HOURS } from "./limits";
 
 /** La salute di un server in una parola, da quando e perché. */
 export interface ServerHealth {
-  health: "healthy" | "trouble" | "down" | "recovered";
-  /** Inizio del problema; per `recovered`, l'ora del rientro; `null` se in salute. */
+  health: "healthy" | "trouble" | "down" | "recovered" | "never_connected";
+  /**
+   * Inizio del problema; per `recovered`, l'ora del rientro; `null` se in
+   * salute o mai collegato.
+   */
   since: string | null;
   reasons: EpisodeReason[];
 }
@@ -21,7 +24,9 @@ export type ServerWork = "none" | "analyzing" | "diagnosis_ready" | "fixing";
 const HOUR_MS = 3_600_000;
 
 /**
- * La salute di `s` adesso. `down` se un episodio aperto è `down` o l'agente
+ * La salute di `s` adesso. `never_connected` prima di tutto (R-L4): un
+ * agente che non si è mai fatto sentire non dice niente sul server, che
+ * quindi non è «in salute»; non ha dati né episodi. Poi `down` se un episodio aperto è `down` o l'agente
  * risulta offline (anche senza episodio: «non risponde» si vede subito);
  * `trouble` con un episodio aperto; `recovered` se l'ultimo episodio è
  * rientrato da meno di `RECOVERED_SHOWN_HOURS`; altrimenti in salute. Con
@@ -32,6 +37,9 @@ export function serverHealth(
   episodes: ServerEpisode[],
   now: string,
 ): ServerHealth {
+  if (s.status === "never_connected") {
+    return { health: "never_connected", since: null, reasons: [] };
+  }
   const own = episodes
     .filter((e) => e.serverCode === s.code)
     .sort((a, b) => a.startedAt.localeCompare(b.startedAt));

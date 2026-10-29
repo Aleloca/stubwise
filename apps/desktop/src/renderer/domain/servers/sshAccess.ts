@@ -43,6 +43,14 @@ export function accessState(a: ServerSshAccess | undefined): AccessState {
  * se la lettura scrive (nessuno dei due). Durante una rigenerazione valgono
  * le vecchie chiavi, verificate prima, anche se la verifica delle nuove è
  * fallita: restano in uso finché le nuove non passano.
+ *
+ * Limite del modello (una sola `verification`): finché nessuno verifica le
+ * chiavi nuove resta l'esito delle vecchie, e vale quello; dopo la verifica
+ * delle nuove (`ofPending`) l'esito delle vecchie non c'è più, e le due si
+ * considerano usabili. Una rigenerazione partita da `verify_failed` rimette
+ * così in uso, se la verifica delle nuove fallisce, anche un accesso vecchio
+ * che non passava. Se conta, la rigenerazione deve conservare l'esito di
+ * prima (modello del Task 4).
  */
 export function accessUsable(a: ServerSshAccess | undefined, kind: SshAccessKind): boolean {
   if (!a || a.keys === null) return false;
