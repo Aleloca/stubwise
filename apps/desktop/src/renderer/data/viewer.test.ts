@@ -495,6 +495,9 @@ describe("R-L9: Claude, membro implicito di ogni progetto coi soli permessi di l
       expect(can(forged, perm), perm).toBe(false);
     for (const perm of ["plans.approve", "servers.operate", "project.members.manage"] as const)
       expect(can(forged, perm, ACQ), perm).toBe(false);
+    // Nemmeno per la strada di reparto.
+    const dept = { ...forged, departmentPermissions: { "dep-x": ["department.home.manage" as const] } };
+    expect(canInDepartment(dept, "department.home.manage", "dep-x")).toBe(false);
     // Le letture di lavoro restano.
     expect(can(forged, "tickets.create", ACQ)).toBe(true);
     expect(can(forged, "monitor.view")).toBe(true);

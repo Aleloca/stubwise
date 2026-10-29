@@ -456,6 +456,8 @@ export function canInDepartment(
   perm: DepartmentPermission,
   departmentId: string,
 ): boolean {
+  // R-L9: i permessi di reparto sono di gestione, a Claude mai.
+  if (viewer.personId === CLAUDE_ID) return false;
   if (isFullAdmin(viewer)) return true;
   return (viewer.departmentPermissions[departmentId] ?? []).includes(perm);
 }
