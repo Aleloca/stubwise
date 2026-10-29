@@ -261,6 +261,26 @@ describe("Rigenera e Revoca", () => {
     expect(access()).not.toHaveTextContent("The current ones are still in use");
   });
 
+  it("Laura durante la rigenerazione: nessuna promessa sulle chiavi attuali (R-L8)", async () => {
+    const user = userEvent.setup();
+    await open("/p/ACQ/servers/SRV-1", "p-roberta");
+    await simulate(user, "Fix access fails");
+    let menu = await openMenu(user, "SRV-1");
+    await user.click(within(menu).getByRole("menuitem", { name: "Verify again" }));
+    await waitFor(() => expect(access()).toHaveTextContent("Check failed"));
+    menu = await openMenu(user, "SRV-1");
+    await user.click(within(menu).getByRole("menuitem", { name: "Regenerate keys…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Regenerate SRV-1's keys?" });
+    await user.click(within(dialog).getByRole("button", { name: "Regenerate" }));
+    await within(access()).findByRole("heading", { name: "New keys — not in use yet" });
+
+    await user.click(screen.getByRole("button", { name: /^Profile and settings/ }));
+    await user.click(screen.getByRole("radio", { name: /Laura Costa/ }));
+    await waitFor(() => expect(access()).toHaveTextContent("New keys being set up."));
+    expect(access()).not.toHaveTextContent("stay in use");
+    expect(within(access()).queryByRole("button")).toBeNull();
+  });
+
   it("Revoca con conferma, poi il comando di rimozione fino a «Done», poi «Link again»", async () => {
     const user = userEvent.setup();
     await open("/p/ACQ/servers/SRV-1", "p-roberta");

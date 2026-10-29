@@ -7352,7 +7352,7 @@
           "refused": "il server ha rifiutato la chiave",
           "unreachable": "server non raggiungibile"
         },
-        "newKeys": "Nuove chiavi in preparazione. Quelle attuali restano in uso finché le nuove non passano la verifica.",
+        "newKeys": "Nuove chiavi in preparazione.",
         "used": {
           "never": "Mai usato",
           "analysis": "Usato {{when}} dall'analisi di {{code}}",

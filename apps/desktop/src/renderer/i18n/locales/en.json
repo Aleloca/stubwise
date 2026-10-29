@@ -7352,7 +7352,7 @@
           "refused": "the server refused the key",
           "unreachable": "couldn't reach the server"
         },
-        "newKeys": "New keys being set up. The current ones stay in use until the new ones pass verification.",
+        "newKeys": "New keys being set up.",
         "used": {
           "never": "Not used yet",
           "analysis": "Used {{when}} by the analysis of {{code}}",
