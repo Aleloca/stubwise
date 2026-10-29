@@ -97,6 +97,10 @@ export const ALERT_TYPES: AlertType[] = [
   ]),
   row("docs.release_note", "docs", "docs.view", off, false),
   row("task.created", "tasks", "tickets.view_all", off, false),
+  // Decisione del 29 ott 2026: le task create da un'automazione hanno un
+  // tipo loro (non partono come «Nuova task»), e l'assegnatario lo riceve
+  // sempre — è chi dovrà farla.
+  row("task.created_by_automation", "tasks", "tickets.view_all", off, false, ["assignee"]),
   row("support.request", "support", "backlog.view_all", holds("backlog.edit"), false),
   // R-K12: segue una conversazione chi la vede (ogni membro), quindi l'avviso
   // lo può ricevere ogni membro; acceso di default solo per chi risponde.

@@ -1313,8 +1313,9 @@ describe("Automations: revisione del Task 3", () => {
     await automations.simulateSourceEvent(S.audin, 0);
     await idle();
     expect(lastRunOf(a.id).status).toBe("done");
-    // L'ultimo avviso dell'automazione («Nuova task» del catalogo nasce a parte).
-    expect(state.notifications.filter((n) => n.kind !== "task.created").at(-1)).toMatchObject({
+    // L'ultimo avviso dell'automazione (quello del catalogo per le sue task nasce a parte).
+    const own = state.notifications.filter((n) => n.kind !== "task.created_by_automation");
+    expect(own.at(-1)).toMatchObject({
       recipientIds: ["p-elena"],
       projectId: null,
     });

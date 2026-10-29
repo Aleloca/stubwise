@@ -81,7 +81,12 @@ export interface AppNotification {
 }
 
 /** Perché un avviso del catalogo arriva a qualcuno senza iscrizione (area 8a). */
-export type MandatoryReason = "merged" | "pr_author" | "follows_conversation" | "task_author";
+export type MandatoryReason =
+  | "merged"
+  | "pr_author"
+  | "follows_conversation"
+  | "task_author"
+  | "assignee";
 
 export type StatusFamily = "todo" | "active" | "closed";
 

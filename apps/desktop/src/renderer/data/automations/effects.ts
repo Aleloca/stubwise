@@ -112,17 +112,21 @@ function createTask(eff: ActionEffect, env: EffectEnv, owner: string) {
   const milestone = state.milestones.find(
     (m) => m.id === plan.milestoneCode && m.projectId === plan.projectId,
   );
-  const task = createTaskAs(owner, {
-    projectId: plan.projectId,
-    title: plan.title,
-    description: plan.description,
-    assigneeId: plan.assignee.assigneeId,
-    departmentId: plan.departmentId,
-    dueDate: plan.dueDate,
-    milestoneId: milestone?.id ?? null,
-  });
-  task.source = "automation";
-  task.automationRef = { automationId: a.id, runId: run.id };
+  // Origine e riferimento entrano alla creazione: decidono l'avviso
+  // («task.created_by_automation», non «task.created»).
+  const task = createTaskAs(
+    owner,
+    {
+      projectId: plan.projectId,
+      title: plan.title,
+      description: plan.description,
+      assigneeId: plan.assignee.assigneeId,
+      departmentId: plan.departmentId,
+      dueDate: plan.dueDate,
+      milestoneId: milestone?.id ?? null,
+    },
+    { source: "automation", automationRef: { automationId: a.id, runId: run.id } },
+  );
   return done([task.code], plan.projectId, plan.assignee.reason);
 }
 

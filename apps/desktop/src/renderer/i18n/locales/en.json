@@ -6171,6 +6171,7 @@
       "release_failed": "Release failed",
       "docs_release_note": "Release note ready",
       "task_created": "New task",
+      "task_created_by_automation": "New task from an automation",
       "support_request": "New request",
       "support_customer_replied": "Customer replied",
       "job_pr_opened": "Claude opened a PR",
@@ -6192,6 +6193,7 @@
       "release_failed": "When a release of {{code}} fails after the merge",
       "docs_release_note": "When the night run writes a release note for {{code}}",
       "task_created": "When a task is created in {{code}}",
+      "task_created_by_automation": "When an automation creates a task in {{code}}",
       "support_request": "When a request is opened in {{code}}, by a customer or a colleague",
       "support_customer_replied": "When a customer writes again in a conversation of {{code}}",
       "job_pr_opened": "When Claude opens a PR for a task of {{code}}",
@@ -6208,7 +6210,8 @@
       "merged": "Always when you did the merge",
       "pr_author": "Always for the PR's author",
       "follows_conversation": "Always if you follow the conversation",
-      "task_author": "Always for the task's author, if the merge came from outside Stubwise"
+      "task_author": "Always for the task's author, if the merge came from outside Stubwise",
+      "assignee": "Always for whoever the task is assigned to"
     },
     "always": "Always for you",
     "alwaysPhone": "App and phone",
@@ -6281,7 +6284,8 @@
         "merged": "You get this because you did the merge",
         "pr_author": "You get this because you opened this PR",
         "follows_conversation": "You get this because you follow this conversation",
-        "task_author": "You get this because the PR comes from your task"
+        "task_author": "You get this because the PR comes from your task",
+        "assignee": "You get this because the task is assigned to you"
       }
     },
     "pausedShort": "Paused",

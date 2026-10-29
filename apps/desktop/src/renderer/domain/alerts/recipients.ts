@@ -106,6 +106,9 @@ export function recipientsOf(n: AppNotification, ctx: RecipientContext): Recipie
   return out.sort((a, b) => a.personId.localeCompare(b.personId));
 }
 
+/** I motivi che non chiedono il permesso del tipo: la task è della persona. */
+const OWN_TASK_REASONS: ReadonlySet<MandatoryReason> = new Set(["assignee"]);
+
 /**
  * Se UNA persona riceve un avviso del catalogo, e perché (`null` se no):
  * la regola di `recipientsOf` valutata solo per lei, così chi chiede di
@@ -119,8 +122,13 @@ export function whyFor(
   const def = alertTypeOf(n.kind);
   if (!def) return null;
   const perms = ctx.permsOf(personId);
-  if (!allowedNow(def, perms, ctx.seesProject(personId))) return null;
   const mandatory = n.mandatory?.find((m) => m.personId === personId);
+  // L'assegnatario vede la task che deve fare anche senza il permesso per
+  // iscriversi (un Contributor): basta che veda il progetto.
+  if (mandatory && OWN_TASK_REASONS.has(mandatory.reason) && ctx.seesProject(personId)) {
+    return mandatory.reason;
+  }
+  if (!allowedNow(def, perms, ctx.seesProject(personId))) return null;
   if (mandatory) return mandatory.reason;
   if (def.mandatoryOnly) return null;
   const member = ctx.members.includes(personId);

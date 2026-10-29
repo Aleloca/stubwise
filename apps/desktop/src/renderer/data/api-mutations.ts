@@ -242,21 +242,26 @@ function addTask(task: Task): void {
 export function createTaskAs(
   me: string,
   input: NewTaskInput,
-  extra: Partial<Pick<Task, "releaseRef" | "links">> = {},
+  extra: Partial<Pick<Task, "releaseRef" | "links" | "source" | "automationRef">> = {},
 ): Task {
   const task = { ...buildTask(me, input), ...copy(extra) };
   addTask(task);
   signalAutomations({ kind: "task_created", taskId: task.id });
   // «Nuova task» del catalogo (area 8a): da ogni porta che crea una task,
   // «Fai sistemare a Claude» compreso; chi la riceve si calcola a lettura.
+  // Quella di un'automazione ha il suo tipo, sempre all'assegnatario (29 ott
+  // 2026): un avviso solo anche se è pure iscritto, perché la riga è una.
   const code = state.projectsById.get(task.projectId)!.code;
+  const byAutomation = task.source === "automation";
   publishAlert({
-    kind: "task.created",
+    kind: byAutomation ? "task.created_by_automation" : "task.created",
     projectId: task.projectId,
     objectCode: task.code,
-    title: "New task",
+    title: byAutomation ? "New task from an automation" : "New task",
     body: task.title,
     link: `#/p/${code}/tasks?task=${task.code}`,
+    mandatory:
+      byAutomation && task.assigneeId ? [{ personId: task.assigneeId, reason: "assignee" }] : [],
   });
   return task;
 }

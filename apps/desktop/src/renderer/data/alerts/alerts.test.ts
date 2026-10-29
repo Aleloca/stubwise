@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ALERT_TYPES, isCatalogKind, registerAlertTypes } from "../../domain/alerts/catalog";
+import { createTaskAs } from "../api-mutations";
 import {
   alerts,
+  automations,
   createTask,
   failNext,
   listNotifications,
@@ -180,10 +182,116 @@ describe("task.created: una task nuova avvisa chi l'ha accesa", () => {
   it("Matteo (iscritto in AUD) riceve la task che Laura crea; Marco (spento) no", async () => {
     as("p-laura");
     const task = await createTask({ projectId: AUD, title: "Store review notes" });
-    const n = state.notifications.find((x) => x.kind === "task.created" && x.objectCode === task.code);
+    const n = state.notifications.find(
+      (x) => x.kind === "task.created" && x.objectCode === task.code,
+    );
     expect(n).toMatchObject({ link: `#/p/AUD/tasks?task=${task.code}`, recipientIds: [] });
     expect(await has("p-matteo", n!.id)).toBe(true);
     expect(await has("p-marco", n!.id)).toBe(false);
+  });
+});
+
+describe("task.created_by_automation: le task delle Automazioni, sempre all'assegnatario", () => {
+  /**
+   * Un'automazione di Roberta (manuale, in `projectId`) crea una task per
+   * `assigneeId`: la si esegue e si restituisce la task creata.
+   */
+  async function byAutomation(assigneeId: string, projectId = AUD) {
+    as("p-roberta");
+    const a = await automations.createAutomation({
+      name: "Prova",
+      projectId,
+      flow: {
+        trigger: { kind: "manual" },
+        titleTemplate: "Prova",
+        steps: [
+          {
+            id: "t",
+            kind: "createTask",
+            title: "Preparare il contratto",
+            description: "",
+            assignee: { personId: assigneeId },
+            dueInDays: null,
+            project: { mode: "own" },
+            milestoneRef: null,
+            approval: { mode: "auto" },
+          },
+        ],
+      },
+    });
+    await automations.activate(a.id);
+    await automations.startManual(a.id);
+    await automations.whenAutomationsIdle();
+    return state.tasks.find((t) => t.automationRef?.automationId === a.id)!;
+  }
+  const alertsOf = (code: string) => state.notifications.filter((n) => n.objectCode === code);
+
+  it("l'assegnatario lo riceve senza iscrizione; «Nuova task» non parte", async () => {
+    const task = await byAutomation("p-marco");
+    expect(task.assigneeId).toBe("p-marco");
+    expect(alertsOf(task.code).map((n) => n.kind)).toEqual(["task.created_by_automation"]);
+    const marco = (await inbox("p-marco")).filter((n) => n.objectCode === task.code);
+    expect(marco).toHaveLength(1);
+    expect(marco[0]!.mandatory).toEqual([{ personId: "p-marco", reason: "assignee" }]);
+    // Matteo è iscritto a «Nuova task» in AUD, non a questo tipo (spento di default).
+    expect((await inbox("p-matteo")).some((n) => n.objectCode === task.code)).toBe(false);
+  });
+
+  it("iscritto e assegnatario: un avviso solo, col perché dell'assegnatario", async () => {
+    as("p-marco");
+    await alerts.setSubscription(AUD, "task.created_by_automation", { app: true });
+    const task = await byAutomation("p-marco");
+    const marco = (await inbox("p-marco")).filter((n) => n.objectCode === task.code);
+    expect(marco).toHaveLength(1);
+    expect(marco[0]!.mandatory).toEqual([{ personId: "p-marco", reason: "assignee" }]);
+    // Un iscritto che non è l'assegnatario lo riceve come iscritto.
+    as("p-laura");
+    await alerts.setSubscription(AUD, "task.created_by_automation", { app: true });
+    const other = await byAutomation("p-marco");
+    const laura = (await inbox("p-laura")).filter((n) => n.objectCode === other.code);
+    expect(laura).toHaveLength(1);
+    expect(laura[0]!.mandatory).toBeUndefined();
+  });
+
+  it("l'assegnatario senza tickets.view_all lo riceve; chi non vede il progetto no", async () => {
+    const aud = state.projectsById.get(AUD)!;
+    if (!aud.memberIds.includes("p-sara")) aud.memberIds.push("p-sara");
+    grantProjectRole("p-sara", AUD, "contributor");
+    const task = await byAutomation("p-sara");
+    expect(task.assigneeId).toBe("p-sara");
+    expect(await has("p-sara", alertsOf(task.code)[0]!.id)).toBe(true);
+    aud.memberIds = aud.memberIds.filter((id) => id !== "p-sara");
+    expect(visibleProjectIds("p-sara").has(AUD)).toBe(false);
+    expect(await has("p-sara", alertsOf(task.code)[0]!.id)).toBe(false);
+  });
+
+  it("nelle Preferenze: una riga sua, spenta, che dice chi lo riceve sempre", async () => {
+    as("p-marco");
+    const rows = (await alerts.subscriptionRows()).find((p) => p.projectId === AUD)!.rows;
+    expect(rows.find((r) => r.type === "task.created_by_automation")).toMatchObject({
+      group: "tasks",
+      state: "off",
+      mandatory: ["assignee"],
+      labelKey: "alerts.types.task_created_by_automation",
+    });
+  });
+
+  it("una task fatta a mano non lo pubblica", async () => {
+    as("p-laura");
+    const task = await createTask({ projectId: AUD, title: "A mano", assigneeId: "p-marco" });
+    expect(alertsOf(task.code).map((n) => n.kind)).toEqual(["task.created"]);
+  });
+
+  it("Claude assegnatario non lo riceve (R-K5)", async () => {
+    as("p-laura");
+    const task = createTaskAs(
+      "p-laura",
+      { projectId: AUD, title: "Per Claude", assigneeId: "p-claude" },
+      { source: "automation" },
+    );
+    const n = alertsOf(task.code);
+    expect(n.map((x) => x.kind)).toEqual(["task.created_by_automation"]);
+    expect(await has("p-claude", n[0]!.id)).toBe(false);
   });
 });
 
