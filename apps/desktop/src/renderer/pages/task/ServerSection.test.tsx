@@ -8,6 +8,7 @@ import { eventsOf, state } from "../../data/store";
 import type { ConversationEvent } from "../../data/types";
 import { setLanguage } from "../../i18n";
 import { renderRoute } from "../../test/renderRoute";
+import { setMatchMedia } from "../../test/setup";
 
 // La task di un server (Task 9 del piano 8b, shape server-task.md): la
 // sezione «Server» in testa al pannello, l'avvio con le due condizioni
@@ -414,6 +415,17 @@ describe("la sessione d'analisi nella destinazione Claude", () => {
     const list = await screen.findByRole("list", { name: "Commands on SRV-1" });
     expect(within(list).getAllByText("read").length).toBe(6);
     expect(within(list).queryByText("fix")).toBeNull();
+  });
+
+  it("d4: il lato oggetto mostra il server (riga ed episodio) sopra la task", async () => {
+    setMatchMedia("(min-width: 1200px)", true);
+    renderRoute("/claude/cv-srv-1-analysis", "p-roberta");
+    const side = await screen.findByRole("complementary", { name: /./ });
+    const server = await within(side).findByTestId("server-brief");
+    expect(server).toHaveTextContent("SRV-1");
+    expect(server).toHaveTextContent("acq-prod-01");
+    expect(server.querySelector("[data-server-episode]")).not.toBeNull();
+    expect(within(side).getByText("ACQ-6")).toBeInTheDocument();
   });
 });
 

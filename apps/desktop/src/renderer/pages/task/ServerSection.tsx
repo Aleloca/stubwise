@@ -115,9 +115,66 @@ function EpisodeLine({ episode, info }: { episode: ServerEpisode; info: ServerTa
       })
     : t(`${K}.episodeOpen`, { reasons, when: sinceWhen(episode.startedAt, lang) });
   return (
-    <p title={all.length > 1 ? all.join(" · ") : undefined} className="text-sm text-ink-muted">
+    <p
+      data-server-episode
+      title={all.length > 1 ? all.join(" · ") : undefined}
+      className="text-sm text-ink-muted"
+    >
       {text}
     </p>
+  );
+}
+
+/** La riga del server: codice, nome, salute e «Open →» dove il server è (`projectCode`). */
+function ServerLine({ info }: { info: ServerTaskInfo }) {
+  const { t } = useTranslation();
+  if (!info.server) return null;
+  const home = info.server.projectCode;
+  return (
+    <p className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-md text-ink">
+      <span className="num font-semibold">{info.server.code}</span>
+      <span className="min-w-0 truncate" title={info.server.name}>
+        {info.server.name}
+      </span>
+      {info.health && (
+        <>
+          <span aria-hidden="true" className="text-ink-faint">
+            ·
+          </span>
+          <span className="inline-flex items-center gap-1.5 text-sm text-ink-muted">
+            <HealthGlyph health={info.health.health} />
+            {t(`servers.health.${info.health.health}`)}
+          </span>
+        </>
+      )}
+      {home && (
+        <Link
+          to="/p/$code/servers/$server"
+          params={{ code: home, server: info.server.code }}
+          aria-label={t(`${K}.openLabel`, { code: info.server.code })}
+          className={`${ghostButton} ml-auto`}
+        >
+          {t(`${K}.open`)}
+          <span aria-hidden="true">→</span>
+        </Link>
+      )}
+    </p>
+  );
+}
+
+/**
+ * Il server di una sessione d'analisi nel lato oggetto (shape server-task,
+ * d4): la riga del server e l'episodio, sopra la task. Niente se chi guarda
+ * non vede il server (R-G5).
+ */
+export function ServerBrief({ taskId }: { taskId: string }) {
+  const info = useServerTaskInfo(taskId).data;
+  if (!info?.server) return null;
+  return (
+    <div data-testid="server-brief" className="flex min-w-0 flex-col gap-1">
+      <ServerLine info={info} />
+      {info.episode && <EpisodeLine episode={info.episode} info={info} />}
+    </div>
   );
 }
 
@@ -334,34 +391,7 @@ function ServerBody({ task, info }: { task: Task; info: ServerTaskInfo }) {
   return (
     <Section title={t(`${K}.title`)}>
       {info.server ? (
-        <p className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-md text-ink">
-          <span className="num font-semibold">{info.server.code}</span>
-          <span className="min-w-0 truncate" title={info.server.name}>
-            {info.server.name}
-          </span>
-          {info.health && (
-            <>
-              <span aria-hidden="true" className="text-ink-faint">
-                ·
-              </span>
-              <span className="inline-flex items-center gap-1.5 text-sm text-ink-muted">
-                <HealthGlyph health={info.health.health} />
-                {t(`servers.health.${info.health.health}`)}
-              </span>
-            </>
-          )}
-          {home && (
-            <Link
-              to="/p/$code/servers/$server"
-              params={{ code: home, server: info.server.code }}
-              aria-label={t(`${K}.openLabel`, { code: info.server.code })}
-              className={`${ghostButton} ml-auto`}
-            >
-              {t(`${K}.open`)}
-              <span aria-hidden="true">→</span>
-            </Link>
-          )}
-        </p>
+        <ServerLine info={info} />
       ) : info.serverGone && code ? (
         // Solo a chi vede il progetto della task, dove il server era visibile.
         <p data-server-deleted className="flex items-center gap-x-2 text-md text-ink-muted">

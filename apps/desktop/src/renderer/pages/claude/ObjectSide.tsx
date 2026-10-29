@@ -7,6 +7,7 @@ import { PersonChip } from "../../tasks-ui/PersonChip";
 import { SizeMark } from "../../tasks-ui/SizeMark";
 import { StatusLabel } from "../../tasks-ui/StatusLabel";
 import { RequestStatusLabel, UrgencyMark } from "../requests/marks";
+import { ServerBrief } from "../task/ServerSection";
 import { secondaryButton } from "../tasks/controls";
 
 /** Una sessione legata a un oggetto (task o richiesta): ha il lato. */
@@ -28,6 +29,8 @@ export function ObjectSide({ detail, onClose }: { detail: ConversationDetail; on
       aria-label={t("claude.destination.page.objectLabel")}
       className="flex min-w-0 flex-col gap-5 px-5 pt-6 pb-6"
     >
+      {/* Una sessione d'analisi: prima il server (riga ed episodio), poi la task. */}
+      {detail.serverAnalysis && detail.taskId !== null && <ServerBrief taskId={detail.taskId} />}
       {detail.taskId !== null ? (
         <TaskBrief code={detail.objectCode ?? ""} projectId={detail.projectId} />
       ) : (
