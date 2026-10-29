@@ -3,8 +3,8 @@
 Una riga per voce 8a del design
 (`docs/plans/2026-10-28-desktop-area8-releases-support-servers-design.md`):
 rilasci e coda, ambienti, avvisi e iscrizioni, PR, Support e widget, bug del
-compositore. Poi le voci **non portate di proposito**, i buchi e le righe dei
-**server**, che restano «area 8b». Percorsi relativi a `src/renderer/`. Stessa
+compositore. Poi le voci **non portate di proposito**, i buchi e le tabelle dei
+**server** (area 8b). Percorsi relativi a `src/renderer/`. Stessa
 regola delle aree 2–7: il test citato (nome fra virgolette, anche solo
 l'inizio) esercita davvero quella voce; dove non c'è, la colonna lo dice e la
 voce torna in «Buchi». In sintesi: Releases è `#/p/<CODE>/releases` (`?pr=`,
@@ -124,6 +124,7 @@ rilascio `#/p/<CODE>/releases/<PRJ>-V<n>`), Support è `#/p/<CODE>/support`
 | Notifica di sistema di Electron | Solo il pannello (vedi `ossatura-follow-ups.md`) | — |
 | «Riprova la pipeline» / «Deploy» | Anti-obiettivo 1: il merge è il confine | `Releases.test.tsx` («nessun «Deploy» né «Riprova la pipeline» nella sezione, in inglese e in italiano») |
 | Vista complessiva dei server | Area 9 (Amministrazione) | — |
+| Assegnare `servers.operate` dalla pagina Membri del progetto | La pagina Membri non esiste ancora (area 9): `servers.operate` si assegna solo nel seme (`data/seed/grants.ts`) | — |
 
 ## Buchi
 
@@ -155,14 +156,83 @@ Non fatti, per scelta (rifiniture dello shape senza un dato o con un costo che i
 
 ## Server → area 8b
 
-Restano al piano 8b; qui solo l'elenco, nessun test.
+Server per repository (R-L2): un ambiente non ha UN server, ogni repository
+dice su quale gira. Sezione `#/p/<CODE>/servers`, dettaglio
+`#/p/<CODE>/servers/SRV-n` (`?check=`, `?range=`). Percorsi relativi a
+`src/renderer/`; `P` = `pages/servers/`, `D` = `data/servers/`,
+`M` = `domain/servers/`.
 
-| Voce del design | Stato |
-|---|---|
-| Sezione Servers del progetto: stato, grafici, servizi, dischi, controlli, soglie, impostazioni | area 8b |
-| Nuovo server e chiave dell'agente (`monitor.manage`) | area 8b |
-| Avvisi «server in difficoltà / non risponde / rientrato» e «diagnosi pronta» (si aggiungono al catalogo con `registerAlertTypes`) | area 8b |
-| Analisi automatica in sola lettura e task con diagnosi | area 8b |
-| Correzione da task con `servers.operate` e piano sempre approvato | area 8b |
-| Accessi SSH in tre passi, Verifica, Rigenera, Revoca, ultimo uso (`servers.ssh.manage`) | area 8b |
-| Progetto principale di un server | area 8b |
+### Sezione Servers e monitor
+
+| Voce del web / del design | Dove vive ora | Test |
+|---|---|---|
+| Elenco in due gruppi (va bene / richiede attenzione), un server mai collegato in un gruppo a sé (R-L4), stato in parole e non solo colore | `P/ServersPage.tsx`, `ServerList.tsx`; `D/reads.ts`; `M/health.ts` | `Servers.test.tsx` («ACQ (Marco): SRV-1 in «Running fine»…», «STW: SRV-2 in «Needs attention», in parole e non solo in colore», «R-L4: un server mai collegato sta in un gruppo a sé…»), `health.test.ts` («mai collegato → never_connected, non in salute (R-L4)», «rientrato da 23 h → recovered; da 25 h → healthy») |
+| Visibilità: un server si vede attraverso gli ambienti dei progetti visibili; inesistente e invisibile rispondono uguale (R-G5) | `D/visibility.ts` | `servers.test.ts` («un server si vede attraverso gli ambienti dei progetti visibili», «serverFor: inesistente e invisibile rispondono allo stesso modo», «Marco vede SRV-1 nella sezione di ACQ; Sara non vede SRV-3…»), `ServerDetail.test.tsx` («SRV-99, SRV-3 per Sara (invisibile) e SRV-2 da ACQ (altro progetto)») |
+| Server per repository nell'ambiente (R-L2): un rilascio di `audin-admin` guarda SRV-4, non SRV-3 | `D/visibility.ts`; `data/releases/` | `data/releases/releases.test.ts` («R-L2: un rilascio di audin-admin guarda SRV-4, non SRV-3») |
+| Dettaglio: nome, codice, hostname, agente, rientro nel fuso di chi guarda, diagnosi pronta | `P/ServerDetail.tsx`, `NowBox.tsx` | `ServerDetail.test.tsx` («SRV-1: nome e codice, hostname e agente; il rientro nel fuso di chi guarda e la diagnosi pronta», «SRV-2: in difficoltà dalle 09:40, i motivi in frase…») |
+| Grafici (CPU, memoria, disco, carico) a 1h · 24h · 7d con soglia e fascia dell'episodio; riduzione a ≤ 300 punti | `P/MetricsCharts.tsx`, `Chart.tsx`; `M/metrics.ts` | `ServerDetail.test.tsx` («intervallo 1h · 24h · 7d (24h di base), la nota dei punti ridotti, i riassunti in parole», «un errore dei grafici non abbatte il resto…», «mai collegato: «No data in this range»»), `servers.test.ts` («RF 5: 7 giorni di metriche a 30 s si riducono a ≤ 300 punti», «i punti delle metriche sono copie, non lo stato»), `metrics.test.ts` («20 160 punti → 300, troncato, primo e ultimo conservati») |
+| Tempo di risposta del controllo selezionato (R-L1) | `MetricsCharts.tsx`; `D/reads.ts` | `ServerDetail.test.tsx` («selezionare un controllo aggiunge il suo tempo di risposta; il ✕ e di nuovo il clic lo tolgono»), `servers.test.ts` («R-L1: con un controllo, i campioni della latenza (ridotti anch'essi)»), `metrics.test.ts` («riduce a max punti, tiene primo e ultimo, media la latenza dei soli campioni su») |
+| Servizi (200 righe, filtro, ellissi) e dischi | `P/ServicesTable.tsx`, `DisksPanel.tsx` | `ServerDetail.test.tsx` («200 servizi: tabella intera, filtro, nome lunghissimo con ellissi e titolo intero»), `servers.test.ts` («RF 5: 200 servizi restituiti tutti», «il dettaglio di SRV-1: soglie, servizi, dischi, controlli, episodi con analisi e task») |
+| Controlli: crea, modifica, sospendi, cancella a due tempi; intervallo 10–3600 | `P/ChecksPanel.tsx`; `D/monitor.ts` | `ServerDetail.test.tsx` («Roberta: aggiunge un controllo dal dialogo, lo sospende, lo cancella a due tempi»), `servers.test.ts` («controlli: crea, modifica, togli; intervallo 10–3600 e tipi del web») |
+| Soglie: frasi per chi legge, campi per chi gestisce; 1–100 o spenta, minuti 1–60 | `P/ThresholdsPanel.tsx` | `ServerDetail.test.tsx` («Laura: soglie come frasi, nessun campo, nessun «Add check», nessuna Settings», «Roberta: le soglie in campi; «Save» solo con modifiche…»), `servers.test.ts` («setThresholds: 1–100 o spenta, minuti 1–60») |
+| Impostazioni: nome, intervallo 10–300, progetto principale solo fra le produzioni | `P/ServerSettings.tsx`; `D/monitor.ts` | `ServerDetail.test.tsx` («Roberta: progetto principale solo fra le produzioni; con una sola, la frase fissa»), `servers.test.ts` («updateServer: nome, intervallo 10–300, principale fra le produzioni») |
+| Nuovo server: crea (da SRV-5), la chiave dell'agente si vede una volta e si copia; chiudere senza copiare chiede; nessun ambiente libero rimanda a Releases | `P/NewServerDialog.tsx`, `AgentKeyPanel.tsx`, `InstallCommand.tsx` | `Servers.test.tsx` («crea SRV-5 nello staging di STW: la chiave si vede una volta…», «chiudere senza aver copiato chiede; riaprendo «New server» la chiave non c'è più», «nessun ambiente libero: il dialogo rimanda a Releases → Environments»), `servers.test.ts` («Roberta crea SRV-5 nello staging di AUD; la chiave non esce da nessuna lettura»), `ServerDetail.test.tsx` («Roberta: rigenerare la chiave la mostra una volta, dopo la conferma») |
+| Solo `monitor.manage` aggiunge e toglie; `environments.manage` per collegarlo a un ambiente | `D/monitor.ts` | `servers.test.ts` («senza monitor.manage (Laura): forbidden, e nessun server», «con monitor.manage ma senza environments.manage nel progetto: forbidden», «deleteServer toglie il server dagli ambienti; il codice non si riusa», «tolto l'ultimo ambiente, resta raggiungibile dal monitor e si può togliere») |
+| Progetto principale di un server (dove va l'analisi e la task) | `M/projects.ts`; `D/monitor.ts` | `projects.test.ts` («solo le produzioni che usano il server, una volta per progetto», «due produzioni: il principale se c'è, altrimenti il primo», «solo staging → null (niente analisi)») |
+| Punto sulla voce Servers, ⌘K per codice, nome o hostname | `P/ServersPage.tsx`; `palette/` | `Servers.test.tsx` («il punto sulla voce Servers quando un server è in difficoltà, con la frase; altrimenti il numero», «⌘K «SRV-1» porta al dettaglio nel progetto principale», «⌘K: chi non vede il server non lo trova (R-G5)»), `servers.test.ts` («⌘K: per codice, nome o hostname, solo fra i server visibili», «⌘K trova un server orfano per chi ha monitor.manage, nel suo primo progetto») |
+| Nessun bottone agisce sul server dalla pagina (niente Restart, Deploy, Pull); ogni «Simula» nel riquadro «Prototype only» | `P/SimulatePanel.tsx` | `ServerDetail.test.tsx` («nessun bottone agisce sul server: niente Restart, Deploy, Pull»), `SshAccess.test.tsx` («ogni «Simula» dell'accesso sta nel riquadro «Prototype only»») |
+| Cambio persona col dettaglio aperto; `failNext`, `resetApi`, scrittura partita prima del reset | `D/index.ts` | `ServerDetail.test.tsx` («cambiare persona col dettaglio aperto: le parti di gestione spariscono sul posto»), `servers.test.ts` («failNext rifiuta solo la chiamata successiva», «una scrittura partita prima di resetApi non scrive», «resetApi ripulisce server, ambienti, controlli e contatore») |
+
+### Avvisi
+
+| Voce | Dove vive ora | Test |
+|---|---|---|
+| Tipi `server.*` (in difficoltà / non risponde / rientrato / diagnosi pronta) aggiunti al catalogo con `registerAlertTypes`, `catalog.ts` intatto | `D/alertTypes.ts` | `analysis.test.ts` («gli avvisi server del seme seguono i default del catalogo (e mai Claude)», «le Preferenze hanno una riga «server» sola, con `monitor.alert` confluito», «`resetApi` rimette il catalogo: i tipi dei server restano, le righe di prova no») |
+| Destinatari: acceso per chi ha `servers.operate`; Claude mai (R-K5) | `D/alertTypes.ts` | `analysis.test.ts` («Marco riceve `server.trouble` di ACQ per default; Laura e Matteo no; Claude mai (R-K5)», «R-K5 anche fuori dal catalogo: un destinatario fisso Claude non riceve») |
+| I tipi `server.*` sono accesi anche per il full admin non membro (R-L10), e solo loro | `D/alertTypes.ts` | `analysis.test.ts` («Roberta (non membro di STW) riceve `server.trouble` di STW e lo può spegnere», «l'opzione è solo dei tipi server: gli altri restano spenti per il full admin non membro») |
+| Collegamento dall'avviso al dettaglio del server | `D/reads.ts` (`serverHref`) | `servers.test.ts` («serverHref: il dettaglio del server nella sezione del progetto»), `ServerSection.test.tsx` («il segno della sorgente «Server» dice da quale avviso è nata») |
+| «Link SSH access» in chiaro nell'avviso (solo a chi può collegarlo) | `pages/task/`, avvisi | `ServerSection.test.tsx` («SRV-2: «Link SSH access» in chiaro a Roberta, porta alla parte SSH e chiude il pannello», «Marco riceve l'avviso di SRV-1 senza accesso, ma non può collegarlo…», «SRV-2 a Marco: nessun «Link SSH access» in tutto il pannello») |
+
+### Analisi automatica (sola lettura)
+
+| Voce | Dove vive ora | Test |
+|---|---|---|
+| Un allarme apre un episodio, un'analisi di Claude con l'accesso di lettura, una task con la diagnosi | `D/analysis.ts` | `analysis.test.ts` («SRV-1 memoria: avviso in ACQ, sessione di Claude in sola lettura, task, diagnosi pronta», «secondo allarme durante l'analisi: un episodio, un'analisi, una task, i due motivi», «rientro durante l'analisi: finisce, la task lo dice, avviso di rientro», «rientro dopo l'analisi: il rientro si aggiunge alla task che c'è già») |
+| Sola lettura vera: ogni azione è `server.read` con un comando dell'elenco positivo (R-L5, journalctl senza sudo) | `M/commands.ts`; `M/installScript.ts` | `analysis.test.ts` («ogni azione delle sessioni d'analisi è `server.read` con un comando di lettura»), `commands.test.ts` («accetta ogni comando della sessione d'analisi del seme», «falso per ogni composizione con la shell e per le virgolette», «le opzioni che scrivono, anche abbreviate (getopt_long)», «con sudo non passa più»), `installScript.test.ts` («R-L5: i gruppi di stubwise-read sono RIMPIAZZATI dal solo systemd-journal») |
+| Senza accesso, irraggiungibile o con lettura che scrive: la task nasce lo stesso e dice perché | `D/analysis.ts` | `analysis.test.ts` («SRV-2 senza accesso: nessuna sessione, l'avviso dice che manca l'accesso», «SSH irraggiungibile: tre tentativi, task lo stesso con «not reachable»», «con la lettura che scrive: nessuna analisi, e l'avviso lo dice», «la task che non si apre: l'analisi finisce `failed`, mai `running`, e il server si toglie») |
+| Revoca o scrittura durante l'analisi la ferma; limite di tempo | `D/analysis.ts` | `analysis.test.ts` («una revoca durante l'analisi la ferma…», «una «lettura che scrive» durante l'analisi la ferma alla lettura successiva», «limite di tempo: chiude `timed_out`…») |
+| Solo le produzioni attivano l'analisi; un progetto invisibile mai | `M/projects.ts`; `D/analysis.ts` | `analysis.test.ts` («server solo di staging: nessun avviso del catalogo, nessuna analisi…», «SRV-1 anche nella produzione di un secondo progetto: task nel principale, avviso in entrambi»), `access.test.ts` («l'analisi di un progetto che chi guarda non vede: niente sessione (R-G5)») |
+| Il server non si toglie mentre un'analisi lo guarda (R-L6) | `D/monitor.ts` | `analysis.test.ts` («R-L6: il server non si toglie mentre un'analisi lo guarda») |
+| Task con diagnosi, «Server analysis» fra le concluse | `pages/task/ServerSection.tsx` | `ServerSection.test.tsx` («dice server, episodio, stato e proposta, prima della descrizione», «compare fra le concluse come «Server analysis»», «la pagina dice automatica e in sola lettura; i comandi sono «read»») |
+
+### Correzione da task
+
+| Voce | Dove vive ora | Test |
+|---|---|---|
+| Due condizioni, sempre: `servers.operate` e piano approvato da una persona prima di ogni comando (anti-obiettivo 2) | `M/fixGate.ts`; `D/fix.ts` | `fix.test.ts` («Laura su ACQ (runs.start + plans.approve, senza servers.operate) → forbidden, nessuna sessione», «Roberta (entrambi) → piano da approvare, zero comandi; approva lei stessa e i comandi partono», «Marco (servers.operate senza plans.approve) avvia, non approva…», «preApprovePlan prima del piano → invalid: kind…», «un'approvazione in anticipo infilata a mano non vale…»), `fixGate.test.ts` («un approved deciso da Claude non vale: non è una persona», «un piano nuovo dopo l'approvazione rimette il cancello») |
+| Blocco in cima alla task: le due condizioni scritte, conferma all'avvio | `pages/task/ServerSection.tsx`, `FixCommandLog.tsx` | `ServerSection.test.tsx` (««Start fix on the server» per Marco e Roberta; Laura legge chi può farlo, le condizioni restano scritte», «Roberta avvia dal dialogo: piano da approvare anche per lei, nessun anticipo, nessun comando», «Marco avvia e legge chi deve approvare; nessun bottone d'approvazione») |
+| Rifiuto (con o senza indicazioni), «Ferma e scrivi», Stop di una persona | `D/fix.ts` | `fix.test.ts` («rifiuto con indicazioni → nuovo piano di nuovo da approvare…», «rifiuto senza indicazioni → la sessione si chiude, nessun comando», «lo Stop di una persona → fermata da lei…», ««Ferma e scrivi» → si ferma e il piano si riscrive…»), `ServerSection.test.tsx` («uno Stop di una persona dice chi: «Fix stopped by Roberta Fontana»») |
+| Revoca, lettura che scrive o server tolto durante l'attesa o l'esecuzione: si ferma col motivo; rifiuto sempre ammesso (`canRejectPlan`) | `D/fix.ts`; `M/fixGate.ts` | `fix.test.ts` («revoca con il piano in attesa → approvazione spenta col motivo…», «revoca durante l'esecuzione → la sessione si ferma col motivo…», «lettura che scrive durante l'esecuzione → si ferma, «non più usabile»…», «tolto prima dell'avvio → server_gone…», «tolto durante l'esecuzione → si ferma (server_gone)…», «canRejectPlan: vero con l'approvazione spenta per chi decide, falso per chi non decide»), `ServerSection.test.tsx` («accesso revocato col piano in attesa: Approve spento col motivo, Reject attivo», «una revoca durante l'esecuzione dice il motivo, mai «stopped by»») |
+| Una correzione viva per server (`server_busy`); `deleteServer` con una correzione viva rifiutato (R-L6) | `D/fix.ts` | `fix.test.ts` («una seconda task dello stesso server → server_busy finché la prima è viva», «deleteServer durante una correzione viva → invalid: busy (R-L6); dopo, si può») |
+| Controllo finale: decide il campo `resolved` (R-L3), «Not fixed» e «Start fix again»; sessione sempre chiusa | `D/fix.ts`; `M/fixGate.ts` | `fix.test.ts` (««Simula: non risolto» → server_check resolved false, task non risolta, sessione chiusa», «di base risolto; le letture del controllo sono di sola lettura»), `fixGate.test.ts` («R-L3: decide il campo del controllo, non l'esito della sessione»), `ServerSection.test.tsx` («approvato: comandi nel registro, controllo finale risolto in parole», «controllo finale non risolto: «Not fixed» in parole e «Start fix again»») |
+| Registro dei comandi: ultime 40 righe, «Show all» (RF 5) | `pages/task/FixCommandLog.tsx` | `ServerSection.test.tsx` («RF 5: un'uscita di 5000 righe si apre con le ultime 40, «Show all» disegna una finestra»), `commands.test.ts` («5000 righe → le ultime 40, troncato») |
+| «Avvia» generico e «Fai sistemare» di un rilascio non toccano il server | `D/fix.ts` | `fix.test.ts` (««Avvia» (runs.start) su una task di server → sessione senza serverFix, nessun server.fix», ««Fai sistemare a Claude» di un rilascio → task senza serverRef», «task senza serverRef → not_server_task; accesso in attesa del comando → fix_access_unverified») |
+
+### Accessi SSH
+
+| Voce | Dove vive ora | Test |
+|---|---|---|
+| Procedura in tre passi (collega, comando in monospace con Copy, Verifica), sette stati | `P/SshAccessPanel.tsx`, `SshSteps.tsx`, `SshAccessRows.tsx`; `D/access.ts`; `M/sshAccess.ts` | `SshAccess.test.tsx` («collega → comando in monospace con Copy e la frase su stubwise-fix → Verify chiude la procedura»), `access.test.ts` («i tre passi: SRV-2 non collegato diventa verificato», «collegare è ammesso solo da non collegato o revocato»), `sshAccess.test.ts` («i sette stati», «chi è usabile in ogni stato») |
+| Verifica: esito per accesso e perché; «lettura che scrive» è un errore, mai un successo | `P/VerifyResult.tsx` | `SshAccess.test.tsx` («ogni esito simulato in parole: quale accesso e perché», ««lettura scrive» è un errore, mai un successo: entrambi spenti», «errore della verifica (livello dati): «Couldn't verify» con «Retry»»), `access.test.ts` («una lettura che scrive spegne entrambi finché una verifica non riesce», «un server irraggiungibile via SSH dà «irraggiungibile» anche senza simulare») |
+| Rigenera: le vecchie chiavi valgono fino alla verifica delle nuove (R-L8), nessuna promessa sbagliata | `D/access.ts`; `M/installScript.ts` | `SshAccess.test.tsx` («Rigenera: le vecchie restano valide fino alla verifica delle nuove», «Rigenera con la sola lettura funzionante: si promette solo quella (R-L8)», «Laura durante la rigenerazione: nessuna promessa sulle chiavi attuali (R-L8)»), `access.test.ts` («le vecchie valgono durante la rigenerazione; fallita restano, riuscita le nuove e le vecchie dimenticate», «una seconda Rigenera scarta le nuove mai verificate, anche dal comando»), `installScript.test.ts` («R-L8: in rigenerazione autorizza la vecchia E la nuova chiave di ogni utente»), `sshAccess.test.ts` («rigenerazione con verifica delle nuove fallita: le vecchie restano usabili», «rigenerazione partita con la fix vecchia fallita…») |
+| Revoca con conferma, comando di rimozione fino a «Done», «Link again»; il server tolto dimentica le chiavi | `SshAccessDialogs.tsx`; `D/access.ts` | `SshAccess.test.tsx` («Revoca con conferma, poi il comando di rimozione fino a «Done», poi «Link again»»), `access.test.ts` («dimentica le chiavi, dà il comando di rimozione, ferma chi lavora; si può ricollegare», «togliere il server dimentica anche le chiavi»), `installScript.test.ts` («toglie i due utenti e le loro regole sudo») |
+| Ultimo uso per accesso (analisi con «Open session», task col link); una task invisibile non si nomina | `SshAccessRows.tsx`; `D/access.ts` | `SshAccess.test.tsx` («ultimo uso per accesso: l'analisi con «Open session», la task col link, mai usato», «una task che chi guarda vede è un link; una che non vede non si nomina»), `access.test.ts` («markUsed registra l'uso; il codice della task solo se chi guarda la vede») |
+| Solo `servers.ssh.manage` gestisce; chi guarda legge lo stato, nessun comando né impronta | `D/access.ts` | `SshAccess.test.tsx` («Laura: stato e ultimo uso, nessuna azione, nessun comando né impronta», «cambiare persona con la procedura aperta: restano solo le righe di stato»), `access.test.ts` («senza servers.ssh.manage: not_found prima di forbidden», «R-G5: un server nascosto risponde come uno inesistente, anche con servers.ssh.manage», «Sara (membro di ACQ) vede lo stato e l'ultimo uso, senza azioni») |
+| Chiavi private solo in `D/secrets.ts`: mai nel DOM né in una lettura (anti-obiettivo 3) | `D/secrets.ts` | `SshAccess.test.tsx` («nessuna chiave privata nel DOM (testo, attributi, title), in ogni stato del pannello»), `access.test.ts` («dopo collega, verifica, rigenera e revoca nessuna lettura contiene una privata»), `installScript.test.ts` («non scarica né esegue niente da fuori e non contiene chiavi private») |
+| ⌘K «Link SSH access» sul server aperto, solo con `servers.ssh.manage` e finché non verificato | `palette/` | `SshAccess.test.tsx` («⌘K «Link SSH access» sul server aperto, solo con servers.ssh.manage», «⌘K: senza servers.ssh.manage (Laura) il comando non c'è; con Roberta, sullo stesso server, sì», «⌘K: su un server già verificato «Link SSH access» non c'è») |
+| `failNext`, scrittura partita prima del reset, `resetApi` | `D/access.ts` | `access.test.ts` («failNext rifiuta solo la chiamata successiva, senza scrivere», «una scrittura partita prima di resetApi non scrive», «resetApi rimette accessi e chiavi del seme») |
+
+### Buchi dell'8b
+
+- «Link SSH access» in ⌘K è coperto solo attraverso la pagina (`SshAccess.test.tsx`), non da un test di unità in `palette/commands.test.ts`.
+- La sezione Servers non ha una vista complessiva fra progetti (area 9) né l'assegnazione di `servers.operate` dalla pagina Membri.

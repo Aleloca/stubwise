@@ -474,12 +474,42 @@ DELIBERATAMENTE», §1–5) le decide; quando si costruirà il motore vanno
 riscritte in `CLAUDE.md` e in `docs/invariants/` **prima** del codice. Qui non
 si riscrivono.
 
-- **§1** «Stubwise non fa deploy: il merge è il confine (fase 8)»: resta il
-  merge per i rilasci, ma esiste ora un'azione sull'ambiente, la correzione
-  di un server da una task. È un'azione dell'8b; l'8a non la tocca.
-- **§2** «I due divieti dell'operatore», divieto 2: la correzione di un
-  server ha due condizioni, sempre (`servers.operate` e piano approvato prima
-  di ogni comando), anche per chi ha `plans.approve`. 8b.
+- **§1 — costruita nel prototipo (8b), da riscrivere prima del motore.**
+  «Stubwise non fa deploy: il merge è il confine (fase 8)». *Cosa NON
+  cambia*: per i rilasci il merge resta l'unica azione (nessun deploy,
+  nessuna esecuzione di pipeline, nessun riavvio); lo stato del rilascio
+  **legge** (run di CI, commit che l'agente di monitoraggio riporta, con la
+  stessa regola `sameCommit` di `release.ts`), e «non ancora in produzione»
+  resta un'osservazione, mai qualcosa che Stubwise potrebbe rendere vero.
+  *Cosa cambia*: esiste ora **un'azione sull'ambiente**, una sola, la
+  **correzione di un problema di un server**, partita da una task, con
+  l'accesso SSH di correzione di quel server, avviata da chi ha
+  `servers.operate` e con il piano sempre approvato prima. Gli ambienti
+  (`project_environments`) smettono di essere «pura anagrafica» solo in
+  questo senso: un server collegato può avere un accesso di correzione.
+  *Il confine nuovo*: l'accesso di correzione non si usa per rilasciare,
+  aggiornare un'immagine, fare il pull di un commit o riavviare servizi
+  come passo di un rilascio; si usa per riportare il server a funzionare
+  come prima, secondo la diagnosi della task. Una task di correzione server
+  che «rilascia» è un piano da rifiutare; il prompt lo dice, il gate lo
+  controlla. Nel prototipo: `data/servers/fix.ts`, `domain/servers/fixGate.ts`.
+- **§2 — costruita nel prototipo (8b), da riscrivere prima del motore.**
+  «I due divieti dell'operatore» (divieto 2). Il divieto sul **merge** resta
+  identico; il divieto 2 si riscrive così: «Chi non ha `release.merge` non
+  può mergiare. Un'azione su un server (l'unica: la correzione da task) ha
+  **due condizioni, sempre**: chi la avvia ha `servers.operate` nel
+  progetto, e il piano di Claude è **approvato prima che parta qualunque
+  comando** — anche se chi l'avvia ha `plans.approve`. Non esiste la
+  pre-approvazione né il «parte subito» per chi ha `plans.approve`: la
+  stessa persona può approvare il piano che ha avviato, se ha
+  `plans.approve`, ma deve farlo come gesto esplicito.» È un'eccezione
+  **voluta** alla riga del gate di `jobs.ts` (`needsApproval =
+  (!plans.approve && !planPreApproved) || requirePlanApproval`): per una
+  correzione server `requirePlanApproval` è sempre vero e `planPreApproved`
+  non conta. Col backend va verificato **negativamente**: senza
+  `servers.operate` 403 e nessun job; con `servers.operate` e
+  `plans.approve`, il job nasce fermo sul piano e nessun comando parte prima
+  dell'approvazione.
 - **§3** `docs/invariants/pr-corrections.md`: superata «Adottare una PR
   aperta da altri» e la frase sul ramo di una PR di una persona; «Il ciclo di
   correzione non si innesca da sé» cambia per le PR dei colleghi; un motore e
@@ -491,3 +521,74 @@ si riscrivono.
 - **§5** Notifiche: ogni `notification_kind` nuovo porta la regola di
   rollback e quella dei cambi additivi verso l'app; sparisce il DM Slack
   delle preferenze. **Riguarda l'8a** (catalogo degli avvisi).
+
+## Area 8b — minori aperti
+
+Parità e copertura: `area8-parity.md` (sezione «Server → area 8b»). Qui solo
+ciò che il piano o i ruling hanno deciso **per il prototipo** e che il
+maintainer deve confermare prima del motore; i minori della revisione finale
+dell'area si correggono con l'ondata finale e non stanno in questo elenco.
+
+### Scelte da far confermare
+
+- **R-L2 — un server per repository, non per ambiente.** In un ambiente ogni
+  repository dice su quale server gira (`servers: { repositoryId | null,
+  serverCode, … }[]`, `null` = tutto il progetto); un rilascio legge solo il
+  server della propria repository («in produzione», «Già su staging?»,
+  simulazioni). Resta una sola produzione per progetto. Seme: SRV-4 è di
+  `audin-admin`, SRV-3 di `audin-app`. Cambia il modello degli ambienti
+  dell'8a: per il motore va deciso se è anche lo schema del DB.
+- **R-L4 — «mai collegato» non è in salute.** Un server senza campioni sta in
+  un gruppo a sé («Waiting for the agent»), con salute sconosciuta: né verde
+  né rosso. Scelta di prodotto nata in revisione, non nello shape.
+- **R-L5 — `journalctl` senza `sudo`.** `stubwise-read` entra nel gruppo
+  `systemd-journal` (sola lettura del journal) e `isReadCommand` accetta per
+  `journalctl` un elenco POSITIVO di opzioni (nessuna abbreviazione
+  getopt_long fuori elenco). Il piano diceva `sudo journalctl`: superato.
+  Da verificare su un server vero, con le distribuzioni che si supportano.
+- **R-L8 — Rigenera autorizza vecchia E nuova chiave** fino alla verifica
+  delle nuove; a verifica riuscita Stubwise distrugge le vecchie private (la
+  pubblica vecchia rimasta sul server è innocua). Il comando successivo
+  (Rigenera o Revoca) scrive solo le chiavi correnti. Alternativa scartata:
+  sovrascrivere `authorized_keys` subito (ma le vecchie smettono di
+  funzionare mentre il modello le dà usabili).
+- **R-L9 — Claude è membro implicito di ogni progetto**, con i permessi di
+  LAVORO (vedere, `tickets.create`, avviare run, lettura repo) e mai quelli
+  di decisione (`plans.approve`, `release.merge`, `servers.operate`,
+  `servers.ssh.manage`, `monitor.manage`, `decisions.record`, `prs.adopt`,
+  gestione progetto e membri; R-L11). Continua a non ricevere avvisi (R-K5).
+  Decisione del maintainer, ma è una regola di permessi del motore.
+- **R-L10 — i tipi di avviso `server.*` sono accesi anche per il full admin
+  non membro**: opzione additiva del tipo (`catalog.ts` intatto), consentita
+  perché il full admin ha `servers.operate` implicito.
+- **R-L3 — «risolto/non risolto» del controllo finale è un campo esplicito**
+  del work_result `server_check`, non l'esito della sessione (una sessione
+  può fallire per altro).
+- **R-L6 / R-L7 — guardie del server.** `deleteServer` rifiutato (`busy`) con
+  un'analisi o una correzione in corso; un server senza righe negli ambienti
+  lo vede chi ha `monitor.manage` (d'istanza), così non resta orfano. La
+  vista d'istanza dei server è dell'area 9.
+- **Il comando ⌘K «Link SSH access»** si vede finché l'accesso non è
+  verificato (e non durante la rigenerazione), anche negli stati intermedi:
+  porta a completare la procedura. Era più stretto («solo non collegato»).
+- **`servers.operate` solo nel seme.** La pagina Membri del progetto è
+  dell'area 9: oggi nessuna UI assegna `servers.operate` né
+  `servers.ssh.manage`.
+- **Rifiuto del piano con approvazione spenta**: ammesso (rifiutare è
+  sicuro), ma il client legge `canRejectPlan` calcolato dal livello dati, non
+  lo deduce.
+- **Orari nel fuso di chi guarda**, anche l'ora del rientro; nessuna ora nel
+  testo di un avviso (la UI la legge dall'episodio).
+- **Server cancellato**: a chi non vede il progetto della task resta
+  invisibile (R-G5); a chi lo vede dirà «SRV-n · deleted» (ondata finale).
+
+### Limiti del prototipo (per scelta)
+
+- L'analisi e la correzione sono simulate (pannello «Prototype only»): nessun
+  SSH vero, nessun modello. Il motore dovrà ricontrollare in sola lettura
+  ogni comando contro `isReadCommand` (lato server, non nel client).
+- Le chiavi private stanno solo in `data/servers/secrets.ts`, in memoria; nel
+  motore vanno cifrate a riposo e mai restituite da una lettura.
+- Gli screenshot a 7d del dettaglio di SRV-1: l'etichetta dell'episodio sta
+  sopra la linea della CPU (vedi rapporto del Task 10); non corretto di
+  proposito.
