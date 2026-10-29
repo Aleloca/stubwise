@@ -610,6 +610,20 @@ dell'area si correggono con l'ondata finale e non stanno in questo elenco.
 - **«Fix stopped by» mentre le persone caricano**: il ramo che aspetta il
   nome non ha un test (le persone si rileggono da più parti del pannello e un
   errore simulato non le tiene ferme).
+- **Nessun test delle invalidazioni dopo un cambio d'ambiente**
+  (`ENVIRONMENT_AREAS`): servirebbe un test UI che, con la scheda del piano
+  aperta, tolga il server dalla pagina Ambienti e veda Approve spegnersi.
+- **Due test mai visti rossi**: chiave e comando dell'agente in `font-code`
+  (`Servers.test.tsx`, scritto dopo la correzione) ed Esc col pannello della
+  task (`ServerDetail.test.tsx`, verde anche senza la guardia per l'ordine dei
+  listener).
+- **«SRV-n · deleted»**: decide la lapide di `deleteServer` (i progetti che
+  usavano il server in quel momento). Il motore deve conservarla: senza,
+  nascosto e inesistente tornano distinguibili per chi il server non lo
+  vedeva (R-G5).
+- **Un piano di correzione non si approva da Decide** (Home): lì c'è «Open the
+  task», dove i comandi sono elencati. Alternativa scartata: portare i comandi
+  anche in Decide (una seconda superficie d'approvazione da tenere allineata).
 
 ### Limiti del prototipo (per scelta)
 
