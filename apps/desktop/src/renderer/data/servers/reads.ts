@@ -57,6 +57,8 @@ const RANGE_MS: Record<MetricRange, number> = {
 export interface ServerMetrics {
   points: MetricPoint[];
   truncated: boolean;
+  /** Quanti campioni c'erano nell'intervallo prima della riduzione (la nota sotto i grafici). */
+  sampleCount: number;
   /**
    * Con un controllo (R-L1): i suoi campioni nello stesso intervallo, per il
    * grafico «Response time» e le fasce dei momenti giù; `null` senza.
@@ -82,8 +84,9 @@ export async function getServerMetrics(
     );
     check = downsampleSamples(samples);
   }
+  const all = metricsSince(server.code, fromMs);
   // Copie: i punti del seme sono condivisi (congelati), mai riferimenti allo stato.
-  return copy({ ...downsample(metricsSince(server.code, fromMs)), check });
+  return copy({ ...downsample(all), sampleCount: all.length, check });
 }
 
 export interface ServerSearchResult {
@@ -151,17 +154,27 @@ export async function getServerTaskInfo(taskId: string): Promise<ServerTaskInfo 
   });
 }
 
-/** ⌘K: i server per codice, nome o hostname, solo fra quelli che chi cerca vede. */
+/**
+ * ⌘K: i server per codice, nome o hostname, solo fra quelli che chi cerca
+ * vede. Un server orfano (R-L7, solo per chi ha `monitor.manage`) non ha un
+ * progetto suo: si apre nel primo progetto che chi cerca vede, per codice
+ * (la vista d'istanza dei server è dell'area 9).
+ */
 export async function searchServers(q: string): Promise<ServerSearchResult[]> {
   const me = await gate("servers.searchServers");
   const needle = fold(q.trim());
   if (!needle) return [];
   const visible = serversVisibleTo(me);
+  const projects = visibleProjectIds(me);
+  const firstProject = state.projects
+    .filter((p) => projects.has(p.id))
+    .map((p) => p.code)
+    .sort()[0];
   return state.servers
     .filter((s) => visible.has(s.code))
     .filter((s) => [s.code, s.name, s.hostname ?? ""].some((x) => fold(x).includes(needle)))
     .flatMap((s) => {
-      const projectCode = homeProjectCode(me, s);
+      const projectCode = homeProjectCode(me, s) ?? firstProject;
       return projectCode ? [{ code: s.code, name: s.name, projectCode }] : [];
     });
 }

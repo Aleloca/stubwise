@@ -13,6 +13,7 @@ import { useTranslation } from "react-i18next";
 import {
   useAutomationSearch,
   useReleaseSearch,
+  useServerSearch,
   useSupportSearch,
   useChatChannels,
   useChatSearch,
@@ -66,6 +67,7 @@ type GroupId =
   | "automations"
   | "releases"
   | "support"
+  | "servers"
   | "actions"
   | "viewAs"
   | "filters"
@@ -230,6 +232,8 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   const releaseSearch = useReleaseSearch(chatQuery, chatSearching);
   // Le conversazioni di Support che vedo, per codice («ACQ-S2») o cliente (area 8a, R-G5).
   const supportSearch = useSupportSearch(chatQuery, chatSearching);
+  // I server che vedo, per codice («SRV-1»), nome o hostname (area 8b, R-G5; gli orfani col monitor, R-L7).
+  const serverSearch = useServerSearch(chatQuery, chatSearching);
   const reachMessage = useReachChatMessage();
   const toast = useToast();
   const savedFilters = useSavedFilters();
@@ -385,6 +389,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       automations: [],
       releases: [],
       support: [],
+      servers: [],
       actions: [],
       viewAs: [],
       filters: [],
@@ -587,6 +592,22 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         }),
       );
     }
+    // I server (shape servers.md §3): codice · nome · progetto da cui si apre.
+    if (chatSearching) {
+      byGroup.servers = (serverSearch.data ?? []).slice(0, GROUP_LIMIT).map(
+        (s): Item => ({
+          key: `server-${s.code}`,
+          code: s.code,
+          label: s.name,
+          detail: s.projectCode,
+          fromSearch: true,
+          select: () => {
+            router.history.push(`/p/${s.projectCode}/servers/${s.code}`);
+            onClose();
+          },
+        }),
+      );
+    }
     // Dopo gli oggetti, la Chat: i canali leggibili il cui nome corrisponde,
     // poi i messaggi (al più 5) e «Search all messages for “…”».
     if (chatSearching) {
@@ -694,6 +715,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         "automations",
         "releases",
         "support",
+        "servers",
         "channels",
         "messages",
         "actions",
@@ -714,6 +736,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     automationSearch.data,
     releaseSearch.data,
     supportSearch.data,
+    serverSearch.data,
     reachMessage,
     toast,
     i18n.language,
@@ -751,6 +774,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       automationSearch.isPlaceholderData ||
       releaseSearch.isPlaceholderData ||
       supportSearch.isPlaceholderData ||
+      serverSearch.isPlaceholderData ||
       pageSearch.isPlaceholderData ||
       (!!filesQuery && fileSearch.isPlaceholderData));
 

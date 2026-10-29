@@ -38,6 +38,7 @@ describe("parità delle chiavi en/it", () => {
         "placeholder",
         "prefs",
         "releases",
+        "servers",
         "support",
         "project",
         "rail",

@@ -8,6 +8,7 @@ import {
   useProject,
   useOpenPrs,
   useProjectAutomations,
+  useProjectServers,
   useReleases,
 } from "../data/queries";
 import { PROJECT_SECTIONS } from "../data/routes";
@@ -123,6 +124,19 @@ function ProjectSections({
   const releaseWaits = (useReleases(hasReleases ? project.id : undefined).data ?? []).some(
     (r) => r.waitsOnViewer,
   );
+  // «Servers» ([S 9]): il numero dei server; un punto di stato al suo posto
+  // quando uno non risponde (`critical`) o è in difficoltà (`warning`), con
+  // la frase per i lettori di schermo: il colore non è l'unico segnale.
+  const hasServers = sections.some((s) => s.id === "servers");
+  const serverRows = useProjectServers(hasServers ? project.id : undefined).data ?? [];
+  const serversDown = serverRows.filter((s) => s.health.health === "down").length;
+  const serversTrouble = serverRows.filter((s) => s.health.health === "trouble").length;
+  const serversLabel = [
+    serversDown > 0 ? t("servers.column.down", { count: serversDown }) : null,
+    serversTrouble > 0 ? t("servers.column.trouble", { count: serversTrouble }) : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
   return (
     <>
       <Header code={project.code} project={project} />
@@ -185,6 +199,28 @@ function ProjectSections({
                           {t("releases.column.openPrs", { count: openPrs })}
                         </span>
                         <span aria-hidden="true">{openPrs}</span>
+                      </span>
+                    )}
+                  </span>
+                )}
+                {s.id === "servers" && serverRows.length > 0 && (
+                  <span className="ml-auto flex shrink-0 items-center">
+                    {serversDown + serversTrouble > 0 ? (
+                      <>
+                        <span
+                          aria-hidden="true"
+                          data-servers-dot={serversDown > 0 ? "down" : "trouble"}
+                          title={serversLabel}
+                          className={`size-1.5 shrink-0 rounded-full ${serversDown > 0 ? "bg-critical" : "bg-warning"}`}
+                        />
+                        <span className="sr-only">{serversLabel}</span>
+                      </>
+                    ) : (
+                      <span className="num text-xs font-normal text-ink-faint">
+                        <span className="sr-only">
+                          {t("servers.column.count", { count: serverRows.length })}
+                        </span>
+                        <span aria-hidden="true">{serverRows.length}</span>
                       </span>
                     )}
                   </span>

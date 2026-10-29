@@ -130,6 +130,7 @@ describe("letture", () => {
       canManage: false,
       environments: [],
       repositories: [],
+      onlyHere: [],
     });
     expect(await releases.getRepositorySettings(AUD)).toBeNull();
     expect(await releases.searchReleases("AUD-V")).toEqual([]);

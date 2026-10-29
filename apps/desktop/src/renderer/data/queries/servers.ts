@@ -126,3 +126,48 @@ export function useUpdateCheck() {
 export function useDeleteCheck() {
   return useWrite((checkId: string) => api.servers.deleteCheck(checkId), SERVER_AREAS);
 }
+
+/**
+ * Solo prototipo: i «Simula …» del riquadro in fondo al dettaglio. Un
+ * allarme apre l'episodio, avvisa e può far partire l'analisi (sessione e
+ * task): ricaricano anche task, conversazioni e avvisi.
+ */
+const SIMULATE_AREAS = [
+  "servers",
+  "tasks",
+  "task",
+  "conversations",
+  "conversation",
+  "notifications",
+  "alerts",
+  "activity",
+  "waitingOnMe",
+] as const;
+
+export function useSimulateServerAlert() {
+  return useWrite(
+    ({
+      code,
+      reason,
+      severity,
+      overrun,
+    }: {
+      code: string;
+      reason: Parameters<typeof api.servers.simulateServerAlert>[1];
+      severity: "trouble" | "down";
+      overrun: boolean;
+    }) => api.servers.simulateServerAlert(code, reason, { severity, overrun }),
+    SIMULATE_AREAS,
+  );
+}
+
+export function useSimulateServerRecovery() {
+  return useWrite((code: string) => api.servers.simulateServerRecovery(code), SIMULATE_AREAS);
+}
+
+export function useSimulateSshUnreachable() {
+  return useWrite(
+    ({ code, on }: { code: string; on: boolean }) => api.servers.simulateSshUnreachable(code, on),
+    SIMULATE_AREAS,
+  );
+}

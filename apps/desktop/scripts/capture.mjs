@@ -914,6 +914,51 @@ async function main() {
         await context.close();
       }
     }
+
+    // Area 8b, Task 7: la sezione Servers — l'elenco a gruppi, il dettaglio
+    // col riquadro «Now», i grafici col controllo selezionato, le soglie in
+    // lettura, il pannello della chiave dell'agente.
+    const scrollTo = (part) => async (p) => {
+      await p.locator(`#server-${part}`).scrollIntoViewIfNeeded();
+      await p.locator(`#server-${part}`).evaluate((el) => el.scrollIntoView({ block: "start" }));
+      await p.waitForTimeout(300);
+    };
+    const AREA8B_SERVERS = [
+      ["servers-stw", "/p/STW/servers", { persona: "Roberta" }],
+      ["servers-aud", "/p/AUD/servers", { persona: "Laura" }],
+      ["server-srv2", "/p/STW/servers/SRV-2", { persona: "Roberta" }],
+      ["server-srv1-check", "/p/ACQ/servers/SRV-1?check=chk-srv-1-api&range=7d", { persona: "Marco" }],
+      ["server-srv1-services", "/p/ACQ/servers/SRV-1", { persona: "Marco", steps: scrollTo("services") }],
+      ["server-srv3-thresholds", "/p/AUD/servers/SRV-3", { persona: "Laura", steps: scrollTo("checks") }],
+      ["server-srv1-settings", "/p/ACQ/servers/SRV-1", { persona: "Roberta", steps: scrollTo("thresholds") }],
+      ["server-new-key", "/p/STW/servers", { persona: "Roberta", steps: async (p) => {
+        await p.locator("[data-new-server]").first().click();
+        await p.getByRole("textbox", { name: /^(Name|Nome)$/ }).fill("stw-worker-01");
+        await p.locator("[data-create-server]").click();
+        await p.locator("[data-agent-key]").waitFor();
+        await p.waitForTimeout(400);
+      } }],
+    ];
+    for (const [name, hash, o] of AREA8B_SERVERS) {
+      if (only && !only.test(name)) continue;
+      const variants = [];
+      for (const scheme of ["light", "dark"]) {
+        for (const lang of ["en", "it"]) variants.push([scheme, lang, WIDE, `a8b-${name}-${scheme}-${lang}.png`]);
+      }
+      variants.push(["light", "en", NARROW, `a8b-${name}-narrow.png`]);
+      variants.push(["dark", "it", NARROW, `a8b-${name}-narrow-dark-it.png`]);
+      for (const [scheme, lang, viewport, file] of variants) {
+        const { page, context } = await open(scheme, viewport, hash, { lang, persona: o.persona, viaHome: true });
+        // Il dettaglio: si aspettano i grafici (una lettura a sé, con la sua latenza).
+        if (hash.includes("/servers/SRV-")) {
+          await page.locator("[data-chart='cpu']").waitFor();
+          await page.waitForTimeout(400);
+        }
+        if (o.steps) await o.steps(page);
+        await shot(page, file);
+        await context.close();
+      }
+    }
     if (only) return; // revisione mirata: salta il resto
 
     for (const scheme of ["light", "dark"]) {

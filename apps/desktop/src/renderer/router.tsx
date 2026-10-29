@@ -63,6 +63,8 @@ import { TestRoutePage } from "./pages/automations/test/TestPage";
 import { PreferencesPage, isPreferenceSection } from "./pages/preferences/PreferencesPage";
 import { ReleasesPage } from "./pages/releases/ReleasesPage";
 import { ReleaseDetail } from "./pages/releases/ReleaseDetail";
+import { ServerDetail } from "./pages/servers/ServerDetail";
+import { ServersPage } from "./pages/servers/ServersPage";
 import { ConversationNotFound, SupportPage } from "./pages/support/SupportPage";
 import { PageError } from "./tasks-ui/PageStates";
 import { useSupportConversation } from "./data/queries";
@@ -146,6 +148,10 @@ export interface AppSearch {
   pr?: string;
   /** Support → Widget: il pannello di un widget (l'id, o `new`). */
   widget?: string;
+  /** Il dettaglio di un server: intervallo dei grafici, controllo selezionato, parte in vista. */
+  range?: string;
+  check?: string;
+  section?: string;
 }
 
 const SEARCH_KEYS = [
@@ -175,6 +181,9 @@ const SEARCH_KEYS = [
   ...AUTOMATION_SEARCH_KEYS,
   "pr",
   "widget",
+  "range",
+  "check",
+  "section",
 ] as const;
 
 /**
@@ -213,8 +222,13 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
       key === "thread" ||
       key === "message" ||
       key === "pr" ||
-      key === "widget"
+      key === "widget" ||
+      key === "check"
         ? /^[\w-]+$/.test(value)
+        : key === "range"
+          ? /^(1h|24h|7d)$/.test(value)
+          : key === "section"
+            ? /^[a-z]+$/.test(value)
         : key === "date"
           ? /^\d{4}-\d{2}-\d{2}$/.test(value)
           : key === "view" || key === "group" || key === "scope"
@@ -517,6 +531,50 @@ const releaseRoute = createRoute({
 });
 
 /**
+ * Il dettaglio di un server (`#/p/ACQ/servers/SRV-1`, area 8b). Un server
+ * inesistente, invisibile o di un altro progetto risponde allo stesso modo
+ * (R-G5): lo decide `ServerDetail`. Senza il modulo Servers il progetto
+ * torna alla panoramica. Cambiare persona rimonta la pagina: le parti di
+ * gestione compaiono o spariscono, un server non più visibile diventa «non
+ * trovato».
+ */
+function ServerRoutePage() {
+  const { t } = useTranslation();
+  const { code, server } = serverRoute.useParams();
+  const { viewer } = useViewer();
+  const project = useProject(code);
+  if (project.isError) {
+    return (
+      <section className="p-8">
+        <PageError message={t("project.error")} onRetry={() => void project.refetch()} />
+      </section>
+    );
+  }
+  if (project.isPending) return <section className="h-full" aria-busy="true" />;
+  if (!project.data) return <ProjectNotFound />;
+  if (!project.data.modules.includes("servers")) {
+    return <Navigate to="/p/$code/$section" params={{ code, section: "overview" }} replace />;
+  }
+  return <ServerDetail key={`${server}:${viewer.personId}`} projectCode={code} code={server} />;
+}
+
+const serverRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/p/$code/servers/$server",
+  beforeLoad: ({ params }) => {
+    if (upperCaseCode(params.code) || upperCaseCode(params.server)) {
+      throw redirect({
+        to: "/p/$code/servers/$server",
+        params: { code: params.code.toUpperCase(), server: params.server.toUpperCase() },
+        search: (prev) => prev,
+        replace: true,
+      });
+    }
+  },
+  component: ServerRoutePage,
+});
+
+/**
  * Una conversazione di Support aperta (`#/p/ACQ/support/ACQ-S2`, area 8a).
  * Una conversazione che non esiste, di un progetto che non si vede o di un
  * altro progetto danno la STESSA pagina (R-G5). Cambiare persona rimonta.
@@ -665,6 +723,9 @@ function ProjectSectionPage() {
     return (
       <ProjectSettingsPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />
     );
+  }
+  if (section === "servers") {
+    return <ServersPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />;
   }
   return (
     <Placeholder
@@ -880,6 +941,7 @@ const routeTree = rootRoute.addChildren([
   projectSectionRoute,
   projectChatChannelRoute,
   releaseRoute,
+  serverRoute,
   supportConversationRoute,
   docsHomeRoute,
   docSpaceRoute.addChildren([

@@ -179,6 +179,7 @@ export function ReleasesPage({ projectCode }: { projectCode: string }) {
           environments={envs.data?.environments ?? []}
           repositories={envs.data?.repositories ?? []}
           releases={releases.data ?? []}
+          onlyHere={envs.data.onlyHere ?? []}
         />
       )}
     </Part>

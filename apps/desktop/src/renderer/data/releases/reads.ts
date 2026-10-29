@@ -68,12 +68,23 @@ export interface EnvironmentList {
   environments: ProjectEnvironment[];
   /** Le repository del progetto, per dire su quale server gira ognuna (R-L2). */
   repositories: { id: string; name: string }[];
+  /**
+   * I server dei suoi ambienti che nessun altro progetto usa: togliendone
+   * l'ultima riga il server resta orfano, e lo ricollega solo chi ha
+   * `monitor.manage` (R-L7). La UI lo dice prima di salvare.
+   */
+  onlyHere: string[];
 }
 
 /** Gli ambienti del progetto: pura anagrafica (anti-obiettivo 1). */
 export async function listEnvironments(projectId: string): Promise<EnvironmentList> {
   const me = await gate("releases.listEnvironments");
-  if (!sees(me, projectId)) return { canManage: false, environments: [], repositories: [] };
+  if (!sees(me, projectId))
+    return { canManage: false, environments: [], repositories: [], onlyHere: [] };
+  const here = new Set<string>();
+  const elsewhere = new Set<string>();
+  for (const e of state.environments)
+    for (const s of e.servers) (e.projectId === projectId ? here : elsewhere).add(s.serverCode);
   return {
     canManage: holds(me, "environments.manage", projectId),
     environments: state.environments
@@ -82,6 +93,9 @@ export async function listEnvironments(projectId: string): Promise<EnvironmentLi
     repositories: state.repositories
       .filter((r) => r.projectId === projectId)
       .map((r) => ({ id: r.id, name: r.name })),
+    onlyHere: [...here]
+      .filter((c) => !elsewhere.has(c))
+      .sort((a, b) => Number(a.slice(4)) - Number(b.slice(4))),
   };
 }
 

@@ -70,17 +70,53 @@ function inputOf(draft: Draft): EnvironmentInput {
   };
 }
 
+/**
+ * I server che, dopo la modifica (o la cancellazione) di `environment`, non
+ * resterebbero in nessun ambiente: quelli che nessun altro progetto usa
+ * (`onlyHere`, dal livello dati) e che nessun altro ambiente del progetto
+ * nomina. Un server orfano lo ricollega solo chi gestisce il monitoraggio
+ * (R-L7): il dialogo lo dice prima di salvare.
+ */
+function orphaned(
+  environment: ProjectEnvironment | null,
+  next: string[],
+  environments: ProjectEnvironment[],
+  onlyHere: string[],
+): string[] {
+  if (!environment) return [];
+  const elsewhere = new Set(
+    environments
+      .filter((e) => e.id !== environment.id)
+      .flatMap((e) => e.servers.map((s) => s.serverCode)),
+  );
+  return [...new Set(environment.servers.map((s) => s.serverCode))].filter(
+    (c) => onlyHere.includes(c) && !next.includes(c) && !elsewhere.has(c),
+  );
+}
+
+function OrphanWarning({ codes }: { codes: string[] }) {
+  const { t } = useTranslation();
+  if (codes.length === 0) return null;
+  return (
+    <p data-orphan-warning className="text-sm text-ink">
+      {t("releases.environments.orphanWarning", { count: codes.length, codes: codes.join(", ") })}
+    </p>
+  );
+}
+
 function EnvironmentDialog({
   projectId,
   environment,
   environments,
   repositories,
+  onlyHere,
   onClose,
 }: {
   projectId: string;
   environment: ProjectEnvironment | null;
   environments: ProjectEnvironment[];
   repositories: Repo[];
+  onlyHere: string[];
   onClose: () => void;
 }) {
   const { t } = useTranslation();
@@ -222,6 +258,14 @@ function EnvironmentDialog({
           ))}
         </fieldset>
       )}
+      <OrphanWarning
+        codes={orphaned(
+          environment,
+          inputOf(draft).servers.map((s) => s.serverCode),
+          environments,
+          onlyHere,
+        )}
+      />
       {error && (
         <p role="alert" className="text-sm text-critical">
           {error}
@@ -233,9 +277,13 @@ function EnvironmentDialog({
 
 function DeleteDialog({
   environment,
+  environments,
+  onlyHere,
   onClose,
 }: {
   environment: ProjectEnvironment;
+  environments: ProjectEnvironment[];
+  onlyHere: string[];
   onClose: () => void;
 }) {
   const { t } = useTranslation();
@@ -271,7 +319,7 @@ function DeleteDialog({
         </>
       }
     >
-      {null}
+      <OrphanWarning codes={orphaned(environment, [], environments, onlyHere)} />
     </Dialog>
   );
 }
@@ -338,6 +386,7 @@ export function Environments({
   environments,
   repositories,
   releases,
+  onlyHere = [],
 }: {
   projectId: string;
   projectCode: string;
@@ -345,6 +394,8 @@ export function Environments({
   environments: ProjectEnvironment[];
   repositories: Repo[];
   releases: ReleaseView[];
+  /** I server che nessun altro progetto usa (`listEnvironments`). */
+  onlyHere?: string[];
 }) {
   const { t, i18n } = useTranslation();
   const [editing, setEditing] = useState<ProjectEnvironment | "new" | null>(null);
@@ -449,10 +500,18 @@ export function Environments({
           environment={editing === "new" ? null : editing}
           environments={environments}
           repositories={repositories}
+          onlyHere={onlyHere}
           onClose={() => setEditing(null)}
         />
       )}
-      {deleting && <DeleteDialog environment={deleting} onClose={() => setDeleting(null)} />}
+      {deleting && (
+        <DeleteDialog
+          environment={deleting}
+          environments={environments}
+          onlyHere={onlyHere}
+          onClose={() => setDeleting(null)}
+        />
+      )}
       {canManage && <AddEnvironmentAnchor onAdd={() => setEditing("new")} />}
     </div>
   );

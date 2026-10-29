@@ -584,3 +584,70 @@ describe("simulatore", () => {
     expect(state.serverChecks.some((c) => c.serverCode === "SRV-1")).toBe(true);
   });
 });
+
+describe("Task 7: ciò che la UI legge senza dedurlo", () => {
+  const stagingRow = (serverCode: string) => ({
+    repositoryId: null,
+    serverCode,
+    reportedSha: null,
+    reportedAt: null,
+  });
+
+  it("la riga dice la task del lavoro (se visibile) e dove si apre la diagnosi", async () => {
+    as("p-marco");
+    const [srv1] = await servers.listProjectServers("prj-acq");
+    expect(srv1!.work).toBe("diagnosis_ready");
+    expect(srv1!.workTaskCode).toBe("ACQ-6");
+    expect(srv1!.analysisProject).toEqual({ code: "ACQ" });
+    // Usato anche dallo staging di STW: la diagnosi resta in AUD, la sua produzione.
+    env("env-stw-staging").servers.push(stagingRow("SRV-3"));
+    as("p-roberta");
+    const stw = await servers.listProjectServers("prj-stw");
+    expect(stw.find((s) => s.code === "SRV-3")!.analysisProject).toEqual({ code: "AUD" });
+    // Chi non vede il progetto della diagnosi sa solo che è «un altro progetto».
+    as("p-sara");
+    const seen = (await servers.listProjectServers("prj-stw")).find((s) => s.code === "SRV-3")!;
+    expect(seen.analysisProject).toEqual({ code: null });
+    // Nessuna produzione: nessuna diagnosi.
+    env("env-aud-prod").servers = env("env-aud-prod").servers.filter(
+      (s) => s.serverCode !== "SRV-3",
+    );
+    as("p-roberta");
+    const staging = (await servers.listProjectServers("prj-stw")).find((s) => s.code === "SRV-3")!;
+    expect(staging.analysisProject).toBeNull();
+  });
+
+  it("le metriche portano quanti campioni c'erano prima della riduzione", async () => {
+    as("p-marco");
+    const week = await servers.getServerMetrics("SRV-1", "7d");
+    expect(week.truncated).toBe(true);
+    expect(week.sampleCount).toBeGreaterThan(week.points.length);
+    const hour = await servers.getServerMetrics("SRV-1", "1h");
+    expect(hour.sampleCount).toBe(hour.points.length);
+  });
+
+  it("il dettaglio dice se l'SSH risponde (solo prototipo)", async () => {
+    as("p-marco");
+    expect((await servers.getServer("SRV-1")).sshReachable).toBe(true);
+    await servers.simulateSshUnreachable("SRV-1", true);
+    expect((await servers.getServer("SRV-1")).sshReachable).toBe(false);
+  });
+
+  it("⌘K trova un server orfano per chi ha monitor.manage, nel suo primo progetto", async () => {
+    as("p-roberta");
+    await releases.deleteEnvironment("env-acq-prod");
+    server("SRV-1")!.primaryProjectId = null;
+    expect(await servers.searchServers("SRV-1")).toEqual([
+      { code: "SRV-1", name: "acq-prod-01", projectCode: "ACQ" },
+    ]);
+    as("p-marco");
+    expect(await servers.searchServers("SRV-1")).toEqual([]);
+  });
+
+  it("gli ambienti dicono quali server non usa nessun altro progetto", async () => {
+    as("p-laura");
+    expect((await releases.listEnvironments("prj-aud")).onlyHere).toEqual(["SRV-3", "SRV-4"]);
+    env("env-stw-staging").servers.push(stagingRow("SRV-3"));
+    expect((await releases.listEnvironments("prj-aud")).onlyHere).toEqual(["SRV-4"]);
+  });
+});

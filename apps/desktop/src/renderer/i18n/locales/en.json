@@ -130,7 +130,8 @@
       "mail": "Mail",
       "automations": "Automations",
       "releases": "Releases",
-      "support": "Support"
+      "support": "Support",
+      "servers": "Servers"
     },
     "noResults": "No results for “{{query}}”",
     "noResultsHint": "Try a code like {{example}} or a name.",
@@ -252,7 +253,6 @@
       "chat": "The project's channels will live here.",
       "releases": "Pull requests waiting to be released and the project's environments will be followed here.",
       "support": "Customer service conversations from the support widget will be handled here.",
-      "servers": "The project's monitored servers will be watched here.",
       "overview": "The project at a glance will be shown here.",
       "tasks": "The project's tasks will be listed here.",
       "planning": "The project's planning will be done here.",
@@ -6594,7 +6594,9 @@
         "repository": "Each repository can run on one server only.",
         "production_exists": "This project already has a production environment.",
         "generic": "Couldn't save the environment."
-      }
+      },
+      "orphanWarning_one": "{{codes}} won't be in any environment anymore. Only someone who manages monitoring can link it again.",
+      "orphanWarning_other": "{{codes}} won't be in any environment anymore. Only someone who manages monitoring can link them again."
     },
     "panel": {
       "label": "Pull request {{pr}}",
@@ -6891,6 +6893,370 @@
       "show_one": "Show the conversation ({{count}} message)",
       "show_other": "Show the conversation ({{count}} messages)",
       "hide": "Hide the conversation"
+    }
+  },
+  "servers": {
+    "title": "Servers",
+    "subtitle": "Where {{code}} runs, and how it's doing. Servers join a project through its environments.",
+    "newServer": "New server",
+    "cancel": "Cancel",
+    "close": "Close",
+    "save": "Save",
+    "saved": "Saved",
+    "backToList": "← Servers",
+    "notFound": "This server doesn't exist, or you can't see it.",
+    "noEnvironments": "In no environment",
+    "envLine": "{{kind}} · {{code}}",
+    "envPrimary": "{{env}} (primary)",
+    "stagingOnly": "Staging only: no alerts, no analysis",
+    "diagnosesGoTo": "Diagnoses go to {{code}}",
+    "diagnosesGoElsewhere": "Diagnoses go to another project",
+    "errors": {
+      "list": "Couldn't load the servers of {{code}}",
+      "detail": "Couldn't load this server",
+      "charts": "Couldn't load the charts"
+    },
+    "empty": {
+      "title": "No servers in {{code}} yet",
+      "body": "A server joins a project through one of its environments.",
+      "noPermission": "Someone who manages monitoring can add one."
+    },
+    "groups": {
+      "attention": "Needs attention",
+      "fine": "Running fine",
+      "waiting": "Waiting for the agent"
+    },
+    "health": {
+      "healthy": "Healthy",
+      "trouble": "In trouble",
+      "down": "Not responding",
+      "recovered": "Back to normal",
+      "never_connected": "Never connected"
+    },
+    "when": {
+      "since": "since {{when}}",
+      "noDataSince": "no data since {{when}}",
+      "waiting": "waiting for the agent",
+      "sinceDay": "since {{when}}",
+      "noDataSinceDay": "no data since {{when}}"
+    },
+    "work": {
+      "none": "",
+      "analyzing": "Claude is looking into it",
+      "diagnosis_ready": "Diagnosis ready",
+      "fixing": "Fix running"
+    },
+    "access": {
+      "not_linked": "No SSH access",
+      "awaiting_command": "SSH access waiting for the command",
+      "verify_failed": "SSH access check failed",
+      "read_writes": "SSH access turned off: the read access can write",
+      "revoked": "SSH access revoked",
+      "verified": "SSH access verified",
+      "regenerating": "New SSH keys waiting for the command",
+      "cantLook": "{{access}}: Claude can't look into it"
+    },
+    "accessPart": {
+      "not_linked": "No SSH access",
+      "awaiting_command": "SSH access waiting for the command",
+      "verify_failed": "SSH access check failed",
+      "read_writes": "SSH access turned off: the read access can write",
+      "revoked": "SSH access revoked",
+      "verified": "Verified: Claude can read, and fix from a task, with its own accounts.",
+      "regenerating": "New keys are waiting for the command; the current ones still work.",
+      "cantLook": "Claude can't look into problems on this server: no SSH access."
+    },
+    "duration": {
+      "lessThanMinute": "less than a minute",
+      "minutes": "{{m}} min",
+      "hours": "{{h}} h",
+      "hoursMinutes": "{{h}} h {{m}} min"
+    },
+    "reasons": {
+      "cpu": "CPU at {{value}}%, above {{threshold}}%",
+      "memory": "Memory at {{value}}%, above {{threshold}}%",
+      "disk": "Disk at {{value}}%, above {{threshold}}%",
+      "forDuration": "{{reason}} for {{duration}}",
+      "check": "Check “{{name}}” is down",
+      "checkError": "Check “{{name}}” is down: {{error}}",
+      "checkGone": "A check that no longer exists was down",
+      "silentOpen": "The agent hasn't reported since {{time}}",
+      "silentClosed": "The agent stopped reporting at {{time}}"
+    },
+    "reasonShort": {
+      "cpu": "CPU",
+      "memory": "Memory",
+      "disk": "Disk",
+      "check": "Check",
+      "agent_silent": "Agent silent"
+    },
+    "detail": {
+      "agent": "agent {{version}}",
+      "lastReport": "last report {{when}}",
+      "secondsAgo": "{{n}} s ago"
+    },
+    "index": {
+      "label": "Parts of {{code}}",
+      "charts": "Charts",
+      "services": "Services",
+      "disks": "Disks",
+      "checks": "Checks",
+      "access": "SSH access",
+      "thresholds": "Thresholds",
+      "settings": "Settings"
+    },
+    "now": {
+      "label": "Now",
+      "reasons": "Why",
+      "down": "Not responding since {{when}}",
+      "trouble": "In trouble since {{when}}",
+      "recovered": "Back to normal at {{time}} · after {{duration}}",
+      "recoveredOn": "Back to normal on {{date}} at {{time}} · after {{duration}}",
+      "openSession": "Open session",
+      "noAccess": "Claude can't look into it: no SSH access.",
+      "linkAccess": "Link SSH access",
+      "primary": "The diagnosis opens in {{code}}, the primary project.",
+      "work": {
+        "analyzing": "Claude is looking into it with read-only access",
+        "diagnosed": "Diagnosis ready",
+        "timed_out": "Partial diagnosis: Claude ran out of time",
+        "unreachable": "Claude couldn't reach the server",
+        "stopped": "Claude stopped before a diagnosis",
+        "failed": "Claude's analysis failed: the task couldn't be opened",
+        "fixing": "Fix running",
+        "hiddenTask": "The diagnosis is in a project you can't see."
+      },
+      "downDay": "Not responding since {{when}}",
+      "troubleDay": "In trouble since {{when}}"
+    },
+    "charts": {
+      "rangeLabel": "Time range",
+      "cpu": "CPU",
+      "memory": "Memory",
+      "disk": "Disk",
+      "load": "Load (1 min)",
+      "network": "Network",
+      "in": "in",
+      "out": "out",
+      "alertAt": "Alert at {{value}}%",
+      "noAlert": "No alert",
+      "summary": "Average {{avg}} · peak {{peak}} at {{time}}",
+      "summaryNet": "In: average {{inAvg}}, peak {{inPeak}} · Out: average {{outAvg}}, peak {{outPeak}}",
+      "summaryLatency": "Average {{avg}} · slowest {{peak}} at {{time}}",
+      "noLatency": "No response times: this check only says up or down.",
+      "noData": "No data in this range",
+      "reduced": "Showing {{points}} averaged points of {{samples}} samples.",
+      "now": "now",
+      "episode": "{{reason}} · {{from}}–{{to}}",
+      "cursor": "{{time}} · {{value}}",
+      "gap": "no data",
+      "responseTime": "Response time · {{name}}",
+      "deselect": "Stop showing {{name}} in the charts",
+      "checkDown": "down"
+    },
+    "services": {
+      "filter": "Filter services",
+      "empty": "No services reported",
+      "noMatch": "No services match “{{q}}”",
+      "columns": {
+        "name": "Name",
+        "source": "Source",
+        "state": "State",
+        "cpu": "CPU",
+        "memory": "Memory",
+        "restarts": "Restarts",
+        "image": "Image"
+      },
+      "source": {
+        "docker": "Docker",
+        "pm2": "PM2"
+      }
+    },
+    "disks": {
+      "empty": "No disks reported",
+      "meter": "Disk {{mount}}",
+      "usage": "{{used}} of {{total}} · {{pct}}%",
+      "aboveAlert": "above the alert",
+      "almostFull": "almost full"
+    },
+    "checks": {
+      "add": "Add check",
+      "addTitle": "Add check",
+      "editTitle": "Edit “{{name}}”",
+      "edit": "Edit",
+      "editOf": "Edit {{name}}",
+      "pause": "Pause",
+      "pauseOf": "Pause {{name}}",
+      "resume": "Resume",
+      "resumeOf": "Resume {{name}}",
+      "delete": "Delete",
+      "deleteOf": "Delete {{name}}",
+      "deleteQuestion": "Delete “{{name}}”?",
+      "confirmDelete": "Delete check",
+      "select": "{{name}}, {{status}}: show it in the charts",
+      "empty": "No checks yet. A check watches a URL, a port, a process or a database.",
+      "every": "every {{n}} s",
+      "latency": "{{n}} ms",
+      "example": "For example {{example}}",
+      "intervalHint": "From 10 to 3600 seconds.",
+      "status": {
+        "up": "Up",
+        "down": "Down",
+        "unknown": "Unknown",
+        "paused": "Paused"
+      },
+      "types": {
+        "http": "HTTP",
+        "tcp": "TCP",
+        "process": "Process",
+        "postgres": "PostgreSQL",
+        "mysql": "MySQL"
+      },
+      "examples": {
+        "http": "https://example.com/health",
+        "tcp": "10.0.0.5:5432",
+        "process": "nginx",
+        "postgres": "postgres://user@127.0.0.1:5432/app",
+        "mysql": "mysql://user@127.0.0.1:3306/app"
+      },
+      "fields": {
+        "name": "Name",
+        "type": "Type",
+        "target": "Target",
+        "interval": "Check every (seconds)",
+        "active": "Active"
+      },
+      "errors": {
+        "name": "Give the check a name.",
+        "type": "Choose a type.",
+        "target": "Say what to check.",
+        "intervalSeconds": "Use a whole number of seconds from 10 to 3600.",
+        "generic": "Couldn't save the check. Try again.",
+        "delete": "Couldn't delete “{{name}}”. Try again."
+      }
+    },
+    "thresholds": {
+      "read": {
+        "cpu_one": "An alert starts when CPU stays above {{value}}% for {{count}} minute.",
+        "cpu_other": "An alert starts when CPU stays above {{value}}% for {{count}} minutes.",
+        "memory_one": "An alert starts when memory stays above {{value}}% for {{count}} minute.",
+        "memory_other": "An alert starts when memory stays above {{value}}% for {{count}} minutes.",
+        "disk_one": "An alert starts when disk stays above {{value}}% for {{count}} minute.",
+        "disk_other": "An alert starts when disk stays above {{value}}% for {{count}} minutes."
+      },
+      "off": {
+        "cpu": "CPU never raises an alert.",
+        "memory": "Memory never raises an alert.",
+        "disk": "Disk never raises an alert."
+      },
+      "edit": {
+        "cpu": "An alert starts when CPU stays above",
+        "memory": "An alert starts when memory stays above",
+        "disk": "An alert starts when disk stays above",
+        "percent": "%",
+        "minutesBefore": "…for at least",
+        "minutesAfter": "minutes"
+      },
+      "offPlaceholder": "off",
+      "offHint": "Leave a percentage empty to turn that alert off.",
+      "readOnly": "Someone who manages monitoring can change these.",
+      "errors": {
+        "pct": "Use a number from 1 to 100, or leave it empty.",
+        "minutes": "Use a whole number of minutes from 1 to 60.",
+        "generic": "Couldn't save the thresholds. Try again."
+      }
+    },
+    "settings": {
+      "name": "Name",
+      "interval": "Report every (seconds)",
+      "intervalHint": "From 10 to 300 seconds.",
+      "primary": "Primary project",
+      "primaryOnly": "{{code}} — the only production using this server",
+      "primaryNone": "No production uses this server: no alerts, no analysis.",
+      "primaryHint": "Claude's diagnoses open as tasks here.",
+      "errors": {
+        "name": "Give the server a name.",
+        "sampleIntervalSeconds": "Use a whole number of seconds from 10 to 300.",
+        "primaryProjectId": "Choose a project whose production uses this server.",
+        "generic": "Couldn't save the settings. Try again."
+      },
+      "key": {
+        "title": "Agent key",
+        "body": "The agent sends its reports with this key. It's shown only when it's created.",
+        "regenerate": "Regenerate key",
+        "confirmTitle": "Regenerate the key of {{code}}?",
+        "confirmBody": "The agent on {{code}} stops reporting until you update it with the new key.",
+        "error": "Couldn't regenerate the key. Try again."
+      },
+      "delete": {
+        "title": "Delete server",
+        "body": "Removes {{code}} from every environment, with its history.",
+        "button": "Delete {{code}}",
+        "dialogTitle": "Delete {{code}}?",
+        "consequences": "{{code}} leaves the environments {{envs}}. Its history is deleted. The code {{code}} won't be used again.",
+        "consequencesNone": "Its history is deleted. The code {{code}} won't be used again.",
+        "confirm": "Delete {{code}}",
+        "busy": "Claude is working on {{code}} right now. Delete it when the analysis or the fix is over.",
+        "error": "Couldn't delete {{code}}. Try again.",
+        "done": "{{code}} deleted"
+      }
+    },
+    "create": {
+      "title": "New server in {{code}}",
+      "name": "Name",
+      "environment": "Environment",
+      "envOption": "{{name}} · {{kind}}",
+      "joins": "The server joins {{code}} through this environment.",
+      "submit": "Create server",
+      "noFree": "Every environment of {{code}} already has a server. Add an environment in Releases → Environments first.",
+      "toEnvironments": "Open Environments",
+      "noEnvPermission": "Someone who manages {{code}}'s environments can add one.",
+      "discard": "Discard this server?",
+      "keep": "Keep editing",
+      "discardConfirm": "Discard",
+      "errors": {
+        "name": "Give the server a name.",
+        "environment": "This environment already has a server.",
+        "generic": "Couldn't create the server. Try again."
+      }
+    },
+    "key": {
+      "readyTitle": "{{code}} is ready for its agent",
+      "regeneratedTitle": "New key for {{code}}",
+      "shownOnce": "This key is shown only now.",
+      "label": "Agent key",
+      "copy": "Copy",
+      "copied": "Copied",
+      "copyKey": "Copy the key",
+      "copyCommand": "Copy the command",
+      "copyError": "Couldn't copy. Select the text and copy it by hand.",
+      "command": "Install the agent on the server",
+      "commandHint": "Run it on {{code}}: the agent starts reporting within a minute.",
+      "prototype": "Prototype: this key is made up and no agent can use it.",
+      "done": "Done",
+      "closeWithout": "Close without copying the key? You can regenerate it later from Settings.",
+      "keepOpen": "Keep it open",
+      "closeAnyway": "Close"
+    },
+    "simulate": {
+      "label": "Prototype only: server signals",
+      "intro": "These buttons pretend the server or the agent answered. They don't touch any server.",
+      "reason": "Reason",
+      "severity": "Severity",
+      "overrun": "Claude's analysis takes too long",
+      "alert": "Simulate an alert",
+      "recovery": "Simulate recovery",
+      "unreachable": "Simulate SSH unreachable",
+      "reachable": "Simulate SSH reachable again",
+      "error": "The simulation didn't go through."
+    },
+    "column": {
+      "count_one": "{{count}} server",
+      "count_other": "{{count}} servers",
+      "down_one": "{{count}} server not responding",
+      "down_other": "{{count}} servers not responding",
+      "trouble_one": "{{count}} server in trouble",
+      "trouble_other": "{{count}} servers in trouble"
     }
   }
 }

@@ -1,7 +1,7 @@
 import { serverHealth, serverWork, type ServerWork } from "../../domain/servers/health";
 import { downsample } from "../../domain/servers/metrics";
 import { fixStartBlock, type FixStartBlock } from "../../domain/servers/fixGate";
-import { alertProjectsOf, serverInProject } from "../../domain/servers/projects";
+import { alertProjectsOf, analysisProjectOf, serverInProject } from "../../domain/servers/projects";
 import { installScript } from "../../domain/servers/installScript";
 import { accessState, accessUsable, type AccessState } from "../../domain/servers/sshAccess";
 import { holds, sees } from "../access";
@@ -146,11 +146,22 @@ export interface ServerRow {
   status: MonitoredServer["status"];
   health: ReturnType<typeof serverHealth>;
   work: ServerWork;
+  /**
+   * La task del lavoro (la correzione viva, o la task di server aperta più
+   * recente), se chi guarda la vede; `null` senza lavoro o se è nascosta.
+   */
+  workTaskCode: string | null;
   access: AccessState;
   /** Gli ambienti che lo usano, solo nei progetti che chi guarda vede. */
   environments: { projectCode: string; name: string; kind: ProjectEnvironment["kind"] }[];
   /** Il progetto principale, se chi guarda lo vede. */
   primaryProjectCode: string | null;
+  /**
+   * Dove si apre la diagnosi (`analysisProjectOf`): il codice, o `null` se
+   * chi guarda non vede quel progetto; `null` (tutto) senza produzioni, cioè
+   * niente avvisi né analisi.
+   */
+  analysisProject: { code: string | null } | null;
   /** La CPU dell'ultima ora, al più `RECENT_CPU_POINTS` valori, dal più vecchio. */
   recentCpu: number[];
 }
@@ -160,7 +171,7 @@ export function metricsSince(code: string, fromMs: number) {
   return (state.serverMetrics.get(code) ?? []).filter((p) => Date.parse(p.ts) > fromMs);
 }
 
-function workOf(code: string): ServerWork {
+function workOf(me: string, code: string): { work: ServerWork; taskCode: string | null } {
   const serverTasks = state.tasks
     .filter((t) => t.serverRef?.serverCode === code)
     .map((task) => ({
@@ -169,22 +180,36 @@ function workOf(code: string): ServerWork {
         (c) => c.taskId === task.id && c.serverFix?.serverCode === code && c.state !== "finished",
       ),
     }));
-  return serverWork({
+  const work = serverWork({
     analyses: state.serverAnalyses.filter((a) => a.serverCode === code),
     serverTasks,
   });
+  // La task del lavoro: quella della correzione viva, o la task aperta più recente.
+  const task =
+    work === "fixing"
+      ? serverTasks.find((t) => t.liveFix)?.task
+      : work === "diagnosis_ready"
+        ? serverTasks
+            .filter((t) => t.task.closedAt === null)
+            .map((t) => t.task)
+            .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
+        : undefined;
+  return { work, taskCode: task && sees(me, task.projectId) ? task.code : null };
 }
 
 export function serverRow(me: string, s: MonitoredServer): ServerRow {
   const visible = visibleProjectIds(me);
   const recent = downsample(metricsSince(s.code, Date.parse(now()) - HOUR_MS), RECENT_CPU_POINTS);
+  const { work, taskCode } = workOf(me, s.code);
+  const analysisId = analysisProjectOf(s.code, state.environments, s.primaryProjectId);
   return {
     code: s.code,
     name: s.name,
     hostname: s.hostname,
     status: s.status,
     health: serverHealth(s, state.serverEpisodes, now()),
-    work: workOf(s.code),
+    work,
+    workTaskCode: taskCode,
     access: accessState(state.serverAccess.get(s.code)),
     environments: environmentsOf(s.code)
       .filter((e) => visible.has(e.projectId))
@@ -193,6 +218,10 @@ export function serverRow(me: string, s: MonitoredServer): ServerRow {
       s.primaryProjectId && visible.has(s.primaryProjectId)
         ? projectCodeOf(s.primaryProjectId)
         : null,
+    analysisProject:
+      analysisId === null
+        ? null
+        : { code: visible.has(analysisId) ? projectCodeOf(analysisId) : null },
     recentCpu: recent.points.map((p) => p.cpuPct),
   };
 }
@@ -223,6 +252,8 @@ export interface ServerDetail extends Omit<ServerRow, "access"> {
   productionProjects: { id: string; code: string; name: string }[];
   /** `monitor.manage`: modificare, togliere, soglie, controlli, chiave dell'agente. */
   canManage: boolean;
+  /** Solo prototipo: se l'SSH risponde (il «Simula server irraggiungibile»). */
+  sshReachable: boolean;
 }
 
 function episodeView(me: string, e: ServerEpisode): ServerEpisodeView {
@@ -263,6 +294,7 @@ export function serverDetail(me: string, s: MonitoredServer): ServerDetail {
         return { id, code: p.code, name: p.name };
       }),
     canManage: canMonitor(me),
+    sshReachable: s.sshReachable,
   };
 }
 

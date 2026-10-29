@@ -130,7 +130,8 @@
       "mail": "Posta",
       "automations": "Automazioni",
       "releases": "Rilasci",
-      "support": "Support"
+      "support": "Support",
+      "servers": "Server"
     },
     "noResults": "Nessun risultato per «{{query}}»",
     "noResultsHint": "Prova con un codice come {{example}} o con un nome.",
@@ -252,7 +253,6 @@
       "chat": "Qui vivranno i canali del progetto.",
       "releases": "Qui si seguiranno le pull request in attesa di rilascio e gli ambienti del progetto.",
       "support": "Qui si gestiranno le conversazioni del servizio clienti arrivate dal widget.",
-      "servers": "Qui si terranno d'occhio i server monitorati del progetto.",
       "overview": "Qui comparirà il progetto in sintesi.",
       "tasks": "Qui compariranno le task del progetto.",
       "planning": "Qui si pianificherà il progetto.",
@@ -6594,7 +6594,9 @@
         "repository": "Ogni repository gira su un server solo.",
         "production_exists": "Questo progetto ha già un ambiente di produzione.",
         "generic": "Non è stato possibile salvare l'ambiente."
-      }
+      },
+      "orphanWarning_one": "{{codes}} non sarà più in nessun ambiente. Solo chi gestisce il monitoraggio potrà ricollegarlo.",
+      "orphanWarning_other": "{{codes}} non saranno più in nessun ambiente. Solo chi gestisce il monitoraggio potrà ricollegarli."
     },
     "panel": {
       "label": "Pull request {{pr}}",
@@ -6891,6 +6893,370 @@
       "show_one": "Mostra la conversazione ({{count}} messaggio)",
       "show_other": "Mostra la conversazione ({{count}} messaggi)",
       "hide": "Nascondi la conversazione"
+    }
+  },
+  "servers": {
+    "title": "Server",
+    "subtitle": "Dove gira {{code}}, e come sta. I server entrano in un progetto attraverso i suoi ambienti.",
+    "newServer": "Nuovo server",
+    "cancel": "Annulla",
+    "close": "Chiudi",
+    "save": "Salva",
+    "saved": "Salvato",
+    "backToList": "← Server",
+    "notFound": "Questo server non esiste, o non puoi vederlo.",
+    "noEnvironments": "In nessun ambiente",
+    "envLine": "{{kind}} · {{code}}",
+    "envPrimary": "{{env}} (principale)",
+    "stagingOnly": "Solo staging: niente avvisi, niente analisi",
+    "diagnosesGoTo": "Le diagnosi vanno in {{code}}",
+    "diagnosesGoElsewhere": "Le diagnosi vanno in un altro progetto",
+    "errors": {
+      "list": "Non è stato possibile caricare i server di {{code}}",
+      "detail": "Non è stato possibile caricare questo server",
+      "charts": "Non è stato possibile caricare i grafici"
+    },
+    "empty": {
+      "title": "Nessun server in {{code}}",
+      "body": "Un server entra in un progetto attraverso uno dei suoi ambienti.",
+      "noPermission": "Chi gestisce il monitoraggio può aggiungerne uno."
+    },
+    "groups": {
+      "attention": "Da guardare",
+      "fine": "Tutto a posto",
+      "waiting": "In attesa dell'agente"
+    },
+    "health": {
+      "healthy": "In salute",
+      "trouble": "In difficoltà",
+      "down": "Non risponde",
+      "recovered": "Rientrato",
+      "never_connected": "Mai collegato"
+    },
+    "when": {
+      "since": "dalle {{when}}",
+      "noDataSince": "nessun dato dalle {{when}}",
+      "waiting": "in attesa dell'agente",
+      "sinceDay": "dal {{when}}",
+      "noDataSinceDay": "nessun dato dal {{when}}"
+    },
+    "work": {
+      "none": "",
+      "analyzing": "Claude ci sta guardando",
+      "diagnosis_ready": "Diagnosi pronta",
+      "fixing": "Correzione in corso"
+    },
+    "access": {
+      "not_linked": "Nessun accesso SSH",
+      "awaiting_command": "Accesso SSH in attesa del comando",
+      "verify_failed": "Verifica dell'accesso SSH non riuscita",
+      "read_writes": "Accesso SSH spento: l'accesso di lettura può scrivere",
+      "revoked": "Accesso SSH revocato",
+      "verified": "Accesso SSH verificato",
+      "regenerating": "Nuove chiavi SSH in attesa del comando",
+      "cantLook": "{{access}}: Claude non può guardarci"
+    },
+    "accessPart": {
+      "not_linked": "Nessun accesso SSH",
+      "awaiting_command": "Accesso SSH in attesa del comando",
+      "verify_failed": "Verifica dell'accesso SSH non riuscita",
+      "read_writes": "Accesso SSH spento: l'accesso di lettura può scrivere",
+      "revoked": "Accesso SSH revocato",
+      "verified": "Verificato: Claude può leggere, e correggere da una task, con i suoi account.",
+      "regenerating": "Le nuove chiavi aspettano il comando; quelle in uso funzionano ancora.",
+      "cantLook": "Claude non può guardare i problemi di questo server: nessun accesso SSH."
+    },
+    "duration": {
+      "lessThanMinute": "meno di un minuto",
+      "minutes": "{{m}} min",
+      "hours": "{{h}} h",
+      "hoursMinutes": "{{h}} h {{m}} min"
+    },
+    "reasons": {
+      "cpu": "CPU al {{value}}%, sopra il {{threshold}}%",
+      "memory": "Memoria al {{value}}%, sopra il {{threshold}}%",
+      "disk": "Disco al {{value}}%, sopra il {{threshold}}%",
+      "forDuration": "{{reason}} da {{duration}}",
+      "check": "Il controllo «{{name}}» è giù",
+      "checkError": "Il controllo «{{name}}» è giù: {{error}}",
+      "checkGone": "Era giù un controllo che non esiste più",
+      "silentOpen": "L'agente non riporta dalle {{time}}",
+      "silentClosed": "L'agente ha smesso di riportare alle {{time}}"
+    },
+    "reasonShort": {
+      "cpu": "CPU",
+      "memory": "Memoria",
+      "disk": "Disco",
+      "check": "Controllo",
+      "agent_silent": "Agente muto"
+    },
+    "detail": {
+      "agent": "agente {{version}}",
+      "lastReport": "ultimo dato {{when}}",
+      "secondsAgo": "{{n}} s fa"
+    },
+    "index": {
+      "label": "Parti di {{code}}",
+      "charts": "Grafici",
+      "services": "Servizi",
+      "disks": "Dischi",
+      "checks": "Controlli",
+      "access": "Accesso SSH",
+      "thresholds": "Soglie",
+      "settings": "Impostazioni"
+    },
+    "now": {
+      "label": "Adesso",
+      "reasons": "Perché",
+      "down": "Non risponde dalle {{when}}",
+      "trouble": "In difficoltà dalle {{when}}",
+      "recovered": "Rientrato alle {{time}} · dopo {{duration}}",
+      "recoveredOn": "Rientrato il {{date}} alle {{time}} · dopo {{duration}}",
+      "openSession": "Apri la sessione",
+      "noAccess": "Claude non può guardarci: nessun accesso SSH.",
+      "linkAccess": "Collega l'accesso SSH",
+      "primary": "La diagnosi si apre in {{code}}, il progetto principale.",
+      "work": {
+        "analyzing": "Claude ci sta guardando con l'accesso in sola lettura",
+        "diagnosed": "Diagnosi pronta",
+        "timed_out": "Diagnosi parziale: Claude ha finito il tempo",
+        "unreachable": "Claude non è riuscito a raggiungere il server",
+        "stopped": "Claude si è fermato prima di una diagnosi",
+        "failed": "L'analisi di Claude non è riuscita: la task non si è potuta aprire",
+        "fixing": "Correzione in corso",
+        "hiddenTask": "La diagnosi è in un progetto che non vedi."
+      },
+      "downDay": "Non risponde dal {{when}}",
+      "troubleDay": "In difficoltà dal {{when}}"
+    },
+    "charts": {
+      "rangeLabel": "Intervallo",
+      "cpu": "CPU",
+      "memory": "Memoria",
+      "disk": "Disco",
+      "load": "Carico (1 min)",
+      "network": "Rete",
+      "in": "in entrata",
+      "out": "in uscita",
+      "alertAt": "Avviso al {{value}}%",
+      "noAlert": "Nessun avviso",
+      "summary": "Media {{avg}} · picco {{peak}} alle {{time}}",
+      "summaryNet": "In entrata: media {{inAvg}}, picco {{inPeak}} · In uscita: media {{outAvg}}, picco {{outPeak}}",
+      "summaryLatency": "Media {{avg}} · più lento {{peak}} alle {{time}}",
+      "noLatency": "Nessun tempo di risposta: questo controllo dice solo su o giù.",
+      "noData": "Nessun dato in questo intervallo",
+      "reduced": "Si vedono {{points}} punti medi su {{samples}} campioni.",
+      "now": "adesso",
+      "episode": "{{reason}} · {{from}}–{{to}}",
+      "cursor": "{{time}} · {{value}}",
+      "gap": "nessun dato",
+      "responseTime": "Tempo di risposta · {{name}}",
+      "deselect": "Togli {{name}} dai grafici",
+      "checkDown": "giù"
+    },
+    "services": {
+      "filter": "Filtra i servizi",
+      "empty": "Nessun servizio riportato",
+      "noMatch": "Nessun servizio corrisponde a «{{q}}»",
+      "columns": {
+        "name": "Nome",
+        "source": "Origine",
+        "state": "Stato",
+        "cpu": "CPU",
+        "memory": "Memoria",
+        "restarts": "Riavvii",
+        "image": "Immagine"
+      },
+      "source": {
+        "docker": "Docker",
+        "pm2": "PM2"
+      }
+    },
+    "disks": {
+      "empty": "Nessun disco riportato",
+      "meter": "Disco {{mount}}",
+      "usage": "{{used}} su {{total}} · {{pct}}%",
+      "aboveAlert": "sopra la soglia",
+      "almostFull": "quasi pieno"
+    },
+    "checks": {
+      "add": "Aggiungi controllo",
+      "addTitle": "Aggiungi controllo",
+      "editTitle": "Modifica «{{name}}»",
+      "edit": "Modifica",
+      "editOf": "Modifica {{name}}",
+      "pause": "Sospendi",
+      "pauseOf": "Sospendi {{name}}",
+      "resume": "Riprendi",
+      "resumeOf": "Riprendi {{name}}",
+      "delete": "Elimina",
+      "deleteOf": "Elimina {{name}}",
+      "deleteQuestion": "Eliminare «{{name}}»?",
+      "confirmDelete": "Elimina il controllo",
+      "select": "{{name}}, {{status}}: mostralo nei grafici",
+      "empty": "Nessun controllo. Un controllo tiene d'occhio un URL, una porta, un processo o un database.",
+      "every": "ogni {{n}} s",
+      "latency": "{{n}} ms",
+      "example": "Per esempio {{example}}",
+      "intervalHint": "Da 10 a 3600 secondi.",
+      "status": {
+        "up": "Su",
+        "down": "Giù",
+        "unknown": "Sconosciuto",
+        "paused": "Sospeso"
+      },
+      "types": {
+        "http": "HTTP",
+        "tcp": "TCP",
+        "process": "Processo",
+        "postgres": "PostgreSQL",
+        "mysql": "MySQL"
+      },
+      "examples": {
+        "http": "https://example.com/health",
+        "tcp": "10.0.0.5:5432",
+        "process": "nginx",
+        "postgres": "postgres://user@127.0.0.1:5432/app",
+        "mysql": "mysql://user@127.0.0.1:3306/app"
+      },
+      "fields": {
+        "name": "Nome",
+        "type": "Tipo",
+        "target": "Cosa controllare",
+        "interval": "Controlla ogni (secondi)",
+        "active": "Attivo"
+      },
+      "errors": {
+        "name": "Dai un nome al controllo.",
+        "type": "Scegli un tipo.",
+        "target": "Scrivi cosa controllare.",
+        "intervalSeconds": "Usa un numero intero di secondi da 10 a 3600.",
+        "generic": "Non è stato possibile salvare il controllo. Riprova.",
+        "delete": "Non è stato possibile eliminare «{{name}}». Riprova."
+      }
+    },
+    "thresholds": {
+      "read": {
+        "cpu_one": "Un avviso parte quando la CPU resta sopra il {{value}}% per {{count}} minuto.",
+        "cpu_other": "Un avviso parte quando la CPU resta sopra il {{value}}% per {{count}} minuti.",
+        "memory_one": "Un avviso parte quando la memoria resta sopra il {{value}}% per {{count}} minuto.",
+        "memory_other": "Un avviso parte quando la memoria resta sopra il {{value}}% per {{count}} minuti.",
+        "disk_one": "Un avviso parte quando il disco resta sopra il {{value}}% per {{count}} minuto.",
+        "disk_other": "Un avviso parte quando il disco resta sopra il {{value}}% per {{count}} minuti."
+      },
+      "off": {
+        "cpu": "La CPU non fa mai partire un avviso.",
+        "memory": "La memoria non fa mai partire un avviso.",
+        "disk": "Il disco non fa mai partire un avviso."
+      },
+      "edit": {
+        "cpu": "Un avviso parte quando la CPU resta sopra il",
+        "memory": "Un avviso parte quando la memoria resta sopra il",
+        "disk": "Un avviso parte quando il disco resta sopra il",
+        "percent": "%",
+        "minutesBefore": "…per almeno",
+        "minutesAfter": "minuti"
+      },
+      "offPlaceholder": "spenta",
+      "offHint": "Lascia vuota una percentuale per spegnere quell'avviso.",
+      "readOnly": "Chi gestisce il monitoraggio può cambiarle.",
+      "errors": {
+        "pct": "Usa un numero da 1 a 100, o lascialo vuoto.",
+        "minutes": "Usa un numero intero di minuti da 1 a 60.",
+        "generic": "Non è stato possibile salvare le soglie. Riprova."
+      }
+    },
+    "settings": {
+      "name": "Nome",
+      "interval": "Riporta ogni (secondi)",
+      "intervalHint": "Da 10 a 300 secondi.",
+      "primary": "Progetto principale",
+      "primaryOnly": "{{code}}: l'unica produzione che usa questo server",
+      "primaryNone": "Nessuna produzione usa questo server: niente avvisi, niente analisi.",
+      "primaryHint": "Le diagnosi di Claude si aprono qui come task.",
+      "errors": {
+        "name": "Dai un nome al server.",
+        "sampleIntervalSeconds": "Usa un numero intero di secondi da 10 a 300.",
+        "primaryProjectId": "Scegli un progetto la cui produzione usa questo server.",
+        "generic": "Non è stato possibile salvare le impostazioni. Riprova."
+      },
+      "key": {
+        "title": "Chiave dell'agente",
+        "body": "L'agente manda i suoi dati con questa chiave. Si vede solo quando nasce.",
+        "regenerate": "Rigenera la chiave",
+        "confirmTitle": "Rigenerare la chiave di {{code}}?",
+        "confirmBody": "L'agente su {{code}} smette di riportare finché non lo aggiorni con la chiave nuova.",
+        "error": "Non è stato possibile rigenerare la chiave. Riprova."
+      },
+      "delete": {
+        "title": "Elimina il server",
+        "body": "Toglie {{code}} da ogni ambiente, con la sua storia.",
+        "button": "Elimina {{code}}",
+        "dialogTitle": "Eliminare {{code}}?",
+        "consequences": "{{code}} esce dagli ambienti {{envs}}. La sua storia si cancella. Il codice {{code}} non verrà più usato.",
+        "consequencesNone": "La sua storia si cancella. Il codice {{code}} non verrà più usato.",
+        "confirm": "Elimina {{code}}",
+        "busy": "Claude sta lavorando su {{code}} in questo momento. Eliminalo quando l'analisi o la correzione è finita.",
+        "error": "Non è stato possibile eliminare {{code}}. Riprova.",
+        "done": "{{code}} eliminato"
+      }
+    },
+    "create": {
+      "title": "Nuovo server in {{code}}",
+      "name": "Nome",
+      "environment": "Ambiente",
+      "envOption": "{{name}} · {{kind}}",
+      "joins": "Il server entra in {{code}} attraverso questo ambiente.",
+      "submit": "Crea il server",
+      "noFree": "Ogni ambiente di {{code}} ha già un server. Prima aggiungi un ambiente in Rilasci → Ambienti.",
+      "toEnvironments": "Apri gli ambienti",
+      "noEnvPermission": "Chi gestisce gli ambienti di {{code}} può aggiungerne uno.",
+      "discard": "Lasciar perdere questo server?",
+      "keep": "Continua a scrivere",
+      "discardConfirm": "Lascia perdere",
+      "errors": {
+        "name": "Dai un nome al server.",
+        "environment": "Questo ambiente ha già un server.",
+        "generic": "Non è stato possibile creare il server. Riprova."
+      }
+    },
+    "key": {
+      "readyTitle": "{{code}} è pronto per il suo agente",
+      "regeneratedTitle": "Nuova chiave per {{code}}",
+      "shownOnce": "Questa chiave si vede solo adesso.",
+      "label": "Chiave dell'agente",
+      "copy": "Copia",
+      "copied": "Copiata",
+      "copyKey": "Copia la chiave",
+      "copyCommand": "Copia il comando",
+      "copyError": "Non è stato possibile copiare. Seleziona il testo e copialo a mano.",
+      "command": "Installa l'agente sul server",
+      "commandHint": "Lancialo su {{code}}: l'agente comincia a riportare entro un minuto.",
+      "prototype": "Prototipo: questa chiave è inventata e nessun agente può usarla.",
+      "done": "Fatto",
+      "closeWithout": "Chiudere senza aver copiato la chiave? Puoi rigenerarla più tardi dalle Impostazioni.",
+      "keepOpen": "Tienilo aperto",
+      "closeAnyway": "Chiudi"
+    },
+    "simulate": {
+      "label": "Solo prototipo: segnali del server",
+      "intro": "Questi bottoni fingono una risposta del server o dell'agente. Non toccano nessun server.",
+      "reason": "Motivo",
+      "severity": "Gravità",
+      "overrun": "L'analisi di Claude ci mette troppo",
+      "alert": "Simula un allarme",
+      "recovery": "Simula il rientro",
+      "unreachable": "Simula SSH irraggiungibile",
+      "reachable": "Simula SSH di nuovo raggiungibile",
+      "error": "La simulazione non è andata a buon fine."
+    },
+    "column": {
+      "count_one": "{{count}} server",
+      "count_other": "{{count}} server",
+      "down_one": "{{count}} server non risponde",
+      "down_other": "{{count}} server non rispondono",
+      "trouble_one": "{{count}} server in difficoltà",
+      "trouble_other": "{{count}} server in difficoltà"
     }
   }
 }

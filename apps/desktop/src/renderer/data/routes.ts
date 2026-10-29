@@ -145,6 +145,13 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
     // Support (area 8a): il pannello di un widget (l'id, o `new`).
     case "widget":
       return isSupportPath(path) && /^[\w-]+$/.test(value);
+    // Il dettaglio di un server (area 8b): intervallo, controllo, parte in vista.
+    case "range":
+      return isServerPath(path) && /^(1h|24h|7d)$/.test(value);
+    case "check":
+      return isServerPath(path) && /^[\w-]+$/.test(value);
+    case "section":
+      return isServerPath(path) && (SERVER_PARTS as readonly string[]).includes(value);
     // Il Calendario: l'evento e la serie aperti nel pannello (shape calendar.md §7).
     case "event":
     case "series":
@@ -184,6 +191,22 @@ export const RELEASES_VIEWS = ["prs", "releases", "environments"] as const;
 /** La sezione Support di un progetto. */
 function isSupportPath(path: string): boolean {
   return /^p\/[A-Z]{2,4}\/support$/.test(path);
+}
+
+/** Le parti del dettaglio di un server, per `?section=` (shape servers.md §3). */
+export const SERVER_PARTS = [
+  "charts",
+  "services",
+  "disks",
+  "checks",
+  "access",
+  "thresholds",
+  "settings",
+] as const;
+
+/** Il dettaglio di un server. */
+function isServerPath(path: string): boolean {
+  return /^p\/[A-Z]{2,4}\/servers\/SRV-\d+$/.test(path);
 }
 
 /** La sezione Releases di un progetto. */
