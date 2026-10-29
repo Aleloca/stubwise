@@ -36,6 +36,32 @@ async function openRelease(code: string, person = "p-laura") {
   return router;
 }
 
+describe("Release detail — server della repository (R-L2)", () => {
+  it("un rilascio di audin-admin non in produzione nomina SRV-4, mai SRV-3, nel Now e nel «Simula»", async () => {
+    const prod = state.environments.find((e) => e.id === "env-aud-prod")!;
+    prod.servers.find((s) => s.serverCode === "SRV-4")!.reportedSha =
+      "0f0e0d0c0b0a09080706050403020100ffeeddcc";
+    state.releases.push({
+      ...structuredClone(release("AUD-V2")),
+      id: "rel-aud-admin-ui",
+      code: "AUD-V9",
+      repositoryId: "repo-aud-admin",
+      pr: { repo: "audin/audin-admin", number: 31 },
+      mergeSha: "7c1e9a4b2d6f8e0a3c5b7d9f1e2a4c6b8d0f2e4a",
+      runs: [],
+      seenInProductionAt: null,
+      fixTaskId: null,
+    });
+    await openRelease("AUD-V9");
+    const now = screen.getByRole("region", { name: "Now" });
+    expect(now).toHaveTextContent("SRV-4 still runs 0f0e0d0");
+    expect(now).not.toHaveTextContent("SRV-3");
+    expect(
+      screen.getByRole("button", { name: "Simulate the commit appearing on SRV-4" }),
+    ).toBeInTheDocument();
+  });
+});
+
 describe("Release detail — fallito", () => {
   it("la frase prima del log: dove è fallito, le due azioni e la riga-confine", async () => {
     await openRelease("AUD-V3");

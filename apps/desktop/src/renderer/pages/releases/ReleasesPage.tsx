@@ -133,7 +133,6 @@ export function ReleasesPage({ projectCode }: { projectCode: string }) {
           projectCode={projectCode}
           prs={prs.data}
           queue={queue.data}
-          environments={envs.data?.environments ?? []}
           filters={prFilters}
           full={view === "prs"}
         />
@@ -178,7 +177,6 @@ export function ReleasesPage({ projectCode }: { projectCode: string }) {
           canManage={envs.data.canManage}
           environments={envs.data?.environments ?? []}
           repositories={envs.data?.repositories ?? []}
-          releases={releases.data ?? []}
           onlyHere={envs.data.onlyHere ?? []}
         />
       )}

@@ -9,8 +9,6 @@ import {
   useSimulateSeenOnServer,
 } from "../../data/queries";
 import type { ReleaseView, RunView } from "../../data/releases";
-import type { ProjectEnvironment } from "../../data/types";
-import { environmentServerFor } from "../../domain/releases/environmentServer";
 import { formatDate } from "../../notifications/time";
 import { PageError } from "../../tasks-ui/PageStates";
 import { useToast } from "../../tasks-ui/Toast";
@@ -31,12 +29,6 @@ import { RunLog } from "./RunLog";
 const linkClass =
   "inline-flex items-center gap-1 rounded-sm text-sm text-ink underline-offset-4 hover:underline";
 
-/** Il server di produzione della repository del rilascio (R-L2), se c'è. */
-function productionServerOf(environments: ProjectEnvironment[] | undefined, release: ReleaseView) {
-  const production = environments?.find((e) => e.kind === "production");
-  return production ? environmentServerFor(production, release.repositoryId) : null;
-}
-
 function NowBox({ release }: { release: ReleaseView }) {
   const { t, i18n } = useTranslation();
   const [fixing, setFixing] = useState(false);
@@ -47,7 +39,8 @@ function NowBox({ release }: { release: ReleaseView }) {
   const fixTask = release.fixTask?.open ? release.fixTask : null;
   const noPipeline =
     release.runs.length === 0 && (s.kind === "in_production" || s.kind === "not_in_production");
-  const production = productionServerOf(environments?.environments, release);
+  // Il server della repository in produzione lo dice la vista (R-L2).
+  const production = release.productionServer ?? null;
 
   return (
     <section
@@ -153,8 +146,7 @@ function Simulate({ release }: { release: ReleaseView }) {
   const outcome = useSimulateRunOutcome();
   const seen = useSimulateSeenOnServer();
   const toast = useToast();
-  const environments = useEnvironments(release.projectId).data;
-  const server = productionServerOf(environments?.environments, release)?.serverCode;
+  const server = release.productionServer?.serverCode;
   const running = release.runs.filter((x) => x.status === "running");
   const canSeen = release.status.kind === "not_in_production" && !!server;
   if (running.length === 0 && !canSeen) return null;

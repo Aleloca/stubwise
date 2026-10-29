@@ -5,9 +5,8 @@ import {
   useDeleteEnvironment,
   useUpdateEnvironment,
 } from "../../data/queries";
-import type { EnvironmentInput, ReleaseView } from "../../data/releases";
-import type { EnvironmentServer, ProjectEnvironment } from "../../data/types";
-import { sameCommit } from "../../domain/releases/releaseStatus";
+import type { EnvironmentInput, EnvironmentView } from "../../data/releases";
+import type { ProjectEnvironment } from "../../data/types";
 import { Dialog, DialogField, inputClass } from "../../tasks-ui/Dialog";
 import { Menu, itemClass } from "../../tasks-ui/Menu";
 import { useToast } from "../../tasks-ui/Toast";
@@ -385,32 +384,27 @@ export function Environments({
   canManage,
   environments,
   repositories,
-  releases,
   onlyHere = [],
 }: {
   projectId: string;
   projectCode: string;
   canManage: boolean;
-  environments: ProjectEnvironment[];
+  environments: EnvironmentView[];
   repositories: Repo[];
-  releases: ReleaseView[];
   /** I server che nessun altro progetto usa (`listEnvironments`). */
   onlyHere?: string[];
 }) {
   const { t, i18n } = useTranslation();
   const [editing, setEditing] = useState<ProjectEnvironment | "new" | null>(null);
   const [deleting, setDeleting] = useState<ProjectEnvironment | null>(null);
-  const runsLine = (s: EnvironmentServer) => {
+  const runsLine = (s: EnvironmentView["servers"][number]) => {
     if (!s.reportedSha) return null;
-    // Il rilascio che combacia è della stessa repository (R-L2).
-    const release = releases.find(
-      (r) =>
-        (s.repositoryId === null || r.repositoryId === s.repositoryId) &&
-        sameCommit(r.mergeSha, s.reportedSha),
-    );
+    // Il rilascio che combacia lo dice il livello dati (R-L2: della stessa
+    // repository; la riga di progetto solo per quelle senza riga propria).
+    const release = s.releaseCode ?? null;
     return [
       t("releases.environments.runs", { sha: shortSha(s.reportedSha) }),
-      release ? `= ${release.code}` : null,
+      release ? `= ${release}` : null,
       s.reportedAt ? ago(s.reportedAt, t, i18n.language) : null,
     ]
       .filter(Boolean)
@@ -421,7 +415,7 @@ export function Environments({
       ? t("releases.environments.allRepositories")
       : (repositories.find((r) => r.id === id)?.name ?? id);
   // Un server solo, per tutto il progetto: nella riga, come prima di R-L2.
-  const inline = (e: ProjectEnvironment) =>
+  const inline = (e: EnvironmentView) =>
     e.servers.length === 1 && e.servers[0]!.repositoryId === null ? e.servers[0]! : null;
 
   return (

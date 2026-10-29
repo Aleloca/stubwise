@@ -8,7 +8,12 @@ import {
   type PrCorrectionInput,
   type PrState,
 } from "../../domain/releases/prState";
-import { releaseStatus, type ReleaseStatus } from "../../domain/releases/releaseStatus";
+import { environmentServerFor } from "../../domain/releases/environmentServer";
+import {
+  releaseStatus,
+  sameCommit,
+  type ReleaseStatus,
+} from "../../domain/releases/releaseStatus";
 import { releaseMandatory } from "../alerts/publish";
 import { holds, sees } from "../access";
 import { eventsOf, now, state } from "../store";
@@ -169,12 +174,23 @@ export type OpenPrView = OpenPullRequest & {
   taskCode: string | null;
   /** Cosa può fare chi guarda, deciso qui (il client non lo deduce). */
   actions: { analysisOnly: boolean; requestCorrection: boolean };
+  /**
+   * «Già su staging?» (R-L2): il server della repository della PR in uno
+   * staging del progetto riporta il suo commit di testa.
+   */
+  onStaging: boolean;
 };
 
 export function prView(me: string, pr: OpenPullRequest): OpenPrView {
   const task = pr.taskId ? state.tasksById.get(pr.taskId) : undefined;
   return {
     ...structuredClone(pr),
+    onStaging: state.environments.some(
+      (e) =>
+        e.projectId === pr.projectId &&
+        e.kind === "staging" &&
+        sameCommit(pr.headSha, environmentServerFor(e, pr.repositoryId)?.reportedSha),
+    ),
     prState: stateOfPr(pr),
     cap: capOf(pr.projectId),
     taskCode: task && sees(me, task.projectId) ? task.code : null,
@@ -222,6 +238,12 @@ export interface ReleaseView extends Omit<Release, "runs"> {
    * obbligatorio (`releaseMandatory`: il merge è suo).
    */
   waitsOnViewer: boolean;
+  /**
+   * Il server della repository del rilascio nell'ambiente di produzione
+   * (R-L2) e il commit che riporta: «still runs SRV-n …» e il «Simula». `null`
+   * senza produzione o senza un server per quella repository.
+   */
+  productionServer: { serverCode: string; reportedSha: string | null } | null;
 }
 
 export interface FixPreview {
@@ -276,8 +298,13 @@ export function releaseView(me: string, r: Release): ReleaseView {
   const viewLog = holds(me, "repos.view", r.projectId);
   const task = r.fixTaskId ? state.tasksById.get(r.fixTaskId) : undefined;
   const { runs, ...rest } = structuredClone(r);
+  const production = productionOf(r.projectId);
+  const server = production ? environmentServerFor(production, r.repositoryId) : null;
   return {
     ...rest,
+    productionServer: server
+      ? { serverCode: server.serverCode, reportedSha: server.reportedSha }
+      : null,
     projectCode: state.projectsById.get(r.projectId)!.code,
     status: statusOf(r),
     runs: runs.map((run) => ({

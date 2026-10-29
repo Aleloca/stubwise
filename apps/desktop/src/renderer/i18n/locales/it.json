@@ -6603,7 +6603,8 @@
       "inProduction": "In produzione dalle {{time}}",
       "unavailable": {
         "no_production_env": "{{code}} non ha un ambiente di produzione",
-        "no_server": "L'ambiente di produzione non ha un server collegato"
+        "no_server": "L'ambiente di produzione non ha un server collegato",
+        "no_server_for_repository": "{{repo}} non ha un server nell'ambiente di produzione"
       },
       "noPipeline": "Nessuna run della pipeline è partita entro 30 minuti dal merge, quindi Stubwise segue invece il server di produzione.",
       "fixingIn": "Claude lo sta sistemando in {{task}}",
@@ -6709,7 +6710,7 @@
       "edit": "Modifica",
       "delete": "Elimina",
       "deleteTitle": "Eliminare {{name}}?",
-      "deleteProduction": "I rilasci senza pipeline mostreranno «Stato non disponibile» finché un altro ambiente di produzione non avrà un server.",
+      "deleteProduction": "I rilasci senza pipeline mostreranno «Stato non disponibile» finché un altro ambiente di produzione non avrà un server per la loro repository.",
       "deleteError": "Non è stato possibile eliminare {{name}}.",
       "errors": {
         "name": "Dai un nome all'ambiente.",

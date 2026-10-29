@@ -237,7 +237,7 @@ describe("R-L2: il server di una repository nell'ambiente", () => {
     expect(releaseStatus(scripts, ctx({ now: later(60), production: here }))).toEqual({
       kind: "unavailable",
       since: null,
-      reason: "no_server",
+      reason: "no_server_for_repository",
     });
   });
 });

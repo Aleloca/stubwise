@@ -165,6 +165,7 @@ export function nowSentence(r: ReleaseView, t: TFunction, language: string): str
     case "unavailable":
       return t(`releases.now.unavailable.${s.reason ?? "no_production_env"}`, {
         code: r.projectCode,
+        repo: shortRepo(r.pr.repo),
       });
   }
 }

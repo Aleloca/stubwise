@@ -3,9 +3,6 @@ import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { OpenPrView, QueueItem } from "../../data/releases";
 import type { MergeError } from "./MergeConfirm";
-import type { ProjectEnvironment } from "../../data/types";
-import { environmentServerFor } from "../../domain/releases/environmentServer";
-import { sameCommit } from "../../domain/releases/releaseStatus";
 import { Chevron, Menu, MenuGroup, RadioItem } from "../../tasks-ui/Menu";
 import { rowKeys } from "../home/blocks/BlockSection";
 import { shortRepo } from "./format";
@@ -105,14 +102,12 @@ export function PrList({
   projectCode,
   prs,
   queue,
-  environments,
   filters = NO_PR_FILTERS,
   full = false,
 }: {
   projectCode: string;
   prs: OpenPrView[];
   queue: QueueItem[];
-  environments: ProjectEnvironment[];
   /** I filtri scelti in testa alla parte (`PrFilterBar`). */
   filters?: PrFilters;
   /** `?view=prs`: la lista intera, coi filtri. */
@@ -141,10 +136,8 @@ export function PrList({
   const ready = prs.filter((p) => (queueIds.has(p.id) || pinned[p.id]) && match(p));
   const notReady = prs.filter((p) => !queueIds.has(p.id) && !pinned[p.id] && match(p));
   const shownNotReady = full ? notReady : notReady.slice(0, NOT_READY_PAGE);
-  // «Già su staging?»: il server della repository della PR in uno staging (R-L2).
-  const staging = environments.filter((e) => e.kind === "staging");
-  const onStaging = (p: OpenPrView) =>
-    staging.some((e) => sameCommit(p.headSha, environmentServerFor(e, p.repositoryId)?.reportedSha));
+  // «Già su staging?» lo calcola il livello dati (R-L2: il server della repository della PR).
+  const onStaging = (p: OpenPrView) => p.onStaging ?? false;
 
   const row = (p: OpenPrView, isReady: boolean) => (
     <PrRow

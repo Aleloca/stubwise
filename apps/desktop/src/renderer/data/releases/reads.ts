@@ -3,7 +3,9 @@ import { fold } from "../../domain/textSearch";
 import { releaseMandatory } from "../alerts/publish";
 import { currentChannels } from "../alerts/reads";
 import { gate, state } from "../store";
-import type { ProjectEnvironment, Repository } from "../types";
+import { environmentServerFor } from "../../domain/releases/environmentServer";
+import { sameCommit } from "../../domain/releases/releaseStatus";
+import type { EnvironmentServer, ProjectEnvironment, Repository } from "../types";
 import {
   holds,
   isReady,
@@ -65,7 +67,7 @@ export async function getRelease(code: string): Promise<ReleaseView | null> {
 export interface EnvironmentList {
   /** `environments.manage`: aggiungere, modificare, togliere. */
   canManage: boolean;
-  environments: ProjectEnvironment[];
+  environments: EnvironmentView[];
   /** Le repository del progetto, per dire su quale server gira ognuna (R-L2). */
   repositories: { id: string; name: string }[];
   /**
@@ -89,7 +91,10 @@ export async function listEnvironments(projectId: string): Promise<EnvironmentLi
     canManage: holds(me, "environments.manage", projectId),
     environments: state.environments
       .filter((e) => e.projectId === projectId)
-      .map((e) => structuredClone(e)),
+      .map((e) => ({
+        ...structuredClone(e),
+        servers: e.servers.map((s) => ({ ...structuredClone(s), releaseCode: releaseOn(e, s) })),
+      })),
     repositories: state.repositories
       .filter((r) => r.projectId === projectId)
       .map((r) => ({ id: r.id, name: r.name })),
@@ -97,6 +102,30 @@ export async function listEnvironments(projectId: string): Promise<EnvironmentLi
       .filter((c) => !elsewhere.has(c))
       .sort((a, b) => Number(a.slice(4)) - Number(b.slice(4))),
   };
+}
+
+/**
+ * Un ambiente come lo legge la pagina: ogni riga dice anche quale rilascio
+ * corrisponde al commit che riporta (`releaseCode`, «= AUD-V3»).
+ */
+export type EnvironmentView = Omit<ProjectEnvironment, "servers"> & {
+  servers: (EnvironmentServer & { releaseCode: string | null })[];
+};
+
+/**
+ * Il rilascio che gira su una riga: della stessa repository (R-L2), e per la
+ * riga di tutto il progetto solo di una repository che in quell'ambiente
+ * non ha una riga propria (`environmentServerFor`).
+ */
+function releaseOn(env: ProjectEnvironment, s: EnvironmentServer): string | null {
+  if (!s.reportedSha) return null;
+  const release = state.releases.find(
+    (r) =>
+      r.projectId === env.projectId &&
+      environmentServerFor(env, r.repositoryId) === s &&
+      sameCommit(r.mergeSha, s.reportedSha),
+  );
+  return release?.code ?? null;
 }
 
 export interface MyReleases {

@@ -15,6 +15,7 @@ export {
   listReleases,
   searchReleases,
   type EnvironmentList,
+  type EnvironmentView,
   type MyReleases,
   type ReleaseSearchResult,
   type RepositorySettings,

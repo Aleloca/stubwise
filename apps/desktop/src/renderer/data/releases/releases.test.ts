@@ -714,6 +714,46 @@ describe("Review Focus 3: stato del rilascio ai bordi (livello dati)", () => {
     await releases.simulateSeenOnServer("AUD-V9");
     expect(slot("SRV-4").reportedSha).toBe(sha);
     expect(slot("SRV-3")).toEqual(before);
+    // Il server di produzione della repository lo dice la vista (il client non lo deduce).
+    expect((await releases.getRelease("AUD-V9"))!.productionServer).toEqual({
+      serverCode: "SRV-4",
+      reportedSha: sha,
+    });
+  });
+
+  it("R-L2: «Già su staging?» lo calcola la vista della PR, col server della sua repository", async () => {
+    as("p-laura");
+    const view = async (id: string) =>
+      (await releases.listOpenPrs(STW)).find((p) => p.id === id)!;
+    const first = (await releases.listOpenPrs(STW))[0]!;
+    expect(first.onStaging).toBe(false);
+    const staging = state.environments.find((e) => e.id === "env-stw-staging")!;
+    staging.servers.push({
+      repositoryId: null,
+      serverCode: "SRV-2",
+      reportedSha: first.headSha,
+      reportedAt: null,
+    });
+    expect((await view(first.id)).onStaging).toBe(true);
+  });
+
+  it("R-L2: la riga di tutto il progetto nomina solo i rilasci delle repository senza riga propria", async () => {
+    as("p-laura");
+    const prod = state.environments.find((e) => e.id === "env-aud-prod")!;
+    // Ambiente misto: una riga di progetto su SRV-1 accanto a quelle per repository.
+    prod.servers.push({ repositoryId: null, serverCode: "SRV-1", reportedSha: null, reportedAt: null });
+    const appRelease = state.releases.find((r) => r.repositoryId === "repo-aud" && r.mergeSha)!;
+    prod.servers.find((s) => s.serverCode === "SRV-1")!.reportedSha = appRelease.mergeSha;
+    const env = (await releases.listEnvironments(AUD)).environments.find(
+      (e) => e.id === "env-aud-prod",
+    )!;
+    // audin-app gira su SRV-3: lo sha su SRV-1 non è un suo rilascio.
+    expect(env.servers.find((s) => s.serverCode === "SRV-1")!.releaseCode).toBeNull();
+    prod.servers.find((s) => s.serverCode === "SRV-3")!.reportedSha = appRelease.mergeSha;
+    const again = (await releases.listEnvironments(AUD)).environments.find(
+      (e) => e.id === "env-aud-prod",
+    )!;
+    expect(again.servers.find((s) => s.serverCode === "SRV-3")!.releaseCode).toBe(appRelease.code);
   });
 
   it("R-L2: una repository senza server nell'ambiente → non disponibile, e niente comparsa simulata", async () => {
@@ -730,7 +770,7 @@ describe("Review Focus 3: stato del rilascio ai bordi (livello dati)", () => {
     });
     expect((await releases.getRelease("AUD-V8"))!.status).toMatchObject({
       kind: "unavailable",
-      reason: "no_server",
+      reason: "no_server_for_repository",
     });
     await expect(releases.simulateSeenOnServer("AUD-V8")).rejects.toThrow("invalid: environment");
   });

@@ -20,7 +20,11 @@ export interface ReleaseStatus {
   kind: ReleaseStatusKind;
   /** Da quando è in quello stato, se lo si sa. */
   since: string | null;
-  reason?: "no_production_env" | "no_server";
+  /**
+   * `no_server`: la produzione non ha server; `no_server_for_repository`: ne
+   * ha, ma nessuno per la repository del rilascio (R-L2).
+   */
+  reason?: "no_production_env" | "no_server" | "no_server_for_repository";
 }
 
 /** Minuti dal merge entro cui l'assenza di run vuol dire «non sono ancora partite». */
@@ -86,7 +90,10 @@ export function releaseStatus(
   // rilascio nell'ambiente di produzione (R-L2), non quello di un'altra.
   if (!ctx.production) return { kind: "unavailable", since: null, reason: "no_production_env" };
   const server = environmentServerFor(ctx.production, r.repositoryId);
-  if (!server) return { kind: "unavailable", since: null, reason: "no_server" };
+  if (!server) {
+    const reason = ctx.production.servers.length > 0 ? "no_server_for_repository" : "no_server";
+    return { kind: "unavailable", since: null, reason };
+  }
   if (sameCommit(r.mergeSha, server.reportedSha)) {
     return { kind: "in_production", since: server.reportedAt };
   }
