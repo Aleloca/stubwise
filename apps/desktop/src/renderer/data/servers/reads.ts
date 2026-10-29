@@ -66,7 +66,7 @@ export interface ServerMetrics {
    * Con un controllo (R-L1): i suoi campioni nello stesso intervallo, per il
    * grafico «Response time» e le fasce dei momenti giù; `null` senza.
    */
-  check: { samples: CheckSample[]; truncated: boolean } | null;
+  check: { samples: CheckSample[]; truncated: boolean; sampleCount: number } | null;
 }
 
 /** Le metriche di un server nell'intervallo (ultimi 1h / 24h / 7d), ridotte per il grafico. */
@@ -85,7 +85,7 @@ export async function getServerMetrics(
     const samples = (state.serverCheckSamples.get(checkId) ?? []).filter(
       (s) => Date.parse(s.ts) > fromMs,
     );
-    check = downsampleSamples(samples);
+    check = { ...downsampleSamples(samples), sampleCount: samples.length };
   }
   const all = metricsSince(server.code, fromMs);
   // Copie: i punti del seme sono condivisi (congelati), mai riferimenti allo stato.

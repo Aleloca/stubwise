@@ -74,6 +74,7 @@ function Page({ server, projectCode }: { server: Detail; projectCode: string }) 
     range?: string;
     check?: string;
     section?: string;
+    task?: string;
   };
   const range: MetricRange = (RANGES as readonly string[]).includes(search.range ?? "")
     ? (search.range as MetricRange)
@@ -132,7 +133,8 @@ function Page({ server, projectCode }: { server: Detail; projectCode: string }) 
       if (r && ["1", "2", "3"].includes(e.key)) {
         e.preventDefault();
         setSearch({ range: r });
-      } else if (e.key === "Escape" && search.check) {
+      } else if (e.key === "Escape" && search.check && !search.task) {
+        // Col pannello della task aperto (dal Now) l'Esc è suo: chiude quello.
         e.preventDefault();
         setSearch({ check: undefined });
       }

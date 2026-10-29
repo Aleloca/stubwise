@@ -7161,6 +7161,7 @@
       "noLatency": "No response times: this check only says up or down.",
       "noData": "No data in this range",
       "reduced": "Showing {{points}} averaged points of {{samples}} samples.",
+      "reducedCheck": "Response time: {{points}} averaged points of {{samples}} samples.",
       "now": "now",
       "episode": "{{reason}} · {{from}}–{{to}}",
       "cursor": "{{time}} · {{value}}",

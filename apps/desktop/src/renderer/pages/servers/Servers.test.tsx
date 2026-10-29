@@ -75,8 +75,12 @@ describe("Servers — l'elenco", () => {
     await openSection("p-roberta", "STW");
     const attention = await screen.findByRole("list", { name: "Needs attention" });
     expect(
-      within(attention).getByRole("link", { name: /^SRV-2 db-stw-01, In trouble · since 09:40$/ }),
+      within(attention).getByRole("link", { name: /^SRV-2 db-stw-01, In trouble · since 09:40\. / }),
     ).toBeInTheDocument();
+    // Il nome della riga dice anche la seconda riga: accesso, ambienti (T7 m1).
+    expect(within(attention).getByRole("link", { name: /^SRV-2 / })).toHaveAccessibleName(
+      /No SSH access: Claude can't look into it\. .*STW/,
+    );
     expect(row("SRV-2")).toHaveTextContent("In trouble");
     expect(row("SRV-2")).toHaveTextContent("No SSH access: Claude can't look into it");
     // Il glifo colorato non parla da solo.
@@ -92,7 +96,7 @@ describe("Servers — l'elenco", () => {
     const waiting = await screen.findByRole("list", { name: "Waiting for the agent" });
     expect(
       within(waiting).getByRole("link", {
-        name: /^SRV-5 stw-worker-01, Never connected · waiting for the agent$/,
+        name: /^SRV-5 stw-worker-01, Never connected · waiting for the agent\. .*Staging · STW/,
       }),
     ).toBeInTheDocument();
     expect(row("SRV-5")).toHaveTextContent("Staging · STW");
@@ -290,9 +294,13 @@ describe("La colonna e ⌘K", () => {
     await screen.findByRole("heading", { name: "Home", level: 1 });
     await user.keyboard("{Control>}k{/Control}");
     const dialog = await screen.findByRole("dialog", { name: "Search and commands" });
-    await user.type(within(dialog).getByRole("combobox"), "SRV-3");
-    await new Promise((r) => setTimeout(r, 200));
-    expect(within(dialog).queryByRole("group", { name: "Servers" })).toBeNull();
+    // Controllo positivo nella stessa ricerca: il server che vede (SRV-2, di
+    // STW) compare, quindi la ricerca dei server ha risposto; SRV-3 no.
+    await user.type(within(dialog).getByRole("combobox"), "SRV-");
+    const group = await within(dialog).findByRole("group", { name: "Servers" });
+    expect(within(group).getByRole("option", { name: /SRV-2/ })).toBeInTheDocument();
+    expect(within(group).queryByRole("option", { name: /SRV-3/ })).toBeNull();
+    expect(within(group).queryByRole("option", { name: /SRV-4/ })).toBeNull();
   });
 });
 

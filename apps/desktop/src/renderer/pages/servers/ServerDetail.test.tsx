@@ -8,6 +8,9 @@ import { resetViewerGrants } from "../../data/viewer";
 import { setLanguage } from "../../i18n";
 import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
 import { renderRoute } from "../../test/renderRoute";
+import { bandLabelSide } from "./Chart";
+import { sparkScale } from "./glyphs";
+import { niceCeil } from "./MetricsCharts";
 import { setMatchMedia } from "../../test/setup";
 
 // Il dettaglio di un server (Task 7 del piano 8b, shape servers.md §3):
@@ -186,6 +189,66 @@ describe("grafici", () => {
     await within(part("Charts")).findByRole("group", { name: "Response time · API health" });
     await user.click(api);
     await waitFor(() => expect(router.state.location.search).not.toHaveProperty("check"));
+  });
+
+  it("tempo di risposta ridotto: la nota dei campioni c'è anche lì; asse su un passo tondo", async () => {
+    await open("/p/ACQ/servers/SRV-1?check=chk-srv-1-api", "p-marco");
+    await within(part("Charts")).findByRole("group", { name: "Response time · API health" });
+    expect(part("Charts")).toHaveTextContent(
+      /Response time: \d+ averaged points of [\d,]+ samples\./,
+    );
+  });
+
+  it("l'etichetta del cursore si annuncia da tastiera, non al passaggio del mouse", async () => {
+    const user = userEvent.setup();
+    await open("/p/ACQ/servers/SRV-1", "p-marco");
+    const cpu = await within(part("Charts")).findByRole("group", { name: /^CPU/ });
+    const label = () => cpu.querySelector("[data-cursor-label]");
+    // Un cursore che non viene dalle frecce (fuoco, o il passaggio del mouse) tace.
+    act(() => cpu.focus());
+    await waitFor(() => expect(label()).not.toBeNull());
+    expect(label()).toHaveAttribute("aria-live", "off");
+    await user.keyboard("{ArrowLeft}");
+    expect(label()).toHaveAttribute("aria-live", "polite");
+  });
+
+  it("l'etichetta dell'episodio non copre la linea: sopra la CPU bassa di SRV-1, sotto il disco al 92% di SRV-2", async () => {
+    await open("/p/ACQ/servers/SRV-1?range=7d", "p-marco");
+    const cpu = await within(part("Charts")).findByRole("group", { name: /^CPU/ });
+    await waitFor(() => expect(cpu.querySelector("[data-band-label]")).not.toBeNull());
+    expect(cpu.querySelector("[data-band-label]")).toHaveAttribute("data-side", "top");
+    document.body.innerHTML = "";
+    await open("/p/STW/servers/SRV-2", "p-roberta");
+    const disk = await within(part("Charts")).findByRole("group", { name: /^Disk/ });
+    await waitFor(() => expect(disk.querySelector("[data-band-label]")).not.toBeNull());
+    expect(disk.querySelector("[data-band-label]")).toHaveAttribute("data-side", "bottom");
+  });
+
+  it("bandLabelSide: dalla parte con più spazio, sopra senza valori", () => {
+    const band = { from: 10, to: 20 };
+    const times = [0, 10, 15, 20, 30];
+    expect(bandLabelSide(band, times, [{ values: [90, 20, 25, 30, 90] }], 100)).toBe("top");
+    expect(bandLabelSide(band, times, [{ values: [10, 92, 93, 92, 10] }], 100)).toBe("bottom");
+    expect(bandLabelSide(band, times, [{ values: [1, null, null, null, 1] }], 100)).toBe("top");
+  });
+
+  it("sparkScale: il mini-grafico si scala sul campo dei valori, almeno 10 punti", () => {
+    expect(sparkScale([15, 22, 30])).toEqual({ lo: 15, hi: 30 });
+    expect(sparkScale([20, 21, 20])).toEqual({ lo: 15.5, hi: 25.5 });
+    expect(sparkScale([0, 1])).toEqual({ lo: 0, hi: 10 });
+    expect(sparkScale([99, 100])).toEqual({ lo: 90, hi: 100 });
+  });
+
+  it("niceCeil: 1–2–5 × 10ⁿ", () => {
+    expect([610, 180, 50, 1000, 1001, 0.4].map(niceCeil)).toEqual([1000, 200, 50, 1000, 2000, 0.5]);
+  });
+
+  it("Esc col pannello della task aperto non deseleziona il controllo", async () => {
+    const user = userEvent.setup();
+    const router = await open("/p/ACQ/servers/SRV-1?check=chk-srv-1-api&task=ACQ-6", "p-marco");
+    await screen.findByLabelText("Task ACQ-6");
+    await user.keyboard("{Escape}");
+    expect(router.state.location.search).toMatchObject({ check: "chk-srv-1-api" });
   });
 
   it("un errore dei grafici non abbatte il resto: «Retry» nella parte", async () => {

@@ -75,15 +75,31 @@ function WorkOrAccess({ row }: { row: Row }) {
       </span>
     );
   }
+  const text = accessText(row, t);
+  return text ? <span className="truncate">{text}</span> : null;
+}
+
+type T = ReturnType<typeof useTranslation>["t"];
+
+/** L'accesso SSH in parole, se non è a posto (nessun lavoro di Claude in corso). */
+function accessText(row: Row, t: T): string | null {
   const problem = accessProblem(row, t);
   if (!problem) return null;
   const inTrouble = row.health.health === "down" || row.health.health === "trouble";
-  return (
-    <span className="truncate">
-      {inTrouble ? t("servers.access.cantLook", { access: problem }) : problem}
-    </span>
-  );
+  return inTrouble ? t("servers.access.cantLook", { access: problem }) : problem;
 }
+
+/** La seconda riga in parole, per il nome accessibile: lavoro (o accesso), ambienti, diagnosi. */
+function secondLine(row: Row, envs: string, diagnoses: string | null, t: T): string {
+  const work =
+    row.work !== "none"
+      ? `${t(`servers.work.${row.work}`)}${row.workTaskCode ? ` · ${row.workTaskCode}` : ""}`
+      : accessText(row, t);
+  return [work, envs || t("servers.noEnvironments"), diagnoses].filter(Boolean).join(". ");
+}
+
+/** Le parole della salute che chiedono attenzione pesano; «Healthy» e «Back to normal» no. */
+const LOUD = new Set(["down", "trouble", "never_connected"]);
 
 function ServerRowItem({ row, projectCode }: { row: Row; projectCode: string }) {
   const { t, i18n } = useTranslation();
@@ -95,7 +111,7 @@ function ServerRowItem({ row, projectCode }: { row: Row; projectCode: string }) 
       <Link
         to="/p/$code/servers/$server"
         params={{ code: projectCode, server: row.code }}
-        aria-label={`${row.code} ${row.name}, ${healthSentence(row.health, t, i18n.language)}`}
+        aria-label={`${row.code} ${row.name}, ${healthSentence(row.health, t, i18n.language)}. ${secondLine(row, envs, diagnoses, t)}`}
         className="flex min-h-14 flex-col justify-center gap-0.5 rounded-md px-3 py-2 transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 active:bg-ink/10"
       >
         <span className="flex min-w-0 items-center gap-3">
@@ -107,7 +123,13 @@ function ServerRowItem({ row, projectCode }: { row: Row; projectCode: string }) 
           </span>
           <span className="flex shrink-0 items-center gap-1.5 text-sm">
             <HealthGlyph health={row.health.health} />
-            <span className="font-semibold text-ink">{word}</span>
+            <span
+              className={
+                LOUD.has(row.health.health) ? "font-semibold text-ink" : "font-normal text-ink-muted"
+              }
+            >
+              {word}
+            </span>
             {when && <span className="num text-ink-muted">· {when}</span>}
           </span>
           <Sparkline values={row.recentCpu} />

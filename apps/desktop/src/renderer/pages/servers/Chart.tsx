@@ -1,4 +1,4 @@
-import { useId, type KeyboardEvent, type MouseEvent } from "react";
+import { useId, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type { MetricRange } from "../../data/servers";
 import { clockLocal, dayLocal } from "./format";
@@ -11,6 +11,31 @@ import { clockLocal, dayLocal } from "./format";
 
 const W = 1000;
 const H = 120;
+
+/**
+ * Da che parte della fascia va l'etichetta di un episodio: dove le linee,
+ * dentro la fascia, lasciano più spazio (sopra il loro massimo o sotto il
+ * loro minimo). Senza valori nella fascia: sopra.
+ */
+export function bandLabelSide(
+  band: Band,
+  times: number[],
+  series: { values: (number | null)[] }[],
+  max: number,
+): "top" | "bottom" {
+  const inside: number[] = [];
+  times.forEach((ts, i) => {
+    if (ts < band.from || ts > band.to) return;
+    for (const s of series) {
+      const v = s.values[i];
+      if (v !== null && v !== undefined) inside.push(Math.min(1, Math.max(0, v / max)));
+    }
+  });
+  if (inside.length === 0) return "top";
+  const above = 1 - Math.max(...inside);
+  const below = Math.min(...inside);
+  return above >= below ? "top" : "bottom";
+}
 
 export interface Band {
   from: number;
@@ -94,6 +119,9 @@ export function Chart({
   const { t, i18n } = useTranslation();
   const titleId = useId();
   const summaryId = useId();
+  // L'etichetta del cursore si annuncia solo quando la si muove da tastiera
+  // (←/→): al passaggio del mouse sarebbe un annuncio a ogni pixel.
+  const [byKeys, setByKeys] = useState(false);
   const span = to - from;
   const frac = (ts: number) => Math.min(1, Math.max(0, (ts - from) / span));
   const xs = times.map((ts) => frac(ts) * W);
@@ -115,12 +143,14 @@ export function Chart({
   const onMove = (e: MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     if (rect.width === 0) return;
+    setByKeys(false);
     setCursor(from + ((e.clientX - rect.left) / rect.width) * span);
   };
   const onKey = (e: KeyboardEvent<HTMLElement>) => {
     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
     if (times.length === 0) return;
     e.preventDefault();
+    setByKeys(true);
     const at = near === -1 ? times.length - 1 : near + (e.key === "ArrowLeft" ? -1 : 1);
     setCursor(times[Math.min(times.length - 1, Math.max(0, at))]!);
   };
@@ -248,14 +278,16 @@ export function Chart({
                   );
                 })}
             </svg>
-            {/* L'etichetta di un episodio in basso nella fascia (in alto c'è la soglia),
-                verso l'interno del grafico vicino al bordo destro. */}
+            {/* L'etichetta di un episodio sta dalla parte della fascia dove la linea
+                lascia più spazio (`bandLabelSide`): sopra una CPU bassa, sotto un
+                disco al 92%. Verso l'interno del grafico vicino al bordo destro. */}
             {bands.map((b, i) =>
               b.label ? (
                 <span
                   key={i}
                   data-band-label
-                  className="num pointer-events-none absolute bottom-1 max-w-[60%] truncate rounded-sm bg-ground/85 px-1 text-xs text-ink-muted"
+                  data-side={bandLabelSide(b, times, series, max)}
+                  className={`num pointer-events-none absolute max-w-[60%] truncate rounded-sm bg-ground/85 px-1 text-xs text-ink-muted ${bandLabelSide(b, times, series, max) === "top" ? "top-1" : "bottom-1"}`}
                   style={
                     frac(b.from) > 0.55
                       ? { right: `calc(${(1 - frac(b.to)) * 100}% + 4px)` }
@@ -294,7 +326,7 @@ export function Chart({
                   style={{ left: `${frac(times[near]!) * 100}%` }}
                 />
                 <span
-                  aria-live="polite"
+                  aria-live={byKeys ? "polite" : "off"}
                   data-cursor-label
                   className="num pointer-events-none absolute top-1 z-[1] rounded-sm bg-surface px-1 text-xs text-ink shadow-[0_0_0_1px_var(--rule)]"
                   style={

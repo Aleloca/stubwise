@@ -42,6 +42,13 @@ function downBands(samples: CheckSample[]): Band[] {
 
 const pct = (v: number) => `${Math.round(v)}%`;
 
+/** Il passo tondo più vicino sopra `v` (1–2–5 × 10ⁿ): 610 → 1000, 180 → 200. */
+export function niceCeil(v: number): number {
+  if (!(v > 0)) return 1;
+  const p = 10 ** Math.floor(Math.log10(v));
+  return ([1, 2, 5, 10].find((m) => m * p >= v) ?? 10) * p;
+}
+
 export function MetricsCharts({
   server,
   range,
@@ -197,7 +204,9 @@ export function MetricsCharts({
       latency,
       samples.map((s) => Date.parse(s.ts)),
     );
-    const latMax = Math.max(50, ...latency.filter((v): v is number => v !== null)) * 1.15;
+    const latMax = niceCeil(
+      Math.max(50, ...latency.filter((v): v is number => v !== null)) * 1.15,
+    );
     const ms = (v: number) => t("servers.checks.latency", { n: Math.round(v) });
 
     body = (
@@ -230,6 +239,14 @@ export function MetricsCharts({
             setCursor={setCursor}
             range={range}
           />
+        )}
+        {check && metrics.data.check?.truncated && (
+          <p className="-mt-2 text-xs text-ink-faint">
+            {t("servers.charts.reducedCheck", {
+              points: count(samples.length, lang),
+              samples: count(metrics.data.check.sampleCount ?? samples.length, lang),
+            })}
+          </p>
         )}
         <div className="grid gap-x-8 gap-y-4 @min-[1100px]:grid-cols-2">
           {pctChart("cpu", "cpuPct", th.cpuPct)}

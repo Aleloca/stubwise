@@ -192,6 +192,8 @@ describe("letture dei server", () => {
     expect(day.check).not.toBeNull();
     expect(day.check!.samples.length).toBeLessThanOrEqual(METRIC_POINTS_MAX);
     expect(day.check!.truncated).toBe(true);
+    // Quanti campioni c'erano: la nota dei punti ridotti vale anche qui (T7 m5).
+    expect(day.check!.sampleCount).toBeGreaterThan(day.check!.samples.length);
     expect(day.check!.samples.some((s) => s.latencyMs !== null)).toBe(true);
     // La replica di SRV-2 è giù: le fasce dei momenti giù non si perdono nella media.
     const replica = await servers.getServerMetrics("SRV-2", "7d", "chk-srv-2-replica");

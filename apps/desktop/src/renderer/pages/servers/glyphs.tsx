@@ -93,14 +93,38 @@ export function CopyGlyph() {
   );
 }
 
-/** Mini-grafico della CPU recente (96×20, decorativo: la salute è già in parole). */
+/** L'escursione minima del mini-grafico, in punti percentuali: un server fermo resta piatto. */
+export const SPARK_MIN_SPAN = 10;
+
+/**
+ * La scala del mini-grafico: il campo dei valori (min–max), allargato
+ * attorno al centro fino a `SPARK_MIN_SPAN` punti e tenuto dentro 0–100.
+ */
+export function sparkScale(values: number[]): { lo: number; hi: number } {
+  const clamped = values.map((v) => Math.min(100, Math.max(0, v)));
+  let lo = Math.min(...clamped);
+  let hi = Math.max(...clamped);
+  if (hi - lo < SPARK_MIN_SPAN) {
+    const mid = (lo + hi) / 2;
+    lo = Math.max(0, Math.min(100 - SPARK_MIN_SPAN, mid - SPARK_MIN_SPAN / 2));
+    hi = lo + SPARK_MIN_SPAN;
+  }
+  return { lo, hi };
+}
+
+/**
+ * Mini-grafico della CPU recente (96×20, decorativo: la salute è già in
+ * parole). Scalato sul campo dei valori, così l'andamento si legge anche con
+ * la CPU bassa invece di restare un filetto sul fondo.
+ */
 export function Sparkline({ values }: { values: number[] }) {
   if (values.length < 2) return <span aria-hidden="true" className="inline-block h-5 w-24" />;
+  const { lo, hi } = sparkScale(values);
   const points = values
-    .map(
-      (v, i) =>
-        `${((i / (values.length - 1)) * 96).toFixed(1)},${(19 - (Math.min(100, Math.max(0, v)) / 100) * 18).toFixed(1)}`,
-    )
+    .map((v, i) => {
+      const f = (Math.min(100, Math.max(0, v)) - lo) / (hi - lo);
+      return `${((i / (values.length - 1)) * 96).toFixed(1)},${(19 - f * 18).toFixed(1)}`;
+    })
     .join(" ");
   return (
     <svg
@@ -116,7 +140,7 @@ export function Sparkline({ values }: { values: number[] }) {
         points={points}
         fill="none"
         stroke="currentColor"
-        strokeWidth={1}
+        strokeWidth={1.25}
         strokeLinejoin="round"
       />
     </svg>

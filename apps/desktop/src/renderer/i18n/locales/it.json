@@ -7161,6 +7161,7 @@
       "noLatency": "Nessun tempo di risposta: questo controllo dice solo su o giù.",
       "noData": "Nessun dato in questo intervallo",
       "reduced": "Si vedono {{points}} punti medi su {{samples}} campioni.",
+      "reducedCheck": "Tempo di risposta: {{points}} punti medi su {{samples}} campioni.",
       "now": "adesso",
       "episode": "{{reason}} · {{from}}–{{to}}",
       "cursor": "{{time}} · {{value}}",
