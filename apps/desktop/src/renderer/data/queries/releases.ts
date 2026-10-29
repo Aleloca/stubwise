@@ -24,9 +24,19 @@ import {
 const RELEASE_AREAS = ["releases", "notifications"] as const;
 /**
  * Gli ambienti dicono anche quali server ha un progetto (R-L2): le loro
- * scritture ricaricano pure l'area «servers».
+ * scritture ricaricano pure l'area «servers», e — perché togliere un server
+ * dal progetto spegne l'approvazione di un piano di correzione — le
+ * conversazioni (scheda del piano, «Decide»), la task (sezione Server) e il
+ * punto «ti aspetta».
  */
-const ENVIRONMENT_AREAS = [...RELEASE_AREAS, "servers"] as const;
+const ENVIRONMENT_AREAS = [
+  ...RELEASE_AREAS,
+  "servers",
+  "conversations",
+  "conversation",
+  "task",
+  "waitingOnMe",
+] as const;
 /**
  * «Fai sistemare a Claude» crea una task e può far partire Claude. Una
  * funzione, non una costante: `RUN_AREAS` viene da `../queries`, che a sua
