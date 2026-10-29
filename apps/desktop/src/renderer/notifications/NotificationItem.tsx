@@ -39,6 +39,12 @@ interface Props {
   alert?: AlertOfNotification;
   onOpen: () => void;
   onChange: (change: Change) => void;
+  /**
+   * Solo un avviso di un server senza accesso, a chi gestisce gli accessi
+   * SSH (`linkAccessHref`, dal livello dati): «Link SSH access» in chiaro,
+   * perché è il motivo dell'avviso. Apre la parte SSH e chiude il pannello.
+   */
+  onLinkAccess?: (() => void) | undefined;
 }
 
 /**
@@ -50,7 +56,14 @@ interface Props {
  * passaggio o al fuoco, senza riservare spazio, e restano raggiungibili da
  * tastiera. Solo informazioni: nessuna decisione si prende da qui.
  */
-export function NotificationItem({ notification: n, project, alert, onOpen, onChange }: Props) {
+export function NotificationItem({
+  notification: n,
+  project,
+  alert,
+  onOpen,
+  onChange,
+  onLinkAccess,
+}: Props) {
   const { t, i18n } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -127,6 +140,17 @@ export function NotificationItem({ notification: n, project, alert, onOpen, onCh
         </span>
         <DeptStrip departmentId={n.departmentId} />
       </button>
+      {onLinkAccess && (
+        <div className="-mt-1 pr-4 pb-2.5 pl-9">
+          <button
+            type="button"
+            onClick={onLinkAccess}
+            className="inline-flex h-7 items-center rounded-md border border-rule-strong px-2.5 text-sm font-medium text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6"
+          >
+            {t("notifications.actions.linkAccess")}
+          </button>
+        </div>
+      )}
 
       {/* Le azioni non riservano spazio: si sovrappongono all'angolo in alto a
           destra (sopra il «quando») al passaggio o al fuoco, e restano

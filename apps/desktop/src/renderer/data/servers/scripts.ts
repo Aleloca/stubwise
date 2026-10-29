@@ -222,6 +222,7 @@ export function readSteps(reads: ServerRead[]): ScriptStep[] {
     return {
       step: "action",
       tool: "server.read",
+      access: "read" as const,
       label: i18n.t(key, r.params),
       labelText: utterance(key, r.params),
       input: r.input,

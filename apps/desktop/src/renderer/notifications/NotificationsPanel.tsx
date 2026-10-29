@@ -290,6 +290,14 @@ function Panel({ onClose }: { onClose: () => void }) {
                 alert={alertOf(n)}
                 onOpen={() => void openLink(n)}
                 onChange={(change: Change) => mark.mutate({ id: n.id, change })}
+                onLinkAccess={
+                  n.linkAccessHref
+                    ? () => {
+                        router.history.push(n.linkAccessHref!.replace(/^#/, ""));
+                        onClose();
+                      }
+                    : undefined
+                }
               />
             ))}
           </ul>

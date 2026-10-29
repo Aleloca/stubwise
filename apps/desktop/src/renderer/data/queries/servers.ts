@@ -1,7 +1,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import * as api from "../api";
 import { MIN_QUERY } from "../../pages/chat/search";
-import { queryKeys, useSessionPersonId, useWrite } from "../queries";
+import { queryKeys, useConversationChanges, useSessionPersonId, useWrite } from "../queries";
 
 // Gli hook dei Server (area 8b); `data/queries` li ri-esporta. L'import
 // circolare con `../queries` è innocuo: gli helper si usano solo dentro le
@@ -237,6 +237,49 @@ export function useSimulateSshVerifyOutcome() {
       code: string;
       outcome: Parameters<typeof api.servers.simulateSshVerifyOutcome>[1];
     }) => api.servers.simulateSshVerifyOutcome(code, outcome),
+    SERVER_AREAS,
+  );
+}
+
+/**
+ * Il blocco «Server» di una task di server: server, episodio, a che punto è
+ * la correzione e perché chi guarda non può avviarla (`startBlock`, mai
+ * dedotto). `null` per una task senza `serverRef`. Segue la sessione di
+ * correzione dal vivo (area delle conversazioni).
+ */
+export function useServerTaskInfo(taskId: string) {
+  const me = useSessionPersonId();
+  useConversationChanges();
+  return useQuery({
+    queryKey: queryKeys.serverTaskInfo(me, taskId),
+    queryFn: () => api.servers.getServerTaskInfo(taskId),
+  });
+}
+
+/**
+ * Avvia la correzione sul server dalla task (`servers.operate`): nasce una
+ * sessione di lavoro che scrive il piano e si ferma ad aspettare
+ * l'approvazione. Cambia task, conversazioni e server.
+ */
+const FIX_AREAS = [
+  "servers",
+  "tasks",
+  "task",
+  "conversations",
+  "conversation",
+  "activity",
+  "waitingOnMe",
+] as const;
+
+export function useStartServerFix() {
+  return useWrite((taskId: string) => api.servers.startServerFix(taskId), FIX_AREAS);
+}
+
+/** Solo prototipo: l'esito del prossimo controllo dopo la correzione. */
+export function useSimulateFixCheck() {
+  return useWrite(
+    ({ code, outcome }: { code: string; outcome: "resolved" | "not_resolved" }) =>
+      api.servers.simulateFixCheck(code, outcome),
     SERVER_AREAS,
   );
 }

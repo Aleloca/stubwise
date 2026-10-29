@@ -65,6 +65,7 @@ export function done(
     truncated?: boolean;
     labelText?: Utterance;
     resultText?: Utterance;
+    access?: "read" | "fix";
   } = {},
 ): Draft {
   return { at, type: "action", tool, label, state: "done", ...extra };

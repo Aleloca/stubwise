@@ -400,3 +400,26 @@ export function installCommandOf(code: string): string | null {
     instanceAddress: null,
   });
 }
+
+/**
+ * «Link SSH access» sulla voce di un avviso di un server in difficoltà
+ * (shape server-task, «Sorgente e avvisi»): derivato a LETTURA, per chi
+ * guarda adesso. C'è solo per `server.trouble`/`server.down` di un server
+ * che chi guarda vede, il cui accesso di lettura non è usabile adesso, e
+ * solo con `servers.ssh.manage`; porta alla parte SSH del dettaglio. Un
+ * accesso collegato dopo l'avviso la toglie anche dalle voci vecchie.
+ */
+export function linkAccessHrefOf(
+  me: string,
+  n: { kind: string; objectCode: string; projectId: string | null },
+): string | null {
+  if (n.kind !== "server.trouble" && n.kind !== "server.down") return null;
+  if (!canManageSsh(me) || !serversVisibleTo(me).has(n.objectCode)) return null;
+  if (accessUsable(state.serverAccess.get(n.objectCode), "read")) return null;
+  const server = state.servers.find((s) => s.code === n.objectCode);
+  if (!server) return null;
+  const own =
+    n.projectId && visibleProjectIds(me).has(n.projectId) ? projectCodeOf(n.projectId) : null;
+  const home = own ?? homeProjectCode(me, server);
+  return home ? `${serverHref(home, n.objectCode)}?section=access` : null;
+}

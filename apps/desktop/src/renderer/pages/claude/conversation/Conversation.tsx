@@ -759,7 +759,11 @@ function ReadOnlyBand({
       text = t("claude.conversation.readOnly.archived");
       break;
     case "automatic":
-      text = t("claude.conversation.readOnly.automatic");
+      text = detail.serverAnalysis
+        ? t("claude.conversation.readOnly.automaticServer", {
+            code: detail.serverAnalysis.serverCode,
+          })
+        : t("claude.conversation.readOnly.automatic");
       break;
     case "finished":
       if (detail.kind === "refine") {

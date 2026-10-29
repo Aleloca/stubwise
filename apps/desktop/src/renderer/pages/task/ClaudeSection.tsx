@@ -33,10 +33,12 @@ import { Avatar } from "../../tasks-ui/PersonChip";
 import { useToast } from "../../tasks-ui/Toast";
 import { PlanCard } from "../claude/conversation/PlanCard";
 import { QuestionCard } from "../claude/conversation/QuestionCard";
+import { useServerFixPlan } from "../claude/conversation/serverFixPlan";
 import { MenuButton } from "../tasks/controls";
 import { useInlineUpdate, useProjectMembers } from "../tasks/pickers";
 import { MoreIcon, Section, ghostButton, smallPrimary, smallSecondary } from "./parts";
 import { FailureBlock, PrRows, ProviderLine, UsageDisclosure } from "./ClaudeRunParts";
+import { FixCommandLog } from "./FixCommandLog";
 import { WorkStory, phaseName } from "./WorkStory";
 
 const K = "taskDetail.claude";
@@ -344,6 +346,10 @@ function NoRun({ task, work, canEdit }: { task: Task; work: TaskWork; canEdit: b
         ) : (
           <Who>{t(`${K}.whoCanStart`, { code })}</Who>
         )}
+        {/* Su una task di server lo Start normale non tocca mai il server. */}
+        {ready && task.serverRef && (
+          <Who>{t("taskDetail.server.planCard.codeOnly", { code: task.serverRef.serverCode })}</Who>
+        )}
       </Section>
     );
   }
@@ -391,6 +397,12 @@ function statusText(
     case "awaiting_answer":
       return t(`${K}.status.${detail?.canAnswer ? "yourAnswer" : "answer"}`);
     case "awaiting_approval":
+      if (detail?.serverFix) {
+        return t(
+          `taskDetail.server.planCard.${detail.canDecidePlan ? "statusAwaitingYou" : "statusAwaiting"}`,
+          { code: detail.serverFix.serverCode },
+        );
+      }
       return t(`${K}.status.${detail?.canDecidePlan ? "yourApproval" : "approval"}`);
     case "paused":
       return status.byId
@@ -433,6 +445,7 @@ function WithRun({
   const revoke = useRevokePlanApproval();
   const [form, setForm] = useState<Form>(null);
   const sectionRef = useRef<HTMLElement>(null);
+  const fixPlan = useServerFixPlan(detail, code || null);
 
   // Dal vivo quando lo stream ha dato qualcosa; stato ed esito dal dettaglio.
   const events: ConversationEvent[] = stream.events.length > 0 ? stream.events : run.events;
@@ -608,6 +621,14 @@ function WithRun({
           projectCode={code || null}
           onReadFull={toSession}
           statusShown
+          serverFix={fixPlan}
+        />
+      )}
+      {detail?.serverFix && (
+        <FixCommandLog
+          events={events}
+          serverCode={detail.serverFix.serverCode}
+          live={status.kind === "working"}
         />
       )}
 

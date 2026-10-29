@@ -3,12 +3,13 @@ import {
   type FixStartBlock,
   type ServerTaskState,
 } from "../../domain/servers/fixGate";
+import { serverHealth, type ServerHealth } from "../../domain/servers/health";
 import { downsample, downsampleSamples } from "../../domain/servers/metrics";
 import { removalScript } from "../../domain/servers/installScript";
 import { accessState, type AccessState } from "../../domain/servers/sshAccess";
 import { fold } from "../../domain/textSearch";
-import { copy, eventsOf, gate, now, state, visibleProjectIds } from "../store";
-import type { CheckSample, MetricPoint, ServerEpisode } from "../types";
+import { canSeeConversation, copy, eventsOf, gate, now, state, visibleProjectIds } from "../store";
+import type { CheckSample, MetricPoint, ServerAnalysis, ServerEpisode } from "../types";
 import { forbidden, invalid, notFound } from "../writer";
 import {
   canManageSsh,
@@ -137,6 +138,32 @@ export interface ServerTaskInfo {
   fixAccess: AccessState;
   /** L'ultima sessione di correzione della task (la scheda del piano, i comandi). */
   fixConversationId: string | null;
+  /** La salute del server adesso (la riga del server); `null` con `server` nullo. */
+  health: ServerHealth | null;
+  /**
+   * L'analisi che ha aperto la task: com'è finita, la sua proposta e la
+   * sessione («Read the analysis →», `null` se chi guarda non la vede).
+   * `null` se la task non viene da un'analisi visibile.
+   */
+  analysis: {
+    outcome: ServerAnalysis["outcome"];
+    proposal: string | null;
+    conversationId: string | null;
+  } | null;
+  /** I nomi dei controlli nominati dai motivi dell'episodio (id → nome). */
+  checkNames: Record<string, string>;
+  /** Quando la correzione è arrivata allo stato di adesso (l'ultimo cambio della sessione). */
+  stateAt: string | null;
+  /**
+   * Solo `stopped`: perché. `byId` SOLO per lo Stop di una persona («Fix
+   * stopped by …»); altrimenti il motivo (`reason`: revoca, accesso non più
+   * usabile, server tolto; `outcome`: errore, tempo scaduto).
+   */
+  stop: {
+    byId: string | null;
+    reason: "fix_access_revoked" | "fix_access_unusable" | "server_gone" | null;
+    outcome: "stopped" | "failed" | "timed_out" | "ok";
+  } | null;
 }
 
 /**
@@ -159,13 +186,52 @@ export async function getServerTaskInfo(taskId: string): Promise<ServerTaskInfo 
     .filter((c) => c.kind === "task_run" && c.taskId === task.id && c.serverFix)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))[0];
   const access = state.serverAccess.get(code);
+  // Solo col server visibile: l'analisi e i controlli dicono del server.
+  const analysis = s ? state.serverAnalyses.find((a) => a.taskId === task.id) : undefined;
+  const session = analysis
+    ? state.conversations.find((c) => c.id === analysis.conversationId)
+    : undefined;
+  const checkNames: Record<string, string> = {};
+  for (const r of episode?.reasons ?? []) {
+    if (r.kind !== "check") continue;
+    const check = state.serverChecks.find((c) => c.id === r.checkId);
+    if (check) checkNames[check.id] = check.name;
+  }
+  const taskState = serverTaskState(task, run ? { c: run, events: eventsOf(run.id) } : null);
+  const lastPhase = run
+    ? eventsOf(run.id)
+        .filter((e) => e.type === "phase")
+        .at(-1)
+    : undefined;
+  const stop =
+    taskState === "stopped" && run
+      ? {
+          byId: lastPhase?.type === "phase" ? (lastPhase.stoppedById ?? null) : null,
+          reason:
+            lastPhase?.type === "phase" && lastPhase.reason && lastPhase.reason !== "item_closed"
+              ? lastPhase.reason
+              : null,
+          outcome: run.outcome ?? "stopped",
+        }
+      : null;
   return copy({
     server: s ? { code: s.code, name: s.name } : null,
     episode,
-    state: serverTaskState(task, run ? { c: run, events: eventsOf(run.id) } : null),
+    state: taskState,
     startBlock: serverFixStartBlock(me, task),
     fixAccess: accessState(access),
     fixConversationId: run?.id ?? null,
+    health: s ? serverHealth(s, state.serverEpisodes, now()) : null,
+    analysis: analysis
+      ? {
+          outcome: analysis.outcome,
+          proposal: analysis.proposal ?? null,
+          conversationId: session && canSeeConversation(me, session) ? session.id : null,
+        }
+      : null,
+    checkNames,
+    stateAt: run?.updatedAt ?? null,
+    stop,
   });
 }
 

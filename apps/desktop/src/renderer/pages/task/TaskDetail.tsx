@@ -19,6 +19,7 @@ import { ClaudeSection, ClaudeWaitingNotice, scrollPanelTo } from "./ClaudeSecti
 import { DecisionSection } from "./DecisionSection";
 import { DescriptionSection } from "./DescriptionSection";
 import { LinksSection } from "./LinksSection";
+import { ServerSection } from "./ServerSection";
 import { CloseIcon, ghostButton } from "./parts";
 import { StallControl } from "./StallControl";
 import { TaskHeader } from "./TaskHeader";
@@ -110,7 +111,7 @@ function PanelSkeleton() {
 
 /**
  * Il dettaglio di una task, dall'alto: testata (codice, titolo, campi,
- * «Follow»), ferma, decisioni, descrizione, Claude, richiesta d'origine /
+ * «Follow»), ferma, il server (solo una task di server), decisioni, descrizione, Claude, richiesta d'origine /
  * collegate / allegati, attività. Senza `tickets.edit` i campi si leggono e
  * basta; senza `tickets.comment` niente commenti né «Ask for a decision».
  */
@@ -284,6 +285,8 @@ function TaskSections({
         notice={<ClaudeWaitingNotice task={task} />}
       />
       <StallControl task={task} stall={stall ?? null} canEdit={canEdit} />
+      {/* Una task di server: il server è il contesto, in testa (area 8b). */}
+      {task.serverRef && <ServerSection task={task} />}
       <DecisionSection task={task} canComment={canComment} />
       <DescriptionSection task={task} canEdit={canEdit} />
       <TechnicalSection task={task} />

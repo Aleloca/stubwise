@@ -1,12 +1,14 @@
 import { useTranslation } from "react-i18next";
 import type { Attachment, ConversationDetail } from "../../../data/types";
 import { ActionRows } from "./ActionRows";
+import { CommandRows, isServerCommand } from "./CommandRows";
 import { AssistantMessage, CitationRow, ClaudeHeader } from "./AssistantMessage";
 import { AttachmentChip } from "./AttachmentChip";
 import type { Ev, FlowItem } from "./flow";
 import { clock, usePersonName } from "./parts";
 import { PhaseDivider } from "./PhaseDivider";
 import { PlanCard } from "./PlanCard";
+import { useServerFixPlan } from "./serverFixPlan";
 import { ProposalCard } from "./ProposalCard";
 import { QuestionCard } from "./QuestionCard";
 import { WorkResultRow } from "./WorkResultRow";
@@ -118,6 +120,9 @@ export function EventList({
   onResend: (event: Ev<"user">) => void;
 }) {
   const working = detail.state === "working";
+  // I comandi su un server (correzione o analisi) sono righe del registro.
+  const serverCode = detail.serverFix?.serverCode ?? detail.serverAnalysis?.serverCode ?? null;
+  const fixPlan = useServerFixPlan(detail, projectCode);
   const lastAssistant = [...items].reverse().find((i) => i.kind === "assistant")?.key;
   // La fase in corso: l'ultima aperta, se la conversazione sta lavorando.
   const lastPhase = [...items].reverse().find((i) => i.kind === "phase");
@@ -152,7 +157,11 @@ export function EventList({
                   <AssistantMessage item={item} streaming={working && item.key === lastAssistant} />
                 );
               case "actions":
-                return <ActionRows actions={item.actions} compact={compact} />;
+                return item.actions.every(isServerCommand) ? (
+                  <CommandRows actions={item.actions} serverCode={serverCode} />
+                ) : (
+                  <ActionRows actions={item.actions} compact={compact} />
+                );
               case "citation":
                 return <CitationRow item={item} />;
               case "phase":
@@ -174,6 +183,7 @@ export function EventList({
                     event={item.event}
                     canDecidePlan={detail.canDecidePlan && item.event.status === "pending"}
                     projectCode={projectCode}
+                    serverFix={fixPlan}
                   />
                 );
               case "proposal":

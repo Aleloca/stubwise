@@ -1010,6 +1010,74 @@ async function main() {
         await context.close();
       }
     }
+
+    // Task 9 dell'8b (shape server-task.md): la task di SRV-1 con la sezione
+    // Server, il piano della correzione da approvare, il registro dei comandi
+    // col controllo finale, la sessione d'analisi, l'avviso senza accesso.
+    const startFix = async (p) => {
+      await p.locator("[data-start-fix]").click();
+      await p.locator("[data-confirm-start-fix]").click();
+      await p.locator("[data-runs-as]").waitFor({ timeout: 15000 });
+      // Il piano è arrivato e la riga di stato lo dice (non più «Working»).
+      await p.locator("[data-claude-status='awaiting_approval']").waitFor({ timeout: 15000 });
+      await p.waitForTimeout(400);
+    };
+    const AREA8B_TASK = [
+      ["task-diagnosis", "/p/ACQ/tasks?task=ACQ-6", { persona: "Roberta" }],
+      ["task-start-dialog", "/p/ACQ/tasks?task=ACQ-6", { persona: "Marco", steps: async (p) => {
+        await p.locator("[data-start-fix]").click();
+        await p.locator("[data-confirm-start-fix]").waitFor();
+        await p.waitForTimeout(300);
+      } }],
+      ["task-laura", "/p/ACQ/tasks?task=ACQ-6", { persona: "Laura", steps: async (p) => {
+        await p.locator("[data-server-task-state]").evaluate((el) =>
+          el.closest("section")?.scrollIntoView({ block: "start" }),
+        );
+        await p.waitForTimeout(300);
+      } }],
+      ["task-plan", "/p/ACQ/tasks?task=ACQ-6", { persona: "Roberta", steps: async (p) => {
+        await startFix(p);
+        await p.locator("[data-plan]").first().scrollIntoViewIfNeeded();
+      } }],
+      ["task-commands", "/p/ACQ/tasks?task=ACQ-6", { persona: "Roberta", steps: async (p) => {
+        await startFix(p);
+        await p.getByRole("button", { name: /^(Approve the plan|Approva il piano)$/ }).click();
+        await p.locator("[data-server-check]").waitFor({ timeout: 20000 });
+        // Finita la correzione il registro si chiude da sé: lo si riapre.
+        const toggle = p.getByRole("button", { name: /^(Commands on|Comandi su) SRV-1/ });
+        await p.locator("[data-claude-status='ended'], [data-claude-status='done']").first().waitFor({ timeout: 20000 });
+        await p.waitForTimeout(300);
+        if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+        await p.locator("[data-command-row]").nth(2).click();
+        await p.locator("[data-command-row]").nth(2).scrollIntoViewIfNeeded();
+        await p.waitForTimeout(400);
+      } }],
+      ["task-analysis", "/claude/cv-srv-1-analysis", { persona: "Roberta" }],
+      ["task-alert", "/home", { persona: "Roberta", steps: async (p) => {
+        await p.getByRole("button", { name: /^(Notifications|Notifiche)/ }).first().click();
+        await p.getByRole("button", { name: /^(Link SSH access|Collega l'accesso SSH)$/ }).first().waitFor();
+        await p.waitForTimeout(300);
+      } }],
+    ];
+    for (const [name, hash, o] of AREA8B_TASK) {
+      if (only && !only.test(name)) continue;
+      const variants = [];
+      for (const scheme of ["light", "dark"]) {
+        for (const lang of ["en", "it"]) variants.push([scheme, lang, WIDE, `a8b-${name}-${scheme}-${lang}.png`]);
+      }
+      variants.push(["light", "en", NARROW, `a8b-${name}-narrow.png`]);
+      variants.push(["dark", "it", NARROW, `a8b-${name}-narrow-dark-it.png`]);
+      for (const [scheme, lang, viewport, file] of variants) {
+        const { page, context } = await open(scheme, viewport, hash, { lang, persona: o.persona, viaHome: true });
+        if (hash.includes("task=")) {
+          await page.locator("[data-server-task-state]").waitFor();
+          await page.waitForTimeout(300);
+        }
+        if (o.steps) await o.steps(page);
+        await shot(page, file);
+        await context.close();
+      }
+    }
     if (only) return; // revisione mirata: salta il resto
 
     for (const scheme of ["light", "dark"]) {

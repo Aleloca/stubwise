@@ -164,6 +164,12 @@ export const queryKeys = {
     ["as", personId, "servers", "installCommand", code] as const,
   serverRemovalCommand: (personId: string, code: string) =>
     ["as", personId, "servers", "removalCommand", code] as const,
+  /**
+   * Il blocco «Server» di una task (Task 9): nell'area delle conversazioni,
+   * così si rilegge quando la correzione avanza (piano, comandi, controllo).
+   */
+  serverTaskInfo: (personId: string, taskId: string) =>
+    ["as", personId, "conversations", "server-task", taskId] as const,
   search: (personId: string, q: string) => ["as", personId, "search", q] as const,
   conversations: (personId: string, filter: ConversationFilter) =>
     ["as", personId, "conversations", filter] as const,

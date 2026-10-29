@@ -49,12 +49,29 @@ export function SourceIcon({ source }: { source: TaskSource }) {
 }
 
 /** «SDK ×12»: segno, parola e, se è arrivata più volte, quante (detto per intero nel `title`). */
-export function SourceMark({ source, occurrences }: { source: TaskSource; occurrences: number }) {
+export function SourceMark({
+  source,
+  occurrences,
+  serverCode,
+}: {
+  source: TaskSource;
+  occurrences: number;
+  /** Una task di server: da quale server è nata (lo dice il `title`). */
+  serverCode?: string | undefined;
+}) {
   const { t } = useTranslation();
   const name = t(`taskDetail.source.kinds.${source}`);
   const times = t("taskDetail.source.occurrences", { count: occurrences });
+  const title =
+    source === "server" && serverCode
+      ? t("taskDetail.source.serverTitle", { code: serverCode })
+      : undefined;
   return (
-    <span data-source={source} className="flex min-w-0 items-center gap-1.5 text-sm text-ink">
+    <span
+      data-source={source}
+      title={title}
+      className="flex min-w-0 items-center gap-1.5 text-sm text-ink"
+    >
       <SourceIcon source={source} />
       <span className="truncate">{name}</span>
       {occurrences > 1 && (

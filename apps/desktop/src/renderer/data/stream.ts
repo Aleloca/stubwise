@@ -295,6 +295,7 @@ async function play(conversationId: string, steps: ScriptStep[], alive: () => bo
         if (step.labelText) draft.labelText = step.labelText;
         if (step.input !== undefined) draft.input = step.input;
         if (step.truncated !== undefined) draft.truncated = step.truncated;
+        if (step.access !== undefined) draft.access = step.access;
         const event = append(conversationId, draft);
         await pause();
         if (!alive()) return;

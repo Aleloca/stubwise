@@ -581,6 +581,17 @@ function PageHeader({
         ) : (
           <>
             <span>{kindWord(detail.kind)}</span>
+            {/* L'analisi di un server: automatica, con il solo accesso di lettura. */}
+            {detail.serverAnalysis && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span>
+                  {t("claude.destination.page.automaticServer", {
+                    code: detail.serverAnalysis.serverCode,
+                  })}
+                </span>
+              </>
+            )}
             {detail.objectCode && (
               <>
                 <span aria-hidden="true">·</span>

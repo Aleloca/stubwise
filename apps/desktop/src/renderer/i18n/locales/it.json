@@ -205,7 +205,8 @@
       "archive": "Archivia",
       "snooze": "Rimanda",
       "restore": "Ripristina",
-      "unsnooze": "Sposta in Nuove"
+      "unsnooze": "Sposta in Nuove",
+      "linkAccess": "Collega l'accesso SSH"
     },
     "snooze": {
       "hour": "1 ora",
@@ -901,7 +902,8 @@
         "email": "Email",
         "automation": "Automazione",
         "server": "Server"
-      }
+      },
+      "serverTitle": "Aperta da Claude dopo un avviso su {{code}}"
     },
     "technical": {
       "title": "Dettagli tecnici",
@@ -910,6 +912,112 @@
       "showLabel": "Mostra i dettagli tecnici",
       "hideLabel": "Nascondi i dettagli tecnici",
       "note": "Ciò che {{source}} ha inviato con la task, così come è arrivato."
+    },
+    "server": {
+      "title": "Server",
+      "open": "Apri",
+      "openLabel": "Apri {{code}}",
+      "hidden": "Un server che non vedi",
+      "episodeOpen": "{{reasons}} · dalle {{when}}, ancora in corso",
+      "episodeClosed": "{{reasons}} · {{from}} → {{to}} (rientrato)",
+      "reasonsMore": "{{first}} +{{count}}",
+      "reasonShort": {
+        "cpu": "CPU oltre il {{threshold}}%",
+        "memory": "Memoria oltre il {{threshold}}%",
+        "disk": "Disco oltre il {{threshold}}%",
+        "check": "Controllo «{{name}}» giù",
+        "checkGone": "Un controllo era giù",
+        "agent_silent": "L'agente ha smesso di inviare dati"
+      },
+      "states": {
+        "diagnosis_ready": "Diagnosi pronta",
+        "fix_planning": "Claude sta preparando la correzione (in sola lettura)",
+        "plan_awaiting": "Piano di correzione da approvare",
+        "plan_awaiting_you": "Piano di correzione: aspetta la tua approvazione",
+        "plan_rejected": "Piano rifiutato · {{when}}",
+        "fixing": "Correzione in corso su {{code}}",
+        "stopped": "Correzione fermata",
+        "stoppedBy": "Correzione fermata da {{name}}",
+        "resolved": "Risolto: il controllo dopo la correzione è passato",
+        "not_resolved": "Non risolto: il controllo dopo la correzione non è passato",
+        "closed": "Chiusa"
+      },
+      "stoppedReasons": {
+        "fix_access_revoked": "Correzione fermata: l'accesso di correzione è stato revocato",
+        "fix_access_unusable": "Correzione fermata: l'accesso di correzione ha smesso di funzionare",
+        "server_gone": "Correzione fermata: il server non è più in questo progetto",
+        "failed": "Correzione fermata: non è riuscita",
+        "timed_out": "Correzione fermata: è finito il tempo"
+      },
+      "suggested": "Correzione proposta:",
+      "more": "Altro",
+      "less": "Meno",
+      "readAnalysis": "Leggi l'analisi",
+      "start": "Avvia la correzione sul server",
+      "startAgain": "Avvia di nuovo la correzione",
+      "conditionOne": "1. Può avviarla solo chi può operare sui server di {{project}}.",
+      "conditionTwo": "2. Claude scrive prima un piano. Su {{code}} non gira nulla finché chi può approvare i piani in {{project}} non lo approva, anche se l'hai avviata tu.",
+      "blocks": {
+        "no_permission": "La correzione la avvia chi può operare sui server di {{project}}.",
+        "no_fix_access": "{{code}} non ha un accesso di correzione.",
+        "fix_access_unverified": "L'accesso di correzione di {{code}} non è verificato.",
+        "server_gone": "{{code}} non è più negli ambienti di {{project}}: la correzione non può partire da qui.",
+        "server_busy": "Su {{code}} c'è già un'altra correzione in corso."
+      },
+      "linkAccess": "Collega l'accesso SSH",
+      "dialog": {
+        "title": "Avviare una correzione su {{code}}?",
+        "before": "Claude legge il server, poi scrive un piano. Esegue i comandi come ",
+        "strong": "stubwise-fix, che su {{code}} può fare tutto",
+        "after": ", solo dopo che il piano è stato approvato.",
+        "confirm": "Avvia la correzione",
+        "cancel": "Annulla"
+      },
+      "startFailed": "Non è stato possibile avviare la correzione.",
+      "retry": "Riprova",
+      "closeHint": "Chiudi la task se il problema non c'è più.",
+      "loadFailed": "Non è stato possibile caricare il server",
+      "loading": "Caricamento del server",
+      "planCard": {
+        "planTitle": "Piano di correzione di {{code}}",
+        "runsAs": "Gira come stubwise-fix: su {{code}} può fare tutto.",
+        "releaseRule": "Un piano che rilascia (pull, aggiornamento d'immagine, deploy) va rifiutato. I rilasci passano da Rilasci.",
+        "approve": "Approva il piano",
+        "youStarted": "Hai avviato tu questa correzione. Approvando, i comandi girano su {{code}}.",
+        "waitingFor": "Aspetta chi può approvare i piani in {{project}}.",
+        "waitingForAny": "Aspetta chi può approvare i piani.",
+        "blocked": {
+          "fix_access_revoked": "L'accesso di correzione a {{code}} è stato revocato. Collegalo di nuovo per approvare questo piano.",
+          "fix_access_unverified": "L'accesso di correzione di {{code}} non è verificato. Verificalo per approvare questo piano.",
+          "server_gone": "{{code}} non è più negli ambienti di questo progetto: questo piano non si può approvare."
+        },
+        "statusAwaiting": "Correzione su {{code}} · da approvare",
+        "statusAwaitingYou": "Correzione su {{code}} · aspetta la tua approvazione",
+        "codeOnly": "Questa esecuzione lavora sul codice, mai su {{code}}. Per correggere il server usa «Avvia la correzione» nella sezione Server qui sopra."
+      },
+      "log": {
+        "title": "Comandi su {{code}}",
+        "count": "Comandi su {{code}} · {{count}}",
+        "read": "lettura",
+        "fix": "correzione",
+        "readLabel": "Comando di lettura",
+        "fixLabel": "Comando di correzione, eseguito con l'accesso che può fare tutto",
+        "ok": "OK",
+        "failed": "Non riuscito",
+        "running": "In corso",
+        "outputOf": "Uscita di {{command}}",
+        "noOutput": "Nessuna uscita.",
+        "lastLines": "Ultime {{n}} di {{total}} righe",
+        "allLines": "Tutte le {{total}} righe",
+        "stoppedBy": "Fermata da {{name}} · {{time}}. Nessun comando dopo questo punto.",
+        "stoppedReasons": {
+          "fix_access_revoked": "Fermata: l'accesso di correzione è stato revocato.",
+          "fix_access_unusable": "Fermata: l'accesso di correzione ha smesso di funzionare.",
+          "server_gone": "Fermata: il server non è più in questo progetto.",
+          "failed": "Fermata: la correzione non è riuscita.",
+          "timed_out": "Fermata: la correzione ha finito il tempo."
+        }
+      }
     }
   },
   "newTask": {
@@ -2246,7 +2354,12 @@
         "stopped": "fermato",
         "stoppedBy": "fermato da {{name}}",
         "closedBy": "chiusa da {{name}}",
-        "itemClosed": "chiusa · la richiesta è diventata una task o è stata archiviata"
+        "itemClosed": "chiusa · la richiesta è diventata una task o è stata archiviata",
+        "reasons": {
+          "fix_access_revoked": "fermata · l'accesso di correzione è stato revocato",
+          "fix_access_unusable": "fermata · l'accesso di correzione ha smesso di funzionare",
+          "server_gone": "fermata · il server ha lasciato il progetto"
+        }
       },
       "question": {
         "title": "Claude chiede",
@@ -2397,7 +2510,8 @@
           "stopped": "Questa sessione è stata fermata."
         },
         "refineClosed": "Questa rifinitura è chiusa.",
-        "refineItemClosed": "La richiesta è diventata una task o è stata archiviata: questa rifinitura è chiusa."
+        "refineItemClosed": "La richiesta è diventata una task o è stata archiviata: questa rifinitura è chiusa.",
+        "automaticServer": "Questa sessione va da sola con l'accesso in sola lettura a {{code}}: si può solo guardare."
       }
     },
     "destination": {
@@ -2556,7 +2670,8 @@
         "size": "Taglia",
         "urgency": "Urgenza",
         "requestedBy": "Chiesta da",
-        "back": "Torna a {{scope}}"
+        "back": "Torna a {{scope}}",
+        "automaticServer": "Automatica · accesso in sola lettura a {{code}}"
       },
       "publish": {
         "title": "Rendere pubblica questa conversazione?",

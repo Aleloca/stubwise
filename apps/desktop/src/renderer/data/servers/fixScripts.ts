@@ -162,6 +162,7 @@ export function fixExecution(commands: FixCommand[]): ScriptStep[] {
     return {
       step: "action",
       tool: "server.fix",
+      access: "fix" as const,
       label: i18n.t(key, c.params),
       labelText: utterance(key, c.params),
       input: c.input,

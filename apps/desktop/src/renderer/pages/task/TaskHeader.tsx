@@ -628,7 +628,11 @@ export function TaskHeader({
 
         {(task.source && task.source !== "manual") || task.occurrences > 1 ? (
           <Field label={t("taskDetail.source.label")}>
-            <SourceMark source={task.source ?? "manual"} occurrences={task.occurrences} />
+            <SourceMark
+              source={task.source ?? "manual"}
+              occurrences={task.occurrences}
+              serverCode={task.serverRef?.serverCode}
+            />
           </Field>
         ) : null}
       </dl>

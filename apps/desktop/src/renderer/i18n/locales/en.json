@@ -205,7 +205,8 @@
       "archive": "Archive",
       "snooze": "Snooze",
       "restore": "Restore",
-      "unsnooze": "Move to New"
+      "unsnooze": "Move to New",
+      "linkAccess": "Link SSH access"
     },
     "snooze": {
       "hour": "1 hour",
@@ -901,7 +902,8 @@
         "email": "Email",
         "automation": "Automation",
         "server": "Server"
-      }
+      },
+      "serverTitle": "Opened by Claude after an alert on {{code}}"
     },
     "technical": {
       "title": "Technical details",
@@ -910,6 +912,112 @@
       "showLabel": "Show the technical details",
       "hideLabel": "Hide the technical details",
       "note": "What {{source}} sent with the task, as it arrived."
+    },
+    "server": {
+      "title": "Server",
+      "open": "Open",
+      "openLabel": "Open {{code}}",
+      "hidden": "A server you can't see",
+      "episodeOpen": "{{reasons}} · since {{when}}, still going",
+      "episodeClosed": "{{reasons}} · {{from}} → {{to}} (back to normal)",
+      "reasonsMore": "{{first}} +{{count}}",
+      "reasonShort": {
+        "cpu": "CPU above {{threshold}}%",
+        "memory": "Memory above {{threshold}}%",
+        "disk": "Disk above {{threshold}}%",
+        "check": "Check “{{name}}” down",
+        "checkGone": "A check was down",
+        "agent_silent": "The agent stopped reporting"
+      },
+      "states": {
+        "diagnosis_ready": "Diagnosis ready",
+        "fix_planning": "Claude is planning the fix (read-only)",
+        "plan_awaiting": "Fix plan waiting for approval",
+        "plan_awaiting_you": "Fix plan waiting for your approval",
+        "plan_rejected": "Plan rejected · {{when}}",
+        "fixing": "Fix running on {{code}}",
+        "stopped": "Fix stopped",
+        "stoppedBy": "Fix stopped by {{name}}",
+        "resolved": "Fixed — the check after the fix passed",
+        "not_resolved": "Not fixed — the check after the fix failed",
+        "closed": "Closed"
+      },
+      "stoppedReasons": {
+        "fix_access_revoked": "Fix stopped: fix access was revoked",
+        "fix_access_unusable": "Fix stopped: fix access stopped working",
+        "server_gone": "Fix stopped: the server is no longer in this project",
+        "failed": "Fix stopped: it failed",
+        "timed_out": "Fix stopped: it ran out of time"
+      },
+      "suggested": "Suggested fix:",
+      "more": "More",
+      "less": "Less",
+      "readAnalysis": "Read the analysis",
+      "start": "Start fix on the server",
+      "startAgain": "Start fix again",
+      "conditionOne": "1. Only people allowed to operate {{project}}'s servers can start it.",
+      "conditionTwo": "2. Claude writes a plan first. Nothing runs on {{code}} until someone who can approve plans in {{project}} approves it — even you.",
+      "blocks": {
+        "no_permission": "Someone allowed to operate {{project}}'s servers can start the fix.",
+        "no_fix_access": "{{code}} has no fix access.",
+        "fix_access_unverified": "{{code}}'s fix access isn't verified.",
+        "server_gone": "{{code}} is no longer in {{project}}'s environments: the fix can't start from here.",
+        "server_busy": "Another fix is running on {{code}}."
+      },
+      "linkAccess": "Link SSH access",
+      "dialog": {
+        "title": "Start a fix on {{code}}?",
+        "before": "Claude reads the server, then writes a plan. It runs commands as ",
+        "strong": "stubwise-fix, which can do anything on {{code}}",
+        "after": ", only after the plan is approved.",
+        "confirm": "Start fix",
+        "cancel": "Cancel"
+      },
+      "startFailed": "Couldn't start the fix.",
+      "retry": "Retry",
+      "closeHint": "Close the task if the problem is gone.",
+      "loadFailed": "Couldn't load the server",
+      "loading": "Loading the server",
+      "planCard": {
+        "planTitle": "Fix plan for {{code}}",
+        "runsAs": "Runs as stubwise-fix: it can do anything on {{code}}.",
+        "releaseRule": "A plan that releases — pull, image update, deploy — must be rejected. Releases go through Releases.",
+        "approve": "Approve the plan",
+        "youStarted": "You started this fix. Approving runs the commands on {{code}}.",
+        "waitingFor": "Waiting for someone who can approve plans in {{project}}.",
+        "waitingForAny": "Waiting for someone who can approve plans.",
+        "blocked": {
+          "fix_access_revoked": "Fix access to {{code}} was revoked. Link it again to approve this plan.",
+          "fix_access_unverified": "{{code}}'s fix access isn't verified. Verify it to approve this plan.",
+          "server_gone": "{{code}} is no longer in this project's environments: this plan can't be approved."
+        },
+        "statusAwaiting": "Fix on {{code}} · waiting for approval",
+        "statusAwaitingYou": "Fix on {{code}} · waiting for your approval",
+        "codeOnly": "This run works on the code, never on {{code}}. To fix the server, use Start fix in Server above."
+      },
+      "log": {
+        "title": "Commands on {{code}}",
+        "count": "Commands on {{code}} · {{count}}",
+        "read": "read",
+        "fix": "fix",
+        "readLabel": "Read command",
+        "fixLabel": "Fix command, run with the access that can do anything",
+        "ok": "OK",
+        "failed": "Failed",
+        "running": "Running",
+        "outputOf": "Output of {{command}}",
+        "noOutput": "No output.",
+        "lastLines": "Showing the last {{n}} of {{total}} lines",
+        "allLines": "All {{total}} lines",
+        "stoppedBy": "Stopped by {{name}} · {{time}}. No commands after this.",
+        "stoppedReasons": {
+          "fix_access_revoked": "Stopped: fix access was revoked.",
+          "fix_access_unusable": "Stopped: fix access stopped working.",
+          "server_gone": "Stopped: the server is no longer in this project.",
+          "failed": "Stopped: the fix failed.",
+          "timed_out": "Stopped: the fix ran out of time."
+        }
+      }
     }
   },
   "newTask": {
@@ -2246,7 +2354,12 @@
         "stopped": "stopped",
         "stoppedBy": "stopped by {{name}}",
         "closedBy": "closed by {{name}}",
-        "itemClosed": "closed · the request was turned into a task or archived"
+        "itemClosed": "closed · the request was turned into a task or archived",
+        "reasons": {
+          "fix_access_revoked": "stopped · fix access was revoked",
+          "fix_access_unusable": "stopped · fix access stopped working",
+          "server_gone": "stopped · the server left the project"
+        }
       },
       "question": {
         "title": "Claude asks",
@@ -2397,7 +2510,8 @@
           "stopped": "This session was stopped."
         },
         "refineClosed": "This refinement is closed.",
-        "refineItemClosed": "The request was turned into a task or archived: this refinement is closed."
+        "refineItemClosed": "The request was turned into a task or archived: this refinement is closed.",
+        "automaticServer": "This session runs on its own with read-only access to {{code}}: it can only be watched."
       }
     },
     "destination": {
@@ -2556,7 +2670,8 @@
         "size": "Size",
         "urgency": "Urgency",
         "requestedBy": "Requested by",
-        "back": "Back to {{scope}}"
+        "back": "Back to {{scope}}",
+        "automaticServer": "Automatic · read-only access to {{code}}"
       },
       "publish": {
         "title": "Make this conversation public?",

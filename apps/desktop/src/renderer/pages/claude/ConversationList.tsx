@@ -12,7 +12,7 @@ import { StateSign, activityText, rowStateLabel, rowStateOf, useKindWord } from 
 
 /** I tipi che si filtrano, per elenco: le sessioni di brief e report nascono già concluse. */
 const KINDS: Record<"live" | "finished", readonly ConversationKind[]> = {
-  live: ["task_run", "refine", "pr_review", "docs", "mail_classify", "intake"],
+  live: ["task_run", "refine", "pr_review", "docs", "mail_classify", "intake", "server_analysis"],
   finished: [
     "task_run",
     "refine",
@@ -22,6 +22,7 @@ const KINDS: Record<"live" | "finished", readonly ConversationKind[]> = {
     "daily_report",
     "mail_classify",
     "intake",
+    "server_analysis",
   ],
 };
 const OUTCOMES: readonly Outcome[] = ["ok", "failed", "timed_out", "stopped"];

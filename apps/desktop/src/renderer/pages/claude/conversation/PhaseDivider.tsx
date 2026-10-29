@@ -52,9 +52,13 @@ export function PhaseDivider({
   } else if (event.outcome === "failed") outcome = t("claude.conversation.phase.failed");
   else if (event.outcome === "timed_out") outcome = t("claude.conversation.phase.timedOut");
   else if (event.outcome === "stopped") {
+    // Una fermata senza persona (correzione di un server) dice il motivo.
+    const reason = event.reason && event.reason !== "item_closed" ? event.reason : null;
     outcome = stoppedBy
       ? t("claude.conversation.phase.stoppedBy", { name: stoppedBy })
-      : t("claude.conversation.phase.stopped");
+      : reason
+        ? t(`claude.conversation.phase.reasons.${reason}`)
+        : t("claude.conversation.phase.stopped");
   }
   const critical = event.outcome === "failed" || event.outcome === "timed_out";
 

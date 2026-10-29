@@ -21,6 +21,7 @@ import { can, viewerFor } from "./viewer";
 import { presentChatNotification } from "./chat/reads";
 import { deliveredTo } from "./alerts/reads";
 import { whyReceives } from "./alerts/visibility";
+import { linkAccessHrefOf } from "./servers/visibility";
 import {
   canSeeConversation,
   chatKey,
@@ -499,7 +500,11 @@ export async function listNotifications(): Promise<AppNotification[]> {
     if (!delivered) return [];
     // Una menzione della Chat si legge dal messaggio di adesso: eliminato o
     // in un canale che non legge più, non c'è.
-    if (n.chatMessageId === undefined) return [copy(delivered)];
+    if (n.chatMessageId === undefined) {
+      // Un avviso di un server senza accesso: «Link SSH access», di adesso.
+      const href = linkAccessHrefOf(me, delivered);
+      return [copy(href ? { ...delivered, linkAccessHref: href } : delivered)];
+    }
     const shown = presentChatNotification(me, delivered);
     return shown ? [shown] : [];
   });

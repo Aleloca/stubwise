@@ -78,6 +78,12 @@ export interface AppNotification {
    * notifica non c'è più), mai salvati qui.
    */
   chatMessageId?: string;
+  /**
+   * Solo un avviso di un server senza accesso di lettura usabile (area 8b):
+   * dove si collega l'accesso SSH. Derivato a lettura per chi guarda (solo
+   * con `servers.ssh.manage`), mai salvato qui.
+   */
+  linkAccessHref?: string;
 }
 
 /** Perché un avviso del catalogo arriva a qualcuno senza iscrizione (area 8a). */
@@ -687,6 +693,11 @@ export interface Conversation {
    */
   serverFix?: { serverCode: string };
   /**
+   * Solo `server_analysis`: il server che l'analisi guarda, con l'accesso
+   * di lettura (la testata e la fascia di sola lettura lo nominano).
+   */
+  serverAnalysis?: { serverCode: string };
+  /**
    * Solo `server_analysis`: i limiti con cui è partita (`ANALYSIS_MAX_*`),
    * scritti accanto ai consumi (`usage`): oltre, l'analisi si ferma
    * `timed_out` e apre la task con ciò che ha visto.
@@ -790,6 +801,12 @@ export type ConversationEvent =
       resultText?: Utterance;
       state: "running" | "done" | "failed";
       truncated?: boolean;
+      /**
+       * Solo un comando su un server (area 8b): con quale accesso SSH è
+       * girato. La UI lo legge per dire «read»/«fix» (mai il nome dello
+       * strumento) e per disegnarlo come riga del registro dei comandi.
+       */
+      access?: "read" | "fix";
     }
   | {
       id: string;
@@ -916,6 +933,8 @@ export type ScriptStep =
       resultText?: Utterance;
       outcome?: "done" | "failed";
       truncated?: boolean;
+      /** Un comando su un server: con quale accesso (lo copia nell'azione). */
+      access?: "read" | "fix";
     }
   | { step: "finish_action"; result?: string; outcome?: "done" | "failed" }
   | { step: "deliver" }
@@ -2765,6 +2784,11 @@ export interface ServerAnalysis {
   taskId: string | null;
   startedAt: string;
   endedAt: string | null;
+  /**
+   * La proposta scritta con la diagnosi («Suggested fix» della sezione
+   * Server della task); assente se l'analisi non ne ha una.
+   */
+  proposal?: string | null;
 }
 
 /** I due accessi SSH di un server: lettura (`stubwise-read`) e correzione (`stubwise-fix`). */

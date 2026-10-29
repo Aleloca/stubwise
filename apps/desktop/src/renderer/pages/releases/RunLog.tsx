@@ -92,7 +92,22 @@ function Line({
   );
 }
 
-export function RunLog({ runName, log, url }: { runName: string; log: string; url: string }) {
+/**
+ * `command` (area 8b): l'uscita di un comando su un server, nel registro
+ * dei comandi di una correzione o di un'analisi. Stessa finestra di righe e
+ * stessa ricerca; senza link esterno, e con le parole del registro.
+ */
+export function RunLog({
+  runName,
+  log,
+  url,
+  variant = "run",
+}: {
+  runName: string;
+  log: string;
+  url?: string;
+  variant?: "run" | "command";
+}) {
   const { t, i18n } = useTranslation();
   const toast = useToast();
   const lines = useMemo(() => log.split("\n"), [log]);
@@ -182,7 +197,10 @@ export function RunLog({ runName, log, url }: { runName: string; log: string; ur
   };
 
   const format = (n: number) => new Intl.NumberFormat(i18n.language).format(n);
-  const regionLabel = t("releases.log.region", { run: runName, total: format(total) });
+  const command = variant === "command";
+  const regionLabel = command
+    ? t("taskDetail.server.log.outputOf", { command: runName })
+    : t("releases.log.region", { run: runName, total: format(total) });
 
   let body: ReactNode;
   if (!all) {
@@ -249,8 +267,13 @@ export function RunLog({ runName, log, url }: { runName: string; log: string; ur
       <div className="flex flex-wrap items-center gap-1 border-b border-rule px-3 py-1.5">
         <span className="num mr-auto text-sm text-ink-muted">
           {all
-            ? t("releases.log.allLines", { total: format(total) })
-            : t("releases.log.lastLines", { n: Math.min(LOG_TAIL, total), total: format(total) })}
+            ? t(command ? "taskDetail.server.log.allLines" : "releases.log.allLines", {
+                total: format(total),
+              })
+            : t(command ? "taskDetail.server.log.lastLines" : "releases.log.lastLines", {
+                n: Math.min(LOG_TAIL, total),
+                total: format(total),
+              })}
         </span>
         {all && finding && (
           <span className="flex items-center gap-1">
@@ -309,26 +332,31 @@ export function RunLog({ runName, log, url }: { runName: string; log: string; ur
             {t("releases.log.find")}
           </button>
         )}
-        <button
-          type="button"
-          className={ghostButton}
-          aria-expanded={all}
-          onClick={() => {
-            setAll((v) => !v);
-            setFinding(false);
-            setQuery("");
-            setView(chunks - 1);
-          }}
-        >
-          {all ? t("releases.log.showLess") : t("releases.log.showAll")}
-        </button>
+        {/* Un'uscita corta è già tutta lì: niente «Show all». */}
+        {(!command || total > LOG_TAIL) && (
+          <button
+            type="button"
+            className={ghostButton}
+            aria-expanded={all}
+            onClick={() => {
+              setAll((v) => !v);
+              setFinding(false);
+              setQuery("");
+              setView(chunks - 1);
+            }}
+          >
+            {all ? t("releases.log.showLess") : t("releases.log.showAll")}
+          </button>
+        )}
         <button type="button" className={ghostButton} onClick={copy}>
           {t("releases.log.copy")}
         </button>
-        <a href={url} target="_blank" rel="noreferrer" className={ghostButton}>
-          {t("releases.openOn", { platform: platformOf(url) })}
-          <ExternalGlyph />
-        </a>
+        {url && (
+          <a href={url} target="_blank" rel="noreferrer" className={ghostButton}>
+            {t("releases.openOn", { platform: platformOf(url) })}
+            <ExternalGlyph />
+          </a>
+        )}
       </div>
       <div className="font-code text-xs leading-[18px] text-ink">{body}</div>
     </section>

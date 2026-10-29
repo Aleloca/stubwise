@@ -243,6 +243,7 @@ function startAnalysis(
     state: "working",
     usage: [],
     analysisLimits: { maxMinutes: ANALYSIS_MAX_MINUTES, maxCostUsd: ANALYSIS_MAX_COST_USD },
+    serverAnalysis: { serverCode: server.code },
   });
   const analysis: ServerAnalysis = {
     id: newId("an"),
@@ -276,6 +277,7 @@ function unreachableSteps(s: MonitoredServer): ScriptStep[] {
     return {
       step: "action" as const,
       tool: "server.read",
+      access: "read" as const,
       label: i18n.t(key, params),
       labelText: utterance(key, params),
       input: "uptime",
@@ -483,6 +485,11 @@ async function finish(
   task.followerIds = [];
   a.outcome = ANALYSIS_OUTCOME[outcome];
   a.taskId = task.id;
+  // La proposta (la stessa della task) per «Suggested fix» della sezione
+  // Server: solo se Claude ha letto qualcosa da cui proporre.
+  const proposes =
+    outcome === "diagnosed" || outcome === "timed_out" || (outcome === "access_lost" && reads > 0);
+  a.proposal = proposes ? diagnosisOf(s, ep).proposal : null;
   a.endedAt = now();
   const c = state.conversations.find((x) => x.id === a.conversationId);
   if (c) {

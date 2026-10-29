@@ -21,6 +21,8 @@ const CONVERSATION_ID = "cv-srv-1-analysis";
 const STARTED = at(2, "18:01");
 const ENDED = at(2, "18:09");
 const TASK_LINK = `#/p/ACQ/tasks?task=${SERVER_TASK_CODE}`;
+const PROPOSAL =
+  "Limit the `portale-import` container to 2 GB of memory and restart it, so an import can't starve the portal; then commit the readings in batches of 5,000 rows instead of all at the end.";
 
 export const SERVER_ANALYSES: ServerAnalysis[] = [
   {
@@ -33,17 +35,20 @@ export const SERVER_ANALYSES: ServerAnalysis[] = [
     taskId: TASK_ID,
     startedAt: STARTED,
     endedAt: ENDED,
+    // La stessa proposta della task (sotto, «**Proposal** —»).
+    proposal: PROPOSAL,
   },
 ];
 
 const read = (hm: string, label: string, input: string, result: string) =>
-  done(at(2, hm), "server.read", label, { input, result });
+  done(at(2, hm), "server.read", label, { input, result, access: "read" });
 
 const analysis = seeded(
   {
     id: CONVERSATION_ID,
     kind: "server_analysis",
     title: "SRV-1 acq-prod-01 · memory above 90%",
+    serverAnalysis: { serverCode: "SRV-1" },
     ownerId: "p-claude",
     projectId: ACQ.id,
     taskId: TASK_ID,
@@ -148,7 +153,7 @@ export const SERVER_TASKS: Task[] = [
     description: [
       "**Diagnosis** — Memory on acq-prod-01 (SRV-1) reached 94%, above the 90% alert. The nightly import (`portale-import`) keeps every parsed meter reading in memory until the batch is committed: with 1.4 million rows it grew to 5.1 GB and the server started swapping. The portal kept answering, slower.",
       "",
-      "**Proposal** — Limit the `portale-import` container to 2 GB of memory and restart it, so an import can't starve the portal; then commit the readings in batches of 5,000 rows instead of all at the end.",
+      `**Proposal** — ${PROPOSAL}`,
       "",
       "Claude looked with the read-only access: nothing was changed on the server.",
       "",

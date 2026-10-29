@@ -1,10 +1,13 @@
+import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useDecidePlan } from "../../../data/queries";
 import { inputClass } from "../../../tasks-ui/Dialog";
 import { Markdown } from "../../../tasks-ui/Markdown";
 import type { Ev } from "./flow";
+import { TroubleGlyph } from "../../servers/glyphs";
 import { WaitingDot } from "./QuestionCard";
+import type { ServerFixPlan } from "./serverFixPlan";
 import {
   cardClass,
   DisclosureGlyph,
@@ -26,6 +29,14 @@ import {
  * invece di aprirlo nella scheda stretta. `statusShown`: chi la ospita dice
  * già che il piano aspetta (la riga di stato della task), e la scheda non
  * lo ripete — si intitola solo «Plan».
+ *
+ * `serverFix` (area 8b): il piano di una correzione di server. Dice con
+ * quale accesso girerà («può fare tutto») e che un piano che rilascia va
+ * rifiutato; nessuna approvazione in anticipo; chi l'ha avviata e può
+ * approvare legge che approvando partono i comandi. Con l'approvazione
+ * spenta (`blockedReason`, calcolata dal livello dati) Approve resta
+ * visibile ma spento, col motivo sopra, e Reject resta attivo se il livello
+ * dati lo permette (`canReject`).
  */
 export function PlanCard({
   conversationId,
@@ -34,6 +45,7 @@ export function PlanCard({
   projectCode,
   onReadFull,
   statusShown = false,
+  serverFix,
 }: {
   conversationId: string;
   event: Ev<"plan">;
@@ -41,6 +53,7 @@ export function PlanCard({
   projectCode: string | null;
   onReadFull?: () => void;
   statusShown?: boolean;
+  serverFix?: ServerFixPlan | undefined;
 }) {
   const { t } = useTranslation();
   const decide = useDecidePlan();
@@ -131,16 +144,30 @@ export function PlanCard({
     );
   };
 
+  // Rifiutare resta possibile anche con l'approvazione spenta (correzione di server).
+  const canReject = serverFix ? serverFix.canReject : canDecidePlan;
+  const decides = canDecidePlan || canReject;
+  const F = "taskDetail.server.planCard";
   return (
     <section aria-labelledby={headingId} data-plan={event.id} className={`${cardClass} gap-3 p-4`}>
       <header className="flex flex-wrap items-center justify-between gap-2">
         <h3 id={headingId} className="text-sm font-semibold text-ink">
-          {t(`claude.conversation.plan.${statusShown ? "title" : "waiting"}`)}
+          {serverFix
+            ? t(`${F}.planTitle`, { code: serverFix.code })
+            : t(`claude.conversation.plan.${statusShown ? "title" : "waiting"}`)}
         </h3>
         {canDecidePlan && lostTo === null && !statusShown && (
           <WaitingDot label={t("claude.conversation.waitingOnYou")} />
         )}
       </header>
+      {serverFix && (
+        <p data-runs-as className="-mt-1.5 flex items-start gap-1.5 text-sm text-ink">
+          <span className="mt-0.5 shrink-0">
+            <TroubleGlyph />
+          </span>
+          {t(`${F}.runsAs`, { code: serverFix.code })}
+        </p>
+      )}
       <div className="flex min-w-0 flex-col gap-1">
         <span className="text-xs font-semibold text-ink-muted">
           {t("claude.conversation.plan.inBrief")}
@@ -149,13 +176,37 @@ export function PlanCard({
       </div>
       {toggle}
       {fullPlan}
-      {canDecidePlan ? (
+      {serverFix &&
+        decides &&
+        rejecting === null &&
+        // Sopra i bottoni: perché Approve è spento, o che approvando partono i comandi.
+        (serverFix.blockedReason ? (
+          <p role="note" className="flex flex-wrap items-baseline gap-x-2 text-sm text-ink">
+            <span>{t(`${F}.blocked.${serverFix.blockedReason}`, { code: serverFix.code })}</span>
+            {serverFix.accessProject && serverFix.blockedReason !== "server_gone" && (
+              <Link
+                to="/p/$code/servers/$server"
+                params={{ code: serverFix.accessProject, server: serverFix.code }}
+                search={{ section: "access" } as never}
+                className="font-medium text-ink underline decoration-ink/30 underline-offset-4 hover:decoration-ink"
+              >
+                {t("taskDetail.server.linkAccess")}
+              </Link>
+            )}
+          </p>
+        ) : (
+          serverFix.startedByViewer &&
+          canDecidePlan && (
+            <p className="text-sm text-ink">{t(`${F}.youStarted`, { code: serverFix.code })}</p>
+          )
+        ))}
+      {decides ? (
         rejecting === null ? (
           <div className="flex flex-wrap items-center justify-end gap-2">
             <button
               type="button"
               className={secondaryButton}
-              disabled={decide.isPending || lostTo !== null}
+              disabled={decide.isPending || lostTo !== null || !canReject}
               onClick={() => setRejecting("")}
             >
               {t("claude.conversation.plan.reject")}
@@ -163,10 +214,10 @@ export function PlanCard({
             <button
               type="button"
               className={primaryButton}
-              disabled={decide.isPending || lostTo !== null}
+              disabled={decide.isPending || lostTo !== null || !canDecidePlan}
               onClick={() => run("approve")}
             >
-              {t("claude.conversation.plan.approve")}
+              {serverFix ? t(`${F}.approve`) : t("claude.conversation.plan.approve")}
             </button>
           </div>
         ) : (
@@ -206,9 +257,18 @@ export function PlanCard({
       ) : (
         // Al posto di Approve, dove chi può decidere trova i bottoni: chi decide.
         <p data-plan-who className="text-right text-sm text-ink-muted">
-          {projectCode
-            ? t("claude.conversation.plan.whoCanApprove", { code: projectCode })
-            : t("claude.conversation.plan.whoCanApproveAny")}
+          {serverFix
+            ? projectCode
+              ? t(`${F}.waitingFor`, { project: projectCode })
+              : t(`${F}.waitingForAny`)
+            : projectCode
+              ? t("claude.conversation.plan.whoCanApprove", { code: projectCode })
+              : t("claude.conversation.plan.whoCanApproveAny")}
+        </p>
+      )}
+      {serverFix && (
+        <p data-release-rule className="text-xs text-ink-muted">
+          {t(`${F}.releaseRule`)}
         </p>
       )}
       {lostTo !== null && (
