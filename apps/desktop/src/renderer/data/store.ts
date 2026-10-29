@@ -774,6 +774,12 @@ interface State {
   serverAccess: Map<string, ServerSshAccess>;
   /** L'ultimo numero di `SRV-<n>` dato, d'istanza: un codice non si riusa. */
   serverCodeSeq: number;
+  /**
+   * Le lapidi dei server tolti: per codice, i progetti dei cui ambienti il
+   * server faceva parte al momento della cancellazione. «SRV-n · deleted»
+   * lo legge solo chi vede uno di quei progetti (R-G5, d2).
+   */
+  serverTombstones: Map<string, string[]>;
   /** Solo prototipo: l'esito della prossima «Verifica» di un accesso, per server. */
   sshVerifyNext: Map<string, VerifyOutcome>;
   /** Solo prototipo: l'esito del controllo finale della prossima correzione, per server. */
@@ -916,6 +922,7 @@ function freshState(): State {
     serverAnalyses: SERVER_ANALYSES.map(copy),
     serverAccess: new Map(SERVER_ACCESS.map((a) => [a.serverCode, copy(a)])),
     serverCodeSeq: Math.max(...SERVERS.map((s) => Number(s.code.slice("SRV-".length)))),
+    serverTombstones: new Map(),
     sshVerifyNext: new Map(),
     fixCheckNext: new Map(),
   };

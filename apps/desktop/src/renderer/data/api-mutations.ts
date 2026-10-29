@@ -2190,6 +2190,12 @@ export async function decidePlan(
   }
   const task = state.tasksById.get(c.taskId!)!;
   const note = instructions?.trim() || undefined;
+  // Un piano di correzione con l'approvazione spenta (revoca, accesso non
+  // verificato, server tolto): rifiutarlo chiude la correzione e libera il
+  // server, anche con indicazioni. Riscriverlo darebbe un piano di nuovo
+  // bloccato e il server resterebbe occupato.
+  const blocked = c.serverFix !== undefined && serverFixBlock(c) !== null;
+  const replan = note !== undefined && !blocked;
 
   claims.set(key, me);
   const patch: ScriptStep = {
@@ -2203,7 +2209,7 @@ export async function decidePlan(
     },
   };
   try {
-    if (decision === "approve" || note) {
+    if (decision === "approve" || replan) {
       await runScript(id, [patch, { step: "state", state: "working" }], gen);
     } else {
       await runScript(
@@ -2253,7 +2259,7 @@ export async function decidePlan(
   if (c.serverFix) {
     // I comandi del piano approvato, uno alla volta; o il piano riscritto.
     if (decision === "approve") executeServerFix(c, task, gen);
-    else if (note) replanServerFix(c, task, note, gen);
+    else if (replan) replanServerFix(c, task, note, gen);
   } else if (decision === "approve") {
     follow(id, scripts.execution(task, hasRepository(task.projectId)), gen);
   } else if (note) follow(id, scripts.replanning(task, note), gen);

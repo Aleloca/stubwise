@@ -144,10 +144,10 @@ export interface ServerTaskInfo {
    */
   server: { code: string; name: string; projectCode: string | null } | null;
   /**
-   * Il server non esiste più («SRV-n · deleted»). Lo riceve solo chi vede il
-   * progetto della task (chi vede la task): lì il server era visibile per
-   * definizione, quindi dirlo non rivela niente. Un server che esiste ma non
-   * si vede resta `false` (R-G5: «A server you can't see»).
+   * Il server non esiste più («SRV-n · deleted»). Lo riceve solo chi, alla
+   * cancellazione, vedeva uno dei progetti che lo usavano (la lapide di
+   * `deleteServer`): per lui dirlo non rivela niente. Agli altri, e per un
+   * server che esiste ma non si vede, `false` (R-G5: «A server you can't see»).
    */
   serverGone: boolean;
   episode: ServerEpisode | null;
@@ -245,8 +245,12 @@ export async function getServerTaskInfo(taskId: string): Promise<ServerTaskInfo 
             : homeProjectCode(me, s),
         }
       : null,
-    // La task è visibile, quindi chi guarda vede il suo progetto (sopra).
-    serverGone: !state.servers.some((x) => x.code === code),
+    // Solo a chi, alla cancellazione, vedeva il server: vede uno dei progetti
+    // che lo usavano allora (la lapide). Un server già spostato altrove o
+    // orfano resta «A server you can't see» (R-G5).
+    serverGone:
+      !state.servers.some((x) => x.code === code) &&
+      (state.serverTombstones.get(code) ?? []).some((id) => visibleProjectIds(me).has(id)),
     episode,
     state: taskState,
     startBlock: serverFixStartBlock(me, task),

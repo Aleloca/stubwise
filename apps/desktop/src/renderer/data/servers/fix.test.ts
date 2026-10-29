@@ -213,6 +213,29 @@ describe("RF 1: chi avvia, chi approva", () => {
     expect(actions(c.id, "server.fix")).toEqual([]);
   });
 
+  it("Minor 2: un piano bloccato (revoca) rifiutato CON indicazioni chiude la correzione e libera il server", async () => {
+    const c = await started("p-marco");
+    as("p-roberta");
+    await servers.revokeSshAccess("SRV-1");
+    as("p-laura");
+    await decidePlan(c.id, "reject", "Try a restart only.");
+    await whenFixesIdle();
+    expect(session(c.id)).toMatchObject({ state: "finished", outcome: "stopped" });
+    expect(plans(c.id).map((p) => p.status)).toEqual(["rejected"]);
+    as("p-roberta");
+    expect(await message(servers.deleteServer("SRV-1"))).toBe("ok");
+  });
+
+  it("Minor 2: lo stesso con il server tolto dal progetto (server_gone)", async () => {
+    const c = await started("p-marco");
+    detachSrv1(true);
+    as("p-laura");
+    await decidePlan(c.id, "reject", "Try a restart only.");
+    await whenFixesIdle();
+    expect(session(c.id)).toMatchObject({ state: "finished", outcome: "stopped" });
+    expect(plans(c.id).map((p) => p.status)).toEqual(["rejected"]);
+  });
+
   it("rifiuto senza indicazioni → la sessione si chiude, nessun comando", async () => {
     const c = await started("p-roberta");
     as("p-roberta");
@@ -656,8 +679,41 @@ describe("getServerTaskInfo", () => {
     expect(info.serverGone).toBe(false);
   });
 
+  it("R-G5: spostato in un progetto che Sara non vede, poi cancellato → per Sara resta «A server you can't see»", async () => {
+    const aud = state.projects.find((p) => p.code === "AUD")!.id;
+    expect(visibleProjectIds("p-sara").has(ACQ)).toBe(true);
+    expect(visibleProjectIds("p-sara").has(aud)).toBe(false);
+    detachSrv1();
+    state.environments
+      .find((e) => e.projectId === aud && e.kind === "production")!
+      .servers.push({ repositoryId: null, serverCode: "SRV-1", reportedSha: null, reportedAt: null });
+    as("p-sara");
+    const before = (await servers.getServerTaskInfo(TASK))!;
+    expect(before).toMatchObject({ server: null, serverGone: false });
+    as("p-roberta");
+    await servers.deleteServer("SRV-1");
+    as("p-sara");
+    const after = (await servers.getServerTaskInfo(TASK))!;
+    expect(after).toMatchObject({ server: null, serverGone: false });
+    // Chi lo vedeva (Roberta vede AUD) legge «deleted».
+    as("p-roberta");
+    expect((await servers.getServerTaskInfo(TASK))!.serverGone).toBe(true);
+  });
+
+  it("R-G5: orfano e poi cancellato → nessun «deleted» a chi vede solo il progetto della task", async () => {
+    detachSrv1();
+    as("p-roberta");
+    await servers.deleteServer("SRV-1");
+    as("p-marco");
+    expect((await servers.getServerTaskInfo(TASK))!).toMatchObject({
+      server: null,
+      serverGone: false,
+    });
+  });
+
   it("server cancellato: serverGone a chi vede il progetto della task", async () => {
-    state.servers = state.servers.filter((s) => s.code !== "SRV-1");
+    as("p-roberta");
+    await servers.deleteServer("SRV-1");
     as("p-marco");
     const info = (await servers.getServerTaskInfo(TASK))!;
     expect(info.server).toBeNull();

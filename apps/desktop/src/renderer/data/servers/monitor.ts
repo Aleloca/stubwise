@@ -151,6 +151,14 @@ export async function deleteServer(code: string): Promise<void> {
     )
   )
     throw invalid("busy");
+  // La lapide: chi lo vedeva adesso potrà leggere «deleted», gli altri no (R-G5).
+  state.serverTombstones.set(server.code, [
+    ...new Set(
+      state.environments
+        .filter((e) => e.servers.some((s) => s.serverCode === server.code))
+        .map((e) => e.projectId),
+    ),
+  ]);
   state.servers = state.servers.filter((s) => s !== server);
   for (const env of state.environments)
     env.servers = env.servers.filter((s) => s.serverCode !== server.code);
