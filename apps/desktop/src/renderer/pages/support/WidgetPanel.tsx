@@ -118,7 +118,7 @@ function CopyBlock({
         {children}
       </div>
       {text && (
-        <pre className="max-h-48 overflow-auto rounded-md border border-rule bg-ground px-3 py-2 font-mono text-xs whitespace-pre text-ink">
+        <pre className="max-h-48 overflow-auto rounded-md border border-rule bg-ground px-3 py-2 font-code whitespace-pre text-ink">
           <code>{text}</code>
         </pre>
       )}

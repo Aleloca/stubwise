@@ -4,6 +4,7 @@ import { Dialog } from "../../tasks-ui/Dialog";
 import { useToast } from "../../tasks-ui/Toast";
 import { primaryButton, secondaryButton } from "../tasks/controls";
 import { CopyGlyph } from "./glyphs";
+import { CommandBlock } from "./InstallCommand";
 
 // Il pannello della chiave dell'agente (shape servers.md, «New server e
 // chiave dell'agente»): la chiave `sk_…` si vede UNA volta sola, alla
@@ -111,7 +112,7 @@ export function AgentKeyDialog({
             value={agentKey}
             data-agent-key
             onFocus={(e) => e.currentTarget.select()}
-            className="num h-8 w-full min-w-0 rounded-md border border-rule-strong bg-ink/4 px-2.5 font-mono text-sm text-ink"
+            className="h-8 w-full min-w-0 rounded-md border border-rule-strong bg-ink/4 px-2.5 font-code text-ink"
           />
           <button
             type="button"
@@ -127,24 +128,16 @@ export function AgentKeyDialog({
         <p className="text-xs text-ink-faint">{t("servers.key.prototype")}</p>
       </div>
       <div className="flex flex-col gap-1.5">
-        <div className="flex items-end gap-2">
-          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span className="text-sm font-medium text-ink">{t("servers.key.command")}</span>
-            <span className="text-xs text-ink-muted">{t("servers.key.commandHint", { code })}</span>
-          </div>
-          <button
-            type="button"
-            className={copyButton}
-            aria-label={t("servers.key.copyCommand")}
-            onClick={() => copy("command", command)}
-          >
-            <CopyGlyph />
-            {copied === "command" ? t("servers.key.copied") : t("servers.key.copy")}
-          </button>
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <span className="text-sm font-medium text-ink">{t("servers.key.command")}</span>
+          <span className="text-xs text-ink-muted">{t("servers.key.commandHint", { code })}</span>
         </div>
-        <pre className="max-h-48 overflow-auto rounded-md border border-rule bg-ink/4 px-3 py-2 font-mono text-xs leading-5 whitespace-pre text-ink">
-          {command}
-        </pre>
+        {/* Lo stesso blocco del comando SSH: monospace, Copy, scorrimento dentro. */}
+        <CommandBlock
+          label={t("servers.key.command")}
+          command={command}
+          onCopied={() => setCopied("command")}
+        />
       </div>
     </Dialog>
   );

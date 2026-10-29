@@ -7341,7 +7341,6 @@
       "copy": "Copy",
       "copied": "Copied",
       "copyKey": "Copy the key",
-      "copyCommand": "Copy the command",
       "copyError": "Couldn't copy. Select the text and copy it by hand.",
       "command": "Install the agent on the server",
       "commandHint": "Run it on {{code}}: the agent starts reporting within a minute.",

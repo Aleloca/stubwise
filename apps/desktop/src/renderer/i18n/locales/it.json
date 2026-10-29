@@ -7341,7 +7341,6 @@
       "copy": "Copia",
       "copied": "Copiata",
       "copyKey": "Copia la chiave",
-      "copyCommand": "Copia il comando",
       "copyError": "Non è stato possibile copiare. Seleziona il testo e copialo a mano.",
       "command": "Installa l'agente sul server",
       "commandHint": "Lancialo su {{code}}: l'agente comincia a riportare entro un minuto.",

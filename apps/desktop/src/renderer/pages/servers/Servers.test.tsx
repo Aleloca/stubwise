@@ -165,6 +165,10 @@ describe("New server e la chiave dell'agente", () => {
     expect(within(panel).getByText(/docker run -d --name stubwise-agent/)).toHaveTextContent(
       key.value,
     );
+    // Chiave e comando nel monospace dei comandi (`font-code`), non nella sans.
+    expect(key).toHaveClass("font-code");
+    const command = within(panel).getByRole("region", { name: "Install the agent on the server" });
+    expect(command.querySelector("pre")).toHaveClass("font-code");
     expect(
       within(panel).getByText("Prototype: this key is made up and no agent can use it."),
     ).toBeInTheDocument();

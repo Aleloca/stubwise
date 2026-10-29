@@ -18,7 +18,16 @@ import { CopyGlyph, TroubleGlyph } from "./glyphs";
 /** Le righe visibili prima di «Show all». */
 const SHOWN_LINES = 12;
 
-export function CommandBlock({ label, command }: { label: string; command: string }) {
+export function CommandBlock({
+  label,
+  command,
+  onCopied,
+}: {
+  label: string;
+  command: string;
+  /** Dopo una copia riuscita (la chiave dell'agente lo conta come «copiata»). */
+  onCopied?: () => void;
+}) {
   const { t, i18n } = useTranslation();
   const toast = useToast();
   const [all, setAll] = useState(false);
@@ -30,7 +39,10 @@ export function CommandBlock({ label, command }: { label: string; command: strin
     const clipboard = navigator.clipboard;
     if (!clipboard) return toast.error(t("servers.ssh.command.copyError"));
     void clipboard.writeText(command).then(
-      () => toast.show(t("servers.ssh.command.copied")),
+      () => {
+        toast.show(t("servers.ssh.command.copied"));
+        onCopied?.();
+      },
       () => toast.error(t("servers.ssh.command.copyError")),
     );
   };
