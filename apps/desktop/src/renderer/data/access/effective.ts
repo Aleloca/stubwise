@@ -24,15 +24,25 @@ const roleById = (s: AccessState, id: string): RoleDef | undefined =>
 
 /** Il ruolo d'istanza di una persona; `null` per chi non ha accessi (Claude, un id sconosciuto). */
 export function instanceRoleOf(personId: string): RoleDef | null {
-  const s = accessState();
+  return instanceRoleIn(accessState(), personId);
+}
+
+function instanceRoleIn(s: AccessState, personId: string): RoleDef | null {
   const person = s.people.find((p) => p.personId === personId);
   return (person && roleById(s, person.instanceRoleId)) ?? null;
 }
 
 /** Vero se la persona ha `instance.full_admin`, dal ruolo d'istanza o da una concessione. */
 export function isFullAdmin(personId: string): boolean {
-  const s = accessState();
-  if (instanceRoleOf(personId)?.permissions.includes("instance.full_admin")) return true;
+  return isFullAdminIn(accessState(), personId);
+}
+
+/**
+ * `isFullAdmin` su uno stato dato: la usano le regole pure di
+ * `domain/access/` (ultimo full admin), che ricevono lo stato come argomento.
+ */
+export function isFullAdminIn(s: AccessState, personId: string): boolean {
+  if (instanceRoleIn(s, personId)?.permissions.includes("instance.full_admin")) return true;
   return s.grants.some(
     (g) =>
       g.personId === personId && g.projectId === null && g.permission === "instance.full_admin",
@@ -51,7 +61,10 @@ export function isMember(personId: string, projectId: string): boolean {
 
 /** Il ruolo di progetto di una persona; `null` se non è membro. */
 export function projectRoleOf(personId: string, projectId: string): RoleDef | null {
-  const s = accessState();
+  return projectRoleIn(accessState(), personId, projectId);
+}
+
+function projectRoleIn(s: AccessState, personId: string, projectId: string): RoleDef | null {
   const m = s.memberships.find((x) => x.personId === personId && x.projectId === projectId);
   return (m && roleById(s, m.roleId)) ?? null;
 }
@@ -86,8 +99,8 @@ function applyRevocations(
 
 function instancePermissions(s: AccessState, personId: string): Map<string, PermissionSource[]> {
   const map = new Map<string, PermissionSource[]>();
-  const role = instanceRoleOf(personId);
-  const fullAdmin = isFullAdmin(personId);
+  const role = instanceRoleIn(s, personId);
+  const fullAdmin = isFullAdminIn(s, personId);
   if (role) {
     const fromRole = role.permissions.filter((p) => INSTANCE_SET.has(p));
     for (const p of fromRole) add(map, p, { kind: "role", roleId: role.id });
@@ -118,7 +131,7 @@ function projectPermissions(
   projectId: string,
 ): Map<string, PermissionSource[]> {
   const map = new Map<string, PermissionSource[]>();
-  const role = projectRoleOf(personId, projectId);
+  const role = projectRoleIn(s, personId, projectId);
   if (role) {
     for (const p of role.permissions) add(map, p, { kind: "role", roleId: role.id });
     for (const g of s.grants) {
@@ -134,7 +147,7 @@ function projectPermissions(
       }
     }
   }
-  if (isFullAdmin(personId)) {
+  if (isFullAdminIn(s, personId)) {
     for (const p of ALL_PROJECT_PERMISSIONS) add(map, p, { kind: "full_admin" });
   }
   applyRevocations(s, map, personId, projectId);
@@ -152,7 +165,19 @@ export function effectivePermissions(
   personId: string,
   projectId?: string,
 ): Map<string, PermissionSource[]> {
-  const s = accessState();
+  return effectivePermissionsIn(accessState(), personId, projectId);
+}
+
+/**
+ * Lo stesso calcolo su uno stato dato: la usano le regole pure di
+ * `domain/access/` (ultimo gestore dei membri), che ricevono lo stato come
+ * argomento. Non è una seconda copia: `effectivePermissions` è questa.
+ */
+export function effectivePermissionsIn(
+  s: AccessState,
+  personId: string,
+  projectId?: string,
+): Map<string, PermissionSource[]> {
   if (!s.people.some((p) => p.personId === personId)) return new Map();
   return projectId === undefined
     ? instancePermissions(s, personId)

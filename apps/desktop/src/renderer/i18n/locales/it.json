@@ -7550,5 +7550,59 @@
         "error": "La simulazione non è andata a buon fine."
       }
     }
+  },
+  "whoCan": {
+    "actions": {
+      "manageMembers": "gestire i membri",
+      "manageProjectSettings": "cambiare le impostazioni del progetto",
+      "seeProjectUsage": "vedere i consumi del progetto",
+      "createTasks": "creare task",
+      "editTasks": "modificare le task",
+      "moderateComments": "eliminare i commenti degli altri",
+      "startRun": "avviare Claude",
+      "approvePlan": "approvare un piano",
+      "requestCorrection": "chiedere modifiche a una pull request",
+      "release": "mandare in produzione",
+      "adoptPr": "adottare la pull request di un altro",
+      "interveneSession": "intervenire nelle sessioni di Claude",
+      "editBacklog": "modificare il backlog",
+      "recordDecision": "registrare una decisione",
+      "editDocs": "modificare i documenti",
+      "generateDocs": "generare i documenti",
+      "manageRepos": "gestire i repository",
+      "manageEnvironments": "gestire gli ambienti",
+      "manageWidget": "gestire il widget di assistenza",
+      "planOthers": "pianificare le task degli altri",
+      "manageChannels": "gestire i canali",
+      "manageDrive": "gestire il drive",
+      "manageProjectAutomations": "gestire le automazioni del progetto",
+      "replyCustomers": "rispondere ai clienti",
+      "fixServer": "avviare la correzione di un server",
+      "manageRoles": "gestire i ruoli",
+      "manageSettings": "cambiare le impostazioni dell'istanza",
+      "invitePeople": "invitare persone",
+      "managePeople": "gestire le persone",
+      "createProjects": "creare progetti",
+      "manageMonitor": "gestire il monitoraggio",
+      "seeUsage": "vedere i consumi",
+      "manageGeneralAutomations": "gestire le automazioni generali",
+      "manageSshAccess": "gestire gli accessi SSH",
+      "manageDepartments": "gestire i reparti",
+      "readChangeLog": "leggere il registro delle modifiche"
+    },
+    "groups": {
+      "administration": "Amministrazione",
+      "people": "Persone",
+      "projects": "Progetti",
+      "integrations": "Integrazioni",
+      "monitoring": "Monitoraggio",
+      "project": "Progetto",
+      "tickets": "Task",
+      "runs": "Claude e rilasci",
+      "backlog": "Backlog",
+      "docs": "Documenti",
+      "code": "Codice",
+      "prototype": "Prototipo"
+    }
   }
 }

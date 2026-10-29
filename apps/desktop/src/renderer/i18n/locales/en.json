@@ -7550,5 +7550,59 @@
         "error": "The simulation didn't go through."
       }
     }
+  },
+  "whoCan": {
+    "actions": {
+      "manageMembers": "manage members",
+      "manageProjectSettings": "change the project settings",
+      "seeProjectUsage": "see the project's usage",
+      "createTasks": "create tasks",
+      "editTasks": "edit tasks",
+      "moderateComments": "delete other people's comments",
+      "startRun": "start Claude",
+      "approvePlan": "approve a plan",
+      "requestCorrection": "ask for changes to a pull request",
+      "release": "release to production",
+      "adoptPr": "adopt someone else's pull request",
+      "interveneSession": "step into Claude's sessions",
+      "editBacklog": "edit the backlog",
+      "recordDecision": "record a decision",
+      "editDocs": "edit the docs",
+      "generateDocs": "generate the docs",
+      "manageRepos": "manage repositories",
+      "manageEnvironments": "manage environments",
+      "manageWidget": "manage the support widget",
+      "planOthers": "plan other people's tasks",
+      "manageChannels": "manage channels",
+      "manageDrive": "manage the drive",
+      "manageProjectAutomations": "manage the project's automations",
+      "replyCustomers": "reply to customers",
+      "fixServer": "start a server fix",
+      "manageRoles": "manage roles",
+      "manageSettings": "change the instance settings",
+      "invitePeople": "invite people",
+      "managePeople": "manage people",
+      "createProjects": "create projects",
+      "manageMonitor": "manage monitoring",
+      "seeUsage": "see the usage",
+      "manageGeneralAutomations": "manage general automations",
+      "manageSshAccess": "manage SSH access",
+      "manageDepartments": "manage departments",
+      "readChangeLog": "read the change log"
+    },
+    "groups": {
+      "administration": "Administration",
+      "people": "People",
+      "projects": "Projects",
+      "integrations": "Integrations",
+      "monitoring": "Monitoring",
+      "project": "Project",
+      "tickets": "Tasks",
+      "runs": "Claude and releases",
+      "backlog": "Backlog",
+      "docs": "Docs",
+      "code": "Code",
+      "prototype": "Prototype"
+    }
   }
 }
