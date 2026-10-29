@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { ConversationEvent } from "../../data/types";
 import { CommandRows, isServerCommand } from "../claude/conversation/CommandRows";
 import type { Ev } from "../claude/conversation/flow";
+import { serverCheckText } from "../claude/conversation/serverCheck";
 import {
   CheckGlyph,
   clock,
@@ -96,7 +97,7 @@ export function FixCommandLog({
           <span className={`mt-0.5 shrink-0 ${check.resolved ? "text-positive" : "text-critical"}`}>
             {check.resolved ? <CheckGlyph size={14} /> : <CrossGlyph size={14} />}
           </span>
-          {check.text}
+          {serverCheckText(check, t)}
         </p>
       )}
       {stopped && <StopLine phase={stopped} />}

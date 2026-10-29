@@ -999,6 +999,10 @@
         "statusAwaitingYou": "Correzione su {{code}} · aspetta la tua approvazione",
         "codeOnly": "Questa esecuzione lavora sul codice, mai su {{code}}. Per correggere il server usa «Avvia la correzione» nella sezione Server qui sopra."
       },
+      "check": {
+        "resolved": "Controllo dopo la correzione: risolto",
+        "notResolved": "Controllo dopo la correzione: non risolto"
+      },
       "log": {
         "title": "Comandi su {{code}}",
         "count": "Comandi su {{code}} · {{count}}",

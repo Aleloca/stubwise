@@ -6,6 +6,7 @@ import { whenFixesIdle } from "../../data/servers/fix";
 import { setSessionPersonId } from "../../data/session";
 import { eventsOf, state } from "../../data/store";
 import type { ConversationEvent } from "../../data/types";
+import { setLanguage } from "../../i18n";
 import { renderRoute } from "../../test/renderRoute";
 
 // La task di un server (Task 9 del piano 8b, shape server-task.md): la
@@ -236,6 +237,28 @@ describe("sezione Server", () => {
     );
     expect(within(section).getByRole("button", { name: "Start fix again" })).toBeInTheDocument();
     expect(claudeSection()).toHaveTextContent(/Check after the fix: not resolved/);
+  });
+
+  it("d3: in italiano l'intestazione del controllo finale è tradotta; il dettaglio di Claude resta", async () => {
+    const id = await startAs("p-marco");
+    setSessionPersonId("p-laura");
+    await decidePlan(id, "approve");
+    await whenFixesIdle();
+    act(() => setLanguage("it"));
+    try {
+      renderRoute(`/p/ACQ/tasks?task=${CODE}`, "p-laura");
+      const check = await waitFor(() => {
+        const el = document.querySelector("[data-server-check]");
+        expect(el).not.toBeNull();
+        return el!;
+      });
+      expect(check).toHaveTextContent(/^Controllo dopo la correzione: risolto — /);
+      expect(check).not.toHaveTextContent("Check after the fix");
+      const row = document.querySelector("[data-work-result='server_check']");
+      if (row) expect(row).toHaveTextContent(/^Controllo dopo la correzione: risolto/);
+    } finally {
+      act(() => setLanguage("en"));
+    }
   });
 
   /** Approva come Roberta e, al primo comando, ferma con `halt`. */

@@ -240,6 +240,7 @@ export function fixCheck(reasons: EpisodeReason[], resolved: boolean): ScriptSte
         kind: "server_check",
         text: `Check after the fix: ${resolved ? "resolved" : "not resolved"}${what ? ` — ${what}` : ""}`,
         resolved,
+        ...(what ? { detail: what } : {}),
       },
     },
   ];

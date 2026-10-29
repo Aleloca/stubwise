@@ -999,6 +999,10 @@
         "statusAwaitingYou": "Fix on {{code}} · waiting for your approval",
         "codeOnly": "This run works on the code, never on {{code}}. To fix the server, use Start fix in Server above."
       },
+      "check": {
+        "resolved": "Check after the fix: resolved",
+        "notResolved": "Check after the fix: not resolved"
+      },
       "log": {
         "title": "Commands on {{code}}",
         "count": "Commands on {{code}} · {{count}}",

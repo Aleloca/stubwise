@@ -1,6 +1,7 @@
 import { createContext, useContext, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 import type { Ev } from "./flow";
+import { serverCheckText } from "./serverCheck";
 import { Glyph } from "./parts";
 
 const MARKS: Record<Ev<"work_result">["kind"], ReactElement> = {
@@ -84,7 +85,7 @@ export function WorkResultRow({ event }: { event: Ev<"work_result"> }) {
       className="event-enter flex min-w-0 items-center gap-2 py-0.5 text-md text-ink"
     >
       <span className="text-ink-muted">{MARKS[event.kind]}</span>
-      <span className="min-w-0 [overflow-wrap:anywhere]">{event.text}</span>
+      <span className="min-w-0 [overflow-wrap:anywhere]">{serverCheckText(event, t)}</span>
       {safeLink(event.link) && (
         <>
           <span aria-hidden="true" className="text-ink-faint">

@@ -895,6 +895,12 @@ export type ConversationEvent =
        * sessione no (può chiudersi male per altri motivi).
        */
       resolved?: boolean;
+      /**
+       * Solo `server_check`: il dettaglio scritto da Claude (cosa ha riletto),
+       * senza l'intestazione, che la UI scrive nella lingua di chi guarda da
+       * `resolved`. `text` resta la frase intera (inglese, come Claude).
+       */
+      detail?: string;
     };
 
 /** Il contenuto di un evento senza id né data: li dà il motore dello stream quando lo emette. */
