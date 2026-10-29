@@ -198,5 +198,5 @@ Dopo il Task 10: revisione finale del branch (area 8b) e revisione visiva di Imp
 
 ## Decisioni prese (29 ott 2026)
 
-1. **Secondo server di ACQ** (maintainer): sì, `SRV-4` nel seme, senza accesso SSH (Task 1); i server creati dall'app partono da `SRV-5`.
+1. **Server per repository** (maintainer): in un ambiente ogni repository dice su quale server gira; un rilascio legge solo il server della sua repository. `SRV-4` è di AUD (`audin-admin`), senza accesso SSH; `SRV-3` tiene `audin-app`. I server creati dall'app partono da `SRV-5`. Sostituisce «secondo server di ACQ»; il Task 1 adatta anche Rilasci e ambienti dell'8a.
 2. **Pagina Membri** (maintainer): non in 8b. `servers.operate` si assegna solo nel seme; la pagina Membri del progetto è dell'area 9.
