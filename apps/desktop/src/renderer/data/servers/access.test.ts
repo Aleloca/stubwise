@@ -291,6 +291,7 @@ describe("permessi e R-G5", () => {
   const WRITES: [string, (code: string) => Promise<unknown>][] = [
     ["linkSshAccess", (c) => servers.linkSshAccess(c)],
     ["getInstallCommand", (c) => servers.getInstallCommand(c)],
+    ["getRemovalCommand", (c) => servers.getRemovalCommand(c)],
     ["verifySshAccess", (c) => servers.verifySshAccess(c)],
     ["regenerateSshAccess", (c) => servers.regenerateSshAccess(c)],
     ["revokeSshAccess", (c) => servers.revokeSshAccess(c)],
@@ -350,7 +351,32 @@ describe("permessi e R-G5", () => {
   });
 });
 
+describe("comando di rimozione", () => {
+  it("dopo la revoca si rilegge uguale al risultato di revokeSshAccess; prima no", async () => {
+    as("p-roberta");
+    expect(await message(servers.getRemovalCommand("SRV-1"))).toBe("invalid: state");
+    const { removalCommand } = await servers.revokeSshAccess("SRV-1");
+    expect((await servers.getRemovalCommand("SRV-1")).command).toBe(removalCommand);
+    // Ricollegato non è più revocato: il comando di rimozione non c'è più.
+    await servers.linkSshAccess("SRV-1");
+    expect(await message(servers.getRemovalCommand("SRV-1"))).toBe("invalid: state");
+  });
+});
+
 describe("ultimo uso", () => {
+  it("l'analisi di un progetto che chi guarda non vede: niente sessione (R-G5)", async () => {
+    // L'analisi di SRV-1 spostata su un progetto che Sara non vede.
+    const aud = PROJECTS.find((p) => p.code === "AUD")!;
+    state.serverAnalyses.find((a) => a.id === "an-srv-1-1")!.projectId = aud.id;
+    as("p-sara");
+    const use = (await view("SRV-1")).lastUse.read!;
+    expect(use.label.kind).toBe("analysis");
+    expect(use.sessionId).toBeNull();
+    // Chi lo vede ha la sessione.
+    as("p-roberta");
+    expect((await view("SRV-1")).lastUse.read!.sessionId).toEqual(expect.any(String));
+  });
+
   it("markUsed registra l'uso; il codice della task solo se chi guarda la vede", async () => {
     const task = state.tasks.find((t) => t.code === "ACQ-6")!;
     markUsed("SRV-1", "fix", { kind: "task", taskId: task.id });
@@ -377,6 +403,7 @@ describe("RF 2: le chiavi private non escono", () => {
       for (const code of serversVisibleTo("p-roberta")) {
         out.push(await servers.getServer(code));
         out.push(await servers.getInstallCommand(code).catch((e: Error) => e.message));
+        out.push(await servers.getRemovalCommand(code).catch((e: Error) => e.message));
       }
       for (const p of PROJECTS) out.push(await servers.listProjectServers(p.id));
       out.push(await servers.searchServers("srv"));

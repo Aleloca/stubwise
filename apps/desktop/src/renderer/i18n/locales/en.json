@@ -7322,7 +7322,9 @@
         "readWritesHint": "Check that stubwise-read isn't in the sudo or docker group, then verify again.",
         "newInUse": "The new keys are in use. Stubwise forgot the old ones.",
         "newFailedKept": "The new keys didn't pass. The current ones are still in use.",
-        "newFailedNone": "The new keys didn't pass, and the current ones aren't working either."
+        "newFailedNone": "The new keys didn't pass, and the current ones aren't working either.",
+        "newFailedKeptRead": "The new keys didn't pass. The current read key is still in use; the fix key isn't working.",
+        "newFailedKeptFix": "The new keys didn't pass. The current fix key is still in use; the read key isn't working."
       },
       "errors": {
         "verify": "Couldn't verify. Try again.",
@@ -7372,13 +7374,17 @@
         "title": "New keys — not in use yet",
         "keep": "Until they pass, Stubwise keeps using the current keys.",
         "keepNone": "The current keys aren't working: the new ones take over once they pass.",
-        "command": "The command authorizes the current keys and the new ones. When the new ones pass, Stubwise forgets the old ones, and the next command carries only the new keys."
+        "command": "The command authorizes the current keys and the new ones. When the new ones pass, Stubwise forgets the old ones, and the next command carries only the new keys.",
+        "keepRead": "Until they pass, Stubwise keeps using the current read key. The current fix key isn't working.",
+        "keepFix": "Until they pass, Stubwise keeps using the current fix key. The current read key isn't working."
       },
       "regenerate": {
         "title": "Regenerate {{code}}'s keys?",
         "body": "You get new keys and a new command. The current keys keep working until the new ones pass verification.",
         "bodyNone": "You get new keys and a new command. The current keys aren't working now: the new ones take over once they pass verification.",
-        "confirm": "Regenerate"
+        "confirm": "Regenerate",
+        "bodyRead": "You get new keys and a new command. The current read key keeps working until the new ones pass verification; the current fix key isn't working now.",
+        "bodyFix": "You get new keys and a new command. The current fix key keeps working until the new ones pass verification; the current read key isn't working now."
       },
       "revoke": {
         "title": "Revoke SSH access to {{code}}?",

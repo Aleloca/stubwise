@@ -9,7 +9,6 @@ import {
   useVerifySshAccess,
 } from "../../data/queries";
 import type { ServerDetail } from "../../data/servers";
-import { removalScript } from "../../domain/servers/installScript";
 import type { VerifyOutcome } from "../../domain/servers/sshAccess";
 import { itemClass, Menu } from "../../tasks-ui/Menu";
 import { useToast } from "../../tasks-ui/Toast";
@@ -18,12 +17,12 @@ import { Spinner } from "../drive/glyphs";
 import { smallPrimary } from "../task/parts";
 import { primaryButton, secondaryButton } from "../tasks/controls";
 import { clockLocal, dayLocal } from "./format";
-import { CommandBlock, InstallStep, UsersTable } from "./InstallCommand";
+import { InstallStep, RemovalStep, UsersTable } from "./InstallCommand";
 import { Part } from "./Part";
 import { AccessRows } from "./SshAccessRows";
 import { RegenerateDialog, RevokeDialog, SshSimulateBox } from "./SshAccessDialogs";
 import { Step } from "./SshSteps";
-import { VerifyResult } from "./VerifyResult";
+import { ReadWritesResult, VerifyResult } from "./VerifyResult";
 
 // La parte «SSH access» del dettaglio di un server (shape server-access.md):
 // finché i due accessi non sono verificati è una procedura in tre passi
@@ -54,7 +53,7 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
   const simulate = useSimulateSshVerifyOutcome();
 
   const [relinking, setRelinking] = useState(false);
-  const [removal, setRemoval] = useState<string | null>(null);
+  const [removal, setRemoval] = useState(false);
   const [showCommand, setShowCommand] = useState(false);
   const [justVerified, setJustVerified] = useState<{ regen: boolean } | null>(null);
   const [confirm, setConfirm] = useState<"regenerate" | "revoke" | null>(null);
@@ -80,7 +79,12 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
   const hasKeys = a.read !== null;
   const v = a.verification;
   const regenerating = hasKeys && a.pending !== null;
-  const anyUsable = a.usable.read || a.usable.fix;
+  // Quali chiavi attuali restano valide mentre si rigenera (R-L8): solo
+  // quelle che funzionavano già, accesso per accesso, mai «tutte».
+  const kept: "both" | "read" | "fix" | "none" =
+    a.usable.read && a.usable.fix ? "both" : a.usable.read ? "read" : a.usable.fix ? "fix" : "none";
+  const keptText = (both: string, read: string, fix: string, none: string) =>
+    t(`servers.ssh.${{ both, read, fix, none }[kept]}`);
 
   const doLink = () =>
     link.mutate(code, {
@@ -118,11 +122,11 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
     });
   const doRevoke = () =>
     revoke.mutate(code, {
-      onSuccess: (res) => {
+      onSuccess: () => {
         setConfirm(null);
         setJustVerified(null);
         setShowCommand(false);
-        setRemoval(res.removalCommand);
+        setRemoval(true);
         setFocus("removal");
       },
       onError: () => toast.error(t("servers.ssh.errors.revoke")),
@@ -146,28 +150,18 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
 
   /** L'esito delle chiavi che la procedura sta verificando, con la frase sulle chiavi se si rigenera. */
   const result = (forNew: boolean) => {
-    if (a.state === "read_writes")
-      return (
-        <VerifyResult
-          ref={resultRef}
-          code={code}
-          verification={{
-            at: v?.at ?? now(),
-            ofPending: forNew,
-            read: "writes",
-            fix: "ok",
-            reason: null,
-          }}
-        />
-      );
+    if (a.state === "read_writes") return <ReadWritesResult ref={resultRef} />;
     if (!v || (forNew && !v.ofPending)) return null;
     const summary =
       forNew && regenerating
         ? {
             ok: false,
-            text: anyUsable
-              ? t("servers.ssh.outcome.newFailedKept")
-              : t("servers.ssh.outcome.newFailedNone"),
+            text: keptText(
+              "outcome.newFailedKept",
+              "outcome.newFailedKeptRead",
+              "outcome.newFailedKeptFix",
+              "outcome.newFailedNone",
+            ),
           }
         : null;
     return <VerifyResult ref={resultRef} code={code} verification={v} summary={summary} />;
@@ -187,9 +181,12 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
               {t("servers.ssh.regenerating.title")}
             </h3>
             <p className="text-sm text-ink-muted">
-              {anyUsable
-                ? t("servers.ssh.regenerating.keep")
-                : t("servers.ssh.regenerating.keepNone")}
+              {keptText(
+                "regenerating.keep",
+                "regenerating.keepRead",
+                "regenerating.keepFix",
+                "regenerating.keepNone",
+              )}
             </p>
           </div>
         )}
@@ -304,12 +301,12 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
         danger: true,
         run: () => setConfirm("revoke"),
       });
-    if (st === "revoked" && removal === null)
+    if (st === "revoked" && !removal)
       items.push({
         key: "removal",
         label: t("servers.ssh.menu.removal"),
         run: () => {
-          setRemoval(removalScript(code));
+          setRemoval(true);
           setFocus("removal");
         },
       });
@@ -369,28 +366,14 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
           )}
         </>
       );
-  } else if (removal !== null && a.state === "revoked") {
-    const at = a.revokedAt ?? now();
+  } else if (removal && a.state === "revoked") {
     body = (
-      <div className="ssh-step-open flex flex-col gap-3">
-        <h3
-          ref={removalRef}
-          tabIndex={-1}
-          className="max-w-[760px] rounded-sm text-md font-semibold text-ink outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-focus)]"
-        >
-          {t("servers.ssh.removal.title", {
-            date: dayLocal(at, i18n.language),
-            time: clockLocal(at, i18n.language),
-            code,
-          })}
-        </h3>
-        <CommandBlock label={t("servers.ssh.command.removalLabel", { code })} command={removal} />
-        <span>
-          <button type="button" className={secondaryButton} onClick={() => setRemoval(null)}>
-            {t("servers.ssh.removal.done")}
-          </button>
-        </span>
-      </div>
+      <RemovalStep
+        code={code}
+        revokedAt={a.revokedAt ?? now()}
+        titleRef={removalRef}
+        onDone={() => setRemoval(false)}
+      />
     );
   } else if (a.state === "not_linked" || (a.state === "revoked" && relinking)) {
     body = procedure(1);
@@ -466,7 +449,12 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
         {confirm === "regenerate" && (
           <RegenerateDialog
             code={code}
-            working={anyUsable}
+            body={keptText(
+              "regenerate.body",
+              "regenerate.bodyRead",
+              "regenerate.bodyFix",
+              "regenerate.bodyNone",
+            )}
             pending={regen.isPending}
             onConfirm={doRegenerate}
             onClose={() => setConfirm(null)}

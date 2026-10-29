@@ -63,6 +63,29 @@ export function ReadWritesBox() {
 }
 
 /**
+ * L'esito quando l'accesso è in `read_writes`. Non passa da `VerifyResult`:
+ * la lettura che scrive può venire dalle chiavi VECCHIE durante una
+ * rigenerazione (`keysVerification`, che la vista non porta), quindi
+ * `verification` può non dirlo, e una verifica ricostruita qui
+ * inventerebbe l'esito della correzione. Si dice solo l'errore.
+ */
+export const ReadWritesResult = forwardRef<HTMLDivElement>(function ReadWritesResult(_, ref) {
+  const { t } = useTranslation();
+  return (
+    <div
+      ref={ref}
+      tabIndex={-1}
+      role="status"
+      aria-live="polite"
+      aria-label={t("servers.ssh.outcome.label")}
+      className="rounded-sm outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-focus)]"
+    >
+      <ReadWritesBox />
+    </div>
+  );
+});
+
+/**
  * Le righe dell'esito. `summary` (rigenerazione) è la frase che dice cosa
  * succede alle chiavi: le nuove in uso, o le attuali che restano.
  */

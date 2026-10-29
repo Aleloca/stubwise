@@ -535,6 +535,7 @@ export type ApiFnName =
   | "servers.updateCheck"
   | "servers.deleteCheck"
   | "servers.getInstallCommand"
+  | "servers.getRemovalCommand"
   | "servers.linkSshAccess"
   | "servers.verifySshAccess"
   | "servers.regenerateSshAccess"

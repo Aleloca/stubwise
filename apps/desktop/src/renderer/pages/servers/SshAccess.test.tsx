@@ -79,7 +79,9 @@ describe("i tre passi (Roberta, servers.ssh.manage)", () => {
     expect(access()).toHaveTextContent(
       "Run it as root on SRV-4. Read it first: it contains only public keys.",
     );
-    expect(access()).toHaveTextContent(/read SHA256:[^…\s]{8}…\S{4}\s*·\s*fix SHA256:[^…\s]{8}…\S{4}/);
+    expect(access()).toHaveTextContent(
+      /read SHA256:[^…\s]{8}…\S{4}\s*·\s*fix SHA256:[^…\s]{8}…\S{4}/,
+    );
     expect(access()).toHaveTextContent("Prototype: these keys are made up by the prototype.");
     await user.click(within(command).getByRole("button", { name: "Copy the command" }));
     expect(await screen.findByText("Command copied")).toBeInTheDocument();
@@ -217,6 +219,48 @@ describe("Rigenera e Revoca", () => {
     ).toBeNull();
   });
 
+  it("Rigenera con la sola lettura funzionante: si promette solo quella (R-L8)", async () => {
+    const user = userEvent.setup();
+    await open("/p/ACQ/servers/SRV-1", "p-roberta");
+    // Verificato, poi «Verify again» con la correzione rifiutata.
+    await simulate(user, "Fix access fails");
+    let menu = await openMenu(user, "SRV-1");
+    await user.click(within(menu).getByRole("menuitem", { name: "Verify again" }));
+    const rows = within(access()).getByRole("list", { name: "SSH access of SRV-1" });
+    await waitFor(() =>
+      expect(within(rows).getAllByRole("listitem")[1]).toHaveTextContent(
+        "Check failed: the server refused the key",
+      ),
+    );
+
+    menu = await openMenu(user, "SRV-1");
+    await user.click(within(menu).getByRole("menuitem", { name: "Regenerate keys…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Regenerate SRV-1's keys?" });
+    expect(dialog).toHaveTextContent(
+      "The current read key keeps working until the new ones pass verification; the current fix key isn't working now.",
+    );
+    expect(dialog).not.toHaveTextContent("The current keys keep working");
+    await user.click(within(dialog).getByRole("button", { name: "Regenerate" }));
+
+    await within(access()).findByRole("heading", { name: "New keys — not in use yet" });
+    expect(access()).toHaveTextContent(
+      "Until they pass, Stubwise keeps using the current read key. The current fix key isn't working.",
+    );
+    expect(access()).not.toHaveTextContent("keeps using the current keys");
+    const now = within(access()).getByRole("list", { name: "SSH access of SRV-1" });
+    expect(within(now).getAllByRole("listitem")[0]).toHaveTextContent("In use");
+    expect(within(now).getAllByRole("listitem")[1]).toHaveTextContent("Check failed");
+
+    await simulate(user, "Read access fails");
+    await user.click(within(access()).getByRole("button", { name: "Verify" }));
+    await waitFor(() =>
+      expect(access()).toHaveTextContent(
+        "The new keys didn't pass. The current read key is still in use; the fix key isn't working.",
+      ),
+    );
+    expect(access()).not.toHaveTextContent("The current ones are still in use");
+  });
+
   it("Revoca con conferma, poi il comando di rimozione fino a «Done», poi «Link again»", async () => {
     const user = userEvent.setup();
     await open("/p/ACQ/servers/SRV-1", "p-roberta");
@@ -338,29 +382,47 @@ describe("chi guarda e l'ultimo uso", () => {
 });
 
 describe("verità del prototipo", () => {
-  it("nessuna chiave privata nel DOM, dopo collega, verifica, rigenera, revoca", async () => {
+  it("nessuna chiave privata nel DOM (testo, attributi, title), in ogni stato del pannello", async () => {
     const user = userEvent.setup();
+    const noPrivate = () => {
+      expect(document.body.textContent).not.toContain("PRIVATE KEY");
+      expect(document.body.innerHTML).not.toContain("PRIVATE KEY");
+    };
     await open("/p/AUD/servers/SRV-4", "p-roberta");
+    noPrivate(); // non collegato: passo 1
     await user.click(within(access()).getByRole("button", { name: "Link SSH access" }));
     await within(access()).findByRole("region", { name: "Command for SRV-4" });
-    expect(document.body.textContent).not.toContain("PRIVATE KEY");
+    noPrivate(); // in attesa del comando: passo 2 con comando e impronte
+    await simulate(user, "Fix access fails");
     await user.click(within(access()).getByRole("button", { name: "Verify" }));
-    await within(access()).findByRole("status", { name: "Verification result" });
+    await within(access()).findByRole("button", { name: "Verify again" });
+    noPrivate(); // verifica non riuscita
+    await user.click(within(access()).getByRole("button", { name: "Verify again" }));
+    await within(access()).findByRole("list", { name: "SSH access of SRV-4" });
+    noPrivate(); // verificato
     let menu = await openMenu(user, "SRV-4");
+    await user.click(within(menu).getByRole("menuitem", { name: "Show command again" }));
+    await within(access()).findByRole("region", { name: "Command for SRV-4" });
+    noPrivate(); // comando rivisto dal «⋯»
+    menu = await openMenu(user, "SRV-4");
     await user.click(within(menu).getByRole("menuitem", { name: "Regenerate keys…" }));
+    noPrivate(); // dialogo di Rigenera
     await user.click(
       within(await screen.findByRole("dialog")).getByRole("button", { name: "Regenerate" }),
     );
+    await within(access()).findByRole("heading", { name: "New keys — not in use yet" });
     await within(access()).findByRole("region", { name: "Command for SRV-4" });
-    expect(document.body.textContent).not.toContain("PRIVATE KEY");
+    noPrivate(); // in rigenerazione: comando con vecchie e nuove pubbliche
     menu = await openMenu(user, "SRV-4");
     await user.click(within(menu).getByRole("menuitem", { name: "Revoke access…" }));
     await user.click(
       within(await screen.findByRole("dialog")).getByRole("button", { name: "Revoke access" }),
     );
     await within(access()).findByRole("region", { name: "Removal command for SRV-4" });
-    expect(document.body.textContent).not.toContain("PRIVATE KEY");
-    expect(document.body.innerHTML).not.toContain("PRIVATE KEY");
+    noPrivate(); // revocato: comando di rimozione
+    await user.click(within(access()).getByRole("button", { name: "Done" }));
+    await within(access()).findByRole("button", { name: "Link again" });
+    noPrivate(); // revocato, chiuso
   });
 
   it("ogni «Simula» dell'accesso sta nel riquadro «Prototype only»", async () => {
@@ -393,14 +455,37 @@ describe("verità del prototipo", () => {
     await waitFor(() => expect(router.state.location.search).toMatchObject({ section: "access" }));
   });
 
-  it("⌘K: senza servers.ssh.manage (Laura) il comando non c'è", async () => {
+  it("⌘K: senza servers.ssh.manage (Laura) il comando non c'è; con Roberta, sullo stesso server, sì", async () => {
     const user = userEvent.setup();
     await open("/p/AUD/servers/SRV-4", "p-laura");
     await user.keyboard("{Control>}k{/Control}");
-    const other = await screen.findByRole("dialog", { name: "Search and commands" });
+    let palette = await screen.findByRole("dialog", { name: "Search and commands" });
     await user.keyboard("link ssh");
-    await waitFor(() =>
-      expect(within(other).queryByRole("option", { name: /Link SSH access/ })).toBeNull(),
-    );
+    // Controllo positivo: la palette ha già filtrato per «link ssh».
+    await within(palette).findByRole("option", { name: "Ask Claude: “link ssh”" });
+    expect(within(palette).queryByRole("option", { name: /Link SSH access/ })).toBeNull();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    await user.click(screen.getByRole("button", { name: /^Profile and settings/ }));
+    await user.click(screen.getByRole("radio", { name: /Roberta Fontana/ }));
+    await user.keyboard("{Escape}");
+    await within(access()).findByRole("button", { name: "Link SSH access" });
+    await user.keyboard("{Control>}k{/Control}");
+    palette = await screen.findByRole("dialog", { name: "Search and commands" });
+    await user.keyboard("link ssh");
+    expect(
+      await within(palette).findByRole("option", { name: /Link SSH access to SRV-4/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("⌘K: su un server già verificato «Link SSH access» non c'è", async () => {
+    const user = userEvent.setup();
+    await open("/p/ACQ/servers/SRV-1", "p-roberta");
+    await user.keyboard("{Control>}k{/Control}");
+    const palette = await screen.findByRole("dialog", { name: "Search and commands" });
+    await user.keyboard("link ssh");
+    await within(palette).findByRole("option", { name: "Ask Claude: “link ssh”" });
+    expect(within(palette).queryByRole("option", { name: /Link SSH access/ })).toBeNull();
   });
 });

@@ -4,6 +4,7 @@ import {
   type ServerTaskState,
 } from "../../domain/servers/fixGate";
 import { downsample, downsampleSamples } from "../../domain/servers/metrics";
+import { removalScript } from "../../domain/servers/installScript";
 import { accessState, type AccessState } from "../../domain/servers/sshAccess";
 import { fold } from "../../domain/textSearch";
 import { copy, eventsOf, gate, now, state, visibleProjectIds } from "../store";
@@ -109,6 +110,20 @@ export async function getInstallCommand(code: string): Promise<{ command: string
   const command = installCommandOf(server.code);
   if (command === null) throw invalid("state");
   return { command };
+}
+
+/**
+ * Il comando che toglie i due utenti dal server, da rivedere dopo una
+ * revoca (il «⋯» della parte, Task 8): la stessa fonte del risultato di
+ * `revokeSshAccess`. `servers.ssh.manage`; `invalid: state` se l'accesso
+ * non è revocato.
+ */
+export async function getRemovalCommand(code: string): Promise<{ command: string }> {
+  const me = await gate("servers.getRemovalCommand");
+  const server = serverFor(me, code);
+  if (!canManageSsh(me)) throw forbidden();
+  if (accessState(state.serverAccess.get(server.code)) !== "revoked") throw invalid("state");
+  return { command: removalScript(server.code) };
 }
 
 /** Il blocco «Server» di una task di server (area 8b, Task 9). */

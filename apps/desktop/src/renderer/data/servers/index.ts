@@ -18,6 +18,7 @@ import "./alertTypes";
 
 export {
   getInstallCommand,
+  getRemovalCommand,
   getServer,
   getServerMetrics,
   getServerTaskInfo,

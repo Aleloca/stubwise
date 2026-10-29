@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useState, type Ref } from "react";
 import { useTranslation } from "react-i18next";
-import { useInstallCommand } from "../../data/queries";
+import { useInstallCommand, useRemovalCommand } from "../../data/queries";
 import type { SshAccessView } from "../../data/servers";
 import { useToast } from "../../tasks-ui/Toast";
+import { secondaryButton } from "../tasks/controls";
 import { ghostButton, smallSecondary } from "../task/parts";
+import { clockLocal, dayLocal } from "./format";
 import { CopyGlyph, TroubleGlyph } from "./glyphs";
 
 // Un comando da incollare sul server (shape server-access.md §3, passo 2 e
@@ -191,5 +193,63 @@ export function InstallStep({ code, access }: { code: string; access: Access }) 
         <p className="text-xs text-ink-faint">{t("servers.ssh.step2.prototype")}</p>
       </div>
     </>
+  );
+}
+
+/**
+ * Dopo una revoca (o dal «⋯»): il comando che toglie i due utenti, letto
+ * dal livello dati (`getRemovalCommand`, la stessa fonte del risultato
+ * della revoca), fino a «Done». Il titolo prende il fuoco.
+ */
+export function RemovalStep({
+  code,
+  revokedAt,
+  titleRef,
+  onDone,
+}: {
+  code: string;
+  revokedAt: string;
+  titleRef: Ref<HTMLHeadingElement>;
+  onDone: () => void;
+}) {
+  const { t, i18n } = useTranslation();
+  const q = useRemovalCommand(code, true);
+  return (
+    <div className="ssh-step-open flex flex-col gap-3">
+      <h3
+        ref={titleRef}
+        tabIndex={-1}
+        className="max-w-[760px] rounded-sm text-md font-semibold text-ink outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-focus)]"
+      >
+        {t("servers.ssh.removal.title", {
+          date: dayLocal(revokedAt, i18n.language),
+          time: clockLocal(revokedAt, i18n.language),
+          code,
+        })}
+      </h3>
+      {q.isError ? (
+        <div role="alert" className="flex items-center gap-3">
+          <p className="text-sm text-ink">{t("servers.ssh.command.loadError")}</p>
+          <button type="button" className={smallSecondary} onClick={() => void q.refetch()}>
+            {t("taskUi.states.retry")}
+          </button>
+        </div>
+      ) : q.data ? (
+        <CommandBlock
+          label={t("servers.ssh.command.removalLabel", { code })}
+          command={q.data.command}
+        />
+      ) : (
+        <span
+          aria-hidden="true"
+          className="skeleton-breathe h-48 max-w-[760px] rounded-md bg-ink/6"
+        />
+      )}
+      <span>
+        <button type="button" className={secondaryButton} onClick={onDone}>
+          {t("servers.ssh.removal.done")}
+        </button>
+      </span>
+    </div>
   );
 }

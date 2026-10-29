@@ -162,6 +162,8 @@ export const queryKeys = {
   serverSearch: (personId: string, q: string) => ["as", personId, "servers", "search", q] as const,
   serverInstallCommand: (personId: string, code: string) =>
     ["as", personId, "servers", "installCommand", code] as const,
+  serverRemovalCommand: (personId: string, code: string) =>
+    ["as", personId, "servers", "removalCommand", code] as const,
   search: (personId: string, q: string) => ["as", personId, "search", q] as const,
   conversations: (personId: string, filter: ConversationFilter) =>
     ["as", personId, "conversations", filter] as const,

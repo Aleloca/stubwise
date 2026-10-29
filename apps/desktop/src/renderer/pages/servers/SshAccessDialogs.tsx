@@ -9,19 +9,19 @@ import { shortInput } from "./Part";
 // e Revoca, 440px) e il riquadro «Prototype only» della verifica.
 
 /**
- * «Regenerate SRV-1's keys?». `working`: se almeno un accesso funziona ora
- * (`usable`): solo allora le chiavi attuali «keep working» fino alla
- * verifica delle nuove (R-L8: restano usabili solo se lo erano).
+ * «Regenerate SRV-1's keys?». `body` lo sceglie la parte accesso per
+ * accesso da `usable` (R-L8: una chiave attuale resta valida fino alla
+ * verifica delle nuove solo se funziona già).
  */
 export function RegenerateDialog({
   code,
-  working,
+  body,
   pending,
   onConfirm,
   onClose,
 }: {
   code: string;
-  working: boolean;
+  body: string;
   pending: boolean;
   onConfirm: () => void;
   onClose: () => void;
@@ -48,9 +48,7 @@ export function RegenerateDialog({
         </>
       }
     >
-      <p className="text-md text-ink">
-        {working ? t("servers.ssh.regenerate.body") : t("servers.ssh.regenerate.bodyNone")}
-      </p>
+      <p className="text-md text-ink">{body}</p>
     </Dialog>
   );
 }

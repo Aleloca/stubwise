@@ -7322,7 +7322,9 @@
         "readWritesHint": "Controlla che stubwise-read non sia nel gruppo sudo o docker, poi verifica di nuovo.",
         "newInUse": "Le nuove chiavi sono in uso. Stubwise ha dimenticato quelle vecchie.",
         "newFailedKept": "Le nuove chiavi non hanno passato la verifica. Quelle attuali restano in uso.",
-        "newFailedNone": "Le nuove chiavi non hanno passato la verifica, e nemmeno quelle attuali funzionano."
+        "newFailedNone": "Le nuove chiavi non hanno passato la verifica, e nemmeno quelle attuali funzionano.",
+        "newFailedKeptRead": "Le nuove chiavi non hanno passato la verifica. La chiave di lettura attuale resta in uso; quella di correzione non funziona.",
+        "newFailedKeptFix": "Le nuove chiavi non hanno passato la verifica. La chiave di correzione attuale resta in uso; quella di lettura non funziona."
       },
       "errors": {
         "verify": "Non è stato possibile verificare. Riprova.",
@@ -7372,13 +7374,17 @@
         "title": "Nuove chiavi — non ancora in uso",
         "keep": "Finché non passano, Stubwise continua a usare le chiavi attuali.",
         "keepNone": "Le chiavi attuali non funzionano: le nuove subentrano appena passano.",
-        "command": "Il comando autorizza sia le chiavi attuali sia le nuove. Quando le nuove passano, Stubwise dimentica le vecchie, e il comando successivo porta solo le nuove."
+        "command": "Il comando autorizza sia le chiavi attuali sia le nuove. Quando le nuove passano, Stubwise dimentica le vecchie, e il comando successivo porta solo le nuove.",
+        "keepRead": "Finché non passano, Stubwise continua a usare la chiave di lettura attuale. Quella di correzione attuale non funziona.",
+        "keepFix": "Finché non passano, Stubwise continua a usare la chiave di correzione attuale. Quella di lettura attuale non funziona."
       },
       "regenerate": {
         "title": "Rigenerare le chiavi di {{code}}?",
         "body": "Ricevi chiavi nuove e un comando nuovo. Le chiavi attuali continuano a funzionare finché le nuove non passano la verifica.",
         "bodyNone": "Ricevi chiavi nuove e un comando nuovo. Le chiavi attuali ora non funzionano: le nuove subentrano appena passano la verifica.",
-        "confirm": "Rigenera"
+        "confirm": "Rigenera",
+        "bodyRead": "Ricevi chiavi nuove e un comando nuovo. La chiave di lettura attuale continua a funzionare finché le nuove non passano la verifica; quella di correzione attuale ora non funziona.",
+        "bodyFix": "Ricevi chiavi nuove e un comando nuovo. La chiave di correzione attuale continua a funzionare finché le nuove non passano la verifica; quella di lettura attuale ora non funziona."
       },
       "revoke": {
         "title": "Revocare l'accesso SSH a {{code}}?",

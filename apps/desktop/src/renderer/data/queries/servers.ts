@@ -185,6 +185,16 @@ export function useInstallCommand(code: string | undefined, enabled: boolean) {
   });
 }
 
+/** Il comando di rimozione dopo una revoca (solo `servers.ssh.manage`, solo `revoked`). */
+export function useRemovalCommand(code: string | undefined, enabled: boolean) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.serverRemovalCommand(me, code ?? ""),
+    queryFn: () => api.servers.getRemovalCommand(code!),
+    enabled: enabled && !!code,
+  });
+}
+
 /**
  * Le scritture degli accessi SSH (Task 4). Cambiano il dettaglio (area
  * «servers», compreso il comando); la revoca ferma anche la correzione viva

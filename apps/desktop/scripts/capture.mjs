@@ -955,6 +955,19 @@ async function main() {
         await p.getByRole("dialog").waitFor();
         await p.waitForTimeout(300);
       } }],
+      // R-L8: con la sola lettura funzionante si promette solo quella.
+      ["access-regenerating-partial", "/p/ACQ/servers/SRV-1", { persona: "Roberta", steps: async (p) => {
+        await p.locator("[data-prototype-only]").filter({ hasText: /Next verification|Prossima verifica/ }).locator("select").selectOption("fix_fails");
+        await p.waitForTimeout(300);
+        await p.locator("#server-access [aria-haspopup='menu']").click();
+        await p.getByRole("menuitem", { name: /^(Verify again|Verifica di nuovo)$/ }).click();
+        await p.waitForTimeout(600);
+        await p.locator("#server-access [aria-haspopup='menu']").click();
+        await p.getByRole("menuitem", { name: /^(Regenerate keys|Rigenera le chiavi)/ }).click();
+        await p.getByRole("dialog").getByRole("button", { name: /^(Regenerate|Rigenera)$/ }).click();
+        await p.locator("#server-access [data-command]").waitFor();
+        await scrollTo("access")(p);
+      } }],
       ["access-regenerating", "/p/ACQ/servers/SRV-1", { persona: "Roberta", steps: async (p) => {
         await p.locator("#server-access [aria-haspopup='menu']").click();
         await p.getByRole("menuitem", { name: /^(Regenerate keys|Rigenera le chiavi)/ }).click();

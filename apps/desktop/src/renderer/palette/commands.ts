@@ -1,4 +1,5 @@
 import type { Viewer } from "../data/types";
+import type { AccessState } from "../domain/servers/sshAccess";
 import { fold } from "../pages/chat/search";
 import { can } from "../data/viewer";
 import type { ThemePreference } from "../theme/theme";
@@ -35,6 +36,8 @@ export interface CommandScope {
   projectCode?: string;
   /** Il server aperto, sul suo dettaglio. */
   serverCode?: string;
+  /** Lo stato dell'accesso SSH del server aperto, come lo dice il livello dati (assente finché non è letto). */
+  serverAccessState?: AccessState;
 }
 
 export interface Command {
@@ -140,15 +143,22 @@ export const COMMANDS: readonly Command[] = [
   },
   {
     // Sul dettaglio di un server, a chi gestisce gli accessi SSH (shape
-    // server-access.md §4): porta alla parte «SSH access». R-L9: Claude non
-    // ha mai `servers.ssh.manage`.
+    // server-access.md §4): porta alla parte «SSH access». Solo se l'accesso
+    // non è già verificato (in rigenerazione le chiavi in uso lo sono):
+    // altrimenti non c'è niente da collegare. R-L9: Claude non ha mai
+    // `servers.ssh.manage`.
     id: "server.linkSsh",
     labelKey: "palette.commands.linkSsh",
     run: (ctx) => {
       if (ctx.projectCode && ctx.serverCode)
         ctx.navigate(`/p/${ctx.projectCode}/servers/${ctx.serverCode}?section=access`);
     },
-    when: (viewer, scope) => !!scope.serverCode && can(viewer, "servers.ssh.manage"),
+    when: (viewer, scope) =>
+      !!scope.serverCode &&
+      scope.serverAccessState !== undefined &&
+      scope.serverAccessState !== "verified" &&
+      scope.serverAccessState !== "regenerating" &&
+      can(viewer, "servers.ssh.manage"),
   },
   {
     id: "chat.goTo",

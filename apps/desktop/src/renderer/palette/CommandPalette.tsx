@@ -13,6 +13,7 @@ import { useTranslation } from "react-i18next";
 import {
   useAutomationSearch,
   useReleaseSearch,
+  useServer,
   useServerSearch,
   useSupportSearch,
   useChatChannels,
@@ -261,6 +262,8 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   const docsRepo = /^\/p\/[^/]+\/docs\/([^/]+)/.exec(pathname)?.[1];
   // Il server aperto (`/p/ACQ/servers/SRV-1`): «Link SSH access to SRV-1».
   const serverCode = /^\/p\/[^/]+\/servers\/(SRV-\d+)/i.exec(pathname)?.[1]?.toUpperCase();
+  // Il suo accesso SSH: «Link SSH access» solo se non è già verificato.
+  const serverAccessState = useServer(serverCode).data?.access.state;
   const docsRepoName = docsRepo ? decodeURIComponent(docsRepo) : null;
   const scopeProject = projectList?.find((p) => p.code === projectCode);
   const scopeSpaces = useDocSpaces(scopeProject?.id ?? "", {
@@ -686,6 +689,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       projectId: scopeProject?.id,
       projectCode,
       serverCode,
+      serverAccessState,
     });
     const quoting = (cmd: Command) =>
       !!needle && !!cmd.queryLabelKey && !fold(labelOf(cmd)).includes(needle);
@@ -751,6 +755,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     router,
     projectCode,
     pathname,
+    serverAccessState,
     savedFilters.data,
     channels.data,
     projectList,
