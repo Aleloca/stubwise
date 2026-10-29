@@ -367,13 +367,17 @@ describe("destinatari e catalogo", () => {
   });
 
   it("gli avvisi server del seme seguono i default del catalogo (e mai Claude)", async () => {
-    // La diagnosi di ACQ arriva a Marco (`servers.operate` su ACQ). In STW e
-    // AUD nessun membro ha `servers.operate`: con i default del catalogo
-    // («Iscrizioni di partenza secondo i default») quegli avvisi non li
-    // riceve nessuno finché qualcuno non si iscrive.
+    // La diagnosi di ACQ arriva a Marco (`servers.operate` su ACQ). R-L10:
+    // ogni avviso server arriva anche al full admin, membro o no (Roberta
+    // non è membro di ACQ, STW né AUD).
     const ready = SERVER_ALERT_NOTIFICATIONS.find((n) => n.kind === "server.diagnosis_ready")!;
     expect((await inbox("p-marco")).map((n) => n.id)).toContain(ready.id);
-    for (const n of SERVER_ALERT_NOTIFICATIONS) expect(whyReceives("p-claude", n)).toBeNull();
+    const roberta = (await inbox("p-roberta")).map((n) => n.id);
+    for (const n of SERVER_ALERT_NOTIFICATIONS) {
+      expect(state.projectsById.get(n.projectId!)!.memberIds).not.toContain("p-roberta");
+      expect(roberta, n.kind).toContain(n.id);
+      expect(whyReceives("p-claude", n)).toBeNull();
+    }
     // Iscrivendosi alla riga «server» si ricevono.
     as("p-laura");
     await alerts.setSubscription("prj-stw", "server.trouble", { app: true, phone: false });
@@ -458,5 +462,130 @@ describe("generazione dello stato, errori, guardie", () => {
     ).toBe("invalid: severity");
     expect(await message(servers.simulateServerRecovery("SRV-1"))).toBe("invalid: state");
     expect(state.serverEpisodes.length).toBe(before);
+  });
+});
+
+describe("R-L10: il full admin riceve gli avvisi dei server coi default", () => {
+  it("Roberta (non membro di STW) riceve `server.trouble` di STW e lo può spegnere", async () => {
+    const trouble = SERVER_ALERT_NOTIFICATIONS.find((n) => n.kind === "server.trouble")!;
+    expect(trouble.projectId).toBe("prj-stw");
+    expect(whyReceives("p-roberta", trouble)).toBe("subscribed");
+    const stw = (await alerts.subscriptionRows()).find((p) => p.projectId === "prj-stw")!;
+    expect(stw.rows.find((r) => r.type === "server.trouble")).toMatchObject({ state: "on" });
+
+    await alerts.setSubscription("prj-stw", "server.trouble", { app: false });
+    // Spegnere vale per il futuro: il rientro di SRV-2 non le arriva più.
+    await servers.simulateServerRecovery("SRV-2");
+    expect(whyReceives("p-roberta", published("server.recovered", "SRV-2")[0]!)).toBeNull();
+    const after = (await alerts.subscriptionRows()).find((p) => p.projectId === "prj-stw")!;
+    expect(after.rows.find((r) => r.type === "server.trouble")).toMatchObject({ state: "off" });
+  });
+
+  it("l'opzione è solo dei tipi server: gli altri restano spenti per il full admin non membro", () => {
+    expect(alertTypeOf("server.trouble")!.defaultForFullAdmins).toBe(true);
+    expect(alertTypeOf("server.diagnosis_ready")!.defaultForFullAdmins).toBe(true);
+    expect(alertTypeOf("monitor.alert")!.defaultForFullAdmins).toBeUndefined();
+    const monitorAlert = state.notifications.find(
+      (n) => n.kind === "monitor.alert" && n.projectId === ACQ,
+    )!;
+    expect(whyReceives("p-roberta", monitorAlert)).toBeNull();
+  });
+});
+
+describe("R-L9: Claude lavora in ogni progetto, anche in quelli creati dall'app", () => {
+  it("in un progetto nuovo l'analisi parte e apre la task", async () => {
+    const p = await createProject({ code: "NEWP", name: "New production", template: "software" });
+    expect(state.projectsById.get(p.id)!.memberIds).not.toContain("p-claude");
+    const env = await releases.createEnvironment(p.id, {
+      name: "Production",
+      kind: "production",
+      url: null,
+      servers: [],
+    });
+    const { server } = await servers.createServer({ name: "newp-prod-01", environmentId: env.id });
+    await servers.linkSshAccess(server.code);
+    await servers.verifySshAccess(server.code);
+    await servers.simulateServerAlert(server.code, "cpu");
+    await whenAnalysesIdle();
+    const a = onlyAnalysis(server.code);
+    expect(a).toMatchObject({ projectId: p.id, outcome: "diagnosed" });
+    expect(taskOf(a)).toMatchObject({ projectId: p.id, createdById: "p-claude", source: "server" });
+    expect(published("server.trouble", server.code)[0]!.body).toMatch(/Claude is looking into it/);
+    // La membership mostrata non cambia: Claude è membro implicito, non scritto.
+    expect(state.projectsById.get(p.id)!.memberIds).not.toContain("p-claude");
+  });
+});
+
+describe("analisi ai bordi (fix round 1)", () => {
+  it("la task che non si apre: l'analisi finisce `failed`, mai `running`, e il server si toglie", async () => {
+    // Nessuno stato «da fare» in ACQ: `createTaskAs` rifiuta.
+    state.statuses = state.statuses.filter((s) => !(s.projectId === ACQ && s.family === "todo"));
+    await servers.simulateServerAlert("SRV-1", "memory");
+    await whenAnalysesIdle();
+    const a = onlyAnalysis("SRV-1");
+    expect(a.outcome).toBe("failed");
+    expect(a.taskId).toBeNull();
+    expect(sessionOf(a)).toMatchObject({ state: "finished", outcome: "failed" });
+    expect(sessionOf(a).failureSummary).toMatch(/invalid: status/);
+    expect(await message(servers.deleteServer("SRV-1"))).toBe("ok");
+  });
+
+  it("un allarme su un episodio aperto ad analisi finita lascia una traccia nella task", async () => {
+    await servers.simulateServerAlert("SRV-1", "memory");
+    await whenAnalysesIdle();
+    const task = taskOf(onlyAnalysis("SRV-1"));
+    await servers.simulateServerAlert("SRV-1", "disk");
+    expect(task.description).toMatch(/\*\*New alert\*\* — disk at 96% \(alert at 90%\)\./);
+    await servers.simulateServerAlert("SRV-1", "agent_silent", { severity: "down" });
+    expect(task.description).toMatch(/the agent stopped reporting; the server stopped responding/);
+    // Nessuna analisi e nessun avviso nuovi.
+    expect(newAnalyses("SRV-1")).toHaveLength(1);
+    expect(published("server.trouble", "SRV-1")).toHaveLength(1);
+    expect(published("server.down", "SRV-1")).toHaveLength(0);
+  });
+
+  it("una revoca durante l'analisi la ferma: nessuna lettura dopo, task «Stopped»", async () => {
+    setStreamLatency(20);
+    await servers.simulateServerAlert("SRV-1", "memory");
+    await vi.waitFor(() => expect(newAnalyses("SRV-1")).toHaveLength(1), FAST);
+    const a = onlyAnalysis("SRV-1");
+    await vi.waitFor(() => expect(actionsOf(a.conversationId).length).toBeGreaterThan(0), FAST);
+    await servers.revokeSshAccess("SRV-1");
+    const readsAtRevoke = actionsOf(a.conversationId).length;
+    await whenAnalysesIdle();
+    expect(a.outcome).toBe("stopped");
+    expect(sessionOf(a)).toMatchObject({ state: "finished", outcome: "failed" });
+    expect(actionsOf(a.conversationId).length).toBe(readsAtRevoke);
+    expect(actionsOf(a.conversationId).every((x) => x.state !== "running")).toBe(true);
+    expect(taskOf(a).description).toMatch(/\*\*Stopped\*\* — the read-only SSH access stopped/);
+  });
+
+  it("una «lettura che scrive» durante l'analisi la ferma alla lettura successiva", async () => {
+    setStreamLatency(20);
+    await servers.simulateServerAlert("SRV-1", "memory");
+    await vi.waitFor(() => expect(newAnalyses("SRV-1")).toHaveLength(1), FAST);
+    const a = onlyAnalysis("SRV-1");
+    await vi.waitFor(() => expect(actionsOf(a.conversationId).length).toBeGreaterThan(0), FAST);
+    await servers.simulateSshVerifyOutcome("SRV-1", "read_writes");
+    await servers.verifySshAccess("SRV-1");
+    await whenAnalysesIdle();
+    expect(a.outcome).toBe("stopped");
+    expect(actionsOf(a.conversationId).length).toBeLessThan(5);
+  });
+
+  it("rientro prima della prima lettura: nessuna diagnosi inventata, nessun uso registrato", async () => {
+    const lastUse = structuredClone(state.serverAccess.get("SRV-1")!.lastUse);
+    setStreamLatency(20);
+    await servers.simulateServerAlert("SRV-1", "memory");
+    await servers.simulateServerRecovery("SRV-1");
+    await whenAnalysesIdle();
+    const a = onlyAnalysis("SRV-1");
+    expect(actionsOf(a.conversationId)).toHaveLength(0);
+    expect(a.outcome).toBe("stopped");
+    expect(sessionOf(a)).toMatchObject({ state: "finished", outcome: "ok" });
+    const task = taskOf(a);
+    expect(task.description).toMatch(/Back to normal before Claude looked/);
+    expect(task.description).not.toMatch(/\*\*Diagnosis\*\*/);
+    expect(state.serverAccess.get("SRV-1")!.lastUse).toEqual(lastUse);
   });
 });

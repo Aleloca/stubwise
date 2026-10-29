@@ -8,7 +8,8 @@ import type { Permission } from "../viewer";
 //
 // Li può ricevere ogni membro del progetto (la sezione Servers la vede ogni
 // membro); di partenza sono accesi per chi può operare sui server
-// (`servers.operate`), che è anche chi può avviare una correzione. Claude
+// (`servers.operate`), che è anche chi può avviare una correzione, e per
+// ogni full admin, membro del progetto o no (R-L10). Claude
 // non li riceve mai (R-K5): lo esclude la lettura (`canReceive`).
 //
 // Scelta del piano: `monitor.alert` e `monitor.recovered` (i kind di prima,
@@ -27,6 +28,7 @@ function serverRow(type: string, defaultPhone: boolean, extra: Partial<AlertType
     labelKey: label(type),
     subscribe: { perm: "member" },
     defaultOn: operates,
+    defaultForFullAdmins: true,
     defaultPhone,
     mandatory: [],
     ...extra,

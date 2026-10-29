@@ -1,5 +1,11 @@
-import { isCatalogKind, resetAlertTypes } from "../../domain/alerts/catalog";
 import {
+  alertTypeOf,
+  isCatalogKind,
+  resetAlertTypes,
+  type AlertType,
+} from "../../domain/alerts/catalog";
+import {
+  defaultApplies,
   whyFor,
   type Perms,
   type Recipient,
@@ -36,6 +42,19 @@ export const permsIn =
 export const isMember = (personId: string, projectId: string): boolean =>
   state.projectsById.get(projectId)?.memberIds.includes(personId) ?? false;
 
+/** I full admin di adesso (mai Claude). */
+export const fullAdminIds = (): string[] =>
+  PEOPLE.filter(
+    (p) => !p.isClaude && viewerFor(p.id).instancePermissions.includes("instance.full_admin"),
+  ).map((p) => p.id);
+
+/** Se il default di un tipo vale per la persona nel progetto (R-L10: anche full admin, per i tipi che lo dicono). */
+export const defaultAppliesTo = (personId: string, projectId: string, def: AlertType): boolean =>
+  defaultApplies(def, personId, {
+    members: state.projectsById.get(projectId)?.memberIds ?? [],
+    fullAdmins: def.defaultForFullAdmins ? fullAdminIds() : [],
+  });
+
 /** Un avviso coi destinatari calcolati: un kind del catalogo, in un progetto. */
 export const isComputed = (n: AppNotification): n is AppNotification & { projectId: string } =>
   n.projectId !== null && isCatalogKind(n.kind);
@@ -46,6 +65,7 @@ const contextOf = (n: AppNotification & { projectId: string }): RecipientContext
   subs: state.alertSubscriptions.filter((s) => s.projectId === n.projectId && s.type === n.kind),
   permsOf: (personId) => permsIn(personId, n.projectId),
   seesProject: (personId) => canReceive(personId, n.projectId),
+  fullAdmins: alertTypeOf(n.kind)?.defaultForFullAdmins ? fullAdminIds() : [],
 });
 
 /**

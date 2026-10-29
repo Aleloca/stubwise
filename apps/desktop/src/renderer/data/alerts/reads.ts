@@ -9,7 +9,7 @@ import { allowedNow, latest, subscriptionAt, type Channels } from "../../domain/
 import { chatKey, gate, now, state, visibleProjectIds } from "../store";
 import type { AppNotification, MandatoryReason } from "../types";
 import type { Permission } from "../viewer";
-import { canReceive, isMember, permsIn, whyReceives } from "./visibility";
+import { canReceive, defaultAppliesTo, permsIn, whyReceives } from "./visibility";
 
 // Le letture degli avvisi: le iscrizioni di chi guarda (Preferenze →
 // Notifiche e popover del progetto) e la forma con cui un avviso arriva a
@@ -51,7 +51,7 @@ export function currentChannels(personId: string, projectId: string, def: AlertT
     def,
     permsIn(personId, projectId),
     latest(now()),
-    isMember(personId, projectId),
+    defaultAppliesTo(personId, projectId, def),
   );
 }
 

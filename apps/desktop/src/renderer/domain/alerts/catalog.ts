@@ -49,6 +49,12 @@ export interface AlertType {
    * default, così il passaggio non cambia ciò che ognuno riceve.
    */
   sameRowAs?: string;
+  /**
+   * Il default vale anche per i full admin che non sono membri del progetto
+   * (R-L10, area 8b: gli avvisi dei server). Senza, un non membro parte
+   * spento; con, il full admin parte come un membro coi suoi permessi.
+   */
+  defaultForFullAdmins?: boolean;
 }
 
 const members = () => true;

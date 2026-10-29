@@ -80,7 +80,18 @@ export interface RecipientContext {
   subs: AlertSubscription[];
   permsOf(personId: string): Perms;
   seesProject(personId: string): boolean;
+  /** I full admin dell'istanza: contano come membri per i tipi `defaultForFullAdmins` (R-L10). */
+  fullAdmins?: string[];
 }
+
+/** Se il default del tipo vale per la persona: un membro, o un full admin per i tipi che lo dicono. */
+export const defaultApplies = (
+  def: AlertType,
+  personId: string,
+  ctx: Pick<RecipientContext, "members" | "fullAdmins">,
+): boolean =>
+  ctx.members.includes(personId) ||
+  (def.defaultForFullAdmins === true && (ctx.fullAdmins ?? []).includes(personId));
 
 export interface Recipient {
   personId: string;
@@ -96,6 +107,7 @@ export function recipientsOf(n: AppNotification, ctx: RecipientContext): Recipie
   const candidates = new Set([
     ...(n.mandatory ?? []).map((m) => m.personId),
     ...ctx.members,
+    ...(alertTypeOf(n.kind)?.defaultForFullAdmins ? (ctx.fullAdmins ?? []) : []),
     ...ctx.subs.map((s) => s.personId),
   ]);
   const out: Recipient[] = [];
@@ -131,7 +143,7 @@ export function whyFor(
   if (!allowedNow(def, perms, ctx.seesProject(personId))) return null;
   if (mandatory) return mandatory.reason;
   if (def.mandatoryOnly) return null;
-  const member = ctx.members.includes(personId);
+  const member = defaultApplies(def, personId, ctx);
   const sub = ctx.subs.find((s) => s.personId === personId && s.type === n.kind);
   if (!member && !sub) return null;
   return subscriptionAt(sub, def, perms, { at: n.createdAt, seq: n.seq }, member).app

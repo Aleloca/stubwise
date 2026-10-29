@@ -2746,7 +2746,13 @@ export interface ServerAnalysis {
   episodeId: string;
   projectId: string;
   conversationId: string;
-  outcome: "running" | "diagnosed" | "unreachable" | "timed_out";
+  /**
+   * `stopped`: finita senza diagnosi, perché il server è rientrato prima
+   * della prima lettura o perché l'accesso di lettura ha smesso di essere
+   * usabile (revoca, lettura che scrive); la task c'è e lo dice. `failed`:
+   * la task non si è potuta aprire (la sessione dice perché).
+   */
+  outcome: "running" | "diagnosed" | "unreachable" | "timed_out" | "stopped" | "failed";
   taskId: string | null;
   startedAt: string;
   endedAt: string | null;

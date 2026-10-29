@@ -9,7 +9,7 @@ import {
 import { createContext, createElement, useContext, useMemo, useState, type ReactNode } from "react";
 import { DEPARTMENT_ROLES } from "./seed/departmentRoles";
 import { SEED_INSTANCE_GRANTS, SEED_PROJECT_GRANTS } from "./seed/grants";
-import { PEOPLE } from "./seed/people";
+import { CLAUDE_ID, PEOPLE } from "./seed/people";
 import { GIULIA_LEAD_CODES, PROJECTS } from "./seed/projects";
 import { clearToasts } from "../tasks-ui/Toast";
 import { DEFAULT_SESSION_PERSON_ID, runBeforePersonaChange, setSessionPersonId } from "./session";
@@ -115,6 +115,36 @@ function projectPermsOf(key: string): AnyProjectPermission[] {
     ...(LOCAL_PROJECT_PERMISSIONS[key] ?? []),
   ];
 }
+
+/**
+ * Quello che Claude non ha MAI, in nessun progetto (R-L9): le decisioni
+ * (approvare un piano, fare merge, operare sui server) e la gestione del
+ * progetto (impostazioni, membri, repository, ambienti, widget, moderazione).
+ * `servers.ssh.manage` e `monitor.manage` sono d'istanza: Claude ha il
+ * preset User, che non li contiene.
+ */
+const CLAUDE_NEVER: ReadonlySet<string> = new Set([
+  "plans.approve",
+  "release.merge",
+  "servers.operate",
+  "project.settings.manage",
+  "project.members.manage",
+  "repos.manage",
+  "environments.manage",
+  "widget.manage",
+  "tickets.moderate",
+  "automations.manage",
+]);
+
+/**
+ * I permessi di Claude in ogni progetto, membro o no (R-L9, maintainer:
+ * «Claude ha sempre accesso a TUTTI i progetti»): quelli di lavoro del
+ * Developer — vedere, aprire task, avviare i run, leggere i repository —
+ * senza nessuno di `CLAUDE_NEVER`. Gli avvisi non gli arrivano comunque (R-K5).
+ */
+const CLAUDE_PROJECT_PERMISSIONS: ReadonlySet<AnyProjectPermission> = new Set(
+  projectPermsOf("developer").filter((p) => !CLAUDE_NEVER.has(p)),
+);
 
 /** I permessi del ruolo più le concessioni del seme della persona su quel progetto (area 8b). */
 function projectPermsWithGrants(
@@ -384,6 +414,10 @@ const isFullAdmin = (viewer: Viewer) => viewer.instancePermissions.includes("ins
  */
 export function can(viewer: Viewer, perm: Permission, projectId?: string): boolean {
   if (isFullAdmin(viewer)) return true;
+  // R-L9: Claude è membro implicito di OGNI progetto (anche di quelli creati
+  // dall'app), coi soli permessi di lavoro.
+  if (viewer.personId === CLAUDE_ID && !INSTANCE_SET.has(perm) && perm !== "department.home.manage")
+    return CLAUDE_PROJECT_PERMISSIONS.has(perm as AnyProjectPermission);
   if (INSTANCE_SET.has(perm) && !(BOTH_LEVELS.has(perm) && projectId !== undefined))
     return viewer.instancePermissions.includes(
       perm as InstancePermission | LocalInstancePermission,

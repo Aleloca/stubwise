@@ -417,3 +417,45 @@ describe("permessi dei server (area 8b)", () => {
     expect(can(byPerson("p-laura"), "servers.operate", ACQ)).toBe(false);
   });
 });
+
+describe("R-L9: Claude, membro implicito di ogni progetto coi soli permessi di lavoro", () => {
+  const ACQ = "prj-acq";
+  const claude = () => viewerFor("p-claude");
+  // Un progetto che non è nel seme (creato dall'app), e uno del seme di cui non è membro.
+  const projects = [
+    "prj-created-in-app",
+    PROJECTS.find((p) => !p.memberIds.includes("p-claude"))!.id,
+  ];
+
+  it("lavora: vede, apre task, avvia i run, legge i repository", () => {
+    for (const id of projects)
+      for (const perm of [
+        "tickets.view_all",
+        "tickets.create",
+        "runs.start",
+        "repos.view",
+      ] as const)
+        expect(can(claude(), perm, id), `${perm} ${id}`).toBe(true);
+  });
+
+  it("non decide mai: niente approvazione, merge, server, gestione di progetto e membri", () => {
+    const never = [
+      "plans.approve",
+      "release.merge",
+      "servers.operate",
+      "project.settings.manage",
+      "project.members.manage",
+      "environments.manage",
+      "repos.manage",
+    ] as const;
+    for (const id of [...projects, ACQ]) {
+      for (const perm of never) expect(can(claude(), perm, id), `${perm} ${id}`).toBe(false);
+    }
+    expect(can(claude(), "servers.ssh.manage")).toBe(false);
+    expect(can(claude(), "monitor.manage")).toBe(false);
+    // Nemmeno una concessione la sblocca.
+    grantProjectPermission("p-claude", ACQ, "servers.operate");
+    expect(can(claude(), "servers.operate", ACQ)).toBe(false);
+    resetViewerGrants();
+  });
+});

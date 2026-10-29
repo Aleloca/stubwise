@@ -20,6 +20,7 @@ import { INITIAL_PINNED_FILTERS, SAVED_FILTERS } from "./seed/filters";
 import { DAY_ARRANGEMENTS, DEPARTMENT_HOMES, PERSONAL_HOMES } from "./seed/homes";
 import { MILESTONES } from "./seed/milestones";
 import { NOTIFICATIONS } from "./seed/notifications";
+import { CLAUDE_ID } from "./seed/people";
 import { INITIAL_PINNED_CODES, PROJECTS } from "./seed/projects";
 import { REQUESTS } from "./seed/requests";
 import { PROJECT_STATUSES } from "./seed/statuses";
@@ -1027,10 +1028,11 @@ export function slipWeeks(): void {
 
 // --- visibilità e derivati (come sul server) --------------------------------
 
-/** I progetti che una persona vede: quelli di cui è membro, o tutti se è full admin. */
+/** I progetti che una persona vede: quelli di cui è membro, o tutti se è full admin (o Claude, R-L9). */
 export function visibleProjectIds(personId: string): Set<string> {
   const viewer = viewerFor(personId);
-  if (viewer.instancePermissions.includes("instance.full_admin")) {
+  // R-L9: Claude è membro implicito di ogni progetto, anche di quelli creati dall'app.
+  if (viewer.instancePermissions.includes("instance.full_admin") || personId === CLAUDE_ID) {
     return new Set(state.projects.map((p) => p.id));
   }
   return new Set(state.projects.filter((p) => p.memberIds.includes(personId)).map((p) => p.id));
