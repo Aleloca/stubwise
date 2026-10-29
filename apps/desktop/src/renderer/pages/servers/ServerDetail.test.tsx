@@ -300,6 +300,20 @@ describe("gestione: solo con monitor.manage", () => {
     ).toEqual(["STW · Stubwise", "ACQ · Portale utenti Acquedotto delle Colline"]);
   });
 
+  it("salvare solo il nome non scrive il principale se non è cambiato (principale non impostato)", async () => {
+    const row = { repositoryId: null, serverCode: "SRV-1", reportedSha: null, reportedAt: null };
+    state.environments.find((e) => e.id === "env-stw-prod")!.servers.push({ ...row });
+    server("SRV-1").primaryProjectId = null;
+    const user = userEvent.setup();
+    await open("/p/ACQ/servers/SRV-1", "p-roberta");
+    const name = within(part("Settings")).getByRole("textbox", { name: "Name" });
+    await user.clear(name);
+    await user.type(name, "acq-prod-renamed");
+    await user.click(within(part("Settings")).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(server("SRV-1").name).toBe("acq-prod-renamed"));
+    expect(server("SRV-1").primaryProjectId).toBeNull();
+  });
+
   it("Roberta: aggiunge un controllo dal dialogo, lo sospende, lo cancella a due tempi", async () => {
     const user = userEvent.setup();
     await open("/p/ACQ/servers/SRV-1", "p-roberta");

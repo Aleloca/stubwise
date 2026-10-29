@@ -8,6 +8,7 @@ import {
   startRunAs,
 } from "../api-mutations";
 import { shortRepo } from "../../domain/releases/repo";
+import { alertProjectsOf } from "../../domain/servers/projects";
 import { publishAlert } from "../alerts/publish";
 import { PEOPLE } from "../seed/people";
 import { copy, latestRunOf, newId, now, state, storeGeneration } from "../store";
@@ -491,6 +492,7 @@ export async function updateEnvironment(
   if (patch.kind !== undefined) env.kind = patch.kind;
   if (patch.url !== undefined) env.url = patch.url?.trim() || null;
   if (patch.servers !== undefined) env.servers = serverRows(env.servers, patch.servers);
+  dropStalePrimaries();
   return copy(env);
 }
 
@@ -499,4 +501,17 @@ export async function deleteEnvironment(id: string): Promise<void> {
   const env = environmentFor(me, id);
   if (!holds(me, "environments.manage", env.projectId)) throw forbidden();
   state.environments = state.environments.filter((e) => e.id !== id);
+  dropStalePrimaries();
+}
+
+/**
+ * Il progetto principale di un server è una delle produzioni che lo usano:
+ * tolto il server da quella produzione (riga o ambiente), il principale si
+ * azzera e l'analisi ricade sulla prima produzione rimasta (`analysisProjectOf`).
+ */
+function dropStalePrimaries(): void {
+  for (const s of state.servers) {
+    if (s.primaryProjectId && !alertProjectsOf(s.code, state.environments).includes(s.primaryProjectId))
+      s.primaryProjectId = null;
+  }
 }

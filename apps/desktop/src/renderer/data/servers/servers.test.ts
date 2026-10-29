@@ -537,6 +537,21 @@ describe("R-L7: un server orfano lo vede chi ha monitor.manage", () => {
     await servers.deleteServer("SRV-1");
     expect(server("SRV-1")).toBeUndefined();
   });
+
+  it("tolto l'ambiente di produzione, il principale che non usa più il server si azzera", async () => {
+    expect(server("SRV-1")!.primaryProjectId).toBe("prj-acq");
+    as("p-roberta");
+    await releases.deleteEnvironment("env-acq-prod");
+    expect(server("SRV-1")!.primaryProjectId).toBeNull();
+    // Gli altri server restano col loro principale.
+    expect(server("SRV-2")!.primaryProjectId).toBe("prj-stw");
+  });
+
+  it("tolta la riga dalla produzione con updateEnvironment, lo stesso", async () => {
+    as("p-roberta");
+    await releases.updateEnvironment("env-acq-prod", { servers: [] });
+    expect(server("SRV-1")!.primaryProjectId).toBeNull();
+  });
 });
 
 describe("simulatore", () => {

@@ -175,7 +175,11 @@ export function ServerSettings({
         patch: {
           name: draft.name,
           sampleIntervalSeconds: interval,
-          ...(server.productionProjects.length > 1 && draft.primary
+          // Solo se cambiato: il valore di partenza può essere la ricaduta sulla
+          // prima produzione (principale non impostato, o invisibile a chi guarda).
+          ...(server.productionProjects.length > 1 &&
+          draft.primary &&
+          draft.primary !== current.primary
             ? { primaryProjectId: draft.primary }
             : {}),
         },
