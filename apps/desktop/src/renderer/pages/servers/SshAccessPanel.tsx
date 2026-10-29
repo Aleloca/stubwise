@@ -440,7 +440,9 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
         <div className="flex flex-col gap-4 border-t border-rule pt-3 pl-3">
           <p className="text-md text-ink-muted">{t("servers.ssh.intro", { code })}</p>
           {body}
-          {manage && (
+          {/* Le chiavi pubbliche contano solo dove c'è (o ci sarà) un comando
+              d'installazione: non dopo una revoca, né sotto il comando di rimozione. */}
+          {manage && a.state !== "revoked" && (
             <p className="max-w-[760px] text-xs text-ink-muted">
               {t("servers.ssh.command.publicOnly")}
             </p>
@@ -469,7 +471,8 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
           />
         )}
       </Part>
-      {manage && (
+      {/* Revocato non c'è niente da verificare finché non si ricollega. */}
+      {manage && (a.state !== "revoked" || relinking) && (
         <SshSimulateBox
           value={next}
           onChange={(outcome) => {

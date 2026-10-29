@@ -122,7 +122,7 @@ export function AccessRows({ access, code }: { access: Access; code: string }) {
         return (
           <li
             key={kind}
-            className="grid grid-cols-[minmax(0,1fr)] gap-x-6 gap-y-1 border-b border-rule py-2.5 last:border-b-0 @[600px]:grid-cols-[minmax(0,180px)_minmax(0,200px)_minmax(0,1fr)]"
+            className="grid grid-cols-[minmax(0,1fr)] gap-x-6 gap-y-1 border-b border-rule py-2.5 last:border-b-0 @[600px]:grid-cols-[minmax(0,180px)_minmax(0,1fr)_auto]"
           >
             <span className="flex flex-wrap items-baseline gap-x-2">
               <span className="text-md font-medium text-ink">{t(`servers.ssh.rows.${kind}`)}</span>

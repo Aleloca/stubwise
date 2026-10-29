@@ -56,7 +56,7 @@ export function ServersPage({ projectCode }: { projectCode: string }) {
   return (
     <section className="flex min-h-full flex-col pb-16 pl-8">
       <div className="flex w-full max-w-[1120px] flex-col gap-8 pr-8">
-        <header className="page-header flex shrink-0 items-start gap-4 [--page-header-pr:32px] [--page-header-pt:32px]">
+        <header className="page-header flex shrink-0 items-start gap-4 [--page-header-pr:0px] [--page-header-pt:32px]">
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">
             <h1 className="text-2xl font-semibold text-ink">{t("servers.title")}</h1>
             <p className="max-w-[72ch] text-md text-ink-muted">

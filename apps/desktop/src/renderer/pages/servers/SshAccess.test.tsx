@@ -310,6 +310,10 @@ describe("Rigenera e Revoca", () => {
     expect(removal).toHaveTextContent("Stubwise: SRV-1 accesses removed.");
     expect(removal.textContent).not.toMatch(/accessi|rimoss|rimozione/);
     expect(within(removal).getByRole("button", { name: "Copy the command" })).toBeInTheDocument();
+    // Il comando di rimozione non ha chiavi: niente frase sulle chiavi pubbliche,
+    // e revocato non c'è niente da verificare (niente «Next verification»).
+    expect(access()).not.toHaveTextContent("Private keys are encrypted and never shown.");
+    expect(screen.queryByText(/Next verification/)).toBeNull();
     await user.click(within(access()).getByRole("button", { name: "Done" }));
 
     await waitFor(() =>
@@ -326,6 +330,7 @@ describe("Rigenera e Revoca", () => {
     await user.keyboard("{Escape}");
     await user.click(within(access()).getByRole("button", { name: "Link again" }));
     expect(within(access()).getByRole("button", { name: "Link SSH access" })).toBeInTheDocument();
+    expect(screen.getByText(/Next verification/)).toBeInTheDocument();
   });
 });
 

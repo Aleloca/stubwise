@@ -99,6 +99,9 @@ describe("testata e «Now»", () => {
     ).toBeInTheDocument();
     expect(within(now).getByText("Claude can't look into it: no SSH access.")).toBeInTheDocument();
     expect(within(now).getByRole("link", { name: "Link SSH access" })).toBeInTheDocument();
+    // Nella riga del controllo il bersaglio resta accanto all'errore (T7 m9).
+    const replica = part("Checks").querySelector("[data-check='Replica port'] [data-check-target]");
+    expect(replica).toHaveTextContent("10.0.4.12:5433— connection refused");
     // Roberta gestisce gli accessi: la parte si apre sul primo passo (Task 8).
     expect(
       within(part("SSH access")).getByRole("button", { name: "Link SSH access" }),

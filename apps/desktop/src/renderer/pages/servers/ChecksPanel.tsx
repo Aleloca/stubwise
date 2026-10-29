@@ -217,11 +217,17 @@ function CheckRow({
           {check.name}
         </span>
         <span className="text-ink-muted">{t(`servers.checks.types.${check.type}`)}</span>
+        {/* Bersaglio e ultimo errore insieme (shape §7); il bersaglio resta
+            leggibile, l'errore prende l'ellissi. */}
         <span
-          className="num truncate text-ink-muted"
-          title={check.lastError ? `${check.target} · ${check.lastError}` : check.target}
+          data-check-target
+          className="num flex min-w-0 items-baseline gap-1 text-ink-muted"
+          title={check.lastError ? `${check.target} — ${check.lastError}` : check.target}
         >
-          {check.lastError ? check.lastError : check.target}
+          <span className="max-w-full shrink-0 truncate">{check.target}</span>
+          {check.lastError && (
+            <span className="min-w-0 truncate text-ink">— {check.lastError}</span>
+          )}
         </span>
         <span className="num text-ink-muted">
           {t("servers.checks.every", { n: check.intervalSeconds })}

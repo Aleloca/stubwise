@@ -170,13 +170,18 @@ function Page({ server, projectCode }: { server: Detail; projectCode: string }) 
             <span className="line-clamp-2 [overflow-wrap:anywhere]">{server.name}</span>
             <span className="num text-2xl font-semibold text-ink-muted">{server.code}</span>
           </h1>
+          {/* Il «·» chiude l'elemento che precede: andando a capo, una riga
+              non comincia mai col separatore. */}
           <p className="num flex flex-wrap items-center gap-x-1.5 text-sm text-ink-muted">
-            <HealthGlyph health={server.health.health} />
-            <span className="font-semibold text-ink">{word}</span>
-            {meta.map((m) => (
+            <span className="flex items-center gap-1.5">
+              <HealthGlyph health={server.health.health} />
+              <span className="font-semibold text-ink">{word}</span>
+              {meta.length > 0 && <span aria-hidden="true">·</span>}
+            </span>
+            {meta.map((m, i) => (
               <span key={m} className="flex items-center gap-1.5">
-                <span aria-hidden="true">·</span>
                 <span>{m}</span>
+                {i < meta.length - 1 && <span aria-hidden="true">·</span>}
               </span>
             ))}
           </p>

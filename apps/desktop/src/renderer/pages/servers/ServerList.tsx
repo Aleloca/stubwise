@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { ServerRow as Row } from "../../data/servers";
 import { WorkingRing } from "../claude/conversation/parts";
@@ -152,9 +152,38 @@ const typing = (el: Element | null) =>
   el instanceof HTMLElement &&
   (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
 
+/**
+ * Il riordino in 200 ms (shape servers.md §5): una riga che cambia gruppo o
+ * posto scivola da dov'era invece di saltare. FLIP sulle righe per codice;
+ * niente con «riduci il movimento».
+ */
+function useReorderMotion(ref: React.RefObject<HTMLElement | null>, order: string) {
+  const last = useRef(new Map<string, number>());
+  useLayoutEffect(() => {
+    const rows = [...(ref.current?.querySelectorAll<HTMLElement>("[data-server-row]") ?? [])];
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const next = new Map<string, number>();
+    for (const el of rows) {
+      const code = el.dataset.serverRow!;
+      const top = el.getBoundingClientRect().top;
+      next.set(code, top);
+      const before = last.current.get(code);
+      if (before === undefined || before === top || reduce || typeof el.animate !== "function")
+        continue;
+      el.animate([{ transform: `translateY(${before - top}px)` }, { transform: "none" }], {
+        duration: 200,
+        easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+      });
+    }
+    last.current = next;
+  }, [ref, order]);
+}
+
 export function ServerList({ rows, projectCode }: { rows: Row[]; projectCode: string }) {
   const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
+  const groups = groupRows(rows);
+  useReorderMotion(ref, groups.map((g) => `${g.group}:${g.rows.map((r) => r.code)}`).join("|"));
 
   // J/K scorrono le righe (come le task); Invio sul link apre il dettaglio.
   useEffect(() => {
@@ -178,7 +207,7 @@ export function ServerList({ rows, projectCode }: { rows: Row[]; projectCode: st
 
   return (
     <div ref={ref} className="flex flex-col gap-6">
-      {groupRows(rows).map(({ group, rows: list }) => (
+      {groups.map(({ group, rows: list }) => (
         <section key={group} aria-labelledby={`servers-${group}`} className="flex flex-col">
           <h2 id={`servers-${group}`} className="heading-group pb-2 pl-3">
             {t(`servers.groups.${group}`)}
