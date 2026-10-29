@@ -118,8 +118,9 @@ onStoreReset(seedSecrets);
 
 /**
  * SOLO TEST (RF 2): ogni valore segreto custodito adesso, in chiaro e
- * cifrato, per cercarlo in ciò che esce dalle letture. Nessun codice
- * dell'app lo chiama.
+ * cifrato, per cercarlo in ciò che esce dalle letture. È l'UNICA eccezione
+ * all'anti-obiettivo 3, e solo nel prototipo: il test architetturale vieta
+ * il nome fuori da qui (e dai test). Nel motore non va copiata.
  */
 export function __privateValuesForTest(): { slot: string; values: string[] }[] {
   return [...vault.entries()].map(([slot, cipher]) => {

@@ -318,12 +318,20 @@ export function sshAccessView(me: string, code: string): SshAccessView {
 /**
  * Il comando da incollare sul server: lo script coi due accessi e le sole
  * chiavi PUBBLICHE — quelle in attesa se ce ne sono (collegamento o
- * rigenerazione), altrimenti quelle in uso. `null` senza chiavi.
- * L'indirizzo dell'istanza nel prototipo non è noto: niente `from=`.
+ * rigenerazione), altrimenti quelle in uso. In rigenerazione (R-L8) ogni
+ * utente riceve anche la chiave in uso, che resta valida finché la verifica
+ * delle nuove non riesce. `null` senza chiavi. L'indirizzo dell'istanza nel
+ * prototipo non è noto: niente `from=`.
  */
 export function installCommandOf(code: string): string | null {
   const a = state.serverAccess.get(code);
   const keys = a?.pending ?? a?.keys;
-  if (!keys) return null;
-  return installScript({ serverCode: code, read: keys.read, fix: keys.fix, instanceAddress: null });
+  if (!a || !keys) return null;
+  return installScript({
+    serverCode: code,
+    read: keys.read,
+    fix: keys.fix,
+    previous: a.pending ? a.keys : null,
+    instanceAddress: null,
+  });
 }

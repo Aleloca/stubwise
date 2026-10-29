@@ -37,8 +37,10 @@ import {
 /** Chi si ferma quando un accesso viene revocato (la correzione viva sul server, Task 6). */
 const revokedHooks = new Set<(serverCode: string) => void>();
 
-export function onAccessRevoked(fn: (serverCode: string) => void): void {
+/** Iscrive `fn` alle revoche; restituisce la funzione che lo disiscrive. Resta iscritto anche dopo `resetApi`. */
+export function onAccessRevoked(fn: (serverCode: string) => void): () => void {
   revokedHooks.add(fn);
+  return () => revokedHooks.delete(fn);
 }
 
 /** Il server su cui agire: visibile (o `not_found`), con `servers.ssh.manage` (o `forbidden`). */
@@ -76,6 +78,8 @@ export async function linkSshAccess(code: string): Promise<{ command: string }> 
     lastUse: prev?.lastUse ?? {},
     revokedAt: null,
   });
+  // Un esito simulato prima del collegamento non riguarda queste chiavi.
+  state.sshVerifyNext.delete(server.code);
   return { command: commandOf(server.code) };
 }
 
@@ -188,7 +192,15 @@ export async function revokeSshAccess(code: string): Promise<{ removalCommand: s
   a.keysVerification = null;
   a.revokedAt = now();
   state.sshVerifyNext.delete(server.code);
-  for (const fn of revokedHooks) fn(server.code);
+  // Le chiavi sono già dimenticate: un gancio che lancia non fa sembrare
+  // fallita una revoca avvenuta, né ferma gli altri.
+  for (const fn of revokedHooks) {
+    try {
+      fn(server.code);
+    } catch (e) {
+      console.error("onAccessRevoked", e);
+    }
+  }
   return { removalCommand: removalScript(server.code) };
 }
 

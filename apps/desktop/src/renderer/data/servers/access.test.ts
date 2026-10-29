@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { VerifyOutcome } from "../../domain/servers/sshAccess";
 import { failNext, listNotifications, resetApi, servers, setLatency } from "../api";
 import { PROJECTS } from "../seed/projects";
@@ -122,23 +122,70 @@ describe("rigenera (RF 5)", () => {
     expect(regenerating.state).toBe("regenerating");
     expect(regenerating.usable).toEqual({ read: true, fix: true });
     expect(regenerating.read).toEqual(before.read);
-    expect(command).toContain(regenerating.pending!.read.publicKey);
-    expect(command).not.toContain(before.read!.publicKey);
+    // R-L8: il comando autorizza la vecchia E la nuova di ogni utente, così
+    // incollarlo non toglie le chiavi che il modello dà ancora usabili.
+    const keysOf = (v: typeof before) => [v.read!, v.fix!].map((k) => k.publicKey);
+    const newKeys = [regenerating.pending!.read, regenerating.pending!.fix].map((k) => k.publicKey);
+    for (const k of [...keysOf(before), ...newKeys]) expect(command).toContain(k);
+    expect(command).not.toContain("PRIVATE KEY");
+    expect((await servers.getInstallCommand("SRV-1")).command).toBe(command);
 
     const failed = await verifyWith("SRV-1", "fix_fails");
     expect(failed.state).toBe("verify_failed");
     expect(failed.read).toEqual(before.read);
     expect(failed.usable).toEqual({ read: true, fix: true });
     expect(secretValues()).toEqual(expect.arrayContaining(oldSecrets.flatMap((x) => x.values)));
+    // Fallita la verifica, il comando resta quello con le due generazioni.
+    expect((await servers.getInstallCommand("SRV-1")).command).toBe(command);
 
     const ok = await servers.verifySshAccess("SRV-1");
     expect(ok.state).toBe("verified");
     expect(ok.read).toEqual(regenerating.pending!.read);
     expect(ok.fix).toEqual(regenerating.pending!.fix);
     expect(ok.pending).toBeNull();
+    // Riuscita: le vecchie private distrutte (la vecchia pubblica rimasta
+    // sul server è innocua: nessuno ha più la privata).
     const now = secretValues();
     for (const v of oldSecrets.flatMap((x) => x.values)) expect(now).not.toContain(v);
+    expect(__privateValuesForTest().filter((x) => x.slot.startsWith("SRV-1|"))).toHaveLength(2);
     expect(hasKey("SRV-1", "read") && hasKey("SRV-1", "fix")).toBe(true);
+    // Il comando dopo scrive solo le chiavi correnti.
+    const after = (await servers.getInstallCommand("SRV-1")).command;
+    for (const k of newKeys) expect(after).toContain(k);
+    for (const k of keysOf(before)) expect(after).not.toContain(k);
+    // La Rigenera successiva: correnti + nuovissime, mai le dimenticate.
+    const next = (await servers.regenerateSshAccess("SRV-1")).command;
+    const third = (await view("SRV-1")).pending!;
+    for (const k of [...newKeys, third.read.publicKey, third.fix.publicKey])
+      expect(next).toContain(k);
+    for (const k of keysOf(before)) expect(next).not.toContain(k);
+  });
+
+  it("una seconda Rigenera scarta le nuove mai verificate, anche dal comando", async () => {
+    as("p-roberta");
+    const before = await view("SRV-1");
+    await servers.regenerateSshAccess("SRV-1");
+    await verifyWith("SRV-1", "read_fails");
+    const discarded = (await view("SRV-1")).pending!;
+    const { command } = await servers.regenerateSshAccess("SRV-1");
+    expect(command).toContain(before.read!.publicKey);
+    expect(command).not.toContain(discarded.read.publicKey);
+    expect(command).not.toContain(discarded.fix.publicKey);
+    // In vault: le correnti e le nuove in attesa, niente delle scartate.
+    expect(__privateValuesForTest().filter((x) => x.slot.startsWith("SRV-1|"))).toHaveLength(4);
+  });
+
+  it("nuove chiavi che scrivono: entrambi spenti; la verifica riuscita dopo le promuove", async () => {
+    as("p-roberta");
+    await servers.regenerateSshAccess("SRV-1");
+    const pending = (await view("SRV-1")).pending!;
+    const writes = await verifyWith("SRV-1", "read_writes");
+    expect(writes.state).toBe("read_writes");
+    expect(writes.usable).toEqual({ read: false, fix: false });
+    const ok = await servers.verifySshAccess("SRV-1");
+    expect(ok.state).toBe("verified");
+    expect(ok.read).toEqual(pending.read);
+    expect(ok.usable).toEqual({ read: true, fix: true });
   });
 
   it("Minor 4: una fix già fallita non torna usabile rigenerando, nemmeno dopo una verifica fallita delle nuove", async () => {
@@ -191,11 +238,22 @@ describe("rigenera (RF 5)", () => {
 describe("revoca", () => {
   it("dimentica le chiavi, dà il comando di rimozione, ferma chi lavora; si può ricollegare", async () => {
     const stopped: string[] = [];
-    onAccessRevoked((code) => stopped.push(code));
+    const off = onAccessRevoked((code) => stopped.push(code));
+    // Un gancio che lancia non fa fallire una revoca già avvenuta.
+    const offBroken = onAccessRevoked(() => {
+      throw new Error("boom");
+    });
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     as("p-roberta");
-    const { removalCommand } = await servers.revokeSshAccess("SRV-1");
+    const { removalCommand } = await servers.revokeSshAccess("SRV-1").finally(() => {
+      off();
+      offBroken();
+    });
+    expect(logged).toHaveBeenCalledOnce();
+    logged.mockRestore();
     expect(removalCommand).toContain("userdel stubwise-read");
     expect(removalCommand).toContain("userdel stubwise-fix");
+    expect(removalCommand).not.toContain("ssh-ed25519");
     expect(stopped).toEqual(["SRV-1"]);
     const v = await view("SRV-1");
     expect(v).toMatchObject({ state: "revoked", read: null, fix: null, pending: null });
@@ -206,9 +264,14 @@ describe("revoca", () => {
     expect(await message(servers.revokeSshAccess("SRV-1"))).toBe("invalid: state");
     expect(await message(servers.verifySshAccess("SRV-1"))).toBe("invalid: state");
 
+    // Un esito simulato prima del collegamento non vale per la prima verifica dopo.
+    await servers.simulateSshVerifyOutcome("SRV-1", "read_writes");
     await servers.linkSshAccess("SRV-1");
     expect((await view("SRV-1")).state).toBe("awaiting_command");
     expect((await servers.verifySshAccess("SRV-1")).state).toBe("verified");
+    // Disiscritto: una revoca dopo non lo chiama più.
+    await servers.revokeSshAccess("SRV-1");
+    expect(stopped).toEqual(["SRV-1"]);
   });
 
   it("revocare un accesso mai collegato non ha senso", async () => {

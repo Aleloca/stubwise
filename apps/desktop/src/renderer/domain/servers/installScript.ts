@@ -60,7 +60,7 @@ function authorizedKey(key: SshPublicKey, instanceAddress: string | null): strin
 
 function userBlock(
   user: string,
-  key: SshPublicKey,
+  keys: SshPublicKey[],
   instanceAddress: string | null,
   groups: string,
 ): string {
@@ -71,7 +71,7 @@ function userBlock(
     `usermod -G "${groups}" ${user}`,
     `install -d -m 700 -o ${user} -g ${user} /home/${user}/.ssh`,
     `cat > /home/${user}/.ssh/authorized_keys <<'KEY'`,
-    authorizedKey(key, instanceAddress),
+    ...keys.map((key) => authorizedKey(key, instanceAddress)),
     "KEY",
     `chown ${user}:${user} /home/${user}/.ssh/authorized_keys`,
     `chmod 600 /home/${user}/.ssh/authorized_keys`,
@@ -94,14 +94,24 @@ function sudoersBlock(user: string, rules: string[]): string {
  * Lo script d'installazione dei due accessi di `serverCode`, da eseguire
  * come root sul server. `instanceAddress` (l'indirizzo da cui si collega
  * l'istanza), se noto, limita le due chiavi a quell'origine (`from=`).
+ *
+ * `previous` (R-L8): durante una rigenerazione, le chiavi ancora in uso.
+ * `authorized_keys` si RISCRIVE, quindi ogni utente riceve la vecchia E la
+ * nuova: incollare il comando non toglie le chiavi che restano valide
+ * finché la verifica delle nuove non riesce. Dopo, Stubwise distrugge le
+ * vecchie private; la vecchia pubblica rimasta sul server è innocua, e il
+ * comando successivo (una nuova rigenerazione) non la riscrive più.
  */
 export function installScript(input: {
   serverCode: string;
   read: SshPublicKey;
   fix: SshPublicKey;
+  previous?: { read: SshPublicKey; fix: SshPublicKey } | null;
   instanceAddress: string | null;
 }): string {
-  const { serverCode, read, fix, instanceAddress } = input;
+  const { serverCode, read, fix, previous, instanceAddress } = input;
+  const keysOf = (kind: "read" | "fix", key: SshPublicKey) =>
+    previous ? [previous[kind], key] : [key];
   return [
     "#!/bin/bash",
     `# Stubwise: accessi SSH di ${serverCode} (solo chiavi pubbliche).`,
@@ -109,11 +119,11 @@ export function installScript(input: {
     "set -euo pipefail",
     "",
     `# stubwise-read: sola lettura; il suo unico gruppo è ${READ_GROUP} (legge il journal).`,
-    userBlock("stubwise-read", read, instanceAddress, READ_GROUP),
+    userBlock("stubwise-read", keysOf("read", read), instanceAddress, READ_GROUP),
     sudoersBlock("stubwise-read", readSudoRules()),
     "",
     "# stubwise-fix: può fare tutto sul server, usato solo dopo un piano approvato.",
-    userBlock("stubwise-fix", fix, instanceAddress, ""),
+    userBlock("stubwise-fix", keysOf("fix", fix), instanceAddress, ""),
     sudoersBlock("stubwise-fix", ["stubwise-fix ALL=(ALL) NOPASSWD: ALL"]),
     "",
     `echo "Stubwise: accessi di ${serverCode} pronti."`,

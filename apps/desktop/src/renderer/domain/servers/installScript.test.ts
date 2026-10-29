@@ -19,6 +19,31 @@ describe("installScript (RF 3)", () => {
     expect(s).toContain("stubwise-fix ALL=(ALL) NOPASSWD: ALL");
   });
 
+  it("R-L8: in rigenerazione autorizza la vecchia E la nuova chiave di ogni utente", () => {
+    const NEW_READ = fakeSshPublicKey("SRV-1", "read", 2, "2026-10-28T10:00:00Z");
+    const NEW_FIX = fakeSshPublicKey("SRV-1", "fix", 2, "2026-10-28T10:00:00Z");
+    const s = installScript({
+      serverCode: "SRV-1",
+      read: NEW_READ,
+      fix: NEW_FIX,
+      previous: { read: READ, fix: FIX },
+      instanceAddress: "203.0.113.7",
+    });
+    for (const k of [READ, FIX, NEW_READ, NEW_FIX]) expect(s).toContain(k.publicKey);
+    // Ognuna nel file del SUO utente, con le restrizioni.
+    const block = (user: string) =>
+      s.split(`cat > /home/${user}/.ssh/authorized_keys <<'KEY'\n`)[1]!.split("\nKEY")[0]!;
+    expect(block("stubwise-read").split("\n")).toEqual([
+      expect.stringContaining(READ.publicKey),
+      expect.stringContaining(NEW_READ.publicKey),
+    ]);
+    expect(block("stubwise-fix")).not.toContain(READ.publicKey);
+    expect(s.match(/from="203\.0\.113\.7"/g)).toHaveLength(4);
+    expect(s.match(/no-port-forwarding/g)).toHaveLength(4);
+    // Senza `previous` una chiave sola per utente.
+    expect(script(null).match(/no-port-forwarding/g)).toHaveLength(2);
+  });
+
   it("`from=` c'è solo quando l'indirizzo dell'istanza è noto", () => {
     expect(script(null)).not.toContain("from=");
     const s = script("203.0.113.7");

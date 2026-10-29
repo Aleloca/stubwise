@@ -51,6 +51,9 @@ describe("insertRequest", () => {
 // Anti-obiettivo 3: le chiavi private stanno solo in `servers/secrets.ts`.
 // Lo importano solo gli accessi, l'analisi e la correzione; nessuna lettura
 // dei server lo raggiunge, nemmeno di riflesso attraverso un altro modulo.
+// Limite: il risolutore segue solo gli import dentro `data/`; per `domain/`
+// (regole pure, che non devono toccare dati né segreti) c'è un controllo a
+// parte sugli import diretti.
 const SECRETS = "./servers/secrets.ts";
 const IMPORT_RE = /(?:from|import)\s*\(?\s*["'](\.{1,2}\/[^"']+)["']/g;
 
@@ -98,6 +101,19 @@ describe("chiavi private dei server", () => {
     expect(reachable("./servers/access.ts").has(SECRETS)).toBe(true);
     for (const read of ["./servers/reads.ts", "./servers/visibility.ts"])
       expect(reachable(read).has(SECRETS), read).toBe(false);
+  });
+
+  it("nessuna regola di domain/ importa i segreti", () => {
+    const domain = import.meta.glob(["../domain/**/*.{ts,tsx}"], {
+      query: "?raw",
+      import: "default",
+      eager: true,
+    }) as Record<string, string>;
+    expect(Object.keys(domain).length).toBeGreaterThan(10);
+    const offenders = Object.entries(domain)
+      .filter(([, s]) => /from\s+["'][^"']*servers\/secrets["']/.test(s))
+      .map(([p]) => p);
+    expect(offenders).toEqual([]);
   });
 
   it("l'aiuto dei test non lo usa il codice dell'app", () => {
