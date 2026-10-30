@@ -493,6 +493,10 @@ describe("Sicurezza", () => {
       error: "invalid",
       reason: "last_method",
     });
+    // La lettura lo dice prima, con la stessa regola: la pagina non la ricopia.
+    expect((await me.getMySecurity()).passkeys).toEqual([
+      expect.objectContaining({ id: "pk-p-laura-1", removable: false }),
+    ]);
   });
 
   it("rigenerare i codici: i vecchi smettono di valere, 10 nuovi una volta, avviso", async () => {

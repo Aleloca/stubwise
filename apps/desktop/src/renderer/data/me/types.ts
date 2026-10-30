@@ -92,7 +92,8 @@ export interface MySecurity {
   totp: boolean;
   /** Da quando l'app è configurata, se il registro lo sa. */
   totpSince: string | null;
-  passkeys: Omit<Passkey, "personId">[];
+  /** `removable`: la passkey si toglie (non è l'ultimo metodo, `lastMethodBlocks`). */
+  passkeys: (Omit<Passkey, "personId"> & { removable: boolean })[];
   backupCodesLeft: number;
   /** Quanti codici fa ogni giro: «7 of 10 left». */
   backupCodesTotal: number;

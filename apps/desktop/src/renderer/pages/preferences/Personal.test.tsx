@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { me, resetApi, setLatency } from "../../data/api";
+import { failNext, me, resetApi, setLatency } from "../../data/api";
 import { markReauthenticated } from "../../data/auth/reauth";
 import { state } from "../../data/store";
 import i18n from "../../i18n";
@@ -127,6 +127,20 @@ describe("Account", () => {
     await user.type(email, "nope");
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByText("Enter a full email address.")).toBeVisible();
+  });
+
+  it("Proposals che non si cambia: ✕, la frase e Retry, che rifà il cambio", async () => {
+    const user = userEvent.setup();
+    renderRoute("/preferences/account", GIULIA);
+    const proposals = await screen.findByRole("switch", { name: "Proposals" });
+    failNext("me.setProposals");
+    await user.click(proposals);
+    expect(await screen.findByText("Couldn't change Proposals. Try again.")).toBeVisible();
+    expect(state.mailboxes.find((b) => b.personId === GIULIA)!.proposalsEnabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() =>
+      expect(state.mailboxes.find((b) => b.personId === GIULIA)!.proposalsEnabled).toBe(false),
+    );
   });
 
   it("caselle Google: Proposals, scollegare (dice Posta, Calendario e Drive), collegare con l'esito di Google", async () => {

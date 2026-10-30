@@ -418,7 +418,7 @@ function MailboxesPart() {
   let body;
   if (boxes.isError && !data) {
     body = (
-      <WriteError message={t("prefs.google.loadError")} onRetry={() => void boxes.refetch()} />
+      <ReadError message={t("prefs.google.loadError")} onRetry={() => void boxes.refetch()} />
     );
   } else if (!data) {
     body = (
@@ -582,7 +582,11 @@ function MailboxRow({ mailbox: b, onReconnect }: { mailbox: MyMailbox; onReconne
       </div>
       {error === "proposals" && (
         <div className="pb-2">
-          <WriteError message={t("prefs.google.proposalsFailed")} />
+          {/* Il cambio non è avvenuto: riprovare chiede di nuovo quello (shape §5). */}
+          <WriteError
+            message={t("prefs.google.proposalsFailed")}
+            onRetry={() => setOn(!b.proposalsEnabled)}
+          />
         </div>
       )}
       {confirming && (

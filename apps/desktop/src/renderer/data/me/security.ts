@@ -45,7 +45,13 @@ export async function getMySecurity(): Promise<MySecurity> {
     totpSince: sf ? totpSince : null,
     passkeys: state.passkeys
       .filter((k) => k.personId === me)
-      .map((k) => ({ id: k.id, name: k.name, addedAt: k.addedAt, lastUsedAt: k.lastUsedAt })),
+      .map((k) => ({
+        id: k.id,
+        name: k.name,
+        addedAt: k.addedAt,
+        lastUsedAt: k.lastUsedAt,
+        removable: !lastMethodBlocks(me),
+      })),
     backupCodesLeft: sf?.backupCodesLeft ?? 0,
     backupCodesTotal: BACKUP_CODE_COUNT,
     sessions: state.sessions
@@ -180,6 +186,15 @@ export async function renamePasskey(id: string, name: string): Promise<MeResult>
 }
 
 /**
+ * La regola UNICA di «l'ultimo metodo non si toglie»: senza l'app di
+ * autenticazione l'ultima passkey resta. La legge `removePasskey`, e la
+ * lettura la dà alla pagina come `removable`.
+ */
+const lastMethodBlocks = (me: string): boolean =>
+  state.passkeys.filter((k) => k.personId === me).length === 1 &&
+  !accessOf(me)?.secondFactor?.totp;
+
+/**
  * Toglie una mia passkey (+R). L'ultimo metodo non si toglie: senza l'app di
  * autenticazione l'ultima passkey resta (il secondo fattore non si spegne).
  */
@@ -187,8 +202,7 @@ export async function removePasskey(id: string): Promise<MeResult> {
   const me = await writer("me.removePasskey");
   const key = state.passkeys.find((k) => k.id === id && k.personId === me);
   if (!key) return refuse.notFound();
-  const mine = state.passkeys.filter((k) => k.personId === me);
-  if (mine.length === 1 && !accessOf(me)!.secondFactor?.totp) return refuse.invalid("last_method");
+  if (lastMethodBlocks(me)) return refuse.invalid("last_method");
   const reauth = reauthRefusal(me, "me.removePasskey");
   if (reauth) return reauth;
   state.passkeys = state.passkeys.filter((k) => k.id !== id);

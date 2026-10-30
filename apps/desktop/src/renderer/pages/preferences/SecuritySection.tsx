@@ -413,7 +413,6 @@ function PasskeysPart({ security: s }: { security: MySecurity }) {
   const { t } = useTranslation();
   const [adding, setAdding] = useState(false);
   const addButton = useRef<HTMLButtonElement>(null);
-  const lastWithoutApp = s.passkeys.length === 1 && !s.totp;
   return (
     <Part
       title={t("prefs.security.passkeys.title")}
@@ -445,7 +444,7 @@ function PasskeysPart({ security: s }: { security: MySecurity }) {
       ) : (
         <ul>
           {s.passkeys.map((k) => (
-            <PasskeyRow key={k.id} passkey={k} removable={!lastWithoutApp} />
+            <PasskeyRow key={k.id} passkey={k} removable={k.removable} />
           ))}
         </ul>
       )}
