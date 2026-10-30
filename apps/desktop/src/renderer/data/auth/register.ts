@@ -16,8 +16,9 @@ import { gate, newId, now, state } from "../store";
 // una sessione passa dal login): dopo, si entra dal login.
 //
 // Il link si cerca fra i segreti con `matchSecret`, senza mai leggerne il
-// valore. Un invito accettato lo dimentica; uno revocato lo tiene, per dire
-// «revocato» a chi lo apre.
+// valore. Un invito accettato o revocato lo TIENE, per dire «già usato» o
+// «revocato» a chi lo riapre invece di «link sconosciuto»: lo sa solo chi ha
+// già il link vero, e un link inventato continua a non dire niente.
 
 export type InviteLookup =
   | {
@@ -31,12 +32,14 @@ export type InviteLookup =
     }
   | { status: "expired"; invitedByName: string; invitedAt: string; expiresAt: string }
   | { status: "revoked"; invitedByName: string }
-  /** Link sconosciuto o già usato. */
+  /** Già accettato: si entra dal login. Senza nomi. */
+  | { status: "used" }
+  /** Link sconosciuto. */
   | { status: "invalid" };
 
 export type RegisterResult =
   | { ok: true; personId: string }
-  | { ok: false; error: "expired" | "revoked" | "invalid" }
+  | { ok: false; error: "expired" | "revoked" | "used" | "invalid" }
   | { ok: false; error: "invalid_input"; reason: "name" | "password" | "email_taken" };
 
 function inviteOf(token: string): Invite | null {
@@ -45,8 +48,9 @@ function inviteOf(token: string): Invite | null {
   return state.invites.find((i) => i.id === match.ownerId && i.secretId === match.id) ?? null;
 }
 
-function statusOf(invite: Invite | null): "valid" | "expired" | "revoked" | "invalid" {
-  if (!invite || invite.acceptedAt) return "invalid";
+function statusOf(invite: Invite | null): "valid" | "expired" | "revoked" | "used" | "invalid" {
+  if (!invite) return "invalid";
+  if (invite.acceptedAt) return "used";
   if (invite.revokedAt) return "revoked";
   if (Date.parse(invite.expiresAt) <= Date.parse(now())) return "expired";
   return "valid";
@@ -57,7 +61,7 @@ export async function getInvite(token: string): Promise<InviteLookup> {
   await gate("auth.getInvite");
   const invite = inviteOf(token);
   const status = statusOf(invite);
-  if (status === "invalid") return { status };
+  if (status === "invalid" || status === "used") return { status };
   const invitedByName = nameOf(invite!.invitedById) ?? "";
   if (status === "revoked") return { status, invitedByName };
   if (status === "expired")
@@ -184,9 +188,9 @@ export async function register(
       (p) => state.projectsById.has(p.projectId) && roles.has(p.roleId),
     ),
   });
+  // Il link resta custodito: chi lo riapre legge «già usato». Per
+  // registrarsi non vale più, perché `statusOf` guarda `acceptedAt`.
   invite!.acceptedAt = now();
-  if (invite!.secretId) forgetSecret(invite!.secretId);
-  invite!.secretId = null;
   logSecurity(personId, "registered", null);
   recordChange({
     kind: "invite.accepted",

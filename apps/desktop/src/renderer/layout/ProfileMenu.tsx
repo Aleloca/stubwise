@@ -14,6 +14,7 @@ import { useTheme } from "../theme/ThemeProvider";
 import type { ThemePreference } from "../theme/theme";
 import { openGoogleAccount } from "../pages/drive/GoogleAccountCard";
 import { useToast } from "../tasks-ui/Toast";
+import { PrototypeBox } from "../pages/automations/shared";
 import { Tooltip } from "./Tooltip";
 
 const THEMES: ThemePreference[] = ["system", "light", "dark"];
@@ -279,39 +280,34 @@ export function ProfileMenu() {
               {t("entry.menu.signOut")}
             </button>
           </div>
-          {/* Le simulazioni del prototipo, nel riquadro tratteggiato dell'8a (12 px). */}
-          <section
-            data-prototype-only
-            aria-label={t("automations.prototype.only")}
-            className="m-1.5 mt-2 flex flex-col gap-2.5 rounded-lg border border-dashed border-rule-strong px-3 py-2.5"
-          >
-            <p aria-hidden="true" className="heading-group">
-              {t("automations.prototype.only")}
-            </p>
-            <ArmedReset
-              label={t("entry.menu.resetPrototype")}
-              hint={t("entry.menu.resetPrototypeHint")}
-              onConfirm={() => {
-                setOpen(false);
-                resetPrototype();
-                void navigate({ to: "/home", replace: true });
-              }}
-            />
-            <ArmedReset
-              label={t("entry.menu.resetEmpty")}
-              hint={t("entry.menu.resetEmptyHint")}
-              disabled={resetEmpty.isPending}
-              onConfirm={() =>
-                resetEmpty.mutate(undefined, {
-                  onSuccess: () => {
-                    setOpen(false);
-                    void navigate({ to: "/setup", replace: true });
-                  },
-                  onError: () => toast.error(t("entry.menu.resetFailed")),
-                })
-              }
-            />
-          </section>
+          {/* Le simulazioni del prototipo, nel riquadro tratteggiato dell'8a. */}
+          <div className="m-1.5 mt-2">
+            <PrototypeBox>
+              <ArmedReset
+                label={t("entry.menu.resetPrototype")}
+                hint={t("entry.menu.resetPrototypeHint")}
+                onConfirm={() => {
+                  setOpen(false);
+                  resetPrototype();
+                  void navigate({ to: "/home", replace: true });
+                }}
+              />
+              <ArmedReset
+                label={t("entry.menu.resetEmpty")}
+                hint={t("entry.menu.resetEmptyHint")}
+                disabled={resetEmpty.isPending}
+                onConfirm={() =>
+                  resetEmpty.mutate(undefined, {
+                    onSuccess: () => {
+                      setOpen(false);
+                      void navigate({ to: "/setup", replace: true });
+                    },
+                    onError: () => toast.error(t("entry.menu.resetFailed")),
+                  })
+                }
+              />
+            </PrototypeBox>
+          </div>
         </div>
       )}
     </div>

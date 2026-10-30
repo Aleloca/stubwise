@@ -7666,7 +7666,8 @@
       "simulatePasskey": "Simulate passkey",
       "simulateFailedPasskey": "Simulate a failed passkey",
       "passMinutes": "Pass 15 minutes",
-      "emptyInstance": "This is the empty instance. Reset prototype brings back the sample company."
+      "emptyInstance": "This is the empty instance. Reset prototype brings back the sample company.",
+      "inviteNote": "Each makes a new link; one copied earlier for that invite stops working."
     },
     "register": {
       "loading": "Loading the invite",
@@ -7696,7 +7697,11 @@
       "revokedBody": "{{name}} withdrew it. If you still need access, ask them.",
       "invalidBody": "This invite link isn't valid. Ask whoever sent it for a new one.",
       "goToSignIn": "Go to sign in",
-      "loadFailed": "Couldn't load the invite."
+      "loadFailed": "Couldn't load the invite.",
+      "usedTitle": "This invite was already used",
+      "usedBody": "This invite was already used. Sign in instead.",
+      "emailTaken": "There's already an account with this email. Sign in instead.",
+      "createdSignIn": "Your account is ready. Sign in with your new password."
     },
     "setup": {
       "title": "Set up Stubwise",
@@ -7759,7 +7764,8 @@
         "continue": "Continue",
         "cancelled": "Two-step verification wasn't set up. Nothing was changed.",
         "startFailed": "Couldn't start the setup."
-      }
+      },
+      "noSecondFactor": "Two-step verification isn't set up yet. Setting it up…"
     }
   }
 }

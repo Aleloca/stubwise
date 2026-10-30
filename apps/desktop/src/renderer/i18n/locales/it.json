@@ -7666,7 +7666,8 @@
       "simulatePasskey": "Simula la passkey",
       "simulateFailedPasskey": "Simula una passkey fallita",
       "passMinutes": "Fai passare 15 minuti",
-      "emptyInstance": "Questa è l'istanza vuota. Ripristina il prototipo riporta l'azienda d'esempio."
+      "emptyInstance": "Questa è l'istanza vuota. Ripristina il prototipo riporta l'azienda d'esempio.",
+      "inviteNote": "Ognuno crea un link nuovo; uno copiato prima per quell'invito smette di funzionare."
     },
     "register": {
       "loading": "Caricamento dell'invito",
@@ -7696,7 +7697,11 @@
       "revokedBody": "{{name}} lo ha ritirato. Se ti serve ancora l'accesso, chiediglielo.",
       "invalidBody": "Questo link d'invito non è valido. Chiedine uno nuovo a chi te l'ha mandato.",
       "goToSignIn": "Vai all'accesso",
-      "loadFailed": "Non è stato possibile caricare l'invito."
+      "loadFailed": "Non è stato possibile caricare l'invito.",
+      "usedTitle": "Questo invito è già stato usato",
+      "usedBody": "Questo invito è già stato usato. Accedi invece.",
+      "emailTaken": "Esiste già un account con questa email. Accedi invece.",
+      "createdSignIn": "Il tuo account è pronto. Accedi con la nuova password."
     },
     "setup": {
       "title": "Configura Stubwise",
@@ -7759,7 +7764,8 @@
         "continue": "Continua",
         "cancelled": "La verifica in due passaggi non è stata configurata. Non è cambiato niente.",
         "startFailed": "Non è stato possibile avviare la configurazione."
-      }
+      },
+      "noSecondFactor": "La verifica in due passaggi non è ancora configurata. La configuriamo…"
     }
   }
 }

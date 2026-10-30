@@ -1,7 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { useInvite, useRegister, type InviteLookup } from "../../data/queries";
+import { MIN_PASSWORD_LENGTH, useInvite, useRegister, type InviteLookup } from "../../data/queries";
 import { formatDate } from "../../notifications/time";
 import { useToast } from "../../tasks-ui/Toast";
 import { primaryButton } from "../tasks/controls";
@@ -10,13 +10,12 @@ import { BusyLabel, EntryColumn, EntryField, EntryHeading, ErrorLine, textButton
 /** Fino a tanti progetti offerti in elenco; oltre, i primi 6 e «and N more». */
 const ALL_UNTIL = 8;
 const FIRST = 6;
-const MIN_PASSWORD = 8;
 
 /**
  * `/register/$token` (shape `entry.md`): chi invita, i progetti offerti col
  * ruolo, e il modulo; scaduto, revocato o sconosciuto lo dicono in parole,
- * mai un 404. Un link inventato non rivela niente (la stessa pagina di uno
- * già usato).
+ * mai un 404. Uno già usato manda al login, senza nomi; un link inventato non
+ * rivela niente.
  */
 export function RegisterPage({ token }: { token: string }) {
   const { t } = useTranslation();
@@ -73,7 +72,9 @@ function NotValid({ invite }: { invite: Exclude<InviteLookup, { status: "valid" 
             t("entry.register.revokedTitle"),
             t("entry.register.revokedBody", { name: invite.invitedByName }),
           ]
-        : [t("entry.register.revokedTitle"), t("entry.register.invalidBody")];
+        : invite.status === "used"
+          ? [t("entry.register.usedTitle"), t("entry.register.usedBody")]
+          : [t("entry.register.revokedTitle"), t("entry.register.invalidBody")];
   return (
     <section data-invite-status={invite.status}>
       <EntryHeading title={title} lead={body} />
@@ -104,7 +105,7 @@ function ValidInvite({
 
   const nameError = tried && !name.trim() ? t("entry.register.nameMissing") : null;
   const passwordError =
-    tried && password.length < MIN_PASSWORD ? t("entry.register.tooShort") : null;
+    tried && password.length < MIN_PASSWORD_LENGTH ? t("entry.register.tooShort") : null;
   const confirmError =
     tried && !passwordError && confirm !== password ? t("entry.register.mismatch") : null;
 
@@ -115,18 +116,28 @@ function ValidInvite({
     e.preventDefault();
     setTried(true);
     setRefused(null);
-    if (!name.trim() || password.length < MIN_PASSWORD || confirm !== password) return;
+    if (!name.trim() || password.length < MIN_PASSWORD_LENGTH || confirm !== password) return;
     register.mutate(
       { token, email: invite.email, name: name.trim(), password },
       {
         onSuccess: (r) => {
           if (!r.ok) {
-            // L'invito è cambiato nel frattempo (scaduto, revocato, usato).
             setRefused(
-              r.error === "invalid_input" && r.reason === "password"
-                ? t("entry.register.tooShort")
-                : t("entry.register.noLonger"),
+              r.error !== "invalid_input"
+                ? // L'invito è cambiato nel frattempo (scaduto, revocato, usato).
+                  t("entry.register.noLonger")
+                : r.reason === "email_taken"
+                  ? t("entry.register.emailTaken")
+                  : r.reason === "password"
+                    ? t("entry.register.tooShort")
+                    : t("entry.register.nameMissing"),
             );
+            return;
+          }
+          if (!r.signedIn) {
+            // L'account c'è, il login subito dopo no: si entra dal login.
+            void navigate({ to: "/login", replace: true });
+            toast.show(t("entry.register.createdSignIn"));
             return;
           }
           void navigate({ to: "/home", replace: true });

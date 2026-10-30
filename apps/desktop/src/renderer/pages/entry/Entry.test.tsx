@@ -9,7 +9,7 @@ import { markReauthenticated } from "../../data/auth/reauth";
 import { useSetInstanceRole } from "../../data/queries";
 import { PEOPLE } from "../../data/seed/people";
 import { NO_SESSION_PERSON_ID, getSessionPersonId, setSessionPersonId } from "../../data/session";
-import { advanceNow, state } from "../../data/store";
+import { advanceNow, failNext, state } from "../../data/store";
 import { viewerFor } from "../../data/viewer";
 import { ReauthHost } from "../../layout/ReauthDialog";
 import { resetReauthForTest, useReauth } from "../../layout/useReauth";
@@ -212,6 +212,38 @@ describe("registrazione su invito", () => {
     expect(screen.queryByText(/Roberta/)).toBeNull();
   });
 
+  it("se il login dopo la registrazione non riesce, l'account c'è e si va al login", async () => {
+    const token = await inviteLink();
+    await signedOut();
+    const router = renderRoute(`/register/${token}`);
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText("Your name"), "Nora Nuova");
+    await user.type(screen.getByLabelText("Password"), "a-long-one");
+    await user.type(screen.getByLabelText("Confirm password"), "a-long-one");
+    failNext("auth.login");
+    await user.click(screen.getByRole("button", { name: "Create account" }));
+    expect(
+      await screen.findByText("Your account is ready. Sign in with your new password."),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(router.state.location.pathname).toBe("/login"));
+    expect(PEOPLE.some((p) => p.name === "Nora Nuova")).toBe(true);
+  });
+
+  it("uno già usato lo dice e manda al login, senza nomi", async () => {
+    const token = await inviteLink();
+    expect(
+      await auth.register(token, { name: "Nora Nuova", password: "a-long-one" }),
+    ).toMatchObject({ ok: true });
+    renderRoute(`/register/${token}`);
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "This invite was already used" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("This invite was already used. Sign in instead.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Go to sign in" })).toBeInTheDocument();
+    expect(screen.queryByText(/Roberta/)).toBeNull();
+    expect(screen.queryByLabelText("Password")).toBeNull();
+  });
+
   it("«Try an invite» dal login apre l'invito in sospeso del seme", async () => {
     await signedOut();
     renderRoute("/login");
@@ -269,6 +301,10 @@ describe("uscita, istanza vuota e primo avvio", () => {
     await user.click(screen.getByRole("button", { name: "Create the admin account" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Home" })).toBeInTheDocument();
     expect(await screen.findByText("You're the instance's full admin.")).toBeInTheDocument();
+    // La Home è davvero vuota: niente da decidere, niente in settimana, niente da rilasciare.
+    expect(await screen.findByText("Nothing to decide")).toBeInTheDocument();
+    expect(screen.getByText("Nothing planned for you this week")).toBeInTheDocument();
+    expect(screen.getByText("Nothing to release and no failed releases.")).toBeInTheDocument();
     const ada = PEOPLE.find((p) => p.name === "Ada Prima")!;
     expect(getSessionPersonId()).toBe(ada.id);
     expect(accessRole(ada.id)).toBe(roleIdOf("admin"));
@@ -346,6 +382,30 @@ describe("riconferma", () => {
     await screen.findByRole("dialog", { name: "Confirm it's you" });
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(JSON.stringify(accessState())).toBe(before);
+  });
+
+  it("il blocco vale anche dentro il dialogo: in parole, campo spento, chiuso non cambia niente", async () => {
+    renderWithData(<ChangeMarcosRole />, { personId: "p-roberta" });
+    const before = JSON.stringify(accessState());
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Change role…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Confirm it's you" });
+    const code = within(dialog).getByLabelText("Code");
+    for (let i = 0; i < 5; i++) {
+      await user.type(code, "000000");
+      await waitFor(() => expect(code).toHaveValue(""));
+    }
+    expect(
+      await within(dialog).findByText(
+        /Too many wrong codes\. Two-step verification is locked until \d\d:\d\d\./,
+      ),
+    ).toBeInTheDocument();
+    expect(code).toBeDisabled();
+    expect(within(dialog).queryByRole("button", { name: "Confirm" })).toBeNull();
+    expect(within(dialog).queryByRole("button", { name: "Back to sign in" })).toBeNull();
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(await screen.findByText("reauth_cancelled")).toBeInTheDocument();
     expect(JSON.stringify(accessState())).toBe(before);
   });
 

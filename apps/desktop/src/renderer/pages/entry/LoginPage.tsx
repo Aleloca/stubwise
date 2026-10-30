@@ -233,6 +233,7 @@ function LoginPrototypeBox({ onPick }: { onPick: (account: { email: string }) =>
             {t("entry.prototype.expiredInvite")}
           </button>
         </p>
+        <p className="-mt-1 text-xs text-ink-muted">{t("entry.prototype.inviteNote")}</p>
         <form onSubmit={openLink} className="flex items-center gap-2">
           <input
             aria-label={t("entry.prototype.inviteLink")}

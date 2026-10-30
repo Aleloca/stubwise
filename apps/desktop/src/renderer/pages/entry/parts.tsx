@@ -1,7 +1,9 @@
 import { useId, type ReactNode, type Ref } from "react";
 import { useTranslation } from "react-i18next";
+import { SECOND_FACTOR_MAX_FAILURES } from "../../data/queries";
 import { Logo } from "../../layout/Rail";
 import { inputClass } from "../../tasks-ui/Dialog";
+import { ToastRegion } from "../../tasks-ui/Toast";
 
 // I pezzi comuni delle schermate d'ingresso (shape `entry.md`): la colonna
 // da 400 px a un terzo dall'alto, senza card [IN 1]; il campo con
@@ -24,6 +26,8 @@ export function EntryColumn({ children }: { children: ReactNode }) {
         </div>
         {children}
       </main>
+      {/* I messaggi dell'ingresso («Your account is ready…», un errore del prototipo). */}
+      <ToastRegion centered />
     </div>
   );
 }
@@ -287,9 +291,8 @@ export function LockedBlock({ until, children }: { until: string; children?: Rea
 export function wrongCodeMessage(
   t: (key: string, opts?: Record<string, unknown>) => string,
   triesLeft: number,
-  maxTries = 5,
 ): string {
-  return triesLeft >= maxTries - 1
+  return triesLeft >= SECOND_FACTOR_MAX_FAILURES - 1
     ? t("entry.secondFactor.wrong")
     : t("entry.secondFactor.wrongTries", { count: triesLeft });
 }

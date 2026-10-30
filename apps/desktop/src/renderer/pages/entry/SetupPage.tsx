@@ -1,14 +1,16 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { useCreateFirstAdmin, useResetPrototype } from "../../data/queries";
+import {
+  EMAIL_RE,
+  MIN_PASSWORD_LENGTH,
+  useCreateFirstAdmin,
+  useResetPrototype,
+} from "../../data/queries";
 import { useToast } from "../../tasks-ui/Toast";
 import { PrototypeBox } from "../automations/shared";
 import { primaryButton, secondaryButton } from "../tasks/controls";
 import { BusyLabel, EntryColumn, EntryField, EntryHeading, ErrorLine, textButton } from "./parts";
-
-const MIN_PASSWORD = 8;
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
  * `/setup` (shape `entry.md`): il primo avvio, solo a istanza vuota (il
@@ -30,7 +32,7 @@ export function SetupPage() {
   const nameError = tried && !name.trim() ? t("entry.register.nameMissing") : null;
   const emailError = tried && !EMAIL_RE.test(email.trim()) ? t("entry.setup.emailInvalid") : null;
   const passwordError =
-    tried && password.length < MIN_PASSWORD ? t("entry.register.tooShort") : null;
+    tried && password.length < MIN_PASSWORD_LENGTH ? t("entry.register.tooShort") : null;
   const confirmError =
     tried && !passwordError && confirm !== password ? t("entry.register.mismatch") : null;
 
@@ -40,7 +42,7 @@ export function SetupPage() {
     if (
       !name.trim() ||
       !EMAIL_RE.test(email.trim()) ||
-      password.length < MIN_PASSWORD ||
+      password.length < MIN_PASSWORD_LENGTH ||
       confirm !== password
     )
       return;
@@ -50,6 +52,12 @@ export function SetupPage() {
       .mutateAsync({ name: name.trim(), email: email.trim(), password })
       .then((r) => {
         if (!r.ok) return;
+        if (!r.signedIn) {
+          // L'account c'è, il login subito dopo no: si entra dal login.
+          void navigate({ to: "/login", replace: true });
+          toast.show(t("entry.register.createdSignIn"));
+          return;
+        }
         void navigate({ to: "/home", replace: true });
         toast.show(t("entry.setup.done"));
       })

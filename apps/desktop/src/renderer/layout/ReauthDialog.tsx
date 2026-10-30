@@ -89,6 +89,10 @@ function ReauthDialog({ request }: { request: ReauthRequest }) {
         backup_code: methods.data.backupCodesLeft > 0,
       }}
       onFinish={finish}
+      // La risposta letta all'apertura era vecchia (il secondo fattore è
+      // stato azzerato nel frattempo): si rilegge, e il dialogo passa
+      // all'iscrizione al volo.
+      onNoSecondFactor={() => void methods.refetch()}
     />
   );
 }
@@ -97,6 +101,7 @@ type Failure =
   | { kind: "wrong"; triesLeft: number }
   | { kind: "passkey" }
   | { kind: "locked"; until: string }
+  | { kind: "noSecondFactor" }
   | { kind: "failed" };
 
 /** Il codice (o la passkey, o un codice di backup) di chi ha già il secondo fattore. */
@@ -104,10 +109,12 @@ function ConfirmItsYou({
   action,
   available,
   onFinish,
+  onNoSecondFactor,
 }: {
   action: string | undefined;
   available: { passkey: boolean; backup_code: boolean };
   onFinish: (confirmed: boolean) => void;
+  onNoSecondFactor: () => void;
 }) {
   const { t } = useTranslation();
   const reauth = useReauthenticate();
@@ -134,6 +141,10 @@ function ConfirmItsYou({
               : { kind: "wrong", triesLeft: r.triesLeft },
           );
         else if (r.error === "locked") setFailure({ kind: "locked", until: r.lockedUntil });
+        else if (r.error === "no_second_factor") {
+          setFailure({ kind: "noSecondFactor" });
+          onNoSecondFactor();
+        }
         field.current?.focus();
       },
       onError: () => setFailure({ kind: "failed" }),
@@ -229,6 +240,11 @@ function ConfirmItsYou({
           </ErrorLine>
         )}
         {failure?.kind === "locked" && <LockedBlock until={failure.until} />}
+        {failure?.kind === "noSecondFactor" && (
+          <p role="status" className="text-sm text-ink">
+            {t("entry.reauth.noSecondFactor")}
+          </p>
+        )}
         <OtherMethods
           method={method}
           available={available}

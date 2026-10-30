@@ -224,13 +224,18 @@ describe("registrazione su invito", () => {
       stage: "in",
       personId,
     });
-    // L'invito è usato: il link non vale più, e non è più custodito.
-    expect(await auth.getInvite(link)).toEqual({ status: "invalid" });
-    expect(__secretValuesForTest().some((s) => s.values.includes(link))).toBe(false);
+    // L'invito è usato: il link non vale più per registrarsi, ma chi lo
+    // riapre legge «già usato» (senza nomi), non «link sconosciuto». Il
+    // segreto resta custodito per questo, come per un invito revocato.
+    expect(await auth.getInvite(link)).toEqual({ status: "used" });
+    expect(await auth.getInvite(tokenOf(link))).toEqual({ status: "used" });
     expect(await auth.register(link, { name: "Again", password: "a-long-one" })).toEqual({
       ok: false,
-      error: "invalid",
+      error: "used",
     });
+    expect(PEOPLE.filter((p) => p.name === "Again")).toHaveLength(0);
+    // Un link inventato resta «invalid».
+    expect(await auth.getInvite("made-up")).toEqual({ status: "invalid" });
     // Nel registro: chi ha accettato, mai il link.
     as("p-roberta");
     const entries = await changelog.listChanges();

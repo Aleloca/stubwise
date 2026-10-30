@@ -137,13 +137,17 @@ function CloseSign() {
  * Superficie che galleggia per un momento: filetto forte e ombra morbida.
  * Un errore si annuncia subito (`alert`), una conferma con calma (`status`).
  */
-export function ToastRegion() {
+export function ToastRegion({ centered = false }: { centered?: boolean }) {
   const { t } = useTranslation();
   const list = useSyncExternalStore(subscribe, () => items);
+  // `centered`: le pagine fuori dall'intelaiatura (l'ingresso), senza binario né colonna.
+  const place = centered
+    ? "left-1/2 w-[min(480px,calc(100vw-32px))]"
+    : "left-[calc(304px+(100vw-304px)/2)] w-[min(480px,calc(100vw-336px))]";
   return (
     <section
       aria-label={t("taskUi.toast.region")}
-      className="pointer-events-none fixed bottom-5 left-[calc(304px+(100vw-304px)/2)] z-50 flex w-[min(480px,calc(100vw-336px))] -translate-x-1/2 flex-col items-stretch gap-2"
+      className={`pointer-events-none fixed bottom-5 z-50 flex -translate-x-1/2 flex-col items-stretch gap-2 ${place}`}
     >
       {list.map((item) => (
         <div
