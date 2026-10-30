@@ -9535,6 +9535,7 @@
           "startRun": "Only people who can start Claude in {{code}} put work back in the queue."
         },
         "correctionNote": "Corrections are resumed from the task.",
+        "superseded": "A newer run of {{code}} has taken its place: nothing to put back.",
         "openTask": "Open task",
         "openRun": "Open run",
         "startFailed": {

@@ -9535,6 +9535,7 @@
           "startRun": "Solo chi può avviare Claude in {{code}} rimette in coda un lavoro."
         },
         "correctionNote": "Le correzioni si riprendono dalla task.",
+        "superseded": "Su {{code}} c'è un lavoro più recente: non c'è niente da rimettere in coda.",
         "openTask": "Apri la task",
         "openRun": "Apri l'esecuzione",
         "startFailed": {

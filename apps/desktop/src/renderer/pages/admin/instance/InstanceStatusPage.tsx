@@ -107,7 +107,13 @@ function untilWords(until: string, reference: string, language: string): string 
     : formatDate(until, language);
 }
 
-/** L'ora dell'orologio (non del prototipo): quando la pagina ha letto o ha provato a leggere. */
+/**
+ * L'ora dell'orologio vero, non dell'adesso del prototipo: quando QUESTA
+ * finestra ha letto o ha provato a leggere. Eccezione dichiarata alla GC
+ * dell'orologio (ruling T13 I3): «Updated hh:mm:ss» e «Couldn't update at…»
+ * dicono un fatto del client, non del dato; l'adesso del prototipo è fermo
+ * e li renderebbe inutili. Età e date dei lavori restano su `refreshedAt`.
+ */
 const clock = (ms: number, language: string) =>
   new Intl.DateTimeFormat(language, {
     hour: "2-digit",
@@ -208,6 +214,24 @@ function usePresence(jobs: Job[] | undefined): Presence[] {
   const previous = useRef<Job[] | null>(null);
   const [fresh, setFresh] = useState<ReadonlySet<string>>(new Set());
   const [leaving, setLeaving] = useState<{ job: Job; index: number }[]>([]);
+  // I timer stanno fuori dall'effetto: un giro nuovo entro 2 s non deve
+  // cancellare quello che spegne lo sfondo di una riga del giro prima
+  // (revisione T13, I4). Si cancellano solo allo smontaggio.
+  const timers = useRef<number[]>([]);
+  useEffect(
+    () => () => {
+      timers.current.forEach((id) => window.clearTimeout(id));
+      timers.current = [];
+    },
+    [],
+  );
+  const later = (run: () => void, ms: number) => {
+    const id = window.setTimeout(() => {
+      timers.current = timers.current.filter((t) => t !== id);
+      run();
+    }, ms);
+    timers.current.push(id);
+  };
 
   useEffect(() => {
     if (!jobs) return;
@@ -218,26 +242,18 @@ function usePresence(jobs: Job[] | undefined): Presence[] {
     const old = new Set(before.map((j) => j.id));
     const added = jobs.filter((j) => !old.has(j.id)).map((j) => j.id);
     const gone = before.flatMap((job, index) => (ids.has(job.id) ? [] : [{ job, index }]));
-    const timers: number[] = [];
     if (added.length > 0) {
       setFresh((s) => new Set([...s, ...added]));
-      timers.push(
-        window.setTimeout(
-          () => setFresh((s) => new Set([...s].filter((id) => !added.includes(id)))),
-          FRESH_MS,
-        ),
-      );
+      later(() => setFresh((s) => new Set([...s].filter((id) => !added.includes(id)))), FRESH_MS);
     }
     if (gone.length > 0) {
       setLeaving((l) => [...l.filter((x) => !ids.has(x.job.id)), ...gone]);
-      timers.push(
-        window.setTimeout(
-          () => setLeaving((l) => l.filter((x) => !gone.some((g) => g.job.id === x.job.id))),
-          LEAVE_MS,
-        ),
+      later(
+        () => setLeaving((l) => l.filter((x) => !gone.some((g) => g.job.id === x.job.id))),
+        LEAVE_MS,
       );
     }
-    return () => timers.forEach((id) => window.clearTimeout(id));
+    // `later` scrive solo nel ref: non è una dipendenza.
   }, [jobs]);
 
   return useMemo(() => {
@@ -442,7 +458,20 @@ function WorkSection({ view }: { view: View }) {
   // secondi non ne cambia il contenuto.
   const [retrying, setRetrying] = useState<{ job: Job; queuePaused: boolean } | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
+  const list = useRef<HTMLUListElement>(null);
   const rows = usePresence(view.jobs);
+  // Dopo la conferma di Retry il fuoco torna alla riga, non al bottone: al
+  // giro dopo il bottone sparisce (il fallito è superato), la riga resta
+  // (shape §6). L'effetto gira dopo che il dialogo ha restituito il fuoco.
+  const [focusRow, setFocusRow] = useState<string | null>(null);
+  useEffect(() => {
+    if (!focusRow) return;
+    const row = [...(list.current?.querySelectorAll<HTMLElement>("[data-job-row]") ?? [])].find(
+      (r) => r.dataset.jobRow === focusRow,
+    );
+    row?.focus();
+    setFocusRow(null);
+  }, [focusRow]);
 
   const set = (patch: StatusSearch) =>
     void navigate({
@@ -543,7 +572,11 @@ function WorkSection({ view }: { view: View }) {
           )}
         </div>
       ) : (
-        <ul aria-label={t("admin.status.work.list")} className="@container border-t border-rule">
+        <ul
+          ref={list}
+          aria-label={t("admin.status.work.list")}
+          className="@container border-t border-rule"
+        >
           {matching.slice(0, shown).map((r) => (
             <JobRow
               key={r.job.id}
@@ -571,6 +604,7 @@ function WorkSection({ view }: { view: View }) {
           job={retrying.job}
           queuePaused={retrying.queuePaused}
           onClose={() => setRetrying(null)}
+          onDone={() => setFocusRow(retrying.job.id)}
         />
       )}
     </Part>
@@ -652,7 +686,8 @@ function JobRow({
       data-job-state={job.state}
       data-fresh={fresh || undefined}
       aria-labelledby={titleId}
-      className={`flex min-h-[52px] flex-col justify-center gap-1 border-b border-rule px-1 py-2 transition-[background-color,opacity] ease-out motion-reduce:transition-none ${fresh ? "bg-ink/6 duration-[var(--duration-base)]" : "duration-[var(--duration-fast)]"} ${leaving ? "pointer-events-none opacity-0" : ""}`}
+      tabIndex={-1}
+      className={`flex min-h-[52px] outline-none focus-visible:bg-ink/4 flex-col justify-center gap-1 border-b border-rule px-1 py-2 transition-[background-color,opacity] ease-out motion-reduce:transition-none ${fresh ? "bg-ink/6 duration-[var(--duration-base)]" : "duration-[var(--duration-fast)]"} ${leaving ? "pointer-events-none opacity-0" : ""}`}
     >
       <div className="flex min-w-0 items-baseline gap-2.5 text-md">
         <span id={titleId} className="flex min-w-0 flex-1 items-baseline gap-2.5">
@@ -711,6 +746,11 @@ function JobRow({
           />
         </p>
       )}
+      {job.superseded && (
+        <p className="text-xs text-pretty text-ink-muted">
+          {t("admin.status.work.superseded", { code })}
+        </p>
+      )}
       {correction && (
         <p className="text-xs text-pretty text-ink-muted">
           {t("admin.status.work.correctionNote")}{" "}
@@ -729,10 +769,13 @@ function RetryDialog({
   job,
   queuePaused,
   onClose,
+  onDone,
 }: {
   job: Job;
   queuePaused: boolean;
   onClose: () => void;
+  /** Dopo la conferma riuscita (il fuoco torna alla riga). */
+  onDone: () => void;
 }) {
   const { t } = useTranslation();
   const toast = useToast();
@@ -747,6 +790,7 @@ function RetryDialog({
     const words = refusalWords(t, result, code);
     if (words) return setError(words);
     onClose();
+    onDone();
     const href = job.href;
     toast.show(t("admin.status.work.retryDialog.done", { code }), {
       action: href

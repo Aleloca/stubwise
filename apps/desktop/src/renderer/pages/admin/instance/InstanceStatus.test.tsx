@@ -382,6 +382,22 @@ describe("Pause e Resume", () => {
     expect(dialog).toHaveTextContent("The waiting job still waits for the monthly AI budget.");
     expect(dialog).not.toHaveTextContent("starts now");
   });
+
+  it("I2: budget raggiunto, poi «Avvia» (un passo d'automazione in STW), poi Resume: non parte niente", async () => {
+    const user = userEvent.setup();
+    setSessionPersonId(ROBERTA);
+    await instance.simulateBudgetReached(true);
+    const runId = await claudeAutomation(STW);
+    await openStatus();
+    expect(jobRow(runId)).toHaveTextContent("Waiting: monthly AI budget reached");
+    await user.click(within(queueRow("STW")).getByRole("button", { name: "Resume STW's queue" }));
+    const dialog = await screen.findByRole("dialog", { name: "Resume STW's queue?" });
+    expect(dialog).toHaveTextContent("The waiting job still waits for the monthly AI budget.");
+    expect(dialog).not.toHaveTextContent("starts now");
+    await user.click(within(dialog).getByRole("button", { name: "Resume queue" }));
+    await waitFor(() => expect(queueRow("STW")).not.toHaveTextContent("Paused by"));
+    expect(jobRow(runId)!.dataset.jobState).toBe("waiting");
+  });
 });
 
 // --- Retry ------------------------------------------------------------------------
@@ -459,6 +475,52 @@ describe("Rimetti in coda", () => {
     ).toBeVisible();
     expect(state.conversations.length).toBe(before);
   });
+
+  it("I1: dopo il Retry la riga fallita resta, senza Retry acceso e con la frase che lo dice", async () => {
+    const user = userEvent.setup();
+    await openStatus();
+    await user.click(within(jobRow("cv-run-acq-3")!).getByRole("button", { name: "Retry ACQ-3" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Put ACQ-3's work back in the queue?",
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Retry" }));
+    await screen.findByText("ACQ-3 is back in the queue.");
+    await waitFor(() =>
+      expect(within(jobRow("cv-run-acq-3")!).queryByRole("button", { name: /Retry/ })).toBeNull(),
+    );
+    expect(jobRow("cv-run-acq-3")).toHaveTextContent(
+      "A newer run of ACQ-3 has taken its place: nothing to put back.",
+    );
+  });
+
+  it("I1, in italiano: la stessa frase tradotta", async () => {
+    setStreamLatency(120_000);
+    act(() => setLanguage("it"));
+    await startLive("t-acq-3");
+    setSessionPersonId(ROBERTA);
+    renderRoute("/admin/status", ROBERTA);
+    await screen.findByRole("region", { name: "Code" });
+    expect(jobRow("cv-run-acq-3")).toHaveTextContent(
+      "Su ACQ-3 c'è un lavoro più recente: non c'è niente da rimettere in coda.",
+    );
+    expect(within(jobRow("cv-run-acq-3")!).queryByRole("button")).toBeNull();
+  });
+
+  it("dopo la conferma di Retry il fuoco torna alla riga", async () => {
+    const user = userEvent.setup();
+    await openStatus();
+    await user.click(within(jobRow("cv-run-acq-3")!).getByRole("button", { name: "Retry ACQ-3" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Put ACQ-3's work back in the queue?",
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Retry" }));
+    await screen.findByText("ACQ-3 is back in the queue.");
+    // Anche dopo che il giro ha tolto il bottone, il fuoco è sulla riga.
+    await waitFor(() =>
+      expect(within(jobRow("cv-run-acq-3")!).queryByRole("button", { name: /Retry/ })).toBeNull(),
+    );
+    expect(jobRow("cv-run-acq-3")).toHaveFocus();
+  });
 });
 
 // --- Fermi per budget, ripartenze fallite --------------------------------------------
@@ -508,6 +570,28 @@ describe("i lavori fermi", () => {
     await waitFor(() => expect(fresh).not.toHaveAttribute("data-fresh"));
     // Il seme al primo giro non era nuovo.
     expect(jobRow("cv-run-acq-3")).not.toHaveAttribute("data-fresh");
+  });
+
+  it("I4: un secondo giro diverso entro 2 s non lascia la riga nuova evidenziata per sempre", async () => {
+    fakeTime();
+    await openStatus();
+    await startLive("t-acq-3");
+    await advance(10_000);
+    const fresh = await waitFor(() => {
+      const row = jobRows().find(
+        (r) => r.dataset.jobState === "running" && r.textContent?.includes("ACQ-3"),
+      );
+      expect(row).toHaveAttribute("data-fresh", "true");
+      return row!;
+    });
+    // Entro 2 s un altro cambio: «Avvia» su STW in pausa avvisa l'istanza e la pagina si rilegge.
+    await advance(500);
+    await startRun("t-stw-12");
+    await waitFor(() =>
+      expect(jobRows().some((r) => r.textContent?.includes("STW-12"))).toBe(true),
+    );
+    await advance(2_000);
+    await waitFor(() => expect(fresh).not.toHaveAttribute("data-fresh"));
   });
 
   it("un aggiornamento automatico fallito non svuota la pagina", async () => {

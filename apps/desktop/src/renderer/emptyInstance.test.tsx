@@ -154,6 +154,12 @@ const CASES: Case[] = [
   { path: "/admin/servers", empty: "admin.servers.empty" },
   { path: "/admin/repositories", empty: "admin.repositories.empty" },
   { path: "/admin/servers/SRV-1", empty: "servers.notFound", proof: "notFound" },
+  // Task 13: lo Stato dell'istanza vuoto (code, lavori, errori, notte, account).
+  { path: "/admin/status", empty: "admin.status.queues.empty" },
+  { path: "/admin/status?status=failed", empty: "admin.status.work.empty" },
+  { path: "/admin/status?status=running", empty: "admin.status.errors.empty" },
+  { path: "/admin/status?status=waiting", empty: "admin.status.nightly.empty" },
+  { path: "/admin/status?kind=task_run", empty: "admin.status.accounts.empty" },
   // Id che non esistono: la pagina «non trovato» di ciascuno.
   { path: "/p/ACQ", lands: "/p/ACQ/overview", empty: "project.notFound", proof: "notFound" },
   { path: "/p/ACQ/tasks", empty: "project.notFound", proof: "notFound" },

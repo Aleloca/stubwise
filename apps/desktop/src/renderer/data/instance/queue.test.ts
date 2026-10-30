@@ -518,8 +518,42 @@ describe("lo Stato dell'istanza per la pagina (Task 13)", () => {
     expect(await stw()).toMatchObject({ waiting: 1, budgetAfterResume: 0 });
     await instance.simulateBudgetReached(true);
     expect(await stw()).toMatchObject({ waiting: 1, budgetAfterResume: 1 });
+    // I2: un lavoro fermo per budget nella coda in pausa (arrivato dopo il
+    // budget) resta fermo anche lui alla ripresa: si conta.
+    held(started, "stw-budget", STW);
+    expect(await stw()).toMatchObject({ waiting: 2, budgetAfterResume: 2 });
     // Una coda non in pausa non ha niente da riprendere.
     expect((await status()).queues.every((q) => q.paused || q.budgetAfterResume === 0)).toBe(true);
+  });
+
+  it("I1: un fallito superato da un lavoro più recente della task non si rimette più in coda", async () => {
+    const acq3 = async () => (await status()).jobs.find((j) => j.id === "cv-run-acq-3")!;
+    expect(await acq3()).toMatchObject({ retry: "allowed", superseded: false });
+    const first = await instance.retryJob("cv-run-acq-3");
+    expect(first).toMatchObject({ ok: true });
+    // Il lavoro nuovo è vivo: un secondo Retry è un conflitto, la riga resta fallita senza Retry.
+    expect(await acq3()).toMatchObject({ state: "failed", retry: "unavailable", superseded: true });
+    expect(await instance.retryJob("cv-run-acq-3")).toEqual({ ok: false, error: "conflict" });
+    // Finito il lavoro nuovo, il fallito resta superato: niente esecuzione in più.
+    const fresh = state.conversations.find(
+      (c) => c.id === (first as { conversationId: string }).conversationId,
+    )!;
+    fresh.state = "finished";
+    fresh.outcome = "ok";
+    expect(await instance.retryJob("cv-run-acq-3")).toEqual({
+      ok: false,
+      error: "invalid",
+      reason: "not_retryable",
+    });
+    expect(await acq3()).toMatchObject({ retry: "unavailable", superseded: true });
+  });
+
+  it("I1: anche un lavoro fermo sulla task (senza sessione) supera il fallito", async () => {
+    const started: string[] = [];
+    held(started, "acq", ACQ, { taskId: "t-acq-3" });
+    const acq3 = (await status()).jobs.find((j) => j.id === "cv-run-acq-3")!;
+    expect(acq3).toMatchObject({ retry: "unavailable", superseded: true });
+    expect(await instance.retryJob("cv-run-acq-3")).toEqual({ ok: false, error: "conflict" });
   });
 
   it("startFailed segna la ripartenza fallita, il cui summary è il messaggio dell'errore", async () => {

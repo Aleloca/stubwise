@@ -65,6 +65,12 @@ export interface InstanceJob {
    * pagina lo traduce quando lo legge.
    */
   startFailed: boolean;
+  /**
+   * Solo `failed`: la task ha già un lavoro più recente (una sessione nata
+   * dopo, o un lavoro fermo sulla task), quindi questo non si rimette più in
+   * coda (`retry` `unavailable`, `newerWorkOf`). La riga resta, con la frase.
+   */
+  superseded: boolean;
 }
 
 /** Una riga del giro notturno: solo da guardare, nessuna azione. */
@@ -148,10 +154,38 @@ const isFailed = (c: Conversation): boolean =>
  * mai una correzione (si riprende dalla task, `pr-corrections.md`), una
  * correzione di un server o un lavoro di un altro tipo.
  */
-export function isRetryable(c: Conversation): boolean {
+export function isRetryableKind(c: Conversation): boolean {
   if (!isFailed(c) || jobKindOf(c) !== "task_run") return false;
   const task = taskOf(c.taskId);
   return task !== undefined && familyOf(task) !== "closed";
+}
+
+/**
+ * Il lavoro più recente sulla stessa task, se c'è: una sessione di lavoro
+ * nata dopo `c` (a pari istante, quella aggiunta dopo) o un lavoro fermo
+ * sulla task. Allora `c` è superato e non si rimette più in coda — un
+ * secondo Retry avvierebbe un'altra esecuzione su una task già rimessa in
+ * coda (revisione T13, I1). `live`: quel lavoro non è ancora finito.
+ */
+export function newerWorkOf(c: Conversation): { live: boolean } | null {
+  if (!c.taskId) return null;
+  if (heldJobs().some((h) => h.taskId === c.taskId && h.conversationId === null))
+    return { live: true };
+  const index = state.conversations.indexOf(c);
+  const later = state.conversations.filter(
+    (o, i) =>
+      o !== c &&
+      o.taskId === c.taskId &&
+      o.kind === "task_run" &&
+      (o.createdAt > c.createdAt || (o.createdAt === c.createdAt && i > index)),
+  );
+  if (later.length === 0) return null;
+  return { live: later.some((o) => o.state !== "finished") };
+}
+
+/** Si rimette in coda: l'esecuzione fallita di una task aperta (`isRetryableKind`), non superata. */
+export function isRetryable(c: Conversation): boolean {
+  return isRetryableKind(c) && newerWorkOf(c) === null;
 }
 
 type Job = Omit<InstanceJob, "workerId" | "retry" | "retryNeeds" | "retryStopsAtPlan">;
@@ -180,6 +214,7 @@ function sessionJob(c: Conversation, kind: NonNullable<ReturnType<typeof jobKind
         ? serverHref(codeOf(projectId), server)
         : taskHref(c.taskId),
     summary: failed ? (c.failureSummary ?? null) : null,
+    superseded: failed && kind === "task_run" && newerWorkOf(c) !== null,
     startFailed: false,
   };
 }
@@ -194,6 +229,7 @@ function failedStartJob(f: FailedStart): Job {
     since: f.failedAt,
     summary: f.summary,
     startFailed: true,
+    superseded: false,
   };
 }
 
@@ -219,6 +255,7 @@ function heldJob(h: ReturnType<typeof heldJobs>[number]): Job {
     href: run && automation ? runHref(automation.code, run.n) : taskHref(h.taskId),
     summary: null,
     startFailed: false,
+    superseded: false,
   };
 }
 
@@ -301,11 +338,12 @@ export async function getInstanceStatus(): Promise<InstanceStatusView> {
         ...counts(shown.filter((j) => j.projectId === projectId)),
         pause: (manages ? "allowed" : "forbidden") as ActionAvailability,
         // Alla ripresa un lavoro riparte solo senza altri blocchi (`release`):
-        // col budget raggiunto, quelli fermi per la pausa restano fermi.
+        // col budget raggiunto non riparte niente — né quelli fermi per la
+        // pausa né quelli arrivati dopo il budget, già fermi per lui (I2).
+        // Gli stessi che `counts` dice «waiting».
         budgetAfterResume:
           pause && budgetReached()
-            ? shown.filter((j) => j.projectId === projectId && j.waiting?.reason === "queue_paused")
-                .length
+            ? shown.filter((j) => j.projectId === projectId && j.waiting !== null).length
             : 0,
       };
     })

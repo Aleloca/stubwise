@@ -3,7 +3,7 @@ import { recordChange } from "../changelog/index";
 import { state, storeGeneration, visibleProjectIds } from "../store";
 import { writer } from "../writer";
 import { canI, refuse } from "./common";
-import { isRetryable } from "./status";
+import { isRetryableKind, newerWorkOf } from "./status";
 import type { InstanceRefusal, InstanceResult } from "./types";
 
 // «Retry» / «Rimetti in coda» dello Stato dell'istanza (area 9b, Task 5). Sta
@@ -37,7 +37,11 @@ export async function retryJob(jobId: string): Promise<InstanceResult<{ conversa
   if (!canI(me, "settings.manage") || !canI(me, "runs.start", failed.projectId))
     return refuse.forbidden();
   const task = failed.taskId ? state.tasksById.get(failed.taskId) : undefined;
-  if (!task || !isRetryable(failed)) return refuse.invalid("not_retryable");
+  if (!task || !isRetryableKind(failed)) return refuse.invalid("not_retryable");
+  // Superato da un lavoro più recente sulla task (revisione T13, I1): se è
+  // ancora vivo è un conflitto, se è finito il fallito non si rimette più.
+  const newer = newerWorkOf(failed);
+  if (newer) return newer.live ? refuse.conflict() : refuse.invalid("not_retryable");
 
   let conversationId: string;
   try {
