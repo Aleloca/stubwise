@@ -5,6 +5,7 @@ import { admin, resetApi, setLatency } from "../../data/api";
 import { markReauthenticated } from "../../data/auth/reauth";
 import { setSessionPersonId } from "../../data/session";
 import { visiblePeopleFor } from "../../data/access/whoCan";
+import { accessState, writeAccess } from "../../data/access/index";
 import { ADMIN_CHANGE_TYPES } from "../../data/admin/changeTypes";
 import { changeTypes } from "../../data/changelog/index";
 import { state } from "../../data/store";
@@ -308,6 +309,32 @@ describe("Who can?", () => {
     const missing = document.querySelector<HTMLElement>("[data-permission='plans.approve']")!;
     expect(missing.dataset.held).toBe("false");
     expect(missing).toHaveTextContent("Approve plans");
+  });
+
+  it("chi ha dato un permesso si legge per nome anche se chi guarda non lo vede (30 ott 2026)", async () => {
+    // Una persona attiva che Laura non vede dà a Marco un permesso in ACQ.
+    const unseen = (id: string) =>
+      !PEOPLE.find((x) => x.id === id)!.isClaude && !visiblePeopleFor(LAURA).has(id);
+    const giver = accessState().people.find((p) => p.status === "active" && unseen(p.personId))!
+      .personId;
+    writeAccess((s) => {
+      s.grants.push({
+        personId: "p-marco",
+        projectId: ACQ,
+        permission: "support.reply",
+        grantedById: giver,
+        at: "2026-10-20T10:00:00Z",
+      });
+    });
+    renderRoute("/admin/who-can?view=what&person=p-marco&project=ACQ", LAURA);
+    await heading("Who can?");
+    const row = await waitFor(() => {
+      const r = document.querySelector<HTMLElement>("[data-permission='support.reply']");
+      expect(r).not.toBeNull();
+      return r!;
+    });
+    expect(row).toHaveTextContent(`given by ${nameOf(giver)} on Oct 20`);
+    expect(row).not.toHaveTextContent("given by hand");
   });
 
   it("Claude: la frase fissa, CAN e NEVER, nessuna fonte", async () => {

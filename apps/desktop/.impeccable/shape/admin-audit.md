@@ -51,7 +51,10 @@ registro si legge). Scelte del brief **[AU n]**.
   - **nessun segreto nel registro**: «the key was replaced», mai il valore;
   - **il registro e «Who can?» non rivelano**: progetti e persone che chi
     guarda non vede **non esistono** nelle risposte, nei filtri, nei
-    conteggi (R-G5);
+    conteggi (R-G5). **Il nome di chi ha dato un permesso invece si vede
+    sempre**, anche quando chi guarda non vede quella persona: «given by
+    Roberta Fontana on Oct 29» come in Members e nel registro (decisione del
+    maintainer del 30 ott 2026);
   - **«Who can?» è `can()`**: la stessa risposta del bottone; se le due
     divergessero, sarebbe un difetto.
 

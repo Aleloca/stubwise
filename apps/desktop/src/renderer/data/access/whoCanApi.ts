@@ -9,7 +9,9 @@ import { visiblePeopleFor, whatCan as whatCanRaw, whoCan as whoCanRaw } from "./
 // «Chi può farlo?» come lo legge il client (`api.access`, area 9a, shape
 // admin-audit.md). Le risposte sono quelle di `whoCan`/`whatCan` — cioè di
 // `can()` — con i nomi già risolti: il ruolo, il reparto, chi ha dato il
-// permesso (solo se chi guarda lo vede, R-G5: altrimenti «given by hand»).
+// permesso (sempre, anche quando chi guarda non vede quella persona: come in
+// Members e nel registro, decisione del maintainer del 30 ott 2026; «given by
+// hand» solo per una concessione senza autore).
 // La pagina «Who can?» e il riquadro «Who?» accanto ai bottoni spenti leggono
 // da qui, quindi rispondono come il bottone.
 
@@ -70,8 +72,7 @@ export interface WhoCanChoices {
 
 const personOf = (id: string) => PEOPLE.find((p) => p.id === id);
 
-function reasonsOf(viewerId: string, sources: readonly PermissionSource[]): WhoCanReason[] {
-  const visible = visiblePeopleFor(viewerId);
+function reasonsOf(sources: readonly PermissionSource[]): WhoCanReason[] {
   return sources.map((s): WhoCanReason => {
     switch (s.kind) {
       case "role":
@@ -82,10 +83,7 @@ function reasonsOf(viewerId: string, sources: readonly PermissionSource[]): WhoC
       case "grant":
         return {
           kind: "grant",
-          byName:
-            s.grantedById && visible.has(s.grantedById)
-              ? (personOf(s.grantedById)?.name ?? null)
-              : null,
+          byName: s.grantedById ? (personOf(s.grantedById)?.name ?? null) : null,
           at: s.at,
         };
       case "department":
@@ -129,7 +127,7 @@ export async function whoCan(actionId: string, projectId: string | null): Promis
         personId: p.personId,
         name: person?.name ?? p.personId,
         initials: person?.initials ?? "",
-        reasons: reasonsOf(me, p.sources),
+        reasons: reasonsOf(p.sources),
       };
     }),
     claude: raw.claude,
@@ -162,7 +160,7 @@ export async function whatCan(personId: string, projectId: string | null): Promi
           return {
             permission,
             held: !!h,
-            reasons: h && !isClaude ? reasonsOf(me, h.sources) : [],
+            reasons: h && !isClaude ? reasonsOf(h.sources) : [],
           };
         }),
     }))
