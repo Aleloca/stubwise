@@ -11,6 +11,7 @@ import {
   reauthRefusal,
   refuse,
   roleById,
+  roleMissingIn,
 } from "./common";
 import { pendingInvites } from "./people";
 import { storeSecret } from "./secrets";
@@ -90,7 +91,7 @@ export async function getInviteChoices(): Promise<InviteChoices> {
         name: p.name,
         roles: roles
           .filter((r) => r.scope === "project")
-          .map((r) => choice(r, missingIn(me, [p.id], r.permissions))),
+          .map((r) => choice(r, roleMissingIn(me, [p.id], r))),
       })),
   };
 }
@@ -136,7 +137,7 @@ export async function createInvite(
   const missing = new Set<string>();
   for (const check of [
     missingIn(me, "instance", instanceRole.permissions),
-    ...input.projects.map((p) => missingIn(me, [p.projectId], roleById(p.roleId)!.permissions)),
+    ...input.projects.map((p) => roleMissingIn(me, [p.projectId], roleById(p.roleId)!)),
   ])
     for (const m of check) missing.add(m);
   if (missing.size > 0) return { ok: false, error: "escalation", missing: [...missing] };

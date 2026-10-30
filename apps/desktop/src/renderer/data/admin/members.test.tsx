@@ -548,3 +548,47 @@ describe("Add to a project: dalla pagina della persona", () => {
     expect((await admin.getPerson("p-giulia")).addableTo).toEqual([]);
   });
 });
+
+describe("R-E2 laterale: il ruolo Project Lead dà anche «vedere l'attività»", () => {
+  /** Marco, con un ruolo fatto a mano che ha tutti i permessi del Project Lead, ma non lo è. */
+  function marcoLikeALead() {
+    const lead = accessState().roles.find((r) => r.id === roleIdOf("project_lead"))!;
+    writeAccess((s) => {
+      s.roles.push({
+        ...structuredClone(lead),
+        id: "role-lead-copy",
+        key: "lead-copy",
+        name: "Lead copy",
+        preset: false,
+      });
+      for (const m of s.memberships) if (m.personId === "p-marco") m.roleId = "role-lead-copy";
+    });
+    expect(can(viewerFor("p-marco"), "people.activity.view")).toBe(false);
+    as("p-marco");
+    reauth("p-marco");
+  }
+
+  it("chi non ha people.activity.view non dà il ruolo Project Lead: né aggiungendo né nella bozza", async () => {
+    marcoLikeALead();
+    const inAcq = (id: string) =>
+      accessState().memberships.some((m) => m.personId === id && m.projectId === ACQ);
+    const joining = accessState().people.find(
+      (p) => p.status === "active" && !inAcq(p.personId) && p.personId !== "p-roberta",
+    )!.personId;
+    await refused(() => admin.addMember(ACQ, joining, roleIdOf("project_lead")), {
+      error: "escalation",
+      missing: ["people.activity.view"],
+    });
+    const developer = accessState().memberships.find(
+      (m) => m.projectId === ACQ && m.personId !== "p-marco" && m.roleId === roleIdOf("developer"),
+    )!.personId;
+    await refused(
+      () => admin.saveMember(ACQ, developer, { roleId: roleIdOf("project_lead"), granted: [] }),
+      { error: "escalation", missing: ["people.activity.view"] },
+    );
+    const view = await admin.listProjectMembers(ACQ);
+    expect(view.roleChoices.find((r) => r.roleId === roleIdOf("project_lead"))!.missing).toEqual(
+      ["people.activity.view"],
+    );
+  });
+});

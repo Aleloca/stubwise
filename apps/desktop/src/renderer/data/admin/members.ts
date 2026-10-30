@@ -21,6 +21,7 @@ import {
   isHumanId,
   missingIn,
   nameOf,
+  roleMissingIn,
   reauthRefusal,
   refuse,
   roleById,
@@ -108,7 +109,7 @@ export function projectRoleChoices(me: string, projectId: string): RoleChoice[] 
       roleId: r.id,
       name: r.name,
       permissionCount: r.permissions.length,
-      missing: missingIn(me, [projectId], r.permissions),
+      missing: roleMissingIn(me, [projectId], r),
     }));
 }
 
@@ -217,11 +218,9 @@ export function judgeJoin(
   if (membershipOf(accessState(), personId, projectId)) return refuse.invalid("already_member");
   const role = roleById(roleId);
   if (!role || role.scope !== "project") return refuse.invalid("role");
-  return escalationIn(
-    me,
-    [projectId],
-    [...role.permissions, ...departmentPermissionsOf(personId)],
-  );
+  const departments = departmentPermissionsOf(personId);
+  const missing = roleMissingIn(me, [projectId], role, undefined, departments);
+  return missing.length === 0 ? null : { ok: false, error: "escalation", missing };
 }
 
 /**
@@ -324,9 +323,8 @@ export async function setMemberRole(
   if (!role || role.scope !== "project") return refuse.invalid("role");
   const before = roleById(membership.roleId);
   if (role.id === before?.id) return refuse.invalid("unchanged");
-  const added = role.permissions.filter((p) => !before?.permissions.includes(p));
-  const escalation = escalationIn(me, [projectId], added);
-  if (escalation) return escalation;
+  const missing = roleMissingIn(me, [projectId], role, before);
+  if (missing.length > 0) return { ok: false, error: "escalation", missing };
   const mutate = (s: AccessState) => {
     membershipOf(s, personId, projectId)!.roleId = role.id;
     s.revocations = s.revocations.filter(
@@ -438,9 +436,7 @@ function judgeMember(me: string, projectId: string, personId: string, draft: Mem
   const added = granted.filter((p) => !savedGranted.includes(p));
   const removed = savedGranted.filter((p) => !granted.includes(p));
   const roleChanged = role.id !== saved.id;
-  const addedByRole = roleChanged
-    ? role.permissions.filter((p) => !saved.permissions.includes(p))
-    : [];
+  const roleMissing = roleChanged ? roleMissingIn(me, [projectId], role, saved) : [];
   const at = now();
   /** La stessa funzione prova i blocchi e poi scrive (`invariantRefusal`, `writeAccess`). */
   const mutate = (st: AccessState) => {
@@ -465,7 +461,7 @@ function judgeMember(me: string, projectId: string, personId: string, draft: Mem
     roleChanged,
     added,
     removed,
-    missing: missingIn(me, [projectId], [...addedByRole, ...added]),
+    missing: [...new Set([...roleMissing, ...missingIn(me, [projectId], added)])],
     block: invariant?.error === "invalid" ? invariant.reason : null,
     mutate,
   };
@@ -479,11 +475,7 @@ function memberRoleChoices(me: string, projectId: string, saved: RoleDef): RoleC
       roleId: r.id,
       name: r.name,
       permissionCount: r.permissions.length,
-      missing: missingIn(
-        me,
-        [projectId],
-        r.permissions.filter((p) => !saved.permissions.includes(p)),
-      ),
+      missing: roleMissingIn(me, [projectId], r, saved),
     }));
 }
 

@@ -4,8 +4,10 @@ import {
   accessState,
   effectivePermissions,
   isFullAdminIn,
+  roleGivesActivityView,
   type AccessState,
   type PermissionSource,
+  type RoleDef,
 } from "../access/index";
 import { requireReauth } from "../auth/reauth";
 import { person as addressOf } from "../seed/mail/helpers";
@@ -121,6 +123,29 @@ export function missingIn(
     for (const m of missing(effectivePermissions(me, p))) out.add(m);
   // Nell'ordine di `wanted`, senza ripetizioni.
   return [...new Set(wanted)].filter((p) => out.has(p));
+}
+
+const ACTIVITY_VIEW = "people.activity.view";
+
+/**
+ * Ciò che manca a `me` per dare un ruolo di progetto in `projectIds`: i
+ * permessi del ruolo (meno quelli di `before`, il ruolo che la persona ha già)
+ * e, se è il Project Lead, anche «vedere l'attività delle persone» d'istanza
+ * (R-E2: derivato, non sta in `role.permissions`), che chi lo dà deve avere.
+ */
+export function roleMissingIn(
+  me: string,
+  projectIds: readonly string[],
+  role: RoleDef,
+  before?: RoleDef,
+  extra: readonly string[] = [],
+): string[] {
+  const wanted = role.permissions.filter((p) => !before?.permissions.includes(p));
+  const missing = missingIn(me, projectIds, [...wanted, ...extra]);
+  const givesActivity = roleGivesActivityView(role) && !(before && roleGivesActivityView(before));
+  if (givesActivity && missingIn(me, "instance", [ACTIVITY_VIEW]).length > 0)
+    missing.push(ACTIVITY_VIEW);
+  return missing;
 }
 
 /** `escalation` sul DARE: `null` se chi agisce ha tutto `wanted` dove arriva. */
