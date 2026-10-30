@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { type Ref } from "react";
 import { useTranslation } from "react-i18next";
 import { stepAt } from "../../domain/automations/fields";
+import { usePauserName } from "../../components/InstanceBlock";
 import { WhoCanLink } from "../../components/WhoCanLink";
 import { useMailThreadOfMessage, useProjects } from "../../data/queries";
 import type { AutomationRunDetail, RunLogEntry } from "../../data/types";
@@ -86,6 +87,8 @@ export function NowBox({
   const client = str(run.pending?.preview.clientName) || clientOf(run.event) || "";
   // Una decisione presa qui (o in «Decide») e ancora nella finestra dell'«Undo».
   const answering = usePendingAnswers().has(run.id);
+  // Chi ha messo la pausa, con «(deactivated)» se è stato disattivato.
+  const pauserName = usePauserName(run.aiWaiting ?? null);
   // Il progetto in cui il passo aspetta la coda (la frase della pausa lo nomina).
   const projectCode =
     useProjects().data?.find((p) => p.id === (run.automationProjectId ?? run.projectIds[0]))
@@ -219,7 +222,7 @@ export function NowBox({
         const budget = block.reason === "monthly_budget";
         title = budget
           ? t("instanceEffects.budget.waiting")
-          : t("instanceEffects.queue.runWaiting", { code: projectCode, name: block.byName });
+          : t("instanceEffects.queue.runWaiting", { code: projectCode, name: pauserName });
         body = (
           <p className="text-sm text-ink-muted">
             {step &&

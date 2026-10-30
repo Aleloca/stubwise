@@ -22,6 +22,7 @@ import { deliveredTo } from "./alerts/reads";
 import { whyReceives } from "./alerts/visibility";
 import { linkAccessHrefOf } from "./servers/visibility";
 import { aiBlockFor } from "./instance/blocks";
+import { waitingBlockIn } from "./instance/queue";
 import { assigneeStatusOf } from "./admin/people";
 import {
   canSeeConversation,
@@ -167,14 +168,28 @@ export async function listPeople(): Promise<Person[]> {
 export async function listProjects(): Promise<Project[]> {
   const me = await gate("listProjects");
   const visible = visibleProjectIds(me);
-  return state.projects.filter((p) => visible.has(p.id)).map(copy);
+  return state.projects.filter((p) => visible.has(p.id)).map(withSignals);
+}
+
+/** Il polso, con Claude che aspetta se c'è lavoro fermo nel progetto (area 9b); senza, invariato. */
+function withWaiting(pulse: ProjectPulse): ProjectPulse {
+  const block = waitingBlockIn(pulse.projectId);
+  return block ? { ...pulse, claudeWaiting: block } : pulse;
+}
+
+/** Un progetto per chi guarda, coi segnali di adesso: anche Claude che aspetta (area 9b). */
+function withSignals(project: Project): Project {
+  const out = copy(project);
+  const block = waitingBlockIn(project.id);
+  if (block) out.signals = { ...out.signals, claudeWaiting: block };
+  return out;
 }
 
 /** Un progetto invisibile risponde come uno che non esiste: `null`. */
 export async function getProjectByCode(code: string): Promise<Project | null> {
   const me = await gate("getProjectByCode");
   const project = state.projects.find((p) => p.code === code.toUpperCase());
-  return project && visibleProjectIds(me).has(project.id) ? copy(project) : null;
+  return project && visibleProjectIds(me).has(project.id) ? withSignals(project) : null;
 }
 
 /** I fissati di chi guarda, nell'ordine in cui li ha fissati (solo progetti visibili). */
@@ -430,7 +445,7 @@ export async function projectPulse(projectId: string): Promise<ProjectPulse | nu
   const me = await gate("projectPulse");
   const project = state.projectsById.get(projectId);
   if (!project || !visibleProjectIds(me).has(projectId)) return null;
-  return pulseOf(me, project, openDecisions());
+  return withWaiting(pulseOf(me, project, openDecisions()));
 }
 
 /**
@@ -441,7 +456,10 @@ export async function listProjectPulses(): Promise<ProjectPulse[]> {
   const me = await gate("listProjectPulses");
   const visible = visibleProjectIds(me);
   const open = openDecisions();
-  return state.projects.filter((p) => visible.has(p.id)).map((p) => pulseOf(me, p, open));
+  // Area 9b: con il lavoro di Claude fermo, il polso dice che aspetta.
+  return state.projects
+    .filter((p) => visible.has(p.id))
+    .map((p) => withWaiting(pulseOf(me, p, open)));
 }
 
 /**
@@ -675,6 +693,8 @@ export async function getTaskWork(taskId: string): Promise<TaskWork | null> {
         c.state === "finished" && c.outcome !== "ok" ? (c.failureSummary ?? null) : null,
       model: c.model ?? null,
       waiting: c.waiting ? copy(c.waiting) : null,
+      queued: c.queued ? copy(c.queued) : null,
+      executionModel: c.executionModel ?? null,
     }));
   const software = hasRepository(task.projectId);
   const viewer = viewerFor(me);

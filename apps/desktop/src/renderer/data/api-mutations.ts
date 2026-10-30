@@ -54,7 +54,9 @@ import {
   reindex,
   signalAutomations,
   state,
+  notifyInstanceChange,
   storeGeneration,
+  syncTaskClaude,
   visibleProjectIds,
 } from "./store";
 import {
@@ -1779,6 +1781,8 @@ async function sendMessageNow(
   const gen = storeGeneration();
   const me = await afterGate("sendMessage", gen);
   const c = conversationFor(me, id);
+  // In attesa della coda (area 9b): non è partita, un messaggio la farebbe partire.
+  if (c.waiting) throw invalid("waiting");
   if (!conversationPermissions(me, c).canWrite) throw forbidden();
   const text = message.text.trim();
   const attachments = (message.attachments ?? []).map(copy);
@@ -2048,6 +2052,7 @@ async function stopWaiting(me: string, c: Conversation, gen: number): Promise<vo
   dropHeld(c.id);
   c.waiting = null;
   if (c.state === "paused") {
+    syncTaskClaude(c);
     notifyConversationChange(c.id);
     return;
   }
@@ -2099,6 +2104,8 @@ export async function stopAndSend(id: string, text: string): Promise<void> {
   const gen = storeGeneration();
   const me = await afterGate("stopAndSend", gen);
   const c = conversationFor(me, id);
+  // In attesa della coda (area 9b): si ferma con Stop, non riparte da un messaggio.
+  if (c.waiting) throw invalid("waiting");
   if (!conversationPermissions(me, c).canInterrupt) throw forbidden();
   if (!text.trim()) throw invalid("text");
   if (c.kind === "free") {
@@ -2904,7 +2911,13 @@ export async function startOrHold(
 ): Promise<void> {
   if (!block) return go();
   c.waiting = { ...block };
+  c.queued = { resumedById: null, resumedAt: null };
+  // La task dice che Claude aspetta, non che lavora (rail, elenchi, polso).
+  const task = c.kind === "task_run" && c.taskId ? state.tasksById.get(c.taskId) : undefined;
+  if (task) task.claude = "waiting";
   notifyConversationChange(c.id);
+  // Il binario e il polso dicono che Claude aspetta (area 9b).
+  notifyInstanceChange();
   holdJob({
     projectId: c.projectId!,
     kind,
@@ -2913,12 +2926,14 @@ export async function startOrHold(
     automationRunId: null,
     starterId: me,
     block,
-    start: async () => {
+    start: async (releasedBy) => {
       if (!current(gen)) throw new Error("reset");
       // Solo se è ancora in attesa (ruling 14): fermata, chiusa o eliminata non parte.
       if (!c.waiting || c.state === "finished" || !state.conversations.includes(c)) return;
       c.waiting = null;
+      c.queued = { resumedById: releasedBy, resumedAt: now() };
       notifyConversationChange(c.id);
+      notifyInstanceChange();
       await go();
     },
   });

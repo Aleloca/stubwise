@@ -9,7 +9,9 @@ import { formatDate } from "../../notifications/time";
 import { ActionRow } from "../claude/conversation/ActionRows";
 import { DisclosureGlyph } from "../claude/conversation/parts";
 import { ghostButton } from "./parts";
-import { phaseName, providerLabel } from "./WorkStory";
+import { modelName, phaseName, providerLabel } from "./WorkStory";
+
+export { modelName };
 
 // I pezzi della sezione «Claude» che vengono dall'«AI activity» e dal
 // pannello dei consumi del web: con chi gira la sessione, il riassunto di un
@@ -18,11 +20,6 @@ import { phaseName, providerLabel } from "./WorkStory";
 
 const K = "taskDetail.claude";
 
-/** «claude-haiku-5-5» → «Haiku»: la famiglia del modello; un id d'altra forma resta com'è. */
-export function modelName(model: string): string {
-  const m = /^claude-([a-z]+)-/.exec(model);
-  return m ? `${m[1]![0]!.toUpperCase()}${m[1]!.slice(1)}` : model;
-}
 
 /**
  * Sotto la riga di stato: con chi gira la sessione, per nome. Le sessioni
@@ -38,24 +35,34 @@ export function ProviderLine({
   model?: string | null;
 }) {
   const { t } = useTranslation();
+  if (!provider && model === null) return null;
+  return (
+    <p data-run-provider className="-mt-2 pl-[34px] text-xs text-ink-faint">
+      {runLineText(t, provider, model)}
+    </p>
+  );
+}
+
+/**
+ * La riga di chi e con cosa gira una sessione: «Model: Haiku · Account:
+ * Backup Max (subscription)» per le sessioni dell'area 9b, «Provider: Team
+ * Max (account)» per quelle di prima (senza modello). La usano la sezione
+ * Claude della task e la testata della pagina della sessione.
+ */
+export function runLineText(
+  t: TFunction,
+  provider: RunProvider | null,
+  model: string | null,
+): string {
   if (model === null) {
-    if (!provider) return null;
-    return (
-      <p data-run-provider className="-mt-2 pl-[34px] text-xs text-ink-faint">
-        {t(`${K}.provider.label`, { provider: providerLabel(t, provider) })}
-      </p>
-    );
+    return provider ? t(`${K}.provider.label`, { provider: providerLabel(t, provider) }) : "";
   }
   const account = provider
     ? t(`instanceEffects.run.${provider.kind === "account" ? "subscription" : "api_key"}`, {
         name: provider.name,
       })
     : t("instanceEffects.run.noAccount");
-  return (
-    <p data-run-provider className="-mt-2 pl-[34px] text-xs text-ink-faint">
-      {t("instanceEffects.run.line", { model: modelName(model), account })}
-    </p>
-  );
+  return t("instanceEffects.run.line", { model: modelName(model), account });
 }
 
 /**

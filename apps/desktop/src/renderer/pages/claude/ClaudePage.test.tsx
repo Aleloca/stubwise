@@ -554,3 +554,19 @@ describe("destinazione Claude: rinomina, archivia, elimina", () => {
     );
   });
 });
+
+describe("destinazione Claude: la testata di una sessione nuova (area 9b, [EF 3])", () => {
+  it("dice modello e account con cui è partita, e che aspetta la coda", async () => {
+    state.instance.models.fix_plan = "haiku";
+    const run = await as("p-roberta", () => api.startRun("t-stw-7"));
+    renderRoute(`/claude/${run.id}`, "p-roberta");
+    const header = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>("[data-session-run]");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(header).toHaveTextContent("Model: Haiku · Account: Team Max (subscription)");
+    expect(header.closest("header")).toHaveTextContent("Waiting to start");
+    expect(header.closest("header")).not.toHaveTextContent("Working");
+  });
+});

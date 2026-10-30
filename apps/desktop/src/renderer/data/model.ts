@@ -51,7 +51,14 @@ export interface Project {
   memberIds: string[];
   /** Giorni senza attività dopo i quali una task è ferma (`active`; `todo` già slittata). */
   stallThresholds: { activeDays: number; todoDays: number };
-  signals: { claudeWorking: boolean };
+  signals: {
+    claudeWorking: boolean;
+    /**
+     * Area 9b, solo nelle letture: c'è lavoro di Claude nato ma fermo (la
+     * coda in pausa, il budget), col blocco che vale adesso.
+     */
+    claudeWaiting?: AiBlock | null;
+  };
   /** Il tetto delle correzioni automatiche per PR (impostazione di progetto); assente = 3. */
   correctionCap?: number;
 }
@@ -130,7 +137,9 @@ export type ClaudeWorkState =
   | "awaiting_answer"
   | "awaiting_approval"
   | "stopped"
-  | "done";
+  | "done"
+  /** Area 9b: la sessione è nata ma aspetta la coda (o il budget): Claude non lavora ancora. */
+  | "waiting";
 /**
  * Un collegamento si salva UNA volta, come sul web (una riga di relazione):
  * sulla task che «blocca», che «è correlata» o che ha un «padre». Gli inversi
@@ -725,6 +734,14 @@ export interface Conversation {
    * assente: non aspetta.
    */
   waiting?: AiBlock | null;
+  /**
+   * Area 9b: la sessione è nata in attesa (la coda in pausa). `resumedById`
+   * è chi ha ripreso la coda (`null` finché aspetta, o se è ripartita perché
+   * è tornato il budget), con quando: la storia del lavoro lo racconta.
+   */
+  queued?: { resumedById: string | null; resumedAt: string | null };
+  /** Area 9b: il modello di `fix_execute` quando l'esecuzione è partita (la storia lo dice se è diverso). */
+  executionModel?: string;
   /** Solo sessione di lavoro: i consumi per modello. */
   usage?: ModelUsage[];
   /** Solo sessione di lavoro fallita: il riassunto del fallimento, in una riga. */

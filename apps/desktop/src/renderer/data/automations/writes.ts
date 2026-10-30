@@ -5,7 +5,7 @@ import type { Automation, AutomationFlow, AutomationMeta } from "../types";
 import { can, viewerFor } from "../viewer";
 import { forbidden, invalid, notFound, writer } from "../writer";
 import { configErrorsOf } from "./reads";
-import { hasQueued, publishedVersion, resume, suspend } from "./runner";
+import { aiWaitingOf, hasQueued, publishedVersion, resume, suspend } from "./runner";
 import { templateFlow, type AutomationTemplateKind } from "./templates";
 import { keepHiddenProjects } from "./visibility";
 import { managedAutomation } from "./writeGuards";
@@ -317,6 +317,10 @@ export async function pause(id: string): Promise<Automation> {
       run.status === "waiting_project"
     ) {
       suspend(run, run.status);
+    } else if (run.status === "running" && aiWaitingOf(run.id)) {
+      // Ferma al confine di un passo per un blocco d'istanza (area 9b): nessun
+      // effetto in volo, si sospende adesso ed esce dalla fila.
+      suspend(run, "running");
     }
   }
   return copy(a);

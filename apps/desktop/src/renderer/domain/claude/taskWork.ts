@@ -247,7 +247,21 @@ function runsEvents(work: WorkSource, latest?: readonly ConversationEvent[]): Co
 
 export type StoryEntry =
   /** `provider`: l'account o la chiave con cui la sessione ha girato (il nome). */
-  | { kind: "run_started"; key: string; at: string; byId: string; provider: RunProvider | null }
+  | {
+      kind: "run_started";
+      key: string;
+      at: string;
+      byId: string;
+      provider: RunProvider | null;
+      /** Area 9b: il modello con cui è partita (`null` per le sessioni di prima). */
+      model?: string | null;
+      /** Area 9b: è nata in attesa della coda in pausa. */
+      queued?: boolean;
+    }
+  /** Area 9b: la coda è ripresa (`byId`) o il budget è tornato (`null`), e il lavoro è partito. */
+  | { kind: "queue_resumed"; key: string; at: string; byId: string | null }
+  /** Area 9b: l'esecuzione è partita con un modello diverso da quello del piano. */
+  | { kind: "execution_started"; key: string; at: string; model: string }
   /** `ordinal` per PR; `null` per una correzione fermata (annullata), che non prende numero. */
   | { kind: "correction_requested"; key: string; at: string; byId: string; ordinal: number | null }
   | { kind: "correction_started"; key: string; at: string; ordinal: number | null }
@@ -418,6 +432,17 @@ function analyze(
         at: run.createdAt,
         byId: run.ownerId,
         provider: run.provider ?? null,
+        model: run.model ?? null,
+        queued: run.queued != null,
+      });
+    }
+    // Area 9b: nata in attesa della coda, poi partita (chi ha ripreso la coda, o il budget).
+    if (run.queued?.resumedAt) {
+      out.push({
+        kind: "queue_resumed",
+        key: `${run.id}:resumed`,
+        at: run.queued.resumedAt,
+        byId: run.queued.resumedById,
       });
     }
     let correctionOpen = first?.phase === "correction";
@@ -425,6 +450,15 @@ function analyze(
     for (const e of events) {
       switch (e.type) {
         case "phase": {
+          // L'esecuzione con un modello diverso da quello con cui è partita (area 9b).
+          if (
+            e.phase === "execution" &&
+            e.outcome === null &&
+            run.executionModel &&
+            run.executionModel !== run.model
+          ) {
+            out.push({ kind: "execution_started", key: e.id, at: e.at, model: run.executionModel });
+          }
           if (e.phase === "correction" && e !== first) {
             const opens = e.outcome === null || !correctionOpen;
             if (opens && current && stopped) {

@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { useMailThreadOfMessage } from "../../data/queries";
+import { useMailThreadOfMessage, usePeople } from "../../data/queries";
 import type { AutomationRunDetail, DataField, RunLogEntry, Step } from "../../data/types";
 import { useToast } from "../../tasks-ui/Toast";
 import { quietButton } from "../tasks/controls";
@@ -138,12 +138,22 @@ export function EntrySentence({
   ctx: LogCtx;
 }) {
   const { t, i18n } = useTranslation();
+  const people = usePeople().data;
   const who = ctx.names.person(entry.byId);
   const input = entry.input;
   const hiddenEffect = entry.effects.some((e) => e.code === "");
   // Area 9b ([EF 6]): l'attesa di un blocco d'istanza e la ripartenza, nella
   // lingua di chi guarda («Waiting: monthly AI budget reached»).
-  if (entry.why && AI_WAIT_CODES.has(entry.why.code)) return <>{reasonWords(entry.why, t)}</>;
+  // Chi ha messo la pausa si legge per nome anche se poi è stato disattivato.
+  if (entry.why && AI_WAIT_CODES.has(entry.why.code)) {
+    const params = entry.why.params ?? {};
+    const pauser = people?.find((p) => p.id === params.byId);
+    const name =
+      pauser?.deactivated === true
+        ? t("instanceEffects.deactivated", { name: params.name })
+        : params.name;
+    return <>{reasonWords({ ...entry.why, params: { ...params, ...(name ? { name } : {}) } }, t)}</>;
+  }
   switch (entry.outcome) {
     case "approved":
       if (entry.output.progetto !== undefined) {

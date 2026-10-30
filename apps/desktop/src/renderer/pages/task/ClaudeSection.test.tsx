@@ -535,6 +535,12 @@ describe("sezione Claude: le impostazioni d'istanza (area 9b, shape instance-eff
       "waiting",
     );
     expect(within(current()).queryByRole("button", { name: "Start" })).toBeNull();
+    // La storia: partita in attesa della coda, col modello e l'account.
+    await userEvent.click(within(current()).getByRole("button", { name: /Work story/ }));
+    const story = () => within(current()).getByRole("list", { name: "Work story" });
+    expect(story()).toHaveTextContent(
+      "Run started by Roberta Fontana · Opus · Team Max (account) · waiting for the queue",
+    );
 
     await instance.resumeQueue("prj-stw");
     await waitFor(
@@ -542,6 +548,29 @@ describe("sezione Claude: le impostazioni d'istanza (area 9b, shape instance-eff
         expect(current().querySelector("[data-claude-status]")).not.toHaveTextContent("Waiting"),
       { timeout: 3000 },
     );
+    // L'annuncio della ripresa, e la riga della storia con chi ha ripreso la coda.
+    await waitFor(() =>
+      expect(current().querySelector("[data-claude-started]")).toHaveTextContent(
+        `Claude started on ${t.code}.`,
+      ),
+    );
+    expect(story()).toHaveTextContent("Queue resumed by Roberta Fontana · run started");
+  });
+
+  it("l'esecuzione con un modello diverso dal piano: la storia lo dice", async () => {
+    const t = readyTask("prj-acq");
+    state.instance.models.fix_plan = "opus";
+    state.instance.models.fix_execute = "sonnet";
+    const section = await claudeSection(t.id, "p-laura");
+    await userEvent.click(within(section).getByRole("button", { name: "Start" }));
+    await waitFor(
+      () => expect(current().querySelector("[data-claude-status]")).toHaveAttribute("data-claude-status", "done"),
+      { timeout: 8000 },
+    );
+    await userEvent.click(within(current()).getByRole("button", { name: /Work story/ }));
+    const story = () => within(current()).getByRole("list", { name: "Work story" });
+    expect(story()).toHaveTextContent("Run started by Laura Costa · Opus · Team Max (account)");
+    await waitFor(() => expect(story()).toHaveTextContent("Execution started · Sonnet"));
   });
 
   it("modello e account con cui la sessione è partita, sotto lo stato", async () => {

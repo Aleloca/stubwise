@@ -109,6 +109,11 @@ export interface ProjectPulse {
   stalled: number;
   waitingOnMe: boolean;
   claudeWorking: boolean;
+  /**
+   * Area 9b: lavoro di Claude nato ma fermo nel progetto (la coda in pausa,
+   * il budget), col blocco che vale adesso; `null` se non ce n'è.
+   */
+  claudeWaiting?: AiBlock | null;
   /** Il traguardo aperto con la data più vicina (anche se passata). */
   nextMilestone: Milestone | null;
 }
@@ -174,6 +179,10 @@ export interface TaskRun {
   model: string | null;
   /** In attesa di un blocco d'istanza (area 9b: coda in pausa, budget); `null` se non aspetta. */
   waiting: AiBlock | null;
+  /** Area 9b: è nata in attesa della coda; chi l'ha ripresa e quando (`null` se non ha aspettato). */
+  queued: { resumedById: string | null; resumedAt: string | null } | null;
+  /** Area 9b: il modello dell'esecuzione, se è partita; `null` altrimenti. */
+  executionModel: string | null;
 }
 
 /** I fatti esterni di una PR, quanto ne legge la sezione (il ciclo si deriva: `prCycles`). */
@@ -316,7 +325,9 @@ export type ReadOnlyReason =
   | "automatic"
   | "finished"
   | "not_interactive"
-  | "no_permission";
+  | "no_permission"
+  /** Area 9b: la sessione è nata ma aspetta un blocco d'istanza (la coda in pausa). */
+  | "waiting";
 
 /** Quello che chi guarda può fare in una conversazione: lo calcola il livello dati, mai la UI. */
 export interface ConversationPermissions {

@@ -98,7 +98,7 @@ export {
   type WebhookGroup,
   type WebhookView,
 } from "./webhook";
-export { getAiBlock, getUploadsAllowed } from "./blocks";
+export { getAiBlock, getQueuePause, getUploadsAllowed } from "./blocks";
 export {
   aiBlockFor,
   dropHeld,

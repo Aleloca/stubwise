@@ -254,7 +254,14 @@ export type CorrectionRequestResult =
     }
   | {
       ok: false;
-      error: "needs_maintainer" | "already_closed" | "in_flight" | "not_fixable" | "analysis_only";
+      error:
+        | "needs_maintainer"
+        | "already_closed"
+        | "in_flight"
+        | "not_fixable"
+        | "analysis_only"
+        /** Area 9b: il budget AI del mese è esaurito, Claude non parte. */
+        | "monthly_budget";
     };
 
 /**
@@ -273,6 +280,9 @@ export async function requestPrCorrection(
   if (!canRequestCorrection(me, pr)) throw forbidden();
   if (!text.trim()) throw invalid("text");
   if (pr.state !== "open") return { ok: false, error: "already_closed" };
+  // Area 9b: col budget del mese esaurito Claude non parte, su nessuna PR.
+  if (aiBlockFor(pr.projectId)?.reason === "monthly_budget")
+    return { ok: false, error: "monthly_budget" };
   const st = stateOfPr(pr);
   if (pr.origin === "stubwise") {
     // Una PR di Stubwise si corregge con una sessione della sua task (il

@@ -718,6 +718,7 @@ export type ApiFnName =
   // Gli effetti dell'istanza nelle altre aree (area 9b, Task 6)
   | "instance.getAiBlock"
   | "instance.getUploadsAllowed"
+  | "instance.getQueuePause"
   // Repository d'istanza (area 9b, Task 7)
   | "instance.listAllRepositories";
 const failures = new Set<ApiFnName>();
@@ -1623,6 +1624,13 @@ export function conversationPermissions(
     canWrite = allowed && interactive;
     canInterrupt = allowed && c.state === "working";
     if (!canWrite) readOnlyReason = allowed ? "not_interactive" : "no_permission";
+    // In attesa della coda (area 9b): non è ancora partita, quindi non si
+    // scrive; resta solo Stop, che la toglie dalla fila (EF 2, ruling 14).
+    if (c.waiting) {
+      canWrite = false;
+      canInterrupt = allowed;
+      readOnlyReason = allowed ? "waiting" : "no_permission";
+    }
   }
 
   const question = openQuestion(log);

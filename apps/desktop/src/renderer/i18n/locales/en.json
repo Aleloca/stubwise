@@ -1003,7 +1003,8 @@
         "awaiting_answer": "Claude asked a question and is waiting for an answer.",
         "awaiting_approval": "Claude is waiting for its plan to be approved.",
         "stopped": "Claude stopped. Someone needs to look at it.",
-        "done": "Claude finished its work."
+        "done": "Claude finished its work.",
+        "waiting": "Claude is waiting for the queue to resume."
       },
       "start": "Start",
       "whoCanStart": "Someone who can start runs in {{code}} can start it.",
@@ -1066,7 +1067,11 @@
         "plan_written_approved": "Plan written · approved by {{name}}",
         "plan_written_rejected": "Plan written · rejected by {{name}}",
         "plan_writtenRejectedWith": "Plan written · rejected by {{name}}: “{{instructions}}”",
-        "run_startedVia": "Run started by {{name}} · {{provider}}"
+        "run_startedVia": "Run started by {{name}} · {{provider}}",
+        "waitingForQueue": "waiting for the queue",
+        "queueResumed": "Queue resumed by {{name}} · run started",
+        "budgetBack": "Budget available again · run started",
+        "execution_started": "Execution started · {{model}}"
       },
       "follow": {
         "title": "Claude",
@@ -1494,7 +1499,8 @@
         "working": "Working",
         "awaiting_answer": "Waiting for an answer",
         "awaiting_approval": "Waiting for approval",
-        "stopped": "Stopped"
+        "stopped": "Stopped",
+        "waiting": "Waiting for the queue"
       }
     },
     "stalled": {
@@ -1937,7 +1943,8 @@
       "merged": "Merged: the task can be closed.",
       "workFinished": "Claude finished: the task can be closed.",
       "needsAttention": "Something on the task needs attention.",
-      "goToTask": "Go to {{code}}"
+      "goToTask": "Go to {{code}}",
+      "waitingQueue": "Work started: Claude is waiting for the queue to resume."
     }
   },
   "overview": {
@@ -2606,7 +2613,8 @@
           "awaiting_answer": "Claude is waiting for an answer",
           "awaiting_approval": "Claude's plan is waiting for approval",
           "stopped": "Claude's run was stopped",
-          "done": "Claude finished its run"
+          "done": "Claude finished its run",
+          "waiting": "Claude is waiting for the queue to resume"
         }
       },
       "howto": {
@@ -2975,7 +2983,8 @@
         "awaiting_approval": "Waiting for approval",
         "paused": "Paused",
         "public": "Public",
-        "archived": "Archived"
+        "archived": "Archived",
+        "waiting": "Waiting to start"
       },
       "outcomes": {
         "ok": "Done",
@@ -5543,7 +5552,9 @@
       "aiBudget": "Waiting: monthly AI budget reached",
       "aiQueuePaused": "Waiting: queue paused by {{name}}",
       "aiBudgetBack": "Budget available again · the step starts",
-      "aiQueueBack": "Queue resumed · the step starts"
+      "aiQueueBack": "Queue resumed · the step starts",
+      "aiBudgetBackStillQueue": "Budget available again · still waiting: queue paused by {{name}}",
+      "aiQueueBackStillBudget": "Queue resumed · still waiting: monthly AI budget reached"
     },
     "created": {
       "task_one": "{{count}} task",
@@ -7183,7 +7194,8 @@
         "already_closed": "This pull request isn't open any more.",
         "in_flight": "Claude is already working on a correction.",
         "not_fixable": "Claude can't push to this branch.",
-        "analysis_only": "This pull request is set to analysis only."
+        "analysis_only": "This pull request is set to analysis only.",
+        "monthly_budget": "Claude didn't start: the monthly AI budget is used up."
       },
       "stubwiseCorrections": "Claude makes the change in a new session of {{task}}.",
       "openSession": "Open",
@@ -9286,7 +9298,8 @@
       "waiting": "Waiting: monthly AI budget reached",
       "runList": "Waiting for the AI budget · “{{step}}”",
       "runDetail": "Step {{number}} “{{step}}” starts again on its own when the budget is available — when someone raises it, or next month. Nothing is lost.",
-      "passTime": "Passing time won't move this run: it waits for the budget."
+      "passTime": "Passing time won't move this run: it waits for the budget.",
+      "readOnly": "Claude hasn't started yet: the monthly AI budget is used up. It starts on its own when the budget is available; you can stop it."
     },
     "queue": {
       "start": "{{code}}'s queue is paused by {{name}} {{since}}. If you start now, Claude waits for it to resume.",
@@ -9297,7 +9310,8 @@
       "passTime": "Passing time won't move this run: it waits for the queue.",
       "header": "Queue paused by {{name}}",
       "headerTitle": "Paused {{since}}. New Claude work waits; work already running finishes.",
-      "row": "Queue paused"
+      "row": "Queue paused",
+      "readOnly": "Claude hasn't started yet: {{code}}'s queue is paused by {{name}}. It starts on its own when the queue resumes; you can stop it."
     },
     "storage": {
       "drive": "Uploads are off on this instance. Files already here stay readable.",
@@ -9309,6 +9323,9 @@
       "noAccount": "none available",
       "subscription": "{{name}} (subscription)",
       "api_key": "{{name}} (API key)"
-    }
+    },
+    "started": "Claude started on {{code}}.",
+    "pulse": "Claude waiting: queue paused",
+    "pulseBudget": "Claude waiting: AI budget"
   }
 }

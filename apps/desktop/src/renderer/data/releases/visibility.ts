@@ -101,6 +101,8 @@ function taskPrCorrections(taskId: string, key: string): PrCorrectionInput[] {
       failureSummary: null,
       model: c.model ?? null,
       waiting: c.waiting ?? null,
+      queued: c.queued ?? null,
+      executionModel: c.executionModel ?? null,
     }));
   const pullRequests = state.pullRequests.filter((p) => p.taskId === taskId);
   return correctionsFromRecords(correctionsOf({ runs, pullRequests }), key);

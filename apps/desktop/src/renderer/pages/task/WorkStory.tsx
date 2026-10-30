@@ -12,6 +12,12 @@ export function phaseName(t: TFunction, phase: string | null): string {
   return t(`claude.conversation.phase.${phase}`, { defaultValue: phase });
 }
 
+/** «claude-haiku-5-5» → «Haiku»: la famiglia del modello; un id d'altra forma resta com'è. */
+export function modelName(model: string): string {
+  const m = /^claude-([a-z]+)-/.exec(model);
+  return m ? `${m[1]![0]!.toUpperCase()}${m[1]!.slice(1)}` : model;
+}
+
 /** L'account o la chiave API di una sessione, per nome: «Team Max (account)». */
 export function providerLabel(t: TFunction, provider: RunProvider): string {
   return t(`taskDetail.claude.provider.${provider.kind}`, { name: provider.name });
@@ -21,13 +27,22 @@ function line(t: TFunction, entry: StoryEntry, name: (id: string | null) => stri
   const s = "taskDetail.claude.story";
   switch (entry.kind) {
     case "run_started":
-      // Con chi ha girato: il NOME dell'account o della chiave, mai altro.
-      return entry.provider
-        ? t(`${s}.run_startedVia`, {
-            name: name(entry.byId),
-            provider: providerLabel(t, entry.provider),
-          })
-        : t(`${s}.run_started`, { name: name(entry.byId) });
+      // Con chi ha girato: il NOME dell'account o della chiave, mai altro;
+      // dall'area 9b anche il modello e se è nata in attesa della coda.
+      return [
+        t(`${s}.run_started`, { name: name(entry.byId) }),
+        entry.model ? modelName(entry.model) : null,
+        entry.provider ? providerLabel(t, entry.provider) : null,
+        entry.queued ? t(`${s}.waitingForQueue`) : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    case "queue_resumed":
+      return entry.byId
+        ? t(`${s}.queueResumed`, { name: name(entry.byId) })
+        : t(`${s}.budgetBack`);
+    case "execution_started":
+      return t(`${s}.execution_started`, { model: modelName(entry.model) });
     // Una correzione annullata (fermata) non ha numero: la frase lo omette.
     case "correction_requested":
       return entry.ordinal === null

@@ -167,6 +167,16 @@ describe("ProjectColumn: la coda in pausa (area 9b, shape instance-effects [EF 4
     await waitFor(() => expect(header().querySelector("[data-queue-paused]")).toBeNull());
   });
 
+  it("col budget raggiunto la pausa di STW si legge lo stesso (il budget vince sugli avvii, non sulla testata)", async () => {
+    state.instance.simulate.budgetReached = true;
+    await renderAt("/p/STW/tasks", "p-roberta");
+    await waitFor(() =>
+      expect(header().querySelector("[data-queue-paused]")).toHaveTextContent(
+        "Queue paused by Roberta Fontana",
+      ),
+    );
+  });
+
   it("ACQ (non in pausa) non dice niente; nemmeno col budget raggiunto", async () => {
     state.instance.simulate.budgetReached = true;
     await renderAt("/p/ACQ/tasks", "p-roberta");

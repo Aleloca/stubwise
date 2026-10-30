@@ -55,14 +55,25 @@ export function ProjectTile({
   const waitingId = useId();
   const claudeId = useId();
   const { claudeWorking } = project.signals;
+  // Area 9b: lavoro di Claude fermo nel progetto (coda in pausa, budget): lo si dice in parole.
+  const claudeWaiting = project.signals.claudeWaiting ?? null;
+  const waitingText = claudeWaiting
+    ? t(
+        claudeWaiting.reason === "queue_paused"
+          ? "instanceEffects.pulse"
+          : "instanceEffects.pulseBudget",
+      )
+    : null;
   const describedBy =
-    [waitingOnViewer && waitingId, claudeWorking && claudeId].filter(Boolean).join(" ") ||
-    undefined;
+    [waitingOnViewer && waitingId, (claudeWorking || waitingText) && claudeId]
+      .filter(Boolean)
+      .join(" ") || undefined;
   // Chi vede legge gli stati anche nel tooltip, non solo come punto e anello.
   const tooltip = [
     project.name,
     waitingOnViewer && t("rail.waitingOnYou"),
     claudeWorking && t("rail.claudeWorking"),
+    waitingText,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -79,9 +90,9 @@ export function ProjectTile({
       >
         <span className="num text-xs font-semibold tracking-[0.02em]">{project.code}</span>
         <TileSignals waiting={waitingOnViewer} claude={claudeWorking} />
-        {claudeWorking && (
+        {(claudeWorking || waitingText) && (
           <span id={claudeId} className="sr-only">
-            {t("rail.claudeWorking")}
+            {[claudeWorking && t("rail.claudeWorking"), waitingText].filter(Boolean).join(" · ")}
           </span>
         )}
         {waitingOnViewer && (

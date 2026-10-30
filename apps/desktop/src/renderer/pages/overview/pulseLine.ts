@@ -16,6 +16,17 @@ export function pulseParts(pulse: ProjectPulse, t: TFunction, language: string):
   const parts: PulsePart[] = [];
   if (pulse.waitingOnMe) parts.push({ kind: "waiting", text: t("overview.pulse.waitingOnYou") });
   if (pulse.claudeWorking) parts.push({ kind: "claude", text: t("overview.pulse.claudeWorking") });
+  // Area 9b: lavoro di Claude nato ma fermo (coda in pausa, budget): aspetta, non lavora.
+  if (pulse.claudeWaiting) {
+    parts.push({
+      kind: "claude",
+      text: t(
+        pulse.claudeWaiting.reason === "queue_paused"
+          ? "instanceEffects.pulse"
+          : "instanceEffects.pulseBudget",
+      ),
+    });
+  }
   if (pulse.stalled > 0) {
     parts.push({ kind: "stalled", text: t("overview.pulse.stalled", { count: pulse.stalled }) });
   }

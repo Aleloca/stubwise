@@ -2,11 +2,11 @@ import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  useAiBlock,
   useDepartments,
   usePinnedProjects,
   useProjectPulses,
   useProjects,
+  useQueuePause,
   useSetPinned,
   useTasks,
 } from "../../data/queries";
@@ -637,8 +637,9 @@ function ProjectRow({
  */
 function QueuePausedNote({ projectId }: { projectId: string }) {
   const { t } = useTranslation();
-  const block = useAiBlock(projectId).data;
-  if (block?.reason !== "queue_paused") return null;
+  // La sola pausa: col budget raggiunto si legge lo stesso (shape [EF 4]).
+  const pause = useQueuePause(projectId).data;
+  if (!pause) return null;
   return (
     <span data-queue-paused className="flex gap-1.5 text-xs text-ink-muted">
       <span aria-hidden="true">‖</span>

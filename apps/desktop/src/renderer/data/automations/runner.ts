@@ -8,7 +8,7 @@ import {
 import { render } from "../../domain/automations/preview";
 import { restoreState } from "../../domain/automations/restore";
 import { aiBlockFor } from "../instance/blocks";
-import { heldJobs, holdJob } from "../instance/queue";
+import { dropHeld, heldJobs, holdJob } from "../instance/queue";
 import { runHref } from "../routes";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import { copy, gate, newId, now, onStoreReset, state, storeGeneration } from "../store";
@@ -246,6 +246,9 @@ export function suspend(
 ): void {
   run.suspendedFrom = from;
   run.status = "suspended";
+  // Fermo per un blocco d'istanza (area 9b): esce dalla fila, riaccendendo
+  // il passo si rilegge il blocco da capo.
+  dropHeld(run.id);
   // Un'esecuzione non ancora partita non ha un passo da sospendere.
   if (run.log.length > 0) {
     note(run, {
@@ -295,7 +298,17 @@ const aiProjectOf = (run: AutomationRun, a: Automation): string | null =>
 function waitingWhy(block: AiBlock): ReasonCode {
   return block.reason === "monthly_budget"
     ? { code: "aiBudget" }
-    : { code: "aiQueuePaused", params: { name: block.byName } };
+    : { code: "aiQueuePaused", params: { name: block.byName, byId: block.byId } };
+}
+
+/**
+ * Il blocco è cambiato ma il passo resta fermo: «Budget available again ·
+ * still waiting: queue paused» o il contrario, nel registro (shape EF).
+ */
+function blockChangedWhy(after: AiBlock): ReasonCode {
+  return after.reason === "queue_paused"
+    ? { code: "aiBudgetBackStillQueue", params: { name: after.byName, byId: after.byId } }
+    : { code: "aiQueueBackStillBudget" };
 }
 
 /**
@@ -330,18 +343,31 @@ function holdForAi(run: AutomationRun, a: Automation): boolean {
     automationRunId: run.id,
     starterId: a.ownerId ?? CLAUDE_ID,
     block,
-    start: async () => {
+    // `releasedBy`: chi ha ripreso la coda; `null` se è tornato il budget.
+    start: async (releasedBy) => {
       if (gen !== storeGeneration()) throw new Error("reset");
       if (!isOpen(run) || run.status !== "running") return;
       note(run, {
         outcome: "resumed",
+        byId: releasedBy,
         reason:
-          block.reason === "monthly_budget"
+          releasedBy === null
             ? "Budget di nuovo disponibile: il passo riparte."
             : "Coda ripresa: il passo riparte.",
-        why: { code: block.reason === "monthly_budget" ? "aiBudgetBack" : "aiQueueBack" },
+        why: { code: releasedBy === null ? "aiBudgetBack" : "aiQueueBack" },
       });
       await enqueue(run.id, { kind: "time", now: runNow(run) });
+    },
+    onBlockChange: (_before, after) => {
+      if (gen !== storeGeneration() || !isOpen(run)) return;
+      note(run, {
+        outcome: "waiting",
+        reason:
+          after.reason === "queue_paused"
+            ? `Budget di nuovo disponibile: ancora in attesa, coda in pausa da ${after.byName}.`
+            : "Coda ripresa: ancora in attesa del budget AI del mese.",
+        why: blockChangedWhy(after),
+      });
     },
   });
   return true;
@@ -349,6 +375,8 @@ function holdForAi(run: AutomationRun, a: Automation): boolean {
 
 /** Il blocco d'istanza per cui un'esecuzione aspetta adesso, se aspetta (le letture). */
 export function aiWaitingOf(runId: string): AiBlock | null {
+  // Solo un'esecuzione in corso aspetta (I2): annullata o sospesa, non più.
+  if (runById(runId)?.status !== "running") return null;
   const job = heldJobs().find((h) => h.automationRunId === runId);
   return job ? job.block : null;
 }

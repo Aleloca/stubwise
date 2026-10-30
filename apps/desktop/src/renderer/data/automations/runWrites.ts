@@ -1,4 +1,5 @@
 import type { EngineState } from "../../domain/automations/engine";
+import { dropHeld } from "../instance/queue";
 import { now, state, visibleProjectIds } from "../store";
 import type { AutomationRun } from "../types";
 import { forbidden, invalid, notFound, writer } from "../writer";
@@ -153,6 +154,8 @@ export async function cancelRun(runId: string): Promise<void> {
   run.pending = null;
   run.waitingUntil = null;
   delete run.suspendedFrom;
+  // Ferma per un blocco d'istanza (area 9b, I2): esce dalla fila, non riparte più.
+  dropHeld(run.id);
 }
 
 /**

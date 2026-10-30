@@ -3,11 +3,11 @@ import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { sinceText, usePauserName, WithWho } from "../components/InstanceBlock";
 import {
-  useAiBlock,
   useChatChannels,
   useDocSpaces,
   usePeople,
   useProject,
+  useQueuePause,
   useOpenPrs,
   useProjectAutomations,
   useProjectServers,
@@ -87,14 +87,15 @@ function Header({ code, project }: { code: string; project?: Project | null }) {
  */
 function QueuePausedLine({ projectId }: { projectId: string }) {
   const { t, i18n } = useTranslation();
-  const block = useAiBlock(projectId).data ?? null;
-  const name = usePauserName(block);
-  if (block?.reason !== "queue_paused") return null;
+  // La sola pausa: col budget raggiunto si legge lo stesso (il budget vince sugli avvii).
+  const pause = useQueuePause(projectId).data ?? null;
+  const name = usePauserName(pause ? { reason: "queue_paused", ...pause } : null);
+  if (!pause) return null;
   return (
     <p
       data-queue-paused
       title={t("instanceEffects.queue.headerTitle", {
-        since: sinceText(t, block.since, i18n.language),
+        since: sinceText(t, pause.since, i18n.language),
       })}
       className="mt-1 flex gap-1.5 text-xs text-ink-muted"
     >

@@ -3,6 +3,7 @@ import { useId, useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   useChatSignal,
+  useInstanceChanges,
   useMailProposalDecisions,
   useMyAutomationApprovals,
   useNotifications,
@@ -230,6 +231,8 @@ export function Rail() {
   const { t } = useTranslation();
   const { data: pinned = [] } = usePinnedProjects();
   const waiting = useWaitingOnMe();
+  // Area 9b: le tessere dicono «Claude waiting» appena il lavoro si ferma o riparte.
+  useInstanceChanges();
   useShortcuts();
   const mac = getPlatform() === "mac";
   const tilesZone = useRef<HTMLDivElement>(null);

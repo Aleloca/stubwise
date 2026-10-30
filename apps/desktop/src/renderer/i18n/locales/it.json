@@ -1003,7 +1003,8 @@
         "awaiting_answer": "Claude ha fatto una domanda e aspetta una risposta.",
         "awaiting_approval": "Claude aspetta che il suo piano venga approvato.",
         "stopped": "Claude si è fermato. Serve che qualcuno guardi.",
-        "done": "Claude ha finito il suo lavoro."
+        "done": "Claude ha finito il suo lavoro.",
+        "waiting": "Claude aspetta che la coda riprenda."
       },
       "start": "Avvia",
       "whoCanStart": "Può avviarla chi può avviare il lavoro in {{code}}.",
@@ -1066,7 +1067,11 @@
         "plan_written_approved": "Piano scritto · approvato da {{name}}",
         "plan_written_rejected": "Piano scritto · rifiutato da {{name}}",
         "plan_writtenRejectedWith": "Piano scritto · rifiutato da {{name}}: «{{instructions}}»",
-        "run_startedVia": "Lavoro avviato da {{name}} · {{provider}}"
+        "run_startedVia": "Lavoro avviato da {{name}} · {{provider}}",
+        "waitingForQueue": "in attesa della coda",
+        "queueResumed": "Coda ripresa da {{name}} · esecuzione partita",
+        "budgetBack": "Budget di nuovo disponibile · esecuzione partita",
+        "execution_started": "Esecuzione avviata · {{model}}"
       },
       "follow": {
         "title": "Claude",
@@ -1494,7 +1499,8 @@
         "working": "Al lavoro",
         "awaiting_answer": "Aspetta una risposta",
         "awaiting_approval": "Aspetta l'approvazione",
-        "stopped": "Fermo"
+        "stopped": "Fermo",
+        "waiting": "In attesa della coda"
       }
     },
     "stalled": {
@@ -1937,7 +1943,8 @@
       "merged": "Mergiata: la task si può chiudere.",
       "workFinished": "Claude ha finito: la task si può chiudere.",
       "needsAttention": "Qualcosa nella task chiede attenzione.",
-      "goToTask": "Vai a {{code}}"
+      "goToTask": "Vai a {{code}}",
+      "waitingQueue": "Lavoro avviato: Claude aspetta che la coda riprenda."
     }
   },
   "overview": {
@@ -2606,7 +2613,8 @@
           "awaiting_answer": "Claude aspetta una risposta",
           "awaiting_approval": "Il piano di Claude aspetta l'approvazione",
           "stopped": "L'esecuzione di Claude è stata fermata",
-          "done": "Claude ha finito la sua esecuzione"
+          "done": "Claude ha finito la sua esecuzione",
+          "waiting": "Claude aspetta che la coda riprenda"
         }
       },
       "howto": {
@@ -2975,7 +2983,8 @@
         "awaiting_approval": "Aspetta l'approvazione",
         "paused": "In pausa",
         "public": "Pubblica",
-        "archived": "Archiviata"
+        "archived": "Archiviata",
+        "waiting": "In attesa di partire"
       },
       "outcomes": {
         "ok": "Fatta",
@@ -5543,7 +5552,9 @@
       "aiBudget": "In attesa: budget AI del mese raggiunto",
       "aiQueuePaused": "In attesa: coda in pausa da {{name}}",
       "aiBudgetBack": "Budget di nuovo disponibile · il passo riparte",
-      "aiQueueBack": "Coda ripresa · il passo riparte"
+      "aiQueueBack": "Coda ripresa · il passo riparte",
+      "aiBudgetBackStillQueue": "Budget di nuovo disponibile · ancora in attesa: coda in pausa da {{name}}",
+      "aiQueueBackStillBudget": "Coda ripresa · ancora in attesa: budget AI del mese raggiunto"
     },
     "created": {
       "task_one": "{{count}} task",
@@ -7183,7 +7194,8 @@
         "already_closed": "Questa PR non è più aperta.",
         "in_flight": "Claude sta già lavorando a una correzione.",
         "not_fixable": "Claude non può spingere su questo ramo.",
-        "analysis_only": "Questa PR è su solo analisi."
+        "analysis_only": "Questa PR è su solo analisi.",
+        "monthly_budget": "Claude non è partito: il budget AI del mese è esaurito."
       },
       "stubwiseCorrections": "Claude fa la modifica in una nuova sessione di {{task}}.",
       "openSession": "Apri",
@@ -9286,7 +9298,8 @@
       "waiting": "In attesa: budget AI del mese raggiunto",
       "runList": "In attesa del budget AI · “{{step}}”",
       "runDetail": "Il passo {{number}} “{{step}}” riparte da solo quando il budget torna disponibile — quando qualcuno lo alza, o il mese prossimo. Non si perde niente.",
-      "passTime": "Far passare il tempo non sposta questa esecuzione: aspetta il budget."
+      "passTime": "Far passare il tempo non sposta questa esecuzione: aspetta il budget.",
+      "readOnly": "Claude non è ancora partito: il budget AI del mese è esaurito. Parte da solo quando il budget torna disponibile; puoi fermarlo."
     },
     "queue": {
       "start": "La coda di {{code}} è in pausa da {{name}} {{since}}. Se avvii adesso, Claude aspetta la ripresa.",
@@ -9297,7 +9310,8 @@
       "passTime": "Far passare il tempo non sposta questa esecuzione: aspetta la coda.",
       "header": "Coda in pausa da {{name}}",
       "headerTitle": "In pausa {{since}}. Il lavoro nuovo di Claude aspetta; quello già partito finisce.",
-      "row": "Coda in pausa"
+      "row": "Coda in pausa",
+      "readOnly": "Claude non è ancora partito: la coda di {{code}} è in pausa da {{name}}. Parte da solo quando la coda riprende; puoi fermarlo."
     },
     "storage": {
       "drive": "I caricamenti sono spenti su questa istanza. I file già presenti restano leggibili.",
@@ -9309,6 +9323,9 @@
       "noAccount": "nessuno disponibile",
       "subscription": "{{name}} (abbonamento)",
       "api_key": "{{name}} (chiave API)"
-    }
+    },
+    "started": "Claude è partito su {{code}}.",
+    "pulse": "Claude in attesa: coda in pausa",
+    "pulseBudget": "Claude in attesa: budget AI"
   }
 }

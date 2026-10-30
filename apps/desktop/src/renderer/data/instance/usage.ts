@@ -193,7 +193,7 @@ function phasesOf(c: Conversation, model: string): { operation: AiOperation; mod
   if (!phases.has("plan")) return [{ operation: "fix_execute", model }];
   const out = [{ operation: "fix_plan" as AiOperation, model }];
   if (phases.has("execution") || phases.has("correction"))
-    out.push({ operation: "fix_execute", model: modelIdFor("fix_execute") });
+    out.push({ operation: "fix_execute", model: c.executionModel ?? modelIdFor("fix_execute") });
   return out;
 }
 

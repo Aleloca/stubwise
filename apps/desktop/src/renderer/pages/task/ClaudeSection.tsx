@@ -511,6 +511,14 @@ function WithRun({
   const budget = blocked?.reason === "monthly_budget";
   const [refused, setRefused] = useState(false);
   const onError = (e: Error) => (isBudgetRefusal(e) ? setRefused(true) : failed(e));
+  // Ripresa la coda (o tornato il budget), la sessione parte: lo si annuncia
+  // con garbo, una volta (shape EF §5, «Claude started on STW-14.»).
+  const wasWaiting = useRef(run.waiting !== null);
+  const [started, setStarted] = useState(false);
+  useEffect(() => {
+    if (wasWaiting.current && run.waiting === null) setStarted(true);
+    wasWaiting.current = run.waiting !== null;
+  }, [run.waiting]);
 
   // La scheda che aspetta, e quella appena risolta qui (si riduce alla riga d'esito).
   const pending = openCard(events);
@@ -688,6 +696,10 @@ function WithRun({
         waiting={work.waitsOnViewer}
       />
       <ProviderLine provider={run.provider} model={run.model} />
+      {/* Sempre in pagina: un'area `aria-live` annuncia solo ciò che cambia dopo. */}
+      <p data-claude-started aria-live="polite" className="sr-only">
+        {started ? t("instanceEffects.started", { code: task.code }) : ""}
+      </p>
       {status.kind === "ended" && status.outcome !== "stopped" && run.failureSummary && (
         <FailureBlock summary={run.failureSummary} phase={status.phase} events={events} />
       )}

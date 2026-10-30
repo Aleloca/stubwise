@@ -10,8 +10,10 @@ import {
   listTasks,
   resetApi,
   setLatency,
+  startRun,
 } from "../../data/api";
 import { setSessionPersonId } from "../../data/session";
+import { state } from "../../data/store";
 import { resetViewerGrants } from "../../data/viewer";
 import { clearToasts } from "../../tasks-ui/Toast";
 import { renderRoute } from "../../test/renderRoute";
@@ -252,5 +254,24 @@ describe("AllProjectsPage — la coda in pausa (area 9b, shape instance-effects 
       await instance.resumeQueue("prj-stw");
     });
     await waitFor(() => expect(row("STW").querySelector("[data-queue-paused]")).toBeNull());
+  });
+
+  it("col budget raggiunto la riga di STW dice ancora «Queue paused»", async () => {
+    state.instance.simulate.budgetReached = true;
+    await portfolio("p-roberta");
+    await waitFor(() =>
+      expect(row("STW").querySelector("[data-queue-paused]")).toHaveTextContent("Queue paused"),
+    );
+  });
+
+  it("con lavoro di Claude in attesa il polso di STW lo dice", async () => {
+    setSessionPersonId("p-roberta");
+    await startRun("t-stw-7");
+    await portfolio("p-roberta");
+    await waitFor(() =>
+      expect(row("STW").querySelector("[data-pulse-line]")).toHaveTextContent(
+        "Claude waiting: queue paused",
+      ),
+    );
   });
 });

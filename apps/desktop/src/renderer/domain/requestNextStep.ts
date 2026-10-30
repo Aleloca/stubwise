@@ -12,6 +12,8 @@ export type NextStep =
   | "readyToConvert"
   | "convertedNoRun"
   | "preparingPlan"
+  /** Area 9b: il lavoro è partito ma aspetta la coda in pausa (o il budget). */
+  | "waitingQueue"
   | "awaitingApproval"
   | "executing"
   | "prReady"
@@ -46,6 +48,8 @@ export function requestNextStep(input: NextStepInput): NextStep | null {
       return "convertedNoRun";
     case "working":
       return input.phase !== null && PLANNING.has(input.phase) ? "preparingPlan" : "executing";
+    case "waiting":
+      return "waitingQueue";
     case "awaiting_approval":
       return "awaitingApproval";
     case "awaiting_answer":

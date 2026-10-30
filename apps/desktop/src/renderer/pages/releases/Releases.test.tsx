@@ -282,6 +282,22 @@ describe("Releases — giro di correzioni 1", () => {
     expect(screen.queryByText(/Couldn't read the checks/)).toBeNull();
   });
 
+  it("area 9b: col budget del mese esaurito «Request changes» dice perché, in parole", async () => {
+    state.instance.simulate.budgetReached = true;
+    renderRoute("/p/AUD/releases?pr=opr-aud-244", "p-marco");
+    const panel = await screen.findByRole("region", { name: "Pull request audin-app#244" });
+    const before = state.conversations.length;
+    await userEvent.type(
+      within(panel).getByRole("textbox", { name: "What should change" }),
+      "Rename the first step",
+    );
+    await userEvent.click(within(panel).getByRole("button", { name: "Send to Claude" }));
+    expect(await within(panel).findByRole("alert")).toHaveTextContent(
+      "Claude didn't start: the monthly AI budget is used up.",
+    );
+    expect(state.conversations.length).toBe(before);
+  });
+
   it("m3: «Request changes» anche su una PR di Stubwise, con la sessione della task", async () => {
     const router = renderRoute("/p/AUD/releases?pr=opr-aud-244", "p-marco");
     const panel = await screen.findByRole("region", { name: "Pull request audin-app#244" });

@@ -10,6 +10,7 @@ import {
   resetApi,
   setLatency,
   setPinned,
+  startRun,
 } from "../data/api";
 import { PROJECTS } from "../data/seed/projects";
 import { setSessionPersonId } from "../data/session";
@@ -593,5 +594,21 @@ describe("Rail", () => {
       // Con più posti la sentinella resta nella zona delle tessere.
       expect(splitPinned(five, 3, "OLV").countOnGrid).toBe(false);
     });
+  });
+});
+
+describe("tessera del progetto: Claude in attesa (area 9b)", () => {
+  it("con una sessione ferma per la coda la tessera dice che Claude aspetta, non che lavora", async () => {
+    setLatency(0);
+    resetApi();
+    setSessionPersonId("p-roberta");
+    await startRun("t-stw-7");
+    renderAt("/home", "p-roberta");
+    const tile = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>('a[href$="/p/STW"]');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    await waitFor(() => expect(tile).toHaveTextContent("Claude waiting: queue paused"));
   });
 });

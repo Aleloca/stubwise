@@ -110,6 +110,23 @@ export async function getAiBlock(projectId: string | null): Promise<AiBlock | nu
   return aiBlockFor(visible ? projectId : null);
 }
 
+/**
+ * La sola pausa della coda di un progetto, col nome di chi l'ha messa: la
+ * testata del progetto e la riga di All projects la dicono anche col budget
+ * raggiunto (shape [EF 4]), che invece vince sugli avvii. R-G5: un progetto
+ * che chi guarda non vede risponde `null`.
+ */
+export async function getQueuePause(
+  projectId: string,
+): Promise<{ byId: string; byName: string; since: string } | null> {
+  const me = await gate("instance.getQueuePause");
+  if (!visibleProjectIds(me).has(projectId)) return null;
+  const pause = queuePauseOf(projectId);
+  if (!pause) return null;
+  const byName = PEOPLE.find((p) => p.id === pause.byId)?.name ?? pause.byId;
+  return { byId: pause.byId, byName, since: pause.at };
+}
+
 /** Se si possono caricare file adesso (Task 6, ruling 6): il Drive e gli allegati dei composer. */
 export async function getUploadsAllowed(): Promise<boolean> {
   await gate("instance.getUploadsAllowed");

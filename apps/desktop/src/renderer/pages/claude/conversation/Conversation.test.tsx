@@ -286,6 +286,27 @@ describe("Conversation: «Chiedi a Claude» e le impostazioni d'istanza (area 9b
     expect(box).toHaveValue("What changed?");
   });
 
+  it("I1: una sessione che aspetta la coda non si scrive; Stop la toglie dalla fila", async () => {
+    const run = await as("p-roberta", () => api.startRun("t-stw-7"));
+    const { container } = renderWithData(<Harness id={run.id} />, { personId: "p-roberta" });
+    const band = await waitFor(() => {
+      const el = container.querySelector<HTMLElement>('[data-read-only="waiting"]');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(band).toHaveTextContent(
+      "Claude hasn't started yet: STW's queue is paused by Roberta Fontana. It starts on its own when the queue resumes; you can stop it.",
+    );
+    expect(screen.queryByRole("combobox", { name: /message to claude/i })).toBeNull();
+    await userEvent.click(within(band).getByRole("button", { name: "Stop" }));
+    await waitFor(() =>
+      expect(state.conversations.find((c) => c.id === run.id)).toMatchObject({
+        state: "finished",
+        outcome: "stopped",
+      }),
+    );
+  });
+
   it("con i caricamenti spenti la graffetta è spenta e lo dice", async () => {
     state.instance.storage.attachmentsEnabled = false;
     const c = await as("p-giulia", () => api.createConversation());

@@ -22,7 +22,7 @@ import {
   useStorageAllowsUploads,
 } from "../../../data/queries";
 import type { Attachment, ConversationDetail, ConversationEvent } from "../../../data/types";
-import { isBudgetRefusal } from "../../../components/InstanceBlock";
+import { isBudgetRefusal, usePauserName } from "../../../components/InstanceBlock";
 import { PageError } from "../../../tasks-ui/PageStates";
 import { ContinueBanner, ContinuesFromLine } from "../ContinueBanner";
 import { takeFirstMessage } from "./handoff";
@@ -30,7 +30,7 @@ import { CitationProvider, indexCitations } from "./citations";
 import { Composer, type DraftAttachment } from "./Composer";
 import { EventList, UserMessage, type DeliveryView } from "./EventList";
 import { citedRefs, flowItems, type Ev } from "./flow";
-import { ArrowDownGlyph, WorkingRing } from "./parts";
+import { ArrowDownGlyph, secondaryButton, StopGlyph, WorkingRing } from "./parts";
 import { WhoCanLink } from "../../../components/WhoCanLink";
 
 /** Quante righe del flusso si disegnano all'apertura (e quante ne aggiunge «Load earlier»). */
@@ -665,7 +665,12 @@ function ConversationBody({
           </div>
           {continuing && <ContinueBanner compact={compact} />}
           {readOnly ? (
-            <ReadOnlyBand detail={detail} compact={compact} projectCode={projectCode} />
+            <ReadOnlyBand
+              detail={detail}
+              compact={compact}
+              projectCode={projectCode}
+              onStop={stopClaude}
+            />
           ) : (
             <Composer
               detail={continuing ? continueDetail(detail) : detail}
@@ -757,16 +762,38 @@ function ReadOnlyBand({
   detail,
   compact,
   projectCode,
+  onStop,
 }: {
   detail: ConversationDetail;
   compact: boolean;
   projectCode: string | null;
+  onStop: () => void;
 }) {
   const { t } = useTranslation();
   const owner = usePeople().data?.find((p) => p.id === detail.ownerId)?.name ?? "";
+  const pauser = usePauserName(detail.waiting ?? null);
   const reason = detail.readOnlyReason;
   let text: ReactNode;
   switch (reason) {
+    case "waiting":
+      // Area 9b: nata ma ferma (la coda in pausa, o il budget): non si scrive,
+      // si può solo fermare (EF 2), e Stop la toglie dalla fila.
+      text = (
+        <span className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span className="min-w-0 flex-1">
+            {detail.waiting?.reason === "queue_paused"
+              ? t("instanceEffects.queue.readOnly", { code: projectCode ?? "", name: pauser })
+              : t("instanceEffects.budget.readOnly")}
+          </span>
+          {detail.canInterrupt && (
+            <button type="button" className={secondaryButton} onClick={onStop}>
+              <StopGlyph />
+              {t("claude.conversation.composer.stop")}
+            </button>
+          )}
+        </span>
+      );
+      break;
     case "not_owner":
       text = t("claude.conversation.readOnly.notOwner", { name: owner });
       break;

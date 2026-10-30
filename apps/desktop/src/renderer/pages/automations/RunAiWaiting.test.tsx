@@ -1,6 +1,8 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { accessState } from "../../data/access/state";
 import { automations, instance, resetApi, setLatency } from "../../data/api";
+import { state } from "../../data/store";
 import { setSessionPersonId } from "../../data/session";
 import type { AutomationFlow } from "../../data/types";
 import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
@@ -86,5 +88,38 @@ describe("esecuzione ferma per il budget del mese", () => {
       "waiting_event",
     );
     expect(row).toHaveTextContent("Waiting for the AI budget · “Ask Claude”");
+  });
+});
+
+describe("I2 e la pausa di chi è stato disattivato", () => {
+  it("annullata mentre aspetta: nell'elenco dice «Cancelled», non «Waiting»", async () => {
+    const code = await heldRun();
+    const auto = state.automations.find((x) => x.code === code)!;
+    const run = state.automationRuns.find((r) => r.automationId === auto.id)!;
+    await automations.cancelRun(run.id);
+    renderRoute(`/automations/${code}`, ROBERTA);
+    const row = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>(`[data-run-row="${code} #1"]`);
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(row.querySelector("[data-run-status]")).toHaveAttribute("data-run-status", "cancelled");
+    expect(row).not.toHaveTextContent("Waiting for the AI budget");
+  });
+
+  it("ferma per la coda di STW messa da una persona poi disattivata: il nome lo dice", async () => {
+    setSessionPersonId(ROBERTA);
+    state.instance.queuePauses[0]!.byId = "p-marco";
+    accessState().people.find((p) => p.personId === "p-marco")!.status = "deactivated";
+    const a = await automations.createAutomation({ name: "Triage", projectId: "prj-stw", flow });
+    const live = await automations.activate(a.id);
+    await automations.startManual(a.id);
+    await automations.whenAutomationsIdle();
+    renderRoute(`/automations/${live.code}/runs/1`, ROBERTA);
+    const now = await screen.findByRole("region", { name: "Now" });
+    await waitFor(() =>
+      expect(now).toHaveTextContent("Waiting: STW's queue is paused by Marco Bellini (deactivated)"),
+    );
+    expect(screen.getByText("Waiting: queue paused by Marco Bellini (deactivated)")).toBeInTheDocument();
   });
 });

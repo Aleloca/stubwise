@@ -24,6 +24,7 @@ import { MenuGroup, RadioItem, itemClass } from "../../tasks-ui/Menu";
 import { useToast } from "../../tasks-ui/Toast";
 import { Chevron, MenuButton, primaryButton, quietButton, secondaryButton } from "../tasks/controls";
 import { Conversation, type ContinueHandler } from "./conversation/Conversation";
+import { runLineText } from "../task/ClaudeRunParts";
 import { handOffFirstMessage } from "./conversation/handoff";
 import { dangerButton } from "../task/parts";
 import { ConversationList } from "./ConversationList";
@@ -624,6 +625,12 @@ function PageHeader({
           </>
         )}
       </p>
+      {/* Area 9b ([EF 3]): con quale modello e account è partita la sessione. */}
+      {!free && (detail.model || detail.provider) && (
+        <p data-session-run className="text-xs text-ink-faint">
+          {runLineText(t, detail.provider ?? null, detail.model ?? null)}
+        </p>
+      )}
       {unconfirmed.length > 0 && (
         <div
           role="status"

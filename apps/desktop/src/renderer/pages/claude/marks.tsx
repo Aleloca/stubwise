@@ -10,6 +10,8 @@ import { WorkingRing } from "./conversation/parts";
 /** Lo stato in cui una riga va letta: prima chi aspetta me, poi il lavoro, poi l'esito. */
 export type RowState =
   | "waitingOnYou"
+  /** Area 9b: nata ma ferma per la coda in pausa (o il budget): Claude non lavora ancora. */
+  | "waiting"
   | "working"
   | "awaiting_answer"
   | "awaiting_approval"
@@ -25,6 +27,7 @@ export type RowState =
 export function rowStateOf(row: ConversationRow): RowState {
   if (row.waitsOnViewer) return "waitingOnYou";
   if (row.state === "finished") return row.outcome ?? "ok";
+  if (row.waiting) return "waiting";
   if (row.state === "working") return "working";
   if (row.state === "awaiting_answer" || row.state === "awaiting_approval") return row.state;
   if (row.state === "paused") return "paused";
@@ -63,11 +66,16 @@ export function StateSign({ state }: { state: RowState }) {
       </span>
     );
   }
-  if (state === "awaiting_answer" || state === "awaiting_approval" || state === "paused") {
+  if (
+    state === "awaiting_answer" ||
+    state === "awaiting_approval" ||
+    state === "paused" ||
+    state === "waiting"
+  ) {
     return (
       <span aria-hidden="true" className={box}>
         <span
-          className={`size-2 rounded-full border-[1.5px] border-ink-muted ${state === "paused" ? "border-dotted" : ""}`}
+          className={`size-2 rounded-full border-[1.5px] border-ink-muted ${state === "paused" || state === "waiting" ? "border-dotted" : ""}`}
         />
       </span>
     );

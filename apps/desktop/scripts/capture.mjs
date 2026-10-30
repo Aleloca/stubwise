@@ -151,6 +151,15 @@ async function main() {
           try {
             if (what === "budget") await api.instance.simulateBudgetReached(true);
             if (what === "uploadsOff") await api.instance.setAttachments(false);
+            // Avviata con la coda di STW in pausa: la sessione aspetta la ripresa.
+            if (what === "startStw") await api.startRun("t-stw-7");
+            // La coda di ACQ in pausa, poi un allarme nuovo su SRV-1 (accesso di
+            // lettura usabile): l'analisi nasce e aspetta la ripresa.
+            if (what === "serverWait") {
+              await api.instance.pauseQueue("prj-acq");
+              await api.servers.simulateServerRecovery("SRV-1").catch(() => undefined);
+              await api.servers.simulateServerAlert("SRV-1", "agent_silent");
+            }
             if (what === "run") {
               await api.instance.simulateBudgetReached(true);
               const a = await api.automations.createAutomation({
@@ -205,6 +214,8 @@ async function main() {
         ["projects-queue", "/projects", { persona: "Roberta" }],
         ["task-queue", "/p/STW/tasks?task=STW-7", { persona: "Laura", after: toClaude }],
         ["task-budget", "/p/ACQ/tasks?task=ACQ-3", { persona: "Laura", action: "budget", after: toClaude }],
+        ["task-waiting", "/p/STW/tasks?task=STW-7", { persona: "Roberta", action: "startStw", after: toClaude }],
+        ["server-waiting", "/home", { persona: "Roberta", action: "serverWait", then: "/p/ACQ/servers/SRV-1" }],
         ["chat-budget", "/claude/cv-giulia-callbacks", { action: "budget" }],
         ["drive-off", "/p/AUD/drive", { persona: "Laura", action: "uploadsOff" }],
         ["run-budget", "/automations", { persona: "Roberta", action: "run", then: "/automations/ACQ-A1/runs/1" }],

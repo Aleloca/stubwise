@@ -3,9 +3,13 @@ import {
   automations,
   createConversation,
   drive,
+  getConversation,
   getTaskWork,
   instance,
+  listProjectPulses,
+  listProjects,
   relaunchWithInstructions,
+  releases,
   requestChanges,
   resetApi,
   resumeCorrection,
@@ -14,8 +18,10 @@ import {
   setLatency,
   startRun,
   stop,
+  stopAndSend,
 } from "../api";
 import { whenAutomationsIdle } from "../automations/runner";
+import { whenAnalysesIdle } from "../servers/analysis";
 import { setSessionPersonId } from "../session";
 import { eventsOf, state } from "../store";
 import { runScript, whenIdle } from "../stream";
@@ -274,6 +280,167 @@ describe("i passi d'automazione che avvierebbero Claude", () => {
     expect(runOf(id).status).toBe("done");
     expect(runOf(id).log.filter((e) => e.outcome === "resumed")).toHaveLength(1);
     expect(heldJobs()).toEqual([]);
+  });
+});
+
+// --- giro di correzione 1 (task-6-review.md) -----------------------------------
+
+const planPhases = (id: string) =>
+  eventsOf(id).filter((e) => e.type === "phase" && e.phase === "plan" && e.outcome === null);
+
+describe("I1: una sessione in attesa della coda non si scrive", () => {
+  it("sendMessage e stopAndSend rifiutati, nessun evento di Claude; alla ripresa una sola fase plan", async () => {
+    const run = await startRun("t-stw-7");
+    const detail = (await getConversation(run.id))!;
+    expect(detail).toMatchObject({ canWrite: false, canInterrupt: true, readOnlyReason: "waiting" });
+    await expect(sendMessage(run.id, { text: "Hurry up" })).rejects.toThrow("invalid: waiting");
+    await expect(stopAndSend(run.id, "Do it now")).rejects.toThrow("invalid: waiting");
+    expect(eventsOf(run.id)).toEqual([]);
+    expect(conv(run.id).waiting).toMatchObject({ reason: "queue_paused" });
+
+    await instance.resumeQueue(STW);
+    await settle(run.id);
+    expect(planPhases(run.id)).toHaveLength(1);
+    expect(eventsOf(run.id).filter((e) => e.type === "user")).toEqual([]);
+  });
+});
+
+describe("⚠️3: coda ripresa col budget esaurito, poi budget alzato", () => {
+  it("la sessione aspetta il budget, poi parte una volta sola", async () => {
+    const run = await startRun("t-stw-7");
+    await instance.simulateBudgetReached(true);
+    await instance.resumeQueue(STW);
+    await settle(run.id);
+    expect(conv(run.id).waiting).toEqual({ reason: "monthly_budget" });
+    expect(eventsOf(run.id)).toEqual([]);
+    await instance.simulateBudgetReached(false);
+    await settle(run.id);
+    await instance.simulateBudgetReached(false);
+    await settle(run.id);
+    expect(conv(run.id).waiting).toBeNull();
+    expect(planPhases(run.id)).toHaveLength(1);
+    expect(heldJobs()).toEqual([]);
+  });
+});
+
+describe("la storia e lo stato di una sessione che ha aspettato", () => {
+  it("la task dice «waiting», poi «working»; la sessione ricorda chi ha ripreso la coda", async () => {
+    const run = await startRun("t-stw-7");
+    expect(state.tasksById.get("t-stw-7")!.claude).toBe("waiting");
+    expect((await getTaskWork("t-stw-7"))!.runs.at(-1)!.queued).toEqual({
+      resumedById: null,
+      resumedAt: null,
+    });
+    await instance.resumeQueue(STW);
+    await settle(run.id);
+    expect(state.tasksById.get("t-stw-7")!.claude).not.toBe("waiting");
+    expect((await getTaskWork("t-stw-7"))!.runs.at(-1)!.queued).toEqual({
+      resumedById: ROBERTA,
+      resumedAt: expect.any(String),
+    });
+  });
+
+  it("all'esecuzione la sessione scrive il modello di fix_execute (se diverso, la storia lo dice)", async () => {
+    await instance.setModel("fix_plan", "opus");
+    await instance.setModel("fix_execute", "sonnet");
+    as(LAURA);
+    const run = await startRun("t-acq-1");
+    await settle(run.id);
+    const latest = (await getTaskWork("t-acq-1"))!.runs.at(-1)!;
+    expect(latest).toMatchObject({ model: "claude-opus-5-5", executionModel: "claude-sonnet-5-5" });
+  });
+});
+
+describe("la pausa si legge da sola, anche col budget raggiunto", () => {
+  it("getQueuePause dice chi e da quando; un progetto che non si vede risponde null", async () => {
+    await instance.simulateBudgetReached(true);
+    expect(await instance.getQueuePause(STW)).toMatchObject({
+      byId: ROBERTA,
+      byName: "Roberta Fontana",
+    });
+    expect(await instance.getQueuePause(ACQ)).toBeNull();
+    as("p-chiara");
+    expect(await instance.getQueuePause(STW)).toBeNull();
+  });
+
+  it("il polso e il progetto dicono che Claude aspetta, col blocco", async () => {
+    await startRun("t-stw-7");
+    const pulse = (await listProjectPulses()).find((p) => p.projectId === STW)!;
+    expect(pulse.claudeWaiting).toMatchObject({ reason: "queue_paused", byName: "Roberta Fontana" });
+    const stw = (await listProjects()).find((p) => p.id === STW)!;
+    expect(stw.signals.claudeWaiting).toMatchObject({ reason: "queue_paused" });
+    expect((await listProjectPulses()).find((p) => p.projectId === ACQ)!.claudeWaiting ?? null).toBeNull();
+  });
+});
+
+describe("I2 e i due blocchi delle automazioni", () => {
+  it("annullata mentre aspetta: esce dalla fila e non si legge più «in attesa»", async () => {
+    await instance.simulateBudgetReached(true);
+    const id = await claudeAutomation(ACQ);
+    expect(heldJobs()).toHaveLength(1);
+    await automations.cancelRun(id);
+    expect(heldJobs()).toEqual([]);
+    const view = await automations.getRun(id);
+    expect(view?.status).toBe("cancelled");
+    expect(view?.aiWaiting ?? null).toBeNull();
+    await instance.simulateBudgetReached(false);
+    await whenAutomationsIdle();
+    expect(runOf(id).status).toBe("cancelled");
+  });
+
+  it("automazione messa in pausa mentre aspetta: sospesa, fuori dalla fila", async () => {
+    await instance.simulateBudgetReached(true);
+    const id = await claudeAutomation(ACQ);
+    const a = state.automations.find((x) => x.id === runOf(id).automationId)!;
+    await automations.pause(a.id);
+    expect(runOf(id).status).toBe("suspended");
+    expect(heldJobs()).toEqual([]);
+  });
+
+  it("budget di nuovo disponibile ma coda in pausa: il registro lo dice, poi la ripresa la fa finire", async () => {
+    await instance.simulateBudgetReached(true);
+    const id = await claudeAutomation(STW);
+    expect(runOf(id).log.at(-1)).toMatchObject({ why: { code: "aiBudget" } });
+    await instance.simulateBudgetReached(false);
+    await whenAutomationsIdle();
+    expect(runOf(id).status).toBe("running");
+    expect(runOf(id).log.at(-1)).toMatchObject({
+      outcome: "waiting",
+      why: { code: "aiBudgetBackStillQueue", params: { byId: ROBERTA } },
+    });
+    await instance.resumeQueue(STW);
+    await whenAutomationsIdle();
+    expect(runOf(id).status).toBe("done");
+  });
+});
+
+describe("l'analisi di un server con la coda in pausa", () => {
+  it("nasce in attesa; il dettaglio del server lo dice; alla ripresa parte", async () => {
+    await instance.pauseQueue(ACQ);
+    await servers.simulateServerRecovery("SRV-1").catch(() => undefined);
+    await servers.simulateServerAlert("SRV-1", "agent_silent");
+    const detail = await servers.getServer("SRV-1");
+    const episode = detail.episodes[0]!;
+    expect(episode.analysis?.outcome).toBe("running");
+    expect(episode.analysisWaiting).toMatchObject({ reason: "queue_paused", byName: "Roberta Fontana" });
+    const id = episode.analysis!.conversationId;
+    expect(eventsOf(id)).toEqual([]);
+    await instance.resumeQueue(ACQ);
+    await whenAnalysesIdle();
+    expect(eventsOf(id).length).toBeGreaterThan(0);
+    expect((await servers.getServer("SRV-1")).episodes[0]!.analysisWaiting ?? null).toBeNull();
+  });
+});
+
+describe("⚠️1: «Request changes» dai Rilasci col budget esaurito", () => {
+  it("risponde monthly_budget, e nessuna correzione nasce", async () => {
+    await instance.simulateBudgetReached(true);
+    const before = state.conversations.length;
+    expect(await releases.requestPrCorrection("opr-aud-248", "Keep 30 days")).toEqual({
+      ok: false,
+      error: "monthly_budget",
+    });
+    expect(state.conversations.length).toBe(before);
   });
 });
 

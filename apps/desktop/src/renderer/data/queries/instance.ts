@@ -27,7 +27,14 @@ export function useUsage(input: {
  * tocca nelle altre aree: i blocchi stessi e il lavoro delle task
  * (`TaskWork.blocked`, le sessioni in attesa), le esecuzioni delle automazioni.
  */
-const INSTANCE_EFFECT_AREAS: readonly string[] = ["instance", "conversations", "automations"];
+const INSTANCE_EFFECT_AREAS: readonly string[] = [
+  "instance",
+  "conversations",
+  "automations",
+  // I segnali delle tessere del binario e il polso: «Claude waiting».
+  "projects",
+  "pulse",
+];
 
 /**
  * Rilegge i blocchi quando cambiano (Task 6, shape EF §5): alzato il budget o
@@ -60,6 +67,20 @@ export function useAiBlock(projectId: string | null) {
   return useQuery({
     queryKey: ["as", me, "instance", "ai-block", projectId] as const,
     queryFn: () => api.instance.getAiBlock(projectId),
+  });
+}
+
+/**
+ * La sola pausa della coda del progetto (chi, da quando): la testata del
+ * progetto e la riga di All projects la dicono anche col budget raggiunto,
+ * che invece vince sugli avvii (shape [EF 4]).
+ */
+export function useQueuePause(projectId: string) {
+  const me = useSessionPersonId();
+  useInstanceChanges();
+  return useQuery({
+    queryKey: ["as", me, "instance", "queue-pause", projectId] as const,
+    queryFn: () => api.instance.getQueuePause(projectId),
   });
 }
 

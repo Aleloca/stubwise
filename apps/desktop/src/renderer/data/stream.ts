@@ -4,6 +4,7 @@ import { publishChatEvent } from "./chat/events";
 import { channelById, messageById, presentMessage } from "./chat/reads";
 import { canReadChannel, membersOf } from "./chat/visibility";
 // I consumi a fine sessione (area 9b): usati solo dentro le funzioni.
+import { modelIdFor } from "./instance/models";
 import { recordSessionUsage } from "./instance/usage";
 import { SCRIPTS } from "./seed/conversations";
 import { getSessionPersonId } from "./session";
@@ -330,6 +331,13 @@ async function play(conversationId: string, steps: ScriptStep[], alive: () => bo
           applyRefinePatch(conversationId, step.event.requestPatch);
         }
         append(conversationId, step.event);
+        // L'esecuzione parte col modello di `fix_execute` di adesso (area 9b):
+        // la sessione lo ricorda, una volta, per i consumi e la storia.
+        if (step.event.type === "phase" && step.event.phase === "execution") {
+          const c = findConversation(conversationId);
+          if (c?.kind === "task_run" && c.model && !c.executionModel)
+            c.executionModel = modelIdFor("fix_execute");
+        }
         // La PR aperta da una sessione di lavoro arriva anche nei canali del
         // progetto che pubblicano «PR opened».
         if (step.event.type === "work_result" && step.event.kind === "pr_opened") {
