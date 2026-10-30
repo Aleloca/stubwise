@@ -144,7 +144,11 @@ export async function createGitAccount(input: {
   return { ok: true, accountId: id };
 }
 
-/** Nome e workspace, senza riconferma; la voce ha i soli campi cambiati. */
+/**
+ * Nome e workspace, senza riconferma; la voce ha i soli campi cambiati. Un
+ * revisore predefinito che cambia workspace (cioè ambito) smette di
+ * esserlo: la stessa voce dice anche `defaultReviewer` On → Off.
+ */
 export async function updateGitAccount(
   id: string,
   input: { name?: string; workspace?: string | null },
@@ -165,13 +169,18 @@ export async function updateGitAccount(
   }
   if (nameTaken(name, id)) return refuse.conflict();
 
+  // Cambiando ambito un revisore predefinito smette di esserlo, nella stessa
+  // voce (ruling del controller): nel nuovo ambito ce ne può essere già uno.
+  const moved = (workspace ?? "").toLowerCase() !== (account.workspace ?? "").toLowerCase();
+  const defaultReviewer = account.defaultReviewer && !moved;
   const diff = changedFields(
-    { name: account.name, workspace: account.workspace },
-    { name, workspace },
+    { name: account.name, workspace: account.workspace, defaultReviewer: account.defaultReviewer },
+    { name, workspace, defaultReviewer },
   );
   if (!diff) return { ok: true };
   account.name = name;
   account.workspace = workspace;
+  account.defaultReviewer = defaultReviewer;
   recordChange({
     kind: "git_account.updated",
     actorId: me,

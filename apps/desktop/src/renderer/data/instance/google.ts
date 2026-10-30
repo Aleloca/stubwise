@@ -3,6 +3,7 @@ import { visiblePeopleFor } from "../access/whoCan";
 import { recordChange } from "../changelog/index";
 import { changedFields } from "../changelog/settingValues";
 import type { GoogleWorkspace } from "../me/types";
+import type { Mailbox } from "../model";
 import { gate, newId, now, state } from "../store";
 import { forbidden, writer } from "../writer";
 import { canI, nameOf, reauthRefusal, refuse } from "./common";
@@ -75,6 +76,20 @@ function cleanDomains(input: string[], exceptId: string | null): string[] | { re
   return taken ? { reason: "domain_taken" } : domains;
 }
 
+/**
+ * `in_use` se ci sono caselle: le persone che chi guarda vede per nome, le
+ * altre contate (R-G5); `null` se non ce n'è nessuna.
+ */
+function inUseRefusal(me: string, boxes: Mailbox[]): InstanceRefusal | null {
+  if (boxes.length === 0) return null;
+  const people = visiblePeopleFor(me);
+  const seen = boxes.filter((b) => people.has(b.personId));
+  return refuse.inUse(
+    seen.map((b) => ({ label: nameOf(b.personId)!, projectCode: null })),
+    boxes.length - seen.length,
+  );
+}
+
 const nameTaken = (name: string, exceptId: string | null) =>
   state.googleWorkspaces.some(
     (w) => w.id !== exceptId && w.name.toLowerCase() === name.toLowerCase(),
@@ -129,7 +144,11 @@ export async function createGoogleApp(input: {
   return { ok: true, appId: id };
 }
 
-/** Nome, domini e client ID, senza riconferma; la voce ha i soli campi cambiati. */
+/**
+ * Nome, domini e client ID, senza riconferma; la voce ha i soli campi
+ * cambiati. Togliere un dominio che ha caselle collegate → `in_use`, come
+ * `deleteGoogleApp`, prima di scrivere: le caselle resterebbero senza app.
+ */
 export async function updateGoogleApp(
   id: string,
   input: { name?: string; domains?: string[]; clientId?: string },
@@ -145,6 +164,13 @@ export async function updateGoogleApp(
     const cleaned = cleanDomains(input.domains, id);
     if (!Array.isArray(cleaned)) return refuse.invalid(cleaned.reason);
     domains = cleaned;
+    // Togliere un dominio con caselle le lascerebbe senza app: come eliminarla.
+    const removed = app.domains.filter((d) => !cleaned.includes(d));
+    const inUse = inUseRefusal(
+      me,
+      state.mailboxes.filter((b) => removed.includes(domainOf(b.email))),
+    );
+    if (inUse) return inUse;
   }
   const clientId = input.clientId === undefined ? app.clientId : input.clientId.trim();
   if (!clientId) return refuse.invalid("client_id");
@@ -202,15 +228,8 @@ export async function deleteGoogleApp(id: string): Promise<InstanceResult> {
   const found = managed(me, id);
   if ("refusal" in found) return found.refusal;
   const { app } = found;
-  const boxes = mailboxesOf(app);
-  if (boxes.length > 0) {
-    const people = visiblePeopleFor(me);
-    const seen = boxes.filter((b) => people.has(b.personId));
-    return refuse.inUse(
-      seen.map((b) => ({ label: nameOf(b.personId)!, projectCode: null })),
-      boxes.length - seen.length,
-    );
-  }
+  const inUse = inUseRefusal(me, mailboxesOf(app));
+  if (inUse) return inUse;
   const blocked = reauthRefusal(me, "instance.deleteGoogleApp");
   if (blocked) return blocked;
 

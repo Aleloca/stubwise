@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { visiblePeopleFor } from "../access/whoCan";
 import { __secretValuesForTest } from "../admin/secrets";
 import { changelog, instance, me as meApi, resetApi, setLatency } from "../api";
 import { markReauthenticated } from "../auth/reauth";
+import { PEOPLE } from "../seed/people";
 import { setSessionPersonId } from "../session";
 import { state, visibleProjectIds } from "../store";
 import { grantInstancePermission, type LocalInstancePermission } from "../viewer";
@@ -18,6 +20,7 @@ import type { InstanceResult } from "./types";
 const ROBERTA = "p-roberta";
 const MARCO = "p-marco";
 const SARA = "p-sara";
+const LUCA = "p-luca";
 
 const as = (personId: string) => setSessionPersonId(personId);
 const reauth = (personId: string) => markReauthenticated(personId);
@@ -502,6 +505,40 @@ describe("revisore predefinito", () => {
     expect(JSON.parse(last().before!)).toEqual({ defaultReviewer: true });
     expect(JSON.parse(last().after!)).toEqual({ defaultReviewer: false });
   });
+
+  it("cambiare il workspace di un predefinito lo spegne, nella stessa voce: un solo predefinito nel nuovo ambito", async () => {
+    reauth(ROBERTA);
+    const other = (await instance.createGitAccount({
+      name: "Bitbucket Other",
+      provider: "bitbucket",
+      workspace: "other",
+      token: "bb-other-0000",
+    })) as { ok: true; accountId: string };
+    await instance.setDefaultReviewer(other.accountId, true);
+    await instance.setDefaultReviewer(BITBUCKET_AUDIN, true);
+    const entries = state.changelog.length;
+
+    expect(await instance.updateGitAccount(BITBUCKET_AUDIN, { workspace: "other" })).toEqual({
+      ok: true,
+    });
+    expect(account(BITBUCKET_AUDIN)).toMatchObject({ workspace: "other", defaultReviewer: false });
+    const inScope = state.instance.gitAccounts.filter(
+      (g) => g.provider === "bitbucket" && g.workspace === "other" && g.defaultReviewer,
+    );
+    expect(inScope.map((g) => g.id)).toEqual([other.accountId]);
+    // Una sola voce, col workspace e il revisore insieme.
+    expect(state.changelog.length).toBe(entries + 1);
+    expect(last()).toMatchObject({ kind: "git_account.updated" });
+    expect(JSON.parse(last().before!)).toEqual({ workspace: "audin", defaultReviewer: true });
+    expect(JSON.parse(last().after!)).toEqual({ workspace: "other", defaultReviewer: false });
+
+    // Il solo nome non lo tocca.
+    await instance.setDefaultReviewer(GITHUB_STUBWISE, true);
+    expect(await instance.updateGitAccount(GITHUB_STUBWISE, { name: "GitHub Main" })).toEqual({
+      ok: true,
+    });
+    expect(account(GITHUB_STUBWISE).defaultReviewer).toBe(true);
+  });
 });
 
 // --- app Google ----------------------------------------------------------------
@@ -565,6 +602,44 @@ describe("app Google", () => {
     const names = (res as { usedBy: { label: string }[] }).usedBy.map((u) => u.label);
     expect(names).toContain("Giulia Ferri");
     expect(state.googleWorkspaces.map((w) => w.id)).toContain("gw-example");
+  });
+
+  it("togliere un dominio con caselle → in_use come l'eliminazione, prima di scrivere (R-G5)", async () => {
+    // Luca vede due delle tre persone con una casella @example.com.
+    give(LUCA, "integrations.manage");
+    as(LUCA);
+    const people = visiblePeopleFor(LUCA);
+    const boxes = state.mailboxes.filter((b) => b.email.endsWith("@example.com"));
+    const seen = boxes.filter((b) => people.has(b.personId));
+    // Il caso conta solo se Sara ne vede alcune e non altre.
+    expect(seen.length).toBeGreaterThan(0);
+    expect(boxes.length - seen.length).toBeGreaterThan(0);
+
+    const before = snapshot();
+    const res = await instance.updateGoogleApp("gw-example", { domains: ["example.org"] });
+    expect(res).toEqual({
+      ok: false,
+      error: "in_use",
+      usedBy: seen.map((b) => ({
+        label: PEOPLE.find((p) => p.id === b.personId)!.name,
+        projectCode: null,
+      })),
+      hiddenCount: boxes.length - seen.length,
+    });
+    expect(snapshot()).toBe(before);
+    expect(kinds()).toEqual([]);
+    const hiddenNames = boxes
+      .filter((b) => !people.has(b.personId))
+      .map((b) => PEOPLE.find((p) => p.id === b.personId)!.name);
+    for (const n of hiddenNames) expect(JSON.stringify(res)).not.toContain(n);
+
+    // Aggiungere un dominio, o togliere uno senza caselle, si fa.
+    expect(
+      await instance.updateGoogleApp("gw-example", { domains: ["example.com", "example.org"] }),
+    ).toEqual({ ok: true });
+    expect(await instance.updateGoogleApp("gw-example", { domains: ["example.com"] })).toEqual({
+      ok: true,
+    });
   });
 
   it("modificata: i domini nel prima/dopo", async () => {
