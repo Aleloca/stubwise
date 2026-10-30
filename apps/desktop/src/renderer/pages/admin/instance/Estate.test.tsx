@@ -216,11 +216,15 @@ describe("I grafici a 30 e 90 giorni", () => {
     await user.click(within(range).getByRole("button", { name: "30d" }));
     await waitFor(() => expect(router.state.location.search).toMatchObject({ range: "30d" }));
     expect(await screen.findByText("Each point averages about 2 hours.")).toBeVisible();
-    // La frase-riassunto dice il giorno del picco, non un'ora inventata dalla media.
+    // La frase-riassunto dice il giorno, non un'ora inventata dalla media; e
+    // il massimo di punti che sono medie non è un «peak» (Impeccable 4).
     const cpu = document.querySelector<HTMLElement>('[data-chart="cpu"]')!;
     await waitFor(() =>
-      expect(cpu).toHaveTextContent(/Average \d+% · peak \d+% on [A-Z][a-z]{2} \d+/),
+      expect(cpu).toHaveTextContent(
+        /Average \d+% · highest 2-hour average \d+% on [A-Z][a-z]{2} \d+/,
+      ),
     );
+    expect(cpu).not.toHaveTextContent(/peak/);
     // Il tasto 5 sceglie 90d.
     (document.activeElement as HTMLElement | null)?.blur();
     await user.keyboard("5");

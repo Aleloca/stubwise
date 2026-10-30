@@ -180,9 +180,23 @@ export function MetricsCharts({
     const th = server.thresholds;
     const byDay = BY_DAY.has(range);
     const day = (ts: number) => dayLocal(new Date(ts).toISOString(), lang);
+    const averagedHours =
+      metrics.data.averagedSeconds === null
+        ? null
+        : Math.max(1, Math.round(metrics.data.averagedSeconds / 3600));
     const summaryOf = (values: number[], format: (v: number) => string) => {
       const s = stats(values, times);
       if (!s) return t("servers.charts.noData");
+      // A 30d e 90d ogni punto è una media: il suo massimo non è il picco
+      // dei campioni, e lo si dice (Impeccable 4: «Memory at 94%» sopra un
+      // «peak 69%» si smentivano).
+      if (averagedHours !== null)
+        return t("servers.charts.summaryAveraged", {
+          avg: format(s.avg),
+          peak: format(s.peak),
+          day: day(s.at),
+          count: averagedHours,
+        });
       return byDay
         ? t("servers.charts.summaryDay", {
             avg: format(s.avg),

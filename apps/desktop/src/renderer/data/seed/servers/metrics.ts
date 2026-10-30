@@ -26,8 +26,7 @@ export const METRIC_FINE_DAYS = 7;
 
 const NOW_MS = Date.parse(`${TODAY}T12:00:00Z`);
 const FINE_POINTS = (METRIC_FINE_DAYS * 86_400) / METRIC_STEP_SECONDS;
-const COARSE_POINTS =
-  ((METRIC_DAYS - METRIC_FINE_DAYS) * 86_400) / METRIC_COARSE_STEP_SECONDS;
+const COARSE_POINTS = ((METRIC_DAYS - METRIC_FINE_DAYS) * 86_400) / METRIC_COARSE_STEP_SECONDS;
 const FINE_START_MS = NOW_MS - (FINE_POINTS - 1) * METRIC_STEP_SECONDS * 1000;
 
 /** Gli istanti delle serie, dal più vecchio: prima il passo largo, poi quello fine fino ad adesso. */
@@ -39,7 +38,10 @@ function metricTimes(): { t: number; stepSeconds: number }[] {
       stepSeconds: METRIC_COARSE_STEP_SECONDS,
     });
   for (let i = 0; i < FINE_POINTS; i++)
-    times.push({ t: FINE_START_MS + i * METRIC_STEP_SECONDS * 1000, stepSeconds: METRIC_STEP_SECONDS });
+    times.push({
+      t: FINE_START_MS + i * METRIC_STEP_SECONDS * 1000,
+      stepSeconds: METRIC_STEP_SECONDS,
+    });
   return times;
 }
 
@@ -133,16 +135,45 @@ function srv1Memory(t: number, base: number): number {
   return base;
 }
 
+/**
+ * Quanto lavora un giorno rispetto a un altro: un fattore fra 0,75 e 1,25
+ * per giorno (UTC), dal seme della serie. Senza, a 30d e 90d ogni giorno è
+ * la copia del precedente e la serie si legge come generata (Impeccable 4).
+ */
+function dayFactor(code: string, t: number): number {
+  const day = Math.floor(t / 86_400_000);
+  return 0.75 + 0.5 * seededRandom(hashOf(`day|${code}|${day}`))();
+}
+
+/**
+ * Una deriva lenta, non periodica: una passeggiata che torna verso lo zero
+ * (Ornstein-Uhlenbeck a passi), in punti percentuali. Il passo conta: a 15
+ * minuti si muove più che a 30 secondi, così la deriva ha lo stesso ritmo
+ * nelle due parti della serie.
+ */
+function drift(rnd: () => number, size: number): (stepSeconds: number) => number {
+  let value = 0;
+  return (stepSeconds) => {
+    const k = Math.sqrt(stepSeconds / 900);
+    value += (rnd() - 0.5) * size * k - value * 0.003 * k * k;
+    return value;
+  };
+}
+
 /** I campioni di un server, sempre gli stessi. */
 export function metricsOf(code: string): MetricPoint[] {
   const p = PROFILES[code]!;
   const rnd = seededRandom(hashOf(`metrics|${code}`));
+  // Un generatore a parte per derive e giorni: il rumore di sempre resta uguale.
+  const walk = seededRandom(hashOf(`drift|${code}`));
+  const cpuDrift = drift(walk, 0.8);
+  const memDrift = drift(walk, 0.6);
   const points: MetricPoint[] = [];
   for (const { t, stepSeconds } of metricTimes()) {
-    const d = daily(t);
+    const d = daily(t) * dayFactor(code, t);
     const noise = () => rnd() - 0.5;
-    const cpu = clamp(p.cpu * (0.6 + 0.8 * d) + 6 * noise());
-    let mem = clamp(p.mem + 4 * d + 3 * noise());
+    const cpu = clamp(p.cpu * (0.6 + 0.8 * d) + 6 * noise() + cpuDrift(stepSeconds));
+    let mem = clamp(p.mem + 4 * d + 3 * noise() + memDrift(stepSeconds));
     if (code === "SRV-1") mem = clamp(srv1Memory(t, mem));
     const disk = clamp(p.disk(t) + 0.1 * noise());
     const net = p.net * stepSeconds * (0.3 + 1.4 * d) * (1 + 0.4 * noise());

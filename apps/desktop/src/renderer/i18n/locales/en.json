@@ -7608,6 +7608,8 @@
       "averagesHours_other": "Each point averages about {{count}} hours.",
       "averagesMinutes_one": "Each point averages about {{count}} minute.",
       "averagesMinutes_other": "Each point averages about {{count}} minutes.",
+      "summaryAveraged_one": "Average {{avg}} · highest {{count}}-hour average {{peak}} on {{day}}",
+      "summaryAveraged_other": "Average {{avg}} · highest {{count}}-hour average {{peak}} on {{day}}",
       "summaryDay": "Average {{avg}} · peak {{peak}} on {{day}}",
       "summaryLatencyDay": "Average {{avg}} · slowest {{peak}} on {{day}}"
     },

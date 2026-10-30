@@ -13,6 +13,7 @@ import { setSessionPersonId } from "../session";
 import { state, storeGeneration } from "../store";
 import type { ServerService } from "../types";
 import { grantInstancePermission, grantProjectRole } from "../viewer";
+import { metricsOf } from "../seed/servers/metrics";
 import { serverFor, serversVisibleTo } from "./visibility";
 
 const as = (personId: string) => setSessionPersonId(personId);
@@ -536,7 +537,12 @@ describe("«Link SSH access» dell'avviso porta dove il server è", () => {
     for (const env of state.environments)
       env.servers = env.servers.filter((s) => s.serverCode !== "SRV-2");
     const acq = state.environments.find((e) => e.id === "env-acq-prod")!;
-    acq.servers.push({ repositoryId: null, serverCode: "SRV-2", reportedSha: null, reportedAt: null });
+    acq.servers.push({
+      repositoryId: null,
+      serverCode: "SRV-2",
+      reportedSha: null,
+      reportedAt: null,
+    });
     expect(await href()).toMatch(/\/p\/ACQ\/servers\/SRV-2\?section=access$/);
   });
 });
@@ -817,8 +823,8 @@ describe("area 9b, Task 7: i server di tutta l'istanza", () => {
       expect(now - times.at(-1)!).toBeLessThan(window * 1.5);
       // Il picco di CPU della parte più vecchia di 7 giorni resta vicino a quello dei campioni grezzi.
       const cutoff = now - 7 * DAY;
-      const rawOld = state
-        .serverMetrics.get("SRV-1")!
+      const rawOld = state.serverMetrics
+        .get("SRV-1")!
         .filter((p) => Date.parse(p.ts) <= cutoff && Date.parse(p.ts) > now - days * DAY);
       const rawMax = Math.max(...rawOld.map((p) => p.cpuPct));
       const oldMax = Math.max(
@@ -978,5 +984,21 @@ describe("area 9b, Task 7: le scritture dei server scrivono la loro voce", () =>
     await expect(servers.deleteServer("SRV-99")).rejects.toThrow("not_found");
     await expect(servers.linkSshAccess("SRV-1")).rejects.toThrow("invalid: state");
     expect(entries()).toEqual([]);
+  });
+});
+
+describe("Impeccable 4: le serie del seme a 30d e 90d", () => {
+  it("non si ripetono giorno per giorno: la media giornaliera della CPU varia", () => {
+    for (const code of ["SRV-1", "SRV-3"]) {
+      const byDay = new Map<string, number[]>();
+      for (const p of metricsOf(code)) {
+        const day = p.ts.slice(0, 10);
+        byDay.set(day, [...(byDay.get(day) ?? []), p.cpuPct]);
+      }
+      const means = [...byDay.values()]
+        .filter((v) => v.length > 20)
+        .map((v) => v.reduce((a, b) => a + b, 0) / v.length);
+      expect(Math.max(...means) - Math.min(...means)).toBeGreaterThan(4);
+    }
   });
 });

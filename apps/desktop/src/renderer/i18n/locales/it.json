@@ -7608,6 +7608,8 @@
       "averagesHours_other": "Ogni punto è la media di circa {{count}} ore.",
       "averagesMinutes_one": "Ogni punto è la media di circa {{count}} minuto.",
       "averagesMinutes_other": "Ogni punto è la media di circa {{count}} minuti.",
+      "summaryAveraged_one": "Media {{avg}} · media di {{count}} ora più alta {{peak}} il {{day}}",
+      "summaryAveraged_other": "Media {{avg}} · media di {{count}} ore più alta {{peak}} il {{day}}",
       "summaryDay": "Media {{avg}} · picco {{peak}} il {{day}}",
       "summaryLatencyDay": "Media {{avg}} · più lento {{peak}} il {{day}}"
     },
