@@ -378,7 +378,8 @@ export async function syncFolder(linkId: string): Promise<FolderLinkView> {
  * Collega (o ricollega, se scaduto) l'account Google di `personId`, senza
  * cancello: lo chiamano le scritture che l'hanno già passato. Le cartelle
  * collegate da lei riprendono ad aggiornarsi; la sua casella e il suo
- * calendario ci sono (proposte accese, se la casella è nuova) e, se
+ * calendario ci sono («Proposals» com'era prima di scollegarla, accese per
+ * una casella mai collegata) e, se
  * l'allineamento era fallito per l'accesso perso, torna `ok`.
  */
 export function linkGoogleAccount(personId: string): GoogleAccount {
@@ -399,7 +400,8 @@ export function linkGoogleAccount(personId: string): GoogleAccount {
     state.mailboxes.push({
       personId,
       email: account.email,
-      proposalsEnabled: true,
+      // La scelta di prima dello scollegamento, se c'era: ricollegare non riaccende le proposte.
+      proposalsEnabled: state.proposalsBeforeUnlink.get(personId) ?? true,
       syncedAt: now(),
       sync: "ok",
     });
@@ -429,6 +431,8 @@ export function linkGoogleAccount(personId: string): GoogleAccount {
  */
 export function unlinkGoogleAccount(personId: string): void {
   state.googleAccounts = state.googleAccounts.filter((a) => a.personId !== personId);
+  const box = state.mailboxes.find((b) => b.personId === personId);
+  if (box) state.proposalsBeforeUnlink.set(personId, box.proposalsEnabled);
   state.mailboxes = state.mailboxes.filter((b) => b.personId !== personId);
   state.calendarSync = state.calendarSync.filter((c) => c.personId !== personId);
   for (const link of state.folderLinks.filter((l) => l.linkedById === personId)) {

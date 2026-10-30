@@ -74,6 +74,7 @@ import { CHECK_SAMPLES, SERVER_METRICS } from "./seed/servers/metrics";
 import { SERVERS, SERVER_CHECKS } from "./seed/servers/servers";
 import {
   DEFAULT_SESSION_PERSON_ID,
+  NO_SESSION_PERSON_ID,
   getSessionPersonId,
   setSessionCredential,
   setSessionPersonId,
@@ -756,6 +757,11 @@ interface State {
   tokens: PersonalToken[];
   /** I Workspace Google dell'istanza (9b li gestisce, le caselle personali li scelgono). */
   googleWorkspaces: GoogleWorkspace[];
+  /**
+   * «Proposals» di una casella al momento in cui è stata scollegata: chi la
+   * ricollega la ritrova com'era (`linkGoogleAccount` del Drive).
+   */
+  proposalsBeforeUnlink: Map<string, boolean>;
   projects: Project[];
   statuses: ProjectStatus[];
   tasks: Task[];
@@ -987,6 +993,7 @@ function freshState(): State {
     confirmedTotp: new Map(),
     tokens: seedTokens(),
     googleWorkspaces: seedGoogleWorkspaces(),
+    proposalsBeforeUnlink: new Map(),
     projects: PROJECTS.map(copy),
     statuses: PROJECT_STATUSES.map(copy),
     tasks: TASKS.map(copy),
@@ -1189,6 +1196,8 @@ export function emptyStore(): void {
   for (const fn of resetHooks) fn();
   failures.clear();
   setSessionCredential("session");
+  // La persona di prima non esiste più: la sessione è di «nessuno».
+  setSessionPersonId(NO_SESSION_PERSON_ID);
   PEOPLE.splice(0, PEOPLE.length, ...PEOPLE.filter((p) => p.isClaude));
   // Ogni tabella si svuota: gli array e le mappe. I contatori e le
   // impostazioni (numeri, stringhe) restano; gli accessi si svuotano sotto,

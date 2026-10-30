@@ -385,6 +385,20 @@ async function main() {
           await park(p);
         },
       }],
+      // Scollegare l'account Google: le cartelle, e con l'account anche Posta e Calendario (area 9a).
+      ["drive-google-disconnect", "/p/MKX/drive", {
+        persona: "Giulia",
+        narrow: true,
+        steps: async (p) => {
+          await p.getByRole("button", { name: /^(Profile and settings|Profilo e impostazioni)/ }).click();
+          await p.getByRole("button", { name: /^(Google account|Account Google)$/ }).click();
+          const dialog = p.getByRole("dialog");
+          await dialog.waitFor();
+          await dialog.getByRole("button", { name: /^(Disconnect|Scollega)$/ }).click();
+          await p.waitForTimeout(600);
+          await park(p);
+        },
+      }],
       ["drive-which-project", "/drive", {
         persona: "Giulia",
         narrow: true,

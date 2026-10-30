@@ -817,6 +817,32 @@ describe("RF 2: i link si vedono una volta", () => {
     expect(secretIdsOf("reset_link", "p-marco")).toHaveLength(1);
   });
 
+  it("un link di reset generato da un altro avvisa l'interessato (solo lui), senza il link", async () => {
+    as("p-roberta");
+    reauth("p-roberta");
+    const alertsBefore = state.notifications.filter((n) => n.kind === "security.alert").length;
+    const reset = await admin.createPasswordResetLink("p-marco");
+    expect(reset.ok).toBe(true);
+    const link = (reset as { link: string }).link;
+    const alert = state.notifications.at(-1)!;
+    expect(alert).toMatchObject({ kind: "security.alert", recipientIds: ["p-marco"] });
+    expect(state.notifications.filter((n) => n.kind === "security.alert")).toHaveLength(
+      alertsBefore + 1,
+    );
+    expect(alert.body).toContain("Roberta Fontana");
+    as("p-marco");
+    expect((await listNotifications()).map((n) => n.id)).toContain(alert.id);
+    const token = link.split("token=")[1]!;
+    for (const text of [
+      JSON.stringify(state.notifications),
+      JSON.stringify(state.securityEvents),
+      JSON.stringify(state.changelog),
+    ]) {
+      expect(text).not.toContain(link);
+      expect(text).not.toContain(token);
+    }
+  });
+
   it("revocare un invito lo toglie dall'elenco; il link resta solo per dire «revocato»", async () => {
     as("p-roberta");
     reauth("p-roberta");

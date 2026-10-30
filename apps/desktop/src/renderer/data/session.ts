@@ -6,6 +6,14 @@
 
 export const DEFAULT_SESSION_PERSON_ID = "p-giulia";
 
+/**
+ * «Nessuno» (area 9a): la sessione dopo «Reset to empty instance», quando la
+ * persona di prima non esiste più. Non è una persona: ogni lettura risponde
+ * come per chi non vede niente, e la UI dell'ingresso (Task 6) manda al
+ * primo avvio. Il prossimo `setPersona` la sostituisce.
+ */
+export const NO_SESSION_PERSON_ID = "p-nobody";
+
 let currentPersonId = DEFAULT_SESSION_PERSON_ID;
 
 export function getSessionPersonId(): string {

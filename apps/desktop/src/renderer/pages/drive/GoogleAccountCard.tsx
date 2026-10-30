@@ -204,6 +204,10 @@ function GoogleAccountDialog({ onClose }: { onClose: () => void }) {
                 {mine.length > 0 && (
                   <p className="text-sm text-ink-muted">{t("drive.account.disconnectWho")}</p>
                 )}
+                {/* L'account Google è uno solo (area 9a): con lui vanno la casella e il calendario. */}
+                <p className="text-md text-ink">
+                  {t("drive.account.disconnectMailCalendar", { email: data.email })}
+                </p>
               </>
             )}
             {disconnect.isError && (
@@ -213,7 +217,8 @@ function GoogleAccountDialog({ onClose }: { onClose: () => void }) {
             )}
           </div>
         )}
-        <p className="text-xs text-ink-faint">{t("drive.account.note")}</p>
+        {/* Durante la conferma lo dice già la conseguenza (`disconnectMailCalendar`): niente doppione. */}
+        {!confirming && <p className="text-xs text-ink-faint">{t("drive.account.note")}</p>}
       </div>
     );
   }

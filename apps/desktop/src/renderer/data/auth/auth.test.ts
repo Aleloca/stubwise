@@ -3,7 +3,7 @@ import { admin, auth, changelog, listProjects, me, resetApi, setLatency } from "
 import { accessState, isFullAdmin, roleIdOf, seedAccessState } from "../access/index";
 import { __secretValuesForTest } from "../admin/secrets";
 import { PEOPLE, CLAUDE_ID } from "../seed/people";
-import { setSessionPersonId } from "../session";
+import { NO_SESSION_PERSON_ID, getSessionPersonId, setSessionPersonId } from "../session";
 import { advanceNow, state } from "../store";
 import { can, canInDepartment, viewerFor } from "../viewer";
 import { hasFreshReauth, markReauthenticated } from "./reauth";
@@ -289,6 +289,9 @@ describe("istanza vuota e primo avvio", () => {
     expect(await auth.isInstanceEmpty()).toBe(true);
     expect(PEOPLE.map((p) => p.id)).toEqual([CLAUDE_ID]);
     expect(await auth.getEntry()).toEqual({ stage: "out" });
+    // La sessione non resta su una persona che non esiste più: «nessuno».
+    expect(getSessionPersonId()).toBe(NO_SESSION_PERSON_ID);
+    expect(await me.listTokens()).toEqual([]);
     const s = state as unknown as Record<string, unknown>;
     for (const [key, value] of Object.entries(s)) {
       if (Array.isArray(value)) expect(value, key).toEqual([]);

@@ -3815,6 +3815,7 @@
       "disconnectFolders_other": "{{count}} folders you linked will stop updating: {{names}}. Their files will show as not available to everyone in the project.",
       "disconnectNone": "No folder you linked depends on it. Stubwise will stop finding your Google Drive files.",
       "disconnectWho": "Only you can reconnect them, with this account. Another manager can only unlink a folder and link it again, which resets its files' codes and opens.",
+      "disconnectMailCalendar": "Mail and Calendar will stop showing {{email}} too. Mail already received and proposals already made stay.",
       "disconnectConfirm": "Disconnect account",
       "cancel": "Cancel",
       "close": "Close"

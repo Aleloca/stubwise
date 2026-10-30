@@ -3815,6 +3815,7 @@
       "disconnectFolders_other": "{{count}} cartelle che hai collegato smetteranno di aggiornarsi: {{names}}. I loro file risulteranno non disponibili per tutti i membri del progetto.",
       "disconnectNone": "Nessuna cartella che hai collegato dipende da questo account. Stubwise smetterà di trovare i file del tuo Google Drive.",
       "disconnectWho": "Solo tu puoi ricollegarle, con questo account. Un altro gestore può solo scollegare una cartella e ricollegarla, e così i suoi file ripartono con codici nuovi e senza aperture.",
+      "disconnectMailCalendar": "Anche Posta e Calendario smetteranno di mostrare {{email}}. La posta già arrivata e le proposte già fatte restano.",
       "disconnectConfirm": "Scollega l'account",
       "cancel": "Annulla",
       "close": "Chiudi"

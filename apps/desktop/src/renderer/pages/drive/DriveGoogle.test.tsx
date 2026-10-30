@@ -303,6 +303,12 @@ describe("Account Google", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
     expect(dialog).toHaveTextContent(/1 folder you linked will stop updating: MKX – Campagna primavera/);
     expect(dialog).toHaveTextContent(/Only you can reconnect/);
+    // L'account è uno solo (area 9a): la conferma dice che spariscono anche Posta e Calendario.
+    expect(
+      within(dialog).getByRole("group", { name: "Disconnect" }),
+    ).toHaveTextContent("Mail and Calendar will stop showing giulia.ferri@example.com too.");
+    // La nota generica non si ripete sotto la conseguenza.
+    expect(dialog).not.toHaveTextContent("Mail and Calendar will use the same account.");
     await userEvent.click(within(dialog).getByRole("button", { name: "Disconnect account" }));
     expect(await within(dialog).findByRole("button", { name: "Connect Google account" })).toBeInTheDocument();
     expect(state.googleAccounts.some((a) => a.personId === "p-giulia")).toBe(false);

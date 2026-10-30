@@ -378,6 +378,13 @@ export async function createPasswordResetLink(
     .toISOString()
     .replace(/\.\d{3}Z$/, "Z");
   logSecurity(personId, "password_reset_link_created", me);
+  // `second-factor.md`: un link di reset generato da un altro avvisa
+  // l'interessato, solo lui. Il link, mai: dice chi e cosa.
+  publishSecurityAlert(
+    personId,
+    "Password reset link created",
+    `${nameOf(me)} created a link to reset your password. It works once, within an hour. If you didn't ask for it, tell your administrator.`,
+  );
   // La voce dice che il link è stato creato: il link, mai.
   recordChange({
     kind: "person.password_reset_link_created",

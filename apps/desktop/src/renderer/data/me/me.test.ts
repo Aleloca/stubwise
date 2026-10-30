@@ -118,11 +118,6 @@ describe("un PAT non soddisfa mai la riconferma", () => {
     expect(
       await callWithToken(token, () => me.createToken({ name: "from a tool", expiresAt: null })),
     ).toEqual({ ok: false, error: "reauth_required" });
-    expect(
-      await callWithToken(token, () =>
-        admin.createInvite({ email: "x@example.com", instanceRoleId: "role-user", projects: [] }),
-      ),
-    ).toMatchObject({ ok: false });
     expect(await callWithToken(token, () => me.createClaudeCodeCommand())).toEqual({
       ok: false,
       error: "reauth_required",
@@ -134,6 +129,23 @@ describe("un PAT non soddisfa mai la riconferma", () => {
     expect(snapshot()).toBe(before);
     // La stessa richiesta dalla sessione di Marco, nella stessa finestra, passa.
     expect((await me.createToken({ name: "from the app", expiresAt: null })).ok).toBe(true);
+  });
+
+  it("un token di chi può invitare non conia inviti: reauth_required dentro la finestra, niente cambia", async () => {
+    as("p-roberta");
+    markReauthenticated("p-roberta");
+    const token = value<{ token: string }>(
+      await me.createToken({ name: "roberta-cli", expiresAt: null }),
+    ).token;
+    const input = { email: "x@example.com", instanceRoleId: "role-user", projects: [] };
+    const invites = JSON.stringify(state.invites);
+    expect(await callWithToken(token, () => admin.createInvite(input))).toEqual({
+      ok: false,
+      error: "reauth_required",
+    });
+    expect(JSON.stringify(state.invites)).toBe(invites);
+    // Dalla sessione di Roberta, nella stessa finestra, passa.
+    expect((await admin.createInvite(input)).ok).toBe(true);
   });
 
   it("via token la chiamata è del titolare e marcata pat; dopo si torna alla sessione di prima", async () => {
@@ -676,6 +688,26 @@ describe("Caselle Google: lo stesso stato di Posta e Calendario", () => {
     expect(await mail.listMailboxes()).toHaveLength(1);
     expect(await drive.getGoogleAccount()).toMatchObject({ status: "connected" });
     expect(await me.connectMailbox("gw-example")).toMatchObject({ reason: "already_connected" });
+  });
+
+  it("scollegare e ricollegare rimette «Proposals» com'era (Laura le aveva spente)", async () => {
+    as("p-laura");
+    expect((await me.listMyMailboxes()).mailboxes[0]!.proposalsEnabled).toBe(false);
+    expect(await me.disconnectMailbox("laura.costa@example.com")).toEqual({ ok: true });
+    expect(await me.connectMailbox("gw-example")).toMatchObject({
+      ok: true,
+      mailbox: { proposalsEnabled: false },
+    });
+    expect((await mail.listMailboxes())[0]!.proposalsEnabled).toBe(false);
+    // Anche dal Drive: lo stesso scrittore.
+    await drive.disconnectGoogle();
+    await drive.connectGoogle();
+    expect((await mail.listMailboxes())[0]!.proposalsEnabled).toBe(false);
+    // Chi non l'ha mai collegata parte con le proposte accese.
+    as("p-marco");
+    expect(await me.connectMailbox("gw-example")).toMatchObject({
+      mailbox: { proposalsEnabled: true },
+    });
   });
 
   it("senza Workspace sull'istanza l'elenco lo dice (vuoto)", async () => {
