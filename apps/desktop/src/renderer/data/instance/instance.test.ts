@@ -238,6 +238,16 @@ describe("il registro delle modifiche del 9b", () => {
 });
 
 describe("i segreti scritti da chi amministra", () => {
+  it("triage T1: un segreto corto non torna intero da last4 (Review Focus 1)", () => {
+    for (const value of ["ab", "abcd", "abcdefgh"]) {
+      const stored = storeProvidedSecret("provider_credential", "prv-short", value);
+      expect(stored.last4).toBe("••••");
+      expect(JSON.stringify(stored)).not.toContain(value);
+    }
+    // Oltre la soglia le ultime 4 restano: il resto del valore non esce.
+    expect(storeProvidedSecret("provider_credential", "prv-ok", "abcdefghi").last4).toBe("fghi");
+  });
+
   it("storeProvidedSecret restituisce le ultime 4 cifre, mai il valore; il valore sta nel caveau", () => {
     const value = "sk-ant-api03-prototype-value-9e2b";
     const stored = storeProvidedSecret("provider_credential", "prv-new", value);

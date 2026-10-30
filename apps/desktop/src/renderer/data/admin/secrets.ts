@@ -122,10 +122,15 @@ export function storeSecret(
   return { id, value };
 }
 
+/** Fin qui un segreto è troppo corto per mostrarne le ultime 4 (Review Focus 1). */
+const SHORT_SECRET = 8;
+
 /**
  * Custodisce un segreto scritto da chi amministra (area 9b) e restituisce
  * solo l'id e le ultime 4 cifre, quelle che le righe mostrano («•••• 9e2b»).
- * Il valore resta qui: nessuna lettura, voce o notifica lo riporta.
+ * Il valore resta qui: nessuna lettura, voce o notifica lo riporta. Un
+ * segreto di `SHORT_SECRET` caratteri o meno non mostra niente («••••»):
+ * le sue ultime 4 sarebbero metà del valore, o tutto.
  */
 export function storeProvidedSecret(
   kind: ProvidedSecretKind,
@@ -135,7 +140,7 @@ export function storeProvidedSecret(
   const id = `sec-${++counter}`;
   // Già «mostrato»: chi l'ha scritto lo conosce, e `revealOnce` non lo dà a nessuno.
   vault.set(id, { kind, ownerId, value, revealed: true });
-  return { id, last4: value.slice(-4) };
+  return { id, last4: value.length <= SHORT_SECRET ? "••••" : value.slice(-4) };
 }
 
 /**
