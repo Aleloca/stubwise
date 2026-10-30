@@ -141,7 +141,9 @@ describe("Laura su ACQ: aggiunge Federico, il permesso di server, la gerarchia c
     // La riconferma: il codice del prototipo, poi l'azione riparte da sola.
     const confirm = await screen.findByRole("dialog", { name: "Confirm it's you" });
     await user.type(within(confirm).getByLabelText("Code"), "123456");
-    expect(await screen.findByText("Federico Sartori joined ACQ as Developer.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Federico Sartori joined ACQ as Developer."),
+    ).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add member" })).toBeNull());
     const first = within(await members()).getAllByRole("button")[0]!;
     expect(first).toHaveAttribute("data-member-row", FEDERICO);
@@ -172,7 +174,7 @@ describe("Laura su ACQ: aggiunge Federico, il permesso di server, la gerarchia c
     await openMembers(ROBERTA);
     p = await openPanel(user, "Federico");
     await user.click(box(p, "start a server fix"));
-    expect(within(p).getByText("1 change")).toBeInTheDocument();
+    expect(within(p).getByText("1 change: gives start a server fix")).toBeInTheDocument();
     await save(user, p);
     expect(await screen.findByText("Saved.")).toBeInTheDocument();
     await waitFor(() => expect(can(viewerFor(FEDERICO), "servers.operate", ACQ)).toBe(true));
@@ -202,7 +204,7 @@ describe("Laura su ACQ: aggiunge Federico, il permesso di server, la gerarchia c
     });
   });
 
-  it("Laura toglie a Marco servers.operate, che lei non ha; poi non lo può ridare", async () => {
+  it("Laura toglie a Marco servers.operate, che lei non ha: la riga lo dice e si può rimettere (B1)", async () => {
     const user = userEvent.setup();
     markReauthenticated(LAURA);
     await openMembers(LAURA);
@@ -211,8 +213,23 @@ describe("Laura su ACQ: aggiunge Federico, il permesso di server, la gerarchia c
     expect(ops).toBeChecked();
     expect(ops).toBeEnabled();
     await user.click(ops);
-    // Tolto nella bozza, ridarlo è spento: Laura non ce l'ha.
-    await waitFor(() => expect(box(p, "start a server fix")).toBeDisabled());
+    // Tolto nella bozza: la riga dice cosa succede e chi l'aveva dato, resta
+    // modificabile, e non parla di «dare».
+    await waitFor(() =>
+      expect(box(p, "start a server fix").closest("li")).toHaveTextContent(
+        /Removing — given by Roberta Fontana on Oct \d+/,
+      ),
+    );
+    expect(box(p, "start a server fix")).toBeEnabled();
+    expect(box(p, "start a server fix").closest("li")).not.toHaveTextContent(/can't give it/);
+    expect(within(p).getByText("1 change: removes start a server fix")).toBeInTheDocument();
+    // Rimesso: torna com'era, nessuna modifica in sospeso.
+    await user.click(box(p, "start a server fix"));
+    await waitFor(() => expect(within(p).queryByText(/^1 change/)).toBeNull());
+    expect(box(p, "start a server fix")).toBeChecked();
+    // Tolto di nuovo, e salvato.
+    await user.click(box(p, "start a server fix"));
+    await within(p).findByText("1 change: removes start a server fix");
     await save(user, p);
     expect(await screen.findByText("Saved.")).toBeInTheDocument();
     expect(can(viewerFor(MARCO), "servers.operate", ACQ)).toBe(false);
@@ -242,9 +259,7 @@ describe("i rifiuti in parole", () => {
     ).toBeInTheDocument();
     expect(within(p).getByRole("button", { name: "Save" })).toBeDisabled();
     expect(within(p).getByRole("button", { name: "Remove from ACQ…" })).toBeDisabled();
-    expect(p).toHaveTextContent(
-      "Give someone else that permission before leaving ACQ.",
-    );
+    expect(p).toHaveTextContent("Give someone else that permission before leaving ACQ.");
   });
 
   it("un ruolo che aggiunge ciò che Laura non ha è spento col motivo", async () => {

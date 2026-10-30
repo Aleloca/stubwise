@@ -34,6 +34,7 @@ import {
   AdminAvatar,
   QuietLine,
   SaveBar,
+  lowerFirst,
   reasonWords,
   useMissingWords,
   usePermissionWords,
@@ -432,7 +433,7 @@ export function MemberPanel({
   view: ProjectMembersView;
   onClose: () => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { viewer } = useViewer();
   const me = useSessionPersonId();
   const toast = useToast();
@@ -451,10 +452,9 @@ export function MemberPanel({
   const [saving, setSaving] = useState(false);
 
   const roleChanged = roleId !== row.role.id;
-  const changes =
-    Number(roleChanged) +
-    granted.filter((p) => !row.granted.includes(p)).length +
-    row.granted.filter((p) => !granted.includes(p)).length;
+  const givesNow = granted.filter((p) => !row.granted.includes(p));
+  const removesNow = row.granted.filter((p) => !granted.includes(p));
+  const changes = Number(roleChanged) + givesNow.length + removesNow.length;
   const dirty = changes > 0;
 
   // Chiudere, aprire un altro membro o lasciare la pagina con modifiche chiede prima.
@@ -527,6 +527,9 @@ export function MemberPanel({
 
   // Le righe della tabella: le fonti dalla bozza letta dal livello dati.
   const sourcesOf = (p: string) => preview?.permissions.find((x) => x.permission === p)?.sources;
+  // Le concessioni salvate che la bozza toglie: lo dice il livello dati.
+  const removingOf = (p: string) =>
+    (preview?.removing ?? []).find((x) => x.permission === p)?.source;
   const context = (p: string): RowContext | null => {
     const sources = sourcesOf(p);
     if (sources) {
@@ -537,6 +540,16 @@ export function MemberPanel({
         forcedOn: fixed,
       };
     }
+    // Tolta nella bozza: resta modificabile (rimetterla ripristina, non dà), e
+    // dice cosa succede salvando e chi l'aveva data [B1].
+    const removing = removingOf(p);
+    if (removing)
+      return {
+        short: t("settings.members.panel.source.removing", {
+          source: lowerFirst(longSource(removing), i18n.language),
+        }),
+        locked: !manage,
+      };
     // Nel pannello la frase intera, sotto il nome: è il rifiuto detto prima (shape §2).
     if (manage && !allowed.has(p))
       return { short: t("settings.members.panel.blockedWhy", { code }), locked: true };
@@ -544,6 +557,20 @@ export function MemberPanel({
   };
   const off = row.status === "deactivated";
   const roleName = view.roleChoices.find((r) => r.roleId === roleId)?.name ?? row.role.name;
+  // La barra nomina i cambi in sospeso («1 change: removes start a server
+  // fix»), fino a tre; oltre, solo quanti sono.
+  const changeWords = [
+    ...(roleChanged ? [t("settings.members.panel.change.role", { role: roleName })] : []),
+    ...givesNow.map((p) => t("settings.members.panel.change.gives", { permission: words(p) })),
+    ...removesNow.map((p) => t("settings.members.panel.change.removes", { permission: words(p) })),
+  ];
+  const changesLine =
+    changeWords.length > 0 && changeWords.length <= 3
+      ? t("settings.members.panel.changesWhat", {
+          count: changes,
+          what: new Intl.ListFormat(i18n.language, { type: "conjunction" }).format(changeWords),
+        })
+      : t("settings.members.panel.changes", { count: changes });
 
   return (
     <div className="flex min-h-full flex-col">
@@ -672,9 +699,7 @@ export function MemberPanel({
                 </Warning>
               )}
               <div className="flex flex-wrap items-center gap-2">
-                <p className="num min-w-0 flex-1 text-sm text-ink">
-                  {t("settings.members.panel.changes", { count: changes })}
-                </p>
+                <p className="num min-w-0 flex-1 text-sm text-ink">{changesLine}</p>
                 <button type="button" className={quietButton} onClick={discard}>
                   {t("settings.members.panel.discard")}
                 </button>

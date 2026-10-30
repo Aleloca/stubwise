@@ -540,8 +540,20 @@ export async function previewMember(
       if (!has.has(p)) viewerLoses.push(p);
   }
   const removal = invariantRefusal(removeMutation(projectId, personId));
+  // Le concessioni salvate che la bozza toglie, con chi le aveva date: la
+  // riga resta modificabile e rimetterle non è un «dare» (`added` le esclude).
+  const removing = j.removed.map((permission) => {
+    const g = before.grants.find(
+      (x) => x.personId === personId && x.projectId === projectId && x.permission === permission,
+    )!;
+    return {
+      permission,
+      source: sourceView({ kind: "grant", grantedById: g.grantedById, at: g.at }),
+    };
+  });
   return {
     permissions,
+    removing,
     roleChoices: memberRoleChoices(me, projectId, j.saved),
     missing: j.missing,
     block: j.block,

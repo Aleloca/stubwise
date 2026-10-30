@@ -445,6 +445,20 @@ describe("la bozza del membro: previewMember e saveMember con UNA regola", () =>
   it("Laura toglie a Marco servers.operate, che lei non ha: niente gerarchia", async () => {
     const p = await admin.previewMember(ACQ, "p-marco", draftOf("developer", []));
     expect(p.missing).toEqual([]);
+    // B1: la bozza dice cosa toglie, con chi l'aveva dato (rimetterlo non è un «dare»).
+    expect(p.removing).toEqual([
+      {
+        permission: "servers.operate",
+        source: expect.objectContaining({ kind: "grant", grantedByName: "Roberta Fontana" }),
+      },
+    ]);
+    const back = await admin.previewMember(
+      ACQ,
+      "p-marco",
+      draftOf("developer", ["servers.operate"]),
+    );
+    expect(back.removing).toEqual([]);
+    expect(back.missing).toEqual([]);
     expect(await admin.saveMember(ACQ, "p-marco", draftOf("developer", []))).toEqual({ ok: true });
     expect(can(viewerFor("p-marco"), "servers.operate", ACQ)).toBe(false);
     expect(state.changelog.at(-1)).toMatchObject({

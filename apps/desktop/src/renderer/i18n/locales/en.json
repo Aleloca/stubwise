@@ -2441,8 +2441,16 @@
           "given": "Given by {{name}} on {{date}}",
           "givenNoName": "Given on {{date}}",
           "seed": "From the sample data",
-          "draft": "Given when you save"
+          "draft": "Given when you save",
+          "removing": "Removing — {{source}}"
         },
+        "change": {
+          "role": "role {{role}}",
+          "gives": "gives {{permission}}",
+          "removes": "removes {{permission}}"
+        },
+        "changesWhat_one": "{{count}} change: {{what}}",
+        "changesWhat_other": "{{count}} changes: {{what}}",
         "blockedWhy": "You don't have this permission in {{code}}, so you can't give it.",
         "remove": "Remove from {{code}}…",
         "removeAsk": "Remove {{name}} from {{code}}? Their role and the permissions given to them here go too.",

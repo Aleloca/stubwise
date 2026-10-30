@@ -79,6 +79,11 @@ export function capitalized(text: string, language: string): string {
   return text.charAt(0).toLocaleUpperCase(language) + text.slice(1);
 }
 
+/** La prima lettera minuscola, nella lingua: una frase che entra dentro un'altra («Removing — given by…»). */
+export function lowerFirst(text: string, language: string): string {
+  return text.charAt(0).toLocaleLowerCase(language) + text.slice(1);
+}
+
 /** «view usage», «view usage and approve plans», «a, b, c and 2 more». */
 export function useMissingWords() {
   const { t, i18n } = useTranslation();

@@ -2441,8 +2441,16 @@
           "given": "Dato da {{name}} il {{date}}",
           "givenNoName": "Dato il {{date}}",
           "seed": "Dai dati di esempio",
-          "draft": "Dato quando salvi"
+          "draft": "Dato quando salvi",
+          "removing": "Da togliere — {{source}}"
         },
+        "change": {
+          "role": "ruolo {{role}}",
+          "gives": "dà {{permission}}",
+          "removes": "toglie {{permission}}"
+        },
+        "changesWhat_one": "{{count}} modifica: {{what}}",
+        "changesWhat_other": "{{count}} modifiche: {{what}}",
         "blockedWhy": "Non hai questo permesso in {{code}}, quindi non puoi darlo.",
         "remove": "Togli da {{code}}…",
         "removeAsk": "Togliere {{name}} da {{code}}? Se ne vanno anche il ruolo e i permessi che gli sono stati dati qui.",

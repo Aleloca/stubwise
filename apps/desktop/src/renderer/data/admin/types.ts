@@ -144,6 +144,12 @@ export interface MemberPreview {
    * quelli dati nella bozza). Per un disattivato: ciò che avrebbe riattivato.
    */
   permissions: { permission: string; sources: SourceView[] }[];
+  /**
+   * I permessi dati a mano che la bozza TOGLIE, con la fonte salvata («given
+   * by …»). Rimetterli ripristina la concessione: non è un «dare», quindi
+   * niente escalation anche se chi guarda non li ha.
+   */
+  removing: { permission: string; source: SourceView }[];
   /** I ruoli di progetto, con ciò che a chi guarda manca per darli: ciò che AGGIUNGONO al ruolo salvato. */
   roleChoices: RoleChoice[];
   /** Ciò che salvando questa bozza si darebbe senza averlo (vuoto = niente escalation). */
