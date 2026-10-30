@@ -850,3 +850,13 @@ Minori lasciati aperti, col motivo:
 - **Titolo di test per «Notifiche per progetto, tipo, canale»** (Task 13
   Minor 3): il test citato copre solo «Always for you»; le notifiche sono
   dell'8a e lì hanno i loro test.
+- **Dalla ri-revisione dell'ondata finale** (30 ott 2026), quattro minori
+  parcheggiati:
+  - con più persone aggiunte da una proposta della posta, la frase
+    dell'escalation le nomina tutte, anche quelle che entrerebbero;
+  - il test architetturale cerca solo `memberships.push(`: un altro modo di
+    aggiungere un'appartenenza gli sfugge;
+  - nessun test dell'interfaccia mostra la frase del rifiuto
+    `last_department` (il livello dati è provato);
+  - a 1440 la frase della barra di Members va su due righe accanto a
+    Discard/Save.
