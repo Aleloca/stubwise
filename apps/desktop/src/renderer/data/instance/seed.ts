@@ -1,5 +1,6 @@
 import type { AiModelChoice, AiOperation } from "@stubwise/shared";
 import { TODAY, daysFromToday } from "../seed/dates";
+import { NIGHTLY_ROWS } from "../seed/nightly";
 import { seedUsage } from "../seed/usage";
 import type { AutomationRule, InstanceState } from "./state";
 
@@ -206,7 +207,7 @@ export function seedInstanceState(): InstanceState {
     // La coda di STW in pausa da Roberta, ieri alle 18:00.
     queuePauses: [{ projectId: "prj-stw", byId: "p-roberta", at: at(-1, "18:00") }],
     usage: seedUsage(),
-    nightly: [],
+    nightly: NIGHTLY_ROWS.map((r) => ({ ...r })),
     simulate: { nextTest: {}, budgetReached: false, nextPluginOutcome: "ready" },
   };
 }

@@ -1,14 +1,15 @@
-import type { RunProvider } from "../model";
+import type { AiBlock, RunProvider } from "../model";
+import { PEOPLE } from "../seed/people";
 import { now, state } from "../store";
 import type { AiProvider, QueuePause } from "./state";
 
 // Il modulo foglia dei blocchi d'istanza (area 9b): le domande che le altre
 // aree fanno allo stato d'istanza prima di partire («la coda di questo
-// progetto è in pausa?», «si può caricare un file?»). Importa SOLO lo store e
-// i tipi dello stato d'istanza, così `servers/visibility.ts` e le altre
+// progetto è in pausa?», «si può caricare un file?»). Importa SOLO lo store,
+// le persone del seme (i nomi) e i tipi dello stato d'istanza, così `servers/visibility.ts` e le altre
 // letture lo usano senza raggiungere `api-mutations` né i segreti
 // (`architecture.test.ts`, `architecture.secrets.test.ts`). Il Task 5 ci
-// aggiunge `aiBlockFor`. Il Task 3 ci mette la catena dei provider
+// aggiunge `aiBlockFor`, la domanda che ogni partenza fa. Il Task 3 ci mette la catena dei provider
 // (`pickProvider`) e il budget (`budgetReached`): li leggono le partenze
 // dei lavori (Task 5, 6), e `providers.ts`/`budget.ts` li ri-espongono.
 
@@ -80,4 +81,19 @@ export function budgetReached(): boolean {
     state.instance.simulate.budgetReached ||
     (monthlyUsd !== null && spentThisMonthUsd() >= monthlyUsd)
   );
+}
+
+/**
+ * Perché un lavoro AI nuovo non parte adesso, o `null` se può partire. Il
+ * budget del mese vale ovunque (anche senza progetto, «Chiedi a Claude») e
+ * vince sulla pausa (EF 1: ferma, la pausa fa solo aspettare); la pausa vale
+ * solo per il suo progetto. Chi l'ha messa si legge per nome anche se è
+ * stato disattivato: `PEOPLE` tiene anche le persone disattivate.
+ */
+export function aiBlockFor(projectId: string | null): AiBlock | null {
+  if (budgetReached()) return { reason: "monthly_budget" };
+  const pause = projectId === null ? null : queuePauseOf(projectId);
+  if (!pause) return null;
+  const byName = PEOPLE.find((p) => p.id === pause.byId)?.name ?? pause.byId;
+  return { reason: "queue_paused", byId: pause.byId, byName, since: pause.at };
 }

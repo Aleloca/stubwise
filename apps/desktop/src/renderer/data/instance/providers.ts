@@ -56,7 +56,8 @@ const chain = () => state.instance.providers.map((p) => p.name).join(", ");
 /** Chi legge la voce AI: chi gestisce i provider o le impostazioni. */
 const canRead = (me: string) => canI(me, MANAGE) || canI(me, "settings.manage");
 
-function quotaView(p: AiProvider): QuotaView | null {
+/** La quota di un abbonamento con la sua banda; `null` per una chiave API (la legge anche lo Stato dell'istanza). */
+export function quotaView(p: AiProvider): QuotaView | null {
   if (!p.quota) return null;
   const { fiveHourPct, weeklyPct, readAt, limitedUntil } = p.quota;
   const band = isLimited(p)

@@ -96,6 +96,25 @@ export {
   type WebhookGroup,
   type WebhookView,
 } from "./webhook";
+export {
+  aiBlockFor,
+  dropHeld,
+  holdJob,
+  pauseQueue,
+  queuePauseOf,
+  releaseBudgetHolds,
+  resumeQueue,
+  type AiBlock,
+  type HeldJob,
+  type JobKind,
+} from "./queue";
+export {
+  getInstanceStatus,
+  type InstanceJob,
+  type InstanceNightlyRow,
+  type InstanceStatusView,
+} from "./status";
+export { retryJob } from "./retry";
 export type { InstanceRefusal, InstanceResult } from "./types";
 export type {
   AiProvider,

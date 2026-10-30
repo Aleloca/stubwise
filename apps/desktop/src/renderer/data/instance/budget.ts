@@ -4,6 +4,7 @@ import { gate, state } from "../store";
 import { forbidden, writer } from "../writer";
 import { budgetReached, spentThisMonthUsd } from "./blocks";
 import { canI, refuse } from "./common";
+import { releaseBudgetHolds } from "./queue";
 import type { InstanceResult } from "./types";
 
 // Il budget mensile dell'AI e la lingua dei contenuti (area 9b, Task 3). Si
@@ -11,7 +12,9 @@ import type { InstanceResult } from "./types";
 // lingua (anche nello stesso salvataggio); si leggono anche con
 // `ai_providers.manage`. Lo speso è di tutta l'istanza, in tutti i progetti.
 // `budgetReached` sta nella foglia dei blocchi (`blocks.ts`): lo leggono le
-// partenze dei lavori (Task 5, 6).
+// partenze dei lavori (Task 5, 6). Dopo ogni scrittura del budget o della
+// simulazione, `releaseBudgetHolds` (`queue.ts`) fa ripartire i passi fermi
+// per budget, se il budget è tornato disponibile.
 
 export { budgetReached } from "./blocks";
 
@@ -68,6 +71,9 @@ export async function saveBudget(input: {
     });
   }
   state.instance.budget = { monthlyUsd, contentLanguage };
+  // Un budget alzato sopra lo speso fa ripartire i passi fermi; un budget
+  // ancora sotto, o la sola lingua, no (`releaseBudgetHolds` non fa niente).
+  releaseBudgetHolds();
   return { ok: true };
 }
 
@@ -76,5 +82,6 @@ export async function simulateBudgetReached(on: boolean): Promise<InstanceResult
   const me = await writer("instance.simulateBudgetReached");
   if (!canI(me, "settings.manage")) return refuse.forbidden();
   state.instance.simulate.budgetReached = on;
+  releaseBudgetHolds();
   return { ok: true };
 }

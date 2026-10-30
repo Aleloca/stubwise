@@ -349,9 +349,10 @@ describe("il seme dell'istanza", () => {
     expect(state.tasksById.get(failed[0]!.taskId!)!.claude).toBe("stopped");
   });
 
-  it("i consumi hanno il loro seme (Task 2); il giro notturno arriva col Task 5; nessuna simulazione accesa", () => {
+  it("i consumi hanno il loro seme (Task 2), il giro notturno quattro righe (Task 5); nessuna simulazione accesa", () => {
     expect(state.instance.usage.length).toBeGreaterThan(0);
-    expect(state.instance.nightly).toEqual([]);
+    expect(state.instance.nightly).toHaveLength(4);
+    expect(state.instance.nightly.filter((r) => r.state === "failed")).toHaveLength(1);
     expect(state.instance.simulate).toEqual({
       nextTest: {},
       budgetReached: false,

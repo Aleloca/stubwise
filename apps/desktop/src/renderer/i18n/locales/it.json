@@ -9196,6 +9196,8 @@
       "reviewOff": "revisione delle PR spenta",
       "reviewNoCap": "revisione delle PR, nessun tetto",
       "reviewCap": "tetto della revisione delle PR {{amount}}",
+      "queuePaused": "In pausa dal {{date}}",
+      "queueRunning": "Attiva",
       "webhookFormat": {
         "slack": "Slack",
         "discord": "Discord",

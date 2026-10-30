@@ -28,6 +28,18 @@ function timeOf(iso: string, language: string): string {
   }).format(new Date(iso));
 }
 
+/** Giorno e ora («Oct 22, 18:00», «22 ott, 18:00»), UTC come l'orologio del prototipo. */
+function dayTimeOf(iso: string, language: string): string {
+  return new Intl.DateTimeFormat(language, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "UTC",
+  }).format(new Date(iso));
+}
+
 const linkClass =
   "font-semibold text-ink underline-offset-2 decoration-rule-strong hover:underline focus-visible:underline";
 
@@ -107,7 +119,7 @@ const modelName = (m: string): string =>
  * le parole sono qui.
  */
 function useSettingWords() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const rule = (r: AutomationRuleValue): string => {
     const parts = [
       t(r.autoFix ? "changelog.values.autoFix" : "changelog.values.autoFixOff", {
@@ -147,6 +159,10 @@ function useSettingWords() {
       case "fields":
         // Detto campo per campo da `useFieldsLine`, mai come valore unico.
         return "";
+      case "queue":
+        return v.pausedSince === null
+          ? t("changelog.values.queueRunning")
+          : t("changelog.values.queuePaused", { date: dayTimeOf(v.pausedSince, i18n.language) });
     }
   };
 }

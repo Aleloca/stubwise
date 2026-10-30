@@ -348,6 +348,15 @@ export interface RunProvider {
   id?: string;
 }
 
+/**
+ * Perché un lavoro AI nuovo non parte adesso (area 9b): il budget del mese
+ * è esaurito (ovunque), oppure la coda del progetto è in pausa, con chi l'ha
+ * messa e da quando. Lo calcola `aiBlockFor` (`instance/blocks.ts`).
+ */
+export type AiBlock =
+  | { reason: "monthly_budget" }
+  | { reason: "queue_paused"; byId: string; byName: string; since: string };
+
 /** I consumi di una sessione per modello (token e costo in USD). */
 export interface ModelUsage {
   model: string;

@@ -28,6 +28,8 @@
 //   booleano (`attachments`, `enabled`, `defaultReviewer`), un formato
 //   (`slack`) o una lista di id (i domini, gli eventi del webhook). Le
 //   parole le mette `ChangeEntry` (`changelog.fields.*`).
+// - `queue` (Task 5: `queue.resumed`): `"paused:<ISO>"` (in pausa da quando)
+//   o `"running"`; «In pausa dal 29 ott, 18:00 → Attiva» lo dice la pagina.
 
 export interface AutomationRuleValue {
   taskType: "bug" | "feature" | "activity";
@@ -53,7 +55,8 @@ export type SettingValue =
   | { type: "budget"; usd: number | null }
   | { type: "language"; locale: string }
   | { type: "automation"; rules: AutomationRuleValue[]; prReview: PrReviewValue | null }
-  | { type: "fields"; fields: Record<string, FieldValue> };
+  | { type: "fields"; fields: Record<string, FieldValue> }
+  | { type: "queue"; pausedSince: string | null };
 
 /** Il tipo di valore di ogni voce d'impostazione. */
 export const SETTING_KINDS: Readonly<Record<string, SettingValue["type"]>> = {
@@ -66,6 +69,7 @@ export const SETTING_KINDS: Readonly<Record<string, SettingValue["type"]>> = {
   "google_app.updated": "fields",
   "storage.changed": "fields",
   "webhook.changed": "fields",
+  "queue.resumed": "queue",
 };
 
 const sameField = (a: FieldValue | undefined, b: FieldValue | undefined): boolean =>
@@ -102,6 +106,9 @@ export const encodeAutomation = (
   rules: AutomationRuleValue[],
   prReview: PrReviewValue | null,
 ): string => JSON.stringify({ rules, prReview });
+/** La coda di un progetto: `paused:<da quando>` o `running`. */
+export const encodeQueue = (pausedSince: string | null): string =>
+  pausedSince === null ? "running" : `paused:${pausedSince}`;
 
 /** Il valore salvato di una voce d'impostazione, in forma di dato; `null` se non lo riconosce. */
 export function decodeSetting(kind: string, raw: string | null): SettingValue | null {
@@ -145,6 +152,11 @@ export function decodeSetting(kind: string, raw: string | null): SettingValue | 
       } catch {
         return null;
       }
+    }
+    case "queue": {
+      if (raw === "running") return { type: "queue", pausedSince: null };
+      const m = raw ? /^paused:(.+)$/.exec(raw) : null;
+      return m ? { type: "queue", pausedSince: m[1]! } : null;
     }
     default:
       return null;

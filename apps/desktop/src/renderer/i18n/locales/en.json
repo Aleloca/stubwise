@@ -9196,6 +9196,8 @@
       "reviewOff": "PR review off",
       "reviewNoCap": "PR review, no cap",
       "reviewCap": "PR review cap {{amount}}",
+      "queuePaused": "Paused since {{date}}",
+      "queueRunning": "Running",
       "webhookFormat": {
         "slack": "Slack",
         "discord": "Discord",
