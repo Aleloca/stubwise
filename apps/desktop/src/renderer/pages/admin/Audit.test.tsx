@@ -202,6 +202,54 @@ describe("Change log in Amministrazione", () => {
     expect(document.body.innerHTML).not.toContain(result.link);
   });
 
+  it("le frasi del 9b leggono i parametri della voce (kind, provider, ref, check, scope), in inglese e in italiano", async () => {
+    // Un oggetto di tipo neutro: niente link né «(deleted)», qui conta solo la frase.
+    const write = (kind: string, label: string, params: Record<string, string>) =>
+      recordChange({
+        kind,
+        actorId: ROBERTA,
+        projectId: null,
+        object: { type: "test", id: `x-${label}`, label },
+        params,
+      });
+    write("provider.created", "Team Max 2", { kind: "subscription" });
+    write("provider.created", "Spare key", { kind: "api_key" });
+    write("git_account.created", "GitHub Release", { provider: "GitHub" });
+    write("plugin.registered", "superpowers", { ref: "v4.0.3" });
+    write("server.created", "SRV-7", { scope: "orphan" });
+    write("server.created", "SRV-8", { scope: "project" });
+    write("server.check_changed", "SRV-2", { check: "HTTP /health" });
+    const expected = {
+      en: [
+        "Roberta Fontana changed the check “HTTP /health” on SRV-2.",
+        "Roberta Fontana created the server SRV-8.",
+        "Roberta Fontana created the server SRV-7 (not in any project).",
+        "Roberta Fontana registered the plugin superpowers at v4.0.3.",
+        "Roberta Fontana added the git account GitHub Release (GitHub).",
+        "Roberta Fontana added the AI account Spare key (API key).",
+        "Roberta Fontana added the AI account Team Max 2 (subscription).",
+      ],
+      it: [
+        "Roberta Fontana ha modificato il controllo “HTTP /health” su SRV-2.",
+        "Roberta Fontana ha creato il server SRV-8.",
+        "Roberta Fontana ha creato il server SRV-7 (in nessun progetto).",
+        "Roberta Fontana ha registrato il plugin superpowers a v4.0.3.",
+        "Roberta Fontana ha aggiunto l'account git GitHub Release (GitHub).",
+        "Roberta Fontana ha aggiunto l'account AI Spare key (chiave API).",
+        "Roberta Fontana ha aggiunto l'account AI Team Max 2 (abbonamento).",
+      ],
+    };
+    const nineB = () =>
+      sentences().filter((_, i) =>
+        /^(provider|git_account|plugin|server)\./.test(entries()[i]!.dataset.changeEntry!),
+      );
+    renderRoute("/admin/changelog", ROBERTA);
+    await heading("Change log");
+    await waitFor(() => expect(nineB()).toEqual(expected.en));
+    act(() => setLanguage("it"));
+    await waitFor(() => expect(nineB()).toEqual(expected.it));
+  });
+
   it("le voci d'istanza del 9b: l'oggetto porta alla sua voce dell'Amministrazione o al server", async () => {
     recordChange({
       kind: "provider.updated",

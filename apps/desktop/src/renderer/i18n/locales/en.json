@@ -9042,7 +9042,7 @@
         "permission_revoked": "<actor>{{actor}}</actor> removed <object>{{object}}</object>'s permission to <strong>{{permission}}</strong> in {{project}}."
       },
       "provider": {
-        "created": "<actor>{{actor}}</actor> added the AI account <object>{{object}}</object>.",
+        "created": "<actor>{{actor}}</actor> added the AI account <object>{{object}}</object> ($t(changelog.params.providerKind.{{kind}})).",
         "updated": "<actor>{{actor}}</actor> changed the AI account <object>{{object}}</object>.",
         "reordered": "<actor>{{actor}}</actor> changed the order of the AI accounts.",
         "credential_replaced": "<actor>{{actor}}</actor> replaced the key of <object>{{object}}</object>.",
@@ -9061,14 +9061,14 @@
         "changed": "<actor>{{actor}}</actor> changed the language of generated content."
       },
       "git_account": {
-        "created": "<actor>{{actor}}</actor> added the git account <object>{{object}}</object>.",
+        "created": "<actor>{{actor}}</actor> added the git account <object>{{object}}</object> ({{provider}}).",
         "updated": "<actor>{{actor}}</actor> changed the git account <object>{{object}}</object>.",
         "token_replaced": "<actor>{{actor}}</actor> replaced the token of <object>{{object}}</object>.",
         "deleted": "<actor>{{actor}}</actor> deleted the git account <object>{{object}}</object>.",
         "default_reviewer_changed": "<actor>{{actor}}</actor> changed the default reviewer to <object>{{object}}</object>."
       },
       "plugin": {
-        "registered": "<actor>{{actor}}</actor> registered the plugin <object>{{object}}</object>.",
+        "registered": "<actor>{{actor}}</actor> registered the plugin <object>{{object}}</object> at {{ref}}.",
         "ref_updated": "<actor>{{actor}}</actor> updated <object>{{object}}</object> to a new ref.",
         "smoke_rerun": "<actor>{{actor}}</actor> ran the smoke test of <object>{{object}}</object> again.",
         "removed": "<actor>{{actor}}</actor> removed the plugin <object>{{object}}</object>."
@@ -9087,12 +9087,12 @@
         "changed": "<actor>{{actor}}</actor> changed the outgoing webhook."
       },
       "server": {
-        "created": "<actor>{{actor}}</actor> created the server <object>{{object}}</object>.",
+        "created": "<actor>{{actor}}</actor> created the server <object>{{object}}</object>$t(changelog.params.serverScope.{{scope}}).",
         "updated": "<actor>{{actor}}</actor> changed the server <object>{{object}}</object>.",
         "deleted": "<actor>{{actor}}</actor> deleted the server <object>{{object}}</object>.",
         "agent_key_regenerated": "<actor>{{actor}}</actor> made a new agent key for <object>{{object}}</object>.",
         "thresholds_changed": "<actor>{{actor}}</actor> changed the alert thresholds of <object>{{object}}</object>.",
-        "check_changed": "<actor>{{actor}}</actor> changed a check on <object>{{object}}</object>.",
+        "check_changed": "<actor>{{actor}}</actor> changed the check “{{check}}” on <object>{{object}}</object>.",
         "ssh_access_changed": "<actor>{{actor}}</actor> changed SSH access to <object>{{object}}</object>."
       },
       "queue": {
@@ -9170,6 +9170,16 @@
     "nothing": "Nothing recorded yet.",
     "projectEmpty": "No changes to {{code}} yet.",
     "error": "Couldn't load the change log.",
-    "loading": "Loading the change log…"
+    "loading": "Loading the change log…",
+    "params": {
+      "providerKind": {
+        "subscription": "subscription",
+        "api_key": "API key"
+      },
+      "serverScope": {
+        "orphan": " (not in any project)",
+        "project": ""
+      }
+    }
   }
 }

@@ -134,7 +134,11 @@ export function ChangeEntry({
   const [open, setOpen] = useState(false);
   const detailsId = useId();
   const permission = entry.params.permission ?? entry.after ?? entry.before ?? "";
+  // I parametri della voce (quelli del 9b: `kind`, `provider`, `ref`,
+  // `check`, `scope`, vedi `instance/changeTypes.ts`) prima delle chiavi
+  // calcolate, che vincono sempre.
   const values = {
+    ...entry.params,
     actor: entry.actorName,
     object: entry.object.label,
     project: entry.projectCode ?? entry.params.project ?? "",

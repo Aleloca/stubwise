@@ -11,8 +11,23 @@ import type { ChangeType } from "./types";
 /** Chi gestisce un progetto (impostazioni o membri) ne legge le voci. */
 export const MANAGE_PROJECT = ["project.settings.manage", "project.members.manage"] as const;
 
-/** L'ordine dei gruppi del filtro «Type» (shape admin-audit.md); quelli di 9b e 9c dopo. */
-const GROUP_ORDER = ["people", "invites", "roles", "members", "departments", "security"];
+/**
+ * L'ordine dei gruppi del filtro «Type» (shape admin-audit.md): quelli del
+ * 9a, poi quelli del 9b (`instance/changeTypes.ts`); il 9c aggiunge i suoi
+ * dopo. Dichiarato, non affidato all'ordine in cui i moduli registrano.
+ */
+export const GROUP_ORDER: readonly string[] = [
+  "people",
+  "invites",
+  "roles",
+  "members",
+  "departments",
+  "security",
+  "ai",
+  "integrations",
+  "servers",
+  "queue",
+];
 
 /**
  * Se chi guarda legge le voci di un tipo da qualche parte (o, con
@@ -42,6 +57,7 @@ export function readableChangeGroups(viewer: Viewer, projectId?: string): string
       .filter((type) => readsType(viewer, type, projectId))
       .map((type) => type.group),
   );
-  const rank = (g: string) => (GROUP_ORDER.includes(g) ? GROUP_ORDER.indexOf(g) : GROUP_ORDER.length);
+  const rank = (g: string) =>
+    GROUP_ORDER.includes(g) ? GROUP_ORDER.indexOf(g) : GROUP_ORDER.length;
   return [...groups].sort((a, b) => rank(a) - rank(b));
 }

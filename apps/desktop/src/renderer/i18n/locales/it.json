@@ -9042,7 +9042,7 @@
         "permission_revoked": "<actor>{{actor}}</actor> ha tolto a <object>{{object}}</object> il permesso di <strong>{{permission}}</strong> in {{project}}."
       },
       "provider": {
-        "created": "<actor>{{actor}}</actor> ha aggiunto l'account AI <object>{{object}}</object>.",
+        "created": "<actor>{{actor}}</actor> ha aggiunto l'account AI <object>{{object}}</object> ($t(changelog.params.providerKind.{{kind}})).",
         "updated": "<actor>{{actor}}</actor> ha modificato l'account AI <object>{{object}}</object>.",
         "reordered": "<actor>{{actor}}</actor> ha cambiato l'ordine degli account AI.",
         "credential_replaced": "<actor>{{actor}}</actor> ha sostituito la chiave di <object>{{object}}</object>.",
@@ -9061,14 +9061,14 @@
         "changed": "<actor>{{actor}}</actor> ha cambiato la lingua dei contenuti generati."
       },
       "git_account": {
-        "created": "<actor>{{actor}}</actor> ha aggiunto l'account git <object>{{object}}</object>.",
+        "created": "<actor>{{actor}}</actor> ha aggiunto l'account git <object>{{object}}</object> ({{provider}}).",
         "updated": "<actor>{{actor}}</actor> ha modificato l'account git <object>{{object}}</object>.",
         "token_replaced": "<actor>{{actor}}</actor> ha sostituito il token di <object>{{object}}</object>.",
         "deleted": "<actor>{{actor}}</actor> ha eliminato l'account git <object>{{object}}</object>.",
         "default_reviewer_changed": "<actor>{{actor}}</actor> ha reso <object>{{object}}</object> il revisore predefinito."
       },
       "plugin": {
-        "registered": "<actor>{{actor}}</actor> ha registrato il plugin <object>{{object}}</object>.",
+        "registered": "<actor>{{actor}}</actor> ha registrato il plugin <object>{{object}}</object> a {{ref}}.",
         "ref_updated": "<actor>{{actor}}</actor> ha aggiornato <object>{{object}}</object> a un nuovo ref.",
         "smoke_rerun": "<actor>{{actor}}</actor> ha rifatto lo smoke test di <object>{{object}}</object>.",
         "removed": "<actor>{{actor}}</actor> ha rimosso il plugin <object>{{object}}</object>."
@@ -9087,12 +9087,12 @@
         "changed": "<actor>{{actor}}</actor> ha cambiato il webhook in uscita."
       },
       "server": {
-        "created": "<actor>{{actor}}</actor> ha creato il server <object>{{object}}</object>.",
+        "created": "<actor>{{actor}}</actor> ha creato il server <object>{{object}}</object>$t(changelog.params.serverScope.{{scope}}).",
         "updated": "<actor>{{actor}}</actor> ha modificato il server <object>{{object}}</object>.",
         "deleted": "<actor>{{actor}}</actor> ha eliminato il server <object>{{object}}</object>.",
         "agent_key_regenerated": "<actor>{{actor}}</actor> ha creato una nuova chiave dell'agente per <object>{{object}}</object>.",
         "thresholds_changed": "<actor>{{actor}}</actor> ha cambiato le soglie d'allarme di <object>{{object}}</object>.",
-        "check_changed": "<actor>{{actor}}</actor> ha modificato un controllo su <object>{{object}}</object>.",
+        "check_changed": "<actor>{{actor}}</actor> ha modificato il controllo “{{check}}” su <object>{{object}}</object>.",
         "ssh_access_changed": "<actor>{{actor}}</actor> ha cambiato l'accesso SSH a <object>{{object}}</object>."
       },
       "queue": {
@@ -9170,6 +9170,16 @@
     "nothing": "Ancora nessuna modifica registrata.",
     "projectEmpty": "Ancora nessuna modifica a {{code}}.",
     "error": "Non è stato possibile caricare il registro delle modifiche.",
-    "loading": "Caricamento del registro…"
+    "loading": "Caricamento del registro…",
+    "params": {
+      "providerKind": {
+        "subscription": "abbonamento",
+        "api_key": "chiave API"
+      },
+      "serverScope": {
+        "orphan": " (in nessun progetto)",
+        "project": ""
+      }
+    }
   }
 }

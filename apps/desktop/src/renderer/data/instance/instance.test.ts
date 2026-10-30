@@ -4,6 +4,7 @@ import { __secretValuesForTest, revealOnce, storeProvidedSecret } from "../admin
 import { adminSections, administersSomething, aiTabsFor, canSeeAdmin } from "../adminSections";
 import { auth, changelog, resetApi, setLatency } from "../api";
 import { recordChange } from "../changelog/index";
+import { GROUP_ORDER } from "../changelog/visibility";
 import { ADMIN_SECTIONS, AI_TABS } from "../routes";
 import { CLAUDE_ID } from "../seed/people";
 import { setSessionPersonId } from "../session";
@@ -161,9 +162,7 @@ describe("il registro delle modifiche del 9b", () => {
   });
 
   it("il filtro «Type» mette i gruppi nuovi dopo quelli del 9a", async () => {
-    as(ROBERTA);
-    const choices = await changelog.listChangeFilterChoices();
-    expect(choices.groups).toEqual([
+    const order = [
       "people",
       "invites",
       "roles",
@@ -174,7 +173,12 @@ describe("il registro delle modifiche del 9b", () => {
       "integrations",
       "servers",
       "queue",
-    ]);
+    ];
+    // L'ordine è dichiarato, non affidato all'ordine in cui i moduli registrano i tipi.
+    expect(GROUP_ORDER).toEqual(order);
+    as(ROBERTA);
+    const choices = await changelog.listChangeFilterChoices();
+    expect(choices.groups).toEqual(order);
   });
 
   it("i link nuovi: una voce di un provider porta ad AI, una di un server al server", async () => {

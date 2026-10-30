@@ -83,4 +83,28 @@ export const INSTANCE_CHANGE_TYPES: readonly ChangeType[] = [
   queue("job.retried"),
 ];
 
+/**
+ * I parametri che le scritture dei Task 3–7 DEVONO mettere in `params`
+ * per questi tipi: le frasi degli shape li leggono (`ChangeEntry` passa
+ * `params` al template). Sono valori stabili, mai parole tradotte: la
+ * traduzione la fa il template (`changelog.params.*`).
+ * - `provider.created`: `kind`, il tipo dell'account → «(subscription)» /
+ *   «(abbonamento)», «(API key)» / «(chiave API)».
+ * - `git_account.created`: `provider`, il nome della piattaforma come si
+ *   scrive («GitHub», «Bitbucket») → «(GitHub)».
+ * - `plugin.registered`: `ref`, il ref registrato → «at v4.0.3».
+ * - `server.created`: `scope`, `"orphan"` per un server nato senza progetto
+ *   (da Amministrazione) → «(not in any project)» / «(in nessun progetto)»,
+ *   `"project"` per uno nato dagli ambienti di un progetto → niente.
+ * - `server.check_changed`: `check`, il nome del controllo → «“HTTP /health”».
+ * Gli altri tipi del 9b non hanno parametri: dicono il resto nel prima/dopo.
+ */
+export interface InstanceChangeParams {
+  "provider.created": { kind: "subscription" | "api_key" };
+  "git_account.created": { provider: "GitHub" | "Bitbucket" };
+  "plugin.registered": { ref: string };
+  "server.created": { scope: "orphan" | "project" };
+  "server.check_changed": { check: string };
+}
+
 registerChangeTypes(INSTANCE_CHANGE_TYPES);
