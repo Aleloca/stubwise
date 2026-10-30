@@ -485,8 +485,9 @@ numerato», modalità **Operate**.
     Max 2** (subscription).» / «**Roberta Fontana** ha aggiunto l'account
     AI **Team Max 2** (abbonamento).»
   - `provider.updated`: «…turned off the AI account **Backup Max**.» /
-    «…ha spento l'account AI **Backup Max**.» (prima/dopo «On → Off»;
-    rinomina «Backup → Backup Max»)
+    «…ha spento l'account AI **Backup Max**.» (prima/dopo «On → Off»).
+    *Ruling del controller (pre-flight)*: tolta la rinomina, perché nessuna
+    funzione rinomina un provider.
   - `provider.reordered`: «…changed the order of the AI accounts.» /
     «…ha cambiato l'ordine degli account AI.» (prima/dopo «Team Max, Backup
     Max, Billing key → Backup Max, Team Max, Billing key»)

@@ -76,7 +76,8 @@ Contesto da leggere:
   - movimento 150–250 ms, con reduced-motion;
   - pagine solo via `data/queries.ts` (e `data/queries/*`);
   - stati completi: caricamento, vuoto, errore con «Riprova», pieno, senza
-    permessi;
+    permessi. Eccezione: sullo Stato dell'istanza l'errore usa «Load again»
+    / «Ricarica», shape [IS 6] (*ruling del controller (pre-flight)*);
   - orologio `now()` di `data/store.ts`;
   - R-G5: nascosto e inesistente sono identici;
   - commenti in italiano.
@@ -277,7 +278,14 @@ Nessun codice.
   - `data/adminSections.ts` (`sees`, `administersSomething`, `aiTabsFor`);
   - `domain/access/actions.ts` (azioni nuove) e i18n `whoCan.actions.*`;
   - `data/changelog/types.ts` (`ChangeObjectLink`), `data/changelog/visibility.ts` (`GROUP_ORDER`);
+  - `data/changelog/reads.ts` (`objectLinkOf` per i link `admin` e `server`; `diffOf` con `values` per i kind 9b che hanno prima/dopo) e `pages/admin/ChangeEntry.tsx` (i rami dei link nuovi: oggi l'ultimo ramo dà per scontato `member`) — *ruling del controller (pre-flight)*;
+  - i18n `changelog.kinds.*` dei kind 9b e `changelog.groups.{ai,integrations,servers,queue}`, e l'import `./instance/changeTypes` in `data/adminSections.ts`, accanto a quello di `./admin/changeTypes` — *ruling del controller (pre-flight)*;
   - `data/api.ts` (`export * as instance from "./instance"`).
+- **Confini d'import** (*ruling del controller (pre-flight)*):
+  - `data/instance/seed.ts` non importa `data/admin/secrets.ts`, perché `store.ts` lo raggiungerebbe e con lui le letture del registro (`architecture.secrets.test.ts`);
+  - i segreti del seme hanno `secretId`/`last4` fissi, senza valore nel caveau, oppure li semina un hook `onStoreReset` di `data/instance/*` registrato dopo quello di `secrets.ts`;
+  - `aiBlockFor`, `queuePauseOf`, `budgetReached` e `storageAllowsUploads` stanno in un modulo foglia (`data/instance/blocks.ts`) che importa solo lo store e lo stato d'istanza, così `servers/visibility.ts` li legge senza raggiungere `api-mutations` né `servers/secrets.ts` (`architecture.test.ts`);
+  - `retryJob` sta in un file a parte (`data/instance/retry.ts`), l'unico che importa `startRunAs`.
 
 **Interfaces, prodotte:**
 
@@ -314,8 +322,10 @@ export interface InstanceState {
 export type InstanceRefusal = AdminRefusal | { ok: false; error: "conflict" } | { ok: false; error: "in_use"; usedBy: { label: string; projectCode: string | null }[]; hiddenCount: number };
 export type InstanceResult<T extends object = object> = ({ ok: true } & T) | InstanceRefusal;
 // data/admin/secrets.ts
-export type SecretKind = /* quelli del 9a */ | "provider_credential" | "git_token" | "google_client_secret" | "storage_secret";
-export function storeProvidedSecret(kind: SecretKind, ownerId: string, value: string): { id: string; last4: string };
+// ruling del controller (pre-flight): un tipo a parte, così `valueOf`/`storeSecret` restano sui kind generati.
+export type ProvidedSecretKind = "provider_credential" | "git_token" | "google_client_secret" | "storage_secret";
+export type SecretKind = /* quelli del 9a */ | ProvidedSecretKind;
+export function storeProvidedSecret(kind: ProvidedSecretKind, ownerId: string, value: string): { id: string; last4: string };
 // data/routes.ts
 export const AI_TABS = ["providers", "models", "automation", "budget", "usage"] as const;
 // data/adminSections.ts
@@ -335,6 +345,10 @@ export function aiTabsFor(viewer: Viewer): (typeof AI_TABS)[number][];
   Le regole di `sees` sono quelle della tabella delle Global Constraints.
   `aiTabsFor` dà `usage` solo con `usage.view`, le altre solo con
   `ai_providers.manage` o `settings.manage`.
+  `administersSomething` conta `git_accounts.manage`, mai `git_accounts.view`
+  (*ruling del controller (pre-flight)*): il preset User lo dà a tutti, e
+  contarlo chiamerebbe «Administration» la voce del profilo di ogni utente
+  (rompe `People.test.tsx`, Marco).
 - `ACTIONS` aggiunge `manageAiProviders` (`ai_providers.manage`),
   `manageGitAccounts` (`git_accounts.manage`), `managePlugins`
   (`plugins.manage`), `viewInstanceStatus` (`instance.status.view`).
@@ -398,13 +412,17 @@ Seme (`seed.ts`, dal design «Dati finti»):
 Test (`instance.test.ts`):
 - [ ] Voci e sezioni per permesso:
   - il full admin vede tutte le voci, in tre gruppi;
-  - l'Auditor (`usage.view` + `changelog.view`) vede solo AI, con la sola
-    scheda Usage;
-  - una persona con il solo `git_accounts.view` (concessione d'istanza) vede
-    Git accounts e `administersSomething` è vero;
-  - Giulia (Project Lead) vede Repositories solo se ha `repos.manage` in un
-    progetto;
-  - Claude e Sara non vedono nessuna voce 9b.
+  - una persona a cui il test dà il ruolo Auditor (`au-1`: `usage.view` +
+    `changelog.view`; nel seme non ce l'ha nessuno) vede solo AI, con la
+    sola scheda Usage, più Git accounts dal preset User — *ruling del
+    controller (pre-flight)*;
+  - Sara (User, quindi con `git_accounts.view` dal preset, senza
+    concessioni) vede fra le voci 9b solo Git accounts, in sola lettura, e
+    `administersSomething` resta falso; con `git_accounts.manage` diventa
+    vero — *ruling del controller (pre-flight)*;
+  - Giulia (Project Lead) vede Repositories; Sara (Contributor, senza
+    `repos.manage`) non la vede — *ruling del controller (pre-flight)*;
+  - Claude non vede nessuna voce 9b.
 - [ ] Ogni tipo registrato qui ha frase e gruppo in en e it (riusa il test del
   9a in `Audit.test.tsx`, che li enumera).
 - [ ] Claude non legge nessuna voce dei gruppi `ai`, `integrations`,
@@ -419,7 +437,7 @@ Test (`instance.test.ts`):
 
 ### Task 2: Consumi — livello dati
 
-**Files:** Create `data/instance/usage.ts` e `data/seed/usage.ts`, con il test `data/instance/usage.test.ts`. Modify `data/instance/index.ts`, `data/queries/instance.ts` (nuovo).
+**Files:** Create `data/instance/usage.ts` e `data/seed/usage.ts`, con il test `data/instance/usage.test.ts`. Modify `data/instance/index.ts`, `data/queries/instance.ts` (nuovo), `data/queries.ts` (`export * from "./queries/instance"`, *ruling del controller (pre-flight)*).
 
 **Interfaces, prodotte:**
 
@@ -474,6 +492,9 @@ nel Task 1):
   - `pickProvider(): RunProvider | null`: il primo abbonamento abilitato e
     non al limite, nell'ordine; la chiave API solo se nessun abbonamento è
     abilitato (D3).
+  - `RunProvider` (`data/model.ts`) prende `id?: string`, l'id
+    dell'`AiProvider`, e `subscription` diventa `kind: "account"`. Così
+    `recordUsage` ha il `providerId` (*ruling del controller (pre-flight)*).
 - **Models** (`settings.manage`):
   - `listModels(): Promise<{ operation: AiOperation; group: AiOperationGroupKey; model: AiModelChoice; source: "setting" | "env" | "default" }[]>`, solo `CONFIGURABLE_AI_OPERATIONS`
   - `setModel(operation, model: AiModelChoice | null)` (`null` = torna a env o default)
@@ -583,7 +604,7 @@ Test:
 
 ### Task 5: Coda e Stato dell'istanza — livello dati
 
-**Files:** Create `data/instance/{queue.ts,status.ts}` e `data/seed/nightly.ts`, con il test `data/instance/queue.test.ts`. Modify `data/model.ts` (il tipo `AiBlock`), `data/instance/budget.ts` (`saveBudget` e `simulateBudgetReached` chiamano `releaseBudgetHolds`).
+**Files:** Create `data/instance/{queue.ts,status.ts,retry.ts}` e `data/seed/nightly.ts`, con il test `data/instance/queue.test.ts`. Modify `data/model.ts` (il tipo `AiBlock`), `data/instance/blocks.ts` (`aiBlockFor`, `queuePauseOf`: il modulo foglia del Task 1), `data/instance/budget.ts` (`saveBudget` e `simulateBudgetReached` chiamano `releaseBudgetHolds`). *Ruling del controller (pre-flight)*: `TaskWork` sta in `data/types.ts`, non in `data/model.ts`.
 
 **Interfaces, prodotte:**
 
@@ -600,14 +621,18 @@ export function queuePauseOf(projectId: string): QueuePause | null;
  */
 export interface HeldJob { id: string; projectId: string; kind: Exclude<JobKind, "nightly">; taskId: string | null; conversationId: string | null; automationRunId: string | null; starterId: string; block: AiBlock; since: string; start: () => Promise<void> }
 export function holdJob(job: Omit<HeldJob, "id" | "since">): HeldJob;
+/** ruling del controller (pre-flight): Stop su un lavoro in attesa (EF 2) lo toglie dalla lista. Anche `start` riparte solo se la sessione è ancora in attesa. */
+export function dropHeld(conversationIdOrRunId: string): void;
 /** Fa ripartire i lavori fermi per budget, se `budgetReached()` è falso; altrimenti non fa niente. */
 export function releaseBudgetHolds(): void;
-export interface InstanceJob { id: string; kind: JobKind; projectId: string; projectCode: string; title: string; taskCode: string | null; state: "running" | "waiting" | "failed"; waiting: AiBlock | { reason: "provider_limit" } | null; since: string; workerId: "worker-1" | "worker-2" | null; retry: ActionAvailability; href: string | null }
+// ruling del controller (pre-flight): `code` (task «ACQ-57», esecuzione «ACQ-A2 #7», server «SRV-2») al posto di `taskCode`; niente `provider_limit` (nessuno lo produce).
+export interface InstanceJob { id: string; kind: JobKind; projectId: string; projectCode: string; title: string; code: string | null; state: "running" | "waiting" | "failed"; waiting: AiBlock | null; since: string; workerId: "worker-1" | "worker-2" | null; retry: ActionAvailability; href: string | null }
 export interface InstanceStatusView {
   queues: { projectId: string; code: string; name: string; paused: { byName: string; at: string } | null; running: number; waiting: number; failed: number; pause: ActionAvailability }[];
   otherProjects: { running: number; waiting: number; failed: number } | null;
   jobs: InstanceJob[];
-  workers: { id: "worker-1" | "worker-2"; jobId: string | null }[];
+  /** ruling del controller (pre-flight): `hidden` = occupato in un progetto che chi guarda non vede, e allora `jobId` è null (R-G5). */
+  workers: { id: "worker-1" | "worker-2"; jobId: string | null; hidden: boolean }[];
   quota: { providerId: string; name: string; quota: QuotaView }[];
   errors: { jobId: string; at: string; summary: string; href: string | null }[];
   refreshedAt: string;
@@ -670,6 +695,8 @@ Test:
 - [ ] RF 3: con STW in pausa, `holdJob` di due lavori, poi `resumeQueue` →
   partono nell'ordine, ognuno una volta; `resetApi` prima della ripresa →
   non parte niente.
+- [ ] Un lavoro in attesa fermato con Stop (`dropHeld`) non parte alla
+  ripresa; l'altro sì (*ruling del controller (pre-flight)*).
 - [ ] RF 4, «alzare il budget fa ripartire i passi fermi»: col budget
   raggiunto, due lavori `holdJob` con `monthly_budget`; `saveBudget` con un
   budget sopra lo speso → ripartono nell'ordine, ognuno una volta, e
@@ -684,9 +711,10 @@ Test:
   budget resta fermo, ora per la pausa; `resumeQueue` lo fa partire.
 - [ ] RF 5: Retry su una correzione ferma → `not_retryable`; su una task con
   un lavoro vivo → `conflict`; con `settings.manage` ma senza `runs.start`
-  → `forbidden`; Laura, senza `plans.approve` (concessione di
-  `settings.manage` nel test), riprova → la sessione si ferma al gate del
-  piano.
+  → `forbidden`; Marco (Developer in ACQ: `runs.start` senza
+  `plans.approve`), con una concessione di `settings.manage` nel test,
+  riprova → la sessione si ferma al gate del piano (*ruling del controller
+  (pre-flight)*: Laura è Project Lead e ha `plans.approve`).
 - [ ] `aiBlockFor`: budget raggiunto ovunque; pausa solo in STW, col nome di
   chi l'ha messa anche dopo averla disattivata.
 - [ ] Voci `queue.paused`, `queue.resumed`, `job.retried` leggibili da chi
@@ -702,10 +730,11 @@ Test:
   - `data/automations/runner.ts` (il passo che avvia Claude);
   - `data/drive/writes.ts` (`uploadFiles`) e gli allegati del composer;
   - il punto in cui una sessione passa a `finished` (`recordUsage`);
-  - `data/model.ts` (`Conversation.model?: string`, `Conversation.waiting?: AiBlock | null`, `TaskWork.blocked: AiBlock | null`);
+  - `data/model.ts` (`Conversation.model?: string`, `Conversation.waiting?: AiBlock | null`) e `data/types.ts` (`TaskWork.blocked: AiBlock | null`; *ruling del controller (pre-flight)*: `TaskWork` sta lì);
+  - `data/queries/instance.ts`: `useAiBlock(projectId)` (testata della colonna, «Chiedi a Claude», automazioni) e `useStorageAllowsUploads()` (Drive, composer) — *ruling del controller (pre-flight)*;
   - le pagine dello shape `instance-effects.md`: `pages/task/ClaudeSection.tsx`, il composer di Claude, la testata della colonna del progetto (`layout/ProjectColumn.tsx`), la riga del progetto in «All projects», le esecuzioni delle automazioni, Drive;
   - i18n.
-- Test: `data/instance/effects.test.ts`, `pages/task/ClaudeSection.test.tsx`, `pages/drive/*.test.tsx`.
+- Test: `data/instance/effects.test.ts`, `pages/task/ClaudeSection.test.tsx`, `pages/drive/*.test.tsx`, `layout/Column.test.tsx` (la testata di `ProjectColumn`), `pages/projects/AllProjectsPage.test.tsx` e un test delle esecuzioni delle automazioni in `pages/automations/` (*ruling del controller (pre-flight)*).
 
 **Interfaces:**
 - Consumes: `aiBlockFor`, `holdJob` (Task 5); `modelFor`, `pickProvider`, `budgetReached` (Task 3); `recordUsage` (Task 2); `storageAllowsUploads` (Task 4).
@@ -724,7 +753,8 @@ Test:
 
 Regole:
 - **Budget raggiunto:**
-  - «Avvia», «Rilancia con indicazioni», «Chiedi modifiche», l'avvio
+  - «Avvia», «Rilancia con indicazioni», «Chiedi modifiche», «Riprendi la
+    correzione» (*ruling del controller (pre-flight)*), l'avvio
     dell'analisi e della correzione di un server → `invalid:
     "monthly_budget"`;
   - `TaskWork.blocked` lo dice prima, e il bottone è spento con la frase e il
@@ -740,12 +770,19 @@ Regole:
       blocco, una volta sola;
     - la pagina dell'esecuzione e lo Stato dell'istanza la mostrano ferma
       per budget;
+    - lo stato dell'esecuzione resta `running`, con una voce di registro
+      `outcome: "waiting"` e un reason code. Non è in «Needs attention», e
+      «Pass time» non la sblocca (*ruling del controller (pre-flight)*,
+      shape EF 6);
   - il lavoro già partito continua.
 - **Coda in pausa:**
-  - gli stessi avvii (e la review di una PR, dove il prototipo la avvia),
-    in un progetto in pausa, **non** sono rifiutati: la sessione nasce con
-    `waiting = { reason: "queue_paused", … }`, senza eventi, e `holdJob` la
-    fa partire alla ripresa;
+  - gli stessi avvii (e la review di una PR, dove il prototipo la avvia;
+    «Riprendi la correzione» compresa, *ruling del controller
+    (pre-flight)*), in un progetto in pausa, **non** sono rifiutati: la
+    sessione nasce con `waiting = { reason: "queue_paused", … }`, senza
+    eventi, e `holdJob` la fa partire alla ripresa;
+  - Stop su una sessione in attesa chiama `dropHeld`: non parte più alla
+    ripresa (*ruling del controller (pre-flight)*, EF 2);
   - ogni task del progetto dice «Queue paused by Roberta» in
     `TaskWork.blocked` (con «Start» acceso); quella in attesa dice
     «Waiting: queue paused by Roberta»;
@@ -762,6 +799,10 @@ Regole:
 - **Modello e provider:**
   - `openRun` scrive `provider: pickProvider()` (non più `TEAM_ACCOUNT`) e
     `model: modelFor(op).model`;
+  - con `pickProvider()` nullo (istanza vuota, abbonamenti tutti al
+    limite) la sessione parte lo stesso con `provider: null`: nessuna
+    attesa, nessuno stato `provider_limit` (*ruling del controller
+    (pre-flight)*);
   - a fine sessione `recordUsage` registra i consumi con quel modello;
   - la sezione Claude della task mostra modello e account.
 - **Archiviazione:** senza `storageAllowsUploads()`, il caricamento nel
@@ -798,6 +839,7 @@ Test:
 **Files:**
 - Modify:
   - `data/servers/reads.ts` (`listAllServers`, `MetricRange`);
+  - `pages/servers/MetricsCharts.tsx`: solo le voci `30d`/`90d` di `RANGE_MS`, perché il typecheck regga a questo commit; `RANGES` resta al Task 12 (*ruling del controller (pre-flight)*);
   - `data/servers/monitor.ts` e `access.ts` (`createServer` senza ambiente, `recordChange` in ogni scrittura);
   - `data/servers/visibility.ts` (`ServerDetail` senza progetto);
   - `data/seed/servers/metrics.ts` (90 giorni).
@@ -820,9 +862,6 @@ Test:
   trova AUD nella colonna (RF 2).
 - [ ] `createServer({ environmentId: null })` → orfano, visibile solo a
   `monitor.manage`; dal progetto resta come nell'8b.
-- [ ] Il «New server» di Amministrazione chiama sempre `createServer` con
-  `environmentId: null` (test del Task 12: il dialogo non ha il campo
-  dell'ambiente).
 - [ ] 30d e 90d: punti ≤ `METRIC_POINTS_MAX`, il primo punto di 90d ha più di
   89 giorni.
 - [ ] Ogni scrittura dei server scrive la sua voce; una rifiutata no.
@@ -849,8 +888,11 @@ Segue lo shape `admin-ai.md`. `SecretField` (riusato dai Task 10–11):
 - il valore non passa mai da una query.
 
 Test:
-- [ ] Le schede per permesso: il full admin le vede tutte; l'Auditor solo
-  Usage; chi ha solo `settings.manage` legge Providers senza azioni, coi
+- [ ] Le schede per permesso (solo `aiTabsFor` e la barra delle schede; il
+  contenuto di Usage è del Task 9, *ruling del controller (pre-flight)*):
+  il full admin le vede tutte; una persona a cui il test dà il ruolo
+  Auditor (`au-1`) ha la sola scheda Usage, quindi niente `tablist` e h1
+  «AI»; chi ha solo `settings.manage` legge Providers senza azioni, coi
   bottoni spenti, la frase e il «Who?».
 - [ ] Aggiunge un provider con la riconferma; dopo la navigazione il DOM non
   contiene la chiave (RF 1), solo le ultime 4.
@@ -866,7 +908,7 @@ Test:
 
 ### Task 9: Usage — UI
 
-**Files:** Create `pages/admin/ai/UsagePanel.tsx`, con il test `pages/admin/ai/Usage.test.tsx`. Modify i18n (`usage.operations.<op>` per ogni `AiOperation`).
+**Files:** Create `pages/admin/ai/UsagePanel.tsx`, con il test `pages/admin/ai/Usage.test.tsx`. Modify i18n (`usage.operations.<op>` per ogni `AiOperation`) e `router.tsx`: la chiave `range` (oggi `^(1h|24h|7d)$`) accetta anche `30d|90d|month|custom`, più le chiavi `from`, `to` e `then` (*ruling del controller (pre-flight)*).
 
 Segue lo shape `admin-ai.md` (Usage), e la skill `dataviz` per la serie
 per giorno.
@@ -893,7 +935,9 @@ Test:
   - valida, con l'esito simulato;
   - revisore predefinito, col toast che dice chi ha sostituito;
   - elimina un account in uso: il dialogo elenca i repository e «2 in
-    projects you can't see».
+    projects you can't see». Il test gira come Sara con la concessione di
+    `git_accounts.manage`, come nel Task 4: Roberta vede tutto
+    (*ruling del controller (pre-flight)*).
 - [ ] Con il solo `git_accounts.view`: elenco senza azioni, bottoni spenti con
   «Who?».
 - [ ] Plugin:
@@ -916,8 +960,9 @@ Test:
 - [ ] Google: registra un'app (secret con la riconferma, poi le ultime 4);
   l'app compare in Preferenze → Account fra le caselle da collegare; un'app
   con caselle non si elimina, e il dialogo dice perché.
-- [ ] Storage: salva, prova con l'esito simulato, allegati spenti; il Drive
-  lo dice (effetto del Task 6, visto da qui).
+- [ ] Storage: salva, prova con l'esito simulato, allegati spenti, e la riga
+  di stato di Storage lo dice. La frase del Drive resta un test del Task 6
+  (*ruling del controller (pre-flight)*).
 - [ ] Webhook:
   - formato e URL: salvato senza riconferma, riaprendo la pagina l'URL si
     rilegge in chiaro;
@@ -934,7 +979,7 @@ Test:
 - Create `pages/admin/instance/{ServersAdminPage.tsx,RepositoriesAdminPage.tsx}`, con il test `pages/admin/instance/Estate.test.tsx`.
 - Modify:
   - `pages/servers/{ServerList.tsx,ServerDetail.tsx,MetricsCharts.tsx,NewServerDialog.tsx}` (colonna dei progetti, `projectCode: string | null`, `RANGES` con 30d e 90d, nuovo server senza ambiente);
-  - `router.tsx` (`/admin/servers/$server`);
+  - `router.tsx` (`/admin/servers/$server`; la regex di `range` accetta anche `30d|90d`, *ruling del controller (pre-flight)*);
   - i18n.
 
 Segue lo shape `admin-instance.md`.
@@ -945,6 +990,9 @@ Test:
 - [ ] 30d e 90d nel dettaglio, anche dalla sezione di progetto.
 - [ ] «New server» senza ambiente: chiave dell'agente in `SecretOnce`, la
   riga orfana.
+- [ ] Il «New server» di Amministrazione chiama sempre `createServer` con
+  `environmentId: null`: il dialogo non ha il campo dell'ambiente
+  (spostato dal Task 7, *ruling del controller (pre-flight)*).
 - [ ] Repositories per progetto, col link alla pagina del repository.
 - [ ] Senza `monitor.manage` la voce Servers non c'è, e l'indirizzo è «not
   found».
@@ -952,7 +1000,12 @@ Test:
 
 ### Task 13: Instance status — UI
 
-**Files:** Create `pages/admin/instance/{InstanceStatusPage.tsx,QueueTable.tsx}`, con il test `pages/admin/instance/InstanceStatus.test.tsx`. Modify `data/queries/instance.ts` (`refetchInterval: 10_000`), i18n.
+**Files:** Create `pages/admin/instance/{InstanceStatusPage.tsx,QueueTable.tsx}`, con il test `pages/admin/instance/InstanceStatus.test.tsx`. Modify `data/queries/instance.ts` (`refetchInterval: 10_000`), i18n, `router.tsx` (le chiavi dei filtri di WORK: stato, progetto, tipo; *ruling del controller (pre-flight)*).
+
+*Ruling del controller (pre-flight)*: lo stato d'errore di questa pagina usa
+«Load again» / «Ricarica» invece di «Riprova» (shape [IS 6], perché
+`noDeploy` vieta «Riprova»). È l'eccezione dichiarata nelle Global
+Constraints.
 
 Segue lo shape `admin-instance.md`.
 

@@ -234,8 +234,9 @@ numerato», modalità **Operate**.
 - **Fuori**: effetti di auto-fix, soglie, approvazione da effort (si
   salvano e basta); account AI preferito del progetto e interruttori del
   progetto (9c); plugin spenti per progetto (9c); un lavoro senza nessun
-  account disponibile (`pickProvider()` nullo: nel seme non si arriva, il
-  prototipo non lo simula).
+  account disponibile (`pickProvider()` nullo: la sessione parte con
+  `provider: null`, senza attesa né frase — *ruling del controller
+  (pre-flight)*).
 - **Anti-obiettivi**: un «Avvia» rifiutato su una coda in pausa; un passo
   d'automazione fallito per budget; «Chiedi a Claude» fermato dalla pausa;
   un blocco detto solo col colore; un controllo spento senza frase o senza

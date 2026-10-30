@@ -241,8 +241,9 @@ numerato», modalità **Operate** (Instance status ha un tratto di
     «◷ In attesa: coda in pausa da Roberta Fontana»;
   - `waiting` budget: «◷ Waiting: monthly AI budget reached» / «◷ In
     attesa: budget AI del mese raggiunto»;
-  - `waiting` quota: «◷ Waiting: AI accounts at their limit» / «◷ In attesa:
-    account AI al limite»;
+  - (*ruling del controller (pre-flight)*: tolta la riga `waiting` per
+    quota. Con `pickProvider()` nullo la sessione parte con `provider:
+    null`, e nessun lavoro aspetta gli account AI.)
   - `failed`: «✕ Failed yesterday at 16:20 · Tests didn't pass after the
     fix» / «✕ Non riuscito ieri alle 16:20 · I test non passavano dopo la
     correzione» (`critical` sul glifo e sulla parola, non sulla frase).
