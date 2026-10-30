@@ -8010,6 +8010,7 @@
       "choosePerson": "choose someone",
       "wholeInstance": "the whole instance",
       "pickProject": "Pick a project.",
+      "noProjects": "No projects you can see yet.",
       "pickAction": "Pick an action.",
       "pickPerson": "Pick a person.",
       "actionMenu": "Action",

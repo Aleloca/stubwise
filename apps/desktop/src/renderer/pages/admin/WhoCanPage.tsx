@@ -360,6 +360,9 @@ function WhoQuestion({
     label: p.code,
     detail: p.name,
   }));
+  // L'istanza vuota (Task 12): nessun progetto da scegliere, quindi il menu
+  // non si apre da solo e la riga lo dice invece di chiedere una scelta.
+  const noProjects = projectOptions.length === 0;
 
   const actionPicker = (
     <InlinePicker
@@ -380,7 +383,7 @@ function WhoQuestion({
       options={projectOptions}
       searchLabel={t("whoCan.page.findProject")}
       onSelect={(code) => onChange({ project: code, view: "who" })}
-      defaultOpen={!!action && !instance && search.project === undefined}
+      defaultOpen={!!action && !instance && search.project === undefined && !noProjects}
     />
   );
 
@@ -399,7 +402,9 @@ function WhoQuestion({
       {!action ? (
         <p className="mt-6 text-md text-ink-muted">{t("whoCan.page.pickAction")}</p>
       ) : !instance && !project ? (
-        <p className="mt-6 text-md text-ink-muted">{t("whoCan.page.pickProject")}</p>
+        <p className="mt-6 text-md text-ink-muted">
+          {t(noProjects ? "whoCan.page.noProjects" : "whoCan.page.pickProject")}
+        </p>
       ) : (
         <WhoAnswer
           answer={answer.data}
