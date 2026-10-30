@@ -608,6 +608,10 @@ export type ApiFnName =
   | "admin.setHomeManagers"
   | "admin.setDepartmentPermissions"
   | "admin.deleteDepartment"
+  // Task 9, giro 1: la bozza del reparto (lettura e salvataggio unico) e «you'll lose»
+  | "admin.previewDepartment"
+  | "admin.saveDepartment"
+  | "admin.viewerLosesIf"
   | "admin.listProjectMembers"
   | "admin.addMember"
   | "admin.removeMember"

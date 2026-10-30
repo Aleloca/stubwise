@@ -8315,7 +8315,8 @@
         "projects_role": "Non hai questo permesso in tutti i progetti dove il ruolo è usato, quindi non puoi darlo.",
         "projects_department": "Non hai questo permesso in tutti i progetti delle persone del reparto, quindi non puoi darlo.",
         "anywhere": "Non hai questo permesso in nessun progetto, quindi non puoi darlo."
-      }
+      },
+      "included": "Incluso nell'amministrazione completa"
     },
     "roles": {
       "intro": "I ruoli decidono cosa possono fare le persone. Un ruolo d'istanza vale ovunque; un ruolo di progetto vale nei progetti di cui si è membri.",
@@ -8398,7 +8399,7 @@
       "saveFailed": "Non è stato possibile salvare. Riprova.",
       "leave_one": "Lasciar perdere {{count}} modifica?",
       "leave_other": "Lasciar perdere {{count}} modifiche?",
-      "youLose": "Hai questo ruolo: salvando perderai {{missing}}, a meno che non ti venga da altro.",
+      "youLose": "Hai questo ruolo: salvando perderai {{missing}}.",
       "refusal": {
         "escalation": {
           "instance": "Non puoi salvare questo ruolo: includerebbe {{missing}}, che non hai.",
@@ -8479,11 +8480,7 @@
       "saveAction": "modificare {{name}}",
       "saveFailed": "Non è stato possibile salvare. Riprova.",
       "refusal": {
-        "addPeople": "{{name}} dà {{missing}}, che non hai nei progetti delle persone che stai aggiungendo, quindi non puoi aggiungerle.",
-        "permissions": {
-          "projects": "Non puoi dare {{missing}}: non ce l'hai in tutti i progetti delle persone del reparto.",
-          "anywhere": "Non puoi dare {{missing}}: non ce l'hai in nessun progetto."
-        }
+        "escalation": "Non puoi salvare {{name}}: darebbe {{missing}} in progetti dove non ce l'hai."
       },
       "delete": "Elimina il reparto…",
       "deleteTitle": "Eliminare {{name}}?",

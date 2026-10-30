@@ -27,12 +27,21 @@ export {
   revokeInvite,
   type CreateInviteInput,
 } from "./invites";
-export { createRole, deleteRole, duplicateRole, listRoles, updateRole } from "./roles";
+export {
+  createRole,
+  deleteRole,
+  duplicateRole,
+  listRoles,
+  updateRole,
+  viewerLosesIf,
+} from "./roles";
 export {
   DEPARTMENT_COLORS,
   createDepartment,
   deleteDepartment,
   listDepartments,
+  previewDepartment,
+  saveDepartment,
   setDepartmentMembers,
   setDepartmentPermissions,
   setHomeManagers,
@@ -47,3 +56,4 @@ export {
   setMemberRole,
 } from "./members";
 export type * from "./types";
+export type { DepartmentDraft } from "./departments";

@@ -180,6 +180,40 @@ export function useAdminDepartments(enabled = true) {
   });
 }
 
+/**
+ * La bozza del pannello del reparto letta dal livello dati: dove arriva un
+ * permesso, cosa non si può aggiungere, chi non si può aggiungere — con
+ * QUESTE persone e QUESTI permessi. Mentre arriva la risposta nuova resta
+ * quella di prima (niente caselle che lampeggiano).
+ */
+export function useDepartmentPreview(
+  departmentId: string,
+  draft: { memberIds: string[]; projectPermissions: string[] },
+) {
+  const me = useSessionPersonId();
+  const memberIds = [...draft.memberIds].sort();
+  const projectPermissions = [...draft.projectPermissions].sort();
+  return useQuery({
+    queryKey: queryKeys.admin(me, "departmentPreview", departmentId, memberIds, projectPermissions),
+    queryFn: () => api.admin.previewDepartment(departmentId, { memberIds, projectPermissions }),
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === me && previousQuery.queryKey[4] === departmentId
+        ? previous
+        : undefined,
+  });
+}
+
+/** Ciò che chi guarda perderebbe davvero salvando il ruolo con questi permessi ([RM 3]). */
+export function useViewerLosesIf(roleId: string, nextPermissions: string[], enabled: boolean) {
+  const me = useSessionPersonId();
+  const perms = [...nextPermissions].sort();
+  return useQuery({
+    queryKey: queryKeys.admin(me, "viewerLosesIf", roleId, perms),
+    queryFn: () => api.admin.viewerLosesIf(roleId, perms),
+    enabled,
+  });
+}
+
 /** Members del progetto; `not_found` per un progetto che chi guarda non vede. */
 export function useMembers(projectId: string | undefined) {
   const me = useSessionPersonId();
@@ -220,6 +254,7 @@ export const useSetDepartmentMembers = adminWrite(api.admin.setDepartmentMembers
 export const useSetHomeManagers = adminWrite(api.admin.setHomeManagers);
 export const useSetDepartmentPermissions = adminWrite(api.admin.setDepartmentPermissions);
 export const useDeleteDepartment = adminWrite(api.admin.deleteDepartment);
+export const useSaveDepartment = adminWrite(api.admin.saveDepartment);
 export const useAddMember = adminWrite(api.admin.addMember);
 export const useRemoveMember = adminWrite(api.admin.removeMember);
 export const useSetMemberRole = adminWrite(api.admin.setMemberRole);

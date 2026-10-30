@@ -1,7 +1,7 @@
 import { useBlocker } from "@tanstack/react-router";
 import { useId, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { useRoles, useUpdateRole, type RoleView } from "../../data/queries";
+import { useRoles, useUpdateRole, useViewerLosesIf, type RoleView } from "../../data/queries";
 import { useReauth } from "../../layout/useReauth";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { useToast } from "../../tasks-ui/Toast";
@@ -79,8 +79,11 @@ function RoleBody({ role }: { role: RoleView }) {
   const nameChanged = name.trim() !== role.name;
   const changes = added.length + removed.length + (nameChanged ? 1 : 0);
   const dirty = changes > 0;
-  const people = new Set(role.holders.map((h) => h.personId)).size;
   const notGivable = new Set(role.notGivable);
+  const implied = new Set(role.fullAdminImplies);
+  const fullAdminOn = perms.has("instance.full_admin");
+  // Cosa perde davvero chi salva: lo simula il livello dati sulla bozza.
+  const loses = useViewerLosesIf(role.id, [...perms], removed.length > 0).data ?? [];
 
   // Lasciare la pagina con modifiche chiede prima; dopo un salvataggio o
   // un'eliminazione no.
@@ -156,12 +159,12 @@ function RoleBody({ role }: { role: RoleView }) {
       ) : (
         <>
           {error && <WriteError message={error} onRetry={() => void save()} />}
-          {role.viewerHolds && removed.length > 0 && (
+          {removed.length > 0 && loses.length > 0 && (
             <p className="flex items-start gap-1.5 text-sm text-warning">
               <span className="mt-[3px] shrink-0">
                 <TriangleGlyph size={12} />
               </span>
-              {t("admin.role.youLose", { missing: missingWords(removed) })}
+              {t("admin.role.youLose", { missing: missingWords(loses) })}
             </p>
           )}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -169,9 +172,9 @@ function RoleBody({ role }: { role: RoleView }) {
               {t("admin.role.changes", { count: changes })}
               <span className="text-ink-muted">
                 {" · "}
-                {t("admin.role.affects", { count: people })}
+                {t("admin.role.affects", { count: role.affectedCount })}
               </span>
-              {people > 0 && (
+              {role.holders.length > 0 && (
                 <button
                   type="button"
                   aria-expanded={showWho}
@@ -252,7 +255,12 @@ function RoleBody({ role }: { role: RoleView }) {
             onToggle={toggle}
             // Spento solo ciò che si AGGIUNGEREBBE: togliere non passa dall'escalation.
             context={(p) =>
-              notGivable.has(p) && !saved.has(p) ? giveBlock(role.reach, "role") : null
+              // Con «full administration» spuntata il resto d'istanza è incluso (lo dice il livello dati).
+              fullAdminOn && implied.has(p)
+                ? { short: t("admin.permissionTable.included"), locked: true, forcedOn: true }
+                : notGivable.has(p) && !saved.has(p)
+                  ? giveBlock(role.reach, "role")
+                  : null
             }
           />
         </div>

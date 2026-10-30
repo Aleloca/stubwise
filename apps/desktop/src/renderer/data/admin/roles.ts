@@ -2,6 +2,7 @@ import {
   ALL_PROJECT_PERMISSIONS,
   INSTANCE_SET,
   accessState,
+  effectivePermissionsIn,
   roleGivesActivityView,
   writeAccess,
   type AccessState,
@@ -39,6 +40,14 @@ import "./changeTypes";
 // guarda vede).
 
 const ROLES_MANAGE = "roles.manage";
+const FULL_ADMIN = "instance.full_admin";
+
+/**
+ * Dove si giudica un ruolo NUOVO (crea, duplica, «Start from»): non vale
+ * ancora da nessuna parte, quindi l'istanza o almeno un progetto.
+ */
+const createReach = (scope: RoleDef["scope"]): "instance" | [] =>
+  scope === "instance" ? "instance" : [];
 
 /** I permessi che un ruolo di quel livello può contenere. */
 const universeOf = (scope: RoleDef["scope"]): ReadonlySet<string> =>
@@ -65,11 +74,15 @@ export function whereRoleApplies(role: RoleDef): string[] | "instance" {
   return [...new Set([...assigned, ...promised])];
 }
 
-/** Chi ha il ruolo, fra le persone e i progetti visibili a `me`. */
+/**
+ * Chi ha il ruolo, fra le persone e i progetti visibili a `me`; con `all`,
+ * anche nei progetti che `me` non vede (solo per contare chi cambia).
+ */
 function holdersOf(
   me: string,
   role: RoleDef,
   s: AccessState,
+  opts: { all?: boolean } = {},
 ): { personId: string; projectId: string | null }[] {
   if (role.scope === "instance")
     return s.people
@@ -77,7 +90,7 @@ function holdersOf(
       .map((p) => ({ personId: p.personId, projectId: null }));
   const visible = visibleProjectIds(me);
   return s.memberships
-    .filter((m) => m.roleId === role.id && visible.has(m.projectId))
+    .filter((m) => m.roleId === role.id && (opts.all || visible.has(m.projectId)))
     .map((m) => ({ personId: m.personId, projectId: m.projectId }));
 }
 
@@ -104,13 +117,12 @@ export async function listRoles(): Promise<RoleView[]> {
       missing: missingIn(me, where, role.permissions),
       reach: where === "instance" ? "instance" : where.length > 0 ? "projects" : "anywhere",
       notGivable: missingIn(me, where, [...universeOf(role.scope)]),
-      copyMissing: missingIn(me, role.scope === "instance" ? "instance" : [], role.permissions),
+      copyMissing: missingIn(me, createReach(role.scope), role.permissions),
+      affectedCount: new Set(holdersOf(me, role, s, { all: true }).map((h) => h.personId)).size,
+      fullAdminImplies:
+        role.scope === "instance" ? [...INSTANCE_SET].filter((p) => p !== FULL_ADMIN) : [],
       deleteBlock: role.preset ? "preset" : inUse(s, role) ? "in_use" : null,
       givesActivityView: roleGivesActivityView(role),
-      viewerHolds:
-        role.scope === "instance"
-          ? s.people.some((p) => p.personId === me && p.instanceRoleId === role.id)
-          : s.memberships.some((m) => m.personId === me && m.roleId === role.id),
     };
   });
 }
@@ -134,11 +146,7 @@ async function create(
   const name = cleanName(input.name);
   if (!name) return refuse.invalid("name");
   if (nameTaken(accessState(), input.scope, name)) return refuse.invalid("name_taken");
-  const escalation = escalationIn(
-    me,
-    input.scope === "instance" ? "instance" : [],
-    input.permissions,
-  );
+  const escalation = escalationIn(me, createReach(input.scope), input.permissions);
   if (escalation) return escalation;
   const reauth = reauthRefusal(me, fn);
   if (reauth) return reauth;
@@ -276,4 +284,35 @@ export async function deleteRole(roleId: string): Promise<AdminResult> {
     before: role.name,
   });
   return { ok: true };
+}
+
+/**
+ * Cosa perderebbe davvero chi guarda se il ruolo avesse `nextPermissions`
+ * (la barra della pagina del ruolo, [RM 3]). Lettura pura: simula la bozza
+ * su una copia dello stato e confronta i permessi effettivi di chi guarda —
+ * ruolo, concessioni, reparto, full admin — all'istanza e in ogni progetto
+ * di cui è membro. Un permesso che resta da un'altra fonte non è perso.
+ */
+export async function viewerLosesIf(roleId: string, nextPermissions: string[]): Promise<string[]> {
+  const me = await gate("admin.viewerLosesIf");
+  if (!canI(me, ROLES_MANAGE)) throw new Error("forbidden");
+  const before = accessState();
+  if (!before.roles.some((r) => r.id === roleId)) throw new Error("not_found");
+  const after = structuredClone(before);
+  after.roles.find((r) => r.id === roleId)!.permissions = [...nextPermissions];
+  const scopes: (string | undefined)[] = [
+    undefined,
+    ...new Set(before.memberships.filter((m) => m.personId === me).map((m) => m.projectId)),
+  ];
+  const lost = new Set<string>();
+  for (const projectId of scopes) {
+    const had = effectivePermissionsIn(before, me, projectId);
+    const has = effectivePermissionsIn(after, me, projectId);
+    for (const p of had.keys()) if (!has.has(p)) lost.add(p);
+  }
+  const removed = (before.roles.find((r) => r.id === roleId)?.permissions ?? []).filter(
+    (p) => !nextPermissions.includes(p),
+  );
+  // Nell'ordine dei permessi tolti; prima quelli tolti, poi il resto (non dovrebbe esserci).
+  return [...removed.filter((p) => lost.has(p)), ...[...lost].filter((p) => !removed.includes(p))];
 }

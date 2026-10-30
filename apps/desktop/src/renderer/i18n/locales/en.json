@@ -8315,7 +8315,8 @@
         "projects_role": "You don't have this in every project where this role is used, so you can't give it.",
         "projects_department": "You don't have this in every project of this department's people, so you can't give it.",
         "anywhere": "You don't have this in any project, so you can't give it."
-      }
+      },
+      "included": "Included in full administration"
     },
     "roles": {
       "intro": "Roles decide what people can do. An instance role applies everywhere; a project role applies in the projects where someone is a member.",
@@ -8398,7 +8399,7 @@
       "saveFailed": "Couldn't save. Try again.",
       "leave_one": "Discard {{count}} change?",
       "leave_other": "Discard {{count}} changes?",
-      "youLose": "You have this role: you'll lose {{missing}} when you save, unless something else gives it to you.",
+      "youLose": "You have this role: you'll lose {{missing}} when you save.",
       "refusal": {
         "escalation": {
           "instance": "You can't save this role: it would include {{missing}}, which you don't have.",
@@ -8479,11 +8480,7 @@
       "saveAction": "change {{name}}",
       "saveFailed": "Couldn't save. Try again.",
       "refusal": {
-        "addPeople": "{{name}} gives {{missing}}, which you don't have in the projects of the people you're adding, so you can't add them.",
-        "permissions": {
-          "projects": "You can't give {{missing}}: you don't have it in every project of this department's people.",
-          "anywhere": "You can't give {{missing}}: you don't have it in any project."
-        }
+        "escalation": "You can't save {{name}}: it would give {{missing}} in projects where you don't have it."
       },
       "delete": "Delete department…",
       "deleteTitle": "Delete {{name}}?",

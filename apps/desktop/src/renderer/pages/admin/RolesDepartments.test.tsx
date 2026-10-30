@@ -169,13 +169,61 @@ describe("Departments", () => {
       s.memberships.find((m) => m.personId === MARCO && m.projectId === ACQ)!.roleId =
         roleIdOf("viewer");
     });
+    const entries = state.changelog.length;
+    // L'escalation si giudica prima della riconferma: nessun codice chiesto.
     await user.click(within(panel).getByRole("button", { name: "Save" }));
     expect(
       await within(panel).findByText(
-        "You can't give create tasks: you don't have it in every project of this department's people.",
+        "You can't save Legal: it would give create tasks in projects where you don't have it.",
       ),
     ).toBeVisible();
     expect(dept(legal.departmentId).projectPermissions).toEqual([]);
+    expect(state.changelog.length).toBe(entries);
+  });
+
+  it("giro 1: le caselle si spengono sulla BOZZA — Marco aggiunge Sara a «Legal», e «Create tasks» si spegne", async () => {
+    const user = userEvent.setup();
+    give(MARCO, "departments.manage");
+    setSessionPersonId(ROBERTA);
+    const legal = (await admin.createDepartment({ name: "Legal", colorToken: "--dept-6" })) as {
+      departmentId: string;
+    };
+    renderRoute(`/admin/departments?department=${legal.departmentId}`, MARCO);
+    const panel = await screen.findByRole("region", { name: "Department Legal" });
+    expect(within(panel).getByRole("checkbox", { name: /^Create tasks/ })).toBeEnabled();
+    await user.click(within(panel).getByRole("button", { name: "Add people" }));
+    const candidates = within(panel).getByRole("list", { name: "People you can add" });
+    await user.click(within(candidates).getByText("Sara Montanari"));
+    // Sara sta in progetti dove Marco non è: un permesso nuovo arriverebbe lì.
+    await waitFor(() =>
+      expect(within(panel).getByRole("checkbox", { name: /^Create tasks/ })).toBeDisabled(),
+    );
+    expect(within(panel).getByRole("checkbox", { name: /^Create tasks/ })).toHaveAccessibleDescription(
+      "You don't have this in every project of this department's people, so you can't give it.",
+    );
+    // E al contrario: con «Create tasks» nella bozza, Sara non si aggiunge.
+    await user.click(within(panel).getByRole("button", { name: "Remove Sara Montanari" }));
+    await waitFor(() =>
+      expect(within(panel).getByRole("checkbox", { name: /^Create tasks/ })).toBeEnabled(),
+    );
+    await user.click(within(panel).getByRole("checkbox", { name: /^Create tasks/ }));
+    const sara = await waitFor(() => {
+      const row = within(panel).getByText("Sara Montanari").closest("button")!;
+      expect(row).toHaveAttribute("aria-disabled", "true");
+      return row;
+    });
+    expect(
+      within(sara).getByText("Legal gives create tasks, which you don't have in their projects."),
+    ).toBeVisible();
+  });
+
+  it("giro 1: un disattivato è segnato nel pannello e non riceve la Home", async () => {
+    renderRoute("/admin/departments?department=dep-development", ROBERTA);
+    const panel = await screen.findByRole("region", { name: "Department Development" });
+    expect(within(panel).getByText("Simone Rossetti (deactivated)")).toBeVisible();
+    expect(
+      within(panel).getByRole("checkbox", { name: /^Simone Rossetti manages the Home/ }),
+    ).toBeDisabled();
   });
 
   it("aggiungere a un reparto chi riceverebbe permessi che chi agisce non ha: spento, col motivo", async () => {
@@ -404,6 +452,11 @@ describe("Roles", () => {
         roleIdOf("rm-1");
     });
     expect(can(viewerFor(MARCO), "release.merge", AUD)).toBe(false);
+    // Prima del cambio, Marco non ha «Release» in Releases.
+    renderRoute("/p/AUD/releases", MARCO);
+    await screen.findByRole("list", { name: "Ready to release" });
+    expect(screen.queryByRole("button", { name: "Release audin-app#244" })).toBeNull();
+    cleanup();
     renderRoute(`/admin/roles/${roleIdOf("rm-1")}`, ROBERTA);
     await heading("Release manager");
     await user.click(permissionBox("Merge pull requests"));
@@ -416,6 +469,35 @@ describe("Roles", () => {
     expect(
       await screen.findByRole("button", { name: "Release audin-app#244" }),
     ).toBeInTheDocument();
+  });
+
+  it("giro 1: «you'll lose» viene dal livello dati — Laura lo vede, Roberta (full admin) no", async () => {
+    const user = userEvent.setup();
+    give("p-laura", "roles.manage");
+    renderRoute(`/admin/roles/${roleIdOf("project_lead")}`, "p-laura");
+    await heading("Project Lead");
+    await user.click(permissionBox("Approve plans"));
+    expect(
+      await screen.findByText("You have this role: you'll lose approve plans when you save."),
+    ).toBeVisible();
+    cleanup();
+    renderRoute(`/admin/roles/${roleIdOf("project_lead")}`, ROBERTA);
+    await heading("Project Lead");
+    await user.click(permissionBox("Approve plans"));
+    expect(await screen.findByText("1 change")).toBeVisible();
+    // Roberta lo ha comunque da full admin: niente avviso (la risposta è già arrivata).
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText(/you'll lose/)).toBeNull();
+  });
+
+  it("giro 1: nel preset Admin il resto d'istanza è «Included in full administration»", async () => {
+    renderRoute(`/admin/roles/${roleIdOf("admin")}`, ROBERTA);
+    await heading("Admin");
+    const people = permissionBox("Manage people");
+    expect(people).toBeChecked();
+    expect(people).toBeDisabled();
+    expect(screen.getAllByText("Included in full administration").length).toBeGreaterThan(5);
+    expect(permissionBox("Full administration")).toBeEnabled();
   });
 
   it("chi non ha roles.manage non trova la pagina di un ruolo", async () => {

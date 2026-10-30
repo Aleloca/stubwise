@@ -50,6 +50,8 @@ const reauth = (personId: string) => markReauthenticated(personId);
 const giveInstance = (personId: string, perm: string) =>
   grantInstancePermission(personId, perm as LocalInstancePermission);
 
+const dept = (id: string) => accessState().departments.find((d) => d.departmentId === id)!;
+
 const developmentMembers = () =>
   accessState().departments.find((d) => d.departmentId === "dep-development")!.memberIds;
 
@@ -149,6 +151,14 @@ const SENSITIVE: Record<string, { setup?: () => void; call: () => Promise<AdminR
     },
     "admin.setDepartmentPermissions": {
       call: () => admin.setDepartmentPermissions("dep-sales", ["support.reply"]),
+    },
+    "admin.saveDepartment": {
+      call: () =>
+        admin.saveDepartment("dep-sales", {
+          memberIds: [...dept("dep-sales").memberIds, "p-marco"],
+          homeManagerIds: dept("dep-sales").homeManagerIds,
+          projectPermissions: dept("dep-sales").projectPermissions,
+        }),
     },
     "admin.addMember": { call: () => admin.addMember(ACQ, "p-giulia", roleIdOf("developer")) },
     "admin.removeMember": { call: () => admin.removeMember(ACQ, "p-marco") },
@@ -1055,6 +1065,9 @@ describe("Roles", () => {
     expect(byKey("developer").reach).toBe("projects");
     // Developer è assegnato anche in progetti dove Marco non è membro: lì non ha niente.
     expect(byKey("developer").notGivable).toContain("runs.start");
+    // `notGivable` guarda anche i permessi FUORI dal ruolo (non è `missing`).
+    expect(byKey("developer").notGivable).toContain("release.merge");
+    expect(byKey("developer").missing).not.toContain("release.merge");
     // Release manager non è di nessuno: basta averlo in un progetto.
     expect(byKey("rm-1").reach).toBe("anywhere");
     // Copiare un ruolo è crearne uno nuovo: la regola di `createRole`.
@@ -1073,10 +1086,6 @@ describe("Roles", () => {
     // R-E2: solo Project Lead dà «vedere l'attività delle persone».
     expect(byKey("project_lead").givesActivityView).toBe(true);
     expect(byKey("rm-1").givesActivityView).toBe(false);
-    // Chi guarda ha il ruolo: User sì, Admin no.
-    expect(byKey("user").viewerHolds).toBe(true);
-    expect(byKey("admin").viewerHolds).toBe(false);
-    expect(byKey("developer").viewerHolds).toBe(true);
   });
 
   it("Task 9: un ruolo in uso solo in progetti che chi guarda non vede resta «in uso»", async () => {
@@ -1212,6 +1221,184 @@ describe("Departments", () => {
     await refused(() => admin.setDepartmentPermissions("dep-sales", ["users.manage"]), {
       reason: "permission",
     });
+  });
+});
+
+// --- Task 9, giro 1: il reparto si salva in un colpo, e «you'll lose» dal livello dati ----
+
+describe("saveDepartment: la bozza intera, tutto o niente", () => {
+  /** Marco gestisce i reparti e crea «Legal», vuoto (Roberta non c'entra). */
+  async function marcoWithLegal(): Promise<string> {
+    giveInstance("p-marco", "departments.manage");
+    as("p-marco");
+    reauth("p-marco");
+    const r = (await admin.createDepartment({ name: "Legal", colorToken: "--dept-6" })) as {
+      departmentId: string;
+    };
+    return r.departmentId;
+  }
+
+  it("lo scenario della revisione: Sara più «create tasks» è rifiutato, zero scritture e nessuna voce", async () => {
+    const legal = await marcoWithLegal();
+    // Sara sta in progetti dove Marco non è: lì non ha «create tasks».
+    await refused(
+      () =>
+        admin.saveDepartment(legal, {
+          memberIds: ["p-sara"],
+          homeManagerIds: [],
+          projectPermissions: ["tickets.create"],
+        }),
+      { error: "escalation", missing: ["tickets.create"] },
+    );
+    expect(dept(legal).memberIds).toEqual([]);
+  });
+
+  it("chi esce con la stessa bozza non conta: togliere Sara e dare «create tasks» passa", async () => {
+    const legal = await marcoWithLegal();
+    writeAccess((s) => {
+      s.departments.find((d) => d.departmentId === legal)!.memberIds = ["p-sara"];
+    });
+    expect(
+      await admin.saveDepartment(legal, {
+        memberIds: [],
+        homeManagerIds: [],
+        projectPermissions: ["tickets.create"],
+      }),
+    ).toEqual({ ok: true });
+    expect(dept(legal).projectPermissions).toEqual(["tickets.create"]);
+  });
+
+  it("le caselle si calcolano sulla bozza: con Sara dentro «create tasks» è spento, e viceversa", async () => {
+    const legal = await marcoWithLegal();
+    const empty = await admin.previewDepartment(legal, { memberIds: [], projectPermissions: [] });
+    expect(empty.reach).toBe("anywhere");
+    expect(empty.notGivable).not.toContain("tickets.create");
+    expect(empty.missingToAdd["p-sara"]).toEqual([]);
+    const withSara = await admin.previewDepartment(legal, {
+      memberIds: ["p-sara"],
+      projectPermissions: [],
+    });
+    expect(withSara.reach).toBe("projects");
+    expect(withSara.notGivable).toContain("tickets.create");
+    // Al contrario: con «create tasks» nella bozza, Sara non si aggiunge.
+    const withPerm = await admin.previewDepartment(legal, {
+      memberIds: [],
+      projectPermissions: ["tickets.create"],
+    });
+    expect(withPerm.missingToAdd["p-sara"]).toEqual(["tickets.create"]);
+  });
+
+  it("una bozza valida scrive persone, Home e permessi insieme, con le loro voci", async () => {
+    as("p-roberta");
+    reauth("p-roberta");
+    const entries = state.changelog.length;
+    const sales = dept("dep-sales");
+    expect(
+      await admin.saveDepartment("dep-sales", {
+        memberIds: [...sales.memberIds, "p-sara"],
+        homeManagerIds: [...sales.homeManagerIds, "p-sara"],
+        projectPermissions: ["support.reply"],
+      }),
+    ).toEqual({ ok: true });
+    expect(dept("dep-sales").memberIds).toContain("p-sara");
+    expect(dept("dep-sales").homeManagerIds).toContain("p-sara");
+    expect(dept("dep-sales").projectPermissions).toEqual(["support.reply"]);
+    expect(state.changelog.slice(entries).map((e) => e.kind).sort()).toEqual([
+      "department.home_managers_changed",
+      "department.members_changed",
+      "department.permissions_changed",
+    ]);
+  });
+
+  it("last_members_manager: la bozza che toglie l'ultimo gestore non scrive neanche il resto", async () => {
+    // ACQ senza full admin attivi e senza gestori dal ruolo: i membri di
+    // Development li gestiscono solo grazie al reparto.
+    writeAccess((s) => {
+      for (const p of s.people)
+        if (p.instanceRoleId === roleIdOf("admin")) p.instanceRoleId = roleIdOf("user");
+      for (const m of s.memberships) if (m.projectId === ACQ) m.roleId = roleIdOf("developer");
+      s.departments.find((d) => d.departmentId === "dep-development")!.projectPermissions = [
+        "support.reply",
+        "project.members.manage",
+      ];
+    });
+    giveInstance("p-laura", "departments.manage");
+    as("p-laura");
+    reauth("p-laura");
+    const dev = dept("dep-development");
+    const other = dev.memberIds.find((id) => !dev.homeManagerIds.includes(id))!;
+    await refused(
+      () =>
+        admin.saveDepartment("dep-development", {
+          memberIds: dev.memberIds,
+          homeManagerIds: [...dev.homeManagerIds, other],
+          projectPermissions: ["support.reply"],
+        }),
+      { error: "invalid", reason: "last_members_manager" },
+    );
+    expect(dept("dep-development").homeManagerIds).not.toContain(other);
+  });
+
+  it("un disattivato non entra nella Home, e senza riconferma niente si scrive", async () => {
+    as("p-roberta");
+    reauth("p-roberta");
+    const dev = dept("dep-development");
+    await refused(
+      () =>
+        admin.saveDepartment("dep-development", {
+          memberIds: dev.memberIds,
+          homeManagerIds: [...dev.homeManagerIds, "p-simone"],
+          projectPermissions: dev.projectPermissions,
+        }),
+      { error: "invalid", reason: "person" },
+    );
+  });
+});
+
+describe("viewerLosesIf: cosa perde davvero chi salva un ruolo", () => {
+  it("Laura, Project Lead di ACQ, perde «approve plans» togliendolo a Project Lead; Roberta (full admin) niente", async () => {
+    const lead = accessState().roles.find((r) => r.key === "project_lead")!;
+    const next = lead.permissions.filter((p) => p !== "plans.approve");
+    giveInstance("p-laura", "roles.manage");
+    as("p-laura");
+    expect(await admin.viewerLosesIf(lead.id, next)).toEqual(["plans.approve"]);
+    as("p-roberta");
+    expect(await admin.viewerLosesIf(lead.id, next)).toEqual([]);
+  });
+
+  it("chi ha il permesso anche da un'altra fonte non lo perde; la simulazione non scrive niente", async () => {
+    const lead = accessState().roles.find((r) => r.key === "project_lead")!;
+    const next = lead.permissions.filter((p) => p !== "support.reply");
+    giveInstance("p-laura", "roles.manage");
+    as("p-laura");
+    const before = snapshot();
+    // Laura è in Development, che dà «reply to customers»: la tiene.
+    expect(dept("dep-development").memberIds).toContain("p-laura");
+    expect(await admin.viewerLosesIf(lead.id, next)).toEqual([]);
+    expect(snapshot()).toBe(before);
+  });
+});
+
+describe("Roles: i conteggi e l'incluso", () => {
+  it("affectedCount conta le persone toccate anche in progetti che chi guarda non vede", async () => {
+    const hidden = state.projects.find((p) => !visibleProjectIds("p-sara").has(p.id))!;
+    writeAccess((s) => {
+      s.memberships.find((m) => m.projectId === hidden.id)!.roleId = roleIdOf("rm-1");
+    });
+    giveInstance("p-sara", "roles.manage");
+    as("p-sara");
+    const rm = (await admin.listRoles()).find((r) => r.key === "rm-1")!;
+    expect(rm.peopleCount).toBe(0);
+    expect(rm.affectedCount).toBe(1);
+  });
+
+  it("fullAdminImplies: ciò che «full administration» include, solo per i ruoli d'istanza", async () => {
+    as("p-roberta");
+    const roles = await admin.listRoles();
+    const adminRole = roles.find((r) => r.key === "admin")!;
+    expect(adminRole.fullAdminImplies).toContain("users.manage");
+    expect(adminRole.fullAdminImplies).not.toContain("instance.full_admin");
+    expect(roles.find((r) => r.key === "developer")!.fullAdminImplies).toEqual([]);
   });
 });
 

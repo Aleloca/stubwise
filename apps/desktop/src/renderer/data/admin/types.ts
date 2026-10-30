@@ -264,12 +264,18 @@ export interface RoleView extends RoleDef {
    * quello di `createRole` (l'istanza, o almeno un progetto).
    */
   copyMissing: string[];
+  /**
+   * Quante persone cambiano salvando il ruolo, anche in progetti che chi
+   * guarda non vede: è un numero, non nomina nessuno («this changes what N
+   * people can do»). `holders` resta coi soli visibili.
+   */
+  affectedCount: number;
+  /** Per un ruolo d'istanza: ciò che `instance.full_admin` include (spuntato e fisso se c'è). */
+  fullAdminImplies: string[];
   /** Perché non si elimina: `preset`, `in_use` (anche in progetti che chi guarda non vede), o `null`. */
   deleteBlock: null | "preset" | "in_use";
   /** R-E2: il ruolo dà anche «vedere l'attività delle persone» (solo Project Lead). */
   givesActivityView: boolean;
-  /** Chi guarda ha questo ruolo (d'istanza, o in almeno un progetto): togliere vale anche per lui. */
-  viewerHolds: boolean;
 }
 
 /** Dove arriva un permesso dato: vedi `RoleView.reach` e `DepartmentView.reach`. */
@@ -297,6 +303,9 @@ export interface DepartmentView {
   /** I permessi di progetto che chi guarda non può aggiungere al reparto, dove arriverebbero. */
   notGivable: string[];
 }
+
+/** `reach`, `notGivable` e `missingToAdd` di una bozza del reparto (`previewDepartment`). */
+export type DepartmentPreview = Pick<DepartmentView, "reach" | "notGivable" | "missingToAdd">;
 
 /** Un autore git osservato nei commit e non ancora collegato (come l'Activity, area 3). */
 export interface ObservedAuthor {

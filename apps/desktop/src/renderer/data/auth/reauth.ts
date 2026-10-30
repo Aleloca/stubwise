@@ -52,6 +52,8 @@ export const REAUTH_REQUIRED: ReadonlySet<ApiFnName> = new Set<ApiFnName>([
   "admin.setDepartmentMembers",
   "admin.setHomeManagers",
   "admin.setDepartmentPermissions",
+  // Task 9, giro 1: persone, Home e permessi del reparto in un colpo.
+  "admin.saveDepartment",
   "admin.addMember",
   "admin.removeMember",
   "admin.setMemberRole",

@@ -6,11 +6,11 @@ import {
   useAdminDepartments,
   useAdminPeople,
   useDeleteDepartment,
-  useSetDepartmentMembers,
-  useSetDepartmentPermissions,
-  useSetHomeManagers,
+  useDepartmentPreview,
+  useSaveDepartment,
   useSessionPersonId,
   useUpdateDepartment,
+  type DepartmentPreview,
   type DepartmentView,
   type PersonRow,
 } from "../../data/queries";
@@ -39,10 +39,11 @@ import {
 // Il pannello di un reparto (shape admin-people.md, «Departments», [PE 7]):
 // nome e colore si salvano subito; persone, Home e permessi in una bozza che
 // si salva insieme dalla barra in fondo («3 changes · Save · Discard»), con
-// una riconferma. Chiudere il pannello (o lasciare la pagina, o aprire un
-// altro reparto) con modifiche chiede prima. Cosa è spento lo dice il
-// livello dati: `missingToAdd` per le persone, `notGivable`/`reach` per i
-// permessi. Claude non è fra le persone (non sta negli accessi).
+// una riconferma, in UNA scrittura (`saveDepartment`: tutto o niente).
+// Chiudere il pannello (o lasciare la pagina, o aprire un altro reparto) con
+// modifiche chiede prima. Cosa è spento lo dice il livello dati SULLA BOZZA
+// (`previewDepartment`): `missingToAdd` per le persone, `notGivable`/`reach`
+// per i permessi. Claude non è fra le persone (non sta negli accessi).
 
 /**
  * L'host del pannello (`/admin/departments?department=<id>`), montato
@@ -100,8 +101,6 @@ export function DepartmentPanelHost() {
   );
 }
 
-const same = (a: readonly string[], b: readonly string[]) =>
-  a.length === b.length && a.every((x) => b.includes(x));
 const diff = (a: readonly string[], b: readonly string[]) => a.filter((x) => !b.includes(x));
 
 export function DepartmentPanel({
@@ -119,9 +118,7 @@ export function DepartmentPanel({
   const refusalWords = useRefusalWords();
   const missingWords = useMissingWords();
   const giveBlock = useGiveBlock();
-  const setMembers = useSetDepartmentMembers();
-  const setHome = useSetHomeManagers();
-  const setPerms = useSetDepartmentPermissions();
+  const saveDepartment = useSaveDepartment();
   const people = useAdminPeople({ statuses: ["active", "deactivated"] }).data ?? [];
   const [members, setMembersDraft] = useState<string[]>(d.memberIds);
   const [home, setHomeDraft] = useState<string[]>(d.homeManagerIds);
@@ -177,59 +174,42 @@ export function DepartmentPanel({
     setError(null);
   };
 
-  /**
-   * Le scritture, una dopo l'altra (la riconferma vale per tutte): prima i
-   * permessi tolti, poi le persone, poi i permessi aggiunti, poi la Home.
-   * Così chi entra non riceve un permesso che si sta togliendo, e un
-   * permesso nuovo si controlla sulle persone che resteranno.
-   */
+  // La bozza letta dal livello dati: finché arriva, quella del reparto salvato.
+  const preview: DepartmentPreview =
+    useDepartmentPreview(d.id, { memberIds: members, projectPermissions: permList }).data ?? d;
+
+  /** Una scrittura sola, con la riconferma: il livello dati giudica la bozza intera. */
   async function save() {
     setError(null);
     setSaving(true);
-    const added = diff(permList, d.projectPermissions);
-    const removed = diff(d.projectPermissions, permList);
-    const steps: { run: () => Promise<unknown>; kind: "perms" | "members" | "home" }[] = [];
-    if (removed.length > 0)
-      steps.push({
-        kind: "perms",
-        run: () => setPerms.mutateAsync([d.id, d.projectPermissions.filter((p) => perms.has(p))]),
-      });
-    if (!same(members, d.memberIds))
-      steps.push({ kind: "members", run: () => setMembers.mutateAsync([d.id, members]) });
-    if (added.length > 0)
-      steps.push({ kind: "perms", run: () => setPerms.mutateAsync([d.id, permList]) });
-    if (!same(home, d.homeManagerIds))
-      steps.push({ kind: "home", run: () => setHome.mutateAsync([d.id, home]) });
-    for (const step of steps) {
-      const result = await reauth(step.run, {
-        action: t("admin.department.saveAction", { name: d.name }),
-      }).catch(() => null);
-      if (result === null) {
-        setSaving(false);
-        return setError(t("admin.department.saveFailed"));
-      }
-      const refusal = refusalOf(result) as UiRefusal | null;
-      if (refusal) {
-        setSaving(false);
-        if (refusal.error === "reauth_cancelled") return;
-        if (refusal.error === "escalation") {
-          const missing = missingWords((refusal as { missing: string[] }).missing);
-          return setError(
-            step.kind === "members"
-              ? t("admin.department.refusal.addPeople", { name: d.name, missing })
-              : t(`admin.department.refusal.permissions.${d.reach}`, { missing }),
-          );
-        }
-        if (refusal.error === "invalid") return setError(departmentInvalid(t, refusal.reason ?? ""));
-        return setError(refusalWords(refusal));
-      }
-    }
+    const result = await reauth(
+      () =>
+        saveDepartment.mutateAsync([
+          d.id,
+          { memberIds: members, homeManagerIds: home, projectPermissions: permList },
+        ]),
+      { action: t("admin.department.saveAction", { name: d.name }) },
+    ).catch(() => null);
     setSaving(false);
+    if (result === null) return setError(t("admin.department.saveFailed"));
+    const refusal = refusalOf(result) as UiRefusal | null;
+    if (refusal) {
+      if (refusal.error === "reauth_cancelled") return;
+      if (refusal.error === "escalation")
+        return setError(
+          t("admin.department.refusal.escalation", {
+            name: d.name,
+            missing: missingWords((refusal as { missing: string[] }).missing),
+          }),
+        );
+      if (refusal.error === "invalid") return setError(departmentInvalid(t, refusal.reason ?? ""));
+      return setError(refusalWords(refusal));
+    }
     dirtyRef.current = false;
     toast.show(t("admin.department.saved"));
   }
 
-  const notGivable = new Set(d.notGivable);
+  const notGivable = new Set(preview.notGivable);
   const savedPerms = new Set(d.projectPermissions);
 
   return (
@@ -268,13 +248,17 @@ export function DepartmentPanel({
                       <AdminAvatar initials={p?.avatar ?? ""} muted={off} />
                       <span className="flex min-w-0 flex-1 flex-col">
                         <span className={`truncate text-md ${off ? "text-ink-muted" : "text-ink"}`}>
-                          {nameOf(id)}
+                          {off ? t("taskUi.deactivatedName", { name: nameOf(id) }) : nameOf(id)}
                         </span>
-                        <label className="relative flex w-fit items-center gap-1.5 rounded-sm text-xs text-ink-muted has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-focus">
+                        {/* Un disattivato non riceve la Home; se l'aveva, si può solo togliere. */}
+                        <label
+                          className={`relative flex w-fit items-center gap-1.5 rounded-sm text-xs text-ink-muted has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-focus ${off && !home.includes(id) ? "opacity-50" : ""}`}
+                        >
                           <input
                             type="checkbox"
                             className="sr-only"
                             checked={home.includes(id)}
+                            disabled={off && !home.includes(id)}
                             onChange={() => toggleHome(id)}
                             aria-label={t("admin.department.people.managesHomeOf", {
                               name: nameOf(id),
@@ -299,6 +283,7 @@ export function DepartmentPanel({
           )}
           <AddPeople
             department={d}
+            missingToAdd={preview.missingToAdd}
             members={members}
             people={people}
             onAdd={add}
@@ -315,7 +300,7 @@ export function DepartmentPanel({
             checked={perms}
             onToggle={togglePerm}
             context={(p) =>
-              notGivable.has(p) && !savedPerms.has(p) ? giveBlock(d.reach, "department") : null
+              notGivable.has(p) && !savedPerms.has(p) ? giveBlock(preview.reach, "department") : null
             }
           />
         </PanelPart>
@@ -478,11 +463,14 @@ function NameAndColor({ department: d, all }: { department: DepartmentView; all:
  */
 function AddPeople({
   department: d,
+  missingToAdd,
   members,
   people,
   onAdd,
 }: {
   department: DepartmentView;
+  /** Dalla bozza: chi entrando riceverebbe permessi che chi agisce non ha. */
+  missingToAdd: Record<string, string[]>;
   members: string[];
   people: PersonRow[];
   onAdd: (id: string) => void;
@@ -495,7 +483,7 @@ function AddPeople({
   const button = useRef<HTMLButtonElement>(null);
   // Le persone che il livello dati offre, più chi è stato tolto nella bozza (rimetterlo non cambia niente).
   const offered = [
-    ...Object.keys(d.missingToAdd),
+    ...Object.keys(missingToAdd),
     ...d.memberIds.filter((id) => !members.includes(id)),
   ];
   const needle = q.trim().toLowerCase();
@@ -554,7 +542,7 @@ function AddPeople({
             className="flex max-h-56 flex-col overflow-y-auto"
           >
             {rows.map((p) => {
-              const missing = d.missingToAdd[p.personId] ?? [];
+              const missing = missingToAdd[p.personId] ?? [];
               const blocked = missing.length > 0;
               return (
                 <li key={p.personId}>

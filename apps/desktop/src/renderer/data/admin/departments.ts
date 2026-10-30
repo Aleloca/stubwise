@@ -20,7 +20,7 @@ import {
   reauthRefusal,
   refuse,
 } from "./common";
-import type { AdminRefusal, AdminResult, DepartmentView } from "./types";
+import type { AdminRefusal, AdminResult, DepartmentPreview, DepartmentView } from "./types";
 import "./changeTypes";
 
 // Departments (area 9a), tutto con `departments.manage`. Un reparto ha nome e
@@ -71,17 +71,31 @@ function managed(me: string, id: string): { department: Department } | { refusal
   return { department };
 }
 
+/**
+ * Ciò che chi agisce può dare con un reparto fatto così (salvato o bozza):
+ * dove arriva un permesso nuovo, cosa non può aggiungere, chi non può
+ * aggiungere. Le stesse regole che `saveDepartment` applica alla bozza.
+ */
+function giveView(me: string, memberIds: readonly string[], perms: readonly string[]): DepartmentPreview {
+  const reached = reachedBy(memberIds);
+  const candidates = accessState().people.filter(
+    (p) => p.status === "active" && isHumanId(p.personId) && !memberIds.includes(p.personId),
+  );
+  return {
+    reach: reached.length > 0 ? "projects" : "anywhere",
+    notGivable: missingIn(me, reached, ALL_PROJECT_PERMISSIONS),
+    missingToAdd: Object.fromEntries(
+      candidates.map((p) => [p.personId, missingIn(me, projectsOf(p.personId), perms)]),
+    ),
+  };
+}
+
 /** I reparti con le loro persone, la Home e i permessi (`departments.manage`). */
 export async function listDepartments(): Promise<DepartmentView[]> {
   const me = await gate("admin.listDepartments");
   if (!canI(me, DEPARTMENTS_MANAGE)) throw new Error("forbidden");
   return state.departments.map((d) => {
     const a = accessOf(accessState(), d.id);
-    const perms = a?.projectPermissions ?? [];
-    const reached = reachedBy(a?.memberIds ?? []);
-    const candidates = accessState().people.filter(
-      (p) => p.status === "active" && isHumanId(p.personId) && !a?.memberIds.includes(p.personId),
-    );
     return {
       id: d.id,
       name: d.name,
@@ -92,15 +106,123 @@ export async function listDepartments(): Promise<DepartmentView[]> {
       homeManagerIds: [...(a?.homeManagerIds ?? [])],
       projectPermissions: [...(a?.projectPermissions ?? [])],
       taskCount: state.tasks.filter((t) => t.departmentId === d.id).length,
-      missingToAdd: Object.fromEntries(
-        candidates.map((p) => [p.personId, missingIn(me, projectsOf(p.personId), perms)]),
-      ),
-      // La stessa regola di `setDepartmentPermissions` su ciò che si aggiunge.
-      reach: reached.length > 0 ? "projects" : "anywhere",
-      notGivable: missingIn(me, reached, ALL_PROJECT_PERMISSIONS),
+      ...giveView(me, a?.memberIds ?? [], a?.projectPermissions ?? []),
     };
   });
 }
+
+/**
+ * La lettura pura della bozza del pannello: `reach`, `notGivable` e
+ * `missingToAdd` come sarebbero con QUESTE persone e QUESTI permessi. Non
+ * scrive niente. Il pannello ne spegne caselle e persone.
+ */
+export async function previewDepartment(
+  id: string,
+  draft: { memberIds: string[]; projectPermissions: string[] },
+): Promise<DepartmentPreview> {
+  const me = await gate("admin.previewDepartment");
+  const m = managed(me, id);
+  if ("refusal" in m) throw new Error(m.refusal.error);
+  return giveView(me, draft.memberIds, draft.projectPermissions);
+}
+
+/** La bozza del pannello del reparto: tutto ciò che si salva insieme. */
+export interface DepartmentDraft {
+  name?: string;
+  colorToken?: string;
+  memberIds: string[];
+  homeManagerIds: string[];
+  projectPermissions: string[];
+}
+
+/**
+ * Salva il reparto in un colpo (+R, una riconferma): nome e colore, persone,
+ * Home e permessi. Si giudica la bozza INTERA prima di scrivere qualunque
+ * cosa — persone valide (attive, non Claude; un disattivato resta solo se
+ * c'era già), escalation di ciò che si dà (i permessi nuovi dove arrivano con
+ * le persone della bozza, tutti i permessi della bozza a chi entra), i
+ * blocchi `last_*` — e un rifiuto non lascia né scritture né voci. Passata,
+ * una sola `writeAccess` e le voci del registro di ciò che è cambiato.
+ */
+export async function saveDepartment(id: string, draft: DepartmentDraft): Promise<AdminResult> {
+  const me = await writer("admin.saveDepartment");
+  const m = managed(me, id);
+  if ("refusal" in m) return m.refusal;
+  const { department } = m;
+  const current = accessOf(accessState(), id)!;
+  const name = draft.name === undefined ? department.name : draft.name.trim();
+  if (draft.name !== undefined) {
+    const bad = validName(draft.name, id);
+    if (bad) return refuse.invalid(bad);
+  }
+  const color = draft.colorToken ?? department.colorToken;
+  if (!DEPARTMENT_COLORS.includes(color as Department["colorToken"])) return refuse.invalid("color");
+  const members = [...new Set(draft.memberIds)];
+  const home = [...new Set(draft.homeManagerIds)];
+  const perms = [...new Set(draft.projectPermissions)];
+  if (badPeople(members, current.memberIds) || badPeople(home, current.homeManagerIds))
+    return refuse.invalid("person");
+  const addedMembers = diffOf(members, current.memberIds);
+  const addedPerms = diffOf(perms, current.projectPermissions);
+  // Escalation sulla bozza: un permesso nuovo arriva nei progetti di tutte
+  // le persone della bozza; chi entra riceve tutti i permessi della bozza.
+  const missing = new Set([
+    ...missingIn(me, reachedBy(members), addedPerms),
+    ...addedMembers.flatMap((p) => missingIn(me, projectsOf(p), perms)),
+  ]);
+  if (missing.size > 0)
+    return { ok: false, error: "escalation", missing: perms.filter((p) => missing.has(p)) };
+  if (perms.some((p) => !ALL_PROJECT_PERMISSIONS.includes(p))) return refuse.invalid("permission");
+  const changed = {
+    members: !sameSet(members, current.memberIds),
+    home: !sameSet(home, current.homeManagerIds),
+    perms: !sameSet(perms, current.projectPermissions),
+    look: name !== department.name || color !== department.colorToken,
+  };
+  if (!changed.members && !changed.home && !changed.perms && !changed.look)
+    return refuse.invalid("unchanged");
+  const mutate = (s: AccessState) => {
+    const a = accessOf(s, id)!;
+    a.memberIds = members;
+    a.homeManagerIds = home;
+    a.projectPermissions = perms;
+  };
+  const invariant = invariantRefusal(mutate);
+  if (invariant) return invariant;
+  const reauth = reauthRefusal(me, "admin.saveDepartment");
+  if (reauth) return reauth;
+  // La scrittura, tutta insieme.
+  const before = `${department.name} ${department.colorToken}`;
+  department.name = name;
+  department.colorToken = color as Department["colorToken"];
+  writeAccess(mutate);
+  const object = label(department);
+  const entry = (kind: string, from: readonly string[], to: readonly string[]) =>
+    recordChange({
+      kind,
+      actorId: me,
+      projectId: null,
+      object,
+      params: { added: diffOf(to, from).join(","), removed: diffOf(from, to).join(",") },
+    });
+  if (changed.look)
+    recordChange({
+      kind: "department.updated",
+      actorId: me,
+      projectId: null,
+      object,
+      before,
+      after: `${department.name} ${department.colorToken}`,
+    });
+  if (changed.members) entry("department.members_changed", current.memberIds, members);
+  if (changed.home) entry("department.home_managers_changed", current.homeManagerIds, home);
+  if (changed.perms) entry("department.permissions_changed", current.projectPermissions, perms);
+  return { ok: true };
+}
+
+const diffOf = (a: readonly string[], b: readonly string[]) => a.filter((x) => !b.includes(x));
+const sameSet = (a: readonly string[], b: readonly string[]) =>
+  a.length === b.length && a.every((x) => b.includes(x));
 
 const validName = (name: string, except?: string): string | null => {
   const clean = name.trim();
