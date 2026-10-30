@@ -112,7 +112,7 @@ export function useReauthenticate() {
 
 /** L'iscrizione al volo dentro la riconferma: il segreto TOTP, una volta. */
 export function useEnrollDuringReauth() {
-  return useWrite(() => api.auth.enrollDuringReauth(), []);
+  return useWrite(() => api.auth.enrollDuringReauth(), [], { secret: true });
 }
 
 /**
@@ -120,7 +120,7 @@ export function useEnrollDuringReauth() {
  * codici di backup (una volta) e vale come riconferma.
  */
 export function useConfirmEnrollment() {
-  return useWrite(api.me.confirmTotp, []);
+  return useWrite(api.me.confirmTotp, [], { secret: true });
 }
 
 /**
@@ -155,11 +155,16 @@ export function useMySecondFactor(enabled = true) {
  * Il risultato è un dato (`AdminResult`): un rifiuto non è un errore della
  * mutazione, lo è solo un guasto del livello dati.
  */
-export function useAdminWrite<TVars, TData>(mutationFn: (vars: TVars) => Promise<TData>) {
+export function useAdminWrite<TVars, TData>(
+  mutationFn: (vars: TVars) => Promise<TData>,
+  { secret = false }: { secret?: boolean } = {},
+) {
   const client = useQueryClient();
   return useMutation({
     mutationFn,
     onSettled: () => client.invalidateQueries({ queryKey: ["as"] }),
+    // Un link d'invito o di reset sta solo nella sezione che lo mostra (`SecretOnce`).
+    ...(secret ? { gcTime: 0 } : {}),
   });
 }
 
@@ -317,20 +322,25 @@ export function useMemberPreview(projectId: string, personId: string, draft: Mem
  * suoi argomenti, il dato il suo esito (tipato: `mutateAsync` lo restituisce
  * a `useReauth`, che lo passa al chiamante).
  */
-const adminWrite = <A extends unknown[], R>(fn: (...args: A) => Promise<R>) =>
+const adminWrite = <A extends unknown[], R>(
+  fn: (...args: A) => Promise<R>,
+  options: { secret?: boolean } = {},
+) =>
   function useIt() {
-    return useAdminWrite((args: A) => fn(...args));
+    return useAdminWrite((args: A) => fn(...args), options);
   };
 
 export const useSetInstanceRole = adminWrite(api.admin.setInstanceRole);
-export const useCreatePasswordResetLink = adminWrite(api.admin.createPasswordResetLink);
+export const useCreatePasswordResetLink = adminWrite(api.admin.createPasswordResetLink, {
+  secret: true,
+});
 export const useResetSecondFactor = adminWrite(api.admin.resetSecondFactor);
 export const useLinkGitIdentity = adminWrite(api.admin.linkGitIdentity);
 export const useUnlinkGitIdentity = adminWrite(api.admin.unlinkGitIdentity);
 export const useSetBitbucketUsername = adminWrite(api.admin.setBitbucketUsername);
 export const useDeactivatePerson = adminWrite(api.admin.deactivatePerson);
 export const useReactivatePerson = adminWrite(api.admin.reactivatePerson);
-export const useCreateInvite = adminWrite(api.admin.createInvite);
+export const useCreateInvite = adminWrite(api.admin.createInvite, { secret: true });
 export const useRevokeInvite = adminWrite(api.admin.revokeInvite);
 export const useCreateRole = adminWrite(api.admin.createRole);
 export const useUpdateRole = adminWrite(api.admin.updateRole);

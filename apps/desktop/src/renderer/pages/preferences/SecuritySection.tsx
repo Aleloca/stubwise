@@ -269,6 +269,10 @@ function AppPart({
             setUpdated(true);
             toast.show(t("prefs.security.app.updated"));
           }
+          // I codici e la chiave sono passati a chi li mostra: le mutazioni non li tengono.
+          confirm.reset();
+          startFirst.reset();
+          startAgain.reset();
           return;
         }
         setCode("");

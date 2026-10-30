@@ -100,6 +100,8 @@ export function ClaudeCodeSection() {
                 onDone={() => {
                   setMade(null);
                   setMadeBefore(true);
+                  // Il comando porta il token: dopo «Done» non resta nemmeno nella mutazione.
+                  create.reset();
                 }}
               >
                 <p>{t("prefs.claudeCode.shell")}</p>

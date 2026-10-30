@@ -939,9 +939,11 @@ export function useInvalidate(areas: readonly string[]) {
 export function useWrite<TVars, TData>(
   mutationFn: (vars: TVars) => Promise<TData>,
   areas: readonly string[],
+  /** Il risultato porta un segreto mostrato una volta: la cache delle mutazioni non lo tiene. */
+  { secret = false }: { secret?: boolean } = {},
 ) {
   const invalidate = useInvalidate(areas);
-  return useMutation({ mutationFn, onSettled: invalidate });
+  return useMutation({ mutationFn, onSettled: invalidate, ...(secret ? { gcTime: 0 } : {}) });
 }
 
 /**
