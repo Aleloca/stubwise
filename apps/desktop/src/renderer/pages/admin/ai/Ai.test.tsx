@@ -462,6 +462,12 @@ describe("Budget & language", () => {
         "Budget reached: new AI work is on hold until it's raised or the month ends.",
       ),
     ).toBeVisible();
+    // Impeccable 1: la barra dice la percentuale vera (non il 100%), e la
+    // frase dice che il raggiunto è simulato.
+    const pct = Math.round((spentThisMonthUsd() / 800) * 100);
+    expect(screen.getByText(new RegExp(`· ${pct}% of \\$800`))).toBeVisible();
+    expect(document.querySelector<HTMLElement>("[data-meter-fill]")!.style.width).toBe(`${pct}%`);
+    expect(screen.getByText("Simulated: the budget counts as reached.")).toBeVisible();
   });
 });
 

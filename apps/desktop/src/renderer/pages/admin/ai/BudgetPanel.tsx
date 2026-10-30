@@ -189,7 +189,9 @@ function BudgetForm({ view, canWrite }: { view: BudgetView; canWrite: boolean })
 /**
  * Il misuratore: barra di 6 px in inchiostro su filetto, e la frase. Al
  * 100% la barra è `critical` e la frase dice cosa succede: il colore non è
- * mai il solo segnale. Senza budget, niente barra.
+ * mai il solo segnale. Senza budget, niente barra. La barra dice sempre la
+ * percentuale della frase (Impeccable 1): un raggiunto simulato sotto il
+ * budget la tiene dov'è, colorata, e lo dice in parole.
  */
 function Meter({ view, month, spent }: { view: BudgetView; month: string; spent: number }) {
   const { t } = useTranslation();
@@ -200,8 +202,9 @@ function Meter({ view, month, spent }: { view: BudgetView; month: string; spent:
       {budget !== null && (
         <span aria-hidden="true" className="relative h-1.5 overflow-hidden rounded-full bg-rule">
           <span
+            data-meter-fill
             className={`absolute inset-y-0 left-0 rounded-full ${view.reached ? "bg-critical" : "bg-ink"}`}
-            style={{ width: `${Math.min(100, view.reached ? 100 : pct)}%` }}
+            style={{ width: `${Math.min(100, pct)}%` }}
           />
         </span>
       )}
@@ -210,6 +213,9 @@ function Meter({ view, month, spent }: { view: BudgetView; month: string; spent:
           ? t("admin.ai.budget.spentNoBudget", { amount: usd(spent), month })
           : t("admin.ai.budget.spent", { amount: usd(spent), month, pct, budget: usd(budget) })}
       </p>
+      {view.reached && view.simulated && (
+        <p className="text-sm text-ink-muted">{t("admin.ai.budget.simulatedMeter")}</p>
+      )}
       {view.reached && (
         <p role="status" className="flex items-start gap-2 text-sm font-medium text-critical">
           <span aria-hidden="true" className="mt-[6px] size-2 shrink-0 rounded-full bg-critical" />

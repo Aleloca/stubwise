@@ -8987,6 +8987,7 @@
         "savedBack": "Budget salvato. Il lavoro in attesa del budget riparte.",
         "stillReached": "Salvato. Il budget è ancora raggiunto: spesi {{spent}}, budget {{budget}}.",
         "simulate": "Simula il budget raggiunto",
+        "simulatedMeter": "Simulato: il budget conta come raggiunto.",
         "simulateHint": "Vedi cosa vedono tutti quando il budget finisce. Spegnendolo, il lavoro in attesa riparte.",
         "loadError": "Impossibile caricare il budget.",
         "nowReached": "Salvato. Il budget ora è raggiunto: spesi {{spent}}, budget {{budget}}. Il lavoro AI nuovo aspetta.",
