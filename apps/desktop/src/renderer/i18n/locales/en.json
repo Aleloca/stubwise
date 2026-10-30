@@ -8294,6 +8294,7 @@
       "reactivate": "Reactivate",
       "reactivateSure": "Reactivate — sure?",
       "reactivated": "{{name}} is active again.",
+      "reactivateAction": "reactivate {{name}}",
       "deactivatedOn": "Deactivated {{date}}",
       "instanceRole": {
         "title": "Instance role",

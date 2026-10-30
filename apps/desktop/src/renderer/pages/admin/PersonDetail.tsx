@@ -178,6 +178,7 @@ function MoreMenu({
   const { t } = useTranslation();
   const toast = useToast();
   const reactivate = useReactivatePerson();
+  const reauth = useReauth();
   const refusalWords = useRefusalWords();
   const [open, setOpen] = useState(false);
   const [armed, setArmed] = useState(false);
@@ -197,9 +198,14 @@ function MoreMenu({
   async function onReactivate() {
     close(true);
     setError(null);
-    const result = await reactivate.mutateAsync([person.personId]).catch(() => null);
+    // Riattivare rende l'account intero: riconferma, come disattivare (I2).
+    const result = await reauth(() => reactivate.mutateAsync([person.personId]), {
+      action: t("admin.person.reactivateAction", { name }),
+    }).catch(() => null);
     if (result === null) return setError(t("admin.refusal.failed"));
     const refusal = refusalOf(result) as UiRefusal | null;
+    if (refusal?.error === "reauth_cancelled")
+      return void toast.show(t("admin.refusal.reauthCancelled"));
     if (refusal) return setError(refusalWords(refusal, { name }));
     toast.show(t("admin.person.reactivated", { name }));
   }

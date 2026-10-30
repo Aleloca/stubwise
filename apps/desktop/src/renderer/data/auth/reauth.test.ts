@@ -27,6 +27,7 @@ const EXPECTED_REAUTH: readonly ApiFnName[] = [
   "admin.resetSecondFactor",
   "admin.unlinkGitIdentity",
   "admin.deactivatePerson",
+  "admin.reactivatePerson",
   "admin.createInvite",
   "admin.createRole",
   "admin.updateRole",

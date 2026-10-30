@@ -44,6 +44,8 @@ export const REAUTH_REQUIRED: ReadonlySet<ApiFnName> = new Set<ApiFnName>([
   "admin.resetSecondFactor",
   "admin.unlinkGitIdentity",
   "admin.deactivatePerson",
+  // Riattivare rende l'account intero (I2 della revisione finale, 30 ott).
+  "admin.reactivatePerson",
   "admin.createInvite",
   "admin.createRole",
   "admin.updateRole",

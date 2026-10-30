@@ -290,6 +290,23 @@ describe("la pagina di una persona", () => {
     expect(document.body.textContent).not.toContain(link);
   });
 
+  it("riattivare chiede la riconferma (I2), poi la persona è di nuovo attiva", async () => {
+    const user = userEvent.setup();
+    renderRoute("/admin/people/p-simone", ROBERTA);
+    await heading("Simone Rossetti");
+    await user.click(screen.getByRole("button", { name: "More actions for Simone Rossetti" }));
+    await user.click(screen.getByRole("menuitem", { name: "Reactivate" }));
+    await user.click(screen.getByRole("menuitem", { name: "Reactivate — sure?" }));
+    const dialog = await screen.findByRole("dialog", { name: "Confirm it's you" });
+    expect(dialog).toHaveTextContent(/reactivate Simone Rossetti/);
+    expect(accessState().people.find((p) => p.personId === "p-simone")!.status).toBe(
+      "deactivated",
+    );
+    await confirmItsYou(user);
+    expect(await screen.findByText("Simone Rossetti is active again.")).toBeInTheDocument();
+    expect(accessState().people.find((p) => p.personId === "p-simone")!.status).toBe("active");
+  });
+
   it("reset del secondo fattore: le conseguenze, la riconferma, e l'interessato riceve l'avviso", async () => {
     const user = userEvent.setup();
     renderRoute("/admin/people/p-marco", ROBERTA);

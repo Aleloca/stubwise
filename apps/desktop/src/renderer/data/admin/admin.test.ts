@@ -129,6 +129,8 @@ const SENSITIVE: Record<string, { setup?: () => void; call: () => Promise<AdminR
       call: () => admin.unlinkGitIdentity("p-marco", "kevin.ortega"),
     },
     "admin.deactivatePerson": { call: () => admin.deactivatePerson("p-marco", {}) },
+    // I2 della revisione finale: riattivare rende l'account intero.
+    "admin.reactivatePerson": { call: () => admin.reactivatePerson("p-simone") },
     "admin.createInvite": {
       call: () =>
         admin.createInvite({

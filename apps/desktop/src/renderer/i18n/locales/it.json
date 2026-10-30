@@ -8294,6 +8294,7 @@
       "reactivate": "Riattiva",
       "reactivateSure": "Riattiva — sicuro?",
       "reactivated": "{{name}} è di nuovo attiva.",
+      "reactivateAction": "riattivare {{name}}",
       "deactivatedOn": "Disattivata il {{date}}",
       "instanceRole": {
         "title": "Ruolo d'istanza",

@@ -592,6 +592,10 @@ export async function reactivatePerson(personId: string): Promise<AdminResult> {
   const blocked = target(me, personId);
   if (blocked) return blocked;
   if (accessOf(personId)!.status !== "deactivated") return refuse.invalid("status");
+  // Restituisce l'account intero: riconferma, come la disattivazione. Niente
+  // escalation: nessuna gerarchia (maintainer, 30 ott), come per I3.
+  const reauth = reauthRefusal(me, "admin.reactivatePerson");
+  if (reauth) return reauth;
   writeAccess((s) => {
     const p = s.people.find((x) => x.personId === personId)!;
     p.status = "active";
