@@ -9214,6 +9214,7 @@
       "reviewCap": "PR review cap {{amount}}",
       "queuePaused": "Paused since {{date}}",
       "queueRunning": "Running",
+      "hiddenProject": "a project you can't see",
       "webhookFormat": {
         "slack": "Slack",
         "discord": "Discord",

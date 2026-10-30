@@ -260,7 +260,8 @@ function diffOf(entry: ChangeEntry, people: Set<string>): ChangeDiff | null {
   }
 }
 
-function view(me: string, entry: ChangeEntry, people: Set<string>): ChangeEntryView {
+function view(me: string, stored: ChangeEntry, people: Set<string>): ChangeEntryView {
+  const entry = resolveProject(me, stored);
   const type = changeTypeOf(entry.kind)!;
   return {
     ...entry,
@@ -276,6 +277,37 @@ function view(me: string, entry: ChangeEntry, people: Set<string>): ChangeEntryV
     objectLabelKey: entry.kind === "model.changed" ? `usage.operations.${entry.object.id}` : null,
     diff: diffOf(entry, people),
   };
+}
+
+/** Il segnaposto di un progetto che chi legge non vede (la pagina lo dice a parole). */
+const HIDDEN_PROJECT = "@hidden";
+
+/**
+ * Il progetto principale di un server si salva come id (`server.updated`):
+ * a lettura, PRIMA di tutto (anche del `before`/`after` grezzo che la vista
+ * porta), diventa il codice se chi guarda lo vede, altrimenti
+ * `HIDDEN_PROJECT` — mai il codice né l'id di un progetto invisibile (R-G5).
+ */
+function resolveProject(me: string, entry: ChangeEntry): ChangeEntry {
+  if (entry.kind !== "server.updated") return entry;
+  const visible = visibleProjectIds(me);
+  const resolve = (raw: string | null): string | null => {
+    if (raw === null) return null;
+    try {
+      const fields = JSON.parse(raw) as Record<string, unknown>;
+      if (!("primaryProject" in fields)) return raw;
+      const id = fields.primaryProject;
+      const code =
+        typeof id === "string" && visible.has(id) ? state.projectsById.get(id)?.code : undefined;
+      return JSON.stringify({
+        ...fields,
+        primaryProject: id === null ? null : (code ?? HIDDEN_PROJECT),
+      });
+    } catch {
+      return raw;
+    }
+  };
+  return { ...entry, before: resolve(entry.before), after: resolve(entry.after) };
 }
 
 /** Le voci, più recenti prima (a parità d'ora, l'ultima scritta prima). */

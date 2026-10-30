@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { METRIC_POINTS_MAX } from "../../domain/servers/limits";
-import { failNext, listNotifications, releases, resetApi, servers, setLatency } from "../api";
+import {
+  changelog,
+  failNext,
+  listNotifications,
+  releases,
+  resetApi,
+  servers,
+  setLatency,
+} from "../api";
 import { setSessionPersonId } from "../session";
 import { state, storeGeneration } from "../store";
 import type { ServerService } from "../types";
@@ -547,10 +555,10 @@ describe("R-L7: un server orfano lo vede chi ha monitor.manage", () => {
     grantMonitor("p-marco");
     expect(serversVisibleTo("p-marco").has("SRV-1")).toBe(true);
     expect((await servers.getServer("SRV-1")).environments).toEqual([]);
-    // Col monitor non si vedono i server collegati a progetti invisibili: solo gli orfani.
+    // Dal 9b (ruling T7 I2) col monitor si vede ogni server, anche quelli di progetti invisibili.
     grantMonitor("p-sara");
     expect(serversVisibleTo("p-sara").has("SRV-1")).toBe(true);
-    expect(serversVisibleTo("p-sara").has("SRV-3")).toBe(false);
+    expect(serversVisibleTo("p-sara").has("SRV-3")).toBe(true);
     as("p-roberta");
     await servers.deleteServer("SRV-1");
     expect(server("SRV-1")).toBeUndefined();
@@ -762,7 +770,7 @@ describe("area 9b, Task 7: i server di tutta l'istanza", () => {
 
   it("30d e 90d: al più METRIC_POINTS_MAX punti, e il primo di 90d ha più di 89 giorni", async () => {
     as("p-marco");
-    const now = Date.parse("2026-10-30T12:00:00Z");
+    const now = Date.parse("2026-10-23T12:00:00Z");
     for (const [range, days] of [
       ["30d", 29],
       ["90d", 89],
@@ -774,6 +782,80 @@ describe("area 9b, Task 7: i server di tutta l'istanza", () => {
     }
     const week = await servers.getServerMetrics("SRV-1", "7d");
     expect(week.points.length).toBeLessThanOrEqual(METRIC_POINTS_MAX);
+  });
+
+  it("I3: 30d e 90d si ricampionano per DURATA: punti equispaziati, e i picchi vecchi non spariscono", async () => {
+    as("p-marco");
+    const now = Date.parse("2026-10-23T12:00:00Z");
+    const DAY = 86_400_000;
+    for (const [range, days] of [
+      ["30d", 30],
+      ["90d", 90],
+    ] as const) {
+      const m = await servers.getServerMetrics("SRV-1", range);
+      const window = (days * DAY) / (METRIC_POINTS_MAX - 2);
+      const times = m.points.map((p) => Date.parse(p.ts));
+      for (let i = 1; i < times.length; i++)
+        expect(Math.abs(times[i]! - times[i - 1]! - window)).toBeLessThan(window * 0.2);
+      // I punti coprono tutto l'intervallo, non solo l'ultima settimana.
+      expect(now - times[0]!).toBeGreaterThan((days - 1) * DAY);
+      expect(now - times.at(-1)!).toBeLessThan(window * 1.5);
+      // Il picco di CPU della parte più vecchia di 7 giorni resta vicino a quello dei campioni grezzi.
+      const cutoff = now - 7 * DAY;
+      const rawOld = state
+        .serverMetrics.get("SRV-1")!
+        .filter((p) => Date.parse(p.ts) <= cutoff && Date.parse(p.ts) > now - days * DAY);
+      const rawMax = Math.max(...rawOld.map((p) => p.cpuPct));
+      const oldMax = Math.max(
+        ...m.points.filter((p) => Date.parse(p.ts) <= cutoff).map((p) => p.cpuPct),
+      );
+      expect(oldMax).toBeGreaterThan(rawMax * 0.8);
+    }
+  });
+});
+
+describe("area 9b, Task 7 (giro 1): oggetto d'istanza e registro", () => {
+  it("I2: ogni riga di listAllServers si apre — dettaglio, metriche, scritture — ma ambienti e principale restano filtrati", async () => {
+    grantMonitor("p-sara");
+    as("p-sara");
+    const rows = await servers.listAllServers();
+    expect(rows.map((r) => r.code)).toContain("SRV-3");
+    for (const r of rows) {
+      const detail = await servers.getServer(r.code);
+      expect(detail.code).toBe(r.code);
+      await servers.getServerMetrics(r.code, "1h");
+    }
+    const srv3 = await servers.getServer("SRV-3");
+    expect(srv3.environments).toEqual([]);
+    expect(srv3.productionProjects).toEqual([]);
+    expect(srv3.primaryProjectCode).toBeNull();
+    expect(srv3.orphan).toBe(false);
+    await servers.updateServer("SRV-3", { name: "aud-prod-renamed" });
+    expect(server("SRV-3")!.name).toBe("aud-prod-renamed");
+  });
+
+  it("I1: il registro non rivela il progetto principale a chi non lo vede", async () => {
+    grantMonitor("p-sara");
+    as("p-roberta");
+    // Nel seme AUD è già il principale di SRV-3: prima lo si toglie, poi lo si rimette.
+    await servers.updateServer("SRV-3", { primaryProjectId: null });
+    await servers.updateServer("SRV-3", { primaryProjectId: "prj-aud" });
+    const written = state.changelog.filter((c) => c.kind === "server.updated").at(-1)!;
+    expect(JSON.parse(written.after!)).toEqual({ primaryProject: "prj-aud" });
+    as("p-sara");
+    const mine = (await changelog.listChanges()).filter((e) => e.kind === "server.updated");
+    expect(mine).toHaveLength(2);
+    const text = JSON.stringify(mine);
+    expect(text).not.toContain("AUD");
+    expect(text).not.toContain("prj-aud");
+    expect(mine[0]!.diff).toMatchObject({
+      kind: "setting",
+      after: { type: "fields", fields: { primaryProject: "@hidden" } },
+    });
+    // Roberta lo vede col codice.
+    as("p-roberta");
+    const seen = (await changelog.listChanges()).find((e) => e.kind === "server.updated")!;
+    expect(seen.diff).toMatchObject({ after: { fields: { primaryProject: "AUD" } } });
   });
 });
 

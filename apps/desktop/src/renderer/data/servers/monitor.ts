@@ -145,7 +145,9 @@ export async function updateServer(code: string, patch: UpdateServerInput): Prom
   const fieldsOf = (n: string, interval: number, primary: string | null) => ({
     name: n,
     sampleInterval: String(interval),
-    primaryProject: primary === null ? null : (state.projectsById.get(primary)?.code ?? primary),
+    // L'ID, non il codice: chi legge il registro vede forse un progetto che
+    // non vede, e lo risolve a lettura (`changelog/reads.ts`, R-G5).
+    primaryProject: primary,
   });
   const diff = changedFields(
     fieldsOf(server.name, server.sampleIntervalSeconds, server.primaryProjectId),

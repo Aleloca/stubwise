@@ -33,6 +33,39 @@ export function downsample(
   return { points: [points[0]!, ...middle, points.at(-1)!], truncated: true };
 }
 
+/**
+ * Una serie ridotta PER DURATA (area 9b, i grafici a 30 e 90 giorni): finestre
+ * uguali di `(toMs − fromMs) / (max − 2)`, un punto per finestra non vuota
+ * (la media, all'ora centrale della finestra). Serve quando la serie ha passi
+ * diversi (30 s negli ultimi giorni, più largo prima): `downsample` conta i
+ * punti, e darebbe all'ultima settimana quasi tutte le finestre. Una finestra
+ * senza campioni (l'agente taceva) non dà punto.
+ */
+export function downsampleByTime(
+  points: MetricPoint[],
+  fromMs: number,
+  toMs: number,
+  max = METRIC_POINTS_MAX,
+): { points: MetricPoint[]; truncated: boolean } {
+  if (points.length <= max) return { points, truncated: false };
+  const buckets = Math.max(1, max - 2);
+  const size = (toMs - fromMs) / buckets;
+  const groups = new Map<number, MetricPoint[]>();
+  for (const p of points) {
+    const b = Math.min(buckets - 1, Math.max(0, Math.floor((Date.parse(p.ts) - fromMs) / size)));
+    const g = groups.get(b);
+    if (g) g.push(p);
+    else groups.set(b, [p]);
+  }
+  const out = [...groups.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([b, g]) => ({
+      ...average(g),
+      ts: new Date(fromMs + (b + 0.5) * size).toISOString().replace(".000Z", "Z"),
+    }));
+  return { points: out, truncated: true };
+}
+
 /** Le finestre consecutive in cui `downsample` divide i punti interni. */
 function windows<T>(inner: T[], buckets: number): T[][] {
   const out: T[][] = [];

@@ -4,7 +4,7 @@ import {
   type ServerTaskState,
 } from "../../domain/servers/fixGate";
 import { serverHealth, type ServerHealth } from "../../domain/servers/health";
-import { downsample, downsampleSamples } from "../../domain/servers/metrics";
+import { downsample, downsampleByTime, downsampleSamples } from "../../domain/servers/metrics";
 import { removalScript, type ScriptLang } from "../../domain/servers/installScript";
 import { serverInProject } from "../../domain/servers/projects";
 import { accessState, type AccessState } from "../../domain/servers/sshAccess";
@@ -127,7 +127,12 @@ export async function getServerMetrics(
   }
   const all = metricsSince(server.code, fromMs);
   // Copie: i punti del seme sono condivisi (congelati), mai riferimenti allo stato.
-  return copy({ ...downsample(all), sampleCount: all.length, check });
+  // Oltre i 7 giorni la serie ha due passi: si ricampiona per durata, non per indice.
+  const reduced =
+    range === "30d" || range === "90d"
+      ? downsampleByTime(all, fromMs, Date.parse(now()))
+      : downsample(all);
+  return copy({ ...reduced, sampleCount: all.length, check });
 }
 
 export interface ServerSearchResult {

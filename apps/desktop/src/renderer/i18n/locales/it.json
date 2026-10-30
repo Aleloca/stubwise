@@ -9214,6 +9214,7 @@
       "reviewCap": "tetto della revisione delle PR {{amount}}",
       "queuePaused": "In pausa dal {{date}}",
       "queueRunning": "Attiva",
+      "hiddenProject": "un progetto che non vedi",
       "webhookFormat": {
         "slack": "Slack",
         "discord": "Discord",

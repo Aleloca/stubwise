@@ -71,26 +71,26 @@ const environmentsOf = (code: string): ProjectEnvironment[] =>
 
 /**
  * I codici dei server (esistenti) che `personId` vede: quelli di un ambiente
- * qualunque di un progetto che vede e, con `monitor.manage`, anche quelli
- * che non compaiono in nessun ambiente (R-L7): un server orfano resta
- * raggiungibile da chi gestisce il monitor, che lo può ricollegare o togliere.
+ * qualunque di un progetto che vede e, con `monitor.manage`, TUTTI (dal 9b:
+ * orfani, R-L7, e server di progetti invisibili): chi gestisce il monitor li
+ * può aprire, modificare e togliere.
  */
 export function serversVisibleTo(personId: string): Set<string> {
+  // Area 9b (ruling T7 I2): con `monitor.manage` il server è un oggetto
+  // d'istanza e si vede TUTTO — l'elenco di Amministrazione li mostra, e uno
+  // elencato deve potersi aprire (R-G5 vieta «elencato e inesistente»).
+  // Ambienti, principale, analisi e task dei progetti invisibili restano
+  // filtrati dalle righe e dal dettaglio.
+  if (canMonitor(personId)) return new Set(state.servers.map((s) => s.code));
   const visible = visibleProjectIds(personId);
-  const linked = new Set<string>();
   const out = new Set<string>();
   for (const env of state.environments) {
     for (const s of env.servers) {
-      linked.add(s.serverCode);
       if (visible.has(env.projectId)) out.add(s.serverCode);
     }
   }
-  const monitor = canMonitor(personId);
   const existing = new Set<string>();
-  for (const s of state.servers) {
-    existing.add(s.code);
-    if (monitor && !linked.has(s.code)) out.add(s.code);
-  }
+  for (const s of state.servers) existing.add(s.code);
   for (const code of out) if (!existing.has(code)) out.delete(code);
   return out;
 }
