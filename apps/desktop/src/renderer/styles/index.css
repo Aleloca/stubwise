@@ -139,6 +139,20 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Il «·» d'apertura di un pezzo di `MetaLine` (pagine d'amministrazione):
+   sta nel margine negativo della riga, che il contenitore taglia quando il
+   pezzo apre una riga. Decorazione: il testo alternativo vuoto lo toglie ai
+   lettori di schermo. */
+@utility meta-part {
+  &::before {
+    content: "·" / "";
+    display: inline-block;
+    width: 0.75rem;
+    text-align: center;
+    color: var(--ink-faint);
+  }
+}
+
 /* Intestazione di gruppo («Overdue», «Today»…): Archivo espanso, maiuscolo,
    spaziato. Solo per titoli brevi, mai per testo lungo. */
 @utility heading-group {

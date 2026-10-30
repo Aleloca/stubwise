@@ -8,7 +8,7 @@ import { useToast } from "../../../tasks-ui/Toast";
 import { ErrorLine } from "../../entry/parts";
 import { ReadError, RowMenu, refusalOf } from "../../preferences/parts";
 import { dangerSolidButton, secondaryButton } from "../../tasks/controls";
-import { CrossGlyph, Dot, QuietNote, useRefusalWords } from "./parts";
+import { CrossGlyph, MetaLine, QuietNote, useRefusalWords } from "./parts";
 import {
   NextOutcomeBox,
   PluginStatusWords,
@@ -77,7 +77,8 @@ function PluginBody({ plugin: p }: { plugin: PluginView }) {
   const address = p.url.replace(/^https:\/\//, "") + (p.subdir ? `/${p.subdir}` : "");
   // La regola è del livello dati (`busy`): un passo in corso fa aspettare.
   const waitWords = p.busy ? t("admin.plugins.page.busy") : null;
-  const smokeUnavailable = waitWords ?? (p.status !== "ready" ? t("admin.plugins.page.notReady") : null);
+  const smokeUnavailable =
+    waitWords ?? (p.status !== "ready" ? t("admin.plugins.page.notReady") : null);
 
   async function runSmoke() {
     setError(null);
@@ -93,25 +94,27 @@ function PluginBody({ plugin: p }: { plugin: PluginView }) {
     <>
       <div className="mt-3 flex items-start gap-4">
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-2xl font-semibold tracking-[-0.01em] text-ink" title={p.name}>
+          <h1
+            className="truncate text-2xl font-semibold tracking-[-0.01em] text-ink"
+            title={p.name}
+          >
             {p.name}
           </h1>
-          {/* Va a capo fra le parti, mai dentro un nome (l'indirizzo, se lungo, sì). */}
-          <p className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm text-ink-muted">
-            {[
+          {/* Va a capo fra le parti, mai dentro un nome (l'indirizzo, se lungo,
+              sì), senza «·» orfani (Impeccable 6). */}
+          <MetaLine
+            className="mt-1.5"
+            wrapFirst
+            parts={[
               address,
               t("admin.plugins.ref", { ref: p.ref }),
-              ...(p.sha ? [t("admin.plugins.pin", { sha: shortSha(p.sha) })] : []),
-              ...(p.registeredByName
-                ? [t("admin.plugins.page.registeredBy", { name: p.registeredByName })]
-                : []),
-            ].map((part, i) => (
-              <span key={i} className={`flex min-w-0 items-center gap-x-1.5 ${i === 0 ? "[overflow-wrap:anywhere]" : "whitespace-nowrap"}`}>
-                {i > 0 && <Dot />}
-                <span className={i === 2 && p.sha ? "num" : undefined}>{part}</span>
-              </span>
-            ))}
-          </p>
+              p.sha && (
+                <span className="num">{t("admin.plugins.pin", { sha: shortSha(p.sha) })}</span>
+              ),
+              p.registeredByName &&
+                t("admin.plugins.page.registeredBy", { name: p.registeredByName }),
+            ]}
+          />
           <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
             <PluginStatusWords status={p.status} />
             <SmokeWords smoke={p.smoke} />
@@ -214,7 +217,10 @@ function Inventory({ plugin: p }: { plugin: PluginView }) {
             ))}
           </ul>
           <GroupHeading label={t("admin.plugins.page.hooks")} count={p.inventory.hooks.length} />
-          <ul aria-label={t("admin.plugins.page.hooks")} className="@container border-t border-rule">
+          <ul
+            aria-label={t("admin.plugins.page.hooks")}
+            className="@container border-t border-rule"
+          >
             {p.inventory.hooks.map((h) => (
               <li
                 key={h.key}
@@ -263,7 +269,10 @@ function SkillRow({ name, description }: { name: string; description: string }) 
   return (
     <li className="flex flex-col gap-0.5 border-b border-rule py-2.5">
       <span className="text-md font-semibold text-ink">{name}</span>
-      <p ref={text} className={`max-w-[72ch] text-sm text-pretty text-ink-muted ${open ? "" : "line-clamp-2"}`}>
+      <p
+        ref={text}
+        className={`max-w-[72ch] text-sm text-pretty text-ink-muted ${open ? "" : "line-clamp-2"}`}
+      >
         {description}
       </p>
       {(overflows || open) && (

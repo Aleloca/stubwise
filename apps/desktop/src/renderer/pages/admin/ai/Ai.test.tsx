@@ -173,6 +173,17 @@ describe("Providers", () => {
     // «near» in parole, non solo col colore.
     expect(within(backup).getByText("Near the limit")).toBeVisible();
     expect(within(backup).getByText("5h 64% · week 87%")).toBeVisible();
+    // Impeccable 6: la riga meta va a capo per pezzi interi, col «·» legato
+    // al pezzo che segue (nessun «·» a sé), e «read 3h ago» come il resto dell'app.
+    const meta = backup.querySelector<HTMLElement>("[data-meta-line]")!;
+    const parts = [...meta.querySelectorAll<HTMLElement>("[data-meta-part]")];
+    expect(parts.map((p) => p.textContent)).toEqual([
+      "•••• b7d0",
+      expect.stringMatching(/^tested /),
+      "read 3h ago",
+    ]);
+    expect(parts.every((p) => p.className.includes("whitespace-nowrap"))).toBe(true);
+    expect([...meta.querySelectorAll("span")].some((e) => e.textContent === "·")).toBe(false);
     expect(within(row("Team Max")).queryByText("Near the limit")).toBeNull();
     expect(within(row("Billing key")).getByText("used only when no subscription is on")).toBeVisible();
     expect(within(row("Billing key")).getByText("•••• 9e2b")).toBeVisible();

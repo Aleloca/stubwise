@@ -32,8 +32,10 @@ import { useToast } from "../../../tasks-ui/Toast";
 import { PrototypeBox } from "../../automations/shared";
 import { Segmented, selectClass } from "../../automations/builder/controls";
 import { ErrorLine } from "../../entry/parts";
-import { OpenCircleGlyph, TriangleGlyph } from "../../preferences/glyphs";
-import { ReadError, RowMenu, refusalOf, whenSynced } from "../../preferences/parts";
+import { TriangleGlyph } from "../../preferences/glyphs";
+import { ReadError, RowMenu, refusalOf } from "../../preferences/parts";
+import { ago } from "../../releases/format";
+import { CrossGlyph, MetaLine, QuietNote } from "../integrations/parts";
 import { Switch } from "../../preferences/SubscriptionRow";
 import { dangerSolidButton, primaryButton, secondaryButton } from "../../tasks/controls";
 import { AddProviderDialog } from "./AddProviderDialog";
@@ -152,7 +154,11 @@ export function ProvidersPanel({ canWrite }: { canWrite: boolean }) {
     onDragStart: ({ active }) => nameAt(active.id),
     onDragOver: ({ active, over }) =>
       over
-        ? t("admin.ai.providers.moved", { name: nameAt(active.id), position: at(over.id) + 1, total })
+        ? t("admin.ai.providers.moved", {
+            name: nameAt(active.id),
+            position: at(over.id) + 1,
+            total,
+          })
         : undefined,
     onDragEnd: ({ active, over }) =>
       t("admin.ai.providers.moved", {
@@ -161,7 +167,11 @@ export function ProvidersPanel({ canWrite }: { canWrite: boolean }) {
         total,
       }),
     onDragCancel: ({ active }) =>
-      t("admin.ai.providers.moved", { name: nameAt(active.id), position: at(active.id) + 1, total }),
+      t("admin.ai.providers.moved", {
+        name: nameAt(active.id),
+        position: at(active.id) + 1,
+        total,
+      }),
   };
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     if (!over || active.id === over.id) return;
@@ -195,7 +205,10 @@ export function ProvidersPanel({ canWrite }: { canWrite: boolean }) {
           accessibility={{ announcements }}
         >
           <SortableContext items={list.map((p) => p.id)} strategy={verticalListSortingStrategy}>
-            <ol aria-label={t("admin.ai.providers.list")} className="@container mt-4 border-t border-rule">
+            <ol
+              aria-label={t("admin.ai.providers.list")}
+              className="@container mt-4 border-t border-rule"
+            >
               {list.map((p, index) => (
                 <ProviderRow
                   key={p.id}
@@ -236,31 +249,9 @@ export function ProvidersPanel({ canWrite }: { canWrite: boolean }) {
           onAdded={(id) => setAdded(id)}
         />
       )}
-      {replacing && (
-        <ReplaceDialog provider={replacing} onClose={() => setReplacing(null)} />
-      )}
+      {replacing && <ReplaceDialog provider={replacing} onClose={() => setReplacing(null)} />}
       {deleting && <DeleteDialog provider={deleting} onClose={() => setDeleting(null)} />}
     </>
-  );
-}
-
-function Dot() {
-  return (
-    <span aria-hidden="true" className="text-ink-faint">
-      ·
-    </span>
-  );
-}
-
-/** Una riga 13 px in tono minore col cerchio vuoto: una regola detta una volta. */
-function QuietNote({ children }: { children: string }) {
-  return (
-    <p className="flex items-start gap-1.5 text-sm text-pretty text-ink-muted">
-      <span className="mt-[2px] shrink-0">
-        <OpenCircleGlyph size={12} />
-      </span>
-      <span className="min-w-0 max-w-[72ch]">{children}</span>
-    </p>
   );
 }
 
@@ -333,7 +324,8 @@ function ProviderRow({
     const refusal = result === null ? { error: "failed" } : refusalOf(result);
     if (refusal) return setError(refusalWords(refusal.error));
     const outcome = (result as { outcome: TestOutcome }).outcome;
-    if (outcome !== "ok") toast.error(t(`admin.ai.providers.testFailed.${outcome}`, { name: p.name }));
+    if (outcome !== "ok")
+      toast.error(t(`admin.ai.providers.testFailed.${outcome}`, { name: p.name }));
   }
 
   function onHandleKey(e: KeyboardEvent) {
@@ -343,13 +335,22 @@ function ProviderRow({
   }
 
   const muted = !p.enabled;
+  // «read 3h ago»: lo stesso formattatore corto del resto dell'app (Impeccable
+  // 6), con «Yesterday»/«Just now» in minuscolo dentro la frase.
+  const readWords = (iso: string) => {
+    const words = ago(iso, t, i18n.language);
+    const lower = [t("notifications.time.now"), t("notifications.time.yesterday")].includes(words);
+    return lower ? words.toLocaleLowerCase(i18n.language) : words;
+  };
   const quota = p.quota;
   const testWords = testing ? (
     <span>{t("admin.ai.providers.testing")}</span>
   ) : p.lastTest === null ? (
     <span>{t("admin.ai.providers.notTested")}</span>
   ) : p.lastTest.outcome === "ok" ? (
-    <span>{t("admin.ai.providers.tested", { date: formatDate(p.lastTest.at, i18n.language) })}</span>
+    <span>
+      {t("admin.ai.providers.tested", { date: formatDate(p.lastTest.at, i18n.language) })}
+    </span>
   ) : (
     <span className="inline-flex items-center gap-1 text-critical">
       <CrossGlyph />
@@ -367,7 +368,11 @@ function ProviderRow({
         transition,
       }}
       className={`relative border-b border-rule transition-colors duration-[var(--duration-base)] ease-out ${
-        isDragging ? "z-10 rounded-md border border-rule-strong bg-surface" : justAdded ? "bg-ink/6" : ""
+        isDragging
+          ? "z-10 rounded-md border border-rule-strong bg-surface"
+          : justAdded
+            ? "bg-ink/6"
+            : ""
       }`}
     >
       <div className="flex min-h-16 flex-col justify-center gap-1 py-2 pr-1">
@@ -379,7 +384,9 @@ function ProviderRow({
         */}
         <div
           className={`grid min-w-0 items-center gap-x-3 gap-y-1 ${
-            canWrite ? "grid-cols-[28px_20px_minmax(0,1fr)_auto_auto]" : "grid-cols-[4px_20px_minmax(0,1fr)_auto_auto]"
+            canWrite
+              ? "grid-cols-[28px_20px_minmax(0,1fr)_auto_auto]"
+              : "grid-cols-[4px_20px_minmax(0,1fr)_auto_auto]"
           }`}
         >
           {canWrite ? (
@@ -440,31 +447,21 @@ function ProviderRow({
               onChange={(next) => void toggle(next)}
             />
           </span>
-          <p className="col-start-3 col-end-5 row-start-2 flex min-w-0 flex-wrap @max-[719px]:col-end-4 items-center gap-x-1.5 gap-y-0.5 text-sm text-ink-muted">
-            <span className="num font-mono">{maskedSecret(p.last4)}</span>
-            {p.kind === "api_key" && (
-              <>
-                <Dot />
-                <span>
-                  {subscriptionOn
-                    ? t("admin.ai.providers.apiKeyStandby")
-                    : t("admin.ai.providers.apiKeyInUse")}
-                </span>
-              </>
-            )}
-            <Dot />
-            {testWords}
-            {p.kind === "subscription" && (
-              <>
-                <Dot />
-                <span>
-                  {quota
-                    ? t("admin.ai.providers.readAgo", { ago: whenSynced(quota.readAt, i18n.language) })
-                    : t("admin.ai.providers.noReading")}
-                </span>
-              </>
-            )}
-          </p>
+          <MetaLine
+            className="col-start-3 col-end-5 row-start-2 @max-[719px]:col-end-4"
+            parts={[
+              <span className="num font-mono">{maskedSecret(p.last4)}</span>,
+              p.kind === "api_key" &&
+                (subscriptionOn
+                  ? t("admin.ai.providers.apiKeyStandby")
+                  : t("admin.ai.providers.apiKeyInUse")),
+              testWords,
+              p.kind === "subscription" &&
+                (quota
+                  ? t("admin.ai.providers.readAgo", { ago: readWords(quota.readAt) })
+                  : t("admin.ai.providers.noReading")),
+            ]}
+          />
           <span className="col-start-5 row-start-2 flex shrink-0 items-center justify-end gap-2">
             {/* Spento per permesso: la frase e «Who?» accanto (GC del maintainer). */}
             {!canWrite && <AiWhoCan scope="providers" />}
@@ -750,28 +747,17 @@ function DeleteDialog({ provider: p, onClose }: { provider: ProviderView; onClos
 
 function GripIcon() {
   return (
-    <svg viewBox="0 0 16 16" width={16} height={16} fill="currentColor" aria-hidden="true" focusable="false">
-      {[4, 8, 12].flatMap((y) =>
-        [6, 10].map((x) => <circle key={`${x}-${y}`} cx={x} cy={y} r={1.1} />),
-      )}
-    </svg>
-  );
-}
-
-function CrossGlyph() {
-  return (
     <svg
       viewBox="0 0 16 16"
-      width={12}
-      height={12}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
+      width={16}
+      height={16}
+      fill="currentColor"
       aria-hidden="true"
       focusable="false"
     >
-      <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
+      {[4, 8, 12].flatMap((y) =>
+        [6, 10].map((x) => <circle key={`${x}-${y}`} cx={x} cy={y} r={1.1} />),
+      )}
     </svg>
   );
 }

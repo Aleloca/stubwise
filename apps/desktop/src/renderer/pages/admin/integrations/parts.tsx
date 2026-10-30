@@ -50,7 +50,9 @@ export function IntegrationPage({
             <h1 className="text-2xl font-semibold tracking-[-0.01em] text-ink">{title}</h1>
             <p className="mt-2 max-w-[62ch] text-md text-pretty text-ink-muted">{intro}</p>
           </div>
-          {action && <span className="ml-auto flex shrink-0 items-center gap-2 pt-1">{action}</span>}
+          {action && (
+            <span className="ml-auto flex shrink-0 items-center gap-2 pt-1">{action}</span>
+          )}
         </div>
         {children}
       </div>
@@ -80,6 +82,45 @@ export function ReadOnlyNote({ text, action }: { text: string; action: string })
         {text} <WhoCanLink action={action} projectId={null} />
       </QuietNote>
     </div>
+  );
+}
+
+/**
+ * Una riga di pezzi separati da «·» che va a capo per pezzi interi
+ * (Impeccable 6): ogni pezzo non si spezza e porta il suo «·» all'inizio,
+ * in un margine negativo che il contenitore taglia. Così il pezzo che apre
+ * una riga perde il «·» e nessuno resta orfano in coda alla riga sopra. Il
+ * separatore è decorazione (`content: "·" / ""`): i lettori di schermo non
+ * lo leggono. `wrapFirst`: il primo pezzo può andare a capo dentro di sé
+ * (un indirizzo lungo).
+ */
+export function MetaLine({
+  parts,
+  wrapFirst = false,
+  className = "",
+}: {
+  parts: ReactNode[];
+  wrapFirst?: boolean;
+  className?: string;
+}) {
+  const shown = parts.filter((p) => p !== null && p !== undefined && p !== false);
+  return (
+    <span
+      data-meta-line
+      className={`block min-w-0 overflow-hidden text-sm text-ink-muted ${className}`}
+    >
+      <span className="-ml-3 flex flex-wrap items-center gap-y-0.5">
+        {shown.map((part, i) => (
+          <span
+            key={i}
+            data-meta-part
+            className={`meta-part min-w-0 ${i === 0 && wrapFirst ? "[overflow-wrap:anywhere]" : "whitespace-nowrap"}`}
+          >
+            {part}
+          </span>
+        ))}
+      </span>
+    </span>
   );
 }
 
