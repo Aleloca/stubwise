@@ -506,6 +506,24 @@ describe("revisione finale M4: l'avviso e il riquadro dicono perché Claude non 
     expect(body).toContain("Claude looks into it when ACQ's queue resumes.");
   });
 
+  it("residuo N1 (R-G5): un server in due produzioni: l'avviso all'altro progetto non nomina quello dell'analisi", async () => {
+    // SRV-1 anche nella produzione di STW: l'analisi resta in ACQ (il principale).
+    state.environments
+      .find((e) => e.id === "env-stw-prod")!
+      .servers.push({ repositoryId: null, serverCode: "SRV-1", reportedSha: null } as never);
+    await instance.pauseQueue(ACQ);
+    await servers.simulateServerRecovery("SRV-1").catch(() => undefined);
+    await servers.simulateServerAlert("SRV-1", "memory");
+    const alerts = state.notifications.filter(
+      (n) => n.id.startsWith("n-alert") && n.kind === "server.trouble" && n.objectCode === "SRV-1",
+    );
+    const toStw = alerts.find((n) => n.projectId === STW)!;
+    const toAcq = alerts.find((n) => n.projectId === ACQ)!;
+    expect(toAcq.body).toContain("Claude looks into it when ACQ's queue resumes.");
+    expect(toStw.body).not.toContain("ACQ");
+    expect(toStw.body).toContain("Claude looks into it when the queue resumes.");
+  });
+
   it("budget raggiunto: l'avviso lo dice, e l'episodio ricorda perché non c'è analisi", async () => {
     await instance.simulateBudgetReached(true);
     await servers.simulateServerRecovery("SRV-1").catch(() => undefined);

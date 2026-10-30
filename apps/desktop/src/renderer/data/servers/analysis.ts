@@ -122,23 +122,30 @@ function publishTrouble(
   projectId: string | null,
 ): void {
   const readable = accessUsable(state.serverAccess.get(s.code), "read");
-  const tail = analyzes
-    ? block?.reason === "queue_paused" && projectId !== null
-      ? ` Claude looks into it when ${projectCode(projectId)}'s queue resumes.`
-      : " Claude is looking into it with read-only access."
-    : !readable
-      ? ` ${noAnalysisTail(s.code)}`
-      : ep.analysisBlocked === "monthly_budget"
-        ? " Claude can't look into it: the monthly AI budget is used up."
-        : "";
-  for (const projectId of alertProjectsOf(s.code, state.environments)) {
+  // La frase si scrive per ogni avviso: il codice del progetto dell'analisi
+  // compare solo nell'avviso che va a quel progetto. Le altre produzioni
+  // possono non vederlo (R-G5, ri-revisione N1).
+  const tailFor = (to: string): string =>
+    analyzes
+      ? block?.reason === "queue_paused" && projectId !== null
+        ? to === projectId
+          ? ` Claude looks into it when ${projectCode(projectId)}'s queue resumes.`
+          : " Claude looks into it when the queue resumes."
+        : " Claude is looking into it with read-only access."
+      : !readable
+        ? ` ${noAnalysisTail(s.code)}`
+        : ep.analysisBlocked === "monthly_budget"
+          ? " Claude can't look into it: the monthly AI budget is used up."
+          : "";
+  for (const to of alertProjectsOf(s.code, state.environments)) {
+    const tail = tailFor(to);
     publishAlert({
       kind: ep.severity === "down" ? "server.down" : "server.trouble",
-      projectId,
+      projectId: to,
       objectCode: s.code,
       title: ep.severity === "down" ? "Server not responding" : "Server in trouble",
       body: `${s.name}: ${reasonsPhrase(ep.reasons)}.${tail}`,
-      link: serverHref(projectCode(projectId), s.code),
+      link: serverHref(projectCode(to), s.code),
     });
   }
 }
