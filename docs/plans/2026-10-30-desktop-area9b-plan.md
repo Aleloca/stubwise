@@ -519,11 +519,17 @@ Test:
   - `setDefaultReviewer(id, on): InstanceResult<{ replaced: string | null }>`: uno per ambito (provider + workspace); ne sostituisce un altro e lo dice.
 - **Plugins** (`plugins.manage`):
   - `listPlugins()`, `getPlugin(id)`
-  - `registerPlugin({ url; ref; subdir })` **+R**:
+  - `registerPlugin({ url; ref; subdir; trusted: true })` **+R**:
+    - `invalid: "not_trusted"` senza `trusted: true` (la casella «Mi fido di
+      questo repository e di questo commit», **confermata dal maintainer il
+      30 ott 2026**), controllato prima della riconferma come ogni
+      `invalid`;
     - `invalid` per un URL non `https`, con credenziali o non pubblico;
     - `invalid: "slug"` se lo slug non rispetta `^[a-z0-9][a-z0-9-]{0,63}$`;
     - `invalid: "duplicate"` per un URL già registrato.
-  - `updatePluginRef(id, ref)` **+R**, `rerunSmoke(id)`, `removePlugin(id)`
+  - `updatePluginRef(id, { ref; trusted: true })` **+R**, con lo stesso
+    `invalid: "not_trusted"`; `rerunSmoke(id)`, `removePlugin(id)` (senza
+    casella: non eseguono codice nuovo)
   - `simulateNextPluginOutcome(outcome: "ready" | "failed")`
   - Ciclo: `materializing` → dopo `PLUGIN_STEP_MS = 800` `ready` (con `sha`,
     inventario e smoke `running` → `passed`) o `failed` (con `error`). Il
@@ -541,7 +547,7 @@ Test:
   - `setAttachments(on)`, `testStorage()`
   - `storageAllowsUploads(): boolean`, per il Task 6: vero se configurato, allegati accesi e l'ultima prova non fallita.
 - **Webhook** (`settings.manage`):
-  - `WEBHOOK_EVENTS: readonly { id: string; source: "web" | "catalog" }[]`: i 13 del web (`ticket.created`, `job.pr_opened`, `job.pr_closed`, `job.held`, `job.plan_review`, `job.budget_held`, `review.completed`, `job.failed`, `docs.limit_paused`, `monitor`, `job.awaiting_input`, `project.pulse`, `project.brief`) più quelli dello shape `admin-integrations.md`
+  - `WEBHOOK_EVENTS: readonly { id: string; source: "web" | "catalog" }[]`: i 13 del web (`ticket.created`, `job.pr_opened`, `job.pr_closed`, `job.held`, `job.plan_review`, `job.budget_held`, `review.completed`, `job.failed`, `docs.limit_paused`, `monitor`, `job.awaiting_input`, `project.pulse`, `project.brief`) più 8 del catalogo 8a/8b (`release.merged`, `release.succeeded`, `release.failed`, `pr.analysis_issues`, `docs.release_note`, `task.created_by_automation`, `support.request`, `server.diagnosis_ready`), 21 in tutto, come la tabella dello shape `admin-integrations.md` (**confermata dal maintainer il 30 ott 2026**). `monitor` copre anche `server.trouble`, `server.down`, `server.recovered`. Esclusi: `pr.opened`, `task.created`, `pr.corrected`, **`support.customer_replied`** (le risposte dei clienti non escono col webhook, maintainer), `google.proposal`, posta, `security.alert`
   - `getWebhook()`: con `url` in chiaro, come sul web (maintainer, 30 ott 2026)
   - `saveWebhook({ enabled; format; url: string | null; events })`: senza riconferma; `invalid: "url"` per un URL non `https`, o mancante con `enabled`; la voce `webhook.changed` ha l'URL nel prima/dopo
   - `testWebhook()`, con l'esito simulato
@@ -562,13 +568,17 @@ Test:
     smoke `passed`;
   - con `failed` simulato → `failed` con l'errore;
   - `resetApi` a metà non fa arrivare la transizione;
-  - URL `http://`, `https://user:pw@…`, `git@…` → `invalid`.
+  - URL `http://`, `https://user:pw@…`, `git@…` → `invalid`;
+  - `registerPlugin` e `updatePluginRef` senza `trusted: true` →
+    `invalid: "not_trusted"`, nessun plugin nuovo né cambiato, nessuna
+    voce, e nessuna riconferma chiesta.
 - [ ] Un'app Google nuova compare in `listMyMailboxes()` fra quelle da
   collegare; un'app con caselle non si elimina.
 - [ ] `storageAllowsUploads()` falso con gli allegati spenti o dopo una prova
   fallita.
-- [ ] Webhook: nessun evento di posta in `WEBHOOK_EVENTS`; `previewWebhook`
-  per Slack, Discord e JSON.
+- [ ] Webhook: `WEBHOOK_EVENTS` ha esattamente i 21 eventi dello shape
+  (13 `web`, 8 `catalog`); nessun evento di posta, né `google.proposal`, né
+  `support.customer_replied`; `previewWebhook` per Slack, Discord e JSON.
 - [ ] Commit `feat(desktop): integrazioni d'istanza nel livello dati`.
 
 ### Task 5: Coda e Stato dell'istanza — livello dati
@@ -693,7 +703,7 @@ Test:
   - `data/drive/writes.ts` (`uploadFiles`) e gli allegati del composer;
   - il punto in cui una sessione passa a `finished` (`recordUsage`);
   - `data/model.ts` (`Conversation.model?: string`, `Conversation.waiting?: AiBlock | null`, `TaskWork.blocked: AiBlock | null`);
-  - le pagine dello shape `instance-effects.md`: `pages/task/ClaudeSection.tsx`, il composer di Claude, la riga del progetto nelle automazioni, Drive;
+  - le pagine dello shape `instance-effects.md`: `pages/task/ClaudeSection.tsx`, il composer di Claude, la testata della colonna del progetto (`layout/ProjectColumn.tsx`), la riga del progetto in «All projects», le esecuzioni delle automazioni, Drive;
   - i18n.
 - Test: `data/instance/effects.test.ts`, `pages/task/ClaudeSection.test.tsx`, `pages/drive/*.test.tsx`.
 
@@ -739,6 +749,11 @@ Regole:
   - ogni task del progetto dice «Queue paused by Roberta» in
     `TaskWork.blocked` (con «Start» acceso); quella in attesa dice
     «Waiting: queue paused by Roberta»;
+  - la testata della colonna del progetto dice «‖ Queue paused by Roberta
+    Fontana» sotto il tipo, col «Who?» di `manageSettings`, e la riga del
+    progetto in «All projects» porta «‖ Queue paused» sulla seconda linea
+    (**confermata dal maintainer il 30 ott 2026**, shape
+    `instance-effects.md` [EF 4]); le tessere del rail non cambiano;
   - un secondo «Avvia» è `conflict`, perché la sessione è viva;
   - le automazioni del progetto aspettano allo stesso modo;
   - la conversazione libera («Chiedi a Claude») non è nella coda di un
@@ -758,7 +773,11 @@ Test:
   `startRun` → `monthly_budget`; una sessione in corso finisce; alzato il
   budget, «Start» torna.
 - [ ] Coda in pausa (STW): «Start» → la task dice «Waiting: queue paused by
-  Roberta Ferri»; `resumeQueue` → la sessione parte e il piano arriva.
+  Roberta Fontana»; `resumeQueue` → la sessione parte e il piano arriva.
+- [ ] Coda in pausa (STW): la testata della colonna di STW dice «Queue paused
+  by Roberta Fontana» con «Who?», e la riga di STW in «All projects» dice
+  «Queue paused»; ACQ (non in pausa) non dice niente; dopo `resumeQueue` le
+  due righe spariscono.
 - [ ] Un'automazione di STW con un passo di Claude aspetta la ripresa.
 - [ ] Budget raggiunto, un'automazione di ACQ con un passo di Claude:
   l'esecuzione non fallisce, resta ferma a quel passo con la frase, ed è fra
@@ -787,7 +806,7 @@ Test:
 
 **Interfaces, prodotte:**
 - `listAllServers(): Promise<(ServerRow & { projects: { code: string; name: string }[]; orphan: boolean })[]>` (`monitor.manage`, altrimenti `forbidden`): tutti i server, i progetti solo se visibili, gli orfani (R-L7).
-- `CreateServerInput.environmentId: string | null`: `null` solo da Amministrazione, con `monitor.manage`; il server nasce orfano, senza progetto principale.
+- `CreateServerInput.environmentId: string | null`: `null` solo da Amministrazione, con `monitor.manage`; il server nasce orfano, senza progetto principale. Da Amministrazione un server nasce **sempre** senza progetto (**confermata dal maintainer il 30 ott 2026**): il dialogo non offre ambienti, e lo si collega dagli ambienti del progetto.
 - `type MetricRange = "1h" | "24h" | "7d" | "30d" | "90d"`. Il seme copre `METRIC_DAYS = 90`: passo di 30 s negli ultimi 7 giorni, `METRIC_COARSE_STEP_SECONDS = 900` prima. I grafici restano sotto `METRIC_POINTS_MAX`.
 - `listAllRepositories(): Promise<{ projectId: string; projectCode: string; projectName: string; repositories: { id: string; name: string; fullName: string | null; gitAccountName: string | null; href: string }[] }[]>`:
   - per chi ha `repos.manage` in almeno un progetto;
@@ -801,6 +820,9 @@ Test:
   trova AUD nella colonna (RF 2).
 - [ ] `createServer({ environmentId: null })` → orfano, visibile solo a
   `monitor.manage`; dal progetto resta come nell'8b.
+- [ ] Il «New server» di Amministrazione chiama sempre `createServer` con
+  `environmentId: null` (test del Task 12: il dialogo non ha il campo
+  dell'ambiente).
 - [ ] 30d e 90d: punti ≤ `METRIC_POINTS_MAX`, il primo punto di 90d ha più di
   89 giorni.
 - [ ] Ogni scrittura dei server scrive la sua voce; una rifiutata no.
@@ -876,6 +898,8 @@ Test:
   «Who?».
 - [ ] Plugin:
   - il dialogo dice in parole che registrare esegue il codice;
+  - «Register» è spento finché la casella «I trust this repository and
+    this commit» non è spuntata; lo stesso in «Update to ref…»;
   - dopo la riconferma la riga è «Materializing», poi «Ready» (timer finti);
   - la pagina del plugin mostra skill e hook;
   - aggiorna a un ref, rilancia lo smoke, rimuovi;
@@ -897,7 +921,8 @@ Test:
 - [ ] Webhook:
   - formato e URL: salvato senza riconferma, riaprendo la pagina l'URL si
     rilegge in chiaro;
-  - un interruttore per evento;
+  - un interruttore per ognuno dei 21 eventi, nei sei gruppi dello shape;
+    nessuna riga per le risposte dei clienti;
   - anteprima per formato;
   - invio di prova con l'esito simulato.
 - [ ] RF 1 sul DOM dopo la navigazione, per i tre segreti.
@@ -934,7 +959,7 @@ Segue lo shape `admin-instance.md`.
 Test:
 - [ ] Coda per progetto e tipo, con età e stato; i worker; la quota; gli
   ultimi errori col link.
-- [ ] STW dice «Queue paused by Roberta Ferri»; Resume con conferma → la riga
+- [ ] STW dice «Queue paused by Roberta Fontana»; Resume con conferma → la riga
   cambia, la voce è nel registro.
 - [ ] Retry con conferma sul lavoro fallito di ieri → la task ha una sessione
   nuova, avviata da chi ha riprovato.
