@@ -67,13 +67,11 @@ describe("le schede per permesso", () => {
     expect(within(instance).getAllByRole("link")[0]).toHaveTextContent("AI");
     expect(within(column).getByRole("list", { name: "Across projects" })).toBeVisible();
     const tabs = screen.getByRole("tablist", { name: "AI settings" });
-    expect(within(tabs).getAllByRole("tab").map((t) => t.textContent)).toEqual([
-      "Providers",
-      "Models",
-      "Automation",
-      "Budget & language",
-      "Usage",
-    ]);
+    expect(
+      within(tabs)
+        .getAllByRole("tab")
+        .map((t) => t.textContent),
+    ).toEqual(["Providers", "Models", "Automation", "Budget & language", "Usage"]);
     // Senza `?tab=` la prima scheda.
     expect(within(tabs).getByRole("tab", { name: "Providers" })).toHaveAttribute(
       "aria-selected",
@@ -117,7 +115,9 @@ describe("le schede per permesso", () => {
         "You can read these settings. Changing them needs someone who can manage AI providers.",
       ),
     ).toBeVisible();
-    expect(document.querySelectorAll('[data-who-can="manageAiProviders"]').length).toBeGreaterThan(0);
+    expect(document.querySelectorAll('[data-who-can="manageAiProviders"]').length).toBeGreaterThan(
+      0,
+    );
     expect(screen.getByRole("button", { name: "Add account" })).toBeDisabled();
     const team = row("Team Max");
     expect(within(team).getByRole("switch", { name: "Use Team Max" })).toHaveAttribute(
@@ -185,7 +185,9 @@ describe("Providers", () => {
     expect(parts.every((p) => p.className.includes("whitespace-nowrap"))).toBe(true);
     expect([...meta.querySelectorAll("span")].some((e) => e.textContent === "·")).toBe(false);
     expect(within(row("Team Max")).queryByText("Near the limit")).toBeNull();
-    expect(within(row("Billing key")).getByText("used only when no subscription is on")).toBeVisible();
+    expect(
+      within(row("Billing key")).getByText("used only when no subscription is on"),
+    ).toBeVisible();
     expect(within(row("Billing key")).getByText("•••• 9e2b")).toBeVisible();
     expect(
       screen.getByText(
@@ -219,13 +221,17 @@ describe("Providers", () => {
       "true",
     );
     await user.click(within(dialog).getByRole("button", { name: "Add" }));
-    expect(await within(dialog).findByText("There's already an account called Team Max.")).toBeVisible();
+    expect(
+      await within(dialog).findByText("There's already an account called Team Max."),
+    ).toBeVisible();
     const name = within(dialog).getByLabelText("Name");
     await user.clear(name);
     await user.type(name, "Team Max 2");
     await user.click(within(dialog).getByRole("button", { name: "Add" }));
     await confirmItsYou(user);
-    await waitFor(() => expect(chain()).toEqual(["Team Max", "Backup Max", "Billing key", "Team Max 2"]));
+    await waitFor(() =>
+      expect(chain()).toEqual(["Team Max", "Backup Max", "Billing key", "Team Max 2"]),
+    );
     expect(
       await screen.findByText("Team Max 2 added at position 4. Test it to check the token."),
     ).toBeVisible();
@@ -235,7 +241,11 @@ describe("Providers", () => {
     await act(() => router.navigate({ to: "/admin/$section", params: { section: "people" } }));
     await heading("People");
     await act(() =>
-      router.navigate({ to: "/admin/$section", params: { section: "ai" }, search: { tab: "providers" } as never }),
+      router.navigate({
+        to: "/admin/$section",
+        params: { section: "ai" },
+        search: { tab: "providers" } as never,
+      }),
     );
     await screen.findByRole("listitem", { name: "Team Max 2" });
     const secrets = __secretValuesForTest().flatMap((s) => s.values);
@@ -272,18 +282,38 @@ describe("Providers", () => {
     expect(await screen.findByText("Backup Max moved to position 1 of 3.")).toBeInTheDocument();
     await waitFor(() => expect(within(row("Backup Max")).getByText("1")).toBeVisible());
     // «⋯» → Move down.
-    await user.click(within(row("Backup Max")).getByRole("button", { name: "More for Backup Max" }));
+    await user.click(
+      within(row("Backup Max")).getByRole("button", { name: "More for Backup Max" }),
+    );
     await user.click(screen.getByRole("menuitem", { name: "Move down" }));
     await waitFor(() => expect(chain()).toEqual(["Team Max", "Backup Max", "Billing key"]));
     // Trascinamento: Billing key dalla maniglia fino in cima. Le righe sono alte 64 px.
-    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: Element,
+    ) {
       const li = this.closest("[data-provider-row]");
       const items = [...document.querySelectorAll("[data-provider-row]")];
       const top = li ? items.indexOf(li) * 64 : 0;
-      return { x: 0, y: top, top, left: 0, right: 800, bottom: top + 64, width: 800, height: 64, toJSON: () => ({}) } as DOMRect;
+      return {
+        x: 0,
+        y: top,
+        top,
+        left: 0,
+        right: 800,
+        bottom: top + 64,
+        width: 800,
+        height: 64,
+        toJSON: () => ({}),
+      } as DOMRect;
     });
     const handle = within(row("Billing key")).getByRole("button", { name: "Move Billing key" });
-    fireEvent.pointerDown(handle, { button: 0, isPrimary: true, pointerId: 1, clientX: 10, clientY: 160 });
+    fireEvent.pointerDown(handle, {
+      button: 0,
+      isPrimary: true,
+      pointerId: 1,
+      clientX: 10,
+      clientY: 160,
+    });
     fireEvent.pointerMove(document, { pointerId: 1, clientX: 10, clientY: 150 });
     fireEvent.pointerMove(document, { pointerId: 1, clientX: 10, clientY: 20 });
     fireEvent.pointerUp(document, { pointerId: 1, clientX: 10, clientY: 20 });
@@ -296,23 +326,34 @@ describe("Providers", () => {
     await screen.findByRole("list", { name: "AI accounts" });
     await user.click(within(row("Backup Max")).getByRole("switch", { name: "Use Backup Max" }));
     await waitFor(() => expect(provider("Backup Max").enabled).toBe(false));
-    expect(await screen.findByText("Backup Max is off. New work uses the next account.")).toBeVisible();
+    expect(
+      await screen.findByText("Backup Max is off. New work uses the next account."),
+    ).toBeVisible();
     await user.click(within(row("Team Max")).getByRole("switch", { name: "Use Team Max" }));
     await waitFor(() => expect(provider("Team Max").enabled).toBe(false));
     // Nessun abbonamento acceso: la chiave API è in uso.
-    expect(await within(row("Billing key")).findByText("in use: no subscription is on")).toBeVisible();
+    expect(
+      await within(row("Billing key")).findByText("in use: no subscription is on"),
+    ).toBeVisible();
     const last = within(row("Billing key")).getByRole("switch", { name: "Use Billing key" });
     expect(last).toHaveAttribute("aria-disabled", "true");
     expect(
-      within(row("Billing key")).getByText("This is the only account on. Turn on another one first."),
+      within(row("Billing key")).getByText(
+        "This is the only account on. Turn on another one first.",
+      ),
     ).toBeVisible();
     await user.click(last);
     expect(provider("Billing key").enabled).toBe(true);
     // Disabilitato: posizione «–» al suo posto.
     expect(within(row("Team Max")).getByText("–")).toBeVisible();
     // E il «⋯» non lo elimina.
-    await user.click(within(row("Billing key")).getByRole("button", { name: "More for Billing key" }));
-    expect(screen.getByRole("menuitem", { name: "Delete…" })).toHaveAttribute("aria-disabled", "true");
+    await user.click(
+      within(row("Billing key")).getByRole("button", { name: "More for Billing key" }),
+    );
+    expect(screen.getByRole("menuitem", { name: "Delete…" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
   });
 
   it("prova con l'esito scelto nel riquadro «Prototype only»", async () => {
@@ -323,7 +364,9 @@ describe("Providers", () => {
     await user.selectOptions(within(box).getByLabelText("Account"), "Billing key");
     await user.click(within(box).getByRole("radio", { name: "Invalid credentials" }));
     await waitFor(() =>
-      expect(state.instance.simulate.nextTest[provider("Billing key").id]).toBe("invalid_credentials"),
+      expect(state.instance.simulate.nextTest[provider("Billing key").id]).toBe(
+        "invalid_credentials",
+      ),
     );
     await user.click(within(row("Billing key")).getByRole("button", { name: "Test" }));
     expect(within(row("Billing key")).getByText("Testing…")).toBeVisible();
@@ -342,7 +385,9 @@ describe("Providers", () => {
     const user = userEvent.setup();
     renderRoute("/admin/ai", ROBERTA);
     await screen.findByRole("list", { name: "AI accounts" });
-    await user.click(within(row("Billing key")).getByRole("button", { name: "More for Billing key" }));
+    await user.click(
+      within(row("Billing key")).getByRole("button", { name: "More for Billing key" }),
+    );
     await user.click(screen.getByRole("menuitem", { name: "Replace key…" }));
     const dialog = screen.getByRole("dialog", { name: "Replace Billing key's key" });
     await user.type(within(dialog).getByLabelText("Key"), "sk-ant-api-new-55aa");
@@ -353,7 +398,9 @@ describe("Providers", () => {
     expect(within(row("Billing key")).getByText("not tested yet")).toBeVisible();
     expect(document.body.innerHTML).not.toContain("sk-ant-api-new-55aa");
 
-    await user.click(within(row("Backup Max")).getByRole("button", { name: "More for Backup Max" }));
+    await user.click(
+      within(row("Backup Max")).getByRole("button", { name: "More for Backup Max" }),
+    );
     await user.click(screen.getByRole("menuitem", { name: "Delete…" }));
     const del = screen.getByRole("dialog", { name: "Delete Backup Max?" });
     await user.click(within(del).getByRole("button", { name: "Delete" }));
@@ -375,7 +422,9 @@ describe("Models", () => {
     const mail = screen.getByRole("group", { name: "Mail classification" });
     expect(within(mail).getByText("From the server configuration")).toBeVisible();
     // Il primo valore del menu dice da dove viene il ritorno.
-    expect(within(mail).getByRole("option", { name: "Server configuration (Haiku)" })).toBeInTheDocument();
+    expect(
+      within(mail).getByRole("option", { name: "Server configuration (Haiku)" }),
+    ).toBeInTheDocument();
     const triage = screen.getByRole("group", { name: "Task triage" });
     expect(within(triage).getByText("Default")).toBeVisible();
     expect(within(fix).getByRole("option", { name: "Default (Sonnet)" })).toBeInTheDocument();
@@ -390,7 +439,10 @@ describe("Models", () => {
       "Chat",
     ]);
 
-    await user.selectOptions(within(triage).getByRole("combobox", { name: "Model for Task triage" }), "opus");
+    await user.selectOptions(
+      within(triage).getByRole("combobox", { name: "Model for Task triage" }),
+      "opus",
+    );
     await waitFor(() => expect(state.instance.models.triage).toBe("opus"));
     expect(await within(triage).findByText("Saved")).toBeVisible();
     expect(within(triage).getByText("Set here")).toBeVisible();
@@ -408,7 +460,9 @@ describe("Automation", () => {
     const user = userEvent.setup();
     renderRoute("/admin/ai?tab=automation", ROBERTA);
     const bug = await screen.findByRole("group", { name: "Bug" });
-    expect(screen.getByText("Prototype: these are saved, but nothing here starts Claude on its own.")).toBeVisible();
+    expect(
+      screen.getByText("Prototype: these are saved, but nothing here starts Claude on its own."),
+    ).toBeVisible();
     const cost = within(bug).getByLabelText("Max cost per task");
     await user.type(cost, "-1");
     expect(screen.getByText("1 change")).toBeVisible();
@@ -499,7 +553,9 @@ describe("Budget: cosa dice il salvataggio", () => {
     state.instance.simulate.budgetReached = true;
     await saveAmount("5000");
     expect(
-      await screen.findByText("Saved. The budget is still reached: the prototype simulation is on."),
+      await screen.findByText(
+        "Saved. The budget is still reached: the prototype simulation is on.",
+      ),
     ).toBeVisible();
     expect(screen.queryByText(/Work waiting for the budget starts again/)).toBeNull();
   });
@@ -582,7 +638,9 @@ describe("SecretField", () => {
     const field = screen.getByLabelText("Client secret");
     expect(field).toHaveValue("");
     expect(
-      screen.getByText("Shown only while you type. Once saved, you'll see only the last 4 characters."),
+      screen.getByText(
+        "Shown only while you type. Once saved, you'll see only the last 4 characters.",
+      ),
     ).toBeVisible();
     await user.type(field, "brand-new-9b9b");
     await user.click(screen.getByRole("button", { name: "Save" }));

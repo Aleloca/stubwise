@@ -106,7 +106,11 @@ describe("il periodo", () => {
 
     await user.click(within(period).getByRole("radio", { name: "Custom…" }));
     await waitFor(() =>
-      expect(search(router)).toMatchObject({ range: "custom", from: "2026-09-24", to: "2026-10-23" }),
+      expect(search(router)).toMatchObject({
+        range: "custom",
+        from: "2026-09-24",
+        to: "2026-10-23",
+      }),
     );
     fireEvent.change(screen.getByLabelText("From"), { target: { value: "2026-10-10" } });
     await waitFor(() => expect(search(router)).toMatchObject({ from: "2026-10-10" }));
@@ -156,11 +160,13 @@ describe("totali e serie per giorno", () => {
     const table = screen.getByRole("table", { name: "Cost per day" });
     const rows = within(table).getAllByRole("row").slice(1);
     expect(rows).toHaveLength(7);
-    expect(rows.map((r) => within(r).getAllByRole("cell").map((c) => c.textContent))).toContainEqual([
-      "Oct 20",
-      "$2.25",
-      "1",
-    ]);
+    expect(
+      rows.map((r) =>
+        within(r)
+          .getAllByRole("cell")
+          .map((c) => c.textContent),
+      ),
+    ).toContainEqual(["Oct 20", "$2.25", "1"]);
   });
 
   it("vuoto: la frase, i totali a zero, nessun grafico né tabella", async () => {
@@ -191,9 +197,18 @@ describe("la tabella per dimensione", () => {
     const names = within(table)
       .getAllByRole("rowheader")
       .map((c) => c.textContent);
-    expect(names).toEqual(["STW · Stubwise", "AUD · Audin 2.0", "MKX · Campagne primavera Mix Cucine", "No project"]);
+    expect(names).toEqual([
+      "STW · Stubwise",
+      "AUD · Audin 2.0",
+      "MKX · Campagne primavera Mix Cucine",
+      "No project",
+    ]);
     const stw = within(table).getAllByRole("row")[1]!;
-    expect(within(stw).getAllByRole("cell").map((c) => c.textContent)).toEqual(["$10.00", "3,300", "3"]);
+    expect(
+      within(stw)
+        .getAllByRole("cell")
+        .map((c) => c.textContent),
+    ).toEqual(["$10.00", "3,300", "3"]);
   });
 
   it("due dimensioni: ▸ apre i figli in posto, e la scelta sta nell'indirizzo", async () => {
@@ -203,7 +218,9 @@ describe("la tabella per dimensione", () => {
     await user.selectOptions(screen.getByLabelText("Group by"), "model");
     await waitFor(() => expect(search(router)).toMatchObject({ group: "model" }));
     await user.selectOptions(screen.getByLabelText("then by"), "operation");
-    await waitFor(() => expect(search(router)).toMatchObject({ group: "model", then: "operation" }));
+    await waitFor(() =>
+      expect(search(router)).toMatchObject({ group: "model", then: "operation" }),
+    );
     const table = await screen.findByRole("table", { name: "Usage by model, then by operation" });
     expect(within(table).queryByText("Chats with Claude")).toBeNull();
     const toggle = within(table).getByRole("button", { name: "Haiku 4.5" });
@@ -216,7 +233,9 @@ describe("la tabella per dimensione", () => {
     // L'indirizzo con le due dimensioni riapre la stessa vista.
     cleanup();
     renderRoute("/admin/ai?tab=usage&range=90d&group=model&then=operation", ROBERTA);
-    expect(await screen.findByRole("table", { name: "Usage by model, then by operation" })).toBeVisible();
+    expect(
+      await screen.findByRole("table", { name: "Usage by model, then by operation" }),
+    ).toBeVisible();
   });
 });
 

@@ -130,7 +130,10 @@ function ModelLine({ row, canWrite }: { row: ModelRow; canWrite: boolean }) {
           </span>
         </div>
         <span className="flex shrink-0 flex-row-reverse items-center justify-end gap-2 @min-[720px]:flex-row">
-          <span aria-live="polite" className="text-xs text-ink-muted @min-[720px]:w-12 @min-[720px]:text-right">
+          <span
+            aria-live="polite"
+            className="text-xs text-ink-muted @min-[720px]:w-12 @min-[720px]:text-right"
+          >
             {saved ? t("admin.ai.saved") : ""}
           </span>
           <label htmlFor={selectId} className="sr-only">

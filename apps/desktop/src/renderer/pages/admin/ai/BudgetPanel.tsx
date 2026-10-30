@@ -16,7 +16,8 @@ import { ErrorLine } from "../../entry/parts";
 import { ReadError, refusalOf, useFlash } from "../../preferences/parts";
 import { Switch } from "../../preferences/SubscriptionRow";
 import { primaryButton } from "../../tasks/controls";
-import { AiSkeleton, AiWhoCan, ReadOnlyLine, useAiRefusalWords, usd } from "./parts";
+import { usd } from "../../../i18n/money";
+import { AiSkeleton, AiWhoCan, ReadOnlyLine, useAiRefusalWords } from "./parts";
 
 // Budget & language (shape admin-ai.md «Budget & language»): il budget
 // mensile col misuratore («$412 spent in October · 69% of $600»), le righe
@@ -66,7 +67,9 @@ function BudgetForm({ view, canWrite }: { view: BudgetView; canWrite: boolean })
   const languageId = useId();
 
   const today = new Date(now());
-  const month = new Intl.DateTimeFormat(i18n.language, { month: "long", timeZone: "UTC" }).format(today);
+  const month = new Intl.DateTimeFormat(i18n.language, { month: "long", timeZone: "UTC" }).format(
+    today,
+  );
   const nextMonth = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1));
   const restart = new Intl.DateTimeFormat(i18n.language, {
     month: "long",
@@ -83,7 +86,9 @@ function BudgetForm({ view, canWrite }: { view: BudgetView; canWrite: boolean })
       return setAmountError(t("admin.ai.budget.amountError"));
     setAmountError(null);
     setBusy(true);
-    const result = await save.mutateAsync({ monthlyUsd: value, contentLanguage: language }).catch(() => null);
+    const result = await save
+      .mutateAsync({ monthlyUsd: value, contentLanguage: language })
+      .catch(() => null);
     setBusy(false);
     const refusal = result === null ? { error: "failed" } : refusalOf(result);
     if (refusal) {
@@ -94,7 +99,11 @@ function BudgetForm({ view, canWrite }: { view: BudgetView; canWrite: boolean })
     flash();
     // Cosa ha cambiato il salvataggio per chi lavora: lo dice il livello dati.
     const { effect, simulated, spentUsd } = result as BudgetSaveEffect & { ok: true };
-    const words = { spent: usd(Math.round(spentUsd)), budget: value === null ? "" : usd(value) };
+    const lang = i18n.language;
+    const words = {
+      spent: usd(Math.round(spentUsd), lang),
+      budget: value === null ? "" : usd(value, lang),
+    };
     if (effect === "released") toast.show(t("admin.ai.budget.savedBack"));
     else if (effect === "now_reached")
       toast.show(
@@ -102,7 +111,9 @@ function BudgetForm({ view, canWrite }: { view: BudgetView; canWrite: boolean })
       );
     else if (effect === "still_reached")
       toast.show(
-        simulated ? t("admin.ai.budget.simulatedReached") : t("admin.ai.budget.stillReached", words),
+        simulated
+          ? t("admin.ai.budget.simulatedReached")
+          : t("admin.ai.budget.stillReached", words),
       );
   }
 
@@ -114,7 +125,10 @@ function BudgetForm({ view, canWrite }: { view: BudgetView; canWrite: boolean })
         </h2>
         <div className="mt-3 flex flex-col gap-1.5">
           <span className="relative flex w-fit items-center">
-            <span aria-hidden="true" className="pointer-events-none absolute left-2.5 text-md text-ink-muted">
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute left-2.5 text-md text-ink-muted"
+            >
               $
             </span>
             <input
@@ -147,7 +161,11 @@ function BudgetForm({ view, canWrite }: { view: BudgetView; canWrite: boolean })
         <p className="mt-1 max-w-[62ch] text-sm text-pretty text-ink-muted">
           {t("admin.ai.budget.languageHint")}
         </p>
-        <div role="radiogroup" aria-labelledby={languageId} className="mt-3 flex max-w-[420px] flex-col gap-2">
+        <div
+          role="radiogroup"
+          aria-labelledby={languageId}
+          className="mt-3 flex max-w-[420px] flex-col gap-2"
+        >
           {LANGUAGES.map((lang) => (
             <RadioRow
               key={lang}
@@ -194,7 +212,7 @@ function BudgetForm({ view, canWrite }: { view: BudgetView; canWrite: boolean })
  * budget la tiene dov'è, colorata, e lo dice in parole.
  */
 function Meter({ view, month, spent }: { view: BudgetView; month: string; spent: number }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const budget = view.monthlyUsd;
   const pct = budget ? Math.round((view.spentUsd / budget) * 100) : budget === 0 ? 100 : 0;
   return (
@@ -210,8 +228,13 @@ function Meter({ view, month, spent }: { view: BudgetView; month: string; spent:
       )}
       <p className="num text-sm text-ink">
         {budget === null
-          ? t("admin.ai.budget.spentNoBudget", { amount: usd(spent), month })
-          : t("admin.ai.budget.spent", { amount: usd(spent), month, pct, budget: usd(budget) })}
+          ? t("admin.ai.budget.spentNoBudget", { amount: usd(spent, i18n.language), month })
+          : t("admin.ai.budget.spent", {
+              amount: usd(spent, i18n.language),
+              month,
+              pct,
+              budget: usd(budget, i18n.language),
+            })}
       </p>
       {view.reached && view.simulated && (
         <p className="text-sm text-ink-muted">{t("admin.ai.budget.simulatedMeter")}</p>

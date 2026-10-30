@@ -44,8 +44,12 @@ export function AiPage() {
   return (
     <section className="page-header pb-16 pl-8 [--page-header-pr:32px] [--page-header-pt:32px]">
       <div className={current === "usage" ? "max-w-[1040px]" : "max-w-[880px]"}>
-        <h1 className="text-2xl font-semibold tracking-[-0.01em] text-ink">{t("admin.ai.title")}</h1>
-        <p className="mt-2 max-w-[62ch] text-md text-pretty text-ink-muted">{t("admin.ai.intro")}</p>
+        <h1 className="text-2xl font-semibold tracking-[-0.01em] text-ink">
+          {t("admin.ai.title")}
+        </h1>
+        <p className="mt-2 max-w-[62ch] text-md text-pretty text-ink-muted">
+          {t("admin.ai.intro")}
+        </p>
         {tabs.length > 1 && (
           <TabBar tabs={tabs} current={current} tabId={tabId} panelId={panelId} onSelect={select} />
         )}

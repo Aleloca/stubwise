@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useId, useState, type ReactNode } from "react";
 import { Trans, useTranslation } from "react-i18next";
+import { usd as money } from "../../i18n/money";
 import type {
   AutomationRuleValue,
   ChangeDiff,
@@ -113,7 +114,6 @@ function ObjectRef({ entry, children }: { entry: ChangeEntryView; children?: Rea
 }
 
 /** «$600», «$12.50». */
-const usd = (n: number): string => `$${Number.isInteger(n) ? n : n.toFixed(2)}`;
 /** «opus» → «Opus»; un id preciso («claude-opus-5-5») resta com'è. */
 const modelName = (m: string): string =>
   /^[a-z]+$/.test(m) ? `${m[0]!.toUpperCase()}${m.slice(1)}` : m;
@@ -125,6 +125,7 @@ const modelName = (m: string): string =>
  */
 function useSettingWords() {
   const { t, i18n } = useTranslation();
+  const usd = (n: number) => money(n, i18n.language);
   const rule = (r: AutomationRuleValue): string => {
     const parts = [
       t(r.autoFix ? "changelog.values.autoFix" : "changelog.values.autoFixOff", {

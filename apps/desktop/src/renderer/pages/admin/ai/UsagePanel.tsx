@@ -15,7 +15,8 @@ import { ChevronGlyph } from "../../preferences/glyphs";
 import { ReadError } from "../../preferences/parts";
 import { niceCeil } from "../../servers/MetricsCharts";
 import { smallSecondary } from "../../task/parts";
-import { AiSkeleton, usd } from "./parts";
+import { usd } from "../../../i18n/money";
+import { AiSkeleton } from "./parts";
 
 // Usage (shape admin-ai.md «Usage», area 9b Task 9): quanto è costato Claude
 // in un periodo, in una schermata. Periodo nell'indirizzo (`range`, e
@@ -66,15 +67,14 @@ function rangeOf(period: Period, from: string, to: string): UsageRange {
   return { days: Number(period.slice(0, -1)) as 7 | 30 | 90 };
 }
 
-/** Le cifre della scheda: dollari con due decimali, interi raggruppati, date brevi. */
+/** Le cifre della scheda: dollari con due decimali (`usd`), interi raggruppati, date brevi. */
 function useFormat() {
   const { i18n } = useTranslation();
   const lang = i18n.language;
-  const cents = new Intl.NumberFormat(lang, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const whole = new Intl.NumberFormat(lang);
   const date = new Intl.DateTimeFormat(lang, { month: "short", day: "numeric", timeZone: "UTC" });
   return {
-    money: (n: number) => `$${cents.format(n)}`,
+    money: (n: number) => usd(n, lang, "always"),
     count: (n: number) => whole.format(n),
     day: (day: string) => date.format(new Date(`${day}T00:00:00Z`)),
   };
@@ -105,9 +105,7 @@ export function UsagePanel() {
         today={today}
         onPeriod={(p) =>
           setSearch(
-            p === "custom"
-              ? { range: p, from, to }
-              : { range: p, from: undefined, to: undefined },
+            p === "custom" ? { range: p, from, to } : { range: p, from: undefined, to: undefined },
           )
         }
         onDates={(dates) => setSearch(dates)}
@@ -257,7 +255,7 @@ function labelStep(n: number): number {
  * 46 runs»; «Show as table» apre la stessa serie in tabella.
  */
 function PerDay({ days }: { days: UsageView["byDay"] }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const f = useFormat();
   const [cursor, setCursor] = useState<number | null>(null);
   const [table, setTable] = useState(false);
@@ -316,7 +314,7 @@ function PerDay({ days }: { days: UsageView["byDay"] }) {
                 style={{ bottom: `${(v / max) * 100}%` }}
                 className="num absolute right-2 translate-y-1/2 text-xs text-ink-muted"
               >
-                {usd(v)}
+                {usd(v, i18n.language)}
               </span>
             ))}
           </div>
@@ -510,7 +508,10 @@ function DimensionTable({
               <th scope="col" className="w-28 py-2 text-right font-medium">
                 {t("admin.ai.usage.columns.cost")}
               </th>
-              <th scope="col" className="hidden w-32 py-2 text-right font-medium @min-[820px]:table-cell">
+              <th
+                scope="col"
+                className="hidden w-32 py-2 text-right font-medium @min-[820px]:table-cell"
+              >
                 {t("admin.ai.usage.columns.tokens")}
               </th>
               <th scope="col" className="w-24 py-2 text-right font-medium">
@@ -584,7 +585,10 @@ function UsageTableRow({
       title={t("admin.ai.usage.tokensTitle", { tokens: f.count(row.tokens) })}
       className={`border-b border-rule align-top ${child ? "text-sm" : ""}`}
     >
-      <th scope="row" className={`min-w-0 py-2 text-left font-normal ${tone} ${child ? "pl-[34px]" : ""}`}>
+      <th
+        scope="row"
+        className={`min-w-0 py-2 text-left font-normal ${tone} ${child ? "pl-[34px]" : ""}`}
+      >
         {name}
         {other && (
           <span className="mt-0.5 block text-xs text-ink-muted">
@@ -615,7 +619,8 @@ function RowName({ row, dim }: { row: UsageRow; dim: UsageDimension }) {
           : row.code
             ? `${row.code} · ${row.label}`
             : row.label;
-  else if (dim === "operation") text = t(`usage.operations.${row.key}`, { defaultValue: row.label });
+  else if (dim === "operation")
+    text = t(`usage.operations.${row.key}`, { defaultValue: row.label });
   else if (dim === "day") text = row.key ? f.day(row.key) : row.label;
   else text = row.label;
   return <span className="block min-w-0 truncate">{text}</span>;

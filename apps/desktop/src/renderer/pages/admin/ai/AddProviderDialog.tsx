@@ -54,16 +54,17 @@ export function AddProviderDialog({
     setErrors(missing);
     if (missing.name || missing.credential) return;
     setBusy(true);
-    const result = await reauth(
-      () => create.mutateAsync({ name: trimmed, kind, credential }),
-      { action: t("admin.ai.providers.addDialog.action", { name: trimmed }) },
-    ).catch(() => null);
+    const result = await reauth(() => create.mutateAsync({ name: trimmed, kind, credential }), {
+      action: t("admin.ai.providers.addDialog.action", { name: trimmed }),
+    }).catch(() => null);
     setBusy(false);
     if (result === null) return setErrors({ form: t("admin.ai.saveFailed") });
     const refusal = refusalOf(result);
     if (refusal) {
       if (refusal.error === "conflict")
-        return setErrors({ name: t("admin.ai.providers.addDialog.errors.taken", { name: trimmed }) });
+        return setErrors({
+          name: t("admin.ai.providers.addDialog.errors.taken", { name: trimmed }),
+        });
       if (refusal.error === "invalid" && refusal.reason === "name")
         return setErrors({ name: t("admin.ai.providers.addDialog.errors.name") });
       if (refusal.error === "invalid" && refusal.reason === "credential")
@@ -105,7 +106,11 @@ export function AddProviderDialog({
         </>
       }
     >
-      <div role="radiogroup" aria-label={t("admin.ai.providers.addDialog.type")} className="flex flex-col gap-2">
+      <div
+        role="radiogroup"
+        aria-label={t("admin.ai.providers.addDialog.type")}
+        className="flex flex-col gap-2"
+      >
         <span aria-hidden="true" className="text-sm font-medium text-ink">
           {t("admin.ai.providers.addDialog.type")}
         </span>

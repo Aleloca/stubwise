@@ -160,7 +160,10 @@ function AutomationForm({ saved, canWrite }: { saved: AutomationSettings; canWri
     if (Object.keys(found).length > 0) return;
     setBusy(true);
     const result = await save
-      .mutateAsync({ rules, prReview: { enabled: draft.review.enabled, maxCostUsd: reviewCost ?? null } })
+      .mutateAsync({
+        rules,
+        prReview: { enabled: draft.review.enabled, maxCostUsd: reviewCost ?? null },
+      })
       .catch(() => null);
     setBusy(false);
     const refusal = result === null ? { error: "failed" } : refusalOf(result);
@@ -401,12 +404,17 @@ function CostField({
     <span className="flex flex-col gap-1">
       <label
         htmlFor={id}
-        className={visibleLabel ? "text-xs text-ink-muted" : "text-xs text-ink-muted @min-[720px]:sr-only"}
+        className={
+          visibleLabel ? "text-xs text-ink-muted" : "text-xs text-ink-muted @min-[720px]:sr-only"
+        }
       >
         {label}
       </label>
       <span className="relative flex items-center">
-        <span aria-hidden="true" className="pointer-events-none absolute left-2.5 text-md text-ink-muted">
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute left-2.5 text-md text-ink-muted"
+        >
           $
         </span>
         <input

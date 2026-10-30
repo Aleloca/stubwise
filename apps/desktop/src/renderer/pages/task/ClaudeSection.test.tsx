@@ -1,6 +1,7 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
+import { setLanguage } from "../../i18n";
 import {
   getConversation,
   instance,
@@ -105,7 +106,9 @@ describe("sezione Claude", () => {
     expect(written.querySelector("time")!.dateTime).not.toBe(
       approved.querySelector("time")!.dateTime,
     );
-    const row = state.decisionLog.find((d) => d.taskId === "t-stw-13" && d.source === "plan_review")!;
+    const row = state.decisionLog.find(
+      (d) => d.taskId === "t-stw-13" && d.source === "plan_review",
+    )!;
     expect(approved.querySelector("time")!.dateTime).toBe(row.decidedAt);
   });
 
@@ -192,7 +195,9 @@ describe("sezione Claude", () => {
     );
     await userEvent.click(within(section).getByRole("button", { name: "Send to Claude" }));
     await waitFor(() =>
-      expect(state.conversations.filter((c) => c.kind === "task_run" && c.taskId === "t-stw-1")).toHaveLength(3),
+      expect(
+        state.conversations.filter((c) => c.kind === "task_run" && c.taskId === "t-stw-1"),
+      ).toHaveLength(3),
     );
   });
 
@@ -235,7 +240,9 @@ describe("sezione Claude", () => {
 
   it("task chiusa con la PR mergiata: nessuna azione, nemmeno nel menu", async () => {
     const section = await claudeSection("t-stw-1", "p-laura");
-    expect(within(section).queryByRole("button", { name: "Relaunch with instructions" })).toBeNull();
+    expect(
+      within(section).queryByRole("button", { name: "Relaunch with instructions" }),
+    ).toBeNull();
     await userEvent.click(within(section).getByRole("button", { name: "More actions for Claude" }));
     const menu = await screen.findByRole("menu", { name: "More actions for Claude" });
     expect(within(menu).queryByRole("menuitem", { name: "Relaunch with instructions" })).toBeNull();
@@ -245,7 +252,11 @@ describe("sezione Claude", () => {
   it("senza tickets.edit niente «Assign to Claude»", async () => {
     grantProjectRole("p-sara", "prj-stw", "viewer");
     const t = state.tasks.find(
-      (x) => x.projectId === "prj-stw" && x.claude === "none" && x.closedAt === null && x.assigneeId !== CLAUDE,
+      (x) =>
+        x.projectId === "prj-stw" &&
+        x.claude === "none" &&
+        x.closedAt === null &&
+        x.assigneeId !== CLAUDE,
     )!;
     const section = await claudeSection(t.id, "p-sara");
     expect(section).toHaveTextContent("Claude isn't on this task.");
@@ -284,7 +295,9 @@ describe("sezione Claude", () => {
     const dev = await claudeSection(t.id, "p-marco");
     await userEvent.click(within(dev).getByRole("button", { name: "More actions for Claude" }));
     const devMenu = await screen.findByRole("menu", { name: "More actions for Claude" });
-    expect(within(devMenu).queryByRole("menuitem", { name: "Approve the plan in advance" })).toBeNull();
+    expect(
+      within(devMenu).queryByRole("menuitem", { name: "Approve the plan in advance" }),
+    ).toBeNull();
   });
 
   it("chi ha plans.approve approva in anticipo dal menu", async () => {
@@ -304,7 +317,9 @@ describe("sezione Claude", () => {
     const lead = await claudeSection(t.id, "p-laura");
     await userEvent.click(within(lead).getByRole("button", { name: "More actions for Claude" }));
     const menu = await screen.findByRole("menu", { name: "More actions for Claude" });
-    await userEvent.click(within(menu).getByRole("menuitem", { name: "Approve the plan in advance" }));
+    await userEvent.click(
+      within(menu).getByRole("menuitem", { name: "Approve the plan in advance" }),
+    );
     await waitFor(() => expect(state.preApprovedPlans.has("cv-planning")).toBe(true));
   });
 
@@ -364,7 +379,9 @@ describe("sezione Claude: attività AI, cicli delle PR, consumi", () => {
     );
     await userEvent.click(within(section).getByRole("button", { name: /Work story/ }));
     const story = within(section).getByRole("list", { name: "Work story" });
-    expect(story).toHaveTextContent("Run started by Federico Sartori · Sonnet · Team Max (subscription)");
+    expect(story).toHaveTextContent(
+      "Run started by Federico Sartori · Sonnet · Team Max (subscription)",
+    );
   });
 
   it("fallita: il riassunto del fallimento e «Show log» con le azioni della fase", async () => {
@@ -417,7 +434,12 @@ describe("sezione Claude: attività AI, cicli delle PR, consumi", () => {
 
   it("le parole del ciclo in coda e in attesa della review (tutti gli stati: `prCycles` nel dominio)", async () => {
     state.prFacts[0]!.queued = true;
-    state.prFacts[1]!.review = { verdict: "pending", at: new Date().toISOString(), byId: null, on: null };
+    state.prFacts[1]!.review = {
+      verdict: "pending",
+      at: new Date().toISOString(),
+      byId: null,
+      on: null,
+    };
     const section = await claudeSection("t-stw-3", "p-laura");
     expect(section.querySelector('[data-pr="411"]')).toHaveTextContent(
       "Correction queued · it starts when the current work on the task finishes",
@@ -469,10 +491,26 @@ describe("sezione Claude: attività AI, cicli delle PR, consumi", () => {
     expect(toggle).toHaveTextContent("427.7K tokens · $4.19");
     await userEvent.click(toggle);
     const list = within(section).getByRole("list", { name: "AI usage by model" });
-    expect(within(list).getAllByRole("listitem").map((r) => r.textContent)).toEqual([
+    expect(
+      within(list)
+        .getAllByRole("listitem")
+        .map((r) => r.textContent),
+    ).toEqual([
       "claude-sonnet-4-5$4.15In 363.3K · out 39K · cache 918.4K",
       "claude-haiku-4-5$0.04In 22.8K · out 2.6K · cache 0",
     ]);
+  });
+
+  it("Impeccable 7: in italiano il costo è «$4,19», come in Usage e Budget", async () => {
+    act(() => setLanguage("it"));
+    try {
+      const section = await claudeSection("t-stw-1", "p-laura");
+      const toggle = within(section).getByRole("button", { name: /Consumi AI/ });
+      expect(toggle).toHaveTextContent("$4,19");
+      expect(toggle).not.toHaveTextContent("USD");
+    } finally {
+      act(() => setLanguage("en"));
+    }
   });
 
   it("i consumi li vede chi vede la task, anche senza vederne le sessioni (come il web)", async () => {
@@ -514,7 +552,9 @@ describe("sezione Claude: le impostazioni d'istanza (area 9b, shape instance-eff
     setSessionPersonId("p-roberta");
     await instance.simulateBudgetReached(false);
     setSessionPersonId("p-laura");
-    await waitFor(() => expect(within(current()).getByRole("button", { name: "Start" })).toBeEnabled());
+    await waitFor(() =>
+      expect(within(current()).getByRole("button", { name: "Start" })).toBeEnabled(),
+    );
     expect(block(current())).toBeNull();
   });
 
@@ -564,12 +604,18 @@ describe("sezione Claude: le impostazioni d'istanza (area 9b, shape instance-eff
     const section = await claudeSection(t.id, "p-laura");
     await userEvent.click(within(section).getByRole("button", { name: "Start" }));
     await waitFor(
-      () => expect(current().querySelector("[data-claude-status]")).toHaveAttribute("data-claude-status", "done"),
+      () =>
+        expect(current().querySelector("[data-claude-status]")).toHaveAttribute(
+          "data-claude-status",
+          "done",
+        ),
       { timeout: 8000 },
     );
     await userEvent.click(within(current()).getByRole("button", { name: /Work story/ }));
     const story = () => within(current()).getByRole("list", { name: "Work story" });
-    expect(story()).toHaveTextContent("Run started by Laura Costa · Opus · Team Max (subscription)");
+    expect(story()).toHaveTextContent(
+      "Run started by Laura Costa · Opus · Team Max (subscription)",
+    );
     await waitFor(() => expect(story()).toHaveTextContent("Execution started · Sonnet"));
   });
 

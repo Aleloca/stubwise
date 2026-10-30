@@ -37,9 +37,6 @@ export function ReadOnlyLine({ scope }: { scope: AiWriteScope }) {
   );
 }
 
-/** «$412», «$2.50»: come il registro delle modifiche, in dollari e cifre tabellari. */
-export const usd = (n: number): string => `$${Number.isInteger(n) ? n : n.toFixed(2)}`;
-
 /**
  * Un rifiuto del livello dati in parole, dove è partita l'azione (shape §5).
  * `invalid` lo traduce chi chiama (dipende dal campo); la riconferma chiusa

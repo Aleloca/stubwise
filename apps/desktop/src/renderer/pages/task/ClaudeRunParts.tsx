@@ -1,5 +1,6 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { usd } from "../../i18n/money";
 import type { TFunction } from "i18next";
 import { usePeople } from "../../data/queries";
 import type { ConversationEvent, ModelUsage, RunProvider } from "../../data/types";
@@ -19,7 +20,6 @@ export { modelName };
 // correzione, i consumi per modello.
 
 const K = "taskDetail.claude";
-
 
 /**
  * Sotto la riga di stato: con chi gira la sessione, per nome. Le sessioni
@@ -182,11 +182,7 @@ export function PrRows({ prs, cycles }: { prs: PrLine[]; cycles: ReadonlyMap<str
         const cycle = cycles.get(pr.key);
         const label = pr.number !== null ? t(`${K}.pr.number`, { n: pr.number }) : pr.text;
         return (
-          <li
-            key={pr.key}
-            data-pr={pr.number ?? undefined}
-            className="flex flex-col py-1 text-sm"
-          >
+          <li key={pr.key} data-pr={pr.number ?? undefined} className="flex flex-col py-1 text-sm">
             <span className="flex min-h-6 min-w-0 items-center gap-1.5">
               {pr.link ? (
                 <a
@@ -247,10 +243,6 @@ function tokens(n: number, language: string): string {
   );
 }
 
-function usd(n: number, language: string): string {
-  return new Intl.NumberFormat(language, { style: "currency", currency: "USD" }).format(n);
-}
-
 /**
  * I consumi AI della task: chiusi, una riga con token e costo totali;
  * aperti, una riga per modello con ingresso, uscita, cache e costo.
@@ -276,7 +268,10 @@ export function UsageDisclosure({ usage }: { usage: ModelUsage[] }) {
         <DisclosureGlyph open={open} />
         {title}
         <span className="num text-xs font-normal text-ink-faint">
-          {t(`${K}.usage.summary`, { tokens: tokens(total, lang), cost: usd(cost, lang) })}
+          {t(`${K}.usage.summary`, {
+            tokens: tokens(total, lang),
+            cost: usd(cost, lang, "always"),
+          })}
         </span>
       </button>
       {open && (
@@ -291,7 +286,7 @@ export function UsageDisclosure({ usage }: { usage: ModelUsage[] }) {
                 <span className="min-w-0 flex-1 truncate text-ink" title={u.model}>
                   {u.model}
                 </span>
-                <span className="num shrink-0 text-ink">{usd(u.costUsd, lang)}</span>
+                <span className="num shrink-0 text-ink">{usd(u.costUsd, lang, "always")}</span>
               </span>
               <span className="num text-xs text-ink-muted">
                 {t(`${K}.usage.detail`, {
