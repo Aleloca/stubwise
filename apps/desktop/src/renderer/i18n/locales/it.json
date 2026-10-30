@@ -9195,7 +9195,51 @@
       "cap": "tetto {{amount}}",
       "reviewOff": "revisione delle PR spenta",
       "reviewNoCap": "revisione delle PR, nessun tetto",
-      "reviewCap": "tetto della revisione delle PR {{amount}}"
+      "reviewCap": "tetto della revisione delle PR {{amount}}",
+      "webhookFormat": {
+        "slack": "Slack",
+        "discord": "Discord",
+        "generic": "JSON generico"
+      },
+      "webhookEvents": {
+        "ticket_created": "Nuova task dall'SDK o dal widget",
+        "task_created_by_automation": "Task creata da un'automazione",
+        "support_request": "Nuova richiesta nel backlog",
+        "job_plan_review": "Piano in attesa di approvazione",
+        "job_awaiting_input": "Claude ha fatto una domanda",
+        "job_held": "Lavoro in attesa",
+        "job_budget_held": "Lavoro in attesa: budget raggiunto",
+        "job_failed": "Il lavoro di Claude non è riuscito",
+        "job_pr_opened": "Pull request aperta da Claude",
+        "job_pr_closed": "Pull request chiusa senza merge",
+        "review_completed": "Revisione della pull request fatta",
+        "pr_analysis_issues": "Problemi trovati in una pull request",
+        "release_merged": "Mergiata in produzione",
+        "release_succeeded": "Rilascio riuscito",
+        "release_failed": "Rilascio non riuscito",
+        "docs_limit_paused": "Docs in pausa, o il giro notturno chiede attenzione",
+        "docs_release_note": "Nuova nota di rilascio",
+        "monitor": "Server in difficoltà, fermo o tornato normale",
+        "server_diagnosis_ready": "La diagnosi di Claude su un server è pronta",
+        "project_pulse": "Proposta per un progetto fermo",
+        "project_brief": "Brief settimanale del progetto"
+      }
+    },
+    "fields": {
+      "name": "Nome",
+      "workspace": "Workspace",
+      "defaultReviewer": "Revisore predefinito",
+      "domains": "Domini email",
+      "clientId": "Client ID",
+      "endpoint": "Endpoint",
+      "region": "Regione",
+      "bucket": "Bucket",
+      "accessKeyId": "Access key ID",
+      "attachments": "Allegati",
+      "enabled": "Manda i messaggi",
+      "format": "Formato",
+      "url": "Indirizzo",
+      "events": "Eventi"
     }
   },
   "usage": {

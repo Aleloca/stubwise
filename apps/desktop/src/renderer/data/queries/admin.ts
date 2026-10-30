@@ -15,7 +15,7 @@ export type {
   ChangeFilterChoices,
   ChangeObjectLink,
 } from "../changelog/types";
-export type { AutomationRuleValue, SettingValue } from "../changelog/settingValues";
+export type { AutomationRuleValue, FieldValue, SettingValue } from "../changelog/settingValues";
 export type {
   WhatCanPermission,
   WhatCanView,

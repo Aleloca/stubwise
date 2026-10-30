@@ -9195,7 +9195,51 @@
       "cap": "cap {{amount}}",
       "reviewOff": "PR review off",
       "reviewNoCap": "PR review, no cap",
-      "reviewCap": "PR review cap {{amount}}"
+      "reviewCap": "PR review cap {{amount}}",
+      "webhookFormat": {
+        "slack": "Slack",
+        "discord": "Discord",
+        "generic": "Generic JSON"
+      },
+      "webhookEvents": {
+        "ticket_created": "New task from the SDK or the widget",
+        "task_created_by_automation": "Task created by an automation",
+        "support_request": "New request in the backlog",
+        "job_plan_review": "Plan waiting for approval",
+        "job_awaiting_input": "Claude asked a question",
+        "job_held": "Work on hold",
+        "job_budget_held": "Work on hold: budget reached",
+        "job_failed": "Claude's work failed",
+        "job_pr_opened": "Pull request opened by Claude",
+        "job_pr_closed": "Pull request closed without merge",
+        "review_completed": "Pull request review done",
+        "pr_analysis_issues": "Problems found in a pull request",
+        "release_merged": "Merged to production",
+        "release_succeeded": "Release succeeded",
+        "release_failed": "Release failed",
+        "docs_limit_paused": "Docs paused, or the nightly run needs attention",
+        "docs_release_note": "New release note",
+        "monitor": "Server in trouble, down or back to normal",
+        "server_diagnosis_ready": "Claude's diagnosis of a server is ready",
+        "project_pulse": "Proposal for an idle project",
+        "project_brief": "Weekly project brief"
+      }
+    },
+    "fields": {
+      "name": "Name",
+      "workspace": "Workspace",
+      "defaultReviewer": "Default reviewer",
+      "domains": "Email domains",
+      "clientId": "Client ID",
+      "endpoint": "Endpoint",
+      "region": "Region",
+      "bucket": "Bucket",
+      "accessKeyId": "Access key ID",
+      "attachments": "Attachments",
+      "enabled": "Send messages",
+      "format": "Format",
+      "url": "Address",
+      "events": "Events"
     }
   },
   "usage": {

@@ -18,15 +18,21 @@ export function queuePauseOf(projectId: string): QueuePause | null {
   return pause ? { ...pause } : null;
 }
 
+/** L'archiviazione è configurata: endpoint, bucket, chiave d'accesso e la sua chiave segreta. */
+export function storageConfigured(): boolean {
+  const s = state.instance.storage;
+  return s.secretId !== null && s.endpoint !== "" && s.bucket !== "" && s.accessKeyId !== "";
+}
+
 /**
  * Se si possono caricare file (Drive, allegati): l'archiviazione è
- * configurata (c'è una chiave), gli allegati sono accesi e l'ultima prova,
- * se c'è, non è fallita.
+ * configurata, gli allegati sono accesi e l'ultima prova, se c'è, non è
+ * fallita.
  */
 export function storageAllowsUploads(): boolean {
   const s = state.instance.storage;
   return (
-    s.secretId !== null &&
+    storageConfigured() &&
     s.attachmentsEnabled &&
     (s.lastTest === null || s.lastTest.outcome === "ok")
   );

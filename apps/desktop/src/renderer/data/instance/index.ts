@@ -47,6 +47,55 @@ export {
   type BudgetView,
   type ContentLanguage,
 } from "./budget";
+export {
+  createGitAccount,
+  deleteGitAccount,
+  listGitAccounts,
+  replaceGitToken,
+  setDefaultReviewer,
+  updateGitAccount,
+  validateGitAccount,
+  type GitAccountView,
+} from "./git";
+export {
+  PLUGIN_STEP_MS,
+  getPlugin,
+  listPlugins,
+  registerPlugin,
+  removePlugin,
+  rerunSmoke,
+  simulateNextPluginOutcome,
+  updatePluginRef,
+  type PluginView,
+} from "./plugins";
+export {
+  createGoogleApp,
+  deleteGoogleApp,
+  listGoogleApps,
+  replaceGoogleSecret,
+  updateGoogleApp,
+  type GoogleAppView,
+} from "./google";
+export {
+  getStorage,
+  saveStorage,
+  setAttachments,
+  storageAllowsUploads,
+  testStorage,
+  type StorageStatus,
+  type StorageView,
+} from "./storage";
+export {
+  WEBHOOK_EVENTS,
+  getWebhook,
+  previewWebhook,
+  saveWebhook,
+  testWebhook,
+  type WebhookEventId,
+  type WebhookFormat,
+  type WebhookGroup,
+  type WebhookView,
+} from "./webhook";
 export type { InstanceRefusal, InstanceResult } from "./types";
 export type {
   AiProvider,

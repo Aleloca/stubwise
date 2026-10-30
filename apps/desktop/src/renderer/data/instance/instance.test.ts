@@ -352,7 +352,11 @@ describe("il seme dell'istanza", () => {
   it("i consumi hanno il loro seme (Task 2); il giro notturno arriva col Task 5; nessuna simulazione accesa", () => {
     expect(state.instance.usage.length).toBeGreaterThan(0);
     expect(state.instance.nightly).toEqual([]);
-    expect(state.instance.simulate).toEqual({ nextTest: {}, budgetReached: false });
+    expect(state.instance.simulate).toEqual({
+      nextTest: {},
+      budgetReached: false,
+      nextPluginOutcome: "ready",
+    });
   });
 });
 

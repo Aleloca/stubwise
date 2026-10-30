@@ -146,6 +146,12 @@ export interface InstanceState {
   /**
    * Solo prototipo (riquadro «Prototype only»). `nextTest`: chiave = id del
    * provider o dell'account git, oppure "storage" / "webhook".
+   * `nextPluginOutcome`: come finisce la prossima registrazione o il
+   * prossimo aggiornamento di un plugin (vale una volta, poi torna `ready`).
    */
-  simulate: { nextTest: Record<string, TestOutcome>; budgetReached: boolean };
+  simulate: {
+    nextTest: Record<string, TestOutcome>;
+    budgetReached: boolean;
+    nextPluginOutcome: "ready" | "failed";
+  };
 }

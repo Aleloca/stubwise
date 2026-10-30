@@ -5,6 +5,7 @@ import type {
   AutomationRuleValue,
   ChangeDiff,
   ChangeEntryView,
+  FieldValue,
   SettingValue,
 } from "../../data/queries";
 import { capitalized, usePermissionWords } from "./parts";
@@ -143,7 +144,51 @@ function useSettingWords() {
           );
         return parts.join(" · ");
       }
+      case "fields":
+        // Detto campo per campo da `useFieldsLine`, mai come valore unico.
+        return "";
     }
+  };
+}
+
+/**
+ * La riga di una voce `fields` del 9b (Task 4): campo per campo, «Workspace
+ * audin → audin-srl», e per le liste ciò che entra ed esce («Events +
+ * Release failed, − Pull request opened by Claude»), separati da « · ». Il
+ * nome del campo e le parole di Stubwise (on/off, il formato e gli eventi
+ * del webhook) sono qui; i valori dati da una persona restano com'erano.
+ */
+function useFieldsLine() {
+  const { t } = useTranslation();
+  const word = (field: string, v: string | boolean | null | undefined): string => {
+    if (v === null || v === undefined || v === "") return t("changelog.entry.none");
+    if (typeof v === "boolean") return t(v ? "changelog.values.on" : "changelog.values.off");
+    if (field === "format") return t(`changelog.values.webhookFormat.${v}`);
+    // L'id ha dei punti (`job.pr_opened`), che i18next leggerebbe come livelli.
+    if (field === "events") return t(`changelog.values.webhookEvents.${v.replace(/\./g, "_")}`);
+    return v;
+  };
+  return (
+    before: Record<string, FieldValue> | null,
+    after: Record<string, FieldValue> | null,
+  ): string | null => {
+    const keys = [...new Set([...Object.keys(after ?? {}), ...Object.keys(before ?? {})])];
+    const parts = keys.map((key) => {
+      const label = t(`changelog.fields.${key}`);
+      const b = before?.[key];
+      const a = after?.[key];
+      if (Array.isArray(a) || Array.isArray(b)) {
+        const from = Array.isArray(b) ? b : [];
+        const to = Array.isArray(a) ? a : [];
+        const items = [
+          ...to.filter((x) => !from.includes(x)).map((x) => `+ ${word(key, x)}`),
+          ...from.filter((x) => !to.includes(x)).map((x) => `− ${word(key, x)}`),
+        ];
+        return `${label} ${items.join(", ")}`;
+      }
+      return `${label} ${word(key, b)} → ${word(key, a)}`;
+    });
+    return parts.join(" · ") || null;
   };
 }
 
@@ -152,12 +197,18 @@ function useDiffLine() {
   const { t } = useTranslation();
   const words = usePermissionWords();
   const setting = useSettingWords();
+  const fieldsLine = useFieldsLine();
   return (diff: ChangeDiff): string | null => {
     const none = t("changelog.entry.none");
     switch (diff.kind) {
       case "values":
         return `${diff.before ?? none} → ${diff.after ?? none}`;
       case "setting":
+        if (diff.before?.type === "fields" || diff.after?.type === "fields")
+          return fieldsLine(
+            diff.before?.type === "fields" ? diff.before.fields : null,
+            diff.after?.type === "fields" ? diff.after.fields : null,
+          );
         return `${setting(diff.before)} → ${setting(diff.after)}`;
       case "permissions": {
         if (diff.role) {

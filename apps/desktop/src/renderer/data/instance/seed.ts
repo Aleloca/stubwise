@@ -199,7 +199,7 @@ export function seedInstanceState(): InstanceState {
         "ticket.created": true,
         "job.pr_opened": true,
         "job.failed": true,
-        "release.failed": true,
+        monitor: true,
       },
       lastTest: { at: at(-4, "17:45"), outcome: "ok" },
     },
@@ -207,7 +207,7 @@ export function seedInstanceState(): InstanceState {
     queuePauses: [{ projectId: "prj-stw", byId: "p-roberta", at: at(-1, "18:00") }],
     usage: seedUsage(),
     nightly: [],
-    simulate: { nextTest: {}, budgetReached: false },
+    simulate: { nextTest: {}, budgetReached: false, nextPluginOutcome: "ready" },
   };
 }
 
@@ -239,6 +239,6 @@ export function emptyInstanceState(): InstanceState {
     queuePauses: [],
     usage: [],
     nightly: [],
-    simulate: { nextTest: {}, budgetReached: false },
+    simulate: { nextTest: {}, budgetReached: false, nextPluginOutcome: "ready" },
   };
 }
