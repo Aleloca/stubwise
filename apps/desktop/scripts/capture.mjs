@@ -243,6 +243,71 @@ async function main() {
       return;
     }
 
+    // Area 9b, Task 8 (`CAPTURE_A9B_AI=1`): la voce AI dell'Amministrazione
+    // (shape admin-ai.md). Lo stato si prepara dal livello dati della pagina.
+    if (process.env.CAPTURE_A9B_AI) {
+      async function prepare(page, action) {
+        await page.evaluate(async (what) => {
+          const api = await import("/data/api.ts");
+          const viewer = await import("/data/viewer.ts");
+          const session = await import("/data/session.ts");
+          const prev = session.getSessionPersonId();
+          session.setSessionPersonId("p-roberta");
+          try {
+            if (what === "budget") await api.instance.simulateBudgetReached(true);
+            if (what === "readOnly") viewer.grantInstancePermission("p-marco", "settings.manage");
+          } finally {
+            session.setSessionPersonId(prev);
+          }
+        }, action);
+        await page.waitForTimeout(600);
+      }
+      const go = async (page, hash) => {
+        await page.evaluate((h) => {
+          window.location.hash = h;
+        }, hash);
+        await page.waitForTimeout(1200);
+        await page.mouse.move(2, 2);
+      };
+      const addDialog = async (page) => {
+        await page.getByRole("button", { name: /^(Add account|Aggiungi account)$/ }).click();
+        await page.getByLabel(/^(Name|Nome)$/).fill("Team Max 2");
+        await page.getByLabel(/^Token$/).fill("sk-ant-oat01-prototype-7f3a");
+        await page.waitForTimeout(300);
+      };
+      const SCENES = [
+        // [nome, indirizzo, { persona, action, after }]
+        ["providers", "/admin/ai?tab=providers", { persona: "Roberta" }],
+        ["providers-readonly", "/admin/ai?tab=providers", { persona: "Marco", action: "readOnly" }],
+        ["add", "/admin/ai?tab=providers", { persona: "Roberta", after: addDialog }],
+        ["models", "/admin/ai?tab=models", { persona: "Roberta" }],
+        ["automation", "/admin/ai?tab=automation", { persona: "Roberta" }],
+        ["budget", "/admin/ai?tab=budget", { persona: "Roberta" }],
+        ["budget-reached", "/admin/ai?tab=budget", { persona: "Roberta", action: "budget" }],
+      ];
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      for (const [name, hash, opts] of SCENES) {
+        for (const v of variants) {
+          const { page, context } = await open(v.scheme, v.viewport, "/home", {
+            lang: v.lang,
+            persona: opts.persona,
+          });
+          if (opts.action) await prepare(page, opts.action);
+          await go(page, hash);
+          if (opts.after) await opts.after(page);
+          await shot(page, `a9b-ai-${name}-${v.suffix}.png`);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 3: Claude. `CAPTURE_ONLY=<regex>` ne limita le pagine (revisione
     // mirata); le sessioni dal vivo si scattano con l'orologio fermo.
     const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;

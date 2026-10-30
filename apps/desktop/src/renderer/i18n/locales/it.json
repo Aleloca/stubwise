@@ -264,6 +264,16 @@
       "planning": "Qui si pianificherà il progetto.",
       "requests": "Qui compariranno le richieste del progetto.",
       "settings": "Qui si gestiranno le impostazioni del progetto."
+    },
+    "admin": {
+      "git-accounts": "Qui si gestiranno le credenziali con cui Stubwise legge e scrive i repository.",
+      "plugins": "Qui si registreranno i plugin di Claude Code che Claude può usare quando lavora.",
+      "google": "Qui si configureranno le app Google con cui le persone collegano Gmail e Calendar.",
+      "storage": "Qui si sceglierà dove tenere i file caricati.",
+      "webhooks": "Qui si configureranno i messaggi che Stubwise manda a una chat quando succede qualcosa.",
+      "servers": "Qui si elencheranno tutti i server dell'istanza, in ogni progetto.",
+      "repositories": "Qui si elencheranno i repository dei progetti che gestisci.",
+      "status": "Qui si seguirà cosa sta facendo Stubwise in questo momento."
     }
   },
   "prefs": {
@@ -8270,14 +8280,25 @@
     "columnLabel": "Sezioni dell'amministrazione",
     "groups": {
       "access": "Accessi",
-      "records": "Registri"
+      "records": "Registri",
+      "instance": "Istanza",
+      "estate": "In tutti i progetti"
     },
     "sections": {
       "people": "Persone",
       "departments": "Reparti",
       "roles": "Ruoli",
       "changelog": "Registro delle modifiche",
-      "who-can": "Chi può farlo?"
+      "who-can": "Chi può farlo?",
+      "ai": "AI",
+      "git-accounts": "Account git",
+      "plugins": "Plugin",
+      "google": "Google Workspace",
+      "storage": "Archiviazione",
+      "webhooks": "Webhook in uscita",
+      "servers": "Server",
+      "repositories": "Repository",
+      "status": "Stato dell'istanza"
     },
     "people": {
       "intro": "Tutte le persone di questa istanza: dove lavorano e cosa possono fare.",
@@ -8683,6 +8704,228 @@
       "deleted": "{{name}} eliminato.",
       "deletedMoved_one": "{{name}} eliminato. {{count}} task spostata in {{to}}.",
       "deletedMoved_other": "{{name}} eliminato. {{count}} task spostate in {{to}}."
+    },
+    "ai": {
+      "title": "AI",
+      "intro": "Gli account con cui lavora Claude, i modelli che usa, quando parte da solo e quanto può spendere.",
+      "tabsLabel": "Impostazioni AI",
+      "tabs": {
+        "providers": "Provider",
+        "models": "Modelli",
+        "automation": "Automazione",
+        "budget": "Budget e lingua",
+        "usage": "Consumi"
+      },
+      "readOnly": {
+        "providers": "Puoi leggere queste impostazioni. Per cambiarle serve chi può gestire i provider AI.",
+        "settings": "Puoi leggere queste impostazioni. Per cambiarle serve chi può cambiare le impostazioni dell'istanza."
+      },
+      "forbidden": "Non puoi più cambiarlo.",
+      "saveFailed": "Impossibile salvare. Riprova.",
+      "retry": "Riprova",
+      "saved": "Salvato",
+      "save": "Salva",
+      "cancel": "Annulla",
+      "usageIntro": "Quanto è costato Claude, in tutti i progetti che vedi, in un periodo.",
+      "prototype": {
+        "label": "Solo prototipo"
+      },
+      "providers": {
+        "intro": "Claude lavora con questi account, provati dall'alto in basso. Quando uno arriva al limite, passa al successivo.",
+        "add": "Aggiungi account",
+        "list": "Account AI",
+        "kind": {
+          "subscription": "Abbonamento",
+          "api_key": "Chiave API"
+        },
+        "use": "Usa {{name}}",
+        "on": "Acceso",
+        "off": "Spento",
+        "position": "Posizione {{position}}",
+        "disabledPosition": "Spento, non in uso",
+        "quota": "5h {{five}}% · settimana {{week}}%",
+        "near": "Vicino al limite",
+        "limitedUntil": "Al limite fino alle {{when}}",
+        "limitedUntilDay": "Al limite fino al {{when}}",
+        "readAgo": "letta {{ago}}",
+        "noReading": "Nessuna lettura ancora",
+        "tested": "provato il {{date}} · funziona",
+        "outcome": {
+          "invalid_credentials": "credenziali non valide",
+          "unreachable": "non raggiungibile"
+        },
+        "notTested": "non ancora provato",
+        "testing": "Prova in corso…",
+        "test": "Prova",
+        "testOf": "Prova {{name}}",
+        "apiKeyStandby": "si usa solo quando nessun abbonamento è acceso",
+        "apiKeyInUse": "in uso: nessun abbonamento è acceso",
+        "lastEnabled": "È l'unico account acceso. Accendine prima un altro.",
+        "background": "Oltre il {{pct}}% della settimana, il lavoro di sfondo (Docs notturni, report) aspetta il reset settimanale.",
+        "terms": "Usare più abbonamenti Claude per aggirare i limiti è contro i termini di Anthropic. Per avere più capacità, meglio una chiave API.",
+        "turnedOff": "{{name}} è spento. Il lavoro nuovo usa l'account successivo.",
+        "turnedOn": "{{name}} è acceso.",
+        "moved": "{{name}} spostato in posizione {{position}} di {{total}}.",
+        "handle": "Sposta {{name}}",
+        "instructions": "Trascina per cambiare l'ordine, oppure premi Alt e la freccia su o giù.",
+        "testFailed": {
+          "invalid_credentials": "{{name}}: credenziali non valide. Sostituisci la chiave e riprova.",
+          "unreachable": "{{name}}: non raggiungibile. Riprova fra poco."
+        },
+        "menu": "Altro per {{name}}",
+        "moveUp": "Sposta su",
+        "moveDown": "Sposta giù",
+        "replaceToken": "Sostituisci il token…",
+        "replaceKey": "Sostituisci la chiave…",
+        "delete": "Elimina…",
+        "empty": "Nessun account AI. Claude non può lavorare finché non ne aggiungi uno.",
+        "emptyReadOnly": "Chi può gestire i provider AI può aggiungerne uno.",
+        "loadError": "Impossibile caricare gli account AI.",
+        "prototype": {
+          "intro": "Gli account veri non vengono contattati. Scegli cosa risponde la prossima prova.",
+          "account": "Account",
+          "outcome": "Prossima prova",
+          "ok": "Funziona",
+          "invalid_credentials": "Credenziali non valide",
+          "unreachable": "Non raggiungibile"
+        },
+        "addDialog": {
+          "title": "Aggiungi un account AI",
+          "type": "Tipo",
+          "subscription": "Abbonamento Claude",
+          "subscriptionHint": "Incolla il token che ottieni lanciando <code>claude setup-token</code> su un computer con un browser.",
+          "apiKey": "Chiave API",
+          "apiKeyHint": "Una chiave dalla Console di Anthropic.",
+          "name": "Nome",
+          "namePlaceholder": "Team Max 2",
+          "token": "Token",
+          "key": "Chiave",
+          "bottom": "Va in fondo alla catena, acceso. Puoi spostarlo dopo.",
+          "submit": "Aggiungi",
+          "addedToken": "{{name}} aggiunto in posizione {{position}}. Provalo per controllare il token.",
+          "addedKey": "{{name}} aggiunto in posizione {{position}}. Provalo per controllare la chiave.",
+          "action": "aggiungere l'account AI {{name}}",
+          "errors": {
+            "name": "Dagli un nome.",
+            "token": "Incolla il token.",
+            "key": "Incolla la chiave.",
+            "taken": "C'è già un account che si chiama {{name}}."
+          }
+        },
+        "replaceDialog": {
+          "titleToken": "Sostituisci il token di {{name}}",
+          "titleKey": "Sostituisci la chiave di {{name}}",
+          "running": "Il lavoro già partito finisce con quella vecchia.",
+          "submit": "Sostituisci",
+          "doneToken": "Token sostituito per {{name}}.",
+          "doneKey": "Chiave sostituita per {{name}}.",
+          "actionToken": "sostituire il token di {{name}}",
+          "actionKey": "sostituire la chiave di {{name}}"
+        },
+        "deleteDialog": {
+          "title": "Eliminare {{name}}?",
+          "body": "Il lavoro già partito finisce con questo account. Il lavoro nuovo usa il successivo della catena.",
+          "submit": "Elimina",
+          "done": "{{name}} eliminato.",
+          "action": "eliminare l'account AI {{name}}"
+        }
+      },
+      "models": {
+        "intro": "Quale modello fa ogni tipo di lavoro. Un cambio vale dalla prossima esecuzione: il lavoro in corso finisce col modello con cui è partito.",
+        "groups": {
+          "tickets": "Task",
+          "backlog": "Backlog",
+          "nightly": "Giro notturno",
+          "docs": "Docs",
+          "reports": "Report",
+          "mail": "Posta",
+          "chat": "Chat"
+        },
+        "source": {
+          "setting": "Impostato qui",
+          "env": "Dalla configurazione del server",
+          "default": "Predefinito"
+        },
+        "fallback": {
+          "env": "Configurazione del server ({{model}})",
+          "default": "Predefinito ({{model}})"
+        },
+        "aliases": {
+          "opus": "Opus",
+          "sonnet": "Sonnet",
+          "haiku": "Haiku"
+        },
+        "versions": "Versioni precise",
+        "modelFor": "Modello per {{operation}}",
+        "useDefault": "Usa il predefinito",
+        "loadError": "Impossibile caricare i modelli."
+      },
+      "automation": {
+        "intro": "Quando Claude parte da solo su una task, e fin dove può arrivare.",
+        "prototypeNote": "Prototipo: si salvano, ma qui niente fa partire Claude da solo.",
+        "byType": "Per tipo di task",
+        "columns": {
+          "type": "Tipo",
+          "autoFix": "Auto-fix",
+          "maxEffort": "Fino all'effort",
+          "planApproval": "Approvazione del piano da effort",
+          "maxCost": "Costo massimo per task"
+        },
+        "types": {
+          "bug": "Bug",
+          "feature": "Feature",
+          "activity": "Attività"
+        },
+        "autoFixFor": "Auto-fix per {{type}}",
+        "effortOf": "{{n}} su 5",
+        "never": "Mai",
+        "noCap": "Nessun tetto",
+        "handOnly": "solo per le esecuzioni avviate a mano",
+        "prReview": {
+          "title": "Revisione delle PR",
+          "switch": "Rivedi ogni pull request",
+          "maxCost": "Costo massimo per revisione",
+          "body": "Claude rivede ogni pull request aperta o aggiornata in un repository collegato e suggerisce se approvarla o cambiarla."
+        },
+        "changes_one": "{{count}} modifica",
+        "changes_other": "{{count}} modifiche",
+        "leave_one": "Scartare {{count}} modifica?",
+        "leave_other": "Scartare {{count}} modifiche?",
+        "discard": "Scarta",
+        "keep": "Continua a modificare",
+        "costError": "Inserisci un importo da 0 in su, o lascialo vuoto.",
+        "loadError": "Impossibile caricare le impostazioni dell'automazione."
+      },
+      "budget": {
+        "title": "Budget mensile",
+        "noBudget": "Nessun budget",
+        "spent": "{{amount}} spesi a {{month}} · {{pct}}% di {{budget}}",
+        "spentNoBudget": "{{amount}} spesi a {{month}} · nessun budget",
+        "reached": "Budget raggiunto: il lavoro AI nuovo è fermo finché non lo alzi o finisce il mese.",
+        "counts": "Conta ogni costo AI dell'istanza, in tutti i progetti. Riparte il {{date}}.",
+        "waits": "Quando è raggiunto, il lavoro nuovo aspetta: avviare Claude su una task, chiedere modifiche, analisi e correzioni dei server. I passi delle automazioni che usano Claude aspettano e ripartono da soli quando il budget torna disponibile.",
+        "askStops": "Si ferma anche “Chiedi a Claude”. Il lavoro già partito finisce.",
+        "language": "Lingua dei contenuti",
+        "languages": {
+          "en": "English",
+          "it": "Italiano"
+        },
+        "languageHint": "La lingua di ciò che Claude scrive per il team: commenti, report delle pull request, notifiche. La lingua della tua interfaccia è nelle Preferenze.",
+        "amountError": "Inserisci un importo da 0 in su, o lascialo vuoto per non avere un budget.",
+        "savedBack": "Budget salvato. Il lavoro in attesa del budget riparte.",
+        "stillReached": "Salvato. Il budget è ancora raggiunto: spesi {{spent}}, budget {{budget}}.",
+        "simulate": "Simula il budget raggiunto",
+        "simulateHint": "Vedi cosa vedono tutti quando il budget finisce. Spegnendolo, il lavoro in attesa riparte.",
+        "loadError": "Impossibile caricare il budget."
+      },
+      "secret": {
+        "show": "Mostra",
+        "hide": "Nascondi",
+        "hint": "Si vede solo mentre lo scrivi. Dopo il salvataggio restano solo gli ultimi 4 caratteri.",
+        "replace": "Sostituisci",
+        "replaceOf": "Sostituisci {{label}}",
+        "saved": "{{label}}: finisce con {{last4}}"
+      }
     }
   },
   "permissions": {

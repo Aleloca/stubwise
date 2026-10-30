@@ -264,6 +264,16 @@
       "planning": "The project's planning will be done here.",
       "requests": "The project's requests will be listed here.",
       "settings": "The project's settings will be managed here."
+    },
+    "admin": {
+      "git-accounts": "The credentials Stubwise uses to read and write the repositories will be managed here.",
+      "plugins": "The Claude Code plugins Claude can use when it works will be registered here.",
+      "google": "The Google apps that let people connect their Gmail and Calendar will be set up here.",
+      "storage": "Where uploaded files are kept will be chosen here.",
+      "webhooks": "The messages Stubwise sends to a chat when something happens will be set up here.",
+      "servers": "Every server on the instance, in every project, will be listed here.",
+      "repositories": "The repositories of the projects you manage will be listed here.",
+      "status": "What Stubwise is doing right now will be followed here."
     }
   },
   "prefs": {
@@ -8270,14 +8280,25 @@
     "columnLabel": "Administration sections",
     "groups": {
       "access": "Access",
-      "records": "Records"
+      "records": "Records",
+      "instance": "Instance",
+      "estate": "Across projects"
     },
     "sections": {
       "people": "People",
       "departments": "Departments",
       "roles": "Roles",
       "changelog": "Change log",
-      "who-can": "Who can?"
+      "who-can": "Who can?",
+      "ai": "AI",
+      "git-accounts": "Git accounts",
+      "plugins": "Plugins",
+      "google": "Google Workspace",
+      "storage": "Storage",
+      "webhooks": "Outgoing webhooks",
+      "servers": "Servers",
+      "repositories": "Repositories",
+      "status": "Instance status"
     },
     "people": {
       "intro": "Everyone on this instance: where they work and what they can do.",
@@ -8683,6 +8704,228 @@
       "deleted": "{{name}} deleted.",
       "deletedMoved_one": "{{name}} deleted. {{count}} task moved to {{to}}.",
       "deletedMoved_other": "{{name}} deleted. {{count}} tasks moved to {{to}}."
+    },
+    "ai": {
+      "title": "AI",
+      "intro": "The accounts Claude works with, the models it uses, when it starts on its own and how much it can spend.",
+      "tabsLabel": "AI settings",
+      "tabs": {
+        "providers": "Providers",
+        "models": "Models",
+        "automation": "Automation",
+        "budget": "Budget & language",
+        "usage": "Usage"
+      },
+      "readOnly": {
+        "providers": "You can read these settings. Changing them needs someone who can manage AI providers.",
+        "settings": "You can read these settings. Changing them needs someone who can change the instance settings."
+      },
+      "forbidden": "You can no longer change this.",
+      "saveFailed": "Couldn't save. Try again.",
+      "retry": "Retry",
+      "saved": "Saved",
+      "save": "Save",
+      "cancel": "Cancel",
+      "usageIntro": "What Claude cost, in every project you can see, over a period.",
+      "prototype": {
+        "label": "Prototype only"
+      },
+      "providers": {
+        "intro": "Claude works with these accounts, tried top to bottom. When one hits its limit, the next takes over.",
+        "add": "Add account",
+        "list": "AI accounts",
+        "kind": {
+          "subscription": "Subscription",
+          "api_key": "API key"
+        },
+        "use": "Use {{name}}",
+        "on": "On",
+        "off": "Off",
+        "position": "Position {{position}}",
+        "disabledPosition": "Off, not in use",
+        "quota": "5h {{five}}% · week {{week}}%",
+        "near": "Near the limit",
+        "limitedUntil": "At the limit until {{when}}",
+        "limitedUntilDay": "At the limit until {{when}}",
+        "readAgo": "read {{ago}}",
+        "noReading": "No usage read yet",
+        "tested": "tested {{date}} · works",
+        "outcome": {
+          "invalid_credentials": "invalid credentials",
+          "unreachable": "unreachable"
+        },
+        "notTested": "not tested yet",
+        "testing": "Testing…",
+        "test": "Test",
+        "testOf": "Test {{name}}",
+        "apiKeyStandby": "used only when no subscription is on",
+        "apiKeyInUse": "in use: no subscription is on",
+        "lastEnabled": "This is the only account on. Turn on another one first.",
+        "background": "Above {{pct}}% of the week, background work (nightly Docs, reports) waits for the weekly reset.",
+        "terms": "Using several Claude subscriptions to get around usage limits is against Anthropic's terms. For more capacity, prefer an API key.",
+        "turnedOff": "{{name}} is off. New work uses the next account.",
+        "turnedOn": "{{name}} is on.",
+        "moved": "{{name}} moved to position {{position}} of {{total}}.",
+        "handle": "Move {{name}}",
+        "instructions": "Drag to change the order, or press Alt and the up or down arrow.",
+        "testFailed": {
+          "invalid_credentials": "{{name}}: invalid credentials. Replace the key and test again.",
+          "unreachable": "{{name}}: unreachable. Test again in a moment."
+        },
+        "menu": "More for {{name}}",
+        "moveUp": "Move up",
+        "moveDown": "Move down",
+        "replaceToken": "Replace token…",
+        "replaceKey": "Replace key…",
+        "delete": "Delete…",
+        "empty": "No AI accounts yet. Claude can't work until you add one.",
+        "emptyReadOnly": "Someone who can manage AI providers can add one.",
+        "loadError": "Couldn't load the AI accounts.",
+        "prototype": {
+          "intro": "Real accounts aren't contacted. Choose what the next test answers.",
+          "account": "Account",
+          "outcome": "Next test",
+          "ok": "Works",
+          "invalid_credentials": "Invalid credentials",
+          "unreachable": "Unreachable"
+        },
+        "addDialog": {
+          "title": "Add an AI account",
+          "type": "Type",
+          "subscription": "Claude subscription",
+          "subscriptionHint": "Paste the token you get by running <code>claude setup-token</code> on a computer with a browser.",
+          "apiKey": "API key",
+          "apiKeyHint": "A key from the Anthropic Console.",
+          "name": "Name",
+          "namePlaceholder": "Team Max 2",
+          "token": "Token",
+          "key": "Key",
+          "bottom": "It goes to the bottom of the chain, turned on. You can move it after.",
+          "submit": "Add",
+          "addedToken": "{{name}} added at position {{position}}. Test it to check the token.",
+          "addedKey": "{{name}} added at position {{position}}. Test it to check the key.",
+          "action": "add the AI account {{name}}",
+          "errors": {
+            "name": "Give it a name.",
+            "token": "Paste the token.",
+            "key": "Paste the key.",
+            "taken": "There's already an account called {{name}}."
+          }
+        },
+        "replaceDialog": {
+          "titleToken": "Replace {{name}}'s token",
+          "titleKey": "Replace {{name}}'s key",
+          "running": "Work already running finishes with the old one.",
+          "submit": "Replace",
+          "doneToken": "Token replaced for {{name}}.",
+          "doneKey": "Key replaced for {{name}}.",
+          "actionToken": "replace the token of {{name}}",
+          "actionKey": "replace the key of {{name}}"
+        },
+        "deleteDialog": {
+          "title": "Delete {{name}}?",
+          "body": "Work already running finishes with it. New work uses the next account in the chain.",
+          "submit": "Delete",
+          "done": "{{name}} deleted.",
+          "action": "delete the AI account {{name}}"
+        }
+      },
+      "models": {
+        "intro": "Which model does each kind of work. A change applies from the next run: work in progress finishes with the model it started with.",
+        "groups": {
+          "tickets": "Tasks",
+          "backlog": "Backlog",
+          "nightly": "Nightly run",
+          "docs": "Docs",
+          "reports": "Reports",
+          "mail": "Mail",
+          "chat": "Chat"
+        },
+        "source": {
+          "setting": "Set here",
+          "env": "From the server configuration",
+          "default": "Default"
+        },
+        "fallback": {
+          "env": "Server configuration ({{model}})",
+          "default": "Default ({{model}})"
+        },
+        "aliases": {
+          "opus": "Opus",
+          "sonnet": "Sonnet",
+          "haiku": "Haiku"
+        },
+        "versions": "Specific versions",
+        "modelFor": "Model for {{operation}}",
+        "useDefault": "Use default",
+        "loadError": "Couldn't load the models."
+      },
+      "automation": {
+        "intro": "When Claude starts on a task on its own, and how far it can go.",
+        "prototypeNote": "Prototype: these are saved, but nothing here starts Claude on its own.",
+        "byType": "By task type",
+        "columns": {
+          "type": "Type",
+          "autoFix": "Auto-fix",
+          "maxEffort": "Up to effort",
+          "planApproval": "Plan approval from effort",
+          "maxCost": "Max cost per task"
+        },
+        "types": {
+          "bug": "Bug",
+          "feature": "Feature",
+          "activity": "Activity"
+        },
+        "autoFixFor": "Auto-fix for {{type}}",
+        "effortOf": "{{n}} of 5",
+        "never": "Never",
+        "noCap": "No cap",
+        "handOnly": "only for runs started by hand",
+        "prReview": {
+          "title": "PR review",
+          "switch": "Review every pull request",
+          "maxCost": "Max cost per review",
+          "body": "Claude reviews each pull request opened or updated in a connected repository and suggests approving or changing it."
+        },
+        "changes_one": "{{count}} change",
+        "changes_other": "{{count}} changes",
+        "leave_one": "Discard {{count}} change?",
+        "leave_other": "Discard {{count}} changes?",
+        "discard": "Discard",
+        "keep": "Keep editing",
+        "costError": "Enter an amount of 0 or more, or leave it empty.",
+        "loadError": "Couldn't load the automation settings."
+      },
+      "budget": {
+        "title": "Monthly budget",
+        "noBudget": "No budget",
+        "spent": "{{amount}} spent in {{month}} · {{pct}}% of {{budget}}",
+        "spentNoBudget": "{{amount}} spent in {{month}} · no budget",
+        "reached": "Budget reached: new AI work is on hold until it's raised or the month ends.",
+        "counts": "Counts every AI cost on the instance, in every project. It starts again on {{date}}.",
+        "waits": "When it's reached, new work waits: starting Claude on a task, asking for changes, server analyses and fixes. Automation steps that use Claude wait and start again on their own when the budget is available.",
+        "askStops": "Ask Claude stops too. Work already running finishes.",
+        "language": "Content language",
+        "languages": {
+          "en": "English",
+          "it": "Italiano"
+        },
+        "languageHint": "The language of what Claude writes for the team: comments, pull request reports, notifications. Your own interface language is in Preferences.",
+        "amountError": "Enter an amount of 0 or more, or leave it empty for no budget.",
+        "savedBack": "Budget saved. Work waiting for the budget starts again.",
+        "stillReached": "Saved. The budget is still reached: {{spent}} spent, {{budget}} budget.",
+        "simulate": "Simulate budget reached",
+        "simulateHint": "See what everyone sees when the budget runs out. Turning it off lets waiting work start again.",
+        "loadError": "Couldn't load the budget."
+      },
+      "secret": {
+        "show": "Show",
+        "hide": "Hide",
+        "hint": "Shown only while you type. Once saved, you'll see only the last 4 characters.",
+        "replace": "Replace",
+        "replaceOf": "Replace {{label}}",
+        "saved": "{{label}}: ending in {{last4}}"
+      }
     }
   },
   "permissions": {

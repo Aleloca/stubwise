@@ -409,6 +409,7 @@ describe("modelli per operazione", () => {
       group: "tickets",
       model: "opus",
       source: "setting",
+      fallback: { model: "sonnet", source: "default" },
     });
   });
 

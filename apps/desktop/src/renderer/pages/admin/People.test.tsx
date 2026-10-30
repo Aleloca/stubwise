@@ -63,7 +63,7 @@ async function openProfile(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("intelaiatura: ogni voce col suo permesso", () => {
-  it("il full admin vede le cinque voci, in due gruppi; /admin apre People", async () => {
+  it("il full admin vede tutte le voci, in quattro gruppi; /admin apre People", async () => {
     const router = renderRoute("/admin", ROBERTA);
     expect(await heading("People")).toBeVisible();
     expect(router.state.location.pathname).toBe("/admin/people");
@@ -71,12 +71,30 @@ describe("intelaiatura: ogni voce col suo permesso", () => {
       within(column())
         .getAllByRole("link")
         .map((l) => l.textContent?.replace(/\d+$/, "")),
-    ).toEqual(["People", "Departments", "Roles", "Change log", "Who can?"]);
+    ).toEqual([
+      "People",
+      "Departments",
+      "Roles",
+      "Change log",
+      "Who can?",
+      // Le voci d'istanza del 9b (shape admin-ai.md [AI 2]).
+      "AI",
+      "Git accounts",
+      "Plugins",
+      "Google Workspace",
+      "Storage",
+      "Outgoing webhooks",
+      "Servers",
+      "Repositories",
+      "Instance status",
+    ]);
     expect(within(column()).getByText("Access")).toBeVisible();
     expect(within(column()).getByText("Records")).toBeVisible();
+    expect(within(column()).getByText("Instance")).toBeVisible();
+    expect(within(column()).getByText("Across projects")).toBeVisible();
   });
 
-  it("Sara (nessuna gestione): People e Who can?, e nel profilo la voce si chiama «People»", async () => {
+  it("Sara (nessuna gestione): People, Who can? e Git accounts in lettura, e nel profilo la voce si chiama «People»", async () => {
     const user = userEvent.setup();
     renderRoute("/admin/people", SARA);
     await heading("People");
@@ -84,7 +102,7 @@ describe("intelaiatura: ogni voce col suo permesso", () => {
       within(column())
         .getAllByRole("link")
         .map((l) => l.textContent?.replace(/\d+$/, "")),
-    ).toEqual(["People", "Who can?"]);
+    ).toEqual(["People", "Who can?", "Git accounts"]);
     expect(within(column()).queryByText("Access")).toBeVisible();
     const menu = await openProfile(user);
     expect(within(menu).getByRole("link", { name: "People" })).toHaveAttribute("href", "/admin");
@@ -101,7 +119,7 @@ describe("intelaiatura: ogni voce col suo permesso", () => {
       within(column())
         .getAllByRole("link")
         .map((l) => l.textContent?.replace(/\d+$/, "")),
-    ).toEqual(["People", "Change log", "Who can?"]);
+    ).toEqual(["People", "Change log", "Who can?", "Git accounts", "Repositories"]);
     const menu = await openProfile(user);
     expect(within(menu).getByRole("link", { name: "Administration" })).toBeVisible();
   });

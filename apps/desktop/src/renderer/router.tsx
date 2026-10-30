@@ -180,6 +180,8 @@ export interface AppSearch {
   section?: string;
   /** Departments (area 9a): il pannello del reparto aperto. */
   department?: string;
+  /** Amministrazione → AI (area 9b): la scheda aperta (`AI_TABS`; una sconosciuta apre la prima visibile). */
+  tab?: string;
   /** Members del progetto (area 9a): il pannello del membro e «Add member» (`1` o la persona). */
   member?: string;
   addMember?: string;
@@ -228,6 +230,7 @@ const SEARCH_KEYS = [
   "check",
   "section",
   "department",
+  "tab",
   "member",
   "addMember",
   ...PEOPLE_SEARCH_KEYS,
@@ -283,7 +286,7 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
         ? /^[\w-]+$/.test(value)
         : key === "range"
           ? /^(1h|24h|7d)$/.test(value)
-          : key === "section"
+          : key === "section" || key === "tab"
             ? /^[a-z]+$/.test(value)
         : key === "date"
           ? /^\d{4}-\d{2}-\d{2}$/.test(value)

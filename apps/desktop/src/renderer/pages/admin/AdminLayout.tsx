@@ -7,6 +7,8 @@ import { isAdminSection, type AdminSection } from "../../data/routes";
 import { useViewer } from "../../data/viewer";
 import { ONE_LINE, columnItemClass } from "../../layout/ProjectColumn";
 import { NotFound } from "../NotFound";
+import { Placeholder } from "../Placeholder";
+import { AiPage } from "./ai/AiPage";
 import { ChangeLogPage } from "./ChangeLogPage";
 import { DepartmentsPage } from "./DepartmentsPage";
 import { InvitePage } from "./InvitePage";
@@ -18,7 +20,8 @@ import { WhoCanPage } from "./WhoCanPage";
 
 // L'intelaiatura dell'Amministrazione (area 9a, shape admin-people.md §3):
 // la colonna con le voci che chi guarda vede (`adminSections`), raggruppate
-// in ACCESS e RECORDS, senza titolo (l'h1 della pagina è il titolo); `/admin`
+// in ACCESS e RECORDS, poi INSTANCE e ACROSS PROJECTS dell'area 9b (shape
+// admin-ai.md [AI 2]), senza titolo (l'h1 della pagina è il titolo); `/admin`
 // apre la prima voce visibile; una voce aperta per indirizzo senza permesso è
 // la pagina «not found» dell'app (R-G5), non un «forbidden».
 
@@ -37,7 +40,7 @@ export function AdminColumn() {
   const { viewer } = useViewer();
   const sections = adminSections(viewer);
   const baseId = useId();
-  const groups = (["access", "records"] as const)
+  const groups = (["access", "records", "instance", "estate"] as const)
     .map((group) => ({ group, items: sections.filter((s) => s.group === group) }))
     .filter((g) => g.items.length > 0);
   return (
@@ -100,7 +103,12 @@ function SectionBody({ section }: { section: AdminSection }) {
   if (section === "departments") return <DepartmentsPage />;
   if (section === "roles") return <RolesPage />;
   if (section === "changelog") return <ChangeLogPage />;
-  return <WhoCanPage />;
+  if (section === "who-can") return <WhoCanPage />;
+  if (section === "ai") return <AiPage />;
+  // Le altre voci dell'istanza arrivano coi Task 10–13 del 9b.
+  return (
+    <Placeholder titleKey={`admin.sections.${section}`} bodyKey={`placeholder.admin.${section}`} />
+  );
 }
 
 /** La pagina di un ruolo (`/admin/roles/$roleId`): dentro Roles, con `roles.manage`. */

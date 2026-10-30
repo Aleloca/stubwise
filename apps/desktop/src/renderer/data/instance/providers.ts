@@ -47,6 +47,11 @@ export type ProviderView = Omit<AiProvider, "secretId" | "quota"> & {
   /** La posizione nella catena, da 1 (un disabilitato tiene il suo posto). */
   position: number;
   quota: QuotaView | null;
+  /**
+   * È l'unico account acceso: non si spegne né si elimina (RF 4). La pagina
+   * spegne l'interruttore e la voce «Delete…» leggendo questo, non una regola sua.
+   */
+  lastEnabled: boolean;
 };
 
 const providerOf = (id: string) => state.instance.providers.find((p) => p.id === id);
@@ -80,6 +85,7 @@ function viewOf(p: AiProvider, index: number): ProviderView {
     lastTest: p.lastTest ? { ...p.lastTest } : null,
     position: index + 1,
     quota: quotaView(p),
+    lastEnabled: isLastEnabled(p),
   };
 }
 

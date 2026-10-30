@@ -24,6 +24,8 @@ export interface BudgetView {
   monthlyUsd: number | null;
   spentUsd: number;
   reached: boolean;
+  /** Il riquadro «Prototype only» simula il budget raggiunto (l'interruttore lo rilegge da qui). */
+  simulated: boolean;
   contentLanguage: ContentLanguage;
 }
 
@@ -33,7 +35,13 @@ export async function getBudget(): Promise<BudgetView> {
   const me = await gate("instance.getBudget");
   if (!canRead(me)) throw forbidden();
   const { monthlyUsd, contentLanguage } = state.instance.budget;
-  return { monthlyUsd, spentUsd: spentThisMonthUsd(), reached: budgetReached(), contentLanguage };
+  return {
+    monthlyUsd,
+    spentUsd: spentThisMonthUsd(),
+    reached: budgetReached(),
+    simulated: state.instance.simulate.budgetReached,
+    contentLanguage,
+  };
 }
 
 /** Salva budget (`null` = nessun budget) e lingua dei contenuti. */

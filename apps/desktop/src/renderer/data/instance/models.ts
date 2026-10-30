@@ -31,6 +31,8 @@ export interface ModelRow {
   group: AiOperationGroupKey;
   model: AiModelChoice;
   source: ModelSource;
+  /** Dove si torna con «Use default»: l'env del worker o il default di codice. */
+  fallback: { model: AiModelChoice; source: Exclude<ModelSource, "setting"> };
 }
 
 const HAIKU_BY_DEFAULT: readonly AiOperation[] = ["daily_report", "commit_summary", "summary"];
@@ -69,9 +71,13 @@ const canRead = (me: string) => canI(me, "settings.manage") || canI(me, "ai_prov
 export function modelFor(operation: AiOperation): { model: AiModelChoice; source: ModelSource } {
   const setting = state.instance.models[operation];
   if (setting) return { model: setting, source: "setting" };
+  return fallbackFor(operation);
+}
+
+/** Il modello senza impostazione: l'env, altrimenti il default di codice. */
+function fallbackFor(operation: AiOperation): ModelRow["fallback"] {
   const env = ENV_MODELS[operation];
-  if (env) return { model: env, source: "env" };
-  return { model: DEFAULT_MODELS[operation], source: "default" };
+  return env ? { model: env, source: "env" } : { model: DEFAULT_MODELS[operation], source: "default" };
 }
 
 /** Il modello di un'operazione adesso, come id («haiku» → «claude-haiku-5-5»): quello che una sessione nuova scrive. */
@@ -90,7 +96,12 @@ export async function listModels(): Promise<ModelRow[]> {
   return AI_OPERATION_GROUPS.flatMap(({ group, operations }) =>
     operations
       .filter(isConfigurableAiOperation)
-      .map((operation) => ({ operation, group, ...modelFor(operation) })),
+      .map((operation) => ({
+        operation,
+        group,
+        ...modelFor(operation),
+        fallback: fallbackFor(operation),
+      })),
   );
 }
 
