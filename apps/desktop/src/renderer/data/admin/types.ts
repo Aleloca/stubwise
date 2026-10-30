@@ -119,6 +119,11 @@ export interface ProjectMembersView {
   grantable: { permission: string; allowed: boolean }[];
   /** Chi si può aggiungere: persone attive, non membri, né Claude né full admin. */
   addable: string[];
+  /**
+   * Per chi si può aggiungere, i permessi dei suoi reparti che chi guarda non
+   * ha qui (vuoto = si può): entrando li riceverebbe, quindi si danno.
+   */
+  addableMissing: Record<string, string[]>;
 }
 
 export interface PersonRow {
@@ -212,7 +217,13 @@ export interface RoleView extends RoleDef {
   /** Persone (ruolo d'istanza) o appartenenze (ruolo di progetto) visibili a chi guarda. */
   peopleCount: number;
   holders: { personId: string; projectId: string | null }[];
-  /** Ciò che manca a chi guarda per dare questo ruolo o duplicarlo (vuoto = si può). */
+  /**
+   * Ciò che manca a chi guarda per scrivere questo contenuto dove il ruolo
+   * vale (vuoto = si può): l'istanza, o i progetti dove è assegnato o
+   * promesso; per un ruolo di progetto non assegnato, almeno un progetto.
+   * Il ruolo dato a una persona in un progetto si legge da `roleChoices` di
+   * Members.
+   */
   missing: string[];
 }
 
@@ -225,8 +236,11 @@ export interface DepartmentView {
   projectPermissions: string[];
   /** Le task che hanno il reparto come reparto di pertinenza (l'eliminazione chiede dove spostarle). */
   taskCount: number;
-  /** Ciò che manca a chi guarda per aggiungere persone al reparto (i permessi che porta). */
-  missingToAdd: string[];
+  /**
+   * Per ogni persona attiva non ancora nel reparto, i permessi del reparto
+   * che chi guarda non ha nei progetti di lei (vuoto = la si può aggiungere).
+   */
+  missingToAdd: Record<string, string[]>;
 }
 
 /** Un autore git osservato nei commit e non ancora collegato (come l'Activity, area 3). */

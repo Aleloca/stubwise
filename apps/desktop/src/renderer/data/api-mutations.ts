@@ -199,6 +199,8 @@ export const defaultDepartmentOf = (me: string): string =>
 
 function buildTask(me: string, input: NewTaskInput): Task {
   const { project, status } = checkNewTask(me, input);
+  // Una persona disattivata non si assegna, neanche a una task nuova (area 9a).
+  if (input.assigneeId && isDeactivated(input.assigneeId)) throw invalid("assignee");
   const departmentId = input.departmentId ?? defaultDepartmentOf(me);
   const max = state.tasks
     .filter((t) => t.projectId === project.id)

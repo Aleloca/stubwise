@@ -10,13 +10,13 @@ import type { Department } from "../types";
 import { writer } from "../writer";
 import {
   canI,
-  escalationRefusal,
-  holdingsAnywhere,
+  escalationIn,
   invariantRefusal,
   isActive,
   isHumanId,
-  missingFor,
+  missingIn,
   nameOf,
+  projectsOf,
   reauthRefusal,
   refuse,
 } from "./common";
@@ -33,11 +33,13 @@ import "./changeTypes";
 // riallinea lo store dopo la scrittura (`syncPersonDepartments`), senza
 // un'altra strada.
 //
-// Anti-escalation sul DARE: aggiungere persone a un reparto dà loro i suoi
-// permessi, e mettere un permesso nel reparto lo dà a tutti; si danno solo
-// permessi che chi agisce ha da qualche parte (`holdingsAnywhere`). Togliere
-// una persona o un permesso non passa da lì, ma dai blocchi sì (un reparto
-// può portare `project.members.manage`).
+// Anti-escalation sul DARE, nei progetti dove il permesso arriva (ruling
+// R-M2): chi entra nel reparto ne riceve i permessi in ogni progetto di cui
+// è membro, quindi chi agisce li deve avere in ognuno di quei progetti; un
+// permesso messo nel reparto arriva in ogni progetto di cui è membro almeno
+// una persona del reparto, quindi lì. Togliere una persona o un permesso non
+// passa da lì, ma dai blocchi sì (un reparto può portare
+// `project.members.manage`).
 
 const DEPARTMENTS_MANAGE = "departments.manage";
 /** Le otto tinte dei reparti (`DESIGN.md`). */
@@ -68,9 +70,12 @@ function managed(me: string, id: string): { department: Department } | { refusal
 export async function listDepartments(): Promise<DepartmentView[]> {
   const me = await gate("admin.listDepartments");
   if (!canI(me, DEPARTMENTS_MANAGE)) throw new Error("forbidden");
-  const mine = holdingsAnywhere(me);
   return state.departments.map((d) => {
     const a = accessOf(accessState(), d.id);
+    const perms = a?.projectPermissions ?? [];
+    const candidates = accessState().people.filter(
+      (p) => p.status === "active" && isHumanId(p.personId) && !a?.memberIds.includes(p.personId),
+    );
     return {
       id: d.id,
       name: d.name,
@@ -81,7 +86,9 @@ export async function listDepartments(): Promise<DepartmentView[]> {
       homeManagerIds: [...(a?.homeManagerIds ?? [])],
       projectPermissions: [...(a?.projectPermissions ?? [])],
       taskCount: state.tasks.filter((t) => t.departmentId === d.id).length,
-      missingToAdd: missingFor(mine, a?.projectPermissions ?? []),
+      missingToAdd: Object.fromEntries(
+        candidates.map((p) => [p.personId, missingIn(me, projectsOf(p.personId), perms)]),
+      ),
     };
   });
 }
@@ -182,10 +189,16 @@ export async function setDepartmentMembers(id: string, memberIds: string[]): Pro
   const added = next.filter((p) => !current.memberIds.includes(p));
   const removed = current.memberIds.filter((p) => !next.includes(p));
   if (added.length === 0 && removed.length === 0) return refuse.invalid("unchanged");
-  if (added.length > 0) {
-    const escalation = escalationRefusal(holdingsAnywhere(me), current.projectPermissions);
-    if (escalation) return escalation;
-  }
+  // Chi entra riceve i permessi del reparto in ogni suo progetto.
+  const missing = new Set(
+    added.flatMap((p) => missingIn(me, projectsOf(p), current.projectPermissions)),
+  );
+  if (missing.size > 0)
+    return {
+      ok: false,
+      error: "escalation",
+      missing: current.projectPermissions.filter((p) => missing.has(p)),
+    };
   const mutate = (s: AccessState) => {
     accessOf(s, id)!.memberIds = next;
   };
@@ -251,7 +264,9 @@ export async function setDepartmentPermissions(
   const removed = current.projectPermissions.filter((p) => !next.includes(p));
   // Prima l'escalation: chi mette `instance.full_admin` in un reparto senza
   // averlo si sente dire questo, non «non è un permesso di progetto».
-  const escalation = escalationRefusal(holdingsAnywhere(me), added);
+  // Un permesso nuovo arriva in ogni progetto di cui è membro una persona del reparto.
+  const reached = current.memberIds.flatMap(projectsOf);
+  const escalation = escalationIn(me, reached, added);
   if (escalation) return escalation;
   if (next.some((p) => !ALL_PROJECT_PERMISSIONS.includes(p))) return refuse.invalid("permission");
   if (added.length === 0 && removed.length === 0) return refuse.invalid("unchanged");

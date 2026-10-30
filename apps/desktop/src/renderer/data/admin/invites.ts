@@ -1,12 +1,11 @@
-import { effectivePermissions, accessState } from "../access/index";
+import { accessState } from "../access/index";
 import { recordChange } from "../changelog/index";
 import { gate, newId, now, state, visibleProjectIds } from "../store";
 import { writer } from "../writer";
 import {
   canI,
   emailOf,
-  escalationRefusal,
-  holdingsAnywhere,
+  missingIn,
   isHumanId,
   nameOf,
   reauthRefusal,
@@ -97,15 +96,13 @@ export async function createInvite(
     const role = roleById(p.roleId);
     if (!role || role.scope !== "project") return refuse.invalid("role");
   }
-  // Si dà il ruolo d'istanza (confronto d'istanza) e, in ogni progetto, il suo ruolo.
+  // Si dà il ruolo d'istanza (coi soli permessi d'istanza) e, in ogni progetto, il suo ruolo.
   const missing = new Set<string>();
   for (const check of [
-    escalationRefusal(holdingsAnywhere(me), instanceRole.permissions),
-    ...input.projects.map((p) =>
-      escalationRefusal(effectivePermissions(me, p.projectId), roleById(p.roleId)!.permissions),
-    ),
+    missingIn(me, "instance", instanceRole.permissions),
+    ...input.projects.map((p) => missingIn(me, [p.projectId], roleById(p.roleId)!.permissions)),
   ])
-    if (check && check.error === "escalation") check.missing.forEach((m) => missing.add(m));
+    for (const m of check) missing.add(m);
   if (missing.size > 0) return { ok: false, error: "escalation", missing: [...missing] };
   const reauth = reauthRefusal(me, "admin.createInvite");
   if (reauth) return reauth;

@@ -14,11 +14,11 @@ import {
   avatarOf,
   canI,
   emailOf,
-  escalationRefusal,
+  escalationIn,
   invariantRefusal,
   isActive,
   isHumanId,
-  missingFor,
+  missingIn,
   nameOf,
   reauthRefusal,
   refuse,
@@ -44,8 +44,8 @@ import "./changeTypes";
 //
 // L'anti-escalation vale su ciò che si DÀ, coi permessi effettivi di chi
 // agisce in QUEL progetto (ruolo, concessioni, reparto, permessi locali):
-// il ruolo assegnato (quello che aggiunge rispetto al ruolo di prima) e il
-// permesso concesso. Togliere — un permesso, un membro, un ruolo verso uno
+// il ruolo assegnato (quello che aggiunge rispetto al ruolo di prima), il
+// permesso concesso e, per chi entra, i permessi dei suoi reparti. Togliere — un permesso, un membro, un ruolo verso uno
 // più piccolo — non passa da lì: niente gerarchia (maintainer, 30 ott).
 //
 // Le revoche (`revocations`, solo prototipo per i test delle aree 2–8) qui
@@ -76,16 +76,24 @@ export function extraPermissionsOf(personId: string, projectId: string): ExtraPe
 
 /** I ruoli di progetto con ciò che manca a `me` per darli in `projectId`. */
 export function projectRoleChoices(me: string, projectId: string): RoleChoice[] {
-  const mine = effectivePermissions(me, projectId);
   return accessState()
     .roles.filter((r) => r.scope === "project")
     .map((r) => ({
       roleId: r.id,
       name: r.name,
       permissionCount: r.permissions.length,
-      missing: missingFor(mine, r.permissions),
+      missing: missingIn(me, [projectId], r.permissions),
     }));
 }
+
+/** I permessi di progetto che i reparti di una persona le danno, in ogni progetto di cui è membro. */
+export const departmentPermissionsOf = (personId: string): string[] => [
+  ...new Set(
+    accessState()
+      .departments.filter((d) => d.memberIds.includes(personId))
+      .flatMap((d) => d.projectPermissions),
+  ),
+];
 
 const membershipOf = (s: AccessState, personId: string, projectId: string) =>
   s.memberships.find((m) => m.personId === personId && m.projectId === projectId);
@@ -125,8 +133,17 @@ export async function listProjectMembers(projectId: string): Promise<ProjectMemb
         Number(a.status === "deactivated") - Number(b.status === "deactivated") ||
         a.name.localeCompare(b.name),
     );
-  const mine = effectivePermissions(me, projectId);
+
   const canManage = canI(me, MEMBERS_MANAGE, projectId);
+  const addable = s.people
+    .filter(
+      (p) =>
+        p.status === "active" &&
+        !isFullAdmin(p.personId) &&
+        !membershipOf(s, p.personId, projectId),
+    )
+    .map((p) => p.personId)
+    .sort((a, b) => (nameOf(a) ?? a).localeCompare(nameOf(b) ?? b));
   return {
     projectId,
     members,
@@ -136,17 +153,12 @@ export async function listProjectMembers(projectId: string): Promise<ProjectMemb
     // Si dà solo gestendo i membri, e solo ciò che si ha.
     grantable: ALL_PROJECT_PERMISSIONS.map((permission) => ({
       permission,
-      allowed: canManage && missingFor(mine, [permission]).length === 0,
+      allowed: canManage && missingIn(me, [projectId], [permission]).length === 0,
     })),
-    addable: s.people
-      .filter(
-        (p) =>
-          p.status === "active" &&
-          !isFullAdmin(p.personId) &&
-          !membershipOf(s, p.personId, projectId),
-      )
-      .map((p) => p.personId)
-      .sort((a, b) => (nameOf(a) ?? a).localeCompare(nameOf(b) ?? b)),
+    addable,
+    addableMissing: Object.fromEntries(
+      addable.map((id) => [id, missingIn(me, [projectId], departmentPermissionsOf(id))]),
+    ),
   };
 }
 
@@ -165,7 +177,13 @@ export async function addMember(
   if (membershipOf(accessState(), personId, projectId)) return refuse.invalid("already_member");
   const role = roleById(roleId);
   if (!role || role.scope !== "project") return refuse.invalid("role");
-  const escalation = escalationRefusal(effectivePermissions(me, projectId), role.permissions);
+  // Entrando, la persona riceve il ruolo E i permessi di progetto dei suoi
+  // reparti: si danno entrambi (design, Members, «Regole»).
+  const escalation = escalationIn(
+    me,
+    [projectId],
+    [...role.permissions, ...departmentPermissionsOf(personId)],
+  );
   if (escalation) return escalation;
   const reauth = reauthRefusal(me, "admin.addMember");
   if (reauth) return reauth;
@@ -238,7 +256,7 @@ export async function setMemberRole(
   const before = roleById(membership.roleId);
   if (role.id === before?.id) return refuse.invalid("unchanged");
   const added = role.permissions.filter((p) => !before?.permissions.includes(p));
-  const escalation = escalationRefusal(effectivePermissions(me, projectId), added);
+  const escalation = escalationIn(me, [projectId], added);
   if (escalation) return escalation;
   const mutate = (s: AccessState) => {
     membershipOf(s, personId, projectId)!.roleId = role.id;
@@ -275,7 +293,7 @@ export async function grantMemberPermission(
   if (!isHumanId(personId)) return refuse.notFound();
   if (!membershipOf(accessState(), personId, projectId)) return refuse.invalid("not_member");
   if (!ALL_PROJECT_PERMISSIONS.includes(permission)) return refuse.invalid("permission");
-  const escalation = escalationRefusal(effectivePermissions(me, projectId), [permission]);
+  const escalation = escalationIn(me, [projectId], [permission]);
   if (escalation) return escalation;
   const exists = accessState().grants.some(
     (g) => g.personId === personId && g.projectId === projectId && g.permission === permission,

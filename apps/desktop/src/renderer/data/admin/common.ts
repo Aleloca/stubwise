@@ -67,13 +67,28 @@ export const roleById = (id: string) => accessState().roles.find((r) => r.id ===
 export const departmentName = (id: string): string =>
   state.departments.find((d) => d.id === id)?.name ?? id;
 
-/**
- * I permessi che chi agisce ha DA QUALCHE PARTE: quelli d'istanza più quelli
- * di progetto di ogni progetto di cui è membro (la stessa domanda di `can()`
- * senza progetto). È il confronto per ciò che non vive in un progetto: il
- * contenuto di un ruolo, i permessi di un reparto, il ruolo d'istanza.
- */
-export function holdingsAnywhere(me: string): PermissionMap {
+// --- anti-escalation: il confronto (ruling R-M2, come `heldForProjectRole` del web)
+//
+// Si dà solo ciò che si ha DOVE la modifica diventa effettiva, e al suo
+// livello:
+// - qualcosa d'istanza (ruolo d'istanza, suo contenuto, ruolo d'istanza di
+//   un invito) coi soli permessi d'istanza di chi agisce — un permesso a due
+//   livelli (`automations.manage`) avuto nel progetto non vale qui;
+// - qualcosa di progetto coi permessi di chi agisce in OGNI progetto dove
+//   arriva: dove il ruolo è assegnato o promesso da un invito, dove sono
+//   membri le persone del reparto, dove è membro chi entra nel reparto.
+// Se la modifica non arriva in nessun progetto (un ruolo di progetto non
+// assegnato, un reparto i cui membri non stanno in nessun progetto) basta
+// avere i permessi in almeno un progetto o a livello d'istanza: quando
+// diventerà effettiva, il controllo lo rifà chi la rende tale
+// (`addMember`, `setMemberRole`, `setDepartmentMembers`). Il full admin passa
+// sempre (`checkEscalation` lo riconosce dalla fonte).
+
+/** I permessi d'istanza di chi agisce: il confronto per tutto ciò che è d'istanza. */
+export const instanceHoldings = (me: string): PermissionMap => effectivePermissions(me);
+
+/** I permessi di progetto avuti in almeno un progetto, o d'istanza (solo per ciò che non arriva in nessun progetto). */
+function holdingsSomewhere(me: string): PermissionMap {
   const map = new Map<string, PermissionSource[]>(effectivePermissions(me));
   for (const m of accessState().memberships) {
     if (m.personId !== me) continue;
@@ -83,20 +98,40 @@ export function holdingsAnywhere(me: string): PermissionMap {
   return map;
 }
 
-/** `escalation` sul DARE, coi permessi effettivi di chi agisce (in un progetto o ovunque). */
-export function escalationRefusal(
-  actor: PermissionMap,
+/** I progetti di cui una persona è membro (appartenenze esplicite). */
+export const projectsOf = (personId: string): string[] =>
+  accessState()
+    .memberships.filter((m) => m.personId === personId)
+    .map((m) => m.projectId);
+
+/** `wanted` meno ciò che chi agisce ha, al livello giusto: vedi sopra. */
+export function missingIn(
+  me: string,
+  projectIds: readonly string[] | "instance",
   wanted: readonly string[],
-): AdminRefusal | null {
-  const check = checkEscalation(actor, wanted);
-  return check.ok ? null : { ok: false, error: "escalation", missing: check.missing };
+): string[] {
+  const missing = (actor: PermissionMap) => {
+    const check = checkEscalation(actor, wanted);
+    return check.ok ? [] : check.missing;
+  };
+  if (projectIds === "instance") return missing(instanceHoldings(me));
+  if (projectIds.length === 0) return missing(holdingsSomewhere(me));
+  const out = new Set<string>();
+  for (const p of new Set(projectIds))
+    for (const m of missing(effectivePermissions(me, p))) out.add(m);
+  // Nell'ordine di `wanted`, senza ripetizioni.
+  return [...new Set(wanted)].filter((p) => out.has(p));
 }
 
-/** Ciò che manca per dare `wanted` (vuoto = si può): i campi `missing` delle letture. */
-export const missingFor = (actor: PermissionMap, wanted: readonly string[]): string[] => {
-  const check = checkEscalation(actor, wanted);
-  return check.ok ? [] : check.missing;
-};
+/** `escalation` sul DARE: `null` se chi agisce ha tutto `wanted` dove arriva. */
+export function escalationIn(
+  me: string,
+  projectIds: readonly string[] | "instance",
+  wanted: readonly string[],
+): AdminRefusal | null {
+  const missing = missingIn(me, projectIds, wanted);
+  return missing.length === 0 ? null : { ok: false, error: "escalation", missing };
+}
 
 const activeFullAdmins = (s: AccessState): string[] =>
   s.people

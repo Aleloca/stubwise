@@ -7,15 +7,14 @@ import {
   type RoleDef,
 } from "../access/index";
 import { recordChange } from "../changelog/index";
-import { gate, newId, visibleProjectIds } from "../store";
+import { gate, newId, now, state, visibleProjectIds } from "../store";
 import { writer } from "../writer";
 import {
   canI,
-  escalationRefusal,
-  holdingsAnywhere,
+  escalationIn,
   invariantRefusal,
   isHumanId,
-  missingFor,
+  missingIn,
   reauthRefusal,
   refuse,
   roleById,
@@ -26,9 +25,13 @@ import "./changeTypes";
 // Roles (area 9a, «come sul web»): ruoli d'istanza e di progetto, i preset si
 // modificano ma non si eliminano, un ruolo in uso non si elimina. Tutto con
 // `roles.manage` e la riconferma. Il contenuto di un ruolo passa
-// dall'anti-escalation con il confronto d'istanza: chi lo scrive mette solo
-// permessi che ha da qualche parte (`holdingsAnywhere`). Un ruolo non arriva
-// mai a Claude, che non ha ruoli.
+// dall'anti-escalation dove il ruolo vale (ruling R-M2, come
+// `heldForProjectRole` del web): un ruolo d'istanza coi soli permessi
+// d'istanza di chi lo scrive; un ruolo di progetto coi suoi permessi in OGNI
+// progetto dove il ruolo è assegnato o promesso da un invito in sospeso.
+// Un ruolo di progetto non assegnato (nuovo, duplicato) lo scrive chi ne ha
+// i permessi in almeno un progetto: assegnarlo rifà il controllo.
+// Un ruolo non arriva mai a Claude, che non ha ruoli.
 //
 // L'elenco lo legge chiunque: i menu dei ruoli di Members e degli inviti ne
 // hanno bisogno. I conteggi rispettano R-G5 (solo persone e progetti che chi
@@ -39,6 +42,27 @@ const ROLES_MANAGE = "roles.manage";
 /** I permessi che un ruolo di quel livello può contenere. */
 const universeOf = (scope: RoleDef["scope"]): ReadonlySet<string> =>
   scope === "instance" ? INSTANCE_SET : new Set(ALL_PROJECT_PERMISSIONS);
+
+/**
+ * Dove un ruolo è effettivo: l'istanza per un ruolo d'istanza; per uno di
+ * progetto, i progetti dove è assegnato o promesso da un invito in sospeso
+ * (né revocato, né accettato, né scaduto). Tutti, visibili o no a chi agisce.
+ */
+export function whereRoleApplies(role: RoleDef): string[] | "instance" {
+  if (role.scope === "instance") return "instance";
+  const assigned = accessState()
+    .memberships.filter((m) => m.roleId === role.id)
+    .map((m) => m.projectId);
+  const promised = state.invites
+    .filter(
+      (i) =>
+        i.revokedAt === null &&
+        i.acceptedAt === null &&
+        Date.parse(i.expiresAt) >= Date.parse(now()),
+    )
+    .flatMap((i) => i.projects.filter((p) => p.roleId === role.id).map((p) => p.projectId));
+  return [...new Set([...assigned, ...promised])];
+}
 
 /** Chi ha il ruolo, fra le persone e i progetti visibili a `me`. */
 function holdersOf(
@@ -60,14 +84,13 @@ function holdersOf(
 export async function listRoles(): Promise<RoleView[]> {
   const me = await gate("admin.listRoles");
   const s = accessState();
-  const mine = holdingsAnywhere(me);
   return s.roles.map((role) => {
     const holders = holdersOf(me, role, s);
     return {
       ...structuredClone(role),
       peopleCount: holders.length,
       holders,
-      missing: missingFor(mine, role.permissions),
+      missing: missingIn(me, whereRoleApplies(role), role.permissions),
     };
   });
 }
@@ -91,7 +114,11 @@ async function create(
   const name = cleanName(input.name);
   if (!name) return refuse.invalid("name");
   if (nameTaken(accessState(), input.scope, name)) return refuse.invalid("name_taken");
-  const escalation = escalationRefusal(holdingsAnywhere(me), input.permissions);
+  const escalation = escalationIn(
+    me,
+    input.scope === "instance" ? "instance" : [],
+    input.permissions,
+  );
   if (escalation) return escalation;
   const reauth = reauthRefusal(me, fn);
   if (reauth) return reauth;
@@ -174,7 +201,7 @@ export async function updateRole(
   const universe = universeOf(role.scope);
   if (permissions.some((p) => !universe.has(p))) return refuse.invalid("permission");
   const added = permissions.filter((p) => !role.permissions.includes(p));
-  const escalation = escalationRefusal(holdingsAnywhere(me), added);
+  const escalation = escalationIn(me, whereRoleApplies(role), added);
   if (escalation) return escalation;
   const removed = role.permissions.filter((p) => !permissions.includes(p));
   if (name === role.name && added.length === 0 && removed.length === 0)

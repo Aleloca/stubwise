@@ -9,7 +9,7 @@ import { reassignTask } from "../api-mutations";
 import { recordChange } from "../changelog/index";
 import { COMMITS } from "../seed/commits";
 import { securityAlert } from "../seed/notifications";
-import { PEOPLE } from "../seed/people";
+import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import { copy, familyOf, gate, newId, now, state, visibleProjectIds } from "../store";
 import type { Task } from "../types";
 import { writer } from "../writer";
@@ -17,12 +17,11 @@ import {
   avatarOf,
   canI,
   emailOf,
-  escalationRefusal,
-  holdingsAnywhere,
+  escalationIn,
   invariantRefusal,
   isActive,
   isHumanId,
-  missingFor,
+  missingIn,
   nameOf,
   reauthRefusal,
   refuse,
@@ -187,7 +186,6 @@ export async function getPerson(personId: string): Promise<PersonDetail> {
   const manage = canI(me, USERS_MANAGE);
   const visible = visibleProjectIds(me);
   const memberships = accessState().memberships.filter((m) => m.personId === personId);
-  const anywhere = holdingsAnywhere(me);
   const deactivate =
     blockFor(me, personId, { notSelf: true }) ??
     (access.status !== "active"
@@ -253,7 +251,7 @@ export async function getPerson(personId: string): Promise<PersonDetail> {
             roleId: r.id,
             name: r.name,
             permissionCount: r.permissions.length,
-            missing: missingFor(anywhere, r.permissions),
+            missing: missingIn(me, "instance", r.permissions),
           }))
       : [],
     openTasks: state.tasks
@@ -264,7 +262,7 @@ export async function getPerson(personId: string): Promise<PersonDetail> {
         title: t.title,
         projectId: t.projectId,
         reassignTo: (state.projectsById.get(t.projectId)?.memberIds ?? []).filter(
-          (id) => id !== personId && (id === "p-claude" || isActive(id)),
+          (id) => id !== personId && (id === CLAUDE_ID || isActive(id)),
         ),
       })),
   };
@@ -343,7 +341,7 @@ export async function setInstanceRole(personId: string, roleId: string): Promise
   if (!role || role.scope !== "instance") return refuse.invalid("role");
   const before = roleById(accessOf(personId)!.instanceRoleId);
   if (before?.id === role.id) return refuse.invalid("unchanged");
-  const escalation = escalationRefusal(holdingsAnywhere(me), role.permissions);
+  const escalation = escalationIn(me, "instance", role.permissions);
   if (escalation) return escalation;
   const mutate = (s: AccessState) => {
     s.people.find((p) => p.personId === personId)!.instanceRoleId = role.id;
@@ -531,7 +529,7 @@ export async function deactivatePerson(
     if (task.assigneeId !== personId || !isOpen(task)) return refuse.invalid("task");
     if (to === null) continue;
     const members = state.projectsById.get(task.projectId)?.memberIds ?? [];
-    if (to === personId || !members.includes(to) || (to !== "p-claude" && !isActive(to)))
+    if (to === personId || !members.includes(to) || (to !== CLAUDE_ID && !isActive(to)))
       return refuse.invalid("assignee");
     moves.push([task, to]);
   }

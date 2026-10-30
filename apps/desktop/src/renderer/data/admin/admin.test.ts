@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   admin,
   changelog,
+  createTask,
   failNext,
   getTaskByCode,
   listDepartments as listDepartmentNames,
@@ -49,17 +50,38 @@ const reauth = (personId: string) => markReauthenticated(personId);
 const giveInstance = (personId: string, perm: string) =>
   grantInstancePermission(personId, perm as LocalInstancePermission);
 
+const developmentMembers = () =>
+  accessState().departments.find((d) => d.departmentId === "dep-development")!.memberIds;
+
+/**
+ * `personId` fuori da Development e membro solo dei progetti di `ofId`: chi
+ * lo aggiunge a un reparto gli dà i permessi del reparto solo lì.
+ */
+function onlyInProjectsOf(personId: string, ofId: string): void {
+  writeAccess((s) => {
+    const theirs = new Set(
+      s.memberships.filter((m) => m.personId === ofId).map((m) => m.projectId),
+    );
+    s.memberships = s.memberships.filter((m) => m.personId !== personId || theirs.has(m.projectId));
+    const d = s.departments.find((x) => x.departmentId === "dep-development")!;
+    d.memberIds = d.memberIds.filter((id) => id !== personId);
+  });
+}
+
 /** Tutto ciò che una scrittura d'amministrazione può toccare, serializzato. */
 function snapshot(): string {
   return JSON.stringify({
     access: accessState(),
     invites: state.invites,
     departments: state.departments,
+    departmentHomes: state.departmentHomes,
     securityEvents: state.securityEvents,
     bitbucket: [...state.bitbucketUsernames],
     authors: [...state.commitAuthorLinks],
-    notifications: state.notifications.length,
-    assignees: state.tasks.map((t) => [t.id, t.assigneeId, t.departmentId]),
+    notifications: state.notifications,
+    tasks: state.tasks,
+    activity: state.activity.length,
+    changelog: state.changelog,
     personDepartments: PEOPLE.map((p) => p.departmentIds),
     secrets: __secretValuesForTest().map((s) => s.id),
   });
@@ -323,18 +345,26 @@ describe("RF 1: si dà solo ciò che si ha", () => {
       );
     });
 
-    it("con departments.manage e support.reply → ammesso", async () => {
+    it("con departments.manage e support.reply nei progetti di chi entra → ammesso", async () => {
+      giveInstance("p-laura", "departments.manage");
+      onlyInProjectsOf("p-marco", "p-laura");
+      as("p-laura");
+      reauth("p-laura");
+      expect(
+        await admin.setDepartmentMembers("dep-development", [...developmentMembers(), "p-marco"]),
+      ).toMatchObject({ ok: true });
+      expect(PEOPLE.find((p) => p.id === "p-marco")!.departmentIds).toEqual(["dep-development"]);
+    });
+
+    it("chi entra è in un progetto dove Laura non ha il permesso del reparto → escalation", async () => {
       giveInstance("p-laura", "departments.manage");
       as("p-laura");
       reauth("p-laura");
-      const members = accessState().departments.find((d) => d.departmentId === "dep-development")!;
-      expect(
-        await admin.setDepartmentMembers("dep-development", [...members.memberIds, "p-giulia"]),
-      ).toMatchObject({ ok: true });
-      expect(PEOPLE.find((p) => p.id === "p-giulia")!.departmentIds).toEqual([
-        "dep-marketing",
-        "dep-development",
-      ]);
+      // Giulia è anche in CBV e OLV, dove Laura non è: lì support.reply non ce l'ha.
+      await refused(
+        () => admin.setDepartmentMembers("dep-development", [...developmentMembers(), "p-giulia"]),
+        { error: "escalation", missing: ["support.reply"] },
+      );
     });
 
     it("se il reparto porta un permesso che Laura non ha → escalation", async () => {
@@ -361,7 +391,7 @@ describe("RF 1: si dà solo ciò che si ha", () => {
       ).toMatchObject({ ok: true });
     });
 
-    it("un permesso che Laura ha solo dal suo reparto conta: lo può mettere in un altro", async () => {
+    it("un permesso che Laura ha solo dal suo reparto conta, nei progetti dove arriva", async () => {
       // servers.operate non sta in nessun ruolo: a Laura arriva SOLO da Development.
       giveInstance("p-laura", "departments.manage");
       writeAccess((s) => {
@@ -372,19 +402,137 @@ describe("RF 1: si dà solo ciò che si ha", () => {
       expect(effectivePermissions("p-laura", ACQ).get("servers.operate")).toEqual([
         { kind: "department", departmentId: "dep-development" },
       ]);
+      onlyInProjectsOf("p-marco", "p-laura");
       as("p-laura");
       reauth("p-laura");
-      expect(await admin.setDepartmentPermissions("dep-sales", ["servers.operate"])).toEqual({
-        ok: true,
+      // Marco è solo in progetti di Laura: lì servers.operate Laura ce l'ha (dal reparto).
+      expect(
+        await admin.setDepartmentMembers("dep-development", [...developmentMembers(), "p-marco"]),
+      ).toEqual({ ok: true });
+      expect(
+        await admin.setDepartmentMembers(
+          "dep-development",
+          developmentMembers().filter((id) => id !== "p-marco"),
+        ),
+      ).toEqual({ ok: true });
+      // Con Marco anche in OLV, dove Laura non è, darglieli è escalation (tutti e due).
+      writeAccess((s) => {
+        s.memberships.push({
+          personId: "p-marco",
+          projectId: "prj-olv",
+          roleId: roleIdOf("developer"),
+        });
       });
-      // Fuori da Development non lo ha più: darlo è escalation.
+      await refused(
+        () => admin.setDepartmentMembers("dep-development", [...developmentMembers(), "p-marco"]),
+        { error: "escalation", missing: ["support.reply", "servers.operate"] },
+      );
+    });
+  });
+
+  describe("si confronta nel progetto dove il permesso arriva, e al suo livello (R-M2)", () => {
+    const CBV = "prj-cbv";
+    const STW = "prj-stw";
+    const developer = () => accessState().roles.find((r) => r.id === roleIdOf("developer"))!;
+    const user = () => accessState().roles.find((r) => r.id === roleIdOf("user"))!;
+    const marketing = () =>
+      accessState().departments.find((d) => d.departmentId === "dep-marketing")!;
+    /** Development porta servers.operate, e Laura non ne fa parte. */
+    const developmentOperatesWithoutLaura = () =>
       writeAccess((s) => {
         const d = s.departments.find((x) => x.departmentId === "dep-development")!;
+        d.projectPermissions.push("servers.operate");
         d.memberIds = d.memberIds.filter((id) => id !== "p-laura");
       });
-      await refused(() => admin.setDepartmentPermissions("dep-marketing", ["servers.operate"]), {
+
+    /** Le quattro strade laterali della revisione, fatte da `actor`. */
+    const scenarios = {
+      "release.merge nel preset Developer (Federico ce l'avrebbe su CBV)": () =>
+        admin.updateRole(roleIdOf("developer"), {
+          permissions: [...developer().permissions, "release.merge"],
+        }),
+      "plans.approve nel reparto Marketing (Giulia ce l'avrebbe su CBV)": () =>
+        admin.setDepartmentPermissions("dep-marketing", [
+          ...marketing().projectPermissions,
+          "plans.approve",
+        ]),
+      "automations.manage nel ruolo d'istanza User (Laura ce l'ha solo di progetto)": () =>
+        admin.updateRole(roleIdOf("user"), {
+          permissions: [...user().permissions, "automations.manage"],
+        }),
+      "Alessia in STW, con servers.operate dal reparto": () =>
+        admin.addMember(STW, "p-alessia", roleIdOf("viewer")),
+    };
+    const missingOf: Record<keyof typeof scenarios, string> = {
+      "release.merge nel preset Developer (Federico ce l'avrebbe su CBV)": "release.merge",
+      "plans.approve nel reparto Marketing (Giulia ce l'avrebbe su CBV)": "plans.approve",
+      "automations.manage nel ruolo d'istanza User (Laura ce l'ha solo di progetto)":
+        "automations.manage",
+      "Alessia in STW, con servers.operate dal reparto": "servers.operate",
+    };
+
+    beforeEach(() => {
+      developmentOperatesWithoutLaura();
+      for (const p of ["roles.manage", "departments.manage"]) giveInstance("p-laura", p);
+      reauth("p-laura");
+      reauth("p-roberta");
+    });
+
+    it("le premesse: Laura ha quei permessi altrove, non dove arriverebbero", () => {
+      expect(state.projectsById.get(CBV)!.memberIds).toEqual(
+        expect.arrayContaining(["p-federico", "p-giulia"]),
+      );
+      expect(state.projectsById.get(CBV)!.memberIds).not.toContain("p-laura");
+      expect(can(viewerFor("p-laura"), "release.merge", ACQ)).toBe(true);
+      expect(can(viewerFor("p-laura"), "automations.manage", ACQ)).toBe(true);
+      expect(can(viewerFor("p-laura"), "automations.manage")).toBe(false);
+      expect(can(viewerFor("p-laura"), "servers.operate", STW)).toBe(false);
+      expect(can(viewerFor("p-laura"), "project.members.manage", STW)).toBe(true);
+    });
+
+    for (const [name, call] of Object.entries(scenarios)) {
+      it(`Laura: ${name} → escalation, stato e registro invariati`, async () => {
+        as("p-laura");
+        await refused(call, {
+          error: "escalation",
+          missing: [missingOf[name as keyof typeof scenarios]],
+        });
+      });
+
+      it(`Roberta, full admin: ${name} → riesce`, async () => {
+        as("p-roberta");
+        expect(await call()).toMatchObject({ ok: true });
+      });
+    }
+
+    it("un ruolo di progetto non assegnato: basta averne i permessi in almeno un progetto", async () => {
+      as("p-laura");
+      const created = (await admin.createRole({
+        name: "Mergers",
+        scope: "project",
+        from: roleIdOf("developer"),
+      })) as { ok: true; roleId: string };
+      expect(created.ok).toBe(true);
+      const perms = [...developer().permissions, "release.merge"];
+      expect(await admin.updateRole(created.roleId, { permissions: perms })).toEqual({ ok: true });
+      // Assegnarlo rifà il controllo nel progetto: su ACQ Laura ha release.merge.
+      expect(await admin.setMemberRole(ACQ, "p-marco", created.roleId)).toEqual({ ok: true });
+      // Ora è assegnato su ACQ: aggiungere ciò che Laura non ha su ACQ è escalation.
+      await refused(
+        () => admin.updateRole(created.roleId, { permissions: [...perms, "servers.operate"] }),
+        { error: "escalation", missing: ["servers.operate"] },
+      );
+    });
+
+    it("un ruolo promesso da un invito in sospeso conta come assegnato", async () => {
+      as("p-laura");
+      const created = (await admin.createRole({ name: "Docs only", scope: "project" })) as {
+        roleId: string;
+      };
+      state.invites[0]!.projects = [{ projectId: CBV, roleId: created.roleId }];
+      await refused(() => admin.updateRole(created.roleId, { permissions: ["docs.view"] }), {
         error: "escalation",
-        missing: ["servers.operate"],
+        missing: ["docs.view"],
       });
     });
   });
@@ -432,6 +580,18 @@ describe("RF 3: resta sempre un full admin", () => {
   });
 
   it("togliere full admin al ruolo Admin → last_full_admin", async () => {
+    as("p-roberta");
+    await refused(() => admin.updateRole(roleIdOf("admin"), { permissions: ["users.manage"] }), {
+      error: "invalid",
+      reason: "last_full_admin",
+    });
+  });
+
+  it("togliere full admin al ruolo Admin con DUE full admin dal ruolo → last_full_admin", async () => {
+    // Ognuno da solo non sarebbe l'ultimo: lo diventano insieme.
+    writeAccess((s) => {
+      s.people.find((p) => p.personId === "p-giorgio")!.instanceRoleId = roleIdOf("admin");
+    });
     as("p-roberta");
     await refused(() => admin.updateRole(roleIdOf("admin"), { permissions: ["users.manage"] }), {
       error: "invalid",
@@ -510,6 +670,9 @@ describe("disattivare e riattivare", () => {
     await expect(updateTask(task.id, { assigneeId: "p-marco" })).rejects.toThrow(
       "invalid: assignee",
     );
+    await expect(
+      createTask({ projectId: ACQ, title: "Per Marco", assigneeId: "p-marco" }),
+    ).rejects.toThrow("invalid: assignee");
     expect(await admin.reactivatePerson("p-marco")).toMatchObject({ ok: true });
     expect(VIEW_AS_PERSONAS.map((p) => p.personId)).toEqual(before);
     expect((await listAssignable()).find((p) => p.id === "p-marco")!.deactivated).toBe(false);
