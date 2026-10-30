@@ -294,21 +294,33 @@ function failUnexecuted(run: AutomationRun): void {
 const aiProjectOf = (run: AutomationRun, a: Automation): string | null =>
   a.projectId ?? run.projectIds[0] ?? null;
 
-/** La motivazione di un'attesa d'istanza, tradotta dall'interfaccia (`automations.reasons`). */
-function waitingWhy(block: AiBlock): ReasonCode {
+/**
+ * La motivazione di un'attesa d'istanza, tradotta dall'interfaccia
+ * (`automations.reasons`). Una riga della coda porta il progetto della
+ * pausa (`project`): `viewRun` la toglie a chi non lo vede (R-G5, come
+ * `getAiBlock`).
+ */
+function waitingWhy(block: AiBlock, projectId: string | null): ReasonCode {
   return block.reason === "monthly_budget"
     ? { code: "aiBudget" }
-    : { code: "aiQueuePaused", params: { name: block.byName, byId: block.byId } };
+    : {
+        code: "aiQueuePaused",
+        params: { name: block.byName, byId: block.byId, project: projectId ?? "" },
+      };
 }
 
 /**
  * Il blocco è cambiato ma il passo resta fermo: «Budget available again ·
  * still waiting: queue paused» o il contrario, nel registro (shape EF).
  */
-function blockChangedWhy(after: AiBlock): ReasonCode {
+function blockChangedWhy(after: AiBlock, projectId: string | null): ReasonCode {
+  const project = projectId ?? "";
   return after.reason === "queue_paused"
-    ? { code: "aiBudgetBackStillQueue", params: { name: after.byName, byId: after.byId } }
-    : { code: "aiQueueBackStillBudget" };
+    ? {
+        code: "aiBudgetBackStillQueue",
+        params: { name: after.byName, byId: after.byId, project },
+      }
+    : { code: "aiQueueBackStillBudget", params: { project } };
 }
 
 /**
@@ -330,7 +342,7 @@ function holdForAi(run: AutomationRun, a: Automation): boolean {
       block.reason === "monthly_budget"
         ? "In attesa: budget AI del mese raggiunto."
         : `In attesa: coda in pausa da ${block.byName}.`,
-    why: waitingWhy(block),
+    why: waitingWhy(block, projectId),
   });
   const gen = storeGeneration();
   holdJob({
@@ -355,7 +367,10 @@ function holdForAi(run: AutomationRun, a: Automation): boolean {
           releasedBy === null
             ? "Budget di nuovo disponibile: il passo riparte."
             : "Coda ripresa: il passo riparte.",
-        why: { code: releasedBy === null ? "aiBudgetBack" : "aiQueueBack" },
+        why:
+          releasedBy === null
+            ? { code: "aiBudgetBack" }
+            : { code: "aiQueueBack", params: { project: projectId ?? "" } },
       });
       await enqueue(run.id, { kind: "time", now: runNow(run) });
     },
@@ -367,7 +382,7 @@ function holdForAi(run: AutomationRun, a: Automation): boolean {
           after.reason === "queue_paused"
             ? `Budget di nuovo disponibile: ancora in attesa, coda in pausa da ${after.byName}.`
             : "Coda ripresa: ancora in attesa del budget AI del mese.",
-        why: blockChangedWhy(after),
+        why: blockChangedWhy(after, projectId),
       });
     },
   });

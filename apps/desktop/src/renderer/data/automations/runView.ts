@@ -17,6 +17,14 @@ import {
 // solo punto, `viewRun`, da cui passano tutte le letture (elenco,
 // dettaglio, ricerca, Home, «Decide», sezione del progetto).
 
+/** Le motivazioni del registro che parlano della coda di un progetto (`params.project`). */
+const QUEUE_WHY = new Set([
+  "aiQueuePaused",
+  "aiQueueBack",
+  "aiBudgetBackStillQueue",
+  "aiQueueBackStillBudget",
+]);
+
 /**
  * I parametri di una motivazione oscurati: ogni valore diventa «…» (la
  * frase regge, il dato non esce). Regola generale, non per codice.
@@ -121,6 +129,18 @@ export function viewRun(me: string, run: AutomationRun): AutomationRun {
   v.projectIds = v.projectIds.filter((p) => visible.has(p));
   if (v.projects)
     v.projects = Object.fromEntries(Object.entries(v.projects).filter(([, p]) => visible.has(p)));
+  // Le righe della coda di un progetto che chi guarda non vede: via, come la
+  // pausa per `getAiBlock` — né la pausa né chi l'ha messa (ri-revisione m1).
+  v.log = v.log.filter((e) => {
+    const project = e.why?.params?.project;
+    return !(
+      e.why &&
+      QUEUE_WHY.has(e.why.code) &&
+      typeof project === "string" &&
+      project !== "" &&
+      !visible.has(project)
+    );
+  });
   for (const e of v.log) {
     scrub(e.input);
     scrub(e.output);

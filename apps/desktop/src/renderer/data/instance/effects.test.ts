@@ -491,6 +491,40 @@ describe("I2 e i due blocchi delle automazioni", () => {
   });
 });
 
+describe("residuo m1: il registro dell'esecuzione e la pausa di un progetto che non si vede", () => {
+  afterEach(() => resetViewerGrants());
+
+  it("la riga d'attesa scritta da holdForAi non nomina la pausa né chi l'ha messa a chi non vede il progetto", async () => {
+    const AUD = "prj-aud";
+    const SARA = "p-sara";
+    // Un'automazione generale, ferma per il budget prima di agire.
+    await instance.simulateBudgetReached(true);
+    const id = await claudeAutomation(null);
+    // Poi ha agito in AUD (in pausa da Roberta): al giro dopo aspetta la coda di AUD.
+    dropHeld(id);
+    await instance.pauseQueue(AUD);
+    runOf(id).projectIds = [AUD];
+    await instance.simulateBudgetReached(false);
+    await automations.advanceTime(id, 1);
+    await whenAutomationsIdle();
+    const queued = runOf(id).log.filter((e) => e.why?.code === "aiQueuePaused");
+    expect(queued).toHaveLength(1);
+    expect(queued[0]!.reason).toContain("Roberta Fontana");
+
+    // Roberta vede AUD: la riga c'è, col nome.
+    expect((await automations.getRun(id))!.log.some((e) => e.why?.code === "aiQueuePaused")).toBe(
+      true,
+    );
+    // Sara gestisce le automazioni d'istanza ma non vede AUD.
+    grantInstancePermission(SARA, "automations.manage" as LocalInstancePermission);
+    as(SARA);
+    const run = (await automations.getRun(id))!;
+    expect(run.log.some((e) => e.why?.code === "aiQueuePaused")).toBe(false);
+    expect(JSON.stringify(run.log)).not.toContain("Roberta");
+    expect(JSON.stringify(run.log)).not.toContain(AUD);
+  });
+});
+
 describe("revisione finale M4: l'avviso e il riquadro dicono perché Claude non guarda", () => {
   const alertBody = (kind: string) =>
     state.notifications.filter(
