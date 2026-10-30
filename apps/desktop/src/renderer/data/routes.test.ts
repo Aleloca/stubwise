@@ -169,6 +169,18 @@ describe("route grammar", () => {
     expect(isAppRoute("#/admin/repositories")).toBe(true);
   });
 
+  it("area 9b: i filtri di WORK dello Stato dell'istanza (stato, progetto, tipo), solo lì", () => {
+    expect(isAppRoute("#/admin/status")).toBe(true);
+    expect(isAppRoute("#/admin/status?status=failed&project=ACQ&kind=task_run")).toBe(true);
+    expect(isAppRoute("#/admin/status?status=waiting")).toBe(true);
+    expect(isAppRoute("#/admin/status?kind=server_fix")).toBe(true);
+    expect(isAppRoute("#/admin/status?status=paused")).toBe(false);
+    expect(isAppRoute("#/admin/status?kind=nightly")).toBe(false);
+    expect(isAppRoute("#/admin/status?project=acq")).toBe(false);
+    // Le chiavi restano dove valgono: niente `kind` dei lavori su People.
+    expect(isAppRoute("#/admin/people?kind=task_run")).toBe(false);
+  });
+
   it("area 8b: gli avvisi dei server (tranne la diagnosi, che apre la task) portano al dettaglio", () => {
     const serverAlerts = NOTIFICATIONS.filter(
       (n) =>

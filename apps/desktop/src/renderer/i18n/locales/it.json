@@ -9432,6 +9432,167 @@
       "count_other": "{{count}} repository",
       "noAccount": "Nessun account git",
       "open": "{{name}}, {{project}}: aprilo nelle impostazioni del progetto"
+    },
+    "status": {
+      "intro": "Cosa sta facendo Stubwise adesso, nei progetti che vedi.",
+      "updated": "Aggiornato alle {{time}} · ogni 10 secondi",
+      "updateFailed": "Aggiornamento delle {{failed}} non riuscito. Mostro quello delle {{shown}}.",
+      "loadError": "Impossibile caricare lo stato dell'istanza.",
+      "loadAgain": "Ricarica",
+      "boundary": "Qui Stubwise cambia solo la propria coda: niente riavvia un server, un worker o un deploy.",
+      "at": {
+        "today": "oggi alle {{time}}",
+        "yesterday": "ieri alle {{time}}",
+        "date": "{{date}}"
+      },
+      "age": {
+        "now": "adesso",
+        "minutes": "{{count}} min",
+        "hours": "{{count}} h",
+        "yesterday": "ieri",
+        "days_one": "{{count}} giorno",
+        "days_other": "{{count}} giorni"
+      },
+      "refused": {
+        "forbidden": "Non puoi più farlo.",
+        "failed": "Non è riuscito. Prova di nuovo."
+      },
+      "cancel": "Annulla",
+      "queues": {
+        "heading": "Code",
+        "note": "I progetti senza lavoro non sono elencati.",
+        "empty": "Nessun progetto ha lavoro adesso.",
+        "running": "{{count}} in corso",
+        "waiting": "{{count}} in attesa",
+        "failed_one": "{{count}} non riuscito",
+        "failed_other": "{{count}} non riusciti",
+        "nothing": "Niente in corso",
+        "paused": "In pausa da {{name}} · {{when}}",
+        "other": "Altri progetti",
+        "otherTitle": "Progetti che non vedi.",
+        "pause": "Metti in pausa",
+        "resume": "Riprendi",
+        "pauseOf": "Metti in pausa la coda di {{code}}",
+        "resumeOf": "Riprendi la coda di {{code}}",
+        "forbidden": "Solo chi gestisce le impostazioni mette in pausa o riprende una coda.",
+        "announce": "{{code}}: {{counts}}",
+        "pauseDialog": {
+          "title": "Mettere in pausa la coda di {{code}}?",
+          "running": "Il lavoro già partito finisce.",
+          "waits": "Il lavoro nuovo aspetta: avviare Claude su una task, correzioni, revisioni delle pull request, analisi e correzioni dei server, passi delle automazioni che usano Claude.",
+          "ask": "“Chiedi a Claude” non cambia.",
+          "everyone": "Tutti in {{code}} leggono “Coda in pausa da {{name}}”.",
+          "confirm": "Metti in pausa",
+          "done": "La coda di {{code}} è in pausa."
+        },
+        "resumeDialog": {
+          "title": "Riprendere la coda di {{code}}?",
+          "start_one": "Il lavoro in attesa parte adesso.",
+          "start_other": "I {{count}} lavori in attesa partono adesso, nell'ordine in cui sono arrivati.",
+          "none": "Non c'è niente in attesa.",
+          "budget_one": "Il lavoro in attesa aspetta ancora il budget AI del mese.",
+          "budget_other": "I {{count}} lavori in attesa aspettano ancora il budget AI del mese.",
+          "confirm": "Riprendi la coda",
+          "done": "La coda di {{code}} è ripartita."
+        },
+        "already_paused": "Qualcuno ha già messo in pausa la coda di {{code}}.",
+        "not_paused": "Qualcuno ha già ripreso la coda di {{code}}."
+      },
+      "work": {
+        "heading": "Lavori",
+        "filters": "Filtra i lavori",
+        "show": "Mostra",
+        "all": "Tutti",
+        "running": "In corso",
+        "waiting": "In attesa",
+        "failed": "Non riusciti",
+        "project": "Progetto",
+        "type": "Tipo",
+        "clear": "Togli i filtri",
+        "noMatch": "Niente corrisponde.",
+        "empty": "Niente in corso, in attesa o non riuscito negli ultimi 7 giorni.",
+        "more": "Mostrane altri 50",
+        "list": "Lavori",
+        "kinds": {
+          "task_run": "Esecuzione della task",
+          "correction": "Correzione",
+          "pr_review": "Revisione della PR",
+          "server_analysis": "Analisi del server",
+          "server_fix": "Correzione del server",
+          "automation": "Automazione",
+          "nightly": "Giro notturno"
+        },
+        "state": {
+          "running": "In corso · worker {{n}}",
+          "runningUnassigned": "In corso",
+          "stopped": "Ferma: aspetta che qualcuno la riprenda",
+          "failed": "Non riuscito {{when}}"
+        },
+        "retry": "Rimetti in coda",
+        "retryOf": "Rimetti in coda {{code}}",
+        "retryNeeds": {
+          "manageSettings": "Solo chi gestisce le impostazioni rimette in coda un lavoro.",
+          "startRun": "Solo chi può avviare Claude in {{code}} rimette in coda un lavoro."
+        },
+        "correctionNote": "Le correzioni si riprendono dalla task.",
+        "openTask": "Apri la task",
+        "openRun": "Apri l'esecuzione",
+        "startFailed": {
+          "conflict": "Non è partito quando è stato sbloccato: la task aveva già un lavoro in corso.",
+          "forbidden": "Non è partito quando è stato sbloccato: chi l'aveva avviato non può più avviare Claude qui.",
+          "monthly_budget": "Non è partito quando è stato sbloccato: il budget AI del mese è esaurito.",
+          "status": "Non è partito quando è stato sbloccato: nel frattempo la task era cambiata.",
+          "other": "Non è partito quando è stato sbloccato."
+        },
+        "retryDialog": {
+          "title": "Rimettere in coda il lavoro di {{code}}?",
+          "again": "Claude riparte dall'inizio, a nome tuo, come se avessi premuto Avvia.",
+          "plan": "Si ferma al piano, per chi può approvare i piani in {{project}}.",
+          "paused": "La coda di {{project}} è in pausa: aspetta la ripresa.",
+          "confirm": "Rimetti in coda",
+          "done": "{{code}} è di nuovo in coda."
+        },
+        "conflict": "{{code}} ha già un lavoro in corso. Non è stato aggiunto niente.",
+        "notRetryable": "Il lavoro di {{code}} non si può più rimettere in coda.",
+        "announceFailed": "{{code}} non è riuscito."
+      },
+      "workers": {
+        "heading": "Worker",
+        "name": "Worker {{n}}",
+        "idle": "libero",
+        "hidden": "occupato in un progetto che non vedi",
+        "prototype": "Prototipo: due worker simulati."
+      },
+      "accounts": {
+        "heading": "Account AI",
+        "off": "spento",
+        "apiKey": "Chiave API",
+        "week": "settimana {{pct}}%",
+        "near": "Vicino al limite · {{pct}}%",
+        "limited": "Al limite fino alle {{when}}",
+        "open": "Apri gli account AI",
+        "empty": "Nessun account AI."
+      },
+      "errors": {
+        "heading": "Errori recenti",
+        "empty": "Nessun errore negli ultimi 7 giorni."
+      },
+      "nightly": {
+        "heading": "Giro notturno · stanotte",
+        "phases": {
+          "commit_summary": "Riassunti dei commit",
+          "release_note": "Nota di rilascio",
+          "docs": "Docs"
+        },
+        "states": {
+          "done": "fatto",
+          "running": "in corso",
+          "waiting": "in attesa",
+          "failed": "non riuscito"
+        },
+        "note": "Solo da leggere: il giro notturno riprende da dove si è fermato.",
+        "empty": "Stanotte non è girato niente nei progetti che vedi."
+      }
     }
   },
   "permissions": {

@@ -243,6 +243,114 @@ async function main() {
       return;
     }
 
+    // Area 9b, Task 13 (`CAPTURE_A9B_STATUS=1`): lo Stato dell'istanza (shape
+    // admin-instance.md), scatti `a9b-status-*`. Lo stato si prepara dal
+    // livello dati, con le azioni che un utente farebbe: «Rimetti in coda» su
+    // STW-7 e «Avvia» su STW-12 con la coda di STW in pausa danno i «2
+    // waiting» dello shape; un'automazione di ACQ col budget raggiunto il
+    // passo fermo per budget.
+    if (process.env.CAPTURE_A9B_STATUS) {
+      async function prepare(page, action) {
+        await page.evaluate(async (what) => {
+          const api = await import("/data/api.ts");
+          const session = await import("/data/session.ts");
+          const store = await import("/data/store.ts");
+          const viewer = await import("/data/viewer.ts");
+          const prev = session.getSessionPersonId();
+          session.setSessionPersonId("p-roberta");
+          try {
+            if (what === "waiting" || what === "budget") {
+              await api.instance.retryJob("cv-run-stw-7");
+              await api.startRun("t-stw-12");
+            }
+            if (what === "budget") {
+              await api.instance.simulateBudgetReached(true);
+              const a = await api.automations.createAutomation({
+                name: "Triage requests",
+                projectId: "prj-acq",
+                flow: {
+                  trigger: { kind: "manual" },
+                  titleTemplate: "Triage",
+                  steps: [
+                    {
+                      id: "c-classify",
+                      kind: "claude",
+                      instruction: "Classify the request.",
+                      inputs: ["avvio.data"],
+                      outcomes: ["bug", "feature"],
+                      fields: [],
+                      branches: {},
+                    },
+                  ],
+                },
+              });
+              await api.automations.activate(a.id);
+              await api.automations.startManual(a.id);
+            }
+            if (what === "sara") viewer.grantInstancePermission("p-sara", "instance.status.view");
+            if (what === "error") store.failNext("instance.getInstanceStatus");
+          } finally {
+            session.setSessionPersonId(prev);
+          }
+        }, action);
+        await page.waitForTimeout(600);
+      }
+      const go = async (page, hash) => {
+        await page.evaluate((h) => {
+          window.location.hash = h;
+        }, hash);
+        await page.waitForTimeout(1200);
+        await page.mouse.move(2, 2);
+      };
+      const resume = async (page) => {
+        await page.getByRole("button", { name: /^(Resume STW's queue|Riprendi la coda di STW)$/ }).click();
+        await page.waitForTimeout(400);
+      };
+      const retry = async (page) => {
+        await page.getByRole("button", { name: /^(Retry ACQ-3|Rimetti in coda ACQ-3)$/ }).click();
+        await page.waitForTimeout(400);
+      };
+      // In fondo: il resto della colonna laterale (a 1024 sotto i lavori) e la frase del confine.
+      const bottom = async (page) => {
+        await page.getByText(/^(Stubwise only changes|Qui Stubwise cambia)/).scrollIntoViewIfNeeded();
+        await page.waitForTimeout(300);
+      };
+      const SCENES = [
+        // [nome, indirizzo, { persona, action, after }]
+        ["status", "/admin/status", { persona: "Roberta", action: "waiting" }],
+        ["status-bottom", "/admin/status", { persona: "Roberta", action: "waiting", after: bottom }],
+        ["status-budget", "/admin/status", { persona: "Roberta", action: "budget" }],
+        ["status-resume", "/admin/status", { persona: "Roberta", action: "waiting", after: resume }],
+        ["status-retry", "/admin/status", { persona: "Roberta", after: retry }],
+        ["status-failed", "/admin/status?status=failed", { persona: "Roberta" }],
+        ["status-readonly", "/admin/status", { persona: "Sara", action: "sara" }],
+        ["status-error", "/admin/status", { persona: "Roberta", action: "error" }],
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      for (const [name, hash, opts] of SCENES) {
+        if (only && !only.test(name)) continue;
+        for (const v of variants) {
+          const { page, context } = await open(v.scheme, v.viewport, "/home", {
+            lang: v.lang,
+            persona: opts.persona,
+          });
+          if (opts.action) await prepare(page, opts.action);
+          await go(page, hash);
+          if (opts.after) await opts.after(page);
+          await shot(page, `a9b-${name}-${v.suffix}.png`);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 9b, Task 12 (`CAPTURE_A9B_ESTATE=1`): Servers e Repositories
     // dell'Amministrazione (shape admin-instance.md), scatti `a9b-servers-*` e
     // `a9b-repos-*`. Lo stato si prepara dal livello dati.

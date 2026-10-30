@@ -26,10 +26,12 @@ import {
   PEOPLE_SEARCH_KEYS,
   PROJECT_SECTIONS,
   PROJECT_SETTINGS_SECTIONS,
+  STATUS_SEARCH_KEYS,
   isAuditSearchValue,
   isPeopleSearchValue,
   isProjectSection,
   isProjectSettingsSection,
+  isStatusSearchValue,
   isValidSearchParam,
 } from "./data/routes";
 import { canSeeProjectSettingsSection } from "./data/adminSections";
@@ -161,6 +163,7 @@ export interface AppSearch {
   newMeeting?: string;
   /** Automations: i filtri dell'elenco, la riga del registro, la sorgente aperta (`automationParams.ts`). */
   general?: string;
+  /** Automations: lo stato; Instance status (area 9b): lo stato dei lavori, con `project` e `kind`. */
   status?: string;
   owner?: string;
   automation?: string;
@@ -309,7 +312,11 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
               : key === "refine" || key === "settings" || key === "newMeeting"
                 ? value === "1"
                 : false;
-    if (shapeOk || isValidSearchParam("", key, value)) out[key] = value;
+    // I filtri di WORK dello Stato dell'istanza (area 9b, ruling 10) hanno la
+    // loro forma: non dipendono da quelle omonime di Automations e registro.
+    const workFilter =
+      (STATUS_SEARCH_KEYS as readonly string[]).includes(key) && isStatusSearchValue(key, value);
+    if (shapeOk || workFilter || isValidSearchParam("", key, value)) out[key] = value;
   }
   out.filters = parseCriteria(search.filters) ?? undefined;
   return out;

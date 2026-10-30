@@ -192,6 +192,36 @@ export function isAuditSearchValue(key: string, value: string): boolean {
   }
 }
 
+/**
+ * I filtri di WORK nello Stato dell'istanza (area 9b, Task 13, ruling 10):
+ * `status` (lo stato del lavoro), `project` (il codice) e `kind` (il tipo; il
+ * giro notturno sta solo nella colonna laterale, non si filtra).
+ */
+export const STATUS_SEARCH_KEYS = ["status", "project", "kind"] as const;
+export const WORK_STATES = ["running", "waiting", "failed"] as const;
+export const WORK_KINDS = [
+  "task_run",
+  "correction",
+  "pr_review",
+  "server_analysis",
+  "server_fix",
+  "automation",
+] as const;
+
+/** La forma di un filtro di WORK; la pagina rilegge i valori (un progetto che non vede si ignora). */
+export function isStatusSearchValue(key: string, value: string): boolean {
+  switch (key) {
+    case "status":
+      return (WORK_STATES as readonly string[]).includes(value);
+    case "project":
+      return /^[A-Z]{2,4}$/.test(value);
+    case "kind":
+      return (WORK_KINDS as readonly string[]).includes(value);
+    default:
+      return false;
+  }
+}
+
 function isChangelogPath(path: string): boolean {
   return path === "admin/changelog" || /^p\/[A-Z]{2,4}\/settings\/changelog$/.test(path);
 }
@@ -214,6 +244,11 @@ export const TASK_CODE_RE = /^[A-Z]{2,4}-\d+$/;
  * anche il router per validare.
  */
 export function isValidSearchParam(path: string, key: string, value: string): boolean {
+  // Lo Stato dell'istanza (area 9b): i filtri di WORK, prima delle chiavi
+  // omonime delle Automations (`status`) e del registro (`kind`).
+  if (path === "admin/status" && (STATUS_SEARCH_KEYS as readonly string[]).includes(key)) {
+    return isStatusSearchValue(key, value);
+  }
   // Le Automations: filtri dell'elenco, la riga del registro, la sorgente aperta.
   if ((AUTOMATION_SEARCH_KEYS as readonly string[]).includes(key)) {
     return isAutomationSearchParam(path, key, value);

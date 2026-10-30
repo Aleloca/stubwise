@@ -4,7 +4,12 @@ import { changelog, instance, resetApi, setLatency, startRun } from "../api";
 import { setSessionPersonId } from "../session";
 import { advanceNow, now, state } from "../store";
 import { whenIdle } from "../stream";
-import { grantInstancePermission, type LocalInstancePermission } from "../viewer";
+import {
+  grantInstancePermission,
+  resetViewerGrants,
+  revokeProjectPermission,
+  type LocalInstancePermission,
+} from "../viewer";
 import { aiBlockFor, budgetReached, spentThisMonthUsd } from "./blocks";
 import { dropHeld, holdJob, releaseBudgetHolds, type HeldJob } from "./queue";
 
@@ -465,5 +470,75 @@ describe("le voci del registro della coda", () => {
     give(CHIARA, "settings.manage");
     as(CHIARA);
     expect((await changelog.listChanges()).filter((e) => kinds.includes(e.kind))).toEqual([]);
+  });
+});
+
+// --- Task 13: ciò che la pagina legge invece di ricalcolarlo -----------------------
+
+describe("lo Stato dell'istanza per la pagina (Task 13)", () => {
+  afterEach(() => resetViewerGrants());
+
+  it("la pausa porta chi l'ha messa (per «(deactivated)»)", async () => {
+    const stw = (await status()).queues.find((q) => q.projectId === STW)!;
+    expect(stw.paused).toMatchObject({ byId: ROBERTA, byName: "Roberta Fontana" });
+  });
+
+  it("retryNeeds dice il permesso che manca; retryStopsAtPlan il gate di chi riprova", async () => {
+    const acq3 = async () => (await status()).jobs.find((j) => j.id === "cv-run-acq-3")!;
+    expect(await acq3()).toMatchObject({
+      retry: "allowed",
+      retryNeeds: null,
+      retryStopsAtPlan: false,
+    });
+
+    give(SARA, "instance.status.view");
+    as(SARA);
+    expect(await acq3()).toMatchObject({ retry: "forbidden", retryNeeds: "manageSettings" });
+
+    // Ruling 2: Marco, con settings.manage, ha runs.start in ACQ ma non plans.approve.
+    give(MARCO, "settings.manage");
+    as(MARCO);
+    expect(await acq3()).toMatchObject({
+      retry: "allowed",
+      retryNeeds: null,
+      retryStopsAtPlan: true,
+    });
+    revokeProjectPermission(MARCO, ACQ, "runs.start" as never);
+    expect(await acq3()).toMatchObject({
+      retry: "forbidden",
+      retryNeeds: "startRun",
+      retryStopsAtPlan: false,
+    });
+  });
+
+  it("budgetAfterResume: i lavori della pausa che restano fermi col budget raggiunto", async () => {
+    const started: string[] = [];
+    held(started, "stw", STW);
+    const stw = async () => (await status()).queues.find((q) => q.projectId === STW)!;
+    expect(await stw()).toMatchObject({ waiting: 1, budgetAfterResume: 0 });
+    await instance.simulateBudgetReached(true);
+    expect(await stw()).toMatchObject({ waiting: 1, budgetAfterResume: 1 });
+    // Una coda non in pausa non ha niente da riprendere.
+    expect((await status()).queues.every((q) => q.paused || q.budgetAfterResume === 0)).toBe(true);
+  });
+
+  it("startFailed segna la ripartenza fallita, il cui summary è il messaggio dell'errore", async () => {
+    holdJob({
+      projectId: STW,
+      kind: "task_run",
+      taskId: "t-stw-12",
+      conversationId: null,
+      automationRunId: null,
+      starterId: ROBERTA,
+      block: aiBlockFor(STW)!,
+      start: () => Promise.reject(new Error("conflict")),
+    });
+    await instance.resumeQueue(STW);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const view = await status();
+    const failed = view.jobs.find((j) => j.state === "failed" && j.code === "STW-12")!;
+    expect(failed).toMatchObject({ startFailed: true, summary: "conflict", retry: "unavailable" });
+    expect(view.errors.find((e) => e.jobId === failed.id)).toMatchObject({ startFailed: true });
+    expect(view.jobs.find((j) => j.id === "cv-run-acq-3")!.startFailed).toBe(false);
   });
 });

@@ -7,7 +7,6 @@ import { isAdminSection, type AdminSection } from "../../data/routes";
 import { useViewer } from "../../data/viewer";
 import { ONE_LINE, columnItemClass } from "../../layout/ProjectColumn";
 import { NotFound } from "../NotFound";
-import { Placeholder } from "../Placeholder";
 import { AiPage } from "./ai/AiPage";
 import { ChangeLogPage } from "./ChangeLogPage";
 import { DepartmentsPage } from "./DepartmentsPage";
@@ -18,6 +17,7 @@ import { PluginsPage } from "./integrations/PluginsPage";
 import { StoragePage } from "./integrations/StoragePage";
 import { WebhooksPage } from "./integrations/WebhooksPage";
 import { ServerDetail } from "../servers/ServerDetail";
+import { InstanceStatusPage } from "./instance/InstanceStatusPage";
 import { RepositoriesAdminPage } from "./instance/RepositoriesAdminPage";
 import { ServersAdminPage } from "./instance/ServersAdminPage";
 import { InvitePage } from "./InvitePage";
@@ -121,10 +121,8 @@ function SectionBody({ section }: { section: AdminSection }) {
   if (section === "webhooks") return <WebhooksPage />;
   if (section === "servers") return <ServersAdminPage />;
   if (section === "repositories") return <RepositoriesAdminPage />;
-  // Instance status arriva col Task 13 del 9b.
-  return (
-    <Placeholder titleKey={`admin.sections.${section}`} bodyKey={`placeholder.admin.${section}`} />
-  );
+  // L'ultima voce: Instance status (area 9b, Task 13).
+  return <InstanceStatusPage />;
 }
 
 /** La pagina di un ruolo (`/admin/roles/$roleId`): dentro Roles, con `roles.manage`. */

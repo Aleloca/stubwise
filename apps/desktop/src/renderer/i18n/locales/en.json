@@ -9432,6 +9432,167 @@
       "count_other": "{{count}} repositories",
       "noAccount": "No git account",
       "open": "{{name}}, {{project}}: open it in the project's settings"
+    },
+    "status": {
+      "intro": "What Stubwise is doing right now, in the projects you can see.",
+      "updated": "Updated {{time}} · every 10 seconds",
+      "updateFailed": "Couldn't update at {{failed}}. Showing {{shown}}.",
+      "loadError": "Couldn't load the instance status.",
+      "loadAgain": "Load again",
+      "boundary": "Stubwise only changes its own queue here: nothing restarts a server, a worker or a deploy.",
+      "at": {
+        "today": "today at {{time}}",
+        "yesterday": "yesterday at {{time}}",
+        "date": "{{date}}"
+      },
+      "age": {
+        "now": "now",
+        "minutes": "{{count}} min",
+        "hours": "{{count}} h",
+        "yesterday": "yesterday",
+        "days_one": "{{count}} day",
+        "days_other": "{{count}} days"
+      },
+      "refused": {
+        "forbidden": "You can no longer do this.",
+        "failed": "Couldn't do it. Try again."
+      },
+      "cancel": "Cancel",
+      "queues": {
+        "heading": "Queues",
+        "note": "Projects with no work aren't listed.",
+        "empty": "No project has work right now.",
+        "running": "{{count}} running",
+        "waiting": "{{count}} waiting",
+        "failed_one": "{{count}} failed",
+        "failed_other": "{{count}} failed",
+        "nothing": "Nothing running",
+        "paused": "Paused by {{name}} · {{when}}",
+        "other": "Other projects",
+        "otherTitle": "Projects you can't see.",
+        "pause": "Pause",
+        "resume": "Resume",
+        "pauseOf": "Pause {{code}}'s queue",
+        "resumeOf": "Resume {{code}}'s queue",
+        "forbidden": "Only people who can manage settings pause or resume a queue.",
+        "announce": "{{code}}: {{counts}}",
+        "pauseDialog": {
+          "title": "Pause {{code}}'s queue?",
+          "running": "Work already running finishes.",
+          "waits": "New work waits: starting Claude on a task, corrections, pull request reviews, server analyses and fixes, automation steps that use Claude.",
+          "ask": "Ask Claude isn't affected.",
+          "everyone": "Everyone in {{code}} reads “Queue paused by {{name}}”.",
+          "confirm": "Pause queue",
+          "done": "{{code}}'s queue is paused."
+        },
+        "resumeDialog": {
+          "title": "Resume {{code}}'s queue?",
+          "start_one": "1 waiting job starts now.",
+          "start_other": "{{count}} waiting jobs start now, in the order they arrived.",
+          "none": "Nothing is waiting.",
+          "budget_one": "The waiting job still waits for the monthly AI budget.",
+          "budget_other": "The {{count}} waiting jobs still wait for the monthly AI budget.",
+          "confirm": "Resume queue",
+          "done": "{{code}}'s queue is running again."
+        },
+        "already_paused": "Someone already paused {{code}}'s queue.",
+        "not_paused": "Someone already resumed {{code}}'s queue."
+      },
+      "work": {
+        "heading": "Work",
+        "filters": "Filter the work",
+        "show": "Show",
+        "all": "All",
+        "running": "Running",
+        "waiting": "Waiting",
+        "failed": "Failed",
+        "project": "Project",
+        "type": "Type",
+        "clear": "Clear filters",
+        "noMatch": "Nothing matches.",
+        "empty": "Nothing running, waiting or failed in the last 7 days.",
+        "more": "Show 50 more",
+        "list": "Work",
+        "kinds": {
+          "task_run": "Task run",
+          "correction": "Correction",
+          "pr_review": "PR review",
+          "server_analysis": "Server analysis",
+          "server_fix": "Server fix",
+          "automation": "Automation",
+          "nightly": "Nightly run"
+        },
+        "state": {
+          "running": "Running · worker {{n}}",
+          "runningUnassigned": "Running",
+          "stopped": "Stopped: waits for someone to resume it",
+          "failed": "Failed {{when}}"
+        },
+        "retry": "Retry",
+        "retryOf": "Retry {{code}}",
+        "retryNeeds": {
+          "manageSettings": "Only people who can manage settings put work back in the queue.",
+          "startRun": "Only people who can start Claude in {{code}} put work back in the queue."
+        },
+        "correctionNote": "Corrections are resumed from the task.",
+        "openTask": "Open task",
+        "openRun": "Open run",
+        "startFailed": {
+          "conflict": "Didn't start when it was released: the task already had work running.",
+          "forbidden": "Didn't start when it was released: the person who started it can no longer start Claude here.",
+          "monthly_budget": "Didn't start when it was released: the monthly AI budget is used up.",
+          "status": "Didn't start when it was released: the task had changed in the meantime.",
+          "other": "Didn't start when it was released."
+        },
+        "retryDialog": {
+          "title": "Put {{code}}'s work back in the queue?",
+          "again": "Claude starts again from the beginning, on your behalf, as if you pressed Start.",
+          "plan": "It stops at the plan, for someone who can approve plans in {{project}}.",
+          "paused": "{{project}}'s queue is paused: it waits for Resume.",
+          "confirm": "Retry",
+          "done": "{{code}} is back in the queue."
+        },
+        "conflict": "{{code}} already has work running. Nothing was added.",
+        "notRetryable": "{{code}}'s work can't go back in the queue any more.",
+        "announceFailed": "{{code}} failed."
+      },
+      "workers": {
+        "heading": "Workers",
+        "name": "Worker {{n}}",
+        "idle": "idle",
+        "hidden": "busy in a project you can't see",
+        "prototype": "Prototype: two simulated workers."
+      },
+      "accounts": {
+        "heading": "AI accounts",
+        "off": "off",
+        "apiKey": "API key",
+        "week": "week {{pct}}%",
+        "near": "Near the limit · {{pct}}%",
+        "limited": "At the limit until {{when}}",
+        "open": "Open AI accounts",
+        "empty": "No AI accounts."
+      },
+      "errors": {
+        "heading": "Recent errors",
+        "empty": "No errors in the last 7 days."
+      },
+      "nightly": {
+        "heading": "Nightly run · last night",
+        "phases": {
+          "commit_summary": "Commit summaries",
+          "release_note": "Release note",
+          "docs": "Docs"
+        },
+        "states": {
+          "done": "done",
+          "running": "running",
+          "waiting": "waiting",
+          "failed": "failed"
+        },
+        "note": "Read only: the nightly run picks up where it stopped.",
+        "empty": "Nothing ran last night in the projects you can see."
+      }
     }
   },
   "permissions": {

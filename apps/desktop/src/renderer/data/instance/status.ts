@@ -6,6 +6,7 @@ import type { ActionAvailability } from "../types";
 import { forbidden } from "../writer";
 import { canI, nameOf } from "./common";
 import { quotaView, type QuotaView } from "./providers";
+import { budgetReached } from "./blocks";
 import { failedHeldStarts, heldJobs, type AiBlock, type FailedStart, type JobKind } from "./queue";
 import type { AiProvider, NightlyRow } from "./state";
 
@@ -44,9 +45,26 @@ export interface InstanceJob {
   since: string;
   workerId: "worker-1" | "worker-2" | null;
   retry: ActionAvailability;
+  /**
+   * Con `retry` `forbidden`, il permesso che manca (Task 13: la pagina mette
+   * il «Who?» di quello, senza ricalcolare la regola): `manageSettings`
+   * prima, poi `startRun` nel progetto. `null` altrimenti.
+   */
+  retryNeeds: "manageSettings" | "startRun" | null;
+  /**
+   * Con `retry` `allowed`: chi riprova non ha `plans.approve` nel progetto,
+   * quindi Claude si ferma al piano (il gate di «Avvia», `planGateFor`).
+   */
+  retryStopsAtPlan: boolean;
   href: string | null;
   /** Solo `failed`: il fallimento in una riga («Tests didn't pass after the fix»). */
   summary: string | null;
+  /**
+   * Una ripartenza fallita (ruling T5 I2): `summary` è il messaggio
+   * dell'errore («conflict», «invalid: monthly_budget»), non una frase; la
+   * pagina lo traduce quando lo legge.
+   */
+  startFailed: boolean;
 }
 
 /** Una riga del giro notturno: solo da guardare, nessuna azione. */
@@ -59,11 +77,17 @@ export interface InstanceStatusView {
     projectId: string;
     code: string;
     name: string;
-    paused: { byName: string; at: string } | null;
+    /** `byId`: la pagina aggiunge «(deactivated)» se la persona è stata disattivata. */
+    paused: { byId: string; byName: string; at: string } | null;
     running: number;
     waiting: number;
     failed: number;
     pause: ActionAvailability;
+    /**
+     * Quanti dei lavori in attesa della pausa resterebbero fermi alla
+     * ripresa, perché il budget del mese è raggiunto (il dialogo di Resume).
+     */
+    budgetAfterResume: number;
   }[];
   otherProjects: { running: number; waiting: number; failed: number } | null;
   jobs: InstanceJob[];
@@ -78,7 +102,14 @@ export interface InstanceStatusView {
     quota: QuotaView | null;
   }[];
   /** I lavori falliti, il più recente prima, al massimo 5. */
-  errors: { jobId: string; at: string; summary: string; href: string | null }[];
+  /** `startFailed`: `summary` è un messaggio d'errore da tradurre, come in `InstanceJob`. */
+  errors: {
+    jobId: string;
+    at: string;
+    summary: string;
+    startFailed: boolean;
+    href: string | null;
+  }[];
   /** Il giro notturno della notte scorsa, dei progetti visibili. */
   nightly: InstanceNightlyRow[];
   refreshedAt: string;
@@ -123,7 +154,7 @@ export function isRetryable(c: Conversation): boolean {
   return task !== undefined && familyOf(task) !== "closed";
 }
 
-type Job = Omit<InstanceJob, "workerId" | "retry">;
+type Job = Omit<InstanceJob, "workerId" | "retry" | "retryNeeds" | "retryStopsAtPlan">;
 
 function sessionJob(c: Conversation, kind: NonNullable<ReturnType<typeof jobKindOf>>): Job | null {
   const projectId = c.projectId!;
@@ -149,6 +180,7 @@ function sessionJob(c: Conversation, kind: NonNullable<ReturnType<typeof jobKind
         ? serverHref(codeOf(projectId), server)
         : taskHref(c.taskId),
     summary: failed ? (c.failureSummary ?? null) : null,
+    startFailed: false,
   };
 }
 
@@ -161,6 +193,7 @@ function failedStartJob(f: FailedStart): Job {
     waiting: null,
     since: f.failedAt,
     summary: f.summary,
+    startFailed: true,
   };
 }
 
@@ -185,6 +218,7 @@ function heldJob(h: ReturnType<typeof heldJobs>[number]): Job {
     since: h.since,
     href: run && automation ? runHref(automation.code, run.n) : taskHref(h.taskId),
     summary: null,
+    startFailed: false,
   };
 }
 
@@ -241,11 +275,16 @@ export async function getInstanceStatus(): Promise<InstanceStatusView> {
     return manages && canI(me, "runs.start", j.projectId) ? "allowed" : "forbidden";
   };
   const shown = all.filter((j) => visible.has(j.projectId));
-  const jobs: InstanceJob[] = shown.map((j) => ({
-    ...j,
-    workerId: workerOf(j),
-    retry: retryOf(j),
-  }));
+  const jobs: InstanceJob[] = shown.map((j) => {
+    const retry = retryOf(j);
+    return {
+      ...j,
+      workerId: workerOf(j),
+      retry,
+      retryNeeds: retry !== "forbidden" ? null : manages ? "startRun" : "manageSettings",
+      retryStopsAtPlan: retry === "allowed" && !canI(me, "plans.approve", j.projectId),
+    };
+  });
   const hidden = all.filter((j) => !visible.has(j.projectId));
 
   const pauses = state.instance.queuePauses.filter((p) => visible.has(p.projectId));
@@ -258,9 +297,16 @@ export async function getInstanceStatus(): Promise<InstanceStatusView> {
         projectId,
         code: project.code,
         name: project.name,
-        paused: pause ? { byName: nameOf(pause.byId)!, at: pause.at } : null,
+        paused: pause ? { byId: pause.byId, byName: nameOf(pause.byId)!, at: pause.at } : null,
         ...counts(shown.filter((j) => j.projectId === projectId)),
         pause: (manages ? "allowed" : "forbidden") as ActionAvailability,
+        // Alla ripresa un lavoro riparte solo senza altri blocchi (`release`):
+        // col budget raggiunto, quelli fermi per la pausa restano fermi.
+        budgetAfterResume:
+          pause && budgetReached()
+            ? shown.filter((j) => j.projectId === projectId && j.waiting?.reason === "queue_paused")
+                .length
+            : 0,
       };
     })
     // In pausa, poi con lavori falliti, poi per codice.
@@ -274,7 +320,13 @@ export async function getInstanceStatus(): Promise<InstanceStatusView> {
   const errors = jobs
     .filter((j) => j.state === "failed")
     .slice(0, MAX_ERRORS)
-    .map((j) => ({ jobId: j.id, at: j.since, summary: j.summary ?? "", href: j.href }));
+    .map((j) => ({
+      jobId: j.id,
+      at: j.since,
+      summary: j.summary ?? "",
+      startFailed: j.startFailed,
+      href: j.href,
+    }));
 
   return {
     queues,

@@ -2,7 +2,7 @@ import type { AiModelChoice, AiOperation } from "@stubwise/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import * as api from "../api";
-import { useSessionPersonId, useWrite } from "../queries";
+import { RUN_AREAS, useSessionPersonId, useWrite } from "../queries";
 
 // Gli hook dell'istanza (area 9b); `data/queries` li ri-esporta. L'import
 // circolare con `../queries` è innocuo: gli helper si usano solo dentro le
@@ -18,7 +18,9 @@ export type {
   ContentLanguage,
   GitAccountView,
   GoogleAppView,
+  InstanceJob,
   InstanceResult,
+  InstanceStatusView,
   StorageStatus,
   StorageView,
   WebhookEventId,
@@ -509,4 +511,48 @@ export function useWebhookPreview(
     // Passando da un evento all'altro l'anteprima non si svuota.
     placeholderData: (previous) => previous,
   });
+}
+
+// --- Instance status (Task 13) -----------------------------------------------
+//
+// Lo Stato dell'istanza si rilegge da solo ogni 10 secondi (shape
+// admin-instance.md, «Confine, aggiornamento»): un cambio fatto altrove — un
+// lavoro partito, un budget alzato — compare al giro dopo, anche senza un
+// avviso dal livello dati. Pause e Resume cambiano i blocchi delle altre aree
+// (testata del progetto, avvii); «Rimetti in coda» avvia una sessione come
+// «Avvia».
+
+/** Ogni quanto si rilegge lo Stato dell'istanza. */
+export const INSTANCE_STATUS_REFRESH_MS = 10_000;
+
+const QUEUE_WRITE_AREAS: readonly string[] = [...INSTANCE_EFFECT_AREAS, "changelog"];
+
+/** Cosa sta facendo Stubwise adesso (errore `forbidden` senza `instance.status.view` né `settings.manage`). */
+export function useInstanceStatus() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "instance", "status"] as const,
+    queryFn: () => api.instance.getInstanceStatus(),
+    refetchInterval: INSTANCE_STATUS_REFRESH_MS,
+  });
+}
+
+/** Mette in pausa la coda di un progetto (`settings.manage`). */
+export function usePauseQueue() {
+  return useWrite((projectId: string) => api.instance.pauseQueue(projectId), QUEUE_WRITE_AREAS);
+}
+
+/** Riprende la coda di un progetto: i lavori in attesa partono nell'ordine d'arrivo. */
+export function useResumeQueue() {
+  return useWrite((projectId: string) => api.instance.resumeQueue(projectId), QUEUE_WRITE_AREAS);
+}
+
+/** Rimette in coda il lavoro fallito di una task: una sessione nuova, a nome di chi preme. */
+export function useRetryJob() {
+  // `RUN_AREAS` si legge qui dentro, non al caricamento: l'import con
+  // `../queries` è circolare.
+  return useWrite(
+    (jobId: string) => api.instance.retryJob(jobId),
+    [...QUEUE_WRITE_AREAS, ...RUN_AREAS],
+  );
 }
