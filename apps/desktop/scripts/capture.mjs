@@ -1417,6 +1417,24 @@ async function main() {
     // da una persona e per Claude, e il riquadro «Who?» accanto a un bottone
     // spento (Sara sulle Settings di ACQ). Ogni scena a 1440 e 1024, chiaro e
     // scuro, en e it.
+    // Task 12: l'istanza vuota, il primo admin, «Who can» con un'azione di progetto.
+    const toEmptyWhoCan = async (p) => {
+      await p.getByRole("button", { name: /^(Profile and settings|Profilo e impostazioni)/ }).click();
+      await p.getByRole("button", { name: /^(Reset to empty instance|Svuota l'istanza)$/ }).click();
+      await p.getByRole("button", { name: /^(Reset — sure\?|Ripristina — sicuro\?)$/ }).last().click();
+      await p.getByLabel(/^(Your name|Il tuo nome)$/).fill("Ada Prima");
+      await p.getByLabel(/^Email$/).fill("ada@example.com");
+      await p.getByLabel(/^Password$/).fill("a-long-one");
+      await p.getByLabel(/^(Confirm password|Conferma la password)$/).fill("a-long-one");
+      await p.getByRole("button", { name: /^(Create the admin account|Crea l'account amministratore)$/ }).click();
+      await p.getByRole("heading", { level: 1, name: "Home" }).waitFor();
+      // Il messaggio del primo avvio non è parte della scena: si chiude.
+      await p.getByRole("button", { name: /^(Dismiss|Chiudi)$/ }).click();
+      await p.evaluate(() => {
+        window.location.hash = "/admin/who-can?action=approvePlan";
+      });
+      await p.getByText(/^(No projects you can see yet\.|Ancora nessun progetto che vedi\.)$/).waitFor();
+    };
     const AREA9A_AUDIT = [
       ["changelog", "Roberta", "/admin/changelog", async (p) => {
         await p.locator("[data-change-entry]").first().waitFor();
@@ -1436,20 +1454,12 @@ async function main() {
       }],
       // Task 12: l'istanza vuota. Si svuota, si crea il primo full admin e si
       // chiede chi può approvare un piano: nessun progetto da scegliere.
-      ["whocan-empty", "Roberta", "/home", async (p) => {
-        await p.getByRole("button", { name: /^(Profile and settings|Profilo e impostazioni)/ }).click();
-        await p.getByRole("button", { name: /^(Reset to empty instance|Svuota l'istanza)$/ }).click();
-        await p.getByRole("button", { name: /^(Reset — sure\?|Ripristina — sicuro\?)$/ }).last().click();
-        await p.getByLabel(/^(Your name|Il tuo nome)$/).fill("Ada Prima");
-        await p.getByLabel(/^Email$/).fill("ada@example.com");
-        await p.getByLabel(/^Password$/).fill("a-long-one");
-        await p.getByLabel(/^(Confirm password|Conferma la password)$/).fill("a-long-one");
-        await p.getByRole("button", { name: /^(Create the admin account|Crea l'account amministratore)$/ }).click();
-        await p.getByRole("heading", { level: 1, name: "Home" }).waitFor();
-        await p.evaluate(() => {
-          window.location.hash = "/admin/who-can?action=approvePlan";
-        });
-        await p.getByText(/^(No projects you can see yet\.|Ancora nessun progetto che vedi\.)$/).waitFor();
+      ["whocan-empty", "Roberta", "/home", toEmptyWhoCan],
+      // Giro 1: lo stesso, col menu dei progetti aperto a mano (dice la stessa frase).
+      ["whocan-empty-menu", "Roberta", "/home", async (p) => {
+        await toEmptyWhoCan(p);
+        await p.getByRole("button", { name: /^(Project|Progetto): / }).click();
+        await p.getByRole("listbox").waitFor();
       }],
       ["who-popover", "Sara", "/p/ACQ/settings/statuses", async (p) => {
         await p.locator("[data-who-can]").first().click();

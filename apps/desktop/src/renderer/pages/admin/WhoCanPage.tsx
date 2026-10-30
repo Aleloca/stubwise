@@ -91,6 +91,7 @@ export function InlinePicker({
   onSelect,
   defaultOpen = false,
   valueDetail,
+  emptyLabel,
 }: {
   /** Il nome del menu per chi non lo vede («Action»). */
   label: string;
@@ -104,6 +105,8 @@ export function InlinePicker({
   onSelect: (id: string) => void;
   /** Aperto all'arrivo (⌘K senza progetto corrente apre il menu dei progetti). */
   defaultOpen?: boolean;
+  /** La riga di un elenco vuoto in partenza (non per filtro): l'istanza vuota, Task 12. */
+  emptyLabel?: string;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(defaultOpen);
@@ -207,7 +210,9 @@ export function InlinePicker({
           />
           <ul id={listId} role="listbox" aria-label={label} className="max-h-80 overflow-y-auto">
             {shown.length === 0 && (
-              <li className="px-2 py-1.5 text-sm text-ink-muted">{t("whoCan.page.noMatch")}</li>
+              <li className="px-2 py-1.5 text-sm text-ink-muted">
+                {options.length === 0 && emptyLabel ? emptyLabel : t("whoCan.page.noMatch")}
+              </li>
             )}
             {shown.map((o, i) => {
               const heading = o.group !== lastGroup && o.group ? o.group : null;
@@ -381,6 +386,7 @@ function WhoQuestion({
       valueDetail={project?.name}
       placeholder={t("whoCan.page.chooseProject")}
       options={projectOptions}
+      emptyLabel={t("whoCan.page.noProjects")}
       searchLabel={t("whoCan.page.findProject")}
       onSelect={(code) => onChange({ project: code, view: "who" })}
       defaultOpen={!!action && !instance && search.project === undefined && !noProjects}
@@ -389,7 +395,8 @@ function WhoQuestion({
 
   return (
     <>
-      <p data-question="who" className="mt-4 text-xl font-semibold text-pretty text-ink">
+      {/* Un `div`, non un `p`: i menu in linea vi aprono un elenco (`ul`). */}
+      <div data-question="who" className="mt-4 text-xl font-semibold text-pretty text-ink">
         {instance ? (
           <Trans i18nKey="whoCan.page.whoSentenceInstance" components={{ action: actionPicker }} />
         ) : (
@@ -398,7 +405,7 @@ function WhoQuestion({
             components={{ action: actionPicker, project: projectPicker }}
           />
         )}
-      </p>
+      </div>
       {!action ? (
         <p className="mt-6 text-md text-ink-muted">{t("whoCan.page.pickAction")}</p>
       ) : !instance && !project ? (
@@ -527,7 +534,7 @@ function WhatQuestion({
 
   return (
     <>
-      <p data-question="what" className="mt-4 text-xl font-semibold text-pretty text-ink">
+      <div data-question="what" className="mt-4 text-xl font-semibold text-pretty text-ink">
         <Trans
           i18nKey="whoCan.page.whatSentence"
           components={{
@@ -560,7 +567,7 @@ function WhatQuestion({
             ),
           }}
         />
-      </p>
+      </div>
       {!person ? (
         <p className="mt-6 text-md text-ink-muted">{t("whoCan.page.pickPerson")}</p>
       ) : invisibleProject ? (

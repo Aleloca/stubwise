@@ -213,6 +213,11 @@ registro si legge). Scelte del brief **[AU n]**.
   Sara) si comporta come un progetto inesistente: il menu torna su
   «Choose a project» e una riga dice «Pick a project.» (nessun «not
   allowed»).
+- **Zero progetti** (l'istanza vuota, o nessun progetto visibile): in
+  «Who can…» con un'azione di progetto il menu dei progetti non si apre da
+  solo e la riga sotto dice «No projects you can see yet.»; aperto a mano,
+  il menu dice la stessa frase (non «Nothing matches»). «What can… do»
+  resta com'è: ha sempre «the whole instance».
 - `escalation`, `target_above`, ultimo gestore, `reauth_required`: queste
   pagine non scrivono, quindi non li producono; il registro **non** registra
   i tentativi rifiutati (stato invariato, nessuna voce).
