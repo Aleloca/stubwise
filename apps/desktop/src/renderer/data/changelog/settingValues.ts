@@ -69,6 +69,13 @@ export const SETTING_KINDS: Readonly<Record<string, SettingValue["type"]>> = {
   "google_app.updated": "fields",
   "storage.changed": "fields",
   "webhook.changed": "fields",
+  // Task 7: i server. Chiavi dei campi: `name`, `sampleInterval`,
+  // `primaryProject` (il codice del progetto); `cpu`/`mem`/`disk` (la soglia
+  // come numero, `null` = spenta) e `sustained` (minuti); `name`,
+  // `checkType`, `target`, `interval` (secondi) e `checkEnabled`.
+  "server.updated": "fields",
+  "server.thresholds_changed": "fields",
+  "server.check_changed": "fields",
   "queue.resumed": "queue",
 };
 

@@ -88,6 +88,8 @@ import {
 import { SERVER_EPISODES } from "./seed/servers/episodes";
 import {
   CHECK_SAMPLES,
+  METRIC_COARSE_STEP_SECONDS,
+  METRIC_DAYS,
   METRIC_STEP_SECONDS,
   SERVER_METRICS,
   checkSamplesOf,
@@ -2717,14 +2719,26 @@ describe("seed: server (area 8b)", () => {
     expect(all).not.toMatch(/PRIVATE KEY/);
   });
 
-  it("metriche: 7 giorni a 30 s, deterministiche; SRV-1 mostra il picco di memoria dell'episodio", () => {
+  it("metriche: 90 giorni (30 s negli ultimi 7, 15 min prima), deterministiche; SRV-1 mostra il picco di memoria dell'episodio", () => {
     expect(METRIC_STEP_SECONDS).toBe(30);
+    expect(METRIC_COARSE_STEP_SECONDS).toBe(900);
+    expect(METRIC_DAYS).toBe(90);
     expect([...SERVER_METRICS.keys()]).toEqual(SERVERS.map((s) => s.code));
     for (const s of SERVERS) {
       const points = SERVER_METRICS.get(s.code)!;
       expect(points).toEqual(metricsOf(s.code));
-      expect(ms(points[0]!.ts)).toBeGreaterThanOrEqual(ms(NOW) - 7 * 86400_000);
+      expect(ms(NOW) - ms(points[0]!.ts)).toBeGreaterThan(89 * 86400_000);
       expect(points.at(-1)!.ts <= NOW).toBe(true);
+      // Gli ultimi 7 giorni sono a passo di 30 s, prima a 15 minuti.
+      const fine = points.filter((p) => ms(p.ts) >= ms(NOW) - 7 * 86400_000);
+      for (let i = 1; i < fine.length; i++) {
+        if (s.code !== "SRV-3") expect(ms(fine[i]!.ts) - ms(fine[i - 1]!.ts)).toBe(30_000);
+      }
+      const coarse = points.slice(0, points.length - fine.length);
+      expect(coarse.length).toBeGreaterThan(7_000);
+      for (let i = 1; i < coarse.length; i++) {
+        if (s.code !== "SRV-3") expect(ms(coarse[i]!.ts) - ms(coarse[i - 1]!.ts)).toBe(900_000);
+      }
       let previous = 0;
       for (const p of points) {
         expect((ms(p.ts) - previous) % 30_000).toBe(0);
@@ -2736,11 +2750,11 @@ describe("seed: server (area 8b)", () => {
         }
       }
     }
-    // Senza buchi sono 20 160 campioni; SRV-3 tace durante il suo episodio.
-    expect(SERVER_METRICS.get("SRV-1")).toHaveLength(20_160);
+    // Senza buchi sono 28 128 campioni (20 160 a 30 s + 7 968 a 15 min); SRV-3 tace durante il suo episodio.
+    expect(SERVER_METRICS.get("SRV-1")).toHaveLength(28_128);
     const silent = episodesOf("SRV-3")[0]!;
     const srv3 = SERVER_METRICS.get("SRV-3")!;
-    expect(srv3.length).toBeLessThan(20_160);
+    expect(srv3.length).toBeLessThan(28_128);
     expect(srv3.some((p) => p.ts >= silent.startedAt && p.ts < silent.recoveredAt!)).toBe(false);
     const ep = episodesOf("SRV-1")[0]!;
     const srv1 = SERVER_METRICS.get("SRV-1")!;
@@ -2808,11 +2822,11 @@ describe("seed: server (area 8b)", () => {
     revokeProjectPermission("p-marco", ACQ, "servers.operate");
     expect(can(viewerFor("p-marco"), "servers.operate", ACQ)).toBe(false);
     expect(SERVERS[0]!.name).not.toBe("changed");
-    expect(SERVER_METRICS.get("SRV-1")).toHaveLength(20_160);
+    expect(SERVER_METRICS.get("SRV-1")).toHaveLength(28_128);
     expect(SERVER_ACCESS[0]!.revokedAt).toBeNull();
     resetApi();
     expect(state.servers[0]!.name).toBe(SERVERS[0]!.name);
-    expect(state.serverMetrics.get("SRV-1")).toHaveLength(20_160);
+    expect(state.serverMetrics.get("SRV-1")).toHaveLength(28_128);
     expect(state.serverAccess.get("SRV-1")!.revokedAt).toBeNull();
     expect(state.serverCodeSeq).toBe(4);
     expect(can(viewerFor("p-marco"), "servers.operate", ACQ)).toBe(true);

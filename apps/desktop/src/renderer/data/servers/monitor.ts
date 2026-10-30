@@ -1,10 +1,12 @@
 import { alertProjectsOf } from "../../domain/servers/projects";
 import { DEFAULT_THRESHOLDS } from "../seed/servers/servers";
+import { changedFields } from "../changelog/settingValues";
 import { copy, newId, now, state } from "../store";
 import type { MonitoredServer, ServerCheck, ServerThresholds } from "../types";
 import { forbidden, invalid, writer } from "../writer";
 import { environmentFor } from "../releases/visibility";
 import { dropSshAccess } from "./access";
+import { recordServerChange } from "./changes";
 import { canMonitor, checkFor, holds, serverFor, serverRow, type ServerRow } from "./visibility";
 
 // Il monitor dei server (area 8b), come la sezione Monitor del web: server,
@@ -56,26 +58,36 @@ function managed(me: string, code: string): MonitoredServer {
 
 export interface CreateServerInput {
   name: string;
-  /** L'ambiente in cui nasce: uno del progetto da cui lo si crea, senza un server per tutto il progetto. */
-  environmentId: string;
+  /**
+   * L'ambiente in cui nasce: uno del progetto da cui lo si crea, senza un
+   * server per tutto il progetto. `null` solo da Amministrazione (area 9b),
+   * con `monitor.manage`: il server nasce ORFANO, senza progetto — da lì
+   * nasce sempre così (decisione del maintainer, 30 ott 2026), e lo si
+   * collega a un progetto dagli ambienti del progetto.
+   */
+  environmentId: string | null;
 }
 
 /**
- * Un server nuovo, collegato a un ambiente (scelta del piano: dalla sezione
- * di un progetto un server nasce dentro un suo ambiente, quindi serve anche
- * `environments.manage` lì). Entra come riga per tutto il progetto
- * (`repositoryId: null`, R-L2): l'ambiente non deve averne già una. Il
- * codice è il prossimo `SRV-<n>`, mai riusato. Nasce «mai collegato»;
- * principale il progetto, se l'ambiente è la sua produzione.
+ * Un server nuovo. Dalla sezione di un progetto nasce dentro un suo
+ * ambiente (scelta del piano: serve anche `environments.manage` lì): entra
+ * come riga per tutto il progetto (`repositoryId: null`, R-L2), l'ambiente
+ * non deve averne già una. Da Amministrazione (`environmentId: null`) nasce
+ * orfano, serve solo `monitor.manage`. Il codice è il prossimo `SRV-<n>`,
+ * mai riusato. Nasce «mai collegato»; principale il progetto, se l'ambiente
+ * è la sua produzione.
  */
 export async function createServer(
   input: CreateServerInput,
 ): Promise<{ server: ServerRow; agentKey: string }> {
   const me = await writer("servers.createServer");
-  const env = environmentFor(me, input.environmentId);
-  if (!canMonitor(me) || !holds(me, "environments.manage", env.projectId)) throw forbidden();
+  // Senza ambiente non c'è un progetto da guardare: l'ordine resta not_found
+  // (l'ambiente), forbidden, invalid.
+  const env = input.environmentId === null ? null : environmentFor(me, input.environmentId);
+  if (!canMonitor(me) || (env && !holds(me, "environments.manage", env.projectId)))
+    throw forbidden();
   const name = nameOf(input.name, NAME_MAX);
-  if (env.servers.some((s) => s.repositoryId === null)) throw invalid("environment");
+  if (env?.servers.some((s) => s.repositoryId === null)) throw invalid("environment");
   const code = `SRV-${++state.serverCodeSeq}`;
   const server: MonitoredServer = {
     id: newId("srv"),
@@ -89,12 +101,13 @@ export async function createServer(
     thresholds: { ...DEFAULT_THRESHOLDS },
     services: [],
     disks: [],
-    primaryProjectId: env.kind === "production" ? env.projectId : null,
+    primaryProjectId: env?.kind === "production" ? env.projectId : null,
     createdAt: now(),
     sshReachable: true,
   };
   state.servers.push(server);
-  env.servers.push({ repositoryId: null, serverCode: code, reportedSha: null, reportedAt: null });
+  env?.servers.push({ repositoryId: null, serverCode: code, reportedSha: null, reportedAt: null });
+  recordServerChange(me, "server.created", server, { scope: env ? "project" : "orphan" });
   return { server: serverRow(me, server), agentKey: newAgentKey(code) };
 }
 
@@ -102,7 +115,10 @@ export async function createServer(
 export async function regenerateAgentKey(code: string): Promise<{ agentKey: string }> {
   const me = await writer("servers.regenerateAgentKey");
   const server = managed(me, code);
-  return { agentKey: newAgentKey(server.code) };
+  const agentKey = newAgentKey(server.code);
+  // La voce dice che c'è una chiave nuova, mai la chiave.
+  recordServerChange(me, "server.agent_key_regenerated", server);
+  return { agentKey };
 }
 
 export interface UpdateServerInput {
@@ -126,10 +142,24 @@ export async function updateServer(code: string, patch: UpdateServerInput): Prom
     !alertProjectsOf(server.code, state.environments).includes(patch.primaryProjectId)
   )
     throw invalid("primaryProjectId");
+  const fieldsOf = (n: string, interval: number, primary: string | null) => ({
+    name: n,
+    sampleInterval: String(interval),
+    primaryProject: primary === null ? null : (state.projectsById.get(primary)?.code ?? primary),
+  });
+  const diff = changedFields(
+    fieldsOf(server.name, server.sampleIntervalSeconds, server.primaryProjectId),
+    fieldsOf(
+      name,
+      patch.sampleIntervalSeconds ?? server.sampleIntervalSeconds,
+      patch.primaryProjectId === undefined ? server.primaryProjectId : patch.primaryProjectId,
+    ),
+  );
   server.name = name;
   if (patch.sampleIntervalSeconds !== undefined)
     server.sampleIntervalSeconds = patch.sampleIntervalSeconds;
   if (patch.primaryProjectId !== undefined) server.primaryProjectId = patch.primaryProjectId;
+  recordServerChange(me, "server.updated", server, undefined, diff);
   return serverRow(me, server);
 }
 
@@ -169,6 +199,7 @@ export async function deleteServer(code: string): Promise<void> {
   // L'accesso SSH e le sue chiavi private (in `secrets.ts`, via `access.ts`).
   dropSshAccess(server.code);
   state.fixCheckNext.delete(server.code);
+  recordServerChange(me, "server.deleted", server);
 }
 
 // --- soglie -----------------------------------------------------------------
@@ -182,12 +213,21 @@ export async function setThresholds(code: string, t: ServerThresholds): Promise<
     if (v !== null && !(typeof v === "number" && v >= 1 && v <= 100)) throw invalid(key);
   }
   if (!isInt(t.sustainedMinutes, 1, 60)) throw invalid("sustainedMinutes");
+  // Valori stabili: la percentuale come numero in stringa, `null` = spenta.
+  const fieldsOf = (x: ServerThresholds) => ({
+    cpu: x.cpuPct === null ? null : String(x.cpuPct),
+    mem: x.memPct === null ? null : String(x.memPct),
+    disk: x.diskPct === null ? null : String(x.diskPct),
+    sustained: String(x.sustainedMinutes),
+  });
+  const diff = changedFields(fieldsOf(server.thresholds), fieldsOf(t));
   server.thresholds = {
     cpuPct: t.cpuPct,
     memPct: t.memPct,
     diskPct: t.diskPct,
     sustainedMinutes: t.sustainedMinutes,
   };
+  recordServerChange(me, "server.thresholds_changed", server, undefined, diff);
   return copy(server.thresholds);
 }
 
@@ -231,6 +271,7 @@ export async function createCheck(code: string, input: CheckInput): Promise<Serv
     lastError: null,
   };
   state.serverChecks.push(check);
+  recordServerChange(me, "server.check_changed", server, { check: check.name });
   return copy(check);
 }
 
@@ -248,7 +289,23 @@ export async function updateCheck(
     intervalSeconds: patch.intervalSeconds ?? check.intervalSeconds,
     enabled: patch.enabled ?? check.enabled,
   });
+  // Il nome della voce è quello di ADESSO (se lo rinomini, la frase dice il nuovo).
+  const toFields = (c: CheckInput) => ({
+    name: c.name,
+    checkType: c.type,
+    target: c.target,
+    interval: String(c.intervalSeconds),
+    checkEnabled: c.enabled,
+  });
+  const diff = changedFields(toFields(check), toFields(fields));
   Object.assign(check, fields);
+  recordServerChange(
+    me,
+    "server.check_changed",
+    { code: check.serverCode },
+    { check: check.name },
+    diff,
+  );
   return copy(check);
 }
 
@@ -258,4 +315,5 @@ export async function deleteCheck(checkId: string): Promise<void> {
   if (!canMonitor(me)) throw forbidden();
   state.serverChecks = state.serverChecks.filter((c) => c !== check);
   state.serverCheckSamples.delete(check.id);
+  recordServerChange(me, "server.check_changed", { code: check.serverCode }, { check: check.name });
 }

@@ -9257,7 +9257,17 @@
       "enabled": "Send messages",
       "format": "Format",
       "url": "Address",
-      "events": "Events"
+      "events": "Events",
+      "sampleInterval": "Sample every (s)",
+      "primaryProject": "Main project",
+      "cpu": "CPU %",
+      "mem": "Memory %",
+      "disk": "Disk %",
+      "sustained": "Minutes over",
+      "checkType": "Type",
+      "target": "Target",
+      "interval": "Every (s)",
+      "checkEnabled": "Enabled"
     }
   },
   "usage": {

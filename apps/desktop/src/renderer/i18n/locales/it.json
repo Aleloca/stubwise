@@ -9257,7 +9257,17 @@
       "enabled": "Manda i messaggi",
       "format": "Formato",
       "url": "Indirizzo",
-      "events": "Eventi"
+      "events": "Eventi",
+      "sampleInterval": "Campione ogni (s)",
+      "primaryProject": "Progetto principale",
+      "cpu": "CPU %",
+      "mem": "Memoria %",
+      "disk": "Disco %",
+      "sustained": "Minuti sopra la soglia",
+      "checkType": "Tipo",
+      "target": "Bersaglio",
+      "interval": "Ogni (s)",
+      "checkEnabled": "Attivo"
     }
   },
   "usage": {

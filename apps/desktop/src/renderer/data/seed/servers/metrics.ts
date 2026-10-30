@@ -3,8 +3,8 @@ import { TODAY } from "../dates";
 import { SERVER_EPISODES, SRV1_MEMORY_EPISODE } from "./episodes";
 import { SERVERS, SERVER_CHECKS } from "./servers";
 
-// Le metriche del seme: 7 giorni di campioni ogni 30 s per server (20 160
-// punti), e i campioni dei controlli ogni `intervalSeconds` con la latenza
+// Le metriche del seme: 90 giorni di campioni per server (28 128: 30 s negli ultimi 7 giorni,
+// 15 minuti prima), e i campioni dei controlli (7 giorni) ogni `intervalSeconds` con la latenza
 // (R-L1, il grafico «Response time»). Deterministiche: un generatore con
 // seme per serie, nessuna casualità vera. Le serie raccontano gli episodi:
 // il picco di memoria di SRV-1, il disco di SRV-2 che si riempie, il
@@ -13,11 +13,35 @@ import { SERVERS, SERVER_CHECKS } from "./servers";
 // I punti sono congelati: lo stato li condivide fra un ripristino e l'altro
 // e copia solo gli array (`freshState`).
 
+// Area 9b: i grafici arrivano a 90 giorni. Gli ultimi `METRIC_FINE_DAYS`
+// restano a passo di 30 s (come l'agente li manda), prima il passo è largo
+// (`METRIC_COARSE_STEP_SECONDS`): 90 giorni a 30 s sarebbero 259 200 punti per
+// server, e a un grafico da 300 punti ne basta uno ogni quarto d'ora.
 export const METRIC_STEP_SECONDS = 30;
-export const METRIC_DAYS = 7;
+export const METRIC_COARSE_STEP_SECONDS = 900;
+/** Quanto indietro arrivano le serie del seme. */
+export const METRIC_DAYS = 90;
+/** Quanto indietro, da adesso, il passo è quello fine (e arrivano i campioni dei controlli). */
+export const METRIC_FINE_DAYS = 7;
 
 const NOW_MS = Date.parse(`${TODAY}T12:00:00Z`);
-const POINTS = (METRIC_DAYS * 86_400) / METRIC_STEP_SECONDS;
+const FINE_POINTS = (METRIC_FINE_DAYS * 86_400) / METRIC_STEP_SECONDS;
+const COARSE_POINTS =
+  ((METRIC_DAYS - METRIC_FINE_DAYS) * 86_400) / METRIC_COARSE_STEP_SECONDS;
+const FINE_START_MS = NOW_MS - (FINE_POINTS - 1) * METRIC_STEP_SECONDS * 1000;
+
+/** Gli istanti delle serie, dal più vecchio: prima il passo largo, poi quello fine fino ad adesso. */
+function metricTimes(): { t: number; stepSeconds: number }[] {
+  const times: { t: number; stepSeconds: number }[] = [];
+  for (let k = COARSE_POINTS; k >= 1; k--)
+    times.push({
+      t: FINE_START_MS - k * METRIC_COARSE_STEP_SECONDS * 1000,
+      stepSeconds: METRIC_COARSE_STEP_SECONDS,
+    });
+  for (let i = 0; i < FINE_POINTS; i++)
+    times.push({ t: FINE_START_MS + i * METRIC_STEP_SECONDS * 1000, stepSeconds: METRIC_STEP_SECONDS });
+  return times;
+}
 
 /** Un intero a 32 bit da una stringa (FNV-1a): il seme di una serie. */
 export function hashOf(text: string): number {
@@ -76,7 +100,14 @@ const PROFILES: Record<string, Profile> = {
   "SRV-2": {
     cpu: 22,
     mem: 64,
-    disk: (t) => 84 + 9 * ((t - (NOW_MS - METRIC_DAYS * 86_400_000)) / (METRIC_DAYS * 86_400_000)),
+    // (Resta 84% fino a una settimana fa: la crescita è dell'ultima settimana.)
+    disk: (t) =>
+      84 +
+      9 *
+        Math.max(
+          0,
+          (t - (NOW_MS - METRIC_FINE_DAYS * 86_400_000)) / (METRIC_FINE_DAYS * 86_400_000),
+        ),
     net: 90_000,
   },
   "SRV-3": { cpu: 26, mem: 47, disk: () => 36, net: 240_000 },
@@ -107,15 +138,14 @@ export function metricsOf(code: string): MetricPoint[] {
   const p = PROFILES[code]!;
   const rnd = seededRandom(hashOf(`metrics|${code}`));
   const points: MetricPoint[] = [];
-  for (let i = 0; i < POINTS; i++) {
-    const t = NOW_MS - (POINTS - 1 - i) * METRIC_STEP_SECONDS * 1000;
+  for (const { t, stepSeconds } of metricTimes()) {
     const d = daily(t);
     const noise = () => rnd() - 0.5;
     const cpu = clamp(p.cpu * (0.6 + 0.8 * d) + 6 * noise());
     let mem = clamp(p.mem + 4 * d + 3 * noise());
     if (code === "SRV-1") mem = clamp(srv1Memory(t, mem));
     const disk = clamp(p.disk(t) + 0.1 * noise());
-    const net = p.net * METRIC_STEP_SECONDS * (0.3 + 1.4 * d) * (1 + 0.4 * noise());
+    const net = p.net * stepSeconds * (0.3 + 1.4 * d) * (1 + 0.4 * noise());
     if (silent(code, t)) continue;
     points.push(
       Object.freeze({
@@ -158,7 +188,8 @@ export function checkSamplesOf(checkId: string): CheckSample[] {
   const check = SERVER_CHECKS.find((c) => c.id === checkId)!;
   const rnd = seededRandom(hashOf(`check|${checkId}`));
   const step = check.intervalSeconds * 1000;
-  const count = Math.floor((METRIC_DAYS * 86_400_000) / step);
+  // I campioni dei controlli restano a 7 giorni: a 90 sarebbero centinaia di migliaia.
+  const count = Math.floor((METRIC_FINE_DAYS * 86_400_000) / step);
   const since = downSince(check);
   const base = BASE_LATENCY[check.type];
   const slowFrom = ms(SRV1_MEMORY_EPISODE.startedAt);

@@ -118,6 +118,11 @@ export {
   type InstanceStatusView,
 } from "./status";
 export { retryJob } from "./retry";
+export {
+  listAllRepositories,
+  type InstanceRepositoryGroup,
+  type InstanceRepositoryRow,
+} from "./repositories";
 export type { InstanceRefusal, InstanceResult } from "./types";
 export type {
   AiProvider,

@@ -24,6 +24,8 @@ const RANGE_MS: Record<MetricRange, number> = {
   "1h": 3_600_000,
   "24h": 24 * 3_600_000,
   "7d": 7 * 24 * 3_600_000,
+  "30d": 30 * 24 * 3_600_000,
+  "90d": 90 * 24 * 3_600_000,
 };
 
 /** Le fasce dei momenti in cui un controllo era giù: campioni giù consecutivi. */

@@ -130,7 +130,7 @@ export function projectServerCodes(projectId: string): string[] {
   return [...codes].sort((a, b) => codeNumber(a) - codeNumber(b));
 }
 
-const codeNumber = (code: string): number => Number(code.slice("SRV-".length));
+export const codeNumber = (code: string): number => Number(code.slice("SRV-".length));
 
 const projectCodeOf = (projectId: string): string => state.projectsById.get(projectId)!.code;
 
@@ -260,6 +260,12 @@ export interface ServerDetail extends Omit<ServerRow, "access"> {
   canManage: boolean;
   /** Solo prototipo: se l'SSH risponde (il «Simula server irraggiungibile»). */
   sshReachable: boolean;
+  /**
+   * Nessun ambiente di nessun progetto lo usa (R-L7, area 9b): un server nato
+   * da Amministrazione. Vale anche per chi non vede i progetti che lo usano:
+   * un server di soli progetti invisibili NON è orfano.
+   */
+  orphan: boolean;
 }
 
 function episodeView(me: string, e: ServerEpisode): ServerEpisodeView {
@@ -305,6 +311,7 @@ export function serverDetail(me: string, s: MonitoredServer): ServerDetail {
       }),
     canManage: canMonitor(me),
     sshReachable: s.sshReachable,
+    orphan: environmentsOf(s.code).length === 0,
   };
 }
 

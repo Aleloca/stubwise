@@ -9,6 +9,7 @@ import type {
   SshVerification,
 } from "../types";
 import { forbidden, invalid, writer } from "../writer";
+import { recordServerChange } from "./changes";
 import { forget, promotePending, storeKeyPair } from "./secrets";
 import {
   canManageSsh,
@@ -80,6 +81,7 @@ export async function linkSshAccess(code: string): Promise<{ command: string }> 
   });
   // Un esito simulato prima del collegamento non riguarda queste chiavi.
   state.sshVerifyNext.delete(server.code);
+  recordServerChange(me, "server.ssh_access_changed", server);
   return { command: commandOf(server.code) };
 }
 
@@ -134,6 +136,7 @@ export async function verifySshAccess(code: string): Promise<SshAccessView> {
   const outcome =
     state.sshVerifyNext.get(server.code) ?? (server.sshReachable ? "ok" : "unreachable");
   state.sshVerifyNext.delete(server.code);
+  const stateBefore = accessState(a);
   const result: SshVerification = verificationOf(server, outcome, a.pending !== null);
   if (a.pending === null) {
     a.verification = result;
@@ -149,6 +152,9 @@ export async function verifySshAccess(code: string): Promise<SshAccessView> {
     if (a.keys !== null && !a.verification?.ofPending) a.keysVerification = a.verification;
     a.verification = result;
   }
+  // Una verifica è una prova, non un cambio: la voce c'è solo se l'accesso
+  // passa a un altro stato (verificato, non verificato, scrive…).
+  if (accessState(a) !== stateBefore) recordServerChange(me, "server.ssh_access_changed", server);
   return sshAccessView(me, server.code);
 }
 
@@ -167,6 +173,7 @@ export async function regenerateSshAccess(code: string): Promise<{ command: stri
   // nessuna, se non ce ne sono): le nuove non sono ancora state provate.
   if (a.verification?.ofPending) a.verification = a.keysVerification;
   a.keysVerification = null;
+  recordServerChange(me, "server.ssh_access_changed", server);
   return { command: commandOf(server.code) };
 }
 
@@ -201,6 +208,7 @@ export async function revokeSshAccess(code: string): Promise<{ removalCommand: s
       console.error("onAccessRevoked", e);
     }
   }
+  recordServerChange(me, "server.ssh_access_changed", server);
   return { removalCommand: removalScript(server.code) };
 }
 

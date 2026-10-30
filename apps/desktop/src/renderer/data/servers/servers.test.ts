@@ -684,3 +684,202 @@ describe("Task 7: ciò che la UI legge senza dedurlo", () => {
     expect((await releases.listEnvironments("prj-aud")).onlyHere).toEqual(["SRV-4"]);
   });
 });
+
+describe("area 9b, Task 7: i server di tutta l'istanza", () => {
+  const orphanOf = (rows: { code: string; orphan: boolean }[], code: string) =>
+    rows.find((r) => r.code === code)!.orphan;
+
+  it("Roberta vede tutti i server, orfani compresi, coi progetti; Marco senza monitor.manage → forbidden", async () => {
+    as("p-roberta");
+    await releases.deleteEnvironment("env-acq-prod");
+    const rows = await servers.listAllServers();
+    expect(rows.map((r) => r.code)).toEqual(["SRV-1", "SRV-2", "SRV-3", "SRV-4"]);
+    expect(orphanOf(rows, "SRV-1")).toBe(true);
+    expect(rows.find((r) => r.code === "SRV-1")!.projects).toEqual([]);
+    expect(orphanOf(rows, "SRV-3")).toBe(false);
+    expect(rows.find((r) => r.code === "SRV-3")!.projects.map((p) => p.code)).toEqual(["AUD"]);
+    expect(rows.find((r) => r.code === "SRV-3")!.projects[0]!.name).toBe(
+      state.projectsById.get("prj-aud")!.name,
+    );
+    as("p-marco");
+    await expect(servers.listAllServers()).rejects.toThrow("forbidden");
+  });
+
+  it("un monitor-manager che non vede AUD non trova AUD nella colonna, e il server NON è orfano (RF 2)", async () => {
+    grantMonitor("p-sara");
+    as("p-sara");
+    const rows = await servers.listAllServers();
+    const srv3 = rows.find((r) => r.code === "SRV-3")!;
+    expect(srv3.projects).toEqual([]);
+    expect(srv3.orphan).toBe(false);
+    expect(rows.find((r) => r.code === "SRV-1")!.projects.map((p) => p.code)).toEqual(["ACQ"]);
+  });
+
+  it("createServer con environmentId null: nasce orfano, solo da chi ha monitor.manage; dal progetto resta come nell'8b", async () => {
+    as("p-laura");
+    await expect(servers.createServer({ name: "x", environmentId: null })).rejects.toThrow(
+      "forbidden",
+    );
+    expect(state.servers).toHaveLength(4);
+    as("p-roberta");
+    const { server: row, agentKey } = await servers.createServer({
+      name: " orfano-01 ",
+      environmentId: null,
+    });
+    expect(agentKey).toMatch(/^sk_[0-9a-f]{40}$/);
+    expect(row).toMatchObject({
+      code: "SRV-5",
+      name: "orfano-01",
+      status: "never_connected",
+      environments: [],
+      primaryProjectCode: null,
+    });
+    expect(state.environments.some((e) => e.servers.some((s) => s.serverCode === "SRV-5"))).toBe(
+      false,
+    );
+    expect(server("SRV-5")!.primaryProjectId).toBeNull();
+    const all = await servers.listAllServers();
+    expect(orphanOf(all, "SRV-5")).toBe(true);
+    expect((await servers.getServer("SRV-5")).orphan).toBe(true);
+    // Chi non ha monitor.manage non lo vede, nemmeno per codice.
+    as("p-marco");
+    await expect(servers.getServer("SRV-5")).rejects.toThrow("not_found");
+    expect((await servers.listProjectServers("prj-acq")).map((s) => s.code)).not.toContain("SRV-5");
+    // Con un ambiente, come prima: non è orfano.
+    as("p-roberta");
+    const inEnv = await servers.createServer({ name: "aud-st", environmentId: "env-aud-staging" });
+    expect((await servers.getServer(inEnv.server.code)).orphan).toBe(false);
+  });
+
+  it("un nome non valido dà invalid anche senza ambiente, e non scrive", async () => {
+    as("p-roberta");
+    await expect(servers.createServer({ name: "  ", environmentId: null })).rejects.toThrow(
+      "invalid: name",
+    );
+    expect(state.servers).toHaveLength(4);
+    expect(state.changelog.filter((c) => c.kind === "server.created")).toEqual([]);
+  });
+
+  it("30d e 90d: al più METRIC_POINTS_MAX punti, e il primo di 90d ha più di 89 giorni", async () => {
+    as("p-marco");
+    const now = Date.parse("2026-10-30T12:00:00Z");
+    for (const [range, days] of [
+      ["30d", 29],
+      ["90d", 89],
+    ] as const) {
+      const m = await servers.getServerMetrics("SRV-1", range);
+      expect(m.points.length).toBeLessThanOrEqual(METRIC_POINTS_MAX);
+      expect(m.truncated).toBe(true);
+      expect(now - Date.parse(m.points[0]!.ts)).toBeGreaterThan(days * 86_400_000);
+    }
+    const week = await servers.getServerMetrics("SRV-1", "7d");
+    expect(week.points.length).toBeLessThanOrEqual(METRIC_POINTS_MAX);
+  });
+});
+
+describe("area 9b, Task 7: le scritture dei server scrivono la loro voce", () => {
+  const entries = () => state.changelog.filter((c) => c.kind.startsWith("server."));
+  const last = () => entries().at(-1)!;
+  const sshEntries = () => entries().filter((c) => c.kind === "server.ssh_access_changed");
+
+  it("createServer: voce con scope orphan o project, e l'id dell'oggetto è il codice", async () => {
+    as("p-roberta");
+    await servers.createServer({ name: "orfano", environmentId: null });
+    expect(last()).toMatchObject({
+      kind: "server.created",
+      actorId: "p-roberta",
+      projectId: null,
+      object: { type: "server", id: "SRV-5" },
+      params: { scope: "orphan" },
+    });
+    await servers.createServer({ name: "in-aud", environmentId: "env-aud-staging" });
+    expect(last()).toMatchObject({
+      kind: "server.created",
+      object: { id: "SRV-6" },
+      params: { scope: "project" },
+    });
+  });
+
+  it("regenerateAgentKey, updateServer, setThresholds, controlli, deleteServer: una voce ciascuno, mai la chiave", async () => {
+    as("p-roberta");
+    const { agentKey } = await servers.regenerateAgentKey("SRV-2");
+    expect(last()).toMatchObject({ kind: "server.agent_key_regenerated", object: { id: "SRV-2" } });
+    expect(JSON.stringify(entries())).not.toContain(agentKey);
+    expect(JSON.stringify(entries())).not.toMatch(AGENT_KEY_RE);
+
+    await servers.updateServer("SRV-2", { name: "db-stw-02", sampleIntervalSeconds: 60 });
+    expect(last()).toMatchObject({ kind: "server.updated", object: { id: "SRV-2" } });
+    expect(JSON.parse(last().before!)).toEqual({ name: "db-stw-01", sampleInterval: "30" });
+    expect(JSON.parse(last().after!)).toEqual({ name: "db-stw-02", sampleInterval: "60" });
+
+    const n = entries().length;
+    await servers.updateServer("SRV-2", { name: "db-stw-02" });
+    expect(entries()).toHaveLength(n);
+
+    await servers.setThresholds("SRV-2", {
+      cpuPct: 50,
+      memPct: server("SRV-2")!.thresholds.memPct,
+      diskPct: server("SRV-2")!.thresholds.diskPct,
+      sustainedMinutes: server("SRV-2")!.thresholds.sustainedMinutes,
+    });
+    expect(last()).toMatchObject({ kind: "server.thresholds_changed", object: { id: "SRV-2" } });
+    expect(JSON.parse(last().before!)).toEqual({ cpu: "95" });
+    expect(JSON.parse(last().after!)).toEqual({ cpu: "50" });
+
+    const check = await servers.createCheck("SRV-2", {
+      name: "HTTP /health",
+      type: "http",
+      target: "https://x/health",
+      intervalSeconds: 60,
+      enabled: true,
+    });
+    expect(last()).toMatchObject({
+      kind: "server.check_changed",
+      object: { id: "SRV-2" },
+      params: { check: "HTTP /health" },
+    });
+    await servers.updateCheck(check.id, { enabled: false, intervalSeconds: 120 });
+    expect(last()).toMatchObject({ params: { check: "HTTP /health" } });
+    expect(JSON.parse(last().before!)).toEqual({ interval: "60", checkEnabled: true });
+    expect(JSON.parse(last().after!)).toEqual({ interval: "120", checkEnabled: false });
+    await servers.deleteCheck(check.id);
+    expect(last()).toMatchObject({
+      kind: "server.check_changed",
+      params: { check: "HTTP /health" },
+    });
+
+    await servers.deleteServer("SRV-2");
+    expect(last()).toMatchObject({ kind: "server.deleted", object: { id: "SRV-2" } });
+  });
+
+  it("accesso SSH: collega, rigenera, revoca scrivono; verifica solo se lo stato cambia; mai le chiavi", async () => {
+    as("p-roberta");
+    await servers.linkSshAccess("SRV-2");
+    expect(sshEntries()).toHaveLength(1);
+    expect(last()).toMatchObject({ kind: "server.ssh_access_changed", object: { id: "SRV-2" } });
+    // La prima verifica porta l'accesso a «verificato»: cambia lo stato.
+    await servers.verifySshAccess("SRV-2");
+    expect(sshEntries()).toHaveLength(2);
+    // Una seconda verifica nello stesso stato non cambia niente: nessuna voce.
+    await servers.verifySshAccess("SRV-2");
+    expect(sshEntries()).toHaveLength(2);
+    await servers.regenerateSshAccess("SRV-2");
+    expect(sshEntries()).toHaveLength(3);
+    await servers.revokeSshAccess("SRV-2");
+    expect(sshEntries()).toHaveLength(4);
+    expect(JSON.stringify(entries())).not.toMatch(/ssh-ed25519|PRIVATE KEY/);
+  });
+
+  it("una scrittura rifiutata non scrive la voce (forbidden, not_found, invalid)", async () => {
+    as("p-laura");
+    await expect(servers.updateServer("SRV-3", { name: "x" })).rejects.toThrow("forbidden");
+    await expect(servers.regenerateAgentKey("SRV-3")).rejects.toThrow("forbidden");
+    as("p-roberta");
+    await expect(servers.updateServer("SRV-2", { sampleIntervalSeconds: 5 })).rejects.toThrow(
+      "invalid",
+    );
+    await expect(servers.deleteServer("SRV-99")).rejects.toThrow("not_found");
+    await expect(servers.linkSshAccess("SRV-1")).rejects.toThrow("invalid: state");
+    expect(entries()).toEqual([]);
+  });
+});

@@ -14,6 +14,8 @@ import type { CheckSample, MetricPoint, ServerAnalysis, ServerEpisode } from "..
 import { forbidden, invalid, notFound } from "../writer";
 import {
   canManageSsh,
+  canMonitor,
+  codeNumber,
   serverFixStartBlock,
   homeProjectCode,
   installCommandOf,
@@ -43,18 +45,54 @@ export async function listProjectServers(projectId: string): Promise<ServerRow[]
   });
 }
 
+/** Una riga di «Tutti i server» (area 9b): la riga di sempre, coi progetti che chi guarda vede. */
+export type InstanceServerRow = ServerRow & {
+  /** I progetti dei cui ambienti il server fa parte, solo quelli che chi guarda vede (R-G5), per codice. */
+  projects: { code: string; name: string }[];
+  /** Nessun ambiente lo usa (R-L7). Un server di soli progetti invisibili NON è orfano. */
+  orphan: boolean;
+};
+
+/**
+ * Tutti i server dell'istanza (Amministrazione → Servers, area 9b), per chi
+ * ha `monitor.manage` (altrimenti `forbidden`), in ordine di numero. I
+ * progetti solo se chi guarda li vede: un server che sta solo in progetti
+ * invisibili ha `projects: []` e non è orfano.
+ */
+export async function listAllServers(): Promise<InstanceServerRow[]> {
+  const me = await gate("servers.listAllServers");
+  if (!canMonitor(me)) throw forbidden();
+  const visible = visibleProjectIds(me);
+  return [...state.servers]
+    .sort((a, b) => codeNumber(a.code) - codeNumber(b.code))
+    .map((s) => {
+      const used = new Set(
+        state.environments.filter((e) => e.servers.some((x) => x.serverCode === s.code)).map((e) => e.projectId),
+      );
+      const projects = [...used]
+        .filter((id) => visible.has(id))
+        .map((id) => state.projectsById.get(id)!)
+        .map((p) => ({ code: p.code, name: p.name }))
+        .sort((a, b) => a.code.localeCompare(b.code));
+      return { ...serverRow(me, s), projects, orphan: used.size === 0 };
+    });
+}
+
 /** Il dettaglio di un server (`SRV-1`); `not_found` se invisibile o inesistente. */
 export async function getServer(code: string): Promise<ServerDetail> {
   const me = await gate("servers.getServer");
   return serverDetail(me, serverFor(me, code));
 }
 
-export type MetricRange = "1h" | "24h" | "7d";
+/** Dal 9b anche 30 e 90 giorni (il seme li copre: 30 s per gli ultimi 7, poi a passo largo). */
+export type MetricRange = "1h" | "24h" | "7d" | "30d" | "90d";
 
 const RANGE_MS: Record<MetricRange, number> = {
   "1h": 3_600_000,
   "24h": 24 * 3_600_000,
   "7d": 7 * 24 * 3_600_000,
+  "30d": 30 * 24 * 3_600_000,
+  "90d": 90 * 24 * 3_600_000,
 };
 
 export interface ServerMetrics {

@@ -553,6 +553,7 @@ export type ApiFnName =
   | "support.simulateTriageDone"
   // Server (area 8b)
   | "servers.listProjectServers"
+  | "servers.listAllServers"
   | "servers.getServer"
   | "servers.getServerMetrics"
   | "servers.searchServers"
