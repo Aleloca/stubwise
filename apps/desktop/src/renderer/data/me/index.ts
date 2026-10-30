@@ -4,7 +4,13 @@
 // (`claudeCode.ts`). `callWithToken` e `issueToken` NON si esportano: il
 // primo simula un tool (lo usano solo i test), il secondo è il pezzo comune
 // delle due creazioni di token.
-export { changePassword, updateProfile, type ProfileInput } from "./account";
+export {
+  changePassword,
+  getMyProfile,
+  updateProfile,
+  type MyProfile,
+  type ProfileInput,
+} from "./account";
 export {
   connectMailbox,
   disconnectMailbox,

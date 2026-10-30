@@ -1095,8 +1095,9 @@ async function main() {
 
     // Area 9a: l'ingresso (login, secondo fattore, blocco, invito, primo
     // avvio) e il dialogo di riconferma. Si esce dal menu del profilo; la
-    // riconferma si scatta dalla pagina d'appoggio `capture/reauth.html`, che
-    // monta l'app vera e fa partire un'azione delicata da sola.
+    // riconferma si scatta dalla pagina vera di Preferenze → Tokens (Task 7):
+    // «Create token» la apre, per Roberta col codice e per Sara (senza
+    // secondo fattore) con l'iscrizione al volo.
     const signOut = async (p) => {
       await p.getByRole("button", { name: /^(Profile and settings|Profilo e impostazioni)/ }).click();
       await p.getByRole("button", { name: /^(Sign out|Esci)$/ }).click();
@@ -1113,6 +1114,17 @@ async function main() {
       await p.getByRole("button", { name: which }).click();
       await p.getByRole("heading", { level: 1 }).filter({ hasNotText: /Sign in|Accedi/ }).waitFor();
       await p.waitForTimeout(500);
+    };
+    const createTokenAs = (persona) => async (p) => {
+      await asPerson(p, persona, "/preferences/tokens");
+      await p.getByRole("heading", { level: 1, name: /^(Tokens|Token)$/ }).waitFor();
+      await p.getByRole("button", { name: /^(New token|Nuovo token)$/ }).click();
+      await p.getByLabel(/^(Name|Nome)$/).fill("my-laptop MCP");
+      await p.getByRole("button", { name: /^(Create token|Crea token)$/ }).click();
+      await p.getByRole("dialog").waitFor();
+      // L'iscrizione prepara la chiave: si aspetta il QR.
+      await p.waitForTimeout(900);
+      await p.mouse.move(2, 2);
     };
     const AREA9A_ENTRY = [
       ["login", async (p) => {
@@ -1144,8 +1156,8 @@ async function main() {
         await p.getByRole("heading", { level: 1, name: /^(Set up Stubwise|Configura Stubwise)$/ }).waitFor();
         await p.waitForTimeout(400);
       }],
-      ["reauth", "capture/reauth.html?as=p-roberta"],
-      ["reauth-enroll", "capture/reauth.html?as=p-sara&action=token"],
+      ["reauth", createTokenAs("Roberta")],
+      ["reauth-enroll", createTokenAs("Sara")],
     ];
     for (const [name, how] of AREA9A_ENTRY) {
       if (only && !only.test(`a9a-entry-${name}`) && !only.test(name)) continue;
@@ -1156,31 +1168,89 @@ async function main() {
       variants.push(["light", "en", NARROW, `a9a-entry-${name}-narrow.png`]);
       variants.push(["dark", "it", NARROW, `a9a-entry-${name}-narrow-dark-it.png`]);
       for (const [scheme, lang, viewport, file] of variants) {
-        let page;
-        let context;
-        if (typeof how === "string") {
-          context = await browser.newContext({ viewport, colorScheme: scheme, reducedMotion: "reduce", deviceScaleFactor: 1 });
-          page = await context.newPage();
-          await page.addInitScript((l) => {
-            try {
-              window.localStorage.setItem("stubwise.language", l);
-            } catch {
-              /* niente storage */
-            }
-          }, lang);
-          await page.goto(`${BASE}${how}#/home`);
-          await page.getByRole("dialog").waitFor();
-          // L'iscrizione prepara la chiave: si aspetta il QR.
-          await page.waitForTimeout(900);
-          await page.mouse.move(2, 2);
-        } else {
-          ({ page, context } = await open(scheme, viewport, "/home", { lang }));
-          await how(page);
-        }
+        const { page, context } = await open(scheme, viewport, "/home", { lang });
+        await how(page);
         await shot(page, file);
         await context.close();
       }
     }
+    // Area 9a, Task 7: le Preferenze personali (shape preferences-account.md).
+    // Security e Tokens anche col valore mostrato una volta (`SecretOnce`):
+    // la riconferma si passa col codice del prototipo.
+    const confirmCode = async (p) => {
+      const dialog = p.getByRole("dialog");
+      await dialog.getByLabel(/^(Code|Codice)$/).fill("123456");
+      await dialog.waitFor({ state: "detached" });
+    };
+    const AREA9A_PREFS = [
+      ["account", "Giulia", "/preferences/account", null],
+      ["account-google", "Giulia", "/preferences/account", async (p) => {
+        await p.getByRole("heading", { name: /^(Google mailboxes|Caselle Google)$/ }).scrollIntoViewIfNeeded();
+      }],
+      ["account-disconnect", "Giulia", "/preferences/account", async (p) => {
+        await p.getByRole("button", { name: /^(More for|Altro per) / }).click();
+        await p.getByRole("menuitem", { name: /^(Disconnect…|Scollega…)$/ }).click();
+        await p.getByRole("group", { name: /^(Disconnect — sure\?|Scollega — sicuro\?)$/ }).scrollIntoViewIfNeeded();
+      }],
+      ["account-connect", "Laura", "/preferences/account", async (p) => {
+        await p.getByRole("button", { name: /^(Reconnect|Ricollega)$/ }).click();
+        await p.getByRole("radio", { name: /^(Wrong domain|Dominio sbagliato)$/ }).click();
+        await p.getByRole("button", { name: /^(Continue on Google|Continua su Google)$/ }).click();
+        await p.getByRole("button", { name: /^(Try again|Riprova)$/ }).waitFor();
+      }],
+      ["security", "Roberta", "/preferences/security", null],
+      ["security-off", "Sara", "/preferences/security", null],
+      ["security-setup", "Sara", "/preferences/security", async (p) => {
+        await p.getByRole("button", { name: /^(Set up now|Attivala ora)$/ }).click();
+        await p.getByRole("img", { name: /^(QR code|Codice QR)/ }).waitFor();
+      }],
+      ["security-codes", "Laura", "/preferences/security", async (p) => {
+        await p.getByRole("button", { name: /^(Make new codes|Genera codici nuovi)$/ }).click();
+        await p.getByRole("button", { name: /^(Make new codes — sure\?|Genera codici nuovi — sicuro\?)$/ }).click();
+        await confirmCode(p);
+        await p.getByTestId("secret-once").scrollIntoViewIfNeeded();
+      }],
+      ["security-passkey", "Laura", "/preferences/security", async (p) => {
+        await p.getByRole("button", { name: /^(Add passkey|Aggiungi passkey)$/ }).click();
+        await p.getByLabel(/^(Name this passkey|Dai un nome alla passkey)$/).fill("Work laptop");
+        await p.getByRole("button", { name: /^(Continue|Continua)$/ }).click();
+      }],
+      ["tokens", "Laura", "/preferences/tokens", null],
+      ["tokens-secret", "Laura", "/preferences/tokens", async (p) => {
+        await p.getByRole("button", { name: /^(New token|Nuovo token)$/ }).click();
+        await p.getByLabel(/^(Name|Nome)$/).fill("my-laptop MCP");
+        await p.getByRole("button", { name: /^(Create token|Crea token)$/ }).click();
+        await confirmCode(p);
+        await p.getByTestId("secret-once").waitFor();
+      }],
+      ["claude-code", "Marco", "/preferences/claude-code", null],
+      ["claude-code-secret", "Marco", "/preferences/claude-code", async (p) => {
+        await p.getByRole("button", { name: /^(Create the command|Crea il comando)$/ }).click();
+        await confirmCode(p);
+        await p.getByTestId("secret-once").waitFor();
+      }],
+      ["look", "Giulia", "/preferences/look", null],
+    ];
+    for (const [name, persona, hash, steps] of AREA9A_PREFS) {
+      if (only && !only.test(`a9a-prefs-${name}`)) continue;
+      const variants = [];
+      for (const scheme of ["light", "dark"]) {
+        for (const lang of ["en", "it"]) variants.push([scheme, lang, WIDE, `a9a-prefs-${name}-${scheme}-${lang}.png`]);
+      }
+      variants.push(["light", "en", NARROW, `a9a-prefs-${name}-narrow.png`]);
+      variants.push(["dark", "it", NARROW, `a9a-prefs-${name}-narrow-dark-it.png`]);
+      for (const [scheme, lang, viewport, file] of variants) {
+        const { page, context } = await open(scheme, viewport, hash, { lang, persona, viaHome: true });
+        await page.getByRole("heading", { level: 1 }).first().waitFor();
+        await page.waitForTimeout(300);
+        if (steps) await steps(page);
+        await page.mouse.move(2, 2);
+        await page.waitForTimeout(500);
+        await shot(page, file);
+        await context.close();
+      }
+    }
+
     if (only) return; // revisione mirata: salta il resto
 
     for (const scheme of ["light", "dark"]) {

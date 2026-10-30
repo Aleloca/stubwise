@@ -1,18 +1,41 @@
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
+import { useMySecurity } from "../../data/queries";
+import {
+  PREFERENCE_SECTIONS,
+  isPreferenceSection,
+  type PreferenceSection,
+} from "../../data/routes";
+import { useViewer } from "../../data/viewer";
 import { ONE_LINE, columnItemClass } from "../../layout/ProjectColumn";
-import { Placeholder } from "../Placeholder";
+import { AccountSection } from "./AccountSection";
+import { ClaudeCodeSection } from "./ClaudeCodeSection";
+import { LookSection } from "./LookSection";
 import { NotificationsSection } from "./NotificationsSection";
+import { SecuritySection } from "./SecuritySection";
+import { TokensSection } from "./TokensSection";
 
-// Le Preferenze (shape alerts.md, «Cornice delle Preferenze»): la colonna
-// personale con le sezioni e, per ora, la sola sezione Notifiche costruita.
-// Tema e lingua restano nel menu del profilo: la colonna non li duplica.
+// Le Preferenze (shape alerts.md, «Cornice delle Preferenze», e
+// preferences-account.md): la colonna personale con le sei sezioni e la
+// sezione aperta. Le sezioni sono le cose MIE: nessuna dipende da un permesso.
 
-export const PREFERENCE_SECTIONS = ["notifications", "account", "security", "claude-code"] as const;
-export type PreferenceSection = (typeof PREFERENCE_SECTIONS)[number];
+export { PREFERENCE_SECTIONS, isPreferenceSection, type PreferenceSection };
 
-export const isPreferenceSection = (value: string): value is PreferenceSection =>
-  (PREFERENCE_SECTIONS as readonly string[]).includes(value);
+/**
+ * «Off» accanto a Security quando il secondo fattore è spento [PR 6]: solo
+ * testo, niente punto «ti aspetta» (non è una decisione).
+ */
+function SecurityOff() {
+  const { t } = useTranslation();
+  const security = useMySecurity();
+  if (!security.data || security.data.on) return null;
+  return (
+    <span className="ml-auto shrink-0 pl-2 text-xs text-ink-faint">
+      <span aria-hidden="true">{t("prefs.securityOff")}</span>
+      <span className="sr-only">{t("prefs.securityOffLabel")}</span>
+    </span>
+  );
+}
 
 /** La colonna delle Preferenze: le sezioni, 32 px, senza titolo (il nome è l'h1). */
 export function PreferencesColumn() {
@@ -34,6 +57,7 @@ export function PreferencesColumn() {
               <span style={ONE_LINE} className="min-w-0">
                 {t(`prefs.sections.${section}`)}
               </span>
+              {section === "security" && <SecurityOff />}
             </Link>
           </li>
         ))}
@@ -43,8 +67,9 @@ export function PreferencesColumn() {
 }
 
 /**
- * Una sezione delle Preferenze: Notifiche è viva (`?project=AUD` apre quel
- * gruppo); le altre portano al segnaposto col loro h1 [A 2].
+ * Una sezione delle Preferenze; `?project=AUD` apre quel gruppo di
+ * Notifiche. Le sezioni personali si rimontano al cambio di persona («vedi
+ * come»): un valore mostrato una volta non passa da una persona all'altra.
  */
 export function PreferencesPage({
   section,
@@ -53,6 +78,21 @@ export function PreferencesPage({
   section: PreferenceSection;
   focusCode?: string;
 }) {
-  if (section === "notifications") return <NotificationsSection focusCode={focusCode} />;
-  return <Placeholder titleKey={`prefs.sections.${section}`} bodyKey="prefs.later" />;
+  const { viewer } = useViewer();
+  const key = viewer.personId;
+  switch (section) {
+    case "notifications":
+      // Notifiche non ha segreti, e al cambio di persona tiene ricerca e gruppi (alerts.md §5).
+      return <NotificationsSection focusCode={focusCode} />;
+    case "account":
+      return <AccountSection key={key} />;
+    case "security":
+      return <SecuritySection key={key} />;
+    case "tokens":
+      return <TokensSection key={key} />;
+    case "claude-code":
+      return <ClaudeCodeSection key={key} />;
+    case "look":
+      return <LookSection key={key} />;
+  }
 }

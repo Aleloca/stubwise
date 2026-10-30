@@ -1,6 +1,6 @@
 import { accessState, writeAccess, type PersonAccess } from "../access/index";
 import { isHumanId, nameOf, reauthRefusal, refuse } from "../admin/common";
-import { forgetSecret, secretIdsOf, storeSecret } from "../admin/secrets";
+import { BACKUP_CODE_COUNT, forgetSecret, secretIdsOf, storeSecret } from "../admin/secrets";
 import {
   attemptPendingTotp,
   markReauthenticated,
@@ -47,6 +47,7 @@ export async function getMySecurity(): Promise<MySecurity> {
       .filter((k) => k.personId === me)
       .map((k) => ({ id: k.id, name: k.name, addedAt: k.addedAt, lastUsedAt: k.lastUsedAt })),
     backupCodesLeft: sf?.backupCodesLeft ?? 0,
+    backupCodesTotal: BACKUP_CODE_COUNT,
     sessions: state.sessions
       .filter((s) => s.personId === me)
       .sort(

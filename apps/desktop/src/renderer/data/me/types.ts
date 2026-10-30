@@ -94,6 +94,8 @@ export interface MySecurity {
   totpSince: string | null;
   passkeys: Omit<Passkey, "personId">[];
   backupCodesLeft: number;
+  /** Quanti codici fa ogni giro: «7 of 10 left». */
+  backupCodesTotal: number;
   sessions: MySessionView[];
   /** Il registro della sicurezza personale, ultimi 90 giorni, più recenti prima. */
   events: { id: string; kind: string; at: string; byId: string | null; byName: string | null }[];

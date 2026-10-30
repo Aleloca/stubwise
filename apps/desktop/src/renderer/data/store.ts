@@ -614,6 +614,7 @@ export type ApiFnName =
   | "admin.grantMemberPermission"
   | "admin.revokeMemberPermission"
   // Preferenze personali (area 9a, Task 5): Account, Google, Security, Tokens, Claude Code
+  | "me.getMyProfile"
   | "me.updateProfile"
   | "me.changePassword"
   | "me.listMyMailboxes"

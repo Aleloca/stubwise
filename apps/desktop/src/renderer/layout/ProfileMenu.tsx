@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   useDepartments,
@@ -9,59 +9,11 @@ import {
   useResetToEmptyInstance,
 } from "../data/queries";
 import { VIEW_AS_PERSONAS, canSeeAdmin, useViewer } from "../data/viewer";
-import { setLanguage, type Language } from "../i18n";
-import { useTheme } from "../theme/ThemeProvider";
-import type { ThemePreference } from "../theme/theme";
 import { openGoogleAccount } from "../pages/drive/GoogleAccountCard";
 import { useToast } from "../tasks-ui/Toast";
 import { PrototypeBox } from "../pages/automations/shared";
+import { LanguageChoice, RadioGroup, ThemeChoice } from "./LookControls";
 import { Tooltip } from "./Tooltip";
-
-const THEMES: ThemePreference[] = ["system", "light", "dark"];
-// Ogni lingua si presenta col proprio nome, in entrambe le interfacce.
-const LANGUAGES: { id: Language; key: string }[] = [
-  { id: "en", key: "rail.languages.en" },
-  { id: "it", key: "rail.languages.it" },
-];
-
-function RadioGroup<T extends string>({
-  label,
-  name,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  name: string;
-  value: T;
-  options: { value: T; label: ReactNode }[];
-  onChange: (value: T) => void;
-}) {
-  const labelId = useId();
-  return (
-    <div role="radiogroup" aria-labelledby={labelId} className="flex flex-col gap-0.5 py-2">
-      <div id={labelId} className="heading-group px-2 pb-1">
-        {label}
-      </div>
-      {options.map((o) => (
-        <label
-          key={o.value}
-          className="flex cursor-pointer items-start gap-2.5 rounded-md px-2 py-1.5 text-sm text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 has-[:checked]:bg-ink/8"
-        >
-          <input
-            type="radio"
-            name={name}
-            value={o.value}
-            checked={o.value === value}
-            onChange={() => onChange(o.value)}
-            className="mt-0.5 size-3.5 shrink-0"
-          />
-          <span>{o.label}</span>
-        </label>
-      ))}
-    </div>
-  );
-}
 
 /** Quanto resta armata la conferma a due tempi («Reset — sure?»). */
 const ARMED_MS = 4000;
@@ -119,14 +71,13 @@ function ArmedReset({
  * only», i due reset del prototipo (area 9a, shape `entry.md` [IN 6]).
  */
 export function ProfileMenu() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const { viewer, setPersona } = useViewer();
   const navigate = useNavigate();
   const toast = useToast();
   const logout = useLogout();
   const resetPrototype = useResetPrototype();
   const resetEmpty = useResetToEmptyInstance();
-  const { preference, setPreference } = useTheme();
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
@@ -181,16 +132,26 @@ export function ProfileMenu() {
           onClick={() => setOpen((v) => !v)}
           className="grid size-10 place-items-center rounded-lg transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 active:bg-ink/10 aria-expanded:bg-ink/10"
         >
-          <span
-            aria-hidden="true"
-            className="grid size-7 place-items-center rounded-full text-xs font-semibold"
-            style={{
-              color: deptColor,
-              background: `color-mix(in oklch, ${deptColor} 18%, var(--rail))`,
-            }}
-          >
-            {person?.initials}
-          </span>
+          {/* La foto scelta in Preferenze → Account, se c'è; altrimenti le iniziali. */}
+          {person?.photo ? (
+            <img
+              src={person.photo}
+              alt=""
+              aria-hidden="true"
+              className="size-7 rounded-full object-cover"
+            />
+          ) : (
+            <span
+              aria-hidden="true"
+              className="grid size-7 place-items-center rounded-full text-xs font-semibold"
+              style={{
+                color: deptColor,
+                background: `color-mix(in oklch, ${deptColor} 18%, var(--rail))`,
+              }}
+            >
+              {person?.initials}
+            </span>
+          )}
         </button>
       </Tooltip>
       {open && (
@@ -207,22 +168,10 @@ export function ProfileMenu() {
             {dept && <span className="text-sm text-ink-muted">{dept.name}</span>}
           </div>
           <div className="border-b border-rule">
-            <RadioGroup
-              label={t("rail.theme")}
-              name={`${panelId}-theme`}
-              value={preference}
-              options={THEMES.map((id) => ({ value: id, label: t(`rail.themes.${id}`) }))}
-              onChange={setPreference}
-            />
+            <ThemeChoice />
           </div>
           <div className="border-b border-rule">
-            <RadioGroup
-              label={t("rail.language")}
-              name={`${panelId}-language`}
-              value={(i18n.resolvedLanguage ?? "en") as Language}
-              options={LANGUAGES.map((l) => ({ value: l.id, label: t(l.key) }))}
-              onChange={setLanguage}
-            />
+            <LanguageChoice />
           </div>
           <div className="border-b border-rule">
             <RadioGroup

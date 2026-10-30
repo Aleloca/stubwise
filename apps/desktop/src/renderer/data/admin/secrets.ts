@@ -57,6 +57,9 @@ export const inviteLinkOf = (tokenOrLink: string): string => {
 };
 
 /** Il valore finto di un segreto nuovo, nella forma del web. */
+/** Quanti codici di backup fa ogni giro (la prima attivazione, «Make new codes»). */
+export const BACKUP_CODE_COUNT = 10;
+
 function valueOf(kind: SecretKind, ownerId: string, n: number): string {
   const seed = `${kind}|${ownerId}|${n}`;
   switch (kind) {
@@ -70,7 +73,7 @@ function valueOf(kind: SecretKind, ownerId: string, n: number): string {
       return chars(seed, BASE32, 32);
     case "backup_codes":
       // 10 codici «xxxxx-xxxxx», uno per riga.
-      return Array.from({ length: 10 }, (_, i) => {
+      return Array.from({ length: BACKUP_CODE_COUNT }, (_, i) => {
         const c = chars(`${seed}|${i}`, ALNUM, 10);
         return `${c.slice(0, 5)}-${c.slice(5)}`;
       }).join("\n");

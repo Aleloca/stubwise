@@ -72,7 +72,10 @@ export function AllProjectsPage() {
   const canPeople = can(viewer, "people.activity.view");
   const [tab, setTab] = useState<Tab>(personView ? "activity" : "projects");
   const [personQuery, setPersonQuery] = useState("");
-  const [filters, setFilters] = useState<PortfolioFilters>(NO_FILTERS);
+  // `?view=pinned` (Preferenze → Account, «Manage in All projects»): i soli fissati.
+  const [filters, setFilters] = useState<PortfolioFilters>(() =>
+    search.view === "pinned" ? { ...NO_FILTERS, pinnedOnly: true } : NO_FILTERS,
+  );
   const [creating, setCreating] = useState(false);
   const searchId = useId();
   const listRef = useRef<HTMLDivElement>(null);

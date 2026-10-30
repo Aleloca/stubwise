@@ -172,6 +172,8 @@ export const queryKeys = {
     ["as", personId, "changelog", "project", projectId, filter] as const,
   /** L'Amministrazione (area 9a): tutto nell'area «admin»; una scrittura d'accesso ricarica ogni query. */
   admin: (personId: string, ...rest: unknown[]) => ["as", personId, "admin", ...rest] as const,
+  /** Le Preferenze personali (area 9a): tutto nell'area «me». */
+  me: (personId: string, ...rest: unknown[]) => ["as", personId, "me", ...rest] as const,
   /**
    * Il blocco «Server» di una task (Task 9): nell'area delle conversazioni,
    * così si rilegge quando la correzione avanza (piano, comandi, controllo).
@@ -2533,7 +2535,7 @@ export function useRetryExtraction() {
  * scheda di preparazione: un «Reconnect» dal Calendario o dalla Home toglie
  * subito l'avviso di collegamento scaduto.
  */
-const GOOGLE_AREAS = [...DRIVE_FILE_AREAS, "mail", "calendar", "meeting"] as const;
+export const GOOGLE_AREAS = [...DRIVE_FILE_AREAS, "mail", "calendar", "meeting"] as const;
 
 export function useConnectGoogle() {
   return useWrite(() => api.drive.connectGoogle(), GOOGLE_AREAS);
@@ -3791,3 +3793,4 @@ export * from "./queries/support";
 export * from "./queries/servers";
 export * from "./queries/admin";
 export * from "./queries/entry";
+export * from "./queries/me";

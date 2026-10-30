@@ -1,7 +1,7 @@
 import { isHumanId, refuse } from "../admin/common";
 import { person as addressOf } from "../seed/mail/helpers";
 import { PEOPLE, initials } from "../seed/people";
-import { state } from "../store";
+import { gate, state } from "../store";
 import { writer } from "../writer";
 import { logSecurity } from "./securityLog";
 import type { MeResult } from "./types";
@@ -30,6 +30,28 @@ export const personByEmail = (email: string): string | null => {
   const wanted = email.trim().toLowerCase();
   return PEOPLE.find((p) => !p.isClaude && loginEmailOf(p.id) === wanted)?.id ?? null;
 };
+
+/** Il profilo di chi guarda (Preferenze → Account): l'email è quella d'accesso. */
+export interface MyProfile {
+  name: string;
+  initials: string;
+  email: string;
+  /** Un data URL, o `null` = le iniziali sul colore del reparto. */
+  photo: string | null;
+  departmentId: string | null;
+}
+
+export async function getMyProfile(): Promise<MyProfile> {
+  const me = await gate("me.getMyProfile");
+  const person = PEOPLE.find((p) => p.id === me)!;
+  return {
+    name: person.name,
+    initials: person.initials,
+    email: loginEmailOf(me),
+    photo: person.photo ?? null,
+    departmentId: person.departmentIds[0] ?? null,
+  };
+}
 
 export interface ProfileInput {
   name?: string;

@@ -32,6 +32,24 @@ export const APP_ROUTES = [
   "admin",
 ] as const;
 
+/**
+ * Le sezioni delle Preferenze, nell'ordine della colonna (area 8a: Notifiche;
+ * area 9a: le Preferenze personali). `#/preferences/<sezione>`.
+ */
+export const PREFERENCE_SECTIONS = [
+  "notifications",
+  "account",
+  "security",
+  "tokens",
+  "claude-code",
+  "look",
+] as const;
+
+export type PreferenceSection = (typeof PREFERENCE_SECTIONS)[number];
+
+export const isPreferenceSection = (value: string): value is PreferenceSection =>
+  (PREFERENCE_SECTIONS as readonly string[]).includes(value);
+
 /** Le sezioni di un progetto, nell'ordine della colonna; `module` = serve quel modulo attivo. */
 export const PROJECT_SECTIONS = [
   { id: "overview" },
@@ -161,7 +179,8 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
     case "view":
       if (path === "home") return value === "week";
       if (path === "calendar") return isCalendarSearchValue(key, value);
-      if (path === "projects") return value === "person";
+      // `pinned`: All projects coi soli fissati (Preferenze → Account, «Followed projects»).
+      if (path === "projects") return value === "person" || value === "pinned";
       if (path === "chat") return (CHAT_VIEWS as readonly string[]).includes(value);
       if (path === "automations") return (AUTOMATION_VIEWS as readonly string[]).includes(value);
       if (isReleasesPath(path)) return (RELEASES_VIEWS as readonly string[]).includes(value);
@@ -267,8 +286,9 @@ export function isAppRoute(route: string): boolean {
   if (/^filters\/[\w-]+$/.test(path)) return true;
   if (/^claude\/[\w-]+$/.test(path)) return true;
   if (/^mail\/[\w-]+$/.test(path)) return true;
-  // Le sezioni delle Preferenze (area 8a: Notifiche).
-  if (/^preferences\/[a-z-]+$/.test(path)) return true;
+  // Le sezioni delle Preferenze (aree 8a e 9a).
+  const pref = /^preferences\/([a-z-]+)$/.exec(path);
+  if (pref) return isPreferenceSection(pref[1]!);
   if (isChannelPath(path)) return true;
   if (isAutomationsPath(path)) return true;
   // Il dettaglio di un rilascio (area 8a): `#/p/AUD/releases/AUD-V3`.

@@ -17,6 +17,15 @@ describe("route grammar", () => {
     expect(isAppRoute("#/people/x")).toBe(false);
   });
 
+  it("area 9a: le sei sezioni delle Preferenze, e All projects coi soli fissati", () => {
+    for (const s of ["notifications", "account", "security", "tokens", "claude-code", "look"]) {
+      expect(isAppRoute(`#/preferences/${s}`), s).toBe(true);
+    }
+    expect(isAppRoute("#/preferences/billing")).toBe(false);
+    expect(isAppRoute("#/projects?view=pinned")).toBe(true);
+    expect(isAppRoute("#/projects?view=starred")).toBe(false);
+  });
+
   it("area 2: filtri, planning e ricerca valida per route", () => {
     expect(isAppRoute("#/filters")).toBe(true);
     expect(isAppRoute("#/filters/flt-open")).toBe(true);

@@ -41,7 +41,7 @@ async function ready() {
 }
 
 describe("cornice", () => {
-  it("/preferences porta a Notifiche; la colonna ha le quattro sezioni, le altre sono segnaposto", async () => {
+  it("/preferences porta a Notifiche; la colonna ha le sei sezioni", async () => {
     const router = renderRoute("/preferences", LAURA);
     expect(await screen.findByRole("heading", { level: 1, name: "Notifications" })).toBeVisible();
     expect(router.state.location.pathname).toBe(PAGE);
@@ -51,7 +51,9 @@ describe("cornice", () => {
       "Notifications",
       "Account",
       "Security",
+      "Tokens",
       "Claude Code",
+      "Language & theme",
     ]);
     expect(links[0]).toHaveAttribute("aria-current", "page");
     // Le decisioni non sono avvisi: la pagina lo dice in testa e in fondo.
@@ -61,7 +63,6 @@ describe("cornice", () => {
 
     await userEvent.click(links[1]!);
     expect(await screen.findByRole("heading", { level: 1, name: "Account" })).toBeVisible();
-    expect(screen.getByText("Arrives with a later area.")).toBeVisible();
   });
 });
 

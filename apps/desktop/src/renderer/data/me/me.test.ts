@@ -261,6 +261,22 @@ describe("RF 2: token, comando, chiave TOTP e codici di backup non ricompaiono",
 // --- Account ------------------------------------------------------------------------
 
 describe("Account", () => {
+  it("getMyProfile: nome, email d'accesso, foto e reparto di chi guarda, aggiornati", async () => {
+    as("p-sara");
+    expect(await me.getMyProfile()).toEqual({
+      name: "Sara Montanari",
+      initials: "SM",
+      email: "sara.montanari@example.com",
+      photo: null,
+      departmentId: PEOPLE.find((p) => p.id === "p-sara")!.departmentIds[0],
+    });
+    await me.updateProfile({ email: "sara@example.com", avatar: "data:image/png;base64,AA" });
+    expect(await me.getMyProfile()).toMatchObject({
+      email: "sara@example.com",
+      photo: "data:image/png;base64,AA",
+    });
+  });
+
   it("il nome cambia ovunque (persone, «vedi come»), l'email d'accesso no se non la si cambia", async () => {
     as("p-sara");
     expect(await me.updateProfile({ name: "Sara Montanari Rossi" })).toEqual({ ok: true });
@@ -356,6 +372,8 @@ describe("Sicurezza", () => {
       on: true,
       totp: true,
       backupCodesLeft: 10,
+      // Quanti codici fa ogni giro: la pagina dice «7 of 10 left» da qui.
+      backupCodesTotal: 10,
       passkeys: [{ name: "MacBook Pro" }, { name: "YubiKey" }],
     });
     as("p-sara");
