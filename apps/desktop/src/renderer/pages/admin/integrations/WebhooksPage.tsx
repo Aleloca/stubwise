@@ -147,7 +147,6 @@ function WebhookForm({ webhook: w }: { webhook: WebhookView }) {
           placeholder={format === "slack" ? "https://hooks.slack.com/services/…" : "https://…"}
           hint={t("admin.webhooks.addressNote")}
           error={errors.url}
-          mono
         />
 
         <Disclosure title={t("admin.webhooks.howTo")}>

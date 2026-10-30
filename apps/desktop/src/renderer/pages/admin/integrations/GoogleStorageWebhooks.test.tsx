@@ -295,6 +295,8 @@ describe("Outgoing webhooks", () => {
     expect(await heading("Outgoing webhooks")).toBeVisible();
     const address = await screen.findByLabelText("Address");
     expect(address).toHaveAttribute("type", "text");
+    // Triage T11: un URL non è fra i casi del monospace; stesso corpo dei campi accanto.
+    expect(address).not.toHaveClass("font-mono");
     expect(address).toHaveValue("https://hooks.slack.com/services/T01AUDIN/B07STUB/prototype");
     expect(
       screen.getByText("Anyone who can change the instance settings can read this address."),
