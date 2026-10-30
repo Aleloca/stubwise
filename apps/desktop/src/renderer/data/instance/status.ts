@@ -1,12 +1,13 @@
 import type { Conversation } from "../model";
 import { runHref } from "../routes";
+import { canSeeRun, runById } from "../automations/visibility";
 import { serverHref } from "../servers/visibility";
 import { currentPhase, eventsOf, familyOf, gate, now, state, visibleProjectIds } from "../store";
 import type { ActionAvailability } from "../types";
 import { forbidden } from "../writer";
-import { canI, nameOf } from "./common";
+import { canI } from "./common";
 import { quotaView, type QuotaView } from "./providers";
-import { budgetReached } from "./blocks";
+import { budgetReached, pauserNameOf } from "./blocks";
 import { failedHeldStarts, heldJobs, type AiBlock, type FailedStart, type JobKind } from "./queue";
 import type { AiProvider, NightlyRow } from "./state";
 
@@ -34,7 +35,12 @@ import type { AiProvider, NightlyRow } from "./state";
 export interface InstanceJob {
   id: string;
   kind: JobKind;
-  projectId: string;
+  /**
+   * `null`: un passo di un'automazione generale fermo per il budget prima di
+   * agire in un progetto. Lo vede chi vede l'automazione; nessuna coda,
+   * mai fra i progetti nascosti (revisione finale I2).
+   */
+  projectId: string | null;
   projectCode: string;
   title: string;
   /** Task «ACQ-57», esecuzione «ACQ-A2 #7», server «SRV-2» (ruling 17). */
@@ -132,7 +138,8 @@ const WORKERS = ["worker-1", "worker-2"] as const;
 const FAILED_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_ERRORS = 5;
 
-const codeOf = (projectId: string): string => state.projectsById.get(projectId)?.code ?? "";
+const codeOf = (projectId: string | null): string =>
+  projectId === null ? "" : (state.projectsById.get(projectId)?.code ?? "");
 const taskOf = (taskId: string | null) => (taskId ? state.tasksById.get(taskId) : undefined);
 const taskHref = (taskId: string | null): string | null => {
   const task = taskOf(taskId);
@@ -307,26 +314,35 @@ export async function getInstanceStatus(): Promise<InstanceStatusView> {
   const manages = canI(me, "settings.manage");
 
   const all = allJobs().sort(byStateThenAge);
+  // Un lavoro senza progetto (un passo d'automazione generale fermo per il
+  // budget) lo vede chi vede l'esecuzione; non è mai di un progetto nascosto.
+  const sees = (j: Job): boolean => {
+    if (j.projectId !== null) return visible.has(j.projectId);
+    const run = j.kind === "automation" ? runById(j.id) : undefined;
+    return run !== undefined && canSeeRun(me, run);
+  };
+  const inHiddenProject = (j: Job): boolean => j.projectId !== null && !visible.has(j.projectId);
   const busy = all.filter((j) => j.state === "running").slice(0, WORKERS.length);
   const workerOf = (j: Job) => WORKERS[busy.indexOf(j)] ?? null;
   const workers = WORKERS.map((id, i) => {
     const job = busy[i];
-    const hidden = job !== undefined && !visible.has(job.projectId);
+    const hidden = job !== undefined && !sees(job);
     return { id, jobId: job && !hidden ? job.id : null, hidden };
   });
 
   const conversations = new Map(state.conversations.map((c) => [c.id, c]));
   const permittedOf = (j: Job): ActionAvailability => {
     const c = conversations.get(j.id);
-    if (j.state !== "failed" || !c || !isRetryable(c)) return "unavailable";
+    if (j.state !== "failed" || !c || !isRetryable(c) || j.projectId === null) return "unavailable";
     return manages && canI(me, "runs.start", j.projectId) ? "allowed" : "forbidden";
   };
   // Il budget vale per tutti i progetti: una lettura sola per la vista.
   const budget = budgetReached();
-  const shown = all.filter((j) => visible.has(j.projectId));
+  const shown = all.filter(sees);
   const jobs: InstanceJob[] = shown.map((j) => {
     const permitted = permittedOf(j);
-    const retryBlock = permitted === "allowed" && budget ? { reason: "monthly_budget" as const } : null;
+    const retryBlock =
+      permitted === "allowed" && budget ? { reason: "monthly_budget" as const } : null;
     const retry = retryBlock ? "forbidden" : permitted;
     return {
       ...j,
@@ -334,13 +350,17 @@ export async function getInstanceStatus(): Promise<InstanceStatusView> {
       retry,
       retryNeeds: permitted !== "forbidden" ? null : manages ? "startRun" : "manageSettings",
       retryBlock,
-      retryStopsAtPlan: retry === "allowed" && !canI(me, "plans.approve", j.projectId),
+      retryStopsAtPlan:
+        retry === "allowed" && j.projectId !== null && !canI(me, "plans.approve", j.projectId),
     };
   });
-  const hidden = all.filter((j) => !visible.has(j.projectId));
+  const hidden = all.filter(inHiddenProject);
 
   const pauses = state.instance.queuePauses.filter((p) => visible.has(p.projectId));
-  const queueIds = new Set([...shown.map((j) => j.projectId), ...pauses.map((p) => p.projectId)]);
+  const queueIds = new Set([
+    ...shown.flatMap((j) => (j.projectId === null ? [] : [j.projectId])),
+    ...pauses.map((p) => p.projectId),
+  ]);
   const queues = [...queueIds]
     .map((projectId) => {
       const project = state.projectsById.get(projectId)!;
@@ -349,7 +369,7 @@ export async function getInstanceStatus(): Promise<InstanceStatusView> {
         projectId,
         code: project.code,
         name: project.name,
-        paused: pause ? { byId: pause.byId, byName: nameOf(pause.byId)!, at: pause.at } : null,
+        paused: pause ? { byId: pause.byId, byName: pauserNameOf(pause.byId), at: pause.at } : null,
         ...counts(shown.filter((j) => j.projectId === projectId)),
         pause: (manages ? "allowed" : "forbidden") as ActionAvailability,
         // Alla ripresa un lavoro riparte solo senza altri blocchi (`release`):

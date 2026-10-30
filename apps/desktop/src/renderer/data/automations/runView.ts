@@ -1,7 +1,8 @@
 import { visitSteps } from "../../domain/automations/fields";
 import { copy, state, visibleProjectIds } from "../store";
 import type { AutomationRun, ReasonCode, RunLogEntry } from "../types";
-import { aiWaitingOf } from "./runner";
+import { budgetReached } from "../instance/blocks";
+import { aiHoldOf } from "./runner";
 import {
   automationById,
   canSeeAutomation,
@@ -97,10 +98,25 @@ function mailOrigin(run: AutomationRun): { ownerId: string | null } | null {
  */
 export function viewRun(me: string, run: AutomationRun): AutomationRun {
   const v = copy(run);
-  // Ferma per un blocco d'istanza (area 9b): il blocco di adesso.
-  const waiting = aiWaitingOf(run.id);
-  if (waiting) v.aiWaiting = copy(waiting);
   const visible = visibleProjectIds(me);
+  // Ferma per un blocco d'istanza (area 9b): il blocco di adesso, col codice
+  // del progetto della coda. R-G5 (revisione finale M3): la pausa di un
+  // progetto che chi guarda non vede si legge come `getAiBlock`, cioè solo
+  // il budget se è raggiunto — né codice né nome di chi l'ha messa.
+  const hold = aiHoldOf(run.id);
+  if (hold) {
+    const { block, projectId } = hold;
+    if (block.reason === "monthly_budget") {
+      v.aiWaiting = copy(block);
+      v.aiWaitingCode = null;
+    } else if (projectId !== null && visible.has(projectId)) {
+      v.aiWaiting = copy(block);
+      v.aiWaitingCode = state.projectsById.get(projectId)?.code ?? null;
+    } else if (budgetReached()) {
+      v.aiWaiting = { reason: "monthly_budget" };
+      v.aiWaitingCode = null;
+    }
+  }
   const scrub = (o: Record<string, unknown>) => hideProject(o, visible);
   v.projectIds = v.projectIds.filter((p) => visible.has(p));
   if (v.projects)

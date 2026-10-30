@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { stepAt } from "../../domain/automations/fields";
 import { usePauserName } from "../../components/InstanceBlock";
 import { WhoCanLink } from "../../components/WhoCanLink";
-import { useMailThreadOfMessage, useProjects } from "../../data/queries";
+import { useMailThreadOfMessage } from "../../data/queries";
 import type { AutomationRunDetail, RunLogEntry } from "../../data/types";
 import { usePendingAnswers } from "../home/pendingAnswers";
 import { primaryButton, quietButton, secondaryButton } from "../tasks/controls";
@@ -89,10 +89,9 @@ export function NowBox({
   const answering = usePendingAnswers().has(run.id);
   // Chi ha messo la pausa, con «(deactivated)» se è stato disattivato.
   const pauserName = usePauserName(run.aiWaiting ?? null);
-  // Il progetto in cui il passo aspetta la coda (la frase della pausa lo nomina).
-  const projectCode =
-    useProjects().data?.find((p) => p.id === (run.automationProjectId ?? run.projectIds[0]))
-      ?.code ?? "";
+  // Il progetto in cui il passo aspetta la coda (la frase della pausa lo
+  // nomina): lo dice il livello dati, visibile per costruzione (M3).
+  const projectCode = run.aiWaitingCode ?? "";
   let title = "";
   let body: React.ReactNode = null;
   switch (run.status) {

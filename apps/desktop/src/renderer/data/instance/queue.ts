@@ -56,7 +56,13 @@ export type JobKind =
  */
 export interface HeldJob {
   id: string;
-  projectId: string;
+  /**
+   * Il progetto della coda; `null` per un passo di un'automazione generale
+   * che non ha ancora agito in un progetto (lo ferma solo il budget). Lo
+   * Stato dell'istanza lo mostra a chi vede l'automazione, mai fra i
+   * «progetti che non vedi» (revisione finale I2).
+   */
+  projectId: string | null;
   kind: Exclude<JobKind, "nightly">;
   taskId: string | null;
   conversationId: string | null;

@@ -335,8 +335,9 @@ function holdForAi(run: AutomationRun, a: Automation): boolean {
   const gen = storeGeneration();
   holdJob({
     // Un'automazione generale che non ha ancora agito in un progetto: il
-    // budget la ferma comunque, e lo Stato dell'istanza la conta fra le altre.
-    projectId: projectId ?? "",
+    // budget la ferma comunque, senza progetto (lo Stato la mostra a chi
+    // vede l'automazione, non fra i progetti nascosti).
+    projectId,
     kind: "automation",
     taskId: null,
     conversationId: null,
@@ -375,10 +376,20 @@ function holdForAi(run: AutomationRun, a: Automation): boolean {
 
 /** Il blocco d'istanza per cui un'esecuzione aspetta adesso, se aspetta (le letture). */
 export function aiWaitingOf(runId: string): AiBlock | null {
+  return aiHoldOf(runId)?.block ?? null;
+}
+
+/**
+ * Il blocco d'istanza per cui un'esecuzione aspetta adesso, col progetto
+ * della coda in cui aspetta (`null`: un'automazione generale ferma per il
+ * budget). È il progetto calcolato da `holdForAi`: le letture lo prendono
+ * da qui invece di ricalcolarlo (revisione finale M3).
+ */
+export function aiHoldOf(runId: string): { block: AiBlock; projectId: string | null } | null {
   // Solo un'esecuzione in corso aspetta (I2): annullata o sospesa, non più.
   if (runById(runId)?.status !== "running") return null;
   const job = heldJobs().find((h) => h.automationRunId === runId);
-  return job ? job.block : null;
+  return job ? { block: job.block, projectId: job.projectId } : null;
 }
 
 // --- l'avanzamento ------------------------------------------------------------------

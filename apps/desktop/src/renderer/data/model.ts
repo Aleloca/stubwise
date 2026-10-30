@@ -2580,6 +2580,11 @@ export interface AutomationRun {
    * coda in pausa). Riparte da sola quando il blocco cade.
    */
   aiWaiting?: AiBlock | null;
+  /**
+   * Solo nelle letture, con `aiWaiting` `queue_paused`: il codice del
+   * progetto la cui coda è in pausa (sempre un progetto che chi guarda vede).
+   */
+  aiWaitingCode?: string | null;
 }
 
 export interface AutomationSource {

@@ -592,7 +592,10 @@ function WorkSection({ view }: { view: View }) {
               presence={r}
               reference={view.refreshedAt}
               onRetry={() =>
-                setRetrying({ job: r.job, queuePaused: pausedIn.has(r.job.projectId) })
+                setRetrying({
+                  job: r.job,
+                  queuePaused: r.job.projectId !== null && pausedIn.has(r.job.projectId),
+                })
               }
               onLostFocus={() => heading.current?.focus()}
             />

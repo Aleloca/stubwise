@@ -19,6 +19,14 @@ export function queuePauseOf(projectId: string): QueuePause | null {
   return pause ? { ...pause } : null;
 }
 
+/**
+ * Il nome di chi ha messo una pausa, anche se nel frattempo è stato
+ * disattivato (`PEOPLE` tiene anche le persone disattivate): l'unico punto
+ * da cui lo leggono i blocchi, la pausa e lo Stato dell'istanza.
+ */
+export const pauserNameOf = (byId: string): string =>
+  PEOPLE.find((p) => p.id === byId)?.name ?? byId;
+
 /** L'archiviazione è configurata: endpoint, bucket, chiave d'accesso e la sua chiave segreta. */
 export function storageConfigured(): boolean {
   const s = state.instance.storage;
@@ -94,7 +102,7 @@ export function aiBlockFor(projectId: string | null): AiBlock | null {
   if (budgetReached()) return { reason: "monthly_budget" };
   const pause = projectId === null ? null : queuePauseOf(projectId);
   if (!pause) return null;
-  const byName = PEOPLE.find((p) => p.id === pause.byId)?.name ?? pause.byId;
+  const byName = pauserNameOf(pause.byId);
   return { reason: "queue_paused", byId: pause.byId, byName, since: pause.at };
 }
 
@@ -123,7 +131,7 @@ export async function getQueuePause(
   if (!visibleProjectIds(me).has(projectId)) return null;
   const pause = queuePauseOf(projectId);
   if (!pause) return null;
-  const byName = PEOPLE.find((p) => p.id === pause.byId)?.name ?? pause.byId;
+  const byName = pauserNameOf(pause.byId);
   return { byId: pause.byId, byName, since: pause.at };
 }
 
