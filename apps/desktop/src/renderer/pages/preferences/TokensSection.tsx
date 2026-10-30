@@ -96,7 +96,11 @@ export function TokensSection() {
               <p>
                 <Trans
                   i18nKey="prefs.tokens.use"
-                  components={{ link: <SectionLink section="claude-code" /> }}
+                  components={{
+                    link: <SectionLink section="claude-code" />,
+                    // Una chiave, come il token sopra: in monospace [R3].
+                    code: <code className="font-code text-ink [font-size:13px]" />,
+                  }}
                 />
               </p>
             </SecretOnce>

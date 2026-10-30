@@ -77,6 +77,11 @@ const fold = (s: string) =>
     .replace(/\p{Diacritic}/gu, "")
     .toLowerCase();
 
+/** «in ACQ» resta su una riga: la frase non va a capo fra la preposizione e il progetto [R11]. */
+function NoWrap({ children }: { children?: ReactNode }) {
+  return <span className="whitespace-nowrap">{children}</span>;
+}
+
 /**
  * Un menu in linea nella frase (20 px, 600): un bottone che apre una
  * casella di ricerca `combobox` con l'elenco sotto. Frecce e Invio
@@ -182,7 +187,8 @@ export function InlinePicker({
       >
         {value ?? placeholder}
         {value && valueDetail && (
-          <span className="font-normal text-ink-muted">{valueDetail}</span>
+          // Il nome in inchiostro, peso normale: in grigio si leggeva come un segnaposto [R11].
+          <span className="font-normal text-ink">{valueDetail}</span>
         )}
         <span className="self-center text-ink-muted">
           <Chevron />
@@ -402,7 +408,7 @@ function WhoQuestion({
         ) : (
           <Trans
             i18nKey="whoCan.page.whoSentence"
-            components={{ action: actionPicker, project: projectPicker }}
+            components={{ action: actionPicker, project: projectPicker, nowrap: <NoWrap /> }}
           />
         )}
       </div>
@@ -565,6 +571,7 @@ function WhatQuestion({
                 onSelect={(code) => onChange({ project: code, view: "what" })}
               />
             ),
+            nowrap: <NoWrap />,
           }}
         />
       </div>

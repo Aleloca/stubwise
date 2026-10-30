@@ -297,7 +297,9 @@ function AppPart({
       partRef={partRef}
       title={t("prefs.security.app.title")}
       action={
-        !open && (
+        // Spento, il bottone è uno solo: «Set up now» sulla riga di stato [R2].
+        !open &&
+        s.on && (
           <button ref={opener} type="button" className={secondaryButton} onClick={onOpen}>
             {s.totp ? t("prefs.security.app.reconfigure") : t("prefs.security.app.setUp")}
           </button>

@@ -290,6 +290,19 @@ describe("la pagina di una persona", () => {
     expect(document.body.textContent).not.toContain(link);
   });
 
+  it("con molti progetti: il numero nel titolo, i primi 8, poi «Show all» li apre sul posto [R8]", async () => {
+    const user = userEvent.setup();
+    renderRoute("/admin/people/p-marco", ROBERTA);
+    await heading("Marco Bellini");
+    const part = screen.getByRole("region", { name: /^Projects \d+$/ });
+    const title = within(part).getAllByRole("heading")[0]!.textContent!;
+    const total = Number(/\d+$/.exec(title)![0]);
+    expect(total).toBeGreaterThan(8);
+    expect(within(part).getAllByRole("listitem")).toHaveLength(8);
+    await user.click(within(part).getByRole("button", { name: `Show all ${total}` }));
+    expect(within(part).getAllByRole("listitem")).toHaveLength(total);
+  });
+
   it("riattivare chiede la riconferma (I2), poi la persona è di nuovo attiva", async () => {
     const user = userEvent.setup();
     renderRoute("/admin/people/p-simone", ROBERTA);

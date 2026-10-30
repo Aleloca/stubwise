@@ -515,7 +515,7 @@
       "past": "Pick a date in the future.",
       "createFailed": "Couldn't create the token. Try again.",
       "created": "Token “{{name}}”",
-      "use": "Use it as STUBWISE_TOKEN. To set up Claude Code with one command, use <link>Claude Code</link>.",
+      "use": "Use it as <code>STUBWISE_TOKEN</code>. To set up Claude Code with one command, use <link>Claude Code</link>.",
       "cols": {
         "name": "Name",
         "created": "Created",
@@ -8012,9 +8012,9 @@
       "modes": "Question",
       "modeWho": "Who can…",
       "modeWhat": "What can… do",
-      "whoSentence": "Who can <action/> in <project/>?",
+      "whoSentence": "Who can <action/> <nowrap>in <project/></nowrap>?",
       "whoSentenceInstance": "Who can <action/>?",
-      "whatSentence": "What can <person/> do in <project/>?",
+      "whatSentence": "What can <person/> do <nowrap>in <project/></nowrap>?",
       "chooseAction": "choose an action",
       "chooseProject": "Choose a project",
       "choosePerson": "choose someone",
@@ -8054,7 +8054,7 @@
       "grant": "given by {{name}} on {{date}}",
       "grantByHand": "given by hand on {{date}}",
       "department": "{{department}} department",
-      "fullAdmin": "full admin"
+      "fullAdmin": "Full admin"
     },
     "link": {
       "who": "Who?",
@@ -8321,6 +8321,8 @@
       },
       "projects": {
         "title": "Projects",
+        "titleCount": "Projects {{count}}",
+        "showAll": "Show all {{count}}",
         "empty": "Not in any project you can see.",
         "hidden": "Also in projects you can't see.",
         "extra": "+ {{permission}} — {{source}}",

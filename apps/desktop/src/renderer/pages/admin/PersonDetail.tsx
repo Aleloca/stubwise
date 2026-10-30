@@ -357,8 +357,14 @@ function InstanceRolePart({ person, manages }: { person: Person; manages: boolea
  * member» del progetto scelto con la persona già scelta (`addableTo`, dal
  * livello dati).
  */
+/** I progetti mostrati prima di «Show all»: il resto della persona resta a portata. */
+const PROJECTS_FIRST = 8;
+
 function ProjectsPart({ person }: { person: Person }) {
   const { t } = useTranslation();
+  // Con molti progetti il resto della pagina non deve finire in fondo [R8].
+  const [allProjects, setAllProjects] = useState(false);
+  const shownProjects = allProjects ? person.projects : person.projects.slice(0, PROJECTS_FIRST);
   const words = usePermissionWords();
   const source = useSourceWords();
   const navigate = useNavigate();
@@ -400,14 +406,23 @@ function ProjectsPart({ person }: { person: Person }) {
       </MenuButton>
     ) : undefined;
   return (
-    <Part title={t("admin.person.projects.title")} action={action}>
+    <Part
+      title={
+        person.projects.length > 0
+          ? t("admin.person.projects.titleCount", { count: person.projects.length })
+          : t("admin.person.projects.title")
+      }
+      action={action}
+    >
       {person.projects.length === 0 ? (
         <p className="text-md text-ink-muted">{t("admin.person.projects.empty")}</p>
       ) : (
+        <>
         <ul>
-          {person.projects.map((p) => (
-            <li key={p.projectId} className="flex items-start gap-3 border-b border-rule py-2.5 last:border-b-0">
-              <span className="num w-10 shrink-0 pt-0.5 text-xs font-semibold tracking-[0.02em] text-ink">
+          {shownProjects.map((p) => (
+            // Codice e nome sulla stessa linea di base, come in Members e nel registro [R6].
+            <li key={p.projectId} className="flex items-baseline gap-3 border-b border-rule py-2.5 last:border-b-0">
+              <span className="num w-10 shrink-0 text-xs font-semibold tracking-[0.02em] text-ink">
                 {p.code}
               </span>
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -447,6 +462,19 @@ function ProjectsPart({ person }: { person: Person }) {
             </li>
           ))}
         </ul>
+        {person.projects.length > PROJECTS_FIRST && (
+          <button
+            type="button"
+            className={`${rowButton} mt-2 -ml-2`}
+            aria-expanded={allProjects}
+            onClick={() => setAllProjects((v) => !v)}
+          >
+            {allProjects
+              ? t("prefs.security.log.showFewer")
+              : t("admin.person.projects.showAll", { count: person.projects.length })}
+          </button>
+        )}
+        </>
       )}
       {person.alsoInHiddenProjects && (
         <p className="mt-2 text-xs text-ink-muted">{t("admin.person.projects.hidden")}</p>

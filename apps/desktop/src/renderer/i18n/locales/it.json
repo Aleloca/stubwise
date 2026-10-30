@@ -515,7 +515,7 @@
       "past": "Scegli una data nel futuro.",
       "createFailed": "Non è stato possibile creare il token. Riprova.",
       "created": "Token «{{name}}»",
-      "use": "Usalo come STUBWISE_TOKEN. Per configurare Claude Code con un solo comando, usa <link>Claude Code</link>.",
+      "use": "Usalo come <code>STUBWISE_TOKEN</code>. Per configurare Claude Code con un solo comando, usa <link>Claude Code</link>.",
       "cols": {
         "name": "Nome",
         "created": "Creato",
@@ -8012,9 +8012,9 @@
       "modes": "Domanda",
       "modeWho": "Chi può…",
       "modeWhat": "Cosa può fare…",
-      "whoSentence": "Chi può <action/> in <project/>?",
+      "whoSentence": "Chi può <action/> <nowrap>in <project/></nowrap>?",
       "whoSentenceInstance": "Chi può <action/>?",
-      "whatSentence": "Cosa può fare <person/> in <project/>?",
+      "whatSentence": "Cosa può fare <person/> <nowrap>in <project/></nowrap>?",
       "chooseAction": "scegli un'azione",
       "chooseProject": "Scegli un progetto",
       "choosePerson": "scegli una persona",
@@ -8042,7 +8042,7 @@
       "can": "Può",
       "never": "Mai",
       "notMember": "{{name}} non è membro di {{code}}.",
-      "notMemberButAdmin": "{{name}} non è membro di {{code}}, ma da full admin lì può fare tutto.",
+      "notMemberButAdmin": "{{name}} non è membro di {{code}}, ma da amministratore completo lì può fare tutto.",
       "alsoCant": "Mostra anche cosa non può fare {{name}}",
       "nothingHeld": "{{name}} qui non può fare niente.",
       "error": "Non è stato possibile capire chi può farlo. Riprova.",
@@ -8054,7 +8054,7 @@
       "grant": "dato da {{name}} il {{date}}",
       "grantByHand": "dato a mano il {{date}}",
       "department": "reparto {{department}}",
-      "fullAdmin": "full admin"
+      "fullAdmin": "Amministratore completo"
     },
     "link": {
       "who": "Chi?",
@@ -8173,7 +8173,7 @@
       "submit": "Crea l'account amministratore",
       "emailInvalid": "Inserisci un indirizzo email valido.",
       "failed": "Non è stato possibile creare l'account. Riprova.",
-      "done": "Sei il full admin dell'istanza."
+      "done": "Sei l'amministratore completo dell'istanza."
     },
     "menu": {
       "signOut": "Esci",
@@ -8321,6 +8321,8 @@
       },
       "projects": {
         "title": "Progetti",
+        "titleCount": "Progetti {{count}}",
+        "showAll": "Mostra tutti e {{count}}",
         "empty": "In nessun progetto che puoi vedere.",
         "hidden": "È anche in progetti che non puoi vedere.",
         "extra": "+ {{permission}} — {{source}}",
@@ -9012,7 +9014,7 @@
         "accepted": "<actor>{{actor}}</actor> ha accettato l'invito per <object>{{object}}</object> ed è entrato nell'istanza."
       },
       "instance": {
-        "first_admin_created": "<actor>{{actor}}</actor> ha creato l'istanza come primo full admin."
+        "first_admin_created": "<actor>{{actor}}</actor> ha creato l'istanza come primo amministratore completo."
       },
       "role": {
         "created": "<actor>{{actor}}</actor> ha creato il ruolo <object>{{object}}</object>.",

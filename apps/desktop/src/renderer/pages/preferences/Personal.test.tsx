@@ -194,6 +194,8 @@ describe("Security", () => {
     );
     // Senza l'app non ci sono passkey né codici.
     expect(screen.queryByRole("heading", { name: "Passkeys" })).toBeNull();
+    // Un bottone solo per la stessa azione [R2].
+    expect(screen.queryAllByRole("button", { name: /^Set up/ })).toHaveLength(1);
     await user.click(screen.getByRole("button", { name: "Set up now" }));
     expect(
       await screen.findByRole("img", { name: "QR code for your authenticator app" }),

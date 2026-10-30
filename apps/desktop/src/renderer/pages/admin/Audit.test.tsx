@@ -263,7 +263,7 @@ describe("Who can?", () => {
     const laura = rows.find((r) => r.dataset.whoRow === LAURA)!;
     expect(laura).toHaveTextContent("Project Lead role");
     const roberta = rows.find((r) => r.dataset.whoRow === ROBERTA)!;
-    expect(roberta).toHaveTextContent("full admin");
+    expect(roberta).toHaveTextContent("Full admin");
     // L'ordine: da un ruolo prima, full admin in fondo.
     expect(rows.at(-1)!.dataset.whoRow).toBe(ROBERTA);
     const claude = document.querySelector("[data-claude-row]")!;
