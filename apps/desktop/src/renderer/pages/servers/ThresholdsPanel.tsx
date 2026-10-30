@@ -84,7 +84,8 @@ export function ThresholdsPanel({
             ))}
           </ul>
           <p className="text-xs text-ink-muted">
-            {t("servers.thresholds.readOnly")} <WhoCanLink action="manageMonitor" projectId={null} />
+            {t("servers.thresholds.readOnly")}{" "}
+            <WhoCanLink action="manageMonitor" projectId={null} />
           </p>
         </div>
       )}

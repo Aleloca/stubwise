@@ -44,7 +44,22 @@ export interface Band {
   from: number;
   to: number;
   label?: string;
+  /**
+   * Il grafico a cui appartiene l'etichetta quando la fascia è stretta
+   * (`NARROW_BAND`): fuori dall'area dei dati la si dice una volta sola, sul
+   * grafico della metrica dell'episodio (Impeccable 3). Assente: ogni grafico.
+   */
+  labelOn?: string;
 }
+
+/**
+ * Sotto questa frazione della larghezza una fascia è troppo stretta per la
+ * sua etichetta (a 7d, 30d e 90d un episodio di qualche ora): l'etichetta va
+ * sotto la riga del riassunto, fuori dalla serie, invece di coprirla. A 1h e
+ * 24h un episodio è largo abbastanza e l'etichetta resta dentro, dalla parte
+ * con più spazio (`bandLabelSide`).
+ */
+export const NARROW_BAND = 0.05;
 
 interface Series {
   values: (number | null)[];
@@ -145,6 +160,10 @@ export function Chart({
   // L'etichetta della soglia sta in alto a destra quando la soglia è alta: un
   // episodio che arriva al bordo destro (ancora aperto; a 30d e 90d è una
   // fascia sottile lì) mette la sua etichetta sotto, invece di sovrapporsi.
+  const narrow = (b: Band) => frac(b.to) - frac(b.from) < NARROW_BAND;
+  const outside = bands.filter(
+    (b) => b.label && narrow(b) && (b.labelOn === undefined || b.labelOn === dataKey),
+  );
   const labelSide = (b: Band): "top" | "bottom" => {
     const side = bandLabelSide(b, times, series, max);
     const thresholdTop = !!threshold && threshold.value / max > 0.8;
@@ -219,6 +238,17 @@ export function Chart({
           {summary}
         </p>
       )}
+      {outside.map((b, i) => (
+        <p
+          key={i}
+          data-band-label
+          data-side="outside"
+          className="num flex items-center gap-1.5 text-xs text-ink-muted"
+        >
+          <span aria-hidden="true" className="h-2.5 w-1.5 shrink-0 rounded-[1px] bg-ink/15" />
+          {b.label}
+        </p>
+      ))}
       <div className="flex gap-2">
         <div
           className="num flex w-10 shrink-0 flex-col justify-between py-0 text-right text-xs text-ink-faint"
@@ -293,7 +323,7 @@ export function Chart({
                 lascia più spazio (`bandLabelSide`): sopra una CPU bassa, sotto un
                 disco al 92%. Verso l'interno del grafico vicino al bordo destro. */}
             {bands.map((b, i) =>
-              b.label ? (
+              b.label && !narrow(b) ? (
                 <span
                   key={i}
                   data-band-label

@@ -358,7 +358,8 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
         <div className="flex flex-col gap-0.5">
           <p className="text-md text-ink">{t("servers.ssh.notLinked.title")}</p>
           <p className="text-xs text-ink-muted">
-            {t("servers.ssh.notLinked.hint")} <WhoCanLink action="manageSshAccess" projectId={null} />
+            {t("servers.ssh.notLinked.hint")}{" "}
+            <WhoCanLink action="manageSshAccess" projectId={null} />
           </p>
         </div>
       ) : (

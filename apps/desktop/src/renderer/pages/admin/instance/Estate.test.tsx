@@ -242,14 +242,23 @@ describe("I grafici a 30 e 90 giorni", () => {
     expect(await screen.findByText("Each point averages about 7 hours.")).toBeVisible();
   });
 
-  it("a 30d l'episodio sul bordo destro non copre l'etichetta della soglia alta: scende sotto", async () => {
+  it("Impeccable 3: a 30d la fascia stretta dell'episodio ha l'etichetta fuori dai dati, solo sul grafico della sua metrica", async () => {
     renderRoute("/admin/servers/SRV-2?range=30d", ROBERTA);
     await heading(/db-stw-01/);
-    const cpu = await screen.findByRole("group", { name: /^CPU/ });
-    await waitFor(() => expect(cpu.querySelector("[data-band-label]")).not.toBeNull());
-    // La soglia della CPU di SRV-2 è alta (etichetta in alto a destra).
-    expect(state.servers.find((s) => s.code === "SRV-2")!.thresholds.cpuPct).toBeGreaterThan(80);
-    expect(cpu.querySelector("[data-band-label]")).toHaveAttribute("data-side", "bottom");
+    const disk = await screen.findByRole("group", { name: /^Disk/ });
+    await waitFor(() => expect(disk.querySelector("[data-band-label]")).not.toBeNull());
+    // Fuori dall'area dei dati: sotto la riga del riassunto, non sopra la serie.
+    const label = disk.querySelector<HTMLElement>("[data-band-label]")!;
+    expect(label).toHaveAttribute("data-side", "outside");
+    expect(label).toHaveTextContent(/^Disk · /);
+    expect(label.parentElement!.tagName).toBe("FIGURE");
+    // La fascia resta su tutti i grafici; l'etichetta no.
+    const cpu = screen.getByRole("group", { name: /^CPU/ });
+    expect(cpu.querySelector("[data-band]")).not.toBeNull();
+    expect(cpu.querySelector("[data-band-label]")).toBeNull();
+    expect(
+      screen.getByRole("group", { name: /^Load/ }).querySelector("[data-band-label]"),
+    ).toBeNull();
   });
 
   it("in italiano la frase si traduce", async () => {

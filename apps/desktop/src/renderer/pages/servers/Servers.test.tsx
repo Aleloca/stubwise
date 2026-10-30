@@ -75,7 +75,9 @@ describe("Servers — l'elenco", () => {
     await openSection("p-roberta", "STW");
     const attention = await screen.findByRole("list", { name: "Needs attention" });
     expect(
-      within(attention).getByRole("link", { name: /^SRV-2 db-stw-01, In trouble · since 09:40\. / }),
+      within(attention).getByRole("link", {
+        name: /^SRV-2 db-stw-01, In trouble · since 09:40\. /,
+      }),
     ).toBeInTheDocument();
     // Il nome della riga dice anche la seconda riga: accesso, ambienti (T7 m1).
     expect(within(attention).getByRole("link", { name: /^SRV-2 / })).toHaveAccessibleName(

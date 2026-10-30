@@ -215,11 +215,14 @@ describe("grafici", () => {
     expect(label()).toHaveAttribute("aria-live", "polite");
   });
 
-  it("l'etichetta dell'episodio non copre la linea: sopra la CPU bassa di SRV-1, sotto il disco al 92% di SRV-2", async () => {
+  it("l'etichetta dell'episodio non copre la linea: fuori dai dati sulla fascia stretta di SRV-1 a 7d, sotto il disco al 92% di SRV-2", async () => {
     await open("/p/ACQ/servers/SRV-1?range=7d", "p-marco");
-    const cpu = await within(part("Charts")).findByRole("group", { name: /^CPU/ });
-    await waitFor(() => expect(cpu.querySelector("[data-band-label]")).not.toBeNull());
-    expect(cpu.querySelector("[data-band-label]")).toHaveAttribute("data-side", "top");
+    // Due ore su sette giorni: l'etichetta sta sotto il riassunto, solo sul grafico Memory.
+    const memory = await within(part("Charts")).findByRole("group", { name: /^Memory/ });
+    await waitFor(() => expect(memory.querySelector("[data-band-label]")).not.toBeNull());
+    expect(memory.querySelector("[data-band-label]")).toHaveAttribute("data-side", "outside");
+    const cpu = within(part("Charts")).getByRole("group", { name: /^CPU/ });
+    expect(cpu.querySelector("[data-band-label]")).toBeNull();
     document.body.innerHTML = "";
     await open("/p/STW/servers/SRV-2", "p-roberta");
     const disk = await within(part("Charts")).findByRole("group", { name: /^Disk/ });

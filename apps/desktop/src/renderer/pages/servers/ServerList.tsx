@@ -3,13 +3,7 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { InstanceServerRow, ServerRow } from "../../data/servers";
 import { WorkingRing } from "../claude/conversation/parts";
-import {
-  accessProblem,
-  diagnosesLine,
-  healthParts,
-  healthSentence,
-  whereLine,
-} from "./format";
+import { accessProblem, diagnosesLine, healthParts, healthSentence, whereLine } from "./format";
 import { HealthGlyph, Sparkline } from "./glyphs";
 
 // L'elenco dei server di un progetto (shape servers.md §3): gruppi per

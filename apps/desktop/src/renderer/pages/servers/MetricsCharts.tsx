@@ -59,6 +59,9 @@ function downBands(samples: CheckSample[]): Band[] {
 
 const pct = (v: number) => `${Math.round(v)}%`;
 
+/** Il grafico che porta l'etichetta di una fascia stretta, per motivo dell'episodio. */
+const BAND_CHART: Partial<Record<string, string>> = { cpu: "cpu", memory: "memory", disk: "disk" };
+
 /** Il passo tondo più vicino sopra `v` (1–2–5 × 10ⁿ): 610 → 1000, 180 → 200. */
 export function niceCeil(v: number): number {
   if (!(v > 0)) return 1;
@@ -101,6 +104,9 @@ export function MetricsCharts({
     .map(({ e, start, end }) => ({
       from: Math.max(start, from),
       to: Math.min(end, to),
+      // Fascia stretta: l'etichetta sul grafico della metrica dell'episodio
+      // (un agente muto o un controllo, senza grafico suo: sulla CPU).
+      labelOn: BAND_CHART[e.reasons[0]?.kind ?? "agent_silent"] ?? "cpu",
       label: t("servers.charts.episode", {
         reason: t(`servers.reasonShort.${e.reasons[0]?.kind ?? "agent_silent"}`),
         from: at(start),
@@ -178,7 +184,11 @@ export function MetricsCharts({
       const s = stats(values, times);
       if (!s) return t("servers.charts.noData");
       return byDay
-        ? t("servers.charts.summaryDay", { avg: format(s.avg), peak: format(s.peak), day: day(s.at) })
+        ? t("servers.charts.summaryDay", {
+            avg: format(s.avg),
+            peak: format(s.peak),
+            day: day(s.at),
+          })
         : t("servers.charts.summary", { avg: format(s.avg), peak: format(s.peak), time: at(s.at) });
     };
     const pctChart = (
@@ -225,9 +235,7 @@ export function MetricsCharts({
       latency,
       samples.map((s) => Date.parse(s.ts)),
     );
-    const latMax = niceCeil(
-      Math.max(50, ...latency.filter((v): v is number => v !== null)) * 1.15,
-    );
+    const latMax = niceCeil(Math.max(50, ...latency.filter((v): v is number => v !== null)) * 1.15);
     const ms = (v: number) => t("servers.checks.latency", { n: Math.round(v) });
 
     const averaged = metrics.data.averagedSeconds;
