@@ -917,9 +917,10 @@ riscrivere prima del motore sono §9 (coda e Stato dell'istanza) e §10
 (lavoro fermo per budget), sotto «Invarianti del CLAUDE.md da riscrivere
 prima del motore». Qui: le decisioni del maintainer, le scelte del
 controller da far confermare (ognuna col suo costo se sbagliata), le
-eccezioni dichiarate e i minori rimandati dalle revisioni dei Task 1–13.
-I minori **non** sono corretti qui: passano dalla revisione finale
-dell'area.
+eccezioni dichiarate e i minori rimasti aperti dopo l'ondata finale di
+correzioni (30 ott 2026): la revisione finale li ha smistati, quelli da
+correggere prima del push sono chiusi e tolti da qui, e ognuno di quelli
+che restano dice perché resta.
 
 ### Decisioni del maintainer (30 ott 2026)
 
@@ -1052,11 +1053,15 @@ un test in più.
   test dell'istanza vuota li scusa per nome (`examples`). Trovato al Task
   14.
 
-### Minori rimandati alla revisione finale, per task
+### Minori rimasti aperti, per task
+
+La revisione finale (30 ott 2026) li ha smistati uno per uno e li segna
+tutti come rinviabili: nessuno dice il falso all'utente in un percorso
+normale né tocca un Review Focus (segreti, R-G5, «(deactivated)», «Stubwise
+non fa deploy»). Dove il triage ha dato un motivo più preciso, è scritto
+sulla voce.
 
 Task 1 (stato d'istanza, voci, segreti):
-- `secrets.ts`: `last4` restituisce l'intero valore se è lungo 4 o meno;
-  oggi lo impediscono solo le validazioni dei chiamanti.
 - `changelog/reads.ts`: `INSTANCE_OBJECTS` indicizzato con un `type`
   qualunque («constructor» risolve al prototipo); innocuo per caso.
 - `ChangeEntry.tsx`: l'ultimo ramo dei link dà per scontato `server`, senza
@@ -1102,8 +1107,6 @@ Task 3 (AI, livello dati):
   presente, né il bordo 79/80 %.
 
 Task 4 (integrazioni, livello dati):
-- Uno slug o un nome già presi da un altro rispondono `conflict`, la cui
-  frase («Someone just registered this address.») sarebbe falsa.
 - `cleanSubdir` rifiuta solo `..`, non `.` né il backslash come il server.
 - Alla prima configurazione dell'archiviazione si scrive
   `storage.secret_replaced` senza niente da sostituire.
@@ -1123,29 +1126,30 @@ Task 5 (coda e Stato, livello dati):
   cambiato rispetto al brief, motivato dalla chiave API senza quota.
 
 Task 6 (effetti nelle altre aree):
-- `fixRelease` col budget esaurito crea la task senza Claude, e l'esito non
-  dice perché.
 - Incollare un file nel composer della Chat coi caricamenti spenti lo
   ignora in silenzio; lo shape vuole la frase per 4 s.
 - Drive, con la lettura dei caricamenti fallita, dice «Uploads are off»
-  (falso); durante il caricamento «Upload» resta acceso.
+  (falso); durante il caricamento «Upload» resta acceso. *Rinviato*: è
+  contro shape EF §5, ma solo sul percorso d'errore.
 - `useInstanceChanges` si iscrive una volta per ogni `useAiBlock`: in Tutti
   i progetti N ascoltatori e N invalidazioni.
 - Elenco delle automazioni: la frase usa l'etichetta del tipo, non il
   numero e il nome del passo.
 - `sinceText` (`components/InstanceBlock.tsx`) usa la costante `NOW` delle
-  notifiche invece di `now()`.
+  notifiche invece di `now()`: resta con l'orologio «11 h fa» (sotto, «Visti
+  negli scatti finali»), una correzione di sistema sola.
 - «Chiedi a Claude» col messaggio rifiutato lo tiene come «non consegnato»
-  con Resend; lo shape vuole il testo di nuovo nel composer.
+  con Resend; lo shape vuole il testo di nuovo nel composer. *Rinviato*:
+  è una deviazione dallo shape da far confermare al maintainer, non da
+  correggere d'ufficio.
 - `aiStartBlock`, `runIdentity`, `startOrHold` escono anche da `api.*`.
 - `stopWaiting` su una correzione del server in attesa salta
   `stopServerFixAs`: resta una nota in memoria.
-- Home, «Claude's work for me»: `ORDER` non ha `"waiting"`, e le task in
-  attesa spariscono dal blocco.
 - L'annuncio «Claude started on …» scatta anche se la sessione in attesa
   viene fermata da un'altra finestra.
 - Una correzione di server ferma in fila lascia la task `working`; se la
-  ripartenza fallisce, la task resta `waiting` per sempre.
+  ripartenza fallisce, la task resta `waiting` per sempre. *Rinviato*:
+  percorso raro.
 - Chiave i18n `taskDetail.claude.story.run_startedVia` non usata.
 
 Task 7 (server e repository, livello dati):
@@ -1165,7 +1169,6 @@ Task 7 (server e repository, livello dati):
 Task 8 (AI, pagine):
 - La barra delle schede scorre senza l'ombra di bordo; la sottolineatura non
   si ricalcola al cambio di lingua.
-- «Simulate budget reached»: barra al 100 % e frase «68% of $600».
 - `NextTestBox` tiene l'esito in uno stato locale: cambiare account scrive
   una simulazione, e il segmento torna a «Works» dopo una prova.
 - `SimulateBox` non gestisce un rifiuto: l'interruttore resta ottimistico.
@@ -1186,7 +1189,6 @@ Task 8 (AI, pagine):
   `onSave` che risponde `""`.
 
 Task 9 (Usage):
-- Le tacche dell'asse y non seguono la lingua (`usd` invece di `f.money`).
 - Il codice del progetto non è in cifre tabellari separate dal nome.
 - La nota `aria-live` si aggiorna anche al passaggio del mouse.
 - Esc chiama `preventDefault()` anche senza una nota aperta.
@@ -1198,7 +1200,6 @@ Task 9 (Usage):
 Task 10 (Git accounts e Plugin, pagine):
 - Il riquadro «Prototype only» di Git tiene l'esito in uno stato locale
   (lo stesso difetto di `NextTestBox`).
-- A 1024 la riga meta di un plugin va a capo con un «·» orfano.
 - Il titolo «Inventory» è `text-lg`; lo shape vuole `text-xl`.
 - Frasi composte concatenando chiavi i18n (`RegisterPluginDialog`,
   `GitAccountDialog`).
@@ -1206,11 +1207,11 @@ Task 10 (Git accounts e Plugin, pagine):
 - `useReadyAnnouncement` gira a ogni render (array ricreato); innocuo.
 
 Task 11 (Google, Storage, Webhooks):
-- Il campo Address del webhook è `mono`: più piccolo dei campi accanto, e
-  un URL non è fra i casi del monospace.
 - Il test «il fuoco su un evento cambia l'anteprima» clicca l'interruttore:
   il fuoco da solo non è provato.
 - Un errore di `previewWebhook` lascia lo scheletro per sempre.
+  *Rinviato*: `previewWebhook` è sincrono su un id dell'elenco, oggi non ci
+  si arriva.
 - «Copy» di `GoogleAppDialog` dice «Copied» anche se la copia fallisce, e
   il timer non si annulla.
 - `Disclosure`: `aria-controls` punta a un elemento assente a sezione
@@ -1239,8 +1240,6 @@ Task 12 (Servers e Repositories):
   `/admin/servers/SRV-n`.
 
 Task 13 (Stato dell'istanza):
-- Due copie di `waitingText`; la riga del lavoro in attesa non dice
-  «(deactivated)».
 - Il dialogo di Pausa può dire «Queue paused by » finché le persone non
   arrivano.
 - `ageWords` passa a «yesterday» dopo la mezzanotte UTC anche dopo un'ora.
@@ -1250,16 +1249,44 @@ Task 13 (Stato dell'istanza):
 - I test non seguono il link del toast di Retry, e non c'è un test per
   «Show 50 more».
 - Stato d'errore: «Ricarica» sta più in basso della riga di testo.
-- Sola lettura ripetitiva: con il solo `instance.status.view` ogni riga
-  ripete frase e «Who?»; da proporre al maintainer una sola riga in testa.
 - Il test del fuoco dopo Retry non è mai stato visto rosso da solo; i casi
   «nightly» e «accounts» dell'istanza vuota non sono stati provati con una
   mutazione.
 
-Visti negli scatti finali (Task 14), per la revisione visiva:
-- Providers a 1024: la riga meta di «Backup Max» va a capo con un «·»
-  orfano in coda (come la riga meta dei plugin del Task 10).
+Visti negli scatti finali (Task 14):
 - La task di STW «In attesa: coda in pausa» dice «11 h fa» accanto a una
-  sessione appena avviata: l'orologio del seme e quello vero divergono
-  durante la cattura (già notato fuori ambito nella ri-revisione del Task
-  6).
+  sessione appena avviata. **Causa** (revisione finale, M1): non la
+  cattura, ma due «adesso» nel prototipo. `relativeTime`
+  (`notifications/time.ts`) e `sinceText` (`components/InstanceBlock.tsx`)
+  misurano contro la costante `NOW` = `TODAY T23:00Z`, mentre il livello
+  dati scrive i tempi con `now()` = `TODAY T12:00Z` (`data/store.ts`): la
+  differenza è sempre di 11 h, deterministica. C'era già prima del 9b per
+  ogni sessione avviata nell'app; il 9b ha aggiunto un secondo lettore di
+  `NOW`. *Resta aperto perché* è di sistema: serve un solo «adesso»
+  (`relativeTime` e `sinceText` con un riferimento dal dato, come
+  `refreshedAt` dello Stato, oppure `NOW` allineata a `now()`), e tocca
+  ogni pagina che dice un'età — fuori dal perimetro di un giro di
+  correzioni del 9b.
+
+Lasciati aperti dall'ondata finale (revisione finale e Impeccable), col
+perché:
+- Due formattatori d'età con due riferimenti: `ageWords` dello Stato su
+  `refreshedAt`, `relativeTime` su `NOW` (M5). *Perché*: si chiude con
+  l'orologio unico qui sopra.
+- La riga dei consumi di rete a 30d e 90d dice ancora «peak» sul massimo
+  delle medie; CPU, memoria, disco e carico dicono «highest N-hour
+  average» (Impeccable 4). *Perché*: la rete non ha un episodio che la
+  smentisca, e la frase a due valori (in/out) va riscritta a parte.
+- Il picco dei grafici a 30d/90d è il massimo delle medie, non dei
+  campioni grezzi: l'ondata ha scelto la frase onesta, non il calcolo sui
+  grezzi (l'altra strada di Impeccable 4). *Perché*: il livello dati
+  dovrebbe portare un picco grezzo per metrica; da decidere col motore.
+- Le righe meta di Git accounts e Google usano ancora `Dot` in un
+  `flex-wrap`, non `MetaLine`: i loro pezzi (i codici dei progetti, il
+  client ID) possono essere lunghi, e `MetaLine` non spezza un pezzo. Negli
+  scatti a 1024 non va a capo nessuna. *Perché*: serve un pezzo che possa
+  andare a capo dentro di sé, non solo il primo.
+- Un'analisi di server non partita per il budget non riparte quando il
+  budget torna (`analysisBlocked`): il riquadro lo dice finché l'episodio
+  è aperto. *Perché*: è il comportamento dello shape EF (l'analisi non è
+  un passo d'automazione), da confermare col motore.
