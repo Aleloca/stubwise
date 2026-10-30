@@ -102,6 +102,8 @@ describe("i totali per intervallo", () => {
       "2026-10-23",
     ]);
     expect(v.byDay.map((d) => d.costUsd)).toEqual([0.125, 0, 0, 2.25, 0, 0, 1.5]);
+    // Le corse del giorno: il passaggio sulla colonna e la tabella le dicono (Task 9).
+    expect(v.byDay.map((d) => d.runs)).toEqual([1, 0, 0, 1, 0, 0, 1]);
   });
 });
 
@@ -113,6 +115,14 @@ describe("le righe", () => {
       ["claude-opus-4-5", "Opus 4.5", 2.25],
       ["claude-haiku-4-5", "Haiku 4.5", 0.5],
     ]);
+  });
+
+  it("per progetto la riga porta il codice; senza progetto no (Task 9)", async () => {
+    const v = await instance.getUsage({ range: { days: 90 }, groupBy: "project" });
+    expect(v.rows.find((r) => r.key === "prj-stw")!.code).toBe("STW");
+    expect(v.rows.find((r) => r.key === null)!.code).toBeUndefined();
+    const byModel = await instance.getUsage({ range: { days: 90 }, groupBy: "model" });
+    expect(byModel.rows.every((r) => r.code === undefined)).toBe(true);
   });
 
   it("per provider usa il nome del provider", async () => {
@@ -162,6 +172,7 @@ describe("R-G5: i progetti che chi guarda non vede", () => {
     expect(keys).not.toContain("prj-mkx");
     const other = v.rows.find((r) => r.key === "other")!;
     expect(other.label).toBe("Other projects");
+    expect(other.code).toBeUndefined();
     expect(other.costUsd).toBe(6.5);
     expect(v.rows.find((r) => r.key === "prj-stw")!.costUsd).toBe(10);
     // Il costo senza progetto resta una riga a sé, con chiave nulla.

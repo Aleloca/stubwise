@@ -8,6 +8,7 @@ import { AutomationPanel } from "./AutomationPanel";
 import { BudgetPanel } from "./BudgetPanel";
 import { ModelsPanel } from "./ModelsPanel";
 import { ProvidersPanel } from "./ProvidersPanel";
+import { UsagePanel } from "./UsagePanel";
 
 // La voce AI dell'Amministrazione (area 9b, Task 8, shape admin-ai.md): h1,
 // riga in prosa e cinque schede, ognuna una domanda. Quali schede si vedono
@@ -58,12 +59,7 @@ export function AiPage() {
           {current === "models" && <ModelsPanel canWrite={writesSettings} />}
           {current === "automation" && <AutomationPanel canWrite={writesSettings} />}
           {current === "budget" && <BudgetPanel canWrite={writesSettings} />}
-          {current === "usage" && (
-            // Il contenuto di Usage arriva col Task 9 (ruling 23).
-            <p className="max-w-[62ch] text-md text-pretty text-ink-muted">
-              {t("admin.ai.usageIntro")}
-            </p>
-          )}
+          {current === "usage" && <UsagePanel />}
         </div>
       </div>
     </section>

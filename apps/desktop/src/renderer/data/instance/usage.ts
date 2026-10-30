@@ -22,6 +22,8 @@ export interface UsageRow {
   key: string | null;
   /** Un nome (modello, provider, progetto) o la chiave stessa (giorno, operazione: le parole sono della UI). */
   label: string;
+  /** Il codice di un progetto visibile («STW»); mai per «Other projects» né per le altre dimensioni. */
+  code?: string;
   costUsd: number;
   /** Token in ingresso e in uscita; la cache letta ha il suo conteggio nei totali. */
   tokens: number;
@@ -36,8 +38,8 @@ export interface UsageView {
     cacheReadTokens: number;
     runs: number;
   };
-  /** Un punto per ogni giorno dell'intervallo, anche a zero. */
-  byDay: { day: string; costUsd: number }[];
+  /** Un punto per ogni giorno dell'intervallo, anche a zero, con le sue corse. */
+  byDay: { day: string; costUsd: number; runs: number }[];
   rows: (UsageRow & { children: UsageRow[] })[];
 }
 
@@ -71,6 +73,7 @@ function modelLabel(model: string): string {
 interface Key {
   key: string | null;
   label: string;
+  code?: string;
 }
 
 /** La chiave di una voce su una dimensione, per chi guarda (`visible` = i suoi progetti). */
@@ -90,8 +93,8 @@ function keyOf(r: UsageRecord, dim: UsageDimension, visible: Set<string>): Key {
       if (r.projectId === null) return { key: null, label: "No project" };
       if (!visible.has(r.projectId))
         return { key: OTHER_PROJECTS_KEY, label: OTHER_PROJECTS_LABEL };
-      const name = state.projects.find((p) => p.id === r.projectId)?.name ?? r.projectId;
-      return { key: r.projectId, label: name };
+      const project = state.projects.find((p) => p.id === r.projectId);
+      return { key: r.projectId, label: project?.name ?? r.projectId, code: project?.code };
     }
   }
 }
@@ -99,8 +102,9 @@ function keyOf(r: UsageRecord, dim: UsageDimension, visible: Set<string>): Key {
 function rowsOf(records: UsageRecord[], dim: UsageDimension, visible: Set<string>): UsageRow[] {
   const groups = new Map<string | null, UsageRow>();
   for (const r of records) {
-    const { key, label } = keyOf(r, dim, visible);
-    const row = groups.get(key) ?? { key, label, costUsd: 0, tokens: 0, runs: 0 };
+    const { key, label, code } = keyOf(r, dim, visible);
+    const row =
+      groups.get(key) ?? { key, label, ...(code ? { code } : {}), costUsd: 0, tokens: 0, runs: 0 };
     row.costUsd += r.costUsd;
     row.tokens += r.inputTokens + r.outputTokens;
     row.runs += 1;
@@ -131,20 +135,25 @@ export async function getUsage(input: {
   const inRange = state.instance.usage.filter((r) => dayOf(r.at) >= from && dayOf(r.at) <= to);
 
   const totals = { costUsd: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, runs: 0 };
-  const perDay = new Map<string, number>();
+  const perDay = new Map<string, { costUsd: number; runs: number }>();
   for (const r of inRange) {
     totals.costUsd += r.costUsd;
     totals.inputTokens += r.inputTokens;
     totals.outputTokens += r.outputTokens;
     totals.cacheReadTokens += r.cacheReadTokens;
     totals.runs += 1;
-    perDay.set(dayOf(r.at), (perDay.get(dayOf(r.at)) ?? 0) + r.costUsd);
+    const day = perDay.get(dayOf(r.at)) ?? { costUsd: 0, runs: 0 };
+    perDay.set(dayOf(r.at), { costUsd: day.costUsd + r.costUsd, runs: day.runs + 1 });
   }
   totals.costUsd = round6(totals.costUsd);
 
   const byDay: UsageView["byDay"] = [];
   for (let day = from, i = 0; day <= to && i < MAX_SPAN_DAYS; day = addDays(day, 1), i++)
-    byDay.push({ day, costUsd: round6(perDay.get(day) ?? 0) });
+    byDay.push({
+      day,
+      costUsd: round6(perDay.get(day)?.costUsd ?? 0),
+      runs: perDay.get(day)?.runs ?? 0,
+    });
 
   const thenBy = input.thenBy && input.thenBy !== input.groupBy ? input.thenBy : null;
   const rows = rowsOf(inRange, input.groupBy, visible).map((row) => {

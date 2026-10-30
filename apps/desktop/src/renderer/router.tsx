@@ -168,13 +168,19 @@ export interface AppSearch {
   problems?: string;
   /** Automations: il passo selezionato nel costruttore (percorso R-J5 o `trigger`). */
   step?: string;
-  /** Automations: si arriva al costruttore dall'elenco (`list`). */
+  /** Automations: si arriva al costruttore dall'elenco (`list`); AI → Usage: l'inizio dell'intervallo libero (`AAAA-MM-GG`). */
   from?: string;
+  /** AI → Usage (area 9b): la fine dell'intervallo libero e la seconda dimensione della tabella. */
+  to?: string;
+  then?: string;
   /** Releases: il pannello di una PR aperta (l'id). */
   pr?: string;
   /** Support → Widget: il pannello di un widget (l'id, o `new`). */
   widget?: string;
-  /** Il dettaglio di un server: intervallo dei grafici, controllo selezionato, parte in vista. */
+  /**
+   * Il dettaglio di un server: intervallo dei grafici (`1h|24h|7d|30d|90d`), controllo
+   * selezionato, parte in vista. AI → Usage: il periodo (`7d|30d|90d|month|custom`).
+   */
   range?: string;
   check?: string;
   section?: string;
@@ -227,6 +233,8 @@ const SEARCH_KEYS = [
   "pr",
   "widget",
   "range",
+  "to",
+  "then",
   "check",
   "section",
   "department",
@@ -260,6 +268,8 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
         : (AUDIT_SEARCH_KEYS as readonly string[]).includes(key) ||
             (key === "project" && value === INSTANCE_ONLY)
         ? isAuditSearchValue(key, value) || key === "project"
+        : (key === "from" || key === "to") && /^\d{4}-\d{2}-\d{2}$/.test(value)
+        ? true
         : (AUTOMATION_SEARCH_KEYS as readonly string[]).includes(key)
         ? isAutomationSearchValue(key, value)
         : (SEARCH_PARAM_KEYS as readonly string[]).includes(key)
@@ -285,8 +295,8 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
       key === "check"
         ? /^[\w-]+$/.test(value)
         : key === "range"
-          ? /^(1h|24h|7d)$/.test(value)
-          : key === "section" || key === "tab"
+          ? /^(1h|24h|7d|30d|90d|month|custom)$/.test(value)
+          : key === "section" || key === "tab" || key === "then"
             ? /^[a-z]+$/.test(value)
         : key === "date"
           ? /^\d{4}-\d{2}-\d{2}$/.test(value)

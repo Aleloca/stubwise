@@ -256,6 +256,7 @@ async function main() {
           try {
             if (what === "budget") await api.instance.simulateBudgetReached(true);
             if (what === "readOnly") viewer.grantInstancePermission("p-marco", "settings.manage");
+            if (what === "usageView") viewer.grantInstancePermission("p-sara", "usage.view");
           } finally {
             session.setSessionPersonId(prev);
           }
@@ -275,15 +276,41 @@ async function main() {
         await page.getByLabel(/^Token$/).fill("sk-ant-oat01-prototype-7f3a");
         await page.waitForTimeout(300);
       };
+      // Usage (Task 9): il passaggio su una colonna, i figli aperti, la tabella dei giorni.
+      const usageHover = async (page) => {
+        const col = page.locator("[data-day]").nth(-3);
+        await col.hover();
+        await page.waitForTimeout(200);
+      };
+      const usageOpen = async (page) => {
+        const table = page.getByRole("table").last();
+        await table.getByRole("button").first().click();
+        await table.getByRole("button").nth(1).click();
+        await page.waitForTimeout(200);
+      };
+      const usageTable = async (page) => {
+        await page.getByRole("button", { name: /^(Show as table|Mostra come tabella)$/ }).click();
+        await page.waitForTimeout(200);
+        await page.getByRole("button", { name: /^(Hide the table|Nascondi la tabella)$/ }).scrollIntoViewIfNeeded();
+      };
+      const usageOther = async (page) => {
+        await page.getByText(/^(Other projects|Altri progetti)$/).scrollIntoViewIfNeeded();
+        await page.waitForTimeout(200);
+      };
       const SCENES = [
         // [nome, indirizzo, { persona, action, after }]
-        ["providers", "/admin/ai?tab=providers", { persona: "Roberta" }],
+        ["providers","/admin/ai?tab=providers", { persona: "Roberta" }],
         ["providers-readonly", "/admin/ai?tab=providers", { persona: "Marco", action: "readOnly" }],
         ["add", "/admin/ai?tab=providers", { persona: "Roberta", after: addDialog }],
         ["models", "/admin/ai?tab=models", { persona: "Roberta" }],
         ["automation", "/admin/ai?tab=automation", { persona: "Roberta" }],
         ["budget", "/admin/ai?tab=budget", { persona: "Roberta" }],
         ["budget-reached", "/admin/ai?tab=budget", { persona: "Roberta", action: "budget" }],
+        ["usage", "/admin/ai?tab=usage", { persona: "Roberta", after: usageHover }],
+        ["usage-then", "/admin/ai?tab=usage&range=month&group=model&then=operation", { persona: "Roberta", after: usageOpen }],
+        ["usage-custom", "/admin/ai?tab=usage&range=custom&from=2026-10-01&to=2026-10-14", { persona: "Roberta", after: usageTable }],
+        ["usage-other", "/admin/ai?tab=usage&range=90d", { persona: "Sara", action: "usageView" }],
+        ["usage-other-table", "/admin/ai?tab=usage&range=90d", { persona: "Sara", action: "usageView", after: usageOther }],
       ];
       const aiOnly = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
       const variants = [

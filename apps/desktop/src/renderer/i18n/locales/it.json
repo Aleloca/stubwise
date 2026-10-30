@@ -8727,6 +8727,65 @@
       "save": "Salva",
       "cancel": "Annulla",
       "usageIntro": "Quanto è costato Claude, in tutti i progetti che vedi, in un periodo.",
+      "usage": {
+        "periodLabel": "Periodo",
+        "periods": {
+          "7d": "Ultimi 7 giorni",
+          "30d": "Ultimi 30 giorni",
+          "90d": "Ultimi 90 giorni",
+          "month": "Questo mese",
+          "custom": "Intervallo…"
+        },
+        "from": "Dal",
+        "to": "Al",
+        "totalsLabel": "Totali",
+        "totals": {
+          "cost": "Costo",
+          "runs": "Esecuzioni",
+          "inputTokens": "Token in ingresso",
+          "outputTokens": "Token in uscita",
+          "cacheReadTokens": "Letti dalla cache"
+        },
+        "perDay": "Costo per giorno",
+        "perDayHint": "Punta una colonna, o usa ← → col fuoco sul grafico.",
+        "point": "{{day}} · {{cost}} · {{runs}}",
+        "runs_one": "{{count}} esecuzione",
+        "runs_other": "{{count}} esecuzioni",
+        "showTable": "Mostra come tabella",
+        "hideTable": "Nascondi la tabella",
+        "columns": {
+          "day": "Giorno",
+          "name": "Nome",
+          "cost": "Costo",
+          "tokens": "Token",
+          "runs": "Esecuzioni"
+        },
+        "groupBy": "Raggruppa per",
+        "thenBy": "poi per",
+        "noThen": "—",
+        "dimensions": {
+          "day": "Giorno",
+          "model": "Modello",
+          "project": "Progetto",
+          "provider": "Provider",
+          "operation": "Operazione"
+        },
+        "dimensionsLower": {
+          "day": "giorno",
+          "model": "modello",
+          "project": "progetto",
+          "provider": "provider",
+          "operation": "operazione"
+        },
+        "tableLabel": "Consumi per {{group}}",
+        "tableLabelThen": "Consumi per {{group}}, poi per {{then}}",
+        "noProject": "Nessun progetto",
+        "otherProjects": "Altri progetti",
+        "otherProjectsHint": "Progetti che non vedi, sommati.",
+        "tokensTitle": "{{tokens}} token",
+        "empty": "Nessun consumo AI in questo periodo.",
+        "loadError": "Impossibile caricare i consumi."
+      },
       "prototype": {
         "label": "Solo prototipo"
       },
@@ -9534,9 +9593,9 @@
       "mail_classify": "Classificazione della posta",
       "chat": "Conversazioni con Claude",
       "backlog_merge": "Unione dei documenti del backlog",
-      "plugin_smoke": "Prova del plugin",
-      "credential_test": "Prova della credenziale",
-      "usage_probe": "Lettura dei consumi"
+      "plugin_smoke": "Smoke test dei plugin",
+      "credential_test": "Prove degli account",
+      "usage_probe": "Letture della quota"
     }
   },
   "instanceEffects": {

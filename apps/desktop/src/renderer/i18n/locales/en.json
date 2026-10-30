@@ -8727,6 +8727,65 @@
       "save": "Save",
       "cancel": "Cancel",
       "usageIntro": "What Claude cost, in every project you can see, over a period.",
+      "usage": {
+        "periodLabel": "Period",
+        "periods": {
+          "7d": "Last 7 days",
+          "30d": "Last 30 days",
+          "90d": "Last 90 days",
+          "month": "This month",
+          "custom": "Custom…"
+        },
+        "from": "From",
+        "to": "To",
+        "totalsLabel": "Totals",
+        "totals": {
+          "cost": "Cost",
+          "runs": "Runs",
+          "inputTokens": "Input tokens",
+          "outputTokens": "Output tokens",
+          "cacheReadTokens": "Cache read"
+        },
+        "perDay": "Cost per day",
+        "perDayHint": "Point at a column, or use ← → with the chart focused.",
+        "point": "{{day}} · {{cost}} · {{runs}}",
+        "runs_one": "{{count}} run",
+        "runs_other": "{{count}} runs",
+        "showTable": "Show as table",
+        "hideTable": "Hide the table",
+        "columns": {
+          "day": "Day",
+          "name": "Name",
+          "cost": "Cost",
+          "tokens": "Tokens",
+          "runs": "Runs"
+        },
+        "groupBy": "Group by",
+        "thenBy": "then by",
+        "noThen": "—",
+        "dimensions": {
+          "day": "Day",
+          "model": "Model",
+          "project": "Project",
+          "provider": "Provider",
+          "operation": "Operation"
+        },
+        "dimensionsLower": {
+          "day": "day",
+          "model": "model",
+          "project": "project",
+          "provider": "provider",
+          "operation": "operation"
+        },
+        "tableLabel": "Usage by {{group}}",
+        "tableLabelThen": "Usage by {{group}}, then by {{then}}",
+        "noProject": "No project",
+        "otherProjects": "Other projects",
+        "otherProjectsHint": "Projects you can't see, added together.",
+        "tokensTitle": "{{tokens}} tokens",
+        "empty": "No AI usage in this period.",
+        "loadError": "Couldn't load the usage."
+      },
       "prototype": {
         "label": "Prototype only"
       },
@@ -9534,9 +9593,9 @@
       "mail_classify": "Mail classification",
       "chat": "Chats with Claude",
       "backlog_merge": "Backlog document merge",
-      "plugin_smoke": "Plugin smoke run",
-      "credential_test": "Credential test",
-      "usage_probe": "Usage reading"
+      "plugin_smoke": "Plugin smoke tests",
+      "credential_test": "Account tests",
+      "usage_probe": "Quota readings"
     }
   },
   "instanceEffects": {

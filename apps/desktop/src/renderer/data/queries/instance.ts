@@ -9,6 +9,7 @@ import { useSessionPersonId, useWrite } from "../queries";
 // funzioni. I Task 3–7 ci aggiungono i loro.
 
 export type { UsageDimension, UsageRange, UsageRow, UsageView } from "../instance/usage";
+export { OTHER_PROJECTS_KEY } from "../instance/usage";
 export type {
   AutomationRule,
   AutomationSettings,
