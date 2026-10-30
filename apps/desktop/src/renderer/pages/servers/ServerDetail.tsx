@@ -206,6 +206,15 @@ function Page({ server, projectCode }: { server: Detail; projectCode: string | n
               </span>
             ))}
           </p>
+          {/* Un orfano (area 9b, shape admin-instance.md «Dettaglio»): sempre, sano o
+              no, sotto «Not in any project yet». Claude non ci può lavorare: né
+              analisi né correzione nascono fuori da un progetto. Non è un
+              permesso, quindi niente «Who?». */}
+          {server.orphan && (
+            <p data-orphan-note className="text-sm text-pretty text-ink-muted">
+              {t("servers.orphanNoClaude")}
+            </p>
+          )}
         </header>
         <nav
           aria-label={t("servers.index.label", { code: server.code })}

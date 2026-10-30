@@ -1,7 +1,7 @@
 import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { failNext, releases, resetApi, setLatency } from "../../../data/api";
+import { failNext, releases, resetApi, servers, setLatency } from "../../../data/api";
 import { setSessionPersonId } from "../../../data/session";
 import { state } from "../../../data/store";
 import {
@@ -28,6 +28,8 @@ const SARA = "p-sara";
 const LAURA = "p-laura";
 
 const KEY_RE = /sk_[0-9a-f]{40}/;
+const ORPHAN_NO_CLAUDE =
+  "Link this server to a project first: Claude works inside a project.";
 
 beforeEach(() => {
   setLatency(0);
@@ -154,6 +156,34 @@ describe("Servers dell'istanza", () => {
     expect(await heading(/acq-prod-01/)).toBeVisible();
     expect(screen.getAllByText("Not in any project yet").length).toBeGreaterThan(0);
     expect(screen.queryByText("Staging only: no alerts, no analysis")).toBeNull();
+    // SRV-1 è sano: la frase c'è lo stesso, una volta sola (ruling T12, giro 1).
+    expect(screen.getAllByText(ORPHAN_NO_CLAUDE)).toHaveLength(1);
+  });
+
+  it("un orfano mai collegato dice anche lui che Claude lavora solo dentro un progetto", async () => {
+    setSessionPersonId(ROBERTA);
+    await servers.createServer({ name: "edge-01", environmentId: null });
+    renderRoute("/admin/servers/SRV-5", ROBERTA);
+    expect(await heading(/edge-01/)).toBeVisible();
+    expect(screen.getAllByText("Never connected").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(ORPHAN_NO_CLAUDE)).toHaveLength(1);
+  });
+
+  it("un orfano in difficoltà: la frase una volta sola, non ripetuta nel riquadro «Now»", async () => {
+    setSessionPersonId(ROBERTA);
+    // SRV-2 è in difficoltà: senza il suo ambiente diventa un orfano in difficoltà.
+    const env = state.environments.find((e) => e.servers.some((s) => s.serverCode === "SRV-2"))!;
+    await releases.deleteEnvironment(env.id);
+    renderRoute("/admin/servers/SRV-2", ROBERTA);
+    expect(await heading(/db-stw-01/)).toBeVisible();
+    expect(await screen.findByRole("region", { name: "Now" })).toBeVisible();
+    expect(screen.getAllByText(ORPHAN_NO_CLAUDE)).toHaveLength(1);
+  });
+
+  it("un server in un progetto non ha la frase dell'orfano", async () => {
+    renderRoute("/admin/servers/SRV-2", ROBERTA);
+    expect(await heading(/db-stw-01/)).toBeVisible();
+    expect(screen.queryByText(ORPHAN_NO_CLAUDE)).toBeNull();
   });
 
   it("senza monitor.manage (Marco) la voce non c'è, e gli indirizzi sono «not found»", async () => {
@@ -281,7 +311,7 @@ describe("New server dall'Amministrazione", () => {
     expect(document.body.innerHTML).not.toContain(key);
   });
 
-  it("un nome vuoto non crea niente, e l'errore viene dal livello dati", async () => {
+  it("un nome vuoto non crea niente: il bottone resta spento", async () => {
     const user = userEvent.setup();
     renderRoute("/admin/servers", ROBERTA);
     await user.click(await screen.findByRole("button", { name: "New server" }));
@@ -290,6 +320,24 @@ describe("New server dall'Amministrazione", () => {
     await user.type(within(dialog).getByRole("textbox", { name: "Name" }), "   ");
     expect(within(dialog).getByRole("button", { name: "Create server" })).toBeDisabled();
     expect(state.servers).toHaveLength(4);
+  });
+
+  it("un rifiuto del livello dati: la frase sotto il campo, il dialogo resta, niente server", async () => {
+    const user = userEvent.setup();
+    failNext("servers.createServer");
+    renderRoute("/admin/servers", ROBERTA);
+    await user.click(await screen.findByRole("button", { name: "New server" }));
+    const dialog = await screen.findByRole("dialog", { name: "New server" });
+    await user.type(within(dialog).getByRole("textbox", { name: "Name" }), "edge-01");
+    await user.click(within(dialog).getByRole("button", { name: "Create server" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "Couldn't create the server. Try again.",
+    );
+    expect(screen.queryByRole("dialog", { name: /is ready for its agent/ })).toBeNull();
+    expect(state.servers).toHaveLength(4);
+    // Riprovando (il rifiuto era uno solo) il server nasce, e la frase sparisce.
+    await user.click(within(dialog).getByRole("button", { name: "Create server" }));
+    expect(await screen.findByRole("dialog", { name: "SRV-5 is ready for its agent" })).toBeVisible();
   });
 });
 

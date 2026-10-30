@@ -2,6 +2,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useCreateServer, useEnvironments } from "../../data/queries";
+import type { CreateServerInput } from "../../data/servers";
 import type { Project } from "../../data/types";
 import { Dialog, DialogField, inputClass } from "../../tasks-ui/Dialog";
 import { primaryButton, secondaryButton } from "../tasks/controls";
@@ -14,6 +15,54 @@ import { WhoCanLink } from "../../components/WhoCanLink";
 // liberi il dialogo rimanda a Releases → Environments. Creato, il dialogo
 // diventa il pannello della chiave; chiuso quello si va al dettaglio.
 
+type T = ReturnType<typeof useTranslation>["t"];
+
+/** Un rifiuto di `createServer` in parole: la frase del campo, o quella generica. */
+function createErrorMessage(e: unknown, t: T): string {
+  const what = e instanceof Error ? e.message.replace(/^invalid: /, "") : "";
+  return t(`servers.create.errors.${what}`, { defaultValue: t("servers.create.errors.generic") });
+}
+
+/** «Discard this server?» se il nome è già scritto; niente da chiedere se è vuoto. */
+function createDiscard(name: string, t: T) {
+  return name.trim()
+    ? {
+        message: t("servers.create.discard"),
+        keep: t("servers.create.keep"),
+        discard: t("servers.create.discardConfirm"),
+      }
+    : undefined;
+}
+
+/**
+ * Il flusso di creazione, lo stesso dal progetto e dall'Amministrazione:
+ * `submit` chiama `createServer`; un rifiuto diventa `error` (in parole);
+ * creato, `keyPanel` è il pannello della chiave (vista una volta sola), e il
+ * suo Done chiama `onDone` col codice del server nuovo.
+ */
+function useCreateServerFlow(onDone: (code: string) => void) {
+  const { t } = useTranslation();
+  const create = useCreateServer();
+  const [error, setError] = useState<string | null>(null);
+  const [created, setCreated] = useState<{ code: string; agentKey: string } | null>(null);
+  const submit = (input: CreateServerInput) => {
+    setError(null);
+    create.mutate(input, {
+      onSuccess: (r) => setCreated({ code: r.server.code, agentKey: r.agentKey }),
+      onError: (e) => setError(createErrorMessage(e, t)),
+    });
+  };
+  const keyPanel = created ? (
+    <AgentKeyDialog
+      title={t("servers.key.readyTitle", { code: created.code })}
+      code={created.code}
+      agentKey={created.agentKey}
+      onDone={() => onDone(created.code)}
+    />
+  ) : null;
+  return { submit, error, pending: create.isPending, keyPanel };
+}
+
 /**
  * «New server» dall'Amministrazione (area 9b, shape admin-instance.md [IS 3],
  * confermata dal maintainer il 30 ott 2026): un server nasce SEMPRE senza
@@ -25,45 +74,19 @@ import { WhoCanLink } from "../../components/WhoCanLink";
 export function NewInstanceServerDialog({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const create = useCreateServer();
   const nameId = useId();
   const noteId = useId();
   const [name, setName] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [created, setCreated] = useState<{ code: string; agentKey: string } | null>(null);
+  const flow = useCreateServerFlow((code) => {
+    onClose();
+    void navigate({ to: "/admin/servers/$server", params: { server: code } });
+  });
 
-  if (created) {
-    return (
-      <AgentKeyDialog
-        title={t("servers.key.readyTitle", { code: created.code })}
-        code={created.code}
-        agentKey={created.agentKey}
-        onDone={() => {
-          onClose();
-          void navigate({ to: "/admin/servers/$server", params: { server: created.code } });
-        }}
-      />
-    );
-  }
+  if (flow.keyPanel) return flow.keyPanel;
 
-  const ready = name.trim().length > 0 && !create.isPending;
+  const ready = name.trim().length > 0 && !flow.pending;
   const submit = () => {
-    if (!ready) return;
-    setError(null);
-    create.mutate(
-      { name, environmentId: null },
-      {
-        onSuccess: (r) => setCreated({ code: r.server.code, agentKey: r.agentKey }),
-        onError: (e) => {
-          const what = e instanceof Error ? e.message.replace(/^invalid: /, "") : "";
-          setError(
-            t(`servers.create.errors.${what}`, {
-              defaultValue: t("servers.create.errors.generic"),
-            }),
-          );
-        },
-      },
-    );
+    if (ready) flow.submit({ name, environmentId: null });
   };
 
   return (
@@ -71,15 +94,7 @@ export function NewInstanceServerDialog({ onClose }: { onClose: () => void }) {
       title={t("admin.servers.create.title")}
       width={440}
       onClose={onClose}
-      confirmDiscard={
-        name.trim()
-          ? {
-              message: t("servers.create.discard"),
-              keep: t("servers.create.keep"),
-              discard: t("servers.create.discardConfirm"),
-            }
-          : undefined
-      }
+      confirmDiscard={createDiscard(name, t)}
       footer={
         <>
           <button type="button" className={secondaryButton} onClick={onClose}>
@@ -114,9 +129,9 @@ export function NewInstanceServerDialog({ onClose }: { onClose: () => void }) {
       <p id={noteId} className="text-sm text-pretty text-ink-muted">
         {t("admin.servers.create.note")}
       </p>
-      {error && (
+      {flow.error && (
         <p role="alert" className="text-sm text-critical">
-          {error}
+          {flow.error}
         </p>
       )}
     </Dialog>
@@ -127,29 +142,18 @@ export function NewServerDialog({ project, onClose }: { project: Project; onClos
   const { t } = useTranslation();
   const navigate = useNavigate();
   const envs = useEnvironments(project.id);
-  const create = useCreateServer();
   const ids = { name: useId(), env: useId() };
   const [name, setName] = useState("");
   const [environmentId, setEnvironmentId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [created, setCreated] = useState<{ code: string; agentKey: string } | null>(null);
+  const flow = useCreateServerFlow((code) => {
+    onClose();
+    void navigate({
+      to: "/p/$code/servers/$server",
+      params: { code: project.code, server: code },
+    });
+  });
 
-  if (created) {
-    return (
-      <AgentKeyDialog
-        title={t("servers.key.readyTitle", { code: created.code })}
-        code={created.code}
-        agentKey={created.agentKey}
-        onDone={() => {
-          onClose();
-          void navigate({
-            to: "/p/$code/servers/$server",
-            params: { code: project.code, server: created.code },
-          });
-        }}
-      />
-    );
-  }
+  if (flow.keyPanel) return flow.keyPanel;
 
   // Liberi: senza una riga per tutto il progetto (la stessa regola di `createServer`).
   const free = (envs.data?.environments ?? []).filter(
@@ -160,38 +164,14 @@ export function NewServerDialog({ project, onClose }: { project: Project; onClos
   const ready = envs.data !== undefined;
   const form = ready && canEnvs && free.length > 0;
 
-  const submit = () => {
-    setError(null);
-    create.mutate(
-      { name, environmentId: chosen },
-      {
-        onSuccess: (r) => setCreated({ code: r.server.code, agentKey: r.agentKey }),
-        onError: (e) => {
-          const what = e instanceof Error ? e.message.replace(/^invalid: /, "") : "";
-          setError(
-            t(`servers.create.errors.${what}`, {
-              defaultValue: t("servers.create.errors.generic"),
-            }),
-          );
-        },
-      },
-    );
-  };
+  const submit = () => flow.submit({ name, environmentId: chosen });
 
   return (
     <Dialog
       title={t("servers.create.title", { code: project.code })}
       width={480}
       onClose={onClose}
-      confirmDiscard={
-        name.trim()
-          ? {
-              message: t("servers.create.discard"),
-              keep: t("servers.create.keep"),
-              discard: t("servers.create.discardConfirm"),
-            }
-          : undefined
-      }
+      confirmDiscard={createDiscard(name, t)}
       footer={
         form ? (
           <>
@@ -201,7 +181,7 @@ export function NewServerDialog({ project, onClose }: { project: Project; onClos
             <button
               type="button"
               data-create-server
-              disabled={create.isPending || !name.trim()}
+              disabled={flow.pending || !name.trim()}
               onClick={submit}
               className={`${primaryButton} disabled:opacity-40`}
             >
@@ -277,9 +257,9 @@ export function NewServerDialog({ project, onClose }: { project: Project; onClos
               ))}
             </select>
           </DialogField>
-          {error && (
+          {flow.error && (
             <p role="alert" className="text-sm text-critical">
-              {error}
+              {flow.error}
             </p>
           )}
         </>

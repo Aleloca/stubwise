@@ -164,12 +164,10 @@ export function NowBox({ server }: { server: ServerDetail }) {
         </div>
       </div>
       {work}
-      {/* Un orfano (area 9b) non ha staging né produzioni: Claude lavora solo dentro un progetto. */}
-      {server.orphan && inTrouble ? (
-        <p className="text-md text-ink-muted">{t("servers.orphanNoClaude")}</p>
-      ) : (
-        server.analysisProject === null &&
-        inTrouble && <p className="text-md text-ink-muted">{t("servers.stagingOnly")}</p>
+      {/* Un orfano (area 9b) non ha staging né produzioni: «Staging only» sarebbe
+          falso, e che Claude lavori solo dentro un progetto lo dice la testata. */}
+      {!server.orphan && server.analysisProject === null && inTrouble && (
+        <p className="text-md text-ink-muted">{t("servers.stagingOnly")}</p>
       )}
       {inTrouble &&
         noRead &&
