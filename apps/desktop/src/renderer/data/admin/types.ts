@@ -248,7 +248,32 @@ export interface RoleView extends RoleDef {
    * Members.
    */
   missing: string[];
+  /**
+   * Dove arriva ciò che si aggiunge al ruolo (ruling R-M2): `instance` per un
+   * ruolo d'istanza; `projects` per uno di progetto assegnato o promesso (i
+   * progetti dove vale); `anywhere` per uno di progetto non assegnato (basta
+   * averlo in un progetto). La pagina lo dice in parole, senza nominare
+   * progetti che chi guarda non vede.
+   */
+  reach: GiveReach;
+  /** I permessi del livello del ruolo che chi guarda non può AGGIUNGERE, dove il ruolo vale. */
+  notGivable: string[];
+  /**
+   * Ciò che manca a chi guarda per farne una copia («Start from», Duplicate):
+   * il ruolo nuovo non vale ancora da nessuna parte, quindi il confronto è
+   * quello di `createRole` (l'istanza, o almeno un progetto).
+   */
+  copyMissing: string[];
+  /** Perché non si elimina: `preset`, `in_use` (anche in progetti che chi guarda non vede), o `null`. */
+  deleteBlock: null | "preset" | "in_use";
+  /** R-E2: il ruolo dà anche «vedere l'attività delle persone» (solo Project Lead). */
+  givesActivityView: boolean;
+  /** Chi guarda ha questo ruolo (d'istanza, o in almeno un progetto): togliere vale anche per lui. */
+  viewerHolds: boolean;
 }
+
+/** Dove arriva un permesso dato: vedi `RoleView.reach` e `DepartmentView.reach`. */
+export type GiveReach = "instance" | "projects" | "anywhere";
 
 export interface DepartmentView {
   id: string;
@@ -264,6 +289,13 @@ export interface DepartmentView {
    * che chi guarda non ha nei progetti di lei (vuoto = la si può aggiungere).
    */
   missingToAdd: Record<string, string[]>;
+  /**
+   * Dove arriva un permesso messo nel reparto: `projects` (i progetti dei suoi
+   * membri) o `anywhere` (nessun membro in un progetto: basta averlo in uno).
+   */
+  reach: Exclude<GiveReach, "instance">;
+  /** I permessi di progetto che chi guarda non può aggiungere al reparto, dove arriverebbero. */
+  notGivable: string[];
 }
 
 /** Un autore git osservato nei commit e non ancora collegato (come l'Activity, area 3). */

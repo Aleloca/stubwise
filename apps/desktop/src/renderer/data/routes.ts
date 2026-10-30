@@ -241,6 +241,9 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
       return path === "projects" && /^\d{4}-\d{2}-\d{2}$/.test(value);
     case "dept":
       return path === "projects" && /^[\w-]+$/.test(value);
+    // Il pannello di un reparto (area 9a): solo su Departments.
+    case "department":
+      return path === "admin/departments" && /^[\w-]+$/.test(value);
     case "group":
       return isTasksPath(path) && (GROUP_BYS as readonly string[]).includes(value);
     case "filters":
@@ -343,6 +346,7 @@ export function isAppRoute(route: string): boolean {
   const admin = /^admin\/([a-z-]+)$/.exec(path);
   if (admin) return isAdminSection(admin[1]!);
   if (/^admin\/people\/(invites\/)?[\w-]+$/.test(path)) return true;
+  if (/^admin\/roles\/[\w-]+$/.test(path)) return true;
   if (isChannelPath(path)) return true;
   if (isAutomationsPath(path)) return true;
   // Il dettaglio di un rilascio (area 8a): `#/p/AUD/releases/AUD-V3`.

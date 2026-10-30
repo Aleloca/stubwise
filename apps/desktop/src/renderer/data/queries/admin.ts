@@ -11,6 +11,8 @@ import { queryKeys, useSessionPersonId, useWrite } from "../queries";
 export type { ChangeEntryView, ChangeFilter } from "../changelog/types";
 export type { SecondFactorInput, SecondFactorResult, TotpSetup } from "../auth/reauth";
 export type * from "../admin/types";
+/** Le otto tinte dei reparti, nell'ordine di `DESIGN.md`: il dialogo e il pannello del reparto. */
+export { DEPARTMENT_COLORS } from "../admin/departments";
 
 /** Il registro delle modifiche in Amministrazione: le voci che chi guarda legge. */
 export function useChanges(filter: ChangeFilter = {}) {

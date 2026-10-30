@@ -2,6 +2,7 @@ import {
   ALL_PROJECT_PERMISSIONS,
   INSTANCE_SET,
   accessState,
+  roleGivesActivityView,
   writeAccess,
   type AccessState,
   type RoleDef,
@@ -80,17 +81,36 @@ function holdersOf(
     .map((m) => ({ personId: m.personId, projectId: m.projectId }));
 }
 
-/** Tutti i ruoli, con chi li ha e ciò che manca a chi guarda per darli. */
+/** In uso da qualcuno, visibile o no a chi guarda (`deleteRole` lo rifiuta). */
+const inUse = (s: AccessState, role: RoleDef): boolean =>
+  s.people.some((p) => p.instanceRoleId === role.id) ||
+  s.memberships.some((m) => m.roleId === role.id);
+
+/**
+ * Tutti i ruoli, con chi li ha e ciò che manca a chi guarda per darli. I
+ * campi della pagina di un ruolo li calcola qui la stessa regola delle
+ * scritture: `notGivable` è ciò che `updateRole` rifiuterebbe se aggiunto.
+ */
 export async function listRoles(): Promise<RoleView[]> {
   const me = await gate("admin.listRoles");
   const s = accessState();
   return s.roles.map((role) => {
     const holders = holdersOf(me, role, s);
+    const where = whereRoleApplies(role);
     return {
       ...structuredClone(role),
       peopleCount: holders.length,
       holders,
-      missing: missingIn(me, whereRoleApplies(role), role.permissions),
+      missing: missingIn(me, where, role.permissions),
+      reach: where === "instance" ? "instance" : where.length > 0 ? "projects" : "anywhere",
+      notGivable: missingIn(me, where, [...universeOf(role.scope)]),
+      copyMissing: missingIn(me, role.scope === "instance" ? "instance" : [], role.permissions),
+      deleteBlock: role.preset ? "preset" : inUse(s, role) ? "in_use" : null,
+      givesActivityView: roleGivesActivityView(role),
+      viewerHolds:
+        role.scope === "instance"
+          ? s.people.some((p) => p.personId === me && p.instanceRoleId === role.id)
+          : s.memberships.some((m) => m.personId === me && m.roleId === role.id),
     };
   });
 }
@@ -241,10 +261,7 @@ export async function deleteRole(roleId: string): Promise<AdminResult> {
   if (!role) return refuse.notFound();
   if (role.preset) return refuse.invalid("preset");
   const s = accessState();
-  const inUse =
-    s.people.some((p) => p.instanceRoleId === role.id) ||
-    s.memberships.some((m) => m.roleId === role.id);
-  if (inUse) return refuse.invalid("in_use", holdersOf(me, role, s));
+  if (inUse(s, role)) return refuse.invalid("in_use", holdersOf(me, role, s));
   const reauth = reauthRefusal(me, "admin.deleteRole");
   if (reauth) return reauth;
   const label = roleLabel(role);

@@ -8085,163 +8085,6 @@
       "invalidBody": "Check that you copied it whole, or ask your administrator for a new one."
     }
   },
-  "access": {
-    "perm": {
-      "instance": {
-        "full_admin": "do everything (full admin)",
-        "status": {
-          "view": "see the instance status"
-        }
-      },
-      "roles": {
-        "manage": "manage roles"
-      },
-      "settings": {
-        "manage": "change the instance settings"
-      },
-      "users": {
-        "view_all": "see everyone on the instance",
-        "invite": "invite people",
-        "manage": "manage people"
-      },
-      "projects": {
-        "create": "create projects"
-      },
-      "ai_providers": {
-        "manage": "manage AI providers"
-      },
-      "git_accounts": {
-        "view": "see git accounts",
-        "manage": "manage git accounts"
-      },
-      "plugins": {
-        "manage": "manage plugins"
-      },
-      "integrations": {
-        "manage": "manage integrations"
-      },
-      "mail_admission": {
-        "view": "see mail admission"
-      },
-      "monitor": {
-        "view": "see monitoring",
-        "manage": "manage monitoring"
-      },
-      "usage": {
-        "view": "view usage"
-      },
-      "claude": {
-        "public": {
-          "view": "see public Claude conversations"
-        }
-      },
-      "people": {
-        "activity": {
-          "view": "see people's activity"
-        }
-      },
-      "chat": {
-        "general": {
-          "create": "create general channels",
-          "manage": "manage general channels"
-        },
-        "channels": {
-          "create": "create project channels",
-          "manage": "manage project channels"
-        }
-      },
-      "automations": {
-        "manage": "manage automations"
-      },
-      "servers": {
-        "ssh": {
-          "manage": "manage SSH access"
-        },
-        "operate": "start a server fix"
-      },
-      "departments": {
-        "manage": "manage departments"
-      },
-      "changelog": {
-        "view": "read the change log"
-      },
-      "project": {
-        "settings": {
-          "manage": "change the project settings"
-        },
-        "members": {
-          "manage": "manage members"
-        },
-        "usage": {
-          "view": "see the project's usage"
-        }
-      },
-      "tickets": {
-        "view_all": "see all tasks",
-        "create": "create tasks",
-        "edit": "edit tasks",
-        "comment": "comment on tasks",
-        "moderate": "delete other people's comments"
-      },
-      "runs": {
-        "start": "start Claude"
-      },
-      "plans": {
-        "approve": "approve plans"
-      },
-      "corrections": {
-        "request": "ask for changes to a pull request"
-      },
-      "release": {
-        "merge": "release to production"
-      },
-      "prs": {
-        "adopt": "adopt someone else's pull request"
-      },
-      "agent_sessions": {
-        "intervene": "step into Claude's sessions"
-      },
-      "backlog": {
-        "view_all": "see the whole backlog",
-        "create": "add to the backlog",
-        "edit": "edit the backlog"
-      },
-      "decisions": {
-        "record": "record decisions"
-      },
-      "docs": {
-        "view": "read the docs",
-        "edit": "edit the docs",
-        "generate": "generate the docs"
-      },
-      "repos": {
-        "view": "see repositories",
-        "manage": "manage repositories"
-      },
-      "environments": {
-        "manage": "manage environments"
-      },
-      "widget": {
-        "manage": "manage the support widget"
-      },
-      "planning": {
-        "others": "plan other people's tasks"
-      },
-      "drive": {
-        "upload": "upload to the drive",
-        "manage": "manage the drive",
-        "history": "see who opened drive files"
-      },
-      "support": {
-        "reply": "reply to customers"
-      },
-      "department": {
-        "home": {
-          "manage": "manage the department Home"
-        }
-      }
-    }
-  },
   "admin": {
     "columnLabel": "Administration sections",
     "groups": {
@@ -8256,8 +8099,6 @@
       "who-can": "Who can?"
     },
     "placeholder": {
-      "departments": "Departments, the people in them and the permissions they give will be managed here.",
-      "roles": "Instance and project roles, with their permissions, will be managed here.",
       "changelog": "Every change to people, roles and access will be listed here.",
       "who-can": "Ask who can do something, in which project, and why."
     },
@@ -8333,7 +8174,9 @@
       "departments": {
         "title": "Departments",
         "empty": "Not in any department.",
-        "managesHome": "manages the department Home"
+        "managesHome": "manages the department Home",
+        "edit": "Edit",
+        "editLabel": "Edit {{name}}"
       },
       "identities": {
         "title": "Linked identities",
@@ -8459,6 +8302,534 @@
       "reauthCancelled": "Nothing was changed.",
       "failed": "Couldn't save the change. Try again.",
       "identity": "Enter a git email, or pick an observed author."
+    },
+    "permissionTable": {
+      "find": "Find a permission",
+      "findLabel": "Find a permission by name or description",
+      "onlyOn": "Only what's on",
+      "noMatch": "No permission matches.",
+      "count": "{{on}} of {{total}}",
+      "blocked": "You don't have this",
+      "blockedWhy": {
+        "instance": "You don't have this permission, so you can't give it.",
+        "projects_role": "You don't have this in every project where this role is used, so you can't give it.",
+        "projects_department": "You don't have this in every project of this department's people, so you can't give it.",
+        "anywhere": "You don't have this in any project, so you can't give it."
+      }
+    },
+    "roles": {
+      "intro": "Roles decide what people can do. An instance role applies everywhere; a project role applies in the projects where someone is a member.",
+      "loadError": "Couldn't load roles.",
+      "claudeNote": "Claude has no role: it works in every project, and never decides.",
+      "groups": {
+        "instance": "Instance roles",
+        "project": "Project roles"
+      },
+      "new": {
+        "instance": "New instance role",
+        "project": "New project role"
+      },
+      "preset": "Preset",
+      "permissions_one": "{{count}} permission",
+      "permissions_other": "{{count}} permissions",
+      "people_one": "{{count}} person",
+      "people_other": "{{count}} people",
+      "memberships_one": "{{count}} membership",
+      "memberships_other": "{{count}} memberships",
+      "holdersLabel": "Who has {{role}}",
+      "more": "More actions for {{role}}",
+      "duplicate": "Duplicate",
+      "duplicateAction": "duplicate {{role}}",
+      "delete": "Delete…",
+      "presetNoDelete": "Presets can't be deleted.",
+      "inUse": {
+        "title": "{{role}} is still used",
+        "body": "Give them another role first.",
+        "hidden": "It's used in projects you can't see.",
+        "close": "Close"
+      },
+      "deleteTitle": "Delete {{role}}?",
+      "deleteBody": "No one has it. It can't be brought back.",
+      "deleteConfirm": "Delete",
+      "deleteSure": "Delete — sure?",
+      "deleteAction": "delete {{role}}",
+      "deleted": "Role deleted.",
+      "cancel": "Cancel",
+      "newDialog": {
+        "name": "Name",
+        "startFrom": "Start from",
+        "empty": "Empty",
+        "create": "Create",
+        "action": "create a role",
+        "discard": "Discard this role?",
+        "keep": "Keep editing",
+        "discardAction": "Discard"
+      },
+      "nameErrors": {
+        "empty": "Give the role a name.",
+        "taken": "Another role already has this name."
+      }
+    },
+    "role": {
+      "back": "Roles",
+      "loadError": "Couldn't load this role.",
+      "scope": {
+        "instance": "Instance role",
+        "project": "Project role"
+      },
+      "presetWord": "preset",
+      "name": "Name",
+      "presetNote": "A preset can be renamed and changed, not deleted.",
+      "claudeNote": "Roles never apply to Claude. Claude can work but doesn't decide, whatever is ticked here.",
+      "activityYes": "Project Lead also lets people see everyone's activity, across projects. That comes with the role, not with a box here.",
+      "activityNo": "This role doesn't let people see everyone's activity: only Project Lead does.",
+      "permissionsTitle": "Permissions",
+      "tableLabel": "Permissions of {{role}}",
+      "changes_one": "{{count}} change",
+      "changes_other": "{{count}} changes",
+      "affects_one": "this changes what {{count}} person can do",
+      "affects_other": "this changes what {{count}} people can do",
+      "who": "Who?",
+      "discard": "Discard",
+      "keep": "Keep editing",
+      "save": "Save role",
+      "saved": "Saved",
+      "saveAction": "save {{role}}",
+      "saveFailed": "Couldn't save. Try again.",
+      "leave_one": "Discard {{count}} change?",
+      "leave_other": "Discard {{count}} changes?",
+      "youLose": "You have this role: you'll lose {{missing}} when you save, unless something else gives it to you.",
+      "refusal": {
+        "escalation": {
+          "instance": "You can't save this role: it would include {{missing}}, which you don't have.",
+          "projects": "You can't save this role: it would include {{missing}}, which you don't have in every project where it's used.",
+          "anywhere": "You can't save this role: it would include {{missing}}, which you don't have in any project."
+        },
+        "lastFullAdmin": "Saving would leave the instance without a full admin.",
+        "lastMembersManager": "Saving would leave a project without anyone who manages its members."
+      }
+    },
+    "departments": {
+      "intro": "Departments group people across projects. A department can also give its people extra permissions — only in projects they're already members of.",
+      "new": "New department",
+      "loadError": "Couldn't load departments.",
+      "empty": "No departments yet. Departments group people and can give them extra permissions.",
+      "listLabel": "Departments",
+      "people_one": "{{count}} person",
+      "people_other": "{{count}} people",
+      "home": "Home: {{names}}",
+      "noHome": "No one manages the Home",
+      "gives": "Gives: {{permissions}}",
+      "givesNothing": "Gives no extra permissions",
+      "name": "Name",
+      "create": "Create",
+      "cancel": "Cancel",
+      "color": {
+        "label": "Color",
+        "name": "Color {{n}}, {{hue}}",
+        "usedBy": "used by",
+        "hues": {
+          "1": "chartreuse",
+          "2": "blue",
+          "3": "green",
+          "4": "red-orange",
+          "5": "violet",
+          "6": "cyan",
+          "7": "magenta",
+          "8": "slate"
+        }
+      },
+      "errors": {
+        "name": "Give the department a name.",
+        "nameTaken": "Another department already has this name."
+      }
+    },
+    "department": {
+      "panelLabel": "Department {{name}}",
+      "close": "Close the department",
+      "people": {
+        "title": "People",
+        "empty": "No one in this department yet.",
+        "listLabel": "People in {{name}}",
+        "managesHome": "Manages the Home",
+        "managesHomeOf": "{{name}} manages the Home",
+        "remove": "Remove",
+        "removeLabel": "Remove {{name}}",
+        "add": "Add people",
+        "find": "Find a person…",
+        "findLabel": "Find a person to add",
+        "done": "Done",
+        "candidates": "People you can add",
+        "noOne": "No one else to add.",
+        "cantAdd": "{{name}} gives {{missing}}, which you don't have in their projects."
+      },
+      "permissions": {
+        "title": "Extra permissions in projects",
+        "intro": "People in this department get these in every project they're already a member of. It doesn't add them to any project.",
+        "tableLabel": "Extra permissions of {{name}}"
+      },
+      "changes_one": "{{count}} change",
+      "changes_other": "{{count}} changes",
+      "save": "Save",
+      "discard": "Discard",
+      "keep": "Keep editing",
+      "discardAsk_one": "Discard {{count}} change?",
+      "discardAsk_other": "Discard {{count}} changes?",
+      "saved": "Saved",
+      "saveAction": "change {{name}}",
+      "saveFailed": "Couldn't save. Try again.",
+      "refusal": {
+        "addPeople": "{{name}} gives {{missing}}, which you don't have in the projects of the people you're adding, so you can't add them.",
+        "permissions": {
+          "projects": "You can't give {{missing}}: you don't have it in every project of this department's people.",
+          "anywhere": "You can't give {{missing}}: you don't have it in any project."
+        }
+      },
+      "delete": "Delete department…",
+      "deleteTitle": "Delete {{name}}?",
+      "deleteBody": "People stay; they just aren't in {{name}} any more.",
+      "deleteConfirm": "Delete",
+      "tasksMove_one": "{{count}} task has {{name}} as its department. Move it to:",
+      "tasksMove_other": "{{count}} tasks have {{name}} as their department. Move them to:",
+      "moveTo": "Move the tasks to",
+      "pickDepartment": "Choose a department",
+      "peopleStay": "People stay; they just aren't in {{name}} any more.",
+      "moveAndDelete": "Move and delete",
+      "deleted": "{{name}} deleted.",
+      "deletedMoved_one": "{{name}} deleted. {{count}} task moved to {{to}}.",
+      "deletedMoved_other": "{{name}} deleted. {{count}} tasks moved to {{to}}."
+    }
+  },
+  "permissions": {
+    "instance": {
+      "full_admin": {
+        "label": "full administration",
+        "hint": "Everything, everywhere: every permission on the instance and in every project."
+      },
+      "status": {
+        "view": {
+          "label": "see the instance status",
+          "hint": "See whether the instance's services are running."
+        }
+      }
+    },
+    "roles": {
+      "manage": {
+        "label": "manage roles",
+        "hint": "Create, change and delete instance and project roles."
+      }
+    },
+    "settings": {
+      "manage": {
+        "label": "manage instance settings",
+        "hint": "Change how this instance works, for everyone."
+      }
+    },
+    "users": {
+      "view_all": {
+        "label": "see everyone on the instance",
+        "hint": "See every person on the instance, not only the people in their projects."
+      },
+      "invite": {
+        "label": "invite people",
+        "hint": "Create invite links for new people."
+      },
+      "manage": {
+        "label": "manage people",
+        "hint": "Change instance roles, reset passwords and two-step verification, deactivate people."
+      }
+    },
+    "projects": {
+      "create": {
+        "label": "create projects",
+        "hint": "Start new projects on the instance."
+      }
+    },
+    "ai_providers": {
+      "manage": {
+        "label": "manage AI providers",
+        "hint": "Connect and configure the accounts Claude works with."
+      }
+    },
+    "git_accounts": {
+      "view": {
+        "label": "see Git accounts",
+        "hint": "See which Git accounts the instance uses."
+      },
+      "manage": {
+        "label": "manage Git accounts",
+        "hint": "Add, change and remove the Git accounts the repositories use."
+      }
+    },
+    "plugins": {
+      "manage": {
+        "label": "manage plugins",
+        "hint": "Register the plugins and skills Claude can use."
+      }
+    },
+    "integrations": {
+      "manage": {
+        "label": "manage integrations",
+        "hint": "Connect the instance to Google Workspace and other services."
+      }
+    },
+    "mail_admission": {
+      "view": {
+        "label": "see mail admission rules",
+        "hint": "See which emails may become proposals."
+      }
+    },
+    "monitor": {
+      "view": {
+        "label": "see monitored servers",
+        "hint": "See the servers and their checks."
+      },
+      "manage": {
+        "label": "manage monitored servers",
+        "hint": "Add servers and change their checks and agent keys."
+      }
+    },
+    "usage": {
+      "view": {
+        "label": "view usage",
+        "hint": "See what Claude costs across the instance."
+      }
+    },
+    "claude": {
+      "public": {
+        "view": {
+          "label": "see public Claude conversations",
+          "hint": "Read the conversations with Claude that others made public."
+        }
+      }
+    },
+    "people": {
+      "activity": {
+        "view": {
+          "label": "see people's activity",
+          "hint": "See what each person did, day by day, across projects."
+        }
+      }
+    },
+    "chat": {
+      "general": {
+        "create": {
+          "label": "create general channels",
+          "hint": "Open chat channels that don't belong to a project."
+        },
+        "manage": {
+          "label": "manage general channels",
+          "hint": "Rename and archive general channels, and choose who's in them."
+        }
+      },
+      "channels": {
+        "create": {
+          "label": "create project channels",
+          "hint": "Open chat channels in the project."
+        },
+        "manage": {
+          "label": "manage project channels",
+          "hint": "Rename and archive the project's channels, and choose who's in them."
+        }
+      }
+    },
+    "automations": {
+      "manage": {
+        "label": "manage automations",
+        "hint": "Create, change and pause automations at this level."
+      }
+    },
+    "servers": {
+      "ssh": {
+        "manage": {
+          "label": "manage SSH access",
+          "hint": "Choose who can open a terminal on monitored servers."
+        }
+      },
+      "operate": {
+        "label": "start a server fix",
+        "hint": "Ask Claude to act on the project's servers."
+      }
+    },
+    "departments": {
+      "manage": {
+        "label": "manage departments",
+        "hint": "Create departments, choose who's in them and what they give."
+      }
+    },
+    "changelog": {
+      "view": {
+        "label": "read the change log",
+        "hint": "See every change to people, roles and access."
+      }
+    },
+    "project": {
+      "settings": {
+        "manage": {
+          "label": "manage project settings",
+          "hint": "Change the project's modules, statuses and repositories."
+        }
+      },
+      "members": {
+        "manage": {
+          "label": "manage members",
+          "hint": "Add and remove members, and change their role and extra permissions."
+        }
+      },
+      "usage": {
+        "view": {
+          "label": "see the project's usage",
+          "hint": "See what Claude costs in this project."
+        }
+      }
+    },
+    "tickets": {
+      "view_all": {
+        "label": "see all tasks",
+        "hint": "See every task in the project, not only their own."
+      },
+      "create": {
+        "label": "create tasks",
+        "hint": "Open new tasks in the project."
+      },
+      "edit": {
+        "label": "edit tasks",
+        "hint": "Change the title, status, assignee and dates of tasks."
+      },
+      "comment": {
+        "label": "comment on tasks",
+        "hint": "Write comments on tasks."
+      },
+      "moderate": {
+        "label": "moderate other people's comments",
+        "hint": "Delete other people's comments and attachments."
+      }
+    },
+    "runs": {
+      "start": {
+        "label": "start Claude",
+        "hint": "Hand a task to Claude, to plan it and work on it."
+      }
+    },
+    "plans": {
+      "approve": {
+        "label": "approve plans",
+        "hint": "Approve or reject the plan Claude writes before it changes code."
+      }
+    },
+    "corrections": {
+      "request": {
+        "label": "request corrections",
+        "hint": "Ask Claude to change a pull request it opened."
+      }
+    },
+    "release": {
+      "merge": {
+        "label": "merge pull requests",
+        "hint": "Merge a pull request from Releases: that's how a change reaches production."
+      }
+    },
+    "prs": {
+      "adopt": {
+        "label": "adopt pull requests opened by others",
+        "hint": "Let Claude take over a pull request someone else opened."
+      }
+    },
+    "agent_sessions": {
+      "intervene": {
+        "label": "step into Claude's sessions",
+        "hint": "Write to Claude, or stop it, while it works."
+      }
+    },
+    "backlog": {
+      "view_all": {
+        "label": "see the whole backlog",
+        "hint": "See every backlog item, not only their own requests."
+      },
+      "create": {
+        "label": "add to the backlog",
+        "hint": "Open requests in the backlog."
+      },
+      "edit": {
+        "label": "edit the backlog",
+        "hint": "Change, merge, order and close backlog items."
+      }
+    },
+    "decisions": {
+      "record": {
+        "label": "record decisions",
+        "hint": "Write a decision into the project's decision log."
+      }
+    },
+    "docs": {
+      "view": {
+        "label": "read the docs",
+        "hint": "Read the project's docs."
+      },
+      "edit": {
+        "label": "edit the docs",
+        "hint": "Write and change docs pages."
+      },
+      "generate": {
+        "label": "generate the docs",
+        "hint": "Have Claude write or update the docs from the repositories."
+      }
+    },
+    "repos": {
+      "view": {
+        "label": "see code, graph and pull requests",
+        "hint": "Read the code of the project's repositories."
+      },
+      "manage": {
+        "label": "manage repositories",
+        "hint": "Connect and disconnect the project's repositories."
+      }
+    },
+    "environments": {
+      "manage": {
+        "label": "manage environments",
+        "hint": "Change the project's environments and their variables."
+      }
+    },
+    "widget": {
+      "manage": {
+        "label": "manage the support widget",
+        "hint": "Set up the customer support widget for the project's site."
+      }
+    },
+    "planning": {
+      "others": {
+        "label": "plan other people's tasks",
+        "hint": "Move other people's tasks in Planning."
+      }
+    },
+    "drive": {
+      "upload": {
+        "label": "upload to the drive",
+        "hint": "Add files to the project's drive."
+      },
+      "manage": {
+        "label": "manage the drive",
+        "hint": "Rename, move and delete any file in the drive."
+      },
+      "history": {
+        "label": "see who opened drive files",
+        "hint": "See the history of who opened each file."
+      }
+    },
+    "support": {
+      "reply": {
+        "label": "reply to customers",
+        "hint": "Answer customers' conversations in Support."
+      }
+    },
+    "department": {
+      "home": {
+        "manage": {
+          "label": "manage the department Home",
+          "hint": "Choose what the department's Home shows."
+        }
+      }
     }
   }
 }

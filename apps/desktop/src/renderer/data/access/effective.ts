@@ -19,6 +19,9 @@ export type PermissionSource =
 const ACTIVITY_PERMISSION = "people.activity.view";
 const ACTIVITY_ROLE_KEY = "project_lead";
 
+/** R-E2: un ruolo dà «vedere l'attività delle persone» solo se è Project Lead. */
+export const roleGivesActivityView = (role: RoleDef): boolean => role.key === ACTIVITY_ROLE_KEY;
+
 const roleById = (s: AccessState, id: string): RoleDef | undefined =>
   s.roles.find((r) => r.id === id);
 
@@ -114,7 +117,7 @@ function instancePermissions(s: AccessState, personId: string): Map<string, Perm
   const lead = s.memberships
     .filter((m) => m.personId === personId)
     .map((m) => roleById(s, m.roleId))
-    .find((r) => r?.key === ACTIVITY_ROLE_KEY);
+    .find((r) => r !== undefined && roleGivesActivityView(r));
   if (lead) add(map, ACTIVITY_PERMISSION, { kind: "role", roleId: lead.id });
   if (fullAdmin) {
     // Come sul server (`effectiveInstancePermissions`): `instance.full_admin`

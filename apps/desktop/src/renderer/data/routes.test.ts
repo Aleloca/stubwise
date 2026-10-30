@@ -36,6 +36,10 @@ describe("route grammar", () => {
     expect(isAppRoute("#/admin/people?depts=dep-development,dep-sales&statuses=active")).toBe(true);
     expect(isAppRoute("#/admin/people?statuses=gone")).toBe(false);
     expect(isAppRoute("#/admin/people?invite=1")).toBe(true);
+    // Task 9: la pagina di un ruolo e il pannello di un reparto (solo su Departments).
+    expect(isAppRoute("#/admin/roles/role-developer")).toBe(true);
+    expect(isAppRoute("#/admin/departments?department=dep-sales")).toBe(true);
+    expect(isAppRoute("#/admin/people?department=dep-sales")).toBe(false);
     expect(isAppRoute("#/home?find=marco")).toBe(false);
   });
 

@@ -58,6 +58,11 @@ const accessOf = (s: AccessState, id: string) => s.departments.find((d) => d.dep
 const departmentOf = (id: string) => state.departments.find((d) => d.id === id);
 const label = (d: Department) => ({ type: "department", id: d.id, label: d.name });
 
+/** I progetti dove arriva un permesso del reparto: quelli dei suoi membri. */
+const reachedBy = (memberIds: readonly string[]): string[] => [
+  ...new Set(memberIds.flatMap(projectsOf)),
+];
+
 /** Il reparto su cui agire: con il permesso (o `forbidden`), esistente (o `not_found`). */
 function managed(me: string, id: string): { department: Department } | { refusal: AdminRefusal } {
   if (!canI(me, DEPARTMENTS_MANAGE)) return { refusal: refuse.forbidden() };
@@ -73,6 +78,7 @@ export async function listDepartments(): Promise<DepartmentView[]> {
   return state.departments.map((d) => {
     const a = accessOf(accessState(), d.id);
     const perms = a?.projectPermissions ?? [];
+    const reached = reachedBy(a?.memberIds ?? []);
     const candidates = accessState().people.filter(
       (p) => p.status === "active" && isHumanId(p.personId) && !a?.memberIds.includes(p.personId),
     );
@@ -89,6 +95,9 @@ export async function listDepartments(): Promise<DepartmentView[]> {
       missingToAdd: Object.fromEntries(
         candidates.map((p) => [p.personId, missingIn(me, projectsOf(p.personId), perms)]),
       ),
+      // La stessa regola di `setDepartmentPermissions` su ciò che si aggiunge.
+      reach: reached.length > 0 ? "projects" : "anywhere",
+      notGivable: missingIn(me, reached, ALL_PROJECT_PERMISSIONS),
     };
   });
 }
@@ -265,7 +274,7 @@ export async function setDepartmentPermissions(
   // Prima l'escalation: chi mette `instance.full_admin` in un reparto senza
   // averlo si sente dire questo, non «non è un permesso di progetto».
   // Un permesso nuovo arriva in ogni progetto di cui è membro una persona del reparto.
-  const reached = current.memberIds.flatMap(projectsOf);
+  const reached = reachedBy(current.memberIds);
   const escalation = escalationIn(me, reached, added);
   if (escalation) return escalation;
   if (next.some((p) => !ALL_PROJECT_PERMISSIONS.includes(p))) return refuse.invalid("permission");

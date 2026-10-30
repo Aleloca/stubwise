@@ -179,11 +179,19 @@ describe("router", () => {
     expect(screen.queryByText(task.title)).toBeNull();
   });
 
-  it("/admin/roles: il full admin vede il segnaposto di Roles", async () => {
+  it("/admin/roles: il full admin vede Roles", async () => {
     renderAt("/admin/roles", "p-roberta");
     expect(await screen.findByRole("heading", { level: 1, name: "Roles" })).toBeInTheDocument();
-    expect(
-      screen.getByText("Instance and project roles, with their permissions, will be managed here."),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("list", { name: "Project roles" })).toBeInTheDocument();
+  });
+
+  it("/admin/roles/<id>: la pagina di un ruolo", async () => {
+    renderAt("/admin/roles/role-developer", "p-roberta");
+    expect(await screen.findByRole("heading", { level: 1, name: "Developer" })).toBeInTheDocument();
+  });
+
+  it("/admin/roles/<id> inesistente: «not found»", async () => {
+    renderAt("/admin/roles/role-nope", "p-roberta");
+    expect(await screen.findByRole("heading", { level: 1, name: "Page not found" })).toBeInTheDocument();
   });
 });

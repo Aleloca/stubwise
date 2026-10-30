@@ -23,7 +23,7 @@ import { REAUTH_REQUIRED, markReauthenticated } from "../auth/reauth";
 import { changeTypes } from "../changelog/index";
 import { CLAUDE_ID, PEOPLE, SEED_DEPARTMENT_IDS } from "../seed/people";
 import { setSessionPersonId } from "../session";
-import { state, type ApiFnName } from "../store";
+import { state, visibleProjectIds, type ApiFnName } from "../store";
 import {
   VIEW_AS_PERSONAS,
   can,
@@ -1042,6 +1042,57 @@ describe("Roles", () => {
     expect(snapshot()).toBe(before);
   });
 
+  it("Task 9: ciò che chi guarda non può aggiungere a un ruolo, dove il ruolo vale", async () => {
+    giveInstance("p-marco", "roles.manage");
+    as("p-marco");
+    const roles = await admin.listRoles();
+    const byKey = (key: string) => roles.find((r) => r.key === key)!;
+    // Un ruolo d'istanza: i permessi d'istanza di Marco.
+    expect(byKey("au-1").reach).toBe("instance");
+    expect(byKey("au-1").notGivable).toContain("usage.view");
+    expect(byKey("au-1").notGivable).not.toContain("users.view_all");
+    // Developer è assegnato: i progetti dove vale.
+    expect(byKey("developer").reach).toBe("projects");
+    // Developer è assegnato anche in progetti dove Marco non è membro: lì non ha niente.
+    expect(byKey("developer").notGivable).toContain("runs.start");
+    // Release manager non è di nessuno: basta averlo in un progetto.
+    expect(byKey("rm-1").reach).toBe("anywhere");
+    // Copiare un ruolo è crearne uno nuovo: la regola di `createRole`.
+    expect(byKey("developer").copyMissing).toEqual([]);
+    expect(byKey("project_lead").copyMissing).toContain("plans.approve");
+    expect(byKey("au-1").copyMissing).toEqual(["usage.view", "changelog.view"]);
+    // Chi può eliminare cosa: preset, in uso, libero.
+    expect(byKey("developer").deleteBlock).toBe("preset");
+    expect(byKey("rm-1").deleteBlock).toBeNull();
+    expect(byKey("au-1").deleteBlock).toBeNull();
+    writeAccess((s) => {
+      s.memberships.find((m) => m.personId === "p-laura" && m.projectId === ACQ)!.roleId =
+        roleIdOf("rm-1");
+    });
+    expect((await admin.listRoles()).find((r) => r.key === "rm-1")!.deleteBlock).toBe("in_use");
+    // R-E2: solo Project Lead dà «vedere l'attività delle persone».
+    expect(byKey("project_lead").givesActivityView).toBe(true);
+    expect(byKey("rm-1").givesActivityView).toBe(false);
+    // Chi guarda ha il ruolo: User sì, Admin no.
+    expect(byKey("user").viewerHolds).toBe(true);
+    expect(byKey("admin").viewerHolds).toBe(false);
+    expect(byKey("developer").viewerHolds).toBe(true);
+  });
+
+  it("Task 9: un ruolo in uso solo in progetti che chi guarda non vede resta «in uso»", async () => {
+    // Release manager dato a qualcuno in un progetto che Sara non vede: non
+    // entra nei suoi conteggi, ma il ruolo non si elimina lo stesso.
+    const hidden = state.projects.find((p) => !visibleProjectIds("p-sara").has(p.id))!;
+    writeAccess((s) => {
+      s.memberships.find((m) => m.projectId === hidden.id)!.roleId = roleIdOf("rm-1");
+    });
+    giveInstance("p-sara", "roles.manage");
+    as("p-sara");
+    const rm = (await admin.listRoles()).find((r) => r.key === "rm-1")!;
+    expect(rm.peopleCount).toBe(0);
+    expect(rm.deleteBlock).toBe("in_use");
+  });
+
   it("i conteggi rispettano R-G5: Sara conta solo le appartenenze dei suoi progetti", async () => {
     const all = (await admin.listRoles()).find((r) => r.id === roleIdOf("developer"))!;
     as("p-sara");
@@ -1128,6 +1179,33 @@ describe("Departments", () => {
       expect(state.tasksById.get(id)!.departmentId).toBe(created.departmentId);
     expect(PEOPLE.find((p) => p.id === "p-matteo")!.departmentIds).toEqual([]);
     expect((await listDepartmentNames()).map((d) => d.id)).not.toContain("dep-sales");
+  });
+
+  it("Task 9: i permessi che chi guarda non può mettere nel reparto, e dove arrivano", async () => {
+    // Marco (Developer) gestisce i reparti.
+    giveInstance("p-marco", "departments.manage");
+    as("p-marco");
+    // Un reparto nuovo, senza persone: basta avere il permesso in un progetto.
+    const legal = (await admin.createDepartment({ name: "Legal", colorToken: "--dept-6" })) as {
+      departmentId: string;
+    };
+    const empty = (await admin.listDepartments()).find((d) => d.id === legal.departmentId)!;
+    expect(empty.reach).toBe("anywhere");
+    expect(empty.notGivable).toContain("plans.approve");
+    expect(empty.notGivable).not.toContain("tickets.create");
+    // Con Marco dentro, un permesso nuovo arriva nei suoi progetti: lì ha tickets.create.
+    writeAccess((s) => {
+      s.departments.find((d) => d.departmentId === legal.departmentId)!.memberIds = ["p-marco"];
+    });
+    const withMarco = (await admin.listDepartments()).find((d) => d.id === legal.departmentId)!;
+    expect(withMarco.reach).toBe("projects");
+    expect(withMarco.notGivable).toContain("release.merge");
+    expect(withMarco.notGivable).not.toContain("tickets.create");
+    // Development ha membri in progetti dove Marco non è: lì non ha niente.
+    const dev = (await admin.listDepartments()).find((d) => d.id === "dep-development")!;
+    expect(dev.notGivable).toContain("tickets.create");
+    as("p-roberta");
+    expect((await admin.listDepartments()).every((d) => d.notGivable.length === 0)).toBe(true);
   });
 
   it("un permesso che non è di progetto non va in un reparto", async () => {

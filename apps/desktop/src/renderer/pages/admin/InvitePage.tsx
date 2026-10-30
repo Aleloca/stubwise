@@ -125,12 +125,18 @@ function Frame({ children }: { children: ReactNode }) {
   );
 }
 
-/** «← People»: torna all'elenco (coi filtri dell'indirizzo di prima, se si arriva da lì). */
-export function BackToPeople({ label }: { label: string }) {
+/** «← People» (o «← Roles»): torna all'elenco della voce (coi filtri dell'indirizzo di prima, se si arriva da lì). */
+export function BackToPeople({
+  label,
+  section = "people",
+}: {
+  label: string;
+  section?: "people" | "roles";
+}) {
   return (
     <Link
       to="/admin/$section"
-      params={{ section: "people" }}
+      params={{ section }}
       className="-ml-1.5 inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-sm font-medium text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink"
     >
       <svg

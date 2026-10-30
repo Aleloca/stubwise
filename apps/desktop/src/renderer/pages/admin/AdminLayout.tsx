@@ -8,9 +8,12 @@ import { useViewer } from "../../data/viewer";
 import { ONE_LINE, columnItemClass } from "../../layout/ProjectColumn";
 import { NotFound } from "../NotFound";
 import { Placeholder } from "../Placeholder";
+import { DepartmentsPage } from "./DepartmentsPage";
 import { InvitePage } from "./InvitePage";
 import { PeoplePage } from "./PeoplePage";
 import { PersonDetail } from "./PersonDetail";
+import { RoleEditor } from "./RoleEditor";
+import { RolesPage } from "./RolesPage";
 
 // L'intelaiatura dell'Amministrazione (area 9a, shape admin-people.md §3):
 // la colonna con le voci che chi guarda vede (`adminSections`), raggruppate
@@ -93,8 +96,17 @@ export function AdminSectionPage({ section }: { section: string }) {
 
 function SectionBody({ section }: { section: AdminSection }) {
   if (section === "people") return <PeoplePage />;
-  // Le altre voci le costruiscono i Task 9 (Departments, Roles) e 11 (Change log, Who can?).
+  if (section === "departments") return <DepartmentsPage />;
+  if (section === "roles") return <RolesPage />;
+  // Le altre voci le costruisce il Task 11 (Change log, Who can?).
   return <Placeholder titleKey={`admin.sections.${section}`} bodyKey={`admin.placeholder.${section}`} />;
+}
+
+/** La pagina di un ruolo (`/admin/roles/$roleId`): dentro Roles, con `roles.manage`. */
+export function AdminRolePage({ roleId }: { roleId: string }) {
+  const { viewer } = useViewer();
+  if (!canSeeAdminSection(viewer, "roles")) return <NotFound />;
+  return <RoleEditor key={`${viewer.personId}:${roleId}`} roleId={roleId} />;
 }
 
 /** La pagina di una persona (`/admin/people/$personId`): dentro People, che legge chiunque. */

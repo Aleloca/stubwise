@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import type { AdminRefusal, SourceView } from "../../data/queries";
+import type { AdminRefusal, GiveReach, SourceView } from "../../data/queries";
 import { formatDate } from "../../notifications/time";
+import type { RowContext } from "./PermissionTable";
 
 // I pezzi comuni dell'Amministrazione (shape admin-people.md): i permessi e
 // i rifiuti in parole, l'avatar, il campione del reparto. La pagina è quella
@@ -11,10 +12,65 @@ import { formatDate } from "../../notifications/time";
 /** Quanti permessi mancanti si nominano prima di «and 2 more». */
 const MISSING_SHOWN = 3;
 
+// Le frasi dei permessi hanno UNA fonte, `permissions.<chiave>.label|hint`
+// (en/it): il nome in parole, minuscolo perché si compone nelle frasi («You
+// can't give approve plans…»), e la frase di ciò che permette di fare. La
+// tabella dei permessi mette la maiuscola al nome; le chiavi tecniche non
+// compaiono mai, tranne nel `title` della riga [RM 1].
+
 /** Un permesso in parole («approve plans»), al suo posto il nome tecnico se manca la frase. */
 export function usePermissionWords() {
   const { t } = useTranslation();
-  return (permission: string) => t(`access.perm.${permission}`, { defaultValue: permission });
+  return (permission: string) =>
+    t(`permissions.${permission}.label`, { defaultValue: permission });
+}
+
+/** Ciò che un permesso permette di fare («Approve or reject the plan Claude writes…»). */
+export function usePermissionHint() {
+  const { t } = useTranslation();
+  return (permission: string) => t(`permissions.${permission}.hint`, { defaultValue: "" });
+}
+
+/**
+ * Il contesto di un permesso spento per escalation, nella tabella: a destra
+ * «You don't have this», e la frase lunga che dice DOVE manca, da `reach` del
+ * livello dati (senza nominare progetti che chi guarda non vede).
+ */
+export function useGiveBlock() {
+  const { t } = useTranslation();
+  return (reach: GiveReach, what: "role" | "department"): RowContext => ({
+    short: t("admin.permissionTable.blocked"),
+    long: t(`admin.permissionTable.blockedWhy.${reach === "projects" ? `projects_${what}` : reach}`),
+    locked: true,
+  });
+}
+
+/**
+ * La barra di salvataggio agganciata in fondo all'area di lavoro (o al
+ * pannello): fondo `surface`, filetto sopra, entra dal basso.
+ */
+export function SaveBar({
+  children,
+  width,
+  inset = "px-8",
+}: {
+  children: ReactNode;
+  width?: number;
+  /** Il margine ai lati: quello della pagina (32 px) o del pannello. */
+  inset?: string;
+}) {
+  return (
+    <div className={`toast-enter sticky bottom-0 z-10 border-t border-rule bg-surface py-3 ${inset}`}>
+      <div className="flex flex-col gap-2" style={width ? { maxWidth: width } : undefined}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/** La prima lettera maiuscola, nella lingua: il nome di un permesso come titolo di riga. */
+export function capitalized(text: string, language: string): string {
+  return text.charAt(0).toLocaleUpperCase(language) + text.slice(1);
 }
 
 /** «view usage», «view usage and approve plans», «a, b, c and 2 more». */

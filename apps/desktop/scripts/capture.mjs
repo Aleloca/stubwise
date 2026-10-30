@@ -1329,6 +1329,45 @@ async function main() {
       }
     }
 
+    // Area 9a, Task 9: Departments (elenco e pannello del reparto) e Roles
+    // (elenco e pagina di un ruolo con la barra di salvataggio). Ogni scena a
+    // 1440 e 1024, chiaro e scuro, en e it.
+    const AREA9A_DEPTS_ROLES = [
+      ["departments", "list", "Roberta", "/admin/departments", null],
+      ["departments", "panel", "Roberta", "/admin/departments?department=dep-development", async (p) => {
+        await p.locator("[data-detail-panel]").waitFor();
+      }],
+      ["roles", "list", "Roberta", "/admin/roles", null],
+      ["roles", "editor", "Roberta", "/admin/roles/role-rm-1", async (p) => {
+        await p.getByText(/^(Request corrections|Chiedere correzioni)$/).click();
+        await p.getByRole("button", { name: /^(Save role|Salva il ruolo)$/ }).waitFor();
+        // La testata in vista: il clic sulla casella aveva fatto scorrere l'area.
+        await p.evaluate(() => {
+          for (const el of document.querySelectorAll("*")) if (el.scrollTop > 0) el.scrollTop = 0;
+        });
+      }],
+    ];
+    for (const [area, name, persona, hash, steps] of AREA9A_DEPTS_ROLES) {
+      const scene = `a9a-admin-${area}-${name}`;
+      if (only && !only.test(scene)) continue;
+      const variants = [];
+      for (const [viewport, size] of [[WIDE, ""], [NARROW, "-narrow"]]) {
+        for (const scheme of ["light", "dark"]) {
+          for (const lang of ["en", "it"]) variants.push([scheme, lang, viewport, `${scene}${size}-${scheme}-${lang}.png`]);
+        }
+      }
+      for (const [scheme, lang, viewport, file] of variants) {
+        const { page, context } = await open(scheme, viewport, hash, { lang, persona, viaHome: true });
+        await page.getByRole("heading", { level: 1 }).first().waitFor();
+        await page.waitForTimeout(300);
+        if (steps) await steps(page);
+        await page.mouse.move(2, 2);
+        await page.waitForTimeout(500);
+        await shot(page, file);
+        await context.close();
+      }
+    }
+
     if (only) return; // revisione mirata: salta il resto
 
     for (const scheme of ["light", "dark"]) {

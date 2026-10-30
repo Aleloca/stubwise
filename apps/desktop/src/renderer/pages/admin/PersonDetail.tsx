@@ -13,6 +13,8 @@ import {
   useUnlinkGitIdentity,
   type PersonDetail as Person,
 } from "../../data/queries";
+import { canSeeAdminSection } from "../../data/adminSections";
+import { useViewer } from "../../data/viewer";
 import { useReauth } from "../../layout/useReauth";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { Menu, itemClass } from "../../tasks-ui/Menu";
@@ -389,9 +391,14 @@ function ProjectsPart({ person }: { person: Person }) {
   );
 }
 
-/** 3. I reparti, col campione del colore e la Home dove la gestisce. */
+/**
+ * 3. I reparti, col campione del colore e la Home dove la gestisce. Con
+ * `departments.manage` ogni reparto ha **Edit**, che apre il suo pannello.
+ */
 function DepartmentsPart({ person }: { person: Person }) {
   const { t } = useTranslation();
+  const { viewer } = useViewer();
+  const edits = canSeeAdminSection(viewer, "departments");
   return (
     <Part title={t("admin.person.departments.title")}>
       {person.departments.length === 0 ? (
@@ -406,6 +413,17 @@ function DepartmentsPart({ person }: { person: Person }) {
                 <span className="text-sm text-ink-muted">
                   {t("admin.person.departments.managesHome")}
                 </span>
+              )}
+              {edits && (
+                <Link
+                  to="/admin/$section"
+                  params={{ section: "departments" }}
+                  search={{ department: d.id } as never}
+                  aria-label={t("admin.person.departments.editLabel", { name: d.name })}
+                  className={`${rowButton} ml-auto`}
+                >
+                  {t("admin.person.departments.edit")}
+                </Link>
               )}
             </li>
           ))}

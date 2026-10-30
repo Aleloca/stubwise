@@ -33,6 +33,7 @@ import {
   AdminSectionPage,
   AdminInvitePage,
   AdminPersonPage,
+  AdminRolePage,
 } from "./pages/admin/AdminLayout";
 import type { FilterCriteria } from "./data/types";
 import { parseCriteria } from "./domain/filters";
@@ -171,6 +172,8 @@ export interface AppSearch {
   range?: string;
   check?: string;
   section?: string;
+  /** Departments (area 9a): il pannello del reparto aperto. */
+  department?: string;
   /** People (area 9a): i filtri dell'elenco e «Invite someone» (`data/routes.ts`). */
   find?: string;
   depts?: string;
@@ -209,6 +212,7 @@ const SEARCH_KEYS = [
   "range",
   "check",
   "section",
+  "department",
   ...PEOPLE_SEARCH_KEYS,
 ] as const;
 
@@ -247,6 +251,7 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
       key === "series" ||
       key === "brief" ||
       key === "dept" ||
+      key === "department" ||
       key === "thread" ||
       key === "message" ||
       key === "pr" ||
@@ -990,6 +995,18 @@ const adminInviteRoute = createRoute({
   component: AdminInviteRoutePage,
 });
 
+/** La pagina di un ruolo (`/admin/roles/$roleId`), dentro Roles. */
+function AdminRoleRoutePage() {
+  const { roleId } = adminRoleRoute.useParams();
+  return <AdminRolePage roleId={roleId} />;
+}
+
+const adminRoleRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/roles/$roleId",
+  component: AdminRoleRoutePage,
+});
+
 const automationSourcesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/automations/sources",
@@ -1052,6 +1069,7 @@ const routeTree = rootRoute.addChildren([
   adminSectionRoute,
   adminPersonRoute,
   adminInviteRoute,
+  adminRoleRoute,
   automationSourcesRoute,
   automationRoute,
   automationRunRoute,

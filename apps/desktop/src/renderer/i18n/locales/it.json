@@ -8085,163 +8085,6 @@
       "invalidBody": "Controlla di averlo copiato intero, o chiedine uno nuovo all'amministratore."
     }
   },
-  "access": {
-    "perm": {
-      "instance": {
-        "full_admin": "fare tutto (amministratore completo)",
-        "status": {
-          "view": "vedere lo stato dell'istanza"
-        }
-      },
-      "roles": {
-        "manage": "gestire i ruoli"
-      },
-      "settings": {
-        "manage": "cambiare le impostazioni dell'istanza"
-      },
-      "users": {
-        "view_all": "vedere tutte le persone dell'istanza",
-        "invite": "invitare persone",
-        "manage": "gestire le persone"
-      },
-      "projects": {
-        "create": "creare progetti"
-      },
-      "ai_providers": {
-        "manage": "gestire i provider AI"
-      },
-      "git_accounts": {
-        "view": "vedere gli account git",
-        "manage": "gestire gli account git"
-      },
-      "plugins": {
-        "manage": "gestire i plugin"
-      },
-      "integrations": {
-        "manage": "gestire le integrazioni"
-      },
-      "mail_admission": {
-        "view": "vedere l'ammissione della posta"
-      },
-      "monitor": {
-        "view": "vedere il monitoraggio",
-        "manage": "gestire il monitoraggio"
-      },
-      "usage": {
-        "view": "vedere i consumi"
-      },
-      "claude": {
-        "public": {
-          "view": "vedere le conversazioni pubbliche con Claude"
-        }
-      },
-      "people": {
-        "activity": {
-          "view": "vedere l'attività delle persone"
-        }
-      },
-      "chat": {
-        "general": {
-          "create": "creare canali generali",
-          "manage": "gestire i canali generali"
-        },
-        "channels": {
-          "create": "creare canali di progetto",
-          "manage": "gestire i canali di progetto"
-        }
-      },
-      "automations": {
-        "manage": "gestire le automazioni"
-      },
-      "servers": {
-        "ssh": {
-          "manage": "gestire gli accessi SSH"
-        },
-        "operate": "avviare una correzione sul server"
-      },
-      "departments": {
-        "manage": "gestire i reparti"
-      },
-      "changelog": {
-        "view": "leggere il registro delle modifiche"
-      },
-      "project": {
-        "settings": {
-          "manage": "cambiare le impostazioni del progetto"
-        },
-        "members": {
-          "manage": "gestire i membri"
-        },
-        "usage": {
-          "view": "vedere i consumi del progetto"
-        }
-      },
-      "tickets": {
-        "view_all": "vedere tutte le task",
-        "create": "creare task",
-        "edit": "modificare le task",
-        "comment": "commentare le task",
-        "moderate": "eliminare i commenti degli altri"
-      },
-      "runs": {
-        "start": "avviare Claude"
-      },
-      "plans": {
-        "approve": "approvare i piani"
-      },
-      "corrections": {
-        "request": "chiedere modifiche a una pull request"
-      },
-      "release": {
-        "merge": "rilasciare in produzione"
-      },
-      "prs": {
-        "adopt": "adottare la pull request di un altro"
-      },
-      "agent_sessions": {
-        "intervene": "intervenire nelle sessioni di Claude"
-      },
-      "backlog": {
-        "view_all": "vedere tutto il backlog",
-        "create": "aggiungere al backlog",
-        "edit": "modificare il backlog"
-      },
-      "decisions": {
-        "record": "registrare le decisioni"
-      },
-      "docs": {
-        "view": "leggere i docs",
-        "edit": "modificare i docs",
-        "generate": "generare i docs"
-      },
-      "repos": {
-        "view": "vedere i repository",
-        "manage": "gestire i repository"
-      },
-      "environments": {
-        "manage": "gestire gli ambienti"
-      },
-      "widget": {
-        "manage": "gestire il widget di supporto"
-      },
-      "planning": {
-        "others": "pianificare le task degli altri"
-      },
-      "drive": {
-        "upload": "caricare nel drive",
-        "manage": "gestire il drive",
-        "history": "vedere chi ha aperto i file del drive"
-      },
-      "support": {
-        "reply": "rispondere ai clienti"
-      },
-      "department": {
-        "home": {
-          "manage": "gestire la Home del reparto"
-        }
-      }
-    }
-  },
   "admin": {
     "columnLabel": "Sezioni dell'amministrazione",
     "groups": {
@@ -8256,8 +8099,6 @@
       "who-can": "Chi può farlo?"
     },
     "placeholder": {
-      "departments": "Qui si gestiranno i reparti, chi ne fa parte e i permessi che danno.",
-      "roles": "Qui si gestiranno i ruoli d'istanza e di progetto, con i loro permessi.",
       "changelog": "Qui compariranno tutte le modifiche a persone, ruoli e accessi.",
       "who-can": "Chiedi chi può fare una cosa, in quale progetto, e perché."
     },
@@ -8333,7 +8174,9 @@
       "departments": {
         "title": "Reparti",
         "empty": "In nessun reparto.",
-        "managesHome": "gestisce la Home del reparto"
+        "managesHome": "gestisce la Home del reparto",
+        "edit": "Modifica",
+        "editLabel": "Modifica {{name}}"
       },
       "identities": {
         "title": "Identità collegate",
@@ -8459,6 +8302,534 @@
       "reauthCancelled": "Non è cambiato niente.",
       "failed": "Non è stato possibile salvare la modifica. Riprova.",
       "identity": "Scrivi un'email git, o scegli un autore osservato."
+    },
+    "permissionTable": {
+      "find": "Cerca un permesso",
+      "findLabel": "Cerca un permesso per nome o descrizione",
+      "onlyOn": "Solo quelli attivi",
+      "noMatch": "Nessun permesso corrisponde.",
+      "count": "{{on}} di {{total}}",
+      "blocked": "Non ce l'hai",
+      "blockedWhy": {
+        "instance": "Non hai questo permesso, quindi non puoi darlo.",
+        "projects_role": "Non hai questo permesso in tutti i progetti dove il ruolo è usato, quindi non puoi darlo.",
+        "projects_department": "Non hai questo permesso in tutti i progetti delle persone del reparto, quindi non puoi darlo.",
+        "anywhere": "Non hai questo permesso in nessun progetto, quindi non puoi darlo."
+      }
+    },
+    "roles": {
+      "intro": "I ruoli decidono cosa possono fare le persone. Un ruolo d'istanza vale ovunque; un ruolo di progetto vale nei progetti di cui si è membri.",
+      "loadError": "Non è stato possibile caricare i ruoli.",
+      "claudeNote": "Claude non ha ruoli: lavora in ogni progetto, e non decide mai.",
+      "groups": {
+        "instance": "Ruoli d'istanza",
+        "project": "Ruoli di progetto"
+      },
+      "new": {
+        "instance": "Nuovo ruolo d'istanza",
+        "project": "Nuovo ruolo di progetto"
+      },
+      "preset": "Preimpostato",
+      "permissions_one": "{{count}} permesso",
+      "permissions_other": "{{count}} permessi",
+      "people_one": "{{count}} persona",
+      "people_other": "{{count}} persone",
+      "memberships_one": "{{count}} appartenenza",
+      "memberships_other": "{{count}} appartenenze",
+      "holdersLabel": "Chi ha {{role}}",
+      "more": "Altre azioni per {{role}}",
+      "duplicate": "Duplica",
+      "duplicateAction": "duplicare {{role}}",
+      "delete": "Elimina…",
+      "presetNoDelete": "I ruoli preimpostati non si eliminano.",
+      "inUse": {
+        "title": "{{role}} è ancora in uso",
+        "body": "Dai prima un altro ruolo a queste persone.",
+        "hidden": "È usato in progetti che non vedi.",
+        "close": "Chiudi"
+      },
+      "deleteTitle": "Eliminare {{role}}?",
+      "deleteBody": "Nessuno ce l'ha. Non si potrà recuperare.",
+      "deleteConfirm": "Elimina",
+      "deleteSure": "Elimina — sicuro?",
+      "deleteAction": "eliminare {{role}}",
+      "deleted": "Ruolo eliminato.",
+      "cancel": "Annulla",
+      "newDialog": {
+        "name": "Nome",
+        "startFrom": "Parti da",
+        "empty": "Vuoto",
+        "create": "Crea",
+        "action": "creare un ruolo",
+        "discard": "Lasciar perdere questo ruolo?",
+        "keep": "Continua a scrivere",
+        "discardAction": "Lascia perdere"
+      },
+      "nameErrors": {
+        "empty": "Dai un nome al ruolo.",
+        "taken": "C'è già un ruolo con questo nome."
+      }
+    },
+    "role": {
+      "back": "Ruoli",
+      "loadError": "Non è stato possibile caricare questo ruolo.",
+      "scope": {
+        "instance": "Ruolo d'istanza",
+        "project": "Ruolo di progetto"
+      },
+      "presetWord": "preimpostato",
+      "name": "Nome",
+      "presetNote": "Un ruolo preimpostato si rinomina e si modifica, ma non si elimina.",
+      "claudeNote": "I ruoli non valgono mai per Claude. Claude lavora ma non decide, qualunque cosa sia spuntata qui.",
+      "activityYes": "Project Lead permette anche di vedere l'attività di tutti, in tutti i progetti. Viene dal ruolo, non da una casella qui.",
+      "activityNo": "Questo ruolo non permette di vedere l'attività di tutti: lo fa solo Project Lead.",
+      "permissionsTitle": "Permessi",
+      "tableLabel": "Permessi di {{role}}",
+      "changes_one": "{{count}} modifica",
+      "changes_other": "{{count}} modifiche",
+      "affects_one": "cambia cosa può fare {{count}} persona",
+      "affects_other": "cambia cosa possono fare {{count}} persone",
+      "who": "Chi?",
+      "discard": "Annulla le modifiche",
+      "keep": "Continua a modificare",
+      "save": "Salva il ruolo",
+      "saved": "Salvato",
+      "saveAction": "salvare {{role}}",
+      "saveFailed": "Non è stato possibile salvare. Riprova.",
+      "leave_one": "Lasciar perdere {{count}} modifica?",
+      "leave_other": "Lasciar perdere {{count}} modifiche?",
+      "youLose": "Hai questo ruolo: salvando perderai {{missing}}, a meno che non ti venga da altro.",
+      "refusal": {
+        "escalation": {
+          "instance": "Non puoi salvare questo ruolo: includerebbe {{missing}}, che non hai.",
+          "projects": "Non puoi salvare questo ruolo: includerebbe {{missing}}, che non hai in tutti i progetti dove è usato.",
+          "anywhere": "Non puoi salvare questo ruolo: includerebbe {{missing}}, che non hai in nessun progetto."
+        },
+        "lastFullAdmin": "Salvando, l'istanza resterebbe senza un amministratore completo.",
+        "lastMembersManager": "Salvando, un progetto resterebbe senza nessuno che ne gestisca i membri."
+      }
+    },
+    "departments": {
+      "intro": "I reparti raggruppano le persone fra i progetti. Un reparto può anche dare permessi in più alle sue persone — solo nei progetti di cui sono già membri.",
+      "new": "Nuovo reparto",
+      "loadError": "Non è stato possibile caricare i reparti.",
+      "empty": "Ancora nessun reparto. I reparti raggruppano le persone e possono dar loro permessi in più.",
+      "listLabel": "Reparti",
+      "people_one": "{{count}} persona",
+      "people_other": "{{count}} persone",
+      "home": "Home: {{names}}",
+      "noHome": "Nessuno gestisce la Home",
+      "gives": "Dà: {{permissions}}",
+      "givesNothing": "Non dà permessi in più",
+      "name": "Nome",
+      "create": "Crea",
+      "cancel": "Annulla",
+      "color": {
+        "label": "Colore",
+        "name": "Colore {{n}}, {{hue}}",
+        "usedBy": "usato da",
+        "hues": {
+          "1": "giallo-verde",
+          "2": "blu",
+          "3": "verde",
+          "4": "rosso-arancio",
+          "5": "viola",
+          "6": "ciano",
+          "7": "magenta",
+          "8": "ardesia"
+        }
+      },
+      "errors": {
+        "name": "Dai un nome al reparto.",
+        "nameTaken": "C'è già un reparto con questo nome."
+      }
+    },
+    "department": {
+      "panelLabel": "Reparto {{name}}",
+      "close": "Chiudi il reparto",
+      "people": {
+        "title": "Persone",
+        "empty": "Ancora nessuno in questo reparto.",
+        "listLabel": "Persone di {{name}}",
+        "managesHome": "Gestisce la Home",
+        "managesHomeOf": "{{name}} gestisce la Home",
+        "remove": "Togli",
+        "removeLabel": "Togli {{name}}",
+        "add": "Aggiungi persone",
+        "find": "Cerca una persona…",
+        "findLabel": "Cerca una persona da aggiungere",
+        "done": "Fatto",
+        "candidates": "Persone che puoi aggiungere",
+        "noOne": "Nessun altro da aggiungere.",
+        "cantAdd": "{{name}} dà {{missing}}, che non hai nei suoi progetti."
+      },
+      "permissions": {
+        "title": "Permessi in più nei progetti",
+        "intro": "Le persone di questo reparto li ricevono in ogni progetto di cui sono già membri. Non le aggiunge a nessun progetto.",
+        "tableLabel": "Permessi in più di {{name}}"
+      },
+      "changes_one": "{{count}} modifica",
+      "changes_other": "{{count}} modifiche",
+      "save": "Salva",
+      "discard": "Annulla le modifiche",
+      "keep": "Continua a modificare",
+      "discardAsk_one": "Lasciar perdere {{count}} modifica?",
+      "discardAsk_other": "Lasciar perdere {{count}} modifiche?",
+      "saved": "Salvato",
+      "saveAction": "modificare {{name}}",
+      "saveFailed": "Non è stato possibile salvare. Riprova.",
+      "refusal": {
+        "addPeople": "{{name}} dà {{missing}}, che non hai nei progetti delle persone che stai aggiungendo, quindi non puoi aggiungerle.",
+        "permissions": {
+          "projects": "Non puoi dare {{missing}}: non ce l'hai in tutti i progetti delle persone del reparto.",
+          "anywhere": "Non puoi dare {{missing}}: non ce l'hai in nessun progetto."
+        }
+      },
+      "delete": "Elimina il reparto…",
+      "deleteTitle": "Eliminare {{name}}?",
+      "deleteBody": "Le persone restano; solo, non sono più in {{name}}.",
+      "deleteConfirm": "Elimina",
+      "tasksMove_one": "{{count}} task ha {{name}} come reparto. Spostala in:",
+      "tasksMove_other": "{{count}} task hanno {{name}} come reparto. Spostale in:",
+      "moveTo": "Sposta le task in",
+      "pickDepartment": "Scegli un reparto",
+      "peopleStay": "Le persone restano; solo, non sono più in {{name}}.",
+      "moveAndDelete": "Sposta ed elimina",
+      "deleted": "{{name}} eliminato.",
+      "deletedMoved_one": "{{name}} eliminato. {{count}} task spostata in {{to}}.",
+      "deletedMoved_other": "{{name}} eliminato. {{count}} task spostate in {{to}}."
+    }
+  },
+  "permissions": {
+    "instance": {
+      "full_admin": {
+        "label": "amministrazione completa",
+        "hint": "Tutto, ovunque: ogni permesso dell'istanza e di ogni progetto."
+      },
+      "status": {
+        "view": {
+          "label": "vedere lo stato dell'istanza",
+          "hint": "Vedere se i servizi dell'istanza funzionano."
+        }
+      }
+    },
+    "roles": {
+      "manage": {
+        "label": "gestire i ruoli",
+        "hint": "Creare, modificare ed eliminare i ruoli d'istanza e di progetto."
+      }
+    },
+    "settings": {
+      "manage": {
+        "label": "gestire le impostazioni d'istanza",
+        "hint": "Cambiare come funziona questa istanza, per tutti."
+      }
+    },
+    "users": {
+      "view_all": {
+        "label": "vedere tutti nell'istanza",
+        "hint": "Vedere ogni persona dell'istanza, non solo quelle dei propri progetti."
+      },
+      "invite": {
+        "label": "invitare persone",
+        "hint": "Creare link d'invito per persone nuove."
+      },
+      "manage": {
+        "label": "gestire le persone",
+        "hint": "Cambiare i ruoli d'istanza, azzerare password e verifica in due passaggi, disattivare persone."
+      }
+    },
+    "projects": {
+      "create": {
+        "label": "creare progetti",
+        "hint": "Aprire progetti nuovi nell'istanza."
+      }
+    },
+    "ai_providers": {
+      "manage": {
+        "label": "gestire i provider AI",
+        "hint": "Collegare e configurare gli account con cui lavora Claude."
+      }
+    },
+    "git_accounts": {
+      "view": {
+        "label": "vedere gli account Git",
+        "hint": "Vedere quali account Git usa l'istanza."
+      },
+      "manage": {
+        "label": "gestire gli account Git",
+        "hint": "Aggiungere, cambiare e togliere gli account Git dei repository."
+      }
+    },
+    "plugins": {
+      "manage": {
+        "label": "gestire i plugin",
+        "hint": "Registrare i plugin e le skill che Claude può usare."
+      }
+    },
+    "integrations": {
+      "manage": {
+        "label": "gestire le integrazioni",
+        "hint": "Collegare l'istanza a Google Workspace e ad altri servizi."
+      }
+    },
+    "mail_admission": {
+      "view": {
+        "label": "vedere le regole d'ammissione della posta",
+        "hint": "Vedere quali email possono diventare proposte."
+      }
+    },
+    "monitor": {
+      "view": {
+        "label": "vedere i server monitorati",
+        "hint": "Vedere i server e i loro controlli."
+      },
+      "manage": {
+        "label": "gestire i server monitorati",
+        "hint": "Aggiungere server e cambiarne i controlli e le chiavi dell'agente."
+      }
+    },
+    "usage": {
+      "view": {
+        "label": "vedere i consumi",
+        "hint": "Vedere quanto costa Claude in tutta l'istanza."
+      }
+    },
+    "claude": {
+      "public": {
+        "view": {
+          "label": "vedere le conversazioni pubbliche con Claude",
+          "hint": "Leggere le conversazioni con Claude che altri hanno reso pubbliche."
+        }
+      }
+    },
+    "people": {
+      "activity": {
+        "view": {
+          "label": "vedere l'attività delle persone",
+          "hint": "Vedere cosa ha fatto ogni persona, giorno per giorno, in tutti i progetti."
+        }
+      }
+    },
+    "chat": {
+      "general": {
+        "create": {
+          "label": "creare canali generali",
+          "hint": "Aprire canali di chat che non appartengono a un progetto."
+        },
+        "manage": {
+          "label": "gestire i canali generali",
+          "hint": "Rinominare e archiviare i canali generali, e scegliere chi ci sta."
+        }
+      },
+      "channels": {
+        "create": {
+          "label": "creare canali di progetto",
+          "hint": "Aprire canali di chat nel progetto."
+        },
+        "manage": {
+          "label": "gestire i canali di progetto",
+          "hint": "Rinominare e archiviare i canali del progetto, e scegliere chi ci sta."
+        }
+      }
+    },
+    "automations": {
+      "manage": {
+        "label": "gestire le automazioni",
+        "hint": "Creare, modificare e mettere in pausa le automazioni a questo livello."
+      }
+    },
+    "servers": {
+      "ssh": {
+        "manage": {
+          "label": "gestire gli accessi SSH",
+          "hint": "Scegliere chi può aprire un terminale sui server monitorati."
+        }
+      },
+      "operate": {
+        "label": "avviare un intervento sui server",
+        "hint": "Chiedere a Claude di intervenire sui server del progetto."
+      }
+    },
+    "departments": {
+      "manage": {
+        "label": "gestire i reparti",
+        "hint": "Creare reparti, scegliere chi ci sta e cosa danno."
+      }
+    },
+    "changelog": {
+      "view": {
+        "label": "leggere il registro delle modifiche",
+        "hint": "Vedere ogni modifica a persone, ruoli e accessi."
+      }
+    },
+    "project": {
+      "settings": {
+        "manage": {
+          "label": "gestire le impostazioni del progetto",
+          "hint": "Cambiare moduli, stati e repository del progetto."
+        }
+      },
+      "members": {
+        "manage": {
+          "label": "gestire i membri",
+          "hint": "Aggiungere e togliere membri, e cambiarne ruolo e permessi in più."
+        }
+      },
+      "usage": {
+        "view": {
+          "label": "vedere i consumi del progetto",
+          "hint": "Vedere quanto costa Claude in questo progetto."
+        }
+      }
+    },
+    "tickets": {
+      "view_all": {
+        "label": "vedere tutte le task",
+        "hint": "Vedere tutte le task del progetto, non solo le proprie."
+      },
+      "create": {
+        "label": "creare task",
+        "hint": "Aprire task nuove nel progetto."
+      },
+      "edit": {
+        "label": "modificare le task",
+        "hint": "Cambiare titolo, stato, assegnatario e date delle task."
+      },
+      "comment": {
+        "label": "commentare le task",
+        "hint": "Scrivere commenti sulle task."
+      },
+      "moderate": {
+        "label": "moderare i commenti altrui",
+        "hint": "Eliminare commenti e allegati di altre persone."
+      }
+    },
+    "runs": {
+      "start": {
+        "label": "avviare Claude",
+        "hint": "Affidare una task a Claude, perché la pianifichi e la porti avanti."
+      }
+    },
+    "plans": {
+      "approve": {
+        "label": "approvare i piani",
+        "hint": "Approvare o rifiutare il piano che Claude scrive prima di toccare il codice."
+      }
+    },
+    "corrections": {
+      "request": {
+        "label": "chiedere correzioni",
+        "hint": "Chiedere a Claude di modificare una pull request che ha aperto."
+      }
+    },
+    "release": {
+      "merge": {
+        "label": "mergiare le pull request",
+        "hint": "Mergiare una pull request da Releases: è così che una modifica arriva in produzione."
+      }
+    },
+    "prs": {
+      "adopt": {
+        "label": "adottare pull request aperte da altri",
+        "hint": "Far proseguire a Claude una pull request aperta da altri."
+      }
+    },
+    "agent_sessions": {
+      "intervene": {
+        "label": "intervenire nelle sessioni di Claude",
+        "hint": "Scrivere a Claude, o fermarlo, mentre lavora."
+      }
+    },
+    "backlog": {
+      "view_all": {
+        "label": "vedere tutto il backlog",
+        "hint": "Vedere tutte le voci del backlog, non solo le proprie richieste."
+      },
+      "create": {
+        "label": "aggiungere al backlog",
+        "hint": "Aprire richieste nel backlog."
+      },
+      "edit": {
+        "label": "modificare il backlog",
+        "hint": "Modificare, unire, ordinare e chiudere le voci del backlog."
+      }
+    },
+    "decisions": {
+      "record": {
+        "label": "registrare decisioni",
+        "hint": "Scrivere una decisione nel registro decisioni del progetto."
+      }
+    },
+    "docs": {
+      "view": {
+        "label": "leggere i Docs",
+        "hint": "Leggere i Docs del progetto."
+      },
+      "edit": {
+        "label": "modificare i Docs",
+        "hint": "Scrivere e modificare le pagine dei Docs."
+      },
+      "generate": {
+        "label": "generare i Docs",
+        "hint": "Far scrivere o aggiornare a Claude i Docs dai repository."
+      }
+    },
+    "repos": {
+      "view": {
+        "label": "vedere codice, grafo e pull request",
+        "hint": "Leggere il codice dei repository del progetto."
+      },
+      "manage": {
+        "label": "gestire i repository",
+        "hint": "Collegare e scollegare i repository del progetto."
+      }
+    },
+    "environments": {
+      "manage": {
+        "label": "gestire gli ambienti",
+        "hint": "Modificare gli ambienti del progetto e le loro variabili."
+      }
+    },
+    "widget": {
+      "manage": {
+        "label": "gestire il widget di assistenza",
+        "hint": "Configurare il widget di assistenza per il sito del progetto."
+      }
+    },
+    "planning": {
+      "others": {
+        "label": "pianificare le task altrui",
+        "hint": "Spostare le task degli altri nel Planning."
+      }
+    },
+    "drive": {
+      "upload": {
+        "label": "caricare nel drive",
+        "hint": "Aggiungere file al drive del progetto."
+      },
+      "manage": {
+        "label": "gestire il drive",
+        "hint": "Rinominare, spostare ed eliminare qualunque file del drive."
+      },
+      "history": {
+        "label": "vedere chi ha aperto i file del drive",
+        "hint": "Vedere lo storico di chi ha aperto ogni file."
+      }
+    },
+    "support": {
+      "reply": {
+        "label": "rispondere ai clienti",
+        "hint": "Rispondere alle conversazioni dei clienti in Support."
+      }
+    },
+    "department": {
+      "home": {
+        "manage": {
+          "label": "gestire la Home del reparto",
+          "hint": "Scegliere cosa mostra la Home del reparto."
+        }
+      }
     }
   }
 }
