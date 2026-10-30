@@ -249,6 +249,15 @@ export function ColorChoice({
                   <span className="truncate">{usedBy.map((d) => d.name).join(", ")}</span>
                 </span>
               )}
+              {/* La scelta si dice anche a parole, non solo da fondo e bordo [R10]:
+                  la tinta del reparto aperto e, nelle libere, il nome della tinta. */}
+              {usedBy.length === 0 && (
+                <span className="text-xs text-ink-faint">
+                  {on && self
+                    ? t("admin.departments.color.thisDepartment")
+                    : t(`admin.departments.color.hues.${token.replace("--dept-", "")}`)}
+                </span>
+              )}
             </button>
           );
         })}

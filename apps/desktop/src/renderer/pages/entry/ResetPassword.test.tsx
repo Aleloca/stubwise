@@ -34,7 +34,7 @@ describe("/reset-password/$token", () => {
     const link = await linkForMarco();
     await auth.logout();
     const router = renderRoute("/login");
-    await user.type(await screen.findByLabelText("Password reset link"), link);
+    await user.type(await screen.findByLabelText("Invite or reset link"), link);
     await user.click(screen.getAllByRole("button", { name: "Open" }).at(-1)!);
     expect(
       await screen.findByRole("heading", { level: 1, name: "Choose a new password" }),

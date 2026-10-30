@@ -613,9 +613,9 @@ export function MemberPanel({
                 {t("settings.members.panel.deactivated", { name })}
               </QuietLine>
             )}
+            {/* Una nota, non uno stato: senza il cerchio vuoto [R1]. */}
             {!manage && (
               <QuietLine>
-                <OpenCircleGlyph size={12} />
                 <span>
                   {t("settings.members.panel.readOnly", { code })}{" "}
                   <WhoCanLink action="manageMembers" projectId={project.id} projectCode={code} />

@@ -6,7 +6,7 @@ import {
   useLogin,
   usePrototypeAccounts,
   useSimulateInviteLink,
-  resetTokenOf,
+  entryLinkOf,
 } from "../../data/queries";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { useToast } from "../../tasks-ui/Toast";
@@ -174,7 +174,6 @@ function LoginPrototypeBox({ onPick }: { onPick: (account: { email: string }) =>
   const navigate = useNavigate();
   const toast = useToast();
   const [link, setLink] = useState("");
-  const [resetLink, setResetLink] = useState("");
 
   function openInvite(which: "pending" | "expired") {
     simulate.mutate(which, {
@@ -186,18 +185,16 @@ function LoginPrototypeBox({ onPick }: { onPick: (account: { email: string }) =>
     });
   }
 
+  // Un campo solo per il link d'invito e per quello di reset della password
+  // (area 9a, lo crea un amministratore in People): il tipo lo riconosce il
+  // livello dati, e a 1024 × 680 il riquadro resta nella finestra [R4].
   function openLink(e: FormEvent) {
     e.preventDefault();
-    const token = link.trim().split("invite=").at(-1)?.trim();
-    if (token) void navigate({ to: "/register/$token", params: { token } });
-  }
-
-  // Il link di reset della password (area 9a): lo crea un amministratore in
-  // People e lo manda; qui si incolla, come quello d'invito.
-  function openResetLink(e: FormEvent) {
-    e.preventDefault();
-    const token = resetTokenOf(resetLink.trim()).trim();
-    if (token) void navigate({ to: "/reset-password/$token", params: { token } });
+    const target = entryLinkOf(link);
+    if (!target) return;
+    if (target.kind === "reset")
+      void navigate({ to: "/reset-password/$token", params: { token: target.token } });
+    else void navigate({ to: "/register/$token", params: { token: target.token } });
   }
 
   return (
@@ -246,25 +243,13 @@ function LoginPrototypeBox({ onPick }: { onPick: (account: { email: string }) =>
         <p className="-mt-1 text-xs text-ink-muted">{t("entry.prototype.inviteNote")}</p>
         <form onSubmit={openLink} className="flex items-center gap-2">
           <input
-            aria-label={t("entry.prototype.inviteLink")}
-            placeholder={t("entry.prototype.inviteLinkPlaceholder")}
+            aria-label={t("entry.prototype.entryLink")}
+            placeholder={t("entry.prototype.entryLinkPlaceholder")}
             value={link}
             onChange={(e) => setLink(e.target.value)}
             className={`${inputClass} h-8 text-sm`}
           />
           <button type="submit" className={secondaryButton} disabled={!link.trim()}>
-            {t("entry.prototype.openLink")}
-          </button>
-        </form>
-        <form onSubmit={openResetLink} className="flex items-center gap-2">
-          <input
-            aria-label={t("entry.prototype.resetLink")}
-            placeholder={t("entry.prototype.resetLinkPlaceholder")}
-            value={resetLink}
-            onChange={(e) => setResetLink(e.target.value)}
-            className={`${inputClass} h-8 text-sm`}
-          />
-          <button type="submit" className={secondaryButton} disabled={!resetLink.trim()}>
             {t("entry.prototype.openLink")}
           </button>
         </form>

@@ -15,7 +15,6 @@ import { Dialog, inputClass } from "../../tasks-ui/Dialog";
 import { itemClass } from "../../tasks-ui/Menu";
 import { PageError } from "../../tasks-ui/PageStates";
 import { useToast } from "../../tasks-ui/Toast";
-import { OpenCircleGlyph } from "../preferences/glyphs";
 import { ArmedButton, RowMenu, WriteError, refusalOf } from "../preferences/parts";
 import { Chevron, MenuButton, dangerSolidButton, primaryButton, secondaryButton } from "../tasks/controls";
 import { RoleOptions } from "./InviteDialog";
@@ -59,12 +58,8 @@ export function RolesPage() {
             />
           ))
         )}
-        <p className="mt-6 flex items-start gap-1.5 text-sm text-ink-muted">
-          <span className="mt-[3px] shrink-0">
-            <OpenCircleGlyph size={12} />
-          </span>
-          {t("admin.roles.claudeNote")}
-        </p>
+        {/* Una nota: il cerchio vuoto resta agli stati (To do, Off, Deactivated) [R1]. */}
+        <p className="mt-6 text-sm text-pretty text-ink-muted">{t("admin.roles.claudeNote")}</p>
       </div>
       {creating && (
         <NewRoleDialog

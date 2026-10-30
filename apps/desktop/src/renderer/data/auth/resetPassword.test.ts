@@ -3,7 +3,7 @@ import { admin, auth, me, resetApi, setLatency } from "../api";
 import { setSessionPersonId } from "../session";
 import { advanceNow, state } from "../store";
 import { markReauthenticated } from "./reauth";
-import { resetTokenOf } from "./resetPassword";
+import { entryLinkOf, resetTokenOf } from "./resetPassword";
 
 // Il link di reset della password (area 9a, come
 // `apps/web/src/routes/reset-password.tsx`): Roberta lo crea per Marco in
@@ -111,6 +111,23 @@ describe("link di reset", () => {
     });
     expect(await auth.getEntry()).toEqual({ stage: "out" });
     expect(state.sessions.filter((s) => s.personId === MARCO)).toEqual([]);
+  });
+
+  it("il campo unico del login riconosce un link di reset e uno d'invito [R4]", async () => {
+    const reset = await (async () => {
+      setSessionPersonId("p-roberta");
+      markReauthenticated("p-roberta");
+      const r = await admin.createPasswordResetLink(MARCO);
+      if (!r.ok) throw new Error(r.error);
+      return r.link;
+    })();
+    expect(entryLinkOf(reset)).toEqual({ kind: "reset", token: resetTokenOf(reset) });
+    expect(entryLinkOf("https://x.example/register?invite=abc ")).toEqual({
+      kind: "invite",
+      token: "abc",
+    });
+    expect(entryLinkOf("bare-token")).toEqual({ kind: "invite", token: "bare-token" });
+    expect(entryLinkOf("   ")).toBeNull();
   });
 
   it("una persona disattivata dopo la creazione non rientra dal link", async () => {

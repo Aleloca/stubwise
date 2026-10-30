@@ -6,7 +6,7 @@ import { useReauth } from "../../layout/useReauth";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { useToast } from "../../tasks-ui/Toast";
 import { NotFound } from "../NotFound";
-import { OpenCircleGlyph, TriangleGlyph } from "../preferences/glyphs";
+import { TriangleGlyph } from "../preferences/glyphs";
 import { ReadError, RowsSkeleton, WriteError, refusalOf } from "../preferences/parts";
 import { InlineConfirm } from "../task/parts";
 import { primaryButton, quietButton } from "../tasks/controls";
@@ -277,16 +277,12 @@ function RoleBody({ role }: { role: RoleView }) {
   );
 }
 
-/** Una riga fissa in tono minore, col cerchio vuoto: si dice una volta. */
+/**
+ * Una riga fissa in tono minore: si dice una volta. Senza glifo: il cerchio
+ * vuoto resta agli stati (To do, Off, Deactivated) [R1].
+ */
 function Note({ children }: { children: ReactNode }) {
-  return (
-    <p className="flex items-start gap-1.5 text-sm text-ink-muted">
-      <span className="mt-[3px] shrink-0">
-        <OpenCircleGlyph size={12} />
-      </span>
-      <span className="text-pretty">{children}</span>
-    </p>
-  );
+  return <p className="text-sm text-pretty text-ink-muted">{children}</p>;
 }
 
 type T = ReturnType<typeof useTranslation>["t"];

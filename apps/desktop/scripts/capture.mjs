@@ -1171,16 +1171,16 @@ async function main() {
         const link = await p.locator("[data-secret-value]").innerText();
         await p.getByRole("button", { name: /^(Done|Fatto)$/ }).click();
         await signOut(p);
-        await p.getByLabel(/^(Password reset link|Link per reimpostare la password)$/).fill(link.trim());
-        await p.getByLabel(/^(Password reset link|Link per reimpostare la password)$/).press("Enter");
+        await p.getByLabel(/^(Invite or reset link|Link d'invito o di reset)$/).fill(link.trim());
+        await p.getByLabel(/^(Invite or reset link|Link d'invito o di reset)$/).press("Enter");
         await p.getByRole("heading", { level: 1, name: /^(Choose a new password|Scegli una password nuova)$/ }).waitFor();
         await p.mouse.move(2, 2);
         await p.waitForTimeout(400);
       }],
       ["reset-invalid", async (p) => {
         await signOut(p);
-        await p.getByLabel(/^(Password reset link|Link per reimpostare la password)$/).fill("made-up-link");
-        await p.getByLabel(/^(Password reset link|Link per reimpostare la password)$/).press("Enter");
+        await p.getByLabel(/^(Invite or reset link|Link d'invito o di reset)$/).fill("made-up-link");
+        await p.getByLabel(/^(Invite or reset link|Link d'invito o di reset)$/).press("Enter");
         await p.getByRole("heading", { level: 1 }).filter({ hasNotText: /Sign in|Accedi/ }).waitFor();
         await p.mouse.move(2, 2);
         await p.waitForTimeout(400);

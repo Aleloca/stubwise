@@ -8120,8 +8120,8 @@
       "tryInvite": "Prova un invito:",
       "pendingInvite": "in sospeso",
       "expiredInvite": "scaduto",
-      "inviteLink": "Link d'invito",
-      "inviteLinkPlaceholder": "Incolla un link d'invito",
+      "entryLink": "Link d'invito o di reset",
+      "entryLinkPlaceholder": "Incolla un link d'invito o di reset",
       "openLink": "Apri",
       "noInvite": "Al momento non c'è un invito così.",
       "inviteFailed": "Non è stato possibile creare il link d'invito. Riprova.",
@@ -8129,9 +8129,7 @@
       "simulateFailedPasskey": "Simula una passkey fallita",
       "passMinutes": "Fai passare 15 minuti",
       "emptyInstance": "Questa è l'istanza vuota. Ripristina il prototipo riporta l'azienda d'esempio.",
-      "inviteNote": "Ognuno crea un link nuovo; uno copiato prima per quell'invito smette di funzionare.",
-      "resetLink": "Link per reimpostare la password",
-      "resetLinkPlaceholder": "Incolla un link di reset"
+      "inviteNote": "Ognuno crea un link nuovo; uno copiato prima per quell'invito smette di funzionare."
     },
     "register": {
       "loading": "Caricamento dell'invito",
@@ -8596,6 +8594,7 @@
         "label": "Colore",
         "name": "Colore {{n}}, {{hue}}",
         "usedBy": "usato da",
+        "thisDepartment": "questo reparto",
         "hues": {
           "1": "giallo-verde",
           "2": "blu",

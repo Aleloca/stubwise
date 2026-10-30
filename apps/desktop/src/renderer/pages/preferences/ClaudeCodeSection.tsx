@@ -7,7 +7,6 @@ import { copyText } from "../../tasks-ui/exportFile";
 import { useToast } from "../../tasks-ui/Toast";
 import { BusyLabel } from "../entry/parts";
 import { primaryButton, secondaryButton } from "../tasks/controls";
-import { OpenCircleGlyph } from "./glyphs";
 import { Part, PrefsPage, WriteError, refusalOf, rowButton } from "./parts";
 import { SecretOnce } from "./SecretOnce";
 import { SectionLink } from "./TokensSection";
@@ -61,17 +60,12 @@ export function ClaudeCodeSection() {
   return (
     <PrefsPage title={t("prefs.sections.claude-code")} intro={t("prefs.claudeCode.intro")}>
       <Part title={t("prefs.claudeCode.before")}>
+        {/* Un elenco semplice: niente cerchi vuoti, che sembrerebbero caselle da spuntare [R1]. */}
         <ul className="flex flex-col">
           <li className="flex min-h-9 items-center gap-2.5 text-md text-ink">
-            <span className="text-ink-faint">
-              <OpenCircleGlyph />
-            </span>
             {t("prefs.claudeCode.needClaude")}
           </li>
           <li className="flex min-h-9 items-center gap-2.5 text-md text-ink">
-            <span className="text-ink-faint">
-              <OpenCircleGlyph />
-            </span>
             {t("prefs.claudeCode.needNode")}
             <span className="text-ink-faint" aria-hidden="true">
               ·

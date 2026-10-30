@@ -8120,8 +8120,8 @@
       "tryInvite": "Try an invite:",
       "pendingInvite": "pending",
       "expiredInvite": "expired",
-      "inviteLink": "Invite link",
-      "inviteLinkPlaceholder": "Paste an invite link",
+      "entryLink": "Invite or reset link",
+      "entryLinkPlaceholder": "Paste an invite or reset link",
       "openLink": "Open",
       "noInvite": "There's no invite like that right now.",
       "inviteFailed": "Couldn't make the invite link. Try again.",
@@ -8129,9 +8129,7 @@
       "simulateFailedPasskey": "Simulate a failed passkey",
       "passMinutes": "Pass 15 minutes",
       "emptyInstance": "This is the empty instance. Reset prototype brings back the sample company.",
-      "inviteNote": "Each makes a new link; one copied earlier for that invite stops working.",
-      "resetLink": "Password reset link",
-      "resetLinkPlaceholder": "Paste a reset link"
+      "inviteNote": "Each makes a new link; one copied earlier for that invite stops working."
     },
     "register": {
       "loading": "Loading the invite",
@@ -8596,6 +8594,7 @@
         "label": "Color",
         "name": "Color {{n}}, {{hue}}",
         "usedBy": "used by",
+        "thisDepartment": "this department",
         "hues": {
           "1": "chartreuse",
           "2": "blue",

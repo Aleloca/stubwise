@@ -12,7 +12,7 @@ import { useSessionPersonId } from "../queries";
 // Le regole dei campi d'ingresso: le pagine le leggono da qui, non ne tengono una copia.
 export { EMAIL_RE, MIN_PASSWORD_LENGTH } from "../me/account";
 export { SECOND_FACTOR_MAX_FAILURES } from "../auth/reauth";
-export { resetTokenOf } from "../auth/resetPassword";
+export { entryLinkOf, resetTokenOf } from "../auth/resetPassword";
 
 export type {
   EntryStage,
