@@ -15,6 +15,7 @@ import {
   accessVersion,
   effectivePermissions,
   homeManagedDepartments,
+  isActivePerson,
   isFullAdmin as isFullAdminInState,
   isMember,
   projectRoleOf as projectRoleDefOf,
@@ -143,7 +144,9 @@ interface ViewerData {
 function buildViewerData(personId: string): ViewerData {
   if (personId === CLAUDE_ID) {
     // Claude non ha accessi nello stato: `can()` lo risolve in testa, qui c'è
-    // solo il suo insieme d'istanza per chi legge i campi.
+    // solo il suo insieme d'istanza per chi legge i campi. `projectPermissions`
+    // è VUOTO apposta (non è membro esplicito di niente, R-L9): cosa può Claude
+    // in un progetto lo dice `can()`, mai questi campi.
     return {
       instancePermissions: [...CLAUDE_INSTANCE_PERMISSIONS] as LocalInstancePermission[],
       projectPermissions: {},
@@ -152,7 +155,7 @@ function buildViewerData(personId: string): ViewerData {
   }
   // Disattivata: nessun permesso (`effectivePermissions` è vuota), nemmeno
   // quello di reparto, che non passa da lì.
-  if (accessState().people.find((p) => p.personId === personId)?.status !== "active")
+  if (!isActivePerson(personId))
     return { instancePermissions: [], projectPermissions: {}, departmentPermissions: {} };
   const instancePermissions = [...effectivePermissions(personId).keys()].filter((p) =>
     INSTANCE_SET.has(p),

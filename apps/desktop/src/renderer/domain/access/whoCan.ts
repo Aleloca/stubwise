@@ -1,4 +1,4 @@
-import type { PermissionSource } from "../../data/access/effective";
+import { isFullAdminIn, type PermissionSource } from "../../data/access/effective";
 import type { AccessState } from "../../data/access/state";
 
 // La parte pura di «Chi può farlo?» (area 9a): chi si vede e in che ordine.
@@ -10,15 +10,16 @@ import type { AccessState } from "../../data/access/state";
  * Le persone che chi guarda vede: le attive che condividono con lui almeno un
  * progetto visibile, più i full admin, più sé stesso. Un full admin vede
  * tutti. Claude non c'è: «Chi può farlo?» lo mostra a parte, con la sua frase.
+ * Chi è full admin si legge dallo STESSO stato ricevuto (una fonte sola).
  */
 export function peopleVisibleTo(input: {
   state: AccessState;
   viewerId: string;
-  viewerIsFullAdmin: boolean;
   visibleProjectIds: ReadonlySet<string>;
-  isFullAdmin: (personId: string) => boolean;
 }): Set<string> {
-  const { state, viewerId, viewerIsFullAdmin, visibleProjectIds, isFullAdmin } = input;
+  const { state, viewerId, visibleProjectIds } = input;
+  const isFullAdmin = (personId: string) => isFullAdminIn(state, personId);
+  const viewerIsFullAdmin = isFullAdmin(viewerId);
   const active = state.people.filter((p) => p.status === "active").map((p) => p.personId);
   if (viewerIsFullAdmin) return new Set(active);
   const sharing = new Set(

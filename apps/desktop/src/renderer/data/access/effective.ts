@@ -53,6 +53,23 @@ export function isFullAdminIn(s: AccessState, personId: string): boolean {
 }
 
 /**
+ * La regola UNICA «persona attiva» (area 9a): una persona che c'è ed è
+ * attiva. Una disattivata non ha permessi effettivi, nemmeno di reparto, non
+ * si assegna e le automazioni non la scelgono; una sconosciuta non è attiva
+ * (né disattivata). La leggono `effectivePermissionsIn`, il `Viewer`, le
+ * scritture delle task e le automazioni.
+ */
+export const isActivePersonIn = (s: AccessState, personId: string): boolean =>
+  s.people.some((p) => p.personId === personId && p.status === "active");
+
+export const isActivePerson = (personId: string): boolean =>
+  isActivePersonIn(accessState(), personId);
+
+/** Una persona che c'è ed è disattivata (una sconosciuta no). */
+export const isDeactivated = (personId: string): boolean =>
+  accessState().people.some((p) => p.personId === personId && p.status === "deactivated");
+
+/**
  * Se la persona ha un'appartenenza esplicita al progetto. Claude non ne ha
  * (R-L9: è membro implicito di ogni progetto, e lo risolve `can()`).
  */
@@ -185,8 +202,7 @@ export function effectivePermissionsIn(
   // `can()`, né «Chi può farlo?», né il conteggio dei gestori la contano. Il
   // suo stato (ruolo, appartenenze, concessioni, reparti) resta com'era, e
   // riattivarla glieli rende.
-  const person = s.people.find((p) => p.personId === personId);
-  if (!person || person.status !== "active") return new Map();
+  if (!isActivePersonIn(s, personId)) return new Map();
   return projectId === undefined
     ? instancePermissions(s, personId)
     : projectPermissions(s, personId, projectId);

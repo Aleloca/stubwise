@@ -4,7 +4,7 @@ import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import { visibleProjectIds } from "../store";
 import { can, viewerFor, type Permission } from "../viewer";
 import { ALL_PROJECT_PERMISSIONS } from "./seed";
-import { effectivePermissions, isFullAdmin, type PermissionSource } from "./effective";
+import { effectivePermissions, type PermissionSource } from "./effective";
 import { INSTANCE_SET, accessState } from "./state";
 
 // «Chi può farlo?» nei due versi (area 9a). Sta nel livello dati, non in
@@ -39,9 +39,7 @@ export function visiblePeopleFor(viewerId: string): Set<string> {
   return peopleVisibleTo({
     state: accessState(),
     viewerId,
-    viewerIsFullAdmin: isFullAdmin(viewerId),
     visibleProjectIds: visibleProjectIds(viewerId),
-    isFullAdmin,
   });
 }
 

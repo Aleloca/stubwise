@@ -22,7 +22,7 @@ import { TODAY } from "./seed/dates";
 import { docPageById } from "./docs/reads";
 import { driveFilesForClaude } from "./drive/reads";
 import { PEOPLE } from "./seed/people";
-import { accessState, roleIdOf } from "./access/index";
+import { isDeactivated, roleIdOf } from "./access/index";
 import { TEAM_ACCOUNT } from "./seed/runs";
 import { getSessionPersonId, setSessionPersonId } from "./session";
 import {
@@ -423,13 +423,6 @@ function setClosedAt(task: Task, oldFamily: StatusFamily, at: string): void {
   if (newFamily === "closed" && oldFamily !== "closed") task.closedAt = at;
   else if (newFamily !== "closed") task.closedAt = null;
 }
-
-/**
- * Una persona disattivata (area 9a) non si può assegnare: sparisce da chi si
- * sceglie. Le task che ha già restano sue, con «(deactivated)».
- */
-const isDeactivated = (personId: string): boolean =>
-  accessState().people.some((p) => p.personId === personId && p.status === "deactivated");
 
 /**
  * Riassegna una task come una modifica del campo fatta da `me` (cronologia,

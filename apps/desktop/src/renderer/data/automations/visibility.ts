@@ -1,6 +1,5 @@
 import type { ApprovalWho } from "../../domain/automations/preview";
 import { stepAt, visitSteps } from "../../domain/automations/fields";
-import { accessState } from "../access/index";
 import { PEOPLE } from "../seed/people";
 import { copy, state, visibleProjectIds } from "../store";
 import type { Automation, AutomationFlow, AutomationRun, Step } from "../types";
@@ -56,12 +55,11 @@ const byName = (a: string, b: string) =>
     PEOPLE.find((p) => p.id === b)?.name ?? b,
   );
 
-/**
- * Una persona disattivata (area 9a) non riceve task né approva: resta fra i
- * membri del progetto, ma le automazioni non la scelgono.
- */
-export const isDeactivated = (personId: string): boolean =>
-  accessState().people.some((p) => p.personId === personId && p.status === "deactivated");
+// Una persona disattivata (area 9a) non riceve task né approva: resta fra i
+// membri del progetto, ma le automazioni non la scelgono. La regola è UNA,
+// in `access/effective.ts`.
+import { isDeactivated } from "../access/index";
+export { isDeactivated };
 
 /** I membri ATTIVI di un progetto con un ruolo, in ordine alfabetico. */
 export function holdersOfRole(projectId: string, role: string): string[] {

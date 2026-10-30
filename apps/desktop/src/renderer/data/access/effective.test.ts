@@ -151,7 +151,10 @@ describe("le fonti dei permessi", () => {
         const sources = effectivePermissions(personId, project.id).get("support.reply") ?? [];
         const fromDept = sources.some((s) => s.kind === "department");
         // Simone, disattivato, non ha permessi effettivi (Task 5).
-        const active = personId !== "p-simone";
+        // Chi è disattivato lo dice lo stato del seme, non una seconda lista scritta qui.
+        const active = seedAccessState().people.some(
+          (p) => p.personId === personId && p.status === "active",
+        );
         expect(fromDept, `${personId} ${project.code}`).toBe(
           active && isMember(personId, project.id),
         );
