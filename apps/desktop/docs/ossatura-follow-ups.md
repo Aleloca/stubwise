@@ -540,6 +540,23 @@ si riscrivono.
     Departments;
   - **ultimo gestore**: un full admin attivo conta sempre come gestore dei
     membri di ogni progetto, perché è membro implicito.
+  - **conseguenza dichiarata, rischio accettato dal maintainer il 30 ott
+    2026** (I3 della revisione finale del 9a): senza gerarchia, chi ha
+    `users.manage` può azzerare il secondo fattore e creare il link di reset
+    della password di chiunque tranne sé stesso, **compreso un full admin**.
+    Scenario: Marco ha `users.manage` da un ruolo d'istanza ma non è full
+    admin; azzera il secondo fattore di Roberta, crea il link di reset per
+    lei, lo apre e sceglie la password; entra come Roberta (il login non
+    chiede il secondo fattore, appena azzerato) ed è full admin. Sul web
+    questo era chiuso da R31 («un link di reset è l'account intero»,
+    `apps/server/src/routes/users.ts`). Il maintainer ha deciso «Va bene
+    così»: non si corregge nel prototipo. Il motore deve riscrivere
+    l'invariante dicendolo, oppure scegliere una delle due chiusure
+    proposte dalla revisione (reset e azzeramento verso chi ha permessi
+    d'istanza che chi agisce non ha richiedono un full admin; oppure, dopo
+    un azzeramento, il login impone l'iscrizione prima di aprire la
+    sessione). Lo stesso vale per `reactivatePerson`: riattivare rende
+    l'account intero ed è solo `+R`, senza escalation.
 - **§7 — permessi di reparto, costruiti nel prototipo (9a), da riscrivere
   prima del motore.** Un reparto può dare permessi di progetto, ma **solo
   nei progetti di cui la persona è già membro**: il permesso di reparto non
@@ -749,3 +766,87 @@ Dai ruling del ledger durante l'area:
 - **Il salvataggio di nome e colore del reparto è immediato**, non fa parte
   della bozza atomica di persone, Home e permessi (che invece si salva in un
   colpo, con una sola riconferma).
+
+### Dall'ondata finale (30 ott 2026)
+
+Decisioni prese nell'ondata, da far confermare:
+
+- **Primo reparto «General».** Il primo avvio crea anche il reparto
+  «General» con dentro il primo admin, e l'ultimo reparto non si elimina
+  (`invalid: last_department`): ogni task ha un reparto, e una task nuova
+  prende il primo di chi la crea (I1 della revisione finale).
+- **Una proposta della posta che aggiunge un incaricato è un ingresso come in
+  Members** (C1): stessa regola (`judgeJoin`), la riconferma di
+  `admin.addMember` e la voce `member.added`. Per questo parte subito, senza
+  la finestra dell'«Undo» di «Da decidere»; il rifiuto si dice sulla scheda.
+- **Link di reset usato e scaduto: una frase sola** («This link doesn't work
+  any more»), come la 410 del server. Un link sconosciuto, sostituito o
+  dimenticato resta «isn't valid» (l'invito invece distingue «già usato», per
+  il ruling I-1 del Task 6).
+- **Il riquadro «Prototype only» del login ha un campo solo** per il link
+  d'invito e per quello di reset (R4): il tipo lo riconosce `entryLinkOf`.
+
+Minori lasciati aperti, col motivo:
+
+- **Seconde copie delle regole di bozza** (Minor 2 della revisione finale;
+  Task 4 m2 e m-c): `setDepartmentMembers`, `setHomeManagers`,
+  `setDepartmentPermissions`, `setMemberRole`, `grantMemberPermission`,
+  `revokeMemberPermission` restano accanto a `saveDepartment`/`saveMember`.
+  Nessuna pagina le usa, ma sono la superficie di ~50 test delle aree 2–9
+  (e `useSetMemberRole` di un test di Members), con codici di rifiuto propri
+  (`already_granted`, `not_granted`) che `saveMember` non ha. Farle
+  delegare cambia quei codici: da decidere col motore se spariscono o
+  diventano scorciatoie dei test. Il confronto del ruolo è già unico
+  (`roleMissingIn`); restano la severità di `setMemberRole` su permessi già
+  avuti (m-c) e l'azzeramento delle revoche senza escalation (m2, solo test).
+- **Il nome di chi ha dato un permesso** (Minor 3 della revisione finale):
+  Members lo mostra sempre, «Who can?» solo se chi guarda vede quella
+  persona (R-G5, con un test). Decisione di prodotto: People è leggibile da
+  tutti e il registro mostra sempre chi ha agito (Task 11), quindi o si
+  allinea «Who can?» a Members, o si nasconde ovunque.
+- **Disattivare non revoca gli inviti in sospeso di chi è disattivato**
+  (Minor 4): il web non ha la disattivazione, quindi non c'è un
+  comportamento da copiare. Decisione di prodotto (revocarli, avvisare chi
+  li riceve, o lasciarli: furono giudicati quando nacquero).
+- **«Member since» nella pagina della persona** (R7 della revisione visiva;
+  Task 8): il seme non ha la data d'ingresso, e quella da inventare deve
+  stare d'accordo con `instance.first_admin_created` (giorno -30), che è già
+  incoerente col secondo fattore di Marco e Laura (giorni -40 e -60, Task 11
+  m-2). Va deciso insieme il calendario del seme.
+- **Elenco di People virtualizzato oltre 50 persone e registro oltre le
+  centinaia di voci** (Task 8, Task 11 m-6): nessuna istanza del seme ci
+  arriva; è lavoro del motore, con la paginazione del server.
+- **«View only» su Settings per chi gestisce solo i membri** (Task 10
+  Minor 2): con i preset non capita; la forma (segno sulla voce o sulle
+  sezioni) va decisa col 9c, che porta le altre sezioni.
+- **Comando di Claude Code «già creato»** (Task 7 Minor 2, `madeBefore`
+  locale) e **`canConnect` delle caselle** (Task 7 Minor 3): servono campi
+  nuovi del livello dati (un token nato dal comando, quante caselle si
+  possono collegare) che il modello di oggi non distingue; la seconda
+  dipende dalle 0–4 caselle dello shape, non ancora nel modello.
+- **Test mai visti rossi** (Task 6: `no_second_factor` nel dialogo, blocco
+  nella riconferma, Home vuota dopo il setup; Task 11 m-4: Claude e «Who
+  can?»; Task 7 Minor 5 e 6): i comportamenti ci sono e i test passano;
+  farli fallire apposta richiede mutazioni una per una, non fatte in
+  questa ondata.
+- **Parità dei non full admin in «Who can?»** (Task 2 m3; Task 11 m-5): il
+  test usa `visiblePeopleFor` come oracolo della visibilità; la visibilità
+  è provata altrove (i test di Sara). Resta un limite del test.
+- **Coerenza del seme del registro** (Task 11): `department.updated` nel test
+  di coerenza esce in silenzio se il reparto non c'è, `latest()` non copre
+  una persona tolta e rimessa con voci separate, gli inviti `inv-old-*`
+  esistono solo nel registro, il reset di Giorgio e il link di Davide non
+  sono in `SECURITY_EVENTS`.
+- **Test che scrivono `project.memberIds` a mano** (Task 1 m2): diversi test
+  delle aree 2–8 lo fanno ancora; i permessi seguono le appartenenze, quindi
+  quei test non provano più ciò che dicono quando «tolgono» un membro. Da
+  riallineare test per test.
+- **Frasi del registro all'infinito** («gave Marco Bellini start a server
+  fix», Task 11 m-7): lo stile viene dallo shape; una riscrittura delle
+  frasi dei permessi in forma nominale tocca tutte le pagine che le
+  compongono.
+- **§9 dei follow-up** (Task 13 Minor 5): non era chiesto dal brief del Task
+  13; va confermato quando arriva il 9b.
+- **Titolo di test per «Notifiche per progetto, tipo, canale»** (Task 13
+  Minor 3): il test citato copre solo «Always for you»; le notifiche sono
+  dell'8a e lì hanno i loro test.

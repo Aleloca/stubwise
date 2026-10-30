@@ -1325,7 +1325,8 @@ describe("saveDepartment: la bozza intera, tutto o niente", () => {
     const without = (id: string) => dev().memberIds.filter((x) => x !== id);
     // Le bozze: [membri, permessi], sul reparto Development salvato.
     const drafts: [string, () => { memberIds: string[]; projectPermissions: string[] }][] = [
-      ["immutata più Home", () => ({ memberIds: dev().memberIds, projectPermissions: dev().projectPermissions })],
+      // Persone e permessi come salvati: è la Home aggiunta sotto (`homeExtra`) a non farla «unchanged».
+      ["persone e permessi immutati (solo la Home cambia)", () => ({ memberIds: dev().memberIds, projectPermissions: dev().projectPermissions })],
       ["entra Sara", () => ({ memberIds: [...dev().memberIds, "p-sara"], projectPermissions: dev().projectPermissions })],
       ["entra Marco stesso", () => ({ memberIds: [...without("p-marco"), "p-marco"], projectPermissions: dev().projectPermissions })],
       ["tolta Laura", () => ({ memberIds: without("p-laura"), projectPermissions: dev().projectPermissions })],

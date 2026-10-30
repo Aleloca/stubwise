@@ -157,7 +157,13 @@ const CASES: Case[] = [
   { path: "/claude/x", empty: "claude.conversation.states.notFound", proof: "notFound" },
   { path: "/chat/x", empty: "chat.channel.notFoundTitle", proof: "notFound" },
   // Senza casella collegata la Posta chiede di collegarla, anche con un id.
-  { path: "/mail/x", empty: /Connect your Google account to read your mail here/, proof: "notFound" },
+  // Senza un account Google la Posta non ha conversazioni da cercare: l'id
+  // inesistente mostra l'invito a collegarlo, non una pagina «non trovato».
+  {
+    path: "/mail/x",
+    empty: /Connect your Google account to read your mail here/,
+    seedAs: "p-giulia",
+  },
   { path: "/automations/ACQ-A1", empty: "automations.notVisible.automation", proof: "notFound" },
   { path: "/automations/ACQ-A1/runs/1", empty: "automations.notVisible.run", proof: "notFound" },
   { path: "/admin/people/p-marco", empty: "notFound.title", proof: "notFound" },
