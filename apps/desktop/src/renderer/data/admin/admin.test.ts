@@ -1570,3 +1570,46 @@ describe("failNext e resetApi", () => {
     expect(VIEW_AS_PERSONAS.map((p) => p.personId)).toContain("p-marco");
   });
 });
+
+// Le voci con gli insiemi interi di prima e dopo («Show details» del
+// registro). `writeAccess` cambia lo stesso oggetto in posto: l'insieme di
+// prima va fotografato PRIMA della scrittura, o la voce dice before = after.
+describe("prima e dopo nelle voci dei permessi", () => {
+  beforeEach(() => {
+    as("p-roberta");
+    reauth("p-roberta");
+  });
+
+  it("updateRole: before è l'insieme di prima, after quello salvato", async () => {
+    const before = [...accessState().roles.find((r) => r.id === roleIdOf("au-1"))!.permissions];
+    expect(before).toEqual(["usage.view", "changelog.view"]);
+    expect(
+      await admin.updateRole(roleIdOf("au-1"), { permissions: ["changelog.view", "monitor.view"] }),
+    ).toEqual({ ok: true });
+    const entry = state.changelog.at(-1)!;
+    expect(entry.kind).toBe("role.updated");
+    expect(entry.params).toMatchObject({
+      added: "monitor.view",
+      removed: "usage.view",
+      before: "usage.view,changelog.view",
+      after: "changelog.view,monitor.view",
+    });
+    expect(entry.params.before).not.toBe(entry.params.after);
+  });
+
+  it("setDepartmentPermissions: before è l'insieme di prima, after quello salvato", async () => {
+    expect(dept("dep-development").projectPermissions).toEqual(["support.reply"]);
+    expect(
+      await admin.setDepartmentPermissions("dep-development", ["support.reply", "docs.edit"]),
+    ).toEqual({ ok: true });
+    const entry = state.changelog.at(-1)!;
+    expect(entry.kind).toBe("department.permissions_changed");
+    expect(entry.params).toMatchObject({
+      added: "docs.edit",
+      removed: "",
+      before: "support.reply",
+      after: "support.reply,docs.edit",
+    });
+    expect(entry.params.before).not.toBe(entry.params.after);
+  });
+});

@@ -30,7 +30,7 @@ import type {
 // La vista di una voce porta già tutto ciò che la UI mostra (`view`): il
 // link all'oggetto se esiste ancora e chi guarda può aprirlo, «(deleted)»,
 // e il prima/dopo pronto da leggere. Le persone che chi guarda non vede non
-// hanno nome nemmeno lì (R-G5).
+// ci sono nemmeno lì, né per nome né in un conteggio (R-G5).
 
 const DAY_MS = 86_400_000;
 
@@ -175,7 +175,6 @@ function diffOf(entry: ChangeEntry, people: Set<string>): ChangeDiff | null {
         kind: "people",
         added: added.filter(seen).map(nameOf),
         removed: removed.filter(seen).map(nameOf),
-        hidden: [...added, ...removed].filter((id) => !seen(id)).length,
       };
     }
     default:

@@ -71,10 +71,10 @@ describe("Change log in Amministrazione", () => {
     expect(entries()).toHaveLength(state.changelog.length);
     expect(screen.getByRole("heading", { level: 2, name: "Changes on Today" })).toBeInTheDocument();
     const grant = entries().find((e) =>
-      e.textContent?.includes("gave Marco Bellini start a server fix in ACQ"),
+      e.textContent?.includes("gave Marco Bellini permission to start a server fix in ACQ"),
     )!;
     expect(grant.querySelector("p")!.textContent).toBe(
-      "Roberta Fontana gave Marco Bellini start a server fix in ACQ.",
+      "Roberta Fontana gave Marco Bellini permission to start a server fix in ACQ.",
     );
     expect(grant).toHaveTextContent("Developer → Developer + start a server fix");
     expect(within(grant).getByTitle("Project ACQ")).toHaveTextContent("ACQ");
@@ -173,6 +173,12 @@ describe("Change log in Amministrazione", () => {
     document.body.innerHTML = "";
     renderRoute("/admin/changelog?actor=p-sara", ROBERTA);
     expect(await screen.findByText("No changes match these filters.")).toBeInTheDocument();
+    // Un progetto che chi guarda non vede è come uno che non c'è: nessuna
+    // voce, non «filtro ignorato, tutto». Laura non è in MKX.
+    document.body.innerHTML = "";
+    renderRoute("/admin/changelog?project=MKX", LAURA);
+    expect(await screen.findByText("No changes match these filters.")).toBeInTheDocument();
+    expect(entries()).toHaveLength(0);
   });
 
   it("nessun segreto: il reset dice che il link è nato, mai il link (RF 2)", async () => {

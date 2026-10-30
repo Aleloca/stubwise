@@ -102,19 +102,12 @@ function useDiffLine() {
         const parts = [
           diff.added.map((n) => `+ ${n}`).join(", "),
           diff.removed.map((n) => `− ${n}`).join(", "),
-          diff.hidden > 0 ? t("changelog.entry.others", { count: diff.hidden }) : "",
         ];
         return parts.filter(Boolean).join(" · ") || null;
       }
     }
   };
 }
-
-/** Un numero nei valori della voce (task riassegnate, spostate), se c'è ed è più di zero. */
-const countParam = (entry: ChangeEntryView, key: string): number => {
-  const n = Number(entry.params[key] ?? "0");
-  return Number.isFinite(n) ? n : 0;
-};
 
 export function ChangeEntry({
   entry,
@@ -138,13 +131,6 @@ export function ChangeEntry({
     permission: words(permission),
   };
   const line = entry.diff ? diffLine(entry.diff) : null;
-  const reassigned =
-    entry.kind === "person.deactivated" ? countParam(entry, "reassigned") : 0;
-  const moved = entry.kind === "department.deleted" ? countParam(entry, "moved") : 0;
-  const extra = [
-    reassigned > 0 ? t("changelog.entry.reassigned", { count: reassigned }) : null,
-    moved > 0 ? t("changelog.entry.moved", { count: moved }) : null,
-  ].filter(Boolean);
   const details =
     entry.diff?.kind === "permissions" && entry.diff.before && entry.diff.after
       ? { before: entry.diff.before, after: entry.diff.after }
@@ -184,11 +170,7 @@ export function ChangeEntry({
             </span>
           )}
         </div>
-        {(line || extra.length > 0) && (
-          <p className="mt-0.5 text-sm text-pretty text-ink-muted">
-            {[line, ...extra].filter(Boolean).join(" · ")}
-          </p>
-        )}
+        {line && <p className="mt-0.5 text-sm text-pretty text-ink-muted">{line}</p>}
         {details && (
           <>
             <button

@@ -110,6 +110,8 @@ const codeOf = (projectId: string | null): string | null =>
  */
 export async function whoCan(actionId: string, projectId: string | null): Promise<WhoCanView> {
   const me = await gate("access.whoCan");
+  // Claude, come sessione, non vede persone (come `whoCanChoices`).
+  if (me === CLAUDE_ID) return { visible: false };
   const action = actionById(actionId);
   if (!action) return { visible: false };
   const scoped = action.scope === "project" ? projectId : null;
@@ -143,6 +145,7 @@ export async function whoCan(actionId: string, projectId: string | null): Promis
  */
 export async function whatCan(personId: string, projectId: string | null): Promise<WhatCanView> {
   const me = await gate("access.whatCan");
+  if (me === CLAUDE_ID) return { visible: false };
   const raw = whatCanRaw(me, personId, projectId);
   if (!raw.visible) return raw;
   const isClaude = personId === CLAUDE_ID;

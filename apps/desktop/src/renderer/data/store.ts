@@ -164,7 +164,7 @@ import {
   type AccessState,
 } from "./access/index";
 import type { ChangeEntry } from "./changelog/types";
-import { seedChangelog } from "./seed/changelog";
+import { SEED_BITBUCKET, SEED_GIT_LINKS, seedChangelog } from "./seed/changelog";
 import type { Invite, SecurityEvent } from "./admin/types";
 import { DEPARTMENTS } from "./seed/departments";
 import { INVITES, SECURITY_EVENTS } from "./seed/invites";
@@ -1009,7 +1009,7 @@ function freshState(): State {
     invites: INVITES.map(copy),
     departments: DEPARTMENTS.map(copy),
     securityEvents: SECURITY_EVENTS.map(copy),
-    bitbucketUsernames: new Map(),
+    bitbucketUsernames: new Map(SEED_BITBUCKET),
     securityCodeSeq: SEED_SECURITY_CODES,
     entry: { signedIn: true, partial: null },
     passwords: new Map(),
@@ -1030,7 +1030,7 @@ function freshState(): State {
     briefs: BRIEFS.map(copy),
     decisionLog: DECISION_LOG.map(copy),
     dailyReports: DAILY_REPORTS.map(copy),
-    commitAuthorLinks: new Map(),
+    commitAuthorLinks: new Map(SEED_GIT_LINKS),
     pullRequests: PULL_REQUEST_EVENTS.map(copy),
     prFacts: PR_FACTS.map(copy),
     filters: SAVED_FILTERS.map(copy),

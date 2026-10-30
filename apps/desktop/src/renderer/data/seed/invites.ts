@@ -52,4 +52,30 @@ export const SECURITY_EVENTS: SecurityEvent[] = [
   },
   { id: "sev-5", personId: "p-marco", kind: "second_factor_enabled", at: at(-40), byId: null },
   { id: "sev-6", personId: "p-laura", kind: "second_factor_enabled", at: at(-60), byId: null },
+  // Gli stessi fatti del registro delle modifiche del seme (`seed/changelog.ts`).
+  { id: "sev-7", personId: "p-enrico", kind: "deactivated", at: at(-25, "17:45"), byId: "p-roberta" },
+  {
+    id: "sev-8",
+    personId: "p-davide",
+    kind: "password_reset_link_created",
+    at: at(-11, "09:20"),
+    byId: "p-roberta",
+  },
+  { id: "sev-9", personId: "p-simone", kind: "deactivated", at: at(-10, "12:00"), byId: "p-roberta" },
+  {
+    id: "sev-10",
+    personId: "p-giorgio",
+    kind: "second_factor_reset",
+    at: at(-5, "10:15"),
+    byId: "p-roberta",
+  },
+  // Giorgio lo ha riattivato al primo accesso: per questo ha di nuovo TOTP e passkey.
+  {
+    id: "sev-11",
+    personId: "p-giorgio",
+    kind: "second_factor_enabled",
+    at: at(-5, "11:02"),
+    byId: null,
+  },
+  { id: "sev-12", personId: "p-enrico", kind: "reactivated", at: at(-2, "08:40"), byId: "p-roberta" },
 ];

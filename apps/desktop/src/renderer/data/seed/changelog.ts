@@ -5,8 +5,20 @@ import { daysFromToday } from "./dates";
 // ventina di voci degli ultimi 30 giorni che coprono tutti i tipi di 9a). Sono
 // FATTI coerenti col resto del seme: i due ruoli fatti a mano, la concessione
 // di Marco su ACQ (Roberta, 20 giorni fa: `SEED_GRANTED_AT`), i due inviti,
-// Simone disattivato 10 giorni fa. Nessuna voce contiene un segreto: il reset
-// dice che il link è nato, mai il link.
+// Simone disattivato 10 giorni fa, e le identità qui sotto, che lo store
+// mette nel suo seme (un test controlla che ogni «dopo» sia lo stato del
+// seme). Nessuna voce contiene un segreto: il reset dice che il link è nato,
+// mai il link.
+
+/** Le email git collegate a una persona nel seme (`state.commitAuthorLinks`). */
+export const SEED_GIT_LINKS: readonly (readonly [identity: string, personId: string])[] = [
+  ["federico.sartori@users.noreply.github.com", "p-federico"],
+];
+
+/** Gli username Bitbucket del seme (`state.bitbucketUsernames`). */
+export const SEED_BITBUCKET: readonly (readonly [personId: string, username: string])[] = [
+  ["p-stefano", "samato"],
+];
 
 const at = (days: number, time: string) => `${daysFromToday(days)}T${time}:00Z`;
 
@@ -25,7 +37,7 @@ const AUD = "prj-aud";
 const ROWS: Row[] = [
   {
     kind: "instance.first_admin_created",
-    at: at(-30, "08:02"),
+    at: at(-90, "08:02"),
     actorId: "p-roberta",
     projectId: null,
     object: person("p-roberta", "Roberta Fontana"),

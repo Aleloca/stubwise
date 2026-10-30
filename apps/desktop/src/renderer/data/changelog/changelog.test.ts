@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { changelog, failNext, resetApi, setLatency } from "../api";
-import { roleIdOf, writeAccess } from "../access/index";
+import "../admin/changeTypes";
+import { accessState, isFullAdmin, roleIdOf, writeAccess } from "../access/index";
+import { visiblePeopleFor } from "../access/whoCan";
 import { setSessionPersonId } from "../session";
 import { seedChangelog } from "../seed/changelog";
+import { PEOPLE } from "../seed/people";
 import { advanceNow, state } from "../store";
-import { can, grantProjectRole, viewerFor } from "../viewer";
+import { can, grantInstancePermission, grantProjectRole, viewerFor } from "../viewer";
 import * as changelogModule from "./index";
 import { recordChange, registerChangeTypes } from "./index";
 
@@ -412,5 +415,33 @@ describe("una voce non si tocca", () => {
     row!.params.role = "changed";
     expect(state.changelog[0]!.object.label).toBe("Marco Bellini");
     expect(state.changelog[0]!.params.role).toBe("developer");
+  });
+});
+
+const nameOf = (id: string) => PEOPLE.find((p) => p.id === id)!.name;
+const isActiveId = (id: string) =>
+  accessState().people.some((p) => p.personId === id && p.status === "active");
+
+describe("R-G5 nelle persone di una voce", () => {
+  it("nel prima/dopo chi non si vede non c'è: né il nome né un conteggio", async () => {
+    // Un lettore che non è full admin, e una persona attiva che non vede.
+    const humans = PEOPLE.filter((p) => !p.isClaude).map((p) => p.id);
+    const unseenBy = (id: string) =>
+      humans.filter((x) => isActiveId(x) && !visiblePeopleFor(id).has(x));
+    const viewer = humans.find((id) => isActiveId(id) && !isFullAdmin(id) && unseenBy(id).length)!;
+    const hidden = unseenBy(viewer)[0]!;
+    const seen = [...visiblePeopleFor(viewer)].find((x) => x !== viewer)!;
+    grantInstancePermission(viewer, "changelog.view");
+    recordChange({
+      kind: "department.members_changed",
+      actorId: "p-roberta",
+      projectId: null,
+      object: { type: "department", id: "dep-sales", label: "Sales" },
+      params: { added: `${seen},${hidden}`, removed: hidden },
+    });
+    as(viewer);
+    const [entry] = await changelog.listChanges({ kind: "department.members_changed" });
+    expect(entry!.diff).toEqual({ kind: "people", added: [nameOf(seen)], removed: [] });
+    expect(JSON.stringify(entry!.diff)).not.toContain(nameOf(hidden));
   });
 });

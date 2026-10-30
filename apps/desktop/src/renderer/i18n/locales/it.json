@@ -9077,12 +9077,6 @@
       "after": "Dopo",
       "nothing": "Niente",
       "none": "nessuno",
-      "others_one": "{{count}} altra persona",
-      "others_other": "altre {{count}} persone",
-      "reassigned_one": "{{count}} task riassegnata",
-      "reassigned_other": "{{count}} task riassegnate",
-      "moved_one": "{{count}} task spostata",
-      "moved_other": "{{count}} task spostate",
       "projectLabel": "Progetto {{code}}"
     },
     "noMatch": "Nessuna modifica corrisponde a questi filtri.",

@@ -49,10 +49,14 @@ const PERIOD_LABEL: Record<ChangelogPeriod, string> = {
   custom: "custom",
 };
 
+/** Un valore che nessuna voce ha: il filtro non trova niente. */
+const NOTHING = "";
+
 /**
  * Il filtro del livello dati dall'indirizzo. Un valore che non sta fra le
  * scelte (una persona o un progetto che chi guarda non vede, un gruppo che
- * non legge) si ignora: come se non esistesse (R-G5).
+ * non legge) è come uno che non esiste (R-G5): non trova nessuna voce
+ * (`NOTHING`), invece di essere ignorato e mostrare tutto.
  */
 export function filterOf(
   search: ChangeLogSearch,
@@ -60,16 +64,18 @@ export function filterOf(
   withProject: boolean,
 ): ChangeFilter {
   const filter: ChangeFilter = {};
-  if (search.actor && choices?.people.some((p) => p.personId === search.actor))
-    filter.personId = search.actor;
+  if (search.actor)
+    filter.personId = choices?.people.some((p) => p.personId === search.actor)
+      ? search.actor
+      : NOTHING;
   if (withProject && search.project) {
     if (search.project === INSTANCE_ONLY) filter.projectId = null;
     else {
       const p = choices?.projects.find((x) => x.code === search.project);
-      if (p) filter.projectId = p.projectId;
+      filter.projectId = p ? p.projectId : NOTHING;
     }
   }
-  if (search.kind && choices?.groups.includes(search.kind)) filter.group = search.kind;
+  if (search.kind) filter.group = choices?.groups.includes(search.kind) ? search.kind : NOTHING;
   const period = search.period as ChangelogPeriod | undefined;
   if (period && period !== "custom" && period in PERIOD_DAYS) filter.withinDays = PERIOD_DAYS[period];
   if (period === "custom") {

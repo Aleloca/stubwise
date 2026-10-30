@@ -9020,8 +9020,8 @@
         "added": "<actor>{{actor}}</actor> added <object>{{object}}</object> to {{project}} as {{role}}.",
         "removed": "<actor>{{actor}}</actor> removed <object>{{object}}</object> from {{project}}.",
         "role_changed": "<actor>{{actor}}</actor> changed <object>{{object}}</object>'s role in {{project}}.",
-        "permission_granted": "<actor>{{actor}}</actor> gave <object>{{object}}</object> <strong>{{permission}}</strong> in {{project}}.",
-        "permission_revoked": "<actor>{{actor}}</actor> took <strong>{{permission}}</strong> away from <object>{{object}}</object> in {{project}}."
+        "permission_granted": "<actor>{{actor}}</actor> gave <object>{{object}}</object> permission to <strong>{{permission}}</strong> in {{project}}.",
+        "permission_revoked": "<actor>{{actor}}</actor> removed <object>{{object}}</object>'s permission to <strong>{{permission}}</strong> in {{project}}."
       }
     },
     "groups": {
@@ -9077,12 +9077,6 @@
       "after": "After",
       "nothing": "Nothing",
       "none": "none",
-      "others_one": "{{count}} other person",
-      "others_other": "{{count}} other people",
-      "reassigned_one": "{{count}} task reassigned",
-      "reassigned_other": "{{count}} tasks reassigned",
-      "moved_one": "{{count}} task moved",
-      "moved_other": "{{count}} tasks moved",
       "projectLabel": "Project {{code}}"
     },
     "noMatch": "No changes match these filters.",

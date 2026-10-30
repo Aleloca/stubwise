@@ -83,7 +83,7 @@ export type ChangeObjectLink =
  *   quando la voce li ha (allora c'è «Show details»); `role` è il ruolo del
  *   membro quando la voce lo sa («Developer → Developer + …»);
  * - `people`: persone entrate e uscite, per nome; quelle che chi guarda non
- *   vede non hanno nome, contano solo in `hidden` (R-G5).
+ *   vede non ci sono, né per nome né contate (R-G5).
  */
 export type ChangeDiff =
   | { kind: "values"; before: string | null; after: string | null }
@@ -95,7 +95,7 @@ export type ChangeDiff =
       before: string[] | null;
       after: string[] | null;
     }
-  | { kind: "people"; added: string[]; removed: string[]; hidden: number };
+  | { kind: "people"; added: string[]; removed: string[] };
 
 /** Una voce come la legge il client: i campi calcolati dal livello dati. */
 export interface ChangeEntryView extends ChangeEntry {
