@@ -94,7 +94,9 @@ function ResetForm({ token }: { token: string }) {
           if (!r.ok) {
             // Il link è cambiato nel frattempo (usato, scaduto) o la password non va.
             setRefused(
-              r.error === "invalid_input" ? t("entry.register.tooShort") : t("entry.reset.noLonger"),
+              r.error === "invalid_input"
+                ? t("entry.register.tooShort")
+                : t("entry.reset.noLonger"),
             );
             return;
           }
@@ -128,7 +130,11 @@ function ResetForm({ token }: { token: string }) {
         />
         {refused && <ErrorLine>{refused}</ErrorLine>}
         {reset.isError && <ErrorLine>{t("entry.reset.failed")}</ErrorLine>}
-        <div className="flex justify-end">
+        {/* L'uscita, come sulle pagine senza via [R5]: a sinistra, il bottone a destra. */}
+        <div className="flex items-center justify-between gap-4">
+          <Link to="/login" className={`${textButton} text-sm`}>
+            {t("entry.register.goToSignIn")}
+          </Link>
           <button type="submit" className={primaryButton} aria-busy={reset.isPending}>
             <BusyLabel
               busy={reset.isPending}

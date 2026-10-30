@@ -40,6 +40,11 @@ describe("/reset-password/$token", () => {
       await screen.findByRole("heading", { level: 1, name: "Choose a new password" }),
     ).toBeVisible();
     expect(router.state.location.pathname).toBe(`/reset-password/${resetTokenOf(link)}`);
+    // Anche il modulo valido ha la sua uscita [R5].
+    expect(screen.getByRole("link", { name: "Go to sign in" })).toHaveAttribute(
+      "href",
+      expect.stringMatching(/\/login$/),
+    );
     await user.type(screen.getByLabelText("New password"), "brand-new-pass");
     await user.type(screen.getByLabelText("Confirm password"), "brand-new-pass");
     await user.click(screen.getByRole("button", { name: "Set password" }));
@@ -82,5 +87,7 @@ describe("/reset-password/$token", () => {
       await screen.findByRole("heading", { level: 1, name: "This link isn't valid" }),
     ).toBeVisible();
     expect(document.body.textContent).not.toContain("Marco");
+    // L'unica uscita si legge come un link già a riposo, non solo per il colore (B2).
+    expect(screen.getByRole("link", { name: "Go to sign in" })).toHaveClass("underline");
   });
 });

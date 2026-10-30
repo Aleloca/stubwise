@@ -253,9 +253,13 @@ export function OtherMethods({
   );
 }
 
-/** Un link fatto bottone: inchiostro, sottolineato al passaggio. */
+/**
+ * Un link fatto bottone: inchiostro, sottolineato già a riposo (come il resto
+ * dell'area: il colore da solo non basta a dire «si clicca»); al passaggio
+ * cambia colore.
+ */
 export const textButton =
-  "rounded-sm text-ink underline-offset-4 transition-colors duration-[var(--duration-fast)] ease-out hover:underline";
+  "rounded-sm text-ink underline underline-offset-4 transition-colors duration-[var(--duration-fast)] ease-out hover:text-ink-muted";
 
 /** L'ora di fine di un blocco, «10:42», nell'orologio del prototipo (UTC). */
 export function lockTime(iso: string, language: string): string {
