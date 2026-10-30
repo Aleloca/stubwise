@@ -180,11 +180,12 @@ export function isRetryableKind(c: Conversation): boolean {
  * sulla task. Allora `c` è superato e non si rimette più in coda — un
  * secondo Retry avvierebbe un'altra esecuzione su una task già rimessa in
  * coda (revisione T13, I1). `live`: quel lavoro non è ancora finito.
+ * Un lavoro fermo sulla task è vivo per definizione, che abbia la sua
+ * sessione (un avvio sulla coda in pausa, coperto anche da `later`) o no.
  */
 export function newerWorkOf(c: Conversation): { live: boolean } | null {
   if (!c.taskId) return null;
-  if (heldJobs().some((h) => h.taskId === c.taskId && h.conversationId === null))
-    return { live: true };
+  if (heldJobs().some((h) => h.taskId === c.taskId)) return { live: true };
   const index = state.conversations.indexOf(c);
   const later = state.conversations.filter(
     (o, i) =>
