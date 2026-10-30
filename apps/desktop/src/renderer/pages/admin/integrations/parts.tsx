@@ -92,7 +92,8 @@ export function ReadOnlyNote({ text, action }: { text: string; action: string })
  * una riga perde il «·» e nessuno resta orfano in coda alla riga sopra. Il
  * separatore è decorazione (`content: "·" / ""`): i lettori di schermo non
  * lo leggono. `wrapFirst`: il primo pezzo può andare a capo dentro di sé
- * (un indirizzo lungo).
+ * (un indirizzo lungo). Il taglio sta 4 px prima del testo (`-ml-1 pl-1`):
+ * la prima lettera di un pezzo a capo non si mozza, il «·» sì.
  */
 export function MetaLine({
   parts,
@@ -107,7 +108,7 @@ export function MetaLine({
   return (
     <span
       data-meta-line
-      className={`block min-w-0 overflow-hidden text-sm text-ink-muted ${className}`}
+      className={`-ml-1 block min-w-0 overflow-hidden pl-1 text-sm text-ink-muted ${className}`}
     >
       <span className="-ml-3 flex flex-wrap items-center gap-y-0.5">
         {shown.map((part, i) => (
