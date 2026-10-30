@@ -232,19 +232,22 @@ describe("lo Stato dell'istanza del seme", () => {
       "Worker 2busy in a project you can't see",
     );
 
-    // Pause/Resume spenti con la frase e «Who?» (manageSettings).
+    // Pause/Resume spenti: la frase UNA volta sotto QUEUES (Impeccable 8), il
+    // «Who?» (manageSettings) accanto a ogni bottone spento.
+    const queues = screen.getByRole("region", { name: "Queues" });
+    const pauseSentence = "Only people who can manage settings pause or resume a queue.";
+    expect(queues.textContent!.split(pauseSentence)).toHaveLength(2);
     const pause = within(queueRow("ACQ")).getByRole("button", { name: "Pause ACQ's queue" });
     expect(pause).toBeDisabled();
-    expect(queueRow("ACQ")).toHaveTextContent(
-      "Only people who can manage settings pause or resume a queue.",
-    );
+    expect(queueRow("ACQ")).not.toHaveTextContent(pauseSentence);
     expect(queueRow("ACQ").querySelector("[data-who-can='manageSettings']")).not.toBeNull();
-    // Retry spento con la frase e «Who?» (manageSettings).
+    // Retry spento: la frase una volta sotto WORK, il «Who?» sulla riga.
+    const retrySentence = "Only people who can manage settings put work back in the queue.";
+    const work = screen.getByRole("region", { name: "Work" });
+    expect(work.textContent!.split(retrySentence)).toHaveLength(2);
     const failed = jobRow("cv-run-acq-3")!;
     expect(within(failed).getByRole("button", { name: "Retry ACQ-3" })).toBeDisabled();
-    expect(failed).toHaveTextContent(
-      "Only people who can manage settings put work back in the queue.",
-    );
+    expect(failed).not.toHaveTextContent(retrySentence);
     expect(failed.querySelector("[data-who-can='manageSettings']")).not.toBeNull();
   });
 
@@ -367,6 +370,24 @@ describe("Pause e Resume", () => {
       expect(queueRow("STW")).toHaveTextContent(
         "Paused by Laura Costa (deactivated) · yesterday at 18:00",
       ),
+    );
+  });
+
+  it("triage T13: anche la riga del lavoro in attesa dice «(deactivated)»", async () => {
+    state.instance.queuePauses[0]!.byId = "p-laura";
+    writeAccess((a) => {
+      a.people.find((p) => p.personId === "p-laura")!.status = "deactivated";
+    });
+    setSessionPersonId(ROBERTA);
+    await startRun("t-stw-7");
+    await openStatus();
+    const waiting = await waitFor(() => {
+      const rows = jobRows().filter((r) => r.dataset.jobState === "waiting");
+      expect(rows).toHaveLength(1);
+      return rows[0]!;
+    });
+    await waitFor(() =>
+      expect(waiting).toHaveTextContent("Waiting: queue paused by Laura Costa (deactivated)"),
     );
   });
 
@@ -504,6 +525,35 @@ describe("Rimetti in coda", () => {
       "Su ACQ-3 c'è un lavoro più recente: non c'è niente da rimettere in coda.",
     );
     expect(within(jobRow("cv-run-acq-3")!).queryByRole("button")).toBeNull();
+  });
+
+  it("final I1: col budget raggiunto Retry è spento con la frase del budget sopra", async () => {
+    setSessionPersonId(ROBERTA);
+    await instance.simulateBudgetReached(true);
+    await openStatus();
+    const row = jobRow("cv-run-acq-3")!;
+    expect(within(row).getByRole("button", { name: "Retry ACQ-3" })).toBeDisabled();
+    const line = row.querySelector<HTMLElement>('[data-ai-block="monthly_budget"]')!;
+    expect(line).toHaveTextContent(
+      "The monthly AI budget is used up. New work waits until someone raises it. Who?",
+    );
+    // La frase sta prima del bottone che ferma.
+    const button = within(row).getByRole("button", { name: "Retry ACQ-3" });
+    expect(line.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("final I1: il budget finito col dialogo aperto: la frase del budget, non «prova di nuovo»", async () => {
+    const user = userEvent.setup();
+    await openStatus();
+    await user.click(within(jobRow("cv-run-acq-3")!).getByRole("button", { name: "Retry ACQ-3" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Put ACQ-3's work back in the queue?",
+    });
+    await instance.simulateBudgetReached(true);
+    await user.click(within(dialog).getByRole("button", { name: "Retry" }));
+    expect(
+      await within(dialog).findByText("Claude didn't start: the monthly AI budget is used up."),
+    ).toBeVisible();
   });
 
   it("dopo la conferma di Retry il fuoco torna alla riga", async () => {

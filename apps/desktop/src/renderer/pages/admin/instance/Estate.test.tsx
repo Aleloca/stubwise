@@ -28,8 +28,7 @@ const SARA = "p-sara";
 const LAURA = "p-laura";
 
 const KEY_RE = /sk_[0-9a-f]{40}/;
-const ORPHAN_NO_CLAUDE =
-  "Link this server to a project first: Claude works inside a project.";
+const ORPHAN_NO_CLAUDE = "Link this server to a project first: Claude works inside a project.";
 
 beforeEach(() => {
   setLatency(0);
@@ -208,20 +207,20 @@ describe("I grafici a 30 e 90 giorni", () => {
     const router = renderRoute("/admin/servers/SRV-2", ROBERTA);
     await heading(/db-stw-01/);
     const range = await screen.findByRole("group", { name: "Time range" });
-    expect(within(range).getAllByRole("button").map((b) => b.textContent)).toEqual([
-      "1h",
-      "24h",
-      "7d",
-      "30d",
-      "90d",
-    ]);
+    expect(
+      within(range)
+        .getAllByRole("button")
+        .map((b) => b.textContent),
+    ).toEqual(["1h", "24h", "7d", "30d", "90d"]);
     expect(screen.queryByText(/^Each point averages/)).toBeNull();
     await user.click(within(range).getByRole("button", { name: "30d" }));
     await waitFor(() => expect(router.state.location.search).toMatchObject({ range: "30d" }));
     expect(await screen.findByText("Each point averages about 2 hours.")).toBeVisible();
     // La frase-riassunto dice il giorno del picco, non un'ora inventata dalla media.
     const cpu = document.querySelector<HTMLElement>('[data-chart="cpu"]')!;
-    await waitFor(() => expect(cpu).toHaveTextContent(/Average \d+% · peak \d+% on [A-Z][a-z]{2} \d+/));
+    await waitFor(() =>
+      expect(cpu).toHaveTextContent(/Average \d+% · peak \d+% on [A-Z][a-z]{2} \d+/),
+    );
     // Il tasto 5 sceglie 90d.
     (document.activeElement as HTMLElement | null)?.blur();
     await user.keyboard("5");
@@ -337,7 +336,9 @@ describe("New server dall'Amministrazione", () => {
     expect(state.servers).toHaveLength(4);
     // Riprovando (il rifiuto era uno solo) il server nasce, e la frase sparisce.
     await user.click(within(dialog).getByRole("button", { name: "Create server" }));
-    expect(await screen.findByRole("dialog", { name: "SRV-5 is ready for its agent" })).toBeVisible();
+    expect(
+      await screen.findByRole("dialog", { name: "SRV-5 is ready for its agent" }),
+    ).toBeVisible();
   });
 });
 

@@ -39,7 +39,10 @@ export function ServersAdminPage() {
         {servers.isPending ? (
           <ListSkeleton widths={[0.42, 0.3, 0.36, 0.26]} />
         ) : servers.isError ? (
-          <ReadError message={t("admin.servers.loadError")} onRetry={() => void servers.refetch()} />
+          <ReadError
+            message={t("admin.servers.loadError")}
+            onRetry={() => void servers.refetch()}
+          />
         ) : servers.data.length === 0 ? (
           <div className="flex flex-col items-start gap-3 border-t border-rule pt-5">
             <p className="text-md text-ink">{t("admin.servers.empty")}</p>

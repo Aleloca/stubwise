@@ -11,6 +11,7 @@ import {
   type Ref,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { AiBlockLine, usePauserName, waitingText } from "../../../components/InstanceBlock";
 import { WhoCanLink } from "../../../components/WhoCanLink";
 import { aiTabsFor } from "../../../data/adminSections";
 import {
@@ -498,6 +499,14 @@ function WorkSection({ view }: { view: View }) {
 
   return (
     <Part title={t("admin.status.work.heading")} headingRef={heading}>
+      {/* Senza settings.manage: la frase una volta sotto il titolo (Impeccable
+          8); la riga tiene solo il «Who?» accanto al bottone spento. */}
+      {view.jobs.some((j) => j.retryNeeds === "manageSettings") && (
+        <p className="pb-3 text-sm text-pretty text-ink-muted">
+          {t("admin.status.work.retryNeeds.manageSettings")}{" "}
+          <WhoCanLink action="manageSettings" projectId={null} />
+        </p>
+      )}
       <div
         role="group"
         aria-label={t("admin.status.work.filters")}
@@ -614,6 +623,8 @@ function WorkSection({ view }: { view: View }) {
 /** Lo stato in parole, seconda riga della riga di un lavoro. */
 function StateWords({ job, reference }: { job: Job; reference: string }) {
   const { t, i18n } = useTranslation();
+  // «(deactivated)» come nella testata, nella coda e nella task (Review Focus 3).
+  const pauser = usePauserName(job.waiting);
   if (job.state === "running") {
     return (
       <span className="inline-flex items-center gap-1.5 text-ink">
@@ -625,11 +636,9 @@ function StateWords({ job, reference }: { job: Job; reference: string }) {
     );
   }
   if (job.state === "waiting") {
-    const text = !job.waiting
-      ? t("admin.status.work.state.stopped")
-      : job.waiting.reason === "monthly_budget"
-        ? t("instanceEffects.budget.waiting")
-        : t("instanceEffects.queue.waiting", { name: job.waiting.byName });
+    const text = job.waiting
+      ? waitingText(t, job.waiting, pauser)
+      : t("admin.status.work.state.stopped");
     return (
       <span className="inline-flex items-center gap-1.5 text-ink">
         <WaitingGlyph />
@@ -713,37 +722,42 @@ function JobRow({
         </span>
       </div>
       <div className="flex min-w-0 flex-col gap-1.5 @min-[680px]:flex-row @min-[680px]:items-center @min-[680px]:gap-3">
-        <p className="min-w-0 flex-1 text-sm text-pretty">
-          <StateWords job={job} reference={reference} />
-          <span className="num float-right ml-3 text-xs text-ink-faint @min-[680px]:hidden">
-            {age}
-          </span>
-        </p>
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <p className="min-w-0 text-sm text-pretty">
+            <StateWords job={job} reference={reference} />
+            <span className="num float-right ml-3 text-xs text-ink-faint @min-[680px]:hidden">
+              {age}
+            </span>
+          </p>
+          {/* Il budget spegne Retry: la frase sopra (o accanto) al bottone che ferma (EF §2). */}
+          {job.retryBlock && <AiBlockLine block={job.retryBlock} projectCode={job.projectCode} />}
+        </div>
         {job.state === "failed" && job.retry !== "unavailable" && (
-          <button
-            type="button"
-            disabled={job.retry !== "allowed"}
-            aria-label={t("admin.status.work.retryOf", { code })}
-            title={
-              job.retryNeeds
-                ? t(`admin.status.work.retryNeeds.${job.retryNeeds}`, { code: job.projectCode })
-                : undefined
-            }
-            onClick={onRetry}
-            className={`${secondaryButton} h-7 self-start px-2.5 disabled:cursor-not-allowed disabled:opacity-40`}
-          >
-            {t("admin.status.work.retry")}
-          </button>
+          <span className="flex shrink-0 items-center gap-2 self-start">
+            {job.retryNeeds === "manageSettings" && (
+              <WhoCanLink action="manageSettings" projectId={null} />
+            )}
+            <button
+              type="button"
+              disabled={job.retry !== "allowed"}
+              aria-label={t("admin.status.work.retryOf", { code })}
+              title={
+                job.retryNeeds
+                  ? t(`admin.status.work.retryNeeds.${job.retryNeeds}`, { code: job.projectCode })
+                  : undefined
+              }
+              onClick={onRetry}
+              className={`${secondaryButton} h-7 px-2.5 disabled:cursor-not-allowed disabled:opacity-40`}
+            >
+              {t("admin.status.work.retry")}
+            </button>
+          </span>
         )}
       </div>
-      {job.retryNeeds && (
+      {job.retryNeeds === "startRun" && (
         <p className="text-xs text-pretty text-ink-muted">
-          {t(`admin.status.work.retryNeeds.${job.retryNeeds}`, { code: job.projectCode })}{" "}
-          <WhoCanLink
-            action={job.retryNeeds}
-            projectId={job.retryNeeds === "startRun" ? job.projectId : null}
-            projectCode={job.retryNeeds === "startRun" ? job.projectCode : null}
-          />
+          {t("admin.status.work.retryNeeds.startRun", { code: job.projectCode })}{" "}
+          <WhoCanLink action="startRun" projectId={job.projectId} projectCode={job.projectCode} />
         </p>
       )}
       {job.superseded && (

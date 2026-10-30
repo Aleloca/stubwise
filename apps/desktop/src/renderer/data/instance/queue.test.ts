@@ -511,6 +511,26 @@ describe("lo Stato dell'istanza per la pagina (Task 13)", () => {
     });
   });
 
+  it("final I1: col budget raggiunto Retry è spento e la vista dice il blocco; il rifiuto dice monthly_budget", async () => {
+    const acq3 = async () => (await status()).jobs.find((j) => j.id === "cv-run-acq-3")!;
+    expect(await acq3()).toMatchObject({ retry: "allowed", retryBlock: null });
+    await instance.simulateBudgetReached(true);
+    expect(await acq3()).toMatchObject({
+      retry: "forbidden",
+      retryNeeds: null,
+      retryBlock: { reason: "monthly_budget" },
+    });
+    expect(await instance.retryJob("cv-run-acq-3")).toEqual({
+      ok: false,
+      error: "invalid",
+      reason: "monthly_budget",
+    });
+    // Senza il permesso conta il permesso: il budget non si nomina.
+    give(SARA, "instance.status.view");
+    as(SARA);
+    expect(await acq3()).toMatchObject({ retryNeeds: "manageSettings", retryBlock: null });
+  });
+
   it("budgetAfterResume: i lavori della pausa che restano fermi col budget raggiunto", async () => {
     const started: string[] = [];
     held(started, "stw", STW);

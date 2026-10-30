@@ -52,6 +52,13 @@ export interface InstanceJob {
    */
   retryNeeds: "manageSettings" | "startRun" | null;
   /**
+   * Con i permessi giusti, il blocco che spegne Retry: il budget del mese
+   * raggiunto (`retry` `forbidden`, `retryNeeds` `null`). La pagina mette
+   * la frase del budget sopra il bottone spento (shape EF §2: «Avvia» è
+   * rifiutato prima e dopo). La pausa non spegne Retry: il lavoro aspetta.
+   */
+  retryBlock: { reason: "monthly_budget" } | null;
+  /**
    * Con `retry` `allowed`: chi riprova non ha `plans.approve` nel progetto,
    * quindi Claude si ferma al piano (il gate di «Avvia», `planGateFor`).
    */
@@ -188,7 +195,10 @@ export function isRetryable(c: Conversation): boolean {
   return isRetryableKind(c) && newerWorkOf(c) === null;
 }
 
-type Job = Omit<InstanceJob, "workerId" | "retry" | "retryNeeds" | "retryStopsAtPlan">;
+type Job = Omit<
+  InstanceJob,
+  "workerId" | "retry" | "retryNeeds" | "retryBlock" | "retryStopsAtPlan"
+>;
 
 function sessionJob(c: Conversation, kind: NonNullable<ReturnType<typeof jobKindOf>>): Job | null {
   const projectId = c.projectId!;
@@ -306,19 +316,24 @@ export async function getInstanceStatus(): Promise<InstanceStatusView> {
   });
 
   const conversations = new Map(state.conversations.map((c) => [c.id, c]));
-  const retryOf = (j: Job): ActionAvailability => {
+  const permittedOf = (j: Job): ActionAvailability => {
     const c = conversations.get(j.id);
     if (j.state !== "failed" || !c || !isRetryable(c)) return "unavailable";
     return manages && canI(me, "runs.start", j.projectId) ? "allowed" : "forbidden";
   };
+  // Il budget vale per tutti i progetti: una lettura sola per la vista.
+  const budget = budgetReached();
   const shown = all.filter((j) => visible.has(j.projectId));
   const jobs: InstanceJob[] = shown.map((j) => {
-    const retry = retryOf(j);
+    const permitted = permittedOf(j);
+    const retryBlock = permitted === "allowed" && budget ? { reason: "monthly_budget" as const } : null;
+    const retry = retryBlock ? "forbidden" : permitted;
     return {
       ...j,
       workerId: workerOf(j),
       retry,
-      retryNeeds: retry !== "forbidden" ? null : manages ? "startRun" : "manageSettings",
+      retryNeeds: permitted !== "forbidden" ? null : manages ? "startRun" : "manageSettings",
+      retryBlock,
       retryStopsAtPlan: retry === "allowed" && !canI(me, "plans.approve", j.projectId),
     };
   });

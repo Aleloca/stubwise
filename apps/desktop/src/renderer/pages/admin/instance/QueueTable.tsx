@@ -84,6 +84,8 @@ export function refusalWords(
     if (refusal.reason === "already_paused" || refusal.reason === "not_paused")
       return t(`admin.status.queues.${refusal.reason}`, { code });
     if (refusal.reason === "not_retryable") return t("admin.status.work.notRetryable", { code });
+    // Il budget finito fra la lettura e il clic: la frase del budget, non «riprova».
+    if (refusal.reason === "monthly_budget") return t("instanceEffects.budget.refused");
   }
   return t("admin.status.refused.failed");
 }
@@ -112,6 +114,14 @@ export function QueueTable({ view }: { view: InstanceStatusView }) {
       <h2 id={headingId} tabIndex={-1} className="heading-group pb-2 outline-none">
         {t("admin.status.queues.heading")}
       </h2>
+      {/* Sola lettura: la frase una volta sotto il titolo, non sotto ogni coda
+          (Impeccable 8); ogni bottone spento tiene il suo «Who?». */}
+      {view.queues.some((q) => q.pause === "forbidden") && (
+        <p className="pb-2 text-sm text-pretty text-ink-muted">
+          {t("admin.status.queues.forbidden")}{" "}
+          <WhoCanLink action="manageSettings" projectId={null} />
+        </p>
+      )}
       {view.queues.length === 0 && view.otherProjects === null ? (
         <p className="border-t border-rule py-4 text-md text-ink-muted">
           {t("admin.status.queues.empty")}
@@ -179,14 +189,11 @@ function QueueRow({
             {q.paused && <PausedLine paused={q.paused} reference={reference} />}
           </span>
         </div>
-        <PauseButton queue={q} kind={kind} allowed={allowed} onOpen={onOpen} />
+        <span className="flex shrink-0 items-center gap-2">
+          {!allowed && <WhoCanLink action="manageSettings" projectId={null} />}
+          <PauseButton queue={q} kind={kind} allowed={allowed} onOpen={onOpen} />
+        </span>
       </div>
-      {!allowed && (
-        <p className="text-right text-xs text-pretty text-ink-muted">
-          {t("admin.status.queues.forbidden")}{" "}
-          <WhoCanLink action="manageSettings" projectId={null} />
-        </p>
-      )}
     </li>
   );
 }
