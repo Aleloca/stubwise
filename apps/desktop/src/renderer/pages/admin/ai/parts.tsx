@@ -38,18 +38,10 @@ export function ReadOnlyLine({ scope }: { scope: AiWriteScope }) {
 }
 
 /**
- * Un rifiuto del livello dati in parole, dove è partita l'azione (shape §5).
- * `invalid` lo traduce chi chiama (dipende dal campo); la riconferma chiusa
- * non dice niente qui: lo dice già il dialogo («Nothing was changed.»).
+ * Un rifiuto del livello dati in parole: le frasi sono quelle delle
+ * integrazioni, da una copia sola (revisione finale M5).
  */
-export function useAiRefusalWords() {
-  const { t } = useTranslation();
-  return (error: string): string => {
-    if (error === "reauth_cancelled") return "";
-    if (error === "forbidden") return t("admin.ai.forbidden");
-    return t("admin.ai.saveFailed");
-  };
-}
+export { useRefusalWords as useAiRefusalWords } from "../integrations/parts";
 
 /** Lo scheletro di una scheda: righe alte quanto le vere. */
 export function AiSkeleton({ rows, height = 64 }: { rows: number; height?: number }) {
