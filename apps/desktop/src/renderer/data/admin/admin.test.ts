@@ -1201,6 +1201,19 @@ describe("Departments", () => {
     expect((await listDepartmentNames()).map((d) => d.id)).not.toContain("dep-sales");
   });
 
+  it("I1: l'ultimo reparto non si elimina (una task nuova ne ha sempre uno)", async () => {
+    // Restano solo Sales: le altre task passano lì, gli altri reparti spariscono.
+    for (const t of state.tasks) t.departmentId = "dep-sales";
+    state.departments = state.departments.filter((d) => d.id === "dep-sales");
+    writeAccess((s) => {
+      s.departments = s.departments.filter((d) => d.departmentId === "dep-sales");
+    });
+    await refused(() => admin.deleteDepartment("dep-sales", null), {
+      error: "invalid",
+      reason: "last_department",
+    });
+  });
+
   it("Task 9: i permessi che chi guarda non può mettere nel reparto, e dove arrivano", async () => {
     // Marco (Developer) gestisce i reparti.
     giveInstance("p-marco", "departments.manage");

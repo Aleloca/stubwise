@@ -144,6 +144,8 @@ export function reasonWords(
       return t("admin.refusal.identityTaken");
     case "identity":
       return t("admin.refusal.identity");
+    case "last_department":
+      return t("admin.refusal.lastDepartment");
     case "email":
     case "email_taken":
     case "invite_exists":

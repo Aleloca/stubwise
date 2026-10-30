@@ -483,6 +483,9 @@ export async function deleteDepartment(
   const me = await writer("admin.deleteDepartment");
   const m = managed(me, id);
   if ("refusal" in m) return m.refusal;
+  // Ogni task ha un reparto, e una task nuova prende il primo di chi la crea:
+  // senza reparti non si creerebbe più niente (I1 della revisione finale).
+  if (state.departments.length <= 1) return refuse.invalid("last_department");
   const tasks = state.tasks.filter((t) => t.departmentId === id);
   if (tasks.length > 0) {
     if (moveTasksTo === null) return refuse.invalid("move_required");

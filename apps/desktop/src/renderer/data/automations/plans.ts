@@ -165,7 +165,7 @@ export interface TaskPlan {
   description: string;
   assignee: AssigneePlan;
   /** Il reparto della task: quello dell'incaricato o del passo, altrimenti il primo del proprietario. */
-  departmentId: string;
+  departmentId: string | null;
   dueDate: string | null;
   /** Il codice del traguardo creato da un passo precedente (`milestoneRef`). */
   milestoneCode: string | null;

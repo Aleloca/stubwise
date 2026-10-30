@@ -197,15 +197,20 @@ export function checkNewTask(
   return { project, status };
 }
 
-/** Il reparto di una task nuova senza reparto: il primo di chi la crea. */
-export const defaultDepartmentOf = (me: string): string =>
-  PEOPLE.find((p) => p.id === me)?.departmentIds[0] ?? state.departments[0]!.id;
+/**
+ * Il reparto di una task nuova senza reparto: il primo di chi la crea, o il
+ * primo dell'istanza; `null` se l'istanza non ne ha (non succede: il primo
+ * avvio crea «General» e l'ultimo reparto non si elimina).
+ */
+export const defaultDepartmentOf = (me: string): string | null =>
+  PEOPLE.find((p) => p.id === me)?.departmentIds[0] ?? state.departments[0]?.id ?? null;
 
 function buildTask(me: string, input: NewTaskInput): Task {
   const { project, status } = checkNewTask(me, input);
   // Una persona disattivata non si assegna, neanche a una task nuova (area 9a).
   if (input.assigneeId && isDeactivated(input.assigneeId)) throw invalid("assignee");
   const departmentId = input.departmentId ?? defaultDepartmentOf(me);
+  if (!departmentId) throw invalid("department");
   const max = state.tasks
     .filter((t) => t.projectId === project.id)
     .reduce((m, t) => Math.max(m, Number(t.code.split("-").at(-1)) || 0), 0);

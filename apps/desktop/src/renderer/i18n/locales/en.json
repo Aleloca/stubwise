@@ -8450,6 +8450,7 @@
       "more_other": "{{count}} more",
       "lastFullAdmin": "{{name}} is the only full admin. Make someone else full admin first.",
       "lastMembersManager": "{{name}} is the last person who manages the members of a project. Give that to someone else first.",
+      "lastDepartment": "This is the only department, and every task needs one. Create another department first.",
       "selfDeactivate": "You can't deactivate yourself.",
       "self": "You can't do this on yourself.",
       "forbidden": "You no longer have permission to do this.",

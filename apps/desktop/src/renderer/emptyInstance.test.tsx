@@ -129,14 +129,19 @@ const CASES: Case[] = [
   { path: "/preferences/look", proof: "general" },
   { path: "/admin", lands: "/admin/people", empty: "admin.people.onlyYou" },
   { path: "/admin/people", empty: "admin.people.onlyYou" },
-  { path: "/admin/departments", empty: /No departments yet/ },
+  // Il primo avvio crea un reparto solo, «General» (I1): nessuno del seme.
+  {
+    path: "/admin/departments",
+    absent: ["Marketing", "Sales", "Support", "Development", "Administration"],
+  },
   // I due ruoli fatti a mano nel seme non ci sono più: restano i preset.
   { path: "/admin/roles", absent: ["Auditor", "Release manager"] },
-  // Il seme ha anche lui la voce del primo avvio: il vuoto è che sia l'unica.
+  // Il seme ha anche lui la voce del primo avvio: il vuoto è che ci siano
+  // solo quella e il reparto «General» nato con lei.
   {
     path: "/admin/changelog",
     empty: /set up the instance as its first full admin/,
-    count: ["[data-change-entry]", 1],
+    count: ["[data-change-entry]", 2],
   },
   // Il menu dei progetti, aperto: non c'è niente da scegliere.
   { path: "/admin/who-can", steps: openProjectMenu, empty: "whoCan.page.noProjects" },

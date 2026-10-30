@@ -1,5 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { admin, auth, changelog, listProjects, me, resetApi, setLatency } from "../api";
+import {
+  admin,
+  auth,
+  changelog,
+  createProject,
+  createTask,
+  listDepartments,
+  listProjects,
+  me,
+  resetApi,
+  setLatency,
+} from "../api";
 import { accessState, isFullAdmin, roleIdOf, seedAccessState } from "../access/index";
 import { __secretValuesForTest } from "../admin/secrets";
 import { PEOPLE, CLAUDE_ID } from "../seed/people";
@@ -427,6 +438,25 @@ describe("istanza vuota e primo avvio", () => {
     });
     as(personId);
     expect(await listProjects()).toEqual([]);
+  });
+
+  it("I1: istanza vuota, primo admin, nuovo progetto, nuova task — la task ha il reparto General", async () => {
+    await auth.resetToEmptyInstance();
+    const result = await auth.createFirstAdmin({
+      name: "Ada Lovelace",
+      email: "ada@example.com",
+      password: "a-long-one",
+    });
+    const personId = (result as { personId: string }).personId;
+    as(personId);
+    const departments = await listDepartments();
+    expect(departments.map((d) => d.name)).toEqual(["General"]);
+    expect(PEOPLE.find((p) => p.id === personId)!.departmentIds).toEqual([departments[0]!.id]);
+    const project = await createProject({ code: "ADA", name: "First", template: "empty" });
+    const task = await createTask({ projectId: project.id, title: "Hello" });
+    expect(task.departmentId).toBe(departments[0]!.id);
+    // Il reparto nato col primo avvio è nel registro come gli altri.
+    expect(state.changelog.map((e) => e.kind)).toContain("department.created");
   });
 
   it("resetApi torna al seme", async () => {

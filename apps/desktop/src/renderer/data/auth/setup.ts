@@ -1,13 +1,20 @@
-import { accessState, roleIdOf } from "../access/index";
+import { accessState, roleIdOf, writeAccess } from "../access/index";
 import "../admin/changeTypes";
 import { recordChange } from "../changelog/index";
-import { gate } from "../store";
+import { gate, newId, state } from "../store";
 import { createPerson, newPersonInputError } from "./register";
 
 // Il primo avvio (area 9a, Ingresso): su un'istanza vuota si crea il primo
 // full admin (ruolo Admin). Come la registrazione, non apre una sessione:
 // dopo si entra dal login (`second-factor.md`), e il secondo fattore si
 // attiva alla prima azione delicata.
+//
+// Nasce anche il primo reparto, «General», con dentro il primo admin: ogni
+// task ha un reparto (ossatura), e una task nuova prende il primo reparto di
+// chi la crea. L'ultimo reparto non si elimina (`deleteDepartment`).
+
+/** Il nome del reparto che nasce col primo avvio. */
+export const FIRST_DEPARTMENT_NAME = "General";
 
 export type FirstAdminResult =
   | { ok: true; personId: string }
@@ -44,6 +51,23 @@ export async function createFirstAdmin(input: {
     actorId: personId,
     projectId: null,
     object: { type: "person", id: personId, label: input.name.trim() },
+  });
+  const departmentId = newId("dep");
+  state.departments.push({ id: departmentId, name: FIRST_DEPARTMENT_NAME, colorToken: "--dept-1" });
+  writeAccess((s) => {
+    s.departments.push({
+      departmentId,
+      memberIds: [personId],
+      homeManagerIds: [],
+      projectPermissions: [],
+    });
+  });
+  recordChange({
+    kind: "department.created",
+    actorId: personId,
+    projectId: null,
+    object: { type: "department", id: departmentId, label: FIRST_DEPARTMENT_NAME },
+    after: FIRST_DEPARTMENT_NAME,
   });
   return { ok: true, personId };
 }

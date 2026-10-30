@@ -8450,6 +8450,7 @@
       "more_other": "altri {{count}}",
       "lastFullAdmin": "{{name}} è l'unico amministratore completo. Rendi prima qualcun altro amministratore completo.",
       "lastMembersManager": "{{name}} è l'ultima persona che gestisce i membri di un progetto. Dallo prima a qualcun altro.",
+      "lastDepartment": "È l'unico reparto, e ogni task ne ha bisogno. Crea prima un altro reparto.",
       "selfDeactivate": "Non puoi disattivare te stesso.",
       "self": "Non puoi farlo su te stesso.",
       "forbidden": "Non hai più il permesso di farlo.",

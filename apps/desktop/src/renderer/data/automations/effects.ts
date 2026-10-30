@@ -121,7 +121,7 @@ function createTask(eff: ActionEffect, env: EffectEnv, owner: string) {
       title: plan.title,
       description: plan.description,
       assigneeId: plan.assignee.assigneeId,
-      departmentId: plan.departmentId,
+      departmentId: plan.departmentId ?? undefined,
       dueDate: plan.dueDate,
       milestoneId: milestone?.id ?? null,
     },
