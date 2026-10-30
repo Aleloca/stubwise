@@ -11,7 +11,11 @@ import type {
   MailProposalView,
   ProposedAction,
 } from "../types";
-import { can, grantProjectRole, viewerFor } from "../viewer";
+import { can, viewerFor } from "../viewer";
+import { roleIdOf } from "../access/index";
+import { judgeJoin, writeJoin } from "../admin/members";
+import type { AdminRefusal } from "../admin/types";
+import { requireReauth } from "../auth/reauth";
 import {
   calendarParticipants,
   canDoActions,
@@ -268,7 +272,13 @@ function originFor(me: string, p: MailProposal): MailProposalOrigin | null {
 /** L'esito di una conferma: i codici di ciò che è nato, o il motivo per cui non è stata eseguita. */
 export type MailProposalOutcome =
   | { status: "confirmed"; resultCodes: string[] }
-  | { status: "failed"; error: string };
+  | { status: "failed"; error: string }
+  /**
+   * Non confermata, e niente è cambiato: chi andava aggiunto al progetto non
+   * passa la regola di Members, o manca la riconferma (che `useReauth`
+   * riconosce da `ok: false, error: "reauth_required"`).
+   */
+  | ({ status: "refused" } & AdminRefusal);
 
 export interface ConfirmMailProposalInput {
   /** Le azioni da eseguire (conferma parziale); senza, tutte. */
@@ -385,14 +395,24 @@ export async function confirmMailProposal(
   if (adding.length > 0 && !can(viewerFor(me), "project.members.manage", p.projectId)) {
     throw forbidden();
   }
+  // Chi entra passa dalla STESSA regola di Members (`judgeJoin`: attivo, non
+  // full admin, escalation su ruolo e reparto in quel progetto) e dalla sua
+  // riconferma: tutti giudicati prima di eseguire qualunque azione.
+  const contributor = roleIdOf("contributor");
+  for (const personId of adding) {
+    const refusal = judgeJoin(me, p.projectId, personId, contributor);
+    if (refusal) return { status: "refused", ...refusal };
+  }
+  if (adding.length > 0 && requireReauth(me, "admin.addMember"))
+    return { status: "refused", ok: false, error: "reauth_required" };
   const result = applyActions(me, withEmailWords(p, actions));
   if (!result.ok) {
     decide(p, me, "failed");
     p.error = result.code;
     return { status: "failed", error: result.code };
   }
-  // Entrare nel progetto è un'appartenenza: `memberIds` la segue da sé.
-  for (const personId of adding) grantProjectRole(personId, p.projectId, "contributor");
+  // Entrare nel progetto è un'appartenenza, con la sua voce nel registro.
+  for (const personId of adding) writeJoin(me, p.projectId, personId, contributor);
   decide(p, me, "confirmed");
   p.resultCodes = result.codes;
   if (indexes) p.confirmedActions = indexes;

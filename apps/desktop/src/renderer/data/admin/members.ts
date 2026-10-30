@@ -197,6 +197,59 @@ export async function listProjectMembers(projectId: string): Promise<ProjectMemb
   };
 }
 
+/**
+ * La regola UNICA di ogni appartenenza nuova data da qualcuno (Members, una
+ * proposta della posta che aggiunge un incaricato): `null` se `me` può far
+ * entrare `personId` in `projectId` col ruolo `roleId`, altrimenti il
+ * rifiuto. Senza cancello e senza riconferma: li mette il chiamante.
+ * Entrando, la persona riceve il ruolo E i permessi di progetto dei suoi
+ * reparti: si danno entrambi (design, Members, «Regole»), misurati lì.
+ */
+export function judgeJoin(
+  me: string,
+  projectId: string,
+  personId: string,
+  roleId: string,
+): AdminRefusal | null {
+  if (!isHumanId(personId)) return refuse.notFound();
+  if (!isActive(personId)) return refuse.invalid("deactivated");
+  if (isFullAdmin(personId)) return refuse.invalid("full_admin");
+  if (membershipOf(accessState(), personId, projectId)) return refuse.invalid("already_member");
+  const role = roleById(roleId);
+  if (!role || role.scope !== "project") return refuse.invalid("role");
+  return escalationIn(
+    me,
+    [projectId],
+    [...role.permissions, ...departmentPermissionsOf(personId)],
+  );
+}
+
+/**
+ * L'unico scrittore di un'appartenenza nuova fuori dai test: la scrive e ne
+ * lascia la voce `member.added` nel registro. Chi la chiama ha già giudicato
+ * (`judgeJoin`); chi crea un progetto non ha niente da giudicare, ne diventa
+ * il Project Lead come sul web, ma la voce c'è lo stesso.
+ */
+export function writeJoin(
+  actorId: string,
+  projectId: string,
+  personId: string,
+  roleId: string,
+): void {
+  const role = roleById(roleId)!;
+  writeAccess((s) => {
+    s.memberships.push({ personId, projectId, roleId });
+  });
+  recordChange({
+    kind: "member.added",
+    actorId,
+    projectId,
+    object: { type: "person", id: personId, label: nameOf(personId) ?? personId },
+    after: role.name,
+    params: { role: role.name, project: projectLabel(projectId) },
+  });
+}
+
 /** Aggiunge una persona attiva al progetto con un ruolo (`project.members.manage`, +R). */
 export async function addMember(
   projectId: string,
@@ -206,33 +259,11 @@ export async function addMember(
   const me = await writer("admin.addMember");
   const blocked = managed(me, projectId);
   if (blocked) return blocked;
-  if (!isHumanId(personId)) return refuse.notFound();
-  if (!isActive(personId)) return refuse.invalid("deactivated");
-  if (isFullAdmin(personId)) return refuse.invalid("full_admin");
-  if (membershipOf(accessState(), personId, projectId)) return refuse.invalid("already_member");
-  const role = roleById(roleId);
-  if (!role || role.scope !== "project") return refuse.invalid("role");
-  // Entrando, la persona riceve il ruolo E i permessi di progetto dei suoi
-  // reparti: si danno entrambi (design, Members, «Regole»).
-  const escalation = escalationIn(
-    me,
-    [projectId],
-    [...role.permissions, ...departmentPermissionsOf(personId)],
-  );
-  if (escalation) return escalation;
+  const refusal = judgeJoin(me, projectId, personId, roleId);
+  if (refusal) return refusal;
   const reauth = reauthRefusal(me, "admin.addMember");
   if (reauth) return reauth;
-  writeAccess((s) => {
-    s.memberships.push({ personId, projectId, roleId });
-  });
-  recordChange({
-    kind: "member.added",
-    actorId: me,
-    projectId,
-    object: { type: "person", id: personId, label: nameOf(personId) ?? personId },
-    after: role.name,
-    params: { role: role.name, project: projectLabel(projectId) },
-  });
+  writeJoin(me, projectId, personId, roleId);
   return { ok: true };
 }
 

@@ -6,6 +6,8 @@ import { setSessionPersonId } from "../session";
 import { state, visibleProjectIds } from "../store";
 import type { MailProposal, ProposedAction } from "../types";
 import { can, grantProjectRole, viewerFor } from "../viewer";
+import { accessState, writeAccess } from "../access/index";
+import { markReauthenticated } from "../auth/reauth";
 import { calendarParticipants, permissionForAction } from "./visibility";
 
 const as = (personId: string) => setSessionPersonId(personId);
@@ -506,6 +508,7 @@ describe("Proposte della posta: incaricato fuori dal progetto", () => {
 
   it("con il permesso: Chiara entra in AUD come Contributor ed è incaricata; resetApi lo annulla", async () => {
     as("p-matteo"); // Project Lead in AUD
+    markReauthenticated("p-matteo");
     expect(visibleProjectIds("p-chiara").has(AUD)).toBe(false);
     const out = await mail.confirmMailProposal(REVIEW, { addOutsiders: ["p-chiara"] });
     expect(out.status === "confirmed" && out.resultCodes).toHaveLength(4);
@@ -525,6 +528,7 @@ describe("Proposte della posta: incaricato fuori dal progetto", () => {
 
   it("un'azione che fallisce non aggiunge nessuno", async () => {
     as("p-matteo");
+    markReauthenticated("p-matteo");
     const id = addProposal([
       {
         fn: "createTask",
@@ -538,6 +542,82 @@ describe("Proposte della posta: incaricato fuori dal progetto", () => {
     });
     expect(membersOf(AUD)).not.toContain("p-chiara");
     expect(can(viewerFor("p-chiara"), "tickets.create", AUD)).toBe(false);
+  });
+});
+
+describe("Proposte della posta: chi entra passa dalla regola di Members (C1)", () => {
+  /** Ciò che una conferma rifiutata non deve toccare. */
+  const snapshot = () =>
+    JSON.stringify({
+      access: accessState(),
+      tasks: state.tasks.length,
+      changelog: state.changelog.length,
+      proposal: proposal(REVIEW),
+    });
+
+  it("escalation: il reparto di Chiara dà un permesso che Matteo in AUD non ha → niente scritto, nessuna voce", async () => {
+    // Roberta, legittimamente, dà `servers.operate` al reparto Marketing.
+    writeAccess((s) => {
+      s.departments
+        .find((d) => d.departmentId === "dep-marketing")!
+        .projectPermissions.push("servers.operate");
+    });
+    as("p-matteo");
+    markReauthenticated("p-matteo");
+    expect(can(viewerFor("p-matteo"), "servers.operate", AUD)).toBe(false);
+    const before = snapshot();
+    const out = await mail.confirmMailProposal(REVIEW, { addOutsiders: ["p-chiara"] });
+    expect(out).toEqual({
+      status: "refused",
+      ok: false,
+      error: "escalation",
+      missing: ["servers.operate"],
+    });
+    expect(snapshot()).toBe(before);
+    expect(proposal(REVIEW).status).toBe("open");
+    expect(membersOf(AUD)).not.toContain("p-chiara");
+    expect(can(viewerFor("p-chiara"), "servers.operate", AUD)).toBe(false);
+  });
+
+  it("riconferma: senza, reauth_required e niente scritto; dopo, Chiara entra e il registro lo dice", async () => {
+    as("p-matteo");
+    const before = snapshot();
+    expect(await mail.confirmMailProposal(REVIEW, { addOutsiders: ["p-chiara"] })).toEqual({
+      status: "refused",
+      ok: false,
+      error: "reauth_required",
+    });
+    expect(snapshot()).toBe(before);
+
+    markReauthenticated("p-matteo");
+    const out = await mail.confirmMailProposal(REVIEW, { addOutsiders: ["p-chiara"] });
+    expect(out).toMatchObject({ status: "confirmed" });
+    const entry = state.changelog.at(-1)!;
+    expect(entry).toMatchObject({
+      kind: "member.added",
+      actorId: "p-matteo",
+      projectId: AUD,
+      object: { type: "person", id: "p-chiara" },
+      after: "Contributor",
+    });
+  });
+
+  it("senza nessuno da aggiungere la conferma non chiede la riconferma", async () => {
+    as("p-matteo");
+    const out = await mail.confirmMailProposal(REVIEW, { edits: { 3: { assigneeId: null } } });
+    expect(out).toMatchObject({ status: "confirmed" });
+  });
+
+  it("una persona disattivata non entra: invalid in parole, niente scritto", async () => {
+    writeAccess((s) => {
+      s.people.find((p) => p.personId === "p-chiara")!.status = "deactivated";
+    });
+    as("p-matteo");
+    markReauthenticated("p-matteo");
+    const before = snapshot();
+    const out = await mail.confirmMailProposal(REVIEW, { addOutsiders: ["p-chiara"] });
+    expect(out).toEqual({ status: "refused", ok: false, error: "invalid", reason: "deactivated" });
+    expect(snapshot()).toBe(before);
   });
 });
 

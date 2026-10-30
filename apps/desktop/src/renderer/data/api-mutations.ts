@@ -22,7 +22,7 @@ import { TODAY } from "./seed/dates";
 import { docPageById } from "./docs/reads";
 import { driveFilesForClaude } from "./drive/reads";
 import { PEOPLE } from "./seed/people";
-import { accessState } from "./access/index";
+import { accessState, roleIdOf } from "./access/index";
 import { TEAM_ACCOUNT } from "./seed/runs";
 import { getSessionPersonId, setSessionPersonId } from "./session";
 import {
@@ -104,7 +104,10 @@ import {
   stopAndReplanServerFixAs,
   stopServerFixAs,
 } from "./servers/fix";
-import { can, canInDepartment, grantProjectRole, viewerFor, type Permission } from "./viewer";
+// Members (area 9a): usato solo dentro `createProject`, quindi l'import circolare
+// (members.ts legge lo store) è innocuo.
+import { writeJoin } from "./admin/members";
+import { can, canInDepartment, viewerFor, type Permission } from "./viewer";
 
 // Le scritture del «server» finto. Ognuna passa da `gate()` (quindi `failNext`
 // la fa fallire), legge chi agisce dalla sessione e verifica il permesso come
@@ -1071,7 +1074,7 @@ export async function createProject(input: NewProjectInput): Promise<Project> {
     kind: input.clientName ? "client" : "internal",
     template: input.template,
     modules: [...(input.modules ?? TEMPLATE_MODULES[input.template])],
-    // Lo riempie l'appartenenza qui sotto (`grantProjectRole`): un solo scrittore.
+    // Lo riempie l'appartenenza qui sotto (`writeJoin`): un solo scrittore.
     memberIds: [],
     stallThresholds: { activeDays: 7, todoDays: 14 },
     signals: { claudeWorking: false },
@@ -1088,8 +1091,9 @@ export async function createProject(input: NewProjectInput): Promise<Project> {
     })),
   );
   reindex();
-  // Chi crea il progetto ne è il project lead.
-  grantProjectRole(me, id, "project_lead");
+  // Chi crea il progetto ne è il project lead (regola del web, niente da
+  // giudicare), e il registro lo dice come ogni altra appartenenza.
+  writeJoin(me, id, me, roleIdOf("project_lead"));
   // Ogni progetto nasce con il suo «general»: i membri sono quelli del progetto.
   state.channels.push({
     id: `ch-${input.code.toLowerCase()}-general`,

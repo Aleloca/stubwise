@@ -4490,7 +4490,9 @@
       "addConfirm": "Aggiungi e conferma",
       "choose": "Scegli un'altra persona",
       "leave": "Lascia senza incaricato",
-      "confirmUnassigned": "Conferma senza incaricato"
+      "confirmUnassigned": "Conferma senza incaricato",
+      "reauthAction": "aggiungere {{names}} a {{code}} e confermare la proposta",
+      "escalation": "Da qui non puoi aggiungere {{names}} a {{code}}: l'ingresso darebbe {{missing}}, che tu in {{code}} non hai. Non è cambiato niente."
     },
     "outcome": {
       "confirmedByYou": "Confermata da te",

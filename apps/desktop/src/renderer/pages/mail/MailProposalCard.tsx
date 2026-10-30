@@ -14,7 +14,10 @@ import {
 } from "../../data/queries";
 import type { MailProposalView, Project, ProposedAction } from "../../data/types";
 import { can, useViewer } from "../../data/viewer";
+import { useReauth } from "../../layout/useReauth";
 import { hasModKey } from "../../platform/platform";
+import { useToast } from "../../tasks-ui/Toast";
+import { useMissingWords, useRefusalWords, type UiRefusal } from "../admin/parts";
 import { CheckBox, MenuGroup, itemClass } from "../../tasks-ui/Menu";
 import {
   cardClass,
@@ -96,6 +99,12 @@ export function MailProposalCard({
   const choose = useChooseMailProject();
   const reassign = useReassignMailProposal();
   const decideNow = useDecideMailProposalNow();
+  const reauth = useReauth();
+  const toast = useToast();
+  const refusalWords = useRefusalWords();
+  const missingWords = useMissingWords();
+  const listWords = (names: string[]) =>
+    new Intl.ListFormat(i18n.language, { type: "conjunction" }).format(names);
 
   const project = projects?.find((x) => x.id === p.projectId);
   const code = project?.code ?? "";
@@ -198,17 +207,37 @@ export function MailProposalCard({
       ...(Object.keys(payload).length ? { edits: payload } : {}),
       ...(opts.add?.length ? { addOutsiders: opts.add } : {}),
     };
-    if (onDecide) {
+    const adding = opts.add ?? [];
+    // Aggiungere qualcuno al progetto è un ingresso come in Members: chiede la
+    // riconferma e passa dalla stessa regola, quindi parte subito (niente
+    // finestra dell'«Undo» di «Da decidere») e un rifiuto si dice qui.
+    if (onDecide && adding.length === 0) {
       setAsking(null);
       onDecide("confirm", () => decideNow.confirm(p.id, input));
       return;
     }
-    confirm
-      .mutateAsync({ id: p.id, ...input })
-      .then(() => {
-        setAsking(null);
-        if (opts.add?.length) setAdded(opts.add.map((id) => people.get(id)?.name ?? id));
-      }, fail);
+    const names = adding.map((id) => people.get(id)?.name ?? id);
+    void reauth(() => confirm.mutateAsync({ id: p.id, ...input }), {
+      action: t("mail.outsider.reauthAction", { names: listWords(names), code }),
+    }).then((outcome) => {
+      if ("ok" in outcome) {
+        const refusal = outcome as UiRefusal;
+        if (refusal.error === "reauth_cancelled")
+          return void toast.show(t("admin.refusal.reauthCancelled"));
+        setError(
+          refusal.error === "escalation"
+            ? t("mail.outsider.escalation", {
+                names: listWords(names),
+                code,
+                missing: missingWords(refusal.missing),
+              })
+            : refusalWords(refusal, { name: listWords(names) }),
+        );
+        return;
+      }
+      setAsking(null);
+      if (adding.length) setAdded(names);
+    }, fail);
   };
 
   const doConfirm = () => {

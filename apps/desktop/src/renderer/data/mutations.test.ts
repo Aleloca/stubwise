@@ -826,6 +826,21 @@ describe("progetti", () => {
     expect(task.code).toBe("NEWP-1");
   });
 
+  it("createProject: chi crea entra come Project Lead e il registro lo dice (member.added)", async () => {
+    as("p-roberta");
+    const before = state.changelog.length;
+    const project = await createProject({ code: "LOGP", name: "Logged", template: "empty" });
+    const added = state.changelog.slice(before).filter((e) => e.kind === "member.added");
+    expect(added).toEqual([
+      expect.objectContaining({
+        actorId: "p-roberta",
+        projectId: project.id,
+        object: expect.objectContaining({ type: "person", id: "p-roberta" }),
+        after: "Project Lead",
+      }),
+    ]);
+  });
+
   it("createProject: codice non valido o già preso, e chi non ha projects.create → respinto", async () => {
     as("p-roberta");
     await expect(createProject({ code: "x1", name: "n", template: "empty" })).rejects.toThrow(

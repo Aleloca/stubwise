@@ -4490,7 +4490,9 @@
       "addConfirm": "Add and confirm",
       "choose": "Choose someone else",
       "leave": "Leave unassigned",
-      "confirmUnassigned": "Confirm unassigned"
+      "confirmUnassigned": "Confirm unassigned",
+      "reauthAction": "add {{names}} to {{code}} and confirm the proposal",
+      "escalation": "You can't add {{names}} to {{code}} from here: joining would give {{missing}}, which you don't have in {{code}}. Nothing was changed."
     },
     "outcome": {
       "confirmedByYou": "Confirmed by you",

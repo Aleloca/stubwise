@@ -6,6 +6,8 @@ import { EV_AUD_REVIEW_YESTERDAY, MAIL_CASES } from "../../data/seed/mail";
 import { setSessionPersonId } from "../../data/session";
 import { state } from "../../data/store";
 import { resetViewerGrants, revokeProjectPermission } from "../../data/viewer";
+import { writeAccess } from "../../data/access/index";
+import { markReauthenticated } from "../../data/auth/reauth";
 import { setMatchMedia } from "../../test/setup";
 import { renderRoute } from "../../test/renderRoute";
 import { closeGoogleAccount } from "../drive/GoogleAccountCard";
@@ -423,6 +425,45 @@ describe("Posta — proposte condivise (Review Focus 2)", () => {
     );
     expect(done).toHaveTextContent(/Confirmed by Matteo Conti/);
     expect(state.tasks.length).toBe(before + 1);
+  });
+
+  it("aggiungere chi è fuori chiede la riconferma, poi conferma e lo dice", async () => {
+    const thread = threadOf(MAIL_CASES.transcript);
+    await openMail(`/mail/${thread}`, "p-matteo");
+    const c = await card("mp-aud-weekly-review");
+    const user = userEvent.setup();
+    await user.click(within(c).getByRole("button", { name: "Confirm" }));
+    await user.click(await within(c).findByRole("button", { name: "Add and confirm" }));
+    const dialog = await screen.findByRole("dialog", { name: "Confirm it's you" });
+    expect(dialog).toHaveTextContent(/add Chiara Lombardi to AUD and confirm the proposal/);
+    await user.type(within(dialog).getByLabelText("Code"), "123456");
+    await waitFor(() =>
+      expect(state.mailProposals.find((p) => p.id === "mp-aud-weekly-review")!.status).toBe(
+        "confirmed",
+      ),
+    );
+    expect(state.changelog.at(-1)).toMatchObject({ kind: "member.added", projectId: "prj-aud" });
+  });
+
+  it("chi entrerebbe con permessi che chi conferma non ha: il motivo in parole, niente confermato", async () => {
+    writeAccess((s) => {
+      s.departments
+        .find((d) => d.departmentId === "dep-marketing")!
+        .projectPermissions.push("servers.operate");
+    });
+    markReauthenticated("p-matteo");
+    const thread = threadOf(MAIL_CASES.transcript);
+    await openMail(`/mail/${thread}`, "p-matteo");
+    const c = await card("mp-aud-weekly-review");
+    const user = userEvent.setup();
+    await user.click(within(c).getByRole("button", { name: "Confirm" }));
+    await user.click(await within(c).findByRole("button", { name: "Add and confirm" }));
+    expect(
+      await within(c).findByText(
+        "You can't add Chiara Lombardi to AUD from here: joining would give start a server fix, which you don't have in AUD. Nothing was changed.",
+      ),
+    ).toBeInTheDocument();
+    expect(state.mailProposals.find((p) => p.id === "mp-aud-weekly-review")!.status).toBe("open");
   });
 
   it("cambio di persona con il passo «fuori dal progetto» aperto: si chiude senza effetti", async () => {
