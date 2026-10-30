@@ -1,6 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { AiBlockLine } from "../../components/InstanceBlock";
 import { useExplainRelease, useFixRelease, useSendMessage } from "../../data/queries";
 import type { ReleaseView } from "../../data/releases";
 import { can, useViewer } from "../../data/viewer";
@@ -124,7 +125,11 @@ export function FixDialog({ release, onClose }: { release: ReleaseView; onClose:
           className={`${inputClass} resize-y`}
         />
       </DialogField>
-      {!release.canStartFix && (
+      {/* Il budget ferma Claude: la frase sopra il bottone «Create task» (EF §2). */}
+      {release.fixBlock && (
+        <AiBlockLine block={release.fixBlock} projectCode={release.projectCode} />
+      )}
+      {!release.canStartFix && !release.fixBlock && (
         <p className="text-sm text-ink-muted">
           {t("releases.fix.waits", { code: release.projectCode })}
         </p>

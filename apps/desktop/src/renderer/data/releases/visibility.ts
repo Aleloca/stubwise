@@ -9,12 +9,9 @@ import {
   type PrState,
 } from "../../domain/releases/prState";
 import { environmentServerFor } from "../../domain/releases/environmentServer";
-import {
-  releaseStatus,
-  sameCommit,
-  type ReleaseStatus,
-} from "../../domain/releases/releaseStatus";
+import { releaseStatus, sameCommit, type ReleaseStatus } from "../../domain/releases/releaseStatus";
 import { releaseMandatory } from "../alerts/publish";
+import { budgetReached } from "../instance/blocks";
 import { holds, sees } from "../access";
 import { eventsOf, now, state } from "../store";
 import type {
@@ -235,7 +232,15 @@ export interface ReleaseView extends Omit<Release, "runs"> {
   fixPreview: FixPreview;
   /** «Fai sistemare a Claude»: `tickets.create` (e `runs.start` per far partire Claude). */
   canFix: boolean;
+  /** Claude parte con la task: `runs.start` e il budget del mese non raggiunto (area 9b). */
   canStartFix: boolean;
+  /**
+   * Con `runs.start`, il blocco che non fa partire Claude: il budget del mese
+   * raggiunto (la task nasce, Claude no). La pagina mette la frase del budget
+   * sopra il bottone «Create task» (shape EF §2). La pausa non c'è: Claude
+   * aspetta la ripresa, il bottone dice il vero.
+   */
+  fixBlock: { reason: "monthly_budget" } | null;
   /**
    * Aspetta chi guarda ([R 6], il punto sulla voce della colonna): fallito,
    * senza task di riparazione aperta, e chi guarda ne è destinatario
@@ -321,12 +326,19 @@ export function releaseView(me: string, r: Release): ReleaseView {
       : null,
     fixPreview: fixPreviewOf(me, r),
     canFix: holds(me, "tickets.create", r.projectId),
-    canStartFix: holds(me, "runs.start", r.projectId),
+    ...startFixOf(me, r.projectId),
     waitsOnViewer:
       statusOf(r).kind === "failed" &&
       !openFixTask(r) &&
       releaseMandatory(r).some((m) => m.personId === me),
   };
+}
+
+/** Se Claude parte con la task di riparazione, e se no per il budget (la stessa regola di `fixRelease`). */
+function startFixOf(me: string, projectId: string): Pick<ReleaseView, "canStartFix" | "fixBlock"> {
+  const starts = holds(me, "runs.start", projectId);
+  const fixBlock = starts && budgetReached() ? { reason: "monthly_budget" as const } : null;
+  return { canStartFix: starts && fixBlock === null, fixBlock };
 }
 
 /** L'indirizzo di un rilascio (notifiche, ⌘K): il suo dettaglio. */

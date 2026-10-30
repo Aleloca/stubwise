@@ -178,6 +178,25 @@ describe("Release detail — fallito", () => {
     expect(within(now).queryByRole("button", { name: "Fix it with Claude" })).toBeNull();
   });
 
+  it("final I1: col budget del mese raggiunto il bottone dice «Create task» e la frase del budget sta sopra", async () => {
+    state.instance.simulate.budgetReached = true;
+    await openRelease("AUD-V3");
+    await userEvent.click(screen.getByRole("button", { name: "Fix it with Claude" }));
+    const dialog = await screen.findByRole("dialog", { name: "Fix AUD-V3 with Claude" });
+    expect(
+      within(dialog).queryByRole("button", { name: "Create task and start Claude" }),
+    ).toBeNull();
+    const line = dialog.querySelector<HTMLElement>('[data-ai-block="monthly_budget"]')!;
+    expect(line).toHaveTextContent(
+      "The monthly AI budget is used up. New work waits until someone raises it. Who?",
+    );
+    // Non la frase del permesso: Roberta/Laura può avviare Claude.
+    expect(dialog).not.toHaveTextContent("The task will wait for someone who can start Claude");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Create task" }));
+    await waitFor(() => expect(release("AUD-V3").fixTaskId).not.toBeNull());
+    expect(state.conversations.some((c) => c.taskId === release("AUD-V3").fixTaskId)).toBe(false);
+  });
+
   it("Marco (runs.start, senza plans.approve) legge il gate del piano; la nota entra nella task", async () => {
     await openRelease("AUD-V3", "p-marco");
     await userEvent.click(screen.getByRole("button", { name: "Fix it with Claude" }));
