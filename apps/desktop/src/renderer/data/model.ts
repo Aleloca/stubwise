@@ -2853,6 +2853,12 @@ export interface ServerEpisode {
   startedAt: string;
   recoveredAt: string | null;
   analysisId: string | null;
+  /**
+   * Area 9b (revisione finale M4): l'analisi non è partita per il budget del
+   * mese raggiunto all'apertura dell'episodio. Il riquadro «Now» lo dice;
+   * l'analisi non riparte da sola quando il budget torna.
+   */
+  analysisBlocked?: "monthly_budget" | null;
 }
 
 /** L'analisi automatica di un episodio, in sola lettura: una sessione e, alla fine, una task. */

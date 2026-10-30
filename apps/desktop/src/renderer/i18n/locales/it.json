@@ -7564,6 +7564,7 @@
       "recoveredOn": "Rientrato il {{date}} alle {{time}} · dopo {{duration}}",
       "openSession": "Apri la sessione",
       "noAccess": "Claude non può guardarci: nessun accesso SSH.",
+      "noBudget": "Claude non può guardarci: il budget AI del mese è esaurito.",
       "linkAccess": "Collega l'accesso SSH",
       "primary": "La diagnosi si apre in {{code}}, il progetto principale.",
       "work": {

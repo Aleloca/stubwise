@@ -7564,6 +7564,7 @@
       "recoveredOn": "Back to normal on {{date}} at {{time}} · after {{duration}}",
       "openSession": "Open session",
       "noAccess": "Claude can't look into it: no SSH access.",
+      "noBudget": "Claude can't look into it: the monthly AI budget is used up.",
       "linkAccess": "Link SSH access",
       "primary": "The diagnosis opens in {{code}}, the primary project.",
       "work": {

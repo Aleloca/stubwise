@@ -1,7 +1,8 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { failNext, resetApi, setLatency } from "../../data/api";
+import { failNext, instance, resetApi, servers, setLatency } from "../../data/api";
+import { setSessionPersonId } from "../../data/session";
 import { state } from "../../data/store";
 import type { ServerService } from "../../data/types";
 import { resetViewerGrants } from "../../data/viewer";
@@ -87,6 +88,19 @@ describe("testata e «Now»", () => {
     expect(now).toHaveTextContent("Memory at 94%, above 90%");
     expect(now).toHaveTextContent("Diagnosis ready");
     expect(await within(now).findByRole("link", { name: /ACQ-6 Memory leak/ })).toBeInTheDocument();
+  });
+
+  it("M4: col budget raggiunto all'allarme, «Now» dice perché Claude non guarda, col «Who?»", async () => {
+    setSessionPersonId("p-roberta");
+    await instance.simulateBudgetReached(true);
+    await servers.simulateServerRecovery("SRV-1").catch(() => undefined);
+    await servers.simulateServerAlert("SRV-1", "memory");
+    await open("/p/ACQ/servers/SRV-1", "p-marco");
+    const now = await screen.findByRole("region", { name: "Now" });
+    expect(now).toHaveTextContent(
+      "Claude can't look into it: the monthly AI budget is used up. Who?",
+    );
+    expect(now.querySelector("[data-who-can='manageSettings']")).not.toBeNull();
   });
 
   it("SRV-2: in difficoltà dalle 09:40, i motivi in frase, senza accesso e il rimando a chi lo collega", async () => {

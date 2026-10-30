@@ -105,15 +105,13 @@ describe("budget del mese esaurito", () => {
     // Una correzione ferma: «Riprendi la correzione» segue la stessa regola (ruling 13).
     const stw3 = conv("cv-run-stw-3");
     stw3.state = "paused";
-    state.conversationEvents
-      .get(stw3.id)!
-      .push({
-        id: "e-corr",
-        at: stw3.updatedAt,
-        type: "phase",
-        phase: "correction",
-        outcome: "stopped",
-      });
+    state.conversationEvents.get(stw3.id)!.push({
+      id: "e-corr",
+      at: stw3.updatedAt,
+      type: "phase",
+      phase: "correction",
+      outcome: "stopped",
+    });
     await expect(resumeCorrection("t-stw-3")).rejects.toThrow("invalid: monthly_budget");
     // La correzione di un server (ACQ-6, la diagnosi di SRV-1).
     as(ROBERTA);
@@ -490,6 +488,34 @@ describe("I2 e i due blocchi delle automazioni", () => {
     await instance.resumeQueue(STW);
     await whenAutomationsIdle();
     expect(runOf(id).status).toBe("done");
+  });
+});
+
+describe("revisione finale M4: l'avviso e il riquadro dicono perché Claude non guarda", () => {
+  const alertBody = (kind: string) =>
+    state.notifications.filter(
+      (n) => n.id.startsWith("n-alert") && n.kind === kind && n.objectCode === "SRV-1",
+    )[0]?.body ?? "";
+
+  it("coda in pausa: l'avviso non dice che Claude sta guardando", async () => {
+    await instance.pauseQueue(ACQ);
+    await servers.simulateServerRecovery("SRV-1").catch(() => undefined);
+    await servers.simulateServerAlert("SRV-1", "memory");
+    const body = alertBody("server.trouble");
+    expect(body).not.toContain("Claude is looking into it");
+    expect(body).toContain("Claude looks into it when ACQ's queue resumes.");
+  });
+
+  it("budget raggiunto: l'avviso lo dice, e l'episodio ricorda perché non c'è analisi", async () => {
+    await instance.simulateBudgetReached(true);
+    await servers.simulateServerRecovery("SRV-1").catch(() => undefined);
+    await servers.simulateServerAlert("SRV-1", "memory");
+    expect(alertBody("server.trouble")).toContain(
+      "Claude can't look into it: the monthly AI budget is used up.",
+    );
+    const episode = (await servers.getServer("SRV-1")).episodes[0]!;
+    expect(episode.analysis).toBeNull();
+    expect(episode.analysisBlocked).toBe("monthly_budget");
   });
 });
 

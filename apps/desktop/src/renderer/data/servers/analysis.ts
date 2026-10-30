@@ -1,9 +1,5 @@
 import { ANALYSIS_MAX_COST_USD, ANALYSIS_MAX_MINUTES } from "../../domain/servers/limits";
-import {
-  alertProjectsOf,
-  analysisProjectOf,
-  serverInProject,
-} from "../../domain/servers/projects";
+import { alertProjectsOf, analysisProjectOf, serverInProject } from "../../domain/servers/projects";
 import { accessState, accessUsable } from "../../domain/servers/sshAccess";
 import { utterance } from "../../domain/claude/answers";
 import i18n from "../../i18n";
@@ -113,13 +109,28 @@ function noAnalysisTail(code: string): string {
     : "Claude can't look into it: the read-only SSH access isn't usable.";
 }
 
-function publishTrouble(s: MonitoredServer, ep: ServerEpisode, analyzes: boolean): void {
+/**
+ * La coda dell'avviso: cosa fa Claude adesso. Con la coda del progetto in
+ * pausa l'analisi aspetta, col budget raggiunto non parte (revisione finale
+ * M4): l'avviso non dice «is looking into it» quando non è vero.
+ */
+function publishTrouble(
+  s: MonitoredServer,
+  ep: ServerEpisode,
+  analyzes: boolean,
+  block: AiBlock | null,
+  projectId: string | null,
+): void {
   const readable = accessUsable(state.serverAccess.get(s.code), "read");
   const tail = analyzes
-    ? " Claude is looking into it with read-only access."
-    : readable
-      ? ""
-      : ` ${noAnalysisTail(s.code)}`;
+    ? block?.reason === "queue_paused" && projectId !== null
+      ? ` Claude looks into it when ${projectCode(projectId)}'s queue resumes.`
+      : " Claude is looking into it with read-only access."
+    : !readable
+      ? ` ${noAnalysisTail(s.code)}`
+      : ep.analysisBlocked === "monthly_budget"
+        ? " Claude can't look into it: the monthly AI budget is used up."
+        : "";
   for (const projectId of alertProjectsOf(s.code, state.environments)) {
     publishAlert({
       kind: ep.severity === "down" ? "server.down" : "server.trouble",
@@ -178,7 +189,14 @@ export function raiseEpisode(
     projectId !== null &&
     accessUsable(state.serverAccess.get(serverCode), "read") &&
     block?.reason !== "monthly_budget";
-  publishTrouble(server, episode, analyzes);
+  if (
+    projectId !== null &&
+    !analyzes &&
+    block?.reason === "monthly_budget" &&
+    accessUsable(state.serverAccess.get(serverCode), "read")
+  )
+    episode.analysisBlocked = "monthly_budget";
+  publishTrouble(server, episode, analyzes, block, projectId);
   if (analyzes) startAnalysis(server, episode, projectId, opts.overrun === true, block);
   return episode;
 }

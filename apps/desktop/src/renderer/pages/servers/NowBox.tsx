@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { waitingText } from "../../components/InstanceBlock";
+import { usePauserName, waitingText, WithWho } from "../../components/InstanceBlock";
 import { useTask } from "../../data/queries";
 import type { ServerDetail, ServerEpisodeView } from "../../data/servers";
 import { WorkingRing } from "../claude/conversation/parts";
@@ -59,6 +59,8 @@ function WorkLine({
 }) {
   const { t } = useTranslation();
   const analysis = episode?.analysis ?? null;
+  // Chi ha messo la pausa, con «(deactivated)» come altrove (M5).
+  const pauser = usePauserName(episode?.analysisWaiting ?? null);
   const taskCode = episode?.taskCode ?? server.workTaskCode;
   const line = (ring: boolean, text: string, extra?: ReactNode) => (
     <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-md text-ink">
@@ -86,11 +88,7 @@ function WorkLine({
   if (analysis?.outcome === "running" && episode?.analysisWaiting)
     return line(
       false,
-      waitingText(
-        t,
-        episode.analysisWaiting,
-        episode.analysisWaiting.reason === "queue_paused" ? episode.analysisWaiting.byName : "",
-      ),
+      waitingText(t, episode.analysisWaiting, pauser),
       session(analysis.conversationId),
     );
   if (analysis?.outcome === "running")
@@ -191,6 +189,13 @@ export function NowBox({ server }: { server: ServerDetail }) {
             )}
           </div>
         )}
+      {/* Col budget raggiunto all'allarme l'analisi non è partita: lo si dice,
+          col «Who?» di chi alza il budget (shape EF, revisione finale M4). */}
+      {open?.analysisBlocked === "monthly_budget" && !open.analysis && (
+        <p data-ai-block="monthly_budget" className="text-md text-pretty text-ink">
+          <WithWho text={t("servers.now.noBudget")} />
+        </p>
+      )}
       {server.productionProjects.length > 1 && server.analysisProject?.code && (
         <p className="text-sm text-ink-muted">
           {t("servers.now.primary", { code: server.analysisProject.code })}
