@@ -13,6 +13,7 @@ import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import { copy, familyOf, gate, now, state, visibleProjectIds } from "../store";
 import type { Task } from "../types";
 import { writer } from "../writer";
+import { forgetResetLinksOf } from "../auth/resetPassword";
 import {
   avatarOf,
   canI,
@@ -392,8 +393,7 @@ export async function createPasswordResetLink(
   const reauth = reauthRefusal(me, "admin.createPasswordResetLink");
   if (reauth) return reauth;
   // Un link precedente smette di valere: chi lo apre legge «link sconosciuto».
-  for (const id of secretIdsOf("reset_link", personId)) forgetSecret(id);
-  state.resetLinks = state.resetLinks.filter((l) => l.personId !== personId);
+  forgetResetLinksOf(personId);
   const { id: secretId, value } = storeSecret("reset_link", personId);
   const expiresAt = new Date(Date.parse(now()) + RESET_LINK_HOURS * 3_600_000)
     .toISOString()
@@ -575,6 +575,8 @@ export async function deactivatePerson(
   // Esce (area 9a): le sue sessioni si chiudono; i token restano, ma non
   // valgono finché è disattivata (`callWithToken`).
   state.sessions = state.sessions.filter((s) => s.personId !== personId);
+  // Un link di reset aperto non torna buono riattivando la persona.
+  forgetResetLinksOf(personId);
   logSecurity(personId, "deactivated", me);
   recordChange({
     kind: "person.deactivated",

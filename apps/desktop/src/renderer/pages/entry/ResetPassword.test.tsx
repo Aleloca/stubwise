@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { admin, auth, resetApi, setLatency } from "../../data/api";
 import { markReauthenticated } from "../../data/auth/reauth";
 import { resetTokenOf } from "../../data/auth/resetPassword";
-import { setSessionPersonId } from "../../data/session";
+import { NO_SESSION_PERSON_ID, getSessionPersonId, setSessionPersonId } from "../../data/session";
 import { state } from "../../data/store";
 import { renderRoute } from "../../test/renderRoute";
 
@@ -48,15 +48,32 @@ describe("/reset-password/$token", () => {
     expect(state.sessions.filter((s) => s.personId === MARCO)).toEqual([]);
   });
 
-  it("riaperto dopo l'uso: «already used», niente modulo", async () => {
+  it("riaperto dopo l'uso: «doesn't work any more» (come scaduto), niente modulo", async () => {
     const link = await linkForMarco();
     const token = resetTokenOf(link);
-    expect(await auth.resetPassword(token, { password: "brand-new-pass" })).toEqual({ ok: true });
+    expect(await auth.resetPassword(token, { password: "brand-new-pass" })).toMatchObject({
+      ok: true,
+    });
     renderRoute(`/reset-password/${token}`);
     expect(
-      await screen.findByRole("heading", { level: 1, name: "This link was already used" }),
+      await screen.findByRole("heading", { level: 1, name: "This link doesn't work any more" }),
     ).toBeVisible();
     expect(screen.queryByLabelText("New password")).toBeNull();
+  });
+
+  it("il proprio link aperto da dentro: la sessione si chiude e l'app esce", async () => {
+    const user = userEvent.setup();
+    const token = resetTokenOf(await linkForMarco());
+    setSessionPersonId(MARCO);
+    await auth.login({ email: "marco.bellini@example.com", password: "stubwise" });
+    await auth.loginSecondFactor({ method: "totp", code: "123456" });
+    const router = renderRoute(`/reset-password/${token}`, MARCO);
+    await user.type(await screen.findByLabelText("New password"), "brand-new-pass");
+    await user.type(screen.getByLabelText("Confirm password"), "brand-new-pass");
+    await user.click(screen.getByRole("button", { name: "Set password" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/login"));
+    expect(await auth.getEntry()).toEqual({ stage: "out" });
+    expect(getSessionPersonId()).toBe(NO_SESSION_PERSON_ID);
   });
 
   it("un link inventato: «isn't valid», senza nomi", async () => {

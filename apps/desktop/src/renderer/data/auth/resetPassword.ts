@@ -1,7 +1,8 @@
 import { accessState } from "../access/index";
-import { matchSecret, resetLinkOf } from "../admin/secrets";
+import { forgetSecret, matchSecret, resetLinkOf, secretIdsOf } from "../admin/secrets";
 import { MIN_PASSWORD_LENGTH } from "../me/account";
 import { logSecurity } from "../me/securityLog";
+import { getSessionPersonId } from "../session";
 import { gate, now, state } from "../store";
 
 // Il link per reimpostare la password (area 9a, come
@@ -9,17 +10,29 @@ import { gate, now, state } from "../store";
 // chi gestisce le persone (`admin.createPasswordResetLink`), lo apre
 // l'interessato. Vale un'ora e una volta sola; usato, la password cambia e
 // TUTTE le sessioni della persona si chiudono (come `tx.delete(sessions)`
-// del server). Come l'invito, il link si cerca con `matchSecret` senza
-// leggerne il valore, e un link usato resta custodito per dire «già usato»:
-// lo sa solo chi ha il link vero. Come la registrazione, il reset NON apre
-// una sessione: dopo si entra dal login.
+// del server), compresa questa se è sua: l'app esce. Come l'invito, il link
+// si cerca con `matchSecret` senza leggerne il valore. Usato e scaduto
+// rispondono uguale («spent»), come la 410 del server, che non fa da
+// oracolo; un link sconosciuto, sostituito o dimenticato è «invalid». Come la
+// registrazione, il reset NON apre una sessione: dopo si entra dal login.
+//
+// Un link aperto si DIMENTICA (`forgetResetLinksOf`) quando ne nasce un altro,
+// quando la persona cambia da sé la password (come `/me/password` del
+// server) e quando viene disattivata: riattivarla non lo rende di nuovo buono.
 
-export type ResetLinkStatus = "valid" | "used" | "expired" | "invalid";
+export type ResetLinkStatus = "valid" | "spent" | "invalid";
 
 export type ResetPasswordResult =
-  | { ok: true }
-  | { ok: false; error: "used" | "expired" | "invalid" }
+  /** `signedOutHere`: la sessione di questa app era della persona, ed è chiusa anche lei. */
+  | { ok: true; signedOutHere: boolean }
+  | { ok: false; error: "spent" | "invalid" }
   | { ok: false; error: "invalid_input"; reason: "password" };
+
+/** Il link aperto di una persona, se c'è, smette di valere: chi lo apre legge «invalid». */
+export function forgetResetLinksOf(personId: string): void {
+  for (const id of secretIdsOf("reset_link", personId)) forgetSecret(id);
+  state.resetLinks = state.resetLinks.filter((l) => l.personId !== personId);
+}
 
 function linkOf(token: string) {
   const match = matchSecret("reset_link", resetLinkOf(token));
@@ -32,12 +45,12 @@ function statusOf(link: ReturnType<typeof linkOf>): ResetLinkStatus {
   // Una persona disattivata dopo la creazione del link non rientra da qui.
   const person = accessState().people.find((p) => p.personId === link.personId);
   if (person?.status !== "active") return "invalid";
-  if (link.usedAt) return "used";
-  if (Date.parse(link.expiresAt) <= Date.parse(now())) return "expired";
+  if (link.usedAt) return "spent";
+  if (Date.parse(link.expiresAt) <= Date.parse(now())) return "spent";
   return "valid";
 }
 
-/** Cosa dice un link di reset: valido, già usato, scaduto, o niente. */
+/** Cosa dice un link di reset: valido, non più buono (usato o scaduto), o niente. */
 export async function getResetLink(token: string): Promise<{ status: ResetLinkStatus }> {
   await gate("auth.getResetLink");
   return { status: statusOf(linkOf(token)) };
@@ -46,6 +59,7 @@ export async function getResetLink(token: string): Promise<{ status: ResetLinkSt
 /**
  * Imposta la password nuova con un link valido: il link non vale più, e ogni
  * sessione della persona si chiude. Senza sessione nuova: si entra dal login.
+ * Se chi l'apre è dentro come quella persona, esce anche da qui.
  */
 export async function resetPassword(
   token: string,
@@ -60,8 +74,10 @@ export async function resetPassword(
   state.passwords.set(link!.personId, input.password);
   link!.usedAt = now();
   state.sessions = state.sessions.filter((s) => s.personId !== link!.personId);
+  const signedOutHere = state.entry.signedIn && getSessionPersonId() === link!.personId;
+  if (signedOutHere) state.entry = { signedIn: false, partial: null };
   logSecurity(link!.personId, "password_changed", null);
-  return { ok: true };
+  return { ok: true, signedOutHere };
 }
 
 /** Il token (la parte dopo `token=`) di un link di reset incollato intero. */

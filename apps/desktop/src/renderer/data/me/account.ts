@@ -3,6 +3,7 @@ import { person as addressOf } from "../seed/mail/helpers";
 import { PEOPLE, initials } from "../seed/people";
 import { gate, state } from "../store";
 import { writer } from "../writer";
+import { forgetResetLinksOf } from "../auth/resetPassword";
 import { logSecurity } from "./securityLog";
 import type { MeResult } from "./types";
 
@@ -88,7 +89,8 @@ export async function updateProfile(input: ProfileInput): Promise<MeResult> {
 
 /**
  * Cambia la password: serve quella attuale. Chiude le altre sessioni (la
- * lista torna a una, questa); i token personali continuano a valere.
+ * lista torna a una, questa) e annulla un link di reset aperto; i token
+ * personali continuano a valere.
  */
 export async function changePassword(input: {
   current: string;
@@ -99,6 +101,8 @@ export async function changePassword(input: {
   if (input.current !== passwordOf(me)) return refuse.invalid("wrong_password");
   if (input.next.length < MIN_PASSWORD_LENGTH) return refuse.invalid("too_short");
   state.passwords.set(me, input.next);
+  // Come `/me/password` del server: un link di reset ancora aperto non vale più.
+  forgetResetLinksOf(me);
   const others = state.sessions.filter((s) => s.personId === me && !s.current);
   state.sessions = state.sessions.filter((s) => !others.includes(s));
   logSecurity(me, "password_changed", null);

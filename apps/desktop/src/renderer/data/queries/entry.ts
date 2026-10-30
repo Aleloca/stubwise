@@ -95,7 +95,7 @@ export function useInvite(token: string) {
   });
 }
 
-/** Cosa dice un link di reset della password (valido, già usato, scaduto, niente). */
+/** Cosa dice un link di reset della password (valido, non più buono, niente). */
 export function useResetLink(token: string) {
   return useQuery({
     queryKey: ["entry", "resetLink", token],
@@ -110,9 +110,14 @@ export function useResetLink(token: string) {
  * persona si chiudono, e si entra dal login con la password nuova.
  */
 export function useResetPassword() {
+  const enter = useEnterAs();
   return useMutation({
     mutationFn: (vars: { token: string; password: string }) =>
       api.auth.resetPassword(vars.token, { password: vars.password }),
+    // Il proprio link aperto da dentro chiude anche questa sessione: si esce.
+    onSuccess: (r) => {
+      if (r.ok && r.signedOutHere) enter(NO_SESSION_PERSON_ID);
+    },
   });
 }
 

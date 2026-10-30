@@ -15,8 +15,9 @@ import { BusyLabel, EntryColumn, EntryField, EntryHeading, ErrorLine, textButton
  * `/reset-password/$token` (come `apps/web/src/routes/reset-password.tsx`):
  * il link che chi gestisce le persone ha creato e mandato. Valido, si sceglie
  * la password nuova: il link non vale più, ogni sessione della persona si
- * chiude e si entra dal login. Già usato, scaduto o sconosciuto lo dicono in
- * parole, senza nomi: un link inventato non rivela niente.
+ * chiude (anche questa, se è sua: l'app esce) e si entra dal login. Usato o
+ * scaduto (una frase sola, come il server) o sconosciuto lo dicono in parole,
+ * senza nomi: un link inventato non rivela niente.
  */
 export function ResetPasswordPage({ token }: { token: string }) {
   const { t } = useTranslation();

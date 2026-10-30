@@ -8234,10 +8234,8 @@
       "failed": "Couldn't change the password. Try again.",
       "loadFailed": "Couldn't load the reset link.",
       "noLonger": "This link can't be used any more. Ask your administrator for a new one.",
-      "usedTitle": "This link was already used",
-      "usedBody": "A reset link works once. If you need another, ask your administrator.",
-      "expiredTitle": "This link has expired",
-      "expiredBody": "A reset link works for an hour. Ask your administrator for a new one.",
+      "spentTitle": "This link doesn't work any more",
+      "spentBody": "A reset link works once, within an hour. Ask your administrator for a new one.",
       "invalidTitle": "This link isn't valid",
       "invalidBody": "Check that you copied it whole, or ask your administrator for a new one."
     }

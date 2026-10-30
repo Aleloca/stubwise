@@ -8234,10 +8234,8 @@
       "failed": "Non è stato possibile cambiare la password. Riprova.",
       "loadFailed": "Non è stato possibile caricare il link di reset.",
       "noLonger": "Questo link non si può più usare. Chiedine uno nuovo all'amministratore.",
-      "usedTitle": "Questo link è già stato usato",
-      "usedBody": "Un link di reset funziona una volta. Se te ne serve un altro, chiedilo all'amministratore.",
-      "expiredTitle": "Questo link è scaduto",
-      "expiredBody": "Un link di reset vale un'ora. Chiedine uno nuovo all'amministratore.",
+      "spentTitle": "Questo link non funziona più",
+      "spentBody": "Un link di reset vale una volta, entro un'ora. Chiedine uno nuovo all'amministratore.",
       "invalidTitle": "Questo link non è valido",
       "invalidBody": "Controlla di averlo copiato intero, o chiedine uno nuovo all'amministratore."
     }
