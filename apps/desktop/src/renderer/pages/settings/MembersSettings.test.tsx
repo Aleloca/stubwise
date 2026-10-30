@@ -239,6 +239,37 @@ describe("Laura su ACQ: aggiunge Federico, il permesso di server, la gerarchia c
   });
 });
 
+describe("?addMember= dalla pagina della persona", () => {
+  it("chi i suoi reparti renderebbero un'escalation non arriva già scelto", async () => {
+    // Il reparto di Chiara dà un permesso che Laura in ACQ non ha.
+    writeAccess((s) => {
+      s.departments
+        .find((d) => d.departmentId === "dep-marketing")!
+        .projectPermissions.push("servers.operate");
+    });
+    await openMembers(LAURA, "?addMember=p-chiara");
+    const dialog = await screen.findByRole("dialog", { name: "Add member" });
+    expect(within(dialog).getByRole("radio", { name: /Chiara/ })).not.toBeChecked();
+    expect(within(dialog).getByRole("button", { name: "Add" })).toBeDisabled();
+  });
+});
+
+describe("ciò che arriva da un reparto", () => {
+  it("chi gestisce i reparti ha il link a Departments; chi no, non lo vede", async () => {
+    const user = userEvent.setup();
+    await openMembers(ROBERTA);
+    let p = await openPanel(user, "Marco");
+    expect(
+      await within(p).findByRole("link", { name: "Change department permissions in Departments" }),
+    ).toHaveAttribute("href", expect.stringMatching(/\/admin\/departments$/));
+    cleanup();
+    await openMembers(LAURA);
+    p = await openPanel(user, "Marco");
+    await within(p).findByText(/From the Development department/);
+    expect(within(p).queryByRole("link", { name: /in Departments/ })).toBeNull();
+  });
+});
+
 describe("i rifiuti in parole", () => {
   it("ultimo gestore: la bozza lo dice prima e Save è spento; Remove anche", async () => {
     writeAccess((s) => {

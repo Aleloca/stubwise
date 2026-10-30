@@ -32,6 +32,13 @@ import {
 } from "./parts";
 
 /**
+ * Dove si aggiunge un repository: Settings → Repositories, che c'è col modulo
+ * Releases; senza, la prima sezione di Settings (Minor 1 del Task 10, area 9a).
+ */
+const repositoriesSection = (project: Project) =>
+  project.modules.includes("releases") ? "repositories" : "statuses";
+
+/**
  * Il progetto di una vista dei Docs: caricamento, errore, progetto che non
  * c'è (o invisibile: identici), modulo spento: la colonna non mostra la
  * sezione, ma un indirizzo diretto dice che i Docs sono spenti e, a chi
@@ -79,8 +86,8 @@ function DocsTurnedOff({ project }: { project: Project }) {
       </p>
       {canManage && (
         <Link
-          to="/p/$code/$section"
-          params={{ code: project.code, section: "settings" }}
+          to="/p/$code/settings/$section"
+          params={{ code: project.code, section: repositoriesSection(project) }}
           className="mt-2 inline-flex h-8 items-center rounded-md border border-rule-strong px-3 text-sm font-medium text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6"
         >
           {t("docs.off.turnOn")}
@@ -265,8 +272,8 @@ function HomeBody({ project, home }: { project: Project; home: ProjectDocsHome }
         </p>
         {canAdd && (
           <Link
-            to="/p/$code/$section"
-            params={{ code: project.code, section: "settings" }}
+            to="/p/$code/settings/$section"
+            params={{ code: project.code, section: repositoriesSection(project) }}
             className="mt-2 inline-flex h-8 items-center rounded-md border border-rule-strong px-3 text-sm font-medium text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6"
           >
             {t("docs.home.addRepository")}

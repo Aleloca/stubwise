@@ -2433,11 +2433,11 @@
         "roleLabel": "Role in {{code}}",
         "can": "What they can do here",
         "canIntro": "Only permissions given by hand can be ticked or cleared here. What comes from the role or from a department changes there.",
+        "changeInDepartments": "Change department permissions in Departments",
         "tableLabel": "What {{name}} can do in {{code}}",
         "source": {
           "role": "From the {{name}} role",
           "department": "From the {{name}} department",
-          "departmentManage": "From the {{name}} department — change it in Departments",
           "given": "Given by {{name}} on {{date}}",
           "givenNoName": "Given on {{date}}",
           "seed": "From the sample data",

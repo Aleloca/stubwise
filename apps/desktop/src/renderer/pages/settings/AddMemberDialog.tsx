@@ -47,7 +47,13 @@ export function AddMemberDialog({
   const code = project.code;
   const [q, setQ] = useState("");
   const [personId, setPersonId] = useState<string | null>(
-    preselect && view.addable.includes(preselect) ? preselect : null,
+    // Chi arriverebbe con permessi di reparto che chi guarda non ha non è già
+    // scelto: il rifiuto si dice prima, sulla riga spenta (Minor 4 del Task 10).
+    preselect &&
+      view.addable.includes(preselect) &&
+      (view.addableMissing[preselect] ?? []).length === 0
+      ? preselect
+      : null,
   );
   const [roleId, setRoleId] = useState("");
   const [error, setError] = useState<string | null>(null);

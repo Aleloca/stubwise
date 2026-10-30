@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failNext, resetApi, setLatency } from "../../data/api";
@@ -62,7 +62,24 @@ describe("Docs — pagina iniziale", () => {
     state.docSpaces = state.docSpaces.filter((s) => s.projectId !== "prj-cbv");
     renderRoute("/p/CBV/docs", "p-roberta");
     expect(await screen.findByText("No repository has documentation yet")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Add a repository" })).toBeInTheDocument();
+  });
+
+  it("«Add a repository» porta a Settings → Repositories (col modulo Releases), se no a Statuses", async () => {
+    state.docSpaces = state.docSpaces.filter((s) => s.projectId !== "prj-cbv");
+    const cbv = state.projectsById.get("prj-cbv")!;
+    if (!cbv.modules.includes("releases")) cbv.modules.push("releases");
+    renderRoute("/p/CBV/docs", "p-roberta");
+    expect(await screen.findByRole("link", { name: "Add a repository" })).toHaveAttribute(
+      "href",
+      expect.stringMatching(/settings\/repositories$/),
+    );
+    cleanup();
+    cbv.modules = cbv.modules.filter((m) => m !== "releases");
+    renderRoute("/p/CBV/docs", "p-roberta");
+    expect(await screen.findByRole("link", { name: "Add a repository" })).toHaveAttribute(
+      "href",
+      expect.stringMatching(/settings\/statuses$/),
+    );
   });
 
   it("senza docs.view: lo dice, senza titoli né conteggi", async () => {

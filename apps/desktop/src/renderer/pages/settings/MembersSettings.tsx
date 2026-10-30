@@ -92,7 +92,7 @@ function useShortSource() {
 }
 
 /** La fonte per esteso, nel pannello («Given by Roberta Fontana on Oct 29»). */
-function useLongSource(departmentsLink: boolean) {
+function useLongSource() {
   const { t } = useTranslation();
   const date = useShortDate();
   return (s: SourceView): string => {
@@ -104,12 +104,7 @@ function useLongSource(departmentsLink: boolean) {
           ? t("settings.members.panel.source.given", { name: s.grantedByName, date: date(s.at) })
           : t("settings.members.panel.source.givenNoName", { date: date(s.at) });
       case "department":
-        return t(
-          departmentsLink
-            ? "settings.members.panel.source.departmentManage"
-            : "settings.members.panel.source.department",
-          { name: s.departmentName },
-        );
+        return t("settings.members.panel.source.department", { name: s.departmentName });
       case "role":
         return t("settings.members.panel.source.role", { name: s.roleName });
       case "full_admin":
@@ -471,7 +466,12 @@ export function MemberPanel({
 
   const previewQuery = useMemberPreview(project.id, row.personId, { roleId, granted });
   const preview: MemberPreview | undefined = previewQuery.data;
-  const longSource = useLongSource(canSeeAdminSection(viewer, "departments"));
+  const longSource = useLongSource();
+  // Ciò che arriva da un reparto si cambia in Departments: un link vero, a chi
+  // li gestisce, sotto l'introduzione (shape §2; Minor 3 del Task 10).
+  const departmentsLink =
+    canSeeAdminSection(viewer, "departments") &&
+    (preview?.permissions ?? []).some((x) => x.sources.some((s) => s.kind === "department"));
   const allowed = new Set(view.grantable.filter((g) => g.allowed).map((g) => g.permission));
 
   const discard = () => {
@@ -642,6 +642,18 @@ export function MemberPanel({
           {manage && (
             <p className="mb-3 text-sm text-pretty text-ink-muted">
               {t("settings.members.panel.canIntro")}
+              {departmentsLink && (
+                <>
+                  {" "}
+                  <Link
+                    to="/admin/$section"
+                    params={{ section: "departments" }}
+                    className="rounded-sm text-ink underline underline-offset-2 hover:text-ink-muted"
+                  >
+                    {t("settings.members.panel.changeInDepartments")}
+                  </Link>
+                </>
+              )}
             </p>
           )}
           {preview ? (
@@ -706,7 +718,7 @@ export function MemberPanel({
                 <button
                   type="button"
                   className={`${primaryButton} disabled:opacity-40`}
-                  disabled={saving || !preview || !!blockedWhy}
+                  disabled={saving || !preview || previewQuery.isPlaceholderData || !!blockedWhy}
                   onClick={() => void onSave()}
                 >
                   {t("settings.members.panel.save")}

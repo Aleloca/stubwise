@@ -3,7 +3,12 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import { memo, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { admin, failNext, resetApi, setLatency } from "../api";
-import { accessState, roleIdOf, writeAccess } from "../access/index";
+import {
+  accessState,
+  effectivePermissions,
+  roleIdOf,
+  writeAccess,
+} from "../access/index";
 import { markReauthenticated } from "../auth/reauth";
 import { useMembers, useSetMemberRole } from "../queries";
 import { CLAUDE_ID } from "../seed/people";
@@ -466,6 +471,20 @@ describe("la bozza del membro: previewMember e saveMember con UNA regola", () =>
       actorId: "p-laura",
       before: "servers.operate",
     });
+  });
+
+  it("tutto o niente: togliere X e dare Y che Laura non ha → escalation, nemmeno X tolto", async () => {
+    // Un permesso che Laura in ACQ non ha, oltre a servers.operate (tolto qui).
+    const lacking = "release.merge";
+    writeAccess((s) => {
+      s.revocations.push({ personId: "p-laura", projectId: ACQ, permission: lacking });
+    });
+    expect(effectivePermissions("p-laura", ACQ).has(lacking)).toBe(false);
+    await refused(() => admin.saveMember(ACQ, "p-marco", draftOf("developer", [lacking])), {
+      error: "escalation",
+      missing: [lacking],
+    });
+    expect(can(viewerFor("p-marco"), "servers.operate", ACQ)).toBe(true);
   });
 
   it("ruolo e permessi in un colpo: una scrittura, una voce per ciò che cambia", async () => {

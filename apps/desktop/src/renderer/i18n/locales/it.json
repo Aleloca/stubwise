@@ -2433,11 +2433,11 @@
         "roleLabel": "Ruolo in {{code}}",
         "can": "Cosa può fare qui",
         "canIntro": "Qui si spuntano e si tolgono solo i permessi dati a mano. Ciò che viene dal ruolo o da un reparto si cambia lì.",
+        "changeInDepartments": "Cambia i permessi dei reparti in Reparti",
         "tableLabel": "Cosa può fare {{name}} in {{code}}",
         "source": {
           "role": "Dal ruolo {{name}}",
           "department": "Dal reparto {{name}}",
-          "departmentManage": "Dal reparto {{name}} — si cambia in Reparti",
           "given": "Dato da {{name}} il {{date}}",
           "givenNoName": "Dato il {{date}}",
           "seed": "Dai dati di esempio",
