@@ -304,8 +304,15 @@ export interface DepartmentView {
   notGivable: string[];
 }
 
-/** `reach`, `notGivable` e `missingToAdd` di una bozza del reparto (`previewDepartment`). */
-export type DepartmentPreview = Pick<DepartmentView, "reach" | "notGivable" | "missingToAdd">;
+/**
+ * Il giudizio di una bozza del reparto (`previewDepartment`): `reach`,
+ * `notGivable`, `missingToAdd` (chi rientra dopo essere stato tolto non è
+ * un'aggiunta) e `missing`, ciò che `saveDepartment` rifiuterebbe per
+ * escalation salvando QUESTA bozza (vuoto = niente escalation).
+ */
+export type DepartmentPreview = Pick<DepartmentView, "reach" | "notGivable" | "missingToAdd"> & {
+  missing: string[];
+};
 
 /** Un autore git osservato nei commit e non ancora collegato (come l'Activity, area 3). */
 export interface ObservedAuthor {

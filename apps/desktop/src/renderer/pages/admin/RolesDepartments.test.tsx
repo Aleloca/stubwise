@@ -217,6 +217,29 @@ describe("Departments", () => {
     ).toBeVisible();
   });
 
+  it("giro 2 (N-1): Marco toglie Laura dalla bozza e la rimette; il salvataggio passa", async () => {
+    const user = userEvent.setup();
+    give(MARCO, "departments.manage");
+    renderRoute("/admin/departments?department=dep-development", MARCO);
+    const panel = await screen.findByRole("region", { name: "Department Development" });
+    await user.click(within(panel).getByRole("button", { name: "Remove Laura Costa" }));
+    await user.click(within(panel).getByRole("button", { name: "Add people" }));
+    const candidates = within(panel).getByRole("list", { name: "People you can add" });
+    const laura = await waitFor(() => {
+      const row = within(candidates).getByText("Laura Costa").closest("button")!;
+      expect(row).not.toHaveAttribute("aria-disabled");
+      return row;
+    });
+    await user.click(laura);
+    // Un'altra modifica: Stefano gestisce la Home.
+    await user.click(within(panel).getByRole("checkbox", { name: "Stefano Amato manages the Home" }));
+    await user.click(within(panel).getByRole("button", { name: "Save" }));
+    await confirmItsYou(user);
+    expect(await screen.findByText("Saved")).toBeVisible();
+    expect(dept("dep-development").memberIds).toContain("p-laura");
+    expect(dept("dep-development").homeManagerIds).toContain("p-stefano");
+  });
+
   it("giro 1: un disattivato è segnato nel pannello e non riceve la Home", async () => {
     renderRoute("/admin/departments?department=dep-development", ROBERTA);
     const panel = await screen.findByRole("region", { name: "Department Development" });
@@ -485,8 +508,11 @@ describe("Roles", () => {
     await heading("Project Lead");
     await user.click(permissionBox("Approve plans"));
     expect(await screen.findByText("1 change")).toBeVisible();
-    // Roberta lo ha comunque da full admin: niente avviso (la risposta è già arrivata).
-    await new Promise((r) => setTimeout(r, 50));
+    // Roberta lo ha comunque da full admin: niente avviso. Si aspetta la
+    // risposta vera di `viewerLosesIf`, non un timer.
+    await waitFor(() =>
+      expect(document.querySelector('[data-loses-state="ready"]')).not.toBeNull(),
+    );
     expect(screen.queryByText(/you'll lose/)).toBeNull();
   });
 

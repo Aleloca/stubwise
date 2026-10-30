@@ -211,6 +211,11 @@ export function useViewerLosesIf(roleId: string, nextPermissions: string[], enab
     queryKey: queryKeys.admin(me, "viewerLosesIf", roleId, perms),
     queryFn: () => api.admin.viewerLosesIf(roleId, perms),
     enabled,
+    // Fra una casella e l'altra resta la risposta di prima: l'avviso non lampeggia.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === me && previousQuery.queryKey[4] === roleId
+        ? previous
+        : undefined,
   });
 }
 

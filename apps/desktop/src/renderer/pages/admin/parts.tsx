@@ -53,14 +53,20 @@ export function SaveBar({
   children,
   width,
   inset = "px-8",
+  data,
 }: {
   children: ReactNode;
   width?: number;
   /** Il margine ai lati: quello della pagina (32 px) o del pannello. */
   inset?: string;
+  /** Attributi `data-*` della barra (lo stato di ciò che mostra). */
+  data?: Record<`data-${string}`, string>;
 }) {
   return (
-    <div className={`toast-enter sticky bottom-0 z-10 border-t border-rule bg-surface py-3 ${inset}`}>
+    <div
+      {...data}
+      className={`toast-enter sticky bottom-0 z-10 border-t border-rule bg-surface py-3 ${inset}`}
+    >
       <div className="flex flex-col gap-2" style={width ? { maxWidth: width } : undefined}>
         {children}
       </div>

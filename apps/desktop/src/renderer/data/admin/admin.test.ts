@@ -1268,6 +1268,74 @@ describe("saveDepartment: la bozza intera, tutto o niente", () => {
     expect(dept(legal).projectPermissions).toEqual(["tickets.create"]);
   });
 
+  it("giro 2 (N-1): un membro salvato tolto dalla bozza e rimesso non è un'aggiunta", async () => {
+    // Marco gestisce i reparti; Development dà «reply to customers», che Marco
+    // non ha nei progetti di Laura dove lui non è.
+    giveInstance("p-marco", "departments.manage");
+    as("p-marco");
+    reauth("p-marco");
+    const dev = dept("dep-development");
+    const without = dev.memberIds.filter((id) => id !== "p-laura");
+    const preview = await admin.previewDepartment("dep-development", {
+      memberIds: without,
+      projectPermissions: dev.projectPermissions,
+    });
+    // Rimetterla non dà niente di nuovo: è selezionabile.
+    expect(preview.missingToAdd["p-laura"]).toEqual([]);
+    // E il salvataggio con Laura rimessa, più un'altra modifica, passa.
+    const other = dev.memberIds.find((id) => id !== "p-laura" && !dev.homeManagerIds.includes(id))!;
+    expect(
+      await admin.saveDepartment("dep-development", {
+        memberIds: dev.memberIds,
+        homeManagerIds: [...dev.homeManagerIds, other],
+        projectPermissions: dev.projectPermissions,
+      }),
+    ).toEqual({ ok: true });
+  });
+
+  it("giro 2: parità — su ogni bozza, previewDepartment prevede l'escalation che saveDepartment dà", async () => {
+    giveInstance("p-marco", "departments.manage");
+    const dev = () => dept("dep-development");
+    const without = (id: string) => dev().memberIds.filter((x) => x !== id);
+    // Le bozze: [membri, permessi], sul reparto Development salvato.
+    const drafts: [string, () => { memberIds: string[]; projectPermissions: string[] }][] = [
+      ["immutata più Home", () => ({ memberIds: dev().memberIds, projectPermissions: dev().projectPermissions })],
+      ["entra Sara", () => ({ memberIds: [...dev().memberIds, "p-sara"], projectPermissions: dev().projectPermissions })],
+      ["entra Marco stesso", () => ({ memberIds: [...without("p-marco"), "p-marco"], projectPermissions: dev().projectPermissions })],
+      ["tolta Laura", () => ({ memberIds: without("p-laura"), projectPermissions: dev().projectPermissions })],
+      ["permesso nuovo", () => ({ memberIds: dev().memberIds, projectPermissions: [...dev().projectPermissions, "tickets.create"] })],
+      ["permesso tolto", () => ({ memberIds: dev().memberIds, projectPermissions: [] })],
+      ["tolto il permesso, entra Sara", () => ({ memberIds: [...dev().memberIds, "p-sara"], projectPermissions: [] })],
+      ["entra Sara con permesso nuovo", () => ({ memberIds: [...dev().memberIds, "p-sara"], projectPermissions: ["tickets.create"] })],
+    ];
+    const outcomes = new Set<boolean>();
+    for (const [name, make] of drafts) {
+      resetApi();
+      setLatency(0);
+      giveInstance("p-marco", "departments.manage");
+      as("p-marco");
+      reauth("p-marco");
+      const saved = dev();
+      const draft = make();
+      const preview = await admin.previewDepartment("dep-development", draft);
+      const predicted = preview.missing.length > 0;
+      // La Home cambia sempre un poco, così una bozza senza escalation non è `unchanged`.
+      const homeExtra = draft.memberIds.find(
+        (id) => !saved.homeManagerIds.includes(id) && accessState().people.some((x) => x.personId === id && x.status === "active"),
+      )!;
+      const result = await admin.saveDepartment("dep-development", {
+        ...draft,
+        homeManagerIds: [...saved.homeManagerIds.filter((h) => draft.memberIds.includes(h)), homeExtra],
+      });
+      expect((result as { error?: string }).error === "escalation", name).toBe(predicted);
+      if (predicted) expect(result, name).toMatchObject({ missing: preview.missing });
+      else expect(result, name).toEqual({ ok: true });
+      outcomes.add(predicted);
+    }
+    // Le bozze coprono tutti e due gli esiti.
+    expect([...outcomes].sort()).toEqual([false, true]);
+  });
+
   it("le caselle si calcolano sulla bozza: con Sara dentro «create tasks» è spento, e viceversa", async () => {
     const legal = await marcoWithLegal();
     const empty = await admin.previewDepartment(legal, { memberIds: [], projectPermissions: [] });

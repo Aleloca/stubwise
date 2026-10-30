@@ -83,7 +83,15 @@ function RoleBody({ role }: { role: RoleView }) {
   const implied = new Set(role.fullAdminImplies);
   const fullAdminOn = perms.has("instance.full_admin");
   // Cosa perde davvero chi salva: lo simula il livello dati sulla bozza.
-  const loses = useViewerLosesIf(role.id, [...perms], removed.length > 0).data ?? [];
+  const losesQuery = useViewerLosesIf(role.id, [...perms], removed.length > 0);
+  const loses = losesQuery.data ?? [];
+  // Per i test e per chi legge il DOM: la risposta per QUESTA bozza è arrivata.
+  const losesState =
+    removed.length === 0
+      ? "none"
+      : losesQuery.isSuccess && !losesQuery.isPlaceholderData
+        ? "ready"
+        : "pending";
 
   // Lasciare la pagina con modifiche chiede prima; dopo un salvataggio o
   // un'eliminazione no.
@@ -147,7 +155,7 @@ function RoleBody({ role }: { role: RoleView }) {
     .join(" · ");
 
   const bar = dirty && (
-    <SaveBar width={760}>
+    <SaveBar width={760} data={{ "data-loses-state": losesState }}>
       {blocker.status === "blocked" ? (
         <InlineConfirm
           message={t("admin.role.leave", { count: changes })}

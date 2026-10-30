@@ -176,7 +176,10 @@ export function DepartmentPanel({
 
   // La bozza letta dal livello dati: finché arriva, quella del reparto salvato.
   const preview: DepartmentPreview =
-    useDepartmentPreview(d.id, { memberIds: members, projectPermissions: permList }).data ?? d;
+    useDepartmentPreview(d.id, { memberIds: members, projectPermissions: permList }).data ?? {
+      ...d,
+      missing: [],
+    };
 
   /** Una scrittura sola, con la riconferma: il livello dati giudica la bozza intera. */
   async function save() {

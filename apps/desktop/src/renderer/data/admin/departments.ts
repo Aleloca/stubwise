@@ -71,24 +71,57 @@ function managed(me: string, id: string): { department: Department } | { refusal
   return { department };
 }
 
+type Shape = { memberIds: readonly string[]; projectPermissions: readonly string[] };
+
 /**
- * Ciò che chi agisce può dare con un reparto fatto così (salvato o bozza):
- * dove arriva un permesso nuovo, cosa non può aggiungere, chi non può
- * aggiungere. Le stesse regole che `saveDepartment` applica alla bozza.
+ * IL giudizio di una bozza del reparto rispetto al salvato: l'unica regola,
+ * letta sia da `previewDepartment` (le caselle e le persone spente) sia da
+ * `saveDepartment` (il rifiuto). Anti-escalation sul DARE:
+ * - un permesso AGGIUNTO arriva nei progetti di tutte le persone della
+ *   bozza (`notGivable` lo dice per ogni permesso di progetto);
+ * - chi ENTRA (non era fra i membri salvati) riceve tutti i permessi della
+ *   bozza nei suoi progetti; un membro salvato tolto e rimesso non entra,
+ *   e per lui contano solo i permessi aggiunti (`missingToAdd`);
+ * - `missing` è ciò che la bozza così com'è darebbe senza averlo:
+ *   vuoto = si può salvare (quanto all'escalation).
  */
-function giveView(me: string, memberIds: readonly string[], perms: readonly string[]): DepartmentPreview {
-  const reached = reachedBy(memberIds);
+function judgeDraft(me: string, saved: Shape, draft: Shape): DepartmentPreview {
+  const reached = reachedBy(draft.memberIds);
+  const notGivable = missingIn(me, reached, ALL_PROJECT_PERMISSIONS);
+  const addedPerms = diffOf(draft.projectPermissions, saved.projectPermissions);
+  /** Ciò che una persona riceverebbe entrando (o rientrando) senza che chi agisce lo abbia. */
+  const missingFor = (personId: string) =>
+    missingIn(
+      me,
+      projectsOf(personId),
+      saved.memberIds.includes(personId) ? addedPerms : draft.projectPermissions,
+    );
   const candidates = accessState().people.filter(
-    (p) => p.status === "active" && isHumanId(p.personId) && !memberIds.includes(p.personId),
+    (p) => p.status === "active" && isHumanId(p.personId) && !draft.memberIds.includes(p.personId),
   );
+  const missing = new Set([
+    ...addedPerms.filter((p) => notGivable.includes(p)),
+    ...diffOf(draft.memberIds, saved.memberIds).flatMap(missingFor),
+  ]);
   return {
     reach: reached.length > 0 ? "projects" : "anywhere",
-    notGivable: missingIn(me, reached, ALL_PROJECT_PERMISSIONS),
-    missingToAdd: Object.fromEntries(
-      candidates.map((p) => [p.personId, missingIn(me, projectsOf(p.personId), perms)]),
-    ),
+    notGivable,
+    missingToAdd: Object.fromEntries(candidates.map((p) => [p.personId, missingFor(p.personId)])),
+    missing: draft.projectPermissions.filter((p) => missing.has(p)),
   };
 }
+
+/** Ciò che la riga del reparto salvato espone (il suo `missing` è vuoto per costruzione). */
+const pickView = ({ reach, notGivable, missingToAdd }: DepartmentPreview) => ({
+  reach,
+  notGivable,
+  missingToAdd,
+});
+
+const savedShape = (id: string): Shape => {
+  const a = accessOf(accessState(), id);
+  return { memberIds: a?.memberIds ?? [], projectPermissions: a?.projectPermissions ?? [] };
+};
 
 /** I reparti con le loro persone, la Home e i permessi (`departments.manage`). */
 export async function listDepartments(): Promise<DepartmentView[]> {
@@ -106,7 +139,7 @@ export async function listDepartments(): Promise<DepartmentView[]> {
       homeManagerIds: [...(a?.homeManagerIds ?? [])],
       projectPermissions: [...(a?.projectPermissions ?? [])],
       taskCount: state.tasks.filter((t) => t.departmentId === d.id).length,
-      ...giveView(me, a?.memberIds ?? [], a?.projectPermissions ?? []),
+      ...pickView(judgeDraft(me, savedShape(d.id), savedShape(d.id))),
     };
   });
 }
@@ -123,7 +156,7 @@ export async function previewDepartment(
   const me = await gate("admin.previewDepartment");
   const m = managed(me, id);
   if ("refusal" in m) throw new Error(m.refusal.error);
-  return giveView(me, draft.memberIds, draft.projectPermissions);
+  return judgeDraft(me, savedShape(id), draft);
 }
 
 /** La bozza del pannello del reparto: tutto ciò che si salva insieme. */
@@ -162,17 +195,15 @@ export async function saveDepartment(id: string, draft: DepartmentDraft): Promis
   const perms = [...new Set(draft.projectPermissions)];
   if (badPeople(members, current.memberIds) || badPeople(home, current.homeManagerIds))
     return refuse.invalid("person");
-  const addedMembers = diffOf(members, current.memberIds);
-  const addedPerms = diffOf(perms, current.projectPermissions);
-  // Escalation sulla bozza: un permesso nuovo arriva nei progetti di tutte
-  // le persone della bozza; chi entra riceve tutti i permessi della bozza.
-  const missing = new Set([
-    ...missingIn(me, reachedBy(members), addedPerms),
-    ...addedMembers.flatMap((p) => missingIn(me, projectsOf(p), perms)),
-  ]);
-  if (missing.size > 0)
-    return { ok: false, error: "escalation", missing: perms.filter((p) => missing.has(p)) };
+  // Un permesso che non è di progetto non c'entra con un reparto: prima
+  // dell'escalation, così il rifiuto non dipende da chi agisce (m-3).
   if (perms.some((p) => !ALL_PROJECT_PERMISSIONS.includes(p))) return refuse.invalid("permission");
+  // Lo stesso giudizio della preview (`judgeDraft`): nessuna seconda regola.
+  const { missing } = judgeDraft(me, savedShape(id), {
+    memberIds: members,
+    projectPermissions: perms,
+  });
+  if (missing.length > 0) return { ok: false, error: "escalation", missing };
   const changed = {
     members: !sameSet(members, current.memberIds),
     home: !sameSet(home, current.homeManagerIds),
