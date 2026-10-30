@@ -1251,6 +1251,44 @@ async function main() {
       }
     }
 
+    // Area 9a, Task 8: l'Amministrazione (shape admin-people.md): People,
+    // la pagina di una persona, «Deactivate…» e «Invite someone».
+    const AREA9A_ADMIN = [
+      ["people", "Roberta", "/admin/people", null],
+      ["detail", "Roberta", "/admin/people/p-marco", null],
+      ["deactivate", "Roberta", "/admin/people/p-marco", async (p) => {
+        await p.getByRole("button", { name: /^(More actions for|Altre azioni per) / }).click();
+        await p.getByRole("menuitem", { name: /^(Deactivate…|Disattiva…)$/ }).click();
+        await p.getByRole("dialog").waitFor();
+      }],
+      ["invite", "Roberta", "/admin/people", async (p) => {
+        await p.getByRole("button", { name: /^(Invite someone|Invita qualcuno)$/ }).click();
+        const dialog = p.getByRole("dialog");
+        await dialog.getByLabel(/^Email$/).fill("federico.r@example.com");
+        await dialog.getByRole("button", { name: /^(Add a project|Aggiungi un progetto)/ }).click();
+        await p.getByRole("menuitem", { name: /^ACQ / }).click();
+        await p.mouse.move(2, 2);
+      }],
+    ];
+    for (const [name, persona, hash, steps] of AREA9A_ADMIN) {
+      if (only && !only.test(`a9a-admin-people-${name}`)) continue;
+      const variants = [];
+      for (const scheme of ["light", "dark"]) {
+        for (const lang of ["en", "it"]) variants.push([scheme, lang, WIDE, `a9a-admin-people-${name}-${scheme}-${lang}.png`]);
+      }
+      variants.push(["light", "en", NARROW, `a9a-admin-people-${name}-narrow.png`]);
+      variants.push(["dark", "it", NARROW, `a9a-admin-people-${name}-narrow-dark-it.png`]);
+      for (const [scheme, lang, viewport, file] of variants) {
+        const { page, context } = await open(scheme, viewport, hash, { lang, persona, viaHome: true });
+        await page.getByRole("heading", { level: 1 }).first().waitFor();
+        await page.waitForTimeout(300);
+        if (steps) await steps(page);
+        await page.waitForTimeout(500);
+        await shot(page, file);
+        await context.close();
+      }
+    }
+
     if (only) return; // revisione mirata: salta il resto
 
     for (const scheme of ["light", "dark"]) {

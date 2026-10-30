@@ -423,24 +423,7 @@ export function canInDepartment(
   return (viewer.departmentPermissions[departmentId] ?? []).includes(perm);
 }
 
-const ADMIN_PERMISSIONS: InstancePermission[] = [
-  "instance.full_admin",
-  "users.manage",
-  "users.invite",
-  "roles.manage",
-  "settings.manage",
-  "ai_providers.manage",
-  "git_accounts.manage",
-  "plugins.manage",
-  "integrations.manage",
-  "monitor.manage",
-  "usage.view",
-];
-
-/** Vero se il viewer ha almeno un permesso d'amministrazione d'istanza. */
-export function canSeeAdmin(viewer: Viewer): boolean {
-  return ADMIN_PERMISSIONS.some((p) => viewer.instancePermissions.includes(p));
-}
+// Chi vede l'Amministrazione, e quali voci: `data/adminSections.ts` (area 9a).
 
 // --- stato condiviso dell'app -----------------------------------------------
 

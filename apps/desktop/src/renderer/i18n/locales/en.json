@@ -11,7 +11,8 @@
     "preferences": "Preferences",
     "admin": "Administration",
     "filters": "Filters",
-    "planning": "Planning"
+    "planning": "Planning",
+    "people": "People"
   },
   "rail": {
     "label": "Main navigation",
@@ -71,7 +72,6 @@
       "mail": "Mailboxes and labels will be listed here.",
       "claude": "Live and past sessions will be listed here.",
       "projects": "Groups of projects will be listed here.",
-      "admin": "The sections of administration will be listed here.",
       "chat": "Channels and direct messages will be listed here.",
       "filters": "Your filters will be listed here.",
       "planning": "Planning views will be listed here.",
@@ -168,7 +168,8 @@
       "notificationPrefs": "Notification preferences",
       "projectAlerts": "Alerts for {{code}}",
       "newWidget": "New widget",
-      "linkSsh": "Link SSH access to {{server}}"
+      "linkSsh": "Link SSH access to {{server}}",
+      "inviteSomeone": "Invite someone"
     },
     "filterPlaceholder": "Choose a filter",
     "channelPlaceholder": "Go to a channel or direct message…",
@@ -246,8 +247,7 @@
       "claude": "Claude's live sessions will be followed here: what it is doing and what it asks.",
       "projects": "Every project you can see will be listed here.",
       "filters": "Your saved filters will be listed here.",
-      "planning": "Planning across your projects will be done here.",
-      "admin": "Members, roles, AI providers and integrations will be managed here."
+      "planning": "Planning across your projects will be done here."
     },
     "sections": {
       "docs": "The project's documents will be read and searched here, including those generated from its repositories.",
@@ -8062,6 +8062,381 @@
         "startFailed": "Couldn't start the setup."
       },
       "noSecondFactor": "Two-step verification isn't set up yet. Setting it up…"
+    }
+  },
+  "access": {
+    "perm": {
+      "instance": {
+        "full_admin": "do everything (full admin)",
+        "status": {
+          "view": "see the instance status"
+        }
+      },
+      "roles": {
+        "manage": "manage roles"
+      },
+      "settings": {
+        "manage": "change the instance settings"
+      },
+      "users": {
+        "view_all": "see everyone on the instance",
+        "invite": "invite people",
+        "manage": "manage people"
+      },
+      "projects": {
+        "create": "create projects"
+      },
+      "ai_providers": {
+        "manage": "manage AI providers"
+      },
+      "git_accounts": {
+        "view": "see git accounts",
+        "manage": "manage git accounts"
+      },
+      "plugins": {
+        "manage": "manage plugins"
+      },
+      "integrations": {
+        "manage": "manage integrations"
+      },
+      "mail_admission": {
+        "view": "see mail admission"
+      },
+      "monitor": {
+        "view": "see monitoring",
+        "manage": "manage monitoring"
+      },
+      "usage": {
+        "view": "view usage"
+      },
+      "claude": {
+        "public": {
+          "view": "see public Claude conversations"
+        }
+      },
+      "people": {
+        "activity": {
+          "view": "see people's activity"
+        }
+      },
+      "chat": {
+        "general": {
+          "create": "create general channels",
+          "manage": "manage general channels"
+        },
+        "channels": {
+          "create": "create project channels",
+          "manage": "manage project channels"
+        }
+      },
+      "automations": {
+        "manage": "manage automations"
+      },
+      "servers": {
+        "ssh": {
+          "manage": "manage SSH access"
+        },
+        "operate": "start a server fix"
+      },
+      "departments": {
+        "manage": "manage departments"
+      },
+      "changelog": {
+        "view": "read the change log"
+      },
+      "project": {
+        "settings": {
+          "manage": "change the project settings"
+        },
+        "members": {
+          "manage": "manage members"
+        },
+        "usage": {
+          "view": "see the project's usage"
+        }
+      },
+      "tickets": {
+        "view_all": "see all tasks",
+        "create": "create tasks",
+        "edit": "edit tasks",
+        "comment": "comment on tasks",
+        "moderate": "delete other people's comments"
+      },
+      "runs": {
+        "start": "start Claude"
+      },
+      "plans": {
+        "approve": "approve plans"
+      },
+      "corrections": {
+        "request": "ask for changes to a pull request"
+      },
+      "release": {
+        "merge": "release to production"
+      },
+      "prs": {
+        "adopt": "adopt someone else's pull request"
+      },
+      "agent_sessions": {
+        "intervene": "step into Claude's sessions"
+      },
+      "backlog": {
+        "view_all": "see the whole backlog",
+        "create": "add to the backlog",
+        "edit": "edit the backlog"
+      },
+      "decisions": {
+        "record": "record decisions"
+      },
+      "docs": {
+        "view": "read the docs",
+        "edit": "edit the docs",
+        "generate": "generate the docs"
+      },
+      "repos": {
+        "view": "see repositories",
+        "manage": "manage repositories"
+      },
+      "environments": {
+        "manage": "manage environments"
+      },
+      "widget": {
+        "manage": "manage the support widget"
+      },
+      "planning": {
+        "others": "plan other people's tasks"
+      },
+      "drive": {
+        "upload": "upload to the drive",
+        "manage": "manage the drive",
+        "history": "see who opened drive files"
+      },
+      "support": {
+        "reply": "reply to customers"
+      },
+      "department": {
+        "home": {
+          "manage": "manage the department Home"
+        }
+      }
+    }
+  },
+  "admin": {
+    "columnLabel": "Administration sections",
+    "groups": {
+      "access": "Access",
+      "records": "Records"
+    },
+    "sections": {
+      "people": "People",
+      "departments": "Departments",
+      "roles": "Roles",
+      "changelog": "Change log",
+      "who-can": "Who can?"
+    },
+    "placeholder": {
+      "departments": "Departments, the people in them and the permissions they give will be managed here.",
+      "roles": "Instance and project roles, with their permissions, will be managed here.",
+      "changelog": "Every change to people, roles and access will be listed here.",
+      "who-can": "Ask who can do something, in which project, and why."
+    },
+    "people": {
+      "intro": "Everyone on this instance: where they work and what they can do.",
+      "invite": "Invite someone",
+      "find": "Find a person…",
+      "findLabel": "Find a person by name or email",
+      "department": "Department",
+      "role": "Role",
+      "status": "Status",
+      "filterValue": "{{label}}: {{values}}",
+      "statuses": {
+        "active": "Active",
+        "invited": "Invited",
+        "deactivated": "Deactivated"
+      },
+      "listLabel": "People",
+      "invitedExpires": "Invited · expires {{date}}",
+      "expired": "Expired {{date}}",
+      "deactivatedOn": "Deactivated {{date}}",
+      "projectAs": "{{code}} as {{role}}",
+      "invitedBy": "by {{name}}",
+      "noProjects": "No projects",
+      "noRole": "No instance role",
+      "noMatch": "No one matches these filters.",
+      "clearFilters": "Clear filters",
+      "onlyYou": "Only you so far.",
+      "loadError": "Couldn't load people."
+    },
+    "person": {
+      "back": "People",
+      "notFound": "This person doesn't exist, or isn't here any more.",
+      "loadErrorGeneric": "Couldn't load this person's details.",
+      "you": "This is you. Your own settings are in Preferences.",
+      "more": "More actions for {{name}}",
+      "resetPassword": "Reset password…",
+      "resetSecondFactor": "Reset two-step verification…",
+      "deactivate": "Deactivate…",
+      "reactivate": "Reactivate",
+      "reactivateSure": "Reactivate — sure?",
+      "reactivated": "{{name}} is active again.",
+      "deactivatedOn": "Deactivated {{date}}",
+      "instanceRole": {
+        "title": "Instance role",
+        "change": "Change…",
+        "menu": "Instance role for {{name}}",
+        "permissions_one": "{{count}} permission",
+        "permissions_other": "{{count}} permissions",
+        "beyond": "Includes permissions you don't have.",
+        "selfBlocked": "You can't change your own instance role.",
+        "changed": "{{name}} is now {{role}}.",
+        "none": "No instance role",
+        "sentence": {
+          "admin": "{{role}} — can do everything, in every project.",
+          "user": "{{role}} — works in the projects they're a member of.",
+          "custom": "{{role}} — a role made on this instance."
+        },
+        "reauthAction": "change {{name}}'s instance role"
+      },
+      "projects": {
+        "title": "Projects",
+        "empty": "Not in any project you can see.",
+        "hidden": "Also in projects you can't see.",
+        "extra": "+ {{permission}} — {{source}}",
+        "given": "given by {{name}} on {{date}}",
+        "givenNoName": "given on {{date}}",
+        "seed": "from the seed",
+        "department": "from the {{name}} department",
+        "fullAdmin": "as full admin",
+        "role": "from the role {{name}}"
+      },
+      "departments": {
+        "title": "Departments",
+        "empty": "Not in any department.",
+        "managesHome": "manages the department Home"
+      },
+      "identities": {
+        "title": "Linked identities",
+        "git": "Git emails",
+        "gitEmpty": "No git email linked.",
+        "link": "Link a git email",
+        "linkLabel": "Git email or observed author",
+        "linkPlaceholder": "Search observed authors or type an email",
+        "observed": "Observed in commits, not linked",
+        "authorLine": "{{commits}} in {{projects}}, last {{date}}",
+        "linkNew": "Link “{{value}}”",
+        "noObserved": "No unlinked authors match. Type a full email to link a new one.",
+        "linked": "{{identity}} linked to {{name}}.",
+        "unlink": "Unlink",
+        "unlinkSure": "Unlink — sure?",
+        "unlinkLabel": "Unlink {{identity}}",
+        "unlinked": "{{identity}} unlinked from {{name}}.",
+        "unlinkAction": "unlink {{identity}} from {{name}}",
+        "bitbucket": "Bitbucket username",
+        "notLinked": "Not linked",
+        "bitbucketLink": "Link",
+        "bitbucketLabel": "Bitbucket username",
+        "bitbucketSave": "Link",
+        "bitbucketLinked": "Bitbucket username linked.",
+        "bitbucketUnlinked": "Bitbucket username unlinked.",
+        "cancel": "Cancel"
+      },
+      "securityLog": "Security log",
+      "securityLogError": "Couldn't load the security log."
+    },
+    "resetPassword": {
+      "title": "Create a password reset link for {{name}}?",
+      "body": "Any earlier link for {{name}} stops working.",
+      "create": "Create link",
+      "creating": "Creating…",
+      "secretTitle": "Password reset link for {{name}}",
+      "meta": "Expires {{date}} at {{time}} · works once · signs {{name}} out everywhere when used. Send it yourself.",
+      "reauthAction": "create a password reset link for {{name}}"
+    },
+    "resetSecondFactor": {
+      "title": "Reset {{name}}'s two-step verification?",
+      "signedOut": "{{name}} is signed out everywhere.",
+      "setsUp": "{{name}} sets it up again at the next sign-in.",
+      "tokens": "{{name}}'s access tokens keep working.",
+      "alert": "{{name}} gets a security alert.",
+      "peer": "This is recorded in the change log and {{name}} is told who did it.",
+      "reset": "Reset",
+      "done": "Two-step verification reset for {{name}}.",
+      "noSecondFactor": "{{name}} hasn't set up two-step verification.",
+      "reauthAction": "reset {{name}}'s two-step verification"
+    },
+    "deactivate": {
+      "title": "Deactivate {{name}}?",
+      "cantSignIn": "{{name}} can't sign in.",
+      "disappears": "{{name}} disappears from the people you can assign or invite to a project.",
+      "tasksStay": "Tasks still assigned to {{name}} show “(deactivated)”.",
+      "reactivateLater": "You can reactivate {{name}} later: projects and roles come back as they were.",
+      "openTasks": "Open tasks ({{count}})",
+      "noTasks": "{{name}} has no open tasks.",
+      "reassignTo": "Reassign to",
+      "reassignAll": "Reassign all to…",
+      "leaveWith": "Leave with {{name}}",
+      "reassignLabel": "Reassign {{code}} to",
+      "confirm": "Deactivate",
+      "done": "{{name}} was deactivated.",
+      "doneOne_one": "{{name}} was deactivated. {{count}} task reassigned to {{to}}.",
+      "doneOne_other": "{{name}} was deactivated. {{count}} tasks reassigned to {{to}}.",
+      "doneMany": "{{name}} was deactivated. {{count}} tasks reassigned.",
+      "reauthAction": "deactivate {{name}}"
+    },
+    "invite": {
+      "title": "Invite someone",
+      "email": "Email",
+      "instanceRole": "Instance role",
+      "projects": "Projects",
+      "projectsHint": "They join these projects when they accept.",
+      "noProjects": "You can invite people to the instance, but not to a project: you don't manage members anywhere.",
+      "addProject": "Add a project",
+      "project": "Project",
+      "projectRole": "Role in {{code}}",
+      "remove": "Remove {{code}}",
+      "chooseProject": "Choose a project",
+      "create": "Create invite",
+      "creating": "Creating…",
+      "secretTitle": "Invite link for {{email}}",
+      "sendYourself": "Send it yourself: Stubwise doesn't send emails.",
+      "expiresIn": "Expires in 7 days ({{date}}).",
+      "cancel": "Cancel",
+      "reauthAction": "invite {{email}}",
+      "errors": {
+        "email": "Enter a full email address.",
+        "email_taken": "Someone with this email already has an account.",
+        "invite_exists": "There's already an invite for this email. Revoke it first."
+      },
+      "loadError": "Couldn't load the roles and projects you can offer.",
+      "removeShort": "Remove"
+    },
+    "invitePage": {
+      "sent": "Sent by {{name}} on {{date}} · expires {{expires}}",
+      "sentExpired": "Sent by {{name}} on {{date}} · expired {{expires}}",
+      "offered": "Projects offered",
+      "noProjects": "No project: they join the instance only.",
+      "instanceRole": "Instance role",
+      "revoke": "Revoke invite",
+      "revokeSure": "Revoke — sure?",
+      "revoked": "Invite revoked.",
+      "linkOnce": "The link was shown once, when the invite was made. To send a new one, revoke this invite and make another.",
+      "notFound": "This invite doesn't exist, or was already accepted or revoked."
+    },
+    "refusal": {
+      "escalation": "You can't give “{{what}}”: it includes {{missing}}, which you don't have.",
+      "escalationPlain": "You can't do this: it gives {{missing}}, which you don't have.",
+      "more_one": "{{count}} more",
+      "more_other": "{{count}} more",
+      "lastFullAdmin": "{{name}} is the only full admin. Make someone else full admin first.",
+      "lastMembersManager": "{{name}} is the last person who manages the members of a project. Give that to someone else first.",
+      "selfDeactivate": "You can't deactivate yourself.",
+      "self": "You can't do this on yourself.",
+      "forbidden": "You no longer have permission to do this.",
+      "notFound": "This person isn't here any more.",
+      "status": "Something changed in the meantime. Nothing was changed.",
+      "identityTaken": "That identity is already linked to someone.",
+      "reauthCancelled": "Nothing was changed.",
+      "failed": "Couldn't save the change. Try again."
     }
   }
 }

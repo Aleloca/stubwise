@@ -11,7 +11,8 @@
     "preferences": "Preferenze",
     "admin": "Amministrazione",
     "filters": "Filtri",
-    "planning": "Pianificazione"
+    "planning": "Pianificazione",
+    "people": "Persone"
   },
   "rail": {
     "label": "Navigazione principale",
@@ -71,7 +72,6 @@
       "mail": "Qui compariranno caselle ed etichette.",
       "claude": "Qui compariranno le sessioni dal vivo e quelle passate.",
       "projects": "Qui compariranno i gruppi di progetti.",
-      "admin": "Qui compariranno le sezioni dell'amministrazione.",
       "chat": "Qui compariranno canali e messaggi diretti.",
       "filters": "Qui compariranno i tuoi filtri.",
       "planning": "Qui compariranno le viste della pianificazione.",
@@ -168,7 +168,8 @@
       "notificationPrefs": "Preferenze delle notifiche",
       "projectAlerts": "Avvisi di {{code}}",
       "newWidget": "Nuovo widget",
-      "linkSsh": "Collega l'accesso SSH a {{server}}"
+      "linkSsh": "Collega l'accesso SSH a {{server}}",
+      "inviteSomeone": "Invita qualcuno"
     },
     "filterPlaceholder": "Scegli un filtro",
     "channelPlaceholder": "Vai a un canale o a un messaggio diretto…",
@@ -246,8 +247,7 @@
       "claude": "Qui si seguiranno le sessioni dal vivo di Claude: cosa sta facendo e cosa chiede.",
       "projects": "Qui compariranno tutti i progetti che vedi.",
       "filters": "Qui compariranno i tuoi filtri salvati.",
-      "planning": "Qui si pianificherà fra i tuoi progetti.",
-      "admin": "Qui si gestiranno membri, ruoli, provider AI e integrazioni."
+      "planning": "Qui si pianificherà fra i tuoi progetti."
     },
     "sections": {
       "docs": "Qui si leggeranno e cercheranno i documenti del progetto, anche quelli generati dai suoi repository.",
@@ -8062,6 +8062,381 @@
         "startFailed": "Non è stato possibile avviare la configurazione."
       },
       "noSecondFactor": "La verifica in due passaggi non è ancora configurata. La configuriamo…"
+    }
+  },
+  "access": {
+    "perm": {
+      "instance": {
+        "full_admin": "fare tutto (amministratore completo)",
+        "status": {
+          "view": "vedere lo stato dell'istanza"
+        }
+      },
+      "roles": {
+        "manage": "gestire i ruoli"
+      },
+      "settings": {
+        "manage": "cambiare le impostazioni dell'istanza"
+      },
+      "users": {
+        "view_all": "vedere tutte le persone dell'istanza",
+        "invite": "invitare persone",
+        "manage": "gestire le persone"
+      },
+      "projects": {
+        "create": "creare progetti"
+      },
+      "ai_providers": {
+        "manage": "gestire i provider AI"
+      },
+      "git_accounts": {
+        "view": "vedere gli account git",
+        "manage": "gestire gli account git"
+      },
+      "plugins": {
+        "manage": "gestire i plugin"
+      },
+      "integrations": {
+        "manage": "gestire le integrazioni"
+      },
+      "mail_admission": {
+        "view": "vedere l'ammissione della posta"
+      },
+      "monitor": {
+        "view": "vedere il monitoraggio",
+        "manage": "gestire il monitoraggio"
+      },
+      "usage": {
+        "view": "vedere i consumi"
+      },
+      "claude": {
+        "public": {
+          "view": "vedere le conversazioni pubbliche con Claude"
+        }
+      },
+      "people": {
+        "activity": {
+          "view": "vedere l'attività delle persone"
+        }
+      },
+      "chat": {
+        "general": {
+          "create": "creare canali generali",
+          "manage": "gestire i canali generali"
+        },
+        "channels": {
+          "create": "creare canali di progetto",
+          "manage": "gestire i canali di progetto"
+        }
+      },
+      "automations": {
+        "manage": "gestire le automazioni"
+      },
+      "servers": {
+        "ssh": {
+          "manage": "gestire gli accessi SSH"
+        },
+        "operate": "avviare una correzione sul server"
+      },
+      "departments": {
+        "manage": "gestire i reparti"
+      },
+      "changelog": {
+        "view": "leggere il registro delle modifiche"
+      },
+      "project": {
+        "settings": {
+          "manage": "cambiare le impostazioni del progetto"
+        },
+        "members": {
+          "manage": "gestire i membri"
+        },
+        "usage": {
+          "view": "vedere i consumi del progetto"
+        }
+      },
+      "tickets": {
+        "view_all": "vedere tutte le task",
+        "create": "creare task",
+        "edit": "modificare le task",
+        "comment": "commentare le task",
+        "moderate": "eliminare i commenti degli altri"
+      },
+      "runs": {
+        "start": "avviare Claude"
+      },
+      "plans": {
+        "approve": "approvare i piani"
+      },
+      "corrections": {
+        "request": "chiedere modifiche a una pull request"
+      },
+      "release": {
+        "merge": "rilasciare in produzione"
+      },
+      "prs": {
+        "adopt": "adottare la pull request di un altro"
+      },
+      "agent_sessions": {
+        "intervene": "intervenire nelle sessioni di Claude"
+      },
+      "backlog": {
+        "view_all": "vedere tutto il backlog",
+        "create": "aggiungere al backlog",
+        "edit": "modificare il backlog"
+      },
+      "decisions": {
+        "record": "registrare le decisioni"
+      },
+      "docs": {
+        "view": "leggere i docs",
+        "edit": "modificare i docs",
+        "generate": "generare i docs"
+      },
+      "repos": {
+        "view": "vedere i repository",
+        "manage": "gestire i repository"
+      },
+      "environments": {
+        "manage": "gestire gli ambienti"
+      },
+      "widget": {
+        "manage": "gestire il widget di supporto"
+      },
+      "planning": {
+        "others": "pianificare le task degli altri"
+      },
+      "drive": {
+        "upload": "caricare nel drive",
+        "manage": "gestire il drive",
+        "history": "vedere chi ha aperto i file del drive"
+      },
+      "support": {
+        "reply": "rispondere ai clienti"
+      },
+      "department": {
+        "home": {
+          "manage": "gestire la Home del reparto"
+        }
+      }
+    }
+  },
+  "admin": {
+    "columnLabel": "Sezioni dell'amministrazione",
+    "groups": {
+      "access": "Accessi",
+      "records": "Registri"
+    },
+    "sections": {
+      "people": "Persone",
+      "departments": "Reparti",
+      "roles": "Ruoli",
+      "changelog": "Registro delle modifiche",
+      "who-can": "Chi può farlo?"
+    },
+    "placeholder": {
+      "departments": "Qui si gestiranno i reparti, chi ne fa parte e i permessi che danno.",
+      "roles": "Qui si gestiranno i ruoli d'istanza e di progetto, con i loro permessi.",
+      "changelog": "Qui compariranno tutte le modifiche a persone, ruoli e accessi.",
+      "who-can": "Chiedi chi può fare una cosa, in quale progetto, e perché."
+    },
+    "people": {
+      "intro": "Tutte le persone di questa istanza: dove lavorano e cosa possono fare.",
+      "invite": "Invita qualcuno",
+      "find": "Trova una persona…",
+      "findLabel": "Trova una persona per nome o email",
+      "department": "Reparto",
+      "role": "Ruolo",
+      "status": "Stato",
+      "filterValue": "{{label}}: {{values}}",
+      "statuses": {
+        "active": "Attive",
+        "invited": "Invitate",
+        "deactivated": "Disattivate"
+      },
+      "listLabel": "Persone",
+      "invitedExpires": "Invitata · scade il {{date}}",
+      "expired": "Scaduto il {{date}}",
+      "deactivatedOn": "Disattivata il {{date}}",
+      "projectAs": "{{code}} come {{role}}",
+      "invitedBy": "da {{name}}",
+      "noProjects": "Nessun progetto",
+      "noRole": "Nessun ruolo d'istanza",
+      "noMatch": "Nessuno corrisponde a questi filtri.",
+      "clearFilters": "Togli i filtri",
+      "onlyYou": "Per ora ci sei solo tu.",
+      "loadError": "Non è stato possibile caricare le persone."
+    },
+    "person": {
+      "back": "Persone",
+      "notFound": "Questa persona non esiste, o non c'è più.",
+      "loadErrorGeneric": "Non è stato possibile caricare i dettagli di questa persona.",
+      "you": "Sei tu. Le tue impostazioni stanno nelle Preferenze.",
+      "more": "Altre azioni per {{name}}",
+      "resetPassword": "Reimposta la password…",
+      "resetSecondFactor": "Azzera la verifica in due passaggi…",
+      "deactivate": "Disattiva…",
+      "reactivate": "Riattiva",
+      "reactivateSure": "Riattiva — sicuro?",
+      "reactivated": "{{name}} è di nuovo attiva.",
+      "deactivatedOn": "Disattivata il {{date}}",
+      "instanceRole": {
+        "title": "Ruolo d'istanza",
+        "change": "Cambia…",
+        "menu": "Ruolo d'istanza di {{name}}",
+        "permissions_one": "{{count}} permesso",
+        "permissions_other": "{{count}} permessi",
+        "beyond": "Contiene permessi che non hai.",
+        "selfBlocked": "Non puoi cambiare il tuo ruolo d'istanza.",
+        "changed": "Ora {{name}} è {{role}}.",
+        "none": "Nessun ruolo d'istanza",
+        "sentence": {
+          "admin": "{{role}} — può fare tutto, in ogni progetto.",
+          "user": "{{role}} — lavora nei progetti di cui è membro.",
+          "custom": "{{role}} — un ruolo creato su questa istanza."
+        },
+        "reauthAction": "cambiare il ruolo d'istanza di {{name}}"
+      },
+      "projects": {
+        "title": "Progetti",
+        "empty": "In nessun progetto che puoi vedere.",
+        "hidden": "È anche in progetti che non puoi vedere.",
+        "extra": "+ {{permission}} — {{source}}",
+        "given": "dato da {{name}} il {{date}}",
+        "givenNoName": "dato il {{date}}",
+        "seed": "dal seme",
+        "department": "dal reparto {{name}}",
+        "fullAdmin": "come amministratore completo",
+        "role": "dal ruolo {{name}}"
+      },
+      "departments": {
+        "title": "Reparti",
+        "empty": "In nessun reparto.",
+        "managesHome": "gestisce la Home del reparto"
+      },
+      "identities": {
+        "title": "Identità collegate",
+        "git": "Email git",
+        "gitEmpty": "Nessuna email git collegata.",
+        "link": "Collega un'email git",
+        "linkLabel": "Email git o autore osservato",
+        "linkPlaceholder": "Cerca fra gli autori osservati o scrivi un'email",
+        "observed": "Visti nei commit, non collegati",
+        "authorLine": "{{commits}} in {{projects}}, l'ultimo il {{date}}",
+        "linkNew": "Collega «{{value}}»",
+        "noObserved": "Nessun autore non collegato corrisponde. Scrivi un'email intera per collegarne una nuova.",
+        "linked": "{{identity}} collegata a {{name}}.",
+        "unlink": "Scollega",
+        "unlinkSure": "Scollega — sicuro?",
+        "unlinkLabel": "Scollega {{identity}}",
+        "unlinked": "{{identity}} scollegata da {{name}}.",
+        "unlinkAction": "scollegare {{identity}} da {{name}}",
+        "bitbucket": "Username Bitbucket",
+        "notLinked": "Non collegato",
+        "bitbucketLink": "Collega",
+        "bitbucketLabel": "Username Bitbucket",
+        "bitbucketSave": "Collega",
+        "bitbucketLinked": "Username Bitbucket collegato.",
+        "bitbucketUnlinked": "Username Bitbucket scollegato.",
+        "cancel": "Annulla"
+      },
+      "securityLog": "Registro di sicurezza",
+      "securityLogError": "Non è stato possibile caricare il registro di sicurezza."
+    },
+    "resetPassword": {
+      "title": "Creare un link per reimpostare la password di {{name}}?",
+      "body": "Un link precedente di {{name}} smette di funzionare.",
+      "create": "Crea il link",
+      "creating": "Creazione…",
+      "secretTitle": "Link per reimpostare la password di {{name}}",
+      "meta": "Scade il {{date}} alle {{time}} · funziona una volta · usato, disconnette {{name}} ovunque. Mandalo tu.",
+      "reauthAction": "creare un link per reimpostare la password di {{name}}"
+    },
+    "resetSecondFactor": {
+      "title": "Azzerare la verifica in due passaggi di {{name}}?",
+      "signedOut": "{{name}} viene disconnessa ovunque.",
+      "setsUp": "{{name}} la riattiva al prossimo accesso.",
+      "tokens": "I token d'accesso di {{name}} continuano a funzionare.",
+      "alert": "{{name}} riceve un avviso di sicurezza.",
+      "peer": "Resta nel registro delle modifiche, e a {{name}} viene detto chi è stato.",
+      "reset": "Azzera",
+      "done": "Verifica in due passaggi azzerata per {{name}}.",
+      "noSecondFactor": "{{name}} non ha attivato la verifica in due passaggi.",
+      "reauthAction": "azzerare la verifica in due passaggi di {{name}}"
+    },
+    "deactivate": {
+      "title": "Disattivare {{name}}?",
+      "cantSignIn": "{{name}} non può più entrare.",
+      "disappears": "{{name}} sparisce dalle persone che puoi assegnare o invitare in un progetto.",
+      "tasksStay": "Le task ancora assegnate a {{name}} mostrano «(disattivata)».",
+      "reactivateLater": "Puoi riattivare {{name}} in seguito: progetti e ruoli tornano com'erano.",
+      "openTasks": "Task aperte ({{count}})",
+      "noTasks": "{{name}} non ha task aperte.",
+      "reassignTo": "Riassegna a",
+      "reassignAll": "Riassegna tutte a…",
+      "leaveWith": "Lascia a {{name}}",
+      "reassignLabel": "Riassegna {{code}} a",
+      "confirm": "Disattiva",
+      "done": "{{name}} è stata disattivata.",
+      "doneOne_one": "{{name}} è stata disattivata. {{count}} task riassegnata a {{to}}.",
+      "doneOne_other": "{{name}} è stata disattivata. {{count}} task riassegnate a {{to}}.",
+      "doneMany": "{{name}} è stata disattivata. {{count}} task riassegnate.",
+      "reauthAction": "disattivare {{name}}"
+    },
+    "invite": {
+      "title": "Invita qualcuno",
+      "email": "Email",
+      "instanceRole": "Ruolo d'istanza",
+      "projects": "Progetti",
+      "projectsHint": "Entra in questi progetti quando accetta.",
+      "noProjects": "Puoi invitare persone nell'istanza, ma non in un progetto: non gestisci i membri da nessuna parte.",
+      "addProject": "Aggiungi un progetto",
+      "project": "Progetto",
+      "projectRole": "Ruolo in {{code}}",
+      "remove": "Togli {{code}}",
+      "chooseProject": "Scegli un progetto",
+      "create": "Crea l'invito",
+      "creating": "Creazione…",
+      "secretTitle": "Link d'invito per {{email}}",
+      "sendYourself": "Mandalo tu: Stubwise non manda email.",
+      "expiresIn": "Scade fra 7 giorni ({{date}}).",
+      "cancel": "Annulla",
+      "reauthAction": "invitare {{email}}",
+      "errors": {
+        "email": "Scrivi un indirizzo email intero.",
+        "email_taken": "Qualcuno con questa email ha già un account.",
+        "invite_exists": "C'è già un invito per questa email. Revocalo prima."
+      },
+      "loadError": "Non è stato possibile caricare i ruoli e i progetti che puoi offrire.",
+      "removeShort": "Togli"
+    },
+    "invitePage": {
+      "sent": "Mandato da {{name}} il {{date}} · scade il {{expires}}",
+      "sentExpired": "Mandato da {{name}} il {{date}} · scaduto il {{expires}}",
+      "offered": "Progetti offerti",
+      "noProjects": "Nessun progetto: entra solo nell'istanza.",
+      "instanceRole": "Ruolo d'istanza",
+      "revoke": "Revoca l'invito",
+      "revokeSure": "Revoca — sicuro?",
+      "revoked": "Invito revocato.",
+      "linkOnce": "Il link si è visto una volta, quando l'invito è stato creato. Per mandarne uno nuovo, revoca questo invito e creane un altro.",
+      "notFound": "Questo invito non esiste, oppure è già stato accettato o revocato."
+    },
+    "refusal": {
+      "escalation": "Non puoi dare «{{what}}»: contiene {{missing}}, che non hai.",
+      "escalationPlain": "Non puoi farlo: darebbe {{missing}}, che non hai.",
+      "more_one": "altro {{count}}",
+      "more_other": "altri {{count}}",
+      "lastFullAdmin": "{{name}} è l'unico amministratore completo. Rendi prima qualcun altro amministratore completo.",
+      "lastMembersManager": "{{name}} è l'ultima persona che gestisce i membri di un progetto. Dallo prima a qualcun altro.",
+      "selfDeactivate": "Non puoi disattivare te stesso.",
+      "self": "Non puoi farlo su te stesso.",
+      "forbidden": "Non hai più il permesso di farlo.",
+      "notFound": "Questa persona non c'è più.",
+      "status": "Qualcosa è cambiato nel frattempo. Non è cambiato niente.",
+      "identityTaken": "Questa identità è già collegata a qualcuno.",
+      "reauthCancelled": "Non è cambiato niente.",
+      "failed": "Non è stato possibile salvare la modifica. Riprova."
     }
   }
 }

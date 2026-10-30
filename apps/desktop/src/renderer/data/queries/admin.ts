@@ -99,12 +99,18 @@ export function useAdminWrite<TVars, TData>(mutationFn: (vars: TVars) => Promise
   });
 }
 
-/** People: le persone (e, per chi invita, gli inviti in sospeso). */
+/**
+ * People: le persone (e, per chi invita, gli inviti in sospeso). Cambiando
+ * filtro resta l'elenco di prima finché arriva il nuovo (niente scheletro a
+ * ogni lettera scritta nella ricerca).
+ */
 export function useAdminPeople(filter: PeopleFilter = {}) {
   const me = useSessionPersonId();
   return useQuery({
     queryKey: queryKeys.admin(me, "people", filter),
     queryFn: () => api.admin.listPeople(filter),
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === me ? previous : undefined,
   });
 }
 
@@ -143,6 +149,16 @@ export function useInvites(enabled = true) {
   return useQuery({
     queryKey: queryKeys.admin(me, "invites"),
     queryFn: () => api.admin.listInvites(),
+    enabled,
+  });
+}
+
+/** Le scelte di «Invite someone» (`users.invite`): ruoli e progetti con ciò che manca. */
+export function useInviteChoices(enabled = true) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.admin(me, "inviteChoices"),
+    queryFn: () => api.admin.getInviteChoices(),
     enabled,
   });
 }

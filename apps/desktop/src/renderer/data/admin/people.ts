@@ -432,6 +432,23 @@ export async function resetSecondFactor(personId: string): Promise<AdminResult> 
 }
 
 /**
+ * Il collegamento di un'identità git, senza cancello né permessi (li fa chi
+ * chiama): da lì i suoi commit passano sotto la persona, e il registro lo
+ * dice. È l'UNICA scrittura del collegamento: la usano questa pagina
+ * (`linkGitIdentity`) e «Link a person» dell'Activity (`linkCommitAuthor`).
+ */
+export function linkIdentityAs(me: string, personId: string, identity: string): void {
+  state.commitAuthorLinks.set(identity, personId);
+  recordChange({
+    kind: "person.git_identity_linked",
+    actorId: me,
+    projectId: null,
+    object: label(personId),
+    after: identity,
+  });
+}
+
+/**
  * Collega un'identità git (un autore osservato o un'email nuova) a una
  * persona (`users.manage`): da lì i suoi commit passano sotto di lei, come
  * «Link a person» dell'Activity.
@@ -447,14 +464,7 @@ export async function linkGitIdentity(personId: string, identity: string): Promi
     COMMITS.some((c) => c.authorId && c.authorName === value)
   )
     return refuse.invalid("identity_taken");
-  state.commitAuthorLinks.set(value, personId);
-  recordChange({
-    kind: "person.git_identity_linked",
-    actorId: me,
-    projectId: null,
-    object: label(personId),
-    after: value,
-  });
+  linkIdentityAs(me, personId, value);
   return { ok: true };
 }
 

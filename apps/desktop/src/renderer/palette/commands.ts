@@ -161,6 +161,14 @@ export const COMMANDS: readonly Command[] = [
       can(viewer, "servers.ssh.manage"),
   },
   {
+    // «Invite someone» (shape admin-people.md): People con il dialogo aperto,
+    // a chi invita. R-L9: Claude non ha mai `users.invite`.
+    id: "people.invite",
+    labelKey: "palette.commands.inviteSomeone",
+    run: (ctx) => ctx.navigate("/admin/people?invite=1"),
+    when: (viewer) => can(viewer, "users.invite"),
+  },
+  {
     id: "chat.goTo",
     labelKey: "palette.commands.goToChannel",
     keepsOpen: true,

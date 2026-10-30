@@ -3,6 +3,7 @@ import { gate, state, visibleProjectIds } from "../store";
 import { can, viewerFor, type Permission } from "../viewer";
 import { forbidden, notFound } from "../writer";
 import { changeTypeOf } from "./record";
+import { MANAGE_PROJECT } from "./visibility";
 import type { ChangeEntry, ChangeEntryView, ChangeFilter } from "./types";
 
 // Le letture del registro (area 9a). Chi legge cosa, in UN posto
@@ -16,8 +17,6 @@ import type { ChangeEntry, ChangeEntryView, ChangeFilter } from "./types";
 //   `readPermission` del tipo.
 // Il full admin legge tutto (`can()` gli dice sempre sì, e vede ogni
 // progetto); Claude niente (`changelog.view` e i `.manage` gli sono negati).
-
-const MANAGE_PROJECT = ["project.settings.manage", "project.members.manage"] as const;
 
 /** Chi guarda può gestire (impostazioni o membri) il progetto. */
 const managesProject = (me: string, projectId: string): boolean =>

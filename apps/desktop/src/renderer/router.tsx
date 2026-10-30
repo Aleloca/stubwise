@@ -18,8 +18,21 @@ import { useChatChannels, useEntryGate, useProject } from "./data/queries";
 import { LoginPage } from "./pages/entry/LoginPage";
 import { RegisterPage } from "./pages/entry/RegisterPage";
 import { SetupPage } from "./pages/entry/SetupPage";
-import { APP_ROUTES, PROJECT_SECTIONS, isProjectSection, isValidSearchParam } from "./data/routes";
-import { can, canSeeAdmin, useViewer } from "./data/viewer";
+import {
+  APP_ROUTES,
+  PEOPLE_SEARCH_KEYS,
+  PROJECT_SECTIONS,
+  isPeopleSearchValue,
+  isProjectSection,
+  isValidSearchParam,
+} from "./data/routes";
+import { can, useViewer } from "./data/viewer";
+import {
+  AdminIndex,
+  AdminSectionPage,
+  AdminInvitePage,
+  AdminPersonPage,
+} from "./pages/admin/AdminLayout";
 import type { FilterCriteria } from "./data/types";
 import { parseCriteria } from "./domain/filters";
 import { TasksPage } from "./pages/tasks/TasksPage";
@@ -157,6 +170,12 @@ export interface AppSearch {
   range?: string;
   check?: string;
   section?: string;
+  /** People (area 9a): i filtri dell'elenco e «Invite someone» (`data/routes.ts`). */
+  find?: string;
+  depts?: string;
+  roles?: string;
+  statuses?: string;
+  invite?: string;
 }
 
 const SEARCH_KEYS = [
@@ -189,6 +208,7 @@ const SEARCH_KEYS = [
   "range",
   "check",
   "section",
+  ...PEOPLE_SEARCH_KEYS,
 ] as const;
 
 /**
@@ -209,7 +229,9 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
     if (typeof value !== "string") continue;
     // `request` e `view` dipendono dal percorso: qui si controlla la forma, la route decide.
     const shapeOk =
-      (AUTOMATION_SEARCH_KEYS as readonly string[]).includes(key)
+      (PEOPLE_SEARCH_KEYS as readonly string[]).includes(key)
+        ? isPeopleSearchValue(key, value)
+        : (AUTOMATION_SEARCH_KEYS as readonly string[]).includes(key)
         ? isAutomationSearchValue(key, value)
         : (SEARCH_PARAM_KEYS as readonly string[]).includes(key)
         ? isSearchParamValue(key, value)
@@ -367,12 +389,6 @@ function CalendarRoutePage() {
   return <CalendarPage key={viewer.personId} />;
 }
 
-function AdminPage() {
-  const { viewer } = useViewer();
-  if (!canSeeAdmin(viewer)) return <Navigate to="/home" replace />;
-  return <Placeholder titleKey="nav.admin" bodyKey="placeholder.pages.admin" />;
-}
-
 /** `/preferences` porta alla sola sezione costruita, Notifiche, tenendo la ricerca. */
 function PreferencesLanding() {
   return (
@@ -397,7 +413,7 @@ function PreferencesRoutePage() {
 }
 
 function pageOf(name: (typeof APP_ROUTES)[number]) {
-  if (name === "admin") return AdminPage;
+  if (name === "admin") return AdminIndex;
   if (name === "planning") return PlanningRoutePage;
   if (name === "filters") return AllFiltersPage;
   if (name === "home") return HomeRoutePage;
@@ -923,6 +939,44 @@ const preferencesSectionRoute = createRoute({
   component: PreferencesRoutePage,
 });
 
+/**
+ * L'Amministrazione (area 9a): una voce (`/admin/people`), una persona, un
+ * invito. `invites` è letterale: vince su `$personId` per costruzione del
+ * router.
+ */
+function AdminSectionRoutePage() {
+  const { section } = adminSectionRoute.useParams();
+  return <AdminSectionPage section={section} />;
+}
+
+const adminSectionRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/$section",
+  component: AdminSectionRoutePage,
+});
+
+function AdminPersonRoutePage() {
+  const { personId } = adminPersonRoute.useParams();
+  return <AdminPersonPage personId={personId} />;
+}
+
+const adminPersonRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/people/$personId",
+  component: AdminPersonRoutePage,
+});
+
+function AdminInviteRoutePage() {
+  const { inviteId } = adminInviteRoute.useParams();
+  return <AdminInvitePage inviteId={inviteId} />;
+}
+
+const adminInviteRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/people/invites/$inviteId",
+  component: AdminInviteRoutePage,
+});
+
 const automationSourcesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/automations/sources",
@@ -981,6 +1035,9 @@ const routeTree = rootRoute.addChildren([
   ...appRoutes.map((r) => (r === mailRoute ? mailRoute.addChildren([mailThreadRoute]) : r)),
   conversationRoute,
   preferencesSectionRoute,
+  adminSectionRoute,
+  adminPersonRoute,
+  adminInviteRoute,
   automationSourcesRoute,
   automationRoute,
   automationRunRoute,

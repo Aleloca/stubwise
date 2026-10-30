@@ -888,7 +888,8 @@ function SessionRow({ session: x }: { session: Session }) {
   );
 }
 
-function LogPart({ events }: { events: MySecurity["events"] }) {
+/** Il registro della sicurezza: lo usano anche la pagina di una persona (Amministrazione). */
+export function LogPart({ events }: { events: MySecurity["events"] }) {
   const { t, i18n } = useTranslation();
   const [all, setAll] = useState(false);
   const shown = all ? events : events.slice(0, LOG_FIRST);

@@ -942,6 +942,40 @@ describe("People", () => {
     expect((await admin.getPerson("p-marco")).identities.bitbucketUsername).toBe("marcob");
   });
 
+  it("«Link a person» dell'Activity è la stessa scrittura: finisce nel registro", async () => {
+    as("p-roberta");
+    const { linkCommitAuthor } = await import("../api-mutations");
+    await linkCommitAuthor("kevin.ortega", "p-stefano");
+    expect((await admin.getPerson("p-stefano")).identities.gitEmails).toEqual(["kevin.ortega"]);
+    expect(state.changelog.map((e) => [e.kind, e.after])).toEqual([
+      ["person.git_identity_linked", "kevin.ortega"],
+    ]);
+  });
+
+  it("le scelte dell'invito: ruoli con ciò che manca, solo i progetti dove si gestiscono i membri", async () => {
+    // Laura invita (concessione), gestisce i membri dove è Project Lead.
+    giveInstance("p-laura", "users.invite");
+    as("p-laura");
+    const choices = await admin.getInviteChoices();
+    expect(choices.instanceRoles.find((r) => r.roleId === roleIdOf("admin"))!.missing).toContain(
+      "instance.full_admin",
+    );
+    expect(choices.instanceRoles.find((r) => r.roleId === roleIdOf("user"))!.missing).toEqual([]);
+    expect(choices.defaultInstanceRoleId).toBe(roleIdOf("user"));
+    const managed = state.projects
+      .filter((p) => can(viewerFor("p-laura"), "project.members.manage", p.id))
+      .map((p) => p.id)
+      .sort();
+    expect(choices.projects.map((p) => p.projectId).sort()).toEqual(managed);
+    expect(managed.length).toBeGreaterThan(0);
+    const first = choices.projects[0]!;
+    expect(first.roles.map((r) => r.name)).toContain("Developer");
+    expect(first.roles.find((r) => r.name === "Developer")!.missing).toEqual([]);
+    // Senza `users.invite`: forbidden.
+    as("p-marco");
+    await expect(admin.getInviteChoices()).rejects.toThrow("forbidden");
+  });
+
   it("i ruoli d'istanza offerti dicono cosa manca a chi guarda", async () => {
     giveInstance("p-laura", "users.manage");
     as("p-laura");

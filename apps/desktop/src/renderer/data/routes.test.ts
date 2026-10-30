@@ -26,6 +26,19 @@ describe("route grammar", () => {
     expect(isAppRoute("#/projects?view=starred")).toBe(false);
   });
 
+  it("area 9a: le voci dell'Amministrazione, una persona, un invito, i filtri di People", () => {
+    for (const s of ["people", "departments", "roles", "changelog", "who-can"]) {
+      expect(isAppRoute(`#/admin/${s}`), s).toBe(true);
+    }
+    expect(isAppRoute("#/admin/billing")).toBe(false);
+    expect(isAppRoute("#/admin/people/p-marco")).toBe(true);
+    expect(isAppRoute("#/admin/people/invites/inv-1")).toBe(true);
+    expect(isAppRoute("#/admin/people?depts=dep-development,dep-sales&statuses=active")).toBe(true);
+    expect(isAppRoute("#/admin/people?statuses=gone")).toBe(false);
+    expect(isAppRoute("#/admin/people?invite=1")).toBe(true);
+    expect(isAppRoute("#/home?find=marco")).toBe(false);
+  });
+
   it("area 2: filtri, planning e ricerca valida per route", () => {
     expect(isAppRoute("#/filters")).toBe(true);
     expect(isAppRoute("#/filters/flt-open")).toBe(true);

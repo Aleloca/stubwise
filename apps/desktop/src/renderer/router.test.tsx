@@ -139,10 +139,17 @@ describe("router", () => {
     expect(router.state.location.pathname).toBe("/p/AUD/overview");
   });
 
-  it("/admin: il Developer torna a /home", async () => {
+  it("/admin: apre la prima voce visibile (People, che legge chiunque)", async () => {
     const router = renderAt("/admin", "p-marco");
-    expect(await screen.findByRole("heading", { level: 1, name: "Home" })).toBeInTheDocument();
-    expect(router.state.location.pathname).toBe("/home");
+    expect(await screen.findByRole("heading", { level: 1, name: "People" })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/admin/people");
+  });
+
+  it("/admin/roles: il Developer non la vede (not found)", async () => {
+    renderAt("/admin/roles", "p-marco");
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Page not found" }),
+    ).toBeInTheDocument();
   });
 
   it("cambiare persona con una task aperta: chi non vede il progetto non vede i dati vecchi", async () => {
@@ -172,13 +179,11 @@ describe("router", () => {
     expect(screen.queryByText(task.title)).toBeNull();
   });
 
-  it("/admin: il full admin vede il placeholder", async () => {
-    renderAt("/admin", "p-roberta");
+  it("/admin/roles: il full admin vede il segnaposto di Roles", async () => {
+    renderAt("/admin/roles", "p-roberta");
+    expect(await screen.findByRole("heading", { level: 1, name: "Roles" })).toBeInTheDocument();
     expect(
-      await screen.findByRole("heading", { level: 1, name: "Administration" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("Members, roles, AI providers and integrations will be managed here."),
+      screen.getByText("Instance and project roles, with their permissions, will be managed here."),
     ).toBeInTheDocument();
   });
 });

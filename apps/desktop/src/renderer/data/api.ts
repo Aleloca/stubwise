@@ -995,9 +995,10 @@ export async function search(q: string): Promise<SearchResult[]> {
       });
     }
   }
+  // Le persone aprono la loro pagina in People (area 9a: la legge chiunque).
   for (const p of PEOPLE) {
     if (!p.isClaude && has(p.name)) {
-      results.push({ kind: "person", id: p.id, label: p.name, route: "#/chat" });
+      results.push({ kind: "person", id: p.id, label: p.name, route: `#/admin/people/${p.id}` });
     }
   }
   return results;

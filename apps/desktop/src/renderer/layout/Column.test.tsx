@@ -262,10 +262,12 @@ describe("PersonalColumn", () => {
             ? i18n.t("filter.allTitle")
             : name === "claude"
               ? i18n.t("claude.destination.landing.title")
-              : // `/preferences` porta alla sezione Notifiche (area 8a).
+              : // `/preferences` porta alla sezione Notifiche (area 8a), `/admin` a People (9a).
                 name === "preferences"
                 ? i18n.t("alerts.title")
-                : i18n.t(`nav.${name}`),
+                : name === "admin"
+                  ? i18n.t("admin.sections.people")
+                  : i18n.t(`nav.${name}`),
         );
       }
       expect(h1).toHaveClass("text-2xl");
@@ -280,10 +282,10 @@ describe("PersonalColumn", () => {
     const grid = column().parentElement!;
     const homeGridClass = grid.className;
     cleanup();
-    // Le Preferenze hanno la loro colonna (area 8a): lo stato neutro resta sull'Amministrazione.
-    await renderAt("/admin", "p-roberta");
-    const nav = await within(column()).findByRole("navigation", { name: "Administration views" });
-    expect(nav).toHaveTextContent("The sections of administration will be listed here.");
+    // Preferenze (8a) e Amministrazione (9a) hanno la loro colonna: lo stato neutro resta su All projects.
+    await renderAt("/projects", "p-roberta");
+    const nav = await within(column()).findByRole("navigation", { name: "All projects views" });
+    expect(nav).toHaveTextContent("Groups of projects will be listed here.");
     expect(within(column()).queryByRole("heading")).toBeNull();
     expect(within(nav).queryByRole("link")).toBeNull();
     // Stesso contenitore e stessa colonna di griglia a 240 px: niente collasso.
@@ -291,17 +293,29 @@ describe("PersonalColumn", () => {
     expect(column().parentElement!.className).toBe(homeGridClass);
     expect(homeGridClass).toContain("240px");
     expect(
-      await screen.findByRole("heading", { level: 1, name: "Administration" }),
+      await screen.findByRole("heading", { level: 1, name: "All projects" }),
     ).toHaveClass("text-2xl");
   });
 
   it("lo stato neutro segue la lingua", async () => {
     act(() => setLanguage("it"));
-    // Calendario (area 6), Automazioni (area 7) e Preferenze (area 8a) hanno la loro colonna.
-    await renderAt("/admin", "p-roberta");
+    // Calendario (6), Automazioni (7), Preferenze (8a) e Amministrazione (9a) hanno la loro colonna.
+    await renderAt("/projects", "p-roberta");
     expect(
-      await within(column()).findByRole("navigation", { name: "Viste di Amministrazione" }),
-    ).toHaveTextContent("Qui compariranno le sezioni dell'amministrazione.");
+      await within(column()).findByRole("navigation", { name: "Viste di Tutti i progetti" }),
+    ).toHaveTextContent("Qui compariranno i gruppi di progetti.");
+  });
+
+  it("l'Amministrazione ha la sua colonna: le voci per gruppo, nessun titolo", async () => {
+    await renderAt("/admin/people", "p-roberta");
+    const nav = await within(column()).findByRole("navigation", {
+      name: "Administration sections",
+    });
+    expect(within(nav).getByRole("link", { name: /^People/ })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(within(column()).queryByRole("heading")).toBeNull();
   });
 
   it("Chat ha la sua colonna (canali e messaggi diretti); Mail la sua (viste e caselle), nessun titolo", async () => {

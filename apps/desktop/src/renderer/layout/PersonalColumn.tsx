@@ -11,6 +11,7 @@ import { MailboxBar } from "../pages/mail/MailboxBar";
 import { CalendarColumn } from "../pages/calendar/CalendarColumn";
 import { AutomationsColumn } from "../pages/automations/AutomationsColumn";
 import { PreferencesColumn } from "../pages/preferences/PreferencesPage";
+import { AdminColumn } from "../pages/admin/AdminLayout";
 import { ONE_LINE, columnItemClass } from "./ProjectColumn";
 
 export type Destination = (typeof APP_ROUTES)[number];
@@ -37,6 +38,7 @@ export function PersonalColumn({ destination }: { destination: Destination }) {
   if (destination === "calendar") return <CalendarColumn />;
   if (destination === "automations") return <AutomationsColumn />;
   if (destination === "preferences") return <PreferencesColumn />;
+  if (destination === "admin") return <AdminColumn />;
   return <GenericColumn destination={destination} />;
 }
 

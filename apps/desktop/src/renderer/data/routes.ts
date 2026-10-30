@@ -50,6 +50,52 @@ export type PreferenceSection = (typeof PREFERENCE_SECTIONS)[number];
 export const isPreferenceSection = (value: string): value is PreferenceSection =>
   (PREFERENCE_SECTIONS as readonly string[]).includes(value);
 
+/**
+ * Le voci dell'Amministrazione (area 9a), nell'ordine della colonna, coi
+ * loro gruppi: ACCESS (People, Departments, Roles) e RECORDS (Change log,
+ * Who can?). `#/admin/<voce>`. Chi vede quali lo decide `adminSections`.
+ */
+export const ADMIN_SECTIONS = [
+  { id: "people", group: "access" },
+  { id: "departments", group: "access" },
+  { id: "roles", group: "access" },
+  { id: "changelog", group: "records" },
+  { id: "who-can", group: "records" },
+] as const;
+
+export type AdminSection = (typeof ADMIN_SECTIONS)[number]["id"];
+
+export const isAdminSection = (value: string): value is AdminSection =>
+  ADMIN_SECTIONS.some((s) => s.id === value);
+
+/**
+ * I filtri di People nell'indirizzo (shape admin-people.md): `find` (nome o
+ * email), `depts`, `roles` e `statuses` (id separati da virgola); `invite=1`
+ * apre «Invite someone» (⌘K).
+ */
+export const PEOPLE_SEARCH_KEYS = ["find", "depts", "roles", "statuses", "invite"] as const;
+
+export const PEOPLE_STATUSES = ["active", "invited", "deactivated"] as const;
+
+/** La forma di un parametro di People; la pagina rilegge i valori. */
+export function isPeopleSearchValue(key: string, value: string): boolean {
+  switch (key) {
+    case "find":
+      return value.length > 0 && value.length <= 200;
+    case "depts":
+    case "roles":
+      return /^[\w-]+(,[\w-]+)*$/.test(value);
+    case "statuses":
+      return value
+        .split(",")
+        .every((s) => (PEOPLE_STATUSES as readonly string[]).includes(s));
+    case "invite":
+      return value === "1";
+    default:
+      return false;
+  }
+}
+
 /** Le sezioni di un progetto, nell'ordine della colonna; `module` = serve quel modulo attivo. */
 export const PROJECT_SECTIONS = [
   { id: "overview" },
@@ -91,6 +137,10 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
   // Le Automations: filtri dell'elenco, la riga del registro, la sorgente aperta.
   if ((AUTOMATION_SEARCH_KEYS as readonly string[]).includes(key)) {
     return isAutomationSearchParam(path, key, value);
+  }
+  // People (area 9a): i filtri e «Invite someone», solo sul suo elenco.
+  if ((PEOPLE_SEARCH_KEYS as readonly string[]).includes(key)) {
+    return path === "admin/people" && isPeopleSearchValue(key, value);
   }
   switch (key) {
     case "task":
@@ -289,6 +339,10 @@ export function isAppRoute(route: string): boolean {
   // Le sezioni delle Preferenze (aree 8a e 9a).
   const pref = /^preferences\/([a-z-]+)$/.exec(path);
   if (pref) return isPreferenceSection(pref[1]!);
+  // L'Amministrazione (area 9a): una voce, una persona, un invito.
+  const admin = /^admin\/([a-z-]+)$/.exec(path);
+  if (admin) return isAdminSection(admin[1]!);
+  if (/^admin\/people\/(invites\/)?[\w-]+$/.test(path)) return true;
   if (isChannelPath(path)) return true;
   if (isAutomationsPath(path)) return true;
   // Il dettaglio di un rilascio (area 8a): `#/p/AUD/releases/AUD-V3`.

@@ -593,6 +593,7 @@ export type ApiFnName =
   | "admin.deactivatePerson"
   | "admin.reactivatePerson"
   | "admin.listInvites"
+  | "admin.getInviteChoices"
   | "admin.createInvite"
   | "admin.revokeInvite"
   | "admin.listRoles"

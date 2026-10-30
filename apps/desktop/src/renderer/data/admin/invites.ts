@@ -14,7 +14,7 @@ import {
 } from "./common";
 import { pendingInvites } from "./people";
 import { storeSecret } from "./secrets";
-import type { AdminResult, InviteView } from "./types";
+import type { AdminResult, InviteChoices, InviteView, RoleChoice } from "./types";
 import "./changeTypes";
 
 // Gli inviti (area 9a). Nell'app c'è solo chi invita: si crea un invito con
@@ -57,6 +57,42 @@ export async function listInvites(): Promise<InviteView[]> {
       expired: isExpired(inv.expiresAt),
     }))
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+}
+
+/**
+ * Le scelte del dialogo «Invite someone» (`users.invite`): i ruoli d'istanza
+ * e, per ogni progetto dove chi invita gestisce i membri, i ruoli di
+ * progetto, ognuno con ciò che a chi invita manca per darlo lì (vuoto = si
+ * può). La stessa regola di `createInvite` (`missingIn`, al livello giusto).
+ */
+export async function getInviteChoices(): Promise<InviteChoices> {
+  const me = await gate("admin.getInviteChoices");
+  if (!canI(me, USERS_INVITE)) throw new Error("forbidden");
+  const roles = accessState().roles;
+  const choice = (r: (typeof roles)[number], missing: string[]): RoleChoice => ({
+    roleId: r.id,
+    name: r.name,
+    permissionCount: r.permissions.length,
+    missing,
+  });
+  const visible = visibleProjectIds(me);
+  return {
+    instanceRoles: roles
+      .filter((r) => r.scope === "instance")
+      .map((r) => choice(r, missingIn(me, "instance", r.permissions))),
+    defaultInstanceRoleId: roles.find((r) => r.scope === "instance" && r.key === "user")?.id ?? "",
+    projects: state.projects
+      .filter((p) => visible.has(p.id) && canI(me, "project.members.manage", p.id))
+      .sort((a, b) => a.code.localeCompare(b.code))
+      .map((p) => ({
+        projectId: p.id,
+        code: p.code,
+        name: p.name,
+        roles: roles
+          .filter((r) => r.scope === "project")
+          .map((r) => choice(r, missingIn(me, [p.id], r.permissions))),
+      })),
+  };
 }
 
 export interface CreateInviteInput {

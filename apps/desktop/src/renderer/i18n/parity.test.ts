@@ -56,6 +56,8 @@ describe("parità delle chiavi en/it", () => {
         "calendar",
         "whoCan",
         "entry",
+        "access",
+        "admin",
       ].sort(),
     );
   });

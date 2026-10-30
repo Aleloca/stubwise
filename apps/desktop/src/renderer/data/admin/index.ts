@@ -20,7 +20,13 @@ export {
   setInstanceRole,
   unlinkGitIdentity,
 } from "./people";
-export { createInvite, listInvites, revokeInvite, type CreateInviteInput } from "./invites";
+export {
+  createInvite,
+  getInviteChoices,
+  listInvites,
+  revokeInvite,
+  type CreateInviteInput,
+} from "./invites";
 export { createRole, deleteRole, duplicateRole, listRoles, updateRole } from "./roles";
 export {
   DEPARTMENT_COLORS,

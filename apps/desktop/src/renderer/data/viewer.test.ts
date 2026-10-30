@@ -10,7 +10,6 @@ import {
   VIEW_AS_PERSONAS,
   can,
   canInDepartment,
-  canSeeAdmin,
   grantInstancePermission,
   grantProjectPermission,
   grantProjectRole,
@@ -19,6 +18,7 @@ import {
   revokeProjectPermission,
   viewerFor,
 } from "./viewer";
+import { canSeeAdmin } from "./adminSections";
 
 type Tree = { [key: string]: string | Tree };
 const lookup = (tree: Tree, key: string) =>
@@ -92,7 +92,6 @@ describe("viewer", () => {
     // senza projectId: «in almeno un progetto»
     expect(can(giulia, "project.settings.manage")).toBe(true);
     expect(can(giulia, "users.manage")).toBe(false);
-    expect(canSeeAdmin(giulia)).toBe(false);
   });
 
   it("il Contributor non ha permessi di sviluppo né di pianificazione", () => {

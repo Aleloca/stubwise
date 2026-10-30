@@ -225,6 +225,15 @@ export interface InviteView {
   expired: boolean;
 }
 
+/** Le scelte del dialogo «Invite someone», con ciò che manca a chi invita per darle. */
+export interface InviteChoices {
+  instanceRoles: RoleChoice[];
+  /** «User», scelto di base. */
+  defaultInstanceRoleId: string;
+  /** Solo i progetti dove chi invita gestisce i membri. */
+  projects: { projectId: string; code: string; name: string; roles: RoleChoice[] }[];
+}
+
 export interface RoleView extends RoleDef {
   /** Persone (ruolo d'istanza) o appartenenze (ruolo di progetto) visibili a chi guarda. */
   peopleCount: number;

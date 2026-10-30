@@ -245,10 +245,11 @@ describe("Rail", () => {
       return screen.findByRole("dialog", { name: "Profile and settings" });
     }
 
-    it("«Administration» solo per chi può vederla", async () => {
-      renderAt("/home");
+    it("«Administration» solo per chi amministra qualcosa; agli altri «People»", async () => {
+      renderAt("/home", "p-marco");
       const menu = await openProfile();
       expect(within(menu).queryByRole("link", { name: "Administration" })).toBeNull();
+      expect(within(menu).getByRole("link", { name: "People" })).toHaveAttribute("href", "/admin");
       expect(within(menu).getByRole("link", { name: "Preferences" })).toHaveAttribute(
         "href",
         "/preferences",

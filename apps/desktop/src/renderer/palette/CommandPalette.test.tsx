@@ -422,7 +422,7 @@ describe("CommandPalette", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("scegliere una persona cambia il viewer (Roberta vede Amministrazione)", async () => {
+  it("scegliere una persona cambia il viewer (Roberta vede Roles)", async () => {
     const user = userEvent.setup();
     const router = renderAt("/home");
     await screen.findByRole("heading", { name: "Home", level: 1 });
@@ -434,8 +434,9 @@ describe("CommandPalette", () => {
     await within(dialog).findByRole("option", { name: /Roberta/, selected: true });
     await user.keyboard("{Enter}");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    await act(() => router.navigate({ to: "/admin" }));
-    expect(await screen.findByRole("heading", { name: "Administration", level: 1 })).toBeVisible();
+    // Roles (area 9a) chiede `roles.manage`: Giulia non la vede, Roberta sì.
+    await act(() => router.navigate({ to: "/admin/$section", params: { section: "roles" } }));
+    expect(await screen.findByRole("heading", { name: "Roles", level: 1 })).toBeVisible();
     dialog = await openWithShortcut(user);
     expect(dialog).toBeInTheDocument();
   });

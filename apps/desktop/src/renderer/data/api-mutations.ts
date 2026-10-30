@@ -10,6 +10,7 @@ import {
   findInFiles,
 } from "../domain/claude/intents/files";
 import i18n from "../i18n";
+import { linkIdentityAs } from "./admin/people";
 // Le letture servono al motore di intenti (a nome di chi conversa): si usano
 // solo dentro le funzioni, quindi l'import circolare con `api.ts` è innocuo.
 import * as reads from "./api";
@@ -3113,6 +3114,8 @@ export async function generateDailyReport(projectId: string, date: string): Prom
 /**
  * «Link a person»: collega un autore git non collegato a una persona; da lì i
  * suoi commit passano sotto di lei. Lo stesso permesso del web (`users.manage`).
+ * La scrittura è quella della pagina della persona (`linkIdentityAs`, area
+ * 9a): un solo collegamento, con la sua voce nel registro.
  */
 export async function linkCommitAuthor(authorName: string, personId: string): Promise<void> {
   const me = await gate("linkCommitAuthor");
@@ -3121,5 +3124,5 @@ export async function linkCommitAuthor(authorName: string, personId: string): Pr
   if (!unlinked || state.commitAuthorLinks.has(authorName)) throw notFound();
   const person = PEOPLE.find((p) => p.id === personId);
   if (!person || person.isClaude) throw notFound();
-  state.commitAuthorLinks.set(authorName, personId);
+  linkIdentityAs(me, personId, authorName);
 }

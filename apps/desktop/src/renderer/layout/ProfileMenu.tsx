@@ -8,7 +8,8 @@ import {
   useResetPrototype,
   useResetToEmptyInstance,
 } from "../data/queries";
-import { VIEW_AS_PERSONAS, canSeeAdmin, useViewer } from "../data/viewer";
+import { VIEW_AS_PERSONAS, useViewer } from "../data/viewer";
+import { administersSomething, canSeeAdmin } from "../data/adminSections";
 import { openGoogleAccount } from "../pages/drive/GoogleAccountCard";
 import { useToast } from "../tasks-ui/Toast";
 import { PrototypeBox } from "../pages/automations/shared";
@@ -205,9 +206,11 @@ export function ProfileMenu() {
             >
               {t("drive.account.menu")}
             </button>
+            {/* «Administration» solo a chi amministra qualcosa; agli altri «People»,
+                le stesse voci in sola lettura (shape admin-people.md [PE 1]). */}
             {canSeeAdmin(viewer) && (
               <Link to="/admin" className={linkClass} onClick={() => setOpen(false)}>
-                {t("nav.admin")}
+                {administersSomething(viewer) ? t("nav.admin") : t("nav.people")}
               </Link>
             )}
           </nav>
