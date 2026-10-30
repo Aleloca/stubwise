@@ -207,7 +207,7 @@ export function splitPinned(
 }
 
 /** Il logo: monogramma «S_», l'unico monospace dell'app (`font-logo`: `font-mono` è la sans). */
-function Logo() {
+export function Logo() {
   const { t } = useTranslation();
   return (
     <span

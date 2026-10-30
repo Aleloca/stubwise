@@ -22,6 +22,7 @@ import { applyPlatformAttribute } from "../platform/platform";
 import { ToastRegion } from "../tasks-ui/Toast";
 import { Column } from "./Column";
 import { Rail } from "./Rail";
+import { ReauthHost } from "./ReauthDialog";
 import { DOCKED_PANEL_QUERY } from "./useDetailPanel";
 import { useMediaQuery } from "./useMediaQuery";
 import { useMenuEvents } from "./useMenuEvents";
@@ -75,6 +76,7 @@ export function AppLayout() {
       <WhichProjectHost />
       <NewAutomationHost />
       <CommandPalette />
+      <ReauthHost />
       <NotificationsPanel />
       <ToastRegion />
     </div>

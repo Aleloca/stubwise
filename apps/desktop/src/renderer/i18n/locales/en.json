@@ -7607,5 +7607,159 @@
       "code": "Code",
       "prototype": "Prototype"
     }
+  },
+  "entry": {
+    "login": {
+      "title": "Sign in to Stubwise",
+      "lead": "Enter the email and password of your account.",
+      "email": "Email",
+      "password": "Password",
+      "submit": "Sign in",
+      "submitting": "Signing in…",
+      "wrong": "The email or password is wrong.",
+      "failed": "Couldn't sign in. Try again."
+    },
+    "secondFactor": {
+      "title": "Two-step verification",
+      "lead": {
+        "totp": "Enter the 6-digit code from your authenticator app.",
+        "passkey": "Use the passkey on this device.",
+        "backup_code": "Enter one of your backup codes."
+      },
+      "signingInAs": "Signing in as {{email}}",
+      "notYou": "Not you?",
+      "code": "Code",
+      "backupCode": "Backup code",
+      "verify": "Verify",
+      "verifying": "Verifying…",
+      "usePasskey": "Use passkey",
+      "use": {
+        "totp": "Use the authenticator app",
+        "passkey": "Use a passkey",
+        "backup_code": "Use a backup code"
+      },
+      "wrong": "That code didn't work.",
+      "wrongTries_one": "That code didn't work. {{count}} try left.",
+      "wrongTries_other": "That code didn't work. {{count}} tries left.",
+      "passkeyFailed": "The passkey didn't work. Try again or use a code.",
+      "locked": "Too many wrong codes. Two-step verification is locked until {{time}}.",
+      "backToSignIn": "Back to sign in",
+      "expired": "Signing in took too long. Enter your password again.",
+      "failed": "Couldn't check the code. Try again.",
+      "lowBackupTitle": "You're in",
+      "lowBackup_one": "You have {{count}} backup code left. Make new ones in Preferences → Security.",
+      "lowBackup_other": "You have {{count}} backup codes left. Make new ones in Preferences → Security.",
+      "continue": "Continue"
+    },
+    "prototype": {
+      "password": "Every account's password is",
+      "code": "The two-step code is",
+      "signInAs": "Sign in as:",
+      "tryInvite": "Try an invite:",
+      "pendingInvite": "pending",
+      "expiredInvite": "expired",
+      "inviteLink": "Invite link",
+      "inviteLinkPlaceholder": "Paste an invite link",
+      "openLink": "Open",
+      "noInvite": "There's no invite like that right now.",
+      "inviteFailed": "Couldn't make the invite link. Try again.",
+      "simulatePasskey": "Simulate passkey",
+      "simulateFailedPasskey": "Simulate a failed passkey",
+      "passMinutes": "Pass 15 minutes",
+      "emptyInstance": "This is the empty instance. Reset prototype brings back the sample company."
+    },
+    "register": {
+      "loading": "Loading the invite",
+      "title": "Join Stubwise",
+      "invitedBy": "{{name}} invited you.",
+      "whatYouGet": "What you'll get",
+      "instanceRole": "On the whole instance: {{role}}",
+      "more_one": "and {{count}} more",
+      "more_other": "and {{count}} more",
+      "email": "Email",
+      "emailHint": "The invite is for this address.",
+      "name": "Your name",
+      "password": "Password",
+      "confirm": "Confirm password",
+      "submit": "Create account",
+      "submitting": "Creating…",
+      "nameMissing": "Enter your name.",
+      "tooShort": "Use at least 8 characters.",
+      "mismatch": "The passwords don't match.",
+      "noLonger": "This invite can't be used any more. Ask whoever sent it for a new one.",
+      "createFailed": "Couldn't create the account. Try again.",
+      "welcome": "Welcome, {{name}}. You're in {{projects}}.",
+      "welcomeNoProjects": "Welcome, {{name}}.",
+      "expiredTitle": "This invite has expired",
+      "expiredBody": "{{name}} invited you on {{invited}}. The invite expired on {{expired}}. Ask {{first}} for a new one.",
+      "revokedTitle": "This invite is no longer valid",
+      "revokedBody": "{{name}} withdrew it. If you still need access, ask them.",
+      "invalidBody": "This invite link isn't valid. Ask whoever sent it for a new one.",
+      "goToSignIn": "Go to sign in",
+      "loadFailed": "Couldn't load the invite."
+    },
+    "setup": {
+      "title": "Set up Stubwise",
+      "lead": "This instance is new. The first account administers everything: people, roles, projects and settings.",
+      "submit": "Create the admin account",
+      "emailInvalid": "Enter a valid email address.",
+      "failed": "Couldn't create the account. Try again.",
+      "done": "You're the instance's full admin."
+    },
+    "menu": {
+      "signOut": "Sign out",
+      "signOutFailed": "Couldn't sign out. Try again.",
+      "resetPrototype": "Reset prototype",
+      "resetPrototypeHint": "Brings back the sample data and undoes every change.",
+      "resetEmpty": "Reset to empty instance",
+      "resetEmptyHint": "Removes every person except Claude, every project and task, so you can try the first setup.",
+      "resetFailed": "Couldn't empty the instance. Try again.",
+      "sure": "Reset — sure?"
+    },
+    "reauth": {
+      "title": "Confirm it's you",
+      "lead": {
+        "totp": "To {{action}}, enter a code from your authenticator app.",
+        "passkey": "To {{action}}, use the passkey on this device.",
+        "backup_code": "To {{action}}, enter one of your backup codes."
+      },
+      "generic": {
+        "totp": "This action needs a recent confirmation. Enter a code from your authenticator app.",
+        "passkey": "This action needs a recent confirmation. Use the passkey on this device.",
+        "backup_code": "This action needs a recent confirmation. Enter one of your backup codes."
+      },
+      "checking": "Checking your two-step verification…",
+      "loadFailed": "Couldn't check your two-step verification.",
+      "confirm": "Confirm",
+      "confirming": "Confirming…",
+      "cancel": "Cancel",
+      "grace": "You won't be asked again for 10 minutes.",
+      "nothingChanged": "Nothing was changed.",
+      "failed": "Couldn't check the code. Try again.",
+      "enroll": {
+        "stepsLabel": "Setup steps",
+        "steps": {
+          "scan": "Scan",
+          "confirm": "Confirm",
+          "save": "Save backup codes"
+        },
+        "intro": "This action needs two-step verification, and you haven't set it up yet. It takes a minute.",
+        "qrLabel": "QR code for your authenticator app",
+        "qrNote": "Prototype: this QR code is made up.",
+        "cantScan": "Can't scan? Enter this key:",
+        "copy": "Copy",
+        "copied": "Copied.",
+        "copyFailed": "Couldn't copy. Select the text and copy it by hand.",
+        "next": "Next",
+        "enterFirst": "Enter the first code the app shows.",
+        "saveCodes": "Save your backup codes. Each works once, and they're shown only now.",
+        "codesLabel": "Backup codes",
+        "download": "Download",
+        "saved": "I've saved them",
+        "continue": "Continue",
+        "cancelled": "Two-step verification wasn't set up. Nothing was changed.",
+        "startFailed": "Couldn't start the setup."
+      }
+    }
   }
 }

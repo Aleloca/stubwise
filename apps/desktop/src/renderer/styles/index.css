@@ -68,6 +68,15 @@
   }
 }
 
+/* L'ingresso: il passaggio fra login e secondo fattore, 200 ms sul blocco
+   centrale (il logo resta fermo). */
+@utility entry-enter {
+  animation: event-in var(--duration) var(--ease) both;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
 /* Un campo della richiesta appena scritto da Claude nel refine (o portato in
    vista da «See»): una tinta d'inchiostro del 6% che sfuma in 2 s. Con
    movimento ridotto niente tinta: resta solo «Updated by Claude · now». */

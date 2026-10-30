@@ -14,9 +14,19 @@ export {
   login,
   loginSecondFactor,
   logout,
+  passMinutes,
+  prototypeAccounts,
+  readEntry,
+  type EntryStage,
   type LoginResult,
   type LoginSecondFactorResult,
 } from "./login";
-export { getInvite, register, type InviteLookup, type RegisterResult } from "./register";
+export {
+  getInvite,
+  register,
+  simulateInviteLink,
+  type InviteLookup,
+  type RegisterResult,
+} from "./register";
 export { createFirstAdmin, isInstanceEmpty, type FirstAdminResult } from "./setup";
 export { resetToEmptyInstance } from "./emptyInstance";

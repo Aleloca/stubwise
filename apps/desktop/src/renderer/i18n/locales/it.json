@@ -7607,5 +7607,159 @@
       "code": "Codice",
       "prototype": "Prototipo"
     }
+  },
+  "entry": {
+    "login": {
+      "title": "Accedi a Stubwise",
+      "lead": "Inserisci l'email e la password del tuo account.",
+      "email": "Email",
+      "password": "Password",
+      "submit": "Accedi",
+      "submitting": "Accesso…",
+      "wrong": "L'email o la password non sono giuste.",
+      "failed": "Non è stato possibile accedere. Riprova."
+    },
+    "secondFactor": {
+      "title": "Verifica in due passaggi",
+      "lead": {
+        "totp": "Inserisci il codice di 6 cifre dell'app di autenticazione.",
+        "passkey": "Usa la passkey di questo dispositivo.",
+        "backup_code": "Inserisci uno dei tuoi codici di backup."
+      },
+      "signingInAs": "Accesso come {{email}}",
+      "notYou": "Non sei tu?",
+      "code": "Codice",
+      "backupCode": "Codice di backup",
+      "verify": "Verifica",
+      "verifying": "Verifica…",
+      "usePasskey": "Usa la passkey",
+      "use": {
+        "totp": "Usa l'app di autenticazione",
+        "passkey": "Usa una passkey",
+        "backup_code": "Usa un codice di backup"
+      },
+      "wrong": "Il codice non è giusto.",
+      "wrongTries_one": "Il codice non è giusto. Resta {{count}} tentativo.",
+      "wrongTries_other": "Il codice non è giusto. Restano {{count}} tentativi.",
+      "passkeyFailed": "La passkey non ha funzionato. Riprova o usa un codice.",
+      "locked": "Troppi codici sbagliati. La verifica in due passaggi è bloccata fino alle {{time}}.",
+      "backToSignIn": "Torna all'accesso",
+      "expired": "L'accesso ha richiesto troppo tempo. Inserisci di nuovo la password.",
+      "failed": "Non è stato possibile verificare il codice. Riprova.",
+      "lowBackupTitle": "Sei dentro",
+      "lowBackup_one": "Ti resta {{count}} codice di backup. Creane di nuovi in Preferenze → Sicurezza.",
+      "lowBackup_other": "Ti restano {{count}} codici di backup. Creane di nuovi in Preferenze → Sicurezza.",
+      "continue": "Continua"
+    },
+    "prototype": {
+      "password": "La password di ogni account è",
+      "code": "Il codice in due passaggi è",
+      "signInAs": "Accedi come:",
+      "tryInvite": "Prova un invito:",
+      "pendingInvite": "in sospeso",
+      "expiredInvite": "scaduto",
+      "inviteLink": "Link d'invito",
+      "inviteLinkPlaceholder": "Incolla un link d'invito",
+      "openLink": "Apri",
+      "noInvite": "Al momento non c'è un invito così.",
+      "inviteFailed": "Non è stato possibile creare il link d'invito. Riprova.",
+      "simulatePasskey": "Simula la passkey",
+      "simulateFailedPasskey": "Simula una passkey fallita",
+      "passMinutes": "Fai passare 15 minuti",
+      "emptyInstance": "Questa è l'istanza vuota. Ripristina il prototipo riporta l'azienda d'esempio."
+    },
+    "register": {
+      "loading": "Caricamento dell'invito",
+      "title": "Entra in Stubwise",
+      "invitedBy": "{{name}} ti ha invitato.",
+      "whatYouGet": "Cosa avrai",
+      "instanceRole": "Su tutta l'istanza: {{role}}",
+      "more_one": "e altro {{count}}",
+      "more_other": "e altri {{count}}",
+      "email": "Email",
+      "emailHint": "L'invito è per questo indirizzo.",
+      "name": "Il tuo nome",
+      "password": "Password",
+      "confirm": "Conferma la password",
+      "submit": "Crea l'account",
+      "submitting": "Creazione…",
+      "nameMissing": "Inserisci il tuo nome.",
+      "tooShort": "Usa almeno 8 caratteri.",
+      "mismatch": "Le password non coincidono.",
+      "noLonger": "Questo invito non si può più usare. Chiedine uno nuovo a chi te l'ha mandato.",
+      "createFailed": "Non è stato possibile creare l'account. Riprova.",
+      "welcome": "Benvenuto, {{name}}. Sei in {{projects}}.",
+      "welcomeNoProjects": "Benvenuto, {{name}}.",
+      "expiredTitle": "Questo invito è scaduto",
+      "expiredBody": "{{name}} ti ha invitato il {{invited}}. L'invito è scaduto il {{expired}}. Chiedine uno nuovo a {{first}}.",
+      "revokedTitle": "Questo invito non è più valido",
+      "revokedBody": "{{name}} lo ha ritirato. Se ti serve ancora l'accesso, chiediglielo.",
+      "invalidBody": "Questo link d'invito non è valido. Chiedine uno nuovo a chi te l'ha mandato.",
+      "goToSignIn": "Vai all'accesso",
+      "loadFailed": "Non è stato possibile caricare l'invito."
+    },
+    "setup": {
+      "title": "Configura Stubwise",
+      "lead": "Questa istanza è nuova. Il primo account amministra tutto: persone, ruoli, progetti e impostazioni.",
+      "submit": "Crea l'account amministratore",
+      "emailInvalid": "Inserisci un indirizzo email valido.",
+      "failed": "Non è stato possibile creare l'account. Riprova.",
+      "done": "Sei il full admin dell'istanza."
+    },
+    "menu": {
+      "signOut": "Esci",
+      "signOutFailed": "Non è stato possibile uscire. Riprova.",
+      "resetPrototype": "Ripristina il prototipo",
+      "resetPrototypeHint": "Riporta i dati d'esempio e annulla ogni modifica.",
+      "resetEmpty": "Svuota l'istanza",
+      "resetEmptyHint": "Toglie ogni persona tranne Claude, ogni progetto e task, così puoi provare il primo avvio.",
+      "resetFailed": "Non è stato possibile svuotare l'istanza. Riprova.",
+      "sure": "Ripristina — sicuro?"
+    },
+    "reauth": {
+      "title": "Conferma che sei tu",
+      "lead": {
+        "totp": "Per {{action}}, inserisci un codice dell'app di autenticazione.",
+        "passkey": "Per {{action}}, usa la passkey di questo dispositivo.",
+        "backup_code": "Per {{action}}, inserisci uno dei tuoi codici di backup."
+      },
+      "generic": {
+        "totp": "Questa azione chiede una conferma recente. Inserisci un codice dell'app di autenticazione.",
+        "passkey": "Questa azione chiede una conferma recente. Usa la passkey di questo dispositivo.",
+        "backup_code": "Questa azione chiede una conferma recente. Inserisci uno dei tuoi codici di backup."
+      },
+      "checking": "Controllo della verifica in due passaggi…",
+      "loadFailed": "Non è stato possibile controllare la verifica in due passaggi.",
+      "confirm": "Conferma",
+      "confirming": "Conferma…",
+      "cancel": "Annulla",
+      "grace": "Non te lo chiederemo di nuovo per 10 minuti.",
+      "nothingChanged": "Non è cambiato niente.",
+      "failed": "Non è stato possibile verificare il codice. Riprova.",
+      "enroll": {
+        "stepsLabel": "Passi della configurazione",
+        "steps": {
+          "scan": "Scansiona",
+          "confirm": "Conferma",
+          "save": "Salva i codici di backup"
+        },
+        "intro": "Questa azione chiede la verifica in due passaggi, che non hai ancora configurato. Ci vuole un minuto.",
+        "qrLabel": "Codice QR per l'app di autenticazione",
+        "qrNote": "Prototipo: questo codice QR è inventato.",
+        "cantScan": "Non riesci a scansionare? Inserisci questa chiave:",
+        "copy": "Copia",
+        "copied": "Copiato.",
+        "copyFailed": "Non è stato possibile copiare. Seleziona il testo e copialo a mano.",
+        "next": "Avanti",
+        "enterFirst": "Inserisci il primo codice che mostra l'app.",
+        "saveCodes": "Salva i codici di backup. Ognuno vale una volta, e si vedono solo ora.",
+        "codesLabel": "Codici di backup",
+        "download": "Scarica",
+        "saved": "Li ho salvati",
+        "continue": "Continua",
+        "cancelled": "La verifica in due passaggi non è stata configurata. Non è cambiato niente.",
+        "startFailed": "Non è stato possibile avviare la configurazione."
+      }
+    }
   }
 }

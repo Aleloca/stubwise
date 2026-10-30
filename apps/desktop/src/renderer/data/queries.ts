@@ -3790,3 +3790,4 @@ export * from "./queries/releases";
 export * from "./queries/support";
 export * from "./queries/servers";
 export * from "./queries/admin";
+export * from "./queries/entry";

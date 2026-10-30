@@ -1,7 +1,9 @@
 import { accessState } from "../access/index";
-import { passwordOf, personByEmail } from "../me/account";
+import { loginEmailOf, passwordOf, personByEmail } from "../me/account";
+import { PEOPLE } from "../seed/people";
 import { logSecurity } from "../me/securityLog";
-import { gate, newId, now, state } from "../store";
+import { advanceNow, gate, newId, now, state } from "../store";
+import { instanceIsEmpty } from "./setup";
 import {
   attemptSecondFactor,
   markReauthenticated,
@@ -39,11 +41,27 @@ export type LoginSecondFactorResult =
 const activePerson = (personId: string) =>
   accessState().people.find((p) => p.personId === personId && p.status === "active");
 
+export type EntryStage = "out" | "second_factor" | "in";
+
+function stageNow(): EntryStage {
+  if (state.entry.signedIn) return "in";
+  return partialOf() ? "second_factor" : "out";
+}
+
 /** Dove si è: fuori, a metà (manca il secondo fattore), dentro. */
-export async function getEntry(): Promise<{ stage: "out" | "second_factor" | "in" }> {
+export async function getEntry(): Promise<{ stage: EntryStage }> {
   await gate("auth.getEntry");
-  if (state.entry.signedIn) return { stage: "in" };
-  return { stage: partialOf() ? "second_factor" : "out" };
+  return { stage: stageNow() };
+}
+
+/**
+ * La stessa risposta di `getEntry`, più l'istanza vuota, SUBITO: la legge il
+ * cancello delle rotte (`router.tsx`) a ogni navigazione, e una latenza lì
+ * ritarderebbe ogni avvio dell'app (e ogni test che la monta). Nessun dato di
+ * una persona: dice solo da quale porta si passa.
+ */
+export function readEntry(): { stage: EntryStage; empty: boolean } {
+  return { stage: stageNow(), empty: instanceIsEmpty() };
 }
 
 /** Il login a metà ancora valido, o `null`. */
@@ -110,5 +128,28 @@ export async function logout(): Promise<{ ok: true }> {
   state.sessions = state.sessions.filter((s) => !(s.personId === me && s.current));
   state.entry = { signedIn: false, partial: null };
   if (activePerson(me)) logSecurity(me, "signed_out", null);
+  return { ok: true };
+}
+
+/**
+ * SOLO PROTOTIPO, il riquadro «Prototype only» del login («Sign in as:»):
+ * nome ed email d'accesso delle persone chieste che sono attive, nell'ordine
+ * chiesto. Una disattivata o sconosciuta non c'è (non entrerebbe comunque).
+ */
+export async function prototypeAccounts(
+  personIds: string[],
+): Promise<{ personId: string; name: string; email: string }[]> {
+  await gate("auth.prototypeAccounts");
+  return personIds.flatMap((personId) => {
+    const person = PEOPLE.find((p) => p.id === personId);
+    if (!person || !activePerson(personId)) return [];
+    return [{ personId, name: person.name, email: loginEmailOf(personId) }];
+  });
+}
+
+/** SOLO PROTOTIPO, «Pass 15 minutes» del blocco: l'orologio `now()` va avanti. */
+export async function passMinutes(minutes: number): Promise<{ ok: true }> {
+  await gate("auth.passMinutes");
+  advanceNow(minutes * 60_000);
   return { ok: true };
 }

@@ -25,7 +25,12 @@ import {
 import { TODAY } from "./seed/dates";
 import { CLAUDE_ID, PEOPLE } from "./seed/people";
 import { clearToasts } from "../tasks-ui/Toast";
-import { DEFAULT_SESSION_PERSON_ID, runBeforePersonaChange, setSessionPersonId } from "./session";
+import {
+  DEFAULT_SESSION_PERSON_ID,
+  NO_SESSION_PERSON_ID,
+  runBeforePersonaChange,
+  setSessionPersonId,
+} from "./session";
 import type {
   DepartmentPermission,
   LocalInstancePermission,
@@ -269,7 +274,12 @@ export const DEFAULT_PERSONA_ID = DEFAULT_SESSION_PERSON_ID;
  * che non è né una persona né Claude, quello di default.
  */
 export function viewerFor(personId: string): Viewer {
-  const known = personId === CLAUDE_ID || accessState().people.some((p) => p.personId === personId);
+  // «Nessuno» (fuori, o dopo l'istanza vuota) resta tale: un `Viewer` senza
+  // permessi, non quello della persona di default.
+  const known =
+    personId === CLAUDE_ID ||
+    personId === NO_SESSION_PERSON_ID ||
+    accessState().people.some((p) => p.personId === personId);
   return liveViewer(known ? personId : DEFAULT_PERSONA_ID);
 }
 

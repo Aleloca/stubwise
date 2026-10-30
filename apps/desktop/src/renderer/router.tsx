@@ -3,7 +3,9 @@ import {
   createRoute,
   createRouter,
   Navigate,
+  Outlet,
   redirect,
+  useRouterState,
   useSearch,
   type RouterHistory,
 } from "@tanstack/react-router";
@@ -12,7 +14,10 @@ import { Placeholder } from "./pages/Placeholder";
 import { NotFound } from "./pages/NotFound";
 import { ProjectNotFound } from "./pages/ProjectNotFound";
 import { useTranslation } from "react-i18next";
-import { useChatChannels, useProject } from "./data/queries";
+import { useChatChannels, useEntryGate, useProject } from "./data/queries";
+import { LoginPage } from "./pages/entry/LoginPage";
+import { RegisterPage } from "./pages/entry/RegisterPage";
+import { SetupPage } from "./pages/entry/SetupPage";
 import { APP_ROUTES, PROJECT_SECTIONS, isProjectSection, isValidSearchParam } from "./data/routes";
 import { can, canSeeAdmin, useViewer } from "./data/viewer";
 import type { FilterCriteria } from "./data/types";
@@ -247,10 +252,53 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
 /** Quanto può essere lunga una domanda portata dalla palette. */
 const ASK_MAX = 2000;
 
+/** Le rotte d'ingresso: fuori dall'intelaiatura (niente binario né colonna). */
+const ENTRY_PATH = /^\/(login|setup|register\/[^/]+)\/?$/;
+
+/**
+ * Il cancello dell'ingresso (area 9a, shape `entry.md`). Con l'istanza vuota
+ * ogni rotta porta al primo avvio, e `/setup` con l'istanza piena porta al
+ * login (o alla Home, se si è dentro). Fuori, ogni rotta dell'app porta al
+ * login. Le rotte d'ingresso si disegnano da sole, senza `AppLayout`.
+ */
+function EntryGate() {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { stage, empty } = useEntryGate();
+  if (empty) return pathname === "/setup" ? <Outlet /> : <Navigate to="/setup" replace />;
+  if (pathname === "/setup") return <Navigate to={stage === "in" ? "/home" : "/login"} replace />;
+  if (ENTRY_PATH.test(pathname)) return <Outlet />;
+  if (stage !== "in") return <Navigate to="/login" replace />;
+  return <AppLayout />;
+}
+
 const rootRoute = createRootRoute({
-  component: AppLayout,
+  component: EntryGate,
   notFoundComponent: NotFound,
   validateSearch,
+});
+
+const loginRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/login",
+  component: LoginPage,
+});
+
+function RegisterRoutePage() {
+  const { token } = registerRoute.useParams();
+  // Un altro link rimonta la pagina: niente modulo a metà dell'invito di prima.
+  return <RegisterPage key={token} token={token} />;
+}
+
+const registerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/register/$token",
+  component: RegisterRoutePage,
+});
+
+const setupRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/setup",
+  component: SetupPage,
 });
 
 const indexRoute = createRoute({
@@ -927,6 +975,9 @@ const automationTestRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
+  loginRoute,
+  registerRoute,
+  setupRoute,
   ...appRoutes.map((r) => (r === mailRoute ? mailRoute.addChildren([mailThreadRoute]) : r)),
   conversationRoute,
   preferencesSectionRoute,

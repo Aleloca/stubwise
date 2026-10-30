@@ -182,6 +182,7 @@ describe("registrazione su invito", () => {
       email: "nora.nuova@example.com",
       invitedByName: "Roberta Fontana",
       projects: [{ projectId: ACQ, code: "ACQ", name: expect.any(String), roleName: "Developer" }],
+      instanceRoleName: null,
       expiresAt: expect.any(String),
     });
     // Anche il link intero.
@@ -243,6 +244,8 @@ describe("registrazione su invito", () => {
     expect(await auth.getInvite(link)).toEqual({
       status: "expired",
       invitedByName: "Roberta Fontana",
+      invitedAt: state.invites.at(-1)!.createdAt,
+      expiresAt: state.invites.at(-1)!.expiresAt,
     });
     const people = PEOPLE.length;
     const access = JSON.stringify(accessState());
@@ -279,6 +282,85 @@ describe("registrazione su invito", () => {
       reason: "password",
     });
     expect(await auth.getInvite(link)).toMatchObject({ status: "valid" });
+  });
+});
+
+describe("ingresso: le aggiunte del Task 6", () => {
+  it("readEntry: lo stato dell'ingresso subito, senza latenza, con l'istanza vuota", async () => {
+    expect(auth.readEntry()).toEqual({ stage: "in", empty: false });
+    await auth.logout();
+    expect(auth.readEntry()).toEqual({ stage: "out", empty: false });
+    await auth.login({ email: "laura.costa@example.com", password: "stubwise" });
+    expect(auth.readEntry()).toEqual({ stage: "second_factor", empty: false });
+    await auth.resetToEmptyInstance();
+    expect(auth.readEntry()).toEqual({ stage: "out", empty: true });
+  });
+
+  it("un invito che dà un ruolo d'istanza diverso da User lo dice", async () => {
+    as("p-roberta");
+    markReauthenticated("p-roberta");
+    const r = await admin.createInvite({
+      email: "aldo.auditor@example.com",
+      instanceRoleId: roleIdOf("au-1"),
+      projects: [],
+    });
+    const link = (r as { link: string }).link;
+    expect(await auth.getInvite(link)).toMatchObject({
+      status: "valid",
+      instanceRoleName: "Auditor",
+    });
+  });
+
+  it("una passkey fallita conta come un codice sbagliato", async () => {
+    await auth.logout();
+    await auth.login({ email: "laura.costa@example.com", password: "stubwise" });
+    expect(await auth.loginSecondFactor({ method: "passkey", simulate: "fail" })).toEqual({
+      ok: false,
+      error: "invalid_code",
+      triesLeft: 4,
+    });
+    expect(state.secondFactorAttempts.get("p-laura")?.failures).toBe(1);
+  });
+
+  it("simulateInviteLink: un link nuovo per l'invito del seme in sospeso o scaduto, una volta", async () => {
+    const pending = await auth.simulateInviteLink("pending");
+    expect(pending).toEqual({ token: expect.any(String) });
+    expect(await auth.getInvite(pending!.token)).toMatchObject({
+      status: "valid",
+      email: "ines.ricci@example.com",
+    });
+    const expired = await auth.simulateInviteLink("expired");
+    expect(await auth.getInvite(expired!.token)).toMatchObject({
+      status: "expired",
+      invitedByName: "Roberta Fontana",
+    });
+    // Un secondo link per lo stesso invito sostituisce il primo.
+    const again = await auth.simulateInviteLink("pending");
+    expect(await auth.getInvite(pending!.token)).toEqual({ status: "invalid" });
+    expect(await auth.getInvite(again!.token)).toMatchObject({ status: "valid" });
+    // Nessun invito adatto (istanza vuota): `null`.
+    await auth.resetToEmptyInstance();
+    expect(await auth.simulateInviteLink("pending")).toBeNull();
+  });
+
+  it("passMinutes: l'orologio va avanti e il blocco scade", async () => {
+    await auth.logout();
+    await auth.login({ email: "laura.costa@example.com", password: "stubwise" });
+    for (let i = 0; i < 5; i++) await auth.loginSecondFactor({ method: "totp", code: "000000" });
+    expect(await auth.loginSecondFactor({ method: "totp", code: "123456" })).toMatchObject({
+      error: "locked",
+    });
+    await auth.passMinutes(15);
+    await auth.login({ email: "laura.costa@example.com", password: "stubwise" });
+    expect(await auth.loginSecondFactor({ method: "totp", code: "123456" })).toMatchObject({
+      ok: true,
+    });
+  });
+
+  it("prototypeAccounts: nome ed email delle persone attive chieste, mai le disattivate", async () => {
+    expect(await auth.prototypeAccounts(["p-laura", "p-simone", "p-nope"])).toEqual([
+      { personId: "p-laura", name: "Laura Costa", email: "laura.costa@example.com" },
+    ]);
   });
 });
 

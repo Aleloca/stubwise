@@ -1,12 +1,19 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { useDepartments, usePeople } from "../data/queries";
+import {
+  useDepartments,
+  useLogout,
+  usePeople,
+  useResetPrototype,
+  useResetToEmptyInstance,
+} from "../data/queries";
 import { VIEW_AS_PERSONAS, canSeeAdmin, useViewer } from "../data/viewer";
 import { setLanguage, type Language } from "../i18n";
 import { useTheme } from "../theme/ThemeProvider";
 import type { ThemePreference } from "../theme/theme";
 import { openGoogleAccount } from "../pages/drive/GoogleAccountCard";
+import { useToast } from "../tasks-ui/Toast";
 import { Tooltip } from "./Tooltip";
 
 const THEMES: ThemePreference[] = ["system", "light", "dark"];
@@ -55,15 +62,69 @@ function RadioGroup<T extends string>({
   );
 }
 
+/** Quanto resta armata la conferma a due tempi («Reset — sure?»). */
+const ARMED_MS = 4000;
+
+/**
+ * Un reset del prototipo con la conferma a due tempi in posto: il primo clic
+ * arma il bottone («Reset — sure?») per 4 secondi, il secondo lo esegue.
+ */
+function ArmedReset({
+  label,
+  hint,
+  onConfirm,
+  disabled,
+}: {
+  label: string;
+  hint: string;
+  onConfirm: () => void;
+  disabled?: boolean;
+}) {
+  const { t } = useTranslation();
+  const [armed, setArmed] = useState(false);
+  const hintId = useId();
+  useEffect(() => {
+    if (!armed) return;
+    const timer = window.setTimeout(() => setArmed(false), ARMED_MS);
+    return () => window.clearTimeout(timer);
+  }, [armed]);
+  return (
+    <div className="flex flex-col gap-0.5">
+      <button
+        type="button"
+        disabled={disabled}
+        aria-describedby={hintId}
+        onClick={() => {
+          if (!armed) return setArmed(true);
+          setArmed(false);
+          onConfirm();
+        }}
+        className={`flex h-7 items-center self-start rounded-md px-1.5 -mx-1.5 text-sm font-medium transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 disabled:opacity-40 ${armed ? "text-critical" : "text-ink"}`}
+      >
+        {armed ? t("entry.menu.sure") : label}
+      </button>
+      <p id={hintId} className="text-xs text-ink-muted">
+        {hint}
+      </p>
+    </div>
+  );
+}
+
 /**
  * Bottone del profilo in fondo al binario e il suo pannello: tema, lingua,
  * «vedi come» (prototipo), Preferenze e — solo per chi la può vedere —
  * Amministrazione. Pannello non modale: Esc o un clic fuori lo chiudono e il
- * fuoco torna al bottone.
+ * fuoco torna al bottone. In fondo «Sign out» e, nel riquadro «Prototype
+ * only», i due reset del prototipo (area 9a, shape `entry.md` [IN 6]).
  */
 export function ProfileMenu() {
   const { t, i18n } = useTranslation();
   const { viewer, setPersona } = useViewer();
+  const navigate = useNavigate();
+  const toast = useToast();
+  const logout = useLogout();
+  const resetPrototype = useResetPrototype();
+  const resetEmpty = useResetToEmptyInstance();
   const { preference, setPreference } = useTheme();
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -200,6 +261,57 @@ export function ProfileMenu() {
               </Link>
             )}
           </nav>
+          <div className="mt-1.5 border-t border-rule pt-1.5">
+            <button
+              type="button"
+              className={`${linkClass} w-full text-left disabled:opacity-40`}
+              disabled={logout.isPending}
+              onClick={() =>
+                logout.mutate(undefined, {
+                  onSuccess: () => {
+                    setOpen(false);
+                    void navigate({ to: "/login", replace: true });
+                  },
+                  onError: () => toast.error(t("entry.menu.signOutFailed")),
+                })
+              }
+            >
+              {t("entry.menu.signOut")}
+            </button>
+          </div>
+          {/* Le simulazioni del prototipo, nel riquadro tratteggiato dell'8a (12 px). */}
+          <section
+            data-prototype-only
+            aria-label={t("automations.prototype.only")}
+            className="m-1.5 mt-2 flex flex-col gap-2.5 rounded-lg border border-dashed border-rule-strong px-3 py-2.5"
+          >
+            <p aria-hidden="true" className="heading-group">
+              {t("automations.prototype.only")}
+            </p>
+            <ArmedReset
+              label={t("entry.menu.resetPrototype")}
+              hint={t("entry.menu.resetPrototypeHint")}
+              onConfirm={() => {
+                setOpen(false);
+                resetPrototype();
+                void navigate({ to: "/home", replace: true });
+              }}
+            />
+            <ArmedReset
+              label={t("entry.menu.resetEmpty")}
+              hint={t("entry.menu.resetEmptyHint")}
+              disabled={resetEmpty.isPending}
+              onConfirm={() =>
+                resetEmpty.mutate(undefined, {
+                  onSuccess: () => {
+                    setOpen(false);
+                    void navigate({ to: "/setup", replace: true });
+                  },
+                  onError: () => toast.error(t("entry.menu.resetFailed")),
+                })
+              }
+            />
+          </section>
         </div>
       )}
     </div>

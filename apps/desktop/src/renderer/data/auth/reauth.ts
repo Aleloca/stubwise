@@ -100,7 +100,8 @@ export function markReauthenticated(personId: string): void {
 
 export type SecondFactorInput =
   | { method: "totp"; code: string }
-  | { method: "passkey" }
+  /** `simulate: "fail"`: SOLO PROTOTIPO, «Simulate a failed passkey» (conta come un errore). */
+  | { method: "passkey"; simulate?: "fail" }
   | { method: "backup_code"; code: string };
 
 export type SecondFactorResult =
@@ -127,7 +128,7 @@ function verify(person: PersonAccess, input: SecondFactorInput): boolean {
     case "totp":
       return sf.totp && input.code.trim() === PROTOTYPE_TOTP_CODE;
     case "passkey":
-      return sf.passkeys > 0;
+      return sf.passkeys > 0 && input.simulate !== "fail";
     case "backup_code": {
       const left = consumeBackupCode(person.personId, input.code);
       if (left === null) return false;

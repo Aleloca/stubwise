@@ -51,6 +51,36 @@ export function useEnrollDuringReauth() {
   return useWrite(() => api.auth.enrollDuringReauth(), []);
 }
 
+/**
+ * Il primo codice dell'iscrizione al volo: accende il secondo fattore, dà i
+ * codici di backup (una volta) e vale come riconferma.
+ */
+export function useConfirmEnrollment() {
+  return useWrite(api.me.confirmTotp, []);
+}
+
+/**
+ * Quali modi ha chi guarda per riconfermarsi: il dialogo «Confirm it's you»
+ * sceglie da qui fra il codice e l'iscrizione al volo, e mostra «Use a
+ * passkey» e «Use a backup code» solo a chi ne ha. Campi già calcolati.
+ */
+export function useMySecondFactor(enabled = true) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.admin(me, "mySecondFactor"),
+    queryFn: () => api.me.getMySecurity(),
+    select: (s) => ({
+      on: s.on,
+      passkeys: s.passkeys.length,
+      backupCodesLeft: s.backupCodesLeft,
+    }),
+    enabled,
+    // Ogni apertura del dialogo rilegge, senza mostrare la risposta di prima:
+    // un'iscrizione appena fatta la cambia.
+    gcTime: 0,
+  });
+}
+
 // --- Amministrazione (area 9a, Task 4) ----------------------------------------
 
 /**
@@ -142,11 +172,14 @@ export function useMembers(projectId: string | undefined) {
   });
 }
 
-type Args<F> = F extends (...args: infer A) => unknown ? A : never;
-/** Una funzione dell'API d'amministrazione come mutazione: le variabili sono i suoi argomenti. */
-const adminWrite = <F extends (...args: never[]) => Promise<unknown>>(fn: F) =>
+/**
+ * Una funzione dell'API d'amministrazione come mutazione: le variabili sono i
+ * suoi argomenti, il dato il suo esito (tipato: `mutateAsync` lo restituisce
+ * a `useReauth`, che lo passa al chiamante).
+ */
+const adminWrite = <A extends unknown[], R>(fn: (...args: A) => Promise<R>) =>
   function useIt() {
-    return useAdminWrite((args: Args<F>) => fn(...args) as ReturnType<F>);
+    return useAdminWrite((args: A) => fn(...args));
   };
 
 export const useSetInstanceRole = adminWrite(api.admin.setInstanceRole);

@@ -1092,6 +1092,95 @@ async function main() {
         await context.close();
       }
     }
+
+    // Area 9a: l'ingresso (login, secondo fattore, blocco, invito, primo
+    // avvio) e il dialogo di riconferma. Si esce dal menu del profilo; la
+    // riconferma si scatta dalla pagina d'appoggio `capture/reauth.html`, che
+    // monta l'app vera e fa partire un'azione delicata da sola.
+    const signOut = async (p) => {
+      await p.getByRole("button", { name: /^(Profile and settings|Profilo e impostazioni)/ }).click();
+      await p.getByRole("button", { name: /^(Sign out|Esci)$/ }).click();
+      await p.getByRole("heading", { level: 1, name: /^(Sign in to Stubwise|Accedi a Stubwise)$/ }).waitFor();
+    };
+    const toSecondFactor = async (p) => {
+      await signOut(p);
+      await p.getByRole("button", { name: "Laura" }).click();
+      await p.getByRole("button", { name: /^(Sign in|Accedi)$/ }).click();
+      await p.getByRole("heading", { level: 1, name: /^(Two-step verification|Verifica in due passaggi)$/ }).waitFor();
+    };
+    const tryInvite = (which) => async (p) => {
+      await signOut(p);
+      await p.getByRole("button", { name: which }).click();
+      await p.getByRole("heading", { level: 1 }).filter({ hasNotText: /Sign in|Accedi/ }).waitFor();
+      await p.waitForTimeout(500);
+    };
+    const AREA9A_ENTRY = [
+      ["login", async (p) => {
+        await signOut(p);
+        await p.mouse.move(2, 2);
+        await p.waitForTimeout(500);
+      }],
+      ["second-factor", async (p) => {
+        await toSecondFactor(p);
+        await p.waitForTimeout(400);
+      }],
+      ["locked", async (p) => {
+        await toSecondFactor(p);
+        const code = p.getByLabel(/^(Code|Codice)$/);
+        for (let i = 0; i < 5; i++) {
+          await code.fill("000000");
+          await p.waitForTimeout(700);
+        }
+        await p.locator("[data-second-factor-locked]").waitFor();
+        await p.waitForTimeout(300);
+      }],
+      ["invite", tryInvite(/^(pending|in sospeso)$/)],
+      ["invite-expired", tryInvite(/^(expired|scaduto)$/)],
+      ["setup", async (p) => {
+        await p.getByRole("button", { name: /^(Profile and settings|Profilo e impostazioni)/ }).click();
+        const reset = p.getByRole("button", { name: /^(Reset to empty instance|Svuota l'istanza)$/ });
+        await reset.click();
+        await p.getByRole("button", { name: /^(Reset — sure\?|Ripristina — sicuro\?)$/ }).last().click();
+        await p.getByRole("heading", { level: 1, name: /^(Set up Stubwise|Configura Stubwise)$/ }).waitFor();
+        await p.waitForTimeout(400);
+      }],
+      ["reauth", "capture/reauth.html?as=p-roberta"],
+      ["reauth-enroll", "capture/reauth.html?as=p-sara&action=token"],
+    ];
+    for (const [name, how] of AREA9A_ENTRY) {
+      if (only && !only.test(`a9a-entry-${name}`) && !only.test(name)) continue;
+      const variants = [];
+      for (const scheme of ["light", "dark"]) {
+        for (const lang of ["en", "it"]) variants.push([scheme, lang, WIDE, `a9a-entry-${name}-${scheme}-${lang}.png`]);
+      }
+      variants.push(["light", "en", NARROW, `a9a-entry-${name}-narrow.png`]);
+      variants.push(["dark", "it", NARROW, `a9a-entry-${name}-narrow-dark-it.png`]);
+      for (const [scheme, lang, viewport, file] of variants) {
+        let page;
+        let context;
+        if (typeof how === "string") {
+          context = await browser.newContext({ viewport, colorScheme: scheme, reducedMotion: "reduce", deviceScaleFactor: 1 });
+          page = await context.newPage();
+          await page.addInitScript((l) => {
+            try {
+              window.localStorage.setItem("stubwise.language", l);
+            } catch {
+              /* niente storage */
+            }
+          }, lang);
+          await page.goto(`${BASE}${how}#/home`);
+          await page.getByRole("dialog").waitFor();
+          // L'iscrizione prepara la chiave: si aspetta il QR.
+          await page.waitForTimeout(900);
+          await page.mouse.move(2, 2);
+        } else {
+          ({ page, context } = await open(scheme, viewport, "/home", { lang }));
+          await how(page);
+        }
+        await shot(page, file);
+        await context.close();
+      }
+    }
     if (only) return; // revisione mirata: salta il resto
 
     for (const scheme of ["light", "dark"]) {

@@ -1,6 +1,6 @@
-import { accessState, writeAccess } from "../access/index";
+import { accessState, roleIdOf, writeAccess } from "../access/index";
 import { nameOf, roleById } from "../admin/common";
-import { forgetSecret, inviteLinkOf, matchSecret } from "../admin/secrets";
+import { forgetSecret, inviteLinkOf, matchSecret, storeSecret } from "../admin/secrets";
 import type { Invite } from "../admin/types";
 import "../admin/changeTypes";
 import { recordChange } from "../changelog/index";
@@ -25,9 +25,12 @@ export type InviteLookup =
       email: string;
       invitedByName: string;
       projects: { projectId: string; code: string; name: string; roleName: string }[];
+      /** Il ruolo d'istanza, solo se non è User («On the whole instance: Auditor»). */
+      instanceRoleName: string | null;
       expiresAt: string;
     }
-  | { status: "expired" | "revoked"; invitedByName: string }
+  | { status: "expired"; invitedByName: string; invitedAt: string; expiresAt: string }
+  | { status: "revoked"; invitedByName: string }
   /** Link sconosciuto o già usato. */
   | { status: "invalid" };
 
@@ -56,7 +59,15 @@ export async function getInvite(token: string): Promise<InviteLookup> {
   const status = statusOf(invite);
   if (status === "invalid") return { status };
   const invitedByName = nameOf(invite!.invitedById) ?? "";
-  if (status !== "valid") return { status, invitedByName };
+  if (status === "revoked") return { status, invitedByName };
+  if (status === "expired")
+    return {
+      status,
+      invitedByName,
+      invitedAt: invite!.createdAt,
+      expiresAt: invite!.expiresAt,
+    };
+  const instanceRole = roleById(invite!.instanceRoleId);
   return {
     status,
     email: invite!.email,
@@ -68,8 +79,34 @@ export async function getInvite(token: string): Promise<InviteLookup> {
         ? [{ projectId: project.id, code: project.code, name: project.name, roleName: role.name }]
         : [];
     }),
+    instanceRoleName:
+      instanceRole && instanceRole.id !== roleIdOf("user") ? instanceRole.name : null,
     expiresAt: invite!.expiresAt,
   };
+}
+
+/**
+ * SOLO PROTOTIPO, «Try an invite» nel riquadro del login: nell'app non c'è
+ * una barra degli indirizzi da cui aprire un link d'invito, quindi qui se ne
+ * crea uno nuovo per il primo invito in sospeso (`pending`) o scaduto
+ * (`expired`) e se ne restituisce il token, una volta, come fa
+ * `createInvite`. Il link di prima dell'invito si dimentica. `null` se non
+ * c'è un invito adatto (l'istanza vuota non ne ha).
+ */
+export async function simulateInviteLink(
+  which: "pending" | "expired",
+): Promise<{ token: string } | null> {
+  await gate("auth.simulateInviteLink");
+  const invite = state.invites.find((i) => {
+    if (i.acceptedAt || i.revokedAt) return false;
+    const expired = Date.parse(i.expiresAt) <= Date.parse(now());
+    return which === "expired" ? expired : !expired;
+  });
+  if (!invite) return null;
+  if (invite.secretId) forgetSecret(invite.secretId);
+  const { id, value } = storeSecret("invite_link", invite.id);
+  invite.secretId = id;
+  return { token: value.split("invite=")[1]! };
 }
 
 /**
