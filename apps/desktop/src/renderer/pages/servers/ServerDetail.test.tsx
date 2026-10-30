@@ -103,6 +103,18 @@ describe("testata e «Now»", () => {
     expect(now.querySelector("[data-who-can='manageSettings']")).not.toBeNull();
   });
 
+  it("residuo m3: alzato il budget, «Now» non dice più che è esaurito", async () => {
+    setSessionPersonId("p-roberta");
+    await instance.simulateBudgetReached(true);
+    await servers.simulateServerRecovery("SRV-1").catch(() => undefined);
+    await servers.simulateServerAlert("SRV-1", "memory");
+    await instance.simulateBudgetReached(false);
+    await open("/p/ACQ/servers/SRV-1", "p-marco");
+    const now = await screen.findByRole("region", { name: "Now" });
+    await waitFor(() => expect(now).toHaveTextContent("Memory at 94%"));
+    expect(now).not.toHaveTextContent("the monthly AI budget is used up");
+  });
+
   it("SRV-2: in difficoltà dalle 09:40, i motivi in frase, senza accesso e il rimando a chi lo collega", async () => {
     await open("/p/STW/servers/SRV-2", "p-roberta");
     const now = await screen.findByRole("region", { name: "Now" });

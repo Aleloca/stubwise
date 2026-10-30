@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { usePauserName, waitingText, WithWho } from "../../components/InstanceBlock";
-import { useTask } from "../../data/queries";
+import { useAiBlock, useTask } from "../../data/queries";
 import type { ServerDetail, ServerEpisodeView } from "../../data/servers";
 import { WorkingRing } from "../claude/conversation/parts";
 import {
@@ -132,6 +132,9 @@ export function NowBox({ server }: { server: ServerDetail }) {
   const noRead = !server.access.usable.read;
   const inTrouble = h.health === "down" || h.health === "trouble";
   const work = <WorkLine server={server} episode={episode} />;
+  // La frase del budget vale finché il budget è esaurito adesso: alzato, non
+  // la si dice più (il blocco di adesso, non quello dell'allarme; ri-revisione m3).
+  const budgetNow = useAiBlock(null).data?.reason === "monthly_budget";
 
   return (
     <section
@@ -191,7 +194,7 @@ export function NowBox({ server }: { server: ServerDetail }) {
         )}
       {/* Col budget raggiunto all'allarme l'analisi non è partita: lo si dice,
           col «Who?» di chi alza il budget (shape EF, revisione finale M4). */}
-      {open?.analysisBlocked === "monthly_budget" && !open.analysis && (
+      {open?.analysisBlocked === "monthly_budget" && !open.analysis && budgetNow && (
         <p data-ai-block="monthly_budget" className="text-md text-pretty text-ink">
           <WithWho text={t("servers.now.noBudget")} />
         </p>
