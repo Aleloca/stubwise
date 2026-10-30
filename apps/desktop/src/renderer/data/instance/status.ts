@@ -6,7 +6,7 @@ import type { ActionAvailability } from "../types";
 import { forbidden } from "../writer";
 import { canI, nameOf } from "./common";
 import { quotaView, type QuotaView } from "./providers";
-import { heldJobs, type AiBlock, type JobKind } from "./queue";
+import { failedHeldStarts, heldJobs, type AiBlock, type FailedStart, type JobKind } from "./queue";
 import type { AiProvider, NightlyRow } from "./state";
 
 // Lo Stato dell'istanza (area 9b, Task 5): cosa sta facendo Stubwise adesso.
@@ -15,11 +15,15 @@ import type { AiProvider, NightlyRow } from "./state";
 // - Le sessioni di Claude `task_run` (o `correction` se la fase corrente è
 //   una correzione, `server_fix` se corregge un server), `pr_review` e
 //   `server_analysis`: `running` se Claude ci sta lavorando, `failed` se
-//   sono finite male negli ultimi 7 giorni. Una sessione che aspetta una
-//   persona (una domanda, un piano, una pausa a mano) non è lavoro della
-//   coda: la dice l'inbox, non questa pagina.
+//   sono finite male negli ultimi 7 giorni. Una correzione ferma è `waiting`
+//   senza blocco (`waiting: null`, Retry `unavailable`: si riprende dalla
+//   task; ruling T5 I1), fuori dai worker e dai conteggi «waiting». Le altre
+//   sessioni che aspettano una persona (una domanda, un piano) non sono
+//   lavoro della coda: le dice l'inbox, non questa pagina.
 // - I lavori fermi di `holdJob` (`queue.ts`): `waiting`, col loro blocco.
 //   Comprendono le esecuzioni delle automazioni ferme per budget (Task 6).
+//   Una ripartenza la cui `start` è fallita è `failed`, con la frase
+//   (ruling T5 I2).
 // - Il giro notturno del seme, solo da guardare (`nightly`).
 // I due worker simulati prendono i due lavori `running` più vecchi.
 //
@@ -35,7 +39,7 @@ export interface InstanceJob {
   /** Task «ACQ-57», esecuzione «ACQ-A2 #7», server «SRV-2» (ruling 17). */
   code: string | null;
   state: "running" | "waiting" | "failed";
-  /** Il blocco, solo per `waiting`. */
+  /** Il blocco, solo per `waiting`; `null` su una correzione ferma (aspetta una persona). */
   waiting: AiBlock | null;
   since: string;
   workerId: "worker-1" | "worker-2" | null;
@@ -124,7 +128,10 @@ type Job = Omit<InstanceJob, "workerId" | "retry">;
 function sessionJob(c: Conversation, kind: NonNullable<ReturnType<typeof jobKindOf>>): Job | null {
   const projectId = c.projectId!;
   const failed = isFailed(c);
-  if (c.state !== "working" && !failed) return null;
+  // Una correzione ferma (ruling T5 I1) si mostra in attesa, senza blocco:
+  // si riprende dalla task, non dalla coda.
+  const stalledCorrection = kind === "correction" && c.state === "paused";
+  if (c.state !== "working" && !failed && !stalledCorrection) return null;
   if (failed && Date.parse(now()) - Date.parse(c.updatedAt) > FAILED_WINDOW_MS) return null;
   const server = c.serverAnalysis?.serverCode ?? c.serverFix?.serverCode ?? null;
   return {
@@ -134,14 +141,26 @@ function sessionJob(c: Conversation, kind: NonNullable<ReturnType<typeof jobKind
     projectCode: codeOf(projectId),
     title: c.title,
     code: server ?? taskOf(c.taskId)?.code ?? null,
-    state: failed ? "failed" : "running",
+    state: failed ? "failed" : stalledCorrection ? "waiting" : "running",
     waiting: null,
-    since: failed ? c.updatedAt : c.createdAt,
+    since: failed || stalledCorrection ? c.updatedAt : c.createdAt,
     href:
       kind === "server_analysis" && server
         ? serverHref(codeOf(projectId), server)
         : taskHref(c.taskId),
     summary: failed ? (c.failureSummary ?? null) : null,
+  };
+}
+
+/** Una ripartenza fallita (ruling T5 I2): un lavoro fallito con la sua frase, senza Retry. */
+function failedStartJob(f: FailedStart): Job {
+  return {
+    ...heldJob(f),
+    id: f.id,
+    state: "failed",
+    waiting: null,
+    since: f.failedAt,
+    summary: f.summary,
   };
 }
 
@@ -178,7 +197,7 @@ function allJobs(): Job[] {
     const job = kind ? sessionJob(c, kind) : null;
     return job ? [job] : [];
   });
-  return [...sessions, ...held.map(heldJob)];
+  return [...sessions, ...held.map(heldJob), ...failedHeldStarts().map(failedStartJob)];
 }
 
 const STATE_ORDER = { running: 0, waiting: 1, failed: 2 } as const;
@@ -191,9 +210,11 @@ function byStateThenAge(a: Job, b: Job): number {
   return a.state === "failed" ? -age : age;
 }
 
+// «waiting» conta solo i lavori fermi da un blocco, quelli che partono alla
+// ripresa o col budget: una correzione ferma aspetta una persona.
 const counts = (jobs: Job[]) => ({
   running: jobs.filter((j) => j.state === "running").length,
-  waiting: jobs.filter((j) => j.state === "waiting").length,
+  waiting: jobs.filter((j) => j.state === "waiting" && j.waiting !== null).length,
   failed: jobs.filter((j) => j.state === "failed").length,
 });
 

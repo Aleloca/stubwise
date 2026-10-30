@@ -32,7 +32,7 @@ function held(
   started: string[],
   name: string,
   projectId: string,
-  extra: Partial<Omit<HeldJob, "id" | "since" | "start">> = {},
+  extra: Partial<Omit<HeldJob, "id" | "since">> = {},
 ): HeldJob {
   return holdJob({
     projectId,
@@ -245,6 +245,38 @@ describe("Pause e Resume", () => {
     expect(started).toEqual([]);
   });
 
+  it("I2: una start che rigetta segna il lavoro fallito, con la frase, nello Stato", async () => {
+    const started: string[] = [];
+    held(started, "broken", STW, {
+      start: async () => {
+        throw new Error("conflict");
+      },
+    });
+    held(started, "reset", STW, {
+      start: async () => {
+        throw new Error("reset");
+      },
+    });
+    held(started, "ok", STW);
+    await instance.resumeQueue(STW);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(started).toEqual(["ok"]);
+    const failed = (await status()).jobs.filter(
+      (j) =>
+        j.projectId === STW &&
+        j.state === "failed" &&
+        j.code === "STW-7" &&
+        j.summary === "conflict",
+    );
+    expect(failed).toHaveLength(1);
+    expect(failed[0]).toMatchObject({ kind: "task_run", retry: "unavailable", waiting: null });
+    expect((await status()).errors.some((e) => e.jobId === failed[0]!.id)).toBe(true);
+    // Il ripristino lo svuota.
+    resetApi();
+    as(ROBERTA);
+    expect((await status()).jobs.some((j) => j.summary === "conflict")).toBe(false);
+  });
+
   it("un lavoro in attesa fermato con Stop (dropHeld) non parte alla ripresa; l'altro sì", async () => {
     const started: string[] = [];
     held(started, "stopped", STW, { conversationId: "cv-stopped" });
@@ -348,6 +380,26 @@ describe("Retry (RF 5)", () => {
     // Nemmeno un lavoro ancora in corso.
     expect(await instance.retryJob("cv-run-aud-5")).toMatchObject({ reason: "not_retryable" });
     expect(state.changelog.filter((e) => e.kind === "job.retried")).toEqual([]);
+  });
+
+  it("I1: una correzione ferma compare in attesa, senza Retry, fuori dai worker e dai conteggi", async () => {
+    const stw3 = state.conversations.find((c) => c.id === "cv-run-stw-3")!;
+    stw3.state = "paused";
+    const view = await status();
+    expect(view.jobs.find((j) => j.id === "cv-run-stw-3")).toMatchObject({
+      kind: "correction",
+      code: "STW-3",
+      state: "waiting",
+      waiting: null,
+      workerId: null,
+      retry: "unavailable",
+      href: "#/p/STW/tasks?task=STW-3",
+    });
+    expect(view.workers.map((w) => w.jobId)).not.toContain("cv-run-stw-3");
+    // «N waiting» conta solo ciò che parte alla ripresa.
+    expect(view.queues.find((q) => q.projectId === STW)!.waiting).toBe(0);
+    // Le altre sessioni che aspettano una persona restano fuori.
+    expect(view.jobs.some((j) => j.id === "cv-run-stw-13" || j.id === "cv-run-aud-4")).toBe(false);
   });
 
   it("su una task con un lavoro vivo → conflict", async () => {

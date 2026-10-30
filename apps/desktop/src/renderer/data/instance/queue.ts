@@ -1,7 +1,7 @@
 import { recordChange } from "../changelog/index";
 import { encodeQueue } from "../changelog/settingValues";
 import type { AiBlock } from "../model";
-import { newId, now, onStoreReset, state, visibleProjectIds } from "../store";
+import { newId, now, onStoreReset, state, storeGeneration, visibleProjectIds } from "../store";
 import { writer } from "../writer";
 import { aiBlockFor, budgetReached, queuePauseOf } from "./blocks";
 import { canI, refuse } from "./common";
@@ -42,7 +42,9 @@ export type JobKind =
 /**
  * Un lavoro che partirebbe ma è fermo: su una coda in pausa (ogni avvio del
  * progetto) o per il budget (solo i passi d'automazione, decisione del
- * maintainer del 30 ott 2026). `start` lo fa partire quando il blocco cade.
+ * maintainer del 30 ott 2026). `start` lo fa partire quando il blocco cade;
+ * se rigetta (salvo `reset`), il lavoro diventa una ripartenza fallita con
+ * il messaggio come frase (`failedHeldStarts`).
  */
 export interface HeldJob {
   id: string;
@@ -57,12 +59,35 @@ export interface HeldJob {
   start: () => Promise<void>;
 }
 
+/** Un lavoro fermo la cui `start` è fallita alla ripartenza (ruling T5 I2). */
+export type FailedStart = Omit<HeldJob, "start"> & { failedAt: string; summary: string };
+
 /** I lavori fermi, nell'ordine d'arrivo. */
 let held: HeldJob[] = [];
+/** Le ripartenze fallite: lo Stato dell'istanza le mostra fra i lavori falliti. */
+let failedStarts: FailedStart[] = [];
 
 onStoreReset(() => {
   held = [];
+  failedStarts = [];
 });
+
+const copyOf = (j: HeldJob): Omit<HeldJob, "start"> => ({
+  id: j.id,
+  projectId: j.projectId,
+  kind: j.kind,
+  taskId: j.taskId,
+  conversationId: j.conversationId,
+  automationRunId: j.automationRunId,
+  starterId: j.starterId,
+  block: { ...j.block },
+  since: j.since,
+});
+
+/** Le ripartenze fallite (copie). */
+export function failedHeldStarts(): FailedStart[] {
+  return failedStarts.map((f) => ({ ...f, block: { ...f.block } }));
+}
 
 /** Mette in attesa un lavoro, in fondo alla fila. */
 export function holdJob(job: Omit<HeldJob, "id" | "since">): HeldJob {
@@ -73,17 +98,7 @@ export function holdJob(job: Omit<HeldJob, "id" | "since">): HeldJob {
 
 /** I lavori fermi adesso, nell'ordine d'arrivo (copie, senza `start`: per le letture). */
 export function heldJobs(): Omit<HeldJob, "start">[] {
-  return held.map((j) => ({
-    id: j.id,
-    projectId: j.projectId,
-    kind: j.kind,
-    taskId: j.taskId,
-    conversationId: j.conversationId,
-    automationRunId: j.automationRunId,
-    starterId: j.starterId,
-    block: { ...j.block },
-    since: j.since,
-  }));
+  return held.map(copyOf);
 }
 
 /**
@@ -113,9 +128,18 @@ function release(fell: (job: HeldJob) => boolean): void {
   }
   if (ready.length === 0) return;
   held = held.filter((j) => !ready.includes(j));
-  // Fuori dalla lista PRIMA di partire: ognuno parte una volta sola. Un
-  // avvio che non riesce (un ripristino nel frattempo) non ferma gli altri.
-  for (const job of ready) void job.start().catch(() => {});
+  // Fuori dalla lista PRIMA di partire: ognuno parte una volta sola. Un avvio
+  // che non riesce non ferma gli altri e non sparisce senza traccia (ruling
+  // T5 I2): diventa un lavoro fallito, con la frase. Passa in silenzio solo
+  // un ripristino nel frattempo (`reset`): lo stato di quel lavoro non c'è più.
+  const gen = storeGeneration();
+  for (const job of ready) {
+    void job.start().catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message === "reset" || gen !== storeGeneration()) return;
+      failedStarts.push({ ...copyOf(job), failedAt: now(), summary: message });
+    });
+  }
 }
 
 /** Fa ripartire i lavori fermi per budget, se `budgetReached()` è falso; altrimenti non fa niente. */
