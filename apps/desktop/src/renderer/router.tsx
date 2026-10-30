@@ -41,6 +41,7 @@ import {
   AdminPersonPage,
   AdminPluginPage,
   AdminRolePage,
+  AdminServerPage,
 } from "./pages/admin/AdminLayout";
 import type { FilterCriteria } from "./data/types";
 import { parseCriteria } from "./domain/filters";
@@ -1137,6 +1138,31 @@ const adminPluginRoute = createRoute({
   component: AdminPluginRoutePage,
 });
 
+/**
+ * Il dettaglio di un server dall'Amministrazione (`/admin/servers/SRV-2`,
+ * area 9b), dentro Servers, con `monitor.manage`: lo stesso dell'8b.
+ */
+function AdminServerRoutePage() {
+  const { server } = adminServerRoute.useParams();
+  return <AdminServerPage code={server} />;
+}
+
+const adminServerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/servers/$server",
+  beforeLoad: ({ params }) => {
+    if (upperCaseCode(params.server)) {
+      throw redirect({
+        to: "/admin/servers/$server",
+        params: { server: params.server.toUpperCase() },
+        search: (prev) => prev,
+        replace: true,
+      });
+    }
+  },
+  component: AdminServerRoutePage,
+});
+
 const automationSourcesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/automations/sources",
@@ -1201,6 +1227,7 @@ const routeTree = rootRoute.addChildren([
   adminInviteRoute,
   adminRoleRoute,
   adminPluginRoute,
+  adminServerRoute,
   automationSourcesRoute,
   automationRoute,
   automationRunRoute,

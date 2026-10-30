@@ -107,7 +107,7 @@ function WorkLine({
   return null;
 }
 
-export function NowBox({ server, projectCode }: { server: ServerDetail; projectCode: string }) {
+export function NowBox({ server }: { server: ServerDetail }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language;
   const episode = nowEpisode(server);
@@ -164,20 +164,25 @@ export function NowBox({ server, projectCode }: { server: ServerDetail; projectC
         </div>
       </div>
       {work}
-      {server.analysisProject === null && inTrouble && (
-        <p className="text-md text-ink-muted">{t("servers.stagingOnly")}</p>
+      {/* Un orfano (area 9b) non ha staging né produzioni: Claude lavora solo dentro un progetto. */}
+      {server.orphan && inTrouble ? (
+        <p className="text-md text-ink-muted">{t("servers.orphanNoClaude")}</p>
+      ) : (
+        server.analysisProject === null &&
+        inTrouble && <p className="text-md text-ink-muted">{t("servers.stagingOnly")}</p>
       )}
       {inTrouble &&
         noRead &&
+        !server.orphan &&
         server.analysisProject !== null &&
         server.work === "none" &&
         !episode?.analysis && (
           <div className="flex flex-wrap items-center gap-3">
             <p className="text-md text-ink">{t("servers.now.noAccess")}</p>
             {server.access.canManage && (
+              // La stessa pagina, dal progetto o dall'Amministrazione: solo `?section=`.
               <Link
-                to="/p/$code/servers/$server"
-                params={{ code: projectCode, server: server.code }}
+                to="."
                 search={
                   ((prev: Record<string, unknown>) => ({ ...prev, section: "access" })) as never
                 }

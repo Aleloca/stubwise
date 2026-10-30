@@ -3,6 +3,9 @@ import { useTranslation } from "react-i18next";
 import type { MetricRange } from "../../data/servers";
 import { clockLocal, dayLocal } from "./format";
 
+/** Gli intervalli di più giorni: l'asse e il cursore dicono anche il giorno. */
+export const MULTI_DAY: ReadonlySet<MetricRange> = new Set(["7d", "30d", "90d"]);
+
 // Un grafico piccolo dei server (shape servers.md §3, «Charts»): SVG in
 // linea, nessuna libreria. Il riassunto in parole è sempre visibile ed è il
 // testo accessibile; la soglia è una linea tratteggiata, gli episodi una
@@ -135,10 +138,18 @@ export function Chart({
           0,
         );
   const tick = (ts: number) =>
-    range === "7d"
+    MULTI_DAY.has(range)
       ? dayLocal(new Date(ts).toISOString(), i18n.language)
       : clockLocal(new Date(ts).toISOString(), i18n.language);
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => from + f * span);
+  // L'etichetta della soglia sta in alto a destra quando la soglia è alta: un
+  // episodio che arriva al bordo destro (ancora aperto; a 30d e 90d è una
+  // fascia sottile lì) mette la sua etichetta sotto, invece di sovrapporsi.
+  const labelSide = (b: Band): "top" | "bottom" => {
+    const side = bandLabelSide(b, times, series, max);
+    const thresholdTop = !!threshold && threshold.value / max > 0.8;
+    return side === "top" && thresholdTop && frac(b.to) > 0.9 ? "bottom" : side;
+  };
 
   const onMove = (e: MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -286,8 +297,8 @@ export function Chart({
                 <span
                   key={i}
                   data-band-label
-                  data-side={bandLabelSide(b, times, series, max)}
-                  className={`num pointer-events-none absolute max-w-[60%] truncate rounded-sm bg-ground/85 px-1 text-xs text-ink-muted ${bandLabelSide(b, times, series, max) === "top" ? "top-1" : "bottom-1"}`}
+                  data-side={labelSide(b)}
+                  className={`num pointer-events-none absolute max-w-[60%] truncate rounded-sm bg-ground/85 px-1 text-xs text-ink-muted ${labelSide(b) === "top" ? "top-1" : "bottom-1"}`}
                   style={
                     frac(b.from) > 0.55
                       ? { right: `calc(${(1 - frac(b.to)) * 100}% + 4px)` }
@@ -336,7 +347,9 @@ export function Chart({
                   }
                 >
                   {t("servers.charts.cursor", {
-                    time: clockLocal(new Date(times[near]!).toISOString(), i18n.language),
+                    time: (MULTI_DAY.has(range) ? [dayLocal, clockLocal] : [clockLocal])
+                      .map((f) => f(new Date(times[near]!).toISOString(), i18n.language))
+                      .join(" "),
                     value: cursorValue || t("servers.charts.gap"),
                   })}
                 </span>

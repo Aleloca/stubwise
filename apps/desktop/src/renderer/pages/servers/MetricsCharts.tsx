@@ -6,7 +6,7 @@ import type { MetricRange, ServerDetail } from "../../data/servers";
 import type { CheckSample, MetricPoint, ServerCheck } from "../../data/types";
 import { smallSecondary } from "../task/parts";
 import { bytes, clockLocal, count, dayLocal } from "./format";
-import { Chart, stats, type Band } from "./Chart";
+import { Chart, MULTI_DAY, stats, type Band } from "./Chart";
 import { CloseGlyph } from "./glyphs";
 import { Part } from "./Part";
 
@@ -16,9 +16,24 @@ import { Part } from "./Part";
 // SVG in linea, nessuna libreria. Ogni grafico ha il suo riassunto in
 // parole (anche il testo accessibile); la soglia è una linea tratteggiata,
 // gli episodi una fascia su tutti i grafici; il cursore è condiviso (al
-// passaggio, o con ←/→ col fuoco sul grafico).
+// passaggio, o con ←/→ col fuoco sul grafico). Dal 9b anche 30d e 90d
+// (shape admin-instance.md, «Dettaglio»): lì ogni punto è una media, e la
+// riga sopra i grafici dice di quanto tempo (lo calcola il livello dati
+// dall'intervallo); il picco si dice per giorno, non per un'ora che la media
+// non dimostra.
 
-export const RANGES: readonly MetricRange[] = ["1h", "24h", "7d"];
+export const RANGES: readonly MetricRange[] = ["1h", "24h", "7d", "30d", "90d"];
+
+/** Gli intervalli in cui un punto è la media di ore: il picco si dice per giorno. */
+const BY_DAY: ReadonlySet<MetricRange> = new Set(["30d", "90d"]);
+
+/** «Each point averages about 2 hours.»: la durata di un punto, arrotondata. */
+function averagesLine(seconds: number, t: ReturnType<typeof useTranslation>["t"]): string {
+  const hours = Math.round(seconds / 3600);
+  return hours >= 1
+    ? t("servers.charts.averagesHours", { count: hours })
+    : t("servers.charts.averagesMinutes", { count: Math.max(1, Math.round(seconds / 60)) });
+}
 
 const RANGE_MS: Record<MetricRange, number> = {
   "1h": 3_600_000,
@@ -71,7 +86,7 @@ export function MetricsCharts({
   const to = Date.parse(now());
   const from = to - RANGE_MS[range];
   const at = (ts: number) =>
-    range === "7d"
+    MULTI_DAY.has(range)
       ? `${dayLocal(new Date(ts).toISOString(), lang)} ${clockLocal(new Date(ts).toISOString(), lang)}`
       : clockLocal(new Date(ts).toISOString(), lang);
 
@@ -110,10 +125,11 @@ export function MetricsCharts({
           <CloseGlyph />
         </button>
       )}
+      {/* A 1024 il gruppo va a capo se non ci sta (shape admin-instance.md §6). */}
       <div
         role="group"
         aria-label={t("servers.charts.rangeLabel")}
-        className="inline-flex rounded-md border border-rule-strong p-0.5"
+        className="inline-flex flex-wrap rounded-md border border-rule-strong p-0.5"
       >
         {RANGES.map((r, i) => (
           <button
@@ -156,11 +172,14 @@ export function MetricsCharts({
     const points: MetricPoint[] = metrics.data.points;
     const times = points.map((p) => Date.parse(p.ts));
     const th = server.thresholds;
+    const byDay = BY_DAY.has(range);
+    const day = (ts: number) => dayLocal(new Date(ts).toISOString(), lang);
     const summaryOf = (values: number[], format: (v: number) => string) => {
       const s = stats(values, times);
-      return s
-        ? t("servers.charts.summary", { avg: format(s.avg), peak: format(s.peak), time: at(s.at) })
-        : t("servers.charts.noData");
+      if (!s) return t("servers.charts.noData");
+      return byDay
+        ? t("servers.charts.summaryDay", { avg: format(s.avg), peak: format(s.peak), day: day(s.at) })
+        : t("servers.charts.summary", { avg: format(s.avg), peak: format(s.peak), time: at(s.at) });
     };
     const pctChart = (
       key: "cpu" | "memory" | "disk",
@@ -211,21 +230,33 @@ export function MetricsCharts({
     );
     const ms = (v: number) => t("servers.checks.latency", { n: Math.round(v) });
 
+    const averaged = metrics.data.averagedSeconds;
     body = (
       <div
         className={`flex flex-col gap-4 transition-opacity duration-150 ease-out ${metrics.isPlaceholderData ? "opacity-60" : ""}`}
       >
+        {averaged !== null && (
+          <p data-averages className="-mb-1 text-xs text-ink-muted">
+            {averagesLine(averaged, t)}
+          </p>
+        )}
         {check && (
           <Chart
             dataKey="response"
             title={t("servers.charts.responseTime", { name: check.name })}
             summary={
               lat
-                ? t("servers.charts.summaryLatency", {
-                    avg: ms(lat.avg),
-                    peak: ms(lat.peak),
-                    time: at(lat.at),
-                  })
+                ? byDay
+                  ? t("servers.charts.summaryLatencyDay", {
+                      avg: ms(lat.avg),
+                      peak: ms(lat.peak),
+                      day: day(lat.at),
+                    })
+                  : t("servers.charts.summaryLatency", {
+                      avg: ms(lat.avg),
+                      peak: ms(lat.peak),
+                      time: at(lat.at),
+                    })
                 : samples.length > 0
                   ? t("servers.charts.noLatency")
                   : t("servers.charts.noData")
@@ -298,7 +329,8 @@ export function MetricsCharts({
             range={range}
           />
         </div>
-        {metrics.data.truncated && (
+        {/* A 30d e 90d lo dice già la riga sopra i grafici. */}
+        {metrics.data.truncated && averaged === null && (
           <p className="text-xs text-ink-faint">
             {t("servers.charts.reduced", {
               points: count(points.length, lang),

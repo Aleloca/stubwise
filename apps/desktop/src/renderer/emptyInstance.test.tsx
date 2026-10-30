@@ -150,6 +150,10 @@ const CASES: Case[] = [
   { path: "/admin/who-can?action=approvePlan", empty: "whoCan.page.noProjects" },
   { path: "/admin/people/{admin}", empty: "admin.person.you", proof: "general" },
   { path: "/admin/roles/{adminRole}", empty: /0 memberships|1 person/, proof: "general" },
+  // Area 9b, Task 12: nessun server e nessun repository nell'istanza vuota.
+  { path: "/admin/servers", empty: "admin.servers.empty" },
+  { path: "/admin/repositories", empty: "admin.repositories.empty" },
+  { path: "/admin/servers/SRV-1", empty: "servers.notFound", proof: "notFound" },
   // Id che non esistono: la pagina «non trovato» di ciascuno.
   { path: "/p/ACQ", lands: "/p/ACQ/overview", empty: "project.notFound", proof: "notFound" },
   { path: "/p/ACQ/tasks", empty: "project.notFound", proof: "notFound" },

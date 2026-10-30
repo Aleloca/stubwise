@@ -39,15 +39,17 @@ export function downsample(
  * (la media, all'ora centrale della finestra). Serve quando la serie ha passi
  * diversi (30 s negli ultimi giorni, più largo prima): `downsample` conta i
  * punti, e darebbe all'ultima settimana quasi tutte le finestre. Una finestra
- * senza campioni (l'agente taceva) non dà punto.
+ * senza campioni (l'agente taceva) non dà punto. `windowMs` è la durata di
+ * una finestra, cioè di quanto tempo ogni punto è la media (la frase «Each
+ * point averages …» sopra i grafici); `null` se la serie non si riduce.
  */
 export function downsampleByTime(
   points: MetricPoint[],
   fromMs: number,
   toMs: number,
   max = METRIC_POINTS_MAX,
-): { points: MetricPoint[]; truncated: boolean } {
-  if (points.length <= max) return { points, truncated: false };
+): { points: MetricPoint[]; truncated: boolean; windowMs: number | null } {
+  if (points.length <= max) return { points, truncated: false, windowMs: null };
   const buckets = Math.max(1, max - 2);
   const size = (toMs - fromMs) / buckets;
   const groups = new Map<number, MetricPoint[]>();
@@ -63,7 +65,7 @@ export function downsampleByTime(
       ...average(g),
       ts: new Date(fromMs + (b + 0.5) * size).toISOString().replace(".000Z", "Z"),
     }));
-  return { points: out, truncated: true };
+  return { points: out, truncated: true, windowMs: size };
 }
 
 /** Le finestre consecutive in cui `downsample` divide i punti interni. */

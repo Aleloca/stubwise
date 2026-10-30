@@ -101,13 +101,19 @@ export interface ServerMetrics {
   /** Quanti campioni c'erano nell'intervallo prima della riduzione (la nota sotto i grafici). */
   sampleCount: number;
   /**
+   * A 30 e 90 giorni (area 9b): di quanti secondi ogni punto è la media (la
+   * frase «Each point averages about 2 hours.»); `null` negli altri
+   * intervalli o se la serie non si è ridotta.
+   */
+  averagedSeconds: number | null;
+  /**
    * Con un controllo (R-L1): i suoi campioni nello stesso intervallo, per il
    * grafico «Response time» e le fasce dei momenti giù; `null` senza.
    */
   check: { samples: CheckSample[]; truncated: boolean; sampleCount: number } | null;
 }
 
-/** Le metriche di un server nell'intervallo (ultimi 1h / 24h / 7d), ridotte per il grafico. */
+/** Le metriche di un server nell'intervallo (ultimi 1h / 24h / 7d / 30d / 90d), ridotte per il grafico. */
 export async function getServerMetrics(
   code: string,
   range: MetricRange,
@@ -128,11 +134,16 @@ export async function getServerMetrics(
   const all = metricsSince(server.code, fromMs);
   // Copie: i punti del seme sono condivisi (congelati), mai riferimenti allo stato.
   // Oltre i 7 giorni la serie ha due passi: si ricampiona per durata, non per indice.
-  const reduced =
-    range === "30d" || range === "90d"
-      ? downsampleByTime(all, fromMs, Date.parse(now()))
-      : downsample(all);
-  return copy({ ...reduced, sampleCount: all.length, check });
+  if (range === "30d" || range === "90d") {
+    const { windowMs, ...reduced } = downsampleByTime(all, fromMs, Date.parse(now()));
+    return copy({
+      ...reduced,
+      sampleCount: all.length,
+      averagedSeconds: windowMs === null ? null : Math.round(windowMs / 1000),
+      check,
+    });
+  }
+  return copy({ ...downsample(all), sampleCount: all.length, averagedSeconds: null, check });
 }
 
 export interface ServerSearchResult {

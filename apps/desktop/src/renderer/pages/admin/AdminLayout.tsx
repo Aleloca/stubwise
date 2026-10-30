@@ -17,6 +17,9 @@ import { PluginPage } from "./integrations/PluginPage";
 import { PluginsPage } from "./integrations/PluginsPage";
 import { StoragePage } from "./integrations/StoragePage";
 import { WebhooksPage } from "./integrations/WebhooksPage";
+import { ServerDetail } from "../servers/ServerDetail";
+import { RepositoriesAdminPage } from "./instance/RepositoriesAdminPage";
+import { ServersAdminPage } from "./instance/ServersAdminPage";
 import { InvitePage } from "./InvitePage";
 import { PeoplePage } from "./PeoplePage";
 import { PersonDetail } from "./PersonDetail";
@@ -116,7 +119,9 @@ function SectionBody({ section }: { section: AdminSection }) {
   if (section === "google") return <GooglePage />;
   if (section === "storage") return <StoragePage />;
   if (section === "webhooks") return <WebhooksPage />;
-  // Le altre voci dell'istanza arrivano coi Task 12–13 del 9b.
+  if (section === "servers") return <ServersAdminPage />;
+  if (section === "repositories") return <RepositoriesAdminPage />;
+  // Instance status arriva col Task 13 del 9b.
   return (
     <Placeholder titleKey={`admin.sections.${section}`} bodyKey={`placeholder.admin.${section}`} />
   );
@@ -134,6 +139,17 @@ export function AdminPluginPage({ pluginId }: { pluginId: string }) {
   const { viewer } = useViewer();
   if (!canSeeAdminSection(viewer, "plugins")) return <NotFound />;
   return <PluginPage key={`${viewer.personId}:${pluginId}`} pluginId={pluginId} />;
+}
+
+/**
+ * Il dettaglio di un server (`/admin/servers/$server`, area 9b): dentro
+ * Servers, con `monitor.manage`; la pagina dell'8b senza progetto. Senza il
+ * permesso, «not found» come la voce (R-G5).
+ */
+export function AdminServerPage({ code }: { code: string }) {
+  const { viewer } = useViewer();
+  if (!canSeeAdminSection(viewer, "servers")) return <NotFound />;
+  return <ServerDetail key={`${viewer.personId}:${code}`} projectCode={null} code={code} />;
 }
 
 /** La pagina di una persona (`/admin/people/$personId`): dentro People, che legge chiunque. */

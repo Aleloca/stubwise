@@ -6,7 +6,7 @@ import type { MetricRange, ServerDetail as Detail } from "../../data/servers";
 import { PageError } from "../../tasks-ui/PageStates";
 import { ChecksPanel } from "./ChecksPanel";
 import { DisksPanel } from "./DisksPanel";
-import { environmentsLine, healthParts, lastReport } from "./format";
+import { healthParts, lastReport, whereLine } from "./format";
 import { HealthGlyph } from "./glyphs";
 import { MetricsCharts, RANGES } from "./MetricsCharts";
 import { NowBox, showsNow } from "./NowBox";
@@ -24,21 +24,45 @@ import { ThresholdsPanel } from "./ThresholdsPanel";
 // `?range=` l'intervallo dei grafici, `?check=` il controllo selezionato,
 // `?section=` la parte da portare in vista. Un server inesistente,
 // invisibile o di un altro progetto risponde allo stesso modo (R-G5).
+// Dall'Amministrazione (`#/admin/servers/SRV-1`, area 9b) `projectCode` è
+// nullo: la stessa pagina, con «← Servers» verso l'Amministrazione e
+// nessun progetto «di qui»; ogni server elencato lì si apre (ruling T7 I2).
 
 type PartId = "charts" | "services" | "disks" | "checks" | "access" | "thresholds" | "settings";
 
-function NotFound({ projectCode }: { projectCode: string }) {
+/** «← Servers»: la sezione del progetto, o l'Amministrazione (`projectCode` nullo). */
+export function BackToServers({
+  projectCode,
+  className,
+}: {
+  projectCode: string | null;
+  className: string;
+}) {
+  const { t } = useTranslation();
+  return projectCode ? (
+    <Link
+      to="/p/$code/$section"
+      params={{ code: projectCode, section: "servers" }}
+      className={className}
+    >
+      {t("servers.backToList")}
+    </Link>
+  ) : (
+    <Link to="/admin/$section" params={{ section: "servers" }} className={className}>
+      {t("servers.backToList")}
+    </Link>
+  );
+}
+
+function NotFound({ projectCode }: { projectCode: string | null }) {
   const { t } = useTranslation();
   return (
     <section className="flex flex-col items-start gap-3 p-8">
       <h1 className="text-2xl font-semibold text-ink">{t("servers.notFound")}</h1>
-      <Link
-        to="/p/$code/$section"
-        params={{ code: projectCode, section: "servers" }}
+      <BackToServers
+        projectCode={projectCode}
         className="rounded-sm text-sm text-ink underline-offset-4 hover:underline"
-      >
-        {t("servers.backToList")}
-      </Link>
+      />
     </section>
   );
 }
@@ -67,7 +91,7 @@ const typing = (el: Element | null) =>
   el instanceof HTMLElement &&
   (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
 
-function Page({ server, projectCode }: { server: Detail; projectCode: string }) {
+function Page({ server, projectCode }: { server: Detail; projectCode: string | null }) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const search = useSearch({ strict: false }) as {
@@ -124,13 +148,13 @@ function Page({ server, projectCode }: { server: Detail; projectCode: string }) 
     // Le parti cambiano solo con `canManage`.
   }, [server.canManage]);
 
-  // 1/2/3 scelgono l'intervallo (col fuoco fuori dai campi); Esc deseleziona il controllo.
+  // 1–5 scelgono l'intervallo (col fuoco fuori dai campi); Esc deseleziona il controllo.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
       if (typing(document.activeElement) || document.querySelector("[aria-modal='true']")) return;
-      const r = RANGES[Number(e.key) - 1];
-      if (r && ["1", "2", "3"].includes(e.key)) {
+      const r = /^[1-9]$/.test(e.key) ? RANGES[Number(e.key) - 1] : undefined;
+      if (r) {
         e.preventDefault();
         setSearch({ range: r });
       } else if (e.key === "Escape" && search.check && !search.task) {
@@ -150,7 +174,7 @@ function Page({ server, projectCode }: { server: Detail; projectCode: string }) 
     server.lastSeenAt
       ? t("servers.detail.lastReport", { when: lastReport(server.lastSeenAt, t, i18n.language) })
       : null,
-    environmentsLine(server, t) || null,
+    whereLine(server, t) || null,
   ].filter(Boolean);
 
   return (
@@ -158,13 +182,10 @@ function Page({ server, projectCode }: { server: Detail; projectCode: string }) 
       <div className="flex w-full max-w-[1120px] flex-col pr-8">
         <header className="page-header flex flex-col gap-1.5 pb-3 [--page-header-pr:32px] [--page-header-pt:32px]">
           <p className="text-xs text-ink-muted">
-            <Link
-              to="/p/$code/$section"
-              params={{ code: projectCode, section: "servers" }}
+            <BackToServers
+              projectCode={projectCode}
               className="rounded-sm underline-offset-4 hover:text-ink hover:underline"
-            >
-              {t("servers.backToList")}
-            </Link>
+            />
           </p>
           <h1 className="flex flex-wrap items-baseline gap-x-3 text-2xl font-semibold text-ink">
             <span className="line-clamp-2 [overflow-wrap:anywhere]">{server.name}</span>
@@ -206,7 +227,7 @@ function Page({ server, projectCode }: { server: Detail; projectCode: string }) 
           ))}
         </nav>
         <div className="flex flex-col gap-10 pt-6">
-          {showsNow(server) && <NowBox server={server} projectCode={projectCode} />}
+          {showsNow(server) && <NowBox server={server} />}
           <MetricsCharts
             server={server}
             range={range}
@@ -241,7 +262,14 @@ function Page({ server, projectCode }: { server: Detail; projectCode: string }) 
   );
 }
 
-export function ServerDetail({ projectCode, code }: { projectCode: string; code: string }) {
+export function ServerDetail({
+  projectCode,
+  code,
+}: {
+  /** Il progetto da cui si apre; `null` dall'Amministrazione (area 9b). */
+  projectCode: string | null;
+  code: string;
+}) {
   const { t } = useTranslation();
   const q = useServer(code);
   if (q.isError) {
@@ -257,7 +285,9 @@ export function ServerDetail({ projectCode, code }: { projectCode: string; code:
   const server = q.data;
   // Di un altro progetto: come uno che non esiste (R-G5). Un server orfano
   // (R-L7, nessun ambiente) si apre da ⌘K nel progetto di chi guarda.
+  // Dall'Amministrazione il server è un oggetto d'istanza: nessun confronto.
   if (
+    projectCode !== null &&
     server.environments.length > 0 &&
     !server.environments.some((e) => e.projectCode === projectCode)
   )

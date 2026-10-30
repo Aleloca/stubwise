@@ -14,6 +14,115 @@ import { WhoCanLink } from "../../components/WhoCanLink";
 // liberi il dialogo rimanda a Releases → Environments. Creato, il dialogo
 // diventa il pannello della chiave; chiuso quello si va al dettaglio.
 
+/**
+ * «New server» dall'Amministrazione (area 9b, shape admin-instance.md [IS 3],
+ * confermata dal maintainer il 30 ott 2026): un server nasce SEMPRE senza
+ * progetto — `createServer` con `environmentId: null` — e il dialogo non
+ * offre ambienti: lo si collega dagli ambienti del progetto. Creato, il
+ * pannello della chiave come dal progetto; chiuso, il dettaglio
+ * dell'Amministrazione.
+ */
+export function NewInstanceServerDialog({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const create = useCreateServer();
+  const nameId = useId();
+  const noteId = useId();
+  const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [created, setCreated] = useState<{ code: string; agentKey: string } | null>(null);
+
+  if (created) {
+    return (
+      <AgentKeyDialog
+        title={t("servers.key.readyTitle", { code: created.code })}
+        code={created.code}
+        agentKey={created.agentKey}
+        onDone={() => {
+          onClose();
+          void navigate({ to: "/admin/servers/$server", params: { server: created.code } });
+        }}
+      />
+    );
+  }
+
+  const ready = name.trim().length > 0 && !create.isPending;
+  const submit = () => {
+    if (!ready) return;
+    setError(null);
+    create.mutate(
+      { name, environmentId: null },
+      {
+        onSuccess: (r) => setCreated({ code: r.server.code, agentKey: r.agentKey }),
+        onError: (e) => {
+          const what = e instanceof Error ? e.message.replace(/^invalid: /, "") : "";
+          setError(
+            t(`servers.create.errors.${what}`, {
+              defaultValue: t("servers.create.errors.generic"),
+            }),
+          );
+        },
+      },
+    );
+  };
+
+  return (
+    <Dialog
+      title={t("admin.servers.create.title")}
+      width={440}
+      onClose={onClose}
+      confirmDiscard={
+        name.trim()
+          ? {
+              message: t("servers.create.discard"),
+              keep: t("servers.create.keep"),
+              discard: t("servers.create.discardConfirm"),
+            }
+          : undefined
+      }
+      footer={
+        <>
+          <button type="button" className={secondaryButton} onClick={onClose}>
+            {t("servers.cancel")}
+          </button>
+          <button
+            type="button"
+            data-create-server
+            disabled={!ready}
+            onClick={submit}
+            className={`${primaryButton} disabled:opacity-40`}
+          >
+            {t("servers.create.submit")}
+          </button>
+        </>
+      }
+    >
+      <DialogField label={t("servers.create.name")} htmlFor={nameId}>
+        <input
+          id={nameId}
+          data-autofocus
+          maxLength={255}
+          value={name}
+          aria-describedby={noteId}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") submit();
+          }}
+          className={inputClass}
+        />
+      </DialogField>
+      <p id={noteId} className="text-sm text-pretty text-ink-muted">
+        {t("admin.servers.create.note")}
+      </p>
+      {error && (
+        <p role="alert" className="text-sm text-critical">
+          {error}
+        </p>
+      )}
+    </Dialog>
+  );
+}
+
 export function NewServerDialog({ project, onClose }: { project: Project; onClose: () => void }) {
   const { t } = useTranslation();
   const navigate = useNavigate();

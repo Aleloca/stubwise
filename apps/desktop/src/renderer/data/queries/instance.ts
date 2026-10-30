@@ -25,6 +25,8 @@ export type {
   WebhookFormat,
   WebhookGroup,
   WebhookView,
+  InstanceRepositoryGroup,
+  InstanceRepositoryRow,
   PluginView,
   ModelRow,
   ModelSource,
@@ -35,6 +37,18 @@ export type {
 export { BACKGROUND_WEEKLY_THRESHOLD } from "../instance/providers";
 export { GOOGLE_SETUP } from "../instance/google";
 export { WEBHOOK_EVENTS } from "../instance/webhook";
+
+/**
+ * I repository dei progetti dove chi guarda ha `repos.view`, per progetto
+ * (Amministrazione → Repositories; errore `forbidden` senza `repos.manage`).
+ */
+export function useAllRepositories() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "instance", "repositories"] as const,
+    queryFn: () => api.instance.listAllRepositories(),
+  });
+}
 
 /** I consumi della scheda Usage (errore `forbidden` senza `usage.view`). */
 export function useUsage(input: {

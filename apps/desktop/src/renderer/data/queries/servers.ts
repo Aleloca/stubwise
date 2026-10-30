@@ -27,6 +27,19 @@ export function useProjectServers(projectId: string | undefined) {
   });
 }
 
+/**
+ * Tutti i server dell'istanza, coi progetti visibili e gli orfani
+ * (Amministrazione → Servers, area 9b; errore `forbidden` senza
+ * `monitor.manage`).
+ */
+export function useAllServers() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.allServers(me),
+    queryFn: () => api.servers.listAllServers(),
+  });
+}
+
 /** Il dettaglio di un server (errore `not_found`: nascosto o inesistente, R-G5). */
 export function useServer(code: string | undefined) {
   const me = useSessionPersonId();

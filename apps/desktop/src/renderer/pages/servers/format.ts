@@ -160,6 +160,21 @@ export function environmentsLine(
     .join(" · ");
 }
 
+/**
+ * Dove sta il server, in parole (area 9b): gli ambienti visibili; senza,
+ * «Not in any project yet» per un orfano (R-L7) o «In projects you can't
+ * see» per un server dei soli progetti invisibili (R-G5, senza numero).
+ */
+export function whereLine(
+  row: Pick<ServerRow, "environments" | "primaryProjectCode"> & { orphan?: boolean },
+  t: TFunction,
+): string {
+  const envs = environmentsLine(row, t);
+  if (envs) return envs;
+  if (row.orphan) return t("servers.noProject");
+  return row.orphan === false ? t("servers.hiddenProjects") : "";
+}
+
 /** Lo stato dell'accesso SSH da dire in una riga, solo se NON è a posto; `null` se lo è. */
 export function accessProblem(row: Pick<ServerRow, "access">, t: TFunction): string | null {
   if (row.access === "verified" || row.access === "regenerating") return null;
@@ -171,12 +186,15 @@ export function accessProblem(row: Pick<ServerRow, "access">, t: TFunction): str
  * restano in questo progetto, o che uno staging non avvisa.
  */
 export function diagnosesLine(
-  row: Pick<ServerRow, "analysisProject">,
-  projectCode: string,
+  row: Pick<ServerRow, "analysisProject"> & { orphan?: boolean },
+  projectCode: string | null,
   t: TFunction,
 ): string | null {
+  // Un orfano non ha né produzioni né staging: «Staging only» sarebbe falso.
+  if (row.orphan) return null;
   if (row.analysisProject === null) return t("servers.stagingOnly");
-  if (row.analysisProject.code === projectCode) return null;
+  // Dall'Amministrazione (area 9b) non c'è un progetto «di qui» da cui le diagnosi vadano altrove.
+  if (projectCode === null || row.analysisProject.code === projectCode) return null;
   return row.analysisProject.code
     ? t("servers.diagnosesGoTo", { code: row.analysisProject.code })
     : t("servers.diagnosesGoElsewhere");

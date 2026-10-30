@@ -784,6 +784,21 @@ describe("area 9b, Task 7: i server di tutta l'istanza", () => {
     expect(week.points.length).toBeLessThanOrEqual(METRIC_POINTS_MAX);
   });
 
+  it("Task 12: a 30d e 90d ogni punto è la media di una finestra; la durata la dà il livello dati", async () => {
+    as("p-marco");
+    const DAY_S = 86_400;
+    const month = await servers.getServerMetrics("SRV-1", "30d");
+    expect(month.averagedSeconds).toBe(Math.round((30 * DAY_S) / (METRIC_POINTS_MAX - 2)));
+    const quarter = await servers.getServerMetrics("SRV-1", "90d");
+    expect(quarter.averagedSeconds).toBe(Math.round((90 * DAY_S) / (METRIC_POINTS_MAX - 2)));
+    // Due punti consecutivi distano proprio quella finestra.
+    const gap = (Date.parse(quarter.points[1]!.ts) - Date.parse(quarter.points[0]!.ts)) / 1000;
+    expect(Math.abs(gap - quarter.averagedSeconds!)).toBeLessThan(2);
+    // Negli altri intervalli non c'è: lì vale la nota dei punti ridotti.
+    expect((await servers.getServerMetrics("SRV-1", "7d")).averagedSeconds).toBeNull();
+    expect((await servers.getServerMetrics("SRV-1", "1h")).averagedSeconds).toBeNull();
+  });
+
   it("I3: 30d e 90d si ricampionano per DURATA: punti equispaziati, e i picchi vecchi non spariscono", async () => {
     as("p-marco");
     const now = Date.parse("2026-10-23T12:00:00Z");

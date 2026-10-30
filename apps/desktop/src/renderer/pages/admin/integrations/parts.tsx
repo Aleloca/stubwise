@@ -17,12 +17,20 @@ export const CHECK_MS = 600;
 
 export const wait = (ms: number) => new Promise((r) => window.setTimeout(r, ms));
 
+/** Le larghezze massime delle voci (classi intere, perché Tailwind le trovi). */
+const PAGE_WIDTHS = {
+  880: "max-w-[880px]",
+  960: "max-w-[960px]",
+  1040: "max-w-[1040px]",
+} as const;
+
 /** La pagina di una voce: h1, la riga in prosa, a destra il bottone di creazione. */
 export function IntegrationPage({
   title,
   intro,
   action,
   wide = false,
+  width,
   children,
 }: {
   title: string;
@@ -30,11 +38,13 @@ export function IntegrationPage({
   action?: ReactNode;
   /** Fino a 1040 px invece di 880 (Outgoing webhooks, due colonne). */
   wide?: boolean;
+  /** Una larghezza diversa: 960 per Servers e Repositories (shape admin-instance.md §6). */
+  width?: keyof typeof PAGE_WIDTHS;
   children: ReactNode;
 }) {
   return (
     <section className="page-header pb-16 pl-8 [--page-header-pr:32px] [--page-header-pt:32px]">
-      <div className={wide ? "max-w-[1040px]" : "max-w-[880px]"}>
+      <div className={PAGE_WIDTHS[width ?? (wide ? 1040 : 880)]}>
         <div className="flex items-start gap-4">
           <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-semibold tracking-[-0.01em] text-ink">{title}</h1>

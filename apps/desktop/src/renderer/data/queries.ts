@@ -158,6 +158,8 @@ export const queryKeys = {
   projectServers: (personId: string, projectId: string) =>
     ["as", personId, "servers", "list", projectId] as const,
   server: (personId: string, code: string) => ["as", personId, "servers", "server", code] as const,
+  /** Tutti i server dell'istanza (Amministrazione → Servers, area 9b). */
+  allServers: (personId: string) => ["as", personId, "servers", "all"] as const,
   serverMetrics: (personId: string, code: string, range: string, checkId: string) =>
     ["as", personId, "servers", "metrics", code, range, checkId] as const,
   serverSearch: (personId: string, q: string) => ["as", personId, "servers", "search", q] as const,

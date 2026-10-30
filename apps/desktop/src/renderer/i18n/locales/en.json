@@ -7488,7 +7488,8 @@
     "groups": {
       "attention": "Needs attention",
       "fine": "Running fine",
-      "waiting": "Waiting for the agent"
+      "waiting": "Waiting for the agent",
+      "orphan": "Not in any project"
     },
     "health": {
       "healthy": "Healthy",
@@ -7607,7 +7608,13 @@
       "gap": "no data",
       "responseTime": "Response time · {{name}}",
       "deselect": "Stop showing {{name}} in the charts",
-      "checkDown": "down"
+      "checkDown": "down",
+      "averagesHours_one": "Each point averages about {{count}} hour.",
+      "averagesHours_other": "Each point averages about {{count}} hours.",
+      "averagesMinutes_one": "Each point averages about {{count}} minute.",
+      "averagesMinutes_other": "Each point averages about {{count}} minutes.",
+      "summaryDay": "Average {{avg}} · peak {{peak}} on {{day}}",
+      "summaryLatencyDay": "Average {{avg}} · slowest {{peak}} on {{day}}"
     },
     "services": {
       "filter": "Filter services",
@@ -7754,7 +7761,8 @@
         "busy": "Claude is working on {{code}} right now. Delete it when the analysis or the fix is over.",
         "error": "Couldn't delete {{code}}. Try again.",
         "done": "{{code}} deleted"
-      }
+      },
+      "primaryHidden": "The productions using this server are in projects you can't see."
     },
     "create": {
       "title": "New server in {{code}}",
@@ -7976,7 +7984,12 @@
         },
         "error": "The simulation didn't go through."
       }
-    }
+    },
+    "noProject": "Not in any project yet",
+    "hiddenProjects": "In projects you can't see",
+    "projectsLabel": "Projects: {{codes}}",
+    "projectsMore": "+{{count}}",
+    "orphanNoClaude": "Link this server to a project first: Claude works inside a project."
   },
   "whoCan": {
     "actions": {
@@ -9395,6 +9408,30 @@
         "invalid_credentials": "Error from the address",
         "unreachable": "Unreachable"
       }
+    },
+    "servers": {
+      "title": "Servers",
+      "intro": "Every server on the instance, in every project. A server joins a project through one of its environments.",
+      "new": "New server",
+      "empty": "No servers yet. Create one here, or from a project's environments.",
+      "loadError": "Couldn't load the servers.",
+      "create": {
+        "title": "New server",
+        "note": "It starts without a project. To bring it into a project, link it to an environment in that project's Releases → Environments."
+      }
+    },
+    "repositories": {
+      "title": "Repositories",
+      "intro": "The repositories of the projects you can see. To change one, open it in its project's settings.",
+      "find": "Find a repository",
+      "noMatch": "No repository matches “{{q}}”.",
+      "empty": "No repositories in the projects you can see.",
+      "loadError": "Couldn't load the repositories.",
+      "group": "{{code}} · {{name}}",
+      "count_one": "{{count}} repository",
+      "count_other": "{{count}} repositories",
+      "noAccount": "No git account",
+      "open": "{{name}}, {{project}}: open it in the project's settings"
     }
   },
   "permissions": {

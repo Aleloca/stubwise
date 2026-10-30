@@ -74,7 +74,7 @@ function DeleteDialog({
   onClose,
 }: {
   server: ServerDetail;
-  projectCode: string;
+  projectCode: string | null;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
@@ -103,10 +103,13 @@ function DeleteDialog({
                 onSuccess: () => {
                   onClose();
                   toast.show(t("servers.settings.delete.done", { code: server.code }));
-                  void navigate({
-                    to: "/p/$code/$section",
-                    params: { code: projectCode, section: "servers" },
-                  });
+                  // Torna all'elenco da cui si è aperto: il progetto o l'Amministrazione.
+                  void (projectCode
+                    ? navigate({
+                        to: "/p/$code/$section",
+                        params: { code: projectCode, section: "servers" },
+                      })
+                    : navigate({ to: "/admin/$section", params: { section: "servers" } }));
                 },
                 onError: (e) =>
                   setError(
@@ -144,7 +147,7 @@ export function ServerSettings({
   projectCode,
 }: {
   server: ServerDetail;
-  projectCode: string;
+  projectCode: string | null;
 }) {
   const { t } = useTranslation();
   const update = useUpdateServer();
@@ -260,6 +263,9 @@ export function ServerSettings({
             <p className="text-md text-ink">
               {t("servers.settings.primaryOnly", { code: server.productionProjects[0]!.code })}
             </p>
+          ) : server.analysisProject !== null ? (
+            // Le produzioni ci sono, ma in progetti che chi guarda non vede (area 9b, R-G5).
+            <p className="text-md text-ink-muted">{t("servers.settings.primaryHidden")}</p>
           ) : (
             <p className="text-md text-ink-muted">{t("servers.settings.primaryNone")}</p>
           )}

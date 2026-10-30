@@ -94,8 +94,8 @@ function ObjectRef({ entry, children }: { entry: ChangeEntryView; children?: Rea
         {children}
       </Link>
     ) : (
-      // Un server d'istanza: la voce Servers dell'Amministrazione (9b).
-      <Link to="/admin/$section" params={{ section: "servers" }} className={linkClass}>
+      // Un server d'istanza: il suo dettaglio dentro Servers dell'Amministrazione (9b).
+      <Link to="/admin/servers/$server" params={{ server: l.code }} className={linkClass}>
         {children}
       </Link>
     )

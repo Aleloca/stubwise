@@ -14,15 +14,18 @@ import { WhoCanLink } from "../../components/WhoCanLink";
 // chi gestisce il monitoraggio (`monitor.manage`, d'istanza): bottone
 // secondario, la pagina non ha un primario.
 
-/** Due righe d'elenco finte, con la forma vera (codice, nome, salute; sotto gli ambienti). */
-function ListSkeleton() {
+/**
+ * Righe d'elenco finte, con la forma vera (codice, nome, salute; sotto gli
+ * ambienti): due nel progetto, quattro dall'Amministrazione (area 9b).
+ */
+export function ListSkeleton({ widths = [0.42, 0.3] }: { widths?: number[] }) {
   const { t } = useTranslation();
   return (
     <div aria-busy="true" className="skeleton-breathe border-t border-rule">
       <span role="status" className="sr-only">
         {t("taskUi.states.loading")}
       </span>
-      {[0.42, 0.3].map((w) => (
+      {widths.map((w) => (
         <div key={w} className="flex h-14 flex-col justify-center gap-2 border-b border-rule px-3">
           <span className="flex items-center gap-3">
             <span className="h-2.5 w-12 rounded-sm bg-ink/8" />

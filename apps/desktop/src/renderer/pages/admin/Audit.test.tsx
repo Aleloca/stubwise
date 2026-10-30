@@ -285,7 +285,7 @@ describe("Change log in Amministrazione", () => {
     const server = entries().find((x) => x.dataset.changeEntry === "server.thresholds_changed")!;
     expect(within(server).getByRole("link", { name: "SRV-1" })).toHaveAttribute(
       "href",
-      "/admin/servers",
+      "/admin/servers/SRV-1",
     );
     expect(server).toHaveTextContent("CPU 85% → CPU 90%");
   });

@@ -159,6 +159,16 @@ describe("route grammar", () => {
     expect(isAppRoute("#/p/STW/releases/SRV-2")).toBe(false);
   });
 
+  it("area 9b: il dettaglio dall'Amministrazione, e 30d/90d in entrambi", () => {
+    expect(isAppRoute("#/admin/servers")).toBe(true);
+    expect(isAppRoute("#/admin/servers/SRV-2")).toBe(true);
+    expect(isAppRoute("#/admin/servers/srv-2")).toBe(false);
+    expect(isAppRoute("#/admin/servers/SRV-2?range=90d&section=checks")).toBe(true);
+    expect(isAppRoute("#/p/STW/servers/SRV-2?range=30d")).toBe(true);
+    expect(isAppRoute("#/p/STW/servers/SRV-2?range=month")).toBe(false);
+    expect(isAppRoute("#/admin/repositories")).toBe(true);
+  });
+
   it("area 8b: gli avvisi dei server (tranne la diagnosi, che apre la task) portano al dettaglio", () => {
     const serverAlerts = NOTIFICATIONS.filter(
       (n) =>

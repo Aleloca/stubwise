@@ -7488,7 +7488,8 @@
     "groups": {
       "attention": "Da guardare",
       "fine": "Tutto a posto",
-      "waiting": "In attesa dell'agente"
+      "waiting": "In attesa dell'agente",
+      "orphan": "In nessun progetto"
     },
     "health": {
       "healthy": "In salute",
@@ -7607,7 +7608,13 @@
       "gap": "nessun dato",
       "responseTime": "Tempo di risposta · {{name}}",
       "deselect": "Togli {{name}} dai grafici",
-      "checkDown": "giù"
+      "checkDown": "giù",
+      "averagesHours_one": "Ogni punto è la media di circa {{count}} ora.",
+      "averagesHours_other": "Ogni punto è la media di circa {{count}} ore.",
+      "averagesMinutes_one": "Ogni punto è la media di circa {{count}} minuto.",
+      "averagesMinutes_other": "Ogni punto è la media di circa {{count}} minuti.",
+      "summaryDay": "Media {{avg}} · picco {{peak}} il {{day}}",
+      "summaryLatencyDay": "Media {{avg}} · più lento {{peak}} il {{day}}"
     },
     "services": {
       "filter": "Filtra i servizi",
@@ -7754,7 +7761,8 @@
         "busy": "Claude sta lavorando su {{code}} in questo momento. Eliminalo quando l'analisi o la correzione è finita.",
         "error": "Non è stato possibile eliminare {{code}}. Riprova.",
         "done": "{{code}} eliminato"
-      }
+      },
+      "primaryHidden": "Le produzioni che usano questo server sono in progetti che non vedi."
     },
     "create": {
       "title": "Nuovo server in {{code}}",
@@ -7976,7 +7984,12 @@
         },
         "error": "La simulazione non è andata a buon fine."
       }
-    }
+    },
+    "noProject": "Non ancora in un progetto",
+    "hiddenProjects": "In progetti che non vedi",
+    "projectsLabel": "Progetti: {{codes}}",
+    "projectsMore": "+{{count}}",
+    "orphanNoClaude": "Collega prima il server a un progetto: Claude lavora dentro un progetto."
   },
   "whoCan": {
     "actions": {
@@ -9395,6 +9408,30 @@
         "invalid_credentials": "Errore dall'indirizzo",
         "unreachable": "Non raggiungibile"
       }
+    },
+    "servers": {
+      "title": "Server",
+      "intro": "Tutti i server dell'istanza, in tutti i progetti. Un server entra in un progetto attraverso uno dei suoi ambienti.",
+      "new": "Nuovo server",
+      "empty": "Nessun server. Creane uno qui, o dagli ambienti di un progetto.",
+      "loadError": "Impossibile caricare i server.",
+      "create": {
+        "title": "Nuovo server",
+        "note": "Nasce senza progetto. Per portarlo in un progetto, collegalo a un ambiente in Releases → Ambienti di quel progetto."
+      }
+    },
+    "repositories": {
+      "title": "Repository",
+      "intro": "I repository dei progetti che vedi. Per cambiarne uno, aprilo nelle impostazioni del suo progetto.",
+      "find": "Cerca un repository",
+      "noMatch": "Nessun repository corrisponde a «{{q}}».",
+      "empty": "Nessun repository nei progetti che vedi.",
+      "loadError": "Impossibile caricare i repository.",
+      "group": "{{code}} · {{name}}",
+      "count_one": "{{count}} repository",
+      "count_other": "{{count}} repository",
+      "noAccount": "Nessun account git",
+      "open": "{{name}}, {{project}}: aprilo nelle impostazioni del progetto"
     }
   },
   "permissions": {

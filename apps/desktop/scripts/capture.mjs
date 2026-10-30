@@ -243,6 +243,97 @@ async function main() {
       return;
     }
 
+    // Area 9b, Task 12 (`CAPTURE_A9B_ESTATE=1`): Servers e Repositories
+    // dell'Amministrazione (shape admin-instance.md), scatti `a9b-servers-*` e
+    // `a9b-repos-*`. Lo stato si prepara dal livello dati.
+    if (process.env.CAPTURE_A9B_ESTATE) {
+      async function prepare(page, action) {
+        await page.evaluate(async (what) => {
+          const api = await import("/data/api.ts");
+          const session = await import("/data/session.ts");
+          const store = await import("/data/store.ts");
+          const viewer = await import("/data/viewer.ts");
+          const prev = session.getSessionPersonId();
+          session.setSessionPersonId("p-roberta");
+          try {
+            if (what === "orphan") {
+              await api.servers.createServer({ name: "edge-01", environmentId: null });
+            }
+            if (what === "sara") viewer.grantInstancePermission("p-sara", "monitor.manage");
+            if (what === "manyRepos") {
+              for (let i = 1; i <= 6; i++)
+                store.state.repositories.push({
+                  id: `repo-acq-extra-${i}`,
+                  projectId: "prj-acq",
+                  name: `servizio-${i}`,
+                  fullName: `colline/servizio-${i}`,
+                  gitAccountId: null,
+                });
+            }
+          } finally {
+            session.setSessionPersonId(prev);
+          }
+        }, action);
+        await page.waitForTimeout(400);
+      }
+      const go = async (page, hash) => {
+        await page.evaluate((h) => {
+          window.location.hash = h;
+        }, hash);
+        await page.waitForTimeout(1200);
+        await page.mouse.move(2, 2);
+      };
+      const newServer = async (page) => {
+        await page.getByRole("button", { name: /^(New server|Nuovo server)$/ }).click();
+        await page.getByLabel(/^(Name|Nome)$/).fill("edge-02");
+        await page.waitForTimeout(300);
+      };
+      const created = async (page) => {
+        await newServer(page);
+        await page.getByRole("button", { name: /^(Create server|Crea il server)$/ }).click();
+        await page.waitForTimeout(500);
+      };
+      const find = async (page) => {
+        await page.getByRole("searchbox").fill("audin");
+        await page.waitForTimeout(300);
+      };
+      const SCENES = [
+        // [nome, indirizzo, { persona, action, after }]
+        ["servers", "/admin/servers", { persona: "Roberta", action: "orphan" }],
+        ["servers-hidden", "/admin/servers", { persona: "Sara", action: "sara" }],
+        ["servers-new", "/admin/servers", { persona: "Roberta", after: newServer }],
+        ["servers-key", "/admin/servers", { persona: "Roberta", after: created }],
+        ["servers-30d", "/admin/servers/SRV-2?range=30d", { persona: "Roberta" }],
+        ["servers-90d", "/admin/servers/SRV-1?range=90d", { persona: "Roberta" }],
+        ["servers-orphan", "/admin/servers/SRV-5", { persona: "Roberta", action: "orphan" }],
+        ["repos", "/admin/repositories", { persona: "Roberta" }],
+        ["repos-find", "/admin/repositories", { persona: "Roberta", action: "manyRepos", after: find }],
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      for (const [name, hash, opts] of SCENES) {
+        if (only && !only.test(name)) continue;
+        for (const v of variants) {
+          const { page, context } = await open(v.scheme, v.viewport, "/home", {
+            lang: v.lang,
+            persona: opts.persona,
+          });
+          if (opts.action) await prepare(page, opts.action);
+          await go(page, hash);
+          if (opts.after) await opts.after(page);
+          await shot(page, `a9b-${name}-${v.suffix}.png`);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 9b, Task 11 (`CAPTURE_A9B_GSW=1`): Google Workspace, Storage e
     // Outgoing webhooks (shape admin-integrations.md), scatti `a9b-google-*`,
     // `a9b-storage-*` e `a9b-webhook-*`. Lo stato si prepara dal livello dati.

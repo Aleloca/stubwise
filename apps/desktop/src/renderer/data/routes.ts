@@ -305,7 +305,7 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
       return isSupportPath(path) && /^[\w-]+$/.test(value);
     // Il dettaglio di un server (area 8b): intervallo, controllo, parte in vista.
     case "range":
-      return isServerPath(path) && /^(1h|24h|7d)$/.test(value);
+      return isServerPath(path) && /^(1h|24h|7d|30d|90d)$/.test(value);
     case "check":
       return isServerPath(path) && /^[\w-]+$/.test(value);
     case "section":
@@ -372,9 +372,9 @@ export const SERVER_PARTS = [
   "settings",
 ] as const;
 
-/** Il dettaglio di un server. */
+/** Il dettaglio di un server, dal progetto o dall'Amministrazione (area 9b). */
 function isServerPath(path: string): boolean {
-  return /^p\/[A-Z]{2,4}\/servers\/SRV-\d+$/.test(path);
+  return /^p\/[A-Z]{2,4}\/servers\/SRV-\d+$/.test(path) || /^admin\/servers\/SRV-\d+$/.test(path);
 }
 
 /** La sezione Releases di un progetto. */
@@ -445,6 +445,8 @@ export function isAppRoute(route: string): boolean {
   if (/^admin\/roles\/[\w-]+$/.test(path)) return true;
   // La pagina di un plugin (area 9b): `#/admin/plugins/plg-superpowers`.
   if (/^admin\/plugins\/[\w-]+$/.test(path)) return true;
+  // Il dettaglio di un server dall'Amministrazione (area 9b): `#/admin/servers/SRV-2`.
+  if (/^admin\/servers\/SRV-\d+$/.test(path)) return true;
   if (isChannelPath(path)) return true;
   if (isAutomationsPath(path)) return true;
   // Il dettaglio di un rilascio (area 8a): `#/p/AUD/releases/AUD-V3`.
