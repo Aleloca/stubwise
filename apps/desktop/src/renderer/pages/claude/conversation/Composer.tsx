@@ -1,6 +1,12 @@
 import { useEffect, useId, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { useProjects, useSetConversationContext } from "../../../data/queries";
+import { AiBlockLine } from "../../../components/InstanceBlock";
+import {
+  useAiBlock,
+  useProjects,
+  useSetConversationContext,
+  useStorageAllowsUploads,
+} from "../../../data/queries";
 import type { ConversationStream } from "../../../data/queries";
 import type { Attachment, ConversationDetail } from "../../../data/types";
 import { MenuGroup, RadioItem } from "../../../tasks-ui/Menu";
@@ -103,6 +109,19 @@ export function Composer({
   const working = detail.canInterrupt;
   const reconnecting = connection === "reconnecting";
   const hasContent = text.trim().length > 0 || attachments.length > 0;
+  // Area 9b: «Chiedi a Claude» si ferma solo per il budget del mese (la pausa
+  // della coda non la tocca): Send spento con la frase, il testo resta [EF 5].
+  const free = detail.kind === "free";
+  const block = useAiBlock(null).data ?? null;
+  const budget = free && block?.reason === "monthly_budget";
+  // I caricamenti spenti: la graffetta è spenta; un file incollato lo dice per 4 s.
+  const uploadsOff = useStorageAllowsUploads().data === false;
+  const [uploadNotice, setUploadNotice] = useState(false);
+  useEffect(() => {
+    if (!uploadNotice) return;
+    const timer = setTimeout(() => setUploadNotice(false), 4000);
+    return () => clearTimeout(timer);
+  }, [uploadNotice]);
 
   // ⌘. (Ctrl+. fuori dal Mac) ferma Claude, ovunque nella finestra.
   useEffect(() => {
@@ -141,7 +160,7 @@ export function Composer({
   };
 
   const submit = () => {
-    if (!hasContent || reconnecting) return;
+    if (!hasContent || reconnecting || budget) return;
     onSend(
       text.trim(),
       attachments.map((a) => a.attachment),
@@ -166,6 +185,10 @@ export function Composer({
     const files = [...(e.clipboardData?.files ?? [])];
     if (files.length === 0) return;
     e.preventDefault();
+    if (uploadsOff) {
+      setUploadNotice(true);
+      return;
+    }
     onAddFiles(files);
   };
 
@@ -193,6 +216,11 @@ export function Composer({
   return (
     <div className={compact ? "px-4 pt-2 pb-3" : "px-8 pt-2 pb-5"}>
       <div className={`relative w-full max-w-[720px] min-w-0 ${compact ? "mx-auto" : ""}`}>
+        {budget && block && (
+          <div className="pb-2">
+            <AiBlockLine block={block} projectCode="" chat />
+          </div>
+        )}
         {menuOpen && (
           <SuggestionMenu
             id={menuId}
@@ -274,9 +302,14 @@ export function Composer({
             />
             <button
               type="button"
-              className={quietButton}
+              className={`${quietButton} disabled:opacity-40`}
               aria-label={t("claude.conversation.attachments.add")}
-              title={t("claude.conversation.attachments.add")}
+              title={
+                uploadsOff
+                  ? t("instanceEffects.storage.attach")
+                  : t("claude.conversation.attachments.add")
+              }
+              disabled={uploadsOff}
               onClick={() => fileInput.current?.click()}
             >
               <PaperclipGlyph />
@@ -347,7 +380,7 @@ export function Composer({
                 <button
                   type="button"
                   className={primaryButton}
-                  disabled={!hasContent || reconnecting}
+                  disabled={!hasContent || reconnecting || budget}
                   onClick={submit}
                 >
                   <SendGlyph />
@@ -358,11 +391,13 @@ export function Composer({
           </div>
         </div>
         <p id={hintId} className="min-h-4 pt-1.5 text-xs text-ink-muted" aria-live="polite">
-          {reconnecting
-            ? t("claude.conversation.composer.sendSuspended")
-            : hintKey && hasContent
-              ? t(hintKey)
-              : ""}
+          {uploadNotice
+            ? t("instanceEffects.storage.attach")
+            : reconnecting
+              ? t("claude.conversation.composer.sendSuspended")
+              : hintKey && hasContent
+                ? t(hintKey)
+                : ""}
         </p>
       </div>
     </div>

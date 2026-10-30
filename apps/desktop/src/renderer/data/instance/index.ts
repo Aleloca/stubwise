@@ -32,8 +32,10 @@ export {
 } from "./providers";
 export {
   DEFAULT_MODELS,
+  OPERATION_OF_KIND,
   listModels,
   modelFor,
+  modelIdFor,
   setModel,
   type ModelRow,
   type ModelSource,
@@ -96,6 +98,7 @@ export {
   type WebhookGroup,
   type WebhookView,
 } from "./webhook";
+export { getAiBlock, getUploadsAllowed } from "./blocks";
 export {
   aiBlockFor,
   dropHeld,

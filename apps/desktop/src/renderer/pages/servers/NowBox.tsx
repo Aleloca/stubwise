@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { waitingText } from "../../components/InstanceBlock";
 import { useTask } from "../../data/queries";
 import type { ServerDetail, ServerEpisodeView } from "../../data/servers";
 import { WorkingRing } from "../claude/conversation/parts";
@@ -81,6 +82,17 @@ function WorkLine({
   const task = taskCode ? <TaskLink code={taskCode} /> : undefined;
 
   if (server.work === "fixing") return line(true, t("servers.now.work.fixing"), task);
+  // Area 9b: nata ma ferma per la coda in pausa, senza anello (non sta lavorando).
+  if (analysis?.outcome === "running" && episode?.analysisWaiting)
+    return line(
+      false,
+      waitingText(
+        t,
+        episode.analysisWaiting,
+        episode.analysisWaiting.reason === "queue_paused" ? episode.analysisWaiting.byName : "",
+      ),
+      session(analysis.conversationId),
+    );
   if (analysis?.outcome === "running")
     return line(true, t("servers.now.work.analyzing"), session(analysis.conversationId));
   if (analysis?.outcome === "failed")

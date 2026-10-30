@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   getConversation,
+  instance,
   resetApi,
   setLatency,
   setStreamLatency,
@@ -426,6 +427,8 @@ describe("sezione Claude: attività AI, cicli delle PR, consumi", () => {
 
   it("il ciclo si deriva: finita la correzione aspetta la review; «Request changes» apre il giro 2", async () => {
     // La sessione dell'app finisce il suo copione: la correzione 1 è inviata alla #411.
+    // La coda di STW del seme è in pausa (area 9b): qui si prova il ciclo, la coda gira.
+    state.instance.queuePauses = [];
     setSessionPersonId("p-laura");
     subscribe("cv-run-stw-3", () => {});
     await whenIdle("cv-run-stw-3");
@@ -483,5 +486,73 @@ describe("sezione Claude: attività AI, cicli delle PR, consumi", () => {
     state.conversations.find((c) => c.id === "cv-run-mkx-11")!.usage = [];
     const section = await claudeSection("t-mkx-11", "p-giulia");
     expect(section.querySelector("[data-ai-usage]")).toBeNull();
+  });
+});
+
+describe("sezione Claude: le impostazioni d'istanza (area 9b, shape instance-effects)", () => {
+  /** Una task aperta del progetto, assegnata a Claude, che non ha mai girato. */
+  const readyTask = (projectId: string) => {
+    const t = state.tasks.find(
+      (x) => x.projectId === projectId && x.claude === "none" && x.closedAt === null,
+    )!;
+    t.assigneeId = CLAUDE;
+    return t;
+  };
+  const block = (section: HTMLElement) => section.querySelector<HTMLElement>("[data-ai-block]");
+
+  it("budget raggiunto: «Start» spento con la frase e «Who?»; alzato il budget torna acceso", async () => {
+    const t = readyTask("prj-acq");
+    state.instance.simulate.budgetReached = true;
+    const section = await claudeSection(t.id, "p-laura");
+    const start = within(section).getByRole("button", { name: "Start" });
+    expect(start).toBeDisabled();
+    expect(block(section)).toHaveTextContent(
+      "The monthly AI budget is used up. New work waits until someone raises it. Who?",
+    );
+    expect(within(block(section)!).getByRole("button", { name: /Who/ })).toBeEnabled();
+
+    setSessionPersonId("p-roberta");
+    await instance.simulateBudgetReached(false);
+    setSessionPersonId("p-laura");
+    await waitFor(() => expect(within(current()).getByRole("button", { name: "Start" })).toBeEnabled());
+    expect(block(current())).toBeNull();
+  });
+
+  it("coda di STW in pausa: «Start» acceso con la frase; premuto aspetta, e alla ripresa arriva il piano", async () => {
+    const t = readyTask("prj-stw");
+    const section = await claudeSection(t.id, "p-roberta");
+    expect(block(section)).toHaveTextContent(
+      "STW's queue is paused by Roberta Fontana since yesterday at 18:00. If you start now, Claude waits for it to resume.",
+    );
+    await userEvent.click(within(section).getByRole("button", { name: "Start" }));
+    await waitFor(() =>
+      expect(current().querySelector("[data-claude-status]")).toHaveTextContent(
+        "Waiting: queue paused by Roberta Fontana",
+      ),
+    );
+    expect(current().querySelector("[data-claude-status]")).toHaveAttribute(
+      "data-claude-status",
+      "waiting",
+    );
+    expect(within(current()).queryByRole("button", { name: "Start" })).toBeNull();
+
+    await instance.resumeQueue("prj-stw");
+    await waitFor(
+      () =>
+        expect(current().querySelector("[data-claude-status]")).not.toHaveTextContent("Waiting"),
+      { timeout: 3000 },
+    );
+  });
+
+  it("modello e account con cui la sessione è partita, sotto lo stato", async () => {
+    const t = readyTask("prj-acq");
+    state.instance.models.fix_plan = "haiku";
+    const section = await claudeSection(t.id, "p-laura");
+    await userEvent.click(within(section).getByRole("button", { name: "Start" }));
+    await waitFor(() =>
+      expect(current().querySelector("[data-run-provider]")).toHaveTextContent(
+        "Model: Haiku · Account: Team Max (subscription)",
+      ),
+    );
   });
 });

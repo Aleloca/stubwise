@@ -1,7 +1,7 @@
 import { forgetSecret, storeProvidedSecret } from "../admin/secrets";
 import { recordChange } from "../changelog/index";
 import { changedFields } from "../changelog/settingValues";
-import { gate, now, state } from "../store";
+import { gate, notifyInstanceChange, now, state } from "../store";
 import { forbidden, writer } from "../writer";
 import { storageAllowsUploads, storageConfigured } from "./blocks";
 import { canI, reauthRefusal, refuse } from "./common";
@@ -116,6 +116,7 @@ export async function saveStorage(input: {
     s.lastTest = null;
     recordChange({ kind: "storage.secret_replaced", actorId: me, projectId: null, object: OBJECT });
   }
+  notifyInstanceChange();
   return { ok: true };
 }
 
@@ -134,6 +135,7 @@ export async function setAttachments(on: boolean): Promise<InstanceResult> {
     object: OBJECT,
     ...changedFields({ attachments: !on }, { attachments: on })!,
   });
+  notifyInstanceChange();
   return { ok: true };
 }
 
@@ -150,5 +152,6 @@ export async function testStorage(): Promise<InstanceResult<{ outcome: TestOutco
   const outcome = next.storage ?? "ok";
   delete next.storage;
   state.instance.storage.lastTest = { at: now(), outcome };
+  notifyInstanceChange();
   return { ok: true, outcome };
 }

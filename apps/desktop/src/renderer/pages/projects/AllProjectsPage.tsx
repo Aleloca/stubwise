@@ -2,6 +2,7 @@ import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  useAiBlock,
   useDepartments,
   usePinnedProjects,
   useProjectPulses,
@@ -567,7 +568,7 @@ function ProjectRow({
       title={`${project.name} · ${client} · ${template}`}
       className="@container relative border-b border-rule transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/4 has-[[data-project-link]:focus-visible]:outline-2 has-[[data-project-link]:focus-visible]:-outline-offset-2 has-[[data-project-link]:focus-visible]:outline-focus"
     >
-      <div className="flex h-11 items-center gap-4 pr-2 pl-4">
+      <div className="flex min-h-11 items-center gap-4 py-1 pr-2 pl-4">
         <Link
           to="/p/$code/$section"
           params={{ code: project.code, section: "overview" }}
@@ -577,7 +578,10 @@ function ProjectRow({
           <span className="num w-10 shrink-0 text-xs font-semibold tracking-[0.02em] text-ink-muted">
             {project.code}
           </span>
-          <span className="min-w-0 truncate text-md font-medium text-ink">{project.name}</span>
+          <span className="flex min-w-0 flex-col">
+            <span className="min-w-0 truncate text-md font-medium text-ink">{project.name}</span>
+            <QueuePausedNote projectId={project.id} />
+          </span>
           <span className="sr-only">
             {" · "}
             {client}
@@ -623,6 +627,23 @@ function ProjectRow({
         </button>
       </div>
     </li>
+  );
+}
+
+/**
+ * La coda del progetto in pausa (area 9b, shape instance-effects [EF 4],
+ * confermata dal maintainer): «‖ Queue paused» sulla seconda linea, sotto il
+ * nome. Chi l'ha messa e il «Who?» stanno nella testata del progetto.
+ */
+function QueuePausedNote({ projectId }: { projectId: string }) {
+  const { t } = useTranslation();
+  const block = useAiBlock(projectId).data;
+  if (block?.reason !== "queue_paused") return null;
+  return (
+    <span data-queue-paused className="flex gap-1.5 text-xs text-ink-muted">
+      <span aria-hidden="true">‖</span>
+      {t("instanceEffects.queue.row")}
+    </span>
   );
 }
 

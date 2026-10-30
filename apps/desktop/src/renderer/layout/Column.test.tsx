@@ -12,7 +12,8 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetApi, setFilterPinned, setLatency } from "../data/api";
+import { instance, resetApi, setFilterPinned, setLatency } from "../data/api";
+import { state } from "../data/store";
 import { PROJECT_SECTIONS } from "../data/routes";
 import { PROJECTS } from "../data/seed/projects";
 import { ViewerProvider } from "../data/viewer";
@@ -142,6 +143,39 @@ async function cleanupAndRender(path: string, personId: string) {
   cleanup();
   await renderAt(path, personId);
 }
+
+describe("ProjectColumn: la coda in pausa (area 9b, shape instance-effects [EF 4])", () => {
+  const header = () => column().querySelector("header")!;
+
+  it("STW in pausa: sotto il tipo «‖ Queue paused by Roberta Fontana» con il «Who?»; ripresa, sparisce", async () => {
+    await renderAt("/p/STW/tasks", "p-roberta");
+    const line = await waitFor(() => {
+      const el = header().querySelector<HTMLElement>("[data-queue-paused]");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(line).toHaveTextContent("Queue paused by Roberta Fontana");
+    expect(line).toHaveAttribute(
+      "title",
+      "Paused since yesterday at 18:00. New Claude work waits; work already running finishes.",
+    );
+    expect(within(header()).getByRole("button", { name: /Who/ })).toBeInTheDocument();
+
+    await act(async () => {
+      await instance.resumeQueue("prj-stw");
+    });
+    await waitFor(() => expect(header().querySelector("[data-queue-paused]")).toBeNull());
+  });
+
+  it("ACQ (non in pausa) non dice niente; nemmeno col budget raggiunto", async () => {
+    state.instance.simulate.budgetReached = true;
+    await renderAt("/p/ACQ/tasks", "p-roberta");
+    // La testata letta: il tipo del progetto sotto il nome.
+    await waitFor(() => expect(header().querySelector("p")).not.toBeNull());
+    expect(header().querySelector("[data-queue-paused]")).toBeNull();
+    expect(header()).not.toHaveTextContent(/budget/i);
+  });
+});
 
 describe("PersonalColumn", () => {
   it("su /home la colonna ha Home, La mia settimana e «All filters»; Home è corrente", async () => {

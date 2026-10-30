@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import {
   useConversation,
   useConversationStream,
+  useInstanceChanges,
   usePeople,
   usePreApprovePlan,
   useProjects,
@@ -27,6 +28,13 @@ import {
   type WorkStatus,
 } from "../../domain/claude/taskWork";
 import { relativeTime } from "../../notifications/time";
+import {
+  AiBlockLine,
+  RefusedLine,
+  isBudgetRefusal,
+  usePauserName,
+  waitingText,
+} from "../../components/InstanceBlock";
 import { WhoCanLink } from "../../components/WhoCanLink";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { itemClass, MenuGroup } from "../../tasks-ui/Menu";
@@ -109,6 +117,8 @@ export function ClaudeSection({
 }) {
   const { t } = useTranslation();
   const work = useTaskWork(task.id);
+  // Budget e coda (area 9b): alzato il budget o ripresa la coda, si rilegge da sé.
+  useInstanceChanges();
   const title = t(`${K}.title`);
 
   if (work.isError) {
@@ -327,6 +337,9 @@ function NoRun({ task, work, canEdit }: { task: Task; work: TaskWork; canEdit: b
   const members = useProjectMembers(task.projectId);
   const claude = members?.find((p) => p.isClaude);
   const assigned = !!claude && task.assigneeId === claude.id;
+  // Un «Start» rifiutato perché il budget è finito fra la lettura e il clic.
+  const [refused, setRefused] = useState(false);
+  const budget = work.blocked?.reason === "monthly_budget";
 
   // Una task che dice uno stato di Claude senza una sessione visibile (chi
   // guarda non le vede, o non ce ne sono): lo stato della task, in neutro,
@@ -360,14 +373,27 @@ function NoRun({ task, work, canEdit }: { task: Task; work: TaskWork; canEdit: b
           waiting={false}
         />
         {!ready ? null : work.actions.start === "allowed" ? (
-          <button
-            type="button"
-            className={`${smallPrimary} self-start`}
-            disabled={start.isPending}
-            onClick={() => start.mutate(task.id, { onError: failed })}
-          >
-            {t(`${K}.start`)}
-          </button>
+          <>
+            {/* Il blocco d'istanza sopra il controllo che ferma (shape EF §3). */}
+            {refused ? (
+              <RefusedLine />
+            ) : (
+              work.blocked && <AiBlockLine block={work.blocked} projectCode={code} />
+            )}
+            <button
+              type="button"
+              className={`${smallPrimary} self-start`}
+              disabled={start.isPending || budget}
+              onClick={() =>
+                start.mutate(task.id, {
+                  onSuccess: () => setRefused(false),
+                  onError: (e) => (isBudgetRefusal(e) ? setRefused(true) : failed(e)),
+                })
+              }
+            >
+              {t(`${K}.start`)}
+            </button>
+          </>
         ) : (
           <Who action="startRun" projectId={task.projectId} code={code}>
             {t(`${K}.whoCanStart`, { code })}
@@ -479,6 +505,12 @@ function WithRun({
   const current: TaskRun = detail ? { ...run, state: detail.state, outcome: detail.outcome } : run;
   const status = statusOf(current, events);
   const name = (id: string | null) => people?.find((p) => p.id === id)?.name ?? "";
+  // Area 9b: la sessione nata ma ferma (coda in pausa) e il blocco degli avvii nuovi.
+  const waitingName = usePauserName(run.waiting);
+  const blocked = work.blocked;
+  const budget = blocked?.reason === "monthly_budget";
+  const [refused, setRefused] = useState(false);
+  const onError = (e: Error) => (isBudgetRefusal(e) ? setRefused(true) : failed(e));
 
   // La scheda che aspetta, e quella appena risolta qui (si riduce alla riga d'esito).
   const pending = openCard(events);
@@ -509,15 +541,24 @@ function WithRun({
 
   const toSession = () => void navigate({ to: "/claude/$id", params: { id: run.id } });
 
-  // L'azione in evidenza: una sola, secondo lo stato.
+  // L'azione in evidenza: una sola, secondo lo stato. In attesa della coda
+  // nessuna: il lavoro c'è già, parte alla ripresa.
   let primary: ReactNode = null;
-  if (actions.resume !== "unavailable") {
+  // L'azione in evidenza è un bottone (non la frase di chi può): il blocco
+  // d'istanza, se c'è, sta sopra di lui.
+  let gated = false;
+  if (run.waiting) {
+    primary = null;
+  } else if (actions.resume !== "unavailable") {
+    gated = actions.resume === "allowed";
     primary = actions.resume === "allowed" ? (
       <button
         type="button"
         className={`${smallPrimary} self-start`}
-        disabled={resume.isPending}
-        onClick={() => resume.mutate(task.id, { onError: failed })}
+        disabled={resume.isPending || budget}
+        onClick={() =>
+          resume.mutate(task.id, { onSuccess: () => setRefused(false), onError })
+        }
       >
         {t(`${K}.resume`)}
       </button>
@@ -527,9 +568,15 @@ function WithRun({
       </Who>
     );
   } else if (stopped && actions.relaunch !== "unavailable") {
+    gated = actions.relaunch === "allowed";
     primary = actions.relaunch === "allowed" ? (
       form === "relaunch" ? null : (
-        <button type="button" className={`${smallPrimary} self-start`} onClick={() => setForm("relaunch")}>
+        <button
+          type="button"
+          className={`${smallPrimary} self-start`}
+          disabled={budget}
+          onClick={() => setForm("relaunch")}
+        >
           {t(`${K}.relaunch`)}
         </button>
       )
@@ -539,9 +586,15 @@ function WithRun({
       </Who>
     );
   } else if (actions.requestChanges !== "unavailable") {
+    gated = actions.requestChanges === "allowed";
     primary = actions.requestChanges === "allowed" ? (
       form === "request" ? null : (
-        <button type="button" className={`${smallPrimary} self-start`} onClick={() => setForm("request")}>
+        <button
+          type="button"
+          className={`${smallPrimary} self-start`}
+          disabled={budget}
+          onClick={() => setForm("request")}
+        >
           {t(`${K}.requestChanges`)}
         </button>
       )
@@ -554,7 +607,7 @@ function WithRun({
 
   // «⋯»: approvazione in anticipo e revoca (`plans.approve`, dal livello
   // dati), il rilancio quando non è già l'azione in evidenza, la sessione.
-  const relaunchInMenu = actions.relaunch === "allowed" && !stopped;
+  const relaunchInMenu = actions.relaunch === "allowed" && !stopped && !budget && !run.waiting;
   const menu = (
     <MenuButton
       menuLabel={t(`${K}.more`)}
@@ -609,27 +662,32 @@ function WithRun({
     </MenuButton>
   );
 
-  const working = status.kind === "working";
+  // In attesa della coda: «◷ Waiting: queue paused by …», senza anello (non sta lavorando).
+  const working = status.kind === "working" && !run.waiting;
   return (
     <Section title={t(`${K}.title`)} action={menu} sectionRef={sectionRef}>
       <StatusRow
-        state={status.kind}
-        text={statusText(
-          t,
-          status,
-          detail,
-          name,
-          prs.some((p) => p.state === "open")
-            ? "open"
-            : prs.length > 0 && prs.every((p) => p.state === "merged")
-              ? "merged"
-              : null,
-        )}
-        at={"at" in status ? status.at : null}
+        state={run.waiting ? "waiting" : status.kind}
+        text={
+          run.waiting
+            ? waitingText(t, run.waiting, waitingName)
+            : statusText(
+                t,
+                status,
+                detail,
+                name,
+                prs.some((p) => p.state === "open")
+                  ? "open"
+                  : prs.length > 0 && prs.every((p) => p.state === "merged")
+                    ? "merged"
+                    : null,
+              )
+        }
+        at={run.waiting ? run.createdAt : "at" in status ? status.at : null}
         working={working}
         waiting={work.waitsOnViewer}
       />
-      {run.provider && <ProviderLine provider={run.provider} />}
+      <ProviderLine provider={run.provider} model={run.model} />
       {status.kind === "ended" && status.outcome !== "stopped" && run.failureSummary && (
         <FailureBlock summary={run.failureSummary} phase={status.phase} events={events} />
       )}
@@ -714,6 +772,13 @@ function WithRun({
         </ul>
       )}
 
+      {/* Il blocco d'istanza sopra il controllo che ferma (shape EF §3). */}
+      {(gated || form !== null) &&
+        (refused ? (
+          <RefusedLine />
+        ) : (
+          blocked && <AiBlockLine block={blocked} projectCode={code} />
+        ))}
       {primary}
       {form === "relaunch" && (
         <InlineForm
@@ -725,7 +790,13 @@ function WithRun({
           onSubmit={(instructions) =>
             relaunch.mutate(
               { taskId: task.id, instructions },
-              { onSuccess: () => setForm(null), onError: failed },
+              {
+                onSuccess: () => {
+                  setForm(null);
+                  setRefused(false);
+                },
+                onError,
+              },
             )
           }
         />
@@ -738,7 +809,16 @@ function WithRun({
           pending={request.isPending}
           onCancel={() => setForm(null)}
           onSubmit={(text) =>
-            request.mutate({ taskId: task.id, text }, { onSuccess: () => setForm(null), onError: failed })
+            request.mutate(
+              { taskId: task.id, text },
+              {
+                onSuccess: () => {
+                  setForm(null);
+                  setRefused(false);
+                },
+                onError,
+              },
+            )
           }
         />
       )}

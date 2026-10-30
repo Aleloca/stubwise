@@ -29,7 +29,9 @@ export function PassTime({ run }: { run: AutomationRunDetail }) {
   const thread = useMailThreadOfMessage(email?.effects[0]?.code || null).data;
   const [writing, setWriting] = useState(false);
   const [text, setText] = useState("");
-  const blocked = run.status === "waiting_approval";
+  // Un'approvazione non scade, e un passo fermo per budget o coda (area 9b) non si muove col tempo.
+  const aiWaiting = run.aiWaiting ?? null;
+  const blocked = run.status === "waiting_approval" || aiWaiting !== null;
   const toDeadline = run.waitingUntil
     ? Math.min(30, Math.max(1, Math.ceil((Date.parse(run.waitingUntil) - Date.parse(now())) / DAY)))
     : null;
@@ -41,9 +43,15 @@ export function PassTime({ run }: { run: AutomationRunDetail }) {
   return (
     <PrototypeBox label={t("automations.prototype.passTime")}>
       <p className="text-sm text-ink">
-        {blocked
-          ? t("automations.prototype.approvalsDontExpire")
-          : t("automations.prototype.daysPass")}
+        {aiWaiting
+          ? t(
+              aiWaiting.reason === "monthly_budget"
+                ? "instanceEffects.budget.passTime"
+                : "instanceEffects.queue.passTime",
+            )
+          : blocked
+            ? t("automations.prototype.approvalsDontExpire")
+            : t("automations.prototype.daysPass")}
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <button

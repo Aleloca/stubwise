@@ -8,11 +8,13 @@ import { accessState, accessUsable } from "../../domain/servers/sshAccess";
 import { utterance } from "../../domain/claude/answers";
 import i18n from "../../i18n";
 import { publishAlert } from "../alerts/publish";
-import { createTaskAs, openWorkConversationAs } from "../api-mutations";
+import { createTaskAs, openWorkConversationAs, runIdentity, startOrHold } from "../api-mutations";
+import { aiBlockFor } from "../instance/blocks";
 import { CLAUDE_ID } from "../seed/people";
 import { newId, now, onStoreReset, state, storeGeneration } from "../store";
 import { interruptScripts, notifyConversationChange, runScript } from "../stream";
 import type {
+  AiBlock,
   EpisodeReason,
   ModelUsage,
   MonitoredServer,
@@ -169,9 +171,15 @@ export function raiseEpisode(
   state.serverEpisodes.push(episode);
   const projectId = analysisProjectOf(serverCode, state.environments, server.primaryProjectId);
   // Claude lavora in ogni progetto (R-L9): basta l'accesso di lettura usabile.
-  const analyzes = projectId !== null && accessUsable(state.serverAccess.get(serverCode), "read");
+  // Area 9b: col budget del mese esaurito l'analisi non parte; con la coda
+  // del progetto in pausa nasce e aspetta la ripresa.
+  const block = projectId === null ? null : aiBlockFor(projectId);
+  const analyzes =
+    projectId !== null &&
+    accessUsable(state.serverAccess.get(serverCode), "read") &&
+    block?.reason !== "monthly_budget";
   publishTrouble(server, episode, analyzes);
-  if (analyzes) startAnalysis(server, episode, projectId, opts.overrun === true);
+  if (analyzes) startAnalysis(server, episode, projectId, opts.overrun === true, block);
   return episode;
 }
 
@@ -237,10 +245,12 @@ function startAnalysis(
   episode: ServerEpisode,
   projectId: string,
   overrun: boolean,
+  block: AiBlock | null,
 ): void {
   const gen = storeGeneration();
   const c = openWorkConversationAs(CLAUDE_ID, {
     kind: "server_analysis",
+    ...runIdentity("fix_plan"),
     title: `${server.code} ${server.name} · ${reasonsPhrase(episode.reasons)}`,
     projectId,
     touchedProjectIds: [projectId],
@@ -264,12 +274,17 @@ function startAnalysis(
   episode.analysisId = analysis.id;
   // Un errore (la task che non si apre) non lascia mai l'analisi `running`:
   // R-L6 bloccherebbe il server per sempre.
-  const done = drive(analysis, episode, gen, overrun)
-    .catch((e: unknown) => failAnalysis(analysis, gen, e))
-    .finally(() => {
-      if (runs.get(analysis.id) === done) runs.delete(analysis.id);
-    });
-  runs.set(analysis.id, done);
+  const go = (): Promise<void> => {
+    const done = drive(analysis, episode, gen, overrun)
+      .catch((e: unknown) => failAnalysis(analysis, gen, e))
+      .finally(() => {
+        if (runs.get(analysis.id) === done) runs.delete(analysis.id);
+      });
+    runs.set(analysis.id, done);
+    return done;
+  };
+  // Senza blocco parte subito (nello stesso giro); con la coda in pausa aspetta la ripresa.
+  void startOrHold(CLAUDE_ID, c, "server_analysis", block, gen, go);
 }
 
 /** I tentativi di connessione a un server che non risponde: letture fallite. */
@@ -528,7 +543,8 @@ async function finish(
   const c = state.conversations.find((x) => x.id === a.conversationId);
   if (c) {
     c.taskId = task.id;
-    c.usage = [usageOf(reads)];
+    // Col modello con cui è partita (area 9b, `fix_plan`).
+    c.usage = [{ ...usageOf(reads), ...(c.model ? { model: c.model } : {}) }];
     notifyConversationChange(c.id);
   }
   const code = projectCode(a.projectId);

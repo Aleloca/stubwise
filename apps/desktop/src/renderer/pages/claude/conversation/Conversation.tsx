@@ -19,8 +19,10 @@ import {
   useSessionPersonId,
   useStopAndSend,
   useStopConversation,
+  useStorageAllowsUploads,
 } from "../../../data/queries";
 import type { Attachment, ConversationDetail, ConversationEvent } from "../../../data/types";
+import { isBudgetRefusal } from "../../../components/InstanceBlock";
 import { PageError } from "../../../tasks-ui/PageStates";
 import { ContinueBanner, ContinuesFromLine } from "../ContinueBanner";
 import { takeFirstMessage } from "./handoff";
@@ -186,11 +188,15 @@ function ConversationBody({
   const [drafts, setDrafts] = useState<DraftAttachment[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [local, setLocal] = useState<LocalMessage[]>([]);
-  const [failedSend, setFailedSend] = useState<{ text: string; attachments: Attachment[] } | null>(
-    null,
-  );
+  const [failedSend, setFailedSend] = useState<{
+    text: string;
+    attachments: Attachment[];
+    /** Rifiutato perché il budget AI del mese è esaurito (area 9b): la riga lo dice. */
+    budget?: boolean;
+  } | null>(null);
   const [stopFailed, setStopFailed] = useState(false);
   const send = useSendMessage();
+  const uploadsOff = useStorageAllowsUploads().data === false;
   const stop = useStopConversation();
   const stopAndSend = useStopAndSend();
   const projects = useProjects().data;
@@ -327,7 +333,8 @@ function ConversationBody({
       // «Non consegnato»: il messaggio è già nel flusso, con il motivo e
       // «Resend» — una seconda riga lo ripeterebbe.
       onError: (error: Error) => {
-        if (error.message !== "undelivered") setFailedSend({ text, attachments });
+        if (error.message !== "undelivered")
+          setFailedSend({ text, attachments, budget: isBudgetRefusal(error) });
       },
     };
     if (via === "stopAndSend") stopAndSend.mutate({ id: detail.id, text }, callbacks);
@@ -358,6 +365,11 @@ function ConversationBody({
   const addFiles = useCallback(
     (files: File[]) => {
       if (!canCompose || files.length === 0) return;
+      // I caricamenti spenti (area 9b): un file trascinato non si allega, e lo si dice.
+      if (uploadsOff) {
+        setAttachError(t("instanceEffects.storage.attach"));
+        return;
+      }
       setAttachError(null);
       setDrafts((current) => {
         const next = [...current];
@@ -388,7 +400,7 @@ function ConversationBody({
         return next;
       });
     },
-    [canCompose, t],
+    [canCompose, uploadsOff, t],
   );
   const removeDraft = (attachmentId: string) =>
     setDrafts((list) => {
@@ -610,7 +622,9 @@ function ConversationBody({
                     attachments={failedSend.attachments}
                     delivery={{
                       kind: "undelivered",
-                      reason: t("claude.conversation.delivery.didntGoThrough"),
+                      reason: failedSend.budget
+                        ? t("instanceEffects.budget.chatRefused")
+                        : t("claude.conversation.delivery.didntGoThrough"),
                     }}
                     onResend={() => sendMessage(failedSend.text, failedSend.attachments)}
                   />

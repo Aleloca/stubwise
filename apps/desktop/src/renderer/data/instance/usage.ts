@@ -1,6 +1,9 @@
-import { gate, newId, now, state, visibleProjectIds } from "../store";
+import type { AiOperation } from "@stubwise/shared";
+import type { Conversation, ModelUsage } from "../model";
+import { eventsOf, gate, newId, now, state, visibleProjectIds } from "../store";
 import { can, viewerFor } from "../viewer";
 import { forbidden } from "../writer";
+import { OPERATION_OF_KIND, modelIdFor } from "./models";
 import type { UsageRecord } from "./state";
 
 // I consumi d'istanza (area 9b, Task 2): la lettura della scheda Usage, lo
@@ -163,4 +166,80 @@ export { spentThisMonthUsd } from "./blocks";
 /** Aggiunge una voce di consumo (ogni run AI simulata): l'id lo dà il prototipo. */
 export function recordUsage(r: Omit<UsageRecord, "id">): void {
   state.instance.usage.push({ ...r, id: newId("usage") });
+}
+
+/**
+ * I consumi finti di una fase, per famiglia di modello: plausibili e fissi,
+ * così i test li sommano. Un id che non è di una famiglia nota conta come
+ * Sonnet.
+ */
+function fakeUsage(model: string): Omit<ModelUsage, "model"> {
+  if (/haiku/.test(model))
+    return { inputTokens: 14_200, outputTokens: 1_600, cacheReadTokens: 0, costUsd: 0.03 };
+  if (/opus/.test(model))
+    return { inputTokens: 61_000, outputTokens: 5_400, cacheReadTokens: 128_000, costUsd: 2.4 };
+  return { inputTokens: 52_000, outputTokens: 4_800, cacheReadTokens: 118_000, costUsd: 0.62 };
+}
+
+/**
+ * Le operazioni di una sessione, con il modello di ciascuna: la prima è
+ * quella con cui è partita (`c.model`); in una `task_run` l'esecuzione gira
+ * come `fix_execute`, col modello che ha adesso. Una correzione nasce già in
+ * esecuzione: il suo `c.model` è già quello di `fix_execute`.
+ */
+function phasesOf(c: Conversation, model: string): { operation: AiOperation; model: string }[] {
+  if (c.kind !== "task_run") return [{ operation: OPERATION_OF_KIND[c.kind], model }];
+  const phases = new Set(eventsOf(c.id).flatMap((e) => (e.type === "phase" ? [e.phase] : [])));
+  if (!phases.has("plan")) return [{ operation: "fix_execute", model }];
+  const out = [{ operation: "fix_plan" as AiOperation, model }];
+  if (phases.has("execution") || phases.has("correction"))
+    out.push({ operation: "fix_execute", model: modelIdFor("fix_execute") });
+  return out;
+}
+
+/**
+ * A fine sessione (area 9b, Task 6): i consumi della sessione col modello
+ * con cui ha girato — nella sessione (la tabella «AI usage» della task) e
+ * nei consumi d'istanza (`recordUsage`, che il budget somma). Solo le
+ * sessioni nate con un modello (le nuove). Una sessione senza provider (la
+ * catena vuota, ruling 11) non ha un account a cui addebitarli: restano
+ * solo nella sessione.
+ */
+export function recordSessionUsage(c: Conversation): void {
+  // L'analisi di un server conta da sé i suoi consumi, sotto il suo tetto (area 8b).
+  if (!c.model || c.kind === "server_analysis") return;
+  // Fermata mentre aspettava la coda: non ha mai girato, niente da addebitare.
+  if (!eventsOf(c.id).some((e) => e.type !== "phase")) return;
+  const rows = phasesOf(c, c.model).map(({ operation, model }) => ({
+    operation,
+    usage: { model, ...fakeUsage(model) },
+  }));
+  const usage = (c.usage ?? []).map((u) => ({ ...u }));
+  for (const { usage: u } of rows) {
+    const same = usage.find((x) => x.model === u.model);
+    if (!same) {
+      usage.push({ ...u });
+      continue;
+    }
+    same.inputTokens += u.inputTokens;
+    same.outputTokens += u.outputTokens;
+    same.cacheReadTokens += u.cacheReadTokens;
+    same.costUsd = round6(same.costUsd + u.costUsd);
+  }
+  c.usage = usage;
+  const providerId = c.provider?.id;
+  if (!providerId) return;
+  for (const { operation, usage: u } of rows)
+    recordUsage({
+      at: now(),
+      operation,
+      model: u.model,
+      projectId: c.projectId ?? c.contextProjectId,
+      providerId,
+      inputTokens: u.inputTokens,
+      outputTokens: u.outputTokens,
+      cacheReadTokens: u.cacheReadTokens,
+      costUsd: u.costUsd,
+      conversationId: c.id,
+    });
 }

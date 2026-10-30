@@ -1,6 +1,6 @@
 import type { AiBlock, RunProvider } from "../model";
 import { PEOPLE } from "../seed/people";
-import { now, state } from "../store";
+import { gate, now, state, visibleProjectIds } from "../store";
 import type { AiProvider, QueuePause } from "./state";
 
 // Il modulo foglia dei blocchi d'istanza (area 9b): le domande che le altre
@@ -96,4 +96,22 @@ export function aiBlockFor(projectId: string | null): AiBlock | null {
   if (!pause) return null;
   const byName = PEOPLE.find((p) => p.id === pause.byId)?.name ?? pause.byId;
   return { reason: "queue_paused", byId: pause.byId, byName, since: pause.at };
+}
+
+/**
+ * Il blocco di un lavoro nuovo come lo legge chi guarda (Task 6, ruling 6):
+ * la testata del progetto, «Chiedi a Claude», le automazioni. R-G5: un
+ * progetto che non vede risponde come uno senza pausa (il budget vale
+ * comunque, è dell'istanza).
+ */
+export async function getAiBlock(projectId: string | null): Promise<AiBlock | null> {
+  const me = await gate("instance.getAiBlock");
+  const visible = projectId === null || visibleProjectIds(me).has(projectId);
+  return aiBlockFor(visible ? projectId : null);
+}
+
+/** Se si possono caricare file adesso (Task 6, ruling 6): il Drive e gli allegati dei composer. */
+export async function getUploadsAllowed(): Promise<boolean> {
+  await gate("instance.getUploadsAllowed");
+  return storageAllowsUploads();
 }

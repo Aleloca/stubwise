@@ -18,9 +18,11 @@ import {
   useProject,
   useProjects,
   useSetDriveHidden,
+  useStorageAllowsUploads,
   useSyncFolder,
   useUnlinkFolder,
 } from "../../data/queries";
+import { UploadsOffLine } from "../../components/InstanceBlock";
 import type {
   DriveFileRow,
   DriveFilters,
@@ -188,6 +190,12 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
     return first ? [...list.filter((p) => p.code === first), ...list.filter((p) => p.code !== first)] : list;
   }, [projects, viewer, global, search.prj]);
   const canUpload = project ? can(viewer, "drive.upload", project.id) : uploadTargets.length > 0;
+  // Area 9b: con l'archiviazione che non accetta file «Upload» è spento con la
+  // frase (anche se la lettura fallisce: mai acceso «per sicurezza»). Mentre
+  // si legge resta com'era; un caricamento rifiutato lo direbbe comunque.
+  const storage = useStorageAllowsUploads();
+  const uploadsAllowed = storage.data !== false && !storage.isError;
+  const uploadsOff = canUpload && !uploadsAllowed;
 
   function setSearch(patch: Partial<PageSearch>, replace = false) {
     void navigate({
@@ -262,7 +270,7 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
   const uploadRef = useRef(upload);
   uploadRef.current = upload;
   useEffect(() => {
-    if (!canUpload) return;
+    if (!canUpload || !uploadsAllowed) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || !hasModKey(e) || !e.shiftKey || e.key.toLowerCase() !== "u") return;
       e.preventDefault();
@@ -270,7 +278,7 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [canUpload]);
+  }, [canUpload, uploadsAllowed]);
 
   const openers = useDriveOpeners();
   const toast = useToast();
@@ -492,7 +500,12 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
             <p className="text-md text-ink-muted">{t("drive.states.emptyCan")}</p>
             <div className="mt-2 flex items-center gap-2">
               {/* Il primario resta «Upload» in testata: qui il secondario, una sola azione piena. */}
-              <button type="button" className={secondaryButton} onClick={upload}>
+              <button
+                type="button"
+                className={`${secondaryButton} disabled:cursor-not-allowed disabled:opacity-40`}
+                disabled={!uploadsAllowed}
+                onClick={upload}
+              >
                 {t("drive.states.uploadFirst")}
               </button>
               <button type="button" className={quietButton} onClick={() => setAdding(true)}>
@@ -539,7 +552,7 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
 
   return (
     <DropZone
-      enabled={canUpload}
+      enabled={canUpload && uploadsAllowed}
       label={project ? t("drive.uploads.drop", { code: project.code }) : t("drive.uploads.dropAny")}
       onFiles={onDropped}
     >
@@ -560,10 +573,11 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
                 {t("drive.google.addFrom")}
               </button>
             )}
-            {canUpload && project && (
+            {canUpload && (project || !uploadsAllowed) && (
               <button
                 type="button"
-                className={primaryButton}
+                className={`${primaryButton} disabled:cursor-not-allowed disabled:opacity-40`}
+                disabled={!uploadsAllowed}
                 onClick={upload}
                 aria-keyshortcuts="Meta+Shift+U"
               >
@@ -571,7 +585,7 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
                 {t("drive.upload")}
               </button>
             )}
-            {canUpload && !project && (
+            {canUpload && !project && uploadsAllowed && (
               <span ref={uploadButton} className="inline-flex">
                 <MenuButton
                     menuLabel={t("drive.uploadWhere")}
@@ -637,6 +651,8 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
           </div>
         </div>
         {project && <ExpiredLinkBanners project={project} folders={folders} />}
+        {/* Sopra la barra, la frase dei caricamenti spenti (shape instance-effects §3). */}
+        {uploadsOff && <UploadsOffLine />}
         <DriveToolbar
           search={search}
           sort={filters.sort}

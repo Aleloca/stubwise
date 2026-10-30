@@ -5539,7 +5539,11 @@
       "noRoleAssignee": "Nessuno ha il ruolo {{role}} nel progetto: la task nasce senza incaricato.",
       "noRoleAssignee_would": "Nessuno ha il ruolo {{role}} nel progetto: la task nascerebbe senza incaricato.",
       "assigneeDeactivated": "{{name}} è una persona disattivata: la task non le si può assegnare.",
-      "assigneeDeactivated_would": "{{name}} è una persona disattivata: la task non le si potrebbe assegnare, e il passo fallirebbe."
+      "assigneeDeactivated_would": "{{name}} è una persona disattivata: la task non le si potrebbe assegnare, e il passo fallirebbe.",
+      "aiBudget": "In attesa: budget AI del mese raggiunto",
+      "aiQueuePaused": "In attesa: coda in pausa da {{name}}",
+      "aiBudgetBack": "Budget di nuovo disponibile · il passo riparte",
+      "aiQueueBack": "Coda ripresa · il passo riparte"
     },
     "created": {
       "task_one": "{{count}} task",
@@ -9265,6 +9269,46 @@
       "plugin_smoke": "Prova del plugin",
       "credential_test": "Prova della credenziale",
       "usage_probe": "Lettura dei consumi"
+    }
+  },
+  "instanceEffects": {
+    "since": {
+      "today": "da oggi alle {{time}}",
+      "yesterday": "da ieri alle {{time}}",
+      "date": "dal {{date}}"
+    },
+    "deactivated": "{{name}} (disattivata)",
+    "budget": {
+      "start": "Il budget AI del mese è esaurito. Il lavoro nuovo aspetta finché qualcuno non lo alza.",
+      "chat": "Il budget AI del mese è esaurito: Claude non può rispondere finché qualcuno non lo alza.",
+      "refused": "Claude non è partito: il budget AI del mese è esaurito.",
+      "chatRefused": "Il messaggio non è stato inviato: il budget AI del mese è esaurito.",
+      "waiting": "In attesa: budget AI del mese raggiunto",
+      "runList": "In attesa del budget AI · “{{step}}”",
+      "runDetail": "Il passo {{number}} “{{step}}” riparte da solo quando il budget torna disponibile — quando qualcuno lo alza, o il mese prossimo. Non si perde niente.",
+      "passTime": "Far passare il tempo non sposta questa esecuzione: aspetta il budget."
+    },
+    "queue": {
+      "start": "La coda di {{code}} è in pausa da {{name}} {{since}}. Se avvii adesso, Claude aspetta la ripresa.",
+      "waiting": "In attesa: coda in pausa da {{name}}",
+      "runWaiting": "In attesa: la coda di {{code}} è in pausa da {{name}}",
+      "runList": "In attesa della coda · “{{step}}”",
+      "runDetail": "Il passo {{number}} “{{step}}” riparte da solo quando la coda riprende.",
+      "passTime": "Far passare il tempo non sposta questa esecuzione: aspetta la coda.",
+      "header": "Coda in pausa da {{name}}",
+      "headerTitle": "In pausa {{since}}. Il lavoro nuovo di Claude aspetta; quello già partito finisce.",
+      "row": "Coda in pausa"
+    },
+    "storage": {
+      "drive": "I caricamenti sono spenti su questa istanza. I file già presenti restano leggibili.",
+      "attach": "I caricamenti sono spenti su questa istanza.",
+      "failed": "Caricamento non riuscito: i caricamenti sono spenti su questa istanza."
+    },
+    "run": {
+      "line": "Modello: {{model}} · Account: {{account}}",
+      "noAccount": "nessuno disponibile",
+      "subscription": "{{name}} (abbonamento)",
+      "api_key": "{{name}} (chiave API)"
     }
   }
 }

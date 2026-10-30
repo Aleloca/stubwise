@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../../../data/api";
 import { setSessionPersonId } from "../../../data/session";
-import { state } from "../../../data/store";
+import { notifyInstanceChange, state } from "../../../data/store";
 import { useViewer } from "../../../data/viewer";
 import { renderWithData } from "../../../test/renderWithData";
 import { Conversation } from "./Conversation";
@@ -259,6 +259,40 @@ describe("Conversation: domande e piani", () => {
     expect((await api.getConversation("cv-run-stw-13"))!.canDecidePlan).toBe(true);
     setSessionPersonId("p-marco");
     expect((await api.getConversation("cv-run-stw-13"))!.canDecidePlan).toBe(false);
+  });
+});
+
+describe("Conversation: «Chiedi a Claude» e le impostazioni d'istanza (area 9b)", () => {
+  it("la coda di STW in pausa non la tocca; col budget raggiunto Send è spento con la frase e il testo resta", async () => {
+    const user = userEvent.setup();
+    const c = await as("p-giulia", () => api.createConversation({ contextProjectId: "prj-stw" }));
+    const { container } = renderWithData(<Harness id={c.id} />, { personId: "p-giulia" });
+    const box = await screen.findByRole("combobox", { name: /message to claude/i });
+    await user.type(box, "What changed?");
+    expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
+    expect(container.querySelector("[data-ai-block]")).toBeNull();
+
+    state.instance.simulate.budgetReached = true;
+    act(() => notifyInstanceChange());
+    const line = await waitFor(() => {
+      const el = container.querySelector<HTMLElement>('[data-ai-block="monthly_budget"]');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(line).toHaveTextContent(
+      "The monthly AI budget is used up: Claude can't answer until someone raises it. Who?",
+    );
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(box).toHaveValue("What changed?");
+  });
+
+  it("con i caricamenti spenti la graffetta è spenta e lo dice", async () => {
+    state.instance.storage.attachmentsEnabled = false;
+    const c = await as("p-giulia", () => api.createConversation());
+    renderWithData(<Harness id={c.id} />, { personId: "p-giulia" });
+    const clip = await screen.findByRole("button", { name: "Attach files" });
+    await waitFor(() => expect(clip).toBeDisabled());
+    expect(clip).toHaveAttribute("title", "Uploads are off on this instance.");
   });
 });
 

@@ -1,6 +1,6 @@
 import { recordChange } from "../changelog/index";
 import { encodeBudget } from "../changelog/settingValues";
-import { gate, state } from "../store";
+import { gate, notifyInstanceChange, state } from "../store";
 import { forbidden, writer } from "../writer";
 import { budgetReached, spentThisMonthUsd } from "./blocks";
 import { canI, refuse } from "./common";
@@ -74,6 +74,7 @@ export async function saveBudget(input: {
   // Un budget alzato sopra lo speso fa ripartire i passi fermi; un budget
   // ancora sotto, o la sola lingua, no (`releaseBudgetHolds` non fa niente).
   releaseBudgetHolds();
+  notifyInstanceChange();
   return { ok: true };
 }
 
@@ -83,5 +84,6 @@ export async function simulateBudgetReached(on: boolean): Promise<InstanceResult
   if (!canI(me, "settings.manage")) return refuse.forbidden();
   state.instance.simulate.budgetReached = on;
   releaseBudgetHolds();
+  notifyInstanceChange();
   return { ok: true };
 }

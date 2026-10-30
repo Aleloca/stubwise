@@ -10,6 +10,7 @@ import {
 import { shortRepo } from "../../domain/releases/repo";
 import { alertProjectsOf } from "../../domain/servers/projects";
 import { publishAlert } from "../alerts/publish";
+import { aiBlockFor } from "../instance/blocks";
 import { PEOPLE } from "../seed/people";
 import { copy, latestRunOf, newId, now, state, storeGeneration } from "../store";
 import type {
@@ -369,7 +370,9 @@ export async function fixRelease(code: string, note?: string): Promise<FixResult
     },
   );
   r.fixTaskId = task.id;
-  if (holds(me, "runs.start", r.projectId)) await startRunAs(me, task, gen);
+  // Col budget del mese esaurito (area 9b) la task nasce ma non parte: aspetta chi la avvii.
+  if (holds(me, "runs.start", r.projectId) && aiBlockFor(r.projectId)?.reason !== "monthly_budget")
+    await startRunAs(me, task, gen);
   return { ...copy(task), existing: false, noteAdded: false };
 }
 

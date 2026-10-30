@@ -441,7 +441,14 @@ describe("le voci del registro della coda", () => {
   it("si leggono da chi gestisce STW, non da chi non lo vede", async () => {
     await instance.resumeQueue(STW);
     await instance.pauseQueue(STW);
-    expect(await instance.retryJob("cv-run-stw-7")).toMatchObject({ ok: true });
+    const retried = await instance.retryJob("cv-run-stw-7");
+    expect(retried).toMatchObject({ ok: true });
+    // Con la coda in pausa il Retry non parte: aspetta la ripresa (Task 6, shape EF).
+    const id = (retried as { conversationId: string }).conversationId;
+    expect(state.conversations.find((c) => c.id === id)!.waiting).toMatchObject({
+      reason: "queue_paused",
+    });
+    expect((await waitingOf(STW)).map((j) => j.id)).toContain(id);
     const kinds = ["queue.paused", "queue.resumed", "job.retried"];
 
     as(LAURA);

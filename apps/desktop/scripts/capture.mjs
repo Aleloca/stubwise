@@ -137,6 +137,101 @@ async function main() {
       console.log("scritto", name);
     };
 
+    // Area 9b, Task 6 (`CAPTURE_A9B_EFFECTS=1`): gli effetti delle impostazioni
+    // d'istanza nelle altre aree (shape instance-effects.md). Lo stato si
+    // prepara dal livello dati della pagina stessa (gli stessi moduli che
+    // l'app ha già caricato), a nome di Roberta, poi si torna a chi guarda.
+    if (process.env.CAPTURE_A9B_EFFECTS) {
+      async function asAdmin(page, action) {
+        await page.evaluate(async (what) => {
+          const api = await import("/data/api.ts");
+          const session = await import("/data/session.ts");
+          const prev = session.getSessionPersonId();
+          session.setSessionPersonId("p-roberta");
+          try {
+            if (what === "budget") await api.instance.simulateBudgetReached(true);
+            if (what === "uploadsOff") await api.instance.setAttachments(false);
+            if (what === "run") {
+              await api.instance.simulateBudgetReached(true);
+              const a = await api.automations.createAutomation({
+                name: "Classify the request",
+                projectId: "prj-acq",
+                flow: {
+                  trigger: { kind: "manual" },
+                  titleTemplate: "Classify the request",
+                  steps: [
+                    {
+                      id: "c-classify",
+                      kind: "claude",
+                      instruction: "Classify the request.",
+                      inputs: ["avvio.data"],
+                      outcomes: ["bug", "feature"],
+                      fields: [],
+                      branches: {},
+                    },
+                  ],
+                },
+              });
+              await api.automations.activate(a.id);
+              await api.automations.startManual(a.id);
+            }
+          } finally {
+            session.setSessionPersonId(prev);
+          }
+        }, action);
+        await page.waitForTimeout(900);
+      }
+      const go = async (page, hash) => {
+        await page.evaluate((h) => {
+          window.location.hash = h;
+        }, hash);
+        await page.waitForTimeout(1200);
+        await page.mouse.move(2, 2);
+      };
+      // La sezione Claude in cima al pannello, con le sue azioni in vista.
+      const toClaude = async (page) => {
+        await page.evaluate(() => {
+          const section = document.querySelector("[data-claude-status]")?.closest("section");
+          const scroller = section?.closest("[data-detail-panel] > .overflow-auto");
+          if (section && scroller)
+            scroller.scrollTop +=
+              section.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+        });
+        await page.waitForTimeout(300);
+      };
+      const SCENES = [
+        // [nome, indirizzo, { persona, action, then, after }]
+        ["column-queue", "/p/STW/tasks", { persona: "Roberta" }],
+        ["projects-queue", "/projects", { persona: "Roberta" }],
+        ["task-queue", "/p/STW/tasks?task=STW-7", { persona: "Laura", after: toClaude }],
+        ["task-budget", "/p/ACQ/tasks?task=ACQ-3", { persona: "Laura", action: "budget", after: toClaude }],
+        ["chat-budget", "/claude/cv-giulia-callbacks", { action: "budget" }],
+        ["drive-off", "/p/AUD/drive", { persona: "Laura", action: "uploadsOff" }],
+        ["run-budget", "/automations", { persona: "Roberta", action: "run", then: "/automations/ACQ-A1/runs/1" }],
+        ["runs-budget", "/automations", { persona: "Roberta", action: "run", then: "/automations/ACQ-A1" }],
+      ];
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow" },
+      ];
+      for (const [name, hash, opts] of SCENES) {
+        for (const v of variants) {
+          const { page, context } = await open(v.scheme, v.viewport, opts.then ? "/home" : hash, {
+            lang: v.lang,
+            persona: opts.persona,
+          });
+          if (opts.action) await asAdmin(page, opts.action);
+          await go(page, opts.then ?? hash);
+          if (opts.after) await opts.after(page);
+          await shot(page, `a9b-effects-${name}-${v.suffix}.png`);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 3: Claude. `CAPTURE_ONLY=<regex>` ne limita le pagine (revisione
     // mirata); le sessioni dal vivo si scattano con l'orologio fermo.
     const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;

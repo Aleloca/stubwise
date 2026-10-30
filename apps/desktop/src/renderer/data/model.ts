@@ -712,6 +712,19 @@ export interface Conversation {
   archived: boolean;
   /** Solo sessione di lavoro: con quale account o chiave gira (il nome). */
   provider?: RunProvider | null;
+  /**
+   * Solo sessione di lavoro aperta dall'area 9b in poi: il modello con cui è
+   * partita (`modelFor` dell'operazione di `OPERATION_OF_KIND`), come id
+   * («claude-haiku-5-5»). Un cambio successivo in Models non lo riscrive.
+   */
+  model?: string;
+  /**
+   * Solo sessione di lavoro (area 9b): la sessione è nata ma aspetta, ferma
+   * da un blocco d'istanza (`aiBlockFor`): la coda del progetto in pausa (o,
+   * alla ripresa, il budget). Nessun evento finché non parte; `null` o
+   * assente: non aspetta.
+   */
+  waiting?: AiBlock | null;
   /** Solo sessione di lavoro: i consumi per modello. */
   usage?: ModelUsage[];
   /** Solo sessione di lavoro fallita: il riassunto del fallimento, in una riga. */
@@ -2544,6 +2557,12 @@ export interface AutomationRun {
   origin?: "manual" | "source" | "stubwise" | "schedule" | "automation";
   /** In `suspended` (pausa): lo stato a cui torna riaccendendo l'automazione. */
   suspendedFrom?: Exclude<RunStatus, "suspended" | "done" | "failed" | "cancelled">;
+  /**
+   * Solo nelle letture (area 9b, ruling 15): resta `running`, ferma al
+   * confine di un passo di Claude per un blocco d'istanza (budget del mese,
+   * coda in pausa). Riparte da sola quando il blocco cade.
+   */
+  aiWaiting?: AiBlock | null;
 }
 
 export interface AutomationSource {

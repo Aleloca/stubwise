@@ -18,12 +18,42 @@ import { phaseName, providerLabel } from "./WorkStory";
 
 const K = "taskDetail.claude";
 
-/** Sotto la riga di stato: l'account o la chiave della sessione, per nome. */
-export function ProviderLine({ provider }: { provider: RunProvider }) {
+/** «claude-haiku-5-5» → «Haiku»: la famiglia del modello; un id d'altra forma resta com'è. */
+export function modelName(model: string): string {
+  const m = /^claude-([a-z]+)-/.exec(model);
+  return m ? `${m[1]![0]!.toUpperCase()}${m[1]!.slice(1)}` : model;
+}
+
+/**
+ * Sotto la riga di stato: con chi gira la sessione, per nome. Le sessioni
+ * nate dall'area 9b dicono anche il modello con cui sono partite (shape
+ * instance-effects [EF 3]): «Model: Haiku · Account: Backup Max
+ * (subscription)»; un cambio successivo in Models non le riscrive.
+ */
+export function ProviderLine({
+  provider,
+  model = null,
+}: {
+  provider: RunProvider | null;
+  model?: string | null;
+}) {
   const { t } = useTranslation();
+  if (model === null) {
+    if (!provider) return null;
+    return (
+      <p data-run-provider className="-mt-2 pl-[34px] text-xs text-ink-faint">
+        {t(`${K}.provider.label`, { provider: providerLabel(t, provider) })}
+      </p>
+    );
+  }
+  const account = provider
+    ? t(`instanceEffects.run.${provider.kind === "account" ? "subscription" : "api_key"}`, {
+        name: provider.name,
+      })
+    : t("instanceEffects.run.noAccount");
   return (
     <p data-run-provider className="-mt-2 pl-[34px] text-xs text-ink-faint">
-      {t(`${K}.provider.label`, { provider: providerLabel(t, provider) })}
+      {t("instanceEffects.run.line", { model: modelName(model), account })}
     </p>
   );
 }

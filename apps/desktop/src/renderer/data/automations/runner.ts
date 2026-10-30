@@ -7,10 +7,19 @@ import {
 } from "../../domain/automations/engine";
 import { render } from "../../domain/automations/preview";
 import { restoreState } from "../../domain/automations/restore";
+import { aiBlockFor } from "../instance/blocks";
+import { heldJobs, holdJob } from "../instance/queue";
 import { runHref } from "../routes";
-import { PEOPLE } from "../seed/people";
+import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import { copy, gate, newId, now, onStoreReset, state, storeGeneration } from "../store";
-import type { Automation, AutomationRun, ReasonCode, RunLogEntry, RunStatus } from "../types";
+import type {
+  AiBlock,
+  Automation,
+  AutomationRun,
+  ReasonCode,
+  RunLogEntry,
+  RunStatus,
+} from "../types";
 import { executeEffect } from "./effects";
 import {
   approvalProjectOf,
@@ -276,6 +285,74 @@ function failUnexecuted(run: AutomationRun): void {
   });
 }
 
+// --- i blocchi d'istanza (area 9b, Task 6) ------------------------------------------
+
+/** Il progetto in cui gira un passo: quello dell'automazione, o il primo in cui ha agito. */
+const aiProjectOf = (run: AutomationRun, a: Automation): string | null =>
+  a.projectId ?? run.projectIds[0] ?? null;
+
+/** La motivazione di un'attesa d'istanza, tradotta dall'interfaccia (`automations.reasons`). */
+function waitingWhy(block: AiBlock): ReasonCode {
+  return block.reason === "monthly_budget"
+    ? { code: "aiBudget" }
+    : { code: "aiQueuePaused", params: { name: block.byName } };
+}
+
+/**
+ * Un passo che avvierebbe Claude, con un blocco d'istanza: l'esecuzione
+ * resta `running` al confine del passo (decisione del maintainer del 30
+ * ott 2026, ruling 15), con una riga `waiting` nel registro, e `holdJob` la
+ * fa ripartire da quel passo quando il blocco cade, una volta sola. Già in
+ * attesa (un «Fai passare il tempo», un altro input): resta ferma, senza
+ * un'altra riga — il tempo non la sblocca. `false`: il passo può partire.
+ */
+function holdForAi(run: AutomationRun, a: Automation): boolean {
+  if (heldJobs().some((h) => h.automationRunId === run.id)) return true;
+  const projectId = aiProjectOf(run, a);
+  const block = aiBlockFor(projectId);
+  if (!block) return false;
+  note(run, {
+    outcome: "waiting",
+    reason:
+      block.reason === "monthly_budget"
+        ? "In attesa: budget AI del mese raggiunto."
+        : `In attesa: coda in pausa da ${block.byName}.`,
+    why: waitingWhy(block),
+  });
+  const gen = storeGeneration();
+  holdJob({
+    // Un'automazione generale che non ha ancora agito in un progetto: il
+    // budget la ferma comunque, e lo Stato dell'istanza la conta fra le altre.
+    projectId: projectId ?? "",
+    kind: "automation",
+    taskId: null,
+    conversationId: null,
+    automationRunId: run.id,
+    starterId: a.ownerId ?? CLAUDE_ID,
+    block,
+    start: async () => {
+      if (gen !== storeGeneration()) throw new Error("reset");
+      if (!isOpen(run) || run.status !== "running") return;
+      note(run, {
+        outcome: "resumed",
+        reason:
+          block.reason === "monthly_budget"
+            ? "Budget di nuovo disponibile: il passo riparte."
+            : "Coda ripresa: il passo riparte.",
+        why: { code: block.reason === "monthly_budget" ? "aiBudgetBack" : "aiQueueBack" },
+      });
+      await enqueue(run.id, { kind: "time", now: runNow(run) });
+    },
+  });
+  return true;
+}
+
+/** Il blocco d'istanza per cui un'esecuzione aspetta adesso, se aspetta (le letture). */
+export function aiWaitingOf(runId: string): AiBlock | null {
+  const job = heldJobs().find((h) => h.automationRunId === runId);
+  return job ? job.block : null;
+}
+
 // --- l'avanzamento ------------------------------------------------------------------
 
 async function drive(runId: string, input: EngineInput, gen: number, prepare?: Prepare) {
@@ -329,6 +406,9 @@ async function step(
     if (!alive() || run.status === "cancelled") return;
     // In pausa durante il ritardo: l'effetto non è partito, resta da fare.
     if (a.status !== "active" && !finishing) return suspend(run, "running");
+    // Area 9b: un passo di Claude col budget esaurito o la coda in pausa
+    // aspetta al confine del passo, senza fallire.
+    if (eff.kind === "claude" && holdForAi(run, a)) return;
     const out = executeEffect(eff, {
       run,
       automation: a,

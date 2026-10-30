@@ -30,6 +30,8 @@ const run = (id: string, over: Partial<TaskRun>, events: ConversationEvent[]): T
   events,
   provider: null,
   failureSummary: null,
+  model: null,
+  waiting: null,
   ...over,
 });
 
@@ -50,6 +52,7 @@ const work = (runs: TaskRun[], over: Partial<TaskWork> = {}): TaskWork => ({
   prFacts: [],
   correctionCap: 3,
   usage: [],
+  blocked: null,
   ...over,
 });
 

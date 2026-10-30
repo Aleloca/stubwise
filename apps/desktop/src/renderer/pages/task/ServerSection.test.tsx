@@ -57,6 +57,18 @@ const fixCommands = () =>
     .flatMap((c) => eventsOf(c.id))
     .filter((e) => e.type === "action" && e.access === "fix").length;
 
+describe("sezione Server: il budget del mese (area 9b, shape instance-effects)", () => {
+  it("«Start fix on the server» spento con la frase del budget e «Who?»", async () => {
+    state.instance.simulate.budgetReached = true;
+    const section = await openTask("p-roberta");
+    const start = section.querySelector<HTMLButtonElement>("[data-start-fix]")!;
+    await waitFor(() => expect(start).toBeDisabled());
+    expect(section.querySelector('[data-ai-block="monthly_budget"]')).toHaveTextContent(
+      "The monthly AI budget is used up. New work waits until someone raises it. Who?",
+    );
+  });
+});
+
 describe("sezione Server", () => {
   it("dice server, episodio, stato e proposta, prima della descrizione", async () => {
     const section = await openTask("p-roberta");

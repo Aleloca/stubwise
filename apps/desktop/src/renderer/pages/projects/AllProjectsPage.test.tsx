@@ -1,8 +1,9 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   failNext,
+  instance,
   listPinnedProjectIds,
   listProjectPulses,
   listProjects,
@@ -234,5 +235,22 @@ describe("NewProjectDialog", () => {
       clientName: "Brennero Logistics Srl",
       template: "software",
     });
+  });
+});
+
+describe("AllProjectsPage — la coda in pausa (area 9b, shape instance-effects [EF 4])", () => {
+  const row = (code: string) => document.querySelector<HTMLElement>(`[data-project-row="${code}"]`)!;
+
+  it("la riga di STW dice «‖ Queue paused» sulla seconda linea, ACQ no; ripresa, sparisce", async () => {
+    await portfolio("p-roberta");
+    await waitFor(() =>
+      expect(row("STW").querySelector("[data-queue-paused]")).toHaveTextContent("Queue paused"),
+    );
+    expect(row("ACQ").querySelector("[data-queue-paused]")).toBeNull();
+
+    await act(async () => {
+      await instance.resumeQueue("prj-stw");
+    });
+    await waitFor(() => expect(row("STW").querySelector("[data-queue-paused]")).toBeNull());
   });
 });

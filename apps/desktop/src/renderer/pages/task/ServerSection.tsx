@@ -2,7 +2,9 @@ import { Link } from "@tanstack/react-router";
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
+import { AiBlockLine } from "../../components/InstanceBlock";
 import {
+  useAiBlock,
   useConversation,
   usePeople,
   useProjects,
@@ -321,6 +323,7 @@ function ServerBody({ task, info }: { task: Task; info: ServerTaskInfo }) {
   const notesId = useId();
   const start = useStartServerFix();
   const toast = useToast();
+  const aiBlock = useAiBlock(task.projectId).data ?? null;
 
   const run = () =>
     start.mutate(
@@ -361,16 +364,21 @@ function ServerBody({ task, info }: { task: Task; info: ServerTaskInfo }) {
 
   let start_: ReactNode = null;
   if (info.server && block === null) {
+    // Area 9b: col budget del mese esaurito spento con la frase; con la coda
+    // in pausa acceso con la frase (la correzione aspetta la ripresa).
     start_ = (
-      <button
-        type="button"
-        className={`${smallPrimary} self-start`}
-        disabled={start.isPending}
-        data-start-fix
-        onClick={() => setConfirming(true)}
-      >
-        {t(`${K}.${AGAIN.has(info.state) ? "startAgain" : "start"}`)}
-      </button>
+      <>
+        {aiBlock && <AiBlockLine block={aiBlock} projectCode={project} />}
+        <button
+          type="button"
+          className={`${smallPrimary} self-start`}
+          disabled={start.isPending || aiBlock?.reason === "monthly_budget"}
+          data-start-fix
+          onClick={() => setConfirming(true)}
+        >
+          {t(`${K}.${AGAIN.has(info.state) ? "startAgain" : "start"}`)}
+        </button>
+      </>
     );
   } else if (
     info.server &&

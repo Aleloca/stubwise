@@ -1,3 +1,4 @@
+import { storageAllowsUploads } from "../instance/blocks";
 import { person as mailAddressOf } from "../seed/mail/helpers";
 import { copy, gate, newId, now, state } from "../store";
 import type {
@@ -91,6 +92,8 @@ export async function uploadFiles(
   const me = await gate("drive.uploadFiles");
   projectFor(me, projectId);
   need(me, "drive.upload", projectId);
+  // Area 9b: senza un'archiviazione che accetta file non si carica niente.
+  if (!storageAllowsUploads()) throw invalid("storage_off");
   const taken = new Set(
     state.driveFiles.filter((f) => f.projectId === projectId).map((f) => f.name),
   );

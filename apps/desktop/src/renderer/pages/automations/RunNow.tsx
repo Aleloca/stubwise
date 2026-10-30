@@ -2,7 +2,8 @@ import { Link } from "@tanstack/react-router";
 import { type Ref } from "react";
 import { useTranslation } from "react-i18next";
 import { stepAt } from "../../domain/automations/fields";
-import { useMailThreadOfMessage } from "../../data/queries";
+import { WhoCanLink } from "../../components/WhoCanLink";
+import { useMailThreadOfMessage, useProjects } from "../../data/queries";
 import type { AutomationRunDetail, RunLogEntry } from "../../data/types";
 import { usePendingAnswers } from "../home/pendingAnswers";
 import { primaryButton, quietButton, secondaryButton } from "../tasks/controls";
@@ -85,6 +86,10 @@ export function NowBox({
   const client = str(run.pending?.preview.clientName) || clientOf(run.event) || "";
   // Una decisione presa qui (o in «Decide») e ancora nella finestra dell'«Undo».
   const answering = usePendingAnswers().has(run.id);
+  // Il progetto in cui il passo aspetta la coda (la frase della pausa lo nomina).
+  const projectCode =
+    useProjects().data?.find((p) => p.id === (run.automationProjectId ?? run.projectIds[0]))
+      ?.code ?? "";
   let title = "";
   let body: React.ReactNode = null;
   switch (run.status) {
@@ -206,11 +211,37 @@ export function NowBox({
         </>
       );
       break;
-    case "running":
+    case "running": {
+      // Ferma al confine di un passo di Claude per un blocco d'istanza (area 9b,
+      // [EF 6]): resta in corso, riparte da sola quando il blocco cade.
+      const block = run.aiWaiting;
+      if (block) {
+        const budget = block.reason === "monthly_budget";
+        title = budget
+          ? t("instanceEffects.budget.waiting")
+          : t("instanceEffects.queue.runWaiting", { code: projectCode, name: block.byName });
+        body = (
+          <p className="text-sm text-ink-muted">
+            {step &&
+              t(budget ? "instanceEffects.budget.runDetail" : "instanceEffects.queue.runDetail", {
+                number: step.number,
+                step: step.name,
+              })}
+            {budget && (
+              <>
+                {" "}
+                <WhoCanLink action="manageSettings" projectId={null} />
+              </>
+            )}
+          </p>
+        );
+        break;
+      }
       title = step
         ? t("automations.now.box.working", { number: step.number, step: step.name })
         : t("automations.now.running");
       break;
+    }
     case "failed": {
       const failed = [...run.log].reverse().find((e) => e.outcome === "failed");
       title = step

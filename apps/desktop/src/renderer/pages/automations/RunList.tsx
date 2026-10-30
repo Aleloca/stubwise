@@ -42,7 +42,9 @@ export function RunRow({
   const { t, i18n } = useTranslation();
   const phrase = nowPhrase(run, names, t, now());
   const started = shortDate(run.startedAt, i18n.language);
-  const statusFull = t(`automations.runStatus.full.${run.status}`);
+  // Ferma per un blocco d'istanza: «Waiting» col glifo dell'attesa, come `waiting_event` ([EF 6]).
+  const status = run.aiWaiting ? "waiting_event" : run.status;
+  const statusFull = t(`automations.runStatus.full.${status}`);
   const otherVersion = currentVersion !== undefined && run.version !== currentVersion;
   return (
     <li className="border-b border-rule">
@@ -68,7 +70,7 @@ export function RunRow({
             </span>
           )}
         </span>
-        <RunStatusWord status={run.status} mine={mine} short />
+        <RunStatusWord status={status} mine={mine} short />
         <span className="truncate text-sm text-ink-muted max-[1100px]:hidden">{phrase}</span>
         <span className="num text-right text-xs text-ink-faint">{started}</span>
       </Link>

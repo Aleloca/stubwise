@@ -62,6 +62,9 @@ describe("parità delle chiavi en/it", () => {
         // Area 9b: i nomi delle operazioni AI (`usage.operations.<op>`), del
         // registro e delle schede Models e Usage.
         "usage",
+        // Area 9b, Task 6: le frasi dei blocchi d'istanza nelle altre aree
+        // (budget, coda in pausa, caricamenti spenti, modello e account).
+        "instanceEffects",
       ].sort(),
     );
   });

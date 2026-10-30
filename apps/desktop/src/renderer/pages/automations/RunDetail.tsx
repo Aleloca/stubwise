@@ -130,8 +130,10 @@ export function RunDetail({ runId, entry }: { runId: string; entry?: string }) {
       },
       onError: () => toast.error(t("automations.toast.decisionError", { code: run.code })),
     });
+  // Anche ferma per un blocco d'istanza ([EF 6]): «Pass time» c'è e dice che non la muove.
   const passTime =
-    run.permissions.manage && (run.status === "waiting_event" || run.status === "waiting_approval");
+    run.permissions.manage &&
+    (run.status === "waiting_event" || run.status === "waiting_approval" || !!run.aiWaiting);
 
   return (
     <article className="flex min-h-full flex-col pb-16 pl-8">

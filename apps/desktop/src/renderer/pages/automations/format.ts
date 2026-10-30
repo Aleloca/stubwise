@@ -450,6 +450,13 @@ export function nowPhrase(run: AutomationRunRow, names: Names, t: TFunction, now
   const kind = step?.kind && step.kind !== "trigger" ? step.kind : null;
   switch (run.status) {
     case "running":
+      // Ferma al confine di un passo di Claude per un blocco d'istanza (area 9b, [EF 6]).
+      if (run.aiWaiting) {
+        const name = t(`automations.kind.${kind ?? "claude"}`);
+        return run.aiWaiting.reason === "monthly_budget"
+          ? t("instanceEffects.budget.runList", { step: name })
+          : t("instanceEffects.queue.runList", { step: name });
+      }
       return t("automations.now.running");
     case "waiting_approval": {
       const who = (run.pending?.approverIds ?? []).map((id) => names.person(id));

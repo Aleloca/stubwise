@@ -3,6 +3,8 @@
 import { publishChatEvent } from "./chat/events";
 import { channelById, messageById, presentMessage } from "./chat/reads";
 import { canReadChannel, membersOf } from "./chat/visibility";
+// I consumi a fine sessione (area 9b): usati solo dentro le funzioni.
+import { recordSessionUsage } from "./instance/usage";
 import { SCRIPTS } from "./seed/conversations";
 import { getSessionPersonId } from "./session";
 import {
@@ -357,6 +359,9 @@ async function play(conversationId: string, steps: ScriptStep[], alive: () => bo
       }
       case "state": {
         const conversation = findConversation(conversationId)!;
+        // A fine sessione i consumi col modello con cui è partita (area 9b), una volta.
+        if (step.state === "finished" && conversation.state !== "finished")
+          recordSessionUsage(conversation);
         conversation.state = step.state;
         conversation.outcome = step.state === "finished" ? (step.outcome ?? "ok") : null;
         conversation.updatedAt = now();

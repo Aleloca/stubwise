@@ -1,7 +1,11 @@
 import { accessUsable } from "../../domain/servers/sshAccess";
 import i18n from "../../i18n";
-import { openWorkConversationAs } from "../api-mutations";
-import { TEAM_ACCOUNT } from "../seed/runs";
+import {
+  aiStartBlock,
+  openWorkConversationAs,
+  runIdentity,
+  startOrHold,
+} from "../api-mutations";
 import {
   copy,
   currentPhase,
@@ -134,9 +138,11 @@ export async function startServerFix(
   if (block) throw invalid(block);
   const server = serverOf(task.serverRef!.serverCode);
   if (!server) throw invalid("server_gone");
+  // Area 9b: col budget esaurito è rifiutata, con la coda in pausa aspetta.
+  const aiBlock = aiStartBlock(task.projectId);
   const c = openWorkConversationAs(me, {
     kind: "task_run",
-    provider: { ...TEAM_ACCOUNT },
+    ...runIdentity("fix_plan"),
     title: `Fix ${server.code} · ${task.title}`,
     projectId: task.projectId,
     taskId: task.id,
@@ -144,18 +150,20 @@ export async function startServerFix(
     serverFix: { serverCode: server.code },
   });
   task.claude = "working";
-  await runScript(
-    c.id,
-    [
-      { step: "event", event: { type: "phase", phase: "plan", outcome: null } },
-      { step: "state", state: "working" },
-    ],
-    gen,
-  );
   // «Notes for Claude» (facoltative): restano per ogni piano di questa sessione.
   const notes = opts.notes?.trim();
   if (notes) notesOf.set(c.id, notes);
-  track(c, gen, writePlan(c, task, gen));
+  await startOrHold(me, c, "server_fix", aiBlock, gen, async () => {
+    await runScript(
+      c.id,
+      [
+        { step: "event", event: { type: "phase", phase: "plan", outcome: null } },
+        { step: "state", state: "working" },
+      ],
+      gen,
+    );
+    track(c, gen, writePlan(c, task, gen));
+  });
   return copy(c);
 }
 

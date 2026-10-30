@@ -23,7 +23,12 @@ import { docPageById } from "./docs/reads";
 import { driveFilesForClaude } from "./drive/reads";
 import { PEOPLE } from "./seed/people";
 import { isDeactivated, roleIdOf } from "./access/index";
-import { TEAM_ACCOUNT } from "./seed/runs";
+// I blocchi d'istanza (area 9b): la foglia dei blocchi, la fila dei lavori
+// fermi e i modelli. Usati solo dentro le funzioni.
+import type { AiOperation } from "@stubwise/shared";
+import { aiBlockFor, pickProvider } from "./instance/blocks";
+import { modelIdFor } from "./instance/models";
+import { dropHeld, holdJob, type JobKind } from "./instance/queue";
 import { getSessionPersonId, setSessionPersonId } from "./session";
 import {
   canSeeConversation,
@@ -61,6 +66,7 @@ import {
 } from "./stream";
 import type {
   ActivityEntry,
+  AiBlock,
   Attachment,
   Conversation,
   ConversationEvent,
@@ -1779,6 +1785,9 @@ async function sendMessageNow(
   if (!text && attachments.length === 0) throw invalid("text");
 
   if (c.kind === "free") {
+    // «Chiedi a Claude» non è nella coda di un progetto: la pausa non la
+    // tocca, la ferma solo il budget del mese (maintainer, 30 ott 2026).
+    if (aiBlockFor(null)) throw invalid("monthly_budget");
     await sendFree(me, c, text, attachments, gen);
     return;
   }
@@ -2029,6 +2038,37 @@ async function sendFree(
   await inTurn(c.id, () => freeTurn(me, c, text, attachments, cut, gen));
 }
 
+/**
+ * Stop su una sessione in attesa (ruling 14): esce dalla fila dei lavori
+ * fermi (`dropHeld`), quindi non parte alla ripresa. Una sessione nuova si
+ * chiude fermata da chi l'ha fermata; una correzione ripresa in attesa
+ * torna ferma com'era.
+ */
+async function stopWaiting(me: string, c: Conversation, gen: number): Promise<void> {
+  dropHeld(c.id);
+  c.waiting = null;
+  if (c.state === "paused") {
+    notifyConversationChange(c.id);
+    return;
+  }
+  await runScript(
+    c.id,
+    [
+      {
+        step: "event",
+        event: {
+          type: "phase",
+          phase: currentPhase(eventsOf(c.id)) ?? "plan",
+          outcome: "stopped",
+          stoppedById: me,
+        },
+      },
+      { step: "state", state: "finished", outcome: "stopped" },
+    ],
+    gen,
+  );
+}
+
 /** «Ferma» (`canInterrupt`): Claude si ferma al passo in corso; la task si ferma con lui. */
 export async function stop(id: string): Promise<void> {
   const gen = storeGeneration();
@@ -2037,6 +2077,11 @@ export async function stop(id: string): Promise<void> {
   if (!conversationPermissions(me, c).canInterrupt) throw forbidden();
   if (c.kind === "free") {
     await stopFree(me, c, gen);
+    return;
+  }
+  // In attesa della coda (area 9b, EF 2): esce dalla fila e non parte più.
+  if (c.waiting) {
+    await stopWaiting(me, c, gen);
     return;
   }
   // La correzione di un server si chiude, fermata da chi l'ha fermata.
@@ -2819,14 +2864,74 @@ function prepareRun(me: string, task: Task, pending: Task[] = []): void {
   }
 }
 
+// --- i blocchi d'istanza (area 9b, Task 6) -------------------------------------
+
+/**
+ * Il blocco d'istanza di un avvio di Claude nel progetto: col budget del
+ * mese esaurito l'avvio è rifiutato (`monthly_budget`), prima di ogni
+ * scrittura; con la coda in pausa la sessione nasce in attesa
+ * (`startOrHold`). `null`: parte subito.
+ */
+export function aiStartBlock(projectId: string): AiBlock | null {
+  const block = aiBlockFor(projectId);
+  if (block?.reason === "monthly_budget") throw invalid("monthly_budget");
+  return block;
+}
+
+/**
+ * Con chi e con quale modello parte una sessione nuova: il primo account
+ * libero della catena (`null` se non ce n'è: parte lo stesso, ruling 11) e
+ * il modello dell'operazione adesso (Models).
+ */
+export function runIdentity(operation: AiOperation): Pick<Conversation, "provider" | "model"> {
+  return { provider: pickProvider(), model: modelIdFor(operation) };
+}
+
+/**
+ * Fa partire la sessione `c` adesso o, con la coda in pausa (`block`), la
+ * lascia in attesa senza eventi: alla ripresa `holdJob` la fa partire una
+ * volta sola, nell'ordine d'arrivo, e solo se è ancora in attesa — Stop la
+ * toglie dalla fila (ruling 14). Il lavoro vivo c'è già: un secondo avvio è
+ * un conflitto.
+ */
+export async function startOrHold(
+  me: string,
+  c: Conversation,
+  kind: Exclude<JobKind, "automation" | "nightly">,
+  block: AiBlock | null,
+  gen: number,
+  go: () => Promise<void>,
+): Promise<void> {
+  if (!block) return go();
+  c.waiting = { ...block };
+  notifyConversationChange(c.id);
+  holdJob({
+    projectId: c.projectId!,
+    kind,
+    taskId: c.taskId,
+    conversationId: c.id,
+    automationRunId: null,
+    starterId: me,
+    block,
+    start: async () => {
+      if (!current(gen)) throw new Error("reset");
+      // Solo se è ancora in attesa (ruling 14): fermata, chiusa o eliminata non parte.
+      if (!c.waiting || c.state === "finished" || !state.conversations.includes(c)) return;
+      c.waiting = null;
+      notifyConversationChange(c.id);
+      await go();
+    },
+  });
+}
+
 /**
  * Apre la sessione di lavoro di una task, senza attese: da qui la task ha un
  * lavoro vivo, e un secondo «Avvia» è un conflitto (`prepareRun`).
  */
-function openRun(me: string, task: Task): Conversation {
+function openRun(me: string, task: Task, operation: AiOperation = "fix_plan"): Conversation {
   const c = newConversation(me, {
     kind: "task_run",
-    provider: { ...TEAM_ACCOUNT },
+    ...runIdentity(operation),
     title: task.title,
     projectId: task.projectId,
     taskId: task.id,
@@ -2870,8 +2975,11 @@ export async function startRun(taskId: string): Promise<Conversation> {
  */
 export async function startRunAs(me: string, task: Task, gen: number): Promise<Conversation> {
   prepareRun(me, task);
+  // Area 9b: col budget esaurito è rifiutato; con la coda in pausa aspetta
+  // (lo stesso per il Retry dello Stato dell'istanza, che passa da qui).
+  const block = aiStartBlock(task.projectId);
   const c = openRun(me, task);
-  await playRun(me, c, task, gen);
+  await startOrHold(me, c, "task_run", block, gen, () => playRun(me, c, task, gen));
   return c;
 }
 
@@ -2894,7 +3002,13 @@ export async function relaunchWithInstructions(
   if (previous && previous.state !== "finished" && previous.state !== "paused") throw conflict();
   // La PR è già mergiata: il lavoro è chiuso, non si rilancia (`runPreconditions`).
   if (!runPreconditions(task).relaunch) throw invalid("status");
+  aiStartBlock(task.projectId);
   if (previous?.state === "paused") {
+    // Una correzione ripresa che aspettava la coda non riparte più (area 9b).
+    if (previous.waiting) {
+      dropHeld(previous.id);
+      previous.waiting = null;
+    }
     // Finché la pausa non si chiude, un «Avvia» concorrente la trova viva (conflict).
     interruptScripts(previous.id, i18n.t("claude.conversation.delivery.stoppedBeforeTurn"));
     await runScript(previous.id, [{ step: "state", state: "finished", outcome: "stopped" }], gen);
@@ -2903,8 +3017,12 @@ export async function relaunchWithInstructions(
     const live = latestRunOf(task.id);
     if (live && live.state !== "finished") throw conflict();
   }
+  // Riletto dopo l'attesa: il budget può essere finito nel frattempo.
+  const block = aiStartBlock(task.projectId);
   const c = openRun(me, task);
-  await playRun(me, c, task, gen, instructions.trim());
+  await startOrHold(me, c, "task_run", block, gen, () =>
+    playRun(me, c, task, gen, instructions.trim()),
+  );
   return copy(c);
 }
 
@@ -2921,6 +3039,10 @@ export async function resumeCorrection(taskId: string): Promise<Conversation> {
   if (!run || run.state !== "paused" || currentPhase(eventsOf(run.id)) !== "correction") {
     throw invalid("status");
   }
+  // Già ripresa, in attesa della coda (area 9b): riparte una volta sola.
+  if (run.waiting) throw conflict();
+  // Ruling 13: col budget esaurito è rifiutata, con la coda in pausa aspetta.
+  const block = aiStartBlock(task.projectId);
   // La correzione ripresa è la stessa: stessa PR.
   const pr =
     eventsOf(run.id)
@@ -2928,30 +3050,32 @@ export async function resumeCorrection(taskId: string): Promise<Conversation> {
       .map((e) => (e.type === "phase" ? e.pr : undefined))
       .filter(Boolean)
       .at(-1) ?? null;
-  await runScript(
-    run.id,
-    [
-      {
-        step: "event",
-        event: {
-          type: "phase",
-          phase: "correction",
-          outcome: null,
-          ...(pr ? { pr: { ...pr } } : {}),
+  await startOrHold(me, run, "correction", block, gen, async () => {
+    await runScript(
+      run.id,
+      [
+        {
+          step: "event",
+          event: {
+            type: "phase",
+            phase: "correction",
+            outcome: null,
+            ...(pr ? { pr: { ...pr } } : {}),
+          },
         },
-      },
-      { step: "state", state: "working" },
-    ],
-    gen,
-  );
-  follow(
-    run.id,
-    [
-      { step: "say", text: "Resuming the correction where it stopped." },
-      ...scripts.correction(task, pr),
-    ],
-    gen,
-  );
+        { step: "state", state: "working" },
+      ],
+      gen,
+    );
+    follow(
+      run.id,
+      [
+        { step: "say", text: "Resuming the correction where it stopped." },
+        ...scripts.correction(task, pr),
+      ],
+      gen,
+    );
+  });
   return copy(run);
 }
 
@@ -2989,19 +3113,16 @@ export async function requestChangesAs(
   gen: number,
   pr: PrRef | undefined,
 ): Promise<Conversation> {
-  const c = newConversation(me, {
-    kind: "task_run",
-    provider: { ...TEAM_ACCOUNT },
-    title: task.title,
-    projectId: task.projectId,
-    taskId: task.id,
-    state: "working",
-  });
-  task.claude = "working";
+  // Area 9b: col budget esaurito è rifiutata, con la coda in pausa aspetta.
+  const block = aiStartBlock(task.projectId);
+  // Una correzione parte già in esecuzione: il suo modello è quello di `fix_execute`.
+  const c = openRun(me, task, "fix_execute");
   // La correzione è di una PR: quella scelta dal chiamante (da «Chiedi
   // modifiche» sulla task, la più recente ancora aperta).
-  await runScript(c.id, scripts.runOpening("correction", me, text.trim(), pr), gen);
-  follow(c.id, scripts.correction(task, pr), gen);
+  await startOrHold(me, c, "correction", block, gen, async () => {
+    await runScript(c.id, scripts.runOpening("correction", me, text.trim(), pr), gen);
+    follow(c.id, scripts.correction(task, pr), gen);
+  });
   return c;
 }
 

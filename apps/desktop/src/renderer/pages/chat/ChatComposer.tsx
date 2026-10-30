@@ -1,6 +1,6 @@
 import { useCallback, useId, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { useDepartments, usePeople } from "../../data/queries";
+import { useDepartments, usePeople, useStorageAllowsUploads } from "../../data/queries";
 import type { Attachment, CitationRef } from "../../data/types";
 import { CheckItem, itemClass, MenuGroup, MenuNote } from "../../tasks-ui/Menu";
 import { MenuButton } from "../tasks/controls";
@@ -190,6 +190,7 @@ export function ChatComposer({
   const options = menuOpen ? flatten(menu.groups) : [];
   const activeIndex = composer.activeIndex(options.length);
   const hasContent = text.trim().length > 0 || attachments.length > 0;
+  const uploadsOff = useStorageAllowsUploads().data === false;
 
   const pick = (s: Suggestion) => {
     if (!trigger) return;
@@ -229,7 +230,7 @@ export function ChatComposer({
 
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = [...(e.clipboardData?.files ?? [])];
-    if (files.length === 0) return;
+    if (files.length === 0 || uploadsOff) return;
     e.preventDefault();
     onAddFiles(files);
   };
@@ -340,17 +341,33 @@ export function ChatComposer({
             >
               {(close) => (
                 <MenuGroup>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className={itemClass}
-                    onClick={() => {
-                      close();
-                      fileInput.current?.click();
-                    }}
-                  >
-                    {t("chat.composer.upload")}
-                  </button>
+                  {uploadsOff ? (
+                    // I caricamenti spenti (area 9b): la voce resta, spenta, con il perché.
+                    <button
+                      type="button"
+                      role="menuitem"
+                      aria-disabled="true"
+                      className={`${itemClass} cursor-default flex-col items-start gap-0 opacity-60 hover:bg-transparent`}
+                      onClick={(e) => e.preventDefault()}
+                    >
+                      <span>{t("chat.composer.upload")}</span>
+                      <span className="text-xs text-ink-muted">
+                        {t("instanceEffects.storage.attach")}
+                      </span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className={itemClass}
+                      onClick={() => {
+                        close();
+                        fileInput.current?.click();
+                      }}
+                    >
+                      {t("chat.composer.upload")}
+                    </button>
+                  )}
                   <button
                     type="button"
                     role="menuitem"

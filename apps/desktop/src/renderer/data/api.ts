@@ -21,6 +21,7 @@ import { presentChatNotification } from "./chat/reads";
 import { deliveredTo } from "./alerts/reads";
 import { whyReceives } from "./alerts/visibility";
 import { linkAccessHrefOf } from "./servers/visibility";
+import { aiBlockFor } from "./instance/blocks";
 import { assigneeStatusOf } from "./admin/people";
 import {
   canSeeConversation,
@@ -91,7 +92,14 @@ import type {
 
 export type { SearchResult } from "./types";
 export type { ApiFnName } from "./store";
-export { failNext, setLatency, setStreamLatency, slipWeeks, visibleProjectIds } from "./store";
+export {
+  failNext,
+  onInstanceChange,
+  setLatency,
+  setStreamLatency,
+  slipWeeks,
+  visibleProjectIds,
+} from "./store";
 export * from "./api-mutations";
 export {
   mergeStreamEvent,
@@ -665,6 +673,8 @@ export async function getTaskWork(taskId: string): Promise<TaskWork | null> {
       provider: c.provider ? copy(c.provider) : null,
       failureSummary:
         c.state === "finished" && c.outcome !== "ok" ? (c.failureSummary ?? null) : null,
+      model: c.model ?? null,
+      waiting: c.waiting ? copy(c.waiting) : null,
     }));
   const software = hasRepository(task.projectId);
   const viewer = viewerFor(me);
@@ -721,6 +731,8 @@ export async function getTaskWork(taskId: string): Promise<TaskWork | null> {
       : [],
     correctionCap: state.projectsById.get(task.projectId)?.correctionCap ?? DEFAULT_CORRECTION_CAP,
     usage: usageOfTask(taskId),
+    // Il progetto della task si vede (sopra): budget e pausa si leggono per intero.
+    blocked: aiBlockFor(task.projectId),
   };
 }
 

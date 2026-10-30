@@ -2,7 +2,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failNext, resetApi, setLatency } from "../../data/api";
-import { state } from "../../data/store";
+import { notifyInstanceChange, state } from "../../data/store";
 import type { DriveFile } from "../../data/types";
 import { resetViewerGrants, revokeProjectPermission } from "../../data/viewer";
 import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
@@ -578,5 +578,27 @@ describe("Drive — fix round 1", () => {
       expect(state.driveFiles.some((f) => f.name === "Rilievi cantiere.pdf")).toBe(true),
     );
     expect(screen.queryByText(/Too large/)).toBeNull();
+  });
+});
+
+describe("Drive con i caricamenti spenti (area 9b, shape instance-effects §3)", () => {
+  it("«Upload» spento con la frase e «Who?»; «Add from Google Drive» resta acceso; riaccesi, torna", async () => {
+    state.instance.storage.attachmentsEnabled = false;
+    await openDrive("/p/AUD/drive", "p-laura");
+    const line = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>('[data-ai-block="storage_off"]');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(line).toHaveTextContent(
+      "Uploads are off on this instance. Files already here stay readable. Who?",
+    );
+    expect(screen.getByRole("button", { name: "Upload" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Add from Google Drive/ })).toBeEnabled();
+
+    state.instance.storage.attachmentsEnabled = true;
+    act(() => notifyInstanceChange());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Upload" })).toBeEnabled());
+    expect(document.querySelector('[data-ai-block="storage_off"]')).toBeNull();
   });
 });

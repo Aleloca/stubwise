@@ -715,6 +715,9 @@ export type ApiFnName =
   | "instance.retryJob"
   | "instance.pauseQueue"
   | "instance.resumeQueue"
+  // Gli effetti dell'istanza nelle altre aree (area 9b, Task 6)
+  | "instance.getAiBlock"
+  | "instance.getUploadsAllowed"
   // Repository d'istanza (area 9b, Task 7)
   | "instance.listAllRepositories";
 const failures = new Set<ApiFnName>();
@@ -1338,6 +1341,22 @@ export function signalAutomations(signal: AutomationSignal): void {
   for (const fn of automationListeners) fn(signal);
 }
 
+const instanceListeners = new Set<() => void>();
+
+/**
+ * I blocchi d'istanza (area 9b: budget, pausa della coda, archiviazione)
+ * sono cambiati: chi li mostra in altre aree li rilegge subito, senza un
+ * ricaricamento a mano (shape instance-effects §5). Restituisce come smettere.
+ */
+export function onInstanceChange(fn: () => void): () => void {
+  instanceListeners.add(fn);
+  return () => instanceListeners.delete(fn);
+}
+
+export function notifyInstanceChange(): void {
+  for (const fn of instanceListeners) fn();
+}
+
 /** L'id di una riga creata dal prototipo. */
 export const newId = (prefix: string): string => `${prefix}-new-${++state.counter}`;
 
@@ -1836,7 +1855,11 @@ export function runPreconditions(task: Task): {
   return {
     start: open && !live,
     relaunch: open && settled && !lastPrMerged(task),
-    resume: latest?.state === "paused" && currentPhase(eventsOf(latest.id)) === "correction",
+    // Una correzione già ripresa che aspetta la coda (area 9b) non si riprende due volte.
+    resume:
+      latest?.state === "paused" &&
+      !latest.waiting &&
+      currentPhase(eventsOf(latest.id)) === "correction",
     requestChanges: hasOpenPr(task) && !live,
   };
 }

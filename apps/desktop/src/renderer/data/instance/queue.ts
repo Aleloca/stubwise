@@ -1,7 +1,15 @@
 import { recordChange } from "../changelog/index";
 import { encodeQueue } from "../changelog/settingValues";
 import type { AiBlock } from "../model";
-import { newId, now, onStoreReset, state, storeGeneration, visibleProjectIds } from "../store";
+import {
+  newId,
+  notifyInstanceChange,
+  now,
+  onStoreReset,
+  state,
+  storeGeneration,
+  visibleProjectIds,
+} from "../store";
 import { writer } from "../writer";
 import { aiBlockFor, budgetReached, queuePauseOf } from "./blocks";
 import { canI, refuse } from "./common";
@@ -123,8 +131,16 @@ function release(fell: (job: HeldJob) => boolean): void {
   for (const job of held) {
     if (!fell(job)) continue;
     const block = aiBlockFor(job.projectId);
-    if (block) job.block = block;
-    else ready.push(job);
+    if (!block) {
+      ready.push(job);
+      continue;
+    }
+    job.block = block;
+    // La sessione in attesa dice il blocco che vale adesso (shape EF §5).
+    const session = job.conversationId
+      ? state.conversations.find((c) => c.id === job.conversationId)
+      : undefined;
+    if (session?.waiting) session.waiting = { ...block };
   }
   if (ready.length === 0) return;
   held = held.filter((j) => !ready.includes(j));
@@ -169,6 +185,7 @@ export async function pauseQueue(projectId: string): Promise<InstanceResult> {
     projectId,
     object: objectOf(projectId),
   });
+  notifyInstanceChange();
   return { ok: true };
 }
 
@@ -190,5 +207,6 @@ export async function resumeQueue(projectId: string): Promise<InstanceResult> {
     after: encodeQueue(null),
   });
   release((j) => j.projectId === projectId && j.block.reason === "queue_paused");
+  notifyInstanceChange();
   return { ok: true };
 }

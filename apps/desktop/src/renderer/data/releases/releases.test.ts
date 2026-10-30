@@ -359,6 +359,8 @@ describe("Review Focus 2: correzioni sulle PR dei colleghi (livello dati)", () =
 
   it("R-K2 su ogni porta: la stessa PR di Stubwise dà lo stesso esito dalla task e dai Rilasci", async () => {
     // STW-3: la #411 si mergia, così «Chiedi modifiche» della task va sulla guida #58 (al tetto).
+    // La coda di STW del seme è in pausa (area 9b): qui si prova il tetto, la coda gira.
+    state.instance.queuePauses = [];
     await runScript("cv-run-stw-3", [{ step: "state", state: "finished", outcome: "ok" }]);
     state.pullRequests.push({
       id: "pr-test-merge-411",

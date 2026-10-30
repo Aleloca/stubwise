@@ -9,6 +9,7 @@ import {
   clientOf,
   conditionWords,
   daysBetween,
+  reasonWords,
   shortDate,
   startedByWords,
   type Names,
@@ -34,6 +35,9 @@ export interface LogCtx {
 type T = (key: string, options?: Record<string, unknown>) => string;
 
 const str = (v: unknown) => (typeof v === "string" ? v : "");
+
+/** Le righe scritte dai blocchi d'istanza (area 9b, `runner.ts`): attesa e ripartenza. */
+const AI_WAIT_CODES = new Set(["aiBudget", "aiQueuePaused", "aiBudgetBack", "aiQueueBack"]);
 
 /** Il codice di una cosa creata, come link: la task nel pannello, l'esecuzione, la Posta. */
 function EffectLink({
@@ -137,6 +141,9 @@ export function EntrySentence({
   const who = ctx.names.person(entry.byId);
   const input = entry.input;
   const hiddenEffect = entry.effects.some((e) => e.code === "");
+  // Area 9b ([EF 6]): l'attesa di un blocco d'istanza e la ripartenza, nella
+  // lingua di chi guarda («Waiting: monthly AI budget reached»).
+  if (entry.why && AI_WAIT_CODES.has(entry.why.code)) return <>{reasonWords(entry.why, t)}</>;
   switch (entry.outcome) {
     case "approved":
       if (entry.output.progetto !== undefined) {

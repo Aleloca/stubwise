@@ -64,6 +64,14 @@ beforeEach(() => {
 const as = (personId: string) => setSessionPersonId(personId);
 
 /**
+ * Nel seme la coda di STW è in pausa (area 9b): le correzioni aspetterebbero
+ * la ripresa. Dove si prova la correzione, non la pausa, la coda gira.
+ */
+const stwQueueRunning = () => {
+  state.instance.queuePauses = state.instance.queuePauses.filter((p) => p.projectId !== "prj-stw");
+};
+
+/**
  * Una scrittura di Giulia mentre la sessione resta di chi guarda: la persona
  * si legge all'inizio della chiamata, poi la sessione torna a chi c'era.
  */
@@ -1110,6 +1118,7 @@ describe("sessioni di lavoro", () => {
   });
 
   it("chiedi modifiche: con corrections.request, solo se c'è una PR", async () => {
+    stwQueueRunning();
     as("p-giulia"); // contributor in STW
     await expect(requestChanges("t-stw-1", "Rename the button")).rejects.toThrow("forbidden");
     as("p-marco");
@@ -1129,6 +1138,7 @@ describe("sessioni di lavoro", () => {
   });
 
   it("riprendi la correzione: solo una correzione in pausa", async () => {
+    stwQueueRunning();
     as("p-marco");
     await expect(resumeCorrection("t-aud-4")).rejects.toThrow("invalid"); // in pausa, ma in esecuzione
     as("p-laura");
@@ -1288,6 +1298,7 @@ describe("elenco filtrato per progetto", () => {
 describe("PR aperte, PR per PR", () => {
   it("il merge di una PR non chiude l'altra della stessa task (un'altra repository)", async () => {
     // La guida #58 è al tetto di STW (R-K2): chiede modifiche chi ha plans.approve.
+    stwQueueRunning();
     as("p-laura");
     await runScript("cv-run-stw-3", [{ step: "state", state: "finished", outcome: "ok" }]);
     // La #411 (app) si mergia; la #58 (guida) resta aperta.

@@ -1,6 +1,7 @@
 import { visitSteps } from "../../domain/automations/fields";
 import { copy, state, visibleProjectIds } from "../store";
 import type { AutomationRun, ReasonCode, RunLogEntry } from "../types";
+import { aiWaitingOf } from "./runner";
 import {
   automationById,
   canSeeAutomation,
@@ -96,6 +97,9 @@ function mailOrigin(run: AutomationRun): { ownerId: string | null } | null {
  */
 export function viewRun(me: string, run: AutomationRun): AutomationRun {
   const v = copy(run);
+  // Ferma per un blocco d'istanza (area 9b): il blocco di adesso.
+  const waiting = aiWaitingOf(run.id);
+  if (waiting) v.aiWaiting = copy(waiting);
   const visible = visibleProjectIds(me);
   const scrub = (o: Record<string, unknown>) => hideProject(o, visible);
   v.projectIds = v.projectIds.filter((p) => visible.has(p));

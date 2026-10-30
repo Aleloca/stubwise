@@ -3,12 +3,14 @@ import {
   AI_OPERATIONS,
   AI_OPERATION_GROUPS,
   isConfigurableAiOperation,
+  resolveApiModelId,
   type AiModelChoice,
   type AiOperation,
   type AiOperationGroupKey,
 } from "@stubwise/shared";
 import { recordChange } from "../changelog/index";
 import { encodeModel } from "../changelog/settingValues";
+import type { ConversationKind } from "../model";
 import { gate, state } from "../store";
 import { forbidden, writer } from "../writer";
 import { canI, refuse } from "./common";
@@ -41,6 +43,26 @@ export const DEFAULT_MODELS: Record<AiOperation, AiModelChoice> = Object.fromEnt
   ]),
 ) as Record<AiOperation, AiModelChoice>;
 
+/**
+ * L'operazione con cui gira ogni tipo di sessione (area 9b, Task 6): decide
+ * il modello di una sessione nuova (`modelIdFor`) e la riga dei consumi. Una
+ * `task_run` parte col modello di `fix_plan` e, all'esecuzione, i consumi
+ * vanno su `fix_execute`. *Scelta del controller*: l'analisi di un server
+ * gira come un piano (`fix_plan`), il web non ha un'operazione sua.
+ */
+export const OPERATION_OF_KIND: Record<ConversationKind, AiOperation> = {
+  task_run: "fix_plan",
+  pr_review: "pr_review",
+  docs: "docs_generation",
+  brief: "weekly_brief",
+  daily_report: "daily_report",
+  mail_classify: "mail_classify",
+  intake: "backlog_intake",
+  refine: "backlog_refine",
+  free: "chat",
+  server_analysis: "fix_plan",
+};
+
 const canRead = (me: string) => canI(me, "settings.manage") || canI(me, "ai_providers.manage");
 
 /** Il modello con cui gira un'operazione adesso, e da dove viene. */
@@ -50,6 +72,11 @@ export function modelFor(operation: AiOperation): { model: AiModelChoice; source
   const env = ENV_MODELS[operation];
   if (env) return { model: env, source: "env" };
   return { model: DEFAULT_MODELS[operation], source: "default" };
+}
+
+/** Il modello di un'operazione adesso, come id («haiku» → «claude-haiku-5-5»): quello che una sessione nuova scrive. */
+export function modelIdFor(operation: AiOperation): string {
+  return resolveApiModelId(modelFor(operation).model);
 }
 
 /** La scelta come valore stabile del registro (Ruling T3): `set:opus`, `env:haiku`, `default:sonnet`. */

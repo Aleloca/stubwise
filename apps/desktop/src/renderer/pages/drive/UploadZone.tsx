@@ -34,7 +34,8 @@ export interface UploadItem {
   sizeBytes: number;
   loaded: number;
   /** `saving` = la barra è piena e il livello dati sta creando il riferimento. */
-  status: "uploading" | "saving" | "too_large" | "failed";
+  /** `storage_off`: rifiutato perché i caricamenti sono spenti (area 9b): si chiude, non si riprova. */
+  status: "uploading" | "saving" | "too_large" | "failed" | "storage_off";
   projectId: string;
   file: File;
 }
@@ -126,8 +127,13 @@ export function useUploads(onUploaded?: (file: DriveFileRow) => void) {
         } else {
           announce(tr("drive.uploads.done", { name: row.name, code: row.code }));
         }
-      } catch {
+      } catch (error) {
         if (!alive) return;
+        if (error instanceof Error && error.message === "invalid: storage_off") {
+          patch(item.key, { status: "storage_off" });
+          announce(`${item.name}: ${live.current.t("instanceEffects.storage.failed")}`);
+          return;
+        }
         patch(item.key, { status: "failed" });
         announce(`${item.name}: ${live.current.t("drive.uploads.failed")}`);
       }
@@ -244,12 +250,16 @@ export function UploadingGroup({ uploads }: { uploads: Uploads }) {
               <span title={item.name} className="truncate text-md text-ink">
                 {item.name}
               </span>
-              {item.status === "too_large" || item.status === "failed" ? (
+              {item.status === "too_large" ||
+              item.status === "failed" ||
+              item.status === "storage_off" ? (
                 <span className="flex items-center gap-1.5 text-sm text-critical">
                   <ErrorGlyph />
                   {item.status === "too_large"
                     ? t("drive.uploads.tooLarge", { size: size(item.sizeBytes) })
-                    : t("drive.uploads.failed")}
+                    : item.status === "storage_off"
+                      ? t("instanceEffects.storage.failed")
+                      : t("drive.uploads.failed")}
                 </span>
               ) : (
                 <span className="flex items-center gap-3">
@@ -290,7 +300,9 @@ export function UploadingGroup({ uploads }: { uploads: Uploads }) {
                   {t("drive.uploads.retry")}
                 </button>
               )}
-              {(item.status === "failed" || item.status === "too_large") && (
+              {(item.status === "failed" ||
+                item.status === "too_large" ||
+                item.status === "storage_off") && (
                 <button type="button" className={ghostButton} onClick={() => uploads.dismiss(item.key)}>
                   {t("drive.uploads.dismiss")}
                 </button>

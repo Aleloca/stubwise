@@ -5539,7 +5539,11 @@
       "noRoleAssignee": "Nobody is {{role}} in the project: the task is created without an assignee.",
       "noRoleAssignee_would": "Nobody is {{role}} in the project: the task would be created without an assignee.",
       "assigneeDeactivated": "{{name}} is deactivated: the task can't be assigned to them.",
-      "assigneeDeactivated_would": "{{name}} is deactivated: the task couldn't be assigned to them, so the step would fail."
+      "assigneeDeactivated_would": "{{name}} is deactivated: the task couldn't be assigned to them, so the step would fail.",
+      "aiBudget": "Waiting: monthly AI budget reached",
+      "aiQueuePaused": "Waiting: queue paused by {{name}}",
+      "aiBudgetBack": "Budget available again · the step starts",
+      "aiQueueBack": "Queue resumed · the step starts"
     },
     "created": {
       "task_one": "{{count}} task",
@@ -9265,6 +9269,46 @@
       "plugin_smoke": "Plugin smoke run",
       "credential_test": "Credential test",
       "usage_probe": "Usage reading"
+    }
+  },
+  "instanceEffects": {
+    "since": {
+      "today": "since {{time}} today",
+      "yesterday": "since yesterday at {{time}}",
+      "date": "since {{date}}"
+    },
+    "deactivated": "{{name}} (deactivated)",
+    "budget": {
+      "start": "The monthly AI budget is used up. New work waits until someone raises it.",
+      "chat": "The monthly AI budget is used up: Claude can't answer until someone raises it.",
+      "refused": "Claude didn't start: the monthly AI budget is used up.",
+      "chatRefused": "Your message wasn't sent: the monthly AI budget is used up.",
+      "waiting": "Waiting: monthly AI budget reached",
+      "runList": "Waiting for the AI budget · “{{step}}”",
+      "runDetail": "Step {{number}} “{{step}}” starts again on its own when the budget is available — when someone raises it, or next month. Nothing is lost.",
+      "passTime": "Passing time won't move this run: it waits for the budget."
+    },
+    "queue": {
+      "start": "{{code}}'s queue is paused by {{name}} {{since}}. If you start now, Claude waits for it to resume.",
+      "waiting": "Waiting: queue paused by {{name}}",
+      "runWaiting": "Waiting: {{code}}'s queue is paused by {{name}}",
+      "runList": "Waiting for the queue · “{{step}}”",
+      "runDetail": "Step {{number}} “{{step}}” starts again on its own when the queue resumes.",
+      "passTime": "Passing time won't move this run: it waits for the queue.",
+      "header": "Queue paused by {{name}}",
+      "headerTitle": "Paused {{since}}. New Claude work waits; work already running finishes.",
+      "row": "Queue paused"
+    },
+    "storage": {
+      "drive": "Uploads are off on this instance. Files already here stay readable.",
+      "attach": "Uploads are off on this instance.",
+      "failed": "Upload failed: uploads are off on this instance."
+    },
+    "run": {
+      "line": "Model: {{model}} · Account: {{account}}",
+      "noAccount": "none available",
+      "subscription": "{{name}} (subscription)",
+      "api_key": "{{name}} (API key)"
     }
   }
 }

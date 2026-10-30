@@ -7,6 +7,7 @@ import { accessState, accessUsable, type AccessState } from "../../domain/server
 import { holds, sees } from "../access";
 import { latestRunOf, now, state, visibleProjectIds } from "../store";
 import type {
+  AiBlock,
   ServerSshAccess,
   SshAccessKind,
   SshPublicKey,
@@ -233,6 +234,11 @@ export interface ServerEpisodeView extends ServerEpisode {
   analysis: ServerAnalysis | null;
   /** La task nata dall'analisi, se chi guarda la vede. */
   taskCode: string | null;
+  /**
+   * Area 9b: l'analisi è nata ma aspetta (la coda del suo progetto in pausa):
+   * il riquadro dice «Waiting: …» al posto di «Claude is looking into it».
+   */
+  analysisWaiting?: AiBlock | null;
 }
 
 export interface ServerDetail extends Omit<ServerRow, "access"> {
@@ -262,10 +268,14 @@ function episodeView(me: string, e: ServerEpisode): ServerEpisodeView {
     : undefined;
   const shown = analysis && sees(me, analysis.projectId) ? analysis : undefined;
   const task = shown?.taskId ? state.tasksById.get(shown.taskId) : undefined;
+  const waiting = shown
+    ? state.conversations.find((c) => c.id === shown.conversationId)?.waiting
+    : null;
   return {
     ...structuredClone(e),
     analysis: shown ? structuredClone(shown) : null,
     taskCode: task && sees(me, task.projectId) ? task.code : null,
+    ...(waiting ? { analysisWaiting: structuredClone(waiting) } : {}),
   };
 }
 

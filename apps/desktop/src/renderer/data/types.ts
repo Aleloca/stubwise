@@ -2,6 +2,7 @@ import type { InstancePermission, ProjectPermission } from "@stubwise/shared";
 import type { FlowIssue } from "../domain/automations/validate";
 import type { Stall } from "../domain/stalled";
 import type {
+  AiBlock,
   Approval,
   Automation,
   AutomationFlow,
@@ -169,6 +170,10 @@ export interface TaskRun {
   provider: RunProvider | null;
   /** Fallita: il riassunto del fallimento in una riga; altrimenti `null`. */
   failureSummary: string | null;
+  /** Il modello con cui è partita (area 9b, «claude-haiku-5-5»); `null` per le sessioni di prima. */
+  model: string | null;
+  /** In attesa di un blocco d'istanza (area 9b: coda in pausa, budget); `null` se non aspetta. */
+  waiting: AiBlock | null;
 }
 
 /** I fatti esterni di una PR, quanto ne legge la sezione (il ciclo si deriva: `prCycles`). */
@@ -211,6 +216,13 @@ export interface TaskWork {
    * (come il pannello del web: li vede chi vede la task). Vuoto: nessun consumo.
    */
   usage: ModelUsage[];
+  /**
+   * Area 9b: perché un lavoro nuovo di Claude non partirebbe adesso sulla
+   * task (`aiBlockFor` del suo progetto) — il budget del mese esaurito (gli
+   * avvii sono rifiutati: i bottoni spenti con la frase) o la coda in pausa
+   * (gli avvii aspettano: i bottoni accesi con la frase). `null`: nessun blocco.
+   */
+  blocked: AiBlock | null;
 }
 
 export interface PlanDecision {

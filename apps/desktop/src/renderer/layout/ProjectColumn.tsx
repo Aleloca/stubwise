@@ -1,7 +1,9 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
+import { sinceText, usePauserName, WithWho } from "../components/InstanceBlock";
 import {
+  useAiBlock,
   useChatChannels,
   useDocSpaces,
   usePeople,
@@ -71,7 +73,36 @@ function Header({ code, project }: { code: string; project?: Project | null }) {
           {kind}
         </p>
       )}
+      {project && <QueuePausedLine projectId={project.id} />}
     </header>
+  );
+}
+
+/**
+ * La coda del progetto in pausa (area 9b, shape instance-effects [EF 4],
+ * confermata dal maintainer): sotto il tipo, «‖ Queue paused by Roberta
+ * Fontana» con da quando nel `title` e il «Who?» di chi può riprenderla.
+ * Va a capo, non si tronca. Il budget qui non si dice: vale per tutta
+ * l'istanza, lo dice ogni controllo che ferma.
+ */
+function QueuePausedLine({ projectId }: { projectId: string }) {
+  const { t, i18n } = useTranslation();
+  const block = useAiBlock(projectId).data ?? null;
+  const name = usePauserName(block);
+  if (block?.reason !== "queue_paused") return null;
+  return (
+    <p
+      data-queue-paused
+      title={t("instanceEffects.queue.headerTitle", {
+        since: sinceText(t, block.since, i18n.language),
+      })}
+      className="mt-1 flex gap-1.5 text-xs text-ink-muted"
+    >
+      <span aria-hidden="true">‖</span>
+      <span className="min-w-0 [overflow-wrap:anywhere]">
+        <WithWho text={t("instanceEffects.queue.header", { name })} />
+      </span>
+    </p>
   );
 }
 
