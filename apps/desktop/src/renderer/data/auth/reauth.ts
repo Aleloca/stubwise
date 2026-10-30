@@ -33,7 +33,27 @@ export const PROTOTYPE_TOTP_CODE = "123456";
  * (`reauth.test.ts`, «registro») elenca le stesse: aggiungerne una è una
  * decisione visibile nel diff.
  */
-export const REAUTH_REQUIRED: ReadonlySet<ApiFnName> = new Set<ApiFnName>([]);
+export const REAUTH_REQUIRED: ReadonlySet<ApiFnName> = new Set<ApiFnName>([
+  // Task 4: l'Amministrazione
+  "admin.setInstanceRole",
+  "admin.createPasswordResetLink",
+  "admin.resetSecondFactor",
+  "admin.unlinkGitIdentity",
+  "admin.deactivatePerson",
+  "admin.createInvite",
+  "admin.createRole",
+  "admin.updateRole",
+  "admin.duplicateRole",
+  "admin.deleteRole",
+  "admin.setDepartmentMembers",
+  "admin.setHomeManagers",
+  "admin.setDepartmentPermissions",
+  "admin.addMember",
+  "admin.removeMember",
+  "admin.setMemberRole",
+  "admin.grantMemberPermission",
+  "admin.revokeMemberPermission",
+]);
 
 const MINUTE = 60_000;
 

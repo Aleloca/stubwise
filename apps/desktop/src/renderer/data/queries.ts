@@ -170,6 +170,8 @@ export const queryKeys = {
     ["as", personId, "changelog", "list", filter] as const,
   projectChanges: (personId: string, projectId: string, filter: ChangeFilter) =>
     ["as", personId, "changelog", "project", projectId, filter] as const,
+  /** L'Amministrazione (area 9a): tutto nell'area «admin»; una scrittura d'accesso ricarica ogni query. */
+  admin: (personId: string, ...rest: unknown[]) => ["as", personId, "admin", ...rest] as const,
   /**
    * Il blocco «Server» di una task (Task 9): nell'area delle conversazioni,
    * così si rilegge quando la correzione avanza (piano, comandi, controllo).

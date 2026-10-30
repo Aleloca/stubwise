@@ -64,3 +64,13 @@ export const PEOPLE: Person[] = [
     presetRole: "developer",
   },
 ];
+
+/**
+ * I reparti di ogni persona nel seme, congelati. `Person.departmentIds` di
+ * `PEOPLE` segue lo stato degli accessi (lo riallinea lo store a ogni
+ * scrittura: area 9a), quindi chi riparte dal seme — `access/seed.ts` — legge
+ * da qui, non dalle persone.
+ */
+export const SEED_DEPARTMENT_IDS: Readonly<Record<string, readonly string[]>> = Object.freeze(
+  Object.fromEntries(ROWS.map(([id, , departmentIds]) => [id, Object.freeze([...departmentIds])])),
+);

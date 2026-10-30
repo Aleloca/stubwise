@@ -18,10 +18,10 @@ import { publishChatEvent } from "./chat/events";
 import { DEFAULT_PUBLISHED_EVENTS } from "./seed/chat";
 import { COMMITS } from "./seed/commits";
 import { TODAY } from "./seed/dates";
-import { DEPARTMENTS } from "./seed/departments";
 import { docPageById } from "./docs/reads";
 import { driveFilesForClaude } from "./drive/reads";
 import { PEOPLE } from "./seed/people";
+import { accessState } from "./access/index";
 import { TEAM_ACCOUNT } from "./seed/runs";
 import { getSessionPersonId, setSessionPersonId } from "./session";
 import {
@@ -195,7 +195,7 @@ export function checkNewTask(
 
 /** Il reparto di una task nuova senza reparto: il primo di chi la crea. */
 export const defaultDepartmentOf = (me: string): string =>
-  PEOPLE.find((p) => p.id === me)?.departmentIds[0] ?? DEPARTMENTS[0]!.id;
+  PEOPLE.find((p) => p.id === me)?.departmentIds[0] ?? state.departments[0]!.id;
 
 function buildTask(me: string, input: NewTaskInput): Task {
   const { project, status } = checkNewTask(me, input);
@@ -296,7 +296,7 @@ function describeValue(key: keyof TaskPatch, value: unknown): string | null {
     case "statusId":
       return state.statusById.get(value as string)?.name ?? String(value);
     case "departmentId":
-      return DEPARTMENTS.find((d) => d.id === value)?.name ?? String(value);
+      return state.departments.find((d) => d.id === value)?.name ?? String(value);
     case "assigneeId":
       return personName(value as string) ?? String(value);
     case "milestoneId":
@@ -358,11 +358,15 @@ function prepareTaskPatch(me: string, task: Task, patch: TaskPatch): Diff[] {
   }
   // Reparto e assegnatario devono esistere (la corsia «Other» della board non è un valore).
   const departmentDiff = diffs.find((d) => d.key === "departmentId");
-  if (departmentDiff && !DEPARTMENTS.some((d) => d.id === departmentDiff.to)) {
+  if (departmentDiff && !state.departments.some((d) => d.id === departmentDiff.to)) {
     throw invalid("department");
   }
   const assigneeDiff = diffs.find((d) => d.key === "assigneeId");
-  if (assigneeDiff && assigneeDiff.to !== null && !PEOPLE.some((p) => p.id === assigneeDiff.to)) {
+  if (
+    assigneeDiff &&
+    assigneeDiff.to !== null &&
+    (!PEOPLE.some((p) => p.id === assigneeDiff.to) || isDeactivated(assigneeDiff.to as string))
+  ) {
     throw invalid("assignee");
   }
   const statusDiff = diffs.find((d) => d.key === "statusId");
@@ -409,6 +413,22 @@ function setClosedAt(task: Task, oldFamily: StatusFamily, at: string): void {
   else if (newFamily !== "closed") task.closedAt = null;
 }
 
+/**
+ * Una persona disattivata (area 9a) non si può assegnare: sparisce da chi si
+ * sceglie. Le task che ha già restano sue, con «(deactivated)».
+ */
+const isDeactivated = (personId: string): boolean =>
+  accessState().people.some((p) => p.personId === personId && p.status === "deactivated");
+
+/**
+ * Riassegna una task come una modifica del campo fatta da `me` (cronologia,
+ * sistemazioni nei giorni): la usa la disattivazione di una persona (area
+ * 9a), che ha già controllato chi la riceve.
+ */
+export function reassignTask(me: string, task: Task, assigneeId: string | null): void {
+  commitTaskPatch(me, task, [{ key: "assigneeId", from: task.assigneeId, to: assigneeId }]);
+}
+
 function updateTaskAs(me: string, id: string, patch: TaskPatch): Task {
   const task = taskFor(me, id);
   commitTaskPatch(me, task, prepareTaskPatch(me, task, patch));
@@ -450,7 +470,11 @@ function planTaskAs(
   const forOthers = can(viewerFor(me), "planning.others", task.projectId);
   const members = state.projectsById.get(task.projectId)!.memberIds;
   if (forOthers) {
-    if (plan.assigneeId !== null && !members.includes(plan.assigneeId)) throw invalid("assignee");
+    if (
+      plan.assigneeId !== null &&
+      (!members.includes(plan.assigneeId) || isDeactivated(plan.assigneeId))
+    )
+      throw invalid("assignee");
   } else {
     // Senza `planning.others` si muove solo il proprio: una task già mia (spostarla
     // o lasciarla), o una non assegnata che prendo per me con `tickets.edit`.
@@ -1002,7 +1026,7 @@ export async function setDepartmentHome(
   blocks: HomeBlockRef[],
 ): Promise<void> {
   const me = await gate("setDepartmentHome");
-  if (!DEPARTMENTS.some((d) => d.id === departmentId)) throw notFound();
+  if (!state.departments.some((d) => d.id === departmentId)) throw notFound();
   if (!canInDepartment(viewerFor(me), "department.home.manage", departmentId)) throw forbidden();
   const updatedAt = now();
   const home = state.departmentHomes.find((h) => h.departmentId === departmentId);

@@ -21,8 +21,8 @@ import { DECISION_REQUESTS } from "./seed/decisions";
 import { INITIAL_PINNED_FILTERS, SAVED_FILTERS } from "./seed/filters";
 import { DAY_ARRANGEMENTS, DEPARTMENT_HOMES, PERSONAL_HOMES } from "./seed/homes";
 import { MILESTONES } from "./seed/milestones";
-import { NOTIFICATIONS } from "./seed/notifications";
-import { CLAUDE_ID } from "./seed/people";
+import { NOTIFICATIONS, SEED_SECURITY_CODES } from "./seed/notifications";
+import { CLAUDE_ID, PEOPLE, SEED_DEPARTMENT_IDS } from "./seed/people";
 import { INITIAL_PINNED_CODES, PROJECTS } from "./seed/projects";
 import { REQUESTS } from "./seed/requests";
 import { PROJECT_STATUSES } from "./seed/statuses";
@@ -149,8 +149,18 @@ import type {
   VerifyOutcome,
 } from "./types";
 import { can, viewerFor } from "./viewer";
-import { registerMembershipSync, resetAccessState, type AccessState } from "./access/index";
+import {
+  accessState as accessStateNow,
+  registerMembershipSync,
+  resetAccessState,
+  subscribeAccess,
+  type AccessState,
+} from "./access/index";
 import type { ChangeEntry } from "./changelog/types";
+import type { Invite, SecurityEvent } from "./admin/types";
+import { DEPARTMENTS } from "./seed/departments";
+import { INVITES, SECURITY_EVENTS } from "./seed/invites";
+import type { Department } from "./types";
 
 // Il «server» finto: il simulatore (latenza, errori iniettati), lo stato
 // mutabile — una copia del seed, che `resetApi` rifà — e i derivati che le
@@ -553,7 +563,41 @@ export type ApiFnName =
   | "changelog.listChanges"
   | "changelog.listProjectChanges"
   | "auth.reauthenticate"
-  | "auth.enrollDuringReauth";
+  | "auth.enrollDuringReauth"
+  // Amministrazione (area 9a, Task 4): People, inviti, ruoli, reparti, membri
+  | "admin.listPeople"
+  | "admin.getPerson"
+  | "admin.setInstanceRole"
+  | "admin.createPasswordResetLink"
+  | "admin.resetSecondFactor"
+  | "admin.listSecurityEvents"
+  | "admin.listObservedAuthors"
+  | "admin.linkGitIdentity"
+  | "admin.unlinkGitIdentity"
+  | "admin.setBitbucketUsername"
+  | "admin.deactivatePerson"
+  | "admin.reactivatePerson"
+  | "admin.listInvites"
+  | "admin.createInvite"
+  | "admin.revokeInvite"
+  | "admin.listRoles"
+  | "admin.createRole"
+  | "admin.updateRole"
+  | "admin.duplicateRole"
+  | "admin.deleteRole"
+  | "admin.listDepartments"
+  | "admin.createDepartment"
+  | "admin.updateDepartment"
+  | "admin.setDepartmentMembers"
+  | "admin.setHomeManagers"
+  | "admin.setDepartmentPermissions"
+  | "admin.deleteDepartment"
+  | "admin.listProjectMembers"
+  | "admin.addMember"
+  | "admin.removeMember"
+  | "admin.setMemberRole"
+  | "admin.grantMemberPermission"
+  | "admin.revokeMemberPermission";
 const failures = new Set<ApiFnName>();
 
 /** Fissa la latenza simulata (ms); `0` per i test, `null` per tornare a 150–400 ms. */
@@ -638,6 +682,19 @@ interface State {
   reauth: Map<string, string>;
   /** I codici sbagliati di fila e il blocco del secondo fattore, per persona (`auth/reauth.ts`). */
   secondFactorAttempts: Map<string, { failures: number; lockedUntil: string | null }>;
+  /** Gli inviti (area 9a): in sospeso, scaduti, revocati. Il link non c'è: è un segreto. */
+  invites: Invite[];
+  /**
+   * I reparti (nome e colore). Chi ne fa parte, chi ne gestisce la Home e i
+   * permessi che danno stanno in `access.departments`.
+   */
+  departments: Department[];
+  /** Il registro della sicurezza delle persone (area 9a). */
+  securityEvents: SecurityEvent[];
+  /** Lo username Bitbucket collegato, per persona. Le email git stanno in `commitAuthorLinks`. */
+  bitbucketUsernames: Map<string, string>;
+  /** L'ultimo numero dei codici `SEC-n` degli avvisi di sicurezza. */
+  securityCodeSeq: number;
   projects: Project[];
   statuses: ProjectStatus[];
   tasks: Task[];
@@ -857,6 +914,11 @@ function freshState(): State {
     changelog: [],
     reauth: new Map(),
     secondFactorAttempts: new Map(),
+    invites: INVITES.map(copy),
+    departments: DEPARTMENTS.map(copy),
+    securityEvents: SECURITY_EVENTS.map(copy),
+    bitbucketUsernames: new Map(),
+    securityCodeSeq: SEED_SECURITY_CODES,
     projects: PROJECTS.map(copy),
     statuses: PROJECT_STATUSES.map(copy),
     tasks: TASKS.map(copy),
@@ -977,6 +1039,29 @@ registerMembershipSync({
     if (!isMember) project.memberIds = project.memberIds.filter((id) => id !== personId);
   },
 });
+
+/**
+ * `Person.departmentIds` (quello che le pagine leggono) segue
+ * `access.departments`: lo riallinea questa funzione dopo ogni scrittura
+ * degli accessi, e nessun altro lo scrive. L'ordine conta (il primo è il
+ * reparto «di casa»): prima quelli del seme nel loro ordine, poi gli altri
+ * nell'ordine in cui la persona li aveva, poi i nuovi. Così un ripristino
+ * ritrova esattamente il seme.
+ */
+function syncPersonDepartments(): void {
+  const departments = accessStateNow().departments;
+  for (const person of PEOPLE) {
+    if (person.isClaude) continue;
+    const inDept = new Set(
+      departments.filter((d) => d.memberIds.includes(person.id)).map((d) => d.departmentId),
+    );
+    const order = [...(SEED_DEPARTMENT_IDS[person.id] ?? []), ...person.departmentIds, ...inDept];
+    const next = [...new Set(order)].filter((id) => inDept.has(id));
+    if (next.join() !== person.departmentIds.join()) person.departmentIds = next;
+  }
+}
+subscribeAccess(syncPersonDepartments);
+syncPersonDepartments();
 
 const resetHooks = new Set<() => void>();
 

@@ -336,3 +336,38 @@ export const NOTIFICATIONS: AppNotification[] = [
   ...ALERT_NOTIFICATIONS,
   ...SERVER_ALERT_NOTIFICATIONS,
 ];
+
+/** Il numero più alto dei codici `SEC-n` del seme: gli avvisi di sicurezza nuovi continuano da qui. */
+export const SEED_SECURITY_CODES = FIXED_NOTIFICATIONS.filter(
+  (n) => n.kind === "security.alert",
+).reduce((max, n) => Math.max(max, Number(n.objectCode.slice("SEC-".length))), 0);
+
+/**
+ * Un avviso `security.alert` (kind già del web): fuori dal catalogo, ignora
+ * le preferenze e va SOLO all'interessato (`docs/invariants/second-factor.md`).
+ * Non contiene mai un segreto: dice cosa è successo e chi l'ha fatto.
+ */
+export function securityAlert(input: {
+  id: string;
+  code: number;
+  personId: string;
+  title: string;
+  body: string;
+  at: string;
+}): AppNotification {
+  return {
+    id: input.id,
+    kind: "security.alert",
+    projectId: null,
+    objectCode: `SEC-${input.code}`,
+    departmentId: null,
+    recipientIds: [input.personId],
+    title: input.title,
+    body: input.body,
+    createdAt: input.at,
+    read: false,
+    archived: false,
+    snoozedUntil: null,
+    link: projectlessLink("security.alert"),
+  };
+}

@@ -1,4 +1,4 @@
-import { DEPARTMENTS } from "../seed/departments";
+import { state } from "../store";
 import { PEOPLE } from "../seed/people";
 import type { ChatMessage } from "../types";
 import { isHuman } from "./visibility";
@@ -59,6 +59,6 @@ export function mentionKindFor(
   if (m.asksReplyOf.includes(personId) || mentionsName(m.text, person.name)) return "direct";
   if (!memberIds.includes(personId)) return null;
   if (mentionsName(m.text, "channel")) return "group";
-  const departments = DEPARTMENTS.filter((d) => person.departmentIds.includes(d.id));
+  const departments = state.departments.filter((d) => person.departmentIds.includes(d.id));
   return departments.some((d) => mentionsName(m.text, d.name)) ? "group" : null;
 }

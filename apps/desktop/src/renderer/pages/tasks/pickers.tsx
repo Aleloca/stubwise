@@ -23,14 +23,17 @@ export function shortWeek(week: string): string {
   return week.slice(week.indexOf("-") + 1);
 }
 
-/** Gli assegnatari possibili di un progetto: i membri (Claude compreso), per nome. */
+/**
+ * Gli assegnatari possibili di un progetto: i membri (Claude compreso), per
+ * nome. Una persona disattivata non c'è (il campo lo calcola il livello dati).
+ */
 export function useProjectMembers(projectId: string | undefined): Person[] | undefined {
   const projects = useProjects().data;
   const people = usePeople().data;
   if (!projectId || !projects || !people) return undefined;
   const members = projects.find((p) => p.id === projectId)?.memberIds ?? [];
   return people
-    .filter((p) => members.includes(p.id))
+    .filter((p) => members.includes(p.id) && !p.deactivated)
     .sort((a, b) => Number(a.isClaude) - Number(b.isClaude) || a.name.localeCompare(b.name));
 }
 

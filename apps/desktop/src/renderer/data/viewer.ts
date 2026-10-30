@@ -1,5 +1,13 @@
 import type { InstancePermission, ProjectPermission } from "@stubwise/shared";
-import { createContext, createElement, useContext, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  createElement,
+  useContext,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import {
   BOTH_LEVELS,
   INSTANCE_SET,
@@ -11,6 +19,7 @@ import {
   isMember,
   projectRoleOf as projectRoleDefOf,
   resetAccessState,
+  subscribeAccess,
   writeAccess,
 } from "./access/index";
 import { TODAY } from "./seed/dates";
@@ -222,12 +231,29 @@ export interface ViewAsPersona {
   viewer: Viewer;
 }
 
-export const VIEW_AS_PERSONAS: ViewAsPersona[] = SPECS.map((spec) => ({
+const ALL_PERSONAS: ViewAsPersona[] = SPECS.map((spec) => ({
   personId: spec.personId,
   name: spec.name,
   descriptionKey: `rail.personas.${spec.personId}`,
   viewer: liveViewer(spec.personId),
 }));
+
+/**
+ * Le persone del «vedi come» attive adesso: una persona disattivata non c'è
+ * (area 9a), riattivata torna al suo posto. È sempre lo stesso array,
+ * riallineato dopo ogni scrittura degli accessi.
+ */
+export const VIEW_AS_PERSONAS: ViewAsPersona[] = [];
+
+function syncPersonas(): void {
+  const people = accessState().people;
+  const active = ALL_PERSONAS.filter((p) =>
+    people.some((x) => x.personId === p.personId && x.status === "active"),
+  );
+  VIEW_AS_PERSONAS.splice(0, VIEW_AS_PERSONAS.length, ...active);
+}
+syncPersonas();
+subscribeAccess(syncPersonas);
 
 export const DEFAULT_PERSONA_ID = DEFAULT_SESSION_PERSON_ID;
 
@@ -425,6 +451,11 @@ export function ViewerProvider({
   initialPersonId?: string;
 }) {
   const [personId, setPersonId] = useState(initialPersonId);
+  // Ogni scrittura degli accessi (Members, Roles, reparti…) cambia cosa può
+  // fare chi guarda, anche sé stesso: la versione entra nelle dipendenze del
+  // valore del contesto, così chi legge `useViewer()` ri-renderizza e chiede
+  // di nuovo `can()`. Le query le ricarica la scrittura (`useAdminWrite`).
+  const accessVer = useSyncExternalStore(subscribeAccess, accessVersion);
   // Idempotente: rimette la sessione sulla persona di questo render.
   setSessionPersonId(personId);
   const value = useMemo<ViewerContextValue>(
@@ -442,7 +473,8 @@ export function ViewerProvider({
         setPersonId(next);
       },
     }),
-    [personId],
+    // `accessVer` non si legge dentro: basta che cambi per dare un valore nuovo.
+    [personId, accessVer],
   );
   return createElement(ViewerContext.Provider, { value }, children);
 }

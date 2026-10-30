@@ -21,6 +21,11 @@ export interface Person {
    * d'istanza e le appartenenze; il ruolo vero sta nello stato `access`.
    */
   presetRole: string;
+  /**
+   * Campo calcolato da `listPeople` (area 9a), mai salvato: la persona è
+   * disattivata, quindi resta nominata dalle sue task ma non si assegna.
+   */
+  deactivated?: boolean;
 }
 
 export type ProjectModule = "docs" | "releases" | "support" | "servers";
@@ -198,6 +203,12 @@ export interface Task {
    * episodio. È l'unica porta della correzione da task (anti-obiettivo 2).
    */
   serverRef?: { serverCode: string; episodeId: string | null };
+  /**
+   * Campo calcolato dalla vista della task (area 9a), mai salvato: se
+   * l'assegnatario è disattivato la task dice «(deactivated)». `null` senza
+   * assegnatario.
+   */
+  assigneeStatus?: "active" | "deactivated" | null;
 }
 
 /** L'automazione e l'esecuzione che hanno creato una task o un traguardo (area 7). */

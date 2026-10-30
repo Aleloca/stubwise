@@ -2,7 +2,7 @@ import { PRESET_ROLES, PROJECT_PERMISSIONS } from "@stubwise/shared";
 import type { DepartmentRole, LocalInstancePermission, LocalProjectPermission } from "../types";
 import { daysFromToday } from "../seed/dates";
 import { DEPARTMENTS } from "../seed/departments";
-import { CLAUDE_ID, PEOPLE } from "../seed/people";
+import { CLAUDE_ID, PEOPLE, SEED_DEPARTMENT_IDS } from "../seed/people";
 import { GIULIA_LEAD_CODES, PROJECTS } from "../seed/projects";
 import type {
   AccessState,
@@ -224,7 +224,7 @@ const DEPARTMENT_PROJECT_PERMISSIONS: Record<string, readonly string[]> = {
 function seedDepartments(): DepartmentAccess[] {
   return DEPARTMENTS.map((d) => ({
     departmentId: d.id,
-    memberIds: HUMANS.filter((p) => p.departmentIds.includes(d.id)).map((p) => p.id),
+    memberIds: HUMANS.filter((p) => SEED_DEPARTMENT_IDS[p.id]?.includes(d.id)).map((p) => p.id),
     homeManagerIds: DEPARTMENT_ROLES.filter(
       (r) => r.departmentId === d.id && r.permissions.includes("department.home.manage"),
     ).map((r) => r.personId),

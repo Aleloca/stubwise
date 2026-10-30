@@ -145,12 +145,26 @@ function notify(before: Set<string>, after: Set<string>): void {
   }
 }
 
+/**
+ * Chi ascolta ogni scrittura degli accessi, dopo che è avvenuta: i campi
+ * allineati allo stato (`Person.departmentIds`, le persone del «vedi come»)
+ * e il `ViewerProvider`, che così ri-renderizza chi legge i permessi.
+ */
+const listeners = new Set<() => void>();
+
+/** Iscrive `fn` alle scritture degli accessi; restituisce come smettere. */
+export function subscribeAccess(fn: () => void): () => void {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
+
 /** L'unica strada per cambiare gli accessi: la versione sale, `memberIds` segue. */
 export function writeAccess(fn: (s: AccessState) => void): void {
   const before = pairsOf(current);
   fn(current);
   version += 1;
   notify(before, pairsOf(current));
+  for (const listener of listeners) listener();
 }
 
 /** Riporta gli accessi al seme, sullo stesso oggetto (così `state.access` resta valido). */

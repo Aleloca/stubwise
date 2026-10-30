@@ -20,7 +20,27 @@ import {
  * del piano 9a. Ogni task che ne aggiunge una la aggiunge QUI, nello stesso
  * commit in cui entra in `REAUTH_REQUIRED` e in `ApiFnName`.
  */
-const EXPECTED_REAUTH: readonly ApiFnName[] = [];
+const EXPECTED_REAUTH: readonly ApiFnName[] = [
+  // Task 4: People, inviti, Roles, Departments, Members
+  "admin.setInstanceRole",
+  "admin.createPasswordResetLink",
+  "admin.resetSecondFactor",
+  "admin.unlinkGitIdentity",
+  "admin.deactivatePerson",
+  "admin.createInvite",
+  "admin.createRole",
+  "admin.updateRole",
+  "admin.duplicateRole",
+  "admin.deleteRole",
+  "admin.setDepartmentMembers",
+  "admin.setHomeManagers",
+  "admin.setDepartmentPermissions",
+  "admin.addMember",
+  "admin.removeMember",
+  "admin.setMemberRole",
+  "admin.grantMemberPermission",
+  "admin.revokeMemberPermission",
+];
 
 const as = (personId: string) => setSessionPersonId(personId);
 const MINUTE = 60_000;

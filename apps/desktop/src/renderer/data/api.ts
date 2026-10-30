@@ -2,7 +2,6 @@ import { matches } from "../domain/filters";
 import { DEFAULT_CORRECTION_CAP } from "../domain/releases/prState";
 import type { Stall } from "../domain/stalled";
 import { accessState } from "./access/index";
-import { DEPARTMENTS } from "./seed/departments";
 import { commandsFor } from "./seed/commands";
 import { COMMITS } from "./seed/commits";
 import {
@@ -22,6 +21,7 @@ import { presentChatNotification } from "./chat/reads";
 import { deliveredTo } from "./alerts/reads";
 import { whyReceives } from "./alerts/visibility";
 import { linkAccessHrefOf } from "./servers/visibility";
+import { assigneeStatusOf } from "./admin/people";
 import {
   canSeeConversation,
   chatKey,
@@ -127,6 +127,8 @@ export * as servers from "./servers";
 export * as changelog from "./changelog/reads";
 /** La riconferma col secondo fattore (area 9a): `api.auth.reauthenticate(…)`, `api.auth.enrollDuringReauth()`. */
 export * as auth from "./auth";
+/** L'Amministrazione (area 9a): `api.admin.listPeople(…)`, `api.admin.addMember(…)`… */
+export * as admin from "./admin";
 
 /** Ripristina lo stato (sessione, dati, errori iniettati) e porta le task scadute alla settimana corrente. */
 export function resetApi(): void {
@@ -138,12 +140,14 @@ export function resetApi(): void {
 
 export async function listDepartments(): Promise<Department[]> {
   await gate("listDepartments");
-  return DEPARTMENTS.map(copy);
+  return state.departments.map(copy);
 }
 
 export async function listPeople(): Promise<Person[]> {
   await gate("listPeople");
-  return PEOPLE.map(copy);
+  // `deactivated` è calcolato dallo stato degli accessi (area 9a): la persona
+  // resta nell'elenco (le sue task la nominano) ma non si assegna.
+  return PEOPLE.map((p) => ({ ...copy(p), deactivated: assigneeStatusOf(p.id) === "deactivated" }));
 }
 
 export async function listProjects(): Promise<Project[]> {
@@ -216,7 +220,8 @@ export async function listTasks(criteria?: FilterCriteria): Promise<Task[]> {
 export async function getTaskByCode(code: string): Promise<Task | null> {
   const me = await gate("getTaskByCode");
   const task = state.tasks.find((t) => t.code === code.toUpperCase());
-  return task && visibleProjectIds(me).has(task.projectId) ? copy(task) : null;
+  if (!task || !visibleProjectIds(me).has(task.projectId)) return null;
+  return { ...copy(task), assigneeStatus: assigneeStatusOf(task.assigneeId) };
 }
 
 export async function listActivity(taskId: string): Promise<ActivityEntry[]> {
@@ -1226,7 +1231,7 @@ export async function searchMentions(
         ref: { kind: "person", id: p.id },
         code: null,
         label: p.name,
-        detail: DEPARTMENTS.find((d) => d.id === p.departmentIds[0])?.name ?? null,
+        detail: state.departments.find((d) => d.id === p.departmentIds[0])?.name ?? null,
         projectId: null,
       })),
     );
