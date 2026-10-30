@@ -177,8 +177,8 @@ describe("Proposte della posta: chi la vede", () => {
       byId: "p-laura",
     });
     // Un secondo Project Lead di STW, non destinatario, arriva tardi: già decisa, e da chi.
-    grantProjectRole("p-simone", STW, "project_lead");
-    as("p-simone");
+    grantProjectRole("p-marco", STW, "project_lead");
+    as("p-marco");
     expect(await errorOf(mail.confirmMailProposal(HANDED))).toMatchObject({
       message: "already_handled",
       byId: "p-laura",

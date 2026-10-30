@@ -13,7 +13,7 @@ import {
   roleById,
 } from "./common";
 import { pendingInvites } from "./people";
-import { forgetSecret, storeSecret } from "./secrets";
+import { storeSecret } from "./secrets";
 import type { AdminResult, InviteView } from "./types";
 import "./changeTypes";
 
@@ -140,9 +140,10 @@ export async function revokeInvite(id: string): Promise<AdminResult> {
   if (!canI(me, USERS_INVITE)) return refuse.forbidden();
   const invite = pendingInvites().find((i) => i.id === id);
   if (!invite) return refuse.notFound();
+  // Il segreto del link resta custodito apposta: chi lo apre legge «revocato»
+  // (`getInvite` dell'ingresso), non «link sconosciuto». Non vale più per
+  // registrarsi: la registrazione guarda `revokedAt`.
   invite.revokedAt = now();
-  if (invite.secretId) forgetSecret(invite.secretId);
-  invite.secretId = null;
   recordChange({
     kind: "invite.revoked",
     actorId: me,

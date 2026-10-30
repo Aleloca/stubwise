@@ -13,7 +13,9 @@ export function person(personId: string): MailAddress {
   const p = PEOPLE.find((x) => x.id === personId);
   if (!p) throw new Error(`Unknown person: ${personId}`);
   const account = GOOGLE_ACCOUNTS.find((a) => a.personId === personId);
-  const email = account?.email ?? `${p.name.toLowerCase().replace(/\s+/g, ".")}@example.com`;
+  // L'email cambiata in Account (area 9a) vince su quella del seme.
+  const email =
+    p.email ?? account?.email ?? `${p.name.toLowerCase().replace(/\s+/g, ".")}@example.com`;
   return { name: p.name, email, personId };
 }
 

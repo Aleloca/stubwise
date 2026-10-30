@@ -8,9 +8,9 @@ import {
 import { reassignTask } from "../api-mutations";
 import { recordChange } from "../changelog/index";
 import { COMMITS } from "../seed/commits";
-import { securityAlert } from "../seed/notifications";
+import { logSecurity, publishSecurityAlert } from "../me/securityLog";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
-import { copy, familyOf, gate, newId, now, state, visibleProjectIds } from "../store";
+import { copy, familyOf, gate, now, state, visibleProjectIds } from "../store";
 import type { Task } from "../types";
 import { writer } from "../writer";
 import {
@@ -38,7 +38,6 @@ import type {
   PersonDetail,
   PersonRow,
   SecurityEvent,
-  SecurityEventKind,
 } from "./types";
 import "./changeTypes";
 
@@ -323,10 +322,6 @@ const label = (personId: string) => ({
   label: nameOf(personId) ?? personId,
 });
 
-function logSecurity(personId: string, kind: SecurityEventKind, byId: string): void {
-  state.securityEvents.push({ id: newId("sev"), personId, kind, at: now(), byId });
-}
-
 /**
  * Cambia il ruolo d'istanza (`users.manage`, +R, mai su sé stessi). Si dà
  * solo un ruolo i cui permessi chi agisce ha; non si toglie il full admin
@@ -411,17 +406,13 @@ export async function resetSecondFactor(personId: string): Promise<AdminResult> 
   });
   for (const kind of ["totp_seed", "backup_codes"] as const)
     for (const id of secretIdsOf(kind, personId)) forgetSecret(id);
+  state.confirmedTotp.delete(personId);
+  state.passkeys = state.passkeys.filter((k) => k.personId !== personId);
   logSecurity(personId, "second_factor_reset", me);
-  state.securityCodeSeq += 1;
-  state.notifications.push(
-    securityAlert({
-      id: newId("n"),
-      code: state.securityCodeSeq,
-      personId,
-      title: "Two-step verification reset",
-      body: `${nameOf(me)} reset your two-step verification. Set it up again at your next sign-in.`,
-      at: now(),
-    }),
+  publishSecurityAlert(
+    personId,
+    "Two-step verification reset",
+    `${nameOf(me)} reset your two-step verification. Set it up again at your next sign-in.`,
   );
   recordChange({
     kind: "person.second_factor_reset",
@@ -540,6 +531,9 @@ export async function deactivatePerson(
   if (reauth) return reauth;
   writeAccess(mutate);
   for (const [task, to] of moves) reassignTask(me, task, to);
+  // Esce (area 9a): le sue sessioni si chiudono; i token restano, ma non
+  // valgono finché è disattivata (`callWithToken`).
+  state.sessions = state.sessions.filter((s) => s.personId !== personId);
   logSecurity(personId, "deactivated", me);
   recordChange({
     kind: "person.deactivated",

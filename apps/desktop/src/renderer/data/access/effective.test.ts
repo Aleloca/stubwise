@@ -55,6 +55,16 @@ const ALLOWED_DIFFERENCES: readonly {
   reason: string;
 }[] = [];
 
+/**
+ * Le persone che hanno perso TUTTI i permessi rispetto al fixture, col
+ * motivo: per loro ogni differenza ammessa è una perdita (prima sì, adesso
+ * no), mai un guadagno.
+ */
+const ALLOWED_LOSSES: Readonly<Record<string, string>> = {
+  "p-simone":
+    "disattivato nel seme: una persona disattivata non ha permessi effettivi (Task 5); il fixture è di prima, quando li conservava per la parità",
+};
+
 describe("parità con la can() delle aree 2–8 (fixture generato prima del cambio)", () => {
   it("il fixture copre ogni persona del seme, Claude compreso, e ogni progetto", () => {
     expect(Object.keys(PARITY_CAN).sort()).toEqual(PEOPLE.map((p) => p.id).sort());
@@ -72,6 +82,11 @@ describe("parità con la can() delle aree 2–8 (fixture generato prima del camb
         const before = hexToBits(rows[perm]!, projects.length);
         projects.forEach((projectId, i) => {
           const now = can(viewer, perm as Permission, projectId);
+          if (ALLOWED_LOSSES[personId]) {
+            // Nessun permesso, ovunque: ogni differenza è una perdita.
+            expect(now, `${personId} ${perm} ${projectId ?? "-"}`).toBe(false);
+            return;
+          }
           if (now === before[i]) return;
           const allowed = ALLOWED_DIFFERENCES.some(
             (d) =>
@@ -99,7 +114,7 @@ describe("parità con la can() delle aree 2–8 (fixture generato prima del camb
         expect(
           canInDepartment(viewerFor(personId), "department.home.manage", departmentId),
           `${personId} ${departmentId}`,
-        ).toBe(bits[i] === "1");
+        ).toBe(!ALLOWED_LOSSES[personId] && bits[i] === "1");
       });
     }
   });
@@ -135,7 +150,11 @@ describe("le fonti dei permessi", () => {
       for (const project of PROJECTS) {
         const sources = effectivePermissions(personId, project.id).get("support.reply") ?? [];
         const fromDept = sources.some((s) => s.kind === "department");
-        expect(fromDept, `${personId} ${project.code}`).toBe(isMember(personId, project.id));
+        // Simone, disattivato, non ha permessi effettivi (Task 5).
+        const active = personId !== "p-simone";
+        expect(fromDept, `${personId} ${project.code}`).toBe(
+          active && isMember(personId, project.id),
+        );
         // Nessuno lo guadagna: chi lo ha dal reparto lo ha anche dal ruolo.
         if (fromDept) expect(sources.some((s) => s.kind === "role")).toBe(true);
       }

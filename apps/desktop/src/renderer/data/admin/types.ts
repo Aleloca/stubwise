@@ -27,7 +27,19 @@ export type SecurityEventKind =
   | "second_factor_reset"
   | "password_reset_link_created"
   | "deactivated"
-  | "reactivated";
+  | "reactivated"
+  // Preferenze e ingresso (area 9a, Task 5)
+  | "signed_out"
+  | "session_ended"
+  | "authenticator_changed"
+  | "passkey_added"
+  | "passkey_removed"
+  | "backup_codes_regenerated"
+  | "backup_code_used"
+  | "second_factor_locked"
+  | "token_created"
+  | "token_revoked"
+  | "registered";
 
 /** Un evento del registro della sicurezza di una persona. `byId` è chi l'ha fatto, se non lei. */
 export interface SecurityEvent {

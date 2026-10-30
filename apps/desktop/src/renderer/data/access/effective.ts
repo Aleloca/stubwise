@@ -178,7 +178,12 @@ export function effectivePermissionsIn(
   personId: string,
   projectId?: string,
 ): Map<string, PermissionSource[]> {
-  if (!s.people.some((p) => p.personId === personId)) return new Map();
+  // Una persona disattivata non ha permessi effettivi (area 9a, Task 5): né
+  // `can()`, né «Chi può farlo?», né il conteggio dei gestori la contano. Il
+  // suo stato (ruolo, appartenenze, concessioni, reparti) resta com'era, e
+  // riattivarla glieli rende.
+  const person = s.people.find((p) => p.personId === personId);
+  if (!person || person.status !== "active") return new Map();
   return projectId === undefined
     ? instancePermissions(s, personId)
     : projectPermissions(s, personId, projectId);

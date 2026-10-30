@@ -37,7 +37,7 @@ const words = (s: string) => s.split(/\s+/).filter(Boolean).length;
 
 describe("subscribe", () => {
   it("rimanda gli eventi già accaduti, nell'ordine e come `append`", () => {
-    as("p-simone", "cv-run-stw-1");
+    as("p-laura", "cv-run-stw-1");
     const got: Received[] = [];
     const unsubscribe = subscribe("cv-run-stw-1", (e, mode) => got.push({ e, mode }));
     unsubscribe();
@@ -116,7 +116,7 @@ describe("subscribe", () => {
   });
 
   it("consegna il messaggio rimasto in attesa", async () => {
-    as("p-simone", "cv-run-stw-3");
+    as("p-laura", "cv-run-stw-3");
     subscribe("cv-run-stw-3", () => {});
     await whenIdle("cv-run-stw-3");
     const log = state.conversationEvents.get("cv-run-stw-3")!;

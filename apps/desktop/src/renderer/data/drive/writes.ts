@@ -1,4 +1,4 @@
-import { PEOPLE } from "../seed/people";
+import { person as mailAddressOf } from "../seed/mail/helpers";
 import { copy, gate, newId, now, state } from "../store";
 import type {
   DriveFile,
@@ -366,10 +366,79 @@ export async function syncFolder(linkId: string): Promise<FolderLinkView> {
   return linkView(link);
 }
 
-/** L'email finta di chi collega l'account per la prima volta: nome.cognome@example.com. */
-function emailOf(personId: string): string {
-  const name = PEOPLE.find((p) => p.id === personId)?.name ?? personId;
-  return `${name.toLowerCase().replace(/\s+/g, ".")}@example.com`;
+// --- l'account Google personale: UN solo scrittore ---------------------------
+//
+// L'account Google di una persona è anche la sua casella (area 6: posta e
+// calendario la leggono). Lo collegano e scollegano il Drive (area 5) e le
+// Preferenze → Account (area 9a, `me/google.ts`) passando da queste due
+// funzioni, così lo stato che Drive, Posta e Calendario leggono cambia
+// insieme.
+
+/**
+ * Collega (o ricollega, se scaduto) l'account Google di `personId`, senza
+ * cancello: lo chiamano le scritture che l'hanno già passato. Le cartelle
+ * collegate da lei riprendono ad aggiornarsi; la sua casella e il suo
+ * calendario ci sono (proposte accese, se la casella è nuova) e, se
+ * l'allineamento era fallito per l'accesso perso, torna `ok`.
+ */
+export function linkGoogleAccount(personId: string): GoogleAccount {
+  let account = googleAccountOf(personId);
+  if (!account) {
+    account = {
+      personId,
+      email: mailAddressOf(personId).email,
+      status: "connected",
+      since: now(),
+    };
+    state.googleAccounts.push(account);
+  }
+  if (account.status !== "connected") account.since = now();
+  account.status = "connected";
+  const box = state.mailboxes.find((b) => b.personId === personId);
+  if (!box)
+    state.mailboxes.push({
+      personId,
+      email: account.email,
+      proposalsEnabled: true,
+      syncedAt: now(),
+      sync: "ok",
+    });
+  else if (box.sync === "failed") box.sync = "ok";
+  // Lo stesso per il suo calendario.
+  const cal = state.calendarSync.find((c) => c.personId === personId);
+  if (!cal)
+    state.calendarSync.push({ personId, email: account.email, syncedAt: now(), sync: "ok" });
+  else if (cal.sync === "failed") cal.sync = "ok";
+  for (const link of state.folderLinks.filter((l) => l.linkedById === personId)) {
+    link.status = "ok";
+    link.expiredAt = null;
+    for (const file of state.driveFiles) {
+      if (file.folderLinkId !== link.id || file.unavailable !== "access_lost") continue;
+      if (!googleFileById(file.googleFileId)?.deleted) file.unavailable = null;
+    }
+  }
+  return account;
+}
+
+/**
+ * Scollega l'account Google di `personId`, senza cancello: le cartelle
+ * collegate da lei smettono di aggiornarsi e i loro file diventano non
+ * disponibili (accesso perso); la sua casella e il suo calendario spariscono
+ * da Posta e Calendario. La posta già arrivata, gli eventi e le proposte già
+ * fatte restano.
+ */
+export function unlinkGoogleAccount(personId: string): void {
+  state.googleAccounts = state.googleAccounts.filter((a) => a.personId !== personId);
+  state.mailboxes = state.mailboxes.filter((b) => b.personId !== personId);
+  state.calendarSync = state.calendarSync.filter((c) => c.personId !== personId);
+  for (const link of state.folderLinks.filter((l) => l.linkedById === personId)) {
+    if (link.status !== "expired") link.expiredAt = now();
+    link.status = "expired";
+    for (const file of state.driveFiles) {
+      if (file.folderLinkId === link.id && file.unavailable === null)
+        file.unavailable = "access_lost";
+    }
+  }
 }
 
 /**
@@ -379,22 +448,7 @@ function emailOf(personId: string): string {
  */
 export async function connectGoogle(): Promise<GoogleAccount> {
   const me = await gate("drive.connectGoogle");
-  let account = googleAccountOf(me);
-  if (!account) {
-    account = { personId: me, email: emailOf(me), status: "connected", since: now() };
-    state.googleAccounts.push(account);
-  }
-  if (account.status !== "connected") account.since = now();
-  account.status = "connected";
-  for (const link of state.folderLinks.filter((l) => l.linkedById === me)) {
-    link.status = "ok";
-    link.expiredAt = null;
-    for (const file of state.driveFiles) {
-      if (file.folderLinkId !== link.id || file.unavailable !== "access_lost") continue;
-      if (!googleFileById(file.googleFileId)?.deleted) file.unavailable = null;
-    }
-  }
-  return copy(account);
+  return copy(linkGoogleAccount(me));
 }
 
 /**
@@ -405,13 +459,5 @@ export async function connectGoogle(): Promise<GoogleAccount> {
 export async function disconnectGoogle(): Promise<void> {
   const me = await gate("drive.disconnectGoogle");
   if (!googleAccountOf(me)) return;
-  state.googleAccounts = state.googleAccounts.filter((a) => a.personId !== me);
-  for (const link of state.folderLinks.filter((l) => l.linkedById === me)) {
-    if (link.status !== "expired") link.expiredAt = now();
-    link.status = "expired";
-    for (const file of state.driveFiles) {
-      if (file.folderLinkId === link.id && file.unavailable === null)
-        file.unavailable = "access_lost";
-    }
-  }
+  unlinkGoogleAccount(me);
 }

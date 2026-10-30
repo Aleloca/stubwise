@@ -426,7 +426,7 @@ describe("sezione Claude: attività AI, cicli delle PR, consumi", () => {
 
   it("il ciclo si deriva: finita la correzione aspetta la review; «Request changes» apre il giro 2", async () => {
     // La sessione dell'app finisce il suo copione: la correzione 1 è inviata alla #411.
-    setSessionPersonId("p-simone");
+    setSessionPersonId("p-laura");
     subscribe("cv-run-stw-3", () => {});
     await whenIdle("cv-run-stw-3");
     const section = await claudeSection("t-stw-3", "p-laura");

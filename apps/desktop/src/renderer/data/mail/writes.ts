@@ -167,6 +167,15 @@ export async function syncMailbox(email: string): Promise<void> {
  */
 export async function setProposalsEnabled(email: string, on: boolean): Promise<void> {
   const me = await gate("mail.setProposalsEnabled");
+  writeProposalsEnabled(me, email, on);
+}
+
+/**
+ * L'unico scrittore di «Proposte attive» di una casella, senza cancello: lo
+ * usano la Posta e le Preferenze → Account (area 9a). Una casella non mia è
+ * `not_found`.
+ */
+export function writeProposalsEnabled(me: string, email: string, on: boolean): void {
   mailboxFor(me, email).proposalsEnabled = on;
 }
 

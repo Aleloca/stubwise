@@ -23,7 +23,7 @@ import {
   writeAccess,
 } from "./access/index";
 import { TODAY } from "./seed/dates";
-import { CLAUDE_ID } from "./seed/people";
+import { CLAUDE_ID, PEOPLE } from "./seed/people";
 import { clearToasts } from "../tasks-ui/Toast";
 import { DEFAULT_SESSION_PERSON_ID, runBeforePersonaChange, setSessionPersonId } from "./session";
 import type {
@@ -145,6 +145,10 @@ function buildViewerData(personId: string): ViewerData {
       departmentPermissions: {},
     };
   }
+  // Disattivata: nessun permesso (`effectivePermissions` è vuota), nemmeno
+  // quello di reparto, che non passa da lì.
+  if (accessState().people.find((p) => p.personId === personId)?.status !== "active")
+    return { instancePermissions: [], projectPermissions: {}, departmentPermissions: {} };
   const instancePermissions = [...effectivePermissions(personId).keys()].filter((p) =>
     INSTANCE_SET.has(p),
   ) as (InstancePermission | LocalInstancePermission)[];
@@ -233,7 +237,10 @@ export interface ViewAsPersona {
 
 const ALL_PERSONAS: ViewAsPersona[] = SPECS.map((spec) => ({
   personId: spec.personId,
-  name: spec.name,
+  // Il nome si cambia in Account (area 9a): il «vedi come» legge quello di adesso.
+  get name() {
+    return PEOPLE.find((p) => p.id === spec.personId)?.name ?? spec.name;
+  },
   descriptionKey: `rail.personas.${spec.personId}`,
   viewer: liveViewer(spec.personId),
 }));

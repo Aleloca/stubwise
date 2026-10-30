@@ -464,10 +464,11 @@ describe("Privacy della posta nella Home e in ⌘K (Review Focus 1)", () => {
 
 describe("Proposte passate al progetto in «Decide», a chi non è destinatario", () => {
   it("dall'email: chi l'ha passata e a chi era, con l'estratto aperto, senza origine", async () => {
-    // Simone: membro di STW, Project Lead, non destinatario dell'email di Ivo.
-    grantProjectRole("p-simone", "prj-stw", "project_lead");
-    connect("p-simone");
-    renderRoute("/home", "p-simone");
+    // Marco: membro di STW, Project Lead, non destinatario dell'email di Ivo
+    // (era Simone, disattivato dal Task 5 dell'area 9a: niente più permessi).
+    grantProjectRole("p-marco", "prj-stw", "project_lead");
+    connect("p-marco");
+    renderRoute("/home", "p-marco");
     const item = await mailItem("mp-stw-release-notes-date");
     expect(within(item).queryByRole("link", { name: "Open email" })).toBeNull();
     expect(item.textContent).not.toMatch(/From an email|From the meeting/);

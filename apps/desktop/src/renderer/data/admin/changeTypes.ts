@@ -31,6 +31,9 @@ export const ADMIN_CHANGE_TYPES: readonly ChangeType[] = [
   instance("person.reactivated", "users.manage"),
   instance("invite.created", "users.invite"),
   instance("invite.revoked", "users.invite"),
+  // L'ingresso (Task 5): chi accetta un invito, chi crea l'istanza al primo avvio.
+  instance("invite.accepted", "users.invite"),
+  instance("instance.first_admin_created", "users.manage"),
   instance("role.created", "roles.manage"),
   instance("role.updated", "roles.manage"),
   instance("role.deleted", "roles.manage"),

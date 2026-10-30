@@ -93,9 +93,9 @@ describe("whoCan: parità con can() (RF 5)", () => {
     expect(peopleOf(whoCan("p-roberta", "fixServer", ACQ))).toContain("p-laura");
   });
 
-  it("le persone disattivate non compaiono, anche se can() è ancora vero", () => {
+  it("le persone disattivate non compaiono: non hanno più permessi (Task 5), e resta la loro appartenenza", () => {
     const simoneProject = PROJECTS.find((p) => isMember("p-simone", p.id))!.id;
-    expect(can(viewerFor("p-simone"), "tickets.create", simoneProject)).toBe(true);
+    expect(can(viewerFor("p-simone"), "tickets.create", simoneProject)).toBe(false);
     expect(peopleOf(whoCan("p-roberta", "createTasks", simoneProject))).not.toContain("p-simone");
   });
 

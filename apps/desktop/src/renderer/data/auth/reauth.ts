@@ -1,7 +1,10 @@
 import { accessState, writeAccess, type PersonAccess } from "../access/index";
 import { consumeBackupCode, forgetSecret, secretIdsOf, storeSecret } from "../admin/secrets";
+import { logSecurity, publishSecurityAlert } from "../me/securityLog";
+import { getSessionCredential } from "../session";
 import { gate, now, state, type ApiFnName } from "../store";
 import { forbidden, invalid } from "../writer";
+import { fakeQrSvg } from "./qr";
 
 // La riconferma col secondo fattore (area 9a, `second-factor.md`). Ogni
 // funzione delicata dell'API si DICHIARA in `REAUTH_REQUIRED`, e la sua
@@ -12,8 +15,9 @@ import { forbidden, invalid } from "../writer";
 // col «vedi come» non la passa all'altra, e tornare alla prima la ritrova se
 // non è scaduta.
 //
-// Un token personale (PAT) non la soddisfa mai: nel prototipo non esistono
-// chiamate via PAT, quindi ogni chiamata è di una sessione.
+// Un token personale (PAT) non la soddisfa mai: una chiamata via PAT
+// (`callWithToken` di `me/tokens.ts`, l'unica strada nel prototipo) riceve
+// `reauth_required` anche dentro la finestra di grazia della persona.
 //
 // SOLO PROTOTIPO: il codice dell'app è fisso (`PROTOTYPE_TOTP_CODE`, mostrato
 // nel riquadro «Prototype only»), la passkey riesce sempre se la persona ne
@@ -53,6 +57,14 @@ export const REAUTH_REQUIRED: ReadonlySet<ApiFnName> = new Set<ApiFnName>([
   "admin.setMemberRole",
   "admin.grantMemberPermission",
   "admin.revokeMemberPermission",
+  // Task 5: le Preferenze personali
+  "me.startTotpSetup",
+  "me.addPasskey",
+  "me.removePasskey",
+  "me.regenerateBackupCodes",
+  "me.createToken",
+  // Crea un token, quindi come `createToken` (maintainer, 29 ott 2026).
+  "me.createClaudeCodeCommand",
 ]);
 
 const MINUTE = 60_000;
@@ -67,17 +79,20 @@ export function hasFreshReauth(personId: string): boolean {
 /**
  * Il controllo di una scrittura delicata: `null` se può procedere,
  * `"reauth_required"` se la funzione è dichiarata e la riconferma manca o è
- * scaduta. Va chiamata DOPO il cancello e PRIMA di ogni scrittura.
+ * scaduta, o se la chiamata arriva da un PAT. Va chiamata DOPO il cancello e
+ * PRIMA di ogni scrittura.
  */
 export function requireReauth(me: string, fn: ApiFnName): null | "reauth_required" {
   if (!REAUTH_REQUIRED.has(fn)) return null;
+  if (getSessionCredential() === "pat") return "reauth_required";
   return hasFreshReauth(me) ? null : "reauth_required";
 }
 
 /**
- * Segna una riconferma riuscita adesso. La usa anche l'iscrizione al secondo
- * fattore (Task 5): a fine configurazione la sessione conta come
- * riconfermata (`second-factor.md`).
+ * Segna una riconferma riuscita adesso. La usano anche il login (il secondo
+ * fattore appena dato vale come riconferma, come `second_factor_at` del
+ * server) e la fine dell'iscrizione: «a fine setup la sessione conta come
+ * riconfermata» (`second-factor.md`).
  */
 export function markReauthenticated(personId: string): void {
   state.reauth.set(personId, now());
@@ -120,27 +135,22 @@ function verify(person: PersonAccess, input: SecondFactorInput): boolean {
         const p = s.people.find((x) => x.personId === person.personId);
         if (p?.secondFactor) p.secondFactor.backupCodesLeft = left;
       });
+      logSecurity(person.personId, "backup_code_used", null);
       return true;
     }
   }
 }
 
 /**
- * L'UNICO punto che verifica un codice o una passkey e tiene il conto dei
- * fallimenti (come `attemptSecondFactor` del server): lo usano la
- * riconferma e, dal Task 5, il secondo passo del login. 5 codici sbagliati
- * di fila bloccano il secondo fattore per 15 minuti; un codice giusto
- * azzera il conto. Non segna la riconferma: lo fa chi chiama.
+ * Il conto dei tentativi, uguale per ogni verifica: un blocco in corso
+ * risponde `locked` senza verificare; un esito giusto azzera il conto; il
+ * quinto sbagliato di fila blocca per 15 minuti, lo scrive nel registro della
+ * sicurezza e manda `security.alert` alla sola persona (`second-factor.md`).
  */
-export function attemptSecondFactor(
-  personId: string,
-  input: SecondFactorInput,
-): SecondFactorResult {
-  const person = personOf(personId);
-  if (!person?.secondFactor) return { ok: false, error: "no_second_factor" };
+function attempt(personId: string, check: () => boolean): SecondFactorResult {
   const locked = lockedUntil(personId);
   if (locked) return { ok: false, error: "locked", lockedUntil: locked };
-  if (verify(person, input)) {
+  if (check()) {
     state.secondFactorAttempts.delete(personId);
     return { ok: true };
   }
@@ -151,10 +161,41 @@ export function attemptSecondFactor(
       .toISOString()
       .replace(/\.\d{3}Z$/, "Z");
     state.secondFactorAttempts.set(personId, { failures: 0, lockedUntil: until });
+    logSecurity(personId, "second_factor_locked", null);
+    publishSecurityAlert(
+      personId,
+      "Two-step verification locked",
+      `${SECOND_FACTOR_MAX_FAILURES} wrong codes in a row: new sign-ins are locked for ${SECOND_FACTOR_LOCK_MINUTES} minutes. Your open sessions are not affected. If it wasn't you, change your password.`,
+    );
     return { ok: false, error: "locked", lockedUntil: until };
   }
   state.secondFactorAttempts.set(personId, { failures, lockedUntil: null });
   return { ok: false, error: "invalid_code", triesLeft: SECOND_FACTOR_MAX_FAILURES - failures };
+}
+
+/**
+ * L'UNICO punto che verifica un codice o una passkey e tiene il conto dei
+ * fallimenti (come `attemptSecondFactor` del server): lo usano la
+ * riconferma e il secondo passo del login. Non segna la riconferma: lo fa chi
+ * chiama.
+ */
+export function attemptSecondFactor(
+  personId: string,
+  input: SecondFactorInput,
+): SecondFactorResult {
+  const person = personOf(personId);
+  if (!person?.secondFactor) return { ok: false, error: "no_second_factor" };
+  return attempt(personId, () => verify(person, input));
+}
+
+/**
+ * La conferma di un'app di autenticazione in attesa (iscrizione o
+ * riconfigurazione) col primo codice: sotto lo stesso tetto dei tentativi
+ * (`second-factor.md`: la conferma passa da `attemptSecondFactor` come
+ * tutto il resto), anche per chi un secondo fattore non lo ha ancora.
+ */
+export function attemptPendingTotp(personId: string, code: string): SecondFactorResult {
+  return attempt(personId, () => code.trim() === PROTOTYPE_TOTP_CODE);
 }
 
 /**
@@ -169,30 +210,42 @@ export async function reauthenticate(input: SecondFactorInput): Promise<SecondFa
   return result;
 }
 
-/** Il primo passo della configurazione dell'app di autenticazione: la chiave, mostrata una volta. */
+/** La configurazione dell'app di autenticazione: la chiave, mostrata una volta. */
 export interface TotpSetup {
   /** La chiave in base32 («Can't scan? Enter this key»). */
   secret: string;
-  /** L'URI `otpauth://` che il QR codifica. */
+  /** L'URI `otpauth://` che il QR codificherebbe. */
   uri: string;
+  /** Il QR, finto e dichiarato tale («Prototype: this QR code is made up.»). */
+  qrSvg: string;
+}
+
+/** I segreti TOTP in attesa di conferma di una persona: tutti tranne quello confermato. */
+export const pendingTotpIds = (personId: string): string[] =>
+  secretIdsOf("totp_seed", personId).filter((id) => id !== state.confirmedTotp.get(personId));
+
+/**
+ * Prepara un segreto TOTP nuovo e lo restituisce una volta; uno in attesa di
+ * prima si dimentica. Quello confermato resta valido finché il nuovo non è
+ * confermato (`confirmTotp` di `me/security.ts`).
+ */
+export function newTotpSetup(personId: string): TotpSetup {
+  for (const id of pendingTotpIds(personId)) forgetSecret(id);
+  const { value } = storeSecret("totp_seed", personId);
+  const uri = `otpauth://totp/Stubwise:${encodeURIComponent(personId)}?secret=${value}&issuer=Stubwise`;
+  return { secret: value, uri, qrSvg: fakeQrSvg(uri) };
 }
 
 /**
  * L'iscrizione al volo dentro la riconferma (Sara): per chi non ha un
- * secondo fattore, prepara il segreto TOTP e lo restituisce una volta. Un
- * segreto in attesa di prima si dimentica. La conferma col primo codice e i
- * codici di backup sono del Task 5 (`confirmTotp`), che a fine
- * configurazione chiama `markReauthenticated`.
+ * secondo fattore, prepara il segreto TOTP e lo restituisce una volta. La
+ * conferma col primo codice e i codici di backup sono di `confirmTotp`
+ * (`me/security.ts`), che a fine configurazione chiama `markReauthenticated`.
  */
 export async function enrollDuringReauth(): Promise<TotpSetup> {
   const me = await gate("auth.enrollDuringReauth");
   const person = personOf(me);
   if (!person || person.status !== "active") throw forbidden();
   if (person.secondFactor) throw invalid("already_enrolled");
-  for (const id of secretIdsOf("totp_seed", me)) forgetSecret(id);
-  const { value } = storeSecret("totp_seed", me);
-  return {
-    secret: value,
-    uri: `otpauth://totp/Stubwise:${encodeURIComponent(me)}?secret=${value}&issuer=Stubwise`,
-  };
+  return newTotpSetup(me);
 }

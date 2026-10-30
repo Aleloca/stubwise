@@ -817,7 +817,7 @@ describe("RF 2: i link si vedono una volta", () => {
     expect(secretIdsOf("reset_link", "p-marco")).toHaveLength(1);
   });
 
-  it("revocare un invito dimentica il suo link", async () => {
+  it("revocare un invito lo toglie dall'elenco; il link resta solo per dire «revocato»", async () => {
     as("p-roberta");
     reauth("p-roberta");
     const invite = (await admin.createInvite({
@@ -827,7 +827,8 @@ describe("RF 2: i link si vedono una volta", () => {
     })) as { inviteId: string };
     expect(secretIdsOf("invite_link", invite.inviteId)).toHaveLength(1);
     expect(await admin.revokeInvite(invite.inviteId)).toEqual({ ok: true });
-    expect(secretIdsOf("invite_link", invite.inviteId)).toHaveLength(0);
+    // Custodito (Task 5: `getInvite` risponde `revoked`), mai più in una lettura.
+    expect(secretIdsOf("invite_link", invite.inviteId)).toHaveLength(1);
     expect((await admin.listInvites()).map((i) => i.id)).not.toContain(invite.inviteId);
   });
 });

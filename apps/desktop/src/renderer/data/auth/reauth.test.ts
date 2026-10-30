@@ -40,6 +40,13 @@ const EXPECTED_REAUTH: readonly ApiFnName[] = [
   "admin.setMemberRole",
   "admin.grantMemberPermission",
   "admin.revokeMemberPermission",
+  // Task 5: le Preferenze personali (Sicurezza, Token, Claude Code)
+  "me.startTotpSetup",
+  "me.addPasskey",
+  "me.removePasskey",
+  "me.regenerateBackupCodes",
+  "me.createToken",
+  "me.createClaudeCodeCommand",
 ];
 
 const as = (personId: string) => setSessionPersonId(personId);
@@ -78,12 +85,13 @@ describe("registro", () => {
     expect([...REAUTH_REQUIRED].sort()).toEqual([...EXPECTED_REAUTH].sort());
   });
 
-  it("un PAT non la soddisfa mai: il prototipo non ha chiamate via PAT", () => {
-    // Ogni chiamata è di una sessione (`gate` legge la persona della
-    // sessione); l'unica strada per la finestra di grazia è un secondo
-    // fattore verificato, e non c'è nessuna funzione che la apra da un token.
+  it("nessuna funzione della riconferma la apre da un token", () => {
+    // L'unica strada per la finestra di grazia è un secondo fattore
+    // verificato. La prova che una chiamata via PAT resta `reauth_required`
+    // anche dentro la finestra sta in `me/me.test.ts` («un PAT…»), dove i
+    // token esistono.
     const names = Object.keys(reauthModule);
-    expect(names.filter((n) => /pat|token/i.test(n))).toEqual([]);
+    expect(names.filter((n) => /pat\b|token/i.test(n))).toEqual([]);
   });
 });
 
@@ -175,6 +183,7 @@ describe("requireReauth", () => {
 describe("blocco", () => {
   it("5 codici sbagliati → locked per 15 minuti, anche col codice giusto; poi si riparte", async () => {
     as("p-laura");
+    const alertsBefore = state.notifications.filter((n) => n.kind === "security.alert").length;
     for (let i = 4; i >= 1; i--)
       expect(await auth.reauthenticate({ method: "totp", code: "000000" })).toEqual({
         ok: false,
@@ -192,6 +201,16 @@ describe("blocco", () => {
     });
     expect(await auth.reauthenticate({ method: "passkey" })).toMatchObject({ error: "locked" });
     expect(hasFreshReauth("p-laura")).toBe(false);
+    // Il blocco si scrive nel registro di Laura e le manda `security.alert`, solo a lei.
+    expect(state.securityEvents.at(-1)).toMatchObject({
+      personId: "p-laura",
+      kind: "second_factor_locked",
+    });
+    const alert = state.notifications.at(-1)!;
+    expect(alert).toMatchObject({ kind: "security.alert", recipientIds: ["p-laura"] });
+    expect(state.notifications.filter((n) => n.kind === "security.alert")).toHaveLength(
+      alertsBefore + 1,
+    );
     // Il blocco è di Laura, non di Marco.
     as("p-marco");
     expect(await auth.reauthenticate({ method: "totp", code: "123456" })).toEqual({ ok: true });

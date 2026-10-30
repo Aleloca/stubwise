@@ -35,7 +35,7 @@ const ROWS: [string, string, string[], string][] = [
   ["p-enrico", "Enrico Palumbo", [A], "legacy_member"],
 ];
 
-function initials(name: string): string {
+export function initials(name: string): string {
   return name
     .split(/\s+/)
     .map((w) => w[0])
@@ -74,3 +74,25 @@ export const PEOPLE: Person[] = [
 export const SEED_DEPARTMENT_IDS: Readonly<Record<string, readonly string[]>> = Object.freeze(
   Object.fromEntries(ROWS.map(([id, , departmentIds]) => [id, Object.freeze([...departmentIds])])),
 );
+
+/** Le persone del seme come oggetti: `restoreSeedPeople` rimette in `PEOPLE` proprio questi. */
+const SEED_OBJECTS: readonly Person[] = [...PEOPLE];
+/** Nome e iniziali del seme: l'area 9a li cambia (Account). */
+const SEED_NAMES = new Map(PEOPLE.map((p) => [p.id, { name: p.name, initials: p.initials }]));
+
+/**
+ * Riporta `PEOPLE` al seme (area 9a): toglie le persone registrate o create
+ * al primo avvio, rimette quelle tolte dall'istanza vuota (gli STESSI
+ * oggetti, che altri moduli possono tenere) e ne ripristina nome, email,
+ * foto e reparti. Lo chiama `resetStore` per primo: il seme degli accessi e
+ * dei segreti legge `PEOPLE`.
+ */
+export function restoreSeedPeople(): void {
+  PEOPLE.splice(0, PEOPLE.length, ...SEED_OBJECTS);
+  for (const p of PEOPLE) {
+    Object.assign(p, SEED_NAMES.get(p.id));
+    delete p.email;
+    delete p.photo;
+    p.departmentIds = [...(SEED_DEPARTMENT_IDS[p.id] ?? [])];
+  }
+}

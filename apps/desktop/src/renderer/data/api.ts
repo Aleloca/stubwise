@@ -125,10 +125,12 @@ export * as support from "./support";
 export * as servers from "./servers";
 /** Il registro delle modifiche (area 9a): `api.changelog.listChanges(…)`, `api.changelog.listProjectChanges(…)`. */
 export * as changelog from "./changelog/reads";
-/** La riconferma col secondo fattore (area 9a): `api.auth.reauthenticate(…)`, `api.auth.enrollDuringReauth()`. */
+/** La riconferma e l'ingresso (area 9a): `api.auth.reauthenticate(…)`, `api.auth.login(…)`… */
 export * as auth from "./auth";
 /** L'Amministrazione (area 9a): `api.admin.listPeople(…)`, `api.admin.addMember(…)`… */
 export * as admin from "./admin";
+/** Le Preferenze personali (area 9a): `api.me.getMySecurity()`, `api.me.createToken(…)`… */
+export * as me from "./me";
 
 /** Ripristina lo stato (sessione, dati, errori iniettati) e porta le task scadute alla settimana corrente. */
 export function resetApi(): void {

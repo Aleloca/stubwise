@@ -22,7 +22,7 @@ import { INITIAL_PINNED_FILTERS, SAVED_FILTERS } from "./seed/filters";
 import { DAY_ARRANGEMENTS, DEPARTMENT_HOMES, PERSONAL_HOMES } from "./seed/homes";
 import { MILESTONES } from "./seed/milestones";
 import { NOTIFICATIONS, SEED_SECURITY_CODES } from "./seed/notifications";
-import { CLAUDE_ID, PEOPLE, SEED_DEPARTMENT_IDS } from "./seed/people";
+import { CLAUDE_ID, PEOPLE, SEED_DEPARTMENT_IDS, restoreSeedPeople } from "./seed/people";
 import { INITIAL_PINNED_CODES, PROJECTS } from "./seed/projects";
 import { REQUESTS } from "./seed/requests";
 import { PROJECT_STATUSES } from "./seed/statuses";
@@ -72,7 +72,12 @@ import { SERVER_ANALYSES } from "./seed/servers/analysis";
 import { SERVER_EPISODES } from "./seed/servers/episodes";
 import { CHECK_SAMPLES, SERVER_METRICS } from "./seed/servers/metrics";
 import { SERVERS, SERVER_CHECKS } from "./seed/servers/servers";
-import { DEFAULT_SESSION_PERSON_ID, getSessionPersonId, setSessionPersonId } from "./session";
+import {
+  DEFAULT_SESSION_PERSON_ID,
+  getSessionPersonId,
+  setSessionCredential,
+  setSessionPersonId,
+} from "./session";
 import type {
   ActivityEntry,
   AlertSubscription,
@@ -154,12 +159,21 @@ import {
   registerMembershipSync,
   resetAccessState,
   subscribeAccess,
+  writeAccess as writeAccessNow,
   type AccessState,
 } from "./access/index";
 import type { ChangeEntry } from "./changelog/types";
 import type { Invite, SecurityEvent } from "./admin/types";
 import { DEPARTMENTS } from "./seed/departments";
 import { INVITES, SECURITY_EVENTS } from "./seed/invites";
+import { seedGoogleWorkspaces, seedPasskeys, seedSessions, seedTokens } from "./seed/me";
+import type {
+  EntryState,
+  GoogleWorkspace,
+  Passkey,
+  PersonalSession,
+  PersonalToken,
+} from "./me/types";
 import type { Department } from "./types";
 
 // Il «server» finto: il simulatore (latenza, errori iniettati), lo stato
@@ -597,7 +611,37 @@ export type ApiFnName =
   | "admin.removeMember"
   | "admin.setMemberRole"
   | "admin.grantMemberPermission"
-  | "admin.revokeMemberPermission";
+  | "admin.revokeMemberPermission"
+  // Preferenze personali (area 9a, Task 5): Account, Google, Security, Tokens, Claude Code
+  | "me.updateProfile"
+  | "me.changePassword"
+  | "me.listMyMailboxes"
+  | "me.connectMailbox"
+  | "me.reconnectMailbox"
+  | "me.disconnectMailbox"
+  | "me.setProposals"
+  | "me.getMySecurity"
+  | "me.startTotpSetup"
+  | "me.confirmTotp"
+  | "me.addPasskey"
+  | "me.renamePasskey"
+  | "me.removePasskey"
+  | "me.regenerateBackupCodes"
+  | "me.endSession"
+  | "me.listTokens"
+  | "me.createToken"
+  | "me.revokeToken"
+  | "me.createClaudeCodeCommand"
+  // Ingresso (area 9a, Task 5): login, invito, primo avvio, uscita
+  | "auth.getEntry"
+  | "auth.login"
+  | "auth.loginSecondFactor"
+  | "auth.getInvite"
+  | "auth.register"
+  | "auth.isInstanceEmpty"
+  | "auth.createFirstAdmin"
+  | "auth.resetToEmptyInstance"
+  | "auth.logout";
 const failures = new Set<ApiFnName>();
 
 /** Fissa la latenza simulata (ms); `0` per i test, `null` per tornare a 150–400 ms. */
@@ -695,6 +739,23 @@ interface State {
   bitbucketUsernames: Map<string, string>;
   /** L'ultimo numero dei codici `SEC-n` degli avvisi di sicurezza. */
   securityCodeSeq: number;
+  /** L'ingresso (area 9a, Task 5): fuori, a metà (manca il secondo fattore), dentro. */
+  entry: EntryState;
+  /**
+   * Le password cambiate (area 9a): chi non c'è ha quella del seme,
+   * `stubwise`. Solo prototipo: in chiaro, ma nessuna lettura la restituisce.
+   */
+  passwords: Map<string, string>;
+  /** Le sessioni aperte delle persone (Security → Open sessions). */
+  sessions: PersonalSession[];
+  /** Le passkey; `access.people[].secondFactor.passkeys` ne è il conteggio, scritto insieme. */
+  passkeys: Passkey[];
+  /** Il segreto TOTP confermato di ciascuno (id in `secrets.ts`); il seme non ne ha. */
+  confirmedTotp: Map<string, string>;
+  /** I token personali, senza valore. */
+  tokens: PersonalToken[];
+  /** I Workspace Google dell'istanza (9b li gestisce, le caselle personali li scelgono). */
+  googleWorkspaces: GoogleWorkspace[];
   projects: Project[];
   statuses: ProjectStatus[];
   tasks: Task[];
@@ -919,6 +980,13 @@ function freshState(): State {
     securityEvents: SECURITY_EVENTS.map(copy),
     bitbucketUsernames: new Map(),
     securityCodeSeq: SEED_SECURITY_CODES,
+    entry: { signedIn: true, partial: null },
+    passwords: new Map(),
+    sessions: seedSessions(),
+    passkeys: seedPasskeys(),
+    confirmedTotp: new Map(),
+    tokens: seedTokens(),
+    googleWorkspaces: seedGoogleWorkspaces(),
     projects: PROJECTS.map(copy),
     statuses: PROJECT_STATUSES.map(copy),
     tasks: TASKS.map(copy),
@@ -1086,15 +1154,63 @@ export function onStoreReset(fn: () => void): void {
 /** Ripristina lo stato (sessione, dati, errori iniettati). */
 export function resetStore(): void {
   generation += 1;
+  // Prima di tutto: il seme degli accessi e quello dei segreti leggono `PEOPLE`.
+  restoreSeedPeople();
   for (const fn of resetHooks) fn();
   failures.clear();
   streamLatencyOverride = null;
   callCounter = 0;
   chunkCounter = 0;
   setSessionPersonId(DEFAULT_SESSION_PERSON_ID);
+  setSessionCredential("session");
   clockOffsetMs = 0;
   // `freshState` riporta anche gli accessi al seme (`resetAccessState`).
   Object.assign(state, freshState());
+  reindex();
+}
+
+const emptiedHooks = new Set<() => void>();
+
+/** Cosa svuotare, fuori dallo stato, quando l'istanza diventa vuota (i segreti custoditi). */
+export function onInstanceEmptied(fn: () => void): void {
+  emptiedHooks.add(fn);
+}
+
+/**
+ * SOLO PROTOTIPO, «Reset to empty instance» (area 9a): l'istanza come appena
+ * installata. Resta solo Claude; ogni tabella dello stato si svuota (persone,
+ * progetti, task, server, posta, inviti, registri…), degli accessi restano
+ * solo i ruoli preset, e si è fuori (il primo avvio crea il primo full
+ * admin). Il lavoro in corso si ferma come a un ripristino; `resetApi`
+ * riporta al seme.
+ */
+export function emptyStore(): void {
+  generation += 1;
+  for (const fn of resetHooks) fn();
+  failures.clear();
+  setSessionCredential("session");
+  PEOPLE.splice(0, PEOPLE.length, ...PEOPLE.filter((p) => p.isClaude));
+  // Ogni tabella si svuota: gli array e le mappe. I contatori e le
+  // impostazioni (numeri, stringhe) restano; gli accessi si svuotano sotto,
+  // sullo stesso oggetto.
+  const s = state as unknown as Record<string, unknown>;
+  for (const key of Object.keys(s)) {
+    if (key === "access") continue;
+    const value = s[key];
+    if (Array.isArray(value)) s[key] = [];
+    else if (value instanceof Map) s[key] = new Map();
+    else if (value instanceof Set) s[key] = new Set();
+  }
+  state.entry = { signedIn: false, partial: null };
+  writeAccessNow((a) => {
+    a.roles = a.roles.filter((r) => r.preset);
+    a.memberships = [];
+    a.grants = [];
+    a.departments = [];
+    a.people = [];
+    a.revocations = [];
+  });
+  for (const fn of emptiedHooks) fn();
   reindex();
 }
 

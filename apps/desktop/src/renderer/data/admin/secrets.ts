@@ -1,6 +1,6 @@
 import { seedAccessState } from "../access/index";
 import { hashOf, seededRandom } from "../seed/servers/metrics";
-import { onStoreReset } from "../store";
+import { onInstanceEmptied, onStoreReset } from "../store";
 
 // I segreti mostrati una volta (area 9a): token personali, link di reset
 // della password e d'invito, segreto TOTP, codici di backup. Stanno SOLO
@@ -42,6 +42,20 @@ function chars(seed: string, alphabet: string, n: number): string {
   return out;
 }
 
+/** L'origine finta dell'istanza: i link e il comando di Claude Code la usano. */
+export const INSTANCE_ORIGIN = "https://stubwise.example.test";
+const INVITE_PREFIX = `${INSTANCE_ORIGIN}/register?invite=`;
+
+/**
+ * Il link d'invito di un token (la parte dopo `invite=`, quella della rotta
+ * `/register/$token`); un link intero resta com'è. Per cercarlo con
+ * `matchSecret`, senza mai leggere il valore custodito.
+ */
+export const inviteLinkOf = (tokenOrLink: string): string => {
+  const value = tokenOrLink.trim();
+  return value.startsWith(INVITE_PREFIX) ? value : `${INVITE_PREFIX}${value}`;
+};
+
 /** Il valore finto di un segreto nuovo, nella forma del web. */
 function valueOf(kind: SecretKind, ownerId: string, n: number): string {
   const seed = `${kind}|${ownerId}|${n}`;
@@ -49,9 +63,9 @@ function valueOf(kind: SecretKind, ownerId: string, n: number): string {
     case "pat":
       return `stw_pat_${chars(seed, ALNUM, 32)}`;
     case "reset_link":
-      return `https://stubwise.example.test/reset-password?token=${chars(seed, ALNUM, 40)}`;
+      return `${INSTANCE_ORIGIN}/reset-password?token=${chars(seed, ALNUM, 40)}`;
     case "invite_link":
-      return `https://stubwise.example.test/register?invite=${chars(seed, ALNUM, 40)}`;
+      return `${INVITE_PREFIX}${chars(seed, ALNUM, 40)}`;
     case "totp_seed":
       return chars(seed, BASE32, 32);
     case "backup_codes":
@@ -142,6 +156,8 @@ function seedSecrets(): void {
 
 seedSecrets();
 onStoreReset(seedSecrets);
+// L'istanza vuota (area 9a) non custodisce niente: nessuna persona, nessun segreto.
+onInstanceEmptied(() => vault.clear());
 
 /**
  * SOLO TEST (RF 2): ogni valore segreto custodito adesso — e ogni codice di

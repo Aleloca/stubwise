@@ -26,6 +26,14 @@ export interface Person {
    * disattivata, quindi resta nominata dalle sue task ma non si assegna.
    */
   deactivated?: boolean;
+  /**
+   * L'email d'accesso cambiata in Account (area 9a). Assente = quella del
+   * seme (l'account Google o `nome.cognome@example.com`): la si legge sempre
+   * da `person()` di `seed/mail/helpers.ts`, mai da qui direttamente.
+   */
+  email?: string;
+  /** La foto del profilo (area 9a): un data URL tenuto in memoria; assente = le iniziali. */
+  photo?: string;
 }
 
 export type ProjectModule = "docs" | "releases" | "support" | "servers";
