@@ -7,13 +7,14 @@ import { isAdminSection, type AdminSection } from "../../data/routes";
 import { useViewer } from "../../data/viewer";
 import { ONE_LINE, columnItemClass } from "../../layout/ProjectColumn";
 import { NotFound } from "../NotFound";
-import { Placeholder } from "../Placeholder";
+import { ChangeLogPage } from "./ChangeLogPage";
 import { DepartmentsPage } from "./DepartmentsPage";
 import { InvitePage } from "./InvitePage";
 import { PeoplePage } from "./PeoplePage";
 import { PersonDetail } from "./PersonDetail";
 import { RoleEditor } from "./RoleEditor";
 import { RolesPage } from "./RolesPage";
+import { WhoCanPage } from "./WhoCanPage";
 
 // L'intelaiatura dell'Amministrazione (area 9a, shape admin-people.md §3):
 // la colonna con le voci che chi guarda vede (`adminSections`), raggruppate
@@ -98,8 +99,8 @@ function SectionBody({ section }: { section: AdminSection }) {
   if (section === "people") return <PeoplePage />;
   if (section === "departments") return <DepartmentsPage />;
   if (section === "roles") return <RolesPage />;
-  // Le altre voci le costruisce il Task 11 (Change log, Who can?).
-  return <Placeholder titleKey={`admin.sections.${section}`} bodyKey={`admin.placeholder.${section}`} />;
+  if (section === "changelog") return <ChangeLogPage />;
+  return <WhoCanPage />;
 }
 
 /** La pagina di un ruolo (`/admin/roles/$roleId`): dentro Roles, con `roles.manage`. */

@@ -109,7 +109,8 @@ export function PageEmpty({
   action,
 }: {
   title: string;
-  body?: string;
+  /** La frase; può portare un link («Who?» di chi può riempirlo). */
+  body?: ReactNode;
   action?: ReactNode;
 }) {
   return (

@@ -6,6 +6,7 @@ import { PageEmpty, PageError } from "../../tasks-ui/PageStates";
 import { secondaryButton } from "../tasks/controls";
 import { NewServerDialog } from "./NewServerDialog";
 import { ServerList } from "./ServerList";
+import { WhoCanLink } from "../../components/WhoCanLink";
 
 // La sezione Servers di un progetto (`#/p/ACQ/servers`, shape servers.md §3):
 // dove gira il progetto e come sta, prima la salute in parole. I server
@@ -76,9 +77,14 @@ export function ServersPage({ projectCode }: { projectCode: string }) {
           <PageEmpty
             title={t("servers.empty.title", { code: projectCode })}
             body={
-              canCreate
-                ? t("servers.empty.body")
-                : `${t("servers.empty.body")} ${t("servers.empty.noPermission")}`
+              canCreate ? (
+                t("servers.empty.body")
+              ) : (
+                <>
+                  {t("servers.empty.body")} {t("servers.empty.noPermission")}{" "}
+                  <WhoCanLink action="manageMonitor" projectId={null} />
+                </>
+              )
             }
             action={newButton}
           />

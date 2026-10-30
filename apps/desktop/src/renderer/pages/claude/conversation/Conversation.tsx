@@ -29,6 +29,7 @@ import { Composer, type DraftAttachment } from "./Composer";
 import { EventList, UserMessage, type DeliveryView } from "./EventList";
 import { citedRefs, flowItems, type Ev } from "./flow";
 import { ArrowDownGlyph, WorkingRing } from "./parts";
+import { WhoCanLink } from "../../../components/WhoCanLink";
 
 /** Quante righe del flusso si disegnano all'apertura (e quante ne aggiunge «Load earlier»). */
 export const FLOW_PAGE = 120;
@@ -750,7 +751,7 @@ function ReadOnlyBand({
   const { t } = useTranslation();
   const owner = usePeople().data?.find((p) => p.id === detail.ownerId)?.name ?? "";
   const reason = detail.readOnlyReason;
-  let text: string;
+  let text: ReactNode;
   switch (reason) {
     case "not_owner":
       text = t("claude.conversation.readOnly.notOwner", { name: owner });
@@ -779,9 +780,19 @@ function ReadOnlyBand({
       break;
     case "no_permission":
       text =
-        detail.kind === "refine"
-          ? t("claude.conversation.readOnly.refine", { code: projectCode ?? "" })
-          : t("claude.conversation.readOnly.maintainer");
+        detail.kind === "refine" ? (
+          <>
+            {t("claude.conversation.readOnly.refine", { code: projectCode ?? "" })}
+            {projectCode && (
+              <>
+                {" "}
+                <WhoCanLink action="editBacklog" projectCode={projectCode} />
+              </>
+            )}
+          </>
+        ) : (
+          t("claude.conversation.readOnly.maintainer")
+        );
       break;
     default:
       text = t("claude.conversation.readOnly.watchOnly");

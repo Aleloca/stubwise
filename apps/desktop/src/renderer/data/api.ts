@@ -125,6 +125,8 @@ export * as support from "./support";
 export * as servers from "./servers";
 /** Il registro delle modifiche (area 9a): `api.changelog.listChanges(…)`, `api.changelog.listProjectChanges(…)`. */
 export * as changelog from "./changelog/reads";
+/** «Chi può farlo?» (area 9a): `api.access.whoCan(…)`, `api.access.whatCan(…)`, `api.access.whoCanChoices()`. */
+export * as access from "./access/whoCanApi";
 /** La riconferma e l'ingresso (area 9a): `api.auth.reauthenticate(…)`, `api.auth.login(…)`… */
 export * as auth from "./auth";
 /** L'Amministrazione (area 9a): `api.admin.listPeople(…)`, `api.admin.addMember(…)`… */

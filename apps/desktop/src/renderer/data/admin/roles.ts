@@ -244,6 +244,7 @@ export async function updateRole(
   const reauth = reauthRefusal(me, "admin.updateRole");
   if (reauth) return reauth;
   const beforeName = role.name;
+  const beforePermissions = [...role.permissions];
   writeAccess(mutate);
   recordChange({
     kind: "role.updated",
@@ -252,7 +253,13 @@ export async function updateRole(
     object: { type: "role", id: roleId, label: name },
     before: beforeName,
     after: name,
-    params: { added: added.join(","), removed: removed.join(",") },
+    // Gli insiemi interi (chiavi, mai segreti): «Show details» del registro.
+    params: {
+      added: added.join(","),
+      removed: removed.join(","),
+      before: beforePermissions.join(","),
+      after: permissions.join(","),
+    },
   });
   return { ok: true };
 }

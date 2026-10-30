@@ -246,3 +246,49 @@ export function matchCommands(
       (!needle || cmd.queryLabelKey !== undefined || fold(label(cmd)).includes(needle)),
   );
 }
+
+// --- «Who can?» (area 9a, shape admin-audit.md) -------------------------------
+
+/** I prefissi che aprono il gruppo WHO CAN? (en, it), senza maiuscole né accenti. */
+const WHO_CAN_PREFIXES = ["who can", "chi puo"];
+
+/** Quante azioni mostra il gruppo. */
+const WHO_CAN_LIMIT = 6;
+
+/**
+ * Il resto del testo dopo «who can» / «chi può» («approve plans»), già
+ * piegato; `null` se il testo non comincia così. Basta l'inizio del prefisso
+ * scritto per intero: «who ca» non apre il gruppo.
+ */
+export function whoCanRest(query: string): string | null {
+  const q = fold(query.trim());
+  const prefix = WHO_CAN_PREFIXES.find((p) => q === p || q.startsWith(`${p} `));
+  return prefix === undefined ? null : q.slice(prefix.length).trim();
+}
+
+/** Le parole di un testo, senza la «s» del plurale inglese («plans» → «plan»). */
+const stems = (text: string): string[] =>
+  fold(text)
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean)
+    .map((w) => (w.length > 3 && w.endsWith("s") ? w.slice(0, -1) : w));
+
+/**
+ * Le azioni del catalogo il cui nome corrisponde a `rest`: ogni parola
+ * scritta è l'inizio di una parola del nome (dell'azione o del permesso:
+ * «approve plans» trova «approve a plan»). Senza resto, le prime.
+ */
+export function matchWhoCanActions<T extends { id: string }>(
+  rest: string,
+  actions: readonly T[],
+  names: (action: T) => string[],
+): T[] {
+  const typed = stems(rest);
+  return actions
+    .filter((a) => {
+      if (typed.length === 0) return true;
+      const words = names(a).flatMap(stems);
+      return typed.every((w) => words.some((x) => x.startsWith(w)));
+    })
+    .slice(0, WHO_CAN_LIMIT);
+}

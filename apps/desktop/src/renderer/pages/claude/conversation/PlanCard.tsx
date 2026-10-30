@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { WhoCanLink } from "../../../components/WhoCanLink";
 import { useDecidePlan } from "../../../data/queries";
 import { inputClass } from "../../../tasks-ui/Dialog";
 import { Markdown } from "../../../tasks-ui/Markdown";
@@ -294,6 +295,12 @@ export function PlanCard({
             : projectCode
               ? t("claude.conversation.plan.whoCanApprove", { code: projectCode })
               : t("claude.conversation.plan.whoCanApproveAny")}
+          {projectCode && (
+            <>
+              {" "}
+              <WhoCanLink action="approvePlan" projectCode={projectCode} />
+            </>
+          )}
         </p>
       )}
       {serverFix && (

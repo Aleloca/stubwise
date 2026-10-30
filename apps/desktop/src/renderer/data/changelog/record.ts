@@ -18,7 +18,8 @@ export function registerChangeTypes(list: readonly ChangeType[]): void {
       known &&
       (known.templateKey !== t.templateKey ||
         known.readPermission !== t.readPermission ||
-        known.scope !== t.scope)
+        known.scope !== t.scope ||
+        known.group !== t.group)
     )
       throw new Error(`Change type already registered differently: ${t.kind}`);
     types.set(t.kind, Object.freeze({ ...t }));

@@ -11,6 +11,7 @@ import {
   useProjectServers,
   useReleases,
 } from "../data/queries";
+import { canSeeProjectSettingsSection } from "../data/adminSections";
 import { PROJECT_SECTIONS, PROJECT_SETTINGS_SECTIONS } from "../data/routes";
 import type { ChannelRow, Project } from "../data/types";
 import { can, useViewer } from "../data/viewer";
@@ -250,12 +251,16 @@ function ProjectSections({
 
 /**
  * «Settings», da corrente, si apre nelle sue sezioni come voci rientrate da
- * 32 px, una pagina ciascuna (area 9a, [RM 4]); quelle dei moduli spenti no.
+ * 32 px, una pagina ciascuna (area 9a, [RM 4]); quelle dei moduli spenti no,
+ * né Change log a chi non gestisce il progetto o i membri.
  */
 function ProjectSettingsSections({ project }: { project: Project }) {
   const { t } = useTranslation();
+  const { viewer } = useViewer();
   const sections = PROJECT_SETTINGS_SECTIONS.filter(
-    (s) => !("module" in s) || project.modules.includes(s.module),
+    (s) =>
+      (!("module" in s) || project.modules.includes(s.module)) &&
+      canSeeProjectSettingsSection(viewer, project.id, s.id),
   );
   return (
     <ul

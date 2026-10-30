@@ -14,6 +14,7 @@ import { useToast } from "../../tasks-ui/Toast";
 import { PrototypeBox } from "../automations/shared";
 import { Section, smallPrimary, smallSecondary } from "../task/parts";
 import { shortRepo } from "./format";
+import { WhoCanLink } from "../../components/WhoCanLink";
 
 // Le azioni del pannello di una PR (shape releases.md §6, ordine fisso):
 // «Analysis only» (solo PR dei colleghi, [R 14]), «Request changes» (entro il
@@ -131,7 +132,8 @@ function RequestChanges({
       )}
       {blocked && (
         <p className="text-sm text-ink-muted">
-          {t("releases.panel.capReached", { code: projectCode, cap })}
+          {t("releases.panel.capReached", { code: projectCode, cap })}{" "}
+          <WhoCanLink action="approvePlan" projectId={pr.projectId} projectCode={projectCode} />
         </p>
       )}
       {result && (

@@ -389,7 +389,8 @@ describe("chi guarda e l'ultimo uso", () => {
       "Not linked. Claude can't look into this server's problems.",
     );
     expect(access()).toHaveTextContent("An admin who manages SSH access can link it.");
-    expect(within(access()).queryByRole("button")).toBeNull();
+    // Nessuna azione sull'accesso: c'è solo «Who?», che dice a chi chiedere (area 9a).
+    expect(within(access()).getAllByRole("button").map((b) => b.textContent)).toEqual(["Who?"]);
     document.body.innerHTML = "";
 
     await open("/p/AUD/servers/SRV-3", "p-laura");

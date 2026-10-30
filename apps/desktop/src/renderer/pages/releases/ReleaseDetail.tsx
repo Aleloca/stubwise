@@ -19,6 +19,7 @@ import { FixDialog, useExplain } from "./FixDialog";
 import { clock, duration, mergedBy, nowSentence, platformOf, prCode, shortSha } from "./format";
 import { ExternalGlyph, ReleaseGlyph } from "./glyphs";
 import { RunLog } from "./RunLog";
+import { WhoCanLink } from "../../components/WhoCanLink";
 
 // Il dettaglio di un rilascio (`#/p/AUD/releases/AUD-V3`, shape releases.md
 // §6): testata, «Now» (l'unico fondo della pagina: dove è fallito, in una
@@ -116,7 +117,8 @@ function NowBox({ release }: { release: ReleaseView }) {
       )}
       {s.kind === "failed" && !release.canFix && !fixTask && (
         <p className="text-sm text-ink-muted">
-          {t("releases.fix.noPermission", { code: release.projectCode })}
+          {t("releases.fix.noPermission", { code: release.projectCode })}{" "}
+          <WhoCanLink action="createTasks" projectId={release.projectId} projectCode={release.projectCode} />
         </p>
       )}
       {s.kind === "failed" && <p className="text-xs text-ink-muted">{t("releases.boundary")}</p>}
@@ -133,7 +135,12 @@ function NowBox({ release }: { release: ReleaseView }) {
           </Link>
         ) : (
           <p className="text-sm text-ink-muted">
-            {t("releases.now.environmentsNoPermission", { code: release.projectCode })}
+            {t("releases.now.environmentsNoPermission", { code: release.projectCode })}{" "}
+            <WhoCanLink
+              action="manageEnvironments"
+              projectId={release.projectId}
+              projectCode={release.projectCode}
+            />
           </p>
         ))}
       {fixing && <FixDialog release={release} onClose={() => setFixing(false)} />}

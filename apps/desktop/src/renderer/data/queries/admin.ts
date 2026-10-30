@@ -8,7 +8,22 @@ import { queryKeys, useSessionPersonId, useWrite } from "../queries";
 // li ri-esporta. L'import circolare con `../queries` è innocuo: gli helper si
 // usano solo dentro le funzioni.
 
-export type { ChangeEntryView, ChangeFilter } from "../changelog/types";
+export type {
+  ChangeDiff,
+  ChangeEntryView,
+  ChangeFilter,
+  ChangeFilterChoices,
+  ChangeObjectLink,
+} from "../changelog/types";
+export type {
+  WhatCanPermission,
+  WhatCanView,
+  WhoCanChoices,
+  WhoCanPerson,
+  WhoCanReason,
+  WhoCanView,
+} from "../access/whoCanApi";
+export { ACTIONS, actionById, groupsFor, type AccessAction } from "../../domain/access/actions";
 export type { SecondFactorInput, SecondFactorResult, TotpSetup } from "../auth/reauth";
 export type * from "../admin/types";
 /** Le otto tinte dei reparti, nell'ordine di `DESIGN.md`: il dialogo e il pannello del reparto. */
@@ -36,6 +51,53 @@ export function useProjectChanges(
     queryKey: queryKeys.projectChanges(me, projectId ?? "", filter),
     queryFn: () => api.changelog.listProjectChanges(projectId!, filter),
     enabled: !!projectId,
+  });
+}
+
+/**
+ * Le scelte dei filtri del registro (R-G5): persone e progetti visibili, i
+ * gruppi di voci che chi guarda legge; con `projectId`, quelli di quel progetto.
+ */
+export function useChangeFilterChoices(projectId?: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "changelog", "choices", projectId ?? null] as const,
+    queryFn: () => api.changelog.listChangeFilterChoices(projectId),
+  });
+}
+
+// --- «Chi può farlo?» (area 9a, Task 11) -------------------------------------
+
+/**
+ * Chi può fare un'azione in un progetto (`null` per un'azione d'istanza): la
+ * pagina «Who can?» e il riquadro «Who?» dei bottoni spenti. `enabled` falso
+ * finché il riquadro è chiuso: nessuna lettura per ogni bottone spento.
+ */
+export function useWhoCan(actionId: string | undefined, projectId: string | null, enabled = true) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.admin(me, "whoCan", actionId ?? "", projectId),
+    queryFn: () => api.access.whoCan(actionId!, projectId),
+    enabled: enabled && !!actionId,
+  });
+}
+
+/** Cosa può fare una persona (o Claude) in un progetto, o nell'istanza con `null`. */
+export function useWhatCan(personId: string | undefined, projectId: string | null) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.admin(me, "whatCan", personId ?? "", projectId),
+    queryFn: () => api.access.whatCan(personId!, projectId),
+    enabled: !!personId,
+  });
+}
+
+/** I due menu di «Who can?»: progetti e persone visibili. */
+export function useWhoCanChoices() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.admin(me, "whoCanChoices"),
+    queryFn: () => api.access.whoCanChoices(),
   });
 }
 

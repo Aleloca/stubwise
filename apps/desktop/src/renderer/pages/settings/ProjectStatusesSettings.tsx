@@ -41,6 +41,7 @@ import {
   type DraftStatus,
   type StatusDraft,
 } from "./statusDraft";
+import { WhoCanLink } from "../../components/WhoCanLink";
 
 const FAMILIES: StatusFamily[] = ["todo", "active", "closed"];
 
@@ -270,7 +271,17 @@ export function ProjectStatusesSettings({ project }: { project: Project }) {
     <SettingsState state={state} error={t("settings.statuses.loadError")}>
       <p className="max-w-[72ch] pb-4 text-sm text-ink-muted">
         {t("settings.statuses.intro")}
-        {!canManage && <> {t("settings.statuses.readOnly")}</>}
+        {!canManage && (
+          <>
+            {" "}
+            {t("settings.statuses.readOnly")}{" "}
+            <WhoCanLink
+              action="manageProjectSettings"
+              projectId={project.id}
+              projectCode={project.code}
+            />
+          </>
+        )}
       </p>
       <p id={instructionsId} className="sr-only">
         {t("settings.statuses.instructions")}

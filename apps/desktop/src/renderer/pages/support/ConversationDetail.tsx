@@ -32,6 +32,7 @@ import { Messages } from "./Messages";
 import { ReplyComposer } from "./ReplyComposer";
 import { pendingFor, usePendingReplies } from "./replyStore";
 import { RequestBlock } from "./RequestBlock";
+import { WhoCanLink } from "../../components/WhoCanLink";
 
 // Il dettaglio di una conversazione (shape support.md §3, §5, §6): in testa
 // cosa vuole il cliente (il blocco della richiesta), sotto la conversazione
@@ -401,7 +402,8 @@ export function ConversationDetail({
           <Messages conv={conv} pending={pending} lastSentRef={lastRef} />
           {!conv.canReply ? (
             <p className="border-t border-rule pt-4 text-xs text-ink-muted">
-              {t("support.reply.readOnly")}
+              {t("support.reply.readOnly")}{" "}
+              <WhoCanLink action="replyCustomers" projectCode={conv.projectCode} />
             </p>
           ) : conv.replyClosed === "triage" ? (
             <p className="border-t border-rule pt-4 text-xs text-ink-muted">

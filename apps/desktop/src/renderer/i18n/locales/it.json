@@ -131,7 +131,8 @@
       "automations": "Automazioni",
       "releases": "Rilasci",
       "support": "Support",
-      "servers": "Server"
+      "servers": "Server",
+      "whoCan": "Chi può farlo?"
     },
     "noResults": "Nessun risultato per «{{query}}»",
     "noResultsHint": "Prova con un codice come {{example}} o con un nome.",
@@ -169,7 +170,10 @@
       "projectAlerts": "Avvisi di {{code}}",
       "newWidget": "Nuovo widget",
       "linkSsh": "Collega l'accesso SSH a {{server}}",
-      "inviteSomeone": "Invita qualcuno"
+      "inviteSomeone": "Invita qualcuno",
+      "whoCanIn": "Chi può {{what}} in {{code}}",
+      "whoCanAnywhere": "Chi può {{what}} in un progetto",
+      "whoCanInstance": "Chi può {{what}}"
     },
     "filterPlaceholder": "Scegli un filtro",
     "channelPlaceholder": "Vai a un canale o a un messaggio diretto…",
@@ -353,7 +357,6 @@
       "connect": "Collega una casella",
       "empty": "Nessuna casella collegata. Collegane una per vedere posta e calendario in Stubwise.",
       "noWorkspace": "Google non è ancora configurato su questa istanza.",
-      "whoCan": "Chi può farlo?",
       "whoCanAnswer": "Può configurarlo chi gestisce le integrazioni dell'istanza.",
       "dialog": {
         "title": "Collega una casella",
@@ -2395,7 +2398,8 @@
       "label": "Impostazioni di {{code}}",
       "statuses": "Stati",
       "members": "Membri",
-      "repositories": "Repository"
+      "repositories": "Repository",
+      "changelog": "Registro delle modifiche"
     },
     "members": {
       "intro": "Chi lavora su {{code}}, con quale ruolo, e cosa può fare ognuno oltre al ruolo.",
@@ -7975,7 +7979,9 @@
       "manageGeneralAutomations": "gestire le automazioni generali",
       "manageSshAccess": "gestire gli accessi SSH",
       "manageDepartments": "gestire i reparti",
-      "readChangeLog": "leggere il registro delle modifiche"
+      "readChangeLog": "leggere il registro delle modifiche",
+      "manageIntegrations": "gestire le integrazioni",
+      "addRequests": "inviare richieste"
     },
     "groups": {
       "administration": "Amministrazione",
@@ -7990,6 +7996,67 @@
       "docs": "Documenti",
       "code": "Codice",
       "prototype": "Prototipo"
+    },
+    "page": {
+      "intro": "Scopri chi può fare una cosa in un progetto, o cosa può fare una persona — e perché. Vedi solo i progetti e le persone che vedi già.",
+      "modes": "Domanda",
+      "modeWho": "Chi può…",
+      "modeWhat": "Cosa può fare…",
+      "whoSentence": "Chi può <action/> in <project/>?",
+      "whoSentenceInstance": "Chi può <action/>?",
+      "whatSentence": "Cosa può fare <person/> in <project/>?",
+      "chooseAction": "scegli un'azione",
+      "chooseProject": "Scegli un progetto",
+      "choosePerson": "scegli una persona",
+      "wholeInstance": "tutta l'istanza",
+      "pickProject": "Scegli un progetto.",
+      "pickAction": "Scegli un'azione.",
+      "pickPerson": "Scegli una persona.",
+      "actionMenu": "Azione",
+      "projectMenu": "Progetto",
+      "personMenu": "Persona",
+      "findAction": "Cerca un'azione",
+      "findProject": "Cerca un progetto",
+      "findPerson": "Cerca una persona",
+      "noMatch": "Nessun risultato",
+      "count_one": "{{count}} persona",
+      "count_other": "{{count}} persone",
+      "none": "Nessuna delle persone che vedi può {{action}} in {{code}}.",
+      "noneInstance": "Nessuna delle persone che vedi può {{action}}.",
+      "answers": "Chi può {{action}}",
+      "claudeLine": "lavora, non decide.",
+      "claudeCan": "Claude può {{action}}.",
+      "claudeCant": "Claude non può {{action}}.",
+      "claudeWhat": "Claude lavora ma non decide.",
+      "can": "Può",
+      "never": "Mai",
+      "notMember": "{{name}} non è membro di {{code}}.",
+      "notMemberButAdmin": "{{name}} non è membro di {{code}}, ma da full admin lì può fare tutto.",
+      "alsoCant": "Mostra anche cosa non può fare {{name}}",
+      "nothingHeld": "{{name}} qui non può fare niente.",
+      "error": "Non è stato possibile capire chi può farlo. Riprova.",
+      "loading": "Cerco chi può farlo…",
+      "permissionsOf": "Cosa può fare {{name}}"
+    },
+    "reasons": {
+      "role": "ruolo {{role}}",
+      "grant": "dato da {{name}} il {{date}}",
+      "grantByHand": "dato a mano il {{date}}",
+      "department": "reparto {{department}}",
+      "fullAdmin": "full admin"
+    },
+    "link": {
+      "who": "Chi?",
+      "label": "Chi può {{action}}?",
+      "title": "Chi può {{action}} in {{code}}",
+      "titleInstance": "Chi può {{action}}",
+      "more_one": "e {{count}} altra",
+      "more_other": "e altre {{count}}",
+      "open": "Apri in Chi può farlo?",
+      "empty": "Nessuna delle persone che vedi può farlo qui.",
+      "error": "Non è stato possibile caricare chi può farlo.",
+      "retry": "Riprova",
+      "loading": "Cerco chi può farlo…"
     }
   },
   "entry": {
@@ -8184,10 +8251,6 @@
       "roles": "Ruoli",
       "changelog": "Registro delle modifiche",
       "who-can": "Chi può farlo?"
-    },
-    "placeholder": {
-      "changelog": "Qui compariranno tutte le modifiche a persone, ruoli e accessi.",
-      "who-can": "Chiedi chi può fare una cosa, in quale progetto, e perché."
     },
     "people": {
       "intro": "Tutte le persone di questa istanza: dove lavorano e cosa possono fare.",
@@ -8919,5 +8982,113 @@
         }
       }
     }
+  },
+  "changelog": {
+    "kinds": {
+      "person": {
+        "instance_role_changed": "<actor>{{actor}}</actor> ha cambiato il ruolo d'istanza di <object>{{object}}</object>.",
+        "password_reset_link_created": "<actor>{{actor}}</actor> ha creato un link per reimpostare la password di <object>{{object}}</object>.",
+        "second_factor_reset": "<actor>{{actor}}</actor> ha azzerato la verifica in due passaggi di <object>{{object}}</object>.",
+        "git_identity_linked": "<actor>{{actor}}</actor> ha collegato un'identità git a <object>{{object}}</object>.",
+        "git_identity_unlinked": "<actor>{{actor}}</actor> ha scollegato un'identità git da <object>{{object}}</object>.",
+        "bitbucket_username_set": "<actor>{{actor}}</actor> ha cambiato lo username Bitbucket di <object>{{object}}</object>.",
+        "deactivated": "<actor>{{actor}}</actor> ha disattivato <object>{{object}}</object>.",
+        "reactivated": "<actor>{{actor}}</actor> ha riattivato <object>{{object}}</object>."
+      },
+      "invite": {
+        "created": "<actor>{{actor}}</actor> ha invitato <object>{{object}}</object> come {{role}}.",
+        "revoked": "<actor>{{actor}}</actor> ha revocato l'invito per <object>{{object}}</object>.",
+        "accepted": "<actor>{{actor}}</actor> ha accettato l'invito per <object>{{object}}</object> ed è entrato nell'istanza."
+      },
+      "instance": {
+        "first_admin_created": "<actor>{{actor}}</actor> ha creato l'istanza come primo full admin."
+      },
+      "role": {
+        "created": "<actor>{{actor}}</actor> ha creato il ruolo <object>{{object}}</object>.",
+        "updated": "<actor>{{actor}}</actor> ha cambiato il ruolo <object>{{object}}</object>.",
+        "deleted": "<actor>{{actor}}</actor> ha eliminato il ruolo <object>{{object}}</object>."
+      },
+      "department": {
+        "created": "<actor>{{actor}}</actor> ha creato il reparto <object>{{object}}</object>.",
+        "updated": "<actor>{{actor}}</actor> ha cambiato nome o colore del reparto <object>{{object}}</object>.",
+        "members_changed": "<actor>{{actor}}</actor> ha cambiato chi fa parte di <object>{{object}}</object>.",
+        "home_managers_changed": "<actor>{{actor}}</actor> ha cambiato chi gestisce la Home di <object>{{object}}</object>.",
+        "permissions_changed": "<actor>{{actor}}</actor> ha cambiato i permessi che dà <object>{{object}}</object>.",
+        "deleted": "<actor>{{actor}}</actor> ha eliminato il reparto <object>{{object}}</object>."
+      },
+      "member": {
+        "added": "<actor>{{actor}}</actor> ha aggiunto <object>{{object}}</object> a {{project}} come {{role}}.",
+        "removed": "<actor>{{actor}}</actor> ha tolto <object>{{object}}</object> da {{project}}.",
+        "role_changed": "<actor>{{actor}}</actor> ha cambiato il ruolo di <object>{{object}}</object> in {{project}}.",
+        "permission_granted": "<actor>{{actor}}</actor> ha dato a <object>{{object}}</object> il permesso di <strong>{{permission}}</strong> in {{project}}.",
+        "permission_revoked": "<actor>{{actor}}</actor> ha tolto a <object>{{object}}</object> il permesso di <strong>{{permission}}</strong> in {{project}}."
+      }
+    },
+    "groups": {
+      "people": "Persone",
+      "invites": "Inviti",
+      "roles": "Ruoli",
+      "members": "Membri",
+      "departments": "Reparti",
+      "security": "Sicurezza"
+    },
+    "groupWords": {
+      "people": "persone",
+      "invites": "inviti",
+      "roles": "ruoli",
+      "members": "membri dei progetti",
+      "departments": "reparti",
+      "security": "azzeramenti di sicurezza"
+    },
+    "intro": "Ogni modifica agli accessi e alle impostazioni: chi l'ha fatta, quando e cosa è cambiato. Le voci non si modificano né si cancellano.",
+    "introPartial": "Vedi le modifiche a ciò che gestisci: {{groups}}. Le voci non si modificano né si cancellano.",
+    "projectIntro": "Le modifiche ai membri e alle impostazioni di {{code}}.",
+    "filters": {
+      "label": "Filtri del registro",
+      "person": "Persona",
+      "project": "Progetto",
+      "type": "Tipo",
+      "period": "Periodo",
+      "instanceOnly": "Solo istanza",
+      "findPerson": "Cerca una persona",
+      "findProject": "Cerca un progetto",
+      "noPeople": "Nessuna persona corrisponde",
+      "noProjects": "Nessun progetto corrisponde",
+      "last7": "Ultimi 7 giorni",
+      "last30": "Ultimi 30 giorni",
+      "last90": "Ultimi 90 giorni",
+      "custom": "Personalizzato…",
+      "customRange": "{{from}} – {{to}}",
+      "from": "Dal",
+      "to": "Al",
+      "apply": "Applica",
+      "clear": "Togli i filtri"
+    },
+    "days": {
+      "today": "Oggi",
+      "yesterday": "Ieri",
+      "label": "Modifiche del {{day}}"
+    },
+    "entry": {
+      "deleted": "(eliminato)",
+      "showDetails": "Mostra i dettagli",
+      "hideDetails": "Nascondi i dettagli",
+      "before": "Prima",
+      "after": "Dopo",
+      "nothing": "Niente",
+      "none": "nessuno",
+      "others_one": "{{count}} altra persona",
+      "others_other": "altre {{count}} persone",
+      "reassigned_one": "{{count}} task riassegnata",
+      "reassigned_other": "{{count}} task riassegnate",
+      "moved_one": "{{count}} task spostata",
+      "moved_other": "{{count}} task spostate",
+      "projectLabel": "Progetto {{code}}"
+    },
+    "noMatch": "Nessuna modifica corrisponde a questi filtri.",
+    "nothing": "Ancora nessuna modifica registrata.",
+    "projectEmpty": "Ancora nessuna modifica a {{code}}.",
+    "error": "Non è stato possibile caricare il registro delle modifiche.",
+    "loading": "Caricamento del registro…"
   }
 }

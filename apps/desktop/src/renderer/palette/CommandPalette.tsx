@@ -47,17 +47,26 @@ import { openGoogleOutsideFile } from "../pages/drive/WhichProjectDialog";
 import { PALETTE_EVENT, type PaletteEventDetail } from "../layout/useShortcuts";
 import { shortcutLabel } from "../platform/platform";
 import { useTheme } from "../theme/ThemeProvider";
-import { matchCommands, type Command, type CommandContext } from "./commands";
+import { canSeeAdminSection } from "../data/adminSections";
+import { ACTIONS, type AccessAction } from "../data/queries";
+import {
+  matchCommands,
+  matchWhoCanActions,
+  whoCanRest,
+  type Command,
+  type CommandContext,
+} from "./commands";
 
 /** Quanti risultati per gruppo: la palette si scorre a colpo d'occhio, non si sfoglia. */
 export const GROUP_LIMIT = 5;
 /** Attesa dopo l'ultimo tasto prima di cercare. */
 export const SEARCH_DEBOUNCE_MS = 120;
 /** I gruppi di oggetti che, trovati, partono selezionati prima dei comandi (R-H4). */
-const PRESELECT_GROUPS = ["projects", "tasks", "requests", "pages", "people"] as const;
+const PRESELECT_GROUPS = ["whoCan", "projects", "tasks", "requests", "pages", "people"] as const;
 
 type Step = "root" | "viewAs" | "filters" | "channels";
 type GroupId =
+  | "whoCan"
   | "projects"
   | "tasks"
   | "requests"
@@ -385,6 +394,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     };
 
     const byGroup: Record<GroupId, Item[]> = {
+      whoCan: [],
       projects: [],
       tasks: [],
       requests: [],
@@ -403,6 +413,33 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       messages: [],
       more: [],
     };
+    // «Who can …» / «Chi può …» (area 9a, shape admin-audit.md): le azioni del
+    // catalogo che corrispondono al resto, nel progetto corrente se c'è;
+    // Invio apre «Who can?» con la domanda scritta. Senza progetto, «…in a
+    // project» apre la pagina col menu dei progetti aperto.
+    const whoCan = whoCanRest(query);
+    if (whoCan !== null && canSeeAdminSection(viewer, "who-can")) {
+      const what = (a: AccessAction) => t(`permissions.${a.permission}.label`);
+      byGroup.whoCan = matchWhoCanActions(whoCan, ACTIONS, (a) => [t(a.labelKey), what(a)]).map(
+        (a): Item => {
+          const inProject = a.scope === "project";
+          const label = !inProject
+            ? t("palette.commands.whoCanInstance", { what: what(a) })
+            : projectCode
+              ? t("palette.commands.whoCanIn", { what: what(a), code: projectCode })
+              : t("palette.commands.whoCanAnywhere", { what: what(a) });
+          return {
+            key: `who-can-${a.id}`,
+            label,
+            select: () => {
+              const project = inProject && projectCode ? `&project=${projectCode}` : "";
+              router.history.push(`/admin/who-can?view=who&action=${a.id}${project}`);
+              onClose();
+            },
+          };
+        },
+      );
+    }
     // Le pagine dei Docs: codice · titolo (· progetto, senza ambito) e il passaggio.
     if (pagesQuery) {
       const words = searchWords(pagesQuery);
@@ -714,6 +751,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     byGroup.more.push(...matched.filter(quoting).map(toItem));
     return (
       [
+        "whoCan",
         "projects",
         "tasks",
         "requests",
@@ -1148,6 +1186,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                       }`}
                     >
                       {group.id !== "actions" &&
+                        group.id !== "whoCan" &&
                         group.id !== "messages" &&
                         group.id !== "more" &&
                         group.id !== "viewAs" &&

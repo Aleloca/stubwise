@@ -131,7 +131,8 @@
       "automations": "Automations",
       "releases": "Releases",
       "support": "Support",
-      "servers": "Servers"
+      "servers": "Servers",
+      "whoCan": "Who can?"
     },
     "noResults": "No results for “{{query}}”",
     "noResultsHint": "Try a code like {{example}} or a name.",
@@ -169,7 +170,10 @@
       "projectAlerts": "Alerts for {{code}}",
       "newWidget": "New widget",
       "linkSsh": "Link SSH access to {{server}}",
-      "inviteSomeone": "Invite someone"
+      "inviteSomeone": "Invite someone",
+      "whoCanIn": "Who can {{what}} in {{code}}",
+      "whoCanAnywhere": "Who can {{what}} in a project",
+      "whoCanInstance": "Who can {{what}}"
     },
     "filterPlaceholder": "Choose a filter",
     "channelPlaceholder": "Go to a channel or direct message…",
@@ -353,7 +357,6 @@
       "connect": "Connect a mailbox",
       "empty": "No mailbox connected. Connect one to see your mail and calendar in Stubwise.",
       "noWorkspace": "Google isn't set up on this instance yet.",
-      "whoCan": "Who can?",
       "whoCanAnswer": "Whoever manages the instance's integrations can set it up.",
       "dialog": {
         "title": "Connect a mailbox",
@@ -2395,7 +2398,8 @@
       "label": "Settings of {{code}}",
       "statuses": "Statuses",
       "members": "Members",
-      "repositories": "Repositories"
+      "repositories": "Repositories",
+      "changelog": "Change log"
     },
     "members": {
       "intro": "Who works on {{code}}, with which role, and what each person can do beyond it.",
@@ -7975,7 +7979,9 @@
       "manageGeneralAutomations": "manage general automations",
       "manageSshAccess": "manage SSH access",
       "manageDepartments": "manage departments",
-      "readChangeLog": "read the change log"
+      "readChangeLog": "read the change log",
+      "manageIntegrations": "manage integrations",
+      "addRequests": "send requests"
     },
     "groups": {
       "administration": "Administration",
@@ -7990,6 +7996,67 @@
       "docs": "Docs",
       "code": "Code",
       "prototype": "Prototype"
+    },
+    "page": {
+      "intro": "Find out who can do something in a project, or what someone can do — and why. You only see the projects and people you can see.",
+      "modes": "Question",
+      "modeWho": "Who can…",
+      "modeWhat": "What can… do",
+      "whoSentence": "Who can <action/> in <project/>?",
+      "whoSentenceInstance": "Who can <action/>?",
+      "whatSentence": "What can <person/> do in <project/>?",
+      "chooseAction": "choose an action",
+      "chooseProject": "Choose a project",
+      "choosePerson": "choose someone",
+      "wholeInstance": "the whole instance",
+      "pickProject": "Pick a project.",
+      "pickAction": "Pick an action.",
+      "pickPerson": "Pick a person.",
+      "actionMenu": "Action",
+      "projectMenu": "Project",
+      "personMenu": "Person",
+      "findAction": "Find an action",
+      "findProject": "Find a project",
+      "findPerson": "Find a person",
+      "noMatch": "Nothing matches",
+      "count_one": "{{count}} person",
+      "count_other": "{{count}} people",
+      "none": "No one you can see can {{action}} in {{code}}.",
+      "noneInstance": "No one you can see can {{action}}.",
+      "answers": "Who can {{action}}",
+      "claudeLine": "can work, doesn't decide.",
+      "claudeCan": "Claude can {{action}}.",
+      "claudeCant": "Claude can't {{action}}.",
+      "claudeWhat": "Claude can work but doesn't decide.",
+      "can": "Can",
+      "never": "Never",
+      "notMember": "{{name}} isn't a member of {{code}}.",
+      "notMemberButAdmin": "{{name}} isn't a member of {{code}}, but as a full admin can do everything there.",
+      "alsoCant": "Also show what {{name}} can't do",
+      "nothingHeld": "{{name}} can't do anything here.",
+      "error": "Couldn't work out who can. Try again.",
+      "loading": "Working out who can…",
+      "permissionsOf": "What {{name}} can do"
+    },
+    "reasons": {
+      "role": "{{role}} role",
+      "grant": "given by {{name}} on {{date}}",
+      "grantByHand": "given by hand on {{date}}",
+      "department": "{{department}} department",
+      "fullAdmin": "full admin"
+    },
+    "link": {
+      "who": "Who?",
+      "label": "Who can {{action}}?",
+      "title": "Who can {{action}} in {{code}}",
+      "titleInstance": "Who can {{action}}",
+      "more_one": "and {{count}} more",
+      "more_other": "and {{count}} more",
+      "open": "Open in Who can?",
+      "empty": "No one you can see can do this here.",
+      "error": "Couldn't load who can.",
+      "retry": "Retry",
+      "loading": "Loading who can…"
     }
   },
   "entry": {
@@ -8184,10 +8251,6 @@
       "roles": "Roles",
       "changelog": "Change log",
       "who-can": "Who can?"
-    },
-    "placeholder": {
-      "changelog": "Every change to people, roles and access will be listed here.",
-      "who-can": "Ask who can do something, in which project, and why."
     },
     "people": {
       "intro": "Everyone on this instance: where they work and what they can do.",
@@ -8919,5 +8982,113 @@
         }
       }
     }
+  },
+  "changelog": {
+    "kinds": {
+      "person": {
+        "instance_role_changed": "<actor>{{actor}}</actor> changed <object>{{object}}</object>'s instance role.",
+        "password_reset_link_created": "<actor>{{actor}}</actor> created a password reset link for <object>{{object}}</object>.",
+        "second_factor_reset": "<actor>{{actor}}</actor> reset <object>{{object}}</object>'s two-step verification.",
+        "git_identity_linked": "<actor>{{actor}}</actor> linked a git identity to <object>{{object}}</object>.",
+        "git_identity_unlinked": "<actor>{{actor}}</actor> unlinked a git identity from <object>{{object}}</object>.",
+        "bitbucket_username_set": "<actor>{{actor}}</actor> changed <object>{{object}}</object>'s Bitbucket username.",
+        "deactivated": "<actor>{{actor}}</actor> deactivated <object>{{object}}</object>.",
+        "reactivated": "<actor>{{actor}}</actor> reactivated <object>{{object}}</object>."
+      },
+      "invite": {
+        "created": "<actor>{{actor}}</actor> invited <object>{{object}}</object> as {{role}}.",
+        "revoked": "<actor>{{actor}}</actor> revoked the invite for <object>{{object}}</object>.",
+        "accepted": "<actor>{{actor}}</actor> accepted the invite for <object>{{object}}</object> and joined."
+      },
+      "instance": {
+        "first_admin_created": "<actor>{{actor}}</actor> set up the instance as its first full admin."
+      },
+      "role": {
+        "created": "<actor>{{actor}}</actor> created the role <object>{{object}}</object>.",
+        "updated": "<actor>{{actor}}</actor> changed the role <object>{{object}}</object>.",
+        "deleted": "<actor>{{actor}}</actor> deleted the role <object>{{object}}</object>."
+      },
+      "department": {
+        "created": "<actor>{{actor}}</actor> created the department <object>{{object}}</object>.",
+        "updated": "<actor>{{actor}}</actor> changed the name or color of the department <object>{{object}}</object>.",
+        "members_changed": "<actor>{{actor}}</actor> changed who is in <object>{{object}}</object>.",
+        "home_managers_changed": "<actor>{{actor}}</actor> changed who manages <object>{{object}}</object>'s Home.",
+        "permissions_changed": "<actor>{{actor}}</actor> changed the permissions <object>{{object}}</object> gives.",
+        "deleted": "<actor>{{actor}}</actor> deleted the department <object>{{object}}</object>."
+      },
+      "member": {
+        "added": "<actor>{{actor}}</actor> added <object>{{object}}</object> to {{project}} as {{role}}.",
+        "removed": "<actor>{{actor}}</actor> removed <object>{{object}}</object> from {{project}}.",
+        "role_changed": "<actor>{{actor}}</actor> changed <object>{{object}}</object>'s role in {{project}}.",
+        "permission_granted": "<actor>{{actor}}</actor> gave <object>{{object}}</object> <strong>{{permission}}</strong> in {{project}}.",
+        "permission_revoked": "<actor>{{actor}}</actor> took <strong>{{permission}}</strong> away from <object>{{object}}</object> in {{project}}."
+      }
+    },
+    "groups": {
+      "people": "People",
+      "invites": "Invites",
+      "roles": "Roles",
+      "members": "Members",
+      "departments": "Departments",
+      "security": "Security"
+    },
+    "groupWords": {
+      "people": "people",
+      "invites": "invites",
+      "roles": "roles",
+      "members": "project members",
+      "departments": "departments",
+      "security": "security resets"
+    },
+    "intro": "Every change to access and settings: who made it, when, and what changed. Entries can't be edited or deleted.",
+    "introPartial": "You see changes to what you manage: {{groups}}. Entries can't be edited or deleted.",
+    "projectIntro": "Changes to {{code}}'s members and settings.",
+    "filters": {
+      "label": "Change log filters",
+      "person": "Person",
+      "project": "Project",
+      "type": "Type",
+      "period": "Period",
+      "instanceOnly": "Instance only",
+      "findPerson": "Find a person",
+      "findProject": "Find a project",
+      "noPeople": "No one matches",
+      "noProjects": "No project matches",
+      "last7": "Last 7 days",
+      "last30": "Last 30 days",
+      "last90": "Last 90 days",
+      "custom": "Custom…",
+      "customRange": "{{from}} – {{to}}",
+      "from": "From",
+      "to": "To",
+      "apply": "Apply",
+      "clear": "Clear filters"
+    },
+    "days": {
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "label": "Changes on {{day}}"
+    },
+    "entry": {
+      "deleted": "(deleted)",
+      "showDetails": "Show details",
+      "hideDetails": "Hide details",
+      "before": "Before",
+      "after": "After",
+      "nothing": "Nothing",
+      "none": "none",
+      "others_one": "{{count}} other person",
+      "others_other": "{{count}} other people",
+      "reassigned_one": "{{count}} task reassigned",
+      "reassigned_other": "{{count}} tasks reassigned",
+      "moved_one": "{{count}} task moved",
+      "moved_other": "{{count}} tasks moved",
+      "projectLabel": "Project {{code}}"
+    },
+    "noMatch": "No changes match these filters.",
+    "nothing": "Nothing recorded yet.",
+    "projectEmpty": "No changes to {{code}} yet.",
+    "error": "Couldn't load the change log.",
+    "loading": "Loading the change log…"
   }
 }

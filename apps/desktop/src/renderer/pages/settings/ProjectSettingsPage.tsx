@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { useProject } from "../../data/queries";
 import type { ProjectSettingsSection } from "../../data/routes";
 import { MembersSettings } from "./MembersSettings";
+import { ProjectChangeLog } from "./ProjectChangeLog";
 import { ProjectStatusesSettings } from "./ProjectStatusesSettings";
 import { RepositorySettings } from "./RepositorySettings";
 import { SettingsFrame } from "./SettingsFrame";
@@ -24,6 +25,8 @@ export function ProjectSettingsPage({
   switch (section) {
     case "members":
       return <MembersSettings project={project} />;
+    case "changelog":
+      return <ProjectChangeLog project={project} />;
     case "repositories":
       return (
         <SettingsFrame

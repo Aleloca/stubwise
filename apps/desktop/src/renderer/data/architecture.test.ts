@@ -8,6 +8,7 @@ const SOURCES = import.meta.glob(
     "../pages/**/*.{ts,tsx}",
     "../tasks-ui/**/*.{ts,tsx}",
     "../layout/**/*.{ts,tsx}",
+    "../components/**/*.{ts,tsx}",
     "../palette/**/*.{ts,tsx}",
     "../notifications/**/*.{ts,tsx}",
     "!**/*.test.{ts,tsx}",

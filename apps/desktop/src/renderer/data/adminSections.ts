@@ -1,7 +1,7 @@
 import { accessState } from "./access/index";
 import "./admin/changeTypes";
-import { readsSomeChanges } from "./changelog/visibility";
-import { ADMIN_SECTIONS, type AdminSection } from "./routes";
+import { MANAGE_PROJECT, readsSomeChanges } from "./changelog/visibility";
+import { ADMIN_SECTIONS, type AdminSection, type ProjectSettingsSection } from "./routes";
 import type { Viewer } from "./types";
 import { can } from "./viewer";
 
@@ -65,4 +65,19 @@ export function administersSomething(viewer: Viewer): boolean {
     can(viewer, "users.manage") ||
     can(viewer, "users.invite")
   );
+}
+
+/**
+ * Le sezioni di Progetto → Settings che chi guarda vede (area 9a): tutte,
+ * tranne Change log, che è solo di chi gestisce le impostazioni o i membri
+ * del progetto (design «Il registro delle modifiche»). La colonna e la rotta
+ * leggono da qui.
+ */
+export function canSeeProjectSettingsSection(
+  viewer: Viewer,
+  projectId: string,
+  section: ProjectSettingsSection,
+): boolean {
+  if (section !== "changelog") return true;
+  return MANAGE_PROJECT.some((p) => can(viewer, p, projectId));
 }

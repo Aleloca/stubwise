@@ -21,14 +21,18 @@ import { ResetPasswordPage } from "./pages/entry/ResetPasswordPage";
 import { SetupPage } from "./pages/entry/SetupPage";
 import {
   APP_ROUTES,
+  AUDIT_SEARCH_KEYS,
+  INSTANCE_ONLY,
   PEOPLE_SEARCH_KEYS,
   PROJECT_SECTIONS,
   PROJECT_SETTINGS_SECTIONS,
+  isAuditSearchValue,
   isPeopleSearchValue,
   isProjectSection,
   isProjectSettingsSection,
   isValidSearchParam,
 } from "./data/routes";
+import { canSeeProjectSettingsSection } from "./data/adminSections";
 import { can, useViewer } from "./data/viewer";
 import {
   AdminIndex,
@@ -179,6 +183,12 @@ export interface AppSearch {
   /** Members del progetto (area 9a): il pannello del membro e «Add member» (`1` o la persona). */
   member?: string;
   addMember?: string;
+  /** Il registro e «Who can?» (area 9a, `data/routes.ts`): chi, tipo, periodo, azione, persona. */
+  actor?: string;
+  kind?: string;
+  period?: string;
+  action?: string;
+  person?: string;
   /** People (area 9a): i filtri dell'elenco e «Invite someone» (`data/routes.ts`). */
   find?: string;
   depts?: string;
@@ -221,6 +231,7 @@ const SEARCH_KEYS = [
   "member",
   "addMember",
   ...PEOPLE_SEARCH_KEYS,
+  ...AUDIT_SEARCH_KEYS,
 ] as const;
 
 /**
@@ -243,6 +254,9 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
     const shapeOk =
       (PEOPLE_SEARCH_KEYS as readonly string[]).includes(key)
         ? isPeopleSearchValue(key, value)
+        : (AUDIT_SEARCH_KEYS as readonly string[]).includes(key) ||
+            (key === "project" && value === INSTANCE_ONLY)
+        ? isAuditSearchValue(key, value) || key === "project"
         : (AUTOMATION_SEARCH_KEYS as readonly string[]).includes(key)
         ? isAutomationSearchValue(key, value)
         : (SEARCH_PARAM_KEYS as readonly string[]).includes(key)
@@ -882,7 +896,12 @@ function ProjectSettingsRoutePage() {
   }
   if (!project) return <ProjectNotFound />;
   const def = PROJECT_SETTINGS_SECTIONS.find((s) => s.id === section);
-  if (!def || ("module" in def && !project.modules.includes(def.module))) {
+  if (
+    !def ||
+    ("module" in def && !project.modules.includes(def.module)) ||
+    // Change log senza gestire il progetto o i membri: come una sezione che non c'è.
+    !canSeeProjectSettingsSection(viewer, project.id, def.id)
+  ) {
     return (
       <Navigate
         to="/p/$code/settings/$section"

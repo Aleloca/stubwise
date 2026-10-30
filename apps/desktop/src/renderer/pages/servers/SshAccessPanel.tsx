@@ -23,6 +23,7 @@ import { AccessRows } from "./SshAccessRows";
 import { RegenerateDialog, RevokeDialog, SshSimulateBox } from "./SshAccessDialogs";
 import { Step } from "./SshSteps";
 import { ReadWritesResult, VerifyResult } from "./VerifyResult";
+import { WhoCanLink } from "../../components/WhoCanLink";
 
 // La parte «SSH access» del dettaglio di un server (shape server-access.md):
 // finché i due accessi non sono verificati è una procedura in tre passi
@@ -356,7 +357,9 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
       a.state === "not_linked" ? (
         <div className="flex flex-col gap-0.5">
           <p className="text-md text-ink">{t("servers.ssh.notLinked.title")}</p>
-          <p className="text-xs text-ink-muted">{t("servers.ssh.notLinked.hint")}</p>
+          <p className="text-xs text-ink-muted">
+            {t("servers.ssh.notLinked.hint")} <WhoCanLink action="manageSshAccess" projectId={null} />
+          </p>
         </div>
       ) : (
         <>

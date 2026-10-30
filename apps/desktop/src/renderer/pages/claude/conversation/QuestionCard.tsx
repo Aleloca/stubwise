@@ -1,5 +1,6 @@
 import { useId, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { WhoCanLink } from "../../../components/WhoCanLink";
 import { useAnswerQuestion } from "../../../data/queries";
 import { inputClass } from "../../../tasks-ui/Dialog";
 import type { Ev } from "./flow";
@@ -54,9 +55,14 @@ export function QuestionCard({
         answer.mutateAsync({ id: conversationId, questionId: event.questionId, answer: payload })
       }
       note={
-        projectCode
-          ? t("claude.conversation.question.whoCanAnswer", { name: owner, code: projectCode })
-          : t("claude.conversation.question.ownerAnswers", { name: owner })
+        projectCode ? (
+          <>
+            {t("claude.conversation.question.whoCanAnswer", { name: owner, code: projectCode })}{" "}
+            <WhoCanLink action="approvePlan" projectCode={projectCode} />
+          </>
+        ) : (
+          t("claude.conversation.question.ownerAnswers", { name: owner })
+        )
       }
     />
   );
@@ -81,7 +87,7 @@ export function QuestionCardView({
   canAnswer: boolean;
   pending: boolean;
   onAnswer: (payload: { optionIndex: number | null; text: string | null }) => Promise<unknown>;
-  note: string;
+  note: ReactNode;
   title?: string;
   renderText?: (text: string) => ReactNode;
 }) {

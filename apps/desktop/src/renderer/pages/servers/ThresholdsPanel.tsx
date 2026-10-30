@@ -4,6 +4,7 @@ import { useSetThresholds } from "../../data/queries";
 import type { ServerThresholds } from "../../data/types";
 import { smallPrimary } from "../task/parts";
 import { Part, SavedNote, shortInput } from "./Part";
+import { WhoCanLink } from "../../components/WhoCanLink";
 
 // Le soglie (shape servers.md §3, «Thresholds»): in lettura tre frasi a
 // chiunque veda il server; in modifica (`monitor.manage`) le stesse frasi
@@ -82,7 +83,9 @@ export function ThresholdsPanel({
               </li>
             ))}
           </ul>
-          <p className="text-xs text-ink-muted">{t("servers.thresholds.readOnly")}</p>
+          <p className="text-xs text-ink-muted">
+            {t("servers.thresholds.readOnly")} <WhoCanLink action="manageMonitor" projectId={null} />
+          </p>
         </div>
       )}
     </Part>

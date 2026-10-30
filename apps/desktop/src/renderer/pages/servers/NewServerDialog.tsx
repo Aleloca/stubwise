@@ -6,6 +6,7 @@ import type { Project } from "../../data/types";
 import { Dialog, DialogField, inputClass } from "../../tasks-ui/Dialog";
 import { primaryButton, secondaryButton } from "../tasks/controls";
 import { AgentKeyDialog } from "./AgentKeyPanel";
+import { WhoCanLink } from "../../components/WhoCanLink";
 
 // «New server» (shape servers.md [S 8]): un server nasce dentro un ambiente
 // del progetto che non ha già un server per tutto il progetto (lo decide
@@ -111,7 +112,12 @@ export function NewServerDialog({ project, onClose }: { project: Project; onClos
         </p>
       ) : !canEnvs ? (
         <p className="text-md text-ink">
-          {t("servers.create.noEnvPermission", { code: project.code })}
+          {t("servers.create.noEnvPermission", { code: project.code })}{" "}
+          <WhoCanLink
+            action="manageEnvironments"
+            projectId={project.id}
+            projectCode={project.code}
+          />
         </p>
       ) : free.length === 0 ? (
         <div className="flex flex-col items-start gap-2">

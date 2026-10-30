@@ -131,12 +131,51 @@ export const PROJECT_SETTINGS_SECTIONS = [
   { id: "statuses" },
   { id: "members" },
   { id: "repositories", module: "releases" },
+  // Solo per chi gestisce il progetto o i membri (`canSeeProjectSettingsSection`).
+  { id: "changelog" },
 ] as const satisfies readonly { id: string; module?: ProjectModule }[];
 
 export type ProjectSettingsSection = (typeof PROJECT_SETTINGS_SECTIONS)[number]["id"];
 
 export function isProjectSettingsSection(value: string): value is ProjectSettingsSection {
   return PROJECT_SETTINGS_SECTIONS.some((s) => s.id === value);
+}
+
+/**
+ * Il registro e «Who can?» nell'indirizzo (area 9a, shape admin-audit.md):
+ * - registro (`admin/changelog`, `p/<CODE>/settings/changelog`): `actor` (chi
+ *   ha agito), `kind` (il gruppo di tipi), `period` (con `since`/`until` per
+ *   «Custom…»), e in Amministrazione `project` (un codice o `instance`);
+ * - «Who can?» (`admin/who-can`): `view` (`who`/`what`), `action`, `person`
+ *   e `project`.
+ */
+export const AUDIT_SEARCH_KEYS = ["actor", "kind", "period", "action", "person"] as const;
+
+export const CHANGELOG_PERIODS = ["7d", "30d", "90d", "custom"] as const;
+export type ChangelogPeriod = (typeof CHANGELOG_PERIODS)[number];
+
+/** Il valore di `project` nel registro d'Amministrazione per «Instance only». */
+export const INSTANCE_ONLY = "instance";
+
+/** La forma di un parametro del registro o di «Who can?»; la pagina rilegge i valori. */
+export function isAuditSearchValue(key: string, value: string): boolean {
+  switch (key) {
+    case "actor":
+    case "person":
+      return /^[\w-]+$/.test(value);
+    case "kind":
+      return /^[a-z][\w-]*$/.test(value);
+    case "period":
+      return (CHANGELOG_PERIODS as readonly string[]).includes(value);
+    case "action":
+      return /^[A-Za-z]+$/.test(value);
+    default:
+      return false;
+  }
+}
+
+function isChangelogPath(path: string): boolean {
+  return path === "admin/changelog" || /^p\/[A-Z]{2,4}\/settings\/changelog$/.test(path);
 }
 
 /** Members di un progetto: il pannello del membro (`?member=`) e «Add member» (`?addMember=`). */
@@ -161,6 +200,16 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
   if ((AUTOMATION_SEARCH_KEYS as readonly string[]).includes(key)) {
     return isAutomationSearchParam(path, key, value);
   }
+  // Il registro e «Who can?» (area 9a, Task 11).
+  if ((AUDIT_SEARCH_KEYS as readonly string[]).includes(key)) {
+    if (!isAuditSearchValue(key, value)) return false;
+    return key === "action" || key === "person" ? path === "admin/who-can" : isChangelogPath(path);
+  }
+  if (isChangelogPath(path) && (key === "since" || key === "until"))
+    return /^\d{4}-\d{2}-\d{2}$/.test(value);
+  if (path === "admin/changelog" && key === "project")
+    return value === INSTANCE_ONLY || /^[A-Z]{2,4}$/.test(value);
+  if (path === "admin/who-can" && key === "view") return value === "who" || value === "what";
   // People (area 9a): i filtri e «Invite someone», solo sul suo elenco.
   if ((PEOPLE_SEARCH_KEYS as readonly string[]).includes(key)) {
     return path === "admin/people" && isPeopleSearchValue(key, value);

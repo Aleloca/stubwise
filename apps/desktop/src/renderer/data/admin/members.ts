@@ -59,6 +59,28 @@ import "./changeTypes";
 const MEMBERS_MANAGE = "project.members.manage";
 
 /**
+ * Il nome del ruolo del membro lì, per la voce del registro: il prima/dopo
+ * di un permesso dato a mano si legge «Developer → Developer + …».
+ */
+const memberRoleName = (personId: string, projectId: string): string | undefined => {
+  const m = accessState().memberships.find(
+    (x) => x.personId === personId && x.projectId === projectId,
+  );
+  return m ? roleById(m.roleId)?.name : undefined;
+};
+
+/** I valori della voce di un permesso dato o tolto a mano. */
+const permissionParams = (
+  permission: string,
+  projectId: string,
+  role: string | undefined,
+): Record<string, string> => ({
+  permission,
+  project: projectLabel(projectId),
+  ...(role ? { role } : {}),
+});
+
+/**
  * I permessi in più del ruolo di una persona in un progetto — quelli che il
  * ruolo non le dà — con le fonti: concessione personale o reparto. Le
  * revoche non si mostrano (le applica già il calcolo).
@@ -326,7 +348,7 @@ export async function grantMemberPermission(
     projectId,
     object: { type: "person", id: personId, label: nameOf(personId) ?? personId },
     after: permission,
-    params: { permission, project: projectLabel(projectId) },
+    params: permissionParams(permission, projectId, memberRoleName(personId, projectId)),
   });
   return { ok: true };
 }
@@ -362,7 +384,7 @@ export async function revokeMemberPermission(
     projectId,
     object: { type: "person", id: personId, label: nameOf(personId) ?? personId },
     before: permission,
-    params: { permission, project: projectLabel(projectId) },
+    params: permissionParams(permission, projectId, memberRoleName(personId, projectId)),
   });
   return { ok: true };
 }
@@ -542,7 +564,7 @@ export async function saveMember(
       projectId,
       object,
       after: permission,
-      params: { permission, project },
+      params: permissionParams(permission, projectId, j.role.name),
     });
   for (const permission of j.removed)
     recordChange({
@@ -551,7 +573,7 @@ export async function saveMember(
       projectId,
       object,
       before: permission,
-      params: { permission, project },
+      params: permissionParams(permission, projectId, j.role.name),
     });
   return { ok: true };
 }

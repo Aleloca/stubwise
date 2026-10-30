@@ -53,6 +53,9 @@ async function refused(
 beforeEach(() => {
   resetApi();
   setLatency(0);
+  // Questi test provano il meccanismo del registro: partono senza le voci
+  // del seme (che prova `pages/admin/Audit.test.tsx`).
+  state.changelog.splice(0);
 });
 afterEach(() => resetApi());
 

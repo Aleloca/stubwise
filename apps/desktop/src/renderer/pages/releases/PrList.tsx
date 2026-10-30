@@ -7,6 +7,7 @@ import { Chevron, Menu, MenuGroup, RadioItem } from "../../tasks-ui/Menu";
 import { rowKeys } from "../home/blocks/BlockSection";
 import { shortRepo } from "./format";
 import { PrRow } from "./PrRow";
+import { WhoCanLink } from "../../components/WhoCanLink";
 
 // Le PR aperte, una lista sola raggruppata per ciò che manca (shape
 // releases.md [R 2]): «Pronte per il rilascio» (la coda, con «Release») e
@@ -158,9 +159,12 @@ export function PrList({
           id="ready"
           title={t("releases.groups.ready")}
           note={
-            ready.length > 0 && !canMerge
-              ? t("releases.merge.noPermission", { code: projectCode })
-              : undefined
+            ready.length > 0 && !canMerge ? (
+              <>
+                {t("releases.merge.noPermission", { code: projectCode })}{" "}
+                <WhoCanLink action="release" projectCode={projectCode} />
+              </>
+            ) : undefined
           }
         >
           {ready.length > 0 ? (

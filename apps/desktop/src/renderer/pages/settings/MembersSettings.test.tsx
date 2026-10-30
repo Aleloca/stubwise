@@ -270,7 +270,13 @@ describe("la navigazione di Settings", () => {
     expect(router.state.location.pathname).toBe("/p/AUD/settings/statuses");
     const sub = await screen.findByRole("list", { name: "Settings of AUD" });
     const links = within(sub).getAllByRole("link");
-    expect(links.map((l) => l.textContent)).toEqual(["Statuses", "Members", "Repositories"]);
+    // Change log c'è per chi gestisce il progetto o i membri (Roberta, full admin).
+    expect(links.map((l) => l.textContent)).toEqual([
+      "Statuses",
+      "Members",
+      "Repositories",
+      "Change log",
+    ]);
     await waitFor(() => expect(links[0]).toHaveAttribute("aria-current", "page"));
     await user.click(links[1]!);
     await screen.findByRole("heading", { level: 1, name: "Members" });

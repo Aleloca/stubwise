@@ -39,6 +39,7 @@ import {
   whenSynced,
 } from "./parts";
 import { Switch } from "./SubscriptionRow";
+import { WhoCanLink } from "../../components/WhoCanLink";
 
 // Preferenze → Account (shape preferences-account.md): profilo (nome, email,
 // foto), password, progetti seguiti, caselle Google. Le caselle sono le
@@ -411,7 +412,6 @@ function MailboxesPart() {
   const { t } = useTranslation();
   const boxes = useMyMailboxes();
   const [dialog, setDialog] = useState<ConnectTarget | null>(null);
-  const [whoCan, setWhoCan] = useState(false);
   const data = boxes.data;
   const canConnect = !!data && data.workspaces.length > 0 && data.mailboxes.length === 0;
 
@@ -430,17 +430,10 @@ function MailboxesPart() {
     body = (
       <p className="flex flex-wrap items-baseline gap-x-2 text-md text-ink-muted">
         {t("prefs.google.noWorkspace")}
-        <button
-          type="button"
-          aria-expanded={whoCan}
-          className="text-sm text-ink underline decoration-rule-strong underline-offset-2 hover:decoration-ink"
-          onClick={() => setWhoCan((v) => !v)}
-        >
-          {t("prefs.google.whoCan")}
-        </button>
-        {whoCan && (
-          <span className="basis-full text-sm text-ink">{t("prefs.google.whoCanAnswer")}</span>
-        )}
+        <span className="basis-full text-sm">
+          {t("prefs.google.whoCanAnswer")}{" "}
+          <WhoCanLink action="manageIntegrations" projectId={null} />
+        </span>
       </p>
     );
   } else if (data.mailboxes.length === 0) {

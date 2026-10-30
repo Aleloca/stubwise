@@ -169,6 +169,7 @@ export const ACTIONS: readonly AccessAction[] = [
   project("adoptPr", "prs.adopt"),
   project("interveneSession", "agent_sessions.intervene"),
   // backlog
+  project("addRequests", "backlog.create"),
   project("editBacklog", "backlog.edit"),
   project("recordDecision", "decisions.record"),
   // docs e codice
@@ -191,6 +192,7 @@ export const ACTIONS: readonly AccessAction[] = [
   instance("managePeople", "users.manage"),
   instance("createProjects", "projects.create"),
   instance("manageMonitor", "monitor.manage"),
+  instance("manageIntegrations", "integrations.manage"),
   instance("seeUsage", "usage.view"),
   instance("manageGeneralAutomations", "automations.manage"),
   instance("manageSshAccess", "servers.ssh.manage"),

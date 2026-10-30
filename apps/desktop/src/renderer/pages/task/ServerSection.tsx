@@ -21,6 +21,7 @@ import { HealthGlyph } from "../servers/glyphs";
 import { primaryButton, secondaryButton } from "../tasks/controls";
 import { scrollPanelTo } from "./ClaudeSection";
 import { Section, ghostButton, smallPrimary } from "./parts";
+import { WhoCanLink } from "../../components/WhoCanLink";
 
 // La sezione «Server» di una task di server (area 8b, shape server-task.md):
 // in testa al pannello, prima della descrizione. Il server è il contesto,
@@ -382,6 +383,9 @@ function ServerBody({ task, info }: { task: Task; info: ServerTaskInfo }) {
       <p className="flex flex-wrap items-baseline gap-x-2 text-sm text-ink-muted">
         <span>{t(`${K}.blocks.${block}`, { code, project })}</span>
         {(block === "no_fix_access" || block === "fix_access_unverified") && accessLink}
+        {block === "no_permission" && (
+          <WhoCanLink action="fixServer" projectId={task.projectId} projectCode={project} />
+        )}
       </p>
     );
   }

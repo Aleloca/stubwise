@@ -233,6 +233,14 @@
   }
 }
 
+/* Il registro delle modifiche (area 9a): «Show details» apre prima e dopo in posto. */
+@utility details-expand {
+  animation: expand-in var(--duration) var(--ease) both;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
 @utility run-open {
   animation: expand-in var(--duration) var(--ease) both;
   @media (prefers-reduced-motion: reduce) {

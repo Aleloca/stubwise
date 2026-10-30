@@ -164,6 +164,7 @@ import {
   type AccessState,
 } from "./access/index";
 import type { ChangeEntry } from "./changelog/types";
+import { seedChangelog } from "./seed/changelog";
 import type { Invite, SecurityEvent } from "./admin/types";
 import { DEPARTMENTS } from "./seed/departments";
 import { INVITES, SECURITY_EVENTS } from "./seed/invites";
@@ -577,6 +578,11 @@ export type ApiFnName =
   // Registro delle modifiche e riconferma (area 9a, Task 3)
   | "changelog.listChanges"
   | "changelog.listProjectChanges"
+  | "changelog.listChangeFilterChoices"
+  // «Chi può farlo?» (area 9a, Task 11)
+  | "access.whoCan"
+  | "access.whatCan"
+  | "access.whoCanChoices"
   | "auth.reauthenticate"
   | "auth.enrollDuringReauth"
   // Amministrazione (area 9a, Task 4): People, inviti, ruoli, reparti, membri
@@ -997,7 +1003,7 @@ export const chatKey = (personId: string, id: string): string => `${personId}\u0
 function freshState(): State {
   return {
     access: resetAccessState(),
-    changelog: [],
+    changelog: seedChangelog(),
     reauth: new Map(),
     secondFactorAttempts: new Map(),
     invites: INVITES.map(copy),

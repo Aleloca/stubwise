@@ -17,6 +17,7 @@ import { TaskBoard, type BoardLanes } from "./TaskBoard";
 import { TaskList } from "./TaskList";
 import { TaskTimeline } from "./TaskTimeline";
 import { useTaskKeys } from "./useTaskKeys";
+import { WhoCanLink } from "../../components/WhoCanLink";
 
 /** Ciò che la pagina legge dalla ricerca dell'indirizzo (già validata dal router). */
 interface TasksSearch {
@@ -207,7 +208,21 @@ export function TasksPage({
         body={
           canCreate
             ? t("tasks.states.emptyBody", { project: project?.name })
-            : t("tasks.states.emptyWho", { project: project?.name ?? title })
+            : (
+                <>
+                  {t("tasks.states.emptyWho", { project: project?.name ?? title })}
+                  {project && (
+                    <>
+                      {" "}
+                      <WhoCanLink
+                        action="createTasks"
+                        projectId={project.id}
+                        projectCode={project.code}
+                      />
+                    </>
+                  )}
+                </>
+              )
         }
         action={
           canCreate ? (

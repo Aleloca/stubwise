@@ -47,6 +47,7 @@ import { CloseIcon, InlineConfirm } from "../task/parts";
 import { primaryButton, quietButton, secondaryButton } from "../tasks/controls";
 import { AddMemberDialog } from "./AddMemberDialog";
 import { SettingsFrame } from "./SettingsFrame";
+import { WhoCanLink } from "../../components/WhoCanLink";
 
 // Progetto → Settings → Members (shape admin-roles-members.md, «Members»):
 // chi lavora sul progetto, col ruolo in parola e i permessi in più in prosa,
@@ -588,7 +589,10 @@ export function MemberPanel({
             {!manage && (
               <QuietLine>
                 <OpenCircleGlyph size={12} />
-                {t("settings.members.panel.readOnly", { code })}
+                <span>
+                  {t("settings.members.panel.readOnly", { code })}{" "}
+                  <WhoCanLink action="manageMembers" projectId={project.id} projectCode={code} />
+                </span>
               </QuietLine>
             )}
           </div>

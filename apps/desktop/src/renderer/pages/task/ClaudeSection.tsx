@@ -27,6 +27,7 @@ import {
   type WorkStatus,
 } from "../../domain/claude/taskWork";
 import { relativeTime } from "../../notifications/time";
+import { WhoCanLink } from "../../components/WhoCanLink";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { itemClass, MenuGroup } from "../../tasks-ui/Menu";
 import { Avatar } from "../../tasks-ui/PersonChip";
@@ -198,9 +199,33 @@ function StatusRow({
   );
 }
 
-/** Una frase in grigio: chi può fare ciò che chi guarda non può. */
-function Who({ children }: { children: ReactNode }) {
-  return <p className="text-sm text-ink-muted">{children}</p>;
+/**
+ * Una frase in grigio: chi può fare ciò che chi guarda non può, al posto del
+ * bottone spento; con `action` il link «Who?» apre il riquadro delle persone
+ * (area 9a, `WhoCanLink`).
+ */
+function Who({
+  children,
+  action,
+  projectId,
+  code,
+}: {
+  children: ReactNode;
+  action?: string;
+  projectId?: string;
+  code?: string;
+}) {
+  return (
+    <p className="text-sm text-ink-muted">
+      {children}
+      {action && projectId && (
+        <>
+          {" "}
+          <WhoCanLink action={action} projectId={projectId} projectCode={code} />
+        </>
+      )}
+    </p>
+  );
 }
 
 /** Il campo che si apre nella sezione (rilancio, modifiche): ⌘Enter manda, «Cancel» chiude. */
@@ -344,7 +369,9 @@ function NoRun({ task, work, canEdit }: { task: Task; work: TaskWork; canEdit: b
             {t(`${K}.start`)}
           </button>
         ) : (
-          <Who>{t(`${K}.whoCanStart`, { code })}</Who>
+          <Who action="startRun" projectId={task.projectId} code={code}>
+            {t(`${K}.whoCanStart`, { code })}
+          </Who>
         )}
         {/* Su una task di server lo Start normale non tocca mai il server. */}
         {ready && task.serverRef && (
@@ -495,7 +522,9 @@ function WithRun({
         {t(`${K}.resume`)}
       </button>
     ) : (
-      <Who>{t(`${K}.whoCanResume`, { code })}</Who>
+      <Who action="requestCorrection" projectId={task.projectId} code={code}>
+        {t(`${K}.whoCanResume`, { code })}
+      </Who>
     );
   } else if (stopped && actions.relaunch !== "unavailable") {
     primary = actions.relaunch === "allowed" ? (
@@ -505,7 +534,9 @@ function WithRun({
         </button>
       )
     ) : (
-      <Who>{t(`${K}.whoCanRelaunch`, { code })}</Who>
+      <Who action="startRun" projectId={task.projectId} code={code}>
+        {t(`${K}.whoCanRelaunch`, { code })}
+      </Who>
     );
   } else if (actions.requestChanges !== "unavailable") {
     primary = actions.requestChanges === "allowed" ? (
@@ -515,7 +546,9 @@ function WithRun({
         </button>
       )
     ) : (
-      <Who>{t(`${K}.whoCanRequest`, { code })}</Who>
+      <Who action="requestCorrection" projectId={task.projectId} code={code}>
+        {t(`${K}.whoCanRequest`, { code })}
+      </Who>
     );
   }
 

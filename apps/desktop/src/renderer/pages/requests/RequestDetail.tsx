@@ -49,6 +49,7 @@ import { RequestOrigin } from "../support/RequestOrigin";
 import { MergeDialog } from "./MergeDialog";
 import { RequestStatusLabel, RequestStatusSign, RiskMark, UrgencyMark } from "./marks";
 import { NextStepLine, SuggestionsSection } from "./RequestGuidance";
+import { WhoCanLink } from "../../components/WhoCanLink";
 
 /** Le richieste di un progetto: l'unica route su cui si apre il pannello della richiesta. */
 const REQUESTS_PATH = /^\/p\/([^/]+)\/requests\/?$/;
@@ -471,7 +472,21 @@ function RequestBody({
               ? liveRefine
                 ? t("requests.detail.refiningLive")
                 : t("requests.detail.refiningIdle")
-              : t("requests.detail.refiningOthers", { code: project?.code ?? "" })}
+              : (
+                <>
+                  {t("requests.detail.refiningOthers", { code: project?.code ?? "" })}
+                  {project && (
+                    <>
+                      {" "}
+                      <WhoCanLink
+                        action="editBacklog"
+                        projectId={project.id}
+                        projectCode={project.code}
+                      />
+                    </>
+                  )}
+                </>
+              )}
           </span>
         </p>
       )}

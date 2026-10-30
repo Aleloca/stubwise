@@ -43,6 +43,7 @@ import { WorkResultSeeContext } from "../claude/conversation/WorkResultRow";
 import { CloseIcon, dangerButton, ghostButton, Section } from "../task/parts";
 import { primaryButton, quietButton, secondaryButton } from "../tasks/controls";
 import { RequestStatusLabel, RiskMark, UrgencyMark } from "./marks";
+import { WhoCanLink } from "../../components/WhoCanLink";
 
 /** Quanto resta «Updated by Claude · now» accanto a un campo appena scritto (ms). */
 export const UPDATED_LABEL_MS = 6000;
@@ -216,6 +217,13 @@ export function RefineView({ requestId, projectCode }: { requestId: string; proj
     body = (
       <PageEmpty
         title={t("requests.refine.noAccess", { code: project?.code ?? projectCode })}
+        body={
+          <WhoCanLink
+            action="editBacklog"
+            projectId={project?.id}
+            projectCode={project?.code ?? projectCode}
+          />
+        }
       />
     );
   } else if (refineQuery.isPending) {

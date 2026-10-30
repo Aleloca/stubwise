@@ -21,6 +21,12 @@ export interface ChangeType {
    */
   readPermission: string;
   scope: "instance" | "project";
+  /**
+   * Il gruppo del filtro «Type» del registro (`changelog.groups.<group>`):
+   * 9a ha people, invites, roles, members, departments, security; 9b e 9c
+   * aggiungono i loro.
+   */
+  group: string;
 }
 
 /** L'oggetto di cui parla una voce; `label` è il nome di allora (resta anche se l'oggetto sparisce). */
@@ -56,13 +62,66 @@ export interface ChangeEntry {
   params: Record<string, string>;
 }
 
+/**
+ * Dove porta l'oggetto di una voce, se esiste ancora e chi guarda può
+ * aprirlo: la pagina della persona, del ruolo, dell'invito, il pannello del
+ * reparto o del membro.
+ */
+export type ChangeObjectLink =
+  | { to: "person"; personId: string }
+  | { to: "role"; roleId: string }
+  | { to: "invite"; inviteId: string }
+  | { to: "department"; departmentId: string }
+  | { to: "member"; projectCode: string; personId: string };
+
+/**
+ * Il prima e dopo di una voce, già pronto da leggere ([AU 2]):
+ * - `values`: due valori («Developer → Release manager»), uno dei due può
+ *   mancare (un nome nato, un'identità tolta);
+ * - `permissions`: permessi aggiunti e tolti (chiavi, le parole le mette la
+ *   UI da `permissions.<k>.label`), più gli insiemi interi di prima e dopo
+ *   quando la voce li ha (allora c'è «Show details»); `role` è il ruolo del
+ *   membro quando la voce lo sa («Developer → Developer + …»);
+ * - `people`: persone entrate e uscite, per nome; quelle che chi guarda non
+ *   vede non hanno nome, contano solo in `hidden` (R-G5).
+ */
+export type ChangeDiff =
+  | { kind: "values"; before: string | null; after: string | null }
+  | {
+      kind: "permissions";
+      added: string[];
+      removed: string[];
+      role: string | null;
+      before: string[] | null;
+      after: string[] | null;
+    }
+  | { kind: "people"; added: string[]; removed: string[]; hidden: number };
+
 /** Una voce come la legge il client: i campi calcolati dal livello dati. */
 export interface ChangeEntryView extends ChangeEntry {
   templateKey: string;
   scope: "instance" | "project";
+  group: string;
   actorName: string;
   /** Il codice del progetto (`ACQ`), `null` per le voci d'istanza. */
   projectCode: string | null;
+  /** L'oggetto non c'è più (un ruolo o un reparto eliminato): il nome resta, «(deleted)». */
+  objectDeleted: boolean;
+  objectLink: ChangeObjectLink | null;
+  /** La seconda riga della voce, `null` se la voce non ne ha (mai su un segreto). */
+  diff: ChangeDiff | null;
+}
+
+/**
+ * Le scelte dei filtri del registro, per chi guarda (R-G5: solo persone e
+ * progetti visibili; solo i gruppi di voci che legge). `everything` = ha
+ * `changelog.view` (la riga in prosa dice altrimenti cosa vede).
+ */
+export interface ChangeFilterChoices {
+  everything: boolean;
+  people: { personId: string; name: string }[];
+  projects: { projectId: string; code: string; name: string }[];
+  groups: string[];
 }
 
 /** I filtri del registro: persona che ha agito, progetto, tipo, periodo (ISO, estremi compresi). */
@@ -71,6 +130,10 @@ export interface ChangeFilter {
   /** Un progetto; `null` = solo le voci d'istanza. */
   projectId?: string | null;
   kind?: string;
+  /** Un gruppo di tipi (il filtro «Type» della pagina). */
+  group?: string;
+  /** Gli ultimi N giorni, contati dall'«adesso» del prototipo. */
+  withinDays?: number;
   from?: string;
   to?: string;
 }

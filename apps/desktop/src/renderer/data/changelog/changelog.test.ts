@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { changelog, failNext, resetApi, setLatency } from "../api";
 import { roleIdOf, writeAccess } from "../access/index";
 import { setSessionPersonId } from "../session";
+import { seedChangelog } from "../seed/changelog";
 import { advanceNow, state } from "../store";
 import { can, grantProjectRole, viewerFor } from "../viewer";
 import * as changelogModule from "./index";
@@ -22,24 +23,28 @@ registerChangeTypes([
     templateKey: "changelog.test.role",
     readPermission: "roles.manage",
     scope: "instance",
+    group: "test",
   },
   {
     kind: "test.person.updated",
     templateKey: "changelog.test.person",
     readPermission: "users.manage",
     scope: "instance",
+    group: "test",
   },
   {
     kind: "test.member.added",
     templateKey: "changelog.test.member",
     readPermission: "project.members.manage",
     scope: "project",
+    group: "test",
   },
   {
     kind: "test.server.updated",
     templateKey: "changelog.test.server",
     readPermission: "servers.operate",
     scope: "project",
+    group: "test",
   },
 ]);
 
@@ -72,6 +77,9 @@ const message = (p: Promise<unknown>) =>
 beforeEach(() => {
   resetApi();
   setLatency(0);
+  // Questi test provano il meccanismo del registro: partono senza le voci
+  // del seme (che prova `pages/admin/Audit.test.tsx`).
+  state.changelog.splice(0);
 });
 afterEach(() => resetApi());
 
@@ -84,6 +92,7 @@ describe("tipi registrati", () => {
       kind: "test.role.updated",
       templateKey: "changelog.test.role",
       scope: "instance",
+      group: "test",
       actorId: "p-roberta",
       actorName: "Roberta Fontana",
       projectId: null,
@@ -134,6 +143,7 @@ describe("tipi registrati", () => {
           templateKey: "changelog.test.role",
           readPermission: "roles.manage",
           scope: "instance",
+          group: "test",
         },
       ]),
     ).not.toThrow();
@@ -144,15 +154,16 @@ describe("tipi registrati", () => {
           templateKey: "changelog.test.role",
           readPermission: "usage.view",
           scope: "instance",
+          group: "test",
         },
       ]),
     ).toThrow();
   });
 
-  it("resetApi svuota le voci ma non i tipi", () => {
+  it("resetApi riporta le voci al seme, ma non i tipi", () => {
     instanceEntry();
     resetApi();
-    expect(state.changelog).toEqual([]);
+    expect(state.changelog.map((e) => e.id)).toEqual(seedChangelog().map((e) => e.id));
     expect(() => instanceEntry()).not.toThrow();
   });
 });
@@ -381,7 +392,12 @@ describe("una voce non si tocca", () => {
     expect(
       names.filter((n) => /update|edit|delete|remove|clear|set|undo|forget|replace/i.test(n)),
     ).toEqual([]);
-    expect(Object.keys(changelog).sort()).toEqual(["listChanges", "listProjectChanges"]);
+    // Solo letture: le voci e le scelte dei filtri (Task 11).
+    expect(Object.keys(changelog).sort()).toEqual([
+      "listChangeFilterChoices",
+      "listChanges",
+      "listProjectChanges",
+    ]);
   });
 
   it("le voci salvate sono congelate, e la vista è una copia", async () => {

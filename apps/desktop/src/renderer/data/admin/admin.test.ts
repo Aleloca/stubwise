@@ -23,6 +23,7 @@ import { REAUTH_REQUIRED, markReauthenticated } from "../auth/reauth";
 import { changeTypes } from "../changelog/index";
 import { CLAUDE_ID, PEOPLE, SEED_DEPARTMENT_IDS } from "../seed/people";
 import { setSessionPersonId } from "../session";
+import { seedChangelog } from "../seed/changelog";
 import { state, visibleProjectIds, type ApiFnName } from "../store";
 import {
   VIEW_AS_PERSONAS,
@@ -105,6 +106,9 @@ async function refused(
 beforeEach(() => {
   resetApi();
   setLatency(0);
+  // Questi test provano il meccanismo del registro: partono senza le voci
+  // del seme (che prova `pages/admin/Audit.test.tsx`).
+  state.changelog.splice(0);
 });
 afterEach(() => resetApi());
 
@@ -1383,6 +1387,19 @@ describe("saveDepartment: la bozza intera, tutto o niente", () => {
       "department.members_changed",
       "department.permissions_changed",
     ]);
+    // Le voci dicono COSA è cambiato: gli insiemi di prima si leggono prima
+    // della scrittura (che riassegna i campi dello stesso oggetto).
+    const byKind = (kind: string) => state.changelog.slice(entries).find((e) => e.kind === kind)!;
+    expect(byKind("department.members_changed").params).toMatchObject({
+      added: "p-sara",
+      removed: "",
+    });
+    expect(byKind("department.home_managers_changed").params.added).toBe("p-sara");
+    expect(byKind("department.permissions_changed").params).toMatchObject({
+      added: "support.reply",
+      before: "",
+      after: "support.reply",
+    });
   });
 
   it("last_members_manager: la bozza che toglie l'ultimo gestore non scrive neanche il resto", async () => {
@@ -1530,6 +1547,8 @@ describe("failNext e resetApi", () => {
   });
 
   it("resetApi riporta persone, inviti, ruoli e reparti al seme", async () => {
+    // Il seme intero, voci del registro comprese (il `beforeEach` le toglie).
+    resetApi();
     const seed = snapshot();
     as("p-roberta");
     reauth("p-roberta");
@@ -1547,7 +1566,7 @@ describe("failNext e resetApi", () => {
       ...JSON.parse(seed),
       secrets: expect.anything(),
     });
-    expect(state.changelog).toEqual([]);
+    expect(state.changelog.map((e) => e.id)).toEqual(seedChangelog().map((e) => e.id));
     expect(VIEW_AS_PERSONAS.map((p) => p.personId)).toContain("p-marco");
   });
 });

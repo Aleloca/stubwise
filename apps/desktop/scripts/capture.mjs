@@ -1412,6 +1412,54 @@ async function main() {
       }
     }
 
+    // Area 9a, Task 11: il registro delle modifiche (Amministrazione, con
+    // «Show details» aperto; Settings del progetto), «Who can?» da un'azione,
+    // da una persona e per Claude, e il riquadro «Who?» accanto a un bottone
+    // spento (Sara sulle Settings di ACQ). Ogni scena a 1440 e 1024, chiaro e
+    // scuro, en e it.
+    const AREA9A_AUDIT = [
+      ["changelog", "Roberta", "/admin/changelog", async (p) => {
+        await p.locator("[data-change-entry]").first().waitFor();
+        await p.getByRole("button", { name: /^(Show details|Mostra i dettagli)$/ }).first().click();
+      }],
+      ["changelog-project", "Laura", "/p/ACQ/settings/changelog", async (p) => {
+        await p.locator("[data-change-entry]").first().waitFor();
+      }],
+      ["whocan-action", "Roberta", "/admin/who-can?action=approvePlan&project=ACQ", async (p) => {
+        await p.locator("[data-who-row]").first().waitFor();
+      }],
+      ["whocan-person", "Roberta", "/admin/who-can?view=what&person=p-marco&project=ACQ", async (p) => {
+        await p.locator("[data-permission]").first().waitFor();
+      }],
+      ["whocan-claude", "Roberta", "/admin/who-can?view=what&person=p-claude&project=ACQ", async (p) => {
+        await p.locator("[data-permission]").first().waitFor();
+      }],
+      ["who-popover", "Sara", "/p/ACQ/settings/statuses", async (p) => {
+        await p.locator("[data-who-can]").first().click();
+        await p.locator("[data-who-can-popover] [data-who-row]").first().waitFor();
+      }],
+    ];
+    for (const [name, persona, hash, steps] of AREA9A_AUDIT) {
+      const scene = `a9a-audit-${name}`;
+      if (only && !only.test(scene)) continue;
+      const variants = [];
+      for (const [viewport, size] of [[WIDE, ""], [NARROW, "-narrow"]]) {
+        for (const scheme of ["light", "dark"]) {
+          for (const lang of ["en", "it"]) variants.push([scheme, lang, viewport, `${scene}${size}-${scheme}-${lang}.png`]);
+        }
+      }
+      for (const [scheme, lang, viewport, file] of variants) {
+        const { page, context } = await open(scheme, viewport, hash, { lang, persona, viaHome: true });
+        await page.getByRole("heading", { level: 1 }).first().waitFor();
+        await page.waitForTimeout(300);
+        await page.mouse.move(2, 2);
+        if (steps) await steps(page);
+        await page.waitForTimeout(500);
+        await shot(page, file);
+        await context.close();
+      }
+    }
+
     if (only) return; // revisione mirata: salta il resto
 
     for (const scheme of ["light", "dark"]) {

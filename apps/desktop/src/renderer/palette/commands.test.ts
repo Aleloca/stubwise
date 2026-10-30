@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Viewer } from "../data/types";
-import { matchCommands } from "./commands";
+import { matchCommands, matchWhoCanActions, whoCanRest } from "./commands";
 
 const viewerWith = (perms: string[]): Viewer => ({
   personId: "p-x",
@@ -145,5 +145,31 @@ describe("comandi delle Automations (area 7)", () => {
       openNewAutomation: (code) => opened.push(code),
     });
     expect(opened).toEqual(["AUD"]);
+  });
+});
+
+describe("Who can …", () => {
+  const actions = [
+    { id: "approvePlan", names: ["approve a plan", "approve plans"] },
+    { id: "release", names: ["release to production", "merge pull requests"] },
+    { id: "manageRoles", names: ["manage roles", "manage roles"] },
+  ];
+  const names = (a: (typeof actions)[number]) => a.names;
+
+  it("si apre solo col prefisso intero, in inglese e in italiano", () => {
+    expect(whoCanRest("Who can approve plans")).toBe("approve plans");
+    expect(whoCanRest("who can")).toBe("");
+    expect(whoCanRest("Chi può approvare")).toBe("approvare");
+    expect(whoCanRest("who ca")).toBeNull();
+    expect(whoCanRest("whoever")).toBeNull();
+  });
+
+  it("«approve plans» trova «approve a plan»; ogni parola deve esserci", () => {
+    expect(matchWhoCanActions("approve plans", actions, names).map((a) => a.id)).toEqual([
+      "approvePlan",
+    ]);
+    expect(matchWhoCanActions("merge", actions, names).map((a) => a.id)).toEqual(["release"]);
+    expect(matchWhoCanActions("approve roles", actions, names)).toEqual([]);
+    expect(matchWhoCanActions("", actions, names)).toHaveLength(3);
   });
 });

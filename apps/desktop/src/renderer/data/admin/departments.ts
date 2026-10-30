@@ -222,7 +222,13 @@ export async function saveDepartment(id: string, draft: DepartmentDraft): Promis
   if (invariant) return invariant;
   const reauth = reauthRefusal(me, "admin.saveDepartment");
   if (reauth) return reauth;
-  // La scrittura, tutta insieme.
+  // La scrittura, tutta insieme. Gli insiemi di prima si fotografano ORA:
+  // `mutate` riassegna i campi dello stesso oggetto (`current`).
+  const saved = {
+    memberIds: [...current.memberIds],
+    homeManagerIds: [...current.homeManagerIds],
+    projectPermissions: [...current.projectPermissions],
+  };
   const before = `${department.name} ${department.colorToken}`;
   department.name = name;
   department.colorToken = color as Department["colorToken"];
@@ -234,7 +240,14 @@ export async function saveDepartment(id: string, draft: DepartmentDraft): Promis
       actorId: me,
       projectId: null,
       object,
-      params: { added: diffOf(to, from).join(","), removed: diffOf(from, to).join(",") },
+      params: {
+        added: diffOf(to, from).join(","),
+        removed: diffOf(from, to).join(","),
+        // Gli insiemi interi, per «Show details» (servono solo ai permessi).
+        ...(kind === "department.permissions_changed"
+          ? { before: from.join(","), after: to.join(",") }
+          : {}),
+      },
     });
   if (changed.look)
     recordChange({
@@ -245,9 +258,9 @@ export async function saveDepartment(id: string, draft: DepartmentDraft): Promis
       before,
       after: `${department.name} ${department.colorToken}`,
     });
-  if (changed.members) entry("department.members_changed", current.memberIds, members);
-  if (changed.home) entry("department.home_managers_changed", current.homeManagerIds, home);
-  if (changed.perms) entry("department.permissions_changed", current.projectPermissions, perms);
+  if (changed.members) entry("department.members_changed", saved.memberIds, members);
+  if (changed.home) entry("department.home_managers_changed", saved.homeManagerIds, home);
+  if (changed.perms) entry("department.permissions_changed", saved.projectPermissions, perms);
   return { ok: true };
 }
 
@@ -421,6 +434,8 @@ export async function setDepartmentPermissions(
   const m = managed(me, id);
   if ("refusal" in m) return m.refusal;
   const current = accessOf(accessState(), id)!;
+  // Prima della scrittura, che riassegna il campo sullo stesso oggetto.
+  const previous = [...current.projectPermissions];
   const next = [...new Set(permissions)];
   const added = next.filter((p) => !current.projectPermissions.includes(p));
   const removed = current.projectPermissions.filter((p) => !next.includes(p));
@@ -445,7 +460,12 @@ export async function setDepartmentPermissions(
     actorId: me,
     projectId: null,
     object: label(m.department),
-    params: { added: added.join(","), removed: removed.join(",") },
+    params: {
+      added: added.join(","),
+      removed: removed.join(","),
+      before: previous.join(","),
+      after: next.join(","),
+    },
   });
   return { ok: true };
 }

@@ -13,6 +13,7 @@ import { Chevron, MenuButton, primaryButton, secondaryButton } from "../tasks/co
 import { SizeMark } from "../../tasks-ui/SizeMark";
 import { RequestStatusLabel, UrgencyMark } from "./marks";
 import { RefineView } from "./RefineView";
+import { WhoCanLink } from "../../components/WhoCanLink";
 
 /** L'ordine dei gruppi dell'elenco: prima ciò su cui si lavora ancora. */
 export const REQUEST_STATUSES: readonly RequestStatus[] = [
@@ -100,7 +101,21 @@ function RequestsList({ projectCode }: { projectCode: string }) {
         body={
           canCreate
             ? t("requests.states.emptyBody", { project: project?.name })
-            : t("requests.states.emptyWho", { project: project?.name })
+            : (
+                <>
+                  {t("requests.states.emptyWho", { project: project?.name })}
+                  {project && (
+                    <>
+                      {" "}
+                      <WhoCanLink
+                        action="addRequests"
+                        projectId={project.id}
+                        projectCode={project.code}
+                      />
+                    </>
+                  )}
+                </>
+              )
         }
         action={
           canCreate ? (
