@@ -571,11 +571,59 @@ si riscrivono.
   perde le sue concessioni di quel progetto (rientrando non le ritrova); un
   cambio di ruolo azzera le revoche. Le concessioni portano l'autore («given
   by»).
-- **§9 — pausa della coda di un progetto: arriva col 9b.** Frase del design:
-  una coda in pausa non prende lavoro nuovo, e il lavoro già partito
-  finisce. Non è del 9a e sul web non esiste; va scritta nell'invariante
-  «Stubwise non fa deploy» (le «azioni leggere» dello Stato dell'istanza
-  agiscono solo sulla coda di Stubwise) **prima** del motore del 9b.
+- **§9 — pausa della coda di un progetto e Stato dell'istanza: costruita
+  nel prototipo (9b), da riscrivere prima del motore.** Sul web non esiste;
+  va scritta nell'invariante «Stubwise non fa deploy» (`CLAUDE.md`, «il
+  merge è il confine») **prima** del codice, perché lo Stato dell'istanza
+  aggiunge due azioni e la frase deve dire che agiscono **solo sulla coda di
+  Stubwise**: nessuna riavvia, ridistribuisce o tocca un server, un ambiente
+  o un processo (nel prototipo le etichette lo garantiscono anche in
+  italiano: `test/noDeploy.ts`, «Rimetti in coda», mai «Riprova»). Le regole
+  costruite (Task 5, `data/instance/queue.ts`, `retry.ts`, `status.ts`):
+  - **cosa aspetta**: con la coda di un progetto in pausa, **ogni avvio**
+    di lavoro AI di quel progetto resta fermo senza fallire (Start, Rilancia,
+    Chiedi modifiche, Riprendi la correzione, la correzione e l'analisi di un
+    server, i passi d'automazione che usano Claude, Retry); la sessione nasce
+    «in attesa» e non accetta messaggi né «Stop and send», solo Stop. **Non**
+    aspetta «Chiedi a Claude», la conversazione libera (decisione del
+    maintainer del 30 ott 2026): la ferma solo il budget;
+  - **cosa finisce**: il lavoro già partito prima della pausa finisce;
+  - **la ripresa**: i lavori fermi ripartono nell'ordine d'arrivo, ognuno
+    una volta; prima di ripartire si rilegge il blocco (se nel frattempo vale
+    il budget, il lavoro resta fermo col blocco nuovo e il suo posto). Stop
+    su un lavoro in attesa lo toglie dalla fila (ruling 14);
+  - **Retry** solo su una **sessione `task_run` fallita** degli ultimi 7
+    giorni, mai su una correzione ferma (`pr-corrections.md`) né su un
+    fallito già superato da un lavoro più recente della stessa task; chiede
+    `settings.manage` **e** `runs.start` nel progetto (decisione del
+    maintainer del 30 ott 2026), parte a nome di chi preme e passa dal gate
+    del piano come «Avvia»;
+  - **Pause/Resume** chiedono `settings.manage` su un progetto visibile; una
+    pausa già messa è `already_paused`; registrano chi e da quando, anche
+    dopo una disattivazione («(deactivated)»).
+- **§10 — lavoro fermo per budget: costruito nel prototipo (9b), da
+  riscrivere prima del motore.** Decisione del maintainer del 30 ott 2026:
+  un **passo d'automazione** che userebbe Claude col budget mensile esaurito
+  **resta fermo** (non fallisce) e **riparte da solo** quando il budget torna
+  disponibile, cioè quando chi ha `settings.manage` alza il budget sopra lo
+  speso (o, nel prototipo, spegne «Simulate budget reached»). Gli altri avvii
+  col budget esaurito sono rifiutati prima, in parole (`monthly_budget`), e
+  il lavoro già partito finisce. Per il motore:
+  - il passo fermo riparte da solo, una volta, nell'ordine d'arrivo, come
+    nel prototipo (`releaseBudgetHolds`);
+  - **al cambio di mese**: nel prototipo i passi fermi **non** ripartono
+    (lo speso non si azzera e «Pass time» non li sblocca, ruling 15). Il
+    motore deve decidere se al primo del mese ripartono da soli.
+  - ⚠️ **verificato sul codice del web il 30 ott 2026, da far confermare**:
+    il piano e lo shape dicono «come il `budget_held` del web», ma sul web
+    un job `held` con `held_reason = "budget"` **non riparte da solo**, né
+    al rialzo né al cambio di mese: resta fermo fino a un avvio a mano
+    (`apps/worker/src/pipeline/job-outcomes.ts`, «avvio manuale per
+    forzare»; il resume poller riaccoda solo `held_reason = "limit"`,
+    `apps/worker/src/providers/limit-resume-poller.ts`). La ripartenza
+    automatica del prototipo è quindi una **regola nuova**, non una parità:
+    va scritta come tale nell'invariante, e il maintainer deve dire se vale
+    anche per gli altri `budget_held` del web.
 
 ## Area 8b — minori aperti
 
@@ -845,8 +893,9 @@ Minori lasciati aperti, col motivo:
   fix», Task 11 m-7): lo stile viene dallo shape; una riscrittura delle
   frasi dei permessi in forma nominale tocca tutte le pagine che le
   compongono.
-- **§9 dei follow-up** (Task 13 Minor 5): non era chiesto dal brief del Task
-  13; va confermato quando arriva il 9b.
+- ~~**§9 dei follow-up** (Task 13 Minor 5)~~: **chiuso col 9b** (Task 14):
+  §9 riscritto come «costruita nel prototipo (9b)», con le regole della
+  coda, e §10 per il lavoro fermo per budget.
 - **Titolo di test per «Notifiche per progetto, tipo, canale»** (Task 13
   Minor 3): il test citato copre solo «Always for you»; le notifiche sono
   dell'8a e lì hanno i loro test.
@@ -860,3 +909,357 @@ Minori lasciati aperti, col motivo:
     `last_department` (il livello dati è provato);
   - a 1440 la frase della barra di Members va su due righe accanto a
     Discard/Save.
+
+## Area 9b — minori aperti
+
+Parità e copertura: `area9-parity.md` (sezioni C ed E). Le invarianti da
+riscrivere prima del motore sono §9 (coda e Stato dell'istanza) e §10
+(lavoro fermo per budget), sotto «Invarianti del CLAUDE.md da riscrivere
+prima del motore». Qui: le decisioni del maintainer, le scelte del
+controller da far confermare (ognuna col suo costo se sbagliata), le
+eccezioni dichiarate e i minori rimandati dalle revisioni dei Task 1–13.
+I minori **non** sono corretti qui: passano dalla revisione finale
+dell'area.
+
+### Decisioni del maintainer (30 ott 2026)
+
+Le quattro domande del piano:
+
+- **L'URL del webhook in uscita si rilegge in chiaro**, come sul web: non è
+  un segreto, entra nel prima/dopo del registro e cambiarlo non chiede la
+  riconferma (nessun salvataggio del webhook è +R).
+- **Permessi di Retry**: `settings.manage` **e** `runs.start` nel progetto;
+  parte a nome di chi preme e passa dal gate del piano come «Avvia».
+- **Passi fermi per budget**: un passo d'automazione col budget esaurito
+  resta fermo, non fallisce, e riparte da solo quando il budget torna
+  disponibile (§10, con l'avvertenza sul `budget_held` del web).
+- **La pausa della coda non tocca «Chiedi a Claude»**: la conversazione
+  libera la ferma solo il budget.
+
+Le altre dello stesso giorno, già applicate: le risposte dei clienti non
+escono mai col webhook; la casella «Mi fido» è obbligatoria, con la
+riconferma, per registrare o aggiornare un plugin; «Queue paused by …» sta
+anche nella testata del progetto e nella riga di «Tutti i progetti»; un
+server creato da Amministrazione nasce senza progetto.
+
+### Scelte del controller da far confermare
+
+Di prodotto (cambiano ciò che una persona vede o può fare):
+
+- **Ruling 1 — «Administration» la conta solo `git_accounts.manage`**, non
+  `.view`: Sara legge Git accounts in sola lettura (il preset User dà
+  `.view` a tutti) ma la voce del profilo resta «People». *Se sbagliata*:
+  ogni User leggerebbe «Administration» e `People.test.tsx` diventa rosso.
+- **Ruling 11 — senza un account AI libero la sessione parte con provider
+  `null`**; niente `provider_limit` né attese per quota nel prototipo.
+  *Se sbagliata*: manca un'attesa per quota che il maintainer potrebbe
+  volere.
+- **Ruling 13 — «Riprendi la correzione» segue le regole di budget e
+  pausa** come gli altri avvii. *Se sbagliata*: una correzione ripartirebbe
+  col budget esaurito.
+- **Ruling 14 — Stop su un lavoro in attesa lo toglie dalla fila**, e alla
+  ripresa parte solo ciò che è ancora in attesa. *Se sbagliata*: un lavoro
+  fermato ripartirebbe alla ripresa.
+- **Ruling 15 — un'esecuzione d'automazione ferma per budget resta
+  `running`** con una voce «waiting», fuori da «Needs attention»; «Pass
+  time» non la sblocca. *Se sbagliata*: serve un `RunStatus` nuovo e
+  cambiano gli elenchi delle automazioni.
+- **Ruling 16 — un worker occupato in un progetto che non si vede** dice
+  solo che è occupato lì, senza l'id del lavoro (R-G5). *Se sbagliata*:
+  trapelerebbe l'id di un lavoro invisibile.
+- **Ruling 25 — nessuna rinomina di un provider AI** (tolta dallo shape:
+  nessuna funzione rinomina). *Se sbagliata*: manca una funzione di
+  rinomina che il maintainer voleva.
+- **Ruling (T1) — chi gestisce un progetto legge anche le voci `queue`
+  del registro** di quel progetto (R-M1 invariato). *Se sbagliata*: serve
+  un'eccezione in `readable`/`readsType`.
+- **Ruling (T3) — il registro salva valori stabili** (on/off, id
+  d'operazione, fonte + modello, locale, importo) e li traduce a lettura.
+  *Se sbagliata*: solo una mappa di traduzione in più.
+- **Ruling (T4 I2) — cambiare workspace a un revisore predefinito lo
+  spegne** nella stessa voce, invece di rifiutare. *Se sbagliata*: il
+  maintainer preferirebbe un rifiuto `conflict`.
+- **Ruling (T5 I1) — una correzione ferma compare nello Stato come riga in
+  attesa**, senza Retry, con la sua frase. *Se sbagliata*: una riga in più.
+- **Ruling (T5 I2) — una ripartenza che fallisce segna il lavoro come
+  fallito** con la frase, visibile nello Stato; solo un `reset` passa in
+  silenzio. *Se sbagliata*: un errore di programma si vede come
+  fallimento invece di esplodere.
+- **Ruling (T6) — tutte le parti dello shape `instance-effects`**, nessun
+  taglio: righe della storia, testata della sessione, `aria-live`, registro
+  dell'automazione con due blocchi, «(deactivated)», «Queue paused» anche
+  col budget; una sessione in attesa non è «Claude working». *Se
+  sbagliata*: solo lavoro in più.
+- **Ruling (T7 I2) — con `monitor.manage` il server è un oggetto
+  d'istanza**: si elencano e si aprono tutti (dettaglio, metriche,
+  scritture), mentre ambienti, principale, analisi e task dei progetti
+  invisibili restano filtrati («in projects you can't see»). *Se
+  sbagliata*: un monitor-manager tocca server usati da progetti che non
+  vede.
+- **Ruling (T7 I1) — il progetto principale nel registro si salva come id**
+  e si risolve a lettura; invisibile → «a project you can't see». *Se
+  sbagliata*: solo una frase.
+- **Ruling (T7) — «Each point averages …» calcolata dall'intervallo** (per
+  esempio «about 2 hours» a 30d); il tetto `METRIC_POINTS_MAX` resta. *Se
+  sbagliata*: il maintainer vuole più punti.
+- **Ruling (T8) — al cambio di scheda il fuoco resta sulla scheda**
+  (tablist WAI-ARIA), non va al primo controllo come dice lo shape §6. *Se
+  sbagliata*: un `focus()` in più.
+- **Ruling (T10) — «3 in projects you can't see»** per Sara con
+  `git_accounts.manage`: il numero viene dal seme. *Se sbagliata*: si sposta
+  un repository nel seme.
+- **Ruling (T10) — tre frasi diverse dallo shape** (Validate, conflitto sul
+  nome, slug solo se diverso), perché la UI dica il vero. *Se sbagliata*:
+  tre frasi da rimettere.
+- **Ruling (T10) — le mutazioni con un segreto negli argomenti hanno
+  `gcTime: 0`** (account git, provider AI), come le mutazioni con segreti
+  della 9a. *Se sbagliata*: costo minimo; il token resterebbe in memoria 5
+  minuti.
+- **Ruling (T12) — Servers ha 4 gruppi**: resta «Waiting for the agent»
+  dell'8b per i server mai collegati. *Se sbagliata*: un gruppo in più
+  nell'elenco.
+- **Ruling (T12) — un orfano dice sempre** «Link this server to a project
+  first…» nel dettaglio, non solo in difficoltà. *Se sbagliata*: una riga
+  in più.
+- **Ruling 18 — l'errore dello Stato dell'istanza usa «Load again» /
+  «Ricarica»**, perché `noDeploy` vieta «Riprova». *Se sbagliata*:
+  `expectNoDeploy` fallisce nello stato d'errore.
+
+Tecniche (forma del codice e dei test, nessun effetto visibile): ruling 2
+(il test del gate di Retry usa Marco con una concessione di
+`settings.manage`, non Laura che ha `plans.approve`), 3 (seme d'istanza
+senza import dei segreti; blocchi in un modulo foglia), 4 e 5 (link,
+prima/dopo, gruppi e chiavi i18n dei tipi 9b nel registro), 6 e 7 (hook
+`useAiBlock`/`useStorageAllowsUploads`, ri-esportati da `data/queries.ts`),
+8 (`TaskWork.blocked` in `data/types.ts`), 9 (30d/90d in `RANGE_MS`), 10 (i
+parametri nuovi accettati da `validateSearch`), 12 (`RunProvider` porta
+l'id), 17 (`InstanceJob.code`), 19–23, 26 e 27 (spostamenti e casi dei
+test), 24 (`ProvidedSecretKind`), il ruling (T13) sui 10 s già provati dal
+test dell'«Avvia». Se una fosse sbagliata, il costo è un refactor locale o
+un test in più.
+
+### Eccezioni dichiarate
+
+- **L'orologio dello Stato dell'istanza** (ruling T13 I3). «Updated
+  hh:mm:ss» e «Couldn't update at …» usano l'orologio **vero** della
+  finestra, non `now()` di `data/store.ts` come vuole la GC: dicono quando
+  QUESTA finestra ha ricaricato, un fatto del client e non del dato, mentre
+  l'adesso del prototipo è fermo e li terrebbe immobili. Il commento sta
+  sul `clock` di `InstanceStatusPage.tsx`. *Se sbagliata*: si passa a
+  `now()` e l'indicatore non si muove mai.
+- **L'anteprima del webhook nell'istanza vuota** mostra «ACQ-42»: sono i
+  dati d'esempio dichiarati («Example data»), non dati dell'istanza; il
+  test dell'istanza vuota li scusa per nome (`examples`). Trovato al Task
+  14.
+
+### Minori rimandati alla revisione finale, per task
+
+Task 1 (stato d'istanza, voci, segreti):
+- `secrets.ts`: `last4` restituisce l'intero valore se è lungo 4 o meno;
+  oggi lo impediscono solo le validazioni dei chiamanti.
+- `changelog/reads.ts`: `INSTANCE_OBJECTS` indicizzato con un `type`
+  qualunque («constructor» risolve al prototipo); innocuo per caso.
+- `ChangeEntry.tsx`: l'ultimo ramo dei link dà per scontato `server`, senza
+  controllo di esaustività; un link nuovo finirebbe a Servers.
+- `ChangeEntry.tsx`: il link `admin` apre la sezione e ignora l'id, salvo i
+  plugin (collegati al Task 10).
+- `seed/tasks.ts`, `CLAUDE_OVERRIDES`: la chiave `t-acq-3` dipende dal
+  formato degli id; coperto solo in modo indiretto da un test.
+- Ciclo d'import `reads → adminSections → admin/changeTypes → changelog →
+  reads`: regge perché le chiamate avvengono a runtime.
+- `InstanceChangeParams` è solo documentazione: `recordChange` non lo
+  impone, e una voce senza `kind`/`scope` mostrerebbe la chiave grezza.
+
+Task 2 (consumi, livello dati):
+- `usage.ts`: «No project» inglese cablato nel livello dati invece di una
+  chiave stabile.
+- `seed/usage.ts`: i token non si riscalano col costo, e il minimo di 0,01
+  sposta i totali; la tolleranza del test li assorbe.
+- `seed/usage.ts`: le voci di sessione non sono filtrate a `<= NOW`; il
+  test usa una data cablata.
+- `spentThisMonthUsd` non ha il limite `<= now()`; innocuo senza voci
+  future.
+- `boundsOf` non difende un intervallo con `from > to`; non sono provati
+  `from > to`, `thenBy === groupBy` e la riga «No project».
+- `usage.test.ts`, «una voce per ogni sessione»: rifà il filtro
+  dell'implementazione, manca il numero atteso.
+- `seed/usage.ts` importa `hashOf`/`seededRandom` da `seed/servers/metrics`
+  (accoppiamento a un altro dominio).
+
+Task 3 (AI, livello dati):
+- `automation.ts`: con la revisione delle PR spenta, cambiare solo il tetto
+  scrive «PR review off → PR review off».
+- `automation.ts`: «no auto-fix up to effort 2» si legge male.
+- `deleteProvider` non toglie `simulate.nextTest[id]`; innocuo finché gli id
+  non si riusano.
+- `simulateNextTest` risponde `not_found` prima di `forbidden`: chi non ha
+  permessi distingue un id esistente da uno inesistente.
+- `budget.ts`: `contentLanguage in LANGUAGE_NAMES` è vero anche per
+  «toString»; il tipo lo impedisce.
+- `ai.test.ts`, «le altre scritture non chiedono la riconferma»: non copre
+  `saveAutomation`, `simulateNextTest`, `simulateBudgetReached`.
+- `ai.test.ts`: la banda `ok` della quota non è provata con una quota
+  presente, né il bordo 79/80 %.
+
+Task 4 (integrazioni, livello dati):
+- Uno slug o un nome già presi da un altro rispondono `conflict`, la cui
+  frase («Someone just registered this address.») sarebbe falsa.
+- `cleanSubdir` rifiuta solo `..`, non `.` né il backslash come il server.
+- Alla prima configurazione dell'archiviazione si scrive
+  `storage.secret_replaced` senza niente da sostituire.
+- `google.ts`, rifiuto `in_use`: una persona con due caselle compare due
+  volte; dal Task 11 la stessa regola vive nella vista e nel rifiuto.
+- `webhook.ts` importa l'origine da `admin/secrets`, `plugins.ts`
+  `hashOf`/`seededRandom` da `seed/servers/metrics`.
+- `plugins.test.ts`, «resetApi a metà»: il controllo di generazione di
+  `after()` non è esercitato da solo.
+
+Task 5 (coda e Stato, livello dati):
+- I test dell'ordine di ripartenza non lo provano con `start` asincrone: le
+  `start` partono insieme, non in serie.
+- Retry oltre i 7 giorni: la vista non mostra il lavoro, ma `retryJob` lo
+  accetta.
+- `quota[].quota` è `QuotaView | null` con `kind` ed `enabled`: contratto
+  cambiato rispetto al brief, motivato dalla chiave API senza quota.
+
+Task 6 (effetti nelle altre aree):
+- `fixRelease` col budget esaurito crea la task senza Claude, e l'esito non
+  dice perché.
+- Incollare un file nel composer della Chat coi caricamenti spenti lo
+  ignora in silenzio; lo shape vuole la frase per 4 s.
+- Drive, con la lettura dei caricamenti fallita, dice «Uploads are off»
+  (falso); durante il caricamento «Upload» resta acceso.
+- `useInstanceChanges` si iscrive una volta per ogni `useAiBlock`: in Tutti
+  i progetti N ascoltatori e N invalidazioni.
+- Elenco delle automazioni: la frase usa l'etichetta del tipo, non il
+  numero e il nome del passo.
+- `sinceText` (`components/InstanceBlock.tsx`) usa la costante `NOW` delle
+  notifiche invece di `now()`.
+- «Chiedi a Claude» col messaggio rifiutato lo tiene come «non consegnato»
+  con Resend; lo shape vuole il testo di nuovo nel composer.
+- `aiStartBlock`, `runIdentity`, `startOrHold` escono anche da `api.*`.
+- `stopWaiting` su una correzione del server in attesa salta
+  `stopServerFixAs`: resta una nota in memoria.
+- Home, «Claude's work for me»: `ORDER` non ha `"waiting"`, e le task in
+  attesa spariscono dal blocco.
+- L'annuncio «Claude started on …» scatta anche se la sessione in attesa
+  viene fermata da un'altra finestra.
+- Una correzione di server ferma in fila lascia la task `working`; se la
+  ripartenza fallisce, la task resta `waiting` per sempre.
+- Chiave i18n `taskDetail.claude.story.run_startedVia` non usata.
+
+Task 7 (server e repository, livello dati):
+- `checkType` esce nel prima/dopo come id grezzo; una soglia `null` si legge
+  «none», non «Off».
+- Una verifica dell'accesso scrive solo se cambia `accessState`: due esiti
+  diversi dentro `verify_failed` non lasciano voce; va almeno scritto nel
+  commento.
+- Il test di RF 2 non prova l'assenza di AUD in tutta la riga.
+- `repositories.test.ts`: un cast su `repos.view` nasconde il tipo di
+  `revokeProjectPermission`.
+- A 30d/90d «Response time» copre solo l'ultima settimana, senza dirlo.
+- `"@hidden"` duplicato fra `reads.ts` e `ChangeEntry.tsx`.
+- `searchServers` elenca tutti i server a un monitor-manager (conseguenza
+  del ruling T7 I2); il codice del progetto ricade sul primo visibile.
+
+Task 8 (AI, pagine):
+- La barra delle schede scorre senza l'ombra di bordo; la sottolineatura non
+  si ricalcola al cambio di lingua.
+- «Simulate budget reached»: barra al 100 % e frase «68% of $600».
+- `NextTestBox` tiene l'esito in uno stato locale: cambiare account scrive
+  una simulazione, e il segmento torna a «Works» dopo una prova.
+- `SimulateBox` non gestisce un rifiuto: l'interruttore resta ottimistico.
+- Automation: gli errori dei costi restano finché non si salva di nuovo.
+- `AddProviderDialog`: la posizione nel toast è presa dalla cache.
+- La transizione di dnd-kit non va a zero con `prefers-reduced-motion`
+  (anche in `ProjectStatusesSettings.tsx` e `HomeEditor.tsx`).
+- `duration-[var(--duration-base)]` usa un token che non esiste
+  (`ProvidersPanel.tsx`, e copiato in `GitAccountsPage.tsx`,
+  `GooglePage.tsx`): l'evidenza della riga aggiunta non sfuma.
+- Il `radiogroup` di `AddProviderDialog` non ha frecce né tabindex mobile.
+- `<li role="group">` toglie la semantica di voce d'elenco (Models,
+  Automation).
+- Chiavi i18n non usate: `admin.ai.providers.turnedOn`,
+  `admin.ai.automation.byType`, `admin.ai.secret.replaceOf`,
+  `admin.ai.secret.saved`, `admin.ai.retry`.
+- Casi non provati: riaccendere un account spento, `SecretField` con un
+  `onSave` che risponde `""`.
+
+Task 9 (Usage):
+- Le tacche dell'asse y non seguono la lingua (`usd` invece di `f.money`).
+- Il codice del progetto non è in cifre tabellari separate dal nome.
+- La nota `aria-live` si aggiorna anche al passaggio del mouse.
+- Esc chiama `preventDefault()` anche senza una nota aperta.
+- Ogni cambio di periodo torna allo scheletro e chiude le righe aperte.
+- Il campo data nativo segue la lingua del browser («10/01/2026» per il 1°
+  ottobre).
+- `Usage.test.tsx`: un cast di `usage.view` a `LocalInstancePermission`.
+
+Task 10 (Git accounts e Plugin, pagine):
+- Il riquadro «Prototype only» di Git tiene l'esito in uno stato locale
+  (lo stesso difetto di `NextTestBox`).
+- A 1024 la riga meta di un plugin va a capo con un «·» orfano.
+- Il titolo «Inventory» è `text-lg`; lo shape vuole `text-xl`.
+- Frasi composte concatenando chiavi i18n (`RegisterPluginDialog`,
+  `GitAccountDialog`).
+- Chiavi i18n non usate: `admin.git.retry`, `admin.plugins.retry`.
+- `useReadyAnnouncement` gira a ogni render (array ricreato); innocuo.
+
+Task 11 (Google, Storage, Webhooks):
+- Il campo Address del webhook è `mono`: più piccolo dei campi accanto, e
+  un URL non è fra i casi del monospace.
+- Il test «il fuoco su un evento cambia l'anteprima» clicca l'interruttore:
+  il fuoco da solo non è provato.
+- Un errore di `previewWebhook` lascia lo scheletro per sempre.
+- «Copy» di `GoogleAppDialog` dice «Copied» anche se la copia fallisce, e
+  il timer non si annulla.
+- `Disclosure`: `aria-controls` punta a un elemento assente a sezione
+  chiusa.
+- Lo stato vuoto di Google non ha il suo «Add an app».
+- Storage: «Check connection» prova la configurazione salvata, e col modulo
+  modificato la pagina non lo dice.
+- `GOOGLE_SETUP` copia gli scope di `packages/google` senza un test che le
+  leghi.
+- Il fuoco non torna al «⋯» dopo un dialogo aperto da `RowMenu`
+  (`GitAccountsPage`, `GooglePage`; shape §6).
+
+Task 12 (Servers e Repositories):
+- A 30d/90d il cursore del grafico mostra un'ora che il dato non dimostra.
+- Le soglie di posizione dell'etichetta (0,8 e 0,9) non hanno un nome, e un
+  solo test le prova.
+- `RepositoriesAdminPage`: un cast `as "/"` spegne le rotte tipate.
+- Col filtro attivo il conteggio del gruppo non è più il totale del
+  progetto.
+- La «×» nativa del campo di ricerca ha il colore del browser (anche in
+  People).
+- A 1024 i codici dei progetti ripetono quelli della riga degli ambienti:
+  lo shape lo chiede, va fatto vedere al maintainer.
+- ⌘K non trova un server orfano: `searchServers` lo scarta se manca un
+  progetto da cui aprirlo; per chi ha `monitor.manage` potrebbe aprirlo su
+  `/admin/servers/SRV-n`.
+
+Task 13 (Stato dell'istanza):
+- Due copie di `waitingText`; la riga del lavoro in attesa non dice
+  «(deactivated)».
+- Il dialogo di Pausa può dire «Queue paused by » finché le persone non
+  arrivano.
+- `ageWords` passa a «yesterday» dopo la mezzanotte UTC anche dopo un'ora.
+- `aria-live` non annuncia una coda nuova né un messaggio uguale al
+  precedente.
+- Chiavi i18n `placeholder.admin.*` senza lettori, da togliere.
+- I test non seguono il link del toast di Retry, e non c'è un test per
+  «Show 50 more».
+- Stato d'errore: «Ricarica» sta più in basso della riga di testo.
+- Sola lettura ripetitiva: con il solo `instance.status.view` ogni riga
+  ripete frase e «Who?»; da proporre al maintainer una sola riga in testa.
+- Il test del fuoco dopo Retry non è mai stato visto rosso da solo; i casi
+  «nightly» e «accounts» dell'istanza vuota non sono stati provati con una
+  mutazione.
+
+Visti negli scatti finali (Task 14), per la revisione visiva:
+- Providers a 1024: la riga meta di «Backup Max» va a capo con un «·»
+  orfano in coda (come la riga meta dei plugin del Task 10).
+- La task di STW «In attesa: coda in pausa» dice «11 h fa» accanto a una
+  sessione appena avviata: l'orologio del seme e quello vero divergono
+  durante la cattura (già notato fuori ambito nella ri-revisione del Task
+  6).

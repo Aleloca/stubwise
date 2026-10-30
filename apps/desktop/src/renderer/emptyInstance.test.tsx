@@ -76,6 +76,8 @@ type Case = {
   /** Quante righe di un tipo ci sono (`[selettore, n]`): il registro ha la sola voce del primo avvio. */
   count?: [string, number];
   proof?: "general" | "notFound";
+  /** Codici del seme che la pagina mostra come dati d'esempio dichiarati, non come dati. */
+  examples?: string[];
   /** Prima di guardare: aprire un menu. */
   steps?: () => Promise<void>;
   /** Chi guarda nel controllo col seme pieno (di default Roberta, full admin). */
@@ -150,6 +152,25 @@ const CASES: Case[] = [
   { path: "/admin/who-can?action=approvePlan", empty: "whoCan.page.noProjects" },
   { path: "/admin/people/{admin}", empty: "admin.person.you", proof: "general" },
   { path: "/admin/roles/{adminRole}", empty: /0 memberships|1 person/, proof: "general" },
+  // Area 9b, Task 14: le voci d'istanza (`ADMIN_SECTIONS`, gruppo
+  // `instance`). Nessun provider, consumo, account git, plugin, app Google;
+  // archiviazione e webhook spenti. Modelli e automazione non hanno dati del
+  // seme da mostrare (default e regole spente): resta la prova generale.
+  { path: "/admin/ai", empty: "admin.ai.providers.empty" },
+  { path: "/admin/ai?tab=providers", empty: "admin.ai.providers.empty" },
+  { path: "/admin/ai?tab=models", proof: "general" },
+  { path: "/admin/ai?tab=automation", proof: "general" },
+  // «No budget» è anche il segnaposto del campo: la prova è la frase del misuratore.
+  { path: "/admin/ai?tab=budget", empty: /spent in .+ · no budget/ },
+  { path: "/admin/ai?tab=usage", empty: "admin.ai.usage.empty" },
+  { path: "/admin/git-accounts", empty: "admin.git.empty" },
+  { path: "/admin/plugins", empty: "admin.plugins.empty" },
+  { path: "/admin/plugins/plg-superpowers", empty: "admin.plugins.page.notFound", proof: "notFound" },
+  { path: "/admin/google", empty: "admin.google.empty" },
+  { path: "/admin/storage", empty: "admin.storage.status.not_set_up" },
+  // L'anteprima mostra dati d'esempio dichiarati («Example data», ACQ-42):
+  // quel codice non è un dato dell'istanza.
+  { path: "/admin/webhooks", empty: "admin.webhooks.off", examples: ["ACQ"] },
   // Area 9b, Task 12: nessun server e nessun repository nell'istanza vuota.
   { path: "/admin/servers", empty: "admin.servers.empty" },
   { path: "/admin/repositories", empty: "admin.repositories.empty" },
@@ -240,7 +261,7 @@ describe("l'istanza vuota, dopo il primo avvio", () => {
       expect(screen.queryAllByText(asText(row), { exact: false })).toHaveLength(0);
     }
     expect(caseProofHolds(c)).toBe(true);
-    expect(seedNamesShown(resolved)).toEqual([]);
+    expect(seedNamesShown(resolved).filter((n) => !(c.examples ?? []).includes(n))).toEqual([]);
     expect(router.state.location.pathname).toBe(c.lands ?? resolved.split("?")[0]);
     if (c.proof !== "notFound") {
       expect(within(main).queryByText(t("notFound.title"))).toBeNull();

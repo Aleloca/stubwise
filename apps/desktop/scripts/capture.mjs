@@ -225,9 +225,12 @@ async function main() {
         ...["light", "dark"].flatMap((scheme) =>
           ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
         ),
-        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow" },
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
       ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
       for (const [name, hash, opts] of SCENES) {
+        if (only && !only.test(name)) continue;
         for (const v of variants) {
           const { page, context } = await open(v.scheme, v.viewport, opts.then ? "/home" : hash, {
             lang: v.lang,
