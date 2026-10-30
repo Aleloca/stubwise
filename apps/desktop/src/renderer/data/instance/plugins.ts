@@ -35,6 +35,8 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 export type PluginView = RegisteredPlugin & {
   registeredByName: string | null;
+  /** Chi l'ha registrato o aggiornato per ultimo («updated … by»). */
+  updatedByName: string | null;
   /**
    * Un passo del ciclo è in corso (preparazione o smoke test): la pagina
    * rilegge da sola, e aggiornare o rifare lo smoke aspettano.
@@ -46,7 +48,12 @@ const pluginOf = (id: string) => state.instance.plugins.find((p) => p.id === id)
 const objectOf = (p: RegisteredPlugin) => ({ type: "plugin", id: p.id, label: p.name });
 
 function viewOf(p: RegisteredPlugin): PluginView {
-  return { ...structuredClone(p), registeredByName: nameOf(p.registeredById), busy: busy(p) };
+  return {
+    ...structuredClone(p),
+    registeredByName: nameOf(p.registeredById),
+    updatedByName: nameOf(p.updatedById),
+    busy: busy(p),
+  };
 }
 
 function managed(
@@ -273,6 +280,7 @@ export async function registerPlugin(input: {
     error: null,
     inventory: null,
     registeredById: me,
+    updatedById: me,
     updatedAt: now(),
   };
   state.instance.plugins.push(plugin);
@@ -310,6 +318,7 @@ export async function updatePluginRef(
   const before = plugin.ref;
   plugin.ref = ref;
   plugin.updatedAt = now();
+  plugin.updatedById = me;
   recordChange({
     kind: "plugin.ref_updated",
     actorId: me,

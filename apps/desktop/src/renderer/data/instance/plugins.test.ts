@@ -177,6 +177,30 @@ describe("ciclo di un plugin registrato", () => {
 });
 
 describe("le letture per la pagina (Task 10)", () => {
+  it("chi ha aggiornato: la registrazione e poi l'aggiornamento di un'altra persona", async () => {
+    reauth(ROBERTA);
+    await register();
+    const id = plugin("review-kit")!.id;
+    let view = await instance.getPlugin(id);
+    expect(view).toMatchObject({
+      registeredByName: "Roberta Fontana",
+      updatedByName: "Roberta Fontana",
+    });
+    await vi.advanceTimersByTimeAsync(STEP * 2);
+    grantInstancePermission(MARCO, "plugins.manage" as LocalInstancePermission);
+    as(MARCO);
+    reauth(MARCO);
+    expect(await instance.updatePluginRef(id, { ref: "v1.3.0", trusted: true })).toMatchObject({
+      ok: true,
+    });
+    expect(plugin("review-kit")).toMatchObject({ registeredById: ROBERTA, updatedById: MARCO });
+    view = await instance.getPlugin(id);
+    expect(view).toMatchObject({
+      registeredByName: "Roberta Fontana",
+      updatedByName: "Marco Bellini",
+    });
+  });
+
   it("busy finché si prepara o lo smoke gira; il nome nel risultato della registrazione", async () => {
     reauth(ROBERTA);
     const res = await register();

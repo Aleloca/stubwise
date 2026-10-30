@@ -184,10 +184,10 @@ function PluginRow({ plugin: p }: { plugin: PluginView }) {
               )}
               <Dot />
               <span className="min-w-0 truncate">
-                {p.registeredByName
+                {p.updatedByName
                   ? t("admin.plugins.updated", {
                       date: formatDate(p.updatedAt, i18n.language),
-                      name: p.registeredByName,
+                      name: p.updatedByName,
                     })
                   : t("admin.plugins.updatedNoName", { date: formatDate(p.updatedAt, i18n.language) })}
               </span>

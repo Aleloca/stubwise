@@ -6,9 +6,13 @@ import { resetApi, setLatency } from "../api";
 import { ViewerProvider } from "../viewer";
 import {
   useConfirmEnrollment,
+  useCreateGitAccount,
   useCreateInvite,
   useCreatePasswordResetLink,
+  useCreateProvider,
   useEnrollDuringReauth,
+  useReplaceGitToken,
+  useReplaceProviderCredential,
 } from "../queries";
 
 // Le mutazioni che restituiscono un segreto mostrato una volta (un link
@@ -26,6 +30,12 @@ const SECRET_HOOKS: Record<string, () => { mutateAsync: (v: never) => Promise<un
   useCreatePasswordResetLink: () => useCreatePasswordResetLink(),
   useConfirmEnrollment: () => useConfirmEnrollment(),
   useEnrollDuringReauth: () => useEnrollDuringReauth(),
+  // Area 9b: il segreto sta negli ARGOMENTI (chiave AI, token git), che la
+  // cache delle mutazioni terrebbe in `state.variables`.
+  useCreateProvider: () => useCreateProvider(),
+  useReplaceProviderCredential: () => useReplaceProviderCredential(),
+  useCreateGitAccount: () => useCreateGitAccount(),
+  useReplaceGitToken: () => useReplaceGitToken(),
 };
 
 describe("segreti nelle mutazioni d'amministrazione e della riconferma", () => {

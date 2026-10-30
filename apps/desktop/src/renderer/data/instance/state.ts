@@ -70,6 +70,8 @@ export interface RegisteredPlugin {
     hooks: { key: string; event: string; command: string }[];
   } | null;
   registeredById: string;
+  /** Chi l'ha toccato per ultimo (registrato o aggiornato a un ref), con `updatedAt`. */
+  updatedById: string;
   updatedAt: string;
 }
 

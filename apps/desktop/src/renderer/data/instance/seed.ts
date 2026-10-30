@@ -164,6 +164,7 @@ export function seedInstanceState(): InstanceState {
           ],
         },
         registeredById: "p-roberta",
+        updatedById: "p-roberta",
         updatedAt: at(-14, "16:20"),
       },
       {
@@ -179,6 +180,7 @@ export function seedInstanceState(): InstanceState {
         error: "The plugin contains a symlink (hooks/run.sh): plugins with symlinks are refused.",
         inventory: null,
         registeredById: "p-roberta",
+        updatedById: "p-roberta",
         updatedAt: at(-2, "10:05"),
       },
     ],

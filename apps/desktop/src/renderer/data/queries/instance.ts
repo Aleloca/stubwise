@@ -136,6 +136,8 @@ export function useCreateProvider() {
   return useWrite(
     (input: Parameters<typeof api.instance.createProvider>[0]) => api.instance.createProvider(input),
     AI_WRITE_AREAS,
+    // La chiave sta negli argomenti: la cache delle mutazioni non la tiene.
+    { secret: true },
   );
 }
 
@@ -162,6 +164,7 @@ export function useReplaceProviderCredential() {
   return useWrite(
     ([id, credential]: [string, string]) => api.instance.replaceProviderCredential(id, credential),
     AI_WRITE_AREAS,
+    { secret: true },
   );
 }
 
@@ -258,12 +261,16 @@ export function useGitAccounts() {
   });
 }
 
-/** Aggiunge un account (+R). */
+/**
+ * Aggiunge un account (+R). Il token sta negli argomenti: `secret` toglie la
+ * mutazione dalla cache appena finisce (`gcTime: 0`), come nella 9a.
+ */
 export function useCreateGitAccount() {
   return useWrite(
     (input: Parameters<typeof api.instance.createGitAccount>[0]) =>
       api.instance.createGitAccount(input),
     INTEGRATION_WRITE_AREAS,
+    { secret: true },
   );
 }
 
@@ -280,6 +287,7 @@ export function useReplaceGitToken() {
   return useWrite(
     ([id, token]: [string, string]) => api.instance.replaceGitToken(id, token),
     INTEGRATION_WRITE_AREAS,
+    { secret: true },
   );
 }
 

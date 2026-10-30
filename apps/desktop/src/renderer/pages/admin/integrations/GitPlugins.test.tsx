@@ -555,6 +555,28 @@ describe("Plugins", () => {
     expect(await screen.findByText(i18n.t("notFound.title"))).toBeVisible();
   });
 
+  it("«updated … by» nomina chi ha aggiornato, non chi ha registrato", async () => {
+    const user = fakeTime();
+    give(MARCO, "plugins.manage");
+    renderRoute("/admin/plugins/plg-superpowers", MARCO);
+    await heading("superpowers");
+    await user.click(screen.getByRole("button", { name: "Update to ref…" }));
+    const dialog = screen.getByRole("dialog", { name: "Update superpowers to a ref" });
+    await user.type(within(dialog).getByLabelText("Ref"), "v4.1.0");
+    await user.click(
+      within(dialog).getByRole("checkbox", { name: "I trust this repository and this commit" }),
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Update" }));
+    await confirmItsYou(user);
+    await screen.findByText("superpowers is updating to v4.1.0.");
+    // La testata dice ancora chi l'ha registrato.
+    expect(screen.getByText("registered by Roberta Fontana")).toBeVisible();
+    await user.click(document.querySelector<HTMLElement>("[data-back-link]")!);
+    const sp = await screen.findByRole("listitem", { name: /^superpowers/ });
+    expect(within(sp).getByText(/^updated .* by Marco Bellini$/)).toBeVisible();
+    expect(within(sp).queryByText(/by Roberta Fontana/)).toBeNull();
+  });
+
   it("nel registro, il nome del plugin apre la sua pagina", async () => {
     const user = userEvent.setup();
     state.changelog.splice(0);
