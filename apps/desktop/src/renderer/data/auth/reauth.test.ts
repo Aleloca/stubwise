@@ -50,6 +50,22 @@ const EXPECTED_REAUTH: readonly ApiFnName[] = [
   "me.regenerateBackupCodes",
   "me.createToken",
   "me.createClaudeCodeCommand",
+  // Area 9b: chi crea, sostituisce o cancella un segreto scritto da chi
+  // amministra, più registrare e aggiornare un plugin (eseguono codice).
+  // `saveStorage` lo chiede solo con una chiave nuova; `saveWebhook` mai
+  // (l'URL non è un segreto, maintainer 30 ott 2026).
+  "instance.createProvider",
+  "instance.replaceProviderCredential",
+  "instance.deleteProvider",
+  "instance.createGitAccount",
+  "instance.replaceGitToken",
+  "instance.deleteGitAccount",
+  "instance.registerPlugin",
+  "instance.updatePluginRef",
+  "instance.createGoogleApp",
+  "instance.replaceGoogleSecret",
+  "instance.deleteGoogleApp",
+  "instance.saveStorage",
 ];
 
 const as = (personId: string) => setSessionPersonId(personId);

@@ -10,7 +10,13 @@ import { onInstanceEmptied, onStoreReset } from "../store";
 // a lei, e a nessun altro); dopo resta solo la verifica (`matchSecret`,
 // `consumeBackupCode`), che risponde sì o no.
 //
-// Lo importano solo `data/admin/*`, `data/me/*` e `data/auth/*`; nessuna
+// Dall'area 9b custodisce anche i segreti SCRITTI da chi amministra (chiave
+// API o setup-token di un provider, token git, client secret Google, chiave
+// S3): `storeProvidedSecret` li prende, li tiene qui e restituisce solo l'id
+// e le ultime 4 cifre. Il valore non esce più, nemmeno a chi l'ha scritto.
+//
+// Lo importano solo `data/admin/*`, `data/me/*`, `data/auth/*` e
+// `data/instance/*`; nessuna
 // lettura (`data/queries/*`, le letture del registro) e nessuna pagina lo
 // raggiunge (test in `data/architecture.secrets.test.ts`). Come
 // `servers/secrets.ts` dell'8b.
@@ -19,7 +25,20 @@ import { onInstanceEmptied, onStoreReset } from "../store";
 // (sul server i token e i codici di backup sono hash, il segreto TOTP è
 // cifrato).
 
-export type SecretKind = "pat" | "reset_link" | "totp_seed" | "backup_codes" | "invite_link";
+/** I segreti che genera Stubwise (si mostrano una volta a chi li crea). */
+type GeneratedSecretKind = "pat" | "reset_link" | "totp_seed" | "backup_codes" | "invite_link";
+
+/**
+ * I segreti scritti da chi amministra (area 9b). Un tipo a parte: `valueOf`
+ * e `storeSecret` restano sui generati, e un valore scritto non si genera.
+ */
+export type ProvidedSecretKind =
+  | "provider_credential"
+  | "git_token"
+  | "google_client_secret"
+  | "storage_secret";
+
+export type SecretKind = GeneratedSecretKind | ProvidedSecretKind;
 
 interface Slot {
   kind: SecretKind;
@@ -68,7 +87,7 @@ export const resetLinkOf = (tokenOrLink: string): string => {
 /** Quanti codici di backup fa ogni giro (la prima attivazione, «Make new codes»). */
 export const BACKUP_CODE_COUNT = 10;
 
-function valueOf(kind: SecretKind, ownerId: string, n: number): string {
+function valueOf(kind: GeneratedSecretKind, ownerId: string, n: number): string {
   const seed = `${kind}|${ownerId}|${n}`;
   switch (kind) {
     case "pat":
@@ -93,11 +112,30 @@ function valueOf(kind: SecretKind, ownerId: string, n: number): string {
  * restituirlo una volta nel proprio risultato (o metterlo dentro un comando,
  * un link); non va scritto nello stato, nel registro o in una notifica.
  */
-export function storeSecret(kind: SecretKind, ownerId: string): { id: string; value: string } {
+export function storeSecret(
+  kind: GeneratedSecretKind,
+  ownerId: string,
+): { id: string; value: string } {
   const id = `sec-${++counter}`;
   const value = valueOf(kind, ownerId, counter);
   vault.set(id, { kind, ownerId, value, revealed: false });
   return { id, value };
+}
+
+/**
+ * Custodisce un segreto scritto da chi amministra (area 9b) e restituisce
+ * solo l'id e le ultime 4 cifre, quelle che le righe mostrano («•••• 9e2b»).
+ * Il valore resta qui: nessuna lettura, voce o notifica lo riporta.
+ */
+export function storeProvidedSecret(
+  kind: ProvidedSecretKind,
+  ownerId: string,
+  value: string,
+): { id: string; last4: string } {
+  const id = `sec-${++counter}`;
+  // Già «mostrato»: chi l'ha scritto lo conosce, e `revealOnce` non lo dà a nessuno.
+  vault.set(id, { kind, ownerId, value, revealed: true });
+  return { id, last4: value.slice(-4) };
 }
 
 /**

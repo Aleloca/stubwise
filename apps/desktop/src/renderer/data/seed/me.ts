@@ -93,5 +93,16 @@ export function seedTokens(): PersonalToken[] {
 
 /** Il Workspace Google dell'istanza (lo gestisce 9b, Integrazioni). */
 export function seedGoogleWorkspaces(): GoogleWorkspace[] {
-  return [{ id: "gw-example", name: "Example", domains: ["example.com"] }];
+  return [
+    {
+      id: "gw-example",
+      name: "Example",
+      domains: ["example.com"],
+      clientId: "418207593361-proto4example.apps.googleusercontent.com",
+      // Come i segreti del seme del 9b: id e ultime 4 cifre fissi, nessun valore nel caveau.
+      secretId: "sec-seed-google-example",
+      last4: "q8vz",
+      createdAt: at(-150),
+    },
+  ];
 }

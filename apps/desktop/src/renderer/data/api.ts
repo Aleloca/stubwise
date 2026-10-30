@@ -133,6 +133,8 @@ export * as auth from "./auth";
 export * as admin from "./admin";
 /** Le Preferenze personali (area 9a): `api.me.getMySecurity()`, `api.me.createToken(…)`… */
 export * as me from "./me";
+/** L'istanza (area 9b): `api.instance.listProviders()`, `api.instance.getUsage(…)`… */
+export * as instance from "./instance";
 
 /** Ripristina lo stato (sessione, dati, errori iniettati) e porta le task scadute alla settimana corrente. */
 export function resetApi(): void {

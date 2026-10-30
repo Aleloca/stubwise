@@ -7,7 +7,7 @@ import { setSessionPersonId } from "../../data/session";
 import { visiblePeopleFor } from "../../data/access/whoCan";
 import { accessState, writeAccess } from "../../data/access/index";
 import { ADMIN_CHANGE_TYPES } from "../../data/admin/changeTypes";
-import { changeTypes } from "../../data/changelog/index";
+import { changeTypes, recordChange } from "../../data/changelog/index";
 import { state } from "../../data/store";
 import { can, viewerFor, type Permission } from "../../data/viewer";
 import { PEOPLE } from "../../data/seed/people";
@@ -202,19 +202,64 @@ describe("Change log in Amministrazione", () => {
     expect(document.body.innerHTML).not.toContain(result.link);
   });
 
+  it("le voci d'istanza del 9b: l'oggetto porta alla sua voce dell'Amministrazione o al server", async () => {
+    recordChange({
+      kind: "provider.updated",
+      actorId: ROBERTA,
+      projectId: null,
+      object: { type: "provider", id: "prv-backup-max", label: "Backup Max" },
+      before: "On",
+      after: "Off",
+    });
+    recordChange({
+      kind: "server.thresholds_changed",
+      actorId: ROBERTA,
+      projectId: null,
+      object: { type: "server", id: "SRV-1", label: "SRV-1" },
+      before: "CPU 85%",
+      after: "CPU 90%",
+    });
+    renderRoute("/admin/changelog", ROBERTA);
+    await heading("Change log");
+    const provider = await waitFor(() => {
+      const e = entries().find((x) => x.dataset.changeEntry === "provider.updated");
+      expect(e).toBeDefined();
+      return e!;
+    });
+    expect(provider.querySelector("p")!.textContent).toBe(
+      "Roberta Fontana changed the AI account Backup Max.",
+    );
+    expect(within(provider).getByRole("link", { name: "Backup Max" })).toHaveAttribute(
+      "href",
+      "/admin/ai",
+    );
+    expect(provider).toHaveTextContent("On → Off");
+    const server = entries().find((x) => x.dataset.changeEntry === "server.thresholds_changed")!;
+    expect(within(server).getByRole("link", { name: "SRV-1" })).toHaveAttribute(
+      "href",
+      "/admin/servers",
+    );
+    expect(server).toHaveTextContent("CPU 85% → CPU 90%");
+  });
+
   it("chi non ha changelog.view legge ciò che gestisce, e la riga lo dice", async () => {
     renderRoute("/admin/changelog", LAURA);
     await heading("Change log");
+    // Chi gestisce un progetto ne legge tutte le voci di progetto: dal 9b
+    // anche quelle della coda (pausa, ripresa, Retry).
     expect(
       screen.getByText(
-        "You see changes to what you manage: project members. Entries can't be edited or deleted.",
+        "You see changes to what you manage: project members and project queues. Entries can't be edited or deleted.",
       ),
     ).toBeInTheDocument();
     await waitFor(() => expect(entries().length).toBeGreaterThan(0));
     expect(entries().every((e) => e.dataset.changeEntry!.startsWith("member."))).toBe(true);
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Type" }));
-    expect(screen.getAllByRole("menuitemradio").map((m) => m.textContent)).toEqual(["Members"]);
+    expect(screen.getAllByRole("menuitemradio").map((m) => m.textContent)).toEqual([
+      "Members",
+      "Queue",
+    ]);
   });
 });
 

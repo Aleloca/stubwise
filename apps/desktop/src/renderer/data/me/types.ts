@@ -38,11 +38,19 @@ export interface PersonalToken {
   secretId: string | null;
 }
 
-/** Un'app OAuth Google Workspace dell'istanza (la registra 9b; qui si sceglie). */
+/**
+ * Un'app OAuth Google Workspace dell'istanza (la registra 9b; qui si
+ * sceglie). Il client secret vive solo nel caveau (`admin/secrets.ts`): qui
+ * ci sono il suo id e le ultime 4 cifre.
+ */
 export interface GoogleWorkspace {
   id: string;
   name: string;
   domains: string[];
+  clientId: string;
+  secretId: string;
+  last4: string;
+  createdAt: string;
 }
 
 /**

@@ -7991,7 +7991,11 @@
       "manageDepartments": "manage departments",
       "readChangeLog": "read the change log",
       "manageIntegrations": "manage integrations",
-      "addRequests": "send requests"
+      "addRequests": "send requests",
+      "manageAiProviders": "manage AI accounts",
+      "manageGitAccounts": "manage git accounts",
+      "managePlugins": "manage plugins",
+      "viewInstanceStatus": "see the instance status"
     },
     "groups": {
       "administration": "Administration",
@@ -9036,6 +9040,67 @@
         "role_changed": "<actor>{{actor}}</actor> changed <object>{{object}}</object>'s role in {{project}}.",
         "permission_granted": "<actor>{{actor}}</actor> gave <object>{{object}}</object> permission to <strong>{{permission}}</strong> in {{project}}.",
         "permission_revoked": "<actor>{{actor}}</actor> removed <object>{{object}}</object>'s permission to <strong>{{permission}}</strong> in {{project}}."
+      },
+      "provider": {
+        "created": "<actor>{{actor}}</actor> added the AI account <object>{{object}}</object>.",
+        "updated": "<actor>{{actor}}</actor> changed the AI account <object>{{object}}</object>.",
+        "reordered": "<actor>{{actor}}</actor> changed the order of the AI accounts.",
+        "credential_replaced": "<actor>{{actor}}</actor> replaced the key of <object>{{object}}</object>.",
+        "deleted": "<actor>{{actor}}</actor> deleted the AI account <object>{{object}}</object>."
+      },
+      "model": {
+        "changed": "<actor>{{actor}}</actor> changed the model for <object>{{object}}</object>."
+      },
+      "automation": {
+        "changed": "<actor>{{actor}}</actor> changed the AI automation."
+      },
+      "budget": {
+        "changed": "<actor>{{actor}}</actor> changed the monthly AI budget."
+      },
+      "content_language": {
+        "changed": "<actor>{{actor}}</actor> changed the language of generated content."
+      },
+      "git_account": {
+        "created": "<actor>{{actor}}</actor> added the git account <object>{{object}}</object>.",
+        "updated": "<actor>{{actor}}</actor> changed the git account <object>{{object}}</object>.",
+        "token_replaced": "<actor>{{actor}}</actor> replaced the token of <object>{{object}}</object>.",
+        "deleted": "<actor>{{actor}}</actor> deleted the git account <object>{{object}}</object>.",
+        "default_reviewer_changed": "<actor>{{actor}}</actor> changed the default reviewer to <object>{{object}}</object>."
+      },
+      "plugin": {
+        "registered": "<actor>{{actor}}</actor> registered the plugin <object>{{object}}</object>.",
+        "ref_updated": "<actor>{{actor}}</actor> updated <object>{{object}}</object> to a new ref.",
+        "smoke_rerun": "<actor>{{actor}}</actor> ran the smoke test of <object>{{object}}</object> again.",
+        "removed": "<actor>{{actor}}</actor> removed the plugin <object>{{object}}</object>."
+      },
+      "google_app": {
+        "created": "<actor>{{actor}}</actor> added the Google app <object>{{object}}</object>.",
+        "updated": "<actor>{{actor}}</actor> changed the Google app <object>{{object}}</object>.",
+        "secret_replaced": "<actor>{{actor}}</actor> replaced the client secret of the Google app <object>{{object}}</object>.",
+        "deleted": "<actor>{{actor}}</actor> deleted the Google app <object>{{object}}</object>."
+      },
+      "storage": {
+        "changed": "<actor>{{actor}}</actor> changed the storage settings.",
+        "secret_replaced": "<actor>{{actor}}</actor> replaced the storage secret key."
+      },
+      "webhook": {
+        "changed": "<actor>{{actor}}</actor> changed the outgoing webhook."
+      },
+      "server": {
+        "created": "<actor>{{actor}}</actor> created the server <object>{{object}}</object>.",
+        "updated": "<actor>{{actor}}</actor> changed the server <object>{{object}}</object>.",
+        "deleted": "<actor>{{actor}}</actor> deleted the server <object>{{object}}</object>.",
+        "agent_key_regenerated": "<actor>{{actor}}</actor> made a new agent key for <object>{{object}}</object>.",
+        "thresholds_changed": "<actor>{{actor}}</actor> changed the alert thresholds of <object>{{object}}</object>.",
+        "check_changed": "<actor>{{actor}}</actor> changed a check on <object>{{object}}</object>.",
+        "ssh_access_changed": "<actor>{{actor}}</actor> changed SSH access to <object>{{object}}</object>."
+      },
+      "queue": {
+        "paused": "<actor>{{actor}}</actor> paused {{project}}'s queue.",
+        "resumed": "<actor>{{actor}}</actor> resumed {{project}}'s queue."
+      },
+      "job": {
+        "retried": "<actor>{{actor}}</actor> put the work on <object>{{object}}</object> back in the queue."
       }
     },
     "groups": {
@@ -9044,7 +9109,11 @@
       "roles": "Roles",
       "members": "Members",
       "departments": "Departments",
-      "security": "Security"
+      "security": "Security",
+      "ai": "AI",
+      "integrations": "Integrations",
+      "servers": "Servers",
+      "queue": "Queue"
     },
     "groupWords": {
       "people": "people",
@@ -9052,7 +9121,11 @@
       "roles": "roles",
       "members": "project members",
       "departments": "departments",
-      "security": "security resets"
+      "security": "security resets",
+      "ai": "AI settings",
+      "integrations": "integrations",
+      "servers": "servers",
+      "queue": "project queues"
     },
     "intro": "Every change to access and settings: who made it, when, and what changed. Entries can't be edited or deleted.",
     "introPartial": "You see changes to what you manage: {{groups}}. Entries can't be edited or deleted.",

@@ -234,6 +234,12 @@ const PATTERN: [StatusFamily, number][] = [
   ["todo", 0],
 ];
 
+/**
+ * Lo stato di Claude di una task generata che ha una sessione nel seme,
+ * coerente con quella: ACQ-3 è fallita ieri (area 9b, `cv-run-acq-3`).
+ */
+const CLAUDE_OVERRIDES: Record<string, ClaudeWorkState> = { "t-acq-3": "stopped" };
+
 function generatedTasks(project: Project, pi: number): Task[] {
   const milestone = MILESTONES.find((m) => m.projectId === project.id);
   return Array.from({ length: TASKS_PER_PROJECT }, (_, n) => {
@@ -295,13 +301,14 @@ function generatedTasks(project: Project, pi: number): Task[] {
       attachments: [],
       manualStall: null,
       claude:
-        isDev && project.memberIds.includes("p-claude")
+        CLAUDE_OVERRIDES[`t-${project.code.toLowerCase()}-${n + 1}`] ??
+        (isDev && project.memberIds.includes("p-claude")
           ? family === "active"
             ? "working"
             : closed
               ? "done"
               : "none"
-          : "none",
+          : "none"),
       createdAt: at(-(lastDays + 5 + (seq % 25)), 8),
       closedAt: closed ? lastActivityAt : null,
       lastActivityAt,

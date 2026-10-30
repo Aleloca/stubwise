@@ -51,9 +51,12 @@ export const isPreferenceSection = (value: string): value is PreferenceSection =
   (PREFERENCE_SECTIONS as readonly string[]).includes(value);
 
 /**
- * Le voci dell'Amministrazione (area 9a), nell'ordine della colonna, coi
- * loro gruppi: ACCESS (People, Departments, Roles) e RECORDS (Change log,
- * Who can?). `#/admin/<voce>`. Chi vede quali lo decide `adminSections`.
+ * Le voci dell'Amministrazione, nell'ordine della colonna, coi loro gruppi:
+ * ACCESS (People, Departments, Roles) e RECORDS (Change log, Who can?) del
+ * 9a; INSTANCE (AI, Git accounts, Plugins, Google Workspace, Storage,
+ * Outgoing webhooks) e ACROSS PROJECTS (`estate`: Servers, Repositories,
+ * Instance status) del 9b. `#/admin/<voce>`. Chi vede quali lo decide
+ * `adminSections`.
  */
 export const ADMIN_SECTIONS = [
   { id: "people", group: "access" },
@@ -61,7 +64,22 @@ export const ADMIN_SECTIONS = [
   { id: "roles", group: "access" },
   { id: "changelog", group: "records" },
   { id: "who-can", group: "records" },
+  { id: "ai", group: "instance" },
+  { id: "git-accounts", group: "instance" },
+  { id: "plugins", group: "instance" },
+  { id: "google", group: "instance" },
+  { id: "storage", group: "instance" },
+  { id: "webhooks", group: "instance" },
+  { id: "servers", group: "estate" },
+  { id: "repositories", group: "estate" },
+  { id: "status", group: "estate" },
 ] as const;
+
+/**
+ * Le schede della voce AI (area 9b, shape admin-ai.md), `?tab=`. Chi vede
+ * quali lo decide `aiTabsFor`.
+ */
+export const AI_TABS = ["providers", "models", "automation", "budget", "usage"] as const;
 
 export type AdminSection = (typeof ADMIN_SECTIONS)[number]["id"];
 

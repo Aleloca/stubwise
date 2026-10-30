@@ -32,7 +32,7 @@ export const PROTOTYPE_TOTP_CODE = "123456";
 
 /**
  * Le funzioni delicate dell'API: quelle marcate «+R» nei Task 4 e 5 del
- * piano 9a. Si aggiungono INSIEME alla funzione (il nome entra in
+ * piano 9a e nel Task 1 del piano 9b. Si aggiungono INSIEME alla funzione (il nome entra in
  * `ApiFnName` con lei), e il test del registro
  * (`reauth.test.ts`, «registro») elenca le stesse: aggiungerne una è una
  * decisione visibile nel diff.
@@ -71,6 +71,24 @@ export const REAUTH_REQUIRED: ReadonlySet<ApiFnName> = new Set<ApiFnName>([
   "me.createToken",
   // Crea un token, quindi come `createToken` (maintainer, 29 ott 2026).
   "me.createClaudeCodeCommand",
+  // Area 9b, Task 1: chi crea, sostituisce o cancella un segreto scritto da
+  // chi amministra (chiave o setup-token, token git, client secret, chiave
+  // S3), più registrare e aggiornare un plugin, che ne esegue il codice
+  // (scelta del controller). `saveStorage` chiede la riconferma solo quando
+  // porta una chiave nuova (`secretAccessKey`): lo decide la funzione.
+  // `saveWebhook` non c'è: l'URL non è un segreto (maintainer, 30 ott 2026).
+  "instance.createProvider",
+  "instance.replaceProviderCredential",
+  "instance.deleteProvider",
+  "instance.createGitAccount",
+  "instance.replaceGitToken",
+  "instance.deleteGitAccount",
+  "instance.registerPlugin",
+  "instance.updatePluginRef",
+  "instance.createGoogleApp",
+  "instance.replaceGoogleSecret",
+  "instance.deleteGoogleApp",
+  "instance.saveStorage",
 ]);
 
 const MINUTE = 60_000;

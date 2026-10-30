@@ -600,6 +600,61 @@ const stw7 = seeded(
   ],
 );
 
+// Area 9b: il lavoro fallito ieri che lo Stato dell'istanza mostra fra gli
+// ultimi errori, e che si rimette in coda (la task è ancora aperta).
+const acq3 = seeded(
+  {
+    id: "cv-run-acq-3",
+    kind: "task_run",
+    title: "Issue the quarterly invoices",
+    ownerId: "p-federico",
+    projectId: "prj-acq",
+    taskId: "t-acq-3",
+    state: "finished",
+    outcome: "failed",
+  },
+  [
+    { at: at(1, "15:40"), type: "phase", phase: "plan", outcome: "ok" },
+    {
+      at: at(1, "15:48"),
+      type: "plan",
+      planText: [
+        "## Issue the quarterly invoices",
+        "",
+        "1. Read the billing export for July–September.",
+        "2. Draft one invoice per customer with the totals of the export.",
+        "3. Check every total against the export before saving the drafts.",
+      ].join("\n"),
+      summary: "One draft invoice per customer, each total checked against the billing export.",
+      status: "approved",
+      decidedById: "p-laura",
+    },
+    { at: at(1, "15:50"), type: "phase", phase: "execution", outcome: null },
+    done(at(1, "15:58"), "docs.read", "Reads the billing export for July–September"),
+    {
+      at: at(1, "16:05"),
+      type: "action",
+      tool: "shell",
+      label: "Checks the invoice totals against the export",
+      result: "2 totals don't match · Rossi Impianti, Verdi Servizi",
+      state: "failed",
+    },
+    {
+      at: at(1, "16:18"),
+      type: "action",
+      tool: "shell",
+      label: "Checks the invoice totals against the export",
+      result: "2 totals don't match · Rossi Impianti, Verdi Servizi",
+      state: "failed",
+    },
+    { at: at(1, "16:20"), type: "phase", phase: "execution", outcome: "failed" },
+    says(
+      at(1, "16:20"),
+      "Two invoice totals still don't match the billing export after two attempts: both customers have a credit note the plan didn't account for. I stopped without saving the drafts.",
+    ),
+  ],
+);
+
 const refineQuietHours = seeded(
   {
     id: "cv-refine-stw-4",
@@ -709,6 +764,7 @@ export const WORK_CONVERSATIONS: Seeded[] = [
   stw1Stopped,
   stw1,
   stw7,
+  acq3,
   refineQuietHours,
   refineReminders,
 ];

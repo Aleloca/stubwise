@@ -1021,6 +1021,8 @@ export interface Repository {
   releasePipeline?: { mode: "auto" } | { mode: "named"; names: string[] };
   /** Da dove si leggono le run; `null` = nessuna pipeline (lo stato lo dice l'ambiente). */
   ciProvider?: "github_actions" | "bitbucket_pipelines" | null;
+  /** L'account git d'istanza con cui Stubwise ci lavora (area 9b); `null` = nessuno. */
+  gitAccountId?: string | null;
 }
 
 /** Le quattro categorie dell'albero; `manual` = scritta a mano, le altre generate. */

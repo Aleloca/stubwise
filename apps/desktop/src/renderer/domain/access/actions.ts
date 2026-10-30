@@ -198,6 +198,11 @@ export const ACTIONS: readonly AccessAction[] = [
   instance("manageSshAccess", "servers.ssh.manage"),
   instance("manageDepartments", "departments.manage"),
   instance("readChangeLog", "changelog.view"),
+  // istanza, area 9b: i «Who?» delle voci d'istanza
+  instance("manageAiProviders", "ai_providers.manage"),
+  instance("manageGitAccounts", "git_accounts.manage"),
+  instance("managePlugins", "plugins.manage"),
+  instance("viewInstanceStatus", "instance.status.view"),
 ];
 
 export const actionById = (id: string): AccessAction | undefined =>

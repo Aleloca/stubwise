@@ -112,8 +112,14 @@ describe("intelaiatura: ogni voce col suo permesso", () => {
   });
 
   it("ogni voce secondo il suo permesso: Departments con departments.manage, Roles con roles.manage", () => {
-    const ids = (personId: string) => adminSections(viewerFor(personId)).map((s) => s.id);
+    // Le voci del 9a (ACCESS, RECORDS); quelle d'istanza del 9b le prova `instance.test.ts`.
+    const ids = (personId: string) =>
+      adminSections(viewerFor(personId))
+        .filter((s) => s.group === "access" || s.group === "records")
+        .map((s) => s.id);
     expect(ids(MARCO)).toEqual(["people", "who-can"]);
+    // Git accounts in sola lettura (il preset User dà `git_accounts.view`) non è amministrare.
+    expect(adminSections(viewerFor(MARCO)).map((s) => s.id)).toContain("git-accounts");
     expect(administersSomething(viewerFor(MARCO))).toBe(false);
     // Chi gestisce i reparti ne legge anche le voci del registro.
     grantInstancePermission(MARCO, "departments.manage");

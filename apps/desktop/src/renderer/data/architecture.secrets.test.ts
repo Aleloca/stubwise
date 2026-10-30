@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-// I segreti mostrati una volta (area 9a) stanno solo in `admin/secrets.ts`.
-// Lo importano solo le scritture d'amministrazione, delle preferenze e
-// dell'ingresso (`data/admin/*`, `data/me/*`, `data/auth/*`); nessuna
+// I segreti mostrati una volta (area 9a) e quelli scritti da chi amministra
+// (area 9b) stanno solo in `admin/secrets.ts`. Lo importano solo le
+// scritture d'amministrazione, delle preferenze, dell'ingresso e
+// dell'istanza (`data/admin/*`, `data/me/*`, `data/auth/*`,
+// `data/instance/*`); nessuna
 // lettura (`data/queries/*`, il registro delle modifiche) e nessuna pagina
 // lo raggiunge, nemmeno di riflesso attraverso un altro modulo. Stessa forma
 // del test delle chiavi private dei server (`architecture.test.ts`).
@@ -50,7 +52,7 @@ function reachable(start: string): Set<string> {
   return seen;
 }
 
-const ALLOWED = ["data/admin/", "data/me/", "data/auth/"];
+const ALLOWED = ["data/admin/", "data/me/", "data/auth/", "data/instance/"];
 
 describe("segreti mostrati una volta", () => {
   it("trova i sorgenti", () => {
@@ -58,7 +60,7 @@ describe("segreti mostrati una volta", () => {
     expect(FILES.has(SECRETS)).toBe(true);
   });
 
-  it("secrets.ts lo importano solo data/admin, data/me e data/auth", () => {
+  it("secrets.ts lo importano solo data/admin, data/me, data/auth e data/instance", () => {
     const importers = [...FILES.keys()].filter((p) => importsOf(p).includes(SECRETS));
     // Il risolutore funziona: la riconferma lo importa.
     expect(importers).toContain("data/auth/reauth.ts");

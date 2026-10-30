@@ -177,6 +177,8 @@ import type {
   PersonalToken,
 } from "./me/types";
 import type { Department } from "./types";
+import { emptyInstanceState, seedInstanceState } from "./instance/seed";
+import type { InstanceState } from "./instance/state";
 
 // Il «server» finto: il simulatore (latenza, errori iniettati), lo stato
 // mutabile — una copia del seed, che `resetApi` rifà — e i derivati che le
@@ -662,7 +664,59 @@ export type ApiFnName =
   | "auth.logout"
   | "auth.simulateInviteLink"
   | "auth.passMinutes"
-  | "auth.prototypeAccounts";
+  | "auth.prototypeAccounts"
+  // Consumi (area 9b, Task 2)
+  | "instance.getUsage"
+  // AI (area 9b, Task 3): provider, modelli, automazione, budget e lingua
+  | "instance.listProviders"
+  | "instance.createProvider"
+  | "instance.setProviderEnabled"
+  | "instance.moveProvider"
+  | "instance.testProvider"
+  | "instance.replaceProviderCredential"
+  | "instance.deleteProvider"
+  | "instance.simulateNextTest"
+  | "instance.listModels"
+  | "instance.setModel"
+  | "instance.getAutomation"
+  | "instance.saveAutomation"
+  | "instance.getBudget"
+  | "instance.saveBudget"
+  | "instance.simulateBudgetReached"
+  // Integrazioni (area 9b, Task 4): git, plugin, Google, archiviazione, webhook
+  | "instance.listGitAccounts"
+  | "instance.createGitAccount"
+  | "instance.updateGitAccount"
+  | "instance.replaceGitToken"
+  | "instance.validateGitAccount"
+  | "instance.deleteGitAccount"
+  | "instance.setDefaultReviewer"
+  | "instance.listPlugins"
+  | "instance.getPlugin"
+  | "instance.registerPlugin"
+  | "instance.updatePluginRef"
+  | "instance.rerunSmoke"
+  | "instance.removePlugin"
+  | "instance.simulateNextPluginOutcome"
+  | "instance.listGoogleApps"
+  | "instance.createGoogleApp"
+  | "instance.updateGoogleApp"
+  | "instance.replaceGoogleSecret"
+  | "instance.deleteGoogleApp"
+  | "instance.getStorage"
+  | "instance.saveStorage"
+  | "instance.setAttachments"
+  | "instance.testStorage"
+  | "instance.getWebhook"
+  | "instance.saveWebhook"
+  | "instance.testWebhook"
+  // Coda e Stato dell'istanza (area 9b, Task 5)
+  | "instance.getInstanceStatus"
+  | "instance.retryJob"
+  | "instance.pauseQueue"
+  | "instance.resumeQueue"
+  // Repository d'istanza (area 9b, Task 7)
+  | "instance.listAllRepositories";
 const failures = new Set<ApiFnName>();
 
 /** Fissa la latenza simulata (ms); `0` per i test, `null` per tornare a 150–400 ms. */
@@ -780,6 +834,12 @@ interface State {
   confirmedTotp: Map<string, string>;
   /** I token personali, senza valore. */
   tokens: PersonalToken[];
+  /**
+   * Lo stato d'istanza dell'area 9b (`instance/state.ts`): provider dell'AI,
+   * modelli, automazione, budget, account git, plugin, archiviazione,
+   * webhook, pause della coda, consumi, giro notturno.
+   */
+  instance: InstanceState;
   /** I Workspace Google dell'istanza (9b li gestisce, le caselle personali li scelgono). */
   googleWorkspaces: GoogleWorkspace[];
   /**
@@ -1018,6 +1078,7 @@ function freshState(): State {
     passkeys: seedPasskeys(),
     confirmedTotp: new Map(),
     tokens: seedTokens(),
+    instance: seedInstanceState(),
     googleWorkspaces: seedGoogleWorkspaces(),
     proposalsBeforeUnlink: new Map(),
     projects: PROJECTS.map(copy),
@@ -1237,6 +1298,8 @@ export function emptyStore(): void {
     else if (value instanceof Set) s[key] = new Set();
   }
   state.entry = { signedIn: false, partial: null };
+  // Lo stato d'istanza (9b) è un oggetto, non una tabella: torna com'è appena installato.
+  state.instance = emptyInstanceState();
   writeAccessNow((a) => {
     a.roles = a.roles.filter((r) => r.preset);
     a.memberships = [];

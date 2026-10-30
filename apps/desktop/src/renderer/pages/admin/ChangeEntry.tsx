@@ -55,13 +55,24 @@ function ObjectRef({ entry, children }: { entry: ChangeEntryView; children?: Rea
       >
         {children}
       </Link>
-    ) : (
+    ) : l.to === "member" ? (
       <Link
         to="/p/$code/settings/$section"
         params={{ code: l.projectCode, section: "members" }}
         search={{ member: l.personId }}
         className={linkClass}
       >
+        {children}
+      </Link>
+    ) : l.to === "admin" ? (
+      // La voce d'istanza (9b) in cui sta l'oggetto; le voci con una pagina
+      // per oggetto la aprono dall'elenco.
+      <Link to="/admin/$section" params={{ section: l.section }} className={linkClass}>
+        {children}
+      </Link>
+    ) : (
+      // Un server d'istanza: la voce Servers dell'Amministrazione (9b).
+      <Link to="/admin/$section" params={{ section: "servers" }} className={linkClass}>
         {children}
       </Link>
     )

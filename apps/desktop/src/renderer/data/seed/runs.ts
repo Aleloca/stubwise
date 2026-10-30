@@ -61,4 +61,11 @@ export const RUN_META: Record<
     failureSummary:
       "The filters page tests failed twice: they expect public filters in a different order than the plan.",
   },
+  // Area 9b: il lavoro fallito ieri (Stato dell'istanza, «Retry»).
+  "cv-run-acq-3": {
+    provider: TEAM_ACCOUNT,
+    usage: [sonnet(74_100, 6_800, 160_900, 0.83)],
+    failureSummary:
+      "Two invoice totals didn't match the billing export after two attempts: both customers have a credit note the plan didn't account for.",
+  },
 };

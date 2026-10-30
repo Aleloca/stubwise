@@ -1,4 +1,6 @@
 import { accessState, isMember } from "../access/index";
+import { canSeeAdminSection } from "../adminSections";
+import type { AdminSection } from "../routes";
 import { visiblePeopleFor } from "../access/whoCan";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import { gate, now, state, visibleProjectIds } from "../store";
@@ -74,6 +76,28 @@ const nameOf = (personId: string): string =>
 const listOf = (value: string | undefined): string[] =>
   value ? value.split(",").filter(Boolean) : [];
 
+/**
+ * Gli oggetti d'istanza del 9b: la voce dell'Amministrazione in cui stanno e,
+ * per quelli che si eliminano, se esistono ancora. Gli altri (le impostazioni
+ * dell'AI, l'archiviazione, il webhook) esistono sempre.
+ */
+const INSTANCE_OBJECTS: Record<string, { section: AdminSection; exists?: (id: string) => boolean }> =
+  {
+    provider: { section: "ai", exists: (id) => state.instance.providers.some((p) => p.id === id) },
+    ai_settings: { section: "ai" },
+    git_account: {
+      section: "git-accounts",
+      exists: (id) => state.instance.gitAccounts.some((g) => g.id === id),
+    },
+    plugin: { section: "plugins", exists: (id) => state.instance.plugins.some((p) => p.id === id) },
+    google_app: { section: "google", exists: (id) => state.googleWorkspaces.some((w) => w.id === id) },
+    storage: { section: "storage" },
+    webhook: { section: "webhooks" },
+  };
+
+/** Il server di una voce `server.*`, se esiste ancora (l'id dell'oggetto è il codice, `SRV-2`). */
+const serverExists = (code: string): boolean => state.servers.some((s) => s.code === code);
+
 /** Dove porta l'oggetto, per chi guarda; `null` se non c'è più o non lo può aprire. */
 function objectLinkOf(me: string, entry: ChangeEntry, people: Set<string>): ChangeObjectLink | null {
   const viewer = viewerFor(me);
@@ -100,18 +124,53 @@ function objectLinkOf(me: string, entry: ChangeEntry, people: Set<string>): Chan
       return can(viewer, "users.invite") && state.invites.some((i) => i.id === id)
         ? { to: "invite", inviteId: id }
         : null;
-    default:
-      return null;
+    case "server":
+      // I server d'istanza li apre chi gestisce il monitor (voce Servers).
+      return canSeeAdminSection(viewer, "servers") && serverExists(id)
+        ? { to: "server", code: id }
+        : null;
+    default: {
+      const target = INSTANCE_OBJECTS[type];
+      if (!target || !canSeeAdminSection(viewer, target.section)) return null;
+      if (!target.exists) return { to: "admin", section: target.section };
+      return target.exists(id) ? { to: "admin", section: target.section, id } : null;
+    }
   }
 }
 
-/** Un ruolo o un reparto che non c'è più: il nome resta, con «(deleted)». */
+/** Un oggetto che non c'è più (ruolo, reparto; dal 9b provider, account, plugin, app, server): il nome resta, con «(deleted)». */
 function objectDeletedOf(entry: ChangeEntry): boolean {
   const { type, id } = entry.object;
   if (type === "role") return !accessState().roles.some((r) => r.id === id);
   if (type === "department") return !state.departments.some((d) => d.id === id);
-  return false;
+  if (type === "server") return !serverExists(id);
+  const exists = INSTANCE_OBJECTS[type]?.exists;
+  return exists ? !exists(id) : false;
 }
+
+/**
+ * I tipi del 9b con un prima/dopo in parole («On → Off», «$600 → $800»,
+ * l'URL del webhook). Quelli che toccano un segreto (`*_replaced`, la chiave
+ * dell'agente) e quelli che nascono o spariscono non ne hanno: c'è la frase.
+ */
+const INSTANCE_VALUE_KINDS: ReadonlySet<string> = new Set([
+  "provider.updated",
+  "provider.reordered",
+  "model.changed",
+  "automation.changed",
+  "budget.changed",
+  "content_language.changed",
+  "git_account.updated",
+  "git_account.default_reviewer_changed",
+  "plugin.ref_updated",
+  "google_app.updated",
+  "storage.changed",
+  "webhook.changed",
+  "server.updated",
+  "server.thresholds_changed",
+  "server.check_changed",
+  "queue.resumed",
+]);
 
 /** Il nome di un reparto, senza il colore che la voce gli tiene accanto («Support --dept-3»). */
 const departmentName = (value: string | null): string | null =>
@@ -178,7 +237,10 @@ function diffOf(entry: ChangeEntry, people: Set<string>): ChangeDiff | null {
       };
     }
     default:
-      return null;
+      if (!INSTANCE_VALUE_KINDS.has(entry.kind)) return null;
+      return entry.before === null && entry.after === null
+        ? null
+        : { kind: "values", before: entry.before, after: entry.after };
   }
 }
 

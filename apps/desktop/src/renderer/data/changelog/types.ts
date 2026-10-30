@@ -3,6 +3,8 @@
 // (`templateKey`), mai da prosa generata; non si modifica né si cancella; non
 // contiene mai un segreto (si scrive «sostituito», non il valore).
 
+import type { AdminSection } from "../routes";
+
 /**
  * Un tipo di voce. Lo registrano le aree che scrivono (9a, 9b, 9c) con
  * `registerChangeTypes`: una voce di un tipo non registrato non si scrive.
@@ -65,14 +67,17 @@ export interface ChangeEntry {
 /**
  * Dove porta l'oggetto di una voce, se esiste ancora e chi guarda può
  * aprirlo: la pagina della persona, del ruolo, dell'invito, il pannello del
- * reparto o del membro.
+ * reparto o del membro; dal 9b una voce dell'Amministrazione (con l'id
+ * dell'oggetto dentro la voce, se ne ha uno) o un server.
  */
 export type ChangeObjectLink =
   | { to: "person"; personId: string }
   | { to: "role"; roleId: string }
   | { to: "invite"; inviteId: string }
   | { to: "department"; departmentId: string }
-  | { to: "member"; projectCode: string; personId: string };
+  | { to: "member"; projectCode: string; personId: string }
+  | { to: "admin"; section: AdminSection; id?: string }
+  | { to: "server"; code: string };
 
 /**
  * Il prima e dopo di una voce, già pronto da leggere ([AU 2]):

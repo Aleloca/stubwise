@@ -1,3 +1,4 @@
+import { SEED_GIT_ACCOUNT_IDS } from "../../instance/seed";
 import type { Repository } from "../../types";
 
 // I repository collegati, il minimo per i Docs (uno spazio per repository):
@@ -12,6 +13,13 @@ import type { Repository } from "../../types";
 // di STW-3). STW non ha una pipeline
 // (`ciProvider: null`): lo stato dei suoi rilasci lo dice l'ambiente.
 // L'ordine conta: il primo repository di un progetto è il suo principale.
+//
+// Area 9b: ognuno è legato a un account git d'istanza. «Bitbucket Audin»
+// lavora sui repository dei clienti (AUD e CBV), «GitHub Stubwise» su quelli
+// di STW: chi non vede AUD trova «Bitbucket Audin» in uso con i soli
+// repository di CBV, e gli altri contati.
+
+const { bitbucketAudin, githubStubwise } = SEED_GIT_ACCOUNT_IDS;
 
 export const REPOSITORIES: Repository[] = [
   {
@@ -24,6 +32,7 @@ export const REPOSITORIES: Repository[] = [
     releaseBranch: "main",
     releasePipeline: { mode: "auto" },
     ciProvider: null,
+    gitAccountId: githubStubwise,
   },
   {
     id: "repo-aud",
@@ -35,8 +44,9 @@ export const REPOSITORIES: Repository[] = [
     releaseBranch: "main",
     releasePipeline: { mode: "auto" },
     ciProvider: "github_actions",
+    gitAccountId: bitbucketAudin,
   },
-  { id: "repo-cbv", projectId: "prj-cbv", name: "bellavista-store" },
+  { id: "repo-cbv", projectId: "prj-cbv", name: "bellavista-store", gitAccountId: bitbucketAudin },
   {
     id: "repo-aud-admin",
     projectId: "prj-aud",
@@ -47,6 +57,7 @@ export const REPOSITORIES: Repository[] = [
     releaseBranch: "main",
     releasePipeline: { mode: "auto" },
     ciProvider: "github_actions",
+    gitAccountId: bitbucketAudin,
   },
   // La guida di STW (PR #58 di STW-3): senza spazio dei Docs, senza pipeline.
   {
@@ -59,6 +70,7 @@ export const REPOSITORIES: Repository[] = [
     releaseBranch: "main",
     releasePipeline: { mode: "auto" },
     ciProvider: null,
+    gitAccountId: githubStubwise,
   },
   {
     id: "repo-aud-scripts",
@@ -70,5 +82,6 @@ export const REPOSITORIES: Repository[] = [
     releaseBranch: "main",
     releasePipeline: { mode: "auto" },
     ciProvider: "github_actions",
+    gitAccountId: bitbucketAudin,
   },
 ];
