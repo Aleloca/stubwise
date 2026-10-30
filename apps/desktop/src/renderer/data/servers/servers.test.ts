@@ -1004,6 +1004,15 @@ describe("Impeccable 4: le serie del seme a 30d e 90d", () => {
 });
 
 describe("Impeccable 5: un agente muto non ha appena riportato", () => {
+  it("residuo m2: su un server mai collegato non inventa un ultimo rapporto, né all'allarme né al rientro", async () => {
+    setSessionPersonId("p-roberta");
+    state.servers.find((x) => x.code === "SRV-1")!.lastSeenAt = null;
+    await servers.simulateServerAlert("SRV-1", "agent_silent");
+    expect((await servers.getServer("SRV-1")).lastSeenAt).toBeNull();
+    await servers.simulateServerRecovery("SRV-1");
+    expect((await servers.getServer("SRV-1")).lastSeenAt).toBeNull();
+  });
+
   it("«Simula allarme» agent_silent ferma lastSeenAt all'inizio del silenzio, minuti prima dell'episodio", async () => {
     setSessionPersonId("p-roberta");
     const episode = await servers.simulateServerAlert("SRV-1", "agent_silent");

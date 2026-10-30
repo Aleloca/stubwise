@@ -239,8 +239,10 @@ export function recoverEpisode(serverCode: string): ServerEpisode | null {
   );
   if (!ep) return null;
   ep.recoveredAt = now();
-  // Un agente muto che torna a rispondere ha appena riportato.
-  if (ep.reasons.some((r) => r.kind === "agent_silent")) server.lastSeenAt = now();
+  // Un agente muto che torna a rispondere ha appena riportato; uno mai
+  // collegato resta senza rapporti (ri-revisione m2).
+  if (server.lastSeenAt !== null && ep.reasons.some((r) => r.kind === "agent_silent"))
+    server.lastSeenAt = now();
   for (const projectId of alertProjectsOf(serverCode, state.environments)) {
     publishAlert({
       kind: "server.recovered",

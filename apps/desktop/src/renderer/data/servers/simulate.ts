@@ -56,12 +56,14 @@ function reasonOf(server: MonitoredServer, kind: EpisodeReason["kind"]): Episode
     case "agent_silent": {
       // Un agente si dice muto dopo qualche minuto senza campioni: l'ultimo
       // rapporto si ferma all'inizio del silenzio, così la testata non dice
-      // «last report 30 s ago» sopra «Not responding» (Impeccable 5).
+      // «last report 30 s ago» sopra «Not responding» (Impeccable 5). Un
+      // agente mai collegato non ha un ultimo rapporto: non se ne inventa
+      // uno (ri-revisione m2).
+      if (server.lastSeenAt === null) return { kind, since: now() };
       const quietFrom = new Date(Date.parse(now()) - SILENCE_BEFORE_ALERT_MS)
         .toISOString()
         .replace(".000Z", "Z");
-      if (server.lastSeenAt === null || server.lastSeenAt > quietFrom)
-        server.lastSeenAt = quietFrom;
+      if (server.lastSeenAt > quietFrom) server.lastSeenAt = quietFrom;
       return { kind, since: server.lastSeenAt };
     }
     default:
