@@ -1,5 +1,6 @@
 import { forgetSecret, storeProvidedSecret } from "../admin/secrets";
 import { recordChange } from "../changelog/index";
+import { encodeSwitch } from "../changelog/settingValues";
 import { gate, newId, now, state } from "../store";
 import { forbidden, writer } from "../writer";
 import { isLimited } from "./blocks";
@@ -50,7 +51,6 @@ export type ProviderView = Omit<AiProvider, "secretId" | "quota"> & {
 
 const providerOf = (id: string) => state.instance.providers.find((p) => p.id === id);
 const objectOf = (p: AiProvider) => ({ type: "provider", id: p.id, label: p.name });
-const onOff = (enabled: boolean) => (enabled ? "On" : "Off");
 const chain = () => state.instance.providers.map((p) => p.name).join(", ");
 
 /** Chi legge la voce AI: chi gestisce i provider o le impostazioni. */
@@ -157,8 +157,8 @@ export async function setProviderEnabled(id: string, enabled: boolean): Promise<
     actorId: me,
     projectId: null,
     object: objectOf(provider),
-    before: onOff(!enabled),
-    after: onOff(enabled),
+    before: encodeSwitch(!enabled),
+    after: encodeSwitch(enabled),
   });
   return { ok: true };
 }

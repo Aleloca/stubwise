@@ -4,6 +4,7 @@
 // contiene mai un segreto (si scrive «sostituito», non il valore).
 
 import type { AdminSection } from "../routes";
+import type { SettingValue } from "./settingValues";
 
 /**
  * Un tipo di voce. Lo registrano le aree che scrivono (9a, 9b, 9c) con
@@ -100,7 +101,12 @@ export type ChangeDiff =
       before: string[] | null;
       after: string[] | null;
     }
-  | { kind: "people"; added: string[]; removed: string[] };
+  | { kind: "people"; added: string[]; removed: string[] }
+  /**
+   * Una voce d'impostazione del 9b (Ruling T3): i valori stabili salvati,
+   * in forma di dato; le parole le mette la pagina (`settingValues.ts`).
+   */
+  | { kind: "setting"; before: SettingValue | null; after: SettingValue | null };
 
 /** Una voce come la legge il client: i campi calcolati dal livello dati. */
 export interface ChangeEntryView extends ChangeEntry {
@@ -113,6 +119,12 @@ export interface ChangeEntryView extends ChangeEntry {
   /** L'oggetto non c'è più (un ruolo o un reparto eliminato): il nome resta, «(deleted)». */
   objectDeleted: boolean;
   objectLink: ChangeObjectLink | null;
+  /**
+   * La chiave i18n del nome dell'oggetto, quando il nome è una parola di
+   * Stubwise e non un nome dato da una persona (l'operazione di
+   * `model.changed`): la pagina lo traduce invece di mostrare `label`.
+   */
+  objectLabelKey?: string | null;
   /** La seconda riga della voce, `null` se la voce non ne ha (mai su un segreto). */
   diff: ChangeDiff | null;
 }

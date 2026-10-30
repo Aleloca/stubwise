@@ -98,6 +98,17 @@ export const INSTANCE_CHANGE_TYPES: readonly ChangeType[] = [
  *   `"project"` per uno nato dagli ambienti di un progetto → niente.
  * - `server.check_changed`: `check`, il nome del controllo → «“HTTP /health”».
  * Gli altri tipi del 9b non hanno parametri: dicono il resto nel prima/dopo.
+ *
+ * Il prima/dopo (Ruling T3): una voce salva VALORI STABILI, mai parole di
+ * una lingua. «On», «Default (Sonnet)», «No budget», «English» non si
+ * scrivono: si scrivono `on`/`off`, `default:sonnet`, l'importo come numero
+ * (o `null`), il locale, e la pagina li traduce a lettura. Le forme e i loro
+ * `encode*` stanno in `changelog/settingValues.ts`, insieme al decoder che
+ * `changelog/reads.ts` usa per `diff.kind === "setting"`; un tipo nuovo con
+ * valori di Stubwise si aggiunge lì (`SETTING_KINDS`) e in `ChangeEntry`.
+ * Un nome dato da una persona (un account, un server, un URL) si salva
+ * com'è. Lo stesso vale per `object.label`: l'operazione di `model.changed`
+ * si salva come id (`fix_plan`) e si traduce con `usage.operations.<op>`.
  */
 export interface InstanceChangeParams {
   "provider.created": { kind: "subscription" | "api_key" };

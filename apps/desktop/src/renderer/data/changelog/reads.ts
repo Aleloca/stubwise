@@ -7,6 +7,7 @@ import { gate, now, state, visibleProjectIds } from "../store";
 import { can, viewerFor, type Permission } from "../viewer";
 import { forbidden, notFound } from "../writer";
 import { changeTypeOf } from "./record";
+import { SETTING_KINDS, decodeSetting } from "./settingValues";
 import { MANAGE_PROJECT, readableChangeGroups } from "./visibility";
 import type {
   ChangeDiff,
@@ -81,25 +82,34 @@ const listOf = (value: string | undefined): string[] =>
  * per quelli che si eliminano, se esistono ancora. Gli altri (le impostazioni
  * dell'AI, l'archiviazione, il webhook) esistono sempre.
  */
-const INSTANCE_OBJECTS: Record<string, { section: AdminSection; exists?: (id: string) => boolean }> =
-  {
-    provider: { section: "ai", exists: (id) => state.instance.providers.some((p) => p.id === id) },
-    ai_settings: { section: "ai" },
-    git_account: {
-      section: "git-accounts",
-      exists: (id) => state.instance.gitAccounts.some((g) => g.id === id),
-    },
-    plugin: { section: "plugins", exists: (id) => state.instance.plugins.some((p) => p.id === id) },
-    google_app: { section: "google", exists: (id) => state.googleWorkspaces.some((w) => w.id === id) },
-    storage: { section: "storage" },
-    webhook: { section: "webhooks" },
-  };
+const INSTANCE_OBJECTS: Record<
+  string,
+  { section: AdminSection; exists?: (id: string) => boolean }
+> = {
+  provider: { section: "ai", exists: (id) => state.instance.providers.some((p) => p.id === id) },
+  ai_settings: { section: "ai" },
+  git_account: {
+    section: "git-accounts",
+    exists: (id) => state.instance.gitAccounts.some((g) => g.id === id),
+  },
+  plugin: { section: "plugins", exists: (id) => state.instance.plugins.some((p) => p.id === id) },
+  google_app: {
+    section: "google",
+    exists: (id) => state.googleWorkspaces.some((w) => w.id === id),
+  },
+  storage: { section: "storage" },
+  webhook: { section: "webhooks" },
+};
 
 /** Il server di una voce `server.*`, se esiste ancora (l'id dell'oggetto è il codice, `SRV-2`). */
 const serverExists = (code: string): boolean => state.servers.some((s) => s.code === code);
 
 /** Dove porta l'oggetto, per chi guarda; `null` se non c'è più o non lo può aprire. */
-function objectLinkOf(me: string, entry: ChangeEntry, people: Set<string>): ChangeObjectLink | null {
+function objectLinkOf(
+  me: string,
+  entry: ChangeEntry,
+  people: Set<string>,
+): ChangeObjectLink | null {
   const viewer = viewerFor(me);
   const { type, id } = entry.object;
   switch (type) {
@@ -182,6 +192,12 @@ const departmentName = (value: string | null): string | null =>
  */
 function diffOf(entry: ChangeEntry, people: Set<string>): ChangeDiff | null {
   const p = entry.params;
+  if (SETTING_KINDS[entry.kind]) {
+    // I valori stabili del 9b (Ruling T3): in forma di dato, le parole sono della pagina.
+    const before = decodeSetting(entry.kind, entry.before);
+    const after = decodeSetting(entry.kind, entry.after);
+    if (before || after) return { kind: "setting", before, after };
+  }
   switch (entry.kind) {
     case "person.instance_role_changed":
     case "member.role_changed":
@@ -257,6 +273,7 @@ function view(me: string, entry: ChangeEntry, people: Set<string>): ChangeEntryV
     projectCode: entry.projectId ? (state.projectsById.get(entry.projectId)?.code ?? null) : null,
     objectDeleted: objectDeletedOf(entry),
     objectLink: objectLinkOf(me, entry, people),
+    objectLabelKey: entry.kind === "model.changed" ? `usage.operations.${entry.object.id}` : null,
     diff: diffOf(entry, people),
   };
 }
@@ -305,9 +322,7 @@ export async function listProjectChanges(
  * che vede, i gruppi di voci che legge. Con `projectId` (il registro del
  * progetto) i gruppi sono quelli che legge lì.
  */
-export async function listChangeFilterChoices(
-  projectId?: string,
-): Promise<ChangeFilterChoices> {
+export async function listChangeFilterChoices(projectId?: string): Promise<ChangeFilterChoices> {
   const me = await gate("changelog.listChangeFilterChoices");
   const viewer = viewerFor(me);
   const visible = visibleProjectIds(me);

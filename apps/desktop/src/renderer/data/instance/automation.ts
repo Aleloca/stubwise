@@ -1,4 +1,5 @@
 import { recordChange } from "../changelog/index";
+import { encodeAutomation, type PrReviewValue } from "../changelog/settingValues";
 import type { TaskType } from "../model";
 import { gate, state } from "../store";
 import { forbidden, writer } from "../writer";
@@ -16,12 +17,6 @@ import type { InstanceResult } from "./types";
 export type AutomationSettings = InstanceState["automation"];
 
 const TASK_TYPES: readonly TaskType[] = ["bug", "feature", "activity"];
-const TASK_TYPE_NAMES: Record<TaskType, string> = {
-  bug: "Bug",
-  feature: "Feature",
-  activity: "Activity",
-};
-
 const canRead = (me: string) => canI(me, "settings.manage") || canI(me, "ai_providers.manage");
 
 const copy = (a: AutomationSettings): AutomationSettings => ({
@@ -32,22 +27,6 @@ const copy = (a: AutomationSettings): AutomationSettings => ({
 const isEffort = (n: unknown): boolean =>
   Number.isInteger(n) && (n as number) >= 1 && (n as number) <= 5;
 const isCost = (n: number | null): boolean => n === null || (Number.isFinite(n) && n >= 0);
-const money = (n: number): string => `$${Number.isInteger(n) ? n : n.toFixed(2)}`;
-
-/** Una regola in parole per il prima/dopo: «Bug: auto-fix up to effort 2». */
-function describeRule(r: AutomationRule): string {
-  const parts = [`${r.autoFix ? "auto-fix" : "no auto-fix"} up to effort ${r.maxEffort}`];
-  if (r.planApprovalMinEffort !== null)
-    parts.push(`plan approval from effort ${r.planApprovalMinEffort}`);
-  if (r.maxCostUsd !== null) parts.push(`cap ${money(r.maxCostUsd)}`);
-  return `${TASK_TYPE_NAMES[r.taskType]}: ${parts.join(", ")}`;
-}
-
-function describeReview(p: AutomationSettings["prReview"]): string {
-  if (!p.enabled) return "PR review off";
-  return p.maxCostUsd === null ? "PR review, no cap" : `PR review cap ${money(p.maxCostUsd)}`;
-}
-
 const sameRule = (a: AutomationRule, b: AutomationRule): boolean =>
   a.autoFix === b.autoFix &&
   a.maxEffort === b.maxEffort &&
@@ -85,29 +64,29 @@ export async function saveAutomation(input: AutomationSettings): Promise<Instanc
     rules: TASK_TYPES.map((t) => input.rules.find((r) => r.taskType === t)!),
     prReview: input.prReview,
   });
-  const before: string[] = [];
-  const after: string[] = [];
+  // Il prima/dopo: le sole righe cambiate, in valori stabili (Ruling T3).
+  const before: AutomationRule[] = [];
+  const after: AutomationRule[] = [];
   for (const rule of next.rules) {
     const old = saved.rules.find((r) => r.taskType === rule.taskType);
     if (old && sameRule(old, rule)) continue;
-    if (old) before.push(describeRule(old));
-    after.push(describeRule(rule));
+    if (old) before.push(old);
+    after.push(rule);
   }
   const review = saved.prReview;
-  if (review.enabled !== next.prReview.enabled || review.maxCostUsd !== next.prReview.maxCostUsd) {
-    before.push(describeReview(review));
-    after.push(describeReview(next.prReview));
-  }
-  if (after.length === 0) return { ok: true };
+  const reviewChanged =
+    review.enabled !== next.prReview.enabled || review.maxCostUsd !== next.prReview.maxCostUsd;
+  if (after.length === 0 && !reviewChanged) return { ok: true };
+  const reviewOf = (p: PrReviewValue): PrReviewValue | null => (reviewChanged ? { ...p } : null);
 
   state.instance.automation = next;
   recordChange({
     kind: "automation.changed",
     actorId: me,
     projectId: null,
-    object: { type: "ai_settings", id: "automation", label: "Automation" },
-    before: before.join(" · "),
-    after: after.join(" · "),
+    object: { type: "ai_settings", id: "automation", label: "automation" },
+    before: encodeAutomation(before, reviewOf(review)),
+    after: encodeAutomation(after, reviewOf(next.prReview)),
   });
   return { ok: true };
 }

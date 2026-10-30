@@ -310,8 +310,8 @@ describe("la catena dei provider", () => {
       id: "prv-billing-key",
     });
     expect(state.changelog.map((e) => [e.kind, e.object.label, e.before, e.after])).toEqual([
-      ["provider.updated", "Team Max", "On", "Off"],
-      ["provider.updated", "Backup Max", "On", "Off"],
+      ["provider.updated", "Team Max", "on", "off"],
+      ["provider.updated", "Backup Max", "on", "off"],
     ]);
   });
 
@@ -388,11 +388,16 @@ describe("modelli per operazione", () => {
     expect(await instance.setModel("fix_plan", null)).toMatchObject({ ok: true });
     expect(instance.modelFor("fix_plan")).toEqual({ model: "sonnet", source: "default" });
     expect(state.changelog.map((e) => [e.kind, e.object.id, e.before, e.after])).toEqual([
-      ["model.changed", "mail_classify", "Server configuration (Haiku)", "Opus"],
-      ["model.changed", "mail_classify", "Opus", "Server configuration (Haiku)"],
-      ["model.changed", "fix_plan", "Opus", "Default (Sonnet)"],
+      ["model.changed", "mail_classify", "env:haiku", "set:opus"],
+      ["model.changed", "mail_classify", "set:opus", "env:haiku"],
+      ["model.changed", "fix_plan", "set:opus", "default:sonnet"],
     ]);
-    expect(state.changelog[2]!.object).toMatchObject({ type: "ai_settings", label: "Fix plan" });
+    // L'id dell'operazione, mai un nome in una lingua (Ruling T3).
+    expect(state.changelog[2]!.object).toEqual({
+      type: "ai_settings",
+      id: "fix_plan",
+      label: "fix_plan",
+    });
   });
 
   it("listModels: solo le operazioni configurabili, con gruppo e fonte", async () => {
@@ -432,8 +437,16 @@ describe("automazione", () => {
     expect(state.changelog).toHaveLength(1);
     const e = state.changelog[0]!;
     expect(e.kind).toBe("automation.changed");
-    expect(e.before).toBe("Bug: auto-fix up to effort 2 · PR review cap $2");
-    expect(e.after).toBe("Bug: auto-fix up to effort 3 · PR review cap $3");
+    // Valori stabili (Ruling T3): le sole righe cambiate, in JSON.
+    const rule = { taskType: "bug", autoFix: true, planApprovalMinEffort: null, maxCostUsd: null };
+    expect(JSON.parse(e.before!)).toEqual({
+      rules: [{ ...rule, maxEffort: 2 }],
+      prReview: { enabled: true, maxCostUsd: 2 },
+    });
+    expect(JSON.parse(e.after!)).toEqual({
+      rules: [{ ...rule, maxEffort: 3 }],
+      prReview: { enabled: true, maxCostUsd: 3 },
+    });
   });
 
   it("un costo negativo o un effort fuori da 1–5 sono invalid", async () => {
@@ -498,16 +511,16 @@ describe("budget e lingua", () => {
     await instance.saveBudget({ monthlyUsd: null, contentLanguage: "en" });
     expect(instance.budgetReached()).toBe(false);
     expect(state.changelog.map((e) => [e.kind, e.before, e.after])).toEqual([
-      ["budget.changed", "$600", "$100"],
-      ["budget.changed", "$100", "$5000"],
-      ["budget.changed", "$5000", "No budget"],
+      ["budget.changed", "600", "100"],
+      ["budget.changed", "100", "5000"],
+      ["budget.changed", "5000", null],
     ]);
   });
 
   it("budget e lingua: voci separate", async () => {
     await instance.saveBudget({ monthlyUsd: 800, contentLanguage: "it" });
     expect(kinds()).toEqual(["budget.changed", "content_language.changed"]);
-    expect(state.changelog[1]).toMatchObject({ before: "English", after: "Italiano" });
+    expect(state.changelog[1]).toMatchObject({ before: "en", after: "it" });
     await instance.saveBudget({ monthlyUsd: 800, contentLanguage: "it" });
     expect(state.changelog).toHaveLength(2);
   });

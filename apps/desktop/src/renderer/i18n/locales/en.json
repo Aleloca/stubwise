@@ -9180,6 +9180,45 @@
         "orphan": " (not in any project)",
         "project": ""
       }
+    },
+    "values": {
+      "on": "On",
+      "off": "Off",
+      "model": {
+        "default": "Default ({{model}})",
+        "env": "Server configuration ({{model}})"
+      },
+      "noBudget": "No budget",
+      "autoFix": "auto-fix up to effort {{effort}}",
+      "autoFixOff": "auto-fix off, up to effort {{effort}} by hand",
+      "planApproval": "plan approval from effort {{effort}}",
+      "cap": "cap {{amount}}",
+      "reviewOff": "PR review off",
+      "reviewNoCap": "PR review, no cap",
+      "reviewCap": "PR review cap {{amount}}"
+    }
+  },
+  "usage": {
+    "operations": {
+      "triage": "Task triage",
+      "fix_plan": "Fix plan",
+      "fix_execute": "Fix execution",
+      "pr_review": "Pull request review",
+      "summary": "Task summaries",
+      "backlog_intake": "Backlog intake",
+      "backlog_refine": "Backlog refinement",
+      "commit_summary": "Commit summaries",
+      "release_notes": "Release notes",
+      "docs_nightly": "Nightly Docs",
+      "docs_generation": "Docs generation",
+      "daily_report": "Daily report",
+      "weekly_brief": "Weekly brief",
+      "mail_classify": "Mail classification",
+      "chat": "Chats with Claude",
+      "backlog_merge": "Backlog document merge",
+      "plugin_smoke": "Plugin smoke run",
+      "credential_test": "Credential test",
+      "usage_probe": "Usage reading"
     }
   }
 }

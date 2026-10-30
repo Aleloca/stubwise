@@ -9180,6 +9180,45 @@
         "orphan": " (in nessun progetto)",
         "project": ""
       }
+    },
+    "values": {
+      "on": "Acceso",
+      "off": "Spento",
+      "model": {
+        "default": "Predefinito ({{model}})",
+        "env": "Configurazione del server ({{model}})"
+      },
+      "noBudget": "Nessun budget",
+      "autoFix": "auto-fix fino all'effort {{effort}}",
+      "autoFixOff": "auto-fix spento, fino all'effort {{effort}} a mano",
+      "planApproval": "approvazione del piano dall'effort {{effort}}",
+      "cap": "tetto {{amount}}",
+      "reviewOff": "revisione delle PR spenta",
+      "reviewNoCap": "revisione delle PR, nessun tetto",
+      "reviewCap": "tetto della revisione delle PR {{amount}}"
+    }
+  },
+  "usage": {
+    "operations": {
+      "triage": "Smistamento delle task",
+      "fix_plan": "Piano della correzione",
+      "fix_execute": "Esecuzione della correzione",
+      "pr_review": "Revisione delle pull request",
+      "summary": "Riassunti delle task",
+      "backlog_intake": "Intake del backlog",
+      "backlog_refine": "Affinamento del backlog",
+      "commit_summary": "Riassunto dei commit",
+      "release_notes": "Note di rilascio",
+      "docs_nightly": "Docs notturni",
+      "docs_generation": "Generazione dei Docs",
+      "daily_report": "Report giornaliero",
+      "weekly_brief": "Brief settimanale",
+      "mail_classify": "Classificazione della posta",
+      "chat": "Conversazioni con Claude",
+      "backlog_merge": "Unione dei documenti del backlog",
+      "plugin_smoke": "Prova del plugin",
+      "credential_test": "Prova della credenziale",
+      "usage_probe": "Lettura dei consumi"
     }
   }
 }

@@ -1,7 +1,12 @@
 import { Link } from "@tanstack/react-router";
 import { useId, useState, type ReactNode } from "react";
 import { Trans, useTranslation } from "react-i18next";
-import type { ChangeDiff, ChangeEntryView } from "../../data/queries";
+import type {
+  AutomationRuleValue,
+  ChangeDiff,
+  ChangeEntryView,
+  SettingValue,
+} from "../../data/queries";
 import { capitalized, usePermissionWords } from "./parts";
 
 // Una voce del registro delle modifiche (shape admin-audit.md, `ChangeEntry`).
@@ -89,15 +94,71 @@ function ObjectRef({ entry, children }: { entry: ChangeEntryView; children?: Rea
   );
 }
 
+/** «$600», «$12.50». */
+const usd = (n: number): string => `$${Number.isInteger(n) ? n : n.toFixed(2)}`;
+/** «opus» → «Opus»; un id preciso («claude-opus-5-5») resta com'è. */
+const modelName = (m: string): string =>
+  /^[a-z]+$/.test(m) ? `${m[0]!.toUpperCase()}${m.slice(1)}` : m;
+
+/**
+ * Un valore stabile di una voce d'impostazione del 9b (Ruling T3), nella
+ * lingua di chi legge: la voce salva `on`, `default:sonnet`, `600`, `it`…,
+ * le parole sono qui.
+ */
+function useSettingWords() {
+  const { t } = useTranslation();
+  const rule = (r: AutomationRuleValue): string => {
+    const parts = [
+      t(r.autoFix ? "changelog.values.autoFix" : "changelog.values.autoFixOff", {
+        effort: r.maxEffort,
+      }),
+    ];
+    if (r.planApprovalMinEffort !== null)
+      parts.push(t("changelog.values.planApproval", { effort: r.planApprovalMinEffort }));
+    if (r.maxCostUsd !== null) parts.push(t("changelog.values.cap", { amount: usd(r.maxCostUsd) }));
+    return `${t(`taskDetail.types.${r.taskType}`)}: ${parts.join(", ")}`;
+  };
+  return (v: SettingValue | null): string => {
+    if (v === null) return t("changelog.entry.none");
+    switch (v.type) {
+      case "switch":
+        return t(v.on ? "changelog.values.on" : "changelog.values.off");
+      case "model":
+        return v.source === "set"
+          ? modelName(v.model)
+          : t(`changelog.values.model.${v.source}`, { model: modelName(v.model) });
+      case "budget":
+        return v.usd === null ? t("changelog.values.noBudget") : usd(v.usd);
+      case "language":
+        return t(`rail.languages.${v.locale}`);
+      case "automation": {
+        const parts = v.rules.map(rule);
+        if (v.prReview)
+          parts.push(
+            !v.prReview.enabled
+              ? t("changelog.values.reviewOff")
+              : v.prReview.maxCostUsd === null
+                ? t("changelog.values.reviewNoCap")
+                : t("changelog.values.reviewCap", { amount: usd(v.prReview.maxCostUsd) }),
+          );
+        return parts.join(" · ");
+      }
+    }
+  };
+}
+
 /** La seconda riga, in parole: «Developer → Release manager», «+ a, + b · − c». */
 function useDiffLine() {
   const { t } = useTranslation();
   const words = usePermissionWords();
+  const setting = useSettingWords();
   return (diff: ChangeDiff): string | null => {
     const none = t("changelog.entry.none");
     switch (diff.kind) {
       case "values":
         return `${diff.before ?? none} → ${diff.after ?? none}`;
+      case "setting":
+        return `${setting(diff.before)} → ${setting(diff.after)}`;
       case "permissions": {
         if (diff.role) {
           const extra = [...diff.added, ...diff.removed].map(words).join(", ");
@@ -140,7 +201,9 @@ export function ChangeEntry({
   const values = {
     ...entry.params,
     actor: entry.actorName,
-    object: entry.object.label,
+    // Il nome di un oggetto che è una parola di Stubwise (l'operazione di
+    // `model.changed`) si traduce; un nome dato da una persona resta com'è.
+    object: entry.objectLabelKey ? t(entry.objectLabelKey) : entry.object.label,
     project: entry.projectCode ?? entry.params.project ?? "",
     role: entry.params.role ?? entry.after ?? "",
     permission: words(permission),
@@ -157,10 +220,7 @@ export function ChangeEntry({
       data-change-entry={entry.kind}
       className="@container grid grid-cols-[48px_minmax(0,1fr)] gap-x-3 py-3"
     >
-      <time
-        dateTime={entry.at}
-        className="num pt-px text-xs leading-5 text-ink-faint"
-      >
+      <time dateTime={entry.at} className="num pt-px text-xs leading-5 text-ink-faint">
         {timeOf(entry.at, i18n.language)}
       </time>
       <div className="min-w-0">

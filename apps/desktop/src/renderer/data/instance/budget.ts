@@ -1,4 +1,5 @@
 import { recordChange } from "../changelog/index";
+import { encodeBudget } from "../changelog/settingValues";
 import { gate, state } from "../store";
 import { forbidden, writer } from "../writer";
 import { budgetReached, spentThisMonthUsd } from "./blocks";
@@ -23,12 +24,7 @@ export interface BudgetView {
   contentLanguage: ContentLanguage;
 }
 
-const LANGUAGE_NAMES: Record<ContentLanguage, string> = { en: "English", it: "Italiano" };
-
 const canRead = (me: string) => canI(me, "settings.manage") || canI(me, "ai_providers.manage");
-const amount = (n: number | null): string =>
-  n === null ? "No budget" : `$${Number.isInteger(n) ? n : n.toFixed(2)}`;
-
 /** Il budget, lo speso del mese, se è raggiunto e la lingua dei contenuti. */
 export async function getBudget(): Promise<BudgetView> {
   const me = await gate("instance.getBudget");
@@ -47,18 +43,18 @@ export async function saveBudget(input: {
   const { monthlyUsd, contentLanguage } = input;
   if (monthlyUsd !== null && !(Number.isFinite(monthlyUsd) && monthlyUsd >= 0))
     return refuse.invalid("amount");
-  if (!(contentLanguage in LANGUAGE_NAMES)) return refuse.invalid("language");
+  if (contentLanguage !== "en" && contentLanguage !== "it") return refuse.invalid("language");
 
   const saved = state.instance.budget;
-  const object = { type: "ai_settings", id: "budget", label: "Budget & language" };
+  // Valori stabili (Ruling T3): l'importo come numero o `null`, il locale.
   if (saved.monthlyUsd !== monthlyUsd) {
     recordChange({
       kind: "budget.changed",
       actorId: me,
       projectId: null,
-      object,
-      before: amount(saved.monthlyUsd),
-      after: amount(monthlyUsd),
+      object: { type: "ai_settings", id: "budget", label: "budget" },
+      before: encodeBudget(saved.monthlyUsd),
+      after: encodeBudget(monthlyUsd),
     });
   }
   if (saved.contentLanguage !== contentLanguage) {
@@ -66,9 +62,9 @@ export async function saveBudget(input: {
       kind: "content_language.changed",
       actorId: me,
       projectId: null,
-      object,
-      before: LANGUAGE_NAMES[saved.contentLanguage],
-      after: LANGUAGE_NAMES[contentLanguage],
+      object: { type: "ai_settings", id: "content_language", label: "content_language" },
+      before: saved.contentLanguage,
+      after: contentLanguage,
     });
   }
   state.instance.budget = { monthlyUsd, contentLanguage };

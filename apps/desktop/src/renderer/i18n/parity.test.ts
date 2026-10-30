@@ -59,6 +59,9 @@ describe("parità delle chiavi en/it", () => {
         "entry",
         "permissions",
         "admin",
+        // Area 9b: i nomi delle operazioni AI (`usage.operations.<op>`), del
+        // registro e delle schede Models e Usage.
+        "usage",
       ].sort(),
     );
   });

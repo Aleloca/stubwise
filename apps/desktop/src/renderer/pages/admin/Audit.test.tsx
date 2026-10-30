@@ -256,8 +256,8 @@ describe("Change log in Amministrazione", () => {
       actorId: ROBERTA,
       projectId: null,
       object: { type: "provider", id: "prv-backup-max", label: "Backup Max" },
-      before: "On",
-      after: "Off",
+      before: "on",
+      after: "off",
     });
     recordChange({
       kind: "server.thresholds_changed",
