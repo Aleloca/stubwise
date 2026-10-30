@@ -5,8 +5,8 @@ import type { Conversation, ModelUsage, RunProvider } from "../types";
 // chiavi inventati (mai un segreto), token e costi plausibili, non misurati.
 
 /** L'account in abbonamento del team: lo usano le sessioni nuove. */
-export const TEAM_ACCOUNT: RunProvider = { kind: "account", name: "Team Max" };
-const BILLING_KEY: RunProvider = { kind: "api_key", name: "Billing key" };
+export const TEAM_ACCOUNT: RunProvider = { kind: "account", name: "Team Max", id: "prv-team-max" };
+const BILLING_KEY: RunProvider = { kind: "api_key", name: "Billing key", id: "prv-billing-key" };
 
 const sonnet = (
   inputTokens: number,

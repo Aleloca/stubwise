@@ -6,6 +6,15 @@
 // li legge solo il livello dati.
 import "./changeTypes";
 
+export {
+  getUsage,
+  recordUsage,
+  spentThisMonthUsd,
+  type UsageDimension,
+  type UsageRange,
+  type UsageRow,
+  type UsageView,
+} from "./usage";
 export type { InstanceRefusal, InstanceResult } from "./types";
 export type {
   AiProvider,

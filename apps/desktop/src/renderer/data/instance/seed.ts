@@ -1,5 +1,6 @@
 import type { AiModelChoice, AiOperation } from "@stubwise/shared";
 import { TODAY, daysFromToday } from "../seed/dates";
+import { seedUsage } from "../seed/usage";
 import type { AutomationRule, InstanceState } from "./state";
 
 // Il seme dello stato d'istanza (area 9b, design «Dati finti»). Lo legge
@@ -204,7 +205,7 @@ export function seedInstanceState(): InstanceState {
     },
     // La coda di STW in pausa da Roberta, ieri alle 18:00.
     queuePauses: [{ projectId: "prj-stw", byId: "p-roberta", at: at(-1, "18:00") }],
-    usage: [],
+    usage: seedUsage(),
     nightly: [],
     simulate: { nextTest: {}, budgetReached: false },
   };

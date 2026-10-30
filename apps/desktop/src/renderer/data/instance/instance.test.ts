@@ -349,8 +349,8 @@ describe("il seme dell'istanza", () => {
     expect(state.tasksById.get(failed[0]!.taskId!)!.claude).toBe("stopped");
   });
 
-  it("consumi e giro notturno arrivano coi Task 2 e 5; nessuna simulazione accesa", () => {
-    expect(state.instance.usage).toEqual([]);
+  it("i consumi hanno il loro seme (Task 2); il giro notturno arriva col Task 5; nessuna simulazione accesa", () => {
+    expect(state.instance.usage.length).toBeGreaterThan(0);
     expect(state.instance.nightly).toEqual([]);
     expect(state.instance.simulate).toEqual({ nextTest: {}, budgetReached: false });
   });

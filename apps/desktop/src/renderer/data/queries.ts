@@ -3796,3 +3796,4 @@ export * from "./queries/servers";
 export * from "./queries/admin";
 export * from "./queries/entry";
 export * from "./queries/me";
+export * from "./queries/instance";

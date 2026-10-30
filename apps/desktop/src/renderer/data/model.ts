@@ -344,6 +344,8 @@ export interface PrFact extends PrRef {
 export interface RunProvider {
   kind: "account" | "api_key";
   name: string;
+  /** L'id del provider d'istanza (area 9b): i consumi lo nominano, il nome si può cambiare. */
+  id?: string;
 }
 
 /** I consumi di una sessione per modello (token e costo in USD). */
