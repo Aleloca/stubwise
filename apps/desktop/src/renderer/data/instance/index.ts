@@ -15,6 +15,38 @@ export {
   type UsageRow,
   type UsageView,
 } from "./usage";
+export {
+  BACKGROUND_WEEKLY_THRESHOLD,
+  QUOTA_NEAR_PCT,
+  createProvider,
+  deleteProvider,
+  listProviders,
+  moveProvider,
+  pickProvider,
+  replaceProviderCredential,
+  setProviderEnabled,
+  simulateNextTest,
+  testProvider,
+  type ProviderView,
+  type QuotaView,
+} from "./providers";
+export {
+  DEFAULT_MODELS,
+  listModels,
+  modelFor,
+  setModel,
+  type ModelRow,
+  type ModelSource,
+} from "./models";
+export { getAutomation, saveAutomation, type AutomationSettings } from "./automation";
+export {
+  budgetReached,
+  getBudget,
+  saveBudget,
+  simulateBudgetReached,
+  type BudgetView,
+  type ContentLanguage,
+} from "./budget";
 export type { InstanceRefusal, InstanceResult } from "./types";
 export type {
   AiProvider,

@@ -157,13 +157,8 @@ export async function getUsage(input: {
   return { totals, byDay, rows };
 }
 
-/** Lo speso del mese in corso, su tutti i progetti (il budget non guarda chi guarda). */
-export function spentThisMonthUsd(): number {
-  const month = now().slice(0, 7);
-  return round6(
-    state.instance.usage.filter((r) => r.at.startsWith(month)).reduce((a, r) => a + r.costUsd, 0),
-  );
-}
+// Lo speso del mese sta nel modulo foglia dei blocchi: lo legge `budgetReached`.
+export { spentThisMonthUsd } from "./blocks";
 
 /** Aggiunge una voce di consumo (ogni run AI simulata): l'id lo dà il prototipo. */
 export function recordUsage(r: Omit<UsageRecord, "id">): void {
