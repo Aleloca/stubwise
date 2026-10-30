@@ -16,7 +16,9 @@ export type {
   BudgetSaveEffect,
   BudgetView,
   ContentLanguage,
+  GitAccountView,
   InstanceResult,
+  PluginView,
   ModelRow,
   ModelSource,
   ProviderView,
@@ -232,5 +234,130 @@ export function useSimulateBudgetReached() {
   return useWrite(
     (on: boolean) => api.instance.simulateBudgetReached(on),
     INSTANCE_EFFECT_AREAS,
+  );
+}
+
+// --- Git accounts e Plugins (Task 10) ----------------------------------------
+//
+// Ogni scrittura ricarica l'istanza e il registro. Il token passa solo come
+// argomento di una scrittura: nessuna lettura lo porta (RF 1). Le transizioni
+// dei plugin (preparazione, smoke test) non passano da una chiamata: mentre
+// un plugin ha un passo in corso (`busy`, dal livello dati) le letture si
+// ripetono da sole.
+
+/** Quanto spesso si rilegge un plugin con un passo in corso (il passo dura `PLUGIN_STEP_MS`). */
+const PLUGIN_REFRESH_MS = 300;
+const INTEGRATION_WRITE_AREAS: readonly string[] = ["instance", "changelog"];
+
+/** Gli account git, coi repository che li usano (errore `forbidden` senza `git_accounts.view` né `.manage`). */
+export function useGitAccounts() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "instance", "git-accounts"] as const,
+    queryFn: () => api.instance.listGitAccounts(),
+  });
+}
+
+/** Aggiunge un account (+R). */
+export function useCreateGitAccount() {
+  return useWrite(
+    (input: Parameters<typeof api.instance.createGitAccount>[0]) =>
+      api.instance.createGitAccount(input),
+    INTEGRATION_WRITE_AREAS,
+  );
+}
+
+export function useUpdateGitAccount() {
+  return useWrite(
+    ([id, input]: [string, Parameters<typeof api.instance.updateGitAccount>[1]]) =>
+      api.instance.updateGitAccount(id, input),
+    INTEGRATION_WRITE_AREAS,
+  );
+}
+
+/** Sostituisce il token (+R). */
+export function useReplaceGitToken() {
+  return useWrite(
+    ([id, token]: [string, string]) => api.instance.replaceGitToken(id, token),
+    INTEGRATION_WRITE_AREAS,
+  );
+}
+
+export function useValidateGitAccount() {
+  return useWrite((id: string) => api.instance.validateGitAccount(id), INTEGRATION_WRITE_AREAS);
+}
+
+/** Elimina un account (+R); in uso → `in_use` coi repository visibili e gli altri contati. */
+export function useDeleteGitAccount() {
+  return useWrite((id: string) => api.instance.deleteGitAccount(id), INTEGRATION_WRITE_AREAS);
+}
+
+export function useSetDefaultReviewer() {
+  return useWrite(
+    ([id, on]: [string, boolean]) => api.instance.setDefaultReviewer(id, on),
+    INTEGRATION_WRITE_AREAS,
+  );
+}
+
+/** I plugin del registro; si rileggono da soli finché uno ha un passo in corso. */
+export function usePlugins() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "instance", "plugins"] as const,
+    queryFn: () => api.instance.listPlugins(),
+    refetchInterval: (query) =>
+      query.state.data?.some((p) => p.busy) ? PLUGIN_REFRESH_MS : false,
+  });
+}
+
+/** Un plugin con l'inventario intero; si rilegge da solo finché ha un passo in corso. */
+export function usePlugin(id: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "instance", "plugin", id] as const,
+    queryFn: () => api.instance.getPlugin(id),
+    refetchInterval: (query) => (query.state.data?.busy ? PLUGIN_REFRESH_MS : false),
+  });
+}
+
+/** Registra un plugin (casella «Mi fido» e +R). */
+export function useRegisterPlugin() {
+  return useWrite(
+    (input: Parameters<typeof api.instance.registerPlugin>[0]) =>
+      api.instance.registerPlugin(input),
+    INTEGRATION_WRITE_AREAS,
+  );
+}
+
+/** Aggiorna a un ref (casella «Mi fido» e +R). */
+export function useUpdatePluginRef() {
+  return useWrite(
+    ([id, input]: [string, Parameters<typeof api.instance.updatePluginRef>[1]]) =>
+      api.instance.updatePluginRef(id, input),
+    INTEGRATION_WRITE_AREAS,
+  );
+}
+
+export function useRerunSmoke() {
+  return useWrite((id: string) => api.instance.rerunSmoke(id), INTEGRATION_WRITE_AREAS);
+}
+
+export function useRemovePlugin() {
+  return useWrite((id: string) => api.instance.removePlugin(id), INTEGRATION_WRITE_AREAS);
+}
+
+/** SOLO PROTOTIPO: come finirà la prossima preparazione, per il riquadro. */
+export function useNextPluginOutcome() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "instance", "plugin-outcome"] as const,
+    queryFn: () => api.instance.getNextPluginOutcome(),
+  });
+}
+
+export function useSimulateNextPluginOutcome() {
+  return useWrite(
+    (outcome: "ready" | "failed") => api.instance.simulateNextPluginOutcome(outcome),
+    ["instance"],
   );
 }

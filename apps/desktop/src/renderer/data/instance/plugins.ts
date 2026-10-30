@@ -33,13 +33,20 @@ const MANAGE = "plugins.manage";
 /** Lo slug è un pezzo di percorso sul volume del worker: lo stesso pattern di `@stubwise/shared`. */
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
-export type PluginView = RegisteredPlugin & { registeredByName: string | null };
+export type PluginView = RegisteredPlugin & {
+  registeredByName: string | null;
+  /**
+   * Un passo del ciclo è in corso (preparazione o smoke test): la pagina
+   * rilegge da sola, e aggiornare o rifare lo smoke aspettano.
+   */
+  busy: boolean;
+};
 
 const pluginOf = (id: string) => state.instance.plugins.find((p) => p.id === id);
 const objectOf = (p: RegisteredPlugin) => ({ type: "plugin", id: p.id, label: p.name });
 
 function viewOf(p: RegisteredPlugin): PluginView {
-  return { ...structuredClone(p), registeredByName: nameOf(p.registeredById) };
+  return { ...structuredClone(p), registeredByName: nameOf(p.registeredById), busy: busy(p) };
 }
 
 function managed(
@@ -82,12 +89,12 @@ const lastSegment = (path: string): string | null => path.split("/").filter(Bool
  * Lo slug: l'ultimo segmento della sottocartella se c'è, altrimenti quello
  * dell'indirizzo, senza `.git`. Non si «aggiusta» (il web lo normalizza, il
  * prototipo lo mostra com'è nel rifiuto, shape «“My_Plugin”, which isn't
- * allowed»): fuori dal pattern è `null`.
+ * allowed»): `ok` dice se rispetta il pattern, `name` è com'è.
  */
-function slugOf(url: string, subdir: string | null): string | null {
+function slugOf(url: string, subdir: string | null): { name: string; ok: boolean } {
   const raw = subdir ? lastSegment(subdir) : lastSegment(new URL(url).pathname);
-  const slug = raw?.replace(/\.git$/, "") ?? "";
-  return SLUG_RE.test(slug) ? slug : null;
+  const name = raw?.replace(/\.git$/, "") ?? "";
+  return { name, ok: SLUG_RE.test(name) };
 }
 
 /** L'indirizzo per riconoscere un doppione: senza maiuscole nell'host, `.git` e `/` finali. */
@@ -207,6 +214,13 @@ export async function getPlugin(id: string): Promise<PluginView> {
   return viewOf(p);
 }
 
+/** SOLO PROTOTIPO: come finirà la prossima registrazione o il prossimo aggiornamento (il riquadro lo rilegge). */
+export async function getNextPluginOutcome(): Promise<"ready" | "failed"> {
+  const me = await gate("instance.getNextPluginOutcome");
+  if (!canI(me, MANAGE)) throw forbidden();
+  return state.instance.simulate.nextPluginOutcome;
+}
+
 // --- scritture -------------------------------------------------------------------
 
 /**
@@ -222,7 +236,7 @@ export async function registerPlugin(input: {
   ref: string;
   subdir: string | null;
   trusted: true;
-}): Promise<InstanceResult<{ pluginId: string }>> {
+}): Promise<InstanceResult<{ pluginId: string; name: string }>> {
   const me = await writer("instance.registerPlugin");
   if (!canI(me, MANAGE)) return refuse.forbidden();
   if (input.trusted !== true) return refuse.invalid("not_trusted");
@@ -233,11 +247,14 @@ export async function registerPlugin(input: {
   if (!ref) return refuse.invalid("ref");
   const subdir = cleanSubdir(input.subdir);
   if (subdir === undefined) return refuse.invalid("subdir");
-  const slug = slugOf(url, subdir);
-  if (!slug) return refuse.invalid("slug");
+  const { name: slug, ok: slugOk } = slugOf(url, subdir);
+  // Il nome com'è, perché la frase lo dica (vuoto: l'indirizzo non ne dà uno).
+  if (!slugOk) return { ok: false, error: "invalid", reason: "slug", name: slug };
   const source = sameSource(url);
-  if (state.instance.plugins.some((p) => sameSource(p.url) === source && p.subdir === subdir))
-    return refuse.invalid("duplicate");
+  const same = state.instance.plugins.find(
+    (p) => sameSource(p.url) === source && p.subdir === subdir,
+  );
+  if (same) return { ok: false, error: "invalid", reason: "duplicate", name: same.name };
   if (state.instance.plugins.some((p) => p.slug === slug)) return refuse.conflict();
   const blocked = reauthRefusal(me, "instance.registerPlugin");
   if (blocked) return blocked;
@@ -267,7 +284,7 @@ export async function registerPlugin(input: {
     params: { ref },
   });
   materialize(plugin);
-  return { ok: true, pluginId: plugin.id };
+  return { ok: true, pluginId: plugin.id, name: plugin.name };
 }
 
 /**

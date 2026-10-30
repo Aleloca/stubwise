@@ -8987,6 +8987,211 @@
         "replaceOf": "Sostituisci {{label}}",
         "saved": "{{label}}: finisce con {{last4}}"
       }
+    },
+    "integrations": {
+      "forbidden": "Non puoi più cambiarlo.",
+      "saveFailed": "Impossibile salvare. Riprova.",
+      "cancel": "Annulla",
+      "close": "Chiudi",
+      "saved": "Salvato.",
+      "optional": "facoltativo",
+      "check": {
+        "checking": "Verifica in corso…",
+        "checked": "verificato il {{date}} · funziona",
+        "notChecked": "non ancora verificato",
+        "invalid_credentials": "credenziali non valide",
+        "unreachable": "non raggiungibile"
+      },
+      "prototype": {
+        "label": "Solo prototipo",
+        "checkIntro": "Non si contatta niente di vero. Scegli cosa risponde la prossima verifica.",
+        "account": "Account",
+        "outcome": "Prossima verifica",
+        "ok": "Funziona",
+        "invalid_credentials": "Credenziali non valide",
+        "unreachable": "Non raggiungibile"
+      }
+    },
+    "git": {
+      "title": "Account git",
+      "intro": "Le credenziali con cui Stubwise legge e scrive i repository. Un account può servire più progetti.",
+      "new": "Nuovo account",
+      "list": "Account git",
+      "readOnly": "Puoi leggere questi account. Per cambiarli serve chi può gestire gli account git.",
+      "loadError": "Impossibile caricare gli account git.",
+      "retry": "Riprova",
+      "empty": "Nessun account git. Un progetto ne ha bisogno per collegare un repository.",
+      "emptyReadOnly": "Per aggiungerne uno serve chi può gestire gli account git.",
+      "platform": {
+        "github": "GitHub",
+        "bitbucket": "Bitbucket"
+      },
+      "defaultReviewer": "Revisore predefinito",
+      "validate": "Verifica",
+      "menu": "Altro per {{name}}",
+      "usedBy_one": "Usato da {{count}} repository in {{codes}}",
+      "usedBy_other": "Usato da {{count}} repository in {{codes}}",
+      "andHidden_one": "e {{count}} in un progetto che non vedi",
+      "andHidden_other": "e {{count}} in progetti che non vedi",
+      "onlyHidden_one": "Usato da {{count}} repository in un progetto che non vedi",
+      "onlyHidden_other": "Usato da {{count}} repository in progetti che non vedi",
+      "notUsed": "Non ancora usato",
+      "edit": "Modifica…",
+      "replaceToken": "Sostituisci il token…",
+      "makeDefault": "Rendi revisore predefinito",
+      "stopDefault": "Non più revisore predefinito",
+      "delete": "Elimina…",
+      "stopped": "{{name}} non è più il revisore predefinito.",
+      "createDialog": {
+        "title": "Nuovo account git",
+        "platform": "Piattaforma",
+        "name": "Nome",
+        "namePlaceholder": "es. GitHub Release",
+        "workspace": "Workspace",
+        "workspaceHint": "Lo slug del workspace, es. audin. Bitbucket ne ha bisogno per elencare i repository.",
+        "token": "Token",
+        "bottom": "Dopo il salvataggio, usa Verifica per controllarlo.",
+        "submit": "Crea",
+        "action": "aggiungere l'account git {{name}}",
+        "created": "{{name}} creato.",
+        "errors": {
+          "name": "Dagli un nome.",
+          "workspace": "Per Bitbucket serve il workspace.",
+          "token": "Incolla il token.",
+          "taken": "C'è già un account git che si chiama {{name}}."
+        }
+      },
+      "editDialog": {
+        "title": "Modifica {{name}}",
+        "submit": "Salva",
+        "reviewerNote": "Cambiando il workspace smette di essere il revisore predefinito."
+      },
+      "replaceDialog": {
+        "title": "Sostituisci il token di {{name}}",
+        "running": "Il lavoro già partito finisce con quello vecchio.",
+        "submit": "Sostituisci",
+        "action": "sostituire il token di {{name}}",
+        "done": "Token sostituito per {{name}}. Verificalo per controllare."
+      },
+      "reviewerDialog": {
+        "title": "Rendere {{name}} il revisore predefinito?",
+        "body": "{{name}} rivede le pull request su {{platform}} per i repository che non hanno un proprio account di revisione.",
+        "platformWorkspace": "{{platform}} (workspace {{workspace}})",
+        "replaces": "Prende il posto di {{name}} come revisore predefinito.",
+        "submit": "Rendi predefinito",
+        "done": "Ora è il revisore predefinito, al posto di {{name}}.",
+        "doneAlone": "{{name}} ora è il revisore predefinito."
+      },
+      "deleteDialog": {
+        "inUseTitle": "{{name}} è ancora in uso",
+        "repositories": "Repository che usano {{name}}",
+        "onlyHidden_one": "{{count}} repository in un progetto che non vedi",
+        "onlyHidden_other": "{{count}} repository in progetti che non vedi",
+        "inUseBody": "Collega prima questi repository a un altro account, nelle impostazioni di ogni progetto.",
+        "title": "Eliminare {{name}}?",
+        "body": "Nessun repository lo usa.",
+        "submit": "Elimina",
+        "action": "eliminare l'account git {{name}}",
+        "done": "{{name}} eliminato."
+      }
+    },
+    "plugins": {
+      "title": "Plugin",
+      "intro": "Plugin di Claude Code che Claude può usare quando lavora. Ognuno è un repository git pubblico fissato a un commit; ogni progetto sceglie quali skill e hook usare.",
+      "register": "Registra plugin",
+      "base": "Il plugin base di Stubwise è sempre acceso e non compare qui.",
+      "list": "Plugin",
+      "loadError": "Impossibile caricare i plugin.",
+      "retry": "Riprova",
+      "empty": "Nessun plugin. Claude lavora solo col plugin base di Stubwise.",
+      "status": {
+        "materializing": "In preparazione…",
+        "ready": "Pronto",
+        "failed": "Non riuscito"
+      },
+      "smoke": {
+        "running": "Smoke test in corso…",
+        "passed": "Smoke test superato",
+        "failed": "Smoke test non superato"
+      },
+      "ref": "ref {{ref}}",
+      "pin": "pin {{sha}}",
+      "skills_one": "{{count}} skill",
+      "skills_other": "{{count}} skill",
+      "hooks_one": "{{count}} hook",
+      "hooks_other": "{{count}} hook",
+      "updated": "aggiornato il {{date}} da {{name}}",
+      "updatedNoName": "aggiornato il {{date}}",
+      "isReady": "{{name}} è pronto.",
+      "isFailed": "Impossibile preparare {{name}}.",
+      "prototype": {
+        "outcome": "La prossima registrazione o aggiornamento finisce",
+        "ready": "Pronto",
+        "failed": "Non riuscito"
+      },
+      "trust": "Mi fido di questo repository e di questo commit",
+      "trustNeeded": "Prima spunta «Mi fido di questo repository e di questo commit».",
+      "registerDialog": {
+        "title": "Registra un plugin",
+        "warningTitle": "Registrare esegue il codice del plugin.",
+        "warning": "Subito dopo la registrazione Stubwise lo installa e fa una prova con tutto acceso. I suoi hook girano senza chiedere, con l'accesso del worker ai tuoi repository e alle credenziali di Claude. Registra solo un repository e un commit di cui ti fidi. Scegliere skill e hook in un progetto viene dopo, e non annulla questo.",
+        "url": "Indirizzo del repository",
+        "urlPlaceholder": "https://github.com/proprietario/repository",
+        "ref": "Ref",
+        "refHint": "Un tag, un branch o un commit, es. v4.0.3",
+        "subdir": "Sottocartella",
+        "nameNote": "Il nome viene dall'indirizzo. Il plugin resta fissato al commit a cui punta il ref adesso.",
+        "submit": "Registra",
+        "action": "registrare il plugin da {{url}}",
+        "done": "{{name}} registrato.",
+        "errors": {
+          "https": "Usa un indirizzo https.",
+          "credentials": "Togli nome utente e password: il repository dev'essere pubblico.",
+          "git_ssh": "Gli indirizzi git@ non sono supportati: usa quello https.",
+          "duplicate": "Questo indirizzo è già registrato come {{name}}.",
+          "slug": "Da questo indirizzo viene il nome “{{name}}”, che non è ammesso: servono lettere minuscole, cifre e trattini.",
+          "slugEmpty": "Da questo indirizzo non viene un nome: aggiungi il percorso del repository.",
+          "ref": "Aggiungi un ref.",
+          "subdir": "La sottocartella deve restare dentro il repository.",
+          "conflict": "Un altro plugin ha già il nome che viene da questo indirizzo."
+        }
+      },
+      "page": {
+        "back": "Plugin",
+        "registeredBy": "registrato da {{name}}",
+        "updateRef": "Aggiorna a un ref…",
+        "menu": "Altro per {{name}}",
+        "rerun": "Rifai lo smoke test",
+        "remove": "Rimuovi…",
+        "busy": "C'è un passo in corso: aspetta che finisca.",
+        "notReady": "Lo smoke test si fa solo su un plugin pronto.",
+        "failedTitle": "Impossibile preparare {{name}}.",
+        "failedHint": "Prova un altro ref con Aggiorna a un ref.",
+        "inventory": "Inventario",
+        "skills": "Skill",
+        "hooks": "Hook",
+        "more": "Altro",
+        "less": "Meno",
+        "mcpNote": "I server MCP propri di un plugin (.mcp.json) non vengono mai caricati.",
+        "projectsNote": "Ogni progetto sceglie quali usare, in Progetto → Impostazioni → Plugin.",
+        "noInventory": "Nessun inventario ancora.",
+        "loadError": "Impossibile caricare questo plugin.",
+        "notFound": "Questo plugin non è registrato, o è stato rimosso."
+      },
+      "updateDialog": {
+        "title": "Aggiorna {{name}} a un ref",
+        "warning": "Aggiornare esegue il codice del nuovo commit allo stesso modo: installazione e prova con tutto acceso.",
+        "current": "Adesso è a {{ref}}.",
+        "submit": "Aggiorna",
+        "action": "aggiornare {{name}} a {{ref}}",
+        "done": "{{name}} si sta aggiornando a {{ref}}."
+      },
+      "removeDialog": {
+        "title": "Rimuovere {{name}}?",
+        "body": "I progetti perdono le sue skill e i suoi hook dalla prossima esecuzione. Le esecuzioni in corso finiscono con lui.",
+        "submit": "Rimuovi",
+        "done": "{{name}} rimosso."
+      }
     }
   },
   "permissions": {

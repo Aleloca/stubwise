@@ -243,6 +243,114 @@ async function main() {
       return;
     }
 
+    // Area 9b, Task 10 (`CAPTURE_A9B_INTEG=1`): Git accounts e Plugins
+    // (shape admin-integrations.md), scatti `a9b-git-*` e `a9b-plugins-*`.
+    // Lo stato si prepara dal livello dati della pagina.
+    if (process.env.CAPTURE_A9B_INTEG) {
+      async function prepare(page, action) {
+        await page.evaluate(async (what) => {
+          const api = await import("/data/api.ts");
+          const viewer = await import("/data/viewer.ts");
+          const session = await import("/data/session.ts");
+          const reauth = await import("/data/auth/reauth.ts");
+          const prev = session.getSessionPersonId();
+          session.setSessionPersonId("p-roberta");
+          reauth.markReauthenticated("p-roberta");
+          try {
+            if (what === "saraManages") viewer.grantInstancePermission("p-sara", "git_accounts.manage");
+            if (what === "secondGithub")
+              await api.instance.createGitAccount({
+                name: "GitHub Release",
+                provider: "github",
+                workspace: null,
+                token: "ghp_prototype-release-5c1d",
+              });
+          } finally {
+            session.setSessionPersonId(prev);
+          }
+        }, action);
+        await page.waitForTimeout(600);
+      }
+      const go = async (page, hash) => {
+        await page.evaluate((h) => {
+          window.location.hash = h;
+        }, hash);
+        await page.waitForTimeout(1200);
+        await page.mouse.move(2, 2);
+      };
+      const menu = async (page, name, item) => {
+        await page.getByRole("button", { name: new RegExp(`^(More for|Altro per) ${name}$`) }).click();
+        await page.getByRole("menuitem", { name: item }).click();
+        await page.waitForTimeout(300);
+      };
+      const newAccount = async (page) => {
+        await page.getByRole("button", { name: /^(New account|Nuovo account)$/ }).click();
+        await page.getByLabel(/^(Name|Nome)$/).fill("Bitbucket Clienti");
+        await page.getByLabel(/^Workspace$/).fill("audin-clienti");
+        await page.getByLabel(/^Token$/).fill("bb-prototype-token-9f2c");
+        await page.waitForTimeout(300);
+      };
+      const register = async (page) => {
+        await page.getByRole("button", { name: /^(Register plugin|Registra plugin)$/ }).click();
+        await page.getByLabel(/^(Repository address|Indirizzo del repository)$/).fill("https://github.com/acme/review-kit");
+        await page.getByLabel(/^Ref$/).fill("v1.2.0");
+        await page.waitForTimeout(300);
+      };
+      // Registrato dal dialogo (riconferma già fatta in `prepare`): la riga
+      // «Materializing…» prima del passo di 800 ms.
+      const materializing = async (page) => {
+        await register(page);
+        await page.getByRole("checkbox").check();
+        await page.getByRole("button", { name: /^(Register|Registra)$/ }).click();
+        await page.getByText(/^(Materializing…|In preparazione…)$/).waitFor();
+        await page.mouse.move(2, 2);
+        await page.waitForTimeout(150);
+      };
+      const update = async (page) => {
+        await page.getByRole("button", { name: /^(Update to ref…|Aggiorna a un ref…)$/ }).click();
+        await page.getByLabel(/^Ref$/).fill("v4.1.0");
+        await page.getByRole("checkbox").check();
+        await page.waitForTimeout(300);
+      };
+      const SCENES = [
+        // [nome, indirizzo, { persona, action, after }]
+        ["git", "/admin/git-accounts", { persona: "Roberta" }],
+        ["git-readonly", "/admin/git-accounts", { persona: "Marco" }],
+        ["git-new", "/admin/git-accounts", { persona: "Roberta", after: newAccount }],
+        ["git-reviewer", "/admin/git-accounts", { persona: "Roberta", action: "secondGithub", after: (p) => menu(p, "GitHub Release", /^(Make default reviewer|Rendi revisore predefinito)$/) }],
+        ["git-inuse", "/admin/git-accounts", { persona: "Sara", action: "saraManages", after: (p) => menu(p, "Bitbucket Audin", /^(Delete…|Elimina…)$/) }],
+        ["plugins", "/admin/plugins", { persona: "Roberta" }],
+        ["plugins-register", "/admin/plugins", { persona: "Roberta", after: register }],
+        ["plugins-materializing", "/admin/plugins", { persona: "Roberta", action: "reauth", after: materializing }],
+        ["plugins-page", "/admin/plugins/plg-superpowers", { persona: "Roberta" }],
+        ["plugins-failed", "/admin/plugins/plg-lint-helpers", { persona: "Roberta" }],
+        ["plugins-update", "/admin/plugins/plg-superpowers", { persona: "Roberta", after: update }],
+      ];
+      const integOnly = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      for (const [name, hash, opts] of SCENES) {
+        if (integOnly && !integOnly.test(name)) continue;
+        for (const v of variants) {
+          const { page, context } = await open(v.scheme, v.viewport, "/home", {
+            lang: v.lang,
+            persona: opts.persona,
+          });
+          if (opts.action) await prepare(page, opts.action);
+          await go(page, hash);
+          if (opts.after) await opts.after(page);
+          await shot(page, `a9b-${name}-${v.suffix}.png`);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 9b, Task 8 (`CAPTURE_A9B_AI=1`): la voce AI dell'Amministrazione
     // (shape admin-ai.md). Lo stato si prepara dal livello dati della pagina.
     if (process.env.CAPTURE_A9B_AI) {

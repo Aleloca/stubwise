@@ -693,6 +693,7 @@ export type ApiFnName =
   | "instance.deleteGitAccount"
   | "instance.setDefaultReviewer"
   | "instance.listPlugins"
+  | "instance.getNextPluginOutcome"
   | "instance.getPlugin"
   | "instance.registerPlugin"
   | "instance.updatePluginRef"

@@ -38,6 +38,8 @@ describe("route grammar", () => {
     expect(isAppRoute("#/admin/people?invite=1")).toBe(true);
     // Task 9: la pagina di un ruolo e il pannello di un reparto (solo su Departments).
     expect(isAppRoute("#/admin/roles/role-developer")).toBe(true);
+    // 9b, Task 10: la pagina di un plugin.
+    expect(isAppRoute("#/admin/plugins/plg-superpowers")).toBe(true);
     expect(isAppRoute("#/admin/departments?department=dep-sales")).toBe(true);
     expect(isAppRoute("#/admin/people?department=dep-sales")).toBe(false);
     expect(isAppRoute("#/home?find=marco")).toBe(false);

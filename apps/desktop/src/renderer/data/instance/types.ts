@@ -8,6 +8,11 @@ import type { AdminRefusal } from "../admin/types";
 export type InstanceRefusal =
   | AdminRefusal
   | { ok: false; error: "conflict" }
+  /**
+   * Un input rifiutato che si spiega col nome in gioco (un plugin): lo slug
+   * non ammesso così com'è, o il plugin che ha già l'indirizzo.
+   */
+  | { ok: false; error: "invalid"; reason: string; name: string }
   | {
       ok: false;
       error: "in_use";

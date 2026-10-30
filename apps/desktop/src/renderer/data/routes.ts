@@ -443,6 +443,8 @@ export function isAppRoute(route: string): boolean {
   if (admin) return isAdminSection(admin[1]!);
   if (/^admin\/people\/(invites\/)?[\w-]+$/.test(path)) return true;
   if (/^admin\/roles\/[\w-]+$/.test(path)) return true;
+  // La pagina di un plugin (area 9b): `#/admin/plugins/plg-superpowers`.
+  if (/^admin\/plugins\/[\w-]+$/.test(path)) return true;
   if (isChannelPath(path)) return true;
   if (isAutomationsPath(path)) return true;
   // Il dettaglio di un rilascio (area 8a): `#/p/AUD/releases/AUD-V3`.

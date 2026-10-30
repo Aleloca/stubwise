@@ -39,6 +39,7 @@ import {
   AdminSectionPage,
   AdminInvitePage,
   AdminPersonPage,
+  AdminPluginPage,
   AdminRolePage,
 } from "./pages/admin/AdminLayout";
 import type { FilterCriteria } from "./data/types";
@@ -1124,6 +1125,18 @@ const adminRoleRoute = createRoute({
   component: AdminRoleRoutePage,
 });
 
+/** La pagina di un plugin (`/admin/plugins/$pluginId`, area 9b), dentro Plugins. */
+function AdminPluginRoutePage() {
+  const { pluginId } = adminPluginRoute.useParams();
+  return <AdminPluginPage pluginId={pluginId} />;
+}
+
+const adminPluginRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/plugins/$pluginId",
+  component: AdminPluginRoutePage,
+});
+
 const automationSourcesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/automations/sources",
@@ -1187,6 +1200,7 @@ const routeTree = rootRoute.addChildren([
   adminPersonRoute,
   adminInviteRoute,
   adminRoleRoute,
+  adminPluginRoute,
   automationSourcesRoute,
   automationRoute,
   automationRunRoute,

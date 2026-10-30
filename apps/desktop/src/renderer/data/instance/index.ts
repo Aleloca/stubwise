@@ -62,6 +62,7 @@ export {
 } from "./git";
 export {
   PLUGIN_STEP_MS,
+  getNextPluginOutcome,
   getPlugin,
   listPlugins,
   registerPlugin,

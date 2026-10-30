@@ -82,6 +82,11 @@ function ObjectRef({ entry, children }: { entry: ChangeEntryView; children?: Rea
       >
         {children}
       </Link>
+    ) : l.to === "admin" && l.section === "plugins" && l.id ? (
+      // Un plugin ha la sua pagina (9b, Task 10).
+      <Link to="/admin/plugins/$pluginId" params={{ pluginId: l.id }} className={linkClass}>
+        {children}
+      </Link>
     ) : l.to === "admin" ? (
       // La voce d'istanza (9b) in cui sta l'oggetto; le voci con una pagina
       // per oggetto la aprono dall'elenco.

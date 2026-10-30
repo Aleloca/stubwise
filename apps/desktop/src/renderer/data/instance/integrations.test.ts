@@ -495,6 +495,17 @@ describe("revisore predefinito", () => {
     expect(account(BITBUCKET_AUDIN).defaultReviewer).toBe(true);
   });
 
+  it("la lettura dice chi verrebbe sostituito (Task 10: la pagina non ricalcola l'ambito)", async () => {
+    reauth(ROBERTA);
+    const created = (await newGitHub()) as { ok: true; accountId: string };
+    const rows = await instance.listGitAccounts();
+    const of = (id: string) => rows.find((r) => r.id === id)!;
+    expect(of(created.accountId).replacesAsReviewer).toBe("GitHub Stubwise");
+    // Chi lo è già, e un altro ambito senza predefinito: nessuno.
+    expect(of(GITHUB_STUBWISE).replacesAsReviewer).toBeNull();
+    expect(of(BITBUCKET_AUDIN).replacesAsReviewer).toBeNull();
+  });
+
   it("toglierlo: nessuno sostituito, la voce dice On → Off del campo", async () => {
     expect(await instance.setDefaultReviewer(GITHUB_STUBWISE, false)).toEqual({
       ok: true,

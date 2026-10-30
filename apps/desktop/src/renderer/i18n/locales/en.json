@@ -8987,6 +8987,211 @@
         "replaceOf": "Replace {{label}}",
         "saved": "{{label}}: ending in {{last4}}"
       }
+    },
+    "integrations": {
+      "forbidden": "You can no longer change this.",
+      "saveFailed": "Couldn't save. Try again.",
+      "cancel": "Cancel",
+      "close": "Close",
+      "saved": "Saved.",
+      "optional": "optional",
+      "check": {
+        "checking": "Checking…",
+        "checked": "checked {{date}} · works",
+        "notChecked": "not checked yet",
+        "invalid_credentials": "invalid credentials",
+        "unreachable": "unreachable"
+      },
+      "prototype": {
+        "label": "Prototype only",
+        "checkIntro": "Nothing real is contacted. Choose what the next check answers.",
+        "account": "Account",
+        "outcome": "Next check",
+        "ok": "Works",
+        "invalid_credentials": "Invalid credentials",
+        "unreachable": "Unreachable"
+      }
+    },
+    "git": {
+      "title": "Git accounts",
+      "intro": "The credentials Stubwise uses to read and write your repositories. One account can serve many projects.",
+      "new": "New account",
+      "list": "Git accounts",
+      "readOnly": "You can read these accounts. Changing them needs someone who can manage git accounts.",
+      "loadError": "Couldn't load the git accounts.",
+      "retry": "Retry",
+      "empty": "No git accounts yet. A project needs one to connect a repository.",
+      "emptyReadOnly": "Adding one needs someone who can manage git accounts.",
+      "platform": {
+        "github": "GitHub",
+        "bitbucket": "Bitbucket"
+      },
+      "defaultReviewer": "Default reviewer",
+      "validate": "Validate",
+      "menu": "More for {{name}}",
+      "usedBy_one": "Used by {{count}} repository in {{codes}}",
+      "usedBy_other": "Used by {{count}} repositories in {{codes}}",
+      "andHidden_one": "and {{count}} in a project you can't see",
+      "andHidden_other": "and {{count}} in projects you can't see",
+      "onlyHidden_one": "Used by {{count}} repository in a project you can't see",
+      "onlyHidden_other": "Used by {{count}} repositories in projects you can't see",
+      "notUsed": "Not used yet",
+      "edit": "Edit…",
+      "replaceToken": "Replace token…",
+      "makeDefault": "Make default reviewer",
+      "stopDefault": "Stop being the default reviewer",
+      "delete": "Delete…",
+      "stopped": "{{name}} is no longer the default reviewer.",
+      "createDialog": {
+        "title": "New git account",
+        "platform": "Platform",
+        "name": "Name",
+        "namePlaceholder": "e.g. GitHub Release",
+        "workspace": "Workspace",
+        "workspaceHint": "The workspace slug, e.g. audin. Bitbucket needs it to list repositories.",
+        "token": "Token",
+        "bottom": "After saving, use Validate to check it.",
+        "submit": "Create",
+        "action": "add the git account {{name}}",
+        "created": "{{name}} created.",
+        "errors": {
+          "name": "Give it a name.",
+          "workspace": "Bitbucket needs the workspace.",
+          "token": "Paste the token.",
+          "taken": "There's already a git account called {{name}}."
+        }
+      },
+      "editDialog": {
+        "title": "Edit {{name}}",
+        "submit": "Save",
+        "reviewerNote": "Changing the workspace stops it being the default reviewer."
+      },
+      "replaceDialog": {
+        "title": "Replace the token of {{name}}",
+        "running": "Work already running finishes with the old one.",
+        "submit": "Replace",
+        "action": "replace the token of {{name}}",
+        "done": "Token replaced for {{name}}. Validate it to check."
+      },
+      "reviewerDialog": {
+        "title": "Make {{name}} the default reviewer?",
+        "body": "{{name}} reviews pull requests on {{platform}} for repositories that don't have a review account of their own.",
+        "platformWorkspace": "{{platform}} (workspace {{workspace}})",
+        "replaces": "It replaces {{name}} as the default reviewer.",
+        "submit": "Make default",
+        "done": "Now the default reviewer, in place of {{name}}.",
+        "doneAlone": "{{name}} is now the default reviewer."
+      },
+      "deleteDialog": {
+        "inUseTitle": "{{name}} is still in use",
+        "repositories": "Repositories using {{name}}",
+        "onlyHidden_one": "{{count}} repository in a project you can't see",
+        "onlyHidden_other": "{{count}} repositories in projects you can't see",
+        "inUseBody": "Link these repositories to another account first, in each project's settings.",
+        "title": "Delete {{name}}?",
+        "body": "No repository uses it.",
+        "submit": "Delete",
+        "action": "delete the git account {{name}}",
+        "done": "{{name}} deleted."
+      }
+    },
+    "plugins": {
+      "title": "Plugins",
+      "intro": "Claude Code plugins Claude can use when it works. Each one is a public git repository pinned to a commit; each project chooses which of its skills and hooks to use.",
+      "register": "Register plugin",
+      "base": "Stubwise's base plugin is always on and isn't listed here.",
+      "list": "Plugins",
+      "loadError": "Couldn't load the plugins.",
+      "retry": "Retry",
+      "empty": "No plugins yet. Claude works with Stubwise's base plugin only.",
+      "status": {
+        "materializing": "Materializing…",
+        "ready": "Ready",
+        "failed": "Failed"
+      },
+      "smoke": {
+        "running": "Smoke test running…",
+        "passed": "Smoke test passed",
+        "failed": "Smoke test failed"
+      },
+      "ref": "ref {{ref}}",
+      "pin": "pin {{sha}}",
+      "skills_one": "{{count}} skill",
+      "skills_other": "{{count}} skills",
+      "hooks_one": "{{count}} hook",
+      "hooks_other": "{{count}} hooks",
+      "updated": "updated {{date}} by {{name}}",
+      "updatedNoName": "updated {{date}}",
+      "isReady": "{{name}} is ready.",
+      "isFailed": "{{name}} couldn't be prepared.",
+      "prototype": {
+        "outcome": "The next registration or update ends",
+        "ready": "Ready",
+        "failed": "Failed"
+      },
+      "trust": "I trust this repository and this commit",
+      "trustNeeded": "Tick “I trust this repository and this commit” first.",
+      "registerDialog": {
+        "title": "Register a plugin",
+        "warningTitle": "Registering runs this plugin's code.",
+        "warning": "Right after you register it, Stubwise installs it and runs a test with all of it turned on. Its hooks run without asking, with the worker's access to your repositories and to Claude's credentials. Register only a repository and a commit you trust. Choosing skills and hooks in a project comes later and doesn't undo this.",
+        "url": "Repository address",
+        "urlPlaceholder": "https://github.com/owner/repository",
+        "ref": "Ref",
+        "refHint": "A tag, branch or commit, e.g. v4.0.3",
+        "subdir": "Subfolder",
+        "nameNote": "The name comes from the address. The plugin is pinned to the commit the ref points to now.",
+        "submit": "Register",
+        "action": "register the plugin from {{url}}",
+        "done": "{{name}} registered.",
+        "errors": {
+          "https": "Use an https address.",
+          "credentials": "Remove the username and password: the repository must be public.",
+          "git_ssh": "git@ addresses aren't supported: use the https one.",
+          "duplicate": "This address is already registered as {{name}}.",
+          "slug": "This address gives the name “{{name}}”, which isn't allowed: use lowercase letters, digits and dashes.",
+          "slugEmpty": "This address doesn't give a name: add the repository's path.",
+          "ref": "Add a ref.",
+          "subdir": "The subfolder must stay inside the repository.",
+          "conflict": "Another plugin already has the name that comes from this address."
+        }
+      },
+      "page": {
+        "back": "Plugins",
+        "registeredBy": "registered by {{name}}",
+        "updateRef": "Update to ref…",
+        "menu": "More for {{name}}",
+        "rerun": "Run the smoke test again",
+        "remove": "Remove…",
+        "busy": "A step is in progress: wait until it's done.",
+        "notReady": "The smoke test runs only on a ready plugin.",
+        "failedTitle": "Couldn't prepare {{name}}.",
+        "failedHint": "Try another ref with Update to ref.",
+        "inventory": "Inventory",
+        "skills": "Skills",
+        "hooks": "Hooks",
+        "more": "More",
+        "less": "Less",
+        "mcpNote": "A plugin's own MCP servers (.mcp.json) are never loaded.",
+        "projectsNote": "Each project chooses which of these to use, in Project → Settings → Plugins.",
+        "noInventory": "No inventory yet.",
+        "loadError": "Couldn't load this plugin.",
+        "notFound": "This plugin isn't registered, or it was removed."
+      },
+      "updateDialog": {
+        "title": "Update {{name}} to a ref",
+        "warning": "Updating runs the new commit's code the same way: install and test with everything on.",
+        "current": "Now at {{ref}}.",
+        "submit": "Update",
+        "action": "update {{name}} to {{ref}}",
+        "done": "{{name}} is updating to {{ref}}."
+      },
+      "removeDialog": {
+        "title": "Remove {{name}}?",
+        "body": "Projects lose its skills and hooks from their next run. Runs in progress finish with it.",
+        "submit": "Remove",
+        "done": "{{name}} removed."
+      }
     }
   },
   "permissions": {

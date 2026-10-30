@@ -34,6 +34,11 @@ export type GitAccountView = Omit<GitAccount, "secretId"> & {
   repositories: { name: string; projectCode: string }[];
   /** Quelli dei progetti che non vede, solo contati. */
   hiddenRepositories: number;
+  /**
+   * L'account che smetterebbe di essere revisore predefinito se lo diventasse
+   * questo (lo stesso ambito), o `null`: il dialogo lo dice prima.
+   */
+  replacesAsReviewer: string | null;
 };
 
 const accountOf = (id: string) => state.instance.gitAccounts.find((g) => g.id === id);
@@ -74,8 +79,15 @@ function viewOf(me: string, a: GitAccount): GitAccountView {
     createdAt: a.createdAt,
     repositories,
     hiddenRepositories: hidden,
+    replacesAsReviewer: a.defaultReviewer ? null : (reviewerOfScope(a)?.name ?? null),
   };
 }
+
+/** Il revisore predefinito dello stesso ambito di `a`, diverso da `a`. */
+const reviewerOfScope = (a: GitAccount): GitAccount | undefined =>
+  state.instance.gitAccounts.find(
+    (g) => g.id !== a.id && g.defaultReviewer && scopeOf(g) === scopeOf(a),
+  );
 
 /** L'account su cui agire: con il permesso (o `forbidden`), esistente (o `not_found`). */
 function managed(me: string, id: string): { account: GitAccount } | { refusal: InstanceRefusal } {
@@ -297,10 +309,7 @@ export async function setDefaultReviewer(
     return { ok: true, replaced: null };
   }
 
-  const previous =
-    state.instance.gitAccounts.find(
-      (g) => g.id !== id && g.defaultReviewer && scopeOf(g) === scopeOf(account),
-    ) ?? null;
+  const previous = reviewerOfScope(account) ?? null;
   if (previous) previous.defaultReviewer = false;
   account.defaultReviewer = true;
   recordChange({

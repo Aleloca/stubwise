@@ -176,6 +176,45 @@ describe("ciclo di un plugin registrato", () => {
   });
 });
 
+describe("le letture per la pagina (Task 10)", () => {
+  it("busy finché si prepara o lo smoke gira; il nome nel risultato della registrazione", async () => {
+    reauth(ROBERTA);
+    const res = await register();
+    expect(res).toMatchObject({ ok: true, name: "review-kit" });
+    const view = async () =>
+      (await instance.listPlugins()).find((p) => p.slug === "review-kit")!;
+    expect((await view()).busy).toBe(true);
+    await vi.advanceTimersByTimeAsync(STEP);
+    expect(await view()).toMatchObject({ status: "ready", smoke: "running", busy: true });
+    await vi.advanceTimersByTimeAsync(STEP);
+    expect(await view()).toMatchObject({ smoke: "passed", busy: false });
+    expect((await instance.getPlugin(plugin("superpowers")!.id)).busy).toBe(false);
+  });
+
+  it("l'esito della prossima preparazione si legge, e torna «ready» dopo l'uso", async () => {
+    reauth(ROBERTA);
+    expect(await instance.getNextPluginOutcome()).toBe("ready");
+    await instance.simulateNextPluginOutcome("failed");
+    expect(await instance.getNextPluginOutcome()).toBe("failed");
+    await register();
+    expect(await instance.getNextPluginOutcome()).toBe("ready");
+    as(MARCO);
+    await expect(instance.getNextPluginOutcome()).rejects.toThrow("forbidden");
+  });
+
+  it("i rifiuti dicono il nome: quello non ammesso, e il plugin che ha già l'indirizzo", async () => {
+    reauth(ROBERTA);
+    expect(await register({ url: "https://github.com/acme/My_Plugin" })).toMatchObject({
+      reason: "slug",
+      name: "My_Plugin",
+    });
+    expect(await register({ url: "https://github.com/obra/superpowers.git" })).toMatchObject({
+      reason: "duplicate",
+      name: "superpowers",
+    });
+  });
+});
+
 describe("registrare: indirizzo, slug, duplicati", () => {
   it("http://, credenziali, git@ e indirizzi illeggibili → invalid", async () => {
     reauth(ROBERTA);

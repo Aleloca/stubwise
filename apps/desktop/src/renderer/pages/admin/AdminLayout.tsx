@@ -11,6 +11,9 @@ import { Placeholder } from "../Placeholder";
 import { AiPage } from "./ai/AiPage";
 import { ChangeLogPage } from "./ChangeLogPage";
 import { DepartmentsPage } from "./DepartmentsPage";
+import { GitAccountsPage } from "./integrations/GitAccountsPage";
+import { PluginPage } from "./integrations/PluginPage";
+import { PluginsPage } from "./integrations/PluginsPage";
 import { InvitePage } from "./InvitePage";
 import { PeoplePage } from "./PeoplePage";
 import { PersonDetail } from "./PersonDetail";
@@ -105,7 +108,9 @@ function SectionBody({ section }: { section: AdminSection }) {
   if (section === "changelog") return <ChangeLogPage />;
   if (section === "who-can") return <WhoCanPage />;
   if (section === "ai") return <AiPage />;
-  // Le altre voci dell'istanza arrivano coi Task 10–13 del 9b.
+  if (section === "git-accounts") return <GitAccountsPage />;
+  if (section === "plugins") return <PluginsPage />;
+  // Le altre voci dell'istanza arrivano coi Task 11–13 del 9b.
   return (
     <Placeholder titleKey={`admin.sections.${section}`} bodyKey={`placeholder.admin.${section}`} />
   );
@@ -116,6 +121,13 @@ export function AdminRolePage({ roleId }: { roleId: string }) {
   const { viewer } = useViewer();
   if (!canSeeAdminSection(viewer, "roles")) return <NotFound />;
   return <RoleEditor key={`${viewer.personId}:${roleId}`} roleId={roleId} />;
+}
+
+/** La pagina di un plugin (`/admin/plugins/$pluginId`): dentro Plugins, con `plugins.manage`. */
+export function AdminPluginPage({ pluginId }: { pluginId: string }) {
+  const { viewer } = useViewer();
+  if (!canSeeAdminSection(viewer, "plugins")) return <NotFound />;
+  return <PluginPage key={`${viewer.personId}:${pluginId}`} pluginId={pluginId} />;
 }
 
 /** La pagina di una persona (`/admin/people/$personId`): dentro People, che legge chiunque. */
