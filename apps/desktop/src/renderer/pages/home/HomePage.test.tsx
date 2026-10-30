@@ -8,6 +8,7 @@ import {
   listDecisionRequests,
   resetApi,
   setLatency,
+  startRun,
 } from "../../data/api";
 import { setSessionPersonId } from "../../data/session";
 import { state } from "../../data/store";
@@ -36,6 +37,21 @@ async function openDecisionsOf(personId: string) {
 }
 
 describe("HomePage", () => {
+  it("final I3: una task avviata con la coda in pausa resta in «Claude's work for me», in attesa", async () => {
+    // Al seme la coda di STW è in pausa: «Avvia» lascia la sessione in attesa.
+    state.tasksById.get("t-stw-7")!.assigneeId = "p-laura";
+    setSessionPersonId("p-laura");
+    await startRun("t-stw-7");
+    expect(state.tasksById.get("t-stw-7")!.claude).toBe("waiting");
+    renderRoute("/home", "p-laura");
+    const claude = await block("Claude's work for me");
+    const row = await within(claude).findByText("STW-7");
+    const item = row.closest("li")!;
+    expect(item.querySelector('[data-claude-state="waiting"]')).toHaveTextContent(
+      "Waiting to start",
+    );
+  });
+
   it("blocchi risolti: Decide e My week in testa, poi quelli del reparto", async () => {
     renderRoute("/home", "p-giulia");
     await block("Decide");

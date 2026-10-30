@@ -13,8 +13,18 @@ import { useStallsByCode } from "./MyTasksBlock";
 
 const OPEN: FilterCriteria = { families: ["todo", "active"] };
 
-/** Gli stati in cui Claude ha in mano la task (prima quelli che aspettano qualcuno). */
-const ORDER: ClaudeWorkState[] = ["awaiting_answer", "awaiting_approval", "stopped", "working"];
+/**
+ * Gli stati in cui Claude ha in mano la task (prima quelli che aspettano
+ * qualcuno). `waiting` (area 9b): avviata ma ferma in coda — in pausa, o il
+ * budget raggiunto nel frattempo —, e resta qui finché non parte.
+ */
+const ORDER: ClaudeWorkState[] = [
+  "awaiting_answer",
+  "awaiting_approval",
+  "stopped",
+  "waiting",
+  "working",
+];
 
 /** Una task che ho affidato a Claude: è mia (assegnata o creata da me) e Claude ci lavora. */
 const forMe = (task: Task, me: string) =>

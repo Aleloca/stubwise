@@ -1510,7 +1510,7 @@
         "awaiting_answer": "Waiting for an answer",
         "awaiting_approval": "Waiting for approval",
         "stopped": "Stopped",
-        "waiting": "Waiting for the queue"
+        "waiting": "Waiting to start"
       }
     },
     "stalled": {
