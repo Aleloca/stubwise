@@ -34,6 +34,9 @@ export async function simulateSshVerifyOutcome(
 
 const SEVERITIES: readonly ServerEpisode["severity"][] = ["trouble", "down"];
 
+/** Quanto tace un agente prima che il monitor lo dica muto (simulato). */
+const SILENCE_BEFORE_ALERT_MS = 5 * 60_000;
+
 /** Un motivo plausibile del tipo dato, dalle soglie e dai controlli del server. */
 function reasonOf(server: MonitoredServer, kind: EpisodeReason["kind"]): EpisodeReason {
   const t = server.thresholds;
@@ -50,8 +53,17 @@ function reasonOf(server: MonitoredServer, kind: EpisodeReason["kind"]): Episode
       if (!check) throw invalid("reason");
       return { kind, checkId: check.id };
     }
-    case "agent_silent":
-      return { kind, since: server.lastSeenAt ?? now() };
+    case "agent_silent": {
+      // Un agente si dice muto dopo qualche minuto senza campioni: l'ultimo
+      // rapporto si ferma all'inizio del silenzio, così la testata non dice
+      // «last report 30 s ago» sopra «Not responding» (Impeccable 5).
+      const quietFrom = new Date(Date.parse(now()) - SILENCE_BEFORE_ALERT_MS)
+        .toISOString()
+        .replace(".000Z", "Z");
+      if (server.lastSeenAt === null || server.lastSeenAt > quietFrom)
+        server.lastSeenAt = quietFrom;
+      return { kind, since: server.lastSeenAt };
+    }
     default:
       throw invalid("reason");
   }

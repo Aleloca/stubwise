@@ -1002,3 +1002,16 @@ describe("Impeccable 4: le serie del seme a 30d e 90d", () => {
     }
   });
 });
+
+describe("Impeccable 5: un agente muto non ha appena riportato", () => {
+  it("«Simula allarme» agent_silent ferma lastSeenAt all'inizio del silenzio, minuti prima dell'episodio", async () => {
+    setSessionPersonId("p-roberta");
+    const episode = await servers.simulateServerAlert("SRV-1", "agent_silent");
+    const server = await servers.getServer("SRV-1");
+    const reason = episode.reasons.find((r) => r.kind === "agent_silent")!;
+    expect(reason).toMatchObject({ since: server.lastSeenAt });
+    expect(Date.parse(episode.startedAt) - Date.parse(server.lastSeenAt!)).toBeGreaterThanOrEqual(
+      5 * 60_000,
+    );
+  });
+});
