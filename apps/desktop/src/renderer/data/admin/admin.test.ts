@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   admin,
+  auth,
   changelog,
   createTask,
   failNext,
@@ -776,6 +777,91 @@ describe("disattivare e riattivare", () => {
     const task = openTasksOf("p-simone")[0]!;
     expect((await getTaskByCode(task.code))!.assigneeStatus).toBe("deactivated");
     expect((await admin.getPerson("p-simone")).actions.reactivate).toBeNull();
+  });
+
+  describe("i suoi inviti in attesa (maintainer, 30 ott 2026)", () => {
+    /** Laura invita qualcuno: torna l'id e il link. */
+    async function lauraInvites(email: string) {
+      for (const p of ["users.invite", "users.manage"]) giveInstance("p-laura", p);
+      as("p-laura");
+      reauth("p-laura");
+      const made = (await admin.createInvite({
+        email,
+        instanceRoleId: roleIdOf("user"),
+        projects: [],
+      })) as { ok: true; inviteId: string; link: string };
+      expect(made.ok).toBe(true);
+      as("p-roberta");
+      reauth("p-roberta");
+      return made;
+    }
+
+    it("disattivare revoca gli inviti in attesa che ha mandato: il link dice «revocato»", async () => {
+      const made = await lauraInvites("da.laura@example.com");
+      const robertas = state.invites.find((i) => i.id === "inv-1")!;
+      expect(await admin.deactivatePerson("p-laura", {})).toMatchObject({ ok: true });
+      expect(state.invites.find((i) => i.id === made.inviteId)!.revokedAt).not.toBeNull();
+      // Come un invito revocato a mano (`getInvite` e `register`).
+      expect(await auth.getInvite(made.link)).toEqual({
+        status: "revoked",
+        invitedByName: "Laura Costa",
+      });
+      expect(await auth.register(made.link, { name: "Nora", password: "a-long-one" })).toEqual({
+        ok: false,
+        error: "revoked",
+      });
+      expect((await admin.listInvites()).map((i) => i.id)).not.toContain(made.inviteId);
+      // Gli inviti degli altri restano com'erano.
+      expect(robertas.revokedAt).toBeNull();
+    });
+
+    it("una voce «invite.revoked» per ogni invito revocato, a nome di chi disattiva", async () => {
+      const first = await lauraInvites("primo@example.com");
+      const second = await lauraInvites("secondo@example.com");
+      const before = state.changelog.length;
+      await admin.deactivatePerson("p-laura", {});
+      const revoked = state.changelog.slice(before).filter((e) => e.kind === "invite.revoked");
+      expect(revoked.map((e) => e.object.id).sort()).toEqual(
+        [first.inviteId, second.inviteId].sort(),
+      );
+      for (const e of revoked) expect(e).toMatchObject({ actorId: "p-roberta", projectId: null });
+      expect(revoked.map((e) => e.object.label).sort()).toEqual([
+        "primo@example.com",
+        "secondo@example.com",
+      ]);
+    });
+
+    it("riattivare non li fa tornare", async () => {
+      const made = await lauraInvites("da.laura@example.com");
+      await admin.deactivatePerson("p-laura", {});
+      expect(await admin.reactivatePerson("p-laura")).toMatchObject({ ok: true });
+      expect(state.invites.find((i) => i.id === made.inviteId)!.revokedAt).not.toBeNull();
+      expect(await auth.getInvite(made.link)).toMatchObject({ status: "revoked" });
+    });
+
+    it("un invito già scaduto, accettato o revocato non si tocca e non scrive voci", async () => {
+      const made = await lauraInvites("da.laura@example.com");
+      const old = state.invites.find((i) => i.id === "inv-2")!;
+      const later = "2099-01-01T00:00:00Z";
+      const then = "2026-10-01T10:00:00Z";
+      // Tre inviti di Laura che non sono più in attesa.
+      state.invites.push(
+        { ...old, id: "inv-laura-expired", invitedById: "p-laura" },
+        { ...old, id: "inv-laura-used", invitedById: "p-laura", expiresAt: later, acceptedAt: then },
+        { ...old, id: "inv-laura-revoked", invitedById: "p-laura", expiresAt: later, revokedAt: then },
+      );
+      const before = state.changelog.length;
+      await admin.deactivatePerson("p-laura", {});
+      const ids = state.changelog
+        .slice(before)
+        .filter((e) => e.kind === "invite.revoked")
+        .map((e) => e.object.id);
+      expect(ids).toEqual([made.inviteId]);
+      const revokedAt = (id: string) => state.invites.find((i) => i.id === id)!.revokedAt;
+      expect(revokedAt("inv-laura-expired")).toBeNull();
+      expect(revokedAt("inv-laura-used")).toBeNull();
+      expect(revokedAt("inv-laura-revoked")).toBe(then);
+    });
   });
 
   it("non si riassegna a chi non è del progetto, né a un disattivato", async () => {

@@ -8398,6 +8398,7 @@
       "cantSignIn": "{{name}} can't sign in.",
       "disappears": "{{name}} disappears from the people you can assign or invite to a project.",
       "tasksStay": "Tasks still assigned to {{name}} show “(deactivated)”.",
+      "invitesRevoked": "Invites {{name}} sent that are still pending are revoked.",
       "reactivateLater": "You can reactivate {{name}} later: projects and roles come back as they were.",
       "openTasks": "Open tasks ({{count}})",
       "noTasks": "{{name}} has no open tasks.",

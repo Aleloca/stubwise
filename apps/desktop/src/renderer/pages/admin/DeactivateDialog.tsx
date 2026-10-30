@@ -99,7 +99,9 @@ export function DeactivateDialog({
       }
     >
       <ul className="flex flex-col gap-1.5 text-md text-ink">
-        {(["cantSignIn", "disappears", "tasksStay", "reactivateLater"] as const).map((k) => (
+        {(
+          ["cantSignIn", "disappears", "tasksStay", "invitesRevoked", "reactivateLater"] as const
+        ).map((k) => (
           <li key={k} className="flex items-start gap-2">
             <span aria-hidden="true" className="mt-[7px] size-1 shrink-0 rounded-full bg-ink-muted" />
             {t(`admin.deactivate.${k}`, { name })}

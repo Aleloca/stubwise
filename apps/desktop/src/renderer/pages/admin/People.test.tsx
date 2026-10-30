@@ -420,6 +420,44 @@ describe("RF 4: disattiva con riassegnazione, poi riattiva", () => {
     expect(accessState().people.find((p) => p.personId === MARCO)!.status).toBe("active");
   });
 
+  it("disattivare revoca i suoi inviti in attesa: la riga dell'invito non è più «Invited»", async () => {
+    // Laura invita qualcuno, poi Roberta la disattiva da People.
+    for (const p of ["users.invite", "users.manage"]) give(LAURA, p);
+    setSessionPersonId(LAURA);
+    markReauthenticated(LAURA);
+    const made = await admin.createInvite({
+      email: "da.laura@example.com",
+      instanceRoleId: "role-user",
+      projects: [],
+    });
+    expect(made.ok).toBe(true);
+    const user = userEvent.setup();
+    renderRoute("/admin/people", ROBERTA);
+    await heading("People");
+    const invite = await within(peopleList()).findByRole("link", { name: /da\.laura@example\.com/ });
+    expect(invite).toHaveTextContent(/Invited · expires/);
+    await user.click(within(peopleList()).getByRole("link", { name: /^Laura Costa/ }));
+    await heading("Laura Costa");
+    await user.click(screen.getByRole("button", { name: "More actions for Laura Costa" }));
+    await user.click(screen.getByRole("menuitem", { name: "Deactivate…" }));
+    const dialog = screen.getByRole("dialog", { name: "Deactivate Laura Costa?" });
+    expect(dialog).toHaveTextContent("Invites Laura Costa sent that are still pending are revoked.");
+    await user.click(within(dialog).getByRole("button", { name: "Deactivate" }));
+    await confirmItsYou(user);
+    expect(await screen.findByText(/^Laura Costa was deactivated\./)).toBeVisible();
+    await user.click(within(column()).getByRole("link", { name: /^People/ }));
+    await heading("People");
+    await waitFor(() =>
+      expect(
+        within(peopleList()).queryByRole("link", { name: /da\.laura@example\.com/ }),
+      ).toBeNull(),
+    );
+    // La riga di Roberta resta in attesa.
+    expect(
+      within(peopleList()).getByRole("link", { name: /ines\.ricci@example\.com/ }),
+    ).toHaveTextContent(/Invited · expires/);
+  });
+
   it("l'ultimo full admin non si disattiva: il bottone è spento col motivo", async () => {
     const user = userEvent.setup();
     // Laura con users.manage su Roberta, unica full admin.

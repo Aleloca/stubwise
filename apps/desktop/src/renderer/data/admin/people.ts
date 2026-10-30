@@ -542,7 +542,9 @@ export async function setBitbucketUsername(
  * entra più e sparisce da chi si assegna; il suo lavoro resta. `reassignTo`
  * dice, per ogni task aperta che si vuole riassegnare, a chi (una persona
  * attiva del progetto della task, o Claude se ne è membro); le task non
- * nominate, o con `null`, restano sue con «(deactivated)».
+ * nominate, o con `null`, restano sue con «(deactivated)». Gli inviti che
+ * aveva mandato e ancora in attesa si revocano, una voce `invite.revoked`
+ * ciascuno.
  */
 export async function deactivatePerson(
   personId: string,
@@ -577,6 +579,21 @@ export async function deactivatePerson(
   state.sessions = state.sessions.filter((s) => s.personId !== personId);
   // Un link di reset aperto non torna buono riattivando la persona.
   forgetResetLinksOf(personId);
+  // I suoi inviti ancora in attesa si revocano (maintainer, 30 ott 2026),
+  // come a mano: il link dice «revocato» e non torna buono riattivandola.
+  // Gli scaduti restano come sono: non sono più in attesa.
+  const at = now();
+  for (const invite of pendingInvites()) {
+    if (invite.invitedById !== personId || Date.parse(invite.expiresAt) <= Date.parse(at))
+      continue;
+    invite.revokedAt = at;
+    recordChange({
+      kind: "invite.revoked",
+      actorId: me,
+      projectId: null,
+      object: { type: "invite", id: invite.id, label: invite.email },
+    });
+  }
   logSecurity(personId, "deactivated", me);
   recordChange({
     kind: "person.deactivated",

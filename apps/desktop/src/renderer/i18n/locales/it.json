@@ -8398,6 +8398,7 @@
       "cantSignIn": "{{name}} non può più entrare.",
       "disappears": "{{name}} sparisce dalle persone che puoi assegnare o invitare in un progetto.",
       "tasksStay": "Le task ancora assegnate a {{name}} mostrano «(disattivato)».",
+      "invitesRevoked": "Gli inviti che {{name}} ha mandato e ancora in attesa vengono revocati.",
       "reactivateLater": "Puoi riattivare {{name}} in seguito: progetti e ruoli tornano com'erano.",
       "openTasks": "Task aperte ({{count}})",
       "noTasks": "{{name}} non ha task aperte.",

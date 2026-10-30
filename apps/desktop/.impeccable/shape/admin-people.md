@@ -210,8 +210,13 @@ e «Who can?»: `admin-audit.md`. Mondo: «Catalogo numerato», modalità
 - **Deactivate…** → dialogo 560px «Deactivate Simone Greco?»:
   - le conseguenze, una per riga: «Simone can't sign in.» · «Simone
     disappears from the people you can assign or invite to a project.» ·
-    «Tasks still assigned to Simone show “(deactivated)”.» · «You can
+    «Tasks still assigned to Simone show “(deactivated)”.» · «Invites
+    Simone sent that are still pending are revoked.» · «You can
     reactivate Simone later: projects and roles come back as they were.»;
+  - gli inviti che aveva mandato e ancora in attesa si revocano come a
+    mano (il link dice «revocato», una voce `invite.revoked` ciascuno, a
+    nome di chi disattiva); gli scaduti restano come sono, e riattivare non
+    li fa tornare (maintainer, 30 ott 2026);
   - **Open tasks (2)**: una riga per task — codice + titolo (testo, non
     link: il dialogo non si lascia a metà) · menu **Reassign to** con «Leave with Simone» di base e le persone
     attive membri del progetto di quella task (Claude incluso solo se la
