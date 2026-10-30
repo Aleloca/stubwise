@@ -37,7 +37,15 @@ type T = (key: string, options?: Record<string, unknown>) => string;
 const str = (v: unknown) => (typeof v === "string" ? v : "");
 
 /** Le righe scritte dai blocchi d'istanza (area 9b, `runner.ts`): attesa e ripartenza. */
-const AI_WAIT_CODES = new Set(["aiBudget", "aiQueuePaused", "aiBudgetBack", "aiQueueBack"]);
+const AI_WAIT_CODES = new Set([
+  "aiBudget",
+  "aiQueuePaused",
+  "aiBudgetBack",
+  "aiQueueBack",
+  // Il blocco è cambiato ma il passo resta fermo (due blocchi, shape EF).
+  "aiBudgetBackStillQueue",
+  "aiQueueBackStillBudget",
+]);
 
 /** Il codice di una cosa creata, come link: la task nel pannello, l'esecuzione, la Posta. */
 function EffectLink({

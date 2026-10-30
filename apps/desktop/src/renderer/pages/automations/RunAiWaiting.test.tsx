@@ -5,6 +5,7 @@ import { automations, instance, resetApi, setLatency } from "../../data/api";
 import { state } from "../../data/store";
 import { setSessionPersonId } from "../../data/session";
 import type { AutomationFlow } from "../../data/types";
+import { setLanguage } from "../../i18n";
 import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
 import { renderRoute } from "../../test/renderRoute";
 import { setMatchMedia } from "../../test/setup";
@@ -121,5 +122,47 @@ describe("I2 e la pausa di chi è stato disattivato", () => {
       expect(now).toHaveTextContent("Waiting: STW's queue is paused by Marco Bellini (deactivated)"),
     );
     expect(screen.getByText("Waiting: queue paused by Marco Bellini (deactivated)")).toBeInTheDocument();
+  });
+});
+
+describe("due blocchi: il registro dice quando il blocco cambia", () => {
+  it("budget tornato con STW in pausa: «Budget available again · still waiting: queue paused by …», in en e it", async () => {
+    setSessionPersonId(ROBERTA);
+    await instance.simulateBudgetReached(true);
+    const a = await automations.createAutomation({ name: "Triage", projectId: "prj-stw", flow });
+    const live = await automations.activate(a.id);
+    await automations.startManual(a.id);
+    await automations.whenAutomationsIdle();
+    await instance.simulateBudgetReached(false);
+    await automations.whenAutomationsIdle();
+    renderRoute(`/automations/${live.code}/runs/1`, ROBERTA);
+    expect(
+      await screen.findByText(
+        "Budget available again · still waiting: queue paused by Roberta Fontana",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Waiting for an approval")).toBeNull();
+    act(() => setLanguage("it"));
+    expect(
+      await screen.findByText(
+        "Budget di nuovo disponibile · ancora in attesa: coda in pausa da Roberta Fontana",
+      ),
+    ).toBeInTheDocument();
+    act(() => setLanguage("en"));
+  });
+
+  it("coda ripresa col budget esaurito: «Queue resumed · still waiting: monthly AI budget reached»", async () => {
+    setSessionPersonId(ROBERTA);
+    const a = await automations.createAutomation({ name: "Triage", projectId: "prj-stw", flow });
+    const live = await automations.activate(a.id);
+    await automations.startManual(a.id);
+    await automations.whenAutomationsIdle();
+    await instance.simulateBudgetReached(true);
+    await instance.resumeQueue("prj-stw");
+    await automations.whenAutomationsIdle();
+    renderRoute(`/automations/${live.code}/runs/1`, ROBERTA);
+    expect(
+      await screen.findByText("Queue resumed · still waiting: monthly AI budget reached"),
+    ).toBeInTheDocument();
   });
 });
