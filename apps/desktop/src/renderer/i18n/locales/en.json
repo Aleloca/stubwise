@@ -8916,7 +8916,9 @@
         "stillReached": "Saved. The budget is still reached: {{spent}} spent, {{budget}} budget.",
         "simulate": "Simulate budget reached",
         "simulateHint": "See what everyone sees when the budget runs out. Turning it off lets waiting work start again.",
-        "loadError": "Couldn't load the budget."
+        "loadError": "Couldn't load the budget.",
+        "nowReached": "Saved. The budget is now reached: {{spent}} spent, {{budget}} budget. New AI work waits.",
+        "simulatedReached": "Saved. The budget is still reached: the prototype simulation is on."
       },
       "secret": {
         "show": "Show",

@@ -5,6 +5,7 @@ import {
   useBudget,
   useSaveBudget,
   useSimulateBudgetReached,
+  type BudgetSaveEffect,
   type BudgetView,
   type ContentLanguage,
 } from "../../../data/queries";
@@ -81,7 +82,6 @@ function BudgetForm({ view, canWrite }: { view: BudgetView; canWrite: boolean })
     if (value !== null && !(Number.isFinite(value) && value >= 0))
       return setAmountError(t("admin.ai.budget.amountError"));
     setAmountError(null);
-    const wasReached = view.reached;
     setBusy(true);
     const result = await save.mutateAsync({ monthlyUsd: value, contentLanguage: language }).catch(() => null);
     setBusy(false);
@@ -92,12 +92,18 @@ function BudgetForm({ view, canWrite }: { view: BudgetView; canWrite: boolean })
       return setFormError(refusalWords(refusal.error));
     }
     flash();
-    // Cosa ha cambiato il salvataggio per chi lavora, detto in un toast.
-    const stillReached = value !== null && view.spentUsd >= value;
-    if (stillReached && value !== view.monthlyUsd)
-      toast.show(t("admin.ai.budget.stillReached", { spent: usd(spent), budget: usd(value) }));
-    else if (wasReached && !stillReached && value !== view.monthlyUsd)
-      toast.show(t("admin.ai.budget.savedBack"));
+    // Cosa ha cambiato il salvataggio per chi lavora: lo dice il livello dati.
+    const { effect, simulated, spentUsd } = result as BudgetSaveEffect & { ok: true };
+    const words = { spent: usd(Math.round(spentUsd)), budget: value === null ? "" : usd(value) };
+    if (effect === "released") toast.show(t("admin.ai.budget.savedBack"));
+    else if (effect === "now_reached")
+      toast.show(
+        simulated ? t("admin.ai.budget.simulatedReached") : t("admin.ai.budget.nowReached", words),
+      );
+    else if (effect === "still_reached")
+      toast.show(
+        simulated ? t("admin.ai.budget.simulatedReached") : t("admin.ai.budget.stillReached", words),
+      );
   }
 
   return (

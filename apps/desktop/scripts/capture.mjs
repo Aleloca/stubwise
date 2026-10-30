@@ -285,6 +285,7 @@ async function main() {
         ["budget", "/admin/ai?tab=budget", { persona: "Roberta" }],
         ["budget-reached", "/admin/ai?tab=budget", { persona: "Roberta", action: "budget" }],
       ];
+      const aiOnly = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
       const variants = [
         ...["light", "dark"].flatMap((scheme) =>
           ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
@@ -293,6 +294,7 @@ async function main() {
         { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
       ];
       for (const [name, hash, opts] of SCENES) {
+        if (aiOnly && !aiOnly.test(name)) continue;
         for (const v of variants) {
           const { page, context } = await open(v.scheme, v.viewport, "/home", {
             lang: v.lang,

@@ -12,6 +12,7 @@ export type { UsageDimension, UsageRange, UsageRow, UsageView } from "../instanc
 export type {
   AutomationRule,
   AutomationSettings,
+  BudgetSaveEffect,
   BudgetView,
   ContentLanguage,
   InstanceResult,

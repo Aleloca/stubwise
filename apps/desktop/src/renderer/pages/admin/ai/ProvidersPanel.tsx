@@ -371,8 +371,17 @@ function ProviderRow({
       }`}
     >
       <div className="flex min-h-16 flex-col justify-center gap-1 py-2 pr-1">
-        {/* Prima riga; stretta (1024), la quota va a capo sotto, l'interruttore resta qui. */}
-        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+        {/*
+          Due righe su una griglia: maniglia · posizione · nome · quota ·
+          interruttore, poi coda della chiave e prova · Test e «⋯». Stretta
+          (1024, shape §6) la quota scende sulla seconda riga, l'interruttore
+          resta sulla prima.
+        */}
+        <div
+          className={`grid min-w-0 items-center gap-x-3 gap-y-1 ${
+            canWrite ? "grid-cols-[28px_20px_minmax(0,1fr)_auto_auto]" : "grid-cols-[4px_20px_minmax(0,1fr)_auto_auto]"
+          }`}
+        >
           {canWrite ? (
             <button
               type="button"
@@ -380,15 +389,15 @@ function ProviderRow({
               aria-describedby={describedBy}
               onKeyDown={onHandleKey}
               {...listeners}
-              className="grid size-7 shrink-0 cursor-grab touch-none place-items-center rounded-md text-ink-faint transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink active:cursor-grabbing"
+              className="col-start-1 row-start-1 grid size-7 shrink-0 cursor-grab touch-none place-items-center rounded-md text-ink-faint transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink active:cursor-grabbing"
             >
               <GripIcon />
             </button>
           ) : (
-            <span className="w-1 shrink-0" />
+            <span className="col-start-1 row-start-1" />
           )}
           <span
-            className={`num w-5 shrink-0 text-right text-lg font-semibold ${muted ? "text-ink-faint" : "text-ink"}`}
+            className={`num col-start-2 row-start-1 text-right text-lg font-semibold ${muted ? "text-ink-faint" : "text-ink"}`}
             title={
               p.enabled
                 ? t("admin.ai.providers.position", { position })
@@ -397,7 +406,7 @@ function ProviderRow({
           >
             {p.enabled ? position : "–"}
           </span>
-          <span className="flex min-w-0 flex-1 items-baseline gap-2">
+          <span className="col-start-3 col-end-4 row-start-1 flex min-w-0 items-baseline gap-2 @max-[719px]:col-end-5">
             <span
               id={nameId}
               className={`min-w-0 truncate text-md font-semibold ${muted ? "text-ink-muted" : "text-ink"}`}
@@ -409,13 +418,11 @@ function ProviderRow({
             </span>
           </span>
           {quota && (
-            <span
-              className={`flex @max-[639px]:order-last @max-[639px]:basis-full ${canWrite ? "@max-[639px]:pl-[72px]" : "@max-[639px]:pl-12"}`}
-            >
+            <span className="col-start-4 row-start-1 flex justify-end @max-[719px]:row-start-2">
               <QuotaWords quota={quota} />
             </span>
           )}
-          <span className="flex shrink-0 items-center gap-2">
+          <span className="col-start-5 row-start-1 flex shrink-0 items-center justify-end gap-2">
             <span className="w-12 text-right text-xs text-ink-muted" aria-hidden="true">
               {p.enabled ? t("admin.ai.providers.on") : t("admin.ai.providers.off")}
             </span>
@@ -433,10 +440,7 @@ function ProviderRow({
               onChange={(next) => void toggle(next)}
             />
           </span>
-        </div>
-        {/* Seconda riga. */}
-        <div className={`flex min-w-0 items-center gap-3 ${canWrite ? "pl-[72px]" : "pl-12"}`}>
-          <p className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm text-ink-muted">
+          <p className="col-start-3 col-end-5 row-start-2 flex min-w-0 flex-wrap @max-[719px]:col-end-4 items-center gap-x-1.5 gap-y-0.5 text-sm text-ink-muted">
             <span className="num font-mono">{maskedSecret(p.last4)}</span>
             {p.kind === "api_key" && (
               <>
@@ -461,10 +465,13 @@ function ProviderRow({
               </>
             )}
           </p>
-          <span className="flex shrink-0 items-center gap-1">
+          <span className="col-start-5 row-start-2 flex shrink-0 items-center justify-end gap-2">
+            {/* Spento per permesso: la frase e «Who?» accanto (GC del maintainer). */}
+            {!canWrite && <AiWhoCan scope="providers" />}
             <button
               type="button"
               disabled={!canWrite || testing}
+              title={canWrite ? undefined : t("admin.ai.readOnly.providers")}
               aria-describedby={nameId}
               onClick={() => void runTest()}
               className={`${secondaryButton} h-7 px-2.5 disabled:cursor-not-allowed disabled:opacity-40`}

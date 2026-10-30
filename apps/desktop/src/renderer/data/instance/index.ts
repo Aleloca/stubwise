@@ -46,6 +46,7 @@ export {
   getBudget,
   saveBudget,
   simulateBudgetReached,
+  type BudgetSaveEffect,
   type BudgetView,
   type ContentLanguage,
 } from "./budget";

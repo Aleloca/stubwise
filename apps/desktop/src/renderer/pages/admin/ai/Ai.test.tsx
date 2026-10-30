@@ -6,6 +6,7 @@ import { roleIdOf, writeAccess } from "../../../data/access/index";
 import { __secretValuesForTest } from "../../../data/admin/secrets";
 import { resetApi, setLatency } from "../../../data/api";
 import * as auth from "../../../data/auth/index";
+import { spentThisMonthUsd } from "../../../data/instance/usage";
 import { state } from "../../../data/store";
 import { grantInstancePermission, type LocalInstancePermission } from "../../../data/viewer";
 import i18n from "../../../i18n";
@@ -124,6 +125,14 @@ describe("le schede per permesso", () => {
       "true",
     );
     expect(within(team).getByRole("button", { name: "Test" })).toBeDisabled();
+    // Ogni «Test» spento per permesso ha il suo «Who?» accanto (GC del maintainer).
+    for (const name of ["Team Max", "Backup Max", "Billing key"]) {
+      const test = within(row(name)).getByRole("button", { name: "Test" });
+      expect(test).toBeDisabled();
+      expect(
+        test.parentElement!.querySelector('[data-who-can="manageAiProviders"]'),
+      ).not.toBeNull();
+    }
     expect(within(team).queryByRole("button", { name: "Move Team Max" })).toBeNull();
     expect(within(team).queryByRole("button", { name: "More for Team Max" })).toBeNull();
     // Il riquadro «Prototype only» è di chi può provare.
@@ -452,6 +461,55 @@ describe("Budget & language", () => {
       await screen.findByText(
         "Budget reached: new AI work is on hold until it's raised or the month ends.",
       ),
+    ).toBeVisible();
+  });
+});
+
+// I toast del salvataggio leggono l'effetto dal livello dati (`saveBudget`),
+// simulazione compresa: la pagina non ricalcola «raggiunto» da sé.
+describe("Budget: cosa dice il salvataggio", () => {
+  const spent = () => `$${Math.round(spentThisMonthUsd())}`;
+  async function saveAmount(amount: string) {
+    const user = userEvent.setup();
+    renderRoute("/admin/ai?tab=budget", ROBERTA);
+    const field = await screen.findByLabelText("Monthly budget");
+    await user.clear(field);
+    await user.type(field, amount);
+    await user.click(screen.getByRole("button", { name: "Save" }));
+  }
+
+  it("simulazione accesa e budget alzato: il budget resta raggiunto, niente «riparte»", async () => {
+    state.instance.simulate.budgetReached = true;
+    await saveAmount("5000");
+    expect(
+      await screen.findByText("Saved. The budget is still reached: the prototype simulation is on."),
+    ).toBeVisible();
+    expect(screen.queryByText(/Work waiting for the budget starts again/)).toBeNull();
+  });
+
+  it("budget sotto lo speso partendo da non raggiunto: «appena raggiunto», non «still»", async () => {
+    await saveAmount("100");
+    expect(
+      await screen.findByText(
+        `Saved. The budget is now reached: ${spent()} spent, $100 budget. New AI work waits.`,
+      ),
+    ).toBeVisible();
+    expect(screen.queryByText(/still reached/)).toBeNull();
+  });
+
+  it("già raggiunto e ancora sotto lo speso: «still reached»", async () => {
+    state.instance.budget.monthlyUsd = 100;
+    await saveAmount("150");
+    expect(
+      await screen.findByText(`Saved. The budget is still reached: ${spent()} spent, $150 budget.`),
+    ).toBeVisible();
+  });
+
+  it("già raggiunto e alzato sopra lo speso: il lavoro in attesa riparte", async () => {
+    state.instance.budget.monthlyUsd = 100;
+    await saveAmount("5000");
+    expect(
+      await screen.findByText("Budget saved. Work waiting for the budget starts again."),
     ).toBeVisible();
   });
 });

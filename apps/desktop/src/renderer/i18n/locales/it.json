@@ -8916,7 +8916,9 @@
         "stillReached": "Salvato. Il budget è ancora raggiunto: spesi {{spent}}, budget {{budget}}.",
         "simulate": "Simula il budget raggiunto",
         "simulateHint": "Vedi cosa vedono tutti quando il budget finisce. Spegnendolo, il lavoro in attesa riparte.",
-        "loadError": "Impossibile caricare il budget."
+        "loadError": "Impossibile caricare il budget.",
+        "nowReached": "Salvato. Il budget ora è raggiunto: spesi {{spent}}, budget {{budget}}. Il lavoro AI nuovo aspetta.",
+        "simulatedReached": "Salvato. Il budget resta raggiunto: la simulazione del prototipo è accesa."
       },
       "secret": {
         "show": "Mostra",

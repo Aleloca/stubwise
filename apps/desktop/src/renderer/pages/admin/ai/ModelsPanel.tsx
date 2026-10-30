@@ -111,7 +111,7 @@ function ModelLine({ row, canWrite }: { row: ModelRow; canWrite: boolean }) {
       aria-labelledby={nameId}
       className="flex min-h-11 flex-col gap-1 border-b border-rule py-1.5"
     >
-      <div className="flex flex-col gap-2 @min-[560px]:flex-row @min-[560px]:items-center @min-[560px]:gap-4">
+      <div className="flex flex-col gap-2 @min-[720px]:flex-row @min-[720px]:items-center @min-[720px]:gap-4">
         <div className="flex min-w-0 flex-1 flex-col">
           <span id={nameId} className="text-md text-ink">
             {name}
@@ -129,8 +129,8 @@ function ModelLine({ row, canWrite }: { row: ModelRow; canWrite: boolean }) {
             )}
           </span>
         </div>
-        <span className="flex shrink-0 items-center gap-2">
-          <span aria-live="polite" className="w-12 text-right text-xs text-ink-muted">
+        <span className="flex shrink-0 flex-row-reverse items-center justify-end gap-2 @min-[720px]:flex-row">
+          <span aria-live="polite" className="text-xs text-ink-muted @min-[720px]:w-12 @min-[720px]:text-right">
             {saved ? t("admin.ai.saved") : ""}
           </span>
           <label htmlFor={selectId} className="sr-only">
@@ -141,7 +141,7 @@ function ModelLine({ row, canWrite }: { row: ModelRow; canWrite: boolean }) {
             value={row.source === "setting" ? row.model : FALLBACK}
             disabled={!canWrite}
             onChange={(e) => void choose((e.target.value || null) as AiModelChoice | null)}
-            className={`${selectClass} w-[220px] @min-[560px]:w-[200px] disabled:cursor-not-allowed`}
+            className={`${selectClass} w-[220px] @min-[720px]:w-[200px] disabled:cursor-not-allowed`}
           >
             <option value={FALLBACK}>
               {t(`admin.ai.models.fallback.${row.fallback.source}`, {

@@ -44,11 +44,24 @@ export async function getBudget(): Promise<BudgetView> {
   };
 }
 
+/**
+ * Cosa ha cambiato un salvataggio per chi lavora (shape admin-ai.md §7: la
+ * pagina lo legge da qui, non lo ricalcola): `released` il budget è tornato
+ * disponibile e il lavoro fermo riparte; `now_reached` è appena diventato
+ * raggiunto; `still_reached` lo era e lo resta (con `simulated` se è la
+ * simulazione del riquadro a tenerlo raggiunto); `none` niente di tutto questo.
+ */
+export interface BudgetSaveEffect {
+  effect: "released" | "now_reached" | "still_reached" | "none";
+  simulated: boolean;
+  spentUsd: number;
+}
+
 /** Salva budget (`null` = nessun budget) e lingua dei contenuti. */
 export async function saveBudget(input: {
   monthlyUsd: number | null;
   contentLanguage: ContentLanguage;
-}): Promise<InstanceResult> {
+}): Promise<InstanceResult<BudgetSaveEffect>> {
   const me = await writer("instance.saveBudget");
   if (!canI(me, "settings.manage")) return refuse.forbidden();
   const { monthlyUsd, contentLanguage } = input;
@@ -57,6 +70,8 @@ export async function saveBudget(input: {
   if (contentLanguage !== "en" && contentLanguage !== "it") return refuse.invalid("language");
 
   const saved = state.instance.budget;
+  const wasReached = budgetReached();
+  const amountChanged = saved.monthlyUsd !== monthlyUsd;
   // Valori stabili (Ruling T3): l'importo come numero o `null`, il locale.
   if (saved.monthlyUsd !== monthlyUsd) {
     recordChange({
@@ -83,7 +98,21 @@ export async function saveBudget(input: {
   // ancora sotto, o la sola lingua, no (`releaseBudgetHolds` non fa niente).
   releaseBudgetHolds();
   notifyInstanceChange();
-  return { ok: true };
+  const reached = budgetReached();
+  const effect: BudgetSaveEffect["effect"] =
+    wasReached && !reached
+      ? "released"
+      : !wasReached && reached
+        ? "now_reached"
+        : wasReached && reached && amountChanged
+          ? "still_reached"
+          : "none";
+  return {
+    ok: true,
+    effect,
+    simulated: state.instance.simulate.budgetReached,
+    spentUsd: spentThisMonthUsd(),
+  };
 }
 
 /** SOLO PROTOTIPO (riquadro «Prototype only»): il budget raggiunto, per vedere cosa succede. Nessuna voce. */
