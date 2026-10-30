@@ -1,5 +1,6 @@
 import type { ApprovalWho } from "../../domain/automations/preview";
 import { stepAt, visitSteps } from "../../domain/automations/fields";
+import { accessState } from "../access/index";
 import { PEOPLE } from "../seed/people";
 import { copy, state, visibleProjectIds } from "../store";
 import type { Automation, AutomationFlow, AutomationRun, Step } from "../types";
@@ -55,12 +56,19 @@ const byName = (a: string, b: string) =>
     PEOPLE.find((p) => p.id === b)?.name ?? b,
   );
 
-/** I membri di un progetto con un ruolo, in ordine alfabetico. */
+/**
+ * Una persona disattivata (area 9a) non riceve task né approva: resta fra i
+ * membri del progetto, ma le automazioni non la scelgono.
+ */
+export const isDeactivated = (personId: string): boolean =>
+  accessState().people.some((p) => p.personId === personId && p.status === "deactivated");
+
+/** I membri ATTIVI di un progetto con un ruolo, in ordine alfabetico. */
 export function holdersOfRole(projectId: string, role: string): string[] {
   const project = state.projectsById.get(projectId);
   if (!project) return [];
   return project.memberIds
-    .filter((id) => !PEOPLE.find((p) => p.id === id)?.isClaude)
+    .filter((id) => !PEOPLE.find((p) => p.id === id)?.isClaude && !isDeactivated(id))
     .filter((id) => projectRoleOf(id, projectId) === role)
     .sort(byName);
 }
@@ -76,7 +84,10 @@ export function approversFor(a: Automation, who: ApprovalWho, projectId: string 
   if ("owner" in who) ids = a.ownerId ? [a.ownerId] : [];
   else if ("personId" in who) ids = who.personId ? [who.personId] : [];
   else ids = projectId ? holdersOfRole(projectId, who.projectRole) : [];
-  return ids.filter((id) => projectId === null || visibleProjectIds(id).has(projectId));
+  // Un disattivato non approva, chiunque l'abbia indicato (persona, ruolo, proprietario).
+  return ids.filter(
+    (id) => !isDeactivated(id) && (projectId === null || visibleProjectIds(id).has(projectId)),
+  );
 }
 
 /** Il progetto in cui decide chi approva il passo in attesa di un'esecuzione. */

@@ -5138,7 +5138,9 @@
       "noAssignee": "Il dato della persona è vuoto: la task nasce senza incaricato.",
       "noAssignee_would": "Il dato della persona è vuoto: la task nascerebbe senza incaricato.",
       "noRoleAssignee": "Nessuno ha il ruolo {{role}} nel progetto: la task nasce senza incaricato.",
-      "noRoleAssignee_would": "Nessuno ha il ruolo {{role}} nel progetto: la task nascerebbe senza incaricato."
+      "noRoleAssignee_would": "Nessuno ha il ruolo {{role}} nel progetto: la task nascerebbe senza incaricato.",
+      "assigneeDeactivated": "{{name}} è una persona disattivata: la task non le si può assegnare.",
+      "assigneeDeactivated_would": "{{name}} è una persona disattivata: la task non le si potrebbe assegnare, e il passo fallirebbe."
     },
     "created": {
       "task_one": "{{count}} task",

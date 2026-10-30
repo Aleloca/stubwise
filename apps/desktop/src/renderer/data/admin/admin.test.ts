@@ -537,6 +537,73 @@ describe("RF 1: si dà solo ciò che si ha", () => {
     });
   });
 
+  describe("il livello giusto per inviti e ruolo d'istanza (m-b)", () => {
+    beforeEach(() => {
+      writeAccess((s) => {
+        s.roles.push(
+          // Un ruolo di progetto e uno d'istanza con un solo permesso ciascuno.
+          {
+            id: "role-ops",
+            key: "ops",
+            scope: "project",
+            name: "Ops",
+            preset: false,
+            permissions: ["servers.operate"],
+          },
+          {
+            id: "role-automator",
+            key: "automator",
+            scope: "instance",
+            name: "Automator",
+            preset: false,
+            permissions: ["automations.manage"],
+          },
+        );
+        // Laura ha servers.operate solo su ACQ.
+        s.grants.push({
+          personId: "p-laura",
+          projectId: ACQ,
+          permission: "servers.operate",
+          grantedById: "p-roberta",
+          at: "2026-10-01T10:00:00Z",
+        });
+      });
+      for (const p of ["users.invite", "users.manage"]) giveInstance("p-laura", p);
+      as("p-laura");
+      reauth("p-laura");
+    });
+
+    const invite = (projectId: string, instanceRoleId = roleIdOf("user")) =>
+      admin.createInvite({
+        email: "nuova@example.com",
+        instanceRoleId,
+        projects: [{ projectId, roleId: "role-ops" }],
+      });
+
+    it("un invito promette un ruolo di progetto: si confronta in QUEL progetto", async () => {
+      await refused(() => invite("prj-stw"), { error: "escalation", missing: ["servers.operate"] });
+      expect(await invite(ACQ)).toMatchObject({ ok: true });
+    });
+
+    it("il ruolo d'istanza di un invito: automations.manage di progetto non basta", async () => {
+      expect(can(viewerFor("p-laura"), "automations.manage", ACQ)).toBe(true);
+      await refused(() => invite(ACQ, "role-automator"), {
+        error: "escalation",
+        missing: ["automations.manage"],
+      });
+    });
+
+    it("setInstanceRole: automations.manage di progetto non basta per darlo d'istanza", async () => {
+      await refused(() => admin.setInstanceRole("p-marco", "role-automator"), {
+        error: "escalation",
+        missing: ["automations.manage"],
+      });
+      // Con automations.manage d'istanza, sì.
+      giveInstance("p-laura", "automations.manage");
+      expect(await admin.setInstanceRole("p-marco", "role-automator")).toEqual({ ok: true });
+    });
+  });
+
   it("una scrittura dopo il cambio di persona del «vedi come» è della persona nuova", async () => {
     reauth("p-laura");
     reauth("p-sara");

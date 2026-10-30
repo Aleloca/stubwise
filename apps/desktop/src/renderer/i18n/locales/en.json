@@ -5138,7 +5138,9 @@
       "noAssignee": "The person's data is empty: the task is created without an assignee.",
       "noAssignee_would": "The person's data is empty: the task would be created without an assignee.",
       "noRoleAssignee": "Nobody is {{role}} in the project: the task is created without an assignee.",
-      "noRoleAssignee_would": "Nobody is {{role}} in the project: the task would be created without an assignee."
+      "noRoleAssignee_would": "Nobody is {{role}} in the project: the task would be created without an assignee.",
+      "assigneeDeactivated": "{{name}} is deactivated: the task can't be assigned to them.",
+      "assigneeDeactivated_would": "{{name}} is deactivated: the task couldn't be assigned to them, so the step would fail."
     },
     "created": {
       "task_one": "{{count}} task",

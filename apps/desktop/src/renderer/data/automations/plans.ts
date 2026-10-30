@@ -16,7 +16,12 @@ import { checkSendNow } from "../mail/send";
 import { PEOPLE } from "../seed/people";
 import { state, visibleProjectIds } from "../store";
 import type { Automation, ReasonCode, Step } from "../types";
-import { canManageAutomation, canSeeAutomation, holdersOfRole } from "./visibility";
+import {
+  canManageAutomation,
+  canSeeAutomation,
+  holdersOfRole,
+  isDeactivated,
+} from "./visibility";
 
 // I PIANI delle azioni delle automazioni (area 7): cosa farebbe un'azione,
 // con i controlli e le risoluzioni dell'esecuzione vera, senza scrivere
@@ -186,6 +191,20 @@ export function planTask(
     checkNewTask(owner, { projectId, title: args.title });
   } catch (error) {
     return refuse(asFailure(error, owner));
+  }
+  // Una persona fissa disattivata (area 9a) non si assegna: si decide qui, nel
+  // piano, così la prova fallisce dove fallirebbe la vera e il proprietario
+  // legge il motivo in parole (non il codice della scrittura).
+  const who = args.assignee;
+  if (who && "personId" in who && isDeactivated(who.personId)) {
+    const name = personName(who.personId);
+    return refuse(
+      failed(
+        "assignee_deactivated",
+        { code: "assigneeDeactivated", params: { name } },
+        `${name} è una persona disattivata: la task non le si può assegnare.`,
+      ),
+    );
   }
   const assignee = resolveAssignee(args.assignee, projectId);
   return {
