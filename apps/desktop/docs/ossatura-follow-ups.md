@@ -623,7 +623,9 @@ si riscrivono.
     `apps/worker/src/providers/limit-resume-poller.ts`). La ripartenza
     automatica del prototipo è quindi una **regola nuova**, non una parità:
     va scritta come tale nell'invariante, e il maintainer deve dire se vale
-    anche per gli altri `budget_held` del web.
+    anche per gli altri `budget_held` del web. **Confermata dal maintainer il
+    31 ott 2026**: il passo riparte da solo, ed è una cosa in più rispetto al
+    web che il motore dovrà fare.
 
 ## Area 8b — minori aperti
 
