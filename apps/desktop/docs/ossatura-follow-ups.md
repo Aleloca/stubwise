@@ -769,7 +769,7 @@ Dai ruling del ledger durante l'area:
 
 ### Dall'ondata finale (30 ott 2026)
 
-Decisioni prese nell'ondata, da far confermare:
+Decisioni prese nell'ondata, confermate dal maintainer il 30 ott 2026:
 
 - **Primo reparto «General».** Il primo avvio crea anche il reparto
   «General» con dentro il primo admin, e l'ultimo reparto non si elimina
@@ -785,6 +785,15 @@ Decisioni prese nell'ondata, da far confermare:
   il ruling I-1 del Task 6).
 - **Il riquadro «Prototype only» del login ha un campo solo** per il link
   d'invito e per quello di reset (R4): il tipo lo riconosce `entryLinkOf`.
+- **Il nome di chi ha dato un permesso si vede ovunque** (Minor 3 della
+  revisione finale): anche «Who can?» lo mostra sempre, come Members e il
+  registro, pure quando chi guarda non vede quella persona. Il resto di
+  R-G5 (progetti e persone che non si vedono non esistono nelle risposte,
+  nei filtri, nei conteggi) resta com'è.
+- **Disattivare una persona revoca i suoi inviti in attesa** (Minor 4): come
+  una revoca a mano (il link dice «revocato»), con una voce
+  `invite.revoked` per invito a nome di chi disattiva; gli scaduti restano
+  come sono, e riattivare non li fa tornare. Il dialogo lo dice.
 
 Minori lasciati aperti, col motivo:
 
@@ -799,15 +808,6 @@ Minori lasciati aperti, col motivo:
   diventano scorciatoie dei test. Il confronto del ruolo è già unico
   (`roleMissingIn`); restano la severità di `setMemberRole` su permessi già
   avuti (m-c) e l'azzeramento delle revoche senza escalation (m2, solo test).
-- **Il nome di chi ha dato un permesso** (Minor 3 della revisione finale):
-  Members lo mostra sempre, «Who can?» solo se chi guarda vede quella
-  persona (R-G5, con un test). Decisione di prodotto: People è leggibile da
-  tutti e il registro mostra sempre chi ha agito (Task 11), quindi o si
-  allinea «Who can?» a Members, o si nasconde ovunque.
-- **Disattivare non revoca gli inviti in sospeso di chi è disattivato**
-  (Minor 4): il web non ha la disattivazione, quindi non c'è un
-  comportamento da copiare. Decisione di prodotto (revocarli, avvisare chi
-  li riceve, o lasciarli: furono giudicati quando nacquero).
 - **«Member since» nella pagina della persona** (R7 della revisione visiva;
   Task 8): il seme non ha la data d'ingresso, e quella da inventare deve
   stare d'accordo con `instance.first_admin_created` (giorno -30), che è già
