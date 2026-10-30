@@ -9192,6 +9192,209 @@
         "submit": "Rimuovi",
         "done": "{{name}} rimosso."
       }
+    },
+    "google": {
+      "title": "Google Workspace",
+      "intro": "App Google che permettono di collegare Gmail e Calendar. Ogni app copre uno o più domini email.",
+      "add": "Aggiungi un'app",
+      "list": "App Google",
+      "loadError": "Impossibile caricare le app Google.",
+      "empty": "Nessuna app Google. Senza, nessuno può collegare Gmail o Calendar.",
+      "mailboxes_one": "{{count}} casella collegata",
+      "mailboxes_other": "{{count}} caselle collegate",
+      "noMailboxes": "Nessuna casella collegata",
+      "menu": "Altro per {{name}}",
+      "edit": "Modifica…",
+      "replaceSecret": "Sostituisci il secret…",
+      "delete": "Elimina…",
+      "people": {
+        "one": "{{name}}.",
+        "all": "{{names}} e {{last}}.",
+        "andMore_one": "{{names}} e un'altra persona.",
+        "andMore_other": "{{names}} e altre {{count}} persone.",
+        "onlyHidden_one": "{{count}} persona che non vedi.",
+        "onlyHidden_other": "{{count}} persone che non vedi."
+      },
+      "disconnectOwn": "Ognuno scollega la propria in Preferenze → Account.",
+      "dialog": {
+        "addTitle": "Aggiungi un'app Google",
+        "editTitle": "Modifica {{name}}",
+        "name": "Nome",
+        "namePlaceholder": "Audin Workspace",
+        "domains": "Domini email",
+        "domainsHint": "Premi Invio o una virgola per aggiungere un dominio.",
+        "removeDomain": "Togli {{domain}}",
+        "clientId": "Client ID",
+        "clientSecret": "Client secret",
+        "setupTitle": "Come impostarla su Google Cloud",
+        "redirectUri": "URI di reindirizzamento autorizzato",
+        "scopes": "Scope",
+        "copy": "Copia",
+        "copied": "Copiato",
+        "internalHint": "Crea la schermata di consenso come app Interna: resta dentro l'organizzazione e non richiede la verifica di Google.",
+        "apisHint": "Abilita l'API Gmail e l'API Google Calendar sullo stesso progetto, poi incolla qui client ID e client secret.",
+        "submitAdd": "Aggiungi",
+        "submitEdit": "Salva",
+        "addAction": "aggiungere l'app Google {{name}}",
+        "added": "{{name}} aggiunta. Chi ha un indirizzo {{domain}} può collegarla in Preferenze → Account.",
+        "errors": {
+          "name": "Dalle un nome.",
+          "domains": "Aggiungi almeno un dominio.",
+          "domain": "«{{name}}» non è un dominio: usa una forma come acme.com.",
+          "domain_taken": "{{name}} appartiene già ad {{app}}.",
+          "client_id": "Incolla il client ID.",
+          "client_secret": "Incolla il client secret.",
+          "taken": "Esiste già un'app chiamata {{name}}.",
+          "inUse": "Delle caselle usano ancora un dominio che hai tolto: {{people}} {{own}}"
+        }
+      },
+      "replaceDialog": {
+        "title": "Sostituisci il client secret di {{name}}",
+        "submit": "Sostituisci",
+        "action": "sostituire il client secret di {{name}}",
+        "body": "Chi ha già collegato una casella resta collegato.",
+        "done": "Client secret di {{name}} sostituito."
+      },
+      "deleteDialog": {
+        "title": "Eliminare {{name}}?",
+        "body": "Nessuno potrà più collegare una casella dei suoi domini.",
+        "submit": "Elimina",
+        "action": "eliminare l'app Google {{name}}",
+        "done": "{{name}} eliminata.",
+        "inUseTitle_one": "{{name}} ha ancora {{count}} casella collegata",
+        "inUseTitle_other": "{{name}} ha ancora {{count}} caselle collegate"
+      }
+    },
+    "storage": {
+      "title": "Archiviazione",
+      "intro": "Dove stanno i file caricati: i file del Drive e gli allegati dei messaggi. Va bene qualunque bucket compatibile S3.",
+      "loadError": "Impossibile caricare le impostazioni dell'archiviazione.",
+      "status": {
+        "on": "I caricamenti sono attivi.",
+        "attachments_off": "I caricamenti sono spenti: gli allegati sono disattivati.",
+        "check_failed": "I caricamenti sono spenti: l'ultima verifica non è riuscita.",
+        "not_set_up": "Non configurata: nessuno può caricare file."
+      },
+      "stays": "I file già caricati restano dove sono.",
+      "endpoint": "Endpoint",
+      "region": "Regione",
+      "bucket": "Bucket",
+      "accessKeyId": "Access key ID",
+      "secretKey": "Secret access key",
+      "replace": "Sostituisci",
+      "cancelReplace": "Tieni la chiave attuale",
+      "attachments": "Allegati",
+      "attachmentsBody": "Permetti di caricare file nel Drive e di allegarli ai messaggi.",
+      "turnOff": "Spegnere i caricamenti per tutti?",
+      "turnOffConfirm": "Spegni",
+      "keepOn": "Lasciali accesi",
+      "check": "Verifica la connessione",
+      "save": "Salva",
+      "saveAction": "salvare una nuova chiave segreta dell'archiviazione",
+      "errors": {
+        "endpoint": "Usa un indirizzo http o https.",
+        "region": "Aggiungi la regione.",
+        "bucket": "Aggiungi il bucket.",
+        "access_key_id": "Aggiungi l'access key ID.",
+        "secret_access_key": "Incolla la secret access key.",
+        "not_set_up": "Prima salva le impostazioni dell'archiviazione."
+      }
+    },
+    "webhooks": {
+      "title": "Webhook in uscita",
+      "intro": "Manda un messaggio a un canale di chat o a un endpoint quando succede qualcosa in un progetto.",
+      "loadError": "Impossibile caricare il webhook.",
+      "send": "Manda i messaggi",
+      "off": "I messaggi sono spenti.",
+      "format": "Formato",
+      "formats": {
+        "slack": "Slack",
+        "discord": "Discord",
+        "generic": "JSON generico"
+      },
+      "address": "Indirizzo",
+      "addressNote": "Chi può cambiare le impostazioni dell'istanza può leggere questo indirizzo.",
+      "howTo": "Come ottenere l'indirizzo",
+      "steps": {
+        "slack": {
+          "s1": "Vai su api.slack.com/apps.",
+          "s2": "Premi Create New App → From scratch, scegli un nome e un workspace.",
+          "s3": "Nel menu laterale apri Incoming Webhooks e attivalo.",
+          "s4": "Premi Add New Webhook to Workspace e scegli il canale.",
+          "s5": "Copia l'indirizzo che ti dà (https://hooks.slack.com/services/…) e incollalo qui."
+        },
+        "discord": {
+          "s1": "Apri le impostazioni del canale (l'ingranaggio accanto al nome).",
+          "s2": "Vai su Integrazioni → Webhook.",
+          "s3": "Premi Nuovo webhook (puoi chiamarlo Stubwise).",
+          "s4": "Premi Copia URL del webhook.",
+          "s5": "Incolla qui l'indirizzo."
+        },
+        "generic": {
+          "s1": "Il tuo endpoint riceve una POST con Content-Type: application/json.",
+          "s2": "Il corpo ha l'evento, il progetto, un messaggio leggibile e un link; gli eventi di una task aggiungono codice e titolo della task.",
+          "s3": "L'anteprima mostra il corpo dell'evento scelto."
+        }
+      },
+      "events": "Eventi",
+      "onCount": "{{on}} di {{total}} accesi",
+      "groups": {
+        "tasks": "Task e richieste",
+        "work": "Il lavoro di Claude",
+        "prs": "Pull request e rilasci",
+        "docs": "Docs",
+        "servers": "Server",
+        "project": "Progetto"
+      },
+      "event": {
+        "ticket.created": "Nuova task dall'SDK o dal widget",
+        "task.created_by_automation": "Task creata da un'automazione",
+        "support.request": "Nuova richiesta nel backlog",
+        "job.plan_review": "Piano in attesa di approvazione",
+        "job.awaiting_input": "Claude ha fatto una domanda",
+        "job.held": "Lavoro in attesa",
+        "job.budget_held": "Lavoro in attesa: budget raggiunto",
+        "job.failed": "Il lavoro di Claude non è riuscito",
+        "job.pr_opened": "Pull request aperta da Claude",
+        "job.pr_closed": "Pull request chiusa senza merge",
+        "review.completed": "Revisione della pull request fatta",
+        "pr.analysis_issues": "Problemi trovati in una pull request",
+        "release.merged": "Mergiata in produzione",
+        "release.succeeded": "Rilascio riuscito",
+        "release.failed": "Rilascio non riuscito",
+        "docs.limit_paused": "Docs in pausa, o il giro notturno chiede attenzione",
+        "docs.release_note": "Nuova nota di rilascio",
+        "monitor": "Server in difficoltà, fermo o tornato normale",
+        "server.diagnosis_ready": "La diagnosi di Claude su un server è pronta",
+        "project.pulse": "Proposta per un progetto fermo",
+        "project.brief": "Brief settimanale del progetto"
+      },
+      "save": "Salva",
+      "test": "Manda una prova",
+      "sending": "Invio in corso…",
+      "testsSaved": "La prova va all'indirizzo salvato.",
+      "result": {
+        "ok": "Inviata · consegnata",
+        "invalid_credentials": "L'indirizzo ha risposto con un errore",
+        "unreachable": "Impossibile raggiungere l'indirizzo",
+        "never": "Nessuna prova inviata"
+      },
+      "errors": {
+        "https": "Usa un indirizzo https.",
+        "missing": "Aggiungi l'indirizzo, o spegni i messaggi.",
+        "testNeedsAddress": "Prima salva un indirizzo."
+      },
+      "preview": "Anteprima",
+      "example": "Dati d'esempio",
+      "showPreview": "Mostra l'anteprima",
+      "hidePreview": "Nascondi l'anteprima",
+      "prototype": {
+        "intro": "Non si contatta niente di vero. Scegli cosa risponde la prossima prova.",
+        "outcome": "Prossima prova",
+        "ok": "Consegnata",
+        "invalid_credentials": "Errore dall'indirizzo",
+        "unreachable": "Non raggiungibile"
+      }
     }
   },
   "permissions": {

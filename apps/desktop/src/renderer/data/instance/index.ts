@@ -73,6 +73,7 @@ export {
   type PluginView,
 } from "./plugins";
 export {
+  GOOGLE_SETUP,
   createGoogleApp,
   deleteGoogleApp,
   listGoogleApps,

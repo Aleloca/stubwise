@@ -243,6 +243,121 @@ async function main() {
       return;
     }
 
+    // Area 9b, Task 11 (`CAPTURE_A9B_GSW=1`): Google Workspace, Storage e
+    // Outgoing webhooks (shape admin-integrations.md), scatti `a9b-google-*`,
+    // `a9b-storage-*` e `a9b-webhook-*`. Lo stato si prepara dal livello dati.
+    if (process.env.CAPTURE_A9B_GSW) {
+      async function prepare(page, action) {
+        await page.evaluate(async (what) => {
+          const api = await import("/data/api.ts");
+          const session = await import("/data/session.ts");
+          const prev = session.getSessionPersonId();
+          session.setSessionPersonId("p-roberta");
+          try {
+            if (what === "storageFailed") {
+              await api.instance.simulateNextTest("storage", "unreachable");
+              await api.instance.testStorage();
+            }
+            if (what === "attachmentsOff") await api.instance.setAttachments(false);
+            if (what === "webhookFailed") {
+              await api.instance.simulateNextTest("webhook", "invalid_credentials");
+              await api.instance.testWebhook();
+            }
+          } finally {
+            session.setSessionPersonId(prev);
+          }
+        }, action);
+        await page.waitForTimeout(600);
+      }
+      const go = async (page, hash) => {
+        await page.evaluate((h) => {
+          window.location.hash = h;
+        }, hash);
+        await page.waitForTimeout(1200);
+        await page.mouse.move(2, 2);
+      };
+      const menu = async (page, name, item) => {
+        await page.getByRole("button", { name: new RegExp(`^(More for|Altro per) ${name}$`) }).click();
+        await page.getByRole("menuitem", { name: item }).click();
+        await page.waitForTimeout(300);
+      };
+      const addApp = async (page) => {
+        await page.getByRole("button", { name: /^(Add an app|Aggiungi un'app)$/ }).click();
+        await page.getByLabel(/^(Name|Nome)$/).fill("Audin Workspace");
+        const domains = page.getByLabel(/^(Email domains|Domini email)$/);
+        await domains.fill("audin.it,");
+        await domains.fill("audin.com,");
+        await page.getByLabel(/^Client ID$/).fill("1234-audin.apps.googleusercontent.com");
+        await page.getByLabel(/^Client secret$/).fill("GOCSPX-prototype-7d1e");
+        await page.getByRole("button", { name: /^(How to set it up in Google Cloud|Come impostarla su Google Cloud)$/ }).click();
+        await page.waitForTimeout(300);
+      };
+      const replaceKey = async (page) => {
+        await page.getByRole("button", { name: /^(Replace|Sostituisci)$/ }).click();
+        await page.getByLabel(/^Secret access key$/).fill("s3-prototype-secret-k4q2");
+        await page.mouse.move(2, 2);
+        await page.waitForTimeout(300);
+      };
+      const turnOff = async (page) => {
+        await page.getByRole("switch", { name: /^(Attachments|Allegati)$/ }).click();
+        await page.waitForTimeout(300);
+      };
+      const jsonPreview = async (page) => {
+        await page.getByRole("radio", { name: /^(Generic JSON|JSON generico)$/ }).click();
+        await page.getByText(/^(Claude's work failed|Il lavoro di Claude non è riuscito)$/).hover();
+        await page.waitForTimeout(300);
+      };
+      const howTo = async (page) => {
+        await page.getByRole("button", { name: /^(How to get the address|Come ottenere l'indirizzo)$/ }).click();
+        await page.waitForTimeout(300);
+      };
+      const showPreview = async (page) => {
+        const toggle = page.getByRole("button", { name: /^(Show preview|Mostra l'anteprima)$/ });
+        if (await toggle.isVisible()) await toggle.click();
+        await page.getByRole("region", { name: /^(Preview|Anteprima)$/ }).scrollIntoViewIfNeeded();
+        await page.waitForTimeout(300);
+      };
+      const SCENES = [
+        // [nome, indirizzo, { persona, action, after }]
+        ["google", "/admin/google", { persona: "Roberta" }],
+        ["google-add", "/admin/google", { persona: "Roberta", after: addApp }],
+        ["google-inuse", "/admin/google", { persona: "Roberta", after: (p) => menu(p, "Example", /^(Delete…|Elimina…)$/) }],
+        ["storage", "/admin/storage", { persona: "Roberta" }],
+        ["storage-replace", "/admin/storage", { persona: "Roberta", after: replaceKey }],
+        ["storage-failed", "/admin/storage", { persona: "Roberta", action: "storageFailed" }],
+        ["storage-turnoff", "/admin/storage", { persona: "Roberta", after: turnOff }],
+        ["storage-off", "/admin/storage", { persona: "Roberta", action: "attachmentsOff" }],
+        ["webhook", "/admin/webhooks", { persona: "Roberta" }],
+        ["webhook-json", "/admin/webhooks", { persona: "Roberta", after: jsonPreview }],
+        ["webhook-howto", "/admin/webhooks", { persona: "Roberta", after: howTo }],
+        ["webhook-failed", "/admin/webhooks", { persona: "Roberta", action: "webhookFailed" }],
+        ["webhook-preview", "/admin/webhooks", { persona: "Roberta", after: showPreview }],
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      for (const [name, hash, opts] of SCENES) {
+        if (only && !only.test(name)) continue;
+        for (const v of variants) {
+          const { page, context } = await open(v.scheme, v.viewport, "/home", {
+            lang: v.lang,
+            persona: opts.persona,
+          });
+          if (opts.action) await prepare(page, opts.action);
+          await go(page, hash);
+          if (opts.after) await opts.after(page);
+          await shot(page, `a9b-${name}-${v.suffix}.png`);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 9b, Task 10 (`CAPTURE_A9B_INTEG=1`): Git accounts e Plugins
     // (shape admin-integrations.md), scatti `a9b-git-*` e `a9b-plugins-*`.
     // Lo stato si prepara dal livello dati della pagina.

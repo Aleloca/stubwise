@@ -1,4 +1,5 @@
-import { forgetSecret, storeProvidedSecret } from "../admin/secrets";
+import { GOOGLE_OAUTH_CALLBACK_PATH } from "@stubwise/shared";
+import { INSTANCE_ORIGIN, forgetSecret, storeProvidedSecret } from "../admin/secrets";
 import { visiblePeopleFor } from "../access/whoCan";
 import { recordChange } from "../changelog/index";
 import { changedFields } from "../changelog/settingValues";
@@ -32,9 +33,33 @@ export interface GoogleAppView {
   clientId: string;
   last4: string;
   createdAt: string;
-  /** Le caselle collegate con un indirizzo dei suoi domini (un numero: non nomina nessuno). */
+  /** Le caselle collegate con un indirizzo dei suoi domini. */
   mailboxCount: number;
+  /**
+   * Di chi sono, per nome, le caselle delle persone che chi guarda vede; le
+   * altre solo contate in `hiddenMailboxCount` (R-G5), come nel rifiuto
+   * `in_use`. Il dialogo «Delete…» di un'app in uso le dice senza tentare
+   * l'eliminazione (Task 11).
+   */
+  mailboxPeople: string[];
+  hiddenMailboxCount: number;
 }
+
+/**
+ * Cosa incollare nella Google Cloud Console (parità col web, shape «How to
+ * set it up in Google Cloud»): l'URI di reindirizzamento dell'istanza e gli
+ * scope che Stubwise chiede (`GOOGLE_SCOPES` di `packages/google`: solo
+ * lettura di Gmail e Calendar).
+ */
+export const GOOGLE_SETUP = {
+  redirectUri: `${INSTANCE_ORIGIN}${GOOGLE_OAUTH_CALLBACK_PATH}`,
+  scopes: [
+    "openid",
+    "email",
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/calendar.readonly",
+  ],
+} as const;
 
 const appOf = (id: string) => state.googleWorkspaces.find((w) => w.id === id);
 const objectOf = (w: GoogleWorkspace) => ({ type: "google_app", id: w.id, label: w.name });
@@ -43,7 +68,10 @@ const mailboxesOf = (w: GoogleWorkspace) =>
   state.mailboxes.filter((b) => w.domains.includes(domainOf(b.email)));
 
 /** Campo per campo: `secretId` non esce. */
-function viewOf(w: GoogleWorkspace): GoogleAppView {
+function viewOf(me: string, w: GoogleWorkspace): GoogleAppView {
+  const people = visiblePeopleFor(me);
+  const boxes = mailboxesOf(w);
+  const seen = boxes.filter((b) => people.has(b.personId));
   return {
     id: w.id,
     name: w.name,
@@ -51,7 +79,9 @@ function viewOf(w: GoogleWorkspace): GoogleAppView {
     clientId: w.clientId,
     last4: w.last4,
     createdAt: w.createdAt,
-    mailboxCount: mailboxesOf(w).length,
+    mailboxCount: boxes.length,
+    mailboxPeople: seen.map((b) => nameOf(b.personId)!),
+    hiddenMailboxCount: boxes.length - seen.length,
   };
 }
 
@@ -64,17 +94,28 @@ function managed(me: string, id: string): { app: GoogleWorkspace } | { refusal: 
 /**
  * I domini, puliti (minuscoli, senza doppioni, nell'ordine dato) o il
  * motivo del rifiuto: `domains` se non ce n'è nessuno, `domain` per uno
- * malformato, `domain_taken` per uno di un'altra app.
+ * malformato, `domain_taken` per uno di un'altra app. `name` è il dominio in
+ * causa: la frase sotto il campo lo nomina (shape «“acme” isn't a domain»).
  */
-function cleanDomains(input: string[], exceptId: string | null): string[] | { reason: string } {
+function cleanDomains(
+  input: string[],
+  exceptId: string | null,
+): string[] | { reason: string; name?: string } {
   const domains = [...new Set(input.map((d) => d.trim().toLowerCase()).filter(Boolean))];
   if (domains.length === 0) return { reason: "domains" };
-  if (!domains.every((d) => DOMAIN_RE.test(d))) return { reason: "domain" };
-  const taken = state.googleWorkspaces.some(
-    (w) => w.id !== exceptId && w.domains.some((d) => domains.includes(d)),
+  const malformed = domains.find((d) => !DOMAIN_RE.test(d));
+  if (malformed !== undefined) return { reason: "domain", name: malformed };
+  const taken = domains.find((d) =>
+    state.googleWorkspaces.some((w) => w.id !== exceptId && w.domains.includes(d)),
   );
-  return taken ? { reason: "domain_taken" } : domains;
+  return taken !== undefined ? { reason: "domain_taken", name: taken } : domains;
 }
+
+/** Il rifiuto di un dominio, col dominio in causa quando c'è. */
+const domainRefusal = (bad: { reason: string; name?: string }): InstanceRefusal =>
+  bad.name === undefined
+    ? refuse.invalid(bad.reason)
+    : { ok: false, error: "invalid", reason: bad.reason, name: bad.name };
 
 /**
  * `in_use` se ci sono caselle: le persone che chi guarda vede per nome, le
@@ -99,7 +140,7 @@ const nameTaken = (name: string, exceptId: string | null) =>
 export async function listGoogleApps(): Promise<GoogleAppView[]> {
   const me = await gate("instance.listGoogleApps");
   if (!canI(me, MANAGE)) throw forbidden();
-  return state.googleWorkspaces.map(viewOf);
+  return state.googleWorkspaces.map((w) => viewOf(me, w));
 }
 
 /** Aggiunge un'app (+R): compare subito fra quelle da collegare in Preferenze. */
@@ -114,7 +155,7 @@ export async function createGoogleApp(input: {
   const name = input.name.trim();
   if (!name) return refuse.invalid("name");
   const domains = cleanDomains(input.domains, null);
-  if (!Array.isArray(domains)) return refuse.invalid(domains.reason);
+  if (!Array.isArray(domains)) return domainRefusal(domains);
   const clientId = input.clientId.trim();
   if (!clientId) return refuse.invalid("client_id");
   const clientSecret = input.clientSecret.trim();
@@ -162,7 +203,7 @@ export async function updateGoogleApp(
   let domains = app.domains;
   if (input.domains !== undefined) {
     const cleaned = cleanDomains(input.domains, id);
-    if (!Array.isArray(cleaned)) return refuse.invalid(cleaned.reason);
+    if (!Array.isArray(cleaned)) return domainRefusal(cleaned);
     domains = cleaned;
     // Togliere un dominio con caselle le lascerebbe senza app: come eliminarla.
     const removed = app.domains.filter((d) => !cleaned.includes(d));

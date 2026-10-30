@@ -12,8 +12,11 @@ import { AiPage } from "./ai/AiPage";
 import { ChangeLogPage } from "./ChangeLogPage";
 import { DepartmentsPage } from "./DepartmentsPage";
 import { GitAccountsPage } from "./integrations/GitAccountsPage";
+import { GooglePage } from "./integrations/GooglePage";
 import { PluginPage } from "./integrations/PluginPage";
 import { PluginsPage } from "./integrations/PluginsPage";
+import { StoragePage } from "./integrations/StoragePage";
+import { WebhooksPage } from "./integrations/WebhooksPage";
 import { InvitePage } from "./InvitePage";
 import { PeoplePage } from "./PeoplePage";
 import { PersonDetail } from "./PersonDetail";
@@ -110,7 +113,10 @@ function SectionBody({ section }: { section: AdminSection }) {
   if (section === "ai") return <AiPage />;
   if (section === "git-accounts") return <GitAccountsPage />;
   if (section === "plugins") return <PluginsPage />;
-  // Le altre voci dell'istanza arrivano coi Task 11–13 del 9b.
+  if (section === "google") return <GooglePage />;
+  if (section === "storage") return <StoragePage />;
+  if (section === "webhooks") return <WebhooksPage />;
+  // Le altre voci dell'istanza arrivano coi Task 12–13 del 9b.
   return (
     <Placeholder titleKey={`admin.sections.${section}`} bodyKey={`placeholder.admin.${section}`} />
   );

@@ -17,7 +17,14 @@ export type {
   BudgetView,
   ContentLanguage,
   GitAccountView,
+  GoogleAppView,
   InstanceResult,
+  StorageStatus,
+  StorageView,
+  WebhookEventId,
+  WebhookFormat,
+  WebhookGroup,
+  WebhookView,
   PluginView,
   ModelRow,
   ModelSource,
@@ -26,6 +33,8 @@ export type {
   TestOutcome,
 } from "../instance";
 export { BACKGROUND_WEEKLY_THRESHOLD } from "../instance/providers";
+export { GOOGLE_SETUP } from "../instance/google";
+export { WEBHOOK_EVENTS } from "../instance/webhook";
 
 /** I consumi della scheda Usage (errore `forbidden` senza `usage.view`). */
 export function useUsage(input: {
@@ -368,4 +377,122 @@ export function useSimulateNextPluginOutcome() {
     (outcome: "ready" | "failed") => api.instance.simulateNextPluginOutcome(outcome),
     ["instance"],
   );
+}
+
+// --- Google Workspace, Storage, Outgoing webhooks (Task 11) -------------------
+//
+// Come le integrazioni del Task 10: ogni scrittura ricarica l'istanza e il
+// registro. Client secret e chiave S3 passano solo come argomento di una
+// scrittura (`secret`: la cache delle mutazioni non li tiene). L'archiviazione
+// decide se si può caricare (Drive, allegati dei composer): le sue scritture
+// e le sue prove ricaricano anche quei blocchi. L'URL del webhook non è un
+// segreto (maintainer, 30 ott 2026).
+
+const STORAGE_WRITE_AREAS: readonly string[] = [...INSTANCE_EFFECT_AREAS, "changelog"];
+
+/** Le app Google, con chi ha una casella collegata (errore `forbidden` senza `integrations.manage`). */
+export function useGoogleApps() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "instance", "google-apps"] as const,
+    queryFn: () => api.instance.listGoogleApps(),
+  });
+}
+
+/** Aggiunge un'app (+R). Il client secret sta negli argomenti. */
+export function useCreateGoogleApp() {
+  return useWrite(
+    (input: Parameters<typeof api.instance.createGoogleApp>[0]) =>
+      api.instance.createGoogleApp(input),
+    INTEGRATION_WRITE_AREAS,
+    { secret: true },
+  );
+}
+
+/** Nome, domini e client ID, senza riconferma; togliere un dominio con caselle → `in_use`. */
+export function useUpdateGoogleApp() {
+  return useWrite(
+    ([id, input]: [string, Parameters<typeof api.instance.updateGoogleApp>[1]]) =>
+      api.instance.updateGoogleApp(id, input),
+    INTEGRATION_WRITE_AREAS,
+  );
+}
+
+/** Sostituisce il client secret (+R). */
+export function useReplaceGoogleSecret() {
+  return useWrite(
+    ([id, secret]: [string, string]) => api.instance.replaceGoogleSecret(id, secret),
+    INTEGRATION_WRITE_AREAS,
+    { secret: true },
+  );
+}
+
+/** Elimina un'app (+R); con caselle → `in_use`. */
+export function useDeleteGoogleApp() {
+  return useWrite((id: string) => api.instance.deleteGoogleApp(id), INTEGRATION_WRITE_AREAS);
+}
+
+/** L'archiviazione, senza la chiave, con la riga di stato (`status`). */
+export function useStorage() {
+  const me = useSessionPersonId();
+  useInstanceChanges();
+  return useQuery({
+    queryKey: ["as", me, "instance", "storage"] as const,
+    queryFn: () => api.instance.getStorage(),
+  });
+}
+
+/** Salva la configurazione; con una chiave nuova (+R), che sta negli argomenti. */
+export function useSaveStorage() {
+  return useWrite(
+    (input: Parameters<typeof api.instance.saveStorage>[0]) => api.instance.saveStorage(input),
+    STORAGE_WRITE_AREAS,
+    { secret: true },
+  );
+}
+
+export function useSetAttachments() {
+  return useWrite((on: boolean) => api.instance.setAttachments(on), STORAGE_WRITE_AREAS);
+}
+
+export function useTestStorage() {
+  return useWrite(() => api.instance.testStorage(), STORAGE_WRITE_AREAS);
+}
+
+/** Il webhook in uscita, con l'URL in chiaro e i 21 eventi. */
+export function useWebhook() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "instance", "webhook"] as const,
+    queryFn: () => api.instance.getWebhook(),
+  });
+}
+
+/** Salva tutto il modulo, senza riconferma. */
+export function useSaveWebhook() {
+  return useWrite(
+    (input: Parameters<typeof api.instance.saveWebhook>[0]) => api.instance.saveWebhook(input),
+    INTEGRATION_WRITE_AREAS,
+  );
+}
+
+export function useTestWebhook() {
+  return useWrite(() => api.instance.testWebhook(), INTEGRATION_WRITE_AREAS);
+}
+
+/**
+ * Il messaggio d'esempio di un evento in un formato, nella lingua dei
+ * contenuti d'istanza (si rilegge con l'area «instance»).
+ */
+export function useWebhookPreview(
+  eventId: api.instance.WebhookEventId,
+  format: api.instance.WebhookFormat,
+) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "instance", "webhook-preview", eventId, format] as const,
+    queryFn: () => Promise.resolve(api.instance.previewWebhook(eventId, format)),
+    // Passando da un evento all'altro l'anteprima non si svuota.
+    placeholderData: (previous) => previous,
+  });
 }

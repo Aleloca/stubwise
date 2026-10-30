@@ -9192,6 +9192,209 @@
         "submit": "Remove",
         "done": "{{name}} removed."
       }
+    },
+    "google": {
+      "title": "Google Workspace",
+      "intro": "Google apps that let people connect their Gmail and Calendar. Each app covers one or more email domains.",
+      "add": "Add an app",
+      "list": "Google apps",
+      "loadError": "Couldn't load the Google apps.",
+      "empty": "No Google apps yet. Without one, no one can connect Gmail or Calendar.",
+      "mailboxes_one": "{{count}} mailbox connected",
+      "mailboxes_other": "{{count}} mailboxes connected",
+      "noMailboxes": "No mailboxes connected",
+      "menu": "More for {{name}}",
+      "edit": "Edit…",
+      "replaceSecret": "Replace secret…",
+      "delete": "Delete…",
+      "people": {
+        "one": "{{name}}.",
+        "all": "{{names}} and {{last}}.",
+        "andMore_one": "{{names}} and {{count}} more person.",
+        "andMore_other": "{{names}} and {{count}} more people.",
+        "onlyHidden_one": "{{count}} person you can't see.",
+        "onlyHidden_other": "{{count}} people you can't see."
+      },
+      "disconnectOwn": "Each person disconnects their own in Preferences → Account.",
+      "dialog": {
+        "addTitle": "Add a Google app",
+        "editTitle": "Edit {{name}}",
+        "name": "Name",
+        "namePlaceholder": "Audin Workspace",
+        "domains": "Email domains",
+        "domainsHint": "Press Enter or a comma to add a domain.",
+        "removeDomain": "Remove {{domain}}",
+        "clientId": "Client ID",
+        "clientSecret": "Client secret",
+        "setupTitle": "How to set it up in Google Cloud",
+        "redirectUri": "Authorized redirect URI",
+        "scopes": "Scopes",
+        "copy": "Copy",
+        "copied": "Copied",
+        "internalHint": "Create the consent screen as an Internal app: it stays inside your organization and needs no Google verification.",
+        "apisHint": "Enable the Gmail API and the Google Calendar API on the same project, then paste the client ID and the client secret here.",
+        "submitAdd": "Add",
+        "submitEdit": "Save",
+        "addAction": "add the Google app {{name}}",
+        "added": "{{name}} added. People with an {{domain}} address can connect it in Preferences → Account.",
+        "errors": {
+          "name": "Give it a name.",
+          "domains": "Add at least one domain.",
+          "domain": "“{{name}}” isn't a domain: use a form like acme.com.",
+          "domain_taken": "{{name}} already belongs to {{app}}.",
+          "client_id": "Paste the client ID.",
+          "client_secret": "Paste the client secret.",
+          "taken": "An app called {{name}} already exists.",
+          "inUse": "Mailboxes still use a domain you removed: {{people}} {{own}}"
+        }
+      },
+      "replaceDialog": {
+        "title": "Replace the client secret of {{name}}",
+        "submit": "Replace",
+        "action": "replace the client secret of {{name}}",
+        "body": "People who already connected a mailbox stay connected.",
+        "done": "Client secret of {{name}} replaced."
+      },
+      "deleteDialog": {
+        "title": "Delete {{name}}?",
+        "body": "No one will be able to connect a mailbox on its domains any more.",
+        "submit": "Delete",
+        "action": "delete the Google app {{name}}",
+        "done": "{{name}} deleted.",
+        "inUseTitle_one": "{{name}} still has {{count}} connected mailbox",
+        "inUseTitle_other": "{{name}} still has {{count}} connected mailboxes"
+      }
+    },
+    "storage": {
+      "title": "Storage",
+      "intro": "Where uploaded files are kept: Drive files and message attachments. Any S3-compatible bucket works.",
+      "loadError": "Couldn't load the storage settings.",
+      "status": {
+        "on": "Uploads are on.",
+        "attachments_off": "Uploads are off: attachments are turned off.",
+        "check_failed": "Uploads are off: the last check failed.",
+        "not_set_up": "Not set up: no one can upload files."
+      },
+      "stays": "Files already uploaded stay where they are.",
+      "endpoint": "Endpoint",
+      "region": "Region",
+      "bucket": "Bucket",
+      "accessKeyId": "Access key ID",
+      "secretKey": "Secret access key",
+      "replace": "Replace",
+      "cancelReplace": "Keep the current key",
+      "attachments": "Attachments",
+      "attachmentsBody": "Let people upload files to Drive and attach them to messages.",
+      "turnOff": "Turn off uploads for everyone?",
+      "turnOffConfirm": "Turn off",
+      "keepOn": "Keep them on",
+      "check": "Check connection",
+      "save": "Save",
+      "saveAction": "save a new storage secret key",
+      "errors": {
+        "endpoint": "Use an http or https address.",
+        "region": "Add the region.",
+        "bucket": "Add the bucket.",
+        "access_key_id": "Add the access key ID.",
+        "secret_access_key": "Paste the secret access key.",
+        "not_set_up": "Save the storage settings first."
+      }
+    },
+    "webhooks": {
+      "title": "Outgoing webhooks",
+      "intro": "Send a message to one chat channel or endpoint when something happens in any project.",
+      "loadError": "Couldn't load the webhook.",
+      "send": "Send messages",
+      "off": "Messages are off.",
+      "format": "Format",
+      "formats": {
+        "slack": "Slack",
+        "discord": "Discord",
+        "generic": "Generic JSON"
+      },
+      "address": "Address",
+      "addressNote": "Anyone who can change the instance settings can read this address.",
+      "howTo": "How to get the address",
+      "steps": {
+        "slack": {
+          "s1": "Go to api.slack.com/apps.",
+          "s2": "Press Create New App → From scratch, choose a name and a workspace.",
+          "s3": "In the side menu open Incoming Webhooks and turn it on.",
+          "s4": "Press Add New Webhook to Workspace and choose the channel.",
+          "s5": "Copy the address it gives you (https://hooks.slack.com/services/…) and paste it here."
+        },
+        "discord": {
+          "s1": "Open the channel settings (the gear next to the channel name).",
+          "s2": "Go to Integrations → Webhooks.",
+          "s3": "Press New Webhook (you can call it Stubwise).",
+          "s4": "Press Copy Webhook URL.",
+          "s5": "Paste the address here."
+        },
+        "generic": {
+          "s1": "Your endpoint receives a POST with Content-Type: application/json.",
+          "s2": "The body has the event, the project, a readable message and a link; task events add the task code and title.",
+          "s3": "The preview shows the body of the selected event."
+        }
+      },
+      "events": "Events",
+      "onCount": "{{on}} of {{total}} on",
+      "groups": {
+        "tasks": "Tasks and requests",
+        "work": "Claude's work",
+        "prs": "Pull requests and releases",
+        "docs": "Docs",
+        "servers": "Servers",
+        "project": "Project"
+      },
+      "event": {
+        "ticket.created": "New task from the SDK or the widget",
+        "task.created_by_automation": "Task created by an automation",
+        "support.request": "New request in the backlog",
+        "job.plan_review": "Plan waiting for approval",
+        "job.awaiting_input": "Claude asked a question",
+        "job.held": "Work on hold",
+        "job.budget_held": "Work on hold: budget reached",
+        "job.failed": "Claude's work failed",
+        "job.pr_opened": "Pull request opened by Claude",
+        "job.pr_closed": "Pull request closed without merge",
+        "review.completed": "Pull request review done",
+        "pr.analysis_issues": "Problems found in a pull request",
+        "release.merged": "Merged to production",
+        "release.succeeded": "Release succeeded",
+        "release.failed": "Release failed",
+        "docs.limit_paused": "Docs paused, or the nightly run needs attention",
+        "docs.release_note": "New release note",
+        "monitor": "Server in trouble, down or back to normal",
+        "server.diagnosis_ready": "Claude's diagnosis of a server is ready",
+        "project.pulse": "Proposal for an idle project",
+        "project.brief": "Weekly project brief"
+      },
+      "save": "Save",
+      "test": "Send a test",
+      "sending": "Sending…",
+      "testsSaved": "The test goes to the saved address.",
+      "result": {
+        "ok": "Sent · delivered",
+        "invalid_credentials": "The address answered with an error",
+        "unreachable": "Couldn't reach the address",
+        "never": "No test sent yet"
+      },
+      "errors": {
+        "https": "Use an https address.",
+        "missing": "Add the address, or turn messages off.",
+        "testNeedsAddress": "Save an address first."
+      },
+      "preview": "Preview",
+      "example": "Example data",
+      "showPreview": "Show preview",
+      "hidePreview": "Hide preview",
+      "prototype": {
+        "intro": "Nothing real is contacted. Choose what the next test answers.",
+        "outcome": "Next test",
+        "ok": "Delivered",
+        "invalid_credentials": "Error from the address",
+        "unreachable": "Unreachable"
+      }
     }
   },
   "permissions": {

@@ -576,6 +576,35 @@ describe("app Google", () => {
     expect(example).not.toHaveProperty("secretId");
   });
 
+  it("la lista dice di chi sono le caselle: le persone visibili per nome, le altre contate (R-G5)", async () => {
+    give(LUCA, "integrations.manage");
+    as(LUCA);
+    const people = visiblePeopleFor(LUCA);
+    const boxes = state.mailboxes.filter((b) => b.email.endsWith("@example.com"));
+    const seen = boxes.filter((b) => people.has(b.personId));
+    const [example] = await instance.listGoogleApps();
+    expect(example).toMatchObject({
+      mailboxCount: boxes.length,
+      mailboxPeople: seen.map((b) => PEOPLE.find((p) => p.id === b.personId)!.name),
+      hiddenMailboxCount: boxes.length - seen.length,
+    });
+    expect(example!.hiddenMailboxCount).toBeGreaterThan(0);
+  });
+
+  it("il rifiuto di un dominio nomina il dominio in causa", async () => {
+    reauth(ROBERTA);
+    const base = { name: "Acme", clientId: "c-1", clientSecret: "s-1234" };
+    expect(await instance.createGoogleApp({ ...base, domains: ["acme.com", "acme"] })).toEqual({
+      ok: false,
+      error: "invalid",
+      reason: "domain",
+      name: "acme",
+    });
+    expect(
+      await instance.createGoogleApp({ ...base, domains: ["acme.com", "Example.com"] }),
+    ).toEqual({ ok: false, error: "invalid", reason: "domain_taken", name: "example.com" });
+  });
+
   it("domini: malformato o già di un'altra app → invalid", async () => {
     reauth(ROBERTA);
     const base = {

@@ -1,11 +1,11 @@
-import { useId, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { WhoCanLink } from "../../../components/WhoCanLink";
 import type { TestOutcome } from "../../../data/queries";
 import { formatDate } from "../../../notifications/time";
 import { inputClass } from "../../../tasks-ui/Dialog";
 import { ErrorLine } from "../../entry/parts";
-import { OpenCircleGlyph, TriangleGlyph } from "../../preferences/glyphs";
+import { ChevronGlyph, OpenCircleGlyph, TriangleGlyph } from "../../preferences/glyphs";
 
 // I pezzi comuni delle voci d'integrazione dell'Amministrazione (shape
 // admin-integrations.md, «Regole comuni»): la testata, la riga di sola
@@ -22,16 +22,19 @@ export function IntegrationPage({
   title,
   intro,
   action,
+  wide = false,
   children,
 }: {
   title: string;
   intro: string;
   action?: ReactNode;
+  /** Fino a 1040 px invece di 880 (Outgoing webhooks, due colonne). */
+  wide?: boolean;
   children: ReactNode;
 }) {
   return (
     <section className="page-header pb-16 pl-8 [--page-header-pr:32px] [--page-header-pt:32px]">
-      <div className="max-w-[880px]">
+      <div className={wide ? "max-w-[1040px]" : "max-w-[880px]"}>
         <div className="flex items-start gap-4">
           <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-semibold tracking-[-0.01em] text-ink">{title}</h1>
@@ -186,6 +189,7 @@ export function TextField({
       </label>
       <input
         id={id}
+        type="text"
         data-autofocus={autoFocus || undefined}
         value={value}
         placeholder={placeholder}
@@ -201,6 +205,34 @@ export function TextField({
         <p id={`${id}-hint`} className="text-xs text-pretty text-ink-muted">
           {hint}
         </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Una sezione chiusa di default (la guida di Google Cloud, come ottenere
+ * l'indirizzo del webhook): un bottone col chevron apre il contenuto sotto.
+ */
+export function Disclosure({ title, children }: { title: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  return (
+    <div className="rounded-md border border-rule">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => setOpen((o) => !o)}
+        className="flex h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/4"
+      >
+        <ChevronGlyph open={open} />
+        {title}
+      </button>
+      {open && (
+        <div id={id} className="flex flex-col gap-3 border-t border-rule px-3 py-3">
+          {children}
+        </div>
       )}
     </div>
   );
