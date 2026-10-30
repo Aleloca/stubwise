@@ -521,6 +521,44 @@ si riscrivono.
 - **§5** Notifiche: ogni `notification_kind` nuovo porta la regola di
   rollback e quella dei cambi additivi verso l'app; sparisce il DM Slack
   delle preferenze. **Riguarda l'8a** (catalogo degli avvisi).
+- **§6 — «Nessuna escalation, e il bersaglio è protetto»
+  (`docs/invariants/permissions.md`): costruita nel prototipo (9a), da
+  riscrivere prima del motore.** Il design (30 ott 2026) la cambia in tre
+  punti:
+  - **niente `target_above`, cioè niente gerarchia**: chi ha il permesso di
+    gestione (`project.members.manage`, `users.manage`, `roles.manage`,
+    `departments.manage`) modifica chiunque, anche chi ha più permessi di
+    lui: gli toglie permessi, gli cambia il ruolo, lo allontana. Restano il
+    rifiuto su sé stessi (ruolo d'istanza, reset, disattivazione) e «resta
+    sempre un full admin»;
+  - **escalation solo su ciò che si dà**, e misurata sui **permessi
+    effettivi** nel progetto dove il permesso arriva (ruolo, concessioni
+    personali e reparto, compresi i permessi locali del prototipo), a
+    livelli separati (istanza e progetto non si sostituiscono). Togliere un
+    permesso non passa da `escalation`. Una funzione sola nel livello dati
+    (`domain/access/escalation.ts`) per Members, People, inviti, Roles e
+    Departments;
+  - **ultimo gestore**: un full admin attivo conta sempre come gestore dei
+    membri di ogni progetto, perché è membro implicito.
+- **§7 — permessi di reparto, costruiti nel prototipo (9a), da riscrivere
+  prima del motore.** Un reparto può dare permessi di progetto, ma **solo
+  nei progetti di cui la persona è già membro**: il permesso di reparto non
+  rende membro di niente. Si legge a lettura (togliere la persona dal
+  reparto toglie il permesso senza riscrivere righe) e dà `escalation` come
+  ogni altro modo di dare. Il motore deve decidere lo schema (permessi per
+  reparto) e come si cancella un reparto con persone dentro.
+- **§8 — concessioni personali (permessi in più per membro e progetto),
+  costruite nel prototipo (9a), da riscrivere prima del motore.** Sul web un
+  membro ha un ruolo; qui ha il ruolo **più** permessi in più, qualunque
+  permesso di progetto, purché chi lo dà lo abbia. Chi esce dal progetto
+  perde le sue concessioni di quel progetto (rientrando non le ritrova); un
+  cambio di ruolo azzera le revoche. Le concessioni portano l'autore («given
+  by»).
+- **§9 — pausa della coda di un progetto: arriva col 9b.** Frase del design:
+  una coda in pausa non prende lavoro nuovo, e il lavoro già partito
+  finisce. Non è del 9a e sul web non esiste; va scritta nell'invariante
+  «Stubwise non fa deploy» (le «azioni leggere» dello Stato dell'istanza
+  agiscono solo sulla coda di Stubwise) **prima** del motore del 9b.
 
 ## Area 8b — minori aperti
 
@@ -640,3 +678,74 @@ dell'area si correggono con l'ondata finale e non stanno in questo elenco.
   ogni comando contro `isReadCommand` (lato server, non nel client).
 - Le chiavi private stanno solo in `data/servers/secrets.ts`, in memoria; nel
   motore vanno cifrate a riposo e mai restituite da una lettura.
+
+## Area 9a — minori aperti
+
+Parità e copertura: `area9-parity.md`. Qui solo ciò che il design o i ruling
+hanno deciso **per il prototipo** e che il maintainer deve confermare prima
+del motore; i minori che la revisione finale chiude con l'ondata finale non
+stanno in questo elenco. Le invarianti da riscrivere prima del motore (§6–§9)
+stanno sotto «Invarianti del CLAUDE.md da riscrivere prima del motore».
+
+### Scelte da far confermare
+
+Del controller, nel design (`docs/plans/2026-10-29-desktop-area9-admin-design.md`):
+
+- **Riconferma con finestra di grazia di 10 minuti, per persona.** Cambiare
+  persona col «vedi come» non passa la finestra all'altra; tornare alla prima
+  la ritrova se non è scaduta.
+- **Iscrizione al volo.** Chi non ha un secondo fattore entra lo stesso (Sara
+  non è bloccata al login) e lo attiva alla prima azione delicata.
+- **Permessi di Claude come insieme fisso**, slegato dai preset (copiato una
+  volta, confrontato da un test con l'elenco R-L9). Restano fuori
+  `departments.manage`, `instance.status.view` e `changelog.view`.
+- **Permessi nuovi del preset Admin:** `departments.manage`,
+  `instance.status.view`, `changelog.view`.
+- **`changelog.view`**, permesso d'istanza che legge tutte le voci
+  d'istanza; le voci di progetto restano filtrate per i progetti visibili.
+- **Il registro non si modifica né si cancella.**
+- **L'istanza vuota è davvero vuota** (resta solo Claude) e si raggiunge dal
+  riquadro «Prototype only» («Reset to empty instance»).
+- **Una persona disattivata** non compare nel «vedi come» e non entra dal
+  login.
+- **L'inventario in un file** (`area9-inventory.md`) e la forma
+  dell'Amministrazione (voci a sinistra, ciascuna col suo permesso).
+
+Dai ruling del ledger durante l'area:
+
+- **R-M1 — il registro si legge con `changelog.view`, anche per le voci di
+  progetto dei progetti visibili.** Una voce di progetto è leggibile se il
+  progetto è visibile **e** chi guarda ha `changelog.view`, oppure
+  `project.settings.manage` / `project.members.manage`, oppure il
+  `readPermission` del tipo, in quel progetto.
+- **R-M2 — l'escalation si misura nel progetto dove il permesso arriva.**
+  Un ruolo si confronta in ogni progetto dove è assegnato o promesso (anche
+  da un invito in sospeso); un reparto in ogni progetto dei suoi membri e in
+  quelli della persona aggiunta; i livelli (istanza, progetto) restano
+  separati. Come `heldForProjectRole` del web.
+- **Claude è un insieme fisso**, non derivato dal preset Developer: cambiare
+  un ruolo non lo tocca.
+- **Il blocco dopo 5 codici vale anche nella riconferma** (e la sessione non
+  si chiude), non solo al login.
+- **Prima attivazione del TOTP senza riconferma** (chi non ha fattori non ha
+  niente da riconfermare), come `setup_allowed`.
+- **`endSession` e `confirmTotp` senza riconferma:** chiudere una sessione
+  riduce l'accesso; `confirmTotp` segue `startTotpSetup`, che la chiede.
+- **Progetti seguiti = progetti fissati** nel binario; gli avvisi seguono le
+  iscrizioni dell'8a, non questo elenco.
+- **Ordine conferma in posto → riconferma** (lo shape voleva il contrario;
+  costa una riconferma a vuoto in più, minore).
+- **«No department» superato:** ogni task ha un reparto (ossatura), quindi
+  l'opzione non si offre.
+- **Reset della password vero:** il link ha una rotta
+  (`/reset-password/$token`), chiude le sessioni e scade in un'ora.
+
+### Limiti noti
+
+- **Il runner delle automazioni dell'area 7 non avvisa il proprietario
+  quando un passo fallisce** (solo `failWith`). Con la disattivazione delle
+  persone il caso è più probabile: una persona fissa disattivata fa fallire
+  la prova, ma nessun avviso arriva a chi possiede l'automazione.
+- **Il salvataggio di nome e colore del reparto è immediato**, non fa parte
+  della bozza atomica di persone, Home e permessi (che invece si salva in un
+  colpo, con una sola riconferma).
