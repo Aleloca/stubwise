@@ -670,7 +670,8 @@
     "panel": {
       "resize": "Resize panel"
     },
-    "selected": "Selected"
+    "selected": "Selected",
+    "deactivatedName": "{{name}} (deactivated)"
   },
   "filter": {
     "notFound": "Filter not found",
@@ -7963,7 +7964,9 @@
       "simulateFailedPasskey": "Simulate a failed passkey",
       "passMinutes": "Pass 15 minutes",
       "emptyInstance": "This is the empty instance. Reset prototype brings back the sample company.",
-      "inviteNote": "Each makes a new link; one copied earlier for that invite stops working."
+      "inviteNote": "Each makes a new link; one copied earlier for that invite stops working.",
+      "resetLink": "Password reset link",
+      "resetLinkPlaceholder": "Paste a reset link"
     },
     "register": {
       "loading": "Loading the invite",
@@ -8062,6 +8065,24 @@
         "startFailed": "Couldn't start the setup."
       },
       "noSecondFactor": "Two-step verification isn't set up yet. Setting it up…"
+    },
+    "reset": {
+      "loading": "Loading the reset link",
+      "title": "Choose a new password",
+      "lead": "Once it's set, you're signed out everywhere: sign in again with the new password.",
+      "password": "New password",
+      "submit": "Set password",
+      "submitting": "Setting…",
+      "done": "Password changed. Sign in with the new one.",
+      "failed": "Couldn't change the password. Try again.",
+      "loadFailed": "Couldn't load the reset link.",
+      "noLonger": "This link can't be used any more. Ask your administrator for a new one.",
+      "usedTitle": "This link was already used",
+      "usedBody": "A reset link works once. If you need another, ask your administrator.",
+      "expiredTitle": "This link has expired",
+      "expiredBody": "A reset link works for an hour. Ask your administrator for a new one.",
+      "invalidTitle": "This link isn't valid",
+      "invalidBody": "Check that you copied it whole, or ask your administrator for a new one."
     }
   },
   "access": {
@@ -8408,7 +8429,8 @@
         "invite_exists": "There's already an invite for this email. Revoke it first."
       },
       "loadError": "Couldn't load the roles and projects you can offer.",
-      "removeShort": "Remove"
+      "removeShort": "Remove",
+      "roleIn": "{{role}} in {{code}}"
     },
     "invitePage": {
       "sent": "Sent by {{name}} on {{date}} · expires {{expires}}",
@@ -8419,8 +8441,7 @@
       "revoke": "Revoke invite",
       "revokeSure": "Revoke — sure?",
       "revoked": "Invite revoked.",
-      "linkOnce": "The link was shown once, when the invite was made. To send a new one, revoke this invite and make another.",
-      "notFound": "This invite doesn't exist, or was already accepted or revoked."
+      "linkOnce": "The link was shown once, when the invite was made. To send a new one, revoke this invite and make another."
     },
     "refusal": {
       "escalation": "You can't give “{{what}}”: it includes {{missing}}, which you don't have.",
@@ -8436,7 +8457,8 @@
       "status": "Something changed in the meantime. Nothing was changed.",
       "identityTaken": "That identity is already linked to someone.",
       "reauthCancelled": "Nothing was changed.",
-      "failed": "Couldn't save the change. Try again."
+      "failed": "Couldn't save the change. Try again.",
+      "identity": "Enter a git email, or pick an observed author."
     }
   }
 }

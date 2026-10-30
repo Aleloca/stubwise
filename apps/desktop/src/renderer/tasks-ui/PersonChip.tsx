@@ -52,7 +52,7 @@ export function PersonChip({
   if (personId && !person) {
     return <span data-person={personId} className="block h-[22px]" />;
   }
-  const name = person?.name ?? t("taskUi.unassigned");
+  const name = person ? personName(t, person) : t("taskUi.unassigned");
   return (
     <span
       data-person={personId ?? "none"}
@@ -61,10 +61,22 @@ export function PersonChip({
     >
       <Avatar person={person} />
       <span
-        className={`truncate ${person ? "text-ink-muted" : "text-ink-faint"} ${nameClassName}`}
+        className={`truncate ${person && !person.deactivated ? "text-ink-muted" : "text-ink-faint"} ${nameClassName}`}
       >
         {name}
       </span>
     </span>
   );
+}
+
+/**
+ * Il nome di chi è assegnato a una task: «Marco Bellini (deactivated)» se
+ * la persona è disattivata (area 9a, RF 4). `deactivated` lo calcola il
+ * livello dati (`listPeople`, come `assigneeStatus` della task): qui si legge.
+ */
+export function personName(
+  t: (key: string, opts?: Record<string, unknown>) => string,
+  person: Person,
+): string {
+  return person.deactivated ? t("taskUi.deactivatedName", { name: person.name }) : person.name;
 }

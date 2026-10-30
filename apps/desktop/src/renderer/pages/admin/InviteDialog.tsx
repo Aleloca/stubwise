@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import {
   useCreateInvite,
   useInviteChoices,
+  useRoles,
   type InviteChoices,
   type RoleChoice,
 } from "../../data/queries";
@@ -72,6 +73,7 @@ function InviteForm({
   const create = useCreateInvite();
   const reauth = useReauth();
   const refusalWords = useRefusalWords();
+  const roles = useRoles().data ?? [];
   const emailId = useId();
   const emailErrorId = useId();
   const [email, setEmail] = useState("");
@@ -106,8 +108,27 @@ function InviteForm({
       ["email", "email_taken", "invite_exists"].includes(refusal.reason)
     )
       return setEmailError(t(`admin.invite.errors.${refusal.reason}`));
-    // Un ruolo oltre chi invita (lo stato è cambiato nel frattempo): si nomina il ruolo d'istanza.
-    setError(refusalWords(refusal, { what: instanceRole?.name }));
+    // Un ruolo oltre chi invita (lo stato è cambiato nel frattempo): si nomina
+    // quello che contiene ciò che manca, d'istanza o di un progetto.
+    setError(
+      refusalWords(refusal, {
+        what: refusal.error === "escalation" ? escalatedRole(refusal.missing) : undefined,
+      }),
+    );
+  }
+
+  /** Il ruolo scelto che contiene un permesso mancante: «Auditor», o «Project Lead in ACQ». */
+  function escalatedRole(missing: string[]): string | undefined {
+    const has = (roleId: string) =>
+      (roles.find((r) => r.id === roleId)?.permissions ?? []).some((p) => missing.includes(p));
+    if (has(instanceRoleId)) return instanceRole?.name;
+    const pick = projects.find((p) => has(p.roleId));
+    if (!pick) return undefined;
+    const project = choices.projects.find((p) => p.projectId === pick.projectId);
+    const role = project?.roles.find((r) => r.roleId === pick.roleId);
+    return role && project
+      ? t("admin.invite.roleIn", { role: role.name, code: project.code })
+      : undefined;
   }
 
   return (

@@ -28,5 +28,11 @@ export {
   type InviteLookup,
   type RegisterResult,
 } from "./register";
+export {
+  getResetLink,
+  resetPassword,
+  type ResetLinkStatus,
+  type ResetPasswordResult,
+} from "./resetPassword";
 export { createFirstAdmin, isInstanceEmpty, type FirstAdminResult } from "./setup";
 export { resetToEmptyInstance } from "./emptyInstance";

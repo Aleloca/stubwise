@@ -640,6 +640,8 @@ export type ApiFnName =
   | "auth.login"
   | "auth.loginSecondFactor"
   | "auth.getInvite"
+  | "auth.getResetLink"
+  | "auth.resetPassword"
   | "auth.register"
   | "auth.isInstanceEmpty"
   | "auth.createFirstAdmin"
@@ -752,6 +754,11 @@ interface State {
    * `stubwise`. Solo prototipo: in chiaro, ma nessuna lettura la restituisce.
    */
   passwords: Map<string, string>;
+  /**
+   * I link di reset della password (area 9a): il segreto (`secrets.ts`), di
+   * chi è, quando scade e quando è stato usato. Il link stesso non c'è.
+   */
+  resetLinks: { secretId: string; personId: string; expiresAt: string; usedAt: string | null }[];
   /** Le sessioni aperte delle persone (Security → Open sessions). */
   sessions: PersonalSession[];
   /** Le passkey; `access.people[].secondFactor.passkeys` ne è il conteggio, scritto insieme. */
@@ -993,6 +1000,7 @@ function freshState(): State {
     securityCodeSeq: SEED_SECURITY_CODES,
     entry: { signedIn: true, partial: null },
     passwords: new Map(),
+    resetLinks: [],
     sessions: seedSessions(),
     passkeys: seedPasskeys(),
     confirmedTotp: new Map(),

@@ -80,6 +80,8 @@ export function reasonWords(
       return t("admin.resetSecondFactor.noSecondFactor", { name: ctx.name ?? "" });
     case "identity_taken":
       return t("admin.refusal.identityTaken");
+    case "identity":
+      return t("admin.refusal.identity");
     case "email":
     case "email_taken":
     case "invite_exists":

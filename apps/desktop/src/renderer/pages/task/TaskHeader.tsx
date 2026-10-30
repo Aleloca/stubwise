@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { TODAY } from "../../data/dates";
 import {
   useDepartments,
+  usePeople,
   useMilestones,
   useProjects,
   useProjectStatuses,
@@ -11,7 +12,7 @@ import type { Task } from "../../data/types";
 import { useViewer } from "../../data/viewer";
 import { weekLabel } from "../../domain/weeks";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
-import { PersonChip } from "../../tasks-ui/PersonChip";
+import { PersonChip, personName } from "../../tasks-ui/PersonChip";
 import { PRIORITIES, PriorityValue, TASK_TYPES } from "../../tasks-ui/PriorityMark";
 import { SourceMark } from "../../tasks-ui/SourceMark";
 import { StatusLabel } from "../../tasks-ui/StatusLabel";
@@ -337,7 +338,8 @@ export function TaskHeader({
   const status = statuses?.find((s) => s.id === task.statusId);
   const department = departments?.find((d) => d.id === task.departmentId);
   const milestone = milestones?.find((m) => m.id === task.milestoneId);
-  const assignee = members?.find((p) => p.id === task.assigneeId);
+  // Da tutte le persone, non dai membri: un assegnatario disattivato non è più fra chi si assegna.
+  const assignee = usePeople().data?.find((p) => p.id === task.assigneeId);
   const following = task.followerIds.includes(me);
 
   const copyCode = () => {
@@ -426,7 +428,7 @@ export function TaskHeader({
 
         <MenuField
           label={t("taskDetail.fields.assignee")}
-          name={assignee?.name ?? t("taskUi.unassigned")}
+          name={assignee ? personName(t, assignee) : t("taskUi.unassigned")}
           value={<PersonChip personId={task.assigneeId} />}
           canEdit={canEdit && !!members}
           menuLabel={t("tasks.list.assigneeMenu", { code: task.code })}

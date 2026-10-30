@@ -56,6 +56,14 @@ export const inviteLinkOf = (tokenOrLink: string): string => {
   return value.startsWith(INVITE_PREFIX) ? value : `${INVITE_PREFIX}${value}`;
 };
 
+const RESET_PREFIX = `${INSTANCE_ORIGIN}/reset-password?token=`;
+
+/** Il link di reset di un token (la parte dopo `token=`, quella di `/reset-password/$token`). */
+export const resetLinkOf = (tokenOrLink: string): string => {
+  const value = tokenOrLink.trim();
+  return value.startsWith(RESET_PREFIX) ? value : `${RESET_PREFIX}${value}`;
+};
+
 /** Il valore finto di un segreto nuovo, nella forma del web. */
 /** Quanti codici di backup fa ogni giro (la prima attivazione, «Make new codes»). */
 export const BACKUP_CODE_COUNT = 10;
@@ -66,7 +74,7 @@ function valueOf(kind: SecretKind, ownerId: string, n: number): string {
     case "pat":
       return `stw_pat_${chars(seed, ALNUM, 32)}`;
     case "reset_link":
-      return `${INSTANCE_ORIGIN}/reset-password?token=${chars(seed, ALNUM, 40)}`;
+      return `${RESET_PREFIX}${chars(seed, ALNUM, 40)}`;
     case "invite_link":
       return `${INVITE_PREFIX}${chars(seed, ALNUM, 40)}`;
     case "totp_seed":

@@ -885,6 +885,28 @@ describe("reset del secondo fattore", () => {
     expect(state.changelog.at(-1)!.params).toEqual({ peer: "true" });
   });
 
+  it("l'interessato esce ovunque: nessuna sessione di Marco resta aperta", async () => {
+    as("p-roberta");
+    reauth("p-roberta");
+    expect(state.sessions.some((s) => s.personId === "p-marco")).toBe(true);
+    const others = state.sessions.filter((s) => s.personId !== "p-marco").length;
+    expect(await admin.resetSecondFactor("p-marco")).toEqual({ ok: true });
+    expect(state.sessions.filter((s) => s.personId === "p-marco")).toEqual([]);
+    expect(state.sessions).toHaveLength(others);
+  });
+
+  it("`peer` della pagina: vero solo fra due full admin", async () => {
+    as("p-roberta");
+    expect((await admin.getPerson("p-marco")).peer).toBe(false);
+    writeAccess((s) => {
+      s.people.find((p) => p.personId === "p-laura")!.instanceRoleId = roleIdOf("admin");
+    });
+    expect((await admin.getPerson("p-laura")).peer).toBe(true);
+    as("p-laura");
+    expect((await admin.getPerson("p-roberta")).peer).toBe(true);
+    expect((await admin.getPerson("p-marco")).peer).toBe(false);
+  });
+
   it("chi non ha il secondo fattore non si azzera", async () => {
     as("p-roberta");
     reauth("p-roberta");

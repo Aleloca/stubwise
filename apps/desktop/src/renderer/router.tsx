@@ -17,6 +17,7 @@ import { useTranslation } from "react-i18next";
 import { useChatChannels, useEntryGate, useProject } from "./data/queries";
 import { LoginPage } from "./pages/entry/LoginPage";
 import { RegisterPage } from "./pages/entry/RegisterPage";
+import { ResetPasswordPage } from "./pages/entry/ResetPasswordPage";
 import { SetupPage } from "./pages/entry/SetupPage";
 import {
   APP_ROUTES,
@@ -275,7 +276,7 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
 const ASK_MAX = 2000;
 
 /** Le rotte d'ingresso: fuori dall'intelaiatura (niente binario né colonna). */
-const ENTRY_PATH = /^\/(login|setup|register\/[^/]+)\/?$/;
+const ENTRY_PATH = /^\/(login|setup|register\/[^/]+|reset-password\/[^/]+)\/?$/;
 
 /**
  * Il cancello dell'ingresso (area 9a, shape `entry.md`). Con l'istanza vuota
@@ -315,6 +316,18 @@ const registerRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/register/$token",
   component: RegisterRoutePage,
+});
+
+function ResetPasswordRoutePage() {
+  const { token } = resetPasswordRoute.useParams();
+  return <ResetPasswordPage key={token} token={token} />;
+}
+
+/** Il link di reset della password (area 9a): una pagina dell'ingresso, come l'invito. */
+const resetPasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/reset-password/$token",
+  component: ResetPasswordRoutePage,
 });
 
 const setupRoute = createRoute({
@@ -1031,6 +1044,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
   registerRoute,
+  resetPasswordRoute,
   setupRoute,
   ...appRoutes.map((r) => (r === mailRoute ? mailRoute.addChildren([mailThreadRoute]) : r)),
   conversationRoute,

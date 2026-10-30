@@ -84,6 +84,14 @@ function visibleProjectsOf(me: string, personId: string) {
 
 const isOpen = (task: Task): boolean => familyOf(task) !== "closed";
 
+/**
+ * Pari grado: un full admin che agisce su un altro full admin. Il reset del
+ * secondo fattore fra pari grado è accettato, registrato e detto
+ * all'interessato (`second-factor.md`): la pagina lo legge da `peer`.
+ */
+const isPeer = (me: string, personId: string): boolean =>
+  isFullAdmin(me) && isFullAdmin(personId);
+
 // --- letture ----------------------------------------------------------------
 
 /**
@@ -202,6 +210,7 @@ export async function getPerson(personId: string): Promise<PersonDetail> {
     isSelf: personId === me,
     isFullAdmin: isFullAdmin(personId),
     hasSecondFactor: access.secondFactor !== null,
+    peer: isPeer(me, personId),
     instanceRole: instanceRoleView(personId),
     projects: visibleProjectsOf(me, personId).map(({ membership, project }) => ({
       projectId: project.id,
@@ -372,11 +381,14 @@ export async function createPasswordResetLink(
   if (!isActive(personId)) return refuse.invalid("status");
   const reauth = reauthRefusal(me, "admin.createPasswordResetLink");
   if (reauth) return reauth;
+  // Un link precedente smette di valere: chi lo apre legge «link sconosciuto».
   for (const id of secretIdsOf("reset_link", personId)) forgetSecret(id);
-  const { value } = storeSecret("reset_link", personId);
+  state.resetLinks = state.resetLinks.filter((l) => l.personId !== personId);
+  const { id: secretId, value } = storeSecret("reset_link", personId);
   const expiresAt = new Date(Date.parse(now()) + RESET_LINK_HOURS * 3_600_000)
     .toISOString()
     .replace(/\.\d{3}Z$/, "Z");
+  state.resetLinks.push({ secretId, personId, expiresAt, usedAt: null });
   logSecurity(personId, "password_reset_link_created", me);
   // `second-factor.md`: un link di reset generato da un altro avvisa
   // l'interessato, solo lui. Il link, mai: dice chi e cosa.
@@ -415,6 +427,8 @@ export async function resetSecondFactor(personId: string): Promise<AdminResult> 
     for (const id of secretIdsOf(kind, personId)) forgetSecret(id);
   state.confirmedTotp.delete(personId);
   state.passkeys = state.passkeys.filter((k) => k.personId !== personId);
+  // Esce ovunque (come il server, `second-factor/reset.ts`): rientra dal login e rifà il secondo fattore.
+  state.sessions = state.sessions.filter((s) => s.personId !== personId);
   logSecurity(personId, "second_factor_reset", me);
   publishSecurityAlert(
     personId,
@@ -426,7 +440,7 @@ export async function resetSecondFactor(personId: string): Promise<AdminResult> 
     actorId: me,
     projectId: null,
     object: label(personId),
-    params: { peer: String(isFullAdmin(me) && isFullAdmin(personId)) },
+    params: { peer: String(isPeer(me, personId)) },
   });
   return { ok: true };
 }

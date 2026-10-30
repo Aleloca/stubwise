@@ -1,8 +1,10 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resetApi, setLatency } from "../../data/api";
-import { accessState } from "../../data/access/index";
+import { admin, resetApi, setLatency } from "../../data/api";
+import { markReauthenticated } from "../../data/auth/reauth";
+import { setSessionPersonId } from "../../data/session";
+import { accessState, writeAccess } from "../../data/access/index";
 import { adminSections, administersSomething, canSeeAdmin } from "../../data/adminSections";
 import { state } from "../../data/store";
 import {
@@ -14,6 +16,7 @@ import { CLAUDE_ID } from "../../data/seed/people";
 import i18n from "../../i18n";
 import { resetReauthForTest } from "../../layout/useReauth";
 import { renderRoute } from "../../test/renderRoute";
+import { reasonWords } from "./parts";
 
 // L'Amministrazione: intelaiatura, People, la pagina di una persona,
 // disattiva/riattiva, gli inviti (area 9a, Task 8, shape admin-people.md).
@@ -393,9 +396,86 @@ describe("RF 4: disattiva con riassegnazione, poi riattiva", () => {
     );
     expect(within(dialog).getByRole("button", { name: "Deactivate" })).toBeDisabled();
   });
+
+  it("le task lasciate a Marco disattivato lo dicono: «Marco Bellini (deactivated)»", async () => {
+    setSessionPersonId(ROBERTA);
+    markReauthenticated(ROBERTA);
+    expect(await admin.deactivatePerson(MARCO, {})).toMatchObject({ ok: true });
+    renderRoute("/p/STW/tasks?task=STW-13", ROBERTA);
+    const panel = await screen.findByRole("dialog", { name: "Task STW-13" });
+    expect(await within(panel).findByText("Marco Bellini (deactivated)")).toBeVisible();
+    // Anche la riga dell'elenco.
+    const row = (await screen.findAllByText("Marco Bellini (deactivated)")).find(
+      (el) => !panel.contains(el),
+    );
+    expect(row).toBeDefined();
+  });
+});
+
+describe("reset del secondo fattore fra pari grado", () => {
+  it("Roberta su un altro full admin vede la riga in più; Laura (users.manage) su Marco no", async () => {
+    const user = userEvent.setup();
+    writeAccess((s) => {
+      s.people.find((p) => p.personId === GIULIA)!.instanceRoleId = "role-admin";
+    });
+    renderRoute("/admin/people/p-giulia", ROBERTA);
+    await heading("Giulia Ferri");
+    await user.click(screen.getByRole("button", { name: "More actions for Giulia Ferri" }));
+    await user.click(screen.getByRole("menuitem", { name: "Reset two-step verification…" }));
+    expect(
+      screen.getByText(
+        "This is recorded in the change log and Giulia Ferri is told who did it.",
+      ),
+    ).toBeVisible();
+  });
+
+  it("fra chi non è pari grado la riga non c'è", async () => {
+    const user = userEvent.setup();
+    give(LAURA, "users.manage");
+    renderRoute("/admin/people/p-marco", LAURA);
+    await heading("Marco Bellini");
+    await user.click(screen.getByRole("button", { name: "More actions for Marco Bellini" }));
+    await user.click(screen.getByRole("menuitem", { name: "Reset two-step verification…" }));
+    const dialog = screen.getByRole("dialog", {
+      name: "Reset Marco Bellini's two-step verification?",
+    });
+    expect(dialog).toHaveTextContent("Marco Bellini gets a security alert.");
+    expect(dialog).not.toHaveTextContent(/recorded in the change log/);
+  });
 });
 
 describe("inviti", () => {
+  it("un invito sconosciuto è la pagina «not found»", async () => {
+    renderRoute("/admin/people/invites/inv-nope", ROBERTA);
+    expect(await heading("Page not found")).toBeVisible();
+  });
+
+  it("un ruolo di progetto oltre chi invita (stato cambiato nel frattempo): il rifiuto lo nomina", async () => {
+    const user = userEvent.setup();
+    give(LAURA, "users.invite");
+    markReauthenticated(LAURA);
+    renderRoute("/admin/people", LAURA);
+    await heading("People");
+    await user.click(screen.getByRole("button", { name: "Invite someone" }));
+    const dialog = screen.getByRole("dialog", { name: "Invite someone" });
+    await user.type(within(dialog).getByLabelText("Email"), "new.one@example.com");
+    await user.click(within(dialog).getByRole("button", { name: /Add a project/ }));
+    const first = within(screen.getByRole("menu")).getAllByRole("menuitem")[0]!;
+    const code = first.textContent!.slice(0, 3);
+    await user.click(first);
+    // Nel frattempo a Laura si toglie `runs.start` in quel progetto: Developer lo contiene.
+    const projectId = state.projects.find((p) => p.code === code)!.id;
+    writeAccess((s) => {
+      s.revocations.push({ personId: LAURA, projectId, permission: "runs.start" });
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Create invite" }));
+    expect(
+      await within(dialog).findByText(
+        `You can't give “Developer in ${code}”: it includes start Claude, which you don't have.`,
+      ),
+    ).toBeVisible();
+  });
+
   it("crea: i progetti offerti sono solo quelli dove si gestiscono i membri; il link si copia una volta", async () => {
     const user = userEvent.setup();
     give(LAURA, "users.invite");
@@ -483,5 +563,11 @@ describe("inviti", () => {
     await user.click(await within(palette).findByRole("option", { name: /Invite someone/ }));
     expect(await screen.findByRole("dialog", { name: "Invite someone" })).toBeVisible();
     act(() => undefined);
+  });
+});
+
+describe("motivi in parole", () => {
+  it("«identity» (un'identità git vuota) ha la sua frase, non quella generica", () => {
+    expect(reasonWords(i18n.t, "identity")).toBe("Enter a git email, or pick an observed author.");
   });
 });

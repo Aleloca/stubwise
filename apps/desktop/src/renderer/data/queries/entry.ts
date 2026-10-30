@@ -12,6 +12,7 @@ import { useSessionPersonId } from "../queries";
 // Le regole dei campi d'ingresso: le pagine le leggono da qui, non ne tengono una copia.
 export { EMAIL_RE, MIN_PASSWORD_LENGTH } from "../me/account";
 export { SECOND_FACTOR_MAX_FAILURES } from "../auth/reauth";
+export { resetTokenOf } from "../auth/resetPassword";
 
 export type {
   EntryStage,
@@ -19,6 +20,8 @@ export type {
   LoginResult,
   LoginSecondFactorResult,
   RegisterResult,
+  ResetLinkStatus,
+  ResetPasswordResult,
   FirstAdminResult,
 } from "../auth";
 
@@ -89,6 +92,27 @@ export function useInvite(token: string) {
     queryFn: () => api.auth.getInvite(token),
     // Un invito si legge una volta per visita: dopo la registrazione non vale più.
     gcTime: 0,
+  });
+}
+
+/** Cosa dice un link di reset della password (valido, già usato, scaduto, niente). */
+export function useResetLink(token: string) {
+  return useQuery({
+    queryKey: ["entry", "resetLink", token],
+    queryFn: () => api.auth.getResetLink(token),
+    // Come l'invito: dopo l'uso il link non vale più, si rilegge a ogni visita.
+    gcTime: 0,
+  });
+}
+
+/**
+ * La password nuova da un link di reset. Non porta dentro: le sessioni della
+ * persona si chiudono, e si entra dal login con la password nuova.
+ */
+export function useResetPassword() {
+  return useMutation({
+    mutationFn: (vars: { token: string; password: string }) =>
+      api.auth.resetPassword(vars.token, { password: vars.password }),
   });
 }
 

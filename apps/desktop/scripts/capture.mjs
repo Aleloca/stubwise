@@ -1158,6 +1158,33 @@ async function main() {
       }],
       ["reauth", createTokenAs("Roberta")],
       ["reauth-enroll", createTokenAs("Sara")],
+      // Il link di reset della password (Task 8, giro 1): Roberta lo crea per
+      // Marco in People, poi si esce e lo si incolla nel riquadro del login.
+      ["reset", async (p) => {
+        await asPerson(p, "Roberta", "/admin/people/p-marco");
+        await p.getByRole("button", { name: /^(More actions for|Altre azioni per) / }).click();
+        await p.getByRole("menuitem", { name: /^(Reset password…|Reimposta la password…)$/ }).click();
+        await p.getByRole("button", { name: /^(Create link|Crea il link)$/ }).click();
+        const dialog = p.getByRole("dialog").filter({ has: p.getByLabel(/^(Code|Codice)$/) });
+        await dialog.getByLabel(/^(Code|Codice)$/).fill("123456");
+        await dialog.waitFor({ state: "detached" });
+        const link = await p.locator("[data-secret-value]").innerText();
+        await p.getByRole("button", { name: /^(Done|Fatto)$/ }).click();
+        await signOut(p);
+        await p.getByLabel(/^(Password reset link|Link per reimpostare la password)$/).fill(link.trim());
+        await p.getByLabel(/^(Password reset link|Link per reimpostare la password)$/).press("Enter");
+        await p.getByRole("heading", { level: 1, name: /^(Choose a new password|Scegli una password nuova)$/ }).waitFor();
+        await p.mouse.move(2, 2);
+        await p.waitForTimeout(400);
+      }],
+      ["reset-invalid", async (p) => {
+        await signOut(p);
+        await p.getByLabel(/^(Password reset link|Link per reimpostare la password)$/).fill("made-up-link");
+        await p.getByLabel(/^(Password reset link|Link per reimpostare la password)$/).press("Enter");
+        await p.getByRole("heading", { level: 1 }).filter({ hasNotText: /Sign in|Accedi/ }).waitFor();
+        await p.mouse.move(2, 2);
+        await p.waitForTimeout(400);
+      }],
     ];
     for (const [name, how] of AREA9A_ENTRY) {
       if (only && !only.test(`a9a-entry-${name}`) && !only.test(name)) continue;
@@ -1270,6 +1297,19 @@ async function main() {
         await p.mouse.move(2, 2);
       }],
     ];
+    // Giro 1: le task di Simone (disattivato nel seme) dicono «(deactivated)».
+    AREA9A_ADMIN.push(["task-deactivated", "Roberta", "/p/STW/tasks", async (p) => {
+      const row = p.locator("[data-task-row]", { has: p.locator('[data-person="p-simone"]') }).first();
+      await row.waitFor();
+      const code = await row.getAttribute("data-task-row");
+      await p.evaluate((c) => {
+        window.location.hash = `/p/STW/tasks?task=${c}`;
+      }, code);
+      // Il pannello della task, agganciato a destra (un dialogo solo quando è sovrapposto).
+      await p.locator(`text=${code}`).nth(1).waitFor();
+      await p.waitForTimeout(600);
+      await p.mouse.move(2, 2);
+    }]);
     for (const [name, persona, hash, steps] of AREA9A_ADMIN) {
       if (only && !only.test(`a9a-admin-people-${name}`)) continue;
       const variants = [];

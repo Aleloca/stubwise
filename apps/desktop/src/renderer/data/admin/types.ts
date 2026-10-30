@@ -185,6 +185,8 @@ export interface PersonDetail {
   isSelf: boolean;
   isFullAdmin: boolean;
   hasSecondFactor: boolean;
+  /** Chi guarda e la persona sono entrambi full admin: il reset del secondo fattore lo dice. */
+  peer: boolean;
   instanceRole: { id: string; name: string } | null;
   projects: PersonProjectView[];
   /** La persona è anche in progetti che chi guarda non vede («Also in projects you can't see.»). */

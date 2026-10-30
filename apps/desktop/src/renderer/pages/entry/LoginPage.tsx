@@ -6,6 +6,7 @@ import {
   useLogin,
   usePrototypeAccounts,
   useSimulateInviteLink,
+  resetTokenOf,
 } from "../../data/queries";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { useToast } from "../../tasks-ui/Toast";
@@ -173,6 +174,7 @@ function LoginPrototypeBox({ onPick }: { onPick: (account: { email: string }) =>
   const navigate = useNavigate();
   const toast = useToast();
   const [link, setLink] = useState("");
+  const [resetLink, setResetLink] = useState("");
 
   function openInvite(which: "pending" | "expired") {
     simulate.mutate(which, {
@@ -188,6 +190,14 @@ function LoginPrototypeBox({ onPick }: { onPick: (account: { email: string }) =>
     e.preventDefault();
     const token = link.trim().split("invite=").at(-1)?.trim();
     if (token) void navigate({ to: "/register/$token", params: { token } });
+  }
+
+  // Il link di reset della password (area 9a): lo crea un amministratore in
+  // People e lo manda; qui si incolla, come quello d'invito.
+  function openResetLink(e: FormEvent) {
+    e.preventDefault();
+    const token = resetTokenOf(resetLink.trim()).trim();
+    if (token) void navigate({ to: "/reset-password/$token", params: { token } });
   }
 
   return (
@@ -243,6 +253,18 @@ function LoginPrototypeBox({ onPick }: { onPick: (account: { email: string }) =>
             className={`${inputClass} h-8 text-sm`}
           />
           <button type="submit" className={secondaryButton} disabled={!link.trim()}>
+            {t("entry.prototype.openLink")}
+          </button>
+        </form>
+        <form onSubmit={openResetLink} className="flex items-center gap-2">
+          <input
+            aria-label={t("entry.prototype.resetLink")}
+            placeholder={t("entry.prototype.resetLinkPlaceholder")}
+            value={resetLink}
+            onChange={(e) => setResetLink(e.target.value)}
+            className={`${inputClass} h-8 text-sm`}
+          />
+          <button type="submit" className={secondaryButton} disabled={!resetLink.trim()}>
             {t("entry.prototype.openLink")}
           </button>
         </form>

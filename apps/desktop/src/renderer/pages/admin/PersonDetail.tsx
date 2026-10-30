@@ -13,7 +13,6 @@ import {
   useUnlinkGitIdentity,
   type PersonDetail as Person,
 } from "../../data/queries";
-import { can, useViewer } from "../../data/viewer";
 import { useReauth } from "../../layout/useReauth";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { Menu, itemClass } from "../../tasks-ui/Menu";
@@ -100,7 +99,6 @@ function Frame({ children }: { children: ReactNode }) {
 function PersonBody({ person }: { person: Person }) {
   const { t } = useTranslation();
   const date = useShortDate();
-  const { viewer } = useViewer();
   const [dialog, setDialog] = useState<Dialog>(null);
   const more = useRef<HTMLButtonElement>(null);
   // `users.manage`: lo dice il livello dati (le identità non hanno il blocco «non su te stesso»).
@@ -150,7 +148,7 @@ function PersonBody({ person }: { person: Person }) {
       {dialog === "resetSecondFactor" && (
         <ResetSecondFactorDialog
           person={person}
-          peer={person.isFullAdmin && can(viewer, "instance.full_admin")}
+          peer={person.peer}
           onClose={closeDialog}
         />
       )}

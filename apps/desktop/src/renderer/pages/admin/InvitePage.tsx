@@ -42,12 +42,8 @@ export function InvitePage({ inviteId }: { inviteId: string }) {
       </Frame>
     );
   const invite = invites.data.find((i) => i.id === inviteId);
-  if (!invite)
-    return (
-      <Frame>
-        <p className="mt-6 text-md text-ink-muted">{t("admin.invitePage.notFound")}</p>
-      </Frame>
-    );
+  // Un invito sconosciuto (o già accettato, o revocato) è come uno che non esiste (R-G5).
+  if (!invite) return <NotFound />;
 
   async function onRevoke() {
     setError(null);

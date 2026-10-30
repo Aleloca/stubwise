@@ -670,7 +670,8 @@
     "panel": {
       "resize": "Ridimensiona il pannello"
     },
-    "selected": "Selezionata"
+    "selected": "Selezionata",
+    "deactivatedName": "{{name}} (disattivato)"
   },
   "filter": {
     "notFound": "Filtro non trovato",
@@ -7963,7 +7964,9 @@
       "simulateFailedPasskey": "Simula una passkey fallita",
       "passMinutes": "Fai passare 15 minuti",
       "emptyInstance": "Questa è l'istanza vuota. Ripristina il prototipo riporta l'azienda d'esempio.",
-      "inviteNote": "Ognuno crea un link nuovo; uno copiato prima per quell'invito smette di funzionare."
+      "inviteNote": "Ognuno crea un link nuovo; uno copiato prima per quell'invito smette di funzionare.",
+      "resetLink": "Link per reimpostare la password",
+      "resetLinkPlaceholder": "Incolla un link di reset"
     },
     "register": {
       "loading": "Caricamento dell'invito",
@@ -8062,6 +8065,24 @@
         "startFailed": "Non è stato possibile avviare la configurazione."
       },
       "noSecondFactor": "La verifica in due passaggi non è ancora configurata. La configuriamo…"
+    },
+    "reset": {
+      "loading": "Caricamento del link di reset",
+      "title": "Scegli una password nuova",
+      "lead": "Appena impostata, esci da tutte le sessioni: rientra con la password nuova.",
+      "password": "Password nuova",
+      "submit": "Imposta la password",
+      "submitting": "Impostazione…",
+      "done": "Password cambiata. Entra con quella nuova.",
+      "failed": "Non è stato possibile cambiare la password. Riprova.",
+      "loadFailed": "Non è stato possibile caricare il link di reset.",
+      "noLonger": "Questo link non si può più usare. Chiedine uno nuovo all'amministratore.",
+      "usedTitle": "Questo link è già stato usato",
+      "usedBody": "Un link di reset funziona una volta. Se te ne serve un altro, chiedilo all'amministratore.",
+      "expiredTitle": "Questo link è scaduto",
+      "expiredBody": "Un link di reset vale un'ora. Chiedine uno nuovo all'amministratore.",
+      "invalidTitle": "Questo link non è valido",
+      "invalidBody": "Controlla di averlo copiato intero, o chiedine uno nuovo all'amministratore."
     }
   },
   "access": {
@@ -8368,7 +8389,7 @@
       "title": "Disattivare {{name}}?",
       "cantSignIn": "{{name}} non può più entrare.",
       "disappears": "{{name}} sparisce dalle persone che puoi assegnare o invitare in un progetto.",
-      "tasksStay": "Le task ancora assegnate a {{name}} mostrano «(disattivata)».",
+      "tasksStay": "Le task ancora assegnate a {{name}} mostrano «(disattivato)».",
       "reactivateLater": "Puoi riattivare {{name}} in seguito: progetti e ruoli tornano com'erano.",
       "openTasks": "Task aperte ({{count}})",
       "noTasks": "{{name}} non ha task aperte.",
@@ -8408,7 +8429,8 @@
         "invite_exists": "C'è già un invito per questa email. Revocalo prima."
       },
       "loadError": "Non è stato possibile caricare i ruoli e i progetti che puoi offrire.",
-      "removeShort": "Togli"
+      "removeShort": "Togli",
+      "roleIn": "{{role}} in {{code}}"
     },
     "invitePage": {
       "sent": "Mandato da {{name}} il {{date}} · scade il {{expires}}",
@@ -8419,8 +8441,7 @@
       "revoke": "Revoca l'invito",
       "revokeSure": "Revoca — sicuro?",
       "revoked": "Invito revocato.",
-      "linkOnce": "Il link si è visto una volta, quando l'invito è stato creato. Per mandarne uno nuovo, revoca questo invito e creane un altro.",
-      "notFound": "Questo invito non esiste, oppure è già stato accettato o revocato."
+      "linkOnce": "Il link si è visto una volta, quando l'invito è stato creato. Per mandarne uno nuovo, revoca questo invito e creane un altro."
     },
     "refusal": {
       "escalation": "Non puoi dare «{{what}}»: contiene {{missing}}, che non hai.",
@@ -8436,7 +8457,8 @@
       "status": "Qualcosa è cambiato nel frattempo. Non è cambiato niente.",
       "identityTaken": "Questa identità è già collegata a qualcuno.",
       "reauthCancelled": "Non è cambiato niente.",
-      "failed": "Non è stato possibile salvare la modifica. Riprova."
+      "failed": "Non è stato possibile salvare la modifica. Riprova.",
+      "identity": "Scrivi un'email git, o scegli un autore osservato."
     }
   }
 }

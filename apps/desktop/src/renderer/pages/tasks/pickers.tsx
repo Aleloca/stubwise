@@ -3,7 +3,7 @@ import { usePeople, useProjects, useProjectStatuses, useUpdateTask } from "../..
 import type { Milestone, Person, ProjectStatus, Task, TaskPatch, TaskSize } from "../../data/types";
 import { addWeeks, currentWeek, weekLabel } from "../../domain/weeks";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
-import { Avatar, PersonChip } from "../../tasks-ui/PersonChip";
+import { Avatar, PersonChip, personName } from "../../tasks-ui/PersonChip";
 import { FamilySign, StatusLabel } from "../../tasks-ui/StatusLabel";
 import { useToast } from "../../tasks-ui/Toast";
 import { Chevron, MenuButton } from "./controls";
@@ -223,8 +223,8 @@ export function InlineAssignee({ task }: { task: Task }) {
   const people = usePeople().data;
   const change = useInlineUpdate();
   if (!members) return <PersonChip personId={task.assigneeId} />;
-  const name =
-    people?.find((p) => p.id === task.assigneeId)?.name ?? t("taskUi.unassigned");
+  const assignee = people?.find((p) => p.id === task.assigneeId);
+  const name = assignee ? personName(t, assignee) : t("taskUi.unassigned");
   return (
     <MenuButton
       menuLabel={t("tasks.list.assigneeMenu", { code: task.code })}
