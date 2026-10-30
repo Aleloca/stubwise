@@ -1091,11 +1091,6 @@
       },
       "hiddenRuns": "Only people who can see the code in {{code}} can open Claude's sessions.",
       "waitingHint": "Claude is waiting on you",
-      "provider": {
-        "account": "{{name}} (account)",
-        "api_key": "{{name}} (API key)",
-        "label": "Provider: {{provider}}"
-      },
       "failure": {
         "label": "In brief",
         "showLog": "Show log",
@@ -10243,6 +10238,7 @@
     },
     "run": {
       "line": "Model: {{model}} · Account: {{account}}",
+      "accountOnly": "Account: {{account}}",
       "noAccount": "none available",
       "subscription": "{{name}} (subscription)",
       "api_key": "{{name}} (API key)"

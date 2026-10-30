@@ -360,11 +360,11 @@ describe("sezione Claude: attività AI, cicli delle PR, consumi", () => {
   it("con quale account gira la sessione: sotto lo stato e nella storia, solo il nome", async () => {
     const section = await claudeSection("t-stw-7", "p-laura");
     expect(section.querySelector("[data-run-provider]")).toHaveTextContent(
-      "Provider: Team Max (account)",
+      "Model: Sonnet · Account: Team Max (subscription)",
     );
     await userEvent.click(within(section).getByRole("button", { name: /Work story/ }));
     const story = within(section).getByRole("list", { name: "Work story" });
-    expect(story).toHaveTextContent("Run started by Federico Sartori · Team Max (account)");
+    expect(story).toHaveTextContent("Run started by Federico Sartori · Sonnet · Team Max (subscription)");
   });
 
   it("fallita: il riassunto del fallimento e «Show log» con le azioni della fase", async () => {
@@ -539,7 +539,7 @@ describe("sezione Claude: le impostazioni d'istanza (area 9b, shape instance-eff
     await userEvent.click(within(current()).getByRole("button", { name: /Work story/ }));
     const story = () => within(current()).getByRole("list", { name: "Work story" });
     expect(story()).toHaveTextContent(
-      "Run started by Roberta Fontana · Opus · Team Max (account) · waiting for the queue",
+      "Run started by Roberta Fontana · Opus · Team Max (subscription) · waiting for the queue",
     );
 
     await instance.resumeQueue("prj-stw");
@@ -569,7 +569,7 @@ describe("sezione Claude: le impostazioni d'istanza (area 9b, shape instance-eff
     );
     await userEvent.click(within(current()).getByRole("button", { name: /Work story/ }));
     const story = () => within(current()).getByRole("list", { name: "Work story" });
-    expect(story()).toHaveTextContent("Run started by Laura Costa · Opus · Team Max (account)");
+    expect(story()).toHaveTextContent("Run started by Laura Costa · Opus · Team Max (subscription)");
     await waitFor(() => expect(story()).toHaveTextContent("Execution started · Sonnet"));
   });
 

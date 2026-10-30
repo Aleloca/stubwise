@@ -45,9 +45,10 @@ export function ProviderLine({
 
 /**
  * La riga di chi e con cosa gira una sessione: «Model: Haiku · Account:
- * Backup Max (subscription)» per le sessioni dell'area 9b, «Provider: Team
- * Max (account)» per quelle di prima (senza modello). La usano la sezione
- * Claude della task e la testata della pagina della sessione.
+ * Backup Max (subscription)»; senza modello, la sola metà dell'account,
+ * con lo stesso tipo («Account: Team Max (subscription)», Impeccable 2).
+ * La usano la sezione Claude della task e la testata della pagina della
+ * sessione.
  */
 export function runLineText(
   t: TFunction,
@@ -55,13 +56,11 @@ export function runLineText(
   model: string | null,
 ): string {
   if (model === null) {
-    return provider ? t(`${K}.provider.label`, { provider: providerLabel(t, provider) }) : "";
+    return provider
+      ? t("instanceEffects.run.accountOnly", { account: providerLabel(t, provider) })
+      : "";
   }
-  const account = provider
-    ? t(`instanceEffects.run.${provider.kind === "account" ? "subscription" : "api_key"}`, {
-        name: provider.name,
-      })
-    : t("instanceEffects.run.noAccount");
+  const account = provider ? providerLabel(t, provider) : t("instanceEffects.run.noAccount");
   return t("instanceEffects.run.line", { model: modelName(model), account });
 }
 

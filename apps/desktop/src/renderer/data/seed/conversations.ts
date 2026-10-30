@@ -18,10 +18,14 @@ const ALL: Seeded[] = [
   ...SERVER_CONVERSATIONS,
 ];
 
-export const CONVERSATIONS: Conversation[] = ALL.map((s) => ({
-  ...s.conversation,
-  ...RUN_META[s.conversation.id],
-}));
+// Una sessione del seme con un account dice anche il modello con cui è
+// partita, quello dei suoi consumi: la stessa riga «Model · Account» delle
+// sessioni nate nell'app (shape instance-effects [EF 3], Impeccable 2).
+export const CONVERSATIONS: Conversation[] = ALL.map((s) => {
+  const meta = RUN_META[s.conversation.id];
+  const model = meta?.provider ? meta.usage?.[0]?.model : undefined;
+  return { ...s.conversation, ...meta, ...(model && !s.conversation.model ? { model } : {}) };
+});
 
 /** Il flusso di ogni conversazione, per id, in ordine di tempo. */
 export const CONVERSATION_EVENTS: Record<string, ConversationEvent[]> = Object.fromEntries(

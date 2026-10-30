@@ -1091,11 +1091,6 @@
       },
       "hiddenRuns": "Solo chi vede il codice di {{code}} può aprire le sessioni di Claude.",
       "waitingHint": "Claude aspetta te",
-      "provider": {
-        "account": "{{name}} (account)",
-        "api_key": "{{name}} (chiave API)",
-        "label": "Provider: {{provider}}"
-      },
       "failure": {
         "label": "In breve",
         "showLog": "Mostra il log",
@@ -10243,6 +10238,7 @@
     },
     "run": {
       "line": "Modello: {{model}} · Account: {{account}}",
+      "accountOnly": "Account: {{account}}",
       "noAccount": "nessuno disponibile",
       "subscription": "{{name}} (abbonamento)",
       "api_key": "{{name}} (chiave API)"

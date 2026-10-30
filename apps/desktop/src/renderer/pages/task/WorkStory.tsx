@@ -18,9 +18,14 @@ export function modelName(model: string): string {
   return m ? `${m[1]![0]!.toUpperCase()}${m[1]!.slice(1)}` : model;
 }
 
-/** L'account o la chiave API di una sessione, per nome: «Team Max (account)». */
+/**
+ * L'account o la chiave API di una sessione, per nome e col tipo vero:
+ * «Team Max (subscription)», «Billing key (API key)» — le stesse parole
+ * della riga «Model · Account» (EF 3).
+ */
 export function providerLabel(t: TFunction, provider: RunProvider): string {
-  return t(`taskDetail.claude.provider.${provider.kind}`, { name: provider.name });
+  const kind = provider.kind === "account" ? "subscription" : "api_key";
+  return t(`instanceEffects.run.${kind}`, { name: provider.name });
 }
 
 function line(t: TFunction, entry: StoryEntry, name: (id: string | null) => string): string {
