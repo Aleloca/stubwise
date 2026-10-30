@@ -109,6 +109,17 @@ describe("TasksPage", () => {
     await waitFor(() => expect(document.querySelector("[data-task-row]")).not.toBeNull());
   });
 
+  it("raggruppate per assegnatario: il gruppo di un disattivato lo dice, nell'elenco e nella board", async () => {
+    renderAt("/p/STW/tasks?group=assignee", "p-roberta");
+    expect(
+      await screen.findByRole("list", { name: "Simone Rossetti (deactivated)" }),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Board" }));
+    expect(
+      await screen.findByRole("region", { name: /^Simone Rossetti \(deactivated\), \d+$/ }),
+    ).toBeInTheDocument();
+  });
+
   it("cambiare vista tiene il raggruppamento: la timeline raggruppa come l'elenco", async () => {
     const router = renderAt("/p/MKX/tasks?group=assignee", "p-giulia");
     await waitFor(() => expect(document.querySelector("[data-task-row]")).not.toBeNull());

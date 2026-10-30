@@ -30,6 +30,8 @@ export interface GroupContext {
     other: string;
     family(family: StatusFamily): string;
     week(week: string): string;
+    /** Il nome del gruppo di una persona: «Simone Rossetti (deactivated)» se disattivata. */
+    person?(person: Person): string;
   };
 }
 
@@ -111,7 +113,7 @@ export function groupTasks(tasks: Task[], by: GroupBy, ctx: GroupContext): TaskG
       return ordered([
         ...[...ctx.people]
           .sort((a, b) => a.name.localeCompare(b.name))
-          .map((p) => ({ key: p.id, label: p.name })),
+          .map((p) => ({ key: p.id, label: ctx.labels.person?.(p) ?? p.name })),
         { key: NONE, label: ctx.labels.noAssignee },
       ]);
     case "department":

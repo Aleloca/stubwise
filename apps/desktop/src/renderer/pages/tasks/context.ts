@@ -11,6 +11,7 @@ import {
 import type { FilterCriteria, Task } from "../../data/types";
 import type { Stall } from "../../domain/stalled";
 import { weekLabel } from "../../domain/weeks";
+import { personName } from "../../tasks-ui/PersonChip";
 import type { GroupContext } from "./grouping";
 import { shortWeek } from "./pickers";
 
@@ -74,6 +75,8 @@ export function useGroupContextState(
         family: (f) => t(`taskUi.families.${f}`),
         week: (w) =>
           t("tasks.groups.week", { week: shortWeek(w), range: weekLabel(w, i18n.language) }),
+        // Il «(deactivated)» anche nelle intestazioni dei gruppi e nelle corsie (area 9a).
+        person: (p) => personName(t, p),
       },
     };
   }, [statuses, people, departments, milestones, projects, projectIds, t, i18n.language]);

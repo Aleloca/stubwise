@@ -8289,6 +8289,7 @@
     "person": {
       "back": "Persone",
       "notFound": "Questa persona non esiste, o non c'è più.",
+      "loadError": "Non è stato possibile caricare i dettagli di {{name}}.",
       "loadErrorGeneric": "Non è stato possibile caricare i dettagli di questa persona.",
       "you": "Sei tu. Le tue impostazioni stanno nelle Preferenze.",
       "more": "Altre azioni per {{name}}",

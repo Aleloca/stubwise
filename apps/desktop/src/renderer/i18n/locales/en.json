@@ -8289,6 +8289,7 @@
     "person": {
       "back": "People",
       "notFound": "This person doesn't exist, or isn't here any more.",
+      "loadError": "Couldn't load {{name}}'s details.",
       "loadErrorGeneric": "Couldn't load this person's details.",
       "you": "This is you. Your own settings are in Preferences.",
       "more": "More actions for {{name}}",

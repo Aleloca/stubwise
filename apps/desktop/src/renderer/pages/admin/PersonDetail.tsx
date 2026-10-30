@@ -5,6 +5,7 @@ import {
   useAdminPerson,
   useLinkGitIdentity,
   useObservedAuthors,
+  usePeople,
   useReactivatePerson,
   useRoles,
   useSecurityEvents,
@@ -61,6 +62,8 @@ type Dialog = "resetPassword" | "resetSecondFactor" | "deactivate" | null;
 export function PersonDetail({ personId }: { personId: string }) {
   const { t } = useTranslation();
   const person = useAdminPerson(personId);
+  // Il nome nell'errore di lettura, se l'elenco delle persone lo sa già.
+  const known = usePeople().data?.find((p) => p.id === personId)?.name;
   if (person.isPending)
     return (
       <Frame>
@@ -77,7 +80,11 @@ export function PersonDetail({ personId }: { personId: string }) {
     return (
       <Frame>
         <ReadError
-          message={t("admin.person.loadErrorGeneric")}
+          message={
+            known
+              ? t("admin.person.loadError", { name: known })
+              : t("admin.person.loadErrorGeneric")
+          }
           onRetry={() => void person.refetch()}
         />
       </Frame>

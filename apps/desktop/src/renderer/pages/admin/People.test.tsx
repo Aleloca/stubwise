@@ -1,7 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { admin, resetApi, setLatency } from "../../data/api";
+import { admin, failNext, resetApi, setLatency } from "../../data/api";
 import { markReauthenticated } from "../../data/auth/reauth";
 import { setSessionPersonId } from "../../data/session";
 import { accessState, writeAccess } from "../../data/access/index";
@@ -290,6 +290,14 @@ describe("la pagina di una persona", () => {
     expect(document.body.textContent).not.toContain(link);
   });
 
+  it("una lettura della persona che fallisce dice di chi, e Retry riprova", async () => {
+    failNext("admin.getPerson");
+    renderRoute("/admin/people/p-marco", ROBERTA);
+    expect(await screen.findByText("Couldn't load Marco Bellini's details.")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await heading("Marco Bellini")).toBeVisible();
+  });
+
   it("con molti progetti: il numero nel titolo, i primi 8, poi «Show all» li apre sul posto [R8]", async () => {
     const user = userEvent.setup();
     renderRoute("/admin/people/p-marco", ROBERTA);
@@ -434,6 +442,11 @@ describe("RF 4: disattiva con riassegnazione, poi riattiva", () => {
     renderRoute("/p/STW/tasks?task=STW-13", ROBERTA);
     const panel = await screen.findByRole("dialog", { name: "Task STW-13" });
     expect(await within(panel).findByText("Marco Bellini (deactivated)")).toBeVisible();
+    // Il nome accessibile del campo lo dice anche lui: l'assegnatario si cerca fra
+    // tutte le persone, non fra i membri (TaskHeader; Minor B del Task 8).
+    expect(
+      within(panel).getByRole("button", { name: /^Assignee: Marco Bellini \(deactivated\)/ }),
+    ).toBeInTheDocument();
     // Anche la riga dell'elenco.
     const row = (await screen.findAllByText("Marco Bellini (deactivated)")).find(
       (el) => !panel.contains(el),
