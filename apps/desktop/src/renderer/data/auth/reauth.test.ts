@@ -41,6 +41,7 @@ const EXPECTED_REAUTH: readonly ApiFnName[] = [
   "admin.setMemberRole",
   "admin.grantMemberPermission",
   "admin.revokeMemberPermission",
+  "admin.saveMember",
   // Task 5: le Preferenze personali (Sicurezza, Token, Claude Code)
   "me.startTotpSetup",
   "me.addPasskey",

@@ -17,6 +17,7 @@ import { NewAutomationHost } from "../pages/automations/NewAutomationHost";
 import { SourceDetailHost } from "../pages/automations/SourcePanel";
 import { PrPanelHost } from "../pages/releases/PrPanel";
 import { DepartmentPanelHost } from "../pages/admin/DepartmentPanel";
+import { MemberPanelHost } from "../pages/settings/MembersSettings";
 import { useAutomationsLiveRefresh } from "../data/queries";
 import { CommandPalette } from "../palette/CommandPalette";
 import { applyPlatformAttribute } from "../platform/platform";
@@ -68,6 +69,7 @@ export function AppLayout() {
         <SourceDetailHost />
         <PrPanelHost />
         <DepartmentPanelHost />
+        <MemberPanelHost />
         {/* L'anteprima intera di un file del Drive copre l'area di lavoro (binario e colonna restano). */}
         <FilePreviewHost />
       </div>

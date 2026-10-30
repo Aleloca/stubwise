@@ -28,7 +28,7 @@ import {
   roleById,
 } from "./common";
 import { forgetSecret, secretIdsOf, storeSecret } from "./secrets";
-import { extraPermissionsOf } from "./members";
+import { canJoin, extraPermissionsOf } from "./members";
 import type {
   ActionBlock,
   AdminRefusal,
@@ -221,6 +221,16 @@ export async function getPerson(personId: string): Promise<PersonDetail> {
       canManage: canI(me, "project.members.manage", project.id),
     })),
     alsoInHiddenProjects: memberships.some((m) => !visible.has(m.projectId)),
+    // «Add to a project»: la stessa regola di chi si può aggiungere in Members.
+    addableTo: state.projects
+      .filter(
+        (p) =>
+          visible.has(p.id) &&
+          canI(me, "project.members.manage", p.id) &&
+          canJoin(personId, p.id),
+      )
+      .map((p) => ({ projectId: p.id, code: p.code, name: p.name }))
+      .sort((a, b) => a.code.localeCompare(b.code)),
     departments: accessState()
       .departments.filter((d) => d.memberIds.includes(personId))
       .map((d) => {

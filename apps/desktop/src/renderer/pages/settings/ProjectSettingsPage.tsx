@@ -1,38 +1,46 @@
 import { useTranslation } from "react-i18next";
 import { useProject } from "../../data/queries";
+import type { ProjectSettingsSection } from "../../data/routes";
+import { MembersSettings } from "./MembersSettings";
 import { ProjectStatusesSettings } from "./ProjectStatusesSettings";
 import { RepositorySettings } from "./RepositorySettings";
+import { SettingsFrame } from "./SettingsFrame";
 
 /**
- * Le impostazioni di un progetto. In quest'area c'è solo «Statuses and
- * stalled tasks»; membri, moduli e integrazioni arriveranno più avanti e qui
- * restano un titolo e una frase che dice cosa ci starà.
+ * Una sezione delle impostazioni di un progetto (area 9a, [RM 4]): ogni
+ * sezione è una pagina, raggiunta dalle voci rientrate sotto «Settings» nella
+ * colonna del progetto. La route ha già controllato progetto e modulo.
  */
-export function ProjectSettingsPage({ projectCode }: { projectCode: string }) {
+export function ProjectSettingsPage({
+  projectCode,
+  section,
+}: {
+  projectCode: string;
+  section: ProjectSettingsSection;
+}) {
   const { t } = useTranslation();
-  const project = useProject(projectCode).data ?? undefined;
-  return (
-    <section className="flex min-h-full flex-col pb-16 pl-8">
-      <div className="flex w-full max-w-[880px] flex-col pr-8">
-        <header className="page-header flex shrink-0 flex-col gap-1.5 pb-5 [--page-header-pr:32px] [--page-header-pt:32px]">
-          <h1 className="text-2xl font-semibold text-ink">{t("project.sections.settings")}</h1>
-          {project && (
-            <p className="max-w-[72ch] text-sm text-ink-muted">
-              {t("settings.intro", { project: project.name })}
-            </p>
-          )}
-        </header>
-        {project && <ProjectStatusesSettings project={project} />}
-        {project && project.modules.includes("releases") && (
+  const project = useProject(projectCode).data;
+  if (!project) return null;
+  switch (section) {
+    case "members":
+      return <MembersSettings project={project} />;
+    case "repositories":
+      return (
+        <SettingsFrame
+          title={t("settings.sections.repositories")}
+          intro={t("settings.repositories.intro")}
+        >
           <RepositorySettings project={project} />
-        )}
-        <section aria-labelledby="settings-other" className="border-t border-rule pt-5 pb-7">
-          <h2 id="settings-other" className="text-xl font-semibold text-ink">
-            {t("settings.other.title")}
-          </h2>
-          <p className="pt-2 text-md text-ink-muted">{t("settings.other.body")}</p>
-        </section>
-      </div>
-    </section>
-  );
+        </SettingsFrame>
+      );
+    case "statuses":
+      return (
+        <SettingsFrame
+          title={t("settings.sections.statuses")}
+          intro={t("settings.intro", { project: project.name })}
+        >
+          <ProjectStatusesSettings project={project} />
+        </SettingsFrame>
+      );
+  }
 }

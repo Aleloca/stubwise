@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useId, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -344,13 +344,57 @@ function InstanceRolePart({ person, manages }: { person: Person; manages: boolea
   );
 }
 
-/** 2. I progetti che chi guarda vede, col ruolo e i permessi in più con la loro fonte. */
+/**
+ * 2. I progetti che chi guarda vede, col ruolo e i permessi in più con la
+ * loro fonte. Dove chi guarda gestisce i membri, **Edit** apre il pannello
+ * del membro in Members di quel progetto; **Add to a project** apre «Add
+ * member» del progetto scelto con la persona già scelta (`addableTo`, dal
+ * livello dati).
+ */
 function ProjectsPart({ person }: { person: Person }) {
   const { t } = useTranslation();
   const words = usePermissionWords();
   const source = useSourceWords();
+  const navigate = useNavigate();
+  const action =
+    person.addableTo.length > 0 ? (
+      <MenuButton
+        menuLabel={t("admin.person.projects.addMenu", { name: person.name })}
+        align="right"
+        className={secondaryButton}
+        label={
+          <>
+            {t("admin.person.projects.add")}
+            <Chevron />
+          </>
+        }
+      >
+        {(close) =>
+          person.addableTo.map((p) => (
+            <button
+              key={p.projectId}
+              type="button"
+              role="menuitem"
+              tabIndex={-1}
+              className={itemClass}
+              onClick={() => {
+                close();
+                void navigate({
+                  to: "/p/$code/settings/$section",
+                  params: { code: p.code, section: "members" },
+                  search: { addMember: person.personId } as never,
+                });
+              }}
+            >
+              <span className="num w-10 shrink-0 text-xs font-semibold text-ink">{p.code}</span>
+              <span className="min-w-0 truncate">{p.name}</span>
+            </button>
+          ))
+        }
+      </MenuButton>
+    ) : undefined;
   return (
-    <Part title={t("admin.person.projects.title")}>
+    <Part title={t("admin.person.projects.title")} action={action}>
       {person.projects.length === 0 ? (
         <p className="text-md text-ink-muted">{t("admin.person.projects.empty")}</p>
       ) : (
@@ -370,6 +414,20 @@ function ProjectsPart({ person }: { person: Person }) {
                     {p.name}
                   </Link>
                   <span className="shrink-0 text-sm text-ink-muted">{p.role.name}</span>
+                  {p.canManage && (
+                    <Link
+                      to="/p/$code/settings/$section"
+                      params={{ code: p.code, section: "members" }}
+                      search={{ member: person.personId } as never}
+                      aria-label={t("admin.person.projects.editLabel", {
+                        name: person.name,
+                        code: p.code,
+                      })}
+                      className={`${rowButton} ml-auto`}
+                    >
+                      {t("admin.person.projects.edit")}
+                    </Link>
+                  )}
                 </div>
                 {p.extra.map((x) => (
                   <p key={x.permission} className="text-sm text-ink-muted">

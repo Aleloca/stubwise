@@ -51,8 +51,10 @@ export {
   addMember,
   grantMemberPermission,
   listProjectMembers,
+  previewMember,
   removeMember,
   revokeMemberPermission,
+  saveMember,
   setMemberRole,
 } from "./members";
 export type * from "./types";

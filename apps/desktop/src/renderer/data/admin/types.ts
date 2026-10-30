@@ -86,8 +86,11 @@ export type SourceView =
       grantedById: string | null;
       grantedByName: string | null;
       at: string;
-      /** `given`: «given by Roberta on Oct 29»; `seed`: «from the seed» (nessun autore). */
-      origin: "given" | "seed";
+      /**
+       * `given`: «given by Roberta on Oct 29»; `seed`: «from the seed» (nessun
+       * autore); `draft`: data nella bozza del pannello del membro, non ancora salvata.
+       */
+      origin: "given" | "seed" | "draft";
     }
   | { kind: "department"; departmentId: string; departmentName: string }
   | { kind: "full_admin" };
@@ -116,6 +119,41 @@ export interface MemberRow {
   status: "active" | "deactivated";
   role: RoleDef;
   extra: ExtraPermission[];
+  /**
+   * I permessi di progetto dati a mano (le concessioni), anche quelli che il
+   * ruolo dà già: la bozza del pannello parte da qui, e salvandola si tolgono
+   * solo quelli che la bozza toglie.
+   */
+  granted: string[];
+}
+
+/** La bozza del pannello del membro: il ruolo e i permessi dati a mano. */
+export interface MemberDraft {
+  roleId: string;
+  granted: string[];
+}
+
+/**
+ * Il giudizio di una bozza del membro (`previewMember`), lo stesso che
+ * `saveMember` legge prima di scrivere: il pannello ne spegne scelte e Save.
+ */
+export interface MemberPreview {
+  /**
+   * Ciò che la persona potrebbe fare nel progetto con QUESTA bozza, ogni
+   * permesso con le sue fonti (ruolo, reparto, dato a mano; `draft` per
+   * quelli dati nella bozza). Per un disattivato: ciò che avrebbe riattivato.
+   */
+  permissions: { permission: string; sources: SourceView[] }[];
+  /** I ruoli di progetto, con ciò che a chi guarda manca per darli: ciò che AGGIUNGONO al ruolo salvato. */
+  roleChoices: RoleChoice[];
+  /** Ciò che salvando questa bozza si darebbe senza averlo (vuoto = niente escalation). */
+  missing: string[];
+  /** Il blocco della bozza (`last_members_manager`, `last_full_admin`), o `null`. */
+  block: ActionBlock;
+  /** Il blocco di «Remove from ACQ…», o `null`. */
+  removeBlock: ActionBlock;
+  /** Se la persona è chi guarda: i permessi che perderebbe nel progetto salvando. */
+  viewerLoses: string[];
 }
 
 export interface ProjectMembersView {
@@ -191,6 +229,11 @@ export interface PersonDetail {
   projects: PersonProjectView[];
   /** La persona è anche in progetti che chi guarda non vede («Also in projects you can't see.»). */
   alsoInHiddenProjects: boolean;
+  /**
+   * «Add to a project»: i progetti visibili dove chi guarda gestisce i membri
+   * e la persona può entrare (attiva, non full admin, non ancora membro).
+   */
+  addableTo: { projectId: string; code: string; name: string }[];
   departments: { id: string; name: string; colorToken: string; managesHome: boolean }[];
   identities: { gitEmails: string[]; bitbucketUsername: string | null };
   /** Le azioni della pagina: `null` se si possono fare, altrimenti il motivo. */

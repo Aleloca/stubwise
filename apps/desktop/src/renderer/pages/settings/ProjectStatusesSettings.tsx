@@ -27,7 +27,8 @@ import { Dialog } from "../../tasks-ui/Dialog";
 import { MenuGroup, MenuNote, RadioDot, RadioItem } from "../../tasks-ui/Menu";
 import { FamilySign } from "../../tasks-ui/StatusLabel";
 import { useToast } from "../../tasks-ui/Toast";
-import { BlockSection, queryState } from "../home/blocks/BlockSection";
+import { queryState } from "../home/blocks/BlockSection";
+import { SettingsState } from "./SettingsFrame";
 import { ghostButton } from "../task/parts";
 import { Chevron, MenuButton, primaryButton, secondaryButton } from "../tasks/controls";
 import {
@@ -52,7 +53,7 @@ const thresholdInputClass =
 let nextKey = 0;
 
 /**
- * «Statuses and stalled tasks» (spec «Stati per progetto», §7 «Ferme»): gli
+ * Settings → Statuses (spec «Stati per progetto», §7 «Ferme»): gli
  * stati del progetto in ordine — segno e nome della famiglia, nome, quante
  * task ci sono — e le due soglie «Stalled after N days». Con
  * `project.settings.manage` si aggiunge, si rinomina, si cambia famiglia, si
@@ -266,7 +267,7 @@ export function ProjectStatusesSettings({ project }: { project: Project }) {
   const state = queryState([statuses, tasks]);
 
   return (
-    <BlockSection title={t("settings.statuses.title")} state={state}>
+    <SettingsState state={state} error={t("settings.statuses.loadError")}>
       <p className="max-w-[72ch] pb-4 text-sm text-ink-muted">
         {t("settings.statuses.intro")}
         {!canManage && <> {t("settings.statuses.readOnly")}</>}
@@ -316,7 +317,7 @@ export function ProjectStatusesSettings({ project }: { project: Project }) {
       )}
 
       <div className="mt-6 border-t border-rule pt-4">
-        <h3 className="text-md font-semibold text-ink">{t("settings.statuses.stalledTitle")}</h3>
+        <h2 className="text-lg font-semibold text-ink">{t("settings.statuses.stalledTitle")}</h2>
         <p className="max-w-[72ch] pt-1 pb-3 text-sm text-ink-muted">
           {t("settings.statuses.stalledIntro")}
         </p>
@@ -405,7 +406,7 @@ export function ProjectStatusesSettings({ project }: { project: Project }) {
           onConfirm={(target) => remove(deleting, target)}
         />
       )}
-    </BlockSection>
+    </SettingsState>
   );
 }
 

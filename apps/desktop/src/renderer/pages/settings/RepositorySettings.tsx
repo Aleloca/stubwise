@@ -299,13 +299,7 @@ export function RepositorySettings({ project }: { project: Project }) {
   const settings = useRepositorySettings(project.id);
   const data = settings.data;
   return (
-    <section aria-labelledby="settings-repositories" className="border-t border-rule pt-5 pb-7">
-      <h2 id="settings-repositories" className="text-xl font-semibold text-ink">
-        {t("settings.repositories.title")}
-      </h2>
-      <p className="max-w-[72ch] pt-1 pb-4 text-md text-ink-muted">
-        {t("settings.repositories.intro")}
-      </p>
+    <div className="pb-7">
       {settings.isError ? (
         <div role="alert" className="flex items-center gap-3">
           <p className="text-md text-ink">{t("settings.repositories.error")}</p>
@@ -347,6 +341,6 @@ export function RepositorySettings({ project }: { project: Project }) {
           ))}
         </ul>
       )}
-    </section>
+    </div>
   );
 }

@@ -386,3 +386,148 @@ describe("dopo una scrittura d'accesso la pagina aperta cambia", () => {
     expect(screen.getByTestId("manages")).toHaveTextContent("reads ACQ");
   });
 });
+
+// --- la bozza del pannello del membro (Task 10) ------------------------------------
+
+describe("la bozza del membro: previewMember e saveMember con UNA regola", () => {
+  const draftOf = (roleKey: string, granted: string[]) => ({ roleId: roleIdOf(roleKey), granted });
+
+  beforeEach(() => {
+    as("p-laura");
+    reauth("p-laura");
+  });
+
+  it("la riga dice i permessi dati a mano, anche quelli che il ruolo dà già", async () => {
+    writeAccess((s) => {
+      s.grants.push({
+        personId: "p-marco",
+        projectId: ACQ,
+        permission: "docs.view",
+        grantedById: "p-roberta",
+        at: "2026-10-01T10:00:00Z",
+      });
+    });
+    const marco = (await rowOf(ACQ, "p-marco"))!;
+    expect([...marco.granted].sort()).toEqual(["docs.view", "servers.operate"]);
+    // docs.view viene anche dal ruolo: non è «in più».
+    expect(marco.extra.map((e) => e.permission)).toEqual(["servers.operate"]);
+  });
+
+  it("la bozza salvata: nessuna escalation, nessun blocco, le fonti di oggi", async () => {
+    const p = await admin.previewMember(ACQ, "p-marco", draftOf("developer", ["servers.operate"]));
+    expect(p.missing).toEqual([]);
+    expect(p.block).toBeNull();
+    expect(p.viewerLoses).toEqual([]);
+    const ops = p.permissions.find((x) => x.permission === "servers.operate")!;
+    expect(ops.sources).toEqual([expect.objectContaining({ kind: "grant", origin: "given" })]);
+    const reply = p.permissions.find((x) => x.permission === "support.reply")!;
+    expect(reply.sources.map((s) => s.kind).sort()).toEqual(["department", "role"]);
+  });
+
+  it("un permesso dato nella bozza ha la fonte «draft»; uno che Laura non ha è escalation", async () => {
+    const give = await admin.previewMember(ACQ, "p-federico", draftOf("developer", ["plans.approve"]));
+    expect(give.missing).toEqual([]);
+    expect(give.permissions.find((x) => x.permission === "plans.approve")!.sources).toEqual([
+      expect.objectContaining({ kind: "grant", origin: "draft" }),
+    ]);
+    const ops = await admin.previewMember(ACQ, "p-federico", draftOf("developer", ["servers.operate"]));
+    expect(ops.missing).toEqual(["servers.operate"]);
+    // saveMember legge lo stesso giudizio: rifiuta, niente scritto.
+    await refused(
+      () => admin.saveMember(ACQ, "p-federico", draftOf("developer", ["servers.operate"])),
+      { error: "escalation", missing: ["servers.operate"] },
+    );
+  });
+
+  it("Laura toglie a Marco servers.operate, che lei non ha: niente gerarchia", async () => {
+    const p = await admin.previewMember(ACQ, "p-marco", draftOf("developer", []));
+    expect(p.missing).toEqual([]);
+    expect(await admin.saveMember(ACQ, "p-marco", draftOf("developer", []))).toEqual({ ok: true });
+    expect(can(viewerFor("p-marco"), "servers.operate", ACQ)).toBe(false);
+    expect(state.changelog.at(-1)).toMatchObject({
+      kind: "member.permission_revoked",
+      actorId: "p-laura",
+      before: "servers.operate",
+    });
+  });
+
+  it("ruolo e permessi in un colpo: una scrittura, una voce per ciò che cambia", async () => {
+    expect(
+      await admin.saveMember(ACQ, "p-federico", draftOf("contributor", ["plans.approve"])),
+    ).toEqual({ ok: true });
+    expect(state.changelog.map((e) => e.kind)).toEqual([
+      "member.role_changed",
+      "member.permission_granted",
+    ]);
+    expect(can(viewerFor("p-federico"), "plans.approve", ACQ)).toBe(true);
+    await refused(
+      () => admin.saveMember(ACQ, "p-federico", draftOf("contributor", ["plans.approve"])),
+      { reason: "unchanged" },
+    );
+  });
+
+  it("un ruolo vale per ciò che AGGIUNGE al ruolo salvato: roleChoices e saveMember d'accordo", async () => {
+    revokeProjectPermission("p-laura", ACQ, "release.merge" as LocalProjectPermission);
+    const p = await admin.previewMember(ACQ, "p-marco", draftOf("developer", ["servers.operate"]));
+    expect(p.roleChoices.find((c) => c.roleId === roleIdOf("rm-1"))!.missing).toEqual([
+      "release.merge",
+    ]);
+    expect(p.roleChoices.find((c) => c.roleId === roleIdOf("viewer"))!.missing).toEqual([]);
+    const rm = await admin.previewMember(ACQ, "p-marco", draftOf("rm-1", ["servers.operate"]));
+    expect(rm.missing).toEqual(["release.merge"]);
+  });
+
+  it("l'ultimo gestore: la bozza lo dice prima, il salvataggio lo rifiuta; Remove anche", async () => {
+    writeAccess((s) => {
+      s.people.find((p) => p.personId === "p-roberta")!.instanceRoleId = roleIdOf("user");
+      s.memberships.find((m) => m.personId === "p-matteo" && m.projectId === ACQ)!.roleId =
+        roleIdOf("developer");
+    });
+    const p = await admin.previewMember(ACQ, "p-laura", draftOf("developer", []));
+    expect(p.block).toBe("last_members_manager");
+    expect(p.removeBlock).toBe("last_members_manager");
+    expect(p.viewerLoses).toContain("project.members.manage");
+    await refused(() => admin.saveMember(ACQ, "p-laura", draftOf("developer", [])), {
+      reason: "last_members_manager",
+    });
+    // Su Marco nessun blocco.
+    expect((await admin.previewMember(ACQ, "p-marco", draftOf("viewer", []))).removeBlock).toBeNull();
+  });
+
+  it("R-G5, chi non gestisce, chi non è membro", async () => {
+    as("p-sara");
+    reauth("p-sara");
+    await expect(admin.previewMember(AUD, "p-marco", draftOf("developer", []))).rejects.toThrow(
+      "not_found",
+    );
+    // Sara legge (in sola lettura) la bozza salvata di Marco su ACQ.
+    const p = await admin.previewMember(ACQ, "p-marco", draftOf("developer", ["servers.operate"]));
+    expect(p.missing).toEqual([]);
+    await refused(() => admin.saveMember(ACQ, "p-marco", draftOf("developer", [])), {
+      error: "forbidden",
+    });
+    as("p-laura");
+    await expect(admin.previewMember(ACQ, "p-giulia", draftOf("developer", []))).rejects.toThrow(
+      "not_found",
+    );
+  });
+
+  it("un disattivato: le fonti di ciò che il ruolo gli darebbe, non una tabella vuota", async () => {
+    as("p-roberta");
+    const row = (await rowOf("prj-tlm", "p-simone"))!;
+    const p = await admin.previewMember("prj-tlm", "p-simone", { roleId: row.role.id, granted: [] });
+    expect(p.permissions.length).toBeGreaterThan(0);
+  });
+});
+
+describe("Add to a project: dalla pagina della persona", () => {
+  it("i progetti visibili dove chi guarda gestisce i membri e la persona può entrare", async () => {
+    as("p-laura");
+    const giulia = await admin.getPerson("p-giulia");
+    expect(giulia.addableTo.map((p) => p.code)).toContain("ACQ");
+    const marco = await admin.getPerson("p-marco");
+    expect(marco.addableTo.map((p) => p.code)).not.toContain("ACQ");
+    as("p-sara");
+    expect((await admin.getPerson("p-giulia")).addableTo).toEqual([]);
+  });
+});

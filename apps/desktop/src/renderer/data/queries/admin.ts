@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as api from "../api";
-import type { PeopleFilter } from "../admin/types";
+import type { MemberDraft, PeopleFilter } from "../admin/types";
 import type { ChangeFilter } from "../changelog/types";
 import { queryKeys, useSessionPersonId, useWrite } from "../queries";
 
@@ -230,6 +230,27 @@ export function useMembers(projectId: string | undefined) {
 }
 
 /**
+ * La bozza del pannello del membro letta dal livello dati: le fonti di ogni
+ * permesso, le scelte di ruolo, l'escalation e i blocchi con QUESTO ruolo e
+ * QUESTI permessi dati a mano. Fra una casella e l'altra resta la risposta di
+ * prima (niente caselle che lampeggiano).
+ */
+export function useMemberPreview(projectId: string, personId: string, draft: MemberDraft) {
+  const me = useSessionPersonId();
+  const granted = [...draft.granted].sort();
+  return useQuery({
+    queryKey: queryKeys.admin(me, "memberPreview", projectId, personId, draft.roleId, granted),
+    queryFn: () => api.admin.previewMember(projectId, personId, { roleId: draft.roleId, granted }),
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === me &&
+      previousQuery.queryKey[4] === projectId &&
+      previousQuery.queryKey[5] === personId
+        ? previous
+        : undefined,
+  });
+}
+
+/**
  * Una funzione dell'API d'amministrazione come mutazione: le variabili sono i
  * suoi argomenti, il dato il suo esito (tipato: `mutateAsync` lo restituisce
  * a `useReauth`, che lo passa al chiamante).
@@ -260,8 +281,10 @@ export const useSetHomeManagers = adminWrite(api.admin.setHomeManagers);
 export const useSetDepartmentPermissions = adminWrite(api.admin.setDepartmentPermissions);
 export const useDeleteDepartment = adminWrite(api.admin.deleteDepartment);
 export const useSaveDepartment = adminWrite(api.admin.saveDepartment);
-export const useAddMember = adminWrite(api.admin.addMember);
-export const useRemoveMember = adminWrite(api.admin.removeMember);
+// «Project»: `useRemoveMember` è già della Chat (togliere qualcuno da un canale).
+export const useAddProjectMember = adminWrite(api.admin.addMember);
+export const useRemoveProjectMember = adminWrite(api.admin.removeMember);
+export const useSaveMember = adminWrite(api.admin.saveMember);
 export const useSetMemberRole = adminWrite(api.admin.setMemberRole);
 export const useGrantMemberPermission = adminWrite(api.admin.grantMemberPermission);
 export const useRevokeMemberPermission = adminWrite(api.admin.revokeMemberPermission);

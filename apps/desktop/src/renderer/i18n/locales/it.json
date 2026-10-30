@@ -2299,12 +2299,7 @@
   },
   "settings": {
     "intro": "Come funziona {{project}}: i suoi stati e quando una task conta come ferma.",
-    "other": {
-      "title": "Membri, moduli e integrazioni",
-      "body": "Qui si gestiranno membri, moduli e integrazioni."
-    },
     "statuses": {
-      "title": "Stati e task ferme",
       "intro": "Ogni stato appartiene a una famiglia: Da fare, In corso o Chiuse. Le viste che uniscono più progetti raggruppano per famiglia; dentro il progetto si vedono questi nomi.",
       "readOnly": "Solo chi gestisce le impostazioni di questo progetto può cambiarli.",
       "list": "Stati, in ordine",
@@ -2357,7 +2352,8 @@
       "saved": "Stati e soglie salvati.",
       "saveFailed": "Non è stato possibile salvare gli stati. Non è cambiato niente; le tue modifiche sono ancora qui.",
       "thresholdsFailed": "Non è stato possibile salvare le soglie. Sono come prima; le tue modifiche sono ancora qui.",
-      "thresholdsFailedAfter": "Stati salvati, ma le soglie no. Le modifiche alle soglie sono ancora qui."
+      "thresholdsFailedAfter": "Stati salvati, ma le soglie no. Le modifiche alle soglie sono ancora qui.",
+      "loadError": "Non è stato possibile caricare gli stati."
     },
     "repositories": {
       "title": "Repository",
@@ -2394,6 +2390,97 @@
       "saved": "Salvato",
       "saveError": "Non è stato possibile salvare le impostazioni del repository.",
       "error": "Non è stato possibile caricare i repository."
+    },
+    "sections": {
+      "label": "Impostazioni di {{code}}",
+      "statuses": "Stati",
+      "members": "Membri",
+      "repositories": "Repository"
+    },
+    "members": {
+      "intro": "Chi lavora su {{code}}, con quale ruolo, e cosa può fare ognuno oltre al ruolo.",
+      "add": "Aggiungi un membro",
+      "listLabel": "Membri di {{code}}",
+      "fullAdmins": "Gli amministratori completi possono fare tutto in ogni progetto, per questo non sono elencati qui.",
+      "empty": "Ancora nessun membro. Aggiungi le persone che lavorano su {{code}}.",
+      "emptyRead": "Ancora nessun membro.",
+      "loadError": "Non è stato possibile caricare i membri di {{code}}.",
+      "find": "Cerca un membro",
+      "findLabel": "Cerca un membro per nome o email",
+      "noMatch": "Nessun membro corrisponde.",
+      "extra": "+ {{permission}} ({{source}})",
+      "more_one": "+{{count}} altro",
+      "more_other": "+{{count}} altri",
+      "short": {
+        "given": "dato da {{name}}, {{date}}",
+        "givenNoName": "dato il {{date}}",
+        "seed": "dati di esempio",
+        "department": "reparto {{name}}",
+        "draft": "non ancora salvato"
+      },
+      "panel": {
+        "label": "{{name}} in {{code}}",
+        "close": "Chiudi",
+        "openInPeople": "Apri in Persone",
+        "readOnly": "Solo chi gestisce i membri di {{code}} può cambiarlo.",
+        "deactivated": "{{name}} è disattivato: niente di questo vale finché qualcuno non lo riattiva.",
+        "you": "Sei tu.",
+        "role": "Ruolo",
+        "roleLabel": "Ruolo in {{code}}",
+        "can": "Cosa può fare qui",
+        "canIntro": "Qui si spuntano e si tolgono solo i permessi dati a mano. Ciò che viene dal ruolo o da un reparto si cambia lì.",
+        "tableLabel": "Cosa può fare {{name}} in {{code}}",
+        "source": {
+          "role": "Dal ruolo {{name}}",
+          "department": "Dal reparto {{name}}",
+          "departmentManage": "Dal reparto {{name}} — si cambia in Reparti",
+          "given": "Dato da {{name}} il {{date}}",
+          "givenNoName": "Dato il {{date}}",
+          "seed": "Dai dati di esempio",
+          "draft": "Dato quando salvi"
+        },
+        "blockedWhy": "Non hai questo permesso in {{code}}, quindi non puoi darlo.",
+        "remove": "Togli da {{code}}…",
+        "removeAsk": "Togliere {{name}} da {{code}}? Se ne vanno anche il ruolo e i permessi che gli sono stati dati qui.",
+        "removeConfirm": "Togli",
+        "keep": "Tieni",
+        "removed": "{{name}} è uscito da {{code}}.",
+        "removeAction": "togliere {{name}} da {{code}}",
+        "changes_one": "{{count}} modifica",
+        "changes_other": "{{count}} modifiche",
+        "discard": "Annulla le modifiche",
+        "save": "Salva",
+        "saved": "Salvato.",
+        "saveAction": "cambiare cosa può fare {{name}} in {{code}}",
+        "discardAsk_one": "Annullare {{count}} modifica?",
+        "discardAsk_other": "Annullare {{count}} modifiche?",
+        "youLose": "Salvando perderai {{missing}} in {{code}}.",
+        "loadError": "Non è stato possibile caricare gli accessi di {{name}}."
+      },
+      "refusal": {
+        "escalationOne": "Non puoi dare {{permission}} in {{code}}: non ce l'hai nemmeno tu.",
+        "escalationMany": "Non puoi dare questi permessi perché non li hai: {{missing}}.",
+        "lastManagerSelf": "Sei l'unica persona che può gestire i membri di {{code}}. Dai questo permesso a qualcun altro prima di toglierlo a te.",
+        "lastManagerSelfLeave": "Sei l'unica persona che può gestire i membri di {{code}}. Dai questo permesso a qualcun altro prima di uscire da {{code}}.",
+        "lastManagerOther": "{{name}} è l'unica persona che può gestire i membri di {{code}}. Dai prima questo permesso a qualcun altro.",
+        "failed": "Non è stato possibile salvare. Riprova."
+      },
+      "addDialog": {
+        "person": "Persona",
+        "find": "Cerca una persona",
+        "findLabel": "Cerca una persona per nome o email",
+        "role": "Ruolo",
+        "pickRole": "Scegli un ruolo",
+        "add": "Aggiungi",
+        "cancel": "Annulla",
+        "noOne": "Tutte le persone attive sono già in {{code}}.",
+        "noMatch": "Nessuno corrisponde.",
+        "candidates": "Persone che possono entrare in {{code}}",
+        "cantAdd": "Entrando in {{code}} riceverebbe dal suo reparto {{missing}}, che tu non hai.",
+        "joined": "{{name}} è entrato in {{code}} come {{role}}.",
+        "action": "aggiungere {{name}} a {{code}}",
+        "failed": "Non è stato possibile aggiungerlo. Riprova."
+      }
     }
   },
   "export": {
@@ -8169,7 +8256,11 @@
         "seed": "dal seme",
         "department": "dal reparto {{name}}",
         "fullAdmin": "come amministratore completo",
-        "role": "dal ruolo {{name}}"
+        "role": "dal ruolo {{name}}",
+        "edit": "Modifica",
+        "editLabel": "Modifica {{name}} in {{code}}",
+        "add": "Aggiungi a un progetto",
+        "addMenu": "Aggiungi {{name}} a un progetto"
       },
       "departments": {
         "title": "Reparti",

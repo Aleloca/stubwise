@@ -2299,12 +2299,7 @@
   },
   "settings": {
     "intro": "How {{project}} works: its statuses and when a task counts as stalled.",
-    "other": {
-      "title": "Members, modules and integrations",
-      "body": "Members, modules and integrations will be managed here."
-    },
     "statuses": {
-      "title": "Statuses and stalled tasks",
       "intro": "Each status belongs to a family: To do, In progress or Closed. Views that span several projects group by family; inside the project you see these names.",
       "readOnly": "Only people who manage this project's settings can change them.",
       "list": "Statuses, in order",
@@ -2357,7 +2352,8 @@
       "saved": "Statuses and thresholds saved.",
       "saveFailed": "Couldn't save the statuses. Nothing changed; your edits are still here.",
       "thresholdsFailed": "Couldn't save the thresholds. They're as they were; your edits are still here.",
-      "thresholdsFailedAfter": "Statuses saved, but the thresholds couldn't be saved. Your threshold edits are still here."
+      "thresholdsFailedAfter": "Statuses saved, but the thresholds couldn't be saved. Your threshold edits are still here.",
+      "loadError": "Couldn't load the statuses."
     },
     "repositories": {
       "title": "Repositories",
@@ -2394,6 +2390,97 @@
       "saved": "Saved",
       "saveError": "Couldn't save the repository settings.",
       "error": "Couldn't load the repositories."
+    },
+    "sections": {
+      "label": "Settings of {{code}}",
+      "statuses": "Statuses",
+      "members": "Members",
+      "repositories": "Repositories"
+    },
+    "members": {
+      "intro": "Who works on {{code}}, with which role, and what each person can do beyond it.",
+      "add": "Add member",
+      "listLabel": "Members of {{code}}",
+      "fullAdmins": "Full admins can do everything in every project, so they aren't listed here.",
+      "empty": "No members yet. Add the people who work on {{code}}.",
+      "emptyRead": "No members yet.",
+      "loadError": "Couldn't load {{code}}'s members.",
+      "find": "Find a member",
+      "findLabel": "Find a member by name or email",
+      "noMatch": "No member matches.",
+      "extra": "+ {{permission}} ({{source}})",
+      "more_one": "+{{count}} more",
+      "more_other": "+{{count}} more",
+      "short": {
+        "given": "given by {{name}}, {{date}}",
+        "givenNoName": "given {{date}}",
+        "seed": "sample data",
+        "department": "{{name}} department",
+        "draft": "not saved yet"
+      },
+      "panel": {
+        "label": "{{name}} in {{code}}",
+        "close": "Close",
+        "openInPeople": "Open in People",
+        "readOnly": "Only people who manage {{code}}'s members can change this.",
+        "deactivated": "{{name}} is deactivated: none of this applies until someone reactivates them.",
+        "you": "This is you.",
+        "role": "Role",
+        "roleLabel": "Role in {{code}}",
+        "can": "What they can do here",
+        "canIntro": "Only permissions given by hand can be ticked or cleared here. What comes from the role or from a department changes there.",
+        "tableLabel": "What {{name}} can do in {{code}}",
+        "source": {
+          "role": "From the {{name}} role",
+          "department": "From the {{name}} department",
+          "departmentManage": "From the {{name}} department — change it in Departments",
+          "given": "Given by {{name}} on {{date}}",
+          "givenNoName": "Given on {{date}}",
+          "seed": "From the sample data",
+          "draft": "Given when you save"
+        },
+        "blockedWhy": "You don't have this permission in {{code}}, so you can't give it.",
+        "remove": "Remove from {{code}}…",
+        "removeAsk": "Remove {{name}} from {{code}}? Their role and the permissions given to them here go too.",
+        "removeConfirm": "Remove",
+        "keep": "Keep",
+        "removed": "{{name}} left {{code}}.",
+        "removeAction": "remove {{name}} from {{code}}",
+        "changes_one": "{{count}} change",
+        "changes_other": "{{count}} changes",
+        "discard": "Discard",
+        "save": "Save",
+        "saved": "Saved.",
+        "saveAction": "change what {{name}} can do in {{code}}",
+        "discardAsk_one": "Discard {{count}} change?",
+        "discardAsk_other": "Discard {{count}} changes?",
+        "youLose": "You'll lose {{missing}} in {{code}} when you save.",
+        "loadError": "Couldn't load {{name}}'s access."
+      },
+      "refusal": {
+        "escalationOne": "You can't give {{permission}} in {{code}}: you don't have it yourself.",
+        "escalationMany": "You can't give these because you don't have them: {{missing}}.",
+        "lastManagerSelf": "You're the only one who can manage {{code}}'s members. Give someone else that permission before removing it from yourself.",
+        "lastManagerSelfLeave": "You're the only one who can manage {{code}}'s members. Give someone else that permission before leaving {{code}}.",
+        "lastManagerOther": "{{name}} is the only one who can manage {{code}}'s members. Give someone else that permission first.",
+        "failed": "Couldn't save. Try again."
+      },
+      "addDialog": {
+        "person": "Person",
+        "find": "Find a person",
+        "findLabel": "Find a person by name or email",
+        "role": "Role",
+        "pickRole": "Pick a role",
+        "add": "Add",
+        "cancel": "Cancel",
+        "noOne": "Everyone active is already in {{code}}.",
+        "noMatch": "No one matches.",
+        "candidates": "People who can join {{code}}",
+        "cantAdd": "Joining {{code}} would give them {{missing}} from their department, which you don't have.",
+        "joined": "{{name}} joined {{code}} as {{role}}.",
+        "action": "add {{name}} to {{code}}",
+        "failed": "Couldn't add them. Try again."
+      }
     }
   },
   "export": {
@@ -8169,7 +8256,11 @@
         "seed": "from the seed",
         "department": "from the {{name}} department",
         "fullAdmin": "as full admin",
-        "role": "from the role {{name}}"
+        "role": "from the role {{name}}",
+        "edit": "Edit",
+        "editLabel": "Edit {{name}} in {{code}}",
+        "add": "Add to a project",
+        "addMenu": "Add {{name}} to a project"
       },
       "departments": {
         "title": "Departments",

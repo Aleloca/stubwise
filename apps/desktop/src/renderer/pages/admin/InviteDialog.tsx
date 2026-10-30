@@ -281,11 +281,14 @@ export function RolePicker({
   roles,
   value,
   onChange,
+  placeholder = "—",
 }: {
   label: string;
   roles: RoleChoice[];
   value: string;
   onChange: (roleId: string) => void;
+  /** Le parole al posto del nome finché non c'è un ruolo scelto («Pick a role»). */
+  placeholder?: string;
 }) {
   const current = roles.find((r) => r.roleId === value);
   return (
@@ -296,7 +299,9 @@ export function RolePicker({
       className={selectButtonClass}
       label={
         <>
-          <span className="min-w-0 flex-1 truncate">{current?.name ?? "—"}</span>
+          <span className={`min-w-0 flex-1 truncate ${current ? "" : "text-ink-muted"}`}>
+            {current?.name ?? placeholder}
+          </span>
           <Chevron />
         </>
       }

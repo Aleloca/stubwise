@@ -848,7 +848,7 @@ async function main() {
         await p.waitForTimeout(400);
       } }],
       ["release-stw", "/p/STW/releases/STW-V2", { persona: "Laura" }],
-      ["releases-settings", "/p/AUD/settings", { persona: "Laura", steps: async (p) => {
+      ["releases-settings", "/p/AUD/settings/repositories", { persona: "Laura", steps: async (p) => {
         await p.locator('[data-repository="audin/audin-app"]').scrollIntoViewIfNeeded();
         await p.waitForTimeout(300);
       } }],
@@ -1349,6 +1349,50 @@ async function main() {
     ];
     for (const [area, name, persona, hash, steps] of AREA9A_DEPTS_ROLES) {
       const scene = `a9a-admin-${area}-${name}`;
+      if (only && !only.test(scene)) continue;
+      const variants = [];
+      for (const [viewport, size] of [[WIDE, ""], [NARROW, "-narrow"]]) {
+        for (const scheme of ["light", "dark"]) {
+          for (const lang of ["en", "it"]) variants.push([scheme, lang, viewport, `${scene}${size}-${scheme}-${lang}.png`]);
+        }
+      }
+      for (const [scheme, lang, viewport, file] of variants) {
+        const { page, context } = await open(scheme, viewport, hash, { lang, persona, viaHome: true });
+        await page.getByRole("heading", { level: 1 }).first().waitFor();
+        await page.waitForTimeout(300);
+        if (steps) await steps(page);
+        await page.mouse.move(2, 2);
+        await page.waitForTimeout(500);
+        await shot(page, file);
+        await context.close();
+      }
+    }
+
+    // Area 9a, Task 10: Progetto → Settings con le sezioni nella colonna, e
+    // Members (shape admin-roles-members.md): l'elenco, il pannello in
+    // modifica (Laura toglie a Marco un permesso che lei non ha), in sola
+    // lettura (Marco), e il rifiuto in parole (Laura non può dare a Federico
+    // un permesso che non ha). Ogni scena a 1440 e 1024, chiaro e scuro, en e it.
+    const opsRow = (p) => p.locator("[data-detail-panel] li[title='servers.operate']");
+    const AREA9A_MEMBERS = [
+      ["members-list", "Laura", "/p/ACQ/settings/members", null],
+      ["members-edit", "Laura", "/p/ACQ/settings/members?member=p-marco", async (p) => {
+        await opsRow(p).waitFor();
+        await opsRow(p).locator("label").click();
+        await p.getByRole("button", { name: /^(Save|Salva)$/ }).waitFor();
+      }],
+      ["members-readonly", "Marco", "/p/ACQ/settings/members?member=p-federico", async (p) => {
+        await opsRow(p).waitFor();
+      }],
+      ["members-refusal", "Laura", "/p/ACQ/settings/members?member=p-federico", async (p) => {
+        await opsRow(p).waitFor();
+        await opsRow(p).scrollIntoViewIfNeeded();
+      }],
+      ["settings-nav-statuses", "Laura", "/p/ACQ/settings", null],
+      ["settings-nav-repositories", "Laura", "/p/AUD/settings/repositories", null],
+    ];
+    for (const [name, persona, hash, steps] of AREA9A_MEMBERS) {
+      const scene = `a9a-${name}`;
       if (only && !only.test(scene)) continue;
       const variants = [];
       for (const [viewport, size] of [[WIDE, ""], [NARROW, "-narrow"]]) {

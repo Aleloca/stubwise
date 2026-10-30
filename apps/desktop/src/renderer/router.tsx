@@ -23,8 +23,10 @@ import {
   APP_ROUTES,
   PEOPLE_SEARCH_KEYS,
   PROJECT_SECTIONS,
+  PROJECT_SETTINGS_SECTIONS,
   isPeopleSearchValue,
   isProjectSection,
+  isProjectSettingsSection,
   isValidSearchParam,
 } from "./data/routes";
 import { can, useViewer } from "./data/viewer";
@@ -174,6 +176,9 @@ export interface AppSearch {
   section?: string;
   /** Departments (area 9a): il pannello del reparto aperto. */
   department?: string;
+  /** Members del progetto (area 9a): il pannello del membro e «Add member» (`1` o la persona). */
+  member?: string;
+  addMember?: string;
   /** People (area 9a): i filtri dell'elenco e «Invite someone» (`data/routes.ts`). */
   find?: string;
   depts?: string;
@@ -213,6 +218,8 @@ const SEARCH_KEYS = [
   "check",
   "section",
   "department",
+  "member",
+  "addMember",
   ...PEOPLE_SEARCH_KEYS,
 ] as const;
 
@@ -252,6 +259,8 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
       key === "brief" ||
       key === "dept" ||
       key === "department" ||
+      key === "member" ||
+      key === "addMember" ||
       key === "thread" ||
       key === "message" ||
       key === "pr" ||
@@ -801,9 +810,14 @@ function ProjectSectionPage() {
   if (section === "drive") {
     return <DrivePage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />;
   }
+  // Settings è un elenco di sezioni (area 9a, [RM 4]): l'indirizzo nudo apre la prima.
   if (section === "settings") {
     return (
-      <ProjectSettingsPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />
+      <Navigate
+        to="/p/$code/settings/$section"
+        params={{ code: project.code, section: PROJECT_SETTINGS_SECTIONS[0].id }}
+        replace
+      />
     );
   }
   if (section === "servers") {
@@ -832,6 +846,77 @@ const projectSectionRoute = createRoute({
     }
   },
   component: ProjectSectionPage,
+});
+
+/**
+ * Una sezione di Progetto → Settings (area 9a, [RM 4]): `statuses`,
+ * `members`, `repositories` (col modulo Releases). Una sezione sconosciuta
+ * porta alla prima; una che chiede un modulo spento, anche. Cambiare persona
+ * rimonta la pagina: niente bozza della persona di prima.
+ */
+function ProjectSettingsRoutePage() {
+  const { code, section } = projectSettingsRoute.useParams();
+  const { t } = useTranslation();
+  const { viewer } = useViewer();
+  const { data: project, isPending, isError, refetch } = useProject(code);
+  if (isError) {
+    return (
+      <section role="alert" className="flex h-full flex-col items-start gap-3 p-8">
+        <p className="text-md text-ink">{t("project.error")}</p>
+        <button
+          type="button"
+          onClick={() => void refetch()}
+          className="rounded-md border border-rule-strong px-3 py-1.5 text-sm font-medium text-ink hover:bg-ink/6"
+        >
+          {t("project.retry")}
+        </button>
+      </section>
+    );
+  }
+  if (isPending) {
+    return (
+      <p role="status" className="p-8 text-sm text-ink-muted">
+        {t("project.loading")}
+      </p>
+    );
+  }
+  if (!project) return <ProjectNotFound />;
+  const def = PROJECT_SETTINGS_SECTIONS.find((s) => s.id === section);
+  if (!def || ("module" in def && !project.modules.includes(def.module))) {
+    return (
+      <Navigate
+        to="/p/$code/settings/$section"
+        params={{ code, section: PROJECT_SETTINGS_SECTIONS[0].id }}
+        replace
+      />
+    );
+  }
+  return (
+    <ProjectSettingsPage
+      key={`${project.code}:${viewer.personId}`}
+      projectCode={project.code}
+      section={def.id}
+    />
+  );
+}
+
+const projectSettingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/p/$code/settings/$section",
+  beforeLoad: ({ params }) => {
+    const section = isProjectSettingsSection(params.section)
+      ? params.section
+      : PROJECT_SETTINGS_SECTIONS[0].id;
+    if (section !== params.section || upperCaseCode(params.code)) {
+      throw redirect({
+        to: "/p/$code/settings/$section",
+        params: { code: params.code.toUpperCase(), section },
+        search: (prev) => prev,
+        replace: true,
+      });
+    }
+  },
+  component: ProjectSettingsRoutePage,
 });
 
 /**
@@ -1079,6 +1164,7 @@ const routeTree = rootRoute.addChildren([
   filterRoute,
   projectIndexRoute,
   projectSectionRoute,
+  projectSettingsRoute,
   projectChatChannelRoute,
   releaseRoute,
   serverRoute,

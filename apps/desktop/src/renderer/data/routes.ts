@@ -121,6 +121,29 @@ export function isProjectSection(value: string): value is ProjectSection {
   return (PROJECT_SECTIONS_IDS as readonly string[]).includes(value);
 }
 
+/**
+ * Le sezioni di Progetto → Settings (area 9a, [RM 4]): voci rientrate sotto
+ * «Settings» nella colonna, una pagina ciascuna (`/p/$code/settings/$section`),
+ * nell'ordine della colonna; `module` = serve quel modulo attivo. La prima è
+ * quella che apre `/p/$code/settings`. Le aree successive aggiungono qui le loro.
+ */
+export const PROJECT_SETTINGS_SECTIONS = [
+  { id: "statuses" },
+  { id: "members" },
+  { id: "repositories", module: "releases" },
+] as const satisfies readonly { id: string; module?: ProjectModule }[];
+
+export type ProjectSettingsSection = (typeof PROJECT_SETTINGS_SECTIONS)[number]["id"];
+
+export function isProjectSettingsSection(value: string): value is ProjectSettingsSection {
+  return PROJECT_SETTINGS_SECTIONS.some((s) => s.id === value);
+}
+
+/** Members di un progetto: il pannello del membro (`?member=`) e «Add member» (`?addMember=`). */
+function isMembersPath(path: string): boolean {
+  return /^p\/[A-Z]{2,4}\/settings\/members$/.test(path);
+}
+
 /** Il codice di una task: `<CODE>-<n>`. */
 export const TASK_CODE_RE = /^[A-Z]{2,4}-\d+$/;
 
@@ -241,6 +264,12 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
       return path === "projects" && /^\d{4}-\d{2}-\d{2}$/.test(value);
     case "dept":
       return path === "projects" && /^[\w-]+$/.test(value);
+    // Il pannello di un membro e «Add member» (area 9a): solo su Members.
+    // `addMember` è `1`, o la persona da aggiungere (dalla sua pagina in People).
+    case "member":
+      return isMembersPath(path) && /^[\w-]+$/.test(value);
+    case "addMember":
+      return isMembersPath(path) && /^[\w-]+$/.test(value);
     // Il pannello di un reparto (area 9a): solo su Departments.
     case "department":
       return path === "admin/departments" && /^[\w-]+$/.test(value);
@@ -355,6 +384,9 @@ export function isAppRoute(route: string): boolean {
   if (/^p\/[A-Z]{2,4}\/support\/[A-Z]{2,4}-S\d+$/.test(path)) return true;
   // Il dettaglio di un server (area 8b): `#/p/STW/servers/SRV-2` (codice d'istanza).
   if (/^p\/[A-Z]{2,4}\/servers\/SRV-\d+$/.test(path)) return true;
+  // Le sezioni di Settings (area 9a): `#/p/ACQ/settings/members`.
+  const settings = /^p\/[A-Z]{2,4}\/settings\/([a-z]+)$/.exec(path);
+  if (settings) return isProjectSettingsSection(settings[1]!);
   const p = /^p\/([A-Z]{2,4})(?:\/([a-z]+))?$/.exec(path);
   if (!p) return false;
   return !p[2] || (PROJECT_SECTIONS_IDS as readonly string[]).includes(p[2]);

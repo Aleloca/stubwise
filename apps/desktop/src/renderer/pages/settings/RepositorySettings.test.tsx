@@ -24,7 +24,7 @@ afterEach(() => {
 const repo = () => state.repositories.find((r) => r.id === "repo-aud")!;
 
 async function openSettings(person: string) {
-  renderRoute("/p/AUD/settings", person);
+  renderRoute("/p/AUD/settings/repositories", person);
   const section = await screen.findByRole("region", { name: "Repositories" });
   return await waitFor(() => {
     const block = section.querySelector<HTMLElement>('[data-repository="audin/audin-app"]');

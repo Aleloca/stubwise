@@ -59,6 +59,8 @@ export const REAUTH_REQUIRED: ReadonlySet<ApiFnName> = new Set<ApiFnName>([
   "admin.setMemberRole",
   "admin.grantMemberPermission",
   "admin.revokeMemberPermission",
+  // Task 10: ruolo e permessi del membro in un colpo.
+  "admin.saveMember",
   // Task 5: le Preferenze personali
   "me.startTotpSetup",
   "me.addPasskey",

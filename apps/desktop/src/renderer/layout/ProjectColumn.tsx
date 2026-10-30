@@ -11,7 +11,7 @@ import {
   useProjectServers,
   useReleases,
 } from "../data/queries";
-import { PROJECT_SECTIONS } from "../data/routes";
+import { PROJECT_SECTIONS, PROJECT_SETTINGS_SECTIONS } from "../data/routes";
 import type { ChannelRow, Project } from "../data/types";
 import { can, useViewer } from "../data/viewer";
 import {
@@ -109,6 +109,9 @@ function ProjectSections({
   const onDocs = useRouterState({
     select: (s) => new RegExp(`^/p/${project.code}/docs(/|$)`).test(s.location.pathname),
   });
+  const onSettings = useRouterState({
+    select: (s) => new RegExp(`^/p/${project.code}/settings(/|$)`).test(s.location.pathname),
+  });
   const channels = (chat.data ?? []).filter(inColumn).sort(
     (a, b) => Number(b.isGeneral) - Number(a.isGeneral) || a.name.localeCompare(b.name),
   );
@@ -157,8 +160,9 @@ function ProjectSections({
                   ? { to: "/p/$code/docs", params: { code: project.code } }
                   : { to: "/p/$code/$section", params: { code: project.code, section: s.id } })}
                 data-section={s.id}
-                // Nella Chat il canale aperto è la sottovoce corrente, non la sezione.
-                activeOptions={{ exact: s.id === "chat" }}
+                // Nella Chat il canale aperto è la sottovoce corrente, non la sezione;
+                // in Settings, la sezione aperta.
+                activeOptions={{ exact: s.id === "chat" || s.id === "settings" }}
                 style={{ whiteSpace: "nowrap" }}
                 className={columnItemClass}
               >
@@ -235,11 +239,45 @@ function ProjectSections({
                 <ProjectChatChannels project={project} channels={channels} />
               )}
               {s.id === "docs" && onDocs && <ProjectDocSpaces project={project} />}
+              {s.id === "settings" && onSettings && <ProjectSettingsSections project={project} />}
             </li>
           ))}
         </ul>
       </nav>
     </>
+  );
+}
+
+/**
+ * «Settings», da corrente, si apre nelle sue sezioni come voci rientrate da
+ * 32 px, una pagina ciascuna (area 9a, [RM 4]); quelle dei moduli spenti no.
+ */
+function ProjectSettingsSections({ project }: { project: Project }) {
+  const { t } = useTranslation();
+  const sections = PROJECT_SETTINGS_SECTIONS.filter(
+    (s) => !("module" in s) || project.modules.includes(s.module),
+  );
+  return (
+    <ul
+      aria-label={t("settings.sections.label", { code: project.code })}
+      className="mt-px flex flex-col gap-px"
+    >
+      {sections.map((s) => (
+        <li key={s.id}>
+          <Link
+            to="/p/$code/settings/$section"
+            params={{ code: project.code, section: s.id }}
+            data-settings-section={s.id}
+            style={{ whiteSpace: "nowrap" }}
+            className={`${columnItemClass} pl-7`}
+          >
+            <span style={ONE_LINE} className="min-w-0">
+              {t(`settings.sections.${s.id}`)}
+            </span>
+          </Link>
+        </li>
+      ))}
+    </ul>
   );
 }
 

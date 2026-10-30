@@ -169,6 +169,9 @@ const SENSITIVE: Record<string, { setup?: () => void; call: () => Promise<AdminR
     "admin.revokeMemberPermission": {
       call: () => admin.revokeMemberPermission(ACQ, "p-marco", "servers.operate"),
     },
+    "admin.saveMember": {
+      call: () => admin.saveMember(ACQ, "p-marco", { roleId: roleIdOf("developer"), granted: [] }),
+    },
   };
 
 describe("riconferma", () => {
@@ -235,6 +238,10 @@ describe("senza permesso: forbidden, stato invariato, nessuna voce", () => {
     ["removeMember", () => admin.removeMember(ACQ, "p-marco")],
     ["setMemberRole", () => admin.setMemberRole(ACQ, "p-marco", roleIdOf("rm-1"))],
     ["grantMemberPermission", () => admin.grantMemberPermission(ACQ, "p-marco", "docs.view")],
+    [
+      "saveMember",
+      () => admin.saveMember(ACQ, "p-marco", { roleId: roleIdOf("developer"), granted: [] }),
+    ],
     [
       "revokeMemberPermission",
       () => admin.revokeMemberPermission(ACQ, "p-marco", "servers.operate"),

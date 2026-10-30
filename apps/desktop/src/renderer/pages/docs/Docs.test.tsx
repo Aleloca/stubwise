@@ -88,8 +88,8 @@ describe("Docs — pagina iniziale", () => {
     ).toBeInTheDocument();
     expect(path(router)).toBe("/p/MKX/docs");
     await userEvent.click(screen.getByRole("link", { name: "Turn it on in Settings" }));
-    await screen.findByRole("heading", { level: 1, name: "Settings" });
-    expect(path(router)).toBe("/p/MKX/settings");
+    await screen.findByRole("heading", { level: 1, name: "Statuses" });
+    expect(path(router)).toBe("/p/MKX/settings/statuses");
     const sections = screen.getByRole("navigation", { name: /sections/i });
     expect(within(sections).queryByRole("link", { name: "Docs" })).toBeNull();
   });

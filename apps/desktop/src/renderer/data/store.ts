@@ -618,6 +618,9 @@ export type ApiFnName =
   | "admin.setMemberRole"
   | "admin.grantMemberPermission"
   | "admin.revokeMemberPermission"
+  // Task 10: la bozza del pannello del membro (lettura e salvataggio unico)
+  | "admin.previewMember"
+  | "admin.saveMember"
   // Preferenze personali (area 9a, Task 5): Account, Google, Security, Tokens, Claude Code
   | "me.getMyProfile"
   | "me.updateProfile"
