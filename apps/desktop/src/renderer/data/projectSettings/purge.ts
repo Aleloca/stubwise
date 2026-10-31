@@ -1,3 +1,4 @@
+import { visitSteps } from "../../domain/automations/fields";
 import { forgetSecret } from "../admin/secrets";
 import { writeAccess } from "../access/index";
 import type { Project } from "../model";
@@ -19,8 +20,11 @@ import { now, reindex, state } from "../store";
 // - i consumi (`instance.usage`): il mese li ha spesi, e il budget li conta
 //   ancora. Si leggono in «Other projects», come quelli di un progetto che
 //   non si vede (scelta del controller);
-// - le automazioni generali che puntano al progetto in un passo: trovano
-//   `not_found`, come su un archiviato o un invisibile ([PX 5]).
+// Nelle righe che restano il progetto si toglie anche dove è annidato: un
+// invito in sospeso perde il progetto che prometteva; il passo «progetto
+// fisso» di un'automazione (generale) resta senza progetto (`projectId: ""`),
+// quindi è un errore di configurazione («Manca il progetto») e, se gira,
+// trova `not_found` come su un archiviato o un invisibile ([PX 5]).
 // Tutti i segreti del progetto (valori d'ambiente, secret dei webhook, chiave
 // d'ingestione) si tolgono dal caveau.
 //
@@ -154,6 +158,14 @@ export function purgeProject(project: Project, me: string): number {
     for (const [client, projectId] of Object.entries(r.projects ?? {}))
       if (projectId === id) delete r.projects![client];
   }
+  for (const invite of state.invites)
+    invite.projects = invite.projects.filter((p) => p.projectId !== id);
+  for (const a of state.automations)
+    for (const v of a.versions)
+      visitSteps(v.flow.steps, (step) => {
+        const target = (step as { project?: { mode: string; projectId?: string } }).project;
+        if (target?.mode === "fixed" && target.projectId === id) target.projectId = "";
+      });
   for (const f of state.filters)
     if (f.criteria.projectIds)
       f.criteria.projectIds = f.criteria.projectIds.filter((p) => p !== id);

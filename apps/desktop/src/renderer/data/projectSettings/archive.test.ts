@@ -1,11 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { __secretValuesForTest } from "../admin/secrets";
 import { accessState } from "../access/index";
-import { whoCan } from "../access/whoCan";
+import { configErrorsOf } from "../automations/reads";
+import { visiblePeopleFor, whoCan } from "../access/whoCan";
+import { currentWeek } from "../../domain/weeks";
 import {
   access,
   automations,
   changelog,
+  docs,
+  listClaudeDecisions,
+  listConversations,
+  listDayArrangements,
+  listMilestones,
+  listPinnedProjectIds,
+  listPortfolioActivity,
+  listRequestsToConvert,
+  listStalled,
+  listTasks,
+  listWaitingOnMeProjectIds,
   instance,
   listNotifications,
   listProjects,
@@ -19,12 +32,12 @@ import {
 import { markReauthenticated } from "../auth/reauth";
 import { repositoryById } from "../docs/reads";
 import type { Release } from "../model";
-import { CLAUDE_ID } from "../seed/people";
+import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import { setSessionPersonId } from "../session";
 import { archivedProjectIdsFor, now, signalAutomations, state, visibleProjectIds } from "../store";
 import { whenIdle } from "../stream";
 import type { AutomationFlow } from "../types";
-import { grantInstancePermission, grantProjectPermission } from "../viewer";
+import { grantInstancePermission, grantProjectPermission, grantProjectRole } from "../viewer";
 
 // Archivia, riapri, elimina (area 9c, Task 5), livello dati. Persone del
 // seme: Laura (Project Lead in ACQ, mai membro di RNC), Sara (Contributor
@@ -562,6 +575,91 @@ describe("Amministrazione → Servers: inArchivedOnly", () => {
   });
 });
 
+describe("R-G5 delle superfici del Task 1: RNC archiviato per Laura, che non ne era membro", () => {
+  /** Nessun nome, codice o id di RNC nella lettura. */
+  const clean = (label: string, value: unknown) => {
+    const text = JSON.stringify(value);
+    for (const needle of ["RNC", RNC, "Ronchi"])
+      expect(text, `${label}: ${needle}`).not.toContain(needle);
+  };
+
+  it("Docs, Home, La mia settimana, fissati e notifiche (anche d'istanza) non nominano RNC", async () => {
+    // Lo stato che tenterebbe le letture: RNC fissato da Laura, una task di
+    // RNC assegnata a lei in questa settimana e messa in un giorno, un avviso
+    // di RNC e un allarme di SRV-5 (solo di RNC) con Laura che gestisce il monitor.
+    const week = currentWeek();
+    const rncTask = state.tasks.find((t) => t.projectId === RNC)!;
+    rncTask.assigneeId = LAURA;
+    rncTask.plannedWeek = week;
+    state.arrangements.push({ personId: LAURA, week, taskId: rncTask.id, day: 1 } as never);
+    state.pinned.set(LAURA, [...(state.pinned.get(LAURA) ?? []), RNC]);
+    const seeded = state.notifications.find((n) => n.projectId === RNC)!;
+    state.notifications.push({
+      ...structuredClone(seeded),
+      id: "n-rnc-laura",
+      recipientIds: [LAURA],
+    });
+    grantInstancePermission(LAURA, "monitor.manage" as never);
+    as(ROBERTA);
+    await servers.simulateServerAlert("SRV-5", "memory");
+
+    as(LAURA);
+    // Docs.
+    expect(await docs.listDocSpaces(RNC).catch(() => [])).toEqual([]);
+    expect(await docs.getDocSpace("repo-rnc")).toBeNull();
+    expect(await docs.getProjectDocsHome(RNC)).toBeNull();
+    for (const page of state.docPages.filter((p) => p.projectId === RNC))
+      expect(await docs.getDocPage(page.repositoryId, page.slug)).toBeNull();
+    for (const q of ["shop", "Ronchi", "booking"])
+      clean(`searchDocs ${q}`, await docs.searchDocs(q));
+    // Fissati, binario, Home.
+    clean("pinned", await listPinnedProjectIds());
+    clean("projects", await listProjects());
+    clean("waitingOnMe", await listWaitingOnMeProjectIds());
+    clean("tasks", await listTasks());
+    clean("stalled", await listStalled({}));
+    clean("portfolio", await listPortfolioActivity());
+    clean("claudeDecisions", await listClaudeDecisions());
+    clean("requestsToConvert", await listRequestsToConvert());
+    clean("milestones", await listMilestones());
+    for (const scope of ["live", "finished", "public"] as const)
+      clean(`conversations ${scope}`, await listConversations({ scope, includeOlder: true }));
+    // La mia settimana: le task di Laura e la loro sistemazione nei giorni.
+    clean("myWeek", await listTasks({ assigneeIds: [LAURA] }));
+    clean("arrangements", await listDayArrangements(week));
+    // Notifiche, comprese quelle d'istanza (l'allarme di SRV-5).
+    clean("notifications", await listNotifications());
+    // Ricerca ⌘K.
+    for (const q of ["RNC", "Ronchi", rncTask.code]) clean(`search ${q}`, await search(q));
+  });
+
+  it("la pagina dell'archiviato dà a Giulia i nomi dei membri e di chi ha archiviato, anche se stanno solo in RNC", async () => {
+    const outsider = PEOPLE.find(
+      (p) =>
+        !p.isClaude &&
+        p.id !== ROBERTA &&
+        !visiblePeopleFor(GIULIA).has(p.id) &&
+        !project(RNC).memberIds.includes(p.id),
+    )!;
+    expect(outsider).toBeDefined();
+    grantProjectRole(outsider.id, RNC, "contributor");
+    project(RNC).archived = { at: project(RNC).archived!.at, byId: outsider.id };
+    // Altrove Giulia non incontra questa persona: sta solo in RNC, archiviato.
+    expect(visiblePeopleFor(GIULIA).has(outsider.id)).toBe(false);
+
+    as(GIULIA);
+    const view = (await projectSettings.getArchivedProject("RNC"))!;
+    expect(view.members).toContainEqual({
+      personId: outsider.id,
+      name: outsider.name,
+      role: "Contributor",
+    });
+    expect(view.archivedBy).toBe(outsider.name);
+    const [row] = await projectSettings.listArchivedProjects();
+    expect(row!.archivedBy).toBe(outsider.name);
+  });
+});
+
 describe("RF 4: Delete rifiutato", () => {
   it("not_archived, forbidden, code_mismatch, reauth_required; niente cambia", async () => {
     as(ROBERTA);
@@ -644,6 +742,41 @@ describe("Delete di RNC da Roberta", () => {
       detachedRepositories: ["shop-frontend"],
     });
     const members = [...project(RNC).memberIds];
+    // I1: un invito in sospeso che promette RNC e un'automazione generale con
+    // un passo fisso su RNC (il seme non ne ha: la scansione deve vederli).
+    const roleId = state.invites.find((i) => i.projects.length > 0)!.projects[0]!.roleId;
+    state.invites.push({
+      ...structuredClone(state.invites[0]!),
+      id: "inv-rnc-test",
+      projects: [
+        { projectId: RNC, roleId },
+        { projectId: ACQ, roleId },
+      ],
+    });
+    const general = await automations.createAutomation({
+      name: "Into RNC",
+      projectId: null,
+      flow: {
+        trigger: { kind: "manual" },
+        steps: [
+          {
+            id: "t",
+            kind: "createTask",
+            title: "From the general one",
+            description: "",
+            assignee: null,
+            dueInDays: null,
+            project: { mode: "fixed", projectId: "prj-stw" },
+            milestoneRef: null,
+            approval: { mode: "auto" },
+          },
+        ],
+        titleTemplate: "Into RNC",
+      },
+    });
+    const generalRow = state.automations.find((a) => a.id === general.id)!;
+    for (const v of generalRow.versions)
+      (v.flow.steps[0] as { project: { projectId: string } }).project.projectId = RNC;
 
     expect(await projectSettings.deleteProject(RNC, { confirmCode: "RNC" })).toEqual({ ok: true });
 
@@ -663,6 +796,15 @@ describe("Delete di RNC da Roberta", () => {
       found,
     );
     expect(found).toEqual([]);
+    // L'invito perde RNC e tiene il resto; il passo fisso resta senza progetto, non valido.
+    const invite = state.invites.find((i) => i.id === "inv-rnc-test")!;
+    expect(invite.projects.map((p) => p.projectId)).toEqual([ACQ]);
+    const flow = generalRow.versions.at(-1)!.flow;
+    expect((flow.steps[0] as { project: unknown }).project).toEqual({
+      mode: "fixed",
+      projectId: "",
+    });
+    expect(configErrorsOf(generalRow, flow, ROBERTA).map((i) => i.code)).toContain("incomplete");
     expect(deletedProjects).toEqual([
       {
         id: RNC,

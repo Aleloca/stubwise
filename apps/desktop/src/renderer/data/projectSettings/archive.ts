@@ -1,6 +1,5 @@
-import { isOpen, note, runNow } from "../automations/runner";
+import { closeAsCancelled, isOpen } from "../automations/runner";
 import { recordChange } from "../changelog/index";
-import { dropHeld } from "../instance/queue";
 import type { Project } from "../model";
 import { statusOf } from "../releases/visibility";
 import {
@@ -150,19 +149,12 @@ export async function archiveProject(projectId: string): Promise<ProjectResult> 
   if (busy.length > 0) return refuse.busy(busy);
 
   for (const run of openRunsOf(project.id)) {
-    note(run, {
-      outcome: "cancelled",
+    closeAsCancelled(run, {
       byId: me,
       reason: "Project archived",
       why: { code: "projectArchived" },
+      error: "project_archived",
     });
-    run.status = "cancelled";
-    run.error = "project_archived";
-    run.endedAt = runNow(run);
-    run.pending = null;
-    run.waitingUntil = null;
-    delete run.suspendedFrom;
-    dropHeld(run.id);
   }
   project.archived = { at: now(), byId: me };
   recordChange({

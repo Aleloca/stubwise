@@ -124,6 +124,31 @@ export function enqueue(runId: string, input: EngineInput, prepare?: Prepare): P
 
 // --- il record --------------------------------------------------------------------
 
+/**
+ * Chiude un'esecuzione aperta come annullata: la riga del registro, lo stato,
+ * la fine, e la toglie dalla fila dei lavori fermi. L'UNICO punto: lo usano
+ * «Annulla» (`cancelRun`) e l'archiviazione del progetto (area 9c, Task 5).
+ */
+export function closeAsCancelled(
+  run: AutomationRun,
+  close: { byId: string; reason: string; why?: ReasonCode; error: string },
+): void {
+  note(run, {
+    outcome: "cancelled",
+    byId: close.byId,
+    reason: close.reason,
+    ...(close.why ? { why: close.why } : {}),
+  });
+  run.status = "cancelled";
+  run.error = close.error;
+  run.endedAt = runNow(run);
+  run.pending = null;
+  run.waitingUntil = null;
+  delete run.suspendedFrom;
+  // Ferma per un blocco d'istanza (area 9b, I2): esce dalla fila, non riparte più.
+  dropHeld(run.id);
+}
+
 /** Una riga del registro scritta dal livello dati (pausa, ripresa, annulla, riprova, salta). */
 export function note(
   run: AutomationRun,

@@ -1,9 +1,9 @@
 import type { EngineState } from "../../domain/automations/engine";
-import { dropHeld } from "../instance/queue";
 import { now, state, visibleProjectIds } from "../store";
 import type { AutomationRun } from "../types";
 import { forbidden, invalid, notFound, writer } from "../writer";
 import {
+  closeAsCancelled,
   enqueue,
   isOpen,
   note,
@@ -143,19 +143,11 @@ export async function cancelRun(runId: string): Promise<void> {
   const me = await writer("automations.cancelRun");
   const { run } = managedRun(me, runId);
   if (!isOpen(run)) throw invalid("finished");
-  note(run, {
-    outcome: "cancelled",
+  closeAsCancelled(run, {
     byId: me,
     reason: `Esecuzione annullata da ${personName(me)}.`,
+    error: "cancelled",
   });
-  run.status = "cancelled";
-  run.error = "cancelled";
-  run.endedAt = runNow(run);
-  run.pending = null;
-  run.waitingUntil = null;
-  delete run.suspendedFrom;
-  // Ferma per un blocco d'istanza (area 9b, I2): esce dalla fila, non riparte più.
-  dropHeld(run.id);
 }
 
 /**
