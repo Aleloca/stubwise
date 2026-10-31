@@ -10,6 +10,7 @@ import {
   PROJECT_SWITCHES,
   PULSE_DAYS_MAX,
   PULSE_DAYS_MIN,
+  pulseNeedsBacklogFor,
   type ProjectSwitch,
 } from "./state";
 import type { ProjectResult } from "./types";
@@ -53,7 +54,7 @@ export async function saveProjectAutomations(
     return refuse.invalid("pulse_days");
   if (!inRange(input.correctionCap, CORRECTION_CAP_MIN, CORRECTION_CAP_MAX))
     return refuse.invalid("correction_cap");
-  if (input.switches.pulse && !input.switches.backlogDiscovery)
+  if (input.switches.pulse && pulseNeedsBacklogFor(input.switches))
     return refuse.invalid("pulse_needs_backlog");
 
   const settings = settingsOf(project);

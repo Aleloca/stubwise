@@ -13,6 +13,7 @@ export {
   PROJECT_SWITCHES,
   PULSE_DAYS_MAX,
   PULSE_DAYS_MIN,
+  pulseNeedsBacklogFor,
   type DeletedProject,
   type ProjectPluginChoices,
   type ProjectSettings,

@@ -21,6 +21,15 @@ export const PROJECT_SWITCHES = [
 ] as const;
 export type ProjectSwitch = (typeof PROJECT_SWITCHES)[number];
 
+/**
+ * Il pulse senza discovery del backlog non ha niente da proporre: la regola
+ * del web, in UN posto. La usano la lettura (`pulseNeedsBacklog`), il
+ * salvataggio (`pulse_needs_backlog`) e la bozza della sezione Automations,
+ * che la chiede sugli interruttori non ancora salvati (Task 7, I1).
+ */
+export const pulseNeedsBacklogFor = (switches: Record<ProjectSwitch, boolean>): boolean =>
+  !switches.backlogDiscovery;
+
 /** Ogni quanti giorni il pulse guarda il progetto: come il CHECK del web. */
 export const PULSE_DAYS_MIN = 1;
 export const PULSE_DAYS_MAX = 30;

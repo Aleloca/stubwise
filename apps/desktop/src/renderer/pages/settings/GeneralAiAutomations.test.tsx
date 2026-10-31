@@ -2,6 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetApi, setLatency } from "../../data/api";
+import { pulseNeedsBacklogFor } from "../../data/queries";
 import { state } from "../../data/store";
 import { grantProjectPermission } from "../../data/viewer";
 import i18n from "../../i18n";
@@ -142,10 +143,20 @@ describe("General", () => {
     expect(await screen.findByText("Saved")).toBeInTheDocument();
     expect(save).toHaveFocus();
     expect(state.projectsById.get(ACQ)!.name).toBe("Portale clienti Acquedotto");
-    // Il nome nuovo nella testata della colonna, senza ricaricare.
-    await waitFor(() =>
-      expect(screen.getAllByTitle("Portale clienti Acquedotto").length).toBeGreaterThan(0),
-    );
+    // Il nome nuovo, senza ricaricare: testata della colonna, tessera del binario, ⌘K.
+    const header = document.querySelector<HTMLElement>("[data-column-code]")!.closest("h2")!;
+    await waitFor(() => expect(header).toHaveTextContent("Portale clienti Acquedotto"));
+    const rail = screen.getByRole("navigation", { name: "Main navigation" });
+    expect(
+      within(rail).getByRole("link", { name: "ACQ · Portale clienti Acquedotto" }),
+    ).toBeInTheDocument();
+    await userEvent.keyboard("{Control>}k{/Control}");
+    const palette = await screen.findByRole("dialog", { name: "Search and commands" });
+    await userEvent.type(within(palette).getByRole("combobox"), "clienti Acquedotto");
+    expect(
+      await within(palette).findByRole("option", { name: /Portale clienti Acquedotto/ }),
+    ).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
     await router.navigate({ to: "/p/$code/settings/$section", params: { code: "ACQ", section: "changelog" } });
     await h1("Change log");
     expect(await screen.findByText(/renamed/)).toBeInTheDocument();
@@ -211,6 +222,26 @@ describe("AI", () => {
     expect(s.aiProviderExclusive).toBe(true);
   });
 
+  it("un account spento, scelto in esclusiva: la riga dice che il lavoro parte senza account (I4)", async () => {
+    state.instance.providers.find((p) => p.id === "prv-backup-max")!.enabled = false;
+    const s = state.projectSettings.get(ACQ)!;
+    s.aiProviderId = "prv-backup-max";
+    s.aiProviderExclusive = true;
+    await open("ai", LAURA);
+    await h1("AI");
+    expect(
+      await screen.findByText(
+        "It's off: until someone turns it on, Claude's new work in ACQ starts without an account.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Claude uses Automatic\.$/)).toBeNull();
+    // Senza esclusività la frase dello shape resta.
+    await userEvent.click(screen.getByRole("checkbox", { name: "Use only this account" }));
+    expect(
+      screen.getByText("It's off: until someone turns it on, Claude uses Automatic."),
+    ).toBeInTheDocument();
+  });
+
   it("l'account scelto e poi eliminato si dice in parole, e salvare conferma Automatic", async () => {
     state.projectSettings.get(ACQ)!.aiProviderId = "prv-gone";
     await open("ai", LAURA);
@@ -248,9 +279,31 @@ describe("Automations", () => {
     await h1("Automations");
     await userEvent.click(await screen.findByRole("switch", { name: "Weekly brief" }));
     expect(screen.getByText("1 change")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    // La barra è figlia della colonna del contenuto: `sticky` la aggancia in fondo alla finestra (I2).
+    const bar = document.querySelector<HTMLElement>("[data-save-bar]")!;
+    expect(bar.parentElement).toContainElement(screen.getByRole("switch", { name: "Weekly brief" }));
+    const save = screen.getByRole("button", { name: "Save" });
+    await userEvent.click(save);
     expect(await screen.findByText("Saved")).toBeInTheDocument();
     expect(state.projectSettings.get(ACQ)!.switches.weeklyBrief).toBe(false);
+    // Dopo Save il fuoco resta sul bottone, spento finché non c'è altro da salvare (I3).
+    expect(save).toBeInTheDocument();
+    expect(save).toHaveFocus();
+    expect(save).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("spento il brief, la BriefCard dell'Overview lo dice", async () => {
+    const router = await open("automations", LAURA);
+    await h1("Automations");
+    await userEvent.click(await screen.findByRole("switch", { name: "Weekly brief" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("Saved");
+    await router.navigate({ to: "/p/$code/$section", params: { code: "ACQ", section: "overview" } });
+    expect(
+      await screen.findByText(
+        /^(The weekly brief is off for ACQ\.|The weekly brief is off: no new ones arrive\.)/,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("pulse a 31: l'errore sotto il campo, niente salvato", async () => {
@@ -334,6 +387,26 @@ describe("Usage", () => {
       expect(router.state.location.search).toMatchObject({ range: "7d", group: "model" }),
     );
     expect(router.state.location.pathname).toBe("/p/ACQ/settings/usage");
+  });
+});
+
+describe("la regola del pulse sta nel livello dati (I1)", () => {
+  it("pulseNeedsBacklogFor: il pulse ha bisogno della discovery", () => {
+    const base = {
+      docsNightly: true,
+      dailyReport: true,
+      backlogDiscovery: true,
+      pulse: true,
+      weeklyBrief: true,
+    };
+    expect(pulseNeedsBacklogFor(base)).toBe(false);
+    expect(pulseNeedsBacklogFor({ ...base, backlogDiscovery: false })).toBe(true);
+  });
+
+  it("la pagina non riscrive il predicato", () => {
+    const src = SOURCES["./AutomationSettings.tsx"]!;
+    expect(src).toMatch(/pulseNeedsBacklogFor\(/);
+    expect(src).not.toMatch(/!\s*draft\.switches\.backlogDiscovery/);
   });
 });
 

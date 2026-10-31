@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import {
   PROJECT_SWITCHES,
+  pulseNeedsBacklogFor,
   useProjectSettings,
   useSaveProjectAutomations,
   type ProjectSettingsView,
@@ -114,19 +115,17 @@ function AutomationForm({ view, onReload }: { view: ProjectSettingsView; onReloa
   const draft = canEdit ? (edits ?? draftOf(view)) : draftOf(view);
   const changes = canEdit ? changesOf(draft, view) : 0;
   const guard = useLeaveGuard(changes > 0);
-  // La regola la dice la lettura per lo stato salvato; nella bozza vale la
-  // discovery della bozza (è quella che si salverebbe).
-  const pulseNeedsBacklog =
-    draft.switches.backlogDiscovery === view.switches.backlogDiscovery
-      ? view.pulseNeedsBacklog
-      : !draft.switches.backlogDiscovery;
+  // La regola è del livello dati: la si chiede sugli interruttori della bozza
+  // (sono quelli che si salverebbero), senza riscriverla qui (I1).
+  const pulseNeedsBacklog = pulseNeedsBacklogFor(draft.switches);
   const readOnlyWhy = canEdit
     ? undefined
     : t(`settings.viewOnly.lines.${access.editAction ?? "manageProjectSettings"}`, { code });
 
   function setSwitch(sw: ProjectSwitch, on: boolean) {
     const switches = { ...draft.switches, [sw]: on };
-    if (sw === "backlogDiscovery" && !on && switches.pulse) {
+    // [PS 8]: una bozza che il livello dati rifiuterebbe spegne anche il pulse, e lo dice.
+    if (switches.pulse && pulseNeedsBacklogFor(switches)) {
       switches.pulse = false;
       setPulseNotice(true);
       if (notice.current) window.clearTimeout(notice.current);
@@ -286,43 +285,47 @@ function AutomationForm({ view, onReload }: { view: ProjectSettingsView; onReloa
       <p className="mt-8 text-xs text-ink-faint">{t("settings.automations.prototype")}</p>
 
       {canEdit && (changes > 0 || justSaved || write.message) && (
-        <div className="-mx-8 mt-8">
-          <SaveBar width={880}>
-            {invalid === "pulse_needs_backlog" && (
-              <ErrorLine>{t("settings.automations.pulseNeedsBacklog")}</ErrorLine>
-            )}
-            {write.message}
-            {changes === 0 ? (
-              justSaved && (
-                <p role="status" className="text-sm text-ink">
-                  {t("settings.common.saved")}
-                </p>
-              )
-            ) : guard.blocked ? (
-              <LeaveConfirm
-                guard={guard}
-                message={t("settings.automations.leave", { count: changes })}
-              />
-            ) : (
-              <div className="flex flex-wrap items-center gap-3">
+        // Figlia diretta della colonna del contenuto, senza involucro: `sticky`
+        // la aggancia in fondo alla finestra mentre si scorre (I2). Il margine
+        // negativo la porta ai bordi della sezione, i 32 px tornano dentro.
+        <SaveBar width={880} inset="-mx-8 mt-8 px-8" data={{ "data-save-bar": "" }}>
+          {invalid === "pulse_needs_backlog" && (
+            <ErrorLine>{t("settings.automations.pulseNeedsBacklog")}</ErrorLine>
+          )}
+          {write.message}
+          {guard.blocked && changes > 0 ? (
+            <LeaveConfirm
+              guard={guard}
+              message={t("settings.automations.leave", { count: changes })}
+            />
+          ) : (
+            <div className="flex flex-wrap items-center gap-3">
+              {changes > 0 ? (
                 <p className="num min-w-0 flex-1 text-sm text-ink">
                   {t("settings.automations.changes", { count: changes })}
                 </p>
+              ) : (
+                <p role="status" className="min-w-0 flex-1 text-sm text-ink">
+                  {justSaved ? t("settings.common.saved") : ""}
+                </p>
+              )}
+              {changes > 0 && (
                 <button type="button" className={quietButton} onClick={discard}>
                   {t("settings.common.discard")}
                 </button>
-                <button
-                  type="button"
-                  aria-disabled={busy || undefined}
-                  className={`${primaryButton} aria-disabled:opacity-40`}
-                  onClick={() => void submit()}
-                >
-                  {t("settings.common.save")}
-                </button>
-              </div>
-            )}
-          </SaveBar>
-        </div>
+              )}
+              {/* Resta montato dopo il salvataggio, spento: il fuoco non cade sul body (I3). */}
+              <button
+                type="button"
+                aria-disabled={busy || changes === 0 || undefined}
+                className={`${primaryButton} aria-disabled:cursor-not-allowed aria-disabled:opacity-40`}
+                onClick={() => void submit()}
+              >
+                {t("settings.common.save")}
+              </button>
+            </div>
+          )}
+        </SaveBar>
       )}
     </>
   );

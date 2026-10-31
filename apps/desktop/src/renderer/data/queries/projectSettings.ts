@@ -26,6 +26,7 @@ export {
   PROJECT_SWITCHES,
   PULSE_DAYS_MAX,
   PULSE_DAYS_MIN,
+  pulseNeedsBacklogFor,
 } from "../projectSettings";
 
 export type { SectionAccess } from "../adminSections";

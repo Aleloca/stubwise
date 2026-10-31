@@ -2561,6 +2561,7 @@
       "off": "Off in Administration",
       "limited": "At its limit",
       "chosenOff": "It's off: until someone turns it on, Claude uses Automatic.",
+      "chosenOffExclusive": "It's off: until someone turns it on, Claude's new work in {{code}} starts without an account.",
       "exclusive": "Use only this account",
       "exclusiveNeedsAccount": "Choose an account first.",
       "exclusiveOn": "When {{name}} is at its limit or off, Claude's new work in {{code}} doesn't switch to another account: it starts without one, and the task says so.",

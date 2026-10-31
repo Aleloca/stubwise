@@ -2561,6 +2561,7 @@
       "off": "Spento in Amministrazione",
       "limited": "Al limite",
       "chosenOff": "È spento: finché qualcuno non lo accende, Claude usa Automatico.",
+      "chosenOffExclusive": "È spento: finché qualcuno non lo accende, il lavoro nuovo di Claude su {{code}} parte senza account.",
       "exclusive": "Usa solo questo account",
       "exclusiveNeedsAccount": "Scegli prima un account.",
       "exclusiveOn": "Quando {{name}} è al limite o spento, il lavoro nuovo di Claude su {{code}} non passa a un altro account: parte senza, e la task lo dice.",

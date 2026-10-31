@@ -179,7 +179,15 @@ function AiForm({ view, onReload }: { view: ProjectSettingsView; onReload: () =>
             title={c.name}
             body={t(`settings.ai.kinds.${c.kind}`)}
             status={<AccountStatus choice={c} />}
-            note={draft.providerId === c.id && !c.enabled ? t("settings.ai.chosenOff") : undefined}
+            // Spento e scelto: con «Use only this account» il lavoro parte senza
+            // account (`pickProvider` dà `null`), senza vale Automatic (I4).
+            note={
+              draft.providerId === c.id && !c.enabled
+                ? draft.exclusive
+                  ? t("settings.ai.chosenOffExclusive", { code })
+                  : t("settings.ai.chosenOff")
+                : undefined
+            }
             describedBy={disabledBy}
             disabled={!canEdit}
             onChoose={() => setEdits({ providerId: c.id, exclusive: draft.exclusive })}

@@ -6,7 +6,12 @@ import type { ProjectSettingsSection } from "../routes";
 import { gate, state, visibleProjectIds } from "../store";
 import { viewerFor } from "../viewer";
 import { defaultProjectSettings } from "./seed";
-import { PROJECT_SWITCHES, type ProjectSettings, type ProjectSwitch } from "./state";
+import {
+  PROJECT_SWITCHES,
+  pulseNeedsBacklogFor,
+  type ProjectSettings,
+  type ProjectSwitch,
+} from "./state";
 
 // Le letture delle impostazioni di progetto dell'area 9c (General, AI,
 // Automations) e i due aiuti che le scritture e le altre aree condividono:
@@ -104,7 +109,7 @@ export async function getProjectSettings(projectId: string): Promise<ProjectSett
     switches: { ...s.switches },
     pulseEveryDays: s.pulseEveryDays,
     correctionCap: capOf(project.id),
-    pulseNeedsBacklog: !s.switches.backlogDiscovery,
+    pulseNeedsBacklog: pulseNeedsBacklogFor(s.switches),
     access: projectSettingsAccess(viewerFor(me), project.id),
   };
 }
