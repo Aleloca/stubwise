@@ -181,7 +181,7 @@ async function main() {
           await ps.configureRepositoryWebhook("repo-acq");
           await ps.deleteProject("prj-rnc", { confirmCode: "RNC" });
           as("p-laura");
-          await api.instance.linkRepository("repo-rnc", "prj-acq");
+          await api.instance.linkRepository("repo-shop", "prj-acq");
           viewer.grantInstancePermission("p-laura", "changelog.view");
           store.state.instance.providers = store.state.instance.providers.filter(
             (p) => p.id !== "prv-backup-max",

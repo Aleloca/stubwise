@@ -20,7 +20,7 @@ import { renderRoute } from "../../../test/renderRoute";
 
 const ROBERTA = "p-roberta";
 const LAURA = "p-laura";
-const REPO = "repo-rnc";
+const REPO = "repo-shop";
 
 beforeEach(async () => {
   setLatency(0);
@@ -88,14 +88,18 @@ describe("il gruppo «Not in any project»", () => {
   });
 
   it("Laura legge la riga senza «from», e il DOM non nomina RNC (RF 3)", async () => {
+    // Un workspace che nomina il cliente (I3, ruling T11): a Laura solo il nome.
+    secondDetached();
     await open(LAURA);
     const g = await group();
-    const row = within(g).getByRole("listitem");
+    const [row, zz] = within(g).getAllByRole("listitem");
     expect(row).toHaveTextContent(`Without a project since ${detachedOn()}`);
     expect(row).not.toHaveTextContent(/From/);
     // Laura non ha il «⋯»: la sua sola azione è Link.
-    expect(within(row).queryByRole("button", { name: /More/ })).toBeNull();
-    expect(document.body.innerHTML).not.toMatch(/RNC|Ronchi|prj-rnc/);
+    expect(within(row!).queryByRole("button", { name: /More/ })).toBeNull();
+    // L'ultimo segmento è il nome: la riga lo dice una volta sola.
+    expect(within(zz!).getAllByText("zz-landing")).toHaveLength(1);
+    expect(document.body.innerHTML).not.toMatch(/rnc|ronchi|vetrina/i);
   });
 
   it("senza repository senza progetto il gruppo non c'è", async () => {

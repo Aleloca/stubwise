@@ -150,7 +150,7 @@ describe("All projects → Archived", () => {
     await screen.findByRole("tab", { name: "Projects" });
     expect(screen.getByRole("tab", { name: "Projects" })).toHaveAttribute("aria-selected", "true");
     expect(screen.queryByRole("tab", { name: /Archived/ })).toBeNull();
-    expect(document.body.innerHTML).not.toMatch(/RNC|Ronchi|prj-rnc/);
+    expect(document.body.innerHTML).not.toMatch(/rnc|ronchi/i);
   });
 });
 
@@ -392,6 +392,6 @@ describe("Delete for good, da Roberta", () => {
   it("Laura, che non ne era membro, non trova RNC da nessuna parte nella scheda", async () => {
     await openArchived(LAURA);
     await screen.findByRole("tab", { name: "Projects" });
-    expect(document.body.innerHTML).not.toMatch(/RNC|Ronchi|prj-rnc/);
+    expect(document.body.innerHTML).not.toMatch(/rnc|ronchi/i);
   });
 });

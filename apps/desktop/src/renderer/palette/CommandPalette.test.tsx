@@ -563,7 +563,7 @@ describe("⌘K e i progetti archiviati", () => {
     "%s: «RNC» e «Ronchi» non trovano niente",
     async (personId) => {
       for (const query of ["RNC", "Ronchi"]) {
-        expect(await offered(personId, query)).not.toMatch(/RNC|Ronchi/);
+        expect(await offered(personId, query)).not.toMatch(/rnc|ronchi/i);
       }
     },
   );

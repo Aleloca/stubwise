@@ -192,7 +192,7 @@ export const DOC_SPACES: DocSpace[] = [
   },
   // Area 9c: RNC, l'archiviato. Mai generato, due pagine scritte a mano.
   {
-    repositoryId: "repo-rnc",
+    repositoryId: "repo-shop",
     projectId: "prj-rnc",
     name: "shop-frontend",
     generation: {

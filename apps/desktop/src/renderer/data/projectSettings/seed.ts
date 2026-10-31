@@ -149,7 +149,7 @@ export function seedEnvFiles(): EnvFile[] {
     },
     {
       id: "envf-rnc-prod",
-      repositoryId: "repo-rnc",
+      repositoryId: "repo-shop",
       environmentId: "env-rnc-prod",
       path: ".env",
       vars: [variable("PAYMENTS_SECRET_KEY", 70), variable("MAILER_API_KEY", 70)],

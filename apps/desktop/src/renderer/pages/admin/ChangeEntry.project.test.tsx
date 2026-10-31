@@ -202,7 +202,7 @@ describe("una voce per gruppo, in inglese e in italiano", () => {
       ]),
     );
     const html = document.body.innerHTML;
-    expect(html).not.toContain("RNC");
+    expect(html).not.toMatch(/rnc|ronchi/i);
     expect(html).not.toContain("Ronchi");
     expect(html).not.toContain("prj-rnc");
     act(() => setLanguage("it"));
@@ -215,7 +215,7 @@ describe("una voce per gruppo, in inglese e in italiano", () => {
 
   it("projects: il repository senza progetto eliminato, «(from RNC)» solo per chi lo sapeva", async () => {
     await deleteRnc();
-    expect(await instance.deleteDetachedRepository("repo-rnc")).toEqual({ ok: true });
+    expect(await instance.deleteDetachedRepository("repo-shop")).toEqual({ ok: true });
     state.changelog.splice(
       0,
       state.changelog.length,
@@ -235,7 +235,7 @@ describe("una voce per gruppo, in inglese e in italiano", () => {
 
   it("projects: Giulia (era membro) legge «(from RNC)», Laura no", async () => {
     await deleteRnc();
-    expect(await instance.deleteDetachedRepository("repo-rnc")).toEqual({ ok: true });
+    expect(await instance.deleteDetachedRepository("repo-shop")).toEqual({ ok: true });
     grantInstancePermission(GIULIA, "changelog.view");
     grantInstancePermission(LAURA, "changelog.view");
 
@@ -247,12 +247,12 @@ describe("una voce per gruppo, in inglese e in italiano", () => {
 
   it("projects: Laura (non era membro) legge la frase senza la parentesi", async () => {
     await deleteRnc();
-    expect(await instance.deleteDetachedRepository("repo-rnc")).toEqual({ ok: true });
+    expect(await instance.deleteDetachedRepository("repo-shop")).toEqual({ ok: true });
     grantInstancePermission(LAURA, "changelog.view");
     expect(await openRepositoryDeleted(LAURA)).toBe(
       "Roberta Fontana deleted the repository shop-frontend, which was in no project.",
     );
-    expect(document.body.innerHTML).not.toContain("RNC");
+    expect(document.body.innerHTML).not.toMatch(/rnc|ronchi/i);
     act(() => setLanguage("it"));
     await waitFor(() =>
       expect(entryOf("repository.deleted").querySelector("p")!.textContent).toBe(
@@ -272,7 +272,7 @@ describe("repository.linked (RF 3)", () => {
   async function linkToAcq() {
     await deleteRnc();
     as(LAURA);
-    expect(await instance.linkRepository("repo-rnc", ACQ)).toEqual({ ok: true });
+    expect(await instance.linkRepository("repo-shop", ACQ)).toEqual({ ok: true });
   }
 
   it("Laura, dal Change log di ACQ: «linked the repository shop-frontend to ACQ», link a Repositories, nulla di RNC", async () => {
@@ -284,9 +284,9 @@ describe("repository.linked (RF 3)", () => {
       "Laura Costa linked the repository shop-frontend to ACQ.",
     );
     const link = within(entry).getByRole("link", { name: "shop-frontend" });
-    expect(link.getAttribute("href")).toBe("/p/ACQ/settings/repositories?repo=repo-rnc");
+    expect(link.getAttribute("href")).toBe("/p/ACQ/settings/repositories?repo=repo-shop");
     const html = document.body.innerHTML;
-    expect(html).not.toContain("RNC");
+    expect(html).not.toMatch(/rnc|ronchi/i);
     expect(html).not.toContain("Tenuta Ronchi");
     act(() => setLanguage("it"));
     await waitFor(() =>
@@ -302,7 +302,7 @@ describe("repository.linked (RF 3)", () => {
     await openAdminLog(SARA);
     await waitFor(() => expect(entryOf("repository.linked")).toBeTruthy());
     const html = document.body.innerHTML;
-    expect(html).not.toContain("RNC");
+    expect(html).not.toMatch(/rnc|ronchi/i);
     expect(html).not.toContain("Tenuta Ronchi");
   });
 });
@@ -387,7 +387,7 @@ describe("le voci di un archiviato (P21)", () => {
     await screen.findByRole("menu");
     expect(document.querySelector('[data-change-entry="project.archived"]')).toBeNull();
     const html = document.body.innerHTML;
-    expect(html).not.toContain("RNC");
+    expect(html).not.toMatch(/rnc|ronchi/i);
     expect(html).not.toContain("Ronchi");
   });
 });

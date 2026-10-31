@@ -5,7 +5,14 @@ import { SECTION_OF_KIND } from "../projectSettings/changeTypes";
 import type { AdminSection } from "../routes";
 import { visiblePeopleFor } from "../access/whoCan";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
-import { archivedProjectIdsFor, gate, now, state, visibleProjectIds } from "../store";
+import {
+  archivedProjectIdsFor,
+  gate,
+  knownDeletedProject,
+  now,
+  state,
+  visibleProjectIds,
+} from "../store";
 import { can, viewerFor, type Permission } from "../viewer";
 import { forbidden, notFound } from "../writer";
 import { changeTypeOf } from "./record";
@@ -51,17 +58,6 @@ const DAY_MS = 86_400_000;
 const readableProjectIds = (me: string): Set<string> =>
   new Set([...visibleProjectIds(me), ...archivedProjectIdsFor(me)]);
 
-/** Chi guarda era membro del progetto eliminato, o è full admin: ne legge codice e nome. */
-function knowsDeleted(me: string, projectId: string | undefined): { code: string; name: string } | null {
-  if (me === CLAUDE_ID || projectId === undefined) return null;
-  const deleted = state.deletedProjects.find((d) => d.id === projectId);
-  if (!deleted) return null;
-  const fullAdmin = viewerFor(me).instancePermissions.includes("instance.full_admin");
-  return fullAdmin || deleted.memberIds.includes(me)
-    ? { code: deleted.code, name: deleted.name }
-    : null;
-}
-
 /**
  * Le due voci d'istanza che nominano un progetto eliminato, risolte a
  * lettura (R-G5). `project.deleted`: «RNC · Vetrina online Tenuta Ronchi» a
@@ -75,7 +71,7 @@ function resolveDeleted(
   entry: ChangeEntry,
 ): { entry: ChangeEntry; labelKey: string | null } {
   if (entry.kind === "project.deleted") {
-    const known = knowsDeleted(me, entry.object.id);
+    const known = knownDeletedProject(me, entry.object.id);
     return known
       ? {
           entry: { ...entry, object: { ...entry.object, label: `${known.code} · ${known.name}` } },
@@ -88,7 +84,7 @@ function resolveDeleted(
   }
   if (entry.kind === "repository.deleted") {
     const { formerProjectId, ...params } = entry.params;
-    const known = knowsDeleted(me, formerProjectId);
+    const known = knownDeletedProject(me, formerProjectId);
     return {
       entry: { ...entry, params: known ? { ...params, formerProject: known.code } : params },
       labelKey: null,

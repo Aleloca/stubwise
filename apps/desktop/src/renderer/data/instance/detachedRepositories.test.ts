@@ -20,7 +20,7 @@ const LAURA = "p-laura";
 const SARA = "p-sara";
 const ACQ = "prj-acq";
 const RNC = "prj-rnc";
-const REPO = "repo-rnc";
+const REPO = "repo-shop";
 const SHOP = "git-github-shop";
 
 const as = (personId: string) => setSessionPersonId(personId);
@@ -66,9 +66,22 @@ describe("chi li legge, e la provenienza (R-G5)", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.formerProject).toBeNull();
     expect(rows[0]!.canDelete).toBe(false);
+    // Ruling (T11): del nome completo solo l'ultimo segmento, il workspace no.
+    expect(rows[0]!.fullName).toBe("shop-frontend");
     const text = JSON.stringify(rows);
-    expect(text).not.toContain("RNC");
-    expect(text).not.toContain("Tenuta Ronchi");
+    expect(text).not.toMatch(/rnc|ronchi|vetrina/i);
+  });
+
+  it("I3: un workspace che nomina il cliente non esce verso chi non era membro", async () => {
+    state.detachedRepositories[0]!.repository.fullName = "tenuta-ronchi/shop";
+    for (const person of [ROBERTA, GIULIA]) {
+      as(person);
+      expect((await instance.listDetachedRepositories())[0]!.fullName).toBe("tenuta-ronchi/shop");
+    }
+    as(LAURA);
+    const rows = await instance.listDetachedRepositories();
+    expect(rows[0]!.fullName).toBe("shop");
+    expect(JSON.stringify(rows)).not.toMatch(/ronchi/i);
   });
 
   it("Sara, senza repos.manage, → forbidden", async () => {
@@ -113,7 +126,7 @@ describe("collegare un repository senza progetto", () => {
       projectId: ACQ,
       object: { type: "repository", id: REPO, label: "shop-frontend" },
     });
-    expect(JSON.stringify(entries())).not.toContain("RNC");
+    expect(JSON.stringify(entries())).not.toMatch(/rnc|ronchi/i);
     expect(JSON.stringify(entries())).not.toContain(RNC);
   });
 
@@ -240,7 +253,7 @@ describe("eliminare un repository senza progetto (+R, full admin)", () => {
     expect(laura.params).toEqual({});
     expect(laura.object.label).toBe("shop-frontend");
     const text = JSON.stringify(laura);
-    expect(text).not.toContain("RNC");
+    expect(text).not.toMatch(/rnc|ronchi/i);
     expect(text).not.toContain("Ronchi");
     expect(text).not.toContain(RNC);
   });

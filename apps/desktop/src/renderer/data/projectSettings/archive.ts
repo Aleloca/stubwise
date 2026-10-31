@@ -6,6 +6,7 @@ import {
   archivedProjectIdsFor,
   canSeeConversation,
   gate,
+  isFullAdmin,
   now,
   objectCodeOf,
   state,
@@ -13,7 +14,6 @@ import {
 } from "../store";
 import { projectRoleOf } from "../access/index";
 import { CLAUDE_ID } from "../seed/people";
-import { viewerFor } from "../viewer";
 import { writer } from "../writer";
 import { MANAGE_SETTINGS, canI, nameOf, projectObject, reauthRefusal, refuse } from "./common";
 import { purgeProject } from "./purge";
@@ -77,9 +77,6 @@ export interface ArchivedProjectView extends ArchivedProjectRow {
   /** Ogni quanti giorni guarda il pulse, riaprendo («Pulse every 7 days»). */
   pulseEveryDays: number;
 }
-
-const isFullAdmin = (me: string): boolean =>
-  viewerFor(me).instancePermissions.includes("instance.full_admin");
 
 /** Un progetto che chi guarda vede, aperto o da archiviato; `undefined` altrimenti (R-G5). */
 function seenProject(me: string, projectId: string): Project | undefined {

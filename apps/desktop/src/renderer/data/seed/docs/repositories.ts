@@ -144,7 +144,7 @@ export const REPOSITORIES: Repository[] = [
   },
   // Area 9c: il repository di RNC, l'archiviato.
   {
-    id: "repo-rnc",
+    id: "repo-shop",
     projectId: "prj-rnc",
     name: "shop-frontend",
     fullName: "vetrina-web/shop-frontend",

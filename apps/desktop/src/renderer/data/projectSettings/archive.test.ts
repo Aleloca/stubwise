@@ -533,7 +533,7 @@ describe("RF 3: la scheda Archived e la pagina dell'archiviato", () => {
     expect(giulia.projects.find((p) => p.code === "MKX")!.archived).toBeUndefined();
     as(LAURA);
     const laura = JSON.stringify(await changelog.listChangeFilterChoices());
-    expect(laura).not.toContain("RNC");
+    expect(laura).not.toMatch(/rnc|ronchi/i);
     expect(laura).not.toContain("Ronchi");
   });
 
@@ -549,7 +549,7 @@ describe("RF 3: la scheda Archived e la pagina dell'archiviato", () => {
       code: "RNC",
     });
     as(LAURA);
-    expect(JSON.stringify(await changelog.listChanges())).not.toContain("RNC");
+    expect(JSON.stringify(await changelog.listChanges())).not.toMatch(/rnc|ronchi/i);
   });
 });
 
@@ -649,7 +649,7 @@ describe("R-G5 delle superfici del Task 1: RNC archiviato per Laura, che non ne 
     as(LAURA);
     // Docs.
     expect(await docs.listDocSpaces(RNC).catch(() => [])).toEqual([]);
-    expect(await docs.getDocSpace("repo-rnc")).toBeNull();
+    expect(await docs.getDocSpace("repo-shop")).toBeNull();
     expect(await docs.getProjectDocsHome(RNC)).toBeNull();
     for (const page of state.docPages.filter((p) => p.projectId === RNC))
       expect(await docs.getDocPage(page.repositoryId, page.slug)).toBeNull();
@@ -762,7 +762,7 @@ describe("Delete di RNC da Roberta", () => {
     expect(
       await projectSettings.setEnvVar("envf-rnc-prod", "PAYMENTS_SECRET_KEY", "sk-rnc-9f8e7d"),
     ).toEqual({ ok: true });
-    const webhook = await projectSettings.regenerateWebhookSecret("repo-rnc");
+    const webhook = await projectSettings.regenerateWebhookSecret("repo-shop");
     const ingestion = await projectSettings.regenerateIngestionKey(RNC);
     if (!webhook.ok || !ingestion.ok) throw new Error("setup");
     await projectSettings.archiveProject(RNC);
@@ -865,7 +865,7 @@ describe("Delete di RNC da Roberta", () => {
         formerProjectId: RNC,
         detachedById: ROBERTA,
         repository: {
-          id: "repo-rnc",
+          id: "repo-shop",
           name: "shop-frontend",
           url: "https://github.com/vetrina-web/shop-frontend",
           gitAccountId: "git-github-shop",
@@ -892,7 +892,7 @@ describe("Delete di RNC da Roberta", () => {
     expect(values).not.toContain(ingestion.key);
 
     // I Docs non raggiungono più il repository (Task 4 ⚠️).
-    expect(repositoryById("repo-rnc")).toBeUndefined();
+    expect(repositoryById("repo-shop")).toBeUndefined();
     expect(await projectSettings.getArchivedProject("RNC")).toBeNull();
     expect((await projectSettings.listArchivedProjects()).map((r) => r.code)).not.toContain("RNC");
   });
@@ -916,7 +916,7 @@ describe("Delete di RNC da Roberta", () => {
     await projectSettings.deleteProject(RNC, { confirmCode: "RNC" });
 
     // Laura non era membro di RNC: crea un progetto nuovo con lo stesso codice.
-    grantInstancePermission(LAURA, "projects.create");
+    grantInstancePermission(LAURA, "projects.create" as never);
     as(LAURA);
     const fresh = await createProject({ code: "RNC", name: "Rinnovi", template: "empty" });
     expect(fresh.id).not.toBe(RNC);
@@ -960,7 +960,7 @@ describe("Delete di RNC da Roberta", () => {
     expect(laura.objectLabelKey).toBe("changelog.values.hiddenProject");
     expect(laura.params).toEqual({ detachedRepositories: "1" });
     const text = JSON.stringify(laura);
-    expect(text).not.toContain("RNC");
+    expect(text).not.toMatch(/rnc|ronchi/i);
     expect(text).not.toContain("Ronchi");
 
     // Senza changelog.view né full admin non la legge affatto.

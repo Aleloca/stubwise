@@ -268,7 +268,9 @@ function DetachedRow({
           <span title={r.name} className="truncate text-md font-semibold text-ink">
             {r.name}
           </span>
-          {r.fullName && (
+          {/* A chi non sa da dove viene il livello dati dà solo l'ultimo
+              segmento (ruling T11): spesso è il nome, e non si ripete. */}
+          {r.fullName && r.fullName !== r.name && (
             <span title={r.fullName} className="min-w-0 truncate text-sm text-ink-muted">
               {r.fullName}
             </span>

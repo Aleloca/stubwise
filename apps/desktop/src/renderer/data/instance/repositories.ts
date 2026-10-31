@@ -2,10 +2,14 @@ import { recordChange } from "../changelog/index";
 // Per effetto: registra `repository.linked` e `repository.deleted` (P5).
 import "../projectSettings/changeTypes";
 import { openProject } from "../projectSettings/reads";
-import { addDocSpace, nameTaken, repositoryObject } from "../projectSettings/repositories";
+import {
+  MANAGE_REPOS,
+  addDocSpace,
+  nameTaken,
+  repositoryObject,
+} from "../projectSettings/repositories";
 import type { ProjectResult } from "../projectSettings/types";
-import { CLAUDE_ID } from "../seed/people";
-import { gate, state, visibleProjectIds } from "../store";
+import { gate, isFullAdmin, knownDeletedProject, state, visibleProjectIds } from "../store";
 import { can, viewerFor } from "../viewer";
 import { forbidden, writer } from "../writer";
 import { canI, reauthRefusal, refuse } from "./common";
@@ -97,23 +101,16 @@ export interface DetachedRepositoryRow {
   canDelete: boolean;
 }
 
-const MANAGE_REPOS = "repos.manage";
+const detachedById = (id: string) => state.detachedRepositories.find((d) => d.repository.id === id);
 
-const isFullAdmin = (me: string): boolean =>
-  viewerFor(me).instancePermissions.includes("instance.full_admin");
-
-const detachedById = (id: string) =>
-  state.detachedRepositories.find((d) => d.repository.id === id);
-
-/** Il progetto eliminato da cui viene, se chi guarda lo può sapere (R-G5). */
-function formerProjectFor(
-  me: string,
-  formerProjectId: string,
-): DetachedRepositoryRow["formerProject"] {
-  if (me === CLAUDE_ID) return null;
-  const deleted = state.deletedProjects.find((d) => d.id === formerProjectId);
-  if (!deleted || !(isFullAdmin(me) || deleted.memberIds.includes(me))) return null;
-  return { code: deleted.code, name: deleted.name };
+/**
+ * Il nome completo per chi guarda (ruling T11): intero a chi sa da quale
+ * progetto viene, altrimenti solo l'ultimo segmento, perché il workspace
+ * può nominare il cliente (R-G5).
+ */
+function fullNameFor(fullName: string | undefined, knows: boolean): string | null {
+  if (!fullName) return null;
+  return knows ? fullName : (fullName.split("/").at(-1) ?? null);
 }
 
 /**
@@ -130,19 +127,22 @@ export async function listDetachedRepositories(): Promise<DetachedRepositoryRow[
     .map((p) => ({ projectId: p.id, code: p.code, name: p.name }))
     .sort((a, b) => a.code.localeCompare(b.code));
   return state.detachedRepositories
-    .map(({ repository: r, formerProjectId, detachedAt }) => ({
-      id: r.id,
-      name: r.name,
-      fullName: r.fullName ?? null,
-      gitAccountName:
-        state.instance.gitAccounts.find((g) => g.id === r.gitAccountId)?.name ?? null,
-      gitAccountProvider:
-        state.instance.gitAccounts.find((g) => g.id === r.gitAccountId)?.provider ?? null,
-      detachedAt,
-      formerProject: formerProjectFor(me, formerProjectId),
-      linkTargets: linkTargets.map((t) => ({ ...t })),
-      canDelete: isFullAdmin(me),
-    }))
+    .map(({ repository: r, formerProjectId, detachedAt }) => {
+      const formerProject = knownDeletedProject(me, formerProjectId);
+      return {
+        id: r.id,
+        name: r.name,
+        fullName: fullNameFor(r.fullName, formerProject !== null),
+        gitAccountName:
+          state.instance.gitAccounts.find((g) => g.id === r.gitAccountId)?.name ?? null,
+        gitAccountProvider:
+          state.instance.gitAccounts.find((g) => g.id === r.gitAccountId)?.provider ?? null,
+        detachedAt,
+        formerProject,
+        linkTargets: linkTargets.map((t) => ({ ...t })),
+        canDelete: isFullAdmin(me),
+      };
+    })
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 

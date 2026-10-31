@@ -1526,6 +1526,26 @@ export function archivedProjectIdsFor(personId: string): Set<string> {
   return new Set(archived.filter((p) => p.memberIds.includes(personId)).map((p) => p.id));
 }
 
+/** Full admin d'istanza: una regola letta da archivio, registro e repository senza progetto. */
+export const isFullAdmin = (personId: string): boolean =>
+  viewerFor(personId).instancePermissions.includes("instance.full_admin");
+
+/**
+ * Codice e nome di un progetto eliminato, a chi ne era membro o è full
+ * admin; `null` a tutti gli altri, Claude compreso, e per un id che non è
+ * di un progetto eliminato (R-G5). L'unica regola di «chi sa del progetto
+ * eliminato»: la leggono il registro e i repository senza progetto.
+ */
+export function knownDeletedProject(
+  personId: string,
+  projectId: string | undefined,
+): { code: string; name: string } | null {
+  if (personId === CLAUDE_ID || projectId === undefined) return null;
+  const deleted = state.deletedProjects.find((d) => d.id === projectId);
+  if (!deleted || !(isFullAdmin(personId) || deleted.memberIds.includes(personId))) return null;
+  return { code: deleted.code, name: deleted.name };
+}
+
 /**
  * Chi vede una conversazione con Claude — l'unica regola, per le letture e
  * per lo stream. Libera privata: chi l'ha aperta; pubblica: anche chi ha
