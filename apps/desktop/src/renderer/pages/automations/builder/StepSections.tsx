@@ -111,21 +111,21 @@ export function WhereSection({ step, path, set, problems }: FormProps) {
           {target.mode === "fixed" && target.unavailable && (
             // Area 9c ([PX 5]): archiviato, eliminato o invisibile si leggono
             // allo stesso modo, senza codice; il livello dati lo segna (`flowFor`).
-            <p data-project-unavailable className="text-sm text-ink">
-              {t("projectEffects.automations.unavailable")}
+            // La frase resta intera e il link sta su una riga sua: a capo a
+            // metà («no longer / available») non si legge.
+            <p
+              data-project-unavailable
+              className="flex flex-col items-start gap-0.5 text-sm text-ink"
+            >
+              <span className="text-balance">{t("projectEffects.automations.unavailable")}</span>
               {!b.readOnly && (
-                <span className="whitespace-nowrap">
-                  <span aria-hidden="true" className="px-1.5 text-ink-faint">
-                    ·
-                  </span>
-                  <button
-                    type="button"
-                    className="rounded-sm text-ink underline decoration-ink/30 underline-offset-4 transition-colors duration-[var(--duration-fast)] ease-out hover:decoration-ink"
-                    onClick={() => projectSelect.current?.focus()}
-                  >
-                    {t("projectEffects.automations.chooseAnother")}
-                  </button>
-                </span>
+                <button
+                  type="button"
+                  className="rounded-sm text-ink underline decoration-ink/30 underline-offset-4 transition-colors duration-[var(--duration-fast)] ease-out hover:decoration-ink"
+                  onClick={() => projectSelect.current?.focus()}
+                >
+                  {t("projectEffects.automations.chooseAnother")}
+                </button>
               )}
             </p>
           )}

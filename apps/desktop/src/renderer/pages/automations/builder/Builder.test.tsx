@@ -923,6 +923,23 @@ describe("«Where» del passo (revisione visiva)", () => {
   });
 });
 
+describe("il pannello sovrapposto (finestra stretta)", () => {
+  it("il passo aperto non copre le righe: l'albero lascia a destra lo spazio del pannello", async () => {
+    // Bloccante 2 della revisione finale del 9c: a 1024 la frase del passo
+    // («…in a project that's no longer available») finiva sotto il pannello.
+    setMatchMedia(DOCKED_PANEL_QUERY, false);
+    await open("/automations/STW-A1/edit?step=tr-bug", LAURA);
+    const panel = await screen.findByRole("dialog", { name: "Step 2" });
+    expect(panel).toHaveAttribute("data-mode", "overlay");
+    const canvas = tree().closest<HTMLElement>("[data-builder-canvas]")!;
+    expect(canvas.style.paddingRight).toBe(panel.style.width);
+    // Chiuso il pannello, lo spazio torna all'albero.
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Step 2" })).toBeNull());
+    expect(canvas.style.paddingRight).toBe("");
+  });
+});
+
 describe("«Repeat until» (R-J22)", () => {
   it("il pannello dice che la condizione si controlla prima: già vera, i passi dentro si saltano", async () => {
     await open("/automations/AUD-A1/edit?step=cd-reminders");

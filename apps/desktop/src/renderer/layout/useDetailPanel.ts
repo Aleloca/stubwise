@@ -123,6 +123,7 @@ export function DetailPanel({
   defaultWidth,
   modal = false,
   top,
+  onWidth,
 }: {
   mode: DetailPanelMode;
   label: string;
@@ -134,6 +135,11 @@ export function DetailPanel({
   modal?: boolean;
   /** Sovrapposto, parte da qui (px) invece che dal bordo alto: lascia libera una testata (il costruttore). */
   top?: number;
+  /**
+   * La larghezza di adesso, a ogni cambio (anche trascinando): chi sta sotto
+   * il pannello sovrapposto le lascia lo spazio (il costruttore, area 9c).
+   */
+  onWidth?: (width: number) => void;
 }) {
   const { t } = useTranslation();
   const personId = useViewer().viewer.personId;
@@ -142,6 +148,10 @@ export function DetailPanel({
   const width = stored ?? defaultWidth ?? DEFAULT_WIDTH[mode];
   const panel = useRef<HTMLElement>(null);
   const drag = useRef<{ x: number; width: number; pointerId: number } | null>(null);
+
+  useEffect(() => {
+    onWidth?.(width);
+  }, [width, onWidth]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

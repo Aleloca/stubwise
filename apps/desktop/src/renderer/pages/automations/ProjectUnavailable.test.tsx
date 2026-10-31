@@ -79,6 +79,11 @@ describe("costruttore: il progetto del passo non è più disponibile", () => {
   async function expectUnavailable(group: HTMLElement, hidden: RegExp) {
     expect(group).toHaveTextContent("A project that's no longer available");
     expect(group).not.toHaveTextContent(hidden);
+    // La frase resta intera (text-balance) e il link sta su una riga sua, senza «·».
+    const line = group.querySelector<HTMLElement>("[data-project-unavailable]")!;
+    expect(line.firstElementChild).toHaveTextContent(/^A project that's no longer available$/);
+    expect(line.firstElementChild).toHaveClass("text-balance");
+    expect(line).not.toHaveTextContent("·");
     const choose = within(group).getByRole("button", { name: "Choose another project" });
     await userEvent.click(choose);
     expect(within(group).getByRole("combobox", { name: "Project" })).toHaveFocus();

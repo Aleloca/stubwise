@@ -186,6 +186,8 @@ function Builder({
   );
   // Sovrapposto (sotto i 1200 px) il pannello si apre scegliendo un passo, non da solo.
   const [panelOpen, setPanelOpen] = useState(initialStep !== undefined);
+  // La larghezza del pannello sovrapposto: l'albero gliela lascia libera.
+  const [overlayWidth, setOverlayWidth] = useState(400);
   const general = a.projectId === null;
 
   const collapseKey = `stubwise.builder.collapsed.${a.id}`;
@@ -416,8 +418,16 @@ function Builder({
             onCollapse={writeCollapsed}
             fromList={fromList}
           />
-          <div className="w-full max-w-[760px] min-w-[520px] px-6 pt-4 pb-24">
-            <FlowTree treeRef={treeRef} />
+          {/* Sovrapposto, il pannello copre la destra del costruttore: l'albero
+              gli lascia lo spazio, così una riga va a capo dove si legge
+              (bloccante 2 della revisione finale del 9c, a 1024). */}
+          <div
+            data-builder-canvas
+            style={!docked && panelOpen ? { paddingRight: overlayWidth } : undefined}
+          >
+            <div className="w-full max-w-[760px] min-w-[520px] px-6 pt-4 pb-24">
+              <FlowTree treeRef={treeRef} />
+            </div>
           </div>
         </div>
         {(docked || panelOpen) && (
@@ -431,6 +441,7 @@ function Builder({
             defaultWidth={400}
             // A 1024 il pannello parte sotto la testata: Test, Publish e i problemi restano a portata.
             top={docked ? undefined : headerBottom}
+            onWidth={setOverlayWidth}
             onClose={() => (docked ? setSelected(null) : setPanelOpen(false))}
           >
             <div ref={panelRef}>{panel}</div>
