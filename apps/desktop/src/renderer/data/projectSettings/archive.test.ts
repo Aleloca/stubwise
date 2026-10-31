@@ -32,6 +32,7 @@ import {
 import { markReauthenticated } from "../auth/reauth";
 import { repositoryById } from "../docs/reads";
 import type { Release } from "../model";
+import { createProject } from "../api-mutations";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import { setSessionPersonId } from "../session";
 import { archivedProjectIdsFor, now, signalAutomations, state, visibleProjectIds } from "../store";
@@ -857,6 +858,48 @@ describe("Delete di RNC da Roberta", () => {
     expect(repositoryById("repo-rnc")).toBeUndefined();
     expect(await projectSettings.getArchivedProject("RNC")).toBeNull();
     expect((await projectSettings.listArchivedProjects()).map((r) => r.code)).not.toContain("RNC");
+  });
+
+  it("I1: un progetto nuovo col codice di RNC non eredita storia, consumi né provenienza", async () => {
+    as(ROBERTA);
+    markReauthenticated(ROBERTA);
+    // Una spesa di RNC nel mese: è la spesa del cliente eliminato.
+    const range = { days: 90 } as const;
+    state.instance.usage.push({
+      ...state.instance.usage[0]!,
+      id: "usage-rnc-test",
+      at: now(),
+      projectId: RNC,
+      conversationId: null,
+    });
+    // E una voce del suo registro: il nome di prima nomina il cliente.
+    await projectSettings.reopenProject(RNC);
+    await projectSettings.updateProjectGeneral(RNC, { name: "Vetrina Ronchi 2" });
+    await projectSettings.archiveProject(RNC);
+    await projectSettings.deleteProject(RNC, { confirmCode: "RNC" });
+
+    // Laura non era membro di RNC: crea un progetto nuovo con lo stesso codice.
+    grantInstancePermission(LAURA, "projects.create");
+    as(LAURA);
+    const fresh = await createProject({ code: "RNC", name: "Rinnovi", template: "empty" });
+    expect(fresh.id).not.toBe(RNC);
+
+    const changes = await changelog.listProjectChanges(fresh.id);
+    expect(changes.map((c) => c.kind)).toEqual(["member.added"]);
+    expect(JSON.stringify(changes)).not.toMatch(/ronchi|vetrina/i);
+
+    const usage = await projectSettings.getProjectUsage(fresh.id, { range, groupBy: "model" });
+    expect(usage!.totals.runs).toBe(0);
+
+    as(ROBERTA);
+    const after = await instance.getUsage({ range, groupBy: "project" });
+    expect(after.rows.find((r) => r.key === fresh.id)).toBeUndefined();
+    // I repository senza progetto non dicono di venire dal progetto nuovo.
+    const detached = await instance.listDetachedRepositories();
+    expect(detached.find((d) => d.name === "shop-frontend")!.formerProject).toEqual({
+      code: "RNC",
+      name: "Vetrina Ronchi 2",
+    });
   });
 
   it("RF 3, project.deleted: Roberta legge il codice e il nome, chi non era membro la chiave nascosta", async () => {

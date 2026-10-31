@@ -1071,13 +1071,30 @@ export async function markDepartmentHomeSeen(departmentId: string): Promise<void
 
 const CODE_PATTERN = /^[A-Z]{2,4}$/;
 
+/**
+ * L'id di un progetto nuovo non è mai quello di un progetto eliminato col
+ * suo stesso codice (R-G5): registro, consumi e provenienza dei repository
+ * di quello eliminato restano legati al suo id, e un progetto nuovo che lo
+ * riprendesse li erediterebbe davanti a chi non ne era membro.
+ */
+function freshProjectId(code: string): string {
+  const base = `prj-${code.toLowerCase()}`;
+  const taken = (id: string) =>
+    state.projectsById.has(id) || state.deletedProjects.some((d) => d.id === id);
+  let id = base;
+  for (let n = 2; taken(id); n++) id = `${base}-${n}`;
+  return id;
+}
+
 export async function createProject(input: NewProjectInput): Promise<Project> {
   const me = await gate("createProject");
   need(me, "projects.create");
   if (!CODE_PATTERN.test(input.code)) throw invalid("code");
   if (state.projects.some((p) => p.code === input.code)) throw invalid("code_taken");
   if (!input.name.trim()) throw invalid("name");
-  const id = `prj-${input.code.toLowerCase()}`;
+  const id = freshProjectId(input.code);
+  // Gli id di stati e canale seguono quello del progetto, suffisso compreso.
+  const slug = id.slice("prj-".length);
   const project: Project = {
     id,
     code: input.code,
@@ -1094,7 +1111,7 @@ export async function createProject(input: NewProjectInput): Promise<Project> {
   state.projects.push(project);
   state.statuses.push(
     ...TEMPLATE_STATUSES[input.template].map((s, i) => ({
-      id: `st-${input.code.toLowerCase()}-${i + 1}`,
+      id: `st-${slug}-${i + 1}`,
       projectId: id,
       name: s.name,
       family: s.family,
@@ -1107,7 +1124,7 @@ export async function createProject(input: NewProjectInput): Promise<Project> {
   writeJoin(me, id, me, roleIdOf("project_lead"));
   // Ogni progetto nasce con il suo «general»: i membri sono quelli del progetto.
   state.channels.push({
-    id: `ch-${input.code.toLowerCase()}-general`,
+    id: `ch-${slug}-general`,
     kind: "project",
     projectId: id,
     name: "general",
