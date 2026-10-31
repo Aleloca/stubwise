@@ -11,6 +11,18 @@ function flattenKeys(tree: Tree, prefix = ""): string[] {
   });
 }
 
+describe("i nomi delle destinazioni in italiano", () => {
+  test("la Panoramica non si chiama «Overview» in nessuna frase (la colonna dice «Panoramica»)", () => {
+    const values: string[] = [];
+    const walk = (o: unknown): void => {
+      if (typeof o === "string") values.push(o);
+      else if (o && typeof o === "object") Object.values(o).forEach(walk);
+    };
+    walk(it);
+    expect(values.filter((v) => v.includes("Overview"))).toEqual([]);
+  });
+});
+
 describe("parità delle chiavi en/it", () => {
   test("stesse chiavi (anche annidate) in en e it", () => {
     expect(flattenKeys(it as Tree).sort()).toEqual(flattenKeys(en as Tree).sort());

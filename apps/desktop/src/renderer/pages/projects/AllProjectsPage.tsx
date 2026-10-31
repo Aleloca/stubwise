@@ -357,7 +357,8 @@ export function AllProjectsPage() {
           >
             {title}
           </h1>
-          {!loading && failed.length === 0 && (
+          {/* Il numero conta gli attivi: sulla scheda Archived lo dice già la scheda. */}
+          {!loading && failed.length === 0 && shownTab !== "archived" && (
             <span className="num text-lg text-ink-faint">
               <span aria-hidden="true">{filtered.length}</span>
               <span className="sr-only">{t("projects.count", { count: filtered.length })}</span>

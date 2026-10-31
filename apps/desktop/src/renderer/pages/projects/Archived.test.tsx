@@ -64,6 +64,9 @@ describe("All projects → Archived", () => {
     const tab = await screen.findByRole("tab", { name: /Archived/ });
     expect(tab).toHaveAttribute("aria-selected", "true");
     expect(tab).toHaveTextContent("Archived1");
+    // Il numero accanto all'h1 conta gli attivi: sulla scheda Archived non c'è.
+    const h1 = screen.getByRole("heading", { level: 1 });
+    expect(h1.parentElement!.querySelector(".num")).toBeNull();
     const panel = screen.getByRole("tabpanel");
     expect(
       await within(panel).findByText(
@@ -200,7 +203,8 @@ describe("la pagina dell'archiviato", () => {
     const buttons = within(page)
       .getAllByRole("button")
       .map((b) => b.textContent);
-    expect(buttons).toEqual(["Reopen", "Who?", "Delete for good…"]);
+    // «Who?» dopo il bottone che spiega, non fra Reopen e Delete (lezione della 9b).
+    expect(buttons).toEqual(["Reopen", "Delete for good…", "Who?"]);
     const del = within(page).getByRole("button", { name: "Delete for good…" });
     expect(del).toHaveAttribute("aria-disabled", "true");
     expect(within(page).getByRole("button", { name: /Who/ })).toHaveAttribute(

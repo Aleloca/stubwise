@@ -277,9 +277,10 @@ function Guarded({
 }) {
   return (
     <span className="flex max-w-[34ch] flex-col items-start gap-1">
+      {/* «Who?» dopo il bottone che spiega: davanti sembrerebbe l'etichetta del bottone dopo. */}
       <span className="flex items-center gap-2">
-        {!enabled && <span className="text-sm">{who}</span>}
         {children}
+        {!enabled && <span className="text-sm">{who}</span>}
       </span>
       {!enabled && (
         <span id={whyId} className="text-xs text-pretty text-ink-muted">

@@ -2025,7 +2025,7 @@
       "none": "Ancora nessun brief",
       "firstOnMonday": "Il primo arriva lunedì",
       "error": "Impossibile caricare il brief settimanale.",
-      "gone": "Questo brief non è più l'ultimo. Apri l'ultimo dall'Overview.",
+      "gone": "Questo brief non è più l'ultimo. Apri l'ultimo dalla Panoramica.",
       "generatedNote": "Scritto da Claude a partire da task, decisioni e report della settimana. Verificalo prima di citarlo.",
       "period": "Settimana dal {{from}} al {{to}}",
       "close": "Chiudi il brief",
@@ -2654,7 +2654,7 @@
       "nameError": "Dai un nome al progetto.",
       "description": "Descrizione",
       "optional": "facoltativa",
-      "descriptionHint": "Si vede in Tutti i progetti e in testa all'Overview.",
+      "descriptionHint": "Si vede in Tutti i progetti e in testa alla Panoramica.",
       "descriptionPlaceholder": "A cosa serve questo progetto…",
       "descriptionError": "Tieni la descrizione entro 1.000 caratteri.",
       "noDescription": "Nessuna descrizione.",
@@ -2703,7 +2703,7 @@
         "dailyReport": "Ogni notte, un riassunto dei commit del giorno nei repository del progetto. Spento: Attività dice che è spento, e lo puoi ancora generare a mano.",
         "backlogDiscovery": "Feedback e richieste di funzionalità vanno nel backlog per essere raccolte e raffinate, invece che direttamente al lavoro.",
         "pulse": "Quando {{code}} è fermo, Claude propone voci di backlog da cui ripartire.",
-        "weeklyBrief": "Ogni lunedì, dove sta {{code}}, scritto per chi non legge il codice. Spento: l'Overview dice che è spento; i brief già scritti restano."
+        "weeklyBrief": "Ogni lunedì, dove sta {{code}}, scritto per chi non legge il codice. Spento: la Panoramica dice che è spento; i brief già scritti restano."
       },
       "every": "ogni",
       "days_one": "giorno",
