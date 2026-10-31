@@ -1573,6 +1573,22 @@ tranne queste voci. Ognuna dice perché resta.
   layout del dettaglio della task, fuori dal perimetro del 9c. Il rimedio è
   lo stesso del costruttore (bloccante 2): sovrapposto, il pannello lascia
   alla pagina lo spazio della sua larghezza (`DetailPanel`, `onWidth`).
+- **Il costruttore a 1024 col pannello del passo allargato a mano fino a
+  640 px scorre in orizzontale.** Il `padding-right` del canvas
+  (`data-builder-canvas`, `BuilderPage.tsx`) segue la larghezza del
+  pannello, e con `min-w-[520px]` dell'albero la somma supera la finestra.
+  *Perché*: è raro (un pannello allargato a mano in una finestra stretta),
+  e il rimedio, limitare il padding a `min(pannello, larghezza − 520)`,
+  vuole la larghezza del costruttore misurata: da fare insieme al rimedio
+  dell'area 2 qui sopra, con lo stesso `onWidth`.
+- **Un episodio di server aperto a cavallo dell'archiviazione o della
+  riapertura dà avvisi spaiati** (I2). Archiviato con l'episodio aperto, il
+  progetto tiene «Server in trouble» senza il suo «back to normal»;
+  riaperto con l'episodio aperto, riceve «back to normal» senza aver
+  ricevuto l'avviso. *Perché*: gli avvisi seguono gli ambienti vivi nel
+  momento in cui partono (`liveEnvironments`); appaiarli vuol dire
+  ricordare sull'episodio a chi è andato l'avviso, una regola del motore
+  degli episodi, non del 9c.
 - **I `<select>` nativi della pagina del repository.** *Perché*: è il
   controllo di form dell'app (`selectClass`, anche nel costruttore e in
   Usage); cambiarlo è una scelta di sistema, non del 9c (Impeccable lo

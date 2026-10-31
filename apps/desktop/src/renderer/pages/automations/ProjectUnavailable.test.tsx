@@ -107,7 +107,7 @@ describe("costruttore: il progetto del passo non è più disponibile", () => {
     expect(await projectSettings.deleteProject("prj-rnc", { confirmCode: "RNC" })).toEqual({
       ok: true,
     });
-    await expectUnavailable(await builder(code), /RNC|Ronchi/);
+    await expectUnavailable(await builder(code), /rnc|ronchi/i);
   });
 
   it("invisibile a chi legge (STW per Paolo)", async () => {

@@ -432,7 +432,16 @@ export async function listDepartmentRoles(personId?: string): Promise<Department
 /** Le sistemazioni nei giorni di chi guarda, per quella settimana: sono personali. */
 export async function listDayArrangements(week: string): Promise<DayArrangement[]> {
   const me = await gate("listDayArrangements");
-  return state.arrangements.filter((a) => a.personId === me && a.week === week).map(copy);
+  // Solo le task che chi guarda vede: la sistemazione di una task di un
+  // progetto archiviato non ne porta fuori l'id (R-G5, area 9c).
+  const visible = visibleProjectIds(me);
+  return state.arrangements
+    .filter((a) => a.personId === me && a.week === week)
+    .filter((a) => {
+      const task = state.tasksById.get(a.taskId);
+      return task !== undefined && visible.has(task.projectId);
+    })
+    .map(copy);
 }
 
 /** Le task ferme visibili (eventualmente filtrate), dalla più vecchia. */

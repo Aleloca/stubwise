@@ -622,8 +622,8 @@ describe("R-G5 delle superfici del Task 1: RNC archiviato per Laura, che non ne 
   /** Nessun nome, codice o id di RNC nella lettura. */
   const clean = (label: string, value: unknown) => {
     const text = JSON.stringify(value);
-    for (const needle of ["RNC", RNC, "Ronchi"])
-      expect(text, `${label}: ${needle}`).not.toContain(needle);
+    // Senza maiuscole: «rnc» in un id o «ronchi/» in un workspace contano come RNC.
+    expect(text, label).not.toMatch(/rnc|ronchi/i);
   };
 
   it("Docs, Home, La mia settimana, fissati e notifiche (anche d'istanza) non nominano RNC", async () => {
