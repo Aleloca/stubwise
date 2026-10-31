@@ -34,6 +34,14 @@ import type { ProjectRefusal, ProjectResult } from "./types";
 const VIEW = "repos.view";
 export const MANAGE_REPOS = "repos.manage";
 
+/** Il webhook di un repository che entra in un progetto, o che ne esce: da configurare, senza secret. */
+export const notConfiguredWebhook = (): NonNullable<Repository["webhook"]> => ({
+  state: "not_configured",
+  configuredAt: null,
+  secretId: null,
+  last4: null,
+});
+
 export interface RepositoryView {
   id: string;
   name: string;
@@ -364,7 +372,7 @@ export async function createRepository(
     reviewGitAccountId: null,
     graphEnabled: false,
     protectedBranches: [],
-    webhook: { state: "not_configured", configuredAt: null, secretId: null, last4: null },
+    webhook: notConfiguredWebhook(),
   };
   state.repositories.push(repository);
   addDocSpace(repository);
@@ -535,12 +543,7 @@ export async function configureRepositoryWebhook(
 
   const outcome = state.repositoryChecks.nextWebhookSetup ?? "configured";
   state.repositoryChecks.nextWebhookSetup = null;
-  const webhook = r.webhook ?? {
-    state: "not_configured",
-    configuredAt: null,
-    secretId: null,
-    last4: null,
-  };
+  const webhook = r.webhook ?? notConfiguredWebhook();
   const previous = webhook.state;
   webhook.state = outcome;
   webhook.configuredAt = now();

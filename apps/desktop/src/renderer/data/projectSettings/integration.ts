@@ -13,7 +13,12 @@ import {
   reauthRefusal,
 } from "./common";
 import { openProject, settingsOf } from "./reads";
-import { MANAGE_REPOS, managedRepository, repositoryObject } from "./repositories";
+import {
+  MANAGE_REPOS,
+  managedRepository,
+  notConfiguredWebhook,
+  repositoryObject,
+} from "./repositories";
 import type { ProjectResult } from "./types";
 
 // Progetto → Settings → Integration (area 9c, Task 4): come gli altri
@@ -198,12 +203,7 @@ export async function regenerateWebhookSecret(
   if (blocked) return blocked;
 
   const { repository: r, project } = managed;
-  const webhook = r.webhook ?? {
-    state: "not_configured",
-    configuredAt: null,
-    secretId: null,
-    last4: null,
-  };
+  const webhook = r.webhook ?? notConfiguredWebhook();
   if (webhook.secretId) forgetSecret(webhook.secretId);
   const secret = storeSecret("git_webhook_secret", r.id);
   webhook.secretId = secret.id;

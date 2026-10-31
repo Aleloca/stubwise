@@ -3,6 +3,7 @@ import { forgetSecret } from "../admin/secrets";
 import { writeAccess } from "../access/index";
 import type { Project } from "../model";
 import { now, reindex, state } from "../store";
+import { notConfiguredWebhook } from "./repositories";
 
 // Cosa toglie l'eliminazione di un progetto (area 9c, Task 5): ogni riga
 // del progetto, in ogni parte dello stato. Restano solo:
@@ -137,7 +138,7 @@ export function purgeProject(project: Project, me: string): number {
       repository: {
         ...r,
         projectId: "",
-        webhook: { state: "not_configured", configuredAt: null, secretId: null, last4: null },
+        webhook: notConfiguredWebhook(),
       },
       formerProjectId: id,
       detachedAt: at,

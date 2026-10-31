@@ -6,6 +6,7 @@ import {
   MANAGE_REPOS,
   addDocSpace,
   nameTaken,
+  notConfiguredWebhook,
   repositoryObject,
 } from "../projectSettings/repositories";
 import type { ProjectResult } from "../projectSettings/types";
@@ -168,12 +169,7 @@ export async function linkRepository(
   const repository = {
     ...detached.repository,
     projectId: project.id,
-    webhook: {
-      state: "not_configured" as const,
-      configuredAt: null,
-      secretId: null,
-      last4: null,
-    },
+    webhook: notConfiguredWebhook(),
   };
   state.repositories.push(repository);
   addDocSpace(repository);
