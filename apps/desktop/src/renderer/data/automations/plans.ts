@@ -178,7 +178,8 @@ export function planTask(
   now: string,
 ): Planned<TaskPlan> {
   const projectId = projectOfEffect(eff, a);
-  if (!projectId || !visibleProjectIds(owner).has(projectId)) return refuse(lost(owner));
+  const refused = projectRefusal(projectId, owner);
+  if (refused || !projectId) return refused ?? refuse(unavailable());
   const args = eff.args as {
     title: string;
     description: string;
@@ -234,7 +235,8 @@ export function planMilestone(
   now: string,
 ): Planned<MilestonePlan> {
   const projectId = projectOfEffect(eff, a);
-  if (!projectId || !visibleProjectIds(owner).has(projectId)) return refuse(lost(owner));
+  const refused = projectRefusal(projectId, owner);
+  if (refused || !projectId) return refused ?? refuse(unavailable());
   const args = eff.args as { name: string; dueInDays: number | null };
   const plan = { projectId, name: args.name, dueDate: dateIn(now, args.dueInDays) };
   try {
@@ -253,7 +255,8 @@ export interface RequestPlan {
 
 export function planRequest(eff: ActionEffect, a: Automation, owner: string): Planned<RequestPlan> {
   const projectId = projectOfEffect(eff, a);
-  if (!projectId || !visibleProjectIds(owner).has(projectId)) return refuse(lost(owner));
+  const refused = projectRefusal(projectId, owner);
+  if (refused || !projectId) return refused ?? refuse(unavailable());
   const args = eff.args as { title: string; description: string };
   try {
     checkNewRequest(owner, { projectId, title: args.title });
@@ -391,7 +394,8 @@ export function planNotify(eff: ActionEffect, a: Automation, owner: string): Pla
   // progetto avvisa senza progetto (mai un progetto preso a caso fra quelli toccati).
   const projectId = projectOfEffect(eff, a) ?? a.projectId;
   // Come gli altri effetti: coi permessi del proprietario, che deve vedere il progetto del passo.
-  if (projectId && !visibleProjectIds(owner).has(projectId)) return refuse(lost(owner));
+  const refused = projectId ? projectRefusal(projectId, owner) : null;
+  if (refused) return refused;
   // Un ruolo: la prima persona col ruolo nel progetto, in ordine alfabetico (come «Crea task»).
   const personId =
     "projectRole" in args.who
@@ -495,6 +499,33 @@ export const runLimitFailure = (name: string): EffectOutcome =>
     { code: "runLimit", params: { name } },
     `«${name}» ha già troppe esecuzioni in corso.`,
   );
+
+/**
+ * Area 9c ([PX 5], confermata dal maintainer): il progetto del passo non
+ * c'è più per nessuno — archiviato, eliminato (il passo resta senza id,
+ * `purge.ts`) o mai esistito. Il passo non si fa e l'esecuzione finisce non
+ * riuscita, con la frase neutra: nessun codice né nome del progetto.
+ */
+const projectGone = (projectId: string | null): boolean => {
+  if (!projectId) return true;
+  const project = state.projectsById.get(projectId);
+  return !project || !!project.archived;
+};
+
+const unavailable = () =>
+  failed(
+    "project_unavailable",
+    { code: "projectUnavailable" },
+    "Il progetto del passo non è più disponibile.",
+  );
+
+/** Il progetto del passo: non più disponibile, o che il proprietario non vede più. */
+const projectRefusal = (projectId: string | null, owner: string) =>
+  projectGone(projectId)
+    ? refuse(unavailable())
+    : !visibleProjectIds(owner).has(projectId!)
+      ? refuse(lost(owner))
+      : null;
 
 const lost = (owner: string) =>
   failed(

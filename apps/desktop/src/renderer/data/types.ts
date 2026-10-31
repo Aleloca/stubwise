@@ -183,6 +183,16 @@ export interface TaskRun {
   queued: { resumedById: string | null; resumedAt: string | null } | null;
   /** Area 9b: il modello dell'esecuzione, se è partita; `null` altrimenti. */
   executionModel: string | null;
+  /**
+   * Area 9c: l'account che il progetto usava in esclusiva alla nascita
+   * (`Conversation.requiredProvider`); `null` senza esclusività.
+   */
+  requiredProvider: { name: string } | null;
+  /**
+   * Area 9c: le skill della sessione scritte alla nascita
+   * (`Conversation.skills`); `null` per una sessione nata prima del 9c.
+   */
+  skills: { plugin: string; skill: string }[] | null;
 }
 
 /** I fatti esterni di una PR, quanto ne legge la sezione (il ciclo si deriva: `prCycles`). */

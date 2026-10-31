@@ -257,6 +257,10 @@ export type StoryEntry =
       model?: string | null;
       /** Area 9b: è nata in attesa della coda in pausa. */
       queued?: boolean;
+      /** Area 9c: l'account esclusivo del progetto alla nascita (`null` senza esclusività). */
+      requiredProvider?: { name: string } | null;
+      /** Area 9c: le skill scritte alla nascita; `null` per le sessioni di prima. */
+      skills?: { plugin: string; skill: string }[] | null;
     }
   /** Area 9b: la coda è ripresa (`byId`) o il budget è tornato (`null`), e il lavoro è partito. */
   | { kind: "queue_resumed"; key: string; at: string; byId: string | null }
@@ -434,6 +438,8 @@ function analyze(
         provider: run.provider ?? null,
         model: run.model ?? null,
         queued: run.queued != null,
+        requiredProvider: run.requiredProvider ?? null,
+        skills: run.skills ?? null,
       });
     }
     // Area 9b: nata in attesa della coda, poi partita (chi ha ripreso la coda, o il budget).

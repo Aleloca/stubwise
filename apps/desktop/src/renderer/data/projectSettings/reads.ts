@@ -112,3 +112,18 @@ export function projectSwitchOn(projectId: string, sw: ProjectSwitch): boolean {
   if (!project || project.archived || !PROJECT_SWITCHES.includes(sw)) return false;
   return settingsOf(project).switches[sw];
 }
+
+/**
+ * Gli interruttori del progetto come li legge chi guarda (Task 6): le frasi
+ * «off» di brief, Docs notturni, pulse e report giornaliero li leggono da
+ * qui (`useProjectSwitches`), mai da una regola propria. `null` su un
+ * progetto invisibile, archiviato o inesistente (R-G5): la pagina non dice
+ * né «off» né il contrario.
+ */
+export async function getProjectSwitches(
+  projectId: string,
+): Promise<Record<ProjectSwitch, boolean> | null> {
+  const me = await gate("projectSettings.getProjectSwitches");
+  const project = openProject(me, projectId);
+  return project ? { ...settingsOf(project).switches } : null;
+}

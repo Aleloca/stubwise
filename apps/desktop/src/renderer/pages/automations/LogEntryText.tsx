@@ -17,6 +17,7 @@ import {
 } from "./format";
 import { approvalWords } from "./FlowSummary";
 import { wordDiff } from "./logTree";
+import { numberAt } from "./numbering";
 import { textLink } from "./shared";
 
 // Le frasi del registro (al passato, da template i18n e dai dati della riga),
@@ -236,6 +237,17 @@ export function EntrySentence({
     );
   }
   if (entry.outcome === "failed") {
+    // Area 9c ([PX 5]): il progetto del passo non è più disponibile, detto
+    // col numero del passo e senza nominarlo.
+    if (entry.why?.code === "projectUnavailable") {
+      return (
+        <>
+          {t("projectEffects.automations.stepNotDone", {
+            n: numberAt(ctx.run.flow.steps, entry.path) ?? "",
+          })}
+        </>
+      );
+    }
     return <>{t("automations.log.failed", { step: t(`automations.kind.${entry.kind}`) })}</>;
   }
   if (entry.outcome === "limit") return <>{t("automations.log.limit")}</>;

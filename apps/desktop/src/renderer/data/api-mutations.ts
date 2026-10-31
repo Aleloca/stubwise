@@ -14,6 +14,7 @@ import { recordChange } from "./changelog/index";
 import { changedFields } from "./changelog/settingValues";
 // Per effetto: registra i tipi di voce di progetto (`recordChange` lancia su uno ignoto).
 import "./projectSettings/changeTypes";
+import { skillsForRun } from "./projectSettings/plugins";
 import { linkIdentityAs } from "./admin/people";
 // Le letture servono al motore di intenti (a nome di chi conversa): si usano
 // solo dentro le funzioni, quindi l'import circolare con `api.ts` è innocuo.
@@ -30,7 +31,7 @@ import { isDeactivated, roleIdOf } from "./access/index";
 // I blocchi d'istanza (area 9b): la foglia dei blocchi, la fila dei lavori
 // fermi e i modelli. Usati solo dentro le funzioni.
 import type { AiOperation } from "@stubwise/shared";
-import { aiBlockFor, pickProvider } from "./instance/blocks";
+import { aiBlockFor, pickProvider, requiredProviderOf } from "./instance/blocks";
 import { modelIdFor } from "./instance/models";
 import { dropHeld, holdJob, type JobKind } from "./instance/queue";
 import { getSessionPersonId, setSessionPersonId } from "./session";
@@ -2933,12 +2934,25 @@ export function aiStartBlock(projectId: string): AiBlock | null {
 }
 
 /**
- * Con chi e con quale modello parte una sessione nuova: il primo account
- * libero della catena (`null` se non ce n'è: parte lo stesso, ruling 11) e
- * il modello dell'operazione adesso (Models).
+ * Con chi, con quale modello e con quali skill parte una sessione nuova,
+ * scritti alla nascita (area 9c): l'account di `pickProvider` del progetto
+ * (`null` se non ce n'è: parte lo stesso, ruling 11), l'account esclusivo
+ * del progetto se c'è (`requiredProvider`: dice perché manca l'account, P16),
+ * il modello dell'operazione adesso (Models) e le skill di `skillsForRun`.
+ * Un cambio successivo nelle impostazioni non le riscrive.
  */
-export function runIdentity(operation: AiOperation): Pick<Conversation, "provider" | "model"> {
-  return { provider: pickProvider(), model: modelIdFor(operation) };
+export function runIdentity(
+  operation: AiOperation,
+  projectId: string | null,
+): Pick<Conversation, "provider" | "model" | "skills" | "requiredProvider"> {
+  return {
+    provider: pickProvider(projectId),
+    model: modelIdFor(operation),
+    skills: projectId
+      ? skillsForRun(projectId).map(({ plugin, skill }) => ({ plugin, skill }))
+      : [],
+    requiredProvider: requiredProviderOf(projectId),
+  };
 }
 
 /**
@@ -2993,7 +3007,7 @@ export async function startOrHold(
 function openRun(me: string, task: Task, operation: AiOperation = "fix_plan"): Conversation {
   const c = newConversation(me, {
     kind: "task_run",
-    ...runIdentity(operation),
+    ...runIdentity(operation, task.projectId),
     title: task.title,
     projectId: task.projectId,
     taskId: task.id,

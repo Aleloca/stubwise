@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import type { PulsePart } from "./pulseLine";
 import { STALLED } from "./StalledSection";
 import { TasksLink, numberLink } from "./links";
@@ -34,6 +35,15 @@ export function PulseText({
         >
           {part.text}
         </TasksLink>
+      ) : part.kind === "pulseOff" ? (
+        // Area 9c: il pulse spento porta dove si riaccende (Settings → Automations).
+        <Link
+          to="/p/$code/settings/$section"
+          params={{ code: projectCode, section: "automations" }}
+          className="rounded-sm underline decoration-ink/30 underline-offset-4 transition-colors duration-[var(--duration-fast)] ease-out hover:text-ink hover:decoration-ink"
+        >
+          {part.text}
+        </Link>
       ) : (
         <span className={i === 0 ? "text-ink" : undefined}>{part.text}</span>
       )}

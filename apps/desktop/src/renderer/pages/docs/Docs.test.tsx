@@ -507,3 +507,55 @@ describe("Docs — fix round 1", () => {
     expect(screen.queryByRole("complementary", { name: "Pages of audin-app" })).toBeNull();
   });
 });
+
+describe("Docs — aggiornamento notturno spento (area 9c, Task 6)", () => {
+  const nightly = (projectId: string, on: boolean) => {
+    state.projectSettings.get(projectId)!.switches.docsNightly = on;
+  };
+  const offLine = () => document.querySelector<HTMLElement>('[data-switch-off="docsNightly"]');
+
+  it("STW spento: DocsHome lo dice sotto la testata e non promette niente «every night»", async () => {
+    nightly("prj-stw", false);
+    renderRoute("/p/STW/docs", "p-laura");
+    await screen.findByRole("list", { name: "Spaces" });
+    await waitFor(() => expect(offLine()).not.toBeNull());
+    expect(offLine()).toHaveTextContent(
+      "The nightly update is off for STW: pages don't change with new commits, and no release notes are written. Settings → Automations",
+    );
+    expect(document.body).not.toHaveTextContent(/every night/);
+  });
+
+  it("STW acceso: la frase non c'è", async () => {
+    renderRoute("/p/STW/docs", "p-laura");
+    await screen.findByRole("list", { name: "Spaces" });
+    expect(offLine()).toBeNull();
+  });
+
+  it("note vuote coi Docs notturni spenti: «No release notes yet: the nightly update is off for CBV.»", async () => {
+    nightly("prj-cbv", false);
+    renderRoute("/p/CBV/docs/bellavista-store/releases", "p-roberta");
+    await screen.findByRole("heading", { level: 1, name: "Release notes" });
+    expect(
+      await screen.findByText("No release notes yet: the nightly update is off for CBV.", {
+        exact: false,
+      }),
+    ).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(/every night/);
+    cleanup();
+    nightly("prj-cbv", true);
+    renderRoute("/p/CBV/docs/bellavista-store/releases", "p-roberta");
+    await screen.findByRole("heading", { level: 1, name: "Release notes" });
+    expect(
+      await screen.findByText("No release notes yet: they're written every night from new commits"),
+    ).toBeInTheDocument();
+  });
+
+  it("note già scritte coi Docs notturni spenti: la riga in testa all'elenco", async () => {
+    nightly("prj-stw", false);
+    renderRoute("/p/STW/docs/stubwise/releases", "p-laura");
+    await screen.findByRole("list", { name: "Release notes" });
+    await waitFor(() =>
+      expect(offLine()).toHaveTextContent("The nightly update is off: no new notes are written."),
+    );
+  });
+});

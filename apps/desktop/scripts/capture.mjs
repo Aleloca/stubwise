@@ -137,6 +137,168 @@ async function main() {
       console.log("scritto", name);
     };
 
+    // Area 9c, Task 6 (`CAPTURE_A9C_EFFECTS=1`): gli effetti delle impostazioni
+    // di progetto nelle altre aree (shape project-effects.md), scatti
+    // `a9c-effects-*`. Lo stato si prepara dal livello dati della pagina (gli
+    // stessi moduli che l'app ha già caricato), a nome di Roberta; un'azione
+    // può restituire l'indirizzo da aprire dopo.
+    if (process.env.CAPTURE_A9C_EFFECTS) {
+      async function prepare(page, action) {
+        const hash = await page.evaluate(async (what) => {
+          const api = await import("/data/api.ts");
+          const session = await import("/data/session.ts");
+          const { state } = await import("/data/store.ts");
+          const prev = session.getSessionPersonId();
+          session.setSessionPersonId("p-roberta");
+          const switches = (id) => state.projectSettings.get(id).switches;
+          const ready = (projectId) => {
+            const t = state.tasks.find(
+              (x) => x.projectId === projectId && x.claude === "none" && x.closedAt === null,
+            );
+            t.assigneeId = "p-claude";
+            return t;
+          };
+          const general = async () => {
+            const a = await api.automations.createAutomation({
+              name: "Onboarding request",
+              projectId: null,
+              flow: {
+                trigger: { kind: "manual" },
+                titleTemplate: "Onboarding request",
+                steps: [
+                  { id: "n", kind: "notify", who: { personId: "p-roberta" }, text: "A new request arrived.", approval: { mode: "auto" } },
+                  {
+                    id: "t",
+                    kind: "createTask",
+                    title: "Set up the customer portal account",
+                    description: "",
+                    assignee: null,
+                    dueInDays: 3,
+                    project: { mode: "fixed", projectId: "prj-acq" },
+                    milestoneRef: null,
+                    approval: { mode: "auto" },
+                  },
+                ],
+              },
+            });
+            await api.automations.activate(a.id);
+            session.setSessionPersonId("p-laura");
+            await api.projectSettings.archiveProject("prj-acq");
+            session.setSessionPersonId("p-roberta");
+            return state.automations.find((x) => x.id === a.id);
+          };
+          try {
+            if (what === "gltBriefOff") switches("prj-glt").weeklyBrief = false;
+            if (what === "stwDocsOff") switches("prj-stw").docsNightly = false;
+            if (what === "cbvDocsOff") switches("prj-cbv").docsNightly = false;
+            if (what === "audReportOff") switches("prj-aud").dailyReport = false;
+            if (what === "cbvQuiet") {
+              for (const t of state.tasks.filter((x) => x.projectId === "prj-cbv"))
+                state.tasksById.delete(t.id);
+              state.tasks = state.tasks.filter((x) => x.projectId !== "prj-cbv");
+              state.milestones = state.milestones.filter((m) => m.projectId !== "prj-cbv");
+              state.projectsById.get("prj-cbv").signals.claudeWorking = false;
+            }
+            if (what === "audExclusive") {
+              state.instance.models.fix_plan = "sonnet";
+              const p = state.instance.providers.find((x) => x.id === "prv-backup-max");
+              p.quota = { ...p.quota, limitedUntil: "2099-01-01T00:00:00Z" };
+              const t = ready("prj-aud");
+              session.setSessionPersonId("p-laura");
+              await api.startRun(t.id);
+              return `/p/AUD/tasks?task=${t.code}`;
+            }
+            if (what === "stwSkills" || what === "stwSession") {
+              state.instance.models.fix_plan = "sonnet";
+              state.instance.queuePauses = [];
+              state.projectSettings.get("prj-stw").plugins.disabled = [
+                { plugin: "superpowers", skills: ["brainstorming"], hookGroups: [] },
+              ];
+              const t = ready("prj-stw");
+              const c = await api.startRun(t.id);
+              return what === "stwSkills" ? `/p/STW/tasks?task=${t.code}` : `/claude/${c.id}`;
+            }
+            if (what === "builder") return `/automations/${(await general()).code}/edit?step=t`;
+            if (what === "run") {
+              const a = await general();
+              await api.automations.startManual(a.id);
+              await api.automations.whenAutomationsIdle();
+              return `/automations/${a.code}/runs/1`;
+            }
+            return null;
+          } finally {
+            session.setSessionPersonId(prev);
+          }
+        }, action);
+        await page.waitForTimeout(900);
+        return hash;
+      }
+      const go = async (page, hash) => {
+        await page.evaluate((h) => {
+          window.location.hash = h;
+        }, hash);
+        await page.waitForTimeout(1200);
+        await page.mouse.move(2, 2);
+      };
+      // La sezione Claude in cima al pannello, con «Skills in this run» aperta.
+      const toClaude = (open) => async (page) => {
+        await page.evaluate(() => {
+          const section = document.querySelector("[data-claude-status]")?.closest("section");
+          const scroller = section?.closest("[data-detail-panel] > .overflow-auto");
+          if (section && scroller)
+            scroller.scrollTop +=
+              section.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+        });
+        if (open) await page.locator("[data-run-skills] button").first().click();
+        await page.mouse.move(2, 2);
+        await page.waitForTimeout(300);
+      };
+      const openSkills = async (page) => {
+        await page.locator("[data-run-skills] button").first().click();
+        await page.mouse.move(2, 2);
+        await page.waitForTimeout(300);
+      };
+      const SCENES = [
+        // [nome, indirizzo, { persona, action, after }]
+        ["brief-written", "/p/MKX/overview", { persona: "Giulia" }],
+        ["brief-none", "/p/GLT/overview", { persona: "Giulia", action: "gltBriefOff" }],
+        ["pulse-off", "/p/CBV/overview", { persona: "Roberta", action: "cbvQuiet" }],
+        ["docs-home", "/p/STW/docs", { persona: "Laura", action: "stwDocsOff" }],
+        ["releases-empty", "/p/CBV/docs/bellavista-store/releases", { persona: "Roberta", action: "cbvDocsOff" }],
+        ["releases-written", "/p/STW/docs/stubwise/releases", { persona: "Laura", action: "stwDocsOff" }],
+        ["report-off", "/projects?view=person", { persona: "Roberta", action: "audReportOff" }],
+        ["claude-exclusive", "/home", { persona: "Laura", action: "audExclusive", after: toClaude(false) }],
+        ["claude-skills", "/home", { persona: "Roberta", action: "stwSkills", after: toClaude(true) }],
+        ["session-skills", "/home", { persona: "Roberta", action: "stwSession", after: openSkills }],
+        ["servers-archived", "/admin/servers", { persona: "Roberta" }],
+        ["automation-builder", "/home", { persona: "Roberta", action: "builder" }],
+        ["automation-run", "/home", { persona: "Roberta", action: "run" }],
+      ];
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      for (const [name, hash, opts] of SCENES) {
+        if (only && !only.test(name)) continue;
+        for (const v of variants) {
+          const { page, context } = await open(v.scheme, v.viewport, "/home", {
+            lang: v.lang,
+            persona: opts.persona,
+          });
+          const then = opts.action ? await prepare(page, opts.action) : null;
+          await go(page, then ?? hash);
+          if (opts.after) await opts.after(page);
+          await shot(page, `a9c-effects-${name}-${v.suffix}.png`);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 9b, Task 6 (`CAPTURE_A9B_EFFECTS=1`): gli effetti delle impostazioni
     // d'istanza nelle altre aree (shape instance-effects.md). Lo stato si
     // prepara dal livello dati della pagina stessa (gli stessi moduli che

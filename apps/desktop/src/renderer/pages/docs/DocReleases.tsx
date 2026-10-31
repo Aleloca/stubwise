@@ -7,6 +7,8 @@ import { formatDate } from "../../notifications/time";
 import { Markdown, type TextDecorator } from "../../tasks-ui/Markdown";
 import { Highlighted } from "../chat/ChatSearch";
 import { fold, searchWords } from "../chat/search";
+import { SwitchOffLine } from "../../components/ProjectSwitchOff";
+import { useNightlyOff } from "./DocsHome";
 import { MinorMark, pageLink, useSpace } from "./parts";
 
 // Le note di rilascio dello spazio (shape docs.md §5; «Release notes» dal 28
@@ -26,6 +28,8 @@ export function DocReleases() {
   const [query, setQuery] = useState("");
   const [significant, setSignificant] = useState(false);
   const toggleId = useId();
+  // Area 9c: i Docs notturni spenti non promettono note «ogni notte».
+  const nightlyOff = useNightlyOff(project.id);
 
   const pages = useMemo(
     () => new Map((tree.data ?? []).flatMap((c) => leaves(c.nodes)).map((p) => [p.id, p])),
@@ -54,9 +58,20 @@ export function DocReleases() {
       </header>
 
       {all.length === 0 ? (
-        <p className="pt-8 text-md text-ink-muted">{t("docs.releases.empty")}</p>
+        <p className="pt-8 text-md text-ink-muted">
+          {nightlyOff
+            ? t("projectEffects.docs.noReleases", { code: project.code })
+            : t("docs.releases.empty")}
+        </p>
       ) : (
         <>
+          {nightlyOff && (
+            <div className="pt-4">
+              <SwitchOffLine projectCode={project.code} kind="docsNightly" size="xs">
+                {t("projectEffects.docs.releasesWritten")}
+              </SwitchOffLine>
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-4 pt-6 pb-3">
             <input
               type="search"

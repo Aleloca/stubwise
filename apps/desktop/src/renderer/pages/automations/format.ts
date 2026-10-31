@@ -213,6 +213,7 @@ function projectWords(step: Step, names: Names, t: TFunction): string | null {
   const p = step.project;
   if (p.mode === "from_client") return t("automations.steps.inClientProject");
   if (p.mode === "fixed") {
+    if (p.unavailable) return t("projectEffects.automations.inUnavailable");
     const prj = names.project(p.projectId);
     return prj
       ? t("automations.steps.inProject", { code: prj.code })

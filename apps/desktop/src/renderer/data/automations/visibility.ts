@@ -2,7 +2,7 @@ import type { ApprovalWho } from "../../domain/automations/preview";
 import { stepAt, visitSteps } from "../../domain/automations/fields";
 import { PEOPLE } from "../seed/people";
 import { copy, state, visibleProjectIds } from "../store";
-import type { Automation, AutomationFlow, AutomationRun, Step } from "../types";
+import type { Automation, AutomationFlow, AutomationRun, ProjectTarget, Step } from "../types";
 import { can, projectRoleOf, viewerFor } from "../viewer";
 
 // Chi vede e chi gestisce un'automazione — l'unica regola, per letture e
@@ -143,7 +143,7 @@ export function canSeeSources(me: string): boolean {
 
 // --- R-G5 dentro un flusso -------------------------------------------------------
 
-type FixedStep = Step & { project: { mode: "fixed"; projectId: string } };
+type FixedStep = Step & { project: Extract<ProjectTarget, { mode: "fixed" }> };
 
 function fixedSteps(flow: AutomationFlow): FixedStep[] {
   const out: FixedStep[] = [];
@@ -171,15 +171,21 @@ const seesAutomation = (me: string, id: string) => {
 };
 
 /**
- * Un flusso come lo legge `me`: un progetto fisso che non vede resta senza
- * id (`""`), come nel registro (R-J12), e così l'automazione che un passo
- * avvia, se non la vede (R-G5). L'interfaccia lo dice già («un progetto che
- * non vedi», «un'automazione»).
+ * Un flusso come lo legge `me`: un progetto fisso che non vede (archiviato,
+ * eliminato o di altri) resta senza id (`""`), come nel registro (R-J12), e
+ * col segno `unavailable` che il costruttore dice «A project that's no
+ * longer available» (area 9c, [PX 5]); così l'automazione che un passo
+ * avvia, se non la vede (R-G5). Un passo mai scelto (`""` senza segno)
+ * resta com'è.
  */
 export function flowFor(me: string, flow: AutomationFlow): AutomationFlow {
   const out = copy(flow);
   const visible = visibleProjectIds(me);
-  for (const s of fixedSteps(out)) if (!visible.has(s.project.projectId)) s.project.projectId = "";
+  for (const s of fixedSteps(out)) {
+    if (visible.has(s.project.projectId)) continue;
+    if (s.project.projectId === "" && !s.project.unavailable) continue;
+    s.project = { mode: "fixed", projectId: "", unavailable: true };
+  }
   for (const s of startSteps(out)) if (!seesAutomation(me, s.automationId)) s.automationId = "";
   return out;
 }
@@ -196,6 +202,9 @@ export function keepHiddenProjects(me: string, prev: AutomationFlow, next: Autom
   for (const s of fixedSteps(next)) {
     const old = before.get(s.id);
     if (s.project.projectId === "" && old && !visible.has(old)) s.project.projectId = old;
+    // Il segno di `flowFor` è della lettura: nello stato resta solo senza id
+    // (il progetto eliminato, `purge.ts`).
+    if (s.project.projectId !== "") delete s.project.unavailable;
   }
   const targets = new Map(startSteps(prev).map((s) => [s.id, s.automationId]));
   for (const s of startSteps(next)) {

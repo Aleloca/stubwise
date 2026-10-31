@@ -142,7 +142,7 @@ export async function startServerFix(
   const aiBlock = aiStartBlock(task.projectId);
   const c = openWorkConversationAs(me, {
     kind: "task_run",
-    ...runIdentity("fix_plan"),
+    ...runIdentity("fix_plan", task.projectId),
     title: `Fix ${server.code} · ${task.title}`,
     projectId: task.projectId,
     taskId: task.id,

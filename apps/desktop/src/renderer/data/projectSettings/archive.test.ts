@@ -356,6 +356,8 @@ describe("archiviare ACQ", () => {
     await idle();
     const run = state.automationRuns.find((r) => r.id === runId)!;
     expect(run.status).toBe("failed");
+    // Task 6 ([PX 5]): la ragione è il progetto non più disponibile, non un permesso perso.
+    expect(run.error).toBe("project_unavailable");
     expect(state.tasks.some((t) => t.title === "From the general one")).toBe(false);
     const mine = await automations.listMyRuns();
     expect(mine.find((r) => r.id === runId)?.concern).toBe("failed");
@@ -796,13 +798,15 @@ describe("Delete di RNC da Roberta", () => {
       found,
     );
     expect(found).toEqual([]);
-    // L'invito perde RNC e tiene il resto; il passo fisso resta senza progetto, non valido.
+    // L'invito perde RNC e tiene il resto; il passo fisso resta senza progetto,
+    // non valido, col segno che il costruttore dice (Task 6, [PX 5]).
     const invite = state.invites.find((i) => i.id === "inv-rnc-test")!;
     expect(invite.projects.map((p) => p.projectId)).toEqual([ACQ]);
     const flow = generalRow.versions.at(-1)!.flow;
     expect((flow.steps[0] as { project: unknown }).project).toEqual({
       mode: "fixed",
       projectId: "",
+      unavailable: true,
     });
     expect(configErrorsOf(generalRow, flow, ROBERTA).map((i) => i.code)).toContain("incomplete");
     expect(deletedProjects).toEqual([

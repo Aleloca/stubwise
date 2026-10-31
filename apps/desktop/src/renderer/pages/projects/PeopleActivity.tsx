@@ -6,6 +6,7 @@ import {
   useDailyReports,
   useDepartments,
   useGenerateDailyReport,
+  useProjectsSwitches,
   useLinkCommitAuthor,
   usePeople,
   usePeopleActivity,
@@ -238,7 +239,8 @@ function Arrow({ dir }: { dir: "left" | "right" }) {
   );
 }
 
-type ReportState = "ready" | "failed" | "missing" | "generating";
+/** `off`: non generato, col report giornaliero del progetto spento (area 9c): «off», non «not generated». */
+type ReportState = "ready" | "failed" | "missing" | "off" | "generating";
 
 /** Lo stato del report di un progetto e il modo di (ri)generarlo. */
 interface Reports {
@@ -250,7 +252,7 @@ interface Reports {
 }
 
 /** Il primo nell'ordine conta: chi guarda vede prima ciò che sta succedendo o va sistemato. */
-const REPORT_ORDER: ReportState[] = ["generating", "failed", "missing", "ready"];
+const REPORT_ORDER: ReportState[] = ["generating", "failed", "missing", "off", "ready"];
 
 const CATEGORIES = ["closed", "moved", "comments", "decisions", "requests", "commits"] as const;
 type Category = (typeof CATEGORIES)[number];
@@ -661,11 +663,19 @@ function ReportCell({
   projects: Map<string, Project>;
 }) {
   const { t } = useTranslation();
-  const states = projectIds.map((id) => reports.stateOf(id));
+  // Area 9c (domanda 3 (a)): col report giornaliero spento, un report non
+  // generato si legge «off»; «Generate report» a mano resta. Interruttori
+  // non ancora letti: lo stato di prima, mai «off» per sicurezza.
+  const switches = useProjectsSwitches(projectIds);
+  const stateOf = (id: string): ReportState => {
+    const s = reports.stateOf(id);
+    return s === "missing" && switches.get(id)?.dailyReport === false ? "off" : s;
+  };
+  const states = projectIds.map(stateOf);
   const state = REPORT_ORDER.find((s) => states.includes(s))!;
   const todo = projectIds.filter((id) => {
-    const s = reports.stateOf(id);
-    return s === "missing" || s === "failed";
+    const s = stateOf(id);
+    return s === "missing" || s === "failed" || s === "off";
   });
   const single = projectIds.length === 1 ? projects.get(projectIds[0]!) : undefined;
   // Un report pronto ma scritto prima degli ultimi commit del giorno: lo dice, e si rigenera.
@@ -683,11 +693,13 @@ function ReportCell({
       <span
         role={state === "generating" ? "status" : undefined}
         title={
-          !reports.canGenerate && state !== "ready" ? t("projects.people.report.who") : undefined
+          !reports.canGenerate && state !== "ready" && state !== "off"
+            ? t("projects.people.report.who")
+            : undefined
         }
         className={state === "failed" ? "text-critical" : "text-ink-muted"}
       >
-        {t(`projects.people.report.${state}`)}
+        {state === "off" ? t("projectEffects.report.off") : t(`projects.people.report.${state}`)}
       </span>
       {state === "ready" && single && (
         <Link
@@ -699,8 +711,13 @@ function ReportCell({
           {t("projects.people.report.open")}
         </Link>
       )}
-      {reports.canGenerate && (state === "missing" || state === "failed") && (
-        <button type="button" className={ghostButton} onClick={() => reports.generate(todo)}>
+      {reports.canGenerate && (state === "missing" || state === "failed" || state === "off") && (
+        <button
+          type="button"
+          className={ghostButton}
+          title={state === "off" ? t("projectEffects.report.generateTitle") : undefined}
+          onClick={() => reports.generate(todo)}
+        >
           {t(
             state === "failed" ? "projects.people.report.retry" : "projects.people.report.generate",
           )}

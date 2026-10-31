@@ -1,7 +1,14 @@
 import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { usePeople, useProject, useProjectDocsHome, useDocTree } from "../../data/queries";
+import {
+  usePeople,
+  useProject,
+  useProjectDocsHome,
+  useDocTree,
+  useProjectSwitches,
+} from "../../data/queries";
+import { SwitchOffLine } from "../../components/ProjectSwitchOff";
 import type { Project, ProjectDocsHome } from "../../data/types";
 import { can, useViewer } from "../../data/viewer";
 import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
@@ -235,6 +242,7 @@ function HomeColumn({
   home: ReturnType<typeof useProjectDocsHome>;
 }) {
   const { t } = useTranslation();
+  const nightlyOff = useNightlyOff(project.id);
   return (
     <section className="flex pb-12 pl-8">
       <div className="flex w-full max-w-[752px] flex-col pr-8">
@@ -243,6 +251,14 @@ function HomeColumn({
           {/* L'identità del brief nomina già il progetto: niente nome ripetuto davanti. */}
           {home.data?.identity && (
             <p className="max-w-[72ch] text-sm text-ink-muted">{home.data.identity}</p>
+          )}
+          {/* Area 9c: sotto la prosa della testata, sempre quando è spento. */}
+          {nightlyOff && (
+            <div className="max-w-[72ch] pt-1">
+              <SwitchOffLine projectCode={project.code} kind="docsNightly">
+                {t("projectEffects.docs.home", { code: project.code })}
+              </SwitchOffLine>
+            </div>
           )}
         </header>
         {home.isError ? (
@@ -257,8 +273,19 @@ function HomeColumn({
   );
 }
 
+/**
+ * I Docs notturni del progetto sono spenti (area 9c, Task 6): DocsHome e le
+ * note di rilascio non promettono niente «every night». Finché gli
+ * interruttori non sono letti, falso: mai «off» per sicurezza.
+ */
+export function useNightlyOff(projectId: string): boolean {
+  const switches = useProjectSwitches(projectId);
+  return switches.data ? !switches.data.docsNightly : false;
+}
+
 function HomeBody({ project, home }: { project: Project; home: ProjectDocsHome }) {
   const { t, i18n } = useTranslation();
+  const nightlyOff = useNightlyOff(project.id);
   const { viewer } = useViewer();
   const people = usePeople().data;
 
@@ -353,7 +380,9 @@ function HomeBody({ project, home }: { project: Project; home: ProjectDocsHome }
       <DocsGroup title={t("docs.groups.whatsNew")}>
         {home.whatsNew.length === 0 ? (
           <p className="border-t border-rule px-2 py-3 text-md text-ink-muted">
-            {t("docs.home.noReleases")}
+            {nightlyOff
+              ? t("projectEffects.docs.noReleases", { code: project.code })
+              : t("docs.home.noReleases")}
           </p>
         ) : (
           <ul aria-label={t("docs.groups.whatsNew")} className="border-t border-rule">

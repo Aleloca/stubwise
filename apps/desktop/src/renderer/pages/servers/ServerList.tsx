@@ -19,7 +19,7 @@ import { HealthGlyph, Sparkline } from "./glyphs";
 // any project» degli orfani (R-L7), qualunque sia la loro salute.
 
 /** Una riga del progetto, o di tutta l'istanza (coi progetti e `orphan`). */
-type Row = ServerRow & Partial<Pick<InstanceServerRow, "projects" | "orphan">>;
+type Row = ServerRow & Partial<Pick<InstanceServerRow, "projects" | "orphan" | "inArchivedOnly">>;
 
 type Group = "attention" | "fine" | "waiting" | "orphan";
 
@@ -98,7 +98,7 @@ function accessText(row: Row, t: T): string | null {
 
 /** I progetti in parole, per il nome accessibile: i codici, o «In projects you can't see». */
 function projectsText(row: Row, t: T): string | null {
-  if (!row.projects || row.orphan) return null;
+  if (!row.projects || row.orphan || row.inArchivedOnly) return null;
   if (row.projects.length === 0) return t("servers.hiddenProjects");
   return t("servers.projectsLabel", { codes: row.projects.map((p) => p.code).join(" ") });
 }
@@ -160,8 +160,9 @@ function ServerRowItem({ row, projectCode }: { row: Row; projectCode: string | n
   const { word, when } = healthParts(row.health, t, i18n.language);
   const where = whereLine(row, t);
   const diagnoses = diagnosesLine(row, projectCode, t);
-  // Dall'Amministrazione: la colonna dei progetti (non per gli orfani).
-  const projects = row.projects && !row.orphan ? row.projects : null;
+  // Dall'Amministrazione: la colonna dei progetti (non per gli orfani, vuota
+  // per un server dei soli progetti archiviati: la seconda riga lo dice).
+  const projects = row.projects && !row.orphan && !row.inArchivedOnly ? row.projects : null;
   const label = `${row.code} ${row.name}, ${healthSentence(row.health, t, i18n.language)}. ${secondLine(row, where, diagnoses, t)}`;
   const className =
     "flex min-h-14 flex-col justify-center gap-0.5 rounded-md px-3 py-2 transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 active:bg-ink/10";

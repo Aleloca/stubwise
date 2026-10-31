@@ -132,6 +132,22 @@ describe("Activity → By person", () => {
     expect(screen.queryByRole("button", { name: "Generate report" })).toBeNull();
   });
 
+  it("report giornaliero spento (area 9c): «off for this project», e «Generate report» resta", async () => {
+    state.projectSettings.get("prj-aud")!.switches.dailyReport = false;
+    await review("p-roberta");
+    const stefano = row("p-stefano"); // AUD, oggi: report non generato
+    await waitFor(() => expect(stefano).toHaveTextContent("Daily report: off for this project"));
+    expect(stefano).not.toHaveTextContent("not generated");
+    const generate = within(stefano).getByRole("button", { name: "Generate report" });
+    expect(generate).toHaveAttribute(
+      "title",
+      "Make today's report by hand. The nightly one stays off.",
+    );
+    await userEvent.click(generate);
+    // Un report fatto a mano si legge come oggi, anche con l'interruttore spento.
+    await waitFor(() => expect(row("p-stefano")).toHaveTextContent("Daily report: ready"));
+  });
+
   it("«Link a person» con users.manage: i commit passano sotto la persona", async () => {
     await review("p-roberta");
     const unlinked = screen.getByRole("list", { name: /Commits from unlinked authors/ });

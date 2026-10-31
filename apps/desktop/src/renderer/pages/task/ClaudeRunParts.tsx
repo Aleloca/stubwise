@@ -12,6 +12,8 @@ import { DisclosureGlyph } from "../claude/conversation/parts";
 import { ghostButton } from "./parts";
 import { modelName, phaseName, providerLabel } from "./WorkStory";
 
+export { SkillsInRun } from "./SkillsInRun";
+
 export { modelName };
 
 // I pezzi della sezione «Claude» che vengono dall'«AI activity» e dal
@@ -25,22 +27,43 @@ const K = "taskDetail.claude";
  * Sotto la riga di stato: con chi gira la sessione, per nome. Le sessioni
  * nate dall'area 9b dicono anche il modello con cui sono partite (shape
  * instance-effects [EF 3]): «Model: Haiku · Account: Backup Max
- * (subscription)»; un cambio successivo in Models non le riscrive.
+ * (subscription)»; un cambio successivo in Models non le riscrive. Dal 9c
+ * ([PX 3]): una sessione nata senza account perché il progetto usa solo un
+ * account al limite lo dice («No account free: AUD uses only Backup Max»),
+ * da `requiredProvider` scritto alla nascita, in `ink-muted` (non un errore).
  */
 export function ProviderLine({
   provider,
   model = null,
+  required = null,
+  projectCode = null,
 }: {
   provider: RunProvider | null;
   model?: string | null;
+  required?: { name: string } | null;
+  projectCode?: string | null;
 }) {
   const { t } = useTranslation();
-  if (!provider && model === null) return null;
+  if (!provider && model === null && !required) return null;
+  const exclusive = exclusiveOf(provider, required, projectCode);
   return (
-    <p data-run-provider className="-mt-2 pl-[34px] text-xs text-ink-faint">
-      {runLineText(t, provider, model)}
+    <p
+      data-run-provider
+      title={exclusive ? t("projectEffects.run.exclusiveTitle", { code: exclusive.code }) : undefined}
+      className={`-mt-2 pl-[34px] text-xs ${exclusive ? "text-ink-muted" : "text-ink-faint"}`}
+    >
+      {runLineText(t, provider, model, exclusive)}
     </p>
   );
+}
+
+/** L'esclusività da dire: solo senza account, con l'account esclusivo scritto alla nascita. */
+export function exclusiveOf(
+  provider: RunProvider | null,
+  required: { name: string } | null | undefined,
+  projectCode: string | null | undefined,
+): { name: string; code: string } | null {
+  return !provider && required && projectCode ? { name: required.name, code: projectCode } : null;
 }
 
 /**
@@ -48,13 +71,21 @@ export function ProviderLine({
  * Backup Max (subscription)»; senza modello, la sola metà dell'account,
  * con lo stesso tipo («Account: Team Max (subscription)», Impeccable 2).
  * La usano la sezione Claude della task e la testata della pagina della
- * sessione.
+ * sessione. Senza account per l'esclusività del progetto (area 9c): «Model:
+ * Sonnet · No account free: AUD uses only Backup Max».
  */
 export function runLineText(
   t: TFunction,
   provider: RunProvider | null,
   model: string | null,
+  exclusive: { name: string; code: string } | null = null,
 ): string {
+  if (exclusive) {
+    const missing = t("projectEffects.run.noAccountFree", exclusive);
+    return model === null
+      ? missing
+      : t("projectEffects.run.lineNoAccount", { model: modelName(model), missing });
+  }
   if (model === null) {
     return provider
       ? t("instanceEffects.run.accountOnly", { account: providerLabel(t, provider) })

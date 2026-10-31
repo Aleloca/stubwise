@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { setLanguage } from "../../i18n";
@@ -629,5 +629,110 @@ describe("sezione Claude: le impostazioni d'istanza (area 9b, shape instance-eff
         "Model: Haiku · Account: Team Max (subscription)",
       ),
     );
+  });
+});
+
+describe("sezione Claude: le impostazioni di progetto (area 9c, shape project-effects)", () => {
+  const readyTask = (projectId: string) => {
+    const t = state.tasks.find(
+      (x) => x.projectId === projectId && x.claude === "none" && x.closedAt === null,
+    )!;
+    t.assigneeId = CLAUDE;
+    return t;
+  };
+  const providerLine = () => current().querySelector<HTMLElement>("[data-run-provider]");
+  const limitBackupMax = () => {
+    const p = state.instance.providers.find((x) => x.id === "prv-backup-max")!;
+    p.quota = { ...p.quota!, limitedUntil: "2099-01-01T00:00:00Z" };
+  };
+  async function start(taskId: string, me: string) {
+    // Il modello della pianificazione come negli esempi dello shape.
+    state.instance.models.fix_plan = "sonnet";
+    const section = await claudeSection(taskId, me);
+    await userEvent.click(within(section).getByRole("button", { name: "Start" }));
+    await waitFor(() => expect(providerLine()).not.toBeNull());
+    return section;
+  }
+
+  it("AUD, «Start»: la sezione dice l'account del progetto, Backup Max", async () => {
+    await start(readyTask("prj-aud").id, "p-laura");
+    expect(providerLine()).toHaveTextContent("Model: Sonnet · Account: Backup Max (subscription)");
+  });
+
+  it("Backup Max al limite e «Use only this account»: «No account free: AUD uses only Backup Max», anche dopo aver tolto l'esclusività", async () => {
+    limitBackupMax();
+    const t = readyTask("prj-aud");
+    await start(t.id, "p-laura");
+    expect(providerLine()).toHaveTextContent(
+      "Model: Sonnet · No account free: AUD uses only Backup Max",
+    );
+    expect(providerLine()).toHaveAttribute("title", "It's set in AUD's Settings → AI.");
+    // Il colore non è quello di un errore: uno spento per scelta non è un guasto.
+    expect(providerLine()!.className).not.toMatch(/critical/);
+    // Tolta l'esclusività, la sessione nata prima la dice ancora (`requiredProvider`, P16).
+    state.projectSettings.get("prj-aud")!.aiProviderExclusive = false;
+    cleanup();
+    await claudeSection(t.id, "p-laura");
+    expect(providerLine()).toHaveTextContent("No account free: AUD uses only Backup Max");
+  });
+
+  it("«Skills in this run»: chiusa, l'elenco della nascita; la testata della sessione e la storia lo dicono", async () => {
+    const plugins = state.projectSettings.get("prj-stw")!.plugins;
+    const first = readyTask("prj-stw");
+    await start(first.id, "p-roberta");
+    const skills = () => within(current()).getByRole("button", { name: /Skills in this run/ });
+    expect(skills()).toHaveAttribute("aria-expanded", "false");
+    expect(skills()).toHaveTextContent("Skills in this run12");
+    await userEvent.click(skills());
+    const list = within(current()).getByRole("list", { name: "Skills in this run" });
+    expect(list).toHaveTextContent("stubwise · stubwise, init, start");
+    expect(list).toHaveTextContent(/brainstorming/);
+
+    // Spenta `brainstorming`: una sessione nuova non la elenca, quella di prima sì.
+    plugins.disabled = [{ plugin: "superpowers", skills: ["brainstorming"], hookGroups: [] }];
+    cleanup();
+    const second = state.tasks.find(
+      (x) =>
+        x.projectId === "prj-stw" && x.claude === "none" && x.closedAt === null && x.id !== first.id,
+    )!;
+    second.assigneeId = CLAUDE;
+    await start(second.id, "p-roberta");
+    expect(skills()).toHaveTextContent("Skills in this run11");
+    await userEvent.click(skills());
+    expect(within(current()).getByRole("list", { name: "Skills in this run" })).not.toHaveTextContent(
+      /brainstorming/,
+    );
+    cleanup();
+    await claudeSection(first.id, "p-roberta");
+    await userEvent.click(skills());
+    expect(within(current()).getByRole("list", { name: "Skills in this run" })).toHaveTextContent(
+      /brainstorming/,
+    );
+
+    // La stessa riga nella storia del lavoro…
+    await userEvent.click(within(current()).getByRole("button", { name: /Work story/ }));
+    const story = within(current()).getByRole("list", { name: "Work story" });
+    expect(within(story).getByRole("button", { name: /Skills in this run/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+
+    // …e nella testata della pagina della sessione.
+    cleanup();
+    const session = state.conversations.find((c) => c.taskId === first.id)!;
+    renderRoute(`/claude/${session.id}`, "p-roberta");
+    const header = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>("[data-session-run]");
+      expect(el).not.toBeNull();
+      return el!.parentElement!;
+    });
+    expect(within(header).getByRole("button", { name: /Skills in this run/ })).toHaveTextContent(
+      "12",
+    );
+  });
+
+  it("una sessione nata prima del 9c (senza skills) non ha la riga", async () => {
+    const section = await claudeSection("t-stw-7", "p-laura");
+    expect(within(section).queryByRole("button", { name: /Skills in this run/ })).toBeNull();
   });
 });

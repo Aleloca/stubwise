@@ -1,7 +1,7 @@
 import { useSearch } from "@tanstack/react-router";
 import { useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { useProject, useProjectPulse } from "../../data/queries";
+import { useProject, useProjectPulse, useProjectSwitches } from "../../data/queries";
 import { useTaskKeys } from "../tasks/useTaskKeys";
 import { useOpenTask } from "../home/blocks/BlockSection";
 import { DecisionLog } from "./DecisionLog";
@@ -28,7 +28,12 @@ export function OverviewPage({ projectCode }: { projectCode: string }) {
   const openTask = useOpenTask();
   useTaskKeys({ body, openCode: search.task, onOpen: openTask });
 
-  const parts = project && pulse.data ? pulseParts(pulse.data, t, i18n.language) : null;
+  // Area 9c: il pulse spento si dice in coda alla riga quieta; finché gli
+  // interruttori non sono letti non si dice niente (mai «off» per sicurezza).
+  const switches = useProjectSwitches(project?.id ?? "");
+  const proposalsOff = switches.data ? !switches.data.pulse : false;
+  const parts =
+    project && pulse.data ? pulseParts(pulse.data, t, i18n.language, { proposalsOff }) : null;
 
   return (
     <section className="flex min-h-full flex-col pb-16 pl-8">

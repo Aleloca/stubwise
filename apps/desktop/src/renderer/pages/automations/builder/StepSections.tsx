@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { availableFields } from "../../../domain/automations/fields";
 import { usePeople, useProjects } from "../../../data/queries";
@@ -17,6 +18,7 @@ export function WhereSection({ step, path, set, problems }: FormProps) {
   const b = useBuilder();
   const perms = useAutomationPerms();
   const projects = useProjects().data ?? [];
+  const projectSelect = useRef<HTMLSelectElement>(null);
   const target = (step as { project: ProjectTarget }).project;
   const own = b.automation.projectId;
   const ownCode = b.names.project(own)?.code;
@@ -106,9 +108,31 @@ export function WhereSection({ step, path, set, problems }: FormProps) {
           onSelect={() => choose("fixed")}
           disabled={b.readOnly}
         >
+          {target.mode === "fixed" && target.unavailable && (
+            // Area 9c ([PX 5]): archiviato, eliminato o invisibile si leggono
+            // allo stesso modo, senza codice; il livello dati lo segna (`flowFor`).
+            <p data-project-unavailable className="text-sm text-ink">
+              {t("projectEffects.automations.unavailable")}
+              {!b.readOnly && (
+                <span className="whitespace-nowrap">
+                  <span aria-hidden="true" className="px-1.5 text-ink-faint">
+                    ·
+                  </span>
+                  <button
+                    type="button"
+                    className="rounded-sm text-ink underline decoration-ink/30 underline-offset-4 transition-colors duration-[var(--duration-fast)] ease-out hover:decoration-ink"
+                    onClick={() => projectSelect.current?.focus()}
+                  >
+                    {t("projectEffects.automations.chooseAnother")}
+                  </button>
+                </span>
+              )}
+            </p>
+          )}
           {target.mode === "fixed" && (
             <Field label={t("automations.builder.where.project")} required>
               <select
+                ref={projectSelect}
                 aria-label={t("automations.builder.where.project")}
                 aria-describedby={fixed.describedBy}
                 aria-invalid={fixed.invalid || undefined}

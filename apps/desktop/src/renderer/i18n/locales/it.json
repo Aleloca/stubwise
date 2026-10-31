@@ -5508,7 +5508,8 @@
       "unavailable": "non è disponibile",
       "internal_error": "un errore interno",
       "rejected": "rifiutata",
-      "cancelled": "annullata"
+      "cancelled": "annullata",
+      "project_unavailable": "il progetto non è più disponibile"
     },
     "reasons": {
       "other": "Qualcosa è andato storto.",
@@ -5568,7 +5569,9 @@
       "aiBudgetBack": "Budget di nuovo disponibile · il passo riparte",
       "aiQueueBack": "Coda ripresa · il passo riparte",
       "aiBudgetBackStillQueue": "Budget di nuovo disponibile · ancora in attesa: coda in pausa da {{name}}",
-      "aiQueueBackStillBudget": "Coda ripresa · ancora in attesa: budget AI del mese raggiunto"
+      "aiQueueBackStillBudget": "Coda ripresa · ancora in attesa: budget AI del mese raggiunto",
+      "projectUnavailable": "Il progetto non è più disponibile.",
+      "projectUnavailable_would": "Il progetto non è più disponibile: il passo fallirebbe."
     },
     "created": {
       "task_one": "{{count}} task",
@@ -10345,5 +10348,39 @@
     "started": "Claude è partito su {{code}}.",
     "pulse": "Claude in attesa: coda in pausa",
     "pulseBudget": "Claude in attesa: budget AI"
+  },
+  "projectEffects": {
+    "settingsLink": "Impostazioni → Automazioni",
+    "brief": {
+      "off": "Il brief settimanale è spento per {{code}}.",
+      "offWritten": "Il brief settimanale è spento: non ne arrivano di nuovi. Questo resta leggibile."
+    },
+    "docs": {
+      "home": "L'aggiornamento notturno è spento per {{code}}: le pagine non cambiano con i commit nuovi, e non si scrivono note di rilascio.",
+      "noReleases": "Nessuna nota di rilascio: per {{code}} l'aggiornamento notturno è spento.",
+      "releasesWritten": "L'aggiornamento notturno è spento: non si scrivono note nuove."
+    },
+    "pulse": {
+      "proposalsOff": "le proposte per ripartire sono spente"
+    },
+    "report": {
+      "off": "Report giornaliero: spento per questo progetto",
+      "generateTitle": "Fai il report di oggi a mano. Quello notturno resta spento."
+    },
+    "run": {
+      "noAccountFree": "Nessun account libero: {{code}} usa solo {{name}}",
+      "exclusiveTitle": "Si imposta in Impostazioni → AI di {{code}}.",
+      "skills": "Skill di questa esecuzione",
+      "lineNoAccount": "Modello: {{model}} · {{missing}}"
+    },
+    "servers": {
+      "archivedOnly": "Solo in progetti archiviati"
+    },
+    "automations": {
+      "unavailable": "Un progetto che non è più disponibile",
+      "chooseAnother": "Scegli un altro progetto",
+      "inUnavailable": "in un progetto che non è più disponibile",
+      "stepNotDone": "Passo {{n}} non fatto: il progetto non è più disponibile."
+    }
   }
 }

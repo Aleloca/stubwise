@@ -22,9 +22,11 @@ import { now, reindex, state } from "../store";
 //   non si vede (scelta del controller);
 // Nelle righe che restano il progetto si toglie anche dove è annidato: un
 // invito in sospeso perde il progetto che prometteva; il passo «progetto
-// fisso» di un'automazione (generale) resta senza progetto (`projectId: ""`),
-// quindi è un errore di configurazione («Manca il progetto») e, se gira,
-// trova `not_found` come su un archiviato o un invisibile ([PX 5]).
+// fisso» di un'automazione (generale) resta senza progetto (`projectId: ""`,
+// col segno `unavailable` che il costruttore dice «A project that's no longer
+// available»), quindi è un errore di configurazione («Manca il progetto») e,
+// se gira, il passo non si fa con la ragione del progetto non più
+// disponibile, come su un archiviato ([PX 5], Task 6).
 // Tutti i segreti del progetto (valori d'ambiente, secret dei webhook, chiave
 // d'ingestione) si tolgono dal caveau.
 //
@@ -163,8 +165,14 @@ export function purgeProject(project: Project, me: string): number {
   for (const a of state.automations)
     for (const v of a.versions)
       visitSteps(v.flow.steps, (step) => {
-        const target = (step as { project?: { mode: string; projectId?: string } }).project;
-        if (target?.mode === "fixed" && target.projectId === id) target.projectId = "";
+        const target = (
+          step as { project?: { mode: string; projectId?: string; unavailable?: true } }
+        ).project;
+        if (target?.mode === "fixed" && target.projectId === id) {
+          // Senza id, e col segno che il costruttore legge ([PX 5]).
+          target.projectId = "";
+          target.unavailable = true;
+        }
       });
   for (const f of state.filters)
     if (f.criteria.projectIds)

@@ -65,6 +65,9 @@ describe("parità delle chiavi en/it", () => {
         // Area 9b, Task 6: le frasi dei blocchi d'istanza nelle altre aree
         // (budget, coda in pausa, caricamenti spenti, modello e account).
         "instanceEffects",
+        // Area 9c, Task 6: gli effetti delle impostazioni di progetto nelle
+        // altre aree (brief, Docs notturni, pulse, report, account, skill).
+        "projectEffects",
       ].sort(),
     );
   });

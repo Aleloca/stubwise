@@ -108,6 +108,8 @@ function Row({
             </p>
             {entry.why &&
               entry.kind !== "claude" &&
+              // La frase del progetto non disponibile è già la riga intera.
+              entry.why.code !== "projectUnavailable" &&
               (entry.outcome === "failed" ||
                 entry.outcome === "skipped" ||
                 entry.outcome === "limit") && (

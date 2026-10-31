@@ -46,7 +46,7 @@ import { useServerFixPlan } from "../claude/conversation/serverFixPlan";
 import { MenuButton } from "../tasks/controls";
 import { useInlineUpdate, useProjectMembers } from "../tasks/pickers";
 import { MoreIcon, Section, ghostButton, smallPrimary, smallSecondary } from "./parts";
-import { FailureBlock, PrRows, ProviderLine, UsageDisclosure } from "./ClaudeRunParts";
+import { FailureBlock, PrRows, ProviderLine, SkillsInRun, UsageDisclosure } from "./ClaudeRunParts";
 import { FixCommandLog } from "./FixCommandLog";
 import { WorkStory, phaseName } from "./WorkStory";
 
@@ -695,7 +695,14 @@ function WithRun({
         working={working}
         waiting={work.waitsOnViewer}
       />
-      <ProviderLine provider={run.provider} model={run.model} />
+      <ProviderLine
+        provider={run.provider}
+        model={run.model}
+        required={run.requiredProvider}
+        projectCode={code || null}
+      />
+      {/* Area 9c ([PX 4]): l'elenco scritto alla nascita, chiuso di base. */}
+      <SkillsInRun skills={run.skills} className="-mt-1 pl-[34px]" />
       {/* Sempre in pagina: un'area `aria-live` annuncia solo ciò che cambia dopo. */}
       <p data-claude-started aria-live="polite" className="sr-only">
         {started ? t("instanceEffects.started", { code: task.code }) : ""}
@@ -835,7 +842,7 @@ function WithRun({
         />
       )}
 
-      <WorkStory entries={story} />
+      <WorkStory entries={story} projectCode={code || null} />
       <UsageDisclosure usage={work.usage} />
     </Section>
   );

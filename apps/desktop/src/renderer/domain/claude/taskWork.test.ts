@@ -34,6 +34,8 @@ const run = (id: string, over: Partial<TaskRun>, events: ConversationEvent[]): T
   waiting: null,
   queued: null,
   executionModel: null,
+  requiredProvider: null,
+  skills: null,
   ...over,
 });
 

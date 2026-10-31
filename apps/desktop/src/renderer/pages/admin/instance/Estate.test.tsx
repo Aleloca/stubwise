@@ -87,6 +87,20 @@ describe("Servers dell'istanza", () => {
     expect(within(row("SRV-2")).getByRole("link")).toHaveAttribute("href", "/admin/servers/SRV-2");
   });
 
+  it("SRV-5, solo in RNC archiviato: «Only in archived projects», senza nomi (area 9c)", async () => {
+    renderRoute("/admin/servers", ROBERTA);
+    await heading("Servers");
+    await waitFor(() => expect(row("SRV-5")).not.toBeNull());
+    expect(row("SRV-5")).toHaveTextContent("Only in archived projects");
+    expect(row("SRV-5")).not.toHaveTextContent(/RNC|Ronchi/);
+    expect(row("SRV-5")).not.toHaveTextContent("In projects you can't see");
+    expect(within(row("SRV-5")).getByRole("link")).toHaveAccessibleName(
+      /Only in archived projects/,
+    );
+    // Un server di progetti aperti non lo dice.
+    expect(row("SRV-2")).not.toHaveTextContent("Only in archived projects");
+  });
+
   it("più di 4 progetti: i primi 4 e «+N», col nome di ognuno nel title", async () => {
     // SRV-4 entra negli ambienti di altri cinque progetti.
     const others = state.projects.filter((p) => p.id !== "prj-aud").slice(0, 5);

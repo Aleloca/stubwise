@@ -1,11 +1,14 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, cleanup, renderHook, screen, waitFor, within } from "@testing-library/react";
+import type { ReactNode } from "react";
 import userEvent from "@testing-library/user-event";
 import i18n from "i18next";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failNext, resetApi, setLatency } from "../../data/api";
 import { state } from "../../data/store";
 import type { ProjectPulse } from "../../data/types";
-import { resetViewerGrants } from "../../data/viewer";
+import { useProjectSwitches, useSaveProjectAutomations } from "../../data/queries";
+import { ViewerProvider, resetViewerGrants } from "../../data/viewer";
 import { renderRoute } from "../../test/renderRoute";
 import { pulseLine } from "./pulseLine";
 
@@ -421,5 +424,102 @@ describe("pulseLine", () => {
 
   it("un progetto quieto ha una frase sola", () => {
     expect(pulseLine(base, t, "en")).toBe("Nothing waiting, nothing stalled");
+  });
+
+  it("pulse spento (area 9c): solo in coda alla riga quieta; con altro nel polso, niente", () => {
+    expect(pulseLine(base, t, "en", { proposalsOff: true })).toBe(
+      "Nothing waiting, nothing stalled · restart proposals are off",
+    );
+    expect(pulseLine({ ...base, stalled: 2 }, t, "en", { proposalsOff: true })).toBe("2 stalled");
+    expect(pulseLine(base, t, "en", { proposalsOff: false })).toBe(
+      "Nothing waiting, nothing stalled",
+    );
+  });
+});
+
+describe("OverviewPage — impostazioni di progetto spente (area 9c, Task 6)", () => {
+  const card = () => document.querySelector<HTMLElement>("[data-brief-card]")!;
+  const line = () => document.querySelector<HTMLElement>("[data-pulse-line]")!;
+  /** Il progetto senza task né traguardi: la riga del polso è quella quieta. */
+  const quiet = (projectId: string) => {
+    for (const task of state.tasks.filter((x) => x.projectId === projectId))
+      state.tasksById.delete(task.id);
+    state.tasks = state.tasks.filter((x) => x.projectId !== projectId);
+    state.milestones = state.milestones.filter((m) => m.projectId !== projectId);
+    state.projectsById.get(projectId)!.signals.claudeWorking = false;
+  };
+
+  it("brief acceso (STW): niente «off»; MKX spento lo dice sotto il brief scritto", async () => {
+    await overview("STW", "p-giulia");
+    await waitFor(() => expect(card()).toHaveTextContent("Generated text"));
+    expect(card().querySelector("[data-switch-off]")).toBeNull();
+    cleanup();
+    await overview("MKX", "p-giulia");
+    await waitFor(() =>
+      expect(card()).toHaveTextContent(
+        "The weekly brief is off: no new ones arrive. This one stays readable. Settings → Automations",
+      ),
+    );
+    // Il brief già scritto resta leggibile.
+    expect(within(card()).getByRole("button", { name: "Read the brief" })).toBeInTheDocument();
+    expect(within(card()).getByRole("link", { name: "Settings → Automations" })).toHaveAttribute(
+      "href",
+      "/p/MKX/settings/automations",
+    );
+  });
+
+  it("brief spento e nessun brief: la frase al posto di «The first one arrives on Monday»", async () => {
+    state.projectSettings.get("prj-glt")!.switches.weeklyBrief = false;
+    await overview("GLT", "p-giulia");
+    await waitFor(() =>
+      expect(card()).toHaveTextContent("The weekly brief is off for GLT. Settings → Automations"),
+    );
+    expect(card()).not.toHaveTextContent("The first one arrives on Monday");
+  });
+
+  it("pulse spento su CBV: la riga quieta lo dice; riacceso no", async () => {
+    quiet("prj-cbv");
+    await overview("CBV", "p-roberta");
+    await waitFor(() =>
+      // I punti mediani sono spaziati dal padding, non da spazi nel testo.
+      expect(line()).toHaveTextContent(
+        "Nothing waiting, nothing stalled·restart proposals are off",
+      ),
+    );
+    expect(within(line()).getByRole("link", { name: /restart proposals are off/ })).toHaveAttribute(
+      "href",
+      "/p/CBV/settings/automations",
+    );
+    cleanup();
+    state.projectSettings.get("prj-cbv")!.switches.pulse = true;
+    await overview("CBV", "p-roberta");
+    await waitFor(() => expect(line()).toHaveTextContent("Nothing waiting, nothing stalled"));
+    expect(line()).not.toHaveTextContent("restart proposals");
+  });
+});
+
+describe("useProjectSwitches — senza ricaricare la pagina", () => {
+  it("dopo useSaveProjectAutomations il brief di STW si legge spento", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>
+        <ViewerProvider initialPersonId="p-roberta">{children}</ViewerProvider>
+      </QueryClientProvider>
+    );
+    const { result } = renderHook(
+      () => ({ sw: useProjectSwitches("prj-stw"), save: useSaveProjectAutomations() }),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.sw.data?.weeklyBrief).toBe(true));
+    const s = state.projectSettings.get("prj-stw")!;
+    await act(() =>
+      result.current.save.mutateAsync({
+        projectId: "prj-stw",
+        switches: { ...s.switches, weeklyBrief: false },
+        pulseEveryDays: s.pulseEveryDays,
+        correctionCap: 3,
+      }),
+    );
+    await waitFor(() => expect(result.current.sw.data?.weeklyBrief).toBe(false));
   });
 });

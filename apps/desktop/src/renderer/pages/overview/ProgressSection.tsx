@@ -106,7 +106,7 @@ export function ProgressSection({
             {recent}
           </TasksLink>
         </div>
-        <BriefCard projectId={projectId} />
+        <BriefCard projectId={projectId} projectCode={projectCode} />
       </BlockSection>
       {managing && (
         <MilestonesDialog

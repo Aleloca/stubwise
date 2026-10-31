@@ -751,6 +751,20 @@ export interface Conversation {
   queued?: { resumedById: string | null; resumedAt: string | null };
   /** Area 9b: il modello di `fix_execute` quando l'esecuzione è partita (la storia lo dice se è diverso). */
   executionModel?: string;
+  /**
+   * Area 9c: l'account che il progetto usa in esclusiva («Use only this
+   * account»), scritto alla nascita della sessione; `null` (o assente)
+   * senza esclusività. Con `provider: null` dice perché la sessione non ha
+   * un account («No account free: AUD uses only Backup Max»): un cambio
+   * successivo in Settings → AI non lo riscrive.
+   */
+  requiredProvider?: { name: string } | null;
+  /**
+   * Area 9c: le skill che entrano nella sessione (`skillsForRun` del suo
+   * progetto alla nascita), nell'ordine. Un cambio successivo in Settings →
+   * Plugins non le riscrive; assente sulle sessioni nate prima del 9c.
+   */
+  skills?: { plugin: string; skill: string }[];
   /** Solo sessione di lavoro: i consumi per modello. */
   usage?: ModelUsage[];
   /** Solo sessione di lavoro fallita: il riassunto del fallimento, in una riga. */
@@ -2375,7 +2389,17 @@ export type Approval =
 /** Il progetto del passo: quello dell'automazione, uno fisso, o dal cliente (tabella cliente → progetto). */
 export type ProjectTarget =
   | { mode: "own" }
-  | { mode: "fixed"; projectId: string }
+  | {
+      mode: "fixed";
+      projectId: string;
+      /**
+       * Area 9c ([PX 5]): il progetto scelto non è più disponibile — eliminato
+       * (lo scrive `purge.ts`, senza id) o, a lettura, archiviato o invisibile
+       * a chi legge (`flowFor`, senza id). Il costruttore lo dice («A project
+       * that's no longer available»); scegliendo un altro progetto sparisce.
+       */
+      unavailable?: true;
+    }
   | { mode: "from_client"; clientRef: string };
 
 /**

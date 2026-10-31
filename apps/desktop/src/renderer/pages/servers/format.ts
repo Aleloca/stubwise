@@ -166,12 +166,17 @@ export function environmentsLine(
  * see» per un server dei soli progetti invisibili (R-G5, senza numero).
  */
 export function whereLine(
-  row: Pick<ServerRow, "environments" | "primaryProjectCode"> & { orphan?: boolean },
+  row: Pick<ServerRow, "environments" | "primaryProjectCode"> & {
+    orphan?: boolean;
+    inArchivedOnly?: boolean;
+  },
   t: TFunction,
 ): string {
   const envs = environmentsLine(row, t);
   if (envs) return envs;
   if (row.orphan) return t("servers.noProject");
+  // Area 9c: solo ambienti di progetti archiviati, senza nomi né numeri.
+  if (row.inArchivedOnly) return t("projectEffects.servers.archivedOnly");
   return row.orphan === false ? t("servers.hiddenProjects") : "";
 }
 

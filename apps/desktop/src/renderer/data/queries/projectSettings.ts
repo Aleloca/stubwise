@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import * as api from "../api";
 import { PROJECT_AREAS, useSessionPersonId, useWrite } from "../queries";
 
@@ -52,6 +52,32 @@ export function useProjectSettings(projectId: string) {
   return useQuery({
     queryKey: ["as", me, "projectSettings", "settings", projectId] as const,
     queryFn: () => api.projectSettings.getProjectSettings(projectId),
+  });
+}
+
+/**
+ * Gli interruttori del progetto (Task 6): le frasi «off» di brief, Docs
+ * notturni, pulse e report. Stessa area delle impostazioni: un salvataggio
+ * in Automations la ricarica, senza ricaricare la pagina.
+ */
+export function useProjectSwitches(projectId: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "projectSettings", "switches", projectId] as const,
+    queryFn: () => api.projectSettings.getProjectSwitches(projectId),
+  });
+}
+
+/** Gli interruttori di più progetti (le righe del report in Activity), per id. */
+export function useProjectsSwitches(projectIds: readonly string[]) {
+  const me = useSessionPersonId();
+  return useQueries({
+    queries: projectIds.map((projectId) => ({
+      queryKey: ["as", me, "projectSettings", "switches", projectId] as const,
+      queryFn: () => api.projectSettings.getProjectSwitches(projectId),
+    })),
+    combine: (results) =>
+      new Map(projectIds.map((id, i) => [id, results[i]?.data ?? undefined] as const)),
   });
 }
 

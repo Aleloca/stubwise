@@ -12,7 +12,17 @@ import { formatDue } from "../../tasks-ui/TaskRow";
  * chi ha poco spazio li accorcia dalla coda — il traguardo cade per primo,
  * «3 stalled» resta. Un progetto senza nulla da dire ha un pezzo solo, quieto.
  */
-export function pulseParts(pulse: ProjectPulse, t: TFunction, language: string): PulsePart[] {
+export function pulseParts(
+  pulse: ProjectPulse,
+  t: TFunction,
+  language: string,
+  /**
+   * Area 9c ([PX 2]): il pulse del progetto è spento (`useProjectSwitches`).
+   * Si dice solo in coda alla riga quieta, dove si sarebbe promesso il
+   * contrario; con altro nel polso no. Solo l'Overview lo passa.
+   */
+  { proposalsOff = false }: { proposalsOff?: boolean } = {},
+): PulsePart[] {
   const parts: PulsePart[] = [];
   if (pulse.waitingOnMe) parts.push({ kind: "waiting", text: t("overview.pulse.waitingOnYou") });
   if (pulse.claudeWorking) parts.push({ kind: "claude", text: t("overview.pulse.claudeWorking") });
@@ -42,7 +52,10 @@ export function pulseParts(pulse: ProjectPulse, t: TFunction, language: string):
         : t("overview.pulse.next", { name: next.name }),
     });
   }
-  if (parts.length === 0) parts.push({ kind: "quiet", text: t("overview.pulse.quiet") });
+  if (parts.length === 0) {
+    parts.push({ kind: "quiet", text: t("overview.pulse.quiet") });
+    if (proposalsOff) parts.push({ kind: "pulseOff", text: t("projectEffects.pulse.proposalsOff") });
+  }
   return parts;
 }
 
@@ -51,13 +64,18 @@ export function pulseParts(pulse: ProjectPulse, t: TFunction, language: string):
  * link (le ferme aprono le Tasks filtrate) senza rileggere il testo.
  */
 export interface PulsePart {
-  kind: "waiting" | "claude" | "stalled" | "next" | "quiet";
+  kind: "waiting" | "claude" | "stalled" | "next" | "quiet" | "pulseOff";
   text: string;
 }
 
 /** I pezzi uniti dal punto mediano: la riga intera. */
-export function pulseLine(pulse: ProjectPulse, t: TFunction, language: string): string {
-  return pulseParts(pulse, t, language)
+export function pulseLine(
+  pulse: ProjectPulse,
+  t: TFunction,
+  language: string,
+  opts?: { proposalsOff?: boolean },
+): string {
+  return pulseParts(pulse, t, language, opts)
     .map((p) => p.text)
     .join(" · ");
 }

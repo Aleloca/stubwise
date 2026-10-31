@@ -698,6 +698,8 @@ export async function getTaskWork(taskId: string): Promise<TaskWork | null> {
       waiting: c.waiting ? copy(c.waiting) : null,
       queued: c.queued ? copy(c.queued) : null,
       executionModel: c.executionModel ?? null,
+      requiredProvider: c.requiredProvider ? copy(c.requiredProvider) : null,
+      skills: c.skills ? copy(c.skills) : null,
     }));
   const software = hasRepository(task.projectId);
   const viewer = viewerFor(me);

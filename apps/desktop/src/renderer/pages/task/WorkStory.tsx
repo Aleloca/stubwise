@@ -5,6 +5,7 @@ import { usePeople } from "../../data/queries";
 import type { Person, RunProvider } from "../../data/types";
 import type { StoryEntry } from "../../domain/claude/taskWork";
 import { DisclosureGlyph, clock } from "../claude/conversation/parts";
+import { SkillsInRun } from "./SkillsInRun";
 
 /** Il nome di una fase come la dice la conversazione («Execution», «Correction»). */
 export function phaseName(t: TFunction, phase: string | null): string {
@@ -28,7 +29,12 @@ export function providerLabel(t: TFunction, provider: RunProvider): string {
   return t(`instanceEffects.run.${kind}`, { name: provider.name });
 }
 
-function line(t: TFunction, entry: StoryEntry, name: (id: string | null) => string): string {
+function line(
+  t: TFunction,
+  entry: StoryEntry,
+  name: (id: string | null) => string,
+  projectCode: string | null,
+): string {
   const s = "taskDetail.claude.story";
   switch (entry.kind) {
     case "run_started":
@@ -37,7 +43,15 @@ function line(t: TFunction, entry: StoryEntry, name: (id: string | null) => stri
       return [
         t(`${s}.run_started`, { name: name(entry.byId) }),
         entry.model ? modelName(entry.model) : null,
-        entry.provider ? providerLabel(t, entry.provider) : null,
+        entry.provider
+          ? providerLabel(t, entry.provider)
+          : // Area 9c ([PX 3]): nata senza account per l'esclusività del progetto.
+            entry.requiredProvider && projectCode
+            ? t("projectEffects.run.noAccountFree", {
+                code: projectCode,
+                name: entry.requiredProvider.name,
+              })
+            : null,
         entry.queued ? t(`${s}.waitingForQueue`) : null,
       ]
         .filter(Boolean)
@@ -105,7 +119,13 @@ function line(t: TFunction, entry: StoryEntry, name: (id: string | null) => stri
  * story 7»), aperta un elenco dalla più vecchia, ora tabellare e evento.
  * Solo ciò che il flusso e la piattaforma dimostrano (`workStory`).
  */
-export function WorkStory({ entries }: { entries: StoryEntry[] }) {
+export function WorkStory({
+  entries,
+  projectCode = null,
+}: {
+  entries: StoryEntry[];
+  projectCode?: string | null;
+}) {
   const { t, i18n } = useTranslation();
   const [open, setOpen] = useState(false);
   const people = usePeople().data;
@@ -140,8 +160,10 @@ export function WorkStory({ entries }: { entries: StoryEntry[] }) {
               <time dateTime={entry.at} className="num text-xs whitespace-nowrap text-ink-faint">
                 {clock(entry.at, i18n.language)}
               </time>
-              <span className="min-w-0 text-ink [overflow-wrap:anywhere]">
-                {line(t, entry, name)}
+              <span className="flex min-w-0 flex-col items-start text-ink [overflow-wrap:anywhere]">
+                {line(t, entry, name, projectCode)}
+                {/* Area 9c: le skill della sessione, scritte alla nascita (P17). */}
+                {entry.kind === "run_started" && <SkillsInRun skills={entry.skills} />}
               </span>
             </li>
           ))}

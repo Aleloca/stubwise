@@ -24,7 +24,7 @@ import { MenuGroup, RadioItem, itemClass } from "../../tasks-ui/Menu";
 import { useToast } from "../../tasks-ui/Toast";
 import { Chevron, MenuButton, primaryButton, quietButton, secondaryButton } from "../tasks/controls";
 import { Conversation, type ContinueHandler } from "./conversation/Conversation";
-import { runLineText } from "../task/ClaudeRunParts";
+import { SkillsInRun, exclusiveOf, runLineText } from "../task/ClaudeRunParts";
 import { handOffFirstMessage } from "./conversation/handoff";
 import { dangerButton } from "../task/parts";
 import { ConversationList } from "./ConversationList";
@@ -626,11 +626,32 @@ function PageHeader({
         )}
       </p>
       {/* Area 9b ([EF 3]): con quale modello e account è partita la sessione. */}
-      {!free && (detail.model || detail.provider) && (
-        <p data-session-run className="text-xs text-ink-faint">
-          {runLineText(t, detail.provider ?? null, detail.model ?? null)}
-        </p>
-      )}
+      {!free &&
+        (detail.model || detail.provider || detail.requiredProvider || detail.skills) &&
+        (() => {
+          // Area 9c: l'esclusività e le skill scritte alla nascita, come nella sezione Claude.
+          const exclusive = exclusiveOf(
+            detail.provider ?? null,
+            detail.requiredProvider,
+            projectCode(detail.projectId),
+          );
+          return (
+            <div className="flex flex-col">
+              <p
+                data-session-run
+                title={
+                  exclusive
+                    ? t("projectEffects.run.exclusiveTitle", { code: exclusive.code })
+                    : undefined
+                }
+                className={`text-xs ${exclusive ? "text-ink-muted" : "text-ink-faint"}`}
+              >
+                {runLineText(t, detail.provider ?? null, detail.model ?? null, exclusive)}
+              </p>
+              <SkillsInRun skills={detail.skills} />
+            </div>
+          );
+        })()}
       {unconfirmed.length > 0 && (
         <div
           role="status"

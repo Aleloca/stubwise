@@ -96,6 +96,19 @@ export function pickProvider(projectId?: string | null): RunProvider | null {
   return settings.aiProviderExclusive ? null : chainProvider();
 }
 
+/**
+ * L'account che il progetto usa in esclusiva («Use only this account»), per
+ * nome; `null` senza esclusività, o se l'account scelto è stato eliminato
+ * (vale «Automatic», come in `pickProvider`). Lo scrive la sessione alla
+ * nascita (`requiredProvider`, ruling del controller (pre-flight), P16).
+ */
+export function requiredProviderOf(projectId: string | null): { name: string } | null {
+  const settings = projectId ? state.projectSettings.get(projectId) : undefined;
+  if (!settings?.aiProviderExclusive || !settings.aiProviderId) return null;
+  const chosen = state.instance.providers.find((p) => p.id === settings.aiProviderId);
+  return chosen ? { name: chosen.name } : null;
+}
+
 /** Lo speso del mese in corso, su tutti i progetti (il budget non guarda chi guarda). */
 export function spentThisMonthUsd(): number {
   const month = now().slice(0, 7);

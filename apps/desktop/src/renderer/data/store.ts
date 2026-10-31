@@ -741,6 +741,7 @@ export type ApiFnName =
   | "instance.deleteDetachedRepository"
   // Progetto → Settings (area 9c): General, AI, Automations, Usage (Task 2)
   | "projectSettings.getProjectSettings"
+  | "projectSettings.getProjectSwitches"
   | "projectSettings.updateProjectGeneral"
   | "projectSettings.setProjectAi"
   | "projectSettings.saveProjectAutomations"

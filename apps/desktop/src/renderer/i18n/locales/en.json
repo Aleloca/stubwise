@@ -5508,7 +5508,8 @@
       "unavailable": "it's not available",
       "internal_error": "an internal error",
       "rejected": "rejected",
-      "cancelled": "cancelled"
+      "cancelled": "cancelled",
+      "project_unavailable": "the project isn't available anymore"
     },
     "reasons": {
       "other": "Something went wrong.",
@@ -5568,7 +5569,9 @@
       "aiBudgetBack": "Budget available again · the step starts",
       "aiQueueBack": "Queue resumed · the step starts",
       "aiBudgetBackStillQueue": "Budget available again · still waiting: queue paused by {{name}}",
-      "aiQueueBackStillBudget": "Queue resumed · still waiting: monthly AI budget reached"
+      "aiQueueBackStillBudget": "Queue resumed · still waiting: monthly AI budget reached",
+      "projectUnavailable": "The project isn't available anymore.",
+      "projectUnavailable_would": "The project isn't available anymore: the step would fail."
     },
     "created": {
       "task_one": "{{count}} task",
@@ -10345,5 +10348,39 @@
     "started": "Claude started on {{code}}.",
     "pulse": "Claude waiting: queue paused",
     "pulseBudget": "Claude waiting: AI budget"
+  },
+  "projectEffects": {
+    "settingsLink": "Settings → Automations",
+    "brief": {
+      "off": "The weekly brief is off for {{code}}.",
+      "offWritten": "The weekly brief is off: no new ones arrive. This one stays readable."
+    },
+    "docs": {
+      "home": "The nightly update is off for {{code}}: pages don't change with new commits, and no release notes are written.",
+      "noReleases": "No release notes yet: the nightly update is off for {{code}}.",
+      "releasesWritten": "The nightly update is off: no new notes are written."
+    },
+    "pulse": {
+      "proposalsOff": "restart proposals are off"
+    },
+    "report": {
+      "off": "Daily report: off for this project",
+      "generateTitle": "Make today's report by hand. The nightly one stays off."
+    },
+    "run": {
+      "noAccountFree": "No account free: {{code}} uses only {{name}}",
+      "exclusiveTitle": "It's set in {{code}}'s Settings → AI.",
+      "skills": "Skills in this run",
+      "lineNoAccount": "Model: {{model}} · {{missing}}"
+    },
+    "servers": {
+      "archivedOnly": "Only in archived projects"
+    },
+    "automations": {
+      "unavailable": "A project that's no longer available",
+      "chooseAnother": "Choose another project",
+      "inUnavailable": "in a project that's no longer available",
+      "stepNotDone": "Step {{n}} not done: the project isn't available anymore."
+    }
   }
 }

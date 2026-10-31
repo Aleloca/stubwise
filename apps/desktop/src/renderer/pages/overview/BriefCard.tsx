@@ -1,7 +1,8 @@
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { useLatestBrief, useProject } from "../../data/queries";
+import { useLatestBrief, useProject, useProjectSwitches } from "../../data/queries";
+import { SwitchOffLine } from "../../components/ProjectSwitchOff";
 import type { WeeklyBrief } from "../../data/types";
 import { DOCKED_PANEL_QUERY, DetailPanel } from "../../layout/useDetailPanel";
 import { useMediaQuery } from "../../layout/useMediaQuery";
@@ -86,12 +87,17 @@ function CopyIcon() {
  * text · Oct 19», la prima sezione («dove siamo») su due righe, «Read the
  * brief» apre il pannello di lettura (`?brief=<id>`). Il brief non si
  * rigenera da qui. Senza brief: «No brief yet · The first one arrives on
- * Monday».
+ * Monday». Col brief settimanale spento (area 9c, [PX 1]) la promessa
+ * diventa «○ The weekly brief is off for MKX.»; un brief già scritto resta
+ * leggibile, con la riga sotto la data. Gli interruttori ancora da leggere,
+ * o illeggibili, non dicono niente: mai «off» per sicurezza.
  */
-export function BriefCard({ projectId }: { projectId: string }) {
+export function BriefCard({ projectId, projectCode }: { projectId: string; projectCode: string }) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const brief = useLatestBrief(projectId);
+  const switches = useProjectSwitches(projectId);
+  const off = switches.data ? !switches.data.weeklyBrief : false;
   const open = (b: WeeklyBrief) =>
     void navigate({
       to: ".",
@@ -116,7 +122,11 @@ export function BriefCard({ projectId }: { projectId: string }) {
       </div>
     );
   } else if (brief.data === null) {
-    body = (
+    body = off ? (
+      <SwitchOffLine projectCode={projectCode} kind="weeklyBrief">
+        {t("projectEffects.brief.off", { code: projectCode })}
+      </SwitchOffLine>
+    ) : (
       <p className="text-md text-ink-muted">
         <span className="text-ink">{t("overview.brief.none")}</span>
         {" · "}
@@ -127,6 +137,11 @@ export function BriefCard({ projectId }: { projectId: string }) {
     const b = brief.data;
     body = (
       <div className="flex flex-col items-start gap-1.5">
+        {off && (
+          <SwitchOffLine projectCode={projectCode} kind="weeklyBrief" size="xs">
+            {t("projectEffects.brief.offWritten")}
+          </SwitchOffLine>
+        )}
         <p className="line-clamp-2 max-w-[72ch] text-md text-ink-muted">{b.headline}</p>
         <div className="-ml-2 flex flex-wrap items-center gap-x-1">
           <button type="button" className={ghostButton} onClick={() => open(b)}>

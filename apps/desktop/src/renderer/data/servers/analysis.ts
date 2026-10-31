@@ -279,7 +279,7 @@ function startAnalysis(
   const gen = storeGeneration();
   const c = openWorkConversationAs(CLAUDE_ID, {
     kind: "server_analysis",
-    ...runIdentity("fix_plan"),
+    ...runIdentity("fix_plan", projectId),
     title: `${server.code} ${server.name} · ${reasonsPhrase(episode.reasons)}`,
     projectId,
     touchedProjectIds: [projectId],

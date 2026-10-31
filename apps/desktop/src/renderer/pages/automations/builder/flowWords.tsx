@@ -139,6 +139,8 @@ export function projectMark(
     if (b.automation.projectId === null) return null;
     return { text: t("automations.steps.inClientProject"), title: undefined };
   }
+  // Area 9c ([PX 5]): il progetto non più disponibile lo dice già la frase del passo.
+  if (p.unavailable) return null;
   const prj = b.names.project(p.projectId);
   if (!prj)
     return p.projectId ? { text: t("automations.steps.inHiddenProject"), title: undefined } : null;
