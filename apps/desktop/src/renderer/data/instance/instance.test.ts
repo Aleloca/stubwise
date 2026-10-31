@@ -310,7 +310,7 @@ describe("il seme dell'istanza", () => {
       ["Bitbucket Audin", "bitbucket", "audin", false],
       ["GitHub Stubwise", "github", null, true],
       // Area 9c (P25): lo usa solo `shop-frontend` di RNC.
-      ["GitHub Ronchi", "github", null, false],
+      ["GitHub Shop", "github", null, false],
     ]);
     const known = new Set(accounts.map((a) => a.id));
     expect(state.repositories.length).toBeGreaterThan(0);

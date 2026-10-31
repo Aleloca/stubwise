@@ -21,7 +21,7 @@ export const SEED_GIT_ACCOUNT_IDS = {
   githubStubwise: "git-github-stubwise",
   // Area 9c: lo usa SOLO `shop-frontend` di RNC, così dopo l'eliminazione di
   // quel repository senza progetto l'account non è più «in uso» (P25).
-  githubRonchi: "git-github-ronchi",
+  githubShop: "git-github-shop",
 } as const;
 
 const DEFAULT_RULE = {
@@ -113,11 +113,11 @@ export function seedInstanceState(): InstanceState {
         createdAt: at(-240, "10:00"),
       },
       {
-        id: SEED_GIT_ACCOUNT_IDS.githubRonchi,
-        name: "GitHub Ronchi",
+        id: SEED_GIT_ACCOUNT_IDS.githubShop,
+        name: "GitHub Shop",
         provider: "github",
         workspace: null,
-        secretId: "sec-seed-git-github-ronchi",
+        secretId: "sec-seed-git-github-shop",
         last4: "r4n8",
         defaultReviewer: false,
         lastValidation: { at: at(-40, "09:30"), outcome: "ok" },

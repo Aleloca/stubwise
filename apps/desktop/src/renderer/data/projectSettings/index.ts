@@ -25,3 +25,39 @@ export { DESCRIPTION_MAX, NAME_MAX, updateProjectGeneral } from "./general";
 export { setProjectAi } from "./ai";
 export { saveProjectAutomations } from "./automations";
 export { getProjectUsage, type ProjectUsageDimension } from "./usage";
+// Task 4: Repositories, file d'ambiente, Integration, Plugins.
+export {
+  checkRepositoryAccess,
+  configureRepositoryWebhook,
+  createRepository,
+  listProjectRepositories,
+  listRemoteRepositories,
+  simulateNextRepositoryCheck,
+  simulateNextWebhookSetup,
+  updateRepository,
+  type RemoteRepository,
+  type RepositoryView,
+} from "./repositories";
+export {
+  createEnvFile,
+  deleteEnvFile,
+  importEnvFile,
+  listEnvFiles,
+  removeEnvVar,
+  setEnvVar,
+  type EnvFileView,
+} from "./envFiles";
+export {
+  getIntegration,
+  regenerateIngestionKey,
+  regenerateWebhookSecret,
+  type IntegrationView,
+} from "./integration";
+export {
+  BASE_PLUGIN,
+  RECOMMENDED_PRESETS,
+  getProjectPlugins,
+  saveProjectPlugins,
+  skillsForRun,
+  type ProjectPluginsView,
+} from "./plugins";

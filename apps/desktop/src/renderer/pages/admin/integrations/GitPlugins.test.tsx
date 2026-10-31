@@ -72,7 +72,7 @@ describe("Git accounts", () => {
     renderRoute("/admin/git-accounts", ROBERTA);
     expect(await heading("Git accounts")).toBeVisible();
     const list = await screen.findByRole("list", { name: "Git accounts" });
-    // Dal 9c anche «GitHub Ronchi», del solo `shop-frontend` di RNC (P25).
+    // Dal 9c anche «GitHub Shop», del solo `shop-frontend` di RNC (P25).
     expect(within(list).getAllByRole("listitem")).toHaveLength(3);
     const bb = row("Bitbucket Audin");
     expect(within(bb).getByText("Bitbucket · audin")).toBeVisible();

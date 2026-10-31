@@ -363,10 +363,10 @@ Piano 9c: Task 11 (dati: Task 5). Spec area 9: «Impostazioni del progetto
       repository on GitHub isn't touched.» / «Stubwise dimentica
       indirizzo, comandi e rami protetti. Il repository su GitHub non
       viene toccato.»;
-    - con un account git: «GitHub Ronchi stops counting it as in use.» /
-      «GitHub Ronchi smette di contarlo come in uso.» (*ruling del
+    - con un account git: «GitHub Shop stops counting it as in use.» /
+      «GitHub Shop smette di contarlo come in uso.» (*ruling del
       controller (pre-flight)*, P25: nel seme `shop-frontend` sta su un
-      terzo account, «GitHub Ronchi», che nessun altro repository usa).
+      terzo account, «GitHub Shop», che nessun altro repository usa).
   - **Delete** / **Elimina** (`critical`) → riconferma (`entry.md`) → la
     riga sparisce, toast «shop-frontend deleted.» / «shop-frontend
     eliminato.»; il fuoco come dopo un collegamento ([AR 8]).

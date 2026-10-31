@@ -11,7 +11,7 @@ import { recordChange } from "../changelog/index";
 import { decodeSetting, encodeAiAccount, encodeNumber } from "../changelog/settingValues";
 import { GROUP_ORDER } from "../changelog/visibility";
 import { PROJECT_SETTINGS_SECTIONS } from "../routes";
-import { PROJECT_PLUGINS, commandsFor } from "../seed/commands";
+import { PROJECT_PLUGINS } from "../seed/commands";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import { PROJECTS } from "../seed/projects";
 import { setSessionPersonId } from "../session";
@@ -24,6 +24,7 @@ import {
   viewerFor,
 } from "../viewer";
 import { PROJECT_CHANGE_TYPES } from "./changeTypes";
+import { skillsForRun } from "./plugins";
 
 // Lo stato delle impostazioni di progetto dell'area 9c (Task 1): le sezioni
 // per persona, i tipi di voce del registro, la riconferma, il seme (RNC
@@ -334,16 +335,17 @@ describe("il seme del 9c", () => {
   it("il plugin base stubwise vale per tutti i progetti e non è fra le scelte", () => {
     for (const enabled of Object.values(PROJECT_PLUGINS))
       expect(enabled.map((e) => e.pluginId)).not.toContain("plg-stubwise");
-    const aud = commandsFor(pid("AUD")).map((c) => c.label);
+    for (const s of state.projectSettings.values())
+      expect(s.plugins.disabled.map((d) => d.plugin)).not.toContain("stubwise");
+    const labels = (projectId: string) =>
+      skillsForRun(projectId).map((s) => `/${s.plugin}:${s.skill}`);
+    const aud = labels(pid("AUD"));
     expect(aud).toContain("/stubwise:start");
     for (const p of PROJECTS)
-      expect(
-        commandsFor(p.id).map((c) => c.label),
-        p.code,
-      ).toEqual(
+      expect(labels(p.id), p.code).toEqual(
         expect.arrayContaining(["/stubwise:stubwise", "/stubwise:init", "/stubwise:start"]),
       );
-    // In coda: dopo i comandi di Stubwise e le skill dei plugin scelti.
+    // In coda: dopo le skill dei plugin scelti.
     expect(aud.slice(-3)).toEqual(["/stubwise:stubwise", "/stubwise:init", "/stubwise:start"]);
   });
 
@@ -448,11 +450,11 @@ describe("il seme del 9c", () => {
     expect(elsewhere).not.toContain(codes[0]);
   });
 
-  it("shop-frontend usa «GitHub Ronchi», e nessun altro repository usa quell'account", () => {
-    const ronchi = state.instance.gitAccounts.find((g) => g.name === "GitHub Ronchi")!;
-    expect(ronchi.provider).toBe("github");
+  it("shop-frontend usa «GitHub Shop», e nessun altro repository usa quell'account", () => {
+    const shop = state.instance.gitAccounts.find((g) => g.name === "GitHub Shop")!;
+    expect(shop.provider).toBe("github");
     expect(
-      state.repositories.filter((r) => r.gitAccountId === ronchi.id).map((r) => r.name),
+      state.repositories.filter((r) => r.gitAccountId === shop.id).map((r) => r.name),
     ).toEqual(["shop-frontend"]);
   });
 

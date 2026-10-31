@@ -333,7 +333,7 @@ Contesto da leggere:
      il 31 ott 2026**, domanda 4 (b)): rifiutato a chi non è full admin
      (`forbidden`), senza riconferma (`reauth_required`), su un repository
      già collegato o eliminato (`not_found`); dopo, l'account git lo lascia
-     eliminare (è vero perché nel seme «GitHub Ronchi» lo usa solo
+     eliminare (è vero perché nel seme «GitHub Shop» lo usa solo
      `shop-frontend`: *ruling del controller (pre-flight)*, P25), e la voce
      `repository.deleted` non nomina RNC per chi non ne era membro.
 
@@ -441,7 +441,7 @@ Nessun codice.
   - `data/access/seed.ts`: Giulia è Project Lead in RNC (oggi
     `typicalProjectRole` la fa lead solo nei `GIULIA_LEAD_CODES`), con un
     test (*ruling del controller (pre-flight)*, P9);
-  - `data/instance/seed.ts`: un terzo account git (GitHub «GitHub Ronchi»),
+  - `data/instance/seed.ts`: un terzo account git (GitHub «GitHub Shop»),
     usato **solo** da `shop-frontend`, così dopo l'eliminazione del
     repository senza progetto l'account non è più «in uso» (*ruling del
     controller (pre-flight)*, P25);
@@ -632,7 +632,7 @@ export function projectSettingsAccess(viewer: Viewer, projectId: string): Record
       file nel Drive;
     - un repository `shop-frontend` (il nome non ricorda il progetto, così
       la prova R-G5 dei repository senza progetto è pulita), sull'account
-      git «GitHub Ronchi», che nessun altro repository usa (*ruling del
+      git «GitHub Shop», che nessun altro repository usa (*ruling del
       controller (pre-flight)*, P25), con 2 pagine
       dei Docs, un file d'ambiente in `production` e un ambiente
       `production` su un server `SRV-` che non sta in altri progetti;
@@ -670,7 +670,7 @@ Test (`projectSettings.test.ts`):
   test esistenti aggiornati qui sopra, P7 e P8).
 - [ ] Giulia è Project Lead in RNC; Sara e Laura non ne sono membri; nessun
   membro calcolato (*ruling del controller (pre-flight)*, P9).
-- [ ] `shop-frontend` usa «GitHub Ronchi», e nessun altro repository usa
+- [ ] `shop-frontend` usa «GitHub Shop», e nessun altro repository usa
   quell'account (*ruling del controller (pre-flight)*, P25).
 - [ ] Commit `feat(desktop): stato delle impostazioni di progetto, sezioni e voci del 9c`.
 
@@ -1606,7 +1606,7 @@ Test:
   Tutto a 1440 e 1024, chiaro e scuro, en e it. Vite ucciso. Rifatti dopo
   ogni correzione visiva. Gli esempi degli shape che gli scatti mostrano
   sono quelli corretti nel pre-flight: «When reopened» di RNC, «Skills in
-  this run · 11», «GitHub Ronchi» (*ruling del controller (pre-flight)*,
+  this run · 11», «GitHub Shop» (*ruling del controller (pre-flight)*,
   P28).
 - `ossatura-follow-ups.md`:
   - «Area 9c — minori aperti», con:

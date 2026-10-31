@@ -164,7 +164,7 @@ describe("permessi", () => {
 
   it("le letture: git con .view o .manage, le altre col loro permesso", async () => {
     as(MARCO);
-    // Il preset User dà `git_accounts.view` a tutti (Ruling 1). Tre dal 9c (GitHub Ronchi).
+    // Il preset User dà `git_accounts.view` a tutti (Ruling 1). Tre dal 9c (GitHub Shop).
     expect(await instance.listGitAccounts()).toHaveLength(3);
     await expect(instance.listGoogleApps()).rejects.toThrow("forbidden");
     await expect(instance.getStorage()).rejects.toThrow("forbidden");

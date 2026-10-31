@@ -43,7 +43,7 @@
 //     in stringa);
 //   - `project.statuses_changed`: `statuses`, l'elenco dei nomi com'è;
 //   - `project.plugins_changed`: `disabledSkills` e `disabledHooks`, le
-//     liste di ciò che è spento (`<plugin>:<skill>`, `<plugin>:<Evento#i>`);
+//     liste di ciò che è spento (`<plugin>:<skill>`, `<plugin>#<Evento>#<i>`);
 //   - `repository.updated`: la chiave del campo (`name`, `url`,
 //     `installCommand`, `testCommand`, `graphEnabled`, `protectedBranches`,
 //     `gitAccount` e `reviewGitAccount` col NOME dell'account, `null` = il

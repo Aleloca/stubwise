@@ -8,13 +8,8 @@ import { validateFlow } from "../domain/automations/validate";
 import { chat, resetApi, setLatency } from "./api";
 import { setSessionPersonId } from "./session";
 import { ACTIVITY } from "./seed/activity";
-import {
-  BASE_PLUGIN_ID,
-  PLUGINS,
-  PROJECT_PLUGINS,
-  STUBWISE_COMMANDS,
-  commandsFor,
-} from "./seed/commands";
+import { BASE_PLUGIN_SEED, PROJECT_PLUGINS, STUBWISE_COMMANDS } from "./seed/commands";
+import { skillsForRun } from "./projectSettings/plugins";
 import { COMMITS } from "./seed/commits";
 import { CONVERSATION_EVENTS, CONVERSATIONS } from "./seed/conversations";
 import { DOC_PAGES } from "./seed/docPages";
@@ -1156,7 +1151,6 @@ describe("seed: comandi «/» e skill dei plugin", () => {
     ]) {
       expect(STUBWISE_COMMANDS.some((c) => c.label === label)).toBe(true);
     }
-    expect(commandsFor(null)).toEqual(STUBWISE_COMMANDS);
     for (const c of STUBWISE_COMMANDS) {
       expect(c.source).toBe("stubwise");
       expect(c.description.length).toBeGreaterThan(0);
@@ -1164,49 +1158,45 @@ describe("seed: comandi «/» e skill dei plugin", () => {
   });
 
   it("le skill compaiono solo nei progetti con il plugin scelto, senza quelle spente; quelle del plugin base in coda, ovunque", () => {
-    // Area 9c (P2): il plugin base `stubwise` vale per tutti e non è fra le scelte.
-    const base = PLUGINS.find((p) => p.id === BASE_PLUGIN_ID)!;
-    const baseSkills = base.skills.map((s) => ({ plugin: base.name, skill: s.name }));
+    // Area 9c (P2, P3): il plugin base `stubwise` vale per tutti e non è fra
+    // le scelte; il riferimento delle skill è il registro d'istanza, e chi
+    // entra nei run (e in «/») lo dice `skillsForRun`.
+    const baseSkills = BASE_PLUGIN_SEED.skills.map((s) => `${BASE_PLUGIN_SEED.name}:${s.name}`);
+    const registry = state.instance.plugins;
     for (const [projectId, enabled] of Object.entries(PROJECT_PLUGINS)) {
       expect(projectsById.get(projectId)!.template).toBe("software");
       for (const e of enabled) {
-        expect(e.pluginId).not.toBe(BASE_PLUGIN_ID);
-        const plugin = PLUGINS.find((p) => p.id === e.pluginId)!;
+        const plugin = registry.find((p) => p.id === e.pluginId)!;
         expect(plugin).toBeDefined();
-        for (const s of e.disabledSkills) expect(plugin.skills.map((k) => k.name)).toContain(s);
+        expect(plugin.name).not.toBe(BASE_PLUGIN_SEED.name);
+        const names = plugin.inventory!.skills.map((k) => k.name);
+        for (const s of e.disabledSkills) expect(names).toContain(s);
       }
     }
     let someDisabled = false;
     for (const project of PROJECTS) {
-      const commands = commandsFor(project.id);
-      const skills = commands.flatMap((c) => (c.source === "stubwise" ? [] : [c.source]));
-      expect(commands.filter((c) => c.source === "stubwise")).toEqual(STUBWISE_COMMANDS);
+      const skills = skillsForRun(project.id).map((s) => `${s.plugin}:${s.skill}`);
       expect(skills.slice(-baseSkills.length), project.code).toEqual(baseSkills);
       const chosen = skills.slice(0, -baseSkills.length);
       const enabled = PROJECT_PLUGINS[project.id] ?? [];
-      if (enabled.length === 0) expect(chosen).toEqual([]);
-      for (const s of chosen) {
-        const e = enabled.find((x) => PLUGINS.find((p) => p.id === x.pluginId)!.name === s.plugin);
-        expect(e).toBeDefined();
-        expect(e!.disabledSkills).not.toContain(s.skill);
-      }
+      // Chi non aveva superpowers nasce con tutto spento: «/» non cambia (P3).
+      if (enabled.length === 0) expect(chosen, project.code).toEqual([]);
       for (const e of enabled) {
-        const plugin = PLUGINS.find((p) => p.id === e.pluginId)!;
-        expect(chosen.filter((s) => s.plugin === plugin.name)).toHaveLength(
-          plugin.skills.length - e.disabledSkills.length,
-        );
+        const plugin = registry.find((p) => p.id === e.pluginId)!;
+        const expected = plugin
+          .inventory!.skills.map((s) => s.name)
+          .filter((s) => !e.disabledSkills.includes(s))
+          .map((s) => `${plugin.name}:${s}`);
+        expect(chosen.filter((s) => s.startsWith(`${plugin.name}:`))).toEqual(expected);
         if (e.disabledSkills.length > 0) someDisabled = true;
       }
+      expect(new Set(skills).size).toBe(skills.length);
     }
     expect(someDisabled).toBe(true);
     expect(Object.keys(PROJECT_PLUGINS)).toContain("prj-stw");
     expect(Object.keys(PROJECT_PLUGINS)).toContain("prj-aud");
-    // Un progetto software senza plugin scelti: i comandi di Stubwise e il plugin base.
+    // Un progetto software senza plugin scelti: solo il plugin base.
     expect(PROJECTS.some((p) => p.template === "software" && !PROJECT_PLUGINS[p.id])).toBe(true);
-    for (const p of PROJECTS) {
-      const own = commandsFor(p.id).map((c) => c.id);
-      expect(new Set(own).size).toBe(own.length);
-    }
   });
 });
 

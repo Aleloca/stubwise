@@ -1,6 +1,5 @@
 import { buildDocTree } from "../../domain/docs";
 import { fold, searchWords } from "../../pages/chat/search";
-import { REPOSITORIES } from "../seed/docs/repositories";
 import { copy, gate, state, visibleProjectIds } from "../store";
 import type {
   DocKind,
@@ -49,7 +48,7 @@ export const readableDocPages = (me: string): DocPage[] =>
   state.docPages.filter((p) => canReadDocPage(me, p));
 
 export const repositoryById = (id: string): Repository | undefined =>
-  REPOSITORIES.find((r) => r.id === id);
+  state.repositories.find((r) => r.id === id);
 
 export const docPageById = (id: string): DocPage | undefined =>
   state.docPages.find((p) => p.id === id);

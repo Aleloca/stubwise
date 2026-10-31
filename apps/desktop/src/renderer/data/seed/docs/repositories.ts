@@ -27,7 +27,7 @@ import { daysFromToday } from "../dates";
 // non ricorda il progetto, su un account git che nessun altro usa (P25), così
 // la prova R-G5 dei repository senza progetto è pulita.
 
-const { bitbucketAudin, githubStubwise, githubRonchi } = SEED_GIT_ACCOUNT_IDS;
+const { bitbucketAudin, githubStubwise, githubShop } = SEED_GIT_ACCOUNT_IDS;
 
 /** Il webhook configurato del seme: il secret non è nel caveau, solo le ultime 4. */
 const configured = (last4: string, days: number): NonNullable<Repository["webhook"]> => ({
@@ -149,7 +149,7 @@ export const REPOSITORIES: Repository[] = [
     name: "shop-frontend",
     fullName: "vetrina-web/shop-frontend",
     defaultBranch: "main",
-    gitAccountId: githubRonchi,
+    gitAccountId: githubShop,
     url: "https://github.com/vetrina-web/shop-frontend",
     installCommand: null,
     testCommand: null,

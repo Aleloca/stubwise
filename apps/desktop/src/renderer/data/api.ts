@@ -2,7 +2,8 @@ import { matches } from "../domain/filters";
 import { DEFAULT_CORRECTION_CAP } from "../domain/releases/prState";
 import type { Stall } from "../domain/stalled";
 import { accessState } from "./access/index";
-import { commandsFor } from "./seed/commands";
+import { pluginSkillCommand, STUBWISE_COMMANDS } from "./seed/commands";
+import { skillsForRun } from "./projectSettings/plugins";
 import { COMMITS } from "./seed/commits";
 import {
   canReadDocPage,
@@ -813,13 +814,16 @@ function originOf(me: string, c: Conversation): ConversationDetail["continuesFro
 
 /**
  * I comandi di «/» per il contesto di progetto della conversazione: quelli
- * di Stubwise e le skill dei plugin abilitati nel progetto. Un progetto che
- * chi guarda non vede vale come nessun contesto.
+ * di Stubwise, poi le skill che entrano nei run del progetto
+ * (`skillsForRun`: i plugin `ready` del registro meno le skill spente, e in
+ * coda il plugin base). Un progetto che chi guarda non vede vale come
+ * nessun contesto: solo i comandi di Stubwise.
  */
 export async function listCommands(contextProjectId: string | null): Promise<SlashCommand[]> {
   const me = await gate("listCommands");
   const visible = contextProjectId !== null && visibleProjectIds(me).has(contextProjectId);
-  return commandsFor(visible ? contextProjectId : null).map(copy);
+  const skills = visible ? skillsForRun(contextProjectId).map(pluginSkillCommand) : [];
+  return [...STUBWISE_COMMANDS, ...skills].map(copy);
 }
 
 /**
