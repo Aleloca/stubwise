@@ -306,3 +306,17 @@ export async function deleteEnvFile(fileId: string): Promise<ProjectResult> {
   });
   return { ok: true };
 }
+
+/**
+ * I file di un ambiente eliminato (Releases → Environments, 8a): se ne vanno
+ * con lui, e i loro valori escono prima dal caveau, come in `purgeProject`.
+ * Senza l'ambiente nessuna pagina li mostrerebbe, e nessuna scrittura li
+ * raggiungerebbe. Non è una scrittura a sé: la chiama `deleteEnvironment`,
+ * che ha già deciso chi può.
+ */
+export function dropEnvironmentFiles(environmentId: string): void {
+  for (const f of state.envFiles)
+    if (f.environmentId === environmentId)
+      for (const v of f.vars) if (v.secretId) forgetSecret(v.secretId);
+  state.envFiles = state.envFiles.filter((f) => f.environmentId !== environmentId);
+}

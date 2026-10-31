@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { __secretValuesForTest } from "../admin/secrets";
-import { changelog, projectSettings, resetApi, setLatency } from "../api";
+import { changelog, projectSettings, releases, resetApi, setLatency } from "../api";
 import { markReauthenticated } from "../auth/reauth";
 import { setSessionPersonId } from "../session";
 import { state } from "../store";
@@ -290,5 +290,28 @@ describe("le scritture dei file d'ambiente", () => {
         path: ".env",
       }),
     ).toMatchObject({ ok: true });
+  });
+});
+
+describe("I5: eliminare un ambiente toglie i suoi file e i loro segreti (RF 2)", () => {
+  it("il .env di production di STW sparisce dallo stato e dal caveau; quello di test resta", async () => {
+    // Un valore vero per ambiente: nel caveau, col suo id.
+    expect(await projectSettings.setEnvVar(STW_PROD_FILE, "SENTRY_DSN", "prod-dsn-0005")).toEqual({
+      ok: true,
+    });
+    expect(await projectSettings.setEnvVar(STW_TEST_FILE, "REDIS_URL", "test-redis-0006")).toEqual({
+      ok: true,
+    });
+    const values = () => __secretValuesForTest().flatMap((s) => s.values);
+    expect(values()).toContain("prod-dsn-0005");
+    const environmentId = fileOf(STW_PROD_FILE)!.environmentId;
+
+    await releases.deleteEnvironment(environmentId);
+
+    expect(fileOf(STW_PROD_FILE)).toBeUndefined();
+    expect(state.envFiles.some((f) => f.environmentId === environmentId)).toBe(false);
+    expect(values()).not.toContain("prod-dsn-0005");
+    expect(values()).toContain("test-redis-0006");
+    expect(fileOf(STW_TEST_FILE)).toBeDefined();
   });
 });

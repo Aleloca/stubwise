@@ -8,6 +8,7 @@ import {
   startRunAs,
 } from "../api-mutations";
 import { shortRepo } from "../../domain/releases/repo";
+import { dropEnvironmentFiles } from "../projectSettings/envFiles";
 import { recordChange } from "../changelog/index";
 import { changedFields } from "../changelog/settingValues";
 // Per effetto: registra i tipi di voce di progetto (`recordChange` lancia su uno ignoto).
@@ -576,6 +577,8 @@ export async function deleteEnvironment(id: string): Promise<void> {
   const env = environmentFor(me, id);
   if (!holds(me, "environments.manage", env.projectId)) throw forbidden();
   state.environments = state.environments.filter((e) => e.id !== id);
+  // I suoi file d'ambiente (area 9c) se ne vanno con lui, segreti compresi.
+  dropEnvironmentFiles(id);
   dropStalePrimaries();
   recordChange({
     kind: "environment.deleted",
