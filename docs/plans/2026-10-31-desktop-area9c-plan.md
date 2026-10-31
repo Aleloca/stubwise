@@ -191,7 +191,9 @@ Contesto da leggere:
   - `projectSettings.setEnvVar`;
   - `projectSettings.removeEnvVar`;
   - `projectSettings.deleteEnvFile`;
-  - `projectSettings.deleteProject`.
+  - `projectSettings.deleteProject`;
+  - `instance.deleteDetachedRepository` (**confermata dal maintainer il 31
+    ott 2026**, domanda 4 (b)).
 
   Archive e Reopen **non** chiedono la riconferma: si tornano indietro
   (*scelta del controller*). `reauth.test.ts` confronta l'elenco.
@@ -232,6 +234,16 @@ Contesto da leggere:
     - R-G5: un repository senza progetto dice da quale progetto eliminato
       viene **solo** a chi ne era membro e al full admin. Per gli altri
       quel progetto non c'è, né nella riga né nella voce.
+  - **Un repository senza progetto si può eliminare** (**confermata dal
+    maintainer il 31 ott 2026**, domanda 4 (b)):
+    - solo dal full admin, da Amministrazione → Repositories, con
+      conferma in rosso e riconferma (+R);
+    - scrive la voce d'istanza `repository.deleted`, che dice la
+      provenienza solo agli ex membri e al full admin;
+    - l'account git a cui era collegato smette di contarlo «in uso»
+      (`deleteGitAccount` non lo rifiuta più per lui);
+    - un repository che sta in un progetto resta non eliminabile, come sul
+      web.
   - I server rimasti senza progetto seguono R-L7, come prima.
 - **Claude** non riceve nessun permesso nuovo: `deleteProjects` è del full
   admin, e Claude non lo è mai (R-L9).
@@ -315,6 +327,12 @@ Contesto da leggere:
      progetto di destinazione (`forbidden`), con un nome già usato lì
      (`name_taken`); due collegamenti dello stesso repository: il secondo
      trova `not_found`.
+   - Eliminare un repository senza progetto (**confermata dal maintainer
+     il 31 ott 2026**, domanda 4 (b)): rifiutato a chi non è full admin
+     (`forbidden`), senza riconferma (`reauth_required`), su un repository
+     già collegato o eliminato (`not_found`); dopo, l'account git lo lascia
+     eliminare, e la voce `repository.deleted` non nomina RNC per chi non
+     ne era membro.
 
    → Task 5, 11.
 5. **Plugin: un salvataggio che spegne o riaccende in silenzio.** Due
@@ -492,9 +510,16 @@ export function projectSettingsAccess(viewer: Viewer, projectId: string): Record
   `statuses`, `members`, `ai`, `automations`, `repositories`, `integration`,
   `plugins`, `usage`, `changelog`, `archive`. Le regole di
   `projectSettingsAccess` sono la tabella delle Global Constraints.
-  Integration ha due `canEdit`: la sezione dice `canEdit` per la chiave
-  (`project.settings.manage`), la riga del webhook git lo rilegge dalla
-  lettura del Task 4.
+  Integration ha due permessi (*ruling del controller*, 31 ott 2026, [PS 4]
+  dello shape): `access.integration.canEdit` = `project.settings.manage`
+  **oppure** `repos.manage`, perché chi può rigenerare un secret dei webhook
+  git non legga «View only»; i singoli bottoni leggono
+  `canRegenerateKey` e `gitWebhooks[].canRegenerate` dalla lettura del
+  Task 4. Test: una persona con `repos.manage` senza
+  `project.settings.manage` ha Integration `canEdit: true` e
+  `canRegenerateKey: false`.
+- `/p/<CODE>/settings` apre General (*ruling del controller*, 31 ott 2026,
+  [PS 2]).
 - `ACTIONS` aggiunge `instance("deleteProjects", "instance.full_admin")`. Un
   test prova che «Who can?» su `deleteProjects` elenca solo i full admin.
 - `changeTypes.ts` registra **tutti** i tipi dei Task 2–5:
@@ -517,7 +542,10 @@ export function projectSettingsAccess(viewer: Viewer, projectId: string): Record
     `widget.created`, `.updated`, `.deleted` (`widget.manage`);
   - gruppo `projects` (scope **istanza**): `project.deleted`, con
     `readPermission` `instance.full_admin`, param `detachedRepositories`
-    (il numero). Il nome lo risolve il Task 5.
+    (il numero). Il nome lo risolve il Task 5. E `repository.deleted`
+    (**confermata dal maintainer il 31 ott 2026**, domanda 4 (b)), stesso
+    gruppo e stessa lettura, col nome del repository com'è e
+    `formerProjectId` risolto a lettura come `project.deleted`.
 
   `GROUP_ORDER` diventa `[…9b, "project", "repositories", "projects"]`. Il
   nome di una variabile d'ambiente entra nella voce (non è un segreto); il
@@ -532,7 +560,15 @@ export function projectSettingsAccess(viewer: Viewer, projectId: string): Record
       soglia: l'effetto si vede);
   - descrizioni per STW, AUD, ACQ;
   - repository di STW e AUD con URL, comandi, rami protetti (`main`,
-    `release/*`), webhook `configured`; uno di ACQ `not_configured`;
+    `release/*`), webhook `configured`; uno di ACQ `not_configured`: ACQ
+    oggi non ne ha, quindi nasce `portale-utenti`
+    (`audin/portale-utenti`, Bitbucket Audin) (*ruling del controller*, 31
+    ott 2026, [RE 9]);
+  - STW riceve l'ambiente `test` («Test»), che oggi non ha: ci stanno i
+    file `test` qui sotto (*ruling del controller*, 31 ott 2026, [RE 9]);
+  - il plugin base `stubwise` vale per tutti i progetti e non sta più fra
+    le scelte del seme: `PROJECT_PLUGINS` perde `plg-stubwise`, e con lui
+    la skill `start` spenta in AUD (*ruling del controller*, 31 ott 2026);
   - file d'ambiente:
     - per il repository `stubwise`: `test` → `.env` con 3 chiavi,
       `production` → `.env` con 2;
@@ -572,7 +608,12 @@ Test (`projectSettings.test.ts`):
   `#/p/<CODE>/settings/<section>`; un `ChangeObjectLink` sconosciuto non
   compila (esaustività).
 - [ ] Il registro della riconferma: `REAUTH_REQUIRED` è l'elenco del 9b più
-  i sette di questo piano.
+  gli otto di questo piano (i sette di prima più
+  `instance.deleteDetachedRepository`, **confermata dal maintainer il 31 ott
+  2026**).
+- [ ] Seme (*ruling del controller*, 31 ott 2026): STW ha un ambiente
+  `test`; ACQ ha `portale-utenti` con webhook `not_configured`; `stubwise`
+  non è in `PROJECT_PLUGINS`, e `commandsFor(AUD)` elenca `/stubwise:start`.
 - [ ] RNC non è in `visibleProjectIds` di nessuno, nemmeno di Roberta e di
   Claude; la suite delle aree 2–9b resta verde col progetto in più.
 - [ ] Commit `feat(desktop): stato delle impostazioni di progetto, sezioni e voci del 9c`.
@@ -734,7 +775,9 @@ export function skillsForRun(projectId: string): { plugin: string; skill: string
   - l'account di review deve essere della stessa piattaforma e diverso da
     quello principale (`invalid: "review_account"`, regola del web);
   - un ramo protetto vuoto o con spazi è `invalid`;
-  - nessuna eliminazione di un repository, come sul web.
+  - nessuna eliminazione di un repository che sta in un progetto, come sul
+    web (quello rimasto senza progetto si elimina dal Task 5, **confermata
+    dal maintainer il 31 ott 2026**).
 - **Webhook:**
   - «Configure automatically» dà l'esito simulato (default `configured`);
   - `updated: true` se era già configurato (il web distingue «aggiornato»);
@@ -829,8 +872,10 @@ Test:
     conta anche i repository senza progetto. Senza questo, un account git
     usato solo da un repository senza progetto si cancellerebbe;
   - `data/queries/instance.ts`;
-  - `data/store.ts` (`ApiFnName`): `instance.listDetachedRepositories` e
-    `instance.linkRepository`.
+  - `data/store.ts` (`ApiFnName`): `instance.listDetachedRepositories`,
+    `instance.linkRepository`, `instance.deleteDetachedRepository`
+    (**confermata dal maintainer il 31 ott 2026**) e
+    `projectSettings.getArchivePreview` (*ruling del controller*).
 
 **Interfaces, prodotte:**
 
@@ -840,6 +885,8 @@ Test:
 export function archivedProjectIdsFor(personId: string): Set<string>;
 // archive.ts
 export function busyReasonsOf(projectId: string): BusyReason[];
+/** Ruling del controller (31 ott 2026, [AR 3]): cosa dice il dialogo prima di archiviare. */
+export function getArchivePreview(projectId: string): Promise<ProjectResult<{ openAutomationRuns: number; busy: BusyReason[] }>>; // project.settings.manage
 export function archiveProject(projectId: string): Promise<ProjectResult>;   // project.settings.manage
 export function reopenProject(projectId: string): Promise<ProjectResult>;    // project.settings.manage, su un archiviato
 export interface ArchivedProjectRow { projectId: string; code: string; name: string; clientName: string | null; archivedAt: string; archivedBy: string; canReopen: boolean; canDelete: boolean }
@@ -860,9 +907,12 @@ export interface DetachedRepositoryRow {
   formerProject: { code: string; name: string } | null;
   /** Dove chi guarda può collegarlo: progetti visibili, non archiviati, con `repos.manage` (tutti per il full admin). */
   linkTargets: { projectId: string; code: string; name: string }[];
+  /** Solo il full admin (confermata dal maintainer il 31 ott 2026, domanda 4 (b)). */
+  canDelete: boolean;
 }
 export function listDetachedRepositories(): Promise<DetachedRepositoryRow[]>; // chi vede la voce Repositories (9b), o il full admin
 export function linkRepository(repositoryId: string, projectId: string): Promise<ProjectResult>;
+export function deleteDetachedRepository(repositoryId: string): Promise<ProjectResult>; // full admin, +R
 ```
 
 - **Visibilità:**
@@ -929,7 +979,9 @@ export function linkRepository(repositoryId: string, projectId: string): Promise
 - **Le automazioni:** un evento o una pianificazione di un progetto
   archiviato non avvia niente; un'automazione generale che vorrebbe agire su
   un archiviato trova `not_found`, come su uno invisibile, e il suo
-  registro lo dice in parole.
+  registro lo dice in parole; l'esecuzione finisce **non riuscita** e
+  compare in «Needs attention» (**confermata dal maintainer il 31 ott
+  2026**, [PX 5] dello shape).
 - **Amministrazione → Servers:** un server legato solo ad ambienti di
   progetti archiviati ha `inArchivedOnly: true` e nessun progetto nella
   colonna.
@@ -957,7 +1009,23 @@ export function linkRepository(repositoryId: string, projectId: string): Promise
     nomina il progetto eliminato;
   - con `linkTargets` vuoto (per esempio chi ha `repos.manage` solo in
     progetti archiviati) il bottone è spento, con la frase e il «Who?» di
-    `manageRepos`.
+    `manageRepos`;
+  - `deleteDetachedRepository` (**confermata dal maintainer il 31 ott
+    2026**, domanda 4 (b)), nell'ordine:
+    - `not_found` se il repository non è fra quelli senza progetto (anche
+      se un collegamento o un'eliminazione lo ha appena preso);
+    - `forbidden` senza `instance.full_admin`;
+    - `reauth_required`;
+    - poi lo toglie da `state.detachedRepositories` e scrive la voce
+      d'istanza `repository.deleted` (nome com'è, `formerProjectId` nei
+      param, risolto a lettura come `project.deleted`: R-G5);
+    - l'account git non lo conta più: `deleteGitAccount` non trova più
+      `in_use` per lui.
+- **L'anteprima d'archiviazione** (*ruling del controller*, 31 ott 2026,
+  [AR 3]): `getArchivePreview` dà il numero delle esecuzioni aperte delle
+  automazioni del progetto (quelle che `archiveProject` annullerà) e le
+  ragioni di `busyReasonsOf`; `forbidden` senza `project.settings.manage`,
+  `not_found` su un progetto invisibile o già archiviato.
 
 Test:
 - [ ] RF 4, busy:
@@ -1021,6 +1089,24 @@ Test:
   - Roberta (full admin) lo collega a qualunque progetto attivo;
   - `deleteGitAccount` sull'account di `shop-frontend` mentre è senza
     progetto → `in_use`, con la riga senza codice di progetto.
+- [ ] Eliminare un repository senza progetto (in
+  `detachedRepositories.test.ts`; **confermata dal maintainer il 31 ott
+  2026**, domanda 4 (b)):
+  - Laura → `forbidden` (e `canDelete: false` nella sua lettura); senza
+    riconferma → `reauth_required`; in nessuno dei due casi cambia
+    qualcosa o nasce una voce;
+  - Roberta con la riconferma: `shop-frontend` sparisce da
+    `listDetachedRepositories`, la voce `repository.deleted` c'è, e
+    `deleteGitAccount` sul suo account non trova più `in_use` per lui;
+  - una seconda eliminazione, o un collegamento dopo, → `not_found`;
+  - RF 3: la voce letta da una persona con `changelog.view` che non era
+    membro di RNC non contiene «RNC» né «Ronchi»; Giulia e Roberta leggono
+    «from RNC».
+- [ ] `getArchivePreview(ACQ)` (*ruling del controller*, 31 ott 2026,
+  [AR 3]): con due esecuzioni aperte delle automazioni di ACQ dà
+  `openAutomationRuns: 2`, e dopo `archiveProject` sono annullate con la
+  nota «Project archived»; con una sessione viva dà anche la ragione di
+  `busy`; Sara → `forbidden`.
 - [ ] RF 3, `project.deleted`: Roberta legge «RNC — Vetrina online Tenuta
   Ronchi»; una persona con `changelog.view` (concessione nel test) che non
   era membro legge la chiave nascosta, e la serializzazione della voce non
@@ -1131,6 +1217,13 @@ Test:
 - [ ] Sara in ACQ: General, AI e Automations in sola lettura, ogni controllo
   spento con la frase e «Who?» (`manageProjectSettings`); Usage e Change log
   non sono nella colonna, e i loro indirizzi portano a General.
+- [ ] `#/p/ACQ/settings` apre General (*ruling del controller*, 31 ott
+  2026, [PS 2]).
+- [ ] «View only» nella forma (a) dello shape (**confermata dal maintainer il
+  31 ott 2026**): Sara lo legge solo sulla voce «Settings»; chi ha il solo
+  `project.members.manage` lo legge sulle voci rientrate in sola lettura e
+  non su «Settings»; una persona con `repos.manage` senza le impostazioni
+  non lo legge su Integration.
 - [ ] «View only»: la persona con il solo `project.members.manage` legge il
   segno dello shape su General e non su Members.
 - [ ] Usage di ACQ per Laura: periodo e gruppo nell'indirizzo, nessuna
@@ -1206,7 +1299,8 @@ Test:
   - chiuso e riaperto, solo `••••<last4>` (RF 2);
   - lo stesso per il secret del webhook di un repository.
 - [ ] La guida SDK: «Copy guide» copia il testo della guida, con la chiave
-  mascherata.
+  mascherata; «Save as file…» dà un `.md` con lo stesso testo
+  (*ruling del controller*, 31 ott 2026: parità col download del web).
 - [ ] Il fuoco torna al «⋯» o al bottone che ha aperto ogni dialogo, anche
   dopo una conferma che cambia la riga.
 - [ ] Commit `feat(desktop): file d'ambiente e integrazione del progetto`.
@@ -1250,7 +1344,9 @@ Test:
   - `pages/admin/integrations/GitAccountsPage.tsx` (9b): un repository senza
     progetto si legge «not in any project», senza codice;
   - `data/queries/instance.ts`: `useDetachedRepositories`,
-    `useLinkRepository`;
+    `useLinkRepository`, `useDeleteDetachedRepository` (**confermata dal
+    maintainer il 31 ott 2026**); `data/queries/projectSettings.ts`:
+    `useArchivePreview` (*ruling del controller*);
   - `pages/projects/AllProjectsPage.tsx`: la scheda «Archived», solo per chi
     ne vede almeno uno, con `?view=archived`;
   - `router.tsx`: `/archived/$code`, *scelta del controller*, fuori da
@@ -1292,7 +1388,16 @@ Test:
     titolo del gruppo se il gruppo sparisce (lo dice lo shape);
   - un nome già usato nel progetto scelto si dice nel dialogo, che resta
     aperto;
-  - senza repository senza progetto il gruppo non c'è.
+  - senza repository senza progetto il gruppo non c'è;
+  - Eliminare (**confermata dal maintainer il 31 ott 2026**, domanda 4
+    (b)): Roberta apre «⋯» → «Delete…», legge la conferma in rosso e la
+    frase sull'account git, riconferma; la riga sparisce e il fuoco va come
+    dopo un collegamento; Laura non ha la voce nel «⋯»; in
+    Amministrazione → Git accounts l'account non elenca più
+    `shop-frontend`.
+- [ ] Il dialogo di Archive di ACQ dice «2 automation runs still open will
+  be cancelled.» da `getArchivePreview` (*ruling del controller*, 31 ott
+  2026, [AR 3]); con zero esecuzioni la riga non c'è.
 - [ ] Il fuoco torna al «⋯» della riga dopo ogni dialogo; dopo Delete, che
   toglie la riga, va al titolo della scheda (lo dice lo shape).
 - [ ] RF 1: ⌘K digitando «RNC» o «Ronchi» non trova niente, per nessuno.
@@ -1312,7 +1417,10 @@ Test:
   - `repository.linked`: «linked shop-frontend to ACQ», con il link alla
     sezione Repositories di ACQ, senza il progetto eliminato da cui viene;
   - `project.deleted`: con `params.detachedRepositories` 1, «… 1 repository
-    is now in no project», col link ad Amministrazione → Repositories.
+    is now in no project», col link ad Amministrazione → Repositories;
+  - `repository.deleted` (**confermata dal maintainer il 31 ott 2026**):
+    «… deleted the repository shop-frontend, which was in no project (from
+    RNC)» per Roberta e Giulia, senza la parentesi per chi non era membro.
 - [ ] RF 3: la voce `repository.linked` letta da Laura (Change log di ACQ)
   e da una persona con `changelog.view` non contiene «RNC» né «Tenuta
   Ronchi», nemmeno nel DOM.
@@ -1368,7 +1476,10 @@ Test:
     invisibile risponde 404» resta, e si aggiunge l'archiviato. Sul web un
     repository ha sempre un progetto: il motore deve renderlo facoltativo.
 - `area9-parity.md`, sezione E: la riga «Tutti i repository» aggiunge il
-  gruppo «Not in any project» e il collegamento, coi loro test.
+  gruppo «Not in any project», il collegamento e l'eliminazione da full
+  admin (**confermata dal maintainer il 31 ott 2026**), coi loro test.
+  L'invariante §11 aggiunge: «un repository senza progetto lo elimina solo
+  il full admin, con la riconferma».
 - `emptyInstance.test.tsx` copre le rotte nuove (`/archived/$code`, le
   sezioni di Settings).
 - Suite, typecheck, lint e build verdi.
@@ -1404,3 +1515,26 @@ Le quattro domande del piano. Ognuna è segnata nel testo come
    - discovery spenta: spegne il pulse, e nient'altro.
 4. **Le automazioni aperte quando si archivia → (a)**: si annullano con la
    nota «Project archived» e non rendono il progetto `busy` (Task 5).
+
+## Decisioni del maintainer sugli shape (31 ott 2026)
+
+Gli shape del Task 0 sono approvati. Le quattro domande degli shape:
+
+1. **«View only» → (a)** ([PS 3]): segno su «Settings» se tutto è in sola
+   lettura, sulle voci rientrate se è misto, sempre la riga in testa alla
+   sezione (Task 7).
+2. **Conflitto dei plugin → (a)** ([PG 5]): la bozza resta, con «Keep my
+   changes on theirs» e «Use theirs» (Task 10).
+3. **Automazione generale verso un progetto archiviato → (a)** ([PX 5]):
+   l'esecuzione finisce non riuscita, in «Needs attention» (Task 5, 6).
+4. **Un repository senza progetto si elimina → (b)** ([AR 9]): solo il full
+   admin, da Amministrazione → Repositories, con conferma in rosso, +R e la
+   voce `repository.deleted` senza provenienza per chi non la vede; l'account
+   git smette di contarlo «in uso». Parti toccate: Global Constraints,
+   Review Focus 4, Task 1, 4, 5, 11, 12, 13.
+
+Ruling del controller dello stesso giorno: il seme di STW (ambiente `test`)
+e di ACQ (`portale-utenti`), il plugin base `stubwise` per tutti i progetti
+(Task 1), `access.integration.canEdit` = chiave o `repos.manage` (Task 1),
+`getArchivePreview` con `openAutomationRuns` (Task 5, 11), «Save as file…»
+della guida SDK (Task 9), `/p/<CODE>/settings` che apre General (Task 1, 7).
