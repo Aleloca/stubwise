@@ -70,6 +70,15 @@ const environmentsOf = (code: string): ProjectEnvironment[] =>
   state.environments.filter((e) => e.servers.some((s) => s.serverCode === code));
 
 /**
+ * Area 9c (Task 5): lo usano solo ambienti di progetti archiviati. Si dice
+ * senza nomi («Only in archived projects»), a chiunque legga il server.
+ */
+export const inArchivedOnlyOf = (code: string): boolean => {
+  const envs = environmentsOf(code);
+  return envs.length > 0 && envs.every((e) => !!state.projectsById.get(e.projectId)?.archived);
+};
+
+/**
  * I codici dei server (esistenti) che `personId` vede: quelli di un ambiente
  * qualunque di un progetto che vede e, con `monitor.manage`, TUTTI (dal 9b:
  * orfani, R-L7, e server di progetti invisibili): chi gestisce il monitor li
@@ -266,6 +275,8 @@ export interface ServerDetail extends Omit<ServerRow, "access"> {
    * un server di soli progetti invisibili NON è orfano.
    */
   orphan: boolean;
+  /** Lo usano solo ambienti di progetti archiviati (Task 5): «Only in archived projects», senza nomi. */
+  inArchivedOnly: boolean;
 }
 
 function episodeView(me: string, e: ServerEpisode): ServerEpisodeView {
@@ -312,6 +323,7 @@ export function serverDetail(me: string, s: MonitoredServer): ServerDetail {
     canManage: canMonitor(me),
     sshReachable: s.sshReachable,
     orphan: environmentsOf(s.code).length === 0,
+    inArchivedOnly: inArchivedOnlyOf(s.code),
   };
 }
 

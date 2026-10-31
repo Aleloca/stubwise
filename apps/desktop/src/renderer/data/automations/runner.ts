@@ -488,9 +488,14 @@ async function step(
 export const publishedVersion = (a: Automation) =>
   [...a.versions].reverse().find((v) => v.publishedAt !== null) ?? null;
 
-/** Può nascere un'esecuzione? Attiva, con una versione pubblicata, sotto le 100 non finite. */
+/**
+ * Può nascere un'esecuzione? Attiva, con una versione pubblicata, sotto le
+ * 100 non finite, e (area 9c, Task 5) non di un progetto archiviato: né un
+ * evento né una data lo fanno partire. Riaperto, riparte dagli eventi nuovi.
+ */
 export function canStartRun(a: Automation): boolean {
   if (a.status !== "active" || !publishedVersion(a)) return false;
+  if (a.projectId !== null && state.projectsById.get(a.projectId)?.archived) return false;
   const open = state.automationRuns.filter((r) => r.automationId === a.id && isOpen(r));
   return open.length < MAX_ACTIVE_RUNS;
 }

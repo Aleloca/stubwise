@@ -139,7 +139,12 @@ export interface ChangeEntryView extends ChangeEntry {
 export interface ChangeFilterChoices {
   everything: boolean;
   people: { personId: string; name: string }[];
-  projects: { projectId: string; code: string; name: string }[];
+  /**
+   * `archived`: un archiviato di cui chi guarda era membro (o è full admin)
+   * e legge le voci; la pagina lo dice «(archived)» (ruling del controller
+   * (pre-flight), P21). Assente sugli attivi.
+   */
+  projects: { projectId: string; code: string; name: string; archived?: boolean }[];
   groups: string[];
 }
 

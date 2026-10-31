@@ -122,7 +122,11 @@ export {
 } from "./status";
 export { retryJob } from "./retry";
 export {
+  deleteDetachedRepository,
+  linkRepository,
   listAllRepositories,
+  listDetachedRepositories,
+  type DetachedRepositoryRow,
   type InstanceRepositoryGroup,
   type InstanceRepositoryRow,
 } from "./repositories";

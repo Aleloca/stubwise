@@ -1510,6 +1510,22 @@ export function visibleProjectIds(personId: string): Set<string> {
 }
 
 /**
+ * Gli archiviati che una persona vede, in sola lettura (area 9c, Task 5):
+ * quelli dove ha un'appartenenza (l'archiviazione non la tocca), o tutti se
+ * è full admin. Claude no, nemmeno dove ci ha lavorato: un archiviato non
+ * è lavoro per lui (R-L9 vale per i progetti aperti). Non sono in
+ * `visibleProjectIds`: lo chiede solo chi li mostra da archiviati (la
+ * scheda «Archived», il registro, il «Who?» di Reopen).
+ */
+export function archivedProjectIdsFor(personId: string): Set<string> {
+  if (personId === CLAUDE_ID) return new Set();
+  const archived = state.projects.filter((p) => p.archived);
+  if (viewerFor(personId).instancePermissions.includes("instance.full_admin"))
+    return new Set(archived.map((p) => p.id));
+  return new Set(archived.filter((p) => p.memberIds.includes(personId)).map((p) => p.id));
+}
+
+/**
  * Chi vede una conversazione con Claude — l'unica regola, per le letture e
  * per lo stream. Libera privata: chi l'ha aperta; pubblica: anche chi ha
  * `claude.public.view`. Sessioni di lavoro: `repos.view` nel progetto (il

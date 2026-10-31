@@ -238,7 +238,8 @@ export async function simulateNextRepositoryCheck(outcome: TestOutcome): Promise
 /** Il nome di un repository: non vuoto, senza spazi né `/` (è un pezzo dell'indirizzo dei Docs). */
 const validName = (name: string): boolean => name !== "" && !/[\s/]/.test(name);
 
-const nameTaken = (projectId: string, name: string, exceptId: string | null): boolean =>
+/** Il nome c'è già nel progetto (senza maiuscole): è nell'indirizzo dei Docs. */
+export const nameTaken = (projectId: string, name: string, exceptId: string | null): boolean =>
   state.repositories.some(
     (r) =>
       r.projectId === projectId && r.id !== exceptId && r.name.toLowerCase() === name.toLowerCase(),
@@ -303,10 +304,25 @@ export async function createRepository(
     webhook: { state: "not_configured", configuredAt: null, secretId: null, last4: null },
   };
   state.repositories.push(repository);
+  addDocSpace(repository);
+  recordChange({
+    kind: "repository.created",
+    actorId: me,
+    projectId: project.id,
+    object: repositoryObject(repository),
+  });
+  return { ok: true, repositoryId: repository.id };
+}
+
+/**
+ * Lo spazio dei Docs di un repository entrato nel progetto (creato, o
+ * collegato dopo un Delete: Task 5): mai generato, senza pagine.
+ */
+export function addDocSpace(repository: Repository): void {
   state.docSpaces.push({
     repositoryId: repository.id,
-    projectId: project.id,
-    name,
+    projectId: repository.projectId,
+    name: repository.name,
     generation: {
       status: "never",
       lastAt: null,
@@ -319,13 +335,6 @@ export async function createRepository(
     releases: [],
     graph: { status: "disabled" },
   });
-  recordChange({
-    kind: "repository.created",
-    actorId: me,
-    projectId: project.id,
-    object: repositoryObject(repository),
-  });
-  return { ok: true, repositoryId: repository.id };
 }
 
 type RepositoryPatch = Partial<

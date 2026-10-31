@@ -61,3 +61,18 @@ export {
   skillsForRun,
   type ProjectPluginsView,
 } from "./plugins";
+// Task 5: archivia, riapri, elimina.
+export {
+  archiveProject,
+  busyReasonsOf,
+  deleteProject,
+  getArchivePreview,
+  getArchivedProject,
+  getDeletionPreview,
+  listArchivedProjects,
+  reopenProject,
+  type ArchivedProjectRow,
+  type ArchivedProjectView,
+  type DeletionCountKey,
+  type DeletionCounts,
+} from "./archive";

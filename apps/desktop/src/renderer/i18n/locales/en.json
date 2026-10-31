@@ -5552,6 +5552,7 @@
       "unknownOutcome": "Claude returned an outcome the step doesn't have (“{{outcome}}”).",
       "badField": "Claude returned fields the step doesn't declare, or of the wrong kind.",
       "tooMany": "Claude returned a list over the limit of {{max}} items.",
+      "projectArchived": "Project archived",
       "noApprover": "Nobody can approve this step: the person named isn't there, or can't see the project. Change who approves, then retry.",
       "noApprover_would": "Nobody could approve this step: the person named isn't there, or can't see the project. Change who approves.",
       "unavailable": "The service didn't answer: the step wasn't run. You can retry.",

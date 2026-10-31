@@ -1,7 +1,7 @@
 import { actionById, groupPermissions } from "../../domain/access/actions";
 import { orderHolders, peopleVisibleTo } from "../../domain/access/whoCan";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
-import { visibleProjectIds } from "../store";
+import { archivedProjectIdsFor, visibleProjectIds } from "../store";
 import { can, viewerFor, type Permission } from "../viewer";
 import { ALL_PROJECT_PERMISSIONS } from "./seed";
 import { effectivePermissions, type PermissionSource } from "./effective";
@@ -47,7 +47,9 @@ export function visiblePeopleFor(viewerId: string): Set<string> {
  * Chi può fare un'azione del catalogo in un progetto (o nell'istanza, per
  * un'azione d'istanza: il progetto si ignora). Un progetto invisibile, uno
  * mancante per un'azione di progetto o un'azione sconosciuta rispondono
- * `{ visible: false }`, come un progetto che non esiste.
+ * `{ visible: false }`, come un progetto che non esiste. Un archiviato ha
+ * la risposta per i suoi ex membri e i full admin (`archivedProjectIdsFor`):
+ * è il «Who?» di Reopen (ruling del controller (pre-flight), P10).
  */
 export function whoCan(viewerId: string, actionId: string, projectId: string | null): WhoCanResult {
   const action = actionById(actionId);
@@ -55,7 +57,8 @@ export function whoCan(viewerId: string, actionId: string, projectId: string | n
   const scoped = action.scope === "project" ? (projectId ?? undefined) : undefined;
   if (
     action.scope === "project" &&
-    (scoped === undefined || !visibleProjectIds(viewerId).has(scoped))
+    (scoped === undefined ||
+      (!visibleProjectIds(viewerId).has(scoped) && !archivedProjectIdsFor(viewerId).has(scoped)))
   )
     return { visible: false };
   const perm = action.permission as Permission;

@@ -18,6 +18,7 @@ import {
   codeNumber,
   serverFixStartBlock,
   homeProjectCode,
+  inArchivedOnlyOf,
   installCommandOf,
   metricsSince,
   projectServerCodes,
@@ -51,6 +52,12 @@ export type InstanceServerRow = ServerRow & {
   projects: { code: string; name: string }[];
   /** Nessun ambiente lo usa (R-L7). Un server di soli progetti invisibili NON è orfano. */
   orphan: boolean;
+  /**
+   * Area 9c (Task 5): lo usano solo ambienti di progetti archiviati. La riga
+   * lo dice senza nomi («Only in archived projects»), a chiunque la legga:
+   * nessun progetto nella colonna, nemmeno per gli ex membri.
+   */
+  inArchivedOnly: boolean;
 };
 
 /**
@@ -74,7 +81,12 @@ export async function listAllServers(): Promise<InstanceServerRow[]> {
         .map((id) => state.projectsById.get(id)!)
         .map((p) => ({ code: p.code, name: p.name }))
         .sort((a, b) => a.code.localeCompare(b.code));
-      return { ...serverRow(me, s), projects, orphan: used.size === 0 };
+      return {
+        ...serverRow(me, s),
+        projects,
+        orphan: used.size === 0,
+        inArchivedOnly: inArchivedOnlyOf(s.code),
+      };
     });
 }
 

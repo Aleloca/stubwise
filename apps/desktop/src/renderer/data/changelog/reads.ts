@@ -5,7 +5,7 @@ import { SECTION_OF_KIND } from "../projectSettings/changeTypes";
 import type { AdminSection } from "../routes";
 import { visiblePeopleFor } from "../access/whoCan";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
-import { gate, now, state, visibleProjectIds } from "../store";
+import { archivedProjectIdsFor, gate, now, state, visibleProjectIds } from "../store";
 import { can, viewerFor, type Permission } from "../viewer";
 import { forbidden, notFound } from "../writer";
 import { changeTypeOf } from "./record";
@@ -32,12 +32,70 @@ import type {
 // Il full admin legge tutto (`can()` gli dice sempre sì, e vede ogni
 // progetto); Claude niente (`changelog.view` e i `.manage` gli sono negati).
 //
+// Area 9c (Task 5): le voci di un archiviato si leggono con la stessa regola
+// sui progetti visibili PIÙ gli archiviati di chi guarda
+// (`archivedProjectIdsFor`: ex membri e full admin). Un progetto eliminato
+// non c'è più per nessuno: le sue voci di progetto restano e non si leggono.
+// `project.deleted` e `repository.deleted` (d'istanza) dicono il progetto
+// eliminato solo a chi ne era membro o è full admin (R-G5): agli altri la
+// chiave «un progetto che non vedi», senza nome, codice né id.
+//
 // La vista di una voce porta già tutto ciò che la UI mostra (`view`): il
 // link all'oggetto se esiste ancora e chi guarda può aprirlo, «(deleted)»,
 // e il prima/dopo pronto da leggere. Le persone che chi guarda non vede non
 // ci sono nemmeno lì, né per nome né in un conteggio (R-G5).
 
 const DAY_MS = 86_400_000;
+
+/** I progetti di cui `me` può leggere le voci: i visibili e i suoi archiviati (R-M1, Task 5). */
+const readableProjectIds = (me: string): Set<string> =>
+  new Set([...visibleProjectIds(me), ...archivedProjectIdsFor(me)]);
+
+/** Chi guarda era membro del progetto eliminato, o è full admin: ne legge codice e nome. */
+function knowsDeleted(me: string, projectId: string | undefined): { code: string; name: string } | null {
+  if (me === CLAUDE_ID || projectId === undefined) return null;
+  const deleted = state.deletedProjects.find((d) => d.id === projectId);
+  if (!deleted) return null;
+  const fullAdmin = viewerFor(me).instancePermissions.includes("instance.full_admin");
+  return fullAdmin || deleted.memberIds.includes(me)
+    ? { code: deleted.code, name: deleted.name }
+    : null;
+}
+
+/**
+ * Le due voci d'istanza che nominano un progetto eliminato, risolte a
+ * lettura (R-G5). `project.deleted`: «RNC — Vetrina online Tenuta Ronchi» a
+ * chi ne era membro o è full admin; agli altri un'etichetta vuota e la
+ * chiave `changelog.values.hiddenProject`, e nemmeno l'id. `repository.deleted`:
+ * `formerProjectId` non esce mai; `formerProject` (il codice) solo a chi
+ * conosce il progetto. Le altre voci passano com'erano.
+ */
+function resolveDeleted(
+  me: string,
+  entry: ChangeEntry,
+): { entry: ChangeEntry; labelKey: string | null } {
+  if (entry.kind === "project.deleted") {
+    const known = knowsDeleted(me, entry.object.id);
+    return known
+      ? {
+          entry: { ...entry, object: { ...entry.object, label: `${known.code} — ${known.name}` } },
+          labelKey: null,
+        }
+      : {
+          entry: { ...entry, object: { type: entry.object.type, id: "", label: "" } },
+          labelKey: "changelog.values.hiddenProject",
+        };
+  }
+  if (entry.kind === "repository.deleted") {
+    const { formerProjectId, ...params } = entry.params;
+    const known = knowsDeleted(me, formerProjectId);
+    return {
+      entry: { ...entry, params: known ? { ...params, formerProject: known.code } : params },
+      labelKey: null,
+    };
+  }
+  return { entry, labelKey: null };
+}
 
 /** Chi guarda può gestire (impostazioni o membri) il progetto. */
 const managesProject = (me: string, projectId: string): boolean =>
@@ -117,8 +175,11 @@ function projectSettingsLinkOf(
 ): ChangeObjectLink | null | undefined {
   const section = SECTION_OF_KIND[entry.kind];
   if (!section || entry.projectId === null) return undefined;
-  const code = state.projectsById.get(entry.projectId)?.code;
-  if (!code || !projectSettingsAccess(viewerFor(me), entry.projectId)[section].visible) return null;
+  const project = state.projectsById.get(entry.projectId);
+  // Un archiviato non ha Settings da aprire: la sua pagina è quella dell'archivio (Task 11).
+  if (!project || project.archived) return null;
+  const { code } = project;
+  if (!projectSettingsAccess(viewerFor(me), entry.projectId)[section].visible) return null;
   return { to: "projectSettings", code, section };
 }
 
@@ -135,10 +196,12 @@ function objectLinkOf(
   switch (type) {
     case "person": {
       if (!people.has(id)) return null;
-      // Un membro ancora nel progetto si apre nel suo pannello di Members.
+      // Un membro ancora nel progetto si apre nel suo pannello di Members
+      // (non in un archiviato: non ha Settings da aprire, Task 5).
       if (entry.projectId && isMember(id, entry.projectId)) {
-        const code = state.projectsById.get(entry.projectId)?.code;
-        if (code) return { to: "member", projectCode: code, personId: id };
+        const project = state.projectsById.get(entry.projectId);
+        if (project && !project.archived)
+          return { to: "member", projectCode: project.code, personId: id };
       }
       return { to: "person", personId: id };
     }
@@ -288,7 +351,7 @@ function diffOf(entry: ChangeEntry, people: Set<string>): ChangeDiff | null {
 }
 
 function view(me: string, stored: ChangeEntry, people: Set<string>): ChangeEntryView {
-  const entry = resolveProject(me, stored);
+  const { entry, labelKey } = resolveDeleted(me, resolveProject(me, stored));
   const type = changeTypeOf(entry.kind)!;
   return {
     ...entry,
@@ -301,7 +364,8 @@ function view(me: string, stored: ChangeEntry, people: Set<string>): ChangeEntry
     projectCode: entry.projectId ? (state.projectsById.get(entry.projectId)?.code ?? null) : null,
     objectDeleted: objectDeletedOf(entry),
     objectLink: objectLinkOf(me, entry, people),
-    objectLabelKey: entry.kind === "model.changed" ? `usage.operations.${entry.object.id}` : null,
+    objectLabelKey:
+      entry.kind === "model.changed" ? `usage.operations.${entry.object.id}` : labelKey,
     diff: diffOf(entry, people),
   };
 }
@@ -347,7 +411,7 @@ function newestFirst(entries: ChangeEntry[]): ChangeEntry[] {
 
 /** Le voci che `me` legge, filtrate (funzione pura sullo stato, senza cancello). */
 function changesReadableBy(me: string, filter: ChangeFilter = {}): ChangeEntryView[] {
-  const visible = visibleProjectIds(me);
+  const visible = readableProjectIds(me);
   const people = me === CLAUDE_ID ? new Set<string>() : visiblePeopleFor(me);
   return newestFirst(
     state.changelog.filter((e) => readable(me, e, visible) && matchesFilter(e, filter)),
@@ -392,10 +456,18 @@ export async function listChangeFilterChoices(projectId?: string): Promise<Chang
     people: [...people]
       .map((personId) => ({ personId, name: nameOf(personId) }))
       .sort((a, b) => a.name.localeCompare(b.name)),
-    projects: state.projects
-      .filter((p) => visible.has(p.id))
-      .map((p) => ({ projectId: p.id, code: p.code, name: p.name }))
-      .sort((a, b) => a.code.localeCompare(b.code)),
+    projects: [
+      ...state.projects
+        .filter((p) => visible.has(p.id))
+        .map((p) => ({ projectId: p.id, code: p.code, name: p.name })),
+      // P21: gli archiviati di chi ne era membro (o del full admin), se ne legge le voci.
+      ...state.projects
+        .filter(
+          (p) =>
+            archivedProjectIdsFor(me).has(p.id) && readableChangeGroups(viewer, p.id).length > 0,
+        )
+        .map((p) => ({ projectId: p.id, code: p.code, name: p.name, archived: true })),
+    ].sort((a, b) => a.code.localeCompare(b.code)),
     groups: readableChangeGroups(viewer, projectId),
   };
 }

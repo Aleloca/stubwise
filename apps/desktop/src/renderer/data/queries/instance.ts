@@ -27,6 +27,7 @@ export type {
   WebhookFormat,
   WebhookGroup,
   WebhookView,
+  DetachedRepositoryRow,
   InstanceRepositoryGroup,
   InstanceRepositoryRow,
   PluginView,
@@ -50,6 +51,39 @@ export function useAllRepositories() {
     queryKey: ["as", me, "instance", "repositories"] as const,
     queryFn: () => api.instance.listAllRepositories(),
   });
+}
+
+/**
+ * I repository rimasti senza progetto (area 9c, Task 5): il gruppo «Not in
+ * any project» (errore `forbidden` senza `repos.manage` in nessun progetto,
+ * salvo il full admin).
+ */
+export function useDetachedRepositories() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "instance", "detached-repositories"] as const,
+    queryFn: () => api.instance.listDetachedRepositories(),
+  });
+}
+
+/** Collegare cambia i repository del progetto e i suoi spazi dei Docs. */
+const LINK_WRITE_AREAS: readonly string[] = ["instance", "projectSettings", "docs", "changelog"];
+
+/** Collega un repository senza progetto a un progetto (`repos.manage` lì, o full admin). */
+export function useLinkRepository() {
+  return useWrite(
+    (input: { repositoryId: string; projectId: string }) =>
+      api.instance.linkRepository(input.repositoryId, input.projectId),
+    LINK_WRITE_AREAS,
+  );
+}
+
+/** Elimina un repository senza progetto (+R, full admin): l'account git non lo conta più. */
+export function useDeleteDetachedRepository() {
+  return useWrite(
+    (repositoryId: string) => api.instance.deleteDetachedRepository(repositoryId),
+    ["instance", "changelog"],
+  );
 }
 
 /** I consumi della scheda Usage (errore `forbidden` senza `usage.view`). */

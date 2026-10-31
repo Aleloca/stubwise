@@ -5552,6 +5552,7 @@
       "unknownOutcome": "Claude ha restituito un'uscita non prevista dal passo («{{outcome}}»).",
       "badField": "Claude ha restituito campi non previsti dal passo o del tipo sbagliato.",
       "tooMany": "Claude ha restituito un elenco oltre il limite di {{max}} elementi.",
+      "projectArchived": "Progetto archiviato",
       "noApprover": "Nessuno può approvare questo passo: chi è indicato non c'è, o non vede il progetto. Va cambiato chi approva, poi si può riprovare.",
       "noApprover_would": "Nessuno potrebbe approvare questo passo: chi è indicato non c'è, o non vede il progetto. Va cambiato chi approva.",
       "unavailable": "Il servizio non ha risposto: il passo non è stato eseguito. Si può riprovare.",

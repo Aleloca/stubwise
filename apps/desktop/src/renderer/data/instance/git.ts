@@ -17,7 +17,10 @@ import type { InstanceRefusal, InstanceResult } from "./types";
 //
 // Chi usa un account sono i repository (`Repository.gitAccountId`): chi
 // guarda legge per nome solo quelli dei progetti che vede, gli altri sono
-// un numero (R-G5), nella riga come nel rifiuto `in_use`.
+// un numero (R-G5), nella riga come nel rifiuto `in_use`. Dall'area 9c
+// (Task 5) contano anche i repository rimasti senza progetto: per nome, a
+// chiunque legga gli account, senza codice di progetto (`projectCode:
+// null`) — il nome non dice da quale progetto eliminato vengono.
 //
 // Il revisore predefinito è UNO per ambito, cioè piattaforma + workspace
 // (scelta del controller, come il `review-account` del server): sceglierne
@@ -30,8 +33,8 @@ const VIEW = "git_accounts.view";
 const PLATFORM = { github: "GitHub", bitbucket: "Bitbucket" } as const;
 
 export type GitAccountView = Omit<GitAccount, "secretId"> & {
-  /** I repository dei progetti che chi guarda vede (nome e codice del progetto). */
-  repositories: { name: string; projectCode: string }[];
+  /** I repository dei progetti che chi guarda vede (nome e codice del progetto); `null` = senza progetto. */
+  repositories: { name: string; projectCode: string | null }[];
   /** Quelli dei progetti che non vede, solo contati. */
   hiddenRepositories: number;
   /**
@@ -52,9 +55,9 @@ const scopeOf = (a: GitAccount) => `${a.provider}|${(a.workspace ?? "").toLowerC
 function usageOf(
   me: string,
   accountId: string,
-): { repositories: { name: string; projectCode: string }[]; hidden: number } {
+): { repositories: { name: string; projectCode: string | null }[]; hidden: number } {
   const visible = visibleProjectIds(me);
-  const repositories: { name: string; projectCode: string }[] = [];
+  const repositories: { name: string; projectCode: string | null }[] = [];
   let hidden = 0;
   for (const r of state.repositories) {
     if (r.gitAccountId !== accountId) continue;
@@ -62,6 +65,8 @@ function usageOf(
     if (code && visible.has(r.projectId)) repositories.push({ name: r.name, projectCode: code });
     else hidden += 1;
   }
+  for (const { repository: r } of state.detachedRepositories)
+    if (r.gitAccountId === accountId) repositories.push({ name: r.name, projectCode: null });
   return { repositories, hidden };
 }
 
