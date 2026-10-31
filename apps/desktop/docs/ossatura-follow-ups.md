@@ -626,6 +626,52 @@ si riscrivono.
     anche per gli altri `budget_held` del web. **Confermata dal maintainer il
     31 ott 2026**: il passo riparte da solo, ed è una cosa in più rispetto al
     web che il motore dovrà fare.
+- **§11 — progetti archiviati ed eliminati, repository senza progetto:
+  costruita nel prototipo (9c), da riscrivere prima del motore.** Va
+  scritta in `docs/invariants/permissions.md` **prima** del codice: «Un
+  progetto invisibile risponde 404 `not_found`, come uno che non esiste»
+  resta, e le si aggiunge l'archiviato. La regola costruita (Task 5, 11 e
+  12; `data/projectSettings/archive.ts`, `purge.ts`,
+  `data/instance/repositories.ts`, `archivedProjectIdsFor` in
+  `data/store.ts`):
+  - **un progetto archiviato è invisibile come uno inesistente** (R-G5):
+    niente nome né codice in liste, ⌘K, notifiche, «Who can?», Stato
+    dell'istanza, Usage, Servers, registro; **tranne ai suoi membri e ai
+    full admin, in sola lettura**: lo ritrovano in All projects → Archived
+    e nella sua pagina (`/archived/<CODE>`), con Reopen per chi ha
+    `project.settings.manage` lì. Claude no, anche se è fra i membri.
+    Precisazioni decise durante l'area: gli ex membri e i full admin leggono
+    sulla sua pagina i nomi dei membri e di chi ha archiviato anche se
+    quelle persone non si vedono altrove (ruling T5); il registro dà loro
+    l'archiviato nel filtro con «(archived)» e le sue voci, chi non ne era
+    membro non le legge (P21);
+  - **archiviare** non ferma il lavoro: un lavoro vivo lo rende `busy`, e
+    il titolo d'una sessione che chi archivia non vede non esce (P23); le
+    esecuzioni d'automazione aperte si annullano con «Project archived» e
+    non contano come `busy` (decisione del maintainer, 31 ott 2026);
+  - **l'eliminazione è del solo full admin e solo da archiviato**, col
+    codice esatto e la riconferma; dopo, nessuna riga dello stato nomina
+    il progetto tranne il registro, l'elenco degli eliminati e la
+    provenienza dei repository; i consumi restano nel budget del mese e si
+    leggono «Other projects» (ruling T5);
+  - **i repository di un progetto eliminato restano senza progetto**, nel
+    gruppo «Not in any project» di Amministrazione → Repositories; **si
+    collegano a un altro progetto con `repos.manage` nel progetto di
+    destinazione, o da full admin** (voce `repository.linked`, che non
+    nomina la provenienza); **dicono da dove vengono solo agli ex membri e
+    ai full admin**, e a chi non la sa si mostra solo l'ultimo segmento del
+    nome completo, perché il workspace può nominare il cliente (ruling
+    T11);
+  - **un repository senza progetto lo elimina solo il full admin, con la
+    riconferma** (decisione del maintainer del 31 ott 2026, [AR 9] (b)): la
+    voce `repository.deleted` non dice la provenienza a chi non la vede, e
+    l'account git smette di contarlo «in uso».
+
+  **Per il motore**: sul web un repository ha sempre un progetto
+  (`repositories.project_id` obbligatorio); il motore deve renderlo
+  facoltativo, e decidere dove sta la provenienza (nel prototipo
+  `detachedRepositories[].formerProjectId`, mai restituito: si legge solo
+  il codice, e solo da chi lo sa).
 
 ## Area 8b — minori aperti
 
@@ -866,9 +912,14 @@ Minori lasciati aperti, col motivo:
 - **Elenco di People virtualizzato oltre 50 persone e registro oltre le
   centinaia di voci** (Task 8, Task 11 m-6): nessuna istanza del seme ci
   arriva; è lavoro del motore, con la paginazione del server.
-- **«View only» su Settings per chi gestisce solo i membri** (Task 10
-  Minor 2): con i preset non capita; la forma (segno sulla voce o sulle
-  sezioni) va decisa col 9c, che porta le altre sezioni.
+- ~~**«View only» su Settings per chi gestisce solo i membri** (Task 10
+  Minor 2)~~: **chiuso col 9c** (Task 7). Decisione del maintainer sugli
+  shape del 31 ott 2026, [PS 3] (a): il segno sta su «Settings» se tutto è
+  in sola lettura, sulle voci rientrate se è misto (il caso di chi gestisce
+  solo i membri), e la riga ○ sta sempre in testa alla sezione
+  (`pages/settings/ViewOnly.tsx`; test in `GeneralAiAutomations.test.tsx`,
+  «chi ha il solo project.members.manage: il segno sulle voci in sola
+  lettura, non su Members né su Settings»).
 - **Comando di Claude Code «già creato»** (Task 7 Minor 2, `madeBefore`
   locale) e **`canConnect` delle caselle** (Task 7 Minor 3): servono campi
   nuovi del livello dati (un token nato dal comando, quante caselle si
@@ -1292,3 +1343,408 @@ perché:
   budget torna (`analysisBlocked`): il riquadro lo dice finché l'episodio
   è aperto. *Perché*: è il comportamento dello shape EF (l'analisi non è
   un passo d'automazione), da confermare col motore.
+
+## Area 9c — minori aperti
+
+Parità e copertura: `area9-parity.md` (sezione D, e la riga «Tutti i
+repository» della sezione E). L'invariante da riscrivere prima del motore
+è §11 (progetti archiviati ed eliminati, repository senza progetto), sotto
+«Invarianti del CLAUDE.md da riscrivere prima del motore». Qui: le decisioni
+del maintainer, le scelte del controller da far confermare (ognuna col suo
+costo se sbagliata), le frasi nuove fuori dagli shape e i minori rimandati
+dalle revisioni dei Task 1–12 (31 ott 2026), che la revisione finale del
+branch smisterà.
+
+### Decisioni del maintainer (31 ott 2026)
+
+Le quattro domande del piano:
+
+- **Cosa si apre di un progetto archiviato → (a)**: una pagina sua, in sola
+  lettura, con sintesi, membri, conteggi, Reopen e Delete.
+- **I repository di un progetto eliminato → (b)**: restano senza progetto,
+  nel gruppo «Not in any project» di Amministrazione → Repositories; si
+  collegano a un altro progetto con `repos.manage` nel progetto di
+  destinazione, o da full admin; il dialogo di Delete li conta, e il
+  collegamento scrive `repository.linked`; da dove vengono lo leggono solo
+  gli ex membri e il full admin.
+- **Effetti di report giornaliero e discovery backlog → (a)**: report
+  spento, la riga dice «off» e «Generate report» a mano resta; discovery
+  spenta, spegne il pulse e nient'altro.
+- **Le automazioni aperte quando si archivia → (a)**: si annullano con la
+  nota «Project archived» e non rendono il progetto `busy`.
+
+Le quattro domande degli shape:
+
+- **«View only» → (a)** ([PS 3]): segno su «Settings» se tutto è in sola
+  lettura, sulle voci rientrate se è misto, sempre la riga in testa alla
+  sezione.
+- **Conflitto dei plugin → (a)** ([PG 5]): la bozza resta, con «Keep my
+  changes on theirs» e «Use theirs».
+- **Automazione generale verso un progetto archiviato → (a)** ([PX 5]):
+  l'esecuzione finisce non riuscita, in «Needs attention».
+- **Un repository senza progetto si elimina → (b)** ([AR 9]): solo il full
+  admin, da Amministrazione → Repositories, con conferma in rosso, la
+  riconferma e la voce `repository.deleted` senza provenienza per chi non la
+  vede; l'account git smette di contarlo «in uso».
+
+### Decisioni del controller da confermare
+
+Del controller, lo stesso giorno delle decisioni del maintainer:
+
+- **Il seme di STW ha l'ambiente `test`, quello di ACQ il repository
+  `portale-utenti`** (`not_configured`). *Se sbagliata*: solo il seme, e i
+  test e gli scatti che lo leggono.
+- **Il plugin base `stubwise` in ogni progetto**, sempre acceso, fuori dal
+  registro e dalle scelte. *Se sbagliata*: «/» e le sessioni di un progetto
+  hanno `/stubwise:*` dove il maintainer non lo voleva; una riga in
+  `skillsForRun`.
+- **`access.integration.canEdit` = `project.settings.manage` o
+  `repos.manage`**: chi gestisce i repository rigenera anche la chiave
+  d'ingestione. *Se sbagliata*: un permesso in più a chi ha solo
+  `repos.manage`; una riga in `adminSections.ts`.
+- **`getArchivePreview` con `openAutomationRuns`**: il dialogo d'archivio
+  conta le esecuzioni che si annulleranno. *Se sbagliata*: una riga in meno
+  nel dialogo.
+- **«Save as file…» della guida SDK**, un `.md` con lo stesso testo di
+  «Copy guide». *Se sbagliata*: un bottone in più.
+- **`/p/<CODE>/settings` apre General** ([PS 2]). *Se sbagliata*: il
+  maintainer voleva un'altra sezione d'arrivo; una costante.
+
+Dal pre-flight del piano (P1–P29), di prodotto (cambiano ciò che una
+persona vede o può fare):
+
+- **P3 — il seme spegne superpowers (tutte le skill e gli hook) nei progetti
+  dove oggi non c'era.** *Se sbagliata*: «/» e i run di marketing, client e
+  ZNC cambiano; si riscrive il seme delle scelte.
+- **P8 — i test che si aspettavano SRV-5 passano a SRV-6/SRV-7**
+  (decisione del coordinatore): il server di RNC prende SRV-5. *Se
+  sbagliata*: solo numerazione nel seme e nei test.
+- **P9 — RNC nei membri di riferimento, Giulia Project Lead in RNC.** *Se
+  sbagliata*: cambia chi riapre RNC nel seme, e con lui gli scenari dei
+  test di Reopen.
+- **P10 — lo scope di «Who can?» è visibili ∪ archiviati per chi li vede**;
+  la scelta del progetto resta sui visibili. *Se sbagliata*: «Who?» su
+  Reopen torna vuoto, o un archiviato compare fra i progetti da scegliere.
+- **P15 — `chosenUnavailable` vale solo per l'account eliminato**; lo
+  spento ha la sua riga. *Se sbagliata*: un riquadro diverso sullo spento.
+- **P16 — la sessione ricorda `requiredProvider` alla nascita** e la frase
+  è quella di [PX 3]. *Se sbagliata*: la frase seguirebbe l'impostazione di
+  adesso, non quella con cui la sessione è nata.
+- **P18 — il costruttore e l'esecuzione dicono «project isn't available
+  anymore»** per un progetto non disponibile. *Se sbagliata*: due frasi.
+- **P20 — il fuoco dopo un collegamento o un'eliminazione segue [AR 8]**
+  (il Link della riga dopo, o l'h1). *Se sbagliata*: un `focus()` diverso.
+- **P21 — il registro dà agli ex membri e ai full admin l'archiviato con
+  `archived: true`**; RF 1 vale per chi non ne era membro. *Se sbagliata*:
+  gli ex membri non leggono più le voci dell'archiviato; una condizione in
+  `readable`.
+- **P23 — nel `busy` titolo e codice sono `null` se chi archivia non vede
+  la sessione** (decisione del coordinatore). *Se sbagliata*: il dialogo
+  direbbe meno di quanto il maintainer vuole; mai di più.
+- **P25 — un terzo account git usato solo da `shop-frontend`**, rinominato
+  «GitHub Shop» (ruling T1: «Ronchi» avrebbe nominato il cliente a chi non
+  ne era membro). *Se sbagliata*: solo il seme.
+- **P27 — il ramo predefinito esce dalla patch di `updateRepository`**: si
+  legge e basta (decisione del coordinatore). *Se sbagliata*: manca un
+  campo che il maintainer voleva modificabile; rimetterlo lascia lo stato
+  libero di contraddire la piattaforma.
+- **P28 — gli esempi degli shape corretti sul seme** («When reopened» di
+  RNC, «Skills in this run · 11», «GitHub Shop»). *Se sbagliata*: solo
+  testo degli shape.
+
+Dal ledger durante l'area:
+
+- **Ruling (T1) — chi ha `repos.manage` legge le voci del gruppo
+  repositories e vede Change log**; «Administration» resta quella del 9b.
+  *Se sbagliata*: Marco non deve vedere la voce; una condizione in
+  `adminSections.ts`.
+- **Ruling (T2) — le impostazioni di un progetto nuovo nascono a lettura**
+  (`settingsOf`), non in `createProject`. *Se sbagliata*: `createProject`
+  le scrive; nessun effetto visibile.
+- **Ruling (T4) — lo scenario «in sola lettura» dei repository si fa con
+  Marco** (`repos.view`), il seme di Sara resta. *Se sbagliata*: si cambia
+  il seme.
+- **Ruling (T5) — i consumi di un progetto eliminato restano** e si
+  leggono «Other projects»: il budget del mese non scende eliminando. *Se
+  sbagliata*: una riga in `purge.ts`.
+- **Ruling (T5) — sulla pagina dell'archiviato ex membri e full admin
+  leggono i nomi dei membri e di chi ha archiviato**, anche se quelle
+  persone stanno solo lì. *Se sbagliata*: i nomi vanno nascosti come «a
+  person you can't see».
+- **Ruling (T6) — «project isn't available anymore» per archiviato o
+  eliminato; un progetto aperto che il proprietario non vede più resta
+  «permission lost»**. *Se sbagliata*: una funzione in `plans.ts`.
+- **Ruling (T8) — Cancel della creazione guidata passa dalla stessa
+  conferma «Discard?» di Esc; la riga mostra `releaseBranch`**. *Se
+  sbagliata*: una conferma in più.
+- **Ruling (T10) — una scelta salvata su una skill che l'inventario non ha
+  più si scarta salvando**, nel livello dati, senza `invalid`. *Se
+  sbagliata*: il salvataggio rifiuterebbe per un dato che l'utente non può
+  togliere.
+- **Ruling (T11) — di un repository senza progetto, a chi non era membro
+  né full admin si mostra solo l'ultimo segmento del nome completo.** *Se
+  sbagliata*: solo meno informazione.
+- **Ruling (T12) — la voce dell'account AI salva anche il nome di allora**
+  (`params.accountBefore/After`) per dire «Backup Max (deleted)»; il prima
+  e dopo resta un id. *Se sbagliata*: la voce perde il nome dopo
+  l'eliminazione.
+
+Tecniche (forma del codice e dei test, nessun effetto visibile): P1
+(`ApiFnName` con i tre `instance.*` e `getArchivePreview`), P2
+(`seed/commands.ts` e `seed.test.ts` nel Task 1), P4 (`listCommands`
+compone, `commandsFor` puro), P5 e P6 (import per effetto dei tipi di voce;
+store, sezioni e registro importano solo
+`projectSettings/{state,seed,changeTypes}`), P7 (i test di parità filtrano
+gli archiviati), P11 (il test dei Docs notturni prova la frase positiva),
+P12 (`getUsage` per progetto da Roberta), P13 (un test sul sorgente vieta
+`can(` e `data/viewer` in `pages/settings/**`), P14 (`getProjectUsage`
+restituisce `null`), P17 (`TaskRun.skills` e `requiredProvider` copiati in
+`getTaskWork`), P19 (il test «Backup Max al limite, senza exclusive → Team
+Max»), P22 (`changelog.values.hiddenProject`), P24 (gli helper nuovi di
+`changelog/reads` non si esportano), P26 (gli hook delle query nei file dei
+Task 8, 10 e 11), P29 (lo stato delle verifiche e delle simulazioni sta
+nello State). Se una fosse sbagliata, il costo è un refactor locale o un
+test in più.
+
+### Frasi nuove fuori dagli shape
+
+Da far vedere al maintainer: ognuna dice il vero, ma lo shape non la
+scriveva.
+
+- `settings.ai.chosenOffExclusive` (Task 7, I4): «It's off: until someone
+  turns it on, Claude's new work in ACQ starts without an account.» / «È
+  spento: finché qualcuno non lo accende, il lavoro nuovo di Claude su ACQ
+  parte senza account.» Lo shape aveva la frase solo senza esclusività, che
+  con l'esclusività sarebbe falsa.
+- Creazione guidata e pagina del repository (Task 8): «Use a name without
+  spaces or /.», «Choose one of the git accounts.», «It comes from
+  Bitbucket: Stubwise reads it, and doesn't change it.» (sotto il ramo
+  predefinito, P27), «Couldn't load the git accounts.», «Choose a git
+  account.», «Choose a repository.», «Verify access first: it has to
+  work.», «This repository isn't in ACQ.».
+- File d'ambiente (Task 9): il toast di Remove («… removed from …»), il
+  titolo «Delete .env (Staging)?» del dialogo di un file senza variabili,
+  «Choose a file…».
+- «How it works» di un'automazione (Task 6, M4): «in a project that's no
+  longer available» anche fuori dal costruttore, per chi non vede il
+  progetto mentre il proprietario sì: lì «no longer» afferma più di quanto
+  il dato dimostra, e il registro dell'esecuzione dice «in a project you
+  can't see». Da decidere se tenerla solo nel costruttore.
+- Registro (Task 12): `repository.linked` in italiano dice «al progetto
+  ACQ», non «ad **ACQ**» dello shape («ad» va solo davanti a vocale);
+  `{{project}}` non è in grassetto; `project.deleted` mette in grassetto
+  tutta l'etichetta «RNC · …» e `switch_changed_*` anche l'articolo («**the
+  weekly brief**»).
+- `/archived/<CODE>` sconosciuto (Task 11, M8): è «Project not found» con
+  «Back to Home», identico a un codice inesistente (R-G5, provato byte per
+  byte), non «← All projects» dello shape.
+
+### Minori rimandati, per task
+
+Segnati Minor dalle revisioni dei task e lasciati alla revisione finale del
+branch: nessuno dice il falso in un percorso normale né tocca un Review
+Focus (segreti, R-G5, eliminazione). Ognuno dice perché resta.
+
+Task 1 (stato, sezioni, seme):
+- `ChangeEntry.link.test.tsx`: il test «una destinazione sconosciuta non
+  compila» non prova l'esaustività; la garanzia vera è il `never` di
+  `ChangeEntry.tsx`. *Perché*: la garanzia c'è ed è di `tsc`; resta il
+  titolo che dice di più.
+- Il «Who?» di Integration nomina solo `manageProjectSettings`, non anche
+  `manageRepos`: `SectionAccess` ha una sola azione. *Perché*: serve un
+  secondo campo nella forma del brief.
+- `router.tsx`: con nessuna sezione visibile il ripiego è General, anch'essa
+  invisibile. *Perché*: oggi `getProjectByCode` dà `null` prima.
+- `projectSettings/seed.ts`: `seedInstanceState()` ricostruito per ognuno
+  dei 51 progetti a ogni `freshState`, e `hashOf` preso dal modulo dei
+  server. *Perché*: costo dei test, nessun effetto.
+- `ProjectChangeParams` non lo impone nessuno: un writer che dimentica un
+  parametro compila. *Perché*: i writer sono provati uno per uno.
+- Il gruppo `projects` del registro si chiama «Deleted projects» ma
+  contiene anche `repository.deleted`. *Perché*: solo un nome nel filtro.
+
+Task 2 (General, AI, Automations, Usage: dati):
+- I limiti di 120 e 1000 caratteri non hanno test ai bordi. *Perché*:
+  copertura.
+- Nessun test fissa `forbidden` prima di `invalid`. *Perché*: è vero per
+  costruzione (`managedProject` davanti).
+- `settingsOf` scrive nello stato dentro una lettura. *Perché*: conseguenza
+  del ruling (T2), nessun difetto oggi.
+- `general.ts` riscrive `""` su una descrizione `undefined` anche senza
+  cambi. *Perché*: innocuo, nessuna voce.
+- Un commento di `queries/projectSettings.ts` va a capo a metà frase.
+  *Perché*: cosmetico.
+- `AI_WRITE_AREAS` ricarica conversazioni e task senza bisogno. *Perché*:
+  solo un'invalidazione in più.
+
+Task 3 (registro delle scritture di prima):
+- `updateEnvironment` e `updateWidget` scrivono «updated» anche quando non
+  cambia niente. *Perché*: una voce in più, mai una in meno.
+- Del widget il registro dice solo il nome. *Perché*: dichiarato; gli altri
+  campi non hanno un valore stabile.
+- Input rifiutati non coperti per `setProjectStatuses`,
+  `updateEnvironment`, `deleteEnvironment`; mancano asserzioni sul diff di
+  kind/url e sul nome del widget. *Perché*: copertura.
+- `setProjectStatuses` non asserisce etichetta e id dell'oggetto, né il
+  salvataggio identico. *Perché*: copertura.
+- Un modo PR assente vale `analyze_and_fix` nel registro. *Perché*:
+  corretto, ma il default è duplicato.
+
+Task 4 (repository, file d'ambiente, Integration, plugin: dati):
+- Le righe dei webhook git di Integration non hanno lo stato: la pagina lo
+  legge da `useProjectRepositories` (anche Task 9). *Perché*: due
+  sorgenti, nessun dato sbagliato.
+- `configureRepositoryWebhook` crea un secret senza riconferma (lo shape lo
+  vuole) e senza un test RF 2 su quel secret. *Perché*: scelta dello shape;
+  il test manca.
+- Il commento in testa a `repositories.test.ts` dice che Sara ha
+  `repos.view`, il test dice di no. *Perché*: solo il commento.
+- La rinomina «GitHub Shop» è entrata al Task 4, non al 5, riscrivendo il
+  testo del piano. *Perché*: procedura, nessun effetto.
+
+Task 5 (archiviare, eliminare, repository senza progetto: dati):
+- La regola «chi sa del progetto eliminato» è scritta due volte
+  (`changelog/reads.ts` e `instance/repositories.ts`), e `isFullAdmin`
+  pure. *Perché*: refactor; le due copie oggi concordano.
+- `detachedRepositories.test.ts` non esercita il collegamento verso un
+  archiviato né i `linkTargets` con un archiviato da escludere: il
+  `beforeEach` elimina l'unico archiviato del seme. *Perché*: il codice è
+  giusto per costruzione; mancano le prove.
+- `busyReasonsOf` esce dal barile `api.projectSettings` senza `gate`.
+  *Perché*: nessuna pagina lo raggiunge (precedente: `skillsForRun`).
+- Un repository collegato con `graphEnabled: true` riceve uno spazio col
+  grafo `disabled`. *Perché*: nel seme non capita.
+- `orphanServersOf` ordina con `Number(slice(4))` invece di `codeNumber`.
+  *Perché*: stesso risultato.
+
+Task 6 (effetti nelle altre aree):
+- `RunNow.tsx`: la ragione «project isn't available anymore» si ripete
+  sotto il titolo che già la dice. *Perché*: cosmetico.
+- La derivazione «interruttore letto e spento» è copiata in cinque pagine;
+  `useNightlyOff` è esportato da una pagina; il `Link` di `PulseText` copia
+  `AutomationsSettingsLink`; `SwitchOffLine.kind` è `string`. *Perché*:
+  refactor in un hook `useSwitchOff`.
+- Nel costruttore a 360 px la frase del progetto non disponibile va a capo
+  a metà. *Perché*: cosmetico.
+- «no longer available» fuori dal costruttore: vedi «Frasi nuove fuori
+  dagli shape».
+- «Senza ricaricare» è provato sull'hook e con una navigazione, non sulla
+  BriefCard montata. *Perché*: stessa area d'invalidazione.
+- La testata del costruttore «General · uses the client's project» è
+  imprecisa con un passo fisso. *Perché*: stringa dell'area 7, fuori
+  perimetro.
+
+Task 7 (General, AI, Automations, Usage: pagine):
+- La frase della regola del pulse non è nell'`aria-describedby`
+  dell'interruttore spento. *Perché*: c'è nel `title` e a schermo.
+- La lettura in parole del tetto dice anche i valori fuori intervallo
+  («Up to 11…») prima del rifiuto. *Perché*: il salvataggio rifiuta.
+- Dopo un Retry riuscito General, AI, Automations, RepositoryEditor,
+  WebhookRow e la creazione guidata non hanno seguito (niente «Saved»; la
+  bozza si azzera solo perché coincide con la lettura). *Perché*: i
+  dialoghi coi segreti hanno `onDone` dal Task 9; il resto è per la
+  revisione finale.
+- Il test «riaccendere la discovery non riaccende il pulse» gira dopo il
+  salvataggio, e manca un test con timer finti sul cambio di frase dopo
+  4 s. *Perché*: copertura.
+- Per Sara in AI la descrizione della casella spenta non è asserita.
+  *Perché*: copertura; il codice la mette.
+- `UsagePanel` con `null` non mostra nessuno stato. *Perché*: la rotta
+  risponde prima «not found».
+- Il campo dei giorni, spento col pulse spento, non ha la sua frase.
+  *Perché*: la frase dell'interruttore è accanto.
+- Dopo 2 s la barra di General e Automations si smonta (`useFlash`) e il
+  fuoco finisce sul body. *Perché*: lo shape non lo esclude; serve un
+  ritorno del fuoco esplicito.
+
+Task 8 (repository: pagine):
+- Riaperto il passo 1 e cambiato account, i passi 3 e 4 restano cliccabili
+  e vuoti. *Perché*: percorso raro.
+- Un rifiuto `invalid` della verifica o del webhook si perde in silenzio
+  (`onInvalid` vuoto). *Perché*: oggi non ci si arriva dalla UI.
+- Il revisore, senza gli account letti, dice «No default reviewer»; e la
+  lettura chiede `git_accounts.view`, diverso da `repos.manage`. *Perché*:
+  con i preset non capita.
+- `?new=1` senza permesso resta nell'indirizzo. *Perché*: non apre niente.
+- Un repository che sparisce lascia RELEASES con la sola testata.
+  *Perché*: percorso raro.
+- La gara del riquadro «Prototype only» è corretta ma senza test (si
+  riproduce solo con la latenza casuale). *Perché*: copertura.
+
+Task 9 (file d'ambiente e Integration: pagine):
+- «Copy» dell'indirizzo git e «Copy guide» falliscono in silenzio senza
+  appunti. *Perché*: da allineare a `SecretOnce`.
+- [RE 8] (riconferma annullata: l'area dell'import resta vuota) senza test.
+  *Perché*: copertura; il codice è giusto.
+- `EnvFiles.tsx`: il link a Releases → Environments passa da `as never`.
+  *Perché*: scavalca il tipo della rotta.
+- I webhook git letti da un'altra query: vedi Task 4.
+- Il dialogo del secret: la frase sulla piattaforma e «Nothing was
+  changed.» non sono provate. *Perché*: copertura.
+
+Task 10 (plugin: pagina):
+- Lo stato di caricamento è uno scheletro unico, non «il plugin base + 2
+  blocchi». *Perché*: cosmetico.
+- Un `invalid` diverso da `base_plugin` dice «Couldn't save. Try again.»
+  senza Retry. *Perché*: dopo il ruling (T10) resta solo il plugin tolto
+  dal registro mentre si modifica.
+- Casi dello shape senza test: più di 12 skill, `materializing`, vuoto,
+  `forbidden`, `not_found`, errore con Retry, secondo conflitto di fila,
+  fuoco dopo il preset, link «Administration → Plugins». *Perché*:
+  copertura; il codice c'è.
+- Le caselle spente in sola lettura si distinguono appena (opacità 50 %).
+  *Perché*: la parola «Off» sulla riga resta il segnale.
+- `void onReload()` dentro `onConflict` è ridondante. *Perché*: innocuo.
+- Le descrizioni delle skill del plugin base restano in inglese nella UI
+  italiana. *Perché*: dati del seme; da tradurre a lettura o dichiarare
+  fuori parità.
+- Il test del preset non prova una skill del preset assente
+  dall'inventario. *Perché*: copertura.
+- La riga di una scelta fuori inventario si vede fino al salvataggio che la
+  scarta. *Perché*: il ruling (T10) chiede lo scarto al salvataggio.
+
+Task 11 (archiviare, Archived, Delete, repository senza progetto: pagine):
+- `useLifecycleWrite` lascia vecchie le letture di **tutti** i progetti,
+  non solo del soggetto: riaprendo un progetto aperto prima da archiviato
+  si vede «not found» per un attimo. *Perché*: percorso raro.
+- I due cambi a `tasks-ui/Menu.tsx` (clic e tasti dal riquadro di «Who?»)
+  non hanno un test proprio. *Perché*: corretti e innocui; manca la prova.
+- Con la lettura degli archiviati in errore la tablist perde la scheda
+  selezionata. *Perché*: solo sul percorso d'errore.
+- La scheda non scrive nell'URL: «Open Archived» di un toast successivo può
+  non fare niente. *Perché*: raro.
+- Nella scheda Archived il numero accanto all'h1 resta quello degli attivi.
+  *Perché*: la scheda ha il suo numero.
+- `busy` passa come `{ ok: true, busy }` per non essere un errore di
+  `useSettingsWrite`. *Perché*: il tipo mente, il comportamento è giusto.
+- Struttura: `routeOfCode` importato da un componente di Claude; export di
+  una pagina usati dai fratelli; il glifo ✕ e la lista delle conseguenze
+  copiati. *Perché*: refactor.
+- Manca «(deactivated)» accanto a chi ha archiviato: la vista dà solo il
+  nome. *Perché*: serve un campo nel livello dati del Task 5.
+- Nel dialogo «Link to a project…» oltre 10 progetti non c'è la ricerca.
+  *Perché*: nessuna persona del seme ci arriva.
+- `Archive.test.tsx`: «senza esecuzioni la riga non c'è» si verifica dopo
+  un `setTimeout`. *Perché*: test fragile, non sbagliato.
+- Il `busy` è provato solo con una sessione e un codice: non le righe
+  `waiting`, `release`, «solo titolo», «hidden», il plurale; né i rifiuti
+  di Reopen e Link nella UI. *Perché*: il livello dati li copre.
+- `useSettingsWrite`: una seconda scrittura sulla stessa istanza durante
+  una in corso restituisce `false` in silenzio. *Perché*: ogni chiamante ne
+  fa una; manca una riga nel docblock.
+- `ArchivedProjects.tsx`: con un filtro la «riga dopo» può essere nascosta
+  e il fuoco va al titolo. *Perché*: il ripiego è accettabile.
+
+Task 12 (voci del 9c nel registro):
+- Il controllo R-G5 dei test è `not.toContain("RNC")`, sensibile alle
+  maiuscole, e l'id del seme `repo-rnc` scrive «rnc» nell'`href`. *Perché*:
+  in produzione gli id sono opachi; meglio un id del seme che non nomini il
+  progetto.
+- «al progetto ACQ» e i grassetti: vedi «Frasi nuove fuori dagli shape».
+- Il titolo di un test dice «Laura no», ma il caso di Laura sta nel test
+  dopo. *Perché*: solo il titolo.
+- Nessun test rende `env_file.imported` (plurale) né il ripiego «an account
+  that was deleted» delle voci AI scritte prima del Task 12. *Perché*:
+  copertura.
+- `fileParams` ripiega su `""` se ambiente o repository mancano, e la frase
+  diventa «for  in ». *Perché*: oggi non capita.

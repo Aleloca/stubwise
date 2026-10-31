@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { roleIdOf } from "./data/access/index";
 import { resetApi, setLatency } from "./data/api";
 import * as auth from "./data/auth/index";
+import { PROJECT_SETTINGS_SECTIONS } from "./data/routes";
 import { PEOPLE } from "./data/seed/people";
 import { PROJECTS } from "./data/seed/projects";
 import i18n from "./i18n";
@@ -200,6 +201,14 @@ const CASES: Case[] = [
   { path: "/admin/people/p-marco", empty: "notFound.title", proof: "notFound" },
   { path: "/admin/people/invites/x", empty: "notFound.title", proof: "notFound" },
   { path: "/admin/roles/x", empty: "notFound.title", proof: "notFound" },
+  // Area 9c, Task 13: la scheda Archived senza archiviati apre Projects, la
+  // pagina di un archiviato che non c'è è «not found» come un progetto che
+  // non esiste, e ogni sezione di Settings di un progetto che non c'è pure.
+  { path: "/projects?view=archived", empty: "projects.states.emptyTitle" },
+  { path: "/archived/RNC", empty: "project.notFound", proof: "notFound" },
+  ...PROJECT_SETTINGS_SECTIONS.map(
+    ({ id }): Case => ({ path: `/p/ACQ/settings/${id}`, empty: "project.notFound", proof: "notFound" }),
+  ),
 ];
 
 const asText = (text: Text) => (typeof text === "string" ? t(text) : text);
