@@ -71,21 +71,21 @@ describe("le voci delle integrazioni, in inglese e in italiano", () => {
     const expected = {
       en: [
         "Roberta Fontana updated superpowers to a new ref. | v4.0.3 → v4.1.0",
-        "Roberta Fontana changed the outgoing webhook. | Format Slack → Discord · Events + Release failed, − Pull request opened by Claude",
-        "Roberta Fontana changed the storage settings. | Attachments On → Off",
-        "Roberta Fontana changed the Google app Example. | Email domains + example.org",
+        "Roberta Fontana changed the outgoing webhook. | Format: Slack → Discord · Events: + Release failed, − Pull request opened by Claude",
+        "Roberta Fontana changed the storage settings. | Attachments: On → Off",
+        "Roberta Fontana changed the Google app Example. | Email domains: + example.org",
         "Roberta Fontana changed the default reviewer to GitHub Stubwise. | none → GitHub Stubwise",
-        "Roberta Fontana changed the git account GitHub Stubwise. | Default reviewer On → Off",
-        "Roberta Fontana changed the git account Bitbucket Audin. | Workspace audin → audin-srl",
+        "Roberta Fontana changed the git account GitHub Stubwise. | Default reviewer: On → Off",
+        "Roberta Fontana changed the git account Bitbucket Audin. | Workspace: audin → audin-srl",
       ],
       it: [
         "Roberta Fontana ha aggiornato superpowers a un nuovo ref. | v4.0.3 → v4.1.0",
-        "Roberta Fontana ha cambiato il webhook in uscita. | Formato Slack → Discord · Eventi + Rilascio non riuscito, − Pull request aperta da Claude",
-        "Roberta Fontana ha cambiato le impostazioni dell'archiviazione. | Allegati Acceso → Spento",
-        "Roberta Fontana ha modificato l'app Google Example. | Domini email + example.org",
+        "Roberta Fontana ha cambiato il webhook in uscita. | Formato: Slack → Discord · Eventi: + Rilascio non riuscito, − Pull request aperta da Claude",
+        "Roberta Fontana ha cambiato le impostazioni dell'archiviazione. | Allegati: Acceso → Spento",
+        "Roberta Fontana ha modificato l'app Google Example. | Domini email: + example.org",
         "Roberta Fontana ha reso GitHub Stubwise il revisore predefinito. | nessuno → GitHub Stubwise",
-        "Roberta Fontana ha modificato l'account git GitHub Stubwise. | Revisore predefinito Acceso → Spento",
-        "Roberta Fontana ha modificato l'account git Bitbucket Audin. | Workspace audin → audin-srl",
+        "Roberta Fontana ha modificato l'account git GitHub Stubwise. | Revisore predefinito: Acceso → Spento",
+        "Roberta Fontana ha modificato l'account git Bitbucket Audin. | Workspace: audin → audin-srl",
       ],
     };
     renderRoute("/admin/changelog", ROBERTA);

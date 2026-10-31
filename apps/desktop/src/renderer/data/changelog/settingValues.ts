@@ -53,9 +53,13 @@
 //     `gitAccount` e `reviewGitAccount` col NOME dell'account, `null` = il
 //     revisore predefinito), come `params.field`;
 //   - `repository.pr_mode_changed`: `prMode`, l'id del modo;
-//   - `repository.release_pipeline_changed`: `pipeline`, `"auto"` o la lista
-//     dei nomi delle run;
-//   - `environment.updated`, `widget.updated`: i campi cambiati, i nomi com'è.
+//   - `repository.release_pipeline_changed`: `pipeline`, `"auto"` o
+//     `"named:<n1,n2>"` (i nomi delle run, com'è), e `branch`, il ramo di
+//     rilascio com'è;
+//   - `environment.updated`: `name` e `url` com'è, `kind` l'id del tipo;
+//     `widget.updated`: il nome com'è.
+// Gli id (`prMode`, `pipeline`, `kind`) si traducono a lettura con le parole
+// delle pagine che li cambiano (`ChangeEntry.tsx`).
 // Mai un valore d'ambiente, una chiave o un secret: `env_var.set` dice solo
 // il nome della variabile (`params.key`).
 

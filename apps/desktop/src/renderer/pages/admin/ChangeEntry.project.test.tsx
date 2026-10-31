@@ -1,7 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { instance, projectSettings, resetApi, setLatency } from "../../data/api";
+import { instance, projectSettings, releases, resetApi, setLatency } from "../../data/api";
 import { markReauthenticated } from "../../data/auth/reauth";
 import { recordChange } from "../../data/changelog/index";
 import { setSessionPersonId } from "../../data/session";
@@ -134,12 +134,12 @@ describe("una voce per gruppo, in inglese e in italiano", () => {
     await openAdminLog(ROBERTA);
     const expected = {
       en: [
-        "Roberta Fontana changed the test command of portale-utenti. | Test command none → pnpm test",
+        "Roberta Fontana changed the test command of portale-utenti. | Test command: none → pnpm test",
         "Roberta Fontana set DATABASE_URL in .env (Production).",
         "Roberta Fontana created the file .env for Production in portale-utenti.",
       ],
       it: [
-        "Roberta Fontana ha cambiato il comando dei test di portale-utenti. | Comando dei test nessuno → pnpm test",
+        "Roberta Fontana ha cambiato il comando dei test di portale-utenti. | Comando dei test: nessuno → pnpm test",
         "Roberta Fontana ha impostato DATABASE_URL in .env (Production).",
         "Roberta Fontana ha creato il file .env per Production in portale-utenti.",
       ],
@@ -148,6 +148,39 @@ describe("una voce per gruppo, in inglese e in italiano", () => {
     expect(document.body.textContent).not.toContain("secret-value");
     act(() => setLanguage("it"));
     await waitFor(() => expect(lines()).toEqual(expected.it));
+  });
+
+  it("I4: modo delle PR, pipeline e tipo d'ambiente si leggono in parole, non come id", async () => {
+    as(ROBERTA);
+    await releases.setRepoPrMode("repo-acq", "analyze_only");
+    await releases.setReleasePipeline("repo-acq", { mode: "named", names: ["ci", "e2e"] }, "main");
+    // Il tipo d'ambiente com'è salvato da `updateEnvironment` (legacyWrites.test.ts).
+    recordChange({
+      kind: "environment.updated",
+      actorId: ROBERTA,
+      projectId: ACQ,
+      object: { type: "environment", id: "env-acq-prod", label: "Production" },
+      before: JSON.stringify({ kind: "staging" }),
+      after: JSON.stringify({ kind: "production" }),
+    });
+
+    await openAdminLog(ROBERTA);
+    const second = () => lines().map((l) => l.split(" | ")[1]);
+    await waitFor(() =>
+      expect(second()).toEqual([
+        "Kind: Staging → Production",
+        "Release pipelines: Automatic → Only these (ci, e2e)",
+        "Colleagues' pull requests: Analysis and fixes → Analysis only",
+      ]),
+    );
+    act(() => setLanguage("it"));
+    await waitFor(() =>
+      expect(second()).toEqual([
+        "Tipo: Staging → Produzione",
+        "Pipeline dei rilasci: Automatica → Solo queste (ci, e2e)",
+        "PR dei colleghi: Analisi e correzioni → Solo analisi",
+      ]),
+    );
   });
 
   it("repositories: il webhook configurato dice prima e dopo; non riuscito, «it failed»", async () => {

@@ -271,11 +271,12 @@ function useSettingWords() {
 }
 
 /**
- * La riga di una voce `fields` del 9b (Task 4): campo per campo, «Workspace
- * audin → audin-srl», e per le liste ciò che entra ed esce («Events +
- * Release failed, − Pull request opened by Claude»), separati da « · ». Il
+ * La riga di una voce `fields` del 9b (Task 4): campo per campo, «Workspace:
+ * audin → audin-srl», e per le liste ciò che entra ed esce («Events:
+ * + Release failed, − Pull request opened by Claude»), separati da « · ». Il
  * nome del campo e le parole di Stubwise (on/off, il formato e gli eventi
- * del webhook) sono qui; i valori dati da una persona restano com'erano.
+ * del webhook, modo delle PR, pipeline, tipo d'ambiente) sono qui; i valori
+ * dati da una persona restano com'erano.
  */
 function useFieldsLine() {
   const { t } = useTranslation();
@@ -289,6 +290,14 @@ function useFieldsLine() {
       const at = v.lastIndexOf(":");
       return `${v.slice(0, at)} (${t(`taskUi.families.${v.slice(at + 1)}`)})`;
     }
+    // Modo delle PR, pipeline e tipo d'ambiente (8a): id stabili, le parole
+    // sono quelle delle pagine che li cambiano.
+    if (field === "prMode") return t(`settings.repositories.modes.${v}`);
+    if (field === "pipeline")
+      return v.startsWith("named:")
+        ? `${t("settings.repositories.pipelineModes.named")} (${v.slice("named:".length).split(",").join(", ")})`
+        : t("settings.repositories.pipelineModes.auto");
+    if (field === "kind") return t(`releases.environments.kinds.${v}`);
     if (field === "format") return t(`changelog.values.webhookFormat.${v}`);
     // L'id ha dei punti (`job.pr_opened`), che i18next leggerebbe come livelli.
     if (field === "events") return t(`changelog.values.webhookEvents.${v.replace(/\./g, "_")}`);
@@ -310,9 +319,11 @@ function useFieldsLine() {
           ...to.filter((x) => !from.includes(x)).map((x) => `+ ${word(key, x)}`),
           ...from.filter((x) => !to.includes(x)).map((x) => `− ${word(key, x)}`),
         ];
-        return `${label} ${items.join(", ")}`;
+        return `${label}: ${items.join(", ")}`;
       }
-      return `${label} ${word(key, b)} → ${word(key, a)}`;
+      // I due punti staccano il nome del campo dal valore: «Test command:
+      // none → pnpm test», non «Test command none → …».
+      return `${label}: ${word(key, b)} → ${word(key, a)}`;
     });
     return parts.join(" · ") || null;
   };
