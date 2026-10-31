@@ -687,6 +687,10 @@ describe("sezione Claude: le impostazioni di progetto (area 9c, shape project-ef
     const list = within(current()).getByRole("list", { name: "Skills in this run" });
     expect(list).toHaveTextContent("stubwise · stubwise, init, start");
     expect(list).toHaveTextContent(/brainstorming/);
+    // Ogni nome non va a capo al trattino: si va a capo fra un nome e l'altro (rifinitura 10).
+    const long = within(list).getByText("verification-before-completion", { exact: false });
+    expect(long.textContent!.replace(/,\s*$/, "")).toBe("verification-before-completion");
+    expect(long).toHaveClass("whitespace-nowrap");
 
     // Spenta `brainstorming`: una sessione nuova non la elenca, quella di prima sì.
     plugins.disabled = [{ plugin: "superpowers", skills: ["brainstorming"], hookGroups: [] }];

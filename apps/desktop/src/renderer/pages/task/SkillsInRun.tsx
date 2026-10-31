@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { Fragment, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { DisclosureGlyph } from "../claude/conversation/parts";
 
@@ -51,7 +51,17 @@ export function SkillsInRun({
           {groups.map((g) => (
             <li key={g.plugin} className="text-sm text-ink [overflow-wrap:anywhere]">
               <span className="font-medium">{g.plugin}</span>
-              <span className="text-ink-muted"> · {g.skills.join(", ")}</span>
+              <span className="text-ink-muted">
+                {" · "}
+                {/* Un nome non va a capo al trattino («verification-before- / completion»):
+                    si va a capo fra un nome e l'altro. */}
+                {g.skills.map((skill, i) => (
+                  <Fragment key={skill}>
+                    {i > 0 && ", "}
+                    <span className="whitespace-nowrap">{skill}</span>
+                  </Fragment>
+                ))}
+              </span>
             </li>
           ))}
         </ul>
