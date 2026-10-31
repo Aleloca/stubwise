@@ -14,8 +14,12 @@ import { MERGE_SHAS } from "./releases";
 // La numerazione dei server è fissata qui (ruling del controller, 28 ott;
 // R-L2 per `SRV-4`): `SRV-1` ACQ (che non ha repository: vale per tutto il
 // progetto), `SRV-2` la produzione di STW, `SRV-3` quella di AUD per
-// `audin-app`, `SRV-4` quella di AUD per `audin-admin`. I server creati
-// dall'app (area 8b) partono da `SRV-5`.
+// `audin-app`, `SRV-4` quella di AUD per `audin-admin`, `SRV-5` (area 9c)
+// quella di RNC, l'archiviato, in nessun altro progetto. I server creati
+// dall'app (area 8b) partono da `SRV-6`.
+//
+// Area 9c, [RE 9]: STW ha anche l'ambiente `test`, quello dei file d'ambiente
+// che arrivano a Claude (`projectSettings/seed.ts`).
 //
 // - STW: la produzione riporta il merge di STW-V1, non quello di STW-V2.
 // - AUD: `audin-app` è ferma ad AUD-V2 (il deploy di AUD-V3 è fallito);
@@ -45,6 +49,15 @@ export const ENVIRONMENTS: ProjectEnvironment[] = [
     name: "Staging",
     kind: "staging",
     url: "https://staging.stubwise.test",
+    servers: [],
+  },
+  // Area 9c, [RE 9]: dopo lo staging, così le scelte di prima non cambiano.
+  {
+    id: "env-stw-test",
+    projectId: "prj-stw",
+    name: "Test",
+    kind: "test",
+    url: null,
     servers: [],
   },
   {
@@ -88,6 +101,21 @@ export const ENVIRONMENTS: ProjectEnvironment[] = [
         serverCode: "SRV-1",
         reportedSha: "e9f8d7c6b5a4e3f2d1c0b9a8f7e6d5c4b3a2f1e0",
         reportedAt: at(0, "11:58"),
+      },
+    ],
+  },
+  {
+    id: "env-rnc-prod",
+    projectId: "prj-rnc",
+    name: "Production",
+    kind: "production",
+    url: "https://shop.vetrina-web.test",
+    servers: [
+      {
+        repositoryId: null,
+        serverCode: "SRV-5",
+        reportedSha: "4b7d9e1a3c5f7a9b1d3e5f7a9c1b3d5e7f9a1c3e",
+        reportedAt: at(28, "16:00"),
       },
     ],
   },

@@ -8,7 +8,13 @@ import { validateFlow } from "../domain/automations/validate";
 import { chat, resetApi, setLatency } from "./api";
 import { setSessionPersonId } from "./session";
 import { ACTIVITY } from "./seed/activity";
-import { PLUGINS, PROJECT_PLUGINS, STUBWISE_COMMANDS, commandsFor } from "./seed/commands";
+import {
+  BASE_PLUGIN_ID,
+  PLUGINS,
+  PROJECT_PLUGINS,
+  STUBWISE_COMMANDS,
+  commandsFor,
+} from "./seed/commands";
 import { COMMITS } from "./seed/commits";
 import { CONVERSATION_EVENTS, CONVERSATIONS } from "./seed/conversations";
 import { DOC_PAGES } from "./seed/docPages";
@@ -131,10 +137,11 @@ function stall(t: Task) {
 }
 
 describe("seed: progetti e persone", () => {
-  it("ha 50 progetti con codici univoci di 2–4 maiuscole", () => {
-    expect(PROJECTS).toHaveLength(50);
+  it("ha 50 progetti aperti e uno archiviato (RNC, area 9c), con codici univoci di 2–4 maiuscole", () => {
+    expect(PROJECTS).toHaveLength(51);
+    expect(PROJECTS.filter((p) => p.archived).map((p) => p.code)).toEqual(["RNC"]);
     const codes = PROJECTS.map((p) => p.code);
-    expect(new Set(codes).size).toBe(50);
+    expect(new Set(codes).size).toBe(51);
     for (const c of codes) expect(c).toMatch(/^[A-Z]{2,4}$/);
   });
 
@@ -252,14 +259,14 @@ describe("seed: stati e task", () => {
     }
   });
 
-  it("8–15 task nei progetti di riferimento, 5 negli altri (più quelle create dalle automazioni e dai server)", () => {
+  it("8–15 task nei progetti di riferimento, 6 nell'archiviato RNC, 5 negli altri (più quelle create dalle automazioni e dai server)", () => {
     const byAutomation = new Set([...AUTOMATION_TASKS, ...SERVER_TASKS].map((t) => t.id));
     for (const p of PROJECTS) {
       const n = TASKS.filter((t) => t.projectId === p.id && !byAutomation.has(t.id)).length;
       if (["AUD", "STW", "MKX"].includes(p.code)) {
         expect(n).toBeGreaterThanOrEqual(8);
         expect(n).toBeLessThanOrEqual(15);
-      } else expect(n).toBe(5);
+      } else expect(n, p.code).toBe(p.code === "RNC" ? 6 : 5);
     }
   });
 
@@ -1156,10 +1163,14 @@ describe("seed: comandi «/» e skill dei plugin", () => {
     }
   });
 
-  it("le skill compaiono solo nei progetti con il plugin abilitato, senza quelle spente", () => {
+  it("le skill compaiono solo nei progetti con il plugin scelto, senza quelle spente; quelle del plugin base in coda, ovunque", () => {
+    // Area 9c (P2): il plugin base `stubwise` vale per tutti e non è fra le scelte.
+    const base = PLUGINS.find((p) => p.id === BASE_PLUGIN_ID)!;
+    const baseSkills = base.skills.map((s) => ({ plugin: base.name, skill: s.name }));
     for (const [projectId, enabled] of Object.entries(PROJECT_PLUGINS)) {
       expect(projectsById.get(projectId)!.template).toBe("software");
       for (const e of enabled) {
+        expect(e.pluginId).not.toBe(BASE_PLUGIN_ID);
         const plugin = PLUGINS.find((p) => p.id === e.pluginId)!;
         expect(plugin).toBeDefined();
         for (const s of e.disabledSkills) expect(plugin.skills.map((k) => k.name)).toContain(s);
@@ -1169,17 +1180,19 @@ describe("seed: comandi «/» e skill dei plugin", () => {
     for (const project of PROJECTS) {
       const commands = commandsFor(project.id);
       const skills = commands.flatMap((c) => (c.source === "stubwise" ? [] : [c.source]));
-      const enabled = PROJECT_PLUGINS[project.id] ?? [];
       expect(commands.filter((c) => c.source === "stubwise")).toEqual(STUBWISE_COMMANDS);
-      if (enabled.length === 0) expect(skills).toEqual([]);
-      for (const s of skills) {
+      expect(skills.slice(-baseSkills.length), project.code).toEqual(baseSkills);
+      const chosen = skills.slice(0, -baseSkills.length);
+      const enabled = PROJECT_PLUGINS[project.id] ?? [];
+      if (enabled.length === 0) expect(chosen).toEqual([]);
+      for (const s of chosen) {
         const e = enabled.find((x) => PLUGINS.find((p) => p.id === x.pluginId)!.name === s.plugin);
         expect(e).toBeDefined();
         expect(e!.disabledSkills).not.toContain(s.skill);
       }
       for (const e of enabled) {
         const plugin = PLUGINS.find((p) => p.id === e.pluginId)!;
-        expect(skills.filter((s) => s.plugin === plugin.name)).toHaveLength(
+        expect(chosen.filter((s) => s.plugin === plugin.name)).toHaveLength(
           plugin.skills.length - e.disabledSkills.length,
         );
         if (e.disabledSkills.length > 0) someDisabled = true;
@@ -1188,7 +1201,7 @@ describe("seed: comandi «/» e skill dei plugin", () => {
     expect(someDisabled).toBe(true);
     expect(Object.keys(PROJECT_PLUGINS)).toContain("prj-stw");
     expect(Object.keys(PROJECT_PLUGINS)).toContain("prj-aud");
-    // Un progetto software senza plugin: solo i comandi di Stubwise.
+    // Un progetto software senza plugin scelti: i comandi di Stubwise e il plugin base.
     expect(PROJECTS.some((p) => p.template === "software" && !PROJECT_PLUGINS[p.id])).toBe(true);
     for (const p of PROJECTS) {
       const own = commandsFor(p.id).map((c) => c.id);
@@ -2520,8 +2533,8 @@ describe("seed: server (area 8b)", () => {
     return Math.round((d.usedBytes / d.totalBytes) * 100);
   };
 
-  it("quattro server, codici SRV-<n> unici, e ognuno su un ambiente (R-L2)", () => {
-    expect(SERVERS.map((s) => s.code)).toEqual(["SRV-1", "SRV-2", "SRV-3", "SRV-4"]);
+  it("cinque server (SRV-5 di RNC dall'area 9c), codici SRV-<n> unici, e ognuno su un ambiente (R-L2)", () => {
+    expect(SERVERS.map((s) => s.code)).toEqual(["SRV-1", "SRV-2", "SRV-3", "SRV-4", "SRV-5"]);
     expect(new Set(SERVERS.map((s) => s.id)).size).toBe(SERVERS.length);
     for (const s of SERVERS) {
       expect(s.code).toMatch(/^SRV-\d+$/);
@@ -2811,7 +2824,7 @@ describe("seed: server (area 8b)", () => {
     expect(state.serverMetrics.get("SRV-1")).toEqual(SERVER_METRICS.get("SRV-1"));
     const check = SERVER_CHECKS[0]!.id;
     expect(state.serverCheckSamples.get(check)).toEqual(CHECK_SAMPLES.get(check));
-    expect(state.serverCodeSeq).toBe(4);
+    expect(state.serverCodeSeq).toBe(5);
     expect(state.sshVerifyNext.size).toBe(0);
     expect(state.fixCheckNext.size).toBe(0);
     // Copie: cambiare lo stato non tocca il seme.
@@ -2828,7 +2841,7 @@ describe("seed: server (area 8b)", () => {
     expect(state.servers[0]!.name).toBe(SERVERS[0]!.name);
     expect(state.serverMetrics.get("SRV-1")).toHaveLength(28_128);
     expect(state.serverAccess.get("SRV-1")!.revokedAt).toBeNull();
-    expect(state.serverCodeSeq).toBe(4);
+    expect(state.serverCodeSeq).toBe(5);
     expect(can(viewerFor("p-marco"), "servers.operate", ACQ)).toBe(true);
   });
 });

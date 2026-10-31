@@ -104,13 +104,15 @@ describe("gruppi per progetto", () => {
   it("Review Focus 5: 50 progetti, nessuno perso, fissati prima, frecce fra le intestazioni", async () => {
     renderRoute(PAGE, ROBERTA);
     await ready();
-    expect(state.projects.length).toBeGreaterThanOrEqual(45);
+    // I gruppi sono i progetti aperti: un archiviato (RNC, area 9c) non lo vede nessuno (P7).
+    const open = state.projects.filter((p) => !p.archived);
+    expect(open.length).toBeGreaterThanOrEqual(45);
     const codes = headers().map((h) => h.dataset.groupHeader);
-    expect(codes).toHaveLength(state.projects.length);
+    expect(codes).toHaveLength(open.length);
     expect(new Set(codes).size).toBe(codes.length);
     const pinned = INITIAL_PINNED_CODES[ROBERTA]!;
     expect(codes.slice(0, pinned.length)).toEqual([...pinned]);
-    const rest = state.projects
+    const rest = open
       .filter((p) => !pinned.includes(p.code))
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((p) => p.code);

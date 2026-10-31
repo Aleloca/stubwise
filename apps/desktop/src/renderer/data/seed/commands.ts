@@ -64,6 +64,13 @@ export const PLUGINS: RegisteredPlugin[] = [
   },
 ];
 
+/**
+ * Il plugin base (area 9c, ruling del controller del 31 ott 2026): vale per
+ * tutti i progetti, non sta fra le scelte e non si spegne. Le sue skill
+ * stanno in coda a «/» in ogni contesto di progetto.
+ */
+export const BASE_PLUGIN_ID = "plg-stubwise";
+
 export interface ProjectPluginEnablement {
   pluginId: string;
   /** Le skill spente nel progetto (abilitazioni per sottrazione: di base tutto acceso). */
@@ -75,42 +82,44 @@ const SOFTWARE = PROJECTS.filter((p) => p.template === "software");
 const WITHOUT_PLUGINS = new Set(["prj-znc"]);
 
 /**
- * I plugin abilitati per progetto: superpowers su tutti i progetti software
- * (tranne uno), stubwise su STW e AUD; in AUD due skill sono spente.
+ * I plugin scelti per progetto: superpowers su tutti i progetti software
+ * (tranne uno); in AUD una skill è spenta. Il plugin base `stubwise` non sta
+ * qui: vale per tutti (`BASE_PLUGIN_ID`).
  */
 export const PROJECT_PLUGINS: Record<string, ProjectPluginEnablement[]> = Object.fromEntries(
-  SOFTWARE.filter((p) => !WITHOUT_PLUGINS.has(p.id)).map((p) => {
-    const enabled: ProjectPluginEnablement[] = [
+  SOFTWARE.filter((p) => !WITHOUT_PLUGINS.has(p.id)).map((p) => [
+    p.id,
+    [
       {
         pluginId: "plg-superpowers",
         disabledSkills: p.code === "AUD" ? ["test-driven-development"] : [],
       },
-    ];
-    if (p.code === "STW" || p.code === "AUD") {
-      enabled.push({ pluginId: "plg-stubwise", disabledSkills: p.code === "AUD" ? ["start"] : [] });
-    }
-    return [p.id, enabled];
-  }),
+    ],
+  ]),
 );
+
+const skillCommands = ({ pluginId, disabledSkills }: ProjectPluginEnablement): SlashCommand[] => {
+  const plugin = PLUGINS.find((p) => p.id === pluginId);
+  if (!plugin) return [];
+  return plugin.skills
+    .filter((s) => !disabledSkills.includes(s.name))
+    .map<SlashCommand>((s) => ({
+      id: `${plugin.name}:${s.name}`,
+      label: `/${plugin.name}:${s.name}`,
+      description: s.description,
+      source: { plugin: plugin.name, skill: s.name },
+    }));
+};
 
 /**
  * I comandi di «/» per un contesto di progetto: quelli di Stubwise, poi le
- * skill dei plugin abilitati nel progetto, senza quelle spente. Senza
- * contesto, solo i comandi di Stubwise.
+ * skill dei plugin scelti nel progetto, senza quelle spente, e in coda
+ * quelle del plugin base, in ogni progetto. Senza contesto, solo i comandi
+ * di Stubwise.
  */
 export function commandsFor(projectId: string | null): SlashCommand[] {
   if (projectId === null) return STUBWISE_COMMANDS;
-  const skills = (PROJECT_PLUGINS[projectId] ?? []).flatMap(({ pluginId, disabledSkills }) => {
-    const plugin = PLUGINS.find((p) => p.id === pluginId);
-    if (!plugin) return [];
-    return plugin.skills
-      .filter((s) => !disabledSkills.includes(s.name))
-      .map<SlashCommand>((s) => ({
-        id: `${plugin.name}:${s.name}`,
-        label: `/${plugin.name}:${s.name}`,
-        description: s.description,
-        source: { plugin: plugin.name, skill: s.name },
-      }));
-  });
-  return [...STUBWISE_COMMANDS, ...skills];
+  const chosen = (PROJECT_PLUGINS[projectId] ?? []).flatMap(skillCommands);
+  const base = skillCommands({ pluginId: BASE_PLUGIN_ID, disabledSkills: [] });
+  return [...STUBWISE_COMMANDS, ...chosen, ...base];
 }

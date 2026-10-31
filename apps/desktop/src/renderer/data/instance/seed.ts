@@ -19,6 +19,9 @@ export const ENV_MODELS: Partial<Record<AiOperation, AiModelChoice>> = { mail_cl
 export const SEED_GIT_ACCOUNT_IDS = {
   bitbucketAudin: "git-bitbucket-audin",
   githubStubwise: "git-github-stubwise",
+  // Area 9c: lo usa SOLO `shop-frontend` di RNC, così dopo l'eliminazione di
+  // quel repository senza progetto l'account non è più «in uso» (P25).
+  githubRonchi: "git-github-ronchi",
 } as const;
 
 const DEFAULT_RULE = {
@@ -108,6 +111,17 @@ export function seedInstanceState(): InstanceState {
         defaultReviewer: true,
         lastValidation: { at: at(-5, "11:01"), outcome: "ok" },
         createdAt: at(-240, "10:00"),
+      },
+      {
+        id: SEED_GIT_ACCOUNT_IDS.githubRonchi,
+        name: "GitHub Ronchi",
+        provider: "github",
+        workspace: null,
+        secretId: "sec-seed-git-github-ronchi",
+        last4: "r4n8",
+        defaultReviewer: false,
+        lastValidation: { at: at(-40, "09:30"), outcome: "ok" },
+        createdAt: at(-150, "10:00"),
       },
     ],
     plugins: [

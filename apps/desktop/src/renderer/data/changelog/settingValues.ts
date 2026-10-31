@@ -30,6 +30,30 @@
 //   parole le mette `ChangeEntry` (`changelog.fields.*`).
 // - `queue` (Task 5: `queue.resumed`): `"paused:<ISO>"` (in pausa da quando)
 //   o `"running"`; «In pausa dal 29 ott, 18:00 → Attiva» lo dice la pagina.
+//
+// Le forme dell'area 9c (Progetto → Settings), per i Task 2–5:
+// - `switch` (`project.switch_changed`, con `params.switch`): `"on"`/`"off"`;
+// - `ai_account` (`project.ai_account_changed`): `"auto"` (la catena
+//   dell'istanza) o `"account:<id>"`, con `":exclusive"` in coda se il
+//   progetto usa solo quell'account; il nome lo risolve la lettura;
+// - `number` (`project.pulse_interval_changed` in giorni,
+//   `project.correction_cap_changed`): il numero in stringa;
+// - `fields`, con `changedFields`:
+//   - `project.stall_thresholds_changed`: `activeDays`, `todoDays` (numeri
+//     in stringa);
+//   - `project.statuses_changed`: `statuses`, l'elenco dei nomi com'è;
+//   - `project.plugins_changed`: `disabledSkills` e `disabledHooks`, le
+//     liste di ciò che è spento (`<plugin>:<skill>`, `<plugin>:<Evento#i>`);
+//   - `repository.updated`: la chiave del campo (`name`, `url`,
+//     `installCommand`, `testCommand`, `graphEnabled`, `protectedBranches`,
+//     `gitAccount` e `reviewGitAccount` col NOME dell'account, `null` = il
+//     revisore predefinito), come `params.field`;
+//   - `repository.pr_mode_changed`: `prMode`, l'id del modo;
+//   - `repository.release_pipeline_changed`: `pipeline`, `"auto"` o la lista
+//     dei nomi delle run;
+//   - `environment.updated`, `widget.updated`: i campi cambiati, i nomi com'è.
+// Mai un valore d'ambiente, una chiave o un secret: `env_var.set` dice solo
+// il nome della variabile (`params.key`).
 
 export interface AutomationRuleValue {
   taskType: "bug" | "feature" | "activity";
@@ -56,7 +80,14 @@ export type SettingValue =
   | { type: "language"; locale: string }
   | { type: "automation"; rules: AutomationRuleValue[]; prReview: PrReviewValue | null }
   | { type: "fields"; fields: Record<string, FieldValue> }
-  | { type: "queue"; pausedSince: string | null };
+  | { type: "queue"; pausedSince: string | null }
+  /**
+   * `providerId` `null` = «Automatic». `name` lo mette la lettura del
+   * registro (`reads.ts`): il nome dell'account adesso, `null` se è stato
+   * eliminato.
+   */
+  | { type: "ai_account"; providerId: string | null; exclusive: boolean; name?: string | null }
+  | { type: "number"; value: number };
 
 /** Il tipo di valore di ogni voce d'impostazione. */
 export const SETTING_KINDS: Readonly<Record<string, SettingValue["type"]>> = {
@@ -77,6 +108,19 @@ export const SETTING_KINDS: Readonly<Record<string, SettingValue["type"]>> = {
   "server.thresholds_changed": "fields",
   "server.check_changed": "fields",
   "queue.resumed": "queue",
+  // Area 9c
+  "project.switch_changed": "switch",
+  "project.ai_account_changed": "ai_account",
+  "project.pulse_interval_changed": "number",
+  "project.correction_cap_changed": "number",
+  "project.stall_thresholds_changed": "fields",
+  "project.statuses_changed": "fields",
+  "project.plugins_changed": "fields",
+  "repository.updated": "fields",
+  "repository.pr_mode_changed": "fields",
+  "repository.release_pipeline_changed": "fields",
+  "environment.updated": "fields",
+  "widget.updated": "fields",
 };
 
 const sameField = (a: FieldValue | undefined, b: FieldValue | undefined): boolean =>
@@ -116,6 +160,11 @@ export const encodeAutomation = (
 /** La coda di un progetto: `paused:<da quando>` o `running`. */
 export const encodeQueue = (pausedSince: string | null): string =>
   pausedSince === null ? "running" : `paused:${pausedSince}`;
+
+/** L'account AI di un progetto: `auto`, o `account:<id>` (`:exclusive` se usa solo quello). */
+export const encodeAiAccount = (providerId: string | null, exclusive: boolean): string =>
+  providerId === null ? "auto" : `account:${providerId}${exclusive ? ":exclusive" : ""}`;
+export const encodeNumber = (n: number): string => String(n);
 
 /** Il valore salvato di una voce d'impostazione, in forma di dato; `null` se non lo riconosce. */
 export function decodeSetting(kind: string, raw: string | null): SettingValue | null {
@@ -164,6 +213,15 @@ export function decodeSetting(kind: string, raw: string | null): SettingValue | 
       if (raw === "running") return { type: "queue", pausedSince: null };
       const m = raw ? /^paused:(.+)$/.exec(raw) : null;
       return m ? { type: "queue", pausedSince: m[1]! } : null;
+    }
+    case "ai_account": {
+      if (raw === "auto") return { type: "ai_account", providerId: null, exclusive: false };
+      const m = raw ? /^account:([^:]+)(:exclusive)?$/.exec(raw) : null;
+      return m ? { type: "ai_account", providerId: m[1]!, exclusive: m[2] !== undefined } : null;
+    }
+    case "number": {
+      const value = raw === null ? Number.NaN : Number(raw);
+      return raw !== "" && Number.isFinite(value) ? { type: "number", value } : null;
     }
     default:
       return null;

@@ -474,13 +474,15 @@ describe("generazione, grafo e chat (Task 3)", () => {
 });
 
 describe("repository del seme", () => {
-  it("STW, AUD e CBV hanno un repository (dall'area 8a altri due di AUD e la guida di STW, senza spazio dei Docs)", () => {
+  it("STW, AUD e CBV hanno un repository (dall'area 8a altri due di AUD e la guida di STW, senza spazio dei Docs; dal 9c quello di ACQ, senza, e quello di RNC)", () => {
     expect(REPOSITORIES.map((r) => r.name).sort()).toEqual([
       "audin-admin",
       "audin-app",
       "audin-scripts",
       "bellavista-store",
       "guide",
+      "portale-utenti",
+      "shop-frontend",
       "stubwise",
     ]);
     const spaced = new Set(DOC_SPACES.map((s) => s.repositoryId));
@@ -488,6 +490,6 @@ describe("repository del seme", () => {
       REPOSITORIES.filter((r) => spaced.has(r.id))
         .map((r) => r.name)
         .sort(),
-    ).toEqual(["audin-app", "bellavista-store", "stubwise"]);
+    ).toEqual(["audin-app", "bellavista-store", "shop-frontend", "stubwise"]);
   });
 });

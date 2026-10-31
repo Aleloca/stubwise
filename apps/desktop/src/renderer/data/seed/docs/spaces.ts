@@ -190,4 +190,21 @@ export const DOC_SPACES: DocSpace[] = [
     releases: [],
     graph: { status: "disabled" },
   },
+  // Area 9c: RNC, l'archiviato. Mai generato, due pagine scritte a mano.
+  {
+    repositoryId: "repo-rnc",
+    projectId: "prj-rnc",
+    name: "shop-frontend",
+    generation: {
+      status: "never",
+      lastAt: null,
+      commit: null,
+      costUsd: null,
+      provider: null,
+      reason: null,
+    },
+    brief: null,
+    releases: [],
+    graph: { status: "disabled" },
+  },
 ];

@@ -309,36 +309,57 @@ describe("i rifiuti in parole", () => {
 });
 
 describe("la navigazione di Settings", () => {
-  it("le sezioni sono voci rientrate sotto Settings; /settings apre Statuses", async () => {
+  it("le sezioni sono voci rientrate sotto Settings; /settings apre General", async () => {
     const user = userEvent.setup();
     const router = renderRoute("/p/AUD/settings", ROBERTA);
-    await screen.findByRole("heading", { level: 1, name: "Statuses" });
-    expect(router.state.location.pathname).toBe("/p/AUD/settings/statuses");
+    // Area 9c, [PS 2]: la prima sezione è General.
+    await screen.findByRole("heading", { level: 1, name: "General" });
+    expect(router.state.location.pathname).toBe("/p/AUD/settings/general");
     const sub = await screen.findByRole("list", { name: "Settings of AUD" });
     const links = within(sub).getAllByRole("link");
-    // Change log c'è per chi gestisce il progetto o i membri (Roberta, full admin).
+    // Le undici sezioni; Usage e Change log ci sono per Roberta (full admin).
     expect(links.map((l) => l.textContent)).toEqual([
+      "General",
       "Statuses",
       "Members",
+      "AI",
+      "Automations",
       "Repositories",
+      "Integration",
+      "Plugins",
+      "Usage",
       "Change log",
+      "Archive",
     ]);
     await waitFor(() => expect(links[0]).toHaveAttribute("aria-current", "page"));
-    await user.click(links[1]!);
+    await user.click(within(sub).getByRole("link", { name: "Members" }));
     await screen.findByRole("heading", { level: 1, name: "Members" });
     expect(router.state.location.pathname).toBe("/p/AUD/settings/members");
     await user.click(within(sub).getByRole("link", { name: "Repositories" }));
     expect(await screen.findByRole("region", { name: "Repositories" })).toBeInTheDocument();
   });
 
-  it("senza il modulo Releases niente Repositories, e l'indirizzo porta a Statuses", async () => {
+  it("Repositories c'è anche senza il modulo Releases (area 9c)", async () => {
     const project = state.projects.find((p) => p.code === "MKX")!;
     expect(project.modules).not.toContain("releases");
     const router = renderRoute("/p/MKX/settings/repositories", ROBERTA);
-    await screen.findByRole("heading", { level: 1, name: "Statuses" });
-    expect(router.state.location.pathname).toBe("/p/MKX/settings/statuses");
+    await screen.findByRole("heading", { level: 1, name: "Repositories" });
+    expect(router.state.location.pathname).toBe("/p/MKX/settings/repositories");
     const sub = await screen.findByRole("list", { name: "Settings of MKX" });
-    expect(within(sub).queryByRole("link", { name: "Repositories" })).toBeNull();
+    expect(within(sub).getByRole("link", { name: "Repositories" })).toBeInTheDocument();
+  });
+
+  it("una sezione che chi guarda non vede non è nella colonna, e il suo indirizzo apre General", async () => {
+    // Sara (Contributor in ACQ) non ha `project.usage.view` né gestisce ACQ.
+    const router = renderRoute("/p/ACQ/settings/usage", "p-sara");
+    await screen.findByRole("heading", { level: 1, name: "General" });
+    expect(router.state.location.pathname).toBe("/p/ACQ/settings/general");
+    const sub = await screen.findByRole("list", { name: "Settings of ACQ" });
+    const links = within(sub)
+      .getAllByRole("link")
+      .map((l) => l.textContent);
+    expect(links).not.toContain("Usage");
+    expect(links).not.toContain("Change log");
   });
 
   it("le sezioni si chiudono fuori da Settings", async () => {

@@ -203,6 +203,8 @@ export const ACTIONS: readonly AccessAction[] = [
   instance("manageGitAccounts", "git_accounts.manage"),
   instance("managePlugins", "plugins.manage"),
   instance("viewInstanceStatus", "instance.status.view"),
+  // istanza, area 9c: il «Who?» di Delete (solo il full admin; Claude mai, R-L9)
+  instance("deleteProjects", "instance.full_admin"),
 ];
 
 export const actionById = (id: string): AccessAction | undefined =>

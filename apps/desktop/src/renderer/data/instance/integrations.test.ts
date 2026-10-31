@@ -164,8 +164,8 @@ describe("permessi", () => {
 
   it("le letture: git con .view o .manage, le altre col loro permesso", async () => {
     as(MARCO);
-    // Il preset User dà `git_accounts.view` a tutti (Ruling 1).
-    expect(await instance.listGitAccounts()).toHaveLength(2);
+    // Il preset User dà `git_accounts.view` a tutti (Ruling 1). Tre dal 9c (GitHub Ronchi).
+    expect(await instance.listGitAccounts()).toHaveLength(3);
     await expect(instance.listGoogleApps()).rejects.toThrow("forbidden");
     await expect(instance.getStorage()).rejects.toThrow("forbidden");
     await expect(instance.getWebhook()).rejects.toThrow("forbidden");
@@ -321,7 +321,8 @@ describe("account git", () => {
       last4: "k2p8",
       hiddenRepositories: 0,
     });
-    expect(rows.find((r) => r.id === BITBUCKET_AUDIN)!.repositories).toHaveLength(4);
+    // CBV, i tre di AUD e, dal 9c, `portale-utenti` di ACQ.
+    expect(rows.find((r) => r.id === BITBUCKET_AUDIN)!.repositories).toHaveLength(5);
     expect(rows[0]).not.toHaveProperty("secretId");
   });
 

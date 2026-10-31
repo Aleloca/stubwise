@@ -165,6 +165,15 @@ const REFERENCE: Record<string, Spec[]> = {
     { title: "Banner sizes for the trade press", dept: M, family: "todo", assignee: "p-tommaso", size: "XS", week: "2026-W44", lastDays: 1, createdDays: 3, type: "activity", claude: "working" },
     { title: "Old autumn creatives", dept: M, family: "closed", nth: 1, assignee: "p-paolo", size: null, week: "2026-W41", lastDays: 13, createdDays: 35, type: "activity" },
   ],
+  // Area 9c: RNC, archiviato 28 giorni fa. Tutto è fermo da prima.
+  RNC: [
+    { title: "Product pages for the red wines", dept: M, family: "closed", assignee: "p-elena", size: "M", week: null, lastDays: 40, createdDays: 75, type: "activity" },
+    { title: "Booking form for the farm stay", dept: D, family: "closed", assignee: "p-marco", size: "L", week: null, lastDays: 33, createdDays: 70, claude: "done" },
+    { title: "Fix the cart total with gift boxes", dept: D, family: "closed", nth: 1, assignee: "p-marco", size: "S", week: null, lastDays: 45, createdDays: 52, type: "bug" },
+    { title: "Harvest newsletter", dept: M, family: "active", assignee: "p-giulia", size: "S", week: null, lastDays: 30, createdDays: 41, type: "activity" },
+    { title: "Shipping rates for abroad", dept: S, family: "todo", assignee: "p-giulia", size: null, week: null, lastDays: 31, createdDays: 38, type: "activity" },
+    { title: "English translation of the estate story", dept: M, family: "todo", assignee: null, size: "M", week: null, lastDays: 35, createdDays: 35, type: "activity" },
+  ],
 };
 
 function referenceTasks(project: Project, specs: Spec[]): Task[] {

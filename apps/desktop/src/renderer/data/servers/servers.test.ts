@@ -243,20 +243,20 @@ describe("monitor: creare, modificare, togliere (monitor.manage)", () => {
       servers.createServer({ name: "aud-new", environmentId: "env-aud-staging" }),
     ).rejects.toThrow("forbidden");
     expect(state.servers).toHaveLength(before);
-    expect(state.serverCodeSeq).toBe(4);
+    expect(state.serverCodeSeq).toBe(5);
     await expect(servers.updateServer("SRV-3", { name: "x" })).rejects.toThrow("forbidden");
     await expect(servers.deleteServer("SRV-3")).rejects.toThrow("forbidden");
     await expect(servers.regenerateAgentKey("SRV-3")).rejects.toThrow("forbidden");
   });
 
-  it("Roberta crea SRV-5 nello staging di AUD; la chiave non esce da nessuna lettura", async () => {
+  it("Roberta crea SRV-6 nello staging di AUD; la chiave non esce da nessuna lettura", async () => {
     as("p-roberta");
     const { server: row, agentKey } = await servers.createServer({
       name: "  aud-staging-01 ",
       environmentId: "env-aud-staging",
     });
     expect(row).toMatchObject({
-      code: "SRV-5",
+      code: "SRV-6",
       name: "aud-staging-01",
       status: "never_connected",
       health: { health: "never_connected" },
@@ -266,17 +266,17 @@ describe("monitor: creare, modificare, togliere (monitor.manage)", () => {
     });
     expect(agentKey).toMatch(/^sk_[0-9a-f]{40}$/);
     expect(env("env-aud-staging").servers).toEqual([
-      { repositoryId: null, serverCode: "SRV-5", reportedSha: null, reportedAt: null },
+      { repositoryId: null, serverCode: "SRV-6", reportedSha: null, reportedAt: null },
     ]);
-    const again = await servers.regenerateAgentKey("SRV-5");
+    const again = await servers.regenerateAgentKey("SRV-6");
     expect(again.agentKey).toMatch(/^sk_[0-9a-f]{40}$/);
     expect(again.agentKey).not.toBe(agentKey);
     // Ogni lettura del livello dati dei server, le notifiche e TUTTO lo stato.
     const reads = JSON.stringify([
-      await servers.getServer("SRV-5"),
+      await servers.getServer("SRV-6"),
       await servers.listProjectServers("prj-aud"),
-      await servers.searchServers("SRV-5"),
-      await servers.getServerMetrics("SRV-5", "7d"),
+      await servers.searchServers("SRV-6"),
+      await servers.getServerMetrics("SRV-6", "7d"),
       await releases.listEnvironments("prj-aud"),
       await listNotifications(),
     ]);
@@ -294,14 +294,14 @@ describe("monitor: creare, modificare, togliere (monitor.manage)", () => {
     await expect(
       servers.createServer({ name: "x", environmentId: "env-stw-staging" }),
     ).rejects.toThrow("forbidden");
-    expect(state.serverCodeSeq).toBe(4);
+    expect(state.serverCodeSeq).toBe(5);
     expect(env("env-stw-staging").servers).toEqual([]);
     grantProjectRole("p-sara", "prj-stw", "project_lead");
     const { server: row } = await servers.createServer({
       name: "x",
       environmentId: "env-stw-staging",
     });
-    expect(row.code).toBe("SRV-5");
+    expect(row.code).toBe("SRV-6");
   });
 
   it("serve environments.manage nel progetto dell'ambiente, e un ambiente senza server", async () => {
@@ -315,18 +315,18 @@ describe("monitor: creare, modificare, togliere (monitor.manage)", () => {
     await expect(servers.createServer({ name: "x", environmentId: "env-nope" })).rejects.toThrow(
       "not_found",
     );
-    expect(state.serverCodeSeq).toBe(4);
+    expect(state.serverCodeSeq).toBe(5);
   });
 
   it("deleteServer toglie il server dagli ambienti; il codice non si riusa", async () => {
     as("p-roberta");
     const first = await servers.createServer({ name: "a", environmentId: "env-aud-staging" });
-    expect(first.server.code).toBe("SRV-5");
-    await servers.deleteServer("SRV-5");
-    expect(server("SRV-5")).toBeUndefined();
+    expect(first.server.code).toBe("SRV-6");
+    await servers.deleteServer("SRV-6");
+    expect(server("SRV-6")).toBeUndefined();
     expect(env("env-aud-staging").servers).toEqual([]);
     const second = await servers.createServer({ name: "b", environmentId: "env-aud-staging" });
-    expect(second.server.code).toBe("SRV-6");
+    expect(second.server.code).toBe("SRV-7");
     await servers.deleteServer("SRV-3");
     expect(env("env-aud-prod").servers.map((s) => s.serverCode)).toEqual(["SRV-4"]);
     expect(state.serverChecks.some((c) => c.serverCode === "SRV-3")).toBe(false);
@@ -597,7 +597,7 @@ describe("simulatore", () => {
     await expect(
       servers.createServer({ name: "x", environmentId: "env-aud-staging" }),
     ).rejects.toThrow("Simulated failure");
-    expect(state.serverCodeSeq).toBe(4);
+    expect(state.serverCodeSeq).toBe(5);
   });
 
   it("una scrittura partita prima di resetApi non scrive", async () => {
@@ -608,7 +608,7 @@ describe("simulatore", () => {
     resetApi();
     await expect(pending).rejects.toThrow("reset");
     expect(storeGeneration()).not.toBe(gen);
-    expect(state.serverCodeSeq).toBe(4);
+    expect(state.serverCodeSeq).toBe(5);
     expect(env("env-aud-staging").servers).toEqual([]);
   });
 
@@ -623,8 +623,8 @@ describe("simulatore", () => {
       sustainedMinutes: 1,
     });
     resetApi();
-    expect(state.servers.map((s) => s.code)).toEqual(["SRV-1", "SRV-2", "SRV-3", "SRV-4"]);
-    expect(state.serverCodeSeq).toBe(4);
+    expect(state.servers.map((s) => s.code)).toEqual(["SRV-1", "SRV-2", "SRV-3", "SRV-4", "SRV-5"]);
+    expect(state.serverCodeSeq).toBe(5);
     expect(env("env-acq-prod").servers.map((s) => s.serverCode)).toEqual(["SRV-1"]);
     expect(env("env-aud-staging").servers).toEqual([]);
     expect(server("SRV-2")!.thresholds.cpuPct).toBe(95);
@@ -707,7 +707,7 @@ describe("area 9b, Task 7: i server di tutta l'istanza", () => {
     as("p-roberta");
     await releases.deleteEnvironment("env-acq-prod");
     const rows = await servers.listAllServers();
-    expect(rows.map((r) => r.code)).toEqual(["SRV-1", "SRV-2", "SRV-3", "SRV-4"]);
+    expect(rows.map((r) => r.code)).toEqual(["SRV-1", "SRV-2", "SRV-3", "SRV-4", "SRV-5"]);
     expect(orphanOf(rows, "SRV-1")).toBe(true);
     expect(rows.find((r) => r.code === "SRV-1")!.projects).toEqual([]);
     expect(orphanOf(rows, "SRV-3")).toBe(false);
@@ -734,7 +734,7 @@ describe("area 9b, Task 7: i server di tutta l'istanza", () => {
     await expect(servers.createServer({ name: "x", environmentId: null })).rejects.toThrow(
       "forbidden",
     );
-    expect(state.servers).toHaveLength(4);
+    expect(state.servers).toHaveLength(5);
     as("p-roberta");
     const { server: row, agentKey } = await servers.createServer({
       name: " orfano-01 ",
@@ -742,23 +742,23 @@ describe("area 9b, Task 7: i server di tutta l'istanza", () => {
     });
     expect(agentKey).toMatch(/^sk_[0-9a-f]{40}$/);
     expect(row).toMatchObject({
-      code: "SRV-5",
+      code: "SRV-6",
       name: "orfano-01",
       status: "never_connected",
       environments: [],
       primaryProjectCode: null,
     });
-    expect(state.environments.some((e) => e.servers.some((s) => s.serverCode === "SRV-5"))).toBe(
+    expect(state.environments.some((e) => e.servers.some((s) => s.serverCode === "SRV-6"))).toBe(
       false,
     );
-    expect(server("SRV-5")!.primaryProjectId).toBeNull();
+    expect(server("SRV-6")!.primaryProjectId).toBeNull();
     const all = await servers.listAllServers();
-    expect(orphanOf(all, "SRV-5")).toBe(true);
-    expect((await servers.getServer("SRV-5")).orphan).toBe(true);
+    expect(orphanOf(all, "SRV-6")).toBe(true);
+    expect((await servers.getServer("SRV-6")).orphan).toBe(true);
     // Chi non ha monitor.manage non lo vede, nemmeno per codice.
     as("p-marco");
-    await expect(servers.getServer("SRV-5")).rejects.toThrow("not_found");
-    expect((await servers.listProjectServers("prj-acq")).map((s) => s.code)).not.toContain("SRV-5");
+    await expect(servers.getServer("SRV-6")).rejects.toThrow("not_found");
+    expect((await servers.listProjectServers("prj-acq")).map((s) => s.code)).not.toContain("SRV-6");
     // Con un ambiente, come prima: non è orfano.
     as("p-roberta");
     const inEnv = await servers.createServer({ name: "aud-st", environmentId: "env-aud-staging" });
@@ -770,7 +770,7 @@ describe("area 9b, Task 7: i server di tutta l'istanza", () => {
     await expect(servers.createServer({ name: "  ", environmentId: null })).rejects.toThrow(
       "invalid: name",
     );
-    expect(state.servers).toHaveLength(4);
+    expect(state.servers).toHaveLength(5);
     expect(state.changelog.filter((c) => c.kind === "server.created")).toEqual([]);
   });
 
@@ -892,13 +892,13 @@ describe("area 9b, Task 7: le scritture dei server scrivono la loro voce", () =>
       kind: "server.created",
       actorId: "p-roberta",
       projectId: null,
-      object: { type: "server", id: "SRV-5" },
+      object: { type: "server", id: "SRV-6" },
       params: { scope: "orphan" },
     });
     await servers.createServer({ name: "in-aud", environmentId: "env-aud-staging" });
     expect(last()).toMatchObject({
       kind: "server.created",
-      object: { id: "SRV-6" },
+      object: { id: "SRV-7" },
       params: { scope: "project" },
     });
   });

@@ -13,8 +13,9 @@ export const MANAGE_PROJECT = ["project.settings.manage", "project.members.manag
 
 /**
  * L'ordine dei gruppi del filtro «Type» (shape admin-audit.md): quelli del
- * 9a, poi quelli del 9b (`instance/changeTypes.ts`); il 9c aggiunge i suoi
- * dopo. Dichiarato, non affidato all'ordine in cui i moduli registrano.
+ * 9a, poi quelli del 9b (`instance/changeTypes.ts`), poi quelli del 9c
+ * (`projectSettings/changeTypes.ts`). Dichiarato, non affidato all'ordine in
+ * cui i moduli registrano.
  */
 export const GROUP_ORDER: readonly string[] = [
   "people",
@@ -27,6 +28,9 @@ export const GROUP_ORDER: readonly string[] = [
   "integrations",
   "servers",
   "queue",
+  "project",
+  "repositories",
+  "projects",
 ];
 
 /**

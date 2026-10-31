@@ -1,5 +1,6 @@
 import { TEMPLATE_MODULES } from "../../domain/templates";
 import type { Project, ProjectTemplate } from "../types";
+import { daysFromToday } from "./dates";
 import { CLAUDE_ID, PEOPLE } from "./people";
 
 type Row = [code: string, name: string, clientName: string | undefined, template: ProjectTemplate];
@@ -62,7 +63,26 @@ const ROWS: Row[] = [
   ["UFF", "Pratiche Fiduciaria Ardeatina", "Fiduciaria Ardeatina Srl", "empty"],
   ["TRM", "Portale autisti Trasporti Maremma", "Trasporti Maremma Srl", "software"],
   ["VLC", "Configuratore tetti Valcamonica Legnami", "Valcamonica Legnami Spa", "client"],
+  // Area 9c: l'unico progetto archiviato del seme (da Roberta, 28 giorni fa).
+  // In fondo, così gli indici (e i membri calcolati) degli altri non cambiano.
+  ["RNC", "Vetrina online Tenuta Ronchi", "Tenuta Ronchi Srl", "client"],
 ];
+
+/**
+ * Il progetto archiviato del seme (area 9c): nessuno lo vede, i suoi ex
+ * membri lo ritrovano in «Archived».
+ */
+const ARCHIVED_SEED: Record<string, { at: string; byId: string }> = {
+  RNC: { at: `${daysFromToday(-28)}T16:30:00Z`, byId: "p-roberta" },
+};
+
+/** Le descrizioni del seme (area 9c, General); gli altri progetti non ne hanno. */
+const DESCRIPTIONS: Record<string, string> = {
+  STW: "Self-hostable ticketing with an AI pipeline: a worker plans and runs the fix, opens the pull request and writes the Docs.",
+  AUD: "Audin 2.0: the CRM and dialer for sales teams, with callbacks, imports and billing.",
+  ACQ: "Self-service portal for water customers: bills, readings, instalments and the support chat.",
+  RNC: "Online shop window for the winery: wines, the farm stay and the booking form.",
+};
 
 // Progetti fissati da Giulia Ferri (marketing, utente di default). I primi
 // cinque di `GIULIA_LEAD_CODES` sono quelli su cui è Project Lead.
@@ -101,6 +121,12 @@ const REFERENCE_MEMBERS: Record<string, string[]> = {
   ],
   AUD: ["p-giulia", "p-marco", "p-laura", "p-alessia", "p-stefano", "p-matteo", "p-elena"],
   MKX: ["p-giulia", "p-elena", "p-paolo", "p-chiara", "p-tommaso", "p-matteo", "p-francesca"],
+  // Area 9c, l'archiviato: Giulia (Project Lead, `access/seed.ts`), Marco ed
+  // Elena; Sara e Laura no, così le prove R-G5 dell'archivio sono pulite.
+  // Niente membri calcolati (ruling del controller (pre-flight), P9). Claude
+  // c'è perché ci ha lavorato (`cv-run-rnc-2`): una sessione di lavoro è sempre
+  // in un progetto di cui è membro.
+  RNC: ["p-giulia", "p-marco", "p-elena", CLAUDE_ID],
 };
 
 /**
@@ -152,6 +178,8 @@ export const PROJECTS: Project[] = ROWS.map(([code, name, clientName, template],
     signals: { claudeWorking: template === "software" && i % 2 === 0 },
   };
   if (clientName) project.clientName = clientName;
+  if (DESCRIPTIONS[code]) project.description = DESCRIPTIONS[code];
+  if (ARCHIVED_SEED[code]) project.archived = { ...ARCHIVED_SEED[code] };
   // Il tetto delle correzioni automatiche per PR: STW lo fissa a tre.
   if (code === "STW") project.correctionCap = 3;
   return project;

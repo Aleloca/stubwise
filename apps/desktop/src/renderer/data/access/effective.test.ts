@@ -69,7 +69,9 @@ describe("parità con la can() delle aree 2–8 (fixture generato prima del camb
   it("il fixture copre ogni persona del seme, Claude compreso, e ogni progetto", () => {
     expect(Object.keys(PARITY_CAN).sort()).toEqual(PEOPLE.map((p) => p.id).sort());
     expect(PARITY_CAN[CLAUDE_ID]).toBeDefined();
-    expect(PARITY_PROJECT_IDS).toEqual(PROJECTS.map((p) => p.id));
+    // Il fixture è di prima del 9a e non si rigenera: RNC, l'archiviato del 9c
+    // (P7), è nato dopo. I suoi permessi li prova `projectSettings.test.ts`.
+    expect(PARITY_PROJECT_IDS).toEqual(PROJECTS.filter((p) => p.id !== "prj-rnc").map((p) => p.id));
     expect(PARITY_DEPARTMENT_IDS).toEqual(DEPARTMENTS.map((d) => d.id));
   });
 

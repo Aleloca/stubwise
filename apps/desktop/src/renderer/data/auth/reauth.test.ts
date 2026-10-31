@@ -66,6 +66,19 @@ const EXPECTED_REAUTH: readonly ApiFnName[] = [
   "instance.replaceGoogleSecret",
   "instance.deleteGoogleApp",
   "instance.saveStorage",
+  // Area 9c: chi crea, sostituisce o cancella un segreto di un progetto
+  // (chiave d'ingestione, secret del webhook git, file e valori
+  // d'ambiente), più eliminare un progetto e un repository senza progetto
+  // (confermata dal maintainer il 31 ott 2026). Archive e Reopen no: si
+  // tornano indietro (scelta del controller).
+  "projectSettings.regenerateIngestionKey",
+  "projectSettings.regenerateWebhookSecret",
+  "projectSettings.importEnvFile",
+  "projectSettings.setEnvVar",
+  "projectSettings.removeEnvVar",
+  "projectSettings.deleteEnvFile",
+  "projectSettings.deleteProject",
+  "instance.deleteDetachedRepository",
 ];
 
 const as = (personId: string) => setSessionPersonId(personId);

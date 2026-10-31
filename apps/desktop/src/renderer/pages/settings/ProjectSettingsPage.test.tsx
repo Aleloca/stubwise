@@ -16,8 +16,8 @@ import { clearToasts } from "../../tasks-ui/Toast";
 import { renderRoute } from "../../test/renderRoute";
 
 async function settings(code: string, personId: string) {
-  // `/settings` apre la prima sezione, Statuses (area 9a, [RM 4]).
-  renderRoute(`/p/${code}/settings`, personId);
+  // Dall'area 9c `/settings` apre General ([PS 2]): gli stati sono la loro sezione.
+  renderRoute(`/p/${code}/settings/statuses`, personId);
   expect(await screen.findByRole("heading", { level: 1, name: "Statuses" })).toBeInTheDocument();
   return screen.findByRole("list", { name: "Statuses, in order" });
 }

@@ -21,7 +21,12 @@ describe("listAllRepositories", () => {
     as("p-roberta");
     const groups = await instance.listAllRepositories();
     expect(groups.length).toBeGreaterThan(1);
-    const withRepos = new Set(state.repositories.map((r) => r.projectId));
+    // Un archiviato (RNC, area 9c) non c'è: nessuno lo vede.
+    const withRepos = new Set(
+      state.repositories
+        .map((r) => r.projectId)
+        .filter((id) => !state.projectsById.get(id)!.archived),
+    );
     expect(groups.map((g) => g.projectId).sort()).toEqual([...withRepos].sort());
     const stw = groups.find((g) => g.projectCode === "STW")!;
     expect(stw.projectName).toBe(state.projectsById.get("prj-stw")!.name);

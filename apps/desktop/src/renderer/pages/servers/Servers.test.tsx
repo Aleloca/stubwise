@@ -98,10 +98,10 @@ describe("Servers — l'elenco", () => {
     const waiting = await screen.findByRole("list", { name: "Waiting for the agent" });
     expect(
       within(waiting).getByRole("link", {
-        name: /^SRV-5 stw-worker-01, Never connected · waiting for the agent\. .*Staging · STW/,
+        name: /^SRV-6 stw-worker-01, Never connected · waiting for the agent\. .*Staging · STW/,
       }),
     ).toBeInTheDocument();
-    expect(row("SRV-5")).toHaveTextContent("Staging · STW");
+    expect(row("SRV-6")).toHaveTextContent("Staging · STW");
     expect(screen.queryByRole("list", { name: "Running fine" })).toBeNull();
   });
 
@@ -114,7 +114,7 @@ describe("Servers — l'elenco", () => {
     await user.keyboard("j");
     expect(within(row("SRV-2")).getByRole("link")).toHaveFocus();
     await user.keyboard("j");
-    expect(within(row("SRV-5")).getByRole("link")).toHaveFocus();
+    expect(within(row("SRV-6")).getByRole("link")).toHaveFocus();
     await user.keyboard("k{Enter}");
     await waitFor(() => expect(router.state.location.pathname).toBe("/p/STW/servers/SRV-2"));
   });
@@ -150,7 +150,7 @@ describe("Servers — l'elenco", () => {
 });
 
 describe("New server e la chiave dell'agente", () => {
-  it("crea SRV-5 nello staging di STW: la chiave si vede una volta, si copia, poi il dettaglio «Never connected»", async () => {
+  it("crea SRV-6 nello staging di STW: la chiave si vede una volta, si copia, poi il dettaglio «Never connected»", async () => {
     const user = userEvent.setup();
     const router = await openSection("p-roberta", "STW");
     await user.click(await screen.findByRole("button", { name: "New server" }));
@@ -164,7 +164,7 @@ describe("New server e la chiave dell'agente", () => {
     await user.type(within(dialog).getByRole("textbox", { name: "Name" }), "stw-worker-01");
     await user.click(within(dialog).getByRole("button", { name: "Create server" }));
 
-    const panel = await screen.findByRole("dialog", { name: "SRV-5 is ready for its agent" });
+    const panel = await screen.findByRole("dialog", { name: "SRV-6 is ready for its agent" });
     expect(within(panel).getByText("This key is shown only now.")).toBeInTheDocument();
     const key = within(panel).getByRole("textbox", { name: "Agent key" }) as HTMLInputElement;
     expect(key.value).toMatch(KEY_RE);
@@ -183,7 +183,7 @@ describe("New server e la chiave dell'agente", () => {
     expect(within(panel).getByRole("button", { name: "Copy the key" })).toHaveTextContent("Copied");
     await user.click(within(panel).getByRole("button", { name: "Done" }));
 
-    await waitFor(() => expect(router.state.location.pathname).toBe("/p/STW/servers/SRV-5"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/p/STW/servers/SRV-6"));
     expect(
       await screen.findByRole("heading", { level: 1, name: /stw-worker-01/ }),
     ).toBeInTheDocument();
@@ -209,7 +209,7 @@ describe("New server e la chiave dell'agente", () => {
     const dialog = await screen.findByRole("dialog", { name: "New server in STW" });
     await user.type(within(dialog).getByRole("textbox", { name: "Name" }), "stw-worker-01");
     await user.click(within(dialog).getByRole("button", { name: "Create server" }));
-    const panel = await screen.findByRole("dialog", { name: "SRV-5 is ready for its agent" });
+    const panel = await screen.findByRole("dialog", { name: "SRV-6 is ready for its agent" });
     const key = (within(panel).getByRole("textbox", { name: "Agent key" }) as HTMLInputElement)
       .value;
     await user.click(within(panel).getByRole("button", { name: "Done" }));

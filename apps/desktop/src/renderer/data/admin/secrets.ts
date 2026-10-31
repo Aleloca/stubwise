@@ -15,8 +15,8 @@ import { onInstanceEmptied, onStoreReset } from "../store";
 // S3): `storeProvidedSecret` li prende, li tiene qui e restituisce solo l'id
 // e le ultime 4 cifre. Il valore non esce più, nemmeno a chi l'ha scritto.
 //
-// Lo importano solo `data/admin/*`, `data/me/*`, `data/auth/*` e
-// `data/instance/*`; nessuna
+// Lo importano solo `data/admin/*`, `data/me/*`, `data/auth/*`,
+// `data/instance/*` e `data/projectSettings/*` (area 9c); nessuna
 // lettura (`data/queries/*`, le letture del registro) e nessuna pagina lo
 // raggiunge (test in `data/architecture.secrets.test.ts`). Come
 // `servers/secrets.ts` dell'8b.
@@ -26,7 +26,16 @@ import { onInstanceEmptied, onStoreReset } from "../store";
 // cifrato).
 
 /** I segreti che genera Stubwise (si mostrano una volta a chi li crea). */
-type GeneratedSecretKind = "pat" | "reset_link" | "totp_seed" | "backup_codes" | "invite_link";
+type GeneratedSecretKind =
+  | "pat"
+  | "reset_link"
+  | "totp_seed"
+  | "backup_codes"
+  | "invite_link"
+  // Area 9c: la chiave d'ingestione di un progetto e il secret del webhook
+  // git di un repository, generati da Stubwise e mostrati una volta.
+  | "ingestion_key"
+  | "git_webhook_secret";
 
 /**
  * I segreti scritti da chi amministra (area 9b). Un tipo a parte: `valueOf`
@@ -36,7 +45,9 @@ export type ProvidedSecretKind =
   | "provider_credential"
   | "git_token"
   | "google_client_secret"
-  | "storage_secret";
+  | "storage_secret"
+  // Area 9c: il valore di una variabile d'ambiente (non esce più, nemmeno le ultime 4).
+  | "env_value";
 
 export type SecretKind = GeneratedSecretKind | ProvidedSecretKind;
 
@@ -52,6 +63,7 @@ const vault = new Map<string, Slot>();
 let counter = 0;
 
 const ALNUM = "abcdefghijkmnpqrstuvwxyz23456789";
+const HEX = "0123456789abcdef";
 const BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
 function chars(seed: string, alphabet: string, n: number): string {
@@ -104,6 +116,11 @@ function valueOf(kind: GeneratedSecretKind, ownerId: string, n: number): string 
         const c = chars(`${seed}|${i}`, ALNUM, 10);
         return `${c.slice(0, 5)}-${c.slice(5)}`;
       }).join("\n");
+    // Come sul web (`generateIngestionKey`): 16 byte in esadecimale.
+    case "ingestion_key":
+      return chars(seed, HEX, 32);
+    case "git_webhook_secret":
+      return chars(seed, HEX, 40);
   }
 }
 

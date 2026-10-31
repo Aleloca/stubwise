@@ -1,5 +1,7 @@
 import { accessState, isMember } from "../access/index";
-import { canSeeAdminSection } from "../adminSections";
+import { canSeeAdminSection, projectSettingsAccess } from "../adminSections";
+// Area 9c: solo i tipi di voce, mai `projectSettings/index.ts` (P6).
+import { SECTION_OF_KIND } from "../projectSettings/changeTypes";
 import type { AdminSection } from "../routes";
 import { visiblePeopleFor } from "../access/whoCan";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
@@ -7,7 +9,7 @@ import { gate, now, state, visibleProjectIds } from "../store";
 import { can, viewerFor, type Permission } from "../viewer";
 import { forbidden, notFound } from "../writer";
 import { changeTypeOf } from "./record";
-import { SETTING_KINDS, decodeSetting } from "./settingValues";
+import { SETTING_KINDS, decodeSetting, type SettingValue } from "./settingValues";
 import { MANAGE_PROJECT, readableChangeGroups } from "./visibility";
 import type {
   ChangeDiff,
@@ -104,12 +106,30 @@ const INSTANCE_OBJECTS: Record<
 /** Il server di una voce `server.*`, se esiste ancora (l'id dell'oggetto è il codice, `SRV-2`). */
 const serverExists = (code: string): boolean => state.servers.some((s) => s.code === code);
 
+/**
+ * Una voce di progetto del 9c porta alla sezione di Settings in cui sta
+ * l'oggetto, se chi guarda la vede (`projectSettingsAccess`); `undefined` per
+ * le voci che non sono del 9c.
+ */
+function projectSettingsLinkOf(
+  me: string,
+  entry: ChangeEntry,
+): ChangeObjectLink | null | undefined {
+  const section = SECTION_OF_KIND[entry.kind];
+  if (!section || entry.projectId === null) return undefined;
+  const code = state.projectsById.get(entry.projectId)?.code;
+  if (!code || !projectSettingsAccess(viewerFor(me), entry.projectId)[section].visible) return null;
+  return { to: "projectSettings", code, section };
+}
+
 /** Dove porta l'oggetto, per chi guarda; `null` se non c'è più o non lo può aprire. */
 function objectLinkOf(
   me: string,
   entry: ChangeEntry,
   people: Set<string>,
 ): ChangeObjectLink | null {
+  const settingsLink = projectSettingsLinkOf(me, entry);
+  if (settingsLink !== undefined) return settingsLink;
   const viewer = viewerFor(me);
   const { type, id } = entry.object;
   switch (type) {
@@ -186,6 +206,13 @@ const INSTANCE_VALUE_KINDS: ReadonlySet<string> = new Set([
 const departmentName = (value: string | null): string | null =>
   value === null ? null : value.replace(/\s+--[\w-]+$/, "");
 
+/** L'account AI di un progetto (9c) si salva come id: il nome è quello di adesso, `null` se tolto. */
+function withAccountName(value: SettingValue | null): SettingValue | null {
+  if (value?.type !== "ai_account" || value.providerId === null) return value;
+  const provider = state.instance.providers.find((p) => p.id === value.providerId);
+  return { ...value, name: provider?.name ?? null };
+}
+
 /**
  * Il prima e dopo di una voce, per tipo. Le voci che toccano un segreto
  * (link di reset, secondo fattore) non ne hanno mai: c'è solo la frase.
@@ -194,8 +221,8 @@ function diffOf(entry: ChangeEntry, people: Set<string>): ChangeDiff | null {
   const p = entry.params;
   if (SETTING_KINDS[entry.kind]) {
     // I valori stabili del 9b (Ruling T3): in forma di dato, le parole sono della pagina.
-    const before = decodeSetting(entry.kind, entry.before);
-    const after = decodeSetting(entry.kind, entry.after);
+    const before = withAccountName(decodeSetting(entry.kind, entry.before));
+    const after = withAccountName(decodeSetting(entry.kind, entry.after));
     if (before || after) return { kind: "setting", before, after };
   }
   switch (entry.kind) {

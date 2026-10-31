@@ -140,18 +140,27 @@ export function isProjectSection(value: string): value is ProjectSection {
 }
 
 /**
- * Le sezioni di Progetto → Settings (area 9a, [RM 4]): voci rientrate sotto
- * «Settings» nella colonna, una pagina ciascuna (`/p/$code/settings/$section`),
- * nell'ordine della colonna; `module` = serve quel modulo attivo. La prima è
- * quella che apre `/p/$code/settings`. Le aree successive aggiungono qui le loro.
+ * Le sezioni di Progetto → Settings (area 9a, [RM 4]; le undici dell'area
+ * 9c): voci rientrate sotto «Settings» nella colonna, una pagina ciascuna
+ * (`/p/$code/settings/$section`), nell'ordine della colonna. La prima,
+ * General, è quella che apre `/p/$code/settings` ([PS 2]). Chi vede e chi
+ * scrive cosa lo dice `projectSettingsAccess` (`adminSections.ts`), in UN
+ * posto: Repositories non dipende più dal modulo Releases (i repository
+ * servono anche ai Docs).
  */
 export const PROJECT_SETTINGS_SECTIONS = [
+  { id: "general" },
   { id: "statuses" },
   { id: "members" },
-  { id: "repositories", module: "releases" },
-  // Solo per chi gestisce il progetto o i membri (`canSeeProjectSettingsSection`).
+  { id: "ai" },
+  { id: "automations" },
+  { id: "repositories" },
+  { id: "integration" },
+  { id: "plugins" },
+  { id: "usage" },
   { id: "changelog" },
-] as const satisfies readonly { id: string; module?: ProjectModule }[];
+  { id: "archive" },
+] as const satisfies readonly { id: string }[];
 
 export type ProjectSettingsSection = (typeof PROJECT_SETTINGS_SECTIONS)[number]["id"];
 

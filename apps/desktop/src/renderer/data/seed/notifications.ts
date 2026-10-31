@@ -277,6 +277,17 @@ const ROWS: Row[] = [
     120,
     true,
   ],
+  // Area 9c: l'ultimo brief di RNC prima dell'archiviazione. Resta nello
+  // stato e non lo legge nessuno finché il progetto è archiviato.
+  [
+    "project.brief",
+    "RNC",
+    "RNC",
+    "Weekly brief ready",
+    "The booking form is live; the harvest newsletter is still open.",
+    696,
+    true,
+  ],
 ];
 
 /**

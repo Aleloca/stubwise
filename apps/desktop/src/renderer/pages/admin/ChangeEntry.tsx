@@ -6,6 +6,7 @@ import type {
   AutomationRuleValue,
   ChangeDiff,
   ChangeEntryView,
+  ChangeObjectLink,
   FieldValue,
   SettingValue,
 } from "../../data/queries";
@@ -44,62 +45,103 @@ function dayTimeOf(iso: string, language: string): string {
 const linkClass =
   "font-semibold text-ink underline-offset-2 decoration-rule-strong hover:underline focus-visible:underline";
 
+/**
+ * Il link dell'oggetto, un ramo per destinazione. Lo `switch` è esaustivo:
+ * una destinazione nuova in `ChangeObjectLink` senza il suo ramo non compila
+ * (prima l'ultimo ramo dava per scontato `server`, minore T1 del 9b).
+ */
+export function ObjectLink({ link, children }: { link: ChangeObjectLink; children?: ReactNode }) {
+  switch (link.to) {
+    case "person":
+      return (
+        <Link
+          to="/admin/people/$personId"
+          params={{ personId: link.personId }}
+          className={linkClass}
+        >
+          {children}
+        </Link>
+      );
+    case "role":
+      return (
+        <Link to="/admin/roles/$roleId" params={{ roleId: link.roleId }} className={linkClass}>
+          {children}
+        </Link>
+      );
+    case "invite":
+      return (
+        <Link
+          to="/admin/people/invites/$inviteId"
+          params={{ inviteId: link.inviteId }}
+          className={linkClass}
+        >
+          {children}
+        </Link>
+      );
+    case "department":
+      return (
+        <Link
+          to="/admin/$section"
+          params={{ section: "departments" }}
+          search={{ department: link.departmentId }}
+          className={linkClass}
+        >
+          {children}
+        </Link>
+      );
+    case "member":
+      return (
+        <Link
+          to="/p/$code/settings/$section"
+          params={{ code: link.projectCode, section: "members" }}
+          search={{ member: link.personId }}
+          className={linkClass}
+        >
+          {children}
+        </Link>
+      );
+    case "admin":
+      // Un plugin ha la sua pagina (9b, Task 10); le altre voci d'istanza
+      // aprono la voce dell'Amministrazione in cui sta l'oggetto.
+      return link.section === "plugins" && link.id ? (
+        <Link to="/admin/plugins/$pluginId" params={{ pluginId: link.id }} className={linkClass}>
+          {children}
+        </Link>
+      ) : (
+        <Link to="/admin/$section" params={{ section: link.section }} className={linkClass}>
+          {children}
+        </Link>
+      );
+    case "server":
+      // Un server d'istanza: il suo dettaglio dentro Servers dell'Amministrazione (9b).
+      return (
+        <Link to="/admin/servers/$server" params={{ server: link.code }} className={linkClass}>
+          {children}
+        </Link>
+      );
+    case "projectSettings":
+      // La sezione di Progetto → Settings in cui sta l'oggetto (area 9c).
+      return (
+        <Link
+          to="/p/$code/settings/$section"
+          params={{ code: link.code, section: link.section }}
+          className={linkClass}
+        >
+          {children}
+        </Link>
+      );
+    default: {
+      const unknown: never = link;
+      return unknown;
+    }
+  }
+}
+
 /** L'oggetto della frase: un link se esiste ed è visibile, il nome con «(deleted)» se non c'è più. */
 function ObjectRef({ entry, children }: { entry: ChangeEntryView; children?: ReactNode }) {
   const { t } = useTranslation();
-  const l = entry.objectLink;
-  const name = l ? (
-    l.to === "person" ? (
-      <Link to="/admin/people/$personId" params={{ personId: l.personId }} className={linkClass}>
-        {children}
-      </Link>
-    ) : l.to === "role" ? (
-      <Link to="/admin/roles/$roleId" params={{ roleId: l.roleId }} className={linkClass}>
-        {children}
-      </Link>
-    ) : l.to === "invite" ? (
-      <Link
-        to="/admin/people/invites/$inviteId"
-        params={{ inviteId: l.inviteId }}
-        className={linkClass}
-      >
-        {children}
-      </Link>
-    ) : l.to === "department" ? (
-      <Link
-        to="/admin/$section"
-        params={{ section: "departments" }}
-        search={{ department: l.departmentId }}
-        className={linkClass}
-      >
-        {children}
-      </Link>
-    ) : l.to === "member" ? (
-      <Link
-        to="/p/$code/settings/$section"
-        params={{ code: l.projectCode, section: "members" }}
-        search={{ member: l.personId }}
-        className={linkClass}
-      >
-        {children}
-      </Link>
-    ) : l.to === "admin" && l.section === "plugins" && l.id ? (
-      // Un plugin ha la sua pagina (9b, Task 10).
-      <Link to="/admin/plugins/$pluginId" params={{ pluginId: l.id }} className={linkClass}>
-        {children}
-      </Link>
-    ) : l.to === "admin" ? (
-      // La voce d'istanza (9b) in cui sta l'oggetto; le voci con una pagina
-      // per oggetto la aprono dall'elenco.
-      <Link to="/admin/$section" params={{ section: l.section }} className={linkClass}>
-        {children}
-      </Link>
-    ) : (
-      // Un server d'istanza: il suo dettaglio dentro Servers dell'Amministrazione (9b).
-      <Link to="/admin/servers/$server" params={{ server: l.code }} className={linkClass}>
-        {children}
-      </Link>
-    )
+  const name = entry.objectLink ? (
+    <ObjectLink link={entry.objectLink}>{children}</ObjectLink>
   ) : (
     <span className="font-semibold text-ink">{children}</span>
   );
@@ -169,6 +211,13 @@ function useSettingWords() {
         return v.pausedSince === null
           ? t("changelog.values.queueRunning")
           : t("changelog.values.queuePaused", { date: dayTimeOf(v.pausedSince, i18n.language) });
+      case "ai_account": {
+        if (v.providerId === null) return t("changelog.values.aiAutomatic");
+        const name = v.name ?? t("changelog.values.aiDeletedAccount");
+        return v.exclusive ? t("changelog.values.aiOnly", { name }) : name;
+      }
+      case "number":
+        return String(v.value);
     }
   };
 }

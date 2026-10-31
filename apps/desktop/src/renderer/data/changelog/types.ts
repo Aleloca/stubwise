@@ -3,7 +3,7 @@
 // (`templateKey`), mai da prosa generata; non si modifica né si cancella; non
 // contiene mai un segreto (si scrive «sostituito», non il valore).
 
-import type { AdminSection } from "../routes";
+import type { AdminSection, ProjectSettingsSection } from "../routes";
 import type { SettingValue } from "./settingValues";
 
 /**
@@ -69,7 +69,8 @@ export interface ChangeEntry {
  * Dove porta l'oggetto di una voce, se esiste ancora e chi guarda può
  * aprirlo: la pagina della persona, del ruolo, dell'invito, il pannello del
  * reparto o del membro; dal 9b una voce dell'Amministrazione (con l'id
- * dell'oggetto dentro la voce, se ne ha uno) o un server.
+ * dell'oggetto dentro la voce, se ne ha uno) o un server; dal 9c la sezione
+ * di Progetto → Settings in cui sta l'oggetto.
  */
 export type ChangeObjectLink =
   | { to: "person"; personId: string }
@@ -78,7 +79,8 @@ export type ChangeObjectLink =
   | { to: "department"; departmentId: string }
   | { to: "member"; projectCode: string; personId: string }
   | { to: "admin"; section: AdminSection; id?: string }
-  | { to: "server"; code: string };
+  | { to: "server"; code: string }
+  | { to: "projectSettings"; code: string; section: ProjectSettingsSection };
 
 /**
  * Il prima e dopo di una voce, già pronto da leggere ([AU 2]):

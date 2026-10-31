@@ -117,11 +117,14 @@ function seedRoles(): RoleDef[] {
 
 /**
  * Il ruolo di progetto tipico di una persona del seme: Giulia è Project Lead
- * nei suoi cinque progetti e Contributor altrove; un admin è Project Lead
+ * nei suoi cinque progetti e in RNC (area 9c), Contributor altrove; un admin è Project Lead
  * dove è membro; gli altri hanno il loro ruolo tipico ovunque.
  */
 function typicalProjectRole(personId: string, presetRole: string, code: string): string {
   if (personId === "p-giulia") {
+    // Area 9c: Giulia guida anche RNC, l'archiviato del seme (P9): è lei,
+    // da ex membro, a ritrovarlo in «Archived» e a riaprirlo.
+    if (code === "RNC") return "project_lead";
     return (GIULIA_LEAD_CODES as readonly string[]).includes(code) ? "project_lead" : "contributor";
   }
   return presetRole === "admin" ? "project_lead" : presetRole;

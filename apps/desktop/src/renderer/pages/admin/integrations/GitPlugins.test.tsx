@@ -72,7 +72,8 @@ describe("Git accounts", () => {
     renderRoute("/admin/git-accounts", ROBERTA);
     expect(await heading("Git accounts")).toBeVisible();
     const list = await screen.findByRole("list", { name: "Git accounts" });
-    expect(within(list).getAllByRole("listitem")).toHaveLength(2);
+    // Dal 9c anche «GitHub Ronchi», del solo `shop-frontend` di RNC (P25).
+    expect(within(list).getAllByRole("listitem")).toHaveLength(3);
     const bb = row("Bitbucket Audin");
     expect(within(bb).getByText("Bitbucket · audin")).toBeVisible();
     expect(within(bb).getByText("•••• k2p8")).toBeVisible();
@@ -249,14 +250,15 @@ describe("Git accounts", () => {
     const repos = state.repositories.filter((r) => r.gitAccountId === BITBUCKET_AUDIN);
     const seen = repos.filter((r) => visible.has(r.projectId));
     const hidden = repos.filter((r) => !visible.has(r.projectId));
-    // Il seme è fatto apposta: Sara vede il repository di CBV, i tre di AUD no.
-    expect(seen.map((r) => r.name)).toEqual(["bellavista-store"]);
+    // Il seme è fatto apposta: Sara vede il repository di CBV (e, dal 9c,
+    // `portale-utenti` di ACQ), i tre di AUD no.
+    expect(seen.map((r) => r.name)).toEqual(["bellavista-store", "portale-utenti"]);
     expect(hidden).toHaveLength(3);
     const hiddenWords = "and 3 in projects you can't see";
 
     renderRoute("/admin/git-accounts", SARA);
     await screen.findByRole("listitem", { name: "Bitbucket Audin" });
-    expect(within(row("Bitbucket Audin")).getByText("Used by 1 repository in CBV")).toBeVisible();
+    expect(within(row("Bitbucket Audin")).getByText("Used by 2 repositories in CBV, ACQ")).toBeVisible();
     expect(within(row("Bitbucket Audin")).getByText(hiddenWords)).toBeVisible();
     await user.click(
       within(row("Bitbucket Audin")).getByRole("button", { name: "More for Bitbucket Audin" }),

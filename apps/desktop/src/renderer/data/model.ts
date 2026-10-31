@@ -61,6 +61,15 @@ export interface Project {
   };
   /** Il tetto delle correzioni automatiche per PR (impostazione di progetto); assente = 3. */
   correctionCap?: number;
+  /** Area 9c, General: la descrizione del progetto; assente = vuota. */
+  description?: string;
+  /**
+   * Area 9c, Archive: archiviato, da chi e quando; assente o `null` = attivo.
+   * Un archiviato non è in `visibleProjectIds` di nessuno, full admin e
+   * Claude compresi: lo leggono solo i suoi ex membri e il full admin, dalla
+   * scheda «Archived» (Task 5).
+   */
+  archived?: { at: string; byId: string } | null;
 }
 
 export interface AppNotification {
@@ -1064,6 +1073,58 @@ export interface Repository {
   ciProvider?: "github_actions" | "bitbucket_pipelines" | null;
   /** L'account git d'istanza con cui Stubwise ci lavora (area 9b); `null` = nessuno. */
   gitAccountId?: string | null;
+  // --- area 9c: Progetto → Settings → Repositories ---
+  /** L'indirizzo del repository sulla piattaforma (https). */
+  url?: string;
+  /** Il comando di install nel worktree; `null` = rilevato dal lockfile. */
+  installCommand?: string | null;
+  /** Il comando dei test; `null` = rilevato. */
+  testCommand?: string | null;
+  /** L'account git che firma le review; `null` = il revisore predefinito dell'istanza. */
+  reviewGitAccountId?: string | null;
+  /** Il grafo del codice per le chat (`graphEnabled` del web): si salva e basta. */
+  graphEnabled?: boolean;
+  /** I rami su cui Claude non spinge mai; «release/*» vale come prefisso. */
+  protectedBranches?: string[];
+  /**
+   * Il webhook git (push e PR) sulla piattaforma. Il secret non c'è mai:
+   * solo il suo id nel caveau (`admin/secrets.ts`) e le ultime 4 cifre.
+   */
+  webhook?: {
+    state: "not_configured" | "configured" | "failed";
+    configuredAt: string | null;
+    secretId: string | null;
+    last4: string | null;
+  };
+}
+
+/**
+ * Un file d'ambiente di un repository, in un ambiente del progetto (area
+ * 9c). Di ogni variabile si tiene il nome e quando è stata scritta; il
+ * valore sta solo nel caveau (`secretId`), e il seme non ne ha (`null`).
+ * Solo i file dell'ambiente `test` arrivano a Claude (`CLAUDE.md`).
+ */
+export interface EnvFile {
+  id: string;
+  repositoryId: string;
+  environmentId: string;
+  /** Il percorso nel worktree, es. «.env» o «apps/api/.env». */
+  path: string;
+  vars: { key: string; secretId: string | null; setAt: string }[];
+}
+
+/**
+ * Un repository rimasto senza progetto dopo un Delete (maintainer, 31 ott
+ * 2026). Sta fuori da `state.repositories`, così `Repository.projectId` resta
+ * `string` e nessuna lettura di progetto lo incontra; collegarlo lo rimette
+ * lì col progetto nuovo. `formerProjectId` si risolve a lettura con
+ * `deletedProjects` (R-G5).
+ */
+export interface DetachedRepository {
+  repository: Repository;
+  formerProjectId: string;
+  detachedAt: string;
+  detachedById: string;
 }
 
 /** Le quattro categorie dell'albero; `manual` = scritta a mano, le altre generate. */

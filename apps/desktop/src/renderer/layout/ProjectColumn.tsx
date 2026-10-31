@@ -13,7 +13,7 @@ import {
   useProjectServers,
   useReleases,
 } from "../data/queries";
-import { canSeeProjectSettingsSection } from "../data/adminSections";
+import { projectSettingsAccess } from "../data/adminSections";
 import { PROJECT_SECTIONS, PROJECT_SETTINGS_SECTIONS } from "../data/routes";
 import type { ChannelRow, Project } from "../data/types";
 import { can, useViewer } from "../data/viewer";
@@ -283,17 +283,14 @@ function ProjectSections({
 
 /**
  * «Settings», da corrente, si apre nelle sue sezioni come voci rientrate da
- * 32 px, una pagina ciascuna (area 9a, [RM 4]); quelle dei moduli spenti no,
- * né Change log a chi non gestisce il progetto o i membri.
+ * 32 px, una pagina ciascuna (area 9a, [RM 4]): solo quelle che chi guarda
+ * vede, come le dice il livello dati (`projectSettingsAccess`, area 9c).
  */
 function ProjectSettingsSections({ project }: { project: Project }) {
   const { t } = useTranslation();
   const { viewer } = useViewer();
-  const sections = PROJECT_SETTINGS_SECTIONS.filter(
-    (s) =>
-      (!("module" in s) || project.modules.includes(s.module)) &&
-      canSeeProjectSettingsSection(viewer, project.id, s.id),
-  );
+  const access = projectSettingsAccess(viewer, project.id);
+  const sections = PROJECT_SETTINGS_SECTIONS.filter((s) => access[s.id].visible);
   return (
     <ul
       aria-label={t("settings.sections.label", { code: project.code })}

@@ -114,6 +114,7 @@ const PROFILES: Record<string, Profile> = {
   },
   "SRV-3": { cpu: 26, mem: 47, disk: () => 36, net: 240_000 },
   "SRV-4": { cpu: 7, mem: 33, disk: () => 24, net: 30_000 },
+  "SRV-5": { cpu: 4, mem: 28, disk: () => 22, net: 12_000 },
 };
 
 /**

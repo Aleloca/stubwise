@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 
 // I segreti mostrati una volta (area 9a) e quelli scritti da chi amministra
 // (area 9b) stanno solo in `admin/secrets.ts`. Lo importano solo le
-// scritture d'amministrazione, delle preferenze, dell'ingresso e
-// dell'istanza (`data/admin/*`, `data/me/*`, `data/auth/*`,
-// `data/instance/*`); nessuna
+// scritture d'amministrazione, delle preferenze, dell'ingresso,
+// dell'istanza e delle impostazioni di progetto (`data/admin/*`,
+// `data/me/*`, `data/auth/*`, `data/instance/*`, `data/projectSettings/*`);
+// nessuna
 // lettura (`data/queries/*`, il registro delle modifiche) e nessuna pagina
 // lo raggiunge, nemmeno di riflesso attraverso un altro modulo. Stessa forma
 // del test delle chiavi private dei server (`architecture.test.ts`).
@@ -52,7 +53,13 @@ function reachable(start: string): Set<string> {
   return seen;
 }
 
-const ALLOWED = ["data/admin/", "data/me/", "data/auth/", "data/instance/"];
+const ALLOWED = [
+  "data/admin/",
+  "data/me/",
+  "data/auth/",
+  "data/instance/",
+  "data/projectSettings/",
+];
 
 describe("segreti mostrati una volta", () => {
   it("trova i sorgenti", () => {
@@ -60,7 +67,7 @@ describe("segreti mostrati una volta", () => {
     expect(FILES.has(SECRETS)).toBe(true);
   });
 
-  it("secrets.ts lo importano solo data/admin, data/me, data/auth e data/instance", () => {
+  it("secrets.ts lo importano solo data/admin, data/me, data/auth, data/instance e data/projectSettings", () => {
     const importers = [...FILES.keys()].filter((p) => importsOf(p).includes(SECRETS));
     // Il risolutore funziona: la riconferma lo importa.
     expect(importers).toContain("data/auth/reauth.ts");
@@ -83,6 +90,22 @@ describe("segreti mostrati una volta", () => {
     const reads = [...FILES.keys()].filter((p) => p.startsWith("data/changelog/"));
     expect(reads.length).toBeGreaterThan(3);
     expect(reads.filter((p) => reachable(p).has(SECRETS))).toEqual([]);
+  });
+
+  it("lo store e le voci dell'Amministrazione non lo raggiungono, nemmeno dalle impostazioni di progetto", () => {
+    // Area 9c (P6): store, `adminSections.ts` e il registro importano solo
+    // `projectSettings/{state,seed,changeTypes}.ts`; `projectSettings/index.ts`
+    // e i suoi writer arrivano al caveau (la riconferma). Il risolutore
+    // funziona: da `projectSettings/common.ts` ci si arriva.
+    expect(reachable("data/projectSettings/common.ts").has(SECRETS)).toBe(true);
+    for (const p of [
+      "data/store.ts",
+      "data/adminSections.ts",
+      "data/projectSettings/state.ts",
+      "data/projectSettings/seed.ts",
+      "data/projectSettings/changeTypes.ts",
+    ])
+      expect(reachable(p).has(SECRETS), p).toBe(false);
   });
 
   it("l'aiuto dei test non lo usa il codice dell'app", () => {

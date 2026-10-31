@@ -4,9 +4,10 @@ import { COMMITS, fakeSha } from "./commits";
 import { daysFromToday } from "./dates";
 import { REPOSITORIES } from "./docs/repositories";
 
-// Le pagine dei Docs, nello spazio del loro repository (STW, AUD e il
-// progetto cliente CBV). Le prime nove sono quelle che Claude cita già nelle
-// conversazioni del seme: gli id restano quelli. Il codice (`AUD-D3`) è il
+// Le pagine dei Docs, nello spazio del loro repository (STW, AUD, il
+// progetto cliente CBV e, dall'area 9c, RNC, l'archiviato). Le prime nove
+// sono quelle che Claude cita già nelle conversazioni del seme: gli id
+// restano quelli. Il codice (`AUD-D3`) è il
 // numero d'ordine nel progetto, stabile: le pagine nuove vanno in fondo.
 // Titoli, percorsi ed estratti delle pagine aggiunte non parlano dei temi
 // che le domande «come funziona…» dei test cercano (callback, import,
@@ -237,6 +238,29 @@ const ROWS: Record<string, Row[]> = {
       body: "Orders over **6 bottles** ship free in Italy.\n\nGift boxes are packed by hand and add one working day.",
       updated: 40,
       views: 4,
+    },
+  ],
+  // Area 9c: le due pagine di `shop-frontend` (RNC, archiviato), scritte a mano.
+  RNC: [
+    {
+      id: "doc-rnc-booking",
+      kind: "manual",
+      title: "Farm stay booking",
+      path: "Shop / Booking",
+      excerpt: "The booking form sends the request by email to the estate; nothing is paid online.",
+      body: "The booking form sends the request **by email** to the estate.\n\nNothing is paid online: the estate confirms by phone.",
+      updated: 33,
+      views: 6,
+    },
+    {
+      id: "doc-rnc-gift-boxes",
+      kind: "manual",
+      title: "Gift boxes",
+      path: "Shop / Cart",
+      excerpt: "A gift box holds up to three bottles and has its own price in the cart.",
+      body: "A gift box holds up to **three bottles** and has its own price in the cart.",
+      updated: 45,
+      views: 3,
     },
   ],
 };

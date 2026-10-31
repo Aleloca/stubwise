@@ -173,6 +173,10 @@ describe("il registro delle modifiche del 9b", () => {
       "integrations",
       "servers",
       "queue",
+      // Area 9c, dopo quelli del 9b.
+      "project",
+      "repositories",
+      "projects",
     ];
     // L'ordine è dichiarato, non affidato all'ordine in cui i moduli registrano i tipi.
     expect(GROUP_ORDER).toEqual(order);
@@ -300,11 +304,13 @@ describe("il seme dell'istanza", () => {
     expect(i.budget).toEqual({ monthlyUsd: 600, contentLanguage: "en" });
   });
 
-  it("account git, e ogni repository del seme legato a uno dei due", () => {
+  it("account git, e ogni repository del seme legato a uno di loro", () => {
     const accounts = state.instance.gitAccounts;
     expect(accounts.map((a) => [a.name, a.provider, a.workspace, a.defaultReviewer])).toEqual([
       ["Bitbucket Audin", "bitbucket", "audin", false],
       ["GitHub Stubwise", "github", null, true],
+      // Area 9c (P25): lo usa solo `shop-frontend` di RNC.
+      ["GitHub Ronchi", "github", null, false],
     ]);
     const known = new Set(accounts.map((a) => a.id));
     expect(state.repositories.length).toBeGreaterThan(0);

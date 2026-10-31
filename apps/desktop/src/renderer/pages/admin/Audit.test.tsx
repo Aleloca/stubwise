@@ -294,10 +294,11 @@ describe("Change log in Amministrazione", () => {
     renderRoute("/admin/changelog", LAURA);
     await heading("Change log");
     // Chi gestisce un progetto ne legge tutte le voci di progetto: dal 9b
-    // anche quelle della coda (pausa, ripresa, Retry).
+    // anche quelle della coda (pausa, ripresa, Retry), dal 9c le impostazioni
+    // e i repository.
     expect(
       screen.getByText(
-        "You see changes to what you manage: project members and project queues. Entries can't be edited or deleted.",
+        "You see changes to what you manage: project members, project queues, project settings, and project repositories. Entries can't be edited or deleted.",
       ),
     ).toBeInTheDocument();
     await waitFor(() => expect(entries().length).toBeGreaterThan(0));
@@ -307,6 +308,8 @@ describe("Change log in Amministrazione", () => {
     expect(screen.getAllByRole("menuitemradio").map((m) => m.textContent)).toEqual([
       "Members",
       "Queue",
+      "Project settings",
+      "Repositories and environments",
     ]);
   });
 });
@@ -329,10 +332,11 @@ describe("Change log del progetto", () => {
     );
   });
 
-  it("chi non gestisce il progetto né i membri non la vede: niente voce, l'indirizzo apre Statuses", async () => {
+  it("chi non gestisce il progetto né i membri non la vede: niente voce, l'indirizzo apre General", async () => {
     const router = renderRoute("/p/ACQ/settings/changelog", SARA);
-    await heading("Statuses");
-    expect(router.state.location.pathname).toBe("/p/ACQ/settings/statuses");
+    // Dall'area 9c la prima sezione è General ([PS 2]).
+    await heading("General");
+    expect(router.state.location.pathname).toBe("/p/ACQ/settings/general");
     const sub = screen.getByRole("list", { name: "Settings of ACQ" });
     expect(within(sub).queryByRole("link", { name: "Change log" })).toBeNull();
   });

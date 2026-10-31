@@ -32,8 +32,9 @@ export const PROTOTYPE_TOTP_CODE = "123456";
 
 /**
  * Le funzioni delicate dell'API: quelle marcate «+R» nei Task 4 e 5 del
- * piano 9a e nel Task 1 del piano 9b. Si aggiungono INSIEME alla funzione (il nome entra in
- * `ApiFnName` con lei), e il test del registro
+ * piano 9a, nel Task 1 del piano 9b e nel Task 1 del piano 9c. Si aggiungono
+ * INSIEME alla funzione (il nome entra in `ApiFnName` con lei; quelli del 9c
+ * ci sono dal Task 1, prima delle funzioni, P1), e il test del registro
  * (`reauth.test.ts`, «registro») elenca le stesse: aggiungerne una è una
  * decisione visibile nel diff.
  */
@@ -89,6 +90,19 @@ export const REAUTH_REQUIRED: ReadonlySet<ApiFnName> = new Set<ApiFnName>([
   "instance.replaceGoogleSecret",
   "instance.deleteGoogleApp",
   "instance.saveStorage",
+  // Area 9c: chi crea, sostituisce o cancella un segreto di un progetto
+  // (chiave d'ingestione, secret del webhook git, file e valori
+  // d'ambiente), più eliminare un progetto e un repository senza progetto
+  // (confermata dal maintainer il 31 ott 2026). Archive e Reopen no: si
+  // tornano indietro (scelta del controller).
+  "projectSettings.regenerateIngestionKey",
+  "projectSettings.regenerateWebhookSecret",
+  "projectSettings.importEnvFile",
+  "projectSettings.setEnvVar",
+  "projectSettings.removeEnvVar",
+  "projectSettings.deleteEnvFile",
+  "projectSettings.deleteProject",
+  "instance.deleteDetachedRepository",
 ]);
 
 const MINUTE = 60_000;

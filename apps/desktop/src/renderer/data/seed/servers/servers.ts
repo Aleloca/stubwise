@@ -10,8 +10,10 @@ import { TODAY } from "../dates";
 //   controllo della replica giù.
 // - SRV-3 `aud-app-01`: la produzione di AUD per `audin-app`.
 // - SRV-4 `aud-admin-01`: la produzione di AUD per `audin-admin`.
+// - SRV-5 `shop-web-01` (area 9c): la produzione di RNC, l'archiviato, e di
+//   nessun altro progetto: archiviato il progetto, il server resta acceso.
 //
-// I server creati dall'app partono da SRV-5 (`serverCodeSeq`).
+// I server creati dall'app partono da SRV-6 (`serverCodeSeq`).
 
 /** Le soglie di base, quelle del web: CPU 95%, memoria 90%, disco 90%, per 5 minuti. */
 export const DEFAULT_THRESHOLDS: ServerThresholds = {
@@ -116,6 +118,25 @@ export const SERVERS: MonitoredServer[] = [
     createdAt: "2026-09-30T11:00:00Z",
     sshReachable: true,
   },
+  {
+    id: "srv-5",
+    code: "SRV-5",
+    name: "shop-web-01",
+    hostname: "shop-web-01.vetrina.internal",
+    status: "online",
+    agentVersion: "1.8.0",
+    lastSeenAt: LAST_SEEN,
+    sampleIntervalSeconds: 30,
+    thresholds: { ...DEFAULT_THRESHOLDS },
+    services: [
+      { name: "caddy", source: "docker", state: "running", cpuPct: 0.2, memBytes: 28 * MB, restarts: 0, image: "caddy:2.8" },
+      { name: "shop-frontend", source: "docker", state: "running", cpuPct: 1.1, memBytes: 160 * MB, restarts: 0, image: "vetrina-web/shop-frontend:1.2.0" },
+    ],
+    disks: [{ mount: "/", usedBytes: 9 * GB, totalBytes: 40 * GB }],
+    primaryProjectId: "prj-rnc",
+    createdAt: "2026-05-14T10:00:00Z",
+    sshReachable: true,
+  },
 ];
 
 /**
@@ -133,4 +154,5 @@ export const SERVER_CHECKS: ServerCheck[] = [
   { id: "chk-srv-3-app", serverCode: "SRV-3", name: "App health", type: "http", target: "https://app.audin.test/health", intervalSeconds: 60, enabled: true, status: "up", latencyMs: 96, lastError: null },
   { id: "chk-srv-3-redis", serverCode: "SRV-3", name: "Redis", type: "tcp", target: "127.0.0.1:6379", intervalSeconds: 60, enabled: true, status: "up", latencyMs: 2, lastError: null },
   { id: "chk-srv-4-admin", serverCode: "SRV-4", name: "Admin health", type: "http", target: "https://admin.audin.test/health", intervalSeconds: 60, enabled: true, status: "up", latencyMs: 188, lastError: null },
+  { id: "chk-srv-5-shop", serverCode: "SRV-5", name: "Shop health", type: "http", target: "https://shop.vetrina-web.test/health", intervalSeconds: 60, enabled: true, status: "up", latencyMs: 121, lastError: null },
 ];

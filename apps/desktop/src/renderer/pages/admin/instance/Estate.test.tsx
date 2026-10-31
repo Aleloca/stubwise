@@ -66,8 +66,8 @@ describe("Servers dell'istanza", () => {
     await screen.findByRole("list", { name: "Not in any project" });
     const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
     expect(headings.at(-1)).toBe("Not in any project");
-    // Tutti e quattro, ognuno una volta.
-    expect(document.querySelectorAll("[data-server-row]")).toHaveLength(4);
+    // Tutti e cinque (SRV-5 è di RNC, l'archiviato del 9c), ognuno una volta.
+    expect(document.querySelectorAll("[data-server-row]")).toHaveLength(5);
 
     const orphans = screen.getByRole("list", { name: "Not in any project" });
     expect(within(orphans).getAllByRole("listitem")).toHaveLength(1);
@@ -162,7 +162,7 @@ describe("Servers dell'istanza", () => {
   it("un orfano mai collegato dice anche lui che Claude lavora solo dentro un progetto", async () => {
     setSessionPersonId(ROBERTA);
     await servers.createServer({ name: "edge-01", environmentId: null });
-    renderRoute("/admin/servers/SRV-5", ROBERTA);
+    renderRoute("/admin/servers/SRV-6", ROBERTA);
     expect(await heading(/edge-01/)).toBeVisible();
     expect(screen.getAllByText("Never connected").length).toBeGreaterThan(0);
     expect(screen.getAllByText(ORPHAN_NO_CLAUDE)).toHaveLength(1);
@@ -293,15 +293,15 @@ describe("New server dall'Amministrazione", () => {
     await user.type(within(dialog).getByRole("textbox", { name: "Name" }), "edge-01");
     await user.click(within(dialog).getByRole("button", { name: "Create server" }));
 
-    const panel = await screen.findByRole("dialog", { name: "SRV-5 is ready for its agent" });
+    const panel = await screen.findByRole("dialog", { name: "SRV-6 is ready for its agent" });
     expect(within(panel).getByText("This key is shown only now.")).toBeVisible();
     const key = (within(panel).getByRole("textbox", { name: "Agent key" }) as HTMLInputElement)
       .value;
     expect(key).toMatch(KEY_RE);
     // Nato orfano: nessun ambiente e nessun progetto principale (environmentId: null).
-    const created = state.servers.find((s) => s.code === "SRV-5")!;
+    const created = state.servers.find((s) => s.code === "SRV-6")!;
     expect(created.primaryProjectId).toBeNull();
-    expect(state.environments.some((e) => e.servers.some((s) => s.serverCode === "SRV-5"))).toBe(
+    expect(state.environments.some((e) => e.servers.some((s) => s.serverCode === "SRV-6"))).toBe(
       false,
     );
     expect(state.changelog.at(-1)).toMatchObject({
@@ -311,7 +311,7 @@ describe("New server dall'Amministrazione", () => {
 
     await user.click(within(panel).getByRole("button", { name: "Copy the key" }));
     await user.click(within(panel).getByRole("button", { name: "Done" }));
-    await waitFor(() => expect(router.state.location.pathname).toBe("/admin/servers/SRV-5"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/admin/servers/SRV-6"));
     expect(await heading(/edge-01/)).toBeVisible();
     expect(screen.getAllByText("Never connected").length).toBeGreaterThan(0);
     expect(document.body.innerHTML).not.toContain(key);
@@ -319,7 +319,7 @@ describe("New server dall'Amministrazione", () => {
     await user.click(screen.getByRole("link", { name: "← Servers" }));
     const orphans = await screen.findByRole("list", { name: "Not in any project" });
     expect(within(orphans).getByText("edge-01")).toBeVisible();
-    expect(row("SRV-5")).toHaveTextContent("Not in any project yet");
+    expect(row("SRV-6")).toHaveTextContent("Not in any project yet");
     expect(document.body.innerHTML).not.toContain(key);
   });
 
@@ -331,7 +331,7 @@ describe("New server dall'Amministrazione", () => {
     expect(within(dialog).getByRole("button", { name: "Create server" })).toBeDisabled();
     await user.type(within(dialog).getByRole("textbox", { name: "Name" }), "   ");
     expect(within(dialog).getByRole("button", { name: "Create server" })).toBeDisabled();
-    expect(state.servers).toHaveLength(4);
+    expect(state.servers).toHaveLength(5);
   });
 
   it("un rifiuto del livello dati: la frase sotto il campo, il dialogo resta, niente server", async () => {
@@ -346,11 +346,11 @@ describe("New server dall'Amministrazione", () => {
       "Couldn't create the server. Try again.",
     );
     expect(screen.queryByRole("dialog", { name: /is ready for its agent/ })).toBeNull();
-    expect(state.servers).toHaveLength(4);
+    expect(state.servers).toHaveLength(5);
     // Riprovando (il rifiuto era uno solo) il server nasce, e la frase sparisce.
     await user.click(within(dialog).getByRole("button", { name: "Create server" }));
     expect(
-      await screen.findByRole("dialog", { name: "SRV-5 is ready for its agent" }),
+      await screen.findByRole("dialog", { name: "SRV-6 is ready for its agent" }),
     ).toBeVisible();
   });
 });

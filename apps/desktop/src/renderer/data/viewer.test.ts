@@ -85,7 +85,8 @@ describe("viewer", () => {
 
   it("Giulia gestisce le impostazioni solo dove è Project Lead", () => {
     const giulia = byPerson("p-giulia");
-    const lead = new Set<string>(GIULIA_LEAD_CODES);
+    // Area 9c: guida anche RNC, l'archiviato (P9).
+    const lead = new Set<string>([...GIULIA_LEAD_CODES, "RNC"]);
     for (const project of PROJECTS) {
       expect(can(giulia, "project.settings.manage", project.id)).toBe(lead.has(project.code));
     }

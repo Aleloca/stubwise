@@ -58,8 +58,10 @@ const peopleOf = (r: ReturnType<typeof whoCan>) => {
 
 describe("whoCan: parità con can() (RF 5)", () => {
   it("per ogni azione × progetto, Roberta vede esattamente le persone attive per cui can() è vero", () => {
+    // Un archiviato (RNC, area 9c) non lo vede nessuno, nemmeno Roberta (P7).
+    const open = PROJECTS.filter((p) => !p.archived).map((p) => p.id);
     for (const action of ACTIONS) {
-      const projects = action.scope === "project" ? PROJECTS.map((p) => p.id) : [null];
+      const projects = action.scope === "project" ? open : [null];
       for (const projectId of projects) {
         const r = whoCan("p-roberta", action.id, projectId);
         expect(peopleOf(r), `${action.id} @ ${projectId}`).toEqual(

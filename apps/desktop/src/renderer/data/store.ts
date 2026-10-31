@@ -143,6 +143,8 @@ import type {
   ProjectEnvironment,
   Release,
   Repository,
+  DetachedRepository,
+  EnvFile,
   SupportConversation,
   SupportWidget,
   CheckSample,
@@ -179,6 +181,15 @@ import type {
 import type { Department } from "./types";
 import { emptyInstanceState, seedInstanceState } from "./instance/seed";
 import type { InstanceState } from "./instance/state";
+// Area 9c: solo stato e seme, mai `projectSettings/index.ts` né un modulo
+// che importa il caveau dei segreti (ruling del controller (pre-flight), P6).
+import { seedEnvFiles, seedProjectSettings } from "./projectSettings/seed";
+import {
+  emptyRepositoryChecks,
+  type DeletedProject,
+  type ProjectSettings,
+  type RepositoryChecksState,
+} from "./projectSettings/state";
 
 // Il «server» finto: il simulatore (latenza, errori iniettati), lo stato
 // mutabile — una copia del seed, che `resetApi` rifà — e i derivati che le
@@ -722,7 +733,46 @@ export type ApiFnName =
   | "instance.getUploadsAllowed"
   | "instance.getQueuePause"
   // Repository d'istanza (area 9b, Task 7)
-  | "instance.listAllRepositories";
+  | "instance.listAllRepositories"
+  // I repository rimasti senza progetto (area 9c, Task 5): ci sono già dal
+  // Task 1, perché `REAUTH_REQUIRED` è un `Set<ApiFnName>` e li nomina (P1).
+  | "instance.listDetachedRepositories"
+  | "instance.linkRepository"
+  | "instance.deleteDetachedRepository"
+  // Progetto → Settings (area 9c): General, AI, Automations, Usage (Task 2)
+  | "projectSettings.getProjectSettings"
+  | "projectSettings.updateProjectGeneral"
+  | "projectSettings.setProjectAi"
+  | "projectSettings.saveProjectAutomations"
+  | "projectSettings.getProjectUsage"
+  // Repository, file d'ambiente, Integration, Plugins (Task 4)
+  | "projectSettings.listProjectRepositories"
+  | "projectSettings.listRemoteRepositories"
+  | "projectSettings.checkRepositoryAccess"
+  | "projectSettings.simulateNextRepositoryCheck"
+  | "projectSettings.createRepository"
+  | "projectSettings.updateRepository"
+  | "projectSettings.configureRepositoryWebhook"
+  | "projectSettings.simulateNextWebhookSetup"
+  | "projectSettings.listEnvFiles"
+  | "projectSettings.createEnvFile"
+  | "projectSettings.importEnvFile"
+  | "projectSettings.setEnvVar"
+  | "projectSettings.removeEnvVar"
+  | "projectSettings.deleteEnvFile"
+  | "projectSettings.getIntegration"
+  | "projectSettings.regenerateIngestionKey"
+  | "projectSettings.regenerateWebhookSecret"
+  | "projectSettings.getProjectPlugins"
+  | "projectSettings.saveProjectPlugins"
+  // Archivia, riapri, elimina (Task 5)
+  | "projectSettings.getArchivePreview"
+  | "projectSettings.archiveProject"
+  | "projectSettings.reopenProject"
+  | "projectSettings.listArchivedProjects"
+  | "projectSettings.getArchivedProject"
+  | "projectSettings.getDeletionPreview"
+  | "projectSettings.deleteProject";
 const failures = new Set<ApiFnName>();
 
 /** Fissa la latenza simulata (ms); `0` per i test, `null` per tornare a 150–400 ms. */
@@ -1023,6 +1073,17 @@ interface State {
   sshVerifyNext: Map<string, VerifyOutcome>;
   /** Solo prototipo: l'esito del controllo finale della prossima correzione, per server. */
   fixCheckNext: Map<string, "resolved" | "not_resolved">;
+  // --- Progetto → Settings (area 9c) ---
+  /** Le impostazioni di ogni progetto, per id (`projectSettings/state.ts`). */
+  projectSettings: Map<string, ProjectSettings>;
+  /** I file d'ambiente dei repository, per ambiente; i valori stanno solo nel caveau. */
+  envFiles: EnvFile[];
+  /** I progetti eliminati: solo ciò che serve a risolvere a lettura chi li vedeva (Task 5). */
+  deletedProjects: DeletedProject[];
+  /** I repository rimasti senza progetto dopo un Delete: fuori da `repositories` (Task 5). */
+  detachedRepositories: DetachedRepository[];
+  /** Le verifiche d'accesso dei repository e gli esiti simulati (P29). */
+  repositoryChecks: RepositoryChecksState;
 }
 
 /** L'ultimo numero di un codice `<PRJ>-<lettera><n>` per progetto, dalle righe del seme. */
@@ -1183,6 +1244,11 @@ function freshState(): State {
     serverTombstones: new Map(),
     sshVerifyNext: new Map(),
     fixCheckNext: new Map(),
+    projectSettings: seedProjectSettings(),
+    envFiles: seedEnvFiles(),
+    deletedProjects: [],
+    detachedRepositories: [],
+    repositoryChecks: emptyRepositoryChecks(),
   };
 }
 
@@ -1306,6 +1372,7 @@ export function emptyStore(): void {
   state.entry = { signedIn: false, partial: null };
   // Lo stato d'istanza (9b) è un oggetto, non una tabella: torna com'è appena installato.
   state.instance = emptyInstanceState();
+  state.repositoryChecks = emptyRepositoryChecks();
   writeAccessNow((a) => {
     a.roles = a.roles.filter((r) => r.preset);
     a.memberships = [];
@@ -1425,14 +1492,21 @@ export function slipWeeks(): void {
 
 // --- visibilità e derivati (come sul server) --------------------------------
 
-/** I progetti che una persona vede: quelli di cui è membro, o tutti se è full admin (o Claude, R-L9). */
+/**
+ * I progetti che una persona vede: quelli di cui è membro, o tutti se è full
+ * admin (o Claude, R-L9). Un progetto archiviato (area 9c) non lo vede
+ * nessuno, full admin e Claude compresi: sparisce da ogni superficie che
+ * legge da qui, e i suoi ex membri lo ritrovano solo nella scheda
+ * «Archived» (Task 5).
+ */
 export function visibleProjectIds(personId: string): Set<string> {
   const viewer = viewerFor(personId);
+  const open = state.projects.filter((p) => !p.archived);
   // R-L9: Claude è membro implicito di ogni progetto, anche di quelli creati dall'app.
   if (viewer.instancePermissions.includes("instance.full_admin") || personId === CLAUDE_ID) {
-    return new Set(state.projects.map((p) => p.id));
+    return new Set(open.map((p) => p.id));
   }
-  return new Set(state.projects.filter((p) => p.memberIds.includes(personId)).map((p) => p.id));
+  return new Set(open.filter((p) => p.memberIds.includes(personId)).map((p) => p.id));
 }
 
 /**

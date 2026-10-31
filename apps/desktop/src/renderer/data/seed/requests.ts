@@ -33,6 +33,9 @@ const ROWS: Row[] = [
   ["req-cbv-1", "CBV", "Gift-box option in the store", ["p-elena"], "refining", "high", null, null, [], 4],
   ["req-acq-1", "ACQ", "Pay the larger bills in instalments", [], "new", "medium", null, null, [], 4],
   ["req-acq-2", "ACQ", "Consumption history of the town buildings as a spreadsheet", [], "new", "low", null, null, [], 2],
+  // Area 9c: RNC, l'archiviato.
+  ["req-rnc-1", "RNC", "Gift cards in the shop", ["p-giulia"], "new", "medium", null, null, [], 36],
+  ["req-rnc-2", "RNC", "Wine club subscriptions", ["p-elena"], "ready", "low", null, null, [], 44],
 ];
 
 // Le richieste nate da una conversazione di Support (area 8a): nessun

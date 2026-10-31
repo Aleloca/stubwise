@@ -135,7 +135,9 @@ describe("intelaiatura: ogni voce col suo permesso", () => {
       adminSections(viewerFor(personId))
         .filter((s) => s.group === "access" || s.group === "records")
         .map((s) => s.id);
-    expect(ids(MARCO)).toEqual(["people", "who-can"]);
+    // Dal 9c Marco (Developer, `repos.manage`) legge le voci dei repository dei
+    // suoi progetti, quindi vede Change log; ma non amministra (sotto).
+    expect(ids(MARCO)).toEqual(["people", "changelog", "who-can"]);
     // Git accounts in sola lettura (il preset User dà `git_accounts.view`) non è amministrare.
     expect(adminSections(viewerFor(MARCO)).map((s) => s.id)).toContain("git-accounts");
     expect(administersSomething(viewerFor(MARCO))).toBe(false);

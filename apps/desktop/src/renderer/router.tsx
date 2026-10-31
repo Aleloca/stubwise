@@ -34,7 +34,7 @@ import {
   isStatusSearchValue,
   isValidSearchParam,
 } from "./data/routes";
-import { canSeeProjectSettingsSection } from "./data/adminSections";
+import { projectSettingsAccess } from "./data/adminSections";
 import { can, useViewer } from "./data/viewer";
 import {
   AdminIndex,
@@ -885,9 +885,9 @@ const projectSectionRoute = createRoute({
 });
 
 /**
- * Una sezione di Progetto → Settings (area 9a, [RM 4]): `statuses`,
- * `members`, `repositories` (col modulo Releases). Una sezione sconosciuta
- * porta alla prima; una che chiede un modulo spento, anche. Cambiare persona
+ * Una sezione di Progetto → Settings (area 9a, [RM 4]; le undici del 9c).
+ * Una sezione sconosciuta, o che chi guarda non vede
+ * (`projectSettingsAccess`), porta alla prima che vede. Cambiare persona
  * rimonta la pagina: niente bozza della persona di prima.
  */
 function ProjectSettingsRoutePage() {
@@ -917,17 +917,15 @@ function ProjectSettingsRoutePage() {
     );
   }
   if (!project) return <ProjectNotFound />;
+  const access = projectSettingsAccess(viewer, project.id);
   const def = PROJECT_SETTINGS_SECTIONS.find((s) => s.id === section);
-  if (
-    !def ||
-    ("module" in def && !project.modules.includes(def.module)) ||
-    // Change log senza gestire il progetto o i membri: come una sezione che non c'è.
-    !canSeeProjectSettingsSection(viewer, project.id, def.id)
-  ) {
+  if (!def || !access[def.id].visible) {
+    // Senza messaggio, come [AI 3]: la prima sezione che chi guarda vede.
+    const first = PROJECT_SETTINGS_SECTIONS.find((s) => access[s.id].visible)?.id;
     return (
       <Navigate
         to="/p/$code/settings/$section"
-        params={{ code, section: PROJECT_SETTINGS_SECTIONS[0].id }}
+        params={{ code, section: first ?? PROJECT_SETTINGS_SECTIONS[0].id }}
         replace
       />
     );

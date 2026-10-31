@@ -752,6 +752,34 @@ const refineReminders = seeded(
   ],
 );
 
+// Area 9c: la sessione finita di RNC, l'archiviato (il modulo di prenotazione
+// del soggiorno). Una sessione finita non rende il progetto `busy`.
+const rnc2 = seeded(
+  {
+    id: "cv-run-rnc-2",
+    kind: "task_run",
+    title: "Booking form for the farm stay",
+    ownerId: "p-marco",
+    projectId: "prj-rnc",
+    taskId: "t-rnc-2",
+    state: "finished",
+    outcome: "ok",
+  },
+  [
+    { at: at(34, "09:00"), type: "phase", phase: "execution", outcome: "ok" },
+    done(at(34, "09:40"), "repo.edit", "Edits src/booking/BookingForm.tsx"),
+    done(at(34, "10:05"), "shell", "Runs the booking tests", { result: "14 passed" }),
+    {
+      at: at(34, "10:20"),
+      type: "work_result",
+      kind: "pr_opened",
+      text: "Pull request #31 opened",
+      link: "https://git.example.com/vetrina-web/shop-frontend/pull/31",
+    },
+    says(at(33, "11:00"), "#31 is merged: the booking form sends the request to the farm stay."),
+  ],
+);
+
 export const WORK_CONVERSATIONS: Seeded[] = [
   stw13,
   aud3,
@@ -767,4 +795,5 @@ export const WORK_CONVERSATIONS: Seeded[] = [
   acq3,
   refineQuietHours,
   refineReminders,
+  rnc2,
 ];

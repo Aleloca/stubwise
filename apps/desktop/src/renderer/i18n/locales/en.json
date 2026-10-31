@@ -2411,7 +2411,14 @@
       "statuses": "Statuses",
       "members": "Members",
       "repositories": "Repositories",
-      "changelog": "Change log"
+      "changelog": "Change log",
+      "general": "General",
+      "ai": "AI",
+      "automations": "Automations",
+      "integration": "Integration",
+      "plugins": "Plugins",
+      "usage": "Usage",
+      "archive": "Archive"
     },
     "members": {
       "intro": "Who works on {{code}}, with which role, and what each person can do beyond it.",
@@ -2505,7 +2512,8 @@
         "action": "add {{name}} to {{code}}",
         "failed": "Couldn't add them. Try again."
       }
-    }
+    },
+    "placeholder": "This section arrives with the next steps of the prototype."
   },
   "export": {
     "project": "Project",
@@ -8032,7 +8040,8 @@
       "manageAiProviders": "manage AI accounts",
       "manageGitAccounts": "manage git accounts",
       "managePlugins": "manage plugins",
-      "viewInstanceStatus": "see the instance status"
+      "viewInstanceStatus": "see the instance status",
+      "deleteProjects": "delete projects"
     },
     "groups": {
       "administration": "Administration",
@@ -10027,6 +10036,50 @@
       },
       "job": {
         "retried": "<actor>{{actor}}</actor> put the work on <object>{{object}}</object> back in the queue."
+      },
+      "project": {
+        "renamed": "<actor>{{actor}}</actor> renamed <object>{{object}}</object>.",
+        "description_changed": "<actor>{{actor}}</actor> changed the description of <object>{{object}}</object>.",
+        "ai_account_changed": "<actor>{{actor}}</actor> changed the AI account of <object>{{object}}</object>.",
+        "switch_changed": "<actor>{{actor}}</actor> changed “$t(changelog.params.projectSwitch.{{switch}})” in <object>{{object}}</object>.",
+        "pulse_interval_changed": "<actor>{{actor}}</actor> changed how often the pulse looks at <object>{{object}}</object>.",
+        "correction_cap_changed": "<actor>{{actor}}</actor> changed the limit of automatic corrections in <object>{{object}}</object>.",
+        "statuses_changed": "<actor>{{actor}}</actor> changed the statuses of <object>{{object}}</object>.",
+        "stall_thresholds_changed": "<actor>{{actor}}</actor> changed when a task of <object>{{object}}</object> counts as stalled.",
+        "plugins_changed": "<actor>{{actor}}</actor> changed the plugins of <object>{{object}}</object>.",
+        "ingestion_key_regenerated": "<actor>{{actor}}</actor> made a new ingestion key for <object>{{object}}</object>.",
+        "archived": "<actor>{{actor}}</actor> archived <object>{{object}}</object>.",
+        "reopened": "<actor>{{actor}}</actor> reopened <object>{{object}}</object>.",
+        "deleted": "<actor>{{actor}}</actor> deleted the project <object>{{object}}</object>."
+      },
+      "repository": {
+        "created": "<actor>{{actor}}</actor> added the repository <object>{{object}}</object> to {{project}}.",
+        "updated": "<actor>{{actor}}</actor> changed $t(changelog.params.repositoryField.{{field}}) of <object>{{object}}</object>.",
+        "pr_mode_changed": "<actor>{{actor}}</actor> changed what Claude does with colleagues' pull requests on <object>{{object}}</object>.",
+        "release_pipeline_changed": "<actor>{{actor}}</actor> changed which pipelines make the release status of <object>{{object}}</object>.",
+        "webhook_configured": "<actor>{{actor}}</actor> configured the git webhook of <object>{{object}}</object>.",
+        "webhook_secret_regenerated": "<actor>{{actor}}</actor> made a new webhook secret for <object>{{object}}</object>.",
+        "linked": "<actor>{{actor}}</actor> linked <object>{{object}}</object> to {{project}}.",
+        "deleted": "<actor>{{actor}}</actor> deleted the repository <object>{{object}}</object>, which was in no project."
+      },
+      "env_file": {
+        "created": "<actor>{{actor}}</actor> created the environment file <object>{{object}}</object>.",
+        "deleted": "<actor>{{actor}}</actor> deleted the environment file <object>{{object}}</object>.",
+        "imported": "<actor>{{actor}}</actor> imported variables into <object>{{object}}</object>: {{count}}."
+      },
+      "env_var": {
+        "set": "<actor>{{actor}}</actor> set <strong>{{key}}</strong> in <object>{{object}}</object>.",
+        "removed": "<actor>{{actor}}</actor> removed <strong>{{key}}</strong> from <object>{{object}}</object>."
+      },
+      "environment": {
+        "created": "<actor>{{actor}}</actor> created the environment <object>{{object}}</object> in {{project}}.",
+        "updated": "<actor>{{actor}}</actor> changed the environment <object>{{object}}</object> in {{project}}.",
+        "deleted": "<actor>{{actor}}</actor> deleted the environment <object>{{object}}</object> in {{project}}."
+      },
+      "widget": {
+        "created": "<actor>{{actor}}</actor> created the widget <object>{{object}}</object> in {{project}}.",
+        "updated": "<actor>{{actor}}</actor> changed the widget <object>{{object}}</object> in {{project}}.",
+        "deleted": "<actor>{{actor}}</actor> deleted the widget <object>{{object}}</object> in {{project}}."
       }
     },
     "groups": {
@@ -10039,7 +10092,10 @@
       "ai": "AI",
       "integrations": "Integrations",
       "servers": "Servers",
-      "queue": "Queue"
+      "queue": "Queue",
+      "project": "Project settings",
+      "repositories": "Repositories and environments",
+      "projects": "Deleted projects"
     },
     "groupWords": {
       "people": "people",
@@ -10051,7 +10107,10 @@
       "ai": "AI settings",
       "integrations": "integrations",
       "servers": "servers",
-      "queue": "project queues"
+      "queue": "project queues",
+      "project": "project settings",
+      "repositories": "project repositories",
+      "projects": "deleted projects"
     },
     "intro": "Every change to access and settings: who made it, when, and what changed. Entries can't be edited or deleted.",
     "introPartial": "You see changes to what you manage: {{groups}}. Entries can't be edited or deleted.",
@@ -10105,6 +10164,23 @@
       "serverScope": {
         "orphan": " (not in any project)",
         "project": ""
+      },
+      "projectSwitch": {
+        "docsNightly": "Nightly Docs",
+        "dailyReport": "Daily report",
+        "backlogDiscovery": "Backlog discovery",
+        "pulse": "Pulse",
+        "weeklyBrief": "Weekly brief"
+      },
+      "repositoryField": {
+        "name": "the name",
+        "url": "the address",
+        "installCommand": "the install command",
+        "testCommand": "the test command",
+        "graphEnabled": "the code graph",
+        "protectedBranches": "the protected branches",
+        "gitAccount": "the git account",
+        "reviewGitAccount": "the reviewer"
       }
     },
     "values": {
@@ -10152,7 +10228,10 @@
         "server_diagnosis_ready": "Claude's diagnosis of a server is ready",
         "project_pulse": "Proposal for an idle project",
         "project_brief": "Weekly project brief"
-      }
+      },
+      "aiAutomatic": "Automatic",
+      "aiDeletedAccount": "a deleted account",
+      "aiOnly": "{{name}} (only this account)"
     },
     "fields": {
       "name": "Name",
@@ -10178,7 +10257,21 @@
       "checkType": "Type",
       "target": "Target",
       "interval": "Every (s)",
-      "checkEnabled": "Enabled"
+      "checkEnabled": "Enabled",
+      "activeDays": "Stalled when active, after (days)",
+      "todoDays": "Stalled when to do, after (days)",
+      "statuses": "Statuses",
+      "disabledSkills": "Skills off",
+      "disabledHooks": "Hooks off",
+      "installCommand": "Install command",
+      "testCommand": "Test command",
+      "graphEnabled": "Code graph",
+      "protectedBranches": "Protected branches",
+      "gitAccount": "Git account",
+      "reviewGitAccount": "Reviewer",
+      "prMode": "Colleagues' pull requests",
+      "pipeline": "Release pipelines",
+      "kind": "Kind"
     }
   },
   "usage": {

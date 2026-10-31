@@ -144,6 +144,8 @@ export * as admin from "./admin";
 export * as me from "./me";
 /** L'istanza (area 9b): `api.instance.listProviders()`, `api.instance.getUsage(…)`… */
 export * as instance from "./instance";
+/** Progetto → Settings (area 9c): `api.projectSettings.getProjectSettings(…)`… */
+export * as projectSettings from "./projectSettings";
 
 /** Ripristina lo stato (sessione, dati, errori iniettati) e porta le task scadute alla settimana corrente. */
 export function resetApi(): void {

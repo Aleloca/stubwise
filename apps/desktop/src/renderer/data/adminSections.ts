@@ -1,10 +1,20 @@
 import { accessState } from "./access/index";
 import "./admin/changeTypes";
 import "./instance/changeTypes";
+// Area 9c: solo i tipi di voce, per effetto; mai `projectSettings/index.ts`,
+// che porta al caveau dei segreti (P5, P6).
+import "./projectSettings/changeTypes";
 import { MANAGE_PROJECT, readsSomeChanges } from "./changelog/visibility";
-import { ADMIN_SECTIONS, AI_TABS, type AdminSection, type ProjectSettingsSection } from "./routes";
+import {
+  ADMIN_SECTIONS,
+  AI_TABS,
+  PROJECT_SETTINGS_SECTIONS,
+  type AdminSection,
+  type ProjectSettingsSection,
+} from "./routes";
+import { visibleProjectIds } from "./store";
 import type { Viewer } from "./types";
-import { can } from "./viewer";
+import { can, type Permission } from "./viewer";
 
 // Le voci dell'Amministrazione che chi guarda vede (area 9a, design
 // «Amministrazione: com'è fatta», shape admin-people.md §3), in UN posto:
@@ -113,30 +123,102 @@ export function canSeeAdmin(viewer: Viewer): boolean {
  * `repos.manage` (Repositories rimanda a Progetto → Settings) aprono voci in
  * sola lettura, e contarli chiamerebbe «Administration» la voce del profilo
  * di ogni utente.
+ *
+ * Il registro conta per `changelog.view` o per chi gestisce un progetto, non
+ * per ogni voce che si legge: dal 9c chi ha `repos.manage`,
+ * `environments.manage` o `widget.manage` legge le voci dei repository dei
+ * suoi progetti (e vede «Change log»), ma per la regola qui sopra non
+ * amministra. Le voci d'istanza si leggono con un permesso che conta già da
+ * sé (`users.manage`, `roles.manage`, quelli di `INSTANCE_WRITES`…).
  */
 export function administersSomething(viewer: Viewer): boolean {
   if (!isActivePerson(viewer)) return false;
   return (
     sees(viewer, "departments") ||
     sees(viewer, "roles") ||
-    sees(viewer, "changelog") ||
+    can(viewer, "changelog.view") ||
+    MANAGE_PROJECT.some((p) => can(viewer, p)) ||
     can(viewer, "users.manage") ||
     can(viewer, "users.invite") ||
     INSTANCE_WRITES.some((p) => can(viewer, p))
   );
 }
 
+/** Cosa chi guarda può fare in una sezione di Progetto → Settings. */
+export interface SectionAccess {
+  visible: boolean;
+  /**
+   * Può scrivere. Una sezione senza niente da scrivere (Usage, Change log)
+   * vale quanto `visible`: non è mai «in sola lettura».
+   */
+  canEdit: boolean;
+  /** azione di ACTIONS per il «Who?», null se nessuna */
+  editAction: string | null;
+}
+
 /**
- * Le sezioni di Progetto → Settings che chi guarda vede (area 9a): tutte,
- * tranne Change log, che è solo di chi gestisce le impostazioni o i membri
- * del progetto (design «Il registro delle modifiche»). La colonna e la rotta
- * leggono da qui.
+ * Chi vede e chi scrive le sezioni di Progetto → Settings (area 9c, tabella
+ * delle Global Constraints del piano), in UN posto: la colonna, la rotta e le
+ * pagine leggono da qui, mai `can()` (lezione del 9b).
+ *
+ * | Sezione | Si vede con | Si scrive con | «Who?» |
+ * |---|---|---|---|
+ * | General, Statuses, AI, Automations, Plugins | membro | `project.settings.manage` | `manageProjectSettings` |
+ * | Members | membro | `project.members.manage` | `manageMembers` |
+ * | Repositories | `repos.view` | `repos.manage` | `manageRepos` |
+ * | Integration | membro | `project.settings.manage` o `repos.manage` [PS 4] | `manageProjectSettings` |
+ * | Usage | `project.usage.view` | — | — |
+ * | Change log | `project.settings.manage` o `project.members.manage` (9a) | — | — |
+ * | Archive | membro | `project.settings.manage` (Delete: full admin, sul bottone) | `manageProjectSettings` |
+ *
+ * «Membro» è un progetto che chi guarda vede (`visibleProjectIds`: i full
+ * admin vedono tutto); un progetto invisibile o archiviato non ha nessuna
+ * sezione. Integration ha due permessi: la sezione è scrivibile con uno dei
+ * due, e i bottoni leggono poi `canRegenerateKey` e
+ * `gitWebhooks[].canRegenerate` (Task 4).
  */
+export function projectSettingsAccess(
+  viewer: Viewer,
+  projectId: string,
+): Record<ProjectSettingsSection, SectionAccess> {
+  const member = visibleProjectIds(viewer.personId).has(projectId);
+  const has = (perm: Permission) => member && can(viewer, perm, projectId);
+  const settings = has("project.settings.manage");
+  const writable = (visible: boolean, canEdit: boolean, editAction: string): SectionAccess => ({
+    visible,
+    canEdit: visible && canEdit,
+    editAction,
+  });
+  /** Una sezione da leggere soltanto: niente «Who?», mai «in sola lettura». */
+  const readOnly = (visible: boolean): SectionAccess => ({
+    visible,
+    canEdit: visible,
+    editAction: null,
+  });
+  const bySection: Record<ProjectSettingsSection, SectionAccess> = {
+    general: writable(member, settings, "manageProjectSettings"),
+    statuses: writable(member, settings, "manageProjectSettings"),
+    members: writable(member, has("project.members.manage"), "manageMembers"),
+    ai: writable(member, settings, "manageProjectSettings"),
+    automations: writable(member, settings, "manageProjectSettings"),
+    repositories: writable(has("repos.view"), has("repos.manage"), "manageRepos"),
+    integration: writable(member, settings || has("repos.manage"), "manageProjectSettings"),
+    plugins: writable(member, settings, "manageProjectSettings"),
+    usage: readOnly(has("project.usage.view")),
+    changelog: readOnly(MANAGE_PROJECT.some((p) => has(p))),
+    archive: writable(member, settings, "manageProjectSettings"),
+  };
+  // Nell'ordine della colonna.
+  return Object.fromEntries(
+    PROJECT_SETTINGS_SECTIONS.map((s) => [s.id, bySection[s.id]]),
+  ) as Record<ProjectSettingsSection, SectionAccess>;
+}
+
+/** Se chi guarda vede una sezione di Progetto → Settings: involucro di `projectSettingsAccess`. */
 export function canSeeProjectSettingsSection(
   viewer: Viewer,
   projectId: string,
   section: ProjectSettingsSection,
 ): boolean {
-  if (section !== "changelog") return true;
-  return MANAGE_PROJECT.some((p) => can(viewer, p, projectId));
+  return projectSettingsAccess(viewer, projectId)[section].visible;
 }

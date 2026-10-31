@@ -85,7 +85,10 @@ describe("Save to Drive sull'allegato", () => {
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByRole("heading").textContent).toContain(NAME);
     const options = within(dialog).getAllByRole("option");
-    const allowed = state.projects.filter((p) => can(viewerFor("p-giulia"), "drive.upload", p.id));
+    // Un archiviato (RNC, area 9c) non è fra le scelte: nessuno lo vede.
+    const allowed = state.projects.filter(
+      (p) => !p.archived && can(viewerFor("p-giulia"), "drive.upload", p.id),
+    );
     expect(options).toHaveLength(allowed.length);
     await userEvent.click(within(dialog).getByRole("option", { name: /^AUD/ }));
     await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
