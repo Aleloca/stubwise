@@ -143,6 +143,12 @@ e lascia una voce del registro con valori stabili tradotti a lettura.
 | Istanza vuota: la scheda Archived, la pagina di un archiviato, le sezioni di Settings | **fatto in 9c** (rotte nuove) | `emptyInstance.test.tsx` («$path si apre e mostra il suo stato vuoto», con `/projects?view=archived`, `/archived/RNC` e `/p/ACQ/settings/<sezione>` per ognuna delle undici) |
 | Regole della posta del progetto, «Rigenera il brief» | **fuori** (tabella qui sotto) | — |
 
+**Fuori dalla parità en/it, dichiarato (revisione finale del 9c):** le
+descrizioni delle skill dei plugin, quello base compreso, restano nella
+lingua del manifest anche nella UI italiana, come sul web: sono dati del
+plugin, non frasi dell'app. Le parole intorno (titoli, «On»/«Off», i
+conteggi) seguono la lingua.
+
 ## Voci fuori (decisione del maintainer, 29 ott 2026)
 
 | Voce | Perché |

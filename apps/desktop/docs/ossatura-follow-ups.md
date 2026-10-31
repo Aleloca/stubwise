@@ -1539,11 +1539,68 @@ scriveva.
   «Back to Home», identico a un codice inesistente (R-G5, provato byte per
   byte), non «← All projects» dello shape.
 
+### Dalla revisione finale del branch (ondata finale, 31 ott 2026)
+
+La revisione finale (I1–I6, M1–M3, il triage dei minori) e il passaggio di
+Impeccable (2 bloccanti, 11 rifiniture) sono chiusi nell'ondata finale,
+tranne queste voci. Ognuna dice perché resta.
+
+- **M1 — `repository.updated` salva l'account git per nome, non per id.**
+  Un account rinominato in Amministrazione lascia nel registro il nome
+  vecchio come valore «di adesso». *Perché*: allinearlo all'account AI
+  (id più nome di allora, ruling T12) vuol dire risolvere il nome a
+  lettura in `changelog/reads.ts` per le voci `fields` e dire «(deleted)»
+  nella riga del campo: non costa poco, e oggi la voce non dice il falso
+  sul momento in cui è stata scritta.
+- **Eliminare un ambiente con dei file d'ambiente non avverte** (I5). I file
+  e i loro valori ora se ne vanno con l'ambiente (`dropEnvironmentFiles`,
+  test RF 2), ma il dialogo di Releases → Environments non lo dice e la
+  voce `environment.deleted` non conta i file. *Perché*: il dialogo è
+  dell'8a e la lettura degli ambienti (`environments.manage`) non sa dei
+  file (`repos.manage`): dire quanti file si perdono a chi non li vede è
+  una regola nuova da far decidere al maintainer.
+- **Il segnaposto «Groups of projects will be listed here.» nella colonna
+  di All projects e di `/archived/<CODE>`** (rifinitura 5 di Impeccable).
+  *Perché*: le due fonti non concordano. Il triage della revisione lo
+  lascia nei follow-up (lo stato neutro della colonna è dell'area 1, e il
+  9c lo eredita perché `contextOf` mappa `/archived` su `projects`,
+  `Column.tsx`); Impeccable chiede di toglierlo o di metterci i gruppi di
+  All projects. È l'ultima destinazione con lo stato neutro, provato da
+  `Column.test.tsx`: colonna vuota o elenco dei gruppi è una scelta del
+  maintainer.
+- **Area 2: a 1024 il pannello della task copre i titoli, senza ellissi**
+  (rifinitura 13, `a9c-effects-claude-exclusive-narrow-en`). *Perché*: è il
+  layout del dettaglio della task, fuori dal perimetro del 9c. Il rimedio è
+  lo stesso del costruttore (bloccante 2): sovrapposto, il pannello lascia
+  alla pagina lo spazio della sua larghezza (`DetailPanel`, `onWidth`).
+- **I `<select>` nativi della pagina del repository.** *Perché*: è il
+  controllo di form dell'app (`selectClass`, anche nel costruttore e in
+  Usage); cambiarlo è una scelta di sistema, non del 9c (Impeccable lo
+  smentisce come difetto dell'area).
+- **`font-mono` è ancora Archivo in alcune pagine di prima del 9c**
+  (gli esempi JSON dei webhook dell'area 7, il manifest e i percorsi dei
+  plugin del 9b, il codice in «Add provider»). Le chiavi mascherate e
+  `SecretField` ora sono `font-code` ovunque (test `styles/monospace.test.ts`)
+  e DESIGN.md dichiara l'eccezione dei letterali. *Perché*: sono blocchi di
+  codice di altre aree; passarli a `font-code` cambia la loro resa, da
+  rivedere con i loro scatti.
+- **`/p/<CODE>` subito dopo l'archiviazione** mostra la pagina senza un
+  «not found» di passaggio (Task 11). *Perché*: la scrittura porta già ad
+  All projects; il caso è un indirizzo riaperto a mano, raro.
+- **Un test di contratto unico** «nessuna funzione che fa nascere lavoro
+  (analisi, proposte, run) accetta un progetto archiviato» (raccomandazione
+  2 della revisione). Oggi la regola ha una prova per ogni via: `canStartRun`
+  e `projectSwitchOn` (Task 5 e 6), i `plan*` delle automazioni, gli allarmi
+  dei server e la posta (`archive.test.ts` «I2», `mail.test.ts`). *Perché*:
+  un test che le enumeri tutte va scritto quando il motore avrà un punto
+  solo da cui nasce il lavoro.
+
 ### Minori rimandati, per task
 
 Segnati Minor dalle revisioni dei task e lasciati alla revisione finale del
 branch: nessuno dice il falso in un percorso normale né tocca un Review
-Focus (segreti, R-G5, eliminazione). Ognuno dice perché resta.
+Focus (segreti, R-G5, eliminazione). Ognuno dice perché resta. Quelli che
+l'ondata finale ha chiuso non ci sono più.
 
 Task 1 (stato, sezioni, seme):
 - `ChangeEntry.link.test.tsx`: il test «una destinazione sconosciuta non
@@ -1603,13 +1660,6 @@ Task 4 (repository, file d'ambiente, Integration, plugin: dati):
   testo del piano. *Perché*: procedura, nessun effetto.
 
 Task 5 (archiviare, eliminare, repository senza progetto: dati):
-- La regola «chi sa del progetto eliminato» è scritta due volte
-  (`changelog/reads.ts` e `instance/repositories.ts`), e `isFullAdmin`
-  pure. *Perché*: refactor; le due copie oggi concordano.
-- `detachedRepositories.test.ts` non esercita il collegamento verso un
-  archiviato né i `linkTargets` con un archiviato da escludere: il
-  `beforeEach` elimina l'unico archiviato del seme. *Perché*: il codice è
-  giusto per costruzione; mancano le prove.
 - `busyReasonsOf` esce dal barile `api.projectSettings` senza `gate`.
   *Perché*: nessuna pagina lo raggiunge (precedente: `skillsForRun`).
 - Un repository collegato con `graphEnabled: true` riceve uno spazio col
@@ -1624,8 +1674,6 @@ Task 6 (effetti nelle altre aree):
   `useNightlyOff` è esportato da una pagina; il `Link` di `PulseText` copia
   `AutomationsSettingsLink`; `SwitchOffLine.kind` è `string`. *Perché*:
   refactor in un hook `useSwitchOff`.
-- Nel costruttore a 360 px la frase del progetto non disponibile va a capo
-  a metà. *Perché*: cosmetico.
 - «no longer available» fuori dal costruttore: vedi «Frasi nuove fuori
   dagli shape».
 - «Senza ricaricare» è provato sull'hook e con una navigazione, non sulla
@@ -1639,11 +1687,6 @@ Task 7 (General, AI, Automations, Usage: pagine):
   dell'interruttore spento. *Perché*: c'è nel `title` e a schermo.
 - La lettura in parole del tetto dice anche i valori fuori intervallo
   («Up to 11…») prima del rifiuto. *Perché*: il salvataggio rifiuta.
-- Dopo un Retry riuscito General, AI, Automations, RepositoryEditor,
-  WebhookRow e la creazione guidata non hanno seguito (niente «Saved»; la
-  bozza si azzera solo perché coincide con la lettura). *Perché*: i
-  dialoghi coi segreti hanno `onDone` dal Task 9; il resto è per la
-  revisione finale.
 - Il test «riaccendere la discovery non riaccende il pulse» gira dopo il
   salvataggio, e manca un test con timer finti sul cambio di frase dopo
   4 s. *Perché*: copertura.
@@ -1653,9 +1696,6 @@ Task 7 (General, AI, Automations, Usage: pagine):
   risponde prima «not found».
 - Il campo dei giorni, spento col pulse spento, non ha la sua frase.
   *Perché*: la frase dell'interruttore è accanto.
-- Dopo 2 s la barra di General e Automations si smonta (`useFlash`) e il
-  fuoco finisce sul body. *Perché*: lo shape non lo esclude; serve un
-  ritorno del fuoco esplicito.
 
 Task 8 (repository: pagine):
 - Riaperto il passo 1 e cambiato account, i passi 3 e 4 restano cliccabili
@@ -1695,9 +1735,6 @@ Task 10 (plugin: pagina):
 - Le caselle spente in sola lettura si distinguono appena (opacità 50 %).
   *Perché*: la parola «Off» sulla riga resta il segnale.
 - `void onReload()` dentro `onConflict` è ridondante. *Perché*: innocuo.
-- Le descrizioni delle skill del plugin base restano in inglese nella UI
-  italiana. *Perché*: dati del seme; da tradurre a lettura o dichiarare
-  fuori parità.
 - Il test del preset non prova una skill del preset assente
   dall'inventario. *Perché*: copertura.
 - La riga di una scelta fuori inventario si vede fino al salvataggio che la
@@ -1713,8 +1750,6 @@ Task 11 (archiviare, Archived, Delete, repository senza progetto: pagine):
   selezionata. *Perché*: solo sul percorso d'errore.
 - La scheda non scrive nell'URL: «Open Archived» di un toast successivo può
   non fare niente. *Perché*: raro.
-- Nella scheda Archived il numero accanto all'h1 resta quello degli attivi.
-  *Perché*: la scheda ha il suo numero.
 - `busy` passa come `{ ok: true, busy }` per non essere un errore di
   `useSettingsWrite`. *Perché*: il tipo mente, il comportamento è giusto.
 - Struttura: `routeOfCode` importato da un componente di Claude; export di
@@ -1736,10 +1771,6 @@ Task 11 (archiviare, Archived, Delete, repository senza progetto: pagine):
   e il fuoco va al titolo. *Perché*: il ripiego è accettabile.
 
 Task 12 (voci del 9c nel registro):
-- Il controllo R-G5 dei test è `not.toContain("RNC")`, sensibile alle
-  maiuscole, e l'id del seme `repo-rnc` scrive «rnc» nell'`href`. *Perché*:
-  in produzione gli id sono opachi; meglio un id del seme che non nomini il
-  progetto.
 - «al progetto ACQ» e i grassetti: vedi «Frasi nuove fuori dagli shape».
 - Il titolo di un test dice «Laura no», ma il caso di Laura sta nel test
   dopo. *Perché*: solo il titolo.
