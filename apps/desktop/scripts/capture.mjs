@@ -137,6 +137,93 @@ async function main() {
       console.log("scritto", name);
     };
 
+    // Area 9c, Task 7 (`CAPTURE_A9C_SETTINGS=1`): Progetto → Settings →
+    // General, AI, Automations, Usage e il segno «View only» (shape
+    // project-settings.md), scatti `a9c-settings-*`. Lo stato si prepara dal
+    // livello dati della pagina; `after` agisce sulla pagina come chi guarda.
+    if (process.env.CAPTURE_A9C_SETTINGS) {
+      async function prepare(page, action) {
+        await page.evaluate(async (what) => {
+          const { state } = await import("/data/store.ts");
+          const viewer = await import("/data/viewer.ts");
+          if (what === "deleted") state.projectSettings.get("prj-acq").aiProviderId = "prv-gone";
+          if (what === "membersOnly")
+            viewer.grantProjectPermission("p-sara", "prj-acq", "project.members.manage");
+        }, action);
+      }
+      const go = async (page, hash) => {
+        await page.evaluate((h) => {
+          window.location.hash = h;
+        }, hash);
+        await page.waitForTimeout(1200);
+        await page.mouse.move(2, 2);
+      };
+      const it = (page) => page.evaluate(() => document.documentElement.lang === "it");
+      const chooseBackup = async (page) => {
+        await page.getByRole("radio", { name: /^Backup Max/ }).check();
+        await page.getByRole("checkbox", { name: (await it(page)) ? "Usa solo questo account" : "Use only this account" }).check();
+        await page.mouse.move(2, 2);
+      };
+      const discoveryOff = async (page) => {
+        const name = (await it(page)) ? "Discovery del backlog" : "Backlog discovery";
+        await page.getByRole("switch", { name }).click();
+        await page.getByRole("spinbutton").last().fill("0");
+        await page.mouse.move(2, 2);
+        await page.waitForTimeout(300);
+      };
+      const emptyName = async (page) => {
+        await page.getByRole("textbox").first().fill("");
+        await page.getByRole("button", { name: /^(Save|Salva)$/ }).click();
+        await page.mouse.move(2, 2);
+        await page.waitForTimeout(1500);
+      };
+      const bottom = async (page) => {
+        await page.evaluate(() => {
+          for (const el of document.querySelectorAll("main, main *"))
+            if (el.scrollHeight > el.clientHeight + 4) el.scrollTop = el.scrollHeight;
+        });
+        await page.waitForTimeout(300);
+      };
+      const SCENES = [
+        // [nome, indirizzo, { persona, action, after }]
+        ["general", "/p/ACQ/settings/general", { persona: "Laura" }],
+        ["general-error", "/p/ACQ/settings/general", { persona: "Laura", after: emptyName }],
+        ["general-readonly", "/p/ACQ/settings/general", { persona: "Sara" }],
+        ["general-members-only", "/p/ACQ/settings/general", { persona: "Sara", action: "membersOnly" }],
+        ["ai", "/p/ACQ/settings/ai", { persona: "Laura", after: chooseBackup }],
+        ["ai-deleted", "/p/ACQ/settings/ai", { persona: "Laura", action: "deleted" }],
+        ["ai-readonly", "/p/ACQ/settings/ai", { persona: "Sara" }],
+        ["automations", "/p/ACQ/settings/automations", { persona: "Laura", after: discoveryOff }],
+        ["automations-bar", "/p/ACQ/settings/automations", { persona: "Laura", after: async (page) => { await discoveryOff(page); await bottom(page); } }],
+        ["automations-readonly", "/p/ACQ/settings/automations", { persona: "Sara" }],
+        ["usage", "/p/ACQ/settings/usage", { persona: "Laura" }],
+        ["statuses-readonly", "/p/ACQ/settings/statuses", { persona: "Sara" }],
+      ];
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      for (const [name, hash, opts] of SCENES) {
+        if (only && !only.test(name)) continue;
+        for (const v of variants) {
+          const { page, context } = await open(v.scheme, v.viewport, "/home", {
+            lang: v.lang,
+            persona: opts.persona,
+          });
+          if (opts.action) await prepare(page, opts.action);
+          await go(page, hash);
+          if (opts.after) await opts.after(page);
+          await shot(page, `a9c-settings-${name}-${v.suffix}.png`);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 9c, Task 6 (`CAPTURE_A9C_EFFECTS=1`): gli effetti delle impostazioni
     // di progetto nelle altre aree (shape project-effects.md), scatti
     // `a9c-effects-*`. Lo stato si prepara dal livello dati della pagina (gli

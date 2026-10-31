@@ -7,8 +7,8 @@ import {
 } from "@tanstack/react-router";
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { canSeeAdminSection } from "../../data/adminSections";
 import {
+  useCanSeeAdminSection,
   useMemberPreview,
   useMembers,
   useProject,
@@ -21,7 +21,6 @@ import {
   type SourceView,
 } from "../../data/queries";
 import type { Project } from "../../data/types";
-import { useViewer } from "../../data/viewer";
 import { DOCKED_PANEL_QUERY, DetailPanel } from "../../layout/useDetailPanel";
 import { useMediaQuery } from "../../layout/useMediaQuery";
 import { useReauth } from "../../layout/useReauth";
@@ -48,6 +47,7 @@ import { CloseIcon, InlineConfirm } from "../task/parts";
 import { primaryButton, quietButton, secondaryButton } from "../tasks/controls";
 import { AddMemberDialog } from "./AddMemberDialog";
 import { SettingsFrame } from "./SettingsFrame";
+import { ViewOnlyLine } from "./ViewOnly";
 import { WhoCanLink } from "../../components/WhoCanLink";
 
 // Progetto → Settings → Members (shape admin-roles-members.md, «Members»):
@@ -145,6 +145,10 @@ export function MembersSettings({ project }: { project: Project }) {
       intro={t("settings.members.intro", { code: project.code })}
       action={addButton}
     >
+      {/* Sola lettura: la riga ○ con il suo «Who?», come ogni sezione (shape project-settings.md [PS 3]). */}
+      {members.data && !canManage && (
+        <ViewOnlyLine action="manageMembers" projectId={project.id} code={project.code} />
+      )}
       {members.isPending ? (
         <div className="border-t border-rule">
           <PageSkeleton rows={6} />
@@ -429,7 +433,8 @@ export function MemberPanel({
   onClose: () => void;
 }) {
   const { t, i18n } = useTranslation();
-  const { viewer } = useViewer();
+  const seesDepartments = useCanSeeAdminSection("departments");
+  const seesPeople = useCanSeeAdminSection("people");
   const me = useSessionPersonId();
   const toast = useToast();
   const reauth = useReauth();
@@ -470,7 +475,7 @@ export function MemberPanel({
   // Ciò che arriva da un reparto si cambia in Departments: un link vero, a chi
   // li gestisce, sotto l'introduzione (shape §2; Minor 3 del Task 10).
   const departmentsLink =
-    canSeeAdminSection(viewer, "departments") &&
+    seesDepartments &&
     (preview?.permissions ?? []).some((x) => x.sources.some((s) => s.kind === "department"));
   const allowed = new Set(view.grantable.filter((g) => g.allowed).map((g) => g.permission));
 
@@ -584,7 +589,7 @@ export function MemberPanel({
             <p title={row.email} className="truncate text-sm text-ink-muted">
               {row.email}
             </p>
-            {canSeeAdminSection(viewer, "people") && (
+            {seesPeople && (
               <Link
                 to="/admin/people/$personId"
                 params={{ personId: row.personId }}

@@ -2,7 +2,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as api from "../api";
 import type { MemberDraft, PeopleFilter } from "../admin/types";
 import type { ChangeFilter } from "../changelog/types";
+import { aiTabsFor, canSeeAdminSection } from "../adminSections";
 import { queryKeys, useSessionPersonId, useWrite } from "../queries";
+import type { AI_TABS, AdminSection } from "../routes";
+import { useViewer } from "../viewer";
 
 // Gli hook dell'amministrazione e della riconferma (area 9a); `data/queries`
 // li ri-esporta. L'import circolare con `../queries` è innocuo: gli helper si
@@ -29,6 +32,20 @@ export type { SecondFactorInput, SecondFactorResult, TotpSetup } from "../auth/r
 export type * from "../admin/types";
 /** Le otto tinte dei reparti, nell'ordine di `DESIGN.md`: il dialogo e il pannello del reparto. */
 export { DEPARTMENT_COLORS } from "../admin/departments";
+
+/**
+ * Se chi guarda vede una voce dell'Amministrazione (`canSeeAdminSection`):
+ * per i link che ci portano da una pagina che non decide i permessi (le
+ * impostazioni del progetto).
+ */
+export function useCanSeeAdminSection(section: AdminSection): boolean {
+  return canSeeAdminSection(useViewer().viewer, section);
+}
+
+/** Se chi guarda vede una scheda della voce AI (`aiTabsFor`). */
+export function useCanSeeAiTab(tab: (typeof AI_TABS)[number]): boolean {
+  return aiTabsFor(useViewer().viewer).includes(tab);
+}
 
 /** Il registro delle modifiche in Amministrazione: le voci che chi guarda legge. */
 export function useChanges(filter: ChangeFilter = {}) {

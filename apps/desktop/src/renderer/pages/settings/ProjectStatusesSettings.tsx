@@ -16,13 +16,13 @@ import {
 import { useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  useProjectSettingsAccess,
   useProjectStatuses,
   useSetProjectStatuses,
   useSetStallThresholds,
   useTasks,
 } from "../../data/queries";
 import type { Project, StatusFamily } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
 import { Dialog } from "../../tasks-ui/Dialog";
 import { MenuGroup, MenuNote, RadioDot, RadioItem } from "../../tasks-ui/Menu";
 import { FamilySign } from "../../tasks-ui/StatusLabel";
@@ -41,7 +41,7 @@ import {
   type DraftStatus,
   type StatusDraft,
 } from "./statusDraft";
-import { WhoCanLink } from "../../components/WhoCanLink";
+import { ViewOnlyLine } from "./ViewOnly";
 
 const FAMILIES: StatusFamily[] = ["todo", "active", "closed"];
 
@@ -61,18 +61,19 @@ let nextKey = 0;
  * riordina (trascinando o con la tastiera) e si elimina; tutto resta una
  * bozza finché non si salva, in un colpo solo. Eliminare uno stato con task
  * chiede dove spostarle; l'ultimo stato di una famiglia non si toglie (ogni
- * progetto ne ha almeno uno per famiglia) e lo si dice. Senza il permesso,
- * sola lettura e la frase che dice chi può.
+ * progetto ne ha almeno uno per famiglia) e lo si dice. Senza il permesso
+ * (`access.statuses.canEdit` del livello dati, mai `can()`), sola lettura
+ * con la riga ○ e il suo «Who?» (shape project-settings.md [PS 3]).
  */
 export function ProjectStatusesSettings({ project }: { project: Project }) {
   const { t } = useTranslation();
-  const { viewer } = useViewer();
   const toast = useToast();
   const statuses = useProjectStatuses(project.id);
   const tasks = useTasks({ projectIds: [project.id] });
   const saveStatuses = useSetProjectStatuses();
   const saveThresholds = useSetStallThresholds();
-  const canManage = can(viewer, "project.settings.manage", project.id);
+  const access = useProjectSettingsAccess(project.id).statuses;
+  const canManage = access.canEdit;
 
   const [edit, setEdit] = useState<StatusDraft | null>(null);
   const [thresholds, setThresholds] = useState<{ activeDays: string; todoDays: string } | null>(
@@ -269,20 +270,10 @@ export function ProjectStatusesSettings({ project }: { project: Project }) {
 
   return (
     <SettingsState state={state} error={t("settings.statuses.loadError")}>
-      <p className="max-w-[72ch] pb-4 text-sm text-ink-muted">
-        {t("settings.statuses.intro")}
-        {!canManage && (
-          <>
-            {" "}
-            {t("settings.statuses.readOnly")}{" "}
-            <WhoCanLink
-              action="manageProjectSettings"
-              projectId={project.id}
-              projectCode={project.code}
-            />
-          </>
-        )}
-      </p>
+      {!canManage && access.editAction && (
+        <ViewOnlyLine action={access.editAction} projectId={project.id} code={project.code} />
+      )}
+      <p className="max-w-[72ch] pb-4 text-sm text-ink-muted">{t("settings.statuses.intro")}</p>
       <p id={instructionsId} className="sr-only">
         {t("settings.statuses.instructions")}
       </p>

@@ -60,7 +60,6 @@
     "projectSections": "Sezioni del progetto",
     "internal": "Interno",
     "client": "Cliente",
-    "viewOnly": "Sola lettura",
     "subviews": {
       "home": {
         "home": "Home",
@@ -2316,7 +2315,6 @@
     "intro": "Come funziona {{project}}: i suoi stati e quando una task conta come ferma.",
     "statuses": {
       "intro": "Ogni stato appartiene a una famiglia: Da fare, In corso o Chiuse. Le viste che uniscono più progetti raggruppano per famiglia; dentro il progetto si vedono questi nomi.",
-      "readOnly": "Solo chi gestisce le impostazioni di questo progetto può cambiarli.",
       "list": "Stati, in ordine",
       "instructions": "Premi Spazio per prendere uno stato, le frecce per spostarlo, Spazio per lasciarlo, Esc per annullare.",
       "handle": "Sposta {{name}}",
@@ -2513,7 +2511,113 @@
         "failed": "Non è stato possibile aggiungerlo. Riprova."
       }
     },
-    "placeholder": "Questa sezione arriva con i prossimi passi del prototipo."
+    "placeholder": "Questa sezione arriva con i prossimi passi del prototipo.",
+    "viewOnly": {
+      "mark": "Sola lettura",
+      "markTitle": "Puoi leggere questa sezione, non cambiarla.",
+      "lines": {
+        "manageProjectSettings": "Puoi leggere queste impostazioni. Per cambiarle serve chi può cambiare le impostazioni di {{code}}.",
+        "manageMembers": "Puoi leggere chi lavora su {{code}}. Per cambiarlo serve chi può gestire i membri di {{code}}.",
+        "manageRepos": "Puoi leggere questi repository. Per cambiarli serve chi può gestire i repository di {{code}}."
+      }
+    },
+    "common": {
+      "save": "Salva",
+      "saved": "Salvato",
+      "loadError": "Impossibile caricare le impostazioni di {{code}}.",
+      "forbidden": "Non puoi più cambiarlo. La sezione mostra ciò che è salvato, e le tue modifiche sono state scartate.",
+      "notFound": "{{code}} non è più disponibile per te. Non è cambiato niente.",
+      "saveFailed": "Impossibile salvare. Riprova.",
+      "retry": "Riprova",
+      "leave": "Scartare le modifiche?",
+      "discard": "Scarta",
+      "keepEditing": "Continua a modificare"
+    },
+    "general": {
+      "intro": "Il nome del progetto, la sua descrizione e il suo codice.",
+      "name": "Nome",
+      "nameError": "Dai un nome al progetto.",
+      "description": "Descrizione",
+      "optional": "facoltativa",
+      "descriptionHint": "Si vede in Tutti i progetti e in testa all'Overview.",
+      "descriptionPlaceholder": "A cosa serve questo progetto…",
+      "descriptionError": "Tieni la descrizione entro 1.000 caratteri.",
+      "noDescription": "Nessuna descrizione.",
+      "code": "Codice",
+      "codeHint": "Il codice non cambia mai: è in ogni codice di task, come {{code}}-57, e nei link che le persone hanno salvato."
+    },
+    "ai": {
+      "intro": "Con quale account AI lavora Claude su {{code}}.",
+      "account": "Account",
+      "automatic": "Automatico",
+      "automaticBody_one": "Claude usa l'account dell'istanza {{names}}.",
+      "automaticBody_other": "Claude usa gli account dell'istanza in ordine: {{names}}. Quando uno è al limite, passa al successivo.",
+      "automaticNone": "Nessun account dell'istanza è acceso adesso: Claude non può iniziare lavoro nuovo.",
+      "then": ", poi ",
+      "kinds": {
+        "subscription": "Abbonamento",
+        "api_key": "Chiave API"
+      },
+      "off": "Spento in Amministrazione",
+      "limited": "Al limite",
+      "chosenOff": "È spento: finché qualcuno non lo accende, Claude usa Automatico.",
+      "exclusive": "Usa solo questo account",
+      "exclusiveNeedsAccount": "Scegli prima un account.",
+      "exclusiveOn": "Quando {{name}} è al limite o spento, il lavoro nuovo di Claude su {{code}} non passa a un altro account: parte senza, e la task lo dice.",
+      "exclusiveOff": "Quando {{name}} è al limite o spento, subentrano gli altri account dell'istanza.",
+      "deleted": "L'account scelto per {{code}} è stato eliminato. Claude usa Automatico finché non ne scegli un altro.",
+      "deletedRead": "L'account scelto per {{code}} è stato eliminato. Claude usa Automatico finché qualcuno non ne sceglie un altro.",
+      "providerGone": "Quell'account non esiste più. Scegline un altro.",
+      "runsKeep": "Vale per le esecuzioni che partono da adesso: quelle già partite tengono il loro account.",
+      "none": "Non ci sono ancora account AI su questa istanza. Claude non può lavorare finché qualcuno non ne aggiunge uno in Amministrazione → AI.",
+      "noneLink": "Apri Amministrazione → AI"
+    },
+    "automations": {
+      "intro": "Cosa fa Claude da solo su {{code}}, senza che nessuno lo chieda.",
+      "rulesElsewhere": "Le regole che partono da un evento sono in <link>Automazioni</link>, fra le sezioni del progetto.",
+      "switches": {
+        "docsNightly": "Docs aggiornati ogni notte",
+        "dailyReport": "Report giornaliero",
+        "backlogDiscovery": "Discovery del backlog",
+        "pulse": "Pulse",
+        "weeklyBrief": "Brief settimanale"
+      },
+      "effects": {
+        "docsNightly": "Ogni notte Claude aggiorna le pagine dei Docs toccate dai commit nuovi e scrive la nota di rilascio. Spento: i Docs dicono che non si aggiornano.",
+        "dailyReport": "Ogni notte, un riassunto dei commit del giorno nei repository del progetto. Spento: Attività dice che è spento, e lo puoi ancora generare a mano.",
+        "backlogDiscovery": "Feedback e richieste di funzionalità vanno nel backlog per essere raccolte e raffinate, invece che direttamente al lavoro.",
+        "pulse": "Quando {{code}} è fermo, Claude propone voci di backlog da cui ripartire.",
+        "weeklyBrief": "Ogni lunedì, dove sta {{code}}, scritto per chi non legge il codice. Spento: l'Overview dice che è spento; i brief già scritti restano."
+      },
+      "every": "ogni",
+      "days_one": "giorno",
+      "days_other": "giorni",
+      "everyDays_one": "Ogni {{count}} giorno",
+      "everyDays_other": "Ogni {{count}} giorni",
+      "pulseDaysLabel": "Pulse: ogni quanti giorni",
+      "pulseDaysError": "Scegli un numero intero di giorni da 1 a 30.",
+      "pulseNeedsBacklog": "Il pulse ha bisogno della discovery del backlog: senza, non c'è niente da proporre.",
+      "pulseTurnedOff": "Spento anche il pulse.",
+      "cap": "Tetto alle correzioni",
+      "capBody": "Quante volte Claude può correggere da solo una pull request quando la revisione chiede modifiche, prima di fermarsi e chiedere a te. Le correzioni a mano non contano mai.",
+      "capZeroHint": "0 = ciclo automatico spento",
+      "capZero": "Ciclo automatico spento: correzioni solo a mano.",
+      "capN_one": "Fino a {{count}} correzione automatica per pull request.",
+      "capN_other": "Fino a {{count}} correzioni automatiche per pull request.",
+      "capError": "Scegli un numero intero da 0 a 10.",
+      "changes_one": "{{count}} modifica",
+      "changes_other": "{{count}} modifiche",
+      "leave_one": "Scartare {{count}} modifica?",
+      "leave_other": "Scartare {{count}} modifiche?",
+      "prototype": "Prototipo: accendono e spengono le parti che si vedono. Qui niente scrive da solo un brief, un report o i Docs."
+    },
+    "usage": {
+      "intro": "Quanto è costato Claude su {{code}} in un periodo.",
+      "onlyProject": "Solo il lavoro di {{code}}. Il totale dell'istanza è in Amministrazione → AI → Consumi.",
+      "onlyProjectLinked": "Solo il lavoro di {{code}}. Il totale dell'istanza è in <link>Amministrazione → AI → Consumi</link>.",
+      "empty": "Nessun consumo AI su {{code}} in questo periodo.",
+      "loadError": "Impossibile caricare i consumi di {{code}}."
+    }
   },
   "export": {
     "project": "Progetto",

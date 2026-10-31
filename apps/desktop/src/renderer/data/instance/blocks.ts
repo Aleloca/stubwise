@@ -59,21 +59,33 @@ const runProviderOf = (p: AiProvider): RunProvider =>
     : { kind: "api_key", name: p.name, id: p.id };
 
 /**
- * La catena dell'istanza: il primo abbonamento abilitato e non al limite,
- * nell'ordine; la chiave API SOLO se nessun abbonamento è abilitato (D3).
- * Con abbonamenti abilitati ma tutti al limite: `null`, e la chiave resta
+ * Gli account che la catena dell'istanza prova, nell'ordine: gli
+ * abbonamenti abilitati; la chiave API SOLO se nessun abbonamento è
+ * abilitato (D3).
+ */
+function chainCandidates(): AiProvider[] {
+  const enabled = state.instance.providers.filter((p) => p.enabled);
+  const subscriptions = enabled.filter((p) => p.kind === "subscription");
+  if (subscriptions.length > 0) return subscriptions;
+  const key = enabled.find((p) => p.kind === "api_key");
+  return key ? [key] : [];
+}
+
+/**
+ * La catena dell'istanza: il primo candidato non al limite. Con
+ * abbonamenti abilitati ma tutti al limite: `null`, e la chiave resta
  * ferma (RF 4).
  */
 function chainProvider(): RunProvider | null {
-  const enabled = state.instance.providers.filter((p) => p.enabled);
-  const subscriptions = enabled.filter((p) => p.kind === "subscription");
-  if (subscriptions.length > 0) {
-    const free = subscriptions.find((p) => !isLimited(p));
-    return free ? runProviderOf(free) : null;
-  }
-  const key = enabled.find((p) => p.kind === "api_key");
-  return key ? runProviderOf(key) : null;
+  const free = chainCandidates().find((p) => !isLimited(p));
+  return free ? runProviderOf(free) : null;
 }
+
+/**
+ * I nomi che la catena prova, nell'ordine: la frase di «Automatic» nelle
+ * impostazioni AI del progetto (area 9c, Task 7) li legge da qui.
+ */
+export const chainProviderNames = (): string[] => chainCandidates().map((p) => p.name);
 
 /**
  * Con chi parte un lavoro AI nuovo. Senza progetto (o con un progetto su

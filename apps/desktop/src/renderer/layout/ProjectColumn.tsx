@@ -11,11 +11,12 @@ import {
   useOpenPrs,
   useProjectAutomations,
   useProjectServers,
+  useProjectSettingsAccess,
   useReleases,
 } from "../data/queries";
-import { projectSettingsAccess } from "../data/adminSections";
 import { PROJECT_SECTIONS, PROJECT_SETTINGS_SECTIONS } from "../data/routes";
 import type { ChannelRow, Project } from "../data/types";
+import type { ProjectSettingsSection } from "../data/routes";
 import { can, useViewer } from "../data/viewer";
 import {
   ChannelLink,
@@ -26,6 +27,7 @@ import {
 } from "../pages/chat/ChatColumn";
 import { inColumn } from "../pages/chat/column";
 import { PlusGlyph } from "../pages/chat/glyphs";
+import { ViewOnlyMark, viewOnlyMarks } from "../pages/settings/ViewOnly";
 import { ProjectAlerts } from "./ProjectAlerts";
 
 /** Una riga, ellissi in fondo. Inline perché il test la legge dallo stile calcolato. */
@@ -110,16 +112,14 @@ function QueuePausedLine({ projectId }: { projectId: string }) {
 /**
  * Colonna di un progetto: testata (codice, nome, interno/cliente) e le
  * sezioni nell'ordine di `PROJECT_SECTIONS`, senza quelle dei moduli spenti.
- * «Settings» c'è sempre; senza `project.settings.manage` è in sola lettura.
+ * «Settings» c'è sempre; dove sta «View only» lo dice `viewOnlyMarks`.
  */
 export function ProjectColumn({ code }: { code: string }) {
-  const { viewer } = useViewer();
   const { data: project, isPending } = useProject(code);
 
   if (isPending || !project) return <Header code={code} project={isPending ? undefined : null} />;
 
-  const canManage = can(viewer, "project.settings.manage", project.id);
-  return <ProjectSections project={project} canManage={canManage} />;
+  return <ProjectSections project={project} />;
 }
 
 /**
@@ -127,14 +127,11 @@ export function ProjectColumn({ code }: { code: string }) {
  * sottovoci rientrate con i canali del progetto in cui si è — gli stessi
  * della Chat, con gli stessi segnali (shape chat.md §6).
  */
-function ProjectSections({
-  project,
-  canManage,
-}: {
-  project: Project;
-  canManage: boolean;
-}) {
+function ProjectSections({ project }: { project: Project }) {
   const { t } = useTranslation();
+  // «View only» nella forma (a) dello shape [PS 3], letta da `access`.
+  const access = useProjectSettingsAccess(project.id);
+  const marks = viewOnlyMarks(access);
   const chat = useChatChannels({ scope: "project", projectId: project.id });
   const onChat = useRouterState({
     select: (s) => new RegExp(`^/p/${project.code}/chat(/|$)`).test(s.location.pathname),
@@ -262,17 +259,15 @@ function ProjectSections({
                     )}
                   </span>
                 )}
-                {s.id === "settings" && !canManage && (
-                  <span className="ml-auto shrink-0 text-xs font-normal text-ink-faint">
-                    {t("column.viewOnly")}
-                  </span>
-                )}
+                {s.id === "settings" && marks.onSettings && <ViewOnlyMark />}
               </Link>
               {s.id === "chat" && onChat && (
                 <ProjectChatChannels project={project} channels={channels} />
               )}
               {s.id === "docs" && onDocs && <ProjectDocSpaces project={project} />}
-              {s.id === "settings" && onSettings && <ProjectSettingsSections project={project} />}
+              {s.id === "settings" && onSettings && (
+                <ProjectSettingsSections project={project} access={access} marked={marks.sections} />
+              )}
             </li>
           ))}
         </ul>
@@ -285,11 +280,19 @@ function ProjectSections({
  * «Settings», da corrente, si apre nelle sue sezioni come voci rientrate da
  * 32 px, una pagina ciascuna (area 9a, [RM 4]): solo quelle che chi guarda
  * vede, come le dice il livello dati (`projectSettingsAccess`, area 9c).
+ * Una voce in sola lettura, quando lo sono solo alcune, porta «View only» a
+ * destra: l'etichetta va in ellissi (col `title`), il segno resta intero.
  */
-function ProjectSettingsSections({ project }: { project: Project }) {
+function ProjectSettingsSections({
+  project,
+  access,
+  marked,
+}: {
+  project: Project;
+  access: ReturnType<typeof useProjectSettingsAccess>;
+  marked: ReadonlySet<ProjectSettingsSection>;
+}) {
   const { t } = useTranslation();
-  const { viewer } = useViewer();
-  const access = projectSettingsAccess(viewer, project.id);
   const sections = PROJECT_SETTINGS_SECTIONS.filter((s) => access[s.id].visible);
   return (
     <ul
@@ -305,9 +308,10 @@ function ProjectSettingsSections({ project }: { project: Project }) {
             style={{ whiteSpace: "nowrap" }}
             className={`${columnItemClass} pl-7`}
           >
-            <span style={ONE_LINE} className="min-w-0">
+            <span style={ONE_LINE} title={t(`settings.sections.${s.id}`)} className="min-w-0">
               {t(`settings.sections.${s.id}`)}
             </span>
+            {marked.has(s.id) && <ViewOnlyMark />}
           </Link>
         </li>
       ))}

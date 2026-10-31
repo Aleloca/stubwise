@@ -462,7 +462,7 @@ describe("«Who?» accanto a un bottone spento", () => {
     const router = renderRoute("/p/ACQ/settings/statuses", SARA);
     await heading("Statuses");
     expect(
-      await screen.findByText(/Only people who manage this project's settings can change them\./),
+      await screen.findByText(/^You can read these settings\. Changing them needs someone who can change ACQ's settings\./),
     ).toBeInTheDocument();
     const who = screen.getByRole("button", { name: "Who can change the project settings?" });
     expect(who).toHaveTextContent("Who?");

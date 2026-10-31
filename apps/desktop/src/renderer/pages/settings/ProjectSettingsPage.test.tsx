@@ -156,7 +156,7 @@ describe("ProjectSettingsPage — stati", () => {
     expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull();
     expect(screen.queryByRole("spinbutton")).toBeNull();
     expect(
-      screen.getByText(/Only people who manage this project's settings can change them\./),
+      screen.getByText(/^You can read these settings\. Changing them needs someone who can change STW's settings\./),
     ).toBeInTheDocument();
   });
 });

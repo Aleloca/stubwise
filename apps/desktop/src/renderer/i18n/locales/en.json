@@ -60,7 +60,6 @@
     "projectSections": "Project sections",
     "internal": "Internal",
     "client": "Client",
-    "viewOnly": "View only",
     "subviews": {
       "home": {
         "home": "Home",
@@ -2316,7 +2315,6 @@
     "intro": "How {{project}} works: its statuses and when a task counts as stalled.",
     "statuses": {
       "intro": "Each status belongs to a family: To do, In progress or Closed. Views that span several projects group by family; inside the project you see these names.",
-      "readOnly": "Only people who manage this project's settings can change them.",
       "list": "Statuses, in order",
       "instructions": "Press Space to pick up a status, the arrow keys to move it, Space to drop it, Escape to cancel.",
       "handle": "Move {{name}}",
@@ -2513,7 +2511,113 @@
         "failed": "Couldn't add them. Try again."
       }
     },
-    "placeholder": "This section arrives with the next steps of the prototype."
+    "placeholder": "This section arrives with the next steps of the prototype.",
+    "viewOnly": {
+      "mark": "View only",
+      "markTitle": "You can read this section, not change it.",
+      "lines": {
+        "manageProjectSettings": "You can read these settings. Changing them needs someone who can change {{code}}'s settings.",
+        "manageMembers": "You can read who works on {{code}}. Changing it needs someone who can manage {{code}}'s members.",
+        "manageRepos": "You can read these repositories. Changing them needs someone who can manage {{code}}'s repositories."
+      }
+    },
+    "common": {
+      "save": "Save",
+      "saved": "Saved",
+      "loadError": "Couldn't load {{code}}'s settings.",
+      "forbidden": "You can no longer change this. The section shows what's saved, and your edits were dropped.",
+      "notFound": "{{code}} is no longer available to you. Nothing was changed.",
+      "saveFailed": "Couldn't save. Try again.",
+      "retry": "Retry",
+      "leave": "Discard your changes?",
+      "discard": "Discard",
+      "keepEditing": "Keep editing"
+    },
+    "general": {
+      "intro": "The project's name, its description and its code.",
+      "name": "Name",
+      "nameError": "Give the project a name.",
+      "description": "Description",
+      "optional": "optional",
+      "descriptionHint": "Shown in All projects and at the top of the Overview.",
+      "descriptionPlaceholder": "What this project is for…",
+      "descriptionError": "Keep the description within 1,000 characters.",
+      "noDescription": "No description.",
+      "code": "Code",
+      "codeHint": "The code never changes: it's in every task code, like {{code}}-57, and in links people have saved."
+    },
+    "ai": {
+      "intro": "Which AI account Claude uses for {{code}}'s work.",
+      "account": "Account",
+      "automatic": "Automatic",
+      "automaticBody_one": "Claude uses the instance's account {{names}}.",
+      "automaticBody_other": "Claude uses the instance's accounts in order: {{names}}. When one is at its limit, the next takes over.",
+      "automaticNone": "None of the instance's accounts is on right now: Claude can't start new work.",
+      "then": ", then ",
+      "kinds": {
+        "subscription": "Subscription",
+        "api_key": "API key"
+      },
+      "off": "Off in Administration",
+      "limited": "At its limit",
+      "chosenOff": "It's off: until someone turns it on, Claude uses Automatic.",
+      "exclusive": "Use only this account",
+      "exclusiveNeedsAccount": "Choose an account first.",
+      "exclusiveOn": "When {{name}} is at its limit or off, Claude's new work in {{code}} doesn't switch to another account: it starts without one, and the task says so.",
+      "exclusiveOff": "When {{name}} is at its limit or off, the instance's other accounts take over.",
+      "deleted": "The account chosen for {{code}} was deleted. Claude uses Automatic until you choose again.",
+      "deletedRead": "The account chosen for {{code}} was deleted. Claude uses Automatic until someone chooses again.",
+      "providerGone": "That account no longer exists. Choose another.",
+      "runsKeep": "The account is the one each run starts with: runs already started keep theirs.",
+      "none": "There are no AI accounts on this instance yet. Claude can't work until someone adds one in Administration → AI.",
+      "noneLink": "Open Administration → AI"
+    },
+    "automations": {
+      "intro": "What Claude does on its own in {{code}}, without anyone asking.",
+      "rulesElsewhere": "Rules that start from events are in <link>Automations</link>, in the project's sections.",
+      "switches": {
+        "docsNightly": "Docs updated every night",
+        "dailyReport": "Daily report",
+        "backlogDiscovery": "Backlog discovery",
+        "pulse": "Pulse",
+        "weeklyBrief": "Weekly brief"
+      },
+      "effects": {
+        "docsNightly": "Every night Claude updates the Docs pages touched by new commits and writes the release note. Off: the Docs say they aren't updated.",
+        "dailyReport": "Every night, a summary of the day's commits in the project's repositories. Off: Activity says it's off, and you can still generate one by hand.",
+        "backlogDiscovery": "Feedback and feature requests go to the backlog to be gathered and refined, instead of straight to work.",
+        "pulse": "When {{code}} sits still, Claude proposes backlog items to restart from.",
+        "weeklyBrief": "Every Monday, where {{code}} stands, written for people who don't read code. Off: the Overview says it's off; briefs already written stay."
+      },
+      "every": "every",
+      "days_one": "day",
+      "days_other": "days",
+      "everyDays_one": "Every {{count}} day",
+      "everyDays_other": "Every {{count}} days",
+      "pulseDaysLabel": "Pulse: every how many days",
+      "pulseDaysError": "Choose a whole number of days from 1 to 30.",
+      "pulseNeedsBacklog": "The pulse needs backlog discovery: without it there's nothing to propose.",
+      "pulseTurnedOff": "Pulse turned off too.",
+      "cap": "Correction cap",
+      "capBody": "How many times Claude may fix a pull request on its own when the review asks for changes, before stopping and asking you. Manual corrections are never counted.",
+      "capZeroHint": "0 = automatic cycle off",
+      "capZero": "Automatic cycle off: corrections only by hand.",
+      "capN_one": "Up to {{count}} automatic correction per pull request.",
+      "capN_other": "Up to {{count}} automatic corrections per pull request.",
+      "capError": "Choose a whole number from 0 to 10.",
+      "changes_one": "{{count}} change",
+      "changes_other": "{{count}} changes",
+      "leave_one": "Discard {{count}} change?",
+      "leave_other": "Discard {{count}} changes?",
+      "prototype": "Prototype: these turn the visible parts on and off. Nothing here writes a brief, a report or Docs by itself."
+    },
+    "usage": {
+      "intro": "What Claude cost in {{code}} over a period.",
+      "onlyProject": "Only {{code}}'s work. The instance's total is in Administration → AI → Usage.",
+      "onlyProjectLinked": "Only {{code}}'s work. The instance's total is in <link>Administration → AI → Usage</link>.",
+      "empty": "No AI usage in {{code}} in this period.",
+      "loadError": "Couldn't load {{code}}'s usage."
+    }
   },
   "export": {
     "project": "Project",

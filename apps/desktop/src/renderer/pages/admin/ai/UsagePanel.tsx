@@ -4,7 +4,9 @@ import { useTranslation } from "react-i18next";
 import { now } from "../../../data/dates";
 import {
   OTHER_PROJECTS_KEY,
+  useProjectUsage,
   useUsage,
+  type ProjectUsageDimension,
   type UsageDimension,
   type UsageRange,
   type UsageRow,
@@ -26,10 +28,22 @@ import { AiSkeleton } from "./parts";
 // (`group`/`then`) che si apre in posto. R-G5 lo fa il livello dati: la
 // pagina legge la riga «other» e le dà il suo nome, senza ricalcolare chi
 // vede cosa.
+//
+// Con `scope: { projectId }` è la sezione Usage delle impostazioni del
+// progetto (area 9c, shape project-settings.md «Usage»): stessi pezzi,
+// filtrati sul progetto dal livello dati (`getProjectUsage`); la
+// dimensione Project cade (è fissa), e con lei «Other projects» [PS 10]. Di
+// base raggruppa per Operation.
 
 const PERIODS = ["7d", "30d", "90d", "month", "custom"] as const;
 type Period = (typeof PERIODS)[number];
 const DIMENSIONS: readonly UsageDimension[] = ["day", "model", "project", "provider", "operation"];
+const PROJECT_DIMENSIONS: readonly ProjectUsageDimension[] = [
+  "day",
+  "model",
+  "provider",
+  "operation",
+];
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_MS = 86_400_000;
 
@@ -45,18 +59,21 @@ interface UsageSearch {
 }
 
 /** Il periodo e le dimensioni dall'indirizzo; un valore che non si riconosce torna al suo default. */
-function readSearch(search: UsageSearch, today: string) {
+function readSearch<D extends UsageDimension>(
+  search: UsageSearch,
+  today: string,
+  dimensions: readonly D[],
+  defaultGroup: D,
+) {
   const period: Period = (PERIODS as readonly string[]).includes(search.range ?? "")
     ? (search.range as Period)
     : "30d";
   const from = DAY_RE.test(search.from ?? "") ? search.from! : addDays(today, -29);
   const to = DAY_RE.test(search.to ?? "") ? search.to! : today;
-  const group = DIMENSIONS.includes(search.group as UsageDimension)
-    ? (search.group as UsageDimension)
-    : "project";
+  const group = dimensions.includes(search.group as D) ? (search.group as D) : defaultGroup;
   const then =
-    DIMENSIONS.includes(search.then as UsageDimension) && search.then !== group
-      ? (search.then as UsageDimension)
+    dimensions.includes(search.then as D) && search.then !== group
+      ? (search.then as D)
       : undefined;
   return { period, from, to, group, then };
 }
@@ -80,24 +97,88 @@ function useFormat() {
   };
 }
 
-export function UsagePanel() {
-  const { t } = useTranslation();
+/** Periodo e dimensioni nell'indirizzo, e come cambiarli restando sulla pagina. */
+function useUsageSearch<D extends UsageDimension>(dimensions: readonly D[], defaultGroup: D) {
   const today = now().slice(0, 10);
   const search = useSearch({ strict: false }) as UsageSearch;
   const navigate = useNavigate();
-  const { period, from, to, group, then } = readSearch(search, today);
-  const usage = useUsage({ range: rangeOf(period, from, to), groupBy: group, thenBy: then });
-
+  const read = readSearch(search, today, dimensions, defaultGroup);
   const setSearch = (next: UsageSearch) =>
     void navigate({
-      to: "/admin/$section",
-      params: { section: "ai" },
+      to: ".",
       search: ((prev: Record<string, unknown>) => ({ ...prev, ...next })) as never,
     });
+  return { ...read, today, setSearch, range: rangeOf(read.period, read.from, read.to) };
+}
 
+/** Le frasi che cambiano con l'ambito (Usage del progetto: «…in ACQ…»). */
+interface UsageTexts {
+  empty?: string;
+  loadError?: string;
+  /** Una riga sotto i totali (Usage del progetto: «Only ACQ's work…»). */
+  afterTotals?: ReactNode;
+}
+
+export function UsagePanel({
+  scope = "instance",
+  ...texts
+}: { scope?: { projectId: string } | "instance" } & UsageTexts) {
+  return scope === "instance" ? (
+    <InstanceUsage {...texts} />
+  ) : (
+    <ProjectUsage projectId={scope.projectId} {...texts} />
+  );
+}
+
+function InstanceUsage(texts: UsageTexts) {
+  const { t } = useTranslation();
+  const nav = useUsageSearch(DIMENSIONS, "project");
+  const usage = useUsage({ range: nav.range, groupBy: nav.group, thenBy: nav.then });
+  return (
+    <UsageLayout nav={nav} dimensions={DIMENSIONS} usage={usage} texts={texts}>
+      <p className="max-w-[62ch] text-md text-pretty text-ink-muted">{t("admin.ai.usageIntro")}</p>
+    </UsageLayout>
+  );
+}
+
+function ProjectUsage({ projectId, ...texts }: { projectId: string } & UsageTexts) {
+  const nav = useUsageSearch(PROJECT_DIMENSIONS, "operation");
+  const usage = useProjectUsage(projectId, {
+    range: nav.range,
+    groupBy: nav.group,
+    thenBy: nav.then,
+  });
+  return <UsageLayout nav={nav} dimensions={PROJECT_DIMENSIONS} usage={usage} texts={texts} />;
+}
+
+interface UsageNav<D extends UsageDimension> {
+  period: Period;
+  from: string;
+  to: string;
+  today: string;
+  group: D;
+  then: D | undefined;
+  setSearch: (next: UsageSearch) => void;
+}
+
+function UsageLayout<D extends UsageDimension>({
+  nav,
+  dimensions,
+  usage,
+  texts,
+  children,
+}: {
+  nav: UsageNav<D>;
+  dimensions: readonly D[];
+  usage: { isPending: boolean; isError: boolean; data?: UsageView | null; refetch: () => unknown };
+  texts: UsageTexts;
+  children?: ReactNode;
+}) {
+  const { t } = useTranslation();
+  const { period, from, to, today, group, then, setSearch } = nav;
   return (
     <div data-testid="usage-panel" className="@container">
-      <p className="max-w-[62ch] text-md text-pretty text-ink-muted">{t("admin.ai.usageIntro")}</p>
+      {children}
       <PeriodPicker
         period={period}
         from={from}
@@ -113,16 +194,21 @@ export function UsagePanel() {
       {usage.isPending ? (
         <UsageSkeleton />
       ) : usage.isError ? (
-        <ReadError message={t("admin.ai.usage.loadError")} onRetry={() => void usage.refetch()} />
-      ) : (
+        <ReadError
+          message={texts.loadError ?? t("admin.ai.usage.loadError")}
+          onRetry={() => void usage.refetch()}
+        />
+      ) : usage.data ? (
         <UsageBody
           view={usage.data}
+          dimensions={dimensions}
           group={group}
           then={then}
+          texts={texts}
           onGroup={(g) => setSearch({ group: g, then: g === then ? undefined : then })}
           onThen={(d) => setSearch({ then: d })}
         />
-      )}
+      ) : null}
     </div>
   );
 }
@@ -187,18 +273,22 @@ function PeriodPicker({
 
 const TOTALS = ["cost", "runs", "inputTokens", "outputTokens", "cacheReadTokens"] as const;
 
-function UsageBody({
+function UsageBody<D extends UsageDimension>({
   view,
+  dimensions,
   group,
   then,
+  texts,
   onGroup,
   onThen,
 }: {
   view: UsageView;
-  group: UsageDimension;
-  then: UsageDimension | undefined;
-  onGroup: (g: UsageDimension) => void;
-  onThen: (d: UsageDimension | undefined) => void;
+  dimensions: readonly D[];
+  group: D;
+  then: D | undefined;
+  texts: UsageTexts;
+  onGroup: (g: D) => void;
+  onThen: (d: D | undefined) => void;
 }) {
   const { t } = useTranslation();
   const f = useFormat();
@@ -226,12 +316,20 @@ function UsageBody({
           </li>
         ))}
       </ul>
+      {texts.afterTotals && <p className="mt-3 text-xs text-ink-faint">{texts.afterTotals}</p>}
       {empty ? (
-        <p className="mt-6 text-md text-ink-muted">{t("admin.ai.usage.empty")}</p>
+        <p className="mt-6 text-md text-ink-muted">{texts.empty ?? t("admin.ai.usage.empty")}</p>
       ) : (
         <>
           <PerDay days={view.byDay} />
-          <DimensionTable view={view} group={group} then={then} onGroup={onGroup} onThen={onThen} />
+          <DimensionTable
+            view={view}
+            dimensions={dimensions}
+            group={group}
+            then={then}
+            onGroup={onGroup}
+            onThen={onThen}
+          />
         </>
       )}
     </>
@@ -433,18 +531,20 @@ function PerDay({ days }: { days: UsageView["byDay"] }) {
  * posto sui figli, rientrati di 16 px. Stretta, la colonna Tokens se ne va
  * (resta nel `title` della riga).
  */
-function DimensionTable({
+function DimensionTable<D extends UsageDimension>({
   view,
+  dimensions,
   group,
   then,
   onGroup,
   onThen,
 }: {
   view: UsageView;
-  group: UsageDimension;
-  then: UsageDimension | undefined;
-  onGroup: (g: UsageDimension) => void;
-  onThen: (d: UsageDimension | undefined) => void;
+  dimensions: readonly D[];
+  group: D;
+  then: D | undefined;
+  onGroup: (g: D) => void;
+  onThen: (d: D | undefined) => void;
 }) {
   const { t } = useTranslation();
   const groupId = useId();
@@ -474,10 +574,10 @@ function DimensionTable({
         <select
           id={groupId}
           value={group}
-          onChange={(e) => onGroup(e.target.value as UsageDimension)}
+          onChange={(e) => onGroup(e.target.value as D)}
           className={`${selectClass} h-7 text-sm`}
         >
-          {DIMENSIONS.map((d) => (
+          {dimensions.map((d) => (
             <option key={d} value={d}>
               {t(`admin.ai.usage.dimensions.${d}`)}
             </option>
@@ -487,11 +587,11 @@ function DimensionTable({
         <select
           id={thenId}
           value={then ?? ""}
-          onChange={(e) => onThen((e.target.value || undefined) as UsageDimension | undefined)}
+          onChange={(e) => onThen((e.target.value || undefined) as D | undefined)}
           className={`${selectClass} h-7 text-sm`}
         >
           <option value="">{t("admin.ai.usage.noThen")}</option>
-          {DIMENSIONS.filter((d) => d !== group).map((d) => (
+          {dimensions.filter((d) => d !== group).map((d) => (
             <option key={d} value={d}>
               {t(`admin.ai.usage.dimensions.${d}`)}
             </option>

@@ -1,6 +1,9 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
+import { projectSettingsAccess, type SectionAccess } from "../adminSections";
 import * as api from "../api";
 import { PROJECT_AREAS, useSessionPersonId, useWrite } from "../queries";
+import type { ProjectSettingsSection } from "../routes";
+import { useViewer } from "../viewer";
 
 // Gli hook di Progetto → Settings (area 9c); `data/queries` li ri-esporta.
 // L'import circolare con `../queries` è innocuo: gli helper si usano solo
@@ -24,6 +27,21 @@ export {
   PULSE_DAYS_MAX,
   PULSE_DAYS_MIN,
 } from "../projectSettings";
+
+export type { SectionAccess } from "../adminSections";
+
+/**
+ * Chi vede e chi scrive le sezioni di Settings del progetto, come le dice il
+ * livello dati (`projectSettingsAccess`): la colonna, «View only» e le
+ * pagine delle impostazioni leggono da qui, mai `can()` (ruling del
+ * controller (pre-flight), P13). Si rilegge a ogni cambio di persona o di
+ * permessi (il contesto di chi guarda cambia).
+ */
+export function useProjectSettingsAccess(
+  projectId: string,
+): Record<ProjectSettingsSection, SectionAccess> {
+  return projectSettingsAccess(useViewer().viewer, projectId);
+}
 
 const SETTINGS_AREAS: readonly string[] = ["projectSettings", "changelog"];
 /** Il nome del progetto si legge ovunque: binario, testate, ⌘K, liste. */

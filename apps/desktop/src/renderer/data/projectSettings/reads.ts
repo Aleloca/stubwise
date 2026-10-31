@@ -1,5 +1,5 @@
 import { projectSettingsAccess, type SectionAccess } from "../adminSections";
-import { isLimited } from "../instance/blocks";
+import { chainProviderNames, isLimited } from "../instance/blocks";
 import type { Project } from "../model";
 import { capOf } from "../releases/visibility";
 import type { ProjectSettingsSection } from "../routes";
@@ -39,6 +39,12 @@ export interface ProjectSettingsView {
      * (pre-flight), P15).
      */
     chosenUnavailable: boolean;
+    /**
+     * I nomi della catena di «Automatic», nell'ordine in cui la prova
+     * (`pickProvider`): gli abbonamenti abilitati; la chiave API solo se
+     * non ce n'è nessuno. La frase di «Automatic» li legge da qui (Task 7).
+     */
+    automaticChain: string[];
   };
   switches: Record<ProjectSwitch, boolean>;
   pulseEveryDays: number;
@@ -93,6 +99,7 @@ export async function getProjectSettings(projectId: string): Promise<ProjectSett
         limited: isLimited(p),
       })),
       chosenUnavailable: chosenUnavailable(s),
+      automaticChain: chainProviderNames(),
     },
     switches: { ...s.switches },
     pulseEveryDays: s.pulseEveryDays,
