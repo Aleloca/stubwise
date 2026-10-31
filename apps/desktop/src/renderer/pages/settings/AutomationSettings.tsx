@@ -18,6 +18,7 @@ import { Switch } from "../preferences/SubscriptionRow";
 import { primaryButton, quietButton } from "../tasks/controls";
 import { smallInput } from "../automations/builder/controls";
 import {
+  FocusRescue,
   LeaveConfirm,
   SettingsFrame,
   SettingsState,
@@ -144,7 +145,7 @@ function AutomationForm({ view, onReload }: { view: ProjectSettingsView; onReloa
     if (busy || changes === 0) return;
     setBusy(true);
     setInvalid(null);
-    const ok = await write.run(
+    await write.run(
       () =>
         save.mutateAsync({
           projectId: view.projectId,
@@ -153,14 +154,16 @@ function AutomationForm({ view, onReload }: { view: ProjectSettingsView; onReloa
           correctionCap: numberOf(draft.cap),
         }),
       setInvalid,
+      // Il seguito sta in `onDone`: vale anche dopo un Retry riuscito.
+      () => {
+        guard.clear();
+        setEdits(null);
+        // Salvato: resta la frase della regola, non l'avviso di un momento fa.
+        setPulseNotice(false);
+        flash();
+      },
     );
     setBusy(false);
-    if (!ok) return;
-    guard.clear();
-    setEdits(null);
-    // Salvato: resta la frase della regola, non l'avviso di un momento fa.
-    setPulseNotice(false);
-    flash();
   }
 
   const capValue = numberOf(draft.cap);
@@ -190,13 +193,20 @@ function AutomationForm({ view, onReload }: { view: ProjectSettingsView; onReloa
           const isPulse = sw === "pulse";
           const ruleOff = isPulse && pulseNeedsBacklog;
           return (
-            <li key={sw} data-switch-row={sw} className="border-b border-rule py-3.5 last:border-b-0">
+            <li
+              key={sw}
+              data-switch-row={sw}
+              className="border-b border-rule py-3.5 last:border-b-0"
+            >
               <div className="flex items-start gap-4">
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <span aria-hidden="true" className="text-md font-semibold text-ink">
                     {name}
                   </span>
-                  <p id={`${lineId}-${sw}`} className="max-w-[64ch] text-sm text-pretty text-ink-muted">
+                  <p
+                    id={`${lineId}-${sw}`}
+                    className="max-w-[64ch] text-sm text-pretty text-ink-muted"
+                  >
                     {t(`settings.automations.effects.${sw}`, { code })}
                   </p>
                 </div>
@@ -208,7 +218,8 @@ function AutomationForm({ view, onReload }: { view: ProjectSettingsView; onReloa
                     // Spento per permesso: la frase della riga ○ (col suo «Who?»);
                     // il pulse senza discovery: la regola, senza «Who?».
                     disabledReason={
-                      readOnlyWhy ?? (ruleOff ? t("settings.automations.pulseNeedsBacklog") : undefined)
+                      readOnlyWhy ??
+                      (ruleOff ? t("settings.automations.pulseNeedsBacklog") : undefined)
                     }
                     onChange={(on) => setSwitch(sw, on)}
                   />
@@ -221,10 +232,14 @@ function AutomationForm({ view, onReload }: { view: ProjectSettingsView; onReloa
                       id={daysId}
                       label={t("settings.automations.pulseDaysLabel")}
                       before={t("settings.automations.every")}
-                      after={t("settings.automations.days", { count: numberOf(draft.pulseDays) || 2 })}
+                      after={t("settings.automations.days", {
+                        count: numberOf(draft.pulseDays) || 2,
+                      })}
                       value={draft.pulseDays}
                       disabled={!draft.switches.pulse}
-                      error={invalid === "pulse_days" ? t("settings.automations.pulseDaysError") : null}
+                      error={
+                        invalid === "pulse_days" ? t("settings.automations.pulseDaysError") : null
+                      }
                       onChange={(pulseDays) => {
                         setEdits({ ...draft, pulseDays });
                         if (invalid === "pulse_days") setInvalid(null);
@@ -289,42 +304,45 @@ function AutomationForm({ view, onReload }: { view: ProjectSettingsView; onReloa
         // la aggancia in fondo alla finestra mentre si scorre (I2). Il margine
         // negativo la porta ai bordi della sezione, i 32 px tornano dentro.
         <SaveBar width={880} inset="-mx-8 mt-8 px-8" data={{ "data-save-bar": "" }}>
-          {invalid === "pulse_needs_backlog" && (
-            <ErrorLine>{t("settings.automations.pulseNeedsBacklog")}</ErrorLine>
-          )}
-          {write.message}
-          {guard.blocked && changes > 0 ? (
-            <LeaveConfirm
-              guard={guard}
-              message={t("settings.automations.leave", { count: changes })}
-            />
-          ) : (
-            <div className="flex flex-wrap items-center gap-3">
-              {changes > 0 ? (
-                <p className="num min-w-0 flex-1 text-sm text-ink">
-                  {t("settings.automations.changes", { count: changes })}
-                </p>
-              ) : (
-                <p role="status" className="min-w-0 flex-1 text-sm text-ink">
-                  {justSaved ? t("settings.common.saved") : ""}
-                </p>
-              )}
-              {changes > 0 && (
-                <button type="button" className={quietButton} onClick={discard}>
-                  {t("settings.common.discard")}
+          {/* Dentro la barra, non intorno: la barra resta figlia della colonna (I2). */}
+          <FocusRescue>
+            {invalid === "pulse_needs_backlog" && (
+              <ErrorLine>{t("settings.automations.pulseNeedsBacklog")}</ErrorLine>
+            )}
+            {write.message}
+            {guard.blocked && changes > 0 ? (
+              <LeaveConfirm
+                guard={guard}
+                message={t("settings.automations.leave", { count: changes })}
+              />
+            ) : (
+              <div className="flex flex-wrap items-center gap-3">
+                {changes > 0 ? (
+                  <p className="num min-w-0 flex-1 text-sm text-ink">
+                    {t("settings.automations.changes", { count: changes })}
+                  </p>
+                ) : (
+                  <p role="status" className="min-w-0 flex-1 text-sm text-ink">
+                    {justSaved ? t("settings.common.saved") : ""}
+                  </p>
+                )}
+                {changes > 0 && (
+                  <button type="button" className={quietButton} onClick={discard}>
+                    {t("settings.common.discard")}
+                  </button>
+                )}
+                {/* Resta montato dopo il salvataggio, spento: il fuoco non cade sul body (I3). */}
+                <button
+                  type="button"
+                  aria-disabled={busy || changes === 0 || undefined}
+                  className={`${primaryButton} aria-disabled:cursor-not-allowed aria-disabled:opacity-40`}
+                  onClick={() => void submit()}
+                >
+                  {t("settings.common.save")}
                 </button>
-              )}
-              {/* Resta montato dopo il salvataggio, spento: il fuoco non cade sul body (I3). */}
-              <button
-                type="button"
-                aria-disabled={busy || changes === 0 || undefined}
-                className={`${primaryButton} aria-disabled:cursor-not-allowed aria-disabled:opacity-40`}
-                onClick={() => void submit()}
-              >
-                {t("settings.common.save")}
-              </button>
-            </div>
-          )}
+              </div>
+            )}
+          </FocusRescue>
         </SaveBar>
       )}
     </>

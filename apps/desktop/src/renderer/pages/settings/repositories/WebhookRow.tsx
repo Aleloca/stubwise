@@ -87,25 +87,25 @@ export function WebhookSection({
   async function run() {
     if (!canManage || configuring) return;
     setConfiguring(true);
-    let outcome: { state: "configured" | "failed"; updated: boolean } | null = null;
-    const ok = await write.run(
+    await write.run(
       async () => {
         // L'esito scelto nel riquadro arriva al livello dati prima della configurazione.
         await pendingChoice.current;
         const [result] = await Promise.all([configure.mutateAsync(repository.id), wait(CHECK_MS)]);
-        if (result.ok) outcome = { state: result.state, updated: result.updated };
         return result;
       },
       () => undefined,
+      // In `onDone`, così il toast c'è anche dopo un Retry riuscito.
+      // `failed`: la riga ✕ lo dice, nessun toast di riuscita.
+      (result) => {
+        if (result.ok && result.state === "configured")
+          toast.show(
+            t(result.updated ? "settings.repos.webhook.updated" : "settings.repos.webhook.done"),
+          );
+      },
     );
     setConfiguring(false);
     setNextSetup("configured");
-    const done = outcome as { state: "configured" | "failed"; updated: boolean } | null;
-    // `failed`: la riga ✕ lo dice, nessun toast di riuscita.
-    if (ok && done?.state === "configured")
-      toast.show(
-        t(done.updated ? "settings.repos.webhook.updated" : "settings.repos.webhook.done"),
-      );
   }
 
   return (

@@ -1,7 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resetApi, setLatency } from "../../../data/api";
+import { failNext, resetApi, setLatency } from "../../../data/api";
 import { state } from "../../../data/store";
 import { resetViewerGrants, revokeProjectPermission } from "../../../data/viewer";
 import { setLanguage } from "../../../i18n";
@@ -219,6 +219,30 @@ describe("la creazione guidata, da Laura in ACQ", () => {
     await user.click(within(dialog).getByRole("button", { name: "Discard" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(state.repositories.filter((r) => r.projectId === "prj-acq")).toHaveLength(1);
+  });
+
+  it("I6: Create non riesce, Retry riesce → la procedura si chiude e il repository è nella lista", async () => {
+    const user = userEvent.setup();
+    await openList(LAURA);
+    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    const dialog = await wizard();
+    await user.click(await within(dialog).findByRole("radio", { name: /Bitbucket Audin/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Next" }));
+    await user.click(await within(dialog).findByRole("radio", { name: /audin\/fatture-api/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Next" }));
+    await user.click(within(dialog).getByRole("button", { name: "Next" }));
+    await user.click(within(dialog).getByRole("button", { name: "Verify access" }));
+    await within(dialog).findByText("Access works.");
+    failNext("projectSettings.createRepository");
+    await user.click(within(dialog).getByRole("button", { name: "Create" }));
+    expect(await within(dialog).findByText("Couldn't save. Try again.")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Retry" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Add a repository to ACQ" })).toBeNull(),
+    );
+    const list = screen.getByRole("list", { name: "Repositories of ACQ" });
+    expect(await within(list).findByRole("link", { name: /fatture-api/ })).toBeInTheDocument();
+    expect(state.repositories.filter((r) => r.name === "fatture-api")).toHaveLength(1);
   });
 
   it("un repository creato su develop mostra develop nella riga", async () => {

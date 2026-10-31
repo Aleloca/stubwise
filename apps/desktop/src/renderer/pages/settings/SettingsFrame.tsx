@@ -1,5 +1,5 @@
 import { useBlocker, useNavigate } from "@tanstack/react-router";
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { PageSkeleton } from "../../tasks-ui/PageStates";
 import { useToast } from "../../tasks-ui/Toast";
@@ -142,6 +142,26 @@ export function LeaveConfirm({
       onConfirm={guard.proceed}
       onCancel={guard.reset}
     />
+  );
+}
+
+/**
+ * Una barra che se ne va da sola (2 s dopo «Saved»): se il fuoco era dentro
+ * (su Save), passa all'h1 della pagina invece di cadere sul body.
+ */
+export function FocusRescue({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    return () => {
+      if (el && el.contains(document.activeElement))
+        el.closest("section")?.querySelector<HTMLElement>("h1")?.focus();
+    };
+  }, []);
+  return (
+    <div ref={ref} className="contents">
+      {children}
+    </div>
   );
 }
 

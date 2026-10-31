@@ -92,7 +92,7 @@ function AiForm({ view, onReload }: { view: ProjectSettingsView; onReload: () =>
     if (!dirty || busy) return;
     setBusy(true);
     setGone(false);
-    const ok = await write.run(
+    await write.run(
       () =>
         set.mutateAsync({
           projectId: view.projectId,
@@ -107,12 +107,14 @@ function AiForm({ view, onReload }: { view: ProjectSettingsView; onReload: () =>
           onReload();
         }
       },
+      // Il seguito sta in `onDone`: vale anche dopo un Retry riuscito.
+      () => {
+        guard.clear();
+        setEdits(null);
+        flash();
+      },
     );
     setBusy(false);
-    if (!ok) return;
-    guard.clear();
-    setEdits(null);
-    flash();
   }
 
   const chain = ai.automaticChain;

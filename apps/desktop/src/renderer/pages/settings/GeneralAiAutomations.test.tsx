@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resetApi, setLatency } from "../../data/api";
+import { failNext, resetApi, setLatency } from "../../data/api";
 import { pulseNeedsBacklogFor } from "../../data/queries";
 import { state } from "../../data/store";
 import { grantProjectPermission } from "../../data/viewer";
@@ -290,6 +290,36 @@ describe("Automations", () => {
     expect(save).toBeInTheDocument();
     expect(save).toHaveFocus();
     expect(save).toHaveAttribute("aria-disabled", "true");
+    // 2 s dopo «Saved» la barra se ne va: il fuoco passa all'h1, non al body (T7).
+    await waitFor(() => expect(document.querySelector("[data-save-bar]")).toBeNull(), {
+      timeout: 3000,
+    });
+    expect(screen.getByRole("heading", { level: 1, name: "Automations" })).toHaveFocus();
+  });
+
+  it("I6: Save non riesce, Retry riesce → «Saved» e la barra senza modifiche", async () => {
+    await open("automations", LAURA);
+    await h1("Automations");
+    await userEvent.click(await screen.findByRole("switch", { name: "Weekly brief" }));
+    failNext("projectSettings.saveProjectAutomations");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Couldn't save. Try again.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Saved")).toBeInTheDocument();
+    expect(screen.queryByText("1 change")).toBeNull();
+  });
+
+  it("I6: General, Save non riesce e Retry riesce → «Saved»", async () => {
+    await open("general", LAURA);
+    await h1("General");
+    const name = await screen.findByRole("textbox", { name: "Name" });
+    await userEvent.clear(name);
+    await userEvent.type(name, "Portale Acquedotto");
+    failNext("projectSettings.updateProjectGeneral");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Couldn't save. Try again.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Saved")).toBeInTheDocument();
   });
 
   it("spento il brief, la BriefCard dell'Overview lo dice", async () => {

@@ -83,7 +83,7 @@ function GeneralForm({ view, onReload }: { view: ProjectSettingsView; onReload: 
     if (!dirty || busy) return;
     setBusy(true);
     setInvalid(null);
-    const ok = await write.run(
+    await write.run(
       () =>
         update.mutateAsync({
           projectId: view.projectId,
@@ -91,13 +91,15 @@ function GeneralForm({ view, onReload }: { view: ProjectSettingsView; onReload: 
           ...(draftDescription !== view.description ? { description: draftDescription } : {}),
         }),
       setInvalid,
+      // Il seguito sta in `onDone`: vale anche dopo un Retry riuscito.
+      () => {
+        guard.clear();
+        setName(null);
+        setDescription(null);
+        flash();
+      },
     );
     setBusy(false);
-    if (!ok) return;
-    guard.clear();
-    setName(null);
-    setDescription(null);
-    flash();
   }
 
   if (!access.canEdit)
@@ -112,7 +114,9 @@ function GeneralForm({ view, onReload }: { view: ProjectSettingsView; onReload: 
         />
         <dl className="@container border-t border-rule">
           <Row label={t("settings.general.name")}>
-            <dd className="text-md text-ink [overflow-wrap:anywhere] @min-[720px]:pt-2">{view.name}</dd>
+            <dd className="text-md text-ink [overflow-wrap:anywhere] @min-[720px]:pt-2">
+              {view.name}
+            </dd>
           </Row>
           <Row label={t("settings.general.description")}>
             <dd
@@ -127,7 +131,8 @@ function GeneralForm({ view, onReload }: { view: ProjectSettingsView; onReload: 
     );
 
   const nameError = invalid === "name" ? t("settings.general.nameError") : null;
-  const descriptionError = invalid === "description" ? t("settings.general.descriptionError") : null;
+  const descriptionError =
+    invalid === "description" ? t("settings.general.descriptionError") : null;
   return (
     <form
       noValidate

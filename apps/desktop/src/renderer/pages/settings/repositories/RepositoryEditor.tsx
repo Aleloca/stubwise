@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -18,7 +18,13 @@ import { useFlash } from "../../preferences/parts";
 import { Switch } from "../../preferences/SubscriptionRow";
 import { primaryButton, quietButton, secondaryButton } from "../../tasks/controls";
 import { RepositoryReleases } from "../RepositorySettings";
-import { LeaveConfirm, SettingsFrame, useLeaveGuard, useSettingsWrite } from "../SettingsFrame";
+import {
+  FocusRescue,
+  LeaveConfirm,
+  SettingsFrame,
+  useLeaveGuard,
+  useSettingsWrite,
+} from "../SettingsFrame";
 import { ViewOnlyLine } from "../ViewOnly";
 import { EnvFilesSection } from "./EnvFiles";
 import { WebhookSection, WebhookState } from "./WebhookRow";
@@ -412,7 +418,7 @@ function DetailsForm({
     if (changes === 0 || busy) return;
     setBusy(true);
     setInvalid(null);
-    const ok = await write.run(
+    await write.run(
       () =>
         update.mutateAsync({
           repositoryId: repository.id,
@@ -430,12 +436,14 @@ function DetailsForm({
             : {}),
         }),
       (reason, line) => setInvalid({ reason, line }),
+      // Il seguito sta in `onDone`: vale anche dopo un Retry riuscito.
+      () => {
+        guard.clear();
+        setEdits(null);
+        flash();
+      },
     );
     setBusy(false);
-    if (!ok) return;
-    guard.clear();
-    setEdits(null);
-    flash();
   }
 
   const errorOf = (reasons: string[]) =>
@@ -689,26 +697,6 @@ function DetailsForm({
           barSlot,
         )}
     </form>
-  );
-}
-
-/**
- * La barra se ne va 2 s dopo «Saved»: se il fuoco era dentro (su Save),
- * passa all'h1 della pagina invece di cadere sul body.
- */
-function FocusRescue({ children }: { children: ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    return () => {
-      if (el && el.contains(document.activeElement))
-        el.closest("section")?.querySelector<HTMLElement>("h1")?.focus();
-    };
-  }, []);
-  return (
-    <div ref={ref} className="contents">
-      {children}
-    </div>
   );
 }
 

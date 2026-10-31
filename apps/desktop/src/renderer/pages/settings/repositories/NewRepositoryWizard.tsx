@@ -166,10 +166,9 @@ export function NewRepositoryWizard({
   async function submit() {
     if (!triple || !works || creating) return;
     setCreating(true);
-    let repositoryId: string | null = null;
-    const ok = await write.run(
-      async () => {
-        const result = await create.mutateAsync({
+    await write.run(
+      () =>
+        create.mutateAsync({
           projectId: project.id,
           gitAccountId: triple.accountId,
           fullName: triple.fullName,
@@ -177,10 +176,7 @@ export function NewRepositoryWizard({
           branch: triple.branch,
           installCommand: installCommand.trim() || null,
           testCommand: testCommand.trim() || null,
-        });
-        if (result.ok) repositoryId = result.repositoryId;
-        return result;
-      },
+        }),
       (reason) => {
         if (reason === "name" || reason === "name_taken") {
           setNameError(reason);
@@ -192,9 +188,14 @@ export function NewRepositoryWizard({
         else if (reason === "repository") setStep(2);
         else if (reason === "branch") setStep(3);
       },
+      // In `onDone`: dopo un Retry riuscito la procedura si chiude come al
+      // primo colpo, invece di restare sul passo 4 (e di dire «name taken»
+      // al Create successivo).
+      (result) => {
+        if (result.ok) onCreated(result.repositoryId, name.trim());
+      },
     );
     setCreating(false);
-    if (ok && repositoryId) onCreated(repositoryId, name.trim());
   }
 
   const values: Record<Step, string | null> = {
