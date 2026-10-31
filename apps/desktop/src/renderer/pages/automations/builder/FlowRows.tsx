@@ -206,7 +206,9 @@ export function StepRow({
         <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-1">
           <span
             id={`row-text-${step.id}`}
-            className="line-clamp-2 min-w-[min(360px,100%)] flex-1 text-md text-ink"
+            // Il passo aperto si legge intero: a 1024 due righe tagliavano la
+            // fine della frase (bloccante 2 del 9c); gli altri restano a due.
+            className={`${selected ? "" : "line-clamp-2"} min-w-[min(360px,100%)] flex-1 text-md text-ink`}
           >
             {sentence.text ? (
               <Tokens text={sentence.text} available={available} />

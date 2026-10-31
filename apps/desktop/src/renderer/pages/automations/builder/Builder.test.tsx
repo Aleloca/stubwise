@@ -933,6 +933,9 @@ describe("il pannello sovrapposto (finestra stretta)", () => {
     expect(panel).toHaveAttribute("data-mode", "overlay");
     const canvas = tree().closest<HTMLElement>("[data-builder-canvas]")!;
     expect(canvas.style.paddingRight).toBe(panel.style.width);
+    // La riga del passo aperto si legge intera (le altre restano a due righe).
+    expect(sentence("tr-bug")).not.toHaveClass("line-clamp-2");
+    expect(sentence("tr-classify")).toHaveClass("line-clamp-2");
     // Chiuso il pannello, lo spazio torna all'albero.
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Step 2" })).toBeNull());
