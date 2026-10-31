@@ -99,11 +99,7 @@ export function PluginSettings({ project }: { project: Project }) {
         rows={14}
       >
         {plugins.data && (
-          <PluginsForm
-            view={plugins.data}
-            project={project}
-            onReload={() => plugins.refetch()}
-          />
+          <PluginsForm view={plugins.data} project={project} onReload={() => plugins.refetch()} />
         )}
       </SettingsState>
     </SettingsFrame>
@@ -122,7 +118,8 @@ function PluginsForm({
   const { t } = useTranslation();
   const code = project.code;
   const canEdit = view.canEdit;
-  const editAction = useProjectSettingsAccess(project.id).plugins.editAction ?? "manageProjectSettings";
+  const editAction =
+    useProjectSettingsAccess(project.id).plugins.editAction ?? "manageProjectSettings";
   const save = useSaveProjectPlugins();
   const write = useSettingsWrite(code, () => void onReload());
   const [edits, setEdits] = useState<Edits | null>(null);
@@ -149,8 +146,7 @@ function PluginsForm({
   const notReady = view.plugins.filter((p) => !p.base && !pluginChoosable(p));
   const base = view.plugins.filter((p) => p.base);
 
-  const heading = () =>
-    root.current?.closest("section")?.querySelector<HTMLElement>("h1") ?? null;
+  const heading = () => root.current?.closest("section")?.querySelector<HTMLElement>("h1") ?? null;
 
   // La barra esce dopo «Saved»: il fuoco che stava sul suo bottone non cade sul body.
   const showBar = canEdit && (changes > 0 || justSaved || !!write.message || conflict);
@@ -318,14 +314,25 @@ function PluginsForm({
                   )}
                 </span>
               </p>
-              <div className="flex flex-wrap items-center gap-3 pl-6">
-                <button type="button" className={primaryButton} onClick={keepMine}>
-                  {t("settings.plugins.conflict.keepMine")}
-                </button>
-                <button type="button" className={secondaryButton} onClick={useTheirs}>
-                  {t("settings.plugins.conflict.useTheirs")}
-                </button>
-              </div>
+              {/* Lasciare la sezione col riquadro aperto chiede come altrove («Discard N
+                  changes?»): senza, il blocco della guardia inghiottirebbe il clic. */}
+              {guard.blocked && changes > 0 ? (
+                <div className="pl-6">
+                  <LeaveConfirm
+                    guard={guard}
+                    message={t("settings.plugins.leave", { count: changes })}
+                  />
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-3 pl-6">
+                  <button type="button" className={primaryButton} onClick={keepMine}>
+                    {t("settings.plugins.conflict.keepMine")}
+                  </button>
+                  <button type="button" className={secondaryButton} onClick={useTheirs}>
+                    {t("settings.plugins.conflict.useTheirs")}
+                  </button>
+                </div>
+              )}
             </section>
           ) : (
             <>
@@ -514,7 +521,11 @@ function ReadyPlugin({
     : p.skills;
 
   return (
-    <section aria-labelledby={id} data-plugin={p.name} className="@container mt-6 border-t border-rule">
+    <section
+      aria-labelledby={id}
+      data-plugin={p.name}
+      className="@container mt-6 border-t border-rule"
+    >
       <div className="flex min-h-[52px] flex-wrap items-center gap-x-3 gap-y-1 border-b border-rule py-2">
         <span className="flex min-w-0 flex-1 items-center gap-3 @min-[760px]:flex-none">
           <span aria-hidden="true" className="size-1.5 shrink-0" />
@@ -634,7 +645,9 @@ function ReadyPlugin({
                     describedBy={readOnlyId}
                     onChange={(on) => onToggle([key], on)}
                   />
-                  <span className={`num w-36 shrink-0 text-sm font-semibold ${off ? "text-ink-muted" : "text-ink"}`}>
+                  <span
+                    className={`num w-36 shrink-0 text-sm font-semibold ${off ? "text-ink-muted" : "text-ink"}`}
+                  >
                     {h.key}
                   </span>
                   <span className="w-32 shrink-0 truncate text-sm text-ink-muted">
@@ -681,7 +694,11 @@ function RowMarks({
   return (
     <span className="ml-auto flex shrink-0 items-center gap-1.5 text-xs whitespace-nowrap">
       {both && <span className="font-semibold text-ink">{t("settings.plugins.bothChanged")}</span>}
-      {both && off && <span aria-hidden="true" className="text-ink-faint">·</span>}
+      {both && off && (
+        <span aria-hidden="true" className="text-ink-faint">
+          ·
+        </span>
+      )}
       {off && <span className="font-semibold text-ink">{offWord}</span>}
       {preset && (
         <>

@@ -144,6 +144,34 @@ describe("skillsForRun e «/»", () => {
 });
 
 describe("il salvataggio dei plugin", () => {
+  it("ruling (T10): una scelta salvata fuori dall'inventario di un plugin ready si scarta salvando, senza invalid", async () => {
+    as(LAURA);
+    choicesOf(ACQ).disabled.push({
+      plugin: "superpowers",
+      skills: ["old-skill"],
+      hookGroups: ["Stop#9"],
+    });
+    const view = (await projectSettings.getProjectPlugins(ACQ))!;
+    const keys = projectSettings.pluginOffKeys(view);
+    keys.add("superpowers:brainstorming");
+    expect(
+      await projectSettings.saveProjectPlugins(ACQ, {
+        version: view.version,
+        disabled: projectSettings.pluginDisabledInput(view, keys),
+      }),
+    ).toEqual({ ok: true, version: view.version + 1 });
+    expect(choicesOf(ACQ).disabled).toEqual([
+      { plugin: "superpowers", skills: ["brainstorming"], hookGroups: [] },
+    ]);
+    // Un nome inventato, che non era fra le scelte salvate, resta un invalid.
+    expect(
+      await projectSettings.saveProjectPlugins(ACQ, {
+        version: view.version + 1,
+        disabled: [{ plugin: "superpowers", skills: ["nope"], hookGroups: [] }],
+      }),
+    ).toMatchObject({ error: "invalid", reason: "skill" });
+  });
+
   it("RF 5: due letture con version 3, la prima salva (4), la seconda → conflict senza scrivere", async () => {
     choicesOf(ACQ).version = 3;
     as(LAURA);

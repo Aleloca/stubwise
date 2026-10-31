@@ -263,6 +263,7 @@ export function pluginChangedKeys(
 /** Le scelte date, validate e ripulite (righe vuote via, liste ordinate e senza doppioni). */
 function normalized(
   disabled: unknown,
+  saved: ProjectPluginChoices["disabled"],
 ): { disabled: ProjectPluginChoices["disabled"]; named: Set<string> } | { reason: string } {
   if (!Array.isArray(disabled)) return { reason: "disabled" };
   const out = new Map<string, { skills: Set<string>; hookGroups: Set<string> }>();
@@ -280,11 +281,19 @@ function normalized(
     // Un plugin senza inventario (mai materializzato) non dice le sue skill: si accetta ciò che arriva.
     const skills = plugin.inventory?.skills.map((s) => s.name);
     const hooks = plugin.inventory?.hooks.map((h) => h.key);
-    if (skills && d.skills.some((s) => !skills.includes(s))) return { reason: "skill" };
-    if (hooks && d.hookGroups.some((h) => !hooks.includes(h))) return { reason: "hook" };
+    // Ruling (T10): su un plugin `ready`, una scelta già salvata che il suo
+    // inventario non ha più (uno sha nuovo l'ha tolta) si scarta, invece di
+    // rifiutare il salvataggio per un dato che nessuno può togliere. Un nome
+    // che non era fra le scelte salvate resta un `invalid`.
+    const was = plugin.status === "ready" ? saved.find((x) => x.plugin === d.plugin) : undefined;
+    const keepSkill = (s: string) => !skills || skills.includes(s);
+    const keepHook = (h: string) => !hooks || hooks.includes(h);
+    if (d.skills.some((s) => !keepSkill(s) && !was?.skills.includes(s))) return { reason: "skill" };
+    if (d.hookGroups.some((h) => !keepHook(h) && !was?.hookGroups.includes(h)))
+      return { reason: "hook" };
     const row = out.get(d.plugin) ?? { skills: new Set(), hookGroups: new Set() };
-    d.skills.forEach((s) => row.skills.add(s));
-    d.hookGroups.forEach((h) => row.hookGroups.add(h));
+    d.skills.filter(keepSkill).forEach((s) => row.skills.add(s));
+    d.hookGroups.filter(keepHook).forEach((h) => row.hookGroups.add(h));
     out.set(d.plugin, row);
   }
   return {
@@ -313,9 +322,9 @@ export async function saveProjectPlugins(
   const managed = managedProject(me, projectId);
   if ("refusal" in managed) return managed.refusal;
   const { project } = managed;
-  const clean = normalized(input.disabled);
-  if ("reason" in clean) return refuse.invalid(clean.reason);
   const choices = settingsOf(project).plugins;
+  const clean = normalized(input.disabled, choices.disabled);
+  if ("reason" in clean) return refuse.invalid(clean.reason);
   if (input.version !== choices.version) return refuse.conflict();
 
   // [PG 4]: le scelte di un plugin non `ready` che l'input non nomina restano.

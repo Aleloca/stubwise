@@ -186,6 +186,12 @@ async function main() {
         });
         await save(page);
       };
+      const conflictLeave = async (page) => {
+        await conflict(page);
+        await page.locator('[data-settings-section="general"]').first().click();
+        await page.waitForTimeout(300);
+        await page.mouse.move(2, 2);
+      };
       const keepMine = async (page) => {
         await conflict(page);
         await page.getByRole("button", { name: /^(Keep my changes on theirs|Tieni le mie modifiche sulle loro)$/ }).click();
@@ -206,6 +212,7 @@ async function main() {
         ["plugins-preset", PLUGINS, { persona: "Laura", after: preset }],
         ["plugins-saved", PLUGINS, { persona: "Laura", after: saved }],
         ["plugins-conflict", PLUGINS, { persona: "Laura", after: conflict }],
+        ["plugins-conflict-leave", PLUGINS, { persona: "Laura", after: conflictLeave }],
         ["plugins-keep-mine", PLUGINS, { persona: "Laura", after: keepMine }],
         ["plugins-not-ready", PLUGINS, { persona: "Laura", after: bottom }],
         ["plugins-readonly", PLUGINS, { persona: "Sara" }],

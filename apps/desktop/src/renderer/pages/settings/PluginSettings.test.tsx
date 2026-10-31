@@ -52,7 +52,9 @@ const rowOf = (el: HTMLElement) => el.closest<HTMLElement>("[data-plugin-row]")!
 const saveBar = () => document.querySelector<HTMLElement>("[data-save-bar]");
 
 /** Una scrittura dall'altra finestra: Roberta salva le sue scelte, poi chi guarda torna Laura. */
-async function robertaSaves(disabled: { plugin: string; skills: string[]; hookGroups: string[] }[]) {
+async function robertaSaves(
+  disabled: { plugin: string; skills: string[]; hookGroups: string[] }[],
+) {
   setSessionPersonId(ROBERTA);
   const version = (await projectSettings.getProjectPlugins(STW))!.version;
   expect(await projectSettings.saveProjectPlugins(STW, { version, disabled })).toMatchObject({
@@ -87,7 +89,9 @@ describe("Plugins: la pagina", () => {
     );
     expect(lint).toHaveTextContent("Choices saved for it are kept and apply when it's ready.");
     expect(within(lint).queryByRole("checkbox")).toBeNull();
-    expect(screen.getByText("A plugin's own MCP servers (.mcp.json) are never loaded.")).toBeInTheDocument();
+    expect(
+      screen.getByText("A plugin's own MCP servers (.mcp.json) are never loaded."),
+    ).toBeInTheDocument();
   });
 
   it("Laura spegne una skill e un gruppo di hook → «Saved»; «/» con STW come contesto non elenca la skill", async () => {
@@ -169,7 +173,9 @@ describe("Plugins: la pagina", () => {
     const user = userEvent.setup();
     await open(LAURA);
     const superpowers = await block("superpowers");
-    const all = within(superpowers).getByRole("checkbox", { name: "Use superpowers in STW's runs" });
+    const all = within(superpowers).getByRole("checkbox", {
+      name: "Use superpowers in STW's runs",
+    });
     await user.click(skill("brainstorming"));
     expect((all as HTMLInputElement).indeterminate).toBe(true);
     // In parte → tutto acceso; tutto acceso → tutto spento.
@@ -191,7 +197,11 @@ describe("Plugins: il conflitto (RF 5, [PG 5])", () => {
     await user.click(skill("writing-plans"));
     // Roberta salva dall'altra finestra: spegne brainstorming e test-driven-development.
     await robertaSaves([
-      { plugin: "superpowers", skills: ["brainstorming", "test-driven-development"], hookGroups: [] },
+      {
+        plugin: "superpowers",
+        skills: ["brainstorming", "test-driven-development"],
+        hookGroups: [],
+      },
     ]);
     const theirs = structuredClone(choicesOf(STW));
 
@@ -236,7 +246,9 @@ describe("Plugins: il conflitto (RF 5, [PG 5])", () => {
     await open(LAURA);
     await block("superpowers");
     await user.click(skill("writing-plans"));
-    await robertaSaves([{ plugin: "superpowers", skills: ["systematic-debugging"], hookGroups: [] }]);
+    await robertaSaves([
+      { plugin: "superpowers", skills: ["systematic-debugging"], hookGroups: [] },
+    ]);
     await user.click(within(saveBar()!).getByRole("button", { name: "Save" }));
     const box = await screen.findByRole("region", { name: "Your changes weren't saved" });
     expect(within(box).queryByText(/You both changed/)).toBeNull();
@@ -252,7 +264,11 @@ describe("Plugins: il conflitto (RF 5, [PG 5])", () => {
 
   it("[PG 4]: un salvataggio non tocca le scelte di un plugin non pronto", async () => {
     const user = userEvent.setup();
-    choicesOf(STW).disabled.push({ plugin: "lint-helpers", skills: ["fix-imports"], hookGroups: [] });
+    choicesOf(STW).disabled.push({
+      plugin: "lint-helpers",
+      skills: ["fix-imports"],
+      hookGroups: [],
+    });
     await open(LAURA);
     await block("superpowers");
     await user.click(skill("brainstorming"));
@@ -262,6 +278,41 @@ describe("Plugins: il conflitto (RF 5, [PG 5])", () => {
       { plugin: "lint-helpers", skills: ["fix-imports"], hookGroups: [] },
       { plugin: "superpowers", skills: ["brainstorming"], hookGroups: [] },
     ]);
+  });
+});
+
+describe("Plugins: giro di correzione 1", () => {
+  it("I1 (ruling T10): una scelta salvata fuori inventario non blocca il salvataggio, e sparisce", async () => {
+    const user = userEvent.setup();
+    choicesOf(STW).disabled.push({ plugin: "superpowers", skills: ["old-skill"], hookGroups: [] });
+    await open(LAURA);
+    await block("superpowers");
+    await user.click(skill("brainstorming"));
+    await user.click(within(saveBar()!).getByRole("button", { name: "Save" }));
+    await screen.findByText(/^Saved\./);
+    expect(choicesOf(STW).disabled).toEqual([
+      { plugin: "superpowers", skills: ["brainstorming"], hookGroups: [] },
+    ]);
+  });
+
+  it("I2: lasciare la sezione durante il conflitto chiede «Discard 1 change?»", async () => {
+    const user = userEvent.setup();
+    const router = await open(LAURA);
+    await block("superpowers");
+    await user.click(skill("writing-plans"));
+    await robertaSaves([
+      { plugin: "superpowers", skills: ["systematic-debugging"], hookGroups: [] },
+    ]);
+    await user.click(within(saveBar()!).getByRole("button", { name: "Save" }));
+    await screen.findByRole("region", { name: "Your changes weren't saved" });
+    const general = screen
+      .getByRole("list", { name: "Settings of STW" })
+      .querySelector<HTMLElement>('[data-settings-section="general"]')!;
+    await user.click(general.querySelector("a") ?? general);
+    expect(await screen.findByText("Discard 1 change?")).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/p/STW/settings/plugins");
+    await user.click(screen.getByRole("button", { name: "Discard" }));
+    await screen.findByRole("heading", { level: 1, name: "General" });
   });
 });
 
@@ -283,9 +334,7 @@ describe("Plugins: sola lettura", () => {
     const apply = within(superpowers).getByRole("button", { name: "Apply recommended preset" });
     expect(apply).toHaveAttribute("aria-disabled", "true");
     expect(apply).toHaveAccessibleDescription(/Changing them needs someone/);
-    expect(
-      superpowers.querySelector('[data-who-can="manageProjectSettings"]'),
-    ).toBeInTheDocument();
+    expect(superpowers.querySelector('[data-who-can="manageProjectSettings"]')).toBeInTheDocument();
     expect(saveBar()).toBeNull();
   });
 });
