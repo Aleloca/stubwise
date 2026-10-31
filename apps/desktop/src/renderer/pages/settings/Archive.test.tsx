@@ -123,6 +123,10 @@ describe("Archive: il dialogo", () => {
 
     const busy = await screen.findByRole("dialog", { name: "ACQ can't be archived yet" });
     expect(busy).toHaveTextContent(`Claude is working on ${code} “${run.title}”.`);
+    // Un glifo per riga e basta: niente triangolo accanto alla lista (rifinitura 12).
+    const list = within(busy).getByRole("list");
+    expect(busy.querySelector(".text-warning svg")).toBeNull();
+    expect(within(list).getAllByRole("listitem")[0]!.querySelectorAll("svg")).toHaveLength(1);
     expect(busy).toHaveTextContent(
       "Wait for it to finish, or stop it from its page, then archive again.",
     );

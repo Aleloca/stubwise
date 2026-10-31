@@ -17,6 +17,27 @@ import { rowButton, useFlash } from "./parts";
 // d'ingestione col suo DSN e lo snippet): ognuno col suo nome e il suo «Copy».
 
 /**
+ * Il testo con un punto in cui andare a capo dopo ogni «/» e «@» (`<wbr>`):
+ * un indirizzo o un DSN va a capo fra le sue parti, non dentro una parola
+ * («stub|wise»). Il testo resta identico, così si copia anche a mano; un
+ * pezzo più lungo della riga lo spezza `[overflow-wrap:anywhere]` di chi lo
+ * mostra.
+ */
+export function WithBreaks({ text }: { text: string }) {
+  const parts = text.split(/(?<=[/@])/);
+  return (
+    <>
+      {parts.map((part, i) => (
+        <Fragment key={i}>
+          {part}
+          {i < parts.length - 1 && <wbr />}
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
+/**
  * `code` (9c): un blocco di codice di più righe (lo snippet `init()`), con gli
  * a capo e i rientri com'erano, che va a capo dove serve dentro il riquadro.
  */
@@ -195,9 +216,13 @@ function SecretValue({
               ))}
             </p>
           ) : layout === "code" ? (
-            <pre className="font-code whitespace-pre-wrap [overflow-wrap:anywhere]">{value}</pre>
+            <pre className="font-code whitespace-pre-wrap [overflow-wrap:anywhere]">
+              <WithBreaks text={value} />
+            </pre>
           ) : (
-            <p className="break-all">{value}</p>
+            <p className="[overflow-wrap:anywhere]">
+              <WithBreaks text={value} />
+            </p>
           )}
         </div>
         <button

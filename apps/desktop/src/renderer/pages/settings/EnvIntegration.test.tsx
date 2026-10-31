@@ -84,6 +84,9 @@ describe("i file d'ambiente, da Laura in STW", () => {
     expect(production).toHaveTextContent("Claude never reads these");
     const staging = await envGroup(/^STAGING/i);
     expect(staging).toHaveTextContent("No files for Staging.");
+    // Il nome dell'ambiente uguale al tipo non si ripete («Test · Test», rifinitura 9).
+    expect(test).toHaveAccessibleName("Test");
+    expect(production).toHaveAccessibleName("Production");
     const env = fileRow(test, ".env");
     expect(env).toHaveTextContent("3 variables");
     const vars = within(env).getAllByRole("listitem");
@@ -409,7 +412,11 @@ describe("Integration", () => {
     expect(key).toHaveTextContent(
       "Copy gives the text with the key hidden. Paste the full key from where you saved it when it was made, or regenerate it.",
     );
-    expect(within(key).getByText(view.ingestion.maskedDsn)).toBeInTheDocument();
+    const dsn = within(key).getByText(view.ingestion.maskedDsn);
+    // Il DSN va a capo dopo «@» e «/», mai dentro una parola (rifinitura 7).
+    expect(dsn).not.toHaveClass("break-all");
+    expect(dsn.innerHTML).toContain("@<wbr>");
+    expect(dsn.innerHTML).toContain("/<wbr>");
 
     await user.click(within(key).getByRole("button", { name: "Copy DSN" }));
     expect(await navigator.clipboard.readText()).toBe(view.ingestion.maskedDsn);
@@ -452,6 +459,9 @@ describe("Integration", () => {
     const values = [...once.querySelectorAll("[data-secret-value]")].map((v) => v.textContent);
     expect(values[0]).toBe(secret);
     expect(values[1]).toBe(`https://${secret}@stubwise.example.test/ingest/ACQ`);
+    const dsnValue = once.querySelectorAll("[data-secret-value]")[1]!;
+    expect(dsnValue.innerHTML).toContain("@<wbr>");
+    expect(dsnValue.querySelector(".break-all")).toBeNull();
     expect(values[2]).toContain(`dsn: "https://${secret}@stubwise.example.test/ingest/ACQ"`);
     expect(within(once).getAllByRole("button", { name: /^Copy/ })).toHaveLength(3);
 

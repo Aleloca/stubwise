@@ -18,7 +18,7 @@ import { formatDate } from "../../notifications/time";
 import { copyText, downloadText } from "../../tasks-ui/exportFile";
 import { Dialog } from "../../tasks-ui/Dialog";
 import { RowsSkeleton, ReadError, rowButton, useFlash } from "../preferences/parts";
-import { SecretOnce } from "../preferences/SecretOnce";
+import { SecretOnce, WithBreaks } from "../preferences/SecretOnce";
 import { dangerSolidButton, secondaryButton } from "../tasks/controls";
 import { SettingsFrame, useSettingsWrite } from "./SettingsFrame";
 import { WebhookState } from "./repositories/WebhookRow";
@@ -178,13 +178,11 @@ function CopyBlock({
   label,
   copyLabel,
   text,
-  multiline = false,
   onCopied,
 }: {
   label: string;
   copyLabel: string;
   text: string;
-  multiline?: boolean;
   /**
    * Un testo con la chiave mascherata: la parte dice «Copied, with the key
    * hidden.» sotto i blocchi. Senza, il bottone stesso dice «Copied» per 2 s.
@@ -234,13 +232,10 @@ function CopyBlock({
       >
         <code
           ref={ref}
-          className={`font-code block [font-size:13px] leading-5 ${
-            multiline
-              ? "whitespace-pre-wrap [overflow-wrap:anywhere]"
-              : "break-all whitespace-pre-wrap"
-          }`}
+          className="font-code block [font-size:13px] leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]"
         >
-          {text}
+          {/* A capo dopo «/» e «@», non dentro una parola (rifinitura 7). */}
+          <WithBreaks text={text} />
         </code>
       </pre>
     </div>
@@ -303,7 +298,6 @@ function KeyPart({
         label={t("settings.integration.key.snippet")}
         copyLabel={t("settings.integration.key.copySnippet")}
         text={ingestion.maskedSnippet}
-        multiline
         onCopied={flash}
       />
       <div className="flex flex-col gap-1">
@@ -345,7 +339,6 @@ function InboundPart({ code, view }: { code: string; view: IntegrationView }) {
         label={t("settings.integration.inbound.example")}
         copyLabel={t("settings.integration.inbound.copyExample")}
         text={INBOUND_EXAMPLE}
-        multiline
       />
     </Part>
   );

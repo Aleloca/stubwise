@@ -11,7 +11,7 @@ import type { Project } from "../../data/types";
 import { Dialog } from "../../tasks-ui/Dialog";
 import { useToast } from "../../tasks-ui/Toast";
 import { routeOfCode } from "../claude/conversation/ProposalCard";
-import { OpenCircleGlyph, TriangleGlyph } from "../preferences/glyphs";
+import { OpenCircleGlyph } from "../preferences/glyphs";
 import { ReadError, refusalOf } from "../preferences/parts";
 import { primaryButton, secondaryButton } from "../tasks/controls";
 import { SettingsFrame, useSettingsWrite } from "./SettingsFrame";
@@ -160,20 +160,16 @@ function ArchiveDialog({ project, onClose }: { project: Project; onClose: () => 
           </>
         }
       >
-        <div className="flex items-start gap-2.5">
-          <span aria-hidden="true" className="mt-[3px] shrink-0 text-warning">
-            <TriangleGlyph size={14} />
-          </span>
-          <div className="flex min-w-0 flex-col gap-3">
-            <ul className="flex flex-col gap-2">
-              {busyReasons.map((reason, i) => (
-                <BusyLine key={i} reason={reason} code={code} />
-              ))}
-            </ul>
-            <p className="text-md text-pretty text-ink">
-              {t("settings.archive.busy.wait", { count: busyReasons.length })}
-            </p>
-          </div>
+        {/* Ogni riga ha il suo glifo: un triangolo accanto alla lista farebbe due icone sulla prima. */}
+        <div className="flex min-w-0 flex-col gap-3">
+          <ul className="flex flex-col gap-2">
+            {busyReasons.map((reason, i) => (
+              <BusyLine key={i} reason={reason} code={code} />
+            ))}
+          </ul>
+          <p className="text-md text-pretty text-ink">
+            {t("settings.archive.busy.wait", { count: busyReasons.length })}
+          </p>
         </div>
         {write.message}
       </Dialog>

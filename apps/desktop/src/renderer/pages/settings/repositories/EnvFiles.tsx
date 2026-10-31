@@ -266,16 +266,19 @@ function EnvironmentGroup({
   newFileRef: (el: HTMLButtonElement | null) => void;
   onOpen: (dialog: OpenDialog) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const headingId = useId();
+  const kind = t(`settings.envFiles.kinds.${environment.kind}`);
+  // Il nome dell'ambiente solo se dice qualcosa in più del tipo: «Test · Test» no.
+  const sameAsKind =
+    environment.name.trim().toLocaleLowerCase(i18n.language) ===
+    kind.toLocaleLowerCase(i18n.language);
   return (
     <div role="group" aria-labelledby={headingId} className="mt-7">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-rule pb-2">
         <h3 id={headingId} className="min-w-0 flex-1 text-sm text-ink">
-          <span className="heading-group text-ink">
-            {t(`settings.envFiles.kinds.${environment.kind}`)}
-          </span>
-          <span className="text-ink-muted"> · {environment.name}</span>
+          <span className="heading-group text-ink">{kind}</span>
+          {!sameAsKind && <span className="text-ink-muted"> · {environment.name}</span>}
         </h3>
         <ReachMark reaches={environment.reachesClaude} />
         <button
