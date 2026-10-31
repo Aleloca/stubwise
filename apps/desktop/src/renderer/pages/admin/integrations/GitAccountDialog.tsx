@@ -463,7 +463,10 @@ export function DeleteGitAccountDialog({
                       </span>
                     </Link>
                   ) : (
-                    <span className="flex h-9 items-center px-1 text-md text-ink">{r.name}</span>
+                    // Un repository senza progetto (area 9c): per nome, senza codice.
+                    <span className="flex h-9 items-center px-1 text-md text-ink">
+                      {t("admin.git.detachedRepo", { name: r.name })}
+                    </span>
                   )}
                 </li>
               ))}

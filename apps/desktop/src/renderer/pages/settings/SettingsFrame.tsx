@@ -165,13 +165,24 @@ export function LeaveConfirm({
  * `onDone`, che riceve il risultato: così vale anche dopo un Retry, che
  * altrimenti riuscirebbe senza che nessuno lo sappia.
  */
-export function useSettingsWrite(code: string, onReload: () => void) {
+export function useSettingsWrite(
+  code: string,
+  onReload: () => void,
+  options: {
+    /** La frase di `forbidden`, quando la sezione ne ha una sua (Delete: «Only a full admin…»). */
+    forbidden?: string;
+    /** Chi gestisce da sé `not_found` (Archived, Amministrazione): niente frase né ritorno ad All projects. */
+    onNotFound?: () => void;
+  } = {},
+) {
   const { t } = useTranslation();
   const toast = useToast();
   const navigate = useNavigate();
   const [failure, setFailure] = useState<
     { kind: "forbidden" } | { kind: "failed"; retry: () => void } | null
   >(null);
+  // Una scrittura alla volta: un doppio clic su Retry non ne lancia due.
+  const inflight = useRef(false);
 
   async function run<R>(
     write: () => Promise<R>,
@@ -193,9 +204,15 @@ export function useSettingsWrite(code: string, onReload: () => void) {
     // di un Retry riuscito arriva a `onDone` come quello del primo tentativo.
     // Durante il Retry la riga resta (e il fuoco sul suo bottone, che la
     // riconferma riprende alla chiusura): se ne va con l'esito.
+    if (inflight.current) return false;
     if (!retrying) setFailure(null);
     const retry = () => void attempt(write, onInvalid, onDone, onConflict, true);
-    const result = await write().catch(() => undefined);
+    inflight.current = true;
+    const result = await write()
+      .catch(() => undefined)
+      .finally(() => {
+        inflight.current = false;
+      });
     if (result === undefined) {
       setFailure({ kind: "failed", retry });
       return false;
@@ -219,15 +236,18 @@ export function useSettingsWrite(code: string, onReload: () => void) {
       // da riprovare, è una scelta di chi ha scritto la bozza ([PG 5]).
       onConflict();
     } else if (refusal.error === "not_found") {
-      toast.error(t("settings.common.notFound", { code }));
-      void navigate({ to: "/projects" as never });
+      if (options.onNotFound) options.onNotFound();
+      else {
+        toast.error(t("settings.common.notFound", { code }));
+        void navigate({ to: "/projects" as never });
+      }
     } else setFailure({ kind: "failed", retry });
     return false;
   }
 
   const message =
     failure?.kind === "forbidden" ? (
-      <ErrorLine>{t("settings.common.forbidden")}</ErrorLine>
+      <ErrorLine>{options.forbidden ?? t("settings.common.forbidden")}</ErrorLine>
     ) : failure?.kind === "failed" ? (
       <ErrorLine
         action={

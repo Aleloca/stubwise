@@ -529,3 +529,42 @@ describe("CommandPalette — la riga che parte selezionata (R-H4)", () => {
     expect(selected).not.toHaveTextContent(/Search all/);
   });
 });
+
+// Area 9c, Task 11 (RF 1, shape project-archive.md): un archiviato non è in
+// ⌘K per nessuno — né per chi ne era membro (Giulia), né per il full admin
+// (Roberta), né per chi non lo vedeva (Laura) —, cercando il codice o il nome.
+describe("⌘K e i progetti archiviati", () => {
+  async function offered(personId: string, query: string): Promise<string> {
+    const user = userEvent.setup();
+    const history = createMemoryHistory({ initialEntries: ["/home"] });
+    const { unmount } = render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ViewerProvider initialPersonId={personId}>
+          <ThemeProvider>
+            <RouterProvider router={createAppRouter(history)} />
+          </ThemeProvider>
+        </ViewerProvider>
+      </QueryClientProvider>,
+    );
+    await screen.findByRole("heading", { name: "Home", level: 1 });
+    const dialog = await openWithShortcut(user);
+    await user.type(within(dialog).getByRole("combobox"), query);
+    await new Promise((r) => setTimeout(r, 300));
+    // Tolta l'eco della domanda («No results for “RNC”», «Ask Claude…»).
+    const text = (within(dialog).getByRole("listbox").textContent ?? "").replaceAll(
+      `“${query}”`,
+      "",
+    );
+    unmount();
+    return text;
+  }
+
+  it.each(["p-giulia", "p-roberta", "p-laura"])(
+    "%s: «RNC» e «Ronchi» non trovano niente",
+    async (personId) => {
+      for (const query of ["RNC", "Ronchi"]) {
+        expect(await offered(personId, query)).not.toMatch(/RNC|Ronchi/);
+      }
+    },
+  );
+});

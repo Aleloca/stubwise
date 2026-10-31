@@ -2137,7 +2137,8 @@
     "tab": {
       "projects": "Projects",
       "stalled": "Stalled",
-      "activity": "Activity"
+      "activity": "Activity",
+      "archived": "Archived"
     },
     "groups": {
       "waiting": "Waiting on you",
@@ -2309,6 +2310,118 @@
         "forbiddenTitle": "You can't see people's activity",
         "forbiddenBody": "The review of the day by person is for who coordinates: full admins, project leads, or whoever is given the permission. Ask an admin if you need it.",
         "byProject": "Show activity by project"
+      }
+    },
+    "archived": {
+      "intro": "Projects that are over. You can read them; reopen one to work in it again.",
+      "loadError": "Couldn't load the archived projects.",
+      "list": "Archived projects",
+      "archivedBy": "Archived {{date}} by {{name}}",
+      "reopen": "Reopen",
+      "reopenWhy": "Reopening {{code}} needs managing its settings.",
+      "more": "More for {{code}}",
+      "deleteForGood": "Delete for good…",
+      "deleteWhy": "Only a full admin can delete a project.",
+      "find": "Find an archived project",
+      "noMatch": "No archived project matches “{{q}}”.",
+      "page": {
+        "back": "← Archived",
+        "band": "Archived on {{date}} by {{name}}. Read only: reopen it to work in it again.",
+        "loadError": "Couldn't load {{code}}.",
+        "summary": "Summary",
+        "noDescription": "No description.",
+        "members": "Members",
+        "fullAdmins": "Full admins can read it too.",
+        "showAll": "Show all {{count}}",
+        "contents": "What's in it",
+        "toOpen": "To open them, reopen the project.",
+        "repositories": "Repositories",
+        "repositoriesNote": "If {{code}} is deleted, these stay without a project and can be linked to another one.",
+        "whenReopened": "When reopened",
+        "comeBack": "These come back on: {{list}}.",
+        "stayOff_one": "{{list}} stays off.",
+        "stayOff_other": "{{list}} stay off.",
+        "allOff": "Every automation stays off.",
+        "pulseEvery_one": "Pulse every {{count}} day",
+        "pulseEvery_other": "Pulse every {{count}} days",
+        "changeLog": "Its change log"
+      },
+      "counts": {
+        "tasks": "Tasks",
+        "requests": "Requests",
+        "docPages": "Docs pages",
+        "conversations": "Conversations",
+        "channels": "Channels",
+        "driveFiles": "Drive files",
+        "automations": "Automations",
+        "environments": "Environments",
+        "envFiles": "Environment files",
+        "releases": "Releases"
+      },
+      "reopenDialog": {
+        "title": "Reopen {{code}}?",
+        "rail": "It comes back in the rail, All projects, ⌘K and Home for its members.",
+        "settings": "Its settings are as they were.",
+        "automations": "Automations start again from new events: what happened while it was archived isn't caught up.",
+        "notifications": "Notifications its members had come back.",
+        "reopen": "Reopen",
+        "reopening": "Reopening…",
+        "cancel": "Cancel",
+        "done": "{{code}} is open again.",
+        "already": "Someone already reopened {{code}}.",
+        "gone": "{{code}} no longer exists."
+      },
+      "deleteDialog": {
+        "title": "Delete {{code}} for good?",
+        "undone": "This can't be undone.",
+        "loadError": "Couldn't load what would be deleted, so nothing can be deleted now.",
+        "deleted": "Deleted",
+        "andMore": "and its members, settings and notifications",
+        "stays": "Stays without a project",
+        "repositories_one": "{{count}} repository: <b>{{names}}</b>. It keeps its address, git account and commands, and can be linked to another project from Administration → Repositories. Its environment files, Docs pages and pull requests go.",
+        "repositories_other": "{{count}} repositories: <b>{{names}}</b>. They keep their address, git account and commands, and can be linked to another project from Administration → Repositories. Their environment files, Docs pages and pull requests go.",
+        "servers_one": "{{count}} server: <b>{{names}}</b>. It stays in Administration → Servers, not in any project.",
+        "servers_other": "{{count}} servers: <b>{{names}}</b>. They stay in Administration → Servers, not in any project.",
+        "log": "The instance's change log keeps a line saying you deleted {{code}}.",
+        "type": "Type {{code}} to confirm",
+        "exactly": "Type it exactly as shown: {{code}}.",
+        "submit": "Delete for good",
+        "deleting": "Deleting…",
+        "cancel": "Cancel",
+        "discard": "Discard what you typed?",
+        "discardYes": "Discard",
+        "keep": "Keep editing",
+        "reauthAction": "Delete {{code}} for good",
+        "done": "{{code}} was deleted.",
+        "doneDetached_one": "{{code}} was deleted. {{count}} repository is now in no project.",
+        "doneDetached_other": "{{code}} was deleted. {{count}} repositories are now in no project.",
+        "openRepositories": "Open Repositories",
+        "notArchived": "{{code}} was reopened in the meantime. Nothing was deleted.",
+        "forbidden": "Only a full admin can delete a project.",
+        "mismatch": "The code doesn't match. Nothing was deleted.",
+        "gone": "{{code}} no longer exists.",
+        "counts": {
+          "tasks_one": "{{count}} task",
+          "tasks_other": "{{count}} tasks",
+          "requests_one": "{{count}} request",
+          "requests_other": "{{count}} requests",
+          "docPages_one": "{{count}} Docs page",
+          "docPages_other": "{{count}} Docs pages",
+          "conversations_one": "{{count}} conversation",
+          "conversations_other": "{{count}} conversations",
+          "channels_one": "{{count}} channel and its messages",
+          "channels_other": "{{count}} channels and their messages",
+          "driveFiles_one": "{{count}} Drive file",
+          "driveFiles_other": "{{count}} Drive files",
+          "automations_one": "{{count}} automation",
+          "automations_other": "{{count}} automations",
+          "environments_one": "{{count}} environment",
+          "environments_other": "{{count}} environments",
+          "envFiles_one": "{{count}} environment file",
+          "envFiles_other": "{{count}} environment files",
+          "releases_one": "{{count}} release",
+          "releases_other": "{{count}} releases"
+        }
       }
     }
   },
@@ -2979,6 +3092,45 @@
         "SubagentStop": "When a subagent stops",
         "PreCompact": "Before compacting"
       }
+    },
+    "archive": {
+      "intro": "Archive {{code}} when the work is over. It can be reopened at any time; only a full admin can delete it for good, and only once it's archived.",
+      "whatHappens": "What happens",
+      "leaves": "{{code}} leaves the rail, All projects, ⌘K, Home and notifications, for everyone.",
+      "readable": "Its members and full admins can still read it, in All projects → Archived.",
+      "automations": "Its automations stop and no new Claude work starts. Automation runs still open are cancelled, with the note “Project archived”.",
+      "nothingDeleted": "Nothing is deleted. Reopen brings it back as it was, settings included.",
+      "button": "Archive {{code}}…",
+      "deleteNote": "Deleting for good happens from the archived project's page, and only a full admin can do it.",
+      "dialog": {
+        "title": "Archive {{code}}?",
+        "leaves": "{{code}} leaves the rail, All projects, ⌘K, Home and notifications.",
+        "readable": "Its members and full admins can still read it, in Archived.",
+        "automations": "Its automations stop and no new Claude work starts.",
+        "nothingDeleted": "Nothing is deleted: Reopen brings it back as it was.",
+        "openRuns_one": "{{count}} automation run still open will be cancelled.",
+        "openRuns_other": "{{count}} automation runs still open will be cancelled.",
+        "archive": "Archive",
+        "archiving": "Archiving…",
+        "cancel": "Cancel"
+      },
+      "busy": {
+        "title": "{{code}} can't be archived yet",
+        "session": "Claude is working on <code>{{code}}</code> “{{title}}”.",
+        "sessionTitle": "Claude is working on “{{title}}”.",
+        "sessionHidden": "Claude is working on a conversation you can't see.",
+        "waiting": "<code>{{code}}</code> “{{title}}” is waiting for the queue to resume.",
+        "waitingTitle": "“{{title}}” is waiting for the queue to resume.",
+        "waitingHidden": "A conversation you can't see is waiting for the queue to resume.",
+        "release": "The release <code>{{code}}</code> is running.",
+        "wait_one": "Wait for it to finish, or stop it from its page, then archive again.",
+        "wait_other": "Wait for them to finish, or stop them from their pages, then archive again.",
+        "again": "Archive again",
+        "close": "Close"
+      },
+      "done": "{{code}} is archived. Its members find it in Archived.",
+      "openArchived": "Open Archived",
+      "already": "Someone already archived {{code}}."
     }
   },
   "export": {
@@ -9584,7 +9736,9 @@
         "submit": "Delete",
         "action": "delete the git account {{name}}",
         "done": "{{name}} deleted."
-      }
+      },
+      "detachedRepo": "{{name}} (not in any project)",
+      "usedByDetached": "Used by {{names}}"
     },
     "plugins": {
       "title": "Plugins",
@@ -9909,7 +10063,45 @@
       "count_one": "{{count}} repository",
       "count_other": "{{count}} repositories",
       "noAccount": "No git account",
-      "open": "{{name}}, {{project}}: open it in the project's settings"
+      "open": "{{name}}, {{project}}: open it in the project's settings",
+      "detached": {
+        "group": "Not in any project",
+        "from": "From <b>{{code}}</b> · {{name}}, deleted {{date}}",
+        "since": "Without a project since {{date}}",
+        "link": "Link to a project…",
+        "noTargets": "None of your projects can take it: you need to manage repositories in an active project.",
+        "more": "More for {{name}}",
+        "delete": "Delete…",
+        "linkDialog": {
+          "title": "Link {{name}} to a project",
+          "project": "Project",
+          "choose": "Choose a project…",
+          "address": "It joins with its address, git account, commands and protected branches.",
+          "webhook": "Its webhook starts not configured, and it has no environment files.",
+          "link": "Link",
+          "linking": "Linking…",
+          "cancel": "Cancel",
+          "done": "{{name}} is now in {{code}}.",
+          "open": "Open",
+          "nameTaken": "{{code}} already has a repository called {{name}}. Choose another project.",
+          "forbidden": "You can't manage {{code}}'s repositories anymore.",
+          "gone": "That project is no longer available, or someone already linked this repository. Nothing changed."
+        },
+        "deleteDialog": {
+          "title": "Delete {{name}} for good?",
+          "undone": "This can't be undone.",
+          "forgets": "Stubwise forgets its address, commands and protected branches. The repository on {{platform}} isn't touched.",
+          "forgetsNoPlatform": "Stubwise forgets its address, commands and protected branches. The repository on its platform isn't touched.",
+          "account": "{{account}} stops counting it as in use.",
+          "submit": "Delete",
+          "deleting": "Deleting…",
+          "cancel": "Cancel",
+          "reauthAction": "Delete {{name}} for good",
+          "done": "{{name}} deleted.",
+          "gone": "Someone already linked or deleted this repository. Nothing changed.",
+          "forbidden": "Only a full admin can delete it."
+        }
+      }
     },
     "status": {
       "intro": "What Stubwise is doing right now, in the projects you can see.",
@@ -10520,7 +10712,10 @@
         "ingestion_key_regenerated": "<actor>{{actor}}</actor> made a new ingestion key for <object>{{object}}</object>.",
         "archived": "<actor>{{actor}}</actor> archived <object>{{object}}</object>.",
         "reopened": "<actor>{{actor}}</actor> reopened <object>{{object}}</object>.",
-        "deleted": "<actor>{{actor}}</actor> deleted the project <object>{{object}}</object>."
+        "deleted": "<actor>{{actor}}</actor> deleted the project <object>{{object}}</object>.",
+        "deleted_zero": "<actor>{{actor}}</actor> deleted the project <object>{{object}}</object>.",
+        "deleted_one": "<actor>{{actor}}</actor> deleted the project <object>{{object}}</object>. {{count}} repository is now in no project.",
+        "deleted_other": "<actor>{{actor}}</actor> deleted the project <object>{{object}}</object>. {{count}} repositories are now in no project."
       },
       "repository": {
         "created": "<actor>{{actor}}</actor> added the repository <object>{{object}}</object> to {{project}}.",

@@ -2137,7 +2137,8 @@
     "tab": {
       "projects": "Progetti",
       "stalled": "Ferme",
-      "activity": "Attività"
+      "activity": "Attività",
+      "archived": "Archiviati"
     },
     "groups": {
       "waiting": "Ti aspettano",
@@ -2309,6 +2310,118 @@
         "forbiddenTitle": "Non puoi vedere l'attività delle persone",
         "forbiddenBody": "La rassegna del giorno per persona è per chi coordina: gli admin, i project lead o chi ha ricevuto il permesso. Chiedilo a un admin se ti serve.",
         "byProject": "Mostra l'attività per progetto"
+      }
+    },
+    "archived": {
+      "intro": "Progetti chiusi. Puoi leggerli; riaprine uno per lavorarci di nuovo.",
+      "loadError": "Impossibile caricare i progetti archiviati.",
+      "list": "Progetti archiviati",
+      "archivedBy": "Archiviato il {{date}} da {{name}}",
+      "reopen": "Riapri",
+      "reopenWhy": "Per riaprire {{code}} serve poterne gestire le impostazioni.",
+      "more": "Altro per {{code}}",
+      "deleteForGood": "Elimina per sempre…",
+      "deleteWhy": "Solo un full admin può eliminare un progetto.",
+      "find": "Cerca un progetto archiviato",
+      "noMatch": "Nessun progetto archiviato corrisponde a “{{q}}”.",
+      "page": {
+        "back": "← Archiviati",
+        "band": "Archiviato il {{date}} da {{name}}. Sola lettura: riaprilo per lavorarci di nuovo.",
+        "loadError": "Impossibile caricare {{code}}.",
+        "summary": "Sintesi",
+        "noDescription": "Nessuna descrizione.",
+        "members": "Membri",
+        "fullAdmins": "Possono leggerlo anche i full admin.",
+        "showAll": "Mostra tutti e {{count}}",
+        "contents": "Cosa contiene",
+        "toOpen": "Per aprirli, riapri il progetto.",
+        "repositories": "Repository",
+        "repositoriesNote": "Se {{code}} viene eliminato, questi restano senza progetto e si possono collegare a un altro.",
+        "whenReopened": "Alla riapertura",
+        "comeBack": "Tornano accesi: {{list}}.",
+        "stayOff_one": "{{list}} resta spento.",
+        "stayOff_other": "{{list}} restano spenti.",
+        "allOff": "Ogni automazione resta spenta.",
+        "pulseEvery_one": "Pulse ogni {{count}} giorno",
+        "pulseEvery_other": "Pulse ogni {{count}} giorni",
+        "changeLog": "Il suo registro delle modifiche"
+      },
+      "counts": {
+        "tasks": "Task",
+        "requests": "Richieste",
+        "docPages": "Pagine dei Docs",
+        "conversations": "Conversazioni",
+        "channels": "Canali",
+        "driveFiles": "File del Drive",
+        "automations": "Automazioni",
+        "environments": "Ambienti",
+        "envFiles": "File d'ambiente",
+        "releases": "Rilasci"
+      },
+      "reopenDialog": {
+        "title": "Riaprire {{code}}?",
+        "rail": "Torna nel binario, in Tutti i progetti, ⌘K e Home per i suoi membri.",
+        "settings": "Le impostazioni sono com'erano.",
+        "automations": "Le automazioni ripartono dagli eventi nuovi: ciò che è successo mentre era archiviato non si recupera.",
+        "notifications": "Le notifiche che i membri avevano tornano.",
+        "reopen": "Riapri",
+        "reopening": "Riapertura…",
+        "cancel": "Annulla",
+        "done": "{{code}} è di nuovo aperto.",
+        "already": "Qualcuno ha già riaperto {{code}}.",
+        "gone": "{{code}} non esiste più."
+      },
+      "deleteDialog": {
+        "title": "Eliminare {{code}} per sempre?",
+        "undone": "Non si può tornare indietro.",
+        "loadError": "Impossibile caricare cosa verrebbe eliminato, quindi ora non si può eliminare niente.",
+        "deleted": "Eliminato",
+        "andMore": "e i suoi membri, le impostazioni e le notifiche",
+        "stays": "Resta senza progetto",
+        "repositories_one": "{{count}} repository: <b>{{names}}</b>. Tiene indirizzo, account git e comandi, e si può collegare a un altro progetto da Amministrazione → Repository. File d'ambiente, pagine dei Docs e pull request se ne vanno.",
+        "repositories_other": "{{count}} repository: <b>{{names}}</b>. Tengono indirizzo, account git e comandi, e si possono collegare a un altro progetto da Amministrazione → Repository. File d'ambiente, pagine dei Docs e pull request se ne vanno.",
+        "servers_one": "{{count}} server: <b>{{names}}</b>. Resta in Amministrazione → Server, in nessun progetto.",
+        "servers_other": "{{count}} server: <b>{{names}}</b>. Restano in Amministrazione → Server, in nessun progetto.",
+        "log": "Il registro delle modifiche dell'istanza tiene una riga che dice che hai eliminato {{code}}.",
+        "type": "Scrivi {{code}} per confermare",
+        "exactly": "Scrivilo esattamente così: {{code}}.",
+        "submit": "Elimina per sempre",
+        "deleting": "Eliminazione…",
+        "cancel": "Annulla",
+        "discard": "Scartare ciò che hai scritto?",
+        "discardYes": "Scarta",
+        "keep": "Continua a scrivere",
+        "reauthAction": "Eliminare {{code}} per sempre",
+        "done": "{{code}} è stato eliminato.",
+        "doneDetached_one": "{{code}} è stato eliminato. {{count}} repository ora non è in nessun progetto.",
+        "doneDetached_other": "{{code}} è stato eliminato. {{count}} repository ora non sono in nessun progetto.",
+        "openRepositories": "Apri Repository",
+        "notArchived": "{{code}} è stato riaperto nel frattempo. Non è stato eliminato niente.",
+        "forbidden": "Solo un full admin può eliminare un progetto.",
+        "mismatch": "Il codice non corrisponde. Non è stato eliminato niente.",
+        "gone": "{{code}} non esiste più.",
+        "counts": {
+          "tasks_one": "{{count}} task",
+          "tasks_other": "{{count}} task",
+          "requests_one": "{{count}} richiesta",
+          "requests_other": "{{count}} richieste",
+          "docPages_one": "{{count}} pagina dei Docs",
+          "docPages_other": "{{count}} pagine dei Docs",
+          "conversations_one": "{{count}} conversazione",
+          "conversations_other": "{{count}} conversazioni",
+          "channels_one": "{{count}} canale e i suoi messaggi",
+          "channels_other": "{{count}} canali e i loro messaggi",
+          "driveFiles_one": "{{count}} file del Drive",
+          "driveFiles_other": "{{count}} file del Drive",
+          "automations_one": "{{count}} automazione",
+          "automations_other": "{{count}} automazioni",
+          "environments_one": "{{count}} ambiente",
+          "environments_other": "{{count}} ambienti",
+          "envFiles_one": "{{count}} file d'ambiente",
+          "envFiles_other": "{{count}} file d'ambiente",
+          "releases_one": "{{count}} rilascio",
+          "releases_other": "{{count}} rilasci"
+        }
       }
     }
   },
@@ -2979,6 +3092,45 @@
         "SubagentStop": "Quando un subagente si ferma",
         "PreCompact": "Prima di compattare"
       }
+    },
+    "archive": {
+      "intro": "Archivia {{code}} quando il lavoro è finito. Si può riaprire in ogni momento; solo un full admin può eliminarlo per sempre, e solo dopo averlo archiviato.",
+      "whatHappens": "Cosa succede",
+      "leaves": "{{code}} esce da binario, Tutti i progetti, ⌘K, Home e notifiche, per tutti.",
+      "readable": "I suoi membri e i full admin possono ancora leggerlo, in Tutti i progetti → Archiviati.",
+      "automations": "Le sue automazioni si fermano e non parte nuovo lavoro di Claude. Le esecuzioni delle automazioni ancora aperte si annullano, con la nota “Progetto archiviato”.",
+      "nothingDeleted": "Non si cancella niente. Riapri lo riporta com'era, impostazioni comprese.",
+      "button": "Archivia {{code}}…",
+      "deleteNote": "L'eliminazione definitiva si fa dalla pagina del progetto archiviato, e solo un full admin può farla.",
+      "dialog": {
+        "title": "Archiviare {{code}}?",
+        "leaves": "{{code}} esce da binario, Tutti i progetti, ⌘K, Home e notifiche.",
+        "readable": "I suoi membri e i full admin possono ancora leggerlo, in Archiviati.",
+        "automations": "Le sue automazioni si fermano e non parte nuovo lavoro di Claude.",
+        "nothingDeleted": "Non si cancella niente: Riapri lo riporta com'era.",
+        "openRuns_one": "{{count}} esecuzione delle automazioni ancora aperta verrà annullata.",
+        "openRuns_other": "{{count}} esecuzioni delle automazioni ancora aperte verranno annullate.",
+        "archive": "Archivia",
+        "archiving": "Archiviazione…",
+        "cancel": "Annulla"
+      },
+      "busy": {
+        "title": "{{code}} non si può ancora archiviare",
+        "session": "Claude sta lavorando su <code>{{code}}</code> “{{title}}”.",
+        "sessionTitle": "Claude sta lavorando su “{{title}}”.",
+        "sessionHidden": "Claude sta lavorando su una conversazione che non vedi.",
+        "waiting": "<code>{{code}}</code> “{{title}}” aspetta la ripresa della coda.",
+        "waitingTitle": "“{{title}}” aspetta la ripresa della coda.",
+        "waitingHidden": "Una conversazione che non vedi aspetta la ripresa della coda.",
+        "release": "Il rilascio <code>{{code}}</code> è in corso.",
+        "wait_one": "Aspetta che finisca, o fermalo dalla sua pagina, poi archivia di nuovo.",
+        "wait_other": "Aspetta che finiscano, o fermali dalle loro pagine, poi archivia di nuovo.",
+        "again": "Archivia di nuovo",
+        "close": "Chiudi"
+      },
+      "done": "{{code}} è archiviato. I suoi membri lo trovano in Archiviati.",
+      "openArchived": "Apri Archiviati",
+      "already": "Qualcuno ha già archiviato {{code}}."
     }
   },
   "export": {
@@ -9584,7 +9736,9 @@
         "submit": "Elimina",
         "action": "eliminare l'account git {{name}}",
         "done": "{{name}} eliminato."
-      }
+      },
+      "detachedRepo": "{{name}} (in nessun progetto)",
+      "usedByDetached": "Usato da {{names}}"
     },
     "plugins": {
       "title": "Plugin",
@@ -9909,7 +10063,45 @@
       "count_one": "{{count}} repository",
       "count_other": "{{count}} repository",
       "noAccount": "Nessun account git",
-      "open": "{{name}}, {{project}}: aprilo nelle impostazioni del progetto"
+      "open": "{{name}}, {{project}}: aprilo nelle impostazioni del progetto",
+      "detached": {
+        "group": "In nessun progetto",
+        "from": "Da <b>{{code}}</b> · {{name}}, eliminato il {{date}}",
+        "since": "Senza progetto dal {{date}}",
+        "link": "Collega a un progetto…",
+        "noTargets": "Nessuno dei tuoi progetti può prenderlo: serve poter gestire i repository in un progetto attivo.",
+        "more": "Altro per {{name}}",
+        "delete": "Elimina…",
+        "linkDialog": {
+          "title": "Collega {{name}} a un progetto",
+          "project": "Progetto",
+          "choose": "Scegli un progetto…",
+          "address": "Entra con indirizzo, account git, comandi e rami protetti.",
+          "webhook": "Il webhook parte non configurato, e non ha file d'ambiente.",
+          "link": "Collega",
+          "linking": "Collegamento…",
+          "cancel": "Annulla",
+          "done": "{{name}} ora è in {{code}}.",
+          "open": "Apri",
+          "nameTaken": "{{code}} ha già un repository che si chiama {{name}}. Scegli un altro progetto.",
+          "forbidden": "Non puoi più gestire i repository di {{code}}.",
+          "gone": "Quel progetto non è più disponibile, o qualcuno ha già collegato questo repository. Non è cambiato niente."
+        },
+        "deleteDialog": {
+          "title": "Eliminare {{name}} per sempre?",
+          "undone": "Non si può tornare indietro.",
+          "forgets": "Stubwise dimentica indirizzo, comandi e rami protetti. Il repository su {{platform}} non viene toccato.",
+          "forgetsNoPlatform": "Stubwise dimentica indirizzo, comandi e rami protetti. Il repository sulla sua piattaforma non viene toccato.",
+          "account": "{{account}} smette di contarlo come in uso.",
+          "submit": "Elimina",
+          "deleting": "Eliminazione…",
+          "cancel": "Annulla",
+          "reauthAction": "Eliminare {{name}} per sempre",
+          "done": "{{name}} eliminato.",
+          "gone": "Qualcuno ha già collegato o eliminato questo repository. Non è cambiato niente.",
+          "forbidden": "Solo un full admin può eliminarlo."
+        }
+      }
     },
     "status": {
       "intro": "Cosa sta facendo Stubwise adesso, nei progetti che vedi.",
@@ -10520,7 +10712,10 @@
         "ingestion_key_regenerated": "<actor>{{actor}}</actor> ha creato una nuova chiave d'ingestione per <object>{{object}}</object>.",
         "archived": "<actor>{{actor}}</actor> ha archiviato <object>{{object}}</object>.",
         "reopened": "<actor>{{actor}}</actor> ha riaperto <object>{{object}}</object>.",
-        "deleted": "<actor>{{actor}}</actor> ha eliminato il progetto <object>{{object}}</object>."
+        "deleted": "<actor>{{actor}}</actor> ha eliminato il progetto <object>{{object}}</object>.",
+        "deleted_zero": "<actor>{{actor}}</actor> ha eliminato il progetto <object>{{object}}</object>.",
+        "deleted_one": "<actor>{{actor}}</actor> ha eliminato il progetto <object>{{object}}</object>. {{count}} repository ora non è in nessun progetto.",
+        "deleted_other": "<actor>{{actor}}</actor> ha eliminato il progetto <object>{{object}}</object>. {{count}} repository ora non sono in nessun progetto."
       },
       "repository": {
         "created": "<actor>{{actor}}</actor> ha aggiunto il repository <object>{{object}}</object> a {{project}}.",

@@ -28,6 +28,7 @@ export function WhoCanLink({
   action,
   projectId,
   projectCode,
+  menuItem = false,
 }: {
   /** Un'azione del catalogo `ACTIONS` («approvePlan»). */
   action: string;
@@ -38,6 +39,11 @@ export function WhoCanLink({
   projectId?: string | null;
   /** Il codice del progetto, per il titolo e per «Open in Who can?». */
   projectCode?: string | null;
+  /**
+   * Dentro un menu «⋯», accanto a una voce spenta (area 9c, Task 11): il link
+   * è una voce del menu, raggiunta con le frecce come le altre.
+   */
+  menuItem?: boolean;
 }) {
   const { t } = useTranslation();
   const [anchor, setAnchor] = useState<{ top: number; left: number; up: boolean } | null>(null);
@@ -78,6 +84,7 @@ export function WhoCanLink({
         type="button"
         aria-haspopup="dialog"
         aria-expanded={anchor !== null}
+        {...(menuItem ? { role: "menuitem", tabIndex: -1 } : {})}
         aria-label={t("whoCan.link.label", { action: actionWords })}
         data-who-can={action}
         onClick={toggle}

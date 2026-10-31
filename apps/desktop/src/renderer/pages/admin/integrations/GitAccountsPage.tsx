@@ -272,18 +272,29 @@ function GitAccountRow({
 /**
  * Chi usa l'account, dal livello dati: «Used by 6 repositories in ACQ, AUD,
  * STW» (codici dei progetti visibili, una volta ciascuno) e «and 2 in
- * projects you can't see»; nessuno → «Not used yet».
+ * projects you can't see»; nessuno → «Not used yet». Un repository senza
+ * progetto (area 9c, Task 11) si legge per nome, «shop-frontend (not in any
+ * project)», senza codice.
  */
 function UsageWords({ account: a }: { account: GitAccountView }) {
   const { t } = useTranslation();
   const hidden = a.hiddenRepositories;
-  const shown = a.repositories.length;
-  if (shown === 0 && hidden === 0) return <span>{t("admin.git.notUsed")}</span>;
-  if (shown === 0) return <span>{t("admin.git.onlyHidden", { count: hidden })}</span>;
-  const codes = [...new Set(a.repositories.map((r) => r.projectCode))].join(", ");
+  const inProjects = a.repositories.filter((r) => r.projectCode !== null);
+  const loose = a.repositories
+    .filter((r) => r.projectCode === null)
+    .map((r) => t("admin.git.detachedRepo", { name: r.name }));
+  if (a.repositories.length === 0 && hidden === 0) return <span>{t("admin.git.notUsed")}</span>;
+  if (a.repositories.length === 0)
+    return <span>{t("admin.git.onlyHidden", { count: hidden })}</span>;
+  const codes = [...new Set(inProjects.map((r) => r.projectCode))].join(", ");
   return (
     <>
-      <span>{t("admin.git.usedBy", { count: shown, codes })}</span>
+      {inProjects.length > 0 ? (
+        <span>{t("admin.git.usedBy", { count: inProjects.length, codes })}</span>
+      ) : (
+        <span>{t("admin.git.usedByDetached", { names: loose.join(", ") })}</span>
+      )}
+      {inProjects.length > 0 && loose.length > 0 && <span>{loose.join(", ")}</span>}
       {hidden > 0 && <span>{t("admin.git.andHidden", { count: hidden })}</span>}
     </>
   );

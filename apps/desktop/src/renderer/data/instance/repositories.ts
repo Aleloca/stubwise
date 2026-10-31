@@ -9,6 +9,7 @@ import { gate, state, visibleProjectIds } from "../store";
 import { can, viewerFor } from "../viewer";
 import { forbidden, writer } from "../writer";
 import { canI, reauthRefusal, refuse } from "./common";
+import type { GitAccount } from "./state";
 
 // I repository di tutta l'istanza (area 9b, Task 7): Amministrazione →
 // Repositories, un elenco del catalogo senza azioni — per cambiarne uno si
@@ -85,6 +86,8 @@ export interface DetachedRepositoryRow {
   name: string;
   fullName: string | null;
   gitAccountName: string | null;
+  /** La piattaforma dell'account git («The repository on GitHub isn't touched»); `null` senza account. */
+  gitAccountProvider: GitAccount["provider"] | null;
   detachedAt: string;
   /** Da quale progetto eliminato viene: solo a chi ne era membro e al full admin, altrimenti null (R-G5). */
   formerProject: { code: string; name: string } | null;
@@ -133,6 +136,8 @@ export async function listDetachedRepositories(): Promise<DetachedRepositoryRow[
       fullName: r.fullName ?? null,
       gitAccountName:
         state.instance.gitAccounts.find((g) => g.id === r.gitAccountId)?.name ?? null,
+      gitAccountProvider:
+        state.instance.gitAccounts.find((g) => g.id === r.gitAccountId)?.provider ?? null,
       detachedAt,
       formerProject: formerProjectFor(me, formerProjectId),
       linkTargets: linkTargets.map((t) => ({ ...t })),

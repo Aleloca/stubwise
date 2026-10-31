@@ -57,6 +57,7 @@ describe("chi li legge, e la provenienza (R-G5)", () => {
         name: "shop-frontend",
         fullName: "vetrina-web/shop-frontend",
         gitAccountName: "GitHub Shop",
+        gitAccountProvider: "github",
         formerProject: { code: "RNC", name: "Vetrina online Tenuta Ronchi" },
       });
     }

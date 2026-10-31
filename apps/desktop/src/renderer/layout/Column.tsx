@@ -17,6 +17,8 @@ export function contextOf(pathname: string): string {
   const first = pathname.split("/")[1] ?? "";
   // I filtri (fissati e «All filters») e la Planning trasversale vivono nella colonna della Home.
   if (first === "filters" || first === "planning") return "home";
+  // La pagina di un archiviato sta nella colonna di All projects (area 9c).
+  if (first === "archived") return "projects";
   return (APP_ROUTES as readonly string[]).includes(first) ? first : "home";
 }
 

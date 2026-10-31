@@ -3,8 +3,8 @@ import { useTranslation } from "react-i18next";
 import { useProject } from "../../data/queries";
 import type { ProjectSettingsSection } from "../../data/routes";
 import type { Project } from "../../data/types";
-import { Placeholder } from "../Placeholder";
 import { AiSettings } from "./AiSettings";
+import { ArchiveSettings } from "./ArchiveSettings";
 import { AutomationSettings } from "./AutomationSettings";
 import { GeneralSettings } from "./GeneralSettings";
 import { IntegrationSettings } from "./IntegrationSettings";
@@ -71,10 +71,7 @@ function Section({ project, section }: { project: Project; section: ProjectSetti
       return <IntegrationSettings project={project} />;
     case "plugins":
       return <PluginSettings project={project} />;
-    // La sezione che arriva col Task 11 dell'area 9c.
     case "archive":
-      return (
-        <Placeholder titleKey={`settings.sections.${section}`} bodyKey="settings.placeholder" />
-      );
+      return <ArchiveSettings project={project} />;
   }
 }

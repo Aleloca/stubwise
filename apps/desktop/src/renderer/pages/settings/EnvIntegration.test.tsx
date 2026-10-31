@@ -3,6 +3,7 @@ import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __secretValuesForTest } from "../../data/admin/secrets";
 import { failNext, projectSettings, resetApi, setLatency } from "../../data/api";
+import { markReauthenticated } from "../../data/auth/reauth";
 import { setSessionPersonId } from "../../data/session";
 import { state } from "../../data/store";
 import { resetViewerGrants, revokeProjectPermission } from "../../data/viewer";
@@ -485,6 +486,27 @@ describe("Integration", () => {
     const once = await within(dialog).findByTestId("secret-once");
     const secret = __secretValuesForTest().find((s) => s.kind === "ingestion_key")!.values[0]!;
     expect(once.querySelector("[data-secret-value]")).toHaveTextContent(secret);
+  });
+
+  it("un doppio clic su Retry rigenera una chiave sola (area 9c, Task 11)", async () => {
+    const user = userEvent.setup();
+    await openIntegration(LAURA);
+    const key = await screen.findByRole("region", { name: "Ingestion key" });
+    await user.click(within(key).getByRole("button", { name: "Regenerate key…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Make a new ingestion key for ACQ?" });
+    failNext("projectSettings.regenerateIngestionKey");
+    await user.click(within(dialog).getByRole("button", { name: "Regenerate" }));
+    expect(await within(dialog).findByText("Couldn't save. Try again.")).toBeInTheDocument();
+    // Riconfermata e con la latenza: il secondo clic arriva a scrittura in corso.
+    markReauthenticated(LAURA);
+    setLatency(40);
+    const before = state.changelog.length;
+    await user.dblClick(within(dialog).getByRole("button", { name: "Retry" }));
+    await within(dialog).findByTestId("secret-once");
+    await new Promise((r) => setTimeout(r, 200));
+    expect(
+      state.changelog.slice(before).filter((e) => e.kind === "project.ingestion_key_regenerated"),
+    ).toHaveLength(1);
   });
 
   it("un errore, poi Retry: il secret del webhook compare in SecretOnce", async () => {

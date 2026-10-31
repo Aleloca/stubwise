@@ -1,7 +1,16 @@
-import { Link, useNavigate, useSearch } from "@tanstack/react-router";
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { Link, useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import { useTranslation } from "react-i18next";
 import {
+  useArchivedProjects,
   useDepartments,
   usePinnedProjects,
   useProjectPulses,
@@ -20,6 +29,7 @@ import { pulseParts } from "../overview/pulseLine";
 import { PulseText } from "../overview/PulseText";
 import { Chevron, MenuButton, primaryButton, secondaryButton } from "../tasks/controls";
 import { ActivityFeed } from "./ActivityFeed";
+import { ArchivedProjects } from "./ArchivedProjects";
 import { NewProjectDialog } from "./NewProjectDialog";
 import { PeopleActivity, PeopleActivityBar, PeopleActivityForbidden } from "./PeopleActivity";
 import { PortfolioStalled } from "./PortfolioStalled";
@@ -31,7 +41,8 @@ import {
   type PortfolioFilters,
 } from "./portfolio";
 
-const TABS = ["projects", "stalled", "activity"] as const;
+/** Le schede; «Archived» (area 9c) solo per chi vede almeno un archiviato. */
+const TABS = ["projects", "stalled", "activity", "archived"] as const;
 type Tab = (typeof TABS)[number];
 
 const OPEN_FAMILIES = ["todo", "active"] as const;
@@ -71,7 +82,44 @@ export function AllProjectsPage() {
   // «By person» nella scheda Activity: dall'indirizzo, così un link la apre.
   const personView = search.view === "person";
   const canPeople = can(viewer, "people.activity.view");
-  const [tab, setTab] = useState<Tab>(personView ? "activity" : "projects");
+  const [tab, setTab] = useState<Tab>(
+    search.view === "archived" ? "archived" : personView ? "activity" : "projects",
+  );
+  // «Open Archived» (il toast dopo un'archiviazione) riscrive `?view=archived`
+  // con la pagina già aperta.
+  useEffect(() => {
+    if (search.view === "archived") setTab("archived");
+  }, [search.view]);
+  const archived = useArchivedProjects();
+  const archivedRows = archived.data ?? [];
+  // `?view=archived` per chi non ne vede nessuno apre Projects, senza messaggio.
+  const shownTab: Tab =
+    tab === "archived" && archived.isSuccess && archivedRows.length === 0 ? "projects" : tab;
+  const tabs = TABS.filter(
+    (key) =>
+      key !== "archived" || archivedRows.length > 0 || (tab === "archived" && archived.isPending),
+  );
+  const heading = useRef<HTMLHeadingElement>(null);
+  const tabsRef = useRef<HTMLDivElement>(null);
+  // Il fuoco dopo un'archiviazione, un Delete o una riapertura che toglie la
+  // riga (shape project-archive.md §6): l'h1, o il titolo della scheda
+  // Archived se c'è ancora (altrimenti l'h1), deciso a elenco riletto.
+  const [focusTitle, setFocusTitle] = useState(false);
+  const arrival = useRouterState({
+    select: (s) => (s.location.state as { focus?: string } | undefined)?.focus,
+  });
+  useEffect(() => {
+    if (arrival === "h1") heading.current?.focus({ preventScroll: true });
+    if (arrival === "archived") setFocusTitle(true);
+  }, [arrival]);
+  useEffect(() => {
+    if (!focusTitle || archived.isFetching || !archived.isSuccess) return;
+    setFocusTitle(false);
+    const title = tabsRef.current?.querySelector<HTMLElement>('[data-tab="archived"]');
+    if (title && archivedRows.length > 0) title.focus();
+    else heading.current?.focus({ preventScroll: true });
+  }, [focusTitle, archived.isFetching, archived.isSuccess, archivedRows.length]);
+  const onFocusTitle = useCallback(() => setFocusTitle(true), []);
   const [personQuery, setPersonQuery] = useState("");
   // `?view=pinned` (Preferenze → Account, «Manage in All projects»): i soli fissati.
   const [filters, setFilters] = useState<PortfolioFilters>(() =>
@@ -130,9 +178,9 @@ export function AllProjectsPage() {
       },
     );
   };
-  const current = useRef({ togglePin, tab, projects: projects.data });
+  const current = useRef({ togglePin, tab: shownTab, projects: projects.data });
   useEffect(() => {
-    current.current = { togglePin, tab, projects: projects.data };
+    current.current = { togglePin, tab: shownTab, projects: projects.data };
   });
 
   // J/K fra le righe, P fissa/sgancia quella col fuoco. Niente scrivendo, né
@@ -171,7 +219,9 @@ export function AllProjectsPage() {
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
     e.preventDefault();
     const next =
-      TABS[(TABS.indexOf(tab) + (e.key === "ArrowRight" ? 1 : TABS.length - 1)) % TABS.length]!;
+      tabs[
+        (tabs.indexOf(shownTab) + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length
+      ]!;
     setTab(next);
     (e.currentTarget.querySelector(`[data-tab="${next}"]`) as HTMLElement | null)?.focus();
   };
@@ -185,7 +235,7 @@ export function AllProjectsPage() {
           : { ...prev, view: undefined, date: undefined, dept: undefined },
       replace: true,
     } as never);
-  const showPeople = tab === "activity" && personView;
+  const showPeople = shownTab === "activity" && personView;
 
   const clear = () => setFilters(NO_FILTERS);
   const noMatch = (
@@ -208,7 +258,17 @@ export function AllProjectsPage() {
   const failed = [projects, pulses, pinned, deptTasks].filter((q) => q.isError);
 
   let body;
-  if (showPeople) {
+  if (shownTab === "archived") {
+    // Gli archiviati non dipendono dai filtri del portafoglio.
+    body = (
+      <ArchivedProjects
+        rows={archived.data}
+        state={archived.isError ? "error" : archived.isPending ? "loading" : "ready"}
+        onRetry={() => void archived.refetch()}
+        onFocusTitle={onFocusTitle}
+      />
+    );
+  } else if (showPeople) {
     // La rassegna per persona non dipende dai filtri del portafoglio: ha i suoi.
     body = canPeople ? (
       <PeopleActivity query={personQuery} onClearQuery={() => setPersonQuery("")} />
@@ -242,7 +302,7 @@ export function AllProjectsPage() {
     );
   } else if (filtered.length === 0) {
     body = noMatch;
-  } else if (tab === "projects") {
+  } else if (shownTab === "projects") {
     body = (
       <div ref={listRef}>
         {(
@@ -278,7 +338,7 @@ export function AllProjectsPage() {
         )}
       </div>
     );
-  } else if (tab === "stalled") {
+  } else if (shownTab === "stalled") {
     body = <PortfolioStalled projects={filtered} />;
   } else {
     body = <ActivityFeed projects={filtered} />;
@@ -290,7 +350,13 @@ export function AllProjectsPage() {
     <section className="flex h-full min-h-0 flex-col">
       <header className="page-header flex shrink-0 flex-col gap-3 pb-3 pl-8 [--page-header-pr:32px] [--page-header-pt:32px]">
         <div className="flex min-w-0 items-baseline gap-3">
-          <h1 className="min-w-0 truncate text-2xl font-semibold text-ink">{title}</h1>
+          <h1
+            ref={heading}
+            tabIndex={-1}
+            className="min-w-0 truncate text-2xl font-semibold text-ink outline-none"
+          >
+            {title}
+          </h1>
           {!loading && failed.length === 0 && (
             <span className="num text-lg text-ink-faint">
               <span aria-hidden="true">{filtered.length}</span>
@@ -308,168 +374,174 @@ export function AllProjectsPage() {
           )}
         </div>
         <div
+          ref={tabsRef}
           role="tablist"
           aria-label={t("projects.tabs")}
           onKeyDown={onTabKey}
           className="flex gap-1"
         >
-          {TABS.map((key) => (
+          {tabs.map((key) => (
             <button
               key={key}
               type="button"
               role="tab"
               data-tab={key}
               id={`projects-tab-${key}`}
-              aria-selected={tab === key}
+              aria-selected={shownTab === key}
               aria-controls="projects-panel"
-              tabIndex={tab === key ? 0 : -1}
+              tabIndex={shownTab === key ? 0 : -1}
               onClick={() => setTab(key)}
-              className={`inline-flex h-8 items-center rounded-md px-3 text-sm transition-colors duration-[var(--duration-fast)] ease-out ${tab === key ? "bg-ink/10 font-semibold text-ink" : "text-ink-muted hover:bg-ink/6 hover:text-ink"}`}
+              className={`inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm transition-colors duration-[var(--duration-fast)] ease-out ${shownTab === key ? "bg-ink/10 font-semibold text-ink" : "text-ink-muted hover:bg-ink/6 hover:text-ink"}`}
             >
               {t(`projects.tab.${key}`)}
+              {key === "archived" && archivedRows.length > 0 && (
+                <span className="num font-normal text-ink-faint">{archivedRows.length}</span>
+              )}
             </button>
           ))}
         </div>
-        <div
-          role="toolbar"
-          aria-label={t(showPeople ? "projects.people.bar" : "projects.filter.label")}
-          className="flex flex-wrap items-center gap-x-1 gap-y-2"
-        >
-          {tab === "activity" && canPeople && (
-            <ActivityViewSwitch view={personView ? "person" : "project"} onChange={setView} />
-          )}
-          {showPeople ? (
-            canPeople && <PeopleActivityBar query={personQuery} onQuery={setPersonQuery} />
-          ) : (
-            <>
-              <label htmlFor={searchId} className="sr-only">
-                {t("projects.filter.search")}
-              </label>
-              <span className="mr-2 flex w-52 min-w-0 min-[1280px]:w-60">
-                <input
-                  id={searchId}
-                  type="search"
-                  value={filters.text}
-                  placeholder={t("projects.filter.search")}
-                  onChange={(e) => set({ text: e.target.value })}
-                  className={`${inputClass} h-8 py-0 text-sm`}
-                />
-              </span>
-              <MenuButton
-                menuLabel={t("projects.filter.kind")}
-                className={chipClass}
-                label={
-                  <>
-                    <span>{t("projects.filter.kind")}:</span>
-                    <span className="font-medium text-ink">
-                      {t(`projects.filter.kinds.${filters.kind}`)}
-                    </span>
-                    <Chevron />
-                  </>
-                }
-              >
-                {(close) => (
-                  <MenuGroup>
-                    {(["all", "internal", "client"] as const).map((k) => (
-                      <RadioItem
-                        key={k}
-                        checked={filters.kind === k}
-                        onSelect={() => {
-                          close();
-                          set({ kind: k });
-                        }}
-                      >
-                        {t(`projects.filter.kinds.${k}`)}
-                      </RadioItem>
-                    ))}
-                  </MenuGroup>
-                )}
-              </MenuButton>
-              <MenuButton
-                menuLabel={t("projects.filter.department")}
-                className={chipClass}
-                title={t("projects.filter.departmentHint")}
-                label={
-                  <>
-                    <span>{t("projects.filter.department")}:</span>
-                    <span className="max-w-40 truncate font-medium text-ink">
-                      {departmentName ?? t("projects.filter.any")}
-                    </span>
-                    <Chevron />
-                  </>
-                }
-              >
-                {(close) => (
-                  <MenuGroup label={t("projects.filter.departmentHint")}>
-                    {[null, ...(departments ?? []).map((d) => d.id)].map((id) => (
-                      <RadioItem
-                        key={id ?? "any"}
-                        checked={filters.departmentId === id}
-                        onSelect={() => {
-                          close();
-                          set({ departmentId: id });
-                        }}
-                      >
-                        {id
-                          ? departments!.find((d) => d.id === id)!.name
-                          : t("projects.filter.any")}
-                      </RadioItem>
-                    ))}
-                  </MenuGroup>
-                )}
-              </MenuButton>
-              <MenuButton
-                menuLabel={t("projects.filter.client")}
-                className={chipClass}
-                label={
-                  <>
-                    <span>{t("projects.filter.client")}:</span>
-                    <span className="max-w-48 truncate font-medium text-ink">
-                      {filters.clientName ?? t("projects.filter.any")}
-                    </span>
-                    <Chevron />
-                  </>
-                }
-              >
-                {(close) => (
-                  <MenuGroup>
-                    {[null, ...clients].map((c) => (
-                      <RadioItem
-                        key={c ?? "any"}
-                        checked={filters.clientName === c}
-                        onSelect={() => {
-                          close();
-                          set({ clientName: c });
-                        }}
-                      >
-                        <span className="min-w-0 truncate">{c ?? t("projects.filter.any")}</span>
-                      </RadioItem>
-                    ))}
-                  </MenuGroup>
-                )}
-              </MenuButton>
-              <button
-                type="button"
-                aria-pressed={filters.pinnedOnly}
-                className={chipClass}
-                onClick={() => set({ pinnedOnly: !filters.pinnedOnly })}
-              >
-                <PinIcon filled={filters.pinnedOnly} />
-                {t("projects.filter.pinned")}
-              </button>
-              {hasFilters(filters) && (
-                <button type="button" className={chipClass} onClick={clear}>
-                  {t("projects.states.clear")}
+        {shownTab !== "archived" && (
+          <div
+            role="toolbar"
+            aria-label={t(showPeople ? "projects.people.bar" : "projects.filter.label")}
+            className="flex flex-wrap items-center gap-x-1 gap-y-2"
+          >
+            {shownTab === "activity" && canPeople && (
+              <ActivityViewSwitch view={personView ? "person" : "project"} onChange={setView} />
+            )}
+            {showPeople ? (
+              canPeople && <PeopleActivityBar query={personQuery} onQuery={setPersonQuery} />
+            ) : (
+              <>
+                <label htmlFor={searchId} className="sr-only">
+                  {t("projects.filter.search")}
+                </label>
+                <span className="mr-2 flex w-52 min-w-0 min-[1280px]:w-60">
+                  <input
+                    id={searchId}
+                    type="search"
+                    value={filters.text}
+                    placeholder={t("projects.filter.search")}
+                    onChange={(e) => set({ text: e.target.value })}
+                    className={`${inputClass} h-8 py-0 text-sm`}
+                  />
+                </span>
+                <MenuButton
+                  menuLabel={t("projects.filter.kind")}
+                  className={chipClass}
+                  label={
+                    <>
+                      <span>{t("projects.filter.kind")}:</span>
+                      <span className="font-medium text-ink">
+                        {t(`projects.filter.kinds.${filters.kind}`)}
+                      </span>
+                      <Chevron />
+                    </>
+                  }
+                >
+                  {(close) => (
+                    <MenuGroup>
+                      {(["all", "internal", "client"] as const).map((k) => (
+                        <RadioItem
+                          key={k}
+                          checked={filters.kind === k}
+                          onSelect={() => {
+                            close();
+                            set({ kind: k });
+                          }}
+                        >
+                          {t(`projects.filter.kinds.${k}`)}
+                        </RadioItem>
+                      ))}
+                    </MenuGroup>
+                  )}
+                </MenuButton>
+                <MenuButton
+                  menuLabel={t("projects.filter.department")}
+                  className={chipClass}
+                  title={t("projects.filter.departmentHint")}
+                  label={
+                    <>
+                      <span>{t("projects.filter.department")}:</span>
+                      <span className="max-w-40 truncate font-medium text-ink">
+                        {departmentName ?? t("projects.filter.any")}
+                      </span>
+                      <Chevron />
+                    </>
+                  }
+                >
+                  {(close) => (
+                    <MenuGroup label={t("projects.filter.departmentHint")}>
+                      {[null, ...(departments ?? []).map((d) => d.id)].map((id) => (
+                        <RadioItem
+                          key={id ?? "any"}
+                          checked={filters.departmentId === id}
+                          onSelect={() => {
+                            close();
+                            set({ departmentId: id });
+                          }}
+                        >
+                          {id
+                            ? departments!.find((d) => d.id === id)!.name
+                            : t("projects.filter.any")}
+                        </RadioItem>
+                      ))}
+                    </MenuGroup>
+                  )}
+                </MenuButton>
+                <MenuButton
+                  menuLabel={t("projects.filter.client")}
+                  className={chipClass}
+                  label={
+                    <>
+                      <span>{t("projects.filter.client")}:</span>
+                      <span className="max-w-48 truncate font-medium text-ink">
+                        {filters.clientName ?? t("projects.filter.any")}
+                      </span>
+                      <Chevron />
+                    </>
+                  }
+                >
+                  {(close) => (
+                    <MenuGroup>
+                      {[null, ...clients].map((c) => (
+                        <RadioItem
+                          key={c ?? "any"}
+                          checked={filters.clientName === c}
+                          onSelect={() => {
+                            close();
+                            set({ clientName: c });
+                          }}
+                        >
+                          <span className="min-w-0 truncate">{c ?? t("projects.filter.any")}</span>
+                        </RadioItem>
+                      ))}
+                    </MenuGroup>
+                  )}
+                </MenuButton>
+                <button
+                  type="button"
+                  aria-pressed={filters.pinnedOnly}
+                  className={chipClass}
+                  onClick={() => set({ pinnedOnly: !filters.pinnedOnly })}
+                >
+                  <PinIcon filled={filters.pinnedOnly} />
+                  {t("projects.filter.pinned")}
                 </button>
-              )}
-            </>
-          )}
-        </div>
+                {hasFilters(filters) && (
+                  <button type="button" className={chipClass} onClick={clear}>
+                    {t("projects.states.clear")}
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </header>
       <div
         id="projects-panel"
         role="tabpanel"
-        aria-labelledby={`projects-tab-${tab}`}
+        aria-labelledby={`projects-tab-${shownTab}`}
         data-projects-body
         className="min-h-0 flex-1 overflow-auto border-t border-rule px-4 pb-12"
       >

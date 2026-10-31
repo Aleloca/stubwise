@@ -336,6 +336,11 @@ export function ChangeEntry({
     project: entry.projectCode ?? entry.params.project ?? "",
     role: entry.params.role ?? entry.after ?? "",
     permission: words(permission),
+    // `project.deleted` (area 9c, Task 11): quanti repository restano senza
+    // progetto sceglie la frase («… 1 repository is now in no project.»).
+    ...(entry.kind === "project.deleted"
+      ? { count: Number(entry.params.detachedRepositories ?? 0) }
+      : {}),
   };
   const line = entry.diff ? diffLine(entry.diff) : null;
   const details =

@@ -137,6 +137,134 @@ async function main() {
       console.log("scritto", name);
     };
 
+    // Area 9c, Task 11 (`CAPTURE_A9C_ARCHIVE=1`): archiviare, la scheda
+    // Archived, la pagina dell'archiviato, Reopen e Delete, il gruppo «Not in
+    // any project» di Amministrazione → Repositories (shape
+    // project-archive.md), scatti `a9c-archive-*`. Laura in ACQ; Sara in
+    // sola lettura; Giulia ex membro di RNC; Roberta full admin. Per il
+    // gruppo, RNC lo elimina Roberta prima di aprire la pagina.
+    if (process.env.CAPTURE_A9C_ARCHIVE) {
+      const IDS = { Laura: "p-laura", Sara: "p-sara", Giulia: "p-giulia", Roberta: "p-roberta" };
+      const go = async (page, hash) => {
+        await page.evaluate((h) => {
+          window.location.hash = h;
+        }, hash);
+        await page.waitForTimeout(1200);
+        await page.mouse.move(2, 2);
+      };
+      const settle = async (page) => {
+        await page.waitForTimeout(500);
+        await page.mouse.move(2, 2);
+      };
+      const click = async (page, name) => {
+        await page.getByRole("button", { name }).first().click();
+        await settle(page);
+      };
+      const deleteRnc = (persona) => async (page) => {
+        await page.evaluate(async (back) => {
+          const api = await import("/data/api.ts");
+          const session = await import("/data/session.ts");
+          const reauth = await import("/data/auth/reauth.ts");
+          session.setSessionPersonId("p-roberta");
+          reauth.markReauthenticated("p-roberta");
+          await api.projectSettings.deleteProject("prj-rnc", { confirmCode: "RNC" });
+          session.setSessionPersonId(back);
+        }, IDS[persona]);
+      };
+      const busy = async (page) => {
+        await page.evaluate(async () => {
+          const store = await import("/data/store.ts");
+          store.state.conversations.find((c) => c.id === "cv-run-acq-3").state = "working";
+        });
+      };
+      const archiveDialog = (page) => click(page, /^(Archive ACQ…|Archivia ACQ…)$/);
+      const archiveBusy = async (page) => {
+        await archiveDialog(page);
+        await page
+          .getByRole("dialog")
+          .getByRole("button", { name: /^(Archive|Archivia)$/ })
+          .click();
+        await page.waitForTimeout(1200);
+        await settle(page);
+      };
+      // Il gruppo «Not in any project» sta in fondo: a 1024 va portato in vista.
+      const toGroup = async (page) => {
+        await page
+          .getByRole("heading", { level: 2, name: /^(Not in any project|In nessun progetto)$/ })
+          .evaluate((el) => el.scrollIntoView({ block: "center" }));
+        await settle(page);
+      };
+      const rowMenu = (page) => click(page, /^(More for RNC|Altro per RNC)$/);
+      const reopenDialog = (page) => click(page, /^(Reopen|Riapri)$/);
+      const deleteDialog = (page) => click(page, /^(Delete for good…|Elimina per sempre…)$/);
+      const deleteTyped = async (page) => {
+        await deleteDialog(page);
+        await page.getByRole("dialog").getByRole("textbox").fill("rnc");
+        await settle(page);
+      };
+      const deleteReady = async (page) => {
+        await deleteDialog(page);
+        await page.getByRole("dialog").getByRole("textbox").fill("RNC");
+        await settle(page);
+      };
+      const linkDialog = async (page) => {
+        await toGroup(page);
+        await click(page, /^(Link to a project…|Collega a un progetto…)$/);
+        await page.getByRole("dialog").getByRole("combobox").selectOption("prj-acq");
+        await settle(page);
+      };
+      const repoDelete = async (page) => {
+        await toGroup(page);
+        await click(page, /^(More for shop-frontend|Altro per shop-frontend)$/);
+        await page.getByRole("menuitem", { name: /^(Delete…|Elimina…)$/ }).click();
+        await settle(page);
+      };
+      const SETTINGS = "/p/ACQ/settings/archive";
+      const ARCHIVED = "/projects?view=archived";
+      const SCENES = [
+        ["archive", SETTINGS, { persona: "Laura" }],
+        ["archive-dialog", SETTINGS, { persona: "Laura", after: archiveDialog }],
+        ["archive-busy", SETTINGS, { persona: "Laura", before: busy, after: archiveBusy }],
+        ["archive-readonly", SETTINGS, { persona: "Sara" }],
+        ["archive-list", ARCHIVED, { persona: "Giulia" }],
+        ["archive-list-menu", ARCHIVED, { persona: "Giulia", after: rowMenu }],
+        ["archive-page", "/archived/RNC", { persona: "Giulia" }],
+        ["archive-page-admin", "/archived/RNC", { persona: "Roberta" }],
+        ["archive-reopen", "/archived/RNC", { persona: "Giulia", after: reopenDialog }],
+        ["archive-delete", "/archived/RNC", { persona: "Roberta", after: deleteDialog }],
+        ["archive-delete-typed", "/archived/RNC", { persona: "Roberta", after: deleteTyped }],
+        ["archive-delete-ready", "/archived/RNC", { persona: "Roberta", after: deleteReady }],
+        ["archive-detached", "/admin/repositories", { persona: "Roberta", before: deleteRnc("Roberta"), after: toGroup }],
+        ["archive-detached-laura", "/admin/repositories", { persona: "Laura", before: deleteRnc("Laura"), after: toGroup }],
+        ["archive-link", "/admin/repositories", { persona: "Laura", before: deleteRnc("Laura"), after: linkDialog }],
+        ["archive-repo-delete", "/admin/repositories", { persona: "Roberta", before: deleteRnc("Roberta"), after: repoDelete }],
+        ["archive-git-accounts", "/admin/git-accounts", { persona: "Roberta", before: deleteRnc("Roberta") }],
+      ];
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      for (const [name, hash, opts] of SCENES) {
+        if (only && !only.test(name)) continue;
+        for (const v of variants) {
+          const { page, context } = await open(v.scheme, v.viewport, "/home", {
+            lang: v.lang,
+            persona: opts.persona,
+          });
+          if (opts.before) await opts.before(page);
+          await go(page, hash);
+          if (opts.after) await opts.after(page);
+          await shot(page, `a9c-${name}-${v.suffix}.png`);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 9c, Task 10 (`CAPTURE_A9C_PLUGINS=1`): Progetto → Settings →
     // Plugins (shape project-plugins.md), scatti `a9c-plugins-*`. Laura in
     // STW; Sara in sola lettura; il conflitto con Roberta che salva

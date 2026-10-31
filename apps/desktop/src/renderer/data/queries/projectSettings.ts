@@ -1,4 +1,4 @@
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { canSeeAdminSection, projectSettingsAccess, type SectionAccess } from "../adminSections";
 import * as api from "../api";
 import { PROJECT_AREAS, useSessionPersonId, useWrite } from "../queries";
@@ -372,7 +372,109 @@ export function useSaveProjectPlugins() {
   );
 }
 
+/**
+ * Se chi guarda vede una voce d'Amministrazione (Task 11): «Open Repositories»
+ * dopo un Delete, «Its change log» sulla pagina dell'archiviato.
+ */
+export function useSeesAdminSection(section: Parameters<typeof canSeeAdminSection>[1]): boolean {
+  return canSeeAdminSection(useViewer().viewer, section);
+}
+
 /** Se chi guarda vede Amministrazione → Plugins: la riga sotto la prosa ci porta con un link. */
 export function useSeesAdminPlugins(): boolean {
   return canSeeAdminSection(useViewer().viewer, "plugins");
+}
+
+// --- Archive, la scheda «Archived», Delete (Task 11) -------------------------
+//
+// Gli hook del Task 5 (ruling del controller (pre-flight), P26).
+// Archiviare, riaprire ed eliminare cambiano chi vede il progetto OVUNQUE
+// (binario, liste, ⌘K, Home, notifiche, Amministrazione): la scrittura
+// ricarica ogni lettura di chi guarda. Salvo quelle del progetto stesso
+// (`project`, `projectSettings`, la pagina dell'archiviato), che diventano
+// solo vecchie: la pagina da cui parte la scrittura la lascia chi l'ha fatta
+// (All projects, `/p/RNC`, Archived), e ricaricarla prima mostrerebbe per un
+// attimo «not found» al posto della pagina che si sta lasciando.
+
+/** Le letture della pagina da cui parte la scrittura: vecchie, non ricaricate. */
+const subjectOfLifecycle = (key: readonly unknown[]): boolean =>
+  key[2] === "project" ||
+  key[2] === "projectSettings" ||
+  (key[2] === "archived" && key[3] === "project");
+
+function useLifecycleWrite<TVars, TData>(mutationFn: (vars: TVars) => Promise<TData>) {
+  const client = useQueryClient();
+  const me = useSessionPersonId();
+  return useMutation({
+    mutationFn,
+    onSettled: async () => {
+      const mine = (key: readonly unknown[]) => key[0] === "as" && key[1] === me;
+      await client.invalidateQueries({
+        predicate: (q) => mine(q.queryKey) && !subjectOfLifecycle(q.queryKey),
+      });
+      await client.invalidateQueries({
+        predicate: (q) => mine(q.queryKey) && subjectOfLifecycle(q.queryKey),
+        refetchType: "none",
+      });
+    },
+  });
+}
+
+export type {
+  ArchivedProjectRow,
+  ArchivedProjectView,
+  BusyReason,
+  DeletionCountKey,
+  DeletionCounts,
+} from "../projectSettings";
+
+/** Prima di archiviare ([AR 3]): le esecuzioni aperte da annullare e le ragioni di `busy`. */
+export function useArchivePreview(projectId: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "projectSettings", "archivePreview", projectId] as const,
+    queryFn: () => api.projectSettings.getArchivePreview(projectId),
+  });
+}
+
+/** La scheda «Archived»: gli archiviati che chi guarda vede (ex membri e full admin). */
+export function useArchivedProjects() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "archived", "list"] as const,
+    queryFn: () => api.projectSettings.listArchivedProjects(),
+  });
+}
+
+/** La pagina dell'archiviato; `null` per chi non può vederlo, come per un codice che non c'è (R-G5). */
+export function useArchivedProject(code: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "archived", "project", code] as const,
+    queryFn: () => api.projectSettings.getArchivedProject(code),
+  });
+}
+
+/** Cosa toglie Delete e cosa resta senza progetto (solo il full admin, solo su un archiviato). */
+export function useDeletionPreview(projectId: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "projectSettings", "deletionPreview", projectId] as const,
+    queryFn: () => api.projectSettings.getDeletionPreview(projectId),
+  });
+}
+
+export function useArchiveProject() {
+  return useLifecycleWrite((projectId: string) => api.projectSettings.archiveProject(projectId));
+}
+
+export function useReopenProject() {
+  return useLifecycleWrite((projectId: string) => api.projectSettings.reopenProject(projectId));
+}
+
+/** +R: con la riconferma (`useReauth`). */
+export function useDeleteProject() {
+  return useLifecycleWrite(({ projectId, confirmCode }: { projectId: string; confirmCode: string }) =>
+    api.projectSettings.deleteProject(projectId, { confirmCode }),
+  );
 }

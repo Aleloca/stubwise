@@ -36,6 +36,9 @@ export function Menu({
   useEffect(() => {
     const onPointer = (e: PointerEvent) => {
       const wrap = ref.current?.parentElement;
+      // Il riquadro di «Who?» aperto da una voce del menu sta in un portal:
+      // un clic lì dentro non è un clic fuori.
+      if ((e.target as Element | null)?.closest?.("[data-who-can-popover]")) return;
       if (wrap && !wrap.contains(e.target as Node)) onClose(false);
     };
     document.addEventListener("pointerdown", onPointer);
@@ -43,6 +46,9 @@ export function Menu({
   }, [onClose]);
 
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    // I tasti di un portal aperto da una voce (il riquadro di «Who?») risalgono
+    // l'albero di React fin qui: sono suoi, non del menu.
+    if (!ref.current?.contains(e.target as Node)) return;
     const items = [...(ref.current?.querySelectorAll<HTMLElement>(ITEM_SELECTOR) ?? [])];
     const at = items.indexOf(document.activeElement as HTMLElement);
     const go = (i: number) => {

@@ -74,6 +74,8 @@ export interface ArchivedProjectView extends ArchivedProjectRow {
   repositories: string[];
   /** Gli interruttori com'erano all'archiviazione: tornano così riaprendo. */
   switchesOnReopen: Record<ProjectSwitch, boolean>;
+  /** Ogni quanti giorni guarda il pulse, riaprendo («Pulse every 7 days»). */
+  pulseEveryDays: number;
 }
 
 const isFullAdmin = (me: string): boolean =>
@@ -258,6 +260,7 @@ export async function getArchivedProject(code: string): Promise<ArchivedProjectV
       .map((r) => r.name)
       .sort((a, b) => a.localeCompare(b)),
     switchesOnReopen: { ...settingsOf(project).switches },
+    pulseEveryDays: settingsOf(project).pulseEveryDays,
   };
 }
 

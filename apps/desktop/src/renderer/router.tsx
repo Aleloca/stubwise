@@ -56,6 +56,7 @@ import { PlanningPage } from "./pages/planning/PlanningPage";
 import { RequestsPage } from "./pages/requests/RequestsPage";
 import { OverviewPage } from "./pages/overview/OverviewPage";
 import { AllProjectsPage } from "./pages/projects/AllProjectsPage";
+import { ArchivedProjectPage } from "./pages/projects/ArchivedProjectPage";
 import { ProjectSettingsPage } from "./pages/settings/ProjectSettingsPage";
 import { ClaudePage, ConversationPage } from "./pages/claude/ClaudePage";
 import { ChannelView, chatHref, type ChannelHref } from "./pages/chat/ChannelView";
@@ -646,6 +647,34 @@ function ReleaseRoutePage() {
     <ReleaseDetail key={`${release}:${viewer.personId}`} projectCode={code} code={release} />
   );
 }
+
+/**
+ * La pagina di un progetto archiviato (`#/archived/RNC`, area 9c, Task 11),
+ * fuori da `/p/` perché il progetto non è più «visibile» (scelta del
+ * controller). Chi non può vederlo legge «not found» come per un codice che
+ * non c'è (R-G5): lo decide la lettura. Cambiare persona rimonta la pagina.
+ */
+function ArchivedRoutePage() {
+  const { code } = archivedRoute.useParams();
+  const { viewer } = useViewer();
+  return <ArchivedProjectPage key={`${code}:${viewer.personId}`} code={code} />;
+}
+
+const archivedRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/archived/$code",
+  beforeLoad: ({ params }) => {
+    if (upperCaseCode(params.code)) {
+      throw redirect({
+        to: "/archived/$code",
+        params: { code: params.code.toUpperCase() },
+        search: (prev) => prev,
+        replace: true,
+      });
+    }
+  },
+  component: ArchivedRoutePage,
+});
 
 const releaseRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -1251,6 +1280,7 @@ const routeTree = rootRoute.addChildren([
   projectSettingsRoute,
   projectChatChannelRoute,
   releaseRoute,
+  archivedRoute,
   serverRoute,
   supportConversationRoute,
   docsHomeRoute,

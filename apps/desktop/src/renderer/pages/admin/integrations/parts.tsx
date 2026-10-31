@@ -47,7 +47,13 @@ export function IntegrationPage({
       <div className={PAGE_WIDTHS[width ?? (wide ? 1040 : 880)]}>
         <div className="flex items-start gap-4">
           <div className="min-w-0 flex-1">
-            <h1 className="text-2xl font-semibold tracking-[-0.01em] text-ink">{title}</h1>
+            {/* Il fuoco ci torna quando ciò che lo aveva sparisce (una riga collegata). */}
+            <h1
+              tabIndex={-1}
+              className="text-2xl font-semibold tracking-[-0.01em] text-ink outline-none"
+            >
+              {title}
+            </h1>
             <p className="mt-2 max-w-[62ch] text-md text-pretty text-ink-muted">{intro}</p>
           </div>
           {action && (
