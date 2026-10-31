@@ -30,6 +30,7 @@ import {
   startRun,
 } from "../api";
 import { markReauthenticated } from "../auth/reauth";
+import { whenAnalysesIdle } from "../servers/analysis";
 import { repositoryById } from "../docs/reads";
 import type { Release } from "../model";
 import { createProject } from "../api-mutations";
@@ -578,6 +579,42 @@ describe("Amministrazione → Servers: inArchivedOnly", () => {
     as(ROBERTA);
     const reopened = (await servers.listAllServers()).find((s) => s.code === "SRV-5")!;
     expect(reopened).toMatchObject({ inArchivedOnly: false, projects: [{ code: "RNC" }] });
+  });
+
+  it("I2: un allarme di SRV-5 con RNC archiviato non avvisa RNC e non fa partire l'analisi", async () => {
+    // L'accesso di lettura usabile: con RNC aperto l'analisi partirebbe.
+    state.serverAccess.set("SRV-5", {
+      ...structuredClone(state.serverAccess.get("SRV-1")!),
+      serverCode: "SRV-5",
+    });
+    const seeded = state.notifications.length;
+    const rncAlerts = () =>
+      state.notifications
+        .slice(seeded)
+        .filter((n) => n.projectId === RNC && n.objectCode === "SRV-5").length;
+    const analysesOf = () => state.serverAnalyses.filter((a) => a.serverCode === "SRV-5").length;
+    as(ROBERTA);
+    grantInstancePermission(ROBERTA, "monitor.manage" as never);
+    await servers.simulateServerAlert("SRV-5", "memory");
+    await whenAnalysesIdle();
+    expect(rncAlerts()).toBe(0);
+    expect(analysesOf()).toBe(0);
+    expect(state.conversations.some((c) => c.projectId === RNC && c.kind === "server_analysis")).toBe(
+      false,
+    );
+    // Il dettaglio non promette un'analisi che non partirebbe.
+    expect((await servers.getServer("SRV-5")).analysisProject).toBeNull();
+    await servers.simulateServerRecovery("SRV-5");
+    expect(rncAlerts()).toBe(0);
+
+    // Riaperto, lo stesso allarme avvisa RNC e analizza: la guardia è l'archivio.
+    as(GIULIA);
+    await projectSettings.reopenProject(RNC);
+    as(ROBERTA);
+    await servers.simulateServerAlert("SRV-5", "memory");
+    await whenAnalysesIdle();
+    expect(rncAlerts()).toBeGreaterThan(0);
+    expect(analysesOf()).toBe(1);
   });
 });
 

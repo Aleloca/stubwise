@@ -23,7 +23,7 @@ import type {
 import { notFound } from "../writer";
 import { markUsed, onAccessRevoked } from "./access";
 import { diagnosisOf, openingSteps, readsFor, readSteps, reasonsPhrase } from "./scripts";
-import { serverHref } from "./visibility";
+import { liveEnvironments, serverHref } from "./visibility";
 
 // Gli episodi dei server e l'analisi automatica (area 8b, solo prototipo:
 // gli allarmi e i rientri li porta l'agente di monitoraggio, qui li fanno
@@ -137,7 +137,7 @@ function publishTrouble(
         : ep.analysisBlocked === "monthly_budget"
           ? " Claude can't look into it: the monthly AI budget is used up."
           : "";
-  for (const to of alertProjectsOf(s.code, state.environments)) {
+  for (const to of alertProjectsOf(s.code, liveEnvironments())) {
     const tail = tailFor(to);
     publishAlert({
       kind: ep.severity === "down" ? "server.down" : "server.trouble",
@@ -187,7 +187,7 @@ export function raiseEpisode(
     analysisId: null,
   };
   state.serverEpisodes.push(episode);
-  const projectId = analysisProjectOf(serverCode, state.environments, server.primaryProjectId);
+  const projectId = analysisProjectOf(serverCode, liveEnvironments(), server.primaryProjectId);
   // Claude lavora in ogni progetto (R-L9): basta l'accesso di lettura usabile.
   // Area 9b: col budget del mese esaurito l'analisi non parte; con la coda
   // del progetto in pausa nasce e aspetta la ripresa.
@@ -243,7 +243,7 @@ export function recoverEpisode(serverCode: string): ServerEpisode | null {
   // collegato resta senza rapporti (ri-revisione m2).
   if (server.lastSeenAt !== null && ep.reasons.some((r) => r.kind === "agent_silent"))
     server.lastSeenAt = now();
-  for (const projectId of alertProjectsOf(serverCode, state.environments)) {
+  for (const projectId of alertProjectsOf(serverCode, liveEnvironments())) {
     publishAlert({
       kind: "server.recovered",
       projectId,
@@ -513,7 +513,7 @@ async function failAnalysis(a: ServerAnalysis, gen: number, e: unknown): Promise
   const s = serverOf(a.serverCode);
   const ep = state.serverEpisodes.find((x) => x.id === a.episodeId);
   if (s && ep) {
-    for (const projectId of alertProjectsOf(s.code, state.environments)) {
+    for (const projectId of alertProjectsOf(s.code, liveEnvironments())) {
       publishAlert({
         kind: ep.severity === "down" ? "server.down" : "server.trouble",
         projectId,

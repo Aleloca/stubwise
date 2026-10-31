@@ -36,11 +36,13 @@ const LOW_WORDS = ["nothing urgent", "fyi", "just for reference"];
 
 /**
  * I progetti candidati: quelli di cui almeno un destinatario del team
- * (mittente, `to`, `cc`, caselle) è membro. In ordine di progetto.
+ * (mittente, `to`, `cc`, caselle) è membro. In ordine di progetto. Un
+ * archiviato non è candidato: la posta non gli fa nascere lavoro (area 9c).
  */
 export function candidateProjects(m: MailMessage, members: Members = projectMembers): string[] {
   const people = stubwiseRecipients(m);
   return state.projects
+    .filter((p) => !p.archived)
     .map((p) => p.id)
     .filter((id) => members(id).some((personId) => people.has(personId)));
 }

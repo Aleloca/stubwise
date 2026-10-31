@@ -176,6 +176,14 @@ export interface ServerRow {
   recentCpu: number[];
 }
 
+/**
+ * Gli ambienti dei progetti non archiviati (area 9c): un archiviato non
+ * riceve avvisi né analisi, perché non ci nasce lavoro nuovo. Riaperto, il
+ * prossimo allarme lo raggiunge di nuovo.
+ */
+export const liveEnvironments = () =>
+  state.environments.filter((e) => !state.projectsById.get(e.projectId)?.archived);
+
 /** I punti di `code` dopo `fromMs` (escluso), in ordine. */
 export function metricsSince(code: string, fromMs: number) {
   return (state.serverMetrics.get(code) ?? []).filter((p) => Date.parse(p.ts) > fromMs);
@@ -211,7 +219,7 @@ export function serverRow(me: string, s: MonitoredServer): ServerRow {
   const visible = visibleProjectIds(me);
   const recent = downsample(metricsSince(s.code, Date.parse(now()) - HOUR_MS), RECENT_CPU_POINTS);
   const { work, taskCode } = workOf(me, s.code);
-  const analysisId = analysisProjectOf(s.code, state.environments, s.primaryProjectId);
+  const analysisId = analysisProjectOf(s.code, liveEnvironments(), s.primaryProjectId);
   return {
     code: s.code,
     name: s.name,

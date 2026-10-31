@@ -477,6 +477,17 @@ describe("Posta: classificazione finta (classify.ts)", () => {
     expect(candidateProjects(outside)).toEqual([]);
   });
 
+  it("un progetto archiviato non è candidato: la posta non gli fa nascere lavoro (area 9c)", () => {
+    state.projectsById.get(MKX)!.archived = { at: "2026-10-30T09:00:00.000Z", byId: "p-roberta" };
+    const m = {
+      ...msg(MAIL_CASES.failed),
+      subject: "Billing for the dealer price lists",
+      text: "Who handles the billing of the listini?",
+    };
+    expect(candidateProjects(m)).not.toContain(MKX);
+    expect(classifyMessage(m, membersOf)).toMatchObject({ projectIds: [AUD] });
+  });
+
   it("deterministica, dalle parole del messaggio e fra i soli candidati", () => {
     const shared = msg(MAIL_CASES.shared);
     expect(classifyMessage(shared, membersOf)).toEqual(classifyMessage(shared, membersOf));
