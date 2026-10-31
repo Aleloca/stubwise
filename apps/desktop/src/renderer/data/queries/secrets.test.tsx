@@ -10,9 +10,15 @@ import {
   useCreateInvite,
   useCreatePasswordResetLink,
   useCreateProvider,
+  useDeleteEnvFile,
   useEnrollDuringReauth,
+  useImportEnvFile,
+  useRegenerateIngestionKey,
+  useRegenerateWebhookSecret,
+  useRemoveEnvVar,
   useReplaceGitToken,
   useReplaceProviderCredential,
+  useSetEnvVar,
 } from "../queries";
 
 // Le mutazioni che restituiscono un segreto mostrato una volta (un link
@@ -36,6 +42,14 @@ const SECRET_HOOKS: Record<string, () => { mutateAsync: (v: never) => Promise<un
   useReplaceProviderCredential: () => useReplaceProviderCredential(),
   useCreateGitAccount: () => useCreateGitAccount(),
   useReplaceGitToken: () => useReplaceGitToken(),
+  // Area 9c: i valori d'ambiente negli argomenti, la chiave d'ingestione e il
+  // secret del webhook nel risultato (shape project-repositories.md §7).
+  useImportEnvFile: () => useImportEnvFile(),
+  useSetEnvVar: () => useSetEnvVar(),
+  useRemoveEnvVar: () => useRemoveEnvVar(),
+  useDeleteEnvFile: () => useDeleteEnvFile(),
+  useRegenerateIngestionKey: () => useRegenerateIngestionKey(),
+  useRegenerateWebhookSecret: () => useRegenerateWebhookSecret(),
 };
 
 describe("segreti nelle mutazioni d'amministrazione e della riconferma", () => {

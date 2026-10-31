@@ -13,13 +13,28 @@ import { rowButton, useFlash } from "./parts";
 // mostra lo tiene nel proprio stato e lo butta con «Done»; lasciata la
 // sezione o la pagina, il componente si smonta e il valore non è più nel DOM.
 // Niente storage, niente cache, nessuna conferma all'uscita [PR 2].
+// In 9c un blocco può mostrare più valori nati insieme (la chiave
+// d'ingestione col suo DSN e lo snippet): ognuno col suo nome e il suo «Copy».
 
-export type SecretLayout = "text" | "command" | "codes";
+/**
+ * `code` (9c): un blocco di codice di più righe (lo snippet `init()`), con gli
+ * a capo e i rientri com'erano, che va a capo dove serve dentro il riquadro.
+ */
+export type SecretLayout = "text" | "command" | "codes" | "code";
+
+/** Un valore in più nello stesso blocco (area 9c: il DSN e lo snippet accanto alla chiave). */
+export interface SecretExtra {
+  label: string;
+  value: string;
+  layout?: Exclude<SecretLayout, "codes">;
+}
 
 export function SecretOnce({
   title,
   value,
   layout = "text",
+  label,
+  more = [],
   download,
   onDone,
   children,
@@ -29,6 +44,10 @@ export function SecretOnce({
   value: string;
   /** `codes`: un codice per riga, su due colonne; `command`: va a capo dove serve. */
   layout?: SecretLayout;
+  /** Il nome del valore, sopra di lui, quando il blocco ne mostra più d'uno («Key»). */
+  label?: string;
+  /** Altri valori nati insieme, ognuno col suo «Copy»: si vedono una volta come il primo. */
+  more?: readonly SecretExtra[];
   /** Il nome del file per «Download» (i codici di backup). */
   download?: string;
   /** «Done»: chi mostra il valore lo dimentica. Senza, il blocco resta finché si resta nella pagina. */
@@ -37,11 +56,8 @@ export function SecretOnce({
   children?: ReactNode;
 }) {
   const { t } = useTranslation();
-  const toast = useToast();
-  const [copied, flashCopied] = useFlash();
   const [manual, setManual] = useState(false);
   const titleRef = useRef<HTMLHeadingElement>(null);
-  const valueRef = useRef<HTMLDivElement>(null);
   const warningId = useId();
 
   // All'arrivo il fuoco va al titolo (annunciato con la frase sotto).
@@ -49,32 +65,8 @@ export function SecretOnce({
     titleRef.current?.focus();
   }, []);
 
-  /** Senza appunti: il valore si seleziona da solo, e la riga dice come copiarlo. */
-  function selectValue() {
-    const el = valueRef.current;
-    const selection = window.getSelection();
-    if (!el || !selection) return;
-    const range = document.createRange();
-    range.selectNodeContents(el);
-    selection.removeAllRanges();
-    selection.addRange(range);
-  }
-
-  async function copy() {
-    try {
-      await copyText(value);
-      setManual(false);
-      flashCopied();
-      toast.show(t("prefs.secret.copied"));
-    } catch {
-      setManual(true);
-      selectValue();
-    }
-  }
-
-  const codes = layout === "codes" ? value.split("\n") : null;
   return (
-    <div data-testid="secret-once" className="flex flex-col gap-2">
+    <div data-testid="secret-once" className="flex min-w-0 flex-col gap-2">
       <h3
         ref={titleRef}
         tabIndex={-1}
@@ -89,6 +81,90 @@ export function SecretOnce({
         </span>
         <span>{t("prefs.secret.warning")}</span>
       </p>
+      <SecretValue value={value} layout={layout} label={label} onManual={setManual} />
+      {more.map((m) => (
+        <SecretValue
+          key={m.label}
+          value={m.value}
+          layout={m.layout ?? "text"}
+          label={m.label}
+          onManual={setManual}
+        />
+      ))}
+      {manual && (
+        <p role="status" className="text-sm text-ink-muted">
+          {t("prefs.secret.manual", { keys: shortcutLabel(["mod", "C"]) })}
+        </p>
+      )}
+      {children && <div className="flex flex-col gap-1 text-sm text-ink-muted">{children}</div>}
+      {(onDone || download) && (
+        <div className="mt-1 flex flex-wrap gap-2">
+          {download && (
+            <button
+              type="button"
+              className={secondaryButton}
+              onClick={() => downloadText(download, value, "text/plain")}
+            >
+              {t("prefs.secret.download")}
+            </button>
+          )}
+          {onDone && (
+            <button type="button" className={secondaryButton} onClick={onDone}>
+              {t("prefs.secret.done")}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Un valore del blocco, col suo «Copy» in alto a destra. Senza appunti il
+ * valore si seleziona da solo, e il blocco dice come copiarlo.
+ */
+function SecretValue({
+  value,
+  layout,
+  label,
+  onManual,
+}: {
+  value: string;
+  layout: SecretLayout;
+  label?: string;
+  onManual: (manual: boolean) => void;
+}) {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const [copied, flashCopied] = useFlash();
+  const valueRef = useRef<HTMLDivElement>(null);
+
+  function selectValue() {
+    const el = valueRef.current;
+    const selection = window.getSelection();
+    if (!el || !selection) return;
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
+  async function copy() {
+    try {
+      await copyText(value);
+      onManual(false);
+      flashCopied();
+      toast.show(t("prefs.secret.copied"));
+    } catch {
+      onManual(true);
+      selectValue();
+    }
+  }
+
+  const codes = layout === "codes" ? value.split("\n") : null;
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      {label && <span className="text-xs font-medium text-ink-muted">{label}</span>}
       <div className="relative rounded-md border border-rule bg-ink/4 py-2.5 pr-16 pl-3">
         <div
           ref={valueRef}
@@ -118,6 +194,8 @@ export function SecretOnce({
                 </span>
               ))}
             </p>
+          ) : layout === "code" ? (
+            <pre className="font-code whitespace-pre-wrap [overflow-wrap:anywhere]">{value}</pre>
           ) : (
             <p className="break-all">{value}</p>
           )}
@@ -125,35 +203,18 @@ export function SecretOnce({
         <button
           type="button"
           onClick={() => void copy()}
+          aria-label={
+            label
+              ? copied
+                ? t("prefs.secret.copied")
+                : t("prefs.secret.copyNamed", { name: label })
+              : undefined
+          }
           className={`${rowButton} absolute top-1.5 right-1.5 text-ink`}
         >
           {copied ? t("prefs.secret.copied") : t("prefs.secret.copy")}
         </button>
       </div>
-      {manual && (
-        <p role="status" className="text-sm text-ink-muted">
-          {t("prefs.secret.manual", { keys: shortcutLabel(["mod", "C"]) })}
-        </p>
-      )}
-      {children && <div className="flex flex-col gap-1 text-sm text-ink-muted">{children}</div>}
-      {(onDone || download) && (
-        <div className="mt-1 flex flex-wrap gap-2">
-          {download && (
-            <button
-              type="button"
-              className={secondaryButton}
-              onClick={() => downloadText(download, value, "text/plain")}
-            >
-              {t("prefs.secret.download")}
-            </button>
-          )}
-          {onDone && (
-            <button type="button" className={secondaryButton} onClick={onDone}>
-              {t("prefs.secret.done")}
-            </button>
-          )}
-        </div>
-      )}
     </div>
   );
 }

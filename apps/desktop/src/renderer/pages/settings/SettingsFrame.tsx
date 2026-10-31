@@ -153,6 +153,9 @@ export function LeaveConfirm({
  * - `not_found`: la frase come avviso, e ritorno ad All projects [PS 11];
  * - `invalid`: la ragione al chiamante, che la dice sotto il suo campo (con
  *   la riga, se il rifiuto la porta: i rami protetti di un repository);
+ * - `reauth_cancelled` (la riconferma chiusa, area 9c): nessuna frase in
+ *   più («Nothing was changed.» lo dice il dialogo della riconferma), e chi
+ *   chiama resta com'è (il dialogo aperto);
  * - un errore del livello dati: «Couldn't save. Try again.» con Retry, bozza
  *   conservata.
  * Restituisce `true` se la scrittura è riuscita.
@@ -182,6 +185,9 @@ export function useSettingsWrite(code: string, onReload: () => void) {
     else if (refusal.error === "forbidden") {
       setFailure({ kind: "forbidden" });
       onReload();
+    } else if (refusal.error === "reauth_cancelled") {
+      // La riconferma chiusa: «Nothing was changed.» lo dice già il suo
+      // dialogo; qui niente, e la bozza resta dov'è.
     } else if (refusal.error === "not_found") {
       toast.error(t("settings.common.notFound", { code }));
       void navigate({ to: "/projects" as never });

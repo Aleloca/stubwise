@@ -293,7 +293,8 @@
       "copied": "Copiato",
       "manual": "Selezionalo e copialo con {{keys}}.",
       "done": "Fatto",
-      "download": "Scarica"
+      "download": "Scarica",
+      "copyNamed": "Copia {{name}}"
     },
     "common": {
       "save": "Salva",
@@ -2751,6 +2752,166 @@
           "invalid_credentials": "Credenziali non valide",
           "unreachable": "Non raggiungibile"
         }
+      }
+    },
+    "envFiles": {
+      "title": "File d'ambiente",
+      "intro": "Solo i file dell'ambiente di test arrivano a Claude: vengono copiati nella sua copia di lavoro prima dell'installazione e dei test. I valori di staging e production si conservano per poterli sostituire, mai mostrati e mai usati in automatico.",
+      "hidden": "I file d'ambiente li vede solo chi può gestire i repository di {{code}}.",
+      "noModule": "I file d'ambiente appartengono a un ambiente, e gli ambienti arrivano col modulo Rilasci.",
+      "noEnvironments": "I file d'ambiente appartengono a un ambiente, e {{code}} non ne ha ancora. Aggiungine uno in",
+      "environmentsLink": "Rilasci → Ambienti",
+      "loadError": "Impossibile caricare i file d'ambiente.",
+      "kinds": {
+        "test": "Test",
+        "staging": "Staging",
+        "production": "Production"
+      },
+      "reaches": "Claude li legge",
+      "never": "Claude non li legge mai",
+      "newFile": "Nuovo file",
+      "noFiles": "Nessun file per {{env}}.",
+      "variables_one": "{{count}} variabile",
+      "variables_other": "{{count}} variabili",
+      "variablesOf": "Variabili di {{path}}",
+      "filesOf": "File per {{env}}",
+      "import": "Importa…",
+      "addVariable": "Aggiungi variabile…",
+      "more": "Altro per {{path}}",
+      "deleteFile": "Elimina il file…",
+      "setAt": "impostata il {{date}}",
+      "replace": "Sostituisci…",
+      "remove": "Rimuovi…",
+      "showAll": "Mostra {{count}} variabili",
+      "cancel": "Annulla",
+      "newFileDialog": {
+        "title": "Nuovo file per {{env}}",
+        "path": "Percorso",
+        "hint": "Relativo alla radice del repository, come .env o apps/web/.env.",
+        "pathError": "Usa un percorso dentro il repository, senza .. né / iniziale.",
+        "pathTaken": "{{env}} ha già {{path}}.",
+        "create": "Crea",
+        "creating": "Creazione…"
+      },
+      "importDialog": {
+        "title": "Importa in {{path}} ({{env}})",
+        "label": "Variabili",
+        "choose": "Scegli un file…",
+        "hint": "Funzionano KEY=value, export KEY=value e i valori fra virgolette. Le righe che iniziano con # e quelle vuote si ignorano. Un nome già nel file viene sostituito.",
+        "import": "Importa",
+        "importing": "Importazione…",
+        "nothing": "Niente da importare: nessuna riga è nella forma KEY=value.",
+        "imported_one": "{{count}} importata",
+        "imported_other": "{{count}} importate",
+        "replaced_one": "{{count}} sostituita",
+        "replaced_other": "{{count}} sostituite",
+        "skipped_one": "riga {{lines}} saltata",
+        "skipped_other": "righe {{lines}} saltate",
+        "syntax": "Riga {{line}}: non è nella forma KEY=value.",
+        "key": "Riga {{line}}: il nome non è valido (lettere, cifre e _, senza iniziare con una cifra).",
+        "done": "Fatto",
+        "reauthAction": "importare variabili in {{path}} ({{env}})",
+        "discard": "Scartare il testo incollato?",
+        "keep": "Continua a modificare",
+        "discardButton": "Scarta"
+      },
+      "setDialog": {
+        "title": "Imposta una variabile in {{path}} ({{env}})",
+        "name": "Nome",
+        "value": "Valore",
+        "hint": "Una volta salvato, nessuno può rileggerlo, nemmeno tu: puoi solo sostituirlo.",
+        "keyError": "Usa lettere, cifre e _, senza iniziare con una cifra.",
+        "save": "Salva",
+        "saving": "Salvataggio…",
+        "done": "{{key}} impostata in {{path}} ({{env}}).",
+        "reauthAction": "impostare {{key}} in {{path}} ({{env}})",
+        "discard": "Scartare questa variabile?",
+        "keep": "Continua a modificare",
+        "discardButton": "Scarta"
+      },
+      "removeDialog": {
+        "title": "Rimuovere {{key}} da {{path}} ({{env}})?",
+        "claude": "Le prossime esecuzioni di Claude non l'avranno.",
+        "remove": "Rimuovi",
+        "removing": "Rimozione…",
+        "done": "{{key}} rimossa da {{path}} ({{env}}).",
+        "reauthAction": "rimuovere {{key}} da {{path}} ({{env}})"
+      },
+      "deleteDialog": {
+        "title_one": "Eliminare {{path}} ({{env}}) e la sua variabile?",
+        "title_other": "Eliminare {{path}} ({{env}}) e le sue {{count}} variabili?",
+        "titleEmpty": "Eliminare {{path}} ({{env}})?",
+        "delete": "Elimina",
+        "deleting": "Eliminazione…",
+        "done": "{{path}} eliminato da {{env}}.",
+        "reauthAction": "eliminare {{path}} ({{env}})"
+      }
+    },
+    "integration": {
+      "intro": "Come gli altri sistemi mandano a {{code}} errori ed eventi: la chiave d'ingestione, il webhook in arrivo, i webhook git.",
+      "loadError": "Impossibile caricare l'integrazione di {{code}}.",
+      "copy": "Copia",
+      "copied": "Copiato, con la chiave nascosta.",
+      "copiedPlain": "Copiato.",
+      "maskedNote": "Copia dà il testo con la chiave nascosta. Incolla la chiave intera da dove l'hai salvata quando è nata, o rigenerala.",
+      "key": {
+        "title": "Chiave d'ingestione",
+        "made": "creata il {{date}}",
+        "madeBy": "creata il {{date}} da {{name}}",
+        "regenerate": "Rigenera la chiave…",
+        "readOnly": "Creare una chiave nuova richiede qualcuno che possa cambiare le impostazioni di {{code}}.",
+        "dsn": "DSN",
+        "snippet": "Snippet dell'SDK",
+        "copyDsn": "Copia il DSN",
+        "copySnippet": "Copia lo snippet dell'SDK"
+      },
+      "inbound": {
+        "title": "Webhook in arrivo",
+        "body": "Sistemi come Audin o HubSpot mandano qui i loro eventi. Arrivano alle automazioni di {{code}} come eventi in arrivo.",
+        "address": "Indirizzo",
+        "auth": "Autenticazione",
+        "authValue": "Intestazione Authorization: {{auth}}",
+        "authNote": "È la chiave d'ingestione.",
+        "example": "Richiesta d'esempio",
+        "copyAddress": "Copia l'indirizzo",
+        "copyExample": "Copia la richiesta d'esempio"
+      },
+      "git": {
+        "title": "Webhook git",
+        "body": "La piattaforma git di ogni repository chiama questo indirizzo a ogni push. Configura automaticamente, in Repository, li imposta entrambi per te.",
+        "none": "{{code}} non ha ancora repository.",
+        "noneLink": "Repository",
+        "noSecret": "Nessun secret ancora",
+        "secret": "Secret",
+        "regenerate": "Rigenera il secret…",
+        "readOnly": "Creare un secret nuovo richiede qualcuno che possa gestire i repository di {{code}}.",
+        "copyAddress": "Copia l'indirizzo di {{name}}"
+      },
+      "guide": {
+        "title": "Guida all'SDK",
+        "body": "Una guida passo passo per mandare gli errori di un'app a {{code}}: installazione, init, prova. Dalla a chi integra l'app.",
+        "copy": "Copia la guida",
+        "save": "Salva come file…"
+      },
+      "regenerateKey": {
+        "title": "Creare una nuova chiave d'ingestione per {{code}}?",
+        "stops": "La chiave attuale smette di funzionare adesso: errori ed eventi mandati con lei vengono rifiutati.",
+        "everyApp": "Ogni app e sistema che manda a {{code}} ha bisogno della chiave nuova.",
+        "once": "La chiave nuova si vede una volta sola.",
+        "regenerate": "Rigenera",
+        "regenerating": "Rigenerazione…",
+        "cancel": "Annulla",
+        "secretTitle": "Questa chiave si vede solo adesso.",
+        "keyLabel": "Chiave",
+        "reauthAction": "creare una nuova chiave d'ingestione per {{code}}"
+      },
+      "regenerateSecret": {
+        "title": "Creare un nuovo secret del webhook per {{name}}?",
+        "body": "I push di {{platform}} vengono rifiutati finché il webhook non ha il secret nuovo. Configura automaticamente lo imposta per te.",
+        "platformFallback": "la piattaforma git",
+        "secretTitle": "Questo secret si vede solo adesso.",
+        "secretLabel": "Secret",
+        "reauthAction": "creare un nuovo secret del webhook per {{name}}"
       }
     }
   },

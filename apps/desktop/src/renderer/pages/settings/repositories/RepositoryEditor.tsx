@@ -20,13 +20,15 @@ import { primaryButton, quietButton, secondaryButton } from "../../tasks/control
 import { RepositoryReleases } from "../RepositorySettings";
 import { LeaveConfirm, SettingsFrame, useLeaveGuard, useSettingsWrite } from "../SettingsFrame";
 import { ViewOnlyLine } from "../ViewOnly";
+import { EnvFilesSection } from "./EnvFiles";
 import { WebhookSection, WebhookState } from "./WebhookRow";
 
 // La pagina di un repository (`?repo=<id>`, shape project-repositories.md
 // «La pagina del repository»): la testata col webhook in parole, i DETAILS
-// da modificare con la barra di salvataggio in fondo, il WEBHOOK e, col
-// modulo Releases, le parti dell'8a. Il ramo predefinito si legge e basta:
-// è un fatto della piattaforma (ruling del controller (pre-flight), P27).
+// da modificare con la barra di salvataggio in fondo, il WEBHOOK, i file
+// d'ambiente (Task 9) e, col modulo Releases, le parti dell'8a. Il ramo
+// predefinito si legge e basta: è un fatto della piattaforma (ruling del
+// controller (pre-flight), P27).
 // Le regole le dice il livello dati: le scelte dell'account di revisione
 // (`reviewAccountChoices`), la frase sotto il campo dal rifiuto, la riga
 // sbagliata dei rami protetti dal rifiuto (`line`). Senza `repos.manage`:
@@ -161,6 +163,12 @@ export function RepositoryEditor({
         canManage={data.canManage}
         projectId={project.id}
         code={project.code}
+        onReload={() => void repositories.refetch()}
+      />
+      <EnvFilesSection
+        project={project}
+        repository={repository}
+        canManage={data.canManage}
         onReload={() => void repositories.refetch()}
       />
       {project.modules.includes("releases") && (

@@ -293,7 +293,8 @@
       "copied": "Copied",
       "manual": "Select and copy it with {{keys}}.",
       "done": "Done",
-      "download": "Download"
+      "download": "Download",
+      "copyNamed": "Copy {{name}}"
     },
     "common": {
       "save": "Save",
@@ -2751,6 +2752,166 @@
           "invalid_credentials": "Invalid credentials",
           "unreachable": "Unreachable"
         }
+      }
+    },
+    "envFiles": {
+      "title": "Environment files",
+      "intro": "Only the test environment's files reach Claude: they're copied into its working copy before install and tests. Staging and production values are kept so you can replace them, never shown and never used automatically.",
+      "hidden": "Environment files are visible only to people who can manage {{code}}'s repositories.",
+      "noModule": "Environment files belong to an environment, and environments come with the Releases module.",
+      "noEnvironments": "Environment files belong to an environment, and {{code}} has none yet. Add one in",
+      "environmentsLink": "Releases → Environments",
+      "loadError": "Couldn't load the environment files.",
+      "kinds": {
+        "test": "Test",
+        "staging": "Staging",
+        "production": "Production"
+      },
+      "reaches": "Claude reads these",
+      "never": "Claude never reads these",
+      "newFile": "New file",
+      "noFiles": "No files for {{env}}.",
+      "variables_one": "{{count}} variable",
+      "variables_other": "{{count}} variables",
+      "variablesOf": "Variables of {{path}}",
+      "filesOf": "Files for {{env}}",
+      "import": "Import…",
+      "addVariable": "Add variable…",
+      "more": "More for {{path}}",
+      "deleteFile": "Delete file…",
+      "setAt": "set {{date}}",
+      "replace": "Replace…",
+      "remove": "Remove…",
+      "showAll": "Show {{count}} variables",
+      "cancel": "Cancel",
+      "newFileDialog": {
+        "title": "New file for {{env}}",
+        "path": "Path",
+        "hint": "Relative to the repository root, like .env or apps/web/.env.",
+        "pathError": "Use a path inside the repository, without .. or a leading /.",
+        "pathTaken": "{{env}} already has {{path}}.",
+        "create": "Create",
+        "creating": "Creating…"
+      },
+      "importDialog": {
+        "title": "Import into {{path}} ({{env}})",
+        "label": "Variables",
+        "choose": "Choose a file…",
+        "hint": "KEY=value, export KEY=value and quoted values work. Lines starting with # and empty lines are ignored. A name already in the file is replaced.",
+        "import": "Import",
+        "importing": "Importing…",
+        "nothing": "Nothing to import: no line is in KEY=value form.",
+        "imported_one": "{{count}} imported",
+        "imported_other": "{{count}} imported",
+        "replaced_one": "{{count}} replaced",
+        "replaced_other": "{{count}} replaced",
+        "skipped_one": "line {{lines}} skipped",
+        "skipped_other": "lines {{lines}} skipped",
+        "syntax": "Line {{line}}: not in KEY=value form.",
+        "key": "Line {{line}}: the name isn't valid (letters, digits and _, not starting with a digit).",
+        "done": "Done",
+        "reauthAction": "import variables into {{path}} ({{env}})",
+        "discard": "Discard the pasted text?",
+        "keep": "Keep editing",
+        "discardButton": "Discard"
+      },
+      "setDialog": {
+        "title": "Set a variable in {{path}} ({{env}})",
+        "name": "Name",
+        "value": "Value",
+        "hint": "Once saved, no one can read it again, not even you: you can only replace it.",
+        "keyError": "Use letters, digits and _, not starting with a digit.",
+        "save": "Save",
+        "saving": "Saving…",
+        "done": "{{key}} set in {{path}} ({{env}}).",
+        "reauthAction": "set {{key}} in {{path}} ({{env}})",
+        "discard": "Discard this variable?",
+        "keep": "Keep editing",
+        "discardButton": "Discard"
+      },
+      "removeDialog": {
+        "title": "Remove {{key}} from {{path}} ({{env}})?",
+        "claude": "Claude's next runs won't have it.",
+        "remove": "Remove",
+        "removing": "Removing…",
+        "done": "{{key}} removed from {{path}} ({{env}}).",
+        "reauthAction": "remove {{key}} from {{path}} ({{env}})"
+      },
+      "deleteDialog": {
+        "title_one": "Delete {{path}} ({{env}}) and its {{count}} variable?",
+        "title_other": "Delete {{path}} ({{env}}) and its {{count}} variables?",
+        "titleEmpty": "Delete {{path}} ({{env}})?",
+        "delete": "Delete",
+        "deleting": "Deleting…",
+        "done": "{{path}} deleted from {{env}}.",
+        "reauthAction": "delete {{path}} ({{env}})"
+      }
+    },
+    "integration": {
+      "intro": "How other systems send {{code}} their errors and events: the ingestion key, the inbound webhook, the git webhooks.",
+      "loadError": "Couldn't load {{code}}'s integration.",
+      "copy": "Copy",
+      "copied": "Copied, with the key hidden.",
+      "copiedPlain": "Copied.",
+      "maskedNote": "Copy gives the text with the key hidden. Paste the full key from where you saved it when it was made, or regenerate it.",
+      "key": {
+        "title": "Ingestion key",
+        "made": "made {{date}}",
+        "madeBy": "made {{date}} by {{name}}",
+        "regenerate": "Regenerate key…",
+        "readOnly": "Making a new key needs someone who can change {{code}}'s settings.",
+        "dsn": "DSN",
+        "snippet": "SDK snippet",
+        "copyDsn": "Copy DSN",
+        "copySnippet": "Copy SDK snippet"
+      },
+      "inbound": {
+        "title": "Inbound webhook",
+        "body": "Systems like Audin or HubSpot post events here. They reach {{code}}'s automations as incoming events.",
+        "address": "Address",
+        "auth": "Authentication",
+        "authValue": "Header Authorization: {{auth}}",
+        "authNote": "It's the ingestion key.",
+        "example": "Example request",
+        "copyAddress": "Copy address",
+        "copyExample": "Copy example request"
+      },
+      "git": {
+        "title": "Git webhooks",
+        "body": "Each repository's git platform calls this address on every push. Configure automatically, in Repositories, sets both for you.",
+        "none": "{{code}} has no repositories yet.",
+        "noneLink": "Repositories",
+        "noSecret": "No secret yet",
+        "secret": "Secret",
+        "regenerate": "Regenerate secret…",
+        "readOnly": "Making a new secret needs someone who can manage {{code}}'s repositories.",
+        "copyAddress": "Copy the address of {{name}}"
+      },
+      "guide": {
+        "title": "SDK guide",
+        "body": "A step-by-step guide to send {{code}}'s errors from an app: install, init, test. Hand it to whoever integrates the app.",
+        "copy": "Copy guide",
+        "save": "Save as file…"
+      },
+      "regenerateKey": {
+        "title": "Make a new ingestion key for {{code}}?",
+        "stops": "The current key stops working now: errors and events sent with it are refused.",
+        "everyApp": "Every app and system that sends to {{code}} needs the new key.",
+        "once": "The new key is shown only once.",
+        "regenerate": "Regenerate",
+        "regenerating": "Regenerating…",
+        "cancel": "Cancel",
+        "secretTitle": "This key is shown only now.",
+        "keyLabel": "Key",
+        "reauthAction": "make a new ingestion key for {{code}}"
+      },
+      "regenerateSecret": {
+        "title": "Make a new webhook secret for {{name}}?",
+        "body": "{{platform}}'s pushes are refused until the webhook has the new secret. Configure automatically sets it for you.",
+        "platformFallback": "The git platform",
+        "secretTitle": "This secret is shown only now.",
+        "secretLabel": "Secret",
+        "reauthAction": "make a new webhook secret for {{name}}"
       }
     }
   },

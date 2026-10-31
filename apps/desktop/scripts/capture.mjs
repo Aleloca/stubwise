@@ -137,6 +137,130 @@ async function main() {
       console.log("scritto", name);
     };
 
+    // Area 9c, Task 9 (`CAPTURE_A9C_ENV=1`): i file d'ambiente nella pagina
+    // del repository e Progetto → Settings → Integration (shape
+    // project-repositories.md), scatti `a9c-env-*` e `a9c-integration-*`.
+    // Laura è riconfermata in anticipo (la riconferma ha i suoi scatti, 9a);
+    // Marco in sola lettura come al Task 8, Sara Contributor in ACQ.
+    if (process.env.CAPTURE_A9C_ENV) {
+      async function prepare(page, action) {
+        await page.evaluate(async (what) => {
+          const viewer = await import("/data/viewer.ts");
+          const reauth = await import("/data/auth/reauth.ts");
+          if (what === "readOnly") viewer.revokeProjectPermission("p-marco", "prj-acq", "repos.manage");
+          if (what === "reauthed") reauth.markReauthenticated("p-laura");
+        }, action);
+      }
+      const go = async (page, hash) => {
+        await page.evaluate((h) => {
+          window.location.hash = h;
+        }, hash);
+        await page.waitForTimeout(1200);
+        await page.mouse.move(2, 2);
+      };
+      const it = (page) => page.evaluate(() => document.documentElement.lang === "it");
+      const dialog = (page) => page.getByRole("dialog");
+      /** Porta in alto la testata di una parte (le parti basse della pagina). */
+      const scrollTo = (heading) => async (page) => {
+        await page.getByRole("heading", { level: 2, name: heading }).first().evaluate((el) => {
+          el.scrollIntoView({ block: "start" });
+          el.closest("main, [data-scroll], .overflow-y-auto")?.scrollBy(0, -16);
+        });
+        await page.waitForTimeout(200);
+        await page.mouse.move(2, 2);
+      };
+      const envHeading = /^(Environment files|File d'ambiente)$/;
+      const fileButton = async (page, group, name) => {
+        const g = page.getByRole("group", { name: group });
+        await g.getByRole("button", { name }).first().click();
+        await page.waitForTimeout(300);
+      };
+      const importOpen = async (page) => {
+        await scrollTo(envHeading)(page);
+        await fileButton(page, /^TEST/i, /^(Import…|Importa…)$/);
+        await dialog(page)
+          .locator("textarea")
+          .fill(
+            "FEATURE_FLAG=on\nDATABASE_URL=postgres://db.internal/stw_test\nthis line is broken\nSMTP_PASSWORD=prototype-only",
+          );
+        await page.mouse.move(2, 2);
+      };
+      const importDone = async (page) => {
+        await importOpen(page);
+        await dialog(page).getByRole("button", { name: /^(Import|Importa)$/ }).click();
+        await page.waitForTimeout(1200);
+        await page.mouse.move(2, 2);
+      };
+      const setOpen = async (page) => {
+        await scrollTo(envHeading)(page);
+        const production = page.getByRole("group", { name: /^PRODUCTION/i });
+        await production.getByRole("button", { name: /^(Replace…|Sostituisci…)$/ }).first().click();
+        await page.waitForTimeout(300);
+        await dialog(page).locator("input[type=password]").fill("postgres://prototype");
+        await page.mouse.move(2, 2);
+      };
+      const deleteOpen = async (page) => {
+        await scrollTo(envHeading)(page);
+        const production = page.getByRole("group", { name: /^PRODUCTION/i });
+        await production.getByRole("button", { name: /^(More for|Altro per)/ }).click();
+        await page.getByRole("menuitem").first().click();
+        await page.waitForTimeout(300);
+        await page.mouse.move(2, 2);
+      };
+      const regenerateKey = async (page) => {
+        const name = (await it(page)) ? "Rigenera la chiave…" : "Regenerate key…";
+        await page.getByRole("button", { name }).click();
+        await page.waitForTimeout(300);
+        await page.mouse.move(2, 2);
+      };
+      const keyShown = async (page) => {
+        await regenerateKey(page);
+        await dialog(page).getByRole("button", { name: /^(Regenerate|Rigenera)$/ }).click();
+        await page.waitForTimeout(1200);
+        await page.mouse.move(2, 2);
+      };
+      const STW_REPO = "/p/STW/settings/repositories?repo=repo-stw";
+      const ACQ_REPO = "/p/ACQ/settings/repositories?repo=repo-acq";
+      const INTEGRATION = "/p/ACQ/settings/integration";
+      const SCENES = [
+        // [nome, indirizzo, { persona, action, after }]
+        ["env-files", STW_REPO, { persona: "Laura", after: scrollTo(envHeading) }],
+        ["env-readonly", ACQ_REPO, { persona: "Marco", action: "readOnly", after: scrollTo(envHeading) }],
+        ["env-import", STW_REPO, { persona: "Laura", action: "reauthed", after: importOpen }],
+        ["env-import-done", STW_REPO, { persona: "Laura", action: "reauthed", after: importDone }],
+        ["env-set", STW_REPO, { persona: "Laura", after: setOpen }],
+        ["env-delete", STW_REPO, { persona: "Laura", after: deleteOpen }],
+        ["integration", INTEGRATION, { persona: "Laura" }],
+        ["integration-git", INTEGRATION, { persona: "Laura", after: scrollTo(/^(Git webhooks|Webhook git)$/) }],
+        ["integration-readonly", INTEGRATION, { persona: "Sara" }],
+        ["integration-regenerate", INTEGRATION, { persona: "Laura", after: regenerateKey }],
+        ["integration-secret", INTEGRATION, { persona: "Laura", action: "reauthed", after: keyShown }],
+      ];
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      for (const [name, hash, opts] of SCENES) {
+        if (only && !only.test(name)) continue;
+        for (const v of variants) {
+          const { page, context } = await open(v.scheme, v.viewport, "/home", {
+            lang: v.lang,
+            persona: opts.persona,
+          });
+          if (opts.action) await prepare(page, opts.action);
+          await go(page, hash);
+          if (opts.after) await opts.after(page);
+          await shot(page, `a9c-${name}-${v.suffix}.png`);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 9c, Task 8 (`CAPTURE_A9C_REPOS=1`): Progetto → Settings →
     // Repositories, la creazione guidata, la pagina del repository e il
     // webhook (shape project-repositories.md), scatti `a9c-repos-*`. Marco

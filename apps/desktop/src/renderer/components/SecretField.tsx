@@ -32,6 +32,7 @@ export function SecretInput({
   onChange,
   error,
   autoFocus = false,
+  hint,
 }: {
   id?: string;
   label: string;
@@ -39,6 +40,11 @@ export function SecretInput({
   onChange: (value: string) => void;
   error?: string | null;
   autoFocus?: boolean;
+  /**
+   * La riga sotto il campo. Di default dice che dopo resta la coda; un valore
+   * d'ambiente (9c) non ha nemmeno quella, e lo dice la sua frase.
+   */
+  hint?: string;
 }) {
   const { t } = useTranslation();
   const own = useId();
@@ -83,8 +89,8 @@ export function SecretInput({
           {error}
         </ErrorLine>
       )}
-      <p id={hintId} className="text-xs text-ink-muted">
-        {t("admin.ai.secret.hint")}
+      <p id={hintId} className="text-xs text-pretty text-ink-muted">
+        {hint ?? t("admin.ai.secret.hint")}
       </p>
     </div>
   );

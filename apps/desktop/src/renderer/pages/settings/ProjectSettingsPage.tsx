@@ -7,6 +7,7 @@ import { Placeholder } from "../Placeholder";
 import { AiSettings } from "./AiSettings";
 import { AutomationSettings } from "./AutomationSettings";
 import { GeneralSettings } from "./GeneralSettings";
+import { IntegrationSettings } from "./IntegrationSettings";
 import { MembersSettings } from "./MembersSettings";
 import { ProjectChangeLog } from "./ProjectChangeLog";
 import { ProjectStatusesSettings } from "./ProjectStatusesSettings";
@@ -65,8 +66,9 @@ function Section({ project, section }: { project: Project; section: ProjectSetti
           <ProjectStatusesSettings project={project} />
         </SettingsFrame>
       );
-    // Le sezioni che arrivano coi Task 9–11 dell'area 9c.
     case "integration":
+      return <IntegrationSettings project={project} />;
+    // Le sezioni che arrivano coi Task 10–11 dell'area 9c.
     case "plugins":
     case "archive":
       return (

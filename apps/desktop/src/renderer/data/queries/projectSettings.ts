@@ -13,6 +13,8 @@ import { useViewer } from "../viewer";
 // altrove. I Task 4, 5 ci aggiungono i loro.
 
 export type {
+  EnvFileView,
+  IntegrationView,
   ProjectResult,
   ProjectSettingsView,
   ProjectSwitch,
@@ -238,4 +240,94 @@ export function useSimulateNextWebhookSetup() {
  */
 export function useSeesGitAccounts(): boolean {
   return canSeeAdminSection(useViewer().viewer, "git-accounts");
+}
+
+// --- File d'ambiente e Integration (Task 9) ----------------------------------
+//
+// Le scritture con un segreto negli argomenti (un valore d'ambiente, il testo
+// importato) o nel risultato (la chiave d'ingestione, il secret del webhook)
+// hanno `{ secret: true }`: la cache delle mutazioni non le tiene (shape
+// project-repositories.md §7). Chi le usa le monta nel dialogo che mostra o
+// raccoglie il valore, così il risultato sparisce con lui.
+
+/** I file d'ambiente di un repository; errore `forbidden` senza `repos.manage`. */
+export function useEnvFiles(repositoryId: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "projectSettings", "envFiles", repositoryId] as const,
+    queryFn: () => api.projectSettings.listEnvFiles(repositoryId),
+  });
+}
+
+/** Un file vuoto: nessun segreto. */
+export function useCreateEnvFile() {
+  return useWrite(
+    ({
+      repositoryId,
+      ...input
+    }: { repositoryId: string } & Parameters<typeof api.projectSettings.createEnvFile>[1]) =>
+      api.projectSettings.createEnvFile(repositoryId, input),
+    SETTINGS_AREAS,
+  );
+}
+
+export function useImportEnvFile() {
+  return useWrite(
+    ({ fileId, content }: { fileId: string; content: string }) =>
+      api.projectSettings.importEnvFile(fileId, content),
+    SETTINGS_AREAS,
+    { secret: true },
+  );
+}
+
+export function useSetEnvVar() {
+  return useWrite(
+    ({ fileId, key, value }: { fileId: string; key: string; value: string }) =>
+      api.projectSettings.setEnvVar(fileId, key, value),
+    SETTINGS_AREAS,
+    { secret: true },
+  );
+}
+
+export function useRemoveEnvVar() {
+  return useWrite(
+    ({ fileId, key }: { fileId: string; key: string }) =>
+      api.projectSettings.removeEnvVar(fileId, key),
+    SETTINGS_AREAS,
+    { secret: true },
+  );
+}
+
+export function useDeleteEnvFile() {
+  return useWrite(
+    (fileId: string) => api.projectSettings.deleteEnvFile(fileId),
+    SETTINGS_AREAS,
+    { secret: true },
+  );
+}
+
+/** Integration come la legge chi guarda; `null` su un progetto invisibile o archiviato. */
+export function useProjectIntegration(projectId: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "projectSettings", "integration", projectId] as const,
+    queryFn: () => api.projectSettings.getIntegration(projectId),
+  });
+}
+
+export function useRegenerateIngestionKey() {
+  return useWrite(
+    (projectId: string) => api.projectSettings.regenerateIngestionKey(projectId),
+    SETTINGS_AREAS,
+    { secret: true },
+  );
+}
+
+/** Il secret del webhook si legge anche nella pagina del repository (le ultime 4). */
+export function useRegenerateWebhookSecret() {
+  return useWrite(
+    (repositoryId: string) => api.projectSettings.regenerateWebhookSecret(repositoryId),
+    REPOSITORY_WRITE_AREAS,
+    { secret: true },
+  );
 }
