@@ -542,19 +542,17 @@ function RegenerateKeyDialog({
   async function submit() {
     if (busy) return;
     setBusy(true);
-    let made: { key: string; dsn: string; snippet: string } | null = null;
-    const ok = await write.run(
-      async () => {
-        const r = await reauth(() => regenerate.mutateAsync(project.id), {
+    await write.run(
+      () =>
+        reauth(() => regenerate.mutateAsync(project.id), {
           action: t("settings.integration.regenerateKey.reauthAction", { code }),
-        });
-        if (r.ok) made = { key: r.key, dsn: r.dsn, snippet: r.snippet };
-        return r;
-      },
+        }),
       () => undefined,
+      (r) => {
+        if (r.ok) setSecret({ key: r.key, dsn: r.dsn, snippet: r.snippet });
+      },
     );
     setBusy(false);
-    if (ok) setSecret(made);
   }
 
   return (
@@ -640,19 +638,17 @@ function RegenerateSecretDialog({
   async function submit() {
     if (busy) return;
     setBusy(true);
-    let made: string | null = null;
-    const ok = await write.run(
-      async () => {
-        const r = await reauth(() => regenerate.mutateAsync(repositoryId), {
+    await write.run(
+      () =>
+        reauth(() => regenerate.mutateAsync(repositoryId), {
           action: t("settings.integration.regenerateSecret.reauthAction", { name }),
-        });
-        if (r.ok) made = r.secret;
-        return r;
-      },
+        }),
       () => undefined,
+      (r) => {
+        if (r.ok) setSecret(r.secret);
+      },
     );
     setBusy(false);
-    if (ok) setSecret(made);
   }
 
   return (

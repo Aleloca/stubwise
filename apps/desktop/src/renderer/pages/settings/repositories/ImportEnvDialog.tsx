@@ -59,27 +59,22 @@ export function ImportEnvDialog({
     setContent("");
     setNothing(false);
     setBusy(true);
-    let result: Outcome | null = null;
-    const ok = await write.run(
-      async () => {
-        const r = await reauth(
-          () => importFile.mutateAsync({ fileId: target.file.id, content: sent }),
-          {
-            action: t("settings.envFiles.importDialog.reauthAction", words),
-          },
-        );
-        if (r.ok) result = { imported: r.imported, replaced: r.replaced, skipped: r.skipped };
-        return r;
-      },
+    await write.run(
+      () =>
+        reauth(() => importFile.mutateAsync({ fileId: target.file.id, content: sent }), {
+          action: t("settings.envFiles.importDialog.reauthAction", words),
+        }),
       (reason) => {
         if (reason === "nothing_to_import") {
           setNothing(true);
           setContent(sent);
         }
       },
+      (r) => {
+        if (r.ok) setOutcome({ imported: r.imported, replaced: r.replaced, skipped: r.skipped });
+      },
     );
     setBusy(false);
-    if (ok) setOutcome(result);
   }
 
   async function chooseFile(file: File | undefined) {

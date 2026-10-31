@@ -158,7 +158,10 @@ export function LeaveConfirm({
  *   chiama resta com'è (il dialogo aperto);
  * - un errore del livello dati: «Couldn't save. Try again.» con Retry, bozza
  *   conservata.
- * Restituisce `true` se la scrittura è riuscita.
+ * Restituisce `true` se la scrittura è riuscita. Il seguito di una scrittura
+ * riuscita (mostrare un segreto, chiudere un dialogo, il toast) va in
+ * `onDone`, che riceve il risultato: così vale anche dopo un Retry, che
+ * altrimenti riuscirebbe senza che nessuno lo sappia.
  */
 export function useSettingsWrite(code: string, onReload: () => void) {
   const { t } = useTranslation();
@@ -168,18 +171,37 @@ export function useSettingsWrite(code: string, onReload: () => void) {
     { kind: "forbidden" } | { kind: "failed"; retry: () => void } | null
   >(null);
 
-  async function run(
-    write: () => Promise<unknown>,
+  async function run<R>(
+    write: () => Promise<R>,
     onInvalid: (reason: string, line?: number) => void,
+    onDone?: (result: R) => void,
   ): Promise<boolean> {
-    setFailure(null);
+    return attempt(write, onInvalid, onDone, false);
+  }
+
+  async function attempt<R>(
+    write: () => Promise<R>,
+    onInvalid: (reason: string, line?: number) => void,
+    onDone: ((result: R) => void) | undefined,
+    retrying: boolean,
+  ): Promise<boolean> {
+    // Il Retry rifà la stessa scrittura con lo stesso seguito: il risultato
+    // di un Retry riuscito arriva a `onDone` come quello del primo tentativo.
+    // Durante il Retry la riga resta (e il fuoco sul suo bottone, che la
+    // riconferma riprende alla chiusura): se ne va con l'esito.
+    if (!retrying) setFailure(null);
+    const retry = () => void attempt(write, onInvalid, onDone, true);
     const result = await write().catch(() => undefined);
     if (result === undefined) {
-      setFailure({ kind: "failed", retry: () => void run(write, onInvalid) });
+      setFailure({ kind: "failed", retry });
       return false;
     }
+    if (retrying) setFailure(null);
     const refusal = refusalOf(result);
-    if (!refusal) return true;
+    if (!refusal) {
+      onDone?.(result);
+      return true;
+    }
     if (refusal.error === "invalid")
       onInvalid(refusal.reason ?? "", (refusal as { line?: number }).line);
     else if (refusal.error === "forbidden") {
@@ -191,7 +213,7 @@ export function useSettingsWrite(code: string, onReload: () => void) {
     } else if (refusal.error === "not_found") {
       toast.error(t("settings.common.notFound", { code }));
       void navigate({ to: "/projects" as never });
-    } else setFailure({ kind: "failed", retry: () => void run(write, onInvalid) });
+    } else setFailure({ kind: "failed", retry });
     return false;
   }
 

@@ -2,7 +2,7 @@ import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __secretValuesForTest } from "../../data/admin/secrets";
-import { projectSettings, resetApi, setLatency } from "../../data/api";
+import { failNext, projectSettings, resetApi, setLatency } from "../../data/api";
 import { setSessionPersonId } from "../../data/session";
 import { state } from "../../data/store";
 import { resetViewerGrants, revokeProjectPermission } from "../../data/viewer";
@@ -49,6 +49,14 @@ async function openIntegration(person: string, code = "ACQ") {
 
 /** La finestra di grazia della riconferma si chiude: la prossima azione delicata la chiede di nuovo. */
 const expireReauth = (person: string) => state.reauth.delete(person);
+
+/** La riconferma, se la finestra di grazia è chiusa: il Retry passa di nuovo da lei. */
+async function reauthIfAsked(user: UserEvent) {
+  const confirm = await screen
+    .findByRole("dialog", { name: "Confirm it's you" }, { timeout: 300 })
+    .catch(() => null);
+  if (confirm) await user.type(within(confirm).getByLabelText("Code"), "123456");
+}
 
 /** La riconferma del prototipo: il codice, poi l'azione riparte da sola. */
 async function reauth(user: UserEvent) {
@@ -164,6 +172,62 @@ describe("i file d'ambiente, da Laura in STW", () => {
       await within(dialog).findByText("Nothing to import: no line is in KEY=value form."),
     ).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Confirm it's you" })).toBeNull();
+  });
+
+  it("niente di valido con la riconferma scaduta: il rifiuto arriva prima della riconferma", async () => {
+    const user = userEvent.setup();
+    await openRepository(LAURA, "repo-stw", "stubwise", "STW");
+    expireReauth(LAURA);
+    const test = await envGroup(/^TEST/i);
+    await user.click(within(fileRow(test, ".env")).getByRole("button", { name: "Import…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Import into .env (Test)" });
+    await user.type(within(dialog).getByRole("textbox", { name: "Variables" }), "# solo commenti");
+    await user.click(within(dialog).getByRole("button", { name: "Import" }));
+    expect(
+      await within(dialog).findByText("Nothing to import: no line is in KEY=value form."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Confirm it's you" })).toBeNull();
+  });
+
+  it("un errore, poi Retry: l'esito dell'import compare come al primo tentativo", async () => {
+    const user = userEvent.setup();
+    await openRepository(LAURA, "repo-stw", "stubwise", "STW");
+    const test = await envGroup(/^TEST/i);
+    await user.click(within(fileRow(test, ".env")).getByRole("button", { name: "Import…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Import into .env (Test)" });
+    await user.type(
+      within(dialog).getByRole("textbox", { name: "Variables" }),
+      "RETRY_KEY=proto-retry-0001",
+    );
+    failNext("projectSettings.importEnvFile");
+    await user.click(within(dialog).getByRole("button", { name: "Import" }));
+    expect(await within(dialog).findByText("Couldn't save. Try again.")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Retry" }));
+    await reauthIfAsked(user);
+    expect(await within(dialog).findByText("1 imported.")).toBeInTheDocument();
+  });
+
+  it("un errore, poi Retry: Set variable si chiude col toast e il fuoco torna a Replace…", async () => {
+    const user = userEvent.setup();
+    await openRepository(LAURA, "repo-stw", "stubwise", "STW");
+    const production = await envGroup(/^PRODUCTION/i);
+    const row = () =>
+      within(fileRow(production, ".env")).getByRole("listitem", { name: "DATABASE_URL" });
+    await user.click(within(row()).getByRole("button", { name: "Replace…" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Set a variable in .env (Production)",
+    });
+    await user.type(within(dialog).getByLabelText("Value"), "proto-retry-0002");
+    failNext("projectSettings.setEnvVar");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(await within(dialog).findByText("Couldn't save. Try again.")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Retry" }));
+    await reauthIfAsked(user);
+    expect(await screen.findByText("DATABASE_URL set in .env (Production).")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() =>
+      expect(within(row()).getByRole("button", { name: "Replace…" })).toHaveFocus(),
+    );
   });
 
   it("sostituisci, rimuovi, elimina il file: ognuna con la riconferma; il fuoco torna al bottone o al New file", async () => {
@@ -405,6 +469,41 @@ describe("Integration", () => {
     expect(again).toHaveTextContent(`•••• ${secret.slice(-4)}`);
     expect(again).toHaveTextContent(/by Laura Costa/);
     expect(body()).not.toContain(secret);
+  });
+
+  it("un errore, poi Retry: la chiave rigenerata compare in SecretOnce", async () => {
+    const user = userEvent.setup();
+    await openIntegration(LAURA);
+    const key = await screen.findByRole("region", { name: "Ingestion key" });
+    await user.click(within(key).getByRole("button", { name: "Regenerate key…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Make a new ingestion key for ACQ?" });
+    failNext("projectSettings.regenerateIngestionKey");
+    await user.click(within(dialog).getByRole("button", { name: "Regenerate" }));
+    expect(await within(dialog).findByText("Couldn't save. Try again.")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Retry" }));
+    await reauthIfAsked(user);
+    const once = await within(dialog).findByTestId("secret-once");
+    const secret = __secretValuesForTest().find((s) => s.kind === "ingestion_key")!.values[0]!;
+    expect(once.querySelector("[data-secret-value]")).toHaveTextContent(secret);
+  });
+
+  it("un errore, poi Retry: il secret del webhook compare in SecretOnce", async () => {
+    const user = userEvent.setup();
+    await openIntegration(LAURA);
+    const hooks = await screen.findByRole("region", { name: "Git webhooks" });
+    const row = within(hooks).getByRole("listitem", { name: "portale-utenti" });
+    await user.click(within(row).getByRole("button", { name: "Regenerate secret…" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Make a new webhook secret for portale-utenti?",
+    });
+    failNext("projectSettings.regenerateWebhookSecret");
+    await user.click(within(dialog).getByRole("button", { name: "Regenerate" }));
+    expect(await within(dialog).findByText("Couldn't save. Try again.")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Retry" }));
+    await reauthIfAsked(user);
+    const once = await within(dialog).findByTestId("secret-once");
+    const secret = __secretValuesForTest().find((s) => s.kind === "git_webhook_secret")!.values[0]!;
+    expect(once.querySelector("[data-secret-value]")).toHaveTextContent(secret);
   });
 
   it("il secret del webhook di un repository: Laura lo rigenera; Marco lo vede spento con «Who?»", async () => {

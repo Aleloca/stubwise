@@ -450,12 +450,12 @@ function NewFileDialog({
     if (busy) return;
     setBusy(true);
     setInvalid(null);
-    const ok = await write.run(
+    await write.run(
       () => create.mutateAsync({ repositoryId, environmentId: environment.id, path }),
       (reason) => setInvalid(reason),
+      onClose,
     );
     setBusy(false);
-    if (ok) onClose();
   }
 
   const error =
@@ -571,7 +571,7 @@ function SetVariableDialog({
     setValue("");
     setKeyError(false);
     setBusy(true);
-    const ok = await write.run(
+    await write.run(
       () =>
         reauth(() => setVar.mutateAsync({ fileId: target.file.id, key: name, value: sent }), {
           action: t("settings.envFiles.setDialog.reauthAction", { key: name, ...words }),
@@ -582,11 +582,12 @@ function SetVariableDialog({
           setValue(sent);
         }
       },
+      () => {
+        toast.show(t("settings.envFiles.setDialog.done", { key: name, ...words }));
+        onClose();
+      },
     );
     setBusy(false);
-    if (!ok) return;
-    toast.show(t("settings.envFiles.setDialog.done", { key: name, ...words }));
-    onClose();
   }
 
   const dirty = value !== "" || (fixedKey === null && key.trim() !== "");
@@ -690,17 +691,18 @@ function RemoveVariableDialog({
   async function submit() {
     if (busy) return;
     setBusy(true);
-    const ok = await write.run(
+    await write.run(
       () =>
         reauth(() => remove.mutateAsync({ fileId: target.file.id, key: variable }), {
           action: t("settings.envFiles.removeDialog.reauthAction", words),
         }),
       () => undefined,
+      () => {
+        toast.show(t("settings.envFiles.removeDialog.done", words));
+        onClose(true);
+      },
     );
     setBusy(false);
-    if (!ok) return;
-    toast.show(t("settings.envFiles.removeDialog.done", words));
-    onClose(true);
   }
 
   return (
@@ -757,17 +759,18 @@ function DeleteFileDialog({
   async function submit() {
     if (busy) return;
     setBusy(true);
-    const ok = await write.run(
+    await write.run(
       () =>
         reauth(() => remove.mutateAsync(target.file.id), {
           action: t("settings.envFiles.deleteDialog.reauthAction", words),
         }),
       () => undefined,
+      () => {
+        toast.show(t("settings.envFiles.deleteDialog.done", words));
+        onClose(true);
+      },
     );
     setBusy(false);
-    if (!ok) return;
-    toast.show(t("settings.envFiles.deleteDialog.done", words));
-    onClose(true);
   }
 
   return (
