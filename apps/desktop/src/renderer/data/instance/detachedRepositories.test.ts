@@ -166,6 +166,21 @@ describe("collegare un repository senza progetto", () => {
     expect(entries()).toEqual([]);
   });
 
+  it("verso un progetto archiviato: fuori dai linkTargets, e rifiutato not_found anche al full admin", async () => {
+    // ACQ archiviato da Roberta: Laura ne era membro, Roberta è full admin.
+    as(ROBERTA);
+    expect(await projectSettings.archiveProject(ACQ)).toEqual({ ok: true });
+    for (const person of [ROBERTA, LAURA]) {
+      as(person);
+      const [row] = await instance.listDetachedRepositories();
+      expect(row!.linkTargets.map((t) => t.projectId)).not.toContain(ACQ);
+      const before = snapshot();
+      expect(await instance.linkRepository(REPO, ACQ)).toEqual({ ok: false, error: "not_found" });
+      expect(snapshot()).toBe(before);
+    }
+    expect(entries("repository.linked")).toEqual([]);
+  });
+
   it("un secondo collegamento dello stesso repository → not_found", async () => {
     as(LAURA);
     expect(await instance.linkRepository(REPO, ACQ)).toEqual({ ok: true });
