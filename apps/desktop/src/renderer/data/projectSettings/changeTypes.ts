@@ -89,15 +89,28 @@ export const PROJECT_CHANGE_TYPES: readonly ChangeType[] = [
  * - `env_file.imported`: `count`, quante variabili, come numero in stringa;
  * - `env_var.set`, `env_var.removed`: `key`, il nome della variabile;
  * - `project.deleted`: `detachedRepositories`, quanti repository restano
- *   senza progetto, come numero in stringa.
+ *   senza progetto, come numero in stringa;
+ * - `project.ai_account_changed`: `accountBefore`, `accountAfter`, i nomi di
+ *   allora degli account (assenti per «Automatic»): eliminato l'account, la
+ *   voce lo dice ancora per nome (Task 12);
+ * - `env_file.*`, `env_var.*`: `environment` e `repository`, i nomi di
+ *   allora dell'ambiente e del repository del file (Task 12).
  * I prima/dopo seguono `changelog/settingValues.ts` (`SETTING_KINDS`).
  */
+interface EnvFileParams {
+  environment: string;
+  repository: string;
+}
+
 export interface ProjectChangeParams {
   "project.switch_changed": { switch: string };
   "repository.updated": { field: string };
-  "env_file.imported": { count: string };
-  "env_var.set": { key: string };
-  "env_var.removed": { key: string };
+  "project.ai_account_changed": { accountBefore?: string; accountAfter?: string };
+  "env_file.created": EnvFileParams;
+  "env_file.deleted": EnvFileParams;
+  "env_file.imported": EnvFileParams & { count: string };
+  "env_var.set": EnvFileParams & { key: string };
+  "env_var.removed": EnvFileParams & { key: string };
   "project.deleted": { detachedRepositories: string };
 }
 

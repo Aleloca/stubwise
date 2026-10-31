@@ -36,6 +36,16 @@ export interface EnvFileView {
 
 const fileObject = (f: EnvFile) => ({ type: "env_file", id: f.id, label: f.path });
 
+/**
+ * I nomi di allora dell'ambiente e del repository del file, per la frase
+ * della voce («.env (Production)», «per Production in portale-utenti»):
+ * nomi dati da una persona, si salvano com'erano (Task 12).
+ */
+const fileParams = (f: EnvFile): { environment: string; repository: string } => ({
+  environment: state.environments.find((e) => e.id === f.environmentId)?.name ?? "",
+  repository: state.repositories.find((r) => r.id === f.repositoryId)?.name ?? "",
+});
+
 /** Campo per campo: niente id del caveau. */
 const fileView = (f: EnvFile): EnvFileView => ({
   id: f.id,
@@ -134,6 +144,7 @@ export async function createEnvFile(
     actorId: me,
     projectId: project.id,
     object: fileObject(file),
+    params: fileParams(file),
   });
   return { ok: true, fileId: file.id };
 }
@@ -221,7 +232,7 @@ export async function importEnvFile(
     actorId: me,
     projectId,
     object: fileObject(file),
-    params: { count: String(vars.size) },
+    params: { ...fileParams(file), count: String(vars.size) },
   });
   return { ok: true, imported, replaced, skipped };
 }
@@ -247,7 +258,7 @@ export async function setEnvVar(
     actorId: me,
     projectId,
     object: fileObject(file),
-    params: { key },
+    params: { ...fileParams(file), key },
   });
   return { ok: true };
 }
@@ -270,7 +281,7 @@ export async function removeEnvVar(fileId: string, key: string): Promise<Project
     actorId: me,
     projectId,
     object: fileObject(file),
-    params: { key },
+    params: { ...fileParams(file), key },
   });
   return { ok: true };
 }
@@ -291,6 +302,7 @@ export async function deleteEnvFile(fileId: string): Promise<ProjectResult> {
     actorId: me,
     projectId,
     object: fileObject(file),
+    params: fileParams(file),
   });
   return { ok: true };
 }

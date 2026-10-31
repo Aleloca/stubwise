@@ -301,6 +301,10 @@ export function ChangeFilters({
             >
               <span className="num w-9 shrink-0 font-semibold">{p.code}</span>
               <span className="min-w-0 truncate text-ink-muted">{p.name}</span>
+              {/* Un archiviato di cui chi guarda era membro (P21): lo si dice. */}
+              {p.archived && (
+                <span className="shrink-0 text-ink-faint">{t("changelog.filters.archived")}</span>
+              )}
             </RadioItem>
           ))}
         </Chip>

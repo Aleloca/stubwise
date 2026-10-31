@@ -541,8 +541,11 @@ describe("RF 3: la scheda Archived e la pagina dell'archiviato", () => {
     await projectSettings.archiveProject(RNC);
     const kinds = (await changelog.listChanges({ projectId: RNC })).map((e) => e.kind);
     expect(kinds).toEqual(["project.archived", "project.reopened"]);
-    // Archiviato, non ha Settings da aprire: nessun link.
-    expect((await changelog.listChanges({ projectId: RNC }))[0]!.objectLink).toBeNull();
+    // Archiviato, non ha Settings da aprire: la voce porta alla sua pagina (Task 12).
+    expect((await changelog.listChanges({ projectId: RNC }))[0]!.objectLink).toEqual({
+      to: "archived",
+      code: "RNC",
+    });
     as(LAURA);
     expect(JSON.stringify(await changelog.listChanges())).not.toContain("RNC");
   });
@@ -863,12 +866,12 @@ describe("Delete di RNC da Roberta", () => {
     const deletedOf = async () => (await changelog.listChanges({ kind: "project.deleted" }))[0]!;
 
     const roberta = await deletedOf();
-    expect(roberta.object.label).toBe("RNC — Vetrina online Tenuta Ronchi");
+    expect(roberta.object.label).toBe("RNC · Vetrina online Tenuta Ronchi");
     expect(roberta.objectLabelKey ?? null).toBeNull();
 
     as(GIULIA);
     grantInstancePermission(GIULIA, "changelog.view");
-    expect((await deletedOf()).object.label).toBe("RNC — Vetrina online Tenuta Ronchi");
+    expect((await deletedOf()).object.label).toBe("RNC · Vetrina online Tenuta Ronchi");
 
     grantInstancePermission(LAURA, "changelog.view");
     as(LAURA);

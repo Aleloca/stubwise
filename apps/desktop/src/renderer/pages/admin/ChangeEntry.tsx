@@ -120,13 +120,22 @@ export function ObjectLink({ link, children }: { link: ChangeObjectLink; childre
         </Link>
       );
     case "projectSettings":
-      // La sezione di Progetto → Settings in cui sta l'oggetto (area 9c).
+      // La sezione di Progetto → Settings in cui sta l'oggetto (area 9c);
+      // con `repo`, la pagina del repository dentro Repositories.
       return (
         <Link
           to="/p/$code/settings/$section"
           params={{ code: link.code, section: link.section }}
+          search={link.repo ? { repo: link.repo } : {}}
           className={linkClass}
         >
+          {children}
+        </Link>
+      );
+    case "archived":
+      // Un progetto archiviato: la sua pagina (area 9c, Task 11).
+      return (
+        <Link to="/archived/$code" params={{ code: link.code }} className={linkClass}>
           {children}
         </Link>
       );
@@ -135,6 +144,37 @@ export function ObjectLink({ link, children }: { link: ChangeObjectLink; childre
       return unknown;
     }
   }
+}
+
+/**
+ * La variante della frase (il contesto di i18next, `<chiave>_<contesto>`),
+ * letta dal dato della voce: un interruttore acceso o spento, un webhook non
+ * riuscito, un progetto eliminato che chi legge non vedeva (la chiave
+ * `changelog.values.hiddenProject` messa dal livello dati, R-G5), un
+ * repository eliminato di cui chi legge sa il progetto d'origine.
+ */
+function contextOf(entry: ChangeEntryView): string | undefined {
+  const after = entry.diff?.kind === "setting" ? entry.diff.after : null;
+  switch (entry.kind) {
+    case "project.switch_changed":
+      return after?.type === "switch" ? (after.on ? "on" : "off") : undefined;
+    case "repository.webhook_configured":
+      return after?.type === "webhook" && after.state === "failed" ? "failed" : undefined;
+    case "project.deleted":
+      return entry.objectLabelKey === "changelog.values.hiddenProject" ? "hidden" : undefined;
+    case "repository.deleted":
+      return entry.params.formerProject ? "from" : undefined;
+    default:
+      return undefined;
+  }
+}
+
+/** Quante cose conta la frase (`project.deleted`, `env_file.imported`): sceglie la forma plurale. */
+function countOf(entry: ChangeEntryView): { count: number } | Record<string, never> {
+  if (entry.kind === "project.deleted")
+    return { count: Number(entry.params.detachedRepositories ?? 0) };
+  if (entry.kind === "env_file.imported") return { count: Number(entry.params.count ?? 0) };
+  return {};
 }
 
 /** L'oggetto della frase: un link se esiste ed è visibile, il nome con «(deleted)» se non c'è più. */
@@ -213,9 +253,17 @@ function useSettingWords() {
           : t("changelog.values.queuePaused", { date: dayTimeOf(v.pausedSince, i18n.language) });
       case "ai_account": {
         if (v.providerId === null) return t("changelog.values.aiAutomatic");
+        // Un account eliminato si dice col nome di allora, «(deleted)»; se
+        // la voce non lo sa, «an account that was deleted» (Task 12).
+        if (v.deleted && v.name)
+          return t(v.exclusive ? "changelog.values.aiOnlyDeleted" : "changelog.values.aiDeleted", {
+            name: v.name,
+          });
         const name = v.name ?? t("changelog.values.aiDeletedAccount");
         return v.exclusive ? t("changelog.values.aiOnly", { name }) : name;
       }
+      case "webhook":
+        return t(`changelog.values.webhookState.${v.state}`);
       case "number":
         return String(v.value);
     }
@@ -276,18 +324,23 @@ function useDiffLine() {
   const words = usePermissionWords();
   const setting = useSettingWords();
   const fieldsLine = useFieldsLine();
-  return (diff: ChangeDiff): string | null => {
+  return (diff: ChangeDiff, params: Record<string, string>): string | null => {
     const none = t("changelog.entry.none");
     switch (diff.kind) {
       case "values":
         return `${diff.before ?? none} → ${diff.after ?? none}`;
-      case "setting":
+      case "setting": {
         if (diff.before?.type === "fields" || diff.after?.type === "fields")
           return fieldsLine(
             diff.before?.type === "fields" ? diff.before.fields : null,
             diff.after?.type === "fields" ? diff.after.fields : null,
           );
-        return `${setting(diff.before)} → ${setting(diff.after)}`;
+        const change = `${setting(diff.before)} → ${setting(diff.after)}`;
+        // Un interruttore di progetto (9c) si nomina: «Weekly brief: On → Off».
+        return params.switch
+          ? `${t(`changelog.params.projectSwitch.${params.switch}`)}: ${change}`
+          : change;
+      }
       case "permissions": {
         if (diff.role) {
           const extra = [...diff.added, ...diff.removed].map(words).join(", ");
@@ -338,11 +391,9 @@ export function ChangeEntry({
     permission: words(permission),
     // `project.deleted` (area 9c, Task 11): quanti repository restano senza
     // progetto sceglie la frase («… 1 repository is now in no project.»).
-    ...(entry.kind === "project.deleted"
-      ? { count: Number(entry.params.detachedRepositories ?? 0) }
-      : {}),
+    ...countOf(entry),
   };
-  const line = entry.diff ? diffLine(entry.diff) : null;
+  const line = entry.diff ? diffLine(entry.diff, entry.params) : null;
   const details =
     entry.diff?.kind === "permissions" && entry.diff.before && entry.diff.after
       ? { before: entry.diff.before, after: entry.diff.after }
@@ -362,11 +413,15 @@ export function ChangeEntry({
           <p className="min-w-0 flex-1 text-md text-pretty text-ink">
             <Trans
               i18nKey={entry.templateKey}
+              context={contextOf(entry)}
               values={values}
               components={{
                 actor: <span className="font-semibold" />,
                 object: <ObjectRef entry={entry} />,
                 strong: <strong className="font-semibold" />,
+                // `project.deleted`: «1 repository is now in no project» porta
+                // ad Amministrazione → Repositories, per chi la vede (Task 12).
+                repos: entry.objectLink ? <ObjectLink link={entry.objectLink} /> : <span />,
               }}
             />
           </p>

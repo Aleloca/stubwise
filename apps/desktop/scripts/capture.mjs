@@ -137,6 +137,96 @@ async function main() {
       console.log("scritto", name);
     };
 
+    // Area 9c, Task 12 (`CAPTURE_A9C_AUDIT=1`): le voci del 9c nel registro,
+    // scatti `a9c-audit-*`. Le voci si scrivono dal livello dati della pagina
+    // con le funzioni vere (interruttore, account AI poi eliminato, variabile
+    // d'ambiente, campo del repository, webhook non riuscito e poi
+    // configurato; RNC eliminato e `shop-frontend` collegato ad ACQ da
+    // Laura). Roberta legge tutto; Laura (con `changelog.view`) non legge
+    // nulla di RNC; Giulia ha RNC «(archived)» nel filtro dei progetti.
+    if (process.env.CAPTURE_A9C_AUDIT) {
+      const IDS = { Laura: "p-laura", Giulia: "p-giulia", Roberta: "p-roberta" };
+      const go = async (page, hash) => {
+        await page.evaluate((h) => {
+          window.location.hash = h;
+        }, hash);
+        await page.waitForTimeout(1200);
+        await page.mouse.move(2, 2);
+      };
+      const voices = (persona) => async (page) => {
+        await page.evaluate(async (back) => {
+          const api = await import("/data/api.ts");
+          const session = await import("/data/session.ts");
+          const reauth = await import("/data/auth/reauth.ts");
+          const store = await import("/data/store.ts");
+          const viewer = await import("/data/viewer.ts");
+          const ps = api.projectSettings;
+          const as = (id) => {
+            session.setSessionPersonId(id);
+            reauth.markReauthenticated(id);
+          };
+          as("p-roberta");
+          await ps.setProjectAi("prj-acq", { providerId: "prv-backup-max", exclusive: true });
+          const current = await ps.getProjectSettings("prj-acq");
+          await ps.saveProjectAutomations("prj-acq", {
+            switches: { ...current.switches, weeklyBrief: !current.switches.weeklyBrief },
+            pulseEveryDays: current.pulseEveryDays,
+            correctionCap: current.correctionCap,
+          });
+          const created = await ps.createEnvFile("repo-acq", { environmentId: "env-acq-prod", path: ".env" });
+          if (created.ok) await ps.setEnvVar(created.fileId, "DATABASE_URL", "postgres://prototype");
+          await ps.updateRepository("repo-acq", { testCommand: "pnpm test" });
+          await ps.simulateNextWebhookSetup("failed");
+          await ps.configureRepositoryWebhook("repo-acq");
+          await ps.configureRepositoryWebhook("repo-acq");
+          await ps.deleteProject("prj-rnc", { confirmCode: "RNC" });
+          as("p-laura");
+          await api.instance.linkRepository("repo-rnc", "prj-acq");
+          viewer.grantInstancePermission("p-laura", "changelog.view");
+          store.state.instance.providers = store.state.instance.providers.filter(
+            (p) => p.id !== "prv-backup-max",
+          );
+          as(back);
+        }, IDS[persona]);
+      };
+      const projectMenu = async (page) => {
+        await page.getByRole("button", { name: /^(Project|Progetto)/ }).first().click();
+        await page.getByRole("menu").waitFor();
+        // RNC sta in fondo all'elenco: lo si cerca, così lo scatto lo mostra.
+        await page.keyboard.type("RN");
+        await page.waitForTimeout(300);
+      };
+      const SCENES = [
+        ["audit-admin", "/admin/changelog", { persona: "Roberta", before: voices("Roberta") }],
+        ["audit-admin-laura", "/admin/changelog", { persona: "Laura", before: voices("Laura") }],
+        ["audit-project", "/p/ACQ/settings/changelog", { persona: "Laura", before: voices("Laura") }],
+        ["audit-archived-filter", "/admin/changelog", { persona: "Giulia", after: projectMenu }],
+      ];
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      for (const [name, hash, opts] of SCENES) {
+        if (only && !only.test(name)) continue;
+        for (const v of variants) {
+          const { page, context } = await open(v.scheme, v.viewport, "/home", {
+            lang: v.lang,
+            persona: opts.persona,
+          });
+          if (opts.before) await opts.before(page);
+          await go(page, hash);
+          if (opts.after) await opts.after(page);
+          await shot(page, `a9c-${name}-${v.suffix}.png`);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 9c, Task 11 (`CAPTURE_A9C_ARCHIVE=1`): archiviare, la scheda
     // Archived, la pagina dell'archiviato, Reopen e Delete, il gruppo «Not in
     // any project» di Amministrazione → Repositories (shape

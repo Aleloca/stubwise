@@ -22,6 +22,12 @@ export interface ReauthRequest {
    * generica.
    */
   action?: string;
+  /**
+   * La frase del toast se il dialogo si chiude senza riconferma; senza,
+   * «Nothing was changed.». Un'eliminazione dice «Nothing was deleted.»
+   * (shape project-archive.md, area 9c).
+   */
+  cancelMessage?: string;
   /** Il controllo che aveva aperto l'azione: alla chiusura il fuoco torna lì. */
   opener: HTMLElement | null;
   resolve: (confirmed: boolean) => void;
@@ -54,12 +60,16 @@ export function settleReauth(confirmed: boolean): void {
 }
 
 /** Apre il dialogo e aspetta: `true` riconfermato, `false` chiuso. */
-function requestReauth(action: string | undefined, opener: HTMLElement | null): Promise<boolean> {
+function requestReauth(
+  action: string | undefined,
+  cancelMessage: string | undefined,
+  opener: HTMLElement | null,
+): Promise<boolean> {
   // Una richiesta già aperta (due azioni insieme) si chiude come annullata:
   // il dialogo è uno, e nomina l'azione più recente.
   if (current) settleReauth(false);
   return new Promise((resolve) => {
-    current = { action, opener, resolve };
+    current = { action, cancelMessage, opener, resolve };
     emit();
   });
 }
@@ -78,12 +88,12 @@ const isReauthRequired = (value: unknown): boolean =>
 export function useReauth() {
   return useCallback(async function run<R>(
     call: () => Promise<R>,
-    options: { action?: string } = {},
+    options: { action?: string; cancelMessage?: string } = {},
   ): Promise<R | ReauthCancelled> {
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const first = await call();
     if (!isReauthRequired(first)) return first;
-    const confirmed = await requestReauth(options.action, opener);
+    const confirmed = await requestReauth(options.action, options.cancelMessage, opener);
     if (!confirmed) return { ok: false, error: "reauth_cancelled" };
     // La riconferma è appena aperta: l'azione riparte una volta sola. Un
     // secondo `reauth_required` (impossibile dentro la finestra) torna così com'è.

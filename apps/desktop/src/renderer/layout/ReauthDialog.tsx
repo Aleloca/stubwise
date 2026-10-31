@@ -49,7 +49,10 @@ function ReauthDialog({ request }: { request: ReauthRequest }) {
   const toast = useToast();
   const methods = useMySecondFactor();
 
-  const finish = (confirmed: boolean, cancelMessage = t("entry.reauth.nothingChanged")) => {
+  const finish = (
+    confirmed: boolean,
+    cancelMessage = request.cancelMessage ?? t("entry.reauth.nothingChanged"),
+  ) => {
     if (!confirmed) toast.show(cancelMessage);
     settleReauth(confirmed);
     refocus(request.opener);

@@ -70,7 +70,8 @@ export interface ChangeEntry {
  * aprirlo: la pagina della persona, del ruolo, dell'invito, il pannello del
  * reparto o del membro; dal 9b una voce dell'Amministrazione (con l'id
  * dell'oggetto dentro la voce, se ne ha uno) o un server; dal 9c la sezione
- * di Progetto → Settings in cui sta l'oggetto.
+ * di Progetto → Settings in cui sta l'oggetto (con `repo`, la pagina del
+ * repository) o, per un archiviato, la sua pagina (`/archived/<CODE>`).
  */
 export type ChangeObjectLink =
   | { to: "person"; personId: string }
@@ -80,7 +81,8 @@ export type ChangeObjectLink =
   | { to: "member"; projectCode: string; personId: string }
   | { to: "admin"; section: AdminSection; id?: string }
   | { to: "server"; code: string }
-  | { to: "projectSettings"; code: string; section: ProjectSettingsSection };
+  | { to: "projectSettings"; code: string; section: ProjectSettingsSection; repo?: string }
+  | { to: "archived"; code: string };
 
 /**
  * Il prima e dopo di una voce, già pronto da leggere ([AU 2]):

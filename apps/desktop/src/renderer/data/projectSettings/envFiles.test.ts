@@ -119,7 +119,12 @@ describe("le scritture dei file d'ambiente", () => {
     );
     const voice = entries("env_file.imported");
     expect(voice).toHaveLength(1);
-    expect(voice[0]!.params).toEqual({ count: "3" });
+    // Il nome dell'ambiente e del repository di allora, per la frase (Task 12); mai un valore.
+    expect(voice[0]!.params).toEqual({
+      environment: "Production",
+      repository: "stubwise",
+      count: "3",
+    });
     expect(voice[0]!.object).toMatchObject({ type: "env_file", id: STW_PROD_FILE, label: ".env" });
   });
 
@@ -157,13 +162,17 @@ describe("le scritture dei file d'ambiente", () => {
     expect(values()).toContain("second-prototype-value-0007");
     expect(values()).not.toContain("first-prototype-value-0006");
     expect(entries("env_var.set").map((e) => e.params)).toEqual([
-      { key: "SENTRY_DSN" },
-      { key: "SENTRY_DSN" },
+      { environment: "Production", repository: "stubwise", key: "SENTRY_DSN" },
+      { environment: "Production", repository: "stubwise", key: "SENTRY_DSN" },
     ]);
     expect(await projectSettings.removeEnvVar(STW_PROD_FILE, "SENTRY_DSN")).toEqual({ ok: true });
     expect(values()).not.toContain("second-prototype-value-0007");
     expect(fileOf(STW_PROD_FILE)!.vars.map((v) => v.key)).toEqual(["DATABASE_URL"]);
-    expect(entries("env_var.removed")[0]!.params).toEqual({ key: "SENTRY_DSN" });
+    expect(entries("env_var.removed")[0]!.params).toEqual({
+      environment: "Production",
+      repository: "stubwise",
+      key: "SENTRY_DSN",
+    });
 
     await projectSettings.setEnvVar(STW_PROD_FILE, "OTHER", "third-prototype-value-0008");
     expect(await projectSettings.deleteEnvFile(STW_PROD_FILE)).toEqual({ ok: true });

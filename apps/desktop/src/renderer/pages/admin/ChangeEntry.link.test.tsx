@@ -45,7 +45,10 @@ describe("il link projectSettings di una voce", () => {
     // La frase dice l'interruttore in parole, il prima/dopo da valori stabili.
     const entry = document.querySelector("[data-change-entry]")!;
     const lines = [...entry.querySelectorAll("p")].map((p) => p.textContent);
-    expect(lines).toEqual(["Roberta Fontana changed “Weekly brief” in ACQ.", "On → Off"]);
+    expect(lines).toEqual([
+      "Roberta Fontana turned off the weekly brief in ACQ.",
+      "Weekly brief: On → Off",
+    ]);
   });
 
   it("una destinazione sconosciuta non compila", () => {

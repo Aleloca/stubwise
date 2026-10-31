@@ -2421,7 +2421,8 @@
           "envFiles_other": "{{count}} environment files",
           "releases_one": "{{count}} release",
           "releases_other": "{{count}} releases"
-        }
+        },
+        "nothingDeleted": "Nothing was deleted."
       }
     }
   },
@@ -10099,7 +10100,8 @@
           "reauthAction": "Delete {{name}} for good",
           "done": "{{name}} deleted.",
           "gone": "Someone already linked or deleted this repository. Nothing changed.",
-          "forbidden": "Only a full admin can delete it."
+          "forbidden": "Only a full admin can delete it.",
+          "nothingDeleted": "Nothing was deleted."
         }
       }
     },
@@ -10712,10 +10714,16 @@
         "ingestion_key_regenerated": "<actor>{{actor}}</actor> made a new ingestion key for <object>{{object}}</object>.",
         "archived": "<actor>{{actor}}</actor> archived <object>{{object}}</object>.",
         "reopened": "<actor>{{actor}}</actor> reopened <object>{{object}}</object>.",
-        "deleted": "<actor>{{actor}}</actor> deleted the project <object>{{object}}</object>.",
-        "deleted_zero": "<actor>{{actor}}</actor> deleted the project <object>{{object}}</object>.",
-        "deleted_one": "<actor>{{actor}}</actor> deleted the project <object>{{object}}</object>. {{count}} repository is now in no project.",
-        "deleted_other": "<actor>{{actor}}</actor> deleted the project <object>{{object}}</object>. {{count}} repositories are now in no project."
+        "deleted": "<actor>{{actor}}</actor> deleted the project <strong>{{object}}</strong>.",
+        "deleted_zero": "<actor>{{actor}}</actor> deleted the project <strong>{{object}}</strong>.",
+        "deleted_one": "<actor>{{actor}}</actor> deleted the project <strong>{{object}}</strong>. <repos>{{count}} repository is now in no project</repos>.",
+        "deleted_other": "<actor>{{actor}}</actor> deleted the project <strong>{{object}}</strong>. <repos>{{count}} repositories are now in no project</repos>.",
+        "switch_changed_on": "<actor>{{actor}}</actor> turned on <strong>$t(changelog.params.projectSwitchNoun.{{switch}})</strong> in <object>{{object}}</object>.",
+        "switch_changed_off": "<actor>{{actor}}</actor> turned off <strong>$t(changelog.params.projectSwitchNoun.{{switch}})</strong> in <object>{{object}}</object>.",
+        "deleted_hidden": "<actor>{{actor}}</actor> deleted a project you couldn't see.",
+        "deleted_hidden_zero": "<actor>{{actor}}</actor> deleted a project you couldn't see.",
+        "deleted_hidden_one": "<actor>{{actor}}</actor> deleted a project you couldn't see. <repos>{{count}} repository is now in no project</repos>.",
+        "deleted_hidden_other": "<actor>{{actor}}</actor> deleted a project you couldn't see. <repos>{{count}} repositories are now in no project</repos>."
       },
       "repository": {
         "created": "<actor>{{actor}}</actor> added the repository <object>{{object}}</object> to {{project}}.",
@@ -10724,17 +10732,21 @@
         "release_pipeline_changed": "<actor>{{actor}}</actor> changed the release pipelines or branch of <object>{{object}}</object>.",
         "webhook_configured": "<actor>{{actor}}</actor> configured the git webhook of <object>{{object}}</object>.",
         "webhook_secret_regenerated": "<actor>{{actor}}</actor> made a new webhook secret for <object>{{object}}</object>.",
-        "linked": "<actor>{{actor}}</actor> linked <object>{{object}}</object> to {{project}}.",
-        "deleted": "<actor>{{actor}}</actor> deleted the repository <object>{{object}}</object>, which was in no project."
+        "linked": "<actor>{{actor}}</actor> linked the repository <object>{{object}}</object> to {{project}}.",
+        "deleted": "<actor>{{actor}}</actor> deleted the repository <object>{{object}}</object>, which was in no project.",
+        "webhook_configured_failed": "<actor>{{actor}}</actor> tried to configure the git webhook of <object>{{object}}</object>: it failed.",
+        "deleted_from": "<actor>{{actor}}</actor> deleted the repository <object>{{object}}</object>, which was in no project (from <strong>{{formerProject}}</strong>)."
       },
       "env_file": {
-        "created": "<actor>{{actor}}</actor> created the environment file <object>{{object}}</object>.",
-        "deleted": "<actor>{{actor}}</actor> deleted the environment file <object>{{object}}</object>.",
-        "imported": "<actor>{{actor}}</actor> imported variables into <object>{{object}}</object>: {{count}}."
+        "created": "<actor>{{actor}}</actor> created the file <object>{{object}}</object> for <strong>{{environment}}</strong> in <strong>{{repository}}</strong>.",
+        "deleted": "<actor>{{actor}}</actor> deleted the file <object>{{object}}</object> for <strong>{{environment}}</strong> in <strong>{{repository}}</strong>.",
+        "imported": "<actor>{{actor}}</actor> imported variables into <object>{{object}}</object> (<strong>{{environment}}</strong>).",
+        "imported_one": "<actor>{{actor}}</actor> imported {{count}} variable into <object>{{object}}</object> (<strong>{{environment}}</strong>).",
+        "imported_other": "<actor>{{actor}}</actor> imported {{count}} variables into <object>{{object}}</object> (<strong>{{environment}}</strong>)."
       },
       "env_var": {
-        "set": "<actor>{{actor}}</actor> set <strong>{{key}}</strong> in <object>{{object}}</object>.",
-        "removed": "<actor>{{actor}}</actor> removed <strong>{{key}}</strong> from <object>{{object}}</object>."
+        "set": "<actor>{{actor}}</actor> set <strong>{{key}}</strong> in <object>{{object}}</object> (<strong>{{environment}}</strong>).",
+        "removed": "<actor>{{actor}}</actor> removed <strong>{{key}}</strong> from <object>{{object}}</object> (<strong>{{environment}}</strong>)."
       },
       "environment": {
         "created": "<actor>{{actor}}</actor> created the environment <object>{{object}}</object> in {{project}}.",
@@ -10799,7 +10811,8 @@
       "from": "From",
       "to": "To",
       "apply": "Apply",
-      "clear": "Clear filters"
+      "clear": "Clear filters",
+      "archived": "(archived)"
     },
     "days": {
       "today": "Today",
@@ -10846,6 +10859,13 @@
         "protectedBranches": "the protected branches",
         "gitAccount": "the git account",
         "reviewGitAccount": "the reviewer"
+      },
+      "projectSwitchNoun": {
+        "docsNightly": "the nightly Docs update",
+        "dailyReport": "the daily report",
+        "backlogDiscovery": "backlog discovery",
+        "pulse": "the pulse",
+        "weeklyBrief": "the weekly brief"
       }
     },
     "values": {
@@ -10895,8 +10915,15 @@
         "project_brief": "Weekly project brief"
       },
       "aiAutomatic": "Automatic",
-      "aiDeletedAccount": "a deleted account",
-      "aiOnly": "{{name}} (only this account)"
+      "aiDeletedAccount": "an account that was deleted",
+      "aiOnly": "{{name}} (only this account)",
+      "aiDeleted": "{{name}} (deleted)",
+      "aiOnlyDeleted": "{{name}} (deleted, only this account)",
+      "webhookState": {
+        "not_configured": "Not configured",
+        "configured": "Configured",
+        "failed": "Failed"
+      }
     },
     "fields": {
       "name": "Name",

@@ -29,6 +29,15 @@ export async function setProjectAi(
   if (providerId === null && exclusive) return refuse.invalid("exclusive_needs_account");
 
   const settings = settingsOf(project);
+  // Il nome di allora di ciascun account (un nome dato da una persona, si
+  // salva com'è): eliminato l'account, la voce dice ancora «Backup Max (deleted)».
+  const nameOf = (id: string | null) =>
+    id === null ? undefined : state.instance.providers.find((p) => p.id === id)?.name;
+  const names: Record<string, string> = {};
+  const beforeName = nameOf(settings.aiProviderId);
+  const afterName = nameOf(providerId);
+  if (beforeName !== undefined) names.accountBefore = beforeName;
+  if (afterName !== undefined) names.accountAfter = afterName;
   const before = encodeAiAccount(settings.aiProviderId, settings.aiProviderExclusive);
   const after = encodeAiAccount(providerId, exclusive);
   settings.aiProviderId = providerId;
@@ -42,6 +51,7 @@ export async function setProjectAi(
       object: projectObject(project),
       before,
       after,
+      params: names,
     });
   return { ok: true };
 }

@@ -187,6 +187,7 @@ export function DeleteDetachedRepositoryDialog({
       () =>
         reauth(() => remove.mutateAsync(r.id), {
           action: t("admin.repositories.detached.deleteDialog.reauthAction", { name: r.name }),
+          cancelMessage: t("admin.repositories.detached.deleteDialog.nothingDeleted"),
         }),
       () => undefined,
       () => {

@@ -2421,7 +2421,8 @@
           "envFiles_other": "{{count}} file d'ambiente",
           "releases_one": "{{count}} rilascio",
           "releases_other": "{{count}} rilasci"
-        }
+        },
+        "nothingDeleted": "Non è stato eliminato niente."
       }
     }
   },
@@ -10099,7 +10100,8 @@
           "reauthAction": "Eliminare {{name}} per sempre",
           "done": "{{name}} eliminato.",
           "gone": "Qualcuno ha già collegato o eliminato questo repository. Non è cambiato niente.",
-          "forbidden": "Solo un full admin può eliminarlo."
+          "forbidden": "Solo un full admin può eliminarlo.",
+          "nothingDeleted": "Non è stato eliminato niente."
         }
       }
     },
@@ -10712,10 +10714,16 @@
         "ingestion_key_regenerated": "<actor>{{actor}}</actor> ha creato una nuova chiave d'ingestione per <object>{{object}}</object>.",
         "archived": "<actor>{{actor}}</actor> ha archiviato <object>{{object}}</object>.",
         "reopened": "<actor>{{actor}}</actor> ha riaperto <object>{{object}}</object>.",
-        "deleted": "<actor>{{actor}}</actor> ha eliminato il progetto <object>{{object}}</object>.",
-        "deleted_zero": "<actor>{{actor}}</actor> ha eliminato il progetto <object>{{object}}</object>.",
-        "deleted_one": "<actor>{{actor}}</actor> ha eliminato il progetto <object>{{object}}</object>. {{count}} repository ora non è in nessun progetto.",
-        "deleted_other": "<actor>{{actor}}</actor> ha eliminato il progetto <object>{{object}}</object>. {{count}} repository ora non sono in nessun progetto."
+        "deleted": "<actor>{{actor}}</actor> ha eliminato il progetto <strong>{{object}}</strong>.",
+        "deleted_zero": "<actor>{{actor}}</actor> ha eliminato il progetto <strong>{{object}}</strong>.",
+        "deleted_one": "<actor>{{actor}}</actor> ha eliminato il progetto <strong>{{object}}</strong>. <repos>{{count}} repository ora non è in nessun progetto</repos>.",
+        "deleted_other": "<actor>{{actor}}</actor> ha eliminato il progetto <strong>{{object}}</strong>. <repos>{{count}} repository ora non sono in nessun progetto</repos>.",
+        "switch_changed_on": "<actor>{{actor}}</actor> ha acceso <strong>$t(changelog.params.projectSwitchNoun.{{switch}})</strong> in <object>{{object}}</object>.",
+        "switch_changed_off": "<actor>{{actor}}</actor> ha spento <strong>$t(changelog.params.projectSwitchNoun.{{switch}})</strong> in <object>{{object}}</object>.",
+        "deleted_hidden": "<actor>{{actor}}</actor> ha eliminato un progetto che non vedevi.",
+        "deleted_hidden_zero": "<actor>{{actor}}</actor> ha eliminato un progetto che non vedevi.",
+        "deleted_hidden_one": "<actor>{{actor}}</actor> ha eliminato un progetto che non vedevi. <repos>{{count}} repository ora non è in nessun progetto</repos>.",
+        "deleted_hidden_other": "<actor>{{actor}}</actor> ha eliminato un progetto che non vedevi. <repos>{{count}} repository ora non sono in nessun progetto</repos>."
       },
       "repository": {
         "created": "<actor>{{actor}}</actor> ha aggiunto il repository <object>{{object}}</object> a {{project}}.",
@@ -10724,17 +10732,21 @@
         "release_pipeline_changed": "<actor>{{actor}}</actor> ha cambiato le pipeline o il ramo di rilascio di <object>{{object}}</object>.",
         "webhook_configured": "<actor>{{actor}}</actor> ha configurato il webhook git di <object>{{object}}</object>.",
         "webhook_secret_regenerated": "<actor>{{actor}}</actor> ha creato un nuovo secret del webhook per <object>{{object}}</object>.",
-        "linked": "<actor>{{actor}}</actor> ha collegato <object>{{object}}</object> a {{project}}.",
-        "deleted": "<actor>{{actor}}</actor> ha eliminato il repository <object>{{object}}</object>, che non era in nessun progetto."
+        "linked": "<actor>{{actor}}</actor> ha collegato il repository <object>{{object}}</object> al progetto {{project}}.",
+        "deleted": "<actor>{{actor}}</actor> ha eliminato il repository <object>{{object}}</object>, che non era in nessun progetto.",
+        "webhook_configured_failed": "<actor>{{actor}}</actor> ha provato a configurare il webhook git di <object>{{object}}</object>: non è riuscito.",
+        "deleted_from": "<actor>{{actor}}</actor> ha eliminato il repository <object>{{object}}</object>, che non era in nessun progetto (da <strong>{{formerProject}}</strong>)."
       },
       "env_file": {
-        "created": "<actor>{{actor}}</actor> ha creato il file d'ambiente <object>{{object}}</object>.",
-        "deleted": "<actor>{{actor}}</actor> ha eliminato il file d'ambiente <object>{{object}}</object>.",
-        "imported": "<actor>{{actor}}</actor> ha importato variabili in <object>{{object}}</object>: {{count}}."
+        "created": "<actor>{{actor}}</actor> ha creato il file <object>{{object}}</object> per <strong>{{environment}}</strong> in <strong>{{repository}}</strong>.",
+        "deleted": "<actor>{{actor}}</actor> ha eliminato il file <object>{{object}}</object> per <strong>{{environment}}</strong> in <strong>{{repository}}</strong>.",
+        "imported": "<actor>{{actor}}</actor> ha importato variabili in <object>{{object}}</object> (<strong>{{environment}}</strong>).",
+        "imported_one": "<actor>{{actor}}</actor> ha importato {{count}} variabile in <object>{{object}}</object> (<strong>{{environment}}</strong>).",
+        "imported_other": "<actor>{{actor}}</actor> ha importato {{count}} variabili in <object>{{object}}</object> (<strong>{{environment}}</strong>)."
       },
       "env_var": {
-        "set": "<actor>{{actor}}</actor> ha impostato <strong>{{key}}</strong> in <object>{{object}}</object>.",
-        "removed": "<actor>{{actor}}</actor> ha tolto <strong>{{key}}</strong> da <object>{{object}}</object>."
+        "set": "<actor>{{actor}}</actor> ha impostato <strong>{{key}}</strong> in <object>{{object}}</object> (<strong>{{environment}}</strong>).",
+        "removed": "<actor>{{actor}}</actor> ha rimosso <strong>{{key}}</strong> da <object>{{object}}</object> (<strong>{{environment}}</strong>)."
       },
       "environment": {
         "created": "<actor>{{actor}}</actor> ha creato l'ambiente <object>{{object}}</object> in {{project}}.",
@@ -10799,7 +10811,8 @@
       "from": "Dal",
       "to": "Al",
       "apply": "Applica",
-      "clear": "Togli i filtri"
+      "clear": "Togli i filtri",
+      "archived": "(archiviato)"
     },
     "days": {
       "today": "Oggi",
@@ -10846,6 +10859,13 @@
         "protectedBranches": "i rami protetti",
         "gitAccount": "l'account git",
         "reviewGitAccount": "il revisore"
+      },
+      "projectSwitchNoun": {
+        "docsNightly": "l'aggiornamento notturno dei Docs",
+        "dailyReport": "il report giornaliero",
+        "backlogDiscovery": "la discovery del backlog",
+        "pulse": "il pulse",
+        "weeklyBrief": "il brief settimanale"
       }
     },
     "values": {
@@ -10896,7 +10916,14 @@
       },
       "aiAutomatic": "Automatico",
       "aiDeletedAccount": "un account eliminato",
-      "aiOnly": "{{name}} (solo questo account)"
+      "aiOnly": "{{name}} (solo questo account)",
+      "aiDeleted": "{{name}} (eliminato)",
+      "aiOnlyDeleted": "{{name}} (eliminato, solo questo account)",
+      "webhookState": {
+        "not_configured": "Non configurato",
+        "configured": "Configurato",
+        "failed": "Non riuscito"
+      }
     },
     "fields": {
       "name": "Nome",

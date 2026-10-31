@@ -356,6 +356,21 @@ describe("Delete for good, da Roberta", () => {
     expect(state.projectsById.get(RNC)).toBeDefined();
   });
 
+  it("riconferma annullata: «Nothing was deleted.», il dialogo resta e RNC pure (M11)", async () => {
+    const user = userEvent.setup();
+    await openPage(ROBERTA);
+    await user.click(screen.getByRole("button", { name: "Delete for good…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete RNC for good?" });
+    await user.type(await within(dialog).findByLabelText("Type RNC to confirm"), "RNC");
+    await user.click(within(dialog).getByRole("button", { name: "Delete for good" }));
+    const confirm = await screen.findByRole("dialog", { name: "Confirm it's you" });
+    await user.click(within(confirm).getByRole("button", { name: "Cancel" }));
+    expect(await screen.findByText("Nothing was deleted.")).toBeVisible();
+    expect(screen.queryByText("Nothing was changed.")).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Delete RNC for good?" })).toBeVisible();
+    expect(state.projectsById.get(RNC)).toBeDefined();
+  });
+
   it("riaperto nel frattempo: «Nothing was deleted.» e si va a /p/RNC", async () => {
     const user = userEvent.setup();
     markReauthenticated(ROBERTA);

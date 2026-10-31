@@ -64,7 +64,7 @@ function knowsDeleted(me: string, projectId: string | undefined): { code: string
 
 /**
  * Le due voci d'istanza che nominano un progetto eliminato, risolte a
- * lettura (R-G5). `project.deleted`: «RNC — Vetrina online Tenuta Ronchi» a
+ * lettura (R-G5). `project.deleted`: «RNC · Vetrina online Tenuta Ronchi» a
  * chi ne era membro o è full admin; agli altri un'etichetta vuota e la
  * chiave `changelog.values.hiddenProject`, e nemmeno l'id. `repository.deleted`:
  * `formerProjectId` non esce mai; `formerProject` (il codice) solo a chi
@@ -78,7 +78,7 @@ function resolveDeleted(
     const known = knowsDeleted(me, entry.object.id);
     return known
       ? {
-          entry: { ...entry, object: { ...entry.object, label: `${known.code} — ${known.name}` } },
+          entry: { ...entry, object: { ...entry.object, label: `${known.code} · ${known.name}` } },
           labelKey: null,
         }
       : {
@@ -176,11 +176,36 @@ function projectSettingsLinkOf(
   const section = SECTION_OF_KIND[entry.kind];
   if (!section || entry.projectId === null) return undefined;
   const project = state.projectsById.get(entry.projectId);
-  // Un archiviato non ha Settings da aprire: la sua pagina è quella dell'archivio (Task 11).
-  if (!project || project.archived) return null;
+  if (!project) return null;
   const { code } = project;
+  // Un archiviato non ha Settings da aprire: una voce sul progetto porta alla
+  // sua pagina (`/archived/RNC`, Task 11), per chi la vede da archiviato.
+  if (project.archived)
+    return entry.object.type === "project" && archivedProjectIdsFor(me).has(project.id)
+      ? { to: "archived", code }
+      : null;
   if (!projectSettingsAccess(viewerFor(me), entry.projectId)[section].visible) return null;
-  return { to: "projectSettings", code, section };
+  // Un repository ancora nel progetto apre la sua pagina in Repositories.
+  const repo =
+    section === "repositories" &&
+    entry.object.type === "repository" &&
+    state.repositories.some((r) => r.id === entry.object.id && r.projectId === project.id)
+      ? entry.object.id
+      : undefined;
+  return repo
+    ? { to: "projectSettings", code, section, repo }
+    : { to: "projectSettings", code, section };
+}
+
+/**
+ * `project.deleted` (Task 12): con un repository rimasto senza progetto, la
+ * voce porta ad Amministrazione → Repositories, per chi vede quella voce.
+ */
+function deletedProjectLinkOf(me: string, entry: ChangeEntry): ChangeObjectLink | null {
+  if (Number(entry.params.detachedRepositories ?? 0) === 0) return null;
+  return canSeeAdminSection(viewerFor(me), "repositories")
+    ? { to: "admin", section: "repositories" }
+    : null;
 }
 
 /** Dove porta l'oggetto, per chi guarda; `null` se non c'è più o non lo può aprire. */
@@ -191,6 +216,7 @@ function objectLinkOf(
 ): ChangeObjectLink | null {
   const settingsLink = projectSettingsLinkOf(me, entry);
   if (settingsLink !== undefined) return settingsLink;
+  if (entry.kind === "project.deleted") return deletedProjectLinkOf(me, entry);
   const viewer = viewerFor(me);
   const { type, id } = entry.object;
   switch (type) {
@@ -269,11 +295,20 @@ const INSTANCE_VALUE_KINDS: ReadonlySet<string> = new Set([
 const departmentName = (value: string | null): string | null =>
   value === null ? null : value.replace(/\s+--[\w-]+$/, "");
 
-/** L'account AI di un progetto (9c) si salva come id: il nome è quello di adesso, `null` se tolto. */
-function withAccountName(value: SettingValue | null): SettingValue | null {
+/**
+ * L'account AI di un progetto (9c) si salva come id: il nome è quello di
+ * adesso; se l'account è stato eliminato, `deleted` e il nome di allora
+ * (`params.accountBefore`/`accountAfter`, Task 12), `null` se la voce non lo sa.
+ */
+function withAccountName(
+  value: SettingValue | null,
+  nameThen: string | undefined,
+): SettingValue | null {
   if (value?.type !== "ai_account" || value.providerId === null) return value;
   const provider = state.instance.providers.find((p) => p.id === value.providerId);
-  return { ...value, name: provider?.name ?? null };
+  return provider
+    ? { ...value, name: provider.name }
+    : { ...value, name: nameThen ?? null, deleted: true };
 }
 
 /**
@@ -284,8 +319,8 @@ function diffOf(entry: ChangeEntry, people: Set<string>): ChangeDiff | null {
   const p = entry.params;
   if (SETTING_KINDS[entry.kind]) {
     // I valori stabili del 9b (Ruling T3): in forma di dato, le parole sono della pagina.
-    const before = withAccountName(decodeSetting(entry.kind, entry.before));
-    const after = withAccountName(decodeSetting(entry.kind, entry.after));
+    const before = withAccountName(decodeSetting(entry.kind, entry.before), p.accountBefore);
+    const after = withAccountName(decodeSetting(entry.kind, entry.after), p.accountAfter);
     if (before || after) return { kind: "setting", before, after };
   }
   switch (entry.kind) {

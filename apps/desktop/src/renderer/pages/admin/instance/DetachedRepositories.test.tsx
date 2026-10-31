@@ -242,6 +242,21 @@ describe("Delete… (full admin)", () => {
     expect(shop).not.toHaveTextContent("shop-frontend");
   });
 
+  it("riconferma annullata: «Nothing was deleted.», il repository resta (M11)", async () => {
+    const user = userEvent.setup();
+    await open(ROBERTA);
+    const more = within(await group()).getByRole("button", { name: "More for shop-frontend" });
+    await user.click(more);
+    await user.click(screen.getByRole("menuitem", { name: "Delete…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete shop-frontend for good?" });
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
+    const confirm = await screen.findByRole("dialog", { name: "Confirm it's you" });
+    await user.click(within(confirm).getByRole("button", { name: "Cancel" }));
+    expect(await screen.findByText("Nothing was deleted.")).toBeVisible();
+    expect(screen.queryByText("Nothing was changed.")).toBeNull();
+    expect(state.detachedRepositories).toHaveLength(1);
+  });
+
   it("Cancel: il fuoco torna al «⋯»", async () => {
     const user = userEvent.setup();
     await open(ROBERTA);

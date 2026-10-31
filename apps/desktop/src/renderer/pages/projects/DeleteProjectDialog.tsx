@@ -78,6 +78,7 @@ export function DeleteProjectDialog({
       () =>
         reauth(() => remove.mutateAsync({ projectId, confirmCode: typed }), {
           action: t("projects.archived.deleteDialog.reauthAction", { code }),
+          cancelMessage: t("projects.archived.deleteDialog.nothingDeleted"),
         }),
       (reason) => {
         if (reason === "code_mismatch") return setMismatch(true);

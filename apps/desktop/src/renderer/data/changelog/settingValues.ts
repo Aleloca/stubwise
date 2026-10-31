@@ -35,7 +35,11 @@
 // - `switch` (`project.switch_changed`, con `params.switch`): `"on"`/`"off"`;
 // - `ai_account` (`project.ai_account_changed`): `"auto"` (la catena
 //   dell'istanza) o `"account:<id>"`, con `":exclusive"` in coda se il
-//   progetto usa solo quell'account; il nome lo risolve la lettura;
+//   progetto usa solo quell'account; il nome lo risolve la lettura (quello
+//   di adesso, o quello di allora da `params.accountBefore`/`accountAfter`
+//   se l'account è stato eliminato);
+// - `webhook` (`repository.webhook_configured`): lo stato del webhook,
+//   `"not_configured"`, `"configured"` o `"failed"`;
 // - `number` (`project.pulse_interval_changed` in giorni,
 //   `project.correction_cap_changed`): il numero in stringa;
 // - `fields`, con `changedFields`:
@@ -70,6 +74,9 @@ export interface PrReviewValue {
 
 export type ModelSourceValue = "set" | "env" | "default";
 
+const WEBHOOK_STATES = ["not_configured", "configured", "failed"] as const;
+export type WebhookStateValue = (typeof WEBHOOK_STATES)[number];
+
 /** Il valore di un campo di una voce `fields`. */
 export type FieldValue = string | boolean | string[] | null;
 
@@ -86,7 +93,15 @@ export type SettingValue =
    * registro (`reads.ts`): il nome dell'account adesso, `null` se è stato
    * eliminato.
    */
-  | { type: "ai_account"; providerId: string | null; exclusive: boolean; name?: string | null }
+  | {
+      type: "ai_account";
+      providerId: string | null;
+      exclusive: boolean;
+      name?: string | null;
+      /** L'account non c'è più: `name`, se c'è, è quello di allora. */
+      deleted?: boolean;
+    }
+  | { type: "webhook"; state: WebhookStateValue }
   | { type: "number"; value: number };
 
 /** Il tipo di valore di ogni voce d'impostazione. */
@@ -117,6 +132,7 @@ export const SETTING_KINDS: Readonly<Record<string, SettingValue["type"]>> = {
   "project.statuses_changed": "fields",
   "project.plugins_changed": "fields",
   "repository.updated": "fields",
+  "repository.webhook_configured": "webhook",
   "repository.pr_mode_changed": "fields",
   "repository.release_pipeline_changed": "fields",
   "environment.updated": "fields",
@@ -219,6 +235,10 @@ export function decodeSetting(kind: string, raw: string | null): SettingValue | 
       const m = raw ? /^account:([^:]+)(:exclusive)?$/.exec(raw) : null;
       return m ? { type: "ai_account", providerId: m[1]!, exclusive: m[2] !== undefined } : null;
     }
+    case "webhook":
+      return (WEBHOOK_STATES as readonly (string | null)[]).includes(raw)
+        ? { type: "webhook", state: raw as WebhookStateValue }
+        : null;
     case "number": {
       const value = raw === null ? Number.NaN : Number(raw);
       return raw !== "" && Number.isFinite(value) ? { type: "number", value } : null;

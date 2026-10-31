@@ -189,7 +189,7 @@ describe("AI", () => {
     expect(entries()).toHaveLength(0);
   });
 
-  it("la voce salva auto o account:<id> con exclusive, mai un nome", async () => {
+  it("la voce salva auto o account:<id> con exclusive; il nome di allora solo in params", async () => {
     setSessionPersonId(LAURA);
     expect(
       await projectSettings.setProjectAi(ACQ, { providerId: "prv-backup-max", exclusive: true }),
@@ -200,7 +200,10 @@ describe("AI", () => {
     });
     const [entry] = entries("project.ai_account_changed");
     expect(entry).toMatchObject({ before: "auto", after: "account:prv-backup-max:exclusive" });
-    expect(JSON.stringify(entry)).not.toContain("Backup Max");
+    // Il valore resta un id; il nome (dato da una persona) serve a dire
+    // «Backup Max (deleted)» quando l'account non c'è più (Task 12).
+    expect(entry!.params).toEqual({ accountAfter: "Backup Max" });
+    expect(String(entry!.before) + String(entry!.after)).not.toContain("Backup Max");
   });
 
   it("l'account eliminato: chosenUnavailable, e si parte con la catena", async () => {
