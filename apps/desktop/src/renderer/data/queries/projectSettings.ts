@@ -16,6 +16,7 @@ export type {
   EnvFileView,
   IntegrationView,
   ProjectResult,
+  ProjectPluginsView,
   ProjectSettingsView,
   ProjectSwitch,
   ProjectUsageDimension,
@@ -28,6 +29,16 @@ export {
   DESCRIPTION_MAX,
   NAME_MAX,
   PROJECT_SWITCHES,
+  applyPluginPreset,
+  pluginBothChanged,
+  pluginChangedKeys,
+  pluginChoosable,
+  pluginDisabledInput,
+  pluginHookKey,
+  pluginOffKeys,
+  pluginPresetApplied,
+  pluginSkillKey,
+  reconcilePluginDraft,
   PULSE_DAYS_MAX,
   PULSE_DAYS_MIN,
   pulseNeedsBacklogFor,
@@ -330,4 +341,38 @@ export function useRegenerateWebhookSecret() {
     REPOSITORY_WRITE_AREAS,
     { secret: true },
   );
+}
+
+// --- Plugins (Task 10) -------------------------------------------------------
+//
+// Gli hook del Task 4 (ruling del controller (pre-flight), P26). Le scelte
+// dei plugin decidono le skill delle sessioni nuove e di «/» nel progetto:
+// salvare ricarica anche i comandi.
+
+const PLUGIN_WRITE_AREAS: readonly string[] = [...SETTINGS_AREAS, "commands"];
+
+/** I plugin del progetto come li legge chi guarda; `null` su un progetto invisibile o archiviato. */
+export function useProjectPlugins(projectId: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "projectSettings", "plugins", projectId] as const,
+    queryFn: () => api.projectSettings.getProjectPlugins(projectId),
+  });
+}
+
+/** Salva ciò che è spento, con la `version` letta: `conflict` se nel frattempo qualcuno ha salvato. */
+export function useSaveProjectPlugins() {
+  return useWrite(
+    ({
+      projectId,
+      ...input
+    }: { projectId: string } & Parameters<typeof api.projectSettings.saveProjectPlugins>[1]) =>
+      api.projectSettings.saveProjectPlugins(projectId, input),
+    PLUGIN_WRITE_AREAS,
+  );
+}
+
+/** Se chi guarda vede Amministrazione → Plugins: la riga sotto la prosa ci porta con un link. */
+export function useSeesAdminPlugins(): boolean {
+  return canSeeAdminSection(useViewer().viewer, "plugins");
 }

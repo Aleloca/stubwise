@@ -153,6 +153,8 @@ export function LeaveConfirm({
  * - `not_found`: la frase come avviso, e ritorno ad All projects [PS 11];
  * - `invalid`: la ragione al chiamante, che la dice sotto il suo campo (con
  *   la riga, se il rifiuto la porta: i rami protetti di un repository);
+ * - `conflict`, se chi chiama passa `onConflict` (Plugins): a lui, senza
+ *   frase né Retry; altrimenti è un errore come gli altri;
  * - `reauth_cancelled` (la riconferma chiusa, area 9c): nessuna frase in
  *   più («Nothing was changed.» lo dice il dialogo della riconferma), e chi
  *   chiama resta com'è (il dialogo aperto);
@@ -175,14 +177,16 @@ export function useSettingsWrite(code: string, onReload: () => void) {
     write: () => Promise<R>,
     onInvalid: (reason: string, line?: number) => void,
     onDone?: (result: R) => void,
+    onConflict?: () => void,
   ): Promise<boolean> {
-    return attempt(write, onInvalid, onDone, false);
+    return attempt(write, onInvalid, onDone, onConflict, false);
   }
 
   async function attempt<R>(
     write: () => Promise<R>,
     onInvalid: (reason: string, line?: number) => void,
     onDone: ((result: R) => void) | undefined,
+    onConflict: (() => void) | undefined,
     retrying: boolean,
   ): Promise<boolean> {
     // Il Retry rifà la stessa scrittura con lo stesso seguito: il risultato
@@ -190,7 +194,7 @@ export function useSettingsWrite(code: string, onReload: () => void) {
     // Durante il Retry la riga resta (e il fuoco sul suo bottone, che la
     // riconferma riprende alla chiusura): se ne va con l'esito.
     if (!retrying) setFailure(null);
-    const retry = () => void attempt(write, onInvalid, onDone, true);
+    const retry = () => void attempt(write, onInvalid, onDone, onConflict, true);
     const result = await write().catch(() => undefined);
     if (result === undefined) {
       setFailure({ kind: "failed", retry });
@@ -210,6 +214,10 @@ export function useSettingsWrite(code: string, onReload: () => void) {
     } else if (refusal.error === "reauth_cancelled") {
       // La riconferma chiusa: «Nothing was changed.» lo dice già il suo
       // dialogo; qui niente, e la bozza resta dov'è.
+    } else if (refusal.error === "conflict" && onConflict) {
+      // Qualcuno ha salvato dopo la lettura (Plugins, RF 5): non è un errore
+      // da riprovare, è una scelta di chi ha scritto la bozza ([PG 5]).
+      onConflict();
     } else if (refusal.error === "not_found") {
       toast.error(t("settings.common.notFound", { code }));
       void navigate({ to: "/projects" as never });

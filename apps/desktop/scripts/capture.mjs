@@ -137,6 +137,103 @@ async function main() {
       console.log("scritto", name);
     };
 
+    // Area 9c, Task 10 (`CAPTURE_A9C_PLUGINS=1`): Progetto → Settings →
+    // Plugins (shape project-plugins.md), scatti `a9c-plugins-*`. Laura in
+    // STW; Sara in sola lettura; il conflitto con Roberta che salva
+    // «dall'altra finestra» fra la lettura e il salvataggio di Laura.
+    if (process.env.CAPTURE_A9C_PLUGINS) {
+      const go = async (page, hash) => {
+        await page.evaluate((h) => {
+          window.location.hash = h;
+        }, hash);
+        await page.waitForTimeout(1200);
+        await page.mouse.move(2, 2);
+      };
+      const skill = (page, name) =>
+        page.getByRole("checkbox", { name: new RegExp(`^(Use the skill|Usa la skill) ${name}$`) });
+      const save = async (page) => {
+        await page.locator("[data-save-bar]").getByRole("button", { name: /^(Save|Salva)$/ }).click();
+        await page.waitForTimeout(900);
+        await page.mouse.move(2, 2);
+      };
+      const preset = async (page) => {
+        await page.getByRole("button", { name: /^(Apply recommended preset|Applica il preset consigliato)$/ }).click();
+        await page.waitForTimeout(300);
+        await page.mouse.move(2, 2);
+      };
+      const edited = async (page) => {
+        await skill(page, "brainstorming").click();
+        await page.getByRole("checkbox", { name: /SessionStart#0$/ }).click();
+        await page.mouse.move(2, 2);
+      };
+      const saved = async (page) => {
+        await skill(page, "brainstorming").click();
+        await save(page);
+      };
+      const conflict = async (page) => {
+        await skill(page, "brainstorming").click();
+        await skill(page, "writing-plans").click();
+        await page.evaluate(async () => {
+          const api = await import("/data/api.ts");
+          const session = await import("/data/session.ts");
+          session.setSessionPersonId("p-roberta");
+          const v = await api.projectSettings.getProjectPlugins("prj-stw");
+          await api.projectSettings.saveProjectPlugins("prj-stw", {
+            version: v.version,
+            disabled: [{ plugin: "superpowers", skills: ["brainstorming", "test-driven-development"], hookGroups: [] }],
+          });
+          session.setSessionPersonId("p-laura");
+        });
+        await save(page);
+      };
+      const keepMine = async (page) => {
+        await conflict(page);
+        await page.getByRole("button", { name: /^(Keep my changes on theirs|Tieni le mie modifiche sulle loro)$/ }).click();
+        await page.waitForTimeout(300);
+        await page.mouse.move(2, 2);
+      };
+      const bottom = async (page) => {
+        await page.getByRole("heading", { level: 2, name: /^(Not in runs|Fuori dalle esecuzioni)$/ }).evaluate((el) =>
+          el.scrollIntoView({ block: "center" }),
+        );
+        await page.waitForTimeout(200);
+        await page.mouse.move(2, 2);
+      };
+      const PLUGINS = "/p/STW/settings/plugins";
+      const SCENES = [
+        ["plugins", PLUGINS, { persona: "Laura" }],
+        ["plugins-edited", PLUGINS, { persona: "Laura", after: edited }],
+        ["plugins-preset", PLUGINS, { persona: "Laura", after: preset }],
+        ["plugins-saved", PLUGINS, { persona: "Laura", after: saved }],
+        ["plugins-conflict", PLUGINS, { persona: "Laura", after: conflict }],
+        ["plugins-keep-mine", PLUGINS, { persona: "Laura", after: keepMine }],
+        ["plugins-not-ready", PLUGINS, { persona: "Laura", after: bottom }],
+        ["plugins-readonly", PLUGINS, { persona: "Sara" }],
+      ];
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      for (const [name, hash, opts] of SCENES) {
+        if (only && !only.test(name)) continue;
+        for (const v of variants) {
+          const { page, context } = await open(v.scheme, v.viewport, "/home", {
+            lang: v.lang,
+            persona: opts.persona,
+          });
+          await go(page, hash);
+          if (opts.after) await opts.after(page);
+          await shot(page, `a9c-${name}-${v.suffix}.png`);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 9c, Task 9 (`CAPTURE_A9C_ENV=1`): i file d'ambiente nella pagina
     // del repository e Progetto → Settings → Integration (shape
     // project-repositories.md), scatti `a9c-env-*` e `a9c-integration-*`.

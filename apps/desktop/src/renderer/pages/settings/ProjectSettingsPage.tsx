@@ -10,6 +10,7 @@ import { GeneralSettings } from "./GeneralSettings";
 import { IntegrationSettings } from "./IntegrationSettings";
 import { MembersSettings } from "./MembersSettings";
 import { ProjectChangeLog } from "./ProjectChangeLog";
+import { PluginSettings } from "./PluginSettings";
 import { ProjectStatusesSettings } from "./ProjectStatusesSettings";
 import { RepositoriesSection } from "./repositories/RepositoryList";
 import { SettingsFrame } from "./SettingsFrame";
@@ -68,8 +69,9 @@ function Section({ project, section }: { project: Project; section: ProjectSetti
       );
     case "integration":
       return <IntegrationSettings project={project} />;
-    // Le sezioni che arrivano coi Task 10–11 dell'area 9c.
     case "plugins":
+      return <PluginSettings project={project} />;
+    // La sezione che arriva col Task 11 dell'area 9c.
     case "archive":
       return (
         <Placeholder titleKey={`settings.sections.${section}`} bodyKey="settings.placeholder" />

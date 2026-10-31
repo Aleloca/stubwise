@@ -2913,6 +2913,72 @@
         "secretLabel": "Secret",
         "reauthAction": "make a new webhook secret for {{name}}"
       }
+    },
+    "plugins": {
+      "intro": "The Claude Code plugins Claude can use when it works on {{code}}. Everything is on unless you turn it off here.",
+      "registered": "Plugins are registered for the whole instance in <link>Administration → Plugins</link>.",
+      "mcpNote": "A plugin's own MCP servers (.mcp.json) are never loaded.",
+      "loadError": "Couldn't load {{code}}'s plugins.",
+      "empty": "No other plugins on this instance. Claude works with the base plugin only.",
+      "base": {
+        "label": "Stubwise's base plugin",
+        "alwaysOn": "Always on",
+        "why": "It carries the rules of every run and Stubwise's own commands. It can't be turned off."
+      },
+      "usePlugin": "Use {{name}} in {{code}}'s runs",
+      "useSkill": "Use the skill {{name}}",
+      "useHook": "Use the hook group {{key}}",
+      "skillsOf": "{{on}} of {{count}} skills",
+      "hooksOf": "{{on}} of {{count}} hooks",
+      "inRuns": "{{parts}} in runs",
+      "nothingInRuns": "Not in runs: everything is off",
+      "skills": "Skills",
+      "hooks": "Hooks",
+      "offSkill": "Off",
+      "offHook": "Off",
+      "preset": "Preset",
+      "presetTitle": "Recommended off: the pipeline already does this.",
+      "changed": "changed",
+      "bothChanged": "Both changed",
+      "applyPreset": "Apply recommended preset",
+      "applyPresetTitle": "Turns off the 4 skills that redo the pipeline's work: worktrees, finishing a branch, parallel agents, subagents.",
+      "presetDone_one": "{{count}} skill turned off. Save to apply.",
+      "presetDone_other": "{{count}} skills turned off. Save to apply.",
+      "presetApplied": "Preset applied",
+      "notInRuns": "Not in runs",
+      "notReady": {
+        "failed": "<status>Failed</status>: it doesn't enter runs until someone fixes it in Administration → Plugins.",
+        "materializing": "<status>Being prepared</status>: it enters runs when it's ready."
+      },
+      "keptChoices": "Choices saved for it are kept and apply when it's ready.",
+      "showSkills_one": "Show {{count}} skill",
+      "showSkills_other": "Show {{count}} skills",
+      "changes_one": "{{count}} change",
+      "changes_other": "{{count}} changes",
+      "leave_one": "Discard {{count}} change?",
+      "leave_other": "Discard {{count}} changes?",
+      "saved": "Saved. From the next session: sessions already started keep their skills.",
+      "basePluginRefused": "Stubwise's base plugin can't be turned off.",
+      "conflict": {
+        "label": "Your changes weren't saved",
+        "body": "Someone changed these plugins while you were editing. Nothing of yours has been saved.",
+        "both": "You both changed: {{rows}}.",
+        "more_one": "{{list}} and {{count}} more",
+        "more_other": "{{list}} and {{count}} more",
+        "keepMine": "Keep my changes on theirs",
+        "useTheirs": "Use theirs"
+      },
+      "events": {
+        "SessionStart": "Session start",
+        "SessionEnd": "Session end",
+        "UserPromptSubmit": "Message sent",
+        "PreToolUse": "Before a tool",
+        "PostToolUse": "After a tool",
+        "Notification": "Notification",
+        "Stop": "When Claude stops",
+        "SubagentStop": "When a subagent stops",
+        "PreCompact": "Before compacting"
+      }
     }
   },
   "export": {

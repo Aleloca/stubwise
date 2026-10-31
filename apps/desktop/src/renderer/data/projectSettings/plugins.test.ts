@@ -296,3 +296,59 @@ describe("il salvataggio dei plugin", () => {
     expect(entries()).toHaveLength(0);
   });
 });
+
+describe("la bozza della pagina (Task 10): chiavi stabili, preset, riconciliazione", () => {
+  it("le chiavi spente sono quelle dei plugin `ready` del registro; il plugin base e i non pronti no", async () => {
+    as(ROBERTA);
+    choicesOf(AUD).disabled.push({ plugin: "lint-helpers", skills: ["fix-lint"], hookGroups: [] });
+    const view = (await projectSettings.getProjectPlugins(AUD))!;
+    expect([...projectSettings.pluginOffKeys(view)]).toEqual([
+      "superpowers:test-driven-development",
+    ]);
+  });
+
+  it("l'input del salvataggio nomina solo i plugin `ready` del registro ([PG 4]), anche quelli tutti accesi", async () => {
+    as(LAURA);
+    const view = (await projectSettings.getProjectPlugins(ACQ))!;
+    expect(
+      projectSettings.pluginDisabledInput(
+        view,
+        new Set(["superpowers:brainstorming", "superpowers#SessionStart#0"]),
+      ),
+    ).toEqual([
+      { plugin: "superpowers", skills: ["brainstorming"], hookGroups: ["SessionStart#0"] },
+    ]);
+    expect(projectSettings.pluginDisabledInput(view, new Set())).toEqual([
+      { plugin: "superpowers", skills: [], hookGroups: [] },
+    ]);
+  });
+
+  it("il preset spegne solo le sue quattro skill, e dice quante ne ha spente davvero", async () => {
+    as(LAURA);
+    const view = (await projectSettings.getProjectPlugins(ACQ))!;
+    const superpowers = view.plugins.find((p) => p.name === "superpowers")!;
+    const first = projectSettings.applyPluginPreset(
+      superpowers,
+      new Set(["superpowers:using-git-worktrees", "superpowers:brainstorming"]),
+    );
+    expect([...first.keys].sort()).toEqual([
+      "superpowers:brainstorming",
+      "superpowers:dispatching-parallel-agents",
+      "superpowers:finishing-a-development-branch",
+      "superpowers:subagent-driven-development",
+      "superpowers:using-git-worktrees",
+    ]);
+    expect(first.turnedOff).toBe(3);
+    expect(projectSettings.pluginPresetApplied(superpowers, first.keys)).toBe(true);
+    expect(projectSettings.pluginPresetApplied(superpowers, new Set())).toBe(false);
+  });
+
+  it("la riconciliazione: sopra le loro solo le mie righe, chiavate sui nomi; le righe di entrambi", () => {
+    const start = new Set(["a:x"]);
+    const mine = new Set(["a:y"]); // riaccesa x, spenta y
+    const theirs = new Set(["a:x", "a:y", "a:z"]); // spente y e z
+    const out = projectSettings.reconcilePluginDraft(start, mine, theirs);
+    expect([...out.keys].sort()).toEqual(["a:y", "a:z"]);
+    expect(out.bothChanged).toEqual(["a:y"]);
+  });
+});

@@ -2913,6 +2913,72 @@
         "secretLabel": "Secret",
         "reauthAction": "creare un nuovo secret del webhook per {{name}}"
       }
+    },
+    "plugins": {
+      "intro": "I plugin di Claude Code che Claude può usare quando lavora su {{code}}. Tutto è acceso, a meno che non lo spegni qui.",
+      "registered": "I plugin si registrano per tutta l'istanza in <link>Amministrazione → Plugin</link>.",
+      "mcpNote": "I server MCP propri di un plugin (.mcp.json) non vengono mai caricati.",
+      "loadError": "Impossibile caricare i plugin di {{code}}.",
+      "empty": "Nessun altro plugin su questa istanza. Claude lavora solo col plugin base.",
+      "base": {
+        "label": "Il plugin base di Stubwise",
+        "alwaysOn": "Sempre acceso",
+        "why": "Porta le regole di ogni esecuzione e i comandi di Stubwise. Non si può spegnere."
+      },
+      "usePlugin": "Usa {{name}} nelle esecuzioni di {{code}}",
+      "useSkill": "Usa la skill {{name}}",
+      "useHook": "Usa il gruppo di hook {{key}}",
+      "skillsOf": "{{on}} di {{count}} skill",
+      "hooksOf": "{{on}} di {{count}} hook",
+      "inRuns": "{{parts}} nelle esecuzioni",
+      "nothingInRuns": "Non entra nelle esecuzioni: è tutto spento",
+      "skills": "Skill",
+      "hooks": "Hook",
+      "offSkill": "Spenta",
+      "offHook": "Spento",
+      "preset": "Preset",
+      "presetTitle": "Consigliata spenta: la pipeline lo fa già.",
+      "changed": "cambiata",
+      "bothChanged": "Cambiata da entrambi",
+      "applyPreset": "Applica il preset consigliato",
+      "applyPresetTitle": "Spegne le 4 skill che rifanno il lavoro della pipeline: worktree, chiusura del ramo, agenti in parallelo, subagenti.",
+      "presetDone_one": "{{count}} skill spenta. Salva per applicare.",
+      "presetDone_other": "{{count}} skill spente. Salva per applicare.",
+      "presetApplied": "Preset applicato",
+      "notInRuns": "Fuori dalle esecuzioni",
+      "notReady": {
+        "failed": "<status>Non riuscito</status>: non entra nelle esecuzioni finché qualcuno non lo sistema in Amministrazione → Plugin.",
+        "materializing": "<status>In preparazione</status>: entra nelle esecuzioni quando è pronto."
+      },
+      "keptChoices": "Le scelte salvate per lui restano, e valgono quando è pronto.",
+      "showSkills_one": "Mostra {{count}} skill",
+      "showSkills_other": "Mostra {{count}} skill",
+      "changes_one": "{{count}} modifica",
+      "changes_other": "{{count}} modifiche",
+      "leave_one": "Scartare {{count}} modifica?",
+      "leave_other": "Scartare {{count}} modifiche?",
+      "saved": "Salvato. Dalla prossima sessione: quelle già partite tengono le loro skill.",
+      "basePluginRefused": "Il plugin base di Stubwise non si può spegnere.",
+      "conflict": {
+        "label": "Le tue modifiche non sono state salvate",
+        "body": "Qualcuno ha cambiato questi plugin mentre li modificavi. Niente di tuo è stato salvato.",
+        "both": "Avete cambiato entrambi: {{rows}}.",
+        "more_one": "{{list}} e un'altra",
+        "more_other": "{{list}} e altre {{count}}",
+        "keepMine": "Tieni le mie modifiche sulle loro",
+        "useTheirs": "Usa le loro"
+      },
+      "events": {
+        "SessionStart": "Inizio sessione",
+        "SessionEnd": "Fine sessione",
+        "UserPromptSubmit": "Messaggio inviato",
+        "PreToolUse": "Prima di uno strumento",
+        "PostToolUse": "Dopo uno strumento",
+        "Notification": "Notifica",
+        "Stop": "Quando Claude si ferma",
+        "SubagentStop": "Quando un subagente si ferma",
+        "PreCompact": "Prima di compattare"
+      }
     }
   },
   "export": {
