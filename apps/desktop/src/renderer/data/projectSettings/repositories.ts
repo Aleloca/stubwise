@@ -41,6 +41,8 @@ export interface RepositoryView {
   url: string;
   provider: "github" | "bitbucket" | null;
   defaultBranch: string;
+  /** Il ramo da cui Claude parte e verso cui apre le PR (scelto alla creazione); senza, il predefinito. */
+  releaseBranch: string;
   gitAccount: { id: string; name: string } | null;
   reviewAccount: { id: string; name: string } | null;
   installCommand: string | null;
@@ -122,6 +124,7 @@ function viewOf(r: Repository): RepositoryView {
     url: r.url ?? "",
     provider: account?.provider ?? null,
     defaultBranch: r.defaultBranch ?? "main",
+    releaseBranch: r.releaseBranch ?? r.defaultBranch ?? "main",
     gitAccount: accountRef(account),
     reviewAccount: accountRef(accountOf(r.reviewGitAccountId)),
     installCommand: r.installCommand ?? null,

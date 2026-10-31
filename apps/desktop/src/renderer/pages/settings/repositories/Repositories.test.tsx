@@ -193,6 +193,53 @@ describe("la creazione guidata, da Laura in ACQ", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(screen.getByRole("button", { name: "Add repository" })).toHaveFocus();
   });
+
+  it("Cancel senza scelte chiude subito, e il fuoco torna ad «Add repository»", async () => {
+    const user = userEvent.setup();
+    await openList(LAURA);
+    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    const dialog = await wizard();
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByRole("button", { name: "Add repository" })).toHaveFocus();
+  });
+
+  it("Cancel con una scelta fatta passa dalla stessa conferma di Esc", async () => {
+    const user = userEvent.setup();
+    await openList(LAURA);
+    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    const dialog = await wizard();
+    await user.click(await within(dialog).findByRole("radio", { name: /Bitbucket Audin/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(within(dialog).getByText("Discard this repository?")).toBeInTheDocument();
+    // «Keep editing» torna al modulo con la scelta intatta.
+    await user.click(within(dialog).getByRole("button", { name: "Keep editing" }));
+    expect(within(dialog).getByRole("radio", { name: /Bitbucket Audin/ })).toBeChecked();
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await user.click(within(dialog).getByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(state.repositories.filter((r) => r.projectId === "prj-acq")).toHaveLength(1);
+  });
+
+  it("un repository creato su develop mostra develop nella riga", async () => {
+    const user = userEvent.setup();
+    await openList(LAURA);
+    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    const dialog = await wizard();
+    await user.click(await within(dialog).findByRole("radio", { name: /Bitbucket Audin/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Next" }));
+    await user.click(await within(dialog).findByRole("radio", { name: /audin\/fatture-api/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Next" }));
+    await user.selectOptions(within(dialog).getByRole("combobox", { name: "Branch" }), "develop");
+    await user.click(within(dialog).getByRole("button", { name: "Next" }));
+    await user.click(within(dialog).getByRole("button", { name: "Verify access" }));
+    await within(dialog).findByText("Access works.");
+    await user.click(within(dialog).getByRole("button", { name: "Create" }));
+    const list = screen.getByRole("list", { name: "Repositories of ACQ" });
+    const row = await within(list).findByRole("link", { name: /fatture-api/ });
+    expect(row).toHaveTextContent("develop · Bitbucket Audin");
+    expect(row).not.toHaveTextContent("main · Bitbucket Audin");
+  });
 });
 
 describe("la pagina del repository, da Laura", () => {

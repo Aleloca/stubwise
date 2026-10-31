@@ -69,6 +69,8 @@ describe("l'elenco dei repository del progetto", () => {
         url: "https://bitbucket.org/audin/portale-utenti",
         provider: "bitbucket",
         defaultBranch: "main",
+        // Senza un ramo scelto, Claude parte dal predefinito.
+        releaseBranch: "main",
         gitAccount: { id: BITBUCKET, name: "Bitbucket Audin" },
         reviewAccount: null,
         installCommand: null,
@@ -195,6 +197,7 @@ describe("la creazione guidata", () => {
       url: "https://bitbucket.org/audin/fatture-api",
       provider: "bitbucket",
       defaultBranch: "main",
+      releaseBranch: "main",
       gitAccount: { id: BITBUCKET, name: "Bitbucket Audin" },
       reviewAccount: null,
       installCommand: null,
@@ -229,6 +232,11 @@ describe("la creazione guidata", () => {
     const id = (created as { repositoryId: string }).repositoryId;
     expect(repo(id).defaultBranch).toBe("main");
     expect(repo(id).releaseBranch).toBe("develop");
+    // La vista porta entrambi: la pagina non li confonde.
+    const view = (await projectSettings.listProjectRepositories(ACQ))!.repositories.find(
+      (r) => r.id === id,
+    )!;
+    expect([view.defaultBranch, view.releaseBranch]).toEqual(["main", "develop"]);
   });
 
   it("nome già usato nel progetto → name_taken; senza repos.manage → forbidden; archiviato → not_found", async () => {

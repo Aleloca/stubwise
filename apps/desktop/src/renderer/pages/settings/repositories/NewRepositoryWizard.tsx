@@ -20,7 +20,7 @@ import { PrototypeBox } from "../../automations/shared";
 import { Segmented, selectClass } from "../../automations/builder/controls";
 import { ErrorLine } from "../../entry/parts";
 import { CheckGlyph } from "../../preferences/glyphs";
-import { primaryButton, secondaryButton } from "../../tasks/controls";
+import { primaryButton, quietButton, secondaryButton } from "../../tasks/controls";
 import { useSettingsWrite } from "../SettingsFrame";
 
 // La creazione guidata di un repository (shape project-repositories.md, «La
@@ -204,13 +204,17 @@ export function NewRepositoryWizard({
     4: works ? t("settings.repos.wizard.outcomes.ok") : null,
   };
 
-  const footer = (
+  // `dismiss` del dialogo: con una scelta fatta, Cancel chiede come Esc.
+  const footer = (dismiss: () => void) => (
     <>
       {!ready[step] && blockedHint[step] && (
         <p id={hintId} className="mr-auto min-w-0 text-sm text-ink-muted">
           {blockedHint[step]}
         </p>
       )}
+      <button type="button" className={quietButton} onClick={dismiss}>
+        {t("settings.repos.wizard.cancel")}
+      </button>
       {step > 1 && (
         <button type="button" className={secondaryButton} onClick={() => go((step - 1) as Step)}>
           {t("settings.repos.wizard.back")}

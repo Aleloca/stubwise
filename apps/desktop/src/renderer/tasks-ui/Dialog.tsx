@@ -27,7 +27,8 @@ const FOCUSABLE =
  * - Con `confirmDiscard` (il chiamante lo passa solo quando c'è testo scritto)
  *   Esc e il clic fuori non chiudono: il piede chiede se buttare la bozza.
  *   «Keep editing» (o un altro Esc) torna al modulo; il bottone di chiusura
- *   esplicito del chiamante resta immediato.
+ *   esplicito del chiamante resta immediato, a meno che non usi il `dismiss`
+ *   che il piede riceve come funzione.
  */
 export function Dialog({
   title,
@@ -45,7 +46,11 @@ export function Dialog({
   width?: number;
   /** Classi in più della superficie (una larghezza diversa a finestra stretta). */
   className?: string;
-  footer?: ReactNode;
+  /**
+   * Il piede. Come funzione riceve `dismiss`: un «Cancel» che passa dalla
+   * stessa conferma di Esc e del clic fuori (con `confirmDiscard`).
+   */
+  footer?: ReactNode | ((dismiss: () => void) => ReactNode);
   confirmDiscard?: { message: string; keep: string; discard: string };
   children: ReactNode;
 }) {
@@ -155,7 +160,7 @@ export function Dialog({
         ) : (
           footer && (
             <footer className="flex items-center justify-end gap-2 border-t border-rule px-5 py-3">
-              {footer}
+              {typeof footer === "function" ? footer(dismiss) : footer}
             </footer>
           )
         )}

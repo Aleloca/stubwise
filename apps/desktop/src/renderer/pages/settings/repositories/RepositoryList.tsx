@@ -223,7 +223,7 @@ function RepositoryRow({
             )}
           </span>
           <span className="truncate text-sm text-ink-muted">
-            {r.defaultBranch}
+            {r.releaseBranch}
             {" · "}
             {r.gitAccount?.name ?? (
               <span className="text-ink-faint">{t("settings.repos.noAccount")}</span>
