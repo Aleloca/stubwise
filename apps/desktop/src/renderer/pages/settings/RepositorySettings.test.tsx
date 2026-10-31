@@ -23,9 +23,10 @@ afterEach(() => {
 
 const repo = () => state.repositories.find((r) => r.id === "repo-aud")!;
 
+// Dall'area 9c (Task 8) le parti dell'8a stanno nella pagina del repository.
 async function openSettings(person: string) {
-  renderRoute("/p/AUD/settings/repositories", person);
-  const section = await screen.findByRole("region", { name: "Repositories" });
+  renderRoute("/p/AUD/settings/repositories?repo=repo-aud", person);
+  const section = await screen.findByRole("region", { name: "Releases" });
   return await waitFor(() => {
     const block = section.querySelector<HTMLElement>('[data-repository="audin/audin-app"]');
     expect(block).not.toBeNull();

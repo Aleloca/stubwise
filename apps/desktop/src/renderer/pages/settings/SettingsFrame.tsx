@@ -14,18 +14,22 @@ import type { BlockState } from "../home/blocks/BlockSection";
 // (Usage fino a 1040). Aprendo una sezione (dalla colonna o da un link) il
 // fuoco va all'h1 (shape project-settings.md §6), a meno che la sezione
 // non l'abbia già portato su qualcosa di suo (un pannello aperto
-// dall'indirizzo).
+// dall'indirizzo, o un dialogo come la creazione guidata dei repository).
+// `back` sta sopra l'h1: il ritorno da una pagina dentro la sezione
+// («← Repositories»).
 
 export function SettingsFrame({
   title,
   intro,
   action,
+  back,
   width = 880,
   children,
 }: {
   title: string;
   intro?: ReactNode;
   action?: ReactNode;
+  back?: ReactNode;
   width?: 880 | 1040;
   children: ReactNode;
 }) {
@@ -35,6 +39,7 @@ export function SettingsFrame({
   useEffect(() => {
     const active = document.activeElement;
     if (active && active !== document.body && section.current?.contains(active)) return;
+    if (active?.closest('[role="dialog"]')) return;
     heading.current?.focus({ preventScroll: true });
   }, []);
   return (
@@ -43,6 +48,7 @@ export function SettingsFrame({
         className={`flex w-full flex-1 flex-col pr-8 ${width === 1040 ? "max-w-[1040px]" : "max-w-[880px]"}`}
       >
         <header className="page-header flex shrink-0 flex-col gap-1.5 pb-5 [--page-header-pt:32px]">
+          {back}
           <div className="flex min-h-8 items-center gap-3">
             <h1
               id={id}
@@ -145,7 +151,8 @@ export function LeaveConfirm({
  * - `forbidden`: la frase resta, la sezione ricarica in sola lettura e la
  *   bozza si perde (la frase lo dice);
  * - `not_found`: la frase come avviso, e ritorno ad All projects [PS 11];
- * - `invalid`: la ragione al chiamante, che la dice sotto il suo campo;
+ * - `invalid`: la ragione al chiamante, che la dice sotto il suo campo (con
+ *   la riga, se il rifiuto la porta: i rami protetti di un repository);
  * - un errore del livello dati: «Couldn't save. Try again.» con Retry, bozza
  *   conservata.
  * Restituisce `true` se la scrittura è riuscita.
@@ -160,7 +167,7 @@ export function useSettingsWrite(code: string, onReload: () => void) {
 
   async function run(
     write: () => Promise<unknown>,
-    onInvalid: (reason: string) => void,
+    onInvalid: (reason: string, line?: number) => void,
   ): Promise<boolean> {
     setFailure(null);
     const result = await write().catch(() => undefined);
@@ -170,7 +177,8 @@ export function useSettingsWrite(code: string, onReload: () => void) {
     }
     const refusal = refusalOf(result);
     if (!refusal) return true;
-    if (refusal.error === "invalid") onInvalid(refusal.reason ?? "");
+    if (refusal.error === "invalid")
+      onInvalid(refusal.reason ?? "", (refusal as { line?: number }).line);
     else if (refusal.error === "forbidden") {
       setFailure({ kind: "forbidden" });
       onReload();

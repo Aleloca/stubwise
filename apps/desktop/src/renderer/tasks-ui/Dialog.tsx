@@ -36,12 +36,15 @@ export function Dialog({
   width = 520,
   footer,
   confirmDiscard,
+  className = "",
   children,
 }: {
   title: string;
   description?: string;
   onClose: () => void;
   width?: number;
+  /** Classi in più della superficie (una larghezza diversa a finestra stretta). */
+  className?: string;
   footer?: ReactNode;
   confirmDiscard?: { message: string; keep: string; discard: string };
   children: ReactNode;
@@ -117,7 +120,7 @@ export function Dialog({
         aria-describedby={description ? descriptionId : undefined}
         onKeyDown={onKeyDown}
         style={{ width }}
-        className="palette-enter mx-auto my-[10vh] flex max-w-full flex-col rounded-xl border border-rule-strong bg-surface text-ink shadow-[0_24px_48px_-16px_oklch(0_0_0/0.45)]"
+        className={`palette-enter mx-auto my-[10vh] flex max-w-full flex-col rounded-xl border border-rule-strong bg-surface text-ink shadow-[0_24px_48px_-16px_oklch(0_0_0/0.45)] ${className}`}
       >
         <header className="flex flex-col gap-1 px-5 pt-5 pb-4">
           <h2 id={titleId} className="text-lg font-semibold text-ink">

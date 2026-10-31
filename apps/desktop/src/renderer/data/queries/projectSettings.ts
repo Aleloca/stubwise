@@ -1,5 +1,5 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { projectSettingsAccess, type SectionAccess } from "../adminSections";
+import { canSeeAdminSection, projectSettingsAccess, type SectionAccess } from "../adminSections";
 import * as api from "../api";
 import { PROJECT_AREAS, useSessionPersonId, useWrite } from "../queries";
 import type { ProjectSettingsSection } from "../routes";
@@ -17,6 +17,8 @@ export type {
   ProjectSettingsView,
   ProjectSwitch,
   ProjectUsageDimension,
+  RemoteRepository,
+  RepositoryView,
 } from "../projectSettings";
 export {
   CORRECTION_CAP_MAX,
@@ -27,6 +29,7 @@ export {
   PULSE_DAYS_MAX,
   PULSE_DAYS_MIN,
   pulseNeedsBacklogFor,
+  reviewAccountChoices,
 } from "../projectSettings";
 
 export type { SectionAccess } from "../adminSections";
@@ -143,4 +146,96 @@ export function useProjectUsage(
     queryKey: ["as", me, "projectSettings", "usage", projectId, input] as const,
     queryFn: () => api.projectSettings.getProjectUsage(projectId, input),
   });
+}
+
+// --- Repositories (Task 8) ---------------------------------------------------
+//
+// Gli hook del Task 4 (ruling del controller (pre-flight), P26). Un
+// repository si legge anche altrove: negli spazi dei Docs (il nome), in
+// Amministrazione → Repositories e Git accounts (chi usa un account), nelle
+// parti dell'8a (Releases): creare e modificare ricaricano anche quelle.
+
+/** Dove si legge un repository oltre che qui. */
+const REPOSITORY_WRITE_AREAS: readonly string[] = [...SETTINGS_AREAS, "docs", "instance", "releases"];
+
+/** I repository del progetto; `null` senza `repos.view` o su un progetto invisibile o archiviato. */
+export function useProjectRepositories(projectId: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "projectSettings", "repositories", projectId] as const,
+    queryFn: () => api.projectSettings.listProjectRepositories(projectId),
+  });
+}
+
+/** I repository che un account vede (passo 2 della creazione), con quelli già nel progetto. */
+export function useRemoteRepositories(accountId: string | null, projectId: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "projectSettings", "remote", accountId, projectId] as const,
+    queryFn: () => api.projectSettings.listRemoteRepositories(accountId!, projectId),
+    enabled: accountId !== null,
+  });
+}
+
+/** La verifica degli accessi della creazione guidata: non è una modifica, nessuna voce. */
+export function useCheckRepositoryAccess() {
+  return useWrite(
+    (input: Parameters<typeof api.projectSettings.checkRepositoryAccess>[0]) =>
+      api.projectSettings.checkRepositoryAccess(input),
+    [],
+  );
+}
+
+export function useCreateRepository() {
+  return useWrite(
+    ({
+      projectId,
+      ...input
+    }: { projectId: string } & Parameters<typeof api.projectSettings.createRepository>[1]) =>
+      api.projectSettings.createRepository(projectId, input),
+    REPOSITORY_WRITE_AREAS,
+  );
+}
+
+export function useUpdateRepository() {
+  return useWrite(
+    ({
+      repositoryId,
+      ...patch
+    }: { repositoryId: string } & Parameters<typeof api.projectSettings.updateRepository>[1]) =>
+      api.projectSettings.updateRepository(repositoryId, patch),
+    REPOSITORY_WRITE_AREAS,
+  );
+}
+
+export function useConfigureRepositoryWebhook() {
+  return useWrite(
+    (repositoryId: string) => api.projectSettings.configureRepositoryWebhook(repositoryId),
+    REPOSITORY_WRITE_AREAS,
+  );
+}
+
+/** SOLO PROTOTIPO: l'esito della prossima verifica degli accessi. */
+export function useSimulateNextRepositoryCheck() {
+  return useWrite(
+    (outcome: Parameters<typeof api.projectSettings.simulateNextRepositoryCheck>[0]) =>
+      api.projectSettings.simulateNextRepositoryCheck(outcome),
+    [],
+  );
+}
+
+/** SOLO PROTOTIPO: come finisce la prossima configurazione del webhook. */
+export function useSimulateNextWebhookSetup() {
+  return useWrite(
+    (outcome: "configured" | "failed") => api.projectSettings.simulateNextWebhookSetup(outcome),
+    [],
+  );
+}
+
+/**
+ * Se chi guarda vede Amministrazione → Git accounts: senza account la
+ * creazione guidata ci porta con un link, oltre al «Who?».
+ */
+export function useSeesGitAccounts(): boolean {
+  return canSeeAdminSection(useViewer().viewer, "git-accounts");
 }

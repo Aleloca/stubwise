@@ -54,10 +54,12 @@ export interface RemoteRepository {
   fullName: string;
   defaultBranch: string;
   branches: string[];
+  /** Sta già nel progetto chiesto (la creazione guidata non lo fa scegliere): Task 8. */
+  inProject: boolean;
 }
 
 /** I rami di un repository finto della piattaforma, il predefinito per primo. */
-const remote = (fullName: string, extra: string[] = []): RemoteRepository => ({
+const remote = (fullName: string, extra: string[] = []): Omit<RemoteRepository, "inProject"> => ({
   fullName,
   defaultBranch: "main",
   branches: ["main", "develop", ...extra],
@@ -67,7 +69,9 @@ const remote = (fullName: string, extra: string[] = []): RemoteRepository => ({
  * Ciò che ogni account git del seme vede sulla sua piattaforma (finto). Un
  * account nato dall'app non vede niente: nessuna rete.
  */
-const REMOTE_REPOSITORIES: Readonly<Record<string, readonly RemoteRepository[]>> = {
+const REMOTE_REPOSITORIES: Readonly<
+  Record<string, readonly Omit<RemoteRepository, "inProject">[]>
+> = {
   [SEED_GIT_ACCOUNT_IDS.bitbucketAudin]: [
     remote("audin/audin-app", ["release/2026.10"]),
     remote("audin/audin-admin"),
@@ -163,15 +167,27 @@ export async function listProjectRepositories(
 /**
  * I repository che un account git vede sulla sua piattaforma (finti), coi
  * rami. Per chi ha `repos.manage` in almeno un progetto: è il passo 2 della
- * creazione. Un account sconosciuto non vede niente.
+ * creazione. Un account sconosciuto non vede niente. Con `projectId` (un
+ * progetto aperto che `me` vede, o si ignora: R-G5) ognuno dice se sta già
+ * lì, per nome completo: la pagina lo legge, non lo ricalcola.
  */
-export async function listRemoteRepositories(gitAccountId: string): Promise<RemoteRepository[]> {
+export async function listRemoteRepositories(
+  gitAccountId: string,
+  projectId?: string,
+): Promise<RemoteRepository[]> {
   const me = await gate("projectSettings.listRemoteRepositories");
   if (!managesReposSomewhere(me)) throw forbidden();
   if (!accountOf(gitAccountId)) return [];
+  const project = projectId ? openProject(me, projectId) : null;
+  const taken = new Set(
+    project
+      ? state.repositories.filter((r) => r.projectId === project.id).map((r) => r.fullName)
+      : [],
+  );
   return (REMOTE_REPOSITORIES[gitAccountId] ?? []).map((r) => ({
     ...r,
     branches: [...r.branches],
+    inProject: taken.has(r.fullName),
   }));
 }
 
@@ -180,7 +196,7 @@ function chosenTriple(input: {
   gitAccountId: string;
   fullName: string;
   branch: string;
-}): { account: GitAccount; remote: RemoteRepository } | { reason: string } {
+}): { account: GitAccount; remote: Omit<RemoteRepository, "inProject"> } | { reason: string } {
   const account = accountOf(input.gitAccountId);
   if (!account) return { reason: "git_account" };
   const found = remoteOf(account.id, input.fullName);
@@ -233,6 +249,50 @@ export async function simulateNextRepositoryCheck(outcome: TestOutcome): Promise
   const me = await writer("projectSettings.simulateNextRepositoryCheck");
   if (!managesReposSomewhere(me)) throw forbidden();
   state.repositoryChecks.nextRepositoryCheck = outcome;
+}
+
+/** Perché un account non può rivedere le PR scritte da `main`, o `null` se può. */
+type ReviewUnavailable = "main" | "other_platform" | null;
+const reviewUnavailable = (
+  main: Pick<GitAccount, "id" | "provider"> | undefined,
+  review: Pick<GitAccount, "id" | "provider">,
+): ReviewUnavailable =>
+  main && review.id === main.id
+    ? "main"
+    : !main || review.provider !== main.provider
+      ? "other_platform"
+      : null;
+
+/**
+ * Le scelte del menu «Review account» per l'account principale `mainId`
+ * (regola del web): della stessa piattaforma e diverso dal principale; gli
+ * altri restano nell'elenco con la ragione. `defaultReviewer` è il revisore
+ * predefinito dello stesso ambito (piattaforma e workspace) che rivede
+ * quando il repository non ne sceglie uno, o `null` (mai il principale
+ * stesso). Pura, sugli account che la pagina ha già letto: la stessa regola
+ * che `updateRepository` applica (Task 8).
+ */
+export function reviewAccountChoices(
+  accounts: readonly Pick<GitAccount, "id" | "name" | "provider" | "workspace" | "defaultReviewer">[],
+  mainId: string | null,
+): {
+  defaultReviewer: { id: string; name: string } | null;
+  choices: { id: string; name: string; unavailable: ReviewUnavailable }[];
+} {
+  const main = accounts.find((a) => a.id === mainId);
+  const scope = (a: Pick<GitAccount, "provider" | "workspace">) =>
+    `${a.provider}|${(a.workspace ?? "").toLowerCase()}`;
+  const reviewer = main
+    ? accounts.find((a) => a.defaultReviewer && a.id !== main.id && scope(a) === scope(main))
+    : undefined;
+  return {
+    defaultReviewer: reviewer ? { id: reviewer.id, name: reviewer.name } : null,
+    choices: accounts.map((a) => ({
+      id: a.id,
+      name: a.name,
+      unavailable: reviewUnavailable(main, a),
+    })),
+  };
 }
 
 /** Il nome di un repository: non vuoto, senza spazi né `/` (è un pezzo dell'indirizzo dei Docs). */
@@ -396,7 +456,7 @@ export async function updateRepository(
   if (
     (patch.gitAccountId !== undefined || patch.reviewGitAccountId !== undefined) &&
     reviewId !== null &&
-    (!review || !account || review.id === account.id || review.provider !== account.provider)
+    (!review || reviewUnavailable(account, review) !== null)
   )
     return refuse.invalid("review_account");
 

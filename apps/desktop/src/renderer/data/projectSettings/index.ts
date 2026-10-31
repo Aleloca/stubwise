@@ -38,6 +38,7 @@ export {
   createRepository,
   listProjectRepositories,
   listRemoteRepositories,
+  reviewAccountChoices,
   simulateNextRepositoryCheck,
   simulateNextWebhookSetup,
   updateRepository,

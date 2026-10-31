@@ -10,7 +10,7 @@ import { GeneralSettings } from "./GeneralSettings";
 import { MembersSettings } from "./MembersSettings";
 import { ProjectChangeLog } from "./ProjectChangeLog";
 import { ProjectStatusesSettings } from "./ProjectStatusesSettings";
-import { RepositorySettings } from "./RepositorySettings";
+import { RepositoriesSection } from "./repositories/RepositoryList";
 import { SettingsFrame } from "./SettingsFrame";
 import { UsageSettings } from "./UsageSettings";
 
@@ -53,20 +53,9 @@ function Section({ project, section }: { project: Project; section: ProjectSetti
     case "changelog":
       return <ProjectChangeLog project={project} />;
     case "repositories":
-      // Le parti dell'8a (PR dei colleghi, rilasci) restano col modulo
-      // Releases; il resto della sezione arriva col Task 8 dell'area 9c.
-      if (!project.modules.includes("releases"))
-        return (
-          <Placeholder titleKey="settings.sections.repositories" bodyKey="settings.placeholder" />
-        );
-      return (
-        <SettingsFrame
-          title={t("settings.sections.repositories")}
-          intro={t("settings.repositories.intro")}
-        >
-          <RepositorySettings project={project} />
-        </SettingsFrame>
-      );
+      // Con o senza il modulo Releases (area 9c, Task 8): le parti dell'8a
+      // stanno nella pagina di un repository, solo col modulo.
+      return <RepositoriesSection project={project} />;
     case "statuses":
       return (
         <SettingsFrame

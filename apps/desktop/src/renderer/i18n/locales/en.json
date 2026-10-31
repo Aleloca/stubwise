@@ -2618,6 +2618,140 @@
       "onlyProjectLinked": "Only {{code}}'s work. The instance's total is in <link>Administration → AI → Usage</link>.",
       "empty": "No AI usage in {{code}} in this period.",
       "loadError": "Couldn't load {{code}}'s usage."
+    },
+    "repos": {
+      "intro": "The code repositories of {{code}}. Claude works on them, and the Docs are written from them.",
+      "add": "Add repository",
+      "list": "Repositories of {{code}}",
+      "leaves": "A repository leaves a project only when the project is deleted.",
+      "empty": "{{code}} has no repositories yet. Add one so Claude can work on the code and the Docs can be written.",
+      "emptyRead": "Someone who can manage {{code}}'s repositories can add one.",
+      "loadError": "Couldn't load {{code}}'s repositories.",
+      "tests": "tests:",
+      "testsDetected": "tests detected from the lockfile",
+      "noAccount": "No git account",
+      "platforms": {
+        "github": "GitHub",
+        "bitbucket": "Bitbucket"
+      },
+      "states": {
+        "configured": "Webhook configured",
+        "not_configured": "Webhook not configured",
+        "failed": "Webhook setup failed"
+      },
+      "added": "{{name}} added to {{code}}. Configure its webhook so Stubwise hears about new commits.",
+      "open": "Open",
+      "back": "Repositories",
+      "notFound": "This repository isn't in {{code}}.",
+      "details": "Details",
+      "releases": "Releases",
+      "fields": {
+        "name": "Name",
+        "address": "Address",
+        "defaultBranch": "Default branch",
+        "gitAccount": "Git account",
+        "reviewAccount": "Review account",
+        "testCommand": "Test command",
+        "installCommand": "Install command",
+        "graph": "Code graph",
+        "protected": "Protected branches"
+      },
+      "nameHint": "It's in the Docs addresses, like /docs/{{code}}/{{name}}.",
+      "nameTaken": "{{code}} already has a repository called {{name}}.",
+      "nameInvalid": "Use a name without spaces or /.",
+      "addressError": "Use an https address.",
+      "defaultBranchHint": "It comes from {{platform}}: Stubwise reads it, and doesn't change it.",
+      "reviewDefault": "Default reviewer ({{name}})",
+      "reviewNoDefault": "No default reviewer",
+      "reviewUnavailable": {
+        "main": "It's the main account",
+        "other_platform": "Not on {{platform}}"
+      },
+      "reviewHint": "The account that reviews Claude's pull requests. It must differ from the one that writes them.",
+      "reviewError": "Choose an account on {{platform}} other than the main one.",
+      "gitAccountError": "Choose one of the git accounts.",
+      "commandPlaceholder": "Detected from the lockfile",
+      "graphBody": "Lets chats find the code that answers a question. Rebuilt after each push.",
+      "graphOn": "On",
+      "graphOff": "Off",
+      "protectedHint": "Claude never pushes to these. End a line with /* for every branch that starts the same way, like release/*.",
+      "protectedError": "Line {{line}}: a branch can't be empty or contain spaces.",
+      "protectedNone": "None",
+      "changes_one": "{{count}} change",
+      "changes_other": "{{count}} changes",
+      "webhook": {
+        "title": "Webhook",
+        "lines": {
+          "not_configured": "Not configured: Stubwise doesn't hear about new commits, so the nightly Docs, the reports and the code graph don't see them.",
+          "configured": "Configured on {{date}}.",
+          "failed": "Couldn't configure it on {{date}}. Check that {{account}} can manage webhooks, then try again."
+        },
+        "accountFallback": "its git account",
+        "configure": "Configure automatically",
+        "again": "Configure again",
+        "configuring": "Configuring…",
+        "done": "Webhook configured.",
+        "updated": "Webhook updated.",
+        "byHand": "To set it up by hand, the address and secret are in",
+        "integration": "Integration",
+        "readOnly": "Configuring the webhook needs someone who can manage {{code}}'s repositories.",
+        "prototype": {
+          "label": "The next setup ends",
+          "configured": "Configured",
+          "failed": "Failed"
+        }
+      },
+      "wizard": {
+        "title": "Add a repository to {{code}}",
+        "stepsLabel": "Steps",
+        "steps": {
+          "account": "Git account",
+          "repository": "Repository",
+          "branch": "Branch",
+          "access": "Access"
+        },
+        "done": "done",
+        "back": "Back",
+        "next": "Next",
+        "create": "Create",
+        "cancel": "Cancel",
+        "needAccount": "Choose a git account.",
+        "needRepository": "Choose a repository.",
+        "needAccess": "Verify access first: it has to work.",
+        "discard": "Discard this repository?",
+        "keep": "Keep editing",
+        "discardButton": "Discard",
+        "accountFailed": "Its last check failed: access will likely fail too.",
+        "noAccounts": "There are no git accounts yet. Someone who can manage git accounts adds one in Administration → Git accounts.",
+        "openGitAccounts": "Open Git accounts",
+        "accountsError": "Couldn't load the git accounts.",
+        "find": "Find a repository",
+        "defaultBranch": "default: {{branch}}",
+        "alreadyIn": "Already in {{code}}",
+        "noMatch": "No repository matches. If it's missing, {{account}} can't see it: check the account's access.",
+        "remoteError": "Couldn't list {{account}}'s repositories.",
+        "name": "Name in Stubwise",
+        "branchOption": "{{branch}} (default)",
+        "branchBody": "Claude starts from this branch and opens its pull requests against it.",
+        "accessBody": "Stubwise checks that {{account}} can read and write {{repository}} on {{branch}}: Claude needs both to open pull requests.",
+        "verify": "Verify access",
+        "checking": "Checking…",
+        "outcomes": {
+          "ok": "Access works.",
+          "invalid_credentials": "{{account}}'s credentials don't work. Replace its token in Administration → Git accounts, then verify again.",
+          "unreachable": "Couldn't reach {{platform}}. Try again in a moment."
+        },
+        "stale": "The choice changed: verify again.",
+        "notVerified": "Verify access again before creating.",
+        "commandHint": "Leave it empty to detect it from the lockfile.",
+        "prototype": {
+          "intro": "Nothing real is contacted. Choose what the next access check answers.",
+          "label": "The next access check",
+          "ok": "Works",
+          "invalid_credentials": "Invalid credentials",
+          "unreachable": "Unreachable"
+        }
+      }
     }
   },
   "export": {

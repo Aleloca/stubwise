@@ -137,6 +137,116 @@ async function main() {
       console.log("scritto", name);
     };
 
+    // Area 9c, Task 8 (`CAPTURE_A9C_REPOS=1`): Progetto → Settings →
+    // Repositories, la creazione guidata, la pagina del repository e il
+    // webhook (shape project-repositories.md), scatti `a9c-repos-*`. Marco
+    // in sola lettura: gli si toglie `repos.manage` in ACQ (ruling (T4)).
+    if (process.env.CAPTURE_A9C_REPOS) {
+      async function prepare(page, action) {
+        await page.evaluate(async (what) => {
+          const { state } = await import("/data/store.ts");
+          const viewer = await import("/data/viewer.ts");
+          if (what === "readOnly") viewer.revokeProjectPermission("p-marco", "prj-acq", "repos.manage");
+          if (what === "failed")
+            Object.assign(state.repositories.find((r) => r.id === "repo-acq").webhook, {
+              state: "failed",
+              configuredAt: "2026-10-31T09:00:00Z",
+            });
+        }, action);
+      }
+      const go = async (page, hash) => {
+        await page.evaluate((h) => {
+          window.location.hash = h;
+        }, hash);
+        await page.waitForTimeout(1200);
+        await page.mouse.move(2, 2);
+      };
+      const it = (page) => page.evaluate(() => document.documentElement.lang === "it");
+      const dialog = (page) => page.getByRole("dialog");
+      const next = async (page) => {
+        await dialog(page).getByRole("button", { name: (await it(page)) ? "Avanti" : "Next" }).click();
+        await page.waitForTimeout(300);
+      };
+      const toRepository = async (page) => {
+        await dialog(page).getByRole("radio", { name: /Bitbucket Audin/ }).check();
+        await next(page);
+        await dialog(page).getByRole("searchbox").fill("a");
+        await dialog(page).getByRole("radio", { name: /audin\/fatture-api/ }).check();
+        await page.mouse.move(2, 2);
+      };
+      const verify = (outcome) => async (page) => {
+        await toRepository(page);
+        await next(page);
+        await next(page);
+        const box = dialog(page).locator("[data-prototype-only]");
+        await box.getByRole("radio").nth(outcome).click();
+        await dialog(page).getByRole("button", { name: /^(Verify access|Verifica gli accessi)$/ }).click();
+        await page.waitForTimeout(1200);
+        if (outcome === 0)
+          await dialog(page).getByRole("textbox", { name: /^(Test command|Comando dei test)$/ }).fill("npm test");
+        await page.mouse.move(2, 2);
+      };
+      const edit = async (page) => {
+        const field = page.locator("textarea");
+        await field.fill("main\n\nrelease/*");
+        await page.getByRole("button", { name: /^(Save|Salva)$/ }).click();
+        await page.waitForTimeout(1500);
+        await page.mouse.move(2, 2);
+      };
+      const reviewError = async (page) => {
+        await page.evaluate(async () => {
+          const { state } = await import("/data/store.ts");
+          const audin = state.instance.gitAccounts.find((g) => g.id === "git-bitbucket-audin");
+          state.instance.gitAccounts.push({ ...audin, id: "git-bitbucket-review", name: "Bitbucket Review" });
+          state.repositories.find((r) => r.id === "repo-acq").reviewGitAccountId = "git-bitbucket-review";
+        });
+        await go(page, "/p/AUD/settings/repositories");
+        await go(page, "/p/ACQ/settings/repositories?repo=repo-acq");
+        await page.locator("select").first().selectOption("git-bitbucket-review");
+        await page.getByRole("button", { name: /^(Save|Salva)$/ }).click();
+        await page.waitForTimeout(1500);
+        await page.mouse.move(2, 2);
+      };
+      const SCENES = [
+        // [nome, indirizzo, { persona, action, after }]
+        ["list", "/p/ACQ/settings/repositories", { persona: "Laura" }],
+        ["list-readonly", "/p/ACQ/settings/repositories", { persona: "Marco", action: "readOnly" }],
+        ["wizard-account", "/p/ACQ/settings/repositories?new=1", { persona: "Laura" }],
+        ["wizard-repository", "/p/ACQ/settings/repositories?new=1", { persona: "Laura", after: toRepository }],
+        ["wizard-access-ok", "/p/ACQ/settings/repositories?new=1", { persona: "Laura", after: verify(0) }],
+        ["wizard-access-invalid", "/p/ACQ/settings/repositories?new=1", { persona: "Laura", after: verify(1) }],
+        ["repo", "/p/ACQ/settings/repositories?repo=repo-acq", { persona: "Laura" }],
+        ["repo-bar", "/p/ACQ/settings/repositories?repo=repo-acq", { persona: "Laura", after: edit }],
+        ["repo-review-error", "/p/ACQ/settings/repositories?repo=repo-acq", { persona: "Laura", after: reviewError }],
+        ["repo-failed", "/p/ACQ/settings/repositories?repo=repo-acq", { persona: "Laura", action: "failed" }],
+        ["repo-readonly", "/p/ACQ/settings/repositories?repo=repo-acq", { persona: "Marco", action: "readOnly" }],
+        ["repo-releases", "/p/AUD/settings/repositories?repo=repo-aud", { persona: "Laura" }],
+      ];
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      for (const [name, hash, opts] of SCENES) {
+        if (only && !only.test(name)) continue;
+        for (const v of variants) {
+          const { page, context } = await open(v.scheme, v.viewport, "/home", {
+            lang: v.lang,
+            persona: opts.persona,
+          });
+          if (opts.action) await prepare(page, opts.action);
+          await go(page, hash);
+          if (opts.after) await opts.after(page);
+          await shot(page, `a9c-repos-${name}-${v.suffix}.png`);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 9c, Task 7 (`CAPTURE_A9C_SETTINGS=1`): Progetto → Settings →
     // General, AI, Automations, Usage e il segno «View only» (shape
     // project-settings.md), scatti `a9c-settings-*`. Lo stato si prepara dal

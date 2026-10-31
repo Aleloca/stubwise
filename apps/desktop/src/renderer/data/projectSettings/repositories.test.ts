@@ -110,6 +110,37 @@ describe("l'elenco dei repository del progetto", () => {
   });
 });
 
+describe("le regole che la pagina legge (Task 8)", () => {
+  it("i repository della piattaforma dicono quali stanno già nel progetto", async () => {
+    as(LAURA);
+    const remote = await projectSettings.listRemoteRepositories(BITBUCKET, ACQ);
+    const inProject = (full: string) => remote.find((r) => r.fullName === full)!.inProject;
+    expect(inProject("audin/portale-utenti")).toBe(true);
+    expect(inProject("audin/fatture-api")).toBe(false);
+    // Un progetto che non vede, o nessun progetto: niente è «già dentro» (R-G5).
+    const blind = await projectSettings.listRemoteRepositories(BITBUCKET, "prj-cbv");
+    expect(blind.every((r) => !r.inProject)).toBe(true);
+    expect((await projectSettings.listRemoteRepositories(BITBUCKET)).every((r) => !r.inProject)).toBe(
+      true,
+    );
+  });
+
+  it("le scelte dell'account di revisione: stessa piattaforma, non il principale, e il predefinito", () => {
+    const accounts = state.instance.gitAccounts.map((a) => ({ ...a }));
+    expect(projectSettings.reviewAccountChoices(accounts, "git-github-shop")).toEqual({
+      defaultReviewer: { id: GITHUB, name: "GitHub Stubwise" },
+      choices: [
+        { id: BITBUCKET, name: "Bitbucket Audin", unavailable: "other_platform" },
+        { id: GITHUB, name: "GitHub Stubwise", unavailable: null },
+        { id: "git-github-shop", name: "GitHub Shop", unavailable: "main" },
+      ],
+    });
+    // Il revisore predefinito non rivede le PR che scrive lui stesso.
+    expect(projectSettings.reviewAccountChoices(accounts, GITHUB).defaultReviewer).toBeNull();
+    expect(projectSettings.reviewAccountChoices(accounts, BITBUCKET).defaultReviewer).toBeNull();
+  });
+});
+
 describe("la creazione guidata", () => {
   it("senza verifica → access_not_verified, e niente cambia", async () => {
     as(LAURA);

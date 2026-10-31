@@ -14,9 +14,10 @@ import { useToast } from "../../tasks-ui/Toast";
 import { primaryButton, secondaryButton } from "../tasks/controls";
 import { CloseIcon } from "../task/parts";
 
-// Progetto → Settings → Repositories (shape releases.md §6): per ogni
-// repository, cosa fa Claude sulle PR dei colleghi e come Stubwise segue i
-// rilasci. Le scelte si salvano subito; «Saved» compare solo dopo la
+// Progetto → Settings → Repositories, le parti dell'8a (shape releases.md
+// §6): per un repository, cosa fa Claude sulle PR dei colleghi e come
+// Stubwise segue i rilasci. Dall'area 9c stanno nella pagina del repository
+// (`repositories/RepositoryEditor.tsx`), sotto i campi nuovi. Le scelte si salvano subito; «Saved» compare solo dopo la
 // conferma dello store e sparisce alla modifica successiva ([R 20], la
 // lezione del bug dell'area 6). Senza `repos.manage` gli stessi valori in
 // sola lettura, come frasi.
@@ -294,52 +295,46 @@ function ReadOnly({ repo, project }: { repo: Repo; project: Project }) {
   );
 }
 
-export function RepositorySettings({ project }: { project: Project }) {
+/**
+ * Le parti dell'8a di UN repository, nella sua pagina (area 9c, Task 8):
+ * sotto i campi nuovi e solo col modulo Releases (lo decide chi la monta).
+ */
+export function RepositoryReleases({
+  project,
+  repositoryId,
+}: {
+  project: Project;
+  repositoryId: string;
+}) {
   const { t } = useTranslation();
   const settings = useRepositorySettings(project.id);
   const data = settings.data;
+  const repo = data?.repositories.find((r) => r.id === repositoryId);
+  if (settings.isError)
+    return (
+      <div role="alert" className="flex items-center gap-3 pt-4">
+        <p className="text-md text-ink">{t("settings.repositories.error")}</p>
+        <button type="button" className={secondaryButton} onClick={() => void settings.refetch()}>
+          {t("taskUi.states.retry")}
+        </button>
+      </div>
+    );
+  if (!data)
+    return (
+      <p role="status" className="pt-4 text-sm text-ink-muted">
+        {t("taskUi.states.loading")}
+      </p>
+    );
+  if (!repo) return null;
   return (
-    <div className="pb-7">
-      {settings.isError ? (
-        <div role="alert" className="flex items-center gap-3">
-          <p className="text-md text-ink">{t("settings.repositories.error")}</p>
-          <button type="button" className={secondaryButton} onClick={() => void settings.refetch()}>
-            {t("taskUi.states.retry")}
-          </button>
-        </div>
-      ) : !data ? (
-        <p role="status" className="text-sm text-ink-muted">
-          {t("taskUi.states.loading")}
-        </p>
-      ) : data.repositories.length === 0 ? (
-        <p className="text-md text-ink-muted">
-          {t("releases.empty.noRepos", { code: project.code })}
-        </p>
+    <div data-repository={repo.fullName} className="flex flex-col gap-5 pt-4">
+      {data.canManage ? (
+        <>
+          <ColleagueMode repo={repo} project={project} />
+          <Pipeline repo={repo} />
+        </>
       ) : (
-        <ul className="flex flex-col">
-          {data.repositories.map((repo) => (
-            <li
-              key={repo.id}
-              data-repository={repo.fullName}
-              className="flex flex-col gap-5 border-t border-rule py-5"
-            >
-              <p className="flex items-baseline gap-2">
-                <span className="num text-sm font-semibold text-ink">{repo.fullName}</span>
-                <span className="text-sm text-ink-muted">
-                  {repo.ciProvider === "bitbucket_pipelines" ? "Bitbucket" : "GitHub"}
-                </span>
-              </p>
-              {data.canManage ? (
-                <>
-                  <ColleagueMode repo={repo} project={project} />
-                  <Pipeline repo={repo} />
-                </>
-              ) : (
-                <ReadOnly repo={repo} project={project} />
-              )}
-            </li>
-          ))}
-        </ul>
+        <ReadOnly repo={repo} project={project} />
       )}
     </div>
   );

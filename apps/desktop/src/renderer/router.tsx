@@ -196,6 +196,9 @@ export interface AppSearch {
   /** Members del progetto (area 9a): il pannello del membro e «Add member» (`1` o la persona). */
   member?: string;
   addMember?: string;
+  /** Repositories del progetto (area 9c, Task 8): la creazione guidata (`1`) e la pagina di un repository (l'id). */
+  new?: string;
+  repo?: string;
   /** Il registro e «Who can?» (area 9a, `data/routes.ts`): chi, tipo, periodo, azione, persona. */
   actor?: string;
   kind?: string;
@@ -246,6 +249,8 @@ const SEARCH_KEYS = [
   "tab",
   "member",
   "addMember",
+  "new",
+  "repo",
   ...PEOPLE_SEARCH_KEYS,
   ...AUDIT_SEARCH_KEYS,
 ] as const;
@@ -293,6 +298,7 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
       key === "department" ||
       key === "member" ||
       key === "addMember" ||
+      key === "repo" ||
       key === "thread" ||
       key === "message" ||
       key === "pr" ||
@@ -309,7 +315,7 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
             ? /^[a-z-]+$/.test(value)
             : key === "ask"
               ? value.trim().length > 0 && value.length <= ASK_MAX
-              : key === "refine" || key === "settings" || key === "newMeeting"
+              : key === "refine" || key === "settings" || key === "newMeeting" || key === "new"
                 ? value === "1"
                 : false;
     // I filtri di WORK dello Stato dell'istanza (area 9b, ruling 10) hanno la
