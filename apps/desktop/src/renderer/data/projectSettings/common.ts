@@ -24,6 +24,13 @@ export const refuse = {
   ...instanceRefuse,
   /** Il progetto non si archivia adesso: `reasons` dice cosa aspettare. */
   busy: (reasons: BusyReason[]): ProjectRefusal => ({ ok: false, error: "busy", reasons }),
+  /** Un elenco rifiutato per una riga (a base 1): la pagina la dice senza rifare la regola. */
+  invalidLine: (reason: string, line: number): ProjectRefusal => ({
+    ok: false,
+    error: "invalid",
+    reason,
+    line,
+  }),
 };
 
 /** `reauth_required` se la funzione è dichiarata in `REAUTH_REQUIRED` e manca una riconferma recente. */

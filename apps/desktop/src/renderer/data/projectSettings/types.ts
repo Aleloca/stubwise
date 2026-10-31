@@ -9,6 +9,10 @@ export type BusyReason =
   | { kind: "claude_session"; code: string | null; title: string | null; waiting: boolean }
   | { kind: "release"; code: string };
 
-export type ProjectRefusal = InstanceRefusal | { ok: false; error: "busy"; reasons: BusyReason[] };
+export type ProjectRefusal =
+  | InstanceRefusal
+  | { ok: false; error: "busy"; reasons: BusyReason[] }
+  /** Un elenco rifiutato per una sua riga: `line` a base 1 (i rami protetti di un repository). */
+  | { ok: false; error: "invalid"; reason: string; line: number };
 
 export type ProjectResult<T extends object = object> = ({ ok: true } & T) | ProjectRefusal;

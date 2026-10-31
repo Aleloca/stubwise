@@ -18,7 +18,10 @@ import type { ProjectResult } from "./types";
 //   registro e non si spegne, come `stubwise-base` del worker (scelta del
 //   controller): fra gli spenti è `invalid: "base_plugin"`.
 // - Un plugin del registro non `ready` compare con `inRuns: false`: il suo
-//   stato ne è la ragione, e le sue skill non entrano in nessun run.
+//   stato ne è la ragione, e le sue skill non entrano in nessun run. Le
+//   scelte salvate per lui restano e valgono quando sarà pronto ([PG 4]):
+//   la vista le mostra anche senza inventario, e un salvataggio che non lo
+//   nomina le tiene (nominarlo con le liste vuote lo riaccende).
 // - Una persona per volta (RF 5): il salvataggio porta la `version` letta;
 //   se nel frattempo un altro ha salvato è `conflict`, e niente si scrive.
 //   Quale bozza tenere lo sceglie la persona nella UI (maintainer, [PG 5]).
@@ -77,23 +80,36 @@ function registryRow(
   choices: ProjectPluginChoices,
 ): ProjectPluginsView["plugins"][number] {
   const off = disabledOf(choices, p.name);
+  const skills = p.inventory?.skills ?? [];
+  const hooks = p.inventory?.hooks ?? [];
   return {
     name: p.name,
     slug: p.slug,
     status: p.status,
     base: false,
     inRuns: p.status === "ready",
-    skills: (p.inventory?.skills ?? []).map((s) => ({
-      name: s.name,
-      description: s.description,
-      enabled: !off?.skills.includes(s.name),
-    })),
-    hooks: (p.inventory?.hooks ?? []).map((h) => ({
-      key: h.key,
-      event: h.event,
-      command: h.command,
-      enabled: !off?.hookGroups.includes(h.key),
-    })),
+    skills: [
+      ...skills.map((s) => ({
+        name: s.name,
+        description: s.description,
+        enabled: !off?.skills.includes(s.name),
+      })),
+      // Le scelte salvate che l'inventario (assente, o di un altro sha) non conosce: si vedono.
+      ...(off?.skills ?? [])
+        .filter((name) => !skills.some((s) => s.name === name))
+        .map((name) => ({ name, description: "", enabled: false })),
+    ],
+    hooks: [
+      ...hooks.map((h) => ({
+        key: h.key,
+        event: h.event,
+        command: h.command,
+        enabled: !off?.hookGroups.includes(h.key),
+      })),
+      ...(off?.hookGroups ?? [])
+        .filter((key) => !hooks.some((h) => h.key === key))
+        .map((key) => ({ key, event: key.split("#")[0]!, command: "", enabled: false })),
+    ],
     preset: RECOMMENDED_PRESETS[p.name] ? [...RECOMMENDED_PRESETS[p.name]!] : null,
   };
 }
@@ -125,7 +141,7 @@ function disabledKeys(choices: ProjectPluginChoices["disabled"]): {
 /** Le scelte date, validate e ripulite (righe vuote via, liste ordinate e senza doppioni). */
 function normalized(
   disabled: unknown,
-): { disabled: ProjectPluginChoices["disabled"] } | { reason: string } {
+): { disabled: ProjectPluginChoices["disabled"]; named: Set<string> } | { reason: string } {
   if (!Array.isArray(disabled)) return { reason: "disabled" };
   const out = new Map<string, { skills: Set<string>; hookGroups: Set<string> }>();
   for (const d of disabled as ProjectPluginChoices["disabled"]) {
@@ -150,6 +166,7 @@ function normalized(
     out.set(d.plugin, row);
   }
   return {
+    named: new Set(out.keys()),
     disabled: [...out.entries()]
       .filter(([, r]) => r.skills.size > 0 || r.hookGroups.size > 0)
       .sort(([a], [b]) => a.localeCompare(b))
@@ -179,9 +196,16 @@ export async function saveProjectPlugins(
   const choices = settingsOf(project).plugins;
   if (input.version !== choices.version) return refuse.conflict();
 
-  const diff = changedFields(disabledKeys(choices.disabled), disabledKeys(clean.disabled));
+  // [PG 4]: le scelte di un plugin non `ready` che l'input non nomina restano.
+  const ready = (name: string) =>
+    state.instance.plugins.some((p) => p.name === name && p.status === "ready");
+  const disabled = [
+    ...clean.disabled,
+    ...choices.disabled.filter((d) => !clean.named.has(d.plugin) && !ready(d.plugin)),
+  ].sort((a, b) => a.plugin.localeCompare(b.plugin));
+  const diff = changedFields(disabledKeys(choices.disabled), disabledKeys(disabled));
   if (!diff) return { ok: true, version: choices.version };
-  choices.disabled = clean.disabled;
+  choices.disabled = disabled;
   choices.version += 1;
   recordChange({
     kind: "project.plugins_changed",

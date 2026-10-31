@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { docs, instance, projectSettings, resetApi, setLatency } from "../api";
 import { setSessionPersonId } from "../session";
-import { state } from "../store";
-import { grantProjectPermission, revokeProjectPermission } from "../viewer";
+import { state, visibleProjectIds } from "../store";
+import { grantProjectPermission, revokeProjectPermission, viewerFor } from "../viewer";
 
 // I repository del progetto, livello dati (area 9c, Task 4): l'elenco, la
 // creazione guidata con la verifica degli accessi, la modifica e il
@@ -14,6 +14,7 @@ import { grantProjectPermission, revokeProjectPermission } from "../viewer";
 const LAURA = "p-laura";
 const SARA = "p-sara";
 const ROBERTA = "p-roberta";
+const GIULIA = "p-giulia";
 const ACQ = "prj-acq";
 const AUD = "prj-aud";
 const RNC = "prj-rnc";
@@ -307,10 +308,13 @@ describe("la modifica di un repository", () => {
     ).toMatchObject({ error: "invalid", reason: "url" });
     expect(
       await projectSettings.updateRepository("repo-acq", { protectedBranches: ["main", ""] }),
-    ).toMatchObject({ error: "invalid", reason: "protected_branch" });
+    ).toEqual({ ok: false, error: "invalid", reason: "protected_branch", line: 2 });
+    // La riga (a base 1) la dice il livello dati: la pagina non rifà la regola (I3).
     expect(
-      await projectSettings.updateRepository("repo-acq", { protectedBranches: ["rel ease"] }),
-    ).toMatchObject({ error: "invalid", reason: "protected_branch" });
+      await projectSettings.updateRepository("repo-acq", {
+        protectedBranches: ["rel ease", "main"],
+      }),
+    ).toEqual({ ok: false, error: "invalid", reason: "protected_branch", line: 1 });
     expect(
       await projectSettings.updateRepository("repo-acq", { gitAccountId: "git-nope" }),
     ).toMatchObject({ error: "invalid", reason: "git_account" });
@@ -392,6 +396,24 @@ describe("il webhook git", () => {
       error: "forbidden",
     });
     expect(snapshot()).toBe(before);
+  });
+});
+
+describe("un permesso preso in un progetto archiviato non apre niente", () => {
+  it("Giulia, con repos.manage solo in RNC (archiviato): né repository remoti né simulazioni", async () => {
+    // Giulia è Project Lead in RNC; negli altri suoi progetti le si toglie
+    // `repos.manage`, così l'unico posto dove l'ha è l'archiviato.
+    for (const p of visibleProjectIds(GIULIA))
+      revokeProjectPermission(GIULIA, p, "repos.manage" as never);
+    expect(viewerFor(GIULIA).projectPermissions[RNC]).toContain("repos.manage");
+    as(GIULIA);
+    await expect(projectSettings.listRemoteRepositories(BITBUCKET)).rejects.toThrow("forbidden");
+    await expect(projectSettings.simulateNextRepositoryCheck("unreachable")).rejects.toThrow(
+      "forbidden",
+    );
+    await expect(projectSettings.simulateNextWebhookSetup("failed")).rejects.toThrow("forbidden");
+    expect(state.repositoryChecks.nextRepositoryCheck).toBeNull();
+    expect(state.repositoryChecks.nextWebhookSetup).toBeNull();
   });
 });
 

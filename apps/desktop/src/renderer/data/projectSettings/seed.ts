@@ -80,7 +80,12 @@ export function defaultProjectSettings(p: { id: string; template: string }): Pro
     aiProviderExclusive: false,
     switches: switchesOf("", p.template === "software"),
     pulseEveryDays: 7,
-    ingestion: { secretId: null, last4: last4Of(`ingestion|${p.id}`), createdAt: at(0, "00:00") },
+    ingestion: {
+      secretId: null,
+      last4: last4Of(`ingestion|${p.id}`),
+      createdAt: at(0, "00:00"),
+      createdById: null,
+    },
     plugins: { version: 1, disabled: [] },
   };
 }
@@ -102,6 +107,7 @@ export function seedProjectSettings(): Map<string, ProjectSettings> {
             secretId: null,
             last4: last4Of(`ingestion|${p.id}`),
             createdAt: at(-90, "10:00"),
+            createdById: null,
           },
           plugins: pluginChoicesOf(p.id),
         },

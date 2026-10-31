@@ -42,8 +42,16 @@ export interface ProjectSettings {
   aiProviderExclusive: boolean;
   switches: Record<ProjectSwitch, boolean>;
   pulseEveryDays: number;
-  /** La chiave d'ingestione: solo l'id nel caveau (null nel seme: mai mostrata) e le ultime 4. */
-  ingestion: { secretId: string | null; last4: string; createdAt: string };
+  /**
+   * La chiave d'ingestione: solo l'id nel caveau (null nel seme: mai mostrata), le
+   * ultime 4 e chi l'ha creata (`null` nel seme e per un progetto nato dall'app).
+   */
+  ingestion: {
+    secretId: string | null;
+    last4: string;
+    createdAt: string;
+    createdById: string | null;
+  };
   plugins: ProjectPluginChoices;
 }
 

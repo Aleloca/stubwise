@@ -209,6 +209,54 @@ describe("il salvataggio dei plugin", () => {
     expect(sp.hooks.every((h) => h.enabled)).toBe(true);
   });
 
+  it("[PG 4] le scelte di un plugin non ready restano, si vedono e non si perdono salvando gli altri", async () => {
+    as(LAURA);
+    // lint-helpers è `failed`, senza inventario: le scelte salvate per lui
+    // valgono quando sarà pronto.
+    expect(
+      await projectSettings.saveProjectPlugins(ACQ, {
+        version: 1,
+        disabled: [{ plugin: "lint-helpers", skills: ["fix-lint"], hookGroups: ["Stop#0"] }],
+      }),
+    ).toEqual({ ok: true, version: 2 });
+    const lint = () =>
+      projectSettings
+        .getProjectPlugins(ACQ)
+        .then((v) => v!.plugins.find((p) => p.name === "lint-helpers")!);
+    // La vista le mostra anche senza inventario.
+    expect((await lint()).skills).toEqual([{ name: "fix-lint", description: "", enabled: false }]);
+    expect((await lint()).hooks).toEqual([
+      { key: "Stop#0", event: "Stop", command: "", enabled: false },
+    ]);
+    seeded = state.changelog.length;
+    // Una pagina che non le rimanda (salva solo superpowers) non le cancella.
+    expect(
+      await projectSettings.saveProjectPlugins(ACQ, {
+        version: 2,
+        disabled: [{ plugin: "superpowers", skills: ["brainstorming"], hookGroups: [] }],
+      }),
+    ).toEqual({ ok: true, version: 3 });
+    expect(choicesOf(ACQ).disabled).toEqual([
+      { plugin: "lint-helpers", skills: ["fix-lint"], hookGroups: ["Stop#0"] },
+      { plugin: "superpowers", skills: ["brainstorming"], hookGroups: [] },
+    ]);
+    // La voce non le dà «riaccese».
+    const voice = entries("project.plugins_changed")[0]!;
+    expect(JSON.parse(voice.after!).disabledSkills).toContain("lint-helpers:fix-lint");
+    expect(JSON.parse(voice.before!).disabledSkills).toContain("lint-helpers:fix-lint");
+    // Nominarlo con le liste vuote lo riaccende, quello sì.
+    expect(
+      await projectSettings.saveProjectPlugins(ACQ, {
+        version: 3,
+        disabled: [
+          { plugin: "lint-helpers", skills: [], hookGroups: [] },
+          { plugin: "superpowers", skills: ["brainstorming"], hookGroups: [] },
+        ],
+      }),
+    ).toEqual({ ok: true, version: 4 });
+    expect(choicesOf(ACQ).disabled.map((d) => d.plugin)).toEqual(["superpowers"]);
+  });
+
   it("salvare senza cambiare niente non scrive voci né cambia versione", async () => {
     as(LAURA);
     expect(await projectSettings.saveProjectPlugins(ACQ, { version: 1, disabled: [] })).toEqual({

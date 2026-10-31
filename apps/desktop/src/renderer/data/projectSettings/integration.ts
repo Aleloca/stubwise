@@ -1,9 +1,17 @@
+import { visiblePeopleFor } from "../access/whoCan";
 import { INSTANCE_ORIGIN, forgetSecret, storeSecret } from "../admin/secrets";
 import { recordChange } from "../changelog/index";
 import type { Project, Repository } from "../model";
 import { gate, now, state } from "../store";
 import { writer } from "../writer";
-import { MANAGE_SETTINGS, canI, managedProject, projectObject, reauthRefusal } from "./common";
+import {
+  MANAGE_SETTINGS,
+  canI,
+  managedProject,
+  nameOf,
+  projectObject,
+  reauthRefusal,
+} from "./common";
 import { openProject, settingsOf } from "./reads";
 import { MANAGE_REPOS, managedRepository, repositoryObject } from "./repositories";
 import type { ProjectResult } from "./types";
@@ -76,7 +84,17 @@ function guideOf(project: Project, key: string): string {
 }
 
 export interface IntegrationView {
-  ingestion: { last4: string; createdAt: string; maskedDsn: string; maskedSnippet: string };
+  ingestion: {
+    last4: string;
+    createdAt: string;
+    /**
+     * Chi l'ha creata («made Oct 2 by Laura Costa»); `null` nel seme o se
+     * chi guarda non vede quella persona (R-G5).
+     */
+    createdBy: { id: string; name: string } | null;
+    maskedDsn: string;
+    maskedSnippet: string;
+  };
   inbound: { url: string; auth: string };
   gitWebhooks: {
     repositoryId: string;
@@ -107,6 +125,10 @@ export async function getIntegration(projectId: string): Promise<IntegrationView
     ingestion: {
       last4: ingestion.last4,
       createdAt: ingestion.createdAt,
+      createdBy:
+        ingestion.createdById !== null && visiblePeopleFor(me).has(ingestion.createdById)
+          ? { id: ingestion.createdById, name: nameOf(ingestion.createdById)! }
+          : null,
       maskedDsn,
       maskedSnippet: snippetOf(maskedDsn),
     },
@@ -146,7 +168,12 @@ export async function regenerateIngestionKey(
   const settings = settingsOf(project);
   if (settings.ingestion.secretId) forgetSecret(settings.ingestion.secretId);
   const secret = storeSecret("ingestion_key", project.id);
-  settings.ingestion = { secretId: secret.id, last4: secret.value.slice(-4), createdAt: now() };
+  settings.ingestion = {
+    secretId: secret.id,
+    last4: secret.value.slice(-4),
+    createdAt: now(),
+    createdById: me,
+  };
   recordChange({
     kind: "project.ingestion_key_regenerated",
     actorId: me,

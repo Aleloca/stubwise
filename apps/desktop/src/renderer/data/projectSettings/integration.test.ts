@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { visiblePeopleFor } from "../access/whoCan";
 import { __secretValuesForTest } from "../admin/secrets";
 import { changelog, projectSettings, resetApi, setLatency } from "../api";
 import { markReauthenticated } from "../auth/reauth";
+import { PEOPLE } from "../seed/people";
 import { setSessionPersonId } from "../session";
 import { state } from "../store";
 import { grantProjectPermission } from "../viewer";
@@ -107,6 +109,28 @@ describe("la rigenerazione della chiave d'ingestione", () => {
     ]);
     expect(out).not.toContain(key);
     expect(entries("project.ingestion_key_regenerated")).toHaveLength(1);
+  });
+
+  it("la chiave sa chi l'ha creata (I2): nel seme nessuno, dopo la rigenerazione chi l'ha fatta", async () => {
+    as(LAURA);
+    expect((await projectSettings.getIntegration(ACQ))!.ingestion.createdBy).toBeNull();
+    markReauthenticated(LAURA);
+    await projectSettings.regenerateIngestionKey(ACQ);
+    expect(state.projectSettings.get(ACQ)!.ingestion.createdById).toBe(LAURA);
+    const laura = PEOPLE.find((p) => p.id === LAURA)!;
+    expect((await projectSettings.getIntegration(ACQ))!.ingestion.createdBy).toEqual({
+      id: LAURA,
+      name: laura.name,
+    });
+    as(SARA);
+    expect((await projectSettings.getIntegration(ACQ))!.ingestion.createdBy).toEqual({
+      id: LAURA,
+      name: laura.name,
+    });
+    // R-G5: una persona che chi guarda non vede non ha nome (né id).
+    const hidden = PEOPLE.find((p) => !visiblePeopleFor(SARA).has(p.id))!;
+    state.projectSettings.get(ACQ)!.ingestion.createdById = hidden.id;
+    expect((await projectSettings.getIntegration(ACQ))!.ingestion.createdBy).toBeNull();
   });
 
   it("rigenerare di nuovo invalida il valore di prima", async () => {

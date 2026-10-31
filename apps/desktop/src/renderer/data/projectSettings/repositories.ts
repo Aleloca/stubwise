@@ -4,8 +4,7 @@ import { changedFields, type FieldValue } from "../changelog/settingValues";
 import { SEED_GIT_ACCOUNT_IDS } from "../instance/seed";
 import type { GitAccount, TestOutcome } from "../instance/state";
 import type { Project, Repository } from "../model";
-import { gate, newId, now, state } from "../store";
-import { can, viewerFor } from "../viewer";
+import { gate, newId, now, state, visibleProjectIds } from "../store";
 import { forbidden, writer } from "../writer";
 import { canI, managedProject, refuse } from "./common";
 import { openProject } from "./reads";
@@ -87,6 +86,15 @@ const REMOTE_REPOSITORIES: Readonly<Record<string, readonly RemoteRepository[]>>
 
 const HOST = { github: "github.com", bitbucket: "bitbucket.org" } as const;
 
+/**
+ * Se `me` gestisce i repository di almeno un progetto APERTO che vede.
+ * `can(viewer, perm)` senza progetto somma i permessi di tutte le
+ * appartenenze, archiviati compresi: un permesso preso in un progetto
+ * archiviato non deve aprire niente (revisione del Task 4).
+ */
+const managesReposSomewhere = (me: string): boolean =>
+  [...visibleProjectIds(me)].some((id) => canI(me, MANAGE_REPOS, id));
+
 const accountOf = (id: string | null | undefined): GitAccount | undefined =>
   id ? state.instance.gitAccounts.find((g) => g.id === id) : undefined;
 const accountRef = (a: GitAccount | undefined) => (a ? { id: a.id, name: a.name } : null);
@@ -159,7 +167,7 @@ export async function listProjectRepositories(
  */
 export async function listRemoteRepositories(gitAccountId: string): Promise<RemoteRepository[]> {
   const me = await gate("projectSettings.listRemoteRepositories");
-  if (!can(viewerFor(me), MANAGE_REPOS)) throw forbidden();
+  if (!managesReposSomewhere(me)) throw forbidden();
   if (!accountOf(gitAccountId)) return [];
   return (REMOTE_REPOSITORIES[gitAccountId] ?? []).map((r) => ({
     ...r,
@@ -223,7 +231,7 @@ export async function checkRepositoryAccess(input: {
  */
 export async function simulateNextRepositoryCheck(outcome: TestOutcome): Promise<void> {
   const me = await writer("projectSettings.simulateNextRepositoryCheck");
-  if (!can(viewerFor(me), MANAGE_REPOS)) throw forbidden();
+  if (!managesReposSomewhere(me)) throw forbidden();
   state.repositoryChecks.nextRepositoryCheck = outcome;
 }
 
@@ -363,11 +371,9 @@ export async function updateRepository(
   if (patch.graphEnabled !== undefined && typeof patch.graphEnabled !== "boolean")
     return refuse.invalid("graph");
   const branches = patch.protectedBranches ?? r.protectedBranches ?? [];
-  if (
-    !Array.isArray(branches) ||
-    branches.some((b) => typeof b !== "string" || b === "" || /\s/.test(b))
-  )
-    return refuse.invalid("protected_branch");
+  if (!Array.isArray(branches)) return refuse.invalid("protected_branch");
+  const badBranch = branches.findIndex((b) => typeof b !== "string" || b === "" || /\s/.test(b));
+  if (badBranch >= 0) return refuse.invalidLine("protected_branch", badBranch + 1);
   const gitAccountId = patch.gitAccountId ?? r.gitAccountId ?? null;
   const account = accountOf(gitAccountId);
   if (patch.gitAccountId !== undefined && !account) return refuse.invalid("git_account");
@@ -490,6 +496,6 @@ export async function configureRepositoryWebhook(
 /** Solo prototipo: come finisce la prossima configurazione del webhook. */
 export async function simulateNextWebhookSetup(outcome: "configured" | "failed"): Promise<void> {
   const me = await writer("projectSettings.simulateNextWebhookSetup");
-  if (!can(viewerFor(me), MANAGE_REPOS)) throw forbidden();
+  if (!managesReposSomewhere(me)) throw forbidden();
   state.repositoryChecks.nextWebhookSetup = outcome;
 }
