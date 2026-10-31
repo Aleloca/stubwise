@@ -281,7 +281,9 @@ Contesto da leggere:
    - notifiche;
    - «Who can?» (scelta del progetto e persone);
    - Usage d'istanza, Stato dell'istanza, Repositories d'istanza;
-   - i filtri del registro d'Amministrazione;
+   - i filtri del registro d'Amministrazione, **per chi non ne era membro**
+     (ex membri e full admin lo leggono lì con «(archived)», come dice
+     `project-archive.md`; *ruling del controller (pre-flight)*, P21);
    - le automazioni generali;
    - l'elenco dei progetti di Claude.
 
@@ -331,8 +333,9 @@ Contesto da leggere:
      il 31 ott 2026**, domanda 4 (b)): rifiutato a chi non è full admin
      (`forbidden`), senza riconferma (`reauth_required`), su un repository
      già collegato o eliminato (`not_found`); dopo, l'account git lo lascia
-     eliminare, e la voce `repository.deleted` non nomina RNC per chi non
-     ne era membro.
+     eliminare (è vero perché nel seme «GitHub Ronchi» lo usa solo
+     `shop-frontend`: *ruling del controller (pre-flight)*, P25), e la voce
+     `repository.deleted` non nomina RNC per chi non ne era membro.
 
    → Task 5, 11.
 5. **Plugin: un salvataggio che spegne o riaccende in silenzio.** Due
@@ -421,10 +424,55 @@ Nessun codice.
       `State.detachedRepositories`, `freshState`;
     - `visibleProjectIds` salta i progetti con `archived`, per tutti (full
       admin e Claude compresi): RNC nasce archiviato già in questo task;
-    - `ApiFnName` con i nomi `projectSettings.*` dei Task 2–5;
+    - `ApiFnName` con i nomi `projectSettings.*` dei Task 2–5 **e**
+      `instance.listDetachedRepositories`, `instance.linkRepository`,
+      `instance.deleteDetachedRepository` e
+      `projectSettings.getArchivePreview`: `REAUTH_REQUIRED` è un
+      `Set<ApiFnName>` e li nomina già qui (*ruling del controller
+      (pre-flight)*, P1);
+    - un campo di stato per le verifiche d'accesso dei repository e per gli
+      esiti simulati (`simulateNextRepositoryCheck`,
+      `simulateNextWebhookSetup`), inizializzato in `freshState`: una
+      variabile di modulo non si azzererebbe con `resetApi` (*ruling del
+      controller (pre-flight)*, P29);
   - `data/seed/projects.ts`: il progetto archiviato RNC; le descrizioni;
-  - `data/access/seed.ts`: le appartenenze di RNC, se non le prende già da
-    `PROJECTS`;
+    RNC sta in `REFERENCE_MEMBERS` (`["p-giulia", "p-marco", "p-elena"]`),
+    non riceve membri calcolati (*ruling del controller (pre-flight)*, P9);
+  - `data/access/seed.ts`: Giulia è Project Lead in RNC (oggi
+    `typicalProjectRole` la fa lead solo nei `GIULIA_LEAD_CODES`), con un
+    test (*ruling del controller (pre-flight)*, P9);
+  - `data/instance/seed.ts`: un terzo account git (GitHub «GitHub Ronchi»),
+    usato **solo** da `shop-frontend`, così dopo l'eliminazione del
+    repository senza progetto l'account non è più «in uso» (*ruling del
+    controller (pre-flight)*, P25);
+  - `data/seed/commands.ts`: `PROJECT_PLUGINS` perde `plg-stubwise`, e
+    `commandsFor` mette in coda le skill del plugin base per ogni progetto;
+    `data/seed.test.ts` («le skill compaiono solo…») si aggiorna (*ruling
+    del controller (pre-flight)*, P2);
+  - i test esistenti che contano tutti i progetti o il primo server creato
+    (*ruling del controller (pre-flight)*, P7 e P8):
+    - `data/access/effective.test.ts` (parità): confronta
+      `PARITY_PROJECT_IDS` con `PROJECTS` senza `prj-rnc`, con un commento
+      (il fixture è di prima del 9a e non si rigenera);
+    - `data/access/whoCan.test.ts` (RF 5): itera i progetti non archiviati;
+    - `pages/preferences/Preferences.test.tsx`: i gruppi di Roberta sono i
+      progetti non archiviati;
+    - `data/servers/servers.test.ts`, `pages/servers/Servers.test.tsx`,
+      `pages/admin/instance/Estate.test.tsx` (e ogni altro che si aspetti
+      `SRV-5`): il server di RNC sposta `serverCodeSeq`, quindi il codice
+      del server creato nel test si aggiorna;
+  - `adminSections.ts`, `projectSettings/index.ts` e (Task 3) i writer delle
+    scritture di progetto importano `projectSettings/changeTypes` **per
+    effetto**, come `admin/changeTypes` e `instance/changeTypes`:
+    `recordChange` lancia su un tipo non registrato (*ruling del controller
+    (pre-flight)*, P5);
+  - **confine dei segreti** (*ruling del controller (pre-flight)*, P6):
+    `store.ts`, `adminSections.ts`, `changelog/*` e `instance/blocks.ts`
+    importano solo `projectSettings/{state,seed,changeTypes}.ts`, mai
+    `projectSettings/index.ts` né un modulo che importa `admin/secrets.ts`
+    (`changelog/reads.ts` importa `adminSections.ts`, e `admin/secrets.ts`
+    importa `store.ts`: altrimenti `architecture.secrets.test.ts` diventa
+    rosso);
   - `data/admin/secrets.ts`:
     - `GeneratedSecretKind` + `"ingestion_key" | "git_webhook_secret"`;
     - `ProvidedSecretKind` + `"env_value"`;
@@ -497,7 +545,8 @@ export interface EnvFile { id: string; repositoryId: string; environmentId: stri
 export interface DetachedRepository { repository: Repository; formerProjectId: string; detachedAt: string; detachedById: string }
 // data/projectSettings/types.ts
 export type BusyReason =
-  | { kind: "claude_session"; code: string | null; title: string; waiting: boolean }
+  /** `title` è `null` se chi guarda non vede la conversazione (`canSeeConversation`): ruling del controller (pre-flight), P23. */
+  | { kind: "claude_session"; code: string | null; title: string | null; waiting: boolean }
   | { kind: "release"; code: string };
 export type ProjectRefusal = InstanceRefusal | { ok: false; error: "busy"; reasons: BusyReason[] };
 export type ProjectResult<T extends object = object> = ({ ok: true } & T) | ProjectRefusal;
@@ -582,7 +631,9 @@ export function projectSettingsAccess(viewer: Viewer, projectId: string): Record
     - 6 task, 2 richieste, una conversazione finita, un canale «general», 3
       file nel Drive;
     - un repository `shop-frontend` (il nome non ricorda il progetto, così
-      la prova R-G5 dei repository senza progetto è pulita), con 2 pagine
+      la prova R-G5 dei repository senza progetto è pulita), sull'account
+      git «GitHub Ronchi», che nessun altro repository usa (*ruling del
+      controller (pre-flight)*, P25), con 2 pagine
       dei Docs, un file d'ambiente in `production` e un ambiente
       `production` su un server `SRV-` che non sta in altri progetti;
     - nessun repository senza progetto nel seme: il gruppo «Not in any
@@ -615,7 +666,12 @@ Test (`projectSettings.test.ts`):
   `test`; ACQ ha `portale-utenti` con webhook `not_configured`; `stubwise`
   non è in `PROJECT_PLUGINS`, e `commandsFor(AUD)` elenca `/stubwise:start`.
 - [ ] RNC non è in `visibleProjectIds` di nessuno, nemmeno di Roberta e di
-  Claude; la suite delle aree 2–9b resta verde col progetto in più.
+  Claude; la suite delle aree 2–9b resta verde col progetto in più (coi
+  test esistenti aggiornati qui sopra, P7 e P8).
+- [ ] Giulia è Project Lead in RNC; Sara e Laura non ne sono membri; nessun
+  membro calcolato (*ruling del controller (pre-flight)*, P9).
+- [ ] `shop-frontend` usa «GitHub Ronchi», e nessun altro repository usa
+  quell'account (*ruling del controller (pre-flight)*, P25).
 - [ ] Commit `feat(desktop): stato delle impostazioni di progetto, sezioni e voci del 9c`.
 
 ### Task 2: General, AI, Automations, Usage — livello dati
@@ -630,7 +686,7 @@ export interface ProjectSettingsView {
   ai: { providerId: string | null; exclusive: boolean;
         /** Gli account per la scelta: solo nome, tipo e stato, mai quota o segreto. */
         choices: { id: string; name: string; kind: "subscription" | "api_key"; enabled: boolean; limited: boolean }[];
-        /** L'account scelto non c'è più o è spento: si dice, e vale «Automatic». */
+        /** L'account scelto è stato eliminato: si dice, e vale «Automatic». Uno spento si legge da `choices[].enabled` (ruling del controller (pre-flight), P15). */
         chosenUnavailable: boolean };
   switches: Record<ProjectSwitch, boolean>;
   pulseEveryDays: number;
@@ -644,7 +700,7 @@ export function updateProjectGeneral(projectId: string, input: { name?: string; 
 export function setProjectAi(projectId: string, input: { providerId: string | null; exclusive: boolean }): Promise<ProjectResult>;
 export function saveProjectAutomations(projectId: string, input: { switches: Record<ProjectSwitch, boolean>; pulseEveryDays: number; correctionCap: number }): Promise<ProjectResult>;
 export function projectSwitchOn(projectId: string, sw: ProjectSwitch): boolean; // falso su un archiviato o inesistente
-export function getProjectUsage(projectId: string, input: { range: UsageRange; groupBy: Exclude<UsageDimension, "project">; thenBy?: Exclude<UsageDimension, "project"> }): Promise<UsageView>; // project.usage.view
+export function getProjectUsage(projectId: string, input: { range: UsageRange; groupBy: Exclude<UsageDimension, "project">; thenBy?: Exclude<UsageDimension, "project"> }): Promise<UsageView | null>; // project.usage.view; null = invisibile (ruling del controller (pre-flight), P14)
 // data/instance/blocks.ts
 export function pickProvider(projectId?: string | null): RunProvider | null;
 ```
@@ -665,9 +721,11 @@ export function pickProvider(projectId?: string | null): RunProvider | null;
   - col progetto su un account abilitato e non al limite, quell'account;
   - se è al limite o spento, la catena dell'istanza;
   - con `exclusive`, `null`: la sessione parte con `provider: null` come il
-    ruling 11 del 9b, e la sezione Claude dice «No account free: this
-    project uses only Backup Max» (*scelta del controller*: niente attesa
-    per quota nel prototipo);
+    ruling 11 del 9b, e la sezione Claude dice «No account free: AUD uses
+    only Backup Max» ([PX 3]; *scelta del controller*: niente attesa per
+    quota nel prototipo). Lo dice da `requiredProvider`, scritto sulla
+    sessione alla nascita (Task 6), mai rileggendo le impostazioni di adesso
+    (*ruling del controller (pre-flight)*, P16);
   - senza progetto, come oggi.
 - `saveProjectAutomations`:
   - `invalid: "pulse_days"` fuori da 1–30 o non intero;
@@ -693,7 +751,9 @@ Test:
 - [ ] `pickProvider`:
   - AUD (Backup Max, `exclusive`) → Backup Max;
   - Backup Max al limite → `null`;
-  - senza `exclusive` → Team Max;
+  - Backup Max al limite, senza `exclusive` → Team Max (*ruling del
+    controller (pre-flight)*, P19: con Backup Max libero la regola dà Backup
+    Max);
   - ACQ (Automatic) → Team Max;
   - l'account eliminato → `chosenUnavailable: true` e la catena.
 - [ ] `getProjectUsage(ACQ)`: i totali sono le righe di ACQ di `getUsage`; per
@@ -702,7 +762,7 @@ Test:
 
 ### Task 3: Il registro per le scritture di progetto che c'erano già
 
-**Files:** Modify `data/api-mutations.ts` (`setProjectStatuses`, `setStallThresholds`), `data/releases/writes.ts` (`setRepoPrMode`, `setReleasePipeline`, `createEnvironment`, `updateEnvironment`, `deleteEnvironment`), `data/support/writes.ts` (`createWidget`, `updateWidget`, `deleteWidget`). Test: `data/projectSettings/legacyWrites.test.ts`.
+**Files:** Modify `data/api-mutations.ts` (`setProjectStatuses`, `setStallThresholds`), `data/releases/writes.ts` (`setRepoPrMode`, `setReleasePipeline`, `createEnvironment`, `updateEnvironment`, `deleteEnvironment`), `data/support/writes.ts` (`createWidget`, `updateWidget`, `deleteWidget`). Test: `data/projectSettings/legacyWrites.test.ts`. I tre file importano `../projectSettings/changeTypes` (o `./projectSettings/changeTypes`) per effetto, altrimenti `recordChange` lancia «Unregistered change type» (*ruling del controller (pre-flight)*, P5).
 
 **Interfaces:** Consumes: i tipi del Task 1. Nessuna firma cambia: ogni funzione chiama `recordChange` dopo la scrittura riuscita, con valori stabili:
 - gli stati: l'elenco dei nomi prima e dopo;
@@ -725,9 +785,19 @@ Test:
 - Test: `data/projectSettings/repositories.test.ts`, `envFiles.test.ts`,
   `integration.test.ts`, `plugins.test.ts`.
 - Modify:
-  - `data/seed/commands.ts`: `commandsFor` legge da `skillsForRun`;
-    `PROJECT_PLUGINS` e `PLUGINS` diventano il seme delle scelte e del
-    plugin base;
+  - `data/api.ts`: `listCommands` compone `STUBWISE_COMMANDS` più
+    `skillsForRun(projectId)`; `commandsFor` di `data/seed/commands.ts`
+    resta puro o si elimina: un modulo di `data/seed` non legge lo stato
+    vivo (*ruling del controller (pre-flight)*, P4);
+  - `data/seed/commands.ts`: `PROJECT_PLUGINS` e `PLUGINS` diventano il seme
+    delle scelte e del plugin base. Il riferimento delle skill è il registro
+    (9 skill di superpowers), non `PLUGINS.superpowers`. Per sottrazione,
+    i progetti che oggi non hanno superpowers (non software, ZNC) nascono
+    con tutte le sue skill e i suoi gruppi di hook in `disabled`; AUD con
+    `test-driven-development` spenta. Così «/» non cambia per nessuno
+    (*ruling del controller (pre-flight)*, P3);
+  - `data/seed.test.ts`: il test «le skill compaiono solo…» si riscrive su
+    `skillsForRun` (P3);
   - `data/projectSettings/index.ts`.
 
 **Interfaces, prodotte:**
@@ -740,7 +810,7 @@ export function listRemoteRepositories(gitAccountId: string): Promise<{ fullName
 export function checkRepositoryAccess(input: { projectId: string; gitAccountId: string; fullName: string; branch: string }): Promise<ProjectResult<{ outcome: TestOutcome }>>;
 export function simulateNextRepositoryCheck(outcome: TestOutcome): Promise<void>;   // riquadro «Prototype only»
 export function createRepository(projectId: string, input: { gitAccountId: string; fullName: string; name: string; branch: string; installCommand: string | null; testCommand: string | null }): Promise<ProjectResult<{ repositoryId: string }>>;
-export function updateRepository(repositoryId: string, patch: Partial<Pick<RepositoryView, "name" | "url" | "installCommand" | "testCommand" | "graphEnabled" | "protectedBranches">> & { gitAccountId?: string; reviewGitAccountId?: string | null; defaultBranch?: string }): Promise<ProjectResult>;
+export function updateRepository(repositoryId: string, patch: Partial<Pick<RepositoryView, "name" | "url" | "installCommand" | "testCommand" | "graphEnabled" | "protectedBranches">> & { gitAccountId?: string; reviewGitAccountId?: string | null }): Promise<ProjectResult>; // niente defaultBranch: è un fatto della piattaforma (R-K20), si legge e basta (ruling del controller (pre-flight), P27)
 export function configureRepositoryWebhook(repositoryId: string): Promise<ProjectResult<{ state: "configured" | "failed"; updated: boolean }>>;
 export function simulateNextWebhookSetup(outcome: "configured" | "failed"): Promise<void>;
 // envFiles.ts
@@ -774,6 +844,10 @@ export function skillsForRun(projectId: string): { plugin: string; skill: string
   - l'URL è `https`;
   - l'account di review deve essere della stessa piattaforma e diverso da
     quello principale (`invalid: "review_account"`, regola del web);
+  - il ramo di default **non si modifica**: è un fatto della piattaforma
+    (R-K20, docblock di `Repository.defaultBranch`): viene dalla
+    piattaforma (`listRemoteRepositories`), la vista lo mostra, e nessuna
+    patch lo cambia (*ruling del controller (pre-flight)*, P27);
   - un ramo protetto vuoto o con spazi è `invalid`;
   - nessuna eliminazione di un repository che sta in un progetto, come sul
     web (quello rimasto senza progetto si elimina dal Task 5, **confermata
@@ -862,7 +936,20 @@ Test:
   - `data/store.ts`: `archivedProjectIdsFor`; il salto degli archiviati in
     `visibleProjectIds` è del Task 1;
   - `data/changelog/reads.ts`: le letture delle voci di un archiviato;
-    `project.deleted` risolto a lettura;
+    `project.deleted` risolto a lettura; gli helper nuovi **non si
+    esportano** (o stanno in un altro file): `changelog.test.ts` vuole
+    esattamente i 3 nomi esportati di oggi, nessuno con «delete» (*ruling
+    del controller (pre-flight)*, P24); `listChangeFilterChoices` aggiunge
+    ai progetti del filtro quelli di `archivedProjectIdsFor(me)` di cui chi
+    guarda legge le voci, con `archived: true` (*ruling del controller
+    (pre-flight)*, P21);
+  - `data/changelog/types.ts`: `ChangeFilterChoices.projects[].archived?:
+    boolean` (P21);
+  - `data/access/whoCan.ts`: lo scope di un'azione di progetto è
+    `visibleProjectIds ∪ archivedProjectIdsFor(viewer)`, così il «Who?» di
+    Reopen su un archiviato risponde ai suoi ex membri e ai full admin; la
+    scelta del progetto della pagina Who can? resta su `visibleProjectIds`
+    (RF 1) (*ruling del controller (pre-flight)*, P10);
   - `data/automations/entry.ts`: nessun avvio per un progetto archiviato;
   - `data/servers/reads.ts`: `inArchivedOnly`;
   - `data/instance/repositories.ts` (9b): `listDetachedRepositories`,
@@ -875,7 +962,9 @@ Test:
   - `data/store.ts` (`ApiFnName`): `instance.listDetachedRepositories`,
     `instance.linkRepository`, `instance.deleteDetachedRepository`
     (**confermata dal maintainer il 31 ott 2026**) e
-    `projectSettings.getArchivePreview` (*ruling del controller*).
+    `projectSettings.getArchivePreview` (*ruling del controller*) ci sono
+    già dal Task 1 (*ruling del controller (pre-flight)*, P1): qui si
+    scrivono le funzioni.
 
 **Interfaces, prodotte:**
 
@@ -926,7 +1015,10 @@ export function deleteDetachedRepository(repositoryId: string): Promise<ProjectR
 - **`archiveProject`:**
   - `busy` con le ragioni di `busyReasonsOf`: le sessioni del progetto non
     terminate (anche in attesa per la coda) e i rilasci con
-    `releaseStatus(...).kind === "running"`;
+    `releaseStatus(...).kind === "running"`. Il `title` (e il `code`) di una
+    sessione è `null` quando chi guarda non la vede (`canSeeConversation`):
+    il titolo di una conversazione privata di un altro non esce (*ruling del
+    controller (pre-flight)*, P23);
   - `invalid: "already_archived"` se lo è già;
   - scrive `archived = { at: now(), byId }` e la voce `project.archived`;
   - le esecuzioni aperte delle automazioni del progetto si annullano con una
@@ -973,8 +1065,9 @@ export function deleteDetachedRepository(repositoryId: string): Promise<ProjectR
     `visible ∪ archivedProjectIdsFor(me)`;
   - `project.deleted` si legge con `changelog.view` o da full admin; il
     nome e il codice escono solo a chi era fra i `memberIds` o è full
-    admin, gli altri leggono `objectLabelKey: "changelog.hiddenProject"`
-    e `label` vuoto
+    admin, gli altri leggono `objectLabelKey:
+    "changelog.values.hiddenProject"` (la chiave che esiste già; *ruling del
+    controller (pre-flight)*, P22) e `label` vuoto
     (*scelta del controller*, come il ruling T7 I1).
 - **Le automazioni:** un evento o una pianificazione di un progetto
   archiviato non avvia niente; un'automazione generale che vorrebbe agire su
@@ -1040,7 +1133,9 @@ Test:
 - [ ] RF 1, livello dati, dopo l'archiviazione di ACQ:
   - `listProjects`, la ricerca di ⌘K, le notifiche di Laura, `whoCan`, la
     vista dello Stato dell'istanza e `getUsage` non nominano ACQ né il suo
-    codice;
+    codice. `getUsage` si chiama da Roberta con `groupBy: "project"`: ACQ
+    non è fra le righe, e il suo costo sta in «Other projects» (*ruling del
+    controller (pre-flight)*, P12);
   - un `startRun` su una task di ACQ → `not_found`;
   - un trigger di un'automazione di ACQ non crea esecuzioni.
 - [ ] Reopen: tutto torna, notifiche comprese; un interruttore spento prima
@@ -1049,7 +1144,15 @@ Test:
   - Sara non ha RNC in `listArchivedProjects`;
   - `getArchivedProject("RNC")` per Sara è `null`;
   - Giulia lo legge con `canReopen: true`, `canDelete: false`;
-  - Roberta con `canDelete: true`.
+  - Roberta con `canDelete: true`;
+  - `whoCan(Giulia, "manageProjectSettings", RNC)` elenca chi può riaprire;
+    per Sara `visible: false`; la scelta del progetto di Who can? non
+    elenca RNC per nessuno (*ruling del controller (pre-flight)*, P10).
+- [ ] Il registro: il filtro dei progetti di Giulia elenca RNC con
+  `archived: true`, quello di Laura no (*ruling del controller
+  (pre-flight)*, P21).
+- [ ] `busy` letto da una persona che non vede la sessione: `title` e
+  `code` sono `null` (*ruling del controller (pre-flight)*, P23).
 - [ ] RF 4, delete:
   - su ACQ attivo → `not_archived`;
   - Giulia → `forbidden`;
@@ -1132,12 +1235,22 @@ Test:
     `projectSwitchOn`;
   - `data/queries/projectSettings.ts`: `useProjectSwitches(projectId)`;
   - `pages/servers/ServerList.tsx` (la riga `inArchivedOnly`);
+  - `data/types.ts` (`TaskRun.skills`, `TaskRun.requiredProvider`) e la
+    copia campo per campo in `getTaskWork` (`data/api.ts`), la testata della
+    pagina della sessione (`#/claude/<id>`) e `pages/task/WorkStory.tsx`:
+    lo shape vuole lì la stessa riga (*ruling del controller (pre-flight)*,
+    P17);
+  - le pagine del builder e dell'esecuzione delle automazioni generali
+    (area 7, `pages/automations/*`): «A project that's no longer available»
+    con **Choose another project**, e «✕ Step 2 not done: the project isn't
+    available anymore.» ([PX 5], confermata; *ruling del controller
+    (pre-flight)*, P18);
   - i18n.
 - Test: `data/projectSettings/effects.test.ts`, `pages/overview/OverviewPage.test.tsx`, `pages/docs/*.test.tsx`, `pages/projects/PeopleActivity.test.tsx`, `pages/task/ClaudeSection.test.tsx`, `pages/admin/instance/Estate.test.tsx`.
 
 **Interfaces:**
 - Consumes: `projectSwitchOn`, `pickProvider(projectId)` (Task 2), `skillsForRun` (Task 4), `archivedProjectIdsFor` e `inArchivedOnly` (Task 5).
-- Produces: `runIdentity(operation: AiOperation, projectId: string | null): Pick<Conversation, "provider" | "model" | "skills">`.
+- Produces: `runIdentity(operation: AiOperation, projectId: string | null): Pick<Conversation, "provider" | "model" | "skills" | "requiredProvider">`, con `Conversation.requiredProvider?: { name: string } | null`: l'account esclusivo del progetto alla nascita, `null` senza esclusività. È ciò che permette alla sezione Claude di dire «No account free: AUD uses only Backup Max» senza rileggere le impostazioni di adesso (*ruling del controller (pre-flight)*, P16).
 
 Regole (le frasi dallo shape `project-effects.md`):
 - **Brief spento:** la BriefCard dice che il brief settimanale è spento per
@@ -1162,14 +1275,22 @@ Regole (le frasi dallo shape `project-effects.md`):
   nascita. La sezione Claude ha una riga «Skills in this run», chiusa, con
   l'elenco; una sessione nata prima del cambio tiene il suo elenco. «/» le
   legge già (Task 4).
-- **Progetto archiviato:** niente da fare nelle pagine, oltre ai test: le
-  letture lo nascondono (Task 5). In Amministrazione → Servers, la riga
-  `inArchivedOnly` dice «Only in archived projects» senza nomi.
+- **Progetto archiviato:** le letture lo nascondono (Task 5). In
+  Amministrazione → Servers, la riga `inArchivedOnly` dice «Only in
+  archived projects» senza nomi. Il builder e l'esecuzione di
+  un'automazione generale dicono il progetto non disponibile con le frasi
+  di `project-effects.md`, uguali per archiviato, eliminato e invisibile
+  (*ruling del controller (pre-flight)*, P18).
 
 Test:
 - [ ] Brief: STW acceso → la frase di oggi; MKX spento → «off». Lo stesso
   dopo `saveProjectAutomations` su STW, senza ricaricare la pagina.
-- [ ] Docs notturni spenti su STW → DocsHome non contiene «every night».
+- [ ] Docs notturni spenti su STW → DocsHome dice «The nightly update is
+  off for STW…» e non contiene «every night»; acceso, la frase non c'è. Le
+  note di rilascio vuote, su un progetto senza note e coi Docs notturni
+  spenti, dicono «No release notes yet: the nightly update is off for …»
+  (*ruling del controller (pre-flight)*, P11: STW ha note, quindi la sola
+  assenza di «every night» passava senza codice).
 - [ ] Pulse spento su CBV → la riga quieta lo dice; ACQ no.
 - [ ] Report spento → «off for this project», e «Generate» c'è.
 - [ ] AUD: «Start» → la sezione Claude dice Backup Max; Backup Max al limite
@@ -1177,7 +1298,15 @@ Test:
 - [ ] Tetto: STW con `correctionCap` 1 → la PR del seme con due giri si legge
   «over the cap» (8a); con 0 il ciclo automatico è spento.
 - [ ] Skill: spenta `brainstorming` su STW, una sessione nuova non la elenca;
-  una nata prima la elenca ancora.
+  una nata prima la elenca ancora. La stessa riga c'è nella testata della
+  sessione e nella storia del lavoro (*ruling del controller (pre-flight)*,
+  P17).
+- [ ] AUD esclusivo, sessione nata con Backup Max al limite: la frase resta
+  anche dopo aver tolto l'esclusività nelle impostazioni (viene da
+  `requiredProvider`, P16).
+- [ ] Automazione generale verso ACQ archiviato: il builder dice «A project
+  that's no longer available» senza «ACQ»; l'esecuzione finisce non
+  riuscita, con «Step 2 not done…», in «Needs attention» (P18).
 - [ ] RF 1 nelle pagine: con ACQ archiviato, il binario, ⌘K, la Home e le
   notifiche di Laura non contengono «ACQ».
 - [ ] Le suite delle aree 2–9b restano verdi.
@@ -1229,6 +1358,10 @@ Test:
 - [ ] Usage di ACQ per Laura: periodo e gruppo nell'indirizzo, nessuna
   colonna «project».
 - [ ] Statuses: il test esistente resta verde leggendo `canEdit`.
+- [ ] Un test sul sorgente, sullo stile di `architecture.test.ts`: nessun
+  file di `pages/settings/**` (test esclusi) chiama `can(` né importa
+  `data/viewer` (*ruling del controller (pre-flight)*, P13: il test di
+  Statuses da solo passa anche con `can()` rimasto nella pagina).
 - [ ] Commit `feat(desktop): sezioni General, AI, Automations e Usage del progetto`.
 
 ### Task 8: Repositories — creazione guidata, modifica, webhook (UI)
@@ -1241,6 +1374,12 @@ Test:
     i campi nuovi e solo col modulo Releases;
   - `router.tsx`: le chiavi `?new=1` e `?repo=<id>`, *scelta del
     controller*, come `addMember` del 9a;
+  - `data/queries/projectSettings.ts`: gli hook delle letture e scritture
+    dei repository del Task 4 (`useProjectRepositories`,
+    `useRemoteRepositories`, `useCheckRepositoryAccess`,
+    `useCreateRepository`, `useUpdateRepository`,
+    `useConfigureRepositoryWebhook`) (*ruling del controller
+    (pre-flight)*, P26);
   - i18n.
 
 Segue lo shape `project-repositories.md`.
@@ -1256,7 +1395,9 @@ Test:
 
   Il fuoco va al titolo di ogni passo; Esc chiude e torna al bottone.
 - [ ] Modifica: account di review uguale al principale → la frase del
-  livello dati sotto il campo; rami protetti uno per riga; «Saved».
+  livello dati sotto il campo; rami protetti uno per riga; «Saved». Il
+  ramo di default si legge come testo, senza campo (*ruling del controller
+  (pre-flight)*, P27).
 - [ ] Webhook: «Configure automatically» → «Configured»; il secondo dice
   «Updated»; `failed` simulato → la frase, mai «Configured».
 - [ ] Sara (con `repos.view` e senza `repos.manage`): campi come testo,
@@ -1307,7 +1448,7 @@ Test:
 
 ### Task 10: Plugins — UI
 
-**Files:** Create `pages/settings/PluginSettings.tsx`, con il test `pages/settings/PluginSettings.test.tsx`. Modify i18n.
+**Files:** Create `pages/settings/PluginSettings.tsx`, con il test `pages/settings/PluginSettings.test.tsx`. Modify i18n e `data/queries/projectSettings.ts` (`useProjectPlugins`, `useSaveProjectPlugins`, i nomi dello shape; *ruling del controller (pre-flight)*, P26).
 
 Segue lo shape `project-plugins.md`. La bozza è locale; «Save» manda la
 `version` letta.
@@ -1346,7 +1487,10 @@ Test:
   - `data/queries/instance.ts`: `useDetachedRepositories`,
     `useLinkRepository`, `useDeleteDetachedRepository` (**confermata dal
     maintainer il 31 ott 2026**); `data/queries/projectSettings.ts`:
-    `useArchivePreview` (*ruling del controller*);
+    `useArchivePreview` (*ruling del controller*) e `useArchivedProjects`,
+    `useArchivedProject`, `useArchiveProject`, `useReopenProject`,
+    `useDeletionPreview`, `useDeleteProject` (*ruling del controller
+    (pre-flight)*, P26);
   - `pages/projects/AllProjectsPage.tsx`: la scheda «Archived», solo per chi
     ne vede almeno uno, con `?view=archived`;
   - `router.tsx`: `/archived/$code`, *scelta del controller*, fuori da
@@ -1384,8 +1528,9 @@ Test:
     «Tenuta Ronchi» (RF 3);
   - «Link to a project…» di Laura offre solo i suoi progetti con
     `repos.manage`; scelto ACQ, la riga sparisce dal gruppo, il repository
-    compare in ACQ → Settings → Repositories, e il fuoco torna al «⋯» o al
-    titolo del gruppo se il gruppo sparisce (lo dice lo shape);
+    compare in ACQ → Settings → Repositories, e il fuoco va al **Link to a
+    project…** della riga successiva del gruppo o, se il gruppo sparisce,
+    all'h1 della pagina ([AR 8]; *ruling del controller (pre-flight)*, P20);
   - un nome già usato nel progetto scelto si dice nel dialogo, che resta
     aperto;
   - senza repository senza progetto il gruppo non c'è;
@@ -1426,7 +1571,9 @@ Test:
   Ronchi», nemmeno nel DOM.
 - [ ] Il link di ogni voce apre la sezione giusta di Settings.
 - [ ] Una voce di un archiviato la legge Giulia dal registro d'Amministrazione
-  (se lo vede) e non Laura, che non era membro di RNC.
+  (se lo vede) e non Laura, che non era membro di RNC. Il filtro dei
+  progetti di Giulia ha RNC con «(archived)»; quello di Laura non ha RNC,
+  nemmeno nel DOM (*ruling del controller (pre-flight)*, P21).
 - [ ] Commit `feat(desktop): le voci del 9c nel registro`.
 
 ### Task 13: Documenti, screenshot, follow-up
@@ -1457,7 +1604,10 @@ Test:
   - la BriefCard col brief spento.
 
   Tutto a 1440 e 1024, chiaro e scuro, en e it. Vite ucciso. Rifatti dopo
-  ogni correzione visiva.
+  ogni correzione visiva. Gli esempi degli shape che gli scatti mostrano
+  sono quelli corretti nel pre-flight: «When reopened» di RNC, «Skills in
+  this run · 11», «GitHub Ronchi» (*ruling del controller (pre-flight)*,
+  P28).
 - `ossatura-follow-ups.md`:
   - «Area 9c — minori aperti», con:
     - le scelte del controller di questo piano, ognuna col costo se

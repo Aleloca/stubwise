@@ -57,8 +57,9 @@ prototipo → Impostazioni». Forma dei blocchi: la stessa di
     Max (subscription)»; con Backup Max al limite e «Use only this account»
     dice «Model: Sonnet · No account free: AUD uses only Backup Max»;
   - spenta `brainstorming` in STW, una sessione nuova su STW-14 ha «Skills in
-    this run · 13» senza `brainstorming`; una sessione nata prima la elenca
-    ancora;
+    this run · 11» senza `brainstorming`; una sessione nata prima la elenca
+    ancora (*ruling del controller (pre-flight)*, P28: 3 skill del plugin
+    base più 8 di superpowers);
   - un'automazione generale che crea una task in ACQ, con ACQ archiviato:
     l'esecuzione dice «Step 2 not done: the project isn't available
     anymore.»
@@ -146,9 +147,11 @@ prototipo → Impostazioni». Forma dei blocchi: la stessa di
 ### «Skills in this run» (sezione Claude e pagina della sessione)
 
 - Una riga a disclosure, **chiusa** di base, sotto la `ProviderLine`: «▸
-  Skills in this run · 13» / «▸ Skill di questa esecuzione · 13» (12px,
+  Skills in this run · 11» / «▸ Skill di questa esecuzione · 11» (12px,
   cifre tabellari, `aria-expanded`). Aperta: un blocco per plugin, «stubwise
-  · start, run, init» e «superpowers · brainstorming, writing-plans, …»
+  · stubwise, init, start» e «superpowers · writing-plans, …» (*ruling del
+  controller (pre-flight)*, P28: le skill del plugin base sono quelle del
+  seme, e `run` non c'è)
   (nomi in 13px, separati da virgola, a capo), nell'ordine di `skillsForRun`.
 - È **l'elenco scritto alla nascita della sessione** (`Conversation.skills`):
   un cambio successivo in Settings → Plugins non lo tocca, e nessuna frase

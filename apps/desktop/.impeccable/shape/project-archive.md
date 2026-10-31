@@ -220,12 +220,15 @@ Piano 9c: Task 11 (dati: Task 5). Spec area 9: «Impostazioni del progetto
   RNC is deleted, these stay without a project and can be linked to another
   one.» / «Se RNC viene eliminato, questi restano senza progetto e si possono
   collegare a un altro.» Nessun repository: la sezione non c'è.
-- **WHEN REOPENED** / **ALLA RIAPERTURA**: «These come back on: Docs updated
-  every night, Daily report, Pulse every 7 days, Weekly brief. Backlog
-  discovery stays off.» / «Tornano accesi: Docs aggiornati ogni notte, Report
-  giornaliero, Pulse ogni 7 giorni, Brief settimanale. La discovery del
-  backlog resta spenta.» (da `switchesOnReopen`; con tutto spento «Every
-  automation stays off.» / «Ogni automazione resta spenta.»)
+- **WHEN REOPENED** / **ALLA RIAPERTURA**: «These come back on: Backlog
+  discovery, Pulse every 7 days, Weekly brief. Docs updated every night and
+  Daily report stay off.» / «Tornano accesi: Discovery del backlog, Pulse
+  ogni 7 giorni, Brief settimanale. Docs aggiornati ogni notte e Report
+  giornaliero restano spenti.» (da `switchesOnReopen`; con tutto spento
+  «Every automation stays off.» / «Ogni automazione resta spenta.»)
+  *Ruling del controller (pre-flight)*, P28: l'esempio di prima accendeva
+  il pulse con la discovery spenta, che `pulse_needs_backlog` vieta, e i
+  Docs notturni e il report su RNC, che è `client` e nel seme li ha spenti.
 - **Change log**: link «Its change log» / «Il suo registro delle modifiche»
   verso Amministrazione → Change log filtrato su RNC, solo per chi vede il
   registro d'Amministrazione e ne legge le voci (R-M1).
@@ -357,11 +360,13 @@ Piano 9c: Task 11 (dati: Task 5). Spec area 9: «Impostazioni del progetto
     - «✕ This can't be undone.» / «✕ Non si può tornare indietro.»
       (`critical`);
     - «Stubwise forgets its address, commands and protected branches. The
-      repository on Bitbucket isn't touched.» / «Stubwise dimentica
-      indirizzo, comandi e rami protetti. Il repository su Bitbucket non
+      repository on GitHub isn't touched.» / «Stubwise dimentica
+      indirizzo, comandi e rami protetti. Il repository su GitHub non
       viene toccato.»;
-    - con un account git: «Bitbucket Audin stops counting it as in use.» /
-      «Bitbucket Audin smette di contarlo come in uso.»
+    - con un account git: «GitHub Ronchi stops counting it as in use.» /
+      «GitHub Ronchi smette di contarlo come in uso.» (*ruling del
+      controller (pre-flight)*, P25: nel seme `shop-frontend` sta su un
+      terzo account, «GitHub Ronchi», che nessun altro repository usa).
   - **Delete** / **Elimina** (`critical`) → riconferma (`entry.md`) → la
     riga sparisce, toast «shop-frontend deleted.» / «shop-frontend
     eliminato.»; il fuoco come dopo un collegamento ([AR 8]).
@@ -413,7 +418,7 @@ Piano 9c: Task 11 (dati: Task 5). Spec area 9: «Impostazioni del progetto
 │ Docs pages       2  Automations  0  If RNC is deleted, these stay without a │
 │ Conversations    1  Environments 1  project and can be linked to another.   │
 │ WHEN REOPENED ─────────────────────────────────────────────────────────────── │
-│ These come back on: Docs updated every night, Daily report, Pulse every 7 … │
+│ These come back on: Backlog discovery, Pulse every 7 days, Weekly brief. … │
 ```
 
 ## 4. Ambito e confini
