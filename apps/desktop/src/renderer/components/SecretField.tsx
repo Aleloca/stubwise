@@ -72,7 +72,7 @@ export function SecretInput({
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? `${errorId} ${hintId}` : hintId}
           onChange={(e) => onChange(e.target.value)}
-          className={`${inputClass} font-mono`}
+          className={`${inputClass} font-code`}
         />
         <button
           type="button"
@@ -128,7 +128,7 @@ export function SecretField({
           {label}
         </span>
         <div className="flex min-h-8 items-center gap-3">
-          <span className="num font-mono text-md text-ink">
+          <span className="num font-code text-ink">
             {last4 ? maskedSecret(last4) : "—"}
           </span>
           {!readOnly && onSave && (

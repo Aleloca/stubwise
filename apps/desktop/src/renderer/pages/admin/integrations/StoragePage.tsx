@@ -229,7 +229,7 @@ function StorageForm({ storage: s }: { storage: StorageView }) {
           <div className="flex min-w-0 flex-col gap-1.5">
             <span className="text-sm font-medium text-ink">{t("admin.storage.secretKey")}</span>
             <span className="flex min-h-8 items-center gap-3">
-              <span className="num text-md text-ink">{maskedSecret(s.last4!)}</span>
+              <span className="num font-code text-ink">{maskedSecret(s.last4!)}</span>
               <button
                 type="button"
                 onClick={() => setReplacing(true)}

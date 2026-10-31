@@ -47,7 +47,10 @@
 }
 
 /* L'eccezione dichiarata del piano dell'area 3: il monospace di sistema SOLO
-   dentro i blocchi di codice e i percorsi del flusso di Claude. */
+   dentro i blocchi di codice e i percorsi del flusso di Claude; dall'area 9c
+   anche i letterali che si scrivono in un terminale o in un file (rami,
+   comandi, variabili e percorsi d'ambiente, indirizzi git, chiavi anche
+   mascherate, DSN). Vedi DESIGN.md, «Typography». */
 @utility font-code {
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 12.5px;

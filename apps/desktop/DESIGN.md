@@ -186,7 +186,7 @@ A near-monochrome neutral field (cool, hue 265, chroma under 0.01) with eight de
 ## Typography
 
 **Display / Body / Label Font:** Archivo Variable (with ui-sans-serif, system-ui, sans-serif)
-**Mono:** none. `font-mono` is aliased to Archivo; the only monospace in the app is the "S_" logo.
+**Mono:** two exceptions, each its own utility. `font-logo` for the "S_" logo; `font-code` (the system monospace, ui-monospace, SF Mono, Menlo, Consolas, at 12.5px) for code blocks, the paths in Claude's stream, and the literals someone types in a terminal or a file: branches, commands, environment variable names and `.env` paths, git addresses, keys (masked too) and DSNs. A key has the same face on every page. `font-mono` is aliased to Archivo: it is not a monospace, and a literal never uses it.
 
 **Character:** one precise grotesque carries everything. Weight and width, not a second family, make the hierarchy. Both the weight and width axes are loaded (width 62-125%).
 
@@ -270,6 +270,6 @@ A 400px panel entering from the right. Each item: a fixed column holding an unre
 - **Don't** use `--focus` blue for anything but focus rings.
 - **Don't** put brand amber anywhere except the "S_" logo.
 - **Don't** show a department strip on projects, tiles or non-task rows.
-- **Don't** use monospace (except the logo) or uppercase spaced text outside group headings.
+- **Don't** use monospace outside the logo and the `font-code` literals above, or uppercase spaced text outside group headings.
 - **Don't** box content in shadowed cards or add decorative gradients.
 - **Don't** introduce a new hue for Claude or for state without checking a 30 degree gap from the eight departments.

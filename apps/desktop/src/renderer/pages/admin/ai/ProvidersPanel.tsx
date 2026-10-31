@@ -450,7 +450,7 @@ function ProviderRow({
           <MetaLine
             className="col-start-3 col-end-5 row-start-2 @max-[719px]:col-end-4"
             parts={[
-              <span className="num font-mono">{maskedSecret(p.last4)}</span>,
+              <span className="num font-code">{maskedSecret(p.last4)}</span>,
               p.kind === "api_key" &&
                 (subscriptionOn
                   ? t("admin.ai.providers.apiKeyStandby")

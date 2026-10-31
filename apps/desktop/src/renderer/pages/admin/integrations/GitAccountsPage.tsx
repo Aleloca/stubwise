@@ -257,7 +257,7 @@ function GitAccountRow({
           </span>
         </div>
         <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm text-ink-muted">
-          <span className="num font-mono">{maskedSecret(a.last4)}</span>
+          <span className="num font-code">{maskedSecret(a.last4)}</span>
           <Dot />
           <CheckWords checking={checking} last={a.lastValidation} />
           <Dot />

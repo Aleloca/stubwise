@@ -158,7 +158,7 @@ function GoogleAppRow({
             {a.clientId}
           </span>
           <Dot />
-          <span className="num shrink-0">{maskedSecret(a.last4)}</span>
+          <span className="num shrink-0 font-code">{maskedSecret(a.last4)}</span>
           <Dot />
           <span className="shrink-0">
             {a.mailboxCount > 0
