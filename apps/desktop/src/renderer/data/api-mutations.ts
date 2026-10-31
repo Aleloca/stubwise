@@ -10,6 +10,10 @@ import {
   findInFiles,
 } from "../domain/claude/intents/files";
 import i18n from "../i18n";
+import { recordChange } from "./changelog/index";
+import { changedFields } from "./changelog/settingValues";
+// Per effetto: registra i tipi di voce di progetto (`recordChange` lancia su uno ignoto).
+import "./projectSettings/changeTypes";
 import { linkIdentityAs } from "./admin/people";
 // Le letture servono al motore di intenti (a nome di chi conversa): si usano
 // solo dentro le funzioni, quindi l'import circolare con `api.ts` è innocuo.
@@ -1159,6 +1163,7 @@ export async function setProjectStatuses(
   const oldFamilies = new Map(
     state.tasks.filter((t) => t.projectId === projectId).map((t) => [t.id, familyOf(t)]),
   );
+  const namesBefore = [...current].sort((a, b) => a.order - b.order).map((s) => s.name);
   const next: ProjectStatus[] = statuses.map((s, order) => ({
     id: s.id ?? newId(`st-${project.code.toLowerCase()}`),
     projectId,
@@ -1179,6 +1184,17 @@ export async function setProjectStatuses(
     if (!state.statusById.has(task.statusId) && target) task.statusId = target;
     setClosedAt(task, oldFamilies.get(task.id)!, at);
   }
+  // Valori stabili: l'elenco dei nomi, nell'ordine. Un salvataggio che non cambia niente non scrive.
+  const diff = changedFields({ statuses: namesBefore }, { statuses: next.map((s) => s.name) });
+  if (diff)
+    recordChange({
+      kind: "project.statuses_changed",
+      actorId: me,
+      projectId,
+      object: { type: "project", id: project.id, label: project.code },
+      before: diff.before,
+      after: diff.after,
+    });
   return next.map(copy);
 }
 
@@ -1191,7 +1207,23 @@ export async function setStallThresholds(
   need(me, "project.settings.manage", projectId);
   const ok = (n: number) => Number.isInteger(n) && n >= 1;
   if (!ok(thresholds.activeDays) || !ok(thresholds.todoDays)) throw invalid("thresholds");
+  const diff = changedFields(
+    {
+      activeDays: String(project.stallThresholds.activeDays),
+      todoDays: String(project.stallThresholds.todoDays),
+    },
+    { activeDays: String(thresholds.activeDays), todoDays: String(thresholds.todoDays) },
+  );
   project.stallThresholds = { ...thresholds };
+  if (diff)
+    recordChange({
+      kind: "project.stall_thresholds_changed",
+      actorId: me,
+      projectId,
+      object: { type: "project", id: project.id, label: project.code },
+      before: diff.before,
+      after: diff.after,
+    });
   return copy(project);
 }
 

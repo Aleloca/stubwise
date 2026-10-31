@@ -1,6 +1,10 @@
 // Le scritture usano `createRequestAs` solo dentro le funzioni: l'import
 // circolare con `api-mutations` è innocuo.
 import { createRequestAs } from "../api-mutations";
+import { recordChange } from "../changelog/index";
+import { changedFields } from "../changelog/settingValues";
+// Per effetto: registra i tipi di voce di progetto (`recordChange` lancia su uno ignoto).
+import "../projectSettings/changeTypes";
 import { mailboxOf } from "../mail/compose";
 import { copy, newId, now, state } from "../store";
 import type { MailDraft, SupportWidget } from "../types";
@@ -24,6 +28,9 @@ import {
 // Una richiesta nasce solo da una conversazione (mai da un'email). Gli
 // errori: `not_found` per ciò che chi agisce non vede (R-G5), `forbidden`
 // per ciò che vede ma non può fare, `invalid: <cosa>` per un input sbagliato.
+
+/** Un widget nel registro: il nome com'è, l'id del widget. */
+const widgetObject = (w: SupportWidget) => ({ type: "widget", id: w.id, label: w.name });
 
 function replierFor(me: string, code: string) {
   const c = conversationFor(me, code);
@@ -256,6 +263,7 @@ export async function createWidget(projectId: string, input: WidgetInput): Promi
     createdAt: now(),
   };
   state.supportWidgets.push(w);
+  recordChange({ kind: "widget.created", actorId: me, projectId, object: widgetObject(w) });
   return copy(w);
 }
 
@@ -266,7 +274,18 @@ export async function updateWidget(
 ): Promise<SupportWidget> {
   const me = await writer("support.updateWidget");
   const w = widgetFor(me, id);
-  Object.assign(w, cleanWidget(w.projectId, patch));
+  const fields = cleanWidget(w.projectId, patch);
+  const before = { name: w.name };
+  Object.assign(w, fields);
+  // Del widget il registro dice il nome; gli altri campi hanno la frase.
+  const diff = changedFields(before, { name: w.name });
+  recordChange({
+    kind: "widget.updated",
+    actorId: me,
+    projectId: w.projectId,
+    object: widgetObject(w),
+    ...(diff ? { before: diff.before, after: diff.after } : {}),
+  });
   return copy(w);
 }
 
@@ -275,4 +294,10 @@ export async function deleteWidget(id: string): Promise<void> {
   const me = await writer("support.deleteWidget");
   const w = widgetFor(me, id);
   state.supportWidgets = state.supportWidgets.filter((x) => x !== w);
+  recordChange({
+    kind: "widget.deleted",
+    actorId: me,
+    projectId: w.projectId,
+    object: widgetObject(w),
+  });
 }

@@ -8,6 +8,10 @@ import {
   startRunAs,
 } from "../api-mutations";
 import { shortRepo } from "../../domain/releases/repo";
+import { recordChange } from "../changelog/index";
+import { changedFields } from "../changelog/settingValues";
+// Per effetto: registra i tipi di voce di progetto (`recordChange` lancia su uno ignoto).
+import "../projectSettings/changeTypes";
 import { alertProjectsOf } from "../../domain/servers/projects";
 import { publishAlert } from "../alerts/publish";
 import { aiBlockFor } from "../instance/blocks";
@@ -192,7 +196,9 @@ export async function setRepoPrMode(repositoryId: string, mode: ColleaguePrMode)
   const repo = repositoryFor(me, repositoryId);
   if (!holds(me, "repos.manage", repo.projectId)) throw forbidden();
   if (!PR_MODES.includes(mode)) throw invalid("mode");
+  const before = repo.colleaguePrs ?? "analyze_and_fix";
   repo.colleaguePrs = mode;
+  recordRepoChange(me, "repository.pr_mode_changed", repo, { prMode: before }, { prMode: mode });
   // «Spento» e «Solo analisi» valgono subito: una correzione in volo sulle
   // PR dei colleghi si ferma prima del push (non conta nel tetto, R-K8, e
   // non riparte alla riaccensione).
@@ -202,6 +208,37 @@ export async function setRepoPrMode(repositoryId: string, mode: ColleaguePrMode)
     for (const c of pr.corrections) if (c.state === "running") c.state = "stopped";
   }
 }
+
+/** Il valore stabile della pipeline nel registro: `auto` o `named:<n1,n2>`. */
+const pipelineValue = (p: Repository["releasePipeline"]): string =>
+  p?.mode === "named" ? `named:${p.names.join(",")}` : "auto";
+
+/** La voce di una scrittura sul repository: solo se il campo è cambiato davvero. */
+function recordRepoChange(
+  me: string,
+  kind: string,
+  repo: Repository,
+  before: Record<string, string>,
+  after: Record<string, string>,
+): void {
+  const diff = changedFields(before, after);
+  if (!diff) return;
+  recordChange({
+    kind,
+    actorId: me,
+    projectId: repo.projectId,
+    object: { type: "repository", id: repo.id, label: repo.name },
+    before: diff.before,
+    after: diff.after,
+  });
+}
+
+/** Un ambiente nel registro: il nome com'è, l'id dell'ambiente. */
+const environmentObject = (e: ProjectEnvironment) => ({
+  type: "environment",
+  id: e.id,
+  label: e.name,
+});
 
 /** Settings → repository: quali run fanno lo stato del rilascio, e il ramo (`repos.manage`). */
 export async function setReleasePipeline(
@@ -220,8 +257,16 @@ export async function setReleasePipeline(
     if (names.length === 0) throw invalid("names");
     next = { mode: "named", names };
   } else throw invalid("pipeline");
+  const before = pipelineValue(repo.releasePipeline);
   repo.releasePipeline = next;
   repo.releaseBranch = branch.trim();
+  recordRepoChange(
+    me,
+    "repository.release_pipeline_changed",
+    repo,
+    { pipeline: before },
+    { pipeline: pipelineValue(next) },
+  );
 }
 
 // --- PR ---------------------------------------------------------------------
@@ -484,6 +529,12 @@ export async function createEnvironment(
     servers: serverRows([], input.servers),
   };
   state.environments.push(env);
+  recordChange({
+    kind: "environment.created",
+    actorId: me,
+    projectId,
+    object: environmentObject(env),
+  });
   return copy(env);
 }
 
@@ -501,11 +552,21 @@ export async function updateEnvironment(
   if (patch.kind === "production" && prod && prod.id !== env.id) {
     throw invalid("production_exists");
   }
+  const before = { name: env.name, kind: env.kind, url: env.url };
   if (patch.name !== undefined) env.name = patch.name.trim();
   if (patch.kind !== undefined) env.kind = patch.kind;
   if (patch.url !== undefined) env.url = patch.url?.trim() || null;
   if (patch.servers !== undefined) env.servers = serverRows(env.servers, patch.servers);
   dropStalePrimaries();
+  // I server collegati non hanno un prima/dopo: se cambiano solo loro c'è la frase.
+  const diff = changedFields(before, { name: env.name, kind: env.kind, url: env.url });
+  recordChange({
+    kind: "environment.updated",
+    actorId: me,
+    projectId: env.projectId,
+    object: environmentObject(env),
+    ...(diff ? { before: diff.before, after: diff.after } : {}),
+  });
   return copy(env);
 }
 
@@ -515,6 +576,12 @@ export async function deleteEnvironment(id: string): Promise<void> {
   if (!holds(me, "environments.manage", env.projectId)) throw forbidden();
   state.environments = state.environments.filter((e) => e.id !== id);
   dropStalePrimaries();
+  recordChange({
+    kind: "environment.deleted",
+    actorId: me,
+    projectId: env.projectId,
+    object: environmentObject(env),
+  });
 }
 
 /**
