@@ -10056,7 +10056,7 @@
         "created": "<actor>{{actor}}</actor> ha aggiunto il repository <object>{{object}}</object> a {{project}}.",
         "updated": "<actor>{{actor}}</actor> ha cambiato $t(changelog.params.repositoryField.{{field}}) di <object>{{object}}</object>.",
         "pr_mode_changed": "<actor>{{actor}}</actor> ha cambiato cosa fa Claude con le PR dei colleghi su <object>{{object}}</object>.",
-        "release_pipeline_changed": "<actor>{{actor}}</actor> ha cambiato quali pipeline fanno lo stato dei rilasci di <object>{{object}}</object>.",
+        "release_pipeline_changed": "<actor>{{actor}}</actor> ha cambiato le pipeline o il ramo di rilascio di <object>{{object}}</object>.",
         "webhook_configured": "<actor>{{actor}}</actor> ha configurato il webhook git di <object>{{object}}</object>.",
         "webhook_secret_regenerated": "<actor>{{actor}}</actor> ha creato un nuovo secret del webhook per <object>{{object}}</object>.",
         "linked": "<actor>{{actor}}</actor> ha collegato <object>{{object}}</object> a {{project}}.",
@@ -10271,6 +10271,8 @@
       "reviewGitAccount": "Revisore",
       "prMode": "PR dei colleghi",
       "pipeline": "Pipeline dei rilasci",
+      "branch": "Ramo di rilascio",
+      "statusFamilies": "Famiglia degli stati",
       "kind": "Tipo"
     }
   },

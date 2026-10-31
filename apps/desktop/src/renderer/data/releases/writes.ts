@@ -258,14 +258,15 @@ export async function setReleasePipeline(
     next = { mode: "named", names };
   } else throw invalid("pipeline");
   const before = pipelineValue(repo.releasePipeline);
+  const branchBefore = repo.releaseBranch ?? "main";
   repo.releasePipeline = next;
   repo.releaseBranch = branch.trim();
   recordRepoChange(
     me,
     "repository.release_pipeline_changed",
     repo,
-    { pipeline: before },
-    { pipeline: pipelineValue(next) },
+    { pipeline: before, branch: branchBefore },
+    { pipeline: pipelineValue(next), branch: branch.trim() },
   );
 }
 

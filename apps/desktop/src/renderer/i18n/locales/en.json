@@ -10056,7 +10056,7 @@
         "created": "<actor>{{actor}}</actor> added the repository <object>{{object}}</object> to {{project}}.",
         "updated": "<actor>{{actor}}</actor> changed $t(changelog.params.repositoryField.{{field}}) of <object>{{object}}</object>.",
         "pr_mode_changed": "<actor>{{actor}}</actor> changed what Claude does with colleagues' pull requests on <object>{{object}}</object>.",
-        "release_pipeline_changed": "<actor>{{actor}}</actor> changed which pipelines make the release status of <object>{{object}}</object>.",
+        "release_pipeline_changed": "<actor>{{actor}}</actor> changed the release pipelines or branch of <object>{{object}}</object>.",
         "webhook_configured": "<actor>{{actor}}</actor> configured the git webhook of <object>{{object}}</object>.",
         "webhook_secret_regenerated": "<actor>{{actor}}</actor> made a new webhook secret for <object>{{object}}</object>.",
         "linked": "<actor>{{actor}}</actor> linked <object>{{object}}</object> to {{project}}.",
@@ -10271,6 +10271,8 @@
       "reviewGitAccount": "Reviewer",
       "prMode": "Colleagues' pull requests",
       "pipeline": "Release pipelines",
+      "branch": "Release branch",
+      "statusFamilies": "Statuses by family",
       "kind": "Kind"
     }
   },

@@ -102,6 +102,36 @@ describe("le dieci scritture lasciano una voce", () => {
     expect(JSON.parse(back!.after!)).toEqual({ pipeline: "auto" });
   });
 
+  it("setReleasePipeline: anche il solo cambio del ramo entra nel registro", async () => {
+    as(ROBERTA);
+    const repo = state.repositories.find((r) => r.id === "repo-acq")!;
+    const pipeline = repo.releasePipeline ?? { mode: "auto" as const };
+    const old = repo.releaseBranch ?? "main";
+    await releases.setReleasePipeline(repo.id, pipeline, "release/next");
+    const [entry] = await lauraSees();
+    expect(entry).toMatchObject({ kind: "repository.release_pipeline_changed", projectId: ACQ });
+    expect(JSON.parse(entry!.before!)).toEqual({ branch: old });
+    expect(JSON.parse(entry!.after!)).toEqual({ branch: "release/next" });
+    // Lo stesso salvataggio, di nuovo: niente di nuovo.
+    as(ROBERTA);
+    await releases.setReleasePipeline(repo.id, pipeline, "release/next");
+    expect(await lauraSees()).toHaveLength(1);
+  });
+
+  it("setProjectStatuses: anche il solo cambio di famiglia entra nel registro", async () => {
+    as(ROBERTA);
+    const inputs = statusInputs();
+    const target = inputs.find((s) => s.family === "active")!;
+    const other = inputs.filter((s) => s.family === "active").length;
+    expect(other).toBeGreaterThan(1);
+    const changed = inputs.map((s) => (s.id === target.id ? { ...s, family: "todo" as const } : s));
+    await setProjectStatuses(ACQ, changed, {});
+    const [entry] = await lauraSees();
+    expect(entry).toMatchObject({ kind: "project.statuses_changed", projectId: ACQ });
+    expect(JSON.parse(entry!.before!)).toEqual({ statusFamilies: [`${target.name}:active`] });
+    expect(JSON.parse(entry!.after!)).toEqual({ statusFamilies: [`${target.name}:todo`] });
+  });
+
   it("ambienti: crea, cambia, elimina, col nome com'è", async () => {
     as(ROBERTA);
     const env = await releases.createEnvironment(ACQ, {

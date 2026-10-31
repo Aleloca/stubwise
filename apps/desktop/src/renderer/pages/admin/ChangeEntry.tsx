@@ -236,6 +236,11 @@ function useFieldsLine() {
     if (typeof v === "boolean") return t(v ? "changelog.values.on" : "changelog.values.off");
     // Il segnaposto di `changelog/reads.ts` (`HIDDEN_PROJECT`): una pagina non importa il livello dati.
     if (field === "primaryProject" && v === "@hidden") return t("changelog.values.hiddenProject");
+    // «Nome:famiglia» (`project.statuses_changed`): la famiglia si traduce qui.
+    if (field === "statusFamilies") {
+      const at = v.lastIndexOf(":");
+      return `${v.slice(0, at)} (${t(`taskUi.families.${v.slice(at + 1)}`)})`;
+    }
     if (field === "format") return t(`changelog.values.webhookFormat.${v}`);
     // L'id ha dei punti (`job.pr_opened`), che i18next leggerebbe come livelli.
     if (field === "events") return t(`changelog.values.webhookEvents.${v.replace(/\./g, "_")}`);

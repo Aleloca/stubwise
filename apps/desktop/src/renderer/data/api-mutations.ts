@@ -1163,6 +1163,7 @@ export async function setProjectStatuses(
   const oldFamilies = new Map(
     state.tasks.filter((t) => t.projectId === projectId).map((t) => [t.id, familyOf(t)]),
   );
+  const statusBefore = new Map(current.map((s) => [s.id, s]));
   const namesBefore = [...current].sort((a, b) => a.order - b.order).map((s) => s.name);
   const next: ProjectStatus[] = statuses.map((s, order) => ({
     id: s.id ?? newId(`st-${project.code.toLowerCase()}`),
@@ -1185,7 +1186,21 @@ export async function setProjectStatuses(
     setClosedAt(task, oldFamilies.get(task.id)!, at);
   }
   // Valori stabili: l'elenco dei nomi, nell'ordine. Un salvataggio che non cambia niente non scrive.
-  const diff = changedFields({ statuses: namesBefore }, { statuses: next.map((s) => s.name) });
+  // La famiglia di uno stato rimasto: entrano solo quelli che l'hanno cambiata, come «nome:famiglia».
+  const moved = next.flatMap((s) => {
+    const was = statusBefore.get(s.id);
+    return was && was.family !== s.family ? [{ was, now: s }] : [];
+  });
+  const diff = changedFields(
+    {
+      statuses: namesBefore,
+      statusFamilies: moved.map((m) => `${m.was.name}:${m.was.family}`),
+    },
+    {
+      statuses: next.map((s) => s.name),
+      statusFamilies: moved.map((m) => `${m.now.name}:${m.now.family}`),
+    },
+  );
   if (diff)
     recordChange({
       kind: "project.statuses_changed",
