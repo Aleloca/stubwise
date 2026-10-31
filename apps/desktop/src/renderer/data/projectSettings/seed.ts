@@ -67,6 +67,24 @@ function pluginChoicesOf(projectId: string): ProjectSettings["plugins"] {
   };
 }
 
+/**
+ * Le impostazioni di un progetto nato dall'app (`createProject`), che il seme
+ * non conosce: gli interruttori di un progetto del seme dello stesso
+ * modello, «Automatic», nessun plugin spento (per sottrazione). Le scrive
+ * chi le legge per primo (`reads.ts`, `settingsOf`).
+ */
+export function defaultProjectSettings(p: { id: string; template: string }): ProjectSettings {
+  return {
+    projectId: p.id,
+    aiProviderId: null,
+    aiProviderExclusive: false,
+    switches: switchesOf("", p.template === "software"),
+    pulseEveryDays: 7,
+    ingestion: { secretId: null, last4: last4Of(`ingestion|${p.id}`), createdAt: at(0, "00:00") },
+    plugins: { version: 1, disabled: [] },
+  };
+}
+
 /** Le impostazioni di ogni progetto del seme, nuove a ogni chiamata. */
 export function seedProjectSettings(): Map<string, ProjectSettings> {
   return new Map(

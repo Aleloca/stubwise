@@ -19,3 +19,9 @@ export {
   type ProjectSwitch,
 } from "./state";
 export type { BusyReason, ProjectRefusal, ProjectResult } from "./types";
+// Task 2: General, AI, Automations, Usage.
+export { getProjectSettings, projectSwitchOn, type ProjectSettingsView } from "./reads";
+export { DESCRIPTION_MAX, NAME_MAX, updateProjectGeneral } from "./general";
+export { setProjectAi } from "./ai";
+export { saveProjectAutomations } from "./automations";
+export { getProjectUsage, type ProjectUsageDimension } from "./usage";

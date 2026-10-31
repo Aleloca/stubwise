@@ -130,9 +130,26 @@ export async function getUsage(input: {
 }): Promise<UsageView> {
   const me = await gate("instance.getUsage");
   if (!can(viewerFor(me), "usage.view")) throw forbidden();
+  return usageView(me, input, null);
+}
+
+/**
+ * Il calcolo della scheda Usage, per chi guarda: tutti i consumi
+ * (`projectId` `null`, la scheda d'istanza) o solo quelli di un progetto
+ * (Progetto → Settings → Usage, area 9c). Il permesso lo controlla chi lo
+ * chiama: `usage.view` d'istanza, o `project.usage.view` nel progetto.
+ */
+export function usageView(
+  me: string,
+  input: { range: UsageRange; groupBy: UsageDimension; thenBy?: UsageDimension },
+  projectId: string | null,
+): UsageView {
   const visible = visibleProjectIds(me);
   const { from, to } = boundsOf(input.range);
-  const inRange = state.instance.usage.filter((r) => dayOf(r.at) >= from && dayOf(r.at) <= to);
+  const inRange = state.instance.usage.filter(
+    (r) =>
+      dayOf(r.at) >= from && dayOf(r.at) <= to && (projectId === null || r.projectId === projectId),
+  );
 
   const totals = { costUsd: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, runs: 0 };
   const perDay = new Map<string, { costUsd: number; runs: number }>();

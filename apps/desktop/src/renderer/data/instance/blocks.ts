@@ -53,21 +53,47 @@ export function isLimited(p: AiProvider): boolean {
   return until !== null && until > now();
 }
 
+const runProviderOf = (p: AiProvider): RunProvider =>
+  p.kind === "subscription"
+    ? { kind: "account", name: p.name, id: p.id }
+    : { kind: "api_key", name: p.name, id: p.id };
+
 /**
- * Con chi parte un lavoro AI nuovo: il primo abbonamento abilitato e non al
- * limite, nell'ordine della catena; la chiave API SOLO se nessun abbonamento
- * è abilitato (D3). Con abbonamenti abilitati ma tutti al limite: `null`, e
- * la chiave resta ferma (RF 4). Solo il nome e l'id, mai il segreto.
+ * La catena dell'istanza: il primo abbonamento abilitato e non al limite,
+ * nell'ordine; la chiave API SOLO se nessun abbonamento è abilitato (D3).
+ * Con abbonamenti abilitati ma tutti al limite: `null`, e la chiave resta
+ * ferma (RF 4).
  */
-export function pickProvider(): RunProvider | null {
+function chainProvider(): RunProvider | null {
   const enabled = state.instance.providers.filter((p) => p.enabled);
   const subscriptions = enabled.filter((p) => p.kind === "subscription");
   if (subscriptions.length > 0) {
     const free = subscriptions.find((p) => !isLimited(p));
-    return free ? { kind: "account", name: free.name, id: free.id } : null;
+    return free ? runProviderOf(free) : null;
   }
   const key = enabled.find((p) => p.kind === "api_key");
-  return key ? { kind: "api_key", name: key.name, id: key.id } : null;
+  return key ? runProviderOf(key) : null;
+}
+
+/**
+ * Con chi parte un lavoro AI nuovo. Senza progetto (o con un progetto su
+ * «Automatic») la catena dell'istanza. Con l'account scelto nelle
+ * impostazioni del progetto (area 9c, AI): quell'account se è abilitato e
+ * non al limite; altrimenti la catena, o `null` se il progetto usa SOLO
+ * quell'account (`exclusive`: la sessione parte senza account, come la
+ * catena vuota del ruling 11 del 9b; la frase la dice la sessione da
+ * `requiredProvider`, scritto alla nascita). Un account scelto e poi
+ * eliminato vale «Automatic», anche con `exclusive` (`chosenUnavailable`
+ * della lettura). Solo il nome e l'id, mai il segreto.
+ */
+export function pickProvider(projectId?: string | null): RunProvider | null {
+  const settings = projectId ? state.projectSettings.get(projectId) : undefined;
+  const chosen = settings?.aiProviderId
+    ? state.instance.providers.find((p) => p.id === settings.aiProviderId)
+    : undefined;
+  if (!settings || !chosen) return chainProvider();
+  if (chosen.enabled && !isLimited(chosen)) return runProviderOf(chosen);
+  return settings.aiProviderExclusive ? null : chainProvider();
 }
 
 /** Lo speso del mese in corso, su tutti i progetti (il budget non guarda chi guarda). */

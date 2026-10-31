@@ -907,7 +907,8 @@ export const REQUEST_AREAS = [
 ] as const;
 const FILTER_AREAS = ["savedFilters", "savedFilter", "pinnedFilters"] as const;
 const HOME_AREAS = ["personalHome", "departmentHomes"] as const;
-const PROJECT_AREAS = [
+/** Ciò che un cambio di progetto (nome, stati, impostazioni) tocca nelle letture. */
+export const PROJECT_AREAS = [
   "projects",
   "project",
   "pinned",
@@ -3799,3 +3800,4 @@ export * from "./queries/admin";
 export * from "./queries/entry";
 export * from "./queries/me";
 export * from "./queries/instance";
+export * from "./queries/projectSettings";

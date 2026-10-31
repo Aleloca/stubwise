@@ -1,8 +1,11 @@
 import {
+  canI,
   reauthRefusal as instanceReauthRefusal,
   refuse as instanceRefuse,
 } from "../instance/common";
+import type { Project } from "../model";
 import type { ApiFnName } from "../store";
+import { openProject } from "./reads";
 import type { BusyReason, ProjectRefusal } from "./types";
 
 // Ciò che le scritture delle impostazioni di progetto (area 9c) condividono:
@@ -28,4 +31,27 @@ export function reauthRefusal(me: string, fn: ApiFnName): ProjectRefusal | null 
   return instanceReauthRefusal(me, fn);
 }
 
-export { canI, nameOf } from "../instance/common";
+export { canI };
+export { nameOf } from "../instance/common";
+
+/** Il permesso di scrittura di General, AI, Automations, Plugins e Archive. */
+export const MANAGE_SETTINGS = "project.settings.manage";
+
+/** L'oggetto delle voci di progetto: il codice come etichetta. */
+export const projectObject = (p: Project) => ({ type: "project", id: p.id, label: p.code });
+
+/**
+ * Il progetto su cui scrivere: visibile e aperto (o `not_found`: R-G5, un
+ * archiviato è come uno che non c'è), col permesso nel progetto (o
+ * `forbidden`).
+ */
+export function managedProject(
+  me: string,
+  projectId: string,
+  permission: string = MANAGE_SETTINGS,
+): { project: Project } | { refusal: ProjectRefusal } {
+  const project = openProject(me, projectId);
+  if (!project) return { refusal: refuse.notFound() };
+  if (!canI(me, permission, project.id)) return { refusal: refuse.forbidden() };
+  return { project };
+}
