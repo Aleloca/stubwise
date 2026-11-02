@@ -5,22 +5,32 @@ import {
   useCompleteEditedProposal,
   useConfirmProposal,
   useEditProposal,
+  usePeople,
+  useProjects,
 } from "../../../data/queries";
-import type { NewTaskInput, ProposedAction } from "../../../data/types";
+import type { ClassReason, NewTaskInput, ProposedAction, UndoView } from "../../../data/types";
 import { spoken } from "../../../domain/claude/answers";
+import { useReauth } from "../../../layout/useReauth";
 import { CheckBox } from "../../../tasks-ui/Menu";
 import { NewRequestDialog } from "../../requests/NewRequestDialog";
 import { NewTaskDialog } from "../../task/NewTaskDialog";
+import { dangerSolidButton } from "../../tasks/controls";
+import { isMasculineGroup, objectCodesOf } from "./ExecutedRow";
 import type { Ev } from "./flow";
 import { WaitingDot } from "./QuestionCard";
 import {
+  AutomationGlyph,
+  BellGlyph,
   cardClass,
+  IrreversibleGlyph,
+  LockGlyph,
   primaryButton,
   quietButton,
   secondaryButton,
   useFocusWhenResolved,
   usePersonName,
 } from "./parts";
+import { UndoControl } from "./UndoControl";
 
 /** Le azioni che si possono rifare dal loro dialogo, precompilato («Edit»). */
 const EDITABLE: ReadonlySet<ProposedAction["fn"]> = new Set(["createTask", "createRequest"]);
@@ -82,23 +92,57 @@ export function ProposalCard({
   conversationId,
   event,
   viewerId,
+  undo,
 }: {
   conversationId: string;
   event: Ev<"proposal">;
   viewerId: string;
+  /** Area 10a: lo stato di «Annulla» del gruppo confermato, per chi guarda. */
+  undo?: UndoView | undefined;
 }) {
+  const { t } = useTranslation();
   const confirm = useConfirmProposal();
   const cancel = useCancelProposal();
   const edit = useEditProposal();
   const complete = useCompleteEditedProposal();
+  const reauth = useReauth();
+  const viewerName = usePersonName(viewerId);
   const target = { id: conversationId, proposalId: event.proposalId };
+  // La frase del dialogo della riconferma: il riassunto della scheda (C).
+  const reauthAction = (indexes: number[] | undefined) => {
+    const chosen = indexes ? indexes.map((i) => event.actions[i]!) : event.actions;
+    if (chosen.length !== 1)
+      return t("claude.conversation.proposal.reauthMany", { count: chosen.length });
+    const text = spoken(t, chosen[0]!.summaryText, chosen[0]!.summary);
+    // «Add Laura…» → «To add Laura…»; un codice in testa («MKX …») resta com'è.
+    return /^[A-Z][a-z]/.test(text) ? text[0]!.toLowerCase() + text.slice(1) : text;
+  };
+  const confirmedCount = event.confirmedActions?.length ?? event.actions.length;
+  const codes = objectCodesOf(event);
   return (
     <ProposalCardView
       event={event}
       viewerId={viewerId}
+      after={
+        event.status === "confirmed" && event.groupId ? (
+          <UndoControl
+            conversationId={conversationId}
+            groupId={event.groupId}
+            view={undo}
+            count={confirmedCount}
+            masculine={isMasculineGroup(event.actions)}
+            code={codes.find((c) => c !== null) ?? null}
+            viewerName={viewerName}
+          />
+        ) : null
+      }
       ops={{
+        // Una C passa dalla riconferma: col codice giusto la conferma riparte da sola.
         confirm: (actionIndexes) =>
-          confirm.mutateAsync({ ...target, ...(actionIndexes ? { actionIndexes } : {}) }),
+          reauth(
+            () => confirm.mutateAsync({ ...target, ...(actionIndexes ? { actionIndexes } : {}) }),
+            { action: reauthAction(actionIndexes) },
+          ),
         cancel: () => cancel.mutateAsync(target),
         edit: () => edit.mutateAsync(target),
         complete: (code) => complete.mutateAsync({ ...target, resultCodes: [code] }),
@@ -124,12 +168,15 @@ export function ProposalCardView({
   renderCode,
   canAct = true,
   cantActNote,
+  after,
 }: {
   event: Ev<"proposal">;
   viewerId: string;
   ops: ProposalOps;
   renderText?: (text: string) => ReactNode;
   renderCode?: (code: string) => ReactNode;
+  /** Sotto l'esito di una scheda confermata («Undo» del gruppo, area 10a). */
+  after?: ReactNode;
   /** Chi l'ha chiesta può ancora agire qui (nella Chat: membro, canale non archiviato). */
   canAct?: boolean;
   /** La riga per chi l'ha chiesta e non può più agire. */
@@ -150,6 +197,7 @@ export function ProposalCardView({
   const chosen = selected.flatMap((on, i) => (on ? [i] : []));
   const all = chosen.length === event.actions.length;
   const busy = ops.busy;
+  const deletes = event.actions.some((a) => a.fn === "deleteTask");
   const summary = (text: string) => (renderText ? renderText(text) : text);
 
   const fail = (e: Error) =>
@@ -163,7 +211,16 @@ export function ProposalCardView({
 
   const doConfirm = () => {
     setError(null);
-    ops.confirm(all ? undefined : chosen).catch(fail);
+    ops
+      .confirm(all ? undefined : chosen)
+      .then((result) => {
+        // Una C senza codice non resta muta (T5): se la riconferma non è
+        // passata di qui, la scheda lo dice; chiuso il dialogo, il toast.
+        const refusal = result as { ok?: boolean; error?: string } | undefined;
+        if (refusal?.ok === false && refusal.error === "reauth_required")
+          setError(t("claude.conversation.proposal.needsCode"));
+      })
+      .catch(fail);
   };
   const doCancel = () => {
     setError(null);
@@ -275,6 +332,7 @@ export function ProposalCardView({
           );
         })}
       </ul>
+      {open && event.reasons && event.reasons.length > 0 && <ReasonRows reasons={event.reasons} />}
       {open && mine ? (
         <div className="flex flex-wrap items-center justify-end gap-2">
           {!many && EDITABLE.has(event.actions[0]!.fn) && (
@@ -287,19 +345,27 @@ export function ProposalCardView({
           </button>
           <button
             type="button"
-            className={primaryButton}
+            // [CA 6] Un'eliminazione nella scheda: rosso pieno, e la parola dice cosa fa.
+            className={deletes ? dangerSolidButton : primaryButton}
             disabled={busy || chosen.length === 0}
             onClick={doConfirm}
           >
-            {!many
-              ? t("claude.conversation.proposal.confirm")
-              : all
-                ? t("claude.conversation.proposal.confirmAll")
-                : t("claude.conversation.proposal.confirmSelected", { count: chosen.length })}
+            {deletes
+              ? t("claude.conversation.proposal.delete")
+              : !many
+                ? t("claude.conversation.proposal.confirm")
+                : all
+                  ? t("claude.conversation.proposal.confirmAll")
+                  : t("claude.conversation.proposal.confirmSelected", { count: chosen.length })}
           </button>
         </div>
       ) : (
-        outcome
+        (outcome || after) && (
+          <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            {outcome}
+            {after}
+          </div>
+        )
       )}
       {error && (
         <p role="alert" className="text-sm text-critical">
@@ -326,5 +392,111 @@ export function ProposalCardView({
         />
       )}
     </section>
+  );
+}
+
+/** Quante persone «Notifies» nomina prima di «and 2 more» [CA 4]. */
+const NAMED = 3;
+
+/**
+ * Le righe dei motivi di una scheda B/C (area 10a, Task 9), lette da
+ * `reasons` e nell'ordine del dato: chi viene avvisato, l'automazione che
+ * parte, «Can't be undone», il codice a due fattori. I nomi sono quelli che
+ * chi legge vede: una persona che non vede non c'è (e non si conta), un
+ * progetto che non vede toglie la riga dell'automazione.
+ */
+function ReasonRows({ reasons }: { reasons: readonly ClassReason[] }) {
+  const { t } = useTranslation();
+  const people = usePeople().data;
+  const projects = useProjects().data;
+  const codeOf = (projectId: string | undefined) =>
+    projectId ? (projects?.find((p) => p.id === projectId)?.code ?? null) : null;
+
+  const listOf = (names: string[]): string => {
+    const and = t("claude.conversation.proposal.reasons.and");
+    if (names.length > NAMED) {
+      return t("claude.conversation.proposal.reasons.andMore", {
+        names: names.slice(0, NAMED).join(", "),
+        count: names.length - NAMED,
+      });
+    }
+    return names.length < 2
+      ? (names[0] ?? "")
+      : `${names.slice(0, -1).join(", ")}${and}${names.at(-1)}`;
+  };
+
+  const rows = reasons.flatMap((reason): { kind: string; glyph: ReactNode; text: string }[] => {
+    switch (reason.kind) {
+      case "notifies": {
+        const names = reason.personIds.flatMap((id) => {
+          const name = people?.find((p) => p.id === id)?.name;
+          return name ? [name] : [];
+        });
+        const code = codeOf(reason.projectId);
+        const key = "claude.conversation.proposal.reasons";
+        const text =
+          names.length > 0
+            ? reason.more
+              ? code
+                ? t(`${key}.notifiesMore`, { names: listOf(names), code })
+                : t(`${key}.notifiesMoreNoProject`, { names: listOf(names) })
+              : t(`${key}.notifies`, { names: listOf(names) })
+            : reason.more
+              ? code
+                ? t(`${key}.notifiesOnlyMore`, { code })
+                : t(`${key}.notifiesOnlyMoreNoProject`)
+              : null;
+        return text ? [{ kind: "notifies", glyph: <BellGlyph />, text }] : [];
+      }
+      case "automation": {
+        const code = codeOf(reason.projectId);
+        if (!code) return [];
+        const which =
+          reason.event === "task_created"
+            ? "automationCreated"
+            : reason.event === "task_closed"
+              ? "automationClosed"
+              : "automation";
+        return [
+          {
+            kind: "automation",
+            glyph: <AutomationGlyph />,
+            text: t(`claude.conversation.proposal.reasons.${which}`, { code }),
+          },
+        ];
+      }
+      case "irreversible":
+        return [
+          {
+            kind: "irreversible",
+            glyph: <IrreversibleGlyph />,
+            text: t("claude.conversation.proposal.reasons.irreversible"),
+          },
+        ];
+      case "reauth":
+        return [
+          {
+            kind: "reauth",
+            glyph: <LockGlyph />,
+            text: t("claude.conversation.proposal.reasons.reauth"),
+          },
+        ];
+    }
+  });
+  if (rows.length === 0) return null;
+  return (
+    <ul
+      className="flex min-w-0 flex-col gap-1 border-t border-rule pt-2.5"
+      aria-label={t("claude.conversation.proposal.reasons.label")}
+    >
+      {rows.map((row) => (
+        <li key={row.kind} className="flex min-w-0 items-start gap-2 text-sm text-ink-muted">
+          <span className="mt-px text-ink">{row.glyph}</span>
+          <span className="min-w-0 [overflow-wrap:anywhere]" data-reason={row.kind}>
+            {row.text}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }

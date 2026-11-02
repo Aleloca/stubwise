@@ -173,6 +173,20 @@ function line(
   };
 }
 
+/**
+ * Chi chiede non può registrare decisioni nel progetto (ruling del
+ * controller, T6 I1): la riga non promette il dialogo, lo dice in parole e
+ * chiude col «Who?» (`who:<azione>/<codice>`, che la conversazione rende
+ * con `WhoCanLink`, solo se chi legge vede il progetto).
+ */
+function cantRecord(ctx: IntentContext, code: string, actions: ReadAction[] = []): Answer {
+  return {
+    actions,
+    text: `${ctx.t(`${KEY}.recordDecision`)} ${ctx.t(`${KEY}.recordDecisionCant`, { code })}`,
+    place: { route: `who:recordDecision/${code}`, labelKey: `${KEY}.who` },
+  };
+}
+
 /** «Non trovo X»: identica per un codice invisibile, inesistente o eliminato (R-G5). */
 function notFound(ctx: IntentContext, code: string, actions: ReadAction[] = []): Answer {
   return {
@@ -291,6 +305,9 @@ const PLACES: Record<RefusedTopic, Place> = {
     if (found && "answer" in found) return found.answer;
     if (found) {
       const { task, projectCode, lookup } = found;
+      if (!(await ctx.read.canRecordDecisions(task.projectId))) {
+        return cantRecord(ctx, projectCode, [lookup]);
+      }
       return line(
         ctx,
         "recordDecision",
@@ -302,6 +319,9 @@ const PLACES: Record<RefusedTopic, Place> = {
     }
     const p = await projectOf(text, ctx);
     if ("answer" in p) return p.answer;
+    if (p.project && !(await ctx.read.canRecordDecisions(p.project.id))) {
+      return cantRecord(ctx, p.project.code);
+    }
     return p.project
       ? line(
           ctx,

@@ -34,6 +34,7 @@ const READ: ReadApi = {
   listConversations: api.listConversations,
   listAutomations: () => api.automations.listAutomations(),
   listProjectServers: api.servers.listProjectServers,
+  canRecordDecisions: api.canRecordDecisions,
 };
 
 function as(personId: string, t = en, contextProjectId: string | null = null): IntentContext {
@@ -494,6 +495,9 @@ describe("la posta e le riunioni di altri non arrivano a Claude (Review Focus 1)
   // l'elenco aggiorni il test sapendo di aprire una porta.
   it("le letture di Claude sono un elenco chiuso, senza posta né calendario", () => {
     expect(Object.keys(readsAs("p-giulia")).sort()).toEqual([
+      // Area 10a (Task 9): un sì o un no sul proprio permesso, per la riga D
+      // di «registra la decisione». Nessun dato in più.
+      "canRecordDecisions",
       "getLatestBrief",
       "getRequest",
       "getRequestByCode",
@@ -584,6 +588,24 @@ describe("classi (area 10a, Task 5): il motore chiede la classe, non la deduce",
     expect(said(steps)).toBe(en("claude.answers.create.proposal", { code: "MKX" }));
     expect(fns(steps)).toEqual(["createTask"]);
     expect(executed(steps)).toBeNull();
+  });
+
+  it("B col suo motivo: sopra la scheda «I'm asking first: …» (shape, ruling T5), coi nomi letti come chi chiede", async () => {
+    const ctx: IntentContext = {
+      ...as("p-giulia"),
+      classify: async () => ({
+        cls: "B",
+        reasons: [{ kind: "notifies", personIds: ["p-matteo"], more: false }],
+      }),
+    };
+    const steps = await respond("Create “Prova” in AUD", ctx);
+    expect(said(steps)).toBe("I'm asking first: it notifies Matteo Conti.");
+    expect(fns(steps)).toEqual(["createTask"]);
+    const removed = await respond("Delete MKX-7", {
+      ...ctx,
+      classify: async () => ({ cls: "B", reasons: [{ kind: "irreversible" }] }),
+    });
+    expect(said(removed)).toBe("I'm asking first: it can't be undone.");
   });
 
   it("senza classify (la Chat): la proposta di oggi", async () => {

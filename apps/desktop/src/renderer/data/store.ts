@@ -284,6 +284,8 @@ export type ApiFnName =
   | "getConversation"
   | "describeContext"
   | "contextIdOf"
+  | "openRoutes"
+  | "canRecordDecisions"
   | "getRefineOf"
   | "getTaskWork"
   | "listCommands"

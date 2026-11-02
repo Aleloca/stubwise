@@ -32,35 +32,49 @@ const higher = (a: ActionClass["cls"], b: ActionClass["cls"]) => (RANK[a] >= RAN
 function normalize(reasons: readonly ClassReason[]): ClassReason[] {
   const people = new Set<string>();
   let more = false;
-  const projects: string[] = [];
+  // I progetti delle persone non nominate: con uno solo la scheda lo dice.
+  const moreIn = new Set<string | undefined>();
+  // Una riga per progetto ed evento («…when a task is created / closed»).
+  const automations = new Map<string, Extract<ClassReason, { kind: "automation" }>>();
   let irreversible = false;
   let reauth = false;
   for (const r of reasons) {
     if (r.kind === "notifies") {
       for (const id of r.personIds) people.add(id);
       more ||= r.more;
+      if (r.more) moreIn.add(r.projectId);
     } else if (r.kind === "automation") {
-      if (!projects.includes(r.projectId)) projects.push(r.projectId);
+      const key = `${r.projectId}|${r.event ?? ""}`;
+      if (!automations.has(key)) automations.set(key, r);
     } else if (r.kind === "irreversible") irreversible = true;
     else reauth = true;
   }
+  const [only] = moreIn.size === 1 ? [...moreIn] : [];
   return [
     ...(people.size > 0 || more
-      ? [{ kind: "notifies" as const, personIds: [...people].sort(), more }]
+      ? [
+          {
+            kind: "notifies" as const,
+            personIds: [...people].sort(),
+            more,
+            ...(only ? { projectId: only } : {}),
+          },
+        ]
       : []),
-    ...projects.map((projectId) => ({ kind: "automation" as const, projectId })),
+    ...automations.values(),
     ...(irreversible ? [{ kind: "irreversible" as const }] : []),
     ...(reauth ? [{ kind: "reauth" as const }] : []),
   ];
 }
 
 /** Chi riceverebbe le notifiche dirette, diviso per visibilità come `wouldNotify`. */
-const notifiesOf = (me: string, personIds: (string | null)[]): ClassReason => ({
+const notifiesOf = (me: string, personIds: (string | null)[], projectId: string): ClassReason => ({
   kind: "notifies",
   ...splitByVisibility(
     me,
     personIds.filter((id): id is string => id !== null),
   ),
+  projectId,
 });
 
 /** Un'automazione attiva partirebbe per l'evento della task? */
@@ -69,7 +83,7 @@ function automationOf(
   task: Pick<Task, "code" | "title" | "projectId" | "assigneeId" | "statusId">,
 ): ClassReason[] {
   return automationsStartingOn(taskHappening(event, task)).length > 0
-    ? [{ kind: "automation", projectId: task.projectId }]
+    ? [{ kind: "automation", projectId: task.projectId, event }]
     : [];
 }
 
@@ -98,8 +112,12 @@ function dataReasons(me: string, action: Action): ClassReason[] {
         "";
       return [
         // La notifica diretta `task.assigned` (decisione del maintainer, 2 nov 2026).
-        notifiesOf(me, [assignedRecipientOf(me, assigneeId)]),
-        { kind: "notifies", ...wouldNotify(me, { kind: "task.created", projectId: project.id }) },
+        notifiesOf(me, [assignedRecipientOf(me, assigneeId)], project.id),
+        {
+          kind: "notifies",
+          ...wouldNotify(me, { kind: "task.created", projectId: project.id }),
+          projectId: project.id,
+        },
         ...automationOf("task_created", {
           code: `${project.code}-${nextTaskNumber(project.id)}`,
           title: String(input.title ?? "").trim(),
@@ -115,7 +133,7 @@ function dataReasons(me: string, action: Action): ClassReason[] {
       const patch = (args.patch ?? {}) as TaskPatch;
       const reasons: ClassReason[] = [];
       if (patch.assigneeId !== undefined && patch.assigneeId !== task.assigneeId)
-        reasons.push(notifiesOf(me, [assignedRecipientOf(me, patch.assigneeId)]));
+        reasons.push(notifiesOf(me, [assignedRecipientOf(me, patch.assigneeId)], task.projectId));
       const next = patch.statusId ? state.statusById.get(patch.statusId) : undefined;
       if (next?.family === "closed" && familyOf(task) !== "closed") {
         reasons.push(
@@ -137,7 +155,7 @@ function dataReasons(me: string, action: Action): ClassReason[] {
       if (!task || !plan) return [];
       // Le persone che `planTaskAs` avviserebbe, meno chi chiede (P9).
       const { assigned, planningChanged } = planRecipientsOf(me, task, plan);
-      return [notifiesOf(me, [assigned, ...planningChanged])];
+      return [notifiesOf(me, [assigned, ...planningChanged], task.projectId)];
     }
     default:
       return [];

@@ -94,6 +94,7 @@ import type {
   WeeklyBrief,
 } from "./types";
 import { undoViewOf } from "./claude/actions";
+import { canSeeAutomation } from "./automations/visibility";
 import {
   contextIdFor,
   contextOf,
@@ -744,6 +745,53 @@ export async function describeContext(ref: ContextRef): Promise<ContextDescripti
 export async function contextIdOf(kind: CodedContextKind, code: string): Promise<string | null> {
   const me = await gate("contextIdOf");
   return contextIdFor(me, kind, code);
+}
+
+/**
+ * Quali indirizzi interni (`#/…`, i link delle righe D di Claude) chi guarda
+ * può aprire (area 10a, Task 9): il progetto di `#/p/<CODE>/…` (e la task di
+ * `?task=`), la conversazione di `#/claude/<id>`, l'automazione di
+ * `#/automations/<CODE>`. Un posto generale (Preferenze, la Posta, le
+ * sessioni dal vivo) si apre sempre. La riga D di una pubblica letta da un
+ * altro è un link solo dove la meta si vede: altrimenti resta testo.
+ */
+export async function openRoutes(routes: string[]): Promise<string[]> {
+  const me = await gate("openRoutes");
+  const visible = visibleProjectIds(me);
+  const projectSeen = (code: string) => {
+    const project = state.projects.find((p) => p.code === code);
+    return !!project && visible.has(project.id);
+  };
+  return routes.filter((route) => {
+    const [path = "", query = ""] = route.replace(/^#/, "").split("?");
+    const parts = path.split("/").filter(Boolean);
+    if (parts[0] === "p") {
+      if (!projectSeen(parts[1] ?? "")) return false;
+      const task = new URLSearchParams(query).get("task");
+      if (!task) return true;
+      const t = state.tasks.find((x) => x.code === task);
+      return !!t && visible.has(t.projectId);
+    }
+    if (parts[0] === "claude" && parts[1]) {
+      const c = state.conversations.find((x) => x.id === parts[1]);
+      return !!c && canSeeConversation(me, c);
+    }
+    if (parts[0] === "automations" && parts[1]) {
+      const a = state.automations.find((x) => x.code === parts[1]);
+      return !!a && canSeeAutomation(me, a);
+    }
+    return true;
+  });
+}
+
+/**
+ * Chi chiede può registrare decisioni nel progetto (`decisions.record`)?
+ * La riga D di «registra la decisione» lo dice in parole invece di
+ * promettere un dialogo che non si aprirebbe (ruling del controller, T6 I1).
+ */
+export async function canRecordDecisions(projectId: string): Promise<boolean> {
+  const me = await gate("canRecordDecisions");
+  return can(viewerFor(me), "decisions.record", projectId);
 }
 
 /**

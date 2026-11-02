@@ -1,4 +1,4 @@
-import type { ProposedAction, Task } from "../../../data/types";
+import type { ClassReason, ProposedAction, Task } from "../../../data/types";
 import {
   labelled,
   named,
@@ -18,15 +18,48 @@ import { findCodes, findPerson, findProject, findSize, findTitle, findWeek } fro
 // e Claude dice «fatto»; con B o C resta una PROPOSTA. Senza classe (la
 // Chat) tutto resta proposta, come nell'area 4.
 
-/** La risposta secondo la classe: A esegue con la frase «fatto», le altre propongono. */
+/**
+ * La risposta secondo la classe: A esegue con la frase «fatto», le altre
+ * propongono. Sopra una scheda col suo motivo Claude dice perché chiede
+ * («I'm asking first: …», shape `claude-actions.md`; ruling del controller
+ * (T5)); senza motivo (la Chat, o nessuna classe) la frase di sempre.
+ */
 export async function byClass(
   ctx: IntentContext,
   action: ProposedAction,
   done: string,
   proposed: string,
 ): Promise<Pick<Answer, "text" | "proposal" | "execute">> {
-  const cls = ctx.classify ? (await ctx.classify([action])).cls : null;
-  return cls === "A" ? { text: done, execute: [action] } : { text: proposed, proposal: [action] };
+  const verdict = ctx.classify ? await ctx.classify([action]) : null;
+  if (verdict?.cls === "A") return { text: done, execute: [action] };
+  const first = verdict?.reasons[0];
+  return {
+    text: first
+      ? ctx.t("claude.answers.classRaised", { reason: await reasonWords(ctx, first) })
+      : proposed,
+    proposal: [action],
+  };
+}
+
+/** Il motivo di una scheda in parole (R-G5: le persone sono già solo quelle che chi chiede vede). */
+async function reasonWords(ctx: IntentContext, reason: ClassReason): Promise<string> {
+  const { t, read } = ctx;
+  switch (reason.kind) {
+    case "notifies": {
+      if (reason.personIds.length === 0) return t("claude.answers.classReason.notifiesOthers");
+      const people = await read.listPeople();
+      const names = reason.personIds.map((id) => people.find((p) => p.id === id)?.name ?? "");
+      return t("claude.answers.classReason.notifies", { names: names.join(", ") });
+    }
+    case "automation": {
+      const project = (await read.listProjects()).find((p) => p.id === reason.projectId);
+      return t("claude.answers.classReason.automation", { code: project?.code ?? "" });
+    }
+    case "irreversible":
+      return t("claude.answers.classReason.irreversible");
+    case "reauth":
+      return t("claude.answers.classReason.reauth");
+  }
 }
 
 /** «Crea “Titolo” in AUD [per Marco] [settimana prossima] [taglia M]». */

@@ -3352,7 +3352,9 @@
         "send": "L'invio tocca a te: non mando email né risposte.",
         "sendMail": "Apri la Posta →",
         "sendSupport": "Apri il Supporto di **{{code}}** →",
-        "deploy": "Stubwise non fa deploy: si ferma al merge di una pull request."
+        "deploy": "Stubwise non fa deploy: si ferma al merge di una pull request.",
+        "recordDecisionCant": "E in **{{code}}** non puoi registrarle nemmeno tu.",
+        "who": "Chi?"
       }
     },
     "proposalFailed": {
@@ -3523,7 +3525,26 @@
         "expiredNow": "Questa proposta è scaduta: non è cambiato nulla.",
         "notYours": "Su questa proposta decide solo chi l'ha chiesta.",
         "failedNow": "Questa proposta non si può più eseguire: non è cambiato nulla.",
-        "forYou": "La tua proposta"
+        "forYou": "La tua proposta",
+        "reasons": {
+          "notifies": "Avvisa {{names}}",
+          "notifiesMore": "Avvisa {{names}} e altri che lo seguono in {{code}}",
+          "notifiesMoreNoProject": "Avvisa {{names}} e altri",
+          "notifiesOnlyMore": "Avvisa chi lo segue in {{code}}",
+          "notifiesOnlyMoreNoProject": "Avvisa altre persone",
+          "andMore_one": "{{names}} e un'altra persona",
+          "andMore_other": "{{names}} e altre {{count}}",
+          "and": " e ",
+          "automationCreated": "In {{code}} parte un'automazione quando nasce una task",
+          "automationClosed": "In {{code}} parte un'automazione quando una task si chiude",
+          "automation": "In {{code}} parte un'automazione",
+          "irreversible": "Non si annulla",
+          "reauth": "Chiede il codice a due fattori",
+          "label": "Cosa succede"
+        },
+        "delete": "Elimina",
+        "needsCode": "Prima serve il tuo codice a due fattori. Non è cambiato nulla.",
+        "reauthMany": "eseguire queste {{count}} modifiche"
       },
       "result": {
         "open": "Apri",
@@ -3620,6 +3641,73 @@
         "refineClosed": "Questa rifinitura è chiusa.",
         "refineItemClosed": "La richiesta è diventata una task o è stata archiviata: questa rifinitura è chiusa.",
         "automaticServer": "Questa sessione va da sola con l'accesso in sola lettura a {{code}}: si può solo guardare."
+      },
+      "executed": {
+        "verb": {
+          "createTask": "Creata <obj/>",
+          "assign": "Assegnata <obj/> a {{name}}",
+          "planTask": "Pianificata <obj/> per {{week}}",
+          "deleteTask": "Eliminata <obj/>",
+          "addComment": "Commentata <obj/>",
+          "startRun": "Avviato Claude su <obj/>",
+          "archiveProject": "Archiviato <obj/>",
+          "reopenProject": "Riaperto <obj/>",
+          "setSubscription": "Cambiati i tuoi avvisi in <obj/>",
+          "saveProjectAutomations": "Cambiate le automazioni di <obj/>",
+          "addMember": "In <obj/> ora c'è {{name}}",
+          "removeMember": "Tolto {{name}} da <obj/>",
+          "setMemberRole": "Cambiato il ruolo di {{name}} in <obj/>"
+        },
+        "generic": "Fatto: {{summary}}",
+        "named": "«{{name}}»",
+        "assignedToYou": "assegnata a te",
+        "assignedTo": "assegnata a {{name}}",
+        "reason": {
+          "forbidden": "non puoi {{action}} in {{code}}",
+          "forbiddenNoProject": "non puoi {{action}}",
+          "busy": "{{reasons}}",
+          "invalid": "qualcosa nella richiesta non è valido, non è cambiato nulla"
+        },
+        "didntRunLead": "Non eseguita:",
+        "week": "S{{n}}"
+      },
+      "busy": {
+        "claudeSession": "Claude sta lavorando su {{code}}",
+        "claudeSessionHidden": "Claude ci sta lavorando",
+        "openPr": "la pull request #{{number}} è aperta",
+        "openPrOn": "la pull request #{{number}} è aperta su {{code}}",
+        "openPrNoNumber": "c'è una pull request aperta",
+        "openPrNoNumberOn": "c'è una pull request aperta su {{code}}",
+        "serverFix": "è in corso una correzione su {{code}}",
+        "release": "il rilascio {{code}} è in corso",
+        "and": " e "
+      },
+      "undo": {
+        "undo": "Annulla",
+        "undoBoth": "Annulla entrambe",
+        "undoAll": "Annulla tutte e {{count}}",
+        "needsCode": "chiede il codice",
+        "undone": "Annullata",
+        "undoneBy": "Annullata da {{name}}",
+        "changedAfter": "{{name}} l'ha modificata dopo · non si annulla da qui",
+        "changedAfterAnon": "È stata modificata dopo · non si annulla da qui",
+        "undone_m": "Annullato",
+        "undoneBy_m": "Annullato da {{name}}",
+        "changedAfter_m": "{{name}} l'ha modificato dopo · non si annulla da qui",
+        "changedAfterAnon_m": "È stato modificato dopo · non si annulla da qui",
+        "alreadyUndone_m": "Già annullato.",
+        "open": "Apri {{code}}",
+        "notUndoable": "Non si annulla",
+        "forbidden": "Non puoi più annullarlo in {{code}}.",
+        "forbiddenNoProject": "Non puoi più annullarlo.",
+        "busy": "Non si annulla ancora: {{reasons}}.",
+        "busyAfter": "Riprova quando ha finito.",
+        "alreadyUndone": "Già annullata.",
+        "notFound": "Non trovo {{code}}.",
+        "notFoundNoCode": "Non la trovo più.",
+        "failed": "Impossibile annullare. Riprova.",
+        "retry": "Riprova",
+        "reauthAction": "annullare la modifica di Claude"
       }
     },
     "destination": {

@@ -57,6 +57,12 @@ export interface ReadApi {
   listConversations(filter: ConversationFilter): Promise<ConversationRow[]>;
   listAutomations(): Promise<{ code: string }[]>;
   listProjectServers(projectId: string): Promise<{ code: string }[]>;
+  /**
+   * Area 10a (Task 9): chi chiede può registrare decisioni nel progetto? La
+   * riga D di «registra la decisione» non promette un dialogo che non si
+   * aprirebbe. Il permesso lo dice il livello dati; il motore non lo deduce.
+   */
+  canRecordDecisions(projectId: string): Promise<boolean>;
 }
 
 export interface IntentContext {

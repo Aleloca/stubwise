@@ -5,6 +5,7 @@ import { ActionRows } from "./ActionRows";
 import { CommandRows, isServerCommand } from "./CommandRows";
 import { AssistantMessage, CitationRow, ClaudeHeader } from "./AssistantMessage";
 import { AttachmentChip } from "./AttachmentChip";
+import { ExecutedRow } from "./ExecutedRow";
 import type { Ev, FlowItem } from "./flow";
 import { clock, usePersonName } from "./parts";
 import { PhaseDivider } from "./PhaseDivider";
@@ -125,6 +126,9 @@ export function EventList({
   onResend: (event: Ev<"user">) => void;
 }) {
   const working = detail.state === "working";
+  // Area 10a: lo stato di «Annulla» per chi guarda; facoltativo (P25).
+  const undo = detail.undo ?? {};
+  const viewerName = usePersonName(viewerId);
   // I comandi su un server (correzione o analisi) sono righe del registro.
   const serverCode = detail.serverFix?.serverCode ?? detail.serverAnalysis?.serverCode ?? null;
   const fixPlan = useServerFixPlan(detail, projectCode);
@@ -194,7 +198,22 @@ export function EventList({
                 );
               case "proposal":
                 return (
-                  <ProposalCard conversationId={detail.id} event={item.event} viewerId={viewerId} />
+                  <ProposalCard
+                    conversationId={detail.id}
+                    event={item.event}
+                    viewerId={viewerId}
+                    undo={item.event.groupId ? undo[item.event.groupId] : undefined}
+                  />
+                );
+              case "executed":
+                return (
+                  <ExecutedRow
+                    conversationId={detail.id}
+                    event={item.event}
+                    undo={undo[item.event.groupId]}
+                    viewerId={viewerId}
+                    viewerName={viewerName}
+                  />
                 );
               case "work_result":
                 return <WorkResultRow event={item.event} />;

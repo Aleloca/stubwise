@@ -87,7 +87,7 @@ describe("classOf: creare una task", () => {
     const id = await automationOn("task_created", MKX);
     expect(classOf(GIULIA, create({ projectId: MKX, assigneeId: GIULIA }))).toEqual({
       cls: "B",
-      reasons: [{ kind: "automation", projectId: MKX }],
+      reasons: [{ kind: "automation", projectId: MKX, event: "task_created" }],
     });
     expect(
       automationsStartingOn({
@@ -156,7 +156,7 @@ describe("classOf: pianificare e modificare", () => {
     await automationOn("task_closed", MKX);
     expect(classOf(GIULIA, { fn: "updateTask", args: patch })).toEqual({
       cls: "B",
-      reasons: [{ kind: "automation", projectId: MKX }],
+      reasons: [{ kind: "automation", projectId: MKX, event: "task_closed" }],
     });
   });
 
@@ -294,7 +294,7 @@ describe("R-G5: chi viene avvisato e chi chiede non vede", () => {
     const stranger = strangerInAud();
     expect(classOf(GIULIA, create({ projectId: AUD, assigneeId: stranger }))).toEqual({
       cls: "B",
-      reasons: [{ kind: "notifies", personIds: [MATTEO], more: true }],
+      reasons: [{ kind: "notifies", personIds: [MATTEO], more: true, projectId: AUD }],
     });
   });
 });

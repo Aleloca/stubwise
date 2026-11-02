@@ -21,7 +21,13 @@ import type { TaskBusyReason } from "../taskDelete";
 import type { UndoView } from "../types";
 import { CLAUDE_CATALOG, declaredClassOf, isCatalogFn } from "./catalog";
 import { classOfGroup } from "./classes";
-import type { ClassReason, ClaudeActionFn, ClaudeActionRecord, ObjectRef } from "./types";
+import type {
+  ClassReason,
+  ClaudeActionFn,
+  ClaudeActionRecord,
+  ExecutedFailure,
+  ObjectRef,
+} from "./types";
 
 // Eseguire per classe e «Annulla» (area 10a, Task 5).
 //
@@ -78,6 +84,8 @@ export function executeGroup(
       ok: true;
       groupId: string;
       codes: string[];
+      /** Il codice dell'oggetto di ogni azione, nell'ordine: la riga eseguita lo scrive (Task 9). */
+      objectCodes: (string | null)[];
       projectIds: string[];
       runs: Task[];
       after: ((gen: number) => Promise<void>)[];
@@ -117,6 +125,9 @@ export function executeGroup(
     ok: true,
     groupId,
     codes: applied.codes,
+    objectCodes: applied.catalogRuns.map(
+      (run) => run?.codes[0] ?? (run?.objects[0] ? projectCodeOfRef(run.objects[0]) : null),
+    ),
     projectIds: applied.projectIds,
     runs: applied.runs,
     after: applied.after,
@@ -216,7 +227,13 @@ export function prepareExecuted(
     const result = executeGroup(me, conversationId, event.actions, "A");
     let next: ExecutedDraft;
     if (result.ok) {
-      next = { ...event, groupId: result.groupId, status: "done", resultCodes: result.codes };
+      next = {
+        ...event,
+        groupId: result.groupId,
+        status: "done",
+        resultCodes: result.codes,
+        objectCodes: result.objectCodes,
+      };
       runs.push(...result.runs);
       after.push(...result.after);
       for (const id of result.projectIds) if (!projectIds.includes(id)) projectIds.push(id);
@@ -225,7 +242,12 @@ export function prepareExecuted(
         key: `claude.executed.failed.${result.code}`,
         params: { action: event.actions[result.index]?.summary ?? "" },
       };
-      next = { ...event, status: "failed", errorText };
+      next = {
+        ...event,
+        status: "failed",
+        errorText,
+        failure: failureOf(me, event.actions, result),
+      };
       // Non è stato fatto niente: la riga «Didn't run» lo dice, la frase «fatto» no.
       if (said !== -1) drop.add(said);
     }
@@ -236,6 +258,35 @@ export function prepareExecuted(
     drop.add(index);
   });
   return { steps: steps.filter((_, i) => !drop.has(i)), runs, after, projectIds };
+}
+
+/**
+ * Il progetto di un'azione che non è partita, dai suoi argomenti: quello
+ * nominato, o quello della task o della richiesta. Solo se chi chiede lo
+ * vede (R-G5): di uno che non vede la riga non dice niente.
+ */
+function projectOfArgs(me: string, args: Record<string, unknown>): string | null {
+  const id = (key: string) => (typeof args[key] === "string" ? (args[key] as string) : null);
+  const projectId =
+    id("projectId") ??
+    state.tasksById.get(id("id") ?? id("taskId") ?? "")?.projectId ??
+    state.requests.find((r) => r.id === (id("requestId") ?? id("id")))?.projectId ??
+    null;
+  return projectId !== null && seesProject(me, projectId) ? projectId : null;
+}
+
+/** Il rifiuto di un'azione A all'invio, in forma di dato per «Didn't run: … · Who?» (Task 9). */
+function failureOf(me: string, actions: ProposedAction[], failure: GroupFailure): ExecutedFailure {
+  const action = actions[failure.index];
+  const projectId = action ? projectOfArgs(me, action.args) : null;
+  return {
+    code: failure.code,
+    index: failure.index,
+    whoAction: action && isCatalogFn(action.fn) ? CLAUDE_CATALOG[action.fn].whoAction : null,
+    projectId,
+    projectCode: projectId === null ? null : (state.projectsById.get(projectId)?.code ?? null),
+    ...(failure.reasons ? { reasons: failure.reasons } : {}),
+  };
 }
 
 // --- «com'era» e «Annulla» -----------------------------------------------------
@@ -357,6 +408,13 @@ function projectOfRef(ref: ObjectRef): string | null {
   }
 }
 
+/** Il codice del progetto di un oggetto di progetto (progetto, membro, impostazioni, iscrizione). */
+function projectCodeOfRef(ref: ObjectRef): string | null {
+  if (ref.kind === "task" || ref.kind === "request" || ref.kind === "milestone") return null;
+  const projectId = projectOfRef(ref);
+  return projectId === null ? null : (state.projectsById.get(projectId)?.code ?? null);
+}
+
 /** Chi guarda vede il progetto, aperto o da archiviato (chi l'ha archiviato lo conosce). */
 const seesProject = (viewerId: string, projectId: string) =>
   visibleProjectIds(viewerId).has(projectId) || archivedProjectIdsFor(viewerId).has(projectId);
@@ -418,7 +476,14 @@ export type UndoResult =
     }
   | { ok: false; error: "changed_after"; byName: string | null; code: string | null }
   /** `whoAction` è quella della voce dell'inverso (`null` solo per `setSubscription`, P19). */
-  | { ok: false; error: "forbidden"; whoAction: string | null; projectId: string | null }
+  | {
+      ok: false;
+      error: "forbidden";
+      whoAction: string | null;
+      projectId: string | null;
+      /** Il codice dello stesso progetto, per la frase («… in OLV»); `null` con `projectId`. */
+      projectCode?: string | null;
+    }
   | { ok: false; error: "busy"; reasons: (BusyReason | TaskBusyReason)[] };
 
 /**
@@ -469,13 +534,15 @@ function refusalOf(me: string, failure: GroupFailure, reversed: ClaudeActionReco
   const record = reversed[failure.index]!;
   switch (failure.code) {
     case "forbidden": {
-      const projectId = record.objects.map(projectOfRef).find((p) => p !== null) ?? null;
+      const found = record.objects.map(projectOfRef).find((p) => p !== null) ?? null;
+      // Un progetto che chi chiede non vede più non si nomina (R-G5).
+      const projectId = found !== null && seesProject(me, found) ? found : null;
       return {
         ok: false,
         error: "forbidden",
         whoAction: CLAUDE_CATALOG[record.inverse!.fn].whoAction,
-        // Un progetto che chi chiede non vede più non si nomina (R-G5).
-        projectId: projectId !== null && seesProject(me, projectId) ? projectId : null,
+        projectId,
+        projectCode: projectId === null ? null : (state.projectsById.get(projectId)?.code ?? null),
       };
     }
     case "busy":

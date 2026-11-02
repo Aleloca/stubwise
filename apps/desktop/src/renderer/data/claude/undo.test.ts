@@ -214,6 +214,7 @@ describe("«Annulla» di una scheda", () => {
       error: "forbidden",
       whoAction: "manageProjectSettings",
       projectId: OLV,
+      projectCode: "OLV",
     });
     expect(state.projectsById.get(OLV)!.archived).toMatchObject({ byId: GIULIA });
   });

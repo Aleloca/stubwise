@@ -226,6 +226,22 @@ describe("R-G5: un codice che chi chiede non vede è un codice che non esiste", 
   });
 });
 
+describe("registrare una decisione senza `decisions.record` (ruling del controller, T6 I1)", () => {
+  it("Giulia in AUD: la riga lo dice e chiude col «Who?», nessun link al dialogo", async () => {
+    for (const text of [
+      "Record the decision that we use Postgres on AUD-4",
+      "Log a decision in AUD",
+    ]) {
+      const line = await refusal(text, "p-giulia");
+      expect(line).toContain(en("claude.answers.refused.recordDecisionCant", { code: "AUD" }));
+      expect(links(line)).toEqual(["who:recordDecision/AUD"]);
+    }
+    // Marco, che può, riceve il link come prima.
+    const marco = await refusal("Record the decision that we use Postgres on AUD-4", "p-marco");
+    expect(links(marco)).toEqual(["#/p/AUD/overview?recordDecision=1&task=AUD-4"]);
+  });
+});
+
 describe("«elimina <codice>»", () => {
   it("una task visibile: la scheda B con deleteTask, niente da eseguire", async () => {
     const before = JSON.stringify(state.tasks);

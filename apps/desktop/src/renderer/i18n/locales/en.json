@@ -3352,7 +3352,9 @@
         "send": "Sending is yours to do: I don't send emails or replies.",
         "sendMail": "Open Mail →",
         "sendSupport": "Open Support of **{{code}}** →",
-        "deploy": "Stubwise doesn't deploy: merging a pull request is as far as it goes."
+        "deploy": "Stubwise doesn't deploy: merging a pull request is as far as it goes.",
+        "recordDecisionCant": "And you can't record decisions in **{{code}}** either.",
+        "who": "Who?"
       }
     },
     "proposalFailed": {
@@ -3523,7 +3525,26 @@
         "expiredNow": "This proposal has expired: nothing was changed.",
         "notYours": "Only the person who asked can decide on this proposal.",
         "failedNow": "This proposal can't be carried out any more: nothing was changed.",
-        "forYou": "Your proposal"
+        "forYou": "Your proposal",
+        "reasons": {
+          "notifies": "Notifies {{names}}",
+          "notifiesMore": "Notifies {{names}} and others who follow this in {{code}}",
+          "notifiesMoreNoProject": "Notifies {{names}} and others",
+          "notifiesOnlyMore": "Notifies people who follow this in {{code}}",
+          "notifiesOnlyMoreNoProject": "Notifies other people",
+          "andMore_one": "{{names}} and {{count}} more",
+          "andMore_other": "{{names}} and {{count}} more",
+          "and": " and ",
+          "automationCreated": "An automation in {{code}} starts when a task is created",
+          "automationClosed": "An automation in {{code}} starts when a task is closed",
+          "automation": "An automation in {{code}} starts",
+          "irreversible": "Can't be undone",
+          "reauth": "Asks for your two-step code",
+          "label": "What happens"
+        },
+        "delete": "Delete",
+        "needsCode": "This needs your two-step code first. Nothing was changed.",
+        "reauthMany": "carry out these {{count}} changes"
       },
       "result": {
         "open": "Open",
@@ -3620,6 +3641,73 @@
         "refineClosed": "This refinement is closed.",
         "refineItemClosed": "The request was turned into a task or archived: this refinement is closed.",
         "automaticServer": "This session runs on its own with read-only access to {{code}}: it can only be watched."
+      },
+      "executed": {
+        "verb": {
+          "createTask": "Created <obj/>",
+          "assign": "Assigned <obj/> to {{name}}",
+          "planTask": "Planned <obj/> for {{week}}",
+          "deleteTask": "Deleted <obj/>",
+          "addComment": "Commented on <obj/>",
+          "startRun": "Started Claude on <obj/>",
+          "archiveProject": "Archived <obj/>",
+          "reopenProject": "Reopened <obj/>",
+          "setSubscription": "Changed your alerts in <obj/>",
+          "saveProjectAutomations": "Changed the automations of <obj/>",
+          "addMember": "Added {{name}} to <obj/>",
+          "removeMember": "Removed {{name}} from <obj/>",
+          "setMemberRole": "Changed the role of {{name}} in <obj/>"
+        },
+        "generic": "Done: {{summary}}",
+        "named": "“{{name}}”",
+        "assignedToYou": "assigned to you",
+        "assignedTo": "assigned to {{name}}",
+        "reason": {
+          "forbidden": "you can't {{action}} in {{code}}",
+          "forbiddenNoProject": "you can't {{action}}",
+          "busy": "{{reasons}}",
+          "invalid": "something in the request isn't valid, nothing was changed"
+        },
+        "didntRunLead": "Didn't run:",
+        "week": "W{{n}}"
+      },
+      "busy": {
+        "claudeSession": "Claude is working on {{code}}",
+        "claudeSessionHidden": "Claude is working on it",
+        "openPr": "pull request #{{number}} is open",
+        "openPrOn": "pull request #{{number}} is open on {{code}}",
+        "openPrNoNumber": "a pull request is open",
+        "openPrNoNumberOn": "a pull request is open on {{code}}",
+        "serverFix": "a fix is running on {{code}}",
+        "release": "release {{code}} is in progress",
+        "and": " and "
+      },
+      "undo": {
+        "undo": "Undo",
+        "undoBoth": "Undo both",
+        "undoAll": "Undo all {{count}}",
+        "needsCode": "asks for your code",
+        "undone": "Undone",
+        "undoneBy": "Undone by {{name}}",
+        "changedAfter": "{{name}} changed it afterwards · can't undo from here",
+        "changedAfterAnon": "It was changed afterwards · can't undo from here",
+        "open": "Open {{code}}",
+        "notUndoable": "Can't be undone",
+        "forbidden": "You can no longer undo this in {{code}}.",
+        "forbiddenNoProject": "You can no longer undo this.",
+        "busy": "Can't undo yet: {{reasons}}.",
+        "busyAfter": "Try again when it's done.",
+        "alreadyUndone": "Already undone.",
+        "notFound": "Can't find {{code}}.",
+        "notFoundNoCode": "Can't find it any more.",
+        "failed": "Couldn't undo. Try again.",
+        "retry": "Retry",
+        "undone_m": "Undone",
+        "undoneBy_m": "Undone by {{name}}",
+        "changedAfter_m": "{{name}} changed it afterwards · can't undo from here",
+        "changedAfterAnon_m": "It was changed afterwards · can't undo from here",
+        "alreadyUndone_m": "Already undone.",
+        "reauthAction": "undo Claude's change"
       }
     },
     "destination": {

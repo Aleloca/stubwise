@@ -1,5 +1,5 @@
 import type { TicketPriority } from "@stubwise/shared";
-import type { ClaudeActionFn, ClassReason } from "./claude/types";
+import type { ClaudeActionFn, ClassReason, ExecutedFailure } from "./claude/types";
 
 // Modello dati dell'area 2 (task). Autonomo: il Task 2 farà di `types.ts` un
 // re-export di questo file più i tipi dell'ossatura che restano.
@@ -1041,6 +1041,8 @@ export type ConversationEvent =
       reasons?: ClassReason[];
       /** Area 10a: il gruppo di azioni eseguito dalla conferma (`state.claudeActions`), per «Annulla». */
       groupId?: string;
+      /** Area 10a (Task 9): il codice dell'oggetto di ogni azione eseguita (task, richiesta, progetto). */
+      objectCodes?: (string | null)[];
     }
   /**
    * Area 10a: azioni di Claude eseguite senza scheda (classe A) nella
@@ -1057,6 +1059,10 @@ export type ConversationEvent =
       resultCodes?: string[];
       /** Perché non è partita (`claude.executed.failed.<codice>`). */
       errorText?: Utterance;
+      /** Area 10a (Task 9): il codice dell'oggetto di ogni azione eseguita (task, richiesta, progetto). */
+      objectCodes?: (string | null)[];
+      /** Area 10a (Task 9): il rifiuto in forma di dato, per «Didn't run: … · Who?». */
+      failure?: ExecutedFailure;
     }
   | {
       id: string;

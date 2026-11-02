@@ -205,6 +205,9 @@ export const queryKeys = {
     ["as", personId, "claudeContext", "id", kind, code] as const,
   codeCitations: (personId: string, codes: string) =>
     ["as", personId, "codeCitations", codes] as const,
+  /** Area 10a (Task 9): i link delle righe D che chi guarda apre (si rileggono con le citazioni). */
+  openRoutes: (personId: string, routes: string) =>
+    ["as", personId, "citations", "routes", routes] as const,
   mentions: (personId: string, kind: "objects" | "people", q: string) =>
     ["as", personId, "mentions", kind, q] as const,
   peopleActivity: (personId: string, date: string, departmentId?: string) =>
@@ -808,6 +811,17 @@ export function useCodeCitations(codes: readonly string[]) {
   });
 }
 
+/** Gli indirizzi interni (i link delle righe D di Claude) che chi guarda può aprire. */
+export function useOpenRoutes(routes: readonly string[]) {
+  const me = useSessionPersonId();
+  const key = routes.join("|");
+  return useQuery({
+    queryKey: queryKeys.openRoutes(me, key),
+    queryFn: () => api.openRoutes([...routes]),
+    enabled: routes.length > 0,
+  });
+}
+
 /** I menu «#» e «@» della casella: cerca mentre si scrive, solo ciò che chi guarda vede. */
 export function useMentionSearch(kind: "objects" | "people", q: string, enabled = true) {
   const me = useSessionPersonId();
@@ -1316,6 +1330,8 @@ const PROPOSAL_AREAS = [
   ...DECISION_AREAS,
   "peopleActivity",
   "dailyReports",
+  // Area 10a: una task eliminata o rinata cambia i codici delle righe di Claude.
+  "codeCitations",
 ] as const;
 const DECIDE_AREAS = [...CONVERSATION_CHANGE_AREAS, ...DECISION_AREAS] as const;
 export const RUN_AREAS = [...CONVERSATION_CHANGE_AREAS, ...TASK_AREAS] as const;

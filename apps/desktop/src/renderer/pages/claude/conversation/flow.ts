@@ -27,6 +27,8 @@ export type FlowItem =
   | { kind: "question"; key: string; event: Ev<"question"> }
   | { kind: "plan"; key: string; event: Ev<"plan"> }
   | { kind: "proposal"; key: string; event: Ev<"proposal"> }
+  /** Area 10a: azioni di Claude eseguite (o «Didn't run»); una `pending` non si disegna mai. */
+  | { kind: "executed"; key: string; event: Ev<"executed"> }
   | { kind: "work_result"; key: string; event: Ev<"work_result"> };
 
 /** Gli eventi che scrive Claude (e che quindi aprono il suo turno). */
@@ -37,6 +39,7 @@ const CLAUDE_TYPES = new Set<ConversationEvent["type"]>([
   "question",
   "plan",
   "proposal",
+  "executed",
   "work_result",
 ]);
 
@@ -47,6 +50,8 @@ export function flowItems(events: readonly ConversationEvent[]): FlowItem[] {
   const ordinals = new Map<string, number>();
 
   for (const event of events) {
+    // Fra il motore e l'esecuzione: non arriva a chi legge, e non si disegna.
+    if (event.type === "executed" && event.status === "pending") continue;
     if (CLAUDE_TYPES.has(event.type) && !claudeTurn) {
       out.push({ kind: "claude", key: `claude-${event.id}`, at: event.at });
       claudeTurn = true;
@@ -89,6 +94,7 @@ export function flowItems(events: readonly ConversationEvent[]): FlowItem[] {
       case "question":
       case "plan":
       case "proposal":
+      case "executed":
       case "work_result":
         out.push({ kind: event.type, key: event.id, event } as FlowItem);
         break;

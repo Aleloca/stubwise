@@ -164,6 +164,59 @@ async function main() {
       return;
     }
 
+    // Area 10a, Task 9 (`CAPTURE_A10A_ACTIONS=1`): le azioni di Claude nella
+    // conversazione di Giulia — la riga eseguita con «Undo» (MKX), la scheda B
+    // con «Notifies Matteo Conti» (AUD), la scheda di un'eliminazione col
+    // Confirm rosso e «Can't be undone», la riga D con il link; poi la riga
+    // dopo «Undo». Scatti `a10a-actions-flow-*` e `a10a-actions-undone-*`.
+    if (process.env.CAPTURE_A10A_ACTIONS) {
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      for (const v of variants) {
+        const { page, context } = await open(v.scheme, v.viewport, "/home", { lang: v.lang });
+        const texts =
+          v.lang === "it"
+            ? ['crea "Prova" in MKX', 'crea "Prova" in AUD', "Elimina MKX-7", "Approva il piano di AUD-4"]
+            : ['create "Prova" in MKX', 'create "Prova" in AUD', "Delete MKX-7", "Approve the plan of AUD-4"];
+        const id = await page.evaluate(async (messages) => {
+          const api = await import("/data/api.ts");
+          const session = await import("/data/session.ts");
+          session.setSessionPersonId("p-giulia");
+          const c = await api.createConversation({ contextProjectId: "prj-mkx" });
+          for (const text of messages) {
+            await api.sendMessage(c.id, { text });
+            await api.whenIdle(c.id);
+          }
+          return c.id;
+        }, texts);
+        await page.evaluate((h) => {
+          window.location.hash = h;
+        }, `/claude/${id}`);
+        await page.locator("[data-executed]").first().waitFor();
+        await page.waitForTimeout(1500);
+        // La riga eseguita in testa allo scatto, con la scheda B sotto.
+        await page.locator("[data-executed]").first().evaluate((el) => el.scrollIntoView({ block: "start" }));
+        await page.waitForTimeout(300);
+        await page.mouse.move(v.viewport.width - 2, v.viewport.height - 2);
+        const flow = `a10a-actions-flow-${v.suffix}.png`;
+        if (!only || only.test(flow)) await shot(page, flow);
+        await page.locator("[data-executed] [data-undo-button]").first().click();
+        await page.locator('[data-executed] [data-undo="undone"]').first().waitFor();
+        await page.waitForTimeout(400);
+        await page.mouse.move(v.viewport.width - 2, v.viewport.height - 2);
+        const undone = `a10a-actions-undone-${v.suffix}.png`;
+        if (!only || only.test(undone)) await shot(page, undone);
+        await context.close();
+      }
+      return;
+    }
+
     // Area 10a, Task 8 (`CAPTURE_A10A_PANEL=1`): il riquadro di Claude. Laura
     // sulle task di ACQ con ACQ-3 aperta nel pannello: il riquadro vuoto col
     // chip e le righe PROVA, poi una conversazione nata dal riquadro. A 1024

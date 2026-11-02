@@ -41,6 +41,16 @@ describe("flowItems", () => {
     ]);
   });
 
+  it("area 10a: una riga `executed` fatta è una riga di Claude; una `pending` non si disegna mai", () => {
+    const create = { fn: "createTask" as const, args: {}, summary: "Create" };
+    const items = flowItems([
+      ev({ type: "executed", groupId: "", actions: [create], status: "pending" }),
+      ev({ type: "executed", groupId: "cg-1", actions: [create], status: "done" }),
+    ]);
+    expect(items.map((i) => i.kind)).toEqual(["claude", "executed"]);
+    expect(items[1]).toMatchObject({ event: { groupId: "cg-1", status: "done" } });
+  });
+
   it("citedRefs: ogni oggetto una volta", () => {
     expect(
       citedRefs([

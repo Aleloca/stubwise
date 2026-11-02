@@ -73,6 +73,37 @@ export const CrossGlyph = ({ size }: { size?: number }) => (
     <path d="m4.5 4.5 7 7m0-7-7 7" />
   </Glyph>
 );
+/** «Annullata»: la freccia che torna indietro (↺). */
+export const UndoneGlyph = ({ size }: { size?: number }) => (
+  <Glyph size={size}>
+    <path d="M4 3.5v3.5h3.5" />
+    <path d="M4.3 7A4.6 4.6 0 1 1 5 11.6" />
+  </Glyph>
+);
+/** Le righe dei motivi di una scheda (area 10a): avvisa, automazione, non si annulla, codice. */
+export const BellGlyph = () => (
+  <Glyph>
+    <path d="M4.5 10.8V7.3a3.5 3.5 0 0 1 7 0v3.5l1 1.2h-9z" />
+    <path d="M6.8 13.5a1.3 1.3 0 0 0 2.4 0" />
+  </Glyph>
+);
+export const AutomationGlyph = () => (
+  <Glyph>
+    <path d="M9 1.8 4 9h4l-1 5.2L12 7H8z" />
+  </Glyph>
+);
+export const IrreversibleGlyph = () => (
+  <Glyph>
+    <circle cx="8" cy="8" r="5.5" />
+    <path d="m4.1 11.9 7.8-7.8" />
+  </Glyph>
+);
+export const LockGlyph = () => (
+  <Glyph>
+    <rect x="3.5" y="7" width="9" height="6.5" rx="1.2" />
+    <path d="M5.5 7V5.3a2.5 2.5 0 0 1 5 0V7" />
+  </Glyph>
+);
 export const DisclosureGlyph = ({ open }: { open: boolean }) => (
   <span
     aria-hidden="true"

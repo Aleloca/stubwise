@@ -1,8 +1,9 @@
 import { Fragment, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { Markdown, type TextDecorator } from "../../../tasks-ui/Markdown";
+import { WhoCanLink } from "../../../components/WhoCanLink";
+import { Markdown, type LinkRenderer, type TextDecorator } from "../../../tasks-ui/Markdown";
 import { Avatar } from "../../../tasks-ui/PersonChip";
-import { usePeople } from "../../../data/queries";
+import { useOpenRoutes, usePeople } from "../../../data/queries";
 import { DriveAnchor, HiddenCode, hiddenCodesOf, UsedLine, useCitationIndex } from "./citations";
 import { CODE_IN_TEXT, type FlowItem } from "./flow";
 import { clock } from "./parts";
@@ -65,6 +66,7 @@ export function AssistantMessage({
   );
   const { event, refs } = item;
   const cursor = streaming && !event.done;
+  const link = useInternalLinks(event.text);
   return (
     <div className="event-enter flex min-w-0 flex-col gap-2" data-assistant={event.id}>
       <div className="min-w-0">
@@ -72,6 +74,7 @@ export function AssistantMessage({
           source={event.text}
           className="[&>ol]:max-w-[68ch] [&>p]:max-w-[68ch] [&>ul]:max-w-[68ch]"
           decorate={decorate}
+          link={link}
           codeLabel={t("claude.conversation.codeBlock")}
           tableLabel={t("claude.conversation.table")}
           trailing={
@@ -87,6 +90,56 @@ export function AssistantMessage({
       </div>
       {showUsed && refs.length > 0 && !cursor && <UsedLine refs={refs} />}
     </div>
+  );
+}
+
+/** Gli indirizzi dei link markdown di un testo: interni (`#/…`) e i «Who?» (`who:<azione>/<CODE>`). */
+const LINK_TARGET = /\]\(((?:#\/|who:)[^)\s]+)\)/g;
+
+/** Il progetto di un «Who?» di Claude: `who:recordDecision/AUD` → azione e codice. */
+const whoOf = (href: string) => {
+  const m = /^who:([A-Za-z]+)\/([A-Z]{2,4})$/.exec(href);
+  return m ? { action: m[1]!, code: m[2]! } : null;
+};
+
+/**
+ * I link di una riga D di Claude (area 10a, Task 9): un indirizzo interno è
+ * un link solo se chi legge vede la meta (`useOpenRoutes`, che lo dice il
+ * livello dati), altrimenti resta l'etichetta; un «Who?» diventa
+ * `WhoCanLink`, solo se chi legge vede il progetto. Mai una scheda né un
+ * bottone che faccia il gesto.
+ */
+function useInternalLinks(text: string): LinkRenderer {
+  const routes = useMemo(() => {
+    const out = new Set<string>();
+    for (const m of text.matchAll(LINK_TARGET)) {
+      const who = whoOf(m[1]!);
+      out.add(who ? `#/p/${who.code}/overview` : m[1]!);
+    }
+    return [...out];
+  }, [text]);
+  const open = useOpenRoutes(routes).data;
+  return useCallback<LinkRenderer>(
+    (href, label, key) => {
+      const who = whoOf(href);
+      if (who) {
+        return open?.includes(`#/p/${who.code}/overview`) ? (
+          <WhoCanLink key={key} action={who.action} projectCode={who.code} />
+        ) : null;
+      }
+      if (!href.startsWith("#/")) return undefined;
+      if (!open?.includes(href)) return <span key={key}>{label}</span>;
+      return (
+        <a
+          key={key}
+          href={href}
+          className="font-medium text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
+        >
+          {label}
+        </a>
+      );
+    },
+    [open],
   );
 }
 

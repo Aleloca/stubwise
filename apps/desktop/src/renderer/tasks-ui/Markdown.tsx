@@ -120,6 +120,12 @@ function safeHref(href: string): string | null {
 export type TextDecorator = (text: string, key: string) => ReactNode;
 
 /**
+ * Rende un link `[etichetta](indirizzo)` che il Markdown da solo non apre
+ * (un indirizzo interno `#/…`); `undefined` lascia la resa di sempre.
+ */
+export type LinkRenderer = (href: string, label: ReactNode, key: string) => ReactNode | undefined;
+
+/**
  * Un percorso (`src/import/match.ts`) che può andare a capo dopo ogni «/»,
  * nel monospace di sistema del flusso, con il percorso intero al passaggio.
  */
@@ -143,7 +149,12 @@ export function BreakablePath({ path, className = "" }: { path: string; classNam
 
 const PATH = /^[\w.@-]+(\/[\w.@-]+)+\/?$/;
 
-function inline(text: string, key: string, decorate?: TextDecorator): ReactNode[] {
+function inline(
+  text: string,
+  key: string,
+  decorate?: TextDecorator,
+  link?: LinkRenderer,
+): ReactNode[] {
   const parts = text.split(INLINE);
   return parts.map((part, i) => {
     const k = `${key}-${i}`;
@@ -151,7 +162,7 @@ function inline(text: string, key: string, decorate?: TextDecorator): ReactNode[
     if (/^(\*\*|__).+\1$/.test(part)) {
       return (
         <strong key={k} className="font-semibold text-ink">
-          {inline(part.slice(2, -2), k, decorate)}
+          {inline(part.slice(2, -2), k, decorate, link)}
         </strong>
       );
     }
@@ -172,9 +183,13 @@ function inline(text: string, key: string, decorate?: TextDecorator): ReactNode[
         </code>
       );
     }
-    const link = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(part);
-    if (link) {
-      const href = safeHref(link[2]!);
+    const anchor = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(part);
+    if (anchor) {
+      // Un indirizzo interno (`#/…`) lo rende chi sa dove porta (il flusso
+      // di Claude): l'etichetta, col suo grassetto, senza i codici decorati.
+      const custom = link?.(anchor[2]!, inline(anchor[1]!, k), k);
+      if (custom !== undefined) return <Fragment key={k}>{custom}</Fragment>;
+      const href = safeHref(anchor[2]!);
       return href ? (
         <a
           key={k}
@@ -183,14 +198,14 @@ function inline(text: string, key: string, decorate?: TextDecorator): ReactNode[
           rel="noreferrer noopener"
           className="text-ink underline decoration-ink/40 hover:decoration-ink"
         >
-          {link[1]}
+          {anchor[1]}
         </a>
       ) : (
-        link[1]
+        anchor[1]
       );
     }
     if (/^([*_]).+\1$/.test(part)) {
-      return <em key={k}>{inline(part.slice(1, -1), k, decorate)}</em>;
+      return <em key={k}>{inline(part.slice(1, -1), k, decorate, link)}</em>;
     }
     return decorate ? <Fragment key={k}>{decorate(part, k)}</Fragment> : part;
   });
@@ -205,6 +220,7 @@ export function Markdown({
   source,
   className = "",
   decorate,
+  link,
   codeLabel = "Code",
   tableLabel = "Table",
   trailing,
@@ -213,6 +229,8 @@ export function Markdown({
   source: string;
   className?: string;
   decorate?: TextDecorator;
+  /** I link che il chiamante sa rendere (gli indirizzi interni delle righe D di Claude). */
+  link?: LinkRenderer;
   /** Il nome accessibile di un blocco di codice (che si scorre da tastiera). */
   codeLabel?: string;
   /** Il nome accessibile del contenitore di una tabella (che si scorre da tastiera). */
@@ -250,14 +268,14 @@ export function Markdown({
                       : "pt-2 text-lg font-semibold text-ink"
                   }
                 >
-                  {inline(block.text, key, decorate)}
+                  {inline(block.text, key, decorate, link)}
                   {tail(i)}
                 </Heading>
               );
             }
             return (
               <p key={key} className="pt-1 font-semibold text-ink">
-                {inline(block.text, key, decorate)}
+                {inline(block.text, key, decorate, link)}
                 {tail(i)}
               </p>
             );
@@ -268,7 +286,7 @@ export function Markdown({
                 key={key}
                 className="border-l border-rule-strong pl-3 whitespace-pre-line text-ink-muted"
               >
-                {inline(block.text, key, decorate)}
+                {inline(block.text, key, decorate, link)}
                 {tail(i)}
               </blockquote>
             );
@@ -282,7 +300,7 @@ export function Markdown({
               >
                 {block.items.map((item, j) => (
                   <li key={j}>
-                    {inline(item, `${key}-${j}`, decorate)}
+                    {inline(item, `${key}-${j}`, decorate, link)}
                     {j === block.items.length - 1 && tail(i)}
                   </li>
                 ))}
@@ -320,7 +338,7 @@ export function Markdown({
                           scope="col"
                           className="px-2 py-1.5 text-left font-semibold whitespace-nowrap text-ink first:pl-0"
                         >
-                          {inline(cell, `${key}-h${j}`, decorate)}
+                          {inline(cell, `${key}-h${j}`, decorate, link)}
                         </th>
                       ))}
                     </tr>
@@ -330,7 +348,7 @@ export function Markdown({
                       <tr key={r} className="border-b border-rule">
                         {block.header.map((_, j) => (
                           <td key={j} className="px-2 py-1.5 align-top text-ink first:pl-0">
-                            {inline(row[j] ?? "", `${key}-${r}-${j}`, decorate)}
+                            {inline(row[j] ?? "", `${key}-${r}-${j}`, decorate, link)}
                           </td>
                         ))}
                       </tr>
@@ -342,7 +360,7 @@ export function Markdown({
           default:
             return (
               <p key={key} className="whitespace-pre-line">
-                {inline(block.text, key, decorate)}
+                {inline(block.text, key, decorate, link)}
                 {tail(i)}
               </p>
             );

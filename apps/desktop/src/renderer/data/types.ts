@@ -42,7 +42,7 @@ import type {
 // dell'ossatura e del livello dati (chi guarda, ricerca, letture derivate).
 export * from "./model";
 // La classe calcolata delle azioni di Claude (area 10a): dalla foglia dei tipi.
-export type { ActionClass, ClassReason } from "./claude/types";
+export type { ActionClass, ClassReason, ClaudeBusyReason, ExecutedFailure } from "./claude/types";
 
 /**
  * Permessi di progetto che vivono solo nel prototipo (non nel registro

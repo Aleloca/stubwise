@@ -1666,6 +1666,7 @@ export function readsAs(me: string): ReadApi {
     listConversations: bind(reads.listConversations),
     listAutomations: bind(() => reads.automations.listAutomations()),
     listProjectServers: bind(reads.servers.listProjectServers),
+    canRecordDecisions: bind(reads.canRecordDecisions),
   };
 }
 
@@ -2815,6 +2816,7 @@ async function settleInConversation(
       status: "confirmed",
       resultCodes: result.codes,
       groupId: result.groupId,
+      objectCodes: result.objectCodes,
       ...(chosen.indexes ? { confirmedActions: chosen.indexes } : {}),
     },
     gen,

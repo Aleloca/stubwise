@@ -159,7 +159,7 @@ describe("classe A: parte all'invio", () => {
       expect.objectContaining({
         status: "open",
         cls: "B",
-        reasons: [{ kind: "automation", projectId: MKX }],
+        reasons: [{ kind: "automation", projectId: MKX, event: "task_created" }],
       }),
     ]);
     // Non è un «Didn't run»: Claude chiede prima, e non dice «fatto».

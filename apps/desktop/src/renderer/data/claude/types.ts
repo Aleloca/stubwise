@@ -71,9 +71,15 @@ export type CatalogInverse = { fn: ClaudeActionFn; args: Record<string, unknown>
 
 /** Perché un'azione chiede una scheda, nell'ordine in cui lo dice (Task 4). */
 export type ClassReason =
-  /** `personIds`: chi riceverebbe un avviso e chi chiede vede; `more`: ce n'è anche fuori da quelli (mai contati). */
-  | { kind: "notifies"; personIds: string[]; more: boolean }
-  | { kind: "automation"; projectId: string }
+  /**
+   * `personIds`: chi riceverebbe un avviso e chi chiede vede; `more`: ce n'è
+   * anche fuori da quelli (mai contati). `projectId` (Task 9) solo con `more`
+   * e un progetto solo: dove stanno gli altri, per «… and others who follow
+   * this in AUD» (un progetto che chi chiede vede).
+   */
+  | { kind: "notifies"; personIds: string[]; more: boolean; projectId?: string }
+  /** `event` (Task 9): quando parte, per la riga della scheda («…when a task is created»). */
+  | { kind: "automation"; projectId: string; event?: "task_created" | "task_closed" }
   | { kind: "irreversible" }
   | { kind: "reauth" };
 
@@ -103,4 +109,26 @@ export interface ClaudeActionRecord {
   inverse: CatalogInverse;
   objects: ObjectRef[];
   undone: { at: string; byId: string } | null;
+}
+
+/** Perché un gruppo è occupato, come lo legge chi chiede (le forme di `taskDelete` e del 9c). */
+export type ClaudeBusyReason =
+  | { kind: "claude_session"; code: string | null; title?: string | null; waiting?: boolean }
+  | { kind: "open_pr"; repo: string | null; number: number | null }
+  | { kind: "server_fix"; serverCode: string }
+  | { kind: "release_fix"; releaseCode: string }
+  | { kind: "release"; code: string };
+
+/**
+ * Perché una riga `executed` non è partita («Didn't run», Task 9), scritto
+ * quando l'invio la rifiuta: il codice, l'azione del gruppo e il «Who?»
+ * della voce (`whoAction`), col progetto solo se chi chiede lo vede (R-G5).
+ */
+export interface ExecutedFailure {
+  code: "forbidden" | "not_found" | "invalid" | "conflict" | "busy" | "reauth_required" | "other";
+  index: number;
+  whoAction: string | null;
+  projectId: string | null;
+  projectCode: string | null;
+  reasons?: ClaudeBusyReason[];
 }
