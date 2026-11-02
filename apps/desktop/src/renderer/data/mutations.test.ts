@@ -354,17 +354,17 @@ describe("planning", () => {
     expect((await taskOf(task.code)).assigneeId).toBe(task.assigneeId);
   });
 
-  it("planTask: una riassegnazione avvisa chi perde e chi prende la task, una nuova settimana l'assegnatario", async () => {
+  it("planTask: una riassegnazione avvisa chi perde (planning.changed) e chi prende la task (task.assigned), una nuova settimana l'assegnatario", async () => {
     as("p-giulia");
     const task = (await listTasks({ projectIds: ["prj-mkx"] })).find(
       (t) => t.assigneeId && t.assigneeId !== "p-giulia",
     )!;
     const from = task.assigneeId!;
     const to = ["p-elena", "p-paolo", "p-chiara"].find((id) => id !== from)!;
-    const countFor = async (id: string) => {
+    const countFor = async (id: string, kind = "planning.changed") => {
       as(id);
       const n = (await listNotifications()).filter(
-        (x) => x.kind === "planning.changed" && x.objectCode === task.code,
+        (x) => x.kind === kind && x.objectCode === task.code,
       ).length;
       as("p-giulia");
       return n;
@@ -372,9 +372,11 @@ describe("planning", () => {
     const [fromBefore, toBefore] = [await countFor(from), await countFor(to)];
     await planTask(task.id, { assigneeId: to, week: task.plannedWeek });
     expect(await countFor(from)).toBe(fromBefore + 1);
-    expect(await countFor(to)).toBe(toBefore + 1);
+    // Chi la prende ha un avviso solo, `task.assigned` (area 10a, pre-flight).
+    expect(await countFor(to)).toBe(toBefore);
+    expect(await countFor(to, "task.assigned")).toBe(1);
     await planTask(task.id, { assigneeId: to, week: "2026-W48" });
-    expect(await countFor(to)).toBe(toBefore + 2);
+    expect(await countFor(to)).toBe(toBefore + 1);
     expect(await countFor(from)).toBe(fromBefore + 1);
   });
 

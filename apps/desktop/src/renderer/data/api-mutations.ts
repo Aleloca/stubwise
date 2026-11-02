@@ -21,6 +21,7 @@ import { linkIdentityAs } from "./admin/people";
 import * as reads from "./api";
 import * as scripts from "./conversation-scripts";
 import { publishChatEvent } from "./chat/events";
+import { currentVia, runAsClaude } from "./claude/via";
 import { DEFAULT_PUBLISHED_EVENTS } from "./seed/chat";
 import { COMMITS } from "./seed/commits";
 import { TODAY } from "./seed/dates";
@@ -164,7 +165,31 @@ function projectFor(me: string, id: string): Project {
   return project;
 }
 
-function publish(kind: string, task: Task, recipientId: string, title: string, body: string): void {
+/**
+ * Il segno «per conto di» di ciò che `me` scrive adesso (area 10a, Task 3):
+ * `via` e l'azione di Claude, solo dentro `runAsClaude`. Si sparge sulle
+ * righe d'attività.
+ */
+function viaMark(): Pick<ActivityEntry, "via" | "claudeActionId"> {
+  const via = currentVia();
+  return via ? { via: "claude", claudeActionId: via.actionId } : {};
+}
+
+/**
+ * Una notifica diretta a `recipientId` per una scrittura di `me`. Dentro
+ * `runAsClaude` porta `viaClaude` (vero solo adesso: si scrive nell'evento);
+ * dentro un «Annulla» non si scrive affatto, l'avviso c'era già.
+ */
+function publish(
+  me: string,
+  kind: string,
+  task: Task,
+  recipientId: string,
+  title: string,
+  body: string,
+): void {
+  const via = currentVia();
+  if (via && via.undoOfActionId !== null) return;
   const project = state.projectsById.get(task.projectId)!;
   state.notifications.push({
     id: newId("n"),
@@ -181,7 +206,27 @@ function publish(kind: string, task: Task, recipientId: string, title: string, b
     snoozedUntil: null,
     // Apre la task stessa, non solo l'elenco del progetto.
     link: `#/p/${project.code}/tasks?task=${task.code}`,
+    ...(via ? { viaClaude: { personId: me, actionId: via.actionId } } : {}),
   });
+}
+
+/**
+ * `task.assigned` (decisione del maintainer, 2 nov 2026): chi riceve una
+ * task (nata assegnata o riassegnata) lo sa; chi se la assegna da solo no,
+ * né Claude, che non riceve avvisi (R-K5).
+ */
+function publishAssigned(me: string, task: Task): void {
+  const assigneeId = task.assigneeId;
+  if (assigneeId === null || assigneeId === me) return;
+  if (PEOPLE.find((p) => p.id === assigneeId)?.isClaude) return;
+  publish(
+    me,
+    "task.assigned",
+    task,
+    assigneeId,
+    `You've been assigned ${task.code}`,
+    `${task.code} · ${task.title}: ${personName(me)} assigned it to you.`,
+  );
 }
 
 const personName = (id: string | null) => PEOPLE.find((p) => p.id === id)?.name ?? null;
@@ -288,6 +333,7 @@ export function createTaskAs(
   const code = state.projectsById.get(task.projectId)!.code;
   const byAutomation = task.source === "automation";
   publishAlert({
+    actorId: me,
     kind: byAutomation ? "task.created_by_automation" : "task.created",
     projectId: task.projectId,
     objectCode: task.code,
@@ -297,6 +343,9 @@ export function createTaskAs(
     mandatory:
       byAutomation && task.assigneeId ? [{ personId: task.assigneeId, reason: "assignee" }] : [],
   });
+  // Quella di un'automazione arriva già all'assegnatario come obbligatoria:
+  // un fatto, un avviso.
+  if (!byAutomation) publishAssigned(me, task);
   return task;
 }
 
@@ -416,6 +465,7 @@ function commitTaskPatch(me: string, task: Task, diffs: Diff[]): void {
       field: FIELD_LABEL[key] ?? key,
       from: describeValue(key, from),
       to: describeValue(key, to),
+      ...viaMark(),
     });
     (task as unknown as Record<string, unknown>)[key] = structuredClone(to);
   }
@@ -429,6 +479,8 @@ function commitTaskPatch(me: string, task: Task, diffs: Diff[]): void {
   if (diffs.some((d) => d.key === "plannedWeek" || d.key === "assigneeId")) {
     state.arrangements = state.arrangements.filter((a) => a.taskId !== task.id);
   }
+  // Ogni riassegnazione (modifica, pianificazione, disattivazione, in blocco).
+  if (diffs.some((d) => d.key === "assigneeId")) publishAssigned(me, task);
 }
 
 /** Passare a una famiglia `closed` imposta `closedAt`, uscirne lo azzera. */
@@ -511,18 +563,17 @@ function planTaskAs(
     ] as Diff[]
   ).filter((d) => d.from !== d.to);
   commitTaskPatch(me, task, diffs);
-  // Chi viene spostato è avvisato: in una riassegnazione sia chi perde la task sia chi la prende.
+  // Chi viene spostato è avvisato. In una riassegnazione chi perde la task ha
+  // `planning.changed`; chi la prende ha già `task.assigned` da
+  // `commitTaskPatch`, e un fatto solo dà un avviso solo (pre-flight).
   const reassigned = diffs.some((d) => d.key === "assigneeId");
   const interested = new Set(
-    diffs.length === 0
-      ? []
-      : reassigned
-        ? [previousAssigneeId, plan.assigneeId]
-        : [task.assigneeId],
+    diffs.length === 0 ? [] : reassigned ? [previousAssigneeId] : [task.assigneeId],
   );
   for (const person of interested) {
     if (!person || person === me) continue;
     publish(
+      me,
       "planning.changed",
       task,
       person,
@@ -583,6 +634,7 @@ export function addCommentAs(
     at,
     body: body.trim(),
     ...(replyToId ? { replyToId } : {}),
+    ...viaMark(),
   };
   state.activity.push(entry);
   task.lastActivityAt = at;
@@ -697,6 +749,7 @@ export async function answerDecision(
   task.lastActivityAt = at;
   if (request.askedById !== me) {
     publish(
+      me,
       "decision.answered",
       task,
       request.askedById,
@@ -2550,7 +2603,14 @@ export async function settleProposal(
   const { proposal, key } = place;
   const chosen = selectActions(proposal.actions, options.actionIndexes);
   claims.set(key, me);
-  const result = applyActions(me, chosen.actions);
+  // Le conferme di @Claude (conversazione e Chat) portano il segno «per
+  // conto di» come il riquadro (maintainer, 2 nov 2026; ruling del controller
+  // (pre-flight), P21). Nessuna riga in `state.claudeActions`, niente
+  // «Annulla»: le regole dell'area 4 non cambiano. La Posta chiama
+  // `applyActions` da sé e resta senza segno.
+  const result = runAsClaude({ actionId: newId("ca"), undoOfActionId: null }, () =>
+    applyActions(me, chosen.actions),
+  );
   if (!result.ok) {
     const error = i18n.t(`claude.proposalFailed.${result.code}`, {
       action: chosen.actions[result.index]?.summary ?? "",

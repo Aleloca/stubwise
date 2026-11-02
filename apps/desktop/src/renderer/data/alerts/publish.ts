@@ -1,4 +1,5 @@
 import { isCatalogKind } from "../../domain/alerts/catalog";
+import { currentVia } from "../claude/via";
 import { mergeMandatory } from "../../domain/alerts/recipients";
 import { newId, nextSeq, now, state } from "../store";
 import type { AppNotification, MandatoryReason, Release } from "../types";
@@ -17,10 +18,21 @@ export interface AlertInput {
   body: string;
   link: string;
   mandatory?: { personId: string; reason: MandatoryReason }[];
+  /**
+   * Chi ha fatto la scrittura che avvisa: serve al segno «per conto di»
+   * (area 10a). Dentro `runAsClaude` è obbligatorio.
+   */
+  actorId?: string;
 }
 
 export function publishAlert(input: AlertInput): void {
   if (!isCatalogKind(input.kind)) throw invalid("kind");
+  const via = currentVia();
+  // Dentro un «Annulla» nessun avviso nuovo: quello dell'azione c'era già.
+  if (via && via.undoOfActionId !== null) return;
+  // Un difetto di chi scrive, non un input sbagliato (come `recordChange`).
+  if (via && input.actorId === undefined)
+    throw new Error(`publishAlert under runAsClaude needs actorId: ${input.kind}`);
   const task = state.tasks.find(
     (t) => t.projectId === input.projectId && t.code === input.objectCode,
   );
@@ -41,6 +53,8 @@ export function publishAlert(input: AlertInput): void {
     link: input.link,
   };
   if (input.mandatory?.length) n.mandatory = input.mandatory.map((m) => ({ ...m }));
+  if (via && input.actorId !== undefined)
+    n.viaClaude = { personId: input.actorId, actionId: via.actionId };
   state.notifications.push(n);
 }
 

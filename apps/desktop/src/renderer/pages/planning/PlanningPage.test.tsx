@@ -70,14 +70,17 @@ describe("PlanningPage di progetto", () => {
     await waitFor(() => expect(taskOf("MKX-8").assigneeId).toBe("p-paolo"));
     expect(await screen.findByText("MKX-8 planned for Paolo Gatti · W43")).toBeInTheDocument();
 
-    // Cambio di persona: Paolo vede la notifica nel pannello.
+    // Cambio di persona: Paolo vede la notifica nel pannello. La task è nuova
+    // per lui: `task.assigned` (area 10a), un avviso solo.
     cleanup();
     renderRoute("/home", "p-paolo");
     await userEvent.click(await screen.findByRole("button", { name: /^Notifications/ }));
     const panel = await screen.findByRole("dialog", { name: "Notifications" });
+    expect(await within(panel).findByText("You've been assigned MKX-8")).toBeInTheDocument();
     expect(
-      await within(panel).findByText(`MKX-8 · ${taskOf("MKX-8").title}: Giulia Ferri planned it for 2026-W43.`),
+      within(panel).getByText(`MKX-8 · ${taskOf("MKX-8").title}: Giulia Ferri assigned it to you.`),
     ).toBeInTheDocument();
+    expect(within(panel).queryByText(/planned it for 2026-W43/)).toBeNull();
   });
 
   it("Sara vede le righe altrui in sola lettura; la sua resta viva", async () => {

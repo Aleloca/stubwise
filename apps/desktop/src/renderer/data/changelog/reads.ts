@@ -114,6 +114,7 @@ function readable(me: string, entry: ChangeEntry, visible: Set<string>): boolean
 
 function matchesFilter(entry: ChangeEntry, filter: ChangeFilter): boolean {
   if (filter.personId !== undefined && entry.actorId !== filter.personId) return false;
+  if (filter.via !== undefined && entry.via !== filter.via) return false;
   if (filter.projectId !== undefined && entry.projectId !== filter.projectId) return false;
   if (filter.kind !== undefined && entry.kind !== filter.kind) return false;
   if (filter.group !== undefined && changeTypeOf(entry.kind)?.group !== filter.group) return false;
@@ -381,11 +382,37 @@ function diffOf(entry: ChangeEntry, people: Set<string>): ChangeDiff | null {
   }
 }
 
-function view(me: string, stored: ChangeEntry, people: Set<string>): ChangeEntryView {
+/**
+ * La voce annullata da `entry`, se chi guarda legge anche quella; `null`
+ * altrimenti (R-G5: l'id di una voce che non legge non esce).
+ */
+function undoOfFor(me: string, entry: ChangeEntry, visible: Set<string>): string | null {
+  if (entry.undoOf === undefined) return null;
+  const undone = state.changelog.find((e) => e.id === entry.undoOf);
+  return undone && readable(me, undone, visible) ? undone.id : null;
+}
+
+function view(
+  me: string,
+  stored: ChangeEntry,
+  people: Set<string>,
+  visible: Set<string>,
+): ChangeEntryView {
   const { entry, labelKey } = resolveDeleted(me, resolveProject(me, stored));
   const type = changeTypeOf(entry.kind)!;
+  // I campi della voce uno per uno, mai con uno spread: `claudeActionId`
+  // resta nel livello dati e `undoOf` si calcola per chi guarda (ruling del
+  // controller (pre-flight), P16).
   return {
-    ...entry,
+    id: entry.id,
+    kind: entry.kind,
+    at: entry.at,
+    actorId: entry.actorId,
+    projectId: entry.projectId,
+    before: entry.before,
+    after: entry.after,
+    ...(entry.via ? { via: entry.via } : {}),
+    undoOf: undoOfFor(me, stored, visible),
     object: { ...entry.object },
     params: { ...entry.params },
     templateKey: type.templateKey,
@@ -446,7 +473,7 @@ function changesReadableBy(me: string, filter: ChangeFilter = {}): ChangeEntryVi
   const people = me === CLAUDE_ID ? new Set<string>() : visiblePeopleFor(me);
   return newestFirst(
     state.changelog.filter((e) => readable(me, e, visible) && matchesFilter(e, filter)),
-  ).map((e) => view(me, e, people));
+  ).map((e) => view(me, e, people, visible));
 }
 
 /** Il registro in Amministrazione: le voci leggibili da chi guarda, più recenti prima. */
@@ -482,6 +509,7 @@ export async function listChangeFilterChoices(projectId?: string): Promise<Chang
   const visible = visibleProjectIds(me);
   if (projectId !== undefined && !visible.has(projectId)) throw notFound();
   const people = me === CLAUDE_ID ? new Set<string>() : visiblePeopleFor(me);
+  const readableIds = readableProjectIds(me);
   return {
     everything: can(viewer, "changelog.view"),
     people: [...people]
@@ -500,5 +528,12 @@ export async function listChangeFilterChoices(projectId?: string): Promise<Chang
         .map((p) => ({ projectId: p.id, code: p.code, name: p.name, archived: true })),
     ].sort((a, b) => a.code.localeCompare(b.code)),
     groups: readableChangeGroups(viewer, projectId),
+    // Area 10a: «By Claude» solo se chi guarda ne legge almeno una (lì, con `projectId`).
+    claude: state.changelog.some(
+      (e) =>
+        e.via === "claude" &&
+        (projectId === undefined || e.projectId === projectId) &&
+        readable(me, e, readableIds),
+    ),
   };
 }

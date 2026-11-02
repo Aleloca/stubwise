@@ -534,6 +534,7 @@ function timelineOf(projectId: string): TimelineEvent[] {
       code: d.code,
       title: d.title,
       byId: d.deletedById,
+      ...(d.via === "claude" ? { viaClaude: true } : {}),
     });
   }
   for (const m of state.milestones) {
@@ -932,6 +933,7 @@ export async function listPeopleActivity(
       title: d.title,
       projectId: d.projectId,
       at: d.deletedAt,
+      viaClaude: d.via === "claude",
     });
   }
   for (const a of state.activity) {
@@ -948,6 +950,7 @@ export async function listPeopleActivity(
         from: a.from ?? null,
         to: a.to ?? null,
         at: a.at,
+        viaClaude: a.via === "claude",
       });
     } else if (a.kind === "comment" && !a.deletedAt) {
       row(a.authorId).comments.push({
@@ -957,6 +960,7 @@ export async function listPeopleActivity(
         projectId: t.projectId,
         body: a.body ?? "",
         at: a.at,
+        viaClaude: a.via === "claude",
       });
     }
   }

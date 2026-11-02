@@ -63,6 +63,16 @@ export interface ChangeEntry {
   before: string | null;
   after: string | null;
   params: Record<string, string>;
+  /**
+   * Area 10a: la voce l'ha scritta Claude per `actorId` (che resta la
+   * persona). Un valore stabile: la frase «Claude on behalf of …» la
+   * compone la pagina. Assente sulle voci a mano e su quelle nate prima.
+   */
+  via?: "claude";
+  /** Area 10a: l'azione di Claude che l'ha scritta (resta nel livello dati). */
+  claudeActionId?: string;
+  /** Area 10a: dentro un «Annulla», la voce dell'azione annullata sullo stesso oggetto. */
+  undoOf?: string;
 }
 
 /**
@@ -112,8 +122,17 @@ export type ChangeDiff =
    */
   | { kind: "setting"; before: SettingValue | null; after: SettingValue | null };
 
-/** Una voce come la legge il client: i campi calcolati dal livello dati. */
-export interface ChangeEntryView extends ChangeEntry {
+/**
+ * Una voce come la legge il client: i campi calcolati dal livello dati.
+ * `claudeActionId` non esce (ruling del controller (pre-flight), P16), e
+ * `undoOf` si calcola per chi guarda.
+ */
+export interface ChangeEntryView extends Omit<ChangeEntry, "undoOf" | "claudeActionId"> {
+  /**
+   * La voce annullata da questa, solo se chi guarda legge anche quella;
+   * altrimenti `null` (anche sulle voci che non annullano niente).
+   */
+  undoOf: string | null;
   templateKey: string;
   scope: "instance" | "project";
   group: string;
@@ -148,6 +167,8 @@ export interface ChangeFilterChoices {
    */
   projects: { projectId: string; code: string; name: string; archived?: boolean }[];
   groups: string[];
+  /** Area 10a: chi guarda legge almeno una voce scritta da Claude (il filtro «By Claude»). */
+  claude: boolean;
 }
 
 /** I filtri del registro: persona che ha agito, progetto, tipo, periodo (ISO, estremi compresi). */
@@ -162,4 +183,6 @@ export interface ChangeFilter {
   withinDays?: number;
   from?: string;
   to?: string;
+  /** Area 10a: solo le voci scritte da Claude per qualcuno. */
+  via?: "claude";
 }

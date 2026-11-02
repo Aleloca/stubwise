@@ -373,7 +373,9 @@ describe("proposte", () => {
     expect((outcome as { error: string }).error).toContain("Change AUD-2");
     expect(state.tasks).toEqual(tasksBefore);
     expect(state.tasksById.size).toBe(tasksBefore.length);
-    expect(state.counter).toBe(counterBefore);
+    // Solo l'id dell'azione di Claude (`ca`, il segno «per conto di», area
+    // 10a) si consuma prima del gruppo: nessun id di ciò che il gruppo scrive resta.
+    expect(state.counter).toBe(counterBefore + 1);
   });
 
   it("converte una richiesta e avvia Claude sulla task nata (taskFromAction)", async () => {

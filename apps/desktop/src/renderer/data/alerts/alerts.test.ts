@@ -279,7 +279,8 @@ describe("task.created_by_automation: le task delle Automazioni, sempre all'asse
   it("una task fatta a mano non lo pubblica", async () => {
     as("p-laura");
     const task = await createTask({ projectId: AUD, title: "A mano", assigneeId: "p-marco" });
-    expect(alertsOf(task.code).map((n) => n.kind)).toEqual(["task.created"]);
+    // Marco la riceve da chi l'ha creata: `task.assigned` (area 10a), non l'avviso dell'automazione.
+    expect(alertsOf(task.code).map((n) => n.kind)).toEqual(["task.created", "task.assigned"]);
   });
 
   it("Claude assegnatario non lo riceve (R-K5)", async () => {

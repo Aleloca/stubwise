@@ -369,7 +369,14 @@ describe("la traccia", () => {
     const day = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
     const marco = (await listPeopleActivity(day)).find((p) => p.personId === "p-marco");
     expect(marco?.tasksDeleted).toEqual([
-      { taskId: task.id, code: task.code, title: "Prova", projectId: ACQ, at: now() },
+      {
+        taskId: task.id,
+        code: task.code,
+        title: "Prova",
+        projectId: ACQ,
+        at: now(),
+        viaClaude: false,
+      },
     ]);
   });
 });

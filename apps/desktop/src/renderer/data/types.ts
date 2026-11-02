@@ -148,6 +148,8 @@ export type TimelineEvent =
       code: string;
       title: string;
       byId: string;
+      /** Eliminata da Claude per `byId` (assente se a mano). */
+      viaClaude?: boolean;
     };
 
 export type TimelineKind = TimelineEvent["kind"];
@@ -484,9 +486,18 @@ export interface PersonDayActivity {
     from: string | null;
     to: string | null;
     at: string;
+    /** Area 10a: lo spostamento l'ha fatto Claude per questa persona. */
+    viaClaude: boolean;
   }[];
   /** Area 10a: le task eliminate quel giorno, con codice e titolo di allora. */
-  tasksDeleted: { taskId: string; code: string; title: string; projectId: string; at: string }[];
+  tasksDeleted: {
+    taskId: string;
+    code: string;
+    title: string;
+    projectId: string;
+    at: string;
+    viaClaude: boolean;
+  }[];
   comments: {
     id: string;
     taskId: string;
@@ -494,6 +505,7 @@ export interface PersonDayActivity {
     projectId: string;
     body: string;
     at: string;
+    viaClaude: boolean;
   }[];
   decisions: {
     id: string;

@@ -1,3 +1,4 @@
+import { currentVia } from "../claude/via";
 import { newId, now, state } from "../store";
 import type { ChangeEntry, ChangeInput, ChangeType } from "./types";
 
@@ -58,6 +59,19 @@ export function recordChange(input: ChangeInput): void {
     after: input.after ?? null,
     params: Object.freeze({ ...input.params }),
   };
+  // Il segno «per conto di» (area 10a): da `currentVia()`, mai dall'input.
+  const via = currentVia();
+  if (via) {
+    entry.via = "claude";
+    entry.claudeActionId = via.actionId;
+    if (via.undoOfActionId !== null) {
+      // Dentro un «Annulla»: la voce dell'azione annullata sullo stesso oggetto.
+      const undone = [...state.changelog]
+        .reverse()
+        .find((e) => e.object.id === input.object.id && e.claudeActionId === via.undoOfActionId);
+      if (undone) entry.undoOf = undone.id;
+    }
+  }
   // Solo in aggiunta: una voce non si modifica né si cancella.
   state.changelog.push(Object.freeze(entry));
 }

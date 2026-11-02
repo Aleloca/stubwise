@@ -1,4 +1,5 @@
 import { recordChange } from "./changelog/index";
+import { currentVia } from "./claude/via";
 // Per effetto: registra `task.deleted` (`recordChange` lancia su un tipo ignoto).
 import "./projectSettings/changeTypes";
 import type { Task } from "./model";
@@ -118,6 +119,8 @@ function removeTask(me: string, task: Task): void {
     title: task.title,
     deletedAt: now(),
     deletedById: me,
+    // Il segno «per conto di» (area 10a, Task 3): solo dentro `runAsClaude`.
+    ...(currentVia() ? { via: "claude" as const } : {}),
   });
   // I collegamenti salvati sulle altre task (`blocks`, `relates`, `parent`):
   // quelli salvati su di lei se ne vanno con lei.

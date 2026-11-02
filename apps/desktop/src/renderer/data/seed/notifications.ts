@@ -27,12 +27,14 @@ export type EventPrefix = (typeof EVENT_PREFIXES)[number];
 /**
  * Kind locali del prototipo, non (ancora) in `notificationKindSchema`: li
  * pubblicano le azioni dell'area 2 (pianificazione altrui, risposta a una
- * richiesta di decisione) e gli avvisi dell'area 8a (PR, rilasci, note di
+ * richiesta di decisione), l'assegnazione a un altro (area 10a) e gli avvisi dell'area 8a (PR, rilasci, note di
  * rilascio, task nuove, Support) e dell'area 8b (server), che hanno i
  * destinatari calcolati a lettura.
  */
 export const LOCAL_NOTIFICATION_KINDS = [
   "planning.changed",
+  // Area 10a (decisione del maintainer): chi riceve una task lo sa.
+  "task.assigned",
   "decision.answered",
   "pr.opened",
   "pr.analysis_issues",
@@ -287,6 +289,18 @@ const ROWS: Row[] = [
     "The booking form is live; the harvest newsletter is still open.",
     696,
     true,
+  ],
+  // Area 10a: una task di AUD che Giulia ha dato a Marco (in fondo: gli id
+  // delle righe di prima non cambiano).
+  [
+    "task.assigned",
+    "AUD",
+    "AUD-4",
+    "You've been assigned AUD-4",
+    "AUD-4 · Billing emails with the new invoice layout: Giulia Ferri assigned it to you.",
+    150,
+    true,
+    ["p-marco"],
   ],
 ];
 

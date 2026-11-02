@@ -123,6 +123,13 @@ export interface AppNotification {
    * notifica resta, ma non apre niente.
    */
   objectGone?: boolean;
+  /**
+   * Area 10a: l'ha fatta partire Claude per `personId` (il riquadro o una
+   * conferma di @Claude nella Chat), nell'azione `actionId`. Scritto al
+   * momento, perché è vero solo allora; assente sulle notifiche scritte a
+   * mano e su quelle nate prima.
+   */
+  viaClaude?: { personId: string; actionId: string };
 }
 
 /** Perché un avviso del catalogo arriva a qualcuno senza iscrizione (area 8a). */
@@ -251,6 +258,8 @@ export interface DeletedTask {
   title: string;
   deletedAt: string;
   deletedById: string;
+  /** Area 10a: eliminata da Claude per `deletedById`; assente se a mano. */
+  via?: "claude";
 }
 
 /** L'automazione e l'esecuzione che hanno creato una task o un traguardo (area 7). */
@@ -415,6 +424,13 @@ export interface ActivityEntry {
   from?: string | null;
   to?: string | null;
   decisionRequestId?: string;
+  /** Area 10a: scritta da Claude per `authorId`; assente se a mano o nata prima. */
+  via?: "claude";
+  /**
+   * Area 10a: l'azione di Claude che l'ha scritta. Serve al «com'era» di
+   * «Annulla» (Task 5) per riconoscere le scritture del gruppo stesso.
+   */
+  claudeActionId?: string;
 }
 
 export interface DecisionRequest {

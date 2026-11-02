@@ -241,6 +241,9 @@
     "sources": {
       "MAIL": "Mail",
       "SEC": "Account security"
+    },
+    "kinds": {
+      "task_assigned": "You've been assigned {{code}}"
     }
   },
   "placeholder": {

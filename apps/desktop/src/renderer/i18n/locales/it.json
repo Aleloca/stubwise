@@ -241,6 +241,9 @@
     "sources": {
       "MAIL": "Posta",
       "SEC": "Sicurezza dell’account"
+    },
+    "kinds": {
+      "task_assigned": "Ti è stata assegnata {{code}}"
     }
   },
   "placeholder": {

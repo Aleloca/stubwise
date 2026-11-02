@@ -95,6 +95,13 @@ export function NotificationItem({
       ? t(`notifications.sources.${prefix}`)
       : undefined);
 
+  // I tipi con una frase propria la dicono nella lingua di chi guarda (area
+  // 10a: `task.assigned`); gli altri tengono il titolo salvato.
+  const title =
+    n.kind === "task.assigned"
+      ? t("notifications.kinds.task_assigned", { code: n.objectCode })
+      : n.title;
+
   const choose = (option: SnoozeOption) => {
     setMenuOpen(false);
     onChange({ snoozedUntil: snoozeTarget(option) });
@@ -128,7 +135,7 @@ export function NotificationItem({
           <span
             className={`mt-0.5 block text-md text-ink ${n.read ? "font-normal" : "font-semibold"}`}
           >
-            {n.title}
+            {title}
           </span>
           <span className="line-clamp-2 text-sm text-ink-muted">{n.body}</span>
           {/* Perché arriva anche con l'iscrizione spenta: sempre scritto [A 16]. */}
