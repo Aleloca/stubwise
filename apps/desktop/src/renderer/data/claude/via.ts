@@ -14,7 +14,17 @@ export interface ViaClaude {
   actionId: string;
   /** Solo dentro un «Annulla»: l'azione che si sta annullando. */
   undoOfActionId: string | null;
+  /**
+   * Solo dentro un «Annulla» confermato da una scheda (I1 della revisione
+   * finale): gli avvisi escono, perché la scheda li ha detti. Senza, dentro
+   * un «Annulla» `publish` e `publishAlert` tacciono (l'avviso c'era già).
+   */
+  announce?: true;
 }
+
+/** Dentro un «Annulla» che non è passato da una scheda: nessun avviso nuovo. */
+export const silencedByUndo = (via: ViaClaude | null): boolean =>
+  via !== null && via.undoOfActionId !== null && via.announce !== true;
 
 let current: ViaClaude | null = null;
 
@@ -31,7 +41,11 @@ const isThenable = (value: unknown): value is PromiseLike<unknown> =>
  */
 export function runAsClaude<R>(mark: ViaClaude, fn: () => R): R {
   const previous = current;
-  current = Object.freeze({ actionId: mark.actionId, undoOfActionId: mark.undoOfActionId });
+  current = Object.freeze({
+    actionId: mark.actionId,
+    undoOfActionId: mark.undoOfActionId,
+    ...(mark.announce === true && mark.undoOfActionId !== null ? { announce: true as const } : {}),
+  });
   try {
     const result = fn();
     if (isThenable(result)) {

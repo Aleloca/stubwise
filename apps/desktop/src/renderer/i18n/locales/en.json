@@ -3722,7 +3722,10 @@
         "changedAfter_m": "{{name}} changed it afterwards · can't undo from here",
         "changedAfterAnon_m": "It was changed afterwards · can't undo from here",
         "alreadyUndone_m": "Already undone.",
-        "reauthAction": "undo Claude's change"
+        "reauthAction": "undo Claude's change",
+        "confirming": "Confirm below to undo",
+        "proposalTitle": "Claude asks before undoing",
+        "proposalRow": "Undo: {{action}}"
       }
     },
     "destination": {

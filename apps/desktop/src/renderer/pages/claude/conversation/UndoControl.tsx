@@ -287,6 +287,9 @@ export function UndoControl({
         return <span className="text-ink-muted">{changedAfter(view.byName, view.code)}</span>;
       case "not_undoable":
         return <span className="text-ink-muted">{t("claude.conversation.undo.notUndoable")}</span>;
+      case "confirming":
+        // L'inverso avvisa o fa partire un'automazione: la sua scheda è più sotto (I1).
+        return <span className="text-ink-muted">{t("claude.conversation.undo.confirming")}</span>;
     }
   })();
 

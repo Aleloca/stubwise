@@ -2,7 +2,7 @@ import i18n from "../../i18n";
 import { visiblePeopleFor } from "../access/whoCan";
 import { applyActions, type FailureCode } from "../api-mutations";
 import { requireReauth } from "../auth/reauth";
-import type { ProposedAction, ScriptStep, Task, Utterance } from "../model";
+import type { ConversationEvent, ProposedAction, ScriptStep, Task, Utterance } from "../model";
 import type { BusyReason } from "../projectSettings/types";
 import { PEOPLE } from "../seed/people";
 import {
@@ -12,16 +12,18 @@ import {
   newId,
   nextSeq,
   now,
+  proposalExpired,
   state,
   storeGeneration,
   visibleProjectIds,
 } from "../store";
-import { appendExecuted, notifyConversationChange } from "../stream";
+import { appendExecuted, appendUndoProposal, notifyConversationChange } from "../stream";
 import type { TaskBusyReason } from "../taskDelete";
 import type { UndoView } from "../types";
 import { CLAUDE_CATALOG, declaredClassOf, isCatalogFn } from "./catalog";
 import { classOfGroup } from "./classes";
 import type {
+  ActionClass,
   ClassReason,
   ClaudeActionFn,
   ClaudeActionRecord,
@@ -457,6 +459,64 @@ const groupOf = (groupId: string) => state.claudeActions.filter((r) => r.groupId
 const inversesNeedReauth = (me: string, group: ClaudeActionRecord[]) =>
   group.some((r) => r.inverse !== null && reauthMissing(me, [r.inverse]));
 
+type ProposalEvent = Extract<ConversationEvent, { type: "proposal" }>;
+
+/** La scheda aperta (non scaduta) dell'«Annulla» di un gruppo, se c'è (I1). */
+function openUndoProposalOf(conversationId: string, groupId: string): ProposalEvent | null {
+  const log = state.conversationEvents.get(conversationId) ?? [];
+  const index = log.findIndex(
+    (e) => e.type === "proposal" && e.undoOf === groupId && e.status === "open",
+  );
+  if (index === -1 || proposalExpired(log, index)) return null;
+  return log[index] as ProposalEvent;
+}
+
+/**
+ * Le azioni del gruppo come le ha dette la conversazione (riga eseguita o
+ * scheda confermata, solo le scelte), nell'ordine delle righe: i riassunti
+ * della scheda di un «Annulla» sono i loro.
+ */
+function saidActionsOf(conversationId: string, groupId: string): ProposedAction[] {
+  for (const e of state.conversationEvents.get(conversationId) ?? []) {
+    if (e.type === "executed" && e.groupId === groupId) return e.actions;
+    if (e.type === "proposal" && e.groupId === groupId) {
+      return e.confirmedActions ? e.confirmedActions.map((i) => e.actions[i]!) : e.actions;
+    }
+  }
+  return [];
+}
+
+/** Gli inversi di un gruppo, in ordine inverso, coi riassunti delle azioni che annullano. */
+function inversesOf(group: ClaudeActionRecord[]): {
+  reversed: ClaudeActionRecord[];
+  inverses: ProposedAction[];
+} {
+  const said = saidActionsOf(group[0]!.conversationId, group[0]!.groupId);
+  const reversed = [...group].reverse();
+  const inverses = reversed.map((r) => {
+    const original = said[group.indexOf(r)];
+    return {
+      fn: r.inverse!.fn,
+      args: r.inverse!.args,
+      summary: original?.summary ?? "",
+      ...(original?.summaryText ? { summaryText: original.summaryText } : {}),
+    };
+  });
+  return { reversed, inverses };
+}
+
+/**
+ * La classe di un «Annulla» (ruling del controller sull'I1 della revisione
+ * finale): gli inversi, con `classOf` sui dati di adesso. Se avvisano
+ * qualcuno o fanno partire un'automazione, «Annulla» non parte da solo: è
+ * una scheda B (o più alta, mai più bassa) coi motivi. `null`: parte subito.
+ */
+function undoAsks(me: string, inverses: ProposedAction[]): ActionClass | null {
+  const latest = classOfGroup(me, inverses);
+  const asks = latest.reasons.some((r) => r.kind === "notifies" || r.kind === "automation");
+  return asks ? { cls: latest.cls === "A" ? "B" : latest.cls, reasons: latest.reasons } : null;
+}
+
 /** Lo stato di «Annulla» di un gruppo per chi guarda. */
 export function undoViewOf(viewerId: string, groupId: string): UndoView {
   const group = groupOf(groupId);
@@ -469,11 +529,14 @@ export function undoViewOf(viewerId: string, groupId: string): UndoView {
   if (group.some((r) => r.inverse === null)) return { state: "not_undoable" };
   const later = laterChangeOf(group);
   if (later) return { state: "changed_after", ...describeLater(viewerId, later) };
+  if (openUndoProposalOf(head.conversationId, groupId)) return { state: "confirming" };
   return { state: "available", needsReauth: inversesNeedReauth(viewerId, group) };
 }
 
 export type UndoResult =
   | { ok: true }
+  /** L'inverso avvisa o fa partire un'automazione: è nata (o c'era già) la sua scheda (I1). */
+  | { ok: true; proposalId: string }
   | {
       ok: false;
       error: "not_found" | "not_yours" | "already_undone" | "not_undoable" | "reauth_required";
@@ -490,12 +553,53 @@ export type UndoResult =
     }
   | { ok: false; error: "busy"; reasons: (BusyReason | TaskBusyReason)[] };
 
+type UndoRefusal = Extract<UndoResult, { ok: false }>;
+
+/** Le regole di «Annulla» che valgono al clic e alla conferma della sua scheda. */
+function undoRefusalOf(me: string, group: ClaudeActionRecord[]): UndoRefusal | null {
+  if (group[0]!.personId !== me) return { ok: false, error: "not_yours" };
+  if (group[0]!.undone) return { ok: false, error: "already_undone" };
+  if (group.some((r) => r.inverse === null)) return { ok: false, error: "not_undoable" };
+  const later = laterChangeOf(group);
+  if (later) return { ok: false, error: "changed_after", ...describeLater(me, later) };
+  if (inversesNeedReauth(me, group)) return { ok: false, error: "reauth_required" };
+  return null;
+}
+
+/**
+ * Gli inversi di un gruppo, tutti o nessuno, col segno dell'«Annulla».
+ * `announce`: la scheda li ha detti, quindi gli avvisi escono (I1).
+ */
+function runInverses(
+  me: string,
+  group: ClaudeActionRecord[],
+  announce: boolean,
+):
+  | { ok: true; codes: string[]; projectIds: string[]; after: ((gen: number) => Promise<void>)[] }
+  | UndoRefusal {
+  const { reversed, inverses } = inversesOf(group);
+  const applied = applyActions(me, inverses, {
+    catalogOnly: true,
+    mark: (index) => ({
+      actionId: newId("ca"),
+      undoOfActionId: reversed[index]!.id,
+      ...(announce ? { announce: true as const } : {}),
+    }),
+  });
+  if (!applied.ok) return refusalOf(me, applied, reversed);
+  const at = now();
+  for (const r of group) r.undone = { at, byId: me };
+  return { ok: true, codes: applied.codes, projectIds: applied.projectIds, after: applied.after };
+}
+
 /**
  * «Annulla» di un gruppo: solo chi l'ha chiesta, una volta, se ogni azione
  * ha un inverso e nessuno ha scritto dopo sugli stessi oggetti. Gli inversi
  * girano in ordine inverso, con i permessi di adesso, tutti o nessuno, col
  * segno dell'«Annulla» (`undoOfActionId`): `publish` e `publishAlert` non
  * scrivono, l'avviso c'era già. Un rifiuto dell'inverso diventa la risposta.
+ * Un inverso che avviserebbe qualcuno o farebbe partire un'automazione non
+ * parte: nasce la sua scheda (`undoOf`), da confermare come le altre (I1).
  */
 export async function undoClaudeActions(
   conversationId: string,
@@ -508,33 +612,54 @@ export async function undoClaudeActions(
   if (!c || !canSeeConversation(me, c) || group.length === 0) {
     return { ok: false, error: "not_found" };
   }
-  if (group[0]!.personId !== me) return { ok: false, error: "not_yours" };
-  if (group[0]!.undone) return { ok: false, error: "already_undone" };
-  if (group.some((r) => r.inverse === null)) return { ok: false, error: "not_undoable" };
-  const later = laterChangeOf(group);
-  if (later) return { ok: false, error: "changed_after", ...describeLater(me, later) };
-  if (inversesNeedReauth(me, group)) return { ok: false, error: "reauth_required" };
+  const refusal = undoRefusalOf(me, group);
+  if (refusal) return refusal;
+  // Un secondo clic ritrova la scheda già aperta: mai due.
+  const open = openUndoProposalOf(conversationId, groupId);
+  if (open) return { ok: true, proposalId: open.proposalId };
 
-  const reversed = [...group].reverse();
-  const inverses: ProposedAction[] = reversed.map((r) => ({
-    fn: r.inverse!.fn,
-    args: r.inverse!.args,
-    summary: "",
-  }));
-  const applied = applyActions(me, inverses, {
-    catalogOnly: true,
-    mark: (index) => ({ actionId: newId("ca"), undoOfActionId: reversed[index]!.id }),
-  });
-  if (!applied.ok) return refusalOf(me, applied, reversed);
-  const at = now();
-  for (const r of group) r.undone = { at, byId: me };
+  const asks = undoAsks(me, inversesOf(group).inverses);
+  if (asks) {
+    const proposalId = newId("prop");
+    appendUndoProposal(conversationId, {
+      type: "proposal",
+      proposalId,
+      requesterId: me,
+      actions: inversesOf(group).inverses,
+      status: "open",
+      cls: asks.cls,
+      reasons: asks.reasons,
+      undoOf: groupId,
+    });
+    notifyConversationChange(conversationId);
+    return { ok: true, proposalId };
+  }
+
+  const ran = runInverses(me, group, false);
+  if (!ran.ok) return ran;
   notifyConversationChange(conversationId);
-  for (const start of applied.after) await start(gen);
+  for (const start of ran.after) await start(gen);
   return { ok: true };
 }
 
+/**
+ * La conferma della scheda di un «Annulla» (I1): le stesse regole del clic,
+ * rilette adesso, poi gli inversi con gli avvisi che la scheda ha detto. Gli
+ * `after` li chiama chi conferma, a scheda scritta.
+ */
+export function confirmUndoProposal(
+  me: string,
+  groupId: string,
+):
+  | { ok: true; codes: string[]; projectIds: string[]; after: ((gen: number) => Promise<void>)[] }
+  | UndoRefusal {
+  const group = groupOf(groupId);
+  if (group.length === 0) return { ok: false, error: "not_found" };
+  return undoRefusalOf(me, group) ?? runInverses(me, group, true);
+}
+
 /** Il rifiuto di un inverso come risposta di «Annulla». */
-function refusalOf(me: string, failure: GroupFailure, reversed: ClaudeActionRecord[]): UndoResult {
+function refusalOf(me: string, failure: GroupFailure, reversed: ClaudeActionRecord[]): UndoRefusal {
   const record = reversed[failure.index]!;
   switch (failure.code) {
     case "forbidden": {

@@ -168,6 +168,19 @@ export function appendExecuted(
   return append(conversationId, draft);
 }
 
+/**
+ * La scheda di un «Annulla» che chiede conferma (area 10a, I1): nasce dal
+ * clic su «Annulla», non da un turno di Claude, e quindi entra nel flusso
+ * come la riga eseguita, dallo stesso `append`.
+ */
+export function appendUndoProposal(
+  conversationId: string,
+  draft: Extract<EventDraft, { type: "proposal" }>,
+): ConversationEvent {
+  if (!findConversation(conversationId)) throw new Error("not_found");
+  return append(conversationId, draft);
+}
+
 const findConversation = (id: string): Conversation | undefined =>
   state.conversations.find((c) => c.id === id);
 

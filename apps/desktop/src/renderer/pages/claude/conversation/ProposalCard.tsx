@@ -194,12 +194,17 @@ export function ProposalCardView({
   const own = event.requesterId === viewerId;
   const mine = own && canAct;
   const open = event.status === "open";
-  const many = event.actions.length > 1;
+  // Un «Annulla» è tutto o niente: niente caselle (I1).
+  const many = event.actions.length > 1 && !event.undoOf;
   const chosen = selected.flatMap((on, i) => (on ? [i] : []));
   const all = chosen.length === event.actions.length;
   const busy = ops.busy;
   const deletes = event.actions.some((a) => a.fn === "deleteTask");
-  const summary = (text: string) => (renderText ? renderText(text) : text);
+  // La scheda di un «Annulla» (I1): ogni riga dice cosa si annulla.
+  const summary = (text: string) => {
+    const said = event.undoOf ? t("claude.conversation.undo.proposalRow", { action: text }) : text;
+    return renderText ? renderText(said) : said;
+  };
 
   const fail = (e: Error) =>
     setError(
@@ -316,7 +321,9 @@ export function ProposalCardView({
       <header className="flex flex-wrap items-center justify-between gap-2">
         <h3 id={headingId} className="text-sm font-semibold text-ink">
           {mine
-            ? t("claude.conversation.proposal.title", { count: event.actions.length })
+            ? event.undoOf
+              ? t("claude.conversation.undo.proposalTitle")
+              : t("claude.conversation.proposal.title", { count: event.actions.length })
             : own
               ? t("claude.conversation.proposal.forYou")
               : t("claude.conversation.proposal.forPerson", { name: requester })}

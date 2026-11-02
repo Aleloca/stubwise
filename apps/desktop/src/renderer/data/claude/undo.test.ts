@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   addComment,
+  automations,
+  cancelProposal,
   claude,
   confirmProposal,
   createConversation,
@@ -40,6 +42,7 @@ const LAURA = "p-laura";
 const OLV = "prj-olv";
 const LMR = "prj-lmr";
 const STW = "prj-stw";
+const MKX = "prj-mkx";
 
 const as = (personId: string) => setSessionPersonId(personId);
 const eventsOf = (id: string): ConversationEvent[] => state.conversationEvents.get(id) ?? [];
@@ -242,7 +245,7 @@ describe("«Annulla» di una scheda", () => {
     expect(state.projectsById.get(OLV)!.memberIds).not.toContain(LAURA);
   });
 
-  it("planTask verso Marco annullato: la sua notifica dice «Undone by Giulia Ferri», e non ne riceve un'altra", async () => {
+  it("planTask verso Marco annullato: l'inverso avvisa Marco, quindi passa da una scheda; confermata, la sua notifica dice «Undone by Giulia Ferri» e ne riceve una nuova (I1)", async () => {
     const task = state.tasks.find(
       (t) => t.projectId === OLV && t.assigneeId === GIULIA && t.plannedWeek !== "2026-W47",
     )!;
@@ -262,12 +265,112 @@ describe("«Annulla» di una scheda", () => {
     expect(assigned).toHaveLength(1);
     expect(assigned[0]!.undoneByName).toBeNull();
     as(GIULIA);
-    expect(await claude.undoClaudeActions(cid, groupId)).toEqual({ ok: true });
+    const undo = await claude.undoClaudeActions(cid, groupId);
+    expect(undo).toMatchObject({ ok: true, proposalId: expect.any(String) });
+    const card = eventsOf(cid).find(
+      (e): e is Proposal => e.type === "proposal" && e.undoOf === groupId,
+    )!;
+    expect(card.reasons).toEqual([{ kind: "notifies", personIds: [MARCO], more: false }]);
+    // Prima della conferma non cambia niente.
+    expect(state.tasksById.get(task.id)!.assigneeId).toBe(MARCO);
+    expect(await confirmProposal(cid, card.proposalId)).toMatchObject({ status: "confirmed" });
     expect(state.tasksById.get(task.id)!.assigneeId).toBe(GIULIA);
     as(MARCO);
     const after = fresh(await listNotifications());
-    expect(after).toHaveLength(mine.length);
+    // La scheda diceva «Notifies Marco Bellini»: l'avviso esce.
+    expect(after).toHaveLength(mine.length + 1);
     expect(after.find((n) => n.kind === "task.assigned")!.undoneByName).toBe("Giulia Ferri");
+  });
+});
+
+describe("«Annulla» che avviserebbe qualcuno o farebbe partire un'automazione (I1)", () => {
+  /** Un'automazione di Roberta, accesa, su `task_closed` in MKX. */
+  async function automationOnClose(): Promise<string> {
+    as(ROBERTA);
+    const a = await automations.createAutomation({
+      name: "Su task_closed",
+      projectId: MKX,
+      flow: {
+        trigger: { kind: "stubwise", event: "task_closed" },
+        steps: [{ id: "w", kind: "wait", for: { days: 1 } }],
+        titleTemplate: "{{task.codice}}",
+      },
+    });
+    await automations.activate(a.id);
+    return a.id;
+  }
+
+  /** Giulia riapre dal riquadro una task chiusa di MKX: riaprire non fa partire niente. */
+  async function reopened(): Promise<{ cid: string; groupId: string; taskId: string }> {
+    const closed = state.statuses.find((s) => s.projectId === MKX && s.family === "closed")!;
+    const todo = state.statuses.find((s) => s.projectId === MKX && s.family === "todo")!;
+    const task = state.tasks.find((t) => t.projectId === MKX && t.statusId === closed.id)!;
+    const { cid, groupId } = await confirmed(GIULIA, [
+      {
+        fn: "updateTask",
+        args: { id: task.id, patch: { statusId: todo.id } },
+        summary: `Reopen ${task.code}`,
+      },
+    ]);
+    return { cid, groupId, taskId: task.id };
+  }
+
+  const familyOfTask = (taskId: string) =>
+    state.statusById.get(state.tasksById.get(taskId)!.statusId)!.family;
+
+  it("riapri → «Annulla» con un'automazione su `task_closed`: una scheda B coi motivi, niente parte prima della conferma", async () => {
+    await automationOnClose();
+    const { cid, groupId, taskId } = await reopened();
+    const runs = state.automationRuns.length;
+    as(GIULIA);
+    const result = await claude.undoClaudeActions(cid, groupId);
+    expect(result).toMatchObject({ ok: true, proposalId: expect.any(String) });
+    // Niente è cambiato: la task è ancora aperta, nessuna esecuzione, la riga non è annullata.
+    expect(familyOfTask(taskId)).not.toBe("closed");
+    expect(state.automationRuns).toHaveLength(runs);
+    expect(sessionActions()[0]!.undone).toBeNull();
+    const card = eventsOf(cid).find(
+      (e): e is Proposal => e.type === "proposal" && e.undoOf === groupId,
+    )!;
+    expect(card).toMatchObject({
+      status: "open",
+      requesterId: GIULIA,
+      cls: "B",
+      reasons: [{ kind: "automation", projectId: MKX, event: "task_closed" }],
+    });
+    expect(await undoOf(cid, groupId)).toEqual({ state: "confirming" });
+    // Un secondo clic non apre una seconda scheda.
+    expect(await claude.undoClaudeActions(cid, groupId)).toEqual({
+      ok: true,
+      proposalId: card.proposalId,
+    });
+    const cards = eventsOf(cid).filter((e) => e.type === "proposal" && e.undoOf === groupId);
+    expect(cards).toHaveLength(1);
+
+    // Confermata come le altre: l'inverso gira col segno dell'«Annulla» e l'automazione parte.
+    expect(await confirmProposal(cid, card.proposalId)).toMatchObject({ status: "confirmed" });
+    expect(familyOfTask(taskId)).toBe("closed");
+    expect(state.automationRuns.length).toBeGreaterThan(runs);
+    expect(sessionActions()[0]!.undone).toEqual({ at: now(), byId: GIULIA });
+    expect(await undoOf(cid, groupId)).toMatchObject({ state: "undone" });
+  });
+
+  it("la scheda dell'«Annulla» annullata: niente cambia e «Annulla» torna disponibile", async () => {
+    await automationOnClose();
+    const { cid, groupId, taskId } = await reopened();
+    as(GIULIA);
+    const result = await claude.undoClaudeActions(cid, groupId);
+    const proposalId = (result as { proposalId: string }).proposalId;
+    await cancelProposal(cid, proposalId);
+    expect(familyOfTask(taskId)).not.toBe("closed");
+    expect(await undoOf(cid, groupId)).toEqual({ state: "available", needsReauth: false });
+  });
+
+  it("senza automazione la riapertura si annulla subito, come prima", async () => {
+    const { cid, groupId, taskId } = await reopened();
+    as(GIULIA);
+    expect(await claude.undoClaudeActions(cid, groupId)).toEqual({ ok: true });
+    expect(familyOfTask(taskId)).toBe("closed");
   });
 });
 

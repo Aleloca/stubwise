@@ -3722,7 +3722,10 @@
         "notFoundNoCode": "Non la trovo più.",
         "failed": "Impossibile annullare. Riprova.",
         "retry": "Riprova",
-        "reauthAction": "annullare la modifica di Claude"
+        "reauthAction": "annullare la modifica di Claude",
+        "confirming": "Per annullare, conferma qui sotto",
+        "proposalTitle": "Claude chiede prima di annullare",
+        "proposalRow": "Da annullare: {{action}}"
       }
     },
     "destination": {

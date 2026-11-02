@@ -252,6 +252,43 @@ describe("«Undo» di una scheda confermata", () => {
   });
 });
 
+describe("«Undo» che avviserebbe qualcuno (I1 della revisione finale)", () => {
+  it("planTask verso Marco: Undo apre una scheda «Notifies Marco Bellini», la riga aspetta, Confirm annulla", async () => {
+    const user = userEvent.setup();
+    const task = state.tasks.find(
+      (t) => t.projectId === OLV && t.assigneeId === GIULIA && t.plannedWeek !== "2026-W47",
+    )!;
+    const id = await confirmedCard(GIULIA, [
+      {
+        fn: "planTask",
+        args: { id: task.id, plan: { assigneeId: MARCO, week: "2026-W47" } },
+        summary: `Plan ${task.code}`,
+      },
+    ]);
+    mount(id, GIULIA);
+    const first = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>("[data-proposal]");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    await user.click(await within(first).findByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(first.textContent).toContain("Confirm below to undo"));
+    expect(within(first).queryByRole("button", { name: "Undo" })).toBeNull();
+    expect(state.tasksById.get(task.id)!.assigneeId).toBe(MARCO);
+    const card = await waitFor(() => {
+      const el = document.querySelectorAll<HTMLElement>("[data-proposal]")[1];
+      expect(el).toBeDefined();
+      return el!;
+    });
+    expect(card.textContent).toContain("Claude asks before undoing");
+    expect(card.textContent).toContain(`Undo: Plan ${task.code}`);
+    expect(card.textContent).toContain("Notifies Marco Bellini");
+    await user.click(within(card).getByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(state.tasksById.get(task.id)!.assigneeId).toBe(GIULIA));
+    await waitFor(() => expect(first.textContent).toContain("Undone"));
+  });
+});
+
 describe("una pubblica di Giulia letta da Roberta", () => {
   it("righe e schede chiuse: nessun bottone, nessuno stato di Undo", async () => {
     as(GIULIA);

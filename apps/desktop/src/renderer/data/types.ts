@@ -435,6 +435,8 @@ export type UndoView =
   /** `byName`/`code` nulli se chi guarda non vede chi ha scritto o l'oggetto (R-G5). */
   | { state: "changed_after"; byName: string | null; code: string | null }
   | { state: "not_undoable" }
+  /** L'inverso avvisa o fa partire un'automazione: aspetta la scheda aperta più sotto (I1). */
+  | { state: "confirming" }
   /** Chi legge una pubblica altrui: la riga è chiusa. */
   | { state: "not_yours" };
 

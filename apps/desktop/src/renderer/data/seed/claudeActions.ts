@@ -44,6 +44,8 @@ export const CLAUDE_SEED_IDS = {
     undoSwitch: "ca-seed-6",
   },
   notification: "n-claude-1",
+  /** L'avviso a Marco dell'«Annulla» confermato dalla sua scheda (I1). */
+  undoNotification: "n-claude-2",
 } as const;
 
 /** Il tempo di ogni scena: esecuzione e «Annulla». */
@@ -221,7 +223,11 @@ export const CLAUDE_CHANGES: SeedChange[] = [
   },
 ];
 
-/** La notifica di Marco: l'avviso di `task.assigned`, scritto dentro l'azione e poi annullata. */
+/**
+ * Le notifiche di Marco: l'avviso di `task.assigned`, scritto dentro l'azione
+ * e poi annullata, e quello di `planning.changed` dell'«Annulla», che è
+ * passato da una scheda perché avvisava lui (I1).
+ */
 export const CLAUDE_NOTIFICATIONS: AppNotification[] = [
   {
     id: CLAUDE_SEED_IDS.notification,
@@ -238,5 +244,22 @@ export const CLAUDE_NOTIFICATIONS: AppNotification[] = [
     snoozedUntil: null,
     link: `#/p/OLV/tasks?task=${HANDOVER_TASK.code}`,
     viaClaude: { personId: GIULIA, actionId: brief.plan },
+  },
+  {
+    id: CLAUDE_SEED_IDS.undoNotification,
+    kind: "planning.changed",
+    projectId: "prj-olv",
+    objectCode: HANDOVER_TASK.code,
+    departmentId: TASKS.find((t) => t.id === HANDOVER_TASK.id)?.departmentId ?? null,
+    recipientIds: [MARCO],
+    title: "Planning changed",
+    body: `${HANDOVER_TASK.code} · Refresh landing page hero copy: Giulia Ferri planned it for ${HANDOVER_TASK.week}.`,
+    createdAt: CLAUDE_SEED_TIMES.brief.undo,
+    read: false,
+    archived: false,
+    snoozedUntil: null,
+    link: `#/p/OLV/tasks?task=${HANDOVER_TASK.code}`,
+    viaClaude: { personId: GIULIA, actionId: brief.undoPlan },
+    plannedWeek: HANDOVER_TASK.week,
   },
 ];

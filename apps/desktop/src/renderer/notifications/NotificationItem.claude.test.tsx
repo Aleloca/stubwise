@@ -99,13 +99,13 @@ describe("la notifica di Marco (seme)", () => {
     expect(item.querySelector("[data-undone-by]")?.textContent).toBe("Annullato da Giulia Ferri");
   });
 
-  it("nel pannello di Marco: una notifica sola per l'assegnazione, non anche una per l'annullamento", async () => {
+  it("nel pannello di Marco: una notifica per l'assegnazione e una per l'«Annulla» passato dalla scheda (I1), un solo «Undone by»", async () => {
     const user = userEvent.setup();
     renderRoute("/home", MARCO);
     await user.click(await screen.findByRole("button", { name: /^Notifications/ }));
     const panel = await screen.findByRole("dialog", { name: "Notifications" });
     await waitFor(() =>
-      expect(within(panel).getAllByText(/Claude on behalf of Giulia Ferri/i)).toHaveLength(1),
+      expect(within(panel).getAllByText(/Claude on behalf of Giulia Ferri/i)).toHaveLength(2),
     );
     expect(within(panel).getAllByText(/Undone by/i)).toHaveLength(1);
   });

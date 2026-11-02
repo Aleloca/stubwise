@@ -544,6 +544,49 @@ const giuliaBrief = seeded(
       reasons: [{ kind: "notifies", personIds: ["p-marco"], more: false }],
       groupId: CLAUDE_SEED_IDS.brief.group,
     },
+    // «Annulla» del gruppo: l'inverso del `planTask` avvisa Marco, quindi è
+    // passato da una scheda (I1 della revisione finale), confermata.
+    {
+      at: CLAUDE_SEED_TIMES.brief.undo,
+      type: "proposal",
+      proposalId: "prop-giulia-brief-undo",
+      requesterId: "p-giulia",
+      actions: [
+        {
+          fn: "saveProjectAutomations",
+          args: {
+            projectId: "prj-mkx",
+            switches: {
+              docsNightly: false,
+              dailyReport: false,
+              backlogDiscovery: true,
+              pulse: true,
+              weeklyBrief: true,
+            },
+            pulseEveryDays: 7,
+            correctionCap: 3,
+          },
+          summary: "Turn off the weekly brief in MKX",
+        },
+        {
+          fn: "planTask",
+          args: {
+            id: HANDOVER_TASK.id,
+            plan: { assigneeId: "p-giulia", week: HANDOVER_TASK.week },
+          },
+          summary: `Plan ${HANDOVER_TASK.code} · Refresh landing page hero copy for week 45`,
+          summaryText: {
+            key: "claude.answers.plan.summaryShort",
+            params: { task: `${HANDOVER_TASK.code} Refresh landing page hero copy`, week: "W45" },
+          },
+        },
+      ],
+      status: "confirmed",
+      resultCodes: [HANDOVER_TASK.code],
+      cls: "B",
+      reasons: [{ kind: "notifies", personIds: ["p-marco"], more: false }],
+      undoOf: CLAUDE_SEED_IDS.brief.group,
+    },
   ],
 );
 

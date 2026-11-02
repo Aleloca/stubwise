@@ -240,7 +240,25 @@ describe("il seme è quello che le funzioni vere scrivono", () => {
     ]);
     expect(await confirmProposal(cid, "prop-replay")).toMatchObject({ status: "confirmed" });
     const group = state.claudeActions.at(-1)!.groupId;
-    expect(await claude.undoClaudeActions(cid, group)).toEqual({ ok: true });
+    // L'inverso del `planTask` avvisa Marco: «Annulla» passa da una scheda (I1).
+    const undo = await claude.undoClaudeActions(cid, group);
+    expect(undo).toMatchObject({ ok: true, proposalId: expect.any(String) });
+    type Proposal = Extract<ConversationEvent, { type: "proposal" }>;
+    const undoCardOf = (conversationId: string, groupId: string) =>
+      state.conversationEvents
+        .get(conversationId)!
+        .find((e): e is Proposal => e.type === "proposal" && e.undoOf === groupId)!;
+    const same = (p: Proposal) => ({
+      requesterId: p.requesterId,
+      actions: p.actions,
+      cls: p.cls,
+      reasons: p.reasons,
+    });
+    expect(same(undoCardOf(cid, group))).toEqual(same(undoCardOf(brief.conversation, brief.group)));
+    expect(undoCardOf(brief.conversation, brief.group).status).toBe("confirmed");
+    expect(await confirmProposal(cid, (undo as { proposalId: string }).proposalId)).toMatchObject({
+      status: "confirmed",
+    });
 
     const liveActivity = state.activity.slice(before.activity);
     const liveChanges = state.changelog.slice(before.changes);
@@ -258,10 +276,15 @@ describe("il seme è quello che le funzioni vere scrivono", () => {
       ),
     );
     const live = state.notifications.slice(before.notifications);
-    expect(live).toHaveLength(1);
-    const seed = state.notifications.find((n) => n.id === CLAUDE_SEED_IDS.notification)!;
-    expect(strip(live[0]!, "viaClaude", "createdAt")).toEqual(strip(seed, "viaClaude", "createdAt"));
-    expect(live[0]!.viaClaude?.personId).toBe(seed.viaClaude?.personId);
+    // L'avviso dell'azione e quello dell'«Annulla» confermato dalla scheda (I1).
+    expect(live).toHaveLength(2);
+    const seeds = [CLAUDE_SEED_IDS.notification, CLAUDE_SEED_IDS.undoNotification].map(
+      (id) => state.notifications.find((n) => n.id === id)!,
+    );
+    seeds.forEach((seed, i) => {
+      expect(strip(live[i]!, "viaClaude", "createdAt")).toEqual(strip(seed, "viaClaude", "createdAt"));
+      expect(live[i]!.viaClaude?.personId).toBe(seed.viaClaude?.personId);
+    });
     void sendMessage;
   });
 

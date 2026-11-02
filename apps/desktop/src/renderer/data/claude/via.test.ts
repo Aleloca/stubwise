@@ -91,8 +91,8 @@ describe("runAsClaude e currentVia", () => {
     expect(currentVia()).toBeNull();
   });
 
-  it("il modulo espone solo runAsClaude e currentVia: nessun altro scrive il segno", () => {
-    expect(Object.keys(via).sort()).toEqual(["currentVia", "runAsClaude"]);
+  it("il modulo espone solo runAsClaude e due letture: nessun altro scrive il segno", () => {
+    expect(Object.keys(via).sort()).toEqual(["currentVia", "runAsClaude", "silencedByUndo"]);
   });
 });
 
@@ -333,6 +333,15 @@ describe("task.assigned (decisione del maintainer)", () => {
     });
     expect(state.notifications).toHaveLength(before);
     expect(state.tasksById.get(task.id)?.assigneeId).toBe(DAVIDE);
+  });
+
+  it("dentro un «Annulla» confermato da una scheda (`announce`) le notifiche escono (I1)", () => {
+    const task = olvTask(GIULIA);
+    const before = state.notifications.length;
+    runAsClaude({ ...mark("ca-undo", "ca-done"), announce: true }, () => {
+      reassignTask(GIULIA, task, MARCO);
+    });
+    expect(state.notifications.length).toBeGreaterThan(before);
   });
 });
 

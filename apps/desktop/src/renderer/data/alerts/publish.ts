@@ -1,5 +1,5 @@
 import { isCatalogKind } from "../../domain/alerts/catalog";
-import { currentVia } from "../claude/via";
+import { currentVia, silencedByUndo } from "../claude/via";
 import { mergeMandatory } from "../../domain/alerts/recipients";
 import { newId, nextSeq, now, state } from "../store";
 import type { AppNotification, MandatoryReason, Release } from "../types";
@@ -29,7 +29,8 @@ export function publishAlert(input: AlertInput): void {
   if (!isCatalogKind(input.kind)) throw invalid("kind");
   const via = currentVia();
   // Dentro un «Annulla» nessun avviso nuovo: quello dell'azione c'era già.
-  if (via && via.undoOfActionId !== null) return;
+  // Uno confermato da una scheda li ha detti, quindi escono (I1).
+  if (silencedByUndo(via)) return;
   // Un difetto di chi scrive, non un input sbagliato (come `recordChange`).
   if (via && input.actorId === undefined)
     throw new Error(`publishAlert under runAsClaude needs actorId: ${input.kind}`);

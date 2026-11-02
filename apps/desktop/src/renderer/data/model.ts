@@ -1064,6 +1064,13 @@ export type ConversationEvent =
       objectCodes?: (string | null)[];
       /** Area 10a (Task 9): il rifiuto della conferma in forma di dato, per «Couldn't do it: … · Who?». */
       failure?: ExecutedFailure;
+      /**
+       * Area 10a (I1 della revisione finale): la scheda di un «Annulla» il cui
+       * inverso avviserebbe qualcuno o farebbe partire un'automazione. È il
+       * gruppo che annulla; le azioni sono gli inversi, coi riassunti delle
+       * azioni annullate. La conferma gira come un «Annulla».
+       */
+      undoOf?: string;
     }
   /**
    * Area 10a: azioni di Claude eseguite senza scheda (classe A) nella

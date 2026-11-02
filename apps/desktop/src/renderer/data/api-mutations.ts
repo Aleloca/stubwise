@@ -21,9 +21,15 @@ import { linkIdentityAs } from "./admin/people";
 import * as reads from "./api";
 import * as scripts from "./conversation-scripts";
 import { publishChatEvent } from "./chat/events";
-import { currentVia, runAsClaude, type ViaClaude } from "./claude/via";
+import { currentVia, runAsClaude, silencedByUndo, type ViaClaude } from "./claude/via";
 import { classOfGroup } from "./claude/classes";
-import { executeGroup, failureOf, prepareExecuted, reauthMissing } from "./claude/actions";
+import {
+  confirmUndoProposal,
+  executeGroup,
+  failureOf,
+  prepareExecuted,
+  reauthMissing,
+} from "./claude/actions";
 import { DEFAULT_PUBLISHED_EVENTS } from "./seed/chat";
 import { COMMITS } from "./seed/commits";
 import { TODAY } from "./seed/dates";
@@ -98,6 +104,7 @@ import type {
   DecisionLogEntry,
   DecisionRequest,
   EventPatch,
+  ExecutedFailure,
   HomeBlockRef,
   Milestone,
   MilestoneInput,
@@ -207,6 +214,7 @@ const wrote = (kind: "request" | "milestone", id: string, me: string): void =>
  * Una notifica diretta a `recipientId` per una scrittura di `me`. Dentro
  * `runAsClaude` porta `viaClaude` (vero solo adesso: si scrive nell'evento);
  * dentro un «Annulla» non si scrive affatto, l'avviso c'era già.
+ * Un «Annulla» confermato da una scheda invece avvisa: la scheda lo ha detto (I1).
  */
 function publish(
   me: string,
@@ -218,7 +226,7 @@ function publish(
   extra: Pick<AppNotification, "plannedWeek"> = {},
 ): void {
   const via = currentVia();
-  if (via && via.undoOfActionId !== null) return;
+  if (silencedByUndo(via)) return;
   const project = state.projectsById.get(task.projectId)!;
   state.notifications.push({
     id: newId("n"),
@@ -2798,6 +2806,9 @@ async function settleInConversation(
   chosen: { actions: ProposedAction[]; indexes: number[] | null },
   gen: number,
 ): Promise<ProposalOutcome> {
+  if (place.proposal.undoOf !== undefined) {
+    return settleUndoProposal(me, place, place.proposal.undoOf, chosen, gen);
+  }
   const { cls } = classOfGroup(me, chosen.actions);
   if (cls === "C" && reauthMissing(me, chosen.actions)) {
     return { ok: false, error: "reauth_required" };
@@ -2834,6 +2845,60 @@ async function settleInConversation(
     resultCodes: result.codes,
     runConversationIds: runs.map((run) => run.c.id),
   };
+}
+
+/**
+ * La conferma della scheda di un «Annulla» (area 10a, I1 della revisione
+ * finale): tutta o niente (niente «Confirm selected»), con le regole di
+ * «Annulla» rilette adesso (`confirmUndoProposal`). Senza riconferma fresca
+ * la scheda resta aperta, come una C. Gli avvisi escono: la scheda li ha
+ * detti.
+ */
+async function settleUndoProposal(
+  me: string,
+  place: ProposalPlace,
+  groupId: string,
+  chosen: { actions: ProposedAction[]; indexes: number[] | null },
+  gen: number,
+): Promise<ProposalOutcome> {
+  if (chosen.indexes !== null) throw invalid("selection");
+  if (reauthMissing(me, chosen.actions)) return { ok: false, error: "reauth_required" };
+  claims.set(place.key, me);
+  const result = confirmUndoProposal(me, groupId);
+  if (!result.ok) {
+    if (result.error === "reauth_required") {
+      claims.delete(place.key);
+      return { ok: false, error: "reauth_required" };
+    }
+    const code: ExecutedFailure["code"] =
+      result.error === "forbidden" || result.error === "busy" || result.error === "not_found"
+        ? result.error
+        : result.error === "changed_after"
+          ? "conflict"
+          : "invalid";
+    const error = i18n.t(`claude.proposalFailed.${code}`, {
+      action: chosen.actions[0]?.summary ?? "",
+    });
+    const failure: ExecutedFailure | undefined =
+      result.error === "forbidden"
+        ? {
+            code,
+            index: 0,
+            whoAction: result.whoAction,
+            projectId: result.projectId,
+            projectCode: result.projectCode ?? null,
+          }
+        : undefined;
+    await place.patch(
+      { type: "proposal", status: "failed", error, ...(failure ? { failure } : {}) },
+      gen,
+    );
+    return { status: "failed", error };
+  }
+  place.touched(result.projectIds);
+  await place.patch({ type: "proposal", status: "confirmed", resultCodes: result.codes }, gen);
+  for (const start of result.after) await start(gen);
+  return { status: "confirmed", resultCodes: result.codes, runConversationIds: [] };
 }
 
 /**
