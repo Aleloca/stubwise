@@ -160,7 +160,11 @@ sull'app». Mondo: «Catalogo numerato», modalità **Operate**.
   change» / «Claude propone · 1 modifica»).
 - **Sotto le righe d'azione, prima dei bottoni**, un blocco di righe 13px
   `ink-muted`, ognuna con un segno ink a sinistra (16px), nell'ordine:
-  1. **notifies** (segno: campanella): «Notifies Marco Bellini» / «Avvisa Marco Bellini»;
+  1. **notifies** (segno: campanella): «Notifies Marco Bellini» / «Avvisa
+     Marco Bellini». Per un'assegnazione a un altro (`createTask` già
+     assegnata, `updateTask`, `planTask`) la persona viene dalla notifica
+     `task.assigned`, che parte davvero *(decisione del maintainer, 2 nov
+     2026)*;
      due: «Notifies Marco Bellini and Matteo Conti» / «Avvisa Marco Bellini
      e Matteo Conti»; tre o più: «Notifies Marco Bellini, Matteo Conti and
      Laura Costa»; con `more`: «Notifies Marco Bellini and others who
@@ -341,3 +345,6 @@ sull'app». Mondo: «Catalogo numerato», modalità **Operate**.
 3. *(controller)*: il nome del seme è **Matteo Conti** (non «Matteo
    Rossi»): testi e test del Task 9 lo usano.
 4. Le altre scelte di questo brief sono approvate col brief.
+5. *(decisione del maintainer, 2 nov 2026)*: assegnare una task a un altro
+   lo avvisa (`task.assigned`). La scheda di un'assegnazione dice quindi
+   «Notifies <persona>», e una task assegnata a un altro non è mai A.

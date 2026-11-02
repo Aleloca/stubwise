@@ -109,6 +109,15 @@ Contesto da leggere:
 
   Una classe può solo salire. Nessuna C scende a B, nessuna B scende ad A.
   @Claude nella Chat resta tutto proposte (area 4).
+
+  **Assegnare avvisa** *(decisione del maintainer, 2 nov 2026)*: chi riceve
+  una task (creata già assegnata, riassegnata con `updateTask` o con
+  `planTask`) riceve la notifica diretta `task.assigned` («You've been
+  assigned ACQ-14» / «Ti è stata assegnata ACQ-14»), da una persona come da
+  Claude per conto di qualcuno; chi si assegna una task da solo non la
+  riceve. Così «di un altro» rientra nel criterio «avvisa altre persone»: la
+  scheda dice «Notifies Marco Bellini» perché la notifica parte davvero
+  (Task 3 la scrive, Task 4 la calcola).
 - **«Modifica» solo dove il dialogo vero esiste già** *(maintainer, 2 nov
   2026)*: oggi `createTask` e `createRequest` (`EDITABLE` di
   `ProposalCard.tsx`, che non cambia). Le schede delle altre azioni hanno
@@ -116,7 +125,9 @@ Contesto da leggere:
 - **La classe la calcola il livello dati** (`classOf`), e il client la legge
   da `proposal.cls`/`proposal.reasons`: la scheda e il motore di intenti non
   la deducono.
-- **Il catalogo non nomina mai** (test sul sorgente, Task 4): approvare o
+- **Il catalogo non nomina mai** (test sul sorgente, Task 4, che cerca
+  riferimenti di codice — chiamate, import, `api.<ns>.<nome>` — e non
+  parole: *ruling del controller (pre-flight)*, P11): approvare o
   rifiutare un piano (`decidePlan`, `preApprovePlan`, `revokePlanApproval`),
   `mergePr`, `answerQuestion`, `recordDecision`, `activate`/`publish` delle
   automazioni, `createToken`, `createClaudeCodeCommand`, `createInvite`,
@@ -138,8 +149,19 @@ Contesto da leggere:
   «Claude per conto di …» e «… ha annullato: …» si compongono a lettura da
   template i18n. Nessun testo di Claude entra nel registro.
 - **I campi nuovi sono facoltativi** (cambi additivi): `via`, `viaClaude`,
-  `undoOf`, `cls`, `reasons`, `groupId` si leggono assenti sulle righe nate
-  prima. Un campo nuovo che il web leggerebbe va difeso nel punto di lettura.
+  `undoOf`, `cls`, `reasons`, `groupId`, `ConversationDetail.undo` (letto
+  con `?? {}`, *ruling del controller (pre-flight)*, P25) si leggono assenti
+  sulle righe nate prima. Un campo nuovo che il web leggerebbe va difeso nel
+  punto di lettura.
+- **I tipi del catalogo stanno in una foglia** *(ruling del controller
+  (pre-flight), P10)*: `ClaudeActionFn`, `ObjectRef`, il tipo dell'inverso e
+  `ClaudeActionRecord` vivono in `data/claude/types.ts`, senza import;
+  `model.ts` e `catalog.ts` li leggono da lì. Un `import type` di
+  `model.ts` verso `catalog.ts` porterebbe lo store e le letture del
+  registro fino ad `admin/secrets.ts` (`architecture.secrets.test.ts`).
+- **L'orologio è fermo** *(ruling del controller (pre-flight), P4)*: `now()`
+  non distingue le scritture di una sessione, quindi ogni «prima/dopo» del
+  10a (il «com'era» di «Annulla») si ordina con `nextSeq()`, mai con `at`.
 - **Si deriva a lettura ciò che si può derivare** (invariante del
   CLAUDE.md): «Annullato da …» sulla notifica, «Task deleted» al posto del
   link, lo stato di «Annulla» di una riga. Si scrive nell'evento solo ciò
@@ -212,6 +234,9 @@ Contesto da leggere:
      `task_created`: B con il motivo dell'automazione.
    - Una task tua chiusa con `updateTask`, con un'automazione su
      `task_closed`: B.
+   - Una task assegnata a Marco in OLV, o una tua task spostata a lui con
+     `planTask`: B con «Notifies Marco Bellini» (`task.assigned`,
+     `planning.changed`) *(decisione del maintainer, 2 nov 2026)*.
    - Al contrario: una task tua senza iscritti né automazioni resta A,
      anche se compare nelle liste di tutti; un'automazione **in bozza** o
      **in pausa** sullo stesso evento non la alza.
@@ -219,7 +244,9 @@ Contesto da leggere:
      non parte, diventa una scheda col motivo.
 
    → Task 4, 5.
-2. **«Annulla» dopo che altri hanno visto o toccato.**
+2. **«Annulla» dopo che altri hanno visto o toccato.** Le scene con Marco
+   stanno in OLV o LMR, dove Marco è membro e Giulia Project Lead (Marco
+   non è in MKX) *(ruling del controller (pre-flight), P3)*.
    - Marco ha aperto la task: si annulla (aprire non è scrivere).
    - Marco ha cambiato lo stato o commentato: «Marco Bellini changed it
      afterwards», niente cambia, il link porta alla task.
@@ -386,9 +413,13 @@ Test:
 - [ ] Per ognuna: la pubblica e la `…As` danno lo stesso esito sullo stesso
   stato (riuscita, `forbidden`, `invalid`, `reauth_required` dove c'è), e
   scrivono la stessa voce del registro.
-- [ ] Nessuna `…As` è `async` (test sul sorgente: il file non contiene
-  `async function <nome>As`).
-- [ ] `retryJobAs` apre la sessione e non scrive eventi; la pubblica
+- [ ] Nessuna `…As` gira con attese: il test chiama ognuna e verifica che
+  il risultato non sia una `Promise` (`instanceof Promise` falso), non solo
+  che il sorgente non dica `async` *(ruling del controller (pre-flight),
+  P15)*.
+- [ ] `retryJobAs` apre la sessione con l'`openRun` sincrono di
+  `api-mutations.ts` (non con `startRunAs`, che è async) e non scrive
+  eventi; la pubblica
   `retryJob` la fa partire come oggi (stesso esito del test del 9b).
 - [ ] `registerPluginAs` e `updatePluginRefAs` senza riconferma →
   `reauth_required`, nessun job di plugin accodato.
@@ -477,7 +508,10 @@ Test (`taskDelete.test.ts`):
   `tickets.moderate` → `forbidden`, stato invariato, nessuna voce; con
   `tickets.moderate` (Laura in ACQ, se il ruolo lo dà, altrimenti una
   concessione nel test) → riesce.
-- [ ] Claude collega non elimina (non ha `tickets.moderate`, R-L9).
+- [ ] Claude collega non elimina una task che non ha creato lui (non ha
+  `tickets.moderate`, R-L9; con `tickets.create`+`tickets.edit` la regola
+  dell'autore gli lascerebbe le sue), e `whoCan(…, "deleteTasks", ACQ)` non
+  lo include *(ruling del controller (pre-flight), P24)*.
 - [ ] `busy` per ciascuna delle quattro ragioni; una sessione `finished`
   non conta.
 - [ ] Figlie: restano nel progetto senza `parent`; una task bloccata solo da
@@ -509,20 +543,44 @@ Test (`taskDelete.test.ts`):
     `claudeActionId` e `undoOf` da `currentVia()`, mai dall'input;
   - `data/changelog/reads.ts`: il filtro `via`; `ChangeEntryView` porta
     `via` e `undoOf` (l'id solo se chi guarda legge anche la voce
-    annullata, altrimenti `null`);
-  - `data/model.ts`: `ActivityEntry.via?: "claude"`;
-    `AppNotification.viaClaude?: { personId: string; actionId: string }`;
+    annullata, altrimenti `null`). La vista diventa `interface
+    ChangeEntryView extends Omit<ChangeEntry, "undoOf" | "claudeActionId">`
+    con `undoOf: string | null` calcolato, mai copiato con uno spread
+    *(ruling del controller (pre-flight), P16)*;
+  - `data/model.ts`: `ActivityEntry.via?: "claude"` e
+    `ActivityEntry.claudeActionId?: string` (serve al «com'era» del Task 5
+    per riconoscere le scritture del gruppo, *ruling del controller
+    (pre-flight)*, P4); `AppNotification.viaClaude?: { personId: string;
+    actionId: string }`; `DeletedTask.via?: "claude"` *(ruling del
+    controller (pre-flight), P17)*;
   - `data/api-mutations.ts`: `publish`, `addCommentAs`, `commitTaskPatch`
     leggono `currentVia()`;
   - `data/alerts/publish.ts`: `publishAlert` lo stesso;
-  - `data/api-mutations.ts`, `settleProposal` del `ProposalPlace` dei
-    thread della Chat (@Claude): `applyActions` gira dentro
-    `runAsClaude({ actionId: newId("ca"), undoOfActionId: null })`, così le
-    scritture confermate in Chat portano il segno come quelle del riquadro
-    *(maintainer, 2 nov 2026)*. Le classi e le regole dell'area 4 non
+  - `data/api-mutations.ts`, la notifica diretta **`task.assigned`**
+    *(decisione del maintainer, 2 nov 2026)*: `createTaskAs` (task nata già
+    assegnata) e `commitTaskPatch` (ogni diff `assigneeId`, quindi anche
+    `updateTask`, `planTask`, `reassignTask` e i bulk) chiamano
+    `publish("task.assigned", task, assigneeId, …)` quando il nuovo
+    assegnatario non è `null` e non è chi scrive. Nessuna notifica a chi si
+    assegna da solo. Porta `viaClaude` come le altre. Un `planTask` che
+    riassegna avvisa il nuovo assegnatario una volta sola: `task.assigned`
+    sostituisce per lui `planning.changed`, che resta per chi perde la task
+    e per uno spostamento di settimana senza riassegnazione. i18n
+    `notifications.kinds.task_assigned` («You've been assigned ACQ-14» /
+    «Ti è stata assegnata ACQ-14»); il tipo entra in ogni elenco di kind
+    delle notifiche (filtri, icone, `NotificationItem`);
+  - `data/api-mutations.ts`, `settleProposal` (una sola funzione, per ogni
+    `ProposalPlace`: conversazione e thread della Chat; la Posta chiama
+    `applyActions` da `mail/proposals.ts` e resta fuori): `applyActions`
+    gira dentro `runAsClaude({ actionId: newId("ca"), undoOfActionId: null
+    })`, così le scritture confermate in Chat portano il segno come quelle
+    del riquadro *(maintainer, 2 nov 2026; dove: ruling del controller
+    (pre-flight), P21)*. Il Task 5 sostituisce poi il ramo della
+    conversazione con `executeGroup`. Le classi e le regole dell'area 4 non
     cambiano (tutto proposte), non nasce una riga in `state.claudeActions`
     e in Chat non c'è «Annulla»;
-  - `data/taskDelete.ts`: l'evento d'eliminazione porta il segno;
+  - `data/taskDelete.ts`: l'evento d'eliminazione porta il segno
+    (`DeletedTask.via`);
   - `data/types.ts`: `PersonDayActivity` (righe di task spostate,
     commenti, eliminate) + `viaClaude: boolean`; `TimelineEvent`
     `task_deleted` + `viaClaude?: boolean`.
@@ -555,16 +613,29 @@ Test:
   commento ha `authorId` = la persona e `via`; la notifica `planning.changed`
   ha `viaClaude.personId`; l'evento `task_deleted` ha `viaClaude`.
 - [ ] `runAsClaude` con una funzione `async` lancia.
-- [ ] Nessuna funzione esportata da `data/api.ts` accetta un argomento
-  chiamato `via` (test sul sorgente: nessuna firma pubblica nomina `via`;
-  solo `via.ts` scrive il segno in modulo).
+- [ ] Nessuna funzione esportata da `data/api.ts` accetta il segno come
+  argomento: nessuna firma pubblica ha un parametro di tipo `ViaClaude` o
+  `"claude"`; solo `via.ts` scrive il segno in modulo. Il `via` di
+  `api.drive.recordOpen(fileId, via)` (anteprima/Google/download) non è il
+  segno e il test non lo conta *(ruling del controller (pre-flight), P12)*.
+- [ ] `task.assigned` *(decisione del maintainer)*: Giulia crea una task
+  assegnata a Marco in OLV → Marco ha `task.assigned`; la riassegna a Elena
+  con `updateTask` → Elena la riceve, Marco no; Giulia se l'assegna da sola
+  → nessuna notifica; dentro `runAsClaude` la notifica ha
+  `viaClaude.personId: "p-giulia"`; un `planTask` che sposta a Marco una
+  task di Giulia dà a Marco una sola notifica (`task.assigned`); dentro un
+  «Annulla» (`undoOfActionId` non nullo) nessuna. Le suite che contano le
+  notifiche si aggiornano dove una scrittura assegna a un altro.
+- [ ] `ChangeEntryView` letta da chi non legge la voce annullata: `undoOf`
+  è `null`, e `claudeActionId` non c'è nella vista.
 - [ ] `listChanges({ via: "claude" })` dà solo le voci col segno;
   `listChanges({ personId: "p-roberta" })` le include (la persona è
   Roberta); `listChangeFilterChoices().claude` è vero solo se chi guarda
   legge almeno una voce col segno.
 - [ ] Una voce nata prima del 10a (senza `via`) si legge senza segno.
 - [ ] @Claude nella Chat *(maintainer)*: una proposta `planTask` verso
-  Marco confermata da Giulia in un thread → la voce o l'attività ha `via:
+  Marco (task di OLV, *ruling del controller (pre-flight)*, P3) confermata
+  da Giulia in un thread → la voce o l'attività ha `via:
   "claude"` e `actorId` Giulia, la notifica di Marco ha
   `viaClaude.personId: "p-giulia"`, `state.claudeActions` non cambia; una
   scrittura a mano nello stesso thread (un messaggio di Giulia) non ha il
@@ -574,20 +645,42 @@ Test:
 ### Task 4: Il catalogo, le classi e i divieti
 
 **Files:**
-- Create: `data/claude/{catalog.ts,classes.ts,index.ts}`; test
+- Create: `data/claude/{types.ts,catalog.ts,classes.ts,index.ts}` (`types.ts`
+  è la foglia dei tipi, senza import: `ClaudeActionFn`, `ObjectRef`,
+  `CatalogInverse`, e dal Task 5 `ClaudeActionRecord`; *ruling del
+  controller (pre-flight)*, P10); test
   `data/claude/catalog.test.ts`, `data/claude/classes.test.ts`,
   `data/claude/neverInCatalog.test.ts`.
 - Modify:
-  - `data/model.ts`: `ProposedAction.fn` + i nomi nuovi qui sotto;
-  - `data/api-mutations.ts`: `applyActions` esegue ogni `fn` del catalogo
-    con `CLAUDE_CATALOG[fn].run`; un rifiuto (`{ ok: false }`) diventa un
-    `throw` col suo codice, così rimette lo stato; l'istantanea copre anche
+  - `data/model.ts`: `ProposedAction.fn` + i nomi nuovi qui sotto (letti da
+    `data/claude/types.ts`, mai da `catalog.ts`);
+  - `data/api-mutations.ts`: `applyActions(me, actions, options?: {
+    catalogOnly?: boolean })` esegue ogni `fn` del catalogo con
+    `CLAUDE_CATALOG[fn].run`; con `catalogOnly` una `fn` fuori dal catalogo
+    è `invalid: fn` prima di ogni scrittura (la Posta non lo passa)
+    *(ruling del controller (pre-flight), P7)*; un rifiuto (`{ ok: false }`)
+    diventa un `throw` col suo codice, così rimette lo stato.
+    `FailureCode` + `"busy" | "reauth_required"` (oggi `failureCode()` li
+    farebbe `"other"`), e un `busy` porta le sue ragioni fino ad `Applied`;
+    i18n `claude.proposalFailed.{busy,reauth_required}` *(ruling del
+    controller (pre-flight), P6)*.
+    La voce `createTask` chiama `createTaskAs` (avviso `task.created`,
+    `task.assigned` e segnale `task_created`), non più `buildTask`+`addTask`:
+    così le ragioni di `classOf` sono quelle che succedono. Durante
+    `applyActions` i segnali delle automazioni si **trattengono** (una coda
+    nello store, `holdAutomationSignals()`): partono solo a gruppo riuscito
+    e si scartano al rollback, perché `startRun` dell'ascoltatore di
+    `sources.ts` parte subito e l'istantanea non lo ferma *(ruling del
+    controller (pre-flight), P5)*. L'istantanea copre anche
     `projects`, `projectSettings`, `automationRuns`, `changelog`,
     `alertSubscriptions`, `deletedTasks`, `instance`, `googleWorkspaces`,
     `conversations` (la sessione aperta da `retryJob`) e `access` (questa
     con `writeAccess`, che tiene l'identità di `accessState()`). Una voce
     con `after` lo esegue solo dopo che tutto il gruppo è riuscito, come le
-    sessioni di `startRun`;
+    sessioni di `startRun`: `applyActions` non attende, restituisce gli
+    `after` e li chiama chi l'ha chiamata (`settleProposal`,
+    `executeGroup`);
+  - `data/store.ts`: la coda dei segnali trattenuti (P5);
   - `data/alerts/visibility.ts`: `wouldNotify`;
   - `data/automations/sources.ts`: `automationsStartingOn`;
   - `data/api.ts`: `export * as claude from "./claude"`.
@@ -595,7 +688,7 @@ Test:
 **Interfaces, prodotte:**
 
 ```ts
-// data/claude/catalog.ts
+// data/claude/types.ts — foglia, nessun import (P10)
 export type ClaudeActionFn =
   | "createTask" | "updateTask" | "planTask" | "addComment" | "deleteComment"
   | "createRequest" | "convertRequest" | "archiveRequest" | "reopenRequest"
@@ -627,10 +720,12 @@ export type ObjectRef =
    */
   | { kind: "instanceSetting"; key: string }
   | { kind: "subscription"; projectId: string; type: string };
+/** L'inverso coi valori di prima, `null` = non si annulla. */
+export type CatalogInverse = { fn: ClaudeActionFn; args: Record<string, unknown> } | null;
+// data/claude/catalog.ts
 export interface CatalogRun {
   codes: string[]; projectIds: string[];
-  /** L'inverso coi valori di prima, `null` = non si annulla. */
-  inverse: { fn: ClaudeActionFn; args: Record<string, unknown> } | null;
+  inverse: CatalogInverse;
   objects: ObjectRef[];
   /** Il lavoro che parte solo a gruppo riuscito (la sessione di `retryJob`). */
   after?: (gen: number) => Promise<void>;
@@ -642,8 +737,8 @@ export interface CatalogEntry {
   baseClass: "A" | "B";
   /** Se la voce ha un inverso (il valore vero lo dà `run`). */
   undoable: boolean;
-  /** L'azione di `ACTIONS` per il «Who?» di un rifiuto. */
-  whoAction: string;
+  /** L'azione di `ACTIONS` per il «Who?» di un rifiuto; `null` solo per `setSubscription` (P19). */
+  whoAction: string | null;
   /** Sincrona; lancia come `applyActions` (`forbidden`, `not_found`, `invalid: …`, `busy`, `reauth_required`). */
   run(me: string, args: Record<string, unknown>): CatalogRun;
 }
@@ -666,6 +761,18 @@ export function classOfGroup(me: string, actions: Pick<ProposedAction, "fn" | "a
 export function wouldNotify(me: string, alert: { kind: string; projectId: string; mandatory?: { personId: string; reason: MandatoryReason }[] }): { personIds: string[]; more: boolean };
 // data/automations/sources.ts
 export function automationsStartingOn(h: Happening): string[]; // id delle attive che partirebbero (`startsOn`)
+// data/api-mutations.ts (P6, P7)
+export type FailureCode = "forbidden" | "not_found" | "invalid" | "conflict" | "busy" | "reauth_required" | "other";
+export type Applied =
+  | {
+      ok: true; codes: string[]; projectIds: string[]; runs: Task[];
+      /** Per azione, nell'ordine: inverso e oggetti (la riga di `state.claudeActions`). */
+      catalogRuns: (CatalogRun | null)[];
+      /** Il lavoro da far partire a gruppo riuscito (la sessione di `retryJob`). */
+      after: ((gen: number) => Promise<void>)[];
+    }
+  | { ok: false; index: number; code: FailureCode; reasons?: (BusyReason | TaskBusyReason)[] };
+export function applyActions(me: string, actions: ProposedAction[], options?: { catalogOnly?: boolean }): Applied;
 ```
 
 Il catalogo, con i valori del design (parte 2) e le scelte del costruttore
@@ -683,8 +790,8 @@ per le voci che il design non elenca:
 | `archiveRequest` | `archiveRequest` | B | `reopenRequest` | `editBacklog` |
 | `reopenRequest` | `reopenRequest` | B | `archiveRequest` | `editBacklog` |
 | `startRun` | `startRun` | B | — | `startRun` |
-| `createMilestone` | `createMilestone` | B | `deleteMilestone` | `manageMilestones`* |
-| `deleteMilestone` | `deleteMilestone` | B | — | `manageMilestones`* |
+| `createMilestone` | `createMilestone` | B | `deleteMilestone` | `editTasks` (P19) |
+| `deleteMilestone` | `deleteMilestone` | B | — | `editTasks` (P19) |
 | `deleteTask` | `deleteTask` | B | — | `deleteTasks` |
 | `archiveProject` | `projectSettings.archiveProject` | B | `reopenProject` | `manageProjectSettings` |
 | `reopenProject` | `projectSettings.reopenProject` | B | `archiveProject` | `manageProjectSettings` |
@@ -712,10 +819,13 @@ per le voci che il design non elenca:
 | `saveStorage` | `instance.saveStorage` | (C) | valori di prima, senza chiave | `manageSettings` |
 | `setAttachments` | `instance.setAttachments` | B | stato di prima | `manageSettings` |
 | `saveWebhook` | `instance.saveWebhook` | B | acceso, formato, URL ed eventi di prima | `manageSettings` |
-| `setSubscription` | `alerts.setSubscription` | A | stato di prima della riga | — (solo tuo) |
+| `setSubscription` | `alerts.setSubscription` | A | stato di prima della riga | `null` (solo tuo) |
 
 `*` se `ACTIONS` non ha già un'azione per quel permesso, si aggiunge con la
-sua chiave i18n `whoCan.actions.<chiave>`; il test lo controlla.
+sua chiave i18n `whoCan.actions.<chiave>`; il test lo controlla. Dopo il
+pre-flight l'unica nuova è `commentTasks` (`tickets.comment`): i traguardi
+chiedono `tickets.edit`, che ha già `editTasks`, e un'azione doppia sullo
+stesso permesso non serve *(ruling del controller (pre-flight), P19)*.
 
 Le righe d'istanza *(maintainer, 2 nov 2026)*:
 - `(C)` vuol dire che la classe viene da `REAUTH_REQUIRED`:
@@ -735,31 +845,46 @@ Le righe d'istanza *(maintainer, 2 nov 2026)*:
   scrittura.
 
 `classOf`, in quest'ordine, e senza mai scendere sotto `declaredClassOf`:
-- `createTask`: B se l'assegnatario è un'altra persona; motivo `notifies` da
+- `createTask`: B se l'assegnatario è un'altra persona, con motivo
+  `notifies` per lei (la notifica diretta `task.assigned`, *decisione del
+  maintainer, 2 nov 2026*); motivo `notifies` anche da
   `wouldNotify(me, { kind: "task.created", projectId })`; motivo
   `automation` da `automationsStartingOn` con l'evento `task_created` e il
   payload costruito dagli argomenti (gli stessi campi di `happenings`).
   Una task non assegnata, senza avvisi né automazioni, resta A (*scelta del
   controller*, 2 nov 2026: i criteri del design sono solo due);
-- `updateTask`: B se cambia l'assegnatario a un altro, o se porta la task in
-  una famiglia `closed` e `automationsStartingOn` con `task_closed` trova
-  qualcosa, o se la task non è assegnata a chi chiede;
-- `planTask`: B se sposta la task di un'altra persona (l'avviso
-  `planning.changed` va a lei);
+- `updateTask`: B se cambia l'assegnatario a un altro (`notifies` col nuovo
+  assegnatario, `task.assigned`), o se porta la task in una famiglia
+  `closed` e `automationsStartingOn` con `task_closed` trova qualcosa, o se
+  la task non è assegnata a chi chiede;
+- `planTask`: B quando l'insieme delle persone che `planTaskAs` avviserebbe
+  (assegnatario di prima e di dopo, meno chi chiede: `planning.changed` e
+  `task.assigned`) non è vuoto, con `notifies` quelle persone; quindi anche
+  quando sposti la TUA task a Marco *(ruling del controller (pre-flight),
+  P9)*. Le notifiche dirette (`publish`) non passano da `wouldNotify`, che
+  resta per gli avvisi del catalogo: `classOf` usa per loro la stessa
+  funzione dei destinatari che usa la scrittura (estratta da `planTaskAs` e
+  `commitTaskPatch`), filtrata per visibilità come `wouldNotify`;
 - `setSubscription`: A;
 - tutte: `irreversible` se `undoable` è falso (sempre almeno B); `reauth`
   per le C.
 
 Test:
 - [ ] **Registro** (`catalog.test.ts`): ogni voce ha `baseClass`, `undoable`,
-  `whoAction` presente in `ACTIONS` (o assente solo per `setSubscription`);
+  `whoAction` presente in `ACTIONS` (o `null` solo per `setSubscription`);
   ogni `apiFn` in `REAUTH_REQUIRED` dà `declaredClassOf` = `"C"`; nessuna voce
   `undoable: false` ha `baseClass: "A"`; ogni inverso è a sua volta una
   voce del catalogo.
 - [ ] **Mai nel catalogo** (`neverInCatalog.test.ts`, sullo stile di
   `decisions-never-ai.test.ts`): il sorgente di `data/claude/*.ts` e di
-  `domain/claude/intents/*.ts` non nomina nessuna delle funzioni della
-  Global Constraint «Il catalogo non nomina mai»; `CLAUDE_CATALOG` non ha
+  `domain/claude/intents/*.ts` non fa riferimento in codice a nessuna delle
+  funzioni della Global Constraint «Il catalogo non nomina mai»: chiamata
+  (`\bnome\s*\(`), import (`import … nome`) o accesso
+  (`api.<ns>.nome`, `.nome(`). Le parole in un commento, in una regex di
+  riconoscimento o in un link non contano: `refused.ts` deve poter
+  riconoscere «merge» e «publish» *(ruling del controller (pre-flight),
+  P11)*. Il test prova anche il suo risolutore: un file finto con
+  `mergePr(` viene trovato. `CLAUDE_CATALOG` non ha
   una chiave `recordDecision`, `mergePr`, `decidePlan`, `answerQuestion`,
   `activate`, `publish`, né una delle scritture di segreti del 9b
   (`createProvider`, `replaceProviderCredential`, `deleteProvider`,
@@ -780,7 +905,10 @@ Test:
     `["p-matteo"]`;
   - con un'automazione attiva su `task_created` nel progetto (creata nel
     test): B, `automation`; la stessa in bozza o in pausa: A;
-  - assegnata a Marco: B;
+  - assegnata a Marco in OLV: B con `notifies` `["p-marco"]`
+    (`task.assigned`, *decisione del maintainer*); una task di Giulia in
+    OLV spostata a Marco con `planTask`: B con `notifies` `["p-marco"]`
+    (P9); la stessa spostata solo di settimana, restando di Giulia: A;
   - `updateTask` della propria task a `done` con un'automazione su
     `task_closed`: B;
   - una task **non assegnata** di Giulia in MKX, senza avvisi né
@@ -795,6 +923,19 @@ Test:
   stato torna com'era, `project.archived` compreso, e nessuna voce resta nel
   registro; con `addMember` + un fallimento, `accessState()` è lo stesso
   oggetto di prima con le stesse appartenenze.
+- [ ] *(ruling del controller (pre-flight), P5)*: `createTask` dal catalogo
+  in un progetto con un'automazione attiva su `task_created` fa partire
+  l'esecuzione e pubblica `task.created`; lo stesso `createTask` seguito da
+  un'azione che fallisce: nessuna esecuzione in `state.automationRuns`,
+  nessun avviso, e la coda dei segnali trattenuti è vuota.
+- [ ] *(ruling del controller (pre-flight), P6, P7)*: un `deleteTask`
+  `busy` nel gruppo dà `{ ok: false, code: "busy", reasons }`; un
+  `addMember` senza riconferma `code: "reauth_required"`; con `catalogOnly`
+  una `recordDecision` è `invalid` senza scrivere, senza `catalogOnly`
+  (Posta) gira come oggi; un gruppo riuscito ha `catalogRuns` con gli
+  inversi e `after` con la sessione di `retryJob`.
+- [ ] *(ruling del controller (pre-flight), P10)*: `architecture.secrets.test.ts`
+  resta verde, e `data/claude/types.ts` non ha import.
 - [ ] Commit `feat(desktop): catalogo delle azioni di Claude, classi calcolate e divieti`.
 
 ### Task 5: Eseguire per classe, il registro delle azioni e «Annulla»
@@ -808,7 +949,14 @@ Test:
     - l'evento `proposal` + `cls?`, `reasons?`, `groupId?`;
   - `data/store.ts`: `State.claudeActions`, `freshState`; `ApiFnName` +
     `"claude.undo"`;
-  - `data/types.ts`: `ConversationDetail.undo`;
+  - `data/types.ts`: `ConversationDetail.undo?` (facoltativo, letto `?? {}`,
+    *ruling del controller (pre-flight)*, P25);
+  - `data/claude/types.ts`: `ClaudeActionRecord` (P10);
+  - il `seq` (`nextSeq()`) sulle scritture che il «com'era» confronta:
+    `ActivityEntry.seq?`, `ChangeEntry.seq?`, le voci della cronologia di
+    richieste e traguardi e della `history` delle iscrizioni (che lo hanno
+    già da R-K19), più `ActivityEntry.claudeActionId` del Task 3
+    *(ruling del controller (pre-flight), P4)*;
   - `data/api-mutations.ts`:
     - `freeTurn` passa `classify` al motore e, prima di `runScript`,
       esegue gli eventi `executed` in attesa (sotto);
@@ -816,8 +964,10 @@ Test:
     - `ProposalOutcome` + `{ ok: false; error: "reauth_required" }`;
     - nel riquadro e nella destinazione «Claude», `applyActions` rifiuta
       (`invalid: fn`) una `fn` che non è nel catalogo, anche se l'evento è
-      già nel flusso (Review Focus 3); la Posta continua a usare le sue
-      (`recordDecision`, `chooseProject`…) dal suo percorso;
+      già nel flusso (Review Focus 3): `executeGroup` e la `settleProposal`
+      delle conversazioni la chiamano con `{ catalogOnly: true }`; la Posta
+      continua a usare le sue (`recordDecision`, `chooseProject`…) dal suo
+      percorso, senza l'opzione *(ruling del controller (pre-flight), P7)*;
   - `data/api.ts`: `getConversation` calcola `undo`;
     `listNotifications` deriva `undoneByName`;
   - `data/queries.ts`: `useUndoClaudeActions` (`useWrite`, aree della
@@ -834,7 +984,7 @@ Test:
 **Interfaces, prodotte:**
 
 ```ts
-// data/model.ts
+// data/claude/types.ts (foglia, P10)
 export interface ClaudeActionRecord {
   id: string;               // newId("ca")
   groupId: string;
@@ -842,10 +992,12 @@ export interface ClaudeActionRecord {
   /** Chi l'ha chiesta: è anche chi agisce, per i permessi e il registro. */
   personId: string;
   at: string;               // now()
+  /** `nextSeq()` all'esecuzione: l'ordine del «com'era» (l'orologio è fermo, P4). */
+  seq: number;
   fn: ClaudeActionFn;
   args: Record<string, unknown>;
   cls: "A" | "B" | "C";
-  inverse: CatalogRun["inverse"];
+  inverse: CatalogInverse;
   objects: ObjectRef[];
   undone: { at: string; byId: string } | null;
 }
@@ -869,11 +1021,12 @@ export type UndoView =
   | { state: "not_undoable" }
   /** Chi legge una pubblica altrui: la riga è chiusa. */
   | { state: "not_yours" };
-ConversationDetail.undo: Record<string /* groupId */, UndoView>;
+ConversationDetail.undo?: Record<string /* groupId */, UndoView>;
 AppNotification.undoneByName?: string | null;   // solo a lettura
 // data/claude/actions.ts
-export function executeGroup(me: string, conversationId: string, actions: ProposedAction[], cls: "A" | "B" | "C"): { ok: true; groupId: string; codes: string[]; projectIds: string[]; runs: Task[] } | { ok: false; index: number; code: FailureCode };
-/** La prima scrittura sugli oggetti del gruppo dopo `at`, che non sia del gruppo stesso. */
+/** Con `applyActions(…, { catalogOnly: true })`; scrive le righe da `Applied.catalogRuns`; gli `after` li chiama il chiamante a gruppo riuscito. */
+export function executeGroup(me: string, conversationId: string, actions: ProposedAction[], cls: "A" | "B" | "C"): { ok: true; groupId: string; codes: string[]; projectIds: string[]; runs: Task[]; after: ((gen: number) => Promise<void>)[] } | { ok: false; index: number; code: FailureCode; reasons?: (BusyReason | TaskBusyReason)[] };
+/** La prima scrittura sugli oggetti del gruppo con `seq` maggiore di quello della riga, che non sia del gruppo stesso (`claudeActionId`). */
 export function laterChangeOf(group: ClaudeActionRecord[]): { byId: string | null; ref: ObjectRef } | null;
 export function undoViewOf(viewerId: string, groupId: string): UndoView;
 export type UndoResult =
@@ -901,8 +1054,12 @@ Regole:
   `groupId`. La Chat (`ProposalPlace` dei thread) non cambia nelle classi
   e non ha «Annulla»; il segno `via` delle sue conferme lo mette il Task 3.
 - **«Com'era»** (*scelta del costruttore*: confronto per scritture, non per
-  versioni). Un oggetto è cambiato se dopo `at` c'è, da una persona o da
-  Claude fuori dal gruppo:
+  versioni). Un oggetto è cambiato se dopo l'azione c'è, da una persona o
+  da Claude fuori dal gruppo, una scrittura. «Dopo» vuol dire `seq`
+  maggiore del `seq` della riga, mai `at`: con l'orologio fermo tutte le
+  scritture della sessione hanno lo stesso `at`. «Fuori dal gruppo» vuol
+  dire `claudeActionId` diverso dalle azioni del gruppo *(ruling del
+  controller (pre-flight), P4)*. Le scritture contate:
   - task: una voce di `activity`, una conversazione `task_run` nata, o
     l'eliminazione;
   - richiesta, traguardo: un cambio di `status`/campo letto dalla loro
@@ -934,8 +1091,16 @@ Test:
 - [ ] Stessa frase in AUD: nessuna task, una proposta aperta con `cls: "B"`
   e `reasons` `notifies` di Matteo.
 - [ ] Fra il calcolo e l'esecuzione si accende un'automazione su
-  `task_created` (nel test, fra `respond` e `runScript`): proposta, non
-  task.
+  `task_created`: proposta, non task. In `freeTurn` non c'è un'attesa fra
+  `respond` e `runScript`, quindi il test accende l'automazione dentro uno
+  spy di `ctx.classify`, dopo che ha risposto A; il ricalcolo
+  `classOfGroup` di `freeTurn` la vede *(ruling del controller
+  (pre-flight), P26)*.
+- [ ] *(ruling del controller (pre-flight), P4)*: due azioni A di fila
+  sulla stessa task (crea, poi «spostala a W46» in un secondo messaggio):
+  la prima diventa `changed_after` con il nome di Giulia, anche se le due
+  scritture hanno lo stesso `at`; la scrittura del gruppo stesso non
+  rende `changed_after`.
 - [ ] @Claude nella Chat con la stessa frase in MKX: proposta, come
   nell'area 4.
 - [ ] C: `addMember` confermato senza riconferma → `reauth_required`, la
@@ -946,7 +1111,10 @@ Test:
 - [ ] Coda di MKX in pausa (9b): una scheda `startRun` confermata fa
   nascere la sessione in attesa, come a mano; la conversazione del riquadro
   risponde lo stesso.
-- [ ] (`undo.test.ts`) Review Focus 2:
+- [ ] (`undo.test.ts`) Review Focus 2. Le task con Marco nascono in OLV
+  (Marco membro, Giulia Project Lead, senza iscritti né automazioni su
+  `task_created`), non in MKX, dove Marco non c'è *(ruling del controller
+  (pre-flight), P3)*:
   - «Annulla» della task creata: la task non c'è più, voce `task.deleted`
     con `via` e `undoOf`, `undo` → `undone` per Giulia;
   - Marco commenta la task prima: `changed_after` con «Marco Bellini» e il
@@ -958,8 +1126,11 @@ Test:
     `forbidden` con `whoAction: "manageProjectSettings"`;
   - `removeMember` come inverso con la grazia scaduta: `reauth_required`;
   - un'altra persona: `not_yours`; due volte: `already_undone`;
-  - `planTask` verso Marco annullato: la notifica di Marco ha
-    `undoneByName: "Giulia Ferri"`, e Marco non ha una seconda notifica.
+  - `planTask` verso Marco annullato: la notifica di Marco (`task.assigned`,
+    *decisione del maintainer*) ha `undoneByName: "Giulia Ferri"`, e Marco
+    non ha una seconda notifica;
+  - l'inverso rifiutato per `busy` dà `{ error: "busy", reasons }` con le
+    ragioni, quello senza riconferma `reauth_required` (P6).
 - [ ] `getConversation` letto da un altro in una pubblica: ogni `undo` è
   `not_yours`, e nessuna `UndoView` nomina persone o codici che lui non vede
   (minuscole comprese).
@@ -982,7 +1153,14 @@ Il motore resta puro: legge, classifica (con `ctx.classify`), non scrive.
     `say` con la frase e il link markdown al posto (nessun tipo d'evento
     nuovo);
   - `pages/overview/DecisionLog.tsx`: `?recordDecision=1&task=<code>` apre
-    `RecordDecisionDialog` con progetto e task scelti e **testo vuoto**;
+    `RecordDecisionDialog` con progetto e task scelti e **testo vuoto**. Il
+    dialogo oggi non ha la task: riceve una prop `taskId` (risolta dal
+    codice con la visibilità di chi guarda; invisibile o inesistente: il
+    dialogo si apre senza task) che va in `DecisionDraft.taskId`, già
+    previsto dall'API, e la mostra in testa al dialogo, senza un selettore
+    nuovo *(ruling del controller (pre-flight), P18)*. Il nome del
+    parametro resta: il test `neverInCatalog` cerca riferimenti di codice,
+    non parole (P11);
   - i18n `claude.answers.{remove.*,refused.*}`.
 
 **Interfaces, prodotte:**
@@ -1014,13 +1192,19 @@ Test:
   cortesia in testa): intento `refused`, nessuna `proposal`, nessun
   `execute`, il link giusto.
 - [ ] «Registra la decisione che usiamo Postgres su AUD-4»: il link apre il
-  dialogo e il campo «Decision» è vuoto (test della pagina).
+  dialogo con AUD-4 in testa e il campo «Decision» vuoto; salvato, la voce
+  ha `taskId` di AUD-4 (test della pagina, P18).
 - [ ] «Elimina ACQ-14» (task visibile): proposta B con `deleteTask`;
   «elimina ACQ-99» e un codice invisibile: la stessa frase
   `claude.answers.explain.notFound`, confronto in minuscolo.
 - [ ] Le domande con lo stesso verbo («chi ha eliminato ACQ-14?», «come si
   approva un piano?») non sono `remove` né `refused`.
-- [ ] `expectNoDeploy()` sul riquadro dopo la riga D del deploy.
+- [ ] La riga D del deploy: `say` con la frase e senza link. Il controllo
+  `expectNoDeploy()` non sta qui, perché un test di dominio non ha DOM e
+  passerebbe sempre: è nel Task 9 (`ExecutedRow.test.tsx`) *(ruling del
+  controller (pre-flight), P13)*.
+- [ ] `refused.ts` riconosce «merge» e «publish» e passa
+  `neverInCatalog.test.ts` (P11).
 - [ ] Commit `feat(desktop): Claude rifiuta i gesti delle persone e propone l'eliminazione`.
 
 ### Task 7: Il seme del 10a
@@ -1039,21 +1223,25 @@ Contenuto:
   `planTask` A di una task di Giulia in MKX, eseguito e poi **annullato**;
   attività con `via`, `claudeActions` con `undone`.
 - **Conversazione 2 di Giulia** («Brief di MKX e una task a Marco»): una
-  scheda B confermata con due azioni, `planTask` di una task di MKX a Marco
-  e `saveProjectAutomations` col brief spento; poi **annullata** da Giulia.
-  Lascia:
+  scheda B confermata con due azioni, `planTask` di una task di **OLV** a
+  Marco e `saveProjectAutomations` di MKX col brief spento; poi
+  **annullata** da Giulia. Marco non è membro di MKX e `planTaskAs`
+  rifiuterebbe l'assegnatario: la task va in OLV, dove Marco è membro e
+  Giulia Project Lead *(ruling del controller (pre-flight), P3)*. Lascia:
   - due voci del registro con `via` (`project.switch_changed` e,
     all'«Annulla», la sua inversa con `undoOf`);
-  - la notifica `planning.changed` a Marco con `viaClaude`, che a lettura
-    dice «Undone by Giulia Ferri».
+  - la notifica `task.assigned` a Marco con `viaClaude` (*decisione del
+    maintainer*, Task 3), che a lettura dice «Undone by Giulia Ferri».
+- Le righe del seme hanno `seq` coerenti con l'ordine (P4).
 - Le date sono relative a `CLOCK_START`, dentro gli ultimi 7 giorni.
 
 Test:
 - [ ] Le due conversazioni sono private di Giulia; `getConversation` per
   Giulia dà `undo` → `undone` su entrambi i gruppi.
 - [ ] Marco legge la notifica con `viaClaude` e `undoneByName`.
-- [ ] Laura (Change log di MKX, se lo legge) e Roberta (Amministrazione)
-  trovano le due voci col filtro `via: "claude"`.
+- [ ] Giulia (Change log di MKX, Project Lead) e Roberta (Amministrazione)
+  trovano le due voci col filtro `via: "claude"` (Laura non è in MKX: non
+  è il lettore di questa prova, *ruling del controller (pre-flight)*, P3).
 - [ ] Le suite delle aree 1–9c restano verdi (conteggi di conversazioni,
   notifiche e voci aggiornati dove li contano, come P7 e P8 del 9c).
 - [ ] Commit `feat(desktop): il seme delle azioni di Claude per conto di Giulia`.
@@ -1070,7 +1258,10 @@ Test:
     in un dialogo modale; nel riquadro chiude);
   - `layout/Rail.tsx`: il bottone fisso in fondo, `aria-expanded`;
   - `palette/commands.ts`: `claude.ask` apre il riquadro con il testo nella
-    casella, **non inviato**;
+    casella, **non inviato**; il `ctx` dei comandi riceve `openClaudePanel`,
+    e `palette/commands.test.ts` (oggi si aspetta `/claude?ask=…`, riga
+    53) si aggiorna: il comando chiama `openClaudePanel({ draft })` e non
+    naviga *(ruling del controller (pre-flight), P14)*;
   - `pages/claude/ClaudePage.tsx`: estrae `NewConversationComposer({ initial,
     onCreated })` da `NewConversation`, che il riquadro riusa;
   - `pages/claude/conversation/Conversation.tsx`: prop `draft?: { text:
@@ -1097,6 +1288,10 @@ Test:
     controller, [CP 7])*. Test in `src/main/main.test.ts` e
     `layout/useMenuEvents.test.ts`. Senza un dialogo modale aperto, ⌘J
     dalla tastiera e dal menu non scattano due volte (un solo toggle).
+    Con un dialogo modale aperto non scatta nessuno dei due:
+    `handleMenuChannel` ha la stessa guardia di `useShortcuts`
+    (`document.querySelector('[aria-modal="true"]')`) per
+    `MENU_ASK_CLAUDE` *(ruling del controller (pre-flight), P20)*.
 
 **Interfaces, prodotte:**
 
@@ -1150,7 +1345,10 @@ Test:
   risponde «Can't find …» come per un codice inesistente.
 - [ ] Budget esaurito: il riquadro lo dice, l'invio non parte.
 - [ ] La voce di menu «Ask Claude…» (`MENU_ASK_CLAUDE`) apre e chiude il
-  riquadro; ⌘J premuto una volta dà un solo toggle.
+  riquadro; ⌘J premuto una volta dà un solo toggle; con la riconferma (o
+  la palette) aperta, la voce di menu non apre il riquadro (P20).
+- [ ] `palette/commands.test.ts`: «Ask Claude: Explain AUD-3» chiama
+  `openClaudePanel` col testo e non naviga (P14).
 - [ ] L'atterraggio della destinazione e la conversazione vuota del
   riquadro non contengono più «changes nothing without your confirmation»
   (en) né la sua resa it.
@@ -1178,8 +1376,8 @@ Test:
   - i18n `claude.conversation.executed.*`, `claude.conversation.undo.*`,
     `claude.conversation.proposal.reasons.*`.
 
-`UndoControl` legge `ConversationDetail.undo[groupId]` e non decide niente da
-sé:
+`UndoControl` legge `(ConversationDetail.undo ?? {})[groupId]` (P25) e non
+decide niente da sé:
 - `available` → «Undo»; con `needsReauth` passa da `useReauth`;
 - `undone` → «Undone» (con il nome solo se non è chi guarda);
 - `changed_after` → «<nome> changed it afterwards · can't undo from here»
@@ -1223,6 +1421,21 @@ Test:
   nessun bottone.
 - [ ] Nessun `can(` né `viewer` nei file di `pages/claude/conversation/`
   toccati qui (test sul sorgente, come P13 del 9c).
+- [ ] *(ruling del controller (pre-flight), P13)*: la riga D del deploy
+  resa nel flusso (en). Il test verifica prima che ci sia la frase
+  «Stubwise doesn't deploy: merging a pull request is as far as it goes.»
+  e che non ci sia un link, poi chiama `expectNoDeploy()`.
+- [ ] *(ruling del controller (pre-flight), P23)*, le regole dello shape
+  `claude-actions.md`:
+  - [CA 6]: una scheda con `deleteTask` ha il Confirm `critical` che dice
+    «Delete»;
+  - [CA 3]: un gruppo di due azioni confermato ha un solo controllo,
+    «Undo both» (tre: «Undo all 3»), sotto l'ultima riga;
+  - un'azione A rifiutata all'invio per permesso mostra «Didn't run: you
+    can't create tasks in MKX · Who?» con `WhoCanLink`, e nessun Undo.
+- [ ] *(decisione del maintainer)*: una scheda B «assegna OLV-<n> a Marco»
+  dice «Notifies Marco Bellini» (la riga viene da `reasons`, ragione
+  `task.assigned`).
 - [ ] Commit `feat(desktop): righe eseguite, schede per classe e «Annulla» nella conversazione`.
 
 ### Task 10: «Elimina task» (UI)
@@ -1266,7 +1479,12 @@ Test:
 **Files:**
 - Modify:
   - `pages/admin/ChangeEntry.tsx`: il prefisso «Claude on behalf of <nome>»
-    con `via`; con `undoOf` la frase «… undid: <frase della voce annullata>»;
+    con `via`. Con `undoOf`, la voce resta quella inversa col prefisso e il
+    suo prima/dopo, e sotto aggiunge una riga «Undid: <frase della voce
+    annullata> · <data>», con la data che porta alla voce annullata, come
+    [CT 4] di `claude-trace.md`. Non è una frase unica «… undid: …», che lo
+    shape scarta perché perde il prima/dopo *(ruling del controller
+    (pre-flight), P2)*;
   - `pages/admin/ChangeLogPage.tsx` e `pages/settings/ProjectChangeLog.tsx`:
     il filtro «Made with Claude» (solo se `choices.claude`), nell'indirizzo;
   - `pages/task/ActivityFeed.tsx`: la testata del commento e la riga di un
@@ -1274,10 +1492,15 @@ Test:
   - `notifications/NotificationItem.tsx`: il prefisso da `viaClaude` e
     «Undone by <nome>» da `undoneByName`; vale anche per le notifiche nate
     da una proposta di @Claude confermata in Chat *(maintainer, 2 nov
+    2026)*. Il tipo nuovo `task.assigned` ha titolo «You've been assigned
+    ACQ-14» / «Ti è stata assegnata ACQ-14» e, col segno, corpo «Claude on
+    behalf of Giulia Ferri assigned you ACQ-14.» / «Claude per conto di
+    Giulia Ferri ti ha assegnato ACQ-14.» *(decisione del maintainer, 2 nov
     2026)*;
-  - la rassegna del giorno per persona (`pages/week/*` o dove vive
-    `listPeopleActivity`) e la storia del progetto: il segno sulle righe
-    con `viaClaude`;
+  - la rassegna del giorno per persona (`pages/projects/PeopleActivity.tsx`)
+    e la storia del progetto (`pages/projects/ActivityFeed.tsx`): il segno
+    sulle righe con `viaClaude` *(percorsi: ruling del controller
+    (pre-flight), P22)*;
   - i18n `changelog.via.*`, `notifications.viaClaude.*`,
     `activity.viaClaude`.
 - Test: `pages/admin/ChangeEntry.claude.test.tsx`,
@@ -1289,13 +1512,23 @@ delle voci, con il prefisso: nessuna frase nuova per tipo di voce.
 
 Test:
 - [ ] La voce del seme (Task 7) si legge «Claude on behalf of Giulia Ferri
-  turned off Weekly brief in MKX» in en e la sua resa it; l'inversa «…
-  undid: …».
+  changed “Weekly brief” in MKX.» con la seconda riga «On → Off» in en, e
+  la sua resa it («Claude per conto di Giulia Ferri ha cambiato “Brief
+  settimanale” in MKX.» · «Acceso → Spento»). È il template vero di
+  `project.switch_changed` e la frase di `claude-trace.md` *(ruling del
+  controller (pre-flight), P1)*.
+- [ ] L'inversa si legge «Claude on behalf of Giulia Ferri changed “Weekly
+  brief” in MKX.» con «Off → On», e sotto la riga «Undid: Claude on behalf
+  of Giulia Ferri changed “Weekly brief” in MKX · <data>»; la data porta
+  alla voce annullata *(ruling del controller (pre-flight), P2)*.
+- [ ] *(decisione del maintainer)*: la notifica `task.assigned` di Marco
+  (seme) ha il titolo «You've been assigned OLV-<n>» e il prefisso «Claude
+  on behalf of Giulia Ferri …».
 - [ ] Il filtro «Persona» = Giulia trova le voci col segno; «Made with
   Claude» isola solo quelle; un lettore che non legge nessuna voce col
   segno non vede il filtro.
 - [ ] Un'inversa letta da chi non legge la voce annullata: la sua frase col
-  prefisso, senza «undid:» (R-G5).
+  prefisso, senza la riga «Undid:» (R-G5).
 - [ ] Il commento con `via`: testata «Claude on behalf of Giulia Ferri»,
   Giulia lo modifica e lo elimina come suo.
 - [ ] La notifica di Marco (seme): prefisso e «Undone by Giulia Ferri».
@@ -1312,7 +1545,9 @@ Test:
 - `apps/desktop/docs/area10-parity.md` (nuovo): il web non ha un riquadro,
   quindi nessuna parità da chiudere; una riga per voce nuova del 10a (dove
   vive, test fra virgolette): riquadro, classi, catalogo, divieti D,
-  `via`, «Annulla», «Elimina task», filtro «Made with Claude». Le
+  `via`, «Annulla», «Elimina task», filtro «Made with Claude», la notifica
+  `task.assigned` (*decisione del maintainer*: da confrontare con ciò che
+  il web manda oggi all'assegnatario). Le
   differenze deliberate del design («Cosa cambia deliberatamente» 1, 2 e 6)
   con il riferimento.
 - `capture.mjs`, scatti `a10a-*`:
@@ -1394,3 +1629,40 @@ Ognuna è segnata nel testo con chi l'ha presa.
    (testi e test allineati); la frase dell'atterraggio di Claude si
    sostituisce ([CP 9]); «Ask Claude… ⌘J» nel menu dell'app ([CP 7]).
    Task 8, Task 9.
+10. **Assegnare una task avvisa chi la riceve** *(decisione del maintainer,
+    2 nov 2026)*: notifica diretta `task.assigned` («You've been assigned
+    ACQ-14» / «Ti è stata assegnata ACQ-14») per chiunque riceva una task,
+    da una persona o da Claude per conto di qualcuno; non a chi si assegna
+    da solo. Global Constraints, Review Focus 1, Task 3 (scrittura), Task 4
+    (classe), Task 9 (scheda), Task 11 (pagine).
+
+## Ruling del controller (pre-flight, 2 nov 2026)
+
+Dal pre-flight (`.superpowers/sdd/2026-11-02-desktop-area10a-plan/preflight.md`),
+P1–P26, tutti accettati e già scritti nei task, ognuno marcato *ruling del
+controller (pre-flight)* (P8 è la decisione 10 qui sopra):
+
+- **P1, P2:** Task 11, la frase del seme e la riga «Undid:» come in
+  `claude-trace.md`.
+- **P3:** le scene con Marco in OLV (Task 3, 5, 7; Review Focus 2).
+- **P4:** il «com'era» ordinato per `seq`, non per `at` (Global
+  Constraints, Task 3, 5).
+- **P5:** `createTask` del catalogo con `createTaskAs` e i segnali
+  trattenuti (Task 4).
+- **P6, P7:** `FailureCode`/`Applied`/`executeGroup` e `catalogOnly`
+  (Task 4, 5).
+- **P9:** la classe di `planTask` (Task 4).
+- **P10:** la foglia `data/claude/types.ts` (Global Constraints, Task 4, 5).
+- **P11:** `neverInCatalog` per riferimenti di codice (Global Constraints,
+  Task 4, 6).
+- **P12, P16, P17, P21:** Task 3.
+- **P13:** `expectNoDeploy` spostato nel Task 9.
+- **P14, P20:** Task 8.
+- **P15:** Task 1.
+- **P18:** Task 6.
+- **P19:** Task 4.
+- **P22:** Task 11.
+- **P23:** Task 9.
+- **P24:** Task 2.
+- **P25:** Global Constraints, Task 5, 9.
+- **P26:** Task 5.

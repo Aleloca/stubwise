@@ -44,8 +44,11 @@ numerato», modalità **Operate**.
   - la voce dopo dice «**Claude on behalf of Giulia Ferri** changed “Weekly
     brief” in **MKX**.» con «Off → On» e sotto «Undid: Claude on behalf of
     Giulia Ferri changed “Weekly brief” in MKX · Oct 30, 10:12»;
-  - Marco apre le notifiche: «Your week changed · Claude on behalf of Giulia
-    Ferri planned MKX-12 for W46.» e sotto «Undone by Giulia Ferri».
+  - Marco apre le notifiche: «You've been assigned OLV-12 · Claude on
+    behalf of Giulia Ferri assigned you OLV-12.» e sotto «Undone by Giulia
+    Ferri» (Marco non è in MKX: la scena del seme sta in OLV, *ruling del
+    controller (pre-flight)*, P3; la notifica di una riassegnazione è
+    `task.assigned`, *decisione del maintainer, 2 nov 2026*).
 - **Verità del prodotto**:
   - **una frase, un template**: il prefisso sostituisce il solo nome di chi
     agisce, il resto della frase è quello di sempre; nessuna frase nuova
@@ -145,9 +148,13 @@ numerato», modalità **Operate**.
 
 - **Notifica nata da un'azione di Claude** (`viaClaude`): il corpo comincia
   col prefisso, il titolo resta quello del tipo:
-  - assegnazione: titolo «Assigned to you» / «Assegnata a te», corpo
+  - assegnazione (tipo `task.assigned`, *decisione del maintainer, 2 nov
+    2026*: lo riceve chiunque riceva una task, da una persona o da Claude,
+    mai chi se la assegna da solo): titolo «You've been assigned
+    **ACQ-14**» / «Ti è stata assegnata **ACQ-14**»; col segno, corpo
     «Claude on behalf of Giulia Ferri assigned you **ACQ-14**.» / «Claude
-    per conto di Giulia Ferri ti ha assegnato **ACQ-14**.»;
+    per conto di Giulia Ferri ti ha assegnato **ACQ-14**.»; senza segno, il
+    corpo dice la persona («Giulia Ferri assigned you **ACQ-14**.»);
   - pianificazione: titolo «Your week changed» / «La tua settimana è
     cambiata», corpo «Claude on behalf of Giulia Ferri planned **MKX-12**
     for W46.» / «Claude per conto di Giulia Ferri ha pianificato **MKX-12**
@@ -273,3 +280,11 @@ numerato», modalità **Operate**.
    riquadro. Le regole dell'area 4 restano (tutto proposte, niente Undo in
    Chat).
 2. Le altre scelte di questo brief sono approvate col brief.
+3. **[CT 4]** *(ruling del controller (pre-flight), P2)*: il piano si
+   allinea a questo brief. La voce di un Undo è l'inversa col prefisso e il
+   suo prima/dopo, più la riga «Undid: … · data»; non una frase unica
+   «… undid: …».
+4. *(decisione del maintainer, 2 nov 2026)*: la notifica di assegnazione è
+   il tipo nuovo `task.assigned`, «You've been assigned ACQ-14» / «Ti è
+   stata assegnata ACQ-14». La ricevono tutti quelli a cui arriva una task,
+   con o senza Claude; chi si assegna da solo no.
