@@ -160,6 +160,8 @@ export const ACTIONS: readonly AccessAction[] = [
   // task
   project("createTasks", "tickets.create"),
   project("editTasks", "tickets.edit"),
+  // Area 10a: il «Who?» di un commento scritto da Claude per conto di qualcuno.
+  project("commentTasks", "tickets.comment"),
   project("moderateComments", "tickets.moderate"),
   // Area 10a: eliminare le task create da altri (le proprie: `editTasks`). Claude mai (R-L9).
   project("deleteTasks", "tickets.moderate"),

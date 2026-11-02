@@ -3314,6 +3314,8 @@
       "not_found": "Non eseguita: «{{action}}» riguarda qualcosa che non esiste più o che non puoi vedere. Non è cambiato nulla.",
       "invalid": "Non eseguita: «{{action}}» non si applica più alla situazione di adesso. Non è cambiato nulla.",
       "conflict": "Non eseguita: Claude sta già lavorando a «{{action}}». Non è cambiato nulla.",
+      "busy": "Non eseguita: «{{action}}» deve aspettare, c’è ancora qualcosa in corso. Non è cambiato nulla.",
+      "reauth_required": "Non eseguita: «{{action}}» chiede prima il codice a due fattori. Non è cambiato nulla.",
       "other": "Non eseguita: «{{action}}» non è riuscita. Non è cambiato nulla."
     },
     "conversation": {
@@ -8631,6 +8633,7 @@
       "seeProjectUsage": "vedere i consumi del progetto",
       "createTasks": "creare task",
       "editTasks": "modificare le task",
+      "commentTasks": "commentare le task",
       "moderateComments": "eliminare i commenti degli altri",
       "deleteTasks": "eliminare le task create da altri",
       "startRun": "avviare Claude",

@@ -1,4 +1,5 @@
 import type { TicketPriority } from "@stubwise/shared";
+import type { ClaudeActionFn } from "./claude/types";
 
 // Modello dati dell'area 2 (task). Autonomo: il Task 2 farà di `types.ts` un
 // re-export di questo file più i tipi dell'ossatura che restano.
@@ -846,20 +847,14 @@ export type Utterance = { key: string; params?: Record<string, string | number> 
 
 /** Una modifica ai dati che Claude propone: la esegue la mutazione di oggi, a nome di chi conferma. */
 export type ProposedAction = {
+  /** Le azioni del catalogo di Claude (area 10a: dalla foglia dei tipi, mai da `claude/catalog.ts`, P10) e quelle della Posta. */
   fn:
-    | "createTask"
-    | "updateTask"
-    | "planTask"
-    | "addComment"
-    | "createRequest"
-    | "convertRequest"
-    | "startRun"
-    | "archiveRequest"
+    | ClaudeActionFn
     // Dalla posta (area 6): una decisione nel registro (origine `email`, testo
-    // da template), un traguardo, e la scelta del progetto per un'email
-    // incerta (`chooseProject` non si esegue: la risolve `chooseProjectFor`).
+    // da template) e la scelta del progetto per un'email incerta
+    // (`chooseProject` non si esegue: la risolve `chooseProjectFor`). Il
+    // traguardo della posta è `createMilestone` del catalogo.
     | "recordDecision"
-    | "createMilestone"
     | "chooseProject"
     // Dal calendario (area 6): «Ricordamelo» di una serie. Non crea nulla:
     // chi la conferma prende atto e la proposta si chiude (come

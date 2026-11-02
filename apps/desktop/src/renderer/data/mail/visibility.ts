@@ -74,6 +74,10 @@ export function permissionForAction(fn: ProposedAction["fn"]): Permission | null
     case "chooseProject":
     case "acknowledgeReminder":
       return null;
+    // Le altre azioni del catalogo di Claude (area 10a) la Posta non le
+    // propone mai (`MAIL_FNS`): se ne arrivasse una, nessuno la conferma.
+    default:
+      throw new Error("invalid: fn");
   }
 }
 

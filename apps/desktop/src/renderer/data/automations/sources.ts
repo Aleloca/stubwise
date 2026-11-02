@@ -1,6 +1,6 @@
 import { lookup, evaluate } from "../../domain/automations/conditions";
 import { onAutomationSignal, state, visibleProjectIds, type AutomationSignal } from "../store";
-import type { Automation, AutomationTrigger } from "../types";
+import type { Automation, AutomationTrigger, Task } from "../types";
 import { ancestorsOf, CHAIN_MAX, currentOrigin } from "./effects";
 import { enqueue, publishedVersion, startRun } from "./runner";
 import { runById, stepOfRun } from "./visibility";
@@ -32,6 +32,30 @@ export interface Happening {
 
 const projectCode = (id: string) => state.projectsById.get(id)?.code ?? "";
 
+/**
+ * L'evento di una task, coi campi che ne leggono le automazioni: quello di
+ * un segnale, e quello che la classe di Claude (area 10a) costruisce dagli
+ * argomenti di un'azione prima di eseguirla.
+ */
+export function taskHappening(
+  event: "task_created" | "task_closed",
+  t: Pick<Task, "code" | "title" | "projectId" | "assigneeId" | "statusId">,
+): Happening {
+  return {
+    event,
+    projectId: t.projectId,
+    payload: {
+      task: {
+        codice: t.code,
+        titolo: t.title,
+        progetto: projectCode(t.projectId),
+        incaricato: t.assigneeId ?? "",
+        stato: state.statusById.get(t.statusId)?.name ?? "",
+      },
+    },
+  };
+}
+
 /** Gli eventi di un segnale, coi dati che ne leggono le automazioni (anche gli esempi della prova). */
 export function happenings(signal: AutomationSignal): Happening[] {
   switch (signal.kind) {
@@ -39,21 +63,7 @@ export function happenings(signal: AutomationSignal): Happening[] {
     case "task_closed": {
       const t = state.tasksById.get(signal.taskId);
       if (!t) return [];
-      return [
-        {
-          event: signal.kind,
-          projectId: t.projectId,
-          payload: {
-            task: {
-              codice: t.code,
-              titolo: t.title,
-              progetto: projectCode(t.projectId),
-              incaricato: t.assigneeId ?? "",
-              stato: state.statusById.get(t.statusId)?.name ?? "",
-            },
-          },
-        },
-      ];
+      return [taskHappening(signal.kind, t)];
     }
     case "request_created": {
       const r = state.requests.find((x) => x.id === signal.requestId);
@@ -113,6 +123,15 @@ function startsOn(a: Automation, h: Happening): boolean {
     if (a.projectId !== null && a.projectId !== h.projectId) return false;
   }
   return !t.filter || evaluate(t.filter, (key) => lookup(h.payload, key));
+}
+
+/**
+ * Le automazioni attive che partirebbero per l'evento, adesso (`startsOn`):
+ * la classe calcolata di Claude (area 10a) ne fa un motivo per chiedere.
+ * In bozza o in pausa non partono, quindi non contano.
+ */
+export function automationsStartingOn(h: Happening): string[] {
+  return state.automations.filter((a) => startsOn(a, h)).map((a) => a.id);
 }
 
 /** Un evento nato dentro un'esecuzione: niente cicli, catena di al massimo 3. */

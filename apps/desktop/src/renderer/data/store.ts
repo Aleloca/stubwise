@@ -1342,6 +1342,7 @@ export function resetStore(): void {
   setSessionPersonId(DEFAULT_SESSION_PERSON_ID);
   setSessionCredential("session");
   clockOffsetMs = 0;
+  heldSignals = null;
   // `freshState` riporta anche gli accessi al seme (`resetAccessState`).
   Object.assign(state, freshState());
   reindex();
@@ -1366,6 +1367,7 @@ export function emptyStore(): void {
   generation += 1;
   for (const fn of resetHooks) fn();
   failures.clear();
+  heldSignals = null;
   setSessionCredential("session");
   // La persona di prima non esiste più: la sessione è di «nessuno».
   setSessionPersonId(NO_SESSION_PERSON_ID);
@@ -1420,7 +1422,47 @@ export function onAutomationSignal(fn: (signal: AutomationSignal) => void): () =
 }
 
 export function signalAutomations(signal: AutomationSignal): void {
+  if (heldSignals !== null) {
+    heldSignals.push(signal);
+    return;
+  }
   for (const fn of automationListeners) fn(signal);
+}
+
+/**
+ * I segnali trattenuti da un gruppo «tutto o niente» in corso (`applyActions`,
+ * area 10a, ruling del controller (pre-flight), P5): un ascoltatore fa
+ * partire un'esecuzione subito, e il ripristino dello stato non la
+ * fermerebbe. `null`: nessun gruppo in corso, i segnali partono subito.
+ */
+let heldSignals: AutomationSignal[] | null = null;
+
+/** I segnali trattenuti adesso (vuoto fuori da un gruppo). */
+export const heldAutomationSignals = (): readonly AutomationSignal[] => [...(heldSignals ?? [])];
+
+/**
+ * Trattiene i segnali delle automazioni fino a `release` (partono, in
+ * ordine) o `discard` (si scartano). Annidare è lecito: un gruppo interno
+ * che riesce li lascia a quello esterno, uno che fallisce scarta solo i
+ * suoi. Una delle due va chiamata sempre.
+ */
+export function holdAutomationSignals(): { release(): void; discard(): void } {
+  const outer = heldSignals === null;
+  if (outer) heldSignals = [];
+  const from = heldSignals!.length;
+  return {
+    release() {
+      if (!outer || heldSignals === null) return;
+      const signals = heldSignals;
+      heldSignals = null;
+      for (const signal of signals) signalAutomations(signal);
+    },
+    discard() {
+      if (heldSignals === null) return;
+      heldSignals.length = from;
+      if (outer) heldSignals = null;
+    },
+  };
 }
 
 const instanceListeners = new Set<() => void>();

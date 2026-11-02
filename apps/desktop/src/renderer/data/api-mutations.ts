@@ -28,7 +28,13 @@ import { TODAY } from "./seed/dates";
 import { docPageById } from "./docs/reads";
 import { driveFilesForClaude } from "./drive/reads";
 import { PEOPLE } from "./seed/people";
-import { isDeactivated, roleIdOf } from "./access/index";
+import { accessState, isDeactivated, roleIdOf, writeAccess } from "./access/index";
+// Il catalogo delle azioni di Claude (area 10a): le sue voci chiamano le
+// forme `…As` di qui, usate solo dentro le funzioni, quindi l'import
+// circolare è innocuo.
+import { CLAUDE_CATALOG, isCatalogFn, type CatalogRun } from "./claude/catalog";
+import type { BusyReason } from "./projectSettings/types";
+import type { TaskBusyReason } from "./taskDelete";
 // I blocchi d'istanza (area 9b): la foglia dei blocchi, la fila dei lavori
 // fermi e i modelli. Usati solo dentro le funzioni.
 import type { AiOperation } from "@stubwise/shared";
@@ -46,6 +52,7 @@ import {
   gate,
   hasOpenPr,
   hasRepository,
+  holdAutomationSignals,
   lastEvent,
   latestOpenPrOf,
   latestRunOf,
@@ -216,9 +223,8 @@ function publish(
  * né Claude, che non riceve avvisi (R-K5).
  */
 function publishAssigned(me: string, task: Task): void {
-  const assigneeId = task.assigneeId;
-  if (assigneeId === null || assigneeId === me) return;
-  if (PEOPLE.find((p) => p.id === assigneeId)?.isClaude) return;
+  const assigneeId = assignedRecipientOf(me, task.assigneeId);
+  if (assigneeId === null) return;
   publish(
     me,
     "task.assigned",
@@ -227,6 +233,40 @@ function publishAssigned(me: string, task: Task): void {
     `You've been assigned ${task.code}`,
     `${task.code} · ${task.title}: ${personName(me)} assigned it to you.`,
   );
+}
+
+/**
+ * Chi riceve `task.assigned` quando `me` dà una task ad `assigneeId`: la
+ * regola di `publishAssigned`, letta anche dalla classe calcolata di Claude
+ * (`claude/classes.ts`), così «Notifies» dice ciò che la scrittura fa.
+ */
+export function assignedRecipientOf(me: string, assigneeId: string | null): string | null {
+  if (assigneeId === null || assigneeId === me) return null;
+  if (PEOPLE.find((p) => p.id === assigneeId)?.isClaude) return null;
+  return assigneeId;
+}
+
+/**
+ * Chi avviserebbe `planTaskAs` pianificando così la task, senza scrivere:
+ * `task.assigned` a chi la riceve, `planning.changed` a chi la perde o a chi
+ * la tiene spostata di settimana (mai a chi scrive). La legge anche la
+ * classe calcolata di Claude (ruling del controller (pre-flight), P9).
+ */
+export function planRecipientsOf(
+  me: string,
+  task: Pick<Task, "assigneeId" | "plannedWeek">,
+  plan: { assigneeId: string | null; week: string | null },
+): { assigned: string | null; planningChanged: string[] } {
+  const reassigned = task.assigneeId !== plan.assigneeId;
+  const moved = task.plannedWeek !== plan.week;
+  // `planning.changed` va a chi aveva la task: la perde (riassegnata) o la
+  // tiene spostata di settimana. Chi la prende ha `task.assigned`, e un fatto
+  // solo dà un avviso solo (pre-flight).
+  const interested = reassigned || moved ? task.assigneeId : null;
+  return {
+    assigned: reassigned ? assignedRecipientOf(me, plan.assigneeId) : null,
+    planningChanged: interested && interested !== me ? [interested] : [],
+  };
 }
 
 const personName = (id: string | null) => PEOPLE.find((p) => p.id === id)?.name ?? null;
@@ -263,17 +303,25 @@ export function checkNewTask(
 export const defaultDepartmentOf = (me: string): string | null =>
   PEOPLE.find((p) => p.id === me)?.departmentIds[0] ?? state.departments[0]?.id ?? null;
 
+/**
+ * Il numero della prossima task del progetto. Contano anche i codici delle
+ * task eliminate (area 10a): un codice non si riusa mai. La legge anche la
+ * classe calcolata di Claude, per l'evento che un'automazione vedrebbe.
+ */
+export function nextTaskNumber(projectId: string): number {
+  const max = [...state.tasks, ...state.deletedTasks]
+    .filter((t) => t.projectId === projectId)
+    .reduce((m, t) => Math.max(m, Number(t.code.split("-").at(-1)) || 0), 0);
+  return max + 1;
+}
+
 function buildTask(me: string, input: NewTaskInput): Task {
   const { project, status } = checkNewTask(me, input);
   // Una persona disattivata non si assegna, neanche a una task nuova (area 9a).
   if (input.assigneeId && isDeactivated(input.assigneeId)) throw invalid("assignee");
   const departmentId = input.departmentId ?? defaultDepartmentOf(me);
   if (!departmentId) throw invalid("department");
-  // Anche i codici delle task eliminate (area 10a): un codice non si riusa mai.
-  const max = [...state.tasks, ...state.deletedTasks]
-    .filter((t) => t.projectId === project.id)
-    .reduce((m, t) => Math.max(m, Number(t.code.split("-").at(-1)) || 0), 0);
-  const n = max + 1;
+  const n = nextTaskNumber(project.id);
   const at = now();
   return {
     id: `t-${project.code.toLowerCase()}-${n}`,
@@ -499,7 +547,8 @@ export function reassignTask(me: string, task: Task, assigneeId: string | null):
   commitTaskPatch(me, task, [{ key: "assigneeId", from: task.assigneeId, to: assigneeId }]);
 }
 
-function updateTaskAs(me: string, id: string, patch: TaskPatch): Task {
+/** La forma sincrona di `updateTask` (anche il catalogo di Claude, area 10a). */
+export function updateTaskAs(me: string, id: string, patch: TaskPatch): Task {
   const task = taskFor(me, id);
   commitTaskPatch(me, task, prepareTaskPatch(me, task, patch));
   return task;
@@ -531,7 +580,8 @@ export async function planTask(
   return copy(planTaskAs(me, id, plan));
 }
 
-function planTaskAs(
+/** La forma sincrona di `planTask` (anche il catalogo di Claude, area 10a). */
+export function planTaskAs(
   me: string,
   id: string,
   plan: { assigneeId: string | null; week: string | null },
@@ -555,7 +605,9 @@ function planTaskAs(
       can(viewerFor(me), "tickets.edit", task.projectId);
     if (!mine && !take) throw forbidden();
   }
-  const previousAssigneeId = task.assigneeId;
+  // Chi viene spostato è avvisato: `task.assigned` lo manda già
+  // `commitTaskPatch` a chi riceve la task, qui il resto.
+  const { planningChanged } = planRecipientsOf(me, task, plan);
   const diffs: Diff[] = (
     [
       { key: "assigneeId", from: task.assigneeId, to: plan.assigneeId },
@@ -563,15 +615,7 @@ function planTaskAs(
     ] as Diff[]
   ).filter((d) => d.from !== d.to);
   commitTaskPatch(me, task, diffs);
-  // Chi viene spostato è avvisato. In una riassegnazione chi perde la task ha
-  // `planning.changed`; chi la prende ha già `task.assigned` da
-  // `commitTaskPatch`, e un fatto solo dà un avviso solo (pre-flight).
-  const reassigned = diffs.some((d) => d.key === "assigneeId");
-  const interested = new Set(
-    diffs.length === 0 ? [] : reassigned ? [previousAssigneeId] : [task.assigneeId],
-  );
-  for (const person of interested) {
-    if (!person || person === me) continue;
+  for (const person of planningChanged) {
     publish(
       me,
       "planning.changed",
@@ -946,9 +990,17 @@ function setRequestStatus(
 
 export async function archiveRequest(id: string): Promise<ProjectRequest> {
   const me = await gate("archiveRequest");
-  const request = setRequestStatus(me, id, ["new", "refining", "ready"], "archived");
+  const request = archiveRequestAs(me, id);
   closeRefineOfRequest(request.id);
   return copy(request);
+}
+
+/**
+ * La forma sincrona di `archiveRequest`, senza chiudere la rifinitura: la
+ * chiude chi la chiama, a scrittura riuscita (il catalogo di Claude, area 10a).
+ */
+export function archiveRequestAs(me: string, id: string): ProjectRequest {
+  return setRequestStatus(me, id, ["new", "refining", "ready"], "archived");
 }
 
 export async function reopenRequest(id: string): Promise<ProjectRequest> {
@@ -996,7 +1048,11 @@ export async function convertRequest(
   return copy(task);
 }
 
-function convertRequestAs(
+/**
+ * La forma sincrona di `convertRequest`, senza chiudere la rifinitura: la
+ * chiude chi la chiama, a scrittura riuscita (il catalogo di Claude, area 10a).
+ */
+export function convertRequestAs(
   me: string,
   id: string,
   input: Omit<NewTaskInput, "projectId" | "requestId">,
@@ -2635,6 +2691,9 @@ export async function settleProposal(
     gen,
   );
   for (const run of runs) await playRun(me, run.c, run.task, gen);
+  // Il lavoro delle voci del catalogo che parte a gruppo riuscito (la
+  // sessione di `retryJob`, già aperta nel gruppo), come le sessioni sopra.
+  for (const start of result.after) await start(gen);
   return {
     status: "confirmed",
     resultCodes: result.codes,
@@ -2718,11 +2777,27 @@ export async function setConversationContext(id: string, projectId: string | nul
   notifyConversationChange(id);
 }
 
-export type FailureCode = "forbidden" | "not_found" | "invalid" | "conflict" | "other";
+export type FailureCode =
+  | "forbidden"
+  | "not_found"
+  | "invalid"
+  | "conflict"
+  | "busy"
+  | "reauth_required"
+  | "other";
 
 export type Applied =
-  | { ok: true; codes: string[]; projectIds: string[]; runs: Task[] }
-  | { ok: false; index: number; code: FailureCode };
+  | {
+      ok: true;
+      codes: string[];
+      projectIds: string[];
+      runs: Task[];
+      /** Per azione, nell'ordine: inverso e oggetti (la riga di `state.claudeActions`); `null` fuori dal catalogo. */
+      catalogRuns: (CatalogRun | null)[];
+      /** Il lavoro da far partire a gruppo riuscito (la sessione di `retryJob`). */
+      after: ((gen: number) => Promise<void>)[];
+    }
+  | { ok: false; index: number; code: FailureCode; reasons?: (BusyReason | TaskBusyReason)[] };
 
 /**
  * Esegue le azioni di una proposta in una volta sola e senza attese (nessun
@@ -2731,83 +2806,64 @@ export type Applied =
  * «tutto o niente»: lo usano le proposte di Claude (conversazione e Chat,
  * `settleProposal`) e quelle della posta (`mail/proposals.ts`).
  *
+ * Le azioni del catalogo di Claude (area 10a) girano con la loro voce
+ * (`CLAUDE_CATALOG[fn].run`, la forma `…As` della scrittura della pagina):
+ * un rifiuto in forma di dato diventa un errore col suo codice, così lo
+ * stato torna com'era. Con `catalogOnly` (il riquadro) una funzione fuori
+ * dal catalogo è `invalid` prima di ogni scrittura (ruling del controller
+ * (pre-flight), P7); la Posta non lo passa e usa anche le sue.
+ *
+ * Durante il gruppo i segnali delle automazioni si trattengono: partono
+ * solo a gruppo riuscito e si scartano al ripristino (P5). Il lavoro che
+ * parte dopo (`after`) non si attende qui: lo chiama chi ha chiamato.
+ *
  * `recordDecision` scrive nel registro il titolo e il testo che riceve, con
  * l'origine che riceve (`email` | `manual`): chi chiama li prepara — la
  * Posta da template (`withEmailWords` in `mail/proposals.ts`), mai dal
  * modello. `chooseProject` non si esegue.
  */
-export function applyActions(me: string, actions: ProposedAction[]): Applied {
-  const snapshot = structuredClone({
-    tasks: state.tasks,
-    activity: state.activity,
-    arrangements: state.arrangements,
-    notifications: state.notifications,
-    requests: state.requests,
-    decisionLog: state.decisionLog,
-    milestones: state.milestones,
-    counter: state.counter,
-  });
-  const created: (Task | undefined)[] = [];
+export function applyActions(
+  me: string,
+  actions: ProposedAction[],
+  options: { catalogOnly?: boolean } = {},
+): Applied {
+  if (options.catalogOnly) {
+    const outside = actions.findIndex((a) => !isCatalogFn(a.fn));
+    if (outside !== -1) return { ok: false, index: outside, code: "invalid" };
+  }
+  const restore = snapshotForActions();
+  const signals = holdAutomationSignals();
+  const catalogRuns: (CatalogRun | null)[] = [];
   const codes: string[] = [];
   const projectIds = new Set<string>();
   const runs: Task[] = [];
+  const after: ((gen: number) => Promise<void>)[] = [];
   // Le richieste chiuse dalla proposta: i loro refine si chiudono solo se va tutto bene.
   const closedRequests: string[] = [];
   let index = 0;
   try {
     for (; index < actions.length; index++) {
       const { fn, args } = actions[index]!;
-      let task: Task | undefined;
-      let request: ProjectRequest | undefined;
-      switch (fn) {
-        case "createTask":
-          task = buildTask(me, args as unknown as NewTaskInput);
-          addTask(task);
-          created[index] = task;
-          break;
-        case "updateTask":
-          task = updateTaskAs(me, args.id as string, args.patch as TaskPatch);
-          break;
-        case "planTask":
-          task = planTaskAs(
-            me,
-            args.id as string,
-            args.plan as { assigneeId: string | null; week: string | null },
+      if (isCatalogFn(fn)) {
+        const run = CLAUDE_CATALOG[fn].run(me, catalogArgs(fn, args, catalogRuns));
+        catalogRuns[index] = run;
+        if (fn === "startRun") {
+          // Due «Avvia» sulla stessa task nello stesso gruppo: il secondo è un conflitto.
+          const task = state.tasksById.get(
+            run.objects[0]!.kind === "task" ? run.objects[0]!.id : "",
           );
-          break;
-        case "addComment":
-          addCommentAs(me, args.taskId as string, args.body as string);
-          task = state.tasksById.get(args.taskId as string);
-          break;
-        case "createRequest":
-          request = createRequestAs(me, args as unknown as NewRequestInput);
-          break;
-        case "convertRequest":
-          task = convertRequestAs(
-            me,
-            args.id as string,
-            args.input as Omit<NewTaskInput, "projectId" | "requestId">,
-          );
-          created[index] = task;
-          closedRequests.push(args.id as string);
-          break;
-        case "archiveRequest":
-          request = setRequestStatus(
-            me,
-            args.id as string,
-            ["new", "refining", "ready"],
-            "archived",
-          );
-          closedRequests.push(request.id);
-          break;
-        case "startRun": {
-          const from = args.taskFromAction;
-          task = typeof from === "number" ? created[from] : taskFor(me, args.taskId as string);
-          if (!task) throw invalid("taskFromAction");
-          prepareRun(me, task, runs);
+          if (!task || runs.some((t) => t.id === task.id)) throw conflict();
           runs.push(task);
-          break;
         }
+        if (fn === "archiveRequest" || fn === "convertRequest")
+          closedRequests.push(args.id as string);
+        for (const code of run.codes) if (!codes.includes(code)) codes.push(code);
+        for (const projectId of run.projectIds) projectIds.add(projectId);
+        if (run.after) after.push(run.after);
+        continue;
+      }
+      catalogRuns[index] = null;
+      switch (fn) {
         case "recordDecision": {
           const projectId = args.projectId as string;
           const source = args.source;
@@ -2825,38 +2881,98 @@ export function applyActions(me: string, actions: ProposedAction[]): Applied {
           projectIds.add(projectId);
           break;
         }
-        case "createMilestone": {
-          const milestone = createMilestoneAs(me, args.projectId as string, {
-            name: args.name as string,
-            ...(args.description !== undefined ? { description: args.description as string } : {}),
-            dueDate: (args.dueDate as string | null | undefined) ?? null,
-          });
-          projectIds.add(milestone.projectId);
-          break;
-        }
         // Prendere atto di un promemoria del calendario: non crea nulla.
         case "acknowledgeReminder":
           break;
         default:
           throw invalid("fn");
       }
-      const code = task?.code ?? request?.code;
-      if (code && !codes.includes(code)) codes.push(code);
-      const projectId = task?.projectId ?? request?.projectId;
-      if (projectId) projectIds.add(projectId);
     }
   } catch (error) {
+    restore();
+    signals.discard();
+    const reasons = busyReasonsOf(error);
+    return { ok: false, index, code: failureCode(error), ...(reasons ? { reasons } : {}) };
+  }
+  signals.release();
+  for (const requestId of closedRequests) closeRefineOfRequest(requestId);
+  return { ok: true, codes, projectIds: [...projectIds], runs, catalogRuns, after };
+}
+
+/**
+ * Gli argomenti di una voce del catalogo: `startRun` può partire dalla task
+ * creata da un'azione prima nello stesso gruppo (`taskFromAction`).
+ */
+function catalogArgs(
+  fn: string,
+  args: Record<string, unknown>,
+  done: (CatalogRun | null)[],
+): Record<string, unknown> {
+  const from = args.taskFromAction;
+  if (fn !== "startRun" || typeof from !== "number") return args;
+  const created = done[from]?.objects.find((o) => o.kind === "task");
+  if (!created || created.kind !== "task") throw invalid("taskFromAction");
+  return { taskId: created.id };
+}
+
+/**
+ * Fotografa ciò che le azioni di un gruppo possono toccare e restituisce
+ * come rimetterlo. Gli accessi tornano sullo STESSO oggetto
+ * (`writeAccess`): `accessState()` resta quello di prima. Il registro e le
+ * conversazioni perdono solo ciò che è nato nel gruppo (le voci del
+ * registro sono congelate; una conversazione viva fuori dal gruppo resta
+ * l'oggetto che il suo stream sta scrivendo).
+ */
+function snapshotForActions(): () => void {
+  const snapshot = structuredClone({
+    tasks: state.tasks,
+    activity: state.activity,
+    arrangements: state.arrangements,
+    notifications: state.notifications,
+    requests: state.requests,
+    decisionLog: state.decisionLog,
+    milestones: state.milestones,
+    counter: state.counter,
+    projects: state.projects,
+    projectSettings: state.projectSettings,
+    automationRuns: state.automationRuns,
+    alertSubscriptions: state.alertSubscriptions,
+    deletedTasks: state.deletedTasks,
+    instance: state.instance,
+    googleWorkspaces: state.googleWorkspaces,
+  });
+  const access = structuredClone(accessState());
+  const changelog = state.changelog.length;
+  const conversations = new Set(state.conversations.map((c) => c.id));
+  return () => {
+    for (const c of state.conversations) {
+      if (!conversations.has(c.id)) state.conversationEvents.delete(c.id);
+    }
+    state.conversations = state.conversations.filter((c) => conversations.has(c.id));
+    state.changelog.length = changelog;
     Object.assign(state, snapshot);
     reindex();
-    return { ok: false, index, code: failureCode(error) };
-  }
-  for (const requestId of closedRequests) closeRefineOfRequest(requestId);
-  return { ok: true, codes, projectIds: [...projectIds], runs };
+    // Dopo i progetti: l'allineamento di `memberIds` parte dal valore rimesso.
+    writeAccess((a) => Object.assign(a, access));
+  };
+}
+
+/** Un rifiuto in forma di dato del catalogo, come errore: `busy` porta le sue ragioni. */
+function busyReasonsOf(error: unknown): (BusyReason | TaskBusyReason)[] | null {
+  const reasons = (error as { reasons?: unknown } | null)?.reasons;
+  return Array.isArray(reasons) ? (reasons as (BusyReason | TaskBusyReason)[]) : null;
 }
 
 function failureCode(error: unknown): FailureCode {
   const message = error instanceof Error ? error.message : "";
-  if (message === "forbidden" || message === "not_found" || message === "conflict") return message;
+  if (
+    message === "forbidden" ||
+    message === "not_found" ||
+    message === "conflict" ||
+    message === "busy" ||
+    message === "reauth_required"
+  )
+    return message;
   return message.startsWith("invalid") ? "invalid" : "other";
 }
 
@@ -3002,6 +3118,17 @@ export async function deleteConversation(id: string): Promise<void> {
  * Controlla che Claude possa partire sulla task (`runs.start`): aperta, e
  * senza un lavoro già vivo (anche fra quelli della stessa proposta). Non scrive.
  */
+/**
+ * I controlli di «Avvia» su una task che `me` vede, senza aprire niente: il
+ * catalogo di Claude (area 10a) la usa per `startRun`, la cui sessione
+ * nasce a gruppo riuscito (`settleProposal`).
+ */
+export function prepareRunAs(me: string, taskId: string): Task {
+  const task = taskFor(me, taskId);
+  prepareRun(me, task);
+  return task;
+}
+
 function prepareRun(me: string, task: Task, pending: Task[] = []): void {
   need(me, "runs.start", task.projectId);
   if (familyOf(task) === "closed") throw invalid("status");

@@ -6,14 +6,16 @@ import {
 } from "../../domain/alerts/catalog";
 import {
   defaultApplies,
+  recipientsOf,
   whyFor,
   type Perms,
   type Recipient,
   type RecipientContext,
 } from "../../domain/alerts/recipients";
+import { visiblePeopleFor } from "../access/whoCan";
 import { PEOPLE } from "../seed/people";
-import { onStoreReset, state, visibleProjectIds } from "../store";
-import type { AppNotification } from "../types";
+import { now, onStoreReset, state, visibleProjectIds } from "../store";
+import type { AppNotification, MandatoryReason } from "../types";
 import { can, viewerFor } from "../viewer";
 
 // Chi riceve un avviso — l'unica regola, per le letture (`listNotifications`)
@@ -86,3 +88,60 @@ export function whyReceives(
 
 export const notificationById = (id: string): AppNotification | undefined =>
   state.notifications.find((n) => n.id === id);
+
+/**
+ * Divide chi verrebbe avvisato fra chi `me` vede (per nome) e gli altri
+ * (R-G5: mai nominati né contati, solo `more`). Chi chiede e Claude non
+ * ci sono: non si avvisa sé stessi, e Claude non riceve avvisi (R-K5).
+ */
+export function splitByVisibility(
+  me: string,
+  personIds: readonly string[],
+): { personIds: string[]; more: boolean } {
+  const seen = visiblePeopleFor(me);
+  const others = [...new Set(personIds)].filter((id) => id !== me && !isClaude(id));
+  return {
+    personIds: others.filter((id) => seen.has(id)).sort(),
+    more: others.some((id) => !seen.has(id)),
+  };
+}
+
+/**
+ * Chi riceverebbe ADESSO un avviso del catalogo che `me` sta per far
+ * pubblicare (area 10a: la classe calcolata di Claude). La stessa regola
+ * delle letture (`recipientsOf` coi permessi, le iscrizioni e la
+ * visibilità di adesso), su un avviso che non esiste ancora: viene dopo
+ * ogni voce già scritta delle iscrizioni. Le notifiche dirette (`publish`
+ * di `api-mutations.ts`) non passano da qui: le calcola chi le scrive.
+ */
+export function wouldNotify(
+  me: string,
+  alert: {
+    kind: string;
+    projectId: string;
+    mandatory?: { personId: string; reason: MandatoryReason }[];
+  },
+): { personIds: string[]; more: boolean } {
+  const n: AppNotification & { projectId: string } = {
+    id: "n-would-notify",
+    kind: alert.kind,
+    projectId: alert.projectId,
+    objectCode: "",
+    departmentId: null,
+    recipientIds: [],
+    title: "",
+    body: "",
+    createdAt: now(),
+    seq: Number.POSITIVE_INFINITY,
+    read: false,
+    archived: false,
+    snoozedUntil: null,
+    link: "",
+    ...(alert.mandatory?.length ? { mandatory: alert.mandatory.map((m) => ({ ...m })) } : {}),
+  };
+  if (!isComputed(n)) return { personIds: [], more: false };
+  return splitByVisibility(
+    me,
+    recipientsOf(n, contextOf(n)).map((r) => r.personId),
+  );
+}

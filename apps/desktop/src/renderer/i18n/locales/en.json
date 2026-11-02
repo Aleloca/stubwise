@@ -3314,6 +3314,8 @@
       "not_found": "Not done: “{{action}}” refers to something that no longer exists or that you can’t see. Nothing was changed.",
       "invalid": "Not done: “{{action}}” no longer applies to how things are now. Nothing was changed.",
       "conflict": "Not done: Claude is already working on “{{action}}”. Nothing was changed.",
+      "busy": "Not done: “{{action}}” has to wait, something is still running on it. Nothing was changed.",
+      "reauth_required": "Not done: “{{action}}” needs your two-step code first. Nothing was changed.",
       "other": "Not done: “{{action}}” failed. Nothing was changed."
     },
     "conversation": {
@@ -8631,6 +8633,7 @@
       "seeProjectUsage": "see the project's usage",
       "createTasks": "create tasks",
       "editTasks": "edit tasks",
+      "commentTasks": "comment on tasks",
       "moderateComments": "delete other people's comments",
       "deleteTasks": "delete tasks created by others",
       "startRun": "start Claude",

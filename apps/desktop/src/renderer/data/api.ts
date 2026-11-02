@@ -149,6 +149,8 @@ export * as me from "./me";
 export * as instance from "./instance";
 /** Progetto → Settings (area 9c): `api.projectSettings.getProjectSettings(…)`… */
 export * as projectSettings from "./projectSettings";
+// Il catalogo delle azioni di Claude (area 10a): solo tipi e dichiarazioni.
+export * as claude from "./claude";
 
 /** Ripristina lo stato (sessione, dati, errori iniettati) e porta le task scadute alla settimana corrente. */
 export function resetApi(): void {
