@@ -320,15 +320,36 @@ async function main() {
           persona: "Laura",
         });
         const codes = await seed(page);
+        // Le task del seme sono scritte nello stato senza passare dalle query:
+        // si esce e si rientra, così la lista le rilegge e la riga eliminata
+        // ha una riga dopo (T10 M6).
+        await page.evaluate(() => {
+          window.location.hash = "/p/ACQ/overview";
+        });
+        await page.waitForTimeout(900);
         await page.evaluate((h) => {
           window.location.hash = h;
         }, `/p/ACQ/tasks?task=${codes.parent}`);
+        await page.locator(`[data-task-row="${codes.parent}"]`).first().waitFor();
+        await page.waitForTimeout(600);
         await (await openDelete(page, codes.parent)).click();
         await page.getByRole("dialog", { name: new RegExp(codes.parent) }).last().waitFor();
         await page.waitForTimeout(600);
         await take(page, `a10a-delete-dialog-${v.suffix}.png`, v);
+        const rows = await page.evaluate(() =>
+          [...document.querySelectorAll("[data-task-row]")]
+            .filter((el) => !el.closest("[data-detail-panel]"))
+            .map((el) => el.getAttribute("data-task-row")),
+        );
         await page.getByRole("button", { name: new RegExp(`^(Delete|Elimina) ${codes.parent}$`) }).click();
-        await page.waitForTimeout(900);
+        await page.waitForTimeout(1500);
+        // La verifica del fuoco (T10, portato avanti): dove sta dopo l'eliminazione.
+        const focused = await page.evaluate(() => {
+          const el = document.activeElement;
+          const row = el?.closest("[data-task-row]");
+          return row ? `row ${row.getAttribute("data-task-row")}` : `${el?.tagName} ${el?.textContent?.slice(0, 40)}`;
+        });
+        console.log(`fuoco dopo Delete ${codes.parent} (${v.suffix}): ${focused}; righe prima: ${rows.join(",")}`);
         await take(page, `a10a-delete-after-${v.suffix}.png`, v);
         await page.evaluate(() => {
           window.location.hash = "/p/ACQ/requests?request=req-acq-1";
@@ -339,6 +360,8 @@ async function main() {
           window.location.hash = h;
         }, `/p/ACQ/tasks?task=${codes.busy}`);
         await page.waitForTimeout(900);
+        // Il toast dell'eliminazione di prima se n'è andato (T10 M6).
+        await page.locator("[data-toast]").first().waitFor({ state: "detached", timeout: 8000 }).catch(() => {});
         await (await openDelete(page, codes.busy)).click();
         await page.locator("[data-delete-busy]").waitFor();
         await page.waitForTimeout(600);
@@ -399,17 +422,48 @@ async function main() {
         const { page, context } = await open(v.scheme, v.viewport, "/home", { lang: v.lang });
         const texts =
           v.lang === "it"
-            ? ['crea "Prova" in MKX', 'crea "Prova" in AUD', "Elimina MKX-7", "Approva il piano di AUD-4"]
-            : ['create "Prova" in MKX', 'create "Prova" in AUD', "Delete MKX-7", "Approve the plan of AUD-4"];
+            ? [
+                'crea "Prova" in MKX',
+                'crea "Prova" in AUD',
+                "Elimina MKX-7",
+                "Approva il piano di AUD-4",
+                'crea "Foto del raccolto" in OLV',
+              ]
+            : [
+                'create "Prova" in MKX',
+                'create "Prova" in AUD',
+                "Delete MKX-7",
+                "Approve the plan of AUD-4",
+                'create "Harvest photos" in OLV',
+              ];
         const id = await page.evaluate(async (messages) => {
           const api = await import("/data/api.ts");
+          const store = await import("/data/store.ts");
           const session = await import("/data/session.ts");
+          // Un'automazione attiva sulle task nuove di AUD: la scheda B ha
+          // anche il suo motivo, sotto «Notifies Matteo Conti».
+          session.setSessionPersonId("p-roberta");
+          const a = await api.automations.createAutomation({
+            name: "Welcome new tasks",
+            projectId: "prj-aud",
+            flow: {
+              trigger: { kind: "stubwise", event: "task_created" },
+              steps: [{ id: "w", kind: "wait", for: { days: 1 } }],
+              titleTemplate: "{{task.codice}}",
+            },
+          });
+          await api.automations.activate(a.id);
           session.setSessionPersonId("p-giulia");
           const c = await api.createConversation({ contextProjectId: "prj-mkx" });
           for (const text of messages) {
             await api.sendMessage(c.id, { text });
             await api.whenIdle(c.id);
           }
+          // Marco commenta la task creata in OLV: la sua riga dice «changed it afterwards».
+          const olv = store.state.tasks.filter((t) => t.projectId === "prj-olv").at(-1);
+          session.setSessionPersonId("p-marco");
+          await api.addComment(olv.id, "I'll take the photos on Thursday.");
+          session.setSessionPersonId("p-giulia");
           return c.id;
         }, texts);
         await page.evaluate((h) => {
@@ -418,13 +472,20 @@ async function main() {
         await page.locator("[data-executed]").first().waitFor();
         await page.waitForTimeout(1500);
         // Il testo di Claude e la riga eseguita sotto in testa allo scatto, con la scheda B dopo.
-        await page.locator("[data-assistant]").first().evaluate((el) => el.scrollIntoView({ block: "start" }));
+        await page.locator("[data-user-message]").first().evaluate((el) => el.scrollIntoView({ block: "start" }));
         await page.waitForTimeout(300);
         await page.mouse.move(v.viewport.width - 2, v.viewport.height - 2);
         const flow = `a10a-actions-flow-${v.suffix}.png`;
         if (!only || only.test(flow)) await shot(page, flow);
+        // La riga D (il piano di AUD-4) e la riga di OLV dopo il commento di Marco.
+        await page.locator("[data-executed]").last().evaluate((el) => el.scrollIntoView({ block: "end" }));
+        await page.waitForTimeout(400);
+        await page.mouse.move(v.viewport.width - 2, v.viewport.height - 2);
+        const changed = `a10a-actions-changed-${v.suffix}.png`;
+        if (!only || only.test(changed)) await shot(page, changed);
         await page.locator("[data-executed] [data-undo-button]").first().click();
         await page.locator('[data-executed] [data-undo="undone"]').first().waitFor();
+        await page.locator("[data-user-message]").first().evaluate((el) => el.scrollIntoView({ block: "start" }));
         await page.waitForTimeout(400);
         await page.mouse.move(v.viewport.width - 2, v.viewport.height - 2);
         const undone = `a10a-actions-undone-${v.suffix}.png`;
@@ -494,6 +555,17 @@ async function main() {
         await page.mouse.move(v.viewport.width - 2, v.viewport.height - 2);
         const card = `a10a-actions-panel-card-${v.suffix}.png`;
         if (!only || only.test(card)) await shot(page, card);
+        // Confirm sulla scheda C: il dialogo della riconferma sopra il riquadro.
+        await page
+          .locator("#claude-panel [data-proposal]")
+          .last()
+          .getByRole("button", { name: /^(Confirm|Conferma)$/ })
+          .click();
+        await page.getByRole("dialog").last().waitFor();
+        await page.waitForTimeout(600);
+        await page.mouse.move(v.viewport.width - 2, v.viewport.height - 2);
+        const reauth = `a10a-actions-panel-reauth-${v.suffix}.png`;
+        if (!only || only.test(reauth)) await shot(page, reauth);
         await context.close();
       }
       return;

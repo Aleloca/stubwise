@@ -2,7 +2,7 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { roleIdOf } from "./data/access/index";
-import { resetApi, setLatency } from "./data/api";
+import { resetApi, setLatency, setStreamLatency } from "./data/api";
 import * as auth from "./data/auth/index";
 import { PROJECT_SETTINGS_SECTIONS } from "./data/routes";
 import { PEOPLE } from "./data/seed/people";
@@ -291,6 +291,29 @@ describe("l'istanza vuota, dopo il primo avvio", () => {
     const list = await screen.findByRole("listbox", { name: t("whoCan.page.projectMenu") });
     expect(within(list).getByText(t("whoCan.page.noProjects"))).toBeInTheDocument();
     expect(screen.queryByText(t("whoCan.page.noMatch"))).toBeNull();
+  });
+
+  // Area 10a, Task 12: il riquadro di Claude si apre anche senza progetti né
+  // persone, e la conversazione nuova parte e riceve la sua risposta, senza
+  // nomi del seme.
+  it("il riquadro di Claude si apre e la conversazione nuova risponde", async () => {
+    setStreamLatency(null);
+    const user = userEvent.setup();
+    renderRoute("/home", adminId);
+    await user.click(await screen.findByRole("button", { name: "Ask Claude" }));
+    const panel = document.getElementById("claude-panel")!;
+    expect(panel.hidden).toBe(false);
+    await user.type(
+      within(panel).getByRole("textbox", { name: "Message to Claude" }),
+      "Where do my projects stand?{Enter}",
+    );
+    await within(panel).findByText("Where do my projects stand?");
+    await vi.waitFor(() => expect(panel.querySelector("[data-assistant]")).not.toBeNull(), {
+      timeout: 5000,
+    });
+    expect(panel.querySelector("[data-assistant]")!.textContent).not.toBe("");
+    expect(seedNamesShown("/home")).toEqual([]);
+    expect(consoleErrors).toEqual([]);
   });
 });
 

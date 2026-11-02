@@ -672,6 +672,101 @@ si riscrivono.
   facoltativo, e decidere dove sta la provenienza (nel prototipo
   `detachedRepositories[].formerProjectId`, mai restituito: si legge solo
   il codice, e solo da chi lo sa).
+- **§12 — gli strumenti del riquadro: costruita nel prototipo (10a), da
+  riscrivere prima del motore**, accanto a `docs/invariants/permissions.md`.
+  «Gli strumenti del riquadro girano con la sessione della persona, lato
+  server; `via: "claude"` lo mette il server sullo strumento chiamato, mai
+  il client; la classe la calcola il server sui dati del momento e il
+  client la legge.» Nel prototipo:
+  - ogni voce del catalogo (`data/claude/catalog.ts`) chiama la forma
+    `…As(me, …)` della scrittura pubblica, con gli stessi permessi, la
+    stessa riconferma e la stessa voce del registro (prova:
+    `data/claude/syncWrites.test.ts`, pubblica e `…As` sullo stesso stato);
+  - il segno lo scrive solo `runAsClaude` (`data/claude/via.ts`), e nessuna
+    funzione di `data/api.ts` accetta un parametro di tipo `ViaClaude`
+    (`via.test.ts`, «nessuna funzione esportata da data/api.ts ha un
+    parametro col segno»): sul server una richiesta che arriva col segno da
+    un client si ignora;
+  - la classe (`data/claude/classes.ts`) ha due soli criteri *(maintainer)*:
+    avvisa qualcuno oltre a chi chiede, o fa partire un'automazione; parte
+    dalla classe dichiarata e non scende mai; la C viene solo da
+    `REAUTH_REQUIRED`. Si ricalcola alla conferma: se è salita nel
+    frattempo, la scheda lo dice prima di eseguire (`classRaised`). Come
+    `canMerge`, il client la legge e non la deduce;
+  - un gruppo è tutto o niente: un fallimento ripristina lo stato (compresi
+    registro, decisioni e task eliminate) e non lascia avvisi né esecuzioni
+    d'automazione partite (i segnali sono trattenuti fino al gruppo
+    riuscito, ruling 5). Fuori dal ripristino restano gli effetti già fuori
+    dallo stato (timer, `releaseBudgetHolds`, eventi di Chat asincroni): il
+    motore li deve mettere dentro la transazione o dopo il commit.
+- **§13 — «Annulla»: costruita nel prototipo (10a), da riscrivere prima del
+  motore**, accanto a «Un commento eliminato non ha più testo». «"Annulla" è
+  uno strumento a sé: l'inverso come azione nuova, solo di chi l'ha
+  chiesta, solo se nessuno ha scritto sull'oggetto dopo; "Annullato da" si
+  deriva a lettura.» Nel prototipo (`data/claude/actions.ts`,
+  `undoClaudeActions`, `undoViewOf`):
+  - l'inverso ripassa dalla `…As` con i permessi del momento: un permesso
+    perso dà `forbidden` col suo «Who?», una C dà `reauth_required`;
+  - «com'era» è un confronto per **scritture**, non per versioni *(scelta
+    del costruttore)*: c'è una scrittura dopo l'azione (per `seq`, mai per
+    `at`, ruling 4) fuori dal gruppo, e si rifiuta con `changed_after` e il
+    nome di chi ha scritto se chi chiede lo vede. Aprire o leggere non
+    conta;
+  - un «Annulla» di più azioni è tutto o niente come il gruppo;
+  - la voce dell'inversa porta `undoOf` verso quella annullata, e chi la
+    legge senza leggere l'annullata non vede «Undid:»; la creazione di una
+    task, che non ha una voce, annullata scrive `task.deleted` col segno ma
+    senza `undoOf` (ruling T5);
+  - dentro un «Annulla» non parte nessuna notifica: quella di prima si legge
+    «Undone by …», derivato a lettura, mai scritto nell'evento (stessa
+    dottrina di «I campi che un client legge su una card di inbox si
+    DERIVANO A LETTURA»);
+  - non si annulla ciò che fa partire lavoro, distrugge o si rimetterebbe
+    solo con la riconferma: `registerPlugin`, `updatePluginRef`,
+    `rerunSmoke`, `removePlugin`, `retryJob`, `startRun`, `deleteTask`,
+    `deleteComment`, `deleteMilestone`, `convertRequest`, `createRequest`
+    (`undoable: false` in `data/claude/catalog.ts`);
+  - fuori dal confronto, per ora: modifica ed eliminazione di commenti
+    esistenti, sessioni `task_run` aperte da `servers/fix.ts`, refine e
+    intake sulle richieste, sistemazioni dei giorni di altri. Il motore deve
+    decidere se contano come scritture.
+- **§14 — «Cosa Claude non fa»: costruita nel prototipo (10a), da scrivere
+  prima del motore** in `docs/invariants/`, con un test sul **sorgente**
+  dello stesso schema di `apps/server/src/services/decisions-never-ai.test.ts`.
+  Nel prototipo è `data/claude/neverInCatalog.test.ts`: il catalogo e gli
+  intenti non hanno un **riferimento di codice** (chiamata, import, accesso)
+  a merge, deploy, approvare o rifiutare un piano, rispondere al posto della
+  persona, registrare una decisione, scritture di segreti, verifiche e
+  `simulate…` (ruling 11: parole e commenti non contano, un nome composto a
+  runtime e un riferimento dentro una regex letterale sfuggono, ed è
+  dichiarato). Le richieste vietate diventano una riga D che porta al posto
+  vero (`domain/claude/intents/refused.ts`), mai un controllo che lo faccia:
+  il deploy non ha nemmeno il link. Vale anche per la riga D «Approving is
+  yours: open the plan»: il gate di `jobs.ts` resta l'unico punto in cui si
+  approva.
+- **§15 — eliminare una task: costruita nel prototipo (10a), da scrivere
+  prima del motore** in `docs/invariants/`. Sul web oggi non c'è: nessuna
+  rotta elimina un ticket. Nel prototipo (`data/taskDelete.ts`; decisione
+  del maintainer del 2 nov 2026):
+  - chi elimina: chi ha `tickets.moderate` nel progetto, o l'autore con
+    `tickets.edit`; Claude collega no, se non l'ha creata lui (P24);
+  - si rifiuta (`busy`, con le ragioni) se c'è lavoro vivo: una sessione di
+    Claude non finita (anche in attesa), una PR aperta (anche della pipeline
+    senza numero, ruling T2), una correzione di server o di rilascio aperta;
+  - **figlie**: restano, senza madre; **collegamenti**: si tolgono da
+    entrambe le parti; vanno via attività, accordi della giornata e domande
+    della task;
+  - **il codice non si riusa mai**: la task successiva prende max+1 contando
+    anche le eliminate (`deletedTasks`); il codice eliminato si legge come
+    uno inesistente in ricerca, ⌘K, citazioni e Chat (R-G5);
+  - **traccia**: la voce `task.deleted` (leggibile da chi gestisce il
+    progetto e da chi modera), `task_deleted` nella storia del progetto, la
+    rassegna che la conta; la richiesta d'origine dice «Task X was
+    deleted», la notifica resta con `objectGone` e non apre niente,
+    l'effetto d'automazione dice «task deleted»: tutto derivato a lettura,
+    mai salvato;
+  - nessun «Annulla», né a mano né da Claude: la scheda di Claude è B col
+    Confirm rosso e «Can't be undone».
 
 ## Area 8b — minori aperti
 
@@ -1830,3 +1925,441 @@ Task 12 (voci del 9c nel registro):
   copertura.
 - `fileParams` ripiega su `""` se ambiente o repository mancano, e la frase
   diventa «for  in ». *Perché*: oggi non capita.
+
+## Area 10a — minori aperti
+
+Parità e copertura: `area10-parity.md`. Le invarianti da riscrivere prima
+del motore sono §12 (gli strumenti del riquadro), §13 («Annulla»), §14
+(«Cosa Claude non fa») e §15 (eliminare una task), sotto «Invarianti del
+CLAUDE.md da riscrivere prima del motore». Qui: le scelte del costruttore
+del piano, i rinvii al 10b, i minori rimandati dalle revisioni dei Task
+1–11 (2 nov 2026), quello che si vede negli scatti del Task 12 e, in fondo,
+le decisioni del maintainer e del controller sulle domande del piano.
+Ognuna delle scelte ha il suo costo se è sbagliata.
+
+### Scelte del costruttore del piano
+
+- **Le scritture d'istanza fuori dal catalogo.** Restano senza forma `…As`,
+  e quindi fuori dalla portata di Claude: quelle che creano, sostituiscono o
+  cancellano un segreto (`createProvider`, `replaceProviderCredential`,
+  `deleteProvider`, `createGitAccount`, `replaceGitToken`,
+  `deleteGitAccount`, `createGoogleApp`, `replaceGoogleSecret`,
+  `deleteGoogleApp`: le tre `delete…` non portano il segreto negli
+  argomenti, ma lo distruggono, e il loro inverso dovrebbe riscriverlo); le
+  verifiche (`testProvider`, `validateGitAccount`, `testStorage`,
+  `testWebhook`), che non cambiano un'impostazione; le `simulate…` del
+  riquadro «Prototype only». *Se sbagliata*: Claude risponde con la riga
+  che porta alla pagina dove una persona lo fa; per aggiungerne una servono
+  la `…As`, la voce del catalogo e il suo caso in `catalog.test.ts`.
+- **`saveStorage` è sempre C**, anche senza una chiave nuova (il 9b chiede
+  il codice solo con la chiave): la classe segue `REAUTH_REQUIRED` e non
+  scende mai. Nessuna chiave entra dal catalogo (`invalid:
+  secret_access_key`), e l'inverso rimette tutto tranne la chiave. *Se
+  sbagliata*: un codice chiesto in più per cambiare regione o bucket.
+- **Il catalogo per le voci che il design non elenca** (classe di partenza,
+  inverso e «Who?» della tabella del Task 4 del piano). *Se sbagliata*: una
+  riga di `catalog.ts` per voce.
+- **«Com'era» per scritture, non per versioni** (§13). *Se sbagliata*: un
+  campo versione su ogni oggetto del catalogo, e il confronto si rifà.
+- **Una classe sale, mai scende** (`declaredClassOf` come pavimento). *Se
+  sbagliata*: schede in più per azioni che oggi non avviserebbero nessuno.
+
+### Rinviati al 10b
+
+- **«Show N more»** oltre 5 righe in una scheda (shape claude-actions §5):
+  nel 10a nessun intento produce schede con più di 5 azioni; nasce con le
+  schede in blocco del 10b (T9 M2).
+- **Filtro, lingua e tema lato pagina** (decisione 4 del piano, scelta del
+  controller): Claude non scrive nei filtri della pagina né cambia lingua o
+  tema; il riquadro sa solo cosa si sta guardando.
+- **Le differenze deliberate 3, 4 e 5 del design** (risposta onesta, segno
+  delle bozze di Posta e Supporto, i due dati nuovi del motore delle
+  automazioni): appartengono agli scenari del 10b.
+
+### Minori rimandati, per task
+
+Segnati Minor dalle revisioni e lasciati alla revisione finale del branch:
+nessuno dice il falso in un percorso normale né tocca un Review Focus
+(R-G5, segreti, eliminazione). Ognuno dice perché resta. Quelli chiusi nei
+giri di correzione non ci sono.
+
+Task 1 (forme `…As`):
+- `retryJob` scrive `job.retried` prima degli eventi della sessione, e la
+  voce resta anche se `launchRun` lancia. *Perché*: inevitabile con questa
+  forma (la `…As` scrive la voce senza far partire la sessione); manca un
+  commento che lo dica.
+- `launchRun` rilegge il blocco con `aiBlockFor` invece di rifiutare
+  `monthly_budget`, e `state.tasksById.get(...)!` crasherebbe su una task
+  sparita. *Perché*: ruling T4, fra le due non passa tempo nel prototipo.
+- `syncWrites.test.ts` non copre i `forbidden` su progetto invisibile di
+  `saveAutomation`, `moveProvider`, `setProjectAi`, `reopenProject`,
+  `setSubscription`, `pauseQueue`. *Perché*: copertura; le pubbliche li
+  hanno.
+- `resetReauth` dichiarata dopo il suo uso nel test. *Perché*: funziona.
+- Il docblock delle `…As` è una riga sola oltre i 100 caratteri. *Perché*:
+  cosmetico.
+- `syncWrites.test.ts` costa circa 25 s alla suite. *Perché*: si dimezza con
+  uno snapshot dello stato, non necessario ora.
+
+Task 2 («Elimina task», livello dati):
+- `claude_session.code` porta il codice della task, non della sessione.
+  *Perché*: il Task 10 ha aggiunto `conversationId?` per il link; il campo
+  resta ambiguo.
+- `open_pr` mostra repo e numero anche a chi non vede la sessione da cui
+  vengono. *Perché*: non è R-G5, le PR della piattaforma le vedono tutti.
+- Mancano i test di `forbidden` prima di `busy`, di una figlia in un
+  progetto invisibile e di `whoAction: null` per l'autrice. *Perché*:
+  copertura.
+- `taskGone` confronta progetto e codice senza guardare il `kind`.
+  *Perché*: i prefissi dei codici oggi bastano; manca il commento.
+- Le notifiche della Chat non ricevono `objectGone`. *Perché*: parlano di un
+  messaggio, non di una task.
+
+Task 3 (il segno `via`, `task.assigned`):
+- `newId("ca")` consuma il contatore anche quando il gruppo fallisce.
+  *Perché*: innocuo, solo l'asserzione «tutto o niente» più debole.
+- `ActivityEntry.claudeActionId` esce al client con `listActivity`.
+  *Perché*: opaco, non R-G5; il registro lo nasconde.
+- Con una `fn` async, `runAsClaude` lascia le scritture della parte
+  sincrona. *Perché*: errore del programmatore, la guardia lo fa scoprire.
+- Un'asserzione contorta in `via.test.ts` («nessun segno» a mano).
+  *Perché*: solo leggibilità.
+- `Offenders` vede l'ultimo overload e tre livelli di namespace. *Perché*:
+  nessun buco noto; manca il commento.
+- Il silenzio dentro un «Annulla» vale per ogni kind, non solo
+  `task.assigned`. *Perché*: è la regola del Task 5, coerente con lo shape.
+
+Task 4 (catalogo e classi):
+- `taskFromAction` accetta la prima task di qualunque azione precedente.
+  *Perché*: `prepareRunAs` ricontrolla, nessun permesso in più.
+- «Due Avvia nello stesso gruppo» guarda solo `runs`: `startRun` seguito da
+  `retryJob` sulla stessa task apre due sessioni. *Perché*: improbabile,
+  nessun intento lo produce.
+- `convertRequest` con un assegnatario diverso manda `task.assigned` ma la
+  classe non lo nomina in `notifies`. *Perché*: è già B; la scheda direbbe
+  una persona in meno.
+- `notifies` non porta il progetto, e `classOfGroup` fonde i `more` di
+  progetti diversi. *Perché*: il T9 l'ha chiuso per il caso di un progetto
+  solo; su due progetti la frase resta generica.
+- Il tokenizzatore di `neverInCatalog.test.ts` non riconosce le regex
+  letterali. *Perché*: limite dichiarato (§14).
+- `catalog.ts` cresce in un file solo. *Perché*: si separa quando il 10b
+  aggiunge voci.
+- Il ripristino del gruppo non annulla gli effetti fuori dallo stato (timer
+  di `removePlugin`, `releaseBudgetHolds`, `publishChatEvent` asincroni).
+  *Perché*: il prototipo non ha transazioni; scritto in §12 per il motore.
+
+Task 5 (esecuzione e «Annulla»):
+- La doc di `ActivityEntry.seq` dice «ultima scrittura», ma `seq` nasce solo
+  con la voce. *Perché*: fuori dal «com'era» per ora (§13).
+- Nessun test per il ripristino a metà di un «Annulla» di più azioni.
+  *Perché*: il meccanismo è quello di `applyActions`, già provato.
+- I rami R-G5 di `describeLater` e `refusalOf` non sono esercitati.
+  *Perché*: copertura; il codice nasconde nome e codice.
+- `classReason.notifies` unisce i nomi con «, » invece di «and/e» (anche in
+  `change.ts`). *Perché*: con una persona sola, il caso del seme, non si
+  vede.
+- `settleInConversation` e il ramo Chat di `settleProposal` sono quasi
+  gemelli. *Perché*: refactor.
+- Il test della coda in pausa ha asserzioni deboli. *Perché*: copertura.
+- `classRaised` sostituisce solo il `say` subito prima. *Perché*: il motore
+  lo mette sempre.
+- Nuovo ciclo d'import `claude/actions.ts` ↔ `api-mutations.ts` senza
+  commento. *Perché*: usato solo dentro le funzioni.
+- Fuori dal «com'era»: modifica ed eliminazione di commenti, sessioni
+  `task_run` di `servers/fix.ts`, refine e intake sulle richieste.
+  *Perché*: §13, da decidere col motore.
+- I segnali delle automazioni si rilasciano anche per gli inversi: l'«Annulla»
+  di una riapertura farebbe partire un'automazione `task_closed`. *Perché*:
+  né brief né shape lo dicono; da decidere.
+
+Task 6 (intenti e righe D):
+- `within: 5` di `refused.ts`: un segreto vicino al verbo trasforma una
+  creazione in una riga D («Create a task to rotate tokens»); `server` e
+  `record_decision` hanno lo stesso rischio. *Perché*: il guasto è sicuro,
+  niente viene eseguito.
+- «Delete SRV-2» risponde «Can't find SRV-2». *Perché*: frase falsa ma
+  nessuna fuga; mancano i verbi nel tema `server`.
+- `run.ts`: con `taskIds` vuoto una richiesta convertita risponde
+  `convertedDeleted`. *Perché*: caso improbabile.
+- `send` dice «Open Mail →» / «Open Support of ACQ →», lo shape «Open the
+  reply →». *Perché*: da riallineare o da accettare con un ruling.
+- R-G5 non provato per automazioni, `answer_question`, `secret`, `send` con
+  un progetto invisibile. *Perché*: il codice è corretto, manca la prova.
+- Gli indirizzi fuori da `CASES` non passano da `isAppRoute` nei test.
+  *Perché*: una riga per test.
+- `recordDecision=1` passa `validateSearch` su ogni percorso e sopprime il
+  pannello della task fuori dall'Overview. *Perché*: si raggiunge solo a
+  mano.
+- La task del dialogo si risolve due volte, e si può salvare prima che le
+  task siano caricate. *Perché*: stretto.
+- Il dialogo aperto dal link ha Cancel senza «Discard?». *Perché*:
+  preesistente (area 5).
+
+Task 7 (il seme):
+- La scena 1 sposta una task chiusa nel passato. *Perché*: Giulia non ha
+  task aperte in MKX.
+- `chg-seed-claude-3` non ha `seq`. *Perché*: nessun «com'era» la guarda.
+- `summaryText` dei due `planTask` del seme non è quello dell'intento vero,
+  e manca l'azione di lettura `get_ticket`. *Perché*: si legge solo.
+- `void sendMessage;` e un titolo di test che dice altro. *Perché*:
+  pulizia.
+- I conteggi attesi derivati dal dato sotto test (`CLAUDE_CHANGES.length`).
+  *Perché*: meno severi, non sbagliati.
+- `SEED_MAX_SEQ` scritto a mano. *Perché*: il test lo controlla.
+- La scena A non asserisce che il replay non scriva notifiche. *Perché*:
+  copertura.
+
+Task 8 (il riquadro):
+- La chiusura non è animata (150 ms dello shape §7). *Perché*: solo
+  l'uscita; `hidden` toglie subito.
+- Il test a 1024 non prova la posizione, e `useDockGeometry` non ha un test
+  unitario. *Perché*: la provano gli scatti.
+- Un `MutationObserver` su tutto il `body`, anche a riquadro chiuso.
+  *Perché*: costo, non comportamento.
+- La × si annulla con qualunque cambio di search, non solo di pagina.
+  *Perché*: stretto.
+- «Now showing …» non sparisce scrivendo in una conversazione esistente.
+  *Perché*: il timer di 4 s lo copre.
+- L'effetto di `usePageContext` ha dipendenze incomplete senza soppressione
+  dichiarata. *Perché*: commentato.
+- Il ritorno del fuoco è ricostruito a mano invece di `useRestoreFocus`.
+  *Perché*: refactor.
+- ⌘J in Electron non provato dal vivo (doppio evento menu + tastiera).
+  *Perché*: da provare sull'app impacchettata.
+
+Task 9 (righe e schede):
+- `openRoutes` per `#/admin/people?invite=1`, releases e
+  settings/integration guarda solo la visibilità del progetto, non il
+  permesso della pagina. *Perché*: nessuna fuga; promette un'azione che la
+  pagina poi non offre.
+- Verbi della riga diversi dallo shape per `setSubscription`,
+  `saveProjectAutomations` e `updateTask` di stato. *Perché*: nessun intento
+  del 10a le produce; meno precise ma non false.
+- «I'm asking first: it notifies Matteo Conti.» invece di «Matteo Conti
+  follows new tasks in AUD.». *Perché*: il dato non dice se è iscritto o
+  assegnatario.
+- La frase della riconferma nasce dal riassunto: in it «Per aggiungi Laura
+  Costa…». *Perché*: confermato negli scatti (sotto); serve una chiave
+  `reauthAction` per `fn`.
+- `key={row.kind}` ripete le chiavi con più righe `automation`. *Perché*:
+  solo un warning.
+- «and 2 more» insieme a `more` dà due code nella stessa frase. *Perché*:
+  sopra tre nomi, non nel seme.
+- L'`UndoControl` della scheda sta accanto all'esito, non sotto. *Perché*:
+  posizione, non contenuto.
+- «Didn't run» con `not_found` ricade su `errorText`. *Perché*: raro.
+- «Undone by …» confronta i nomi invece degli id. *Perché*: chi non ha
+  chiesto legge `not_yours`.
+- La pubblica letta da Roberta, che vede tutto: [CA 7] non provato con un
+  lettore che non vede il progetto. *Perché*: copertura.
+- Senza test: `needsReauth` di Undo, `reauth_cancelled` della riga, `busy`,
+  `already_undone`, `not_found`. *Perché*: copertura.
+- `DocsTools.test.tsx > l'ora dell'orologio` è flaky sotto carico.
+  *Perché*: preesistente.
+- Salto di layout transitorio della riga durante lo stream. *Perché*: dura
+  quanto lo stream.
+
+Task 10 («Elimina task», UI):
+- I collegamenti si calcolano nella pagina (`linksOf` su `useTasks()`),
+  invece di un `hasLinks` nella vista. *Perché*: lo shape lo consente
+  («letti dalla task aperta»); la riga compare dopo.
+- Bottone rosso spento senza frase se la vista riletta dice `canDelete:
+  false` senza un rifiuto in corso. *Perché*: stretto (permesso tolto fra
+  menu e dialogo).
+- Un `MenuGroup` vuoto quando la vista è `null`. *Perché*: un filetto
+  orfano, se c'è.
+- Il fuoco si aspetta col polling del DOM (40 × 25 ms). *Perché*: ha sempre
+  un esito, riga o h1.
+- Senza test: «Checking…» e il suo errore, l'errore del dialogo,
+  `not_found`, la riga precedente quando la task era l'ultima. *Perché*:
+  copertura.
+- Il dialogo resta su «Deleting…» finché `onSettled` rilegge tutte le
+  query. *Perché*: nel prototipo la lettura è breve.
+- Esc o Cancel durante «Deleting…» chiudono il dialogo, ma un fallimento a
+  dialogo chiuso non lo dice nessuno. *Perché*: lo shape non lo copre.
+
+Task 11 (trascrizione):
+- A 1024 nel registro scende solo «Clear filters», non anche Period.
+  *Perché*: il senso dello shape («Made with Claude» in prima riga) regge.
+- `reveal` annuncia «Filters cleared» anche senza filtri. *Perché*: solo se
+  la voce manca per altri motivi (il registro di un progetto).
+- Il fuoco portato da `reveal` sparisce alla vista dopo 1,5 s. *Perché*:
+  manca un `focus-visible`.
+- R-G5 col corpo salvato: «Claude on behalf of someone: <body>» per i tipi
+  diversi da `task.assigned` e `planning.changed`. *Perché*: i destinatari
+  sono membri del progetto.
+- `DeletedTaskSubject` comincia con «someone» minuscolo e ha un `title` non
+  tradotto. *Perché*: cosmetico.
+- Il corpo salvato delle notifiche diverse da `task.assigned` e
+  `planning.changed` resta in inglese, come prima del 10a. *Perché*:
+  preesistente.
+- Righe PR e del registro decisioni verso task eliminate senza test
+  dedicato. *Perché*: copertura.
+
+### Dagli scatti del Task 12
+
+Rifatti tutti gli scatti `a10a-*` sulla versione finale (22 scene × 6
+varianti: 1440 chiaro/scuro × en/it, 1024 scuro-en e chiaro-it). Scene
+nuove in `scripts/capture.mjs`: `a10a-actions-changed-*` («changed it
+afterwards»), `a10a-actions-panel-reauth-*` (la scheda C col dialogo della
+riconferma sopra il riquadro); la scheda B di `a10a-actions-flow-*` ha ora
+anche il motivo dell'automazione. Rimandati come gli altri minori:
+
+- **Il fuoco dopo «Elimina task» (portato avanti dal T10): non è un
+  difetto.** Gli scatti vecchi mostravano la lista senza le task create dal
+  seme di `capture.mjs`, che le scrive nello stato senza passare dalle
+  query: `rowAfter` non trovava la riga e il fuoco andava all'h1. Con la
+  lista riletta prima di aprire il pannello, in tutte e sei le varianti il
+  fuoco va sulla riga dopo (ACQ-7 eliminata → ACQ-8, verificato leggendo
+  `document.activeElement`). Dopo un clic col mouse l'anello non si vede
+  (`:focus-visible` di Chromium), da tastiera sì: comportamento del
+  browser. Il toast di prima non copre più lo scatto busy.
+- **`task.assigned` di una persona (senza Claude) mescola le lingue.** In
+  it il titolo è «Ti è stata assegnata OLV-6» e il corpo è quello salvato,
+  in inglese: «OLV-6 · Harvest photos: Giulia Ferri assigned it to you.»
+  (`a10a-trace-notifications-planned-*-it`). Lo shape vuole «Giulia Ferri
+  assigned you OLV-6.» / «Giulia Ferri ti ha assegnato OLV-6.», com'è già
+  per la variante con Claude dopo il T11. *Perché resta*: il corpo salvato
+  in inglese è dell'area 4; la correzione è la stessa del T11 (frase
+  composta a lettura anche senza segno).
+- **La riconferma in it: «Per aggiungi Laura Costa a OLV come Developer,
+  inserisci un codice…»** (`a10a-actions-panel-reauth-*-it`). È il T9 M5,
+  ora visibile: nessun intento del 10a produce una C, la scena la inietta.
+- **La settimana nelle schede in it è «W44»**, non «S44» come nella
+  notifica di pianificazione («…per S46»): «Pianifica ACQ-3 Issue the
+  quarterly invoices · Silvia Longo · W44» (`a10a-panel-task-*-it`). Il
+  riassunto della proposta compone la settimana senza tradurla.
+- **Il chip del riquadro in it dice «ACQ-3 · task»** mentre la pagina le
+  chiama «Attività» (`a10a-panel-*-it`).
+- **In it «Annulla» è sia il Cancel della scheda sia l'Undo della riga**,
+  uno accanto all'altro nella stessa conversazione
+  (`a10a-actions-flow-*-it`). Le chiavi sono dello shape; il maintainer
+  decida se l'Undo diventa «Annulla l'azione» o simile.
+- **Il riassunto di una scheda d'eliminazione non ha le virgolette**: «Elimina
+  MKX-7 Translate the landing page into German», mentre la creazione dice
+  «Crea in AUD: «Prova»». *Perché*: cosmetico.
+- **La legenda dei reparti in fondo alla pagina si taglia sotto il
+  riquadro** senza ellissi («Developmen…», `a10a-panel-empty-*`). Lo stesso
+  succede già sotto il pannello delle notifiche: preesistente.
+- **Preesistenti, visti negli scatti e non del 10a**: «Settimana impostato a
+  2026-W46» (concordanza, chiave `moveSet`/`set` dell'area 2) e la
+  settimana grezza «2026-W41 → 2026-W42» nell'attività della task e nella
+  rassegna; i titoli delle notifiche diverse da quelle del 10a in inglese
+  anche in it.
+
+### Decisioni del maintainer (2 nov 2026)
+
+Le domande del piano:
+
+- **Le impostazioni d'istanza nel catalogo**: tutte le scritture del 9b che
+  non portano segreti; le +R sono classe C.
+- **«Modifica» solo dove il dialogo vero esiste già**: `createTask` e
+  `createRequest`.
+- **Le conferme di @Claude nella Chat portano «Claude on behalf of …»**
+  nel registro e nelle notifiche; le regole dell'area 4 restano (tutto
+  proposte, niente «Annulla» in Chat).
+- **Un'azione A eseguita non mostra un toast**: bastano la riga e la voce.
+- **«Elimina task» a mano**: dialogo col bottone rosso, senza codice da
+  scrivere né riconferma.
+- **Assegnare una task avvisa chi la riceve** (`task.assigned`), da una
+  persona o da Claude per conto di qualcuno; non chi si assegna da solo.
+
+### Decisioni del controller da confermare
+
+Sulle domande del piano:
+
+- **Una task non assegnata, creata da Claude senza avvisi né automazioni, è
+  A**: i criteri del design sono solo due. *Se sbagliata*: una scheda in più
+  per ogni task senza assegnatario.
+- **Filtro, lingua e tema lato pagina → 10b.** *Se sbagliata*: il 10a non
+  ha una parte che il maintainer voleva subito.
+- **«Notifies» con persone che chi chiede non vede → «… and others who
+  follow this in AUD»**, mai un numero. *Se sbagliata*: una frase.
+- **Note accettate**: il nome del seme è Matteo **Conti**; la frase
+  dell'atterraggio di Claude si sostituisce ([CP 9]); «Ask Claude… ⌘J» nel
+  menu dell'app ([CP 7]). *Se sbagliata*: testi.
+
+I ruling del pre-flight (P1–P26) e dei task, uno per riga:
+
+- **P1, P2** la voce del seme e «Undid:» come in `claude-trace.md`;
+  corretto al T11 sul template vero («turned off the weekly brief in MKX.»
+  + «Weekly brief: On → Off»). *Se sbagliata*: stringhe attese nei test.
+- **P2 (ruling 2)** la voce di un «Annulla» è l'inversa col prefisso + la
+  riga «Undid: … · data». *Se sbagliata*: rifare `ChangeEntry` e il suo
+  test.
+- **P3** le scene con Marco in OLV, `saveProjectAutomations` su MKX. *Se
+  sbagliata*: seme e test da spostare di progetto.
+- **P4** il «com'era» per `seq`, escludendo il gruppo. *Se sbagliata*: campi
+  `seq` in più su attività e registro.
+- **P5** `createTask` del catalogo con `createTaskAs`, segnali delle
+  automazioni trattenuti fino al gruppo riuscito. *Se sbagliata*: conteggi di
+  avvisi ed esecuzioni nelle suite dell'area 3 da aggiornare.
+- **P6** `FailureCode` con `busy`/`reauth_required`, `Applied` con
+  `reasons`, `catalogRuns` e `after`. *Se sbagliata*: una firma più larga per
+  la Posta.
+- **P7** `applyActions(me, actions, { catalogOnly })`. *Se sbagliata*:
+  un'opzione dimenticata riaprirebbe la strada laterale (coperto dal test
+  RF3).
+- **P8** = decisione del maintainer su `task.assigned`. *Se sbagliata*: un
+  `notification_kind` in meno.
+- **P9** `planTask` è B quando avvisa qualcuno. *Se sbagliata*: qualche
+  spostamento in meno chiederebbe la scheda.
+- **P10** i tipi del catalogo nella foglia `data/claude/types.ts`. *Se
+  sbagliata*: un file in più.
+- **P11** `neverInCatalog` cerca riferimenti di codice, non parole. *Se
+  sbagliata*: un riferimento dinamico sfuggirebbe.
+- **P12** il test «nessuna API accetta `via`» guarda il tipo `ViaClaude`.
+  *Se sbagliata*: un parametro con un tipo diverso non sarebbe coperto.
+- **P13** `expectNoDeploy` in `ExecutedRow.test.tsx`, con la riga D resa.
+  *Costo*: nessuno.
+- **P14** `palette/commands.test.ts` aggiornato nel T8. *Costo*: nessuno.
+- **P15** il test sulle `…As` controlla che il risultato non sia una
+  Promise. *Costo*: nessuno.
+- **P16** `ChangeEntryView` senza `undoOf`/`claudeActionId` per spread.
+  *Costo*: nessuno.
+- **P17** `DeletedTask.via` nel T3. *Costo*: nessuno.
+- **P18** `RecordDecisionDialog` con la prop `taskId`. *Costo*: una prop.
+- **P19** `whoAction` `string | null`; i traguardi su `editTasks`, nuova
+  solo `commentTasks`. *Costo*: nessuno.
+- **P20** la voce di menu «Ask Claude» con la guardia `aria-modal`. *Costo*:
+  nessuno.
+- **P21** `runAsClaude` in `settleProposal` per ogni posto. *Se sbagliata*:
+  per qualche task la conversazione ha il segno prima dell'«Annulla».
+- **P22** i percorsi del T11 in `pages/projects/`. *Costo*: nessuno.
+- **P23** test per [CA 6], [CA 3] e «Didn't run … · Who?». *Costo*:
+  nessuno.
+- **P24** Claude collega non elimina una task non sua, e `whoCan` non lo
+  include. *Costo*: nessuno.
+- **P25** `ConversationDetail.undo` facoltativo. *Costo*: nessuno.
+- **P26** la corsa «automazione accesa fra calcolo ed esecuzione» si prova
+  dentro uno spy di `ctx.classify`. *Se sbagliata*: il test dipende dal
+  punto in cui `freeTurn` ricalcola.
+- **(pre-flight)** quando `planTask` riassegna, il nuovo assegnatario
+  riceve solo `task.assigned`, non anche `planning.changed`. *Se
+  sbagliata*: un avviso in meno.
+- **(T2)** una PR aperta della pipeline senza repo né numero conta come
+  `busy`, e il dialogo dice la frase senza numero. *Se sbagliata*: solo una
+  frase più generica.
+- **(T3)** `task.assigned` non parte per una task creata da un'automazione
+  né se l'assegnatario è Claude; `reassignTask` alla disattivazione avvisa
+  chi riceve. *Se sbagliata*: un avviso in più o in meno.
+- **(T3 I1)** `convertRequestAs` corretto subito, il `createTask` di
+  `applyActions` chiuso al T4. *Se sbagliata*: nessuno, il test c'è.
+- **(T4)** il budget di `retryJob` si controlla in `openRunAs`, `launchRun`
+  resta com'è. *Se sbagliata*: una sessione resterebbe in attesa invece di
+  essere rifiutata.
+- **(T4)** tolta la regola «`updateTask` su una task non di chi chiede = B»:
+  la classe dipende solo da avvisi e automazioni. *Se sbagliata*: modificare
+  la task di un altro senza avvisi parte subito (ma si annulla).
+- **(T5)** l'«Annulla» di una task creata scrive `task.deleted` col segno ma
+  senza `undoOf`. *Se sbagliata*: serve una voce `task.created`.
+- **(T5)** sopra una scheda B vale la frase dello shape («I'm asking first:
+  <motivo>»). *Se sbagliata*: una frase da rimettere.
+- **(T6 I1)** senza `decisions.record` la riga D non promette il link: lo
+  dice in parole, con «Who?». *Se sbagliata*: solo una frase.
+- **(T8)** a 1024 resta a vista la colonna: il riquadro si stringe allo
+  spazio libero (320, mai sotto 300). *Se sbagliata*: si sacrifica la
+  colonna.
+- **(T9)** i link `#/admin/…` delle righe D solo se chi legge apre quella
+  sezione. *Se sbagliata*: solo lavoro in più.
