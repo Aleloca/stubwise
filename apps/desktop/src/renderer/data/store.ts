@@ -15,7 +15,7 @@ import {
   RELEASE_PAGES,
 } from "./seed/chat";
 import { CONVERSATION_EVENTS, CONVERSATIONS } from "./seed/conversations";
-import { CLAUDE_ACTIONS, SEED_MAX_SEQ } from "./seed/claudeActions";
+import { CLAUDE_ACTIONS, CLAUDE_ACTIVITY, SEED_MAX_SEQ } from "./seed/claudeActions";
 import { CLOCK_START } from "./seed/dates";
 import { DECISION_LOG } from "./seed/decisionLog";
 import { DECISION_REQUESTS } from "./seed/decisions";
@@ -1154,6 +1154,19 @@ function initialDriveCodeSeq(): Map<string, number> {
 /** La chiave di una coppia (persona, canale o messaggio) nelle mappe della Chat. */
 export const chatKey = (personId: string, id: string): string => `${personId}\u0000${id}`;
 
+/**
+ * L'ultima attività di una task è almeno quella che il seme delle azioni di
+ * Claude scrive su di lei (area 10a): `TASKS` non può importarlo (il seme
+ * delle azioni legge `TASKS`), quindi lo si allinea qui.
+ */
+function withClaudeSeedActivity(task: Task): Task {
+  const latest = CLAUDE_ACTIVITY.filter((a) => a.taskId === task.id)
+    .map((a) => a.at)
+    .sort()
+    .at(-1);
+  return latest && latest > task.lastActivityAt ? { ...task, lastActivityAt: latest } : task;
+}
+
 function freshState(): State {
   return {
     access: resetAccessState(),
@@ -1179,7 +1192,7 @@ function freshState(): State {
     proposalsBeforeUnlink: new Map(),
     projects: PROJECTS.map(copy),
     statuses: PROJECT_STATUSES.map(copy),
-    tasks: TASKS.map(copy),
+    tasks: TASKS.map(copy).map(withClaudeSeedActivity),
     deletedTasks: [],
     activity: ACTIVITY.map(copy),
     decisions: DECISION_REQUESTS.map(copy),

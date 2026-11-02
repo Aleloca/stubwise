@@ -184,6 +184,17 @@ describe("coerenza degli ordini e delle date", () => {
     for (const r of CLAUDE_ACTIONS) expect(Date.parse(r.undone!.at)).toBeGreaterThan(Date.parse(r.at));
   });
 
+  it("lastActivityAt di ogni task toccata dal seme è ≥ la sua attività più recente", () => {
+    const touched = new Set(CLAUDE_ACTIVITY.map((a) => a.taskId));
+    for (const id of touched) {
+      const latest = CLAUDE_ACTIVITY.filter((a) => a.taskId === id)
+        .map((a) => a.at)
+        .sort()
+        .at(-1)!;
+      expect(state.tasksById.get(id)!.lastActivityAt >= latest, id).toBe(true);
+    }
+  });
+
   it("ogni conversazione, azione e riga rimanda a un id che esiste", () => {
     for (const r of CLAUDE_ACTIONS) {
       expect(state.conversations.some((c) => c.id === r.conversationId)).toBe(true);
