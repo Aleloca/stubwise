@@ -75,6 +75,9 @@ const MEMBERS_AFTER_FIXTURE: Readonly<Record<string, string>> = {
     "area 10b: Davide (reparto Support) entra in ACQ per rispondere ai clienti nelle scene del supporto",
 };
 
+/** Chi guadagna `support.reply` dal reparto perché il seme lo fa Contributor (`persona|progetto`). */
+const GAINS_FROM_DEPARTMENT = new Set(["p-laura|prj-lnt"]);
+
 describe("parità con la can() delle aree 2–8 (fixture generato prima del cambio)", () => {
   it("il fixture copre ogni persona del seme, Claude compreso, e ogni progetto", () => {
     expect(Object.keys(PARITY_CAN).sort()).toEqual(PEOPLE.map((p) => p.id).sort());
@@ -106,7 +109,8 @@ describe("parità con la can() delle aree 2–8 (fixture generato prima del camb
             return;
           }
           if (now === before[i]) return;
-          if (MEMBERS_AFTER_FIXTURE[`${personId}|${projectId}`]) return;
+          // Solo i guadagni: una persona aggiunta a un progetto non perde permessi.
+          if (MEMBERS_AFTER_FIXTURE[`${personId}|${projectId}`] && !before[i] && now) return;
           const allowed = ALLOWED_DIFFERENCES.some(
             (d) =>
               d.personId === personId &&
@@ -177,10 +181,11 @@ describe("le fonti dei permessi", () => {
         expect(fromDept, `${personId} ${project.code}`).toBe(
           active && isMember(personId, project.id),
         );
-        // Nessuno lo guadagna: chi lo ha dal reparto lo ha anche dal ruolo. Nei
-        // progetti nati dopo il fixture no: Laura è Contributor in LNT (area
-        // 10b) e il reparto le dà `support.reply`, apposta.
-        if (fromDept && PARITY_PROJECT_IDS.includes(project.id))
+        // Nessuno lo guadagna: chi lo ha dal reparto lo ha anche dal ruolo. Le
+        // sole coppie attese, una per una: Laura è Contributor in LNT (area
+        // 10b) e il reparto le dà `support.reply`. È una conseguenza accettata
+        // del ruolo scelto per il seme, non un'intenzione.
+        if (fromDept && !GAINS_FROM_DEPARTMENT.has(`${personId}|${project.id}`))
           expect(sources.some((s) => s.kind === "role")).toBe(true);
       }
     }

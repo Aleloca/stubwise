@@ -212,7 +212,7 @@ const INACTIVE: Record<string, Spec[]> = {
 /** La task di ACQ nata dalla richiesta `high` dal supporto (`req-acq-3`), assegnata a Laura. */
 // prettier-ignore
 const ACQ_CONVERTED: Spec[] = [
-  { title: "Reminder text message before the bill is due", dept: D, family: "todo", assignee: "p-laura", size: null, week: null, requestId: "req-acq-3", lastDays: 1, createdDays: 1 },
+  { title: "Reminder text message before the bill is due", dept: D, family: "active", assignee: "p-laura", size: null, week: null, requestId: "req-acq-3", lastDays: 0, createdDays: 1, claude: "done" },
 ];
 
 function referenceTasks(project: Project, specs: Spec[]): Task[] {
@@ -381,6 +381,8 @@ function acqConverted(): Task[] {
     description: "",
     attachments: [],
     followerIds: ["p-laura"],
+    // Dopo l'apertura della PR #77 (09:30) e la sua analisi: la task è di Claude, fatta.
+    lastActivityAt: `${daysFromToday(0)}T11:00:00Z`,
   }));
 }
 

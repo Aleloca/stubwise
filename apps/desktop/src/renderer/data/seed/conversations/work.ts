@@ -68,7 +68,10 @@ const stw13 = seeded(
       summary: STW13_SUMMARY,
       status: "pending",
     },
-    says(at(0, "07:35"), "Once the plan is approved I fix the count and add a test at the minimum window size."),
+    says(
+      at(0, "07:35"),
+      "Once the plan is approved I fix the count and add a test at the minimum window size.",
+    ),
   ],
 );
 
@@ -780,6 +783,37 @@ const rnc2 = seeded(
   ],
 );
 
+// Area 10b: la sessione finita di ACQ-7, la task nata dalla richiesta dal
+// supporto: ha aperto la PR #77 (`opr-acq-77`), pronta per il rilascio.
+const acq7 = seeded(
+  {
+    id: "cv-run-acq-7",
+    kind: "task_run",
+    title: "Text message before the bill is due",
+    ownerId: "p-laura",
+    projectId: "prj-acq",
+    taskId: "t-acq-7",
+    state: "finished",
+    outcome: "ok",
+  },
+  [
+    { at: at(1, "15:00"), type: "phase", phase: "execution", outcome: "ok" },
+    done(at(1, "15:20"), "repo.edit", "Edits src/profile/NotificationSettings.tsx"),
+    done(at(1, "16:05"), "shell", "Runs the portal tests", { result: "42 passed" }),
+    {
+      at: at(0, "09:30"),
+      type: "work_result",
+      kind: "pr_opened",
+      text: "Pull request #77 opened",
+      link: "https://bitbucket.org/audin/portale-utenti/pull-requests/77",
+    },
+    says(
+      at(0, "09:35"),
+      "#77 is open: customers who ask for it get a text message three days before a bill is due.",
+    ),
+  ],
+);
+
 // Area 10b: la sessione viva di BSC, un progetto senza attività da oltre 90
 // giorni. Una sessione di Claude non conta come attività del progetto, ma lo
 // rende `busy`: archiviarlo adesso la fermerebbe.
@@ -816,5 +850,6 @@ export const WORK_CONVERSATIONS: Seeded[] = [
   refineQuietHours,
   refineReminders,
   rnc2,
+  acq7,
   bsc1,
 ];

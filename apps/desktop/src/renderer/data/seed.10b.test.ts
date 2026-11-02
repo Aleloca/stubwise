@@ -170,3 +170,31 @@ describe("i consumi del mese", () => {
     expect(without.length).toBeGreaterThanOrEqual(1);
   });
 });
+
+describe("coerenza del seme", () => {
+  it("ogni richiesta nata dal supporto ha una data successiva al primo messaggio della sua conversazione", () => {
+    const fromSupport = state.requests.filter((r) => r.origin?.kind === "support");
+    expect(fromSupport.length).toBeGreaterThanOrEqual(4);
+    for (const r of fromSupport) {
+      const c = state.supportConversations.find((x) => x.id === r.origin!.conversationId)!;
+      expect(r.createdAt > c.messages[0]!.at, `${r.code} dopo ${c.code}`).toBe(true);
+    }
+  });
+
+  it("ACQ-7 sta in piedi con la PR di Claude pronta: lavoro fatto, sessione finita, attività dopo l'apertura, descrizione vuota", async () => {
+    const pr = state.openPrs.find((p) => p.id === "opr-acq-77")!;
+    const task = state.tasksById.get(pr.taskId!)!;
+    expect(task.code).toBe("ACQ-7");
+    expect(task.claude).toBe("done");
+    expect(task.closedAt).toBeNull();
+    expect(state.statusById.get(task.statusId)!.family).not.toBe("todo");
+    expect(task.lastActivityAt >= pr.openedAt).toBe(true);
+    const run = state.conversations.find((c) => c.kind === "task_run" && c.taskId === task.id)!;
+    expect(run).toMatchObject({ state: "finished", outcome: "ok" });
+    // Gli scenari del brief restano veri: descrizione vuota, PR senza note.
+    expect(task.description).toBe("");
+    as(LAURA);
+    const item = (await releases.listReleaseQueue(ACQ)).find((q) => q.id === pr.id)!;
+    expect(item).not.toHaveProperty("releaseNotes");
+  });
+});
