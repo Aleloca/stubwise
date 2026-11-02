@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   useDecisionLog,
@@ -26,8 +26,21 @@ import { Chevron, MenuButton, primaryButton, secondaryButton } from "../tasks/co
  * scelta revocata è comunque accaduta). Nessun testo qui è scritto
  * dall'AI, e nessuno porta l'etichetta «Generated text». «Record a
  * decision» con `decisions.record`.
+ *
+ * `fromLink` (area 10a): il link di una riga D di Claude apre il dialogo
+ * all'arrivo, con la task del codice se chi guarda la vede in questo
+ * progetto (altrimenti senza task) e il testo sempre vuoto; `onLinkDone`
+ * quando il dialogo si chiude.
  */
-export function DecisionLog({ projectId }: { projectId: string }) {
+export function DecisionLog({
+  projectId,
+  fromLink = null,
+  onLinkDone,
+}: {
+  projectId: string;
+  fromLink?: { taskCode: string | null } | null;
+  onLinkDone?: () => void;
+}) {
   const { t } = useTranslation();
   const { viewer } = useViewer();
   const log = useDecisionLog(projectId);
@@ -36,6 +49,12 @@ export function DecisionLog({ projectId }: { projectId: string }) {
   const [recording, setRecording] = useState(false);
   const canRecord = can(viewer, "decisions.record", projectId);
   const entries = log.data ?? [];
+  const linked = fromLink !== null;
+  useEffect(() => {
+    if (linked && canRecord) setRecording(true);
+  }, [linked, canRecord]);
+  const linkTaskId =
+    (fromLink?.taskCode && tasks.data?.find((x) => x.code === fromLink.taskCode)?.id) || null;
   const byId = new Map(entries.map((d) => [d.id, d]));
 
   const state = queryState([log, tasks, people], {
@@ -75,8 +94,12 @@ export function DecisionLog({ projectId }: { projectId: string }) {
       {recording && (
         <RecordDecisionDialog
           projectId={projectId}
+          taskId={linked ? linkTaskId : null}
           entries={entries}
-          onClose={() => setRecording(false)}
+          onClose={() => {
+            setRecording(false);
+            if (linked) onLinkDone?.();
+          }}
         />
       )}
     </>
@@ -221,20 +244,25 @@ function EntryMenu({ entry, entries }: { entry: DecisionLogEntry; entries: Decis
  * «Record a decision»: titolo e decisione (obbligatori), il contesto e, se
  * cambia una scelta già nel registro, quale supera. La voce è di chi la
  * scrive, col suo testo. Un errore si dice nel dialogo, senza perdere ciò
- * che si è scritto.
+ * che si è scritto. `taskId` (area 10a, dal link di Claude): la task della
+ * voce, mostrata in testa al dialogo, senza un selettore; già risolta con la
+ * visibilità di chi guarda.
  */
 function RecordDecisionDialog({
   projectId,
+  taskId = null,
   entries,
   onClose,
 }: {
   projectId: string;
+  taskId?: string | null;
   entries: DecisionLogEntry[];
   onClose: () => void;
 }) {
   const { t } = useTranslation();
   const toast = useToast();
   const record = useRecordDecision();
+  const task = useTasks({ projectIds: [projectId] }).data?.find((x) => x.id === taskId);
   const [title, setTitle] = useState("");
   const [decision, setDecision] = useState("");
   const [context, setContext] = useState("");
@@ -252,7 +280,7 @@ function RecordDecisionDialog({
     if (!title.trim() || !decision.trim()) return;
     setError(null);
     record.mutate(
-      { projectId, draft: { title, decision, context, supersedesId } },
+      { projectId, draft: { title, decision, context, supersedesId, taskId: task?.id ?? null } },
       {
         onSuccess: () => {
           toast.show(t("overview.decisions.recorded"));
@@ -296,6 +324,15 @@ function RecordDecisionDialog({
         {error && (
           <p role="alert" className="text-sm text-critical">
             {error}
+          </p>
+        )}
+        {task && (
+          <p data-testid="decision-task" className="flex min-w-0 items-baseline gap-1.5 text-sm">
+            <span className="shrink-0 text-ink-muted">{t("overview.decisions.forTask")}</span>
+            <span className="num shrink-0 font-semibold text-ink">{task.code}</span>
+            <span className="min-w-0 truncate text-ink" title={task.title}>
+              {task.title}
+            </span>
           </p>
         )}
         <DialogField label={t("overview.decisions.fieldTitle")} htmlFor={titleId}>

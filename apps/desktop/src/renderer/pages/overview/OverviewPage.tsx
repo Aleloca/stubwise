@@ -1,5 +1,5 @@
-import { useSearch } from "@tanstack/react-router";
-import { useRef } from "react";
+import { useNavigate, useSearch } from "@tanstack/react-router";
+import { useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useProject, useProjectPulse, useProjectSwitches } from "../../data/queries";
 import { useTaskKeys } from "../tasks/useTaskKeys";
@@ -24,9 +24,25 @@ export function OverviewPage({ projectCode }: { projectCode: string }) {
   const project = useProject(projectCode).data ?? undefined;
   const pulse = useProjectPulse(project?.id ?? "");
   const body = useRef<HTMLDivElement>(null);
-  const search = useSearch({ strict: false }) as { task?: string };
+  const search = useSearch({ strict: false }) as { task?: string; recordDecision?: string };
   const openTask = useOpenTask();
-  useTaskKeys({ body, openCode: search.task, onOpen: openTask });
+  const navigate = useNavigate();
+  // «Record a decision» dal link di una riga D di Claude (area 10a): `task` è
+  // la task del dialogo, non quella del pannello. Chiuso il dialogo,
+  // l'indirizzo torna quello dell'Overview, così non si riapre.
+  const fromLink = search.recordDecision === "1" ? { taskCode: search.task ?? null } : null;
+  const linkDone = useCallback(() => {
+    void navigate({
+      to: ".",
+      search: (prev: Record<string, unknown>) => ({
+        ...prev,
+        recordDecision: undefined,
+        task: undefined,
+      }),
+      replace: true,
+    } as never);
+  }, [navigate]);
+  useTaskKeys({ body, openCode: fromLink ? undefined : search.task, onOpen: openTask });
 
   // Area 9c: il pulse spento si dice in coda alla riga quieta; finché gli
   // interruttori non sono letti non si dice niente (mai «off» per sicurezza).
@@ -59,7 +75,7 @@ export function OverviewPage({ projectCode }: { projectCode: string }) {
             <ProgressSection projectId={project.id} projectCode={project.code} />
             <OpenSection projectId={project.id} projectCode={project.code} />
             <ProjectTimeline projectId={project.id} />
-            <DecisionLog projectId={project.id} />
+            <DecisionLog projectId={project.id} fromLink={fromLink} onLinkDone={linkDone} />
           </>
         )}
       </div>

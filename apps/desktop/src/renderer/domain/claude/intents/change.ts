@@ -19,7 +19,7 @@ import { findCodes, findPerson, findProject, findSize, findTitle, findWeek } fro
 // Chat) tutto resta proposta, come nell'area 4.
 
 /** La risposta secondo la classe: A esegue con la frase «fatto», le altre propongono. */
-async function byClass(
+export async function byClass(
   ctx: IntentContext,
   action: ProposedAction,
   done: string,

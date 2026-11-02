@@ -31,6 +31,9 @@ const READ: ReadApi = {
   listDecisionRequests: api.listDecisionRequests,
   listDocPages: api.listDocPages,
   readDriveFiles: api.drive.listDriveFilesForClaude,
+  listConversations: api.listConversations,
+  listAutomations: () => api.automations.listAutomations(),
+  listProjectServers: api.servers.listProjectServers,
 };
 
 function as(personId: string, t = en, contextProjectId: string | null = null): IntentContext {
@@ -495,11 +498,17 @@ describe("la posta e le riunioni di altri non arrivano a Claude (Review Focus 1)
       "getRequest",
       "getRequestByCode",
       "getTaskByCode",
+      // Area 10a (Task 6): dove portano le righe D — la domanda aperta di
+      // Claude (sessioni di lavoro, `canSeeConversation`), le automazioni e i
+      // server, come li vede chi chiede. Nessuna è posta o calendario.
+      "listAutomations",
+      "listConversations",
       "listDecisionRequests",
       "listDocPages",
       "listPeople",
       "listPinnedProjectIds",
       "listProjectPulses",
+      "listProjectServers",
       "listProjectStatuses",
       "listProjects",
       "listTasks",

@@ -137,6 +137,33 @@ async function main() {
       console.log("scritto", name);
     };
 
+    // Area 10a, Task 6 (`CAPTURE_A10A_DECISION=1`): «Record a decision» aperto
+    // dal link di una riga D di Claude, con AUD-4 in testa e il testo vuoto.
+    // Marco in AUD (ha `decisions.record`). Scatti `a10a-record-decision-*`.
+    if (process.env.CAPTURE_A10A_DECISION) {
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      for (const v of variants) {
+        const { page, context } = await open(v.scheme, v.viewport, "/home", {
+          lang: v.lang,
+          persona: "Marco",
+        });
+        await page.evaluate(() => {
+          window.location.hash = "/p/AUD/overview?recordDecision=1&task=AUD-4";
+        });
+        await page.getByRole("dialog").waitFor();
+        await page.waitForTimeout(900);
+        await shot(page, `a10a-record-decision-${v.suffix}.png`);
+        await context.close();
+      }
+      return;
+    }
+
     // Area 9c, Task 12 (`CAPTURE_A9C_AUDIT=1`): le voci del 9c nel registro,
     // scatti `a9c-audit-*`. Le voci si scrivono dal livello dati della pagina
     // con le funzioni vere (interruttore, account AI poi eliminato, variabile

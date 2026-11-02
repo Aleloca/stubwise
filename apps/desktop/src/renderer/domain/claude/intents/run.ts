@@ -69,9 +69,21 @@ export async function run(text: string, ctx: IntentContext): Promise<Answer> {
     };
   }
   if (request.status === "converted") {
-    const taskId = request.taskIds[0];
-    const tasks = taskId ? await read.listTasks({ projectIds: [request.projectId] }) : [];
-    const task = tasks.find((x) => x.id === taskId);
+    const tasks =
+      request.taskIds.length > 0 ? await read.listTasks({ projectIds: [request.projectId] }) : [];
+    // La prima task nata che c'è ancora (un'eliminata non conta).
+    const task = request.taskIds
+      .map((id) => tasks.find((x) => x.id === id))
+      .find((x) => x !== undefined);
+    // La task nata è stata eliminata (area 10a): la richiesta lo dice a chi la
+    // vede (`deletedTaskCodes`), quindi lo dico, senza affermare che esiste.
+    if (!task && (request.deletedTaskCodes?.length ?? 0) >= request.taskIds.length) {
+      return {
+        actions: [lookup],
+        text: t("claude.answers.run.convertedDeleted", { request: named(request) }),
+        refs,
+      };
+    }
     // La task nata c'è ma non la vedo: dico che la richiesta è già una task, senza nominarla.
     if (!task) {
       return {

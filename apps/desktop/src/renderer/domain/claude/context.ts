@@ -1,5 +1,7 @@
 import type {
   ActionClass,
+  ConversationFilter,
+  ConversationRow,
   DecisionRequest,
   DocPage,
   DriveFile,
@@ -47,6 +49,14 @@ export interface ReadApi {
    * un'apertura.
    */
   readDriveFiles(): Promise<DriveFile[]>;
+  /**
+   * Area 10a, le righe D: dove porta il link. Le conversazioni (la domanda
+   * aperta di Claude su una task), le automazioni e i server del progetto,
+   * sempre come li vede chi chiede.
+   */
+  listConversations(filter: ConversationFilter): Promise<ConversationRow[]>;
+  listAutomations(): Promise<{ code: string }[]>;
+  listProjectServers(projectId: string): Promise<{ code: string }[]>;
 }
 
 export interface IntentContext {

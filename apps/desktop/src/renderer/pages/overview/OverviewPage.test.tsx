@@ -300,6 +300,56 @@ describe("OverviewPage — Timeline e registro decisioni", () => {
     expect(first).not.toHaveTextContent("Generated text");
   });
 
+  it("dal link di Claude (riga D): il dialogo con AUD-4 in testa e il testo vuoto; la voce ha la task", async () => {
+    const router = renderRoute("/p/AUD/overview?recordDecision=1&task=AUD-4", "p-marco");
+    const dialog = await screen.findByRole("dialog", { name: "Record a decision" });
+    await waitFor(() => expect(within(dialog).getByTestId("decision-task")).toHaveTextContent("AUD-4"));
+    expect(within(dialog).getByTestId("decision-task")).toHaveTextContent(
+      "Billing emails with the new invoice layout",
+    );
+    expect(within(dialog).getByLabelText("Title")).toHaveValue("");
+    expect(within(dialog).getByLabelText("Decision")).toHaveValue("");
+    // Il link non apre anche il pannello della task: un solo dialogo.
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    await userEvent.type(within(dialog).getByLabelText("Title"), "Postgres for billing");
+    await userEvent.type(within(dialog).getByLabelText("Decision"), "We use Postgres.");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Record" }));
+    await waitFor(() =>
+      expect(state.decisionLog.find((d) => d.title === "Postgres for billing")?.taskId).toBe(
+        "t-aud-4",
+      ),
+    );
+    // Chiuso, l'indirizzo non lo riapre.
+    await waitFor(() => expect(search(router).recordDecision).toBeUndefined());
+    expect(search(router).task).toBeUndefined();
+  });
+
+  it("dal link di Claude, con un codice invisibile o inesistente: il dialogo senza task", async () => {
+    for (const code of ["MKX-3", "AUD-999"]) {
+      renderRoute(`/p/AUD/overview?recordDecision=1&task=${code}`, "p-marco");
+      const dialog = await screen.findByRole("dialog", { name: "Record a decision" });
+      await screen.findByRole("list", { name: "Decision log" });
+      expect(within(dialog).queryByTestId("decision-task")).toBeNull();
+      expect(dialog.textContent?.toLowerCase()).not.toContain(code.toLowerCase());
+      await userEvent.type(within(dialog).getByLabelText("Title"), `No task ${code}`);
+      await userEvent.type(within(dialog).getByLabelText("Decision"), "Something.");
+      await userEvent.click(within(dialog).getByRole("button", { name: "Record" }));
+      await waitFor(() =>
+        expect(state.decisionLog.find((d) => d.title === `No task ${code}`)).toBeDefined(),
+      );
+      expect(state.decisionLog.find((d) => d.title === `No task ${code}`)!.taskId ?? null).toBeNull();
+      cleanup();
+    }
+  });
+
+  it("dal link di Claude senza decisions.record: nessun dialogo", async () => {
+    await overview("AUD", "p-giulia");
+    cleanup();
+    renderRoute("/p/AUD/overview?recordDecision=1&task=AUD-4", "p-giulia");
+    await screen.findByRole("list", { name: "Decision log" });
+    expect(screen.queryByRole("dialog", { name: "Record a decision" })).toBeNull();
+  });
+
   it("una voce superata lo dice, con il titolo di quella che l'ha cambiata", async () => {
     await overview("MKX", "p-giulia");
     const list = await screen.findByRole("list", { name: "Decision log" });

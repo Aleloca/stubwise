@@ -16,6 +16,30 @@ export function normalize(text: string): string {
     .trim();
 }
 
+// Comando o domanda (spostati qui da `intents.ts` per gli intenti che li
+// riconoscono da sé, come `refused.ts`).
+/** Un saluto in testa («Ciao,», «Hi»): non cambia cosa si chiede. */
+const GREETING = /^(ciao|salve|buongiorno|buonasera|hi|hello|hey)\b[,!.]?\s*/;
+/**
+ * Una cortesia in testa: dopo di lei il verbo può essere all'infinito
+ * («Puoi creare…», «Vorrei avviare…») e un «?» finale non fa una domanda.
+ */
+const POLITE =
+  /^(please|pls|kindly|per favore|per piacere|can you|could you|would you|will you|i'd like you to|i would like you to|i'd like to|i want to|puoi|mi puoi|ci puoi|potresti|mi potresti|riesci a|vorrei che|vorrei|ti chiedo di)\b[,!]?\s*/;
+/** Toglie saluti e cortesie in testa (anche in fila: «Ciao, per favore, puoi…»). */
+export function stripCourtesy(plain: string): { polite: boolean; command: string } {
+  let command = plain.replace(GREETING, "");
+  let polite = false;
+  for (let m = POLITE.exec(command); m && m[0].length > 0; m = POLITE.exec(command)) {
+    polite = true;
+    command = command.slice(m[0].length);
+  }
+  return { polite, command };
+}
+/** Una domanda: il punto interrogativo, o una parola interrogativa in testa. */
+export const QUESTION =
+  /(\?\s*$)|^(when|why|did|does|do|who|whom|whose|what|what's|how|is|are|was|were|has|have|had|which|where|quando|perche|chi|cosa|che cosa|come|e|era|sono|ha|hanno|quale|quali|dove)\b/;
+
 export interface CodeRef {
   /** Il codice in maiuscolo, es. `AUD-3` o `STW-R4`. */
   code: string;

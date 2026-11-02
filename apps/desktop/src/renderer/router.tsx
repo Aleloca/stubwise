@@ -111,6 +111,11 @@ export interface AppSearch {
   refine?: string;
   /** Il brief settimanale aperto nel pannello (Overview). */
   brief?: string;
+  /**
+   * «Record a decision» dell'Overview aperto all'arrivo (`1`, area 10a: il
+   * link di una riga D di Claude); con `task` la task scelta, testo vuoto.
+   */
+  recordDecision?: string;
   view?: string;
   group?: string;
   /** Criteri di una pagina di task (oggetto JSON nell'indirizzo). */
@@ -222,6 +227,7 @@ const SEARCH_KEYS = [
   "request",
   "refine",
   "brief",
+  "recordDecision",
   "view",
   "group",
   "scope",
@@ -316,7 +322,11 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
             ? /^[a-z-]+$/.test(value)
             : key === "ask"
               ? value.trim().length > 0 && value.length <= ASK_MAX
-              : key === "refine" || key === "settings" || key === "newMeeting" || key === "new"
+              : key === "refine" ||
+                  key === "recordDecision" ||
+                  key === "settings" ||
+                  key === "newMeeting" ||
+                  key === "new"
                 ? value === "1"
                 : false;
     // I filtri di WORK dello Stato dell'istanza (area 9b, ruling 10) hanno la

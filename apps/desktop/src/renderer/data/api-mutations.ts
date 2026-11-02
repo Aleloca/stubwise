@@ -1660,6 +1660,9 @@ export function readsAs(me: string): ReadApi {
     listDecisionRequests: bind(reads.listDecisionRequests),
     listDocPages: bind(reads.listDocPages),
     readDriveFiles: bind(reads.drive.listDriveFilesForClaude),
+    listConversations: bind(reads.listConversations),
+    listAutomations: bind(() => reads.automations.listAutomations()),
+    listProjectServers: bind(reads.servers.listProjectServers),
   };
 }
 

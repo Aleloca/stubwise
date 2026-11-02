@@ -55,6 +55,13 @@ export interface Answer {
    * `pending`, che esegue (o trasforma in scheda) `freeTurn`.
    */
   execute?: ProposedAction[];
+  /**
+   * Area 10a, la riga D (Claude non lo fa): il posto vero, scritto in fondo
+   * alla frase come link markdown, con l'etichetta che finisce con «→».
+   * `route` `null`: la frase da sola (il deploy). Nessun tipo d'evento nuovo:
+   * è testo di Claude, nel passo `say`.
+   */
+  place?: { route: string | null; labelKey: string; labelParams?: Params };
   /** Una domanda a chi chiama (solo con `ctx.asks`): la risposta continua il lavoro. */
   ask?: {
     text: string;
@@ -81,7 +88,10 @@ export function toSteps(answer: Answer, ctx: IntentContext, text: string): Scrip
     steps.push(step);
   }
   // Con una domanda il testo può mancare: la domanda dice già tutto.
-  if (answer.text) steps.push({ step: "say", text: answer.text });
+  const said = answer.place?.route
+    ? `${answer.text} [${ctx.t(answer.place.labelKey, answer.place.labelParams)}](${answer.place.route})`
+    : answer.text;
+  if (said) steps.push({ step: "say", text: said });
   // Le azioni A subito dopo la loro frase («Fatto…»): se all'esecuzione la
   // classe è salita, `freeTurn` cambia quella frase e l'evento in una scheda.
   if (answer.execute && answer.execute.length > 0) {

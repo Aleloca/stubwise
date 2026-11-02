@@ -33,7 +33,7 @@ import { TechnicalSection } from "./TechnicalSection";
 export function TaskDetailHost() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const search = useSearch({ strict: false }) as { task?: string };
+  const search = useSearch({ strict: false }) as { task?: string; recordDecision?: string };
   const wide = useMediaQuery(DOCKED_PANEL_QUERY);
   const overlayOnly = useRouterState({ select: (s) => forcesOverlay(s.location.pathname) });
   const docked = wide && !overlayOnly;
@@ -44,7 +44,9 @@ export function TaskDetailHost() {
       search: (prev: Record<string, unknown>) => ({ ...prev, task: undefined }),
     } as never);
   }, [navigate]);
-  if (!code) return null;
+  // Con «Record a decision» aperto dal link di Claude (area 10a) `task` è la
+  // task scelta nel dialogo, non un pannello da aprire.
+  if (!code || search.recordDecision) return null;
   return (
     <DetailPanel
       mode={docked ? "docked" : "overlay"}

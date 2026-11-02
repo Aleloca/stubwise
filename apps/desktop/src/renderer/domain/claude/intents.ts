@@ -1,11 +1,21 @@
 import type { ScriptStep } from "../../data/types";
 import { toSteps, type Answer } from "./answers";
 import type { IntentContext } from "./context";
-import { canonicalCodes, findCodes, findWeek, normalize, topicWords } from "./parse";
+import {
+  QUESTION,
+  canonicalCodes,
+  findCodes,
+  findWeek,
+  normalize,
+  stripCourtesy,
+  topicWords,
+} from "./parse";
 import { assign, create, plan } from "./intents/change";
 import { explain } from "./intents/explain";
 import { fileQuestion, files } from "./intents/files";
 import { general } from "./intents/general";
+import { isRefused, refused } from "./intents/refused";
+import { remove } from "./intents/remove";
 import { howto, howtoTopic } from "./intents/howto";
 import { run } from "./intents/run";
 import { status } from "./intents/status";
@@ -32,20 +42,14 @@ export type Intent =
   | "create"
   | "assign"
   | "plan"
+  | "remove"
+  | "refused"
   | "general";
 
 // Le modifiche si riconoscono solo da un COMANDO: il verbo all'imperativo in
 // testa al messaggio (dopo un'eventuale cortesia, «please», «puoi»). Una
 // domanda che contiene lo stesso verbo («Chi ha assegnato AUD-10?», «AUD-10
 // è pianificata?», «Come si crea un preventivo?») non propone mai nulla.
-/** Un saluto in testa («Ciao,», «Hi»): non cambia cosa si chiede. */
-const GREETING = /^(ciao|salve|buongiorno|buonasera|hi|hello|hey)\b[,!.]?\s*/;
-/**
- * Una cortesia in testa: dopo di lei il verbo può essere all'infinito
- * («Puoi creare…», «Vorrei avviare…») e un «?» finale non fa una domanda.
- */
-const POLITE =
-  /^(please|pls|kindly|per favore|per piacere|can you|could you|would you|will you|i'd like you to|i would like you to|i'd like to|i want to|puoi|mi puoi|ci puoi|potresti|mi potresti|riesci a|vorrei che|vorrei|ti chiedo di)\b[,!]?\s*/;
 // Imperativo (sempre) e infinito con i clitici (solo dopo una cortesia).
 const RUN = /^(run|start|launch|execute|avvia|avviala|avvialo|esegui|lancia|fai partire)\b/;
 const RUN_INF =
@@ -58,24 +62,14 @@ const ASSIGN =
   /^(assign|reassign|give|assegna|assegnala|assegnalo|riassegna|riassegnala|riassegnalo)\b/;
 const ASSIGN_INF =
   /^(assegnare|assegnarla|assegnarlo|assegnarmi|riassegnare|riassegnarla|riassegnarlo)\b/;
+const REMOVE = /^(delete|remove|elimina|eliminala|eliminalo|cancella|cancellala|cancellalo|rimuovi)\b/;
+const REMOVE_INF =
+  /^(eliminare|eliminarla|eliminarlo|cancellare|cancellarla|cancellarlo|rimuovere|rimuoverla)\b/;
 const CREATE =
   /^(create|add|make|open|new task|crea|creami|creala|aggiungi|apri|nuova task|nuovo task)\b/;
 const CREATE_INF =
   /^(creare|crearmi|crearla|crearne|aggiungere|aggiungermi|aggiungerla|aprire|aprirmi|aprirne)\b/;
 
-/** Toglie saluti e cortesie in testa (anche in fila: «Ciao, per favore, puoi…»). */
-function stripCourtesy(plain: string): { polite: boolean; command: string } {
-  let command = plain.replace(GREETING, "");
-  let polite = false;
-  for (let m = POLITE.exec(command); m && m[0].length > 0; m = POLITE.exec(command)) {
-    polite = true;
-    command = command.slice(m[0].length);
-  }
-  return { polite, command };
-}
-/** Una domanda: il punto interrogativo, o una parola interrogativa in testa. */
-const QUESTION =
-  /(\?\s*$)|^(when|why|did|does|do|who|whom|whose|what|what's|how|is|are|was|were|has|have|had|which|where|quando|perche|chi|cosa|che cosa|come|e|era|sono|ha|hanno|quale|quali|dove)\b/;
 const HOWTO = /\b(how (do|does|can|to|is|are)|come (funziona|funzionano|si|faccio|posso|fare))\b/;
 /** Una task o una richiesta nominata senza codice: «spiegami la richiesta», «avvia la task». */
 const OBJECT = /\b(task|request|ticket|richiesta)\b/;
@@ -87,9 +81,11 @@ const STATUS =
 
 /**
  * L'intento di un messaggio. Prima si decide se è un comando o una domanda:
+ * - un gesto delle persone (classe D, area 10a: approvare un piano, il
+ *   merge, il deploy…) è una riga D prima di ogni altro comando;
  * - un COMANDO (verbo all'imperativo in testa) può proporre una modifica:
- *   avvia, pianifica (solo con una settimana), assegna (con un codice di
- *   task), crea (senza);
+ *   elimina (con un codice di task), avvia, pianifica (solo con una
+ *   settimana), assegna (con un codice di task), crea (senza);
  * - tutto il resto si legge e basta: un codice da spiegare («a che punto è
  *   AUD-3?», «Perché è fallita AUD-4?»), a che punto, oggi, «come
  *   funziona/come si fa» con un tema — che vince su un codice ignoto
@@ -106,9 +102,13 @@ export function recognize(text: string, visibleCodes?: ReadonlySet<string>): Int
   const hasTask = codes.some((c) => c.kind === "task");
   const { polite, command } = stripCourtesy(plain);
   // «Can you run AUD-4?», «Puoi avviare STW-R3?» sono richieste cortesi, non domande.
+  // Un gesto delle persone (classe D, area 10a) prima di ogni comando: «approva
+  // il piano di AUD-4» non diventa mai un'altra cosa.
+  if (isRefused(text)) return "refused";
   if (polite || !QUESTION.test(command)) {
     const verb = (imperative: RegExp, infinitive: RegExp) =>
       imperative.test(command) || (polite && infinitive.test(command));
+    if (hasTask && verb(REMOVE, REMOVE_INF)) return "remove";
     if (verb(RUN, RUN_INF) && (codes.length > 0 || OBJECT.test(command))) return "run";
     if (hasTask && verb(PLAN, PLAN_INF) && findWeek(text)) return "plan";
     if (hasTask && verb(ASSIGN, ASSIGN_INF)) return "assign";
@@ -135,6 +135,8 @@ const HANDLERS: Record<Intent, (text: string, ctx: IntentContext) => Promise<Ans
   create,
   assign,
   plan,
+  remove,
+  refused,
   general,
 };
 

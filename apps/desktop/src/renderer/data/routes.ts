@@ -339,6 +339,9 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
       return /^p\/[A-Z]{2,4}\/requests$/.test(path) && /^[\w-]+$/.test(value);
     case "refine":
       return /^p\/[A-Z]{2,4}\/requests$/.test(path) && value === "1";
+    // «Record a decision» dell'Overview, aperto da una riga D di Claude (area 10a).
+    case "recordDecision":
+      return /^p\/[A-Z]{2,4}\/overview$/.test(path) && value === "1";
     case "brief":
       return /^p\/[A-Z]{2,4}\/overview$/.test(path) && /^[\w-]+$/.test(value);
     // Releases (area 8a): il pannello di una PR aperta.
