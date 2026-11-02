@@ -102,7 +102,8 @@ describe("la notifica di Marco (seme)", () => {
         `Claude per conto di Giulia Ferri ti ha assegnato ${HANDOVER_TASK.code}.`,
       ),
     ).toBeInTheDocument();
-    expect(item.querySelector("[data-undone-by]")?.textContent).toBe("Annullato da Giulia Ferri");
+    // Rifinitura 4 di Impeccable: l'assegnazione è annullata (femminile).
+    expect(item.querySelector("[data-undone-by]")?.textContent).toBe("Annullata da Giulia Ferri");
   });
 
   it("nel pannello di Marco: una notifica per l'assegnazione e una per l'«Annulla» passato dalla scheda (I1), un solo «Undone by»", async () => {

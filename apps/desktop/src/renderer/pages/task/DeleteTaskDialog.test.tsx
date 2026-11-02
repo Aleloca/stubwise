@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { convertRequest, failNext, resetApi, setLatency } from "../../data/api";
@@ -9,6 +9,7 @@ import { setSessionPersonId } from "../../data/session";
 import { copy, now, state } from "../../data/store";
 import { deleteTaskAs } from "../../data/taskDelete";
 import { resetViewerGrants, revokeProjectPermission } from "../../data/viewer";
+import i18n, { setLanguage } from "../../i18n";
 import { renderRoute } from "../../test/renderRoute";
 
 // «Elimina task» (area 10a, Task 10, shape task-delete.md): la voce del menu
@@ -19,7 +20,10 @@ import { renderRoute } from "../../test/renderRoute";
 const MKX = "prj-mkx";
 const ACQ = "prj-acq";
 
-afterEach(() => resetViewerGrants());
+afterEach(async () => {
+  resetViewerGrants();
+  await i18n.changeLanguage("en");
+});
 
 beforeEach(() => {
   setLatency(0);
@@ -197,6 +201,19 @@ describe("la voce del menu e il dialogo", () => {
     await within(dialog).findByText(`${task.code} can't be deleted yet`);
     expect(dialog).toHaveTextContent("A pull request for it is open.");
     expect(dialog).not.toHaveTextContent("#null");
+  });
+
+  it("rifinitura 2 di Impeccable: in it la task e le figlie tra «», non tra “”", async () => {
+    const user = userEvent.setup();
+    const parent = newTask("p-laura", ACQ, "Bill download rework");
+    const a = newTask("p-laura", ACQ, "Export CSV", { links: [{ kind: "parent", taskId: parent.id }] });
+    renderRoute(`/p/ACQ/tasks?task=${parent.code}`, "p-laura");
+    const { dialog } = await openDialog(user, parent.code);
+    await within(dialog).findByText("1 task stays, without a parent:", { exact: false });
+    act(() => setLanguage("it"));
+    await waitFor(() => expect(dialog).toHaveTextContent(`${parent.code} «Bill download rework»`));
+    expect(dialog).toHaveTextContent(`${a.code} «Export CSV»`);
+    expect(dialog.textContent).not.toMatch(/[“”]/);
   });
 
   it("due figlie: «2 tasks stay, without a parent» e i loro codici", async () => {

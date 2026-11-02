@@ -33,7 +33,8 @@ export async function remove(text: string, ctx: IntentContext): Promise<Answer> 
       {
         fn: "deleteTask",
         args: { id: task.id },
-        ...summarized(t, "claude.answers.remove.summary", params),
+        // Il nome tra virgolette, come la creazione (rifinitura 3 di Impeccable).
+        ...summarized(t, "claude.answers.remove.summary", { code: task.code, title: task.title }),
       },
       t("claude.answers.remove.done", { code: task.code }),
       t("claude.answers.remove.proposal", params),

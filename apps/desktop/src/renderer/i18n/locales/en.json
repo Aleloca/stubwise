@@ -3344,7 +3344,7 @@
       "remove": {
         "noCode": "Which task should I delete? Give me its code, like AUD-4.",
         "proposal": "I can delete **{{task}}**. Confirm below: it can't be undone.",
-        "summary": "Delete {{task}}",
+        "summary": "Delete {{code}} “{{title}}”",
         "done": "Done: {{code}} is deleted."
       },
       "refused": {
@@ -11348,7 +11348,8 @@
         "busyNote": "You can delete it when nothing is running on it.",
         "forbidden": "You can no longer delete {{code}}. Nothing was deleted.",
         "failed": "Couldn't delete {{code}}. Try again.",
-        "retry": "Retry"
+        "retry": "Retry",
+        "quoted": "“{{title}}”"
       },
       "busy": {
         "title": "{{code}} can't be deleted yet",

@@ -250,7 +250,7 @@
       "actor": "Claude per conto di {{name}}",
       "assigned": "Claude per conto di {{name}} ti ha assegnato {{code}}.",
       "lead": "Claude per conto di {{name}}: {{body}}",
-      "undoneBy": "Annullato da {{name}}",
+      "undoneBy": "Annullata da {{name}}",
       "someone": "qualcuno",
       "planned": "Claude per conto di {{name}} ha pianificato {{code}} per {{week}}.",
       "unplanned": "Claude per conto di {{name}} ha tolto {{code}} dalla tua settimana."
@@ -3344,7 +3344,7 @@
       "remove": {
         "noCode": "Quale task elimino? Dammi il codice, per esempio AUD-4.",
         "proposal": "Posso eliminare **{{task}}**. Conferma qui sotto: non si può annullare.",
-        "summary": "Elimina {{task}}",
+        "summary": "Elimina {{code}} «{{title}}»",
         "done": "Fatto: {{code}} è eliminata."
       },
       "refused": {
@@ -11348,7 +11348,8 @@
         "busyNote": "Potrai eliminarla quando non ci gira niente sopra.",
         "forbidden": "Non puoi più eliminare {{code}}. Non è stato eliminato niente.",
         "failed": "Impossibile eliminare {{code}}. Riprova.",
-        "retry": "Riprova"
+        "retry": "Riprova",
+        "quoted": "«{{title}}»"
       },
       "busy": {
         "title": "{{code}} non si può ancora eliminare",

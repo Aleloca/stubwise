@@ -613,6 +613,14 @@ describe("classi (area 10a, Task 5): il motore chiede la classe, non la deduce",
       classify: async () => ({ cls: "B", reasons: [{ kind: "irreversible" }] }),
     });
     expect(said(removed)).toBe("I'm asking first: it can't be undone.");
+    // Rifinitura 3 di Impeccable: il nome tra virgolette, come la creazione.
+    expect(proposal(removed)!.actions[0]!.summary).toMatch(/^Delete MKX-7 “.+”$/);
+    const rimossa = await respond("Elimina MKX-7", {
+      ...ctx,
+      t: it_,
+      classify: async () => ({ cls: "B", reasons: [{ kind: "irreversible" }] }),
+    });
+    expect(proposal(rimossa)!.actions[0]!.summary).toMatch(/^Elimina MKX-7 «.+»$/);
   });
 
   it("senza classify (la Chat): la proposta di oggi", async () => {

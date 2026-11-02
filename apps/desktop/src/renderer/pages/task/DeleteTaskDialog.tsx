@@ -140,7 +140,7 @@ export function DeleteTaskDialog({
       <p className="flex min-w-0 items-baseline gap-2 text-md text-ink">
         <span className="num shrink-0 font-semibold">{code}</span>{" "}
         <span className="min-w-0 truncate" title={task.title}>
-          “{task.title}”
+          {t("task.delete.dialog.quoted", { title: task.title })}
         </span>
       </p>
       <p className="-mt-1 flex items-start gap-1.5 text-md font-semibold text-critical">
@@ -224,7 +224,7 @@ function Children({ items }: { items: { code: string; title: string }[] }) {
   const line = (c: { code: string; title: string }) => (
     <>
       <span className="num font-semibold">{c.code}</span>{" "}
-      <span title={c.title}>“{c.title}”</span>
+      <span title={c.title}>{t("task.delete.dialog.quoted", { title: c.title })}</span>
     </>
   );
   if (items.length === 1)
