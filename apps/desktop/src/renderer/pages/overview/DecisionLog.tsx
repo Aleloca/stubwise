@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   useDecisionLog,
@@ -50,9 +50,22 @@ export function DecisionLog({
   const canRecord = can(viewer, "decisions.record", projectId);
   const entries = log.data ?? [];
   const linked = fromLink !== null;
+  // Senza `decisions.record` il link non apre niente: l'indirizzo torna
+  // quello dell'Overview, così `task` non resta lì a spegnere il pannello.
   useEffect(() => {
-    if (linked && canRecord) setRecording(true);
-  }, [linked, canRecord]);
+    if (!linked) return;
+    if (canRecord) setRecording(true);
+    else onLinkDone?.();
+  }, [linked, canRecord, onLinkDone]);
+  // Il dialogo aperto dal link non ha un bottone che l'ha aperto: chiuso
+  // (Record o Cancel), il fuoco va su «Record a decision», non sul body.
+  const recordButton = useRef<HTMLButtonElement>(null);
+  const [refocus, setRefocus] = useState(false);
+  useEffect(() => {
+    if (!refocus || recording) return;
+    setRefocus(false);
+    recordButton.current?.focus();
+  }, [refocus, recording]);
   const linkTaskId =
     (fromLink?.taskCode && tasks.data?.find((x) => x.code === fromLink.taskCode)?.id) || null;
   const byId = new Map(entries.map((d) => [d.id, d]));
@@ -70,7 +83,12 @@ export function DecisionLog({
         state={state}
         action={
           canRecord ? (
-            <button type="button" className={secondaryButton} onClick={() => setRecording(true)}>
+            <button
+              ref={recordButton}
+              type="button"
+              className={secondaryButton}
+              onClick={() => setRecording(true)}
+            >
               {t("overview.decisions.record")}
             </button>
           ) : undefined
@@ -98,7 +116,10 @@ export function DecisionLog({
           entries={entries}
           onClose={() => {
             setRecording(false);
-            if (linked) onLinkDone?.();
+            if (linked) {
+              setRefocus(true);
+              onLinkDone?.();
+            }
           }}
         />
       )}

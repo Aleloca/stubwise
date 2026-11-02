@@ -342,12 +342,41 @@ describe("OverviewPage — Timeline e registro decisioni", () => {
     }
   });
 
-  it("dal link di Claude senza decisions.record: nessun dialogo", async () => {
-    await overview("AUD", "p-giulia");
-    cleanup();
-    renderRoute("/p/AUD/overview?recordDecision=1&task=AUD-4", "p-giulia");
+  it("dal link di Claude senza decisions.record: nessun dialogo, e l'Overview resta quella di sempre", async () => {
+    const router = renderRoute("/p/AUD/overview?recordDecision=1&task=AUD-4", "p-giulia");
     await screen.findByRole("list", { name: "Decision log" });
     expect(screen.queryByRole("dialog", { name: "Record a decision" })).toBeNull();
+    // L'indirizzo torna quello dell'Overview: nessun parametro resta a metà.
+    await waitFor(() => expect(search(router).recordDecision).toBeUndefined());
+    expect(search(router).task).toBeUndefined();
+    // E una task si apre ancora nel pannello.
+    const rows = await stalledRows();
+    await userEvent.click(within(rows[0]!).getByRole("button"));
+    await waitFor(() => expect(search(router).task).toBe("AUD-6"));
+    await waitFor(() =>
+      expect(document.querySelector('[aria-label="Task AUD-6"]')).not.toBeNull(),
+    );
+  });
+
+  it("dal link di Claude, dopo Record o Cancel il fuoco va su «Record a decision», non sul body", async () => {
+    for (const close of ["Record", "Cancel"]) {
+      renderRoute("/p/AUD/overview?recordDecision=1&task=AUD-4", "p-marco");
+      const dialog = await screen.findByRole("dialog", { name: "Record a decision" });
+      if (close === "Record") {
+        await userEvent.type(within(dialog).getByLabelText("Title"), "Focus after save");
+        await userEvent.type(within(dialog).getByLabelText("Decision"), "Something.");
+      }
+      await userEvent.click(within(dialog).getByRole("button", { name: close }));
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog", { name: "Record a decision" })).toBeNull(),
+      );
+      await waitFor(() =>
+        expect(document.activeElement).toBe(
+          screen.getByRole("button", { name: "Record a decision" }),
+        ),
+      );
+      cleanup();
+    }
   });
 
   it("una voce superata lo dice, con il titolo di quella che l'ha cambiata", async () => {
