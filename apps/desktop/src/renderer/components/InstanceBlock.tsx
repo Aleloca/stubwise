@@ -1,9 +1,9 @@
 import type { TFunction } from "i18next";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { now } from "../data/dates";
 import { usePeople } from "../data/queries";
 import type { AiBlock } from "../data/types";
-import { NOW } from "../notifications/time";
 import { WhoCanLink } from "./WhoCanLink";
 
 // Le impostazioni d'istanza dove si sentono (area 9b, shape
@@ -15,10 +15,10 @@ import { WhoCanLink } from "./WhoCanLink";
 
 const K = "instanceEffects";
 
-/** «da ieri alle 18:00», «da oggi alle 9:30», «dal 22 ott, 18:00»: relativo all'adesso del prototipo. */
+/** «da ieri alle 18:00», «da oggi alle 9:30», «dal 22 ott, 18:00»: relativo a `now()`, l'adesso del prototipo. */
 export function sinceText(t: TFunction, iso: string, language: string): string {
   const day = (x: string) => Date.parse(`${x.slice(0, 10)}T00:00:00Z`);
-  const days = Math.round((day(NOW) - day(iso)) / 86_400_000);
+  const days = Math.round((day(now()) - day(iso)) / 86_400_000);
   const time = iso.slice(11, 16);
   if (days === 0) return t(`${K}.since.today`, { time });
   if (days === 1) return t(`${K}.since.yesterday`, { time });

@@ -147,6 +147,18 @@ describe("sezione Claude", () => {
     );
   });
 
+  it("orologio unico: una sessione appena avviata dice «Just now», non «11h ago»", async () => {
+    const t = state.tasks.find(
+      (x) => x.projectId === "prj-stw" && x.claude === "none" && x.closedAt === null,
+    )!;
+    t.assigneeId = CLAUDE;
+    const section = await claudeSection(t.id, "p-marco");
+    await userEvent.click(within(section).getByRole("button", { name: "Start" }));
+    await waitFor(() =>
+      expect(current().querySelector("[data-claude-status] time")).toHaveTextContent("Just now"),
+    );
+  });
+
   it("fallita: «Relaunch with instructions» con runs.start, a chi no lo dice", async () => {
     grantProjectRole("p-sara", "prj-stw", "viewer");
     const contributor = await claudeSection("t-stw-7", "p-sara");

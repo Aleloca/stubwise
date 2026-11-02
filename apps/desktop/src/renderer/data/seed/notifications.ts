@@ -1,6 +1,6 @@
 import type { AppNotification } from "../types";
 import { ALERT_NOTIFICATIONS } from "./alerts";
-import { daysFromToday } from "./dates";
+import { CLOCK_START } from "./dates";
 import { PEOPLE } from "./people";
 import { PROJECTS } from "./projects";
 import { SERVER_ALERT_NOTIFICATIONS } from "./servers/alerts";
@@ -160,7 +160,7 @@ const ROWS: Row[] = [
     "SRV-1",
     "Server alert",
     "High memory usage on the production server.",
-    52,
+    42,
     false,
   ],
   [
@@ -169,7 +169,7 @@ const ROWS: Row[] = [
     "SRV-1",
     "Server recovered",
     "Memory usage is back to normal.",
-    50,
+    40,
     true,
   ],
   [
@@ -314,9 +314,10 @@ const FIXED_NOTIFICATIONS: AppNotification[] = ROWS.map(
   ([kind, code, objectCode, title, body, hoursAgo, read, recipients], i) => {
     const project = code ? PROJECTS.find((p) => p.code === code) : undefined;
     const task = TASKS.find((t) => t.code === objectCode);
-    const createdAt = `${daysFromToday(-Math.floor(hoursAgo / 24))}T${String(
-      Math.max(0, 22 - (hoursAgo % 24)),
-    ).padStart(2, "0")}:00:00Z`;
+    // «Ore fa» dall'adesso del prototipo (orologio unico): mai nel futuro.
+    const createdAt = new Date(Date.parse(CLOCK_START) - hoursAgo * 3_600_000)
+      .toISOString()
+      .replace(".000Z", "Z");
     return {
       id: `n-${i + 1}`,
       kind,

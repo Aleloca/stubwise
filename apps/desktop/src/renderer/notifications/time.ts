@@ -1,18 +1,15 @@
 import type { TFunction } from "i18next";
-import { TODAY, daysFromToday } from "../data/dates";
+import { daysFromToday, now } from "../data/dates";
 import type { AppNotification } from "../data/types";
-
-/** «Adesso» del prototipo: sera del giorno fisso, così le notifiche del seed sono tutte nel passato. */
-export const NOW = `${TODAY}T23:00:00Z`;
 
 export type SnoozeOption = "hour" | "tomorrow" | "days3";
 
 export const SNOOZE_OPTIONS: SnoozeOption[] = ["hour", "tomorrow", "days3"];
 
-/** Fino a quando rimandare: 1 h da `NOW`, domani alle 09:00, fra tre giorni alle 09:00 (UTC). */
+/** Fino a quando rimandare: 1 h da adesso (`now()`), domani alle 09:00, fra tre giorni alle 09:00 (UTC). */
 export function snoozeTarget(option: SnoozeOption): string {
   if (option === "hour") {
-    return new Date(Date.parse(NOW) + 3_600_000).toISOString().replace(".000Z", "Z");
+    return new Date(Date.parse(now()) + 3_600_000).toISOString().replace(".000Z", "Z");
   }
   return `${daysFromToday(option === "tomorrow" ? 1 : 3)}T09:00:00Z`;
 }
@@ -20,7 +17,7 @@ export function snoozeTarget(option: SnoozeOption): string {
 export type Tab = "new" | "snoozed" | "archived";
 
 export function isSnoozed(n: AppNotification): boolean {
-  return n.snoozedUntil !== null && n.snoozedUntil > NOW;
+  return n.snoozedUntil !== null && n.snoozedUntil > now();
 }
 
 export function tabOf(n: AppNotification): Tab {
@@ -35,12 +32,17 @@ export function unreadCount(list: AppNotification[]): number {
 
 const day = (iso: string) => Date.parse(`${iso.slice(0, 10)}T00:00:00Z`);
 
-/** «2h ago», «Yesterday», «3d ago», poi la data: tutto relativo a `NOW`. */
+/**
+ * «2h ago», «Yesterday», «3d ago», poi la data: tutto relativo a `now()`,
+ * l'unico «adesso» del prototipo, lo stesso con cui il livello dati scrive i
+ * tempi (orologio unico: `data/architecture.clock.test.ts`).
+ */
 export function relativeTime(iso: string, t: TFunction, language: string): string {
-  const minutes = Math.floor((Date.parse(NOW) - Date.parse(iso)) / 60_000);
+  const reference = now();
+  const minutes = Math.floor((Date.parse(reference) - Date.parse(iso)) / 60_000);
   if (minutes < 1) return t("notifications.time.now");
   if (minutes < 60) return t("notifications.time.minutes", { n: minutes });
-  const days = Math.round((day(NOW) - day(iso)) / 86_400_000);
+  const days = Math.round((day(reference) - day(iso)) / 86_400_000);
   if (days < 1) return t("notifications.time.hours", { n: Math.floor(minutes / 60) });
   if (days === 1) return t("notifications.time.yesterday");
   if (days < 7) return t("notifications.time.days", { n: days });

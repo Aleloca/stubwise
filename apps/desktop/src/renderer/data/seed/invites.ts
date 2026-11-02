@@ -40,14 +40,14 @@ export const INVITES: Invite[] = [
  * fattore di Marco e Laura.
  */
 export const SECURITY_EVENTS: SecurityEvent[] = [
-  { id: "sev-1", personId: "p-giulia", kind: "signed_in", at: at(-4, "20:00"), byId: null },
-  { id: "sev-2", personId: "p-giulia", kind: "password_changed", at: at(0, "18:00"), byId: null },
-  { id: "sev-3", personId: "p-sara", kind: "signed_in", at: at(0, "12:00"), byId: null },
+  { id: "sev-1", personId: "p-giulia", kind: "signed_in", at: at(-4, "18:00"), byId: null },
+  { id: "sev-2", personId: "p-giulia", kind: "password_changed", at: at(0, "08:00"), byId: null },
+  { id: "sev-3", personId: "p-sara", kind: "signed_in", at: at(0, "02:00"), byId: null },
   {
     id: "sev-4",
     personId: "p-roberta",
     kind: "second_factor_enabled",
-    at: at(-1, "18:00"),
+    at: at(-1, "08:00"),
     byId: null,
   },
   { id: "sev-5", personId: "p-marco", kind: "second_factor_enabled", at: at(-40), byId: null },

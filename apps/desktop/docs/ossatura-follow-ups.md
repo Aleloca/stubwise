@@ -1188,9 +1188,11 @@ Task 6 (effetti nelle altre aree):
   i progetti N ascoltatori e N invalidazioni.
 - Elenco delle automazioni: la frase usa l'etichetta del tipo, non il
   numero e il nome del passo.
-- `sinceText` (`components/InstanceBlock.tsx`) usa la costante `NOW` delle
+- ~~`sinceText` (`components/InstanceBlock.tsx`) usa la costante `NOW` delle
   notifiche invece di `now()`: resta con l'orologio «11 h fa» (sotto, «Visti
-  negli scatti finali»), una correzione di sistema sola.
+  negli scatti finali»), una correzione di sistema sola.~~ — chiuso
+  dall'orologio unico: `sinceText` misura su `now()` (vedi la voce «11 h fa»
+  qui sotto).
 - «Chiedi a Claude» col messaggio rifiutato lo tiene come «non consegnato»
   con Resend; lo shape vuole il testo di nuovo nel composer. *Rinviato*:
   è una deviazione dallo shape da far confermare al maintainer, non da
@@ -1307,8 +1309,8 @@ Task 13 (Stato dell'istanza):
   mutazione.
 
 Visti negli scatti finali (Task 14):
-- La task di STW «In attesa: coda in pausa» dice «11 h fa» accanto a una
-  sessione appena avviata. **Causa** (revisione finale, M1): non la
+- ~~La task di STW «In attesa: coda in pausa» dice «11 h fa» accanto a una
+  sessione appena avviata.~~ **Causa** (revisione finale, M1): non la
   cattura, ma due «adesso» nel prototipo. `relativeTime`
   (`notifications/time.ts`) e `sinceText` (`components/InstanceBlock.tsx`)
   misurano contro la costante `NOW` = `TODAY T23:00Z`, mentre il livello
@@ -1319,13 +1321,27 @@ Visti negli scatti finali (Task 14):
   (`relativeTime` e `sinceText` con un riferimento dal dato, come
   `refreshedAt` dello Stato, oppure `NOW` allineata a `now()`), e tocca
   ogni pagina che dice un'età — fuori dal perimetro di un giro di
-  correzioni del 9b.
+  correzioni del 9b. — chiuso dall'orologio unico: la costante `NOW` delle
+  notifiche non c'è più, e ogni età o «quando» delle superfici misura su
+  `now()` del livello dati (`relativeTime`, `sinceText`, l'ora della
+  conversazione, il Drive, il rimando delle notifiche). L'adesso di
+  partenza è `CLOCK_START` (`seed/dates.ts`, mezzogiorno di `TODAY`), da cui
+  partono `now()` e i tempi del seme che dicono un'età: le notifiche si
+  scrivono «N ore» prima di lì, le ultime attività di oggi stanno prima di
+  mezzogiorno, e il registro della sicurezza segue le sue notifiche. Lo
+  fissano `data/architecture.clock.test.ts` (formattatori su `now()`,
+  nessuna superficie con un suo «adesso», seme mai nel futuro) e la
+  sezione Claude («Just now» su una sessione appena avviata). Resta fuori,
+  deciso (ruling T13 I3): «Updated hh:mm:ss» e «Couldn't update at…» dello
+  Stato, sull'orologio vero della finestra.
 
 Lasciati aperti dall'ondata finale (revisione finale e Impeccable), col
 perché:
-- Due formattatori d'età con due riferimenti: `ageWords` dello Stato su
+- ~~Due formattatori d'età con due riferimenti: `ageWords` dello Stato su
   `refreshedAt`, `relativeTime` su `NOW` (M5). *Perché*: si chiude con
-  l'orologio unico qui sopra.
+  l'orologio unico qui sopra.~~ — chiuso dall'orologio unico: `relativeTime`
+  misura su `now()`, e `refreshedAt` è `now()` letto con la vista (la stessa
+  lettura dei lavori che misura), quindi l'orologio è uno.
 - La riga dei consumi di rete a 30d e 90d dice ancora «peak» sul massimo
   delle medie; CPU, memoria, disco e carico dicono «highest N-hour
   average» (Impeccable 4). *Perché*: la rete non ha un episodio che la

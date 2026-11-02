@@ -15,7 +15,7 @@ import {
   RELEASE_PAGES,
 } from "./seed/chat";
 import { CONVERSATION_EVENTS, CONVERSATIONS } from "./seed/conversations";
-import { TODAY } from "./seed/dates";
+import { CLOCK_START } from "./seed/dates";
 import { DECISION_LOG } from "./seed/decisionLog";
 import { DECISION_REQUESTS } from "./seed/decisions";
 import { INITIAL_PINNED_FILTERS, SAVED_FILTERS } from "./seed/filters";
@@ -1448,9 +1448,9 @@ let clockOffsetMs = 0;
  */
 export const now = (): string =>
   clockOffsetMs === 0
-    ? `${TODAY}T12:00:00Z`
+    ? CLOCK_START
     : // Lo stesso formato dell'orologio fermo, senza millisecondi.
-      new Date(Date.parse(`${TODAY}T12:00:00Z`) + clockOffsetMs)
+      new Date(Date.parse(CLOCK_START) + clockOffsetMs)
         .toISOString()
         .replace(/\.\d{3}Z$/, "Z");
 

@@ -74,6 +74,13 @@ function at(days: number, hour = 9): string {
   return `${daysFromToday(days)}T${String(hour).padStart(2, "0")}:00:00Z`;
 }
 
+/**
+ * L'ultima attività: come `at`, ma oggi spostata di cinque ore indietro,
+ * così sta prima di mezzogiorno (l'adesso del prototipo, orologio unico) e
+ * l'ordine fra le task di oggi resta lo stesso.
+ */
+const lastAt = (days: number, hour: number): string => at(days, days === 0 ? hour - 5 : hour);
+
 const firstHuman = (project: Project) =>
   project.memberIds.find((id) => !PEOPLE.find((p) => p.id === id)!.isClaude)!;
 
@@ -182,7 +189,7 @@ function referenceTasks(project: Project, specs: Spec[]): Task[] {
   return specs.map((s, i) => {
     const n = i + 1;
     const closed = s.family === "closed";
-    const lastActivityAt = at(-s.lastDays, 10 + (n % 7));
+    const lastActivityAt = lastAt(-s.lastDays, 10 + (n % 7));
     const links: Task["links"] = [];
     // Una riga sola, sulla bloccante (`blockedBy` della task bloccata): «bloccata da» si ricava.
     specs.forEach((other, j) => {
@@ -283,7 +290,7 @@ function generatedTasks(project: Project, pi: number): Task[] {
         : family === "todo"
           ? 2 + (seq % 20)
           : 1 + (seq % 35);
-    const lastActivityAt = at(-lastDays, 9 + (seq % 8));
+    const lastActivityAt = lastAt(-lastDays, 9 + (seq % 8));
     const createdById = firstHuman(project);
     const isDev = department.id === "dep-development";
     return {

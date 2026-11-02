@@ -1,13 +1,13 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { usePeople } from "../../../data/queries";
-import { NOW } from "../../../notifications/time";
+import { now } from "../../../data/dates";
 
 // Pezzi comuni della conversazione: l'ora di un evento, il nome di una
 // persona, le icone (tratto 1.4 su griglia 16, come il binario) e i bottoni.
 
 /** «10:41» oggi; «Oct 21, 10:41» un altro giorno (orologio del prototipo). */
 export function clock(iso: string, language: string): string {
-  const sameDay = iso.slice(0, 10) === NOW.slice(0, 10);
+  const sameDay = iso.slice(0, 10) === now().slice(0, 10);
   return new Intl.DateTimeFormat(language, {
     ...(sameDay ? {} : { month: "short", day: "numeric" }),
     hour: "2-digit",
