@@ -3,10 +3,13 @@ import type { MenuItemConstructorOptions } from "electron";
 /** Canali IPC main → renderer del menu. */
 export const MENU_SEARCH = "menu:search";
 export const MENU_PREFERENCES = "menu:preferences";
+/** Area 10a ([CP 7]): apre e chiude il riquadro di Claude. */
+export const MENU_ASK_CLAUDE = "menu:ask-claude";
 
 /**
- * Menu dell'applicazione. Le voci «Search…» e «Preferences…» non fanno nulla
- * da sole: dicono al renderer (`send`) cosa è stato scelto.
+ * Menu dell'applicazione. Le voci «Search…», «Ask Claude…» e «Preferences…»
+ * non fanno nulla da sole: dicono al renderer (`send`) cosa è stato scelto.
+ * «Ask Claude…» sta accanto a «Search…» perché ⌘J si scopra dal menu.
  * Le etichette sono in inglese: il menu vive nel main, e localizzarlo vuole
  * la lingua del renderer via IPC (fuori dall'ossatura).
  */
@@ -19,6 +22,11 @@ export function buildMenuTemplate(
     label: "Search…",
     accelerator: "CmdOrCtrl+K",
     click: () => send(MENU_SEARCH),
+  };
+  const askClaude: MenuItemConstructorOptions = {
+    label: "Ask Claude…",
+    accelerator: "CmdOrCtrl+J",
+    click: () => send(MENU_ASK_CLAUDE),
   };
   const preferences: MenuItemConstructorOptions = {
     label: "Preferences…",
@@ -74,7 +82,10 @@ export function buildMenuTemplate(
           { role: "quit" },
         ],
       },
-      { label: "File", submenu: [search, { type: "separator" }, { role: "close" }] },
+      {
+        label: "File",
+        submenu: [search, askClaude, { type: "separator" }, { role: "close" }],
+      },
       edit,
       view,
       {
@@ -85,7 +96,10 @@ export function buildMenuTemplate(
     ];
   }
   return [
-    { label: "File", submenu: [search, preferences, { type: "separator" }, { role: "quit" }] },
+    {
+      label: "File",
+      submenu: [search, askClaude, preferences, { type: "separator" }, { role: "quit" }],
+    },
     edit,
     view,
     help,

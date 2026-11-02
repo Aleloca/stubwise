@@ -34,9 +34,10 @@ describe("comandi di Claude (area 3)", () => {
     expect(found.map((c) => c.id)).toEqual(["claude.ask"]);
   });
 
-  it("porta la domanda nella casella di una conversazione nuova", () => {
+  it("P14: apre il riquadro con la domanda nella casella, senza inviarla né navigare", () => {
     const cmd = matchCommands("", viewerWith([]), (c) => c.id).find((c) => c.id === "claude.ask")!;
     const paths: string[] = [];
+    const opened: unknown[] = [];
     const ctx = {
       navigate: (p: string) => paths.push(p),
       setTheme: () => {},
@@ -47,10 +48,13 @@ describe("comandi di Claude (area 3)", () => {
       openChannels: () => {},
       openLinkFolder: () => {},
       openNewAutomation: () => {},
+      openClaudePanel: (detail?: unknown) => opened.push(detail),
     };
     cmd.run({ ...ctx, query: "  Explain AUD-3 " });
+    // «Ask Claude…» senza testo apre il riquadro e basta.
     cmd.run(ctx);
-    expect(paths).toEqual(["/claude?ask=Explain%20AUD-3", "/claude"]);
+    expect(opened).toEqual([{ draft: "Explain AUD-3" }, {}]);
+    expect(paths).toEqual([]);
   });
 });
 
@@ -75,6 +79,7 @@ describe("comandi degli avvisi (area 8a)", () => {
       openChannels: () => {},
       openLinkFolder: () => {},
       openNewAutomation: () => {},
+      openClaudePanel: () => {},
     });
     expect(paths).toEqual(["/preferences/notifications?project=AUD"]);
   });
@@ -143,6 +148,7 @@ describe("comandi delle Automations (area 7)", () => {
       openChannels: () => {},
       openLinkFolder: () => {},
       openNewAutomation: (code) => opened.push(code),
+      openClaudePanel: () => {},
     });
     expect(opened).toEqual(["AUD"]);
   });

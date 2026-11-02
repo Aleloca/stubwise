@@ -743,6 +743,23 @@ export type ConversationState =
   | "finished";
 export type Outcome = "ok" | "failed" | "timed_out" | "stopped";
 
+/**
+ * Area 10a: ciò che chi scrive sta guardando (il chip del riquadro di
+ * Claude). Solo id e valori stabili: il chip e «· on ACQ-14» si rileggono
+ * con la visibilità di chi guarda, e un oggetto invisibile non ha chip (R-G5).
+ */
+export type ContextRef =
+  | { kind: "release"; releaseId: string }
+  | { kind: "task"; taskId: string }
+  | { kind: "request"; requestId: string }
+  | { kind: "support"; conversationId: string }
+  | { kind: "pr"; prId: string }
+  | { kind: "automation"; automationId: string }
+  /** `section`: la voce di Settings del progetto, o d'Amministrazione (`ai`, `ai.models`) con `projectId` `null`. */
+  | { kind: "settings"; projectId: string | null; section: string }
+  /** Una pagina senza oggetto: la sezione del progetto (`tasks`) o la destinazione (`home`). */
+  | { kind: "page"; route: string; projectId: string | null };
+
 export interface Conversation {
   id: string;
   kind: ConversationKind;
@@ -831,7 +848,7 @@ export interface Conversation {
    * Solo libera: l'oggetto di contesto con cui è nata («Chiedi a Claude di
    * spiegarlo» su un rilascio, area 8a). Resta di chi la apre (privacy area 3).
    */
-  context?: { kind: "release"; releaseId: string } | null;
+  context?: ContextRef | null;
   /**
    * Solo `task_run`: la correzione di un server (area 8b), avviata da una
    * task con `serverRef`. Il suo piano va sempre approvato da una persona.
@@ -924,6 +941,12 @@ export type ConversationEvent =
       attachments: Attachment[];
       delivery: "pending" | "delivered" | "undelivered";
       undeliveredReason?: string;
+      /**
+       * Area 10a: la pagina da cui è partito (il chip del riquadro). Un
+       * riferimento, non un contenuto: si rilegge con la visibilità di chi
+       * guarda (`describeContext`). Assente sui messaggi nati prima.
+       */
+      context?: ContextRef | null;
     }
   /** `text` cresce mentre arriva; `done` quando il messaggio è completo. */
   | { id: string; at: string; type: "assistant"; text: string; done: boolean }

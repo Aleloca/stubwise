@@ -1,8 +1,12 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 type ResolvedTheme = "light" | "dark";
-type MenuChannel = "menu:search" | "menu:preferences";
-const MENU_CHANNELS: readonly MenuChannel[] = ["menu:search", "menu:preferences"];
+type MenuChannel = "menu:search" | "menu:preferences" | "menu:ask-claude";
+const MENU_CHANNELS: readonly MenuChannel[] = [
+  "menu:search",
+  "menu:preferences",
+  "menu:ask-claude",
+];
 
 // Si espone solo `window.stubwise`, con funzioni a scopo stretto: mai
 // `ipcRenderer` (né un canale scelto dal renderer).

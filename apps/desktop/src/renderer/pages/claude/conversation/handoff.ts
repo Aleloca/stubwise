@@ -1,6 +1,6 @@
 import { onBeforePersonaChange } from "../../../data/session";
 import { onStoreReset } from "../../../data/store";
-import type { Attachment } from "../../../data/types";
+import type { Attachment, ContextRef } from "../../../data/types";
 
 // Il primo messaggio di una conversazione appena nata (l'atterraggio, una
 // continuazione) lo manda la conversazione stessa, non la pagina da cui si
@@ -10,6 +10,8 @@ import type { Attachment } from "../../../data/types";
 export interface PendingSend {
   text: string;
   attachments: Attachment[];
+  /** Area 10a: il chip del riquadro com'era all'invio (assente: quello della conversazione). */
+  context?: ContextRef | null;
 }
 
 const pending = new Map<string, PendingSend>();
@@ -21,7 +23,11 @@ onStoreReset(() => pending.clear());
 
 /** Affida il primo messaggio alla conversazione `id`, che lo manderà appena aperta. */
 export function handOffFirstMessage(id: string, message: PendingSend): void {
-  pending.set(id, { text: message.text, attachments: [...message.attachments] });
+  pending.set(id, {
+    text: message.text,
+    attachments: [...message.attachments],
+    ...(message.context !== undefined ? { context: message.context } : {}),
+  });
 }
 
 /** Lo prende (una volta sola): chi lo prende lo manda. */

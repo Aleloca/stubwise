@@ -14,6 +14,7 @@ import { resolveHome } from "../domain/home";
 import { MIN_QUERY } from "../pages/chat/search";
 import type {
   Attachment,
+  ContextRef,
   AutomationFlow,
   AutomationMeta,
   AutomationRef,
@@ -197,6 +198,11 @@ export const queryKeys = {
   commands: (personId: string, contextProjectId: string | null) =>
     ["as", personId, "commands", contextProjectId] as const,
   citations: (personId: string, refs: string) => ["as", personId, "citations", refs] as const,
+  /** Area 10a: il chip del riquadro di Claude (il riferimento in JSON) e l'id dietro un codice. */
+  claudeContext: (personId: string, ref: string) =>
+    ["as", personId, "claudeContext", ref] as const,
+  claudeContextId: (personId: string, kind: string, code: string) =>
+    ["as", personId, "claudeContext", "id", kind, code] as const,
   codeCitations: (personId: string, codes: string) =>
     ["as", personId, "codeCitations", codes] as const,
   mentions: (personId: string, kind: "objects" | "people", q: string) =>
@@ -657,6 +663,8 @@ const CONVERSATION_CHANGE_AREAS = [
   "pulse",
   // Una proposta confermata cambia stato e persona degli oggetti citati.
   "citations",
+  // Il chip del riquadro (area 10a): un'azione di Claude può togliere l'oggetto che nomina.
+  "claudeContext",
   // Claude nel refine scrive design, piano e metadati della richiesta.
   "request",
   "requests",
@@ -1322,10 +1330,50 @@ export function useCreateConversation() {
 
 export function useSendMessage() {
   return useWrite(
-    ({ id, text, attachments }: { id: string; text: string; attachments?: Attachment[] }) =>
-      api.sendMessage(id, { text, ...(attachments ? { attachments } : {}) }),
+    ({
+      id,
+      text,
+      attachments,
+      context,
+    }: {
+      id: string;
+      text: string;
+      attachments?: Attachment[];
+      /** Area 10a: il chip del riquadro, che il messaggio tiene. */
+      context?: ContextRef | null;
+    }) =>
+      api.sendMessage(
+        id,
+        { text, ...(attachments ? { attachments } : {}) },
+        context ? { context } : {},
+      ),
     CONVERSATION_CHANGE_AREAS,
   );
+}
+
+/**
+ * Il chip del riquadro di Claude (area 10a): il riferimento riletto con la
+ * visibilità di chi guarda; `null` = invisibile o inesistente (R-G5). Si
+ * rilegge a ogni montaggio: il riquadro lo chiede quando si apre.
+ */
+export function useDescribeContext(ref: ContextRef | null) {
+  const me = useSessionPersonId();
+  useConversationChanges();
+  return useQuery({
+    queryKey: queryKeys.claudeContext(me, JSON.stringify(ref)),
+    queryFn: () => (ref ? api.describeContext(ref) : Promise.resolve(null)),
+    enabled: ref !== null,
+  });
+}
+
+/** L'id dell'oggetto che l'indirizzo nomina col codice, se chi guarda lo vede. */
+export function useContextIdOf(target: { kind: api.CodedContextKind; code: string } | null) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.claudeContextId(me, target?.kind ?? "", target?.code ?? ""),
+    queryFn: () => (target ? api.contextIdOf(target.kind, target.code) : Promise.resolve(null)),
+    enabled: target !== null,
+  });
 }
 
 export function useStopConversation() {

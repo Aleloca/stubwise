@@ -193,7 +193,9 @@ function Panel({ onClose }: { onClose: () => void }) {
       aria-modal="false"
       aria-label={t("notifications.title")}
       onKeyDown={onKeyDown}
-      className="panel-enter fixed inset-y-0 right-0 z-30 flex w-[400px] max-w-full flex-col border-l border-rule-strong bg-surface text-ink"
+      // Sopra il pannello della task e il riquadro di Claude, che coprono la
+      // pagina anch'essi a `z-40`: viene dopo di loro (portal in fondo al body).
+      className="panel-enter fixed inset-y-0 right-0 z-40 flex w-[400px] max-w-full flex-col border-l border-rule-strong bg-surface text-ink"
     >
       <div className="flex h-14 shrink-0 items-center justify-between border-b border-rule pr-3 pl-4">
         <h2 className="text-lg font-semibold text-ink">{t("notifications.title")}</h2>

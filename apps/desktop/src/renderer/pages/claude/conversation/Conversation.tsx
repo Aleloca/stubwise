@@ -21,13 +21,18 @@ import {
   useStopConversation,
   useStorageAllowsUploads,
 } from "../../../data/queries";
-import type { Attachment, ConversationDetail, ConversationEvent } from "../../../data/types";
+import type {
+  Attachment,
+  ContextRef,
+  ConversationDetail,
+  ConversationEvent,
+} from "../../../data/types";
 import { isBudgetRefusal, usePauserName } from "../../../components/InstanceBlock";
 import { PageError } from "../../../tasks-ui/PageStates";
 import { ContinueBanner, ContinuesFromLine } from "../ContinueBanner";
 import { takeFirstMessage } from "./handoff";
 import { CitationProvider, indexCitations } from "./citations";
-import { Composer, type DraftAttachment } from "./Composer";
+import { Composer, type ComposerDraft, type DraftAttachment } from "./Composer";
 import { EventList, UserMessage, type DeliveryView } from "./EventList";
 import { citedRefs, flowItems, type Ev } from "./flow";
 import { ArrowDownGlyph, secondaryButton, StopGlyph, WorkingRing } from "./parts";
@@ -62,15 +67,25 @@ const BOTTOM_SLACK = 48;
  * lo stesso, sotto la fascia «What you write starts your own private
  * conversation»; ciò che si scrive lo riceve il chiamante, che apre la
  * continuazione. Senza, la pubblica altrui resta in sola lettura.
+ *
+ * Il riquadro di Claude (area 10a): `draft` riempie la casella senza inviare
+ * (a ogni `nonce` nuovo), `context` è il chip che parte con ogni messaggio.
  */
 export function Conversation({
   id,
   side,
   onContinue,
+  draft,
+  context,
+  inPanel = false,
 }: {
   id: string;
   side?: ReactNode;
   onContinue?: ContinueHandler;
+  draft?: ComposerDraft;
+  context?: ContextRef | null;
+  /** Nel riquadro di Claude la casella non ha il menu del progetto: il contesto è il chip. */
+  inPanel?: boolean;
 }) {
   const me = useSessionPersonId();
   return (
@@ -80,6 +95,9 @@ export function Conversation({
       side={side}
       viewerId={me}
       onContinue={onContinue}
+      draft={draft}
+      context={context ?? null}
+      inPanel={inPanel}
     />
   );
 }
@@ -107,11 +125,17 @@ function ConversationView({
   side,
   viewerId,
   onContinue,
+  draft,
+  context,
+  inPanel,
 }: {
   id: string;
   side?: ReactNode;
   viewerId: string;
   onContinue?: ContinueHandler | undefined;
+  draft?: ComposerDraft | undefined;
+  context: ContextRef | null;
+  inPanel: boolean;
 }) {
   const { t } = useTranslation();
   const detailQuery = useConversation(id);
@@ -141,6 +165,9 @@ function ConversationView({
       side={side}
       viewerId={viewerId}
       onContinue={onContinue}
+      draft={draft}
+      context={context}
+      inPanel={inPanel}
     />
   );
 }
@@ -170,12 +197,18 @@ function ConversationBody({
   side,
   viewerId,
   onContinue,
+  draft,
+  context,
+  inPanel,
 }: {
   detail: ConversationDetail;
   stream: ReturnType<typeof useConversationStream>;
   side?: ReactNode;
   viewerId: string;
   onContinue?: ContinueHandler | undefined;
+  draft?: ComposerDraft | undefined;
+  context: ContextRef | null;
+  inPanel: boolean;
 }) {
   const { t } = useTranslation();
   const root = useRef<HTMLDivElement>(null);
@@ -305,6 +338,8 @@ function ConversationBody({
     text: string,
     attachments: Attachment[],
     via: "send" | "stopAndSend" = "send",
+    /** Il chip con cui parte: quello di adesso, o quello con cui era stato scritto (il primo, un «Resend»). */
+    withContext: ContextRef | null = context,
   ) => {
     setFailedSend(null);
     setStopFailed(false);
@@ -340,7 +375,12 @@ function ConversationBody({
     if (via === "stopAndSend") stopAndSend.mutate({ id: detail.id, text }, callbacks);
     else {
       send.mutate(
-        { id: detail.id, text, ...(attachments.length ? { attachments } : {}) },
+        {
+          id: detail.id,
+          text,
+          ...(attachments.length ? { attachments } : {}),
+          ...(withContext ? { context: withContext } : {}),
+        },
         callbacks,
       );
     }
@@ -357,7 +397,14 @@ function ConversationBody({
     if (firstTaken.current) return;
     firstTaken.current = true;
     const first = takeFirstMessage(detail.id);
-    if (first) sendMessage(first.text, first.attachments);
+    if (first) {
+      sendMessage(
+        first.text,
+        first.attachments,
+        "send",
+        first.context !== undefined ? first.context : context,
+      );
+    }
     // Solo all'apertura.
   }, []);
 
@@ -589,7 +636,7 @@ function ConversationBody({
                 compact={compact}
                 projectCode={projectCode}
                 deliveryOf={deliveryOf}
-                onResend={(e) => sendMessage(e.text, e.attachments)}
+                onResend={(e) => sendMessage(e.text, e.attachments, "send", e.context ?? null)}
               />
               {detail.privateTail && (
                 // Dopo l'ultimo evento leggibile: dice dove finisce quel che si vede.
@@ -674,9 +721,7 @@ function ConversationBody({
           ) : (
             <Composer
               detail={continuing ? continueDetail(detail) : detail}
-              {...(continuing
-                ? { placeholder: t("claude.destination.continue.placeholder") }
-                : {})}
+              {...(continuing ? { placeholder: t("claude.destination.continue.placeholder") } : {})}
               connection={stream.connection}
               compact={compact}
               attachments={drafts}
@@ -686,6 +731,8 @@ function ConversationBody({
               onSend={sendMessage}
               onStop={stopClaude}
               onStopAndSend={(text) => sendMessage(text, [], "stopAndSend")}
+              {...(draft ? { draft } : {})}
+              projectMenu={!inPanel}
             />
           )}
           {dragging && (

@@ -31,6 +31,7 @@ import { usePendingAnswers } from "../pages/home/pendingAnswers";
 import { Tooltip } from "./Tooltip";
 import { useFitSlots } from "./useFitSlots";
 import { openNotifications, openPalette, useShortcuts } from "./useShortcuts";
+import { CLAUDE_PANEL_ID, openClaudePanel, useClaudePanelStatus } from "./claudePanel/panelEvents";
 
 const DESTINATIONS = [
   { to: "/home", key: "nav.home", icon: <HomeIcon />, shortcut: ["mod", "shift", "H"] },
@@ -118,6 +119,50 @@ function RailButton({
           <span
             data-unread-dot
             aria-hidden="true"
+            className="absolute top-1.5 right-1.5 size-2.5 rounded-full border-2 border-rail bg-ink"
+          />
+        )}
+      </button>
+    </Tooltip>
+  );
+}
+
+/**
+ * Il riquadro di Claude (area 10a, [CP 5]), primo del gruppo in fondo: il
+ * segno di Claude, un anello tratteggiato. Aperto ha la tinta della pagina
+ * corrente; chiuso mentre Claude risponde l'anello pulsa, e a risposta finita
+ * il punto «ti aspetta» resta finché non si riapre [CP 6]. La destinazione
+ * «Claude» in alto è la pagina intera: questo è il riquadro.
+ */
+function ClaudePanelButton() {
+  const { t } = useTranslation();
+  const { open, signal } = useClaudePanelStatus();
+  const label =
+    signal === "answering"
+      ? t("claude.panel.railAnswering")
+      : signal === "answered"
+        ? t("claude.panel.railAnswered")
+        : t("claude.panel.rail");
+  return (
+    <Tooltip label={t("claude.panel.rail")} shortcut={shortcutLabel(["mod", "J"])}>
+      <button
+        type="button"
+        data-claude-rail
+        aria-label={label}
+        aria-expanded={open}
+        aria-controls={CLAUDE_PANEL_ID}
+        onClick={() => openClaudePanel({ mode: "toggle" })}
+        className={`${controlClass} relative aria-expanded:bg-ink/10 aria-expanded:text-ink`}
+      >
+        <span
+          aria-hidden="true"
+          data-claude-ring={signal ?? undefined}
+          className={`block size-5 rounded-full border-2 border-dashed border-current ${signal === "answering" ? "rail-pulse" : ""}`}
+        />
+        {signal === "answered" && (
+          <span
+            aria-hidden="true"
+            data-unread-dot
             className="absolute top-1.5 right-1.5 size-2.5 rounded-full border-2 border-rail bg-ink"
           />
         )}
@@ -326,6 +371,7 @@ export function Rail() {
       </div>
 
       <div className="mt-2 flex w-full shrink-0 flex-col items-center gap-1 border-t border-rule pt-2 pb-3">
+        <ClaudePanelButton />
         <RailButton
           label={
             unread > 0 ? t("rail.notificationsUnread", { count: unread }) : t("rail.notifications")

@@ -22,6 +22,7 @@ import { useAutomationsLiveRefresh } from "../data/queries";
 import { CommandPalette } from "../palette/CommandPalette";
 import { applyPlatformAttribute } from "../platform/platform";
 import { ToastRegion } from "../tasks-ui/Toast";
+import { ClaudePanelHost } from "./claudePanel/ClaudePanel";
 import { Column } from "./Column";
 import { Rail } from "./Rail";
 import { ReauthHost } from "./ReauthDialog";
@@ -73,6 +74,9 @@ export function AppLayout() {
         {/* L'anteprima intera di un file del Drive copre l'area di lavoro (binario e colonna restano). */}
         <FilePreviewHost />
       </div>
+      {/* Il riquadro di Claude (area 10a): montato una volta, sopra l'area di
+          lavoro e a sinistra del pannello di dettaglio; chiuso resta montato. */}
+      <ClaudePanelHost />
       <NewTaskHost />
       <NewRequestHost />
       <ChatDialogsHost />

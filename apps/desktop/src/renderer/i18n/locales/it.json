@@ -3720,7 +3720,7 @@
       },
       "landing": {
         "title": "Nuova conversazione",
-        "intro": "Claude legge ciò che puoi leggere tu e non cambia nulla senza la tua conferma.",
+        "intro": "Chiedi di ciò che stai guardando, o chiedi a Claude di farlo per te. Ciò che tocca solo te parte subito e si annulla; ciò che tocca altri ti chiede prima.",
         "label": "La tua domanda per Claude",
         "placeholder": "Chiedi a Claude del tuo lavoro, di una task o di un progetto…",
         "send": "Inizia la conversazione",
@@ -3867,6 +3867,53 @@
         "busy": "«{{action}}» deve aspettare, c'è qualcosa ancora in corso",
         "reauth_required": "«{{action}}» chiede prima il tuo codice a due passaggi",
         "other": "«{{action}}» non è riuscita, non è cambiato nulla"
+      }
+    },
+    "panel": {
+      "label": "Claude",
+      "newConversation": "Nuova conversazione",
+      "new": "Nuova",
+      "openInClaude": "Apri in Claude",
+      "openDisabled": "Prima inizia la conversazione",
+      "close": "Chiudi",
+      "closeShortcut": "Chiudi · {{shortcut}}",
+      "rail": "Chiedi a Claude",
+      "railAnswering": "Chiedi a Claude — Claude sta rispondendo",
+      "railAnswered": "Chiedi a Claude — Claude ha risposto",
+      "empty": {
+        "title": "Chiedi a Claude",
+        "try": "Prova",
+        "task": {
+          "summarize": "Riassumi {{code}}",
+          "plan": "Pianifica {{code}} per la prossima settimana",
+          "waiting": "Chi aspetta {{code}}?"
+        },
+        "project": {
+          "stand": "A che punto è {{code}}?",
+          "stalled": "Cosa è fermo in {{code}}?",
+          "create": "Crea una task in {{code}}…"
+        }
+      },
+      "lookingAt": "Stai guardando:",
+      "notUsing": "Non uso questa pagina",
+      "useIt": "Usala",
+      "chipTitle": "Claude legge {{label}} con i tuoi permessi quando invii.",
+      "removeContext": "Non usare questa pagina",
+      "on": "su {{label}}",
+      "archived": "La tua ultima conversazione è stata archiviata.",
+      "nowShowing": "Ora vedi le conversazioni di {{name}}.",
+      "chip": {
+        "kind": {
+          "task": "task",
+          "request": "richiesta",
+          "support": "conversazione di supporto",
+          "pr": "pull request #{{number}}",
+          "prNoNumber": "pull request",
+          "automation": "automazione",
+          "release": "rilascio"
+        },
+        "projectSettings": "Impostazioni → {{section}}",
+        "instanceSettings": "Amministrazione → {{section}}"
       }
     }
   },

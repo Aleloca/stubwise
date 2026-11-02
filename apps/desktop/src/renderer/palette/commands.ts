@@ -28,6 +28,8 @@ export interface CommandContext {
   openLinkFolder(code: string): void;
   /** Apre «New automation» (dentro un progetto, preimpostato su quello). */
   openNewAutomation(projectCode?: string): void;
+  /** Apre il riquadro di Claude (area 10a), col testo nella casella e non inviato. */
+  openClaudePanel(detail?: { draft?: string }): void;
 }
 
 /** Il progetto in cui si è, per i comandi che valgono solo lì. */
@@ -214,10 +216,11 @@ export const COMMANDS: readonly Command[] = [
     id: "claude.ask",
     labelKey: "palette.commands.askClaude",
     queryLabelKey: "palette.commands.askClaudeWith",
-    // La domanda va nella casella di una conversazione nuova, da rivedere e mandare.
+    // Area 10a: la domanda va nella casella del riquadro, sopra la pagina, da
+    // rivedere e mandare (non parte da sola); senza testo apre il riquadro e basta.
     run: (ctx) => {
       const q = ctx.query?.trim();
-      ctx.navigate(q ? `/claude?ask=${encodeURIComponent(q)}` : "/claude");
+      ctx.openClaudePanel(q ? { draft: q } : {});
     },
   },
   themeCommand("light"),

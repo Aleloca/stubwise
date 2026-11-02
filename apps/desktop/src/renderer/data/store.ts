@@ -282,6 +282,8 @@ export type ApiFnName =
   | "deleteMilestone"
   | "listConversations"
   | "getConversation"
+  | "describeContext"
+  | "contextIdOf"
   | "getRefineOf"
   | "getTaskWork"
   | "listCommands"

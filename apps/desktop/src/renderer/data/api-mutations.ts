@@ -42,6 +42,8 @@ import type { TaskBusyReason } from "./taskDelete";
 import type { AiOperation } from "@stubwise/shared";
 import { aiBlockFor, pickProvider, requiredProviderOf } from "./instance/blocks";
 import { modelIdFor } from "./instance/models";
+import { recordChatTurnUsage } from "./instance/usage";
+import { contextOf } from "./claude/context";
 import { dropHeld, holdJob, type JobKind } from "./instance/queue";
 import { getSessionPersonId, setSessionPersonId } from "./session";
 import {
@@ -89,6 +91,7 @@ import type {
   Attachment,
   Conversation,
   ConversationEvent,
+  ContextRef,
   DailyReport,
   DecisionDraft,
   DecisionLogEntry,
@@ -1978,13 +1981,14 @@ export async function createConversation(input: NewConversationInput = {}): Prom
 export async function sendMessage(
   id: string,
   message: { text: string; attachments?: Attachment[] },
+  { context = null }: { context?: ContextRef | null } = {},
 ): Promise<void> {
   // Finché l'invio è in viaggio la conversazione conta come «con un
   // messaggio» negli elenchi (una nuova, vuota, non si nasconde a metà).
   const sendingTo = state.sendingTo;
   sendingTo.set(id, (sendingTo.get(id) ?? 0) + 1);
   try {
-    await sendMessageNow(id, message);
+    await sendMessageNow(id, message, context);
   } finally {
     const left = (sendingTo.get(id) ?? 1) - 1;
     if (left > 0) sendingTo.set(id, left);
@@ -1995,6 +1999,7 @@ export async function sendMessage(
 async function sendMessageNow(
   id: string,
   message: { text: string; attachments?: Attachment[] },
+  context: ContextRef | null,
 ): Promise<void> {
   const gen = storeGeneration();
   const me = await afterGate("sendMessage", gen);
@@ -2010,7 +2015,7 @@ async function sendMessageNow(
     // «Chiedi a Claude» non è nella coda di un progetto: la pausa non la
     // tocca, la ferma solo il budget del mese (maintainer, 30 ott 2026).
     if (aiBlockFor(null)) throw invalid("monthly_budget");
-    await sendFree(me, c, text, attachments, gen);
+    await sendFree(me, c, text, attachments, gen, context);
     return;
   }
 
@@ -2134,6 +2139,7 @@ async function freeTurn(
   attachments: Attachment[],
   cut: number,
   gen: number,
+  context: ContextRef | null = null,
 ) {
   const id = c.id;
   if (!current(gen)) throw new Error("reset");
@@ -2156,6 +2162,7 @@ async function freeTurn(
             attachments,
             delivery: "undelivered",
             undeliveredReason: i18n.t("claude.conversation.delivery.stoppedBeforeTurn"),
+            ...(context ? { context } : {}),
           },
         },
       ],
@@ -2163,9 +2170,20 @@ async function freeTurn(
     );
     return;
   }
+  // Il contesto del riquadro (area 10a): il messaggio lo tiene com'è, e il
+  // suo progetto vale per la risposta e per i consumi solo se chi scrive lo
+  // vede ADESSO — uno diventato invisibile risponde come un codice che non c'è.
+  const contextProjectId = (context && contextOf(me, context)?.projectId) ?? c.contextProjectId;
   const user: ScriptStep = {
     step: "event",
-    event: { type: "user", authorId: me, text, attachments, delivery: "pending" },
+    event: {
+      type: "user",
+      authorId: me,
+      text,
+      attachments,
+      delivery: "pending",
+      ...(context ? { context } : {}),
+    },
   };
   const messageIndex = eventsOf(id).length;
   // Il primo turno: dopo la risposta il titolo automatico (se nessuno l'ha
@@ -2182,7 +2200,7 @@ async function freeTurn(
     await runScript(id, [user, { step: "state", state: "working" }], gen);
     steps = await respond(text, {
       personId: me,
-      contextProjectId: c.contextProjectId,
+      contextProjectId,
       read: readsAs(me),
       t: i18n.t.bind(i18n) as T,
       seed: `${id}-${eventsOf(id).length}`,
@@ -2220,6 +2238,8 @@ async function freeTurn(
     replying.delete(id);
   }
   if (!current(gen)) return;
+  // I consumi del turno (area 10a): `chat`, sul progetto del contesto o senza.
+  recordChatTurnUsage(contextProjectId, id);
   // Il lavoro delle azioni eseguite parte dopo la risposta, come a mano.
   for (const run of runs) await launchRun(me, run.c, gen);
   for (const start of prepared.after) await start(gen);
@@ -2267,10 +2287,11 @@ async function sendFree(
   text: string,
   attachments: Attachment[],
   gen: number,
+  context: ContextRef | null = null,
 ): Promise<void> {
   if (!c.title) c.title = titleFrom(text, attachments);
   const cut = freeCut(c.id);
-  await inTurn(c.id, () => freeTurn(me, c, text, attachments, cut, gen));
+  await inTurn(c.id, () => freeTurn(me, c, text, attachments, cut, gen, context));
 }
 
 /**

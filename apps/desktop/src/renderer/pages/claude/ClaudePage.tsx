@@ -1,7 +1,9 @@
 import { Navigate, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { AiBlockLine } from "../../components/InstanceBlock";
 import {
+  useAiBlock,
   useArchiveConversation,
   useContinueConversation,
   useConversation,
@@ -14,7 +16,7 @@ import {
   useTasks,
 } from "../../data/queries";
 import { CLAUDE_SCOPES, type ClaudeScope } from "../../data/routes";
-import type { Attachment, ConversationDetail } from "../../data/types";
+import type { Attachment, ContextRef, ConversationDetail } from "../../data/types";
 import { can, useViewer } from "../../data/viewer";
 import { useMediaQuery } from "../../layout/useMediaQuery";
 import { hasModKey } from "../../platform/platform";
@@ -22,8 +24,16 @@ import { formatDate } from "../../notifications/time";
 import { Dialog } from "../../tasks-ui/Dialog";
 import { MenuGroup, RadioItem, itemClass } from "../../tasks-ui/Menu";
 import { useToast } from "../../tasks-ui/Toast";
-import { Chevron, MenuButton, primaryButton, quietButton, secondaryButton } from "../tasks/controls";
+import {
+  Chevron,
+  MenuButton,
+  primaryButton,
+  quietButton,
+  secondaryButton,
+} from "../tasks/controls";
 import { Conversation, type ContinueHandler } from "./conversation/Conversation";
+import { useApplyDraft, type ComposerDraft } from "./conversation/Composer";
+import { SendGlyph } from "./conversation/parts";
 import { SkillsInRun, exclusiveOf, runLineText } from "../task/ClaudeRunParts";
 import { handOffFirstMessage } from "./conversation/handoff";
 import { dangerButton } from "../task/parts";
@@ -98,68 +108,24 @@ function NewConversation({ initial }: { initial: string }) {
   const { t } = useTranslation();
   const { viewer } = useViewer();
   const navigate = useNavigate();
-  const [text, setText] = useState(initial);
-  const [projectId, setProjectId] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-  const field = useRef<HTMLTextAreaElement>(null);
-  const create = useCreateConversation();
   const projects = useProjects().data ?? [];
   const mine = useTasks({ assigneeIds: [viewer.personId] }).data;
-  const hintId = useId();
   const suggestionsId = useId();
+  const [draft, setDraft] = useState<ComposerDraft | undefined>(undefined);
 
-  useEffect(() => {
-    field.current?.focus();
-    const refocus = () => field.current?.focus();
-    window.addEventListener(FOCUS_NEW_EVENT, refocus);
-    return () => window.removeEventListener(FOCUS_NEW_EVENT, refocus);
-  }, []);
   // La domanda portata dalla palette resta nella casella, non nell'indirizzo.
   useEffect(() => {
     if (initial) void navigate({ to: "/claude", search: {}, replace: true });
   }, [initial, navigate]);
-  // Il campo cresce con il testo (fino a ~10 righe).
-  useEffect(() => {
-    const el = field.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
-  }, [text]);
-
-  const start = () => {
-    const question = text.trim();
-    if (!question || create.isPending) return;
-    setFailed(false);
-    create.mutate(projectId ? { contextProjectId: projectId } : {}, {
-      onSuccess: (c) => {
-        // La domanda la manda la conversazione: se non va, resta lì con «Resend».
-        handOffFirstMessage(c.id, { text: question, attachments: [] });
-        void navigate({ to: "/claude/$id", params: { id: c.id } });
-      },
-      onError: () => setFailed(true),
-    });
-  };
-  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-      e.preventDefault();
-      start();
-    }
-  };
-  const pick = (suggestion: string) => {
-    setText(suggestion);
-    requestAnimationFrame(() => {
-      const el = field.current;
-      el?.focus();
-      el?.setSelectionRange(suggestion.length, suggestion.length);
-    });
-  };
 
   const explainCode = mine?.[0]?.code ?? null;
   const howtoCode = projects.find((p) => p.code === "STW")?.code ?? projects[0]?.code ?? null;
   const suggestions = [
     t("claude.destination.landing.suggest.today"),
     t("claude.destination.landing.suggest.projects"),
-    ...(explainCode ? [t("claude.destination.landing.suggest.explain", { code: explainCode })] : []),
+    ...(explainCode
+      ? [t("claude.destination.landing.suggest.explain", { code: explainCode })]
+      : []),
     ...(howtoCode
       ? [
           t("claude.destination.landing.suggest.howto", {
@@ -169,7 +135,6 @@ function NewConversation({ initial }: { initial: string }) {
         ]
       : []),
   ];
-  const context = projects.find((p) => p.id === projectId) ?? null;
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-y-auto">
@@ -182,81 +147,11 @@ function NewConversation({ initial }: { initial: string }) {
             {t("claude.destination.landing.intro")}
           </p>
         </div>
-        <div className="flex min-w-0 flex-col rounded-lg border border-rule-strong bg-surface transition-colors duration-[var(--duration-fast)] ease-out focus-within:border-ink/45">
-          <textarea
-            ref={field}
-            rows={3}
-            value={text}
-            aria-label={t("claude.destination.landing.label")}
-            aria-describedby={hintId}
-            placeholder={t("claude.destination.landing.placeholder")}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={onKeyDown}
-            className="block min-h-[84px] w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-lg text-ink outline-none placeholder:text-ink-faint focus-visible:outline-none"
-          />
-          <div className="flex min-w-0 items-center gap-2 px-2 pb-2">
-            <MenuButton
-              menuLabel={t("claude.conversation.context.menu")}
-              placement="below"
-              className="inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 text-sm text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink aria-expanded:bg-ink/8"
-              label={
-                <>
-                  <span className="truncate">
-                    {context
-                      ? t("claude.conversation.context.project", { code: context.code })
-                      : t("claude.conversation.context.none")}
-                  </span>
-                  <Chevron />
-                </>
-              }
-            >
-              {(close) => (
-                <MenuGroup>
-                  <RadioItem
-                    checked={projectId === null}
-                    onSelect={() => {
-                      setProjectId(null);
-                      close();
-                    }}
-                  >
-                    {t("claude.conversation.context.noneItem")}
-                  </RadioItem>
-                  {projects.map((p) => (
-                    <RadioItem
-                      key={p.id}
-                      checked={projectId === p.id}
-                      onSelect={() => {
-                        setProjectId(p.id);
-                        close();
-                      }}
-                    >
-                      <span className="num w-10 shrink-0 text-xs font-semibold">{p.code}</span>
-                      <span className="min-w-0 truncate">{p.name}</span>
-                    </RadioItem>
-                  ))}
-                </MenuGroup>
-              )}
-            </MenuButton>
-            <span id={hintId} className="ml-auto hidden text-xs text-ink-faint sm:inline">
-              {t("claude.destination.landing.hint")}
-            </span>
-            <button
-              type="button"
-              className={`${primaryButton} disabled:opacity-40`}
-              disabled={!text.trim() || create.isPending}
-              onClick={start}
-            >
-              {create.isPending
-                ? t("claude.destination.landing.sending")
-                : t("claude.destination.landing.send")}
-            </button>
-          </div>
-        </div>
-        {failed && (
-          <p role="alert" className="-mt-3 text-sm text-critical">
-            {t("claude.destination.landing.failed")}
-          </p>
-        )}
+        <NewConversationComposer
+          initial={initial}
+          draft={draft}
+          onCreated={(id) => void navigate({ to: "/claude/$id", params: { id } })}
+        />
         <div className="flex flex-col">
           <p id={suggestionsId} className="heading-group pb-1.5">
             {t("claude.destination.landing.suggestions")}
@@ -266,7 +161,7 @@ function NewConversation({ initial }: { initial: string }) {
               <li key={s} className="border-b border-rule last:border-b-0">
                 <button
                   type="button"
-                  onClick={() => pick(s)}
+                  onClick={() => setDraft((d) => ({ text: s, nonce: (d?.nonce ?? 0) + 1 }))}
                   className="flex h-10 w-full min-w-0 items-center gap-3 rounded-md px-2 text-left text-md text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/4 hover:text-ink"
                 >
                   <ArrowGlyph />
@@ -278,6 +173,207 @@ function NewConversation({ initial }: { initial: string }) {
         </div>
       </div>
     </section>
+  );
+}
+
+/**
+ * La casella di una conversazione che ancora non c'è: la conversazione
+ * nasce al primo invio, che le affida il messaggio (`handOffFirstMessage`),
+ * poi `onCreated` la apre. La usano l'atterraggio (`variant` `page`: casella
+ * grande, il progetto da scegliere nel menu) e il riquadro di Claude (area
+ * 10a, `panel`: casella in fondo, il progetto è quello del chip e il
+ * messaggio parte col suo `context`). `draft` la riempie senza inviare.
+ * Col budget mensile esaurito Send è spento e la frase lo dice (9b): il
+ * testo resta.
+ */
+export function NewConversationComposer({
+  initial = "",
+  onCreated,
+  draft,
+  variant = "page",
+  context = null,
+  contextProjectId = null,
+  onText,
+}: {
+  initial?: string;
+  onCreated: (id: string) => void;
+  draft?: ComposerDraft | undefined;
+  variant?: "page" | "panel";
+  /** Solo `panel`: il chip, che parte col primo messaggio. */
+  context?: ContextRef | null;
+  /** Solo `panel`: il progetto del chip, che la conversazione tiene come contesto. */
+  contextProjectId?: string | null;
+  /** Il testo cambia (il riquadro smette di annunciare il cambio di persona). */
+  onText?: (text: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [text, setText] = useState(initial);
+  const [pickedProjectId, setPickedProjectId] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  const field = useRef<HTMLTextAreaElement>(null);
+  const create = useCreateConversation();
+  const projects = useProjects().data ?? [];
+  const block = useAiBlock(null).data ?? null;
+  const budget = block?.reason === "monthly_budget";
+  const hintId = useId();
+  const page = variant === "page";
+  const projectId = page ? pickedProjectId : contextProjectId;
+  const write = (next: string) => {
+    setText(next);
+    onText?.(next);
+  };
+  useApplyDraft(draft, field, write);
+
+  useEffect(() => {
+    if (!page) return;
+    field.current?.focus();
+    const refocus = () => field.current?.focus();
+    window.addEventListener(FOCUS_NEW_EVENT, refocus);
+    return () => window.removeEventListener(FOCUS_NEW_EVENT, refocus);
+  }, [page]);
+  // Il campo cresce con il testo (l'atterraggio fino a ~10 righe, il riquadro 8).
+  useEffect(() => {
+    const el = field.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, page ? 240 : 176)}px`;
+  }, [text, page]);
+
+  const start = () => {
+    const question = text.trim();
+    if (!question || create.isPending || budget) return;
+    setFailed(false);
+    create.mutate(projectId ? { contextProjectId: projectId } : {}, {
+      onSuccess: (c) => {
+        // La domanda la manda la conversazione: se non va, resta lì con «Resend».
+        handOffFirstMessage(c.id, {
+          text: question,
+          attachments: [],
+          ...(page ? {} : { context }),
+        });
+        onCreated(c.id);
+      },
+      onError: () => setFailed(true),
+    });
+  };
+  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      start();
+    }
+  };
+
+  const picked = projects.find((p) => p.id === pickedProjectId) ?? null;
+  const sendLabel = create.isPending
+    ? t("claude.destination.landing.sending")
+    : page
+      ? t("claude.destination.landing.send")
+      : t("claude.conversation.composer.send");
+
+  return (
+    <div className={page ? "contents" : "px-4 pt-2 pb-3"}>
+      {budget && block && (
+        <div className={page ? "-mb-3" : "pb-2"}>
+          <AiBlockLine block={block} projectCode="" chat />
+        </div>
+      )}
+      <div className="flex min-w-0 flex-col rounded-lg border border-rule-strong bg-surface transition-colors duration-[var(--duration-fast)] ease-out focus-within:border-ink/45">
+        <textarea
+          ref={field}
+          rows={page ? 3 : 1}
+          value={text}
+          aria-label={
+            page ? t("claude.destination.landing.label") : t("claude.conversation.composer.label")
+          }
+          aria-describedby={hintId}
+          placeholder={
+            page
+              ? t("claude.destination.landing.placeholder")
+              : t("claude.conversation.composer.placeholder")
+          }
+          onChange={(e) => write(e.target.value)}
+          onKeyDown={onKeyDown}
+          className={
+            page
+              ? "block min-h-[84px] w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-lg text-ink outline-none placeholder:text-ink-faint focus-visible:outline-none"
+              : "block max-h-[176px] min-h-9 w-full resize-none bg-transparent px-3 pt-2.5 pb-1 text-md text-ink outline-none placeholder:text-ink-faint focus-visible:outline-none"
+          }
+        />
+        <div className={`flex min-w-0 items-center gap-2 ${page ? "px-2 pb-2" : "px-1.5 pb-1.5"}`}>
+          {page && (
+            <MenuButton
+              menuLabel={t("claude.conversation.context.menu")}
+              placement="below"
+              className="inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 text-sm text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink aria-expanded:bg-ink/8"
+              label={
+                <>
+                  <span className="truncate">
+                    {picked
+                      ? t("claude.conversation.context.project", { code: picked.code })
+                      : t("claude.conversation.context.none")}
+                  </span>
+                  <Chevron />
+                </>
+              }
+            >
+              {(close) => (
+                <MenuGroup>
+                  <RadioItem
+                    checked={pickedProjectId === null}
+                    onSelect={() => {
+                      setPickedProjectId(null);
+                      close();
+                    }}
+                  >
+                    {t("claude.conversation.context.noneItem")}
+                  </RadioItem>
+                  {projects.map((p) => (
+                    <RadioItem
+                      key={p.id}
+                      checked={pickedProjectId === p.id}
+                      onSelect={() => {
+                        setPickedProjectId(p.id);
+                        close();
+                      }}
+                    >
+                      <span className="num w-10 shrink-0 text-xs font-semibold">{p.code}</span>
+                      <span className="min-w-0 truncate">{p.name}</span>
+                    </RadioItem>
+                  ))}
+                </MenuGroup>
+              )}
+            </MenuButton>
+          )}
+          {page && (
+            <span id={hintId} className="ml-auto hidden text-xs text-ink-faint sm:inline">
+              {t("claude.destination.landing.hint")}
+            </span>
+          )}
+          <button
+            type="button"
+            className={`${primaryButton} ${page ? "" : "ml-auto"} disabled:opacity-40`}
+            disabled={!text.trim() || create.isPending || budget}
+            onClick={start}
+          >
+            {!page && <SendGlyph />}
+            {sendLabel}
+          </button>
+        </div>
+      </div>
+      {!page && (
+        <p id={hintId} className="pt-1.5 text-xs text-ink-muted">
+          {t("claude.destination.landing.hint")}
+        </p>
+      )}
+      {failed && (
+        <p
+          role="alert"
+          className={page ? "-mt-3 text-sm text-critical" : "pt-1.5 text-sm text-critical"}
+        >
+          {t("claude.destination.landing.failed")}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -660,7 +756,11 @@ function PageHeader({
           <span className="min-w-0 flex-1">
             {t("claude.destination.page.reconfirm", { codes: unconfirmed.join(", ") })}
           </span>
-          <button type="button" className={secondaryButton} onClick={() => setPublishing("reconfirm")}>
+          <button
+            type="button"
+            className={secondaryButton}
+            onClick={() => setPublishing("reconfirm")}
+          >
             {t("claude.destination.page.reconfirmAction")}
           </button>
         </div>

@@ -164,6 +164,43 @@ async function main() {
       return;
     }
 
+    // Area 10a, Task 8 (`CAPTURE_A10A_PANEL=1`): il riquadro di Claude. Laura
+    // sulle task di ACQ con ACQ-3 aperta nel pannello: il riquadro vuoto col
+    // chip e le righe PROVA, poi una conversazione nata dal riquadro. A 1024
+    // il pannello della task è sovrapposto e il riquadro sta alla sua
+    // sinistra (shape claude-panel.md §4). Scatti `a10a-panel-*`.
+    if (process.env.CAPTURE_A10A_PANEL) {
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      for (const v of variants) {
+        const { page, context } = await open(v.scheme, v.viewport, "/p/ACQ/tasks?task=ACQ-3", {
+          lang: v.lang,
+          persona: "Laura",
+        });
+        await page.getByRole("button", { name: /^(Ask Claude|Chiedi a Claude)$/ }).click();
+        await page.locator("#claude-panel [data-context-chip]").waitFor();
+        await page.waitForTimeout(400);
+        const empty = `a10a-panel-empty-${v.suffix}.png`;
+        if (!only || only.test(empty)) await shot(page, empty);
+        const box = page.locator("#claude-panel textarea");
+        await box.fill(v.lang === "it" ? "Pianifica ACQ-3 per la prossima settimana" : "Plan ACQ-3 for next week");
+        await box.press("Enter");
+        await page.locator("#claude-panel [data-message-context]").waitFor();
+        await page.waitForTimeout(2500);
+        await page.mouse.move(v.viewport.width - 2, v.viewport.height - 2);
+        const name = `a10a-panel-task-${v.suffix}.png`;
+        if (!only || only.test(name)) await shot(page, name);
+        await context.close();
+      }
+      return;
+    }
+
     // Area 9c, Task 12 (`CAPTURE_A9C_AUDIT=1`): le voci del 9c nel registro,
     // scatti `a9c-audit-*`. Le voci si scrivono dal livello dati della pagina
     // con le funzioni vere (interruttore, account AI poi eliminato, variabile

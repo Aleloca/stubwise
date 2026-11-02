@@ -36,6 +36,54 @@ export interface DraftAttachment {
 /** Quante righe cresce il campo prima di scorrere. */
 const MAX_LINES = 8;
 
+/**
+ * Un testo da mettere nella casella senza inviarlo (area 10a: ⌘K «Ask
+ * Claude: …», le righe PROVA del riquadro): entra a ogni `nonce` nuovo.
+ */
+export interface ComposerDraft {
+  text: string;
+  nonce: number;
+}
+
+/**
+ * Mette `draft` nel campo al posto di ciò che c'era, col cursore in fondo
+ * ([CP 14]): passando dall'editor del campo il testo di prima resta
+ * annullabile con ⌘Z; dove l'editor non c'è, si riscrive il valore.
+ */
+export function useApplyDraft(
+  draft: ComposerDraft | undefined,
+  field: { current: HTMLTextAreaElement | null },
+  write: (text: string) => void,
+): void {
+  const applied = useRef(0);
+  useEffect(() => {
+    if (!draft || draft.nonce === applied.current) return;
+    applied.current = draft.nonce;
+    const el = field.current;
+    if (!el) {
+      write(draft.text);
+      return;
+    }
+    el.focus();
+    el.select();
+    let inserted = false;
+    try {
+      inserted =
+        typeof document.execCommand === "function" &&
+        document.execCommand("insertText", false, draft.text) &&
+        el.value === draft.text;
+    } catch {
+      inserted = false;
+    }
+    if (!inserted) write(draft.text);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(draft.text.length, draft.text.length);
+    });
+    // Solo un `nonce` nuovo riscrive il campo.
+  }, [draft?.nonce]);
+}
+
 export { triggerAt } from "./useComposerField";
 
 /**
@@ -61,6 +109,8 @@ export function Composer({
   onStop,
   onStopAndSend,
   placeholder,
+  draft,
+  projectMenu = true,
 }: {
   detail: ConversationDetail;
   connection: ConversationStream["connection"];
@@ -75,6 +125,10 @@ export function Composer({
   onStopAndSend: (text: string) => void;
   /** Il segnaposto della casella, se diverso da «Ask Claude…» (la continuazione). */
   placeholder?: string;
+  /** Area 10a: un testo che entra nella casella, non inviato. */
+  draft?: ComposerDraft;
+  /** Il menu del progetto di contesto; il riquadro di Claude non lo ha (il contesto è il chip). */
+  projectMenu?: boolean;
 }) {
   const { t } = useTranslation();
   const [text, setText] = useState("");
@@ -85,6 +139,7 @@ export function Composer({
     allowSlash: true,
   });
   const { field, trigger, menuOpen, update, place } = composer;
+  useApplyDraft(draft, field, (next) => update(next, next.length));
   const fileInput = useRef<HTMLInputElement>(null);
   const menuId = useId();
   const hintId = useId();
@@ -315,7 +370,7 @@ export function Composer({
               <PaperclipGlyph />
               {!compact && <span>{t("claude.conversation.attachments.attach")}</span>}
             </button>
-            {detail.kind === "free" && detail.canManage && (
+            {projectMenu && detail.kind === "free" && detail.canManage && (
               <ContextChip
                 conversationId={detail.id}
                 projectId={detail.contextProjectId}

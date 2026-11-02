@@ -174,6 +174,13 @@ describe("destinazione Claude: palette", () => {
     expect(state.conversations).toHaveLength(before);
   });
 
+  // Area 10a: «Ask Claude…» della palette apre il riquadro sopra la pagina,
+  // non la destinazione (P14).
+  const panelBox = () =>
+    within(document.getElementById("claude-panel")!).getByRole("textbox", {
+      name: "Message to Claude",
+    });
+
   it("«ask claude» scritto per trovare il comando non diventa la domanda", async () => {
     const user = userEvent.setup();
     const router = renderRoute("/home", "p-giulia");
@@ -181,10 +188,9 @@ describe("destinazione Claude: palette", () => {
     await user.keyboard("{Control>}k{/Control}");
     await user.type(await screen.findByRole("combobox"), "ask claude");
     await user.click(await screen.findByRole("option", { name: /^Ask Claude…/ }));
-    await waitFor(() => expect(path(router)).toBe("/claude"));
-    expect(
-      await screen.findByRole("textbox", { name: "Your question for Claude" }),
-    ).toHaveValue("");
+    await waitFor(() => expect(document.getElementById("claude-panel")!.hidden).toBe(false));
+    expect(panelBox()).toHaveValue("");
+    expect(path(router)).toBe("/home");
   });
 
   it("dalla palette: «Ask Claude: “…”» con il testo scritto", async () => {
@@ -197,10 +203,8 @@ describe("destinazione Claude: palette", () => {
     await user.click(
       await screen.findByRole("option", { name: /Ask Claude: “what slipped this week”/ }),
     );
-    await waitFor(() => expect(path(router)).toBe("/claude"));
-    expect(
-      await screen.findByRole("textbox", { name: "Your question for Claude" }),
-    ).toHaveValue("what slipped this week");
+    await waitFor(() => expect(panelBox()).toHaveValue("what slipped this week"));
+    expect(path(router)).toBe("/home");
   });
 });
 

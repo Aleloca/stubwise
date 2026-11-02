@@ -7,6 +7,8 @@ interface Window {
     /** Comunica al main il tema risolto (sfondo finestra, overlay su Windows). */
     setTheme?: (resolved: "light" | "dark") => void;
     /** Voci di menu dell'applicazione; restituisce la funzione per disiscriversi. */
-    onMenu?: (cb: (channel: "menu:search" | "menu:preferences") => void) => () => void;
+    onMenu?: (
+      cb: (channel: "menu:search" | "menu:preferences" | "menu:ask-claude") => void,
+    ) => () => void;
   };
 }

@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
-import type { Attachment, ConversationDetail } from "../../../data/types";
+import type { Attachment, ContextRef, ConversationDetail } from "../../../data/types";
+import { ContextNote } from "../../../layout/claudePanel/ContextChip";
 import { ActionRows } from "./ActionRows";
 import { CommandRows, isServerCommand } from "./CommandRows";
 import { AssistantMessage, CitationRow, ClaudeHeader } from "./AssistantMessage";
@@ -32,6 +33,7 @@ export function UserMessage({
   attachments,
   delivery,
   onResend,
+  context,
 }: {
   authorId: string;
   at: string | null;
@@ -39,21 +41,24 @@ export function UserMessage({
   attachments: readonly Attachment[];
   delivery: DeliveryView;
   onResend?: () => void;
+  /** Area 10a: la pagina da cui è partito (il chip del riquadro), riletta per chi guarda. */
+  context?: ContextRef | null | undefined;
 }) {
   const { t, i18n } = useTranslation();
   const name = usePersonName(authorId);
   return (
     <div className="event-enter flex min-w-0 flex-col gap-1.5 pt-2" data-user-message>
-      <p className="flex items-center gap-1.5 text-xs text-ink-muted">
-        <span className="font-semibold text-ink">{name}</span>
+      <p className="flex min-w-0 items-center gap-1.5 text-xs text-ink-muted">
+        <span className="shrink-0 font-semibold text-ink">{name}</span>
         {at && (
           <>
             <span aria-hidden="true">·</span>
-            <time className="num" dateTime={at}>
+            <time className="num shrink-0" dateTime={at}>
               {clock(at, i18n.language)}
             </time>
           </>
         )}
+        {context && <ContextNote context={context} />}
       </p>
       {text && (
         <p className="min-w-0 rounded-md bg-ink/5 px-3 py-2 text-md whitespace-pre-wrap text-ink [overflow-wrap:anywhere]">
@@ -144,6 +149,7 @@ export function EventList({
                     at={item.event.at}
                     text={item.event.text}
                     attachments={item.event.attachments}
+                    context={item.event.context}
                     delivery={item.event.authorId === viewerId ? deliveryOf(item.event) : null}
                     {...(detail.canWrite && item.event.authorId === viewerId
                       ? { onResend: () => onResend(item.event) }

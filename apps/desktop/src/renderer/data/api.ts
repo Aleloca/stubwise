@@ -62,6 +62,7 @@ import type {
   ConversationEvent,
   ConversationFilter,
   ConversationRow,
+  ContextRef,
   DailyReport,
   DailyReportView,
   DayArrangement,
@@ -94,8 +95,15 @@ import type {
   WeeklyBrief,
 } from "./types";
 import { undoViewOf } from "./claude/actions";
+import {
+  contextIdFor,
+  contextOf,
+  type CodedContextKind,
+  type ContextDescription,
+} from "./claude/context";
 
 export type { SearchResult } from "./types";
+export type { CodedContextKind, ContextDescription } from "./claude/context";
 export type { ApiFnName } from "./store";
 export {
   failNext,
@@ -716,6 +724,25 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
     continuesFrom: originOf(me, c),
     undo: undoOfEvents(me, events),
   };
+}
+
+/**
+ * Il chip del riquadro di Claude (area 10a): rilegge il riferimento con la
+ * visibilità di chi guarda; `null` = invisibile o inesistente (R-G5).
+ */
+export async function describeContext(ref: ContextRef): Promise<ContextDescription | null> {
+  const me = await gate("describeContext");
+  return contextOf(me, ref);
+}
+
+/**
+ * L'id dell'oggetto che l'indirizzo nomina col codice (`?task=ACQ-3`,
+ * `/automations/AUD-A1`), per il riferimento del chip; `null` se chi guarda
+ * non lo vede o non esiste.
+ */
+export async function contextIdOf(kind: CodedContextKind, code: string): Promise<string | null> {
+  const me = await gate("contextIdOf");
+  return contextIdFor(me, kind, code);
 }
 
 /**

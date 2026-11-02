@@ -1,7 +1,7 @@
 // @vitest-environment node
 import type { MenuItemConstructorOptions } from "electron";
 import { describe, expect, it, vi } from "vitest";
-import { buildMenuTemplate, MENU_PREFERENCES, MENU_SEARCH } from "./menu";
+import { buildMenuTemplate, MENU_ASK_CLAUDE, MENU_PREFERENCES, MENU_SEARCH } from "./menu";
 import { groundFor, isResolvedTheme, overlayFor, themeFromDark, windowOptions } from "./window";
 
 function flatten(items: MenuItemConstructorOptions[]): MenuItemConstructorOptions[] {
@@ -76,6 +76,23 @@ describe("menu dell'applicazione", () => {
       (search?.click as () => void)();
       (prefs?.click as () => void)();
       expect(send.mock.calls).toEqual([[MENU_SEARCH], [MENU_PREFERENCES]]);
+    },
+  );
+
+  it.each(["darwin", "win32", "linux"] as const)(
+    "%s: «Ask Claude…» con ⌘J/Ctrl+J subito dopo «Search…», e manda il suo canale",
+    (platform) => {
+      const send = vi.fn();
+      const template = buildMenuTemplate(platform, "Stubwise", send);
+      const file = template.find((i) => i.label === "File")!;
+      const items = file.submenu as MenuItemConstructorOptions[];
+      const at = items.findIndex((i) => i.label === "Search…");
+      const ask = items[at + 1];
+      expect(ask?.label).toBe("Ask Claude…");
+      expect(ask?.accelerator).toBe("CmdOrCtrl+J");
+      (ask?.click as () => void)();
+      expect(MENU_ASK_CLAUDE).toBe("menu:ask-claude");
+      expect(send.mock.calls).toEqual([[MENU_ASK_CLAUDE]]);
     },
   );
 });

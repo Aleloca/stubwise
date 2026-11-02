@@ -3720,7 +3720,7 @@
       },
       "landing": {
         "title": "New conversation",
-        "intro": "Claude reads what you can read and changes nothing without your confirmation.",
+        "intro": "Ask about what you're looking at, or ask Claude to do it for you. What only touches you happens right away and can be undone; anything that touches others asks you first.",
         "label": "Your question for Claude",
         "placeholder": "Ask Claude about your work, a task or a project…",
         "send": "Start conversation",
@@ -3867,6 +3867,53 @@
         "busy": "“{{action}}” has to wait, something is still running on it",
         "reauth_required": "“{{action}}” needs your two-step code first",
         "other": "“{{action}}” failed, nothing was changed"
+      }
+    },
+    "panel": {
+      "label": "Claude",
+      "newConversation": "New conversation",
+      "new": "New",
+      "openInClaude": "Open in Claude",
+      "openDisabled": "Start the conversation first",
+      "close": "Close",
+      "closeShortcut": "Close · {{shortcut}}",
+      "rail": "Ask Claude",
+      "railAnswering": "Ask Claude — Claude is answering",
+      "railAnswered": "Ask Claude — Claude has answered",
+      "empty": {
+        "title": "Ask Claude",
+        "try": "Try",
+        "task": {
+          "summarize": "Summarize {{code}}",
+          "plan": "Plan {{code}} for next week",
+          "waiting": "Who's waiting on {{code}}?"
+        },
+        "project": {
+          "stand": "Where does {{code}} stand?",
+          "stalled": "What's stalled in {{code}}?",
+          "create": "Create a task in {{code}}…"
+        }
+      },
+      "lookingAt": "You're looking at:",
+      "notUsing": "Not using this page",
+      "useIt": "Use it",
+      "chipTitle": "Claude reads {{label}} with your permissions when you send.",
+      "removeContext": "Don't use this page",
+      "on": "on {{label}}",
+      "archived": "Your last conversation was archived.",
+      "nowShowing": "Now showing {{name}}'s conversations.",
+      "chip": {
+        "kind": {
+          "task": "task",
+          "request": "request",
+          "support": "support conversation",
+          "pr": "pull request #{{number}}",
+          "prNoNumber": "pull request",
+          "automation": "automation",
+          "release": "release"
+        },
+        "projectSettings": "Settings → {{section}}",
+        "instanceSettings": "Administration → {{section}}"
       }
     }
   },

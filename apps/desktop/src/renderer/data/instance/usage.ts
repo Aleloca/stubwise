@@ -3,6 +3,7 @@ import type { Conversation, ModelUsage } from "../model";
 import { eventsOf, gate, newId, now, state, visibleProjectIds } from "../store";
 import { can, viewerFor } from "../viewer";
 import { forbidden } from "../writer";
+import { pickProvider } from "./blocks";
 import { OPERATION_OF_KIND, modelIdFor } from "./models";
 import type { UsageRecord } from "./state";
 
@@ -192,6 +193,27 @@ export { spentThisMonthUsd } from "./blocks";
 /** Aggiunge una voce di consumo (ogni run AI simulata): l'id lo dà il prototipo. */
 export function recordUsage(r: Omit<UsageRecord, "id">): void {
   state.instance.usage.push({ ...r, id: newId("usage") });
+}
+
+/**
+ * Un turno della conversazione libera (area 10a, Task 8): operazione
+ * `chat`, col modello che ha adesso, sul progetto del contesto o senza
+ * progetto. Come per le sessioni, senza un account a cui addebitarlo (la
+ * catena vuota) non si registra.
+ */
+export function recordChatTurnUsage(projectId: string | null, conversationId: string): void {
+  const providerId = pickProvider(projectId)?.id;
+  if (!providerId) return;
+  const model = modelIdFor("chat");
+  recordUsage({
+    at: now(),
+    operation: "chat",
+    model,
+    projectId,
+    providerId,
+    ...fakeUsage(model),
+    conversationId,
+  });
 }
 
 /**

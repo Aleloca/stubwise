@@ -45,6 +45,7 @@ import { openLinkFolder } from "../pages/drive/LinkFolderDialog";
 import { openNewAutomation } from "../pages/automations/NewAutomationHost";
 import { openGoogleOutsideFile } from "../pages/drive/WhichProjectDialog";
 import { PALETTE_EVENT, type PaletteEventDetail } from "../layout/useShortcuts";
+import { openClaudePanel } from "../layout/claudePanel/panelEvents";
 import { shortcutLabel } from "../platform/platform";
 import { useTheme } from "../theme/ThemeProvider";
 import { canSeeAdminSection } from "../data/adminSections";
@@ -385,6 +386,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       },
       openLinkFolder,
       openNewAutomation,
+      openClaudePanel,
     };
     // Il testo arriva al comando solo quando l'etichetta lo cita: «ask
     // claude» scritto per trovare il comando non è la domanda.
