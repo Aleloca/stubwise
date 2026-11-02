@@ -1,4 +1,5 @@
 import type { ChangeEntry } from "../changelog/types";
+import { CLAUDE_CHANGES } from "./claudeActions";
 import { daysFromToday } from "./dates";
 
 // Il registro delle modifiche del seme (area 9a, design «Dati finti»: una
@@ -28,7 +29,7 @@ const department = (id: string, label: string) => ({ type: "department", id, lab
 const invite = (id: string, label: string) => ({ type: "invite", id, label });
 
 type Row = Omit<ChangeEntry, "id" | "before" | "after" | "params"> &
-  Partial<Pick<ChangeEntry, "before" | "after" | "params">>;
+  Partial<Pick<ChangeEntry, "id" | "before" | "after" | "params">>;
 
 const ACQ = "prj-acq";
 const STW = "prj-stw";
@@ -328,6 +329,8 @@ const ROWS: Row[] = [
       after: "usage.view,changelog.view",
     },
   },
+  // Area 10a: le voci delle azioni di Claude, in fondo (gli id di prima non cambiano).
+  ...CLAUDE_CHANGES,
 ];
 
 /** Le voci del seme, in ordine di scrittura (le più vecchie prima), congelate come quelle vere. */
@@ -335,7 +338,7 @@ export function seedChangelog(): ChangeEntry[] {
   return ROWS.map((row, i) =>
     Object.freeze({
       ...row,
-      id: `chg-seed-${i + 1}`,
+      id: row.id ?? `chg-seed-${i + 1}`,
       before: row.before ?? null,
       after: row.after ?? null,
       object: Object.freeze({ ...row.object }),

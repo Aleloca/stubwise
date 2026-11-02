@@ -11,6 +11,7 @@ import { recordChange } from "../changelog/index";
 import { decodeSetting, encodeAiAccount, encodeNumber } from "../changelog/settingValues";
 import { GROUP_ORDER } from "../changelog/visibility";
 import { PROJECT_SETTINGS_SECTIONS } from "../routes";
+import { CLAUDE_CHANGES } from "../seed/claudeActions";
 import { PROJECT_PLUGINS } from "../seed/commands";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import { PROJECTS } from "../seed/projects";
@@ -238,7 +239,10 @@ describe("il registro delle modifiche del 9c", () => {
     recordOneOfEach();
     setSessionPersonId(ROBERTA);
     const all = await changelog.listChanges();
-    expect(all.filter((e) => GROUPS.includes(e.group))).toHaveLength(PROJECT_CHANGE_TYPES.length);
+    // Più le voci del seme di MKX (azioni di Claude e la voce di Roberta, 10a, Task 7).
+    expect(all.filter((e) => GROUPS.includes(e.group))).toHaveLength(
+      PROJECT_CHANGE_TYPES.length + CLAUDE_CHANGES.length,
+    );
     setSessionPersonId(CLAUDE_ID);
     expect((await changelog.listChanges()).filter((e) => GROUPS.includes(e.group))).toEqual([]);
   });

@@ -14,10 +14,14 @@ import {
 } from "../api";
 import { markReauthenticated } from "../auth/reauth";
 import type { ProposedAction } from "../model";
+import { CLAUDE_ACTIONS } from "../seed/claudeActions";
 import { setSessionPersonId } from "../session";
 import { now, state } from "../store";
 import type { ConversationEvent } from "../types";
 import { classOfGroup } from "./classes";
+
+/** Le azioni di Claude scritte dalla sessione di prova: quelle del seme (area 10a, Task 7) restano fuori. */
+const sessionActions = () => state.claudeActions.slice(CLAUDE_ACTIONS.length);
 
 // Eseguire per classe (area 10a, Task 5): nella conversazione libera
 // un'azione A parte all'invio e lascia una riga `executed` e una riga in
@@ -97,7 +101,7 @@ describe("classe A: parte all'invio", () => {
     // `pending` non arriva mai a chi legge.
     expect(executedOf(cid).some((e) => e.status === "pending")).toBe(false);
     expect(proposalsOf(cid)).toEqual([]);
-    expect(state.claudeActions).toEqual([
+    expect(sessionActions()).toEqual([
       expect.objectContaining({
         groupId: row!.groupId,
         conversationId: cid,
@@ -122,7 +126,7 @@ describe("classe A: parte all'invio", () => {
         reasons: [{ kind: "notifies", personIds: [MATTEO], more: false }],
       }),
     ]);
-    expect(state.claudeActions).toEqual([]);
+    expect(sessionActions()).toEqual([]);
   });
 
   it("un'automazione su task_created si accende fra il calcolo e l'esecuzione: scheda col motivo, nessuna task", async () => {
@@ -164,7 +168,7 @@ describe("classe A: parte all'invio", () => {
       .join("\n");
     expect(text).toMatch(/^I'm asking first: it starts an automation in MKX\.$/m);
     expect(text).not.toMatch(/Done/);
-    expect(state.claudeActions).toEqual([]);
+    expect(sessionActions()).toEqual([]);
   });
 
   it("due azioni A di fila sulla stessa task: la prima diventa `changed_after` con Giulia, la seconda si annulla (P4)", async () => {
@@ -180,7 +184,7 @@ describe("classe A: parte all'invio", () => {
     expect(second).toMatchObject({ status: "done", resultCodes: [task!.code] });
     expect(state.tasksById.get(task!.id)!.plannedWeek).toBe("2026-W46");
     // Tutte le scritture della sessione hanno lo stesso `at`: decide `seq`.
-    expect(new Set(state.claudeActions.map((r) => r.at)).size).toBe(1);
+    expect(new Set(sessionActions().map((r) => r.at)).size).toBe(1);
     expect((await getConversation(cid))!.undo).toEqual({
       [first!.groupId]: { state: "changed_after", byName: "Giulia Ferri", code: task!.code },
       [second.groupId]: { state: "available", needsReauth: false },
@@ -194,14 +198,14 @@ describe("classe A: parte all'invio", () => {
     as(GIULIA);
     const cid = (await createConversation()).id;
     const sending = sendMessage(cid, { text: 'crea "Prova" in MKX' });
-    while (state.claudeActions.length === 0) await new Promise((r) => setTimeout(r, 1));
+    while (sessionActions().length === 0) await new Promise((r) => setTimeout(r, 1));
     await stop(cid);
     await sending;
     const [task] = tasksTitled(MKX, "Prova");
     expect(task).toBeDefined();
     const [row] = executedOf(cid);
     expect(row).toMatchObject({ status: "done", resultCodes: [task!.code] });
-    expect(row!.groupId).toBe(state.claudeActions[0]!.groupId);
+    expect(row!.groupId).toBe(sessionActions()[0]!.groupId);
     expect((await getConversation(cid))!.undo).toEqual({
       [row!.groupId]: { state: "available", needsReauth: false },
     });
@@ -243,12 +247,12 @@ describe("classi B e C: la scheda", () => {
     });
     expect(proposalsOf(cid)[0]!.status).toBe("open");
     expect(state.projectsById.get(OLV)!.memberIds).toEqual(members);
-    expect(state.claudeActions).toEqual([]);
+    expect(sessionActions()).toEqual([]);
     markReauthenticated(ROBERTA);
     // La scheda non era stata presa: la stessa conferma ora riesce.
     expect(await confirmProposal(cid, "prop-test")).toMatchObject({ status: "confirmed" });
     expect(state.projectsById.get(OLV)!.memberIds).toContain(LAURA);
-    const [row] = state.claudeActions;
+    const [row] = sessionActions();
     expect(row).toMatchObject({ fn: "addMember", cls: "C", personId: ROBERTA });
     expect(proposalsOf(cid)[0]).toMatchObject({ status: "confirmed", groupId: row!.groupId });
   });
@@ -310,7 +314,7 @@ describe("classi B e C: la scheda", () => {
       error: expect.stringContaining("no longer applies"),
     });
     expect(state.decisionLog).toEqual(log);
-    expect(state.claudeActions).toEqual([]);
+    expect(sessionActions()).toEqual([]);
   });
 
   it("coda di MKX in pausa (9b): una scheda startRun fa nascere la sessione in attesa; la conversazione risponde lo stesso", async () => {

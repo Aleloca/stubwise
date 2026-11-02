@@ -17,10 +17,14 @@ import {
 } from "../api";
 import { markReauthenticated, REAUTH_GRACE_MINUTES } from "../auth/reauth";
 import type { ProposedAction } from "../model";
+import { CLAUDE_ACTIONS, CLAUDE_SEED_IDS } from "../seed/claudeActions";
 import { setSessionPersonId } from "../session";
 import { advanceNow, now, state } from "../store";
 import type { ConversationEvent } from "../types";
 import { revokeProjectPermission } from "../viewer";
+
+/** Le azioni di Claude scritte dalla sessione di prova: quelle del seme (area 10a, Task 7) restano fuori. */
+const sessionActions = () => state.claudeActions.slice(CLAUDE_ACTIONS.length);
 
 // «Annulla» di un gruppo di azioni di Claude (area 10a, Task 5; Review
 // Focus 2). Solo chi l'ha chiesta; tutto o niente; il «com'era» guarda le
@@ -104,7 +108,7 @@ describe("«Annulla» della task creata", () => {
     // La creazione non scrive voci nel registro: non c'è una voce da
     // annullare a cui puntare (Task 3: `undoOf` resta assente).
     expect(entry!.undoOf).toBeUndefined();
-    expect(state.claudeActions[0]!.undone).toEqual({ at: now(), byId: GIULIA });
+    expect(sessionActions()[0]!.undone).toEqual({ at: now(), byId: GIULIA });
     expect(await undoOf(cid, groupId)).toEqual({
       state: "undone",
       byName: "Giulia Ferri",
@@ -127,7 +131,7 @@ describe("«Annulla» della task creata", () => {
       code,
     });
     expect(state.tasks).toEqual(tasks);
-    expect(state.claudeActions[0]!.undone).toBeNull();
+    expect(sessionActions()[0]!.undone).toBeNull();
   });
 
   it("Marco l'ha solo aperta: si annulla (aprire non è scrivere)", async () => {
@@ -175,7 +179,7 @@ describe("«Annulla» della task creata", () => {
       reasons: [{ kind: "open_pr", repo: "acme/stubwise", number: 42 }],
     });
     expect(state.tasksById.has(taskId)).toBe(true);
-    expect(state.claudeActions[0]!.undone).toBeNull();
+    expect(sessionActions()[0]!.undone).toBeNull();
   });
 });
 
@@ -249,7 +253,10 @@ describe("«Annulla» di una scheda", () => {
       },
     ]);
     as(MARCO);
-    const mine = (await listNotifications()).filter((n) => n.objectCode === task.code);
+    // OLV-1 ha già la notifica del seme, di un'altra azione (10a, Task 7): qui contano le nuove.
+    const fresh = <T extends { id: string; objectCode: string }>(rows: T[]) =>
+      rows.filter((n) => n.objectCode === task.code && n.id !== CLAUDE_SEED_IDS.notification);
+    const mine = fresh(await listNotifications());
     const assigned = mine.filter((n) => n.kind === "task.assigned");
     expect(assigned).toHaveLength(1);
     expect(assigned[0]!.undoneByName).toBeNull();
@@ -257,7 +264,7 @@ describe("«Annulla» di una scheda", () => {
     expect(await claude.undoClaudeActions(cid, groupId)).toEqual({ ok: true });
     expect(state.tasksById.get(task.id)!.assigneeId).toBe(GIULIA);
     as(MARCO);
-    const after = (await listNotifications()).filter((n) => n.objectCode === task.code);
+    const after = fresh(await listNotifications());
     expect(after).toHaveLength(mine.length);
     expect(after.find((n) => n.kind === "task.assigned")!.undoneByName).toBe("Giulia Ferri");
   });

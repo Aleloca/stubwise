@@ -19,6 +19,7 @@ import { addCommentAs, applyActions, createTaskAs, reassignTask } from "../api-m
 import { recordChange } from "../changelog/index";
 import type { AppNotification, ChatMessage, ConversationEvent, Task } from "../model";
 import { setSessionPersonId } from "../session";
+import { CLAUDE_ACTIVITY, CLAUDE_CHANGES, CLAUDE_NOTIFICATIONS } from "../seed/claudeActions";
 import { now, state } from "../store";
 import { deleteTaskAs } from "../taskDelete";
 import * as via from "./via";
@@ -101,13 +102,15 @@ describe("fuori da runAsClaude nessun segno", () => {
     reassignTask(GIULIA, task, ELENA);
     const comment = addCommentAs(GIULIA, task.id, "Looks good");
     expect(deleteTaskAs(GIULIA, olvTask(GIULIA, "Other").id)).toEqual({ ok: true });
-    for (const a of state.activity) {
+    // Il seme del 10a ha righe col segno (Task 7): qui si guardano quelle scritte a mano.
+    for (const a of state.activity.filter((x) => !CLAUDE_ACTIVITY.some((s) => s.id === x.id))) {
       expect(a.via).toBeUndefined();
       expect(a.claudeActionId).toBeUndefined();
     }
     expect(comment.via).toBeUndefined();
-    for (const n of state.notifications) expect(n.viaClaude).toBeUndefined();
-    for (const e of state.changelog) {
+    for (const n of state.notifications.filter((x) => !CLAUDE_NOTIFICATIONS.some((s) => s.id === x.id)))
+      expect(n.viaClaude).toBeUndefined();
+    for (const e of state.changelog.filter((x) => !CLAUDE_CHANGES.some((s) => s.id === x.id))) {
       expect(e.via).toBeUndefined();
       expect(e.claudeActionId).toBeUndefined();
       expect(e.undoOf).toBeUndefined();
@@ -380,13 +383,16 @@ describe("il registro: via, undoOf e il filtro", () => {
 
   it("listChanges({ via }) dà solo le voci col segno; personId le include; la scelta «claude»", async () => {
     as(ROBERTA);
-    expect((await changelog.listChangeFilterChoices()).claude).toBe(false);
+    // Il seme del 10a ha già voci col segno (Task 7): la scelta c'è dall'inizio.
+    expect((await changelog.listChangeFilterChoices()).claude).toBe(true);
     runAsClaude(mark(), () => rename(ROBERTA, OLV));
     rename(ROBERTA, OLV);
     const marked = state.changelog.at(-2)!;
 
     const onlyClaude = await changelog.listChanges({ via: "claude" });
-    expect(onlyClaude.map((e) => e.id)).toEqual([marked.id]);
+    // Le voci col segno del seme (MKX, Task 7) ci sono già: contano le nuove.
+    const seededIds = new Set(CLAUDE_CHANGES.map((c) => c.id));
+    expect(onlyClaude.map((e) => e.id).filter((id) => !seededIds.has(id))).toEqual([marked.id]);
     const byRoberta = await changelog.listChanges({ personId: ROBERTA });
     expect(byRoberta.map((e) => e.id)).toContain(marked.id);
     expect(byRoberta.find((e) => e.id === marked.id)?.actorId).toBe(ROBERTA);

@@ -1,4 +1,5 @@
 import type { ActivityEntry, Task } from "../types";
+import { CLAUDE_ACTIVITY } from "./claudeActions";
 import { DECISION_REQUESTS } from "./decisions";
 import { PROJECT_STATUSES } from "./statuses";
 import { TASKS } from "./tasks";
@@ -111,6 +112,8 @@ const decisions: ActivityEntry[] = DECISION_REQUESTS.filter((d) => d.answer !== 
 }));
 
 /** Attività (commenti, cambi di campo, decisioni) delle task dei progetti di riferimento. */
-export const ACTIVITY: ActivityEntry[] = [...generated, ...extra, ...decisions].sort((a, b) =>
-  a.at.localeCompare(b.at),
-);
+export const ACTIVITY: ActivityEntry[] = [
+  ...[...generated, ...extra, ...decisions].sort((a, b) => a.at.localeCompare(b.at)),
+  // Area 10a: le righe con `via`, in fondo (gli indici di prima non si spostano).
+  ...CLAUDE_ACTIVITY,
+];

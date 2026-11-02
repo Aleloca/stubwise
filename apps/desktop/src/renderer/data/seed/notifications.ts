@@ -1,5 +1,6 @@
 import type { AppNotification } from "../types";
 import { ALERT_NOTIFICATIONS } from "./alerts";
+import { CLAUDE_NOTIFICATIONS } from "./claudeActions";
 import { CLOCK_START } from "./dates";
 import { PEOPLE } from "./people";
 import { PROJECTS } from "./projects";
@@ -361,6 +362,8 @@ export const NOTIFICATIONS: AppNotification[] = [
   ...FIXED_NOTIFICATIONS,
   ...ALERT_NOTIFICATIONS,
   ...SERVER_ALERT_NOTIFICATIONS,
+  // Area 10a: la notifica di Marco per un'azione di Claude, poi annullata.
+  ...CLAUDE_NOTIFICATIONS,
 ];
 
 /** Il numero più alto dei codici `SEC-n` del seme: gli avvisi di sicurezza nuovi continuano da qui. */

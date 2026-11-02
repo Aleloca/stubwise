@@ -1,3 +1,4 @@
+import { CLAUDE_SEED_IDS, CLAUDE_SEED_TIMES, HANDOVER_TASK, MOVE_TASK } from "../claudeActions";
 import { asks, at, done, says, seeded, type Seeded } from "./helpers";
 
 // Conversazioni libere: di Giulia (una pubblica che tocca AUD, che Sara non
@@ -443,6 +444,109 @@ const lauraSlipped = seeded(
   ],
 );
 
+// Area 10a: due conversazioni di Giulia nate dal riquadro di Claude. La
+// prima ha un'azione di classe A (eseguita senza scheda) e poi annullata; la
+// seconda una scheda B confermata con due azioni e poi annullata. Le azioni
+// eseguite stanno in `data/seed/claudeActions.ts` (`state.claudeActions`).
+const giuliaMove = seeded(
+  {
+    id: CLAUDE_SEED_IDS.move.conversation,
+    kind: "free",
+    title: "Move my MKX task one week later",
+    ownerId: "p-giulia",
+    state: "idle",
+    touchedProjectIds: ["prj-mkx"],
+  },
+  [
+    asks(at(4, "10:20"), "p-giulia", "Move my MKX task one week later."),
+    says(
+      at(4, "10:21"),
+      `Done: **${MOVE_TASK.code} Spring campaign brief** is planned for W42.`,
+    ),
+    {
+      at: CLAUDE_SEED_TIMES.move.run,
+      type: "executed",
+      groupId: CLAUDE_SEED_IDS.move.group,
+      actions: [
+        {
+          fn: "planTask",
+          args: { id: MOVE_TASK.id, plan: { assigneeId: "p-giulia", week: MOVE_TASK.to } },
+          summary: `Plan ${MOVE_TASK.code} · Spring campaign brief for week 42`,
+          summaryText: {
+            key: "claude.answers.plan.summaryShort",
+            params: { task: `${MOVE_TASK.code} Spring campaign brief`, week: "W42" },
+          },
+        },
+      ],
+      status: "done",
+      resultCodes: [MOVE_TASK.code],
+    },
+  ],
+);
+
+const giuliaBrief = seeded(
+  {
+    id: CLAUDE_SEED_IDS.brief.conversation,
+    kind: "free",
+    title: "MKX brief and a task for Marco",
+    ownerId: "p-giulia",
+    state: "idle",
+    touchedProjectIds: ["prj-olv", "prj-mkx"],
+  },
+  [
+    asks(
+      at(1, "09:38"),
+      "p-giulia",
+      "Give OLV-1 to Marco and turn off the weekly brief in MKX, nobody reads it.",
+    ),
+    says(
+      at(1, "09:39"),
+      "I'm asking first: it notifies Marco Bellini. Nothing happens until you confirm it.",
+    ),
+    {
+      at: at(1, "09:39"),
+      type: "proposal",
+      proposalId: "prop-giulia-brief-1",
+      requesterId: "p-giulia",
+      actions: [
+        {
+          fn: "planTask",
+          args: {
+            id: HANDOVER_TASK.id,
+            plan: { assigneeId: "p-marco", week: HANDOVER_TASK.week },
+          },
+          summary: `Plan ${HANDOVER_TASK.code} · Refresh landing page hero copy for week 45`,
+          summaryText: {
+            key: "claude.answers.plan.summaryShort",
+            params: { task: `${HANDOVER_TASK.code} Refresh landing page hero copy`, week: "W45" },
+          },
+        },
+        {
+          fn: "saveProjectAutomations",
+          args: {
+            projectId: "prj-mkx",
+            switches: {
+              docsNightly: false,
+              dailyReport: false,
+              backlogDiscovery: true,
+              pulse: true,
+              weeklyBrief: false,
+            },
+            pulseEveryDays: 7,
+            correctionCap: 3,
+          },
+          summary: "Turn off the weekly brief in MKX",
+        },
+      ],
+      status: "confirmed",
+      resultCodes: [HANDOVER_TASK.code],
+      cls: "B",
+      reasons: [{ kind: "notifies", personIds: ["p-marco"], more: false }],
+      groupId: CLAUDE_SEED_IDS.brief.group,
+    },
+  ],
+);
+
 export const FREE_CONVERSATIONS: Seeded[] = [
   giuliaStatus,
   giuliaPhotos,
@@ -451,4 +555,6 @@ export const FREE_CONVERSATIONS: Seeded[] = [
   marcoImport,
   marcoContinues,
   lauraSlipped,
+  giuliaMove,
+  giuliaBrief,
 ];

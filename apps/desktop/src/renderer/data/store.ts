@@ -15,6 +15,7 @@ import {
   RELEASE_PAGES,
 } from "./seed/chat";
 import { CONVERSATION_EVENTS, CONVERSATIONS } from "./seed/conversations";
+import { CLAUDE_ACTIONS, SEED_MAX_SEQ } from "./seed/claudeActions";
 import { CLOCK_START } from "./seed/dates";
 import { DECISION_LOG } from "./seed/decisionLog";
 import { DECISION_REQUESTS } from "./seed/decisions";
@@ -1157,7 +1158,7 @@ function freshState(): State {
   return {
     access: resetAccessState(),
     changelog: seedChangelog(),
-    claudeActions: [],
+    claudeActions: CLAUDE_ACTIONS.map(copy),
     objectWrites: [],
     reauth: new Map(),
     secondFactorAttempts: new Map(),
@@ -1215,7 +1216,8 @@ function freshState(): State {
     chatDismissed: new Set(),
     releasePages: RELEASE_PAGES.map(copy),
     chatSeq: 0,
-    alertSeq: 0,
+    // Il seme ha già degli `seq` (azioni di Claude, area 10a): i nuovi vengono dopo.
+    alertSeq: SEED_MAX_SEQ,
     docPages: DOC_PAGES.map(copy),
     docSpaces: DOC_SPACES.map(copy),
     docCodeSeq: initialDocCodeSeq(),
