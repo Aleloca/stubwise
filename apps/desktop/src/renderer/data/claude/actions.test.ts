@@ -10,6 +10,7 @@ import {
   sendMessage,
   setLatency,
   setStreamLatency,
+  stop,
 } from "../api";
 import { markReauthenticated } from "../auth/reauth";
 import type { ProposedAction } from "../model";
@@ -183,6 +184,26 @@ describe("classe A: parte all'invio", () => {
     expect((await getConversation(cid))!.undo).toEqual({
       [first!.groupId]: { state: "changed_after", byName: "Giulia Ferri", code: task!.code },
       [second.groupId]: { state: "available", needsReauth: false },
+    });
+  });
+
+  it("«Ferma» subito dopo l'esecuzione, mentre arriva «Done…»: la task c'è, e anche la sua riga con «Annulla»", async () => {
+    // Con la latenza dello stream la frase arriva a pezzi: «Ferma» taglia i
+    // passi che restano, ma non la riga di ciò che è già stato fatto.
+    setStreamLatency(5);
+    as(GIULIA);
+    const cid = (await createConversation()).id;
+    const sending = sendMessage(cid, { text: 'crea "Prova" in MKX' });
+    while (state.claudeActions.length === 0) await new Promise((r) => setTimeout(r, 1));
+    await stop(cid);
+    await sending;
+    const [task] = tasksTitled(MKX, "Prova");
+    expect(task).toBeDefined();
+    const [row] = executedOf(cid);
+    expect(row).toMatchObject({ status: "done", resultCodes: [task!.code] });
+    expect(row!.groupId).toBe(state.claudeActions[0]!.groupId);
+    expect((await getConversation(cid))!.undo).toEqual({
+      [row!.groupId]: { state: "available", needsReauth: false },
     });
   });
 });

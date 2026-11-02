@@ -2203,7 +2203,10 @@ async function freeTurn(
   const prepared = prepareExecuted(me, id, steps);
   steps = prepared.steps;
   const runs = prepared.runs.map((task) => ({ task, c: openRun(me, task) }));
-  const touchedNew = touchProjects(c, projectsOfSteps(steps));
+  // Le righe eseguite sono già nel flusso: i loro progetti li dice `prepared`.
+  const touchedNew = touchProjects(c, [
+    ...new Set([...projectsOfSteps(steps), ...prepared.projectIds]),
+  ]);
   // Si consegna solo la trattenuta di QUESTO turno, se c'è ancora (una
   // riconferma nel frattempo l'ha già consegnata).
   if (held && !touchedNew) releaseHold(c, messageIndex);

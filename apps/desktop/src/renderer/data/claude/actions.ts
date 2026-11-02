@@ -16,7 +16,7 @@ import {
   storeGeneration,
   visibleProjectIds,
 } from "../store";
-import { notifyConversationChange } from "../stream";
+import { appendExecuted, notifyConversationChange } from "../stream";
 import type { TaskBusyReason } from "../taskDelete";
 import type { UndoView } from "../types";
 import { CLAUDE_CATALOG, declaredClassOf, isCatalogFn } from "./catalog";
@@ -158,8 +158,9 @@ function sayBefore(steps: ScriptStep[], index: number): number {
 /**
  * Prima che la risposta entri nel flusso (`freeTurn`, senza attese in
  * mezzo): ogni `executed` `pending` del motore si esegue se la classe,
- * ricalcolata adesso, è ancora A — e diventa `done` coi codici o `failed`
- * col motivo («Didn't run», senza la frase «fatto») —; se è salita diventa
+ * ricalcolata adesso, è ancora A — e la sua riga `done` coi codici, o
+ * `failed` col motivo («Didn't run», senza la frase «fatto»), entra nel
+ * flusso subito, fuori dalla coda che «Ferma» taglia —; se è salita diventa
  * una scheda aperta con classe e motivi, e la frase «fatto» diventa
  * «I'm asking first: …» (`classRaised`). Le proposte del motore ricevono la
  * loro classe calcolata (`cls`, `reasons`): la scheda la legge, non la deduce.
@@ -168,8 +169,15 @@ export function prepareExecuted(
   me: string,
   conversationId: string,
   input: ScriptStep[],
-): { steps: ScriptStep[]; runs: Task[]; after: ((gen: number) => Promise<void>)[] } {
+): {
+  steps: ScriptStep[];
+  runs: Task[];
+  after: ((gen: number) => Promise<void>)[];
+  /** I progetti dei gruppi eseguiti: le loro righe non sono più nei passi. */
+  projectIds: string[];
+} {
   const steps = [...input];
+  const projectIds: string[] = [];
   const runs: Task[] = [];
   const after: ((gen: number) => Promise<void>)[] = [];
   const drop = new Set<number>();
@@ -211,6 +219,7 @@ export function prepareExecuted(
       next = { ...event, groupId: result.groupId, status: "done", resultCodes: result.codes };
       runs.push(...result.runs);
       after.push(...result.after);
+      for (const id of result.projectIds) if (!projectIds.includes(id)) projectIds.push(id);
     } else {
       const errorText: Utterance = {
         key: `claude.executed.failed.${result.code}`,
@@ -220,9 +229,13 @@ export function prepareExecuted(
       // Non è stato fatto niente: la riga «Didn't run» lo dice, la frase «fatto» no.
       if (said !== -1) drop.add(said);
     }
-    steps[index] = { step: "event", event: next };
+    // La riga entra nel flusso ADESSO, insieme al gruppo: «Ferma» taglia lo
+    // stream, mai la riga di ciò che è già stato fatto. Lo stream anima solo
+    // il testo che segue.
+    appendExecuted(conversationId, next);
+    drop.add(index);
   });
-  return { steps: steps.filter((_, i) => !drop.has(i)), runs, after };
+  return { steps: steps.filter((_, i) => !drop.has(i)), runs, after, projectIds };
 }
 
 // --- «com'era» e «Annulla» -----------------------------------------------------

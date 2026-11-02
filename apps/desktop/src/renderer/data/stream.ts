@@ -152,6 +152,21 @@ export function appendUserMessage(
   return append(conversationId, draft);
 }
 
+/**
+ * La riga di un gruppo di azioni di Claude appena eseguito (area 10a): entra
+ * nel flusso SUBITO, nello stesso momento in cui il gruppo diventa vero, e
+ * non dalla coda dello stream, che «Ferma» taglia. Così nessuna scrittura di
+ * Claude resta senza la sua riga (e il suo «Annulla»). Stesso `append`,
+ * quindi stesso unico punto di emissione.
+ */
+export function appendExecuted(
+  conversationId: string,
+  draft: Extract<EventDraft, { type: "executed" }>,
+): ConversationEvent {
+  if (!findConversation(conversationId)) throw new Error("not_found");
+  return append(conversationId, draft);
+}
+
 const findConversation = (id: string): Conversation | undefined =>
   state.conversations.find((c) => c.id === id);
 
