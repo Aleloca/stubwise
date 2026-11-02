@@ -252,6 +252,40 @@ describe("«Undo» di una scheda confermata", () => {
   });
 });
 
+describe("bloccante 4 di Impeccable: in it l'Undo della riga e il Cancel della scheda non sono la stessa parola", () => {
+  it("«Annulla l'azione» / «Annulla entrambe le azioni» accanto al «Annulla» della scheda", async () => {
+    await i18n.changeLanguage("it");
+    const flow = await confirmedCard(GIULIA, [
+      { fn: "createTask", args: { projectId: MKX, title: "Uno" }, summary: "Crea in MKX: «Uno»" },
+    ]);
+    mount(flow, GIULIA);
+    expect(await screen.findByRole("button", { name: "Annulla l'azione" })).toBeInTheDocument();
+    as(GIULIA);
+    await act(() =>
+      api.runScript(flow, [
+        {
+          step: "event",
+          event: {
+            type: "proposal",
+            proposalId: "prop-next",
+            requesterId: GIULIA,
+            actions: [{ fn: "createTask", args: { projectId: MKX, title: "Due" }, summary: "Crea" }],
+            status: "open",
+            cls: "B",
+            reasons: [],
+          },
+        },
+      ]),
+    );
+    expect(await screen.findByRole("button", { name: "Annulla" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^Annulla/ })).toHaveLength(2);
+    expect(i18n.t("claude.conversation.undo.undoBoth")).toBe("Annulla entrambe le azioni");
+    expect(i18n.t("claude.conversation.undo.undoAll", { count: 3 })).toBe(
+      "Annulla tutte e 3 le azioni",
+    );
+  });
+});
+
 describe("«Undo» che avviserebbe qualcuno (I1 della revisione finale)", () => {
   it("planTask verso Marco: Undo apre una scheda «Notifies Marco Bellini», la riga aspetta, Confirm annulla", async () => {
     const user = userEvent.setup();

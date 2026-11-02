@@ -3713,9 +3713,9 @@
         "and": " e "
       },
       "undo": {
-        "undo": "Annulla",
-        "undoBoth": "Annulla entrambe",
-        "undoAll": "Annulla tutte e {{count}}",
+        "undo": "Annulla l'azione",
+        "undoBoth": "Annulla entrambe le azioni",
+        "undoAll": "Annulla tutte e {{count}} le azioni",
         "needsCode": "chiede il codice",
         "undone": "Annullata",
         "undoneBy": "Annullata da {{name}}",
