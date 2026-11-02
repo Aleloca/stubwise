@@ -23,7 +23,7 @@ import * as scripts from "./conversation-scripts";
 import { publishChatEvent } from "./chat/events";
 import { currentVia, runAsClaude, type ViaClaude } from "./claude/via";
 import { classOfGroup } from "./claude/classes";
-import { executeGroup, prepareExecuted, reauthMissing } from "./claude/actions";
+import { executeGroup, failureOf, prepareExecuted, reauthMissing } from "./claude/actions";
 import { DEFAULT_PUBLISHED_EVENTS } from "./seed/chat";
 import { COMMITS } from "./seed/commits";
 import { TODAY } from "./seed/dates";
@@ -2804,7 +2804,9 @@ async function settleInConversation(
     const error = i18n.t(`claude.proposalFailed.${result.code}`, {
       action: chosen.actions[result.index]?.summary ?? "",
     });
-    await place.patch({ type: "proposal", status: "failed", error }, gen);
+    // Il rifiuto anche in forma di dato: «Couldn't do it: … · Who?» (Task 9, I1).
+    const failure = failureOf(me, chosen.actions, result);
+    await place.patch({ type: "proposal", status: "failed", error, failure }, gen);
     return { status: "failed", error };
   }
   place.touched(result.projectIds);

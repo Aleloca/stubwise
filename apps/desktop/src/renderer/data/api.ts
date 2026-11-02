@@ -95,6 +95,8 @@ import type {
 } from "./types";
 import { undoViewOf } from "./claude/actions";
 import { canSeeAutomation } from "./automations/visibility";
+import { canSeeAdmin, canSeeAdminSection } from "./adminSections";
+import { ADMIN_SECTIONS } from "./routes";
 import {
   contextIdFor,
   contextOf,
@@ -751,7 +753,7 @@ export async function contextIdOf(kind: CodedContextKind, code: string): Promise
  * Quali indirizzi interni (`#/…`, i link delle righe D di Claude) chi guarda
  * può aprire (area 10a, Task 9): il progetto di `#/p/<CODE>/…` (e la task di
  * `?task=`), la conversazione di `#/claude/<id>`, l'automazione di
- * `#/automations/<CODE>`. Un posto generale (Preferenze, la Posta, le
+ * `#/automations/<CODE>`, la voce di `#/admin/<voce>` (`canSeeAdminSection`). Un posto generale (Preferenze, la Posta, le
  * sessioni dal vivo) si apre sempre. La riga D di una pubblica letta da un
  * altro è un link solo dove la meta si vede: altrimenti resta testo.
  */
@@ -779,6 +781,13 @@ export async function openRoutes(routes: string[]): Promise<string[]> {
     if (parts[0] === "automations" && parts[1]) {
       const a = state.automations.find((x) => x.code === parts[1]);
       return !!a && canSeeAutomation(me, a);
+    }
+    // L'Amministrazione: solo la voce che chi legge apre (ruling del controller, T9).
+    if (parts[0] === "admin") {
+      const viewer = viewerFor(me);
+      if (!parts[1]) return canSeeAdmin(viewer);
+      const section = ADMIN_SECTIONS.find((s) => s.id === parts[1]);
+      return !!section && canSeeAdminSection(viewer, section.id);
     }
     return true;
   });

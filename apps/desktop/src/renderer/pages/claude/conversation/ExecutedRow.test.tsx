@@ -337,6 +337,76 @@ describe("le righe D", () => {
     expect(message.querySelector('[data-who-can="recordDecision"]')).not.toBeNull();
     expect(message.querySelector('a[href*="recordDecision"]')).toBeNull();
   });
+
+  it("(ruling T9) un link all'Amministrazione solo se chi legge apre quella sezione", async () => {
+    as(GIULIA);
+    expect(await api.openRoutes(["#/admin/roles", "#/admin/people"])).toEqual(["#/admin/people"]);
+    as(ROBERTA);
+    expect(await api.openRoutes(["#/admin/roles"])).toEqual(["#/admin/roles"]);
+    const { id, container } = await sent("Hello", GIULIA);
+    await act(() =>
+      api.runScript(id, [
+        {
+          step: "say",
+          text: "Roles are yours to change. [Open Administration → Roles →](#/admin/roles)",
+        },
+      ]),
+    );
+    const last = () =>
+      [...container.querySelectorAll("[data-assistant]")].at(-1)?.textContent ?? "";
+    await waitFor(() => expect(last()).toContain("Open Administration → Roles →"));
+    expect(screen.queryByRole("link", { name: /Administration → Roles/ })).toBeNull();
+  });
+});
+
+describe("I2: la riga eseguita sotto il testo di Claude", () => {
+  it("«Done…» prima, la riga dopo, nello stesso turno", async () => {
+    const { container } = await sent('create "Prova" in MKX');
+    const row = await rowOf();
+    const text = await waitFor(() => {
+      const el = [...container.querySelectorAll("[data-assistant]")].at(-1);
+      expect(el?.textContent).toContain("Done");
+      return el!;
+    });
+    expect(text.compareDocumentPosition(row)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+});
+
+describe("I1: una scheda non riuscita per un permesso perso", () => {
+  it("«Couldn't do it: … Nothing was changed. · Who?»", async () => {
+    const user = userEvent.setup();
+    as(GIULIA);
+    const c = await api.createConversation();
+    await api.runScript(c.id, [
+      {
+        step: "event",
+        event: {
+          type: "proposal",
+          proposalId: "prop-i1",
+          requesterId: GIULIA,
+          actions: [{ fn: "archiveProject", args: { projectId: OLV }, summary: "Archive OLV" }],
+          status: "open",
+          cls: "B",
+          reasons: [],
+        },
+      },
+    ]);
+    revokeProjectPermission(GIULIA, OLV, "project.settings.manage" as never);
+    mount(c.id, GIULIA);
+    const card = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>("[data-proposal]");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    await user.click(within(card).getByRole("button", { name: "Confirm" }));
+    await waitFor(() =>
+      expect(card.textContent).toContain(
+        "Couldn't do it: you can no longer change the project settings in OLV. Nothing was changed. · Who?",
+      ),
+    );
+    expect(card.querySelector('[data-who-can="manageProjectSettings"]')).not.toBeNull();
+    expect(state.projectsById.get(OLV)!.archived).toBeFalsy();
+  });
 });
 
 // La pagina non decide i permessi (P13 del 9c): nei file della conversazione

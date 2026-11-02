@@ -3544,7 +3544,9 @@
         },
         "delete": "Delete",
         "needsCode": "This needs your two-step code first. Nothing was changed.",
-        "reauthMany": "carry out these {{count}} changes"
+        "reauthMany": "carry out these {{count}} changes",
+        "failedForbidden": "Couldn't do it: you can no longer {{action}} in {{code}}. Nothing was changed.",
+        "failedForbiddenNoProject": "Couldn't do it: you can no longer {{action}}. Nothing was changed."
       },
       "result": {
         "open": "Open",

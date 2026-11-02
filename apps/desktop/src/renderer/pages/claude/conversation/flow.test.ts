@@ -51,6 +51,63 @@ describe("flowItems", () => {
     expect(items[1]).toMatchObject({ event: { groupId: "cg-1", status: "done" } });
   });
 
+  it("I2: la riga `executed` si legge sotto il testo di Claude dello stesso turno; senza testo resta dov'è", () => {
+    const create = { fn: "createTask" as const, args: {}, summary: "Create" };
+    const user = () =>
+      ev({
+        type: "user",
+        authorId: "p-giulia",
+        text: "Hi",
+        attachments: [],
+        delivery: "delivered",
+      });
+    const items = flowItems([
+      user(),
+      ev({ type: "executed", groupId: "cg-1", actions: [create], status: "done" }),
+      ev({ type: "assistant", text: "Done", done: true }),
+      ev({ type: "citation", refs: [{ kind: "task", id: "t1" }] }),
+      // «Ferma» prima del testo: la riga resta, e il turno dopo non la porta via.
+      ev({ type: "executed", groupId: "cg-2", actions: [create], status: "done" }),
+      user(),
+      ev({ type: "assistant", text: "Next", done: true }),
+    ]);
+    expect(items.map((i) => i.kind)).toEqual([
+      "user",
+      "claude",
+      "assistant",
+      "executed",
+      "executed",
+      "user",
+      "claude",
+      "assistant",
+    ]);
+    expect(items[3]).toMatchObject({ event: { groupId: "cg-1" } });
+    expect(items[2]).toMatchObject({ refs: [{ kind: "task", id: "t1" }] });
+  });
+
+  it("I2: una riga che non trova il testo non scavalca una scheda che viene dopo", () => {
+    const create = { fn: "createTask" as const, args: {}, summary: "Create" };
+    const items = flowItems([
+      ev({ type: "executed", groupId: "cg-1", actions: [create], status: "failed" }),
+      ev({ type: "action", tool: "a", label: "A", state: "done" }),
+      ev({
+        type: "proposal",
+        proposalId: "p",
+        requesterId: "p-giulia",
+        actions: [create],
+        status: "open",
+      }),
+      ev({ type: "assistant", text: "Later", done: true }),
+    ]);
+    expect(items.map((i) => i.kind)).toEqual([
+      "claude",
+      "actions",
+      "executed",
+      "proposal",
+      "assistant",
+    ]);
+  });
+
   it("citedRefs: ogni oggetto una volta", () => {
     expect(
       citedRefs([

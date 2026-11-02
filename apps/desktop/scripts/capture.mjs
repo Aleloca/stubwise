@@ -200,8 +200,8 @@ async function main() {
         }, `/claude/${id}`);
         await page.locator("[data-executed]").first().waitFor();
         await page.waitForTimeout(1500);
-        // La riga eseguita in testa allo scatto, con la scheda B sotto.
-        await page.locator("[data-executed]").first().evaluate((el) => el.scrollIntoView({ block: "start" }));
+        // Il testo di Claude e la riga eseguita sotto in testa allo scatto, con la scheda B dopo.
+        await page.locator("[data-assistant]").first().evaluate((el) => el.scrollIntoView({ block: "start" }));
         await page.waitForTimeout(300);
         await page.mouse.move(v.viewport.width - 2, v.viewport.height - 2);
         const flow = `a10a-actions-flow-${v.suffix}.png`;
@@ -212,6 +212,71 @@ async function main() {
         await page.mouse.move(v.viewport.width - 2, v.viewport.height - 2);
         const undone = `a10a-actions-undone-${v.suffix}.png`;
         if (!only || only.test(undone)) await shot(page, undone);
+        await context.close();
+      }
+      // Dentro il riquadro (ruling del controller, T9): la riga eseguita col
+      // rifiuto di «Undo» (permesso tolto), «Didn't run», poi la scheda C.
+      // Scatti `a10a-actions-panel-rows-*` e `a10a-actions-panel-card-*`.
+      for (const v of variants) {
+        const { page, context } = await open(v.scheme, v.viewport, "/p/MKX/tasks", { lang: v.lang });
+        await page.getByRole("button", { name: /^(Ask Claude|Chiedi a Claude)$/ }).click();
+        const box = page.locator("#claude-panel textarea");
+        await box.waitFor();
+        const send = async (text) => {
+          await box.fill(text);
+          await box.press("Enter");
+          await page.waitForTimeout(2500);
+        };
+        await send(v.lang === "it" ? 'crea "Prova" in MKX' : 'create "Prova" in MKX');
+        await page.locator("#claude-panel [data-undo-button]").first().waitFor();
+        // Giulia perde i permessi sulle task di MKX: «Undo» rifiuta, la prossima non parte.
+        await page.evaluate(async () => {
+          const viewer = await import("/data/viewer.ts");
+          for (const p of ["tickets.edit", "tickets.moderate", "tickets.create"])
+            viewer.revokeProjectPermission("p-giulia", "prj-mkx", p);
+        });
+        await page.locator("#claude-panel [data-undo-button]").first().click();
+        await page.waitForTimeout(800);
+        await send(v.lang === "it" ? 'crea "Altra" in MKX' : 'create "Another" in MKX');
+        await page.locator("#claude-panel [data-executed-failed]").waitFor();
+        await page
+          .locator("#claude-panel [data-executed]")
+          .first()
+          .evaluate((el) => el.scrollIntoView({ block: "start" }));
+        await page.waitForTimeout(400);
+        await page.mouse.move(v.viewport.width - 2, v.viewport.height - 2);
+        const rows = `a10a-actions-panel-rows-${v.suffix}.png`;
+        if (!only || only.test(rows)) await shot(page, rows);
+        // La scheda C: aggiungere Laura a OLV, col codice a due fattori.
+        const summary =
+          v.lang === "it" ? "Aggiungi Laura Costa a OLV come Developer" : "Add Laura Costa to OLV as Developer";
+        await page.evaluate(async (text) => {
+          const api = await import("/data/api.ts");
+          const store = await import("/data/store.ts");
+          const c = store.state.conversations
+            .filter((x) => x.ownerId === "p-giulia" && x.kind === "free")
+            .at(-1);
+          const args = { projectId: "prj-olv", personId: "p-laura", roleId: "role-developer" };
+          await api.runScript(c.id, [
+            {
+              step: "event",
+              event: {
+                type: "proposal",
+                proposalId: "prop-capture-c",
+                requesterId: "p-giulia",
+                actions: [{ fn: "addMember", args, summary: text }],
+                status: "open",
+                cls: "C",
+                reasons: [{ kind: "reauth" }],
+              },
+            },
+          ]);
+        }, summary);
+        await page.locator("#claude-panel [data-proposal]").last().waitFor();
+        await page.waitForTimeout(600);
+        await page.mouse.move(v.viewport.width - 2, v.viewport.height - 2);
+        const card = `a10a-actions-panel-card-${v.suffix}.png`;
+        if (!only || only.test(card)) await shot(page, card);
         await context.close();
       }
       return;

@@ -45,7 +45,7 @@ import type {
 //   scritture col segno di un'azione del gruppo (`claudeActionId`) sono
 //   escluse per nome.
 
-type GroupFailure = {
+export type GroupFailure = {
   ok: false;
   index: number;
   code: FailureCode;
@@ -276,7 +276,11 @@ function projectOfArgs(me: string, args: Record<string, unknown>): string | null
 }
 
 /** Il rifiuto di un'azione A all'invio, in forma di dato per «Didn't run: … · Who?» (Task 9). */
-function failureOf(me: string, actions: ProposedAction[], failure: GroupFailure): ExecutedFailure {
+export function failureOf(
+  me: string,
+  actions: ProposedAction[],
+  failure: GroupFailure,
+): ExecutedFailure {
   const action = actions[failure.index];
   const projectId = action ? projectOfArgs(me, action.args) : null;
   return {

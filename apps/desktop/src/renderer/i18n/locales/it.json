@@ -3544,7 +3544,9 @@
         },
         "delete": "Elimina",
         "needsCode": "Prima serve il tuo codice a due fattori. Non è cambiato nulla.",
-        "reauthMany": "eseguire queste {{count}} modifiche"
+        "reauthMany": "eseguire queste {{count}} modifiche",
+        "failedForbidden": "Non è stato possibile: non puoi più {{action}} in {{code}}. Non è cambiato nulla.",
+        "failedForbiddenNoProject": "Non è stato possibile: non puoi più {{action}}. Non è cambiato nulla."
       },
       "result": {
         "open": "Apri",

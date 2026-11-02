@@ -100,7 +100,37 @@ export function flowItems(events: readonly ConversationEvent[]): FlowItem[] {
         break;
     }
   }
-  return out;
+  return executedBelowText(out);
+}
+
+/**
+ * La riga di ciò che Claude ha fatto si legge sotto il suo testo (shape
+ * `claude-actions.md` §3): nel flusso entra all'esecuzione, prima della
+ * frase «Done…» (ruling T5: «Ferma» non la taglia mai), e qui scende dopo
+ * il primo messaggio di Claude dello stesso turno. Solo l'ordine di
+ * presentazione: senza un messaggio dopo (fermato prima del testo) resta dov'è.
+ */
+function executedBelowText(items: FlowItem[]): FlowItem[] {
+  const out: FlowItem[] = [];
+  let held: FlowItem[] = [];
+  for (const item of items) {
+    if (item.kind === "executed") {
+      held.push(item);
+      continue;
+    }
+    // Scende solo oltre le letture e le citazioni che precedono il testo:
+    // qualunque altra riga (una persona, una scheda, una fase) chiude l'attesa.
+    if (item.kind !== "assistant" && item.kind !== "actions" && item.kind !== "citation") {
+      out.push(...held);
+      held = [];
+    }
+    out.push(item);
+    if (item.kind === "assistant") {
+      out.push(...held);
+      held = [];
+    }
+  }
+  return [...out, ...held];
 }
 
 /** Tutti gli oggetti citati nel flusso, una volta ciascuno (per leggerli in una sola volta). */

@@ -14,6 +14,7 @@ import { useReauth } from "../../../layout/useReauth";
 import { CheckBox } from "../../../tasks-ui/Menu";
 import { NewRequestDialog } from "../../requests/NewRequestDialog";
 import { NewTaskDialog } from "../../task/NewTaskDialog";
+import { WhoCanLink } from "../../../components/WhoCanLink";
 import { dangerSolidButton } from "../../tasks/controls";
 import { isMasculineGroup, objectCodesOf } from "./ExecutedRow";
 import type { Ev } from "./flow";
@@ -269,12 +270,36 @@ export function ProposalCardView({
         return (
           <p className="text-sm text-ink-muted">{t("claude.conversation.proposal.expired")}</p>
         );
-      case "failed":
+      case "failed": {
+        // Un permesso perso: la frase di quel permesso e «Who?» (shape, «Esiti negativi»).
+        const failure = event.failure;
+        if (failure?.code === "forbidden" && failure.whoAction) {
+          const action = t(`whoCan.actions.${failure.whoAction}`);
+          return (
+            <p className="text-sm text-critical">
+              {failure.projectCode
+                ? t("claude.conversation.proposal.failedForbidden", {
+                    action,
+                    code: failure.projectCode,
+                  })
+                : t("claude.conversation.proposal.failedForbiddenNoProject", { action })}
+              <span className="text-ink-muted">
+                {" · "}
+                <WhoCanLink
+                  action={failure.whoAction}
+                  projectId={failure.projectId}
+                  projectCode={failure.projectCode}
+                />
+              </span>
+            </p>
+          );
+        }
         return (
           <p className="text-sm text-critical">
             {t("claude.conversation.proposal.failed", { error: event.error ?? "" })}
           </p>
         );
+      }
       default:
         return null;
     }

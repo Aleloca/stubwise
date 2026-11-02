@@ -1043,6 +1043,8 @@ export type ConversationEvent =
       groupId?: string;
       /** Area 10a (Task 9): il codice dell'oggetto di ogni azione eseguita (task, richiesta, progetto). */
       objectCodes?: (string | null)[];
+      /** Area 10a (Task 9): il rifiuto della conferma in forma di dato, per «Couldn't do it: … · Who?». */
+      failure?: ExecutedFailure;
     }
   /**
    * Area 10a: azioni di Claude eseguite senza scheda (classe A) nella
