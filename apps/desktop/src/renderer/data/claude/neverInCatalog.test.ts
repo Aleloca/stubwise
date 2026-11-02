@@ -7,8 +7,10 @@ import { CLAUDE_CATALOG } from "./catalog";
 // `decisions-never-ai.test.ts` del server, e cerca RIFERIMENTI DI CODICE
 // (chiamate, import, accessi `api.<ns>.<nome>`), non parole: un commento,
 // una stringa, una regex di riconoscimento o un link possono nominare
-// «merge» o «recordDecision» (`refused.ts` deve riconoscerli, P11). Limite
-// accettato: un riferimento indiretto (un nome composto a runtime) sfugge.
+// «merge» o «recordDecision» (`refused.ts` deve riconoscerli, P11). Limiti
+// accettati: un riferimento indiretto (un nome composto a runtime) sfugge, e
+// il tokenizzatore non riconosce le regex letterali: una con `//` o un
+// apostrofo dentro può nascondere il codice che la segue (minor T4 M6).
 
 const SOURCES = import.meta.glob(
   [

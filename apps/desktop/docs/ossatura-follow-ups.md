@@ -717,10 +717,21 @@ si riscrivono.
     legge senza leggere l'annullata non vede «Undid:»; la creazione di una
     task, che non ha una voce, annullata scrive `task.deleted` col segno ma
     senza `undoOf` (ruling T5);
-  - dentro un «Annulla» non parte nessuna notifica: quella di prima si legge
-    «Undone by …», derivato a lettura, mai scritto nell'evento (stessa
-    dottrina di «I campi che un client legge su una card di inbox si
-    DERIVANO A LETTURA»);
+  - **un «Annulla» che avviserebbe qualcuno o farebbe partire
+    un'automazione non parte da solo** (ruling del controller sull'I1 della
+    revisione finale, 2 nov 2026): la classe degli inversi si calcola con
+    `classOf` sui dati di adesso, e con un motivo `notifies` o
+    `automation` nasce una scheda B (o più alta, mai più bassa) coi motivi,
+    `undoOf` sul gruppo, confermata come le altre; la riga dice «Confirm
+    below to undo» finché la scheda è aperta, un secondo clic la ritrova.
+    La conferma rilegge le regole di «Annulla» e lascia uscire gli avvisi
+    che la scheda ha detto (`announce` nel segno). Vale per ogni inverso,
+    non solo per riapri/chiudi (`undo.test.ts`, «riapri → «Annulla» con
+    un'automazione su `task_closed`»);
+  - dentro un «Annulla» che parte da solo non parte nessuna notifica:
+    quella di prima si legge «Undone by …», derivato a lettura, mai scritto
+    nell'evento (stessa dottrina di «I campi che un client legge su una
+    card di inbox si DERIVANO A LETTURA»);
   - non si annulla ciò che fa partire lavoro, distrugge o si rimetterebbe
     solo con la riconferma: `registerPlugin`, `updatePluginRef`,
     `rerunSmoke`, `removePlugin`, `retryJob`, `startRun`, `deleteTask`,
@@ -738,11 +749,13 @@ si riscrivono.
   a merge, deploy, approvare o rifiutare un piano, rispondere al posto della
   persona, registrare una decisione, scritture di segreti, verifiche e
   `simulate…` (ruling 11: parole e commenti non contano, un nome composto a
-  runtime e un riferimento dentro una regex letterale sfuggono, ed è
-  dichiarato). Le richieste vietate diventano una riga D che porta al posto
-  vero (`domain/claude/intents/refused.ts`), mai un controllo che lo faccia:
-  il deploy non ha nemmeno il link. Vale anche per la riga D «Approving is
-  yours: open the plan»: il gate di `jobs.ts` resta l'unico punto in cui si
+  runtime e un riferimento dentro una regex letterale con `//` o apostrofi
+  sfuggono, ed è dichiarato nell'intestazione del test). Le richieste
+  vietate diventano una riga D che porta al posto vero
+  (`domain/claude/intents/refused.ts`), mai un controllo che lo faccia: il
+  deploy non ha nemmeno il link. Vale anche per la riga D del piano
+  («Approving or rejecting a plan is yours to do.» col link «Open the plan
+  of **AUD-4** →»): il gate di `jobs.ts` resta l'unico punto in cui si
   approva.
 - **§15 — eliminare una task: costruita nel prototipo (10a), da scrivere
   prima del motore** in `docs/invariants/`. Sul web oggi non c'è: nessuna
@@ -1933,7 +1946,8 @@ del motore sono §12 (gli strumenti del riquadro), §13 («Annulla»), §14
 («Cosa Claude non fa») e §15 (eliminare una task), sotto «Invarianti del
 CLAUDE.md da riscrivere prima del motore». Qui: le scelte del costruttore
 del piano, i rinvii al 10b, i minori rimandati dalle revisioni dei Task
-1–11 (2 nov 2026), quello che si vede negli scatti del Task 12 e, in fondo,
+1–11 (2 nov 2026), quello che si vede negli scatti del Task 12, ciò che
+l'ondata finale ha lasciato aperto e, in fondo,
 le decisioni del maintainer e del controller sulle domande del piano.
 Ognuna delle scelte ha il suo costo se è sbagliata.
 
@@ -1975,6 +1989,27 @@ Ognuna delle scelte ha il suo costo se è sbagliata.
 - **Le differenze deliberate 3, 4 e 5 del design** (risposta onesta, segno
   delle bozze di Posta e Supporto, i due dati nuovi del motore delle
   automazioni): appartengono agli scenari del 10b.
+
+Il resto di ciò che il piano rinvia (`docs/plans/2026-11-02-desktop-area10a-plan.md`,
+introduzione e «Cosa vale del design»), una riga per voce:
+
+- **Gli scenari S0–S6b e i loro dati** (piano, introduzione): nessuna
+  scena del 10a li riproduce.
+- **La costruzione e la prova delle automazioni dal riquadro**, con **le tre
+  righe delle automazioni del catalogo** (piano, introduzione e «parte 2»):
+  il catalogo del 10a non ha voci che creano o provano un'automazione.
+- **«Le pagine che si possono riempire»** (design, parte 1; piano, «Cosa
+  vale del design»): il riquadro non riempie i campi della pagina.
+- **Le righe «Claude può aiutarti a…»** (piano, introduzione).
+- **Le righe «Filtro» e «Bozza in un campo» del catalogo**, e **la bozza
+  «Bozza di Claude» nei campi** (piano, introduzione e «parte 2»): sono
+  azioni che vivono nella pagina, non nel livello dati (*scelta del
+  controller*). Le differenze 3–5 qui sopra ne coprono solo il segno nella
+  Posta e nel Supporto.
+- **Lingua e tema di «Le tue preferenze»** (piano, «parte 2»): le notifiche
+  delle preferenze restano nel 10a (`setSubscription`).
+- **Le azioni in blocco di S4** (piano, «parte 5»): oltre a «Show N more»
+  qui sopra, le schede che toccano molte task insieme.
 
 ### Minori rimandati, per task
 
@@ -2057,8 +2092,11 @@ Task 5 (esecuzione e «Annulla»):
 - I rami R-G5 di `describeLater` e `refusalOf` non sono esercitati.
   *Perché*: copertura; il codice nasconde nome e codice.
 - `classReason.notifies` unisce i nomi con «, » invece di «and/e» (anche in
-  `change.ts`). *Perché*: con una persona sola, il caso del seme, non si
-  vede.
+  `change.ts`), e prende solo il primo motivo, mentre `ReasonRows` usa
+  «and/e» e «and N more»: la frase sopra la scheda e la riga «Notifies»
+  possono dire cose diverse con due persone (M6 della revisione finale).
+  *Perché*: con una persona sola, il caso del seme, non si vede; una
+  funzione di `domain/` per l'elenco dei nomi va fatta col 10b.
 - `settleInConversation` e il ramo Chat di `settleProposal` sono quasi
   gemelli. *Perché*: refactor.
 - Il test della coda in pausa ha asserzioni deboli. *Perché*: copertura.
@@ -2069,9 +2107,6 @@ Task 5 (esecuzione e «Annulla»):
 - Fuori dal «com'era»: modifica ed eliminazione di commenti, sessioni
   `task_run` di `servers/fix.ts`, refine e intake sulle richieste.
   *Perché*: §13, da decidere col motore.
-- I segnali delle automazioni si rilasciano anche per gli inversi: l'«Annulla»
-  di una riapertura farebbe partire un'automazione `task_closed`. *Perché*:
-  né brief né shape lo dicono; da decidere.
 
 Task 6 (intenti e righe D):
 - `within: 5` di `refused.ts`: un segreto vicino al verbo trasforma una
@@ -2139,9 +2174,6 @@ Task 9 (righe e schede):
 - «I'm asking first: it notifies Matteo Conti.» invece di «Matteo Conti
   follows new tasks in AUD.». *Perché*: il dato non dice se è iscritto o
   assegnatario.
-- La frase della riconferma nasce dal riassunto: in it «Per aggiungi Laura
-  Costa…». *Perché*: confermato negli scatti (sotto); serve una chiave
-  `reauthAction` per `fn`.
 - `key={row.kind}` ripete le chiavi con più righe `automation`. *Perché*:
   solo un warning.
 - «and 2 more» insieme a `more` dà due code nella stessa frase. *Perché*:
@@ -2215,38 +2247,80 @@ anche il motivo dell'automazione. Rimandati come gli altri minori:
   `document.activeElement`). Dopo un clic col mouse l'anello non si vede
   (`:focus-visible` di Chromium), da tastiera sì: comportamento del
   browser. Il toast di prima non copre più lo scatto busy.
-- **`task.assigned` di una persona (senza Claude) mescola le lingue.** In
-  it il titolo è «Ti è stata assegnata OLV-6» e il corpo è quello salvato,
-  in inglese: «OLV-6 · Harvest photos: Giulia Ferri assigned it to you.»
-  (`a10a-trace-notifications-planned-*-it`). Lo shape vuole «Giulia Ferri
-  assigned you OLV-6.» / «Giulia Ferri ti ha assegnato OLV-6.», com'è già
-  per la variante con Claude dopo il T11. *Perché resta*: il corpo salvato
-  in inglese è dell'area 4; la correzione è la stessa del T11 (frase
-  composta a lettura anche senza segno).
-- **La riconferma in it: «Per aggiungi Laura Costa a OLV come Developer,
-  inserisci un codice…»** (`a10a-actions-panel-reauth-*-it`). È il T9 M5,
-  ora visibile: nessun intento del 10a produce una C, la scena la inietta.
-- **La settimana nelle schede in it è «W44»**, non «S44» come nella
-  notifica di pianificazione («…per S46»): «Pianifica ACQ-3 Issue the
-  quarterly invoices · Silvia Longo · W44» (`a10a-panel-task-*-it`). Il
-  riassunto della proposta compone la settimana senza tradurla.
-- **Il chip del riquadro in it dice «ACQ-3 · task»** mentre la pagina le
-  chiama «Attività» (`a10a-panel-*-it`).
-- **In it «Annulla» è sia il Cancel della scheda sia l'Undo della riga**,
-  uno accanto all'altro nella stessa conversazione
-  (`a10a-actions-flow-*-it`). Le chiavi sono dello shape; il maintainer
-  decida se l'Undo diventa «Annulla l'azione» o simile.
-- **Il riassunto di una scheda d'eliminazione non ha le virgolette**: «Elimina
-  MKX-7 Translate the landing page into German», mentre la creazione dice
-  «Crea in AUD: «Prova»». *Perché*: cosmetico.
+- **Chiusi nell'ondata finale** (2 nov 2026): `task.assigned` e
+  `planning.changed` senza Claude in lingua mista (I2), «Per aggiungi…»
+  nella riconferma (M1), «W44» nelle schede in it (M2, convenzione unica
+  `shortWeekIn`), le settimane grezze nelle righe d'attività, «Annulla»
+  doppio in it (l'Undo è «Annulla l'azione», da confermare: vedi sotto), le
+  virgolette nel dialogo e nel riassunto d'eliminazione.
+- **Il chip del riquadro in it dice «ACQ-3 · task»: resta così.** La
+  tabella dello shape approvato (claude-panel.md, «Il chip del contesto»)
+  vuole «ACQ-14 · task» anche in it, e «task» è il nome dell'oggetto in
+  tutta l'app («Nuova task», «Elimina task»); «Attività» è il nome della
+  pagina, e il chip di pagina dice infatti «MKX · Attività». La revisione
+  finale lo metteva fra le correzioni, Impeccable lo ha smentito: vale lo
+  shape. *Se sbagliata*: una stringa.
 - **La legenda dei reparti in fondo alla pagina si taglia sotto il
-  riquadro** senza ellissi («Developmen…», `a10a-panel-empty-*`). Lo stesso
-  succede già sotto il pannello delle notifiche: preesistente.
+  riquadro**: non è un difetto (Impeccable). Il riquadro copre l'area di
+  lavoro senza stringerla, come vuole [CP 11]; la legenda continua sotto.
+- **La velatura dei dialoghi copre anche il riquadro** (rifinitura 1 di
+  Impeccable, verificata): sotto «Conferma che sei tu» il riquadro sembra
+  più chiaro della pagina, ma è velato come lei (255 → 199 nei pixel, e
+  `elementFromPoint` sopra il riquadro trova la velatura): la differenza è
+  quella fra `surface` e `ground`. Nessuna modifica.
+- **Il «…» sotto la nota della richiesta dopo l'eliminazione** è il menu
+  «Altre azioni» (esportazione), che c'è per tutti per scelta dell'area 2:
+  isolato perché una richiesta trasformata non ha altre azioni. *Perché
+  resta*: preesistente. La sezione «Chiesta da» vuota è chiusa (rifinitura
+  6).
 - **Preesistenti, visti negli scatti e non del 10a**: «Settimana impostato a
-  2026-W46» (concordanza, chiave `moveSet`/`set` dell'area 2) e la
-  settimana grezza «2026-W41 → 2026-W42» nell'attività della task e nella
-  rassegna; i titoli delle notifiche diverse da quelle del 10a in inglese
-  anche in it.
+  S46» (concordanza, chiave `moveSet`/`set` dell'area 2); i titoli e i corpi
+  salvati delle notifiche diverse da `task.assigned` e `planning.changed`,
+  in inglese anche in it; i nomi degli stati nelle righe d'attività
+  («stato: Idea → Published»), che sono dati del progetto.
+
+### Dall'ondata finale (2 nov 2026)
+
+Lasciati aperti, ognuno col suo motivo:
+
+- **M4: il ramo Chat di `settleProposal` esegue tutto il catalogo, senza
+  classe né motivi.** Una proposta di @Claude con `deleteTask`,
+  `archiveProject` o `removeMember` non direbbe «Can't be undone» né
+  «Notifies …». *Perché resta*: latente, il motore della Chat non le
+  produce; il fix è un insieme esplicito di `fn` della Chat (come
+  `MAIL_FNS`), da fare quando il motore della Chat cresce.
+- **M5: «Annulla» di una task creata non vede i collegamenti messi dopo da
+  altri.** Marco segna la sua OLV-4 figlia di OLV-9 (creata da Claude per
+  Giulia): il collegamento si salva su OLV-4, `laterChangeOf` non lo vede e
+  l'«Annulla» elimina OLV-9 col collegamento. *Perché resta*: di bordo; il
+  fix (contare in `writesOn` le attività `links` delle altre task che
+  nominano la task, o rifiutare l'inverso `deleteTask` se
+  `getTaskDeletion` ha figlie o collegamenti) tocca il «com'era», da fare
+  col motore.
+- **M6: i due esecutori quasi gemelli** (`settleInConversation` e il ramo
+  Chat di `settleProposal`). *Perché resta*: refactor, col 10b.
+- **`planning.changed` a chi PERDE la task dice «… planned OLV-1 for
+  W45».** La frase composta (con Claude e ora anche a mano) parla della
+  settimana, non del passaggio a un altro: per chi la perde è imprecisa.
+  Si vede nel seme (la notifica a Marco dell'«Annulla» confermato). *Perché
+  resta*: la frase è del T11; serve un valore stabile in più (a chi è
+  andata), da decidere con la regola di R-G5 sul nome.
+- **La settimana nei parametri delle frasi di Claude si salva nella lingua
+  di chi chiede** (`summaryText.params.week` = «S44»): riletta in un'altra
+  lingua resta «S44». *Perché resta*: come il resto dei parametri (titoli,
+  nomi), la conversazione è di chi l'ha scritta; un parametro numerico con
+  la lettera nel modello cambierebbe tutte le chiavi delle risposte.
+- **«Annulla l'azione» per l'Undo in it** (bloccante 4 di Impeccable):
+  scelta del controller nell'ondata finale, da confermare. Lo shape
+  (claude-actions.md §7) voleva «Annulla» per Cancel e Undo «mai insieme»,
+  e negli scatti stavano insieme. *Se sbagliata*: tre stringhe.
+- **La convenzione «W» in en e «S» in it vale ora per tutta l'app**
+  (`shortWeekIn`), pagine dell'area 2 comprese (task, timeline, planning,
+  la mia settimana). *Se sbagliata*: una chiave (`week.short`).
+- **Un «Annulla» passato dalla scheda avvisa** (la scheda lo ha detto),
+  anche chi riceve di nuovo una task o la perde. *Se sbagliata*: il
+  ruling chiedeva solo che non parta da solo; la conferma silenziosa
+  renderebbe falsa la riga «Notifies» della scheda.
 
 ### Decisioni del maintainer (2 nov 2026)
 
@@ -2301,10 +2375,11 @@ I ruling del pre-flight (P1–P26) e dei task, uno per riga:
 - **P7** `applyActions(me, actions, { catalogOnly })`. *Se sbagliata*:
   un'opzione dimenticata riaprirebbe la strada laterale (coperto dal test
   RF3).
-- **P8** = decisione del maintainer su `task.assigned`. *Se sbagliata*: un
-  `notification_kind` in meno.
-- **P9** `planTask` è B quando avvisa qualcuno. *Se sbagliata*: qualche
-  spostamento in meno chiederebbe la scheda.
+- **P8** = decisione del maintainer su `task.assigned`. *Costo* (ledger):
+  un `notification_kind` nuovo e i conteggi di notifiche da aggiornare in
+  più suite.
+- **P9** `planTask` è B quando avvisa qualcuno. *Costo* (ledger): qualche
+  spostamento in più chiede la scheda.
 - **P10** i tipi del catalogo nella foglia `data/claude/types.ts`. *Se
   sbagliata*: un file in più.
 - **P11** `neverInCatalog` cerca riferimenti di codice, non parole. *Se

@@ -67,4 +67,8 @@ comportamento rispetto all'area 3 e al web:
 
 Le altre tre (3, 4 e 5 del design: la risposta onesta, il segno delle bozze
 di Posta e Supporto, i due dati nuovi del motore delle automazioni)
-appartengono al 10b.
+appartengono al 10b. L'elenco intero di ciò che il piano rinvia al 10b
+(scenari S0–S6b, automazioni dal riquadro, pagine da riempire, «Claude può
+aiutarti a…», righe «Filtro» e «Bozza in un campo», «Bozza di Claude»,
+lingua e tema, azioni in blocco di S4) sta in «Rinviati al 10b» di
+`ossatura-follow-ups.md`.
