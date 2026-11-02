@@ -2924,12 +2924,21 @@ function catalogArgs(
  * l'oggetto che il suo stream sta scrivendo).
  */
 function snapshotForActions(): () => void {
+  // Ciò che le `…As` del catalogo e le azioni della Posta scrivono, voce per
+  // voce: task, attività, sistemazioni e decisioni (task, commenti,
+  // pianificazione, eliminazione); avvisi e il loro ordine (`alertSeq`);
+  // richieste e la conversazione di Support da cui nascono; registro
+  // decisioni e traguardi; progetti, impostazioni ed esecuzioni chiuse
+  // dall'archiviazione; iscrizioni; task eliminate; istanza e app Google.
   const snapshot = structuredClone({
     tasks: state.tasks,
     activity: state.activity,
     arrangements: state.arrangements,
+    decisions: state.decisions,
     notifications: state.notifications,
+    alertSeq: state.alertSeq,
     requests: state.requests,
+    supportConversations: state.supportConversations,
     decisionLog: state.decisionLog,
     milestones: state.milestones,
     counter: state.counter,

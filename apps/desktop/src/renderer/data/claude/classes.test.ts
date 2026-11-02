@@ -167,11 +167,14 @@ describe("classOf: pianificare e modificare", () => {
     ).toEqual({ cls: "B", reasons: [{ kind: "notifies", personIds: [MARCO], more: false }] });
   });
 
-  it("updateTask di una task non assegnata a chi chiede: B", () => {
-    const task = giuliaTask(MKX, null);
-    expect(
-      classOf(GIULIA, { fn: "updateTask", args: { id: task.id, patch: { title: "Altro" } } }).cls,
-    ).toBe("B");
+  it("updateTask di una task non assegnata a chi chiede, che non avvisa nessuno: A (ruling T4)", () => {
+    // Contano solo avvisi e automazioni: di chi è la task non alza la classe.
+    for (const assigneeId of [null, MARCO]) {
+      const task = giuliaTask(OLV, assigneeId);
+      expect(
+        classOf(GIULIA, { fn: "updateTask", args: { id: task.id, patch: { title: "Altro" } } }),
+      ).toEqual(A);
+    }
   });
 
   it("una task che chi chiede non vede: nessun motivo che ne parli", () => {

@@ -86,15 +86,15 @@ function visibleTask(me: string, id: unknown): Task | null {
   return task && visibleProjectIds(me).has(task.projectId) ? task : null;
 }
 
-/** I motivi che vengono dai dati di adesso, e se la regola della voce alza comunque a B. */
-function dataReasons(me: string, action: Action): { reasons: ClassReason[]; raise: boolean } {
+/** I motivi che vengono dai dati di adesso: solo avvisi e automazioni. */
+function dataReasons(me: string, action: Action): ClassReason[] {
   const { args } = action;
   switch (action.fn) {
     case "createTask": {
       const input = args as Partial<NewTaskInput>;
       const projectId = input.projectId;
       const project = projectId ? state.projectsById.get(projectId) : undefined;
-      if (!project || !visibleProjectIds(me).has(project.id)) return { reasons: [], raise: false };
+      if (!project || !visibleProjectIds(me).has(project.id)) return [];
       const assigneeId = input.assigneeId ?? null;
       // Lo stato in cui nascerebbe: quello dato, o il primo «da fare» (`checkNewTask`).
       const statusId =
@@ -103,25 +103,22 @@ function dataReasons(me: string, action: Action): { reasons: ClassReason[]; rais
           .filter((s) => s.projectId === project.id && s.family === "todo")
           .sort((a, b) => a.order - b.order)[0]?.id ??
         "";
-      return {
-        reasons: [
-          // La notifica diretta `task.assigned` (decisione del maintainer, 2 nov 2026).
-          notifiesOf(me, [assignedRecipientOf(me, assigneeId)]),
-          { kind: "notifies", ...wouldNotify(me, { kind: "task.created", projectId: project.id }) },
-          ...automationOf("task_created", {
-            code: `${project.code}-${nextTaskNumber(project.id)}`,
-            title: String(input.title ?? "").trim(),
-            projectId: project.id,
-            assigneeId,
-            statusId,
-          }),
-        ],
-        raise: false,
-      };
+      return [
+        // La notifica diretta `task.assigned` (decisione del maintainer, 2 nov 2026).
+        notifiesOf(me, [assignedRecipientOf(me, assigneeId)]),
+        { kind: "notifies", ...wouldNotify(me, { kind: "task.created", projectId: project.id }) },
+        ...automationOf("task_created", {
+          code: `${project.code}-${nextTaskNumber(project.id)}`,
+          title: String(input.title ?? "").trim(),
+          projectId: project.id,
+          assigneeId,
+          statusId,
+        }),
+      ];
     }
     case "updateTask": {
       const task = visibleTask(me, args.id);
-      if (!task) return { reasons: [], raise: false };
+      if (!task) return [];
       const patch = (args.patch ?? {}) as TaskPatch;
       const reasons: ClassReason[] = [];
       if (patch.assigneeId !== undefined && patch.assigneeId !== task.assigneeId)
@@ -137,19 +134,20 @@ function dataReasons(me: string, action: Action): { reasons: ClassReason[]; rais
           }),
         );
       }
-      // Cambiare la task di un altro (o di nessuno) chiede sempre.
-      return { reasons, raise: task.assigneeId !== me };
+      // Di chi è la task non alza la classe: contano solo avvisi e
+      // automazioni (ruling (T4), decisione del maintainer).
+      return reasons;
     }
     case "planTask": {
       const task = visibleTask(me, args.id);
       const plan = args.plan as { assigneeId: string | null; week: string | null } | undefined;
-      if (!task || !plan) return { reasons: [], raise: false };
+      if (!task || !plan) return [];
       // Le persone che `planTaskAs` avviserebbe, meno chi chiede (P9).
       const { assigned, planningChanged } = planRecipientsOf(me, task, plan);
-      return { reasons: [notifiesOf(me, [assigned, ...planningChanged])], raise: false };
+      return [notifiesOf(me, [assigned, ...planningChanged])];
     }
     default:
-      return { reasons: [], raise: false };
+      return [];
   }
 }
 
@@ -159,14 +157,12 @@ export function classOf(me: string, action: Action): ActionClass {
   if (!isCatalogFn(action.fn)) return { cls: "B", reasons: [] };
   const fn = action.fn;
   const declared = declaredClassOf(fn);
-  const data = dataReasons(me, action);
   const reasons = normalize([
-    ...data.reasons,
+    ...dataReasons(me, action),
     ...(CLAUDE_CATALOG[fn].undoable ? [] : [{ kind: "irreversible" as const }]),
     ...(declared === "C" ? [{ kind: "reauth" as const }] : []),
   ]);
-  const raised = data.raise || reasons.length > 0;
-  return { cls: higher(declared, raised ? "B" : "A"), reasons };
+  return { cls: higher(declared, reasons.length > 0 ? "B" : "A"), reasons };
 }
 
 /** La classe di un gruppo: la più alta, coi motivi di tutte. */

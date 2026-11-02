@@ -4,7 +4,8 @@ import i18n from "../../i18n";
 import { accessState } from "../access/index";
 import { __secretValuesForTest } from "../admin/secrets";
 import { automations, resetApi, setLatency } from "../api";
-import { applyActions } from "../api-mutations";
+import { addComment, applyActions, askDecision, createTaskAs } from "../api-mutations";
+import { supportState } from "../../domain/support/state";
 import { markReauthenticated, REAUTH_REQUIRED } from "../auth/reauth";
 import type { ProposedAction } from "../model";
 import { settingsOf } from "../projectSettings/reads";
@@ -16,6 +17,7 @@ import {
   onAutomationSignal,
   state,
   storeGeneration,
+  visibleProjectIds,
   type AutomationSignal,
 } from "../store";
 import { whenIdle } from "../stream";
@@ -309,6 +311,69 @@ describe("applyActions col catalogo: tutto o niente", () => {
     expect(state.access).toBe(access);
     expect(accessState().memberships).toEqual(memberships);
     expect(state.projectsById.get(OLV)!.memberIds).toEqual(members);
+  });
+
+  it("deleteTask seguito da un fallimento: la task ritrova attività, decisioni e sistemazioni", async () => {
+    const task = createTaskAs(ROBERTA, {
+      projectId: OLV,
+      title: "Da decidere",
+      assigneeId: ROBERTA,
+    });
+    await askDecision({
+      taskId: task.id,
+      askedOfId: MARCO,
+      question: "Quale?",
+      options: ["A", "B"],
+    });
+    await addComment(task.id, "Un commento");
+    const before = structuredClone({
+      decisions: state.decisions,
+      activity: state.activity,
+      arrangements: state.arrangements,
+      deletedTasks: state.deletedTasks,
+    });
+    expect(before.decisions.some((d) => d.taskId === task.id)).toBe(true);
+    const result = applyActions(ROBERTA, [action("deleteTask", { id: task.id }), failing()]);
+    expect(result).toMatchObject({ ok: false, index: 1 });
+    expect(state.tasksById.has(task.id)).toBe(true);
+    expect({
+      decisions: state.decisions,
+      activity: state.activity,
+      arrangements: state.arrangements,
+      deletedTasks: state.deletedTasks,
+    }).toEqual(before);
+  });
+
+  it("createRequest da una conversazione di Support seguito da un fallimento: la conversazione resta senza richiesta", () => {
+    const conv = state.supportConversations.find(
+      (c) =>
+        c.requestId === null &&
+        supportState(c) === "not_concluded" &&
+        visibleProjectIds(ROBERTA).has(c.projectId),
+    )!;
+    expect(conv).toBeDefined();
+    const result = applyActions(ROBERTA, [
+      action("createRequest", {
+        projectId: conv.projectId,
+        title: "Dal cliente",
+        origin: { kind: "support", conversationId: conv.id },
+      }),
+      failing(),
+    ]);
+    expect(result).toMatchObject({ ok: false, index: 1 });
+    expect(state.supportConversations.find((c) => c.id === conv.id)!.requestId).toBeNull();
+  });
+
+  it("setSubscription seguito da un fallimento: iscrizioni e ordine degli avvisi come prima", () => {
+    const subs = structuredClone(state.alertSubscriptions);
+    const seq = state.alertSeq;
+    const result = applyActions(ROBERTA, [
+      action("setSubscription", { projectId: "prj-aud", type: "task.created", app: true }),
+      failing(),
+    ]);
+    expect(result).toMatchObject({ ok: false, index: 1 });
+    expect(state.alertSubscriptions).toEqual(subs);
+    expect(state.alertSeq).toBe(seq);
   });
 
   it("deleteTask occupato: `busy` con le ragioni", () => {
