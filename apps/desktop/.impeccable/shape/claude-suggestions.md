@@ -84,7 +84,7 @@ riga). Mondo: «Catalogo numerato», modalità **Operate**.
 - La richiesta delle automazioni **finisce aperta** («when » con lo spazio)
   e il cursore sta lì: la persona scrive l'evento **[SG 2]**.
 - La richiesta dell'Overview deve essere riconosciuta dal motore di S2
-  ristretto al progetto; se il Task 6 non la copre, la richiesta diventa
+  ristretto al progetto (il Task 6 la copre, *(ruling del controller (pre-flight), P16)*); se il Task 6 non la copre, la richiesta diventa
   «Which projects are stalled and why?» / «Quali progetti sono fermi e
   perché?» e la riga resta uguale **[SG 3]**.
 - Tutti i testi in seconda persona, con il solo codice dell'oggetto della

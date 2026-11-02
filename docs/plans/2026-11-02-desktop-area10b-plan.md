@@ -171,6 +171,10 @@ Contesto da leggere:
 - **La scheda di scelta nella libera** non è una domanda dell'agente
   (`ask_user`): la risposta non entra nel registro decisioni, la dà solo
   chi ha aperto la conversazione, e riprende la stessa richiesta.
+- **Nella Chat** (`ctx.classify` assente) il motore non emette eventi
+  `trial`, `draft` né `pageAction`: nessuno li risolverebbe. Al loro posto
+  una riga che rimanda al riquadro. `aside` e `capabilities` si
+  disegnano anche nella Chat (`pages/chat/ClaudeReply.tsx`) *(ruling del controller (pre-flight), P11)*.
 - **I campi nuovi sono facoltativi** (cambi additivi), e un campo letto dal
   web si difende nel punto di lettura. I campi nuovi di questo piano:
   `ProposedAction.why`, `proposal.notes`, `proposal.blocked`,
@@ -179,7 +183,7 @@ Contesto da leggere:
   `Release.releaseNotes`, `Automation.createdVia`,
   `SimulationView.filteredOut`, il `ContextRef` `mail` (D1), il
   `notification_kind` `member.added` (D4, con la regola di rollback del
-  CLAUDE.md per il motore). Ogni fixture dei
+  CLAUDE.md per il motore), `AppNotification.roleId` *(ruling del controller (pre-flight), P25)*. Ogni fixture dei
   test che li copre si lascia **senza** quei campi almeno una volta.
 - **Il 10a ha già chiuso il riquadro**: il 10b non cambia `ClaudePanel`,
   `classOf`, `executeGroup`, `undoClaudeActions` salvo dove un task lo
@@ -224,8 +228,8 @@ Contesto da leggere:
 
    → Task 6, 7, 8, 12.
 2. **Una richiesta che tocca il visibile e l'invisibile.** «Archivia i
-   progetti senza attività da 3 mesi» per Giulia (ne gestisce uno, ne vede
-   due, gli altri non li vede); «Quanto spende Roberta?» (nessun dato per
+   progetti senza attività da 3 mesi» per Giulia (ne gestisce uno e non vede
+   gli altri) e per Laura (ne vede uno che non gestisce) *(ruling del controller (pre-flight), P19)*; «Quanto spende Roberta?» (nessun dato per
    persona); «Quali progetti sono fermi?» per Giulia e per Roberta sullo
    stesso seme. Claude risponde sulla parte visibile come se il resto non
    esistesse: nessuna frase cambia a seconda di quanto non si vede.
@@ -356,7 +360,10 @@ oggi (come RNC nel 9c e il seme del 10a).
     vuota (la descrizione di una task nel riquadro, Task 8);
   - `data/seed/usage.ts`: righe fra il 1° del mese e `CLOCK_START` su almeno
     5 progetti, di cui almeno uno che Laura non vede e almeno due dove ha
-    `project.usage.view`.
+    `project.usage.view`;
+  - `data/access/effective.test.ts`: il controllo di `PARITY_PROJECT_IDS`
+    esclude anche `prj-ort`, `prj-spz`, `prj-lnt`, `prj-bsc`, con un commento
+    come per RNC; il fixture non si rigenera *(ruling del controller (pre-flight), P1)*.
 
 **Interfaces, prodotte:**
 
@@ -405,6 +412,8 @@ Test:
 - [ ] Le suite delle aree 1–10a restano verdi (conteggi di progetti,
   richieste, conversazioni di supporto, PR e consumi aggiornati dove li
   contano).
+- [ ] `effective.test.ts`: la parità copre i progetti di prima, e i quattro
+  nuovi sono esclusi per nome *(ruling del controller (pre-flight), P1)*.
 - [ ] Commit `feat(desktop): il seme degli scenari di Claude e l'ultima attività di un progetto`.
 
 ### Task 2: Il motore delle automazioni: urgenza, supporto, reparto, filtro nella prova
@@ -427,15 +436,25 @@ aspettano lo shape `claude-automations.md`.
     `data/types.ts`);
   - `data/automations/plans.ts`: un `notify` a un reparto avvisa i membri
     del reparto **che vedono il progetto** del passo, uno per persona;
+    `NotifyPlan` porta `personIds: string[]` al posto di `personId`
+    *(ruling del controller (pre-flight), P23)*;
+  - `domain/automations/preview.ts`, `pages/automations/format.ts`,
+    `pages/automations/FlowSummary.tsx`: la lettura di `who` accetta
+    `{ departmentId }` *(ruling del controller (pre-flight), P23)*;
   - `domain/automations/validate.ts`: `FlowIssueCode` +
-    `"department_cant_see"`; `ValidateContext.departmentSees(departmentId,
-    projectId)`; il chiamante (`data/automations/*`) la soddisfa;
+    `"department_cant_see"`; `ValidateContext.departmentSees?(departmentId,
+    projectId)`, facoltativa: assente = non si segnala, così i test che
+    costruiscono il contesto (`data/seed.test.ts`, `validate.test.ts`)
+    restano validi *(ruling del controller (pre-flight), P2)*; il chiamante (`data/automations/*`) la soddisfa;
   - `data/automations/simulate.ts`: all'avvio, un `trigger.filter` che non
     passa con l'evento chiude la prova `status: "done"`, `filteredOut:
     true`, senza anteprime e senza `markTested`;
   - UI: `pages/automations/builder/ActionForms.tsx` (il destinatario di
     «Notify» accetta un reparto), `pages/automations/test/Summary.tsx` (la
-    riga di `filteredOut`); i18n `automations.builder.notify.department`,
+    riga di `filteredOut`, senza «Turn on» e con «Change example» primario,
+    [AU 10]), `pages/automations/builder/StartPanel.tsx` e
+    `ConditionEditor.tsx` (il menu «low · medium · high» dell'urgenza,
+    [AU 9]) *(ruling del controller (pre-flight), P17)*; i18n `automations.builder.notify.department`,
     `automations.test.filteredOut`, `automations.issues.department_cant_see`.
 - Test: `domain/automations/validate.test.ts`, `data/automations/simulate.test.ts`,
   `data/automations/automations.test.ts`, `pages/automations/builder/Builder.test.tsx`,
@@ -450,7 +469,8 @@ aspettano lo shape `claude-automations.md`.
 export interface ValidateContext {
   // …come oggi, più:
   /** Qualcuno del reparto vede il progetto? `projectId` null = non noto prima dell'evento (non si segnala). */
-  departmentSees(departmentId: string, projectId: string | null): boolean;
+  // Facoltativa *(ruling del controller (pre-flight), P2)*: assente = non si segnala.
+  departmentSees?(departmentId: string, projectId: string | null): boolean;
 }
 ```
 
@@ -472,6 +492,9 @@ Test:
 - [ ] UI: nel costruttore «Notify» si sceglie «Support» fra i reparti; la
   prova a mano con un esempio che il filtro esclude dice «Wouldn't start…»
   in en e «Non partirebbe…» in it, e nessuna anteprima (D3).
+- [ ] La prova `filteredOut`: nessun «Turn on», «Change example» è il
+  primario; nel costruttore l'urgenza si sceglie da un menu di tre valori
+  *(ruling del controller (pre-flight), P17)*.
 - [ ] Le suite dell'area 7 restano verdi (un `notify` a una persona non
   cambia).
 - [ ] Commit `feat(desktop): urgenza e supporto nelle richieste, «Avvisa» un reparto, il filtro nella prova`.
@@ -537,7 +560,7 @@ Le voci del catalogo (`catalogMore.ts`):
 
 | `fn` | `apiFn` | base | inverso | `whoAction` |
 |---|---|---|---|---|
-| `createAutomation` | `automations.createAutomation` | A | `deleteAutomationDraft` (eccezione senza scheda, come `createTask`) | `manageProjectAutomations` (d'istanza: `manageGeneralAutomations`) |
+| `createAutomation` | `automations.createAutomation` | A | `deleteAutomationDraft` (eccezione senza scheda, come `createTask`) | `manageProjectAutomations` *(ruling del controller (pre-flight), P3)* |
 | `saveAutomationDraft` | `automations.saveDraft` | A | `saveAutomationDraft` col flusso di prima | come sopra |
 | `deleteAutomationDraft` | `automations.deleteDraft` | B, non si annulla | — | come sopra |
 
@@ -545,7 +568,9 @@ Regole:
 - `createAutomation.run` rifiuta (`invalid: flow`) un flusso con problemi di
   `validateFlow`, prima di ogni scrittura: il motore lo controlla, il
   livello dati lo ricontrolla. Forza `status: "draft"` e `ownerId: null`
-  qualunque cosa dicano gli argomenti.
+  qualunque cosa dicano gli argomenti. Con `projectId: null` rifiuta
+  (`invalid: project`): il riquadro crea solo bozze di progetto, e il
+  `whoAction` della voce è uno solo *(ruling del controller (pre-flight), P3)*.
 - **La prova non è una voce del catalogo** *(scelta del costruttore)*: non
   scrive nulla da annullare, quindi non ha inverso, e una voce A senza
   inverso violerebbe il test del registro del 10a («nessuna voce che non si
@@ -600,8 +625,10 @@ Test:
     - `answerQuestion` per `c.kind === "free"`: risponde solo chi ha aperto
       la conversazione (`not_yours` → `forbidden`), **senza** la voce del
       registro decisioni che scrive per le sessioni, poi
-      `inTurn(c.id, () => freeResume(me, c, `${resume} ${label}`, gen))`;
-    - `freeResume`: come `freeTurn`, ma senza l'evento `user`;
+      `inTurn(c.id, () => freeResume(me, c, `${resume} ${label}`, freeCut(c.id), gen))`
+      *(ruling del controller (pre-flight), P24)*;
+    - `freeResume`: come `freeTurn` (compreso il controllo del `cut` di
+      «Ferma»), ma senza l'evento `user`;
   - `data/store.ts` (`conversationPermissions`): `canAnswer` di una libera
     = proprietario con `canWrite`.
 - Test: `data/claude/freeQuestion.test.ts`.
@@ -612,7 +639,8 @@ Test:
 // data/model.ts, l'evento question
 resume?: string;
 // data/api-mutations.ts (interna)
-async function freeResume(me: string, c: Conversation, text: string, gen: number): Promise<void>;
+// Col `cut` di «Ferma», come `freeTurn` *(ruling del controller (pre-flight), P24)*.
+async function freeResume(me: string, c: Conversation, text: string, cut: number, gen: number): Promise<void>;
 ```
 
 Test:
@@ -704,8 +732,10 @@ Regole:
   di scelta («Nobody in Marketing sees ACQ: which department should I
   notify?»); ogni altro problema si dice e non crea niente.
 - **Ciò che il motore non sa fare** («pubblica su Slack», «chiama il
-  cliente»): Claude lo dice in una riga e propone la cosa più vicina che sa
-  fare (`notify`). Nessun passo inventato.
+  cliente»): Claude costruisce il resto della bozza e lo dice in una riga,
+  nominando a parole il passo più vicino che sa fare (`notify`), senza
+  aggiungerlo né proporlo con una scheda ([AU 11]) *(ruling del controller (pre-flight), P18)*. Nessun
+  passo inventato.
 - **Risposta**: la riga che riassume il flusso, `execute:
   [createAutomation]` (A), `trial: { wants: ["passes", "fails"] }`.
 - **`prepareTrials`**: per ogni `trial` `pending` dopo un `executed` `done`
@@ -733,8 +763,9 @@ Test:
 - [ ] «…e manda un'email al cliente»: il riassunto dice che l'email chiede
   approvazione; la prova si ferma `waiting_approval` e la riga lo dice
   col nome di Laura.
-- [ ] «…e pubblicalo su Slack»: la riga onesta e la proposta di `notify`,
-  nessun passo nuovo nel flusso.
+- [ ] «…e pubblicalo su Slack»: la bozza nasce senza la parte Slack, la riga
+  onesta nomina `notify` a parole; nessun passo nuovo, nessun `notify`
+  aggiunto e nessuna scheda *(ruling del controller (pre-flight), P18)*.
 - [ ] Senza contesto di progetto: prima la scheda dei progetti, poi quella
   dei reparti; una terza mancanza è una riga, non una scheda.
 - [ ] Coda di ACQ in pausa (9b): la bozza nasce e la prova gira (non sono
@@ -749,14 +780,18 @@ Test:
   `domain/claude/intents.10b.data.test.ts`, `data/claude/answersData.test.ts`.
 - Modify:
   - `domain/claude/intents/general.ts`: la risposta onesta S0;
-  - `domain/claude/intents.ts`: `Intent` + `"stalled" | "spend"`;
+  - `domain/claude/intents.ts`: `Intent` + `"stalled" | "spend"`,
+    riconosciuti dopo `refused` e prima dei comandi e di `explain` *(ruling del controller (pre-flight), P10)*;
   - `domain/claude/context.ts`: `ReadApi` + `listStalledProjects`,
     `spendThisMonth`;
   - `domain/claude/answers.ts`: `Answer.aside?`, `Answer.capabilities?`;
     `bulleted(t, lines, max, more?: { route: string })` con «and N more ·
     open the list»; `toSteps` emette gli `aside` dopo il `say`, e
     `capabilities` come evento;
-  - `data/model.ts`: gli eventi `aside` e `capabilities`;
+  - `data/model.ts`: gli eventi `aside` e `capabilities`, e i tipi
+    `CapabilityId`, `StalledProject`, `SpendView` (con `ArchiveCandidates`
+    del Task 7) accanto a `TrialOutcome`: `answers.ts` e `answersData.ts`
+    li importano da lì (la ragione di P10) *(ruling del controller (pre-flight), P5)*;
   - `data/api-mutations.ts`: `readsAs`;
   - i18n `claude.answers.{general,capabilities,stalled,spend,aside}.*`
     (sostituisce il testo di `claude.answers.general`, che dice ancora
@@ -773,14 +808,21 @@ Test:
 **Interfaces, prodotte:**
 
 ```ts
-// data/claude/answersData.ts
+// data/model.ts *(ruling del controller (pre-flight), P5)*
 export interface StalledProject {
   projectId: string; code: string; stalled: number;
   /** La task ferma da più tempo, col motivo di `stallOf`. */
-  oldest: { taskCode: string; days: number; reason: StallReason["kind"]; plannedWeek: string | null };
+  // `reason` intero, per la riga di §3.3 dello shape *(ruling del controller (pre-flight), P6)*: `personId`
+  // e `taskId` solo se chi chiede li vede, altrimenti la forma senza.
+  oldest: { taskCode: string; days: number; reason: StallReason; plannedWeek: string | null };
+  /** La soglia del progetto, per i «Details» ([SC 3]) *(ruling del controller (pre-flight), P6)*. */
+  thresholdDays: number;
 }
 /** I progetti aperti e visibili con task ferme, dal più fermo; `stallOf` e il blocco «Fermo» del polso. */
-export function stalledProjectsFor(me: string): StalledProject[];
+// `projectId`: solo quel progetto (S2 dall'Overview, [SG 3]) *(ruling del controller (pre-flight), P16)*.
+// data/claude/answersData.ts
+export function stalledProjectsFor(me: string, projectId?: string | null): StalledProject[];
+// data/model.ts *(ruling del controller (pre-flight), P5)*
 export type SpendView =
   | { scope: "instance"; totalUsd: number; budgetUsd: number | null;
       /** I 3 che spendono di più; `projectId` `null` = «Other projects» (solo `usage.view`). */
@@ -790,11 +832,12 @@ export type SpendView =
 /** La spesa dal 1° del mese a `now()`: `usageView` per chi ha `usage.view`, la somma per progetto dove ha `project.usage.view`. */
 export function spendThisMonthFor(me: string): SpendView;
 // domain/claude/context.ts, ReadApi
-listStalledProjects(): Promise<StalledProject[]>;
+listStalledProjects(projectId?: string | null): Promise<StalledProject[]>;
 spendThisMonth(): Promise<SpendView>;
 // domain/claude/answers.ts
 Answer.aside?: { kind: "hypothesis" | "details"; text: string }[];
 Answer.capabilities?: CapabilityId[];
+// data/model.ts *(ruling del controller (pre-flight), P5)*
 // (maintainer, 2 nov 2026: nove voci, con email e descrizione di D1)
 export type CapabilityId = "automation" | "stalled" | "spend" | "archive" | "addMember" | "supportReply" | "releaseNotes" | "mailBody" | "taskDescription";
 // data/model.ts, ConversationEvent
@@ -821,6 +864,10 @@ Le risposte:
   più vecchia è `idle` e senza settimana: «Maybe it fell out of planning:
   it has no week» (un `aside` `hypothesis`). «Details»: come è contato
   (`stallOf`, soglie del progetto).
+  Col contesto di un progetto (l'Overview, o il chip su un progetto) e una
+  frase che lo nomina o dice «in questo progetto», S2 si restringe a quel
+  progetto: «Which tasks are stalled in ACQ, and why?» risponde con le task
+  ferme di ACQ ([SG 3]) *(ruling del controller (pre-flight), P16)*.
 - **S3** («quanto abbiamo speso in AI questo mese?»):
   - `instance` (Roberta): totale, confronto col budget («$412 of $600
     this month»), i 3 che spendono di più, link a Consumi;
@@ -850,7 +897,14 @@ Test:
   elenco.
 - [ ] L'ipotesi: è un `aside` `hypothesis`, mai nel `say`; senza le sue
   condizioni non c'è.
-- [ ] S3 Roberta: totale = `getUsage({ range: { month: true } })`, top 3
+- [ ] S2 ristretto: Giulia dall'Overview di ACQ, «Quali task sono ferme in
+  ACQ, e perché?» → solo le task ferme di ACQ, i numeri uguali a `stallOf`
+  su ACQ, nessun altro progetto *(ruling del controller (pre-flight), P16)*.
+- [ ] La riga di S2 dice la persona della decisione e la task che blocca
+  solo se chi chiede le vede; i «Details» dicono la soglia *(ruling del controller (pre-flight), P6)*.
+- [ ] «which projects are stuck?» e «quanto abbiamo speso in AI questo
+  mese?» danno `stalled` e `spend`, non `explain` né `general` *(ruling del controller (pre-flight), P10)*.
+- [ ] S3 Roberta: totale = `getUsage({ range: { month: true }, groupBy: "project" })` *(ruling del controller (pre-flight), P20)*, top 3
   coi codici, «Other projects» possibile; Laura: totale = somma di
   `getProjectUsage` dei suoi progetti, nessun numero uguale al totale
   d'istanza nel testo, nessun «Other projects»; Sara: la riga `none`.
@@ -876,6 +930,9 @@ Test:
     string }`;
   - `domain/claude/context.ts`: `ReadApi` + `listArchiveCandidates`,
     `findPeople`, `listProjectRoles`, `canGrantRole`;
+  - `domain/claude/intents.ts`: `Intent` + `"archive" | "member"`,
+    riconosciuti dopo `refused` e **prima dei comandi** («add Luca to ACQ
+    as Developer» e «aggiungi Luca…» oggi cadono in `CREATE`) *(ruling del controller (pre-flight), P10)*;
   - `domain/claude/answers.ts`: `Answer.notes?`, `Answer.blocked?`, scritti
     sulla `proposal`;
   - `data/claude/answersData.ts`: le letture nuove;
@@ -883,17 +940,27 @@ Test:
     persona aggiunta, calcolato con la stessa funzione dei destinatari che
     usa la scrittura (`memberAddedRecipientOf`) *(maintainer, 2 nov 2026,
     D4)*;
-  - `data/admin/members.ts`: `addMemberAs` pubblica la notifica
-    `member.added` alla persona aggiunta *(maintainer, 2 nov 2026, D4)*:
+  - `data/claude/classes.test.ts`: «addMember è C con la riconferma» si
+    aggiorna (`notifies` con la persona, poi `reauth`). Effetto dichiarato:
+    l'«Annulla» di un `removeMember` di Claude (inverso `addMember`) ora
+    avvisa, quindi passa da una scheda (`undoAsks`) *(ruling del controller (pre-flight), P7)*;
+  - `data/admin/members.ts`: `writeJoin` (quindi `addMemberAs` e le
+    proposte della posta, `data/mail/proposals.ts`) pubblica la notifica
+    `member.added` alla persona aggiunta *(maintainer, 2 nov 2026, D4;
+    la posta *(ruling del controller (pre-flight), P25)*)*:
     - parte sia per un'aggiunta a mano (Amministrazione → Membri, Settings
       → Members) sia per una di Claude per conto di qualcuno, che porta
       `viaClaude` come `task.assigned`;
-    - non parte per chi aggiunge sé stesso, né per Claude collega;
+    - parte anche per le persone aggiunte da una proposta della posta
+      confermata *(ruling del controller (pre-flight), P25)*;
+    - non parte per chi aggiunge sé stesso (anche il Project Lead di un
+      progetto appena creato), né per Claude collega;
     - dentro un «Annulla» non parte (`silencedByUndo`), e quella di prima
       si legge «Undone by …», derivato a lettura;
     - `setMemberRole` non la manda (non è un'aggiunta);
   - `data/model.ts` (o dove vive l'elenco dei tipi di notifica): il tipo
-    `member.added`, con `projectId` e `roleId` come valori stabili;
+    `member.added`, con `projectId` e `roleId` come valori stabili
+    (`AppNotification.roleId?`, facoltativo) *(ruling del controller (pre-flight), P25)*;
   - `notifications/NotificationItem.tsx`: titolo «You've been added to ACQ
     as Developer» / «Sei stato aggiunto ad ACQ come Developer», il nome del
     ruolo letto a lettura; col segno, corpo «Claude on behalf of Laura
@@ -903,6 +970,9 @@ Test:
   - `pages/admin/InviteDialog.tsx`, `pages/admin/PeoplePage.tsx`:
     `?invite=1&inviteProject=<CODE>&inviteRole=<roleId>` apre il dialogo
     con progetto e ruolo scelti e l'email vuota;
+  - `router.tsx` (`AppSearch`, `PEOPLE_SEARCH_KEYS`) e `data/routes.ts`
+    (il validatore dei link): `inviteProject` (codice) e `inviteRole` (id
+    di un ruolo), con un caso in `data/routes.test.ts` *(ruling del controller (pre-flight), P9)*;
   - `data/claude/classes.ts` e `pages/claude/conversation/ProposalCard.tsx`:
     la frase sopra la scheda e la riga «Notifies» usano `nameList`
     (minore T5 e M6 del 10a);
@@ -922,12 +992,13 @@ export type ProposalNote =
       codes?: string[] }
   /** Un progetto `busy`, con le ragioni di `busyReasonsOf` come le legge chi chiede. */
   | { kind: "busy"; code: string; reasons: ClaudeBusyReason[] };
-// data/claude/answersData.ts
+// data/model.ts *(ruling del controller (pre-flight), P5)*
 export interface ArchiveCandidates {
   candidates: { projectId: string; code: string; name: string; lastActivity: string }[];
   busy: { code: string; reasons: ClaudeBusyReason[] }[];
   notManageable: number;
 }
+// data/claude/answersData.ts
 /** I progetti aperti e visibili senza attività da `days` su `now()` (`lastActivityOf`), divisi per ciò che chi chiede può fare. */
 export function archiveCandidatesFor(me: string, days: number): ArchiveCandidates;
 // domain/claude/context.ts, ReadApi
@@ -992,8 +1063,9 @@ Test:
   chiede il codice; annullata, Luca non ha una seconda notifica e la prima
   si legge «Undone by Laura Costa».
 - [ ] `member.added` a mano (D4): Laura aggiunge Luca da Settings →
-  Members → Luca la riceve, senza segno; Roberta aggiunge sé stessa a un
-  progetto → nessuna notifica; aggiungere Claude collega → nessuna;
+  Members → Luca la riceve, senza segno; `memberAddedRecipientOf(LAURA,
+  LAURA)` e `memberAddedRecipientOf(LAURA, CLAUDE_ID)` sono `null`
+  *(ruling del controller (pre-flight), P8)*;
   `setMemberRole` → nessuna; titolo e corpo in en e in it, con il ruolo
   letto a lettura (rinominato il ruolo dopo, la notifica dice il nome
   nuovo); fixture di una notifica senza `viaClaude`, apposta.
@@ -1009,6 +1081,16 @@ Test:
   scheda.
 - [ ] `nameList` in en e it fino a 3 nomi e oltre; la frase sopra la
   scheda e la riga «Notifies» dicono le stesse persone con due nomi.
+- [ ] `member.added` dalla posta: confermata una proposta che aggiunge
+  qualcuno a un progetto, la persona aggiunta riceve la notifica, senza
+  segno; chi conferma non la riceve *(ruling del controller (pre-flight), P25)*.
+- [ ] «add Luca to ACQ as Developer», «aggiungi Luca ad ACQ come
+  Developer» e «archive projects with no activity for 90 days» danno
+  `member` e `archive`, mai `create` *(ruling del controller (pre-flight), P10)*.
+- [ ] `addMember` ha `notifies` con la persona aggiunta; l'«Annulla» di un
+  `removeMember` di Claude apre una scheda *(ruling del controller (pre-flight), P7)*.
+- [ ] L'indirizzo dell'invito sopravvive al router: `inviteProject` e
+  `inviteRole` arrivano a `PeoplePage` *(ruling del controller (pre-flight), P9)*.
 - [ ] Commit `feat(desktop): archiviare in blocco e aggiungere un membro dal riquadro di Claude`.
 
 ### Task 8: Le bozze: note di rilascio, testi delle bozze, l'intento «bozza» (S6, S6b, Posta, descrizione)
@@ -1035,8 +1117,9 @@ di supporto, note di rilascio, corpo dell'email, descrizione di una task.
     «email» senza codice; `presentEventFor` come sotto;
   - `data/releases/writes.ts`: `setPrReleaseNotes`; `mergePr` copia le
     note sul `Release`;
-  - `data/releases/reads.ts`: `OpenPrView.releaseNotes`,
-    `OpenPrView.canEditReleaseNotes`, `ReleaseView.releaseNotes`;
+  - `data/releases/visibility.ts` (dove vivono `OpenPrView` e
+    `ReleaseView`): `OpenPrView.canEditReleaseNotes`; `releaseNotes` arriva
+    già da `OpenPullRequest` e da `Release` *(ruling del controller (pre-flight), P15)*;
   - `data/store.ts`: `ApiFnName` + `"releases.setPrReleaseNotes"`;
   - `data/queries.ts`: `useSetPrReleaseNotes`;
   - `domain/claude/intents.ts`: `Intent` + `"draft"`. Si prova **prima di
@@ -1209,12 +1292,24 @@ dati, e va nel catalogo. La parte UI aspetta lo shape `claude-scenarios.md`.
   - `data/claude/catalogMore.ts`: `saveFilter` (A, inverso `deleteFilter`;
     `invalid: visibility` se non è `"private"`) e `deleteFilter` (B, non si
     annulla); `data/claude/types.ts`: `ClaudeActionFn` + i due;
-    `ObjectRef` + `{ kind: "filter"; id: string }`;
+    `ObjectRef` + `{ kind: "filter"; id: string }`; `whoAction: null`
+    per i due (un filtro personale non chiede permessi) *(ruling del controller (pre-flight), P4)*;
+  - `data/claude/actions.ts`: `projectOfRef` → `null` e `writesOn` da
+    `state.objectWrites` per `filter`; `data/store.ts`: `ObjectWrite.kind`
+    + `"filter"`, con `noteWrite` in `saveFilter`, `updateFilter`,
+    `deleteFilter` *(ruling del controller (pre-flight), P4)*;
+  - `data/claude/catalog.test.ts`: i casi di `saveFilter` in `SCENARIOS`,
+    e l'eccezione del `whoAction` `null` estesa ai due filtri
+    *(ruling del controller (pre-flight), P4)*;
+  - `domain/claude/intents.ts`: `Intent` + `"page"`, riconosciuto dopo
+    `refused` e prima dei comandi e di `explain` («show ACQ tasks…» ha un
+    codice noto) *(ruling del controller (pre-flight), P10)*;
   - `data/model.ts`: l'evento `pageAction`;
   - `domain/claude/answers.ts`: `Answer.page?`; `toSteps` emette il
     `pageAction` `pending`;
   - `layout/claudePanel/ClaudePanel.tsx`: monta `usePageEventRunner`
-    (esegue i `draft` e `pageAction` `pending` di chi guarda, una volta);
+    (esegue i `pageAction` `pending` di chi guarda, una volta; i `draft`
+    li aggiunge il Task 10) *(ruling del controller (pre-flight), P22)*;
   - `pages/claude/conversation/EventList.tsx`, `flow.ts`: il tipo
     `pageAction`;
   - i18n `claude.answers.page.*`, `claude.conversation.page.*`.
@@ -1248,6 +1343,10 @@ Regole:
   Marco in ACQ», «show ACQ tasks assigned to Marco» (progetto + persona +
   «aperte/ferme», con `FilterCriteria`); «salva questo filtro come …» (il
   `saveFilter` del catalogo, privato).
+  «Questo filtro» sono i criteri dell'ultimo `pageAction` `filter` `done`
+  della conversazione: il contesto della pagina non porta la ricerca.
+  Senza, una riga chiede di filtrare prima, e non nasce niente
+  *(ruling del controller (pre-flight), P21)*.
 - L'«Annulla» rimette il valore di prima **solo se c'è ancora quello di
   Claude**; altrimenti `changed_after` («You changed it afterwards»).
   Dopo un ricaricamento non c'è più il valore di prima: «Can't be undone
@@ -1266,6 +1365,13 @@ Test:
 - [ ] `saveFilter` dal catalogo: A, nasce privato; «Annulla» lo elimina;
   con `visibility: "public"`: `invalid`.
 - [ ] `settlePageEvent` da un'altra persona: `forbidden`.
+- [ ] «salva questo filtro come Marco in ACQ» dopo «mostrami le task di
+  Marco in ACQ» salva quei criteri; senza un filtro prima, la riga che lo
+  chiede e nessun `saveFilter` *(ruling del controller (pre-flight), P21)*.
+- [ ] `catalog.test.ts` verde coi due filtri; dopo un `updateFilter` della
+  persona l'«Annulla» del `saveFilter` è `changed_after` *(ruling del controller (pre-flight), P4)*.
+- [ ] «show ACQ tasks assigned to Marco» e «passa al tema scuro» danno
+  `page`, non `explain` *(ruling del controller (pre-flight), P10)*.
 - [ ] Nessun toast per un'azione A della pagina (decisione del maintainer).
 - [ ] Commit `feat(desktop): filtro, lingua, tema e filtro salvato dal riquadro di Claude`.
 
@@ -1289,10 +1395,15 @@ quattro *(maintainer, 2 nov 2026, D1)*: Supporto, PR, Posta, Task.
     (chiave nuova, comportamento invariato): «Bozza di Claude» resta solo
     del segno *(maintainer, 2 nov 2026)*. La casella non intercetta più
     ⌘J *(maintainer, 2 nov 2026)*;
+    via la riga `support.reply.editedFrom` (en e it), perché il segno unico
+    vale anche qui, e via ⌘J dal `title` del bottone; si aggiornano
+    `pages/support/Support.test.tsx` e `pages/mail/Compose.test.tsx` *(ruling del controller (pre-flight), P12)*;
   - `pages/mail/ClaudeDraftButton.tsx`, `pages/mail/Composer.tsx`: il segno
-    con `useClaudeDraftMark`; via la riga `mail.compose.edited`; la
-    casella dichiara il campo `mailBody` (la risposta della conversazione
-    aperta, o l'email nuova con `null`) finché è montata (D1). «Send»
+    con `useClaudeDraftMark`; via la riga `mail.compose.edited`; il
+    campo `mailBody` lo dichiara la pagina (`ReadingPane`/`MailPage`): la
+    conversazione aperta della propria casella, anche senza casella di
+    scrittura aperta (allora `put` apre «Reply», [DR 6]), o l'email nuova
+    con `null` (D1) *(ruling del controller (pre-flight), P13)*. «Send»
     non cambia: è il solo modo di inviare. `Composer.tsx` non intercetta
     più ⌘J: «Ask Claude» resta un bottone, ⌘J è del riquadro
     *(maintainer, 2 nov 2026)*;
@@ -1305,6 +1416,8 @@ quattro *(maintainer, 2 nov 2026, D1)*: Supporto, PR, Posta, Task.
   - `pages/releases/PrPanel.tsx`, `pages/releases/ReleaseDetail.tsx`: il
     campo «Release notes» (modificabile con `canEditReleaseNotes`, «Save»),
     le note lette dopo il merge;
+    il salvataggio fallito dice «Save again» / «Salva di nuovo», non
+    «Retry» / «Riprova», che `test/noDeploy.ts` vieta *(ruling del controller (pre-flight), P26)*;
   - `layout/claudePanel/pageActions.ts`: `usePageEventRunner` esegue anche i
     `draft`;
   - `pages/claude/conversation/EventList.tsx`, `flow.ts`: il tipo `draft`;
@@ -1381,8 +1494,16 @@ Test:
   scrive mai nella descrizione.
 - [ ] Un lettore della pubblica che non vede ACQ: la riga `draft` è chiusa
   e non dice il codice.
-- [ ] Le fixture dei test di Supporto e Posta senza i campi nuovi restano
-  verdi.
+- [ ] Una fixture di `PrPanel` e una di `ReleaseDetail` senza
+  `releaseNotes` né `canEditReleaseNotes`, apposta: il pannello si disegna
+  in sola lettura senza note *(ruling del controller (pre-flight), P14)*.
+- [ ] Il salvataggio delle note fallito: «Save again», e `expectNoDeploy()`
+  verde sul pannello *(ruling del controller (pre-flight), P26)*.
+- [ ] Posta, conversazione della propria casella senza casella di
+  scrittura aperta: la bozza dal riquadro apre «Reply» col testo e il segno
+  *(ruling del controller (pre-flight), P13)*.
+- [ ] Nel Supporto, dopo una modifica, il segno sparisce e «Edited from
+  Claude's draft» non c'è (la chiave non esiste in en né in it) *(ruling del controller (pre-flight), P12)*.
 - [ ] Il bottone della barra del Supporto si chiama «Ask Claude» / «Chiedi
   a Claude» e fa ciò che faceva; «Claude's draft» / «Bozza di Claude»
   compare solo come segno *(maintainer)*.
@@ -1417,9 +1538,15 @@ Segue gli shape `claude-scenarios.md` e `claude-automations.md`.
     `done` del turno in diretta, la navigazione a
     `#/automations/<code>/test?sim=<openSimId>` e «Back to <pagina>»
     *(maintainer, 2 nov 2026, D2)*;
+    con `openSimId` `null` va a `#/automations/<code>/edit` ([AU 6])
+    *(ruling del controller (pre-flight), P17)*;
   - `pages/automations/test/useTestRun.ts`, `TestPage.tsx`: `?sim=<id>`
     adotta la prova esistente (se è di chi guarda) invece del dialogo
     degli esempi; altrimenti il dialogo come oggi;
+  - `router.tsx` (`AUTOMATION_SEARCH_KEYS`) e `data/routes.ts`: il
+    parametro `sim` (un id), con un caso in `data/routes.test.ts` *(ruling del controller (pre-flight), P9)*;
+  - `pages/chat/ClaudeReply.tsx`: `capabilities` come elenco senza bottoni
+    e senza frasi ([SC 7]) e `aside` *(ruling del controller (pre-flight), P11)*;
   - `pages/automations/DetailHeader.tsx` e la riga meta del costruttore:
     «Created by Claude on behalf of Laura Costa» da `createdVia`. È
     l'**origine** e resta per sempre: dopo l'accensione, le pause e le
@@ -1437,6 +1564,12 @@ Test:
   flusso non c'è nessun «Turn on» / «Activate».
 - [ ] Il costruttore aperto da un'altra persona (vedi come) con `?sim=`
   non trova la prova e mostra il dialogo degli esempi.
+- [ ] Nessun esempio passa (`openSimId` `null`): D2 apre il costruttore
+  `/edit`, non la prova *(ruling del controller (pre-flight), P17)*.
+- [ ] Nella Chat, «Qual è la capitale del Portogallo?» con @Claude:
+  l'elenco di S0 come testo; «passa al tema scuro» o «scrivi la risposta
+  ad ACQ-S2» non lasciano eventi `pageAction`/`draft` `pending`, ma una
+  riga che rimanda al riquadro *(ruling del controller (pre-flight), P11)*.
 - [ ] La bozza nel costruttore dice «Created by Claude on behalf of Laura
   Costa»; una bozza fatta a mano non lo dice (fixture senza
   `createdVia`). Accesa da Laura e poi pubblicata una versione nuova, il
@@ -1502,6 +1635,10 @@ Quando c'è (le cinque di partenza del design):
 | `overview` | task ferme | vede il progetto | una proposta del polso aperta sul progetto |
 | `usage` | sempre | `usage.view` | — |
 
+In tutti i luoghi: **mai con il budget mensile esaurito** ([SG 5]).
+La richiesta della riga Overview è quella dello shape, ristretta al
+progetto, che il Task 6 riconosce ([SG 3]) *(ruling del controller (pre-flight), P16)*.
+
 «Not now» scrive `stubwise.claudeSuggestion.<personId>.<chiave del luogo>`
 in `localStorage`, con try/catch. La chiave del luogo è **l'oggetto**, non il
 tipo di pagina *(maintainer, 2 nov 2026)*: `support:<conversationId>`,
@@ -1515,6 +1652,9 @@ Test:
   Laura su Consumi); mai un «Who?» nella riga.
 - [ ] Il «mai se»: la PR con un piano in attesa non ha la riga; un
   progetto con una proposta del polso aperta neanche.
+- [ ] Budget mensile esaurito: nessuna riga in nessuno dei cinque luoghi *(ruling del controller (pre-flight), P16)*.
+- [ ] La riga dell'Overview di ACQ, inviata, risponde solo sulle task ferme
+  di ACQ *(ruling del controller (pre-flight), P16)*.
 - [ ] Il clic apre il riquadro con una conversazione nuova e la richiesta
   nella casella, non inviata; Invio la manda (S6 dalla riga: la bozza
   arriva nel campo).
@@ -1559,7 +1699,8 @@ Test:
     ognuna col costo se sbagliata (fra queste: la prova fuori dal
     catalogo, due domande per richiesta, la Chat senza clic su S0, la
     memoria del «prima» delle azioni della pagina, l'ipotesi di S2 solo
-    per `idle` senza settimana); «Testo generato» non usato (nessun
+    per `idle` senza settimana; l'«Annulla» di un `removeMember` che
+    diventa una scheda per `member.added` *(ruling del controller (pre-flight), P7)*); «Testo generato» non usato (nessun
     intento del prototipo scrive un riassunto lungo); il messaggio della
     Chat fuori dai campi delle bozze (D1); e in fondo le decisioni del
     maintainer D1–D4 del 2 nov 2026;

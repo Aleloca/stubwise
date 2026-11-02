@@ -252,8 +252,9 @@ tratto di **Read** (il testo della bozza).
     merge.» / «Compaiono nel rilascio dopo il merge.».
   - **Save** / **Salva** (⌘Enter) e **Cancel** / **Annulla** compaiono
     solo con modifiche non salvate; stato «Saving…» / «Salvataggio…»,
-    «Saved» / «Salvate» (2 s), «Couldn't save · Retry» / «Non salvate ·
-    Riprova» col testo intatto. Nessun salvataggio automatico: le note
+    «Saved» / «Salvate» (2 s), «Couldn't save · Save again» / «Non salvate ·
+    Salva di nuovo» col testo intatto («Retry» / «Riprova» li vieta
+    `test/noDeploy.ts`, *(ruling del controller (pre-flight), P26)*). Nessun salvataggio automatico: le note
     sono un dato condiviso **[DR 10]**.
   - **In sola lettura** (senza permesso): le note in prosa 14px; vuote,
     «No release notes yet.» / «Ancora nessuna nota di rilascio.» in
