@@ -207,7 +207,7 @@ Contesto da leggere:
 
 1. **Un'azione A che in realtà avvisa altri o fa partire un'automazione.**
    - Una task «tua» in AUD, dove Matteo segue le task nuove (seme
-     `ALERT_SUBSCRIPTIONS`): sale a B con «Notifies Matteo Rossi».
+     `ALERT_SUBSCRIPTIONS`): sale a B con «Notifies Matteo Conti».
    - Una task tua in un progetto con un'automazione attiva su
      `task_created`: B con il motivo dell'automazione.
    - Una task tua chiusa con `updateTask`, con un'automazione su
@@ -515,6 +515,13 @@ Test (`taskDelete.test.ts`):
   - `data/api-mutations.ts`: `publish`, `addCommentAs`, `commitTaskPatch`
     leggono `currentVia()`;
   - `data/alerts/publish.ts`: `publishAlert` lo stesso;
+  - `data/api-mutations.ts`, `settleProposal` del `ProposalPlace` dei
+    thread della Chat (@Claude): `applyActions` gira dentro
+    `runAsClaude({ actionId: newId("ca"), undoOfActionId: null })`, così le
+    scritture confermate in Chat portano il segno come quelle del riquadro
+    *(maintainer, 2 nov 2026)*. Le classi e le regole dell'area 4 non
+    cambiano (tutto proposte), non nasce una riga in `state.claudeActions`
+    e in Chat non c'è «Annulla»;
   - `data/taskDelete.ts`: l'evento d'eliminazione porta il segno;
   - `data/types.ts`: `PersonDayActivity` (righe di task spostate,
     commenti, eliminate) + `viaClaude: boolean`; `TimelineEvent`
@@ -556,6 +563,12 @@ Test:
   Roberta); `listChangeFilterChoices().claude` è vero solo se chi guarda
   legge almeno una voce col segno.
 - [ ] Una voce nata prima del 10a (senza `via`) si legge senza segno.
+- [ ] @Claude nella Chat *(maintainer)*: una proposta `planTask` verso
+  Marco confermata da Giulia in un thread → la voce o l'attività ha `via:
+  "claude"` e `actorId` Giulia, la notifica di Marco ha
+  `viaClaude.personId: "p-giulia"`, `state.claudeActions` non cambia; una
+  scrittura a mano nello stesso thread (un messaggio di Giulia) non ha il
+  segno.
 - [ ] Commit `feat(desktop): il segno «per conto di» nelle scritture fatte da Claude`.
 
 ### Task 4: Il catalogo, le classi e i divieti
@@ -885,7 +898,8 @@ Regole:
   sulle azioni scelte. Per una C senza riconferma fresca risponde
   `reauth_required` **senza toccare la proposta** (resta aperta, nessuna
   presa in `claims`). Poi `executeGroup`, e la proposta confermata porta
-  `groupId`. La Chat (`ProposalPlace` dei thread) non cambia.
+  `groupId`. La Chat (`ProposalPlace` dei thread) non cambia nelle classi
+  e non ha «Annulla»; il segno `via` delle sue conferme lo mette il Task 3.
 - **«Com'era»** (*scelta del costruttore*: confronto per scritture, non per
   versioni). Un oggetto è cambiato se dopo `at` c'è, da una persona o da
   Claude fuori dal gruppo:
@@ -1070,7 +1084,19 @@ Test:
     `recordUsage` (`data/instance/usage.ts`), operazione `chat`, sul
     progetto del contesto o senza progetto, se `freeTurn` non lo fa già;
   - `data/api.ts`: `describeContext`;
-  - i18n `claude.panel.*`.
+  - i18n `claude.panel.*`, e `claude.destination.landing.intro` sostituita
+    con le due frasi della conversazione vuota dello shape («Ask about what
+    you're looking at…» / «What only touches you happens right away and can
+    be undone…»): «changes nothing without your confirmation» non è più vera
+    con la classe A *(scelta del controller, [CP 9] di `claude-panel.md`)*;
+  - `src/main/menu.ts`: la voce «Ask Claude…» con `CmdOrCtrl+J` accanto a
+    «Search…», che manda il canale nuovo `MENU_ASK_CLAUDE`
+    (`"menu:ask-claude"`); `src/preload/index.ts` e `src/renderer/env.d.ts`
+    lo espongono come gli altri canali; `layout/useMenuEvents.ts` lo
+    traduce in `openClaudePanel({ mode: "toggle" })` *(scelta del
+    controller, [CP 7])*. Test in `src/main/main.test.ts` e
+    `layout/useMenuEvents.test.ts`. Senza un dialogo modale aperto, ⌘J
+    dalla tastiera e dal menu non scattano due volte (un solo toggle).
 
 **Interfaces, prodotte:**
 
@@ -1123,6 +1149,11 @@ Test:
 - [ ] Un chip su una task diventata invisibile non si mostra, e Claude
   risponde «Can't find …» come per un codice inesistente.
 - [ ] Budget esaurito: il riquadro lo dice, l'invio non parte.
+- [ ] La voce di menu «Ask Claude…» (`MENU_ASK_CLAUDE`) apre e chiude il
+  riquadro; ⌘J premuto una volta dà un solo toggle.
+- [ ] L'atterraggio della destinazione e la conversazione vuota del
+  riquadro non contengono più «changes nothing without your confirmation»
+  (en) né la sua resa it.
 - [ ] Un turno dal riquadro col chip su ACQ aggiunge una riga di consumo
   `chat` su ACQ; senza contesto, una riga senza progetto.
 - [ ] `pageContextOf` per ogni forma di `ContextRef` e per una rotta senza
@@ -1165,8 +1196,14 @@ seguito arriva anche dopo un Retry.
 Test:
 - [ ] Riga A: «Created MKX-<n> "Prova"», il codice apre la task, «Undo» la
   elimina e la riga dice «Undone».
-- [ ] Scheda B in AUD: «Notifies Matteo Rossi»; con un'automazione: la sua
+- [ ] Scheda B in AUD: «Notifies Matteo Conti»; con un'automazione: la sua
   riga; `deleteTask`: «Can't be undone», nessun «Undo» dopo la conferma.
+- [ ] `notifies` con `more` *(scelta del controller)*: «Notifies Matteo
+  Conti and others who follow this in AUD»; solo `more`: «Notifies people
+  who follow this in AUD»; nessuna cifra nella riga (regex `/\d/` sul testo
+  della riga, en e it).
+- [ ] Un'azione A eseguita *(maintainer)*: la riga nel flusso e la voce nel
+  registro, **nessun toast** (né nel riquadro né sulla pagina sotto).
 - [ ] «Modifica» *(maintainer)*: c'è sulla scheda di `createTask` e di
   `createRequest`; non c'è sulle schede di `deleteTask`, `archiveProject`,
   `addMember`, `saveWebhook` (solo «Confirm» e «Cancel»).
@@ -1235,7 +1272,9 @@ Test:
   - `pages/task/ActivityFeed.tsx`: la testata del commento e la riga di un
     cambio di campo col segno;
   - `notifications/NotificationItem.tsx`: il prefisso da `viaClaude` e
-    «Undone by <nome>» da `undoneByName`;
+    «Undone by <nome>» da `undoneByName`; vale anche per le notifiche nate
+    da una proposta di @Claude confermata in Chat *(maintainer, 2 nov
+    2026)*;
   - la rassegna del giorno per persona (`pages/week/*` o dove vive
     `listPeopleActivity`) e la storia del progetto: il segno sulle righe
     con `viaClaude`;
@@ -1260,6 +1299,10 @@ Test:
 - [ ] Il commento con `via`: testata «Claude on behalf of Giulia Ferri»,
   Giulia lo modifica e lo elimina come suo.
 - [ ] La notifica di Marco (seme): prefisso e «Undone by Giulia Ferri».
+- [ ] @Claude nella Chat *(maintainer)*: dopo la conferma in un thread di
+  una proposta che sposta una task di Marco, la voce del registro e la
+  notifica di Marco si leggono «Claude on behalf of Giulia Ferri …», senza
+  «Undone by».
 - [ ] Le righe nate prima del 10a non hanno segno (fixture **senza** i campi
   nuovi, apposta).
 - [ ] Commit `feat(desktop): «Claude per conto di» nel registro, nei commenti e nelle notifiche`.
@@ -1337,3 +1380,17 @@ Ognuna è segnata nel testo con chi l'ha presa.
    Annulla. Global Constraints, Task 9.
 4. **Filtro, lingua e tema lato pagina → 10b** *(scelta del controller)*.
    Goal e Spec.
+5. **Le conferme di @Claude nella Chat portano «Claude on behalf of …»**
+   nel registro e nelle notifiche, come il riquadro *(maintainer, 2 nov
+   2026)*. Le regole dell'area 4 restano (tutto proposte, niente
+   «Annulla» in Chat). Task 3 (segno), Task 11 (pagine).
+6. **«Notifies» con persone che chi chiede non vede** → «… and others who
+   follow this in AUD», mai un numero *(scelta del controller)*. Task 9.
+7. **Un'azione A eseguita non mostra un toast**: bastano la riga nella
+   conversazione e la voce nel registro *(maintainer)*. Task 9.
+8. **«Elimina task» a mano**: dialogo col bottone rosso, senza codice da
+   scrivere né riconferma *(maintainer)*. Task 10.
+9. **Note del controller accettate**: il nome del seme è Matteo **Conti**
+   (testi e test allineati); la frase dell'atterraggio di Claude si
+   sostituisce ([CP 9]); «Ask Claude… ⌘J» nel menu dell'app ([CP 7]).
+   Task 8, Task 9.
