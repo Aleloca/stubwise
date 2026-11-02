@@ -1890,7 +1890,8 @@
       "saveFailed": "Couldn't save the change. The request is as it was.",
       "refiningLive": "Claude is refining this request.",
       "refiningOthers": "Being refined with Claude. Only people who can edit requests in {{code}} can follow the conversation.",
-      "refiningIdle": "Being refined. Refine with Claude to pick it up again."
+      "refiningIdle": "Being refined. Refine with Claude to pick it up again.",
+      "noRequesters": "Nobody on the team: it came from outside."
     },
     "risk": {
       "label": "Risk",

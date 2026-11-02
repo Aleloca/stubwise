@@ -836,7 +836,13 @@ function Requesters({ request }: { request: ProjectRequest }) {
   const people = usePeople().data;
   const times = request.requesterIds.length;
   return (
-    <Section title={t("requests.detail.requesters")} count={times}>
+    <Section
+      title={t("requests.detail.requesters")}
+      count={times}
+      // Nata fuori dal team (il widget, il Support): la sezione lo dice
+      // invece di restare vuota sotto il titolo (rifinitura 6 di Impeccable).
+      empty={times === 0 ? t("requests.detail.noRequesters") : undefined}
+    >
       {times > 1 && (
         <p className="text-sm text-ink-muted">{t("requests.requestedTimes", { count: times })}</p>
       )}

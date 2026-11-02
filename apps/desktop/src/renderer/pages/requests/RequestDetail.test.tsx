@@ -134,3 +134,12 @@ describe("richiesta: il prossimo passo", () => {
     expect(dialog.querySelector("[data-next-step]")).toBeNull();
   });
 });
+
+describe("chi l'ha chiesta (rifinitura 6 di Impeccable)", () => {
+  it("una richiesta nata dal widget, senza nessuno del team: la sezione lo dice, non resta vuota", async () => {
+    renderRoute("/p/ACQ/requests?request=req-acq-1", "p-laura");
+    const dialog = await panel();
+    const heading = await within(dialog).findByRole("heading", { name: "Requested by" });
+    expect(heading.closest("section")).toHaveTextContent("Nobody on the team: it came from outside.");
+  });
+});
