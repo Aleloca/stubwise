@@ -4,7 +4,9 @@ import { sinceText } from "../components/InstanceBlock";
 import { relativeTime } from "../notifications/time";
 import { modifiedLabel } from "../pages/drive/format";
 import { resetApi } from "./api";
+import { accessState } from "./access/index";
 import { advanceNow, now, state } from "./store";
+import { grantInstancePermission } from "./viewer";
 
 // Un solo «adesso» (orologio unico): tutto ciò che dice un'età o un «quando»
 // misura contro `now()` del livello dati, lo stesso orologio con cui il
@@ -23,8 +25,21 @@ describe("orologio unico: i formattatori misurano su now()", () => {
     expect(relativeTime(now(), t, "en")).toBe("Just now");
   });
 
-  it("«da oggi alle …» per un fatto di adesso", () => {
-    expect(sinceText(t, now(), "en")).toBe(t("instanceEffects.since.today", { time: now().slice(11, 16) }));
+  it("«da ieri alle …» quando l'orologio passa la mezzanotte", () => {
+    const at = now();
+    advanceNow(13 * 3_600_000);
+    expect(sinceText(t, at, "en")).toBe(
+      t("instanceEffects.since.yesterday", { time: at.slice(11, 16) }),
+    );
+  });
+
+  it("una concessione scritta dopo «Fai passare il tempo» porta l'ora di now()", () => {
+    advanceNow(45 * 60_000);
+    grantInstancePermission("p-sara", "instance.status.view");
+    const grant = accessState().grants.find(
+      (g) => g.personId === "p-sara" && g.permission === "instance.status.view",
+    );
+    expect(grant?.at).toBe(now());
   });
 
   it("l'età si sposta con l'orologio del livello dati («Fai passare il tempo»)", () => {
@@ -38,6 +53,9 @@ describe("orologio unico: i formattatori misurano su now()", () => {
 // Le superfici non si costruiscono un loro «adesso»: niente costante `NOW`
 // (né `…_NOW`), niente orologio scritto a mano sul giorno fisso. La
 // mezzanotte di `TODAY` resta lecita: è un confine di giorno, non un adesso.
+// La guardia prende solo queste due forme: un adesso scritto come
+// `${daysFromToday(0)}T15:00:00Z` o come stringa letterale le sfugge. Per un
+// prototipo basta (Minor 5 della revisione, in `ossatura-follow-ups.md`).
 const SURFACES = import.meta.glob(
   [
     "../pages/**/*.{ts,tsx}",

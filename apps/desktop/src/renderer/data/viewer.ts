@@ -23,7 +23,6 @@ import {
   subscribeAccess,
   writeAccess,
 } from "./access/index";
-import { TODAY } from "./seed/dates";
 import { CLAUDE_ID, PEOPLE } from "./seed/people";
 import { clearToasts } from "../tasks-ui/Toast";
 import {
@@ -32,6 +31,9 @@ import {
   runBeforePersonaChange,
   setSessionPersonId,
 } from "./session";
+// Ciclo con lo store (che importa `can`/`viewerFor` da qui): regge perché
+// `now()` si chiama solo a runtime, dentro `grantedAt`.
+import { now } from "./store";
 import type {
   DepartmentPermission,
   LocalInstancePermission,
@@ -288,8 +290,8 @@ export function viewerFor(personId: string): Viewer {
 
 // --- scritture (le firme di prima, sullo stato) -------------------------------
 
-/** L'«adesso» delle concessioni fatte da qui: lo stesso di `now()` dello store. */
-const grantedAt = (): string => `${TODAY}T12:00:00Z`;
+/** L'«adesso» delle concessioni fatte da qui: `now()` dello store (orologio unico). */
+const grantedAt = (): string => now();
 
 /**
  * Il ruolo (chiave del preset o del ruolo) di una persona in un progetto;

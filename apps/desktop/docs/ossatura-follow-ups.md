@@ -1333,7 +1333,13 @@ Visti negli scatti finali (Task 14):
   nessuna superficie con un suo «adesso», seme mai nel futuro) e la
   sezione Claude («Just now» su una sessione appena avviata). Resta fuori,
   deciso (ruling T13 I3): «Updated hh:mm:ss» e «Couldn't update at…» dello
-  Stato, sull'orologio vero della finestra.
+  Stato, sull'orologio vero della finestra. Gli scatti d'archivio con età
+  delle notifiche (`notifications-open*`, `t8-notif-*`, le Home `a2-home-*`,
+  `a3-home-decide-*`, `a6-home-*`) precedono l'orologio unico e non sono
+  stati rifatti: le età vi sono di un'ora in più, alcune oggi invece di
+  «Yesterday»; il layout non cambia. Nella revisione dell'orologio unico
+  (Minor 2) anche `grantedAt` (`data/viewer.ts`), l'unica altra scrittura a
+  runtime con un suo mezzogiorno, è passata a `now()`.
 
 Lasciati aperti dall'ondata finale (revisione finale e Impeccable), col
 perché:
@@ -1359,6 +1365,18 @@ perché:
   budget torna (`analysisBlocked`): il riquadro lo dice finché l'episodio
   è aperto. *Perché*: è il comportamento dello shape EF (l'analisi non è
   un passo d'automazione), da confermare col motore.
+
+Lasciati aperti dalla revisione dell'orologio unico, col perché:
+- Àncore del seme che ripetono il valore di `CLOCK_START` invece di
+  importarlo: `NOW` in `seed/usage.ts` e `NOW_MS` in
+  `seed/servers/metrics.ts` (Minor 3). *Perché*: sono calcolate una volta
+  sola e devono restare ferme anche dopo «Fai passare il tempo», quindi oggi
+  dicono il vero; il difetto è solo la copia del valore, una riga per file
+  quando si tocca il seme (con la voce sui consumi `<= NOW`).
+- La guardia di `data/architecture.clock.test.ts` vede solo `…NOW` e
+  `${TODAY}T<ora>`: un adesso scritto come `${daysFromToday(0)}T15:00:00Z`
+  o come stringa letterale le sfugge (Minor 5). *Perché*: per un prototipo
+  basta così; il limite è scritto nel commento del test.
 
 ## Area 9c — minori aperti
 
