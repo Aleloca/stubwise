@@ -2253,7 +2253,7 @@ anche il motivo dell'automazione. Rimandati come gli altri minori:
   `shortWeekIn`), le settimane grezze nelle righe d'attività, «Annulla»
   doppio in it (l'Undo è «Annulla l'azione», da confermare: vedi sotto), le
   virgolette nel dialogo e nel riassunto d'eliminazione.
-- **Il chip del riquadro in it dice «ACQ-3 · task»: resta così.** La
+- **Il chip del riquadro in it dice «ACQ-3 · task»: resta così.** **Confermato dal maintainer il 2 nov 2026.** La
   tabella dello shape approvato (claude-panel.md, «Il chip del contesto»)
   vuole «ACQ-14 · task» anche in it, e «task» è il nome dell'oggetto in
   tutta l'app («Nuova task», «Elimina task»); «Attività» è il nome della
@@ -2311,7 +2311,7 @@ Lasciati aperti, ognuno col suo motivo:
   nomi), la conversazione è di chi l'ha scritta; un parametro numerico con
   la lettera nel modello cambierebbe tutte le chiavi delle risposte.
 - **«Annulla l'azione» per l'Undo in it** (bloccante 4 di Impeccable):
-  scelta del controller nell'ondata finale, da confermare. Lo shape
+  scelta del controller nell'ondata finale, **confermata dal maintainer il 2 nov 2026**. Lo shape
   (claude-actions.md §7) voleva «Annulla» per Cancel e Undo «mai insieme»,
   e negli scatti stavano insieme. *Se sbagliata*: tre stringhe.
 - **La convenzione «W» in en e «S» in it vale ora per tutta l'app**
