@@ -423,6 +423,13 @@ describe("risposte come Giulia", () => {
     ]);
   });
 
+  it("M2: in italiano la settimana della scheda è «S44», come la riga eseguita e la notifica", async () => {
+    const steps = await respond("Pianifica AUD-10 per la settimana prossima a Marco", as("p-giulia", it_));
+    const action = proposal(steps)!.actions[0]!;
+    expect(action.summary).toMatch(/· S44$/);
+    expect(action.summaryText!.params!.week).toBe("S44");
+  });
+
   it("general: risposta generica, nessuna azione, nessuna proposta", async () => {
     for (const [text, t] of [
       ["What's the weather like in Milan?", en],

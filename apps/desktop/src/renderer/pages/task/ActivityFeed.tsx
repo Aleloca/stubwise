@@ -10,6 +10,7 @@ import {
 } from "../../data/queries";
 import type { ActivityEntry, DecisionRequest, Person, Task } from "../../data/types";
 import { can, useViewer } from "../../data/viewer";
+import { shortWeekIn } from "../../domain/weeks";
 import { formatDateTime, relativeTime } from "../../notifications/time";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { Markdown } from "../../tasks-ui/Markdown";
@@ -193,6 +194,8 @@ function FieldChangeRow({ entry, person }: { entry: ActivityEntry; person: Perso
     t,
   );
   const field = entry.field ?? "";
+  // La settimana si legge corta, con la convenzione dell'app (rifinitura 7).
+  const value = (v: string) => (field === "week" ? shortWeekIn(t, v) : v);
   let what: string;
   if (field === "description") what = t("taskDetail.activity.editedDescription");
   else if (field === "followerIds") what = t("taskDetail.activity.followers");
@@ -201,9 +204,9 @@ function FieldChangeRow({ entry, person }: { entry: ActivityEntry; person: Perso
       ? t("taskDetail.activity.markedStalled", { reason: entry.to })
       : t("taskDetail.activity.unmarkedStalled");
   } else if (entry.from && entry.to) {
-    what = `${fieldName(field, t)}: ${entry.from} → ${entry.to}`;
+    what = `${fieldName(field, t)}: ${value(entry.from)} → ${value(entry.to)}`;
   } else if (entry.to) {
-    what = t("taskDetail.activity.set", { field: fieldName(field, t), value: entry.to });
+    what = t("taskDetail.activity.set", { field: fieldName(field, t), value: value(entry.to) });
   } else {
     what = t("taskDetail.activity.cleared", { field: fieldName(field, t) });
   }

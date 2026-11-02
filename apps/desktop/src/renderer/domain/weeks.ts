@@ -38,3 +38,24 @@ export function weekLabel(week: string, locale: string): string {
   const label = (d: string) => fmt.format(new Date(`${d}T00:00:00Z`));
   return `${label(days[0]!)} – ${label(days[4]!)}`;
 }
+
+/** Il numero di una settimana stabile («2026-W46» → 46); `null` se non lo è. */
+export function weekNumberOf(week: unknown): number | null {
+  return typeof week === "string" && /-W\d+$/.test(week)
+    ? Number(week.slice(week.lastIndexOf("W") + 1))
+    : null;
+}
+
+/**
+ * La settimana corta nella lingua di `t`: «W46» in inglese, «S46» in
+ * italiano. Una convenzione sola in tutta l'app (M2 della revisione finale
+ * dell'area 10a, bloccante 3 di Impeccable): pagine, schede e risposte di
+ * Claude, righe eseguite, notifiche e attività passano da qui.
+ */
+export function shortWeekIn(
+  t: (key: string, options?: Record<string, unknown>) => string,
+  week: string,
+): string {
+  const n = weekNumberOf(week);
+  return n === null ? week : t("week.short", { n });
+}

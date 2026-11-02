@@ -252,12 +252,12 @@
       "lead": "Claude on behalf of {{name}}: {{body}}",
       "undoneBy": "Undone by {{name}}",
       "someone": "someone",
-      "planned": "Claude on behalf of {{name}} planned {{code}} for W{{n}}.",
+      "planned": "Claude on behalf of {{name}} planned {{code}} for {{week}}.",
       "unplanned": "Claude on behalf of {{name}} took {{code}} out of your week."
     },
     "direct": {
       "assigned": "{{name}} assigned you {{code}}.",
-      "planned": "{{name}} planned {{code}} for W{{n}}.",
+      "planned": "{{name}} planned {{code}} for {{week}}.",
       "unplanned": "{{name}} took {{code}} out of your week.",
       "someone": "Someone"
     }
@@ -1660,7 +1660,8 @@
     "dropHere": "Drop {{code}} here",
     "emptyColumn": "No tasks",
     "perDay": "Tasks per day",
-    "open": "Open my week"
+    "open": "Open my week",
+    "short": "W{{n}}"
   },
   "planning": {
     "title": "Planning",
@@ -3698,8 +3699,7 @@
           "busy": "{{reasons}}",
           "invalid": "something in the request isn't valid, nothing was changed"
         },
-        "didntRunLead": "Didn't run:",
-        "week": "W{{n}}"
+        "didntRunLead": "Didn't run:"
       },
       "busy": {
         "claudeSession": "Claude is working on {{code}}",

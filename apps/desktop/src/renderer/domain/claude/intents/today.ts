@@ -50,7 +50,7 @@ export async function today(_text: string, ctx: IntentContext): Promise<Answer> 
   const week = currentWeek();
   const thisWeek = mine.filter((task) => task.plannedWeek === week && !due.includes(task));
   const weekLines = thisWeek.map((task) => {
-    const meta = taskMeta({ ...task, assigneeId: null, plannedWeek: null }, names);
+    const meta = taskMeta(t, { ...task, assigneeId: null, plannedWeek: null }, names);
     return meta ? `${cite(task)} · ${meta}` : cite(task);
   });
 

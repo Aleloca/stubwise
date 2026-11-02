@@ -1,7 +1,8 @@
 import { useTranslation } from "react-i18next";
 import { usePeople, useProjects, useProjectStatuses, useUpdateTask } from "../../data/queries";
 import type { Milestone, Person, ProjectStatus, Task, TaskPatch, TaskSize } from "../../data/types";
-import { addWeeks, currentWeek, weekLabel } from "../../domain/weeks";
+import { addWeeks, currentWeek, shortWeekIn, weekLabel } from "../../domain/weeks";
+import i18n from "../../i18n";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
 import { Avatar, PersonChip, personName } from "../../tasks-ui/PersonChip";
 import { FamilySign, StatusLabel } from "../../tasks-ui/StatusLabel";
@@ -18,9 +19,12 @@ export function weekChoices(): string[] {
   return Array.from({ length: 11 }, (_, i) => addWeeks(currentWeek(), i - 2));
 }
 
-/** «W43» da «2026-W43». */
+/**
+ * «W43» / «S43» da «2026-W43», nella lingua di adesso: la convenzione unica
+ * di `shortWeekIn` (M2 della revisione finale dell'area 10a).
+ */
 export function shortWeek(week: string): string {
-  return week.slice(week.indexOf("-") + 1);
+  return shortWeekIn(i18n.t.bind(i18n), week);
 }
 
 /**

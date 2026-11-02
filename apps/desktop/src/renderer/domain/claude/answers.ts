@@ -1,4 +1,5 @@
 import type { CitationRef, ProposedAction, ScriptStep, Task, Utterance } from "../../data/types";
+import { shortWeekIn } from "../weeks";
 import type { IntentContext, T } from "./context";
 
 // Come si dice una risposta: i passi dello stream (azioni di lettura, testo,
@@ -152,8 +153,8 @@ function proposalId(ctx: IntentContext, text: string): string {
 /** Un oggetto come lo dice il Catalogo: codice + nome. */
 export const named = (o: { code: string; title: string }) => `${o.code} ${o.title}`;
 
-/** «W44» di «2026-W44». */
-export const shortWeek = (week: string) => week.slice(week.indexOf("W"));
+/** «W44» / «S44» di «2026-W44», nella lingua di `t` (una convenzione sola, `shortWeekIn`). */
+export const shortWeek = (t: T, week: string) => shortWeekIn(t, week);
 
 /** Una data ISO detta nella lingua di `t` («Oct 23», «23 ott»). */
 export const sayDate = (t: T, iso: string) =>
@@ -168,10 +169,10 @@ export function bulleted(t: T, lines: string[], max = 5): string {
 }
 
 /** I dettagli di una task in una riga di catalogo: «Marco Bellini · W44 · M». */
-export function taskMeta(task: Task, names: Map<string, string>): string {
+export function taskMeta(t: T, task: Task, names: Map<string, string>): string {
   return [
     task.assigneeId ? names.get(task.assigneeId) : null,
-    task.plannedWeek ? shortWeek(task.plannedWeek) : null,
+    task.plannedWeek ? shortWeek(t, task.plannedWeek) : null,
     task.size,
   ]
     .filter(Boolean)

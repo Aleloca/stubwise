@@ -85,7 +85,7 @@ export async function create(text: string, ctx: IntentContext): Promise<Answer> 
   if (person) args.assigneeId = person.id;
   if (week) args.plannedWeek = week;
   if (size) args.size = size;
-  const meta = [person?.name, week ? shortWeek(week) : null, size].filter(Boolean).join(" · ");
+  const meta = [person?.name, week ? shortWeek(t, week) : null, size].filter(Boolean).join(" · ");
   const summary = meta
     ? summarized(t, "claude.answers.create.summaryWithMeta", { code: project.code, title, meta })
     : summarized(t, "claude.answers.create.summary", { code: project.code, title });
@@ -161,7 +161,7 @@ export async function plan(text: string, ctx: IntentContext): Promise<Answer> {
   const person = findPerson(text, people, personId);
   const assigneeId = person?.id ?? task.assigneeId;
   const name = people.find((p) => p.id === assigneeId)?.name ?? t("claude.answers.plan.nobody");
-  const params = { task: named(task), week: shortWeek(week) };
+  const params = { task: named(task), week: shortWeek(t, week) };
   return {
     actions: [lookup],
     refs: [{ kind: "task", id: task.id }],

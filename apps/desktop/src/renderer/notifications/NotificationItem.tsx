@@ -4,6 +4,7 @@ import type { SubscriptionState } from "../data/alerts";
 import type { AppNotification, Project } from "../data/types";
 import { Menu, itemClass } from "../tasks-ui/Menu";
 import { DeptStrip, useDeptLabel } from "../layout/DeptStrip";
+import { shortWeekIn } from "../domain/weeks";
 import {
   SNOOZE_OPTIONS,
   formatDateTime,
@@ -304,9 +305,6 @@ export function NotificationItem({
 }
 
 /** Il corpo di una notifica nata da Claude per una persona (`viaClaude`). */
-/** Il numero della settimana di un valore stabile («2026-W46» → 46). */
-const weekNumber = (week: string) => Number(week.split("-W")[1]);
-
 /**
  * Titolo e corpo di `task.assigned` e `planning.changed` nella lingua di chi
  * legge, dai valori stabili (`actorName`, `viaClaude`, `plannedWeek`);
@@ -335,7 +333,7 @@ function composedOf(
         ? viaClaudeBody(n, t)
         : week === null
           ? t("notifications.direct.unplanned", { name, code: n.objectCode })
-          : t("notifications.direct.planned", { name, code: n.objectCode, n: weekNumber(week) }),
+          : t("notifications.direct.planned", { name, code: n.objectCode, week: shortWeekIn(t, week) }),
     };
   }
   return null;
@@ -356,7 +354,7 @@ function viaClaudeBody(
       : t("notifications.viaClaude.planned", {
           name,
           code: n.objectCode,
-          n: weekNumber(n.plannedWeek),
+          week: shortWeekIn(t, n.plannedWeek),
         });
   if (n.viaClaudeName && n.body.includes(n.viaClaudeName))
     return n.body.replace(n.viaClaudeName, t("notifications.viaClaude.actor", { name }));

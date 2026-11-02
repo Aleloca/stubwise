@@ -50,7 +50,7 @@ async function describeTask(task: Task, ctx: IntentContext): Promise<Omit<Answer
       ? t("claude.answers.explain.assignee", { name: names.get(task.assigneeId) ?? "" })
       : t("claude.answers.explain.unassigned"),
     task.plannedWeek
-      ? t("claude.answers.explain.week", { week: shortWeek(task.plannedWeek) })
+      ? t("claude.answers.explain.week", { week: shortWeek(t, task.plannedWeek) })
       : null,
     task.size ? t("claude.answers.explain.size", { size: task.size }) : null,
     task.dueDate ? t("claude.answers.explain.due", { date: sayDate(t, task.dueDate) }) : null,

@@ -68,17 +68,26 @@ describe("le righe di cambio di campo", () => {
   it("col segno hanno il prefisso; l'inversa dell'«Annulla» è una riga normale col prefisso", async () => {
     renderFeed(ROBERTA);
     await waitFor(() => expect(fieldRows().length).toBeGreaterThan(0));
-    const claude = fieldRows().filter((r) => r.includes(MOVE_TASK.to));
+    const claude = fieldRows().filter((r) => r.includes("W42"));
     expect(claude).toHaveLength(2);
     for (const row of claude) expect(row).toMatch(/^Claude on behalf of Giulia Ferri · /);
     expect(claude.join(" ")).not.toMatch(/undid/i);
 
     act(() => setLanguage("it"));
     await waitFor(() =>
-      expect(fieldRows().filter((r) => r.includes(MOVE_TASK.to))[0]).toMatch(
+      expect(fieldRows().filter((r) => r.includes("S42"))[0]).toMatch(
         /^Claude per conto di Giulia Ferri · /,
       ),
     );
+  });
+
+  it("rifinitura 7: la settimana si legge corta, «W41 → W42» e in it «S41 → S42», mai grezza", async () => {
+    renderFeed(ROBERTA);
+    await waitFor(() => expect(fieldRows().some((r) => r.includes("W41 → W42"))).toBe(true));
+    expect(fieldRows().join(" ")).not.toContain("2026-W");
+    act(() => setLanguage("it"));
+    await waitFor(() => expect(fieldRows().some((r) => r.includes("S41 → S42"))).toBe(true));
+    expect(fieldRows().join(" ")).not.toContain("2026-W");
   });
 
   it("le righe nate prima del 10a (senza i campi nuovi) non hanno segno", async () => {

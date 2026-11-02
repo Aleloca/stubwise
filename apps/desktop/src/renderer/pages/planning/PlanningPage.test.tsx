@@ -78,9 +78,10 @@ describe("PlanningPage di progetto", () => {
     const panel = await screen.findByRole("dialog", { name: "Notifications" });
     expect(await within(panel).findByText("You've been assigned MKX-8")).toBeInTheDocument();
     expect(
-      within(panel).getByText(`MKX-8 · ${taskOf("MKX-8").title}: Giulia Ferri assigned it to you.`),
+      // Il corpo si compone a lettura da chi ha scritto (I2 della revisione finale).
+      within(panel).getByText("Giulia Ferri assigned you MKX-8."),
     ).toBeInTheDocument();
-    expect(within(panel).queryByText(/planned it for 2026-W43/)).toBeNull();
+    expect(within(panel).queryByText(/planned MKX-8 for W43/)).toBeNull();
   });
 
   it("Sara vede le righe altrui in sola lettura; la sua resta viva", async () => {

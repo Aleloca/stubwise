@@ -21,6 +21,7 @@ import type {
   Project,
 } from "../../data/types";
 import { can, useViewer } from "../../data/viewer";
+import { shortWeekIn } from "../../domain/weeks";
 import { DeptLegend, DeptStrip, useDeptLabel } from "../../layout/DeptStrip";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { MenuGroup, RadioItem, itemClass } from "../../tasks-ui/Menu";
@@ -785,9 +786,13 @@ function PersonDetail({
   const moveText = (m: PersonDayActivity["tasksMoved"][number]) => {
     const field = t(`taskDetail.activity.fields.${m.field}`, { defaultValue: m.field });
     const name = field.charAt(0).toUpperCase() + field.slice(1);
+    // La settimana si legge corta, con la convenzione dell'app (rifinitura 7).
+    const value = (v: string) => (m.field === "week" ? shortWeekIn(t, v) : v);
     if (m.from && m.to)
-      return m.field === "status" ? `${m.from} → ${m.to}` : `${name}: ${m.from} → ${m.to}`;
-    if (m.to) return t("projects.people.moveSet", { field: name, value: m.to });
+      return m.field === "status"
+        ? `${m.from} → ${m.to}`
+        : `${name}: ${value(m.from)} → ${value(m.to)}`;
+    if (m.to) return t("projects.people.moveSet", { field: name, value: value(m.to) });
     return t("projects.people.moveCleared", { field: name });
   };
 

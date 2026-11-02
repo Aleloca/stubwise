@@ -4,6 +4,7 @@ import { WhoCanLink } from "../../../components/WhoCanLink";
 import { useCodeCitations, usePeople, useProjects } from "../../../data/queries";
 import type { CitationView, ProposedAction, UndoView } from "../../../data/types";
 import { spoken } from "../../../domain/claude/answers";
+import { shortWeekIn, weekNumberOf } from "../../../domain/weeks";
 import { HiddenCode } from "./citations";
 import type { Ev } from "./flow";
 import { CheckGlyph, CrossGlyph } from "./parts";
@@ -92,9 +93,6 @@ function ObjectCode({ code, lookup }: { code: string; lookup: Lookup }) {
   );
 }
 
-const weekNumber = (week: unknown) =>
-  typeof week === "string" && /W\d+$/.test(week) ? Number(week.slice(week.indexOf("W") + 1)) : null;
-
 /** La frase di un'azione eseguita: verbo al passato e oggetto, poi nome e dettagli. */
 function ActionPhrase({
   action,
@@ -110,8 +108,7 @@ function ActionPhrase({
   const view = code ? lookup.objects.get(code) : undefined;
   const person = (id: unknown) => (typeof id === "string" ? lookup.people.get(id) : undefined);
   const week = (w: unknown) => {
-    const n = weekNumber(w);
-    return n === null ? null : t("claude.conversation.executed.week", { n });
+    return typeof w === "string" && weekNumberOf(w) !== null ? shortWeekIn(t, w) : null;
   };
   const verb = (key: string, values: Record<string, unknown> = {}): ReactNode => (
     <Trans
