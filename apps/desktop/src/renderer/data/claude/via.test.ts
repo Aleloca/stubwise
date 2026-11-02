@@ -3,6 +3,8 @@ import * as api from "../api";
 import {
   changelog,
   chat,
+  convertRequest,
+  createRequest,
   createTask,
   listNotifications,
   listPeopleActivity,
@@ -266,6 +268,21 @@ describe("task.assigned (decisione del maintainer)", () => {
     // Marco la legge nelle sue notifiche.
     as(MARCO);
     expect((await listNotifications()).some((n) => n.kind === "task.assigned")).toBe(true);
+  });
+
+  it("una task nata dalla conversione di una richiesta avvisa chi la riceve, non chi se la dà", async () => {
+    as(GIULIA);
+    const toMarco = await createRequest({ projectId: OLV, title: "New harvest photos" });
+    const task = await convertRequest(toMarco.id, { title: "Shoot the harvest", assigneeId: MARCO });
+    expect(notesOf("task.assigned", task, MARCO)).toHaveLength(1);
+    expect(notesOf("task.assigned", task, MARCO)[0]?.viaClaude).toBeUndefined();
+
+    const before = state.notifications.filter((n) => n.kind === "task.assigned").length;
+    const toSelf = await createRequest({ projectId: OLV, title: "Press kit" });
+    await convertRequest(toSelf.id, { title: "Write the press kit", assigneeId: GIULIA });
+    const toClaude = await createRequest({ projectId: OLV, title: "Alt texts" });
+    await convertRequest(toClaude.id, { title: "Alt texts for the photos", assigneeId: "p-claude" });
+    expect(state.notifications.filter((n) => n.kind === "task.assigned")).toHaveLength(before);
   });
 
   it("dentro runAsClaude la notifica ha viaClaude.personId della persona", () => {

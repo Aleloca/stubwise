@@ -1007,6 +1007,8 @@ function convertRequestAs(
   addTask(task);
   request.taskIds = [...request.taskIds, task.id];
   request.status = "converted";
+  // Una task nata assegnata, come da `createTaskAs` (area 10a).
+  publishAssigned(me, task);
   return task;
 }
 
