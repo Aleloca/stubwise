@@ -3565,7 +3565,16 @@
         "needsCode": "This needs your two-step code first. Nothing was changed.",
         "reauthMany": "carry out these {{count}} changes",
         "failedForbidden": "Couldn't do it: you can no longer {{action}} in {{code}}. Nothing was changed.",
-        "failedForbiddenNoProject": "Couldn't do it: you can no longer {{action}}. Nothing was changed."
+        "failedForbiddenNoProject": "Couldn't do it: you can no longer {{action}}. Nothing was changed.",
+        "reauthOne": "carry out this change",
+        "reauthAction": {
+          "addMember": "add {{name}} to {{code}} as {{role}}",
+          "setMemberRole": "make {{name}} {{role}} in {{code}}",
+          "removeMember": "remove {{name}} from {{code}}",
+          "registerPlugin": "register the plugin {{url}}",
+          "updatePluginRef": "move a plugin to {{ref}}",
+          "saveStorage": "change where files are stored"
+        }
       },
       "result": {
         "open": "Open",

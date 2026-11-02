@@ -8,7 +8,13 @@ import {
   usePeople,
   useProjects,
 } from "../../../data/queries";
-import type { ClassReason, NewTaskInput, ProposedAction, UndoView } from "../../../data/types";
+import type {
+  ClassReason,
+  NewTaskInput,
+  ProposedAction,
+  UndoView,
+  Utterance,
+} from "../../../data/types";
 import { spoken } from "../../../domain/claude/answers";
 import { useReauth } from "../../../layout/useReauth";
 import { CheckBox } from "../../../tasks-ui/Menu";
@@ -94,12 +100,15 @@ export function ProposalCard({
   event,
   viewerId,
   undo,
+  reauthPhrases,
 }: {
   conversationId: string;
   event: Ev<"proposal">;
   viewerId: string;
   /** Area 10a: lo stato di «Annulla» del gruppo confermato, per chi guarda. */
   undo?: UndoView | undefined;
+  /** Area 10a (M1): le frasi all'infinito della riconferma, una per azione (dal livello dati). */
+  reauthPhrases?: (Utterance | null)[] | undefined;
 }) {
   const { t } = useTranslation();
   const confirm = useConfirmProposal();
@@ -109,14 +118,18 @@ export function ProposalCard({
   const reauth = useReauth();
   const viewerName = usePersonName(viewerId);
   const target = { id: conversationId, proposalId: event.proposalId };
-  // La frase del dialogo della riconferma: il riassunto della scheda (C).
+  // La frase del dialogo della riconferma: all'infinito, dal livello dati
+  // («To add …» / «Per aggiungere …», M1); mai il riassunto, che è
+  // all'imperativo e in it non si piega dentro «Per …».
   const reauthAction = (indexes: number[] | undefined) => {
-    const chosen = indexes ? indexes.map((i) => event.actions[i]!) : event.actions;
+    if (event.undoOf) return t("claude.conversation.undo.reauthAction");
+    const chosen = indexes ?? event.actions.map((_, i) => i);
     if (chosen.length !== 1)
       return t("claude.conversation.proposal.reauthMany", { count: chosen.length });
-    const text = spoken(t, chosen[0]!.summaryText, chosen[0]!.summary);
-    // «Add Laura…» → «To add Laura…»; un codice in testa («MKX …») resta com'è.
-    return /^[A-Z][a-z]/.test(text) ? text[0]!.toLowerCase() + text.slice(1) : text;
+    const phrase = reauthPhrases?.[chosen[0]!];
+    return phrase
+      ? t(phrase.key, phrase.params)
+      : t("claude.conversation.proposal.reauthOne");
   };
   const confirmedCount = event.confirmedActions?.length ?? event.actions.length;
   const codes = objectCodesOf(event);
@@ -433,7 +446,7 @@ const NAMED = 3;
 /**
  * Le righe dei motivi di una scheda B/C (area 10a, Task 9), lette da
  * `reasons` e nell'ordine del dato: chi viene avvisato, l'automazione che
- * parte, «Can't be undone», il codice a due fattori. I nomi sono quelli che
+ * parte, «Can't be undone», il codice della verifica in due passaggi. I nomi sono quelli che
  * chi legge vede: una persona che non vede non c'è (e non si conta), un
  * progetto che non vede toglie la riga dell'automazione.
  */

@@ -128,6 +128,7 @@ export function EventList({
   const working = detail.state === "working";
   // Area 10a: lo stato di «Annulla» per chi guarda; facoltativo (P25).
   const undo = detail.undo ?? {};
+  const reauthPhrases = detail.reauthPhrases ?? {};
   const viewerName = usePersonName(viewerId);
   // I comandi su un server (correzione o analisi) sono righe del registro.
   const serverCode = detail.serverFix?.serverCode ?? detail.serverAnalysis?.serverCode ?? null;
@@ -203,6 +204,7 @@ export function EventList({
                     event={item.event}
                     viewerId={viewerId}
                     undo={item.event.groupId ? undo[item.event.groupId] : undefined}
+                    reauthPhrases={reauthPhrases[item.event.proposalId]}
                   />
                 );
               case "executed":

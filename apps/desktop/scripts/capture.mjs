@@ -525,7 +525,7 @@ async function main() {
         await page.mouse.move(v.viewport.width - 2, v.viewport.height - 2);
         const rows = `a10a-actions-panel-rows-${v.suffix}.png`;
         if (!only || only.test(rows)) await shot(page, rows);
-        // La scheda C: aggiungere Laura a OLV, col codice a due fattori.
+        // La scheda C: aggiungere Laura a OLV, col codice della verifica in due passaggi.
         const summary =
           v.lang === "it" ? "Aggiungi Laura Costa a OLV come Developer" : "Add Laura Costa to OLV as Developer";
         await page.evaluate(async (text) => {

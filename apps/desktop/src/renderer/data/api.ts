@@ -92,9 +92,11 @@ import type {
   Task,
   TimelineEvent,
   UndoView,
+  Utterance,
   WeeklyBrief,
 } from "./types";
 import { undoViewOf } from "./claude/actions";
+import { reauthPhraseOf } from "./claude/reauthPhrase";
 import { canSeeAutomation } from "./automations/visibility";
 import { canSeeAdmin, canSeeAdminSection } from "./adminSections";
 import { ADMIN_SECTIONS } from "./routes";
@@ -762,7 +764,24 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
     planPreApproved: state.preApprovedPlans.has(id),
     continuesFrom: originOf(me, c),
     undo: undoOfEvents(me, events),
+    reauthPhrases: reauthPhrasesOf(me, events),
   };
+}
+
+/**
+ * Le frasi della riconferma delle schede C aperte di chi guarda (area 10a,
+ * M1): una per azione, all'infinito, coi nomi che chi guarda vede.
+ */
+function reauthPhrasesOf(
+  me: string,
+  events: ConversationEvent[],
+): Record<string, (Utterance | null)[]> {
+  const out: Record<string, (Utterance | null)[]> = {};
+  for (const e of events) {
+    if (e.type === "proposal" && e.status === "open" && e.cls === "C" && e.requesterId === me)
+      out[e.proposalId] = e.actions.map((a) => reauthPhraseOf(me, a));
+  }
+  return out;
 }
 
 /**

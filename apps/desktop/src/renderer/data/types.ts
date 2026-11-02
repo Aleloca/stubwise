@@ -36,6 +36,7 @@ import type {
   PullRequestEvent,
   RunProvider,
   Task,
+  Utterance,
 } from "./model";
 
 // I tipi del modello dell'area 2 stanno in `model.ts`; qui restano quelli
@@ -426,6 +427,12 @@ export interface ConversationDetail extends ConversationRow, ConversationPermiss
    * chi guarda. Facoltativo (P25): la pagina lo legge con `?? {}`.
    */
   undo?: Record<string /* groupId */, UndoView>;
+  /**
+   * Area 10a (M1 della revisione finale): per ogni scheda C aperta, la frase
+   * all'infinito di ogni azione per il dialogo della riconferma («To add …» /
+   * «Per aggiungere …»), `null` dove non c'è. Facoltativo (P25).
+   */
+  reauthPhrases?: Record<string /* proposalId */, (Utterance | null)[]>;
 }
 
 /** «Annulla» di un gruppo di azioni di Claude, come lo vede chi guarda (area 10a). */

@@ -3382,7 +3382,7 @@
       "invalid": "Non eseguita: «{{action}}» non si applica più alla situazione di adesso. Non è cambiato nulla.",
       "conflict": "Non eseguita: Claude sta già lavorando a «{{action}}». Non è cambiato nulla.",
       "busy": "Non eseguita: «{{action}}» deve aspettare, c’è ancora qualcosa in corso. Non è cambiato nulla.",
-      "reauth_required": "Non eseguita: «{{action}}» chiede prima il codice a due fattori. Non è cambiato nulla.",
+      "reauth_required": "Non eseguita: «{{action}}» chiede prima il codice della verifica in due passaggi. Non è cambiato nulla.",
       "other": "Non eseguita: «{{action}}» non è riuscita. Non è cambiato nulla."
     },
     "conversation": {
@@ -3558,14 +3558,23 @@
           "automationClosed": "In {{code}} parte un'automazione quando una task si chiude",
           "automation": "In {{code}} parte un'automazione",
           "irreversible": "Non si annulla",
-          "reauth": "Chiede il codice a due fattori",
+          "reauth": "Chiede il codice della verifica in due passaggi",
           "label": "Cosa succede"
         },
         "delete": "Elimina",
-        "needsCode": "Prima serve il tuo codice a due fattori. Non è cambiato nulla.",
+        "needsCode": "Prima serve il tuo codice della verifica in due passaggi. Non è cambiato nulla.",
         "reauthMany": "eseguire queste {{count}} modifiche",
         "failedForbidden": "Non è stato possibile: non puoi più {{action}} in {{code}}. Non è cambiato nulla.",
-        "failedForbiddenNoProject": "Non è stato possibile: non puoi più {{action}}. Non è cambiato nulla."
+        "failedForbiddenNoProject": "Non è stato possibile: non puoi più {{action}}. Non è cambiato nulla.",
+        "reauthOne": "eseguire questa modifica",
+        "reauthAction": {
+          "addMember": "aggiungere {{name}} a {{code}} come {{role}}",
+          "setMemberRole": "rendere {{name}} {{role}} in {{code}}",
+          "removeMember": "togliere {{name}} da {{code}}",
+          "registerPlugin": "registrare il plugin {{url}}",
+          "updatePluginRef": "portare un plugin a {{ref}}",
+          "saveStorage": "cambiare dove si salvano i file"
+        }
       },
       "result": {
         "open": "Apri",
@@ -3977,7 +3986,7 @@
         "invalid": "qualcosa nella richiesta non è valido, non è cambiato nulla",
         "conflict": "Claude sta già lavorando su «{{action}}»",
         "busy": "«{{action}}» deve aspettare, c'è qualcosa ancora in corso",
-        "reauth_required": "«{{action}}» chiede prima il tuo codice a due passaggi",
+        "reauth_required": "«{{action}}» chiede prima il tuo codice della verifica in due passaggi",
         "other": "«{{action}}» non è riuscita, non è cambiato nulla"
       }
     },
@@ -9014,7 +9023,7 @@
     },
     "prototype": {
       "password": "La password di ogni account è",
-      "code": "Il codice in due passaggi è",
+      "code": "Il codice della verifica in due passaggi è",
       "signInAs": "Accedi come:",
       "tryInvite": "Prova un invito:",
       "pendingInvite": "in sospeso",

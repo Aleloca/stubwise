@@ -245,6 +245,26 @@ describe("scheda C: la riconferma", () => {
     expect(state.projectsById.get(OLV)!.memberIds).toContain(LAURA);
   });
 
+  it("M1: in it la frase del dialogo è all'infinito («Per aggiungere …»), non dal riassunto", async () => {
+    const user = userEvent.setup();
+    await i18n.changeLanguage("it");
+    const id = await injected(ROBERTA, [{ ...add, summary: "Aggiungi Laura Costa a OLV come Developer" }], "C", [
+      { kind: "reauth" },
+    ]);
+    mount(id, ROBERTA);
+    const card = await cardOf();
+    // Rifinitura 5 di Impeccable: un termine solo, quello del resto dell'app.
+    expect(reasonRow(card, "reauth")?.textContent).toBe(
+      "Chiede il codice della verifica in due passaggi",
+    );
+    await user.click(within(card).getByRole("button", { name: "Conferma" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveAccessibleDescription(
+      "Per aggiungere Laura Costa a OLV come Developer, inserisci un codice dell'app di autenticazione.",
+    );
+    expect(dialog.textContent).toContain("Il codice della verifica in due passaggi è");
+  });
+
   it("chiuso il dialogo: la scheda resta aperta, «Nothing was changed.», il fuoco torna su Confirm", async () => {
     const user = userEvent.setup();
     const id = await injected(ROBERTA, [add], "C", [{ kind: "reauth" }]);
