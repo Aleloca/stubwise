@@ -795,7 +795,8 @@ spendThisMonth(): Promise<SpendView>;
 // domain/claude/answers.ts
 Answer.aside?: { kind: "hypothesis" | "details"; text: string }[];
 Answer.capabilities?: CapabilityId[];
-export type CapabilityId = "automation" | "stalled" | "spend" | "archive" | "addMember" | "supportReply" | "releaseNotes";
+// (maintainer, 2 nov 2026: nove voci, con email e descrizione di D1)
+export type CapabilityId = "automation" | "stalled" | "spend" | "archive" | "addMember" | "supportReply" | "releaseNotes" | "mailBody" | "taskDescription";
 // data/model.ts, ConversationEvent
 | { id: string; at: string; type: "aside"; kind: "hypothesis" | "details"; text: string }
 | { id: string; at: string; type: "capabilities"; items: CapabilityId[] }
@@ -806,7 +807,11 @@ Le risposte:
   fare queste cose:», poi l'evento `capabilities`. Ogni voce, in Task 11,
   scrive nella casella la frase d'esempio nella lingua di chi guarda
   (`claude.answers.capabilities.prompt.<id>`). Nella Chat lo stesso evento,
-  senza clic *(scelta del costruttore)*.
+  senza clic *(scelta del costruttore)*. Le voci sono **nove**: le sette
+  degli scenari più `mailBody` (email e risposte nella Posta) e `taskDescription`
+  *(maintainer, 2 nov 2026)*; etichette e frasi d'esempio, coi segnaposti
+  fra parentesi quadre e mai un oggetto del seme, nello shape
+  `claude-scenarios.md` §3.5 *(scelta del controller)*.
 - **S2** («quali progetti sono fermi e perché?», «which projects are
   stuck?»): prima riga «3 projects have stalled tasks» (il numero dal
   calcolo); una riga per progetto, «ACQ — 4 stalled tasks, the oldest for
@@ -829,7 +834,9 @@ Le risposte:
   person» / «Non ho i consumi per persona», niente stima.
 
 Test:
-- [ ] S0 in en e it: la prima riga e le sette voci; nessuna riga dice che
+- [ ] S0 in en e it: la prima riga e le nove voci *(maintainer)*; nessuna
+  frase d'esempio contiene un codice o un nome del seme *(scelta del
+  controller)*; nessuna riga dice che
   Claude chiede sempre conferma; nella Chat lo stesso evento.
 - [ ] S2 per Giulia e per Roberta sullo stesso seme: i numeri uguali al
   calcolo indipendente (`stallOf` sui progetti che ciascuna vede); la
@@ -909,8 +916,10 @@ Test:
 ```ts
 // data/model.ts
 export type ProposalNote =
-  /** Progetti che chi chiede vede ma non gestisce: solo il numero dei visibili, col «Who?». */
-  | { kind: "not_manageable"; count: number; whoAction: string }
+  /** Progetti che chi chiede vede ma non gestisce: il numero dei visibili, col «Who?». */
+  | { kind: "not_manageable"; count: number; whoAction: string;
+      /** I codici di quei progetti, tutti visibili a chi chiede: il «Who?» per progetto (maintainer, 2 nov 2026, SC 11). Facoltativo. */
+      codes?: string[] }
   /** Un progetto `busy`, con le ragioni di `busyReasonsOf` come le legge chi chiede. */
   | { kind: "busy"; code: string; reasons: ClaudeBusyReason[] };
 // data/claude/answersData.ts
@@ -970,6 +979,9 @@ Test:
   attiva su `ORT` creata nel test); dopo che Roberta ne
   riapre uno a mano, l'«Annulla» è `changed_after` e gli altri restano
   archiviati.
+- [ ] La nota `not_manageable` porta `codes` coi soli codici visibili
+  (Laura: `["LNT"]`), lunga quanto `count`; una fixture senza `codes`
+  rende la riga senza menu dei progetti *(maintainer)*.
 - [ ] S4 Giulia: il testo e la scheda non contengono (in minuscolo) `spz`,
   `lnt`, `bsc` né i loro nomi, né un numero che li conti.
 - [ ] S4 con 8 candidati (progetti resi inattivi nel test): la scheda ha 8
@@ -1272,12 +1284,18 @@ quattro *(maintainer, 2 nov 2026, D1)*: Supporto, PR, Posta, Task.
 - Modify:
   - `pages/support/ReplyComposer.tsx`: dichiara il campo
     (`useFillableField`) e usa `useClaudeDraftMark` per la bozza preparata,
-    per «Claude's draft» e per il riquadro;
+    per il bottone della barra e per il riquadro. Il bottone «Claude's
+    draft» / «Bozza di Claude» diventa «Ask Claude» / «Chiedi a Claude»
+    (chiave nuova, comportamento invariato): «Bozza di Claude» resta solo
+    del segno *(maintainer, 2 nov 2026)*. La casella non intercetta più
+    ⌘J *(maintainer, 2 nov 2026)*;
   - `pages/mail/ClaudeDraftButton.tsx`, `pages/mail/Composer.tsx`: il segno
     con `useClaudeDraftMark`; via la riga `mail.compose.edited`; la
     casella dichiara il campo `mailBody` (la risposta della conversazione
     aperta, o l'email nuova con `null`) finché è montata (D1). «Send»
-    non cambia: è il solo modo di inviare;
+    non cambia: è il solo modo di inviare. `Composer.tsx` non intercetta
+    più ⌘J: «Ask Claude» resta un bottone, ⌘J è del riquadro
+    *(maintainer, 2 nov 2026)*;
   - `pages/task/DescriptionSection.tsx` (D1): dichiara il campo
     `taskDescription` quando chi guarda può modificare (`canEdit`); `put`
     apre il modo modifica (`draft`) col testo di Claude e il segno. «Save»
@@ -1365,6 +1383,13 @@ Test:
   e non dice il codice.
 - [ ] Le fixture dei test di Supporto e Posta senza i campi nuovi restano
   verdi.
+- [ ] Il bottone della barra del Supporto si chiama «Ask Claude» / «Chiedi
+  a Claude» e fa ciò che faceva; «Claude's draft» / «Bozza di Claude»
+  compare solo come segno *(maintainer)*.
+- [ ] ⌘J con il fuoco nella casella della Posta e in quella del Supporto
+  apre e chiude il riquadro, e non avvia una bozza né cambia il corpo
+  (`pages/mail/Composer.claude.test.tsx`,
+  `pages/support/ReplyComposer.claude.test.tsx`) *(maintainer)*.
 - [ ] Commit `feat(desktop): le bozze di Claude nei campi della pagina, col segno unico`.
 
 ### Task 11: Gli scenari nella conversazione (UI)
@@ -1395,8 +1420,10 @@ Segue gli shape `claude-scenarios.md` e `claude-automations.md`.
   - `pages/automations/test/useTestRun.ts`, `TestPage.tsx`: `?sim=<id>`
     adotta la prova esistente (se è di chi guarda) invece del dialogo
     degli esempi; altrimenti il dialogo come oggi;
-  - `pages/automations/DetailHeader.tsx` (o la riga di stato della bozza):
-    «Created by Claude on behalf of Laura Costa» da `createdVia`;
+  - `pages/automations/DetailHeader.tsx` e la riga meta del costruttore:
+    «Created by Claude on behalf of Laura Costa» da `createdVia`. È
+    l'**origine** e resta per sempre: dopo l'accensione, le pause e le
+    versioni nuove *(maintainer, 2 nov 2026)*;
   - i18n `claude.conversation.{trial,aside,capabilities,proposal.notes,proposal.blocked}.*`.
 
 Test:
@@ -1412,7 +1439,9 @@ Test:
   non trova la prova e mostra il dialogo degli esempi.
 - [ ] La bozza nel costruttore dice «Created by Claude on behalf of Laura
   Costa»; una bozza fatta a mano non lo dice (fixture senza
-  `createdVia`).
+  `createdVia`). Accesa da Laura e poi pubblicata una versione nuova, il
+  costruttore e il dettaglio lo dicono ancora *(maintainer)*.
+- [ ] S0 nel riquadro mostra nove voci *(maintainer)*.
 - [ ] S4 con 8 progetti: 5 righe e «Show 3 more»; aperto, 8; togliere una
   riga e confermare archivia le altre 7; le righe delle `notes` sotto la
   scheda con «Who?» (`WhoCanLink`, `manageProjectSettings`).
@@ -1474,7 +1503,11 @@ Quando c'è (le cinque di partenza del design):
 | `usage` | sempre | `usage.view` | — |
 
 «Not now» scrive `stubwise.claudeSuggestion.<personId>.<chiave del luogo>`
-in `localStorage`, con try/catch: senza archivio la riga c'è e «Not now» la
+in `localStorage`, con try/catch. La chiave del luogo è **l'oggetto**, non il
+tipo di pagina *(maintainer, 2 nov 2026)*: `support:<conversationId>`,
+`pr:<prId>`, `automations:<projectId>`, `overview:<projectId>`, `usage`
+(`suggestionKeyOf(place)`, esportata da `data/claude/suggestions.ts`). Senza
+archivio senza archivio la riga c'è e «Not now» la
 nasconde solo fino al cambio di pagina.
 
 Test:
@@ -1485,7 +1518,8 @@ Test:
 - [ ] Il clic apre il riquadro con una conversazione nuova e la richiesta
   nella casella, non inviata; Invio la manda (S6 dalla riga: la bozza
   arriva nel campo).
-- [ ] «Not now»: sparisce, ricaricata la pagina resta nascosta; con
+- [ ] «Not now» su `ACQ-S2`: sparisce, ricaricata la pagina resta nascosta;
+  su un'altra conversazione che aspetta il team la riga c'è *(maintainer)*; con
   `localStorage` che lancia, la pagina si disegna e la riga si nasconde.
 - [ ] Il testo della riga non contiene codici o nomi che chi guarda non
   vede (in minuscolo).
@@ -1581,3 +1615,24 @@ Ognuna è segnata nel testo come *(maintainer, 2 nov 2026, Dn)*.
 
 Accettate anche le scelte del costruttore del piano. Il «Who?» d'istanza di
 S3 si allinea a `whoOf` nel Task 6 stesso (`who:<azione>` senza codice).
+
+## Decisioni del maintainer sugli shape del Task 0 (2 nov 2026)
+
+Il maintainer ha approvato i quattro shape e ha scelto la risposta
+consigliata alle quattro domande; ha accettato anche due note del
+controller. Ognuna è segnata nel testo come *(maintainer)*.
+
+1. **S0 a nove voci** (shape [SC 5]): `CapabilityId` + `mailBody`,
+   `taskDescription`. Task 6, Task 11.
+2. **«Non ora» per oggetto** (shape [SG 7]): la chiave del luogo è
+   l'oggetto. Task 12.
+3. **L'origine resta** (shape [AU 8]): «Created by Claude on behalf of …»
+   resta anche dopo l'accensione. Task 11.
+4. **«Ask Claude» nel Supporto** (shape [DR 5]): il bottone della barra si
+   rinomina. Task 10.
+5. **`codes` sulla nota `not_manageable`** (shape [SC 11]): campo
+   facoltativo, solo codici visibili. Task 7, Task 11 (il menu dei
+   progetti sotto «Who?»).
+6. **⌘J resta al riquadro** (shape [DR 14]): Posta e Supporto non lo
+   intercettano più, con un test. Task 10.
+
