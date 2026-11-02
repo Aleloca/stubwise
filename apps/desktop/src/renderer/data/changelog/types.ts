@@ -138,6 +138,13 @@ export interface ChangeEntryView extends Omit<ChangeEntry, "undoOf" | "claudeAct
    * altrimenti `null` (anche sulle voci che non annullano niente).
    */
   undoOf: string | null;
+  /**
+   * Area 10a ([CT 4] di claude-trace.md): la voce annullata, letta come la
+   * legge chi guarda, per la riga «Undid: … · data». C'è solo quando c'è
+   * `undoOf` (R-G5); assente sulle righe di prima. Non porta a sua volta la
+   * voce che annulla (un livello solo).
+   */
+  undoneEntry?: ChangeEntryView;
   templateKey: string;
   scope: "instance" | "project";
   group: string;

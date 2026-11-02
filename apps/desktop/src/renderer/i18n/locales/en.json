@@ -244,6 +244,13 @@
     },
     "kinds": {
       "task_assigned": "You've been assigned {{code}}"
+    },
+    "viaClaude": {
+      "actor": "Claude on behalf of {{name}}",
+      "assigned": "Claude on behalf of {{name}} assigned you {{code}}.",
+      "lead": "Claude on behalf of {{name}}: {{body}}",
+      "undoneBy": "Undone by {{name}}",
+      "someone": "someone"
     }
   },
   "placeholder": {
@@ -2255,6 +2262,8 @@
         "closed_other": "{{count}} closed",
         "moved_one": "{{count}} moved",
         "moved_other": "{{count}} moved",
+        "deleted_one": "{{count}} deleted",
+        "deleted_other": "{{count}} deleted",
         "comments_one": "{{count}} comment",
         "comments_other": "{{count}} comments",
         "decisions_one": "{{count}} decision",
@@ -2267,6 +2276,7 @@
       "kinds": {
         "closed": "Closed",
         "moved": "Moved",
+        "deleted": "Deleted",
         "comments": "Comments",
         "decisions": "Decisions",
         "requests": "Requests",
@@ -11175,6 +11185,13 @@
       "branch": "Release branch",
       "statusFamilies": "Statuses by family",
       "kind": "Kind"
+    },
+    "via": {
+      "actor": "Claude on behalf of {{name}}",
+      "mark": "Made with Claude",
+      "filter": "Made with Claude",
+      "undid": "Undid: {{sentence}}",
+      "filtersCleared": "Filters cleared to show the change."
     }
   },
   "usage": {
@@ -11332,5 +11349,10 @@
         "requestBanner": "Turned into a task, which was later deleted. This request is now read-only."
       }
     }
+  },
+  "activity": {
+    "viaClaude": "with Claude",
+    "onBehalf": "Claude on behalf of {{name}}",
+    "deletedTask": "{{name}} deleted <code>{{code}}</code> “{{title}}”"
   }
 }

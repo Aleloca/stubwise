@@ -15,10 +15,24 @@ import { inputClass } from "../../tasks-ui/Dialog";
 import { Markdown } from "../../tasks-ui/Markdown";
 import { Avatar } from "../../tasks-ui/PersonChip";
 import { useToast } from "../../tasks-ui/Toast";
+import { ClaudeMark } from "../../components/ClaudeMark";
 import { answerText } from "./DecisionSection";
 import { InlineConfirm, Section, ghostButton, smallPrimary, smallSecondary } from "./parts";
 
 type PersonOf = (id: string | null | undefined) => Person | undefined;
+
+/**
+ * Chi ha scritto una voce: il nome, o «Claude on behalf of <nome>» se l'ha
+ * scritta Claude per lui (area 10a, `via`; shape claude-trace.md). La persona
+ * resta l'autore: il commento è suo, lo modifica e lo elimina come suo.
+ */
+function authorLabel(
+  entry: ActivityEntry,
+  name: string,
+  t: (key: string, opts?: Record<string, unknown>) => string,
+): string {
+  return entry.via === "claude" ? t("activity.onBehalf", { name }) : name;
+}
 
 /**
  * L'attività della task in un solo flusso, dal più vecchio: commenti
@@ -166,10 +180,18 @@ function fieldName(field: string, t: (key: string, opts?: Record<string, unknown
   return t(`taskDetail.activity.fields.${field}`, { defaultValue: field });
 }
 
-/** «Giulia Ferri · status: To do → In progress», in una riga sola, piccola. */
+/**
+ * «Giulia Ferri · status: To do → In progress», in una riga sola, piccola.
+ * Col segno di Claude il nome diventa «Claude on behalf of Giulia Ferri»;
+ * l'inverso di un «Annulla» è una riga come le altre [CT 8].
+ */
 function FieldChangeRow({ entry, person }: { entry: ActivityEntry; person: PersonOf }) {
   const { t } = useTranslation();
-  const who = person(entry.authorId)?.name ?? t("taskDetail.activity.system");
+  const who = authorLabel(
+    entry,
+    person(entry.authorId)?.name ?? t("taskDetail.activity.system"),
+    t,
+  );
   const field = entry.field ?? "";
   let what: string;
   if (field === "description") what = t("taskDetail.activity.editedDescription");
@@ -255,6 +277,12 @@ function Comment({
   if (entry.deletedAt) {
     return (
       <div data-activity="comment-deleted" className="flex items-baseline gap-2 pl-[30px]">
+        {/* Il segno resta su un commento eliminato [CT 7]. */}
+        {entry.via === "claude" && (
+          <span className="self-center">
+            <ClaudeMark label={t("activity.viaClaude")} />
+          </span>
+        )}
         <p className="min-w-0 flex-1 text-sm text-ink-faint italic">
           {t("taskDetail.activity.deleted", {
             name: person(entry.deletedById)?.name ?? t("taskUi.stall.someone"),
@@ -282,8 +310,8 @@ function Comment({
       <Avatar person={author} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <p className="flex items-baseline gap-2">
-          <span className="min-w-0 truncate text-sm font-semibold text-ink">
-            {author?.name ?? t("taskDetail.activity.system")}
+          <span data-comment-author className="min-w-0 truncate text-sm font-semibold text-ink">
+            {authorLabel(entry, author?.name ?? t("taskDetail.activity.system"), t)}
           </span>
           <When at={entry.at} />
           {entry.editedAt && (

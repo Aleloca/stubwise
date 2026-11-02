@@ -1,5 +1,5 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { TODAY, daysFromToday } from "../../data/dates";
 import {
@@ -14,6 +14,8 @@ import { inputClass } from "../../tasks-ui/Dialog";
 import { Chip } from "../../tasks-ui/FilterBar";
 import { MenuGroup, MenuNote, RadioItem } from "../../tasks-ui/Menu";
 import { PageError } from "../../tasks-ui/PageStates";
+import { useToast } from "../../tasks-ui/Toast";
+import { ClaudeMark } from "../../components/ClaudeMark";
 import { formatDate } from "../../notifications/time";
 import { secondaryButton } from "../tasks/controls";
 import { ChangeEntry } from "./ChangeEntry";
@@ -34,6 +36,8 @@ export interface ChangeLogSearch {
   period?: string;
   since?: string;
   until?: string;
+  /** Area 10a: «Made with Claude» (`claude`). */
+  via?: string;
 }
 
 const PERIOD_DAYS: Record<Exclude<ChangelogPeriod, "custom">, number> = {
@@ -76,6 +80,9 @@ export function filterOf(
     }
   }
   if (search.kind) filter.group = choices?.groups.includes(search.kind) ? search.kind : NOTHING;
+  // Area 10a [CT 5]: «Made with Claude» vale solo per chi legge almeno una
+  // voce col segno; altrimenti l'indirizzo si ignora in silenzio.
+  if (search.via === "claude" && choices?.claude) filter.via = "claude";
   const period = search.period as ChangelogPeriod | undefined;
   if (period && period !== "custom" && period in PERIOD_DAYS) filter.withinDays = PERIOD_DAYS[period];
   if (period === "custom") {
@@ -95,8 +102,12 @@ export function journalState(
   return "ready";
 }
 
-const hasFilters = (s: ChangeLogSearch) =>
-  !!(s.actor || s.project || s.kind || s.period || s.since || s.until);
+/** Un filtro attivo; `?via=claude` conta solo se il filtro c'è ([CT 5]). */
+export const hasFilters = (s: ChangeLogSearch, choices: ChangeFilterChoices | undefined) =>
+  !!(s.actor || s.project || s.kind || s.period || s.since || s.until) || viaOn(s, choices);
+
+const viaOn = (s: ChangeLogSearch, choices: ChangeFilterChoices | undefined) =>
+  s.via === "claude" && !!choices?.claude;
 
 export function ChangeLogPage() {
   const { t } = useTranslation();
@@ -134,7 +145,7 @@ export function ChangeLogPage() {
           state={journalState(choices, changes)}
           entries={changes.data ?? []}
           onRetry={() => void (choices.isError ? choices.refetch() : changes.refetch())}
-          filtered={hasFilters(search)}
+          filtered={hasFilters(search, choices.data)}
           onClear={() => set(CLEARED)}
           empty={t("changelog.nothing")}
           showProject
@@ -151,6 +162,7 @@ export const CLEARED: Partial<ChangeLogSearch> = {
   period: undefined,
   since: undefined,
   until: undefined,
+  via: undefined,
 };
 
 /** «people and invites», «persone e inviti»: i gruppi in parole, nella lingua. */
@@ -192,7 +204,11 @@ const folded = (s: string) =>
     .replace(/\p{Diacritic}/gu, "")
     .toLowerCase();
 
-/** La barra dei filtri del registro: Person, (Project), Type, Period; «Clear filters» se ce n'è uno. */
+/**
+ * La barra dei filtri del registro: Person, (Project), Type, «Made with
+ * Claude» (area 10a, solo se chi guarda legge una voce col segno), Period;
+ * «Clear filters» se ce n'è uno.
+ */
 export function ChangeFilters({
   search,
   choices,
@@ -329,6 +345,17 @@ export function ChangeFilters({
           </RadioItem>
         ))}
       </Chip>
+      {choices?.claude && (
+        <button
+          type="button"
+          aria-pressed={viaOn(search, choices)}
+          onClick={() => onChange({ via: viaOn(search, choices) ? undefined : "claude" })}
+          className="flex h-7 items-center gap-1.5 rounded-md border border-rule px-2.5 text-sm text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:border-rule-strong hover:text-ink aria-pressed:border-rule-strong aria-pressed:bg-ink/10 aria-pressed:text-ink"
+        >
+          <ClaudeMark />
+          {t("changelog.via.filter")}
+        </button>
+      )}
       <Chip
         name={t("changelog.filters.period")}
         summary={periodSummary}
@@ -379,7 +406,7 @@ export function ChangeFilters({
           </label>
         </span>
       )}
-      {hasFilters(search) && (
+      {hasFilters(search, choices) && (
         <button
           type="button"
           onClick={() => onChange(CLEARED)}
@@ -447,6 +474,36 @@ export function ChangeJournal({
 }) {
   const { t } = useTranslation();
   const dayLabel = useDayLabel();
+  const toast = useToast();
+  // Area 10a [CT 4]: la data di «Undid:» porta alla voce annullata. Se un
+  // filtro la nasconde, prima si tolgono i filtri (e lo si dice); quando la
+  // voce c'è, la si porta in vista col fuoco e la si evidenzia per 1,5 s.
+  const [pending, setPending] = useState<string | null>(null);
+  const [highlight, setHighlight] = useState<string | null>(null);
+  const timer = useRef<number | undefined>(undefined);
+  const present = state === "ready" && pending !== null && entries.some((e) => e.id === pending);
+  useEffect(() => {
+    if (!present) return;
+    setHighlight(pending);
+    setPending(null);
+  }, [present, pending]);
+  useEffect(() => {
+    if (highlight === null) return;
+    const el = document.querySelector<HTMLElement>(`[data-change-id="${highlight}"]`);
+    el?.scrollIntoView?.({ block: "center" });
+    el?.focus({ preventScroll: true });
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => setHighlight(null), 1500);
+  }, [highlight]);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  const reveal = (id: string) => {
+    if (!entries.some((e) => e.id === id)) {
+      onClear();
+      toast.show(t("changelog.via.filtersCleared"));
+    }
+    setHighlight(null);
+    setPending(id);
+  };
   if (state === "loading") return <JournalSkeleton />;
   if (state === "error")
     return (
@@ -478,7 +535,12 @@ export function ChangeJournal({
         <DaySection key={day} label={dayLabel(day)} day={day}>
           {list.map((e) => (
             <li key={e.id} className="border-b border-rule last:border-b-0">
-              <ChangeEntry entry={e} showProject={showProject} />
+              <ChangeEntry
+                entry={e}
+                showProject={showProject}
+                highlighted={highlight === e.id}
+                onReveal={reveal}
+              />
             </li>
           ))}
         </DaySection>

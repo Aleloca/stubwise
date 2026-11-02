@@ -244,6 +244,13 @@
     },
     "kinds": {
       "task_assigned": "Ti è stata assegnata {{code}}"
+    },
+    "viaClaude": {
+      "actor": "Claude per conto di {{name}}",
+      "assigned": "Claude per conto di {{name}} ti ha assegnato {{code}}.",
+      "lead": "Claude per conto di {{name}}: {{body}}",
+      "undoneBy": "Annullato da {{name}}",
+      "someone": "qualcuno"
     }
   },
   "placeholder": {
@@ -2255,6 +2262,8 @@
         "closed_other": "{{count}} chiuse",
         "moved_one": "{{count}} spostata",
         "moved_other": "{{count}} spostate",
+        "deleted_one": "{{count}} eliminata",
+        "deleted_other": "{{count}} eliminate",
         "comments_one": "{{count}} commento",
         "comments_other": "{{count}} commenti",
         "decisions_one": "{{count}} decisione",
@@ -2267,6 +2276,7 @@
       "kinds": {
         "closed": "Chiuse",
         "moved": "Spostate",
+        "deleted": "Eliminate",
         "comments": "Commenti",
         "decisions": "Decisioni",
         "requests": "Richieste",
@@ -11175,6 +11185,13 @@
       "branch": "Ramo di rilascio",
       "statusFamilies": "Famiglia degli stati",
       "kind": "Tipo"
+    },
+    "via": {
+      "actor": "Claude per conto di {{name}}",
+      "mark": "Fatta con Claude",
+      "filter": "Fatte con Claude",
+      "undid": "Ha annullato: {{sentence}}",
+      "filtersCleared": "Filtri tolti per mostrare la modifica."
     }
   },
   "usage": {
@@ -11332,5 +11349,10 @@
         "requestBanner": "Diventata una task, poi eliminata. Questa richiesta ora è in sola lettura."
       }
     }
+  },
+  "activity": {
+    "viaClaude": "con Claude",
+    "onBehalf": "Claude per conto di {{name}}",
+    "deletedTask": "{{name}} ha eliminato <code>{{code}}</code> «{{title}}»"
   }
 }

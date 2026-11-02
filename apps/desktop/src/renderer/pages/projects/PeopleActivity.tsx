@@ -29,6 +29,7 @@ import { Avatar } from "../../tasks-ui/PersonChip";
 import { useToast } from "../../tasks-ui/Toast";
 import { useOpenTask } from "../home/blocks/BlockSection";
 import { GeneratedTag } from "../overview/BriefCard";
+import { ClaudeMark } from "../../components/ClaudeMark";
 import { shiftDate } from "../overview/links";
 import { ghostButton } from "../task/parts";
 import { Chevron, MenuButton, secondaryButton } from "../tasks/controls";
@@ -254,12 +255,23 @@ interface Reports {
 /** Il primo nell'ordine conta: chi guarda vede prima ciò che sta succedendo o va sistemato. */
 const REPORT_ORDER: ReportState[] = ["generating", "failed", "missing", "off", "ready"];
 
-const CATEGORIES = ["closed", "moved", "comments", "decisions", "requests", "commits"] as const;
+// Area 10a: «deleted» dopo «moved» (task-delete.md); in sintesi solo se > 0.
+const CATEGORIES = [
+  "closed",
+  "moved",
+  "deleted",
+  "comments",
+  "decisions",
+  "requests",
+  "commits",
+] as const;
 type Category = (typeof CATEGORIES)[number];
 
 const countsOf = (p: PersonDayActivity): Record<Category, number> => ({
   closed: p.tasksClosed.length,
   moved: p.tasksMoved.length,
+  // Facoltativo nella lettura: una risposta senza il campo conta zero.
+  deleted: p.tasksDeleted?.length ?? 0,
   comments: p.comments.length,
   decisions: p.decisions.length,
   requests: p.requestsCreated.length,
@@ -805,7 +817,22 @@ function PersonDetail({
           detail={moveText(x)}
           projectCode={code(x.projectId)}
           time={time(x.at)}
+          viaClaude={x.viaClaude}
           onOpen={() => openTask(x.code)}
+        />
+      )),
+    },
+    {
+      // Area 10a: codice e titolo di allora; la task non c'è più, niente da aprire.
+      kind: "deleted",
+      rows: byTime(activity.tasksDeleted ?? []).map((x) => (
+        <EntryRow
+          key={`x-${x.taskId}`}
+          code={x.code}
+          title={x.title}
+          projectCode={code(x.projectId)}
+          time={time(x.at)}
+          viaClaude={x.viaClaude}
         />
       )),
     },
@@ -820,6 +847,7 @@ function PersonDetail({
           muted
           projectCode={code(x.projectId)}
           time={time(x.at)}
+          viaClaude={x.viaClaude}
           onOpen={() => openTask(x.code)}
         />
       )),
@@ -901,7 +929,8 @@ function CategoryBlock({ kind, children }: { kind: Category; children: ReactNode
 /**
  * Una voce del catalogo: listello del reparto della task · codice · titolo ·
  * dettaglio (es. «To do → In progress») · progetto · ora. Tutta la riga apre
- * l'oggetto quando si apre.
+ * l'oggetto quando si apre. Fatta con Claude (area 10a), in coda al testo
+ * l'anello fermo e «with Claude» [CT 9].
  */
 function EntryRow({
   departmentId,
@@ -911,6 +940,7 @@ function EntryRow({
   muted = false,
   projectCode,
   time,
+  viaClaude = false,
   onOpen,
 }: {
   departmentId?: string | null;
@@ -920,8 +950,10 @@ function EntryRow({
   muted?: boolean;
   projectCode: string;
   time: string;
+  viaClaude?: boolean;
   onOpen?: () => void;
 }) {
+  const { t } = useTranslation();
   const deptLabel = useDeptLabel(departmentId);
   const body = (
     <>
@@ -932,6 +964,12 @@ function EntryRow({
       )}
       <span className={`min-w-0 truncate ${muted ? "text-ink-muted" : "text-ink"}`}>{title}</span>
       {detail && <span className="min-w-0 shrink-[2] truncate text-ink-muted">{detail}</span>}
+      {viaClaude && (
+        <span className="flex shrink-0 items-center gap-1 self-center text-xs text-ink-faint">
+          <ClaudeMark />
+          {t("activity.viaClaude")}
+        </span>
+      )}
     </>
   );
   return (

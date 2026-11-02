@@ -211,6 +211,8 @@ export interface AppSearch {
   period?: string;
   action?: string;
   person?: string;
+  /** Il registro (area 10a): solo le voci fatte con Claude (`claude`). */
+  via?: string;
   /** People (area 9a): i filtri dell'elenco e «Invite someone» (`data/routes.ts`). */
   find?: string;
   depts?: string;

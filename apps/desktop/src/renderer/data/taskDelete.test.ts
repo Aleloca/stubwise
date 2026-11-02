@@ -356,6 +356,8 @@ describe("la traccia", () => {
       code: task.code,
       title: "Prova",
       byId: "p-marco",
+      // Area 10a, Task 11: il nome, a lettura, per chi vede Marco.
+      byName: "Marco Bellini",
     };
     as("p-laura");
     expect(await listTimeline(ACQ)).toContainEqual(expected);

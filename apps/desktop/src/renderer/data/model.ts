@@ -132,6 +132,12 @@ export interface AppNotification {
    */
   viaClaude?: { personId: string; actionId: string };
   /**
+   * Area 10a, solo a lettura (`listNotifications`): il nome di
+   * `viaClaude.personId` per il prefisso «Claude on behalf of …», `null` se
+   * chi guarda non vede quella persona (R-G5). Mai salvato.
+   */
+  viaClaudeName?: string | null;
+  /**
    * Area 10a, solo a lettura (`listNotifications`): chi ha annullato
    * l'azione di Claude che l'ha fatta partire («Undone by Giulia Ferri»).
    * Si deriva da `viaClaude.actionId` → l'azione → `undone.byId`; mai salvato.

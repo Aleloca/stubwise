@@ -7,6 +7,7 @@ import { PageError, PageSkeleton } from "../../tasks-ui/PageStates";
 import { ghostButton } from "../task/parts";
 import { useOpenTask } from "../home/blocks/BlockSection";
 import { GeneratedTag } from "../overview/BriefCard";
+import { DeletedTaskSubject } from "../overview/DeletedTaskSubject";
 import { shiftDate } from "../overview/links";
 
 /** Quanti giorni (con voci) si vedono, e quanti ne aggiunge «Show earlier». */
@@ -155,6 +156,9 @@ function ActivityRow({
       break;
     case "decision":
       subject = <span className="min-w-0 truncate text-ink">{event.title}</span>;
+      break;
+    case "task_deleted":
+      subject = <DeletedTaskSubject event={event} />;
       break;
     case "brief":
       generated = true;

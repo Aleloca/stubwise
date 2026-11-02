@@ -10,6 +10,7 @@ import type {
   FieldValue,
   SettingValue,
 } from "../../data/queries";
+import { ClaudeMark } from "../../components/ClaudeMark";
 import { capitalized, usePermissionWords } from "./parts";
 
 // Una voce del registro delle modifiche (shape admin-audit.md, `ChangeEntry`).
@@ -19,6 +20,12 @@ import { capitalized, usePermissionWords } from "./parts";
 // e, per gli elenchi di permessi, «Show details» con le due colonne [AU 2].
 // Nessuna azione: una voce non si modifica né si cancella. 9b e 9c aggiungono
 // tipi e template senza toccare questo componente.
+//
+// Area 10a (shape claude-trace.md): una voce scritta da Claude per una persona
+// (`via`) dice «Claude on behalf of <nome>» al posto del solo nome, con lo
+// stesso template; sotto l'ora l'anello fermo [CT 3]. La voce di un «Annulla»
+// (`undoneEntry`) aggiunge la riga «Undid: <frase della voce annullata> ·
+// data», con la data che porta a quella voce [CT 4].
 
 /** L'ora della voce in cifre tabellari («10:12»), UTC come l'orologio del prototipo. */
 function timeOf(iso: string, language: string): string {
@@ -374,36 +381,96 @@ function useDiffLine() {
   };
 }
 
+/**
+ * I valori della frase di una voce. Chi agisce è il nome, o «Claude on behalf
+ * of <nome>» se la voce l'ha scritta Claude per lui (area 10a): il resto della
+ * frase è quello di sempre, nessun template nuovo per tipo [CT 1].
+ */
+function useSentenceValues() {
+  const { t } = useTranslation();
+  const words = usePermissionWords();
+  return (entry: ChangeEntryView) => {
+    const permission = entry.params.permission ?? entry.after ?? entry.before ?? "";
+    // I parametri della voce (quelli del 9b: `kind`, `provider`, `ref`,
+    // `check`, `scope`, vedi `instance/changeTypes.ts`) prima delle chiavi
+    // calcolate, che vincono sempre.
+    return {
+      ...entry.params,
+      actor:
+        entry.via === "claude"
+          ? t("changelog.via.actor", { name: entry.actorName })
+          : entry.actorName,
+      // Il nome di un oggetto che è una parola di Stubwise (l'operazione di
+      // `model.changed`) si traduce; un nome dato da una persona resta com'è.
+      object: entry.objectLabelKey ? t(entry.objectLabelKey) : entry.object.label,
+      project: entry.projectCode ?? entry.params.project ?? "",
+      role: entry.params.role ?? entry.after ?? "",
+      permission: words(permission),
+      // `project.deleted` (area 9c, Task 11): quanti repository restano senza
+      // progetto sceglie la frase («… 1 repository is now in no project.»).
+      ...countOf(entry),
+    };
+  };
+}
+
+/**
+ * La riga «Undid: <frase> · data» sotto la voce di un «Annulla» [CT 4]: la
+ * frase della voce annullata (stesso template, letta come la legge chi
+ * guarda) in testo semplice e senza il punto finale; la data porta alla voce.
+ */
+function UndidLine({
+  undone,
+  onReveal,
+}: {
+  undone: ChangeEntryView;
+  onReveal?: (id: string) => void;
+}) {
+  const { t, i18n } = useTranslation();
+  const valuesOf = useSentenceValues();
+  const sentence = t(undone.templateKey, { ...valuesOf(undone), context: contextOf(undone) })
+    .replace(/<\/?[a-z]+>/g, "")
+    .replace(/\.$/, "");
+  const when = dayTimeOf(undone.at, i18n.language);
+  return (
+    <p data-undid className="mt-1 text-sm text-pretty text-ink-muted">
+      {t("changelog.via.undid", { sentence })}
+      {" · "}
+      {onReveal ? (
+        <button
+          type="button"
+          onClick={() => onReveal(undone.id)}
+          className="num rounded-sm whitespace-nowrap text-ink-muted underline decoration-rule-strong underline-offset-2 hover:text-ink hover:decoration-ink"
+        >
+          {when}
+        </button>
+      ) : (
+        <span className="num whitespace-nowrap">{when}</span>
+      )}
+    </p>
+  );
+}
+
 export function ChangeEntry({
   entry,
   showProject = true,
+  highlighted = false,
+  onReveal,
 }: {
   entry: ChangeEntryView;
   /** Il codice del progetto a destra (nel registro di un progetto è sempre lo stesso: no). */
   showProject?: boolean;
+  /** Area 10a: la voce a cui ha portato la data di un «Undid:», per 1,5 s. */
+  highlighted?: boolean;
+  /** Area 10a: porta alla voce annullata (la data della riga «Undid:»). */
+  onReveal?: (id: string) => void;
 }) {
   const { t, i18n } = useTranslation();
   const words = usePermissionWords();
   const diffLine = useDiffLine();
+  const valuesOf = useSentenceValues();
   const [open, setOpen] = useState(false);
   const detailsId = useId();
-  const permission = entry.params.permission ?? entry.after ?? entry.before ?? "";
-  // I parametri della voce (quelli del 9b: `kind`, `provider`, `ref`,
-  // `check`, `scope`, vedi `instance/changeTypes.ts`) prima delle chiavi
-  // calcolate, che vincono sempre.
-  const values = {
-    ...entry.params,
-    actor: entry.actorName,
-    // Il nome di un oggetto che è una parola di Stubwise (l'operazione di
-    // `model.changed`) si traduce; un nome dato da una persona resta com'è.
-    object: entry.objectLabelKey ? t(entry.objectLabelKey) : entry.object.label,
-    project: entry.projectCode ?? entry.params.project ?? "",
-    role: entry.params.role ?? entry.after ?? "",
-    permission: words(permission),
-    // `project.deleted` (area 9c, Task 11): quanti repository restano senza
-    // progetto sceglie la frase («… 1 repository is now in no project.»).
-    ...countOf(entry),
-  };
+  const values = valuesOf(entry);
   const line = entry.diff ? diffLine(entry.diff, entry.params) : null;
   const details =
     entry.diff?.kind === "permissions" && entry.diff.before && entry.diff.after
@@ -414,11 +481,17 @@ export function ChangeEntry({
   return (
     <article
       data-change-entry={entry.kind}
-      className="@container grid grid-cols-[48px_minmax(0,1fr)] gap-x-3 py-3"
+      data-change-id={entry.id}
+      data-highlighted={highlighted ? "true" : undefined}
+      tabIndex={-1}
+      className={`@container grid grid-cols-[48px_minmax(0,1fr)] gap-x-3 py-3 outline-none transition-colors duration-[var(--duration-slow)] ease-out ${highlighted ? "bg-ink/6" : ""}`}
     >
-      <time dateTime={entry.at} className="num pt-px text-xs leading-5 text-ink-faint">
-        {timeOf(entry.at, i18n.language)}
-      </time>
+      <div className="flex flex-col items-start gap-1.5">
+        <time dateTime={entry.at} className="num pt-px text-xs leading-5 text-ink-faint">
+          {timeOf(entry.at, i18n.language)}
+        </time>
+        {entry.via === "claude" && <ClaudeMark label={t("changelog.via.mark")} />}
+      </div>
       <div className="min-w-0">
         <div className="flex flex-col gap-0.5 @[760px]:flex-row @[760px]:items-baseline @[760px]:gap-4">
           <p className="min-w-0 flex-1 text-md text-pretty text-ink">
@@ -446,6 +519,7 @@ export function ChangeEntry({
           )}
         </div>
         {line && <p className="mt-0.5 text-sm text-pretty text-ink-muted">{line}</p>}
+        {entry.undoneEntry && <UndidLine undone={entry.undoneEntry} onReveal={onReveal} />}
         {details && (
           <>
             <button

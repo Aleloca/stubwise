@@ -9,6 +9,7 @@ import { ghostButton } from "../task/parts";
 import { BlockSection, queryState, useOpenTask } from "../home/blocks/BlockSection";
 import { Chevron, MenuButton } from "../tasks/controls";
 import { GeneratedTag } from "./BriefCard";
+import { DeletedTaskSubject } from "./DeletedTaskSubject";
 import { shiftDate } from "./links";
 
 /** I tipi del filtro: un tipo può raccogliere più voci (task aperte e chiuse, i tre eventi delle PR). */
@@ -235,6 +236,9 @@ function TimelineRow({
     }
     case "decision":
       subject = <span className="min-w-0 truncate text-ink">{event.title}</span>;
+      break;
+    case "task_deleted":
+      subject = <DeletedTaskSubject event={event} />;
       break;
     case "brief":
       generated = true;

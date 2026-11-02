@@ -397,12 +397,16 @@ function view(
   stored: ChangeEntry,
   people: Set<string>,
   visible: Set<string>,
+  nested = false,
 ): ChangeEntryView {
   const { entry, labelKey } = resolveDeleted(me, resolveProject(me, stored));
   const type = changeTypeOf(entry.kind)!;
   // I campi della voce uno per uno, mai con uno spread: `claudeActionId`
   // resta nel livello dati e `undoOf` si calcola per chi guarda (ruling del
   // controller (pre-flight), P16).
+  const undoOf = undoOfFor(me, stored, visible);
+  // La voce annullata per la riga «Undid:» ([CT 4]); dentro di lei non si scende oltre.
+  const undone = undoOf && !nested ? state.changelog.find((e) => e.id === undoOf) : undefined;
   return {
     id: entry.id,
     kind: entry.kind,
@@ -412,7 +416,8 @@ function view(
     before: entry.before,
     after: entry.after,
     ...(entry.via ? { via: entry.via } : {}),
-    undoOf: undoOfFor(me, stored, visible),
+    undoOf,
+    ...(undone ? { undoneEntry: view(me, undone, people, visible, true) } : {}),
     object: { ...entry.object },
     params: { ...entry.params },
     templateKey: type.templateKey,

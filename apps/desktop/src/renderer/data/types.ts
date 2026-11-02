@@ -150,6 +150,11 @@ export type TimelineEvent =
       code: string;
       title: string;
       byId: string;
+      /**
+       * Il nome di `byId`, a lettura per chi guarda (`listTimeline`,
+       * `listPortfolioActivity`); `null` se non vede quella persona (R-G5).
+       */
+      byName?: string | null;
       /** Eliminata da Claude per `byId` (assente se a mano). */
       viaClaude?: boolean;
     };

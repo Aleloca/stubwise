@@ -88,10 +88,11 @@ describe("Change log in Amministrazione", () => {
     const deleted = entries().find((e) => e.dataset.changeEntry === "role.deleted")!;
     expect(deleted).toHaveTextContent("deleted the role Reviewer (deleted).");
     expect(within(deleted).queryByRole("link")).toBeNull();
-    // Nessuna azione sulle voci: niente «⋯», nessun bottone se non «Show details».
+    // Nessuna azione sulle voci: niente «⋯», nessun bottone se non «Show details»
+    // e, dal 10a, la data della riga «Undid:», che porta alla voce annullata ([CT 4]).
     for (const e of entries())
       for (const b of within(e).queryAllByRole("button"))
-        expect(b.textContent).toMatch(/^(Show|Hide) details$/);
+        if (!b.closest("[data-undid]")) expect(b.textContent).toMatch(/^(Show|Hide) details$/);
   });
 
   it("Show details apre prima e dopo dei permessi di un ruolo, in posto", async () => {

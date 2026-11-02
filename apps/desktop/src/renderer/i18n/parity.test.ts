@@ -82,6 +82,9 @@ describe("parità delle chiavi en/it", () => {
         "projectEffects",
         // Area 10a, Task 10: «Elimina task» (`task.delete.*`).
         "task",
+        // Area 10a, Task 11: «with Claude» e «Claude on behalf of» nella
+        // storia della task, nella rassegna e nella storia del progetto.
+        "activity",
       ].sort(),
     );
   });

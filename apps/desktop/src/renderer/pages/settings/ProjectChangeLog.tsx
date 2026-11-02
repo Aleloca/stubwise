@@ -7,6 +7,7 @@ import {
   ChangeFilters,
   ChangeJournal,
   filterOf,
+  hasFilters,
   journalState,
   type ChangeLogSearch,
 } from "../admin/ChangeLogPage";
@@ -30,7 +31,8 @@ export function ProjectChangeLog({ project }: { project: Project }) {
       search: (prev: ChangeLogSearch) => ({ ...prev, ...patch }),
       replace: true,
     });
-  const filtered = !!(search.actor || search.kind || search.period);
+  // Il progetto non ha il filtro Project: `project` nell'indirizzo non conta.
+  const filtered = hasFilters({ ...search, project: undefined }, choices.data);
   return (
     <SettingsFrame
       title={t("settings.sections.changelog")}

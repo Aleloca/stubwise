@@ -2,6 +2,7 @@ import { matches } from "../domain/filters";
 import { DEFAULT_CORRECTION_CAP } from "../domain/releases/prState";
 import type { Stall } from "../domain/stalled";
 import { accessState } from "./access/index";
+import { visiblePeopleFor } from "./access/whoCan";
 import { pluginSkillCommand, STUBWISE_COMMANDS } from "./seed/commands";
 import { skillsForRun } from "./projectSettings/plugins";
 import { COMMITS } from "./seed/commits";
@@ -516,7 +517,20 @@ export async function listProjectPulses(): Promise<ProjectPulse[]> {
 export async function listTimeline(projectId: string): Promise<TimelineEvent[]> {
   const me = await gate("listTimeline");
   if (!visibleProjectIds(me).has(projectId)) return [];
-  return timelineOf(projectId);
+  return withNames(me, timelineOf(projectId));
+}
+
+/** Chi ha eliminato una task, per nome, solo se chi guarda lo vede (R-G5). */
+function withNames<T extends TimelineEvent>(me: string, events: T[]): T[] {
+  const people = visiblePeopleFor(me);
+  return events.map((e) =>
+    e.kind === "task_deleted"
+      ? {
+          ...e,
+          byName: people.has(e.byId) ? (PEOPLE.find((p) => p.id === e.byId)?.name ?? null) : null,
+        }
+      : e,
+  );
 }
 
 /**
@@ -530,7 +544,7 @@ export async function listPortfolioActivity(): Promise<PortfolioEvent[]> {
   const visible = visibleProjectIds(me);
   return state.projects
     .filter((p) => visible.has(p.id))
-    .flatMap((p) => timelineOf(p.id).map((e) => ({ ...e, projectId: p.id })))
+    .flatMap((p) => withNames(me, timelineOf(p.id)).map((e) => ({ ...e, projectId: p.id })))
     .filter((e) => e.at.slice(0, 10) <= TODAY)
     .sort((a, b) => b.at.localeCompare(a.at));
 }
@@ -625,8 +639,15 @@ export async function listNotifications(): Promise<AppNotification[]> {
       const out = copy(href ? { ...delivered, linkAccessHref: href } : delivered);
       // Area 10a: la task della notifica è stata eliminata; la notifica resta.
       if (taskGone(n)) out.objectGone = true;
-      // Area 10a: chi ha annullato l'azione di Claude che l'ha fatta partire.
-      if (n.viaClaude) out.undoneByName = undoneByNameOf(n.viaClaude.actionId);
+      // Area 10a: per chi l'ha fatta partire Claude, e chi l'ha annullata;
+      // i nomi solo se chi guarda vede quelle persone (R-G5).
+      if (n.viaClaude) {
+        const people = visiblePeopleFor(me);
+        out.viaClaudeName = people.has(n.viaClaude.personId)
+          ? (PEOPLE.find((p) => p.id === n.viaClaude!.personId)?.name ?? null)
+          : null;
+        out.undoneByName = undoneByNameOf(n.viaClaude.actionId, people);
+      }
       return [out];
     }
     const shown = presentChatNotification(me, delivered);
@@ -634,10 +655,15 @@ export async function listNotifications(): Promise<AppNotification[]> {
   });
 }
 
-/** «Undone by …»: l'azione → il suo `undone.byId` → il nome, a lettura. */
-function undoneByNameOf(actionId: string): string | null {
+/**
+ * «Undone by …»: l'azione → il suo `undone.byId` → il nome, a lettura. Chi
+ * annulla è sempre chi ha chiesto l'azione (`undoClaudeActions`): se chi
+ * guarda non lo vede, la riga non c'è, come il nome nel prefisso (R-G5).
+ */
+function undoneByNameOf(actionId: string, people: Set<string>): string | null {
   const undone = state.claudeActions.find((r) => r.id === actionId)?.undone;
-  return undone ? (PEOPLE.find((p) => p.id === undone.byId)?.name ?? null) : null;
+  if (!undone || !people.has(undone.byId)) return null;
+  return PEOPLE.find((p) => p.id === undone.byId)?.name ?? null;
 }
 
 /** La notifica parla di una task eliminata (stesso progetto, stesso codice). */

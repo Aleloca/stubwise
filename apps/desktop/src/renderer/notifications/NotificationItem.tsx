@@ -102,6 +102,12 @@ export function NotificationItem({
       ? t("notifications.kinds.task_assigned", { code: n.objectCode })
       : n.title;
 
+  // Area 10a (shape claude-trace.md): nata da un'azione di Claude per una
+  // persona, il corpo comincia con «Claude on behalf of <nome>». Il titolo
+  // resta quello del tipo; l'assegnazione ha la sua frase, gli altri tipi
+  // mettono il prefisso al posto del nome (o in testa, se il corpo non lo dice).
+  const body = n.viaClaude ? viaClaudeBody(n, t) : n.body;
+
   const choose = (option: SnoozeOption) => {
     setMenuOpen(false);
     onChange({ snoozedUntil: snoozeTarget(option) });
@@ -145,7 +151,17 @@ export function NotificationItem({
           >
             {title}
           </span>
-          <span className="line-clamp-2 text-sm text-ink-muted">{n.body}</span>
+          <span className="line-clamp-2 text-sm text-ink-muted">{body}</span>
+          {/* «Undone by» [CT 10]: derivato a lettura, senza data; la notifica
+              resta letta o non letta com'era e apre ancora l'oggetto. */}
+          {n.undoneByName && (
+            <span className="mt-1 flex items-center gap-1 text-xs text-ink-muted">
+              <UndoneGlyph />
+              <span data-undone-by>
+                {t("notifications.viaClaude.undoneBy", { name: n.undoneByName })}
+              </span>
+            </span>
+          )}
           {gone && (
             <span data-object-gone className="mt-1 block text-xs text-ink-muted">
               {t("task.delete.after.notification")}
@@ -285,6 +301,41 @@ export function NotificationItem({
         )}
       </div>
     </li>
+  );
+}
+
+/** Il corpo di una notifica nata da Claude per una persona (`viaClaude`). */
+function viaClaudeBody(
+  n: AppNotification,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string {
+  const name = n.viaClaudeName ?? t("notifications.viaClaude.someone");
+  if (n.kind === "task.assigned")
+    return t("notifications.viaClaude.assigned", { name, code: n.objectCode });
+  if (n.viaClaudeName && n.body.includes(n.viaClaudeName))
+    return n.body.replace(n.viaClaudeName, t("notifications.viaClaude.actor", { name }));
+  return t("notifications.viaClaude.lead", { name, body: n.body });
+}
+
+/** ↺: l'azione che ha fatto partire la notifica è stata annullata. */
+function UndoneGlyph() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width={12}
+      height={12}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+      className="shrink-0"
+    >
+      <path d="M3.5 6.5A5 5 0 1 1 3 9.5" />
+      <path d="M3.5 3v3.5H7" />
+    </svg>
   );
 }
 

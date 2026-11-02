@@ -176,7 +176,7 @@ export function isProjectSettingsSection(value: string): value is ProjectSetting
  * - «Who can?» (`admin/who-can`): `view` (`who`/`what`), `action`, `person`
  *   e `project`.
  */
-export const AUDIT_SEARCH_KEYS = ["actor", "kind", "period", "action", "person"] as const;
+export const AUDIT_SEARCH_KEYS = ["actor", "kind", "period", "action", "person", "via"] as const;
 
 export const CHANGELOG_PERIODS = ["7d", "30d", "90d", "custom"] as const;
 export type ChangelogPeriod = (typeof CHANGELOG_PERIODS)[number];
@@ -196,6 +196,9 @@ export function isAuditSearchValue(key: string, value: string): boolean {
       return (CHANGELOG_PERIODS as readonly string[]).includes(value);
     case "action":
       return /^[A-Za-z]+$/.test(value);
+    // Area 10a: il filtro «Made with Claude» del registro.
+    case "via":
+      return value === "claude";
     default:
       return false;
   }

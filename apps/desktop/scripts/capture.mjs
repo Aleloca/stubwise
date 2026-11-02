@@ -137,6 +137,111 @@ async function main() {
       console.log("scritto", name);
     };
 
+    // Area 10a, Task 11 (`CAPTURE_A10A_TRACE=1`): «Claude on behalf of».
+    // Roberta: il registro con Person = Giulia e «Made with Claude» premuto
+    // (la voce del seme, l'inversa con «Undid:»); la rassegna di oggi con le
+    // righe «with Claude» e la task eliminata; l'Activity del portafoglio.
+    // Giulia: la storia di MKX-1 col commento e le righe col prefisso. Marco:
+    // la notifica col prefisso e «Undone by». Scatti `a10a-trace-*`.
+    if (process.env.CAPTURE_A10A_TRACE) {
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      const take = async (page, name, v) => {
+        await page.mouse.move(v.viewport.width - 2, v.viewport.height - 2);
+        if (!only || only.test(name)) await shot(page, name);
+      };
+      /** I fatti di oggi fatti con Claude per Giulia (come nel test della rassegna). */
+      const seed = (page) =>
+        page.evaluate(async () => {
+          const store = await import("/data/store.ts");
+          const dates = await import("/data/dates.ts");
+          const { state } = store;
+          const mkx = state.tasks.filter((t) => t.projectId === "prj-mkx");
+          state.activity.push(
+            {
+              id: "act-capture-via",
+              taskId: mkx[0].id,
+              kind: "field_change",
+              authorId: "p-giulia",
+              at: `${dates.TODAY}T10:41:00Z`,
+              field: "week",
+              from: "2026-W45",
+              to: "2026-W46",
+              via: "claude",
+            },
+            {
+              id: "act-capture-comment",
+              taskId: "t-mkx-1",
+              kind: "comment",
+              authorId: "p-giulia",
+              at: `${dates.TODAY}T10:42:00Z`,
+              body: "Moved to next week, as asked: the launch post waits for the photos.",
+              via: "claude",
+            },
+          );
+          state.deletedTasks.push({
+            id: "t-mkx-capture-gone",
+            code: "MKX-31",
+            projectId: "prj-mkx",
+            title: "Prova",
+            deletedAt: `${dates.TODAY}T11:02:00Z`,
+            deletedById: "p-giulia",
+            via: "claude",
+          });
+          return dates.TODAY;
+        });
+      for (const v of variants) {
+        const { page, context } = await open(v.scheme, v.viewport, "/admin/changelog?actor=p-giulia&via=claude", {
+          lang: v.lang,
+          persona: "Roberta",
+        });
+        const today = await seed(page);
+        await page.waitForTimeout(900);
+        await take(page, `a10a-trace-log-${v.suffix}.png`, v);
+        // La data di «Undid:»: porta alla voce annullata e la evidenzia.
+        await page.locator("[data-undid] button").first().click();
+        await page.waitForTimeout(300);
+        await take(page, `a10a-trace-log-reveal-${v.suffix}.png`, v);
+        await page.evaluate((h) => {
+          window.location.hash = h;
+        }, `/projects?view=person&date=${today}`);
+        await page.locator('[data-person-row="p-giulia"] [data-person-toggle]').click();
+        await page.waitForTimeout(600);
+        await page.locator('[data-person-row="p-giulia"]').scrollIntoViewIfNeeded();
+        await take(page, `a10a-trace-people-${v.suffix}.png`, v);
+        await page.evaluate(() => {
+          window.location.hash = "/projects";
+        });
+        await page.getByRole("tab", { name: /^(Activity|Attività)$/ }).click();
+        await page.waitForTimeout(900);
+        await take(page, `a10a-trace-activity-${v.suffix}.png`, v);
+        const blur = () =>
+          page.evaluate(() => {
+            const active = document.activeElement;
+            if (active instanceof HTMLButtonElement) active.blur();
+          });
+        await asPerson(page, "Giulia", "/p/MKX/tasks?task=MKX-1");
+        await page.waitForTimeout(1200);
+        await blur();
+        await page.locator('[data-activity="comment"]').last().scrollIntoViewIfNeeded();
+        await take(page, `a10a-trace-task-${v.suffix}.png`, v);
+        await asPerson(page, "Marco", "/home");
+        await page.waitForTimeout(900);
+        await page.getByRole("button", { name: /^(Notifications|Notifiche)/ }).click();
+        await page.waitForTimeout(900);
+        await page.locator('[data-notification="n-claude-1"]').scrollIntoViewIfNeeded();
+        await take(page, `a10a-trace-notifications-${v.suffix}.png`, v);
+        await context.close();
+      }
+      return;
+    }
+
     // Area 10a, Task 10 (`CAPTURE_A10A_DELETE=1`): «Elimina task». Laura in
     // ACQ: il dialogo di una task con due figlie, un collegamento e la
     // richiesta d'origine; poi l'eliminazione (toast, fuoco sulla riga dopo) e
