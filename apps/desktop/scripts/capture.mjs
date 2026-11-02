@@ -404,6 +404,66 @@ async function main() {
       return;
     }
 
+    // Area 10a, ondata finale (`CAPTURE_A10A_UNDOCARD=1`, I1): l'«Annulla» di
+    // una scheda che dava OLV-1 a Marco avviserebbe Marco, quindi non parte:
+    // la riga dice «Confirm below to undo» e sotto c'è la sua scheda B.
+    // Scatti `a10a-actions-undo-card-*`.
+    if (process.env.CAPTURE_A10A_UNDOCARD) {
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      for (const v of variants) {
+        const { page, context } = await open(v.scheme, v.viewport, "/home", { lang: v.lang });
+        const summary =
+          v.lang === "it"
+            ? "Pianifica OLV-1 Refresh landing page hero copy · Marco Bellini · S45"
+            : "Plan OLV-1 Refresh landing page hero copy · Marco Bellini · W45";
+        const id = await page.evaluate(async (text) => {
+          const api = await import("/data/api.ts");
+          const session = await import("/data/session.ts");
+          session.setSessionPersonId("p-giulia");
+          const c = await api.createConversation({ contextProjectId: "prj-olv" });
+          await api.runScript(c.id, [
+            {
+              step: "event",
+              event: {
+                type: "proposal",
+                proposalId: "prop-capture-undo",
+                requesterId: "p-giulia",
+                actions: [
+                  {
+                    fn: "planTask",
+                    args: { id: "t-olv-1", plan: { assigneeId: "p-marco", week: "2026-W45" } },
+                    summary: text,
+                  },
+                ],
+                status: "open",
+                cls: "B",
+                reasons: [{ kind: "notifies", personIds: ["p-marco"], more: false }],
+              },
+            },
+          ]);
+          await api.confirmProposal(c.id, "prop-capture-undo");
+          return c.id;
+        }, summary);
+        await page.evaluate((h) => {
+          window.location.hash = h;
+        }, `/claude/${id}`);
+        await page.locator("[data-proposal] [data-undo-button]").first().waitFor();
+        await page.locator("[data-proposal] [data-undo-button]").first().click();
+        await page.locator('[data-undo="confirming"]').first().waitFor();
+        await page.waitForTimeout(900);
+        await page.mouse.move(v.viewport.width - 2, v.viewport.height - 2);
+        await shot(page, `a10a-actions-undo-card-${v.suffix}.png`);
+        await context.close();
+      }
+      return;
+    }
+
     // Area 10a, Task 9 (`CAPTURE_A10A_ACTIONS=1`): le azioni di Claude nella
     // conversazione di Giulia — la riga eseguita con «Undo» (MKX), la scheda B
     // con «Notifies Matteo Conti» (AUD), la scheda di un'eliminazione col
