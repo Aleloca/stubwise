@@ -6,6 +6,7 @@ import { state } from "../../data/store";
 import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
 import { setMatchMedia } from "../../test/setup";
 import { renderRoute } from "../../test/renderRoute";
+import i18n from "../../i18n";
 import { clearToasts } from "../../tasks-ui/Toast";
 import { WEEKS_2_QUERY, WEEKS_3_QUERY } from "./PlanningPage";
 
@@ -157,6 +158,24 @@ describe("PlanningPage di progetto", () => {
     expect(within(menu).getByRole("menuitemradio", { name: /Paolo Gatti/ })).toHaveTextContent(
       "+1 no estimate",
     );
+  });
+
+  it("N1: in italiano il carico nel menu Plan dice «S43», con la convenzione unica", async () => {
+    await i18n.changeLanguage("it");
+    try {
+      renderRoute("/p/MKX/planning");
+      const mkx8 = await chip("MKX-8");
+      mkx8.focus();
+      fireEvent.keyDown(mkx8, { key: "p" });
+      const menu = await screen.findByRole("menu");
+      const labels = [...menu.querySelectorAll("[aria-label]")].map((el) =>
+        el.getAttribute("aria-label")!,
+      );
+      expect(labels.some((l) => /Carico di Paolo Gatti in S\d+/.test(l))).toBe(true);
+      expect(labels.join(" ")).not.toMatch(/ in W\d+/);
+    } finally {
+      await i18n.changeLanguage("en");
+    }
   });
 
   it("dalla cella alla vasca: toglie la settimana, tiene la persona", async () => {

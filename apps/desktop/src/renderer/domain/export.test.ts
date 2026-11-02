@@ -95,6 +95,12 @@ describe("taskToMarkdown", () => {
     expect(md).toContain("## Description\n\nColumns: date, contact.\n\n- no recordings\n");
   });
 
+  it("N1: in italiano la settimana è «S43», con la convenzione unica", () => {
+    const md = taskToMarkdown(task, taskCtx({ language: "it" }), it_);
+    expect(md).toMatch(/S43 · /);
+    expect(md).not.toContain("W43");
+  });
+
   it("i campi vuoti si dicono, non spariscono", () => {
     const bare = makeTask({ code: "AUD-9", assigneeId: null, size: null, labels: [] });
     const md = taskToMarkdown(

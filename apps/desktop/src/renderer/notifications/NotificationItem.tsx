@@ -304,7 +304,6 @@ export function NotificationItem({
   );
 }
 
-/** Il corpo di una notifica nata da Claude per una persona (`viaClaude`). */
 /**
  * Titolo e corpo di `task.assigned` e `planning.changed` nella lingua di chi
  * legge, dai valori stabili (`actorName`, `viaClaude`, `plannedWeek`);
@@ -339,6 +338,7 @@ function composedOf(
   return null;
 }
 
+/** Il corpo di una notifica nata da Claude per una persona (`viaClaude`). */
 function viaClaudeBody(
   n: AppNotification,
   t: (key: string, options?: Record<string, unknown>) => string,

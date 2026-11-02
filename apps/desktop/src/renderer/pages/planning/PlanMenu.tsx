@@ -2,6 +2,7 @@ import { useLayoutEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Person, Task } from "../../data/types";
 import { planBlock, type PersonLoad } from "../../domain/planning";
+import { shortWeekIn } from "../../domain/weeks";
 import { LoadBar } from "../../tasks-ui/LoadBar";
 import { Menu, MenuGroup, MenuNote, RadioItem, itemClass } from "../../tasks-ui/Menu";
 import { Avatar } from "../../tasks-ui/PersonChip";
@@ -88,7 +89,7 @@ export function PlanMenu({
           max={max}
           unsized={cell?.unsized ?? 0}
           weight={cell?.weight ?? 0}
-          label={t("planning.loadOf", { person: name, week: week.slice(week.indexOf("-") + 1) })}
+          label={t("planning.loadOf", { person: name, week: shortWeekIn(t, week) })}
         />
       </span>
     );

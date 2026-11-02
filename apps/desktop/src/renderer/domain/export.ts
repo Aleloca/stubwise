@@ -5,7 +5,7 @@ import type {
   Task,
   TaskLinkKind,
 } from "../data/model";
-import { weekLabel } from "./weeks";
+import { shortWeekIn, weekLabel } from "./weeks";
 
 // L'esportazione in Markdown di una task e di una richiesta («Copy as
 // Markdown», «Download .md»), e il testo semplice del brief («Copy as
@@ -128,7 +128,7 @@ function commentsSection(activity: ActivityEntry[], ctx: TaskExportContext, t: T
 export function taskToMarkdown(task: Task, ctx: TaskExportContext, t: T): string {
   const f = (key: string) => t(`taskDetail.fields.${key}`);
   const week = task.plannedWeek
-    ? `${task.plannedWeek.slice(task.plannedWeek.indexOf("-") + 1)} · ${weekLabel(task.plannedWeek, ctx.language)}`
+    ? `${shortWeekIn(t, task.plannedWeek)} · ${weekLabel(task.plannedWeek, ctx.language)}`
     : t("tasks.groups.noWeek");
   const fields = [
     field(t("export.project"), `${ctx.projectCode} · ${ctx.projectName}`),
