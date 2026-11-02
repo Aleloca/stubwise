@@ -462,7 +462,7 @@ describe("@Claude nella Chat: le conferme portano il segno (maintainer)", () => 
 
     as(GIULIA);
     const outcome = await chat.confirmChatProposal(reply.id, "prop-test-plan");
-    expect(outcome.status).toBe("confirmed");
+    expect(outcome).toMatchObject({ status: "confirmed" });
     expect(proposalOf(state.chatMessages.find((m) => m.id === reply.id)!)?.status).toBe(
       "confirmed",
     );

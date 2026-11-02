@@ -49,6 +49,12 @@ export interface Answer {
   refs?: CitationRef[];
   /** Le modifiche proposte: mai eseguite qui, solo una scheda da confermare. */
   proposal?: ProposedAction[];
+  /**
+   * Area 10a: le azioni di classe A (`ctx.classify`), da eseguire subito.
+   * Nemmeno queste si eseguono qui: diventano un evento `executed`
+   * `pending`, che esegue (o trasforma in scheda) `freeTurn`.
+   */
+  execute?: ProposedAction[];
   /** Una domanda a chi chiama (solo con `ctx.asks`): la risposta continua il lavoro. */
   ask?: {
     text: string;
@@ -76,6 +82,14 @@ export function toSteps(answer: Answer, ctx: IntentContext, text: string): Scrip
   }
   // Con una domanda il testo può mancare: la domanda dice già tutto.
   if (answer.text) steps.push({ step: "say", text: answer.text });
+  // Le azioni A subito dopo la loro frase («Fatto…»): se all'esecuzione la
+  // classe è salita, `freeTurn` cambia quella frase e l'evento in una scheda.
+  if (answer.execute && answer.execute.length > 0) {
+    steps.push({
+      step: "event",
+      event: { type: "executed", groupId: "", actions: answer.execute, status: "pending" },
+    });
+  }
   const refs = dedupeRefs(answer.refs ?? []);
   if (refs.length > 0) steps.push({ step: "event", event: { type: "citation", refs } });
   if (answer.ask) {

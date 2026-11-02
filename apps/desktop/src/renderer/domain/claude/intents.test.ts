@@ -545,3 +545,55 @@ describe("la posta e le riunioni di altri non arrivano a Claude (Review Focus 1)
     });
   }
 });
+
+describe("classi (area 10a, Task 5): il motore chiede la classe, non la deduce", () => {
+  const executed = (steps: ScriptStep[]) => {
+    for (const s of steps) if (s.step === "event" && s.event.type === "executed") return s.event;
+    return null;
+  };
+  const withClass = (cls: "A" | "B" | "C"): IntentContext => ({
+    ...as("p-giulia"),
+    classify: async () => ({ cls, reasons: [] }),
+  });
+
+  it("create con classify A: la frase «fatto» e l'azione da eseguire, nessuna proposta", async () => {
+    const before = snapshot();
+    const steps = await respond("Create “Prova” in MKX", withClass("A"));
+    expect(said(steps)).toBe(en("claude.answers.create.done", { title: "Prova", code: "MKX" }));
+    expect(proposal(steps)).toBeNull();
+    expect(executed(steps)).toMatchObject({
+      type: "executed",
+      status: "pending",
+      actions: [{ fn: "createTask", args: { projectId: "prj-mkx", title: "Prova" } }],
+    });
+    // Il motore non scrive: esegue `freeTurn`.
+    expect(snapshot()).toBe(before);
+  });
+
+  it("create con classify B: la frase della proposta e la proposta", async () => {
+    const steps = await respond("Create “Prova” in MKX", withClass("B"));
+    expect(said(steps)).toBe(en("claude.answers.create.proposal", { code: "MKX" }));
+    expect(fns(steps)).toEqual(["createTask"]);
+    expect(executed(steps)).toBeNull();
+  });
+
+  it("senza classify (la Chat): la proposta di oggi", async () => {
+    const steps = await respond("Create “Prova” in MKX", as("p-giulia"));
+    expect(said(steps)).toBe(en("claude.answers.create.proposal", { code: "MKX" }));
+    expect(fns(steps)).toEqual(["createTask"]);
+    expect(executed(steps)).toBeNull();
+  });
+
+  it("assign e plan: A esegue con la frase «fatto», B propone; run resta sempre proposta", async () => {
+    const assigned = await respond("Assign MKX-7 to Giulia", withClass("A"));
+    expect(executed(assigned)?.actions.map((a) => a.fn)).toEqual(["updateTask"]);
+    expect(said(assigned)).toMatch(/^Done/);
+    const planned = await respond("Plan MKX-7 for next week", withClass("A"));
+    expect(executed(planned)?.actions.map((a) => a.fn)).toEqual(["planTask"]);
+    expect(said(planned)).toMatch(/^Done/);
+    expect(proposal(await respond("Plan MKX-7 for next week", withClass("B")))).not.toBeNull();
+    const run = await respond("Start MKX-7", withClass("A"));
+    expect(fns(run)).toEqual(["startRun"]);
+    expect(executed(run)).toBeNull();
+  });
+});

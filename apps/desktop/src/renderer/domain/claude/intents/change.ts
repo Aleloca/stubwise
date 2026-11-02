@@ -1,4 +1,4 @@
-import type { Task } from "../../../data/types";
+import type { ProposedAction, Task } from "../../../data/types";
 import {
   labelled,
   named,
@@ -11,9 +11,23 @@ import {
 import type { IntentContext } from "../context";
 import { findCodes, findPerson, findProject, findSize, findTitle, findWeek } from "../parse";
 
-// Crea, assegna, pianifica: sempre e solo PROPOSTE (`createTask`,
-// `updateTask`, `planTask`). Il motore non decide chi può: la conferma
-// esegue la mutazione di oggi a nome di chi conferma, che rifiuta come a mano.
+// Crea, assegna, pianifica (`createTask`, `updateTask`, `planTask`). Il
+// motore non decide chi può: esegue la mutazione di oggi a nome di chi
+// chiede, che rifiuta come a mano. Nella conversazione libera (area 10a) il
+// livello dati dice la classe (`ctx.classify`): con A l'azione parte subito
+// e Claude dice «fatto»; con B o C resta una PROPOSTA. Senza classe (la
+// Chat) tutto resta proposta, come nell'area 4.
+
+/** La risposta secondo la classe: A esegue con la frase «fatto», le altre propongono. */
+async function byClass(
+  ctx: IntentContext,
+  action: ProposedAction,
+  done: string,
+  proposed: string,
+): Promise<Pick<Answer, "text" | "proposal" | "execute">> {
+  const cls = ctx.classify ? (await ctx.classify([action])).cls : null;
+  return cls === "A" ? { text: done, execute: [action] } : { text: proposed, proposal: [action] };
+}
 
 /** «Crea “Titolo” in AUD [per Marco] [settimana prossima] [taglia M]». */
 export async function create(text: string, ctx: IntentContext): Promise<Answer> {
@@ -44,9 +58,13 @@ export async function create(text: string, ctx: IntentContext): Promise<Answer> 
     : summarized(t, "claude.answers.create.summary", { code: project.code, title });
   return {
     actions: [],
-    text: t("claude.answers.create.proposal", { code: project.code }),
     refs: [{ kind: "project", id: project.id }],
-    proposal: [{ fn: "createTask", args, ...summary }],
+    ...(await byClass(
+      ctx,
+      { fn: "createTask", args, ...summary },
+      t("claude.answers.create.done", { title, code: project.code }),
+      t("claude.answers.create.proposal", { code: project.code }),
+    )),
   };
 }
 
@@ -82,20 +100,20 @@ export async function assign(text: string, ctx: IntentContext): Promise<Answer> 
   if (!person) {
     return { actions: [lookup], text: t("claude.answers.assign.noPerson", { task: named(task) }) };
   }
+  const params = { task: named(task), name: person.name };
   return {
     actions: [lookup],
-    text: t("claude.answers.assign.proposal", { task: named(task), name: person.name }),
     refs: [{ kind: "task", id: task.id }],
-    proposal: [
+    ...(await byClass(
+      ctx,
       {
         fn: "updateTask",
         args: { id: task.id, patch: { assigneeId: person.id } },
-        ...summarized(t, "claude.answers.assign.summary", {
-          task: named(task),
-          name: person.name,
-        }),
+        ...summarized(t, "claude.answers.assign.summary", params),
       },
-    ],
+      t("claude.answers.assign.done", params),
+      t("claude.answers.assign.proposal", params),
+    )),
   };
 }
 
@@ -110,21 +128,20 @@ export async function plan(text: string, ctx: IntentContext): Promise<Answer> {
   const person = findPerson(text, people, personId);
   const assigneeId = person?.id ?? task.assigneeId;
   const name = people.find((p) => p.id === assigneeId)?.name ?? t("claude.answers.plan.nobody");
+  const params = { task: named(task), week: shortWeek(week) };
   return {
     actions: [lookup],
-    text: t("claude.answers.plan.proposal", { task: named(task), week: shortWeek(week) }),
     refs: [{ kind: "task", id: task.id }],
-    proposal: [
+    ...(await byClass(
+      ctx,
       {
         fn: "planTask",
         args: { id: task.id, plan: { assigneeId, week } },
-        ...summarized(t, "claude.answers.plan.summary", {
-          task: named(task),
-          name,
-          week: shortWeek(week),
-        }),
+        ...summarized(t, "claude.answers.plan.summary", { ...params, name }),
       },
-    ],
+      t("claude.answers.plan.done", params),
+      t("claude.answers.plan.proposal", params),
+    )),
   };
 }
 

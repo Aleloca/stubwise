@@ -7,6 +7,11 @@
 //   calcolata, sulla proposta (`cls`, `reasons`);
 // - il segno «per conto di» (`via.ts`): nessuna funzione pubblica lo accetta.
 
+//
+// «Annulla» (Task 5) sì: passa dal cancello, e gli inversi girano con i
+// permessi di adesso.
+
 export type { CatalogInverse, ClaudeActionFn, ObjectRef } from "./types";
 export type { ActionClass, ClassReason } from "./classes";
 export { declaredClassOf, isCatalogFn } from "./catalog";
+export { undoClaudeActions, type UndoResult } from "./actions";

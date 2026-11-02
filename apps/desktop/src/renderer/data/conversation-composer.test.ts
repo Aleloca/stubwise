@@ -426,7 +426,7 @@ describe("proposte: conferma in parte e «Modifica»", () => {
     await propose(c.id);
     const before = state.tasks.length;
     const outcome = await confirmProposal(c.id, "p1", { actionIndexes: [1] });
-    expect(outcome.status).toBe("confirmed");
+    expect(outcome).toMatchObject({ status: "confirmed" });
     expect(state.tasks).toHaveLength(before + 1);
     expect(state.tasks.at(-1)!.title).toBe("Banner photo");
     expect(log(c.id).find((e) => e.type === "proposal")).toMatchObject({

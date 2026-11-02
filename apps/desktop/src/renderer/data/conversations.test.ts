@@ -341,7 +341,7 @@ describe("proposte", () => {
     const notificationsBefore = state.notifications.length;
 
     const outcome = await confirmProposal("cv-giulia-week", "prop-giulia-week-1");
-    expect(outcome.status).toBe("failed");
+    expect(outcome).toMatchObject({ status: "failed" });
     const proposal = proposalOf("cv-giulia-week", "prop-giulia-week-1");
     expect(proposal.status).toBe("failed");
     expect(proposal.error).toContain("Plan MKX-7");
@@ -373,9 +373,9 @@ describe("proposte", () => {
     expect((outcome as { error: string }).error).toContain("Change AUD-2");
     expect(state.tasks).toEqual(tasksBefore);
     expect(state.tasksById.size).toBe(tasksBefore.length);
-    // Solo l'id dell'azione di Claude (`ca`, il segno «per conto di», area
-    // 10a) si consuma prima del gruppo: nessun id di ciò che il gruppo scrive resta.
-    expect(state.counter).toBe(counterBefore + 1);
+    // Nessun id resta, nemmeno quelli delle azioni di Claude (`ca`, area
+    // 10a): si prendono dentro il gruppo e tornano indietro col ripristino.
+    expect(state.counter).toBe(counterBefore);
   });
 
   it("converte una richiesta e avvia Claude sulla task nata (taskFromAction)", async () => {
@@ -390,7 +390,7 @@ describe("proposte", () => {
       { fn: "startRun", args: { taskFromAction: 0 }, summary: "Start Claude" },
     ]);
     const outcome = await confirmProposal("cv-giulia-week", "prop-test");
-    expect(outcome.status).toBe("confirmed");
+    expect(outcome).toMatchObject({ status: "confirmed" });
     const { resultCodes, runConversationIds } = outcome as Extract<
       typeof outcome,
       { status: "confirmed" }

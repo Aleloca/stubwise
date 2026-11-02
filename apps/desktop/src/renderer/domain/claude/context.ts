@@ -1,4 +1,5 @@
 import type {
+  ActionClass,
   DecisionRequest,
   DocPage,
   DriveFile,
@@ -8,6 +9,7 @@ import type {
   ProjectPulse,
   ProjectRequest,
   ProjectStatus,
+  ProposedAction,
   Task,
   WeeklyBrief,
 } from "../../data/types";
@@ -74,4 +76,11 @@ export interface IntentContext {
    * una risposta di solo testo. Fuori dalla Chat non c'è.
    */
   asks?: boolean;
+  /**
+   * La classe calcolata dal livello dati (area 10a), solo nella
+   * conversazione libera: con A l'azione parte subito (`Answer.execute`),
+   * con B o C diventa una scheda. Senza (la Chat, R-G1) tutto resta
+   * proposta. Il motore la chiede, non la deduce.
+   */
+  classify?: (actions: Pick<ProposedAction, "fn" | "args">[]) => Promise<ActionClass>;
 }

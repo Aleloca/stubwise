@@ -59,6 +59,7 @@ import type {
   ClaudeDecision,
   Conversation,
   ConversationDetail,
+  ConversationEvent,
   ConversationFilter,
   ConversationRow,
   DailyReport,
@@ -89,8 +90,10 @@ import type {
   SlashCommand,
   Task,
   TimelineEvent,
+  UndoView,
   WeeklyBrief,
 } from "./types";
+import { undoViewOf } from "./claude/actions";
 
 export type { SearchResult } from "./types";
 export type { ApiFnName } from "./store";
@@ -609,11 +612,19 @@ export async function listNotifications(): Promise<AppNotification[]> {
       const out = copy(href ? { ...delivered, linkAccessHref: href } : delivered);
       // Area 10a: la task della notifica è stata eliminata; la notifica resta.
       if (taskGone(n)) out.objectGone = true;
+      // Area 10a: chi ha annullato l'azione di Claude che l'ha fatta partire.
+      if (n.viaClaude) out.undoneByName = undoneByNameOf(n.viaClaude.actionId);
       return [out];
     }
     const shown = presentChatNotification(me, delivered);
     return shown ? [shown] : [];
   });
+}
+
+/** «Undone by …»: l'azione → il suo `undone.byId` → il nome, a lettura. */
+function undoneByNameOf(actionId: string): string | null {
+  const undone = state.claudeActions.find((r) => r.id === actionId)?.undone;
+  return undone ? (PEOPLE.find((p) => p.id === undone.byId)?.name ?? null) : null;
 }
 
 /** La notifica parla di una task eliminata (stesso progetto, stesso codice). */
@@ -696,13 +707,34 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
   const me = await gate("getConversation");
   const c = state.conversations.find((x) => x.id === id);
   if (!c || !canSeeConversation(me, c)) return null;
+  const events = readableEvents(me, c);
   return {
     ...conversationRow(me, c),
     ...conversationPermissions(me, c),
-    events: readableEvents(me, c),
+    events,
     planPreApproved: state.preApprovedPlans.has(id),
     continuesFrom: originOf(me, c),
+    undo: undoOfEvents(me, events),
   };
+}
+
+/**
+ * Lo stato di «Annulla» dei gruppi che chi guarda legge nel flusso (righe
+ * `executed` riuscite e schede confermate col loro gruppo), calcolato adesso
+ * (area 10a): chi non l'ha chiesta legge `not_yours`.
+ */
+function undoOfEvents(me: string, events: ConversationEvent[]): Record<string, UndoView> {
+  const out: Record<string, UndoView> = {};
+  for (const e of events) {
+    const groupId =
+      e.type === "executed" && e.status === "done"
+        ? e.groupId
+        : e.type === "proposal" && e.status === "confirmed"
+          ? e.groupId
+          : undefined;
+    if (groupId) out[groupId] = undoViewOf(me, groupId);
+  }
+  return out;
 }
 
 /**

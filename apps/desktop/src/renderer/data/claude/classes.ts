@@ -4,6 +4,7 @@ import { automationsStartingOn, taskHappening } from "../automations/sources";
 import type { NewTaskInput, ProposedAction, Task, TaskPatch } from "../model";
 import { familyOf, state, visibleProjectIds } from "../store";
 import { CLAUDE_CATALOG, declaredClassOf, isCatalogFn } from "./catalog";
+import type { ActionClass, ClassReason } from "./types";
 
 // La classe calcolata di un'azione di Claude (area 10a, Task 4). Un'azione è
 // A solo se NON avvisa altre persone e NON fa partire un'automazione: i soli
@@ -15,17 +16,9 @@ import { CLAUDE_CATALOG, declaredClassOf, isCatalogFn } from "./catalog";
 // dichiarata (`declaredClassOf`). La pagina e il motore di intenti la
 // leggono, non la deducono.
 
-export type ClassReason =
-  /** `personIds`: chi riceverebbe un avviso e chi chiede vede; `more`: ce n'è anche fuori da quelli (mai contati). */
-  | { kind: "notifies"; personIds: string[]; more: boolean }
-  | { kind: "automation"; projectId: string }
-  | { kind: "irreversible" }
-  | { kind: "reauth" };
-
-export interface ActionClass {
-  cls: "A" | "B" | "C";
-  reasons: ClassReason[];
-}
+// I tipi stanno nella foglia (`types.ts`): li leggono anche `model.ts` (la
+// proposta porta `cls`/`reasons`) e il motore di intenti (`ctx.classify`).
+export type { ActionClass, ClassReason } from "./types";
 
 type Action = Pick<ProposedAction, "fn" | "args">;
 

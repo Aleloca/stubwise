@@ -73,6 +73,11 @@ export interface ChangeEntry {
   claudeActionId?: string;
   /** Area 10a: dentro un «Annulla», la voce dell'azione annullata sullo stesso oggetto. */
   undoOf?: string;
+  /**
+   * Area 10a: `nextSeq()` alla scrittura. Il «com'era» di «Annulla» ordina
+   * con questo, non con `at` (l'orologio è fermo, P4). Resta nel livello dati.
+   */
+  seq?: number;
 }
 
 /**
@@ -124,10 +129,10 @@ export type ChangeDiff =
 
 /**
  * Una voce come la legge il client: i campi calcolati dal livello dati.
- * `claudeActionId` non esce (ruling del controller (pre-flight), P16), e
- * `undoOf` si calcola per chi guarda.
+ * `claudeActionId` e `seq` non escono (ruling del controller (pre-flight),
+ * P16), e `undoOf` si calcola per chi guarda.
  */
-export interface ChangeEntryView extends Omit<ChangeEntry, "undoOf" | "claudeActionId"> {
+export interface ChangeEntryView extends Omit<ChangeEntry, "undoOf" | "claudeActionId" | "seq"> {
   /**
    * La voce annullata da questa, solo se chi guarda legge anche quella;
    * altrimenti `null` (anche sulle voci che non annullano niente).

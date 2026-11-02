@@ -3278,19 +3278,22 @@
         "noTitle": "Come si chiama la task di {{code}}? Metti il titolo fra virgolette, per esempio: crea «Revisione testi banner» in {{code}}.",
         "proposal": "Ecco la task che creerei in {{code}}. Conferma qui sotto, o modificala prima.",
         "summary": "Crea in {{code}}: «{{title}}»",
-        "summaryWithMeta": "Crea in {{code}}: «{{title}}» · {{meta}}"
+        "summaryWithMeta": "Crea in {{code}}: «{{title}}» · {{meta}}",
+        "done": "Fatto: «{{title}}» è in {{code}}."
       },
       "assign": {
         "noPerson": "A chi assegno **{{task}}**?",
         "proposal": "Assegnerei **{{task}}** a {{name}}. Conferma qui sotto.",
         "summary": "Assegna {{task}} a {{name}}",
-        "ask": "A chi assegno {{task}}?"
+        "ask": "A chi assegno {{task}}?",
+        "done": "Fatto: **{{task}}** è assegnata a {{name}}."
       },
       "plan": {
         "proposal": "Pianificherei **{{task}}** per la {{week}}. Conferma qui sotto.",
         "summary": "Pianifica {{task}} · {{name}} · {{week}}",
         "nobody": "nessuno",
-        "summaryShort": "Pianifica {{task}} per la {{week}}"
+        "summaryShort": "Pianifica {{task}} per la {{week}}",
+        "done": "Fatto: **{{task}}** è pianificata per la {{week}}."
       },
       "request": {
         "summary": "Apri una richiesta in {{code}}: «{{title}}»"
@@ -3307,6 +3310,14 @@
         "found": "**{{code}} {{name}}**, nel Drive di {{project}}, dice:",
         "foundArticle": "**{{code}} {{name}}**, nel Drive di {{project}}, ne parla all'articolo {{article}}:",
         "nothing": "Non ho trovato nel Drive dei tuoi progetti un file che parli di «{{topic}}». Non tiro a indovinare: prova con altre parole, o cerca nel Drive."
+      },
+      "classRaised": "Ti chiedo prima: {{reason}}.",
+      "classReason": {
+        "notifies": "avvisa {{names}}",
+        "notifiesOthers": "avvisa chi segue queste attività",
+        "automation": "fa partire un'automazione in {{code}}",
+        "irreversible": "non si annulla",
+        "reauth": "chiede il tuo codice"
       }
     },
     "proposalFailed": {
@@ -3810,6 +3821,17 @@
         "pruneImages": "Tolte le immagini non usate",
         "vacuumJournal": "Ridotto il journal di sistema",
         "restartAgent": "Riavviato l'agente di monitoraggio"
+      }
+    },
+    "executed": {
+      "failed": {
+        "forbidden": "non puoi più fare «{{action}}»",
+        "not_found": "«{{action}}» riguarda qualcosa che non esiste più o che non vedi",
+        "invalid": "qualcosa nella richiesta non è valido, non è cambiato nulla",
+        "conflict": "Claude sta già lavorando su «{{action}}»",
+        "busy": "«{{action}}» deve aspettare, c'è qualcosa ancora in corso",
+        "reauth_required": "«{{action}}» chiede prima il tuo codice a due passaggi",
+        "other": "«{{action}}» non è riuscita, non è cambiato nulla"
       }
     }
   },

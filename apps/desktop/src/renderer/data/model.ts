@@ -1,5 +1,5 @@
 import type { TicketPriority } from "@stubwise/shared";
-import type { ClaudeActionFn } from "./claude/types";
+import type { ClaudeActionFn, ClassReason } from "./claude/types";
 
 // Modello dati dell'area 2 (task). Autonomo: il Task 2 farà di `types.ts` un
 // re-export di questo file più i tipi dell'ossatura che restano.
@@ -131,6 +131,12 @@ export interface AppNotification {
    * mano e su quelle nate prima.
    */
   viaClaude?: { personId: string; actionId: string };
+  /**
+   * Area 10a, solo a lettura (`listNotifications`): chi ha annullato
+   * l'azione di Claude che l'ha fatta partire («Undone by Giulia Ferri»).
+   * Si deriva da `viaClaude.actionId` → l'azione → `undone.byId`; mai salvato.
+   */
+  undoneByName?: string | null;
 }
 
 /** Perché un avviso del catalogo arriva a qualcuno senza iscrizione (area 8a). */
@@ -432,6 +438,13 @@ export interface ActivityEntry {
    * «Annulla» (Task 5) per riconoscere le scritture del gruppo stesso.
    */
   claudeActionId?: string;
+  /**
+   * Area 10a: `nextSeq()` dell'ultima scrittura della voce (nascita,
+   * modifica, eliminazione di un commento): il «com'era» di «Annulla» ordina
+   * con questo, perché `at` è lo stesso per tutta la sessione (P4). Assente
+   * sulle voci del seme.
+   */
+  seq?: number;
 }
 
 export interface DecisionRequest {
@@ -744,6 +757,12 @@ export interface Conversation {
   state: ConversationState;
   /** Solo quando `state` è `finished`. */
   outcome: Outcome | null;
+  /**
+   * Area 10a, solo le sessioni di lavoro nate nella sessione: `nextSeq()`
+   * all'apertura. Una sessione nata sulla task dopo un'azione di Claude è
+   * una scrittura «dopo» per il «com'era» di «Annulla» (P4).
+   */
+  seq?: number;
   /** Le sessioni di lavoro seguono il progetto (`project`); solo la libera diventa pubblica. */
   visibility: "private" | "project" | "public";
   publishedAt: string | null;
@@ -990,6 +1009,31 @@ export type ConversationEvent =
       confirmedActions?: number[];
       /** Eseguita dal dialogo di «Modifica», con i valori cambiati da chi l'ha chiesta. */
       edited?: boolean;
+      /**
+       * Area 10a: la classe calcolata dal livello dati quando la scheda è
+       * nata (B o C) e i suoi motivi; assenti nelle proposte nate prima e in
+       * quelle della Chat. La scheda li legge, non li deduce.
+       */
+      cls?: "A" | "B" | "C";
+      reasons?: ClassReason[];
+      /** Area 10a: il gruppo di azioni eseguito dalla conferma (`state.claudeActions`), per «Annulla». */
+      groupId?: string;
+    }
+  /**
+   * Area 10a: azioni di Claude eseguite senza scheda (classe A) nella
+   * conversazione libera. `pending` c'è solo fra il motore e l'esecuzione
+   * (`freeTurn`): non arriva mai a chi legge.
+   */
+  | {
+      id: string;
+      at: string;
+      type: "executed";
+      groupId: string;
+      actions: ProposedAction[];
+      status: "pending" | "done" | "failed";
+      resultCodes?: string[];
+      /** Perché non è partita (`claude.executed.failed.<codice>`). */
+      errorText?: Utterance;
     }
   | {
       id: string;

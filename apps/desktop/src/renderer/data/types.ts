@@ -41,6 +41,8 @@ import type {
 // I tipi del modello dell'area 2 stanno in `model.ts`; qui restano quelli
 // dell'ossatura e del livello dati (chi guarda, ricerca, letture derivate).
 export * from "./model";
+// La classe calcolata delle azioni di Claude (area 10a): dalla foglia dei tipi.
+export type { ActionClass, ClassReason } from "./claude/types";
 
 /**
  * Permessi di progetto che vivono solo nel prototipo (non nel registro
@@ -413,7 +415,23 @@ export interface ConversationDetail extends ConversationRow, ConversationPermiss
       }
     | { id: string; available: false; title: null; ownerId: null; events: [] }
     | null;
+  /**
+   * Area 10a: lo stato di «Annulla» per ogni gruppo di azioni eseguite del
+   * flusso (riga `executed` o scheda confermata con `groupId`), calcolato per
+   * chi guarda. Facoltativo (P25): la pagina lo legge con `?? {}`.
+   */
+  undo?: Record<string /* groupId */, UndoView>;
 }
+
+/** «Annulla» di un gruppo di azioni di Claude, come lo vede chi guarda (area 10a). */
+export type UndoView =
+  | { state: "available"; needsReauth: boolean }
+  | { state: "undone"; byName: string; at: string }
+  /** `byName`/`code` nulli se chi guarda non vede chi ha scritto o l'oggetto (R-G5). */
+  | { state: "changed_after"; byName: string | null; code: string | null }
+  | { state: "not_undoable" }
+  /** Chi legge una pubblica altrui: la riga è chiusa. */
+  | { state: "not_yours" };
 
 /**
  * Un oggetto citato nel flusso come lo legge chi guarda: codice, nome, stato

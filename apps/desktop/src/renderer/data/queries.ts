@@ -1450,6 +1450,18 @@ export function useConfirmProposal() {
   );
 }
 
+/**
+ * «Annulla» di un gruppo di azioni di Claude (area 10a): gli inversi
+ * toccano task, richieste, progetti e impostazioni; la riga diventa
+ * «Undone» e la notifica di chi era avvisato «Undone by …».
+ */
+export function useUndoClaudeActions() {
+  return useWrite(
+    ({ id, groupId }: { id: string; groupId: string }) => api.claude.undoClaudeActions(id, groupId),
+    [...PROPOSAL_AREAS, "changelog", "notifications"],
+  );
+}
+
 /** «Modifica» salvata dal dialogo: la proposta si chiude «Done (edited)» con i codici nati. */
 export function useCompleteEditedProposal() {
   return useWrite(

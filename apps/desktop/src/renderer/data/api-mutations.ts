@@ -21,7 +21,9 @@ import { linkIdentityAs } from "./admin/people";
 import * as reads from "./api";
 import * as scripts from "./conversation-scripts";
 import { publishChatEvent } from "./chat/events";
-import { currentVia, runAsClaude } from "./claude/via";
+import { currentVia, runAsClaude, type ViaClaude } from "./claude/via";
+import { classOfGroup } from "./claude/classes";
+import { executeGroup, prepareExecuted, reauthMissing } from "./claude/actions";
 import { DEFAULT_PUBLISHED_EVENTS } from "./seed/chat";
 import { COMMITS } from "./seed/commits";
 import { TODAY } from "./seed/dates";
@@ -57,6 +59,8 @@ import {
   latestOpenPrOf,
   latestRunOf,
   newId,
+  nextSeq,
+  noteWrite,
   runPreconditions,
   now,
   objectCodeOf,
@@ -181,6 +185,19 @@ function viaMark(): Pick<ActivityEntry, "via" | "claudeActionId"> {
   const via = currentVia();
   return via ? { via: "claude", claudeActionId: via.actionId } : {};
 }
+
+/**
+ * Il segno e l'ordine di una riga d'attività nuova: `seq` dice al «com'era»
+ * di «Annulla» che cosa è venuto dopo un'azione di Claude (P4).
+ */
+const activityMark = (): Pick<ActivityEntry, "via" | "claudeActionId" | "seq"> => ({
+  ...viaMark(),
+  seq: nextSeq(),
+});
+
+/** Una scrittura su una richiesta o un traguardo, col segno di Claude se c'è (Task 5). */
+const wrote = (kind: "request" | "milestone", id: string, me: string): void =>
+  noteWrite(kind, id, me, currentVia()?.actionId);
 
 /**
  * Una notifica diretta a `recipientId` per una scrittura di `me`. Dentro
@@ -513,7 +530,7 @@ function commitTaskPatch(me: string, task: Task, diffs: Diff[]): void {
       field: FIELD_LABEL[key] ?? key,
       from: describeValue(key, from),
       to: describeValue(key, to),
-      ...viaMark(),
+      ...activityMark(),
     });
     (task as unknown as Record<string, unknown>)[key] = structuredClone(to);
   }
@@ -678,7 +695,7 @@ export function addCommentAs(
     at,
     body: body.trim(),
     ...(replyToId ? { replyToId } : {}),
-    ...viaMark(),
+    ...activityMark(),
   };
   state.activity.push(entry);
   task.lastActivityAt = at;
@@ -789,6 +806,7 @@ export async function answerDecision(
     authorId: me,
     at,
     decisionRequestId: request.id,
+    seq: nextSeq(),
   });
   task.lastActivityAt = at;
   if (request.askedById !== me) {
@@ -949,6 +967,7 @@ export async function updateRequest(id: string, patch: RequestPatch): Promise<Pr
   if (patch.riskNote !== undefined)
     request.riskNote = patch.riskNote?.trim() ? patch.riskNote.trim() : null;
   if (patch.suggestions === null) request.suggestions = null;
+  wrote("request", request.id, me);
   return copy(request);
 }
 
@@ -971,6 +990,8 @@ export async function mergeRequest(id: string, intoId: string): Promise<ProjectR
   source.status = "archived";
   source.mergedIntoId = target.id;
   source.similarToId = target.id;
+  wrote("request", source.id, me);
+  wrote("request", target.id, me);
   closeRefineOfRequest(source.id);
   return copy(target);
 }
@@ -985,6 +1006,7 @@ function setRequestStatus(
   need(me, "backlog.edit", request.projectId);
   if (!allowed.includes(request.status)) throw invalid("status");
   request.status = next;
+  wrote("request", request.id, me);
   return request;
 }
 
@@ -1029,6 +1051,7 @@ export async function restoreRequest(
   if (!["new", "refining", "ready"].includes(status)) throw invalid("status");
   if (request.status !== "archived" || request.mergedIntoId !== null) throw invalid("status");
   request.status = status;
+  wrote("request", request.id, me);
   return copy(request);
 }
 
@@ -1063,6 +1086,7 @@ export function convertRequestAs(
   addTask(task);
   request.taskIds = [...request.taskIds, task.id];
   request.status = "converted";
+  wrote("request", request.id, me);
   // Una task nata assegnata, come da `createTaskAs` (area 10a).
   publishAssigned(me, task);
   return task;
@@ -1514,6 +1538,7 @@ export async function updateMilestone(id: string, patch: MilestonePatch): Promis
   if (patch.dueDate !== undefined) milestone.dueDate = patch.dueDate || null;
   const reached = patch.closed === true && !milestone.closed;
   if (patch.closed !== undefined) milestone.closed = patch.closed;
+  wrote("milestone", milestone.id, me);
   if (reached) {
     void publishChatEvent(milestone.projectId, "milestone_reached", {
       kind: "milestone",
@@ -1534,6 +1559,7 @@ export function deleteMilestoneAs(me: string, id: string): void {
   const milestone = milestoneFor(me, id);
   need(me, "tickets.edit", milestone.projectId);
   state.milestones = state.milestones.filter((m) => m.id !== id);
+  wrote("milestone", id, me);
   for (const task of state.tasks) {
     if (task.milestoneId === id) task.milestoneId = null;
   }
@@ -1693,7 +1719,7 @@ function projectsOfSteps(steps: ScriptStep[]): string[] {
           add(state.driveFiles.find((f) => f.id === ref.id)?.projectId);
       }
     }
-    if (e.type === "proposal") {
+    if (e.type === "proposal" || e.type === "executed") {
       for (const a of e.actions) {
         add(a.args.projectId as string | undefined);
         add(ofTask(a.args.taskId) ?? ofTask(a.args.id) ?? ofRequest(a.args.id));
@@ -2157,6 +2183,8 @@ async function freeTurn(
       read: readsAs(me),
       t: i18n.t.bind(i18n) as T,
       seed: `${id}-${eventsOf(id).length}`,
+      // La classe la calcola il livello dati (area 10a): A parte subito.
+      classify: async (actions) => classOfGroup(me, actions),
     });
   } catch (error) {
     if (held) releaseHold(c, messageIndex);
@@ -2165,11 +2193,16 @@ async function freeTurn(
   if (!current(gen)) throw new Error("reset");
   if (freeCut(id) !== cut) {
     // Fermata mentre Claude pensava: il messaggio l'aveva ricevuto, la
-    // risposta calcolata dopo «Ferma» non entra nel flusso.
+    // risposta calcolata dopo «Ferma» non entra nel flusso (né si esegue).
     if (held) releaseHold(c, messageIndex);
     await runScript(id, [{ step: "deliver" }], gen);
     return;
   }
+  // Le azioni A si eseguono adesso, senza attese, con la classe ricalcolata:
+  // se è salita nel frattempo diventano una scheda (area 10a, Task 5).
+  const prepared = prepareExecuted(me, id, steps);
+  steps = prepared.steps;
+  const runs = prepared.runs.map((task) => ({ task, c: openRun(me, task) }));
   const touchedNew = touchProjects(c, projectsOfSteps(steps));
   // Si consegna solo la trattenuta di QUESTO turno, se c'è ancora (una
   // riconferma nel frattempo l'ha già consegnata).
@@ -2181,6 +2214,9 @@ async function freeTurn(
     replying.delete(id);
   }
   if (!current(gen)) return;
+  // Il lavoro delle azioni eseguite parte dopo la risposta, come a mano.
+  for (const run of runs) await launchRun(me, run.c, gen);
+  for (const start of prepared.after) await start(gen);
   if (firstTurn && c.title === titleFrom(text, attachments)) {
     const short = shortTitleFrom(text, attachments);
     if (short && short !== c.title) {
@@ -2583,6 +2619,12 @@ export interface ProposalPlace {
   patch(patch: ProposalPatch, gen: number): Promise<void>;
   /** I progetti toccati da una conferma riuscita (la conversazione li ricorda). */
   touched(projectIds: string[]): void;
+  /**
+   * Solo una conversazione (area 10a): la conferma segue la classe
+   * (`settleInConversation`), con le righe di «Annulla». La Chat non lo ha:
+   * le sue conferme restano quelle dell'area 4.
+   */
+  conversationId?: string;
 }
 
 /**
@@ -2622,13 +2664,16 @@ function openProposalFor(me: string, id: string, proposalId: string): ProposalPl
     touched: (projectIds) => {
       touchProjects(c, projectIds);
     },
+    conversationId: id,
   };
 }
 
 /** L'esito di una conferma: i codici degli oggetti, o perché non è stata eseguita. */
 export type ProposalOutcome =
   | { status: "confirmed"; resultCodes: string[]; runConversationIds: string[] }
-  | { status: "failed"; error: string };
+  | { status: "failed"; error: string }
+  /** Area 10a: una scheda C senza riconferma fresca; la scheda resta aperta. */
+  | { ok: false; error: "reauth_required" };
 
 /**
  * Conferma una proposta di Claude: solo chi l'ha chiesta. Le azioni girano
@@ -2660,12 +2705,15 @@ export async function settleProposal(
 ): Promise<ProposalOutcome> {
   const { proposal, key } = place;
   const chosen = selectActions(proposal.actions, options.actionIndexes);
+  if (place.conversationId !== undefined) {
+    return settleInConversation(me, place, place.conversationId, chosen, gen);
+  }
   claims.set(key, me);
-  // Le conferme di @Claude (conversazione e Chat) portano il segno «per
-  // conto di» come il riquadro (maintainer, 2 nov 2026; ruling del controller
-  // (pre-flight), P21). Nessuna riga in `state.claudeActions`, niente
-  // «Annulla»: le regole dell'area 4 non cambiano. La Posta chiama
-  // `applyActions` da sé e resta senza segno.
+  // Le conferme di @Claude nella Chat portano il segno «per conto di» come
+  // il riquadro (maintainer, 2 nov 2026; ruling del controller (pre-flight),
+  // P21). Nessuna riga in `state.claudeActions`, niente «Annulla»: le regole
+  // dell'area 4 non cambiano. La Posta chiama `applyActions` da sé e resta
+  // senza segno.
   const result = runAsClaude({ actionId: newId("ca"), undoOfActionId: null }, () =>
     applyActions(me, chosen.actions),
   );
@@ -2693,6 +2741,58 @@ export async function settleProposal(
   for (const run of runs) await playRun(me, run.c, run.task, gen);
   // Il lavoro delle voci del catalogo che parte a gruppo riuscito (la
   // sessione di `retryJob`, già aperta nel gruppo), come le sessioni sopra.
+  for (const start of result.after) await start(gen);
+  return {
+    status: "confirmed",
+    resultCodes: result.codes,
+    runConversationIds: runs.map((run) => run.c.id),
+  };
+}
+
+/**
+ * La conferma di una scheda della conversazione (riquadro e destinazione
+ * «Claude», area 10a, Task 5): la classe si ricalcola sulle azioni scelte;
+ * una C senza riconferma fresca risponde `reauth_required` SENZA prendere
+ * la scheda (resta aperta, si riconferma e si riprova). Poi il gruppo gira
+ * con `executeGroup` (solo il catalogo, una riga per azione in
+ * `state.claudeActions`) e la scheda confermata porta il suo `groupId`, per
+ * «Annulla». Le sessioni di `startRun` partono come a mano (`launchRun`):
+ * con la coda del progetto in pausa aspettano.
+ */
+async function settleInConversation(
+  me: string,
+  place: ProposalPlace,
+  conversationId: string,
+  chosen: { actions: ProposedAction[]; indexes: number[] | null },
+  gen: number,
+): Promise<ProposalOutcome> {
+  const { cls } = classOfGroup(me, chosen.actions);
+  if (cls === "C" && reauthMissing(me, chosen.actions)) {
+    return { ok: false, error: "reauth_required" };
+  }
+  claims.set(place.key, me);
+  const result = executeGroup(me, conversationId, chosen.actions, cls);
+  if (!result.ok) {
+    const error = i18n.t(`claude.proposalFailed.${result.code}`, {
+      action: chosen.actions[result.index]?.summary ?? "",
+    });
+    await place.patch({ type: "proposal", status: "failed", error }, gen);
+    return { status: "failed", error };
+  }
+  place.touched(result.projectIds);
+  // Le sessioni nascono adesso, prima di ogni attesa (vedi sopra); partono dopo.
+  const runs = result.runs.map((task) => ({ task, c: openRun(me, task) }));
+  await place.patch(
+    {
+      type: "proposal",
+      status: "confirmed",
+      resultCodes: result.codes,
+      groupId: result.groupId,
+      ...(chosen.indexes ? { confirmedActions: chosen.indexes } : {}),
+    },
+    gen,
+  );
+  for (const run of runs) await launchRun(me, run.c, gen);
   for (const start of result.after) await start(gen);
   return {
     status: "confirmed",
@@ -2825,7 +2925,16 @@ export type Applied =
 export function applyActions(
   me: string,
   actions: ProposedAction[],
-  options: { catalogOnly?: boolean } = {},
+  options: {
+    catalogOnly?: boolean;
+    /**
+     * Il segno «per conto di» di ogni azione del catalogo (area 10a, Task 5):
+     * ognuna ha il suo id, così una notifica o una voce dice quale azione
+     * l'ha scritta. Chiamato DENTRO il gruppo: un id preso qui torna indietro
+     * col ripristino, se il gruppo fallisce.
+     */
+    mark?: (index: number) => ViaClaude;
+  } = {},
 ): Applied {
   if (options.catalogOnly) {
     const outside = actions.findIndex((a) => !isCatalogFn(a.fn));
@@ -2845,7 +2954,11 @@ export function applyActions(
     for (; index < actions.length; index++) {
       const { fn, args } = actions[index]!;
       if (isCatalogFn(fn)) {
-        const run = CLAUDE_CATALOG[fn].run(me, catalogArgs(fn, args, catalogRuns));
+        const runArgs = catalogArgs(fn, args, catalogRuns);
+        const entry = CLAUDE_CATALOG[fn];
+        const run = options.mark
+          ? runAsClaude(options.mark(index), () => entry.run(me, runArgs))
+          : entry.run(me, runArgs);
         catalogRuns[index] = run;
         if (fn === "startRun") {
           // Due «Avvia» sulla stessa task nello stesso gruppo: il secondo è un conflitto.
@@ -2929,8 +3042,10 @@ function snapshotForActions(): () => void {
   // pianificazione, eliminazione); avvisi e il loro ordine (`alertSeq`);
   // richieste e la conversazione di Support da cui nascono; registro
   // decisioni e traguardi; progetti, impostazioni ed esecuzioni chiuse
-  // dall'archiviazione; iscrizioni; task eliminate; istanza e app Google.
+  // dall'archiviazione; iscrizioni; task eliminate; istanza e app Google; la
+  // cronologia minima di richieste e traguardi (`objectWrites`, Task 5).
   const snapshot = structuredClone({
+    objectWrites: state.objectWrites,
     tasks: state.tasks,
     activity: state.activity,
     arrangements: state.arrangements,
@@ -3240,6 +3355,8 @@ function openRun(me: string, task: Task, operation: AiOperation = "fix_plan"): C
     projectId: task.projectId,
     taskId: task.id,
     state: "working",
+    // Una sessione nata sulla task è una scrittura «dopo» per «Annulla» (P4).
+    seq: nextSeq(),
   });
   task.claude = "working";
   return c;

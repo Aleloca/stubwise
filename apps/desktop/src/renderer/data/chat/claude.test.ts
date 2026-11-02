@@ -170,7 +170,7 @@ describe("@Claude: due chiamate nello stesso thread (Review Focus 4)", () => {
     expect(state.tasks.some((t) => t.title === "Billing email copy review")).toBe(false);
 
     const outcome = await chat.confirmChatProposal(giulias.id, pg.proposalId);
-    expect(outcome.status).toBe("confirmed");
+    expect(outcome).toMatchObject({ status: "confirmed" });
     const created = state.tasks.find((t) => t.title === "Invoice PDF size check in staging")!;
     expect(created.projectId).toBe("prj-aud");
     expect(proposalOf(byId(giulias.id))).toMatchObject({
@@ -199,7 +199,7 @@ describe("@Claude: due chiamate nello stesso thread (Review Focus 4)", () => {
     grantProjectRole("p-marco", "prj-aud", "viewer");
     const tasksBefore = state.tasks.length;
     const failed = await chat.confirmChatProposal(SEED_REPLY, "prop-chat-aud-pdf-1");
-    expect(failed.status).toBe("failed");
+    expect(failed).toMatchObject({ status: "failed" });
     expect(state.tasks.length).toBe(tasksBefore);
     expect(proposalOf(byId(SEED_REPLY))).toMatchObject({ status: "failed" });
   });

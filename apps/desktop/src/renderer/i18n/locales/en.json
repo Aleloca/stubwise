@@ -3278,19 +3278,22 @@
         "noTitle": "What should the task in {{code}} be called? Put the title in quotes, for example: create “Banner copy review” in {{code}}.",
         "proposal": "Here's the task I'd create in {{code}}. Confirm below, or edit it first.",
         "summary": "Create in {{code}}: “{{title}}”",
-        "summaryWithMeta": "Create in {{code}}: “{{title}}” · {{meta}}"
+        "summaryWithMeta": "Create in {{code}}: “{{title}}” · {{meta}}",
+        "done": "Done: “{{title}}” is in {{code}}."
       },
       "assign": {
         "noPerson": "Who should I assign **{{task}}** to?",
         "proposal": "I'd assign **{{task}}** to {{name}}. Confirm below.",
         "summary": "Assign {{task}} to {{name}}",
-        "ask": "Who should take {{task}}?"
+        "ask": "Who should take {{task}}?",
+        "done": "Done: **{{task}}** is assigned to {{name}}."
       },
       "plan": {
         "proposal": "I'd plan **{{task}}** for {{week}}. Confirm below.",
         "summary": "Plan {{task}} · {{name}} · {{week}}",
         "nobody": "nobody",
-        "summaryShort": "Plan {{task}} for {{week}}"
+        "summaryShort": "Plan {{task}} for {{week}}",
+        "done": "Done: **{{task}}** is planned for {{week}}."
       },
       "request": {
         "summary": "Open a request in {{code}}: “{{title}}”"
@@ -3307,6 +3310,14 @@
         "found": "**{{code}} {{name}}**, in the {{project}} Drive, says:",
         "foundArticle": "**{{code}} {{name}}**, in the {{project}} Drive, covers it in article {{article}}:",
         "nothing": "I didn't find a file in your projects' Drive that talks about “{{topic}}”. I won't guess: try other words, or look in the Drive."
+      },
+      "classRaised": "I'm asking first: {{reason}}.",
+      "classReason": {
+        "notifies": "it notifies {{names}}",
+        "notifiesOthers": "it notifies people who follow this",
+        "automation": "it starts an automation in {{code}}",
+        "irreversible": "it can't be undone",
+        "reauth": "it asks for your code"
       }
     },
     "proposalFailed": {
@@ -3810,6 +3821,17 @@
         "pruneImages": "Removed the unused images",
         "vacuumJournal": "Trimmed the system journal",
         "restartAgent": "Restarted the monitoring agent"
+      }
+    },
+    "executed": {
+      "failed": {
+        "forbidden": "you can no longer do “{{action}}”",
+        "not_found": "“{{action}}” refers to something that no longer exists or that you can’t see",
+        "invalid": "something in the request isn’t valid, nothing was changed",
+        "conflict": "Claude is already working on “{{action}}”",
+        "busy": "“{{action}}” has to wait, something is still running on it",
+        "reauth_required": "“{{action}}” needs your two-step code first",
+        "other": "“{{action}}” failed, nothing was changed"
       }
     }
   },

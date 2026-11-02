@@ -1,5 +1,5 @@
 import { currentVia } from "../claude/via";
-import { newId, now, state } from "../store";
+import { newId, nextSeq, now, state } from "../store";
 import type { ChangeEntry, ChangeInput, ChangeType } from "./types";
 
 // La scrittura del registro: il registro dei tipi e `recordChange`. Il
@@ -58,6 +58,8 @@ export function recordChange(input: ChangeInput): void {
     before: input.before ?? null,
     after: input.after ?? null,
     params: Object.freeze({ ...input.params }),
+    // L'ordine del «com'era» di «Annulla» (area 10a, P4): `at` è fermo.
+    seq: nextSeq(),
   };
   // Il segno «per conto di» (area 10a): da `currentVia()`, mai dall'input.
   const via = currentVia();

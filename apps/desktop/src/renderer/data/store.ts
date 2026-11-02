@@ -167,6 +167,7 @@ import {
   type AccessState,
 } from "./access/index";
 import type { ChangeEntry } from "./changelog/types";
+import type { ClaudeActionRecord } from "./claude/types";
 import { SEED_BITBUCKET, SEED_GIT_LINKS, seedChangelog } from "./seed/changelog";
 import type { Invite, SecurityEvent } from "./admin/types";
 import { DEPARTMENTS } from "./seed/departments";
@@ -242,6 +243,8 @@ export type ApiFnName =
   // «Elimina task» (area 10a, Task 2)
   | "deleteTask"
   | "getTaskDeletion"
+  // «Annulla» di un gruppo di azioni di Claude (area 10a, Task 5)
+  | "claude.undo"
   | "updateTask"
   | "bulkUpdateTasks"
   | "planTask"
@@ -856,6 +859,18 @@ interface State {
    */
   changelog: ChangeEntry[];
   /**
+   * Le azioni di Claude eseguite dal riquadro e dalla destinazione «Claude»
+   * (area 10a, Task 5): una riga per azione, scritta a gruppo riuscito.
+   * Le legge solo il livello dati («Annulla», «Undone by»).
+   */
+  claudeActions: ClaudeActionRecord[];
+  /**
+   * Le scritture su richieste e traguardi (area 10a, Task 5): la loro
+   * cronologia minima, che il «com'era» di «Annulla» confronta per `seq`
+   * (P4). Nessuna pagina la legge.
+   */
+  objectWrites: ObjectWrite[];
+  /**
    * L'ultima riconferma riuscita, per persona (ISO): la finestra di grazia
    * vale per persona, quindi il «vedi come» non la passa a un'altra.
    */
@@ -1142,6 +1157,8 @@ function freshState(): State {
   return {
     access: resetAccessState(),
     changelog: seedChangelog(),
+    claudeActions: [],
+    objectWrites: [],
     reauth: new Map(),
     secondFactorAttempts: new Map(),
     invites: INVITES.map(copy),
@@ -1491,6 +1508,37 @@ export const newId = (prefix: string): string => `${prefix}-new-${++state.counte
  * di sapere che cosa è venuto prima.
  */
 export const nextSeq = (): number => ++state.alertSeq;
+
+/** Una scrittura su una richiesta o un traguardo (area 10a): chi, quando nell'ordine, e se Claude per lui. */
+export interface ObjectWrite {
+  kind: "request" | "milestone";
+  id: string;
+  seq: number;
+  byId: string;
+  /** L'azione di Claude che l'ha scritta (`currentVia()`), se c'è. */
+  claudeActionId?: string;
+}
+
+/**
+ * Segna una scrittura di `byId` su una richiesta o un traguardo (cambio di
+ * stato o di campo, eliminazione): la cronologia minima che il «com'era» di
+ * «Annulla» confronta (area 10a, Task 5). `claudeActionId` lo passa chi
+ * scrive, dal segno «per conto di».
+ */
+export function noteWrite(
+  kind: ObjectWrite["kind"],
+  id: string,
+  byId: string,
+  claudeActionId?: string,
+): void {
+  state.objectWrites.push({
+    kind,
+    id,
+    seq: nextSeq(),
+    byId,
+    ...(claudeActionId ? { claudeActionId } : {}),
+  });
+}
 
 /** Di quanto «Fai passare il tempo» ha spostato l'orologio (ms); `resetApi` lo azzera. */
 let clockOffsetMs = 0;
