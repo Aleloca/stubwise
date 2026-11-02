@@ -733,6 +733,7 @@ function ConversationBody({
               onStopAndSend={(text) => sendMessage(text, [], "stopAndSend")}
               {...(draft ? { draft } : {})}
               projectMenu={!inPanel}
+              budgetBand={inPanel}
             />
           )}
           {dragging && (

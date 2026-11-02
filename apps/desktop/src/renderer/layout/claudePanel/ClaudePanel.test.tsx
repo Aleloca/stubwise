@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as api from "../../data/api";
@@ -266,21 +266,49 @@ describe("il contesto", () => {
 });
 
 describe("stati", () => {
-  it("budget esaurito: il riquadro lo dice con «Who?», e l'invio non parte", async () => {
-    await as("p-roberta", () => api.instance.simulateBudgetReached(true));
+  const BUDGET_EN =
+    "The monthly AI budget is used up: Claude can't answer until it's raised or the month ends.";
+  const band = () => panel().querySelector<HTMLElement>("[data-budget-band]");
+  const budget = (on: boolean) =>
+    act(() => as("p-roberta", () => api.instance.simulateBudgetReached(on)));
+
+  it("budget esaurito, conversazione vuota: la fascia al posto della casella, con «Who?»; il testo scritto resta in sola lettura e torna col budget", async () => {
     const user = userEvent.setup();
     renderRoute("/home", "p-laura");
     await user.click(await screen.findByRole("button", { name: "Ask Claude" }));
-    const line = await within(panel()).findByText(/The monthly AI budget is used up/);
-    expect(line.closest("[data-ai-block]")).not.toBeNull();
-    expect(line.closest("[data-ai-block]")!.querySelector("[data-who-can]")).toHaveTextContent(
-      "Who?",
-    );
+    await user.type(box(), "Hello Claude");
     const before = state.conversations.length;
-    await user.type(box(), "Hello{Enter}");
-    expect(box()).toHaveValue("Hello");
-    expect(within(panel()).getByRole("button", { name: "Send" })).toBeDisabled();
+    await budget(true);
+    await waitFor(() => expect(band()).not.toBeNull());
+    expect(band()).toHaveTextContent(BUDGET_EN);
+    expect(band()!.querySelector("[data-who-can]")).toHaveTextContent("Who?");
+    // Nessuna casella né Send: niente invita a scrivere ciò che non partirebbe.
+    expect(within(panel()).queryByRole("textbox")).toBeNull();
+    expect(within(panel()).queryByRole("button", { name: "Send" })).toBeNull();
+    expect(band()).toHaveTextContent("Hello Claude");
     expect(state.conversations).toHaveLength(before);
+    await budget(false);
+    await waitFor(() => expect(box()).toHaveValue("Hello Claude"));
+    expect(band()).toBeNull();
+  });
+
+  it("budget esaurito in una conversazione del riquadro: la stessa fascia, in italiano", async () => {
+    const user = userEvent.setup();
+    renderRoute("/home", "p-laura");
+    await user.click(await screen.findByRole("button", { name: "Ask Claude" }));
+    await user.type(box(), "What should I do today?{Enter}");
+    await waitFor(() => expect(panel().querySelector("[data-user-message]")).not.toBeNull());
+    await user.type(within(panel()).getByRole("combobox"), "a draft");
+    await act(() => i18n.changeLanguage("it"));
+    await budget(true);
+    await waitFor(() => expect(band()).not.toBeNull());
+    expect(band()).toHaveTextContent(
+      "Il budget mensile per l'AI è esaurito: Claude non può rispondere finché non viene alzato o non finisce il mese.",
+    );
+    expect(band()).toHaveTextContent("a draft");
+    expect(within(panel()).queryByRole("combobox")).toBeNull();
+    await budget(false);
+    await waitFor(() => expect(within(panel()).getByRole("combobox")).toHaveValue("a draft"));
   });
 
   it("[CP 9] l'atterraggio e la conversazione vuota non promettono più «nothing without your confirmation», in nessuna lingua", async () => {

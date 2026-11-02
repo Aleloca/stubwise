@@ -6,13 +6,14 @@ import { canReadChannel, membersOf } from "./chat/visibility";
 // I consumi a fine sessione (area 9b): usati solo dentro le funzioni.
 import { modelIdFor } from "./instance/models";
 import { recordSessionUsage } from "./instance/usage";
+// R-G5 sul contesto di un messaggio (area 10a): usato solo dentro le funzioni.
+import { presentEventFor } from "./claude/context";
 import { SCRIPTS } from "./seed/conversations";
 import { getSessionPersonId } from "./session";
 import {
   canSeeConversation,
   now,
   onStoreReset,
-  presentEvent,
   PROPOSAL_EXPIRY,
   isMessage,
   messagesAfter,
@@ -191,7 +192,8 @@ export function subscribe(
   // Il seguito privato di una pubblica non arriva a chi non è l'autore (R-E6).
   const readable = readableLength(personId, conversation);
   log.forEach((_, i) => {
-    if (i < readable) onEvent(presentEvent(log, i), i <= resumeAt ? "update" : "append");
+    if (i < readable)
+      onEvent(presentEventFor(personId, log, i), i <= resumeAt ? "update" : "append");
   });
 
   const subscriber: Subscriber = { conversationId, personId, onEvent };
@@ -556,7 +558,7 @@ function emit(conversationId: string, event: ConversationEvent, mode: StreamMode
       continue;
     }
     if (index >= readableLength(subscriber.personId, conversation)) continue;
-    subscriber.onEvent(presentEvent(log, index), mode);
+    subscriber.onEvent(presentEventFor(subscriber.personId, log, index), mode);
   }
 }
 
@@ -582,7 +584,7 @@ export function releaseHeld(conversationId: string, fromIndex: number): void {
     }
     const readable = readableLength(subscriber.personId, conversation);
     for (let i = fromIndex; i < readable; i++) {
-      subscriber.onEvent(presentEvent(log, i), "append");
+      subscriber.onEvent(presentEventFor(subscriber.personId, log, i), "append");
     }
   }
 }

@@ -32,6 +32,7 @@ import {
   secondaryButton,
 } from "../tasks/controls";
 import { Conversation, type ContinueHandler } from "./conversation/Conversation";
+import { BudgetBand } from "./conversation/BudgetBand";
 import { useApplyDraft, type ComposerDraft } from "./conversation/Composer";
 import { SendGlyph } from "./conversation/parts";
 import { SkillsInRun, exclusiveOf, runLineText } from "../task/ClaudeRunParts";
@@ -269,6 +270,10 @@ export function NewConversationComposer({
     : page
       ? t("claude.destination.landing.send")
       : t("claude.conversation.composer.send");
+
+  // Nel riquadro, col budget esaurito, la fascia al posto della casella
+  // (shape claude-panel.md §6): il testo resta, e torna col budget [CP 12].
+  if (!page && budget) return <BudgetBand text={text} />;
 
   return (
     <div className={page ? "contents" : "px-4 pt-2 pb-3"}>

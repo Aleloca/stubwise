@@ -5,10 +5,12 @@ import {
   describeContext,
   getConversation,
   instance,
+  listConversations,
   resetApi,
   sendMessage,
   setLatency,
   setStreamLatency,
+  subscribe,
   whenIdle,
 } from "./api";
 import { setSessionPersonId } from "./session";
@@ -111,6 +113,54 @@ describe("describeContext", () => {
     expect(await contextIdOf("task", "MKX-2")).toBeNull();
     as("p-laura");
     expect(await contextIdOf("support", "ACQ-S2")).toBe("sup-acq-2");
+  });
+});
+
+describe("R-G5: il contesto di un messaggio letto da chi non vede l'oggetto", () => {
+  /**
+   * Nella pubblica di Giulia (`cv-giulia-callbacks`) un messaggio e la
+   * conversazione portano come contesto MKX-2, che Giulia vede e Laura no.
+   */
+  function injectMkxContext() {
+    const ref: ContextRef = { kind: "task", taskId: acqTask("MKX-2").id };
+    const c = state.conversations.find((x) => x.id === "cv-giulia-callbacks")!;
+    const log = state.conversationEvents.get(c.id)!;
+    const user = log.find((e) => e.type === "user")!;
+    if (user.type === "user") user.context = ref;
+    c.context = ref;
+    return { c, ref };
+  }
+  const leaks = (value: unknown) => /mkx/i.test(JSON.stringify(value));
+
+  it("dettaglio, elenco e stream non portano né l'id né il codice", async () => {
+    as("p-laura");
+    const before = await getConversation("cv-giulia-callbacks");
+    // Precondizione: Laura legge la pubblica, e senza contesto non c'è traccia di MKX.
+    expect(before).not.toBeNull();
+    expect(leaks(before)).toBe(false);
+    injectMkxContext();
+
+    const detail = await getConversation("cv-giulia-callbacks");
+    expect(detail!.events.some((e) => e.type === "user")).toBe(true);
+    expect(leaks(detail)).toBe(false);
+
+    const rows = await listConversations({ scope: "public" });
+    expect(rows.some((r) => r.id === "cv-giulia-callbacks")).toBe(true);
+    expect(leaks(rows)).toBe(false);
+
+    const streamed: unknown[] = [];
+    const off = subscribe("cv-giulia-callbacks", (e) => streamed.push(e));
+    off();
+    expect(streamed.length).toBeGreaterThan(0);
+    expect(leaks(streamed)).toBe(false);
+  });
+
+  it("chi vede l'oggetto legge il contesto com'è", async () => {
+    const { ref } = injectMkxContext();
+    as("p-giulia");
+    const detail = await getConversation("cv-giulia-callbacks");
+    expect(detail!.events.find((e) => e.type === "user")).toMatchObject({ context: ref });
+    expect(detail!.context).toEqual(ref);
   });
 });
 

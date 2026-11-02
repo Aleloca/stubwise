@@ -7,8 +7,8 @@ import {
   isProjectSection,
   isProjectSettingsSection,
 } from "../routes";
-import { state, visibleProjectIds } from "../store";
-import type { ContextRef } from "../types";
+import { presentEvent, state, visibleProjectIds } from "../store";
+import type { ContextRef, ConversationEvent } from "../types";
 
 // Il contesto del riquadro di Claude (area 10a, Task 8): un riferimento a
 // ciò che chi scrive sta guardando, riletto ADESSO con la sua visibilità. Lo
@@ -125,6 +125,34 @@ function instanceSectionKey(section: string): string | null {
   return id === "ai" && (AI_TABS as readonly string[]).includes(tab)
     ? `admin.ai.tabs.${tab}`
     : null;
+}
+
+/**
+ * Un evento come lo legge `me` (R-G5): il contesto di un messaggio che `me`
+ * non vede (più) non esce, nemmeno come id — gli id del prototipo portano il
+ * codice del progetto, e già la sua presenza direbbe che l'oggetto esiste.
+ * Lo usano il dettaglio e lo stream: ogni porta da cui un evento arriva a
+ * chi guarda.
+ */
+export function presentEventFor(
+  me: string,
+  log: readonly ConversationEvent[],
+  index: number,
+): ConversationEvent {
+  const event = presentEvent(log, index);
+  if (event.type === "user" && event.context && !contextOf(me, event.context)) {
+    delete event.context;
+  }
+  return event;
+}
+
+/** Lo stesso per il contesto con cui una libera è nata (righe e dettaglio). */
+export function withVisibleContext<T extends { context?: ContextRef | null }>(
+  me: string,
+  row: T,
+): T {
+  if (row.context && !contextOf(me, row.context)) row.context = null;
+  return row;
 }
 
 /** L'id dell'oggetto col codice, se chi guarda lo vede; `null` altrimenti (R-G5). */

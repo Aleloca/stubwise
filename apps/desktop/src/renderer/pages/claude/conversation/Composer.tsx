@@ -12,6 +12,7 @@ import type { Attachment, ConversationDetail } from "../../../data/types";
 import { MenuGroup, RadioItem } from "../../../tasks-ui/Menu";
 import { Chevron, MenuButton } from "../../tasks/controls";
 import { AttachmentChip } from "./AttachmentChip";
+import { BudgetBand } from "./BudgetBand";
 import { useCommandSuggestions } from "./CommandMenu";
 import { flatten, SuggestionMenu, useMentionSuggestions, type Suggestion } from "./MentionMenu";
 import { picksWithKey, useComposerField } from "./useComposerField";
@@ -111,6 +112,7 @@ export function Composer({
   placeholder,
   draft,
   projectMenu = true,
+  budgetBand = false,
 }: {
   detail: ConversationDetail;
   connection: ConversationStream["connection"];
@@ -129,6 +131,11 @@ export function Composer({
   draft?: ComposerDraft;
   /** Il menu del progetto di contesto; il riquadro di Claude non lo ha (il contesto è il chip). */
   projectMenu?: boolean;
+  /**
+   * Il riquadro di Claude (shape claude-panel.md §6): col budget esaurito la
+   * casella lascia il posto alla fascia, col testo scritto in sola lettura.
+   */
+  budgetBand?: boolean;
 }) {
   const { t } = useTranslation();
   const [text, setText] = useState("");
@@ -267,6 +274,9 @@ export function Composer({
       ? "claude.conversation.composer.absorbFree"
       : "claude.conversation.composer.absorb"
     : null;
+
+  // Il testo resta nello stato: torna nella casella quando il budget c'è [CP 12].
+  if (budget && budgetBand) return <BudgetBand text={text} />;
 
   return (
     <div className={compact ? "px-4 pt-2 pb-3" : "px-8 pt-2 pb-5"}>

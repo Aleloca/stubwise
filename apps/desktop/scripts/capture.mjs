@@ -196,6 +196,26 @@ async function main() {
         await page.mouse.move(v.viewport.width - 2, v.viewport.height - 2);
         const name = `a10a-panel-task-${v.suffix}.png`;
         if (!only || only.test(name)) await shot(page, name);
+        // Il budget del mese esaurito: la fascia al posto della casella, col
+        // testo scritto in sola lettura (shape §6, [CP 12]).
+        await page
+          .locator("#claude-panel textarea")
+          .fill(v.lang === "it" ? "E chi aspetta ACQ-3?" : "And who's waiting on ACQ-3?");
+        await page.evaluate(async () => {
+          const api = await import("/data/api.ts");
+          const session = await import("/data/session.ts");
+          const before = session.getSessionPersonId();
+          session.setSessionPersonId("p-roberta");
+          try {
+            await api.instance.simulateBudgetReached(true);
+          } finally {
+            session.setSessionPersonId(before);
+          }
+        });
+        await page.locator("#claude-panel [data-budget-band]").waitFor();
+        await page.waitForTimeout(400);
+        const budgetName = `a10a-panel-budget-${v.suffix}.png`;
+        if (!only || only.test(budgetName)) await shot(page, budgetName);
         await context.close();
       }
       return;

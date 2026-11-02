@@ -39,7 +39,6 @@ import {
   openDecisions,
   pulseOf,
   runPreconditions,
-  presentEvent,
   readableLength,
   resetStore,
   slipWeeks,
@@ -98,6 +97,8 @@ import { undoViewOf } from "./claude/actions";
 import {
   contextIdFor,
   contextOf,
+  presentEventFor,
+  withVisibleContext,
   type CodedContextKind,
   type ContextDescription,
 } from "./claude/context";
@@ -700,7 +701,7 @@ export async function listConversations(filter: ConversationFilter): Promise<Con
         if (filter.requestId && c.requestId !== filter.requestId) return false;
         return true;
       })
-      .map((c) => conversationRow(me, c))
+      .map((c) => withVisibleContext(me, conversationRow(me, c)))
       // Sulla data della riga come la vede chi guarda: il seguito privato di
       // una pubblica non la fa salire per gli altri.
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id))
@@ -717,7 +718,7 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
   if (!c || !canSeeConversation(me, c)) return null;
   const events = readableEvents(me, c);
   return {
-    ...conversationRow(me, c),
+    ...withVisibleContext(me, conversationRow(me, c)),
     ...conversationPermissions(me, c),
     events,
     planPreApproved: state.preApprovedPlans.has(id),
@@ -775,7 +776,7 @@ export async function getRefineOf(requestId: string): Promise<ConversationRow | 
     .filter((c) => c.kind === "refine" && c.requestId === requestId && canSeeConversation(me, c))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
   const pick = mine.find((c) => c.state !== "finished") ?? mine[0];
-  return pick ? conversationRow(me, pick) : null;
+  return pick ? withVisibleContext(me, conversationRow(me, pick)) : null;
 }
 
 /**
@@ -898,7 +899,7 @@ function usageOfTask(taskId: string): ModelUsage[] {
 /** Il flusso che una persona può leggere (senza il seguito privato di una pubblica). */
 function readableEvents(me: string, c: Conversation) {
   const log = eventsOf(c.id);
-  return log.slice(0, readableLength(me, c)).map((_, i) => presentEvent(log, i));
+  return log.slice(0, readableLength(me, c)).map((_, i) => presentEventFor(me, log, i));
 }
 
 /**

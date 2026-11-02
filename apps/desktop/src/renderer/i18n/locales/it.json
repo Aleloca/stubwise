@@ -3914,7 +3914,9 @@
         },
         "projectSettings": "Impostazioni → {{section}}",
         "instanceSettings": "Amministrazione → {{section}}"
-      }
+      },
+      "budget": "Il budget mensile per l'AI è esaurito: Claude non può rispondere finché non viene alzato o non finisce il mese.",
+      "budgetDraft": "Non inviato:"
     }
   },
   "chat": {
