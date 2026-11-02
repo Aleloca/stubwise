@@ -319,7 +319,8 @@ function RequestRow({
       ? t("requests.mergedInto", { title: related.title })
       : t("requests.similarTo", { title: related.title })
     : null;
-  const tasks = request.taskIds.length;
+  // Le task che esistono ancora (area 10a: senza le eliminate), dal livello dati.
+  const tasks = request.taskCount ?? request.taskIds.length;
   return (
     <div
       role="listitem"

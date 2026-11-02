@@ -11279,5 +11279,58 @@
       "inUnavailable": "in un progetto che non è più disponibile",
       "stepNotDone": "Passo {{n}} non fatto: il progetto non è più disponibile."
     }
+  },
+  "task": {
+    "delete": {
+      "menu": "Elimina task…",
+      "checking": "Verifica…",
+      "checkFailed": "Impossibile verificare se puoi eliminarla.",
+      "retry": "Riprova",
+      "why": {
+        "deleteTasks": "Possono eliminarla solo chi l'ha creata o chi può moderare le task in {{project}}.",
+        "editTasks": "Per eliminarla devi poter modificare le task in {{project}}."
+      },
+      "dialog": {
+        "title": "Eliminare {{code}}?",
+        "undone": "Non si può tornare indietro.",
+        "goes": "Se ne va con lei",
+        "goesLine": "I suoi commenti, gli allegati e la storia.",
+        "stays": "Resta",
+        "children_one": "{{count}} task resta, senza task madre:",
+        "children_other": "{{count}} task restano, senza task madre:",
+        "more_one": "e un'altra",
+        "more_other": "e altre {{count}}",
+        "links": "I suoi collegamenti con altre task si tolgono da entrambe le parti.",
+        "request": "La richiesta da cui viene resta, e dirà che la task è stata eliminata.",
+        "code": "Il codice {{code}} non verrà più usato.",
+        "loadError": "Impossibile caricare cosa verrebbe eliminato, quindi ora non si può eliminare niente.",
+        "cancel": "Annulla",
+        "submit": "Elimina {{code}}",
+        "deleting": "Eliminazione…",
+        "busyNote": "Potrai eliminarla quando non ci gira niente sopra.",
+        "forbidden": "Non puoi più eliminare {{code}}. Non è stato eliminato niente.",
+        "failed": "Impossibile eliminare {{code}}. Riprova.",
+        "retry": "Riprova"
+      },
+      "busy": {
+        "title": "{{code}} non si può ancora eliminare",
+        "claude": "Claude ci sta lavorando.",
+        "openSession": "Apri la sessione",
+        "pr": "La pull request #{{number}} in {{repo}} è aperta.",
+        "prNoNumber": "Una sua pull request è aperta.",
+        "server": "È la correzione del server <b>{{code}}</b>, ancora aperta.",
+        "release": "È la correzione del rilascio <b>{{code}}</b>, ancora aperta.",
+        "wait_one": "Aspetta che finisca, o chiudilo dalla sua pagina, poi riprova.",
+        "wait_other": "Aspetta che finiscano, o chiudili dalla loro pagina, poi riprova."
+      },
+      "done": "{{code}} è stata eliminata.",
+      "gone": "Non trovo {{code}}.",
+      "after": {
+        "request": "La task {{code}} è stata eliminata",
+        "notification": "Task eliminata",
+        "run": "task eliminata",
+        "requestBanner": "Diventata una task, poi eliminata. Questa richiesta ora è in sola lettura."
+      }
+    }
   }
 }

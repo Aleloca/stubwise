@@ -38,8 +38,12 @@ import { writer } from "./writer";
 // `forbidden` → `busy` → la scrittura e la sua voce del registro.
 
 export type TaskBusyReason =
-  /** `code` è `null` se chi guarda non vede la sessione (`canSeeConversation`). */
-  | { kind: "claude_session"; code: string | null }
+  /**
+   * `code` è `null` se chi guarda non vede la sessione (`canSeeConversation`);
+   * `conversationId`, per «Open the session», c'è solo se la vede (area 10a,
+   * Task 10: campo nuovo, facoltativo).
+   */
+  | { kind: "claude_session"; code: string | null; conversationId?: string }
   /**
    * `repo` e `number` sono `null` quando il flusso non li dice (la pipeline
    * scrive «Pull request opened for ACQ-7», senza numero né link): la PR è
@@ -87,12 +91,14 @@ export function canDeleteTask(me: string, task: Task): boolean {
 function busyOf(me: string, task: Task): TaskBusyReason[] {
   const sessions = state.conversations
     .filter((c) => c.kind === "task_run" && c.taskId === task.id && c.state !== "finished")
-    .map(
-      (c): TaskBusyReason => ({
+    .map((c): TaskBusyReason => {
+      const seen = canSeeConversation(me, c);
+      return {
         kind: "claude_session",
-        code: canSeeConversation(me, c) ? objectCodeOf(c) : null,
-      }),
-    );
+        code: seen ? objectCodeOf(c) : null,
+        ...(seen ? { conversationId: c.id } : {}),
+      };
+    });
   const prs = openPrLinesOf(task).map(
     (line): TaskBusyReason => ({ kind: "open_pr", repo: line.repo, number: line.number }),
   );

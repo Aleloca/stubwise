@@ -11279,5 +11279,58 @@
       "inUnavailable": "in a project that's no longer available",
       "stepNotDone": "Step {{n}} not done: the project isn't available anymore."
     }
+  },
+  "task": {
+    "delete": {
+      "menu": "Delete task…",
+      "checking": "Checking…",
+      "checkFailed": "Couldn't check if you can delete it.",
+      "retry": "Retry",
+      "why": {
+        "deleteTasks": "Only its author or someone who can moderate tasks in {{project}} can delete it.",
+        "editTasks": "You need to be able to edit tasks in {{project}} to delete it."
+      },
+      "dialog": {
+        "title": "Delete {{code}}?",
+        "undone": "This can't be undone.",
+        "goes": "Goes with it",
+        "goesLine": "Its comments, attachments and history.",
+        "stays": "Stays",
+        "children_one": "{{count}} task stays, without a parent:",
+        "children_other": "{{count}} tasks stay, without a parent:",
+        "more_one": "and {{count}} more",
+        "more_other": "and {{count}} more",
+        "links": "Its links to other tasks are removed on both sides.",
+        "request": "The request it came from stays, and will say the task was deleted.",
+        "code": "The code {{code}} won't be used again.",
+        "loadError": "Couldn't load what would be deleted, so nothing can be deleted now.",
+        "cancel": "Cancel",
+        "submit": "Delete {{code}}",
+        "deleting": "Deleting…",
+        "busyNote": "You can delete it when nothing is running on it.",
+        "forbidden": "You can no longer delete {{code}}. Nothing was deleted.",
+        "failed": "Couldn't delete {{code}}. Try again.",
+        "retry": "Retry"
+      },
+      "busy": {
+        "title": "{{code}} can't be deleted yet",
+        "claude": "Claude is working on it.",
+        "openSession": "Open the session",
+        "pr": "Pull request #{{number}} in {{repo}} is open.",
+        "prNoNumber": "A pull request for it is open.",
+        "server": "It's the fix for server <b>{{code}}</b>, still open.",
+        "release": "It's the fix for release <b>{{code}}</b>, still open.",
+        "wait_one": "Wait for it to finish, or close it from its page, then try again.",
+        "wait_other": "Wait for them to finish, or close them from their page, then try again."
+      },
+      "done": "{{code}} was deleted.",
+      "gone": "Can't find {{code}}.",
+      "after": {
+        "request": "Task {{code}} was deleted",
+        "notification": "Task deleted",
+        "run": "task deleted",
+        "requestBanner": "Turned into a task, which was later deleted. This request is now read-only."
+      }
+    }
   }
 }

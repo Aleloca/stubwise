@@ -790,7 +790,12 @@ function ReadOnlyBanner({
   if (request.status !== "converted" && request.status !== "archived") return null;
   let text: ReactNode;
   if (request.status === "converted") {
-    text = t("requests.detail.banner.converted");
+    // Area 10a: se le task nate da lei sono tutte eliminate, «qui sotto» non c'è
+    // lavoro da seguire (il conteggio viene dal livello dati).
+    text =
+      request.taskCount === 0 && (request.deletedTaskCodes?.length ?? 0) > 0
+        ? t("task.delete.after.requestBanner")
+        : t("requests.detail.banner.converted");
   } else if (request.mergedIntoId) {
     text = (
       <>
@@ -851,22 +856,38 @@ function TasksFrom({ request, onOpen }: { request: ProjectRequest; onOpen: (code
   const { t } = useTranslation();
   const tasks = useTasks({ projectIds: [request.projectId] }).data;
   const mine: Task[] = tasks ? tasks.filter((x) => request.taskIds.includes(x.id)) : [];
+  // Area 10a: le task nate da lei e poi eliminate, dal livello dati. Restano
+  // nominate, col codice in testo e senza link: non c'è niente da aprire.
+  const deleted = request.deletedTaskCodes ?? [];
   return (
     <Section
       title={t("requests.detail.tasks")}
       count={mine.length}
-      empty={tasks && mine.length === 0 ? t("requests.detail.noTasks") : undefined}
+      empty={tasks && mine.length === 0 && deleted.length === 0 ? t("requests.detail.noTasks") : undefined}
     >
-      {mine.length > 0 && (
+      {mine.length + deleted.length > 0 && (
         <ul className="flex flex-col">
           {mine.map((task) => (
             <li key={task.id}>
               <TaskLine task={task} onOpen={onOpen} />
             </li>
           ))}
+          {deleted.map((code) => (
+            <li key={code} data-deleted-task={code} className="flex min-h-8 items-center">
+              <DeletedTaskLine code={code} />
+            </li>
+          ))}
         </ul>
       )}
     </Section>
+  );
+}
+
+/** «Task MKX-31 was deleted»: 13 px `ink-muted`, codice in testo (shape task-delete.md). */
+function DeletedTaskLine({ code }: { code: string }) {
+  const { t } = useTranslation();
+  return (
+    <span className="text-sm text-ink-muted">{t("task.delete.after.request", { code })}</span>
   );
 }
 

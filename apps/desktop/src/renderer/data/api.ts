@@ -363,6 +363,7 @@ function requestView(request: ProjectRequest): ProjectRequest {
     .filter((d) => request.taskIds.includes(d.id))
     .map((d) => d.code);
   if (deleted.length > 0) out.deletedTaskCodes = deleted;
+  out.taskCount = request.taskIds.length - deleted.length;
   return out;
 }
 

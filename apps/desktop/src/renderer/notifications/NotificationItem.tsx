@@ -107,14 +107,19 @@ export function NotificationItem({
     onChange({ snoozedUntil: snoozeTarget(option) });
   };
 
+  // Area 10a ([TD 5]): la task della notifica è stata eliminata (`objectGone`,
+  // dal livello dati). La notifica resta, ma non apre niente: il codice è
+  // testo tenue e sotto il corpo lo dice. Le azioni restano.
+  const gone = n.objectGone === true;
+  const Main = gone ? "div" : "button";
+
   return (
     <li
       data-notification={n.id}
       className="group relative border-b border-rule transition-colors duration-[var(--duration-fast)] ease-out focus-within:bg-ink/4 hover:bg-ink/4"
     >
-      <button
-        type="button"
-        onClick={onOpen}
+      <Main
+        {...(gone ? {} : { type: "button" as const, onClick: onOpen })}
         title={deptLabel}
         className="relative flex w-full items-start gap-3 px-4 py-2.5 text-left"
       >
@@ -124,7 +129,10 @@ export function NotificationItem({
         {!n.read && <span className="sr-only">{t("notifications.unread")}</span>}
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-2">
-            <span data-object-code className="num shrink-0 text-sm font-semibold text-ink">
+            <span
+              data-object-code
+              className={`num shrink-0 text-sm font-semibold ${gone ? "text-ink-faint" : "text-ink"}`}
+            >
               {n.objectCode}
             </span>
             {secondary && (
@@ -138,6 +146,11 @@ export function NotificationItem({
             {title}
           </span>
           <span className="line-clamp-2 text-sm text-ink-muted">{n.body}</span>
+          {gone && (
+            <span data-object-gone className="mt-1 block text-xs text-ink-muted">
+              {t("task.delete.after.notification")}
+            </span>
+          )}
           {/* Perché arriva anche con l'iscrizione spenta: sempre scritto [A 16]. */}
           {why && (
             <span data-mandatory-reason className="mt-1 block text-xs text-ink-faint">
@@ -146,7 +159,7 @@ export function NotificationItem({
           )}
         </span>
         <DeptStrip departmentId={n.departmentId} />
-      </button>
+      </Main>
       {onLinkAccess && (
         <div className="-mt-1 pr-4 pb-2.5 pl-9">
           <button

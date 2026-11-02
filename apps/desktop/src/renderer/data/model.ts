@@ -507,6 +507,12 @@ export interface ProjectRequest {
    * `getRequestByCode`, `listRequests`), mai salvato qui.
    */
   deletedTaskCodes?: string[];
+  /**
+   * Area 10a (Task 10): quante delle task nate da lei esistono ancora — il
+   * «N tasks» dell'elenco. Derivato a lettura come `deletedTaskCodes`, e
+   * assente sulle letture che non lo calcolano (vale allora `taskIds.length`).
+   */
+  taskCount?: number;
 }
 
 /** I metadati proposti dall'intake: solo quelli che cambierebbero, e il perché. */

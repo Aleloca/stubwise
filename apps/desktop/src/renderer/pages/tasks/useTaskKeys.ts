@@ -4,7 +4,7 @@ import { hasModKey } from "../../platform/platform";
 import { useToast } from "../../tasks-ui/Toast";
 
 /** Gli elementi di una task nel corpo della pagina: riga, carta, barra della timeline. */
-const TASK_ITEMS = "[data-task-row], [data-card], [data-timeline-item]";
+export const TASK_ITEMS = "[data-task-row], [data-card], [data-timeline-item]";
 /** Gli stessi, più la testata del pannello: dove il fuoco «sta su una task». */
 const TASK_HOLDERS = `${TASK_ITEMS}, [data-task-detail]`;
 

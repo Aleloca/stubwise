@@ -581,6 +581,12 @@ function RefineSide({
             {t("requests.refine.side.task", { code: task.code })}
           </Link>
         ))}
+        {/* Area 10a: la task eliminata resta nominata, senza link. */}
+        {(request.deletedTaskCodes ?? []).map((code) => (
+          <span key={code} data-deleted-task={code} className="text-sm text-ink-muted">
+            {t("task.delete.after.request", { code })}
+          </span>
+        ))}
       </div>
       <dl
         data-refine-section="fields"

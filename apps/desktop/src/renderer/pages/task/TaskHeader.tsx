@@ -387,6 +387,7 @@ export function TaskHeader({
           status={status}
           department={department}
           milestone={milestone}
+          onClosePanel={onClose}
         />
         <button
           type="button"

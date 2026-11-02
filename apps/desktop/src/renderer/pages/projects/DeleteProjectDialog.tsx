@@ -238,7 +238,7 @@ function Stays({ i18nKey, names }: { i18nKey: string; names: string[] }) {
   );
 }
 
-function CrossCircle() {
+export function CrossCircle() {
   return (
     <svg
       viewBox="0 0 16 16"

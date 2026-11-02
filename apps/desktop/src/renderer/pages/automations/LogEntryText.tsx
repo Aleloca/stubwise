@@ -260,6 +260,19 @@ export function EntrySentence({
   switch (entry.kind) {
     case "createTask": {
       if (hiddenEffect) return <>{t("automations.log.hiddenTask")}</>;
+      // Area 10a: la task creata è stata eliminata. L'effetto resta, col codice
+      // in testo e senza link (shape task-delete.md).
+      if (effect?.deleted)
+        return (
+          <>
+            {t("automations.log.createdTask")}{" "}
+            <span className="num font-semibold text-ink">{effect.code}</span>
+            <span className="text-ink-muted">
+              {" · "}
+              {t("task.delete.after.run")}
+            </span>
+          </>
+        );
       const dept =
         step?.kind === "createTask" && step.assignee && "departmentId" in step.assignee
           ? ctx.names.department(step.assignee.departmentId)

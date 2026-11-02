@@ -137,6 +137,100 @@ async function main() {
       console.log("scritto", name);
     };
 
+    // Area 10a, Task 10 (`CAPTURE_A10A_DELETE=1`): «Elimina task». Laura in
+    // ACQ: il dialogo di una task con due figlie, un collegamento e la
+    // richiesta d'origine; poi l'eliminazione (toast, fuoco sulla riga dopo) e
+    // la richiesta che lo dice. Il dialogo busy (sessione di Claude). Sara: la
+    // voce spenta con la frase e «Who?». Scatti `a10a-delete-*`.
+    if (process.env.CAPTURE_A10A_DELETE) {
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      const take = async (page, name, v) => {
+        await page.mouse.move(v.viewport.width - 2, v.viewport.height - 2);
+        if (!only || only.test(name)) await shot(page, name);
+      };
+      /** Le task della scena, create nel livello dati della pagina. */
+      const seed = (page) =>
+        page.evaluate(async () => {
+          const api = await import("/data/api.ts");
+          const mut = await import("/data/api-mutations.ts");
+          const store = await import("/data/store.ts");
+          const session = await import("/data/session.ts");
+          session.setSessionPersonId("p-laura");
+          const parent = await api.convertRequest("req-acq-1", { title: "Bill download rework" });
+          const child = (title) =>
+            mut.createTaskAs("p-laura", { projectId: "prj-acq", title }, {
+              links: [{ kind: "parent", taskId: parent.id }],
+            });
+          child("Export CSV");
+          child("PDF layout");
+          const other = store.state.tasks.find((t) => t.projectId === "prj-acq" && t.id !== parent.id);
+          store.state.tasksById.get(parent.id).links.push({ kind: "relates", taskId: other.id });
+          const busy = mut.createTaskAs("p-laura", { projectId: "prj-acq", title: "Fix bill download" });
+          const run = store.state.conversations.find((c) => c.kind === "task_run");
+          store.state.conversations.push({
+            ...structuredClone(run),
+            id: "c-capture-delete",
+            projectId: "prj-acq",
+            taskId: busy.id,
+            state: "working",
+          });
+          const sara = mut.createTaskAs("p-laura", { projectId: "prj-acq", title: "Rate limit copy" });
+          return { parent: parent.code, busy: busy.code, sara: sara.code };
+        });
+      const openDelete = async (page, code) => {
+        await page.getByRole("button", { name: new RegExp(`^(More actions for|Altre azioni per) ${code}$`) }).click();
+        const item = page.getByRole("menuitem", { name: /^(Delete task…|Elimina task…)/ });
+        await item.waitFor();
+        await page.waitForTimeout(400);
+        return item;
+      };
+      for (const v of variants) {
+        const { page, context } = await open(v.scheme, v.viewport, "/p/ACQ/tasks", {
+          lang: v.lang,
+          persona: "Laura",
+        });
+        const codes = await seed(page);
+        await page.evaluate((h) => {
+          window.location.hash = h;
+        }, `/p/ACQ/tasks?task=${codes.parent}`);
+        await (await openDelete(page, codes.parent)).click();
+        await page.getByRole("dialog", { name: new RegExp(codes.parent) }).last().waitFor();
+        await page.waitForTimeout(600);
+        await take(page, `a10a-delete-dialog-${v.suffix}.png`, v);
+        await page.getByRole("button", { name: new RegExp(`^(Delete|Elimina) ${codes.parent}$`) }).click();
+        await page.waitForTimeout(900);
+        await take(page, `a10a-delete-after-${v.suffix}.png`, v);
+        await page.evaluate(() => {
+          window.location.hash = "/p/ACQ/requests?request=req-acq-1";
+        });
+        await page.waitForTimeout(1200);
+        await take(page, `a10a-delete-request-${v.suffix}.png`, v);
+        await page.evaluate((h) => {
+          window.location.hash = h;
+        }, `/p/ACQ/tasks?task=${codes.busy}`);
+        await page.waitForTimeout(900);
+        await (await openDelete(page, codes.busy)).click();
+        await page.locator("[data-delete-busy]").waitFor();
+        await page.waitForTimeout(600);
+        await take(page, `a10a-delete-busy-${v.suffix}.png`, v);
+        await page.keyboard.press("Escape");
+        // Sara (Contributor in ACQ) su una task di Laura: la voce spenta.
+        await asPerson(page, "Sara", `/p/ACQ/tasks?task=${codes.sara}`);
+        await page.waitForTimeout(900);
+        await openDelete(page, codes.sara);
+        await take(page, `a10a-delete-menu-${v.suffix}.png`, v);
+        await context.close();
+      }
+      return;
+    }
+
     // Area 10a, Task 6 (`CAPTURE_A10A_DECISION=1`): «Record a decision» aperto
     // dal link di una riga D di Claude, con AUD-4 in testa e il testo vuoto.
     // Marco in AUD (ha `decisions.record`). Scatti `a10a-record-decision-*`.

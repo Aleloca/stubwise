@@ -114,7 +114,7 @@ describe("busy", () => {
     expect(res).toEqual({
       ok: false,
       error: "busy",
-      reasons: [{ kind: "claude_session", code: task.code }],
+      reasons: [{ kind: "claude_session", code: task.code, conversationId: run.id }],
     });
     expect(state.tasksById.has(task.id)).toBe(true);
     expect(state.changelog.some((e) => e.kind === "task.deleted")).toBe(false);

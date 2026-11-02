@@ -1035,6 +1035,46 @@ export function useUpdateTask() {
   );
 }
 
+/**
+ * «Elimina task» (area 10a): cosa direbbe il dialogo — se si può, il «Who?»,
+ * cosa la occupa, le figlie che restano. `null` per una task che chi guarda
+ * non vede o che non c'è più.
+ */
+export type { TaskBusyReason, TaskDeletionPreview } from "./taskDelete";
+
+export function useTaskDeletion(taskId: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "taskDeletion", taskId] as const,
+    queryFn: () => api.getTaskDeletion(taskId),
+  });
+}
+
+/**
+ * Elimina una task. Alla fine ricarica tutto ciò che chi guarda legge (liste,
+ * richieste, notifiche, traguardi, registro…), tranne la task stessa e la sua
+ * vista d'eliminazione, segnate vecchie senza rileggerle: il pannello si
+ * chiude col seguito, e rileggerle prima lo farebbe passare da «non c'è».
+ */
+export function useDeleteTask() {
+  const client = useQueryClient();
+  const me = useSessionPersonId();
+  const subject = (key: readonly unknown[]) => key[2] === "task" || key[2] === "taskDeletion";
+  return useMutation({
+    mutationFn: (taskId: string) => api.deleteTask(taskId),
+    onSettled: async () => {
+      const mine = (key: readonly unknown[]) => key[0] === "as" && key[1] === me;
+      await client.invalidateQueries({
+        predicate: (q) => mine(q.queryKey) && !subject(q.queryKey),
+      });
+      await client.invalidateQueries({
+        predicate: (q) => mine(q.queryKey) && subject(q.queryKey),
+        refetchType: "none",
+      });
+    },
+  });
+}
+
 export function useBulkUpdateTasks() {
   return useOptimistic(
     ({ ids, patch }: { ids: string[]; patch: TaskPatch }) => api.bulkUpdateTasks(ids, patch),
