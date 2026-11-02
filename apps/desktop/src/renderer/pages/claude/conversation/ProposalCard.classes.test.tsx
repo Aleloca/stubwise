@@ -265,6 +265,39 @@ describe("scheda C: la riconferma", () => {
     expect(dialog.textContent).toContain("Il codice della verifica in due passaggi è");
   });
 
+  it("M1: anche una scheda C arrivata dal flusso dopo l'apertura ha la sua frase", async () => {
+    const user = userEvent.setup();
+    as(ROBERTA);
+    const c = await api.createConversation();
+    mount(c.id, ROBERTA);
+    await screen.findByRole("combobox", { name: /message to claude/i });
+    as(ROBERTA);
+    await act(() =>
+      api.runScript(c.id, [
+        {
+          step: "event",
+          event: {
+            type: "proposal",
+            proposalId: "prop-late",
+            requesterId: ROBERTA,
+            actions: [add],
+            status: "open",
+            cls: "C",
+            reasons: [{ kind: "reauth" }],
+          },
+        },
+      ]),
+    );
+    const card = await cardOf();
+    // La conversazione si rilegge dopo un cambio (debounce di 50 ms).
+    await act(() => new Promise((resolve) => setTimeout(resolve, 150)));
+    await user.click(within(card).getByRole("button", { name: "Confirm" }));
+    const dialog = await screen.findByRole("dialog", { name: "Confirm it's you" });
+    expect(dialog).toHaveAccessibleDescription(
+      "To add Laura Costa to OLV as Developer, enter a code from your authenticator app.",
+    );
+  });
+
   it("chiuso il dialogo: la scheda resta aperta, «Nothing was changed.», il fuoco torna su Confirm", async () => {
     const user = userEvent.setup();
     const id = await injected(ROBERTA, [add], "C", [{ kind: "reauth" }]);

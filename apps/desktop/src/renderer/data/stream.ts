@@ -361,6 +361,11 @@ async function play(conversationId: string, steps: ScriptStep[], alive: () => bo
           applyRefinePatch(conversationId, step.event.requestPatch);
         }
         append(conversationId, step.event);
+        // Una scheda C porta con sé ciò che la conversazione calcola a lettura
+        // (la frase della riconferma, area 10a M1): chi la guarda la rilegge.
+        if (step.event.type === "proposal" && step.event.cls === "C") {
+          notifyConversationChange(conversationId);
+        }
         // L'esecuzione parte col modello di `fix_execute` di adesso (area 9b):
         // la sessione lo ricorda, una volta, per i consumi e la storia.
         if (step.event.type === "phase" && step.event.phase === "execution") {
