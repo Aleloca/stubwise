@@ -135,7 +135,8 @@ describe("lo Stato dell'istanza del seme", () => {
     const codes = [...document.querySelectorAll("[data-queue-row]")].map((r) =>
       r.getAttribute("data-queue-row"),
     );
-    expect(codes).toEqual(["STW", "ACQ", "AUD", "MKX"]);
+    // Area 10b: BSC ha la sessione viva del progetto inattivo.
+    expect(codes).toEqual(["STW", "ACQ", "AUD", "BSC", "MKX"]);
     expect(queueRow("STW")).toHaveTextContent("1 running · 1 failed");
     expect(queueRow("STW")).toHaveTextContent("Paused by Roberta Fontana · yesterday at 18:00");
     expect(
@@ -169,7 +170,7 @@ describe("lo Stato dell'istanza del seme", () => {
     expect(within(failed).getByRole("button", { name: "Retry ACQ-3" })).toBeEnabled();
     // Nessun bottone Retry sui lavori in corso.
     expect(within(running).queryByRole("button", { name: /Retry/ })).toBeNull();
-    expect(within(work).getAllByRole("listitem")).toHaveLength(5);
+    expect(within(work).getAllByRole("listitem")).toHaveLength(6);
 
     // I worker.
     const workers = screen.getByRole("region", { name: "Workers" });
@@ -225,7 +226,7 @@ describe("lo Stato dell'istanza del seme", () => {
       expect(text).not.toContain(hidden);
     const other = document.querySelector<HTMLElement>("[data-queue-row='other']")!;
     expect(other).toHaveTextContent("Other projects");
-    expect(other).toHaveTextContent("2 running");
+    expect(other).toHaveTextContent("3 running");
     expect(other).toHaveAttribute("title", "Projects you can't see.");
     expect(within(other).queryByRole("button")).toBeNull();
     expect(screen.getByRole("region", { name: "Workers" })).toHaveTextContent(
@@ -712,7 +713,7 @@ describe("filtri, errore e confine", () => {
     await waitFor(() => expect(router.state.location.search).toMatchObject({ kind: "correction" }));
     expect(screen.getByText("Nothing matches.")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Clear filters" }));
-    await waitFor(() => expect(jobRows()).toHaveLength(5));
+    await waitFor(() => expect(jobRows()).toHaveLength(6));
     expect(router.state.location.search).not.toHaveProperty("status", "failed");
     expect(screen.getByRole("radio", { name: "All" })).toHaveAttribute("aria-checked", "true");
   });

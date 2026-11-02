@@ -111,9 +111,23 @@ const decisions: ActivityEntry[] = DECISION_REQUESTS.filter((d) => d.answer !== 
   decisionRequestId: d.id,
 }));
 
+// Area 10b: l'ultimo commento di ogni task dei progetti inattivi, alla data
+// della sua ultima attività: è il segnale che `lastActivityOf` legge.
+const INACTIVE_IDS = new Set(["prj-ort", "prj-spz", "prj-lnt", "prj-bsc"]);
+const inactive: ActivityEntry[] = TASKS.filter((t) => INACTIVE_IDS.has(t.projectId)).map((t) => ({
+  id: `act-${t.id}-last`,
+  taskId: t.id,
+  kind: "comment",
+  authorId: t.assigneeId ?? t.createdById,
+  at: t.lastActivityAt,
+  body: "Parking this until the client comes back to us.",
+}));
+
 /** Attività (commenti, cambi di campo, decisioni) delle task dei progetti di riferimento. */
 export const ACTIVITY: ActivityEntry[] = [
   ...[...generated, ...extra, ...decisions].sort((a, b) => a.at.localeCompare(b.at)),
   // Area 10a: le righe con `via`, in fondo (gli indici di prima non si spostano).
   ...CLAUDE_ACTIVITY,
+  // Area 10b, in coda: gli inattivi.
+  ...inactive,
 ];

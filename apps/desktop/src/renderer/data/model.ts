@@ -2906,6 +2906,8 @@ export interface OpenPullRequest extends PrRef {
   corrections: PrAutoCorrection[];
   checks: "passing" | "failing" | "pending" | "unreadable";
   mergeable: boolean;
+  /** Area 10b: i commit della PR, dal più vecchio; assente = non letti. */
+  commits?: { sha: string; message: string }[];
   /**
    * Solo prototipo: la piattaforma rifiuterebbe il merge a Stubwise (permessi
    * del token o regole del ramo), l'errore `merge_forbidden` del web.

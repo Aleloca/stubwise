@@ -183,6 +183,38 @@ const REFERENCE: Record<string, Spec[]> = {
   ],
 };
 
+// Area 10b: le task dei quattro progetti inattivi (ultima attività fra 95 e
+// 140 giorni prima di `CLOCK_START`) e la task di ACQ nata dalla conversione
+// di una richiesta (D1: descrizione vuota, da scrivere nel riquadro). Stanno
+// in coda a `TASKS`, così nessun indice di oggi si sposta.
+// prettier-ignore
+const INACTIVE: Record<string, Spec[]> = {
+  ORT: [
+    { title: "Landing page for the seasonal boxes", dept: M, family: "closed", assignee: "p-elena", size: "M", week: null, lastDays: 112, createdDays: 170, type: "activity" },
+    { title: "Price list for the market stalls", dept: S, family: "todo", assignee: "p-giulia", size: "S", week: null, lastDays: 98, createdDays: 160, type: "activity" },
+    { title: "Photos of the new greenhouse", dept: M, family: "active", assignee: "p-elena", size: "S", week: null, lastDays: 97, createdDays: 150, type: "activity" },
+  ],
+  SPZ: [
+    { title: "Catalogue of the spice blends", dept: D, family: "closed", assignee: "p-marco", size: "M", week: null, lastDays: 130, createdDays: 190 },
+    { title: "Gift sets for the winter", dept: M, family: "todo", assignee: "p-elena", size: null, week: null, lastDays: 118, createdDays: 175, type: "activity" },
+  ],
+  LNT: [
+    { title: "Product sheets for the lamps", dept: M, family: "closed", assignee: "p-chiara", size: "M", week: null, lastDays: 138, createdDays: 200, type: "activity" },
+    { title: "Import the old catalogue", dept: D, family: "active", assignee: "p-marco", size: "L", week: null, lastDays: 125, createdDays: 182 },
+    { title: "Delivery times table", dept: D, family: "todo", assignee: "p-laura", size: "S", week: null, lastDays: 101, createdDays: 160 },
+  ],
+  BSC: [
+    { title: "Booking calendar for the beach umbrellas", dept: D, family: "active", assignee: "p-marco", size: "L", week: null, lastDays: 96, createdDays: 155, claude: "working" },
+    { title: "Season price table", dept: D, family: "todo", assignee: "p-federico", size: "S", week: null, lastDays: 110, createdDays: 165 },
+  ],
+};
+
+/** La task di ACQ nata dalla richiesta `high` dal supporto (`req-acq-3`), assegnata a Laura. */
+// prettier-ignore
+const ACQ_CONVERTED: Spec[] = [
+  { title: "Reminder text message before the bill is due", dept: D, family: "todo", assignee: "p-laura", size: null, week: null, requestId: "req-acq-3", lastDays: 1, createdDays: 1 },
+];
+
 function referenceTasks(project: Project, specs: Spec[]): Task[] {
   const code = project.code.toLowerCase();
   const idOf = (n: number) => `t-${code}-${n}`;
@@ -334,8 +366,32 @@ function generatedTasks(project: Project, pi: number): Task[] {
   });
 }
 
+const byCode = (code: string): Project => PROJECTS.find((p) => p.code === code)!;
+
+/**
+ * La task di ACQ è la settima del progetto (ACQ-6 è la diagnosi di SRV-1): la
+ * descrizione vuota è quella di una task appena convertita.
+ */
+function acqConverted(): Task[] {
+  const acq = byCode("ACQ");
+  return referenceTasks(acq, ACQ_CONVERTED).map((t) => ({
+    ...t,
+    id: "t-acq-7",
+    code: "ACQ-7",
+    description: "",
+    attachments: [],
+    followerIds: ["p-laura"],
+  }));
+}
+
+/** Le task del 10b, in coda a `TASKS`: i conteggi di prima le escludono. */
+export const TASKS_10B: Task[] = [
+  ...Object.entries(INACTIVE).flatMap(([code, specs]) => referenceTasks(byCode(code), specs)),
+  ...acqConverted(),
+];
+
 export const TASKS: Task[] = [
-  ...PROJECTS.flatMap((project, pi) => {
+  ...PROJECTS.filter((p) => !(p.code in INACTIVE)).flatMap((project, pi) => {
     const specs = REFERENCE[project.code];
     return specs ? referenceTasks(project, specs) : generatedTasks(project, pi);
   }),
@@ -343,4 +399,6 @@ export const TASKS: Task[] = [
   ...AUTOMATION_TASKS,
   // La diagnosi dell'analisi di SRV-1 (area 8b).
   ...SERVER_TASKS,
+  // Area 10b, in coda: gli inattivi e la task di ACQ convertita da una richiesta.
+  ...TASKS_10B,
 ];

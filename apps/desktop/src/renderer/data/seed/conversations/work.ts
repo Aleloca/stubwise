@@ -780,6 +780,26 @@ const rnc2 = seeded(
   ],
 );
 
+// Area 10b: la sessione viva di BSC, un progetto senza attività da oltre 90
+// giorni. Una sessione di Claude non conta come attività del progetto, ma lo
+// rende `busy`: archiviarlo adesso la fermerebbe.
+const bsc1 = seeded(
+  {
+    id: "cv-run-bsc-1",
+    kind: "task_run",
+    title: "Booking calendar for the beach umbrellas",
+    ownerId: "p-marco",
+    projectId: "prj-bsc",
+    taskId: "t-bsc-1",
+    state: "working",
+  },
+  [
+    { at: at(0, "08:20"), type: "phase", phase: "execution", outcome: null },
+    done(at(0, "08:25"), "repo.read", "Reads src/booking/UmbrellaCalendar.tsx"),
+    says(at(0, "08:30"), "I'm adding the free and taken umbrellas to the calendar."),
+  ],
+);
+
 export const WORK_CONVERSATIONS: Seeded[] = [
   stw13,
   aud3,
@@ -796,4 +816,5 @@ export const WORK_CONVERSATIONS: Seeded[] = [
   refineQuietHours,
   refineReminders,
   rnc2,
+  bsc1,
 ];

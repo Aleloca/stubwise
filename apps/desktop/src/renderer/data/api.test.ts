@@ -52,7 +52,7 @@ describe("api finta", () => {
     setSessionPersonId("p-roberta");
     failNext("listProjects");
     await expect(listProjects()).rejects.toThrow();
-    await expect(listProjects()).resolves.toHaveLength(50);
+    await expect(listProjects()).resolves.toHaveLength(54);
   });
 
   it("markNotification aggiorna la notifica", async () => {
@@ -79,7 +79,7 @@ describe("api finta", () => {
 
 describe("visibilità per chi guarda", () => {
   it("il full admin vede tutti i progetti, gli altri solo quelli di cui sono membri", () => {
-    expect(visibleProjectIds("p-roberta").size).toBe(50);
+    expect(visibleProjectIds("p-roberta").size).toBe(54);
     const sara = visibleProjectIds("p-sara");
     for (const p of PROJECTS) expect(sara.has(p.id)).toBe(p.memberIds.includes("p-sara"));
     expect(sara.size).toBeGreaterThan(0);

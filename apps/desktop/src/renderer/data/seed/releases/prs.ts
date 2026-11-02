@@ -20,6 +20,7 @@ export const PR_HEADS = {
   readme: "e7a1c3b5d7f9e1a3c5b7d9f1e3a5c7b9d1f3e5a7",
   retention: "2f4e6d8c0b1a3e5d7c9b1f3e5d7c9b1a3e5d7c9b",
   roles: "6a8c0e2f4b6d8f0a2c4e6b8d0f2a4c6e8b0d2f4a",
+  reminder: "c4e6a8b0d2f4a6c8e0b2d4f6a8c0e2b4d6f8a0c2",
 } as const;
 
 export const OPEN_PRS: OpenPullRequest[] = [
@@ -322,5 +323,43 @@ export const OPEN_PRS: OpenPullRequest[] = [
     mergeable: true,
     state: "open",
     openedAt: at(3, "12:30"),
+  },
+  // Area 10b: ACQ-7, la task nata dalla richiesta dal supporto. Di Stubwise,
+  // pronta, senza note di rilascio, con tre commit (uno non cita nessun codice).
+  {
+    id: "opr-acq-77",
+    projectId: "prj-acq",
+    repositoryId: "repo-acq",
+    repo: "audin/portale-utenti",
+    number: 77,
+    title: "Text message before the bill is due",
+    authorId: CLAUDE_ID,
+    authorName: "Claude",
+    origin: "stubwise",
+    taskId: "t-acq-7",
+    branch: "stubwise/ACQ-7-bill-reminder",
+    baseBranch: "main",
+    headSha: PR_HEADS.reminder,
+    fromFork: false,
+    branchProtected: false,
+    analysisOnly: null,
+    analysis: {
+      sha: PR_HEADS.reminder,
+      status: "done",
+      summary: "Customers who ask for it get a text message three days before a bill is due.",
+      risk: "low",
+      issues: [],
+      at: at(0, "09:50"),
+    },
+    corrections: [],
+    commits: [
+      { sha: "a1c3e5b7d9f1a3c5e7b9d1f3a5c7e9b1d3f5a7c9", message: "ACQ-7: reminder setting on the profile" },
+      { sha: "b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a2c4e6b8d0", message: "ACQ-7: send the text message three days before" },
+      { sha: PR_HEADS.reminder, message: "Update the dependencies of the messaging client" },
+    ],
+    checks: "passing",
+    mergeable: true,
+    state: "open",
+    openedAt: at(0, "09:30"),
   },
 ];

@@ -35,7 +35,7 @@ import {
 } from "./seed/projects";
 import { REQUESTS } from "./seed/requests";
 import { PROJECT_STATUSES } from "./seed/statuses";
-import { TASKS } from "./seed/tasks";
+import { TASKS, TASKS_10B } from "./seed/tasks";
 import { BRIEFS } from "./seed/briefs";
 import {
   CHAT_CHANNELS,
@@ -133,10 +133,11 @@ function stall(t: Task) {
 
 describe("seed: progetti e persone", () => {
   it("ha 50 progetti aperti e uno archiviato (RNC, area 9c), con codici univoci di 2–4 maiuscole", () => {
-    expect(PROJECTS).toHaveLength(51);
+    // Area 10b: più i quattro inattivi (ORT, SPZ, LNT, BSC), in fondo.
+    expect(PROJECTS).toHaveLength(55);
     expect(PROJECTS.filter((p) => p.archived).map((p) => p.code)).toEqual(["RNC"]);
     const codes = PROJECTS.map((p) => p.code);
-    expect(new Set(codes).size).toBe(51);
+    expect(new Set(codes).size).toBe(55);
     for (const c of codes) expect(c).toMatch(/^[A-Z]{2,4}$/);
   });
 
@@ -255,8 +256,12 @@ describe("seed: stati e task", () => {
   });
 
   it("8–15 task nei progetti di riferimento, 6 nell'archiviato RNC, 5 negli altri (più quelle create dalle automazioni e dai server)", () => {
-    const byAutomation = new Set([...AUTOMATION_TASKS, ...SERVER_TASKS].map((t) => t.id));
+    // Le task del 10b (i quattro inattivi, la task convertita di ACQ) hanno il loro conteggio sotto.
+    const byAutomation = new Set(
+      [...AUTOMATION_TASKS, ...SERVER_TASKS, ...TASKS_10B].map((t) => t.id),
+    );
     for (const p of PROJECTS) {
+      if (["ORT", "SPZ", "LNT", "BSC"].includes(p.code)) continue; // due o tre, in `seed.10b.test.ts`
       const n = TASKS.filter((t) => t.projectId === p.id && !byAutomation.has(t.id)).length;
       if (["AUD", "STW", "MKX"].includes(p.code)) {
         expect(n).toBeGreaterThanOrEqual(8);
@@ -820,7 +825,8 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
       const c = SUPPORT_CONVERSATIONS.find((x) => x.id === r.origin!.conversationId)!;
       expect(c.requestId).toBe(r.id);
     }
-    expect(REQUESTS.filter((r) => r.origin)).toHaveLength(2);
+    // Area 10b: più ACQ-S5 e ACQ-S6.
+    expect(REQUESTS.filter((r) => r.origin)).toHaveLength(4);
   });
 
   it("R-K11: l'avviso support.request porta il codice della richiesta e il link alla richiesta", () => {
@@ -877,7 +883,7 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
     expect(state.notificationMarks.size).toBe(0);
     expect(state.releaseCodeSeq.get(AUD)).toBe(3);
     expect(state.releaseCodeSeq.get(STW)).toBe(2);
-    expect(state.supportCodeSeq.get(ACQ)).toBe(4);
+    expect(state.supportCodeSeq.get(ACQ)).toBe(6);
     // Copie: cambiare lo stato non tocca il seme.
     state.releases[0]!.title = "changed";
     expect(RELEASES[0]!.title).not.toBe("changed");
@@ -2630,7 +2636,11 @@ describe("seed: server (area 8b)", () => {
 
   it("SRV-1: la task è la prossima di ACQ, bug, senza incaricato, di Claude, legata al server", () => {
     const an = SERVER_ANALYSES[0]!;
-    const acqNumbers = TASKS.filter((t) => t.projectId === ACQ && t.id !== an.taskId).map((t) =>
+    // ACQ-7, la task convertita del 10b, è in coda e non sposta il numero di SRV-1.
+    const later = new Set(TASKS_10B.map((t) => t.id));
+    const acqNumbers = TASKS.filter(
+      (t) => t.projectId === ACQ && t.id !== an.taskId && !later.has(t.id),
+    ).map((t) =>
       Number(t.code.split("-")[1]),
     );
     expect(SERVER_TASK_CODE).toBe(`ACQ-${Math.max(...acqNumbers) + 1}`);

@@ -116,11 +116,23 @@ function seedRoles(): RoleDef[] {
 }
 
 /**
+ * Area 10b: i ruoli scritti a mano dei progetti inattivi, che non seguono
+ * quello tipico: Giulia guida ORT (e gestisce le impostazioni), Laura in LNT è
+ * Contributor (lo vede e non lo gestisce).
+ */
+const EXPLICIT_PROJECT_ROLES: Record<string, Record<string, string>> = {
+  ORT: { "p-giulia": "project_lead" },
+  LNT: { "p-laura": "contributor" },
+};
+
+/**
  * Il ruolo di progetto tipico di una persona del seme: Giulia è Project Lead
  * nei suoi cinque progetti e in RNC (area 9c), Contributor altrove; un admin è Project Lead
  * dove è membro; gli altri hanno il loro ruolo tipico ovunque.
  */
 function typicalProjectRole(personId: string, presetRole: string, code: string): string {
+  const explicit = EXPLICIT_PROJECT_ROLES[code]?.[personId];
+  if (explicit) return explicit;
   if (personId === "p-giulia") {
     // Area 9c: Giulia guida anche RNC, l'archiviato del seme (P9): è lei,
     // da ex membro, a ritrovarlo in «Archived» e a riaprirlo.

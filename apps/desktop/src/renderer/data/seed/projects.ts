@@ -66,6 +66,12 @@ const ROWS: Row[] = [
   // Area 9c: l'unico progetto archiviato del seme (da Roberta, 28 giorni fa).
   // In fondo, così gli indici (e i membri calcolati) degli altri non cambiano.
   ["RNC", "Vetrina online Tenuta Ronchi", "Tenuta Ronchi Srl", "client"],
+  // Area 10b: i quattro progetti senza attività da oltre 90 giorni (gli
+  // «inattivi» di Claude). Di nuovo in fondo, con i membri scritti a mano.
+  ["ORT", "Sito vetrina Ortofrutta delle Valli", "Ortofrutta delle Valli Soc. Agr.", "marketing"],
+  ["SPZ", "Ordini online Spezieria Zanetti", "Spezieria Zanetti Srl", "client"],
+  ["LNT", "Catalogo Lampadari Nuova Torre", "Lampadari Nuova Torre Srl", "client"],
+  ["BSC", "Prenotazioni Bagni Scoglio Chiaro", "Bagni Scoglio Chiaro Snc", "software"],
 ];
 
 /**
@@ -127,16 +133,24 @@ const REFERENCE_MEMBERS: Record<string, string[]> = {
   // c'è perché ci ha lavorato (`cv-run-rnc-2`): una sessione di lavoro è sempre
   // in un progetto di cui è membro.
   RNC: ["p-giulia", "p-marco", "p-elena", CLAUDE_ID],
+  // Area 10b, gli inattivi: Giulia guida ORT e non c'è in SPZ, LNT e BSC;
+  // Laura c'è solo in LNT (Contributor, `access/seed.ts`). Claude è in BSC
+  // perché ci ha una sessione di lavoro viva (`cv-run-bsc-1`).
+  ORT: ["p-giulia", "p-marco", "p-elena"],
+  SPZ: ["p-marco", "p-elena", "p-paolo"],
+  LNT: ["p-laura", "p-marco", "p-chiara"],
+  BSC: ["p-marco", "p-federico", "p-paolo", CLAUDE_ID],
 };
 
 /**
  * Membri in più dei progetti coi membri calcolati (area 8a, spec G): si
  * aggiungono a quelli calcolati, non li sostituiscono. In ACQ Sara
  * (Contributor) vede il Support ma non risponde ai clienti; Matteo (Project
- * Lead) prova gli avvisi.
+ * Lead) prova gli avvisi; Davide (Legacy Member, reparto Support, area 10b)
+ * risponde ai clienti.
  */
 const EXTRA_MEMBERS: Record<string, string[]> = {
-  ACQ: ["p-sara", "p-matteo"],
+  ACQ: ["p-sara", "p-matteo", "p-davide"],
 };
 
 /** I progetti fissati di partenza di ogni personaggio del «vedi come». */

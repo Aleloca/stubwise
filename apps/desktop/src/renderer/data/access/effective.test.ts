@@ -65,13 +65,29 @@ const ALLOWED_LOSSES: Readonly<Record<string, string>> = {
     "disattivato nel seme: una persona disattivata non ha permessi effettivi (Task 5); il fixture è di prima, quando li conservava per la parità",
 };
 
+/**
+ * Le appartenenze nate dopo il fixture in un progetto che il fixture copre
+ * (`persona|progetto`), col motivo: il fixture non si rigenera (ruling del
+ * controller (pre-flight), P1), quindi quella coppia non si confronta.
+ */
+const MEMBERS_AFTER_FIXTURE: Readonly<Record<string, string>> = {
+  "p-davide|prj-acq":
+    "area 10b: Davide (reparto Support) entra in ACQ per rispondere ai clienti nelle scene del supporto",
+};
+
 describe("parità con la can() delle aree 2–8 (fixture generato prima del cambio)", () => {
   it("il fixture copre ogni persona del seme, Claude compreso, e ogni progetto", () => {
     expect(Object.keys(PARITY_CAN).sort()).toEqual(PEOPLE.map((p) => p.id).sort());
     expect(PARITY_CAN[CLAUDE_ID]).toBeDefined();
     // Il fixture è di prima del 9a e non si rigenera: RNC, l'archiviato del 9c
     // (P7), è nato dopo. I suoi permessi li prova `projectSettings.test.ts`.
-    expect(PARITY_PROJECT_IDS).toEqual(PROJECTS.filter((p) => p.id !== "prj-rnc").map((p) => p.id));
+    // Stessa cosa per ORT, SPZ, LNT e BSC, i quattro inattivi del 10b (ruling
+    // del controller (pre-flight), P1): il fixture non si rigenera, e un
+    // progetto nuovo sfugge al confronto di parità.
+    const afterFixture = new Set(["prj-rnc", "prj-ort", "prj-spz", "prj-lnt", "prj-bsc"]);
+    expect(PARITY_PROJECT_IDS).toEqual(
+      PROJECTS.filter((p) => !afterFixture.has(p.id)).map((p) => p.id),
+    );
     expect(PARITY_DEPARTMENT_IDS).toEqual(DEPARTMENTS.map((d) => d.id));
   });
 
@@ -90,6 +106,7 @@ describe("parità con la can() delle aree 2–8 (fixture generato prima del camb
             return;
           }
           if (now === before[i]) return;
+          if (MEMBERS_AFTER_FIXTURE[`${personId}|${projectId}`]) return;
           const allowed = ALLOWED_DIFFERENCES.some(
             (d) =>
               d.personId === personId &&
@@ -160,8 +177,11 @@ describe("le fonti dei permessi", () => {
         expect(fromDept, `${personId} ${project.code}`).toBe(
           active && isMember(personId, project.id),
         );
-        // Nessuno lo guadagna: chi lo ha dal reparto lo ha anche dal ruolo.
-        if (fromDept) expect(sources.some((s) => s.kind === "role")).toBe(true);
+        // Nessuno lo guadagna: chi lo ha dal reparto lo ha anche dal ruolo. Nei
+        // progetti nati dopo il fixture no: Laura è Contributor in LNT (area
+        // 10b) e il reparto le dà `support.reply`, apposta.
+        if (fromDept && PARITY_PROJECT_IDS.includes(project.id))
+          expect(sources.some((s) => s.kind === "role")).toBe(true);
       }
     }
   });

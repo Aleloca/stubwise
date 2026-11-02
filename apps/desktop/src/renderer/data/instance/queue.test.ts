@@ -152,8 +152,8 @@ describe("lo Stato dell'istanza del seme", () => {
     for (const title of hiddenTitles) expect(text).not.toContain(title);
     expect(state.instance.nightly.some((r) => r.projectId === "prj-aud")).toBe(true);
 
-    // AUD-5 e MKX-11 sono al lavoro: contati in «Other projects».
-    expect(view.otherProjects).toEqual({ running: 2, waiting: 0, failed: 0 });
+    // AUD-5, MKX-11 e BSC-1 (area 10b) sono al lavoro: contati in «Other projects».
+    expect(view.otherProjects).toEqual({ running: 3, waiting: 0, failed: 0 });
     // Il worker 2 lavora su AUD-5: occupato, senza dire dove.
     expect(view.workers[1]).toEqual({ id: "worker-2", jobId: null, hidden: true });
     expect(view.workers[0]).toMatchObject({ jobId: "cv-run-stw-3", hidden: false });
@@ -166,7 +166,8 @@ describe("lo Stato dell'istanza del seme", () => {
     give(SARA, "instance.status.view");
     as(SARA);
     const view = await status();
-    expect(view.otherProjects).toEqual({ running: 2, waiting: 1, failed: 0 });
+    // Area 10b: più BSC-1, la sessione viva del progetto inattivo.
+    expect(view.otherProjects).toEqual({ running: 3, waiting: 1, failed: 0 });
     expect(view.jobs.some((j) => j.state === "waiting")).toBe(false);
   });
 });

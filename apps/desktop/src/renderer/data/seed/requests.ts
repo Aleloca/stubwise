@@ -36,6 +36,10 @@ const ROWS: Row[] = [
   // Area 9c: RNC, l'archiviato.
   ["req-rnc-1", "RNC", "Gift cards in the shop", ["p-giulia"], "new", "medium", null, null, [], 36],
   ["req-rnc-2", "RNC", "Wine club subscriptions", ["p-elena"], "ready", "low", null, null, [], 44],
+  // Area 10b: le due richieste in coda dal supporto di ACQ, `high` (già
+  // convertita in una task) e `low`.
+  ["req-acq-3", "ACQ", "Text message before the bill is due", [], "converted", "high", null, null, ["t-acq-7"], 3],
+  ["req-acq-4", "ACQ", "A dark appearance for the portal", [], "new", "low", null, null, [], 1],
 ];
 
 // Le richieste nate da una conversazione di Support (area 8a): nessun

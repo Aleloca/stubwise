@@ -12,13 +12,21 @@ import { daysFromToday } from "../dates";
 // - ACQ-S4: dal server MCP, la richiesta è nata con la conversazione allegata.
 
 /** Le richieste nate da una conversazione (in `requests.ts`, con `origin`). */
-export const SUPPORT_REQUEST_IDS = { waiting: "req-acq-1", mcp: "req-acq-2" } as const;
+export const SUPPORT_REQUEST_IDS = {
+  waiting: "req-acq-1",
+  mcp: "req-acq-2",
+  // Area 10b: le due richieste in coda, `high` (convertita in task) e `low`.
+  reminder: "req-acq-3",
+  dark: "req-acq-4",
+} as const;
 
 export const SUPPORT_CONVERSATION_IDS = {
   triage: "sup-acq-1",
   waiting: "sup-acq-2",
   left: "sup-acq-3",
   mcp: "sup-acq-4",
+  reminder: "sup-acq-5",
+  dark: "sup-acq-6",
 } as const;
 
 const at = (days: number, hm: string) => `${daysFromToday(-days)}T${hm}:00Z`;
@@ -159,6 +167,67 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     requestId: SUPPORT_REQUEST_IDS.mcp,
     leftAt: null,
     confirmedAt: at(2, "10:35"),
+    followerIds: [],
+    claudeDraft: null,
+  },
+  // Area 10b: ACQ-S5 e ACQ-S6, da cui nascono le due richieste in coda.
+  {
+    id: SUPPORT_CONVERSATION_IDS.reminder,
+    code: "ACQ-S5",
+    projectId: "prj-acq",
+    channel: "widget",
+    widgetId: "wdg-acq-portal",
+    customer: { name: "Paola Marchetti", email: "paola.marchetti@example.com" },
+    messages: messages(SUPPORT_CONVERSATION_IDS.reminder, [
+      ["customer", null, "I keep missing the due date of the water bill.", at(3, "09:12")],
+      [
+        "triage",
+        null,
+        "I'm sorry. Would a text message a few days before the due date help?",
+        at(3, "09:13"),
+      ],
+      ["customer", null, "Yes, that would be perfect.", at(3, "09:16")],
+      [
+        "triage",
+        null,
+        "Got it: I passed your request to the team. You'll find the answer here.",
+        at(3, "09:17"),
+      ],
+    ]),
+    rewrittenWish: "Get a text message a few days before the water bill is due.",
+    requestId: SUPPORT_REQUEST_IDS.reminder,
+    leftAt: null,
+    confirmedAt: at(3, "09:16"),
+    followerIds: [],
+    claudeDraft: null,
+  },
+  {
+    id: SUPPORT_CONVERSATION_IDS.dark,
+    code: "ACQ-S6",
+    projectId: "prj-acq",
+    channel: "widget",
+    widgetId: "wdg-acq-portal",
+    customer: { name: "Renato Gallo", email: "renato.gallo@example.com" },
+    messages: messages(SUPPORT_CONVERSATION_IDS.dark, [
+      [
+        "customer",
+        null,
+        "The portal is very bright when I check it in the evening.",
+        at(1, "21:40"),
+      ],
+      ["triage", null, "Would a dark appearance for the portal be what you need?", at(1, "21:41")],
+      ["customer", null, "Yes, a dark one. Not urgent.", at(1, "21:44")],
+      [
+        "triage",
+        null,
+        "Thanks: the request is registered and the team will follow it from here.",
+        at(1, "21:45"),
+      ],
+    ]),
+    rewrittenWish: "A dark appearance for the customer portal.",
+    requestId: SUPPORT_REQUEST_IDS.dark,
+    leftAt: null,
+    confirmedAt: at(1, "21:44"),
     followerIds: [],
     claudeDraft: null,
   },

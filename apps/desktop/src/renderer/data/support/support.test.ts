@@ -97,9 +97,19 @@ describe("letture e visibilità", () => {
       "ACQ-S2": "waiting_us",
       "ACQ-S3": "not_concluded",
       "ACQ-S4": "request_open",
+      // Area 10b: le due nate dal supporto, in coda.
+      "ACQ-S5": "request_open",
+      "ACQ-S6": "request_open",
     });
-    // Ordine dei gruppi: aspetta noi, in triage, non concluse, richiesta aperta, risposte.
-    expect(list.map((c) => c.code)).toEqual(["ACQ-S2", "ACQ-S1", "ACQ-S3", "ACQ-S4"]);
+    // Ordine dei gruppi: aspetta noi, in triage, non concluse, richiesta aperta (la più recente prima), risposte.
+    expect(list.map((c) => c.code)).toEqual([
+      "ACQ-S2",
+      "ACQ-S1",
+      "ACQ-S3",
+      "ACQ-S6",
+      "ACQ-S4",
+      "ACQ-S5",
+    ]);
     expect(
       (await support.listSupportConversations(ACQ, { state: "triage" })).map((c) => c.code),
     ).toEqual(["ACQ-S1"]);
@@ -144,7 +154,7 @@ describe("letture e visibilità", () => {
     const list = await support.listWidgets(ACQ);
     expect(list.canManage).toBe(true);
     expect(list.widgets).toEqual([
-      expect.objectContaining({ id: "wdg-acq-portal", conversationCount: 3 }),
+      expect.objectContaining({ id: "wdg-acq-portal", conversationCount: 5 }),
     ]);
   });
 
@@ -429,7 +439,7 @@ describe("scritture", () => {
     expect((await support.updateWidget(w.id, { name: "Site 2" })).name).toBe("Site 2");
     await support.deleteWidget("wdg-acq-portal");
     expect(state.supportWidgets.map((x) => x.id)).toEqual([w.id]);
-    expect(state.supportConversations).toHaveLength(4);
+    expect(state.supportConversations).toHaveLength(6);
     const s1 = (await support.getSupportConversation("ACQ-S1"))!;
     expect(s1.widgetName).toBeNull();
   });
