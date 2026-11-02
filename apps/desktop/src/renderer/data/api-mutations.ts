@@ -88,6 +88,7 @@ import {
 import type {
   ActivityEntry,
   AiBlock,
+  AppNotification,
   Attachment,
   Conversation,
   ConversationEvent,
@@ -214,6 +215,7 @@ function publish(
   recipientId: string,
   title: string,
   body: string,
+  extra: Pick<AppNotification, "plannedWeek"> = {},
 ): void {
   const via = currentVia();
   if (via && via.undoOfActionId !== null) return;
@@ -234,6 +236,7 @@ function publish(
     // Apre la task stessa, non solo l'elenco del progetto.
     link: `#/p/${project.code}/tasks?task=${task.code}`,
     ...(via ? { viaClaude: { personId: me, actionId: via.actionId } } : {}),
+    ...extra,
   });
 }
 
@@ -643,6 +646,7 @@ export function planTaskAs(
       person,
       "Planning changed",
       `${task.code} · ${task.title}: ${personName(me)} planned it for ${plan.week ?? "no week"}.`,
+      { plannedWeek: plan.week },
     );
   }
   return task;

@@ -194,6 +194,23 @@ async function main() {
             deletedById: "p-giulia",
             via: "claude",
           });
+          // Una task di OLV di Marco ripianificata da Claude per Giulia: «Your week changed».
+          const mut = await import("/data/api-mutations.ts");
+          const via = await import("/data/claude/via.ts");
+          const task = mut.createTaskAs("p-giulia", {
+            projectId: "prj-olv",
+            title: "Harvest photos",
+            assigneeId: "p-marco",
+          });
+          via.runAsClaude({ actionId: "ca-capture-plan", undoOfActionId: null }, () =>
+            mut.applyActions("p-giulia", [
+              {
+                fn: "planTask",
+                args: { id: task.id, plan: { assigneeId: "p-marco", week: "2026-W46" } },
+                summary: "",
+              },
+            ]),
+          );
           return dates.TODAY;
         });
       for (const v of variants) {
@@ -235,6 +252,7 @@ async function main() {
         await page.waitForTimeout(900);
         await page.getByRole("button", { name: /^(Notifications|Notifiche)/ }).click();
         await page.waitForTimeout(900);
+        await take(page, `a10a-trace-notifications-planned-${v.suffix}.png`, v);
         await page.locator('[data-notification="n-claude-1"]').scrollIntoViewIfNeeded();
         await take(page, `a10a-trace-notifications-${v.suffix}.png`, v);
         await context.close();

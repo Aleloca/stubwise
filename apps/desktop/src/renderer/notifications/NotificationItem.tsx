@@ -100,7 +100,9 @@ export function NotificationItem({
   const title =
     n.kind === "task.assigned"
       ? t("notifications.kinds.task_assigned", { code: n.objectCode })
-      : n.title;
+      : n.kind === "planning.changed"
+        ? t("notifications.kinds.planning_changed")
+        : n.title;
 
   // Area 10a (shape claude-trace.md): nata da un'azione di Claude per una
   // persona, il corpo comincia con «Claude on behalf of <nome>». Il titolo
@@ -312,6 +314,16 @@ function viaClaudeBody(
   const name = n.viaClaudeName ?? t("notifications.viaClaude.someone");
   if (n.kind === "task.assigned")
     return t("notifications.viaClaude.assigned", { name, code: n.objectCode });
+  // La pianificazione ha la sua frase dal valore stabile (`plannedWeek`):
+  // nessuna parola del corpo salvato in inglese (shape claude-trace.md).
+  if (n.kind === "planning.changed" && n.plannedWeek !== undefined)
+    return n.plannedWeek === null
+      ? t("notifications.viaClaude.unplanned", { name, code: n.objectCode })
+      : t("notifications.viaClaude.planned", {
+          name,
+          code: n.objectCode,
+          n: Number(n.plannedWeek.split("-W")[1]),
+        });
   if (n.viaClaudeName && n.body.includes(n.viaClaudeName))
     return n.body.replace(n.viaClaudeName, t("notifications.viaClaude.actor", { name }));
   return t("notifications.viaClaude.lead", { name, body: n.body });

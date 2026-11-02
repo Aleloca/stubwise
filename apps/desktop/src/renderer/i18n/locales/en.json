@@ -243,14 +243,17 @@
       "SEC": "Account security"
     },
     "kinds": {
-      "task_assigned": "You've been assigned {{code}}"
+      "task_assigned": "You've been assigned {{code}}",
+      "planning_changed": "Your week changed"
     },
     "viaClaude": {
       "actor": "Claude on behalf of {{name}}",
       "assigned": "Claude on behalf of {{name}} assigned you {{code}}.",
       "lead": "Claude on behalf of {{name}}: {{body}}",
       "undoneBy": "Undone by {{name}}",
-      "someone": "someone"
+      "someone": "someone",
+      "planned": "Claude on behalf of {{name}} planned {{code}} for W{{n}}.",
+      "unplanned": "Claude on behalf of {{name}} took {{code}} out of your week."
     }
   },
   "placeholder": {

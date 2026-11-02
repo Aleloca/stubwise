@@ -9,7 +9,8 @@ import {
   setLatency,
   setStreamLatency,
 } from "../data/api";
-import { createTaskAs } from "../data/api-mutations";
+import { applyActions, createTaskAs } from "../data/api-mutations";
+import { runAsClaude } from "../data/claude/via";
 import { visiblePeopleFor } from "../data/access/whoCan";
 import { CLAUDE_SEED_IDS, HANDOVER_TASK } from "../data/seed/claudeActions";
 import { PEOPLE } from "../data/seed/people";
@@ -234,5 +235,61 @@ describe("@Claude nella Chat (maintainer)", () => {
     });
     expect(entry.textContent).toMatch(/^\d\d:\d\dClaude on behalf of Giulia Ferri turned (on|off) the weekly brief in OLV\./);
     expect(entry.textContent).not.toMatch(/undid/i);
+  });
+});
+
+describe("la pianificazione fatta con Claude (shape [§Notifiche])", () => {
+  /** Giulia, con Claude, sposta in W46 una task di OLV che Marco ha in W45. */
+  async function plannedForMarco(week: string | null): Promise<AppNotification> {
+    const task = createTaskAs(GIULIA, { projectId: OLV, title: "Harvest photos", assigneeId: MARCO });
+    state.tasksById.get(task.id)!.plannedWeek = "2026-W45";
+    runAsClaude({ actionId: "ca-test-plan", undoOfActionId: null }, () => {
+      const applied = applyActions(GIULIA, [
+        { fn: "planTask", args: { id: task.id, plan: { assigneeId: MARCO, week } }, summary: "" },
+      ]);
+      expect(applied.ok).toBe(true);
+    });
+    as(MARCO);
+    const n = (await listNotifications()).find(
+      (x) => x.kind === "planning.changed" && x.objectCode === task.code,
+    );
+    if (!n) throw new Error("nessuna planning.changed");
+    return n;
+  }
+
+  it("titolo e corpo nella lingua di chi legge, senza mescolare: en e it", async () => {
+    const n = await plannedForMarco("2026-W46");
+    renderItem(n, MARCO);
+    const item = document.querySelector<HTMLElement>("[data-notification]")!;
+    expect(within(item).getByText("Your week changed")).toBeInTheDocument();
+    expect(
+      within(item).getByText(`Claude on behalf of Giulia Ferri planned ${n.objectCode} for W46.`),
+    ).toBeInTheDocument();
+
+    act(() => setLanguage("it"));
+    await waitFor(() =>
+      expect(within(item).getByText("La tua settimana è cambiata")).toBeInTheDocument(),
+    );
+    expect(
+      within(item).getByText(
+        `Claude per conto di Giulia Ferri ha pianificato ${n.objectCode} per S46.`,
+      ),
+    ).toBeInTheDocument();
+    // Nessuna parola del corpo salvato in inglese.
+    expect(itemText()).not.toMatch(/planned|harvest/i);
+  });
+
+  it("tolta dalla settimana: la frase lo dice, in en e in it", async () => {
+    const n = await plannedForMarco(null);
+    renderItem(n, MARCO);
+    expect(itemText()).toContain(
+      `Claude on behalf of Giulia Ferri took ${n.objectCode} out of your week.`,
+    );
+    act(() => setLanguage("it"));
+    await waitFor(() =>
+      expect(itemText()).toContain(
+        `Claude per conto di Giulia Ferri ha tolto ${n.objectCode} dalla tua settimana.`,
+      ),
+    );
   });
 });

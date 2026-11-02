@@ -138,6 +138,13 @@ export interface AppNotification {
    */
   viaClaudeName?: string | null;
   /**
+   * Area 10a: solo `planning.changed`, la settimana pianificata come valore
+   * stabile (`2026-W46`; `null` = tolta dalla settimana), scritta al momento
+   * perché la frase si traduca a lettura invece di leggere il corpo salvato
+   * in inglese. Assente sulle notifiche nate prima.
+   */
+  plannedWeek?: string | null;
+  /**
    * Area 10a, solo a lettura (`listNotifications`): chi ha annullato
    * l'azione di Claude che l'ha fatta partire («Undone by Giulia Ferri»).
    * Si deriva da `viaClaude.actionId` → l'azione → `undone.byId`; mai salvato.

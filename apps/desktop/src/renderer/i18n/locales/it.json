@@ -243,14 +243,17 @@
       "SEC": "Sicurezza dell’account"
     },
     "kinds": {
-      "task_assigned": "Ti è stata assegnata {{code}}"
+      "task_assigned": "Ti è stata assegnata {{code}}",
+      "planning_changed": "La tua settimana è cambiata"
     },
     "viaClaude": {
       "actor": "Claude per conto di {{name}}",
       "assigned": "Claude per conto di {{name}} ti ha assegnato {{code}}.",
       "lead": "Claude per conto di {{name}}: {{body}}",
       "undoneBy": "Annullato da {{name}}",
-      "someone": "qualcuno"
+      "someone": "qualcuno",
+      "planned": "Claude per conto di {{name}} ha pianificato {{code}} per S{{n}}.",
+      "unplanned": "Claude per conto di {{name}} ha tolto {{code}} dalla tua settimana."
     }
   },
   "placeholder": {
