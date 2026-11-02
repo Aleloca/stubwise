@@ -1567,7 +1567,8 @@ tranne queste voci. Ognuna dice perché resta.
   `Column.tsx`); Impeccable chiede di toglierlo o di metterci i gruppi di
   All projects. È l'ultima destinazione con lo stato neutro, provato da
   `Column.test.tsx`: colonna vuota o elenco dei gruppi è una scelta del
-  maintainer.
+  maintainer. **Decisione del maintainer (2 nov 2026): resta com'è**,
+  finché non arrivano i gruppi di progetti.
 - **Area 2: a 1024 il pannello della task copre i titoli, senza ellissi**
   (rifinitura 13, `a9c-effects-claude-exclusive-narrow-en`). *Perché*: è il
   layout del dettaglio della task, fuori dal perimetro del 9c. Il rimedio è
