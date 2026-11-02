@@ -177,6 +177,8 @@ describe("il registro delle modifiche del 9b", () => {
       "project",
       "repositories",
       "projects",
+      // Area 10a: le task eliminate.
+      "tasks",
     ];
     // L'ordine è dichiarato, non affidato all'ordine in cui i moduli registrano i tipi.
     expect(GROUP_ORDER).toEqual(order);

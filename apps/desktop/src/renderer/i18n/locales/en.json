@@ -2080,7 +2080,8 @@
         "daily_report": "Daily report",
         "pr_opened": "PR opened",
         "pr_merged": "PR merged",
-        "pr_closed": "PR closed unmerged"
+        "pr_closed": "PR closed unmerged",
+        "task_deleted": "Task deleted"
       },
       "upcoming": "Upcoming",
       "thisWeek": "This week",
@@ -8628,6 +8629,7 @@
       "createTasks": "create tasks",
       "editTasks": "edit tasks",
       "moderateComments": "delete other people's comments",
+      "deleteTasks": "delete tasks created by others",
       "startRun": "start Claude",
       "approvePlan": "approve a plan",
       "requestCorrection": "ask for changes to a pull request",
@@ -10757,6 +10759,9 @@
         "created": "<actor>{{actor}}</actor> created the widget <object>{{object}}</object> in {{project}}.",
         "updated": "<actor>{{actor}}</actor> changed the widget <object>{{object}}</object> in {{project}}.",
         "deleted": "<actor>{{actor}}</actor> deleted the widget <object>{{object}}</object> in {{project}}."
+      },
+      "task": {
+        "deleted": "<actor>{{actor}}</actor> deleted the task <strong>{{object}}</strong> “{{title}}”."
       }
     },
     "groups": {
@@ -10772,7 +10777,8 @@
       "queue": "Queue",
       "project": "Project settings",
       "repositories": "Repositories and environments",
-      "projects": "Deleted projects"
+      "projects": "Deleted projects",
+      "tasks": "Tasks"
     },
     "groupWords": {
       "people": "people",
@@ -10787,7 +10793,8 @@
       "queue": "project queues",
       "project": "project settings",
       "repositories": "project repositories",
-      "projects": "deleted projects"
+      "projects": "deleted projects",
+      "tasks": "deleted tasks"
     },
     "intro": "Every change to access and settings: who made it, when, and what changed. Entries can't be edited or deleted.",
     "introPartial": "You see changes to what you manage: {{groups}}. Entries can't be edited or deleted.",

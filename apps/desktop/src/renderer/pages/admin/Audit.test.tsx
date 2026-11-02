@@ -295,10 +295,10 @@ describe("Change log in Amministrazione", () => {
     await heading("Change log");
     // Chi gestisce un progetto ne legge tutte le voci di progetto: dal 9b
     // anche quelle della coda (pausa, ripresa, Retry), dal 9c le impostazioni
-    // e i repository.
+    // e i repository, dal 10a le task eliminate.
     expect(
       screen.getByText(
-        "You see changes to what you manage: project members, project queues, project settings, and project repositories. Entries can't be edited or deleted.",
+        "You see changes to what you manage: project members, project queues, project settings, project repositories, and deleted tasks. Entries can't be edited or deleted.",
       ),
     ).toBeInTheDocument();
     await waitFor(() => expect(entries().length).toBeGreaterThan(0));
@@ -310,6 +310,7 @@ describe("Change log in Amministrazione", () => {
       "Queue",
       "Project settings",
       "Repositories and environments",
+      "Tasks",
     ]);
   });
 });

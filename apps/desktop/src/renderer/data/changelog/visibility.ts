@@ -31,6 +31,8 @@ export const GROUP_ORDER: readonly string[] = [
   "project",
   "repositories",
   "projects",
+  // Area 10a: le task eliminate.
+  "tasks",
 ];
 
 /**

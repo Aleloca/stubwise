@@ -224,7 +224,8 @@ function buildTask(me: string, input: NewTaskInput): Task {
   if (input.assigneeId && isDeactivated(input.assigneeId)) throw invalid("assignee");
   const departmentId = input.departmentId ?? defaultDepartmentOf(me);
   if (!departmentId) throw invalid("department");
-  const max = state.tasks
+  // Anche i codici delle task eliminate (area 10a): un codice non si riusa mai.
+  const max = [...state.tasks, ...state.deletedTasks]
     .filter((t) => t.projectId === project.id)
     .reduce((m, t) => Math.max(m, Number(t.code.split("-").at(-1)) || 0), 0);
   const n = max + 1;

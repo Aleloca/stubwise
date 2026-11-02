@@ -20,7 +20,9 @@ import type { ProjectSettingsSection } from "../routes";
 //   (`params.key`: non è un segreto); il valore mai;
 // - `projects`: d'ISTANZA, solo del full admin: un progetto eliminato e un
 //   repository senza progetto eliminato. Il nome del progetto da cui
-//   vengono si risolve a lettura (Task 5, R-G5).
+//   vengono si risolve a lettura (Task 5, R-G5);
+// - `tasks` (area 10a): una task eliminata (`task.deleted`), letta anche da
+//   chi modera le task del progetto (`tickets.moderate`, mai di Claude).
 
 const project =
   (group: string, readPermission: string) =>
@@ -40,6 +42,8 @@ const projects = (kind: string): ChangeType => ({
 });
 
 const settings = project("project", "project.settings.manage");
+// Area 10a: chi gestisce il progetto la legge già; in più chi modera le task lì.
+const tasks = project("tasks", "tickets.moderate");
 const repos = project("repositories", "repos.manage");
 const environments = project("repositories", "environments.manage");
 const widget = project("repositories", "widget.manage");
@@ -79,6 +83,8 @@ export const PROJECT_CHANGE_TYPES: readonly ChangeType[] = [
   projects("project.deleted"),
   // Confermata dal maintainer il 31 ott 2026 (domanda 4 (b)).
   projects("repository.deleted"),
+  // Area 10a, «Elimina task»: `object.label` è il codice, `params.title` il titolo di allora.
+  tasks("task.deleted"),
 ];
 
 /**
@@ -90,6 +96,7 @@ export const PROJECT_CHANGE_TYPES: readonly ChangeType[] = [
  * - `env_var.set`, `env_var.removed`: `key`, il nome della variabile;
  * - `project.deleted`: `detachedRepositories`, quanti repository restano
  *   senza progetto, come numero in stringa;
+ * - `task.deleted`: `title`, il titolo di allora (il codice è `object.label`);
  * - `project.ai_account_changed`: `accountBefore`, `accountAfter`, i nomi di
  *   allora degli account (assenti per «Automatic»): eliminato l'account, la
  *   voce lo dice ancora per nome (Task 12);
@@ -112,6 +119,7 @@ export interface ProjectChangeParams {
   "env_var.set": EnvFileParams & { key: string };
   "env_var.removed": EnvFileParams & { key: string };
   "project.deleted": { detachedRepositories: string };
+  "task.deleted": { title: string };
 }
 
 /**

@@ -136,6 +136,18 @@ export type TimelineEvent =
       prId: string;
       taskId: string;
       number: number;
+    }
+  /**
+   * Area 10a: una task eliminata, con codice e titolo di allora (la task non
+   * c'è più) e chi l'ha eliminata; da `state.deletedTasks`.
+   */
+  | {
+      kind: "task_deleted";
+      at: string;
+      taskId: string;
+      code: string;
+      title: string;
+      byId: string;
     };
 
 export type TimelineKind = TimelineEvent["kind"];
@@ -473,6 +485,8 @@ export interface PersonDayActivity {
     to: string | null;
     at: string;
   }[];
+  /** Area 10a: le task eliminate quel giorno, con codice e titolo di allora. */
+  tasksDeleted: { taskId: string; code: string; title: string; projectId: string; at: string }[];
   comments: {
     id: string;
     taskId: string;

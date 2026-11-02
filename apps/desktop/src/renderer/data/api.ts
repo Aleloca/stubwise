@@ -103,6 +103,8 @@ export {
   visibleProjectIds,
 } from "./store";
 export * from "./api-mutations";
+/** «Elimina task» (area 10a): la vista del dialogo e la scrittura. */
+export { deleteTask, getTaskDeletion } from "./taskDelete";
 export {
   mergeStreamEvent,
   onConversationChange,
@@ -330,7 +332,21 @@ export async function listDecisionRequests(filter: {
 export async function listRequests(projectId: string): Promise<ProjectRequest[]> {
   const me = await gate("listRequests");
   if (!visibleProjectIds(me).has(projectId)) return [];
-  return state.requests.filter((r) => r.projectId === projectId).map(copy);
+  return state.requests.filter((r) => r.projectId === projectId).map(requestView);
+}
+
+/**
+ * Una richiesta come la legge il client: con i codici delle sue task
+ * eliminate (area 10a), derivati da `state.deletedTasks` e mai salvati.
+ * Senza task eliminate il campo non c'è.
+ */
+function requestView(request: ProjectRequest): ProjectRequest {
+  const out = copy(request);
+  const deleted = state.deletedTasks
+    .filter((d) => request.taskIds.includes(d.id))
+    .map((d) => d.code);
+  if (deleted.length > 0) out.deletedTaskCodes = deleted;
+  return out;
 }
 
 /**
@@ -356,14 +372,14 @@ export async function listRequestsToConvert(): Promise<ProjectRequest[]> {
 export async function getRequest(id: string): Promise<ProjectRequest | null> {
   const me = await gate("getRequest");
   const request = state.requests.find((r) => r.id === id);
-  return request && visibleProjectIds(me).has(request.projectId) ? copy(request) : null;
+  return request && visibleProjectIds(me).has(request.projectId) ? requestView(request) : null;
 }
 
 /** Una richiesta per codice (`STW-R4`); invisibile o inesistente: `null`. */
 export async function getRequestByCode(code: string): Promise<ProjectRequest | null> {
   const me = await gate("getRequestByCode");
   const request = state.requests.find((r) => r.code === code.toUpperCase());
-  return request && visibleProjectIds(me).has(request.projectId) ? copy(request) : null;
+  return request && visibleProjectIds(me).has(request.projectId) ? requestView(request) : null;
 }
 
 /**
@@ -508,6 +524,18 @@ function timelineOf(projectId: string): TimelineEvent[] {
     events.push({ kind: "task_opened", at: t.createdAt, taskId: t.id });
     if (t.closedAt) events.push({ kind: "task_closed", at: t.closedAt, taskId: t.id });
   }
+  // Area 10a: le eliminate, con codice e titolo di allora (la task non c'è più).
+  for (const d of state.deletedTasks) {
+    if (d.projectId !== projectId) continue;
+    events.push({
+      kind: "task_deleted",
+      at: d.deletedAt,
+      taskId: d.id,
+      code: d.code,
+      title: d.title,
+      byId: d.deletedById,
+    });
+  }
   for (const m of state.milestones) {
     if (m.projectId === projectId && m.dueDate) {
       events.push({ kind: "milestone", at: m.dueDate, milestoneId: m.id });
@@ -575,12 +603,19 @@ export async function listNotifications(): Promise<AppNotification[]> {
     if (n.chatMessageId === undefined) {
       // Un avviso di un server senza accesso: «Link SSH access», di adesso.
       const href = linkAccessHrefOf(me, delivered);
-      return [copy(href ? { ...delivered, linkAccessHref: href } : delivered)];
+      const out = copy(href ? { ...delivered, linkAccessHref: href } : delivered);
+      // Area 10a: la task della notifica è stata eliminata; la notifica resta.
+      if (taskGone(n)) out.objectGone = true;
+      return [out];
     }
     const shown = presentChatNotification(me, delivered);
     return shown ? [shown] : [];
   });
 }
+
+/** La notifica parla di una task eliminata (stesso progetto, stesso codice). */
+const taskGone = (n: AppNotification): boolean =>
+  state.deletedTasks.some((d) => d.projectId === n.projectId && d.code === n.objectCode);
 
 /** Segna una notifica per chi guarda soltanto: che Laura la legga non la segna letta per Marco. */
 export async function markNotification(
@@ -839,7 +874,7 @@ export async function listCommands(contextProjectId: string | null): Promise<Sla
 
 /**
  * La rassegna del giorno per persona (chi ha `people.activity.view`): task
- * chiuse e spostate, commenti, decisioni, richieste create e commit, solo
+ * chiuse, spostate ed eliminate, commenti, decisioni, richieste create e commit, solo
  * nei progetti che chi guarda vede. Solo eventi di Stubwise: posta e
  * calendario non entrano. Con `departmentId`, solo le persone di quel
  * reparto (gli autori di commit non collegati non ne hanno uno).
@@ -864,6 +899,7 @@ export async function listPeopleActivity(
         departmentIds: person ? [...person.departmentIds] : [],
         tasksClosed: [],
         tasksMoved: [],
+        tasksDeleted: [],
         comments: [],
         decisions: [],
         requestsCreated: [],
@@ -886,6 +922,16 @@ export async function listPeopleActivity(
       title: t.title,
       projectId: t.projectId,
       at: t.closedAt!,
+    });
+  }
+  for (const d of state.deletedTasks) {
+    if (!visible.has(d.projectId) || !onDay(d.deletedAt)) continue;
+    row(d.deletedById).tasksDeleted.push({
+      taskId: d.id,
+      code: d.code,
+      title: d.title,
+      projectId: d.projectId,
+      at: d.deletedAt,
     });
   }
   for (const a of state.activity) {

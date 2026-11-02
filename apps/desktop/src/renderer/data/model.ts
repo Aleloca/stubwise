@@ -117,6 +117,12 @@ export interface AppNotification {
    * con `servers.ssh.manage`), mai salvato qui.
    */
   linkAccessHref?: string;
+  /**
+   * Area 10a: la task della notifica è stata eliminata. Derivato a lettura
+   * da `state.deletedTasks` (`listNotifications`), mai salvato qui: la
+   * notifica resta, ma non apre niente.
+   */
+  objectGone?: boolean;
 }
 
 /** Perché un avviso del catalogo arriva a qualcuno senza iscrizione (area 8a). */
@@ -235,6 +241,16 @@ export interface Task {
    * assegnatario.
    */
   assigneeStatus?: "active" | "deactivated" | null;
+}
+
+/** Una task eliminata (area 10a): il codice resta preso per sempre (non si riusa). */
+export interface DeletedTask {
+  id: string;
+  code: string;
+  projectId: string;
+  title: string;
+  deletedAt: string;
+  deletedById: string;
 }
 
 /** L'automazione e l'esecuzione che hanno creato una task o un traguardo (area 7). */
@@ -455,6 +471,12 @@ export interface ProjectRequest {
    * server MCP, area 8a). Una richiesta non nasce MAI da un'email.
    */
   origin?: { kind: "support"; conversationId: string };
+  /**
+   * Area 10a: i codici delle task nate da questa richiesta e poi eliminate.
+   * Derivato a lettura da `state.deletedTasks` (`getRequest`,
+   * `getRequestByCode`, `listRequests`), mai salvato qui.
+   */
+  deletedTaskCodes?: string[];
 }
 
 /** I metadati proposti dall'intake: solo quelli che cambierebbero, e il perché. */
@@ -2613,9 +2635,10 @@ export interface RunLogEntry {
   /**
    * Le cose create dal passo (task, traguardo…) col loro codice. Nelle
    * letture (R-J12) una cosa in un progetto che chi guarda non vede ha
-   * `code: ""`: né id né codice.
+   * `code: ""`: né id né codice. Una task eliminata (area 10a) che chi
+   * guarda vedeva ha `deleted: true`: si legge «task deleted», senza link.
    */
-  effects: { kind: string; code: string }[];
+  effects: { kind: string; code: string; deleted?: true }[];
 }
 
 export interface AutomationRun {

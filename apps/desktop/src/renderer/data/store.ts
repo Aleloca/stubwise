@@ -138,6 +138,7 @@ import type {
   SavedFilter,
   StatusFamily,
   Task,
+  DeletedTask,
   WeeklyBrief,
   OpenPullRequest,
   ProjectEnvironment,
@@ -238,6 +239,9 @@ export type ApiFnName =
   | "markNotification"
   | "search"
   | "createTask"
+  // «Elimina task» (area 10a, Task 2)
+  | "deleteTask"
+  | "getTaskDeletion"
   | "updateTask"
   | "bulkUpdateTasks"
   | "planTask"
@@ -907,6 +911,12 @@ interface State {
   projects: Project[];
   statuses: ProjectStatus[];
   tasks: Task[];
+  /**
+   * Le task eliminate (area 10a): il codice resta preso per sempre, e le
+   * letture che nominavano la task (richiesta, notifiche, esecuzioni,
+   * storia) lo risolvono da qui.
+   */
+  deletedTasks: DeletedTask[];
   activity: ActivityEntry[];
   decisions: DecisionRequest[];
   requests: ProjectRequest[];
@@ -1152,6 +1162,7 @@ function freshState(): State {
     projects: PROJECTS.map(copy),
     statuses: PROJECT_STATUSES.map(copy),
     tasks: TASKS.map(copy),
+    deletedTasks: [],
     activity: ACTIVITY.map(copy),
     decisions: DECISION_REQUESTS.map(copy),
     requests: REQUESTS.map(copy),
@@ -1917,9 +1928,14 @@ function prLinesOf(task: Task): PrLine[] {
   return prLines(events, platform);
 }
 
+/** Le PR della task ancora aperte, PR per PR. */
+export function openPrLinesOf(task: Task): PrLine[] {
+  return prLinesOf(task).filter((line) => line.state === "open");
+}
+
 /** La task ha almeno una PR ancora aperta (una chiusura di un'altra PR non la chiude). */
 export function hasOpenPr(task: Task): boolean {
-  return prLinesOf(task).some((line) => line.state === "open");
+  return openPrLinesOf(task).length > 0;
 }
 
 /**

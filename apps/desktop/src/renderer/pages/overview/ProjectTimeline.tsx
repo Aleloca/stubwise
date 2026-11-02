@@ -170,6 +170,7 @@ function eventKey(e: TimelineEvent): string {
   switch (e.kind) {
     case "task_opened":
     case "task_closed":
+    case "task_deleted":
       return `${e.kind}:${e.taskId}`;
     case "milestone":
       return `${e.kind}:${e.milestoneId}`;

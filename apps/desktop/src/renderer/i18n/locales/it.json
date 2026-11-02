@@ -2080,7 +2080,8 @@
         "daily_report": "Report giornaliero",
         "pr_opened": "PR aperta",
         "pr_merged": "PR mergiata",
-        "pr_closed": "PR chiusa senza merge"
+        "pr_closed": "PR chiusa senza merge",
+        "task_deleted": "Task eliminata"
       },
       "upcoming": "In arrivo",
       "thisWeek": "Questa settimana",
@@ -8628,6 +8629,7 @@
       "createTasks": "creare task",
       "editTasks": "modificare le task",
       "moderateComments": "eliminare i commenti degli altri",
+      "deleteTasks": "eliminare le task create da altri",
       "startRun": "avviare Claude",
       "approvePlan": "approvare un piano",
       "requestCorrection": "chiedere modifiche a una pull request",
@@ -10757,6 +10759,9 @@
         "created": "<actor>{{actor}}</actor> ha creato il widget <object>{{object}}</object> in {{project}}.",
         "updated": "<actor>{{actor}}</actor> ha modificato il widget <object>{{object}}</object> in {{project}}.",
         "deleted": "<actor>{{actor}}</actor> ha eliminato il widget <object>{{object}}</object> in {{project}}."
+      },
+      "task": {
+        "deleted": "<actor>{{actor}}</actor> ha eliminato la task <strong>{{object}}</strong> «{{title}}»."
       }
     },
     "groups": {
@@ -10772,7 +10777,8 @@
       "queue": "Coda",
       "project": "Impostazioni del progetto",
       "repositories": "Repository e ambienti",
-      "projects": "Progetti eliminati"
+      "projects": "Progetti eliminati",
+      "tasks": "Task"
     },
     "groupWords": {
       "people": "persone",
@@ -10787,7 +10793,8 @@
       "queue": "code dei progetti",
       "project": "impostazioni dei progetti",
       "repositories": "repository dei progetti",
-      "projects": "progetti eliminati"
+      "projects": "progetti eliminati",
+      "tasks": "task eliminate"
     },
     "intro": "Ogni modifica agli accessi e alle impostazioni: chi l'ha fatta, quando e cosa è cambiato. Le voci non si modificano né si cancellano.",
     "introPartial": "Vedi le modifiche a ciò che gestisci: {{groups}}. Le voci non si modificano né si cancellano.",

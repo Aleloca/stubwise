@@ -57,9 +57,14 @@ export function hideProject(o: Record<string, unknown>, visible: ReadonlySet<str
     o.progetto = "";
 }
 
-/** Il progetto di una cosa creata da un passo, se è in un progetto. */
+/** Una task creata da un passo e poi eliminata (area 10a): il suo progetto. */
+const deletedTaskProject = (code: string): string | null =>
+  state.deletedTasks.find((d) => d.code === code)?.projectId ?? null;
+
+/** Il progetto di una cosa creata da un passo, se è in un progetto (anche una task eliminata). */
 function projectOfEffect(kind: string, code: string): string | null {
-  if (kind === "task") return state.tasks.find((t) => t.code === code)?.projectId ?? null;
+  if (kind === "task")
+    return state.tasks.find((t) => t.code === code)?.projectId ?? deletedTaskProject(code);
   if (kind === "milestone") return state.milestones.find((m) => m.id === code)?.projectId ?? null;
   if (kind === "request") return state.requests.find((r) => r.code === code)?.projectId ?? null;
   return null;
@@ -151,7 +156,11 @@ export function viewRun(me: string, run: AutomationRun): AutomationRun {
         return child && !canSeeRun(me, child) ? { kind: x.kind, code: "" } : x;
       }
       const p = projectOfEffect(x.kind, x.code);
-      return p !== null && !visible.has(p) ? { kind: x.kind, code: "" } : x;
+      if (p !== null && !visible.has(p)) return { kind: x.kind, code: "" };
+      // Una task eliminata (area 10a): l'effetto resta, «task deleted», senza link.
+      return x.kind === "task" && deletedTaskProject(x.code) !== null
+        ? { ...x, deleted: true as const }
+        : x;
     });
     // Il bersaglio di «Avvia» che non vedo: niente id nei dati, niente nome nel motivo.
     if (hiddenTarget(me, run, e) !== undefined) {

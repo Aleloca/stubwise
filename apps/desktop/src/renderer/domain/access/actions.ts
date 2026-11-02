@@ -161,6 +161,8 @@ export const ACTIONS: readonly AccessAction[] = [
   project("createTasks", "tickets.create"),
   project("editTasks", "tickets.edit"),
   project("moderateComments", "tickets.moderate"),
+  // Area 10a: eliminare le task create da altri (le proprie: `editTasks`). Claude mai (R-L9).
+  project("deleteTasks", "tickets.moderate"),
   // run e rilasci
   project("startRun", "runs.start"),
   project("approvePlan", "plans.approve"),

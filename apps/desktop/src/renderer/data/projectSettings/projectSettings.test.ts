@@ -147,11 +147,12 @@ describe("le sezioni di Progetto → Settings, per persona", () => {
 });
 
 describe("il registro delle modifiche del 9c", () => {
-  const GROUPS = ["project", "repositories", "projects"];
+  // I tre gruppi del 9c, più quello dell'area 10a (`task.deleted`), che sta qui con loro.
+  const GROUPS = ["project", "repositories", "projects", "tasks"];
 
-  it("i tipi stanno nei tre gruppi nuovi, dopo quelli del 9b", () => {
+  it("i tipi stanno nei tre gruppi nuovi (più tasks del 10a), dopo quelli del 9b", () => {
     expect([...new Set(PROJECT_CHANGE_TYPES.map((t) => t.group))]).toEqual(GROUPS);
-    expect(GROUP_ORDER.slice(-3)).toEqual(GROUPS);
+    expect(GROUP_ORDER.slice(-4)).toEqual(GROUPS);
     for (const t of PROJECT_CHANGE_TYPES)
       expect(t.scope, t.kind).toBe(t.group === "projects" ? "instance" : "project");
     expect(PROJECT_CHANGE_TYPES.filter((t) => t.group === "projects").map((t) => t.kind)).toEqual([
