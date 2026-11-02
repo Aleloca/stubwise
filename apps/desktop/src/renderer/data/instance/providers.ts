@@ -152,7 +152,11 @@ export async function createProvider(input: {
 
 /** Accende o spegne un account; l'ultimo abilitato non si spegne. */
 export async function setProviderEnabled(id: string, enabled: boolean): Promise<InstanceResult> {
-  const me = await writer("instance.setProviderEnabled");
+  return setProviderEnabledAs(await writer("instance.setProviderEnabled"), id, enabled);
+}
+
+/** La forma sincrona di `setProviderEnabled` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function setProviderEnabledAs(me: string, id: string, enabled: boolean): InstanceResult {
   const found = managed(me, id);
   if ("refusal" in found) return found.refusal;
   const { provider } = found;
@@ -172,7 +176,11 @@ export async function setProviderEnabled(id: string, enabled: boolean): Promise<
 
 /** Sposta un account al posto `toIndex` della catena (da 0). */
 export async function moveProvider(id: string, toIndex: number): Promise<InstanceResult> {
-  const me = await writer("instance.moveProvider");
+  return moveProviderAs(await writer("instance.moveProvider"), id, toIndex);
+}
+
+/** La forma sincrona di `moveProvider` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function moveProviderAs(me: string, id: string, toIndex: number): InstanceResult {
   const found = managed(me, id);
   if ("refusal" in found) return found.refusal;
   const list = state.instance.providers;

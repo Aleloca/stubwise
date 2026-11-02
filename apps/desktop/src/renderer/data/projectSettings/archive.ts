@@ -139,7 +139,11 @@ export async function getArchivePreview(
 
 /** Archivia: `busy` se Claude ci lavora o un rilascio è in corso; `already_archived` se lo è già. */
 export async function archiveProject(projectId: string): Promise<ProjectResult> {
-  const me = await writer("projectSettings.archiveProject");
+  return archiveProjectAs(await writer("projectSettings.archiveProject"), projectId);
+}
+
+/** La forma sincrona di `archiveProject` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function archiveProjectAs(me: string, projectId: string): ProjectResult {
   const project = seenProject(me, projectId);
   if (!project) return refuse.notFound();
   if (!canI(me, MANAGE_SETTINGS, project.id)) return refuse.forbidden();
@@ -172,7 +176,11 @@ export async function archiveProject(projectId: string): Promise<ProjectResult> 
  * controller). `not_archived` se qualcuno l'ha già riaperto.
  */
 export async function reopenProject(projectId: string): Promise<ProjectResult> {
-  const me = await writer("projectSettings.reopenProject");
+  return reopenProjectAs(await writer("projectSettings.reopenProject"), projectId);
+}
+
+/** La forma sincrona di `reopenProject` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function reopenProjectAs(me: string, projectId: string): ProjectResult {
   const project = seenProject(me, projectId);
   if (!project) return refuse.notFound();
   if (!canI(me, MANAGE_SETTINGS, project.id)) return refuse.forbidden();

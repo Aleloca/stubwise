@@ -255,7 +255,16 @@ export async function addMember(
   personId: string,
   roleId: string,
 ): Promise<AdminResult> {
-  const me = await writer("admin.addMember");
+  return addMemberAs(await writer("admin.addMember"), projectId, personId, roleId);
+}
+
+/** La forma sincrona di `addMember` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function addMemberAs(
+  me: string,
+  projectId: string,
+  personId: string,
+  roleId: string,
+): AdminResult {
   const blocked = managed(me, projectId);
   if (blocked) return blocked;
   const refusal = judgeJoin(me, projectId, personId, roleId);
@@ -279,7 +288,11 @@ const removeMutation = (projectId: string, personId: string) => (s: AccessState)
 
 /** Toglie una persona dal progetto: con lei le sue concessioni e revoche lì (+R). */
 export async function removeMember(projectId: string, personId: string): Promise<AdminResult> {
-  const me = await writer("admin.removeMember");
+  return removeMemberAs(await writer("admin.removeMember"), projectId, personId);
+}
+
+/** La forma sincrona di `removeMember` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function removeMemberAs(me: string, projectId: string, personId: string): AdminResult {
   const blocked = managed(me, projectId);
   if (blocked) return blocked;
   if (!isHumanId(personId)) return refuse.notFound();
@@ -313,7 +326,16 @@ export async function setMemberRole(
   personId: string,
   roleId: string,
 ): Promise<AdminResult> {
-  const me = await writer("admin.setMemberRole");
+  return setMemberRoleAs(await writer("admin.setMemberRole"), projectId, personId, roleId);
+}
+
+/** La forma sincrona di `setMemberRole` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function setMemberRoleAs(
+  me: string,
+  projectId: string,
+  personId: string,
+  roleId: string,
+): AdminResult {
   const blocked = managed(me, projectId);
   if (blocked) return blocked;
   if (!isHumanId(personId)) return refuse.notFound();

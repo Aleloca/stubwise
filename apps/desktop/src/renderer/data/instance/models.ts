@@ -110,7 +110,15 @@ export async function setModel(
   operation: AiOperation,
   model: AiModelChoice | null,
 ): Promise<InstanceResult> {
-  const me = await writer("instance.setModel");
+  return setModelAs(await writer("instance.setModel"), operation, model);
+}
+
+/** La forma sincrona di `setModel` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function setModelAs(
+  me: string,
+  operation: AiOperation,
+  model: AiModelChoice | null,
+): InstanceResult {
   if (!canI(me, "settings.manage")) return refuse.forbidden();
   if (
     !(AI_OPERATIONS as readonly string[]).includes(operation) ||

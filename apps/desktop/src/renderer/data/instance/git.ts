@@ -170,7 +170,15 @@ export async function updateGitAccount(
   id: string,
   input: { name?: string; workspace?: string | null },
 ): Promise<InstanceResult> {
-  const me = await writer("instance.updateGitAccount");
+  return updateGitAccountAs(await writer("instance.updateGitAccount"), id, input);
+}
+
+/** La forma sincrona di `updateGitAccount` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function updateGitAccountAs(
+  me: string,
+  id: string,
+  input: { name?: string; workspace?: string | null },
+): InstanceResult {
   const found = managed(me, id);
   if ("refusal" in found) return found.refusal;
   const { account } = found;
@@ -296,7 +304,15 @@ export async function setDefaultReviewer(
   id: string,
   on: boolean,
 ): Promise<InstanceResult<{ replaced: string | null }>> {
-  const me = await writer("instance.setDefaultReviewer");
+  return setDefaultReviewerAs(await writer("instance.setDefaultReviewer"), id, on);
+}
+
+/** La forma sincrona di `setDefaultReviewer` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function setDefaultReviewerAs(
+  me: string,
+  id: string,
+  on: boolean,
+): InstanceResult<{ replaced: string | null }> {
   const found = managed(me, id);
   if ("refusal" in found) return found.refusal;
   const { account } = found;

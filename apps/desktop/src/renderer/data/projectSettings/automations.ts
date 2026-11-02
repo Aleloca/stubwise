@@ -39,7 +39,23 @@ export async function saveProjectAutomations(
     correctionCap: number;
   },
 ): Promise<ProjectResult> {
-  const me = await writer("projectSettings.saveProjectAutomations");
+  return saveProjectAutomationsAs(
+    await writer("projectSettings.saveProjectAutomations"),
+    projectId,
+    input,
+  );
+}
+
+/** La forma sincrona di `saveProjectAutomations` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function saveProjectAutomationsAs(
+  me: string,
+  projectId: string,
+  input: {
+    switches: Record<ProjectSwitch, boolean>;
+    pulseEveryDays: number;
+    correctionCap: number;
+  },
+): ProjectResult {
   const managed = managedProject(me, projectId);
   if ("refusal" in managed) return managed.refusal;
   const { project } = managed;

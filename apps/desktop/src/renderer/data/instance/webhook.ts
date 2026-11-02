@@ -116,7 +116,19 @@ export async function saveWebhook(input: {
   url: string | null;
   events: Record<string, boolean>;
 }): Promise<InstanceResult> {
-  const me = await writer("instance.saveWebhook");
+  return saveWebhookAs(await writer("instance.saveWebhook"), input);
+}
+
+/** La forma sincrona di `saveWebhook` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function saveWebhookAs(
+  me: string,
+  input: {
+    enabled: boolean;
+    format: WebhookFormat;
+    url: string | null;
+    events: Record<string, boolean>;
+  },
+): InstanceResult {
   if (!canI(me, MANAGE)) return refuse.forbidden();
   if (!FORMATS.has(input.format)) return refuse.invalid("format");
   const url = input.url?.trim() || null;

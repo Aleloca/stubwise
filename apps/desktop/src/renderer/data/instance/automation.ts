@@ -42,7 +42,11 @@ export async function getAutomation(): Promise<AutomationSettings> {
 
 /** Salva regole e revisione delle PR insieme. */
 export async function saveAutomation(input: AutomationSettings): Promise<InstanceResult> {
-  const me = await writer("instance.saveAutomation");
+  return saveAutomationAs(await writer("instance.saveAutomation"), input);
+}
+
+/** La forma sincrona di `saveAutomation` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function saveAutomationAs(me: string, input: AutomationSettings): InstanceResult {
   if (!canI(me, "settings.manage")) return refuse.forbidden();
   const types = input.rules.map((r) => r.taskType);
   if (types.length !== TASK_TYPES.length || !TASK_TYPES.every((t) => types.includes(t)))

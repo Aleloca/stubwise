@@ -18,7 +18,15 @@ export async function setProjectAi(
   projectId: string,
   input: { providerId: string | null; exclusive: boolean },
 ): Promise<ProjectResult> {
-  const me = await writer("projectSettings.setProjectAi");
+  return setProjectAiAs(await writer("projectSettings.setProjectAi"), projectId, input);
+}
+
+/** La forma sincrona di `setProjectAi` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function setProjectAiAs(
+  me: string,
+  projectId: string,
+  input: { providerId: string | null; exclusive: boolean },
+): ProjectResult {
   const managed = managedProject(me, projectId);
   if ("refusal" in managed) return managed.refusal;
   const { project } = managed;

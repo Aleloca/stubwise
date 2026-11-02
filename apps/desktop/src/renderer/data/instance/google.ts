@@ -194,7 +194,15 @@ export async function updateGoogleApp(
   id: string,
   input: { name?: string; domains?: string[]; clientId?: string },
 ): Promise<InstanceResult> {
-  const me = await writer("instance.updateGoogleApp");
+  return updateGoogleAppAs(await writer("instance.updateGoogleApp"), id, input);
+}
+
+/** La forma sincrona di `updateGoogleApp` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function updateGoogleAppAs(
+  me: string,
+  id: string,
+  input: { name?: string; domains?: string[]; clientId?: string },
+): InstanceResult {
   const found = managed(me, id);
   if ("refusal" in found) return found.refusal;
   const { app } = found;

@@ -600,7 +600,11 @@ export async function editComment(id: string, body: string): Promise<ActivityEnt
 
 /** L'autore o chi modera; il testo sparisce dal dato (`body = ""`). */
 export async function deleteComment(id: string): Promise<void> {
-  const me = await gate("deleteComment");
+  return deleteCommentAs(await gate("deleteComment"), id);
+}
+
+/** La forma sincrona di `deleteComment` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function deleteCommentAs(me: string, id: string): void {
   const { entry, task } = commentFor(me, id);
   if (entry.authorId !== me && !can(viewerFor(me), "tickets.moderate", task.projectId)) {
     throw forbidden();
@@ -894,7 +898,11 @@ export async function archiveRequest(id: string): Promise<ProjectRequest> {
 }
 
 export async function reopenRequest(id: string): Promise<ProjectRequest> {
-  const me = await gate("reopenRequest");
+  return reopenRequestAs(await gate("reopenRequest"), id);
+}
+
+/** La forma sincrona di `reopenRequest` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function reopenRequestAs(me: string, id: string): ProjectRequest {
   const request = setRequestStatus(me, id, ["archived"], "new");
   request.mergedIntoId = null;
   return copy(request);
@@ -1406,7 +1414,11 @@ export async function updateMilestone(id: string, patch: MilestonePatch): Promis
 
 /** Elimina un traguardo (`tickets.edit`): le sue task restano, senza traguardo. */
 export async function deleteMilestone(id: string): Promise<void> {
-  const me = await gate("deleteMilestone");
+  return deleteMilestoneAs(await gate("deleteMilestone"), id);
+}
+
+/** La forma sincrona di `deleteMilestone` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function deleteMilestoneAs(me: string, id: string): void {
   const milestone = milestoneFor(me, id);
   need(me, "tickets.edit", milestone.projectId);
   state.milestones = state.milestones.filter((m) => m.id !== id);
@@ -3067,13 +3079,32 @@ export async function startRun(taskId: string): Promise<Conversation> {
  * controlli, stesso gate del piano per chi non ha `plans.approve`.
  */
 export async function startRunAs(me: string, task: Task, gen: number): Promise<Conversation> {
-  prepareRun(me, task);
-  // Area 9b: col budget esaurito è rifiutato; con la coda in pausa aspetta
-  // (lo stesso per il Retry dello Stato dell'istanza, che passa da qui).
-  const block = aiStartBlock(task.projectId);
-  const c = openRun(me, task);
-  await startOrHold(me, c, "task_run", block, gen, () => playRun(me, c, task, gen));
+  const c = openRunAs(me, task);
+  await launchRun(me, c, gen);
   return c;
+}
+
+/**
+ * La prima metà di «Avvia», senza attese: gli stessi controlli e la sessione
+ * aperta, che non parte finché non la passa a `launchRun` (il Retry dello
+ * Stato dell'istanza, area 10a: il catalogo di Claude la fa partire a gruppo
+ * riuscito). Col budget esaurito è rifiutata prima di aprire.
+ */
+export function openRunAs(me: string, task: Task): Conversation {
+  prepareRun(me, task);
+  aiStartBlock(task.projectId);
+  return openRun(me, task);
+}
+
+/**
+ * Fa partire una sessione aperta da `openRunAs`: con la coda in pausa
+ * aspetta (area 9b), altrimenti la fase del piano. Il blocco si legge
+ * adesso; subito dopo `openRunAs` è lo stesso che leggeva l'apertura.
+ */
+export async function launchRun(me: string, c: Conversation, gen: number): Promise<void> {
+  const task = state.tasksById.get(c.taskId!)!;
+  const block = aiBlockFor(task.projectId);
+  await startOrHold(me, c, "task_run", block, gen, () => playRun(me, c, task, gen));
 }
 
 /**

@@ -62,7 +62,17 @@ export async function saveBudget(input: {
   monthlyUsd: number | null;
   contentLanguage: ContentLanguage;
 }): Promise<InstanceResult<BudgetSaveEffect>> {
-  const me = await writer("instance.saveBudget");
+  return saveBudgetAs(await writer("instance.saveBudget"), input);
+}
+
+/** La forma sincrona di `saveBudget` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function saveBudgetAs(
+  me: string,
+  input: {
+    monthlyUsd: number | null;
+    contentLanguage: ContentLanguage;
+  },
+): InstanceResult<BudgetSaveEffect> {
   if (!canI(me, "settings.manage")) return refuse.forbidden();
   const { monthlyUsd, contentLanguage } = input;
   if (monthlyUsd !== null && !(Number.isFinite(monthlyUsd) && monthlyUsd >= 0))

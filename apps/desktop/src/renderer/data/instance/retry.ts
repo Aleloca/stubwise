@@ -1,4 +1,4 @@
-import { startRunAs } from "../api-mutations";
+import { launchRun, openRunAs } from "../api-mutations";
 import { recordChange } from "../changelog/index";
 import { state, storeGeneration, visibleProjectIds } from "../store";
 import { writer } from "../writer";
@@ -13,11 +13,11 @@ import type { InstanceRefusal, InstanceResult } from "./types";
 //
 // Decisione del maintainer del 30 ott 2026: chiede `settings.manage` E
 // `runs.start` nel progetto; chi riprova è chi avvia, a suo nome, e il gate
-// del piano vale come per «Avvia» (passa da `startRunAs`). Solo
+// del piano vale come per «Avvia» (`openRunAs`, poi `launchRun`). Solo
 // sull'esecuzione fallita di una task: una correzione ferma non si tocca
 // (`pr-corrections.md`). Agisce solo sulla coda di Stubwise.
 
-/** Il rifiuto di `startRunAs` come risposta d'istanza; un errore che non conosce si rilancia. */
+/** Il rifiuto di `openRunAs` come risposta d'istanza; un errore che non conosce si rilancia. */
 function refusalOf(error: unknown): InstanceRefusal {
   const message = error instanceof Error ? error.message : "";
   if (message === "conflict") return refuse.conflict();
@@ -31,6 +31,21 @@ function refusalOf(error: unknown): InstanceRefusal {
 export async function retryJob(jobId: string): Promise<InstanceResult<{ conversationId: string }>> {
   const gen = storeGeneration();
   const me = await writer("instance.retryJob");
+  const result = retryJobAs(me, jobId);
+  if (!result.ok) return result;
+  await launchRun(me, state.conversations.find((c) => c.id === result.conversationId)!, gen);
+  // Un ripristino durante l'avvio: la risposta non parla dello stato nuovo.
+  if (gen !== storeGeneration()) throw new Error("reset");
+  return result;
+}
+
+/**
+ * La forma sincrona di `retryJob` (il catalogo di Claude, area 10a): gli
+ * stessi controlli, la sessione aperta con `openRunAs` e la voce, ma la
+ * sessione non parte e non scrive eventi. La fa partire `launchRun`: qui
+ * sopra subito, dal catalogo solo a gruppo riuscito.
+ */
+export function retryJobAs(me: string, jobId: string): InstanceResult<{ conversationId: string }> {
   const failed = state.conversations.find((c) => c.id === jobId);
   if (!failed || failed.projectId === null || !visibleProjectIds(me).has(failed.projectId))
     return refuse.notFound();
@@ -45,12 +60,10 @@ export async function retryJob(jobId: string): Promise<InstanceResult<{ conversa
 
   let conversationId: string;
   try {
-    conversationId = (await startRunAs(me, task, gen)).id;
+    conversationId = openRunAs(me, task).id;
   } catch (error) {
     return refusalOf(error);
   }
-  // Un ripristino durante l'avvio: la voce non va nello stato nuovo.
-  if (gen !== storeGeneration()) throw new Error("reset");
   recordChange({
     kind: "job.retried",
     actorId: me,

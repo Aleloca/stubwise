@@ -244,7 +244,19 @@ export async function registerPlugin(input: {
   subdir: string | null;
   trusted: true;
 }): Promise<InstanceResult<{ pluginId: string; name: string }>> {
-  const me = await writer("instance.registerPlugin");
+  return registerPluginAs(await writer("instance.registerPlugin"), input);
+}
+
+/** La forma sincrona di `registerPlugin` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function registerPluginAs(
+  me: string,
+  input: {
+    url: string;
+    ref: string;
+    subdir: string | null;
+    trusted: true;
+  },
+): InstanceResult<{ pluginId: string; name: string }> {
   if (!canI(me, MANAGE)) return refuse.forbidden();
   if (input.trusted !== true) return refuse.invalid("not_trusted");
   const url = input.url.trim();
@@ -304,7 +316,15 @@ export async function updatePluginRef(
   id: string,
   input: { ref: string; trusted: true },
 ): Promise<InstanceResult> {
-  const me = await writer("instance.updatePluginRef");
+  return updatePluginRefAs(await writer("instance.updatePluginRef"), id, input);
+}
+
+/** La forma sincrona di `updatePluginRef` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function updatePluginRefAs(
+  me: string,
+  id: string,
+  input: { ref: string; trusted: true },
+): InstanceResult {
   const found = managed(me, id);
   if ("refusal" in found) return found.refusal;
   if (input.trusted !== true) return refuse.invalid("not_trusted");
@@ -333,7 +353,11 @@ export async function updatePluginRef(
 
 /** Rifà lo smoke test sullo stesso commit, già accettato: niente casella né riconferma. */
 export async function rerunSmoke(id: string): Promise<InstanceResult> {
-  const me = await writer("instance.rerunSmoke");
+  return rerunSmokeAs(await writer("instance.rerunSmoke"), id);
+}
+
+/** La forma sincrona di `rerunSmoke` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function rerunSmokeAs(me: string, id: string): InstanceResult {
   const found = managed(me, id);
   if ("refusal" in found) return found.refusal;
   const { plugin } = found;
@@ -351,7 +375,11 @@ export async function rerunSmoke(id: string): Promise<InstanceResult> {
 
 /** Rimuove un plugin: i progetti ne perdono skill e hook dalla prossima esecuzione. Ferma il suo ciclo. */
 export async function removePlugin(id: string): Promise<InstanceResult> {
-  const me = await writer("instance.removePlugin");
+  return removePluginAs(await writer("instance.removePlugin"), id);
+}
+
+/** La forma sincrona di `removePlugin` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function removePluginAs(me: string, id: string): InstanceResult {
   const found = managed(me, id);
   if ("refusal" in found) return found.refusal;
   cancel(id);

@@ -75,7 +75,20 @@ export async function saveStorage(input: {
   accessKeyId: string;
   secretAccessKey?: string;
 }): Promise<InstanceResult> {
-  const me = await writer("instance.saveStorage");
+  return saveStorageAs(await writer("instance.saveStorage"), input);
+}
+
+/** La forma sincrona di `saveStorage` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function saveStorageAs(
+  me: string,
+  input: {
+    endpoint: string;
+    region: string;
+    bucket: string;
+    accessKeyId: string;
+    secretAccessKey?: string;
+  },
+): InstanceResult {
   if (!canI(me, MANAGE)) return refuse.forbidden();
   const s = state.instance.storage;
   const endpoint = input.endpoint.trim();
@@ -122,7 +135,11 @@ export async function saveStorage(input: {
 
 /** Accende o spegne gli allegati, subito e senza riconferma. Accenderli chiede un'archiviazione configurata. */
 export async function setAttachments(on: boolean): Promise<InstanceResult> {
-  const me = await writer("instance.setAttachments");
+  return setAttachmentsAs(await writer("instance.setAttachments"), on);
+}
+
+/** La forma sincrona di `setAttachments` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function setAttachmentsAs(me: string, on: boolean): InstanceResult {
   if (!canI(me, MANAGE)) return refuse.forbidden();
   const s = state.instance.storage;
   if (s.attachmentsEnabled === on) return { ok: true };

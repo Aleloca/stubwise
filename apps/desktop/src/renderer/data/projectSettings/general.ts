@@ -20,7 +20,19 @@ export async function updateProjectGeneral(
   projectId: string,
   input: { name?: string; description?: string },
 ): Promise<ProjectResult> {
-  const me = await writer("projectSettings.updateProjectGeneral");
+  return updateProjectGeneralAs(
+    await writer("projectSettings.updateProjectGeneral"),
+    projectId,
+    input,
+  );
+}
+
+/** La forma sincrona di `updateProjectGeneral` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function updateProjectGeneralAs(
+  me: string,
+  projectId: string,
+  input: { name?: string; description?: string },
+): ProjectResult {
   const managed = managedProject(me, projectId);
   if ("refusal" in managed) return managed.refusal;
   const { project } = managed;

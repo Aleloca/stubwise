@@ -198,7 +198,11 @@ const objectOf = (projectId: string) => ({
 
 /** Mette in pausa la coda di un progetto (`settings.manage`): il lavoro nuovo aspetta, quello partito finisce. */
 export async function pauseQueue(projectId: string): Promise<InstanceResult> {
-  const me = await writer("instance.pauseQueue");
+  return pauseQueueAs(await writer("instance.pauseQueue"), projectId);
+}
+
+/** La forma sincrona di `pauseQueue` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function pauseQueueAs(me: string, projectId: string): InstanceResult {
   if (!visibleProjectIds(me).has(projectId)) return refuse.notFound();
   if (!canI(me, "settings.manage")) return refuse.forbidden();
   if (queuePauseOf(projectId)) return refuse.invalid("already_paused");
@@ -215,7 +219,11 @@ export async function pauseQueue(projectId: string): Promise<InstanceResult> {
 
 /** Riprende la coda di un progetto (`settings.manage`): i lavori fermi per la pausa partono, nell'ordine. */
 export async function resumeQueue(projectId: string): Promise<InstanceResult> {
-  const me = await writer("instance.resumeQueue");
+  return resumeQueueAs(await writer("instance.resumeQueue"), projectId);
+}
+
+/** La forma sincrona di `resumeQueue` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function resumeQueueAs(me: string, projectId: string): InstanceResult {
   if (!visibleProjectIds(me).has(projectId)) return refuse.notFound();
   if (!canI(me, "settings.manage")) return refuse.forbidden();
   const pause = queuePauseOf(projectId);

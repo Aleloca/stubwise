@@ -86,7 +86,16 @@ export async function setSubscription(
   type: string,
   change: { app?: boolean; phone?: boolean },
 ): Promise<void> {
-  const me = await writer("alerts.setSubscription");
+  return setSubscriptionAs(await writer("alerts.setSubscription"), projectId, type, change);
+}
+
+/** La forma sincrona di `setSubscription` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function setSubscriptionAs(
+  me: string,
+  projectId: string,
+  type: string,
+  change: { app?: boolean; phone?: boolean },
+): void {
   visibleProject(me, projectId);
   if (!alertTypeOf(type)) throw invalid("type");
   const rowType = rowTypeOf(type);
