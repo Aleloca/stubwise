@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   chat,
   listNotifications,
+  planTask,
   projectSettings,
   resetApi,
   setLatency,
@@ -53,6 +54,11 @@ async function readAs(personId: string, id: string): Promise<AppNotification> {
   const n = (await listNotifications()).find((x) => x.id === id);
   if (!n) throw new Error(`${id} non arriva a ${personId}`);
   return n;
+}
+
+async function readAllAs(personId: string): Promise<AppNotification[]> {
+  as(personId);
+  return listNotifications();
 }
 
 function renderItem(n: AppNotification, personId: string) {
@@ -235,6 +241,57 @@ describe("@Claude nella Chat (maintainer)", () => {
     });
     expect(entry.textContent).toMatch(/^\d\d:\d\dClaude on behalf of Giulia Ferri turned (on|off) the weekly brief in OLV\./);
     expect(entry.textContent).not.toMatch(/undid/i);
+  });
+});
+
+describe("I2: `task.assigned` e `planning.changed` fatte a mano, nella lingua di chi legge", () => {
+  it("Giulia assegna a mano una task a Marco: en e it composte, nessuna parola del corpo salvato", async () => {
+    as(GIULIA);
+    const task = createTaskAs(GIULIA, { projectId: OLV, title: "Harvest photos", assigneeId: MARCO });
+    const n = (await readAllAs(MARCO)).find(
+      (x) => x.kind === "task.assigned" && x.objectCode === task.code,
+    )!;
+    expect(n.viaClaude).toBeUndefined();
+    renderItem(n, MARCO);
+    const item = document.querySelector<HTMLElement>("[data-notification]")!;
+    expect(within(item).getByText(`Giulia Ferri assigned you ${task.code}.`)).toBeInTheDocument();
+    act(() => setLanguage("it"));
+    await waitFor(() =>
+      expect(within(item).getByText(`Ti è stata assegnata ${task.code}`)).toBeInTheDocument(),
+    );
+    expect(within(item).getByText(`Giulia Ferri ti ha assegnato ${task.code}.`)).toBeInTheDocument();
+    expect(itemText()).not.toMatch(/assigned it to you|harvest/i);
+  });
+
+  it("Giulia sposta a mano la settimana di Marco: en e it composte da `plannedWeek`", async () => {
+    const task = createTaskAs(GIULIA, { projectId: OLV, title: "Harvest photos", assigneeId: MARCO });
+    state.tasksById.get(task.id)!.plannedWeek = "2026-W45";
+    as(GIULIA);
+    await planTask(task.id, { assigneeId: MARCO, week: "2026-W46" });
+    const n = (await readAllAs(MARCO)).find(
+      (x) => x.kind === "planning.changed" && x.objectCode === task.code,
+    )!;
+    renderItem(n, MARCO);
+    expect(itemText()).toContain(`Giulia Ferri planned ${task.code} for W46.`);
+    act(() => setLanguage("it"));
+    await waitFor(() => expect(itemText()).toContain("La tua settimana è cambiata"));
+    expect(itemText()).toContain(`Giulia Ferri ha pianificato ${task.code} per S46.`);
+    expect(itemText()).not.toMatch(/planned|harvest/i);
+  });
+
+  it("chi ha scritto e chi riceve non si vedono: «Qualcuno», mai il nome (R-G5), e l'id non esce", async () => {
+    const hidden = PEOPLE.find((p) => !p.isClaude && !visiblePeopleFor(MARCO).has(p.id))!;
+    state.notifications.push({
+      ...state.notifications.find((x) => x.id === CLAUDE_SEED_IDS.notification)!,
+      id: "n-hidden-hand",
+      viaClaude: undefined,
+      actorId: hidden.id,
+    } as AppNotification);
+    const n = await readAs(MARCO, "n-hidden-hand");
+    expect(JSON.stringify(n)).not.toContain(hidden.id);
+    renderItem(n, MARCO);
+    expect(itemText()).toContain(`Someone assigned you ${HANDOVER_TASK.code}.`);
+    expect(itemText().toLowerCase()).not.toContain(hidden.name.toLowerCase());
   });
 });
 

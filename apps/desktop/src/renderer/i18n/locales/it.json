@@ -254,6 +254,12 @@
       "someone": "qualcuno",
       "planned": "Claude per conto di {{name}} ha pianificato {{code}} per S{{n}}.",
       "unplanned": "Claude per conto di {{name}} ha tolto {{code}} dalla tua settimana."
+    },
+    "direct": {
+      "assigned": "{{name}} ti ha assegnato {{code}}.",
+      "planned": "{{name}} ha pianificato {{code}} per S{{n}}.",
+      "unplanned": "{{name}} ha tolto {{code}} dalla tua settimana.",
+      "someone": "Qualcuno"
     }
   },
   "placeholder": {

@@ -254,6 +254,12 @@
       "someone": "someone",
       "planned": "Claude on behalf of {{name}} planned {{code}} for W{{n}}.",
       "unplanned": "Claude on behalf of {{name}} took {{code}} out of your week."
+    },
+    "direct": {
+      "assigned": "{{name}} assigned you {{code}}.",
+      "planned": "{{name}} planned {{code}} for W{{n}}.",
+      "unplanned": "{{name}} took {{code}} out of your week.",
+      "someone": "Someone"
     }
   },
   "placeholder": {

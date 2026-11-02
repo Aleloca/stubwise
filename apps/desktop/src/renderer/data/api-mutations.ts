@@ -243,6 +243,8 @@ function publish(
     snoozedUntil: null,
     // Apre la task stessa, non solo l'elenco del progetto.
     link: `#/p/${project.code}/tasks?task=${task.code}`,
+    // Chi ha scritto, come valore stabile: la frase si compone a lettura (I2).
+    actorId: me,
     ...(via ? { viaClaude: { personId: me, actionId: via.actionId } } : {}),
     ...extra,
   });

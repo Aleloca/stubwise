@@ -243,6 +243,7 @@ export const CLAUDE_NOTIFICATIONS: AppNotification[] = [
     archived: false,
     snoozedUntil: null,
     link: `#/p/OLV/tasks?task=${HANDOVER_TASK.code}`,
+    actorId: GIULIA,
     viaClaude: { personId: GIULIA, actionId: brief.plan },
   },
   {
@@ -259,6 +260,7 @@ export const CLAUDE_NOTIFICATIONS: AppNotification[] = [
     archived: false,
     snoozedUntil: null,
     link: `#/p/OLV/tasks?task=${HANDOVER_TASK.code}`,
+    actorId: GIULIA,
     viaClaude: { personId: GIULIA, actionId: brief.undoPlan },
     plannedWeek: HANDOVER_TASK.week,
   },

@@ -95,20 +95,17 @@ export function NotificationItem({
       ? t(`notifications.sources.${prefix}`)
       : undefined);
 
-  // I tipi con una frase propria la dicono nella lingua di chi guarda (area
-  // 10a: `task.assigned`); gli altri tengono il titolo salvato.
-  const title =
-    n.kind === "task.assigned"
-      ? t("notifications.kinds.task_assigned", { code: n.objectCode })
-      : n.kind === "planning.changed"
-        ? t("notifications.kinds.planning_changed")
-        : n.title;
-
-  // Area 10a (shape claude-trace.md): nata da un'azione di Claude per una
-  // persona, il corpo comincia con «Claude on behalf of <nome>». Il titolo
-  // resta quello del tipo; l'assegnazione ha la sua frase, gli altri tipi
-  // mettono il prefisso al posto del nome (o in testa, se il corpo non lo dice).
-  const body = n.viaClaude ? viaClaudeBody(n, t) : n.body;
+  // I tipi con una frase propria (area 10a: `task.assigned`,
+  // `planning.changed`) si compongono a lettura nella lingua di chi guarda,
+  // titolo E corpo, dai valori stabili della riga (chi ha scritto, la
+  // settimana); una riga nata prima, senza quei valori, resta tutta com'è
+  // salvata, senza mescolare le lingue (I2 della revisione finale). Nata da
+  // un'azione di Claude per una persona, il corpo comincia con «Claude on
+  // behalf of <nome>» (shape claude-trace.md): gli altri tipi mettono il
+  // prefisso al posto del nome (o in testa, se il corpo non lo dice).
+  const composed = composedOf(n, t);
+  const title = composed?.title ?? n.title;
+  const body = composed?.body ?? (n.viaClaude ? viaClaudeBody(n, t) : n.body);
 
   const choose = (option: SnoozeOption) => {
     setMenuOpen(false);
@@ -307,6 +304,43 @@ export function NotificationItem({
 }
 
 /** Il corpo di una notifica nata da Claude per una persona (`viaClaude`). */
+/** Il numero della settimana di un valore stabile («2026-W46» → 46). */
+const weekNumber = (week: string) => Number(week.split("-W")[1]);
+
+/**
+ * Titolo e corpo di `task.assigned` e `planning.changed` nella lingua di chi
+ * legge, dai valori stabili (`actorName`, `viaClaude`, `plannedWeek`);
+ * `null` per gli altri tipi e per le righe nate prima, che non li hanno.
+ */
+function composedOf(
+  n: AppNotification,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): { title: string; body: string } | null {
+  const byHand = n.actorName !== undefined && !n.viaClaude;
+  if (n.kind === "task.assigned" && (n.viaClaude || byHand)) {
+    const name = n.actorName ?? t("notifications.direct.someone");
+    return {
+      title: t("notifications.kinds.task_assigned", { code: n.objectCode }),
+      body: n.viaClaude
+        ? viaClaudeBody(n, t)
+        : t("notifications.direct.assigned", { name, code: n.objectCode }),
+    };
+  }
+  if (n.kind === "planning.changed" && n.plannedWeek !== undefined && (n.viaClaude || byHand)) {
+    const name = n.actorName ?? t("notifications.direct.someone");
+    const week = n.plannedWeek;
+    return {
+      title: t("notifications.kinds.planning_changed"),
+      body: n.viaClaude
+        ? viaClaudeBody(n, t)
+        : week === null
+          ? t("notifications.direct.unplanned", { name, code: n.objectCode })
+          : t("notifications.direct.planned", { name, code: n.objectCode, n: weekNumber(week) }),
+    };
+  }
+  return null;
+}
+
 function viaClaudeBody(
   n: AppNotification,
   t: (key: string, options?: Record<string, unknown>) => string,
@@ -322,7 +356,7 @@ function viaClaudeBody(
       : t("notifications.viaClaude.planned", {
           name,
           code: n.objectCode,
-          n: Number(n.plannedWeek.split("-W")[1]),
+          n: weekNumber(n.plannedWeek),
         });
   if (n.viaClaudeName && n.body.includes(n.viaClaudeName))
     return n.body.replace(n.viaClaudeName, t("notifications.viaClaude.actor", { name }));

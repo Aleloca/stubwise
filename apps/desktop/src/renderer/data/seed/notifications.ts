@@ -1,7 +1,7 @@
 import type { AppNotification } from "../types";
 import { ALERT_NOTIFICATIONS } from "./alerts";
 import { CLAUDE_NOTIFICATIONS } from "./claudeActions";
-import { CLOCK_START } from "./dates";
+import { CLOCK_START, isoWeek, TODAY } from "./dates";
 import { PEOPLE } from "./people";
 import { PROJECTS } from "./projects";
 import { SERVER_ALERT_NOTIFICATIONS } from "./servers/alerts";
@@ -53,9 +53,21 @@ export const LOCAL_NOTIFICATION_KINDS = [
   "server.diagnosis_ready",
 ] as const;
 
-// [kind, codice progetto, codice oggetto, titolo, corpo, ore fa, letta, destinatari?]
-// Senza destinatari espliciti la notifica va ai membri umani del progetto.
-type Row = [string, string | null, string, string, string, number, boolean, string[]?];
+// [kind, codice progetto, codice oggetto, titolo, corpo, ore fa, letta, destinatari?, valori stabili?]
+// Senza destinatari espliciti la notifica va ai membri umani del progetto. I
+// valori stabili (area 10a, I2: chi ha scritto, la settimana) fanno comporre
+// `task.assigned` e `planning.changed` nella lingua di chi legge.
+type Row = [
+  string,
+  string | null,
+  string,
+  string,
+  string,
+  number,
+  boolean,
+  string[]?,
+  Pick<AppNotification, "actorId" | "plannedWeek">?,
+];
 
 const ROWS: Row[] = [
   [
@@ -242,6 +254,7 @@ const ROWS: Row[] = [
     9,
     false,
     ["p-giulia"],
+    { actorId: "p-laura", plannedWeek: isoWeek(TODAY) },
   ],
   [
     "decision.answered",
@@ -302,6 +315,7 @@ const ROWS: Row[] = [
     150,
     true,
     ["p-marco"],
+    { actorId: "p-giulia" },
   ],
 ];
 
@@ -326,7 +340,7 @@ function projectlessLink(kind: string): string {
 const isHuman = (id: string) => PEOPLE.some((p) => p.id === id && !p.isClaude);
 
 const FIXED_NOTIFICATIONS: AppNotification[] = ROWS.map(
-  ([kind, code, objectCode, title, body, hoursAgo, read, recipients], i) => {
+  ([kind, code, objectCode, title, body, hoursAgo, read, recipients, stable], i) => {
     const project = code ? PROJECTS.find((p) => p.code === code) : undefined;
     const task = TASKS.find((t) => t.code === objectCode);
     // «Ore fa» dall'adesso del prototipo (orologio unico): mai nel futuro.
@@ -353,6 +367,7 @@ const FIXED_NOTIFICATIONS: AppNotification[] = ROWS.map(
           : project
             ? `#/p/${project.code}`
             : projectlessLink(kind),
+      ...stable,
     };
   },
 );

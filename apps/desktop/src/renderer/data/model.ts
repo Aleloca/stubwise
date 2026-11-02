@@ -150,6 +150,19 @@ export interface AppNotification {
    * Si deriva da `viaClaude.actionId` → l'azione → `undone.byId`; mai salvato.
    */
   undoneByName?: string | null;
+  /**
+   * Area 10a (I2 della revisione finale): chi ha fatto la scrittura di una
+   * notifica diretta (`publish`), come valore stabile, perché `task.assigned`
+   * e `planning.changed` si compongano a lettura nella lingua di chi legge
+   * anche senza Claude. Non esce mai al client: `listNotifications` lo
+   * sostituisce con `actorName`. Assente sulle righe nate prima.
+   */
+  actorId?: string;
+  /**
+   * Area 10a, solo a lettura: il nome di `actorId` se chi guarda vede quella
+   * persona, `null` se no (R-G5); assente se la riga non ha `actorId`.
+   */
+  actorName?: string | null;
 }
 
 /** Perché un avviso del catalogo arriva a qualcuno senza iscrizione (area 8a). */

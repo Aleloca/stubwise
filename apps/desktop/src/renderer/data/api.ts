@@ -639,6 +639,14 @@ export async function listNotifications(): Promise<AppNotification[]> {
       const out = copy(href ? { ...delivered, linkAccessHref: href } : delivered);
       // Area 10a: la task della notifica è stata eliminata; la notifica resta.
       if (taskGone(n)) out.objectGone = true;
+      // Area 10a (I2): chi ha scritto, come nome per chi guarda (R-G5);
+      // l'id resta nel livello dati.
+      if (n.actorId !== undefined) {
+        out.actorName = visiblePeopleFor(me).has(n.actorId)
+          ? (PEOPLE.find((p) => p.id === n.actorId)?.name ?? null)
+          : null;
+        delete out.actorId;
+      }
       // Area 10a: per chi l'ha fatta partire Claude, e chi l'ha annullata;
       // i nomi solo se chi guarda vede quelle persone (R-G5).
       if (n.viaClaude) {
