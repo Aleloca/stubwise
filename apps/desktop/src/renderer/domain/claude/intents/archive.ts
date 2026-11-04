@@ -77,11 +77,17 @@ export async function archive(text: string, ctx: IntentContext): Promise<Answer>
   ];
 
   if (view.candidates.length === 0) {
-    // Senza scheda le righe a parte le dice il testo (ruling del controller, Q1).
+    // Senza scheda le righe a parte le dice il testo (ruling del controller,
+    // Q1), e i codici che nominano sono riferimenti apribili (fix round 1).
     const lines = notes.map((n) => noteLine(t, n));
+    const named = new Set([...view.notManageableCodes, ...view.busy.map((b) => b.code)]);
+    const refs = (await read.listProjects())
+      .filter((p) => named.has(p.code))
+      .map((p) => ({ kind: "project" as const, id: p.id }));
     return {
       actions,
       text: [t("claude.answers.archive.none", { period: said }), ...lines].join("\n\n"),
+      ...(refs.length > 0 ? { refs } : {}),
     };
   }
 
@@ -111,9 +117,9 @@ function noteLine(t: T, note: ProposalNote): string {
     const head = t("claude.answers.archive.notManageable", { count: note.count });
     const codes = note.codes ?? [];
     const who = (code: string) => `[${t("claude.answers.refused.who")}](who:${note.whoAction}/${code})`;
-    if (codes.length === 1) return `${head} · ${who(codes[0]!)}`;
-    // Più progetti: un «Who?» per ognuno, col suo codice ([SC 11]).
-    return `${head} · ${codes.map((code) => `${code} ${who(code)}`).join(" · ")}`;
+    // Ogni progetto col suo codice e il suo «Who?», anche uno solo ([SC 11], fix round 1).
+    if (codes.length === 0) return head;
+    return `${head}: ${codes.map((code) => `${code} · ${who(code)}`).join(", ")}`;
   }
   return note.reasons.map((r) => busyLine(t, note.code, r)).join("\n\n");
 }

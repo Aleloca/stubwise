@@ -3602,7 +3602,8 @@
         "cantAdd_vowel": "You can't add people to {{code}} ·",
         "noName": "Who should I add to {{code}}? Tell me the name.",
         "noName_vowel": "Who should I add to {{code}}? Tell me the name.",
-        "noProject": "Which project should I add {{name}} to? Tell me its code (for example “to ACQ”)."
+        "noProject": "Which project should I add {{name}} to? Tell me its code (for example “to ACQ”).",
+        "openInviteBare": "Open the invite →"
       }
     },
     "proposalFailed": {

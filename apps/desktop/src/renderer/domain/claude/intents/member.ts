@@ -23,6 +23,7 @@ const NAME =
 const AS_ROLE = /\b(as|come)\s+\S/;
 /** Un codice di progetto dopo una preposizione: «to ACQ», «ad ACQ», «in ACQ». */
 const TO_PROJECT = /\b(?:to|into|in|ad|a|al|nel|per)\s+([A-Z]{2,4})\b/;
+const TASK_CODE = /\b[a-z]{2,4}-\d+\b/i;
 
 /**
  * «add Luca to ACQ as Developer», «invita Luca come Developer in ACQ».
@@ -31,7 +32,8 @@ const TO_PROJECT = /\b(?:to|into|in|ad|a|al|nel|per)\s+([A-Z]{2,4})\b/;
  * ruolo annunciato, così «add “Banner” to AUD» resta la creazione di una task.
  */
 export function isMemberRequest(text: string): boolean {
-  if (isHowToQuestion(text) || /["“«]/.test(text)) return false;
+  // Un codice di task («add Marco as reviewer on AUD-4») non è un membro, come per `archive`.
+  if (isHowToQuestion(text) || /["“«]/.test(text) || TASK_CODE.test(text)) return false;
   const { polite, command } = stripCourtesy(normalize(text));
   if (!polite && QUESTION.test(command)) return false;
   if (!VERB.test(command) && !(polite && VERB_INF.test(command))) return false;
@@ -78,7 +80,7 @@ export async function member(text: string, ctx: IntentContext): Promise<Answer> 
   const named = people.filter((p) => plain.includes(normalize(p.name)));
   const person = people.length === 1 ? people[0]! : named.length === 1 ? named[0]! : null;
 
-  if (people.length === 0) return invite(ctx, lookup, name, project, role);
+  if (people.length === 0) return invite(ctx, lookup, name, project, role, roles[0] ?? null);
 
   // Chi non gestisce i membri lì non riceve una scheda che non potrebbe
   // confermare: lo dice, col «Who?». Non dipende dal ruolo.
@@ -181,6 +183,10 @@ function personLabel(p: Person, departments: Department[]): string {
  * segreto — mai nel testo né nell'indirizzo. Chi può invitare ha la riga D
  * verso il dialogo «Invite» con progetto e ruolo scelti e l'email vuota; chi
  * non può, la frase col «Who?» d'istanza (ruling del controller, Q2).
+ *
+ * Il link non promette ciò che il dialogo scarterebbe (fix round 1, minore
+ * 1): senza la gestione dei membri lì il progetto non c'è — e la frase dice
+ * perché, col «Who?» — e un ruolo che chi invita non può dare non c'è.
  */
 async function invite(
   ctx: IntentContext,
@@ -188,24 +194,42 @@ async function invite(
   name: string,
   project: Project,
   role: { id: string; name: string } | null,
+  anyRole: { id: string; name: string } | null,
 ): Promise<Answer> {
   const { read, t } = ctx;
   const first = t(`${K}.noPerson`, { name });
+  const who = t("claude.answers.refused.who");
   if (!(await read.canInvitePeople())) {
     return {
       actions: [lookup],
-      text: `${first} ${t(`${K}.cantInvite`)} [${t("claude.answers.refused.who")}](who:invitePeople)`,
+      text: `${first} ${t(`${K}.cantInvite`)} [${who}](who:invitePeople)`,
     };
   }
+  // `forbidden` non dipende dal ruolo: basta uno qualunque per chiederlo.
+  const asked = role ?? anyRole;
+  const grant = asked ? await read.canGrantRole(project.id, asked.id) : "forbidden";
+  if (grant === "forbidden") {
+    const code = project.code;
+    return {
+      actions: [lookup],
+      text: `${first} ${t(`${K}.cantAdd`, { code, ...vowel(code) })} [${who}](who:manageMembers/${code})`,
+      place: { route: "#/admin/people?invite=1", labelKey: `${K}.openInviteBare` },
+    };
+  }
+  const offered = role && grant === "ok" ? role : null;
   const query = new URLSearchParams({ invite: "1", inviteProject: project.code });
-  if (role) query.set("inviteRole", role.id);
+  if (offered) query.set("inviteRole", offered.id);
   return {
     actions: [lookup],
     text: first,
     place: {
       route: `#/admin/people?${query.toString()}`,
-      labelKey: role ? `${K}.openInvite` : `${K}.openInviteNoRole`,
-      labelParams: { code: project.code, ...(role ? { role: role.name } : {}), ...vowel(project.code) },
+      labelKey: offered ? `${K}.openInvite` : `${K}.openInviteNoRole`,
+      labelParams: {
+        code: project.code,
+        ...(offered ? { role: offered.name } : {}),
+        ...vowel(project.code),
+      },
     },
   };
 }

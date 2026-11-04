@@ -11,7 +11,12 @@ import { PEOPLE } from "../../data/seed/people";
 import { setSessionPersonId } from "../../data/session";
 import { now, state, visibleProjectIds } from "../../data/store";
 import type { ConversationEvent, ScriptStep } from "../../data/types";
-import { can, revokeProjectPermission, viewerFor } from "../../data/viewer";
+import {
+  can,
+  grantInstancePermission,
+  revokeProjectPermission,
+  viewerFor,
+} from "../../data/viewer";
 import { nameList } from "../names";
 import { recognize, respond, type IntentContext } from "./intents";
 
@@ -98,6 +103,8 @@ describe("recognize: archiviare e aggiungere un membro (P10)", () => {
   it("una task resta una task", () => {
     expect(recognize("create “Banner copy review” in AUD")).toBe("create");
     expect(recognize("add “Banner copy review” to AUD")).toBe("create");
+    // Un codice di task non è un membro (come per `archive`): fix round 1, minore 3.
+    expect(recognize("add Marco as reviewer on AUD-4")).not.toBe("member");
   });
 });
 
@@ -152,9 +159,41 @@ describe("S4: archiviare in blocco", () => {
       [
         "No project you manage has been inactive for 3 months.",
         "",
-        "1 inactive project you can't archive · [Who?](who:manageProjectSettings/LNT)",
+        "1 inactive project you can't archive: LNT · [Who?](who:manageProjectSettings/LNT)",
       ].join("\n"),
     );
+    // Il codice è un riferimento apribile (fix round 1, minore 2).
+    expect(events(steps, "citation").flatMap((c) => c.refs)).toEqual([
+      { kind: "project", id: "prj-lnt" },
+    ]);
+  });
+
+  it("senza scheda, più progetti: ogni codice col suo «Who?», tutti citati; i `busy` anche", async () => {
+    // Roberta a 90 giorni con ORT, SPZ e LNT già archiviati: resta BSC, occupato.
+    setSessionPersonId(ROBERTA);
+    for (const code of ["ort", "spz", "lnt"])
+      state.projectsById.get(`prj-${code}`)!.archived = { at: now(), byId: ROBERTA };
+    const steps = await respond("archive projects with no activity for 90 days", as(ROBERTA));
+    expect(proposalOf(steps)).toBeUndefined();
+    expect(said(steps)).toContain("**BSC**");
+    expect(events(steps, "citation").flatMap((c) => c.refs)).toEqual([
+      { kind: "project", id: "prj-bsc" },
+    ]);
+    // Laura con due non gestibili: «…: LNT · Who?, XYZ · Who?» (dal seme, LNT non archiviato).
+    api.resetApi();
+    revokeProjectPermission(LAURA, ACQ, "project.settings.manage" as never);
+    quiet(ACQ);
+    const two = await respond("archive projects with no activity for 3 months", as(LAURA));
+    const line = said(two).split("\n").at(-1)!;
+    expect(line).toMatch(/^2 inactive projects you can't archive: /);
+    expect(line).toContain("ACQ · [Who?](who:manageProjectSettings/ACQ)");
+    expect(line).toContain("LNT · [Who?](who:manageProjectSettings/LNT)");
+    expect(
+      events(two, "citation")
+        .flatMap((c) => c.refs)
+        .map((r) => r.id)
+        .sort(),
+    ).toEqual([ACQ, "prj-lnt"]);
   });
 
   it("la nota `not_manageable` di una scheda porta `codes` coi soli codici visibili, lunga quanto `count`", async () => {
@@ -284,6 +323,27 @@ describe("S5: aggiungere un membro", () => {
       "I can't find Pietro in Stubwise. An invite sends a link, and the app creates it, not me. Inviting people isn't something you can do here · [Who?](who:invitePeople)",
     );
     expect(said(steps)).not.toContain("#/admin");
+  });
+
+  it("nessun Pietro, e il dialogo scarterebbe il progetto: il link non lo promette, e la frase dice perché (fix round 1, minore 1)", async () => {
+    grantInstancePermission(LAURA, "users.invite" as never);
+    expect(can(viewerFor(LAURA), "project.members.manage", "prj-lnt")).toBe(false);
+    const steps = await respond("invite Pietro as Developer in LNT", as(LAURA));
+    expect(said(steps)).toBe(
+      "I can't find Pietro in Stubwise. An invite sends a link, and the app creates it, not me. You can't add people to LNT · [Who?](who:manageMembers/LNT) [Open the invite →](#/admin/people?invite=1)",
+    );
+    expect(isAppRoute("#/admin/people?invite=1")).toBe(true);
+  });
+
+  it("nessun Pietro, e il dialogo scarterebbe il ruolo: il link porta il progetto senza ruolo", async () => {
+    grantInstancePermission(LAURA, "users.invite" as never);
+    const developer = accessState().roles.find((r) => r.id === DEVELOPER)!;
+    const perm = developer.permissions.find((p) => p !== "project.members.manage")!;
+    revokeProjectPermission(LAURA, ACQ, perm as never);
+    const steps = await respond("invite Pietro as Developer in ACQ", as(LAURA));
+    expect(said(steps)).toBe(
+      "I can't find Pietro in Stubwise. An invite sends a link, and the app creates it, not me. [Open the invite to ACQ →](#/admin/people?invite=1&inviteProject=ACQ)",
+    );
   });
 
   it("chi non vede ACQ: la stessa frase di un codice che non esiste", async () => {

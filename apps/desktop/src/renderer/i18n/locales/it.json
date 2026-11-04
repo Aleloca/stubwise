@@ -3602,7 +3602,8 @@
         "cantAdd_vowel": "Non puoi aggiungere persone ad {{code}} ·",
         "noName": "Chi aggiungo a {{code}}? Dimmi il nome.",
         "noName_vowel": "Chi aggiungo ad {{code}}? Dimmi il nome.",
-        "noProject": "A quale progetto aggiungo {{name}}? Dimmi il codice (per esempio «ad ACQ»)."
+        "noProject": "A quale progetto aggiungo {{name}}? Dimmi il codice (per esempio «ad ACQ»).",
+        "openInviteBare": "Apri l'invito →"
       }
     },
     "proposalFailed": {
