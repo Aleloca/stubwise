@@ -14,6 +14,10 @@ import { selectClass, smallInput } from "./controls";
 
 type Op = NonNullable<Condition["op"]>;
 
+/** L'urgenza di una richiesta (area 10b): un dato di testo con tre valori, scelti da un menu [AU 9]. */
+const URGENCY_KEY = "richiesta.urgenza";
+const URGENCIES = ["low", "medium", "high"] as const;
+
 const OPS: Record<DataField["type"], Op[]> = {
   text: ["is", "is_not", "contains", "empty", "not_empty"],
   email: ["is", "is_not", "contains", "empty", "not_empty"],
@@ -223,24 +227,46 @@ function Row({
                   ))}
                 </select>
               )}
-              {rightRef === null && (
-                <input
+              {rightRef === null && leftKey === URGENCY_KEY ? (
+                // [AU 9]: l'urgenza ha tre valori, si sceglie da un menu (il dato resta testo).
+                <select
                   id={id}
                   aria-label={t("automations.builder.condition.value")}
-                  type={left.type === "number" ? "number" : left.type === "date" ? "date" : "text"}
-                  className={`${smallInput} w-40`}
-                  value={
-                    right && "value" in right && right.value !== null ? String(right.value) : ""
-                  }
-                  onChange={(e) =>
-                    setRight({
-                      value:
-                        left.type === "number" && e.target.value !== ""
-                          ? Number(e.target.value)
-                          : e.target.value,
-                    })
-                  }
-                />
+                  className={`${selectClass} w-32`}
+                  value={right && "value" in right ? String(right.value ?? "") : ""}
+                  onChange={(e) => setRight({ value: e.target.value })}
+                >
+                  <option value="" disabled>
+                    {t("automations.builder.condition.chooseOp")}
+                  </option>
+                  {URGENCIES.map((u) => (
+                    <option key={u} value={u}>
+                      {t(`automations.builder.condition.urgency.${u}`)}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                rightRef === null && (
+                  <input
+                    id={id}
+                    aria-label={t("automations.builder.condition.value")}
+                    type={
+                      left.type === "number" ? "number" : left.type === "date" ? "date" : "text"
+                    }
+                    className={`${smallInput} w-40`}
+                    value={
+                      right && "value" in right && right.value !== null ? String(right.value) : ""
+                    }
+                    onChange={(e) =>
+                      setRight({
+                        value:
+                          left.type === "number" && e.target.value !== ""
+                            ? Number(e.target.value)
+                            : e.target.value,
+                      })
+                    }
+                  />
+                )
               )}
             </>
           )}

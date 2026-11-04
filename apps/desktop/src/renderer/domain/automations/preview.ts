@@ -114,7 +114,12 @@ export function describe(
       const who = resolvePerson(st, step.who);
       const testo = pick("testo", render(st, step.text));
       // Chi approva vede il ruolo per quello che è (la persona si sceglie al passo).
-      const chi = "personId" in who ? { persona: who.personId } : { ruolo: who.projectRole };
+      const chi =
+        "personId" in who
+          ? { persona: who.personId }
+          : "departmentId" in who
+            ? { reparto: who.departmentId }
+            : { ruolo: who.projectRole };
       return { preview: { ...chi, testo }, args: { who, text: testo } };
     }
     case "startAutomation":

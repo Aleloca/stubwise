@@ -32,6 +32,7 @@ import {
   canSeeRun,
   canSeeSources,
   decidersOf,
+  departmentRecipients,
   flowFor,
   keepHiddenProjects,
   runById,
@@ -81,6 +82,9 @@ export function configErrorsOf(a: Automation, flow: AutomationFlow, ownerId: str
       // Un ruolo in un progetto che si saprà solo dall'evento non si controlla prima.
       ("projectRole" in who && projectId === null && a.projectId === null) ||
       approversFor(asOwner, who, projectId ?? a.projectId).length > 0,
+    // «Avvisa» un reparto (area 10b): almeno un membro vede il progetto del passo.
+    departmentSees: (departmentId, projectId) =>
+      departmentRecipients(departmentId, projectId).length > 0,
   });
   for (const { path, automationId } of startsOf(flow)) {
     if (!automationId) continue;

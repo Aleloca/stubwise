@@ -218,6 +218,38 @@ describe("validateFlow", () => {
     expect(seen).toEqual([[{ personId: "p-sara" }, "prj-aud"]]);
   });
 
+  it("department_cant_see: «Avvisa» un reparto di cui nessuno vede il progetto (area 10b)", () => {
+    const notify: Step = {
+      id: "n",
+      kind: "notify",
+      who: { departmentId: "dep-marketing" },
+      text: "Nuova richiesta",
+      approval: { mode: "auto" },
+    };
+    const seen: [string, string | null][] = [];
+    const issues = validateFlow(base([notify]), {
+      ...CTX,
+      departmentSees: (departmentId, projectId) => {
+        seen.push([departmentId, projectId]);
+        return false;
+      },
+    });
+    expect(codes(issues)).toEqual(["0 department_cant_see"]);
+    expect(seen).toEqual([["dep-marketing", "prj-aud"]]);
+    // Qualcuno lo vede: nessun problema.
+    expect(codes(validateFlow(base([notify]), { ...CTX, departmentSees: () => true }))).toEqual([]);
+    // Senza `departmentSees` (P2) non si segnala; in una generale il progetto si sa solo dall'evento.
+    expect(codes(validateFlow(base([notify]), CTX))).toEqual([]);
+    expect(
+      codes(validateFlow(base([notify]), { ...CTX, projectId: null, departmentSees: () => false })),
+    ).toEqual([]);
+    // Il reparto non scelto è «incompleto», non un reparto che non vede.
+    const blankDept = { ...notify, who: { departmentId: "" } } as Step;
+    expect(codes(validateFlow(base([blankDept]), { ...CTX, departmentSees: () => false }))).toEqual(
+      ["0 incomplete"],
+    );
+  });
+
   it("source_disconnected: inizio da una sorgente scaduta o scollegata", () => {
     const flow = {
       ...base(),

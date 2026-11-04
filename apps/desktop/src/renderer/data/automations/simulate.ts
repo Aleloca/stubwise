@@ -4,6 +4,7 @@ import {
   type EngineInput,
   type EngineStep,
 } from "../../domain/automations/engine";
+import { evaluate, lookup } from "../../domain/automations/conditions";
 import { stepAt } from "../../domain/automations/fields";
 import type { FlowIssue } from "../../domain/automations/validate";
 import { onBeforePersonaChange } from "../session";
@@ -253,6 +254,16 @@ export async function startSimulation(
       claude: [],
     },
   };
+  // D3 (area 10b): il filtro dell'inizio vale anche nella prova. Un esempio che
+  // non lo soddisfa non farebbe partire la vera: la prova finisce qui, senza
+  // anteprime e senza contare come provata (`markTested` no).
+  const t = flow.trigger;
+  if (t.kind === "stubwise" && t.filter && !evaluate(t.filter, (key) => lookup(event, key))) {
+    sim.engine = { ...sim.engine, status: "done" };
+    sim.filteredOut = true;
+    sims.set(sim.id, sim);
+    return sim.id;
+  }
   apply(sim, a, advance(sim.engine, { kind: "start", event: copy(event) }));
   // Un flusso che con questo esempio non fa niente finisce già qui: è finito bene.
   if (sim.engine.status === "done") markTested(sim);

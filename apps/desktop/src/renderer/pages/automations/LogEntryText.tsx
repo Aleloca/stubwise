@@ -161,7 +161,9 @@ export function EntrySentence({
       pauser?.deactivated === true
         ? t("instanceEffects.deactivated", { name: params.name })
         : params.name;
-    return <>{reasonWords({ ...entry.why, params: { ...params, ...(name ? { name } : {}) } }, t)}</>;
+    return (
+      <>{reasonWords({ ...entry.why, params: { ...params, ...(name ? { name } : {}) } }, t)}</>
+    );
   }
   switch (entry.outcome) {
     case "approved":
@@ -307,7 +309,9 @@ export function EntrySentence({
           {t("automations.log.notified", {
             who: input.ruolo
               ? roleWords(str(input.ruolo), ctx.run.automationProjectId, ctx.names, t)
-              : ctx.names.person(str(input.persona)),
+              : input.reparto
+                ? ctx.names.department(str(input.reparto))
+                : ctx.names.person(str(input.persona)),
           })}
         </>
       );

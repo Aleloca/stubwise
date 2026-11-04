@@ -2,7 +2,7 @@ import { useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { stepAt } from "../../../domain/automations/fields";
 import { show } from "../../../domain/automations/preview";
-import type { SimulationView, Step } from "../../../data/types";
+import type { SimulationEffectPreview, SimulationView, Step } from "../../../data/types";
 import { quietButton } from "../../tasks/controls";
 import { conditionWords, reasonWords, shortDate, stepSentence, templatePlain } from "../format";
 import { flowPathOf, usePreviewProps, useTest } from "./context";
@@ -133,6 +133,13 @@ function StepBody({ step, path, mark }: { step: Step; path: string; mark: Mark }
   const sim = ctx.sim!;
   const ix = ctx.ix!;
   const last = lastEntry(ix, path);
+  // «Avvisa» un reparto (area 10b): le persone del passo, non solo la prima.
+  const effectView = (p: SimulationEffectPreview) =>
+    p.kind === "notification" && step.kind === "notify" && "departmentId" in step.who ? (
+      <DepartmentNotify departmentId={step.who.departmentId} path={path} text={p.text} />
+    ) : (
+      <EffectPreview {...pp} p={p} />
+    );
   const sentence = () =>
     templatePlain(
       stepSentence(step, ctx.flow, ctx.names, ctx.labels, t, () => null).text,
@@ -212,13 +219,13 @@ function StepBody({ step, path, mark }: { step: Step; path: string; mark: Mark }
             reason={reasonWords(cur.failure.why, t, { would: true })}
             claude={step.kind === "claude"}
           />
-          {cur.preview && <EffectPreview {...pp} p={cur.preview} />}
+          {cur.preview && effectView(cur.preview)}
         </div>
       );
     if (cur?.preview)
       return (
         <div className="flex flex-col gap-3">
-          <EffectPreview {...pp} p={cur.preview} />
+          {effectView(cur.preview)}
           <p className="border-t border-rule pt-3 text-sm text-ink-muted">
             {t("automations.test.preview.wouldDo")}
           </p>
@@ -250,7 +257,7 @@ function StepBody({ step, path, mark }: { step: Step; path: string; mark: Mark }
 
   // Già fatto: l'anteprima di ciò che ha fatto, a quel percorso.
   const item = effectAt(sim, path);
-  if (item) return <EffectPreview {...pp} p={item} />;
+  if (item) return effectView(item);
   switch (step.kind) {
     case "claude": {
       const p = sim.preview.claude.find((x) => x.path === path);
@@ -340,6 +347,42 @@ function StepBody({ step, path, mark }: { step: Step; path: string; mark: Mark }
     default:
       return <p className="text-md text-ink">{sentence()}</p>;
   }
+}
+
+/**
+ * L'avviso a un reparto: prima di farlo, a chi andrebbe in parole («the
+ * people in Support who see ACQ»); fatto, quante persone e chi ([AU 5]).
+ * Chi non vede il progetto non è fra loro, e non si conta.
+ */
+function DepartmentNotify({
+  departmentId,
+  path,
+  text,
+}: {
+  departmentId: string;
+  path: string;
+  text: string;
+}) {
+  const { t } = useTranslation();
+  const ctx = useTest();
+  const people = (ctx.sim?.preview.notifications ?? []).filter((x) => x.path === path);
+  const name = ctx.names.department(departmentId);
+  const code = ctx.names.project(ctx.automation.projectId)?.code;
+  return (
+    <section data-preview-notify className="flex flex-col gap-2">
+      <p className="text-sm text-ink-muted">
+        {people.length > 0
+          ? t("automations.test.preview.notifyPeople", {
+              count: people.length,
+              names: people.map((x) => ctx.names.person(x.personId)).join(", "),
+            })
+          : code
+            ? t("automations.test.preview.notifyDepartment", { name, code })
+            : t("automations.test.preview.notifyDepartmentAny", { name })}
+      </p>
+      <p className="max-w-[68ch] text-md text-ink">“{text}”</p>
+    </section>
+  );
 }
 
 /** L'anteprima di ciò che un passo ha fatto a quel percorso (giro compreso). */

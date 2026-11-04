@@ -12,6 +12,7 @@ import {
   updateTask,
 } from "../api";
 import { AUTOMATION_CASES } from "../seed/automations";
+import { automationsStartingOn, happenings } from "./sources";
 import { AUTOMATION_MAIL_IDS } from "../seed/automations/mail";
 import { MAIL_MESSAGES } from "../seed/mail";
 import { setSessionPersonId } from "../session";
@@ -1451,5 +1452,115 @@ describe("Automations: revisione del Task 3", () => {
     await idle();
     expect(lastRunOf(id)).toMatchObject({ status: "failed", error: "permission_lost" });
     expect(state.notifications).toHaveLength(notifications);
+  });
+});
+
+// --- area 10b: urgenza e supporto nell'inizio, «Avvisa» un reparto ---------------------
+
+describe("Automations: urgenza, supporto e reparti (area 10b)", () => {
+  const ACQ = "prj-acq";
+  const SUPPORT = "dep-support";
+  const requestEvent = (requestId: string) =>
+    happenings({ kind: "request_created", requestId })[0]!;
+  /** I membri di un reparto, letti dagli accessi (la fonte vera), senza Claude. */
+  const membersOf = (departmentId: string) =>
+    state.access.departments
+      .find((d) => d.departmentId === departmentId)!
+      .memberIds.filter((id) => id !== "p-claude");
+  const notifyDept = (departmentId: string): Step => ({
+    id: "n",
+    kind: "notify",
+    who: { departmentId },
+    text: "Nuova richiesta urgente",
+    approval: AUTO,
+  });
+
+  it("i dati della richiesta: `richiesta.urgenza` e `richiesta.dal_supporto`", () => {
+    const high = requestEvent("req-acq-3");
+    expect(high.payload).toMatchObject({ richiesta: { urgenza: "high", dal_supporto: true } });
+    expect(requestEvent("req-acq-4").payload).toMatchObject({
+      richiesta: { urgenza: "low", dal_supporto: true },
+    });
+    // Una richiesta nata a mano (in ACQ sono tutte dal supporto).
+    const byHand = state.requests.find((r) => !r.origin)!;
+    expect(requestEvent(byHand.id).payload).toMatchObject({
+      richiesta: { urgenza: byHand.urgency, dal_supporto: false },
+    });
+  });
+
+  it("il filtro «dal supporto e urgente» fa partire l'automazione per la `high` e non per la `low`", async () => {
+    as("p-laura");
+    const id = await make(ACQ, {
+      trigger: {
+        kind: "stubwise",
+        event: "request_created",
+        filter: {
+          all: [
+            { left: { ref: "richiesta.dal_supporto" }, op: "is", right: { value: true } },
+            { left: { ref: "richiesta.urgenza" }, op: "is", right: { value: "high" } },
+          ],
+        },
+      },
+      steps: [task("t")],
+      titleTemplate: "{{richiesta.codice}}",
+    });
+    expect(automationsStartingOn(requestEvent("req-acq-3"))).toContain(id);
+    expect(automationsStartingOn(requestEvent("req-acq-4"))).not.toContain(id);
+  });
+
+  it("«Avvisa» il reparto Support: un avviso per ogni membro che vede ACQ, nessuno per chi non lo vede", async () => {
+    // Una persona entra in Support senza vedere ACQ.
+    const outsider = "p-giorgio";
+    expect(visibleProjectIds(outsider).has(ACQ)).toBe(false);
+    state.access.departments.find((d) => d.departmentId === SUPPORT)!.memberIds.push(outsider);
+    const seeing = membersOf(SUPPORT).filter((id) => visibleProjectIds(id).has(ACQ));
+    expect(seeing.length).toBeGreaterThan(1);
+    as("p-laura");
+    const id = await make(ACQ, manual([notifyDept(SUPPORT)]), "Reparto");
+    const before = state.notifications.length;
+    await automations.startManual(id);
+    await idle();
+    expect(lastRunOf(id).status).toBe("done");
+    const made = state.notifications.slice(before).filter((n) => n.kind === "automation.notify");
+    // Uno per persona: ogni avviso ha un solo destinatario.
+    expect(made.every((n) => n.recipientIds.length === 1)).toBe(true);
+    expect(made.map((n) => n.recipientIds[0]).sort()).toEqual([...seeing].sort());
+    expect(made.some((n) => n.recipientIds.includes(outsider))).toBe(false);
+    expect(made.every((n) => n.projectId === ACQ)).toBe(true);
+  });
+
+  it("un reparto di cui nessuno vede il progetto è un errore di configurazione (`department_cant_see`)", async () => {
+    as("p-laura");
+    const nobody = state.access.departments.find(
+      (d) => d.departmentId !== SUPPORT && !d.memberIds.some((m) => visibleProjectIds(m).has(ACQ)),
+    );
+    // Se il seme non ne ha uno, lo si svuota: la regola è la stessa.
+    const departmentId = nobody?.departmentId ?? "dep-administration";
+    if (!nobody) {
+      const d = state.access.departments.find((x) => x.departmentId === departmentId)!;
+      d.memberIds = d.memberIds.filter((m) => !visibleProjectIds(m).has(ACQ));
+    }
+    const a = await automations.createAutomation({ name: "Reparto", projectId: ACQ });
+    await automations.saveDraft(a.id, manual([notifyDept(departmentId)]));
+    expect((await automations.getAutomation(a.id))!.configErrors).toEqual([
+      expect.objectContaining({ path: "0", code: "department_cant_see" }),
+    ]);
+    await automations.saveDraft(a.id, manual([notifyDept(SUPPORT)]));
+    expect((await automations.getAutomation(a.id))!.configErrors).toEqual([]);
+  });
+
+  it("un «Avvisa» a una persona non cambia: un avviso, a lei", async () => {
+    as("p-laura");
+    const id = await make(
+      ACQ,
+      manual([
+        { id: "n", kind: "notify", who: { personId: "p-marco" }, text: "Ciao", approval: AUTO },
+      ]),
+    );
+    const before = state.notifications.length;
+    await automations.startManual(id);
+    await idle();
+    const made = state.notifications.slice(before).filter((n) => n.kind === "automation.notify");
+    expect(made.map((n) => n.recipientIds)).toEqual([["p-marco"]]);
   });
 });

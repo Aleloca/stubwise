@@ -23,6 +23,10 @@ export const STUBWISE_TRIGGER_FIELDS: Record<StubwiseEvent, DataField[]> = {
     { key: "richiesta.descrizione", label: "Descrizione", type: "text" },
     { key: "richiesta.progetto", label: "Progetto", type: "text" },
     { key: "richiesta.richiedente", label: "Richiedente", type: "person" },
+    // Area 10b: «urgente e dal supporto» è una condizione su un dato, non un giudizio.
+    // L'urgenza è `"low" | "medium" | "high"`: il menu dei tre valori è del costruttore.
+    { key: "richiesta.urgenza", label: "Urgenza", type: "text" },
+    { key: "richiesta.dal_supporto", label: "Dal supporto", type: "boolean" },
   ],
   milestone_reached: [
     { key: "traguardo.nome", label: "Traguardo", type: "text" },

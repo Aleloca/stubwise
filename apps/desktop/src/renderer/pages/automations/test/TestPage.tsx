@@ -293,13 +293,17 @@ function Test({ detail }: { detail: AutomationDetail }) {
         label: example.label ?? t("automations.test.meta.written"),
       })
     : null;
-  const goodEnd = sim?.status === "done";
+  // D3 (area 10b): un esempio che il filtro dell'inizio esclude non è una prova finita bene.
+  const filteredOut = !!sim?.filteredOut;
+  const goodEnd = sim?.status === "done" && !filteredOut;
   const header = (
     <TestHeader
       versionLine={versionLine}
       exampleLine={exampleLine}
       backStep={backStep}
       onChangeExample={blockedBy ? null : () => setChoosing(true)}
+      // [AU 10]: al posto di «Turn on», «Change example» è il comando primario.
+      changeExamplePrimary={filteredOut && !blockedBy}
       commands={
         sim && !finished
           ? {
@@ -310,7 +314,8 @@ function Test({ detail }: { detail: AutomationDetail }) {
             }
           : null
       }
-      onTestAgain={finished && example ? () => void begin(example) : null}
+      // Lo stesso esempio escluso non partirebbe nemmeno la seconda volta.
+      onTestAgain={finished && example && !filteredOut ? () => void begin(example) : null}
       busy={busy || stream !== null}
       // «Turn on» solo dopo una prova finita bene, mai da sé ([A 12]); una versione accesa no.
       finish={

@@ -88,6 +88,26 @@ export function MarkGlyph({ mark }: { mark: Mark }) {
           <path d="M4.5 8h7" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" />
         </svg>
       );
+    case "filteredOut":
+      // ⊘ disegnato: non partirebbe (D3). Inchiostro, non un colore d'allarme.
+      return (
+        <svg
+          viewBox="0 0 16 16"
+          width={16}
+          height={16}
+          aria-hidden="true"
+          data-mark="filteredOut"
+          className="shrink-0 text-ink"
+        >
+          <circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" strokeWidth={1.5} />
+          <path
+            d="m4.6 11.4 6.8-6.8"
+            stroke="currentColor"
+            strokeWidth={1.5}
+            strokeLinecap="round"
+          />
+        </svg>
+      );
     default:
       return <span aria-hidden="true" className={box} />;
   }
@@ -126,7 +146,8 @@ export function TestFlow({ treeRef }: { treeRef: RefObject<HTMLUListElement | nu
     focusRef.current = path;
     ctx.select(path === "end" ? null : path);
   };
-  const ended = ctx.sim?.status === "done";
+  // Una prova che non sarebbe partita (D3) non arriva alla fine: niente ✓.
+  const ended = ctx.sim?.status === "done" && !ctx.sim.filteredOut;
   return (
     <ul
       ref={treeRef}
@@ -189,6 +210,11 @@ function StartRow() {
         <span className="min-w-0 flex-1 text-md text-ink">
           {triggerWords(ctx.flow.trigger, ctx.names, t, i18n.language, ctx.automation.projectId)}
         </span>
+        {mark === "filteredOut" && (
+          <span data-filtered-out className="shrink-0 pt-0.5 text-sm text-ink">
+            {t("automations.test.mark.filteredOut")}
+          </span>
+        )}
       </div>
     </li>
   );

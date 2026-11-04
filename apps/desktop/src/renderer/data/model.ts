@@ -2597,7 +2597,17 @@ export type Step =
       attachRefs: string[];
       approval: Approval;
     }
-  | { id: string; kind: "notify"; who: PersonTarget; text: string; approval: Approval }
+  | {
+      id: string;
+      kind: "notify";
+      /**
+       * Una persona, un ruolo, o un reparto (area 10b): l'avviso va a ogni
+       * membro del reparto che vede il progetto del passo, uno per persona.
+       */
+      who: PersonTarget | { departmentId: string };
+      text: string;
+      approval: Approval;
+    }
   | { id: string; kind: "startAutomation"; automationId: string; approval: Approval }
   | {
       id: string;

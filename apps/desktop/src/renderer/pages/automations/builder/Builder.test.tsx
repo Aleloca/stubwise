@@ -971,6 +971,79 @@ describe("a 1024 (revisione visiva)", () => {
   });
 });
 
+describe("area 10b: «Notify» un reparto e l'urgenza", () => {
+  const notify = (id: string, who: Extract<Step, { kind: "notify" }>["who"]): Step => ({
+    id,
+    kind: "notify",
+    who,
+    text: "Nuova richiesta",
+    approval: { mode: "auto" },
+  });
+
+  it("«Notify»: si sceglie «Support» fra i reparti, e la riga e la nota lo dicono", async () => {
+    auto("STW-A1").versions[0]!.flow.steps.push(notify("n", { personId: "p-marco" }));
+    await open("/automations/STW-A1/edit", LAURA);
+    await userEvent.click(sentence("n"));
+    const who = screen.getByRole("radiogroup", { name: "Who" });
+    await userEvent.click(within(who).getByRole("radio", { name: "A department" }));
+    const departments = screen.getByRole("radiogroup", { name: "A department" });
+    await userEvent.click(within(departments).getByRole("radio", { name: "Support" }));
+    await settle();
+    const saved = savedFlow("STW-A1").steps.find((s) => s.id === "n")!;
+    expect(saved).toMatchObject({ who: { departmentId: "dep-support" } });
+    expect(rowText("n")).toContain("Notify Support · department: “Nuova richiesta”");
+    expect(
+      screen.getByText("Each person in Support who can see STW gets their own notice."),
+    ).toBeInTheDocument();
+  });
+
+  it("un reparto di cui nessuno vede il progetto: il problema sulla riga e come uscirne nel pannello", async () => {
+    // Amministrazione senza nessuno che veda STW.
+    const admin = state.access.departments.find((d) => d.departmentId === "dep-administration")!;
+    admin.memberIds = admin.memberIds.filter(
+      (id) => !state.projectsById.get("prj-stw")!.memberIds.includes(id) && id !== ROBERTA,
+    );
+    auto("STW-A1").versions[0]!.flow.steps.push(
+      notify("n", { departmentId: "dep-administration" }),
+    );
+    await open("/automations/STW-A1/edit", LAURA);
+    await waitFor(() => expect(row("n")).toHaveTextContent("Nobody in Administration sees STW"));
+    await userEvent.click(sentence("n"));
+    expect(
+      screen.getByText("Choose another department, or add someone from Administration to STW."),
+    ).toBeInTheDocument();
+    // Conta nei problemi della testata come gli altri: la bozza non si accende.
+    expect(document.querySelector("[data-problem-count]")).toHaveTextContent("1 problem");
+    expect(document.querySelector("[data-primary-action]")).toBeDisabled();
+  });
+
+  it("[AU 9] l'urgenza nel filtro dell'inizio si sceglie da un menu di tre valori", async () => {
+    const flow = auto("STW-A1").versions[0]!.flow;
+    flow.trigger = {
+      kind: "stubwise",
+      event: "request_created",
+      filter: { all: [{ left: { ref: "richiesta.urgenza" }, op: "is", right: { value: "high" } }] },
+    };
+    flow.titleTemplate = "{{richiesta.codice}}";
+    await open("/automations/STW-A1/edit?step=trigger", LAURA);
+    const value = await screen.findByRole("combobox", { name: "Value" });
+    expect(value.tagName).toBe("SELECT");
+    expect(
+      within(value)
+        .getAllByRole("option")
+        .filter((o) => !(o as HTMLOptionElement).disabled)
+        .map((o) => o.textContent),
+    ).toEqual(["low", "medium", "high"]);
+    expect(value).toHaveValue("high");
+    await userEvent.selectOptions(value, "low");
+    await settle();
+    const t = savedFlow("STW-A1").trigger;
+    expect(t.kind === "stubwise" && t.filter).toEqual({
+      all: [{ left: { ref: "richiesta.urgenza" }, op: "is", right: { value: "low" } }],
+    });
+  });
+});
+
 async function openList() {
   const router = renderRoute("/automations", ROBERTA);
   await screen.findByRole("heading", { level: 1, name: "Automations" });

@@ -1144,6 +1144,12 @@ export interface SimulationView {
   event: Record<string, unknown>;
   /** `running` = pronta per «Passo successivo»; le attese, la fine, il fallimento come in un'esecuzione. */
   status: RunStatus;
+  /**
+   * Area 10b (D3): il filtro dell'inizio non vale per l'esempio, quindi la
+   * vera non partirebbe. La prova è `done` subito, senza anteprime, e non
+   * conta come provata. Facoltativo: assente vale `false`.
+   */
+  filteredOut?: boolean;
   error: string | null;
   cursor: string | null;
   /** L'«adesso» della prova (va avanti con «Avanti»). */

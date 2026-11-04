@@ -20,7 +20,9 @@ export type Mark =
   /** Rifiutato nella prova. */
   | "rejected"
   /** In un ramo non preso. */
-  | "notTaken";
+  | "notTaken"
+  /** L'inizio, quando il suo filtro esclude l'esempio: non partirebbe (area 10b, D3). */
+  | "filteredOut";
 
 const TERMINAL = new Set(["done", "failed", "cancelled"]);
 
@@ -44,6 +46,8 @@ const isOpen = (ix: SimIndex) => !TERMINAL.has(ix.view.status);
 /** Il segno della riga al percorso concreto `path`. */
 export function markAt(ix: SimIndex, path: string): Mark {
   const { status, cursor } = ix.view;
+  // D3: non è partita; i passi restano «Not reached yet».
+  if (ix.view.filteredOut) return path === "trigger" ? "filteredOut" : "pending";
   const entries = ix.byPath.get(path) ?? [];
   const last = entries.at(-1);
   if (cursor === path) {

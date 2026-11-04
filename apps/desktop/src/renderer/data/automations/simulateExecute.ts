@@ -53,6 +53,8 @@ export interface Sim {
   /** I riferimenti interni dati al motore per i traguardi (`milestoneRef`): mai mostrati. */
   milestoneRefs: Map<string, SimulationMilestonePreview>;
   preview: SimulationView["preview"];
+  /** D3 (area 10b): il filtro dell'inizio esclude l'esempio, la prova è finita senza partire. */
+  filteredOut?: boolean;
 }
 
 export const TERMINAL = new Set(["done", "failed", "cancelled"]);
@@ -64,7 +66,13 @@ export function projectRef(id: string): SimulationProject {
 }
 
 type Previewed =
-  | { ok: true; preview: SimulationEffectPreview; reason?: string }
+  | {
+      ok: true;
+      preview: SimulationEffectPreview;
+      /** Gli altri avvisi dello stesso passo («Avvisa» un reparto, area 10b). */
+      more?: SimulationEffectPreview[];
+      reason?: string;
+    }
   | { ok: false; outcome: EffectOutcome };
 
 /** Cosa farebbe un'azione, coi piani dell'esecutore vero. Non scrive. */
@@ -164,16 +172,15 @@ export function previewOf(sim: Sim, a: Automation, eff: ActionEffect, at: string
     case "notify": {
       const p = planNotify(eff, a, owner);
       if (!p.ok) return p;
-      return {
-        ok: true,
-        preview: {
-          kind: "notification",
-          ...where,
-          personId: p.plan.personId,
-          text: p.plan.text,
-          project: p.plan.projectId ? projectRef(p.plan.projectId) : null,
-        },
-      };
+      // Un reparto: un'anteprima per persona, allo stesso percorso (la vera ne fa una ciascuno).
+      const [first, ...more] = p.plan.personIds.map((personId) => ({
+        kind: "notification" as const,
+        ...where,
+        personId,
+        text: p.plan.text,
+        project: p.plan.projectId ? projectRef(p.plan.projectId) : null,
+      }));
+      return { ok: true, preview: first!, ...(more.length > 0 ? { more } : {}) };
     }
     case "startAutomation": {
       // Nella prova la catena è la sola automazione provata.
@@ -224,9 +231,13 @@ export function execute(sim: Sim, a: Automation, eff: EffectRequest): EngineInpu
   } else if (kind === "request")
     sim.preview.requests.push(item as SimulationView["preview"]["requests"][number]);
   else if (kind === "email") sim.preview.emails.push(item as SimulationEmailPreview);
-  else if (kind === "notification")
-    sim.preview.notifications.push(item as SimulationView["preview"]["notifications"][number]);
-  else sim.preview.starts.push(item as SimulationView["preview"]["starts"][number]);
+  else if (kind === "notification") {
+    for (const x of [r.preview, ...(r.more ?? [])]) {
+      const one: Partial<typeof x> = { ...x };
+      delete one.kind;
+      sim.preview.notifications.push(one as SimulationView["preview"]["notifications"][number]);
+    }
+  } else sim.preview.starts.push(item as SimulationView["preview"]["starts"][number]);
   return {
     kind: "effect_result",
     ok: true,

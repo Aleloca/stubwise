@@ -28,6 +28,7 @@ export type FlowIssueCode =
   | "unknown_ref"
   | "type_mismatch"
   | "approver_cant_see"
+  | "department_cant_see"
   | "source_disconnected"
   | "limit";
 
@@ -45,6 +46,12 @@ export interface ValidateContext {
   canApprove(who: ApprovalWho, projectId: string | null): boolean;
   /** Il progetto dell'automazione: null = generale; assente = non controllare `own`. */
   projectId?: string | null;
+  /**
+   * Qualcuno del reparto vede il progetto? (area 10b, «Avvisa» un reparto).
+   * `projectId` null = non noto prima dell'evento (non si segnala).
+   * Facoltativa: assente = non si segnala (il chiamante dei dati la passa).
+   */
+  departmentSees?(departmentId: string, projectId: string | null): boolean;
 }
 
 const REF = /\{\{\s*([^{}]+?)\s*\}\}/g;
@@ -292,6 +299,16 @@ function checkStep(step: Step, path: string, scope: Scope, ctx: ValidateContext,
       // Un ruolo si cerca nel progetto dell'automazione: una generale non ne ha.
       if ("projectRole" in step.who && ctx.projectId === null)
         add(path, "incomplete", "Un'automazione generale non ha un progetto: avvisa una persona.");
+      // Un reparto: avvisa solo chi vede il progetto (R-G5), e nessuno lo vede è un errore.
+      const projectId = ctx.projectId ?? null;
+      if (
+        "departmentId" in step.who &&
+        !blank(step.who.departmentId) &&
+        projectId !== null &&
+        ctx.departmentSees &&
+        !ctx.departmentSees(step.who.departmentId, projectId)
+      )
+        add(path, "department_cant_see", "Nessuno del reparto vede il progetto del passo.");
       checkApproval(step.approval, null, path, ctx, add);
       return;
     }

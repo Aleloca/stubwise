@@ -6119,7 +6119,8 @@
       "inClientProject": "in the client's project",
       "inProject": "in {{code}}",
       "inHiddenProject": "in a project you can't see",
-      "theRole": "the project's {{role}}"
+      "theRole": "the project's {{role}}",
+      "notifyDepartment": "Notify {{name}} · department: “{{text}}”"
     },
     "roles": {
       "project_lead": "Project Lead",
@@ -6184,7 +6185,8 @@
       "type_mismatch": "A field is used with the wrong kind of value",
       "approver_cant_see": "Whoever must approve can't see a project this step acts in",
       "source_disconnected": "The source it starts from isn't connected",
-      "limit": "It goes over one of the safety limits"
+      "limit": "It goes over one of the safety limits",
+      "department_cant_see": "Nobody in the department it notifies can see the project"
     },
     "detail": {
       "more": "More",
@@ -6424,7 +6426,8 @@
       "aiBudgetBackStillQueue": "Budget available again · still waiting: queue paused by {{name}}",
       "aiQueueBackStillBudget": "Queue resumed · still waiting: monthly AI budget reached",
       "projectUnavailable": "The project isn't available anymore.",
-      "projectUnavailable_would": "The project isn't available anymore: the step would fail."
+      "projectUnavailable_would": "The project isn't available anymore: the step would fail.",
+      "noDepartmentRecipient": "Nobody in the department sees the project: there's nobody to notify."
     },
     "created": {
       "task_one": "{{count}} task",
@@ -7017,7 +7020,9 @@
         "approverCantSeeAny": "Approver can't see a project",
         "source_disconnected": "Source disconnected",
         "limit": "Over a limit",
-        "selfStart": "Would start itself again"
+        "selfStart": "Would start itself again",
+        "department_cant_see": "Nobody in the department sees the project",
+        "departmentCantSee": "Nobody in {{name}} sees {{code}}"
       },
       "problem": {
         "unavailable": "{{label}} isn't available here",
@@ -7034,7 +7039,9 @@
         "sourceGone": "The system it starts from isn't connected any more.",
         "titleData": "The title of each run uses data that isn't available",
         "noSteps": "Add at least one step",
-        "tooDeep": "Branches can go 5 levels deep: move it higher or remove a level."
+        "tooDeep": "Branches can go 5 levels deep: move it higher or remove a level.",
+        "departmentCantSee": "Nobody in {{name}} sees {{code}}",
+        "departmentCantSeeHint": "Choose another department, or add someone from {{name}} to {{code}}."
       },
       "panel": {
         "inside": "Inside: {{trail}}",
@@ -7186,6 +7193,11 @@
           "lt": "is less than",
           "date_gt": "is after",
           "date_lt": "is before"
+        },
+        "urgency": {
+          "low": "low",
+          "medium": "medium",
+          "high": "high"
         }
       },
       "start": {
@@ -7251,6 +7263,10 @@
       "warning": {
         "emailLimit": "Up to {{count}} emails per run",
         "emailLimitLong": "This email is inside a “For each”: a run sends at most {{count}} emails, and stops with an error past that."
+      },
+      "notify": {
+        "department": "Each person in {{name}} who can see {{code}} gets their own notice.",
+        "departmentGeneral": "Each person in {{name}} who can see the project of each run gets their own notice."
       }
     },
     "test": {
@@ -7316,7 +7332,8 @@
         "failed": "Failed",
         "skipped": "Skipped",
         "rejected": "Rejected in the test",
-        "notTaken": "Branch not taken"
+        "notTaken": "Branch not taken",
+        "filteredOut": "Wouldn't start"
       },
       "row": {
         "task": "would create a task in {{code}}",
@@ -7351,7 +7368,10 @@
         "notReached": "not reached yet",
         "skipped": "Skipped",
         "end": "End",
-        "start_row": "When"
+        "start_row": "When",
+        "notifyDepartment": "would notify the people in {{name}}",
+        "notifyPeople_one": "would notify {{count}} person",
+        "notifyPeople_other": "would notify {{count}} people"
       },
       "rounds": {
         "of": "Round {{n}} of {{total}}",
@@ -7381,7 +7401,8 @@
           "rejected": "Rejected in the test",
           "pending": "Not reached yet",
           "notTaken": "Branch not taken",
-          "skipped": "Skipped"
+          "skipped": "Skipped",
+          "filteredOut": "Wouldn't start"
         },
         "data": "The example's data",
         "empty": "(empty)",
@@ -7453,7 +7474,11 @@
         "noReplyGot": "No reply: the wait ran out.",
         "wouldDo": "Would do this next. Next step runs it.",
         "noMailboxFrom": "No mailbox connected",
-        "mailboxExpiredFrom": "Mailbox connection expired"
+        "mailboxExpiredFrom": "Mailbox connection expired",
+        "notifyDepartment": "Would notify the people in {{name}} who see {{code}}",
+        "notifyDepartmentAny": "Would notify the people in {{name}} who see the project",
+        "notifyPeople_one": "Would notify {{count}} person: {{names}}",
+        "notifyPeople_other": "Would notify {{count}} people: {{names}}"
       },
       "stop": {
         "skip_one": "Skip ahead {{count}} day",
@@ -7530,7 +7555,16 @@
       },
       "loadError": "Couldn't load the automation for the test.",
       "turnOn": "Turn on",
-      "publish": "Publish version {{n}}"
+      "publish": "Publish version {{n}}",
+      "filteredOut": {
+        "title": "Wouldn't start: the start filter doesn't match this example",
+        "condition": "{{condition}} — this example: {{value}}",
+        "matches": "matches",
+        "doesntMatch": "doesn't match",
+        "empty": "empty",
+        "nothing": "Nothing would happen: it wouldn't start with this example.",
+        "hint": "Try an example that matches the start filter."
+      }
     },
     "project": {
       "title": "Automations",

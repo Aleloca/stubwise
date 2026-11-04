@@ -6,6 +6,7 @@ import { now, state, visibleProjectIds } from "../store";
 import type { AutomationFlow, Step } from "../types";
 import { grantInstancePermission, grantProjectRole } from "../viewer";
 import { SimulationConfigError } from "./simulate";
+import { happenings } from "./sources";
 import { holdersOfRole } from "./visibility";
 
 const as = (personId: string) => setSessionPersonId(personId);
@@ -757,5 +758,85 @@ describe("Automations: gli esempi della prova", () => {
       projectId: choices[0]!,
     });
     expect(ok.status).not.toBe("waiting_project");
+  });
+});
+
+describe("Automations: la prova si ferma col filtro dell'inizio (area 10b, D3)", () => {
+  const ACQ = "prj-acq";
+  const example = (requestId: string) =>
+    happenings({ kind: "request_created", requestId })[0]!.payload;
+
+  /** La bozza di Laura: richiesta urgente dal supporto → task per Support e avviso a Support. */
+  async function urgentDraft(): Promise<string> {
+    as("p-laura");
+    const a = await automations.createAutomation({ name: "Urgenti", projectId: ACQ });
+    const flow: AutomationFlow = {
+      trigger: {
+        kind: "stubwise",
+        event: "request_created",
+        filter: {
+          all: [
+            { left: { ref: "richiesta.urgenza" }, op: "is", right: { value: "high" } },
+            { left: { ref: "richiesta.dal_supporto" }, op: "is", right: { value: true } },
+          ],
+        },
+      },
+      titleTemplate: "{{richiesta.codice}}",
+      steps: [
+        {
+          id: "t",
+          kind: "createTask",
+          title: "{{richiesta.titolo}}",
+          description: "",
+          assignee: { departmentId: "dep-support" },
+          dueInDays: 1,
+          project: { mode: "own" },
+          milestoneRef: null,
+          approval: AUTO,
+        },
+        {
+          id: "n",
+          kind: "notify",
+          who: { departmentId: "dep-support" },
+          text: "Nuova richiesta urgente",
+          approval: AUTO,
+        },
+      ],
+    };
+    await automations.saveDraft(a.id, flow);
+    return a.id;
+  }
+
+  it("con l'esempio `low` non partirebbe: `filteredOut`, finita, senza anteprime né `testedRev`", async () => {
+    const id = await urgentDraft();
+    const before = snapshot();
+    const simId = await automations.startSimulation(id, "draft", example("req-acq-4"));
+    const sim = (await automations.getSimulation(simId))!;
+    expect(sim).toMatchObject({ status: "done", filteredOut: true, current: null });
+    expect(Object.values(sim.preview).every((list) => list.length === 0)).toBe(true);
+    // Nessuna traccia, nemmeno la revisione provata.
+    expect(bare()).toEqual(before);
+    expect(state.automations.find((a) => a.id === id)!.versions.at(-1)!.testedRev).toBeUndefined();
+    // Finita: non si va avanti.
+    await expect(automations.simulationStep(simId, { kind: "next" })).rejects.toThrow("finished");
+  });
+
+  it("con l'esempio `high` parte come prima: anteprime della task e degli avvisi", async () => {
+    const id = await urgentDraft();
+    const simId = await automations.startSimulation(id, "draft", example("req-acq-3"));
+    const sim = await automations.simulationStep(simId, { kind: "run" });
+    expect(sim.status).toBe("done");
+    expect(sim.filteredOut).toBeFalsy();
+    expect(sim.preview.tasks).toEqual([
+      expect.objectContaining({
+        departmentId: "dep-support",
+        project: expect.objectContaining({ id: ACQ }),
+      }),
+    ]);
+    const seeing = state.access.departments
+      .find((d) => d.departmentId === "dep-support")!
+      .memberIds.filter((m) => m !== "p-claude" && visibleProjectIds(m).has(ACQ));
+    expect(sim.preview.notifications.map((n) => n.personId).sort()).toEqual([...seeing].sort());
+    expect(state.automations.find((a) => a.id === id)!.versions.at(-1)!.testedRev).toBeDefined();
   });
 });

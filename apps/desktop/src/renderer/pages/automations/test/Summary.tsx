@@ -1,10 +1,12 @@
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
+import { evaluate, lookup } from "../../../domain/automations/conditions";
 import { stepAt } from "../../../domain/automations/fields";
-import type { SimulationView } from "../../../data/types";
-import { reasonWords } from "../format";
+import type { Condition, SimulationView } from "../../../data/types";
+import { conditionWords, reasonWords } from "../format";
 import { CriticalGlyph } from "../glyphs";
 import { flowPathOf, useTest } from "./context";
+import { MarkGlyph } from "./TestFlow";
 import { soFarParts } from "./words";
 
 // Il riepilogo della prova (shape automation-test §3 e §5, «Fine»): in fondo
@@ -36,9 +38,87 @@ export function Summary() {
 export function EndSummary() {
   const sim = useTest().sim;
   if (!sim) return null;
+  if (sim.filteredOut) return <FilteredOutSummary sim={sim} />;
   if (sim.status === "done") return <FinalSummary sim={sim} />;
   if (sim.status === "failed" || sim.status === "cancelled") return <StoppedSummary sim={sim} />;
   return null;
+}
+
+/** I confronti di una condizione, anche dentro i gruppi. */
+const leavesOf = (c: Condition): Condition[] =>
+  c.all || c.any ? [...(c.all ?? []), ...(c.any ?? [])].flatMap(leavesOf) : [c];
+
+/**
+ * D3 (area 10b): il filtro dell'inizio esclude l'esempio, la vera non
+ * partirebbe. Una riga per confronto col valore dell'esempio, segno + parola
+ * ([AU 10]): niente «Turn on», si cambia esempio.
+ */
+function FilteredOutSummary({ sim }: { sim: SimulationView }) {
+  const { t } = useTranslation();
+  const ctx = useTest();
+  const tr = ctx.flow.trigger;
+  const filter = tr.kind === "stubwise" ? tr.filter : undefined;
+  const read = (key: string) => lookup(sim.event, key);
+  const valueWords = (key: string, v: unknown) => {
+    if (v === true) return t("automations.condition.true");
+    if (v === false) return t("automations.condition.false");
+    if (v === undefined || v === null || v === "") return t("automations.test.filteredOut.empty");
+    if (key === "richiesta.urgenza" && (v === "low" || v === "medium" || v === "high"))
+      return t(`automations.builder.condition.urgency.${v}`);
+    return String(v);
+  };
+  return (
+    <section
+      data-test-filtered-out
+      aria-labelledby="test-filtered-out"
+      className="flex flex-col gap-3"
+    >
+      <h2
+        id="test-filtered-out"
+        tabIndex={-1}
+        data-summary-heading
+        className="flex items-start gap-2 text-lg font-semibold text-ink outline-none"
+      >
+        <span className="pt-1">
+          <MarkGlyph mark="filteredOut" />
+        </span>
+        {t("automations.test.filteredOut.title")}
+      </h2>
+      {filter && (
+        <ul className="flex flex-col gap-1">
+          {leavesOf(filter).map((leaf, i) => {
+            const key = leaf.left && "ref" in leaf.left ? leaf.left.ref : "";
+            const ok = evaluate(leaf, read);
+            return (
+              <li key={i} data-filter-row={ok ? "matches" : "doesnt"} className={rowText}>
+                <span className="shrink-0 pt-0.5">
+                  {ok ? <MarkGlyph mark="done" /> : <MarkGlyph mark="filteredOut" />}
+                </span>
+                <span className="min-w-0">
+                  {t("automations.test.filteredOut.condition", {
+                    condition: conditionWords(leaf, ctx.labels, t),
+                    value: valueWords(key, read(key)),
+                  })}
+                  {" · "}
+                  <span className="font-medium">
+                    {ok
+                      ? t("automations.test.filteredOut.matches")
+                      : t("automations.test.filteredOut.doesntMatch")}
+                  </span>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <p data-nothing className="max-w-[68ch] text-md text-ink">
+        {t("automations.test.filteredOut.nothing")}
+      </p>
+      <p className="max-w-[68ch] text-sm text-ink-muted">
+        {t("automations.test.filteredOut.hint")}
+      </p>
+    </section>
+  );
 }
 
 function StoppedSummary({ sim }: { sim: SimulationView }) {
@@ -183,7 +263,8 @@ function FinalSummary({ sim }: { sim: SimulationView }) {
               <h3 className="heading-group">{t("automations.test.summary.wouldNotify")}</h3>
               <ul className="flex flex-col gap-1">
                 {p.notifications.map((x) => (
-                  <li key={x.path} className={rowText}>
+                  // Un reparto avvisa più persone allo stesso percorso.
+                  <li key={`${x.path}:${x.personId}`} className={rowText}>
                     <span className="shrink-0 font-medium">{ctx.names.person(x.personId)}</span>
                     <span className="min-w-0 truncate text-ink-muted">“{x.text}”</span>
                   </li>

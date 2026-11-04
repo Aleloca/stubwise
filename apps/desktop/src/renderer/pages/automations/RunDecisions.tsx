@@ -57,6 +57,9 @@ export function PreviewBlock({
       rows.push([t("automations.dataKeys.persona"), names.person(str(v))]);
     else if (k === "ruolo")
       rows.push([t("automations.dataKeys.persona"), roleWords(str(v), projectId, names, t)]);
+    // «Avvisa» un reparto (area 10b): il nome, mai l'id.
+    else if (k === "reparto")
+      rows.push([t("automations.dataKeys.reparto"), names.department(str(v))]);
     else if (Array.isArray(v))
       rows.push([t(`automations.dataKeys.${k}`, { defaultValue: k }), v.join(", ")]);
     else rows.push([t(`automations.dataKeys.${k}`, { defaultValue: k }), String(v ?? "")]);

@@ -175,6 +175,8 @@ export function shortProblem(
   step: Step | null,
   names: Names,
   t: TFunction,
+  /** Il codice del progetto dell'automazione (null: generale), per «Nobody in Support sees ACQ». */
+  projectCode: string | null = null,
 ): string {
   const first = issues[0]!;
   if (first.code === "limit" && step?.kind === "startAutomation")
@@ -185,6 +187,13 @@ export function shortProblem(
       ? t("automations.builder.short.approverCantSee", { code })
       : t("automations.builder.short.approverCantSeeAny");
   }
+  if (first.code === "department_cant_see" && step?.kind === "notify" && "departmentId" in step.who)
+    return projectCode
+      ? t("automations.builder.short.departmentCantSee", {
+          name: names.department(step.who.departmentId),
+          code: projectCode,
+        })
+      : t("automations.builder.short.department_cant_see");
   return t(`automations.builder.short.${first.code}`);
 }
 
@@ -265,6 +274,23 @@ export function stepProblems(
         ? t("automations.builder.problem.approverCantSee", { name, code })
         : t("automations.builder.problem.approverCantSeeAny", { name }),
     });
+  }
+  // Area 10b: «Avvisa» un reparto di cui nessuno vede il progetto, e come uscirne.
+  if (codes.has("department_cant_see") && step.kind === "notify" && "departmentId" in step.who) {
+    const name = ctx.names.department(step.who.departmentId);
+    const code = ctx.projectCode;
+    out.push({
+      field: "who",
+      text: code
+        ? t("automations.builder.problem.departmentCantSee", { name, code })
+        : t("automations.issue.department_cant_see"),
+    });
+    // Come uscirne, sotto la frase (il modulo «Notify» la mostra sotto l'errore).
+    if (code)
+      out.push({
+        field: "whoHint",
+        text: t("automations.builder.problem.departmentCantSeeHint", { name, code }),
+      });
   }
   if (codes.has("limit")) {
     const deep = tooDeep(step, path);

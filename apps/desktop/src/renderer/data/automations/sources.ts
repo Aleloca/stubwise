@@ -79,6 +79,8 @@ export function happenings(signal: AutomationSignal): Happening[] {
               descrizione: r.description,
               progetto: projectCode(r.projectId),
               richiedente: r.requesterIds[0] ?? "",
+              urgenza: r.urgency,
+              dal_supporto: r.origin?.kind === "support",
             },
           },
         },

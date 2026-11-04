@@ -260,7 +260,13 @@ export function StepRow({
                 className="inline-flex items-center gap-1 text-sm text-critical"
               >
                 <CriticalGlyph />
-                {shortProblem(issues, step, b.names, t)}
+                {shortProblem(
+                  issues,
+                  step,
+                  b.names,
+                  t,
+                  b.names.project(b.automation.projectId)?.code ?? null,
+                )}
               </span>
             )}
             {block && !open && (

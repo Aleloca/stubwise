@@ -187,11 +187,22 @@ export const templatePlain = (text: string, labels: Map<string, DataField>) =>
     .map((p) => ("text" in p ? p.text : p.label))
     .join("");
 
-function operandWords(o: Operand | undefined, labels: Map<string, DataField>, t: TFunction) {
+/** L'urgenza di una richiesta (area 10b): tre valori stabili, tradotti in lettura ([AU 9]). */
+const URGENCIES = new Set(["low", "medium", "high"]);
+
+function operandWords(
+  o: Operand | undefined,
+  labels: Map<string, DataField>,
+  t: TFunction,
+  /** Il dato a sinistra del confronto: dice come leggere un valore («high» dell'urgenza). */
+  leftRef?: string,
+) {
   if (!o) return "";
   if ("ref" in o) return labels.get(o.ref)?.label ?? o.ref;
   if (o.value === true) return t("automations.condition.true");
   if (o.value === false) return t("automations.condition.false");
+  if (leftRef === "richiesta.urgenza" && typeof o.value === "string" && URGENCIES.has(o.value))
+    return t(`automations.builder.condition.urgency.${o.value}`);
   return t("automations.condition.quoted", { value: String(o.value ?? "") });
 }
 
@@ -202,7 +213,12 @@ export function conditionWords(c: Condition, labels: Map<string, DataField>, t: 
   if (c.any)
     return c.any.map((x) => conditionWords(x, labels, t)).join(t("automations.condition.or"));
   const left = operandWords(c.left, labels, t);
-  const right = operandWords(c.right, labels, t);
+  const right = operandWords(
+    c.right,
+    labels,
+    t,
+    c.left && "ref" in c.left ? c.left.ref : undefined,
+  );
   return t(`automations.condition.op.${c.op ?? "is"}`, { left, right });
 }
 
@@ -297,6 +313,15 @@ export function stepSentence(
         details,
       };
     case "notify":
+      // Un reparto (area 10b): «Notify Support · department: “…”».
+      if ("departmentId" in step.who)
+        return {
+          text: t("automations.steps.notifyDepartment", {
+            name: names.department(step.who.departmentId),
+            text: step.text,
+          }),
+          details,
+        };
       return {
         text: t("automations.steps.notify", {
           who: personWords(step.who, names, t),

@@ -72,6 +72,23 @@ export function holdersOfRole(projectId: string, role: string): string[] {
 }
 
 /**
+ * Chi riceve «Avvisa» un reparto (area 10b): i membri ATTIVI del reparto
+ * (dagli accessi, la fonte vera) che vedono il progetto del passo, in
+ * ordine alfabetico; `projectId` null (una generale senza progetto): tutti.
+ * Chi non lo vede non è avvisato e non si conta (R-G5).
+ */
+export function departmentRecipients(departmentId: string, projectId: string | null): string[] {
+  const members = state.access.departments.find((d) => d.departmentId === departmentId);
+  return (members?.memberIds ?? [])
+    .filter((id) => {
+      const person = PEOPLE.find((p) => p.id === id);
+      return !!person && !person.isClaude && !isDeactivated(id);
+    })
+    .filter((id) => projectId === null || visibleProjectIds(id).has(projectId))
+    .sort(byName);
+}
+
+/**
  * Chi può approvare adesso, per `who` nel progetto del passo (R-J8): la
  * persona indicata, chi ha il ruolo nel progetto o il proprietario di
  * ADESSO — e solo chi vede il progetto. `projectId` null (un passo senza

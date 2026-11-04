@@ -22,10 +22,52 @@ import {
 // I moduli dei passi che fanno qualcosa (shape builder §6): task, traguardo,
 // richiesta, email, avviso, avvio di un'altra automazione.
 
+/** I reparti, uno per riga con la striscia del colore: «Who does it» e «Notify» (area 10b). */
+function DepartmentPicker({
+  value,
+  onChange,
+  describedBy,
+}: {
+  value: string;
+  onChange: (departmentId: string) => void;
+  describedBy?: string;
+}) {
+  const { t } = useTranslation();
+  const departments = useDepartments().data ?? [];
+  return (
+    <div
+      role="radiogroup"
+      aria-label={t("automations.builder.panel.aDepartment")}
+      aria-describedby={describedBy}
+      className="flex flex-col"
+    >
+      {departments.map((d) => {
+        const on = value === d.id;
+        return (
+          <button
+            key={d.id}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            onClick={() => onChange(d.id)}
+            className={`relative flex h-8 items-center rounded-md pl-4 text-left text-md ${on ? "bg-ink/10 font-medium text-ink" : "text-ink-muted hover:bg-ink/6 hover:text-ink"}`}
+          >
+            <span
+              aria-hidden="true"
+              className="absolute top-2 bottom-2 left-1 w-[3px] rounded-[1px]"
+              style={{ background: `var(${d.colorToken})` }}
+            />
+            {d.name}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function TaskForm({ step, path, set, problems }: KindProps<"createTask">) {
   const { t } = useTranslation();
   const b = useBuilder();
-  const departments = useDepartments().data ?? [];
   const who = useFieldProblem(problems, "assignee");
   const a = step.assignee;
   const mode =
@@ -90,33 +132,11 @@ export function TaskForm({ step, path, set, problems }: KindProps<"createTask">)
         )}
         {mode === "department" && (
           <>
-            <div
-              role="radiogroup"
-              aria-label={t("automations.builder.panel.aDepartment")}
-              aria-describedby={who.describedBy}
-              className="flex flex-col"
-            >
-              {departments.map((d) => {
-                const on = a !== null && "departmentId" in a && a.departmentId === d.id;
-                return (
-                  <button
-                    key={d.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={on}
-                    onClick={() => set({ assignee: { departmentId: d.id } })}
-                    className={`relative flex h-8 items-center rounded-md pl-4 text-left text-md ${on ? "bg-ink/10 font-medium text-ink" : "text-ink-muted hover:bg-ink/6 hover:text-ink"}`}
-                  >
-                    <span
-                      aria-hidden="true"
-                      className="absolute top-2 bottom-2 left-1 w-[3px] rounded-[1px]"
-                      style={{ background: `var(${d.colorToken})` }}
-                    />
-                    {d.name}
-                  </button>
-                );
-              })}
-            </div>
+            <DepartmentPicker
+              describedBy={who.describedBy}
+              value={a !== null && "departmentId" in a ? a.departmentId : ""}
+              onChange={(departmentId) => set({ assignee: { departmentId } })}
+            />
             <Note>
               {t("automations.builder.panel.departmentNote", {
                 name:
@@ -306,24 +326,57 @@ export function NotifyForm({ step, path, set, problems }: KindProps<"notify">) {
     "who",
   );
   const w = step.who;
+  const projectCode = b.names.project(b.automation.projectId)?.code ?? null;
+  // `department_cant_see`: come uscirne, sotto l'errore del campo.
+  const hint = problems.find((p) => p.field === "whoHint")?.text ?? null;
   return (
     <Section title={t("automations.builder.panel.what")}>
       <Field label={t("automations.builder.panel.notifyWho")} required>
         <Segmented
           label={t("automations.builder.panel.notifyWho")}
-          value={"projectRole" in w ? "role" : "person"}
+          value={"projectRole" in w ? "role" : "departmentId" in w ? "department" : "person"}
           options={[
             { value: "person", label: t("automations.builder.panel.aPerson") },
+            // Area 10b: ogni membro del reparto che vede il progetto riceve il suo avviso.
+            { value: "department", label: t("automations.builder.panel.aDepartment") },
             // Un ruolo si cerca nel progetto dell'automazione: una generale non ne ha.
             ...(b.automation.projectId !== null || "projectRole" in w
               ? [{ value: "role" as const, label: t("automations.builder.panel.aRole") }]
               : []),
           ]}
           onChange={(m) =>
-            set({ who: m === "role" ? { projectRole: "project_lead" } : { personId: "" } })
+            set({
+              who:
+                m === "role"
+                  ? { projectRole: "project_lead" }
+                  : m === "department"
+                    ? { departmentId: "" }
+                    : { personId: "" },
+            })
           }
         />
-        {"projectRole" in w ? (
+        {"departmentId" in w ? (
+          <>
+            <DepartmentPicker
+              describedBy={who.describedBy}
+              value={w.departmentId}
+              onChange={(departmentId) => set({ who: { departmentId } })}
+            />
+            {/* Con un problema la regola tace: lo dice l'errore, e non si contraddicono. */}
+            {!who.invalid && (
+              <Note>
+                {projectCode
+                  ? t("automations.builder.notify.department", {
+                      name: w.departmentId ? b.names.department(w.departmentId) : "…",
+                      code: projectCode,
+                    })
+                  : t("automations.builder.notify.departmentGeneral", {
+                      name: w.departmentId ? b.names.department(w.departmentId) : "…",
+                    })}
+              </Note>
+            )}
+          </>
+        ) : "projectRole" in w ? (
           <>
             <select
               aria-label={t("automations.builder.panel.aRole")}
@@ -350,6 +403,7 @@ export function NotifyForm({ step, path, set, problems }: KindProps<"notify">) {
           />
         )}
         {who.error}
+        {hint && <p className="pl-5 text-sm text-ink-muted">{hint}</p>}
       </Field>
       <TextField
         label={t("automations.builder.panel.message")}

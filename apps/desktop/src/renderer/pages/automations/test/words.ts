@@ -97,8 +97,17 @@ export function rowOutcome(
     case "sendEmail":
       return t("automations.test.row.email") + tail;
     case "notify": {
-      const p = sim.preview.notifications.find((x) => x.path === path);
-      return t("automations.test.row.notify", { name: ctx.names.person(p?.personId) }) + tail;
+      const all = sim.preview.notifications.filter((x) => x.path === path);
+      // Un reparto (area 10b): le persone si contano qui, il pannello le elenca.
+      if ("departmentId" in step.who)
+        return (
+          (all.length > 0
+            ? t("automations.test.row.notifyPeople", { count: all.length })
+            : t("automations.test.row.notifyDepartment", {
+                name: ctx.names.department(step.who.departmentId),
+              })) + tail
+        );
+      return t("automations.test.row.notify", { name: ctx.names.person(all[0]?.personId) }) + tail;
     }
     case "startAutomation": {
       const p = sim.preview.starts.find((x) => x.path === path);

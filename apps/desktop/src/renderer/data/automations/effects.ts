@@ -198,23 +198,27 @@ function notify(eff: ActionEffect, env: EffectEnv, owner: string) {
   const p = planNotify(eff, env.automation, owner);
   if (!p.ok) return p.outcome;
   const code = runCode(env.run);
-  const notification = {
-    id: newId("n"),
-    kind: "automation.notify",
-    projectId: p.plan.projectId,
-    objectCode: code,
-    departmentId: null,
-    recipientIds: [p.plan.personId],
-    title: `${env.automation.name} · ${code}`,
-    body: p.plan.text,
-    createdAt: env.now,
-    read: false,
-    archived: false,
-    snoozedUntil: null,
-    link: runHref(env.automation.code, env.run.n),
-  };
-  state.notifications.push(notification);
-  return done([notification.id]);
+  // Uno per persona (un reparto ne avvisa più d'una): ognuno legge e archivia il suo.
+  const ids = p.plan.personIds.map((personId) => {
+    const notification = {
+      id: newId("n"),
+      kind: "automation.notify",
+      projectId: p.plan.projectId,
+      objectCode: code,
+      departmentId: null,
+      recipientIds: [personId],
+      title: `${env.automation.name} · ${code}`,
+      body: p.plan.text,
+      createdAt: env.now,
+      read: false,
+      archived: false,
+      snoozedUntil: null,
+      link: runHref(env.automation.code, env.run.n),
+    };
+    state.notifications.push(notification);
+    return notification.id;
+  });
+  return done(ids);
 }
 
 function startAutomation(eff: ActionEffect, env: EffectEnv, owner: string) {

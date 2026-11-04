@@ -6119,7 +6119,8 @@
       "inClientProject": "nel progetto del cliente",
       "inProject": "in {{code}}",
       "inHiddenProject": "in un progetto che non vedi",
-      "theRole": "il {{role}} del progetto"
+      "theRole": "il {{role}} del progetto",
+      "notifyDepartment": "Avvisa {{name}} · reparto: «{{text}}»"
     },
     "roles": {
       "project_lead": "Project Lead",
@@ -6184,7 +6185,8 @@
       "type_mismatch": "Un dato è usato con un tipo di valore sbagliato",
       "approver_cant_see": "Chi deve approvare non vede un progetto in cui il passo agisce",
       "source_disconnected": "La sorgente da cui parte non è collegata",
-      "limit": "Supera uno dei limiti di sicurezza"
+      "limit": "Supera uno dei limiti di sicurezza",
+      "department_cant_see": "Nessuno del reparto che avvisa vede il progetto"
     },
     "detail": {
       "more": "Altro",
@@ -6424,7 +6426,8 @@
       "aiBudgetBackStillQueue": "Budget di nuovo disponibile · ancora in attesa: coda in pausa da {{name}}",
       "aiQueueBackStillBudget": "Coda ripresa · ancora in attesa: budget AI del mese raggiunto",
       "projectUnavailable": "Il progetto non è più disponibile.",
-      "projectUnavailable_would": "Il progetto non è più disponibile: il passo fallirebbe."
+      "projectUnavailable_would": "Il progetto non è più disponibile: il passo fallirebbe.",
+      "noDepartmentRecipient": "Nessuno del reparto vede il progetto: non c'è nessuno da avvisare."
     },
     "created": {
       "task_one": "{{count}} task",
@@ -7017,7 +7020,9 @@
         "approverCantSeeAny": "Chi approva non vede un progetto",
         "source_disconnected": "Sorgente scollegata",
         "limit": "Oltre un limite",
-        "selfStart": "Avvierebbe di nuovo sé stessa"
+        "selfStart": "Avvierebbe di nuovo sé stessa",
+        "department_cant_see": "Nessuno del reparto vede il progetto",
+        "departmentCantSee": "Nessuno di {{name}} vede {{code}}"
       },
       "problem": {
         "unavailable": "{{label}} non è disponibile qui",
@@ -7034,7 +7039,9 @@
         "sourceGone": "Il sistema da cui parte non è più collegato.",
         "titleData": "Il titolo di ogni esecuzione usa dati che non ci sono",
         "noSteps": "Aggiungi almeno un passo",
-        "tooDeep": "I rami arrivano al massimo a 5 livelli: spostalo più in alto o togli un livello."
+        "tooDeep": "I rami arrivano al massimo a 5 livelli: spostalo più in alto o togli un livello.",
+        "departmentCantSee": "Nessuno di {{name}} vede {{code}}",
+        "departmentCantSeeHint": "Scegli un altro reparto, o aggiungi qualcuno di {{name}} in {{code}}."
       },
       "panel": {
         "inside": "Dentro: {{trail}}",
@@ -7186,6 +7193,11 @@
           "lt": "è meno di",
           "date_gt": "è dopo il",
           "date_lt": "è prima del"
+        },
+        "urgency": {
+          "low": "bassa",
+          "medium": "media",
+          "high": "alta"
         }
       },
       "start": {
@@ -7251,6 +7263,10 @@
       "warning": {
         "emailLimit": "Al massimo {{count}} email per esecuzione",
         "emailLimitLong": "Questa email è dentro un «Per ogni»: un'esecuzione manda al massimo {{count}} email, e oltre si ferma con un errore."
+      },
+      "notify": {
+        "department": "Ogni persona di {{name}} che vede {{code}} riceve il suo avviso.",
+        "departmentGeneral": "Ogni persona di {{name}} che vede il progetto di ogni esecuzione riceve il suo avviso."
       }
     },
     "test": {
@@ -7316,7 +7332,8 @@
         "failed": "Fallito",
         "skipped": "Saltato",
         "rejected": "Rifiutato nella prova",
-        "notTaken": "Ramo non preso"
+        "notTaken": "Ramo non preso",
+        "filteredOut": "Non partirebbe"
       },
       "row": {
         "task": "creerebbe una task in {{code}}",
@@ -7351,7 +7368,10 @@
         "notReached": "non ancora raggiunto",
         "skipped": "Saltato",
         "end": "Fine",
-        "start_row": "Quando"
+        "start_row": "Quando",
+        "notifyDepartment": "avviserebbe le persone di {{name}}",
+        "notifyPeople_one": "avviserebbe {{count}} persona",
+        "notifyPeople_other": "avviserebbe {{count}} persone"
       },
       "rounds": {
         "of": "Giro {{n}} di {{total}}",
@@ -7381,7 +7401,8 @@
           "rejected": "Rifiutato nella prova",
           "pending": "Non ancora raggiunto",
           "notTaken": "Ramo non preso",
-          "skipped": "Saltato"
+          "skipped": "Saltato",
+          "filteredOut": "Non partirebbe"
         },
         "data": "I dati dell'esempio",
         "empty": "(vuoto)",
@@ -7453,7 +7474,11 @@
         "noReplyGot": "Nessuna risposta: l'attesa è finita.",
         "wouldDo": "Lo farebbe adesso. «Passo successivo» lo esegue.",
         "noMailboxFrom": "Nessuna casella collegata",
-        "mailboxExpiredFrom": "Collegamento della casella scaduto"
+        "mailboxExpiredFrom": "Collegamento della casella scaduto",
+        "notifyDepartment": "Avviserebbe le persone di {{name}} che vedono {{code}}",
+        "notifyDepartmentAny": "Avviserebbe le persone di {{name}} che vedono il progetto",
+        "notifyPeople_one": "Avviserebbe {{count}} persona: {{names}}",
+        "notifyPeople_other": "Avviserebbe {{count}} persone: {{names}}"
       },
       "stop": {
         "skip_one": "Vai avanti di {{count}} giorno",
@@ -7530,7 +7555,16 @@
       },
       "loadError": "Non è stato possibile caricare l'automazione per la prova.",
       "turnOn": "Accendi",
-      "publish": "Pubblica la versione {{n}}"
+      "publish": "Pubblica la versione {{n}}",
+      "filteredOut": {
+        "title": "Non partirebbe: il filtro dell'inizio non vale per questo esempio",
+        "condition": "{{condition}} — questo esempio: {{value}}",
+        "matches": "vale",
+        "doesntMatch": "non vale",
+        "empty": "vuoto",
+        "nothing": "Non succederebbe niente: con questo esempio non partirebbe.",
+        "hint": "Prova un esempio che soddisfa il filtro dell'inizio."
+      }
     },
     "project": {
       "title": "Automazioni",

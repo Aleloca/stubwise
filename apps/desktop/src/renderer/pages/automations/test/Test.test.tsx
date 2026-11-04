@@ -6,6 +6,7 @@ import { setSessionPersonId } from "../../../data/session";
 import { state } from "../../../data/store";
 import type { AutomationFlow } from "../../../data/types";
 import { grantProjectRole, resetViewerGrants } from "../../../data/viewer";
+import { setLanguage } from "../../../i18n";
 import { DOCKED_PANEL_QUERY } from "../../../layout/useDetailPanel";
 import { REDUCED_MOTION_QUERY } from "../../../layout/useMediaQuery";
 import { clearToasts } from "../../../tasks-ui/Toast";
@@ -837,5 +838,118 @@ describe("revisione, giro 1", () => {
         "You haven't tested this version yet.",
       ),
     );
+  });
+});
+
+describe("area 10b: la prova col filtro dell'inizio (D3)", () => {
+  const LAURA = "p-laura";
+
+  /** La bozza di Laura in ACQ: parte per le richieste urgenti dal supporto, avvisa Support. */
+  async function urgentDraft(): Promise<string> {
+    setSessionPersonId(LAURA);
+    const a = await automationsApi.createAutomation({ name: "Urgenti", projectId: "prj-acq" });
+    const flow: AutomationFlow = {
+      trigger: {
+        kind: "stubwise",
+        event: "request_created",
+        filter: {
+          all: [
+            { left: { ref: "richiesta.urgenza" }, op: "is", right: { value: "high" } },
+            { left: { ref: "richiesta.dal_supporto" }, op: "is", right: { value: true } },
+          ],
+        },
+      },
+      titleTemplate: "{{richiesta.codice}}",
+      steps: [
+        {
+          id: "n",
+          kind: "notify",
+          who: { departmentId: "dep-support" },
+          text: "Nuova richiesta urgente",
+          approval: AUTO,
+        },
+      ],
+    };
+    await automationsApi.saveDraft(a.id, flow);
+    return a.code;
+  }
+
+  it("gli esempi recenti sono solo quelli che il filtro fa partire", async () => {
+    const code = await urgentDraft();
+    await open(`/automations/${code}/test`, LAURA);
+    const dialog = await screen.findByRole("dialog", { name: "Choose an example" });
+    const radios = await within(dialog).findAllByRole("radio");
+    expect(radios.map((r) => r.textContent)).toEqual([
+      expect.stringContaining("Text message before the bill is due"),
+    ]);
+  });
+
+  it("un esempio scritto a mano che il filtro esclude: «Wouldn't start», nessuna anteprima, niente «Turn on», «Change example» primario", async () => {
+    const code = await urgentDraft();
+    const before = bare();
+    await open(`/automations/${code}/test`, LAURA);
+    // A mano: la richiesta urgente più recente, con l'urgenza bassa.
+    const dialog = await screen.findByRole("dialog", { name: "Choose an example" });
+    await userEvent.click(within(dialog).getByRole("tab", { name: "Write one" }));
+    const urgency = within(dialog).getByRole("textbox", { name: "Urgenza" });
+    expect(urgency).toHaveValue("high");
+    await userEvent.clear(urgency);
+    await userEvent.type(urgency, "low");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Start test" }));
+    const summary = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>("[data-test-filtered-out]");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(summary).toHaveTextContent(
+      "Wouldn't start: the start filter doesn't match this example",
+    );
+    // Il valore dell'urgenza si legge tradotto, mai il valore stabile fra virgolette.
+    expect(summary).toHaveTextContent("Urgenza is high — this example: low · doesn't match");
+    expect(summary).toHaveTextContent("this example: yes · matches");
+    expect(summary).toHaveTextContent("Nothing would happen: it wouldn't start with this example.");
+    expect(summary).toHaveTextContent("Try an example that matches the start filter.");
+    // La riga «When» lo dice; i passi restano non raggiunti, senza anteprime.
+    expect(row("trigger")).toHaveTextContent("Wouldn't start");
+    expect(row("0")).not.toHaveTextContent("would notify");
+    // Non è arrivata alla fine: la riga «End» non ha la spunta.
+    expect(row("end")).toHaveAccessibleName("End, Not reached yet");
+    expect(document.querySelector("[data-test-final]")).toBeNull();
+    // [AU 10]: niente «Turn on», «Change example» è il primario della testata.
+    expect(document.querySelector("[data-finish-action]")).toBeNull();
+    expect(document.querySelector("[data-test-again]")).toBeNull();
+    const change = screen.getByRole("button", { name: "Change example" });
+    expect(change.className).toContain("bg-ink");
+    expect(change.closest("[role='group']")).not.toBeNull();
+    // Nessuna traccia, nemmeno la versione provata.
+    expect(bare()).toEqual(before);
+    expect(
+      state.automations.find((a) => a.code === code)!.versions.at(-1)!.testedRev,
+    ).toBeUndefined();
+    // In italiano.
+    act(() => setLanguage("it"));
+    try {
+      expect(
+        await screen.findByText(
+          "Non partirebbe: il filtro dell'inizio non vale per questo esempio",
+        ),
+      ).toBeInTheDocument();
+      expect(row("trigger")).toHaveTextContent("Non partirebbe");
+      expect(document.querySelector("[data-test-filtered-out]")).toHaveTextContent(
+        "questo esempio: bassa · non vale",
+      );
+      expect(document.querySelector("[data-test-filtered-out]")).toHaveTextContent(
+        "Non succederebbe niente: con questo esempio non partirebbe.",
+      );
+    } finally {
+      act(() => setLanguage("en"));
+    }
+    // «Change example» riapre la scelta; l'esempio urgente parte e avvisa Support.
+    await userEvent.click(screen.getByRole("button", { name: "Change example" }));
+    await startWith("Text message before the bill is due");
+    await waitFor(() => expect(document.querySelector("[data-test-filtered-out]")).toBeNull());
+    await userEvent.click(runToStop());
+    await screen.findByText("If this were real");
+    expect(document.querySelector("[data-finish-action]")).toHaveTextContent("Turn on");
   });
 });

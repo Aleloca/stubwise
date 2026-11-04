@@ -19,6 +19,12 @@ export interface TestHeaderProps {
   /** Il passo a cui torna «Back to editing» (id), se c'è. */
   backStep: string | null;
   onChangeExample: (() => void) | null;
+  /**
+   * Area 10b, [AU 10]: l'esempio non farebbe partire l'automazione, e
+   * «Change example» diventa il comando primario della testata (non più il
+   * link della riga meta).
+   */
+  changeExamplePrimary?: boolean;
   /** I comandi della prova; null finché non è partita. */
   commands: {
     canStep: boolean;
@@ -103,6 +109,17 @@ export function TestHeader(p: TestHeaderProps) {
                 {t("automations.test.commands.again")}
               </button>
             )}
+            {p.changeExamplePrimary && p.onChangeExample && (
+              <button
+                type="button"
+                data-change-example
+                className={`${primaryButton} disabled:opacity-40`}
+                disabled={p.busy}
+                onClick={p.onChangeExample}
+              >
+                {t("automations.test.meta.change")}
+              </button>
+            )}
             {p.finish && (
               <button
                 type="button"
@@ -123,7 +140,7 @@ export function TestHeader(p: TestHeaderProps) {
               <span data-example-line>{p.exampleLine}</span>
             </>
           )}
-          {p.onChangeExample && (
+          {p.onChangeExample && !p.changeExamplePrimary && (
             <>
               <span aria-hidden="true">·</span>
               <button

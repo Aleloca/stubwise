@@ -137,6 +137,107 @@ async function main() {
       console.log("scritto", name);
     };
 
+    // Area 10b, Task 2 (`CAPTURE_A10B_AUTOMATIONS=1`): il motore delle
+    // automazioni. La bozza STW-A1 diventa, nel livello dati della pagina,
+    // «una richiesta urgente dal supporto → task per Support e avviso a
+    // Support» (Roberta, admin, la gestisce). Scatti `a10b-automations-*`:
+    // «Notify» un reparto, `department_cant_see` (Marketing senza nessuno che
+    // veda STW), il menu dell'urgenza, la prova a mano che non partirebbe.
+    if (process.env.CAPTURE_A10B_AUTOMATIONS) {
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      /** La bozza del 10b, e (`cantSee`) Marketing svuotato di chi vede STW. */
+      const seed = (page, cantSee) =>
+        page.evaluate(async (cantSee) => {
+          const { state, visibleProjectIds } = await import("/data/store.ts");
+          const a = state.automations.find((x) => x.code === "STW-A1");
+          const v = a.versions.at(-1);
+          v.flow = {
+            trigger: {
+              kind: "stubwise",
+              event: "request_created",
+              filter: {
+                all: [
+                  { left: { ref: "richiesta.urgenza" }, op: "is", right: { value: "high" } },
+                  { left: { ref: "richiesta.dal_supporto" }, op: "is", right: { value: true } },
+                ],
+              },
+            },
+            titleTemplate: "{{richiesta.codice}}",
+            steps: [
+              {
+                id: "t",
+                kind: "createTask",
+                title: "{{richiesta.titolo}}",
+                description: "",
+                assignee: { departmentId: "dep-support" },
+                dueInDays: 1,
+                project: { mode: "own" },
+                milestoneRef: null,
+                approval: { mode: "auto" },
+              },
+              {
+                id: "n",
+                kind: "notify",
+                who: { departmentId: cantSee ? "dep-marketing" : "dep-support" },
+                text: "New urgent request from support: {{richiesta.titolo}}",
+                approval: { mode: "auto" },
+              },
+            ],
+          };
+          if (cantSee) {
+            const d = state.access.departments.find((x) => x.departmentId === "dep-marketing");
+            d.memberIds = d.memberIds.filter((id) => !visibleProjectIds(id).has(a.projectId));
+          }
+        }, cantSee);
+      const go = async (page, hash) => {
+        await page.evaluate((h) => {
+          window.location.hash = h;
+        }, hash);
+        await page.waitForTimeout(900);
+      };
+      const SHOTS = [
+        ["builder-notify", false, async (p) => go(p, "/automations/STW-A1/edit?step=n")],
+        ["builder-cant-see", true, async (p) => go(p, "/automations/STW-A1/edit?step=n")],
+        ["builder-urgency", false, async (p) => go(p, "/automations/STW-A1/edit?step=trigger")],
+        [
+          "test-filtered-out",
+          false,
+          async (p) => {
+            await go(p, "/automations/STW-A1/test");
+            await p.getByRole("tab", { name: /^(Write one|Scrivine uno)$/ }).click();
+            const urgency = p.getByRole("textbox", { name: "Urgenza" });
+            await urgency.fill("low");
+            await p.locator("[data-start-test]").click();
+            await p.locator("[data-test-filtered-out]").waitFor();
+            await p.waitForTimeout(400);
+          },
+        ],
+      ];
+      for (const [name, cantSee, steps] of SHOTS) {
+        for (const v of variants) {
+          const file = `a10b-automations-${name}-${v.suffix}.png`;
+          if (only && !only.test(file)) continue;
+          const { page, context } = await open(v.scheme, v.viewport, "/automations", {
+            lang: v.lang,
+            persona: "Roberta",
+          });
+          await seed(page, cantSee);
+          await steps(page);
+          await page.mouse.move(v.viewport.width - 2, v.viewport.height - 2);
+          await shot(page, file);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 10a, Task 11 (`CAPTURE_A10A_TRACE=1`): «Claude on behalf of».
     // Roberta: il registro con Person = Giulia e «Made with Claude» premuto
     // (la voce del seme, l'inversa con «Undid:»); la rassegna di oggi con le

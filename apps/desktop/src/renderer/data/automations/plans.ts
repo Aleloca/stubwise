@@ -19,6 +19,7 @@ import type { Automation, ReasonCode, Step } from "../types";
 import {
   canManageAutomation,
   canSeeAutomation,
+  departmentRecipients,
   holdersOfRole,
   isDeactivated,
 } from "./visibility";
@@ -382,20 +383,41 @@ export const bouncedFailure = (to: string): EffectOutcome =>
   );
 
 export interface NotifyPlan {
-  personId: string;
+  /**
+   * Chi riceve l'avviso, uno per persona: la persona, il primo col ruolo, o
+   * i membri del reparto che vedono il progetto del passo (area 10b).
+   */
+  personIds: string[];
   /** Il progetto del passo, o nessuno (una generale che non ne ha risolto uno). */
   projectId: string | null;
   text: string;
 }
 
+type NotifyWho = { personId: string } | { projectRole: string } | { departmentId: string };
+
 export function planNotify(eff: ActionEffect, a: Automation, owner: string): Planned<NotifyPlan> {
-  const args = eff.args as { who: { personId: string } | { projectRole: string }; text: string };
+  const args = eff.args as { who: NotifyWho; text: string };
   // Il progetto del passo: quello dell'automazione, o uno risolto; una generale senza
   // progetto avvisa senza progetto (mai un progetto preso a caso fra quelli toccati).
   const projectId = projectOfEffect(eff, a) ?? a.projectId;
   // Come gli altri effetti: coi permessi del proprietario, che deve vedere il progetto del passo.
   const refused = projectId ? projectRefusal(projectId, owner) : null;
   if (refused) return refused;
+  // Un reparto: ogni membro che vede il progetto, e nessun altro (R-G5). Chi non lo
+  // vede non si nomina nemmeno nel motivo del fallimento.
+  if ("departmentId" in args.who) {
+    const personIds = departmentRecipients(args.who.departmentId, projectId);
+    if (personIds.length === 0) {
+      return refuse(
+        failed(
+          "no_recipient",
+          { code: "noDepartmentRecipient" },
+          "Nessuno del reparto vede il progetto: non c'è nessuno da avvisare.",
+        ),
+      );
+    }
+    return { ok: true, plan: { personIds, projectId, text: args.text } };
+  }
   // Un ruolo: la prima persona col ruolo nel progetto, in ordine alfabetico (come «Crea task»).
   const personId =
     "projectRole" in args.who
@@ -433,7 +455,7 @@ export function planNotify(eff: ActionEffect, a: Automation, owner: string): Pla
       ),
     );
   }
-  return { ok: true, plan: { personId: person.id, projectId, text: args.text } };
+  return { ok: true, plan: { personIds: [person.id], projectId, text: args.text } };
 }
 
 /**
