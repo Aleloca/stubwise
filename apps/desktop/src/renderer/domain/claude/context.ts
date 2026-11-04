@@ -87,9 +87,10 @@ export interface IntentContext {
   thread?: readonly string[];
   /**
    * Chi chiama può rispondere a una domanda di Claude prima della proposta
-   * (una chiamata dalla Chat, R-G4): una richiesta a cui manca un pezzo
-   * («assegna AUD-4», senza a chi) diventa una domanda a scelta invece di
-   * una risposta di solo testo. Fuori dalla Chat non c'è.
+   * (una chiamata dalla Chat, R-G4, e la conversazione libera, area 10b):
+   * una richiesta a cui manca un pezzo («assegna AUD-4», senza a chi)
+   * diventa una domanda a scelta invece di una risposta di solo testo. Nella
+   * libera si spegne dopo due domande per la stessa richiesta.
    */
   asks?: boolean;
   /**

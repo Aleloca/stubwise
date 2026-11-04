@@ -2145,7 +2145,8 @@ function stopSteps(me: string, c: Conversation): ScriptStep[] {
 /**
  * Un turno della conversazione libera: il messaggio, la risposta del motore
  * di intenti, i passi. Gira in coda (`inTurn`), quindi nessun altro turno
- * aggiunge eventi in mezzo.
+ * aggiunge eventi in mezzo. A una richiesta a cui manca un pezzo Claude può
+ * rispondere con una scheda di scelta (area 10b, `asks`).
  */
 async function freeTurn(
   me: string,
@@ -2156,13 +2157,80 @@ async function freeTurn(
   gen: number,
   context: ContextRef | null = null,
 ) {
+  await freeReply(me, c, text, cut, gen, { attachments, context });
+}
+
+/**
+ * Area 10b: la ripresa di una richiesta dopo la risposta a una scheda di
+ * scelta («assegna MKX-31» + «Giulia Ferri»). Come `freeTurn`, compreso il
+ * `cut` di «Ferma» *(ruling del controller (pre-flight), P24)*, ma senza un
+ * messaggio di chi scrive: la risposta è già nella scheda.
+ */
+async function freeResume(
+  me: string,
+  c: Conversation,
+  text: string,
+  cut: number,
+  gen: number,
+): Promise<void> {
+  await freeReply(me, c, text, cut, gen, null);
+}
+
+/**
+ * Al massimo due schede di scelta per la stessa richiesta (scelta del
+ * costruttore: progetto, poi reparto); poi Claude dice a parole cosa manca.
+ */
+const MAX_FREE_QUESTIONS = 2;
+
+/** `text` riprende `request`: è lei, o lei con le risposte accodate. */
+const continues = (text: string, request: string) =>
+  text === request || text.startsWith(`${request} `);
+
+/**
+ * La richiesta che una ripresa continua: l'ultimo messaggio di chi scrive
+ * da cui `text` discende (il suo contesto vale per la risposta) e quante
+ * schede di scelta sono già state fatte per lei, dopo quel messaggio.
+ */
+function freeRequestOf(id: string, text: string): { context: ContextRef | null; asked: number } {
+  const log = eventsOf(id);
+  const opens = (e: ConversationEvent) => e.type === "user" && continues(text, e.text);
+  let from = log.length - 1;
+  while (from >= 0 && !opens(log[from]!)) from--;
+  const user = log[from];
+  const asked = log
+    .slice(from + 1)
+    .filter(
+      (e) => e.type === "question" && e.resume !== undefined && continues(text, e.resume),
+    ).length;
+  return { context: (user?.type === "user" && user.context) || null, asked };
+}
+
+/**
+ * Il corpo di un turno della libera: con `message` il messaggio di chi
+ * scrive entra nel flusso (`freeTurn`); senza, è la ripresa di una richiesta
+ * dopo una scheda di scelta (`freeResume`).
+ */
+async function freeReply(
+  me: string,
+  c: Conversation,
+  text: string,
+  cut: number,
+  gen: number,
+  message: { attachments: Attachment[]; context: ContextRef | null } | null,
+) {
   const id = c.id;
+  const attachments = message?.attachments ?? [];
+  const request = message ? null : freeRequestOf(id, text);
+  const context = message ? message.context : request!.context;
   if (!current(gen)) throw new Error("reset");
   // Nel frattempo poteva essere archiviata o eliminata.
   if (!state.conversations.includes(c) || !conversationPermissions(me, c).canWrite) {
     throw forbidden();
   }
   if (freeCut(id) !== cut) {
+    // Una ripresa in coda dietro «Ferma» non risponde: la scheda resta
+    // risposta, e la richiesta si rifà con un messaggio.
+    if (!message) return;
     // «Ferma» è arrivato mentre il messaggio aspettava il suo turno: resta
     // nel flusso (nulla di scritto si perde), non consegnato e con il motivo.
     await runScript(
@@ -2203,7 +2271,7 @@ async function freeTurn(
   const messageIndex = eventsOf(id).length;
   // Il primo turno: dopo la risposta il titolo automatico (se nessuno l'ha
   // cambiato) diventa un titolo breve.
-  const firstTurn = !eventsOf(id).some((e) => e.type === "user");
+  const firstTurn = message !== null && !eventsOf(id).some((e) => e.type === "user");
   // In una pubblica non si sa ancora se il messaggio tocca un progetto
   // nuovo (lo dice la risposta): finché non lo si sa resta privato, così
   // chi guarda non lo riceve né lo legge (R-E6). Se non tocca nulla di
@@ -2212,7 +2280,8 @@ async function freeTurn(
   if (held) c.privateFromIndex = messageIndex;
   let steps: ScriptStep[];
   try {
-    await runScript(id, [user, { step: "state", state: "working" }], gen);
+    const working: ScriptStep = { step: "state", state: "working" };
+    await runScript(id, message ? [user, working] : [working], gen);
     steps = await respond(text, {
       personId: me,
       contextProjectId,
@@ -2221,6 +2290,8 @@ async function freeTurn(
       seed: `${id}-${eventsOf(id).length}`,
       // La classe la calcola il livello dati (area 10a): A parte subito.
       classify: async (actions) => classOfGroup(me, actions),
+      // Le schede di scelta (area 10b): spente dopo due per la stessa richiesta.
+      asks: !request || request.asked < MAX_FREE_QUESTIONS,
     });
   } catch (error) {
     if (held) releaseHold(c, messageIndex);
@@ -2231,7 +2302,7 @@ async function freeTurn(
     // Fermata mentre Claude pensava: il messaggio l'aveva ricevuto, la
     // risposta calcolata dopo «Ferma» non entra nel flusso (né si esegue).
     if (held) releaseHold(c, messageIndex);
-    await runScript(id, [{ step: "deliver" }], gen);
+    if (message) await runScript(id, [{ step: "deliver" }], gen);
     return;
   }
   // Le azioni A si eseguono adesso, senza attese, con la classe ricalcolata:
@@ -2420,6 +2491,11 @@ export async function stopAndSend(id: string, text: string): Promise<void> {
  * nel progetto. Una seconda risposta (anche concorrente) riceve
  * `already_answered` con chi ha risposto (`byId`). La risposta va nel
  * registro decisioni con un testo fisso, mai scritto dall'AI.
+ *
+ * Area 10b, una scheda di scelta della libera: risponde solo chi l'ha
+ * aperta (`canAnswer`); non è una domanda `ask_user` di un lavoro, quindi
+ * nel registro decisioni non entra nulla, e la risposta riprende la stessa
+ * richiesta (`freeResume`, in coda come un messaggio).
  */
 export async function answerQuestion(
   id: string,
@@ -2444,20 +2520,19 @@ export async function answerQuestion(
   claims.set(key, me);
   const at = now();
   const label = option?.label ?? text!;
+  const answered: ScriptStep = {
+    step: "patch",
+    eventId: question.id,
+    patch: {
+      type: "question",
+      answer: { optionIndex: answer.optionIndex, text, byId: me, at },
+    },
+  };
   try {
+    // Nella libera lo stato lo cambia la ripresa, al suo turno.
     await runScript(
       id,
-      [
-        {
-          step: "patch",
-          eventId: question.id,
-          patch: {
-            type: "question",
-            answer: { optionIndex: answer.optionIndex, text, byId: me, at },
-          },
-        },
-        { step: "state", state: "working" },
-      ],
+      c.kind === "free" ? [answered] : [answered, { step: "state", state: "working" }],
       gen,
     );
   } catch (error) {
@@ -2465,6 +2540,15 @@ export async function answerQuestion(
     throw error;
   }
   if (!current(gen)) return;
+  if (c.kind === "free") {
+    const resume = question.resume;
+    if (resume === undefined) return;
+    // Il taglio di adesso, non quello del turno: un «Ferma» dopo la
+    // risposta lascia la ripresa senza seguito (P24).
+    const cut = freeCut(c.id);
+    await inTurn(c.id, () => freeResume(me, c, `${resume} ${label}`, cut, gen));
+    return;
+  }
   if (c.projectId !== null) {
     state.decisionLog.push({
       id: newId("dec"),

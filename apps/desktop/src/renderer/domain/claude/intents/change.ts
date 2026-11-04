@@ -110,7 +110,7 @@ export async function assign(text: string, ctx: IntentContext): Promise<Answer> 
   const people = await read.listPeople();
   const person = findPerson(text, people, personId);
   if (!person && ctx.asks) {
-    // Dalla Chat: a chi chiama si chiede a chi, fra i membri del progetto
+    // Dalla Chat e dalla libera: a chi chiama si chiede a chi, fra i membri del progetto
     // (non l'assegnatario di adesso, non Claude): prima chi
     // parla nel thread, poi in ordine di nome.
     const project = (await read.listProjects()).find((p) => p.id === task.projectId);

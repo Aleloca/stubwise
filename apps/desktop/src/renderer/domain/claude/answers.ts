@@ -67,6 +67,11 @@ export interface Answer {
   ask?: {
     text: string;
     options: { label: string; consequence?: string; recommended?: boolean }[];
+    /**
+     * Area 10b, la richiesta da riprendere dopo la risposta (solo nella
+     * libera, `ctx.classify`). Assente: il messaggio a cui si risponde.
+     */
+    resume?: string;
   };
 }
 
@@ -112,6 +117,9 @@ export function toSteps(answer: Answer, ctx: IntentContext, text: string): Scrip
         text: answer.ask.text,
         options: answer.ask.options,
         answer: null,
+        // Nella libera la risposta riprende la richiesta (area 10b); nella
+        // Chat la riprende la sua chiamata, e la domanda resta com'era.
+        ...(ctx.classify ? { resume: answer.ask.resume ?? text } : {}),
       },
     });
   }

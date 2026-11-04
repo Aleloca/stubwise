@@ -1827,7 +1827,8 @@ export function serverFixBlock(c: Conversation): ServerFixBlock | null {
  * in un posto solo. Scrivere in una sessione di task chiede
  * `agent_sessions.intervene` e un passo interattivo (al lavoro o in pausa);
  * nel refine `backlog.edit` finché la sessione è aperta. Rispondere: il
- * richiedente o chi ha `plans.approve`. Una libera la scrive solo l'autore.
+ * richiedente o chi ha `plans.approve`. Una libera la scrive solo l'autore,
+ * e solo lui risponde alle sue schede di scelta (area 10b).
  */
 export function conversationPermissions(
   personId: string,
@@ -1893,7 +1894,12 @@ export function conversationPermissions(
     isOwner,
     canWrite,
     canInterrupt,
-    canAnswer: question !== undefined && live && (isOwner || inProject("plans.approve")),
+    // Una scheda di scelta della libera (area 10b) la risponde solo chi
+    // scrive: l'autore, finché la conversazione non è archiviata.
+    canAnswer:
+      question !== undefined &&
+      live &&
+      (c.kind === "free" ? canWrite : isOwner || inProject("plans.approve")),
     canDecidePlan: decidable && planBlockedReason === null,
     canRejectPlan: decidable,
     canPreApprovePlan: preApprovable && !preApproved,

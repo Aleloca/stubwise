@@ -1034,6 +1034,12 @@ export type ConversationEvent =
       text: string;
       options: { label: string; consequence?: string; recommended?: boolean }[];
       answer: { optionIndex: number | null; text: string | null; byId: string; at: string } | null;
+      /**
+       * Area 10b, solo nella libera: la richiesta da riprendere. La risposta
+       * le si accoda («assegna MKX-31» + «Giulia Ferri») e Claude riprende
+       * da lì. Assente: una domanda di un lavoro (`ask_user`).
+       */
+      resume?: string;
     }
   | {
       id: string;
