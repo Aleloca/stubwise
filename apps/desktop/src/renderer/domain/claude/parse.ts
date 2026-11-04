@@ -36,9 +36,12 @@ export function stripCourtesy(plain: string): { polite: boolean; command: string
   }
   return { polite, command };
 }
-/** Il lead di una domanda «come si fa / come funziona» (lo stesso di `howto`). */
+/**
+ * Il lead di una domanda «come si fa / come funziona». Non «how is / how
+ * are»: chiedono com'è una cosa («How are we spending on AI?»), non come si fa.
+ */
 const HOWTO_QUESTION =
-  /^(how (do|does|can|to|is|are|should)|come (funziona|funzionano|si|faccio|posso|fare|devo))\b/;
+  /^(how (do|does|can|to|should)|come (funziona|funzionano|si|faccio|posso|fare|devo))\b/;
 /**
  * Una domanda «come si fa / come funziona» in testa (dopo saluti e
  * cortesie): «How do I mark a task as stalled?», «Come si imposta il

@@ -157,6 +157,17 @@ describe("il riconoscimento (P10)", () => {
       expect(recognize(text, new Set(["AUD"]))).toBe("howto");
     });
   }
+  // «How is / how are» chiede com'è una cosa, non come si fa (re-review T6, giro 2).
+  for (const [text, intent] of [
+    ["How are we spending on AI this month?", "spend"],
+    ["How is AI usage this month?", "spend"],
+    ["How are the stalled projects doing?", "stalled"],
+  ] as const) {
+    it(`«${text}» è ${intent}, non howto`, () => {
+      expect(isHowToQuestion(text)).toBe(false);
+      expect(recognize(text, new Set(["AUD"]))).toBe(intent);
+    });
+  }
   // Lo stesso controllo vale per le automazioni (T5 I3), e non scambia «How much…».
   it("«Come si crea un'automazione?» e «How do I create an automation?» non sono automazioni", () => {
     for (const text of ["Come si crea un'automazione?", "How do I create an automation?"]) {
