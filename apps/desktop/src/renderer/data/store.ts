@@ -303,6 +303,7 @@ export type ApiFnName =
   | "revokePlanApproval"
   | "confirmProposal"
   | "cancelProposal"
+  | "settlePageEvent"
   | "editProposal"
   | "setVisibility"
   | "continueConversation"
@@ -1534,10 +1535,11 @@ export const nextSeq = (): number => ++state.alertSeq;
 
 /**
  * Una scrittura su una richiesta o un traguardo (area 10a), o su
- * un'automazione (area 10b): chi, quando nell'ordine, e se Claude per lui.
+ * un'automazione o un filtro salvato (area 10b): chi, quando nell'ordine, e
+ * se Claude per lui.
  */
 export interface ObjectWrite {
-  kind: "request" | "milestone" | "automation";
+  kind: "request" | "milestone" | "automation" | "filter";
   id: string;
   seq: number;
   byId: string;

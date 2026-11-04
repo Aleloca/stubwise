@@ -29,6 +29,8 @@ export type FlowItem =
   | { kind: "proposal"; key: string; event: Ev<"proposal"> }
   /** Area 10a: azioni di Claude eseguite (o «Didn't run»); una `pending` non si disegna mai. */
   | { kind: "executed"; key: string; event: Ev<"executed"> }
+  /** Area 10b (Task 9): un'azione della pagina; una `pending` non si disegna (non è ancora vera). */
+  | { kind: "pageAction"; key: string; event: Ev<"pageAction"> }
   | { kind: "work_result"; key: string; event: Ev<"work_result"> };
 
 /** Gli eventi che scrive Claude (e che quindi aprono il suo turno). */
@@ -40,6 +42,7 @@ const CLAUDE_TYPES = new Set<ConversationEvent["type"]>([
   "plan",
   "proposal",
   "executed",
+  "pageAction",
   "work_result",
 ]);
 
@@ -52,6 +55,8 @@ export function flowItems(events: readonly ConversationEvent[]): FlowItem[] {
   for (const event of events) {
     // Fra il motore e l'esecuzione: non arriva a chi legge, e non si disegna.
     if (event.type === "executed" && event.status === "pending") continue;
+    // Un'azione della pagina non ancora eseguita dal riquadro: la riga direbbe il falso.
+    if (event.type === "pageAction" && event.status === "pending") continue;
     if (CLAUDE_TYPES.has(event.type) && !claudeTurn) {
       out.push({ kind: "claude", key: `claude-${event.id}`, at: event.at });
       claudeTurn = true;
@@ -95,6 +100,7 @@ export function flowItems(events: readonly ConversationEvent[]): FlowItem[] {
       case "plan":
       case "proposal":
       case "executed":
+      case "pageAction":
       case "work_result":
         out.push({ kind: event.type, key: event.id, event } as FlowItem);
         break;

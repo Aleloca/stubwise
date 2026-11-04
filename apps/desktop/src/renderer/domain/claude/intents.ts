@@ -14,6 +14,7 @@ import { archive, isArchiveRequest } from "./intents/archive";
 import { automation, isAutomationRequest } from "./intents/automation";
 import { draft, isDraftRequest } from "./intents/draft";
 import { isMemberRequest, member } from "./intents/member";
+import { isPageRequest, page } from "./intents/page";
 import { assign, create, plan } from "./intents/change";
 import { explain } from "./intents/explain";
 import { fileQuestion, files } from "./intents/files";
@@ -56,6 +57,7 @@ export type Intent =
   | "archive"
   | "member"
   | "draft"
+  | "page"
   | "general";
 
 // Le modifiche si riconoscono solo da un COMANDO: il verbo all'imperativo in
@@ -121,6 +123,11 @@ export function recognize(text: string, visibleCodes?: ReadonlySet<string>): Int
   // Un gesto delle persone (classe D, area 10a) prima di ogni comando: «approva
   // il piano di AUD-4» non diventa mai un'altra cosa.
   if (isRefused(text)) return "refused";
+  // Area 10b (Task 9): lingua, tema, il filtro della pagina e il filtro
+  // salvato, dopo i gesti delle persone e prima dei comandi e di `explain`
+  // (P10): «show ACQ tasks assigned to Marco» ha un codice noto, ma non
+  // chiede di spiegarlo.
+  if (isPageRequest(text)) return "page";
   // Area 10b (S4, S5): archiviare in blocco e aggiungere un membro, dopo i
   // gesti delle persone e prima di ogni comando (P10): «add Luca to ACQ as
   // Developer» non crea una task, «archivia i progetti fermi» non chiede
@@ -174,6 +181,7 @@ const HANDLERS: Record<Intent, (text: string, ctx: IntentContext) => Promise<Ans
   archive,
   member,
   draft,
+  page,
   general,
 };
 

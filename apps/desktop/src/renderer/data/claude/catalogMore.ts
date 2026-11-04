@@ -5,7 +5,10 @@ import {
   deleteDraftAs,
   saveDraftAs,
 } from "../automations/writes";
-import type { Automation, AutomationFlow, AutomationMeta } from "../types";
+import { parseCriteria } from "../../domain/filters";
+import { deleteFilterAs, saveFilterAs } from "../api-mutations";
+import { GROUP_BYS, TASK_VIEWS } from "../routes";
+import type { Automation, AutomationFlow, AutomationMeta, GroupBy, TaskView } from "../types";
 import { state } from "../store";
 import type { CatalogEntry, CatalogRun } from "./catalog";
 import type { CatalogInverse } from "./types";
@@ -17,10 +20,16 @@ import type { CatalogInverse } from "./types";
 // `classOf` non ha motivi di dati per queste voci. Il «Who?» è uno solo,
 // `manageProjectAutomations`: dal riquadro nascono solo bozze di progetto
 // (ruling del controller (pre-flight), P3). La prova (`trialAs`) non è una
-// voce: non scrive niente da annullare (scelta del costruttore).
+// voce: non scrive niente da annullare (scelta del costruttore). E il
+// filtro salvato personale (Task 9): salvarlo ed eliminarlo.
 
 /** Le funzioni delle voci di questo file. */
-export type MoreCatalogFn = "createAutomation" | "saveAutomationDraft" | "deleteAutomationDraft";
+export type MoreCatalogFn =
+  | "createAutomation"
+  | "saveAutomationDraft"
+  | "deleteAutomationDraft"
+  | "saveFilter"
+  | "deleteFilter";
 
 type Args = Record<string, unknown>;
 
@@ -32,6 +41,14 @@ const onAutomation = (a: Automation, inverse: CatalogInverse): CatalogRun => ({
   projectIds: a.projectId === null ? [] : [a.projectId],
   inverse,
   objects: [{ kind: "automation", id: a.id }],
+});
+
+/** Un filtro salvato toccato: nessun codice né progetto (è solo di chi chiede). */
+const onFilter = (id: string, inverse: CatalogInverse): CatalogRun => ({
+  codes: [],
+  projectIds: [],
+  inverse,
+  objects: [{ kind: "filter", id }],
 });
 
 /** Ha la forma di un flusso? Il resto lo dice `prospectiveIssues`. */
@@ -111,6 +128,46 @@ export const MORE_ENTRIES: Record<MoreCatalogFn, Omit<CatalogEntry, "fn">> = {
       const a = state.automations.find((x) => x.id === id);
       deleteDraftAs(me, id);
       return onAutomation(a!, null);
+    },
+  },
+
+  // --- il filtro salvato personale (area 10b, Task 9) ------------------------
+  // Tocca solo chi chiede: nessun permesso, quindi nessun «Who?» (P4). Dal
+  // riquadro nasce solo privato: un filtro pubblico lo vedrebbero gli altri.
+  saveFilter: {
+    apiFn: "saveFilter",
+    baseClass: "A",
+    undoable: true,
+    whoAction: null,
+    run(me, args) {
+      if ((args.visibility ?? "private") !== "private") throw invalid("visibility");
+      const criteria = parseCriteria(args.criteria);
+      if (criteria === null) throw invalid("criteria");
+      const view = (TASK_VIEWS as readonly unknown[]).includes(args.view)
+        ? (args.view as TaskView)
+        : "list";
+      const groupBy = (GROUP_BYS as readonly unknown[]).includes(args.groupBy)
+        ? (args.groupBy as GroupBy)
+        : "status";
+      const filter = saveFilterAs(me, {
+        name: typeof args.name === "string" ? args.name : "",
+        visibility: "private",
+        criteria,
+        view,
+        groupBy,
+      });
+      return onFilter(filter.id, { fn: "deleteFilter", args: { id: filter.id } });
+    },
+  },
+  deleteFilter: {
+    apiFn: "deleteFilter",
+    baseClass: "B",
+    undoable: false,
+    whoAction: null,
+    run(me, args) {
+      const id = args.id as string;
+      deleteFilterAs(me, id);
+      return onFilter(id, null);
     },
   },
 };

@@ -360,6 +360,7 @@ function writesOn(record: ClaudeActionRecord, ref: ObjectRef): Write[] {
     case "request":
     case "milestone":
     case "automation":
+    case "filter":
       return state.objectWrites.filter((w) => w.kind === ref.kind && w.id === ref.id);
     case "subscription": {
       const sub = state.alertSubscriptions.find(
@@ -429,6 +430,8 @@ function projectOfRef(ref: ObjectRef): string | null {
     case "subscription":
       return ref.projectId;
     case "instanceSetting":
+    // Un filtro salvato personale non sta in un progetto.
+    case "filter":
       return null;
   }
 }

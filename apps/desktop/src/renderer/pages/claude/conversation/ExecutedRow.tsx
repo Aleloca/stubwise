@@ -31,6 +31,8 @@ const MASCULINE: ReadonlySet<ProposedAction["fn"]> = new Set([
   "setMemberRole",
   "createMilestone",
   "deleteMilestone",
+  // Il filtro salvato (area 10b): «Annullato».
+  "saveFilter",
 ]);
 
 export const isMasculineGroup = (actions: readonly Pick<ProposedAction, "fn">[]) =>
@@ -98,10 +100,13 @@ function ActionPhrase({
   action,
   code,
   lookup,
+  mine,
 }: {
   action: ProposedAction;
   code: string | null;
   lookup: Lookup;
+  /** Chi legge è chi l'ha chiesta (non un lettore di una pubblica altrui). */
+  mine: boolean;
 }) {
   const { t } = useTranslation();
   const args = action.args;
@@ -170,6 +175,16 @@ function ActionPhrase({
       head = verb(action.fn, { name });
       break;
     }
+    // Il filtro salvato personale (area 10b, Task 9): il nome, e che lo vede solo chi l'ha chiesto.
+    case "saveFilter": {
+      if (typeof args.name !== "string") return generic();
+      head = t("claude.conversation.page.savedFilter", { name: args.name });
+      // «lo vedi solo tu» è vero solo per chi l'ha chiesto: agli altri, «privato».
+      details.push(
+        t(mine ? "claude.conversation.page.onlyYou" : "claude.conversation.page.private"),
+      );
+      break;
+    }
     case "deleteTask":
     case "addComment":
     case "startRun":
@@ -234,7 +249,12 @@ export function ExecutedRow({
               <CheckGlyph />
             </span>
             <span className="min-w-0">
-              <ActionPhrase action={action} code={codes[i] ?? null} lookup={lookup} />
+              <ActionPhrase
+                action={action}
+                code={codes[i] ?? null}
+                lookup={lookup}
+                mine={undo?.state !== "not_yours"}
+              />
             </span>
           </li>
         ))}

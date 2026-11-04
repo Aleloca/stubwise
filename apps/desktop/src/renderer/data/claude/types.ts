@@ -50,7 +50,10 @@ export type ClaudeActionFn =
   // Le bozze di automazione (area 10b): mai accenderle né pubblicarle (maintainer).
   | "createAutomation"
   | "saveAutomationDraft"
-  | "deleteAutomationDraft";
+  | "deleteAutomationDraft"
+  // Il filtro salvato personale (area 10b, Task 9): solo privato.
+  | "saveFilter"
+  | "deleteFilter";
 
 /** Un oggetto toccato da un'azione: il «com'era» di «Annulla» lo confronta con le scritture dopo. */
 export type ObjectRef =
@@ -59,6 +62,8 @@ export type ObjectRef =
   | { kind: "milestone"; id: string }
   /** Un'automazione (area 10b): il «com'era» legge `state.objectWrites`, come richieste e traguardi. */
   | { kind: "automation"; id: string }
+  /** Un filtro salvato personale (area 10b): il «com'era» legge `state.objectWrites`. */
+  | { kind: "filter"; id: string }
   | { kind: "project"; id: string }
   | { kind: "member"; projectId: string; personId: string }
   | { kind: "projectSettings"; projectId: string }

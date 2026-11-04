@@ -78,7 +78,10 @@ export interface CatalogEntry {
   baseClass: "A" | "B";
   /** Se la voce ha un inverso (il valore vero lo dà `run`). */
   undoable: boolean;
-  /** L'azione di `ACTIONS` per il «Who?» di un rifiuto; `null` solo per `setSubscription` (P19). */
+  /**
+   * L'azione di `ACTIONS` per il «Who?» di un rifiuto; `null` solo per ciò
+   * che è solo tuo: `setSubscription` (P19) e i filtri salvati (P4).
+   */
   whoAction: string | null;
   /** Sincrona; lancia come `applyActions` (`forbidden`, `not_found`, `invalid: …`, `busy`, `reauth_required`). */
   run(me: string, args: Record<string, unknown>): CatalogRun;

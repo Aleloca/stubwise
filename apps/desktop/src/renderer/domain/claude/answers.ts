@@ -2,6 +2,7 @@ import type {
   CapabilityId,
   CitationRef,
   FieldRef,
+  PageAction,
   ProposalNote,
   ProposedAction,
   ScriptStep,
@@ -125,6 +126,12 @@ export interface Answer {
    * Solo nella libera (`ctx.classify`, P11): nella Chat nessuno la metterebbe.
    */
   draft?: { field: FieldRef; text: string; sources?: string[] };
+  /**
+   * Area 10b (Task 9): un'azione della pagina (lingua, tema, filtro), classe
+   * A. Non scrive dati: diventa un evento `pageAction` `pending`, che il
+   * riquadro di chi chiede esegue. Solo nella libera (`ctx.classify`, P11).
+   */
+  page?: PageAction;
 }
 
 /**
@@ -165,6 +172,13 @@ export function toSteps(answer: Answer, ctx: IntentContext, text: string): Scrip
     ? `${answer.text} [${ctx.t(answer.place.labelKey, answer.place.labelParams)}](${answer.place.route})`
     : answer.text;
   if (said) steps.push({ step: "say", text: said });
+  // L'azione della pagina dopo la sua frase (se c'è): la esegue il riquadro (P22).
+  if (answer.page && ctx.classify) {
+    steps.push({
+      step: "event",
+      event: { type: "pageAction", action: answer.page, status: "pending" },
+    });
+  }
   // Area 10b: l'elenco della risposta onesta, poi «Hypothesis» e «Details»
   // (nell'ordine dello shape), sotto il testo e mai dentro.
   if (answer.capabilities && answer.capabilities.length > 0) {

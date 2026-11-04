@@ -827,6 +827,18 @@ export type FieldRef =
   /** D1: la descrizione di una task, nel campo aperto di `DescriptionSection`. */
   | { kind: "taskDescription"; taskId: string };
 
+/**
+ * Area 10b (Task 9): ciò che Claude cambia della pagina di chi chiede —
+ * lingua, tema, il filtro della pagina sotto. Valori stabili: la riga li
+ * dice nella lingua di chi guarda.
+ */
+export type PageAction =
+  | { kind: "language"; to: "en" | "it" }
+  /** I valori di `ThemePreference` (`theme/theme.ts`), scritti qui: `model.ts` non importa dal tema. */
+  | { kind: "theme"; to: "system" | "light" | "dark" }
+  /** `route` e `search` come li usa la pagina: Tasks legge i criteri da `filters`. */
+  | { kind: "filter"; route: string; search: Record<string, unknown> };
+
 export interface Conversation {
   id: string;
   kind: ConversationKind;
@@ -1223,6 +1235,19 @@ export type ConversationEvent =
       sources?: string[];
       /** `pending` fino al riquadro; `placed` nel campo; `waiting` = pagina lasciata («Put it in the field»). */
       status: "pending" | "placed" | "waiting" | "undone" | "changed_after";
+    }
+  /**
+   * Area 10b (Task 9): un'azione della pagina (lingua, tema, filtro), classe
+   * A: tocca solo chi chiede. `pending` fino al riquadro di chi ha aperto la
+   * conversazione, che la esegue una volta (`usePageEventRunner`) e la chiude
+   * con `settlePageEvent`; il valore di prima resta solo nella sua memoria.
+   */
+  | {
+      id: string;
+      at: string;
+      type: "pageAction";
+      action: PageAction;
+      status: "pending" | "done" | "undone" | "changed_after" | "failed";
     }
   | {
       id: string;

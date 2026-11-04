@@ -11,6 +11,7 @@ import type {
   DocPage,
   DriveFile,
   FilterCriteria,
+  PageAction,
   Person,
   Project,
   ProjectPulse,
@@ -142,6 +143,18 @@ export interface ReadApi {
   >;
 }
 
+/**
+ * Area 10b (Task 9): la pagina di chi chiede, com'è adesso. Lingua e tema
+ * dicono se una richiesta è già fatta («Il tema è già scuro»); `lastFilter`
+ * è «questo filtro»: l'ultimo `pageAction` `filter` `done` della
+ * conversazione (P21) — il contesto della pagina non porta la ricerca.
+ */
+export interface PageState {
+  theme: "system" | "light" | "dark";
+  language: "en" | "it";
+  lastFilter: Omit<Extract<PageAction, { kind: "filter" }>, "kind"> | null;
+}
+
 export interface IntentContext {
   /** Chi conversa: le proposte sono sue, e solo lui le può confermare. */
   personId: string;
@@ -182,4 +195,6 @@ export interface IntentContext {
    * proposta. Il motore la chiede, non la deduce.
    */
   classify?: (actions: Pick<ProposedAction, "fn" | "args">[]) => Promise<ActionClass>;
+  /** Area 10b (Task 9): la pagina di chi chiede, solo nella libera (il riquadro la cambia). */
+  page?: PageState;
 }

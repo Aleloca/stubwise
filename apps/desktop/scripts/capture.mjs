@@ -399,6 +399,62 @@ async function main() {
       return;
     }
 
+    // Area 10b, Task 9 (`CAPTURE_A10B_PAGE=1`): le azioni della pagina dal
+    // riquadro (shape `claude-scenarios.md` §3.10). Roberta sull'Overview di
+    // ACQ: il filtro delle task di Marco (la pagina sotto passa a Tasks
+    // filtrata) e il filtro salvato; poi il tema opposto e l'altra lingua,
+    // con «Undo» del tema già premuto (la riga della lingua è nella lingua
+    // nuova). Scatti `a10b-page-*`.
+    if (process.env.CAPTURE_A10B_PAGE) {
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      const take = async (page, name, v) => {
+        await page.mouse.move(v.viewport.width - 2, v.viewport.height - 2);
+        if (!only || only.test(name)) await shot(page, name);
+      };
+      const panel = (page) => page.locator("#claude-panel");
+      const ask = async (page, text) => {
+        const box = panel(page).locator("textarea").last();
+        await box.waitFor();
+        await box.fill(text);
+        await box.press("Enter");
+        await page.waitForTimeout(2500);
+      };
+      for (const v of variants) {
+        const it = v.lang === "it";
+        const { page, context } = await open(v.scheme, v.viewport, "/p/ACQ/overview", {
+          lang: v.lang,
+          persona: "Roberta",
+        });
+        await page.getByRole("button", { name: /^(Ask Claude|Chiedi a Claude)$/ }).click();
+        await ask(page, it ? "mostrami le task di Marco in ACQ" : "show ACQ tasks assigned to Marco");
+        await panel(page).locator("[data-page-action]").first().waitFor();
+        await ask(
+          page,
+          it ? "salva questo filtro come Marco in ACQ" : "save this filter as Marco in ACQ",
+        );
+        await panel(page).locator("[data-executed]").first().waitFor();
+        await take(page, `a10b-page-filter-${v.suffix}.png`, v);
+        const other = v.scheme === "dark" ? (it ? "chiaro" : "light") : it ? "scuro" : "dark";
+        await ask(page, it ? `passa al tema ${other}` : `switch to the ${other} theme`);
+        await panel(page).locator('[data-page-action="theme"]').waitFor();
+        await panel(page).locator('[data-page-action="theme"] [data-undo-button]').click();
+        await page.waitForTimeout(600);
+        await ask(page, it ? "passa all'inglese" : "switch to Italian");
+        await panel(page).locator('[data-page-action="language"]').waitFor();
+        await page.waitForTimeout(600);
+        await take(page, `a10b-page-look-${v.suffix}.png`, v);
+        await context.close();
+      }
+      return;
+    }
+
     // Area 10a, Task 11 (`CAPTURE_A10A_TRACE=1`): «Claude on behalf of».
     // Roberta: il registro con Person = Giulia e «Made with Claude» premuto
     // (la voce del seme, l'inversa con «Undid:»); la rassegna di oggi con le

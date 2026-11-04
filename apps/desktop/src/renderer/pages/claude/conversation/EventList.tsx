@@ -8,6 +8,7 @@ import { AttachmentChip } from "./AttachmentChip";
 import { ExecutedRow } from "./ExecutedRow";
 import type { Ev, FlowItem } from "./flow";
 import { clock, usePersonName } from "./parts";
+import { PageActionRow } from "./PageActionRow";
 import { PhaseDivider } from "./PhaseDivider";
 import { PlanCard } from "./PlanCard";
 import { useServerFixPlan } from "./serverFixPlan";
@@ -215,6 +216,15 @@ export function EventList({
                     undo={undo[item.event.groupId]}
                     viewerId={viewerId}
                     viewerName={viewerName}
+                  />
+                );
+              case "pageAction":
+                return (
+                  <PageActionRow
+                    conversationId={detail.id}
+                    event={item.event}
+                    viewerId={viewerId}
+                    ownerId={detail.ownerId}
                   />
                 );
               case "work_result":

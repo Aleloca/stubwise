@@ -3617,6 +3617,27 @@
         "openReply": "Apri la risposta →",
         "chat": "In un canale le bozze le scrive @Claude nel thread: menzionalo lì.",
         "inPanel": "Le bozze le scrivo dal riquadro di Claude, accanto al campo: chiedimelo lì."
+      },
+      "page": {
+        "inPanel": "Lingua, tema e filtri della pagina li cambio dal riquadro di Claude: chiedimelo lì.",
+        "already": {
+          "theme": {
+            "dark": "Il tema è già scuro.",
+            "light": "Il tema è già chiaro.",
+            "system": "Il tema segue già il sistema."
+          },
+          "language": {
+            "en": "L'interfaccia è già in inglese.",
+            "it": "L'interfaccia è già in italiano."
+          }
+        },
+        "noProject": "Le task di quale progetto? Dimmi il codice, per esempio «le task aperte di ABC».",
+        "noPerson": "Non trovo nessuno che si chiami {{name}}.",
+        "needFilter": "Prima chiedimi di filtrare le task (per esempio «mostrami le task aperte di un progetto»), poi di salvare il filtro.",
+        "needName": "Come chiamo il filtro? Per esempio: salva questo filtro come «Le mie task aperte».",
+        "saveSummary": "Salva il filtro «{{name}}» · lo vedi solo tu",
+        "saved": "Fatto: «{{name}}» è fra i tuoi filtri.",
+        "proposed": "Ecco il filtro che salverei. Conferma qui sotto."
       }
     },
     "proposalFailed": {
@@ -3983,6 +4004,34 @@
         "confirming": "Per annullare, conferma qui sotto",
         "proposalTitle": "Claude chiede prima di annullare",
         "proposalRow": "Da annullare: {{action}}"
+      },
+      "page": {
+        "language": {
+          "en": "Interfaccia passata all'inglese",
+          "it": "Interfaccia passata all'italiano"
+        },
+        "theme": {
+          "dark": "Passato al tema scuro",
+          "light": "Passato al tema chiaro",
+          "system": "Passato al tema come il sistema"
+        },
+        "filter": "Filtrate le task di <obj/>",
+        "filterWith": "Filtrate le task di <obj/>: {{details}}",
+        "filterHidden": "Filtrate le task di un progetto",
+        "assignedTo": "assegnate a {{name}}",
+        "assignedToYou": "assegnate a te",
+        "open": "aperte",
+        "closed": "chiuse",
+        "stalled": "ferme",
+        "show": "Mostra",
+        "undone": "Annullata",
+        "changedAfter": "L'hai cambiata dopo · non si annulla da qui",
+        "gone": "Non si annulla più",
+        "didntRun": "Non eseguita: {{reason}}",
+        "failedReason": "la pagina non è cambiata",
+        "savedFilter": "Salvato il filtro «{{name}}»",
+        "onlyYou": "lo vedi solo tu",
+        "private": "privato"
       }
     },
     "destination": {

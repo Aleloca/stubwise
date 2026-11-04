@@ -1584,6 +1584,18 @@ export function useSetConversationContext() {
   );
 }
 
+/**
+ * Chiude un evento del riquadro (area 10b, Task 9: un'azione della pagina;
+ * col Task 10 una bozza): solo chi ha aperto la conversazione.
+ */
+export function useSettlePageEvent() {
+  return useWrite(
+    ({ id, eventId, status }: { id: string; eventId: string; status: api.PageEventStatus }) =>
+      api.settlePageEvent(id, eventId, status),
+    CONVERSATION_AREAS,
+  );
+}
+
 export function useCancelProposal() {
   return useWrite(
     ({ id, proposalId }: { id: string; proposalId: string }) => api.cancelProposal(id, proposalId),

@@ -60,6 +60,7 @@ const action = (fn: ProposedAction["fn"], args: Record<string, unknown>): Propos
 /** Un'azione che fallisce sempre (`invalid: title`), senza scrivere niente. */
 const failing = (): ProposedAction => action("createTask", { projectId: MKX, title: "  " });
 const fns = Object.keys(CLAUDE_CATALOG) as ClaudeActionFn[];
+const NO_WHO: readonly ClaudeActionFn[] = ["setSubscription", "saveFilter", "deleteFilter"];
 const olvTaskId = () => state.tasks.find((t) => t.projectId === OLV)!.id;
 
 beforeEach(() => {
@@ -76,7 +77,8 @@ describe("il registro del catalogo", () => {
       expect(entry.fn, fn).toBe(fn);
       expect(["A", "B"], fn).toContain(entry.baseClass);
       expect(typeof entry.undoable, fn).toBe("boolean");
-      if (fn === "setSubscription") expect(entry.whoAction).toBeNull();
+      // Solo ciò che è solo tuo non chiede permessi: le iscrizioni (P19) e i filtri salvati (P4).
+      if (NO_WHO.includes(fn)) expect(entry.whoAction, fn).toBeNull();
       else expect(actionById(entry.whoAction ?? ""), fn).toBeDefined();
     }
     expect(isCatalogFn("createTask")).toBe(true);
@@ -222,6 +224,11 @@ const SCENARIOS: Partial<Record<ClaudeActionFn, () => Record<string, unknown>>> 
   // Le bozze di automazione (area 10b, Task 3): una bozza di STW c'è già.
   createAutomation: () => ({ projectId: ACQ, name: "Prova", flow: draftFlow() }),
   saveAutomationDraft: () => ({ id: STW_DRAFT, flow: draftFlow() }),
+  // Il filtro salvato personale (area 10b, Task 9): nasce privato.
+  saveFilter: () => ({
+    name: "Marco in ACQ",
+    criteria: { projectIds: [ACQ], assigneeIds: [MARCO], families: ["todo", "active"] },
+  }),
 };
 
 /** Un flusso senza problemi per una bozza nuova (`createAutomation` valida prima di scrivere). */

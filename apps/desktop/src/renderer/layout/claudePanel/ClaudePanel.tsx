@@ -27,6 +27,7 @@ import { usePersonName } from "../../pages/claude/conversation/parts";
 import { shortcutLabel } from "../../platform/platform";
 import { useMediaQuery } from "../useMediaQuery";
 import { ContextChip } from "./ContextChip";
+import { usePageEventRunner } from "./pageActions";
 import { pageContextOf, pageObjectOf } from "./pageContext";
 import {
   CLAUDE_PANEL_EVENT,
@@ -279,6 +280,8 @@ function PanelBody({
   // La conversazione: l'ultima della persona, finché non si preme New.
   const detailQuery = useConversation(conversationId ?? "");
   const detail = conversationId ? detailQuery.data : undefined;
+  // Area 10b (Task 9): le azioni della pagina della conversazione, eseguite qui (P22).
+  usePageEventRunner(conversationId);
   const working = detail?.state === "working";
   useEffect(() => {
     onWorking(working);

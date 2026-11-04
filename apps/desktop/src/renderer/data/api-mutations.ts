@@ -1,6 +1,7 @@
 import { wouldCycle } from "../domain/decisionLog";
 import { findSimilarRequest } from "../domain/requests";
 import { TEMPLATE_MODULES, TEMPLATE_STATUSES } from "../domain/templates";
+import type { PageState } from "../domain/claude/context";
 import { respond, type ReadApi, type T } from "../domain/claude/intents";
 import { labelled, resulted } from "../domain/claude/answers";
 import {
@@ -10,6 +11,7 @@ import {
   findInFiles,
 } from "../domain/claude/intents/files";
 import i18n from "../i18n";
+import { readStoredPreference } from "../theme/theme";
 import { recordChange } from "./changelog/index";
 import { changedFields } from "./changelog/settingValues";
 // Per effetto: registra i tipi di voce di progetto (`recordChange` lancia su uno ignoto).
@@ -1130,6 +1132,18 @@ export async function saveFilter(
   input: Pick<SavedFilter, "name" | "visibility" | "criteria" | "view" | "groupBy">,
 ): Promise<SavedFilter> {
   const me = await gate("saveFilter");
+  return copy(saveFilterAs(me, input));
+}
+
+/**
+ * La forma sincrona di «Save filter» (area 10b, Task 9): la usa anche il
+ * catalogo di Claude. Segna la scrittura (`noteWrite("filter")`): è ciò che
+ * il «com'era» di «Annulla» confronta.
+ */
+export function saveFilterAs(
+  me: string,
+  input: Pick<SavedFilter, "name" | "visibility" | "criteria" | "view" | "groupBy">,
+): SavedFilter {
   if (!input.name.trim()) throw invalid("name");
   const filter: SavedFilter = {
     ...copy(input),
@@ -1138,7 +1152,8 @@ export async function saveFilter(
     ownerId: me,
   };
   state.filters.push(filter);
-  return copy(filter);
+  noteWrite("filter", filter.id, me, currentVia()?.actionId);
+  return filter;
 }
 
 function ownedFilter(me: string, id: string): SavedFilter {
@@ -1156,11 +1171,17 @@ export async function updateFilter(
   if (patch.name !== undefined && !patch.name.trim()) throw invalid("name");
   Object.assign(filter, copy(patch));
   if (patch.name !== undefined) filter.name = patch.name.trim();
+  noteWrite("filter", id, me, currentVia()?.actionId);
   return copy(filter);
 }
 
 export async function deleteFilter(id: string): Promise<void> {
   const me = await gate("deleteFilter");
+  deleteFilterAs(me, id);
+}
+
+/** La forma sincrona di «Delete filter» (area 10b, Task 9): la usa anche il catalogo. */
+export function deleteFilterAs(me: string, id: string): void {
   ownedFilter(me, id);
   state.filters = state.filters.filter((f) => f.id !== id);
   for (const [personId, ids] of state.pinnedFilters) {
@@ -1169,6 +1190,7 @@ export async function deleteFilter(id: string): Promise<void> {
       ids.filter((x) => x !== id),
     );
   }
+  noteWrite("filter", id, me, currentVia()?.actionId);
 }
 
 /** Fissare un filtro è personale: non lo cambia per gli altri. */
@@ -1784,6 +1806,11 @@ function projectsOfSteps(steps: ScriptStep[]): string[] {
         add(ofTask(a.args.taskId) ?? ofTask(a.args.id) ?? ofRequest(a.args.id));
       }
     }
+    // Area 10b (Task 9): il filtro della pagina mostra le task di un progetto.
+    if (e.type === "pageAction" && e.action.kind === "filter") {
+      const code = /^\/p\/([A-Z]{2,4})\//.exec(e.action.route)?.[1];
+      add(state.projects.find((p) => p.code === code)?.id);
+    }
     // Area 10b: una bozza legge l'oggetto del suo campo (il corpo di
     // un'email nessun progetto: è la posta di chi chiede).
     if (e.type === "draft" && e.field) {
@@ -2225,6 +2252,25 @@ async function freeResume(
 }
 
 /**
+ * La pagina di chi scrive, per le azioni della pagina (area 10b, Task 9):
+ * lingua e tema di adesso (quelli che il riquadro scrive: `setLanguage`, la
+ * preferenza salvata del tema) e «questo filtro», l'ultimo `pageAction`
+ * `filter` FATTO della conversazione — uno ancora `pending` la pagina non
+ * l'ha eseguito (P21).
+ */
+function pageStateOf(conversationId: string): PageState {
+  const last = [...eventsOf(conversationId)]
+    .reverse()
+    .find((e) => e.type === "pageAction" && e.action.kind === "filter" && e.status === "done");
+  const filter = last?.type === "pageAction" && last.action.kind === "filter" ? last.action : null;
+  return {
+    theme: readStoredPreference(),
+    language: i18n.language === "it" ? "it" : "en",
+    lastFilter: filter ? { route: filter.route, search: structuredClone(filter.search) } : null,
+  };
+}
+
+/**
  * Al massimo due schede di scelta per la stessa richiesta (scelta del
  * costruttore: progetto, poi reparto); poi Claude dice a parole cosa manca.
  */
@@ -2343,6 +2389,8 @@ async function freeReply(
       classify: async (actions) => classOfGroup(me, actions),
       // Le schede di scelta (area 10b): spente dopo due per la stessa richiesta.
       asks: !request || request.asked < MAX_FREE_QUESTIONS,
+      // Le azioni della pagina (area 10b, Task 9): com'è adesso, e «questo filtro».
+      page: pageStateOf(id),
     });
   } catch (error) {
     if (held) releaseHold(c, messageIndex);
@@ -3344,6 +3392,55 @@ export async function cancelProposal(id: string, proposalId: string): Promise<vo
   const gen = storeGeneration();
   const me = await afterGate("cancelProposal", gen);
   await settleCancelledProposal(me, openProposalFor(me, id, proposalId), gen);
+}
+
+/** Lo stato in cui chiudere un evento del riquadro (`draft`, `pageAction`). */
+export type PageEventStatus = "placed" | "waiting" | "done" | "undone" | "changed_after" | "failed";
+
+/**
+ * Da quale stato si va dove, per tipo d'evento (area 10b, Task 9): un'azione
+ * della pagina si esegue (`done`) o no (`failed`), poi si annulla o è stata
+ * cambiata dopo; una bozza va nel campo (`placed`) o aspetta la pagina
+ * (`waiting`), poi lo stesso. Un evento chiuso non si riapre.
+ */
+const PAGE_EVENT_MOVES: Record<
+  "pageAction" | "draft",
+  Record<string, readonly PageEventStatus[]>
+> = {
+  pageAction: {
+    pending: ["done", "failed"],
+    done: ["undone", "changed_after"],
+  },
+  draft: {
+    pending: ["placed", "waiting"],
+    waiting: ["placed"],
+    placed: ["undone", "changed_after"],
+  },
+};
+
+/**
+ * Chiude un evento `draft` o `pageAction` del riquadro: solo chi ha aperto
+ * la conversazione, solo un evento `pending`/`placed`/`waiting`/`done`.
+ * Nessun'altra scrittura: ciò che cambia la pagina lo fa il riquadro.
+ */
+export async function settlePageEvent(
+  conversationId: string,
+  eventId: string,
+  status: PageEventStatus,
+): Promise<void> {
+  const gen = storeGeneration();
+  const me = await afterGate("settlePageEvent", gen);
+  const c = conversationFor(me, conversationId);
+  // Il «vedi come»: un altro lettore di una pubblica la vede chiusa, mai la esegue.
+  if (c.ownerId !== me) throw forbidden();
+  const event = eventsOf(conversationId).find((e) => e.id === eventId);
+  if (!event || (event.type !== "pageAction" && event.type !== "draft")) throw notFound();
+  if (!PAGE_EVENT_MOVES[event.type][event.status]?.includes(status)) throw invalid("status");
+  await runScript(
+    conversationId,
+    [{ step: "patch", eventId, patch: { type: event.type, status } as EventPatch }],
+    gen,
+  );
 }
 
 /** Annulla una proposta, ovunque stia (conversazione o Chat). */

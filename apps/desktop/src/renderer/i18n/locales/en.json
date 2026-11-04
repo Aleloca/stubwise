@@ -3617,6 +3617,27 @@
         "openReply": "Open the reply →",
         "chat": "In a channel, drafts are written by @Claude in the thread: mention @Claude there.",
         "inPanel": "I write drafts from the Claude panel, next to the field: ask me there."
+      },
+      "page": {
+        "inPanel": "I change the page — language, theme, filters — from the Claude panel: ask me there.",
+        "already": {
+          "theme": {
+            "dark": "The theme is already dark.",
+            "light": "The theme is already light.",
+            "system": "The theme already follows the system."
+          },
+          "language": {
+            "en": "The interface is already in English.",
+            "it": "The interface is already in Italian."
+          }
+        },
+        "noProject": "Which project's tasks? Tell me its code, for example “the open tasks of ABC”.",
+        "noPerson": "I can't find anyone called {{name}}.",
+        "needFilter": "Ask me to filter the tasks first (for example “show the open tasks of a project”), then to save the filter.",
+        "needName": "What should I call the filter? For example: save this filter as “My open tasks”.",
+        "saveSummary": "Save the filter “{{name}}” · only you see it",
+        "saved": "Done: “{{name}}” is in your filters.",
+        "proposed": "Here's the filter I'd save. Confirm below."
       }
     },
     "proposalFailed": {
@@ -3983,6 +4004,34 @@
         "confirming": "Confirm below to undo",
         "proposalTitle": "Claude asks before undoing",
         "proposalRow": "Undo: {{action}}"
+      },
+      "page": {
+        "language": {
+          "en": "Switched the interface to English",
+          "it": "Switched the interface to Italian"
+        },
+        "theme": {
+          "dark": "Switched to the dark theme",
+          "light": "Switched to the light theme",
+          "system": "Switched to the system theme"
+        },
+        "filter": "Filtered <obj/> tasks",
+        "filterWith": "Filtered <obj/> tasks: {{details}}",
+        "filterHidden": "Filtered a project's tasks",
+        "assignedTo": "assigned to {{name}}",
+        "assignedToYou": "assigned to you",
+        "open": "open",
+        "closed": "closed",
+        "stalled": "stalled",
+        "show": "Show",
+        "undone": "Undone",
+        "changedAfter": "You changed it afterwards · can't undo from here",
+        "gone": "Can't be undone anymore",
+        "didntRun": "Didn't run: {{reason}}",
+        "failedReason": "the page couldn't change",
+        "savedFilter": "Saved the filter “{{name}}”",
+        "onlyYou": "only you see it",
+        "private": "private"
       }
     },
     "destination": {
