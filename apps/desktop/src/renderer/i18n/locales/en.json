@@ -3424,7 +3424,7 @@
         },
         "closest": "The closest step is notifying people in Stubwise: I built the rest and left that part out.",
         "invalid": "I couldn't build it: {{issue}}. Nothing was created.",
-        "noAction": "I didn't find a step I can do in this request: an automation can create tasks, notify people or send an email.",
+        "noAction": "I didn't find a step I can do in this request: an automation here can create tasks or notify people.",
         "noEvent": "I didn't find when it should start: here an automation can start when a request is created.",
         "ask": {
           "department": "Which department should get the task and the notice?",

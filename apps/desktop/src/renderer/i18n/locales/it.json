@@ -3424,7 +3424,7 @@
         },
         "closest": "Il passo più vicino è avvisare le persone in Stubwise: ho costruito il resto e ho lasciato fuori quella parte.",
         "invalid": "Non sono riuscito a costruirla: {{issue}}. Non è nato niente.",
-        "noAction": "In questa richiesta non trovo un passo che so fare: un'automazione può creare task, avvisare persone o mandare un'email.",
+        "noAction": "In questa richiesta non trovo un passo che so fare: qui un'automazione può creare task o avvisare persone.",
         "noEvent": "Non trovo quando dovrebbe partire: qui un'automazione può partire quando nasce una richiesta.",
         "ask": {
           "department": "A quale reparto vanno la task e l'avviso?",

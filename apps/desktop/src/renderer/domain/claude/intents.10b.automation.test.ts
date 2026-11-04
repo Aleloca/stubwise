@@ -242,6 +242,19 @@ describe("S1 di Laura, contesto ACQ", () => {
     expect(said(steps)).toContain(it_("claude.answers.automation.noAction"));
   });
 
+  // Ri-revisione 1: «so fare … mandare un'email» contraddiceva `cant.email`.
+  it("solo l'email, en e it: la riga dei passi che so fare non promette l'email", async () => {
+    for (const [text, t] of [
+      ["Quando arriva una richiesta di supporto urgente, manda un'email al cliente", it_],
+      ["When an urgent support request arrives, send an email to the customer", en],
+    ] as const) {
+      const line = said(await respond(text, as(LAURA, t)));
+      const cant = t("claude.answers.automation.cant.email");
+      expect(line).toContain(cant);
+      expect(line.replace(cant, "")).not.toMatch(/e-?mail/i);
+    }
+  });
+
   it("«…e pubblicala su Slack»: costruisce il resto, nomina «avvisare» a parole, nessun passo nuovo", async () => {
     const steps = await respond(
       "Quando arriva una richiesta di supporto urgente, crea una task per Support e pubblicala su Slack",
