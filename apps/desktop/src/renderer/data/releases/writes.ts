@@ -31,6 +31,7 @@ import type {
 import { forbidden, invalid, notFound, writer } from "../writer";
 import { assertServerCodesVisible } from "../servers/visibility";
 import {
+  canEditReleaseNotes,
   canRequestCorrection,
   canSetAnalysisOnly,
   capOf,
@@ -174,6 +175,8 @@ export async function mergePr(prId: string): Promise<MergeResult> {
     runs: runsAfterMerge(repo, at),
     seenInProductionAt: null,
     fixTaskId: null,
+    // Le note scritte sulla PR (area 10b, S6b) passano al rilascio così come sono.
+    ...(pr.releaseNotes ? { releaseNotes: pr.releaseNotes } : {}),
   };
   state.releases.push(release);
   publishAlert({
@@ -288,6 +291,20 @@ export async function setPrAnalysisOnly(prId: string, on: boolean): Promise<Open
   if (on && pr.origin === "colleague" && repo?.colleaguePrs === "off")
     throw invalid("analysis_off");
   pr.analysisOnly = on ? (pr.analysisOnly ?? { byId: me, at: now() }) : null;
+  return prView(me, pr);
+}
+
+/**
+ * Le note di una PR aperta (area 10b, S6b): chi può modificare la task della
+ * PR (`tickets.edit`) o mergiarla (`release.merge`). È il «Save» della
+ * persona: una bozza di Claude non arriva qui da sola. Vuote: `null`.
+ */
+export async function setPrReleaseNotes(prId: string, text: string): Promise<OpenPrView> {
+  const me = await writer("releases.setPrReleaseNotes");
+  const pr = prFor(me, prId);
+  if (!canEditReleaseNotes(me, pr)) throw forbidden();
+  if (pr.state !== "open") throw invalid("state");
+  pr.releaseNotes = text.trim() === "" ? null : text;
   return prView(me, pr);
 }
 

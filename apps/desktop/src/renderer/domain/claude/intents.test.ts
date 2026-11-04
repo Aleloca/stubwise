@@ -14,6 +14,10 @@ import {
   spendThisMonthFor,
   stalledProjectsFor,
 } from "../../data/claude/answersData";
+import { contextIdFor, contextOf } from "../../data/claude/context";
+import { mailDraftFor, taskDescriptionDraftFor } from "../../data/claude/drafts";
+import { releaseNotesDraftFor } from "../../data/releases/notes";
+import { supportReplyDraftFor } from "../../data/support/visibility";
 import { getSessionPersonId, setSessionPersonId } from "../../data/session";
 import { state } from "../../data/store";
 import type { ProposedAction, ScriptStep } from "../../data/types";
@@ -60,6 +64,16 @@ const READ: ReadApi = {
   memberRoleOf: async (projectId, personId) =>
     memberRoleIdFor(getSessionPersonId(), projectId, personId),
   canInvitePeople: async () => canInvitePeopleFor(getSessionPersonId()),
+  // Area 10b (Task 8): le bozze, a nome della persona della sessione.
+  describeContext: async (ref) => {
+    const seen = contextOf(getSessionPersonId(), ref);
+    return seen ? { code: seen.code, projectId: seen.projectId } : null;
+  },
+  supportConversationIdOf: async (code) => contextIdFor(getSessionPersonId(), "support", code),
+  supportReplyDraft: async (id) => supportReplyDraftFor(getSessionPersonId(), id),
+  releaseNotesDraft: async (prId) => releaseNotesDraftFor(getSessionPersonId(), prId),
+  mailDraft: (threadId, hint) => mailDraftFor(getSessionPersonId(), threadId, hint),
+  taskDescriptionDraft: async (taskId) => taskDescriptionDraftFor(getSessionPersonId(), taskId),
 };
 
 function as(personId: string, t = en, contextProjectId: string | null = null): IntentContext {
@@ -536,6 +550,9 @@ describe("la posta e le riunioni di altri non arrivano a Claude (Review Focus 1)
       "canInvitePeople",
       "canManageAutomations",
       "canRecordDecisions",
+      // Area 10b (Task 8): il codice e il progetto di un contesto, con la
+      // visibilità di chi chiede (`contextOf`). Per la Posta solo il chip.
+      "describeContext",
       // Area 10b (Task 7): le persone visibili per nome. Nessuna email.
       "findPeople",
       "getLatestBrief",
@@ -565,10 +582,23 @@ describe("la posta e le riunioni di altri non arrivano a Claude (Review Focus 1)
       // spesa del mese (come la vede in Usage). Nessuna posta.
       "listStalledProjects",
       "listTasks",
+      // Area 10b (Task 8, D1): LA porta sulla posta, aperta apposta e stretta —
+      // la bozza del corpo di un'email (`mailDraftFor`), la stessa di «Ask
+      // Claude»: legge solo conversazioni della casella di chi chiede
+      // (`threadFor` → `canSeeMessage`, admin compresi), e restituisce un
+      // testo, mai messaggi né indirizzi.
+      "mailDraft",
       // Area 10b (Task 7): il ruolo di un membro di un progetto che vede.
       "memberRoleOf",
       "readDriveFiles",
+      // Area 10b (Task 8): le bozze degli altri tre campi, con la visibilità
+      // e i permessi di chi chiede; e l'id di una conversazione di supporto
+      // dal suo codice, se la vede.
+      "releaseNotesDraft",
       "spendThisMonth",
+      "supportConversationIdOf",
+      "supportReplyDraft",
+      "taskDescriptionDraft",
       "validateAutomationFlow",
     ]);
   });

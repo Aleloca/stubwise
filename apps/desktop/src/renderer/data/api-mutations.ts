@@ -61,7 +61,10 @@ import type { AiOperation } from "@stubwise/shared";
 import { aiBlockFor, pickProvider, requiredProviderOf } from "./instance/blocks";
 import { modelIdFor } from "./instance/models";
 import { recordChatTurnUsage } from "./instance/usage";
-import { contextOf } from "./claude/context";
+import { contextIdFor, contextOf } from "./claude/context";
+import { mailDraftFor, taskDescriptionDraftFor } from "./claude/drafts";
+import { releaseNotesDraftFor } from "./releases/notes";
+import { supportReplyDraftFor } from "./support/visibility";
 import { dropHeld, holdJob, type JobKind } from "./instance/queue";
 import { getSessionPersonId, setSessionPersonId } from "./session";
 import {
@@ -1706,6 +1709,16 @@ export function readsAs(me: string): ReadApi {
     canGrantRole: async (projectId, roleId) => canGrantRoleFor(me, projectId, roleId),
     memberRoleOf: async (projectId, personId) => memberRoleIdFor(me, projectId, personId),
     canInvitePeople: async () => canInvitePeopleFor(me),
+    // Area 10b (Task 8): le bozze dei quattro campi, a nome di chi chiede; nessuna scrive.
+    describeContext: async (ref) => {
+      const seen = contextOf(me, ref);
+      return seen ? { code: seen.code, projectId: seen.projectId } : null;
+    },
+    supportConversationIdOf: async (code) => contextIdFor(me, "support", code),
+    supportReplyDraft: async (conversationId) => supportReplyDraftFor(me, conversationId),
+    releaseNotesDraft: async (prId) => releaseNotesDraftFor(me, prId),
+    mailDraft: (threadId, hint) => mailDraftFor(me, threadId, hint),
+    taskDescriptionDraft: async (taskId) => taskDescriptionDraftFor(me, taskId),
   };
 }
 
@@ -1770,6 +1783,16 @@ function projectsOfSteps(steps: ScriptStep[]): string[] {
         add(a.args.projectId as string | undefined);
         add(ofTask(a.args.taskId) ?? ofTask(a.args.id) ?? ofRequest(a.args.id));
       }
+    }
+    // Area 10b: una bozza legge l'oggetto del suo campo (il corpo di
+    // un'email nessun progetto: è la posta di chi chiede).
+    if (e.type === "draft" && e.field) {
+      const f = e.field;
+      if (f.kind === "supportReply")
+        add(state.supportConversations.find((x) => x.id === f.conversationId)?.projectId);
+      else if (f.kind === "releaseNotes")
+        add(state.openPrs.find((p) => p.id === f.prId)?.projectId);
+      else if (f.kind === "taskDescription") add(ofTask(f.taskId));
     }
   }
   return [...out];
@@ -2281,7 +2304,8 @@ async function freeReply(
   // Il contesto del riquadro (area 10a): il messaggio lo tiene com'è, e il
   // suo progetto vale per la risposta e per i consumi solo se chi scrive lo
   // vede ADESSO — uno diventato invisibile risponde come un codice che non c'è.
-  const contextProjectId = (context && contextOf(me, context)?.projectId) ?? c.contextProjectId;
+  const seenContext = context ? contextOf(me, context) : null;
+  const contextProjectId = seenContext?.projectId ?? c.contextProjectId;
   const user: ScriptStep = {
     step: "event",
     event: {
@@ -2310,6 +2334,8 @@ async function freeReply(
     steps = await respond(text, {
       personId: me,
       contextProjectId,
+      // Area 10b (Task 8): il campo di una bozza, solo se chi scrive lo vede ADESSO.
+      context: seenContext ? context : null,
       read: readsAs(me),
       t: i18n.t.bind(i18n) as T,
       seed: `${id}-${eventsOf(id).length}`,

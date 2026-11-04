@@ -545,6 +545,7 @@ export type ApiFnName =
   | "releases.setRepoPrMode"
   | "releases.setReleasePipeline"
   | "releases.setPrAnalysisOnly"
+  | "releases.setPrReleaseNotes"
   | "releases.requestPrCorrection"
   | "releases.fixRelease"
   | "releases.explainRelease"

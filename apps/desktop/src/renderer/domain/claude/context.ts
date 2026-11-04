@@ -3,6 +3,7 @@ import type {
   ActionClass,
   ArchiveCandidates,
   AutomationFlow,
+  ContextRef,
   ConversationFilter,
   ConversationRow,
   DecisionRequest,
@@ -111,6 +112,34 @@ export interface ReadApi {
   memberRoleOf(projectId: string, personId: string): Promise<string | null>;
   /** Area 10b (S5, Q2 del controller): chi chiede può invitare persone? */
   canInvitePeople(): Promise<boolean>;
+  /**
+   * Area 10b (Task 8): il codice e il progetto di un contesto, come chi
+   * chiede lo vede (`contextOf`); `null` se non lo vede. Serve alle frasi
+   * (il «Who?», «Open the reply →»): il motore non legge lo stato.
+   */
+  describeContext(
+    ref: ContextRef,
+  ): Promise<{ code: string | null; projectId: string | null } | null>;
+  /** Area 10b (S6): l'id della conversazione di supporto col codice (`ACQ-S2`), se chi chiede la vede. */
+  supportConversationIdOf(code: string): Promise<string | null>;
+  /** Area 10b (S6): la bozza della risposta (`draftText`), se chi chiede ha `support.reply`; altrimenti `null`. */
+  supportReplyDraft(conversationId: string): Promise<string | null>;
+  /** Area 10b (S6b): la bozza delle note di una PR, se chi chiede può modificarle; altrimenti `null`. */
+  releaseNotesDraft(prId: string): Promise<{ text: string; sources: string[] } | null>;
+  /** Area 10b (D1): la bozza del corpo di un'email (`threadId` `null` = l'email nuova). */
+  mailDraft(
+    threadId: string | null,
+    hint: string,
+  ): Promise<
+    { ok: true; text: string; used: string[] } | { ok: false; reason: "not_found" | "hint" }
+  >;
+  /** Area 10b (D1): la bozza della descrizione di una task, dalle sue fonti. */
+  taskDescriptionDraft(
+    taskId: string,
+  ): Promise<
+    | { ok: true; text: string; sources: string[] }
+    | { ok: false; reason: "not_found" | "forbidden" | "no_source" }
+  >;
 }
 
 export interface IntentContext {
@@ -118,6 +147,11 @@ export interface IntentContext {
   personId: string;
   /** Il contesto di progetto facoltativo della conversazione libera. */
   contextProjectId: string | null;
+  /**
+   * Area 10b (Task 8): ciò che chi chiede ha davanti (il chip del riquadro),
+   * solo se lo vede (`contextOf`): dice in quale campo va una bozza.
+   */
+  context?: ContextRef | null;
   read: ReadApi;
   t: T;
   /**

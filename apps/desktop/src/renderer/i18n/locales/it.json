@@ -3604,6 +3604,20 @@
         "noName_vowel": "Chi aggiungo ad {{code}}? Dimmi il nome.",
         "noProject": "A quale progetto aggiungo {{name}}? Dimmi il codice (per esempio «ad ACQ»).",
         "openInviteBare": "Apri l'invito →"
+      },
+      "draft": {
+        "cantReply": "Non puoi rispondere a questa conversazione ·",
+        "cantEditNotes": "Non puoi modificare le note di rilascio di questa pull request ·",
+        "cantEditTask": "Non puoi modificare **{{code}}** ·",
+        "noSource": "Non ho da dove scrivere la descrizione di **{{code}}**: dimmi cosa deve dire.",
+        "noNotes": "Non ho da dove scrivere queste note di rilascio: la pull request non cita nessuna task.",
+        "askHint": "Cosa deve dire l'email?",
+        "openField": "Apri la conversazione, l'email, la pull request o la task e chiedimelo di nuovo.",
+        "openCode": "Apri **{{code}}** →",
+        "openReply": "Apri la risposta →",
+        "openEmail": "Apri l'email →",
+        "chat": "In un canale le bozze le scrive @Claude nel thread: menzionalo lì.",
+        "inPanel": "Le bozze le scrivo dal riquadro di Claude, accanto al campo: chiedimelo lì."
       }
     },
     "proposalFailed": {
@@ -4260,7 +4274,8 @@
           "pr": "pull request #{{number}}",
           "prNoNumber": "pull request",
           "automation": "automazione",
-          "release": "rilascio"
+          "release": "rilascio",
+          "mail": "email"
         },
         "projectSettings": "Impostazioni → {{section}}",
         "instanceSettings": "Amministrazione → {{section}}"
@@ -4271,6 +4286,10 @@
     "trial": {
       "example": "{{code}} «{{title}}»",
       "exampleWritten": "Esempio scritto da Claude"
+    },
+    "descriptionDraft": {
+      "request": "Dalla richiesta {{code}}, «{{title}}» (urgenza: {{level}}):",
+      "customer": "Nella conversazione di supporto {{code}} il cliente ha scritto: «{{text}}»"
     }
   },
   "chat": {

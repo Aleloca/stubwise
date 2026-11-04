@@ -170,6 +170,18 @@ export const canRequestCorrection = (me: string, pr: OpenPullRequest): boolean =
     : holds(me, "prs.adopt", pr.projectId);
 };
 
+/**
+ * Le note di rilascio di una PR (area 10b, S6b): chi può modificare la task
+ * della PR (`tickets.edit`, se la task si vede) o chi può mergiarla
+ * (`release.merge`). Una regola sola, per la vista e per la scrittura.
+ */
+export const canEditReleaseNotes = (me: string, pr: OpenPullRequest): boolean => {
+  if (!sees(me, pr.projectId)) return false;
+  if (holds(me, "release.merge", pr.projectId)) return true;
+  const task = pr.taskId ? state.tasksById.get(pr.taskId) : undefined;
+  return !!task && sees(me, task.projectId) && holds(me, "tickets.edit", task.projectId);
+};
+
 export type OpenPrView = OpenPullRequest & {
   prState: PrState;
   /** Il tetto delle correzioni del progetto (R-K2): la UI lo legge, non lo deduce. */
@@ -177,6 +189,8 @@ export type OpenPrView = OpenPullRequest & {
   taskCode: string | null;
   /** Cosa può fare chi guarda, deciso qui (il client non lo deduce). */
   actions: { analysisOnly: boolean; requestCorrection: boolean };
+  /** Area 10b: chi guarda può scrivere le note di rilascio (`canEditReleaseNotes`). */
+  canEditReleaseNotes: boolean;
   /**
    * «Già su staging?» (R-L2): il server della repository della PR in uno
    * staging del progetto riporta il suo commit di testa.
@@ -201,6 +215,7 @@ export function prView(me: string, pr: OpenPullRequest): OpenPrView {
       analysisOnly: canSetAnalysisOnly(me, pr),
       requestCorrection: canRequestCorrection(me, pr),
     },
+    canEditReleaseNotes: canEditReleaseNotes(me, pr),
   };
 }
 

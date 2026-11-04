@@ -811,7 +811,21 @@ export type ContextRef =
   /** `section`: la voce di Settings del progetto, o d'Amministrazione (`ai`, `ai.models`) con `projectId` `null`. */
   | { kind: "settings"; projectId: string | null; section: string }
   /** Una pagina senza oggetto: la sezione del progetto (`tasks`) o la destinazione (`home`). */
-  | { kind: "page"; route: string; projectId: string | null };
+  | { kind: "page"; route: string; projectId: string | null }
+  /**
+   * Area 10b (D1): la Posta — una conversazione (`threadId`) o l'email nuova
+   * di `compose=new` (`null`). Solo nella propria casella (`mailbox_owner`).
+   */
+  | { kind: "mail"; threadId: string | null };
+
+/** Un campo che una pagina dichiara riempibile (area 10b, design parte 1). */
+export type FieldRef =
+  | { kind: "supportReply"; conversationId: string }
+  | { kind: "releaseNotes"; prId: string }
+  /** D1: il corpo di una risposta (`threadId`) o di un'email nuova (`null`), solo nella propria casella. */
+  | { kind: "mailBody"; threadId: string | null }
+  /** D1: la descrizione di una task, nel campo aperto di `DescriptionSection`. */
+  | { kind: "taskDescription"; taskId: string };
 
 export interface Conversation {
   id: string;
@@ -1190,6 +1204,26 @@ export type ConversationEvent =
    * guarda legge etichette e frasi d'esempio nella sua lingua.
    */
   | { id: string; at: string; type: "capabilities"; items: CapabilityId[] }
+  /**
+   * Area 10b (S6, S6b, D1): una bozza di Claude per un campo. Non scrive
+   * dati: il testo va nel campo della pagina (Task 10), e diventa di
+   * qualcuno solo con «Send»/«Save» della persona. Il testo è contenuto
+   * scritto da Claude nella lingua di chi l'ha chiesta, come il `say`.
+   * `field` `null` e `text` vuoto: com'è letta da chi non vede l'oggetto del
+   * campo, o non è il proprietario della casella (`presentEventFor`, R-G5);
+   * nel flusso salvato `field` c'è sempre.
+   */
+  | {
+      id: string;
+      at: string;
+      type: "draft";
+      field: FieldRef | null;
+      text: string;
+      /** I codici citati (note di rilascio): ogni riga ne ha uno. */
+      sources?: string[];
+      /** `pending` fino al riquadro; `placed` nel campo; `waiting` = pagina lasciata («Put it in the field»). */
+      status: "pending" | "placed" | "waiting" | "undone" | "changed_after";
+    }
   | {
       id: string;
       at: string;
@@ -3122,6 +3156,12 @@ export interface OpenPullRequest extends PrRef {
   /** Area 10b: i commit della PR, dal più vecchio; assente = non letti. */
   commits?: { sha: string; message: string }[];
   /**
+   * Area 10b (S6b): le note di rilascio, scritte da una persona
+   * (`setPrReleaseNotes`); il merge le copia sul rilascio. Assente o `null`:
+   * nessuna nota. Una bozza di Claude non arriva mai qui da sola.
+   */
+  releaseNotes?: string | null;
+  /**
    * Solo prototipo: la piattaforma rifiuterebbe il merge a Stubwise (permessi
    * del token o regole del ramo), l'errore `merge_forbidden` del web.
    */
@@ -3163,6 +3203,8 @@ export interface Release {
   seenInProductionAt: string | null;
   /** La task aperta da «Fai sistemare a Claude», se c'è. */
   fixTaskId: string | null;
+  /** Area 10b (S6b): le note della PR al momento del merge; assente o `null`: nessuna. */
+  releaseNotes?: string | null;
 }
 
 /**

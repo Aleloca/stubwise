@@ -81,7 +81,18 @@ describe("pageContextOf", () => {
     });
     expect(at("/home")).toEqual({ kind: "page", route: "home", projectId: null });
     expect(at("/")).toEqual({ kind: "page", route: "home", projectId: null });
-    expect(at("/mail/thread-1")).toEqual({ kind: "page", route: "mail", projectId: null });
+    expect(at("/mail")).toEqual({ kind: "page", route: "mail", projectId: null });
+  });
+
+  it("la Posta (area 10b, D1): una conversazione aperta e l'email nuova", () => {
+    expect(at("/mail/thread-1")).toEqual({ kind: "mail", threadId: "thread-1" });
+    expect(at("/mail", { compose: "new" })).toEqual({ kind: "mail", threadId: null });
+    // Lo slot di «Scrivigli anche per email» del Supporto non è l'email nuova.
+    expect(at("/mail", { compose: "support-ACQ-S2" })).toEqual({
+      kind: "page",
+      route: "mail",
+      projectId: null,
+    });
   });
 
   it("R-G5: un oggetto o un progetto che chi guarda non vede non dà contesto", () => {

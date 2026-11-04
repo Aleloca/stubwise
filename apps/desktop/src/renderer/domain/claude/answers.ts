@@ -1,6 +1,7 @@
 import type {
   CapabilityId,
   CitationRef,
+  FieldRef,
   ProposalNote,
   ProposedAction,
   ScriptStep,
@@ -118,6 +119,12 @@ export interface Answer {
   notes?: ProposalNote[];
   /** Area 10b (S5): la scheda nasce bloccata (`canGrantRole` `escalation`), scritta sulla `proposal`. */
   blocked?: { kind: "escalation"; roleId: string };
+  /**
+   * Area 10b (S6, S6b, D1): la bozza per un campo. Non scrive dati: diventa
+   * un evento `draft` `pending`, che il riquadro mette nel campo (Task 10).
+   * Solo nella libera (`ctx.classify`, P11): nella Chat nessuno la metterebbe.
+   */
+  draft?: { field: FieldRef; text: string; sources?: string[] };
 }
 
 /**
@@ -137,6 +144,21 @@ export function toSteps(answer: Answer, ctx: IntentContext, text: string): Scrip
     if (a.result !== undefined) step.result = a.result;
     if (a.resultText) step.resultText = a.resultText;
     steps.push(step);
+  }
+  // La bozza prima della frase: «scrivi e manda l'email» dà la riga `draft`,
+  // poi la riga D `send` (area 10b, D1).
+  if (answer.draft && ctx.classify) {
+    const { field, text: body, sources } = answer.draft;
+    steps.push({
+      step: "event",
+      event: {
+        type: "draft",
+        field,
+        text: body,
+        ...(sources && sources.length > 0 ? { sources } : {}),
+        status: "pending",
+      },
+    });
   }
   // Con una domanda il testo può mancare: la domanda dice già tutto.
   const said = answer.place?.route

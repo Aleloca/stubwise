@@ -406,8 +406,12 @@ export async function suggestRecipients(q: string): Promise<MailRecipientSuggest
 
 // --- la bozza di Claude ----------------------------------------------------------
 
-/** Le letture della bozza di Claude per `me`: solo conversazione, progetti e task che vede. */
-function draftContext(me: string): MailDraftContext {
+/**
+ * Le letture della bozza di Claude per `me`: solo conversazione, progetti e
+ * task che vede. Le usano «Ask Claude» e il riquadro (`mailDraftFor`, area
+ * 10b): la stessa bozza dalle due strade.
+ */
+export function draftContext(me: string): MailDraftContext {
   return {
     personId: me,
     personName: PEOPLE.find((p) => p.id === me)?.name ?? "",

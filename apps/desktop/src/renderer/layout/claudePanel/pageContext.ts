@@ -93,6 +93,14 @@ export function pageContextOf(location: PageLocation, lookup: PageLookup): Conte
     };
   }
 
+  // La Posta (area 10b, D1): la conversazione aperta o l'email nuova. Se chi
+  // guarda la vede lo dice `describeContext` (`mailbox_owner`), come per una PR.
+  const thread = /^\/mail\/([^/]+)/.exec(pathname)?.[1];
+  if (thread) return { kind: "mail", threadId: thread };
+  if (/^\/mail\/?$/.test(pathname) && param(search, "compose") === "new") {
+    return { kind: "mail", threadId: null };
+  }
+
   const route = /^\/([^/]+)/.exec(pathname)?.[1] ?? "home";
   return { kind: "page", route, projectId: null };
 }

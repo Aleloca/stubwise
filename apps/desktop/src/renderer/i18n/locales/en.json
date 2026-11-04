@@ -3604,6 +3604,20 @@
         "noName_vowel": "Who should I add to {{code}}? Tell me the name.",
         "noProject": "Which project should I add {{name}} to? Tell me its code (for example “to ACQ”).",
         "openInviteBare": "Open the invite →"
+      },
+      "draft": {
+        "cantReply": "You can't reply to this conversation ·",
+        "cantEditNotes": "You can't edit the release notes of this pull request ·",
+        "cantEditTask": "You can't edit **{{code}}** ·",
+        "noSource": "I have nothing to write **{{code}}**'s description from: tell me what it should say.",
+        "noNotes": "I have nothing to write these release notes from: the pull request names no task.",
+        "askHint": "What should the email say?",
+        "openField": "Open the conversation, the email, the pull request or the task and ask me again.",
+        "openCode": "Open **{{code}}** →",
+        "openReply": "Open the reply →",
+        "openEmail": "Open the email →",
+        "chat": "In a channel, drafts are written by @Claude in the thread: mention @Claude there.",
+        "inPanel": "I write drafts from the Claude panel, next to the field: ask me there."
       }
     },
     "proposalFailed": {
@@ -4260,7 +4274,8 @@
           "pr": "pull request #{{number}}",
           "prNoNumber": "pull request",
           "automation": "automation",
-          "release": "release"
+          "release": "release",
+          "mail": "email"
         },
         "projectSettings": "Settings → {{section}}",
         "instanceSettings": "Administration → {{section}}"
@@ -4271,6 +4286,10 @@
     "trial": {
       "example": "{{code}} “{{title}}”",
       "exampleWritten": "Example written by Claude"
+    },
+    "descriptionDraft": {
+      "request": "From the request {{code}}, “{{title}}” (urgency: {{level}}):",
+      "customer": "In the support conversation {{code}} the customer wrote: “{{text}}”"
     }
   },
   "chat": {

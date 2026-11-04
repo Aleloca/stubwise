@@ -325,7 +325,8 @@ export const OPEN_PRS: OpenPullRequest[] = [
     openedAt: at(3, "12:30"),
   },
   // Area 10b: ACQ-7, la task nata dalla richiesta dal supporto. Di Stubwise,
-  // pronta, senza note di rilascio, con tre commit (uno non cita nessun codice).
+  // pronta, senza note di rilascio, con tre commit: due citano una task di ACQ
+  // (ACQ-7 e ACQ-2, due righe nella bozza delle note, Task 8), uno nessun codice.
   {
     id: "opr-acq-77",
     projectId: "prj-acq",
@@ -354,7 +355,7 @@ export const OPEN_PRS: OpenPullRequest[] = [
     corrections: [],
     commits: [
       { sha: "a1c3e5b7d9f1a3c5e7b9d1f3a5c7e9b1d3f5a7c9", message: "ACQ-7: reminder setting on the profile" },
-      { sha: "b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a2c4e6b8d0", message: "ACQ-7: send the text message three days before" },
+      { sha: "b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a2c4e6b8d0", message: "ACQ-2: cover the reminder in the booking flow tests" },
       { sha: PR_HEADS.reminder, message: "Update the dependencies of the messaging client" },
     ],
     checks: "passing",

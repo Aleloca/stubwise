@@ -165,6 +165,14 @@ export function useSetPrAnalysisOnly() {
   );
 }
 
+/** Area 10b (S6b): le note di rilascio di una PR, col «Save» della persona. */
+export function useSetPrReleaseNotes() {
+  return useWrite(
+    ({ prId, text }: { prId: string; text: string }) => api.releases.setPrReleaseNotes(prId, text),
+    RELEASE_AREAS,
+  );
+}
+
 /** «Chiedi modifiche» su una PR di un collega: `needs_maintainer` oltre il tetto. */
 export function useRequestPrCorrection() {
   return useWrite(

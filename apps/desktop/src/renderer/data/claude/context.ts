@@ -1,5 +1,6 @@
 import { sees } from "../access";
 import { automationById, canSeeAutomation } from "../automations/visibility";
+import { threadFor } from "../mail/reads";
 import {
   AI_TABS,
   APP_ROUTES,
@@ -8,7 +9,7 @@ import {
   isProjectSettingsSection,
 } from "../routes";
 import { presentEvent, state, visibleProjectIds } from "../store";
-import type { ContextRef, ConversationEvent } from "../types";
+import type { ContextRef, ConversationEvent, FieldRef } from "../types";
 
 // Il contesto del riquadro di Claude (area 10a, Task 8): un riferimento a
 // ciò che chi scrive sta guardando, riletto ADESSO con la sua visibilità. Lo
@@ -100,6 +101,16 @@ export function contextOf(me: string, ref: ContextRef): ContextDescription | nul
         params: { sectionKey: `settings.sections.${ref.section}` },
       };
     }
+    case "mail": {
+      // D1, `mailbox_owner`: solo la propria posta — una conversazione che
+      // chi guarda vede (`canSeeMessage`, admin compresi), o l'email nuova
+      // di chi ha una casella. Nessun codice: il chip dice «email».
+      const mine =
+        ref.threadId === null
+          ? state.mailboxes.some((b) => b.personId === me)
+          : threadFor(me, ref.threadId) !== null;
+      return mine ? { code: null, labelKey: `${K}.kind.mail`, projectId: null } : null;
+    }
     case "page": {
       if (ref.projectId === null) {
         return (APP_ROUTES as readonly string[]).includes(ref.route)
@@ -143,7 +154,38 @@ export function presentEventFor(
   if (event.type === "user" && event.context && !contextOf(me, event.context)) {
     delete event.context;
   }
+  // Area 10b: una bozza la legge per intero solo chi vede l'oggetto del
+  // campo; il corpo di un'email solo il proprietario della casella — chi ha
+  // chiesto la bozza —, nemmeno chi vede la stessa conversazione.
+  if (event.type === "draft" && event.field && !seesField(me, event.field, askerOf(log, index))) {
+    event.field = null;
+    event.text = "";
+    delete event.sources;
+  }
   return event;
+}
+
+/** Chi ha chiesto: l'autore dell'ultimo messaggio prima dell'evento. */
+function askerOf(log: readonly ConversationEvent[], index: number): string | null {
+  for (let i = index - 1; i >= 0; i--) {
+    const e = log[i]!;
+    if (e.type === "user") return e.authorId;
+  }
+  return null;
+}
+
+/** `me` vede l'oggetto del campo (per il corpo di un'email: è sua la casella). */
+function seesField(me: string, field: FieldRef, asker: string | null): boolean {
+  switch (field.kind) {
+    case "supportReply":
+      return contextOf(me, { kind: "support", conversationId: field.conversationId }) !== null;
+    case "releaseNotes":
+      return contextOf(me, { kind: "pr", prId: field.prId }) !== null;
+    case "taskDescription":
+      return contextOf(me, { kind: "task", taskId: field.taskId }) !== null;
+    case "mailBody":
+      return me === asker && contextOf(me, { kind: "mail", threadId: field.threadId }) !== null;
+  }
 }
 
 /** Lo stesso per il contesto con cui una libera è nata (righe e dettaglio). */

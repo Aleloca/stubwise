@@ -50,6 +50,7 @@ describe("anti-obiettivo 1: api.releases non avvia mai un rilascio", () => {
         "setRepoPrMode",
         "setReleasePipeline",
         "setPrAnalysisOnly",
+        "setPrReleaseNotes",
         "requestPrCorrection",
         "fixRelease",
         "explainRelease",

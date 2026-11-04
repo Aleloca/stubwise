@@ -191,3 +191,15 @@ export function draftText(c: SupportConversation): string {
     : "We have read your message and we are looking into it.";
   return `Hi ${first}, thanks for writing. ${status} We'll write here as soon as there is news.`;
 }
+
+/**
+ * Area 10b (S6): la bozza della risposta per il riquadro di Claude — lo
+ * stesso testo di `draftText` — se chi chiede ha `support.reply` nel
+ * progetto; altrimenti `null`, anche per una conversazione che non vede
+ * (R-G5). Non scrive nulla: la bozza va nel campo della risposta.
+ */
+export function supportReplyDraftFor(me: string, conversationId: string): string | null {
+  const c = state.supportConversations.find((x) => x.id === conversationId);
+  if (!c || !sees(me, c.projectId) || !holds(me, "support.reply", c.projectId)) return null;
+  return draftText(c);
+}

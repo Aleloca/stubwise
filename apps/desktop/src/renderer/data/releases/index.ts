@@ -28,6 +28,7 @@ export {
   mergePr,
   requestPrCorrection,
   setPrAnalysisOnly,
+  setPrReleaseNotes,
   setReleasePipeline,
   setRepoPrMode,
   updateEnvironment,
