@@ -36,6 +36,20 @@ export function stripCourtesy(plain: string): { polite: boolean; command: string
   }
   return { polite, command };
 }
+/** Il lead di una domanda «come si fa / come funziona» (lo stesso di `howto`). */
+const HOWTO_QUESTION =
+  /^(how (do|does|can|to|is|are|should)|come (funziona|funzionano|si|faccio|posso|fare|devo))\b/;
+/**
+ * Una domanda «come si fa / come funziona» in testa (dopo saluti e
+ * cortesie): «How do I mark a task as stalled?», «Come si imposta il
+ * budget?». Il controllo UNICO che i riconoscitori dell'area 10b (automazione,
+ * fermi, spesa, e quelli che verranno) usano per lasciarla a `howto`, invece
+ * di ripetere ognuno la sua esclusione (ruling T6 I1). «How much…» non lo è.
+ */
+export function isHowToQuestion(text: string): boolean {
+  return HOWTO_QUESTION.test(stripCourtesy(normalize(text)).command);
+}
+
 /** Una domanda: il punto interrogativo, o una parola interrogativa in testa. */
 export const QUESTION =
   /(\?\s*$)|^(when|why|did|does|do|who|whom|whose|what|what's|how|is|are|was|were|has|have|had|which|where|quando|perche|chi|cosa|che cosa|come|e|era|sono|ha|hanno|quale|quali|dove)\b/;

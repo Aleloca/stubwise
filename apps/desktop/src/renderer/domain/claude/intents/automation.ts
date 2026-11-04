@@ -2,7 +2,7 @@ import type { AutomationFlow, Department, Project } from "../../../data/types";
 import { RUN_TITLE, draftFlow, type FlowSpec } from "../../automations/draftFlow";
 import { named, summarized, type Answer } from "../answers";
 import type { IntentContext, T } from "../context";
-import { findProject, normalize, stripCourtesy } from "../parse";
+import { findProject, isHowToQuestion, normalize, stripCourtesy } from "../parse";
 import { byClass } from "./change";
 
 // L'intento «automazione» (area 10b, S1): «quando arriva una richiesta di
@@ -23,8 +23,9 @@ const K = "claude.answers.automation";
 const WHEN = /^(when|whenever|every time|each time|quando|ogni volta che|ogni volta)\b/;
 /**
  * «Crea / costruisci / fai un'automazione» come COMANDO, in testa (dopo una
- * cortesia): «Come si crea un'automazione?» e «Chi può creare…?» sono
- * domande, non richieste (I3 della revisione).
+ * cortesia): «Chi può creare…?» è una domanda, non una richiesta. Le domande
+ * «come si fa» («Come si crea un'automazione?», T5 I3) le esclude il
+ * controllo condiviso `isHowToQuestion` (ruling T6 I1), non questa regola.
  */
 const MAKE =
   /^(create|build|make|set up|add|crea|creare|costruisci|costruire|fai|fare|imposta|impostare|aggiungi)\s+(an?\s+|un'|una\s+|un\s+)?(new\s+|nuova\s+)?(automation|automazione)\b/;
@@ -106,6 +107,7 @@ function parse(text: string): Parsed {
  * dice), o chiede esplicitamente di crearne una.
  */
 export function isAutomationRequest(text: string): boolean {
+  if (isHowToQuestion(text)) return false;
   const p = parse(text);
   return p.explicit || (p.when && p.event && (p.actions.length > 0 || p.unsupported.length > 0));
 }

@@ -1,7 +1,7 @@
 import type { SpendView } from "../../../data/types";
 import { bulleted, labelled, sayDate, type Answer } from "../answers";
 import type { IntentContext, T } from "../context";
-import { findPerson, normalize } from "../parse";
+import { findPerson, isHowToQuestion, normalize } from "../parse";
 
 // S3 (area 10b, Task 6): «quanto abbiamo speso in AI questo mese?». La spesa
 // come chi chiede la vede in Usage (`spendThisMonth`): d'istanza con
@@ -21,6 +21,8 @@ const PER_PERSON =
 
 /** «how much have we spent on AI this month?», «quanto spende Roberta?». */
 export function isSpendQuestion(text: string): boolean {
+  // «Come si imposta il budget dei consumi?» è una domanda per `howto` (ruling T6 I1).
+  if (isHowToQuestion(text)) return false;
   const plain = normalize(text);
   return SPEND_WORD.test(plain) && (ABOUT_MONEY.test(plain) || PER_PERSON.test(plain));
 }

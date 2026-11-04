@@ -14,6 +14,7 @@ import { usd } from "../../i18n/money";
 import { stallOf } from "../stalled";
 import { toSteps } from "./answers";
 import { recognize, respond, type IntentContext } from "./intents";
+import { isHowToQuestion } from "./parse";
 
 // Le risposte di Claude sui dati (area 10b, Task 6): la risposta onesta (S0),
 // i progetti fermi (S2) e la spesa del mese (S3). Ogni numero si confronta
@@ -141,6 +142,30 @@ describe("il riconoscimento (P10)", () => {
       expect(["stalled", "spend"]).not.toContain(recognize(text, new Set(["AUD"])));
     });
   }
+  // Le domande «come si fa» vanno a `howto` (revisione T6 I1, ruling T6 I1:
+  // un solo controllo, `isHowToQuestion`, per tutti i riconoscitori nuovi).
+  for (const text of [
+    "How do I mark a task as stalled?",
+    "Come si segna una task come ferma?",
+    "How do I set the AI usage budget?",
+    "Come si imposta il budget dei consumi?",
+    "How does AI usage work?",
+    "Come funzionano i consumi dell'AI?",
+  ]) {
+    it(`«${text}» è howto, non stalled né spend`, () => {
+      expect(isHowToQuestion(text)).toBe(true);
+      expect(recognize(text, new Set(["AUD"]))).toBe("howto");
+    });
+  }
+  // Lo stesso controllo vale per le automazioni (T5 I3), e non scambia «How much…».
+  it("«Come si crea un'automazione?» e «How do I create an automation?» non sono automazioni", () => {
+    for (const text of ["Come si crea un'automazione?", "How do I create an automation?"]) {
+      expect(isHowToQuestion(text)).toBe(true);
+      expect(recognize(text)).not.toBe("automation");
+    }
+    expect(isHowToQuestion("How much have we spent on AI this month?")).toBe(false);
+    expect(isHowToQuestion("Quanto abbiamo speso in AI questo mese?")).toBe(false);
+  });
 });
 
 describe("S0, la risposta onesta", () => {

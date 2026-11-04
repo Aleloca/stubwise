@@ -1,7 +1,7 @@
 import type { SeenStallReason, StalledProject } from "../../../data/types";
 import { bulleted, labelled, resulted, type Answer } from "../answers";
 import type { IntentContext, T } from "../context";
-import { findProject, normalize, stripCourtesy } from "../parse";
+import { findProject, isHowToQuestion, normalize, stripCourtesy } from "../parse";
 
 // S2 (area 10b, Task 6): «quali progetti sono fermi e perché?». La prima
 // riga risponde col numero calcolato (`listStalledProjects`, cioè `stallOf`
@@ -24,7 +24,8 @@ const TASK_CODE = /\b[a-z]{2,4}-\d+\b/i;
 export function isStalledQuestion(text: string): boolean {
   const plain = normalize(text);
   const { command } = stripCourtesy(plain);
-  if (COMMAND.test(command) || TASK_CODE.test(text)) return false;
+  // «Come si segna una task come ferma?» è una domanda per `howto` (ruling T6 I1).
+  if (isHowToQuestion(text) || COMMAND.test(command) || TASK_CODE.test(text)) return false;
   return STALLED_WORD.test(plain) && SUBJECT.test(plain);
 }
 
