@@ -43,22 +43,32 @@ afterEach(() => {
 /** Un campo di prova: il testo vivo in un ref, `put` contato. */
 const puts: string[] = [];
 let setFromOutside: (text: string) => void = () => {};
+/** «Save»/«Send» della persona: il testo resta, ma non è più la bozza di Claude. */
+let commitFromOutside: () => void = () => {};
 function ToyField({ field, initial = "" }: { field: FieldRef | null; initial?: string }) {
   const [text, setTextState] = useState(initial);
   const live = useRef(initial);
+  const placed = useRef<string | null>(null);
+  const [, rerender] = useState(0);
   const setText = (next: string) => {
     live.current = next;
     setTextState(next);
   };
   setFromOutside = setText;
+  commitFromOutside = () => {
+    placed.current = null;
+    rerender((n) => n + 1);
+  };
   useFillableField(
     field && {
       ref: field,
       labelKey: "claude.drafts.placed.taskDescription",
       get: () => live.current,
+      isDraft: () => placed.current !== null && placed.current === live.current,
       put: (draft, how) => {
         puts.push(draft);
         setText(how === "below" && live.current ? `${live.current}\n\n${draft}` : draft);
+        placed.current = live.current;
       },
       restore: setText,
     },
@@ -191,6 +201,16 @@ describe("il runner delle bozze", () => {
     await waitFor(() => expect(draftEvents()[0]!.status).toBe("changed_after"));
     expect(undoDraft(draftEvents()[0]!.id)).toBe("not_undoable");
     expect(toy()).toBe("Claude's text. Mine.");
+  });
+
+  it("I1: salvata (stesso testo, ma non più una bozza), la riga si chiude `changed_after` e «Undo» non scrive", async () => {
+    const cid = await conversationWithDraft(LAURA, FIELD, "none");
+    mount(LAURA, { conversationId: cid, field: FIELD });
+    await waitFor(() => expect(draftEvents()[0]!.status).toBe("placed"));
+    act(() => commitFromOutside());
+    await waitFor(() => expect(draftEvents()[0]!.status).toBe("changed_after"));
+    expect(undoDraft(draftEvents()[0]!.id)).toBe("not_undoable");
+    expect(toy()).toBe("Claude's text.");
   });
 
   it("«Undo» rimette il testo di prima una volta; dopo un ricaricamento non c'è più niente da annullare", async () => {

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Task } from "../../data/types";
 import { placeDraft } from "../../domain/claude/intents/mailDraft";
@@ -46,9 +46,22 @@ export function DescriptionSection({ task, canEdit }: { task: Task; canEdit: boo
     setDraft(null);
     setByClaude(false);
   };
+  // Chiusa dalla persona (Save, Cancel, Esc): il campo sparisce col fuoco
+  // dentro, che torna su «Edit» — mai sul body (I2).
+  const editRef = useRef<HTMLButtonElement>(null);
+  const refocus = useRef(false);
+  const closeByPerson = () => {
+    refocus.current = true;
+    close();
+  };
+  useLayoutEffect(() => {
+    if (draft !== null || !refocus.current) return;
+    refocus.current = false;
+    editRef.current?.focus();
+  }, [draft]);
   const save = () => {
     if (draft !== null && draft !== task.description) change(task, { description: draft });
-    close();
+    closeByPerson();
   };
   const title = t("taskDetail.description.title");
 
@@ -62,6 +75,8 @@ export function DescriptionSection({ task, canEdit }: { task: Task; canEdit: boo
           ref: { kind: "taskDescription", taskId: task.id },
           labelKey: "claude.drafts.placed.taskDescription",
           get: () => draftRef.current ?? descriptionRef.current,
+          // Solo nel campo aperto: salvata, la descrizione è della persona (I1).
+          isDraft: () => draftRef.current !== null && mark.isMarked(draftRef.current),
           put: (text, how, from = []) => {
             editingBefore.current = draftRef.current !== null;
             setSources(from);
@@ -94,7 +109,7 @@ export function DescriptionSection({ task, canEdit }: { task: Task; canEdit: boo
           onKeyDown={(e) => {
             if (e.key === "Escape") {
               e.preventDefault();
-              close();
+              closeByPerson();
             } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();
               save();
@@ -112,7 +127,7 @@ export function DescriptionSection({ task, canEdit }: { task: Task; canEdit: boo
         )}
         <div className="flex items-center gap-1.5">
           <span className="mr-auto text-xs text-ink-faint">{t("taskDetail.description.hint")}</span>
-          <button type="button" className={smallSecondary} onClick={close}>
+          <button type="button" className={smallSecondary} onClick={closeByPerson}>
             {t("taskDetail.cancel")}
           </button>
           <button type="button" className={smallPrimary} onClick={save}>
@@ -125,6 +140,7 @@ export function DescriptionSection({ task, canEdit }: { task: Task; canEdit: boo
 
   const edit = canEdit && (
     <button
+      ref={editRef}
       type="button"
       className={ghostButton}
       aria-label={t("taskDetail.description.edit")}

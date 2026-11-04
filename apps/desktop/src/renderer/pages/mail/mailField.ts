@@ -40,6 +40,9 @@ export function useMailBodyField({
           ref: { kind: "mailBody", threadId },
           labelKey: threadId ? "claude.drafts.placed.mailReply" : "claude.drafts.placed.mailNew",
           get: () => bridge.current.composer?.get() ?? pending(),
+          // Finché la casella non c'è, la bozza in coda è ancora una bozza.
+          isDraft: () =>
+            bridge.current.composer?.isDraft() ?? bridge.current.queued?.kind === "put",
           put: (text, how, sources = []) => {
             const composer = bridge.current.composer;
             if (composer) composer.put(text, how, sources);

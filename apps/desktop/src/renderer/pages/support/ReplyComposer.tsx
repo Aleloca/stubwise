@@ -73,6 +73,8 @@ export function ReplyComposer({
   const [drafted, setDrafted] = useState(false);
   const mark = useClaudeDraftMark(body);
   const markId = `${id}-mark`;
+  /** Le fonti di una bozza del riquadro (m5); senza, la richiesta della conversazione. */
+  const [panelSources, setPanelSources] = useState<readonly string[]>([]);
   const before = useRef<{ body: string; how: "replace" | "below" }>({ body: "", how: "replace" });
   const timer = useRef<number | null>(null);
   useEffect(() => () => void (timer.current && window.clearTimeout(timer.current)), []);
@@ -92,6 +94,7 @@ export function ReplyComposer({
     const text = placeDraft(before.current.body, settledText, before.current.how);
     edit(text);
     mark.place(text);
+    setPanelSources([]);
     setDrafted(true);
     requestAnimationFrame(() => bodyRef.current?.focus());
   }, [settledText]);
@@ -113,6 +116,7 @@ export function ReplyComposer({
     const text = placeDraft(body, conv.claudeDraft ?? "", how);
     edit(text);
     mark.place(text);
+    setPanelSources([]);
     setDrafted(true);
     setShowPrepared(false);
     requestAnimationFrame(() => bodyRef.current?.focus());
@@ -174,10 +178,12 @@ export function ReplyComposer({
     ref: { kind: "supportReply", conversationId: conv.id },
     labelKey: "claude.drafts.placed.supportReply",
     get: () => readDraft(me, conv.code),
-    put: (text, how) => {
+    isDraft: () => mark.isMarked(readDraft(me, conv.code)),
+    put: (text, how, sources = []) => {
       const next = placeDraft(readDraft(me, conv.code), text, how);
       edit(next);
       mark.place(next);
+      setPanelSources(sources);
       setDrafted(true);
       setShowPrepared(false);
       setAsk(null);
@@ -310,7 +316,13 @@ export function ReplyComposer({
           <ClaudeDraftMark
             id={markId}
             action="send"
-            sources={request ? [{ code: request.code, title: request.title }] : []}
+            sources={
+              panelSources.length > 0
+                ? panelSources.map((code) => ({ code }))
+                : request
+                  ? [{ code: request.code, title: request.title }]
+                  : []
+            }
             className="px-3 pb-1.5"
           />
         )}

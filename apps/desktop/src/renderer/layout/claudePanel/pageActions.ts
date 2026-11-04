@@ -327,12 +327,24 @@ function place(
   quiet(entry.settle({ id: entry.conversationId, eventId, status: "placed" }));
 }
 
+/**
+ * Nel campo c'è ancora la bozza di Claude, non toccata né inviata né
+ * salvata: il testo è quello messo e il segno vale ancora (I1). Dopo «Save»
+ * il testo può essere identico, ma è della persona: «Undo» non c'è più.
+ */
+const stillDraft = (field: FillableField, entry: DraftEntry) =>
+  field.get() === entry.after && field.isDraft();
+
 /** Prova a mettere la bozza: nel campo vuoto la mette, con del testo chiede. */
 function offer(entry: DraftEntry, eventId: string): boolean {
   const field = fillableFor(entry.ref);
   if (!field) return false;
-  if (field.get().trim() === "") place(entry, eventId, field, "replace");
-  else {
+  const wanted = entry.stage === "wanted";
+  if (field.get().trim() === "") {
+    place(entry, eventId, field, "replace");
+    // «Put it in the field» porta alla pagina e il fuoco al campo (shape §6, I2).
+    if (wanted) field.focus?.();
+  } else {
     entry.stage = "asking";
     changed();
   }
@@ -412,7 +424,7 @@ export function undoDraft(eventId: string): "undone" | "changed_after" | "not_un
   if (!entry || entry.stage !== "placed" || entry.outcome) return "not_undoable";
   const field = fillableFor(entry.ref);
   if (!field) return "not_undoable";
-  entry.outcome = field.get() === entry.after ? "undone" : "changed_after";
+  entry.outcome = stillDraft(field, entry) ? "undone" : "changed_after";
   if (entry.outcome === "undone") field.restore(entry.before ?? "");
   changed();
   return entry.outcome;
@@ -434,7 +446,7 @@ subscribeFillable(() => {
     }
     if (entry.stage !== "placed" || entry.outcome) continue;
     const field = fillableFor(entry.ref);
-    if (!field || field.get() === entry.after) continue;
+    if (!field || stillDraft(field, entry)) continue;
     entry.outcome = "changed_after";
     changed();
     quiet(entry.settle({ id: entry.conversationId, eventId, status: "changed_after" }));

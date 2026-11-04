@@ -1,7 +1,7 @@
-import { Link } from "@tanstack/react-router";
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useSetPrReleaseNotes, useTask } from "../../data/queries";
+import { CodeLink } from "../../components/CodeLink";
+import { useSetPrReleaseNotes } from "../../data/queries";
 import type { OpenPrView } from "../../data/releases";
 import { placeDraft } from "../../domain/claude/intents/mailDraft";
 import { useFillableField } from "../../layout/claudePanel/fillable";
@@ -17,7 +17,8 @@ import { Section, smallPrimary, smallSecondary } from "../task/parts";
 // condiviso [DR 10]. Per il riquadro di Claude è il campo `releaseNotes`: la
 // bozza entra col segno e NON si salva da sola. Chi non può modificarle le
 // legge in prosa, senza «Who?». Dopo il merge le note passano al rilascio
-// (`ReleaseNotesProse`, in sola lettura).
+// (`ReleaseNotesProse`, in sola lettura), coi codici apribili per chi li
+// vede (`CodeLink`, la stessa regola delle fonti del segno).
 
 /** Quanto resta «Saved» dopo un salvataggio. */
 const SAVED_MS = 2000;
@@ -78,6 +79,8 @@ export function ReleaseNotesField({ pr }: { pr: OpenPrView }) {
           ref: { kind: "releaseNotes", prId: pr.id },
           labelKey: "claude.drafts.placed.releaseNotes",
           get: () => textRef.current,
+          // Salvate, le note sono della persona: il segno è già tolto (I1).
+          isDraft: () => mark.isMarked(textRef.current),
           put: (draft, how, from = []) => {
             const next = placeDraft(textRef.current, draft, how);
             setText(next);
@@ -112,6 +115,8 @@ export function ReleaseNotesField({ pr }: { pr: OpenPrView }) {
     // Un doppio clic non fa due scritture: finché salva, «Save» non riparte.
     if (!dirty || status === "saving") return;
     const value = text;
+    // I bottoni spariscono a salvataggio fatto: il fuoco resta nell'area (I2).
+    boxRef.current?.focus();
     setStatus("saving");
     save.mutate(
       { prId: pr.id, text: value },
@@ -129,6 +134,7 @@ export function ReleaseNotesField({ pr }: { pr: OpenPrView }) {
     if (status === "saving") return;
     setText(base);
     setStatus("idle");
+    boxRef.current?.focus();
   };
 
   return (
@@ -204,21 +210,6 @@ export function ReleaseNotesField({ pr }: { pr: OpenPrView }) {
   );
 }
 
-/** Un codice di task nelle note: un link se chi guarda la vede, altrimenti il codice tenue (R-E9). */
-function NoteCode({ code }: { code: string }) {
-  const task = useTask(code).data;
-  if (!task) return <span className="num font-semibold text-ink-faint">{code}</span>;
-  return (
-    <Link
-      to="."
-      search={((prev: Record<string, unknown>) => ({ ...prev, task: code })) as never}
-      className="num rounded-sm font-semibold text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
-    >
-      {code}
-    </Link>
-  );
-}
-
 const TASK_CODE = /\b[A-Z]{2,4}-\d+\b/g;
 
 /** Una riga delle note, coi codici delle task al loro posto. */
@@ -237,7 +228,7 @@ function NoteLine({ line }: { line: string }) {
         typeof p === "string" ? (
           <Fragment key={i}>{p}</Fragment>
         ) : (
-          <NoteCode key={i} code={p.code} />
+          <CodeLink key={i} code={p.code} />
         ),
       )}
     </>

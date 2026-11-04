@@ -1,5 +1,5 @@
 import { useRouter } from "@tanstack/react-router";
-import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import {
   useDescribeContext,
@@ -69,10 +69,12 @@ function useWhere(field: FieldRef | null): Where | null {
     if (field.threadId === null) {
       return { kind: "mailNew", group: "email", values: {}, route: "/mail?compose=new" };
     }
+    // m4: finché il thread non è letto, la riga aspetta (niente «the reply to “”»).
+    if (!thread) return null;
     return {
       kind: "mailReply",
       group: "reply",
-      values: { subject: thread?.subject ?? "" },
+      values: { subject: thread.subject },
       route: `/mail/${field.threadId}`,
     };
   }
@@ -144,7 +146,12 @@ function AskRow({
     >
       <p className="min-w-0 flex-[1_1_14rem] [overflow-wrap:anywhere]">{question}</p>
       <span className="ml-auto inline-flex items-center gap-2">
-        <button type="button" className={secondaryButton} onClick={() => onAnswer("below")}>
+        <button
+          type="button"
+          data-ask-first
+          className={secondaryButton}
+          onClick={() => onAnswer("below")}
+        >
           {t(`${K}.addBelow`)}
         </button>
         <button type="button" className={primaryButton} onClick={() => onAnswer("replace")}>
@@ -204,16 +211,40 @@ export function DraftRow({
   const view = useDraftView(event.id, event.field);
   const settle = useSettlePageEvent();
   const statusRef = useRef<HTMLSpanElement>(null);
-  const [focusTick, setFocusTick] = useState(0);
+  const rootRef = useRef<HTMLDivElement>(null);
+  /** Un clic nella riga: se il bottone premuto sparisce, il fuoco resta qui (I2, m6). */
+  const wantFocus = useRef(false);
 
-  // Dopo un clic il bottone sparisce: il fuoco va sul testo nuovo, mai sul body.
+  // Dopo un clic il bottone sparisce (la riga cambia stato, chiede, aspetta di
+  // nuovo): il fuoco va alla domanda, allo stato o alla riga, mai sul body. Se
+  // nel frattempo è andato altrove (il campo, con «Put it in the field»), resta lì.
   useLayoutEffect(() => {
-    if (focusTick > 0) statusRef.current?.focus();
-  }, [focusTick]);
+    if (!wantFocus.current) return;
+    const active = document.activeElement;
+    if (active && active !== document.body) {
+      if (!rootRef.current?.contains(active)) wantFocus.current = false;
+      return;
+    }
+    wantFocus.current = false;
+    const target =
+      rootRef.current?.querySelector<HTMLElement>("[data-ask-first]") ??
+      statusRef.current ??
+      rootRef.current;
+    target?.focus();
+  });
+  const wrap = (row: ReactElement) => (
+    <div
+      ref={rootRef}
+      tabIndex={-1}
+      className="min-w-0 rounded-sm outline-offset-2 focus-visible:outline-2 focus-visible:outline-focus"
+    >
+      {row}
+    </div>
+  );
 
   // Chi non vede l'oggetto del campo (o la casella non è sua): né codice, né testo, né stato.
   if (!event.field) {
-    return (
+    return wrap(
       <p
         data-draft-row
         className="event-enter flex min-h-8 min-w-0 items-start gap-2 py-1 text-md text-ink"
@@ -222,10 +253,10 @@ export function DraftRow({
           <CheckGlyph />
         </span>
         <span className="min-w-0">{t(`${K}.other`)}</span>
-      </p>
+      </p>,
     );
   }
-  if (!where) return <p data-draft-row className="min-h-8" aria-busy="true" />;
+  if (!where) return wrap(<p data-draft-row className="min-h-8" aria-busy="true" />);
 
   const field = event.field;
   const asking = mine && view.stage === "asking";
@@ -236,10 +267,11 @@ export function DraftRow({
       ? "placed"
       : event.status;
   const answer = (how: "replace" | "below") => {
+    wantFocus.current = true;
     answerDraft(event.id, how);
-    setFocusTick((n) => n + 1);
   };
   const putInField = () => {
+    wantFocus.current = true;
     wantDraft(conversationId, event, settle.mutateAsync);
     if (!view.fieldOpen) void router.navigate({ href: where.route });
   };
@@ -250,13 +282,13 @@ export function DraftRow({
   // In attesa del riquadro, o della scelta della persona.
   if (status === "pending") {
     if (asking) {
-      return (
+      return wrap(
         <div data-draft-row className="event-enter flex min-w-0 flex-col">
           <AskRow where={where} onAnswer={answer} />
-        </div>
+        </div>,
       );
     }
-    return (
+    return wrap(
       <p
         data-draft-row
         className="event-enter flex min-h-8 min-w-0 items-start gap-2 py-1 text-md text-ink-muted [overflow-wrap:anywhere]"
@@ -267,12 +299,12 @@ export function DraftRow({
         <span className="min-w-0">
           <Phrase state="pending" where={where} />
         </span>
-      </p>
+      </p>,
     );
   }
 
   if (status === "waiting") {
-    return (
+    return wrap(
       <div data-draft-row className="event-enter flex min-w-0 flex-col gap-1">
         {asking ? (
           <AskRow where={where} onAnswer={answer} />
@@ -296,7 +328,7 @@ export function DraftRow({
           </p>
         )}
         {mine && <DraftText text={event.text} />}
-      </div>
+      </div>,
     );
   }
 
@@ -310,8 +342,8 @@ export function DraftRow({
           : "gone";
 
   function undo() {
+    wantFocus.current = true;
     const result = undoDraft(event.id);
-    setFocusTick((n) => n + 1);
     // Un secondo clic (o nessun testo di prima) non scrive niente.
     if (result === "not_undoable") return;
     settle.mutate({ id: conversationId, eventId: event.id, status: result });
@@ -344,7 +376,7 @@ export function DraftRow({
     }
   })();
 
-  return (
+  return wrap(
     <div className="event-enter flex min-w-0 flex-wrap items-start gap-x-3 gap-y-1" data-draft-row>
       <p className="flex min-h-8 min-w-0 flex-[1_1_16rem] items-start gap-2 py-1 text-md text-ink [overflow-wrap:anywhere]">
         <span className="mt-[3px]" aria-hidden="true">
@@ -373,6 +405,6 @@ export function DraftRow({
           {state}
         </span>
       )}
-    </div>
+    </div>,
   );
 }

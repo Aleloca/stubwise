@@ -84,6 +84,12 @@ describe("S6b: le note dal riquadro", () => {
     expect(save).toHaveBeenCalledTimes(1);
     expect(mark(root)).toBeNull();
     expect(within(root).getByText("Saved")).toBeInTheDocument();
+    // I1: salvate, la riga non offre più «Undo»; I2: il fuoco torna nell'area, mai sul body.
+    const row = claude()!.querySelector<HTMLElement>("[data-draft-row]")!;
+    await waitFor(() => expect(draftEvents().at(-1)!.status).toBe("changed_after"));
+    expect(within(row).queryByRole("button", { name: "Undo" })).toBeNull();
+    expect(row).not.toHaveTextContent("as they were");
+    expect(document.activeElement).toBe(notes(root));
 
     setSessionPersonId(LAURA);
     const merged = await api.releases.mergePr(ACQ_PR);
@@ -131,6 +137,8 @@ describe("Il campo delle note", () => {
     await user.type(box, "- ACQ-7: Reminder");
     await user.click(within(root).getByRole("button", { name: "Cancel" }));
     expect(box.value).toBe("");
+    // I2: i bottoni spariscono, il fuoco torna nell'area.
+    expect(document.activeElement).toBe(box);
     await user.type(box, "- ACQ-7: Reminder");
     await user.keyboard("{Control>}{Enter}{/Control}");
     await waitFor(() => expect(prOf().releaseNotes).toBe("- ACQ-7: Reminder"));
@@ -153,6 +161,7 @@ describe("Il campo delle note", () => {
     expectNoDeploy();
     await user.click(within(alert).getByRole("button", { name: "Save again" }));
     await waitFor(() => expect(prOf().releaseNotes).toBe("- Keep me"));
+    expect(document.activeElement).toBe(notes(root));
   });
 
   it("chi non può modificarle le legge, senza campo né «Who?»", async () => {

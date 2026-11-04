@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import type { FieldRef } from "../../data/types";
 
 // I campi riempibili (area 10b, Task 10; shape `claude-drafts.md`): una
@@ -21,6 +21,13 @@ export interface FillableField {
   get(): string;
   /** Mette il testo e il segno; «Replace or add below?» lo chiede chi chiama, se `get()` non è vuoto. */
   put(text: string, how: "replace" | "below", sources?: readonly string[]): void;
+  /**
+   * Nel campo c'è ancora la bozza di Claude, NON inviata né salvata: lo
+   * stesso criterio del segno (`isMarked`). Finché è vero la riga offre
+   * «Undo»; quando diventa falso (una modifica, l'invio, «Save») la riga si
+   * chiude `changed_after` — una bozza salvata è della persona (I1).
+   */
+  isDraft(): boolean;
   /** «Undo» della riga: rimette il testo di prima, senza segno. */
   restore(text: string): void;
   /** «Show» della riga: il fuoco nel campo. */
@@ -45,9 +52,7 @@ export function fieldKey(ref: FieldRef): string {
 const declared: { key: string; current: FillableField }[] = [];
 
 const listeners = new Set<() => void>();
-let version = 0;
 function changed() {
-  version += 1;
   for (const l of listeners) l();
 }
 export const subscribeFillable = (l: () => void): (() => void) => {
@@ -62,11 +67,6 @@ export function fillableFor(ref: FieldRef): FillableField | null {
     if (declared[i]!.key === key) return declared[i]!.current;
   }
   return null;
-}
-
-/** Si ridisegna a ogni dichiarazione, ritiro e render di un campo (il suo testo può essere cambiato). */
-export function useFillableVersion(): number {
-  return useSyncExternalStore(subscribeFillable, () => version);
 }
 
 /**

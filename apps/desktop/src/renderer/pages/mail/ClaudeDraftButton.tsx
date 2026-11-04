@@ -143,6 +143,8 @@ export function useClaudeDraft({
       mark.place(text);
     },
     clearMark: mark.clear,
+    /** Il corpo è ancora la bozza di Claude, non inviata (I1). */
+    isMarked: mark.isMarked,
   };
 }
 

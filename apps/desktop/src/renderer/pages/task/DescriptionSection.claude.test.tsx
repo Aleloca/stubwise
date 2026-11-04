@@ -88,6 +88,12 @@ describe("La descrizione dal riquadro (D1)", () => {
     expect(last).toMatchObject({ kind: "field_change", field: "description", authorId: LAURA });
     expect(last).not.toHaveProperty("via");
     expect(mark(root)).toBeNull();
+    // I1: salvata, la bozza è della persona: la riga non offre più «Undo» («com'era» mentirebbe).
+    await waitFor(() => expect(draftEvents().at(-1)!.status).toBe("changed_after"));
+    expect(within(draftRow()!).queryByRole("button", { name: "Undo" })).toBeNull();
+    expect(draftRow()).not.toHaveTextContent("as it was");
+    // Il fuoco non è mai sul body.
+    expect(document.activeElement).not.toBe(document.body);
   });
 
   it("Esc: la descrizione resta com'era e la riga dice `changed_after`", async () => {
@@ -103,6 +109,10 @@ describe("La descrizione dal riquadro (D1)", () => {
     box.focus();
     await user.keyboard("{Escape}");
     expect(descriptionBox(root)).toBeNull();
+    // Il campo sparisce col fuoco dentro: torna su «Add», mai sul body (I2).
+    expect(document.activeElement).toBe(
+      within(root).getByRole("button", { name: "Edit description" }),
+    );
     expect(state.tasksById.get(ACQ_7)!.description).toBe("");
     await waitFor(() => expect(draftEvents().at(-1)!.status).toBe("changed_after"));
     expect(draftRow()).toHaveTextContent("The field changed afterwards · can't undo from here");

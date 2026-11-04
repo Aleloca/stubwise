@@ -1,7 +1,9 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { ClaudeMark } from "../components/ClaudeMark";
+import { CodeLink } from "../components/CodeLink";
 import { useSessionPersonId } from "../data/queries";
+import { getSessionPersonId } from "../data/session";
 
 // Il segno «Claude's draft» (area 10b, Task 10; shape `claude-drafts.md`
 // §3.1): UNO, per i quattro campi (risposta di supporto, corpo dell'email,
@@ -26,9 +28,21 @@ export function useClaudeDraftMark(current: string): {
   place(text: string): void;
   clear(): void;
   shown: boolean;
+  /**
+   * Il segno vale ADESSO per questo testo (letto dal valore vivo del campo):
+   * per il riquadro, che lo chiede fra un render e l'altro. Vero solo finché
+   * la bozza è nel campo, non inviata né salvata (I1).
+   */
+  isMarked(text: string): boolean;
 } {
   const me = useSessionPersonId();
-  const [mark, setMark] = useState<Placed | null>(null);
+  const [mark, setMarkState] = useState<Placed | null>(null);
+  /** Lo stesso segno, aggiornato subito (non al render dopo). */
+  const live = useRef<Placed | null>(null);
+  const setMark = (next: Placed | null) => {
+    live.current = next;
+    setMarkState(next);
+  };
   const same = mark !== null && current === mark.text;
   // `place` e il testo del campo possono arrivare in due render diversi: la
   // differenza conta solo dopo che il campo ha mostrato il testo di Claude.
@@ -42,6 +56,10 @@ export function useClaudeDraftMark(current: string): {
     place: (text) => setMark({ text, by: me, seen: false }),
     clear: () => setMark(null),
     shown: same && mark.by === me,
+    isMarked: (text) =>
+      live.current !== null &&
+      live.current.text === text &&
+      live.current.by === getSessionPersonId(),
   };
 }
 
@@ -57,7 +75,8 @@ const SOURCES_SHOWN = 2;
 /**
  * La riga del segno, dentro il bordo della casella sotto l'area di
  * scrittura: l'anello fermo · «Claude's draft» · «edit it before sending»
- * (o «saving») · «Used: …». `id` va nell'`aria-describedby` del campo.
+ * (o «saving»), poi «Used: …» con le fonti apribili (`CodeLink`). `id` va
+ * nell'`aria-describedby` del campo.
  */
 export function ClaudeDraftMark({
   id,
@@ -81,7 +100,7 @@ export function ClaudeDraftMark({
     <p
       id={id}
       data-claude-draft-mark
-      className={`event-enter flex min-h-6 min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-ink-muted ${className}`}
+      className={`event-enter flex min-h-6 min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-ink-muted ${className}`}
     >
       <span className="sr-only">{t("claude.drafts.mark.sr")}</span>
       <span aria-hidden="true" className="inline-flex min-w-0 flex-wrap items-center gap-x-1.5">
@@ -89,15 +108,14 @@ export function ClaudeDraftMark({
         <span className="font-semibold text-ink">{t("claude.drafts.mark.label")}</span>
         <span>· {t(`claude.drafts.mark.${action}`)}</span>
       </span>
+      {/* Le fonti a capo da sole, senza un «·» scritto davanti (m8): le separa lo spazio. */}
       {sources.length > 0 && (
         <span className="min-w-0 [overflow-wrap:anywhere]">
-          <span aria-hidden="true">· </span>
           {t("claude.drafts.mark.used")}{" "}
           {shown.map((s, i) => (
             <span key={s.code}>
               {i > 0 && ", "}
-              <span className="num font-semibold text-ink">{s.code}</span>
-              {s.title && <> {s.title}</>}
+              <CodeLink code={s.code} withName title={s.title} />
             </span>
           ))}
           {more.length > 0 && (

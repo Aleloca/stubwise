@@ -166,6 +166,8 @@ describe("S6: la bozza dal riquadro nella risposta", () => {
     expect(mark(form)).not.toBeNull();
     await waitFor(() => expect(draftEvents().at(-1)!.status).toBe("placed"));
     expect(put.mock.calls.filter(([, , s]) => s === "placed")).toHaveLength(1);
+    // I2: «Put it in the field» porta il fuoco al campo, mai sul body.
+    expect(document.activeElement).toBe(body(form));
   });
 });
 

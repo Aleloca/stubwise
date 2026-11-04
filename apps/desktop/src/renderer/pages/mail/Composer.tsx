@@ -88,6 +88,7 @@ let uploads = 0;
 export interface MailFieldBridge {
   composer: {
     get(): string;
+    isDraft(): boolean;
     put(text: string, how: "replace" | "below", sources: readonly string[]): void;
     restore(text: string): void;
     focus(): void;
@@ -216,6 +217,7 @@ export function Composer(props: ComposerProps) {
     const bridge = fieldBridge.current;
     const api: NonNullable<MailFieldBridge["composer"]> = {
       get: () => draft.current()?.body ?? "",
+      isDraft: () => claudeRef.current.isMarked(draft.current()?.body ?? ""),
       put: (text, how, sources) =>
         claudeRef.current.fromPanel(placeDraft(draft.current()?.body ?? "", text, how), sources),
       restore: (text) => {
