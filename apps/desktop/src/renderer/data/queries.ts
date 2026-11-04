@@ -1470,9 +1470,12 @@ export function useClaudeSuggestion(place: api.SuggestionPlace | null) {
     queryFn: () => (place ? api.getClaudeSuggestion(place) : Promise.resolve(null)),
     enabled: place !== null,
     // Cambiato solo il budget, la riga di prima resta finché non arriva la
-    // risposta nuova (niente lampo); un altro oggetto non eredita mai la riga.
+    // risposta nuova (niente lampo); un altro oggetto, o un'altra persona
+    // («vedi come»), non eredita mai la riga.
     placeholderData: (previous, previousQuery) =>
-      previousQuery?.queryKey[4] === placeKey ? previous : undefined,
+      previousQuery?.queryKey[1] === me && previousQuery.queryKey[4] === placeKey
+        ? previous
+        : undefined,
   });
 }
 

@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../data/api";
 import { daysFromToday } from "../data/dates";
 import { useAskDecision, useClaudeSuggestion, useUpdateTask } from "../data/queries";
-import { setSessionPersonId } from "../data/session";
-import { ViewerProvider } from "../data/viewer";
+import { getSessionPersonId, setSessionPersonId } from "../data/session";
+import { useViewer, ViewerProvider } from "../data/viewer";
 import {
   familyOf,
   notifyInstanceChange,
@@ -437,6 +437,24 @@ describe("le scritture che cambiano la riga la rileggono, senza ricaricare", () 
     );
     return renderHook(use, { wrapper }).result;
   }
+
+  it("«vedi come» sulla stessa pagina, da Matteo a Sara: la riga di Matteo non arriva mai a Sara, nemmeno mentre rilegge", async () => {
+    // Ogni render: chi guarda e la riga che il hook gli dà.
+    const seen: { me: string; id: string | null | undefined }[] = [];
+    const result = hooks("p-matteo", () => {
+      const viewer = useViewer();
+      const row = useClaudeSuggestion({ kind: "support", conversationId: "sup-acq-2" });
+      seen.push({ me: getSessionPersonId(), id: row.data?.id });
+      return { viewer, row };
+    });
+    await waitFor(() => expect(result.current.row.data?.id).toBe("supportReply"));
+    // Una lettura lenta: la finestra in cui la riga di prima potrebbe restare.
+    api.setLatency(150);
+    act(() => result.current.viewer.setPersona(SARA));
+    await waitFor(() => expect(result.current.row.isFetching).toBe(false));
+    expect(result.current.row.data).toBeNull();
+    expect(seen.filter((s) => s.me === SARA && s.id)).toEqual([]);
+  });
 
   it("una richiesta di decisione sulla task della PR toglie la riga della PR (area releases)", async () => {
     const result = hooks(LAURA, () => ({
