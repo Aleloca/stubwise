@@ -535,6 +535,55 @@ async function main() {
       return;
     }
 
+    // Area 10b, Task 12 (`CAPTURE_A10B_SUGG=1`): la riga «Claude can help
+    // you…» nelle cinque pagine di partenza (shape `claude-suggestions.md`).
+    // Matteo su ACQ-S2 (Davide non è fra i «vedi come»), Laura sulla PR #77
+    // e sulle Automations di ACQ, Giulia sull'Overview di MKX, Roberta su
+    // Consumi; poi il clic su ACQ-S2: il riquadro con la conversazione nuova
+    // e la richiesta non inviata.
+    // Scatti `a10b-sugg-*`.
+    if (process.env.CAPTURE_A10B_SUGG) {
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      const scenes = [
+        { name: "support", persona: "Matteo", hash: "/p/ACQ/support/ACQ-S2" },
+        { name: "pr", persona: "Laura", hash: "/p/ACQ/releases?pr=opr-acq-77" },
+        { name: "automations", persona: "Laura", hash: "/p/ACQ/automations" },
+        { name: "overview", persona: "Giulia", hash: "/p/MKX/overview" },
+        { name: "usage", persona: "Roberta", hash: "/admin/ai?tab=usage" },
+        { name: "support-click", persona: "Matteo", hash: "/p/ACQ/support/ACQ-S2", click: true },
+      ];
+      for (const v of variants) {
+        for (const scene of scenes) {
+          const name = `a10b-sugg-${scene.name}-${v.suffix}.png`;
+          if (only && !only.test(name)) continue;
+          const { page, context } = await open(v.scheme, v.viewport, scene.hash, {
+            lang: v.lang,
+            persona: scene.persona,
+          });
+          const row = page.locator("[data-claude-suggestion]");
+          await row.waitFor();
+          if (scene.click) {
+            await row.getByRole("button").first().click();
+            await page.locator("#claude-panel textarea").last().waitFor();
+            // Il chip della pagina, riletto all'apertura: «ACQ-S2 · support conversation».
+            await page.locator("#claude-panel [data-context-chip]").waitFor();
+            await page.waitForTimeout(500);
+          }
+          await page.mouse.move(v.viewport.width - 2, v.viewport.height - 2);
+          await shot(page, name);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 10b, Task 10 (`CAPTURE_A10B_DRAFTS=1`): le bozze di Claude nei
     // quattro campi, col segno unico e la riga `draft` nel riquadro (shape
     // `claude-drafts.md`). Matteo (Support di ACQ) sulla risposta di ACQ-S2;
