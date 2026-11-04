@@ -1,4 +1,4 @@
-import { configErrorsOf } from "../automations/reads";
+import { prospectiveIssues } from "../automations/reads";
 import {
   checkNewAutomation,
   createAutomationAs,
@@ -34,32 +34,12 @@ const onAutomation = (a: Automation, inverse: CatalogInverse): CatalogRun => ({
   objects: [{ kind: "automation", id: a.id }],
 });
 
-/** Ha la forma di un flusso? Il resto lo dice `configErrorsOf`. */
+/** Ha la forma di un flusso? Il resto lo dice `prospectiveIssues`. */
 const isFlow = (flow: unknown): flow is AutomationFlow =>
   typeof flow === "object" &&
   flow !== null &&
   typeof (flow as AutomationFlow).trigger === "object" &&
   Array.isArray((flow as AutomationFlow).steps);
-
-/**
- * I problemi del flusso di una bozza che nascerebbe in `projectId`, come
- * li vedrebbe la prova: il proprietario di una bozza è chi la accenderebbe,
- * qui chi chiede.
- */
-function flowProblems(me: string, projectId: string, flow: AutomationFlow): number {
-  const prospective: Automation = {
-    id: "",
-    code: "",
-    name: "",
-    description: "",
-    projectId,
-    ownerId: me,
-    status: "draft",
-    versions: [],
-    createdAt: "",
-  };
-  return configErrorsOf(prospective, flow, me).length;
-}
 
 export const MORE_ENTRIES: Record<MoreCatalogFn, Omit<CatalogEntry, "fn">> = {
   createAutomation: {
@@ -74,9 +54,10 @@ export const MORE_ENTRIES: Record<MoreCatalogFn, Omit<CatalogEntry, "fn">> = {
       // Prima chi chiede (`not_found`, `forbidden`), poi il flusso: un
       // problema del flusso non dice niente di un progetto che non vede.
       checkNewAutomation(me, projectId);
-      // Il motore lo ha controllato; il livello dati lo ricontrolla.
+      // Il motore lo ha controllato (`validateAutomationFlow`); il livello dati lo
+      // ricontrolla con la stessa regola.
       const flow = args.flow;
-      if (!isFlow(flow) || flowProblems(me, projectId, flow) > 0) throw invalid("flow");
+      if (!isFlow(flow) || prospectiveIssues(me, projectId, flow).length > 0) throw invalid("flow");
       // Stato e proprietario non si leggono dagli argomenti: nasce spenta, di nessuno.
       const a = createAutomationAs(me, {
         name: typeof args.name === "string" ? args.name : "",

@@ -35,6 +35,9 @@ const READ: ReadApi = {
   listAutomations: () => api.automations.listAutomations(),
   listProjectServers: api.servers.listProjectServers,
   canRecordDecisions: api.canRecordDecisions,
+  listDepartments: api.listDepartments,
+  canManageAutomations: api.automations.canManageAutomations,
+  validateAutomationFlow: api.automations.validateAutomationFlow,
 };
 
 function as(personId: string, t = en, contextProjectId: string | null = null): IntentContext {
@@ -504,6 +507,9 @@ describe("la posta e le riunioni di altri non arrivano a Claude (Review Focus 1)
     expect(Object.keys(readsAs("p-giulia")).sort()).toEqual([
       // Area 10a (Task 9): un sì o un no sul proprio permesso, per la riga D
       // di «registra la decisione». Nessun dato in più.
+      // Area 10b (Task 5): lo stesso per le automazioni, e i problemi di un
+      // flusso prima di crearlo. Nessuna posta.
+      "canManageAutomations",
       "canRecordDecisions",
       "getLatestBrief",
       "getRequest",
@@ -515,6 +521,8 @@ describe("la posta e le riunioni di altri non arrivano a Claude (Review Focus 1)
       "listAutomations",
       "listConversations",
       "listDecisionRequests",
+      // Area 10b (Task 5): i reparti, dati d'istanza uguali per tutti.
+      "listDepartments",
       "listDocPages",
       "listPeople",
       "listPinnedProjectIds",
@@ -524,6 +532,7 @@ describe("la posta e le riunioni di altri non arrivano a Claude (Review Focus 1)
       "listProjects",
       "listTasks",
       "readDriveFiles",
+      "validateAutomationFlow",
     ]);
   });
 

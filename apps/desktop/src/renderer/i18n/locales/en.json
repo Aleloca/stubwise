@@ -3376,6 +3376,96 @@
         "deploy": "Stubwise doesn't deploy: merging a pull request is as far as it goes.",
         "recordDecisionCant": "And you can't record decisions in **{{code}}** either.",
         "who": "Who?"
+      },
+      "automation": {
+        "flow": {
+          "notice": "New request: {{title}}",
+          "noticeUrgent": "New urgent request: {{title}}",
+          "emailBody": "We received your request and we're working on it."
+        },
+        "name": {
+          "urgentSupport": "Urgent support request",
+          "urgent": "Urgent request",
+          "support": "Support request",
+          "any": "New request",
+          "createTask": "{{event}} → task for {{department}}",
+          "notify": "{{event}} → notice to {{department}}",
+          "sendEmail": "{{event}} → email to the customer"
+        },
+        "start": {
+          "urgentSupport": "Starts when an urgent support request arrives in {{code}}",
+          "urgent": "Starts when an urgent request is created in {{code}}",
+          "support": "Starts when a support request arrives in {{code}}",
+          "any": "Starts when a request is created in {{code}}"
+        },
+        "step": {
+          "createTask_one": "creates a task for {{department}}, due in {{count}} day",
+          "createTask_other": "creates a task for {{department}}, due in {{count}} days",
+          "notify": "notifies {{department}}",
+          "sendEmail": "sends an email to the customer"
+        },
+        "auto": "runs on its own",
+        "autoWithEmail": "the other steps run on their own; the email waits for the owner's approval",
+        "emailOnly": "the email waits for the owner's approval",
+        "ownerNote": "Until someone turns it on, the owner is whoever tests it.",
+        "summary": "Create the automation “{{name}}” in {{code}}",
+        "would": {
+          "start": {
+            "urgentSupport": "It would start when an urgent support request arrives in {{code}}.",
+            "urgent": "It would start when an urgent request is created in {{code}}.",
+            "support": "It would start when a support request arrives in {{code}}.",
+            "any": "It would start when a request is created in {{code}}."
+          },
+          "createTask_one": "It would create a task for {{department}}, due in {{count}} day.",
+          "createTask_other": "It would create a task for {{department}}, due in {{count}} days.",
+          "notify": "It would notify the people in {{department}} who see {{code}}.",
+          "sendEmail": "It would send an email to the customer, after the owner's approval."
+        },
+        "cantCreate": "You can't create automations in {{code}}",
+        "cantAny": "You can't create automations in any of your projects.",
+        "cant": {
+          "slack": "Automations can't post to Slack.",
+          "call": "Automations can't call the customer."
+        },
+        "closest": "The closest step is notifying people in Stubwise: I built the rest and left that part out.",
+        "invalid": "I couldn't build it: {{issue}}. Nothing was created.",
+        "noAction": "I didn't find a step I can do in this request: an automation can create tasks, notify people or send an email.",
+        "noEvent": "I didn't find when it should start: here an automation can start when a request is created.",
+        "ask": {
+          "department": "Which department should get the task and the notice?",
+          "departmentTask": "Which department should get the task?",
+          "departmentNotify": "Which department should I notify?",
+          "departmentCantSee": "Nobody in {{department}} sees {{code}}: which department should I notify?",
+          "project": "Which project is the automation for?"
+        },
+        "stillNeed": {
+          "department": "I still need the department to build it: tell me which one.",
+          "project": "I still need the project to build it: tell me which one.",
+          "departmentCantSee": "Nobody in {{department}} sees {{code}}: tell me which department to notify."
+        },
+        "panel": "I test automations from the Claude panel: ask me there and I'll try it on two examples.",
+        "outcome": {
+          "sentence": "It would {{parts}}{{wait}}.",
+          "task": "create a task for {{department}}",
+          "tasks_one": "create {{count}} task",
+          "tasks_other": "create {{count}} tasks",
+          "emails_one": "send {{count}} email",
+          "emails_other": "send {{count}} emails",
+          "notifications_one": "notify {{count}} person",
+          "notifications_other": "notify {{count}} people",
+          "requests_one": "open {{count}} request",
+          "requests_other": "open {{count}} requests",
+          "milestones_one": "create {{count}} milestone",
+          "milestones_other": "create {{count}} milestones",
+          "waitFor": ", and the email would wait for {{name}}'s approval",
+          "waitAny": ", and the email would wait for an approval",
+          "waitOnlyFor": "The email would wait for {{name}}'s approval.",
+          "waitOnlyAny": "The email would wait for an approval.",
+          "nothing": "With the first example nothing would happen.",
+          "none": "None of the examples would start it."
+        },
+        "off": "It's off: turn it on from the builder when you're ready.",
+        "aDepartment": "a department"
       }
     },
     "proposalFailed": {

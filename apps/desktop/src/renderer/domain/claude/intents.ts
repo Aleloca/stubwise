@@ -10,6 +10,7 @@ import {
   stripCourtesy,
   topicWords,
 } from "./parse";
+import { automation, isAutomationRequest } from "./intents/automation";
 import { assign, create, plan } from "./intents/change";
 import { explain } from "./intents/explain";
 import { fileQuestion, files } from "./intents/files";
@@ -44,6 +45,7 @@ export type Intent =
   | "plan"
   | "remove"
   | "refused"
+  | "automation"
   | "general";
 
 // Le modifiche si riconoscono solo da un COMANDO: il verbo all'imperativo in
@@ -105,6 +107,10 @@ export function recognize(text: string, visibleCodes?: ReadonlySet<string>): Int
   // Un gesto delle persone (classe D, area 10a) prima di ogni comando: «approva
   // il piano di AUD-4» non diventa mai un'altra cosa.
   if (isRefused(text)) return "refused";
+  // Area 10b (S1): «quando arriva una richiesta…, crea una task…» descrive
+  // un'automazione, e «crea un'automazione…» non è la creazione di una task:
+  // dopo i gesti delle persone, prima dei comandi (P10).
+  if (isAutomationRequest(text)) return "automation";
   if (polite || !QUESTION.test(command)) {
     const verb = (imperative: RegExp, infinitive: RegExp) =>
       imperative.test(command) || (polite && infinitive.test(command));
@@ -137,6 +143,7 @@ const HANDLERS: Record<Intent, (text: string, ctx: IntentContext) => Promise<Ans
   plan,
   remove,
   refused,
+  automation,
   general,
 };
 

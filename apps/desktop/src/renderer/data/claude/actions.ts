@@ -138,7 +138,9 @@ export function executeGroup(
 
 // --- il passo `executed` della conversazione libera ---------------------------
 
-type ExecutedDraft = Extract<ScriptStep, { step: "event" }>["event"] & { type: "executed" };
+export type ExecutedDraft = Extract<ScriptStep, { step: "event" }>["event"] & {
+  type: "executed";
+};
 
 /** Il motivo della scheda in una frase, per «I'm asking first: …» (R-G5: solo persone visibili). */
 function reasonPhrase(reasons: ClassReason[]): string {
@@ -188,8 +190,15 @@ export function prepareExecuted(
   after: ((gen: number) => Promise<void>)[];
   /** I progetti dei gruppi eseguiti: le loro righe non sono più nei passi. */
   projectIds: string[];
+  /**
+   * Area 10b: com'è finito ogni `executed` `pending` di `input` (il passo
+   * stesso è la chiave): la riga `done` o `failed` entrata nel flusso, o
+   * `null` se è diventato una scheda. Lo legge la prova (`prepareTrials`).
+   */
+  executed: Map<ScriptStep, ExecutedDraft | null>;
 } {
   const steps = [...input];
+  const executed = new Map<ScriptStep, ExecutedDraft | null>();
   const projectIds: string[] = [];
   const runs: Task[] = [];
   const after: ((gen: number) => Promise<void>)[] = [];
@@ -224,6 +233,7 @@ export function prepareExecuted(
           reasons: latest.reasons,
         },
       };
+      executed.set(step, null);
       return;
     }
     const result = executeGroup(me, conversationId, event.actions, "A");
@@ -257,9 +267,10 @@ export function prepareExecuted(
     // stream, mai la riga di ciò che è già stato fatto. Lo stream anima solo
     // il testo che segue.
     appendExecuted(conversationId, next);
+    executed.set(step, next);
     drop.add(index);
   });
-  return { steps: steps.filter((_, i) => !drop.has(i)), runs, after, projectIds };
+  return { steps: steps.filter((_, i) => !drop.has(i)), runs, after, projectIds, executed };
 }
 
 /**

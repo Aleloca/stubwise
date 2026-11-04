@@ -73,6 +73,12 @@ export interface Answer {
      */
     resume?: string;
   };
+  /**
+   * Area 10b (S1): la prova della bozza che `execute` crea, sugli esempi
+   * chiesti. Solo nella libera (`ctx.classify`, P11) e solo dopo un'azione
+   * da eseguire: diventa un evento `trial` `pending`, che risolve `freeTurn`.
+   */
+  trial?: { wants: ("passes" | "fails")[] };
 }
 
 /**
@@ -105,6 +111,14 @@ export function toSteps(answer: Answer, ctx: IntentContext, text: string): Scrip
       step: "event",
       event: { type: "executed", groupId: "", actions: answer.execute, status: "pending" },
     });
+    // La prova subito dopo la creazione (area 10b): nella Chat nessuno la
+    // risolverebbe, quindi non c'è (P11).
+    if (answer.trial && ctx.classify) {
+      steps.push({
+        step: "event",
+        event: { type: "trial", status: "pending", wants: answer.trial.wants },
+      });
+    }
   }
   const refs = dedupeRefs(answer.refs ?? []);
   if (refs.length > 0) steps.push({ step: "event", event: { type: "citation", refs } });

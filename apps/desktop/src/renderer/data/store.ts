@@ -475,6 +475,9 @@ export type ApiFnName =
   | "automations.listAutomations"
   | "automations.getAutomation"
   | "automations.checkDraft"
+  // Area 10b: le letture del motore di Claude per l'intento «automazione».
+  | "automations.canManageAutomations"
+  | "automations.validateAutomationFlow"
   | "automations.listRuns"
   | "automations.getRun"
   | "automations.listSources"

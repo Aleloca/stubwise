@@ -20,6 +20,8 @@ import type {
   RunStatus,
 } from "../types";
 import { pendingEffectOf } from "./pendingEffect";
+// Usata solo dentro le funzioni: l'import circolare con `writes.ts` è innocuo.
+import { checkNewAutomation } from "./writes";
 import { viewRun } from "./runView";
 import { isOpen, publishedVersion, sweepApprovals } from "./runner";
 import {
@@ -242,6 +244,55 @@ export async function checkDraft(id: string, flow: AutomationFlow): Promise<Flow
   const next = copy(flow);
   keepHiddenProjects(me, latest(a).flow, next);
   return configErrorsOf(a, next, a.ownerId ?? me);
+}
+
+/**
+ * I problemi del flusso di una bozza che nascerebbe in `projectId` (null =
+ * generale), come li vedrebbe la prova: il proprietario di una bozza è chi
+ * la accenderebbe, qui chi chiede. Li usano il motore di Claude (prima di
+ * creare) e il catalogo (che li ricontrolla): una regola sola.
+ */
+export function prospectiveIssues(
+  me: string,
+  projectId: string | null,
+  flow: AutomationFlow,
+): FlowIssue[] {
+  const prospective: Automation = {
+    id: "",
+    code: "",
+    name: "",
+    description: "",
+    projectId,
+    ownerId: me,
+    status: "draft",
+    versions: [],
+    createdAt: "",
+  };
+  return configErrorsOf(prospective, flow, me);
+}
+
+/**
+ * Area 10b: chi chiede può creare automazioni in `projectId` (null =
+ * generali)? Un sì o un no, gli stessi controlli della creazione: il motore
+ * di Claude non promette una bozza che non nascerebbe.
+ */
+export async function canManageAutomations(projectId: string | null): Promise<boolean> {
+  const me = await gate("automations.canManageAutomations");
+  try {
+    checkNewAutomation(me, projectId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Area 10b: i problemi di un flusso scritto da Claude, prima di crearlo (`prospectiveIssues`). */
+export async function validateAutomationFlow(
+  flow: AutomationFlow,
+  projectId: string | null,
+): Promise<FlowIssue[]> {
+  const me = await gate("automations.validateAutomationFlow");
+  return prospectiveIssues(me, projectId, flow);
 }
 
 export async function searchAutomations(q: string): Promise<AutomationSearchResult[]> {

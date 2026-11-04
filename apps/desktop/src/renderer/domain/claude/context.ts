@@ -1,8 +1,11 @@
+import type { FlowIssue } from "../automations/validate";
 import type {
   ActionClass,
+  AutomationFlow,
   ConversationFilter,
   ConversationRow,
   DecisionRequest,
+  Department,
   DocPage,
   DriveFile,
   FilterCriteria,
@@ -63,6 +66,21 @@ export interface ReadApi {
    * aprirebbe. Il permesso lo dice il livello dati; il motore non lo deduce.
    */
   canRecordDecisions(projectId: string): Promise<boolean>;
+  /**
+   * Area 10b (S1): i reparti (dati configurabili, gli stessi per tutti), per
+   * la scheda di scelta e per nominarli in una frase.
+   */
+  listDepartments(): Promise<Department[]>;
+  /**
+   * Area 10b (S1): chi chiede può creare automazioni in `projectId` (null =
+   * generali)? Lo dice il livello dati; il motore non lo deduce.
+   */
+  canManageAutomations(projectId: string | null): Promise<boolean>;
+  /**
+   * Area 10b (S1): i problemi del flusso che Claude sta per creare, come li
+   * vedrebbe la prova (la stessa regola che il catalogo ricontrolla).
+   */
+  validateAutomationFlow(flow: AutomationFlow, projectId: string | null): Promise<FlowIssue[]>;
 }
 
 export interface IntentContext {

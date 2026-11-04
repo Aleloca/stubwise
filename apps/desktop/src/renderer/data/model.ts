@@ -1111,6 +1111,28 @@ export type ConversationEvent =
       /** Area 10a (Task 9): il rifiuto in forma di dato, per «Didn't run: … · Who?». */
       failure?: ExecutedFailure;
     }
+  /**
+   * Area 10b (S1): la prova di Claude della bozza appena creata, sui suoi
+   * esempi (`wants`). `pending` c'è solo fra il motore e `freeTurn`, che la
+   * risolve subito dopo l'`executed` che l'ha creata: `done` coi risultati
+   * (la prova non ha effetti), `skipped` se la creazione non è partita o è
+   * diventata una scheda (nessuna riga). I risultati sono dati: chi guarda
+   * li legge nella sua lingua.
+   */
+  | {
+      id: string;
+      at: string;
+      type: "trial";
+      status: "pending" | "done" | "skipped";
+      wants: ("passes" | "fails")[];
+      automationId?: string;
+      /** Il codice dell'automazione provata (`ACQ-A4`). */
+      code?: string;
+      /** Un esito per esempio, nell'ordine di `wants`; un esempio che Claude non è riuscito a scrivere non c'è. */
+      results?: (TrialOutcome & { label: Utterance; written: boolean })[];
+      /** La prova che il riquadro apre da sé nel costruttore (D2, maintainer): la prima che passa. */
+      openSimId?: string | null;
+    }
   | {
       id: string;
       at: string;

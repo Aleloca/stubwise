@@ -7,6 +7,7 @@
 import "./sources";
 
 export {
+  canManageAutomations,
   checkDraft,
   getAutomation,
   getRun,
@@ -16,6 +17,7 @@ export {
   listRuns,
   listSources,
   searchAutomations,
+  validateAutomationFlow,
 } from "./reads";
 export { automationOrigin, getProjectAutomations, listMyRuns } from "./entry";
 export {
