@@ -399,6 +399,142 @@ async function main() {
       return;
     }
 
+    // Area 10b, Task 11 (`CAPTURE_A10B_SCEN=1`): gli scenari nella
+    // conversazione (shape `claude-scenarios.md`, `claude-automations.md`).
+    // Laura da Support di ACQ: la scheda di scelta del reparto (S1), poi la
+    // prova adottata nel costruttore con la riga della prova e «Back to» (D2).
+    // Laura: la risposta onesta (S0) e la scheda C bloccata (S5); Roberta da
+    // All projects: i fermi con «Details» aperto (S2), la spesa (S3), la
+    // scheda in blocco con le righe a parte (S4). Scatti `a10b-scen-*`.
+    if (process.env.CAPTURE_A10B_SCEN) {
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      const panel = (page) => page.locator("#claude-panel");
+      const take = async (page, name, v) => {
+        await page.mouse.move(v.viewport.width - 2, v.viewport.height - 2);
+        if (!only || only.test(name)) await shot(page, name);
+      };
+      const ask = async (page, text, done) => {
+        await page.locator("[data-claude-rail]").click();
+        const box = panel(page).locator("textarea").last();
+        await box.waitFor();
+        await page.waitForTimeout(400);
+        await box.fill(text);
+        await box.press("Enter");
+        await panel(page).locator(done).first().waitFor({ timeout: 10000 });
+        await page.waitForTimeout(1500);
+      };
+      const scenes = [
+        {
+          name: "s1",
+          persona: "Laura",
+          hash: "/p/ACQ/support",
+          en: "When an urgent support request arrives, create a task and notify the department",
+          it: "Quando arriva una richiesta di supporto urgente, crea una task e avvisa il reparto",
+          done: "[data-question]",
+        },
+        {
+          name: "s0",
+          persona: "Laura",
+          hash: "/p/ACQ/overview",
+          en: "write me a poem",
+          it: "scrivimi una poesia",
+          done: "[data-capabilities]",
+        },
+        {
+          name: "s2",
+          persona: "Roberta",
+          hash: "/projects",
+          en: "which projects are stuck?",
+          it: "Quali progetti sono fermi e perché?",
+          done: "[data-aside]",
+        },
+        {
+          name: "s3",
+          persona: "Laura",
+          hash: "/projects",
+          en: "How much have we spent on AI this month?",
+          it: "Quanto abbiamo speso in AI questo mese?",
+          done: "[data-assistant]",
+        },
+        {
+          name: "s4",
+          persona: "Roberta",
+          hash: "/projects",
+          en: "archive the projects with no activity for 3 months",
+          it: "archivia i progetti senza attività da 3 mesi",
+          done: "[data-proposal]",
+        },
+        {
+          name: "s5",
+          persona: "Laura",
+          hash: "/p/ACQ/overview",
+          en: "add Luca to ACQ as Developer",
+          it: "aggiungi Luca ad ACQ come Developer",
+          done: "[data-proposal]",
+        },
+      ];
+      for (const v of variants) {
+        for (const scene of scenes) {
+          const names =
+            scene.name === "s1"
+              ? [`a10b-scen-s1-question-${v.suffix}.png`, `a10b-scen-s1-trial-${v.suffix}.png`]
+              : [`a10b-scen-${scene.name}-${v.suffix}.png`];
+          if (only && !names.some((n) => only.test(n))) continue;
+          const { page, context } = await open(v.scheme, v.viewport, scene.hash, {
+            lang: v.lang,
+            persona: scene.persona,
+          });
+          if (scene.name === "s5") {
+            // La scheda bloccata: a Laura manca in ACQ un permesso del ruolo
+            // Developer (come nel test del motore), così il ruolo è un tetto.
+            await page.evaluate(async () => {
+              const { accessState } = await import("/data/access/index.ts");
+              const { revokeProjectPermission } = await import("/data/viewer.ts");
+              const dev = accessState().roles.find((r) => r.id === "role-developer");
+              const perm = dev.permissions.find((x) => x !== "project.members.manage");
+              revokeProjectPermission("p-laura", "prj-acq", perm);
+            });
+          }
+          await ask(page, v.lang === "it" ? scene.it : scene.en, scene.done);
+          if (scene.name === "s1") {
+            await take(page, names[0], v);
+            await panel(page)
+              .locator("[data-question] button", { hasText: "Support" })
+              .first()
+              .click();
+            await panel(page).locator("[data-trial='done']").waitFor({ timeout: 10000 });
+            await page.locator("[data-test-page]").waitFor({ timeout: 10000 });
+            await page.waitForTimeout(1500);
+            // La riga della prova in vista nel riquadro.
+            await panel(page).locator("[data-trial='done']").scrollIntoViewIfNeeded();
+            await take(page, names[1], v);
+          } else {
+            if (scene.name === "s2") {
+              await panel(page)
+                .getByRole("button", { name: v.lang === "it" ? "Dettagli" : "Details" })
+                .last()
+                .click();
+              await page.waitForTimeout(300);
+              await panel(page).locator("[data-aside]").last().scrollIntoViewIfNeeded();
+            }
+            if (scene.name === "s4" || scene.name === "s5") {
+              await panel(page).locator("[data-proposal]").last().scrollIntoViewIfNeeded();
+            }
+            await take(page, names[0], v);
+          }
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 10b, Task 10 (`CAPTURE_A10B_DRAFTS=1`): le bozze di Claude nei
     // quattro campi, col segno unico e la riga `draft` nel riquadro (shape
     // `claude-drafts.md`). Matteo (Support di ACQ) sulla risposta di ACQ-S2;
