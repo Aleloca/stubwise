@@ -260,6 +260,15 @@
       "planned": "{{name}} planned {{code}} for {{week}}.",
       "unplanned": "{{name}} took {{code}} out of your week.",
       "someone": "Someone"
+    },
+    "memberAdded": {
+      "title": "You've been added to {{code}} as {{role}}",
+      "title_vowel": "You've been added to {{code}} as {{role}}",
+      "body": "{{name}} added you to {{code}} as {{role}}.",
+      "body_vowel": "{{name}} added you to {{code}} as {{role}}.",
+      "bodyVia": "Claude on behalf of {{name}} added you to {{code}} as {{role}}.",
+      "bodyVia_vowel": "Claude on behalf of {{name}} added you to {{code}} as {{role}}.",
+      "noRole": "a role that no longer exists"
     }
   },
   "placeholder": {
@@ -3207,7 +3216,13 @@
         "files_other": "{{count}} files",
         "readStalled": "Read the stalled tasks",
         "readStalledIn": "Read the stalled tasks of {{code}}",
-        "readUsage": "Read this month's usage"
+        "readUsage": "Read this month's usage",
+        "readInactive": "Read the projects with no activity",
+        "projects_one": "{{count}} project",
+        "projects_other": "{{count}} projects",
+        "lookupPerson": "Looked for {{name}} in Stubwise",
+        "people_one": "{{count}} person",
+        "people_other": "{{count}} people"
       },
       "status": {
         "intro": "Here's where your projects stand:",
@@ -3539,6 +3554,55 @@
         "who": "Who?",
         "perPerson": "I don't have usage per person.",
         "details": "From {{from}} to {{to}}, {{at, datetime(hour: 2-digit; minute: 2-digit; hour12: false; timeZone: UTC)}}. The same totals as Usage."
+      },
+      "archive": {
+        "why": "last activity: {{date, datetime(month: short; day: numeric; timeZone: UTC)}}",
+        "period": {
+          "days_one": "{{count}} day",
+          "days_other": "{{count}} days",
+          "weeks_one": "{{count}} week",
+          "weeks_other": "{{count}} weeks",
+          "months_one": "{{count}} month",
+          "months_other": "{{count}} months"
+        },
+        "many": "{{count}} projects have had no activity for {{period}}:",
+        "one": "{{code}} has had no activity for {{period}}:",
+        "none": "No project you manage has been inactive for {{period}}.",
+        "summary": "Archive {{code}} {{name}}",
+        "notManageable_one": "{{count}} inactive project you can't archive",
+        "notManageable_other": "{{count}} inactive projects you can't archive",
+        "busy": {
+          "claude_session": "**{{code}}** has Claude working on **{{task}}**: it can be archived when that ends",
+          "claude_sessionNoCode": "**{{code}}** has Claude working: it can be archived when that ends",
+          "claude_sessionWaiting": "**{{code}}** has Claude waiting for an answer on **{{task}}**: it can be archived when that ends",
+          "claude_sessionWaitingNoCode": "**{{code}}** has Claude waiting for an answer: it can be archived when that ends",
+          "open_pr": "**{{code}}** has an open pull request ({{pr}}): it can be archived when it's closed",
+          "open_prNoCode": "**{{code}}** has an open pull request: it can be archived when it's closed",
+          "server_fix": "**{{code}}** has a fix open on **{{server}}**: it can be archived when that ends",
+          "release": "**{{code}}** has release **{{release}}** in progress: it can be archived when that ends"
+        }
+      },
+      "member": {
+        "exists": "{{name}} is already in Stubwise, so there's no invite to send.",
+        "summary": "Add {{name}} to {{code}} as {{role}}",
+        "summary_vowel": "Add {{name}} to {{code}} as {{role}}",
+        "already": "{{name}} is already in {{code}} as {{role}}.",
+        "whichPerson": "Which {{name}} should I add to {{code}}?",
+        "whichPerson_vowel": "Which {{name}} should I add to {{code}}?",
+        "whichRole": "Which role should {{name}} have in {{code}}?",
+        "several": "There's more than one {{name}}: tell me the full name.",
+        "roleNeeded": "Which role should {{name}} have in {{code}}? The roles are {{roles}}.",
+        "noPerson": "I can't find {{name}} in Stubwise. An invite sends a link, and the app creates it, not me.",
+        "openInvite": "Open the invite to {{code}} as {{role}} →",
+        "openInvite_vowel": "Open the invite to {{code}} as {{role}} →",
+        "openInviteNoRole": "Open the invite to {{code}} →",
+        "openInviteNoRole_vowel": "Open the invite to {{code}} →",
+        "cantInvite": "Inviting people isn't something you can do here ·",
+        "cantAdd": "You can't add people to {{code}} ·",
+        "cantAdd_vowel": "You can't add people to {{code}} ·",
+        "noName": "Who should I add to {{code}}? Tell me the name.",
+        "noName_vowel": "Who should I add to {{code}}? Tell me the name.",
+        "noProject": "Which project should I add {{name}} to? Tell me its code (for example “to ACQ”)."
       }
     },
     "proposalFailed": {

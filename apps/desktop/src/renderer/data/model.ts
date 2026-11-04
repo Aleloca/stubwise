@@ -1,5 +1,10 @@
 import type { TicketPriority } from "@stubwise/shared";
-import type { ClaudeActionFn, ClassReason, ExecutedFailure } from "./claude/types";
+import type {
+  ClaudeActionFn,
+  ClaudeBusyReason,
+  ClassReason,
+  ExecutedFailure,
+} from "./claude/types";
 
 // Modello dati dell'area 2 (task). Autonomo: il Task 2 farà di `types.ts` un
 // re-export di questo file più i tipi dell'ossatura che restano.
@@ -163,6 +168,22 @@ export interface AppNotification {
    * persona, `null` se no (R-G5); assente se la riga non ha `actorId`.
    */
   actorName?: string | null;
+  /**
+   * Area 10b (D4, P25): solo `member.added`, il ruolo dato come valore
+   * stabile; il nome si legge a lettura (`roleName`). Assente sulle altre.
+   */
+  roleId?: string;
+  /**
+   * Area 10b, solo a lettura: il nome di adesso di `roleId` (rinominato, il
+   * nome nuovo); `null` se il ruolo non esiste più [SC 15]. Mai salvato.
+   */
+  roleName?: string | null;
+  /**
+   * Area 10b, solo a lettura: chi guarda non vede più il progetto della
+   * notifica (un `member.added` annullato, [SC 16]). La notifica resta, ma
+   * non apre niente. Mai salvato.
+   */
+  notOpenable?: boolean;
 }
 
 /** Perché un avviso del catalogo arriva a qualcuno senza iscrizione (area 8a). */
@@ -932,6 +953,12 @@ export type ProposedAction = {
   summary: string;
   /** Il riassunto come frase (`summary` è la sua resa al momento, per chi non la sa leggere). */
   summaryText?: Utterance;
+  /**
+   * Area 10b (S4): il perché dell'azione in un fatto, sotto la sua riga
+   * della scheda («last activity: Aug 4»). Una frase: si legge nella lingua
+   * di chi guarda. Assente sulle azioni nate prima.
+   */
+  why?: Utterance;
 };
 
 /**
@@ -1090,6 +1117,18 @@ export type ConversationEvent =
        * azioni annullate. La conferma gira come un «Annulla».
        */
       undoOf?: string;
+      /**
+       * Area 10b (S4): le righe sotto la scheda che non sono azioni — i
+       * progetti che chi chiede vede ma non gestisce e quelli occupati.
+       * Mai un oggetto che chi chiede non vede (R-G5).
+       */
+      notes?: ProposalNote[];
+      /**
+       * Area 10b (S5): la scheda nasce bloccata — il ruolo da dare ha
+       * permessi che chi chiede lì non ha (`canGrantRole`). Il ruolo è un
+       * id: la frase lo nomina a lettura. Confirm è spento (Task 11).
+       */
+      blocked?: { kind: "escalation"; roleId: string };
     }
   /**
    * Area 10a: azioni di Claude eseguite senza scheda (classe A) nella
@@ -2805,6 +2844,32 @@ export type CapabilityId =
   | "releaseNotes"
   | "mailBody"
   | "taskDescription";
+
+/** Area 10b (S4): una riga sotto la scheda di un'azione in blocco. */
+export type ProposalNote =
+  /** Progetti che chi chiede vede ma non gestisce: il numero dei visibili, col «Who?». */
+  | {
+      kind: "not_manageable";
+      count: number;
+      whoAction: string;
+      /** I codici di quei progetti, tutti visibili a chi chiede: il «Who?» per progetto (maintainer, 2 nov 2026, SC 11). Facoltativo. */
+      codes?: string[];
+    }
+  /** Un progetto `busy`, con le ragioni di `busyReasonsOf` come le legge chi chiede. */
+  | { kind: "busy"; code: string; reasons: ClaudeBusyReason[] };
+
+/**
+ * Area 10b (S4): i progetti aperti e visibili senza attività da un numero di
+ * giorni, divisi per ciò che chi chiede può fare. Sta qui perché lo legge il
+ * motore puro (P5).
+ */
+export interface ArchiveCandidates {
+  candidates: { projectId: string; code: string; name: string; lastActivity: string }[];
+  busy: { code: string; reasons: ClaudeBusyReason[] }[];
+  notManageable: number;
+  /** I codici dei non gestibili (tutti visibili a chi chiede), per la nota `not_manageable`. */
+  notManageableCodes: string[];
+}
 
 /** Perché una task è ferma (`stallOf` in `domain/stalled.ts`), in ordine di precedenza. */
 export type StallReason =

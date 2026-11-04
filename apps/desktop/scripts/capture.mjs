@@ -304,6 +304,101 @@ async function main() {
       return;
     }
 
+    // Area 10b, Task 7 (`CAPTURE_A10B_MEMBERS=1`): `member.added` (D4) nel
+    // pannello di Marco — una aggiunta a mano di Laura, e una di Claude per
+    // Laura poi annullata («Undone by», il codice non apre più niente,
+    // [SC 16]) — e il dialogo «Invite» aperto dall'indirizzo della riga D di
+    // S5 con progetto e ruolo scelti (Roberta). Scatti `a10b-members-*`. La
+    // scheda di S4/S5 nel riquadro si disegna col Task 11.
+    if (process.env.CAPTURE_A10B_MEMBERS) {
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      const take = async (page, name, v) => {
+        await page.mouse.move(v.viewport.width - 2, v.viewport.height - 2);
+        if (!only || only.test(name)) await shot(page, name);
+      };
+      /** Due progetti di Laura dove Marco non è: uno a mano, uno con Claude poi annullato. */
+      const seed = (page) =>
+        page.evaluate(async () => {
+          const store = await import("/data/store.ts");
+          const access = await import("/data/access/index.ts");
+          const members = await import("/data/admin/members.ts");
+          const via = await import("/data/claude/via.ts");
+          const { state, now } = store;
+          const s = access.accessState();
+          const leads = s.memberships
+            .filter((m) => m.personId === "p-laura" && m.roleId === "role-project_lead")
+            .map((m) => m.projectId)
+            .filter(
+              (id) =>
+                !s.memberships.some((m) => m.personId === "p-marco" && m.projectId === id) &&
+                !state.projectsById.get(id)?.archived,
+            );
+          const [byHand, withClaude] = leads;
+          members.writeJoin("p-laura", byHand, "p-marco", "role-developer");
+          via.runAsClaude({ actionId: "ca-capture-member", undoOfActionId: null }, () =>
+            members.writeJoin("p-laura", withClaude, "p-marco", "role-developer"),
+          );
+          // L'«Annulla» di Laura: la riga di Claude annullata e Marco fuori.
+          state.claudeActions.push({
+            id: "ca-capture-member",
+            groupId: "g-capture-member",
+            conversationId: "c-capture-member",
+            personId: "p-laura",
+            at: now(),
+            seq: 0,
+            fn: "addMember",
+            args: { projectId: withClaude, personId: "p-marco", roleId: "role-developer" },
+            cls: "C",
+            inverse: { fn: "removeMember", args: { projectId: withClaude, personId: "p-marco" } },
+            objects: [],
+            undone: { at: now(), byId: "p-laura" },
+          });
+          access.writeAccess((x) => {
+            x.memberships = x.memberships.filter(
+              (m) => !(m.personId === "p-marco" && m.projectId === withClaude),
+            );
+          });
+        });
+      for (const v of variants) {
+        {
+          const { page, context } = await open(v.scheme, v.viewport, "/home", {
+            lang: v.lang,
+            persona: "Marco",
+          });
+          await seed(page);
+          await asPerson(page, "Giulia", "/home");
+          await asPerson(page, "Marco", "/home");
+          await page.waitForTimeout(900);
+          await page.getByRole("button", { name: /^(Notifications|Notifiche)/ }).click();
+          await page.waitForTimeout(900);
+          await take(page, `a10b-members-notifications-${v.suffix}.png`, v);
+          await context.close();
+        }
+        {
+          // Prima la persona, poi l'indirizzo: il dialogo aperto coprirebbe il profilo.
+          const { page, context } = await open(v.scheme, v.viewport, "/home", {
+            lang: v.lang,
+            persona: "Roberta",
+          });
+          await page.evaluate(() => {
+            window.location.hash = "/admin/people?invite=1&inviteProject=ACQ&inviteRole=role-developer";
+          });
+          await page.getByRole("dialog").waitFor();
+          await page.waitForTimeout(600);
+          await take(page, `a10b-members-invite-${v.suffix}.png`, v);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 10a, Task 11 (`CAPTURE_A10A_TRACE=1`): «Claude on behalf of».
     // Roberta: il registro con Person = Giulia e «Made with Claude» premuto
     // (la voce del seme, l'inversa con «Undid:»); la rassegna di oggi con le

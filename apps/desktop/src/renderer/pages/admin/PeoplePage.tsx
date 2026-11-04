@@ -16,7 +16,7 @@ import { CheckItem } from "../../tasks-ui/Menu";
 import { PageError } from "../../tasks-ui/PageStates";
 import { OpenCircleGlyph, TriangleGlyph } from "../preferences/glyphs";
 import { primaryButton, secondaryButton } from "../tasks/controls";
-import { InviteDialog } from "./InviteDialog";
+import { InviteDialog, type InvitePreset } from "./InviteDialog";
 import { AdminAvatar, useShortDate } from "./parts";
 
 // People (shape admin-people.md §3): chiunque la legge. In testa h1, la riga
@@ -39,7 +39,16 @@ interface Search {
   roles?: string;
   statuses?: string;
   invite?: string;
+  /** Area 10b (S5): il progetto (codice) e il ruolo (id) con cui il dialogo nasce. */
+  inviteProject?: string;
+  inviteRole?: string;
 }
+
+/** Progetto e ruolo dell'indirizzo, se ci sono (la riga D di Claude, area 10b). */
+const presetOf = (search: Search): InvitePreset | null =>
+  search.inviteProject
+    ? { projectCode: search.inviteProject, roleId: search.inviteRole ?? null }
+    : null;
 
 const listOf = (value: string | undefined): string[] => (value ? value.split(",") : []);
 const valueOf = (list: string[]): string | undefined => (list.length ? list.join(",") : undefined);
@@ -51,13 +60,29 @@ export function PeoplePage() {
   const search = useSearch({ strict: false }) as Search;
   const canInvite = can(viewer, "users.invite");
   const [inviting, setInviting] = useState(search.invite === "1");
+  // Area 10b (S5): la riga D di Claude porta progetto e ruolo; il dialogo li
+  // tiene anche dopo che l'indirizzo li ha lasciati andare.
+  const [preset, setPreset] = useState<InvitePreset | null>(() => presetOf(search));
   const inviteButton = useRef<HTMLButtonElement>(null);
 
-  // ⌘K «Invite someone» arriva con `?invite=1`: il dialogo si apre e il parametro se ne va.
+  // ⌘K «Invite someone» arriva con `?invite=1`: il dialogo si apre e i parametri se ne vanno.
   useEffect(() => {
     if (search.invite !== "1") return;
-    if (canInvite) setInviting(true);
-    void navigate({ to: ".", search: (prev: Search) => ({ ...prev, invite: undefined }), replace: true });
+    if (canInvite) {
+      setPreset(presetOf(search));
+      setInviting(true);
+    }
+    void navigate({
+      to: ".",
+      search: (prev: Search) => ({
+        ...prev,
+        invite: undefined,
+        inviteProject: undefined,
+        inviteRole: undefined,
+      }),
+      replace: true,
+    });
+    // `search` intero cambierebbe a ogni filtro: conta solo l'apertura.
   }, [search.invite, canInvite, navigate]);
 
   const depts = listOf(search.depts);
@@ -127,8 +152,10 @@ export function PeoplePage() {
       </div>
       {inviting && (
         <InviteDialog
+          preset={preset}
           onClose={() => {
             setInviting(false);
+            setPreset(null);
             inviteButton.current?.focus();
           }}
         />

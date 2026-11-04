@@ -36,6 +36,9 @@ export const LOCAL_NOTIFICATION_KINDS = [
   "planning.changed",
   // Area 10a (decisione del maintainer): chi riceve una task lo sa.
   "task.assigned",
+  // Area 10b (D4): chi entra in un progetto lo sa. Per il motore è un
+  // `notification_kind` nuovo, con la regola di rollback del CLAUDE.md.
+  "member.added",
   "decision.answered",
   "pr.opened",
   "pr.analysis_issues",
@@ -66,7 +69,7 @@ type Row = [
   number,
   boolean,
   string[]?,
-  Pick<AppNotification, "actorId" | "plannedWeek">?,
+  Pick<AppNotification, "actorId" | "plannedWeek" | "roleId">?,
 ];
 
 const ROWS: Row[] = [
@@ -316,6 +319,19 @@ const ROWS: Row[] = [
     true,
     ["p-marco"],
     { actorId: "p-giulia" },
+  ],
+  // Area 10b (D4): l'avviso a Stefano della voce del registro di 18 giorni fa
+  // (Laura lo aggiunge ad AUD come Developer), a mano, senza segno.
+  [
+    "member.added",
+    "AUD",
+    "AUD",
+    "You've been added to AUD as Developer",
+    "Laura Costa added you to AUD as Developer.",
+    432,
+    true,
+    ["p-stefano"],
+    { actorId: "p-laura", roleId: "role-developer" },
   ],
 ];
 

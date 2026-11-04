@@ -4,7 +4,16 @@ import i18n from "i18next";
 import { beforeEach, describe, expect, it } from "vitest";
 import * as api from "../../data/api";
 import { readsAs } from "../../data/api-mutations";
-import { spendThisMonthFor, stalledProjectsFor } from "../../data/claude/answersData";
+import {
+  archiveCandidatesFor,
+  canGrantRoleFor,
+  canInvitePeopleFor,
+  findPeopleFor,
+  memberRoleIdFor,
+  projectRolesOf,
+  spendThisMonthFor,
+  stalledProjectsFor,
+} from "../../data/claude/answersData";
 import { getSessionPersonId, setSessionPersonId } from "../../data/session";
 import { state } from "../../data/store";
 import type { ProposedAction, ScriptStep } from "../../data/types";
@@ -42,6 +51,15 @@ const READ: ReadApi = {
   // Area 10b (S2, S3): calcolate a nome della persona della sessione.
   listStalledProjects: async (projectId) => stalledProjectsFor(getSessionPersonId(), projectId),
   spendThisMonth: async () => spendThisMonthFor(getSessionPersonId()),
+  // Area 10b (S4, S5): le azioni in blocco e i membri.
+  listArchiveCandidates: async (days) => archiveCandidatesFor(getSessionPersonId(), days),
+  findPeople: async (name) => findPeopleFor(getSessionPersonId(), name),
+  listProjectRoles: async () => projectRolesOf(),
+  canGrantRole: async (projectId, roleId) =>
+    canGrantRoleFor(getSessionPersonId(), projectId, roleId),
+  memberRoleOf: async (projectId, personId) =>
+    memberRoleIdFor(getSessionPersonId(), projectId, personId),
+  canInvitePeople: async () => canInvitePeopleFor(getSessionPersonId()),
 };
 
 function as(personId: string, t = en, contextProjectId: string | null = null): IntentContext {
@@ -513,8 +531,13 @@ describe("la posta e le riunioni di altri non arrivano a Claude (Review Focus 1)
       // di «registra la decisione». Nessun dato in più.
       // Area 10b (Task 5): lo stesso per le automazioni, e i problemi di un
       // flusso prima di crearlo. Nessuna posta.
+      // Area 10b (Task 7): un sì o un no su un ruolo da dare e sugli inviti.
+      "canGrantRole",
+      "canInvitePeople",
       "canManageAutomations",
       "canRecordDecisions",
+      // Area 10b (Task 7): le persone visibili per nome. Nessuna email.
+      "findPeople",
       "getLatestBrief",
       "getRequest",
       "getRequestByCode",
@@ -522,6 +545,8 @@ describe("la posta e le riunioni di altri non arrivano a Claude (Review Focus 1)
       // Area 10a (Task 6): dove portano le righe D — la domanda aperta di
       // Claude (sessioni di lavoro, `canSeeConversation`), le automazioni e i
       // server, come li vede chi chiede. Nessuna è posta o calendario.
+      // Area 10b (Task 7): i progetti senza attività che vede.
+      "listArchiveCandidates",
       "listAutomations",
       "listConversations",
       "listDecisionRequests",
@@ -531,6 +556,8 @@ describe("la posta e le riunioni di altri non arrivano a Claude (Review Focus 1)
       "listPeople",
       "listPinnedProjectIds",
       "listProjectPulses",
+      // Area 10b (Task 7): i ruoli di progetto, dati d'istanza.
+      "listProjectRoles",
       "listProjectServers",
       "listProjectStatuses",
       "listProjects",
@@ -538,6 +565,8 @@ describe("la posta e le riunioni di altri non arrivano a Claude (Review Focus 1)
       // spesa del mese (come la vede in Usage). Nessuna posta.
       "listStalledProjects",
       "listTasks",
+      // Area 10b (Task 7): il ruolo di un membro di un progetto che vede.
+      "memberRoleOf",
       "readDriveFiles",
       "spendThisMonth",
       "validateAutomationFlow",

@@ -31,7 +31,16 @@ import {
   reauthMissing,
 } from "./claude/actions";
 // La prova delle bozze di Claude (area 10b): esempi e prova senza effetti.
-import { spendThisMonthFor, stalledProjectsFor } from "./claude/answersData";
+import {
+  archiveCandidatesFor,
+  canGrantRoleFor,
+  canInvitePeopleFor,
+  findPeopleFor,
+  memberRoleIdFor,
+  projectRolesOf,
+  spendThisMonthFor,
+  stalledProjectsFor,
+} from "./claude/answersData";
 import { prepareTrials } from "./claude/trial";
 import { DEFAULT_PUBLISHED_EVENTS } from "./seed/chat";
 import { COMMITS } from "./seed/commits";
@@ -1690,6 +1699,13 @@ export function readsAs(me: string): ReadApi {
     // Area 10b (S2, S3): letture calcolate a nome di chi chiede, senza latenza propria.
     listStalledProjects: async (projectId) => stalledProjectsFor(me, projectId),
     spendThisMonth: async () => spendThisMonthFor(me),
+    // Area 10b (S4, S5): le azioni in blocco e i membri, a nome di chi chiede.
+    listArchiveCandidates: async (days) => archiveCandidatesFor(me, days),
+    findPeople: async (name) => findPeopleFor(me, name),
+    listProjectRoles: async () => projectRolesOf(),
+    canGrantRole: async (projectId, roleId) => canGrantRoleFor(me, projectId, roleId),
+    memberRoleOf: async (projectId, personId) => memberRoleIdFor(me, projectId, personId),
+    canInvitePeople: async () => canInvitePeopleFor(me),
   };
 }
 

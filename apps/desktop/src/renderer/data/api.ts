@@ -658,6 +658,12 @@ export async function listNotifications(): Promise<AppNotification[]> {
           : null;
         out.undoneByName = undoneByNameOf(n.viaClaude.actionId, people);
       }
+      // Area 10b (D4): il nome di adesso del ruolo dato ([SC 15]: eliminato,
+      // `null`), e il progetto che chi la riceve non vede più non si apre
+      // ([SC 16]).
+      if (n.roleId !== undefined)
+        out.roleName = accessState().roles.find((r) => r.id === n.roleId)?.name ?? null;
+      if (n.projectId && !visibleProjectIds(me).has(n.projectId)) out.notOpenable = true;
       return [out];
     }
     const shown = presentChatNotification(me, delivered);

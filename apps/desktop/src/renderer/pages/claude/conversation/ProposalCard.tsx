@@ -16,6 +16,7 @@ import type {
   Utterance,
 } from "../../../data/types";
 import { spoken } from "../../../domain/claude/answers";
+import { nameList } from "../../../domain/names";
 import { useReauth } from "../../../layout/useReauth";
 import { CheckBox } from "../../../tasks-ui/Menu";
 import { NewRequestDialog } from "../../requests/NewRequestDialog";
@@ -457,18 +458,8 @@ function ReasonRows({ reasons }: { reasons: readonly ClassReason[] }) {
   const codeOf = (projectId: string | undefined) =>
     projectId ? (projects?.find((p) => p.id === projectId)?.code ?? null) : null;
 
-  const listOf = (names: string[]): string => {
-    const and = t("claude.conversation.proposal.reasons.and");
-    if (names.length > NAMED) {
-      return t("claude.conversation.proposal.reasons.andMore", {
-        names: names.slice(0, NAMED).join(", "),
-        count: names.length - NAMED,
-      });
-    }
-    return names.length < 2
-      ? (names[0] ?? "")
-      : `${names.slice(0, -1).join(", ")}${and}${names.at(-1)}`;
-  };
+  // Lo stesso elenco della frase sopra la scheda (`nameList`, minore T5 e M6 del 10a).
+  const listOf = (names: string[]): string => nameList(t, names, NAMED);
 
   const rows = reasons.flatMap((reason): { kind: string; glyph: ReactNode; text: string }[] => {
     switch (reason.kind) {

@@ -1,6 +1,7 @@
 import type {
   CapabilityId,
   CitationRef,
+  ProposalNote,
   ProposedAction,
   ScriptStep,
   Task,
@@ -28,9 +29,24 @@ type Params = Record<string, string | number>;
 export const utterance = (key: string, params?: Params): Utterance =>
   params ? { key, params } : { key };
 
+/** Una data ISO («2026-08-04», con o senza ora). */
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}(T[\d:.]+Z?)?$/;
+
+/**
+ * I parametri di una frase pronti per `t`: una data ISO in `date` diventa
+ * una `Date` del suo giorno (UTC), perché il formattatore la dica nella
+ * lingua di chi guarda («Aug 4» / «4 ago») invece di stampare la stringa
+ * (area 10b, il `why` delle schede).
+ */
+function paramsOf(params: Utterance["params"]): Record<string, unknown> | undefined {
+  const date = params?.date;
+  if (typeof date !== "string" || !ISO_DATE.test(date)) return params;
+  return { ...params, date: new Date(`${date.slice(0, 10)}T00:00:00Z`) };
+}
+
 /** La frase nella lingua di adesso; senza frase, il testo salvato. */
 export const spoken = (t: T, text: Utterance | undefined, fallback: string): string =>
-  text ? t(text.key, text.params) : fallback;
+  text ? t(text.key, paramsOf(text.params)) : fallback;
 
 /** L'etichetta di un'azione: la resa di adesso e la frase. */
 export const labelled = (t: T, key: string, params?: Params) => ({
@@ -94,6 +110,14 @@ export interface Answer {
   aside?: { kind: "hypothesis" | "details"; text: string }[];
   /** Area 10b (S0): cosa sa fare il prototipo, un evento `capabilities` dopo il testo. */
   capabilities?: CapabilityId[];
+  /**
+   * Area 10b (S4): le righe sotto la scheda (non gestibili, occupati),
+   * scritte sulla `proposal`. Senza scheda non c'è dove scriverle: le dice
+   * il testo (ruling del controller, Q1).
+   */
+  notes?: ProposalNote[];
+  /** Area 10b (S5): la scheda nasce bloccata (`canGrantRole` `escalation`), scritta sulla `proposal`. */
+  blocked?: { kind: "escalation"; roleId: string };
 }
 
 /**
@@ -169,6 +193,8 @@ export function toSteps(answer: Answer, ctx: IntentContext, text: string): Scrip
         requesterId: ctx.personId,
         actions: answer.proposal,
         status: "open",
+        ...(answer.notes && answer.notes.length > 0 ? { notes: answer.notes } : {}),
+        ...(answer.blocked ? { blocked: answer.blocked } : {}),
       },
     });
   }

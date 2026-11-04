@@ -89,9 +89,19 @@ export const isAdminSection = (value: string): value is AdminSection =>
 /**
  * I filtri di People nell'indirizzo (shape admin-people.md): `find` (nome o
  * email), `depts`, `roles` e `statuses` (id separati da virgola); `invite=1`
- * apre «Invite someone» (⌘K).
+ * apre «Invite someone» (⌘K). Con `inviteProject` (un codice) e `inviteRole`
+ * (l'id di un ruolo) il dialogo nasce con quel progetto e quel ruolo: è la
+ * riga D di Claude (area 10b, S5) — mai un'email né un link d'invito.
  */
-export const PEOPLE_SEARCH_KEYS = ["find", "depts", "roles", "statuses", "invite"] as const;
+export const PEOPLE_SEARCH_KEYS = [
+  "find",
+  "depts",
+  "roles",
+  "statuses",
+  "invite",
+  "inviteProject",
+  "inviteRole",
+] as const;
 
 export const PEOPLE_STATUSES = ["active", "invited", "deactivated"] as const;
 
@@ -109,6 +119,10 @@ export function isPeopleSearchValue(key: string, value: string): boolean {
         .every((s) => (PEOPLE_STATUSES as readonly string[]).includes(s));
     case "invite":
       return value === "1";
+    case "inviteProject":
+      return /^[A-Z]{2,4}$/.test(value);
+    case "inviteRole":
+      return /^[\w-]+$/.test(value);
     default:
       return false;
   }

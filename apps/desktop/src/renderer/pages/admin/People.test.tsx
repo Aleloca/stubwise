@@ -583,6 +583,32 @@ describe("inviti", () => {
     ).toBeVisible();
   });
 
+  it("area 10b (S5, P9): l'indirizzo di Claude apre il dialogo con progetto e ruolo, l'email vuota; i parametri se ne vanno", async () => {
+    const router = renderRoute(
+      "/admin/people?invite=1&inviteProject=ACQ&inviteRole=role-viewer",
+      ROBERTA,
+    );
+    const dialog = await screen.findByRole("dialog", { name: "Invite someone" });
+    expect(within(dialog).getByLabelText("Email")).toHaveValue("");
+    expect(within(dialog).getByText("ACQ")).toBeVisible();
+    expect(within(dialog).getByRole("button", { name: /Role in ACQ: Viewer/ })).toBeVisible();
+    await waitFor(() => {
+      const search = router.state.location.search as Record<string, unknown>;
+      expect(search.invite).toBeUndefined();
+      expect(search.inviteProject).toBeUndefined();
+      expect(search.inviteRole).toBeUndefined();
+    });
+  });
+
+  it("area 10b: un progetto o un ruolo che chi invita non può dare non entrano nel dialogo", async () => {
+    // Giulia non vede ACQ: il dialogo si apre senza progetti scelti.
+    give(GIULIA, "users.invite");
+    renderRoute("/admin/people?invite=1&inviteProject=ACQ&inviteRole=role-developer", GIULIA);
+    const dialog = await screen.findByRole("dialog", { name: "Invite someone" });
+    expect(within(dialog).queryByText("ACQ")).toBeNull();
+    expect(within(dialog).getByLabelText("Email")).toHaveValue("");
+  });
+
   it("crea: i progetti offerti sono solo quelli dove si gestiscono i membri; il link si copia una volta", async () => {
     const user = userEvent.setup();
     give(LAURA, "users.invite");

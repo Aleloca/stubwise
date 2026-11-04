@@ -8,6 +8,7 @@ import {
   type Answer,
   type ReadAction,
 } from "../answers";
+import { nameList } from "../../names";
 import type { IntentContext } from "../context";
 import { findCodes, findPerson, findProject, findSize, findTitle, findWeek } from "../parse";
 
@@ -49,7 +50,8 @@ async function reasonWords(ctx: IntentContext, reason: ClassReason): Promise<str
       if (reason.personIds.length === 0) return t("claude.answers.classReason.notifiesOthers");
       const people = await read.listPeople();
       const names = reason.personIds.map((id) => people.find((p) => p.id === id)?.name ?? "");
-      return t("claude.answers.classReason.notifies", { names: names.join(", ") });
+      // Lo stesso elenco della riga «Notifies» della scheda (minore T5).
+      return t("claude.answers.classReason.notifies", { names: nameList(t, names) });
     }
     case "automation": {
       const project = (await read.listProjects()).find((p) => p.id === reason.projectId);

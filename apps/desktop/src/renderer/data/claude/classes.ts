@@ -1,3 +1,4 @@
+import { memberAddedRecipientOf } from "../admin/members";
 import { splitByVisibility, wouldNotify } from "../alerts/visibility";
 import { assignedRecipientOf, nextTaskNumber, planRecipientsOf } from "../api-mutations";
 import { automationsStartingOn, taskHappening } from "../automations/sources";
@@ -156,6 +157,17 @@ function dataReasons(me: string, action: Action): ClassReason[] {
       // Le persone che `planTaskAs` avviserebbe, meno chi chiede (P9).
       const { assigned, planningChanged } = planRecipientsOf(me, task, plan);
       return [notifiesOf(me, [assigned, ...planningChanged], task.projectId)];
+    }
+    case "addMember": {
+      // `member.added` alla persona aggiunta (maintainer, 2 nov 2026, D4): la
+      // stessa regola della scrittura (`memberAddedRecipientOf`). Di un
+      // progetto che chi chiede non vede non si dice niente (R-G5).
+      const projectId = args.projectId as string | undefined;
+      if (!projectId || !visibleProjectIds(me).has(projectId)) return [];
+      const personId = typeof args.personId === "string" ? args.personId : null;
+      return [
+        notifiesOf(me, [personId && memberAddedRecipientOf(me, personId)], projectId),
+      ];
     }
     default:
       return [];

@@ -9,7 +9,9 @@ import {
   type RoleDef,
 } from "../access/index";
 import { recordChange } from "../changelog/index";
-import { gate, now, state, visibleProjectIds } from "../store";
+import { currentVia, silencedByUndo } from "../claude/via";
+import { CLAUDE_ID } from "../seed/people";
+import { gate, newId, now, state, visibleProjectIds } from "../store";
 import { writer } from "../writer";
 import {
   avatarOf,
@@ -246,6 +248,49 @@ export function writeJoin(
     object: { type: "person", id: personId, label: nameOf(personId) ?? personId },
     after: role.name,
     params: { role: role.name, project: projectLabel(projectId) },
+  });
+  publishMemberAdded(actorId, projectId, personId, roleId);
+}
+
+/** Chi riceve `member.added`: la persona aggiunta, se non è chi agisce né Claude collega; `null` altrimenti. */
+export function memberAddedRecipientOf(me: string, personId: string): string | null {
+  if (personId === me || personId === CLAUDE_ID) return null;
+  return personId;
+}
+
+/**
+ * `member.added` (maintainer, 2 nov 2026, D4): chi entra in un progetto lo
+ * sa — da Members, da Claude per conto di qualcuno (col segno, come
+ * `task.assigned`) e da una proposta della posta (P25). Titolo e corpo si
+ * compongono a lettura dai valori stabili (progetto, ruolo, chi ha agito);
+ * quelli salvati sono la resa inglese per chi non li sa comporre. Dentro un
+ * «Annulla» non si scrive: l'avviso c'era già.
+ */
+function publishMemberAdded(me: string, projectId: string, personId: string, roleId: string) {
+  const recipientId = memberAddedRecipientOf(me, personId);
+  if (recipientId === null) return;
+  const via = currentVia();
+  if (silencedByUndo(via)) return;
+  const code = projectLabel(projectId);
+  const role = roleById(roleId)?.name ?? "";
+  state.notifications.push({
+    id: newId("n"),
+    kind: "member.added",
+    projectId,
+    // Non c'è un oggetto con un codice: il progetto stesso (shape §3.9).
+    objectCode: code,
+    departmentId: null,
+    recipientIds: [recipientId],
+    title: `You've been added to ${code} as ${role}`,
+    body: `${nameOf(me) ?? ""} added you to ${code} as ${role}.`,
+    createdAt: now(),
+    read: false,
+    archived: false,
+    snoozedUntil: null,
+    link: `#/p/${code}/overview`,
+    actorId: me,
+    roleId,
+    ...(via ? { viaClaude: { personId: me, actionId: via.actionId } } : {}),
   });
 }
 

@@ -1,6 +1,7 @@
 import type { FlowIssue } from "../automations/validate";
 import type {
   ActionClass,
+  ArchiveCandidates,
   AutomationFlow,
   ConversationFilter,
   ConversationRow,
@@ -91,6 +92,25 @@ export interface ReadApi {
   listStalledProjects(projectId?: string | null): Promise<StalledProject[]>;
   /** Area 10b (S3): la spesa in AI del mese, come chi chiede la vede in Usage. */
   spendThisMonth(): Promise<SpendView>;
+  /**
+   * Area 10b (S4): i progetti aperti e visibili senza attività da `days`,
+   * divisi per ciò che chi chiede può fare (`archiveCandidatesFor`).
+   */
+  listArchiveCandidates(days: number): Promise<ArchiveCandidates>;
+  /** Area 10b (S5): le persone che chi chiede vede, il cui nome (o nome e cognome) è `name`, senza maiuscole. */
+  findPeople(name: string): Promise<Person[]>;
+  /** Area 10b (S5): i ruoli di progetto, nell'ordine dei preset. */
+  listProjectRoles(): Promise<{ id: string; name: string }[]>;
+  /**
+   * Area 10b (S5): chi chiede può dare il ruolo nel progetto? `forbidden`
+   * se lì non gestisce i membri (qualunque sia il ruolo), `escalation` se il
+   * ruolo ha permessi che lì non ha. Lo dice il livello dati.
+   */
+  canGrantRole(projectId: string, roleId: string): Promise<"ok" | "escalation" | "forbidden">;
+  /** Area 10b (S5): il ruolo (id) della persona nel progetto; `null` se non ne è membro. */
+  memberRoleOf(projectId: string, personId: string): Promise<string | null>;
+  /** Area 10b (S5, Q2 del controller): chi chiede può invitare persone? */
+  canInvitePeople(): Promise<boolean>;
 }
 
 export interface IntentContext {

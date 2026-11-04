@@ -1,3 +1,4 @@
+import { nameList } from "../../domain/names";
 import i18n from "../../i18n";
 import { visiblePeopleFor } from "../access/whoCan";
 import { applyActions, type FailureCode } from "../api-mutations";
@@ -150,7 +151,11 @@ function reasonPhrase(reasons: ClassReason[]): string {
     case "notifies":
       return first.personIds.length > 0
         ? i18n.t("claude.answers.classReason.notifies", {
-            names: first.personIds.map((id) => nameOf(id) ?? "").join(", "),
+            // Lo stesso elenco della riga «Notifies» della scheda (minore T5).
+            names: nameList(
+              i18n.t.bind(i18n),
+              first.personIds.map((id) => nameOf(id) ?? ""),
+            ),
           })
         : i18n.t("claude.answers.classReason.notifiesOthers");
     case "automation":

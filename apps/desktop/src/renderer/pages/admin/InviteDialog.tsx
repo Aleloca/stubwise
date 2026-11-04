@@ -28,7 +28,24 @@ interface ProjectPick {
   roleId: string;
 }
 
-export function InviteDialog({ onClose }: { onClose: () => void }) {
+/**
+ * Area 10b (S5): il progetto (codice) e il ruolo (id) con cui il dialogo
+ * nasce, dalla riga D di Claude. Entrano solo se fra le scelte di chi
+ * invita (`getInviteChoices`): un progetto che non offre resta fuori, un
+ * ruolo che non può dare lascia il ruolo di base. L'email resta vuota.
+ */
+export interface InvitePreset {
+  projectCode: string;
+  roleId: string | null;
+}
+
+export function InviteDialog({
+  onClose,
+  preset = null,
+}: {
+  onClose: () => void;
+  preset?: InvitePreset | null;
+}) {
   const { t } = useTranslation();
   const choices = useInviteChoices();
   const [secret, setSecret] = useState<{ email: string; link: string; expiresAt: string } | null>(
@@ -37,7 +54,14 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
   const date = useShortDate();
   // Il modulo ha il suo piede (Cancel · Create invite); il link e gli stati no.
   if (choices.isSuccess && !secret)
-    return <InviteForm choices={choices.data} onClose={onClose} onCreated={setSecret} />;
+    return (
+      <InviteForm
+        choices={choices.data}
+        preset={preset}
+        onClose={onClose}
+        onCreated={setSecret}
+      />
+    );
   return (
     <Dialog title={t("admin.invite.title")} onClose={onClose} width={560}>
       {secret ? (
@@ -62,10 +86,12 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
 
 function InviteForm({
   choices,
+  preset,
   onClose,
   onCreated,
 }: {
   choices: InviteChoices;
+  preset: InvitePreset | null;
   onClose: () => void;
   onCreated: (s: { email: string; link: string; expiresAt: string }) => void;
 }) {
@@ -78,17 +104,12 @@ function InviteForm({
   const emailErrorId = useId();
   const [email, setEmail] = useState("");
   const [instanceRoleId, setInstanceRoleId] = useState(choices.defaultInstanceRoleId);
-  const [projects, setProjects] = useState<ProjectPick[]>([]);
+  const [projects, setProjects] = useState<ProjectPick[]>(() => presetPicks(choices, preset));
   const [emailError, setEmailError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const instanceRole = choices.instanceRoles.find((r) => r.roleId === instanceRoleId);
   const remaining = choices.projects.filter((p) => !projects.some((x) => x.projectId === p.projectId));
-  const allowed = (roles: RoleChoice[]) => roles.filter((r) => r.missing.length === 0);
-
-  /** Il ruolo di base in un progetto: Developer se si può dare, altrimenti il primo che si può. */
-  const defaultRoleOf = (roles: RoleChoice[]) =>
-    (allowed(roles).find((r) => r.name === "Developer") ?? allowed(roles)[0])?.roleId ?? "";
 
   async function submit() {
     setError(null);
@@ -269,6 +290,25 @@ function InviteForm({
       {error && <ErrorLine>{error}</ErrorLine>}
     </Dialog>
   );
+}
+
+const allowed = (roles: RoleChoice[]) => roles.filter((r) => r.missing.length === 0);
+
+/** Il ruolo di base in un progetto: Developer se si può dare, altrimenti il primo che si può. */
+const defaultRoleOf = (roles: RoleChoice[]) =>
+  (allowed(roles).find((r) => r.name === "Developer") ?? allowed(roles)[0])?.roleId ?? "";
+
+/**
+ * Il progetto scelto in partenza (area 10b, S5): solo se fra quelli offerti
+ * a chi invita, col ruolo dell'indirizzo se lo può dare, altrimenti quello
+ * di base. Il livello dati ricontrolla comunque alla creazione.
+ */
+function presetPicks(choices: InviteChoices, preset: InvitePreset | null): ProjectPick[] {
+  if (!preset) return [];
+  const project = choices.projects.find((p) => p.code === preset.projectCode);
+  if (!project) return [];
+  const role = allowed(project.roles).find((r) => r.roleId === preset.roleId);
+  return [{ projectId: project.projectId, roleId: role?.roleId ?? defaultRoleOf(project.roles) }];
 }
 
 /**

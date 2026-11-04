@@ -219,6 +219,9 @@ export interface AppSearch {
   roles?: string;
   statuses?: string;
   invite?: string;
+  /** Area 10b (S5, P9): l'invito compilato da Claude — un codice di progetto e l'id di un ruolo. */
+  inviteProject?: string;
+  inviteRole?: string;
 }
 
 const SEARCH_KEYS = [

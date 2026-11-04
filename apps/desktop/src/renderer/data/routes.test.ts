@@ -38,6 +38,13 @@ describe("route grammar", () => {
     expect(isAppRoute("#/admin/people?depts=dep-development,dep-sales&statuses=active")).toBe(true);
     expect(isAppRoute("#/admin/people?statuses=gone")).toBe(false);
     expect(isAppRoute("#/admin/people?invite=1")).toBe(true);
+    // Area 10b (S5, P9): l'invito compilato da Claude — un codice di progetto e l'id di un ruolo.
+    expect(
+      isAppRoute("#/admin/people?invite=1&inviteProject=ACQ&inviteRole=role-developer"),
+    ).toBe(true);
+    expect(isAppRoute("#/admin/people?invite=1&inviteProject=acq")).toBe(false);
+    expect(isAppRoute("#/admin/people?inviteRole=role%20x")).toBe(false);
+    expect(isAppRoute("#/home?inviteProject=ACQ")).toBe(false);
     // Task 9: la pagina di un ruolo e il pannello di un reparto (solo su Departments).
     expect(isAppRoute("#/admin/roles/role-developer")).toBe(true);
     // 9b, Task 10: la pagina di un plugin.

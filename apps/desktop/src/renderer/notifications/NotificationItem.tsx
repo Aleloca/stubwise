@@ -117,7 +117,11 @@ export function NotificationItem({
   // dal livello dati). La notifica resta, ma non apre niente: il codice è
   // testo tenue e sotto il corpo lo dice. Le azioni restano.
   const gone = n.objectGone === true;
-  const Main = gone ? "div" : "button";
+  // Area 10b ([SC 16]): chi la riceve non vede più il progetto (un
+  // `member.added` annullato). La notifica resta e si legge, ma non apre
+  // niente; nessuna riga in più: «Undone by» dice già perché.
+  const closed = gone || n.notOpenable === true;
+  const Main = closed ? "div" : "button";
 
   return (
     <li
@@ -125,7 +129,7 @@ export function NotificationItem({
       className="group relative border-b border-rule transition-colors duration-[var(--duration-fast)] ease-out focus-within:bg-ink/4 hover:bg-ink/4"
     >
       <Main
-        {...(gone ? {} : { type: "button" as const, onClick: onOpen })}
+        {...(closed ? {} : { type: "button" as const, onClick: onOpen })}
         title={deptLabel}
         className="relative flex w-full items-start gap-3 px-4 py-2.5 text-left"
       >
@@ -137,7 +141,7 @@ export function NotificationItem({
           <span className="flex items-baseline gap-2">
             <span
               data-object-code
-              className={`num shrink-0 text-sm font-semibold ${gone ? "text-ink-faint" : "text-ink"}`}
+              className={`num shrink-0 text-sm font-semibold ${closed ? "text-ink-faint" : "text-ink"}`}
             >
               {n.objectCode}
             </span>
@@ -305,15 +309,37 @@ export function NotificationItem({
 }
 
 /**
- * Titolo e corpo di `task.assigned` e `planning.changed` nella lingua di chi
- * legge, dai valori stabili (`actorName`, `viaClaude`, `plannedWeek`);
- * `null` per gli altri tipi e per le righe nate prima, che non li hanno.
+ * Titolo e corpo di `task.assigned`, `planning.changed` e `member.added`
+ * (area 10b) nella lingua di chi legge, dai valori stabili (`actorName`,
+ * `viaClaude`, `plannedWeek`, `roleName`); `null` per gli altri tipi e per
+ * le righe nate prima, che non li hanno.
  */
 function composedOf(
   n: AppNotification,
   t: (key: string, options?: Record<string, unknown>) => string,
 ): { title: string; body: string } | null {
   const byHand = n.actorName !== undefined && !n.viaClaude;
+  // Area 10b (D4): `member.added`, col nome di adesso del ruolo ([SC 15]:
+  // eliminato, la frase lo dice) e «ad» davanti a una vocale in italiano.
+  if (n.kind === "member.added" && n.roleName !== undefined && (n.viaClaude || byHand)) {
+    const params = {
+      code: n.objectCode,
+      role: n.roleName ?? t("notifications.memberAdded.noRole"),
+      ...(/^[AEIOU]/i.test(n.objectCode) ? { context: "vowel" } : {}),
+    };
+    return {
+      title: t("notifications.memberAdded.title", params),
+      body: n.viaClaude
+        ? t("notifications.memberAdded.bodyVia", {
+            ...params,
+            name: n.viaClaudeName ?? t("notifications.viaClaude.someone"),
+          })
+        : t("notifications.memberAdded.body", {
+            ...params,
+            name: n.actorName ?? t("notifications.direct.someone"),
+          }),
+    };
+  }
   if (n.kind === "task.assigned" && (n.viaClaude || byHand)) {
     const name = n.actorName ?? t("notifications.direct.someone");
     return {
