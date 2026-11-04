@@ -113,6 +113,24 @@ describe("il riconoscimento", () => {
     );
     expect(recognize("Crea una task in ACQ: “Report”", new Set(["ACQ"]))).toBe("create");
   });
+
+  // I3 della revisione: «crea un'automazione» dentro una DOMANDA non è una richiesta.
+  for (const question of [
+    "How do I create an automation?",
+    "Come si crea un'automazione?",
+    "Who can create an automation in ACQ?",
+    "Chi può creare un'automazione in ACQ?",
+  ]) {
+    it(`«${question}» è una domanda, non un'automazione`, () => {
+      expect(recognize(question, new Set(["ACQ"]))).not.toBe("automation");
+    });
+  }
+
+  it("con una cortesia davanti resta una richiesta: «Puoi creare un'automazione…»", () => {
+    expect(
+      recognize("Puoi creare un'automazione: quando arriva una richiesta urgente, crea una task?"),
+    ).toBe("automation");
+  });
 });
 
 describe("S1 di Laura, contesto ACQ", () => {
@@ -188,18 +206,40 @@ describe("S1 di Laura, contesto ACQ", () => {
     }
   });
 
-  it("«…e manda un'email al cliente»: il riassunto dice che l'email chiede approvazione", async () => {
-    const steps = await respond(
+  // Ruling T5 I2: una richiesta non porta l'indirizzo del cliente, quindi
+  // l'email non diventa un passo (andrebbe a un collega): si dice a parole,
+  // come Slack (P18).
+  for (const [text, t] of [
+    [
       "Quando arriva una richiesta di supporto urgente, crea una task, avvisa il reparto Support e manda un'email al cliente",
+      it_,
+    ],
+    [
+      "When an urgent support request arrives, create a task, notify the Support department and send an email to the customer",
+      en,
+    ],
+  ] as const) {
+    it(`«${text.slice(-30)}»: nessun passo email, l'email detta a parole`, async () => {
+      const steps = await respond(text, as(LAURA, t));
+      expect(events(steps, "question")).toEqual([]);
+      expect(events(steps, "proposal")).toEqual([]);
+      const flow = executedFlow(steps);
+      expect(flow.steps.map((s) => s.kind)).toEqual(["createTask", "notify"]);
+      const line = said(steps);
+      expect(line).toContain(t("claude.answers.automation.cant.email"));
+      expect(line).toContain(t("claude.answers.automation.closest"));
+      expect(line).toContain(t("claude.answers.automation.auto"));
+    });
+  }
+
+  it("solo l'email: nessun passo che so fare, la riga lo dice e non nasce niente", async () => {
+    const steps = await respond(
+      "Quando arriva una richiesta di supporto urgente, manda un'email al cliente",
       as(LAURA, it_),
     );
-    const flow = executedFlow(steps);
-    expect(flow.steps.map((s) => s.kind)).toEqual(["createTask", "notify", "sendEmail"]);
-    expect(flow.steps[2]).toMatchObject({ approval: { mode: "ask", who: { owner: true } } });
-    const line = said(steps);
-    expect(line).toContain(it_("claude.answers.automation.autoWithEmail"));
-    expect(line).toContain(it_("claude.answers.automation.ownerNote"));
-    expect(line).not.toContain(it_("claude.answers.automation.auto") + ".");
+    expect(eventTypes(steps)).toEqual([]);
+    expect(said(steps)).toContain(it_("claude.answers.automation.cant.email"));
+    expect(said(steps)).toContain(it_("claude.answers.automation.noAction"));
   });
 
   it("«…e pubblicala su Slack»: costruisce il resto, nomina «avvisare» a parole, nessun passo nuovo", async () => {
@@ -244,6 +284,20 @@ describe("S1 di Laura, contesto ACQ", () => {
     expect(labels).toContain("Support");
     expect(q!.options.some((o) => o.recommended)).toBe(false);
     expect(eventTypes(steps)).not.toContain("executed");
+  });
+
+  // I1 della revisione: la risposta alla scheda riprende «… Marketing Support»;
+  // vince il reparto scelto per ultimo, e la scheda non torna.
+  it("risposta la scheda di Marketing con Support: la bozza nasce, la scheda non torna", async () => {
+    const text = "Quando arriva una richiesta di supporto urgente, avvisa il reparto Marketing";
+    const first = await respond(text, as(LAURA, it_));
+    expect(events(first, "question")).toHaveLength(1);
+    const second = await respond(`${text} Support`, as(LAURA, it_));
+    expect(events(second, "question")).toEqual([]);
+    expect(executedFlow(second).steps[0]).toMatchObject({
+      kind: "notify",
+      who: { departmentId: SUPPORT },
+    });
   });
 
   it("solo una frase di automazione senza un passo che so fare: la riga, niente da eseguire", async () => {

@@ -3389,8 +3389,7 @@
           "support": "Support request",
           "any": "New request",
           "createTask": "{{event}} → task for {{department}}",
-          "notify": "{{event}} → notice to {{department}}",
-          "sendEmail": "{{event}} → email to the customer"
+          "notify": "{{event}} → notice to {{department}}"
         },
         "start": {
           "urgentSupport": "Starts when an urgent support request arrives in {{code}}",
@@ -3401,13 +3400,9 @@
         "step": {
           "createTask_one": "creates a task for {{department}}, due in {{count}} day",
           "createTask_other": "creates a task for {{department}}, due in {{count}} days",
-          "notify": "notifies {{department}}",
-          "sendEmail": "sends an email to the customer"
+          "notify": "notifies {{department}}"
         },
         "auto": "runs on its own",
-        "autoWithEmail": "the other steps run on their own; the email waits for the owner's approval",
-        "emailOnly": "the email waits for the owner's approval",
-        "ownerNote": "Until someone turns it on, the owner is whoever tests it.",
         "summary": "Create the automation “{{name}}” in {{code}}",
         "would": {
           "start": {
@@ -3418,14 +3413,14 @@
           },
           "createTask_one": "It would create a task for {{department}}, due in {{count}} day.",
           "createTask_other": "It would create a task for {{department}}, due in {{count}} days.",
-          "notify": "It would notify the people in {{department}} who see {{code}}.",
-          "sendEmail": "It would send an email to the customer, after the owner's approval."
+          "notify": "It would notify the people in {{department}} who see {{code}}."
         },
         "cantCreate": "You can't create automations in {{code}}",
         "cantAny": "You can't create automations in any of your projects.",
         "cant": {
           "slack": "Automations can't post to Slack.",
-          "call": "Automations can't call the customer."
+          "call": "Automations can't call the customer.",
+          "email": "Automations can't email the customer: a request doesn't carry their address."
         },
         "closest": "The closest step is notifying people in Stubwise: I built the rest and left that part out.",
         "invalid": "I couldn't build it: {{issue}}. Nothing was created.",

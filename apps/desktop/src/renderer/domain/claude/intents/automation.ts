@@ -21,9 +21,13 @@ const K = "claude.answers.automation";
 
 /** La frase comincia col «quando» di un'automazione. */
 const WHEN = /^(when|whenever|every time|each time|quando|ogni volta che|ogni volta)\b/;
-/** «Crea / costruisci / fai un'automazione»: dove sta nella frase non conta. */
+/**
+ * «Crea / costruisci / fai un'automazione» come COMANDO, in testa (dopo una
+ * cortesia): «Come si crea un'automazione?» e «Chi può creare…?» sono
+ * domande, non richieste (I3 della revisione).
+ */
 const MAKE =
-  /\b(create|build|make|set up|add|crea|creare|costruisci|costruire|fai|fare|imposta|impostare|aggiungi)\s+(an?\s+|un'|una\s+|un\s+)?(new\s+|nuova\s+)?(automation|automazione)\b/;
+  /^(create|build|make|set up|add|crea|creare|costruisci|costruire|fai|fare|imposta|impostare|aggiungi)\s+(an?\s+|un'|una\s+|un\s+)?(new\s+|nuova\s+)?(automation|automazione)\b/;
 /** L'evento che il motore sa ascoltare da una frase: una richiesta nuova. */
 const EVENT = /\b(requests?|richiest[ae])\b/;
 /** La richiesta viene dal supporto (non il reparto Support: «avvisa Support» non è un filtro). */
@@ -31,8 +35,13 @@ const FROM_SUPPORT =
   /\b(support requests?|requests? from (the )?support|from (the )?support|richiest[ae] (di|del|dal|dell'|dall')\s*(supporto|assistenza)|dal(l')?\s*(supporto|assistenza))\b/g;
 const URGENT = /\burgent[ei]?\b/;
 
-/** I passi che il motore sa fare, come si dicono. */
-const ACTIONS: { kind: FlowSpec["steps"][number]["kind"]; words: RegExp }[] = [
+/**
+ * I passi che il motore sa fare da una richiesta, come si dicono. L'email non
+ * c'è: una richiesta non porta l'indirizzo del cliente, e un'email «al
+ * cliente» andrebbe a un collega (ruling T5 I2). Si dice a parole.
+ */
+type Kind = "createTask" | "notify";
+const ACTIONS: { kind: Kind; words: RegExp }[] = [
   {
     kind: "createTask",
     words:
@@ -42,15 +51,16 @@ const ACTIONS: { kind: FlowSpec["steps"][number]["kind"]; words: RegExp }[] = [
     kind: "notify",
     words: /\b(notify|alert|warn|avvisa|avvisare|avverti|avvertire)\b/,
   },
+];
+
+/** Ciò che il motore NON sa fare da una richiesta, e la frase che lo dice. */
+type Unsupported = "slack" | "call" | "email";
+const UNSUPPORTED: { key: Unsupported; words: RegExp }[] = [
   {
-    kind: "sendEmail",
+    key: "email",
     words:
       /\b((send|write)\s+(an?\s+)?e-?mail|(manda|mandare|invia|inviare|scrivi|scrivere)\s+(un'|una\s+|un\s+)?e-?mail)\b/,
   },
-];
-
-/** Ciò che il motore NON sa fare, e la frase che lo dice. */
-const UNSUPPORTED: { key: "slack" | "call"; words: RegExp }[] = [
   { key: "slack", words: /\bslack\b/ },
   {
     key: "call",
@@ -66,8 +76,8 @@ interface Parsed {
   fromSupport: boolean;
   urgent: boolean;
   /** I passi nell'ordine della frase. */
-  actions: FlowSpec["steps"][number]["kind"][];
-  unsupported: ("slack" | "call")[];
+  actions: Kind[];
+  unsupported: Unsupported[];
 }
 
 function parse(text: string): Parsed {
@@ -80,7 +90,7 @@ function parse(text: string): Parsed {
     .sort((x, y) => x.at - y.at)
     .map((a) => a.kind);
   return {
-    explicit: MAKE.test(plain),
+    explicit: MAKE.test(command),
     when: WHEN.test(command) || WHEN.test(tail),
     event: EVENT.test(plain),
     fromSupport: new RegExp(FROM_SUPPORT.source).test(plain),
@@ -110,15 +120,22 @@ function eventKey(p: Parsed): "urgentSupport" | "urgent" | "support" | "any" {
   return "any";
 }
 
-/** Il reparto nominato nella frase («avvisa il reparto Support»), non la richiesta «di supporto». */
+/**
+ * Il reparto nominato nella frase («avvisa il reparto Support»), non la
+ * richiesta «di supporto». Vince quello nominato per ULTIMO: la risposta a
+ * una scheda si accoda alla richiesta («… Marketing» + «Support») e prevale
+ * sul reparto che la scheda ha scartato (I1 della revisione).
+ */
 function namedDepartment(text: string, departments: Department[]): Department | null {
   const rest = normalize(text).replace(FROM_SUPPORT, " ");
-  return (
-    departments.find((d) => {
-      const name = normalize(d.name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      return new RegExp(`\\b${name}\\b`).test(rest);
-    }) ?? null
-  );
+  let last: { department: Department; at: number } | null = null;
+  for (const department of departments) {
+    const name = normalize(department.name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    for (const m of rest.matchAll(new RegExp(`\\b${name}\\b`, "g"))) {
+      if (!last || m.index > last.at) last = { department, at: m.index };
+    }
+  }
+  return last?.department ?? null;
 }
 
 /** Il reparto del supporto, per consigliarlo quando l'evento viene da lì (i nomi sono dati configurabili). */
@@ -137,9 +154,7 @@ function specOf(p: Parsed, departmentId: string): FlowSpec {
     steps: p.actions.map((kind) =>
       kind === "createTask"
         ? { kind, departmentId, dueInDays: DUE_IN_DAYS }
-        : kind === "notify"
-          ? { kind, departmentId }
-          : { kind },
+        : { kind, departmentId },
     ),
   };
 }
@@ -154,22 +169,19 @@ function flowLine(t: T, p: Parsed, code: string, department: string): string {
         : t(`${K}.step.${kind}`, { department }),
     );
   }
-  const email = p.actions.includes("sendEmail");
-  const others = p.actions.some((k) => k !== "sendEmail");
-  parts.push(t(`${K}.${!email ? "auto" : others ? "autoWithEmail" : "emailOnly"}`));
-  const line = `${parts.join(" · ")}.`;
-  return email ? `${line} ${t(`${K}.ownerNote`)}` : line;
+  parts.push(t(`${K}.auto`));
+  return `${parts.join(" · ")}.`;
 }
 
 /** Le righe di chi non può crearla: cosa farebbe, al condizionale, senza codici d'oggetto. */
 function wouldLines(t: T, p: Parsed, code: string, department: string): string[] {
   const lines = [t(`${K}.would.start.${eventKey(p)}`, { code })];
   for (const kind of p.actions) {
-    if (kind === "createTask") {
-      lines.push(t(`${K}.would.createTask`, { department, count: DUE_IN_DAYS }));
-    } else if (kind === "notify") {
-      lines.push(t(`${K}.would.notify`, { department, code }));
-    } else lines.push(t(`${K}.would.sendEmail`));
+    lines.push(
+      kind === "createTask"
+        ? t(`${K}.would.createTask`, { department, count: DUE_IN_DAYS })
+        : t(`${K}.would.notify`, { department, code }),
+    );
   }
   return lines.map((l) => `- ${l}`);
 }
@@ -203,7 +215,6 @@ export async function automation(text: string, ctx: IntentContext): Promise<Answ
   if (!project) return chooseProject(ctx, projects);
 
   const departments = await read.listDepartments();
-  const needsDepartment = p.actions.some((k) => k !== "sendEmail");
   const supportDepartment = departments.find(isSupportDepartment) ?? null;
   const chosen = namedDepartment(text, departments);
 
@@ -227,7 +238,8 @@ export async function automation(text: string, ctx: IntentContext): Promise<Answ
   }
 
   // Il reparto: nominato, o una scheda (Support consigliato se l'evento viene dal supporto).
-  if (needsDepartment && !chosen) {
+  // Ogni passo che il motore sa fare da una richiesta va a un reparto.
+  if (!chosen) {
     if (!ctx.asks) return say(t(`${K}.stillNeed.department`));
     const recommended = p.fromSupport ? supportDepartment : null;
     const ordered = recommended
@@ -250,7 +262,7 @@ export async function automation(text: string, ctx: IntentContext): Promise<Answ
     };
   }
 
-  const department = chosen ?? departments[0]!;
+  const department = chosen;
   const flow = draftFlow(specOf(p, department.id), t);
   let issues = await read.validateAutomationFlow(flow, project.id);
   // L'unica cosa che Claude corregge da sé: il titolo delle esecuzioni, se manca.

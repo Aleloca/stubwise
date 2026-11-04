@@ -3389,8 +3389,7 @@
           "support": "Richiesta di supporto",
           "any": "Nuova richiesta",
           "createTask": "{{event}} → task per {{department}}",
-          "notify": "{{event}} → avviso a {{department}}",
-          "sendEmail": "{{event}} → email al cliente"
+          "notify": "{{event}} → avviso a {{department}}"
         },
         "start": {
           "urgentSupport": "Parte quando arriva una richiesta di supporto urgente in {{code}}",
@@ -3401,13 +3400,9 @@
         "step": {
           "createTask_one": "crea una task per {{department}}, con scadenza a {{count}} giorno",
           "createTask_other": "crea una task per {{department}}, con scadenza a {{count}} giorni",
-          "notify": "avvisa {{department}}",
-          "sendEmail": "manda un'email al cliente"
+          "notify": "avvisa {{department}}"
         },
         "auto": "parte da sola",
-        "autoWithEmail": "gli altri passi partono da soli; l'email aspetta l'approvazione del proprietario",
-        "emailOnly": "l'email aspetta l'approvazione del proprietario",
-        "ownerNote": "Finché nessuno l'accende, il proprietario è chi la prova.",
         "summary": "Crea l'automazione «{{name}}» in {{code}}",
         "would": {
           "start": {
@@ -3418,14 +3413,14 @@
           },
           "createTask_one": "Creerebbe una task per {{department}}, con scadenza a {{count}} giorno.",
           "createTask_other": "Creerebbe una task per {{department}}, con scadenza a {{count}} giorni.",
-          "notify": "Avviserebbe le persone di {{department}} che vedono {{code}}.",
-          "sendEmail": "Manderebbe un'email al cliente, dopo l'approvazione del proprietario."
+          "notify": "Avviserebbe le persone di {{department}} che vedono {{code}}."
         },
         "cantCreate": "Non puoi creare automazioni in {{code}}",
         "cantAny": "Non puoi creare automazioni in nessuno dei tuoi progetti.",
         "cant": {
           "slack": "Le automazioni non pubblicano su Slack.",
-          "call": "Le automazioni non chiamano il cliente."
+          "call": "Le automazioni non chiamano il cliente.",
+          "email": "Le automazioni non scrivono al cliente: una richiesta non porta il suo indirizzo."
         },
         "closest": "Il passo più vicino è avvisare le persone in Stubwise: ho costruito il resto e ho lasciato fuori quella parte.",
         "invalid": "Non sono riuscito a costruirla: {{issue}}. Non è nato niente.",

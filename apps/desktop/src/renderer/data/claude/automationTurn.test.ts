@@ -202,21 +202,50 @@ describe("S1: Laura dalla pagina Support di ACQ", () => {
     expect(ofType(id, "trial")[0]!.status).toBe("done");
   });
 
-  it("«…e manda un'email al cliente»: la prova si ferma all'approvazione di Laura, e la frase lo dice", async () => {
+  it("«…e manda un'email al cliente»: la bozza senza email, l'email detta a parole (ruling T5 I2)", async () => {
     await i18n.changeLanguage("it");
     const t = i18n.getFixedT("it");
     const before = effects();
     const id = await send(
       "Quando arriva una richiesta di supporto urgente, crea una task, avvisa il reparto Support e manda un'email al cliente",
     );
-    expect(texts(id).join("\n")).toContain(t("claude.answers.automation.autoWithEmail"));
+    expect(ofType(id, "question")).toEqual([]);
+    const code = ofType(id, "executed")[0]!.objectCodes![0]!;
+    const a = state.automations.find((x) => x.code === code)!;
+    // Nessun passo email: andrebbe a un collega, non al cliente.
+    expect(a.versions.at(-1)!.flow.steps.map((s) => s.kind)).toEqual(["createTask", "notify"]);
+    const all = texts(id).join("\n");
+    expect(all).toContain(t("claude.answers.automation.cant.email"));
+    expect(all).not.toContain(
+      t("claude.answers.automation.outcome.waitFor", { name: nameOf(LAURA) }),
+    );
     const [trial] = ofType(id, "trial");
-    const [first] = trial!.results!;
-    expect(first).toMatchObject({ status: "waiting_approval", approverId: LAURA });
-    expect(trial!.openSimId).toBe(first!.simId);
-    const wait = t("claude.answers.automation.outcome.waitFor", { name: nameOf(LAURA) });
-    expect(texts(id).some((x) => x.includes(wait))).toBe(true);
+    expect(trial!.results![0]).toMatchObject({ status: "done", emails: 0 });
     expect(effects()).toEqual(before);
+  });
+
+  it("Marketing → la scheda «Nessuno di Marketing vede ACQ» → Support: la bozza nasce (I1)", async () => {
+    await i18n.changeLanguage("it");
+    const t = i18n.getFixedT("it");
+    const id = await send(
+      "Quando arriva una richiesta di supporto urgente, crea una task e avvisa il reparto Marketing",
+    );
+    expect(ofType(id, "question").at(-1)!.text).toBe(
+      t("claude.answers.automation.ask.departmentCantSee", {
+        department: "Marketing",
+        code: "ACQ",
+      }),
+    );
+    await answer(id, "Support");
+    expect(ofType(id, "question")).toHaveLength(1);
+    const [executed] = ofType(id, "executed");
+    expect(executed!.status).toBe("done");
+    const a = state.automations.find((x) => x.code === executed!.objectCodes![0])!;
+    expect(a.versions.at(-1)!.flow.steps).toEqual([
+      expect.objectContaining({ kind: "createTask", assignee: { departmentId: SUPPORT } }),
+      expect.objectContaining({ kind: "notify", who: { departmentId: SUPPORT } }),
+    ]);
+    expect(ofType(id, "trial")[0]!.status).toBe("done");
   });
 
   it("«…e pubblicala su Slack»: la bozza senza Slack, la riga che nomina l'avviso, nessuna scheda", async () => {

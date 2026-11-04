@@ -16,6 +16,8 @@ const SOURCES = import.meta.glob(
   [
     "./*.ts",
     "../../domain/claude/intents/*.ts",
+    // Area 10b (Task 5): la bozza che Claude scrive (la prova sta in `./trial.ts`).
+    "../../domain/automations/draftFlow.ts",
     "!./*.test.ts",
     "!../../domain/claude/intents/*.test.ts",
   ],
@@ -147,6 +149,10 @@ describe("il catalogo non nomina mai i gesti delle persone", () => {
     // Le voci del 10b (le bozze di automazione) stanno in un file a parte.
     expect(paths).toContain("./catalogMore.ts");
     expect(paths.some((p) => p.endsWith("intents/change.ts"))).toBe(true);
+    // Le automazioni scritte e provate da Claude (area 10b, Task 5).
+    expect(paths.some((p) => p.endsWith("intents/automation.ts"))).toBe(true);
+    expect(paths).toContain("../../domain/automations/draftFlow.ts");
+    expect(paths).toContain("./trial.ts");
   });
 
   it("nessun riferimento di codice alle funzioni vietate", () => {
