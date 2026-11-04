@@ -209,7 +209,7 @@ function Builder({
 
   const paths = useMemo(() => pathsById(flow.steps), [flow.steps]);
   const numbers = useMemo(() => stepNumbers(flow.steps), [flow.steps]);
-  const labels = useMemo(() => fieldLabels(flow, sources), [flow, sources]);
+  const labels = useMemo(() => fieldLabels(flow, sources, t), [flow, sources, t]);
 
   const [selected, setSelected] = useState<string | null>(() => {
     if (initialStep === "trigger" || flow.steps.length === 0) return "trigger";

@@ -813,6 +813,19 @@ describe("Automations: la prova si ferma col filtro dell'inizio (area 10b, D3)",
     const simId = await automations.startSimulation(id, "draft", example("req-acq-4"));
     const sim = (await automations.getSimulation(simId))!;
     expect(sim).toMatchObject({ status: "done", filteredOut: true, current: null });
+    // L'esito di ogni confronto lo dà il livello dati: la pagina lo legge e basta.
+    expect(sim.filterChecks).toEqual([
+      {
+        condition: { left: { ref: "richiesta.urgenza" }, op: "is", right: { value: "high" } },
+        value: "low",
+        matches: false,
+      },
+      {
+        condition: { left: { ref: "richiesta.dal_supporto" }, op: "is", right: { value: true } },
+        value: true,
+        matches: true,
+      },
+    ]);
     expect(Object.values(sim.preview).every((list) => list.length === 0)).toBe(true);
     // Nessuna traccia, nemmeno la revisione provata.
     expect(bare()).toEqual(before);
@@ -827,6 +840,7 @@ describe("Automations: la prova si ferma col filtro dell'inizio (area 10b, D3)",
     const sim = await automations.simulationStep(simId, { kind: "run" });
     expect(sim.status).toBe("done");
     expect(sim.filteredOut).toBeFalsy();
+    expect(sim.filterChecks).toBeUndefined();
     expect(sim.preview.tasks).toEqual([
       expect.objectContaining({
         departmentId: "dep-support",

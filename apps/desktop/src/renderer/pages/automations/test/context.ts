@@ -34,6 +34,11 @@ export interface TestState {
   busy: boolean;
   /** La motivazione di Claude che arriva in streaming: il passo e il testo finora. */
   stream: { path: string; text: string } | null;
+  /**
+   * «Change example» (lo stesso della testata), o null se non si può: il
+   * riepilogo di una prova che non partirebbe lo offre come primario (area 10b).
+   */
+  changeExample?: (() => void) | null;
 }
 
 export const TestContext = createContext<TestState | null>(null);

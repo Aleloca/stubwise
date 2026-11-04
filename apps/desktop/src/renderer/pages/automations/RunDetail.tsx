@@ -94,7 +94,10 @@ export function RunDetail({ runId, entry }: { runId: string; entry?: string }) {
   // sparire: il fuoco va alla frase nuova di «Now» (dopo la chiusura del dialogo).
   const focusNow = () => requestAnimationFrame(() => nowTitle.current?.focus());
   const run = query.data;
-  const labels = useMemo(() => (run ? fieldLabels(run.flow, sources) : new Map()), [run, sources]);
+  const labels = useMemo(
+    () => (run ? fieldLabels(run.flow, sources, t) : new Map()),
+    [run, sources, t],
+  );
   if (query.isError) {
     return (
       <div role="alert" className="flex flex-col items-start gap-3 px-8 py-10">

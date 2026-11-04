@@ -175,7 +175,7 @@ export function view(me: string, sim: Sim, a: Automation): SimulationView {
     ownerId: sim.ownerId,
     event: copy(sim.event),
     status: st.status,
-    ...(sim.filteredOut ? { filteredOut: true } : {}),
+    ...(sim.filteredOut ? { filteredOut: true, filterChecks: copy(sim.filterChecks ?? []) } : {}),
     error: st.error,
     cursor: st.cursor,
     now: st.now,

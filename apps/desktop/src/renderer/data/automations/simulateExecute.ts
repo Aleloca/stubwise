@@ -55,6 +55,8 @@ export interface Sim {
   preview: SimulationView["preview"];
   /** D3 (area 10b): il filtro dell'inizio esclude l'esempio, la prova è finita senza partire. */
   filteredOut?: boolean;
+  /** Con `filteredOut`: l'esito di ogni confronto del filtro (`startFilterChecks`). */
+  filterChecks?: SimulationView["filterChecks"];
 }
 
 export const TERMINAL = new Set(["done", "failed", "cancelled"]);

@@ -120,7 +120,7 @@ function Test({ detail }: { detail: AutomationDetail }) {
 
   const numbers = useMemo(() => stepNumbers(flow.steps), [flow.steps]);
   const byId = useMemo(() => numbersById(flow.steps), [flow.steps]);
-  const labels = useMemo(() => fieldLabels(flow, sources), [flow, sources]);
+  const labels = useMemo(() => fieldLabels(flow, sources, t), [flow, sources, t]);
 
   const [selected, setSelected] = useState<string | null>(null);
   const [rounds, setRounds] = useState<Record<string, number>>({});
@@ -274,6 +274,7 @@ function Test({ detail }: { detail: AutomationDetail }) {
       send,
       busy,
       stream,
+      changeExample: blockedBy ? null : () => setChoosing(true),
     };
   }
   const ctx: TestState = { ...ctxFor(sim), ix };

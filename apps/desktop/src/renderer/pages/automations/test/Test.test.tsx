@@ -1,5 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { automations as automationsApi, failNext, resetApi, setLatency } from "../../../data/api";
 import { setSessionPersonId } from "../../../data/session";
@@ -891,7 +893,8 @@ describe("area 10b: la prova col filtro dell'inizio (D3)", () => {
     // A mano: la richiesta urgente più recente, con l'urgenza bassa.
     const dialog = await screen.findByRole("dialog", { name: "Choose an example" });
     await userEvent.click(within(dialog).getByRole("tab", { name: "Write one" }));
-    const urgency = within(dialog).getByRole("textbox", { name: "Urgenza" });
+    // Le etichette dei dati nella lingua di chi legge (ruling T2).
+    const urgency = within(dialog).getByRole("textbox", { name: "Urgency" });
     expect(urgency).toHaveValue("high");
     await userEvent.clear(urgency);
     await userEvent.type(urgency, "low");
@@ -905,8 +908,8 @@ describe("area 10b: la prova col filtro dell'inizio (D3)", () => {
       "Wouldn't start: the start filter doesn't match this example",
     );
     // Il valore dell'urgenza si legge tradotto, mai il valore stabile fra virgolette.
-    expect(summary).toHaveTextContent("Urgenza is high — this example: low · doesn't match");
-    expect(summary).toHaveTextContent("this example: yes · matches");
+    expect(summary).toHaveTextContent("Urgency is high — this example: low · doesn't match");
+    expect(summary).toHaveTextContent("From support is yes — this example: yes · matches");
     expect(summary).toHaveTextContent("Nothing would happen: it wouldn't start with this example.");
     expect(summary).toHaveTextContent("Try an example that matches the start filter.");
     // La riga «When» lo dice; i passi restano non raggiunti, senza anteprime.
@@ -918,9 +921,13 @@ describe("area 10b: la prova col filtro dell'inizio (D3)", () => {
     // [AU 10]: niente «Turn on», «Change example» è il primario della testata.
     expect(document.querySelector("[data-finish-action]")).toBeNull();
     expect(document.querySelector("[data-test-again]")).toBeNull();
-    const change = screen.getByRole("button", { name: "Change example" });
+    const controls = screen.getByRole("group", { name: "Test controls" });
+    const change = within(controls).getByRole("button", { name: "Change example" });
     expect(change.className).toContain("bg-ink");
-    expect(change.closest("[role='group']")).not.toBeNull();
+    // I2: lo stesso comando, primario, anche nel riepilogo (a 1024 il pannello copre la testata).
+    expect(within(summary).getByRole("button", { name: "Change example" }).className).toContain(
+      "bg-ink",
+    );
     // Nessuna traccia, nemmeno la versione provata.
     expect(bare()).toEqual(before);
     expect(
@@ -936,7 +943,10 @@ describe("area 10b: la prova col filtro dell'inizio (D3)", () => {
       ).toBeInTheDocument();
       expect(row("trigger")).toHaveTextContent("Non partirebbe");
       expect(document.querySelector("[data-test-filtered-out]")).toHaveTextContent(
-        "questo esempio: bassa · non vale",
+        "Urgenza è alta — questo esempio: bassa · non vale",
+      );
+      expect(document.querySelector("[data-test-filtered-out]")).toHaveTextContent(
+        "Dal supporto è sì — questo esempio: sì · vale",
       );
       expect(document.querySelector("[data-test-filtered-out]")).toHaveTextContent(
         "Non succederebbe niente: con questo esempio non partirebbe.",
@@ -945,11 +955,32 @@ describe("area 10b: la prova col filtro dell'inizio (D3)", () => {
       act(() => setLanguage("en"));
     }
     // «Change example» riapre la scelta; l'esempio urgente parte e avvisa Support.
-    await userEvent.click(screen.getByRole("button", { name: "Change example" }));
+    await userEvent.click(change);
     await startWith("Text message before the bill is due");
     await waitFor(() => expect(document.querySelector("[data-test-filtered-out]")).toBeNull());
     await userEvent.click(runToStop());
     await screen.findByText("If this were real");
     expect(document.querySelector("[data-finish-action]")).toHaveTextContent("Turn on");
+  });
+
+  it("I2: a 1024 il pannello sovrapposto del riepilogo porta «Change example», che riapre la scelta", async () => {
+    setMatchMedia(DOCKED_PANEL_QUERY, false);
+    const code = await urgentDraft();
+    await open(`/automations/${code}/test`, LAURA);
+    const dialog = await screen.findByRole("dialog", { name: "Choose an example" });
+    await userEvent.click(within(dialog).getByRole("tab", { name: "Write one" }));
+    const urgency = within(dialog).getByRole("textbox", { name: "Urgency" });
+    await userEvent.clear(urgency);
+    await userEvent.type(urgency, "low");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Start test" }));
+    await waitFor(() => expect(document.querySelector("[data-mode=overlay]")).not.toBeNull());
+    await userEvent.click(within(panel()).getByRole("button", { name: "Change example" }));
+    expect(await screen.findByRole("dialog", { name: "Choose an example" })).toBeInTheDocument();
+  });
+
+  it("I1: il riepilogo legge l'esito dei confronti dal livello dati, non valuta il filtro da sé", () => {
+    const source = readFileSync(join(__dirname, "Summary.tsx"), "utf8");
+    expect(source).not.toMatch(/\bevaluate\b/);
+    expect(source).toMatch(/filterChecks/);
   });
 });

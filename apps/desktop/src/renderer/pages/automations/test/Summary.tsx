@@ -1,8 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { evaluate, lookup } from "../../../domain/automations/conditions";
 import { stepAt } from "../../../domain/automations/fields";
-import type { Condition, SimulationView } from "../../../data/types";
+import type { SimulationView } from "../../../data/types";
+import { primaryButton } from "../../tasks/controls";
 import { conditionWords, reasonWords } from "../format";
 import { CriticalGlyph } from "../glyphs";
 import { flowPathOf, useTest } from "./context";
@@ -44,21 +44,17 @@ export function EndSummary() {
   return null;
 }
 
-/** I confronti di una condizione, anche dentro i gruppi. */
-const leavesOf = (c: Condition): Condition[] =>
-  c.all || c.any ? [...(c.all ?? []), ...(c.any ?? [])].flatMap(leavesOf) : [c];
-
 /**
  * D3 (area 10b): il filtro dell'inizio esclude l'esempio, la vera non
- * partirebbe. Una riga per confronto col valore dell'esempio, segno + parola
- * ([AU 10]): niente «Turn on», si cambia esempio.
+ * partirebbe. Una riga per confronto col valore dell'esempio, segno + parola:
+ * l'esito lo calcola il livello dati (`filterChecks`), qui si traduce e basta.
+ * [AU 10]: niente «Turn on», «Change example» è il primario — anche qui, perché
+ * a 1024 il pannello sovrapposto copre la testata.
  */
 function FilteredOutSummary({ sim }: { sim: SimulationView }) {
   const { t } = useTranslation();
   const ctx = useTest();
-  const tr = ctx.flow.trigger;
-  const filter = tr.kind === "stubwise" ? tr.filter : undefined;
-  const read = (key: string) => lookup(sim.event, key);
+  const checks = sim.filterChecks ?? [];
   const valueWords = (key: string, v: unknown) => {
     if (v === true) return t("automations.condition.true");
     if (v === false) return t("automations.condition.false");
@@ -84,11 +80,10 @@ function FilteredOutSummary({ sim }: { sim: SimulationView }) {
         </span>
         {t("automations.test.filteredOut.title")}
       </h2>
-      {filter && (
+      {checks.length > 0 && (
         <ul className="flex flex-col gap-1">
-          {leavesOf(filter).map((leaf, i) => {
+          {checks.map(({ condition: leaf, value, matches: ok }, i) => {
             const key = leaf.left && "ref" in leaf.left ? leaf.left.ref : "";
-            const ok = evaluate(leaf, read);
             return (
               <li key={i} data-filter-row={ok ? "matches" : "doesnt"} className={rowText}>
                 <span className="shrink-0 pt-0.5">
@@ -97,7 +92,7 @@ function FilteredOutSummary({ sim }: { sim: SimulationView }) {
                 <span className="min-w-0">
                   {t("automations.test.filteredOut.condition", {
                     condition: conditionWords(leaf, ctx.labels, t),
-                    value: valueWords(key, read(key)),
+                    value: valueWords(key, value),
                   })}
                   {" · "}
                   <span className="font-medium">
@@ -117,6 +112,17 @@ function FilteredOutSummary({ sim }: { sim: SimulationView }) {
       <p className="max-w-[68ch] text-sm text-ink-muted">
         {t("automations.test.filteredOut.hint")}
       </p>
+      {ctx.changeExample && (
+        <button
+          type="button"
+          data-summary-change-example
+          className={`${primaryButton} self-start disabled:opacity-40`}
+          disabled={ctx.busy}
+          onClick={ctx.changeExample}
+        >
+          {t("automations.test.meta.change")}
+        </button>
+      )}
     </section>
   );
 }

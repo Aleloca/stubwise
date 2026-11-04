@@ -7606,6 +7606,10 @@
       "answering": "La tua risposta parte fra pochi secondi. Puoi annullarla dal messaggio qui sotto.",
       "attachmentsReadOnly": "Gli allegati restano così: {{names}}",
       "suspended": "{{code}} è in pausa: non è stato deciso niente. Si potrà decidere quando verrà riaccesa."
+    },
+    "fieldLabels": {
+      "urgency": "Urgenza",
+      "fromSupport": "Dal supporto"
     }
   },
   "alerts": {

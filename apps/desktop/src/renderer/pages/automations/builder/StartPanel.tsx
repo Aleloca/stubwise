@@ -5,6 +5,7 @@ import { triggerFields } from "../../../domain/automations/fields";
 import type { AutomationTrigger, DataField } from "../../../data/types";
 import { Dialog } from "../../../tasks-ui/Dialog";
 import { primaryButton, secondaryButton } from "../../tasks/controls";
+import { localFieldLabel } from "../format";
 import { CriticalGlyph, Disclosure, SourceGlyph, StepGlyph } from "../glyphs";
 import { useAutomationPerms } from "../shared";
 import { ConditionEditor } from "./ConditionEditor";
@@ -431,10 +432,10 @@ function DataTable({ fields }: { fields: DataField[] }) {
                     }
                   >
                     <Disclosure open={isOpen} />
-                    {f.label}
+                    {localFieldLabel(f, t)}
                   </button>
                 ) : (
-                  f.label
+                  localFieldLabel(f, t)
                 )}
               </td>
               <td className="w-28 py-1.5 pr-2 text-ink-muted">

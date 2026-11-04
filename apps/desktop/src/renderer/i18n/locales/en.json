@@ -7606,6 +7606,10 @@
       "answering": "Your answer goes out in a few seconds. You can undo it from the message below.",
       "attachmentsReadOnly": "Attachments stay as they are: {{names}}",
       "suspended": "{{code}} is paused: nothing was decided. It can be decided once it's turned on again."
+    },
+    "fieldLabels": {
+      "urgency": "Urgency",
+      "fromSupport": "From support"
     }
   },
   "alerts": {

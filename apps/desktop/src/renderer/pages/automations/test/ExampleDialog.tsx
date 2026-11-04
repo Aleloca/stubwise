@@ -13,7 +13,7 @@ import type {
 import { Dialog, inputClass } from "../../../tasks-ui/Dialog";
 import { RadioDot } from "../../../tasks-ui/Menu";
 import { primaryButton, secondaryButton } from "../../tasks/controls";
-import { shortDate } from "../format";
+import { localFieldLabel, shortDate } from "../format";
 
 // «Choose an example» (shape automation-test §5, «Partire»): l'evento su cui
 // gira la prova. «Recent events» = gli eventi d'esempio della sorgente, o le
@@ -275,7 +275,7 @@ function WriteOne({
           label={
             formOnly && f.key === "avvio.data"
               ? t("automations.test.example.whenItStarts")
-              : f.label
+              : localFieldLabel(f, t)
           }
           value={lookup(values, f.key)}
           files={files}

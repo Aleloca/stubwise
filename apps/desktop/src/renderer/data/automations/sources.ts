@@ -1,6 +1,12 @@
 import { lookup, evaluate } from "../../domain/automations/conditions";
-import { onAutomationSignal, state, visibleProjectIds, type AutomationSignal } from "../store";
-import type { Automation, AutomationTrigger, Task } from "../types";
+import {
+  copy,
+  onAutomationSignal,
+  state,
+  visibleProjectIds,
+  type AutomationSignal,
+} from "../store";
+import type { Automation, AutomationTrigger, Condition, FilterCheck, Task } from "../types";
 import { ancestorsOf, CHAIN_MAX, currentOrigin } from "./effects";
 import { enqueue, publishedVersion, startRun } from "./runner";
 import { runById, stepOfRun } from "./visibility";
@@ -113,6 +119,35 @@ export function happenings(signal: AutomationSignal): Happening[] {
   }
 }
 
+/**
+ * Il filtro dell'inizio vale per l'evento? Una regola sola: la usano l'avvio
+ * vero (`startsOn`) e la prova (D3, area 10b), così non possono divergere.
+ */
+export function passesStartFilter(t: AutomationTrigger, payload: Record<string, unknown>): boolean {
+  return t.kind !== "stubwise" || !t.filter || evaluate(t.filter, (key) => lookup(payload, key));
+}
+
+/** I confronti di una condizione, anche dentro i gruppi. */
+const leavesOf = (c: Condition): Condition[] =>
+  c.all || c.any ? [...(c.all ?? []), ...(c.any ?? [])].flatMap(leavesOf) : [c];
+
+/**
+ * L'esito di ogni confronto del filtro dell'inizio sull'evento, col valore
+ * letto (D3): la prova lo mostra, la pagina non lo ricalcola.
+ */
+export function startFilterChecks(
+  t: AutomationTrigger,
+  payload: Record<string, unknown>,
+): FilterCheck[] {
+  if (t.kind !== "stubwise" || !t.filter) return [];
+  const read = (key: string) => lookup(payload, key);
+  return leavesOf(t.filter).map((condition) => ({
+    condition: copy(condition),
+    value: condition.left && "ref" in condition.left ? (read(condition.left.ref) ?? null) : null,
+    matches: evaluate(condition, read),
+  }));
+}
+
 /** L'automazione parte per questo evento? Proprietario, progetto, caselle, filtro. */
 function startsOn(a: Automation, h: Happening): boolean {
   const t = publishedVersion(a)?.flow.trigger;
@@ -124,7 +159,7 @@ function startsOn(a: Automation, h: Happening): boolean {
     if (h.projectId === null || !visibleProjectIds(a.ownerId).has(h.projectId)) return false;
     if (a.projectId !== null && a.projectId !== h.projectId) return false;
   }
-  return !t.filter || evaluate(t.filter, (key) => lookup(h.payload, key));
+  return passesStartFilter(t, h.payload);
 }
 
 /**

@@ -212,7 +212,7 @@ async function main() {
           async (p) => {
             await go(p, "/automations/STW-A1/test");
             await p.getByRole("tab", { name: /^(Write one|Scrivine uno)$/ }).click();
-            const urgency = p.getByRole("textbox", { name: "Urgenza" });
+            const urgency = p.getByRole("textbox", { name: /^(Urgency|Urgenza)$/ });
             await urgency.fill("low");
             await p.locator("[data-start-test]").click();
             await p.locator("[data-test-filtered-out]").waitFor();

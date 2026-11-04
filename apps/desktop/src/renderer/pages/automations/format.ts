@@ -149,13 +149,29 @@ export function sendsEmail(flow: AutomationFlow): boolean {
  * dei cicli, risposte attese), per chiave: le frasi citano l'etichetta, mai
  * la chiave (che resta nel tooltip).
  */
+/**
+ * Le etichette dei dati che si leggono nella lingua di chi guarda (ruling
+ * T2, area 10b): «Urgency» / «Urgenza». Le altre restano quelle del dato.
+ */
+const LOCAL_FIELD_LABELS: Record<string, string> = {
+  "richiesta.urgenza": "automations.fieldLabels.urgency",
+  "richiesta.dal_supporto": "automations.fieldLabels.fromSupport",
+};
+
+/** L'etichetta di un dato, tradotta in lettura dove c'è una traduzione. */
+export function localFieldLabel(f: DataField, t: TFunction): string {
+  const key = LOCAL_FIELD_LABELS[f.key];
+  return key ? t(key) : f.label;
+}
+
 export function fieldLabels(
   flow: AutomationFlow,
   sources: AutomationSourceView[],
+  t: TFunction,
 ): Map<string, DataField> {
   const out = new Map<string, DataField>();
   const add = (fs: DataField[]) => {
-    for (const f of fs) if (!out.has(f.key)) out.set(f.key, f);
+    for (const f of fs) if (!out.has(f.key)) out.set(f.key, { ...f, label: localFieldLabel(f, t) });
   };
   add(availableFields(flow, "", sources));
   visitSteps(flow.steps, (step, path) => {

@@ -9,6 +9,7 @@ import type {
   AutomationRun,
   AutomationSource,
   ClientProjectLink,
+  Condition,
   DataField,
   ReasonCode,
   RunLogEntry,
@@ -1131,6 +1132,14 @@ export type SimulationWaiting =
       choices: SimulationProject[];
     });
 
+/** Un confronto del filtro dell'inizio su un esempio della prova (area 10b, D3). */
+export interface FilterCheck {
+  condition: Condition;
+  /** Il valore del dato nell'esempio (null se manca). */
+  value: unknown;
+  matches: boolean;
+}
+
 export interface SimulationView {
   id: string;
   automationId: string;
@@ -1150,6 +1159,12 @@ export interface SimulationView {
    * conta come provata. Facoltativo: assente vale `false`.
    */
   filteredOut?: boolean;
+  /**
+   * Con `filteredOut`: ogni confronto del filtro col valore dell'esempio e il
+   * suo esito, calcolati dal livello dati (la pagina li legge soltanto).
+   * Facoltativo: assente = nessun confronto da mostrare.
+   */
+  filterChecks?: FilterCheck[];
   error: string | null;
   cursor: string | null;
   /** L'«adesso» della prova (va avanti con «Avanti»). */

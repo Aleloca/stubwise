@@ -195,7 +195,7 @@ export function HowItWorks({
   const automations = useAutomations().data ?? [];
   const a = detail.automation;
   const version = viewing === null ? a.versions.at(-1)! : a.versions.find((v) => v.n === viewing)!;
-  const labels = useMemo(() => fieldLabels(version.flow, sources), [version.flow, sources]);
+  const labels = useMemo(() => fieldLabels(version.flow, sources, t), [version.flow, sources, t]);
   const codeOf = (id: string) => automations.find((x) => x.id === id)?.code ?? null;
   return (
     <section aria-labelledby="automation-how" className="border-t border-rule pt-5 pb-7">

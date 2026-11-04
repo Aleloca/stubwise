@@ -4,7 +4,6 @@ import {
   type EngineInput,
   type EngineStep,
 } from "../../domain/automations/engine";
-import { evaluate, lookup } from "../../domain/automations/conditions";
 import { stepAt } from "../../domain/automations/fields";
 import type { FlowIssue } from "../../domain/automations/validate";
 import { onBeforePersonaChange } from "../session";
@@ -23,6 +22,7 @@ import {
 } from "./visibility";
 import { checkEdited } from "./runWrites";
 import { execute, TERMINAL, type Sim } from "./simulateExecute";
+import { passesStartFilter, startFilterChecks } from "./sources";
 import { projectChoices, view } from "./simulateView";
 
 // La prova di un'automazione (area 7): lo STESSO motore delle esecuzioni
@@ -258,9 +258,10 @@ export async function startSimulation(
   // non lo soddisfa non farebbe partire la vera: la prova finisce qui, senza
   // anteprime e senza contare come provata (`markTested` no).
   const t = flow.trigger;
-  if (t.kind === "stubwise" && t.filter && !evaluate(t.filter, (key) => lookup(event, key))) {
+  if (!passesStartFilter(t, event)) {
     sim.engine = { ...sim.engine, status: "done" };
     sim.filteredOut = true;
+    sim.filterChecks = startFilterChecks(t, event);
     sims.set(sim.id, sim);
     return sim.id;
   }
