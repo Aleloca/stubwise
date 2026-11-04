@@ -104,8 +104,15 @@ export function startWords(
   const base = triggerWords(trigger, names, t, language, projectId);
   if (trigger.kind !== "stubwise" || !trigger.filter) return base;
   const parts = trigger.filter.all ?? [trigger.filter];
+  // Dentro la frase i dati tradotti hanno la loro forma, con l'articolo dove la
+  // lingua lo vuole: «l'urgenza è alta», «urgency is high» (letta adesso).
+  const inSentence = new Map(labels);
+  for (const [key, word] of Object.entries(IN_SENTENCE_LABELS)) {
+    const f = labels.get(key);
+    if (f) inSentence.set(key, { ...f, label: t(word) });
+  }
   const words = parts.map((c) => {
-    const w = conditionWords(c, labels, t);
+    const w = conditionWords(c, inSentence, t);
     return w.charAt(0).toLocaleLowerCase(language) + w.slice(1);
   });
   return [base, ...words].join(" · ");
@@ -179,6 +186,12 @@ export function sendsEmail(flow: AutomationFlow): boolean {
 const LOCAL_FIELD_LABELS: Record<string, string> = {
   "richiesta.urgenza": "automations.fieldLabels.urgency",
   "richiesta.dal_supporto": "automations.fieldLabels.fromSupport",
+};
+
+/** Gli stessi dati dentro una frase, con l'articolo dove la lingua lo vuole (area 10b). */
+const IN_SENTENCE_LABELS: Record<string, string> = {
+  "richiesta.urgenza": "automations.fieldLabels.inSentence.urgency",
+  "richiesta.dal_supporto": "automations.fieldLabels.inSentence.fromSupport",
 };
 
 /** L'etichetta di un dato, tradotta in lettura dove c'è una traduzione. */

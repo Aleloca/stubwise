@@ -225,7 +225,7 @@ export function ExampleDialog({
 }
 
 /** «Rossi Srl · CRM + Website · €18,400 · Oct 24». */
-export function exampleLine(e: SimulationExample, language: string): string {
+function exampleLine(e: SimulationExample, language: string): string {
   const parts = [e.label];
   const amount = lookup(e.event, "trattativa.importo");
   if (typeof amount === "number")

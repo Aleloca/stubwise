@@ -311,9 +311,11 @@ export function trialAs(
   me: string,
   automationId: string,
   event: Record<string, unknown>,
+  example?: NonNullable<SimulationView["claudeExample"]>,
 ): TrialOutcome {
   const simId = startSimulationAs(me, automationId, "draft", event);
   const { sim, a } = mine(me, simId);
+  if (example) sims.get(simId)!.claudeExample = { ...example };
   const was = sim.engine.status;
   while (sim.pending && sim.pending.kind !== "claude") stepOnce(sim, a);
   if (was !== "done" && sim.engine.status === "done") markTested(sim);

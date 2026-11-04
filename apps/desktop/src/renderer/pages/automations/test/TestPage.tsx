@@ -5,12 +5,12 @@ import { stepAt } from "../../../domain/automations/fields";
 import {
   useAutomation,
   useAutomations,
-  useAutomationSimulationExamples,
   useAutomationSources,
   useSessionPersonId,
 } from "../../../data/queries";
 import type { AutomationDetail, SimulationView } from "../../../data/types";
 import { useViewer } from "../../../data/viewer";
+import { useClaudeBeside } from "../../../layout/claudePanel/panelEvents";
 import { DOCKED_PANEL_QUERY, DetailPanel } from "../../../layout/useDetailPanel";
 import { prefersReducedMotion, useMediaQuery } from "../../../layout/useMediaQuery";
 import { PageError } from "../../../tasks-ui/PageStates";
@@ -20,7 +20,7 @@ import { NotVisible, useNames } from "../shared";
 import { numbersById, stepNumbers } from "../numbering";
 import { Blocked } from "./Blocked";
 import { flowPathOf, TestContext, type TestState } from "./context";
-import { ExampleDialog, exampleLine as exampleWords } from "./ExampleDialog";
+import { ExampleDialog } from "./ExampleDialog";
 import { defaultRound, indexLog } from "./marks";
 import { currentPathOf, PreviewPanel } from "./PreviewPanel";
 import { Summary } from "./Summary";
@@ -108,7 +108,7 @@ function CantTest({ code }: { code: string }) {
 const focusInClaude = () => !!document.activeElement?.closest("[data-claude-panel]");
 
 function Test({ detail, adoptSimId }: { detail: AutomationDetail; adoptSimId: string | null }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const names = useNames();
   const me = useSessionPersonId();
@@ -123,6 +123,7 @@ function Test({ detail, adoptSimId }: { detail: AutomationDetail; adoptSimId: st
   const flow = version.flow;
   const versionKey: number | "draft" = draft ? "draft" : version.n;
   const docked = useMediaQuery(DOCKED_PANEL_QUERY);
+  const beside = useClaudeBeside();
 
   const numbers = useMemo(() => stepNumbers(flow.steps), [flow.steps]);
   const byId = useMemo(() => numbersById(flow.steps), [flow.steps]);
@@ -151,18 +152,9 @@ function Test({ detail, adoptSimId }: { detail: AutomationDetail; adoptSimId: st
   const { sim, example, choosing, setChoosing, startError, configIssues, busy, stream } = run;
   const { begin, send, runToStop } = run;
   const ix = useMemo(() => (sim ? indexLog(sim) : null), [sim]);
-  // L'esempio scelto da Claude: la sua riga fra gli esempi veri che chi guarda
-  // vede; non c'è (scritto da Claude): «Example written by Claude».
-  const examples = useAutomationSimulationExamples(
-    example?.byClaude ? a.id : null,
-    versionKey,
-  ).data;
-  const claudeExample = useMemo(() => {
-    if (!example?.byClaude || !examples) return null;
-    const key = JSON.stringify(example.event);
-    const found = examples.find((e) => JSON.stringify(e.event) === key);
-    return found ? exampleWords(found, i18n.language) : null;
-  }, [example, examples, i18n.language]);
+  // L'esempio scelto da Claude: codice e titolo dalla prova (`claudeExample`);
+  // senza, l'ha scritto lui: «Example written by Claude».
+  const claudeExample = example?.byClaude ? example.label : null;
 
   // Errori di configurazione: la prova non parte e dice dove ([A 5]).
   const knownIssues = draft ? detail.configErrors : detail.liveErrors;
@@ -385,11 +377,23 @@ function Test({ detail, adoptSimId }: { detail: AutomationDetail; adoptSimId: st
             </div>
           )}
         </div>
+        {beside > 0 && (
+          // D2: lo spazio del riquadro di Claude, fra il flusso e l'anteprima
+          // al bordo destro (claude-automations §3.5/§6): il flusso gli sta
+          // accanto, «Turn on» a vista. Il riquadro si mette lì da sé.
+          <div
+            aria-hidden="true"
+            data-claude-beside
+            className="shrink-0"
+            style={{ width: beside }}
+          />
+        )}
         {!blockedBy && sim && (docked || panelOpen) && (
           <DetailPanel
             mode={docked ? "docked" : "overlay"}
             label={t("automations.test.summary.label")}
-            defaultWidth={480}
+            // D2: accanto al riquadro di Claude l'anteprima è di 400 (claude-automations §6).
+            defaultWidth={beside > 0 ? 400 : 480}
             // Affiancato, Esc torna al costruttore; sovrapposto, chiude il pannello.
             onClose={() => (docked ? exit() : setPanelOpen(false))}
           >

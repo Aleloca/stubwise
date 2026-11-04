@@ -66,6 +66,35 @@ export function setClaudePanelStatus(next: ClaudePanelStatus): void {
   for (const l of listeners) l();
 }
 
+// --- D2: la pagina aperta dal riquadro gli sta accanto --------------------------
+//
+// Finita la prova, il riquadro apre il costruttore e resta aperto (area 10b,
+// D2). Su quella pagina — e solo finché c'è «Back to …» col riquadro aperto —
+// il flusso sta ACCANTO al riquadro, non sotto (shape claude-automations
+// §3.5/§6): la pagina della prova lascia al riquadro la sua larghezza e il layout
+// chiude la colonna ([AU 12]). Fuori da quella scena vale [CP 1]: il riquadro copre.
+
+let beside = 0;
+const besideListeners = new Set<() => void>();
+
+/** La larghezza del riquadro da lasciare accanto alla pagina aperta da D2; `0` = nessuna. */
+export function setClaudeBeside(width: number): void {
+  if (width === beside) return;
+  beside = width;
+  for (const l of besideListeners) l();
+}
+
+export function useClaudeBeside(): number {
+  return useSyncExternalStore(
+    (l) => {
+      besideListeners.add(l);
+      return () => besideListeners.delete(l);
+    },
+    () => beside,
+    () => 0,
+  );
+}
+
 export function useClaudePanelStatus(): ClaudePanelStatus {
   return useSyncExternalStore(
     (l) => {

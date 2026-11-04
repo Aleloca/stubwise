@@ -57,6 +57,8 @@ export interface Sim {
   filteredOut?: boolean;
   /** Con `filteredOut`: l'esito di ogni confronto del filtro (`startFilterChecks`). */
   filterChecks?: SimulationView["filterChecks"];
+  /** Area 10b (D2): l'esempio l'ha scelto o scritto Claude (`trialAs`). */
+  claudeExample?: SimulationView["claudeExample"];
 }
 
 export const TERMINAL = new Set(["done", "failed", "cancelled"]);

@@ -61,7 +61,23 @@ function trialSteps(me: string, trial: TrialDraft, created: ExecutedDraft | null
     results = pickTrialExamples(me, a.id, trial.wants).flatMap((example) =>
       // Un esempio che Claude non è riuscito a scrivere non si prova (T3).
       example
-        ? [{ ...trialAs(me, a.id, example.event), label: example.label, written: example.written }]
+        ? [
+            {
+              ...trialAs(me, a.id, example.event, {
+                code:
+                  typeof example.label.params?.code === "string"
+                    ? example.label.params.code || null
+                    : null,
+                title:
+                  typeof example.label.params?.title === "string"
+                    ? example.label.params.title
+                    : null,
+                written: example.written,
+              }),
+              label: example.label,
+              written: example.written,
+            },
+          ]
         : [],
     );
   } catch {

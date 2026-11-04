@@ -126,6 +126,17 @@ export type TextDecorator = (text: string, key: string) => ReactNode;
 export type LinkRenderer = (href: string, label: ReactNode, key: string) => ReactNode | undefined;
 
 /**
+ * Rende un elenco puntato in un'altra forma (le righe di catalogo delle
+ * risposte di Claude, area 10b); `undefined` lascia l'elenco di sempre.
+ * `render` è la resa in linea di un pezzo di testo, coi suoi link e codici.
+ */
+export type ListRenderer = (
+  items: readonly string[],
+  key: string,
+  render: (text: string, key: string) => ReactNode,
+) => ReactNode | undefined;
+
+/**
  * Un percorso (`src/import/match.ts`) che può andare a capo dopo ogni «/»,
  * nel monospace di sistema del flusso, con il percorso intero al passaggio.
  */
@@ -225,6 +236,7 @@ export function Markdown({
   tableLabel = "Table",
   trailing,
   documentHeadings = false,
+  list: renderList,
 }: {
   source: string;
   className?: string;
@@ -242,6 +254,8 @@ export function Markdown({
    * testo diventano titoli veri, da h2 in giù (`#`/`##` → h2, il resto h3).
    */
   documentHeadings?: boolean;
+  /** Un elenco puntato in un'altra forma, se il chiamante la riconosce. */
+  list?: ListRenderer;
 }) {
   // Con il cursore il testo sta arrivando: le tabelle aspettano la prima riga intera.
   const list = blocks(source, trailing !== undefined && trailing !== null);
@@ -292,6 +306,18 @@ export function Markdown({
             );
           case "ul":
           case "ol": {
+            const custom =
+              block.kind === "ul" && renderList
+                ? renderList(block.items, key, (text, k) => inline(text, k, decorate, link))
+                : undefined;
+            if (custom !== undefined) {
+              return (
+                <Fragment key={key}>
+                  {custom}
+                  {tail(i)}
+                </Fragment>
+              );
+            }
             const List = block.kind;
             return (
               <List

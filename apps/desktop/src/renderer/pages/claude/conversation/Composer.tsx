@@ -165,6 +165,13 @@ export function Composer({
   });
   const { field, trigger, menuOpen, update, place } = composer;
   useApplyDraft(draft, field, (next) => update(next, next.length));
+  // I segnaposti di una voce di S0 si percorrono con Tab finché la frase è lì;
+  // nel testo scritto dalla persona Tab esce dalla casella (m8).
+  const placeholders = useRef(false);
+  useEffect(() => {
+    if (draft) placeholders.current = draft.placeholders === true;
+  }, [draft?.nonce]);
+  if (placeholders.current && !placeholderAfter(text, 0)) placeholders.current = false;
   const fileInput = useRef<HTMLInputElement>(null);
   const menuId = useId();
   const hintId = useId();
@@ -246,6 +253,7 @@ export function Composer({
       attachments.map((a) => a.attachment),
     );
     composer.reset();
+    placeholders.current = false;
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -256,7 +264,14 @@ export function Composer({
     }
     if (composer.handleKey(e, options)) return;
     // Tab da un segnaposto al successivo (S0); senza segnaposti avanti, Tab esce.
-    if (e.key === "Tab" && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    if (
+      placeholders.current &&
+      e.key === "Tab" &&
+      !e.shiftKey &&
+      !e.metaKey &&
+      !e.ctrlKey &&
+      !e.altKey
+    ) {
       const slot = placeholderAfter(text, e.currentTarget.selectionEnd);
       if (slot) {
         e.preventDefault();

@@ -17,6 +17,7 @@ import { DOCKED_PANEL_QUERY } from "../../../layout/useDetailPanel";
 import { renderRoute } from "../../../test/renderRoute";
 import { renderWithData } from "../../../test/renderWithData";
 import { setMatchMedia } from "../../../test/setup";
+import { BackRow } from "../../../layout/claudePanel/ClaudePanel";
 import { __forgetStartedForTest } from "../../../layout/claudePanel/pageActions";
 import { resetPanelToggle } from "../../../layout/claudePanel/panelEvents";
 import { clearDrafts } from "../../chat/drafts";
@@ -73,6 +74,56 @@ async function injected(
   mount(c.id, personId);
   return c.id;
 }
+
+describe("I1: le righe dell'elenco di S2/S3 (shape §3.1)", () => {
+  it("niente punto elenco: il codice fa da segno ed è un link; «Other projects» resta senza codice", async () => {
+    await injected(ROBERTA, [
+      {
+        type: "assistant",
+        text: [
+          "3 projects have stalled tasks",
+          "",
+          "- **ACQ** — 4 stalled tasks, the oldest for 12 days (no changes)",
+          "- **AUD** — 3 stalled tasks, the oldest for 10 days (no one assigned)",
+          "- Other projects — $40",
+        ].join("\n"),
+        done: true,
+      },
+    ]);
+    const rows = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>("[data-catalog-rows]");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(rows.tagName).toBe("UL");
+    expect(rows.className).not.toMatch(/list-disc/);
+    const items = within(rows).getAllByRole("listitem");
+    expect(items).toHaveLength(3);
+    await waitFor(() =>
+      expect(within(items[0]!).getByRole("link", { name: "ACQ" })).toHaveAttribute(
+        "href",
+        "#/p/ACQ/overview",
+      ),
+    );
+    expect(items[0]).toHaveTextContent(
+      "ACQ — 4 stalled tasks, the oldest for 12 days (no changes)",
+    );
+    expect(within(items[2]!).queryByRole("link")).toBeNull();
+    expect(items[2]).toHaveTextContent("Other projects — $40");
+    // Nessun altro elenco col punto nel messaggio.
+    expect(document.querySelector("[data-assistant] ul.list-disc")).toBeNull();
+  });
+
+  it("un elenco qualunque resta col suo punto", async () => {
+    await injected(ROBERTA, [
+      { type: "assistant", text: "Here:\n\n- one thing\n- another", done: true },
+    ]);
+    await waitFor(() =>
+      expect(document.querySelector("[data-assistant] ul.list-disc")).not.toBeNull(),
+    );
+    expect(document.querySelector("[data-catalog-rows]")).toBeNull();
+  });
+});
 
 describe("«Hypothesis» e «Details»", () => {
   it("l'ipotesi ha il suo segno e la sua parola; «Details» è chiuso e si apre da tastiera", async () => {
@@ -143,6 +194,18 @@ describe("S0, la risposta onesta", () => {
     expect(box.value.slice(box.selectionStart, box.selectionEnd)).toBe("[project]");
     // Nessun messaggio inviato.
     expect(userEvents(id)).toHaveLength(sent);
+  });
+
+  it("m8: Tab salta ai segnaposti solo dopo una voce di S0, mai nel testo scritto dalla persona", async () => {
+    const user = userEvent.setup();
+    await injected(LAURA, [{ type: "capabilities", items: NINE }]);
+    await screen.findByRole("list", { name: "What I can do" });
+    const box = screen.getByRole("combobox", { name: /message to claude/i }) as HTMLTextAreaElement;
+    await user.click(box);
+    await user.type(box, "see [[this] and [[that]");
+    box.setSelectionRange(0, 0);
+    await user.keyboard("{Tab}");
+    expect(box).not.toHaveFocus();
   });
 
   it("col progetto nel contesto, «[project]» è già il suo codice", async () => {
@@ -223,6 +286,25 @@ describe("S4, la scheda in blocco", () => {
       expect(state.projects.filter((p) => p.archived && projects.includes(p))).toHaveLength(7),
     );
     expect(state.projects.find((p) => p.id === projects[7]!.id)!.archived).toBeFalsy();
+  });
+
+  it("m10: in italiano una riga di progetto tolta si legge «Escluso»", async () => {
+    await i18n.changeLanguage("it");
+    const user = userEvent.setup();
+    await injected(ROBERTA, [
+      {
+        type: "proposal",
+        proposalId: "prop-s4it",
+        requesterId: ROBERTA,
+        actions: actions().slice(0, 2),
+        status: "open",
+        cls: "B",
+        reasons: [],
+      },
+    ]);
+    const card = await screen.findByRole("region", { name: /Claude propone/ });
+    await user.click(within(card).getAllByRole("checkbox")[0]!);
+    expect(within(card).getAllByRole("checkbox")[0]).toHaveAccessibleName(/· Escluso\b/);
   });
 
   it("le righe nascoste restano nella scelta; senza spunte Confirm è spento con la sua frase", async () => {
@@ -361,6 +443,39 @@ describe("S5, la scheda bloccata", () => {
     expect(card.querySelector("[data-blocked]")).toHaveTextContent(sentence);
     expect(card.querySelector("[data-who-can]")).toBeNull();
     expect(within(card).getByRole("button", { name: "Cancel" })).toBeEnabled();
+  });
+});
+
+describe("m9: la scheda bloccata senza il codice del progetto", () => {
+  it("nessun «in :» quando il progetto non si legge", async () => {
+    const developer = state.access.roles.find((r) => r.key === "developer")!;
+    await injected(LAURA, [
+      {
+        type: "proposal",
+        proposalId: "prop-s5b",
+        requesterId: LAURA,
+        actions: [
+          {
+            fn: "addMember",
+            args: { projectId: "prj-gone", personId: "p-luca", roleId: developer.id },
+            summary: "Add Luca Bianchi as Developer",
+          },
+        ],
+        status: "open",
+        cls: "C",
+        reasons: [],
+        blocked: { kind: "escalation", roleId: developer.id },
+      },
+    ]);
+    const blocked = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>("[data-blocked]");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(blocked.textContent).not.toMatch(/ in [:.]/);
+    expect(blocked).toHaveTextContent(
+      `You can't give the ${developer.name} role: it has permissions you don't have in that project.`,
+    );
   });
 });
 
@@ -525,12 +640,62 @@ describe("S1 nel riquadro: il costruttore si apre da sé (D2)", () => {
     );
     // La prova adottata: niente dialogo degli esempi, la riga «chosen by Claude».
     expect(screen.queryByRole("dialog", { name: "Choose an example" })).toBeNull();
-    expect(document.querySelector("[data-test-page]")).toHaveTextContent("chosen by Claude");
+    // m7: la riga dell'esempio dice la richiesta col suo codice, scelta da Claude.
+    const chosen = trial.results![0]!.label.params!;
+    expect(document.querySelector("[data-test-page]")).toHaveTextContent(
+      `Example: ${String(chosen.code)} ${String(chosen.title)} · chosen by Claude`,
+    );
     // La navigazione non ruba il fuoco: resta nel riquadro.
     await new Promise((r) => setTimeout(r, 20));
     expect(panel().contains(document.activeElement)).toBe(true);
     // L'annuncio.
     expect(panel()).toHaveTextContent(`Opened ${trial.code} in the builder, on the test.`);
+  });
+
+  it("I2: a 1024 il flusso sta accanto al riquadro (l'area di lavoro gli lascia la sua larghezza), col «Turn on» a vista", async () => {
+    const { user } = await s1InPanel();
+    const width = parseInt(panel().style.width, 10);
+    expect(width).toBe(360);
+    // La pagina della prova lascia al riquadro la sua larghezza in coda: il
+    // flusso (con «Turn on» nella testata) sta prima di quello spazio.
+    const spacer = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>("[data-claude-beside]");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(spacer.style.width).toBe(`${width}px`);
+    const page = document.querySelector<HTMLElement>("[data-test-page]")!;
+    expect(page.nextElementSibling).toBe(spacer);
+    expect(page.contains(document.querySelector("[data-finish-action]"))).toBe(true);
+    expect(document.querySelector("[data-column='closed']")).not.toBeNull();
+    // L'anteprima sovrapposta resta chiusa (§6): niente pannello sopra il flusso.
+    expect(document.querySelector("[data-detail-panel]")).toBeNull();
+    // Chiuso il riquadro, la pagina torna intera.
+    await user.click(within(panel()).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(document.querySelector("[data-claude-beside]")).toBeNull());
+  });
+
+  it("I2: a 1440 l'anteprima affiancata è di 400 e il riquadro le sta a sinistra; il flusso ha il resto", async () => {
+    setMatchMedia(DOCKED_PANEL_QUERY, true);
+    const { user } = await s1InPanel();
+    const preview = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>("[data-detail-panel]");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(preview.style.width).toBe("400px");
+    // L'anteprima affiancata dice il riepilogo della prova finita.
+    await waitFor(() => expect(preview).toHaveTextContent("If this were real"));
+    // In fila: il flusso, lo spazio del riquadro, l'anteprima al bordo destro.
+    const spacer = document.querySelector<HTMLElement>("[data-claude-beside]")!;
+    expect(spacer.style.width).toBe(`${parseInt(panel().style.width, 10)}px`);
+    expect(document.querySelector("[data-test-page]")!.nextElementSibling).toBe(spacer);
+    expect(spacer.nextElementSibling).toBe(preview);
+    expect(document.querySelector("[data-column='closed']")).not.toBeNull();
+    // «Back to»: la pagina di prima, la colonna torna.
+    await user.click(within(panel()).getByRole("button", { name: "Back to ACQ · Support" }));
+    await waitFor(() => expect(document.querySelector("[data-claude-beside]")).toBeNull());
+    expect(document.querySelector("[data-column='closed']")).toBeNull();
   });
 
   it("una volta sola: «Back to» torna a Support, la riga sparisce, e non si naviga di nuovo", async () => {
@@ -621,6 +786,21 @@ async function laurasTrial(text = S1_TEXT): Promise<Trial> {
   return trials().at(-1)!;
 }
 
+describe("m11: «Back to» senza l'etichetta del chip", () => {
+  it("c'è sempre una strada indietro: «Back to the previous page»", async () => {
+    const user = userEvent.setup();
+    let back = 0;
+    renderWithData(
+      <BackRow
+        back={{ from: "#/home", label: null, target: "/automations/ACQ-A1/test", arrived: true }}
+        onBack={() => (back += 1)}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Back to the previous page" }));
+    expect(back).toBe(1);
+  });
+});
+
 describe("`?sim=` nella prova", () => {
   it("di chi guarda: la prova adottata, senza dialogo", async () => {
     const trial = await laurasTrial();
@@ -631,14 +811,15 @@ describe("`?sim=` nella prova", () => {
     expect(screen.queryByRole("dialog", { name: "Choose an example" })).toBeNull();
   });
 
-  it("[AU 12] a 1440, arrivando sulla prova di Claude, la colonna di Automations si chiude", async () => {
+  it("m12: a 1440 «Open the test» senza riquadro (un `?sim=` qualunque) non chiude la colonna", async () => {
     setMatchMedia(DOCKED_PANEL_QUERY, true);
     const trial = await laurasTrial();
     renderRoute(`/automations/${trial.code}/test?sim=${trial.openSimId}`, LAURA);
     await waitFor(() =>
       expect(document.querySelector("[data-finish-action]")).toHaveTextContent("Turn on"),
     );
-    expect(document.querySelector("[data-column='closed']")).not.toBeNull();
+    expect(document.querySelector("[data-column='closed']")).toBeNull();
+    expect(document.querySelector("[data-claude-beside]")).toBeNull();
     cleanup();
     // La prova aperta a mano, a 1440: la colonna resta.
     renderRoute(`/automations/${trial.code}/test`, LAURA);
@@ -691,7 +872,7 @@ describe("l'origine: «Created by Claude on behalf of …» (maintainer, [AU 8])
     await i18n.changeLanguage("it");
     renderRoute(`/automations/${a.code}`, LAURA);
     await waitFor(() =>
-      expect(document.body).toHaveTextContent(/· urgenza è alta · dal supporto è sì/),
+      expect(document.body).toHaveTextContent(/· l'urgenza è alta · dal supporto è sì/),
     );
   });
 

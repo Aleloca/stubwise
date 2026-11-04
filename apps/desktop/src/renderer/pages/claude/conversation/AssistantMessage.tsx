@@ -1,7 +1,12 @@
 import { Fragment, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { WhoCanLink } from "../../../components/WhoCanLink";
-import { Markdown, type LinkRenderer, type TextDecorator } from "../../../tasks-ui/Markdown";
+import {
+  Markdown,
+  type LinkRenderer,
+  type ListRenderer,
+  type TextDecorator,
+} from "../../../tasks-ui/Markdown";
 import { Avatar } from "../../../tasks-ui/PersonChip";
 import { actionById, useOpenRoutes, usePeople } from "../../../data/queries";
 import { DriveAnchor, HiddenCode, hiddenCodesOf, UsedLine, useCitationIndex } from "./citations";
@@ -67,6 +72,7 @@ export function AssistantMessage({
   const { event, refs } = item;
   const cursor = streaming && !event.done;
   const link = useInternalLinks(event.text);
+  const rows = useCatalogRows(event.text);
   return (
     <div className="event-enter flex min-w-0 flex-col gap-2" data-assistant={event.id}>
       <div className="min-w-0">
@@ -75,6 +81,7 @@ export function AssistantMessage({
           className="[&>ol]:max-w-[68ch] [&>p]:max-w-[68ch] [&>ul]:max-w-[68ch]"
           decorate={decorate}
           link={link}
+          list={rows}
           codeLabel={t("claude.conversation.codeBlock")}
           tableLabel={t("claude.conversation.table")}
           trailing={
@@ -151,6 +158,67 @@ function useInternalLinks(text: string): LinkRenderer {
         >
           {label}
         </a>
+      );
+    },
+    [open],
+  );
+}
+
+/**
+ * Una riga di catalogo di una risposta (area 10b, shape `claude-scenarios.md`
+ * §3.1): «**ACQ** — 4 stalled tasks…», o senza codice («Other projects — $40»).
+ */
+const CATALOG_ROW = /^(?:\*\*([A-Z]{2,4})\*\*|([^*\n]+?)) — (.+)$/;
+
+/**
+ * Le righe di catalogo di S2/S3: un elenco puntato le cui voci sono tutte
+ * «codice — fatto» (almeno una col codice di un progetto) si disegna senza
+ * punto: il codice fa da segno, 600 in cifre tabellari, ed è un link al
+ * progetto se chi legge lo apre (`useOpenRoutes`), altrimenti testo tenue.
+ * Ogni altro elenco resta com'è.
+ */
+function useCatalogRows(text: string): ListRenderer {
+  const routes = useMemo(() => {
+    const out = new Set<string>();
+    for (const m of text.matchAll(/^- \*\*([A-Z]{2,4})\*\* — /gm)) out.add(`#/p/${m[1]}/overview`);
+    return [...out];
+  }, [text]);
+  const open = useOpenRoutes(routes).data;
+  return useCallback<ListRenderer>(
+    (items, key, render) => {
+      const parsed = items.map((item) => CATALOG_ROW.exec(item));
+      if (parsed.some((m) => m === null) || !parsed.some((m) => m?.[1])) return undefined;
+      return (
+        <ul data-catalog-rows className="flex max-w-[68ch] flex-col">
+          {parsed.map((m, j) => {
+            const code = m![1];
+            const route = code ? `#/p/${code}/overview` : null;
+            return (
+              <li key={j} className="flex min-h-7 min-w-0 items-baseline py-0.5">
+                {code ? (
+                  route && open?.includes(route) ? (
+                    <a
+                      href={route}
+                      className="num shrink-0 font-semibold whitespace-nowrap text-ink underline decoration-ink/25 underline-offset-2 hover:decoration-ink/70"
+                    >
+                      {code}
+                    </a>
+                  ) : (
+                    <span className="num shrink-0 font-semibold whitespace-nowrap text-ink-muted">
+                      {code}
+                    </span>
+                  )
+                ) : (
+                  <span className="shrink-0">{m![2]}</span>
+                )}
+                <span className="min-w-0">
+                  {" — "}
+                  {render(m![3]!, `${key}-${j}`)}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
       );
     },
     [open],

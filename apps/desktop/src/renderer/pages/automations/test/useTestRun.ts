@@ -94,7 +94,13 @@ export function useTestRun({
       return;
     }
     adopted.current = view.id;
-    setExample({ event: view.event, label: null, byClaude: true });
+    // La riga dell'esempio la dice la prova stessa (`claudeExample`, m7).
+    const chosen = view.claudeExample;
+    const label =
+      chosen && !chosen.written && (chosen.code || chosen.title)
+        ? [chosen.code, chosen.title].filter(Boolean).join(" ")
+        : null;
+    setExample({ event: view.event, label, byClaude: true });
     setChoosing(false);
     onBegin();
     setSimId(view.id);

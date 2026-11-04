@@ -32,6 +32,7 @@ import { pageContextOf, pageObjectOf } from "./pageContext";
 import {
   CLAUDE_PANEL_EVENT,
   CLAUDE_PANEL_ID,
+  setClaudeBeside,
   setClaudePanelStatus,
   type ClaudePanelEventDetail,
 } from "./panelEvents";
@@ -112,6 +113,8 @@ export function ClaudePanelHost() {
   const [incoming, setIncoming] = useState<ComposerDraft | undefined>(undefined);
   const [working, setWorking] = useState(false);
   const [unseen, setUnseen] = useState(false);
+  // D2: la pagina aperta dal riquadro c'è ancora («Back to …»): le sta accanto.
+  const [landed, setLanded] = useState(false);
   const panel = useRef<HTMLElement>(null);
   const opener = useRef<HTMLElement | null>(null);
   const wide = useMediaQuery(WIDE_QUERY);
@@ -200,6 +203,8 @@ export function ClaudePanelHost() {
     });
   }, [open, working, unseen]);
   useEffect(() => () => setClaudePanelStatus({ open: false, signal: null }), []);
+  useEffect(() => setClaudeBeside(open && landed ? width : 0), [open, landed, width]);
+  useEffect(() => () => setClaudeBeside(0), []);
 
   const onKeyDown = (e: ReactKeyboardEvent) => {
     // Esc chiude: prima i menu «#», «@», «/» della casella (lo prendono loro).
@@ -231,6 +236,7 @@ export function ClaudePanelHost() {
           announce={switched && open}
           onClose={close}
           onWorking={setWorking}
+          onLanded={setLanded}
         />
       )}
     </aside>
@@ -243,6 +249,7 @@ function PanelBody({
   announce,
   onClose,
   onWorking,
+  onLanded,
 }: {
   open: boolean;
   /** Il testo da ⌘K non ancora preso, una volta sola. */
@@ -250,6 +257,8 @@ function PanelBody({
   announce: boolean;
   onClose: () => void;
   onWorking: (working: boolean) => void;
+  /** D2: la pagina aperta dal riquadro è arrivata e «Back to» c'è ancora. */
+  onLanded: (landed: boolean) => void;
 }) {
   const { t } = useTranslation();
   const me = useSessionPersonId();
@@ -352,6 +361,9 @@ function PanelBody({
       if (!back.arrived) setBack({ ...back, arrived: true });
     } else if (back.arrived) setBack(null);
   }, [pathname, back]);
+  const landed = back?.arrived === true;
+  useEffect(() => onLanded(landed), [landed, onLanded]);
+  useEffect(() => () => onLanded(false), [onLanded]);
   const goBack = () => {
     if (!back) return;
     const root = document.getElementById(CLAUDE_PANEL_ID);
@@ -453,7 +465,7 @@ function PanelBody({
 }
 
 /** D2: dove torna «Back to …» (l'indirizzo lasciato) e con quale etichetta (il chip di allora). */
-interface BackTo {
+export interface BackTo {
   from: string;
   label: string | null;
   /** La pagina del costruttore aperta dal riquadro. */
@@ -463,9 +475,8 @@ interface BackTo {
 }
 
 /** «← Back to ACQ · Support», sopra il chip: torna all'indirizzo di prima ([AU 7]). */
-function BackRow({ back, onBack }: { back: BackTo; onBack: () => void }) {
+export function BackRow({ back, onBack }: { back: BackTo; onBack: () => void }) {
   const { t } = useTranslation();
-  if (!back.label) return null;
   return (
     <div className="event-enter flex h-8 shrink-0 items-center px-4 text-sm">
       <button
@@ -488,7 +499,12 @@ function BackRow({ back, onBack }: { back: BackTo; onBack: () => void }) {
         >
           <path d="M13 8H3.5M7.5 4 3.5 8l4 4" />
         </svg>
-        <span className="min-w-0 truncate">{t("claude.panel.back", { label: back.label })}</span>
+        <span className="min-w-0 truncate">
+          {back.label
+            ? t("claude.panel.back", { label: back.label })
+            : // Senza il chip di allora c'è comunque la strada indietro (m11).
+              t("claude.panel.backPlain")}
+        </span>
       </button>
     </div>
   );

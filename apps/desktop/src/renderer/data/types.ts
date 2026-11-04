@@ -1165,6 +1165,13 @@ export interface SimulationView {
    * Facoltativo: assente = nessun confronto da mostrare.
    */
   filterChecks?: FilterCheck[];
+  /**
+   * Area 10b (D2): la prova l'ha fatta Claude sul suo esempio — un evento vero
+   * (codice e titolo, come li vede chi l'ha chiesta) o uno scritto da lui. La
+   * pagina della prova adottata lo dice senza riconoscere l'evento da sé.
+   * Facoltativo: assente = una prova fatta a mano.
+   */
+  claudeExample?: { code: string | null; title: string | null; written: boolean };
   error: string | null;
   cursor: string | null;
   /** L'«adesso» della prova (va avanti con «Avanti»). */

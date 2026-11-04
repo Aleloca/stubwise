@@ -395,7 +395,7 @@ export function ProposalCardView({
                       {summary(spoken(t, action.summaryText, action.summary))}
                       {out && (
                         <span className="sr-only">
-                          {` · ${t("claude.conversation.proposal.excluded")}`}
+                          {` · ${t(masculine ? "claude.conversation.proposal.excludedMasculine" : "claude.conversation.proposal.excluded")}`}
                         </span>
                       )}
                     </span>
@@ -554,18 +554,23 @@ function BlockedLine({ id, event }: { id: string; event: Ev<"proposal"> }) {
   const roles = useRoles().data;
   const projects = useProjects().data;
   const projectId = event.actions[0]?.args.projectId;
-  const code = projects?.find((p) => p.id === projectId)?.code ?? "";
+  const code = projects?.find((p) => p.id === projectId)?.code ?? null;
   const role = roles?.find((r) => r.id === event.blocked?.roleId)?.name;
+  const K = "claude.conversation.proposal.blocked";
+  // Senza il codice (il progetto non si legge più) la frase non lo nomina (m9).
+  const text = code
+    ? role
+      ? t(`${K}.escalation`, { role, code })
+      : t(`${K}.escalationNoRole`, { code })
+    : role
+      ? t(`${K}.escalationNoCode`, { role })
+      : t(`${K}.escalationNoRoleNoCode`);
   return (
     <p id={id} data-blocked className="flex min-w-0 items-start gap-2 text-sm text-ink">
       <span className="mt-px text-critical">
         <BlockedGlyph />
       </span>
-      <span className="min-w-0 [overflow-wrap:anywhere]">
-        {role
-          ? t("claude.conversation.proposal.blocked.escalation", { role, code })
-          : t("claude.conversation.proposal.blocked.escalationNoRole", { code })}
-      </span>
+      <span className="min-w-0 [overflow-wrap:anywhere]">{text}</span>
     </p>
   );
 }

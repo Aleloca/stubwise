@@ -3861,8 +3861,11 @@
         },
         "blocked": {
           "escalation": "You can't give the {{role}} role in {{code}}: it has permissions you don't have there.",
-          "escalationNoRole": "You can't give this role in {{code}}: it has permissions you don't have there."
-        }
+          "escalationNoRole": "You can't give this role in {{code}}: it has permissions you don't have there.",
+          "escalationNoCode": "You can't give the {{role}} role: it has permissions you don't have in that project.",
+          "escalationNoRoleNoCode": "You can't give this role: it has permissions you don't have in that project."
+        },
+        "excludedMasculine": "Not included"
       },
       "result": {
         "open": "Open",
@@ -4412,7 +4415,8 @@
       "budgetDraft": "Not sent:",
       "back": "Back to {{label}}",
       "openedTest": "Opened {{code}} in the builder, on the test.",
-      "openedBuilder": "Opened {{code}} in the builder."
+      "openedBuilder": "Opened {{code}} in the builder.",
+      "backPlain": "Back to the previous page"
     },
     "trial": {
       "example": "{{code}} “{{title}}”",
@@ -8045,7 +8049,11 @@
     },
     "fieldLabels": {
       "urgency": "Urgency",
-      "fromSupport": "From support"
+      "fromSupport": "From support",
+      "inSentence": {
+        "urgency": "urgency",
+        "fromSupport": "from support"
+      }
     },
     "createdByClaude": "Created by Claude on behalf of {{name}}"
   },
