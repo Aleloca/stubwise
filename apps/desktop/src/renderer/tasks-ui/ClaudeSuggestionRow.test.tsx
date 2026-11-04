@@ -1,9 +1,13 @@
-import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, cleanup, renderHook, screen, waitFor, within } from "@testing-library/react";
+import type { ReactNode } from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../data/api";
 import { daysFromToday } from "../data/dates";
+import { useAskDecision, useClaudeSuggestion, useUpdateTask } from "../data/queries";
 import { setSessionPersonId } from "../data/session";
+import { ViewerProvider } from "../data/viewer";
 import {
   familyOf,
   notifyInstanceChange,
@@ -11,6 +15,7 @@ import {
   state,
   visibleProjectIds,
 } from "../data/store";
+import { runScript } from "../data/stream";
 import { draftText } from "../data/support/visibility";
 import { setLanguage } from "../i18n";
 import { resetPanelToggle } from "../layout/claudePanel/panelEvents";
@@ -188,15 +193,20 @@ describe("il «mai se» e il budget", () => {
     await waitFor(() => expect(row()).toBeNull());
   });
 
-  it("budget mensile esaurito: nessuna riga in nessuno dei cinque luoghi", async () => {
-    state.instance.simulate.budgetReached = true;
+  it("budget mensile esaurito: in ognuno dei cinque luoghi la riga che c'era se ne va, senza ricaricare (M3)", async () => {
     for (const p of PLACES) {
+      state.instance.simulate.budgetReached = false;
       renderRoute(p.path, p.who);
       await p.ready();
-      // La lettura del blocco e della riga sono arrivate.
-      await waitFor(() => expect(document.querySelector("[data-claude-suggestion]")).toBeNull());
-      await new Promise((r) => setTimeout(r, 20));
-      expect(row()).toBeNull();
+      // La riga c'è: la lettura è viva su questa pagina.
+      await suggestionButton(p.line);
+      act(() => {
+        state.instance.simulate.budgetReached = true;
+        notifyInstanceChange();
+      });
+      // Con il budget esaurito la riga non c'è più: se la regola la lasciasse, questo fallisce.
+      await waitFor(() => expect(row()).toBeNull());
+      expect(screen.queryByRole("button", { name: p.line })).toBeNull();
       cleanup();
     }
   });
@@ -302,6 +312,41 @@ describe("il clic: una conversazione nuova, la richiesta nella casella, non invi
       ).toBe(true),
     );
   });
+
+  it("[SG 6] con una domanda aperta e «Other…» scritto: si tiene il testo della casella, non quello della risposta (I1)", async () => {
+    const user = userEvent.setup();
+    const router = renderRoute("/p/ACQ/support/ACQ-S2", DAVIDE);
+    await screen.findByRole("form", { name: /^Reply to / });
+    await user.keyboard("{Control>}j{/Control}");
+    await waitFor(() => expect(panelBox()).toHaveFocus());
+    await user.type(panelBox(), "What should I do today?{Enter}");
+    await within(panel()).findByText("What should I do today?");
+    const first = state.conversations.at(-1)!.id;
+    // Una domanda aperta nel flusso, con «Other…»: la sua textarea sta PRIMA della casella.
+    const seeded = [...state.conversationEvents.values()]
+      .flat()
+      .find((e) => e.type === "question" && e.answer === null)!;
+    // Una domanda dell'agente (senza `resume`), come evento nuovo: id e ora li dà il flusso.
+    const draft: Record<string, unknown> = { ...structuredClone(seeded), questionId: "q-test" };
+    for (const k of ["id", "at", "resume"]) delete draft[k];
+    await act(() => runScript(first, [{ step: "event", event: draft as never }]));
+    await user.click(await within(panel()).findByRole("button", { name: "Other…" }));
+    const other = panel().querySelectorAll("textarea")[0]!;
+    await user.type(other, "my own answer");
+    await user.type(await within(panel()).findByRole("combobox"), "not sent yet");
+
+    await user.click(await suggestionButton("Claude can help you write the reply"));
+    await waitFor(() => expect(panelBox()).toHaveValue("Write the reply to ACQ-S2"));
+
+    await act(() => router.navigate({ to: "/claude/$id", params: { id: first } }));
+    const page = await screen.findByRole("main");
+    const boxes = () =>
+      within(page)
+        .getAllByRole("combobox")
+        .map((b) => (b as HTMLTextAreaElement).value);
+    await waitFor(() => expect(boxes()).toContain("not sent yet"));
+    expect(boxes()).not.toContain("my own answer");
+  });
 });
 
 describe("«Not now»", () => {
@@ -379,5 +424,64 @@ describe("«Not now»", () => {
     stallOne("OLV");
     renderRoute("/p/OLV/overview", GIULIA);
     await suggestionButton("Claude can help you understand why OLV is stalled");
+  });
+});
+
+describe("le scritture che cambiano la riga la rileggono, senza ricaricare", () => {
+  function hooks<T>(personId: string, use: () => T) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>
+        <ViewerProvider initialPersonId={personId}>{children}</ViewerProvider>
+      </QueryClientProvider>
+    );
+    return renderHook(use, { wrapper }).result;
+  }
+
+  it("una richiesta di decisione sulla task della PR toglie la riga della PR (area releases)", async () => {
+    const result = hooks(LAURA, () => ({
+      row: useClaudeSuggestion({ kind: "pr", prId: "opr-acq-77" }),
+      ask: useAskDecision(),
+    }));
+    await waitFor(() => expect(result.current.row.data?.id).toBe("releaseNotes"));
+    const task = state.tasks.find((t) => t.code === "ACQ-7")!;
+    const askedOfId = state.projectsById.get("prj-acq")!.memberIds.find((id) => id !== LAURA)!;
+    await act(() =>
+      result.current.ask.mutateAsync({
+        taskId: task.id,
+        askedOfId,
+        question: "Which channel first?",
+        options: ["SMS", "Email"],
+      }),
+    );
+    await waitFor(() => expect(result.current.row.data).toBeNull());
+  });
+
+  it("una task che diventa ferma, e poi non più, aggiorna la riga dell'Overview (area pulse)", async () => {
+    const result = hooks(LAURA, () => ({
+      row: useClaudeSuggestion({ kind: "overview", projectId: "prj-acq" }),
+      update: useUpdateTask(),
+    }));
+    await waitFor(() => expect(result.current.row.isSuccess).toBe(true));
+    expect(result.current.row.data).toBeNull();
+    const task = state.tasks.find((t) => t.projectId === "prj-acq" && familyOf(t) !== "closed")!;
+    await act(() =>
+      result.current.update.mutateAsync({
+        id: task.id,
+        patch: {
+          manualStall: {
+            reason: "waiting for the supplier",
+            note: "",
+            since: daysFromToday(-9),
+            byId: LAURA,
+          },
+        },
+      }),
+    );
+    await waitFor(() => expect(result.current.row.data?.id).toBe("whyStalled"));
+    await act(() =>
+      result.current.update.mutateAsync({ id: task.id, patch: { manualStall: null } }),
+    );
+    await waitFor(() => expect(result.current.row.data).toBeNull());
   });
 });

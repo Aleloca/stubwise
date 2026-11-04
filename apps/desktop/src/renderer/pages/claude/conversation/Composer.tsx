@@ -396,6 +396,7 @@ export function Composer({
           )}
           <textarea
             ref={field}
+            data-claude-box
             rows={1}
             value={text}
             aria-label={t("claude.conversation.composer.label")}

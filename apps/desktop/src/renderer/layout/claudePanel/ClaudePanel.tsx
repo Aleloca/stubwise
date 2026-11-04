@@ -278,12 +278,18 @@ function PanelBody({
   // Il testo da ⌘K, anche quello che ha fatto nascere il contenuto. Dalla riga
   // «Claude can help you…» (`fresh`) in una conversazione nuova: il testo non
   // inviato di quella di prima resta suo, e la ritrova chi la riapre ([SG 6]).
+  // Si legge la CASELLA (`data-claude-box`), non la prima textarea: nel flusso
+  // ce ne sono altre prima («Other…» di una domanda, il rifiuto di un piano).
+  // Limite accettato: il testo di una conversazione nuova non ancora inviata
+  // lascia il posto alla richiesta (lo shape protegge solo quella di prima).
   useEffect(() => {
     const incoming = takeIncoming();
     if (!incoming) return;
     if (incoming.fresh) {
       if (conversationId) {
-        const box = document.getElementById(CLAUDE_PANEL_ID)?.querySelector("textarea");
+        const box = document
+          .getElementById(CLAUDE_PANEL_ID)
+          ?.querySelector<HTMLTextAreaElement>("textarea[data-claude-box]");
         if (box?.value.trim()) keepUnsent(me, conversationId, box.value);
       }
       startNew();

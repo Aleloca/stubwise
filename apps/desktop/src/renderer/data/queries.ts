@@ -1133,15 +1133,22 @@ export function useDeleteComment() {
   return useWrite(api.deleteComment, ["activity"]);
 }
 
+/**
+ * Una richiesta di decisione sposta anche la coda dei rilasci: la riga «Claude
+ * can help you write the release notes» non sta accanto a una domanda aperta
+ * sulla task della PR (area 10b, Task 12).
+ */
+const DECISION_REQUEST_AREAS = [...TASK_AREAS, "releases"] as const;
+
 export function useAskDecision() {
-  return useWrite(api.askDecision, TASK_AREAS);
+  return useWrite(api.askDecision, DECISION_REQUEST_AREAS);
 }
 
 export function useAnswerDecision() {
   return useWrite(
     ({ id, answer }: { id: string; answer: { optionIndex: number } | { text: string } }) =>
       api.answerDecision(id, answer),
-    TASK_AREAS,
+    DECISION_REQUEST_AREAS,
   );
 }
 
@@ -1153,7 +1160,7 @@ export function useAnswerDecision() {
  * aree della persona che ha risposto.
  */
 export function useAnswerDecisionNow() {
-  const invalidate = useInvalidate(TASK_AREAS);
+  const invalidate = useInvalidate(DECISION_REQUEST_AREAS);
   return async (id: string, answer: { optionIndex: number } | { text: string }) => {
     // La chiamata parte prima del primo `await`: la sessione si legge ora.
     try {
@@ -1166,7 +1173,7 @@ export function useAnswerDecisionNow() {
 }
 
 export function useWithdrawDecision() {
-  return useWrite(api.withdrawDecision, TASK_AREAS);
+  return useWrite(api.withdrawDecision, DECISION_REQUEST_AREAS);
 }
 
 export function useCreateRequest() {
@@ -1450,17 +1457,22 @@ export function useClaudeSuggestion(place: api.SuggestionPlace | null) {
   const me = useSessionPersonId();
   useConversationChanges();
   const budget = useAiBlock(null).data?.reason ?? null;
+  const placeKey = place ? api.suggestionKeyOf(place) : null;
   return useQuery({
     queryKey: [
       "as",
       me,
       place ? SUGGESTION_AREA[place.kind] : "claudeSuggestion",
       "claudeSuggestion",
-      place ? api.suggestionKeyOf(place) : null,
+      placeKey,
       budget,
     ] as const,
     queryFn: () => (place ? api.getClaudeSuggestion(place) : Promise.resolve(null)),
     enabled: place !== null,
+    // Cambiato solo il budget, la riga di prima resta finché non arriva la
+    // risposta nuova (niente lampo); un altro oggetto non eredita mai la riga.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[4] === placeKey ? previous : undefined,
   });
 }
 

@@ -193,10 +193,12 @@ export function ProjectAutomationsPage({ projectCode }: { projectCode: string })
           </span>
         )}
       </header>
-      {/* Area 10b: «Claude can help you build an automation for ACQ», sopra il contenuto. */}
+      {/* Area 10b: «Claude can help you build an automation for ACQ», sopra il
+          contenuto e larga quanto la sua colonna: i modelli nello stato vuoto
+          (720), le sezioni altrimenti (960), così «Not now» sta al suo bordo. */}
       <ClaudeSuggestionRow
         place={project ? { kind: "automations", projectId: project.id } : null}
-        className="-mt-3 mb-3 max-w-[960px] pr-8"
+        className={`-mt-3 mb-3 pr-8 ${empty && data?.general.length === 0 ? "max-w-[720px]" : "max-w-[960px]"}`}
       />
       {body}
     </section>
