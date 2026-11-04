@@ -11,12 +11,13 @@ import { ago, clock, prProse, prUrl, riskWord, shortRepo, shortSha } from "./for
 import { ExternalGlyph, PrStateWord } from "./glyphs";
 import { MergeButton, MergeExpansion, useMergeFlow } from "./MergeConfirm";
 import { PrActions, PrSimulate } from "./PrActions";
+import { ReleaseNotesField } from "./ReleaseNotesField";
 
 // Il pannello di una PR (`?pr=<id>`, shape releases.md [R 5]): affiancato da
 // 360px come i dettagli del resto dell'app. Testata, analisi di Claude
 // (riassunto e problemi sono SUOI, e lo si dice), correzioni col contatore
-// derivato ([R 13]), azioni, «Simula». Un `?pr=` sconosciuto chiude il
-// pannello senza errore.
+// derivato ([R 13]), le note di rilascio (area 10b), azioni, «Simula». Un
+// `?pr=` sconosciuto chiude il pannello senza errore.
 
 /** La sezione Releases di un progetto: l'unica route su cui si apre il pannello. */
 const SECTION_PATH = /^\/p\/([^/]+)\/releases\/?$/;
@@ -270,6 +271,8 @@ function PrBody({
       </header>
       <Analysis pr={pr} />
       <Corrections pr={pr} />
+      {/* Area 10b: le note si preparano prima del rilascio, accanto alle azioni [DR 9]. */}
+      <ReleaseNotesField pr={pr} />
       <PrActions pr={pr} projectCode={projectCode} />
       <PrSimulate pr={pr} />
     </div>

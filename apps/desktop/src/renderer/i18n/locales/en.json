@@ -4338,6 +4338,65 @@
     "descriptionDraft": {
       "request": "From the request {{code}}, “{{title}}” (urgency: {{level}}):",
       "customer": "In the support conversation {{code}} the customer wrote: “{{text}}”"
+    },
+    "drafts": {
+      "mark": {
+        "label": "Claude's draft",
+        "send": "edit it before sending",
+        "save": "edit it before saving",
+        "used": "Used:",
+        "sr": "Claude's draft, not edited yet."
+      },
+      "pending": {
+        "supportReply": "Writing a draft for the reply to <obj>{{code}}</obj>…",
+        "supportReply_vowel": "Writing a draft for the reply to <obj>{{code}}</obj>…",
+        "releaseNotes": "Writing a draft for the release notes of <obj>{{code}}</obj> · pull request #{{number}}…",
+        "releaseNotesBare": "Writing a draft for the release notes of <obj>{{code}}</obj>…",
+        "mailReply": "Writing a draft for the reply to “{{subject}}”…",
+        "mailNew": "Writing a draft for the new email…",
+        "taskDescription": "Writing a draft for the description of <obj>{{code}}</obj>…"
+      },
+      "placed": {
+        "supportReply": "Put a draft in the reply to <obj>{{code}}</obj>",
+        "supportReply_vowel": "Put a draft in the reply to <obj>{{code}}</obj>",
+        "releaseNotes": "Put a draft in the release notes of <obj>{{code}}</obj> · pull request #{{number}}",
+        "releaseNotesBare": "Put a draft in the release notes of <obj>{{code}}</obj>",
+        "mailReply": "Put a draft in the reply to “{{subject}}”",
+        "mailNew": "Put a draft in the new email",
+        "taskDescription": "Put a draft in the description of <obj>{{code}}</obj>"
+      },
+      "waiting": {
+        "supportReply": "The draft for the reply to <obj>{{code}}</obj> is ready",
+        "supportReply_vowel": "The draft for the reply to <obj>{{code}}</obj> is ready",
+        "releaseNotes": "The draft for the release notes of <obj>{{code}}</obj> · pull request #{{number}} is ready",
+        "releaseNotesBare": "The draft for the release notes of <obj>{{code}}</obj> is ready",
+        "mailReply": "The draft for the reply to “{{subject}}” is ready",
+        "mailNew": "The draft for the new email is ready",
+        "taskDescription": "The draft for the description of <obj>{{code}}</obj> is ready"
+      },
+      "ask": {
+        "reply": "The reply already has text. Replace it, or add the draft below?",
+        "notes": "The release notes already have text. Replace them, or add the draft below?",
+        "email": "The email already has text. Replace it, or add the draft below?",
+        "description": "The description already has text. Replace it, or add the draft below?"
+      },
+      "undone": {
+        "reply": "Undone · the reply is as it was",
+        "notes": "Undone · the release notes are as they were",
+        "email": "Undone · the email is as it was",
+        "description": "Undone · the description is as it was"
+      },
+      "addBelow": "Add below",
+      "replace": "Replace",
+      "put": "Put it in the field",
+      "show": "Show",
+      "showAll": "Show all",
+      "showLess": "Show less",
+      "text": "The draft's text",
+      "changedAfter": "The field changed afterwards · can't undo from here",
+      "gone": "Can't be undone anymore",
+      "other": "Claude put a draft in a field",
+      "descriptionReady": "Claude's draft is in the description of {{code}}. Save it to keep it."
     }
   },
   "chat": {
@@ -5771,14 +5830,7 @@
       "replace": "Replace",
       "about": "About",
       "aboutNone": "No project",
-      "byThreadAndProject": "Draft by Claude from this conversation and {{code}}",
-      "byThread": "Draft by Claude from this conversation",
-      "byProject": "Draft by Claude from {{code}}",
-      "byHint": "Draft by Claude",
-      "editBefore": "edit it before sending",
-      "used": "Used:",
       "late": "late",
-      "edited": "Edited from Claude's draft",
       "claudeFailed": "Claude couldn't write a draft. Your text is unchanged.",
       "tryAgain": "Try again",
       "undo": "Undo",
@@ -8424,6 +8476,19 @@
       "waiting": "A failed release waits on you",
       "openPrs_one": "{{count}} open pull request",
       "openPrs_other": "{{count}} open pull requests"
+    },
+    "notes": {
+      "title": "Release notes",
+      "label": "Release notes",
+      "placeholder": "What changes for the people who use it. One line per task.",
+      "hint": "Shown in the release after the merge.",
+      "save": "Save",
+      "cancel": "Cancel",
+      "saving": "Saving…",
+      "saved": "Saved",
+      "failed": "Couldn't save",
+      "saveAgain": "Save again",
+      "none": "No release notes yet."
     }
   },
   "support": {
@@ -8544,7 +8609,6 @@
       "useDraft": "Use draft",
       "show": "Show",
       "hide": "Hide",
-      "claudeDraft": "Claude's draft",
       "stop": "Stop",
       "saved": "Saved",
       "discard": "Discard",
@@ -8554,9 +8618,6 @@
       "replace": "Replace",
       "addBelow": "Add below",
       "cancel": "Cancel",
-      "draftBy": "Draft by Claude from the conversation · edit it before sending",
-      "draftByWith": "Draft by Claude from the conversation and {{code}} · edit it before sending",
-      "editedFrom": "Edited from Claude's draft",
       "draftFailed": "Claude couldn't write a draft. Your text is unchanged.",
       "tryAgain": "Try again",
       "sentTo": "Sent to {{name}}",
@@ -8571,7 +8632,8 @@
       "emailError": "Couldn't prepare the email.",
       "waitPrevious": "Wait: your previous reply is still in its Undo window",
       "notSentBack": "Not sent. Your reply is back in the box: send it again when you're ready.",
-      "noEmailTriage": "The assistant is still asking the customer questions"
+      "noEmailTriage": "The assistant is still asking the customer questions",
+      "askClaude": "Ask Claude"
     },
     "preview": {
       "title": "What {{name}} sees",

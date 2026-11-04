@@ -16,7 +16,8 @@ import { hasModKey, shortcutLabel } from "../../platform/platform";
 import { primaryButton } from "../claude/conversation/parts";
 import { openGoogleAccount } from "../drive/GoogleAccountCard";
 import { typing } from "../tasks/useTaskKeys";
-import { Composer } from "./Composer";
+import { Composer, type MailFieldBridge } from "./Composer";
+import { useMailBodyField } from "./mailField";
 import { onComposeRequest, requestCompose, takeCompose } from "./composeRequest";
 import { useDiscardedNotice, useUndoSendToast } from "./UndoSendToast";
 import { filtersOf, mailProjectsOf, withoutProject, type MailSearch } from "./mailFilters";
@@ -79,6 +80,16 @@ export function MailPage({
   // Una richiesta arrivata con la nuova email già aperta la rimonta (la bozza
   // tornata si rilegge): nessuna richiesta resta in attesa.
   const [newFocus, setNewFocus] = useState<"body" | "start">("start");
+  // L'email nuova (`compose=new`, non lo slot di Support) è il campo
+  // `mailBody` `null` del riquadro di Claude (D1), finché è aperta.
+  const newBridge = useRef<MailFieldBridge>({ composer: null, queued: null });
+  useMailBodyField({
+    threadId: null,
+    ready: connected && search.compose === "new" && drafts !== undefined,
+    saved: drafts?.find((d) => d.mode === "new" && !d.slot)?.body ?? "",
+    bridge: newBridge,
+    open: () => {},
+  });
   const [newKey, setNewKey] = useState(0);
   useEffect(() => {
     if (!composeNew) return;
@@ -265,6 +276,7 @@ export function MailPage({
         slot={composeSlot}
         threadProjects={[]}
         focus={newFocus}
+        fieldBridge={composeSlot ? undefined : newBridge}
         full
         onClose={() => closeNewEmail()}
         onDiscarded={(snapshot) => {

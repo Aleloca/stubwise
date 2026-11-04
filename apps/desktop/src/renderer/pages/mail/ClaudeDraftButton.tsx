@@ -4,6 +4,7 @@ import { placeDraft } from "../../domain/claude/intents/mailDraft";
 import { useClaudeMailDraft } from "../../data/queries";
 import type { Project } from "../../data/types";
 import { shortcutLabel } from "../../platform/platform";
+import { ClaudeDraftMark, useClaudeDraftMark } from "../../tasks-ui/ClaudeDraftMark";
 import { MenuGroup, RadioItem, Chevron } from "../../tasks-ui/Menu";
 import { MenuButton } from "../tasks/controls";
 import {
@@ -19,9 +20,11 @@ import { AlertGlyph } from "./glyphs";
 // obbligatoria in un'email nuova, con «About: <progetto>»), la domanda
 // «Replace» / «Add below» quando il corpo ha già testo [A 10], lo streaming
 // NEL corpo (che resta in sola lettura, con Stop al posto del bottone) e,
-// finita, la riga che dice da cosa l'ha scritta Claude, con le task citate,
-// «Undo» e «Try again» [A 11]. La bozza è un testo nel campo: niente qui
-// salva o invia — l'invio resta un clic su «Send» di chi scrive.
+// finita, il segno unico «Claude's draft» con le task citate, «Undo» e «Try
+// again» [A 11, DR 7]. La bozza è un testo nel campo: niente qui salva o
+// invia — l'invio resta un clic su «Send» di chi scrive. Area 10b (Task 10):
+// lo stesso segno per la bozza messa dal riquadro di Claude (`fromPanel`),
+// che sparisce alla prima modifica — «Edited from Claude's draft» non c'è più.
 
 /** Il segno di Claude, 16 px: le iniziali nell'anello tratteggiato. */
 export function ClaudeMark() {
@@ -39,8 +42,8 @@ type Stage = "closed" | "hint" | "ask";
 
 /**
  * Lo stato di «Ask Claude» per una casella: il corpo prima di Claude (per
- * «Undo»), il testo messo da Claude (per «Edited from Claude's draft») e,
- * mentre scrive, il corpo da mostrare.
+ * «Undo»), il segno della bozza (`useClaudeDraftMark`) e, mentre scrive, il
+ * corpo da mostrare.
  */
 export function useClaudeDraft({
   threadId,
@@ -58,7 +61,9 @@ export function useClaudeDraft({
   const [stage, setStage] = useState<Stage>("closed");
   const [hint, setHint] = useState("");
   const [about, setAbout] = useState<string | null>(null);
-  const [placed, setPlaced] = useState<string | null>(null);
+  const mark = useClaudeDraftMark(body);
+  /** Le task citate da una bozza del riquadro (i codici dell'evento). */
+  const [panelSources, setPanelSources] = useState<readonly string[]>([]);
   const [announce, setAnnounce] = useState(false);
   const before = useRef<{ body: string; how: "replace" | "below" }>({ body: "", how: "replace" });
   const setBodyRef = useRef(setBody);
@@ -71,7 +76,7 @@ export function useClaudeDraft({
     if (!settled) return;
     const text = placeDraft(before.current.body, settled.text, before.current.how);
     setBodyRef.current(text);
-    setPlaced(text);
+    mark.place(text);
     setAnnounce(true);
   }, [settled]);
 
@@ -86,7 +91,7 @@ export function useClaudeDraft({
   const start = (how: "replace" | "below") => {
     before.current = { body, how };
     setStage("closed");
-    setPlaced(null);
+    mark.clear();
     setAnnounce(false);
     claude.start({ threadId, hint: hint.trim(), ...(newEmail ? { projectId: about } : {}) });
   };
@@ -97,7 +102,7 @@ export function useClaudeDraft({
   };
   const undo = () => {
     setBody(before.current.body);
-    setPlaced(null);
+    mark.clear();
     claude.reset();
   };
 
@@ -112,8 +117,9 @@ export function useClaudeDraft({
     streamingBody: writing ? placeDraft(before.current.body, state.text, before.current.how) : null,
     outcome: settled,
     failed: state.status === "failed",
-    edited: placed !== null && body !== placed,
-    placed: placed !== null,
+    /** Il segno «Claude's draft»: il corpo è ancora il testo di Claude. */
+    marked: mark.shown,
+    panelSources,
     announce,
     newEmail,
     openHint,
@@ -123,10 +129,20 @@ export function useClaudeDraft({
     stop: claude.stop,
     undo,
     tryAgain: () => {
-      setPlaced(null);
+      mark.clear();
       claude.reset();
       openHint();
     },
+    /** Una bozza del riquadro (il testo intero, già al suo posto): il segno, niente «Undo» qui [DR 7]. */
+    fromPanel: (text: string, sources: readonly string[]) => {
+      claude.reset();
+      setStage("closed");
+      setAnnounce(false);
+      setPanelSources(sources);
+      setBodyRef.current(text);
+      mark.place(text);
+    },
+    clearMark: mark.clear,
   };
 }
 
@@ -158,7 +174,6 @@ export function ClaudeDraftButton({ flow }: { flow: ClaudeDraftFlow }) {
       type="button"
       onClick={flow.openHint}
       aria-expanded={flow.stage !== "closed"}
-      title={`${t("mail.compose.ask")} (${shortcutLabel(["mod", "J"])})`}
       className={`${quietButton} text-ink`}
     >
       <ClaudeMark />
@@ -286,14 +301,8 @@ export function ClaudeHintRow({
   );
 }
 
-/** Sotto il corpo: da cosa l'ha scritta Claude, o l'errore. */
-export function ClaudeDraftNote({
-  flow,
-  projects,
-}: {
-  flow: ClaudeDraftFlow;
-  projects: readonly Pick<Project, "id" | "code">[];
-}) {
+/** Sotto il corpo: il segno «Claude's draft» (con le task citate), o l'errore. */
+export function ClaudeDraftNote({ flow, id }: { flow: ClaudeDraftFlow; id: string }) {
   const { t } = useTranslation();
   if (flow.failed) {
     return (
@@ -313,59 +322,43 @@ export function ClaudeDraftNote({
       </p>
     );
   }
+  // Alla prima modifica (o all'invio) la riga sparisce intera.
+  if (!flow.marked) return null;
   const outcome = flow.outcome;
-  if (!outcome || !flow.placed) return null;
-  if (flow.edited) {
-    return (
-      <p className="flex items-center gap-1.5 px-3 pb-2 text-xs text-ink-muted">
-        <ClaudeMark />
-        {t("mail.compose.edited")}
-      </p>
-    );
-  }
-  const code = projects.find((p) => p.id === outcome.projectId)?.code;
-  const by = flow.newEmail
-    ? code
-      ? t("mail.compose.byProject", { code })
-      : t("mail.compose.byHint")
-    : code
-      ? t("mail.compose.byThreadAndProject", { code })
-      : t("mail.compose.byThread");
   const link =
     "rounded-sm font-medium text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink";
+  const sources = outcome
+    ? outcome.used.map((u) => ({
+        code: u.code,
+        title: u.late ? `${u.title} (${t("mail.compose.late")})` : u.title,
+      }))
+    : flow.panelSources.map((code) => ({ code }));
   return (
-    <div className="flex flex-col gap-0.5 px-3 pb-2 text-xs text-ink-muted">
-      {flow.announce && (
+    <div className="flex flex-col px-3 pb-2">
+      {outcome && flow.announce && (
         <span role="status" className="sr-only">
           {t("mail.compose.ready")}
         </span>
       )}
-      <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-        <ClaudeMark />
-        <span>
-          {by} · {t("mail.compose.editBefore")}
-        </span>
-        <span aria-hidden="true">·</span>
-        <button type="button" onClick={flow.undo} className={link}>
-          {t("mail.compose.undo")}
-        </button>
-        <span aria-hidden="true">·</span>
-        <button type="button" onClick={flow.tryAgain} className={link}>
-          {t("mail.compose.tryAgain")}
-        </button>
-      </p>
-      {outcome.used.length > 0 && (
-        <p className="pl-[22px]">
-          {t("mail.compose.used")}{" "}
-          {outcome.used.map((u, i) => (
-            <span key={u.taskId}>
-              {i > 0 && ", "}
-              <span className="num font-semibold text-ink">{u.code}</span> {u.title}
-              {u.late && ` (${t("mail.compose.late")})`}
-            </span>
-          ))}
-        </p>
-      )}
+      <ClaudeDraftMark
+        id={id}
+        action="send"
+        sources={sources}
+        trailing={
+          // «Undo» e «Try again» solo per «Ask Claude»: il gesto è partito da qui [DR 7].
+          outcome ? (
+            <>
+              <button type="button" onClick={flow.undo} className={link}>
+                {t("mail.compose.undo")}
+              </button>
+              <span aria-hidden="true">·</span>
+              <button type="button" onClick={flow.tryAgain} className={link}>
+                {t("mail.compose.tryAgain")}
+              </button>
+            </>
+          ) : undefined
+        }
+      />
     </div>
   );
 }

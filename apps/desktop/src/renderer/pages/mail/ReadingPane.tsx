@@ -21,11 +21,12 @@ import type {
 } from "../../data/types";
 import { useToast } from "../../tasks-ui/Toast";
 import { itemClass } from "../../tasks-ui/Menu";
+import { useMailBodyField } from "./mailField";
 import { typing } from "../tasks/useTaskKeys";
 import { MenuButton } from "../tasks/controls";
 import { fold, searchWords } from "../chat/search";
 import { ArrowLeftGlyph, MoreGlyph } from "./glyphs";
-import { Composer } from "./Composer";
+import { Composer, type MailFieldBridge } from "./Composer";
 import { closeComposer, onComposeRequest, takeCompose, type ComposeRequest } from "./composeRequest";
 import { useDiscardedNotice, useDroppedNotice, useUndoSendToast } from "./UndoSendToast";
 import { MailProposalCard } from "./MailProposalCard";
@@ -149,6 +150,20 @@ export function ReadingPane({
     const saved = drafts.data.find((d) => d.threadId === threadId);
     if (saved && saved.mode !== "new") setCompose({ mode: saved.mode, focus: "none" });
   }, [drafts.data, threadId]);
+
+  // Il corpo della risposta è il campo `mailBody` del riquadro di Claude (D1):
+  // dichiarato dalla conversazione aperta della propria casella, anche a
+  // casella chiusa — mettere la bozza apre «Reply» [DR 6].
+  const bridge = useRef<MailFieldBridge>({ composer: null, queued: null });
+  useMailBodyField({
+    threadId,
+    ready: !!thread.data && !!drafts.data,
+    saved: drafts.data?.find((d) => d.threadId === threadId && d.mode !== "new")?.body ?? "",
+    bridge,
+    open: () => {
+      if (!compose) setCompose({ mode: "reply", focus: "none" });
+    },
+  });
 
   const people = useMemo(() => new Map((peopleList ?? []).map((p) => [p.id, p])), [peopleList]);
   const projectById = useMemo(() => new Map((projects ?? []).map((p) => [p.id, p])), [projects]);
@@ -371,6 +386,7 @@ export function ReadingPane({
         messages={messages}
         threadProjects={threadProjects}
         focus={compose.focus}
+        fieldBridge={bridge}
         onClose={closeCompose}
         onDiscarded={(snapshot) => {
           setCompose(null);

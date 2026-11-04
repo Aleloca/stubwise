@@ -2,10 +2,13 @@ import { useRouter } from "@tanstack/react-router";
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useConversation, useSessionPersonId, useSettlePageEvent } from "../../data/queries";
 import { onStoreReset } from "../../data/store";
-import type { ConversationEvent, PageAction } from "../../data/types";
+import { getSessionPersonId } from "../../data/session";
+import type { ConversationEvent, FieldRef, PageAction } from "../../data/types";
+import { placeDraft } from "../../domain/claude/intents/mailDraft";
 import i18n, { setLanguage, type Language } from "../../i18n";
 import { useTheme } from "../../theme/ThemeProvider";
 import type { ThemePreference } from "../../theme/theme";
+import { fillableFor, subscribeFillable, type FillableField } from "./fillable";
 
 // Le azioni della pagina (area 10b, Task 9; shape `claude-scenarios.md`
 // §3.10): lingua, tema, il filtro della pagina sotto. Non sono dati di
@@ -65,6 +68,7 @@ const subscribe = (l: () => void) => {
 const forget = () => {
   started.clear();
   memory.clear();
+  drafts.clear();
   changed();
 };
 onStoreReset(forget);
@@ -72,6 +76,7 @@ onStoreReset(forget);
 /** Solo per i test: come dopo un ricaricamento, il valore di prima non c'è più. */
 export const __forgetPageEventsForTest = (): void => {
   memory.clear();
+  drafts.clear();
   changed();
 };
 
@@ -119,8 +124,8 @@ function isStale(events: readonly ConversationEvent[], index: number): boolean {
 /**
  * Esegue i `pageAction` `pending` della conversazione: solo se è di chi
  * guarda, una volta per evento (anche dopo altri render), poi li chiude
- * `done` (o `failed` se la pagina non cambia). I `draft` li aggiunge il
- * Task 10 (P22).
+ * `done` (o `failed` se la pagina non cambia). Anche i `draft` (Task 10,
+ * P22): la bozza va nel campo dichiarato della pagina aperta, o aspetta.
  */
 export function usePageEventRunner(conversationId: string | null): void {
   const me = useSessionPersonId();
@@ -164,6 +169,13 @@ export function usePageEventRunner(conversationId: string | null): void {
     let mine = started.get(me);
     if (!mine) started.set(me, (mine = new Set()));
     detail.events.forEach((event, index) => {
+      if (event.type === "draft") {
+        if (event.status !== "pending" || !event.field || mine.has(event.id)) return;
+        mine.add(event.id);
+        // Una bozza vecchia non entra in un campo da sola: aspetta «Put it in the field».
+        startDraft(me, conversationId, event, settle, isStale(detail.events, index));
+        return;
+      }
       if (event.type !== "pageAction" || event.status !== "pending" || mine.has(event.id)) return;
       mine.add(event.id);
       if (isStale(detail.events, index)) {
@@ -250,4 +262,212 @@ export function usePageUndoView(eventId: string): PageUndoView {
   const entry = memory.get(me)?.get(eventId);
   if (!entry) return "gone";
   return entry.outcome ?? "available";
+}
+
+// --- le bozze (Task 10) -------------------------------------------------------
+//
+// Una bozza va SOLO nel campo dichiarato della pagina aperta adesso
+// (`fillableFor`), mai in un campo di un'altra pagina. Campo vuoto: la bozza
+// entra e la riga dice `placed`. Campo con del testo: la riga chiede
+// «Replace or add below?» e il campo non cambia finché non si sceglie. Campo
+// non dichiarato: `waiting`, e «Put it in the field» porta alla pagina e la
+// mette appena il campo si dichiara, una volta sola. Il testo di prima sta
+// solo qui, in memoria per persona: «Undo» lo rimette solo se il campo ha
+// ancora il testo di Claude, altrimenti `changed_after`. Nessun toast.
+
+type DraftEvent = Extract<ConversationEvent, { type: "draft" }>;
+type Settle = (vars: {
+  id: string;
+  eventId: string;
+  status: "placed" | "waiting" | "undone" | "changed_after";
+}) => Promise<unknown>;
+
+interface DraftEntry {
+  conversationId: string;
+  ref: FieldRef;
+  text: string;
+  sources: readonly string[];
+  settle: Settle;
+  /**
+   * `wanted`: «Put it in the field», aspetta che il campo si dichiari;
+   * `asking`: il campo ha testo, la riga chiede; `placed`: il testo è nel campo.
+   */
+  stage: "idle" | "wanted" | "asking" | "placed";
+  /** Il testo del campo prima di Claude, e quello dopo (per «Undo»). */
+  before?: string;
+  after?: string;
+  /** Dopo «Undo» o una modifica: com'è andata (nessuna seconda scrittura). */
+  outcome?: "undone" | "changed_after";
+}
+
+const drafts = new Map<string, Map<string, DraftEntry>>();
+const draftsOf = (personId: string) => {
+  let m = drafts.get(personId);
+  if (!m) drafts.set(personId, (m = new Map()));
+  return m;
+};
+
+const quiet = (p: Promise<unknown>) => void p.catch(() => {});
+
+/** Il testo nel campo, il segno, la memoria per «Undo»; poi `placed`. */
+function place(
+  entry: DraftEntry,
+  eventId: string,
+  field: FillableField,
+  how: "replace" | "below",
+) {
+  const before = field.get();
+  // Prima la memoria, poi il campo: il campo avvisa subito chi ascolta, e il
+  // confronto con il testo di Claude deve già trovarlo.
+  entry.before = before;
+  entry.after = placeDraft(before, entry.text, how);
+  entry.stage = "placed";
+  field.put(entry.text, how, entry.sources);
+  changed();
+  quiet(entry.settle({ id: entry.conversationId, eventId, status: "placed" }));
+}
+
+/** Prova a mettere la bozza: nel campo vuoto la mette, con del testo chiede. */
+function offer(entry: DraftEntry, eventId: string): boolean {
+  const field = fillableFor(entry.ref);
+  if (!field) return false;
+  if (field.get().trim() === "") place(entry, eventId, field, "replace");
+  else {
+    entry.stage = "asking";
+    changed();
+  }
+  return true;
+}
+
+function startDraft(
+  me: string,
+  conversationId: string,
+  event: DraftEvent,
+  settle: Settle,
+  stale: boolean,
+) {
+  const entry: DraftEntry = {
+    conversationId,
+    ref: event.field!,
+    text: event.text,
+    sources: event.sources ?? [],
+    settle,
+    stage: "idle",
+  };
+  draftsOf(me).set(event.id, entry);
+  if (stale || !offer(entry, event.id)) {
+    quiet(settle({ id: conversationId, eventId: event.id, status: "waiting" }));
+  }
+}
+
+/**
+ * La scelta della riga che chiede: «Add below» o «Replace». Il campo deve
+ * essere ancora dichiarato; se la pagina nel frattempo è cambiata la bozza
+ * aspetta (`waiting`). Un secondo clic non scrive.
+ */
+export function answerDraft(eventId: string, how: "replace" | "below"): void {
+  const entry = drafts.get(getSessionPersonId())?.get(eventId);
+  if (!entry || entry.stage !== "asking") return;
+  const field = fillableFor(entry.ref);
+  if (field) {
+    place(entry, eventId, field, how);
+    return;
+  }
+  entry.stage = "idle";
+  changed();
+  quiet(entry.settle({ id: entry.conversationId, eventId, status: "waiting" }));
+}
+
+/**
+ * «Put it in the field»: la bozza aspetta il suo campo; chi chiama porta
+ * alla pagina. Se il campo c'è già la mette (o chiede) subito.
+ */
+export function wantDraft(conversationId: string, event: DraftEvent, settle: Settle): void {
+  if (!event.field) return;
+  const mine = draftsOf(getSessionPersonId());
+  const entry: DraftEntry = mine.get(event.id) ?? {
+    conversationId,
+    ref: event.field,
+    text: event.text,
+    sources: event.sources ?? [],
+    settle,
+    stage: "idle",
+  };
+  if (entry.stage === "placed" || entry.stage === "asking") return;
+  entry.settle = settle;
+  entry.stage = "wanted";
+  mine.set(event.id, entry);
+  changed();
+  offer(entry, event.id);
+}
+
+/**
+ * «Undo» della riga: rimette il testo di prima solo se il campo è aperto e
+ * ha ancora il testo di Claude (`changed_after` altrimenti). Senza memoria
+ * (un ricaricamento, un clic già fatto) o senza la pagina del campo:
+ * `not_undoable`, e niente cambia. Chiudere l'evento tocca a chi chiama.
+ */
+export function undoDraft(eventId: string): "undone" | "changed_after" | "not_undoable" {
+  const entry = drafts.get(getSessionPersonId())?.get(eventId);
+  if (!entry || entry.stage !== "placed" || entry.outcome) return "not_undoable";
+  const field = fillableFor(entry.ref);
+  if (!field) return "not_undoable";
+  entry.outcome = field.get() === entry.after ? "undone" : "changed_after";
+  if (entry.outcome === "undone") field.restore(entry.before ?? "");
+  changed();
+  return entry.outcome;
+}
+
+/**
+ * Il campo dichiarato o cambiato (ogni render della pagina che lo dichiara):
+ * una bozza che lo aspettava ci entra; una bozza messa il cui testo non c'è
+ * più (una modifica, l'invio, Esc) si chiude `changed_after` — «Undo» non
+ * cancella mai le modifiche della persona.
+ */
+subscribeFillable(() => {
+  const mine = drafts.get(getSessionPersonId());
+  if (!mine) return;
+  for (const [eventId, entry] of mine) {
+    if (entry.stage === "wanted") {
+      offer(entry, eventId);
+      continue;
+    }
+    if (entry.stage !== "placed" || entry.outcome) continue;
+    const field = fillableFor(entry.ref);
+    if (!field || field.get() === entry.after) continue;
+    entry.outcome = "changed_after";
+    changed();
+    quiet(entry.settle({ id: entry.conversationId, eventId, status: "changed_after" }));
+  }
+});
+
+/**
+ * Cosa può dire la riga di una bozza a chi l'ha chiesta: aspetta il campo,
+ * chiede, «Undo» (il campo è aperto), com'è andato il clic, o niente memoria
+ * (`gone`). Per gli altri lettori: sempre `gone`.
+ */
+export interface DraftView {
+  stage: DraftEntry["stage"] | "gone";
+  outcome?: "undone" | "changed_after";
+  /** Il campo della bozza è dichiarato adesso (la sua pagina è aperta). */
+  fieldOpen: boolean;
+}
+
+export function useDraftView(eventId: string, ref: FieldRef | null): DraftView {
+  const me = useSessionPersonId();
+  useSyncExternalStore(subscribe, () => version);
+  const fieldOpen = useSyncExternalStore(subscribeFillable, () =>
+    ref ? fillableFor(ref) !== null : false,
+  );
+  const entry = drafts.get(me)?.get(eventId);
+  if (!entry) return { stage: "gone", fieldOpen };
+  return { stage: entry.stage, ...(entry.outcome ? { outcome: entry.outcome } : {}), fieldOpen };
+}
+
+/** «Show»: il fuoco nel campo della bozza, se la sua pagina è aperta. */
+export function focusDraftField(ref: FieldRef): boolean {
+  const field = fillableFor(ref);
+  if (!field?.focus) return false;
+  field.focus();
+  return true;
 }

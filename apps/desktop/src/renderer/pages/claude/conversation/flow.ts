@@ -31,6 +31,8 @@ export type FlowItem =
   | { kind: "executed"; key: string; event: Ev<"executed"> }
   /** Area 10b (Task 9): un'azione della pagina; una `pending` non si disegna (non è ancora vera). */
   | { kind: "pageAction"; key: string; event: Ev<"pageAction"> }
+  /** Area 10b (Task 10): una bozza per un campo; anche `pending` («Writing a draft…», o la domanda). */
+  | { kind: "draft"; key: string; event: Ev<"draft"> }
   | { kind: "work_result"; key: string; event: Ev<"work_result"> };
 
 /** Gli eventi che scrive Claude (e che quindi aprono il suo turno). */
@@ -43,6 +45,7 @@ const CLAUDE_TYPES = new Set<ConversationEvent["type"]>([
   "proposal",
   "executed",
   "pageAction",
+  "draft",
   "work_result",
 ]);
 
@@ -101,6 +104,7 @@ export function flowItems(events: readonly ConversationEvent[]): FlowItem[] {
       case "proposal":
       case "executed":
       case "pageAction":
+      case "draft":
       case "work_result":
         out.push({ kind: event.type, key: event.id, event } as FlowItem);
         break;

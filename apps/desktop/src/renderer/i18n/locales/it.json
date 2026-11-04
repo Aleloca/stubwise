@@ -4338,6 +4338,65 @@
     "descriptionDraft": {
       "request": "Dalla richiesta {{code}}, «{{title}}» (urgenza: {{level}}):",
       "customer": "Nella conversazione di supporto {{code}} il cliente ha scritto: «{{text}}»"
+    },
+    "drafts": {
+      "mark": {
+        "label": "Bozza di Claude",
+        "send": "modificala prima di inviare",
+        "save": "modificala prima di salvare",
+        "used": "Usati:",
+        "sr": "Bozza di Claude, non ancora modificata."
+      },
+      "pending": {
+        "supportReply": "Scrivo una bozza per la risposta a <obj>{{code}}</obj>…",
+        "supportReply_vowel": "Scrivo una bozza per la risposta ad <obj>{{code}}</obj>…",
+        "releaseNotes": "Scrivo una bozza per le note di rilascio di <obj>{{code}}</obj> · pull request #{{number}}…",
+        "releaseNotesBare": "Scrivo una bozza per le note di rilascio di <obj>{{code}}</obj>…",
+        "mailReply": "Scrivo una bozza per la risposta a «{{subject}}»…",
+        "mailNew": "Scrivo una bozza per la nuova email…",
+        "taskDescription": "Scrivo una bozza per la descrizione di <obj>{{code}}</obj>…"
+      },
+      "placed": {
+        "supportReply": "Messa una bozza nella risposta a <obj>{{code}}</obj>",
+        "supportReply_vowel": "Messa una bozza nella risposta ad <obj>{{code}}</obj>",
+        "releaseNotes": "Messa una bozza nelle note di rilascio di <obj>{{code}}</obj> · pull request #{{number}}",
+        "releaseNotesBare": "Messa una bozza nelle note di rilascio di <obj>{{code}}</obj>",
+        "mailReply": "Messa una bozza nella risposta a «{{subject}}»",
+        "mailNew": "Messa una bozza nella nuova email",
+        "taskDescription": "Messa una bozza nella descrizione di <obj>{{code}}</obj>"
+      },
+      "waiting": {
+        "supportReply": "La bozza per la risposta a <obj>{{code}}</obj> è pronta",
+        "supportReply_vowel": "La bozza per la risposta ad <obj>{{code}}</obj> è pronta",
+        "releaseNotes": "La bozza per le note di rilascio di <obj>{{code}}</obj> · pull request #{{number}} è pronta",
+        "releaseNotesBare": "La bozza per le note di rilascio di <obj>{{code}}</obj> è pronta",
+        "mailReply": "La bozza per la risposta a «{{subject}}» è pronta",
+        "mailNew": "La bozza per la nuova email è pronta",
+        "taskDescription": "La bozza per la descrizione di <obj>{{code}}</obj> è pronta"
+      },
+      "ask": {
+        "reply": "La risposta ha già del testo. Lo sostituisco, o aggiungo la bozza sotto?",
+        "notes": "Le note di rilascio hanno già del testo. Lo sostituisco, o aggiungo la bozza sotto?",
+        "email": "L'email ha già del testo. Lo sostituisco, o aggiungo la bozza sotto?",
+        "description": "La descrizione ha già del testo. Lo sostituisco, o aggiungo la bozza sotto?"
+      },
+      "undone": {
+        "reply": "Annullata · la risposta è com'era",
+        "notes": "Annullata · le note di rilascio sono com'erano",
+        "email": "Annullata · l'email è com'era",
+        "description": "Annullata · la descrizione è com'era"
+      },
+      "addBelow": "Aggiungi sotto",
+      "replace": "Sostituisci",
+      "put": "Metti nel campo",
+      "show": "Mostra",
+      "showAll": "Mostra tutto",
+      "showLess": "Mostra meno",
+      "text": "Il testo della bozza",
+      "changedAfter": "Il campo è cambiato dopo · non si annulla da qui",
+      "gone": "Non si annulla più",
+      "other": "Claude ha messo una bozza in un campo",
+      "descriptionReady": "La bozza di Claude è nella descrizione di {{code}}. Salvala per tenerla."
     }
   },
   "chat": {
@@ -5771,14 +5830,7 @@
       "replace": "Sostituisci",
       "about": "Su",
       "aboutNone": "Nessun progetto",
-      "byThreadAndProject": "Bozza di Claude da questa conversazione e da {{code}}",
-      "byThread": "Bozza di Claude da questa conversazione",
-      "byProject": "Bozza di Claude da {{code}}",
-      "byHint": "Bozza di Claude",
-      "editBefore": "modificala prima di inviare",
-      "used": "Usati:",
       "late": "in ritardo",
-      "edited": "Modificata dalla bozza di Claude",
       "claudeFailed": "Claude non è riuscito a scrivere una bozza. Il tuo testo non è cambiato.",
       "tryAgain": "Riprova",
       "undo": "Annulla",
@@ -8424,6 +8476,19 @@
       "waiting": "Un rilascio fallito aspetta te",
       "openPrs_one": "{{count}} pull request aperta",
       "openPrs_other": "{{count}} pull request aperte"
+    },
+    "notes": {
+      "title": "Note di rilascio",
+      "label": "Note di rilascio",
+      "placeholder": "Cosa cambia per chi lo usa. Una riga per task.",
+      "hint": "Compaiono nel rilascio dopo il merge.",
+      "save": "Salva",
+      "cancel": "Annulla",
+      "saving": "Salvataggio…",
+      "saved": "Salvate",
+      "failed": "Non salvate",
+      "saveAgain": "Salva di nuovo",
+      "none": "Ancora nessuna nota di rilascio."
     }
   },
   "support": {
@@ -8544,7 +8609,6 @@
       "useDraft": "Usa la bozza",
       "show": "Mostra",
       "hide": "Nascondi",
-      "claudeDraft": "Bozza di Claude",
       "stop": "Ferma",
       "saved": "Salvata",
       "discard": "Elimina",
@@ -8554,9 +8618,6 @@
       "replace": "Sostituisci",
       "addBelow": "Aggiungi sotto",
       "cancel": "Annulla",
-      "draftBy": "Bozza di Claude dalla conversazione · modificala prima di inviare",
-      "draftByWith": "Bozza di Claude dalla conversazione e da {{code}} · modificala prima di inviare",
-      "editedFrom": "Modificata dalla bozza di Claude",
       "draftFailed": "Claude non è riuscito a scrivere una bozza. Il tuo testo è com'era.",
       "tryAgain": "Riprova",
       "sentTo": "Inviata a {{name}}",
@@ -8571,7 +8632,8 @@
       "emailError": "Non è stato possibile preparare l'email.",
       "waitPrevious": "Aspetta: la risposta di prima è ancora nella finestra dell'Annulla",
       "notSentBack": "Non inviata. La risposta è tornata nella casella: inviala di nuovo quando vuoi.",
-      "noEmailTriage": "L'assistente sta ancora facendo domande al cliente"
+      "noEmailTriage": "L'assistente sta ancora facendo domande al cliente",
+      "askClaude": "Chiedi a Claude"
     },
     "preview": {
       "title": "Cosa vede {{name}}",

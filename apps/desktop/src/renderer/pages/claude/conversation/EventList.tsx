@@ -8,6 +8,7 @@ import { AttachmentChip } from "./AttachmentChip";
 import { ExecutedRow } from "./ExecutedRow";
 import type { Ev, FlowItem } from "./flow";
 import { clock, usePersonName } from "./parts";
+import { DraftRow } from "./DraftRow";
 import { PageActionRow } from "./PageActionRow";
 import { PhaseDivider } from "./PhaseDivider";
 import { PlanCard } from "./PlanCard";
@@ -222,6 +223,15 @@ export function EventList({
               case "pageAction":
                 return (
                   <PageActionRow
+                    conversationId={detail.id}
+                    event={item.event}
+                    viewerId={viewerId}
+                    ownerId={detail.ownerId}
+                  />
+                );
+              case "draft":
+                return (
+                  <DraftRow
                     conversationId={detail.id}
                     event={item.event}
                     viewerId={viewerId}

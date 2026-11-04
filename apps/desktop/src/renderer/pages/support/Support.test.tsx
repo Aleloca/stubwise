@@ -248,24 +248,25 @@ describe("Support — la bozza di Claude e l'invio", () => {
     const before = conv("ACQ-S2").messages.length;
     await user.click(within(form).getByRole("button", { name: "Use draft" }));
     expect(body).toHaveValue(conv("ACQ-S2").claudeDraft);
-    expect(
-      within(form).getByText(/Draft by Claude from the conversation and ACQ-R\d+/),
-    ).toBeInTheDocument();
+    // Il segno unico (area 10b, P12): «Claude's draft», con la richiesta da cui viene.
+    const mark = form.querySelector("[data-claude-draft-mark]");
+    expect(mark).toHaveTextContent("Claude's draft");
+    expect(mark).toHaveTextContent(/Used: ACQ-R\d+/);
     // Nulla è partito.
     expect(conv("ACQ-S2").messages).toHaveLength(before);
     await user.type(body, " Thanks!");
-    expect(within(form).getByText("Edited from Claude's draft")).toBeInTheDocument();
+    expect(form.querySelector("[data-claude-draft-mark]")).toBeNull();
     expect(conv("ACQ-S2").messages).toHaveLength(before);
   });
 
-  it("«Claude's draft» la scrive nel corpo a pezzi; con testo già scritto chiede Replace / Add below", async () => {
+  it("«Ask Claude» la scrive nel corpo a pezzi; con testo già scritto chiede Replace / Add below", async () => {
     const user = userEvent.setup();
     setStreamLatency(0);
     await open("/p/ACQ/support/ACQ-S2");
     const form = await composer();
     const body = within(form).getByRole("textbox", { name: "Message" });
     await user.type(body, "Mine.");
-    await user.click(within(form).getByRole("button", { name: "Claude's draft" }));
+    await user.click(within(form).getByRole("button", { name: "Ask Claude" }));
     await user.click(within(form).getByRole("button", { name: "Add below" }));
     await waitFor(() =>
       expect(
@@ -275,13 +276,13 @@ describe("Support — la bozza di Claude e l'invio", () => {
     expect(conv("ACQ-S2").messages.at(-1)!.from).toBe("customer");
   });
 
-  it("«Claude's draft» fallito: il testo resta, «Try again»", async () => {
+  it("«Ask Claude» fallito: il testo resta, «Try again»", async () => {
     const user = userEvent.setup();
     await open("/p/ACQ/support/ACQ-S2");
     const form = await composer();
     await user.type(within(form).getByRole("textbox", { name: "Message" }), "Keep me");
     failNext("support.draftReply");
-    await user.click(within(form).getByRole("button", { name: "Claude's draft" }));
+    await user.click(within(form).getByRole("button", { name: "Ask Claude" }));
     await user.click(within(form).getByRole("button", { name: "Replace" }));
     const alert = await within(form).findByRole("alert");
     expect(alert).toHaveTextContent("Claude couldn't write a draft. Your text is unchanged.");

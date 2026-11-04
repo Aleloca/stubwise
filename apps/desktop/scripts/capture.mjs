@@ -399,6 +399,105 @@ async function main() {
       return;
     }
 
+    // Area 10b, Task 10 (`CAPTURE_A10B_DRAFTS=1`): le bozze di Claude nei
+    // quattro campi, col segno unico e la riga `draft` nel riquadro (shape
+    // `claude-drafts.md`). Matteo (Support di ACQ) sulla risposta di ACQ-S2;
+    // Laura sulle note della PR #77 e sulla descrizione di ACQ-7; Giulia sulla
+    // risposta alla sua conversazione (la casella si apre da sé, [DR 6]); Matteo da Tasks,
+    // la riga `waiting` col testo e «Put it in the field». Scatti `a10b-drafts-*`.
+    if (process.env.CAPTURE_A10B_DRAFTS) {
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      const panel = (page) => page.locator("#claude-panel");
+      const ask = async (page, text, withChip) => {
+        await page.locator("[data-claude-rail]").click();
+        const box = panel(page).locator("textarea").last();
+        await box.waitFor();
+        // Il chip della pagina riletto all'apertura: parte col messaggio solo se c'è.
+        if (withChip) await panel(page).locator("[data-context-chip]").waitFor();
+        await page.waitForTimeout(400);
+        await box.fill(text);
+        await box.press("Enter");
+        try {
+          await panel(page).locator("[data-draft-row]").first().waitFor({ timeout: 8000 });
+        } catch (error) {
+          throw error;
+        }
+        await page.waitForTimeout(1200);
+      };
+      const scenes = [
+        {
+          name: "support",
+          persona: "Matteo",
+          hash: "/p/ACQ/support/ACQ-S2",
+          en: "write the reply",
+          it: "scrivi la risposta",
+        },
+        {
+          name: "notes",
+          persona: "Laura",
+          hash: "/p/ACQ/releases?pr=opr-acq-77",
+          en: "write the release notes",
+          it: "scrivi le note di rilascio",
+        },
+        {
+          name: "description",
+          persona: "Laura",
+          hash: "/p/ACQ/tasks?task=ACQ-7",
+          en: "write the description",
+          it: "scrivi la descrizione",
+        },
+        { name: "mail", persona: "Giulia", hash: "/mail", en: "write the reply", it: "scrivi la risposta" },
+        {
+          name: "waiting",
+          persona: "Matteo",
+          hash: "/p/ACQ/tasks",
+          en: "write the reply to ACQ-S2",
+          it: "scrivi la risposta ad ACQ-S2",
+        },
+      ];
+      for (const v of variants) {
+        for (const scene of scenes) {
+          const name = `a10b-drafts-${scene.name}-${v.suffix}.png`;
+          if (only && !only.test(name)) continue;
+          const { page, context } = await open(v.scheme, v.viewport, scene.hash, {
+            lang: v.lang,
+            persona: scene.persona,
+          });
+          if (scene.name === "mail") {
+            // La conversazione di Billing, nella casella di Giulia.
+            const thread = await page.evaluate(async () => {
+              const { state } = await import("/data/store.ts");
+              const { MAIL_CASES } = await import("/data/seed/mail/index.ts");
+              return state.mailMessages.find((m) => m.id === MAIL_CASES.shared).threadId;
+            });
+            await page.evaluate((h) => {
+              window.location.hash = h;
+            }, `/mail/${thread}`);
+            await page.locator(`[data-reading-pane="${thread}"]`).waitFor();
+            await page.waitForTimeout(600);
+          }
+          await ask(page, v.lang === "it" ? scene.it : scene.en, scene.name !== "waiting");
+          // Il segno a vista, sotto il testo della bozza (la risposta sta in fondo alla pagina).
+          const mark = page.locator("[data-claude-draft-mark]").first();
+          if (scene.name !== "waiting") {
+            await mark.waitFor();
+            await mark.scrollIntoViewIfNeeded();
+          }
+          await page.mouse.move(v.viewport.width - 2, v.viewport.height - 2);
+          await shot(page, name);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 10b, Task 9 (`CAPTURE_A10B_PAGE=1`): le azioni della pagina dal
     // riquadro (shape `claude-scenarios.md` §3.10). Roberta sull'Overview di
     // ACQ: il filtro delle task di Laura (la pagina sotto passa a Tasks

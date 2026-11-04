@@ -7,7 +7,9 @@ import {
   type SupportConversationView,
 } from "../../data/queries";
 import { placeDraft } from "../../domain/claude/intents/mailDraft";
+import { useFillableField } from "../../layout/claudePanel/fillable";
 import { hasModKey, shortcutLabel } from "../../platform/platform";
+import { ClaudeDraftMark, useClaudeDraftMark } from "../../tasks-ui/ClaudeDraftMark";
 import { useToast } from "../../tasks-ui/Toast";
 import {
   primaryButton,
@@ -31,9 +33,13 @@ import {
 // La casella della risposta al cliente (shape support.md §3, §5): la stessa
 // casella della Posta senza righe d'intestazione. La bozza già pronta di
 // Claude NON riempie la casella [A 9]: «Usa la bozza» la mette nel corpo;
-// «Bozza di Claude» (⌘J) la rigenera a pezzi nel corpo, con Stop. Nulla
+// «Chiedi a Claude» la rigenera a pezzi nel corpo, con Stop [DR 5]. Nulla
 // parte senza «Invia al cliente» (⌘Enter), e l'invio aspetta 5 s per
 // l'«Annulla» [A 11]. Il testo resta della persona che lo scrive (`replyStore`).
+// Area 10b (Task 10): la casella è un campo riempibile (`supportReply`) per
+// il riquadro di Claude, e ogni bozza — il riquadro, «Use draft», «Ask
+// Claude» — porta lo stesso segno, finché il testo è quello di Claude. ⌘J è
+// del riquadro, anche qui dentro [DR 14].
 
 type Ask = "prepared" | "regenerate" | null;
 
@@ -63,7 +69,10 @@ export function ReplyComposer({
   const [saved, setSaved] = useState(body !== "");
   const [showPrepared, setShowPrepared] = useState(false);
   const [ask, setAsk] = useState<Ask>(null);
-  const [placedFrom, setPlacedFrom] = useState<string | null>(null);
+  /** Una bozza di Claude è entrata nel corpo (la riga «Claude prepared a draft» si chiude). */
+  const [drafted, setDrafted] = useState(false);
+  const mark = useClaudeDraftMark(body);
+  const markId = `${id}-mark`;
   const before = useRef<{ body: string; how: "replace" | "below" }>({ body: "", how: "replace" });
   const timer = useRef<number | null>(null);
   useEffect(() => () => void (timer.current && window.clearTimeout(timer.current)), []);
@@ -82,7 +91,8 @@ export function ReplyComposer({
     if (settledText === null) return;
     const text = placeDraft(before.current.body, settledText, before.current.how);
     edit(text);
-    setPlacedFrom(text);
+    mark.place(text);
+    setDrafted(true);
     requestAnimationFrame(() => bodyRef.current?.focus());
   }, [settledText]);
 
@@ -91,19 +101,19 @@ export function ReplyComposer({
     ? placeDraft(before.current.body, (claude.state as { text: string }).text, before.current.how)
     : null;
   const name = customerName(conv, t);
-  const requestCode = conv.request?.code ?? null;
 
   const regenerate = (how: "replace" | "below") => {
     setAsk(null);
     before.current = { body, how };
-    setPlacedFrom(null);
+    mark.clear();
     claude.start(conv.code);
   };
   const usePrepared = (how: "replace" | "below") => {
     setAsk(null);
     const text = placeDraft(body, conv.claudeDraft ?? "", how);
     edit(text);
-    setPlacedFrom(text);
+    mark.place(text);
+    setDrafted(true);
     setShowPrepared(false);
     requestAnimationFrame(() => bodyRef.current?.focus());
   };
@@ -132,7 +142,8 @@ export function ReplyComposer({
     });
     if (!scheduled) return;
     setSaved(false);
-    setPlacedFrom(null);
+    setDrafted(false);
+    mark.clear();
     claude.reset();
     const personId = me;
     toast.show(t("support.reply.sentTo", { name }), {
@@ -152,19 +163,32 @@ export function ReplyComposer({
     if (e.key === "Enter") {
       e.preventDefault();
       send();
-    } else if (e.key.toLowerCase() === "j" && !e.shiftKey) {
-      e.preventDefault();
-      choose("regenerate");
     } else if (e.key === ".") {
       e.preventDefault();
       claude.stop();
     }
   };
 
-  const edited = placedFrom !== null && body !== placedFrom;
-  const draftNote = requestCode
-    ? t("support.reply.draftByWith", { code: requestCode })
-    : t("support.reply.draftBy");
+  // Il campo per il riquadro di Claude (D1): la bozza entra intera, col segno.
+  useFillableField({
+    ref: { kind: "supportReply", conversationId: conv.id },
+    labelKey: "claude.drafts.placed.supportReply",
+    get: () => readDraft(me, conv.code),
+    put: (text, how) => {
+      const next = placeDraft(readDraft(me, conv.code), text, how);
+      edit(next);
+      mark.place(next);
+      setDrafted(true);
+      setShowPrepared(false);
+      setAsk(null);
+    },
+    restore: (text) => {
+      edit(text);
+      mark.clear();
+    },
+    focus: () => bodyRef.current?.focus(),
+  });
+  const request = conv.request;
 
   return (
     <div className="flex flex-col gap-2">
@@ -179,7 +203,7 @@ export function ReplyComposer({
           {t("support.reply.to", { name })} ·{" "}
           {t(conv.channel === "widget" ? "support.reply.inWidget" : "support.reply.inMcp")}
         </p>
-        {conv.claudeDraft && placedFrom === null && !writing && (
+        {conv.claudeDraft && !drafted && !writing && (
           <div className="flex flex-col gap-1 border-b border-rule px-3 py-2 text-xs">
             <p className="flex flex-wrap items-center gap-1.5 text-ink-muted">
               <ClaudeMark />
@@ -232,6 +256,7 @@ export function ReplyComposer({
           <textarea
             ref={bodyRef}
             aria-label={t("support.reply.message")}
+            aria-describedby={mark.shown ? markId : undefined}
             value={body}
             onChange={(e) => edit(e.target.value)}
             rows={4}
@@ -281,10 +306,13 @@ export function ReplyComposer({
             </button>
           </p>
         )}
-        {placedFrom !== null && !writing && (
-          <p role="status" className="border-t border-rule px-3 py-1.5 text-xs text-ink-muted">
-            {edited ? t("support.reply.editedFrom") : draftNote}
-          </p>
+        {mark.shown && !writing && (
+          <ClaudeDraftMark
+            id={markId}
+            action="send"
+            sources={request ? [{ code: request.code, title: request.title }] : []}
+            className="px-3 pb-1.5"
+          />
         )}
         <div className="flex min-h-12 flex-wrap items-center gap-1 border-t border-rule px-2 py-2">
           {writing ? (
@@ -302,10 +330,9 @@ export function ReplyComposer({
               type="button"
               className={quietButton}
               onClick={() => choose("regenerate")}
-              title={`${t("support.reply.claudeDraft")} (${shortcutLabel(["mod", "J"])})`}
             >
               <ClaudeMark />
-              {t("support.reply.claudeDraft")}
+              {t("support.reply.askClaude")}
             </button>
           )}
           <span className="ml-auto flex items-center gap-1">
@@ -320,7 +347,7 @@ export function ReplyComposer({
                 className={quietButton}
                 onClick={() => {
                   edit("");
-                  setPlacedFrom(null);
+                  setDrafted(false);
                 }}
               >
                 {t("support.reply.discard")}

@@ -5,6 +5,7 @@ import {
   useState,
   type DragEvent,
   type KeyboardEvent,
+  type MutableRefObject,
   type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
@@ -25,6 +26,7 @@ import type {
   MailSendResult,
   Project,
 } from "../../data/types";
+import { placeDraft } from "../../domain/claude/intents/mailDraft";
 import { hasModKey, shortcutLabel } from "../../platform/platform";
 import { Menu, MenuGroup, RadioItem, itemClass } from "../../tasks-ui/Menu";
 import {
@@ -66,6 +68,9 @@ import { useComposerDraft } from "./useComposerDraft";
 //   Aprire senza scrivere non crea una bozza.
 // - Nulla parte senza «Send» (o ⌘Enter): né la bozza di Claude, né una
 //   bozza salvata. Mentre Claude scrive, «Send» è spento.
+// - ⌘J è del riquadro di Claude anche qui dentro [DR 14]: «Ask Claude» resta
+//   un bottone. Il corpo è il campo `mailBody` del riquadro (area 10b, D1):
+//   lo dichiara la pagina, la casella lo riempie (`MailFieldBridge`).
 // - Controlli in linea, mai dialoghi: nessun destinatario, un indirizzo non
 //   valido, oltre 10 file o 25 MB, la casella scaduta spengono «Send» con la
 //   ragione nel `title`; l'oggetto vuoto chiede al primo «Send».
@@ -73,6 +78,25 @@ import { useComposerDraft } from "./useComposerDraft";
 type Mode = MailDraft["mode"];
 
 let uploads = 0;
+
+/**
+ * Il ponte fra il campo `mailBody` dichiarato dalla pagina (la conversazione
+ * aperta, o l'email nuova) e la casella: la pagina dichiara il campo anche a
+ * casella chiusa [DR 6], la casella — letta la sua bozza — legge e mette il
+ * corpo. Una bozza arrivata prima aspetta in `queued` ed entra una volta.
+ */
+export interface MailFieldBridge {
+  composer: {
+    get(): string;
+    put(text: string, how: "replace" | "below", sources: readonly string[]): void;
+    restore(text: string): void;
+    focus(): void;
+  } | null;
+  queued:
+    | { kind: "put"; text: string; how: "replace" | "below"; sources: readonly string[] }
+    | { kind: "restore"; text: string }
+    | null;
+}
 
 /** La ragione di un invio rifiutato, in parole. */
 function reasonKey(error: unknown): string {
@@ -108,6 +132,8 @@ export interface ComposerProps {
   onSent: (result: MailSendResult, recipients: MailAddress[]) => void;
   /** Sopra la casella (finestra stretta: «← Back to the conversation»). */
   header?: ReactNode;
+  /** Il campo `mailBody` della pagina, per il riquadro di Claude (D1). */
+  fieldBridge?: MutableRefObject<MailFieldBridge>;
 }
 
 export function Composer(props: ComposerProps) {
@@ -123,6 +149,7 @@ export function Composer(props: ComposerProps) {
     onClose,
     onDiscarded,
     onSent,
+    fieldBridge,
   } = props;
   const { t } = useTranslation();
   const send = useSendMailDraft();
@@ -151,6 +178,7 @@ export function Composer(props: ComposerProps) {
   const attachButton = useRef<HTMLButtonElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const formId = useId();
+  const markId = `${formId}-claude-draft`;
 
   const draft = useComposerDraft({
     threadId,
@@ -178,6 +206,33 @@ export function Composer(props: ComposerProps) {
     setBody: (text) => setFields({ body: text }),
     hintRef,
   });
+  const claudeRef = useRef(claude);
+  claudeRef.current = claude;
+
+  // Il campo del riquadro: a bozza letta la casella lo serve, e mette la
+  // bozza arrivata prima (una volta). Il corpo si legge dal valore vivo.
+  useLayoutEffect(() => {
+    if (!loaded || !fieldBridge) return;
+    const bridge = fieldBridge.current;
+    const api: NonNullable<MailFieldBridge["composer"]> = {
+      get: () => draft.current()?.body ?? "",
+      put: (text, how, sources) =>
+        claudeRef.current.fromPanel(placeDraft(draft.current()?.body ?? "", text, how), sources),
+      restore: (text) => {
+        setFields({ body: text });
+        claudeRef.current.clearMark();
+      },
+      focus: () => bodyRef.current?.focus(),
+    };
+    bridge.composer = api;
+    const queued = bridge.queued;
+    bridge.queued = null;
+    if (queued?.kind === "put") api.put(queued.text, queued.how, queued.sources);
+    else if (queued?.kind === "restore") api.restore(queued.text);
+    return () => {
+      if (bridge.composer === api) bridge.composer = null;
+    };
+  }, [loaded, fieldBridge]);
 
   // Mentre Claude scrive il fuoco resta nella casella (sul corpo in sola
   // lettura): ⌘. ferma, Esc chiude. Finita o fermata (con ⌘. o col clic su
@@ -306,9 +361,6 @@ export function Composer(props: ComposerProps) {
     if (mod && !e.shiftKey && key === "enter") {
       e.preventDefault();
       void doSend();
-    } else if (mod && !e.shiftKey && key === "j") {
-      e.preventDefault();
-      claude.openHint();
     } else if (mod && !e.shiftKey && key === ".") {
       e.preventDefault();
       claude.stop();
@@ -473,6 +525,7 @@ export function Composer(props: ComposerProps) {
           <textarea
             ref={bodyRef}
             aria-label={t("mail.compose.message")}
+            aria-describedby={claude.marked ? markId : undefined}
             value={fields.body}
             onChange={(e) => setFields({ body: e.target.value })}
             placeholder={mode === "new" ? t("mail.compose.bodyNew") : t("mail.compose.bodyReply")}
@@ -480,7 +533,7 @@ export function Composer(props: ComposerProps) {
             className={`max-h-[60vh] min-h-[132px] w-full resize-none bg-transparent px-3 py-2.5 text-md text-ink outline-none placeholder:text-ink-faint ${full ? "flex-1" : ""}`}
           />
         )}
-        <ClaudeDraftNote flow={claude} projects={allProjects} />
+        <ClaudeDraftNote flow={claude} id={markId} />
         {original && mode !== "new" && (
           <div className="flex flex-col gap-2 px-3 pb-2">
             <div className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">

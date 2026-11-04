@@ -361,10 +361,14 @@ describe("La bozza di Claude", () => {
     await waitFor(() =>
       expect((body(form) as HTMLTextAreaElement).value).toContain("It lands on Monday."),
     );
-    expect(
-      await within(form).findByText(/Draft by Claude from this conversation and AUD/),
-    ).toBeInTheDocument();
-    expect(within(form).getByText(/Used:/)).toBeInTheDocument();
+    // Il segno unico (area 10b): «Claude's draft», con le task citate.
+    const mark = await waitFor(() => {
+      const el = form.querySelector("[data-claude-draft-mark]");
+      if (!el) throw new Error("no mark");
+      return el;
+    });
+    expect(mark).toHaveTextContent("Claude's draft");
+    expect(mark).toHaveTextContent(/Used: AUD-\d+/);
     // Nulla parte: né un messaggio né un invio, anche aspettando.
     await new Promise((r) => setTimeout(r, 50));
     expect(state.mailMessages).toHaveLength(sentBefore);
@@ -380,7 +384,8 @@ describe("La bozza di Claude", () => {
     await userEvent.click(within(p).getByRole("button", { name: "Reply" }));
     const form = await composer(/^Reply to /);
     await userEvent.type(body(form), "My own line.");
-    await userEvent.keyboard("{Control>}j{/Control}");
+    // ⌘J è del riquadro di Claude [DR 14]: «Ask Claude» è il bottone.
+    await userEvent.click(within(form).getByRole("button", { name: "Ask Claude" }));
     await userEvent.type(
       within(form).getByRole("textbox", { name: "What should it say? (optional)" }),
       "{Enter}",
@@ -390,11 +395,11 @@ describe("La bozza di Claude", () => {
     ).toBeInTheDocument();
     expect(body(form)).toHaveValue("My own line.");
     await userEvent.click(within(form).getByRole("button", { name: "Add below" }));
-    await within(form).findByText(/Draft by Claude/);
+    await within(form).findByText("Claude's draft");
     expect((body(form) as HTMLTextAreaElement).value.startsWith("My own line.\n\n")).toBe(true);
-    // Una modifica: la riga diventa «Edited from Claude's draft».
+    // Una modifica: il segno sparisce intero (area 10b, «Edited from…» non c'è più).
     await userEvent.type(body(form), "!");
-    expect(within(form).getByText("Edited from Claude's draft")).toBeInTheDocument();
+    expect(form.querySelector("[data-claude-draft-mark]")).toBeNull();
   });
 });
 
@@ -568,7 +573,7 @@ describe("Fix round 1", () => {
     expect(within(form).getByRole("button", { name: "Send" })).toBeDisabled();
     expect(within(form).getByRole("button", { name: "Stop" })).toBeInTheDocument();
     await userEvent.keyboard("{Control>}.{/Control}");
-    await within(form).findByText(/Draft by Claude/);
+    await within(form).findByText("Claude's draft");
     const text = (body(form) as HTMLTextAreaElement).value;
     expect(text.length).toBeGreaterThan(0);
     expect(text).not.toContain("Giulia Ferri");
@@ -690,7 +695,7 @@ describe("Fix round 1", () => {
     // Mentre Claude scrive, chi scrive passa ai destinatari.
     const to = within(form).getByRole("combobox", { name: "To" });
     to.focus();
-    await within(form).findByText(/Draft by Claude/, {}, { timeout: 5000 });
+    await within(form).findByText("Claude's draft", {}, { timeout: 5000 });
     await new Promise((r) => setTimeout(r, 50));
     expect(to).toHaveFocus();
   });
@@ -709,7 +714,7 @@ describe("Fix round 1", () => {
     const writing = await within(form).findByRole("textbox", { name: "Message" });
     await waitFor(() => expect(writing.textContent?.length ?? 0).toBeGreaterThan(0));
     await userEvent.click(within(form).getByRole("button", { name: "Stop" }));
-    await within(form).findByText(/Draft by Claude/);
+    await within(form).findByText("Claude's draft");
     await waitFor(() => expect(body(form)).toHaveFocus());
     expect(within(form).getByRole("button", { name: "Ask Claude" })).not.toHaveFocus();
   });

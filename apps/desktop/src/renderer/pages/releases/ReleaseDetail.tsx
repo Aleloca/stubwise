@@ -18,6 +18,7 @@ import { smallPrimary, smallSecondary } from "../task/parts";
 import { FixDialog, useExplain } from "./FixDialog";
 import { clock, duration, mergedBy, nowSentence, platformOf, prCode, shortSha } from "./format";
 import { ExternalGlyph, ReleaseGlyph } from "./glyphs";
+import { ReleaseNotesProse } from "./ReleaseNotesField";
 import { RunLog } from "./RunLog";
 import { WhoCanLink } from "../../components/WhoCanLink";
 
@@ -344,6 +345,8 @@ export function ReleaseDetail({ projectCode, code }: { projectCode: string; code
           </p>
         </header>
         <NowBox release={release} />
+        {/* Area 10b: le note della PR, copiate al merge; senza note la sezione non c'è. */}
+        <ReleaseNotesProse notes={release.releaseNotes} />
         <Simulate release={release} />
         <section aria-labelledby="release-runs" className="flex flex-col">
           <h2
