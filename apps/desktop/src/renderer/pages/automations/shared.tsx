@@ -14,6 +14,7 @@ import {
 import { can, useViewer } from "../../data/viewer";
 import type { Automation, RunStatus } from "../../data/types";
 import { problemsOf, type Names, type TemplatePart } from "./format";
+import { ClaudeMark } from "../../components/ClaudeMark";
 import { AutomationStatusGlyph, RunStatusGlyph } from "./glyphs";
 
 // I pezzi comuni delle pagine delle Automations: i nomi che le frasi citano,
@@ -215,3 +216,22 @@ export const textLink =
 
 /** Il codice (tabellare, 600) di un'automazione o di un'esecuzione. */
 export const codeClass = "num text-xs font-semibold tracking-[0.02em] text-ink";
+
+/**
+ * «· Created by Claude on behalf of Laura Costa» (area 10b, shape
+ * claude-automations.md §3.6): l'ORIGINE dell'automazione, da `createdVia`.
+ * Resta per sempre, anche dopo l'accensione, le pause e le versioni nuove
+ * (maintainer, [AU 8]); senza il campo, niente.
+ */
+export function CreatedByClaude({ automation }: { automation: Automation }) {
+  const { t } = useTranslation();
+  const names = useNames();
+  if (automation.createdVia !== "claude" || !automation.createdById) return null;
+  return (
+    <span data-created-via className="inline-flex items-center gap-1.5">
+      <span aria-hidden="true">·</span>
+      <ClaudeMark />
+      {t("automations.createdByClaude", { name: names.person(automation.createdById) })}
+    </span>
+  );
+}

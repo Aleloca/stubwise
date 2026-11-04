@@ -142,6 +142,11 @@ describe("route grammar", () => {
     expect(isAppRoute("#/drive?source=google")).toBe(true);
     expect(isAppRoute("#/automations/AUD-A1/edit")).toBe(true);
     expect(isAppRoute("#/automations/AUD-A1/test")).toBe(true);
+    // Area 10b (D2, P9): la prova di Claude da adottare, un id; solo sulla prova.
+    expect(isAppRoute("#/automations/AUD-A1/test?sim=sim-12")).toBe(true);
+    expect(isAppRoute("#/automations/AUD-A1/test?sim=..%2Fx")).toBe(false);
+    expect(isAppRoute("#/automations/AUD-A1/edit?sim=sim-12")).toBe(false);
+    expect(isAppRoute("#/automations?sim=sim-12")).toBe(false);
     expect(isAppRoute("#/automations/AUD-A1/other")).toBe(false);
     expect(isAppRoute("#/automations/AUD-A1?problems=1")).toBe(true);
     expect(isAppRoute("#/automations?problems=1")).toBe(false);

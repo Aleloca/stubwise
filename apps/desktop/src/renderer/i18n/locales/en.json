@@ -3838,6 +3838,30 @@
           "registerPlugin": "register the plugin {{url}}",
           "updatePluginRef": "move a plugin to {{ref}}",
           "saveStorage": "change where files are stored"
+        },
+        "more": {
+          "show_one": "Show {{count}} more",
+          "show_other": "Show {{count}} more",
+          "showFeminine_one": "Show {{count}} more",
+          "showFeminine_other": "Show {{count}} more",
+          "fewer": "Show fewer"
+        },
+        "confirmAllN": "Confirm all {{count}}",
+        "confirmAllNFeminine": "Confirm all {{count}}",
+        "excluded": "Not included",
+        "chooseOneProject": "Choose at least one project.",
+        "chooseOne": "Choose at least one change.",
+        "notes": {
+          "label": "Left out",
+          "notManageable_one": "On {{count}} of these you can't archive",
+          "notManageable_other": "On {{count}} of these you can't archive",
+          "whichProject": "Which project?",
+          "moreBusy_one": "and {{count}} more busy",
+          "moreBusy_other": "and {{count}} more busy"
+        },
+        "blocked": {
+          "escalation": "You can't give the {{role}} role in {{code}}: it has permissions you don't have there.",
+          "escalationNoRole": "You can't give this role in {{code}}: it has permissions you don't have there."
         }
       },
       "result": {
@@ -4032,6 +4056,62 @@
         "savedFilter": "Saved the filter “{{name}}”",
         "onlyYou": "only you see it",
         "private": "private"
+      },
+      "trial": {
+        "label": "Claude's test",
+        "head_one": "Tested on {{count}} example · nothing was created",
+        "head_other": "Tested on {{count}} examples · nothing was created",
+        "testing_one": "Testing on {{count}} example…",
+        "testing_other": "Testing on {{count}} examples…",
+        "open": "Open the test",
+        "written": "Example written by Claude: {{what}}",
+        "writtenPlain": "Example written by Claude",
+        "request": {
+          "high": "an urgent request",
+          "medium": "a medium-urgency request",
+          "low": "a low-urgency request",
+          "any": "a request",
+          "fromSupport": "{{what}} from support"
+        },
+        "data": {
+          "high": "urgent",
+          "medium": "medium urgency",
+          "low": "low urgency",
+          "fromSupport": "from support",
+          "notFromSupport": "not from support"
+        },
+        "done": "would {{parts}}",
+        "parts": {
+          "taskFor_one": "create {{count}} task for {{department}}",
+          "taskFor_other": "create {{count}} tasks for {{department}}",
+          "tasks_one": "create {{count}} task",
+          "tasks_other": "create {{count}} tasks",
+          "emails_one": "send {{count}} email",
+          "emails_other": "send {{count}} emails",
+          "notifications_one": "notify {{count}} person",
+          "notifications_other": "notify {{count}} people",
+          "requests_one": "open {{count}} request",
+          "requests_other": "open {{count}} requests",
+          "milestones_one": "create {{count}} milestone",
+          "milestones_other": "create {{count}} milestones"
+        },
+        "nothing": "nothing would happen with this example",
+        "filteredOut": "Wouldn't start: the start filter doesn't match this example",
+        "thenFor": "{{what}}, then stop here for {{name}}'s approval",
+        "thenAny": "{{what}}, then stop here for an approval",
+        "stopFor": "would stop here for {{name}}'s approval",
+        "stopAny": "would stop here for an approval",
+        "claude": "would stop at the step where Claude reads and decides: open the test to go on",
+        "failed": "would fail before the end",
+        "title": "“{{title}}”"
+      },
+      "aside": {
+        "hypothesis": "Hypothesis",
+        "details": "Details"
+      },
+      "capabilities": {
+        "label": "What I can do",
+        "write": "Write it"
       }
     },
     "destination": {
@@ -4329,7 +4409,10 @@
         "instanceSettings": "Administration → {{section}}"
       },
       "budget": "The monthly AI budget is used up: Claude can't answer until it's raised or the month ends.",
-      "budgetDraft": "Not sent:"
+      "budgetDraft": "Not sent:",
+      "back": "Back to {{label}}",
+      "openedTest": "Opened {{code}} in the builder, on the test.",
+      "openedBuilder": "Opened {{code}} in the builder."
     },
     "trial": {
       "example": "{{code}} “{{title}}”",
@@ -7637,7 +7720,9 @@
         "paused": "Version {{n}} · paused",
         "example": "Example: {{label}}",
         "written": "written by hand",
-        "change": "Change example"
+        "change": "Change example",
+        "exampleByClaude": "Example: {{label}} · chosen by Claude",
+        "writtenByClaude": "Example written by Claude"
       },
       "commands": {
         "label": "Test controls",
@@ -7961,7 +8046,8 @@
     "fieldLabels": {
       "urgency": "Urgency",
       "fromSupport": "From support"
-    }
+    },
+    "createdByClaude": "Created by Claude on behalf of {{name}}"
   },
   "alerts": {
     "title": "Notifications",

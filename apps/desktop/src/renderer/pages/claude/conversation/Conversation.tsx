@@ -34,6 +34,7 @@ import { takeFirstMessage } from "./handoff";
 import { CitationProvider, indexCitations } from "./citations";
 import { Composer, type ComposerDraft, type DraftAttachment } from "./Composer";
 import { EventList, UserMessage, type DeliveryView } from "./EventList";
+import { ComposerWriteContext } from "./CapabilitiesList";
 import { citedRefs, flowItems, type Ev } from "./flow";
 import { ArrowDownGlyph, secondaryButton, StopGlyph, WorkingRing } from "./parts";
 import { WhoCanLink } from "../../../components/WhoCanLink";
@@ -255,6 +256,20 @@ function ConversationBody({
   const continuing = detail.canContinue && onContinue !== undefined;
   /** Si può scrivere qui: nella conversazione stessa o, in una pubblica altrui, in una continuazione. */
   const canCompose = detail.canWrite || continuing;
+
+  // La casella riceve due testi da non inviare: quello del chiamante (⌘K,
+  // PROVA del riquadro) e quello di una voce di S0 (area 10b). Vale l'ultimo
+  // arrivato; i `nonce` delle voci sono negativi, così non si confondono.
+  const [composerDraft, setComposerDraft] = useState<ComposerDraft | undefined>(draft);
+  useEffect(() => {
+    if (draft) setComposerDraft(draft);
+  }, [draft?.nonce]);
+  const ownNonce = useRef(0);
+  const writeToComposer = useCallback(
+    (text: string) =>
+      setComposerDraft({ text, nonce: -(ownNonce.current += 1), placeholders: true }),
+    [],
+  );
 
   // --- pannello stretto: niente colonna avatar, gruppi sempre chiusi; il
   // lato si aggancia a destra solo se resta posto per leggere, altrimenti
@@ -555,7 +570,8 @@ function ConversationBody({
   const working = detail.state === "working";
   const readOnly = !canCompose;
 
-  return (
+  // Area 10b (S0): le voci della risposta onesta scrivono nella casella, se c'è.
+  const body = (
     <CitationProvider value={index}>
       <div
         ref={root}
@@ -731,7 +747,7 @@ function ConversationBody({
               onSend={sendMessage}
               onStop={stopClaude}
               onStopAndSend={(text) => sendMessage(text, [], "stopAndSend")}
-              {...(draft ? { draft } : {})}
+              {...(composerDraft ? { draft: composerDraft } : {})}
               projectMenu={!inPanel}
               budgetBand={inPanel}
             />
@@ -758,6 +774,11 @@ function ConversationBody({
         </div>
       </div>
     </CitationProvider>
+  );
+  return (
+    <ComposerWriteContext.Provider value={canCompose ? writeToComposer : null}>
+      {body}
+    </ComposerWriteContext.Provider>
   );
 }
 

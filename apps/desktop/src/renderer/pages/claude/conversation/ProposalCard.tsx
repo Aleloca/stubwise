@@ -1,4 +1,4 @@
-import { useId, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   useCancelProposal,
@@ -7,24 +7,31 @@ import {
   useEditProposal,
   usePeople,
   useProjects,
+  useRoles,
 } from "../../../data/queries";
 import type {
   ClassReason,
   NewTaskInput,
+  ProposalNote,
   ProposedAction,
   UndoView,
   Utterance,
 } from "../../../data/types";
 import { spoken } from "../../../domain/claude/answers";
+import type { T } from "../../../domain/claude/context";
+import { busyLine } from "../../../domain/claude/intents/archive";
 import { nameList } from "../../../domain/names";
 import { useReauth } from "../../../layout/useReauth";
 import { CheckBox } from "../../../tasks-ui/Menu";
 import { NewRequestDialog } from "../../requests/NewRequestDialog";
 import { NewTaskDialog } from "../../task/NewTaskDialog";
+import { ClaudeMark } from "../../../components/ClaudeMark";
+import { CodeLink } from "../../../components/CodeLink";
 import { WhoCanLink } from "../../../components/WhoCanLink";
-import { dangerSolidButton } from "../../tasks/controls";
+import { itemClass, MenuGroup } from "../../../tasks-ui/Menu";
+import { dangerSolidButton, MenuButton } from "../../tasks/controls";
 import { isMasculineGroup, objectCodesOf } from "./ExecutedRow";
-import type { Ev } from "./flow";
+import { CODE_IN_TEXT, type Ev } from "./flow";
 import { WaitingDot } from "./QuestionCard";
 import {
   AutomationGlyph,
@@ -128,9 +135,7 @@ export function ProposalCard({
     if (chosen.length !== 1)
       return t("claude.conversation.proposal.reauthMany", { count: chosen.length });
     const phrase = reauthPhrases?.[chosen[0]!];
-    return phrase
-      ? t(phrase.key, phrase.params)
-      : t("claude.conversation.proposal.reauthOne");
+    return phrase ? t(phrase.key, phrase.params) : t("claude.conversation.proposal.reauthOne");
   };
   const confirmedCount = event.confirmedActions?.length ?? event.actions.length;
   const codes = objectCodesOf(event);
@@ -202,7 +207,9 @@ export function ProposalCardView({
   const [selected, setSelected] = useState<boolean[]>(() => event.actions.map(() => true));
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<EditState>(null);
+  const [expanded, setExpanded] = useState(false);
   const headingId = useId();
+  const confirmWhyId = useId();
   const resolvedRef = useFocusWhenResolved<HTMLElement>(event.status !== "open");
 
   const own = event.requesterId === viewerId;
@@ -214,6 +221,22 @@ export function ProposalCardView({
   const all = chosen.length === event.actions.length;
   const busy = ops.busy;
   const deletes = event.actions.some((a) => a.fn === "deleteTask");
+  // Area 10b (S4): oltre 5 righe, le prime 5 e «Show N more»; le nascoste
+  // restano nella scelta (spuntate), e il primario dice sempre il numero vero.
+  const masculine = isMasculineGroup(event.actions);
+  const projects = event.actions.every((a) => a.fn === "archiveProject");
+  const overflow = event.actions.length > SHOWN_ROWS;
+  const shownRows = overflow && !expanded ? SHOWN_ROWS : event.actions.length;
+  // Area 10b (S5): la scheda nata bloccata (`escalation`): Confirm spento con la sua frase.
+  const blocked = open && mine ? event.blocked : undefined;
+  const none = many && chosen.length === 0;
+  const confirmWhy = none
+    ? t(
+        projects
+          ? "claude.conversation.proposal.chooseOneProject"
+          : "claude.conversation.proposal.chooseOne",
+      )
+    : null;
   // La scheda di un «Annulla» (I1): ogni riga dice cosa si annulla.
   const summary = (text: string) => {
     const said = event.undoOf ? t("claude.conversation.undo.proposalRow", { action: text }) : text;
@@ -324,7 +347,7 @@ export function ProposalCardView({
     }
   })();
 
-  return (
+  const card = (
     <section
       aria-labelledby={headingId}
       ref={resolvedRef}
@@ -348,8 +371,10 @@ export function ProposalCardView({
         <p className="text-sm text-ink-muted">{cantActNote}</p>
       )}
       <ul className="flex min-w-0 flex-col gap-1">
-        {event.actions.map((action, i) => {
+        {event.actions.slice(0, shownRows).map((action, i) => {
           const ran = event.confirmedActions ? event.confirmedActions.includes(i) : null;
+          const out = mine && open && many && !selected[i];
+          const why = action.why ? <WhyLine why={action.why} /> : null;
           return (
             <li key={i} className="flex min-w-0 items-start gap-2.5 text-md text-ink">
               {mine && open && many ? (
@@ -363,22 +388,55 @@ export function ProposalCardView({
                   <span className="mt-[3px] rounded-[3px] outline-offset-2 peer-focus-visible:outline-2 peer-focus-visible:outline-focus">
                     <CheckBox checked={!!selected[i]} />
                   </span>
-                  <span className="min-w-0 [overflow-wrap:anywhere]">
-                    {summary(spoken(t, action.summaryText, action.summary))}
+                  <span
+                    className={`flex min-w-0 flex-col [overflow-wrap:anywhere] transition-colors duration-[var(--duration-fast)] ease-out ${out ? "text-ink-faint" : ""}`}
+                  >
+                    <span>
+                      {summary(spoken(t, action.summaryText, action.summary))}
+                      {out && (
+                        <span className="sr-only">
+                          {` · ${t("claude.conversation.proposal.excluded")}`}
+                        </span>
+                      )}
+                    </span>
+                    {why}
                   </span>
                 </label>
               ) : (
                 <span
-                  className={`min-w-0 [overflow-wrap:anywhere] ${ran === false ? "text-ink-faint line-through decoration-ink/30" : ""}`}
+                  className={`flex min-w-0 flex-col [overflow-wrap:anywhere] ${ran === false ? "text-ink-faint line-through decoration-ink/30" : ""}`}
                 >
-                  {summary(spoken(t, action.summaryText, action.summary))}
+                  <span>{summary(spoken(t, action.summaryText, action.summary))}</span>
+                  {open && why}
                 </span>
               )}
             </li>
           );
         })}
       </ul>
-      {open && event.reasons && event.reasons.length > 0 && <ReasonRows reasons={event.reasons} />}
+      {overflow && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          className="-mt-1 self-start rounded-md text-sm font-medium text-ink-muted underline decoration-ink/30 underline-offset-2 transition-colors duration-[var(--duration-fast)] ease-out hover:text-ink hover:decoration-ink"
+        >
+          {expanded
+            ? t("claude.conversation.proposal.more.fewer")
+            : t(
+                masculine
+                  ? "claude.conversation.proposal.more.show"
+                  : "claude.conversation.proposal.more.showFeminine",
+                { count: event.actions.length - SHOWN_ROWS },
+              )}
+        </button>
+      )}
+      {open && event.reasons && event.reasons.length > 0 && (
+        <ReasonRows
+          reasons={blocked ? event.reasons.filter((r) => r.kind !== "reauth") : event.reasons}
+        />
+      )}
+      {blocked && <BlockedLine id={confirmWhyId} event={event} />}
       {open && mine ? (
         <div className="flex flex-wrap items-center justify-end gap-2">
           {!many && EDITABLE.has(event.actions[0]!.fn) && (
@@ -393,7 +451,8 @@ export function ProposalCardView({
             type="button"
             // [CA 6] Un'eliminazione nella scheda: rosso pieno, e la parola dice cosa fa.
             className={deletes ? dangerSolidButton : primaryButton}
-            disabled={busy || chosen.length === 0}
+            disabled={busy || chosen.length === 0 || !!blocked}
+            aria-describedby={blocked || confirmWhy ? confirmWhyId : undefined}
             onClick={doConfirm}
           >
             {deletes
@@ -401,9 +460,20 @@ export function ProposalCardView({
               : !many
                 ? t("claude.conversation.proposal.confirm")
                 : all
-                  ? t("claude.conversation.proposal.confirmAll")
+                  ? t(
+                      masculine
+                        ? "claude.conversation.proposal.confirmAllN"
+                        : "claude.conversation.proposal.confirmAllNFeminine",
+                      { count: event.actions.length },
+                    )
                   : t("claude.conversation.proposal.confirmSelected", { count: chosen.length })}
           </button>
+          {confirmWhy && !blocked && (
+            // La frase del Confirm spento per «nessuna spunta», a vista.
+            <span id={confirmWhyId} className="basis-full text-right text-sm text-ink-muted">
+              {confirmWhy}
+            </span>
+          )}
         </div>
       ) : (
         (outcome || after) && (
@@ -438,6 +508,229 @@ export function ProposalCardView({
         />
       )}
     </section>
+  );
+  // Area 10b (S4): le righe a parte stanno SOTTO la scheda, fuori dal contorno.
+  const notes = event.notes ?? [];
+  if (notes.length === 0) return card;
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      {card}
+      <NoteRows notes={notes} />
+    </div>
+  );
+}
+
+/** Quante righe di una scheda in blocco si vedono prima di «Show N more» ([SC 10]). */
+const SHOWN_ROWS = 5;
+/** Quante righe `busy` si nominano prima di «and N more busy». */
+const SHOWN_BUSY = 5;
+
+/** Il perché di una riga, in un fatto: «last activity: Jul 24»; al passaggio data e ora intere. */
+function WhyLine({ why }: { why: Utterance }) {
+  const { t, i18n } = useTranslation();
+  const date = typeof why.params?.date === "string" ? why.params.date : null;
+  const title = date
+    ? new Intl.DateTimeFormat(i18n.language, {
+        dateStyle: "long",
+        ...(date.length > 10 ? { timeStyle: "short" } : {}),
+        timeZone: "UTC",
+      }).format(new Date(date.length > 10 ? date : `${date}T00:00:00Z`))
+    : undefined;
+  return (
+    <span data-why title={title} className="num text-xs text-ink-muted">
+      {spoken(t, why, "")}
+    </span>
+  );
+}
+
+/**
+ * La riga della scheda bloccata (S5, [SC 14]), al posto di quella della
+ * riconferma: ⊘ in `critical` e la frase, col nome del ruolo letto adesso.
+ * È anche la descrizione del Confirm spento (`id`). Nessun «Who?»: non è un
+ * permesso che manca a chi chiede, è un tetto.
+ */
+function BlockedLine({ id, event }: { id: string; event: Ev<"proposal"> }) {
+  const { t } = useTranslation();
+  const roles = useRoles().data;
+  const projects = useProjects().data;
+  const projectId = event.actions[0]?.args.projectId;
+  const code = projects?.find((p) => p.id === projectId)?.code ?? "";
+  const role = roles?.find((r) => r.id === event.blocked?.roleId)?.name;
+  return (
+    <p id={id} data-blocked className="flex min-w-0 items-start gap-2 text-sm text-ink">
+      <span className="mt-px text-critical">
+        <BlockedGlyph />
+      </span>
+      <span className="min-w-0 [overflow-wrap:anywhere]">
+        {role
+          ? t("claude.conversation.proposal.blocked.escalation", { role, code })
+          : t("claude.conversation.proposal.blocked.escalationNoRole", { code })}
+      </span>
+    </p>
+  );
+}
+
+/** ⊘ disegnato: la scheda non si può confermare (non un permesso che manca: un tetto, [SC 14]). */
+const BlockedGlyph = () => (
+  <svg viewBox="0 0 16 16" width={16} height={16} aria-hidden="true" focusable="false">
+    <circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" strokeWidth={1.4} />
+    <path d="m4.2 11.8 7.6-7.6" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" />
+  </svg>
+);
+
+/** Il lucchetto aperto: i progetti che chi chiede vede ma non gestisce. */
+const OpenLockGlyph = () => (
+  <svg
+    viewBox="0 0 16 16"
+    width={16}
+    height={16}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.4}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    focusable="false"
+  >
+    <rect x="3.5" y="7.5" width="9" height="6" rx="1.2" />
+    <path d="M5.5 7.5V5.2a2.5 2.5 0 0 1 4.9-.7" />
+  </svg>
+);
+
+/** Un testo di riga a parte («**BSC** has Claude working on **BSC-3**…») coi codici apribili. */
+function withCodes(text: string): ReactNode {
+  return text.split(/\*\*([^*]+)\*\*/).map((part, i) => {
+    if (i % 2 === 0) return <Fragment key={i}>{part}</Fragment>;
+    if (new RegExp(`^${CODE_IN_TEXT.source}$`).test(part)) return <CodeLink key={i} code={part} />;
+    // Un codice di progetto: chi legge lo vede (le note non nominano mai l'invisibile).
+    if (/^[A-Z]{2,4}$/.test(part)) {
+      return (
+        <a
+          key={i}
+          href={`#/p/${part}/overview`}
+          className="num font-semibold text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
+        >
+          {part}
+        </a>
+      );
+    }
+    return (
+      <strong key={i} className="font-semibold text-ink">
+        {part}
+      </strong>
+    );
+  });
+}
+
+/**
+ * Le righe sotto la scheda (area 10b, S4; shape §3.7): i progetti che chi
+ * chiede vede ma non gestisce, con «Who?» per progetto, poi i progetti
+ * occupati con le ragioni di `busyReasonsOf`. Le legge da `notes`: niente si
+ * deduce qui, e nessuna nomina o conta un progetto invisibile.
+ */
+function NoteRows({ notes }: { notes: readonly ProposalNote[] }) {
+  const { t } = useTranslation();
+  const busy = notes.flatMap((n) =>
+    n.kind === "busy" ? n.reasons.map((r) => ({ code: n.code, reason: r })) : [],
+  );
+  const extra = Math.max(0, busy.length - SHOWN_BUSY);
+  return (
+    <ul
+      aria-label={t("claude.conversation.proposal.notes.label")}
+      className="flex min-w-0 flex-col gap-1.5"
+    >
+      {notes.map((note, i) =>
+        note.kind === "not_manageable" ? (
+          <li key={`n${i}`} className="flex min-w-0 items-start gap-2 text-sm text-ink-muted">
+            <span className="mt-px text-ink">
+              <OpenLockGlyph />
+            </span>
+            <span className="min-w-0 [overflow-wrap:anywhere]">
+              {t("claude.conversation.proposal.notes.notManageable", { count: note.count })}
+              <WhoForNote note={note} />
+            </span>
+          </li>
+        ) : null,
+      )}
+      {busy.slice(0, SHOWN_BUSY).map(({ code, reason }, i) => (
+        <li key={`b${i}`} className="flex min-w-0 items-start gap-2 text-sm text-ink-muted">
+          <span className="mt-[3px] flex size-4 shrink-0 items-start justify-center">
+            <ClaudeMark />
+          </span>
+          <span className="min-w-0 [overflow-wrap:anywhere]">
+            {withCodes(busyLine(t as unknown as T, code, reason))}
+          </span>
+        </li>
+      ))}
+      {extra > 0 && (
+        <li className="pl-6 text-sm text-ink-muted">
+          {t("claude.conversation.proposal.notes.moreBusy", { count: extra })}
+        </li>
+      )}
+    </ul>
+  );
+}
+
+/**
+ * «Who?» dei non gestibili: con un progetto il `WhoCanLink` diretto; con più
+ * progetti prima un menu coi codici e i nomi (solo visibili, `codes`), poi il
+ * «Who?» del progetto scelto ([SC 11]). Senza codici, la riga resta senza.
+ */
+function WhoForNote({ note }: { note: Extract<ProposalNote, { kind: "not_manageable" }> }) {
+  const { t } = useTranslation();
+  const projects = useProjects().data;
+  const codes = note.codes ?? [];
+  const [chosen, setChosen] = useState<string | null>(null);
+  const who = useRef<HTMLSpanElement>(null);
+  // Scelto il progetto, il suo «Who?» si apre subito: è ciò che si è chiesto.
+  useEffect(() => {
+    if (chosen) who.current?.querySelector<HTMLButtonElement>("button")?.click();
+  }, [chosen]);
+  if (codes.length === 0) return null;
+  if (codes.length === 1) {
+    return (
+      <>
+        {" · "}
+        <WhoCanLink action={note.whoAction} projectCode={codes[0]!} />
+      </>
+    );
+  }
+  return (
+    <>
+      {" · "}
+      <MenuButton
+        menuLabel={t("claude.conversation.proposal.notes.whichProject")}
+        className="rounded-sm font-medium text-ink underline-offset-2 hover:underline aria-expanded:underline"
+        label={t("whoCan.link.who")}
+      >
+        {(close) => (
+          <MenuGroup>
+            {codes.map((code) => (
+              <button
+                key={code}
+                type="button"
+                role="menuitem"
+                className={itemClass}
+                onClick={() => {
+                  close();
+                  setChosen(code);
+                }}
+              >
+                <span className="num font-semibold text-ink">{code}</span>
+                <span className="text-ink-muted">
+                  {projects?.find((p) => p.code === code)?.name ?? ""}
+                </span>
+              </button>
+            ))}
+          </MenuGroup>
+        )}
+      </MenuButton>
+      {chosen && (
+        <span ref={who} className="ml-1.5">
+          <WhoCanLink action={note.whoAction} projectCode={chosen} />
+        </span>
+      )}
+    </>
   );
 }
 

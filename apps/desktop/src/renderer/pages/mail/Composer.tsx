@@ -92,6 +92,8 @@ export interface MailFieldBridge {
     put(text: string, how: "replace" | "below", sources: readonly string[]): void;
     restore(text: string): void;
     focus(): void;
+    /** «Ask Claude» sta scrivendo il corpo (T10 m1). */
+    busy(): boolean;
   } | null;
   queued:
     | { kind: "put"; text: string; how: "replace" | "below"; sources: readonly string[] }
@@ -225,6 +227,7 @@ export function Composer(props: ComposerProps) {
         claudeRef.current.clearMark();
       },
       focus: () => bodyRef.current?.focus(),
+      busy: () => claudeRef.current.writing,
     };
     bridge.composer = api;
     const queued = bridge.queued;

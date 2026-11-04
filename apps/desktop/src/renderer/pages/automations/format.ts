@@ -88,6 +88,29 @@ export function triggerWords(
   }
 }
 
+/**
+ * L'inizio col suo filtro (area 10b, D3; shape claude-automations §3.6):
+ * «When a request arrives in ACQ · urgency is high · from support is yes». Una
+ * condizione per parte, dopo « · »; senza filtro, `triggerWords`.
+ */
+export function startWords(
+  trigger: AutomationTrigger,
+  names: Names,
+  labels: Map<string, DataField>,
+  t: TFunction,
+  language: string,
+  projectId: string | null = null,
+): string {
+  const base = triggerWords(trigger, names, t, language, projectId);
+  if (trigger.kind !== "stubwise" || !trigger.filter) return base;
+  const parts = trigger.filter.all ?? [trigger.filter];
+  const words = parts.map((c) => {
+    const w = conditionWords(c, labels, t);
+    return w.charAt(0).toLocaleLowerCase(language) + w.slice(1);
+  });
+  return [base, ...words].join(" · ");
+}
+
 /** L'inizio come complemento: «by a deal won on Audin», «on schedule», «by hand». */
 export function startedByWords(trigger: AutomationTrigger, names: Names, t: TFunction): string {
   switch (trigger.kind) {

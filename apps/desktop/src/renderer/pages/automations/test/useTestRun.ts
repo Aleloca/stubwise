@@ -36,7 +36,14 @@ export function useTestRun({
   ctxFor,
   onBegin,
   onAdvance,
+  adoptSimId = null,
 }: {
+  /**
+   * Area 10b (D2): la prova di Claude da adottare (`?sim=`). Se è di chi
+   * guarda e della versione aperta, la pagina la mostra finita invece del
+   * dialogo degli esempi; altrimenti il dialogo come sempre, senza messaggi.
+   */
+  adoptSimId?: string | null;
   automationId: string;
   versionKey: number | "draft";
   flow: AutomationFlow;
@@ -51,7 +58,7 @@ export function useTestRun({
   const { t } = useTranslation();
   const toast = useToast();
   const [example, setExample] = useState<ChosenExample | null>(null);
-  const [choosing, setChoosing] = useState(true);
+  const [choosing, setChoosing] = useState(adoptSimId === null);
   const [simId, setSimId] = useState<string | null>(null);
   const [startError, setStartError] = useState(false);
   const [configIssues, setConfigIssues] = useState<FlowIssue[] | null>(null);
@@ -66,6 +73,32 @@ export function useTestRun({
   const step = useAutomationSimulationStep();
   const end = useEndAutomationSimulation();
   const sim = useAutomationSimulation(simId).data ?? null;
+
+  // La prova di Claude (D2): si adotta una volta, solo se `getSimulation` la
+  // dà a chi guarda (di un altro o buttata: `null`) e prova questa versione.
+  // Adottata, resta di Claude: uscire o rifarla non la butta (la riga della
+  // conversazione la rilegge per i suoi dati).
+  const adopted = useRef<string | null>(null);
+  const adoptTried = useRef(false);
+  const adopt = useAutomationSimulation(adoptSimId);
+  useEffect(() => {
+    if (adoptSimId === null || adoptTried.current || adopt.isPending) return;
+    adoptTried.current = true;
+    const view = adopt.data ?? null;
+    const sameVersion =
+      view !== null &&
+      view.automationId === automationId &&
+      (versionKey === "draft" ? view.draft : !view.draft && view.version === versionKey);
+    if (!view || !sameVersion) {
+      setChoosing(true);
+      return;
+    }
+    adopted.current = view.id;
+    setExample({ event: view.event, label: null, byClaude: true });
+    setChoosing(false);
+    onBegin();
+    setSimId(view.id);
+  }, [adoptSimId, adopt.isPending, adopt.data]);
 
   // Uscire butta la prova, senza conferma: non c'è niente di vero da perdere.
   // Smontata la pagina, «Run to next stop» si ferma e lo streaming smette.
@@ -82,7 +115,7 @@ export function useTestRun({
         streamTimer.current.done();
         streamTimer.current = null;
       }
-      if (simRef.current) endRef.current(simRef.current);
+      if (simRef.current && simRef.current !== adopted.current) endRef.current(simRef.current);
     };
   }, []);
 
@@ -91,7 +124,7 @@ export function useTestRun({
     const old = simRef.current;
     if (old) {
       setSimId(null);
-      end.mutate(old);
+      if (old !== adopted.current) end.mutate(old);
     }
     try {
       const id = await start.mutateAsync({ automationId, version: versionKey, event: ex.event });
@@ -206,6 +239,8 @@ export function useTestRun({
 
   return {
     sim,
+    /** La prova adottata da `?sim=` (D2): la pagina non le prende il fuoco. */
+    adoptedId: adopted.current,
     example,
     choosing,
     setChoosing,

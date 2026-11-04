@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { childLists, joinPath } from "../../../domain/automations/fields";
 import type { Step } from "../../../data/types";
 import { useAutomations } from "../../../data/queries";
-import { stepSentence, templateParts, triggerWords } from "../format";
+import { stepSentence, templateParts, startWords } from "../format";
 import { ApprovalGlyph, CriticalGlyph, StepGlyph } from "../glyphs";
 import { TemplateText } from "../shared";
 import { asksWords, laneLabel, projectMark } from "../builder/flowWords";
@@ -208,7 +208,14 @@ function StartRow() {
           <StepGlyph kind="trigger" />
         </span>
         <span className="min-w-0 flex-1 text-md text-ink">
-          {triggerWords(ctx.flow.trigger, ctx.names, t, i18n.language, ctx.automation.projectId)}
+          {startWords(
+            ctx.flow.trigger,
+            ctx.names,
+            ctx.labels,
+            t,
+            i18n.language,
+            ctx.automation.projectId,
+          )}
         </span>
         {mark === "filteredOut" && (
           <span data-filtered-out className="shrink-0 pt-0.5 text-sm text-ink">

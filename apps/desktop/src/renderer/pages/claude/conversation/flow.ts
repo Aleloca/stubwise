@@ -33,6 +33,12 @@ export type FlowItem =
   | { kind: "pageAction"; key: string; event: Ev<"pageAction"> }
   /** Area 10b (Task 10): una bozza per un campo; anche `pending` («Writing a draft…», o la domanda). */
   | { kind: "draft"; key: string; event: Ev<"draft"> }
+  /** Area 10b (S1): la prova di Claude; una `skipped` non si disegna (shape [AU 4]). */
+  | { kind: "trial"; key: string; event: Ev<"trial"> }
+  /** Area 10b (S2): «Hypothesis» o «Details», sotto la risposta. */
+  | { kind: "aside"; key: string; event: Ev<"aside"> }
+  /** Area 10b (S0): la risposta onesta, le voci che scrivono nella casella. */
+  | { kind: "capabilities"; key: string; event: Ev<"capabilities"> }
   | { kind: "work_result"; key: string; event: Ev<"work_result"> };
 
 /** Gli eventi che scrive Claude (e che quindi aprono il suo turno). */
@@ -46,6 +52,9 @@ const CLAUDE_TYPES = new Set<ConversationEvent["type"]>([
   "executed",
   "pageAction",
   "draft",
+  "trial",
+  "aside",
+  "capabilities",
   "work_result",
 ]);
 
@@ -60,6 +69,8 @@ export function flowItems(events: readonly ConversationEvent[]): FlowItem[] {
     if (event.type === "executed" && event.status === "pending") continue;
     // Un'azione della pagina non ancora eseguita dal riquadro: la riga direbbe il falso.
     if (event.type === "pageAction" && event.status === "pending") continue;
+    // Una prova saltata (creazione non partita o salita a scheda): nessuna riga.
+    if (event.type === "trial" && event.status === "skipped") continue;
     if (CLAUDE_TYPES.has(event.type) && !claudeTurn) {
       out.push({ kind: "claude", key: `claude-${event.id}`, at: event.at });
       claudeTurn = true;
@@ -105,6 +116,9 @@ export function flowItems(events: readonly ConversationEvent[]): FlowItem[] {
       case "executed":
       case "pageAction":
       case "draft":
+      case "trial":
+      case "aside":
+      case "capabilities":
       case "work_result":
         out.push({ kind: event.type, key: event.id, event } as FlowItem);
         break;

@@ -229,7 +229,8 @@ function TestBand() {
 }
 
 /** La provetta della fascia: lineare, d'inchiostro. */
-function TubeGlyph() {
+/** La provetta della fascia TEST: la usa anche la riga della prova di Claude (area 10b). */
+export function TubeGlyph() {
   return (
     <svg
       viewBox="0 0 16 16"

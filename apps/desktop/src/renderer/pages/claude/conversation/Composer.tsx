@@ -44,6 +44,22 @@ const MAX_LINES = 8;
 export interface ComposerDraft {
   text: string;
   nonce: number;
+  /**
+   * Area 10b (S0): il cursore sul primo segnaposto («[person]») invece che in
+   * fondo; Tab passa al successivo (shape `claude-scenarios.md` §3.5).
+   */
+  placeholders?: boolean;
+}
+
+/** Un segnaposto di una frase d'esempio: una parola fra parentesi quadre. */
+const PLACEHOLDER = /\[[^\]\n]{1,40}\]/g;
+
+/** Il primo segnaposto da `from` in poi, come intervallo da selezionare. */
+export function placeholderAfter(text: string, from: number): [number, number] | null {
+  const re = new RegExp(PLACEHOLDER.source, "g");
+  re.lastIndex = from;
+  const m = re.exec(text);
+  return m ? [m.index, m.index + m[0].length] : null;
 }
 
 /**
@@ -77,9 +93,11 @@ export function useApplyDraft(
       inserted = false;
     }
     if (!inserted) write(draft.text);
+    const slot = draft.placeholders ? placeholderAfter(draft.text, 0) : null;
     requestAnimationFrame(() => {
       el.focus();
-      el.setSelectionRange(draft.text.length, draft.text.length);
+      if (slot) el.setSelectionRange(slot[0], slot[1]);
+      else el.setSelectionRange(draft.text.length, draft.text.length);
     });
     // Solo un `nonce` nuovo riscrive il campo.
   }, [draft?.nonce]);
@@ -237,6 +255,15 @@ export function Composer({
       return;
     }
     if (composer.handleKey(e, options)) return;
+    // Tab da un segnaposto al successivo (S0); senza segnaposti avanti, Tab esce.
+    if (e.key === "Tab" && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      const slot = placeholderAfter(text, e.currentTarget.selectionEnd);
+      if (slot) {
+        e.preventDefault();
+        e.currentTarget.setSelectionRange(slot[0], slot[1]);
+        return;
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       submit();

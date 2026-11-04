@@ -73,6 +73,12 @@ const forget = () => {
 };
 onStoreReset(forget);
 
+/** Solo per i test: come un riquadro ricaricato, nessun evento è già partito. */
+export const __forgetStartedForTest = (): void => {
+  started.clear();
+  changed();
+};
+
 /** Solo per i test: come dopo un ricaricamento, il valore di prima non c'è più. */
 export const __forgetPageEventsForTest = (): void => {
   memory.clear();
@@ -121,18 +127,41 @@ function isStale(events: readonly ConversationEvent[], index: number): boolean {
   return events.slice(index + 1).some((e) => e.type === "user");
 }
 
+/** D2: la prova di Claude che il riquadro apre nel costruttore, e la pagina che lascia. */
+export interface TrialOpening {
+  code: string;
+  /** La prima prova che passa; `null`: nessuna passa, si apre il costruttore (`/edit`, [AU 6]). */
+  simId: string | null;
+  /** L'indirizzo lasciato, per «Back to …». */
+  from: string;
+}
+
 /**
  * Esegue i `pageAction` `pending` della conversazione: solo se è di chi
  * guarda, una volta per evento (anche dopo altri render), poi li chiude
  * `done` (o `failed` se la pagina non cambia). Anche i `draft` (Task 10,
  * P22): la bozza va nel campo dichiarato della pagina aperta, o aspetta.
+ *
+ * Con `onTrial` (solo il riquadro, area 10b D2): la prima prova `done` del
+ * turno IN DIRETTA apre il costruttore sulla prova, una volta sola. «In
+ * diretta» = arrivata mentre questo runner guardava già la conversazione (o
+ * col turno ancora in corso alla prima occhiata): riaprendo una conversazione
+ * finita non si naviga, c'è «Open the test». `onTrial` parte prima della
+ * navigazione, quando la pagina lasciata è ancora quella di prima.
  */
-export function usePageEventRunner(conversationId: string | null): void {
+export function usePageEventRunner(
+  conversationId: string | null,
+  options: { onTrial?: (opening: TrialOpening) => void } = {},
+): void {
   const me = useSessionPersonId();
   const router = useRouter();
   const theme = useTheme();
   const settle = useSettlePageEvent().mutateAsync;
   const detail = useConversation(conversationId ?? "").data;
+  const onTrialRef = useRef(options.onTrial);
+  onTrialRef.current = options.onTrial;
+  /** Le conversazioni già guardate da QUESTO runner: la prima occhiata non è il turno in diretta. */
+  const observed = useRef(new Set<string>());
 
   // La pagina come la vede «Undo»: i valori di ADESSO (il tema dall'ultimo render).
   const themeRef = useRef(theme);
@@ -168,7 +197,18 @@ export function usePageEventRunner(conversationId: string | null): void {
     if (!conversationId || !detail || detail.ownerId !== me) return;
     let mine = started.get(me);
     if (!mine) started.set(me, (mine = new Set()));
+    const live = observed.current.has(conversationId) || detail.state === "working";
+    observed.current.add(conversationId);
     detail.events.forEach((event, index) => {
+      if (event.type === "trial") {
+        if (!onTrialRef.current || event.status !== "done" || !event.code) return;
+        if (mine.has(event.id)) return;
+        mine.add(event.id);
+        // Una conversazione riaperta, o un messaggio dopo la prova: non si naviga.
+        if (live && !isStale(detail.events, index))
+          void openTrial(event.code, event.openSimId ?? null);
+        return;
+      }
       if (event.type === "draft") {
         if (event.status !== "pending" || !event.field || mine.has(event.id)) return;
         mine.add(event.id);
@@ -182,6 +222,15 @@ export function usePageEventRunner(conversationId: string | null): void {
         void settle({ id: conversationId, eventId: event.id, status: "failed" }).catch(() => {});
       } else void run(event);
     });
+
+    async function openTrial(code: string, simId: string | null) {
+      onTrialRef.current?.({ code, simId, from: hrefOf(router) });
+      await router.navigate(
+        (simId
+          ? { to: "/automations/$code/test", params: { code }, search: { sim: simId } }
+          : { to: "/automations/$code/edit", params: { code } }) as never,
+      );
+    }
 
     async function run(event: PageEvent) {
       const action = event.action;
@@ -290,9 +339,11 @@ interface DraftEntry {
   settle: Settle;
   /**
    * `wanted`: «Put it in the field», aspetta che il campo si dichiari;
-   * `asking`: il campo ha testo, la riga chiede; `placed`: il testo è nel campo.
+   * `busy`: il campo è occupato da «Ask Claude» della pagina, la riga resta
+   * `pending` (T10 m1); `asking`: il campo ha testo, la riga chiede;
+   * `placed`: il testo è nel campo.
    */
-  stage: "idle" | "wanted" | "asking" | "placed";
+  stage: "idle" | "wanted" | "busy" | "asking" | "placed";
   /** Il testo del campo prima di Claude, e quello dopo (per «Undo»). */
   before?: string;
   after?: string;
@@ -339,6 +390,15 @@ const stillDraft = (field: FillableField, entry: DraftEntry) =>
 function offer(entry: DraftEntry, eventId: string): boolean {
   const field = fillableFor(entry.ref);
   if (!field) return false;
+  // «Ask Claude» della pagina sta scrivendo: la bozza aspetta che finisca, senza
+  // scrivergli sotto né chiudersi `waiting` (T10 m1). La riprova il prossimo render.
+  if (field.busy?.()) {
+    if (entry.stage !== "busy") {
+      entry.stage = "busy";
+      changed();
+    }
+    return true;
+  }
   const wanted = entry.stage === "wanted";
   if (field.get().trim() === "") {
     place(entry, eventId, field, "replace");
@@ -440,7 +500,7 @@ subscribeFillable(() => {
   const mine = drafts.get(getSessionPersonId());
   if (!mine) return;
   for (const [eventId, entry] of mine) {
-    if (entry.stage === "wanted") {
+    if (entry.stage === "wanted" || entry.stage === "busy") {
       offer(entry, eventId);
       continue;
     }

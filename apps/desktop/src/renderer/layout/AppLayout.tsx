@@ -47,9 +47,16 @@ export function AppLayout() {
   // Il costruttore delle automazioni (shape automation-builder.md [A 4]):
   // sotto i 1200 px la colonna si chiude, così flusso e pannello hanno spazio;
   // la prova (automation-test.md §6) è una sua modalità, e fa lo stesso.
+  // Area 10b ([AU 12]): arrivando dal riquadro di Claude sulla sua prova
+  // (`?sim=`), la colonna si chiude anche a 1440: flusso, anteprima e riquadro.
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const fromClaude = useRouterState({
+    select: (s) => typeof (s.location.search as { sim?: unknown }).sim === "string",
+  });
   const wide = useMediaQuery(DOCKED_PANEL_QUERY);
-  const noColumn = !wide && /^\/automations\/[^/]+\/(edit|test)$/.test(pathname);
+  const noColumn =
+    (!wide && /^\/automations\/[^/]+\/(edit|test)$/.test(pathname)) ||
+    (fromClaude && /^\/automations\/[^/]+\/test$/.test(pathname));
   return (
     <div
       data-column={noColumn ? "closed" : undefined}

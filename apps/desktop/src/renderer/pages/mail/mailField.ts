@@ -63,6 +63,7 @@ export function useMailBodyField({
             if (bridge.current.composer) bridge.current.composer.focus();
             else open();
           },
+          busy: () => bridge.current.composer?.busy() ?? false,
         }
       : null,
   );

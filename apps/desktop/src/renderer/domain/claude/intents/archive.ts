@@ -125,7 +125,7 @@ function noteLine(t: T, note: ProposalNote): string {
 }
 
 /** «**BSC** has Claude working on **BSC-3**: it can be archived when that ends». */
-function busyLine(t: T, code: string, r: ClaudeBusyReason): string {
+export function busyLine(t: T, code: string, r: ClaudeBusyReason): string {
   const K = "claude.answers.archive.busy";
   switch (r.kind) {
     case "claude_session": {

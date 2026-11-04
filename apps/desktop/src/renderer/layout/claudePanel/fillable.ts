@@ -32,6 +32,12 @@ export interface FillableField {
   restore(text: string): void;
   /** «Show» della riga: il fuoco nel campo. */
   focus?(): void;
+  /**
+   * Il campo è occupato: «Ask Claude» della pagina ci sta scrivendo (T10 m1,
+   * shape `claude-drafts.md` §5). La bozza del riquadro aspetta `pending`
+   * finché lo streaming finisce, poi chiede «Replace or add below?».
+   */
+  busy?(): boolean;
 }
 
 /** La chiave stabile di un campo: lo stesso oggetto di dati, la stessa chiave. */

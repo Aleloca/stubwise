@@ -26,8 +26,8 @@ import { Conversation } from "../../pages/claude/conversation/Conversation";
 import { usePersonName } from "../../pages/claude/conversation/parts";
 import { shortcutLabel } from "../../platform/platform";
 import { useMediaQuery } from "../useMediaQuery";
-import { ContextChip } from "./ContextChip";
-import { usePageEventRunner } from "./pageActions";
+import { ContextChip, contextShort } from "./ContextChip";
+import { usePageEventRunner, type TrialOpening } from "./pageActions";
 import { pageContextOf, pageObjectOf } from "./pageContext";
 import {
   CLAUDE_PANEL_EVENT,
@@ -280,8 +280,32 @@ function PanelBody({
   // La conversazione: l'ultima della persona, finché non si preme New.
   const detailQuery = useConversation(conversationId ?? "");
   const detail = conversationId ? detailQuery.data : undefined;
+  const context = usePageContext(open);
+  // Area 10b (D2): finita la prova, il costruttore si apre da sé; il riquadro
+  // resta aperto e in cima dice «Back to <pagina>» (shape claude-automations §3.5).
+  const [back, setBack] = useState<BackTo | null>(null);
+  const [announced, setAnnounced] = useState("");
+  const contextRef = useRef(context);
+  contextRef.current = context;
+  const onTrial = useCallback(
+    (opening: TrialOpening) => {
+      const d = contextRef.current.description;
+      setBack({
+        from: opening.from,
+        label: d ? contextShort(d, t) : null,
+        target: `/automations/${opening.code}/${opening.simId ? "test" : "edit"}`,
+        arrived: false,
+      });
+      setAnnounced(
+        opening.simId
+          ? t("claude.panel.openedTest", { code: opening.code })
+          : t("claude.panel.openedBuilder", { code: opening.code }),
+      );
+    },
+    [t],
+  );
   // Area 10b (Task 9): le azioni della pagina della conversazione, eseguite qui (P22).
-  usePageEventRunner(conversationId);
+  usePageEventRunner(conversationId, { onTrial });
   const working = detail?.state === "working";
   useEffect(() => {
     onWorking(working);
@@ -320,7 +344,25 @@ function PanelBody({
     return () => watch.disconnect();
   }, [conversationId]);
 
+  // «Back to» sparisce al primo cambio di pagina fatto dalla persona ([AU 7]).
+  const pathname = useRouterState({ select: (st) => st.location.pathname });
+  useEffect(() => {
+    if (!back) return;
+    if (pathname === back.target) {
+      if (!back.arrived) setBack({ ...back, arrived: true });
+    } else if (back.arrived) setBack(null);
+  }, [pathname, back]);
+  const goBack = () => {
+    if (!back) return;
+    const root = document.getElementById(CLAUDE_PANEL_ID);
+    setBack(null);
+    void navigate({ href: back.from } as never);
+    // La riga sparisce col fuoco sopra: torna nella casella, mai sul body.
+    requestAnimationFrame(() => root?.querySelector<HTMLTextAreaElement>("textarea")?.focus());
+  };
+
   const startNew = () => {
+    setBack(null);
     lastConversation.delete(me);
     refocus.current = true;
     setConversationId(null);
@@ -334,8 +376,6 @@ function PanelBody({
     setArchivedNotice(false);
     setConversationId(id);
   };
-
-  const context = usePageContext(open);
 
   const title = conversationId
     ? detail?.title || t("claude.panel.newConversation")
@@ -372,7 +412,11 @@ function PanelBody({
           <path d="M4 4l8 8M12 4l-8 8" />
         </HeaderButton>
       </header>
+      {back && <BackRow back={back} onBack={goBack} />}
       <ContextRow context={context} />
+      <p role="status" aria-live="polite" className="sr-only" data-panel-announce>
+        {announced}
+      </p>
       {notice && (
         <p role="status" className="shrink-0 px-4 pt-3 text-sm text-ink-muted">
           {t("claude.panel.nowShowing", { name })}
@@ -405,6 +449,48 @@ function PanelBody({
         )}
       </div>
     </>
+  );
+}
+
+/** D2: dove torna «Back to …» (l'indirizzo lasciato) e con quale etichetta (il chip di allora). */
+interface BackTo {
+  from: string;
+  label: string | null;
+  /** La pagina del costruttore aperta dal riquadro. */
+  target: string;
+  /** Il costruttore è stato raggiunto: da qui un cambio di pagina toglie la riga. */
+  arrived: boolean;
+}
+
+/** «← Back to ACQ · Support», sopra il chip: torna all'indirizzo di prima ([AU 7]). */
+function BackRow({ back, onBack }: { back: BackTo; onBack: () => void }) {
+  const { t } = useTranslation();
+  if (!back.label) return null;
+  return (
+    <div className="event-enter flex h-8 shrink-0 items-center px-4 text-sm">
+      <button
+        type="button"
+        onClick={onBack}
+        className="inline-flex min-w-0 items-center gap-1.5 rounded-md text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:text-ink"
+      >
+        <svg
+          viewBox="0 0 16 16"
+          width={14}
+          height={14}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.4}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+          focusable="false"
+          className="shrink-0"
+        >
+          <path d="M13 8H3.5M7.5 4 3.5 8l4 4" />
+        </svg>
+        <span className="min-w-0 truncate">{t("claude.panel.back", { label: back.label })}</span>
+      </button>
+    </div>
   );
 }
 

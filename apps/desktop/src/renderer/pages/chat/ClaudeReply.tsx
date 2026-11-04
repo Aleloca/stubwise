@@ -16,6 +16,7 @@ import { Markdown } from "../../tasks-ui/Markdown";
 import { itemClass, MenuGroup } from "../../tasks-ui/Menu";
 import { useToast } from "../../tasks-ui/Toast";
 import { ActionRows } from "../claude/conversation/ActionRows";
+import { AsideRow } from "../claude/conversation/AsideRow";
 import {
   HiddenCode,
   hiddenCodesOf,
@@ -46,7 +47,10 @@ type Ev<K extends ConversationEvent["type"]> = Extract<ConversationEvent, { type
 type Block =
   | { kind: "actions"; actions: Ev<"action">[] }
   | { kind: "proposal"; event: Ev<"proposal"> }
-  | { kind: "question"; event: Ev<"question"> };
+  | { kind: "question"; event: Ev<"question"> }
+  /** Area 10b (P11): la risposta onesta e «Hypothesis»/«Details» si disegnano anche qui. */
+  | { kind: "capabilities"; event: Ev<"capabilities"> }
+  | { kind: "aside"; event: Ev<"aside"> };
 
 function blocksOf(events: readonly ConversationEvent[]): Block[] {
   const out: Block[] = [];
@@ -57,6 +61,8 @@ function blocksOf(events: readonly ConversationEvent[]): Block[] {
       else out.push({ kind: "actions", actions: [e] });
     } else if (e.type === "proposal") out.push({ kind: "proposal", event: e });
     else if (e.type === "question") out.push({ kind: "question", event: e });
+    else if (e.type === "capabilities") out.push({ kind: "capabilities", event: e });
+    else if (e.type === "aside") out.push({ kind: "aside", event: e });
   }
   return out;
 }
@@ -228,6 +234,27 @@ export function ClaudeReply({
             )}
             {used.length > 0 && <UsedLine refs={used} />}
             {blocks.map((b) => {
+              // S0 nella Chat: l'elenco come testo, senza bottoni né frasi d'esempio
+              // (non c'è una casella da riempire, shape [SC 7]).
+              if (b.kind === "capabilities") {
+                return (
+                  <ul
+                    key={b.event.id}
+                    aria-label={t("claude.conversation.capabilities.label")}
+                    className="flex flex-col gap-0.5 text-md text-ink"
+                  >
+                    {b.event.items.map((id) => (
+                      <li key={id} className="flex gap-1.5">
+                        <span aria-hidden="true" className="text-ink-faint">
+                          ·
+                        </span>
+                        {t(`claude.answers.capabilities.label.${id}`)}
+                      </li>
+                    ))}
+                  </ul>
+                );
+              }
+              if (b.kind === "aside") return <AsideRow key={b.event.id} event={b.event} />;
               if (b.kind === "question") {
                 const e = b.event;
                 if (e.answer === null && !live) {

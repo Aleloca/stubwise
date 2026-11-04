@@ -181,6 +181,8 @@ export interface AppSearch {
   step?: string;
   /** Automations: si arriva al costruttore dall'elenco (`list`); AI → Usage: l'inizio dell'intervallo libero (`AAAA-MM-GG`). */
   from?: string;
+  /** Automations: la prova di Claude da adottare nella pagina della prova (area 10b, D2). */
+  sim?: string;
   /** AI → Usage (area 9b): la fine dell'intervallo libero e la seconda dimensione della tabella. */
   to?: string;
   then?: string;

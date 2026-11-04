@@ -4,7 +4,10 @@ import { ContextNote } from "../../../layout/claudePanel/ContextChip";
 import { ActionRows } from "./ActionRows";
 import { CommandRows, isServerCommand } from "./CommandRows";
 import { AssistantMessage, CitationRow, ClaudeHeader } from "./AssistantMessage";
+import { AsideRow } from "./AsideRow";
 import { AttachmentChip } from "./AttachmentChip";
+import { CapabilitiesList } from "./CapabilitiesList";
+import { TrialRow } from "./TrialRow";
 import { ExecutedRow } from "./ExecutedRow";
 import type { Ev, FlowItem } from "./flow";
 import { clock, usePersonName } from "./parts";
@@ -238,6 +241,12 @@ export function EventList({
                     ownerId={detail.ownerId}
                   />
                 );
+              case "trial":
+                return <TrialRow event={item.event} />;
+              case "aside":
+                return <AsideRow event={item.event} />;
+              case "capabilities":
+                return <CapabilitiesList event={item.event} projectCode={projectCode} />;
               case "work_result":
                 return <WorkResultRow event={item.event} />;
             }

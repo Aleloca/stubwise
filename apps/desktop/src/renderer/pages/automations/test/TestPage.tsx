@@ -1,10 +1,11 @@
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { stepAt } from "../../../domain/automations/fields";
 import {
   useAutomation,
   useAutomations,
+  useAutomationSimulationExamples,
   useAutomationSources,
   useSessionPersonId,
 } from "../../../data/queries";
@@ -19,7 +20,7 @@ import { NotVisible, useNames } from "../shared";
 import { numbersById, stepNumbers } from "../numbering";
 import { Blocked } from "./Blocked";
 import { flowPathOf, TestContext, type TestState } from "./context";
-import { ExampleDialog } from "./ExampleDialog";
+import { ExampleDialog, exampleLine as exampleWords } from "./ExampleDialog";
 import { defaultRound, indexLog } from "./marks";
 import { currentPathOf, PreviewPanel } from "./PreviewPanel";
 import { Summary } from "./Summary";
@@ -41,10 +42,12 @@ const TERMINAL = new Set(["done", "failed", "cancelled"]);
 /** `#/automations/<CODE>/test` */
 export function TestRoutePage({ code }: { code: string }) {
   const { viewer } = useViewer();
-  return <TestByCode key={`${viewer.personId}:${code}`} code={code} />;
+  // `?sim=`: la prova di Claude da adottare (area 10b, D2).
+  const sim = (useSearch({ strict: false }) as { sim?: string }).sim ?? null;
+  return <TestByCode key={`${viewer.personId}:${code}`} code={code} sim={sim} />;
 }
 
-function TestByCode({ code }: { code: string }) {
+function TestByCode({ code, sim }: { code: string; sim: string | null }) {
   const { t } = useTranslation();
   const list = useAutomations();
   const id = list.data?.find((x) => x.code === code)?.id ?? null;
@@ -62,7 +65,7 @@ function TestByCode({ code }: { code: string }) {
   if (id === null || !detail.data) return <NotVisible what="automation" />;
   // La prova è uno strumento di chi costruisce ([A 13]).
   if (!detail.data.automation.permissions.manage) return <CantTest code={code} />;
-  return <Test detail={detail.data} />;
+  return <Test detail={detail.data} adoptSimId={sim} />;
 }
 
 function TestSkeleton() {
@@ -101,8 +104,11 @@ function CantTest({ code }: { code: string }) {
   );
 }
 
-function Test({ detail }: { detail: AutomationDetail }) {
-  const { t } = useTranslation();
+/** Il fuoco è nel riquadro di Claude: la pagina che cambia sotto non lo prende (D2). */
+const focusInClaude = () => !!document.activeElement?.closest("[data-claude-panel]");
+
+function Test({ detail, adoptSimId }: { detail: AutomationDetail; adoptSimId: string | null }) {
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const names = useNames();
   const me = useSessionPersonId();
@@ -140,10 +146,23 @@ function Test({ detail }: { detail: AutomationDetail }) {
       setRounds({});
     },
     onAdvance: () => setSelected(null),
+    adoptSimId,
   });
   const { sim, example, choosing, setChoosing, startError, configIssues, busy, stream } = run;
   const { begin, send, runToStop } = run;
   const ix = useMemo(() => (sim ? indexLog(sim) : null), [sim]);
+  // L'esempio scelto da Claude: la sua riga fra gli esempi veri che chi guarda
+  // vede; non c'è (scritto da Claude): «Example written by Claude».
+  const examples = useAutomationSimulationExamples(
+    example?.byClaude ? a.id : null,
+    versionKey,
+  ).data;
+  const claudeExample = useMemo(() => {
+    if (!example?.byClaude || !examples) return null;
+    const key = JSON.stringify(example.event);
+    const found = examples.find((e) => JSON.stringify(e.event) === key);
+    return found ? exampleWords(found, i18n.language) : null;
+  }, [example, examples, i18n.language]);
 
   // Errori di configurazione: la prova non parte e dice dove ([A 5]).
   const knownIssues = draft ? detail.configErrors : detail.liveErrors;
@@ -166,6 +185,7 @@ function Test({ detail }: { detail: AutomationDetail }) {
     wasStopped.current = true;
     setPanelOpen(true);
     const id = window.setTimeout(() => {
+      if (focusInClaude()) return;
       panelRef.current?.querySelector<HTMLElement>("[data-stop-primary]")?.focus();
     }, 0);
     return () => window.clearTimeout(id);
@@ -176,8 +196,13 @@ function Test({ detail }: { detail: AutomationDetail }) {
   useEffect(() => {
     if (!finishKey) return;
     setSelected(null);
+    // La prova adottata è già finita all'arrivo: la pagina che si apre sotto il
+    // riquadro non prende il fuoco, e a 1024 l'anteprima sovrapposta resta
+    // chiusa finché non si sceglie una riga (D2, shape claude-automations §6).
+    if (sim!.id === run.adoptedId) return;
     setPanelOpen(true);
     const id = window.setTimeout(() => {
+      if (focusInClaude()) return;
       panelRef.current?.querySelector<HTMLElement>("[data-summary-heading]")?.focus();
     }, 0);
     return () => window.clearTimeout(id);
@@ -290,9 +315,13 @@ function Test({ detail }: { detail: AutomationDetail }) {
     { n: version.n },
   );
   const exampleLine = example
-    ? t("automations.test.meta.example", {
-        label: example.label ?? t("automations.test.meta.written"),
-      })
+    ? example.byClaude
+      ? claudeExample
+        ? t("automations.test.meta.exampleByClaude", { label: claudeExample })
+        : t("automations.test.meta.writtenByClaude")
+      : t("automations.test.meta.example", {
+          label: example.label ?? t("automations.test.meta.written"),
+        })
     : null;
   // D3 (area 10b): un esempio che il filtro dell'inizio esclude non è una prova finita bene.
   const filteredOut = !!sim?.filteredOut;

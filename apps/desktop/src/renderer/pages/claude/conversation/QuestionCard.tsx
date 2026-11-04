@@ -46,16 +46,21 @@ export function QuestionCard({
   const { t } = useTranslation();
   const answer = useAnswerQuestion();
   const owner = usePersonName(ownerId);
+  // Area 10b: la scheda di scelta nella libera (`resume`) non è una domanda
+  // dell'agente: risponde solo chi ha aperto la conversazione, e le opzioni
+  // sono tutte quelle possibili (niente «Other…», shape [SC 8]).
+  const free = event.resume !== undefined;
   return (
     <QuestionCardView
       event={event}
       canAnswer={canAnswer}
       pending={answer.isPending}
+      allowOther={!free}
       onAnswer={(payload) =>
         answer.mutateAsync({ id: conversationId, questionId: event.questionId, answer: payload })
       }
       note={
-        projectCode ? (
+        projectCode && !free ? (
           <>
             {t("claude.conversation.question.whoCanAnswer", { name: owner, code: projectCode })}{" "}
             <WhoCanLink action="approvePlan" projectCode={projectCode} />
@@ -82,9 +87,12 @@ export function QuestionCardView({
   note,
   title,
   renderText,
+  allowOther = true,
 }: {
   event: Ev<"question">;
   canAnswer: boolean;
+  /** «Other…» per una risposta libera: no nella scheda di scelta della libera ([SC 8]). */
+  allowOther?: boolean;
   pending: boolean;
   onAnswer: (payload: { optionIndex: number | null; text: string | null }) => Promise<unknown>;
   note: ReactNode;
@@ -191,7 +199,7 @@ export function QuestionCardView({
             </li>
           );
         })}
-        {canAnswer && (
+        {canAnswer && allowOther && (
           <li>
             {other === null ? (
               <button

@@ -10,7 +10,7 @@ import {
   triggerFields,
 } from "../../../domain/automations/fields";
 import type { Step } from "../../../data/types";
-import { stepSentence, triggerWords } from "../format";
+import { stepSentence, startWords } from "../format";
 import { ApprovalGlyph, CriticalGlyph, Disclosure, StepGlyph, WarningGlyph } from "../glyphs";
 import { useBuilder } from "./context";
 import {
@@ -77,7 +77,7 @@ export function StartRow({ ctx }: { ctx: RowCtx }) {
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className={`text-md ${chosen ? "text-ink" : "font-medium text-critical"}`}>
           {chosen
-            ? triggerWords(tr, b.names, t, i18n.language, b.automation.projectId)
+            ? startWords(tr, b.names, b.labels, t, i18n.language, b.automation.projectId)
             : t("automations.builder.start.choose")}
         </span>
         {chosen && (

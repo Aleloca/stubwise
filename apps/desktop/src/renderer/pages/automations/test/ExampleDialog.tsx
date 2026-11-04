@@ -26,6 +26,8 @@ export interface ChosenExample {
   event: Record<string, unknown>;
   /** La riga leggibile («Deal won · Rossi Srl»), o null se scritto a mano. */
   label: string | null;
+  /** Area 10b (D2): l'esempio l'ha scelto (o scritto) Claude, nella prova adottata. */
+  byClaude?: boolean;
 }
 
 type Values = Record<string, unknown>;
@@ -223,7 +225,7 @@ export function ExampleDialog({
 }
 
 /** «Rossi Srl · CRM + Website · €18,400 · Oct 24». */
-function exampleLine(e: SimulationExample, language: string): string {
+export function exampleLine(e: SimulationExample, language: string): string {
   const parts = [e.label];
   const amount = lookup(e.event, "trattativa.importo");
   if (typeof amount === "number")

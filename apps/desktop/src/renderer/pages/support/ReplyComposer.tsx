@@ -193,6 +193,8 @@ export function ReplyComposer({
       mark.clear();
     },
     focus: () => bodyRef.current?.focus(),
+    // «Ask Claude» sta scrivendo qui: la bozza del riquadro aspetta (T10 m1).
+    busy: () => writing,
   });
   const request = conv.request;
 

@@ -3838,6 +3838,30 @@
           "registerPlugin": "registrare il plugin {{url}}",
           "updatePluginRef": "portare un plugin a {{ref}}",
           "saveStorage": "cambiare dove si salvano i file"
+        },
+        "more": {
+          "show_one": "Mostra l'altro",
+          "show_other": "Mostra altri {{count}}",
+          "showFeminine_one": "Mostra l'altra",
+          "showFeminine_other": "Mostra altre {{count}}",
+          "fewer": "Mostra meno"
+        },
+        "confirmAllN": "Conferma tutti e {{count}}",
+        "confirmAllNFeminine": "Conferma tutte e {{count}}",
+        "excluded": "Esclusa",
+        "chooseOneProject": "Scegli almeno un progetto.",
+        "chooseOne": "Scegli almeno una modifica.",
+        "notes": {
+          "label": "Rimasti fuori",
+          "notManageable_one": "Su {{count}} di questi non puoi archiviare",
+          "notManageable_other": "Su {{count}} di questi non puoi archiviare",
+          "whichProject": "Quale progetto?",
+          "moreBusy_one": "e un altro con lavoro in corso",
+          "moreBusy_other": "e altri {{count}} con lavoro in corso"
+        },
+        "blocked": {
+          "escalation": "Non puoi dare il ruolo {{role}} in {{code}}: ha permessi che tu lì non hai.",
+          "escalationNoRole": "Non puoi dare questo ruolo in {{code}}: ha permessi che tu lì non hai."
         }
       },
       "result": {
@@ -4032,6 +4056,62 @@
         "savedFilter": "Salvato il filtro «{{name}}»",
         "onlyYou": "lo vedi solo tu",
         "private": "privato"
+      },
+      "trial": {
+        "label": "La prova di Claude",
+        "head_one": "Provata su {{count}} esempio · non è nato niente",
+        "head_other": "Provata su {{count}} esempi · non è nato niente",
+        "testing_one": "La provo su {{count}} esempio…",
+        "testing_other": "La provo su {{count}} esempi…",
+        "open": "Apri la prova",
+        "written": "Esempio scritto da Claude: {{what}}",
+        "writtenPlain": "Esempio scritto da Claude",
+        "request": {
+          "high": "una richiesta urgente",
+          "medium": "una richiesta di urgenza media",
+          "low": "una richiesta di urgenza bassa",
+          "any": "una richiesta",
+          "fromSupport": "{{what}} dal supporto"
+        },
+        "data": {
+          "high": "urgente",
+          "medium": "urgenza media",
+          "low": "urgenza bassa",
+          "fromSupport": "dal supporto",
+          "notFromSupport": "non dal supporto"
+        },
+        "done": "{{parts}}",
+        "parts": {
+          "taskFor_one": "creerebbe {{count}} task per {{department}}",
+          "taskFor_other": "creerebbe {{count}} task per {{department}}",
+          "tasks_one": "creerebbe {{count}} task",
+          "tasks_other": "creerebbe {{count}} task",
+          "emails_one": "manderebbe {{count}} email",
+          "emails_other": "manderebbe {{count}} email",
+          "notifications_one": "avviserebbe {{count}} persona",
+          "notifications_other": "avviserebbe {{count}} persone",
+          "requests_one": "aprirebbe {{count}} richiesta",
+          "requests_other": "aprirebbe {{count}} richieste",
+          "milestones_one": "creerebbe {{count}} traguardo",
+          "milestones_other": "creerebbe {{count}} traguardi"
+        },
+        "nothing": "con questo esempio non succederebbe niente",
+        "filteredOut": "Non partirebbe: il filtro dell'inizio non vale per questo esempio",
+        "thenFor": "{{what}}, poi si fermerebbe qui per l'approvazione di {{name}}",
+        "thenAny": "{{what}}, poi si fermerebbe qui per un'approvazione",
+        "stopFor": "si fermerebbe qui per l'approvazione di {{name}}",
+        "stopAny": "si fermerebbe qui per un'approvazione",
+        "claude": "si fermerebbe al passo in cui Claude legge e decide: apri la prova per andare avanti",
+        "failed": "non arriverebbe alla fine",
+        "title": "«{{title}}»"
+      },
+      "aside": {
+        "hypothesis": "Ipotesi",
+        "details": "Dettagli"
+      },
+      "capabilities": {
+        "label": "Cosa so fare",
+        "write": "Scrivila"
       }
     },
     "destination": {
@@ -4329,7 +4409,10 @@
         "instanceSettings": "Amministrazione → {{section}}"
       },
       "budget": "Il budget mensile per l'AI è esaurito: Claude non può rispondere finché non viene alzato o non finisce il mese.",
-      "budgetDraft": "Non inviato:"
+      "budgetDraft": "Non inviato:",
+      "back": "Torna a {{label}}",
+      "openedTest": "Aperta {{code}} nel costruttore, sulla prova.",
+      "openedBuilder": "Aperta {{code}} nel costruttore."
     },
     "trial": {
       "example": "{{code}} «{{title}}»",
@@ -7637,7 +7720,9 @@
         "paused": "Versione {{n}} · in pausa",
         "example": "Esempio: {{label}}",
         "written": "scritto a mano",
-        "change": "Cambia esempio"
+        "change": "Cambia esempio",
+        "exampleByClaude": "Esempio: {{label}} · scelto da Claude",
+        "writtenByClaude": "Esempio scritto da Claude"
       },
       "commands": {
         "label": "Comandi della prova",
@@ -7961,7 +8046,8 @@
     "fieldLabels": {
       "urgency": "Urgenza",
       "fromSupport": "Dal supporto"
-    }
+    },
+    "createdByClaude": "Creata da Claude per conto di {{name}}"
   },
   "alerts": {
     "title": "Notifiche",

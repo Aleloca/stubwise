@@ -10,7 +10,7 @@ import type {
   Step,
 } from "../../data/types";
 import { quietButton } from "../tasks/controls";
-import { stepSentence, templateParts, triggerWords, type Names } from "./format";
+import { localFieldLabel, startWords, stepSentence, templateParts, type Names } from "./format";
 import { ApprovalGlyph, Disclosure, StepGlyph } from "./glyphs";
 import { laneLabel } from "./builder/flowWords";
 import { numbersById } from "./numbering";
@@ -190,8 +190,8 @@ function brings(fields: DataField[], t: (k: string, o?: Record<string, unknown>)
   return fields
     .map((f) =>
       f.type === "file" || f.type === "list"
-        ? `${f.label} (${t(`automations.fieldType.${f.type}`)})`
-        : f.label,
+        ? `${localFieldLabel(f, t as TFunction)} (${t(`automations.fieldType.${f.type}`)})`
+        : localFieldLabel(f, t as TFunction),
     )
     .join(", ");
 }
@@ -244,7 +244,7 @@ export function FlowSummary({
         </span>
         <div className="flex min-w-0 flex-col gap-0.5">
           <p className="text-md font-medium text-ink">
-            {triggerWords(flow.trigger, names, t, i18n.language, projectId)}
+            {startWords(flow.trigger, names, labels, t, i18n.language, projectId)}
           </p>
           {fields.length > 0 && (
             <p className="text-xs text-ink-muted">

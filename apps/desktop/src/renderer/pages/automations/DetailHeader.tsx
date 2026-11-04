@@ -7,7 +7,7 @@ import { useToast } from "../../tasks-ui/Toast";
 import { MenuButton, primaryButton, quietButton, secondaryButton } from "../tasks/controls";
 import { shortDate } from "./format";
 import { MoreGlyph } from "./glyphs";
-import { AutomationStatusWord, codeClass, textLink, useNames } from "./shared";
+import { AutomationStatusWord, codeClass, CreatedByClaude, textLink, useNames } from "./shared";
 
 // La testata del dettaglio (vedi `AutomationDetail.tsx`): riga di stato in
 // prosa, descrizione e azioni.
@@ -48,6 +48,7 @@ function StatusLine({ a }: { a: AutomationRow }) {
           · {t("automations.row.draftOf", { n: a.versions.at(-1)!.n })}
         </span>
       )}
+      <CreatedByClaude automation={a} />
     </p>
   );
 }

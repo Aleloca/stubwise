@@ -15,7 +15,12 @@ import type { ConversationEvent, FieldRef } from "../../data/types";
 import { ViewerProvider } from "../../data/viewer";
 import { ThemeProvider } from "../../theme/ThemeProvider";
 import { fillableFor, useFillableField } from "./fillable";
-import { __forgetPageEventsForTest, undoDraft, usePageEventRunner } from "./pageActions";
+import {
+  __forgetPageEventsForTest,
+  answerDraft,
+  undoDraft,
+  usePageEventRunner,
+} from "./pageActions";
 
 // Il registro dei campi riempibili e il runner delle bozze (area 10b, Task
 // 10; shape `claude-drafts.md`): una bozza va SOLO nel campo dichiarato della
@@ -45,6 +50,8 @@ const puts: string[] = [];
 let setFromOutside: (text: string) => void = () => {};
 /** «Save»/«Send» della persona: il testo resta, ma non è più la bozza di Claude. */
 let commitFromOutside: () => void = () => {};
+/** «Ask Claude» della pagina sta scrivendo nel campo (T10 m1). */
+let busyNow = false;
 function ToyField({ field, initial = "" }: { field: FieldRef | null; initial?: string }) {
   const [text, setTextState] = useState(initial);
   const live = useRef(initial);
@@ -71,6 +78,7 @@ function ToyField({ field, initial = "" }: { field: FieldRef | null; initial?: s
         placed.current = live.current;
       },
       restore: setText,
+      busy: () => busyNow,
     },
   );
   return <p data-toy>{text}</p>;
@@ -223,5 +231,30 @@ describe("il runner delle bozze", () => {
     expect(undoDraft(id)).toBe("not_undoable");
     act(() => __forgetPageEventsForTest());
     expect(undoDraft(id)).toBe("not_undoable");
+  });
+
+  it("T10 m1: campo occupato da «Ask Claude» della pagina: la riga resta `pending`, poi chiede", async () => {
+    puts.length = 0;
+    busyNow = true;
+    try {
+      const cid = await conversationWithDraft(LAURA, FIELD, "none");
+      mount(LAURA, { conversationId: cid, field: FIELD });
+      await waitFor(() => expect(toy()).not.toBeNull());
+      act(() => setFromOutside("Ask Claude is writing"));
+      await new Promise((r) => setTimeout(r, 30));
+      // Lo streaming non finisce sotto la bozza: niente nel campo, niente `waiting`.
+      expect(puts).toEqual([]);
+      expect(draftEvents()[0]!.status).toBe("pending");
+      // Finito lo streaming il campo ha del testo: la riga chiede (nessuna scrittura da sola).
+      busyNow = false;
+      act(() => setFromOutside("Ask Claude wrote this."));
+      await new Promise((r) => setTimeout(r, 30));
+      expect(puts).toEqual([]);
+      act(() => answerDraft(draftEvents()[0]!.id, "below"));
+      await waitFor(() => expect(draftEvents()[0]!.status).toBe("placed"));
+      expect(toy()).toBe("Ask Claude wrote this.\n\nClaude's text.");
+    } finally {
+      busyNow = false;
+    }
   });
 });

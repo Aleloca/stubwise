@@ -8,7 +8,7 @@ import { useToast } from "../../../tasks-ui/Toast";
 import { MenuButton, primaryButton, quietButton, secondaryButton } from "../../tasks/controls";
 import { clock, shortDate } from "../format";
 import { CriticalGlyph, MoreGlyph } from "../glyphs";
-import { codeClass } from "../shared";
+import { codeClass, CreatedByClaude } from "../shared";
 import { useBuilder } from "./context";
 import type { SaveStatus as Status } from "./useAutosave";
 
@@ -158,6 +158,7 @@ export function BuilderHeader(p: HeaderProps) {
         <span>{projectWords}</span>
         <span aria-hidden="true">·</span>
         <span>{t(`automations.builder.meta.status.${a.status}`)}</span>
+        <CreatedByClaude automation={a} />
         {a.status !== "draft" && p.live && (
           <>
             <span aria-hidden="true">·</span>

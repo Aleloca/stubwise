@@ -10,6 +10,8 @@
 // - `#/automations/<CODE>/edit?step=<percorso | id>` — il costruttore col
 //   passo (o `trigger`, l'inizio) selezionato: «Fix», «Step 27»; `from=list`
 //   quando ci si arriva dall'elenco («← Automations»).
+// - `#/automations/<CODE>/test?sim=<id>` — la prova di Claude da adottare
+//   (area 10b, D2): se è di chi guarda si apre finita, senza il dialogo.
 // - `#/automations/<CODE>/runs/<n>` — un'esecuzione; `?entry=<percorso>`
 //   porta a una riga del registro (il percorso R-J5 non si mostra mai).
 // - `#/automations/sources` — le sorgenti; `?source=<id>` apre il pannello
@@ -26,6 +28,7 @@ export const AUTOMATION_SEARCH_KEYS = [
   "problems",
   "step",
   "from",
+  "sim",
 ] as const;
 
 /** Le viste dell'elenco (`?view=`): senza parametro, tutte le automazioni. */
@@ -95,6 +98,8 @@ export function isAutomationSearchValue(key: string, value: string): boolean {
       );
     case "from":
       return value === "list";
+    case "sim":
+      return /^sim-\d{1,9}$/.test(value);
     default:
       return false;
   }
@@ -106,5 +111,6 @@ export function isAutomationSearchParam(path: string, key: string, value: string
   if (key === "entry") return isRunPath(path);
   if (key === "problems") return isAutomationDetailPath(path);
   if (key === "step" || key === "from") return /^automations\/[^/]+\/edit$/.test(path);
+  if (key === "sim") return /^automations\/[^/]+\/test$/.test(path);
   return path === "automations";
 }
