@@ -4,6 +4,8 @@ import { summarized, type Answer } from "../answers";
 import type { IntentContext } from "../context";
 import {
   QUESTION,
+  STATUS,
+  TODAY,
   findPerson,
   findProject,
   findTitle,
@@ -66,6 +68,9 @@ const ALL = /\b(all|tutte)\b/;
 const MINE = /\b(my|mie|miei)\b/;
 /** «assigned to X», «di X», «by X»: chi si chiede, col nome maiuscolo come lo scrive chi chiede. */
 const ASSIGNEE = /\b(?:assigned to|assegnate a|by|di|of|for|per)\s+([A-Z][a-zà-ù]+)\b/;
+/** Un giorno o un mese dopo «for/di» («for Friday») non è una persona (M1). */
+const WHEN_WORD =
+  /^(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|yesterday|january|february|march|april|may|june|july|august|september|october|november|december|lunedi|martedi|mercoledi|giovedi|venerdi|sabato|domenica|domani|ieri|gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)$/;
 /** Un codice di progetto davanti a «tasks» («show ACQ tasks»), anche di un progetto che non si vede. */
 const CODE_TASKS = /\b([A-Z]{2,4})\s+tasks?\b/;
 /** Il nome del filtro dopo «as/come» (senza virgolette). */
@@ -106,7 +111,15 @@ function requestOf(text: string): Request | null {
     }
   }
   const shown = verb(SHOW, SHOW_INF);
-  if (shown && TASKS.test(command) && !TASK_CODE.test(command) && !/\bhow\b/.test(command)) {
+  // La giornata e lo stato hanno le loro risposte (I3): «show me my tasks for today» è `today`.
+  if (
+    shown &&
+    TASKS.test(command) &&
+    !TASK_CODE.test(command) &&
+    !/\bhow\b/.test(command) &&
+    !TODAY.test(command) &&
+    !STATUS.test(command)
+  ) {
     return { kind: "filter" };
   }
   const saved = verb(SAVE, SAVE_INF);
@@ -162,8 +175,17 @@ async function filter(text: string, ctx: IntentContext): Promise<Answer> {
   const person = MINE.test(plain)
     ? (people.find((p) => p.id === personId) ?? null)
     : findPerson(text, people, personId);
-  // Un nome che non trovo (o di chi non vedo): lo dico, non filtro altro.
-  if (!person && asked && !projects.some((p) => p.code === asked.toUpperCase())) {
+  // Un nome che non trovo (o di chi non vedo): lo dico, non filtro altro. Non
+  // lo è una parola del nome o del codice di un progetto visibile («le task di
+  // Portale utenti…»), né un giorno o un mese («for Friday», M1).
+  const word = asked ? normalize(asked) : null;
+  const notAPerson =
+    word !== null &&
+    (WHEN_WORD.test(word) ||
+      projects.some(
+        (p) => normalize(p.code) === word || normalize(p.name).split(/\s+/).includes(word),
+      ));
+  if (!person && asked && !notAPerson) {
     return say(t(`${K}.noPerson`, { name: asked }));
   }
 

@@ -184,31 +184,150 @@ describe("il filtro della pagina sotto", () => {
     await user.click(show);
     await waitFor(() => expect(router.state.location.pathname).toBe("/p/ACQ/tasks"));
   });
+
+  it("aprire una task dalla pagina filtrata (`?task=`) non conta: «Undo» torna indietro (I1)", async () => {
+    const { user, router } = await ask(
+      "/p/ACQ/overview",
+      "p-roberta",
+      "show ACQ tasks assigned to Marco",
+    );
+    await waitFor(() => expect(router.state.location.pathname).toBe("/p/ACQ/tasks"));
+    await act(() =>
+      router.navigate({
+        to: ".",
+        search: (prev: Record<string, unknown>) => ({ ...prev, task: "ACQ-1" }),
+      } as never),
+    );
+    expect(router.state.location.search).toMatchObject({ task: "ACQ-1" });
+    await user.click(within(row()!).getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(pageEvents()[0]!.status).toBe("undone"));
+    expect(router.state.location.pathname).toBe("/p/ACQ/overview");
+  });
+
+  it("un criterio cambiato davvero sulla stessa pagina: «Undo» è `changed_after`", async () => {
+    const { user, router } = await ask(
+      "/p/ACQ/overview",
+      "p-roberta",
+      "show ACQ tasks assigned to Marco",
+    );
+    await waitFor(() => expect(router.state.location.pathname).toBe("/p/ACQ/tasks"));
+    await act(() =>
+      router.navigate({
+        to: ".",
+        search: (prev: Record<string, unknown>) => ({
+          ...prev,
+          filters: { families: ["todo", "active"] },
+        }),
+      } as never),
+    );
+    await user.click(within(row()!).getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(pageEvents()[0]!.status).toBe("changed_after"));
+    expect(router.state.location.pathname).toBe("/p/ACQ/tasks");
+  });
 });
 
-describe("il «vedi come»", () => {
-  /** Il runner del riquadro di chi guarda, su una conversazione; dice quando l'ha letta. */
-  function Harness({ conversationId }: { conversationId: string }) {
-    usePageEventRunner(conversationId);
-    const detail = useConversation(conversationId).data;
-    return <span data-harness={detail ? detail.events.length : 0} />;
-  }
-  function mount(personId: string, conversationId: string) {
-    const root = createRootRoute({ component: () => <Harness conversationId={conversationId} /> });
-    const router = createRouter({
-      routeTree: root,
-      history: createMemoryHistory({ initialEntries: ["/"] }),
-    });
-    return render(
-      <QueryClientProvider client={new QueryClient()}>
-        <ViewerProvider initialPersonId={personId}>
-          <ThemeProvider>
-            <RouterProvider router={router} />
-          </ThemeProvider>
-        </ViewerProvider>
-      </QueryClientProvider>,
+describe("la pagina intera della conversazione (I2)", () => {
+  it("da `/claude/$id` l'azione parte come dal riquadro, e la riga c'è", async () => {
+    setSessionPersonId("p-laura");
+    const cid = (await api.createConversation()).id;
+    const user = userEvent.setup();
+    renderRoute(`/claude/${cid}`, "p-laura");
+    const main = await screen.findByRole("combobox");
+    await user.type(main, "switch to Italian{Enter}");
+    await waitFor(() => expect(pageEvents()[0]?.status).toBe("done"));
+    expect(i18n.language).toBe("it");
+    await waitFor(() =>
+      expect(document.querySelector('[data-page-action="language"]')).toHaveTextContent(
+        "Interfaccia passata all'italiano",
+      ),
     );
-  }
+  });
+
+  it("un `pending` vecchio (seguito da un altro messaggio) non parte in ritardo: si chiude `failed`, con la sua riga", async () => {
+    setSessionPersonId("p-laura");
+    const cid = (await api.createConversation()).id;
+    await api.runScript(cid, [
+      {
+        step: "event",
+        event: { type: "pageAction", action: { kind: "language", to: "it" }, status: "pending" },
+      },
+      {
+        step: "event",
+        event: {
+          type: "user",
+          authorId: "p-laura",
+          text: "thanks",
+          attachments: [],
+          delivery: "delivered",
+        },
+      },
+    ]);
+    renderRoute(`/claude/${cid}`, "p-laura");
+    await waitFor(() => expect(pageEvents()[0]!.status).toBe("failed"));
+    expect(i18n.language).toBe("en");
+    await waitFor(() =>
+      expect(document.querySelector("[data-page-failed]")).toHaveTextContent(
+        "Didn't run: the page wasn't changed",
+      ),
+    );
+  });
+
+  it("due runner montati: chiuderne uno non spegne l'«Undo» dell'altro", async () => {
+    setSessionPersonId("p-laura");
+    const cid = (await api.createConversation()).id;
+    await api.sendMessage(cid, { text: "switch to Italian" });
+    const a = mountHarness("p-laura", cid);
+    await waitFor(() => expect(pageEvents()[0]!.status).toBe("done"));
+    const b = mountHarness("p-laura", cid);
+    // Il secondo runner montato davvero (la sua conversazione letta), poi smontato.
+    await waitFor(() =>
+      expect(b.container.querySelector("[data-harness]")).toHaveAttribute("data-harness", "2"),
+    );
+    b.unmount();
+    expect(undoPageEvent(pageEvents()[0]!.id)).toBe("undone");
+    expect(i18n.language).toBe("en");
+    a.unmount();
+  });
+});
+
+describe("una chiusura `done` che non riesce (M3)", () => {
+  it("rimette il valore di prima e chiude `failed`: la pagina non cambia senza traccia", async () => {
+    setSessionPersonId("p-laura");
+    const cid = (await api.createConversation()).id;
+    await api.sendMessage(cid, { text: "dark theme" });
+    api.failNext("settlePageEvent");
+    mountHarness("p-laura", cid);
+    await waitFor(() => expect(pageEvents()[0]!.status).toBe("failed"));
+    expect(document.documentElement.dataset.theme).not.toBe("dark");
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).not.toBe("dark");
+  });
+});
+
+/** Il runner di chi guarda, su una conversazione; dice quando l'ha letta. */
+function Harness({ conversationId }: { conversationId: string }) {
+  usePageEventRunner(conversationId);
+  const detail = useConversation(conversationId).data;
+  return <span data-harness={detail ? detail.events.length : 0} />;
+}
+function mountHarness(personId: string, conversationId: string) {
+  const root = createRootRoute({ component: () => <Harness conversationId={conversationId} /> });
+  const router = createRouter({
+    routeTree: root,
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+  });
+  return render(
+    <QueryClientProvider client={new QueryClient()}>
+      <ViewerProvider initialPersonId={personId}>
+        <ThemeProvider>
+          <RouterProvider router={router} />
+        </ThemeProvider>
+      </ViewerProvider>
+    </QueryClientProvider>,
+  );
+}
+
+describe("il «vedi come»", () => {
+  const mount = mountHarness;
 
   it("il riquadro esegue solo gli eventi di chi ha aperto la conversazione", async () => {
     setSessionPersonId("p-laura");
@@ -236,7 +355,7 @@ describe("il «vedi come»", () => {
 });
 
 describe("il filtro salvato nella riga eseguita", () => {
-  const savedRow = (undo: UndoView) => (
+  const savedRow = (undo: UndoView | undefined, viewerId = "p-laura") => (
     <ExecutedRow
       conversationId="c-x"
       event={{
@@ -254,7 +373,8 @@ describe("il filtro salvato nella riga eseguita", () => {
         ],
       }}
       undo={undo}
-      viewerId="p-laura"
+      viewerId={viewerId}
+      ownerId="p-laura"
       viewerName="Laura Costa"
     />
   );
@@ -265,8 +385,15 @@ describe("il filtro salvato nella riga eseguita", () => {
     });
     expect(mine.container).toHaveTextContent("Saved the filter “Marco in ACQ” · only you see it");
     mine.unmount();
-    const other = renderWithData(savedRow({ state: "not_yours" }), { personId: "p-roberta" });
+    const other = renderWithData(savedRow({ state: "not_yours" }, "p-roberta"), {
+      personId: "p-roberta",
+    });
     expect(other.container).toHaveTextContent("Saved the filter “Marco in ACQ” · private");
     expect(other.container).not.toHaveTextContent("only you");
+    other.unmount();
+    // Senza lo stato di «Undo» chi è il proprietario lo dice `ownerId`, non si deduce (M4).
+    const noUndo = renderWithData(savedRow(undefined, "p-roberta"), { personId: "p-roberta" });
+    expect(noUndo.container).toHaveTextContent("· private");
+    expect(noUndo.container).not.toHaveTextContent("only you");
   });
 });

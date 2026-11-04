@@ -215,6 +215,7 @@ export function EventList({
                     event={item.event}
                     undo={undo[item.event.groupId]}
                     viewerId={viewerId}
+                    ownerId={detail.ownerId}
                     viewerName={viewerName}
                   />
                 );

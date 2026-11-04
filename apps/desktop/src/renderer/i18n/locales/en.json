@@ -4028,7 +4028,7 @@
         "changedAfter": "You changed it afterwards · can't undo from here",
         "gone": "Can't be undone anymore",
         "didntRun": "Didn't run: {{reason}}",
-        "failedReason": "the page couldn't change",
+        "failedReason": "the page wasn't changed",
         "savedFilter": "Saved the filter “{{name}}”",
         "onlyYou": "only you see it",
         "private": "private"

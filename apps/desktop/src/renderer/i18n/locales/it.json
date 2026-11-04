@@ -4028,7 +4028,7 @@
         "changedAfter": "L'hai cambiata dopo · non si annulla da qui",
         "gone": "Non si annulla più",
         "didntRun": "Non eseguita: {{reason}}",
-        "failedReason": "la pagina non è cambiata",
+        "failedReason": "la pagina non è stata cambiata",
         "savedFilter": "Salvato il filtro «{{name}}»",
         "onlyYou": "lo vedi solo tu",
         "private": "privato"

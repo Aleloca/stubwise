@@ -3,6 +3,8 @@ import { toSteps, type Answer } from "./answers";
 import type { IntentContext } from "./context";
 import {
   QUESTION,
+  STATUS,
+  TODAY,
   canonicalCodes,
   findCodes,
   findWeek,
@@ -88,10 +90,6 @@ const HOWTO = /\b(how (do|does|can|to|is|are)|come (funziona|funzionano|si|facci
 /** Una task o una richiesta nominata senza codice: «spiegami la richiesta», «avvia la task». */
 const OBJECT = /\b(task|request|ticket|richiesta)\b/;
 const EXPLAIN = /\b(explain|tell me about|summari[sz]e|spiega\w*|raccontami|riassumi)\b/;
-const TODAY =
-  /\b(today|my day|what should i do|what do i have|oggi|cosa devo fare|cosa ho da fare|la mia giornata)\b/;
-const STATUS =
-  /\b(status|where (are|do) .*projects?|how are .*projects?|how's .*going|a che punto|come vanno|come va|stato dei progetti|situazione)\b/;
 
 /**
  * L'intento di un messaggio. Prima si decide se è un comando o una domanda:

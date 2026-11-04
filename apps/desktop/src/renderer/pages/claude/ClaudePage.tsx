@@ -40,6 +40,7 @@ import { handOffFirstMessage } from "./conversation/handoff";
 import { dangerButton } from "../task/parts";
 import { ConversationList } from "./ConversationList";
 import { StateSign, rowStateLabel, rowStateOf, useKindWord } from "./marks";
+import { usePageEventRunner } from "../../layout/claudePanel/pageActions";
 import { ObjectSide, hasObject } from "./ObjectSide";
 import { PublishDialog } from "./PublishDialog";
 
@@ -400,6 +401,8 @@ export function ConversationPage({ id }: { id: string }) {
 }
 
 function ConversationPageBody({ id }: { id: string }) {
+  // Area 10b (Task 9, I2): le azioni della pagina partono anche da qui, come nel riquadro.
+  usePageEventRunner(id);
   const navigate = useNavigate();
   const query = useConversation(id);
   const detail = query.data ?? null;

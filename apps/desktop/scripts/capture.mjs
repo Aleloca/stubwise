@@ -401,7 +401,7 @@ async function main() {
 
     // Area 10b, Task 9 (`CAPTURE_A10B_PAGE=1`): le azioni della pagina dal
     // riquadro (shape `claude-scenarios.md` §3.10). Roberta sull'Overview di
-    // ACQ: il filtro delle task di Marco (la pagina sotto passa a Tasks
+    // ACQ: il filtro delle task di Laura (la pagina sotto passa a Tasks
     // filtrata) e il filtro salvato; poi il tema opposto e l'altra lingua,
     // con «Undo» del tema già premuto (la riga della lingua è nella lingua
     // nuova). Scatti `a10b-page-*`.
@@ -433,11 +433,11 @@ async function main() {
           persona: "Roberta",
         });
         await page.getByRole("button", { name: /^(Ask Claude|Chiedi a Claude)$/ }).click();
-        await ask(page, it ? "mostrami le task di Marco in ACQ" : "show ACQ tasks assigned to Marco");
+        await ask(page, it ? "mostrami le task di Laura in ACQ" : "show ACQ tasks assigned to Laura");
         await panel(page).locator("[data-page-action]").first().waitFor();
         await ask(
           page,
-          it ? "salva questo filtro come Marco in ACQ" : "save this filter as Marco in ACQ",
+          it ? "salva questo filtro come Laura in ACQ" : "save this filter as Laura in ACQ",
         );
         await panel(page).locator("[data-executed]").first().waitFor();
         await take(page, `a10b-page-filter-${v.suffix}.png`, v);

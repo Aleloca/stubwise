@@ -217,12 +217,15 @@ export function ExecutedRow({
   event,
   undo,
   viewerId,
+  ownerId,
   viewerName,
 }: {
   conversationId: string;
   event: Ev<"executed">;
   undo: UndoView | undefined;
   viewerId: string;
+  /** Chi ha aperto la conversazione: «lo vedi solo tu» è vero solo per lui (M4). */
+  ownerId: string;
   viewerName: string;
 }) {
   const codes = useMemo(() => objectCodesOf(event), [event]);
@@ -253,7 +256,7 @@ export function ExecutedRow({
                 action={action}
                 code={codes[i] ?? null}
                 lookup={lookup}
-                mine={undo?.state !== "not_yours"}
+                mine={viewerId === ownerId}
               />
             </span>
           </li>

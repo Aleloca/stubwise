@@ -129,6 +129,10 @@ describe("recognize: le azioni della pagina", () => {
       ["scrivi la risposta in inglese", "draft"],
       ["what theme am I using?", "general"],
       ["is the interface in English?", "general"],
+      // I3: le parole di `today` e `status` restano loro.
+      ["show me my tasks for today", "today"],
+      ["mostrami le mie task di oggi", "today"],
+      ["show the status of ACQ tasks", "status"],
     ];
     for (const [text, intent] of cases) {
       expect(recognize(text, new Set(["ACQ", "AUD"])), text).toBe(intent);
@@ -218,6 +222,24 @@ describe("il filtro della pagina sotto", () => {
     const none = await respond("show tasks assigned to Marco", as(ROBERTA));
     expect(pageEvents(none)).toEqual([]);
     expect(said(none)).toBe(en("claude.answers.page.noProject"));
+  });
+
+  it("il nome di un progetto o un giorno dopo «di/for» non è una persona (M1)", async () => {
+    expect(
+      onlyPage(
+        await respond(
+          "mostrami le task di Portale utenti Acquedotto delle Colline",
+          as(ROBERTA, it_),
+        ),
+      ),
+    ).toEqual({
+      kind: "filter",
+      route: "/p/ACQ/tasks",
+      search: { filters: { families: ["todo", "active"] } },
+    });
+    const friday = await respond("show ACQ tasks for Friday", as(ROBERTA));
+    expect(said(friday)).not.toMatch(/can't find anyone/i);
+    expect(onlyPage(friday)).toMatchObject({ route: "/p/ACQ/tasks" });
   });
 
   it("un progetto che chi chiede non vede risponde come uno che non esiste (R-G5)", async () => {

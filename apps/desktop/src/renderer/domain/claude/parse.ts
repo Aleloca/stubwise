@@ -53,6 +53,16 @@ export function isHowToQuestion(text: string): boolean {
   return HOWTO_QUESTION.test(stripCourtesy(normalize(text)).command);
 }
 
+/**
+ * Le parole della giornata («today», «oggi») e dello stato dei progetti:
+ * condivise fra `recognize` e i riconoscitori che non devono rubarle (le
+ * azioni della pagina, area 10b: «mostrami le mie task di oggi» resta `today`).
+ */
+export const TODAY =
+  /\b(today|my day|what should i do|what do i have|oggi|cosa devo fare|cosa ho da fare|la mia giornata)\b/;
+export const STATUS =
+  /\b(status|where (are|do) .*projects?|how are .*projects?|how's .*going|a che punto|come vanno|come va|stato dei progetti|situazione)\b/;
+
 /** Una domanda: il punto interrogativo, o una parola interrogativa in testa. */
 export const QUESTION =
   /(\?\s*$)|^(when|why|did|does|do|who|whom|whose|what|what's|how|is|are|was|were|has|have|had|which|where|quando|perche|chi|cosa|che cosa|come|e|era|sono|ha|hanno|quale|quali|dove)\b/;
