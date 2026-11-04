@@ -4,7 +4,7 @@ import { show } from "../../domain/automations/preview";
 import { gate, now, state, visibleProjectIds, type AutomationSignal } from "../store";
 import type { AutomationFlow, Condition, SimulationExample, Utterance } from "../types";
 import { forbidden, invalid, notFound } from "../writer";
-import { happenings, leavesOf } from "./sources";
+import { happenings, leavesOf, passesStartFilter } from "./sources";
 import { automationById, canManageAutomation, canSeeAutomation, canSeeRun } from "./visibility";
 
 // Gli eventi d'esempio della prova (area 7, shape «Choose an example»): per
@@ -263,12 +263,19 @@ function writtenEvent(
  * che il filtro fa passare (o no); se non c'è, uno scritto da Claude dai
  * campi dell'inizio, `written: true` («Example written by Claude»). Solo chi
  * gestisce l'automazione (come la prova); sola lettura.
+ *
+ * `null` al posto di un `want`: Claude non è riuscito a scrivere un esempio
+ * da quella parte del filtro (un `any` che non sa rompere, un `gt`, nessun
+ * filtro per «non passa»…). L'evento scritto si verifica col filtro vero
+ * (`passesStartFilter`) prima di restituirlo: un esempio dalla parte
+ * sbagliata farebbe dire alla prova ciò che il dato non dimostra (I1). Il
+ * risultato resta allineato a `wants`.
  */
 export function pickTrialExamples(
   me: string,
   automationId: string,
   wants: ("passes" | "fails")[],
-): TrialExample[] {
+): (TrialExample | null)[] {
   const a = automationById(automationId);
   if (!a || !canSeeAutomation(me, a)) throw notFound();
   if (!canManageAutomation(me, a)) throw forbidden();
@@ -289,10 +296,8 @@ export function pickTrialExamples(
         written: false,
       };
     }
-    return {
-      event: writtenEvent(me, flow, project?.code ?? null, passes),
-      label: { key: "claude.trial.exampleWritten" },
-      written: true,
-    };
+    const event = writtenEvent(me, flow, project?.code ?? null, passes);
+    if (passesStartFilter(flow.trigger, event) !== passes) return null;
+    return { event, label: { key: "claude.trial.exampleWritten" }, written: true };
   });
 }

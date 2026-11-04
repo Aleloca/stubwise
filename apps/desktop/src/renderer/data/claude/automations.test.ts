@@ -668,3 +668,68 @@ describe("pickTrialExamples", () => {
     }
   });
 });
+
+// --- correzione 1 (I1): l'esempio scritto sta dalla parte chiesta, o non c'è --------
+
+describe("pickTrialExamples: l'esempio scritto non afferma la parte sbagliata del filtro", () => {
+  type Filter = NonNullable<Extract<AutomationFlow["trigger"], { kind: "stubwise" }>["filter"]>;
+  const URGENCY = { ref: "richiesta.urgenza" };
+  const FROM_SUPPORT = { ref: "richiesta.dal_supporto" };
+
+  /** Una bozza di Laura col `filter` sull'inizio, e nessuna richiesta vera in ACQ: Claude deve scrivere. */
+  function draftWith(filter: Filter | undefined): string {
+    state.requests = state.requests.filter((r) => r.projectId !== ACQ);
+    const flow = urgentFlow();
+    flow.trigger = { kind: "stubwise", event: "request_created", ...(filter ? { filter } : {}) };
+    return createAutomationAs(LAURA, { name: "Filtro", projectId: ACQ, flow }).id;
+  }
+
+  /** Ogni esempio restituito sta dalla parte che dice: passa se è `passes`, no se è `fails`. */
+  function sides(id: string, filter: Filter | undefined) {
+    const wants = ["passes", "fails"] as const;
+    const picked = pickTrialExamples(LAURA, id, [...wants]);
+    expect(picked).toHaveLength(2);
+    picked.forEach((ex, i) => {
+      if (ex === null) return;
+      const passes = !filter || evaluate(filter, (k) => lookup(ex.event, k));
+      expect(passes, wants[i]).toBe(wants[i] === "passes");
+      expect(ex.written).toBe(true);
+    });
+    return picked;
+  }
+
+  it("un gruppo `any`: quello che passa c'è, quello che non passa non si sa scrivere", () => {
+    const filter: Filter = {
+      any: [
+        { left: URGENCY, op: "is", right: { value: "high" } },
+        { left: FROM_SUPPORT, op: "is", right: { value: true } },
+      ],
+    };
+    const [pass, fail] = sides(draftWith(filter), filter);
+    expect(pass).not.toBeNull();
+    expect(fail).toBeNull();
+  });
+
+  it("senza filtro: ogni evento passa, quindi nessun esempio «che non passa»", () => {
+    const [pass, fail] = sides(draftWith(undefined), undefined);
+    expect(pass).not.toBeNull();
+    expect(fail).toBeNull();
+  });
+
+  it("`gt` e `lt`: il valore neutro non soddisfa il confronto, quindi nessun esempio «che passa»", () => {
+    for (const op of ["gt", "lt"] as const) {
+      resetApi();
+      const filter: Filter = { left: URGENCY, op, right: { value: 5 } };
+      const [pass, fail] = sides(draftWith(filter), filter);
+      expect(pass, op).toBeNull();
+      expect(fail, op).not.toBeNull();
+    }
+  });
+
+  it("`not_empty`: il codice scritto è vuoto, quindi nessun esempio «che passa»", () => {
+    const filter: Filter = { left: { ref: "richiesta.codice" }, op: "not_empty" };
+    const [pass, fail] = sides(draftWith(filter), filter);
+    expect(pass).toBeNull();
+    expect(fail).not.toBeNull();
+  });
+});
