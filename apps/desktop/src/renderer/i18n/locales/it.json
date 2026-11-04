@@ -4039,6 +4039,10 @@
       },
       "budget": "Il budget mensile per l'AI è esaurito: Claude non può rispondere finché non viene alzato o non finisce il mese.",
       "budgetDraft": "Non inviato:"
+    },
+    "trial": {
+      "example": "{{code}} «{{title}}»",
+      "exampleWritten": "Esempio scritto da Claude"
     }
   },
   "chat": {

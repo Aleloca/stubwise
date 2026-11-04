@@ -343,6 +343,7 @@ function writesOn(record: ClaudeActionRecord, ref: ObjectRef): Write[] {
       ];
     case "request":
     case "milestone":
+    case "automation":
       return state.objectWrites.filter((w) => w.kind === ref.kind && w.id === ref.id);
     case "subscription": {
       const sub = state.alertSubscriptions.find(
@@ -403,6 +404,8 @@ function projectOfRef(ref: ObjectRef): string | null {
       return state.requests.find((r) => r.id === ref.id)?.projectId ?? null;
     case "milestone":
       return state.milestones.find((m) => m.id === ref.id)?.projectId ?? null;
+    case "automation":
+      return state.automations.find((a) => a.id === ref.id)?.projectId ?? null;
     case "project":
       return ref.id;
     case "member":
@@ -416,7 +419,13 @@ function projectOfRef(ref: ObjectRef): string | null {
 
 /** Il codice del progetto di un oggetto di progetto (progetto, membro, impostazioni, iscrizione). */
 function projectCodeOfRef(ref: ObjectRef): string | null {
-  if (ref.kind === "task" || ref.kind === "request" || ref.kind === "milestone") return null;
+  if (
+    ref.kind === "task" ||
+    ref.kind === "request" ||
+    ref.kind === "milestone" ||
+    ref.kind === "automation"
+  )
+    return null;
   const projectId = projectOfRef(ref);
   return projectId === null ? null : (state.projectsById.get(projectId)?.code ?? null);
 }
@@ -439,6 +448,8 @@ function codeFor(viewerId: string, ref: ObjectRef): string | null {
       return state.requests.find((r) => r.id === ref.id)?.code ?? null;
     case "milestone":
       return null;
+    case "automation":
+      return state.automations.find((a) => a.id === ref.id)?.code ?? null;
     default:
       return state.projectsById.get(projectId)?.code ?? null;
   }

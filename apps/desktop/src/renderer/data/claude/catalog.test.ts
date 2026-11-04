@@ -10,6 +10,7 @@ import { markReauthenticated, REAUTH_REQUIRED } from "../auth/reauth";
 import type { ProposedAction } from "../model";
 import { settingsOf } from "../projectSettings/reads";
 import { capOf } from "../releases/visibility";
+import { AUTOMATION_CASES } from "../seed/automations";
 import { setSessionPersonId } from "../session";
 import {
   eventsOf,
@@ -48,6 +49,7 @@ const ACQ = "prj-acq";
 const RNC = "prj-rnc";
 const STW = "prj-stw";
 const FAILED_RUN = "cv-run-acq-3";
+const STW_DRAFT = AUTOMATION_CASES.automations.draft;
 
 const as = (personId: string) => setSessionPersonId(personId);
 const action = (fn: ProposedAction["fn"], args: Record<string, unknown>): ProposedAction => ({
@@ -123,6 +125,36 @@ describe("il registro del catalogo", () => {
     }
   });
 
+  it("le voci delle bozze di automazione (area 10b): classe, inverso, «Who?» di ACTIONS", () => {
+    expect(CLAUDE_CATALOG.createAutomation).toMatchObject({
+      apiFn: "automations.createAutomation",
+      baseClass: "A",
+      undoable: true,
+      whoAction: "manageProjectAutomations",
+    });
+    expect(CLAUDE_CATALOG.saveAutomationDraft).toMatchObject({
+      apiFn: "automations.saveDraft",
+      baseClass: "A",
+      undoable: true,
+      whoAction: "manageProjectAutomations",
+    });
+    expect(CLAUDE_CATALOG.deleteAutomationDraft).toMatchObject({
+      apiFn: "automations.deleteDraft",
+      baseClass: "B",
+      undoable: false,
+      whoAction: "manageProjectAutomations",
+    });
+    expect(actionById("manageProjectAutomations")).toMatchObject({
+      permission: "automations.manage",
+      scope: "project",
+    });
+    // Nessuna voce accende o pubblica (maintainer).
+    for (const fn of fns) {
+      expect(CLAUDE_CATALOG[fn].apiFn, fn).not.toBe("automations.activate");
+      expect(CLAUDE_CATALOG[fn].apiFn, fn).not.toBe("automations.publish");
+    }
+  });
+
   it("i tipi stanno in una foglia senza import (P10)", () => {
     expect(TYPES_SOURCE).toContain("export type ClaudeActionFn");
     expect(TYPES_SOURCE).not.toMatch(/^\s*import\b/m);
@@ -187,7 +219,25 @@ const SCENARIOS: Partial<Record<ClaudeActionFn, () => Record<string, unknown>>> 
   setAttachments: () => ({ on: false }),
   saveWebhook: () => ({ ...webhookArgs(), enabled: false }),
   setSubscription: () => ({ projectId: "prj-aud", type: "task.created", app: true }),
+  // Le bozze di automazione (area 10b, Task 3): una bozza di STW c'è già.
+  createAutomation: () => ({ projectId: ACQ, name: "Prova", flow: draftFlow() }),
+  saveAutomationDraft: () => ({ id: STW_DRAFT, flow: draftFlow() }),
 };
+
+/** Un flusso senza problemi per una bozza nuova (`createAutomation` valida prima di scrivere). */
+const draftFlow = () => ({
+  trigger: { kind: "stubwise", event: "request_created" },
+  titleTemplate: "{{richiesta.codice}}",
+  steps: [
+    {
+      id: "n",
+      kind: "notify",
+      who: { departmentId: "dep-support" },
+      text: "Nuova richiesta",
+      approval: { mode: "auto" },
+    },
+  ],
+});
 
 const storageArgs = () => {
   const s = state.instance.storage;

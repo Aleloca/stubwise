@@ -1,9 +1,10 @@
 import { evaluate, lookup } from "../../domain/automations/conditions";
+import { triggerFields } from "../../domain/automations/fields";
 import { show } from "../../domain/automations/preview";
 import { gate, now, state, visibleProjectIds, type AutomationSignal } from "../store";
-import type { AutomationFlow, SimulationExample } from "../types";
+import type { AutomationFlow, Condition, SimulationExample, Utterance } from "../types";
 import { forbidden, invalid, notFound } from "../writer";
-import { happenings } from "./sources";
+import { happenings, leavesOf } from "./sources";
 import { automationById, canManageAutomation, canSeeAutomation, canSeeRun } from "./visibility";
 
 // Gli eventi d'esempio della prova (area 7, shape «Choose an example»): per
@@ -18,11 +19,19 @@ import { automationById, canManageAutomation, canSeeAutomation, canSeeRun } from
 
 const MAX_EXAMPLES = 10;
 
-function fromSignals(
+type Signal = { signal: AutomationSignal; label: string; code: string | null; at: string | null };
+
+/**
+ * Gli eventi veri che chi prova vede, dal più recente: quelli che il filtro
+ * dell'inizio fa passare (`passes: true`, la prova a mano) o quelli che non
+ * fa passare (`passes: false`, l'esempio «non partirebbe» di Claude).
+ */
+function visibleEvents(
   me: string,
   flow: AutomationFlow,
   projectId: string | null,
-  signals: { signal: AutomationSignal; label: string; code: string | null; at: string | null }[],
+  signals: Signal[],
+  passes: boolean,
 ): SimulationExample[] {
   const t = flow.trigger;
   if (t.kind !== "stubwise") return [];
@@ -39,11 +48,20 @@ function fromSignals(
           visible.has(h.projectId) &&
           (projectId === null || h.projectId === projectId),
     )
-    .filter(({ h }) => !t.filter || evaluate(t.filter, (key) => lookup(h.payload, key)))
+    .filter(
+      ({ h }) => (!t.filter || evaluate(t.filter, (key) => lookup(h.payload, key))) === passes,
+    )
     .sort((x, y) => (y.at ?? "").localeCompare(x.at ?? ""))
     .slice(0, MAX_EXAMPLES)
     .map(({ h, label, code, at }) => ({ label, code, at, event: h.payload }));
 }
+
+const fromSignals = (
+  me: string,
+  flow: AutomationFlow,
+  projectId: string | null,
+  signals: Signal[],
+): SimulationExample[] => visibleEvents(me, flow, projectId, signals, true);
 
 function stubwiseSignals(me: string, flow: AutomationFlow) {
   const t = flow.trigger;
@@ -155,4 +173,126 @@ export async function listSimulationExamples(
         },
       ];
   }
+}
+
+// --- gli esempi della prova di Claude (area 10b) --------------------------------------
+
+/** Un esempio per la prova di Claude: un evento vero (`written: false`) o scritto da lui. */
+export interface TrialExample {
+  event: Record<string, unknown>;
+  /** La riga dell'esempio, come chiave e parametri (si legge nella lingua di chi guarda). */
+  label: Utterance;
+  written: boolean;
+}
+
+/** I valori noti di un dato che è un elenco chiuso: il «diverso» di un esempio che non passa. */
+const CLOSED_VALUES: Record<string, readonly string[]> = {
+  "richiesta.urgenza": ["low", "medium", "high"],
+};
+
+/** Scrive `value` in `event` al percorso puntato di `key` («richiesta.urgenza»). */
+function setAt(event: Record<string, unknown>, key: string, value: unknown): void {
+  const parts = key.split(".");
+  let cur = event;
+  for (const part of parts.slice(0, -1)) {
+    const next = cur[part];
+    if (next === null || typeof next !== "object" || Array.isArray(next)) cur[part] = {};
+    cur = cur[part] as Record<string, unknown>;
+  }
+  cur[parts.at(-1)!] = value;
+}
+
+/** Un valore diverso da `value` per il dato `key`: un altro dell'elenco chiuso, il contrario, o vuoto. */
+function otherThan(key: string, value: unknown): unknown {
+  if (typeof value === "boolean") return !value;
+  const closed = CLOSED_VALUES[key];
+  if (closed) return closed.find((v) => v !== value) ?? "";
+  if (typeof value === "number") return value + 1;
+  return "";
+}
+
+/**
+ * Un evento scritto da Claude coi dati dell'inizio: ogni campo con un valore
+ * neutro (il nome del campo per un testo, chi prova per una persona, il
+ * progetto dell'automazione, la data di oggi), poi i confronti `is` e
+ * `contains` del filtro soddisfatti; per un esempio che non deve passare, il
+ * primo confronto rotto. Non si legge da niente che chi prova non veda.
+ */
+function writtenEvent(
+  me: string,
+  flow: AutomationFlow,
+  projectCode: string | null,
+  passes: boolean,
+): Record<string, unknown> {
+  const event: Record<string, unknown> = {};
+  for (const f of triggerFields(flow, state.automationSources)) {
+    const value =
+      f.key.endsWith(".progetto") && projectCode !== null
+        ? projectCode
+        : f.type === "boolean"
+          ? false
+          : f.type === "number"
+            ? 0
+            : f.type === "person"
+              ? me
+              : f.type === "date"
+                ? now().slice(0, 10)
+                : f.key.endsWith(".codice") || f.type === "email"
+                  ? ""
+                  : f.label;
+    setAt(event, f.key, value);
+  }
+  const t = flow.trigger;
+  if (t.kind !== "stubwise" || !t.filter) return event;
+  const leaves = leavesOf(t.filter).filter(
+    (c): c is Condition & { left: { ref: string }; right: { value: unknown } } =>
+      (c.op === "is" || c.op === "contains") &&
+      c.left !== undefined &&
+      "ref" in c.left &&
+      c.right !== undefined &&
+      "value" in c.right,
+  );
+  for (const c of leaves) setAt(event, c.left.ref, c.right.value);
+  const first = leaves[0];
+  if (!passes && first) setAt(event, first.left.ref, otherThan(first.left.ref, first.right.value));
+  return event;
+}
+
+/**
+ * Per ogni `want`, l'evento più recente della sorgente che chi chiede vede e
+ * che il filtro fa passare (o no); se non c'è, uno scritto da Claude dai
+ * campi dell'inizio, `written: true` («Example written by Claude»). Solo chi
+ * gestisce l'automazione (come la prova); sola lettura.
+ */
+export function pickTrialExamples(
+  me: string,
+  automationId: string,
+  wants: ("passes" | "fails")[],
+): TrialExample[] {
+  const a = automationById(automationId);
+  if (!a || !canSeeAutomation(me, a)) throw notFound();
+  if (!canManageAutomation(me, a)) throw forbidden();
+  const last = a.versions.at(-1)!;
+  if (last.publishedAt !== null) throw invalid("no_draft");
+  const flow = last.flow;
+  const project = a.projectId === null ? null : (state.projectsById.get(a.projectId) ?? null);
+  return wants.map((want) => {
+    const passes = want === "passes";
+    const [found] = visibleEvents(me, flow, a.projectId, stubwiseSignals(me, flow), passes);
+    if (found) {
+      return {
+        event: structuredClone(found.event),
+        label: {
+          key: "claude.trial.example",
+          params: { code: found.code ?? "", title: found.label },
+        },
+        written: false,
+      };
+    }
+    return {
+      event: writtenEvent(me, flow, project?.code ?? null, passes),
+      label: { key: "claude.trial.exampleWritten" },
+      written: true,
+    };
+  });
 }

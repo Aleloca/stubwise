@@ -47,6 +47,7 @@ import type { ProjectSwitch } from "../projectSettings/state";
 import { capOf } from "../releases/visibility";
 import { state, type ApiFnName } from "../store";
 import { deleteTaskAs } from "../taskDelete";
+import { MORE_ENTRIES, type MoreCatalogFn } from "./catalogMore";
 import type { CatalogInverse, ClaudeActionFn, ObjectRef } from "./types";
 
 // Il catalogo delle azioni di Claude (area 10a, Task 4): l'elenco CHIUSO di
@@ -156,7 +157,7 @@ const roleOf = (projectId: string, personId: string): string | null =>
 
 type Declaration = Omit<CatalogEntry, "fn">;
 
-const ENTRIES: Record<ClaudeActionFn, Declaration> = {
+const ENTRIES: Record<Exclude<ClaudeActionFn, MoreCatalogFn>, Declaration> = {
   // --- task, richieste, traguardi (le scritture delle pagine) -----------------
   createTask: {
     apiFn: "createTask",
@@ -825,7 +826,11 @@ const ENTRIES: Record<ClaudeActionFn, Declaration> = {
 
 export const CLAUDE_CATALOG: Readonly<Record<ClaudeActionFn, CatalogEntry>> = Object.freeze(
   Object.fromEntries(
-    Object.entries(ENTRIES).map(([fn, entry]) => [fn, Object.freeze({ fn, ...entry })]),
+    // Le voci del 10b stanno in `catalogMore.ts` (minore T4 del 10a).
+    Object.entries({ ...ENTRIES, ...MORE_ENTRIES }).map(([fn, entry]) => [
+      fn,
+      Object.freeze({ fn, ...entry }),
+    ]),
   ) as Record<ClaudeActionFn, CatalogEntry>,
 );
 

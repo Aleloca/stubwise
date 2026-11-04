@@ -1,7 +1,8 @@
 import { visitSteps } from "../../domain/automations/fields";
 import { projectOf } from "../../domain/automations/preview";
-import { copy, now, state, visibleProjectIds } from "../store";
-import type { Automation, AutomationFlow, AutomationMeta } from "../types";
+import { currentVia } from "../claude/via";
+import { copy, noteWrite, now, state, visibleProjectIds } from "../store";
+import type { Automation, AutomationFlow, AutomationMeta, Project } from "../types";
 import { can, viewerFor } from "../viewer";
 import { forbidden, invalid, notFound, writer } from "../writer";
 import { configErrorsOf } from "./reads";
@@ -26,6 +27,16 @@ import { managedAutomation } from "./writeGuards";
 // Le scritture sulle esecuzioni stanno in `runWrites.ts`, quelle delle
 // sorgenti e della tabella cliente → progetto in `sourceWrites.ts`, i
 // controlli comuni in `writeGuards.ts`.
+//
+// Area 10b: le bozze passano anche dal catalogo di Claude, che chiama le
+// forme sincrone (`createAutomationAs`, `saveDraftAs`, `deleteDraftAs`); le
+// pubbliche sono `writer()` + la stessa forma. Ogni scrittura che cambia
+// un'automazione si segna (`noteWrite("automation")`): è ciò che il «com'era»
+// di «Annulla» confronta, e accendere o mettere in pausa conta come le altre.
+
+/** Una scrittura su un'automazione, col segno di Claude se c'è (area 10b). */
+const wrote = (id: string, me: string): void =>
+  noteWrite("automation", id, me, currentVia()?.actionId);
 
 const emptyFlow = (name: string): AutomationFlow => ({
   trigger: { kind: "manual" },
@@ -34,6 +45,22 @@ const emptyFlow = (name: string): AutomationFlow => ({
 });
 
 // --- automazioni ------------------------------------------------------------------
+
+/**
+ * I controlli di una bozza nuova, senza scrivere niente: progetto visibile
+ * (`not_found`, R-G5) e `automations.manage` lì, o d'istanza per una
+ * generale (`forbidden`). Li usa anche il catalogo di Claude, che valida il
+ * flusso solo DOPO (un flusso non dice niente di un progetto che non vedo).
+ */
+export function checkNewAutomation(me: string, projectId: string | null): Project | null {
+  const project = projectId === null ? null : state.projectsById.get(projectId);
+  if (projectId !== null && (!project || !visibleProjectIds(me).has(project.id))) throw notFound();
+  const allowed = project
+    ? can(viewerFor(me), "automations.manage", project.id)
+    : can(viewerFor(me), "automations.manage");
+  if (!allowed) throw forbidden();
+  return project ?? null;
+}
 
 /**
  * Una bozza nuova, mai accesa: di un progetto (`automations.manage` lì) o
@@ -50,15 +77,30 @@ export async function createAutomation(input: {
   language?: string;
 }): Promise<Automation> {
   const me = await writer("automations.createAutomation");
+  return createAutomationAs(me, {
+    name: input.name,
+    ...(input.description !== undefined ? { description: input.description } : {}),
+    projectId: input.projectId,
+    flow:
+      input.flow ??
+      (input.template
+        ? templateFlow(input.template, input.language)
+        : emptyFlow(input.name.trim())),
+  });
+}
+
+/**
+ * La forma sincrona di `createAutomation` (area 10b, il catalogo di Claude).
+ * Nasce SEMPRE bozza, senza proprietario (maintainer: Claude non accende).
+ * Dentro `runAsClaude` porta `createdVia: "claude"`, che resta per sempre.
+ */
+export function createAutomationAs(
+  me: string,
+  input: { name: string; description?: string; projectId: string | null; flow: AutomationFlow },
+): Automation {
   const name = input.name.trim();
   if (!name) throw invalid("name");
-  const project = input.projectId === null ? null : state.projectsById.get(input.projectId);
-  if (input.projectId !== null && (!project || !visibleProjectIds(me).has(project.id)))
-    throw notFound();
-  const allowed = project
-    ? can(viewerFor(me), "automations.manage", project.id)
-    : can(viewerFor(me), "automations.manage");
-  if (!allowed) throw forbidden();
+  const project = checkNewAutomation(me, input.projectId);
   const key = project?.id ?? "";
   const n = (state.automationCodeSeq.get(key) ?? 0) + 1;
   state.automationCodeSeq.set(key, n);
@@ -73,10 +115,7 @@ export async function createAutomation(input: {
     versions: [
       {
         n: 1,
-        flow: copy(
-          input.flow ??
-            (input.template ? templateFlow(input.template, input.language) : emptyFlow(name)),
-        ),
+        flow: copy(input.flow),
         publishedAt: null,
         publishedById: null,
         savedAt: now(),
@@ -86,8 +125,10 @@ export async function createAutomation(input: {
     ],
     createdAt: now(),
     createdById: me,
+    ...(currentVia() ? { createdVia: "claude" as const } : {}),
   };
   state.automations.push(automation);
+  wrote(automation.id, me);
   return copy(automation);
 }
 
@@ -147,6 +188,17 @@ export async function saveDraft(
   opts: { expected?: number | null } = {},
 ): Promise<Automation> {
   const me = await writer("automations.saveDraft");
+  return saveDraftAs(me, id, flow, meta, opts);
+}
+
+/** La forma sincrona di `saveDraft` (area 10b, il catalogo di Claude). */
+export function saveDraftAs(
+  me: string,
+  id: string,
+  flow: AutomationFlow,
+  meta: AutomationMeta = {},
+  opts: { expected?: number | null } = {},
+): Automation {
   const a = managedAutomation(me, id);
   if (meta.name !== undefined && !meta.name.trim()) throw invalid("name");
   const last = a.versions.at(-1)!;
@@ -170,6 +222,7 @@ export async function saveDraft(
     });
   if (meta.name !== undefined) a.name = meta.name.trim();
   if (meta.description !== undefined) a.description = meta.description.trim();
+  wrote(a.id, me);
   return copy(a);
 }
 
@@ -185,6 +238,7 @@ export async function renameAutomation(id: string, meta: AutomationMeta): Promis
   if (meta.name !== undefined && !meta.name.trim()) throw invalid("name");
   if (meta.name !== undefined) a.name = meta.name.trim();
   if (meta.description !== undefined) a.description = meta.description.trim();
+  wrote(a.id, me);
   return copy(a);
 }
 
@@ -252,6 +306,7 @@ function publishAs(me: string, a: Automation, mailbox?: string): void {
   a.ownerId = me;
   a.mailbox = box;
   if (a.status === "draft") a.status = "active";
+  wrote(a.id, me);
 }
 
 /**
@@ -288,6 +343,7 @@ export async function activate(id: string, opts: { mailbox?: string } = {}): Pro
   a.status = "active";
   a.pausedById = null;
   a.pausedAt = null;
+  wrote(a.id, me);
   for (const run of state.automationRuns) {
     if (run.automationId === a.id && run.status === "suspended") resume(run, me);
   }
@@ -306,6 +362,7 @@ export async function pause(id: string): Promise<Automation> {
   a.status = "paused";
   a.pausedById = me;
   a.pausedAt = now();
+  wrote(a.id, me);
   for (const run of state.automationRuns) {
     if (run.automationId !== a.id) continue;
     // Con un input già in coda (un'approvazione appena data) la decisione si
@@ -337,6 +394,15 @@ export async function deleteDraft(
   opts: { expected?: number | null } = {},
 ): Promise<void> {
   const me = await writer("automations.deleteDraft");
+  deleteDraftAs(me, id, opts);
+}
+
+/** La forma sincrona di `deleteDraft` (area 10b, il catalogo di Claude). */
+export function deleteDraftAs(
+  me: string,
+  id: string,
+  opts: { expected?: number | null } = {},
+): void {
   const a = managedAutomation(me, id);
   const last = a.versions.at(-1)!;
   if (last.publishedAt !== null) throw invalid("no_draft");
@@ -344,4 +410,5 @@ export async function deleteDraft(
     throw invalid("stale");
   if (a.versions.length === 1) state.automations = state.automations.filter((x) => x !== a);
   else a.versions.pop();
+  wrote(a.id, me);
 }

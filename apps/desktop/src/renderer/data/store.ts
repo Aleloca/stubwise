@@ -1528,9 +1528,12 @@ export const newId = (prefix: string): string => `${prefix}-new-${++state.counte
  */
 export const nextSeq = (): number => ++state.alertSeq;
 
-/** Una scrittura su una richiesta o un traguardo (area 10a): chi, quando nell'ordine, e se Claude per lui. */
+/**
+ * Una scrittura su una richiesta o un traguardo (area 10a), o su
+ * un'automazione (area 10b): chi, quando nell'ordine, e se Claude per lui.
+ */
 export interface ObjectWrite {
-  kind: "request" | "milestone";
+  kind: "request" | "milestone" | "automation";
   id: string;
   seq: number;
   byId: string;

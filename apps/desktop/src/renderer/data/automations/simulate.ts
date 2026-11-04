@@ -8,7 +8,8 @@ import { stepAt } from "../../domain/automations/fields";
 import type { FlowIssue } from "../../domain/automations/validate";
 import { onBeforePersonaChange } from "../session";
 import { copy, gate, now, onStoreReset } from "../store";
-import type { Automation, SimulationView } from "../types";
+import { visiblePeopleFor } from "../access/whoCan";
+import type { Automation, SimulationView, TrialOutcome } from "../types";
 import { forbidden, invalid, notFound, writer } from "../writer";
 import { resolveProject } from "./plans";
 import { configErrorsOf } from "./reads";
@@ -212,6 +213,16 @@ export async function startSimulation(
   event: Record<string, unknown>,
 ): Promise<string> {
   const me = await writer("automations.startSimulation");
+  return startSimulationAs(me, automationId, version, event);
+}
+
+/** La forma sincrona di `startSimulation` (area 10b: la prova di Claude). */
+export function startSimulationAs(
+  me: string,
+  automationId: string,
+  version: number | "draft",
+  event: Record<string, unknown>,
+): string {
   const found = automationById(automationId);
   if (!found || !canSeeAutomation(me, found)) throw notFound();
   if (!canManageAutomation(me, found)) throw forbidden();
@@ -286,6 +297,46 @@ export async function simulationStep(id: string, input: SimulationInput): Promis
   handle(me, sim, a, input);
   if (was !== "done" && sim.engine.status === "done") markTested(sim);
   return view(me, sim, a);
+}
+
+/**
+ * La prova di Claude (area 10b): avvia la prova della bozza su `event` e la
+ * porta alla prima fermata come «Vai alla prossima fermata» (`run`), mai
+ * oltre. Claude non approva e non rifiuta (`approved`/`rejected` qui non ci
+ * sono), e non esegue un passo di Claude: si ferma prima, e lo dice
+ * (`stoppedAtClaude`). Non scrive niente: la prova resta in `sims` (il
+ * costruttore la apre) e, finita bene, segna `testedRev` come quella a mano.
+ */
+export function trialAs(
+  me: string,
+  automationId: string,
+  event: Record<string, unknown>,
+): TrialOutcome {
+  const simId = startSimulationAs(me, automationId, "draft", event);
+  const { sim, a } = mine(me, simId);
+  const was = sim.engine.status;
+  while (sim.pending && sim.pending.kind !== "claude") stepOnce(sim, a);
+  if (was !== "done" && sim.engine.status === "done") markTested(sim);
+  const aw = sim.engine.awaiting;
+  // Chi approverebbe davvero, se chi chiede lo vede (R-G5).
+  const approverId =
+    sim.engine.status === "waiting_approval" && aw?.kind === "approval"
+      ? (approversFor(a, aw.who, approvalProjectOf(aw.preview, a)).find((id) =>
+          visiblePeopleFor(me).has(id),
+        ) ?? null)
+      : null;
+  const p = sim.preview;
+  return {
+    simId,
+    status: sim.filteredOut ? "filtered_out" : sim.engine.status,
+    tasks: p.tasks.length,
+    notifications: p.notifications.length,
+    emails: p.emails.length,
+    requests: p.requests.length,
+    milestones: p.milestones.length,
+    approverId,
+    stoppedAtClaude: !TERMINAL.has(sim.engine.status) && sim.pending?.kind === "claude",
+  };
 }
 
 /** La prova; `null` se non c'è (buttata, di un'altra persona, o di un'automazione che non gestisco). */

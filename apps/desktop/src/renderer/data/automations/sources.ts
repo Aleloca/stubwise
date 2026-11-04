@@ -128,7 +128,7 @@ export function passesStartFilter(t: AutomationTrigger, payload: Record<string, 
 }
 
 /** I confronti di una condizione, anche dentro i gruppi. */
-const leavesOf = (c: Condition): Condition[] =>
+export const leavesOf = (c: Condition): Condition[] =>
   c.all || c.any ? [...(c.all ?? []), ...(c.any ?? [])].flatMap(leavesOf) : [c];
 
 /**

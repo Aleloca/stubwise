@@ -46,13 +46,19 @@ export type ClaudeActionFn =
   | "saveStorage"
   | "setAttachments"
   | "saveWebhook"
-  | "setSubscription";
+  | "setSubscription"
+  // Le bozze di automazione (area 10b): mai accenderle né pubblicarle (maintainer).
+  | "createAutomation"
+  | "saveAutomationDraft"
+  | "deleteAutomationDraft";
 
 /** Un oggetto toccato da un'azione: il «com'era» di «Annulla» lo confronta con le scritture dopo. */
 export type ObjectRef =
   | { kind: "task"; id: string }
   | { kind: "request"; id: string }
   | { kind: "milestone"; id: string }
+  /** Un'automazione (area 10b): il «com'era» legge `state.objectWrites`, come richieste e traguardi. */
+  | { kind: "automation"; id: string }
   | { kind: "project"; id: string }
   | { kind: "member"; projectId: string; personId: string }
   | { kind: "projectSettings"; projectId: string }

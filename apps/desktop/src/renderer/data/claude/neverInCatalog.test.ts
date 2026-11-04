@@ -144,6 +144,8 @@ describe("il catalogo non nomina mai i gesti delle persone", () => {
     const paths = Object.keys(SOURCES);
     expect(paths).toContain("./catalog.ts");
     expect(paths).toContain("./classes.ts");
+    // Le voci del 10b (le bozze di automazione) stanno in un file a parte.
+    expect(paths).toContain("./catalogMore.ts");
     expect(paths.some((p) => p.endsWith("intents/change.ts"))).toBe(true);
   });
 

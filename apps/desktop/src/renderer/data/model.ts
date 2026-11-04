@@ -2706,6 +2706,12 @@ export interface Automation {
    * la casella del proprietario.
    */
   mailbox?: string | null;
+  /**
+   * Area 10b: creata da Claude per conto di `createdById` (il riquadro). Resta
+   * per sempre, anche dopo l'accensione (maintainer, shape [AU 8]). Assente:
+   * creata a mano.
+   */
+  createdVia?: "claude";
 }
 
 export type RunStatus =
@@ -2717,6 +2723,26 @@ export type RunStatus =
   | "done"
   | "failed"
   | "cancelled";
+
+/**
+ * L'esito della prova di Claude su un esempio (area 10b, `trialAs`): sta qui
+ * e non in `data/automations/*` perché lo legge l'evento `trial` della
+ * conversazione, e `model.ts` non importa da lì (la stessa ragione di P10).
+ */
+export interface TrialOutcome {
+  simId: string;
+  /** `filtered_out`: il filtro dell'inizio non passa (D3). */
+  status: RunStatus | "filtered_out";
+  tasks: number;
+  notifications: number;
+  emails: number;
+  requests: number;
+  milestones: number;
+  /** Chi dovrebbe approvare alla prima fermata `waiting_approval`; `null` se non c'è o chi chiede non lo vede (R-G5). */
+  approverId: string | null;
+  /** Il passo di Claude su cui la prova si è fermata (non lo esegue: la prova di Claude non chiama `claudeFake`). */
+  stoppedAtClaude: boolean;
+}
 
 /** Una riga del registro di un'esecuzione (regola 3: tutto tracciato). */
 /**

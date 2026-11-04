@@ -4039,6 +4039,10 @@
       },
       "budget": "The monthly AI budget is used up: Claude can't answer until it's raised or the month ends.",
       "budgetDraft": "Not sent:"
+    },
+    "trial": {
+      "example": "{{code}} “{{title}}”",
+      "exampleWritten": "Example written by Claude"
     }
   },
   "chat": {
