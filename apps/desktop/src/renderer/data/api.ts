@@ -108,8 +108,11 @@ import {
   type CodedContextKind,
   type ContextDescription,
 } from "./claude/context";
+import { suggestionFor, type ClaudeSuggestion, type SuggestionPlace } from "./claude/suggestions";
 
 export type { SearchResult } from "./types";
+export type { ClaudeSuggestion, SuggestionPlace } from "./claude/suggestions";
+export { suggestionKeyOf } from "./claude/suggestions";
 export type { CodedContextKind, ContextDescription } from "./claude/context";
 export type { ApiFnName } from "./store";
 export {
@@ -797,6 +800,17 @@ function reauthPhrasesOf(
 export async function describeContext(ref: ContextRef): Promise<ContextDescription | null> {
   const me = await gate("describeContext");
   return contextOf(me, ref);
+}
+
+/**
+ * La riga «Claude can help you…» di una pagina di partenza (area 10b, Task
+ * 12), per chi guarda; `null` = nessuna riga. La decide il livello dati.
+ */
+export async function getClaudeSuggestion(
+  place: SuggestionPlace,
+): Promise<ClaudeSuggestion | null> {
+  const me = await gate("getClaudeSuggestion");
+  return suggestionFor(me, place);
 }
 
 /**

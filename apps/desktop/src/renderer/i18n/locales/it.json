@@ -4484,6 +4484,33 @@
       "gone": "Non si annulla più",
       "other": "Claude ha messo una bozza in un campo",
       "descriptionReady": "La bozza di Claude è nella descrizione di {{code}}. Salvala per tenerla."
+    },
+    "suggestions": {
+      "lead": "Claude può aiutarti a ",
+      "hint": "Apre Claude con la richiesta scritta, non inviata.",
+      "notNow": "Non ora",
+      "hidden": "Suggerimento nascosto.",
+      "supportReply": {
+        "line": "scrivere la risposta",
+        "prompt": "Scrivi la risposta a {{code}}",
+        "prompt_vowel": "Scrivi la risposta ad {{code}}"
+      },
+      "releaseNotes": {
+        "line": "scrivere le note di rilascio",
+        "prompt": "Scrivi le note di rilascio"
+      },
+      "buildAutomation": {
+        "line": "costruire un'automazione per {{code}}",
+        "prompt": "Costruisci un'automazione in {{code}}: quando "
+      },
+      "whyStalled": {
+        "line": "capire perché {{code}} è fermo",
+        "prompt": "Quali task sono ferme in {{code}}, e perché?"
+      },
+      "monthSpend": {
+        "line": "riassumere la spesa del mese",
+        "prompt": "Quanto abbiamo speso in AI questo mese?"
+      }
     }
   },
   "chat": {

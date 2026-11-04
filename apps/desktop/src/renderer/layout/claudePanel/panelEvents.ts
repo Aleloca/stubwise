@@ -16,6 +16,12 @@ export interface ClaudePanelEventDetail {
   draft?: string;
   /** `toggle` alterna (⌘J, menu, binario); `open` (default) apre e basta. */
   mode?: "open" | "toggle";
+  /**
+   * Area 10b (Task 12, la riga «Claude can help you…»): apre una
+   * conversazione NUOVA con `draft` nella casella, sempre non inviato. Quella
+   * di prima resta in Claude → Mine, col suo testo non inviato ([SG 6]).
+   */
+  fresh?: boolean;
 }
 
 export function openClaudePanel(detail: ClaudePanelEventDetail = {}): void {

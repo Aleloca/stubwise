@@ -6,6 +6,7 @@ import type { OpenPrView, QueueItem } from "../../data/releases";
 import { DetailPanel } from "../../layout/useDetailPanel";
 import { useMediaQuery } from "../../layout/useMediaQuery";
 import { formatDate } from "../../notifications/time";
+import { ClaudeSuggestionRow } from "../../tasks-ui/ClaudeSuggestionRow";
 import { CloseIcon, Section, ghostButton } from "../task/parts";
 import { ago, clock, prProse, prUrl, riskWord, shortRepo, shortSha } from "./format";
 import { ExternalGlyph, PrStateWord } from "./glyphs";
@@ -268,6 +269,8 @@ function PrBody({
             <MergeExpansion pr={pr} flow={flow} projectCode={projectCode} />
           </div>
         )}
+        {/* Area 10b: «Claude can help you write the release notes», sopra l'analisi. */}
+        <ClaudeSuggestionRow place={{ kind: "pr", prId: pr.id }} />
       </header>
       <Analysis pr={pr} />
       <Corrections pr={pr} />

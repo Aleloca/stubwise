@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useProject, useProjectAutomations } from "../../data/queries";
 import type { ProjectAutomationRun } from "../../data/types";
+import { ClaudeSuggestionRow } from "../../tasks-ui/ClaudeSuggestionRow";
 import { PageEmpty, PageError, PageSkeleton } from "../../tasks-ui/PageStates";
 import { rowKeys } from "../home/blocks/BlockSection";
 import { AutomationRow, Templates } from "./AutomationList";
@@ -192,6 +193,11 @@ export function ProjectAutomationsPage({ projectCode }: { projectCode: string })
           </span>
         )}
       </header>
+      {/* Area 10b: «Claude can help you build an automation for ACQ», sopra il contenuto. */}
+      <ClaudeSuggestionRow
+        place={project ? { kind: "automations", projectId: project.id } : null}
+        className="-mt-3 mb-3 max-w-[960px] pr-8"
+      />
       {body}
     </section>
   );

@@ -283,6 +283,7 @@ export type ApiFnName =
   | "listConversations"
   | "getConversation"
   | "describeContext"
+  | "getClaudeSuggestion"
   | "contextIdOf"
   | "openRoutes"
   | "canRecordDecisions"

@@ -18,6 +18,7 @@ import { ReadError } from "../../preferences/parts";
 import { niceCeil } from "../../servers/MetricsCharts";
 import { smallSecondary } from "../../task/parts";
 import { usd } from "../../../i18n/money";
+import { ClaudeSuggestionRow } from "../../../tasks-ui/ClaudeSuggestionRow";
 import { AiSkeleton } from "./parts";
 
 // Usage (shape admin-ai.md «Usage», area 9b Task 9): quanto è costato Claude
@@ -137,6 +138,8 @@ function InstanceUsage(texts: UsageTexts) {
   return (
     <UsageLayout nav={nav} dimensions={DIMENSIONS} usage={usage} texts={texts}>
       <p className="max-w-[62ch] text-md text-pretty text-ink-muted">{t("admin.ai.usageIntro")}</p>
+      {/* Area 10b: «Claude can help you summarize this month's spend», sopra il periodo. */}
+      <ClaudeSuggestionRow place={{ kind: "usage" }} className="pt-1" />
     </UsageLayout>
   );
 }

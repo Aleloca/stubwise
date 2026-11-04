@@ -4,9 +4,11 @@ import { AiBlockLine } from "../../../components/InstanceBlock";
 import {
   useAiBlock,
   useProjects,
+  useSessionPersonId,
   useSetConversationContext,
   useStorageAllowsUploads,
 } from "../../../data/queries";
+import { onStoreReset } from "../../../data/store";
 import type { ConversationStream } from "../../../data/queries";
 import type { Attachment, ConversationDetail } from "../../../data/types";
 import { MenuGroup, RadioItem } from "../../../tasks-ui/Menu";
@@ -49,6 +51,26 @@ export interface ComposerDraft {
    * fondo; Tab passa al successivo (shape `claude-scenarios.md` §3.5).
    */
   placeholders?: boolean;
+}
+
+/**
+ * Il testo non inviato di una conversazione che il riquadro ha lasciato per
+ * una nuova (area 10b, la riga «Claude can help you…», [SG 6]): la casella
+ * di quella conversazione lo ritrova alla prossima apertura, una volta sola.
+ * In memoria e per persona: un reset del prototipo lo dimentica.
+ */
+const unsent = new Map<string, string>();
+onStoreReset(() => unsent.clear());
+
+export function keepUnsent(personId: string, conversationId: string, text: string): void {
+  unsent.set(`${personId}\u0000${conversationId}`, text);
+}
+
+function takeUnsent(personId: string, conversationId: string): string {
+  const key = `${personId}\u0000${conversationId}`;
+  const text = unsent.get(key) ?? "";
+  unsent.delete(key);
+  return text;
 }
 
 /** Un segnaposto di una frase d'esempio: una parola fra parentesi quadre. */
@@ -156,7 +178,8 @@ export function Composer({
   budgetBand?: boolean;
 }) {
   const { t } = useTranslation();
-  const [text, setText] = useState("");
+  const me = useSessionPersonId();
+  const [text, setText] = useState(() => takeUnsent(me, detail.id));
   const composer = useComposerField({
     text,
     onText: setText,

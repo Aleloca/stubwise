@@ -21,7 +21,7 @@ import {
 import { onStoreReset } from "../../data/store";
 import type { ContextRef } from "../../data/types";
 import { NewConversationComposer } from "../../pages/claude/ClaudePage";
-import type { ComposerDraft } from "../../pages/claude/conversation/Composer";
+import { keepUnsent, type ComposerDraft } from "../../pages/claude/conversation/Composer";
 import { Conversation } from "../../pages/claude/conversation/Conversation";
 import { usePersonName } from "../../pages/claude/conversation/parts";
 import { shortcutLabel } from "../../platform/platform";
@@ -103,6 +103,9 @@ function useDockGeometry(): { right: number; room: number } {
   return geometry;
 }
 
+/** Un testo per la casella (⌘K, la riga «Claude can help you…»); `fresh` = in una conversazione nuova. */
+type IncomingDraft = ComposerDraft & { fresh: boolean };
+
 /** Sotto questa larghezza il riquadro non si stringe più (copre la colonna, piuttosto). */
 const MIN_WIDTH = 300;
 
@@ -110,7 +113,7 @@ const MIN_WIDTH = 300;
 export function ClaudePanelHost() {
   const me = useSessionPersonId();
   const [open, setOpen] = useState(false);
-  const [incoming, setIncoming] = useState<ComposerDraft | undefined>(undefined);
+  const [incoming, setIncoming] = useState<IncomingDraft | undefined>(undefined);
   const [working, setWorking] = useState(false);
   const [unseen, setUnseen] = useState(false);
   // D2: la pagina aperta dal riquadro c'è ancora («Back to …»): le sta accanto.
@@ -126,7 +129,7 @@ export function ClaudePanelHost() {
   if (open && !born) setBorn(true);
   // Il testo da ⌘K si prende una volta sola, anche se il contenuto rinasce.
   const taken = useRef(0);
-  const takeIncoming = useCallback((): ComposerDraft | null => {
+  const takeIncoming = useCallback((): IncomingDraft | null => {
     if (!incoming || incoming.nonce === taken.current) return null;
     taken.current = incoming.nonce;
     return incoming;
@@ -142,9 +145,10 @@ export function ClaudePanelHost() {
   useEffect(() => {
     function onEvent(e: Event) {
       const detail = (e as CustomEvent<ClaudePanelEventDetail>).detail ?? {};
-      if (detail.draft !== undefined) {
-        const text = detail.draft;
-        setIncoming((d) => ({ text, nonce: (d?.nonce ?? 0) + 1 }));
+      if (detail.draft !== undefined || detail.fresh) {
+        const text = detail.draft ?? "";
+        const fresh = detail.fresh === true;
+        setIncoming((d) => ({ text, nonce: (d?.nonce ?? 0) + 1, fresh }));
       }
       setOpen((was) => (detail.mode === "toggle" ? !was : true));
     }
@@ -253,7 +257,7 @@ function PanelBody({
 }: {
   open: boolean;
   /** Il testo da ⌘K non ancora preso, una volta sola. */
-  takeIncoming: () => ComposerDraft | null;
+  takeIncoming: () => IncomingDraft | null;
   announce: boolean;
   onClose: () => void;
   onWorking: (working: boolean) => void;
@@ -271,10 +275,23 @@ function PanelBody({
   const nonce = useRef(0);
   const put = (text: string) => setDraft({ text, nonce: (nonce.current += 1) });
 
-  // Il testo da ⌘K, anche quello che ha fatto nascere il contenuto.
+  // Il testo da ⌘K, anche quello che ha fatto nascere il contenuto. Dalla riga
+  // «Claude can help you…» (`fresh`) in una conversazione nuova: il testo non
+  // inviato di quella di prima resta suo, e la ritrova chi la riapre ([SG 6]).
   useEffect(() => {
     const incoming = takeIncoming();
-    if (incoming) put(incoming.text);
+    if (!incoming) return;
+    if (incoming.fresh) {
+      if (conversationId) {
+        const box = document.getElementById(CLAUDE_PANEL_ID)?.querySelector("textarea");
+        if (box?.value.trim()) keepUnsent(me, conversationId, box.value);
+      }
+      startNew();
+      // La richiesta parla della pagina: il chip torna, anche se era stato tolto.
+      context.setRemoved(false);
+    }
+    put(incoming.text);
+    // Solo a ogni testo nuovo: la conversazione di adesso si legge a quel momento.
   }, [takeIncoming]);
 
   // «Now showing Sara Montanari's conversations.» per 4 s, finché non si scrive.

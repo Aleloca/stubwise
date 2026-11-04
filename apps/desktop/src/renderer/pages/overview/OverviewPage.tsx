@@ -2,6 +2,7 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useProject, useProjectPulse, useProjectSwitches } from "../../data/queries";
+import { ClaudeSuggestionRow } from "../../tasks-ui/ClaudeSuggestionRow";
 import { useTaskKeys } from "../tasks/useTaskKeys";
 import { useOpenTask } from "../home/blocks/BlockSection";
 import { DecisionLog } from "./DecisionLog";
@@ -69,6 +70,12 @@ export function OverviewPage({ projectCode }: { projectCode: string }) {
             />
           )}
         </header>
+        {/* Area 10b: «Claude can help you understand why ACQ is stalled», dopo il
+            polso e fuori dalla testata, così «Not now» sta al bordo della colonna. */}
+        <ClaudeSuggestionRow
+          place={project ? { kind: "overview", projectId: project.id } : null}
+          className="-mt-3.5 mb-5"
+        />
         {project && (
           <>
             <StalledSection projectId={project.id} projectCode={project.code} />

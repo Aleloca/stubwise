@@ -4484,6 +4484,33 @@
       "gone": "Can't be undone anymore",
       "other": "Claude put a draft in a field",
       "descriptionReady": "Claude's draft is in the description of {{code}}. Save it to keep it."
+    },
+    "suggestions": {
+      "lead": "Claude can help you ",
+      "hint": "Opens Claude with the request written, not sent.",
+      "notNow": "Not now",
+      "hidden": "Suggestion hidden.",
+      "supportReply": {
+        "line": "write the reply",
+        "prompt": "Write the reply to {{code}}",
+        "prompt_vowel": "Write the reply to {{code}}"
+      },
+      "releaseNotes": {
+        "line": "write the release notes",
+        "prompt": "Write the release notes"
+      },
+      "buildAutomation": {
+        "line": "build an automation for {{code}}",
+        "prompt": "Build an automation in {{code}}: when "
+      },
+      "whyStalled": {
+        "line": "understand why {{code}} is stalled",
+        "prompt": "Which tasks are stalled in {{code}}, and why?"
+      },
+      "monthSpend": {
+        "line": "summarize this month's spend",
+        "prompt": "How much have we spent on AI this month?"
+      }
     }
   },
   "chat": {
