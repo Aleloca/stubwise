@@ -3615,7 +3615,6 @@
         "openField": "Open the conversation, the email, the pull request or the task and ask me again.",
         "openCode": "Open **{{code}}** →",
         "openReply": "Open the reply →",
-        "openEmail": "Open the email →",
         "chat": "In a channel, drafts are written by @Claude in the thread: mention @Claude there.",
         "inPanel": "I write drafts from the Claude panel, next to the field: ask me there."
       }

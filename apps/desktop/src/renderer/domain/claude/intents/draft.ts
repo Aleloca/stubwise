@@ -2,6 +2,7 @@ import type { ContextRef, FieldRef } from "../../../data/types";
 import { labelled, resulted, type Answer, type ReadAction } from "../answers";
 import type { IntentContext } from "../context";
 import { findCodes, isHowToQuestion, normalize, stripCourtesy } from "../parse";
+import { isRefused, refused, refusedTopicOf } from "./refused";
 
 // Le bozze (area 10b, Task 8: S6, S6b, Posta, descrizione — D1). «Scrivi la
 // risposta», «draft the release notes», «scrivi un'email a … per dire che
@@ -52,8 +53,12 @@ export function isDraftRequest(text: string): boolean {
   if (isHowToQuestion(text)) return false;
   // Il verbo in testa basta a farne un comando: «who wrote…?» non comincia così.
   const { polite, command } = stripCourtesy(normalize(text));
-  if (!WRITE.test(command) && !(polite && WRITE_INF.test(command))) return false;
-  return FIELD_WORD.test(command) && !DECISION.test(command);
+  const verb = WRITE.exec(command) ?? (polite ? WRITE_INF.exec(command) : null);
+  if (!verb) return false;
+  // Il campo si cerca DOPO il verbo: in «draft the plan for ACQ-7» «draft» è
+  // il verbo, non una bozza (minore 1 della revisione).
+  const rest = command.slice(verb[0].length);
+  return FIELD_WORD.test(rest) && !DECISION.test(rest);
 }
 
 /** Che campo chiede la frase; `any` = una bozza qualunque, lo dice il contesto. */
@@ -130,11 +135,38 @@ function withSend(
   return {
     ...answer,
     text: ctx.t("claude.answers.refused.send"),
-    place: { route, labelKey: `${K}.${labelKey}` },
+    place: { route, labelKey },
   };
 }
 
+/** Le parti della frase dopo la prima: «write the notes and merge the PR» → «merge the PR». */
+const TAIL = /\s+(?:and|then|e|ed|poi)\s+/i;
+
+/**
+ * Un altro gesto delle persone in coda alla richiesta («… and merge the
+ * PR»): dopo la bozza, la sua riga D (come da sola), mai l'azione. L'invio
+ * ha già la sua (`withSend`).
+ */
+async function withTailGesture(answer: Answer, text: string, ctx: IntentContext): Promise<Answer> {
+  if (!answer.draft || answer.text !== "") return answer;
+  for (const clause of text.split(TAIL).slice(1)) {
+    if (!isRefused(clause) || refusedTopicOf(clause) === "send") continue;
+    const row = await refused(clause, ctx);
+    return {
+      ...answer,
+      actions: [...answer.actions, ...row.actions],
+      text: row.text,
+      place: row.place,
+    };
+  }
+  return answer;
+}
+
 export async function draft(text: string, ctx: IntentContext): Promise<Answer> {
+  return withTailGesture(await draftOf(text, ctx), text, ctx);
+}
+
+async function draftOf(text: string, ctx: IntentContext): Promise<Answer> {
   const { t } = ctx;
   const plain = normalize(text);
   const want = wantOf(plain);
@@ -207,7 +239,7 @@ async function supportReply(
     sends,
     ctx,
     `#/p/${projectCodeOf(code)}/support/${code}`,
-    "openReply",
+    `${K}.openReply`,
   );
 }
 
@@ -252,8 +284,10 @@ async function mail(
     },
     sends,
     ctx,
-    context.threadId === null ? "#/mail?compose=new" : `#/mail/${context.threadId}`,
-    context.threadId === null ? "openEmail" : "openReply",
+    // La Posta, come la riga D del 10a: mai l'id del thread nel testo di
+    // Claude, che una pubblica fa leggere anche a chi non è nella casella (I1).
+    "#/mail",
+    "claude.answers.refused.sendMail",
   );
 }
 

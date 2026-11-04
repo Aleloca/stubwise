@@ -341,9 +341,18 @@ describe("Posta (D1)", () => {
       { context: { kind: "mail", threadId: BILLING() } },
     );
     await api.whenIdle(c.id);
-    expect((await api.getConversation(c.id))!.events.find((e) => e.type === "draft")).toMatchObject(
-      { field: { kind: "mailBody", threadId: BILLING() } },
+    // «Scrivi e manda»: la riga D non porta l'id del thread (I1 della revisione).
+    await api.sendMessage(
+      c.id,
+      { text: "write and send the reply" },
+      { context: { kind: "mail", threadId: BILLING() } },
     );
+    await api.whenIdle(c.id);
+    const own = (await api.getConversation(c.id))!.events;
+    expect(own.filter((e) => e.type === "draft")).toHaveLength(2);
+    expect(own.find((e) => e.type === "draft")).toMatchObject({
+      field: { kind: "mailBody", threadId: BILLING() },
+    });
     const touched = state.conversations.find((x) => x.id === c.id)!.touchedProjectIds;
     await api.setVisibility(c.id, "public", { confirmedProjectIds: touched });
 
@@ -369,7 +378,7 @@ describe("Posta (D1)", () => {
     const sayAt = steps.findIndex((s) => s.step === "say");
     expect(draftAt).toBeLessThan(sayAt);
     expect(said(steps)).toBe(
-      `L'invio tocca a te: non mando email né risposte. [Apri la risposta →](#/mail/${BILLING()})`,
+      "L'invio tocca a te: non mando email né risposte. [Apri la Posta →](#/mail)",
     );
     expect(state.mailMessages).toHaveLength(messages);
   });
@@ -444,6 +453,25 @@ describe("Dove la bozza non ha un campo", () => {
       "Open the conversation, the email, the pull request or the task and ask me again. [Open **ACQ-3** →](#/p/ACQ/tasks?task=ACQ-3)",
     );
     expect(drafts(coded)).toEqual([]);
+  });
+
+  it("«draft the plan for ACQ-7»: «draft» è il verbo, non il campo — nessuna bozza", async () => {
+    expect(recognize("draft the plan for ACQ-7")).not.toBe("draft");
+    expect(recognize("prepara il piano di ACQ-7")).not.toBe("draft");
+    const steps = await respond("draft the plan for ACQ-7", as(LAURA));
+    expect(drafts(steps)).toEqual([]);
+  });
+
+  it("un altro gesto in coda («…and merge the PR»): la bozza, poi la sua riga D", async () => {
+    const steps = await respond(
+      "write the release notes and merge the PR",
+      as(LAURA, en, { kind: "pr", prId: ACQ_PR }),
+    );
+    expect(drafts(steps)).toHaveLength(1);
+    expect(said(steps)).toBe(
+      "Merging is yours to do, from the release queue. [Open the release queue of **ACQ** →](#/p/ACQ/releases)",
+    );
+    expect(state.openPrs.find((p) => p.id === ACQ_PR)!.state).toBe("open");
   });
 
   it("«scrivi un messaggio nel canale»: lì la bozza la scrive @Claude nel thread, nessun `draft`", async () => {

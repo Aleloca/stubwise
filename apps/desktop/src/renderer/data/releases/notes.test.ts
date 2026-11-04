@@ -50,6 +50,16 @@ describe("releaseNotesDraftFor", () => {
     expect(draft.sources).toEqual(["ACQ-7", "ACQ-2"]);
   });
 
+  it("una task visibile di un altro progetto non entra nelle note della PR (I2)", () => {
+    const other = state.tasks.find(
+      (t) => t.projectId !== "prj-acq" && sees("p-laura", t.projectId),
+    )!;
+    pr(ACQ_PR).commits!.push({ sha: "e".repeat(40), message: `${other.code}: ${other.title}` });
+    const draft = releaseNotesDraftFor("p-laura", ACQ_PR)!;
+    expect(draft.sources).toEqual(["ACQ-7", "ACQ-2"]);
+    expect(draft.text.toLowerCase()).not.toContain(other.code.toLowerCase());
+  });
+
   it("`null` per chi non può modificare le note, e per una PR che chi chiede non vede", () => {
     // Sara vede ACQ, ma senza `tickets.edit` né `release.merge`.
     expect(releaseNotesDraftFor("p-sara", ACQ_PR)).toBeNull();

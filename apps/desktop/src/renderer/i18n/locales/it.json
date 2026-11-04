@@ -3615,7 +3615,6 @@
         "openField": "Apri la conversazione, l'email, la pull request o la task e chiedimelo di nuovo.",
         "openCode": "Apri **{{code}}** →",
         "openReply": "Apri la risposta →",
-        "openEmail": "Apri l'email →",
         "chat": "In un canale le bozze le scrive @Claude nel thread: menzionalo lì.",
         "inPanel": "Le bozze le scrivo dal riquadro di Claude, accanto al campo: chiedimelo lì."
       }

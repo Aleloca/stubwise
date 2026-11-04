@@ -103,8 +103,9 @@ export function contextOf(me: string, ref: ContextRef): ContextDescription | nul
     }
     case "mail": {
       // D1, `mailbox_owner`: solo la propria posta — una conversazione che
-      // chi guarda vede (`canSeeMessage`, admin compresi), o l'email nuova
-      // di chi ha una casella. Nessun codice: il chip dice «email».
+      // chi guarda vede (`canSeeMessage`, nessuna eccezione per gli admin),
+      // o l'email nuova di chi ha una casella. Nessun codice: il chip dice
+      // «email».
       const mine =
         ref.threadId === null
           ? state.mailboxes.some((b) => b.personId === me)
