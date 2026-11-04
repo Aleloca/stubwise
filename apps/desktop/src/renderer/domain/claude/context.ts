@@ -15,6 +15,8 @@ import type {
   ProjectRequest,
   ProjectStatus,
   ProposedAction,
+  SpendView,
+  StalledProject,
   Task,
   WeeklyBrief,
 } from "../../data/types";
@@ -81,6 +83,14 @@ export interface ReadApi {
    * vedrebbe la prova (la stessa regola che il catalogo ricontrolla).
    */
   validateAutomationFlow(flow: AutomationFlow, projectId: string | null): Promise<FlowIssue[]>;
+  /**
+   * Area 10b (S2): i progetti aperti e visibili con task ferme, dal più
+   * fermo (`stallOf`, come il blocco «Stalled»); con `projectId` solo quello
+   * (P16).
+   */
+  listStalledProjects(projectId?: string | null): Promise<StalledProject[]>;
+  /** Area 10b (S3): la spesa in AI del mese, come chi chiede la vede in Usage. */
+  spendThisMonth(): Promise<SpendView>;
 }
 
 export interface IntentContext {

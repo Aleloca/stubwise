@@ -238,6 +238,72 @@ async function main() {
       return;
     }
 
+    // Area 10b, Task 6 (`CAPTURE_A10B_SCENARIOS=1`): le risposte sui dati
+    // nel riquadro, da All projects. Roberta: «which projects are stuck?»
+    // (S2, la riga «and N more · open the list») e la scheda Stalled aperta
+    // da quel link. Laura: la spesa dei suoi progetti (S3) con il «Who?»
+    // d'istanza, poi il suo riquadro aperto. «Hypothesis», «Details» e
+    // l'elenco di S0 si disegnano col Task 11. Scatti `a10b-scenarios-*`.
+    if (process.env.CAPTURE_A10B_SCENARIOS) {
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      const take = async (page, name, v) => {
+        await page.mouse.move(v.viewport.width - 2, v.viewport.height - 2);
+        if (!only || only.test(name)) await shot(page, name);
+      };
+      const ask = async (page, text) => {
+        await page.getByRole("button", { name: /^(Ask Claude|Chiedi a Claude)$/ }).click();
+        const box = page.locator("#claude-panel textarea");
+        await box.waitFor();
+        await box.fill(text);
+        await box.press("Enter");
+        await page.locator("#claude-panel [data-assistant]").last().waitFor();
+        await page.waitForTimeout(2500);
+      };
+      for (const v of variants) {
+        const it = v.lang === "it";
+        {
+          const { page, context } = await open(v.scheme, v.viewport, "/projects", {
+            lang: v.lang,
+            persona: "Roberta",
+          });
+          await ask(page, it ? "Quali progetti sono fermi e perché?" : "which projects are stuck?");
+          await take(page, `a10b-scenarios-stalled-${v.suffix}.png`, v);
+          await page
+            .locator("#claude-panel")
+            .getByRole("link", { name: it ? "apri l'elenco" : "open the list" })
+            .click();
+          await page.locator("[data-stalled-project]").first().waitFor();
+          await page.waitForTimeout(600);
+          await take(page, `a10b-scenarios-stalled-list-${v.suffix}.png`, v);
+          await context.close();
+        }
+        {
+          const { page, context } = await open(v.scheme, v.viewport, "/projects", {
+            lang: v.lang,
+            persona: "Laura",
+          });
+          await ask(
+            page,
+            it ? "Quanto abbiamo speso in AI questo mese?" : "How much have we spent on AI this month?",
+          );
+          await take(page, `a10b-scenarios-spend-${v.suffix}.png`, v);
+          await page.locator('#claude-panel [data-who-can="seeUsage"]').click();
+          await page.locator('[data-who-can-popover="seeUsage"] [data-who-row]').first().waitFor();
+          await page.waitForTimeout(400);
+          await take(page, `a10b-scenarios-spend-who-${v.suffix}.png`, v);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 10a, Task 11 (`CAPTURE_A10A_TRACE=1`): «Claude on behalf of».
     // Roberta: il registro con Person = Giulia e «Made with Claude» premuto
     // (la voce del seme, l'inversa con «Undid:»); la rassegna di oggi con le

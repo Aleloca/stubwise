@@ -1,4 +1,11 @@
-import type { CitationRef, ProposedAction, ScriptStep, Task, Utterance } from "../../data/types";
+import type {
+  CapabilityId,
+  CitationRef,
+  ProposedAction,
+  ScriptStep,
+  Task,
+  Utterance,
+} from "../../data/types";
 import { shortWeekIn } from "../weeks";
 import type { IntentContext, T } from "./context";
 
@@ -79,6 +86,14 @@ export interface Answer {
    * da eseguire: diventa un evento `trial` `pending`, che risolve `freeTurn`.
    */
   trial?: { wants: ("passes" | "fails")[] };
+  /**
+   * Area 10b (S2): le righe sotto la risposta che non sono un fatto della
+   * prima riga — al più una «Hypothesis» (una deduzione, mai nel testo) e
+   * un «Details» (come è contato). Diventano eventi `aside` dopo il testo.
+   */
+  aside?: { kind: "hypothesis" | "details"; text: string }[];
+  /** Area 10b (S0): cosa sa fare il prototipo, un evento `capabilities` dopo il testo. */
+  capabilities?: CapabilityId[];
 }
 
 /**
@@ -104,6 +119,14 @@ export function toSteps(answer: Answer, ctx: IntentContext, text: string): Scrip
     ? `${answer.text} [${ctx.t(answer.place.labelKey, answer.place.labelParams)}](${answer.place.route})`
     : answer.text;
   if (said) steps.push({ step: "say", text: said });
+  // Area 10b: l'elenco della risposta onesta, poi «Hypothesis» e «Details»
+  // (nell'ordine dello shape), sotto il testo e mai dentro.
+  if (answer.capabilities && answer.capabilities.length > 0) {
+    steps.push({ step: "event", event: { type: "capabilities", items: answer.capabilities } });
+  }
+  for (const a of answer.aside ?? []) {
+    steps.push({ step: "event", event: { type: "aside", kind: a.kind, text: a.text } });
+  }
   // Le azioni A subito dopo la loro frase («Fatto…»): se all'esecuzione la
   // classe è salita, `freeTurn` cambia quella frase e l'evento in una scheda.
   if (answer.execute && answer.execute.length > 0) {
@@ -182,12 +205,18 @@ export const shortWeek = (t: T, week: string) => shortWeekIn(t, week);
 export const sayDate = (t: T, iso: string) =>
   t("claude.answers.date", { date: new Date(`${iso.slice(0, 10)}T00:00:00Z`) });
 
-/** Un elenco puntato, con «…e altri N» oltre il tetto. */
-export function bulleted(t: T, lines: string[], max = 5): string {
+/**
+ * Un elenco puntato, con «…e altri N» oltre il tetto. Con `more` (area 10b,
+ * le risposte corte) la coda è una riga a sé sotto l'elenco, «and N more ·
+ * open the list», col link alla pagina che li mostra tutti.
+ */
+export function bulleted(t: T, lines: string[], max = 5, more?: { route: string }): string {
   const shown = lines.slice(0, max).map((l) => `- ${l}`);
-  if (lines.length > max)
-    shown.push(`- ${t("claude.answers.more", { count: lines.length - max })}`);
-  return shown.join("\n");
+  const rest = lines.length - max;
+  if (rest <= 0) return shown.join("\n");
+  if (!more) return [...shown, `- ${t("claude.answers.more", { count: rest })}`].join("\n");
+  const tail = `${t("claude.answers.moreList", { count: rest })} · [${t("claude.answers.openList")}](${more.route})`;
+  return `${shown.join("\n")}\n\n${tail}`;
 }
 
 /** I dettagli di una task in una riga di catalogo: «Marco Bellini · W44 · M». */

@@ -19,6 +19,8 @@ import { isRefused, refused } from "./intents/refused";
 import { remove } from "./intents/remove";
 import { howto, howtoTopic } from "./intents/howto";
 import { run } from "./intents/run";
+import { isSpendQuestion, spend } from "./intents/spend";
+import { isStalledQuestion, stalled } from "./intents/stalled";
 import { status } from "./intents/status";
 import { today } from "./intents/today";
 
@@ -46,6 +48,8 @@ export type Intent =
   | "remove"
   | "refused"
   | "automation"
+  | "stalled"
+  | "spend"
   | "general";
 
 // Le modifiche si riconoscono solo da un COMANDO: il verbo all'imperativo in
@@ -111,6 +115,11 @@ export function recognize(text: string, visibleCodes?: ReadonlySet<string>): Int
   // un'automazione, e «crea un'automazione…» non è la creazione di una task:
   // dopo i gesti delle persone, prima dei comandi (P10).
   if (isAutomationRequest(text)) return "automation";
+  // Area 10b (S2, S3): le domande sui progetti fermi e sulla spesa, prima dei
+  // comandi e di `explain` (P10): «quali task sono ferme in ACQ?» non è un
+  // codice da spiegare.
+  if (isStalledQuestion(text)) return "stalled";
+  if (isSpendQuestion(text)) return "spend";
   if (polite || !QUESTION.test(command)) {
     const verb = (imperative: RegExp, infinitive: RegExp) =>
       imperative.test(command) || (polite && infinitive.test(command));
@@ -144,6 +153,8 @@ const HANDLERS: Record<Intent, (text: string, ctx: IntentContext) => Promise<Ans
   remove,
   refused,
   automation,
+  stalled,
+  spend,
   general,
 };
 

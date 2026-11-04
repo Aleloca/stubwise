@@ -3184,7 +3184,7 @@
       "date": "{{date, datetime(month: short; day: numeric; timeZone: UTC)}}",
       "more_one": "…e ancora {{count}}",
       "more_other": "…e altri {{count}}",
-      "general": "Su questo in Stubwise non ho nulla, e preferisco non tirare a indovinare. Ecco cosa posso fare per te: dirti a che punto sono i tuoi progetti, cosa hai da fare oggi, spiegarti una task o una richiesta (per esempio «spiegami AUD-3»), cercare qualcosa nei Docs di un progetto, e creare, assegnare, pianificare o avviare il lavoro — chiedendoti sempre conferma prima di cambiare qualcosa.",
+      "general": "Nel prototipo so fare queste cose:",
       "actions": {
         "readPulses_one": "Letto il polso di {{count}} progetto",
         "readPulses_other": "Letto il polso di {{count}} progetti",
@@ -3204,7 +3204,10 @@
         "messages_other": "{{count}} messaggi",
         "searchDrive": "Cercato «{{topic}}» nel Drive",
         "files_one": "{{count}} file",
-        "files_other": "{{count}} file"
+        "files_other": "{{count}} file",
+        "readStalled": "Lette le task ferme",
+        "readStalledIn": "Lette le task ferme di {{code}}",
+        "readUsage": "Letti i consumi del mese"
       },
       "status": {
         "intro": "Ecco a che punto sono i tuoi progetti:",
@@ -3461,6 +3464,81 @@
         },
         "off": "È spenta: accendila dal costruttore quando ti va bene.",
         "aDepartment": "un reparto"
+      },
+      "moreList_one": "e altri {{count}}",
+      "moreList_other": "e altri {{count}}",
+      "openList": "apri l'elenco",
+      "aside": {
+        "hypothesis": "Ipotesi",
+        "details": "Dettagli"
+      },
+      "capabilities": {
+        "label": {
+          "automation": "Costruire un'automazione e provarla",
+          "stalled": "Dirti quali progetti sono fermi, e perché",
+          "spend": "Dirti quanto si è speso in AI questo mese",
+          "archive": "Archiviare i progetti senza attività",
+          "addMember": "Aggiungere qualcuno a un progetto",
+          "supportReply": "Scrivere la risposta a una conversazione di supporto",
+          "releaseNotes": "Scrivere le note di rilascio di una pull request",
+          "mailBody": "Scrivere un'email o una risposta nella Posta",
+          "taskDescription": "Scrivere la descrizione di una task"
+        },
+        "prompt": {
+          "automation": "Quando arriva una richiesta di supporto urgente, crea una task e avvisa il reparto",
+          "stalled": "Quali progetti sono fermi e perché?",
+          "spend": "Quanto abbiamo speso in AI questo mese?",
+          "archive": "Archivia i progetti senza attività da 3 mesi",
+          "addMember": "Aggiungi [persona] a [progetto] come [ruolo]",
+          "supportReply": "Scrivi la risposta",
+          "releaseNotes": "Scrivi le note di rilascio",
+          "mailBody": "Scrivi un'email a [persona] per dire che [cosa]",
+          "taskDescription": "Scrivi la descrizione di [task]"
+        }
+      },
+      "stalled": {
+        "many_one": "{{count}} progetto ha task ferme",
+        "many_other": "{{count}} progetti hanno task ferme",
+        "one_one": "{{code}} ha {{count}} task ferma, la più vecchia da {{days}} ({{reason}})",
+        "one_other": "{{code}} ha {{count}} task ferme, la più vecchia da {{days}} ({{reason}})",
+        "oneTask": "{{code}} ha 1 task ferma, da {{days}} ({{reason}})",
+        "line_one": "**{{code}}** — {{count}} task ferma, la più vecchia da {{days}} ({{reason}})",
+        "line_other": "**{{code}}** — {{count}} task ferme, la più vecchia da {{days}} ({{reason}})",
+        "lineOne": "**{{code}}** — 1 task ferma, da {{days}} ({{reason}})",
+        "days_one": "{{count}} giorno",
+        "days_other": "{{count}} giorni",
+        "none": "Nessun progetto ha task ferme",
+        "noneIn": "{{code}} non ha task ferme",
+        "notFound": "Non trovo il progetto {{code}}.",
+        "hypothesis": "{{task}} forse è uscita dalla pianificazione: non ha una settimana",
+        "details": "Una task è ferma quando non cambia da più della soglia del suo progetto ({{code}}: {{days}}). Solo progetti aperti.",
+        "detailsMixed": "Una task è ferma quando non cambia da più della soglia del suo progetto. Le soglie cambiano da progetto a progetto: le trovi in Impostazioni → Fermo di ognuno. Solo progetti aperti.",
+        "reason": {
+          "manual": "segnata ferma: {{reason}}",
+          "decision": "aspetta una decisione di {{name}}",
+          "decisionAnyone": "aspetta una decisione",
+          "claude_question": "aspetta una risposta a Claude",
+          "blockedBy": "bloccata da {{code}}",
+          "blockedByAnother": "bloccata da un'altra task",
+          "unassigned": "senza assegnatario",
+          "idle": "nessun cambiamento"
+        }
+      },
+      "spend": {
+        "usd": "${{amount, number(minimumFractionDigits: 2; maximumFractionDigits: 2)}}",
+        "usdWhole": "${{amount, number(maximumFractionDigits: 0)}}",
+        "instance": "Questo mese abbiamo speso {{total}} in AI, su un budget di {{budget}}.",
+        "instanceNoBudget": "Questo mese abbiamo speso {{total}} in AI. Non c'è un budget mensile.",
+        "top": "Spendono di più",
+        "line": "**{{code}}** — {{usd}}",
+        "otherLine": "Altri progetti — {{usd}}",
+        "openUsage": "Apri Consumi →",
+        "projects": "Nei progetti di cui vedi i consumi: {{total}}.",
+        "totalVisibleTo": "Il totale lo vede chi può vedere i consumi",
+        "none": "Non vedi i consumi di nessun progetto",
+        "who": "Who?",
+        "perPerson": "Non ho i consumi per persona.",
+        "details": "Dal {{from}} al {{to}}, {{at, datetime(hour: 2-digit; minute: 2-digit; hour12: false; timeZone: UTC)}}. Gli stessi totali di Consumi."
       }
     },
     "proposalFailed": {

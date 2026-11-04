@@ -1,15 +1,10 @@
 import { TODAY } from "../data/seed/dates";
-import type { DecisionRequest, Project, StatusFamily, Task } from "../data/model";
+import type { DecisionRequest, Project, StallReason, StatusFamily, Task } from "../data/model";
 import { blockerIdsOf } from "./links";
 import { compareWeeks, currentWeek } from "./weeks";
 
-export type StallReason =
-  | { kind: "manual"; reason: string; note: string }
-  | { kind: "decision"; personId: string }
-  | { kind: "claude_question" }
-  | { kind: "blocked_by"; taskId: string }
-  | { kind: "unassigned" }
-  | { kind: "idle" };
+// Il tipo sta in `data/model.ts` (area 10b, P5): lo legge anche la risposta di Claude.
+export type { StallReason };
 
 export interface Stall {
   reason: StallReason;

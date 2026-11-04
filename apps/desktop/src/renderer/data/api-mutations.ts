@@ -31,6 +31,7 @@ import {
   reauthMissing,
 } from "./claude/actions";
 // La prova delle bozze di Claude (area 10b): esempi e prova senza effetti.
+import { spendThisMonthFor, stalledProjectsFor } from "./claude/answersData";
 import { prepareTrials } from "./claude/trial";
 import { DEFAULT_PUBLISHED_EVENTS } from "./seed/chat";
 import { COMMITS } from "./seed/commits";
@@ -1686,6 +1687,9 @@ export function readsAs(me: string): ReadApi {
     listDepartments: bind(reads.listDepartments),
     canManageAutomations: bind(reads.automations.canManageAutomations),
     validateAutomationFlow: bind(reads.automations.validateAutomationFlow),
+    // Area 10b (S2, S3): letture calcolate a nome di chi chiede, senza latenza propria.
+    listStalledProjects: async (projectId) => stalledProjectsFor(me, projectId),
+    spendThisMonth: async () => spendThisMonthFor(me),
   };
 }
 

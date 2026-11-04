@@ -82,13 +82,22 @@ export function AllProjectsPage() {
   // «By person» nella scheda Activity: dall'indirizzo, così un link la apre.
   const personView = search.view === "person";
   const canPeople = can(viewer, "people.activity.view");
+  // `?view=stalled`: «open the list» di una risposta di Claude (area 10b, S2).
   const [tab, setTab] = useState<Tab>(
-    search.view === "archived" ? "archived" : personView ? "activity" : "projects",
+    search.view === "archived"
+      ? "archived"
+      : search.view === "stalled"
+        ? "stalled"
+        : personView
+          ? "activity"
+          : "projects",
   );
   // «Open Archived» (il toast dopo un'archiviazione) riscrive `?view=archived`
   // con la pagina già aperta.
   useEffect(() => {
     if (search.view === "archived") setTab("archived");
+    // Lo stesso per «open the list» di Claude col riquadro aperto su All projects.
+    if (search.view === "stalled") setTab("stalled");
   }, [search.view]);
   const archived = useArchivedProjects();
   const archivedRows = archived.data ?? [];

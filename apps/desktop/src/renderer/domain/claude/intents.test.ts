@@ -4,7 +4,8 @@ import i18n from "i18next";
 import { beforeEach, describe, expect, it } from "vitest";
 import * as api from "../../data/api";
 import { readsAs } from "../../data/api-mutations";
-import { setSessionPersonId } from "../../data/session";
+import { spendThisMonthFor, stalledProjectsFor } from "../../data/claude/answersData";
+import { getSessionPersonId, setSessionPersonId } from "../../data/session";
 import { state } from "../../data/store";
 import type { ProposedAction, ScriptStep } from "../../data/types";
 import { recognize, respond, type IntentContext, type ReadApi } from "./intents";
@@ -38,6 +39,9 @@ const READ: ReadApi = {
   listDepartments: api.listDepartments,
   canManageAutomations: api.automations.canManageAutomations,
   validateAutomationFlow: api.automations.validateAutomationFlow,
+  // Area 10b (S2, S3): calcolate a nome della persona della sessione.
+  listStalledProjects: async (projectId) => stalledProjectsFor(getSessionPersonId(), projectId),
+  spendThisMonth: async () => spendThisMonthFor(getSessionPersonId()),
 };
 
 function as(personId: string, t = en, contextProjectId: string | null = null): IntentContext {
@@ -530,8 +534,12 @@ describe("la posta e le riunioni di altri non arrivano a Claude (Review Focus 1)
       "listProjectServers",
       "listProjectStatuses",
       "listProjects",
+      // Area 10b (Task 6): i progetti fermi (le task ferme che vede) e la
+      // spesa del mese (come la vede in Usage). Nessuna posta.
+      "listStalledProjects",
       "listTasks",
       "readDriveFiles",
+      "spendThisMonth",
       "validateAutomationFlow",
     ]);
   });

@@ -24,6 +24,8 @@ describe("route grammar", () => {
     expect(isAppRoute("#/preferences/billing")).toBe(false);
     expect(isAppRoute("#/projects?view=pinned")).toBe(true);
     expect(isAppRoute("#/projects?view=starred")).toBe(false);
+    // Area 10b: la scheda Stalled, dove porta «open the list» di Claude (S2).
+    expect(isAppRoute("#/projects?view=stalled")).toBe(true);
   });
 
   it("area 9a: le voci dell'Amministrazione, una persona, un invito, i filtri di People", () => {

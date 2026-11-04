@@ -177,6 +177,13 @@ describe("AllProjectsPage — schede", () => {
     expect(rows[0]).toBe("MKX-5");
   });
 
+  it("`?view=stalled` apre la scheda Stalled (il link «open the list» di Claude, area 10b)", async () => {
+    renderRoute("/projects?view=stalled", "p-giulia");
+    const tab = await screen.findByRole("tab", { name: "Stalled" });
+    expect(tab).toHaveAttribute("aria-selected", "true");
+    await waitFor(() => expect(document.querySelector("[data-stalled-project]")).not.toBeNull());
+  });
+
   it("Activity: per giorno, dal più recente, col progetto accanto", async () => {
     await portfolio("p-giulia");
     await userEvent.click(screen.getByRole("tab", { name: "Activity" }));

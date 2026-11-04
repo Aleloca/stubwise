@@ -1133,6 +1133,24 @@ export type ConversationEvent =
       /** La prova che il riquadro apre da sé nel costruttore (D2, maintainer): la prima che passa. */
       openSimId?: string | null;
     }
+  /**
+   * Area 10b (S2): una riga sotto la risposta che non è un fatto della
+   * prima riga — una deduzione («Hypothesis», mai nella prima riga) o come
+   * è contato («Details», chiuso). Testo di Claude nella lingua di chi ha
+   * chiesto, come il `say` (ruling T5).
+   */
+  | {
+      id: string;
+      at: string;
+      type: "aside";
+      kind: "hypothesis" | "details";
+      text: string;
+    }
+  /**
+   * Area 10b (S0): la risposta onesta, cosa sa fare il prototipo. Dati: chi
+   * guarda legge etichette e frasi d'esempio nella sua lingua.
+   */
+  | { id: string; at: string; type: "capabilities"; items: CapabilityId[] }
   | {
       id: string;
       at: string;
@@ -2771,6 +2789,72 @@ export interface TrialOutcome {
   /** Il passo di Claude su cui la prova si è fermata (non lo esegue: la prova di Claude non chiama `claudeFake`). */
   stoppedAtClaude: boolean;
 }
+
+/**
+ * Area 10b (S0): le cose che il prototipo sa fare, nell'ordine dell'elenco
+ * (maintainer, 2 nov 2026: nove voci, con email e descrizione di D1).
+ * Stanno qui perché le legge l'evento `capabilities` (P5).
+ */
+export type CapabilityId =
+  | "automation"
+  | "stalled"
+  | "spend"
+  | "archive"
+  | "addMember"
+  | "supportReply"
+  | "releaseNotes"
+  | "mailBody"
+  | "taskDescription";
+
+/** Perché una task è ferma (`stallOf` in `domain/stalled.ts`), in ordine di precedenza. */
+export type StallReason =
+  | { kind: "manual"; reason: string; note: string }
+  | { kind: "decision"; personId: string }
+  | { kind: "claude_question" }
+  | { kind: "blocked_by"; taskId: string }
+  | { kind: "unassigned" }
+  | { kind: "idle" };
+
+/**
+ * `StallReason` come la legge chi chiede (R-G5): la persona della decisione
+ * e la task che blocca ci sono solo se le vede, altrimenti la forma senza.
+ */
+export type SeenStallReason =
+  | Exclude<StallReason, { kind: "decision" } | { kind: "blocked_by" }>
+  | { kind: "decision"; personId?: string }
+  | { kind: "blocked_by"; taskId?: string };
+
+/** Area 10b (S2): un progetto aperto e visibile con task ferme, per la risposta di Claude. */
+export interface StalledProject {
+  projectId: string;
+  code: string;
+  stalled: number;
+  /** La task ferma da più tempo, col motivo di `stallOf` (P6). */
+  oldest: { taskCode: string; days: number; reason: SeenStallReason; plannedWeek: string | null };
+  /** La soglia del progetto (`stallThresholds.activeDays`), per i «Details» ([SC 3], P6). */
+  thresholdDays: number;
+}
+
+/**
+ * Area 10b (S3): la spesa in AI del mese (dal 1° a `now()`), come la vede
+ * chi chiede. `asOf` è l'«adesso» della lettura, per i «Details».
+ */
+export type SpendView =
+  | {
+      scope: "instance";
+      totalUsd: number;
+      budgetUsd: number | null;
+      /** I 3 che spendono di più; `projectId` `null` = «Other projects» (solo `usage.view`). */
+      top: { projectId: string | null; code: string | null; usd: number }[];
+      asOf: string;
+    }
+  | {
+      scope: "projects";
+      totalUsd: number;
+      projects: { projectId: string; code: string; usd: number }[];
+      asOf: string;
+    }
+  | { scope: "none" };
 
 /** Una riga del registro di un'esecuzione (regola 3: tutto tracciato). */
 /**

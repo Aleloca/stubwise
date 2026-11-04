@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { WhoCanLink } from "../../../components/WhoCanLink";
 import { Markdown, type LinkRenderer, type TextDecorator } from "../../../tasks-ui/Markdown";
 import { Avatar } from "../../../tasks-ui/PersonChip";
-import { useOpenRoutes, usePeople } from "../../../data/queries";
+import { actionById, useOpenRoutes, usePeople } from "../../../data/queries";
 import { DriveAnchor, HiddenCode, hiddenCodesOf, UsedLine, useCitationIndex } from "./citations";
 import { CODE_IN_TEXT, type FlowItem } from "./flow";
 import { clock } from "./parts";
@@ -96,24 +96,29 @@ export function AssistantMessage({
 /** Gli indirizzi dei link markdown di un testo: interni (`#/…`) e i «Who?» (`who:<azione>/<CODE>`). */
 const LINK_TARGET = /\]\(((?:#\/|who:)[^)\s]+)\)/g;
 
-/** Il progetto di un «Who?» di Claude: `who:recordDecision/AUD` → azione e codice. */
+/**
+ * Un «Who?» di Claude: `who:recordDecision/AUD` → azione e codice del
+ * progetto; `who:seeUsage` (area 10b, S3) → un'azione d'istanza, senza codice.
+ */
 const whoOf = (href: string) => {
-  const m = /^who:([A-Za-z]+)\/([A-Z]{2,4})$/.exec(href);
-  return m ? { action: m[1]!, code: m[2]! } : null;
+  const m = /^who:([A-Za-z]+)(?:\/([A-Z]{2,4}))?$/.exec(href);
+  return m ? { action: m[1]!, code: m[2] ?? null } : null;
 };
 
 /**
  * I link di una riga D di Claude (area 10a, Task 9): un indirizzo interno è
  * un link solo se chi legge vede la meta (`useOpenRoutes`, che lo dice il
  * livello dati), altrimenti resta l'etichetta; un «Who?» diventa
- * `WhoCanLink`, solo se chi legge vede il progetto. Mai una scheda né un
- * bottone che faccia il gesto.
+ * `WhoCanLink`, solo se chi legge vede il progetto (d'istanza sempre, area
+ * 10b). Mai una scheda né un bottone che faccia il gesto.
  */
 function useInternalLinks(text: string): LinkRenderer {
   const routes = useMemo(() => {
     const out = new Set<string>();
     for (const m of text.matchAll(LINK_TARGET)) {
       const who = whoOf(m[1]!);
+      // Un «Who?» d'istanza non ha un progetto da nascondere: nessun controllo.
+      if (who?.code === null) continue;
       out.add(who ? `#/p/${who.code}/overview` : m[1]!);
     }
     return [...out];
@@ -122,6 +127,15 @@ function useInternalLinks(text: string): LinkRenderer {
   return useCallback<LinkRenderer>(
     (href, label, key) => {
       const who = whoOf(href);
+      // Senza codice vale solo un'azione d'istanza del catalogo; un'azione di
+      // progetto senza codice, o una che il catalogo non ha, resta testo.
+      if (who?.code === null) {
+        return actionById(who.action)?.scope === "instance" ? (
+          <WhoCanLink key={key} action={who.action} projectId={null} />
+        ) : (
+          <span key={key}>{label}</span>
+        );
+      }
       if (who) {
         return open?.includes(`#/p/${who.code}/overview`) ? (
           <WhoCanLink key={key} action={who.action} projectCode={who.code} />

@@ -370,7 +370,9 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
       if (path === "home") return value === "week";
       if (path === "calendar") return isCalendarSearchValue(key, value);
       // `pinned`: All projects coi soli fissati (Preferenze → Account, «Followed projects»).
-      if (path === "projects") return value === "person" || value === "pinned";
+      // `stalled`: la scheda Stalled, dove porta «open the list» di Claude (area 10b, S2).
+      if (path === "projects")
+        return value === "person" || value === "pinned" || value === "stalled";
       if (path === "chat") return (CHAT_VIEWS as readonly string[]).includes(value);
       if (path === "automations") return (AUTOMATION_VIEWS as readonly string[]).includes(value);
       if (isReleasesPath(path)) return (RELEASES_VIEWS as readonly string[]).includes(value);
