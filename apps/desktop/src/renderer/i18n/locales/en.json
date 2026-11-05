@@ -12010,7 +12010,8 @@
       "dropCancelled": "{{title}} stays where it was",
       "renamed": "Renamed to {{title}}",
       "deleted": "Page deleted",
-      "instructions": "Drag a page by its handle to move it; drag sideways to change its level. From the keyboard, use the page's More menu."
+      "instructions": "Drag a page by its handle to move it; drag sideways to change its level. From the keyboard, use the page's More menu.",
+      "moved": "Moved {{title}}"
     }
   }
 }

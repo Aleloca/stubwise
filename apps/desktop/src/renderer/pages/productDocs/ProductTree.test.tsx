@@ -231,6 +231,100 @@ describe("rinominare sul posto", () => {
   });
 });
 
+/** Righe da 28 px una sotto l'altra; la riga che segue il puntatore dove la mettono `top` e spostamento. */
+function mockRows() {
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+    const overlay = this.closest<HTMLElement>(".product-tree-overlay");
+    const row = this.closest("[data-tree-row]");
+    const rows = [...document.querySelectorAll("[data-tree-row]")];
+    const shift = overlay
+      ? Number(/translate3d\([-\d.]+px, ([-\d.]+)px/.exec(overlay.style.transform)?.[1] ?? 0)
+      : 0;
+    const top = overlay ? parseFloat(overlay.style.top) + shift : row ? rows.indexOf(row) * 28 : 0;
+    return {
+      x: 0,
+      y: top,
+      top,
+      left: 0,
+      right: 240,
+      bottom: top + 28,
+      width: 240,
+      height: 28,
+      toJSON: () => ({}),
+    } as DOMRect;
+  });
+}
+
+describe("fix round 1: trascinare e rinominare", () => {
+  it("[PS 12] durante il trascinamento: l'origine è una riga vuota tratteggiata, la linea sta all'arrivo", async () => {
+    const t = await openSpace();
+    mockRows();
+    const handle = within(node(t, "Bills")).getByRole("button", { name: "Move Bills" });
+    fireEvent.pointerDown(handle, { button: 0, isPrimary: true, pointerId: 1, clientX: 10, clientY: 98 });
+    fireEvent.pointerMove(document, { pointerId: 1, clientX: 10, clientY: 92 });
+    // Ancora sopra sé stessa: nessuna destinazione che cambi qualcosa, nessuna linea.
+    await waitFor(() => expect(node(t, "Bills").querySelector("[data-drag-origin]")).not.toBeNull());
+    expect(document.querySelector("[data-drop-line]")).toBeNull();
+    // Sopra Sign-in: la linea in cima a Sign-in, al rientro del livello 1; l'origine resta.
+    fireEvent.pointerMove(document, { pointerId: 1, clientX: 10, clientY: 66 });
+    await waitFor(() =>
+      expect(node(t, "Sign-in").querySelector('[data-drop-line="top"]')).not.toBeNull(),
+    );
+    expect((node(t, "Sign-in").querySelector("[data-drop-line]") as HTMLElement).style.left).toBe(
+      "32px",
+    );
+    expect(node(t, "Bills").querySelector("[data-drag-origin]")).not.toBeNull();
+    fireEvent.pointerUp(document, { pointerId: 1, clientX: 10, clientY: 66 });
+    await waitFor(() => expect(document.querySelector("[data-drag-origin]")).toBeNull());
+  });
+
+  it("trascinata di lato a sinistra, «Bills» esce da Features: radice dopo Features", async () => {
+    const move = vi.spyOn(api.productDocs, "moveProductPage");
+    const t = await openSpace();
+    mockRows();
+    const handle = within(node(t, "Bills")).getByRole("button", { name: "Move Bills" });
+    fireEvent.pointerDown(handle, { button: 0, isPrimary: true, pointerId: 1, clientX: 60, clientY: 98 });
+    fireEvent.pointerMove(document, { pointerId: 1, clientX: 50, clientY: 98 });
+    fireEvent.pointerMove(document, { pointerId: 1, clientX: 30, clientY: 98 });
+    fireEvent.pointerUp(document, { pointerId: 1, clientX: 30, clientY: 98 });
+    // Sotto Bills c'è Meter reading, a livello 1: il livello non scende sotto
+    // quello della riga che segue, e Bills resta dov'è (nessuna scrittura).
+    await waitFor(() => expect(move).not.toHaveBeenCalled());
+    // «Fault reports», l'ultima figlia, invece esce: radice, subito dopo Features.
+    const fault = within(node(t, "Fault reports")).getByRole("button", { name: "Move Fault reports" });
+    fireEvent.pointerDown(fault, { button: 0, isPrimary: true, pointerId: 2, clientX: 60, clientY: 154 });
+    fireEvent.pointerMove(document, { pointerId: 2, clientX: 50, clientY: 154 });
+    fireEvent.pointerMove(document, { pointerId: 2, clientX: 30, clientY: 154 });
+    fireEvent.pointerUp(document, { pointerId: 2, clientX: 30, clientY: 154 });
+    await waitFor(() =>
+      expect(move).toHaveBeenCalledWith(pageBy("Fault reports").id, { parentId: null, index: 2 }),
+    );
+  });
+
+  it("una ricarica durante la rinomina non fa tornare il titolo di prima", async () => {
+    const user = userEvent.setup();
+    // La rinomina resta in volo: la lettura nuova non ha ancora il nome nuovo.
+    vi.spyOn(api.productDocs, "renameProductPage").mockImplementation(() => new Promise(() => {}));
+    const t = await openSpace();
+    node(t, "Bills").focus();
+    await user.keyboard("{F2}");
+    const field = within(t).getByRole("textbox", { name: "Title of Bills" });
+    await user.clear(field);
+    await user.type(field, "Bills and payments{Enter}");
+    expect(await within(t).findByRole("treeitem", { name: "Bills and payments" })).toBeInTheDocument();
+    // Un'altra scrittura ricarica lo spazio.
+    const menu = await nodeMenu(t, "Phases");
+    await user.click(within(menu).getByRole("menuitem", { name: "Move up" }));
+    await waitFor(() => expect(pageBy("Phases").order).toBe(3));
+    await waitFor(() => {
+      const titles = within(t).getAllByRole("treeitem").map((n) => n.getAttribute("aria-label"));
+      expect(titles.indexOf("Phases")).toBeLessThan(titles.indexOf("Client decisions"));
+    });
+    expect(within(t).getByRole("treeitem", { name: "Bills and payments" })).toBeInTheDocument();
+    expect(within(t).queryByRole("treeitem", { name: "Bills" })).toBeNull();
+  });
+});
+
 describe("chi legge soltanto", () => {
   it("Sara: nessuna maniglia, nessun «+», nessun «⋯», nessun «New page»", async () => {
     const t = await openSpace(SARA);

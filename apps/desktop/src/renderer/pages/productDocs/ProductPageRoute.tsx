@@ -11,6 +11,7 @@ import { ReadOnlyLine } from "./ReadOnlyLine";
 import {
   ProductNotFound,
   ReadBody,
+  inSpace,
   productPageHref,
   takeFresh,
   usePersonName,
@@ -35,7 +36,7 @@ export function ProductPageRoute({ code }: { code: string }) {
     );
   }
   if (page.isPending) return <ReadingSkeleton />;
-  if (!page.data) return <ProductNotFound code={project.code} />;
+  if (!inSpace(page.data, project)) return <ProductNotFound code={project.code} />;
   return <PageBody key={page.data.id} page={page.data} />;
 }
 

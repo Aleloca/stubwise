@@ -92,13 +92,31 @@ export function usePersonName() {
     (id && people?.find((p) => p.id === id)?.name) || t("productDocs.space.someone");
 }
 
-/** La pagina che non c'è, o che chi guarda non legge: la stessa frase (R-G5, [PS 20]). */
-export function ProductNotFound({ code }: { code: string }) {
+/**
+ * La pagina è di questo spazio. Un codice di un altro progetto nell'indirizzo
+ * di questo (`/p/ACQ/docs/product/AUD-D3`) è una pagina che qui non c'è (R-G5).
+ */
+export const inSpace = (page: ProductPageView | null, project: Project): page is ProductPageView =>
+  !!page && page.projectId === project.id;
+
+/** La chiave «appena aperto» dell'indice dello spazio (dopo l'eliminazione di una radice). */
+export const indexFreshKey = (code: string) => `index:${code}`;
+
+/**
+ * La pagina che non c'è, o che chi guarda non legge: la stessa frase (R-G5,
+ * [PS 20]). Dentro lo spazio torna all'indice; fuori (`outside`: progetto
+ * invisibile o modulo spento, lo spazio stesso non c'è) alla pagina iniziale
+ * dei Docs, così il link non riporta alla stessa pagina.
+ */
+export function ProductNotFound({ code, outside = false }: { code: string; outside?: boolean }) {
   const { t } = useTranslation();
   return (
     <DocNotFound
       back={
-        <Link {...productIndexLink(code)} className={backLinkClass}>
+        <Link
+          {...(outside ? ({ to: "/p/$code/docs", params: { code } } as const) : productIndexLink(code))}
+          className={backLinkClass}
+        >
           {t("docs.page.backToIndex")}
         </Link>
       }

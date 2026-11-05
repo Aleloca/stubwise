@@ -20,6 +20,9 @@ import {
   DeletePageDialog,
   ProductNotFound,
   ProductSpaceContext,
+  inSpace,
+  indexFreshKey,
+  markFresh,
   productIndexLink,
   productPageHref,
   productPageLink,
@@ -56,7 +59,7 @@ export function ProductSpace({ code }: { code: string }) {
 function Standalone({ code }: { code: string }) {
   return (
     <div className="page-header pl-8 [--page-header-pr:32px] [--page-header-pt:0px]">
-      <ProductNotFound code={code} />
+      <ProductNotFound code={code} outside />
     </div>
   );
 }
@@ -150,6 +153,15 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
     };
   }, [docked, drawer, closeDrawer]);
 
+  // Una pagina che diventa «non trovata» (eliminata da un altro, permesso
+  // perso) chiude il cassetto ([PS 20]); il fuoco che c'era dentro va su «Pages».
+  const openPage = useProductPage(pageCode ?? "", { enabled: pageCode !== null });
+  const gone = pageCode !== null && openPage.data !== undefined && !inSpace(openPage.data, project);
+  useEffect(() => {
+    if (!gone || !drawer) return;
+    closeDrawer(!!drawerRef.current?.contains(document.activeElement));
+  }, [gone, drawer, closeDrawer]);
+
   // Aperto, il fuoco entra nel cassetto.
   useEffect(() => {
     const el = drawerRef.current;
@@ -241,7 +253,7 @@ function SpaceBar({
   const { t } = useTranslation();
   // La stessa lettura della pagina aperta (la cache la condivide con la vista).
   const page = useProductPage(pageCode ?? "", { enabled: pageCode !== null });
-  const view = pageCode ? (page.data ?? null) : null;
+  const view = pageCode && page.data && inSpace(page.data, project) ? page.data : null;
   return (
     <nav
       aria-label={t("productDocs.space.bar", { code: project.code })}
@@ -280,7 +292,7 @@ function SpaceBar({
             <kbd className="num ml-1.5 font-sans text-xs text-ink-faint">⌘K</kbd>
           </button>
         )}
-        {view && <PageMenu project={project} page={view} onDeleted={onDeleted} />}
+        {view && <PageMenu project={project} page={view} docked={docked} onDeleted={onDeleted} />}
       </span>
     </nav>
   );
@@ -351,10 +363,12 @@ function Breadcrumbs({
 function PageMenu({
   project,
   page,
+  docked,
   onDeleted,
 }: {
   project: Project;
   page: ProductPageView;
+  docked: boolean;
   onDeleted: (parentId: string | null) => void;
 }) {
   const { t } = useTranslation();
@@ -424,11 +438,14 @@ function PageMenu({
           onClose={() => setDeleting(false)}
           onDeleted={() => {
             setDeleting(false);
+            // Il fuoco: col tree affiancato il nodo del genitore; nel cassetto
+            // chiuso (sotto i 1200) l'h1 della pagina che si apre, il genitore o l'indice.
+            if (docked) onDeleted(parent?.id ?? null);
+            else markFresh(parent ? parent.code : indexFreshKey(project.code));
             void navigate({
               ...(parent ? productPageLink(project.code, parent.code) : productIndexLink(project.code)),
               replace: true,
             });
-            onDeleted(parent?.id ?? null);
           }}
         />
       )}

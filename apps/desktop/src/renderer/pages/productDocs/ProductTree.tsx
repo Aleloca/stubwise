@@ -11,12 +11,7 @@ import {
   type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import {
-  SortableContext,
-  arrayMove,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
+import { SortableContext, useSortable } from "@dnd-kit/sortable";
 import { useNavigate } from "@tanstack/react-router";
 import {
   useEffect,
@@ -28,6 +23,15 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { buildProductTree, canMoveUnder, flattenTree } from "../../domain/productDocs/tree";
+import {
+  ancestorsOf,
+  findNode,
+  moveAnnouncement,
+  movedPages,
+  projectDrop,
+  siblingsOf,
+  type FlatRow,
+} from "../../domain/productDocs/treeMoves";
 import {
   useMoveProductPage,
   useProductPage,
@@ -56,8 +60,6 @@ import {
 // soltanto (`permissions.edit` falso) ha l'albero dei Docs: niente maniglie,
 // niente «+», niente «⋯».
 
-/** Un livello del trascinamento orizzontale. */
-const LEVEL_PX = 24;
 /** Oltre 4 livelli il rientro smette di crescere (la profondità resta in `aria-level`). */
 const MAX_INDENT = 4;
 /** Quanto resta l'avviso di uno spostamento non riuscito. */
@@ -71,99 +73,10 @@ export interface FocusRequest {
   nonce: number;
 }
 
-interface Flat {
-  page: ProductPageRef;
-  depth: number;
-  hasChildren: boolean;
-}
+type Flat = FlatRow;
 
-/** I fratelli di una pagina (lo stesso genitore), nell'ordine dell'albero. */
-function siblingsOf(nodes: readonly ProductTreeNode[], parentId: string | null): ProductTreeNode[] {
-  if (parentId === null) return [...nodes];
-  return findNode(nodes, parentId)?.children ?? [];
-}
-
-function findNode(nodes: readonly ProductTreeNode[], id: string): ProductTreeNode | null {
-  for (const node of nodes) {
-    if (node.page.id === id) return node;
-    const below = findNode(node.children, id);
-    if (below) return below;
-  }
-  return null;
-}
-
-/**
- * Le pagine con una pagina spostata sotto `parentId` al posto `index` (fra i
- * fratelli senza di lei): la posizione nuova subito, prima della risposta.
- */
-function movedPages(
-  pages: readonly ProductPageRef[],
-  pageId: string,
-  parentId: string | null,
-  index: number,
-): ProductPageRef[] {
-  const page = pages.find((p) => p.id === pageId);
-  if (!page) return [...pages];
-  const tree = buildProductTree(pages);
-  const order = new Map<string, number>();
-  const before = siblingsOf(tree, page.parentId).filter((n) => n.page.id !== pageId);
-  before.forEach((n, i) => order.set(n.page.id, i));
-  const after = siblingsOf(tree, parentId)
-    .filter((n) => n.page.id !== pageId)
-    .map((n) => n.page.id);
-  after.splice(Math.min(index, after.length), 0, pageId);
-  after.forEach((id, i) => order.set(id, i));
-  return pages.map((p) => ({
-    ...p,
-    parentId: p.id === pageId ? parentId : p.parentId,
-    order: order.get(p.id) ?? p.order,
-  }));
-}
-
-/** Gli antenati di una pagina, dal genitore alla radice. */
-function ancestorsOf(pages: readonly ProductPageRef[], pageId: string): string[] {
-  const byId = new Map(pages.map((p) => [p.id, p]));
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (let at = byId.get(pageId)?.parentId ?? null; at !== null && !seen.has(at); ) {
-    seen.add(at);
-    out.push(at);
-    at = byId.get(at)?.parentId ?? null;
-  }
-  return out;
-}
-
-/** Dove andrebbe la pagina trascinata: genitore, livello e posto fra i fratelli. */
-function projectDrop(
-  items: readonly Flat[],
-  activeId: string,
-  overId: string,
-  offsetX: number,
-): { parentId: string | null; depth: number; index: number } | null {
-  const activeIndex = items.findIndex((i) => i.page.id === activeId);
-  const overIndex = items.findIndex((i) => i.page.id === overId);
-  if (activeIndex < 0 || overIndex < 0) return null;
-  const moved = arrayMove([...items], activeIndex, overIndex);
-  const active = moved[overIndex]!;
-  const prev = moved[overIndex - 1];
-  const next = moved[overIndex + 1];
-  const max = prev ? prev.depth + 1 : 0;
-  const min = next ? next.depth : 0;
-  const depth = Math.max(min, Math.min(max, active.depth + Math.round(offsetX / LEVEL_PX)));
-  let parentId: string | null = null;
-  if (depth > 0 && prev) {
-    if (depth === prev.depth) parentId = prev.page.parentId;
-    else if (depth > prev.depth) parentId = prev.page.id;
-    else
-      parentId =
-        moved
-          .slice(0, overIndex)
-          .reverse()
-          .find((i) => i.depth === depth)?.page.parentId ?? null;
-  }
-  const index = moved.slice(0, overIndex).filter((i) => i.page.parentId === parentId).length;
-  return { parentId, depth, index };
-}
+/** Nessuno spostamento delle righe durante il trascinamento (vedi [PS 12]). */
+const stillRows = () => null;
 
 const indentOf = (depth: number) => 20 + Math.min(depth, MAX_INDENT) * 12;
 
@@ -207,18 +120,30 @@ export function ProductTree({
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<ProductPageRef | null>(null);
   const [announce, setAnnounce] = useState("");
-  const [pendingFocus, setPendingFocus] = useState<{ pageId: string | null } | null>(null);
+  const [pendingFocus, setPendingFocus] = useState<{
+    pageId: string | null;
+    /** Un nodo da non scegliere (quello appena eliminato). */
+    skip?: string;
+  } | null>(null);
   const [active, setActive] = useState<string | null>(null);
   const [drag, setDrag] = useState<{ activeId: string; overId: string | null; offsetX: number } | null>(
     null,
   );
   const [pendingExpand, setPendingExpand] = useState<string | null>(null);
-  const create = useCreateAndOpen(project);
+  // Dal cassetto, «+» lo chiude come un'apertura: il fuoco va al titolo nuovo.
+  const create = useCreateAndOpen(project, () => onNavigate?.());
+  const newPage = useRef<HTMLButtonElement>(null);
 
-  // Una lettura nuova (dopo una scrittura, anche altrui) sostituisce l'ottimistica.
+  // Una lettura nuova (dopo una scrittura, anche altrui) sostituisce la
+  // posizione ottimistica. Un titolo ottimistico resta finché la lettura non
+  // ha il nome nuovo: una ricarica per un'altra ragione non fa tornare quello vecchio.
   useEffect(() => {
     setOverride(null);
-    setTitles(new Map());
+    const base = new Map(flattenTree(space.tree).map((f) => [f.page.id, f.page.title]));
+    setTitles((prev) => {
+      const next = new Map([...prev].filter(([id, title]) => base.has(id) && base.get(id) !== title));
+      return next.size === prev.size ? prev : next;
+    });
   }, [space.tree]);
 
   useEffect(() => {
@@ -264,10 +189,14 @@ export function ProductTree({
   // Il fuoco va al nodo chiesto appena c'è (anche dopo che si è spostato).
   useLayoutEffect(() => {
     if (!pendingFocus) return;
-    const items = [...(root.current?.querySelectorAll<HTMLElement>("[role=treeitem]") ?? [])];
+    // La pagina appena eliminata può esserci ancora finché la lettura non torna: non è un bersaglio.
+    const items = [
+      ...(root.current?.querySelectorAll<HTMLElement>("[role=treeitem]") ?? []),
+    ].filter((el) => el.dataset.pageId !== pendingFocus.skip);
+    // Nessun nodo (l'ultima pagina eliminata): «+ New page» in testa all'albero.
     const target =
       pendingFocus.pageId === null
-        ? items[0]
+        ? (items[0] ?? (space.pageCount === 0 ? newPage.current : null))
         : items.find((el) => el.dataset.pageId === pendingFocus.pageId);
     if (!target) return;
     target.focus();
@@ -298,15 +227,10 @@ export function ProductTree({
   };
 
   /** La frase di uno spostamento, dalla posizione nuova: prima del successivo, dopo il precedente, dentro il genitore. */
-  function movedWords(next: readonly ProductPageRef[], pageId: string): string {
-    const page = next.find((p) => p.id === pageId)!;
-    const sibs = siblingsOf(buildProductTree(next), page.parentId).map((n) => n.page);
-    const at = sibs.findIndex((p) => p.id === pageId);
-    const parent = page.parentId ? next.find((p) => p.id === page.parentId) : undefined;
-    if (sibs[at + 1]) return t("productDocs.tree.movedBefore", { title: page.title, other: sibs[at + 1]!.title });
-    if (sibs[at - 1]) return t("productDocs.tree.movedAfter", { title: page.title, other: sibs[at - 1]!.title });
-    if (parent) return t("productDocs.tree.movedInside", { title: page.title, other: parent.title });
-    return t("productDocs.tree.movedAfter", { title: page.title, other: "" });
+  function movedWords(next: readonly ProductPageRef[], page: ProductPageRef): string {
+    const { kind, other } = moveAnnouncement(next, page.id);
+    const key = { before: "movedBefore", after: "movedAfter", inside: "movedInside", alone: "moved" }[kind];
+    return t(`productDocs.tree.${key}`, { title: page.title, other });
   }
 
   async function moveTo(page: ProductPageRef, parentId: string | null, index: number) {
@@ -321,7 +245,7 @@ export function ProductTree({
       .then(() => true)
       .catch(() => false);
     if (ok) {
-      setAnnounce(movedWords(next, page.id));
+      setAnnounce(movedWords(next, page));
       return;
     }
     // Non riuscito: la riga torna dov'era, con l'avviso e Retry in cima all'albero.
@@ -470,6 +394,18 @@ export function ProductTree({
     !!projection && !!dragged && canMoveUnder(pages, dragged.id, projection.parentId);
   const latest = useRef({ projection, dropValid, dragged });
   latest.current = { projection, dropValid, dragged };
+  // La linea d'arrivo ([PS 12]): solo per una destinazione possibile che
+  // cambia qualcosa; sopra la riga d'arrivo se si sale, sotto se si scende,
+  // sulla riga vuota d'origine se cambia solo il livello.
+  const dropLine = (() => {
+    if (!drag || !projection || !dropValid || !dragged || drag.overId === null) return null;
+    const pos = positionOf(dragged);
+    if (projection.parentId === dragged.parentId && projection.index === pos.index) return null;
+    const from = visible.findIndex((f) => f.page.id === drag.activeId);
+    const to = visible.findIndex((f) => f.page.id === drag.overId);
+    const edge: "top" | "bottom" | "middle" = to < from ? "top" : to > from ? "bottom" : "middle";
+    return { rowId: drag.overId, edge, depth: projection.depth };
+  })();
 
   // La sosta di 600 ms sopra una pagina chiusa con sottopagine la apre.
   const overId = drag?.overId ?? null;
@@ -535,6 +471,7 @@ export function ProductTree({
         )}
         {edit && (
           <button
+            ref={newPage}
             type="button"
             disabled={create.isPending}
             onClick={() => void create.run(null)}
@@ -581,10 +518,9 @@ export function ProductTree({
         onDragCancel={() => setDrag(null)}
         accessibility={{ announcements }}
       >
-        <SortableContext
-          items={visible.map((f) => f.page.id)}
-          strategy={verticalListSortingStrategy}
-        >
+        {/* Le righe non si spostano mentre si trascina: l'origine resta una riga
+            vuota tratteggiata e l'arrivo è una linea ([PS 12]). */}
+        <SortableContext items={visible.map((f) => f.page.id)} strategy={stillRows}>
           <ul
             ref={root}
             role="tree"
@@ -610,7 +546,7 @@ export function ProductTree({
                 dropInside={
                   dropValid && projection?.parentId === flat.page.id && drag?.activeId !== flat.page.id
                 }
-                dragDepth={drag?.activeId === flat.page.id && dropValid ? projection!.depth : null}
+                dropLine={dropLine?.rowId === flat.page.id ? dropLine : null}
                 position={positionOf(flat.page)}
                 creating={create.isPending}
                 onOpen={() => open(flat.page)}
@@ -624,7 +560,10 @@ export function ProductTree({
             ))}
           </ul>
         </SortableContext>
-        <DragOverlay dropAnimation={null} className="product-tree-overlay">
+        <DragOverlay
+          dropAnimation={null}
+          className={`product-tree-overlay ${dropLine ? "" : "cursor-not-allowed"}`}
+        >
           {dragged && (
             <div className="flex h-7 items-center rounded-md border border-rule-strong bg-surface px-3 text-sm font-medium text-ink opacity-90 shadow-[0_4px_16px_-4px_oklch(0_0_0/0.35)]">
               <span className="truncate">{dragged.title}</span>
@@ -651,7 +590,7 @@ export function ProductTree({
                 replace: true,
               });
             }
-            setPendingFocus({ pageId: parent?.id ?? null });
+            setPendingFocus({ pageId: parent?.id ?? null, skip: deleting.id });
           }}
         />
       )}
@@ -676,7 +615,7 @@ function TreeNode({
   renaming,
   menuOpen,
   dropInside,
-  dragDepth,
+  dropLine,
   position,
   creating,
   onOpen,
@@ -695,8 +634,8 @@ function TreeNode({
   renaming: boolean;
   menuOpen: boolean;
   dropInside: boolean;
-  /** Il livello d'arrivo mentre la si trascina (la linea parte da lì). */
-  dragDepth: number | null;
+  /** La linea d'arrivo su questa riga: sopra, sotto o (solo il livello cambia) in mezzo. */
+  dropLine: { edge: "top" | "bottom" | "middle"; depth: number } | null;
   position: { index: number; sibs: ProductPageRef[]; above: ProductPageRef | null; parent: ProductPageRef | null };
   creating: boolean;
   onOpen: () => void;
@@ -713,14 +652,8 @@ function TreeNode({
     setNodeRef,
     setActivatorNodeRef,
     listeners,
-    transform,
-    transition,
     isDragging,
-  } = useSortable({
-    id: page.id,
-    disabled: !edit || renaming,
-    transition: { duration: 200, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
-  });
+  } = useSortable({ id: page.id, disabled: !edit || renaming });
   const stop = (e: MouseEvent) => e.stopPropagation();
 
   return (
@@ -736,20 +669,26 @@ function TreeNode({
       data-page-id={page.id}
       data-tree-row
       tabIndex={tabbable ? 0 : -1}
-      style={{
-        transform: transform ? `translate3d(0, ${Math.round(transform.y)}px, 0)` : undefined,
-        transition,
-      }}
       className="group/node relative outline-none [&:focus-visible>[data-row]]:outline-2 [&:focus-visible>[data-row]]:-outline-offset-2 [&:focus-visible>[data-row]]:outline-focus"
     >
+      {dropLine && (
+        // L'arrivo: 2 px d'inchiostro che partono dal rientro del livello d'arrivo.
+        <span
+          aria-hidden="true"
+          data-drop-line={dropLine.edge}
+          style={{ left: indentOf(dropLine.depth) }}
+          className={`pointer-events-none absolute right-1 z-10 h-0.5 rounded-full bg-ink ${
+            dropLine.edge === "top" ? "-top-px" : dropLine.edge === "bottom" ? "-bottom-px" : "top-1/2 -translate-y-1/2"
+          }`}
+        />
+      )}
       {isDragging ? (
-        // Il posto d'arrivo: una linea di 2 px che parte dal rientro del livello.
-        <div aria-hidden="true" className="relative h-7">
-          <span
-            className="absolute top-1/2 right-1 h-0.5 -translate-y-1/2 rounded-full bg-ink"
-            style={{ left: indentOf(dragDepth ?? depth) }}
-          />
-        </div>
+        // L'origine: lo spazio vuoto della riga, col tratteggio `rule`.
+        <div
+          aria-hidden="true"
+          data-drag-origin
+          className="h-7 rounded-md border border-dashed border-rule"
+        />
       ) : (
         <div
           data-row

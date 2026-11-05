@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { flattenTree } from "../../domain/productDocs/tree";
 import { formatDate } from "../../notifications/time";
@@ -7,7 +8,9 @@ import { secondaryButton } from "../tasks/controls";
 import { DocCode, DocsGroup, rowLinkClass } from "../docs/parts";
 import { ReadOnlyLine } from "./ReadOnlyLine";
 import {
+  indexFreshKey,
   productPageLink,
+  takeFresh,
   useCreateAndOpen,
   usePersonName,
   useProductSpaceContext,
@@ -29,12 +32,19 @@ export function ProductIndex() {
   const edit = space.permissions.edit;
   const latest = space.recent[0];
   const all = flattenTree(space.tree);
+  const heading = useRef<HTMLHeadingElement>(null);
+  // Dopo l'eliminazione di una radice dalla barra, sotto i 1200: il fuoco qui.
+  useEffect(() => {
+    if (takeFresh(indexFreshKey(project.code))) heading.current?.focus();
+  }, [project.code]);
 
   return (
     <article className="event-enter mx-auto flex w-full max-w-[720px] flex-col">
       <header className="flex items-start gap-4 pt-8">
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-          <h1 className="text-2xl font-semibold text-ink">{t("productDocs.space.title")}</h1>
+          <h1 ref={heading} tabIndex={-1} className="text-2xl font-semibold text-ink outline-none">
+            {t("productDocs.space.title")}
+          </h1>
           {/* Vuoto, la meta tace: lo dice già «No product pages yet» qui sotto. */}
           {latest && (
             <p className="num text-sm text-ink-muted">

@@ -272,10 +272,13 @@ function DocsModule({ view, onReload }: { view: ProjectSettingsView; onReload: (
   const setDocs = useSetDocsModule();
   const write = useSettingsWrite(view.code, onReload);
   const hintId = useId();
+  // Dove va l'interruttore, dal clic finché la lettura non lo conferma: un
+  // secondo clic in quel tempo (un doppio clic) non scrive di nuovo.
+  const [target, setTarget] = useState<boolean | null>(null);
+  if (target !== null && view.docsModule === target) setTarget(null);
   // Una lettura senza `docsModule` (cambio additivo) non disegna la riga.
   if (view.docsModule === undefined) return null;
-  // Mentre scrive, l'interruttore mostra già dove va.
-  const on = setDocs.isPending ? (setDocs.variables?.on ?? view.docsModule) : view.docsModule;
+  const on = target ?? view.docsModule;
   const readOnlyWhy = access.canEdit
     ? undefined
     : t(`settings.viewOnly.lines.${access.editAction ?? "manageProjectSettings"}`, {
@@ -308,12 +311,17 @@ function DocsModule({ view, onReload }: { view: ProjectSettingsView; onReload: (
             // Spento per permesso: la frase della riga di sola lettura (col suo «Who?»).
             disabledReason={readOnlyWhy}
             onChange={(next) => {
-              // Un doppio clic non fa due scritture.
-              if (setDocs.isPending) return;
-              void write.run(
-                () => setDocs.mutateAsync({ projectId: view.projectId, on: next }),
-                () => undefined,
-              );
+              if (target !== null) return;
+              setTarget(next);
+              void write
+                .run(
+                  () => setDocs.mutateAsync({ projectId: view.projectId, on: next }),
+                  () => undefined,
+                )
+                // Non riuscita (o rifiutata): l'interruttore torna alla lettura.
+                .then((ok) => {
+                  if (!ok) setTarget(null);
+                });
             }}
           />
         </span>

@@ -1,8 +1,6 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useRef,
   useState,
@@ -62,9 +60,11 @@ const repositoriesSection = (project: Project) =>
 /**
  * Docs appena accesi sul posto (area 11a, [PS 6]): la pagina iniziale porta
  * il fuoco su «Start from a blank page», così non resta sul body quando il
- * bottone «Turn on Docs» se ne va.
+ * bottone «Turn on Docs» se ne va. Per progetto e fuori dai componenti: da un
+ * indirizzo di uno spazio di repository l'accensione porta alla pagina
+ * iniziale, che è un'altra rotta.
  */
-const TurnedOnContext = createContext<{ take: () => boolean }>({ take: () => false });
+const turnedOn = new Set<string>();
 
 /**
  * Il progetto di una vista dei Docs: caricamento, errore, progetto che non
@@ -81,12 +81,6 @@ export function DocsProjectGate({
 }) {
   const { t } = useTranslation();
   const { data: project, isPending, isError, refetch } = useProject(code);
-  const turnedOn = useRef(false);
-  const take = useCallback(() => {
-    const was = turnedOn.current;
-    turnedOn.current = false;
-    return was;
-  }, []);
   if (isError) {
     return (
       <div className="page-header pl-4 [--page-header-pt:16px]">
@@ -103,8 +97,8 @@ export function DocsProjectGate({
   }
   if (!project) return <ProjectNotFound />;
   if (!project.modules.includes("docs"))
-    return <DocsTurnedOff project={project} onTurningOn={(on) => (turnedOn.current = on)} />;
-  return <TurnedOnContext.Provider value={{ take }}>{children(project)}</TurnedOnContext.Provider>;
+    return <DocsTurnedOff project={project} />;
+  return <>{children(project)}</>;
 }
 
 /**
@@ -112,28 +106,33 @@ export function DocsProjectGate({
  * accende sul posto («Turn on Docs», spento mentre accende: un doppio clic
  * accende una volta); gli altri leggono chi può farlo, con «Who?».
  */
-function DocsTurnedOff({
-  project,
-  onTurningOn,
-}: {
-  project: Project;
-  /** Prima della scrittura (la pagina iniziale può montarsi prima della risposta), e `false` se non riesce. */
-  onTurningOn: (on: boolean) => void;
-}) {
+function DocsTurnedOff({ project }: { project: Project }) {
   const { t } = useTranslation();
   const { viewer } = useViewer();
+  const navigate = useNavigate();
+  const location = useLocation();
   const canManage = can(viewer, "project.settings.manage", project.id);
   const turnOn = useSetDocsModule();
   const [failed, setFailed] = useState(false);
+  // Un doppio clic accende una volta: il secondo arriva prima che il bottone si spenga.
+  const inflight = useRef(false);
   const run = async () => {
-    if (turnOn.isPending) return;
+    if (inflight.current) return;
+    inflight.current = true;
     setFailed(false);
-    onTurningOn(true);
-    const result = await turnOn
-      .mutateAsync({ projectId: project.id, on: true })
-      .catch(() => null);
-    if (result && result.ok) return;
-    onTurningOn(false);
+    // Prima della scrittura: la pagina iniziale può montarsi prima della risposta.
+    turnedOn.add(project.id);
+    const result = await turnOn.mutateAsync({ projectId: project.id, on: true }).catch(() => null);
+    // Riuscita, la guardia resta: il bottone se ne va con la lettura nuova, e
+    // un secondo clic arrivato prima non scrive di nuovo.
+    if (result && result.ok) {
+      // Da un indirizzo dentro i Docs (uno spazio, una pagina): la pagina iniziale.
+      if (location.pathname !== `/p/${project.code}/docs`)
+        void navigate({ to: "/p/$code/docs", params: { code: project.code } });
+      return;
+    }
+    inflight.current = false;
+    turnedOn.delete(project.id);
     setFailed(true);
   };
   return (
@@ -337,8 +336,9 @@ function HomeColumn({
           {home.data?.identity && (
             <p className="max-w-[72ch] text-sm text-ink-muted">{home.data.identity}</p>
           )}
-          {/* Area 9c: sotto la prosa della testata, sempre quando è spento. */}
-          {nightlyOff && (
+          {/* Area 9c: sotto la prosa della testata, sempre quando è spento. Senza
+              repository (area 11a) non c'è niente che la notte aggiorni: niente riga. */}
+          {nightlyOff && !(home.data && home.data.spaces.length === 0) && (
             <div className="max-w-[72ch] pt-1">
               <SwitchOffLine projectCode={project.code} kind="docsNightly">
                 {t("projectEffects.docs.home", { code: project.code })}
@@ -482,6 +482,8 @@ function HomeBody({ project, home }: { project: Project; home: ProjectDocsHome }
         )}
       </DocsGroup>
 
+      {/* Senza repository non ci sono commit né note di rilascio: niente WHAT'S NEW ([PS 4]). */}
+      {home.spaces.length > 0 && (
       <DocsGroup title={t("docs.groups.whatsNew")}>
         {home.whatsNew.length === 0 ? (
           <p className="border-t border-rule px-2 py-3 text-md text-ink-muted">
@@ -511,6 +513,7 @@ function HomeBody({ project, home }: { project: Project; home: ProjectDocsHome }
           </ul>
         )}
       </DocsGroup>
+      )}
     </>
   );
 }
@@ -633,15 +636,14 @@ function ProductGroup({
   nameOf: (id: string | null) => string;
 }) {
   const { t, i18n } = useTranslation();
-  const { take } = useContext(TurnedOnContext);
   const create = useCreateAndOpen(project);
   const start = useRef<HTMLButtonElement>(null);
   const row = useRef<HTMLAnchorElement>(null);
   const empty = product.pageCount === 0;
   const canStart = empty && product.canEdit;
   useEffect(() => {
-    if (take()) (start.current ?? row.current)?.focus();
-  }, [take]);
+    if (turnedOn.delete(project.id)) (start.current ?? row.current)?.focus();
+  }, [project.id]);
   return (
     <DocsGroup title={t("docs.groups.product")} count={product.pageCount}>
       <ul aria-label={t("docs.groups.product")} className="border-t border-rule">

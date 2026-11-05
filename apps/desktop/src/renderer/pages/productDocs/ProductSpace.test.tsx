@@ -122,11 +122,13 @@ describe("il modulo Docs spento", () => {
     ).toBeInTheDocument();
     // La stringa vecchia e il suo link alle impostazioni non ci sono più (P27).
     expect(screen.queryByRole("link", { name: /turn it on in settings/i })).toBeNull();
+    const setDocs = vi.spyOn(api.projectSettings, "setDocsModule");
     await user.dblClick(screen.getByRole("button", { name: "Turn on Docs" }));
     const start = await screen.findByRole("button", { name: "Start from a blank page" });
     expect(state.projectsById.get("prj-mkx")!.modules).toContain("docs");
-    // Un doppio clic accende una volta sola: una sola voce nel registro.
-    expect(state.changelog.filter((c) => c.kind === "project.docs_toggled")).toHaveLength(1);
+    // Un doppio clic accende una volta sola: una sola scrittura. (Il registro
+    // non lo direbbe: il livello dati non scrive una seconda accensione.)
+    expect(setDocs).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(start).toHaveFocus());
     const sections = screen.getByRole("navigation", { name: /sections/i });
     expect(within(sections).getByRole("link", { name: "Docs" })).toBeInTheDocument();
@@ -141,7 +143,18 @@ describe("il modulo Docs spento", () => {
       screen.getByText(/It can be turned on by people who manage MKX's settings\./),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Who can change the project settings/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Turn on Docs" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /turn on docs/i })).toBeNull();
+  });
+
+  it("General: un doppio clic sull'interruttore fa una scrittura sola", async () => {
+    const user = userEvent.setup();
+    const setDocs = vi.spyOn(api.projectSettings, "setDocsModule");
+    renderRoute("/p/MKX/settings/general", GIULIA);
+    const toggle = await screen.findByRole("switch", { name: "Docs" });
+    await user.dblClick(toggle);
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
+    expect(setDocs).toHaveBeenCalledTimes(1);
+    expect(setDocs).toHaveBeenCalledWith("prj-mkx", true);
   });
 
   it("General: Giulia spegne i Docs di MKX, la colonna perde «Docs»; riacceso le pagine ci sono", async () => {
@@ -278,8 +291,8 @@ describe("la pagina che non c'è (R-G5, Review Focus 5)", () => {
       emitProductPage(id, "gone");
     });
     expect(await screen.findByRole("heading", { level: 1, name: NOT_FOUND })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "More for this page" })).toBeNull();
-    expect(screen.queryByRole("navigation", { name: "Where this page is" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /more for this page/i })).toBeNull();
+    expect(screen.queryByRole("navigation", { name: /where this page is/i })).toBeNull();
   });
 
   it("il modulo spento: la stessa frase", async () => {

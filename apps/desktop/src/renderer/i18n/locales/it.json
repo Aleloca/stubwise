@@ -12010,7 +12010,8 @@
       "dropCancelled": "{{title}} resta dov'era",
       "renamed": "Rinominata in {{title}}",
       "deleted": "Pagina eliminata",
-      "instructions": "Trascina una pagina dalla sua maniglia per spostarla; trascinala di lato per cambiarne il livello. Da tastiera, usa il menu Altro della pagina."
+      "instructions": "Trascina una pagina dalla sua maniglia per spostarla; trascinala di lato per cambiarne il livello. Da tastiera, usa il menu Altro della pagina.",
+      "moved": "Spostata {{title}}"
     }
   }
 }
