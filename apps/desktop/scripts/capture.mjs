@@ -185,6 +185,130 @@ async function main() {
       return;
     }
 
+    // Area 11a, Task 8 (`CAPTURE_A11A_EDITOR=1`): l'editor a blocchi delle
+    // pagine di prodotto. Laura su «Sign-in» (ACQ-D5): mentre scrive
+    // («Saved» nella barra), il menu «/», la barra della selezione, il campo
+    // del link col rifiuto di `javascript:`, «Saving…» e l'errore con Retry;
+    // i segnaposti dei blocchi del Task 9 (Meter reading, Client decisions);
+    // Sara che legge soltanto. Scatti `a11a-editor-*`.
+    if (process.env.CAPTURE_A11A_EDITOR) {
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      const SIGNIN = "/p/ACQ/docs/product/ACQ-D5";
+      const LAST = '[data-block-text="blk-acq-signin-4"]';
+      /** Entra nell'ultimo paragrafo di Sign-in, col cursore in fondo. */
+      const enterLast = async (page) => {
+        await page.locator(LAST).click();
+        await page.locator("[data-editing]").waitFor();
+        await page.keyboard.press("End");
+      };
+      const failNextSave = (page) =>
+        page.evaluate(async () => {
+          const store = await import("/data/store.ts");
+          store.failNext("productDocs.saveProductBlocks");
+        });
+      const scenes = [
+        {
+          name: "editing",
+          hash: SIGNIN,
+          persona: "Laura",
+          run: async (page) => {
+            await enterLast(page);
+            await page.keyboard.type(" Nothing else is kept.");
+            await page.waitForTimeout(1600);
+          },
+        },
+        {
+          name: "slash",
+          hash: SIGNIN,
+          persona: "Laura",
+          run: async (page) => {
+            await enterLast(page);
+            await page.keyboard.press("Enter");
+            await page.waitForTimeout(500);
+            await page.keyboard.type("/");
+            await page.getByRole("listbox").waitFor();
+            await page.waitForTimeout(300);
+          },
+        },
+        {
+          name: "selection",
+          hash: SIGNIN,
+          persona: "Laura",
+          run: async (page) => {
+            await enterLast(page);
+            for (let i = 0; i < 17; i++) await page.keyboard.press("Shift+ArrowLeft");
+            await page.getByRole("toolbar").waitFor();
+            await page.waitForTimeout(300);
+          },
+        },
+        {
+          name: "link-refused",
+          hash: SIGNIN,
+          persona: "Laura",
+          run: async (page) => {
+            await enterLast(page);
+            for (let i = 0; i < 17; i++) await page.keyboard.press("Shift+ArrowLeft");
+            await page.getByRole("toolbar").getByRole("button", { name: "Link" }).click();
+            await page.keyboard.type("javascript:alert(1)");
+            await page.keyboard.press("Enter");
+            await page.getByRole("alert").waitFor();
+            await page.waitForTimeout(200);
+          },
+        },
+        {
+          name: "saving",
+          hash: SIGNIN,
+          persona: "Laura",
+          run: async (page) => {
+            await enterLast(page);
+            await page.keyboard.type(" Nothing else.");
+            await page.keyboard.press("Escape");
+            await page.waitForTimeout(60);
+          },
+        },
+        {
+          name: "error",
+          hash: SIGNIN,
+          persona: "Laura",
+          run: async (page) => {
+            await failNextSave(page);
+            await enterLast(page);
+            await page.keyboard.type(" Nothing else.");
+            await page.keyboard.press("Escape");
+            await page.getByRole("alert").waitFor();
+            await page.waitForTimeout(300);
+          },
+        },
+        { name: "table", hash: "/p/ACQ/docs/product/ACQ-D7", persona: "Laura", hover: '[data-block-placeholder="table"]' },
+        { name: "decisions", hash: "/p/ACQ/docs/product/ACQ-D10", persona: "Laura" },
+        { name: "reader", hash: SIGNIN, persona: "Sara" },
+      ];
+      for (const v of variants) {
+        for (const scene of scenes) {
+          const name = `a11a-editor-${scene.name}-${v.suffix}.png`;
+          if (only && !only.test(name)) continue;
+          const { page, context } = await open(v.scheme, v.viewport, scene.hash, {
+            lang: v.lang,
+            persona: scene.persona,
+          });
+          await page.getByRole("heading", { level: 1 }).first().waitFor();
+          await page.waitForTimeout(600);
+          if (scene.hover) await page.locator(scene.hover).first().hover();
+          if (scene.run) await scene.run(page);
+          await shot(page, name);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 10b, Task 2 (`CAPTURE_A10B_AUTOMATIONS=1`): il motore delle
     // automazioni. La bozza STW-A1 diventa, nel livello dati della pagina,
     // «una richiesta urgente dal supporto → task per Support e avviso a
