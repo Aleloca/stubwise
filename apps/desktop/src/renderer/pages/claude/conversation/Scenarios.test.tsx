@@ -709,6 +709,23 @@ describe("S1 nel riquadro: il costruttore si apre da sé (D2)", () => {
     expect(pathOf(router)).toBe("/p/ACQ/support");
   });
 
+  it("la riga eseguita dice «Created ACQ-A… “…” · draft, off», col codice che apre il costruttore (Impeccable 1)", async () => {
+    const { trial } = await s1InPanel();
+    const row = await waitFor(() => {
+      const el = panel().querySelector<HTMLElement>('[data-executed-action="createAutomation"]');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    const name = state.automations.find((a) => a.code === trial.code)!.name;
+    await waitFor(() =>
+      expect(row).toHaveTextContent(`Created ${trial.code} “${name}” · draft, off`),
+    );
+    expect(row).not.toHaveTextContent(/^Done:/);
+    const link = within(row).getByRole("link", { name: trial.code! });
+    expect(link).toHaveAttribute("href", `#/automations/${trial.code}/edit`);
+    expect(link.className).toMatch(/font-semibold/);
+  });
+
   it("«Back to» con «Other…» aperto nel flusso: il fuoco torna nella CASELLA (review finale, 2)", async () => {
     const { user, trial } = await s1InPanel();
     const id = [...state.conversationEvents].find(([, evs]) => evs.includes(trial))![0];

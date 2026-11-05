@@ -3965,6 +3965,7 @@
       },
       "executed": {
         "verb": {
+          "createAutomation": "Created <obj/>",
           "createTask": "Created <obj/>",
           "assign": "Assigned <obj/> to {{name}}",
           "planTask": "Planned <obj/> for {{week}}",
@@ -3981,6 +3982,7 @@
         },
         "generic": "Done: {{summary}}",
         "named": "“{{name}}”",
+        "draftOff": "draft, off",
         "assignedToYou": "assigned to you",
         "assignedTo": "assigned to {{name}}",
         "reason": {

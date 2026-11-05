@@ -1,7 +1,7 @@
 import { useMemo, type ReactNode } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { WhoCanLink } from "../../../components/WhoCanLink";
-import { useCodeCitations, usePeople, useProjects } from "../../../data/queries";
+import { useAutomations, useCodeCitations, usePeople, useProjects } from "../../../data/queries";
 import type { CitationView, ProposedAction, UndoView } from "../../../data/types";
 import { spoken } from "../../../domain/claude/answers";
 import { shortWeekIn, weekNumberOf } from "../../../domain/weeks";
@@ -95,6 +95,42 @@ function ObjectCode({ code, lookup }: { code: string; lookup: Lookup }) {
   );
 }
 
+/**
+ * L'automazione creata da Claude: il codice apre il costruttore se chi legge
+ * la vede (nome e stato solo allora, R-G5), e «draft, off» finché è ancora
+ * una bozza mai accesa — la riga non afferma ciò che il dato non dice più.
+ */
+function CreatedAutomation({ code }: { code: string }) {
+  const { t } = useTranslation();
+  const row = useAutomations().data?.find((a) => a.code === code);
+  return (
+    <>
+      <Trans
+        i18nKey="claude.conversation.executed.verb.createAutomation"
+        components={{
+          obj: row ? (
+            <a
+              href={`#/automations/${code}/edit`}
+              className="num font-semibold text-ink underline decoration-ink/25 underline-offset-2 hover:decoration-ink/70"
+            >
+              {code}
+            </a>
+          ) : (
+            <HiddenCode code={code} />
+          ),
+        }}
+      />
+      {row && <> {t("claude.conversation.executed.named", { name: row.name })}</>}
+      {row?.status === "draft" && (
+        <span className="text-ink-muted">
+          {" · "}
+          {t("claude.conversation.executed.draftOff")}
+        </span>
+      )}
+    </>
+  );
+}
+
 /** La frase di un'azione eseguita: verbo al passato e oggetto, poi nome e dettagli. */
 function ActionPhrase({
   action,
@@ -185,6 +221,11 @@ function ActionPhrase({
       );
       break;
     }
+    // S1 (area 10b, shape `claude-automations.md` §3.2): «Created ACQ-A4 “…” ·
+    // draft, off». La riga che rassicura: Claude non accende niente.
+    case "createAutomation":
+      if (!code) return generic();
+      return <CreatedAutomation code={code} />;
     case "deleteTask":
     case "addComment":
     case "startRun":
