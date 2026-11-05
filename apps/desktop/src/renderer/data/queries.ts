@@ -71,8 +71,6 @@ import type {
   TaskPatch,
 } from "./types";
 import { can, useViewer } from "./viewer";
-// Circolare ma innocuo: `useAiBlock` si usa solo dentro un hook.
-import { useAiBlock } from "./queries/instance";
 
 /**
  * Ogni chiave comincia con `["as", personId]`: cambiare persona «vedi come»
@@ -1428,54 +1426,6 @@ export function useDescribeContext(ref: ContextRef | null) {
     queryKey: queryKeys.claudeContext(me, JSON.stringify(ref)),
     queryFn: () => (ref ? api.describeContext(ref) : Promise.resolve(null)),
     enabled: ref !== null,
-  });
-}
-
-export type { ClaudeSuggestion, SuggestionPlace } from "./api";
-export { suggestionKeyOf } from "./api";
-
-/**
- * L'area di lettura di ogni luogo: le scritture che cambiano la pagina (una
- * risposta al cliente, le note, un'automazione nuova, un piano deciso, i
- * consumi) ricaricano già quell'area, e con lei la riga.
- */
-const SUGGESTION_AREA: Record<api.SuggestionPlace["kind"], string> = {
-  support: "support",
-  pr: "releases",
-  automations: "automations",
-  overview: "pulse",
-  usage: "instance",
-};
-
-/**
- * La riga «Claude can help you…» di una pagina di partenza (area 10b, Task
- * 12): la decide il livello dati per chi guarda (`null` = nessuna riga). Il
- * blocco del budget sta nella chiave: alzato o esaurito, la riga si rilegge
- * su ogni pagina, non solo dove i blocchi hanno la loro area.
- */
-export function useClaudeSuggestion(place: api.SuggestionPlace | null) {
-  const me = useSessionPersonId();
-  useConversationChanges();
-  const budget = useAiBlock(null).data?.reason ?? null;
-  const placeKey = place ? api.suggestionKeyOf(place) : null;
-  return useQuery({
-    queryKey: [
-      "as",
-      me,
-      place ? SUGGESTION_AREA[place.kind] : "claudeSuggestion",
-      "claudeSuggestion",
-      placeKey,
-      budget,
-    ] as const,
-    queryFn: () => (place ? api.getClaudeSuggestion(place) : Promise.resolve(null)),
-    enabled: place !== null,
-    // Cambiato solo il budget, la riga di prima resta finché non arriva la
-    // risposta nuova (niente lampo); un altro oggetto, o un'altra persona
-    // («vedi come»), non eredita mai la riga.
-    placeholderData: (previous, previousQuery) =>
-      previousQuery?.queryKey[1] === me && previousQuery.queryKey[4] === placeKey
-        ? previous
-        : undefined,
   });
 }
 
@@ -3986,3 +3936,4 @@ export * from "./queries/entry";
 export * from "./queries/me";
 export * from "./queries/instance";
 export * from "./queries/projectSettings";
+export * from "./queries/claude";
