@@ -108,6 +108,45 @@ describe("flowItems", () => {
     ]);
   });
 
+  it("«Used» con una scheda nello stesso turno: dopo la scheda e le sue righe, non fra testo e scheda (Impeccable 5)", () => {
+    const archive = { fn: "archiveProject" as const, args: {}, summary: "Archive" };
+    const user = () =>
+      ev({ type: "user", authorId: "p-laura", text: "Hi", attachments: [], delivery: "delivered" });
+    const items = flowItems([
+      user(),
+      ev({ type: "assistant", text: "Two are stalled", done: true }),
+      ev({ type: "citation", refs: [{ kind: "project", id: "p1" }] }),
+      ev({ type: "aside", kind: "hypothesis", text: "Maybe" }),
+      ev({
+        type: "proposal",
+        proposalId: "p",
+        requesterId: "p-laura",
+        actions: [archive],
+        status: "open",
+      }),
+      ev({ type: "aside", kind: "details", text: "Side" }),
+      user(),
+      ev({ type: "assistant", text: "Without a card", done: true }),
+      ev({ type: "citation", refs: [{ kind: "task", id: "t1" }] }),
+    ]);
+    expect(items.map((i) => i.kind)).toEqual([
+      "user",
+      "claude",
+      "assistant",
+      "aside",
+      "proposal",
+      "aside",
+      "citation",
+      "user",
+      "claude",
+      "assistant",
+    ]);
+    expect(items[2]).toMatchObject({ refs: [] });
+    expect(items[6]).toMatchObject({ refs: [{ kind: "project", id: "p1" }] });
+    // Senza scheda resta sotto il messaggio.
+    expect(items[9]).toMatchObject({ refs: [{ kind: "task", id: "t1" }] });
+  });
+
   it("citedRefs: ogni oggetto una volta", () => {
     expect(
       citedRefs([

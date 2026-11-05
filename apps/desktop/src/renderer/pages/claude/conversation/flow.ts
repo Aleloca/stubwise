@@ -124,7 +124,40 @@ export function flowItems(events: readonly ConversationEvent[]): FlowItem[] {
         break;
     }
   }
-  return executedBelowText(out);
+  return usedAfterCards(executedBelowText(out));
+}
+
+/**
+ * «Used: …» con una scheda (proposta o domanda) nello stesso turno: l'ordine
+ * fisso del turno è testo → elenco → Hypothesis → Details → rifiuto →
+ * scheda → righe a lato (shape `claude-scenarios.md` §3), quindi la riga
+ * delle fonti non si mette fra la risposta e la sua scheda ma chiude il
+ * turno (Impeccable 5). Senza scheda resta sotto il messaggio.
+ */
+function usedAfterCards(items: FlowItem[]): FlowItem[] {
+  const out: FlowItem[] = [];
+  let turn: FlowItem[] = [];
+  const flush = () => {
+    if (turn.some((i) => i.kind === "proposal" || i.kind === "question")) {
+      const tail: FlowItem[] = [];
+      turn = turn.map((i) => {
+        if (i.kind !== "assistant" || i.refs.length === 0) return i;
+        tail.push({ kind: "citation", key: `used-${i.key}`, refs: i.refs });
+        return { ...i, refs: [] };
+      });
+      turn.push(...tail);
+    }
+    out.push(...turn);
+    turn = [];
+  };
+  for (const item of items) {
+    if (item.kind === "user" || item.kind === "phase") {
+      flush();
+      out.push(item);
+    } else turn.push(item);
+  }
+  flush();
+  return out;
 }
 
 /**

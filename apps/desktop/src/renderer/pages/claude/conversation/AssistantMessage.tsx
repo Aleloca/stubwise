@@ -9,7 +9,14 @@ import {
 } from "../../../tasks-ui/Markdown";
 import { Avatar } from "../../../tasks-ui/PersonChip";
 import { actionById, useOpenRoutes, usePeople } from "../../../data/queries";
-import { DriveAnchor, HiddenCode, hiddenCodesOf, UsedLine, useCitationIndex } from "./citations";
+import {
+  DriveAnchor,
+  HiddenCode,
+  hiddenCodesOf,
+  refKey,
+  UsedLine,
+  useCitationIndex,
+} from "./citations";
 import { CODE_IN_TEXT, type FlowItem } from "./flow";
 import { clock } from "./parts";
 
@@ -73,6 +80,15 @@ export function AssistantMessage({
   const cursor = streaming && !event.done;
   const link = useInternalLinks(event.text);
   const rows = useCatalogRows(event.text);
+  // «Used» non ripete i progetti che le righe di S2/S3 già linkano (Impeccable 5).
+  const used = useMemo(() => {
+    const rowCodes = new Set([...event.text.matchAll(CATALOG_CODE)].map((m) => m[1]));
+    if (rowCodes.size === 0) return refs;
+    return refs.filter((ref) => {
+      const code = ref.kind === "project" ? index.byRef.get(refKey(ref))?.code : null;
+      return !code || !rowCodes.has(code);
+    });
+  }, [event.text, refs, index]);
   return (
     <div className="event-enter flex min-w-0 flex-col gap-2" data-assistant={event.id}>
       <div className="min-w-0">
@@ -95,7 +111,7 @@ export function AssistantMessage({
           }
         />
       </div>
-      {showUsed && refs.length > 0 && !cursor && <UsedLine refs={refs} />}
+      {showUsed && used.length > 0 && !cursor && <UsedLine refs={used} />}
     </div>
   );
 }
@@ -168,6 +184,9 @@ export function useInternalLinks(text: string): LinkRenderer {
  * Una riga di catalogo di una risposta (area 10b, shape `claude-scenarios.md`
  * §3.1): «**ACQ** — 4 stalled tasks…», o senza codice («Other projects — $40»).
  */
+/** Il codice di progetto in testa a una riga di catalogo («- **ACQ** — …»). */
+const CATALOG_CODE = /^- \*\*([A-Z]{2,4})\*\* — /gm;
+
 const CATALOG_ROW = /^(?:\*\*([A-Z]{2,4})\*\*|([^*\n]+?)) — (.+)$/;
 
 /**
@@ -180,7 +199,7 @@ const CATALOG_ROW = /^(?:\*\*([A-Z]{2,4})\*\*|([^*\n]+?)) — (.+)$/;
 function useCatalogRows(text: string): ListRenderer {
   const routes = useMemo(() => {
     const out = new Set<string>();
-    for (const m of text.matchAll(/^- \*\*([A-Z]{2,4})\*\* — /gm)) out.add(`#/p/${m[1]}/overview`);
+    for (const m of text.matchAll(CATALOG_CODE)) out.add(`#/p/${m[1]}/overview`);
     return [...out];
   }, [text]);
   const open = useOpenRoutes(routes).data;
