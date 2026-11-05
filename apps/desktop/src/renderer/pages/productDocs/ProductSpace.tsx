@@ -23,6 +23,7 @@ import { Resizer, TREE_DEFAULT } from "../docs/DocSpace";
 import { DocsForbidden, ReadingSkeleton, isForbidden } from "../docs/parts";
 import { ProductTree, type FocusRequest } from "./ProductTree";
 import { SaveStatus } from "./SaveStatus";
+import { PresenceAvatars } from "./live/PresenceAvatars";
 import { FollowButton, pageBarButton } from "./FollowButton";
 import { SideColumnFrame, useSideColumn, type SideColumn } from "./SideColumn";
 import { CommentsColumn } from "./comments/CommentsColumn";
@@ -379,7 +380,7 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
  * sinistra «Pages» (sotto i 1200, o quando la colonna laterale la chiede,
  * [PE 20]), «Product» e le briciole della pagina aperta; a destra i gesti
  * della pagina, nell'ordine di [PS 8]: lo stato di salvataggio dell'editor,
- * (gli avatar, Task 11), Follow, Comments N (i fili aperti), History,
+ * gli avatar degli altri presenti (Task 11), Follow, Comments N (i fili aperti), History,
  * (Export, Task 12), il «⋯» (Copy link, Delete page… per chi scrive).
  * Sull'indice «Search ⌘K». Una pagina che non c'è perde i gesti e le briciole.
  */
@@ -453,6 +454,7 @@ function SpaceBar({
           </button>
         )}
         {view && editorStatus && <SaveStatus status={editorStatus} />}
+        {view && <PresenceAvatars page={view} />}
         {view && <FollowButton page={view} />}
         {view && (
           <button

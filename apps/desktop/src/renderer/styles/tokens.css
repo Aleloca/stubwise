@@ -130,6 +130,18 @@
   --dept-6: oklch(0.76 0.1 200);
   --dept-7: oklch(0.68 0.18 345);
   --dept-8: oklch(0.72 0.04 250);
+
+  /* Presenza (area 11a, [PE 17], «The Presence Exception» di DESIGN.md): i
+     cursori, le etichette e gli anelli degli avatar degli altri, SOLO
+     nell'editor delle pagine di prodotto e sempre accanto al nome. Le tinte
+     dei reparti 1–6 con nomi propri; la luminosità alzata dove serviva perché
+     l'etichetta (testo `--ground`) stia a ≥ 4.5:1 e la barra a ≥ 3:1 sul fondo. */
+  --presence-1: oklch(0.87 0.16 118);
+  --presence-2: oklch(0.68 0.15 258);
+  --presence-3: oklch(0.76 0.15 145);
+  --presence-4: oklch(0.7 0.17 32);
+  --presence-5: oklch(0.66 0.16 300);
+  --presence-6: oklch(0.76 0.1 200);
 }
 
 :root[data-theme="light"] {
@@ -156,4 +168,12 @@
   --dept-6: oklch(0.56 0.09 210);
   --dept-7: oklch(0.52 0.2 350);
   --dept-8: oklch(0.54 0.04 250);
+
+  /* Presenza, chiaro: abbassate dove serviva (etichetta su `--ground` ≥ 4.5:1). */
+  --presence-1: oklch(0.53 0.13 118);
+  --presence-2: oklch(0.44 0.19 260);
+  --presence-3: oklch(0.52 0.14 145);
+  --presence-4: oklch(0.49 0.16 32);
+  --presence-5: oklch(0.42 0.17 300);
+  --presence-6: oklch(0.52 0.09 210);
 }

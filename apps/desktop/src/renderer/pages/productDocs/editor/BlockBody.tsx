@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import type { ProductBlock, ProductPageView, RichText } from "../../../data/types";
+import type { ProductBlock, ProductPageView, ProductPresenceView, RichText } from "../../../data/types";
 import { anchorIdsOf, isTextBlock } from "../../../domain/productDocs/blocks";
 import { CommentMark, ThreadTint } from "../comments/CommentMark";
+import { RemoteCursors } from "../live/RemoteCursor";
 import { useProductSpaceContext } from "../parts";
 import { DecisionBlock } from "./DecisionBlock";
 import { DriveBlock } from "./DriveBlock";
@@ -76,7 +77,14 @@ export function numbersOf(blocks: readonly ProductBlock[]): number[] {
 
 // --- chi legge soltanto ------------------------------------------------------
 
-export function ReadOnlyBody({ page }: { page: ProductPageView }) {
+export function ReadOnlyBody({
+  page,
+  others = [],
+}: {
+  page: ProductPageView;
+  /** Gli altri presenti: i loro cursori nel testo letto (Task 11). */
+  others?: readonly ProductPresenceView[];
+}) {
   const numbers = numbersOf(page.blocks);
   const { comments } = useProductSpaceContext();
   return (
@@ -97,9 +105,19 @@ export function ReadOnlyBody({ page }: { page: ProductPageView }) {
           >
             {tinted && <ThreadTint />}
             <CommentMark anchorIds={anchors} below={block.type === "table"} />
+            {isTextBlock(block) && (
+              <RemoteCursors
+                people={others.filter((p) => p.anchorId === block.id)}
+                contentKey={JSON.stringify(block.content)}
+              />
+            )}
             <BlockBody block={block} page={page} number={numbers[i]!}>
               {isTextBlock(block) && (
-                <RichReadOnly content={block.content} className={textClassOf(block, block.type === "todo" && block.checked)} />
+                <RichReadOnly
+                  content={block.content}
+                  className={textClassOf(block, block.type === "todo" && block.checked)}
+                  liveId={block.id}
+                />
               )}
             </BlockBody>
           </div>

@@ -12224,6 +12224,17 @@
       "retry": "Riprova",
       "announceOn": "Segui questa pagina",
       "announceOff": "Non segui più questa pagina"
+    },
+    "live": {
+      "people": "Persone nella pagina",
+      "reading": "{{name}} · legge",
+      "writing": "{{name}} · scrive",
+      "writingIn": "{{name}} · scrive in {{section}}",
+      "more_one": "+{{count}} altra persona: {{names}}",
+      "more_other": "+{{count}} altre persone: {{names}}",
+      "joined": "{{name}} è arrivato",
+      "writingHere_one": "{{names}} sta scrivendo qui",
+      "writingHere_other": "{{names}} stanno scrivendo qui"
     }
   }
 }

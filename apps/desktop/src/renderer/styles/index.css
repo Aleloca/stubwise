@@ -71,6 +71,22 @@
   }
 }
 
+/* Un avatar della presenza che esce (area 11a, [PE 16]): dissolvenza di
+   150 ms; con movimento ridotto sparisce e basta. */
+@keyframes presence-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@utility presence-leave {
+  animation: presence-out var(--duration-fast) var(--ease) both;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    opacity: 0;
+  }
+}
+
 /* L'ingresso: il passaggio fra login e secondo fattore, 200 ms sul blocco
    centrale (il logo resta fermo). */
 @utility entry-enter {

@@ -21,13 +21,16 @@ import {
   type Ref,
 } from "react";
 import { useTranslation } from "react-i18next";
-import type { ProductBlock, ProductBlockOp, ProductPageView } from "../../../data/types";
+import type { ProductBlock, ProductBlockOp, ProductPageView, ProductPresenceView } from "../../../data/types";
 import { anchorIdsOf, anchorText, isTextBlock, makeBlockId } from "../../../domain/productDocs/blocks";
 import { setLink, toggleMark } from "../../../domain/productDocs/richText";
 import { BlockBody, ReadOnlyBody, blockLabel, layoutOf, numbersOf, textClassOf } from "./BlockBody";
 import { useProductSpaceContext } from "../parts";
 import { CommentMark } from "../comments/CommentMark";
 import { useCommentGesture } from "../comments/SelectionCommentButton";
+import { RemoteBlockNote } from "../live/RemoteBlockNote";
+import { RemoteCursors } from "../live/RemoteCursor";
+import { useSendPresence } from "../live/useSendPresence";
 import { BlockHandle } from "./BlockHandle";
 import { dropAfter, floatingPlacement, insertCode } from "./blockOps";
 import { BlockShell } from "./BlockShell";
@@ -61,6 +64,12 @@ import type { EditorSession } from "./useEditorSession";
 // Il disegno dei blocchi sta in `BlockBody`, i gesti in `gestures`, i
 // blocchi che i gesti scrivono in `blockOps`. Un blocco si trascina per ⋮⋮
 // ([PE 4]): una scrittura sola, un `move`; lasciato dov'era, niente.
+//
+// La scrittura dal vivo (Task 11, §3.13): i cursori degli altri nei blocchi
+// letti (`RemoteCursors`); nel blocco col fuoco, invece, la nota «… is
+// writing here» (`RemoteBlockNote`) e il blocco tenuto com'è dalla sessione
+// (`session.hold`, [PE 18]). Dove scrive chi guarda va agli altri con
+// `useSendPresence`. Le persone sono quelle di `getProductPresence`.
 
 const SAVE_AFTER_MS = 800;
 /** Il rifiuto di un'immagine resta 6 s, o fino a «Dismiss» (§3.6). */
@@ -93,15 +102,22 @@ export function BlockEditor({
   session,
   editable,
   handle,
+  others = [],
 }: {
   page: ProductPageView;
   session: EditorSession;
   editable: boolean;
   handle?: Ref<BlockEditorHandle>;
+  /** Gli altri presenti (non chi guarda), dalla presenza filtrata per chi guarda. */
+  others?: readonly ProductPresenceView[];
 }) {
-  if (!editable) return <ReadOnlyBody page={page} />;
-  return <WritableBody page={page} session={session} handle={handle} />;
+  if (!editable) return <ReadOnlyBody page={page} others={others} />;
+  return <WritableBody page={page} session={session} handle={handle} others={others} />;
 }
+
+/** Chi scrive (ha un'ancora) nel blocco `id`. */
+export const writersIn = (others: readonly ProductPresenceView[], id: string): ProductPresenceView[] =>
+  others.filter((p) => p.anchorId === id);
 
 // --- chi scrive --------------------------------------------------------------
 
@@ -109,10 +125,12 @@ function WritableBody({
   page,
   session,
   handle,
+  others,
 }: {
   page: ProductPageView;
   session: EditorSession;
   handle?: Ref<BlockEditorHandle>;
+  others: readonly ProductPresenceView[];
 }) {
   const { t } = useTranslation();
   const container = useRef<HTMLDivElement>(null);
@@ -130,6 +148,8 @@ function WritableBody({
   const setFocus = (next: Focus | null) => {
     focusRef.current = next;
     setFocusState(next);
+    // Il blocco col fuoco non cambia per mano d'altri finché non lo si lascia ([PE 18]).
+    session.hold(next?.id ?? null);
   };
   const caret = (id: string, start: number, end = start) =>
     setFocus({ id, start, end, nonce: ++nonce.current });
@@ -166,7 +186,7 @@ function WritableBody({
   const relocating = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const view = session.blocks.map((b) => drafts.get(b.id) ?? b);
+  const view = session.shown.map((b) => drafts.get(b.id) ?? b);
   const viewRef = useRef(view);
   viewRef.current = view;
   const sessionRef = useRef(session);
@@ -222,6 +242,21 @@ function WritableBody({
 
   // Uscire dalla pagina (o cambiare persona) salva ciò che resta.
   useEffect(() => () => flush(), [flush]);
+
+  // Dove scrive chi guarda, per gli altri: lo scarto entro la frase salvata
+  // (una bozza più lunga non è ancora sul «server»).
+  const savedLength = focus ? (anchorText(session.blocks, focus.id)?.length ?? 0) : 0;
+  useSendPresence(
+    page.id,
+    focus
+      ? {
+          anchorId: focus.id,
+          offset: Math.min(focus.end, savedLength),
+          selection:
+            focus.start !== focus.end ? [Math.min(focus.start, savedLength), Math.min(focus.end, savedLength)] : null,
+        }
+      : null,
+  );
 
   /**
    * Seleziona un blocco come oggetto (anello di fuoco), dopo il disegno. Il
@@ -694,6 +729,12 @@ function WritableBody({
                       }
                     />
                     <CommentMark anchorIds={anchorIdsOf(block)} below={block.type === "table"} />
+                    {isTextBlock(block) &&
+                      (editing ? (
+                        <RemoteBlockNote people={writersIn(others, block.id)} />
+                      ) : (
+                        <RemoteCursors people={writersIn(others, block.id)} contentKey={JSON.stringify(block.content)} />
+                      ))}
                     <BlockBody
                       block={block}
                       page={page}

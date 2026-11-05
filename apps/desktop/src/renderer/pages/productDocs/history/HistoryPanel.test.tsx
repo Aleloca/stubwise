@@ -34,6 +34,13 @@ async function openHistory(title: string, person = LAURA) {
   return { region, list, user, bar };
 }
 
+/** Il copione della pagina (Task 5) è già arrivato in fondo: le revisioni di prova sono le ultime. */
+async function scriptDone(pageId: string) {
+  setSessionPersonId(LAURA);
+  await productDocs.joinProductPage(pageId);
+  await whenProductIdle();
+}
+
 /** Le righe: bottoni che aprono il loro dettaglio (fix round 1: niente `listbox`). */
 const rows = (list: HTMLElement) => [...list.querySelectorAll<HTMLElement>("[data-history-row]")];
 const rowText = (row: HTMLElement) => (row.textContent ?? "").replace(/\s+/g, " ");
@@ -88,6 +95,8 @@ describe("la cronologia di Meter reading", () => {
 
   it("una revisione senza `via` né `sessionId`, con blocchi senza `marks`, si disegna come le altre", async () => {
     const meter = pageByTitle("Meter reading");
+    // Aprire la pagina ci fa entrare e avvia il copione (Task 11): prima che finisca, la riga di prova non sarebbe la prima.
+    await scriptDone(meter.id);
     const seq = nextSeq();
     state.productRevisions.push({
       id: "prev-fixture",
@@ -215,6 +224,8 @@ describe("fix round 1", () => {
 
   it("una tabella senza `anchors` (un dato di prima) conta solo la cella cambiata", async () => {
     const meter = pageByTitle("Meter reading");
+    // Aprire la pagina ci fa entrare e avvia il copione (Task 11): prima che finisca, la riga di prova non sarebbe la prima.
+    await scriptDone(meter.id);
     const table = meter.blocks.find((b) => b.type === "table") as Extract<ProductBlock, { type: "table" }>;
     const after = structuredClone(table);
     after.rows[1]!.cells[2]!.content = { text: "The 24th", marks: [] };

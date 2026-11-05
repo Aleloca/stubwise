@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { useProductPage, useProductPresence } from "../../data/queries";
+import { useJoinProductPage, useProductPage, useProductPresence } from "../../data/queries";
 import type { ProductPageView } from "../../data/types";
 import { formatDate } from "../../notifications/time";
 import { PageError } from "../../tasks-ui/PageStates";
@@ -60,8 +60,11 @@ function PageBody({ page }: { page: ProductPageView }) {
   const edited =
     page.lastRevision === undefined ? { at: page.updatedAt, actorId: page.updatedById } : page.lastRevision;
   // L'iscrizione alla pagina: una pagina eliminata da un altro mentre è
-  // aperta (`gone`) ricarica la lettura, che dice «non trovata».
-  useProductPresence(page.id);
+  // aperta (`gone`) ricarica la lettura, che dice «non trovata». Chi guarda
+  // entra nella pagina (ed esce allo smontaggio o al cambio di persona): gli
+  // altri lo vedono fra gli avatar; i loro cursori vanno all'editor (Task 11).
+  useJoinProductPage(page.id);
+  const presence = useProductPresence(page.id);
 
   // Lo stato del salvataggio va nella barra dello spazio (una sola barra).
   const retry = useRef(session.retry);
@@ -157,7 +160,7 @@ function PageBody({ page }: { page: ProductPageView }) {
         )}
       </header>
       <div className="mt-6">
-        <BlockEditor page={page} session={session} editable={editable} handle={editor} />
+        <BlockEditor page={page} session={session} editable={editable} handle={editor} others={presence.data} />
       </div>
     </article>
   );

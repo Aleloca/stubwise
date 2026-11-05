@@ -26,6 +26,15 @@ import { pushEntry, stillAsLeft, undoEntryOf, type UndoEntry, type UndoStack } f
 // modifica scartata sparisce dallo schermo (la pagina torna quella letta).
 // La sessione nasce col montaggio della pagina:
 // cambiare pagina o persona (lo spazio si rimonta) la svuota.
+//
+// Il blocco col fuoco ([PE 18], Review Focus 1, Task 11): mentre chi guarda
+// ci scrive, le scritture ALTRUI su quel blocco non si vedono (`hold`): il
+// suo testo e il suo cursore non cambiano. La sessione tiene due pagine: la
+// vera (`blocks`, su cui ragionano ⌘Z, il salvataggio e le bozze) e quella da
+// disegnare (`shown`), uguale tranne che per il blocco tenuto, che resta com'era
+// finché è solo qualcun altro a cambiarlo. All'uscita il blocco torna quello
+// vero; se chi guarda ci ha scritto, la sua scrittura parte all'uscita e vale
+// per ultima, e la cronologia tiene entrambe le versioni.
 
 export type SaveState = "idle" | "saving" | "saved" | "error";
 
@@ -59,6 +68,22 @@ function applies(blocks: readonly ProductBlock[], ops: readonly ProductBlockOp[]
   }
 }
 
+/** Le operazioni toccano il blocco `id`. */
+function touches(ops: readonly ProductBlockOp[], id: string): boolean {
+  return ops.some((op) => {
+    switch (op.op) {
+      case "set":
+      case "insert":
+        return op.block.id === id;
+      case "delete":
+      case "move":
+        return op.blockId === id;
+      case "merge":
+        return op.firstId === id || op.secondId === id;
+    }
+  });
+}
+
 /** Un rifiuto che riprovando non cambierebbe: l'input non vale per la pagina (`invalid: …`). */
 const rejected = (error: unknown): boolean => error instanceof Error && error.message.startsWith("invalid:");
 
@@ -74,13 +99,32 @@ export function useEditorSession(page: ProductPageView) {
   // scrittura confermata la aggiorna nello stesso giro in cui esce dalla
   // fila, così il testo non torna indietro per un attimo.
   const [base, setBase] = useState(page.blocks);
+  const baseRef = useRef(base);
+  baseRef.current = base;
+
+  // Il blocco tenuto ([PE 18]) e la pagina da disegnare.
+  const heldRef = useRef<string | null>(null);
+  const [shown, setShownState] = useState(page.blocks);
+  const shownRef = useRef(shown);
+  const setShown = (next: ProductBlock[]) => {
+    shownRef.current = next;
+    setShownState(next);
+  };
+  /** `incoming` con il blocco tenuto com'era disegnato (se c'è ancora in entrambe). */
+  const keepHeld = (incoming: ProductBlock[]): ProductBlock[] => {
+    const id = heldRef.current;
+    const mine = id ? shownRef.current.find((b) => b.id === id) : undefined;
+    if (!mine) return incoming;
+    return incoming.map((b) => (b.id === id ? mine : b));
+  };
+
   const [seen, setSeen] = useState(page.blocks);
   if (seen !== page.blocks) {
     setSeen(page.blocks);
     setBase(page.blocks);
+    baseRef.current = page.blocks;
+    setShown(keepHeld(page.blocks));
   }
-  const baseRef = useRef(base);
-  baseRef.current = base;
 
   const queue = useRef<Batch[]>([]);
   const [pending, setPending] = useState<ProductBlockOp[][]>([]);
@@ -102,6 +146,7 @@ export function useEditorSession(page: ProductPageView) {
   /** La pagina con le scritture di questa sessione non ancora confermate. */
   const current = () => rebase(baseRef.current, queue.current.flatMap((b) => b.ops));
   const view = useMemo(() => rebase(base, pending.flat()), [base, pending]);
+  const shownView = useMemo(() => rebase(shown, pending.flat()), [shown, pending]);
 
   const pump = useCallback(async () => {
     if (busy.current || failed.current) return;
@@ -123,6 +168,9 @@ export function useEditorSession(page: ProductPageView) {
       );
       baseRef.current = result.blocks;
       setBase(result.blocks);
+      // Una scrittura di questa sessione sul blocco tenuto si vede; le altre lo lasciano com'era.
+      const held = heldRef.current;
+      setShown(held && touches(batch.ops, held) ? result.blocks : keepHeld(result.blocks));
       queue.current.shift();
       setPending(queue.current.map((b) => b.ops));
       batch.onDone?.(result.revisionId);
@@ -218,6 +266,18 @@ export function useEditorSession(page: ProductPageView) {
     void pump();
   }, [pump]);
 
+  /**
+   * Il blocco col fuoco di chi guarda (`null` = nessuno): le scritture altrui
+   * su di lui si vedono solo quando lo si lascia. Cambiare blocco rilascia il
+   * precedente (torna quello vero) e tiene il nuovo da com'è adesso.
+   */
+  const hold = useCallback((id: string | null) => {
+    if (heldRef.current === id) return;
+    heldRef.current = id;
+    shownRef.current = baseRef.current;
+    setShownState(baseRef.current);
+  }, []);
+
   /** Un tasto: «Saved» resta solo fino al tasto dopo, e così il passo saltato. */
   const touch = () => {
     setSkipped(false);
@@ -242,8 +302,11 @@ export function useEditorSession(page: ProductPageView) {
     skipped,
     dropped,
     touch,
-    /** La pagina con le scritture in fila (quella che l'editor disegna). */
+    /** La pagina con le scritture in fila: quella vera, su cui si ragiona. */
     blocks: view,
+    /** La pagina da disegnare: come `blocks`, ma il blocco tenuto non cambia per mano d'altri ([PE 18]). */
+    shown: shownView,
+    hold,
     /** Ci sono scritture non ancora confermate. */
     dirty: pending.length > 0,
   };

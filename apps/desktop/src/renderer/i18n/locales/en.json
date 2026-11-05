@@ -12224,6 +12224,17 @@
       "retry": "Retry",
       "announceOn": "Following this page",
       "announceOff": "Stopped following this page"
+    },
+    "live": {
+      "people": "People on this page",
+      "reading": "{{name}} · reading",
+      "writing": "{{name}} · writing",
+      "writingIn": "{{name}} · writing in {{section}}",
+      "more_one": "+{{count}} more: {{names}}",
+      "more_other": "+{{count}} more: {{names}}",
+      "joined": "{{name}} joined",
+      "writingHere_one": "{{names}} is writing here",
+      "writingHere_other": "{{names}} are writing here"
     }
   }
 }

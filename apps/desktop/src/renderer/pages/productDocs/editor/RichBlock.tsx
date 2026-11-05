@@ -70,9 +70,18 @@ interface Common {
 }
 
 /** La frase da leggere, per chi non scrive: nessun `contenteditable`. */
-export function RichReadOnly({ content, className }: { content: RichText; className: string }) {
+export function RichReadOnly({
+  content,
+  className,
+  liveId,
+}: {
+  content: RichText;
+  className: string;
+  /** Il blocco: i cursori degli altri misurano questo testo (`data-live-text`, Task 11). */
+  liveId?: string;
+}) {
   return (
-    <div className={className}>
+    <div className={className} data-live-text={liveId}>
       <RichView content={content} />
     </div>
   );

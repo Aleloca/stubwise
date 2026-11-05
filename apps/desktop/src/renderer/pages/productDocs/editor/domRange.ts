@@ -45,6 +45,16 @@ function locate(root: HTMLElement, n: number): { node: Node; offset: number } {
   return last ? { node: last, offset: last.data.length } : { node: root, offset: 0 };
 }
 
+/** L'intervallo del DOM fra gli scarti `start` e `end` dentro `root` (i cursori degli altri, Task 11). */
+export function rangeIn(root: HTMLElement, start: number, end: number = start): Range {
+  const a = locate(root, Math.min(start, end));
+  const b = locate(root, Math.max(start, end));
+  const range = root.ownerDocument.createRange();
+  range.setStart(a.node, a.offset);
+  range.setEnd(b.node, b.offset);
+  return range;
+}
+
 /** Mette il cursore (o la selezione `start`–`end`) dentro `root`. */
 export function placeCaret(root: HTMLElement, start: number, end: number = start): void {
   const selection = root.ownerDocument.getSelection();
